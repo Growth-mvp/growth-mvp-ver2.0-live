@@ -1,0 +1,9 @@
+/* app/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 任意: フォントや共通スタイル */
+body {
+  @apply bg-gray-50 text-gray-900;
+}
