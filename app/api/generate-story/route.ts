@@ -9,6 +9,9 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
+    // 📦 受信データの確認ログ
+    console.log('📩 受信したbody:', body);
+
     const {
       thought,
       industry,
@@ -23,8 +26,9 @@ export async function POST(req: NextRequest) {
       threat,
     } = body;
 
-    // 入力チェック
+    // 入力チェック（4つは必須）
     if (!thought || !industry || !revenue || !employees) {
+      console.warn('⚠️ 入力不足: 必須項目が足りません');
       return NextResponse.json(
         { error: '必要な情報が不足しています。' },
         { status: 400 }
@@ -40,14 +44,14 @@ export async function POST(req: NextRequest) {
       `【業種】${industry}`,
       `【売上】${revenue}`,
       `【従業員数】${employees}`,
-      `【ミッション】${mission}`,
-      `【ビジョン】${visionStatement}`,
-      `【バリュー】${value}`,
+      `【ミッション】${mission || '（未入力）'}`,
+      `【ビジョン】${visionStatement || '（未入力）'}`,
+      `【バリュー】${value || '（未入力）'}`,
       '【SWOT】',
-      `- 強み: ${strength}`,
-      `- 弱み: ${weakness}`,
-      `- 機会: ${opportunity}`,
-      `- 脅威: ${threat}`,
+      `- 強み: ${strength || '（未入力）'}`,
+      `- 弱み: ${weakness || '（未入力）'}`,
+      `- 機会: ${opportunity || '（未入力）'}`,
+      `- 脅威: ${threat || '（未入力）'}`,
       '',
       '構成は以下としてください：',
       '### ① 現状の危機や背景（なぜ今、変革が必要なのか）',
@@ -64,10 +68,16 @@ export async function POST(req: NextRequest) {
       temperature: 0.7,
     });
 
+    console.log('🧠 OpenAI APIレスポンス:', response);
+
     const storyText = response.choices?.[0]?.message?.content;
 
     if (!storyText) {
-      throw new Error('OpenAIからストーリーが返されませんでした');
+      console.error('❌ OpenAIからストーリーが返されませんでした');
+      return NextResponse.json(
+        { error: 'OpenAIからの返答がありませんでした。' },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({ story: storyText });

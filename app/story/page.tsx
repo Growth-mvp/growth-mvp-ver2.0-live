@@ -32,7 +32,6 @@ export default function StoryPage() {
     '④ 社員に求める行動や期待（自分ごととして捉えてもらう）',
   ];
 
-  // Supabaseから復元
   useEffect(() => {
     const load = async () => {
       await loadLatestFromSupabase();
@@ -40,14 +39,18 @@ export default function StoryPage() {
     load();
   }, []);
 
-  // ストーリーが未生成なら自動生成
   useEffect(() => {
-    if (!story && !loading) {
+    if ((!story || story.trim() === '') && !loading) {
       generateStory();
     }
-  }, [story, loading]); // ← 依存にloadingを追加
+  }, [story, loading]);
 
   const generateStory = async () => {
+    if (!thought || !industry || !revenue || !employees) {
+      setError('必要な情報（思い・業種・売上・社員数）が入力されていません。戦略入力画面で入力してください。');
+      return;
+    }
+
     setLoading(true);
     setError('');
 
@@ -75,7 +78,7 @@ export default function StoryPage() {
       if (data.story) {
         setStory(data.story);
 
-        const { error } = await supabase.from('strategies').insert([
+        await supabase.from('strategies').insert([
           {
             strategy: { summary: '' },
             departments: [],
@@ -95,50 +98,40 @@ export default function StoryPage() {
             story: data.story,
           },
         ]);
-
-        if (error) {
-          console.error('❌ Supabase保存エラー:', {
-            code: error.code,
-            message: error.message,
-            details: error.details,
-          });
-        }
       } else {
-        setError('ストーリー生成に失敗しました。');
+        setError('ストーリー生成に失敗しました（AI応答なし）');
       }
     } catch (err) {
-      console.error('❌ ストーリー生成中エラー:', err);
-      setError('ストーリー生成中にエラーが発生しました。');
+      console.error('❌ ストーリー生成中のエラー:', err);
+      setError('ストーリー生成中にエラーが発生しました');
     } finally {
       setLoading(false);
     }
   };
 
-  // ストーリーの分割表示処理
-  const splitStory =
-    story?.split(/###\s*\d?\s?[①-④]?[\s\S]*?(?=###|$)/).filter((s) => s.trim() !== '') || [];
+  // 🛠 より柔軟な分割（###または①～④で分割）
+  const splitStory = story
+    ? story.split(/(?=###\s?[①-④]?)/g).map((s) => s.trim()).filter((s) => s !== '')
+    : [];
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">戦略ストーリー生成</h1>
+      <h1 className="text-2xl font-bold mb-4">戦略ストーリー</h1>
 
-      {loading ? (
-        <p className="text-blue-600 mb-4">ストーリーを生成中...</p>
-      ) : error ? (
-        <p className="text-red-600 mb-4">{error}</p>
-      ) : splitStory.length > 0 ? (
+      {loading && <p className="text-blue-600 mb-4">ストーリーを生成中...</p>}
+      {error && <p className="text-red-600 mb-4">{error}</p>}
+
+      {splitStory.length > 0 && (
         <div className="space-y-6">
           {splitStory.map((section, index) => (
-            <div key={index} className="bg-white p-4 rounded-xl shadow">
-              <h2 className="text-lg font-semibold mb-2">
+            <div key={index} className="bg-white p-5 rounded-xl shadow-md border">
+              <h2 className="text-lg font-semibold mb-2 text-gray-800">
                 {sectionTitles[index] || `セクション ${index + 1}`}
               </h2>
-              <p className="text-sm whitespace-pre-line text-gray-800">{section}</p>
+              <p className="text-sm whitespace-pre-line text-gray-700">{section}</p>
             </div>
           ))}
         </div>
-      ) : (
-        <p className="text-gray-500">ストーリーがまだありません。</p>
       )}
     </div>
   );

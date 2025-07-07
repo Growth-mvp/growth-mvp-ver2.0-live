@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStrategyStore } from '@/store/strategyStore';
+import { supabase } from '@/lib/supabaseClient';
 
 export default function Step5MissionVision() {
   const router = useRouter();
@@ -10,6 +11,14 @@ export default function Step5MissionVision() {
     mission,
     visionStatement,
     value,
+    thought,
+    industry,
+    revenue,
+    employees,
+    strength,
+    weakness,
+    opportunity,
+    threat,
     setMission,
     setVisionStatement,
     setValue,
@@ -23,7 +32,7 @@ export default function Step5MissionVision() {
     console.log('🔥 MVV状態：', { mission, visionStatement, value });
   }, [mission, visionStatement, value]);
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (!localMission.trim() || !localVision.trim() || !localValue.trim()) {
       alert('すべての項目を入力してください。');
       return;
@@ -34,7 +43,41 @@ export default function Step5MissionVision() {
     setVisionStatement(localVision);
     setValue(localValue);
 
-    // 次のステップへ遷移
+    // 🔽 他項目が未入力の場合は警告
+    if (!thought || !industry || !revenue || !employees) {
+      alert('STEP1〜STEP3までの必須項目（思い・業種・売上・社員数）が入力されていません。');
+      return;
+    }
+
+    // Supabaseに保存（storyはまだ空でOK）
+    const { error } = await supabase.from('strategies').insert([
+      {
+        strategy: { summary: '' },
+        departments: [],
+        basic_info: {
+          thought,
+          industry,
+          revenue,
+          employees,
+          mission: localMission,
+          visionStatement: localVision,
+          value: localValue,
+          strength,
+          weakness,
+          opportunity,
+          threat,
+        },
+        story: '',
+      },
+    ]);
+
+    if (error) {
+      console.error('❌ Supabase保存エラー:', error);
+      alert('戦略情報の保存に失敗しました。再度お試しください。');
+      return;
+    }
+
+    // 保存成功後に /story に遷移
     router.push('/story');
   };
 
