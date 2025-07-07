@@ -23,6 +23,7 @@ export interface Strategy {
 }
 
 interface StrategyStore {
+  // 状態
   strategy: Strategy;
   departments: Department[];
   thought: string;
@@ -40,6 +41,7 @@ interface StrategyStore {
   threat: string;
   story: string;
 
+  // Setter関数
   setStrategy: (strategy: Strategy) => void;
   setDepartments: (departments: Department[]) => void;
   setThought: (thought: string) => void;
@@ -57,12 +59,16 @@ interface StrategyStore {
   setThreat: (threat: string) => void;
   setStory: (story: string) => void;
 
-  saveToSupabase: () => Promise<void>;
+  // Supabase関連
+  saveBasicInfoToSupabase: () => Promise<void>;
+  saveCascadeToSupabase: () => Promise<void>;
+  saveStoryToSupabase: () => Promise<void>;
   loadLatestFromSupabase: () => Promise<void>;
   deleteAllFromSupabase: () => Promise<void>;
 }
 
-export const useStrategyStore = create<StrategyStore>((set) => ({
+export const useStrategyStore = create<StrategyStore>((set, get) => ({
+  // 状態の初期値
   strategy: { summary: "" },
   departments: [],
   thought: "",
@@ -80,6 +86,7 @@ export const useStrategyStore = create<StrategyStore>((set) => ({
   threat: "",
   story: "",
 
+  // Setter関数
   setStrategy: (strategy) => set({ strategy }),
   setDepartments: (departments) => set({ departments }),
   setThought: (thought) => set({ thought }),
@@ -97,12 +104,10 @@ export const useStrategyStore = create<StrategyStore>((set) => ({
   setThreat: (threat) => set({ threat }),
   setStory: (story) => set({ story }),
 
-  saveToSupabase: async () => {
-    const state = useStrategyStore.getState();
+  // 基本情報だけ保存（初期段階）
+  saveBasicInfoToSupabase: async () => {
+    const state = get();
     const { error } = await supabase.from("strategies").insert({
-      strategy: state.strategy,
-      departments: state.departments,
-      story: state.story,
       basic_info: {
         thought: state.thought,
         industry: state.industry,
@@ -120,13 +125,34 @@ export const useStrategyStore = create<StrategyStore>((set) => ({
       },
     });
 
-    if (error) {
-      console.error("❌ Supabase保存エラー:", error);
-    } else {
-      console.log("✅ Supabaseに保存成功");
-    }
+    if (error) console.error("❌ 基本情報保存エラー:", error);
+    else console.log("✅ 基本情報をSupabaseに保存");
   },
 
+  // 戦略カスケードのみ保存（部門含む）
+  saveCascadeToSupabase: async () => {
+    const { strategy, departments } = get();
+    const { error } = await supabase.from("strategies").insert({
+      strategy,
+      departments,
+    });
+
+    if (error) console.error("❌ カスケード保存エラー:", error);
+    else console.log("✅ カスケードをSupabaseに保存");
+  },
+
+  // ストーリーだけ保存
+  saveStoryToSupabase: async () => {
+    const { story } = get();
+    const { error } = await supabase.from("strategies").insert({
+      story,
+    });
+
+    if (error) console.error("❌ ストーリー保存エラー:", error);
+    else console.log("✅ ストーリーをSupabaseに保存");
+  },
+
+  // 最新のレコードをロード
   loadLatestFromSupabase: async () => {
     const { data, error } = await supabase
       .from("strategies")
@@ -136,7 +162,7 @@ export const useStrategyStore = create<StrategyStore>((set) => ({
       .single();
 
     if (error) {
-      console.error("❌ Supabase読み込みエラー:", error);
+      console.error("❌ 読み込みエラー:", error);
       return;
     }
 
@@ -163,8 +189,10 @@ export const useStrategyStore = create<StrategyStore>((set) => ({
     }
   },
 
+  // 全件削除
   deleteAllFromSupabase: async () => {
     const { error } = await supabase.from("strategies").delete().neq("id", "");
-    if (error) console.error("❌ Supabase削除エラー:", error);
+    if (error) console.error("❌ 削除エラー:", error);
+    else console.log("✅ Supabase全削除完了");
   },
 }));

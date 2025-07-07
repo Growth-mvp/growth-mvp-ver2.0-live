@@ -6,7 +6,6 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
-// Supabase クライアント
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -30,7 +29,11 @@ export async function POST(req: NextRequest) {
       mission,
       visionStatement,
       value,
+      departments,
     } = body;
+
+    // ✅ GPT用プロンプトに使用する部門名一覧
+    const departmentNames = departments?.map((d: any) => d.name).filter(Boolean).join("、") || "";
 
     const prompt = `
 あなたは大手企業向けの戦略コンサルタントです。
@@ -40,7 +43,7 @@ export async function POST(req: NextRequest) {
 
 ◉ 必ず以下の構造を含めてください：
 - 経営戦略（summary）：方向性と狙いの背景を含めて明確に
-- 部門戦略（3〜5部門）：部門の役割・貢献目標を明示
+- 部門戦略（指定された部門名のみ）：部門の役割・貢献目標を明示
 - プロジェクト（各部門に1〜3件）：実際の現場行動としての施策を記述
 - OKR（各プロジェクトにObjective1件、KeyResults2〜3件）：測定可能な行動指標で表現
 
@@ -66,6 +69,9 @@ ${thought}
 弱み：${weakness}
 機会：${opportunity}
 脅威：${threat}
+
+【使用すべき部門名】：${departmentNames}
+※上記の部門名のみを使用してください。GPTが勝手に新しい部門名を作らないようにしてください。
 `;
 
     const completion = await openai.chat.completions.create({
@@ -80,7 +86,7 @@ ${thought}
     const jsonText = text.slice(jsonStart, jsonEnd + 1);
     const parsed = JSON.parse(jsonText);
 
-    // 🔥 Supabase保存処理
+    // ✅ Supabase保存には「元の部門名（ユーザー入力）」を使う
     const { error } = await supabase.from("strategies").insert([
       {
         thought,
@@ -94,9 +100,9 @@ ${thought}
         weakness,
         opportunity,
         threat,
-        story, // 戦略ストーリーも残す
+        story,
         strategy: parsed.strategy,
-        departments: parsed.departments,
+        departments, // ← ここが修正ポイント（GPT出力ではなく元の入力）
       },
     ]);
 

@@ -18,6 +18,7 @@ export default function StoryPage() {
     opportunity,
     threat,
     story,
+    departments, // ✅ 追加
     setStory,
     loadLatestFromSupabase,
   } = useStrategyStore();
@@ -81,7 +82,7 @@ export default function StoryPage() {
         await supabase.from('strategies').insert([
           {
             strategy: { summary: '' },
-            departments: [],
+            departments, // ✅ 部門構成を保持
             basic_info: {
               thought,
               industry,
@@ -109,7 +110,6 @@ export default function StoryPage() {
     }
   };
 
-  // 🛠 より柔軟な分割（###または①～④で分割）
   const splitStory = story
     ? story.split(/(?=###\s?[①-④]?)/g).map((s) => s.trim()).filter((s) => s !== '')
     : [];
