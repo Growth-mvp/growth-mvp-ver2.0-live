@@ -1,38 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
 import { OpenAI } from "openai";
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from "@supabase/supabase-js";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
-
+// Supabaseクライアント
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
+
+// OpenAIクライアント
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY!,
+});
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
     const {
-      vision,
+      thought,
       industry,
       revenue,
       employees,
+      mission,
+      visionStatement,
+      value,
       strength,
       weakness,
       opportunity,
       threat,
       story,
-      thought,
-      mission,
-      visionStatement,
-      value,
-      departments,
+      departments, // ✅ 部門名（ユーザー入力）を必ず渡す
     } = body;
 
-    // ✅ GPT用プロンプトに使用する部門名一覧
     const departmentNames = departments?.map((d: any) => d.name).filter(Boolean).join("、") || "";
 
     const prompt = `
@@ -52,9 +52,7 @@ export async function POST(req: NextRequest) {
 - OKRは現場の社員が読んで「これなら実行できる」と思える粒度に
 - 強み・弱み・機会・脅威を反映した戦略上の焦点が伝わること
 
-【経営者の思い】
-${thought}
-
+【経営者の思い】${thought}
 【業種】：${industry}
 【売上】：${revenue}億円
 【社員数】：${employees}名
@@ -70,8 +68,33 @@ ${thought}
 機会：${opportunity}
 脅威：${threat}
 
+【戦略ストーリー】：${story}
+
 【使用すべき部門名】：${departmentNames}
 ※上記の部門名のみを使用してください。GPTが勝手に新しい部門名を作らないようにしてください。
+
+出力形式：
+{
+  "strategy": { "summary": "..." },
+  "departments": [
+    {
+      "name": "部門名",
+      "strategy": "...",
+      "projects": [
+        {
+          "name": "...",
+          "description": "...",
+          "okrs": [
+            {
+              "objective": "...",
+              "keyResults": ["...", "..."]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
 `;
 
     const completion = await openai.chat.completions.create({
@@ -86,7 +109,7 @@ ${thought}
     const jsonText = text.slice(jsonStart, jsonEnd + 1);
     const parsed = JSON.parse(jsonText);
 
-    // ✅ Supabase保存には「元の部門名（ユーザー入力）」を使う
+    // ✅ Supabaseに保存（部門名とカスケード構造を含めて）
     const { error } = await supabase.from("strategies").insert([
       {
         thought,
@@ -102,7 +125,7 @@ ${thought}
         threat,
         story,
         strategy: parsed.strategy,
-        departments, // ← ここが修正ポイント（GPT出力ではなく元の入力）
+        departments: parsed.departments,
       },
     ]);
 
@@ -112,7 +135,7 @@ ${thought}
 
     return NextResponse.json(parsed);
   } catch (error) {
-    console.error("生成エラー:", error);
-    return NextResponse.json({ error: "生成に失敗しました。" }, { status: 500 });
+    console.error("❌ 生成エラー:", error);
+    return NextResponse.json({ error: "戦略生成に失敗しました。" }, { status: 500 });
   }
 }

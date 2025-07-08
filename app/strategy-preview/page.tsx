@@ -7,7 +7,7 @@ import Step1BasicInfo from '@/components/steps/Step1BasicInfo';
 import Step2SWOT from '@/components/steps/Step2SWOT';
 import Step3Departments from '@/components/steps/Step3Departments';
 import Step4Finance from '@/components/steps/Step4Finance';
-import Step5MissionVision from '@/components/steps/Step5MissionVision';
+import Step5MissionVision from '@/components/steps/Step4MVV';
 
 export default function StrategyPage() {
   const router = useRouter();

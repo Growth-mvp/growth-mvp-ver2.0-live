@@ -1,136 +1,79 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
-import { supabase } from '@/lib/supabaseClient';
 
 export default function StoryPage() {
   const {
-    thought,
+    visionStatement,
     industry,
     revenue,
     employees,
-    mission,
-    visionStatement,
-    value,
     strength,
     weakness,
     opportunity,
     threat,
-    story,
-    departments, // ✅ 追加
+    csvFinanceData,
     setStory,
-    loadLatestFromSupabase,
+    story,
   } = useStrategyStore();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const sectionTitles = [
-    '① 現状の危機や背景（なぜ今、変革が必要なのか）',
-    '② 経営者が描く未来の方向性（どこを目指すのか）',
-    '③ SWOTに基づいた戦略的な選択（強み×機会などのクロス分析を含む）',
-    '④ 社員に求める行動や期待（自分ごととして捉えてもらう）',
-  ];
-
-  useEffect(() => {
-    const load = async () => {
-      await loadLatestFromSupabase();
-    };
-    load();
-  }, []);
-
-  useEffect(() => {
-    if ((!story || story.trim() === '') && !loading) {
-      generateStory();
-    }
-  }, [story, loading]);
-
   const generateStory = async () => {
-    if (!thought || !industry || !revenue || !employees) {
-      setError('必要な情報（思い・業種・売上・社員数）が入力されていません。戦略入力画面で入力してください。');
-      return;
-    }
-
     setLoading(true);
     setError('');
 
     try {
-      const res = await fetch('/api/generate-story', {
+      const response = await fetch('/api/generate-story', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          thought,
+          vision: visionStatement,
           industry,
           revenue,
           employees,
-          mission,
-          visionStatement,
-          value,
           strength,
           weakness,
           opportunity,
           threat,
+          csvFinanceData, // ★ここを追加
         }),
       });
 
-      const data = await res.json();
+      const data = await response.json();
 
-      if (data.story) {
+      if (response.ok && data.story) {
         setStory(data.story);
-
-        await supabase.from('strategies').insert([
-          {
-            strategy: { summary: '' },
-            departments, // ✅ 部門構成を保持
-            basic_info: {
-              thought,
-              industry,
-              revenue,
-              employees,
-              mission,
-              visionStatement,
-              value,
-              strength,
-              weakness,
-              opportunity,
-              threat,
-            },
-            story: data.story,
-          },
-        ]);
       } else {
-        setError('ストーリー生成に失敗しました（AI応答なし）');
+        setError('ストーリー生成に失敗しました');
       }
-    } catch (err) {
-      console.error('❌ ストーリー生成中のエラー:', err);
-      setError('ストーリー生成中にエラーが発生しました');
+    } catch (e) {
+      setError('エラーが発生しました');
     } finally {
       setLoading(false);
     }
   };
 
-  const splitStory = story
-    ? story.split(/(?=###\s?[①-④]?)/g).map((s) => s.trim()).filter((s) => s !== '')
-    : [];
-
   return (
-    <div className="p-6 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">戦略ストーリー</h1>
+    <div className="max-w-4xl mx-auto p-8">
+      <h1 className="text-2xl font-bold text-gray-800 mb-4">戦略ストーリー生成</h1>
 
-      {loading && <p className="text-blue-600 mb-4">ストーリーを生成中...</p>}
-      {error && <p className="text-red-600 mb-4">{error}</p>}
+      <button
+        onClick={generateStory}
+        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded mb-4"
+        disabled={loading}
+      >
+        {loading ? '生成中...' : 'ストーリーを生成'}
+      </button>
 
-      {splitStory.length > 0 && (
-        <div className="space-y-6">
-          {splitStory.map((section, index) => (
-            <div key={index} className="bg-white p-5 rounded-xl shadow-md border">
-              <h2 className="text-lg font-semibold mb-2 text-gray-800">
-                {sectionTitles[index] || `セクション ${index + 1}`}
-              </h2>
-              <p className="text-sm whitespace-pre-line text-gray-700">{section}</p>
-            </div>
-          ))}
+      {error && <p className="text-red-500">{error}</p>}
+
+      {story && (
+        <div className="bg-white p-4 rounded shadow border">
+          <h2 className="text-lg font-semibold mb-2">生成されたストーリー</h2>
+          <pre className="whitespace-pre-wrap text-sm text-gray-800">{story}</pre>
         </div>
       )}
     </div>

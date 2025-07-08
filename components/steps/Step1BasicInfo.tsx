@@ -1,73 +1,25 @@
-"use client";
-
-import { useStrategyStore } from "@/store/strategyStore";
-
+// ✅ ファイル: /components/Step1BasicInfo.tsx
+'use client';
+import { useStrategyStore } from '../../store/strategyStore';
 export default function Step1BasicInfo() {
   const {
-    thought,
-    industry,
-    revenue,
-    employees,
-    setThought,
-    setIndustry,
-    setRevenue,
-    setEmployees,
+    companyName, foundationYear, location, employees,
+    industry, businessContent, customerSegment,
+    setCompanyName, setFoundationYear, setLocation, setEmployees,
+    setIndustry, setBusinessContent, setCustomerSegment,
   } = useStrategyStore();
 
   return (
-    <div className="space-y-4">
-      <div>
-        <label className="block text-sm font-medium">経営者の思い</label>
-        <textarea
-          value={thought}
-          onChange={(e) => setThought(e.target.value)}
-          className="w-full border rounded px-3 py-2 text-sm"
-          rows={4}
-          placeholder="例）日本の製造業を再び強くしたい、など"
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium">業種</label>
-        <input
-          value={industry}
-          onChange={(e) => setIndustry(e.target.value)}
-          className="w-full border rounded px-3 py-2 text-sm"
-          placeholder="例）製造業、IT、流通 など"
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium">売上（億円）</label>
-        <select
-          value={revenue}
-          onChange={(e) => setRevenue(Number(e.target.value))}
-          className="w-full border rounded px-3 py-2 text-sm"
-        >
-          <option value={0}>選択してください</option>
-          <option value={10}>〜10億円</option>
-          <option value={50}>10〜50億円</option>
-          <option value={100}>50〜100億円</option>
-          <option value={300}>100〜300億円</option>
-          <option value={1000}>300〜1000億円</option>
-          <option value={1001}>1000億円以上</option>
-        </select>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium">従業員数</label>
-        <select
-          value={employees}
-          onChange={(e) => setEmployees(Number(e.target.value))}
-          className="w-full border rounded px-3 py-2 text-sm"
-        >
-          <option value={0}>選択してください</option>
-          <option value={50}>〜50人</option>
-          <option value={100}>50〜100人</option>
-          <option value={300}>100〜300人</option>
-          <option value={1000}>300〜1000人</option>
-          <option value={1001}>1000人以上</option>
-        </select>
+    <div className="space-y-6">
+      <h2 className="text-xl font-bold">STEP1：基本情報の入力</h2>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div><label className="block">会社名</label><input className="w-full border p-2" value={companyName} onChange={(e) => setCompanyName(e.target.value)} /></div>
+        <div><label className="block">設立年</label><input className="w-full border p-2" value={foundationYear} onChange={(e) => setFoundationYear(e.target.value)} /></div>
+        <div><label className="block">所在地</label><input className="w-full border p-2" value={location} onChange={(e) => setLocation(e.target.value)} /></div>
+        <div><label className="block">従業員数</label><input className="w-full border p-2" value={employees} onChange={(e) => setEmployees(e.target.value)} /></div>
+        <div><label className="block">業種</label><input className="w-full border p-2" value={industry} onChange={(e) => setIndustry(e.target.value)} /></div>
+        <div><label className="block">事業内容</label><input className="w-full border p-2" value={businessContent} onChange={(e) => setBusinessContent(e.target.value)} /></div>
+        <div className="sm:col-span-2"><label className="block">主要顧客層</label><input className="w-full border p-2" value={customerSegment} onChange={(e) => setCustomerSegment(e.target.value)} /></div>
       </div>
     </div>
   );
