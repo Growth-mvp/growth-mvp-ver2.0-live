@@ -14,44 +14,36 @@ export default function Step4MVV() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-bold">STEP4：MVV（経営理念・パーパス）</h2>
-      <p className="text-sm text-gray-600">
-        経営理念やパーパスを「Mission（使命）」「Vision（目指す姿）」「Value（行動指針）」の観点で記入してください。
-      </p>
+      <h2 className="text-xl font-bold text-gray-800">ミッション・ビジョン・バリュー（MVV）の入力</h2>
 
-      <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium mb-1">Mission（使命）</label>
-          <textarea
-            value={mission}
-            onChange={(e) => setMission(e.target.value)}
-            rows={4}
-            className="w-full border rounded p-2"
-            placeholder="例：私たちは〇〇を通じて社会課題を解決します"
-          />
-        </div>
+      <div>
+        <label className="block font-semibold mb-1">🎯 ミッション（Mission）</label>
+        <textarea
+          value={mission}
+          onChange={(e) => setMission(e.target.value)}
+          placeholder="例：私たちは、〇〇を通じて、世界に貢献します。"
+          className="w-full border border-gray-300 rounded px-3 py-2 min-h-[100px]"
+        />
+      </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-1">Vision（目指す姿）</label>
-          <textarea
-            value={vision}
-            onChange={(e) => setVision(e.target.value)}
-            rows={4}
-            className="w-full border rounded p-2"
-            placeholder="例：業界No.1の〇〇企業を目指します"
-          />
-        </div>
+      <div>
+        <label className="block font-semibold mb-1">🌟 ビジョン（Vision）</label>
+        <textarea
+          value={vision}
+          onChange={(e) => setVision(e.target.value)}
+          placeholder="例：〇〇の分野で世界No.1になることを目指します。"
+          className="w-full border border-gray-300 rounded px-3 py-2 min-h-[100px]"
+        />
+      </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-1">Value（行動指針）</label>
-          <textarea
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            rows={4}
-            className="w-full border rounded p-2"
-            placeholder="例：挑戦・誠実・スピードを重んじる"
-          />
-        </div>
+      <div>
+        <label className="block font-semibold mb-1">💎 バリュー（Value）</label>
+        <textarea
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="例：挑戦・誠実・共創"
+          className="w-full border border-gray-300 rounded px-3 py-2 min-h-[100px]"
+        />
       </div>
     </div>
   );

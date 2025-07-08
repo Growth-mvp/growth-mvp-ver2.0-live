@@ -1,84 +1,170 @@
-// ✅ ファイル: /store/strategyStore.ts
 import { create } from 'zustand';
+import { saveStrategyData, loadStrategyData, deleteStrategyData } from '../utils/supabase';
 
-interface StrategyState {
-  // Step1
+export interface Department {
+  id: number;
+  name: string;
+  projects: string[];
+}
+
+export interface CascadeResult {
+  department: string;
+  projects: {
+    name: string;
+    okrs: string[];
+  }[];
+}
+
+export interface StrategyState {
+  // 基本情報
   companyName: string;
   foundationYear: string;
   location: string;
-  employees: string;
   industry: string;
+  revenue: string;
+  employees: string;
   businessContent: string;
   customerSegment: string;
 
-  setCompanyName: (value: string) => void;
-  setFoundationYear: (value: string) => void;
-  setLocation: (value: string) => void;
-  setEmployees: (value: string) => void;
-  setIndustry: (value: string) => void;
-  setBusinessContent: (value: string) => void;
-  setCustomerSegment: (value: string) => void;
-
-  // Step2
+  // SWOT
   strength: string;
   weakness: string;
   opportunity: string;
   threat: string;
 
-  setStrength: (value: string) => void;
-  setWeakness: (value: string) => void;
-  setOpportunity: (value: string) => void;
-  setThreat: (value: string) => void;
-
-  // Step3
-  financeData: any[];
-  setFinanceData: (data: any[]) => void;
-
-  // Step4
+  // MVV
   mission: string;
   vision: string;
   value: string;
 
-  setMission: (value: string) => void;
-  setVision: (value: string) => void;
-  setValue: (value: string) => void;
+  // 部門・カスケード結果
+  departments: Department[];
+  cascadeResult: CascadeResult[];
+
+  // CSV財務データ
+  csvFinanceData: any[];
+
+  // 通知
+  notification: string;
+
+  // Setter
+  setCompanyName: (v: string) => void;
+  setFoundationYear: (v: string) => void;
+  setLocation: (v: string) => void;
+  setIndustry: (v: string) => void;
+  setRevenue: (v: string) => void;
+  setEmployees: (v: string) => void;
+  setBusinessContent: (v: string) => void;
+  setCustomerSegment: (v: string) => void;
+
+  setStrength: (v: string) => void;
+  setWeakness: (v: string) => void;
+  setOpportunity: (v: string) => void;
+  setThreat: (v: string) => void;
+
+  setMission: (v: string) => void;
+  setVision: (v: string) => void;
+  setValue: (v: string) => void;
+
+  setDepartments: (v: Department[]) => void;
+  setCascadeResult: (v: CascadeResult[]) => void;
+  setCsvFinanceData: (data: any[]) => void;
+
+  setNotification: (v: string) => void;
+
+  // Supabase連携
+  saveToSupabase: () => Promise<void>;
+  loadFromSupabase: () => Promise<void>;
+  clearAllData: () => Promise<void>;
 }
 
-export const useStrategyStore = create<StrategyState>((set) => ({
+export const useStrategyStore = create<StrategyState>((set, get) => ({
+  // 初期値
   companyName: '',
   foundationYear: '',
   location: '',
-  employees: '',
   industry: '',
+  revenue: '',
+  employees: '',
   businessContent: '',
   customerSegment: '',
-
-  setCompanyName: (value) => set({ companyName: value }),
-  setFoundationYear: (value) => set({ foundationYear: value }),
-  setLocation: (value) => set({ location: value }),
-  setEmployees: (value) => set({ employees: value }),
-  setIndustry: (value) => set({ industry: value }),
-  setBusinessContent: (value) => set({ businessContent: value }),
-  setCustomerSegment: (value) => set({ customerSegment: value }),
 
   strength: '',
   weakness: '',
   opportunity: '',
   threat: '',
 
-  setStrength: (value) => set({ strength: value }),
-  setWeakness: (value) => set({ weakness: value }),
-  setOpportunity: (value) => set({ opportunity: value }),
-  setThreat: (value) => set({ threat: value }),
-
-  financeData: [],
-  setFinanceData: (data) => set({ financeData: data }),
-
   mission: '',
   vision: '',
   value: '',
 
-  setMission: (value) => set({ mission: value }),
-  setVision: (value) => set({ vision: value }),
-  setValue: (value) => set({ value: value }),
+  departments: [],
+  cascadeResult: [],
+
+  csvFinanceData: [],
+
+  notification: '',
+
+  // Setter
+  setCompanyName: (v) => set({ companyName: v }),
+  setFoundationYear: (v) => set({ foundationYear: v }),
+  setLocation: (v) => set({ location: v }),
+  setIndustry: (v) => set({ industry: v }),
+  setRevenue: (v) => set({ revenue: v }),
+  setEmployees: (v) => set({ employees: v }),
+  setBusinessContent: (v) => set({ businessContent: v }),
+  setCustomerSegment: (v) => set({ customerSegment: v }),
+
+  setStrength: (v) => set({ strength: v }),
+  setWeakness: (v) => set({ weakness: v }),
+  setOpportunity: (v) => set({ opportunity: v }),
+  setThreat: (v) => set({ threat: v }),
+
+  setMission: (v) => set({ mission: v }),
+  setVision: (v) => set({ vision: v }),
+  setValue: (v) => set({ value: v }),
+
+  setDepartments: (v) => set({ departments: v }),
+  setCascadeResult: (v) => set({ cascadeResult: v }),
+  setCsvFinanceData: (data) => set({ csvFinanceData: data }),
+
+  setNotification: (v) => set({ notification: v }),
+
+  saveToSupabase: async () => {
+    const state = get();
+    const { error } = await saveStrategyData(state);
+    if (!error) set({ notification: '✅ 保存に成功しました' });
+  },
+
+  loadFromSupabase: async () => {
+    const { data, error } = await loadStrategyData();
+    if (!error && data) set(data);
+  },
+
+  clearAllData: async () => {
+    const { error } = await deleteStrategyData();
+    if (!error) {
+      set({
+        companyName: '',
+        foundationYear: '',
+        location: '',
+        industry: '',
+        revenue: '',
+        employees: '',
+        businessContent: '',
+        customerSegment: '',
+        strength: '',
+        weakness: '',
+        opportunity: '',
+        threat: '',
+        mission: '',
+        vision: '',
+        value: '',
+        departments: [],
+        cascadeResult: [],
+        csvFinanceData: [],
+        notification: '',
+      });
+    }
+  },
 }));
