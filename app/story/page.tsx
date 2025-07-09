@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 
 export default function StoryPage() {
@@ -14,11 +14,18 @@ export default function StoryPage() {
     opportunity,
     threat,
     csvFinanceData,
+    story,
+    setStory,
   } = useStrategyStore();
 
-  const [story, setStory] = useState('');
+  const [storyLocal, setStoryLocal] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Zustandに保存済のstoryをローカル表示に反映
+  useEffect(() => {
+    setStoryLocal(story);
+  }, [story]);
 
   const generateStory = async () => {
     setError('');
@@ -45,6 +52,7 @@ export default function StoryPage() {
 
       if (res.ok) {
         setStory(data.story || '');
+        setStoryLocal(data.story || '');
       } else {
         setError(data.error || 'エラーが発生しました。');
       }
@@ -70,10 +78,21 @@ export default function StoryPage() {
 
       {error && <p className="text-red-500 mb-4">{error}</p>}
 
-      {story && (
-        <div className="bg-white p-4 rounded shadow whitespace-pre-wrap border border-gray-200">
-          {story}
-        </div>
+      {storyLocal && (
+        <>
+          <div className="bg-white p-4 rounded shadow whitespace-pre-wrap border border-gray-200">
+            {storyLocal}
+          </div>
+
+          <div className="mt-4">
+            <a
+              href="/cascade"
+              className="inline-block px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+            >
+              次へ → カスケード生成
+            </a>
+          </div>
+        </>
       )}
     </div>
   );

@@ -56,7 +56,7 @@ Threat: ${threat}
 ${financeText}
 
 【部門名一覧】
-${departments.map((d: any) => d.name).join(', ')}
+${departments.map((d: any) => d).join(', ')}
 
 上記の情報をもとに、以下の形式で**純粋なJSONのみを返してください**。
 前後に説明文を絶対に含めないでください。
@@ -86,8 +86,7 @@ ${departments.map((d: any) => d.name).join(', ')}
       ]
     }
   ]
-}
-    `.trim();
+}`.trim();
 
     const chatCompletion = await openai.chat.completions.create({
       model: 'gpt-4',
@@ -109,7 +108,6 @@ ${departments.map((d: any) => d.name).join(', ')}
     let json = null;
     try {
       if (content) {
-        // 最初の { から 最後の } までを抽出して JSON.parse
         const start = content.indexOf('{');
         const end = content.lastIndexOf('}');
         const jsonString = content.substring(start, end + 1);

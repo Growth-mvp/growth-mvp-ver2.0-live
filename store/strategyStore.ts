@@ -1,22 +1,24 @@
-import { create } from 'zustand';
+import { create } from 'zustand'; 
 import { saveStrategyData, loadStrategyData, deleteStrategyData } from '../utils/supabase';
 
-export interface Department {
-  id: number;
-  name: string;
-  projects: string[];
+export interface OKR {
+  objective: string;
+  keyResults: string[];
 }
 
-export interface CascadeResult {
-  department: string;
-  projects: {
-    name: string;
-    okrs: string[];
-  }[];
+export interface Project {
+  name: string;
+  okrs: OKR[];
+}
+
+export interface Department {
+  id?: number;
+  name: string;
+  strategy: string;
+  projects: Project[];
 }
 
 export interface StrategyState {
-  // 基本情報
   companyName: string;
   foundationYear: string;
   location: string;
@@ -26,28 +28,21 @@ export interface StrategyState {
   businessContent: string;
   customerSegment: string;
 
-  // SWOT
   strength: string;
   weakness: string;
   opportunity: string;
   threat: string;
 
-  // MVV
   mission: string;
   vision: string;
   value: string;
+  story: string;
 
-  // 部門・カスケード結果
-  departments: Department[];
-  cascadeResult: CascadeResult[];
-
-  // CSV財務データ
+  editableCascadeResult: Department[];
   csvFinanceData: any[];
 
-  // 通知
   notification: string;
 
-  // Setter
   setCompanyName: (v: string) => void;
   setFoundationYear: (v: string) => void;
   setLocation: (v: string) => void;
@@ -65,21 +60,22 @@ export interface StrategyState {
   setMission: (v: string) => void;
   setVision: (v: string) => void;
   setValue: (v: string) => void;
+  setStory: (v: string) => void;
 
-  setDepartments: (v: Department[]) => void;
-  setCascadeResult: (v: CascadeResult[]) => void;
+  setEditableCascadeResult: (v: Department[]) => void;
+  updateDepartmentStrategy: (deptName: string, newStrategy: string) => void;
+  updateProject: (deptName: string, projIndex: number, newProj: Project) => void;
+  addProject: (deptName: string, newProj: Project) => void;
+
   setCsvFinanceData: (data: any[]) => void;
-
   setNotification: (v: string) => void;
 
-  // Supabase連携
   saveToSupabase: () => Promise<void>;
   loadFromSupabase: () => Promise<void>;
   clearAllData: () => Promise<void>;
 }
 
 export const useStrategyStore = create<StrategyState>((set, get) => ({
-  // 初期値
   companyName: '',
   foundationYear: '',
   location: '',
@@ -97,15 +93,13 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   mission: '',
   vision: '',
   value: '',
+  story: '',
 
-  departments: [],
-  cascadeResult: [],
-
+  editableCascadeResult: [],
   csvFinanceData: [],
 
   notification: '',
 
-  // Setter
   setCompanyName: (v) => set({ companyName: v }),
   setFoundationYear: (v) => set({ foundationYear: v }),
   setLocation: (v) => set({ location: v }),
@@ -123,11 +117,40 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   setMission: (v) => set({ mission: v }),
   setVision: (v) => set({ vision: v }),
   setValue: (v) => set({ value: v }),
+  setStory: (v) => set({ story: v }),
 
-  setDepartments: (v) => set({ departments: v }),
-  setCascadeResult: (v) => set({ cascadeResult: v }),
+  setEditableCascadeResult: (v) => set({ editableCascadeResult: v }),
+
+  updateDepartmentStrategy: (deptName, newStrategy) => {
+    const updated = get().editableCascadeResult.map((dept) =>
+      dept.name === deptName ? { ...dept, strategy: newStrategy } : dept
+    );
+    set({ editableCascadeResult: updated });
+  },
+
+  updateProject: (deptName, projIndex, newProj) => {
+    const updated = get().editableCascadeResult.map((dept) => {
+      if (dept.name === deptName) {
+        const newProjects = [...dept.projects];
+        newProjects[projIndex] = newProj;
+        return { ...dept, projects: newProjects };
+      }
+      return dept;
+    });
+    set({ editableCascadeResult: updated });
+  },
+
+  addProject: (deptName, newProj) => {
+    const updated = get().editableCascadeResult.map((dept) => {
+      if (dept.name === deptName) {
+        return { ...dept, projects: [...dept.projects, newProj] };
+      }
+      return dept;
+    });
+    set({ editableCascadeResult: updated });
+  },
+
   setCsvFinanceData: (data) => set({ csvFinanceData: data }),
-
   setNotification: (v) => set({ notification: v }),
 
   saveToSupabase: async () => {
@@ -138,7 +161,27 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
 
   loadFromSupabase: async () => {
     const { data, error } = await loadStrategyData();
-    if (!error && data) set(data);
+    if (!error && data) {
+      set({
+        companyName: data.companyName || '',
+        foundationYear: data.foundationYear || '',
+        location: data.location || '',
+        industry: data.industry || '',
+        revenue: data.revenue || '',
+        employees: data.employees || '',
+        businessContent: data.businessContent || '',
+        customerSegment: data.customerSegment || '',
+        strength: data.strength || '',
+        weakness: data.weakness || '',
+        opportunity: data.opportunity || '',
+        threat: data.threat || '',
+        mission: data.mission || '',
+        vision: data.vision || '',
+        value: data.value || '',
+        story: data.story || '',
+        csvFinanceData: data.csvFinanceData || [],
+      });
+    }
   },
 
   clearAllData: async () => {
@@ -160,8 +203,8 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
         mission: '',
         vision: '',
         value: '',
-        departments: [],
-        cascadeResult: [],
+        story: '',
+        editableCascadeResult: [],
         csvFinanceData: [],
         notification: '',
       });
