@@ -31,6 +31,10 @@ export async function POST(req: NextRequest) {
           .join('\n')
       : '（財務データなし）';
 
+    const departmentNames = Array.isArray(departments)
+      ? departments.map((d: any) => d.name).join(', ')
+      : '（部門情報なし）';
+
     const prompt = `
 あなたは経営戦略の専門家です。
 以下の経営情報をもとに、経営戦略を部門戦略→プロジェクト→OKRへと分解してください。
@@ -56,10 +60,11 @@ Threat: ${threat}
 ${financeText}
 
 【部門名一覧】
-${departments.map((d: any) => d).join(', ')}
+${departmentNames}
 
 上記の情報をもとに、以下の形式で**純粋なJSONのみを返してください**。
 前後に説明文を絶対に含めないでください。
+すでに記載されている部門名以外は絶対に追加・変更しないでください。
 
 {
   "strategy": {

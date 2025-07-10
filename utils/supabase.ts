@@ -25,7 +25,8 @@ export type StrategyData = Pick<
   | 'vision'
   | 'value'
   | 'csvFinanceData'
-  | 'story' // ✅ 追加
+  | 'story'
+  | 'editableCascadeResult' // ✅ 追加！
 >;
 
 export async function saveStrategyData(state: StrategyState) {
@@ -46,7 +47,8 @@ export async function saveStrategyData(state: StrategyState) {
     vision: state.vision,
     value: state.value,
     csvFinanceData: state.csvFinanceData,
-    story: state.story, // ✅ 追加
+    story: state.story,
+    editableCascadeResult: state.editableCascadeResult, // ✅ 追加！
   };
 
   const { error } = await supabase

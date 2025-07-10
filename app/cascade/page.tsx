@@ -41,6 +41,7 @@ export default function CascadePage() {
     opportunity,
     threat,
     csvFinanceData,
+    editableCascadeResult,
     setEditableCascadeResult,
   } = useStrategyStore();
 
@@ -48,6 +49,15 @@ export default function CascadePage() {
   const [result, setResult] = useState<CascadeResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!result && editableCascadeResult.length > 0) {
+      setResult({
+        strategy: { summary: story || '経営戦略の要約が未入力です' },
+        departments: editableCascadeResult,
+      });
+    }
+  }, [editableCascadeResult, result, story]);
 
   const addDepartment = () => {
     if (departments.length < 10) {
@@ -92,6 +102,7 @@ export default function CascadePage() {
           departments: departments.map((name) => ({ name })),
         }),
       });
+
       const data = await res.json();
       if (data?.departments) {
         setEditableCascadeResult(data.departments);

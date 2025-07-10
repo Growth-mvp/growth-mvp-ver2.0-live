@@ -8,6 +8,7 @@ export interface OKR {
 
 export interface Project {
   name: string;
+  description: string;
   okrs: OKR[];
 }
 
@@ -160,29 +161,38 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   },
 
   loadFromSupabase: async () => {
-    const { data, error } = await loadStrategyData();
-    if (!error && data) {
-      set({
-        companyName: data.companyName || '',
-        foundationYear: data.foundationYear || '',
-        location: data.location || '',
-        industry: data.industry || '',
-        revenue: data.revenue || '',
-        employees: data.employees || '',
-        businessContent: data.businessContent || '',
-        customerSegment: data.customerSegment || '',
-        strength: data.strength || '',
-        weakness: data.weakness || '',
-        opportunity: data.opportunity || '',
-        threat: data.threat || '',
-        mission: data.mission || '',
-        vision: data.vision || '',
-        value: data.value || '',
-        story: data.story || '',
-        csvFinanceData: data.csvFinanceData || [],
-      });
-    }
-  },
+  const { data, error } = await loadStrategyData();
+  if (!error && data) {
+    set({
+      companyName: data.companyName || '',
+      foundationYear: data.foundationYear || '',
+      location: data.location || '',
+      industry: data.industry || '',
+      revenue: data.revenue || '',
+      employees: data.employees || '',
+      businessContent: data.businessContent || '',
+      customerSegment: data.customerSegment || '',
+      strength: data.strength || '',
+      weakness: data.weakness || '',
+      opportunity: data.opportunity || '',
+      threat: data.threat || '',
+      mission: data.mission || '',
+      vision: data.vision || '',
+      value: data.value || '',
+      story: data.story || '',
+      csvFinanceData: data.csvFinanceData || [],
+      editableCascadeResult: (data.editableCascadeResult || []).map((dept: Department) => ({
+        ...dept,
+        projects: (dept.projects || []).map((proj: any) => ({
+          name: proj.name,
+          description: proj.description || '',  // ← 👈ここで空文字で補完
+          okrs: proj.okrs || [],
+        })),
+      })),
+    });
+  }
+},
+
 
   clearAllData: async () => {
     const { error } = await deleteStrategyData();
