@@ -29,6 +29,7 @@ type CascadeResult = {
 
 export default function CascadePage() {
   const {
+    strategySummary,
     story,
     mission,
     vision,
@@ -42,6 +43,7 @@ export default function CascadePage() {
     threat,
     csvFinanceData,
     editableCascadeResult,
+    setStrategySummary,
     setEditableCascadeResult,
   } = useStrategyStore();
 
@@ -53,41 +55,48 @@ export default function CascadePage() {
   useEffect(() => {
     if (!result && editableCascadeResult.length > 0) {
       setResult({
-        strategy: { summary: story || '経営戦略の要約が未入力です' },
+        strategy: {
+          summary: strategySummary?.trim() || '経営戦略の要約が未入力です',
+        },
         departments: editableCascadeResult,
       });
     }
-  }, [editableCascadeResult, result, story]);
+  }, [editableCascadeResult, result, strategySummary]);
 
   const addDepartment = () => {
     if (departments.length < 10) {
-      setDepartments([...departments, '']);
+      setDepartments((prev) => [...prev, '']);
     }
   };
 
   const removeDepartment = (index: number) => {
-    setDepartments(departments.filter((_, i) => i !== index));
+    setDepartments((prev) => prev.filter((_, i) => i !== index));
   };
 
   const updateDepartment = (index: number, value: string) => {
-    const newDepartments = [...departments];
-    newDepartments[index] = value;
-    setDepartments(newDepartments);
+    setDepartments((prev) => {
+      const newDeps = [...prev];
+      newDeps[index] = value;
+      return newDeps;
+    });
   };
 
   const generateCascade = async () => {
-    if (!story || departments.some((d) => !d.trim())) {
-      setError('経営戦略とすべての部門名を入力してください');
+    if ((!story?.trim() && !strategySummary?.trim()) || departments.some((d) => !d.trim())) {
+      setError('経営戦略（ストーリーまたは要約）とすべての部門名を入力してください');
       return;
     }
+
     setLoading(true);
     setError('');
+
     try {
       const res = await fetch('/api/generate-cascade', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           story,
+          strategySummary,
           mission,
           vision,
           value,
@@ -104,10 +113,14 @@ export default function CascadePage() {
       });
 
       const data = await res.json();
-      if (data?.departments) {
+
+      if (res.ok && data?.departments) {
         setEditableCascadeResult(data.departments);
+        setResult(data);
+        setStrategySummary(data.strategy?.summary || '');
+      } else {
+        setError(data.error || '生成に失敗しました。');
       }
-      setResult(data);
     } catch (err) {
       console.error('❌ カスケード生成エラー:', err);
       setError('カスケード生成に失敗しました');
@@ -120,13 +133,6 @@ export default function CascadePage() {
     <main className="p-8 space-y-6">
       <h1 className="text-2xl font-bold">戦略カスケード</h1>
 
-      {/* 経営戦略表示 */}
-      <section className="bg-white p-4 rounded shadow">
-        <h2 className="text-lg font-semibold mb-2">経営戦略</h2>
-        <p className="text-gray-700 whitespace-pre-line">{story || '未入力です'}</p>
-      </section>
-
-      {/* 部門名入力フォーム */}
       <section className="bg-white p-4 rounded shadow space-y-2">
         <h2 className="text-lg font-semibold">部門名を入力（最大10件）</h2>
         {departments.map((dept, index) => (
@@ -139,57 +145,74 @@ export default function CascadePage() {
               className="flex-1 border rounded px-2 py-1"
             />
             {departments.length > 1 && (
-              <button onClick={() => removeDepartment(index)} className="text-red-500">削除</button>
+              <button onClick={() => removeDepartment(index)} className="text-red-500">
+                削除
+              </button>
             )}
           </div>
         ))}
         <div className="flex gap-4 mt-2">
-          <button onClick={addDepartment} disabled={departments.length >= 10} className="bg-blue-100 px-3 py-1 rounded">
+          <button
+            onClick={addDepartment}
+            disabled={departments.length >= 10}
+            className="bg-blue-100 px-3 py-1 rounded disabled:opacity-50"
+          >
             ＋ 部門を追加
           </button>
-          <button onClick={generateCascade} className="bg-blue-600 text-white px-4 py-2 rounded">
-            部門戦略生成
+          <button
+            onClick={generateCascade}
+            className="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50"
+            disabled={loading}
+          >
+            {loading ? '生成中...' : '部門戦略生成'}
           </button>
         </div>
         {error && <p className="text-red-500">{error}</p>}
       </section>
 
-      {/* カスケード結果表示 */}
       {result && (
         <section className="bg-white p-4 rounded shadow">
-          <h2 className="text-lg font-semibold mb-2">戦略ピラミッド</h2>
-          <p className="font-bold mb-4">{result.strategy.summary}</p>
-          <ul className="space-y-4">
+          <h2 className="text-lg font-semibold mb-4">戦略ピラミッド構造</h2>
+
+          <div className="bg-blue-100 text-center font-bold text-lg py-3 rounded mb-8 shadow-md">
+            {result.strategy.summary}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
             {result.departments.map((dept, i) => (
-              <li key={i}>
-                <h3 className="font-semibold">{dept.name}：{dept.strategy}</h3>
-                <ul className="ml-4 list-disc">
-                  {dept.projects.map((proj, j) => (
-                    <li key={j}>
-                      <strong>{proj.name}</strong>
-                      <div className="ml-4 text-sm text-gray-600">{proj.description}</div>
-                      <ul className="ml-4 list-square">
-                        {proj.okrs.map((okr, k) => (
-                          <li key={k}>
-                            <em>{okr.objective}</em>
-                            <ul className="ml-4 list-decimal text-sm text-gray-600">
-                              {okr.keyResults.map((kr, l) => (
-                                <li key={l}>{kr}</li>
-                              ))}
-                            </ul>
-                          </li>
-                        ))}
-                      </ul>
-                    </li>
-                  ))}
-                </ul>
-              </li>
+              <div key={i} className="bg-gray-50 p-4 rounded-lg shadow border">
+                <h3 className="font-semibold text-lg text-blue-900 mb-2">
+                  {dept.name}
+                </h3>
+                <p className="text-sm font-medium text-gray-700 mb-2">
+                  {dept.strategy}
+                </p>
+
+                {dept.projects.map((proj, j) => (
+                  <div key={j} className="mb-4">
+                    <h4 className="text-sm font-bold text-blue-700">{proj.name}</h4>
+                    <p className="text-xs text-gray-600">{proj.description}</p>
+                    <ul className="ml-4 mt-1 list-disc text-sm text-gray-700 space-y-1">
+                      {proj.okrs.map((okr, k) => (
+                        <li key={k}>
+                          <em className="font-medium">{okr.objective}</em>
+                          <ul className="ml-5 list-decimal text-xs text-gray-600 space-y-1">
+                            {okr.keyResults.map((kr, l) => (
+                              <li key={l}>{kr}</li>
+                            ))}
+                          </ul>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
             ))}
-          </ul>
+          </div>
         </section>
       )}
 
-      {loading && <p>生成中...</p>}
+      {loading && <p className="text-gray-500 text-sm">生成中...</p>}
     </main>
   );
 }

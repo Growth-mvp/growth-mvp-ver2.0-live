@@ -1,4 +1,4 @@
-import { create } from 'zustand'; 
+import { create } from 'zustand';
 import { saveStrategyData, loadStrategyData, deleteStrategyData } from '../utils/supabase';
 
 export interface OKR {
@@ -38,6 +38,7 @@ export interface StrategyState {
   vision: string;
   value: string;
   story: string;
+  strategySummary: string;
 
   editableCascadeResult: Department[];
   csvFinanceData: any[];
@@ -62,6 +63,7 @@ export interface StrategyState {
   setVision: (v: string) => void;
   setValue: (v: string) => void;
   setStory: (v: string) => void;
+  setStrategySummary: (v: string) => void;
 
   setEditableCascadeResult: (v: Department[]) => void;
   updateDepartmentStrategy: (deptName: string, newStrategy: string) => void;
@@ -95,6 +97,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   vision: '',
   value: '',
   story: '',
+  strategySummary: '',
 
   editableCascadeResult: [],
   csvFinanceData: [],
@@ -119,6 +122,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   setVision: (v) => set({ vision: v }),
   setValue: (v) => set({ value: v }),
   setStory: (v) => set({ story: v }),
+  setStrategySummary: (v) => set({ strategySummary: v }),
 
   setEditableCascadeResult: (v) => set({ editableCascadeResult: v }),
 
@@ -157,46 +161,63 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   saveToSupabase: async () => {
     const state = get();
     const { error } = await saveStrategyData(state);
-    if (!error) set({ notification: '✅ 保存に成功しました' });
+    if (error) {
+      console.error('❌ Supabase保存エラー:', error);
+      set({ notification: '❌ 保存に失敗しました' });
+    } else {
+      set({ notification: '✅ 保存に成功しました' });
+    }
   },
 
   loadFromSupabase: async () => {
-  const { data, error } = await loadStrategyData();
-  if (!error && data) {
-    set({
-      companyName: data.companyName || '',
-      foundationYear: data.foundationYear || '',
-      location: data.location || '',
-      industry: data.industry || '',
-      revenue: data.revenue || '',
-      employees: data.employees || '',
-      businessContent: data.businessContent || '',
-      customerSegment: data.customerSegment || '',
-      strength: data.strength || '',
-      weakness: data.weakness || '',
-      opportunity: data.opportunity || '',
-      threat: data.threat || '',
-      mission: data.mission || '',
-      vision: data.vision || '',
-      value: data.value || '',
-      story: data.story || '',
-      csvFinanceData: data.csvFinanceData || [],
-      editableCascadeResult: (data.editableCascadeResult || []).map((dept: Department) => ({
-        ...dept,
-        projects: (dept.projects || []).map((proj: any) => ({
-          name: proj.name,
-          description: proj.description || '',  // ← 👈ここで空文字で補完
-          okrs: proj.okrs || [],
+    const { data, error } = await loadStrategyData();
+    if (error) {
+      console.error('❌ Supabase読み込みエラー:', error);
+      return;
+    }
+    if (data) {
+      set({
+        companyName: data.companyName || '',
+        foundationYear: data.foundationYear || '',
+        location: data.location || '',
+        industry: data.industry || '',
+        revenue: data.revenue || '',
+        employees: data.employees || '',
+        businessContent: data.businessContent || '',
+        customerSegment: data.customerSegment || '',
+        strength: data.strength || '',
+        weakness: data.weakness || '',
+        opportunity: data.opportunity || '',
+        threat: data.threat || '',
+        mission: data.mission || '',
+        vision: data.vision || '',
+        value: data.value || '',
+        story: data.story || '',
+        strategySummary: data.strategySummary || '',
+        csvFinanceData: data.csvFinanceData || [],
+        editableCascadeResult: (data.editableCascadeResult || []).map((dept: any) => ({
+          id: dept.id,
+          name: dept.name,
+          strategy: dept.strategy,
+          projects: (dept.projects || []).map((proj: any) => ({
+            name: proj.name,
+            description: proj.description || '',
+            okrs: (proj.okrs || []).map((okr: any) => ({
+              objective: okr.objective || '',
+              keyResults: okr.keyResults || [],
+            })),
+          })),
         })),
-      })),
-    });
-  }
-},
-
+      });
+    }
+  },
 
   clearAllData: async () => {
     const { error } = await deleteStrategyData();
-    if (!error) {
+    if (error) {
+      console.error('❌ Supabase削除エラー:', error);
+      set({ notification: '❌ データ削除に失敗しました' });
+    } else {
       set({
         companyName: '',
         foundationYear: '',
@@ -214,9 +235,10 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
         vision: '',
         value: '',
         story: '',
+        strategySummary: '',
         editableCascadeResult: [],
         csvFinanceData: [],
-        notification: '',
+        notification: '🧹 データを初期化しました',
       });
     }
   },

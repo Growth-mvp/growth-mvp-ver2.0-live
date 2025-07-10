@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { OpenAI } from 'openai';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
 export async function POST(req: NextRequest) {
   try {
@@ -17,11 +17,25 @@ export async function POST(req: NextRequest) {
       opportunity,
       threat,
       story,
+      strategySummary,
       departments,
       csvFinanceData,
     } = await req.json();
 
-    const financeText = csvFinanceData && Array.isArray(csvFinanceData)
+    // ✅ story も summary も空ならエラー
+    const hasValidInput = !!(story?.trim() || strategySummary?.trim());
+    if (!hasValidInput) {
+      return NextResponse.json(
+        { error: '経営戦略ストーリーと要約の両方が空です。どちらかを入力してください。' },
+        { status: 400 }
+      );
+    }
+
+    // ✅ summary を補完
+    const summary = strategySummary?.trim() || story?.trim()?.slice(0, 100) || '（要約なし）';
+
+    // ✅ 財務データの整形（最大5行まで）
+    const financeText = Array.isArray(csvFinanceData) && csvFinanceData.length > 0
       ? csvFinanceData
           .slice(0, 5)
           .map((row: any, i: number) =>
@@ -31,16 +45,21 @@ export async function POST(req: NextRequest) {
           .join('\n')
       : '（財務データなし）';
 
+    // ✅ 部門名一覧
     const departmentNames = Array.isArray(departments)
       ? departments.map((d: any) => d.name).join(', ')
       : '（部門情報なし）';
 
+    // ✅ プロンプト作成
     const prompt = `
 あなたは経営戦略の専門家です。
 以下の経営情報をもとに、経営戦略を部門戦略→プロジェクト→OKRへと分解してください。
 
-【経営者の思い】
-${story}
+【経営戦略の要約】
+${summary}
+
+【経営者の思い（ストーリー）】
+${story || '（ストーリー未入力）'}
 
 【業界・規模】
 業種: ${industry}, 売上: ${revenue}百万円, 従業員数: ${employees}人
@@ -93,12 +112,14 @@ ${departmentNames}
   ]
 }`.trim();
 
-    const chatCompletion = await openai.chat.completions.create({
-      model: 'gpt-4',
+    // ✅ OpenAI API呼び出し
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
       messages: [
         {
           role: 'system',
-          content: 'あなたは優秀な戦略コンサルタントであり、必ずJSON形式のみで回答します。',
+          content:
+            'あなたは優秀な戦略コンサルタントです。必ずJSON形式のみを返し、説明文は一切含めてはいけません。',
         },
         {
           role: 'user',
@@ -108,19 +129,23 @@ ${departmentNames}
       temperature: 0.7,
     });
 
-    const content = chatCompletion.choices[0].message.content;
+    const content = completion.choices?.[0]?.message?.content || '';
 
+    // ✅ JSON部分のみを抽出してパース
     let json = null;
     try {
-      if (content) {
-        const start = content.indexOf('{');
-        const end = content.lastIndexOf('}');
-        const jsonString = content.substring(start, end + 1);
-        json = JSON.parse(jsonString);
+      const start = content.indexOf('{');
+      const end = content.lastIndexOf('}');
+      const jsonString = content.substring(start, end + 1);
+      json = JSON.parse(jsonString);
+
+      // summaryが欠けていた場合の補完
+      if (!json.strategy || !json.strategy.summary) {
+        json.strategy = { summary };
       }
     } catch (jsonError) {
       console.error('⚠️ JSON解析エラー:', jsonError);
-      console.error('⚠️ OpenAIからの出力:', content);
+      console.error('⚠️ GPT出力:', content);
       return NextResponse.json(
         { error: '生成結果のJSON解析に失敗しました。' },
         { status: 500 }
@@ -129,7 +154,7 @@ ${departmentNames}
 
     return NextResponse.json(json || {});
   } catch (err) {
-    console.error('❌ APIエラー:', err);
+    console.error('❌ APIエラー（generate-cascade）:', err);
     return NextResponse.json(
       { error: 'サーバーエラーが発生しました。' },
       { status: 500 }

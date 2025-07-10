@@ -16,13 +16,14 @@ export default function StoryPage() {
     csvFinanceData,
     story,
     setStory,
+    setStrategySummary,
   } = useStrategyStore();
 
   const [storyLocal, setStoryLocal] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Zustandに保存済のstoryをローカル表示に反映
+  // Zustandに保存済みのストーリーを表示用に反映
   useEffect(() => {
     setStoryLocal(story);
   }, [story]);
@@ -51,8 +52,10 @@ export default function StoryPage() {
       const data = await res.json();
 
       if (res.ok) {
-        setStory(data.story || '');
-        setStoryLocal(data.story || '');
+        const newStory = data.story || '';
+        setStory(newStory);
+        setStrategySummary(newStory.slice(0, 100)); // ✅ 要約も保存
+        setStoryLocal(newStory);
       } else {
         setError(data.error || 'エラーが発生しました。');
       }
@@ -71,12 +74,14 @@ export default function StoryPage() {
       <button
         onClick={generateStory}
         disabled={loading}
-        className="mb-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+        className="mb-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
       >
         {loading ? '生成中...' : 'ストーリーを生成'}
       </button>
 
-      {error && <p className="text-red-500 mb-4">{error}</p>}
+      {error && (
+        <p className="text-red-500 mb-4 whitespace-pre-wrap">{error}</p>
+      )}
 
       {storyLocal && (
         <>

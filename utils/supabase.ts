@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { StrategyState } from '../store/strategyStore';
+import { StrategyState, Department } from '../store/strategyStore';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -7,28 +7,30 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 const TABLE_NAME = 'strategy_data';
 
-export type StrategyData = Pick<
-  StrategyState,
-  | 'companyName'
-  | 'foundationYear'
-  | 'location'
-  | 'industry'
-  | 'revenue'
-  | 'employees'
-  | 'businessContent'
-  | 'customerSegment'
-  | 'strength'
-  | 'weakness'
-  | 'opportunity'
-  | 'threat'
-  | 'mission'
-  | 'vision'
-  | 'value'
-  | 'csvFinanceData'
-  | 'story'
-  | 'editableCascadeResult' // ✅ 追加！
->;
+// Supabaseに保存される構造と一致させた型
+export type StrategyData = {
+  companyName: string;
+  foundationYear: string;
+  location: string;
+  industry: string;
+  revenue: string;
+  employees: string;
+  businessContent: string;
+  customerSegment: string;
+  strength: string;
+  weakness: string;
+  opportunity: string;
+  threat: string;
+  mission: string;
+  vision: string;
+  value: string;
+  story: string;
+  strategySummary: string;
+  csvFinanceData: any[];
+  editableCascade: Department[]; // Supabaseのカラム名に合わせて整合
+};
 
+// 保存（アップサート）関数
 export async function saveStrategyData(state: StrategyState) {
   const data: StrategyData = {
     companyName: state.companyName,
@@ -46,18 +48,23 @@ export async function saveStrategyData(state: StrategyState) {
     mission: state.mission,
     vision: state.vision,
     value: state.value,
-    csvFinanceData: state.csvFinanceData,
     story: state.story,
-    editableCascadeResult: state.editableCascadeResult, // ✅ 追加！
+    strategySummary: state.strategySummary,
+    csvFinanceData: state.csvFinanceData,
+    editableCascade: state.editableCascadeResult,
   };
 
-  const { error } = await supabase
+  const { data: saved, error } = await supabase
     .from(TABLE_NAME)
-    .upsert({ ...data, user_id: 'demo_user' });
+    .upsert(
+      { ...data, user_id: 'demo_user' }, // 本番では user_id をログイン情報に差し替え
+      { onConflict: 'user_id' }
+    );
 
-  return { error };
+  return { data: saved, error };
 }
 
+// 読み込み関数（1レコードのみ想定）
 export async function loadStrategyData() {
   const { data, error } = await supabase
     .from(TABLE_NAME)
@@ -68,6 +75,7 @@ export async function loadStrategyData() {
   return { data, error };
 }
 
+// 削除関数（ユーザーIDに紐づく戦略データを削除）
 export async function deleteStrategyData() {
   const { error } = await supabase
     .from(TABLE_NAME)
