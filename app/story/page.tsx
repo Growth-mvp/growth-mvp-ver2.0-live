@@ -1,7 +1,9 @@
+// ✅ 修正対象ファイル: app/story/page.tsx
+
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useState } from 'react';
+import { useStrategyStore } from '../../store/strategyStore';
 
 export default function StoryPage() {
   const {
@@ -13,30 +15,31 @@ export default function StoryPage() {
     weakness,
     opportunity,
     threat,
-    csvFinanceData,
-    story,
+    thought,
     setStory,
     setStrategySummary,
   } = useStrategyStore();
 
-  const [storyLocal, setStoryLocal] = useState('');
+  const [localStory, setLocalStory] = useState('');
+  const [localSummary, setLocalSummary] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Zustandに保存済みのストーリーを表示用に反映
-  useEffect(() => {
-    setStoryLocal(story);
-  }, [story]);
-
   const generateStory = async () => {
-    setError('');
+    if (!vision || !strength || !weakness || !opportunity || !threat || !thought) {
+      setError('必要な情報（思い・ビジョン・SWOT）が不足しています。');
+      return;
+    }
+
     setLoading(true);
+    setError('');
 
     try {
       const res = await fetch('/api/generate-story', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          thought,
           vision,
           industry,
           revenue,
@@ -45,60 +48,46 @@ export default function StoryPage() {
           weakness,
           opportunity,
           threat,
-          csvFinanceData,
         }),
       });
 
       const data = await res.json();
 
-      if (res.ok) {
-        const newStory = data.story || '';
-        setStory(newStory);
-        setStrategySummary(newStory.slice(0, 100)); // ✅ 要約も保存
-        setStoryLocal(newStory);
-      } else {
-        setError(data.error || 'エラーが発生しました。');
-      }
+      // 🎯 ここでZustandにも保存
+      setLocalStory(data.story);
+      setLocalSummary(data.summary);
+      setStory(data.story); // Zustandに保存
+      setStrategySummary(data.summary); // Zustandに保存
     } catch (err) {
-      console.error('❌ 通信エラー:', err);
-      setError('ストーリー生成中に通信エラーが発生しました。');
+      console.error('❌ ストーリー生成失敗:', err);
+      setError('生成に失敗しました');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-4">📖 戦略ストーリー生成</h1>
-
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-4">戦略ストーリー生成</h1>
       <button
         onClick={generateStory}
         disabled={loading}
-        className="mb-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+        className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
       >
-        {loading ? '生成中...' : 'ストーリーを生成'}
+        {loading ? '生成中...' : 'ストーリー生成'}
       </button>
 
-      {error && (
-        <p className="text-red-500 mb-4 whitespace-pre-wrap">{error}</p>
-      )}
+      {error && <p className="text-red-500 mt-2">{error}</p>}
 
-      {storyLocal && (
-        <>
-          <div className="bg-white p-4 rounded shadow whitespace-pre-wrap border border-gray-200">
-            {storyLocal}
-          </div>
+      <div className="mt-6">
+        <h2 className="text-xl font-semibold mb-2">戦略ストーリー</h2>
+        <pre className="bg-gray-100 p-4 rounded whitespace-pre-wrap">{localStory}</pre>
+      </div>
 
-          <div className="mt-4">
-            <a
-              href="/cascade"
-              className="inline-block px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-            >
-              次へ → カスケード生成
-            </a>
-          </div>
-        </>
-      )}
+      <div className="mt-6">
+        <h2 className="text-xl font-semibold mb-2">要約</h2>
+        <pre className="bg-gray-100 p-4 rounded whitespace-pre-wrap">{localSummary}</pre>
+      </div>
     </div>
   );
 }

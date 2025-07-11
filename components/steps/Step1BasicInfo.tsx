@@ -1,25 +1,132 @@
-// ✅ ファイル: /components/Step1BasicInfo.tsx
 'use client';
-import { useStrategyStore } from '../../store/strategyStore';
+
+import { useStrategyStore } from '@/store/strategyStore';
+
 export default function Step1BasicInfo() {
   const {
-    companyName, foundationYear, location, employees,
-    industry, businessContent, customerSegment,
-    setCompanyName, setFoundationYear, setLocation, setEmployees,
-    setIndustry, setBusinessContent, setCustomerSegment,
+    companyName,
+    foundationYear,
+    location,
+    industry,
+    revenue,
+    employees,
+    businessContent,
+    customerSegment,
+    thought,
+    setCompanyName,
+    setFoundationYear,
+    setLocation,
+    setIndustry,
+    setRevenue,
+    setEmployees,
+    setBusinessContent,
+    setCustomerSegment,
+    setThought,
   } = useStrategyStore();
 
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-bold">STEP1：基本情報の入力</h2>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div><label className="block">会社名</label><input className="w-full border p-2" value={companyName} onChange={(e) => setCompanyName(e.target.value)} /></div>
-        <div><label className="block">設立年</label><input className="w-full border p-2" value={foundationYear} onChange={(e) => setFoundationYear(e.target.value)} /></div>
-        <div><label className="block">所在地</label><input className="w-full border p-2" value={location} onChange={(e) => setLocation(e.target.value)} /></div>
-        <div><label className="block">従業員数</label><input className="w-full border p-2" value={employees} onChange={(e) => setEmployees(e.target.value)} /></div>
-        <div><label className="block">業種</label><input className="w-full border p-2" value={industry} onChange={(e) => setIndustry(e.target.value)} /></div>
-        <div><label className="block">事業内容</label><input className="w-full border p-2" value={businessContent} onChange={(e) => setBusinessContent(e.target.value)} /></div>
-        <div className="sm:col-span-2"><label className="block">主要顧客層</label><input className="w-full border p-2" value={customerSegment} onChange={(e) => setCustomerSegment(e.target.value)} /></div>
+      <h2 className="text-xl font-semibold">基本情報の入力</h2>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700">会社名</label>
+          <input
+            type="text"
+            value={companyName}
+            onChange={(e) => setCompanyName(e.target.value)}
+            className="w-full border rounded px-3 py-2"
+            placeholder="例：株式会社○○"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700">設立年</label>
+          <input
+            type="text"
+            value={foundationYear}
+            onChange={(e) => setFoundationYear(e.target.value)}
+            className="w-full border rounded px-3 py-2"
+            placeholder="例：2005"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700">所在地</label>
+          <input
+            type="text"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            className="w-full border rounded px-3 py-2"
+            placeholder="例：東京都港区"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700">業種</label>
+          <input
+            type="text"
+            value={industry}
+            onChange={(e) => setIndustry(e.target.value)}
+            className="w-full border rounded px-3 py-2"
+            placeholder="例：製造業"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700">売上（億円）</label>
+          <input
+            type="text"
+            value={revenue}
+            onChange={(e) => setRevenue(e.target.value)}
+            className="w-full border rounded px-3 py-2"
+            placeholder="例：50"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700">従業員数（人）</label>
+          <input
+            type="text"
+            value={employees}
+            onChange={(e) => setEmployees(e.target.value)}
+            className="w-full border rounded px-3 py-2"
+            placeholder="例：200"
+          />
+        </div>
+
+        <div className="md:col-span-2">
+          <label className="block text-sm font-medium text-gray-700">主な事業内容</label>
+          <textarea
+            value={businessContent}
+            onChange={(e) => setBusinessContent(e.target.value)}
+            className="w-full border rounded px-3 py-2"
+            rows={2}
+            placeholder="例：自動車部品の設計・製造・販売"
+          />
+        </div>
+
+        <div className="md:col-span-2">
+          <label className="block text-sm font-medium text-gray-700">主要な顧客層</label>
+          <textarea
+            value={customerSegment}
+            onChange={(e) => setCustomerSegment(e.target.value)}
+            className="w-full border rounded px-3 py-2"
+            rows={2}
+            placeholder="例：国内外の完成車メーカー、部品メーカー"
+          />
+        </div>
+
+        <div className="md:col-span-2">
+          <label className="block text-sm font-medium text-gray-700">経営者の思い</label>
+          <textarea
+            value={thought}
+            onChange={(e) => setThought(e.target.value)}
+            className="w-full border rounded px-3 py-2"
+            rows={3}
+            placeholder="例：社員が誇れる会社にしたい。日本の製造業の未来を創りたい。"
+          />
+        </div>
       </div>
     </div>
   );

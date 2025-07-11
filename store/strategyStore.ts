@@ -29,6 +29,7 @@ export interface StrategyState {
   businessContent: string;
   customerSegment: string;
 
+  thought: string;              // ← ここを追加
   strength: string;
   weakness: string;
   opportunity: string;
@@ -54,6 +55,7 @@ export interface StrategyState {
   setBusinessContent: (v: string) => void;
   setCustomerSegment: (v: string) => void;
 
+  setThought: (v: string) => void; // ← ここも追加
   setStrength: (v: string) => void;
   setWeakness: (v: string) => void;
   setOpportunity: (v: string) => void;
@@ -88,6 +90,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   businessContent: '',
   customerSegment: '',
 
+  thought: '', // ← stateの初期値をここに追加
   strength: '',
   weakness: '',
   opportunity: '',
@@ -113,6 +116,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   setBusinessContent: (v) => set({ businessContent: v }),
   setCustomerSegment: (v) => set({ customerSegment: v }),
 
+  setThought: (v) => set({ thought: v }), // ← setter関数を追加
   setStrength: (v) => set({ strength: v }),
   setWeakness: (v) => set({ weakness: v }),
   setOpportunity: (v) => set({ opportunity: v }),
@@ -185,6 +189,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
         employees: data.employees || '',
         businessContent: data.businessContent || '',
         customerSegment: data.customerSegment || '',
+        thought: data.thought || '', // ✅ ← これを追加
         strength: data.strength || '',
         weakness: data.weakness || '',
         opportunity: data.opportunity || '',
@@ -195,7 +200,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
         story: data.story || '',
         strategySummary: data.strategySummary || '',
         csvFinanceData: data.csvFinanceData || [],
-        editableCascadeResult: (data.editableCascadeResult || []).map((dept: any) => ({
+        editableCascadeResult: (data.editableCascade || []).map((dept: any) => ({
           id: dept.id,
           name: dept.name,
           strategy: dept.strategy,

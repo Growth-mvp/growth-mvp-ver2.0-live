@@ -29,6 +29,7 @@ type CascadeResult = {
 
 export default function CascadePage() {
   const {
+    thought,
     strategySummary,
     story,
     mission,
@@ -53,7 +54,8 @@ export default function CascadePage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!result && editableCascadeResult.length > 0) {
+    if (editableCascadeResult.length > 0) {
+      console.log('📦 Supabase復元データ:', editableCascadeResult);
       setResult({
         strategy: {
           summary: strategySummary?.trim() || '経営戦略の要約が未入力です',
@@ -61,7 +63,7 @@ export default function CascadePage() {
         departments: editableCascadeResult,
       });
     }
-  }, [editableCascadeResult, result, strategySummary]);
+  }, [editableCascadeResult, strategySummary]);
 
   const addDepartment = () => {
     if (departments.length < 10) {
@@ -82,7 +84,15 @@ export default function CascadePage() {
   };
 
   const generateCascade = async () => {
+    console.log('▶ 部門戦略生成ボタンが押されました');
+    console.log('📝 入力状況:', {
+      story,
+      strategySummary,
+      departments,
+    });
+
     if ((!story?.trim() && !strategySummary?.trim()) || departments.some((d) => !d.trim())) {
+      console.warn('⛔ 入力エラー: 経営戦略か部門名が未入力です');
       setError('経営戦略（ストーリーまたは要約）とすべての部門名を入力してください');
       return;
     }
@@ -95,6 +105,7 @@ export default function CascadePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          thought,
           story,
           strategySummary,
           mission,
@@ -112,7 +123,9 @@ export default function CascadePage() {
         }),
       });
 
+      console.log('📡 fetch結果:', res.status);
       const data = await res.json();
+      console.log('📦 API応答:', data);
 
       if (res.ok && data?.departments) {
         setEditableCascadeResult(data.departments);
@@ -120,9 +133,10 @@ export default function CascadePage() {
         setStrategySummary(data.strategy?.summary || '');
       } else {
         setError(data.error || '生成に失敗しました。');
+        console.error('❌ 応答エラー:', data.error);
       }
     } catch (err) {
-      console.error('❌ カスケード生成エラー:', err);
+      console.error('❌ カスケード生成中に例外:', err);
       setError('カスケード生成に失敗しました');
     } finally {
       setLoading(false);

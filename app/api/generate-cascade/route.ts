@@ -6,6 +6,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 export async function POST(req: NextRequest) {
   try {
     const {
+      thought,
       vision,
       mission,
       industry,
@@ -22,7 +23,14 @@ export async function POST(req: NextRequest) {
       csvFinanceData,
     } = await req.json();
 
-    // ✅ story も summary も空ならエラー
+    // 🔍 受信データをログ出力（デバッグ用）
+    console.log('🔍 受信データ:', {
+      thought,
+      strategySummary,
+      story,
+      departments,
+    });
+
     const hasValidInput = !!(story?.trim() || strategySummary?.trim());
     if (!hasValidInput) {
       return NextResponse.json(
@@ -31,26 +39,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ✅ summary を補完
     const summary = strategySummary?.trim() || story?.trim()?.slice(0, 100) || '（要約なし）';
 
-    // ✅ 財務データの整形（最大5行まで）
-    const financeText = Array.isArray(csvFinanceData) && csvFinanceData.length > 0
-      ? csvFinanceData
-          .slice(0, 5)
-          .map((row: any, i: number) =>
-            `【${i + 1}行目】 ${Object.entries(row)
-              .map(([k, v]) => `${k}: ${v}`)
-              .join(', ')}`)
-          .join('\n')
-      : '（財務データなし）';
+    const financeText =
+      Array.isArray(csvFinanceData) && csvFinanceData.length > 0
+        ? csvFinanceData
+            .slice(0, 5)
+            .map((row: any, i: number) =>
+              `【${i + 1}行目】 ${Object.entries(row)
+                .map(([k, v]) => `${k}: ${v}`)
+                .join(', ')}`
+            )
+            .join('\n')
+        : '（財務データなし）';
 
-    // ✅ 部門名一覧
     const departmentNames = Array.isArray(departments)
       ? departments.map((d: any) => d.name).join(', ')
       : '（部門情報なし）';
 
-    // ✅ プロンプト作成
     const prompt = `
 あなたは経営戦略の専門家です。
 以下の経営情報をもとに、経営戦略を部門戦略→プロジェクト→OKRへと分解してください。
@@ -58,7 +64,10 @@ export async function POST(req: NextRequest) {
 【経営戦略の要約】
 ${summary}
 
-【経営者の思い（ストーリー）】
+【経営者の思い】
+${thought || '（経営者の思いが未入力です）'}
+
+【経営戦略のストーリー】
 ${story || '（ストーリー未入力）'}
 
 【業界・規模】
@@ -110,9 +119,9 @@ ${departmentNames}
       ]
     }
   ]
-}`.trim();
+}
+`.trim();
 
-    // ✅ OpenAI API呼び出し
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [
@@ -131,7 +140,6 @@ ${departmentNames}
 
     const content = completion.choices?.[0]?.message?.content || '';
 
-    // ✅ JSON部分のみを抽出してパース
     let json = null;
     try {
       const start = content.indexOf('{');
@@ -139,7 +147,6 @@ ${departmentNames}
       const jsonString = content.substring(start, end + 1);
       json = JSON.parse(jsonString);
 
-      // summaryが欠けていた場合の補完
       if (!json.strategy || !json.strategy.summary) {
         json.strategy = { summary };
       }
