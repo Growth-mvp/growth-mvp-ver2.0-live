@@ -1,8 +1,8 @@
-// ✅ 修正対象ファイル: app/story/page.tsx
+// ✅ 修正ファイル: app/story/page.tsx
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useStrategyStore } from '../../store/strategyStore';
 
 export default function StoryPage() {
@@ -16,6 +16,8 @@ export default function StoryPage() {
     opportunity,
     threat,
     thought,
+    story,
+    strategySummary,
     setStory,
     setStrategySummary,
   } = useStrategyStore();
@@ -24,6 +26,12 @@ export default function StoryPage() {
   const [localSummary, setLocalSummary] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // ✅ 初期表示時にZustandの内容を反映
+  useEffect(() => {
+    if (story) setLocalStory(story);
+    if (strategySummary) setLocalSummary(strategySummary);
+  }, [story, strategySummary]);
 
   const generateStory = async () => {
     if (!vision || !strength || !weakness || !opportunity || !threat || !thought) {
@@ -53,11 +61,11 @@ export default function StoryPage() {
 
       const data = await res.json();
 
-      // 🎯 ここでZustandにも保存
+      // 🎯 Zustandに保存 & ローカルステートにも反映
+      setStory(data.story);
+      setStrategySummary(data.summary);
       setLocalStory(data.story);
       setLocalSummary(data.summary);
-      setStory(data.story); // Zustandに保存
-      setStrategySummary(data.summary); // Zustandに保存
     } catch (err) {
       console.error('❌ ストーリー生成失敗:', err);
       setError('生成に失敗しました');
