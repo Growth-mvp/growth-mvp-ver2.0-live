@@ -29,7 +29,7 @@ export interface StrategyState {
   businessContent: string;
   customerSegment: string;
 
-  thought: string;              // ← ここを追加
+  thought: string;
   strength: string;
   weakness: string;
   opportunity: string;
@@ -55,7 +55,7 @@ export interface StrategyState {
   setBusinessContent: (v: string) => void;
   setCustomerSegment: (v: string) => void;
 
-  setThought: (v: string) => void; // ← ここも追加
+  setThought: (v: string) => void;
   setStrength: (v: string) => void;
   setWeakness: (v: string) => void;
   setOpportunity: (v: string) => void;
@@ -90,7 +90,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   businessContent: '',
   customerSegment: '',
 
-  thought: '', // ← stateの初期値をここに追加
+  thought: '',
   strength: '',
   weakness: '',
   opportunity: '',
@@ -116,7 +116,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   setBusinessContent: (v) => set({ businessContent: v }),
   setCustomerSegment: (v) => set({ customerSegment: v }),
 
-  setThought: (v) => set({ thought: v }), // ← setter関数を追加
+  setThought: (v) => set({ thought: v }),
   setStrength: (v) => set({ strength: v }),
   setWeakness: (v) => set({ weakness: v }),
   setOpportunity: (v) => set({ opportunity: v }),
@@ -189,7 +189,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
         employees: data.employees || '',
         businessContent: data.businessContent || '',
         customerSegment: data.customerSegment || '',
-        thought: data.thought || '', // ✅ ← これを追加
+        thought: data.thought || '',
         strength: data.strength || '',
         weakness: data.weakness || '',
         opportunity: data.opportunity || '',
@@ -232,6 +232,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
         employees: '',
         businessContent: '',
         customerSegment: '',
+        thought: '',
         strength: '',
         weakness: '',
         opportunity: '',
