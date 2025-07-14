@@ -1,23 +1,6 @@
 import { create } from 'zustand';
 import { saveStrategyData, loadStrategyData, deleteStrategyData } from '../utils/supabase';
-
-export interface OKR {
-  objective: string;
-  keyResults: string[];
-}
-
-export interface Project {
-  name: string;
-  description: string;
-  okrs: OKR[];
-}
-
-export interface Department {
-  id?: number;
-  name: string;
-  strategy: string;
-  projects: Project[];
-}
+import { Department, Project } from '@/types/strategy'; // ✅ 型を外部からインポート
 
 export interface StrategyState {
   companyName: string;

@@ -1,8 +1,9 @@
-// components/CEOChatPanel.tsx
 "use client";
 
 import { useState } from "react";
 import { useStrategyStore } from "@/store/strategyStore";
+import { Department, Project } from "@/types/strategy";
+
 
 export default function CEOChatPanel() {
   const [messages, setMessages] = useState<string[]>([]);
@@ -13,36 +14,34 @@ export default function CEOChatPanel() {
   const {
     vision,
     industry,
-    revenueRange,
-    employeeRange,
+    revenue,
+    employees,
     mission,
-    visionStatement,
     value,
     strength,
     weakness,
     opportunity,
     threat,
-    departments
+    editableCascadeResult
   } = useStrategyStore();
 
-  const departmentInfo = (departments || []).map((dept) => {
-    const projectTitles = (dept.projects || []).map((proj) => `    - ${proj.title}`).join("\n");
+  const departmentInfo = (editableCascadeResult || []).map((dept: Department) => {
+    const projectTitles = (dept.projects || []).map((proj: Project) => `  - ${proj.title}`).join("\n");
     return `● ${dept.name}: ${dept.goal}\n${projectTitles}`;
   }).join("\n\n");
 
-  const context = `
-【経営戦略情報】
+  const context = `【経営戦略情報】
 - 経営者の思い: ${vision}
 - 業種: ${industry}
-- 売上規模: ${revenueRange}
-- 社員数: ${employeeRange}
+- 売上: ${revenue}
+- 社員数: ${employees}
 - SWOT:
   S: ${strength}
   W: ${weakness}
   O: ${opportunity}
   T: ${threat}
 - ミッション: ${mission}
-- ビジョン: ${visionStatement}
+- ビジョン: ${vision}
 - バリュー: ${value}
 
 【部門戦略とプロジェクト】
@@ -75,24 +74,33 @@ ${departmentInfo}
   };
 
   return (
-    <div className="w-full h-screen flex flex-col">
-      <div className="p-4 border-b font-bold text-lg bg-gray-100">経営者AIチャット</div>
-      <div className="flex-1 overflow-y-auto p-4 space-y-2 text-sm">
+    <div className="w-full h-screen flex flex-col border-l border-gray-300 shadow-inner bg-white">
+      {/* ヘッダー */}
+      <div className="p-4 border-b font-semibold text-lg bg-gradient-to-r from-blue-100 to-blue-50 text-gray-800">
+        経営者AIチャット
+      </div>
+
+      {/* メッセージ一覧 */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-3 text-sm bg-gray-50">
         {messages.map((msg, i) => (
-          <div key={i} className="whitespace-pre-wrap">{msg}</div>
+          <div key={i} className="bg-white shadow p-3 rounded whitespace-pre-wrap border border-gray-200">
+            {msg}
+          </div>
         ))}
-        {loading && <div>CEOが考え中...</div>}
+        {loading && <div className="text-blue-600">CEOが考え中...</div>}
         {error && <div className="text-red-500">{error}</div>}
       </div>
-      <div className="p-3 border-t flex gap-2">
+
+      {/* 入力欄 */}
+      <div className="p-3 border-t flex gap-2 bg-white">
         <input
-          className="flex-1 border p-2 rounded text-sm"
+          className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="経営の方向性や整合性について質問してください"
         />
         <button
-          className="bg-blue-500 text-white px-4 py-2 rounded text-sm"
+          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm disabled:opacity-50"
           onClick={handleSend}
           disabled={loading}
         >
