@@ -74,6 +74,8 @@ export interface StrategyState {
   deleteProject: (deptName: string, projIndex: number) => void;
 
   setCsvFinanceData: (data: any[]) => void;
+  setFinanceData: (data: any[]) => void;
+
   setNotification: (v: string) => void;
 
   saveToSupabase: () => Promise<void>;
@@ -173,6 +175,8 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   },
 
   setCsvFinanceData: (data) => set({ csvFinanceData: data }),
+  setFinanceData: (data) => set({ csvFinanceData: data }),
+
   setNotification: (v) => set({ notification: v }),
 
   saveToSupabase: async () => {

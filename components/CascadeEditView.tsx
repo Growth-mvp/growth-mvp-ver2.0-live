@@ -1,9 +1,8 @@
-// components/CascadeEditView.tsx
 'use client';
 
 import { useStrategyStore } from '@/store/strategyStore';
 import DepartmentBlock from './DepartmentBlock';
-import { PlusCircle, Save, Wand2 } from 'lucide-react';
+import { Plus, Save, RefreshCw } from 'lucide-react';
 
 export default function CascadeEditView() {
   const {
@@ -21,43 +20,49 @@ export default function CascadeEditView() {
       projects: [],
     };
     setEditableCascadeResult([...editableCascadeResult, newDept]);
-    setNotification('🏢 部門を追加しました');
+    setNotification('✅ 部門を追加しました');
   };
 
   const handleSave = async () => {
     await saveToSupabase();
+    setNotification('💾 保存しました');
   };
 
   const handleGenerate = async () => {
-    setNotification('🚧 戦略生成機能は今後実装されます');
+    setNotification('🚧 戦略生成機能は今後実装予定です');
   };
 
   return (
-    <div className="p-4 space-y-4">
-      <div className="flex gap-3 mb-4">
+    <div className="p-6 space-y-6 bg-white rounded-lg shadow-sm">
+      {/* 操作ボタン */}
+      <div className="flex flex-wrap gap-4">
         <button
           onClick={handleAddDepartment}
-          className="flex items-center gap-1 bg-blue-100 hover:bg-blue-200 text-blue-800 px-3 py-1 rounded shadow"
+          className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-700 transition text-sm"
         >
-          <PlusCircle size={16} /> 部門を追加
+          <Plus className="w-4 h-4" />
+          部門を追加
         </button>
 
         <button
           onClick={handleGenerate}
-          className="flex items-center gap-1 bg-green-100 hover:bg-green-200 text-green-800 px-3 py-1 rounded shadow"
+          className="flex items-center gap-2 px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition text-sm"
         >
-          <Wand2 size={16} /> 戦略を再生成
+          <RefreshCw className="w-4 h-4" />
+          戦略を再生成
         </button>
 
         <button
           onClick={handleSave}
-          className="flex items-center gap-1 bg-yellow-100 hover:bg-yellow-200 text-yellow-800 px-3 py-1 rounded shadow"
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition text-sm"
         >
-          <Save size={16} /> 保存
+          <Save className="w-4 h-4" />
+          保存
         </button>
       </div>
 
-      <div className="space-y-4">
+      {/* 部門ブロック */}
+      <div className="space-y-6">
         {editableCascadeResult.map((dept, index) => (
           <DepartmentBlock key={index} department={dept} />
         ))}

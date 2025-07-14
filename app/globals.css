@@ -1,9 +1,54 @@
-/* app/globals.css */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* 任意: フォントや共通スタイル */
+/* ===== 共通ベース設定 ===== */
 body {
-  @apply bg-gray-50 text-gray-900;
+  @apply bg-gray-50 text-gray-900 font-sans leading-relaxed antialiased;
+}
+
+h1 {
+  @apply text-3xl font-bold text-gray-800 tracking-tight mb-4;
+}
+
+h2 {
+  @apply text-2xl font-semibold text-gray-700 mb-2;
+}
+
+h3 {
+  @apply text-xl font-medium text-gray-600 mb-1;
+}
+
+p {
+  @apply text-base text-gray-700 leading-relaxed;
+}
+
+/* ===== フォーム系統一 ===== */
+input,
+textarea,
+select {
+  @apply w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500;
+}
+
+button {
+  @apply font-medium transition duration-200 ease-in-out;
+}
+
+button:disabled {
+  @apply opacity-50 cursor-not-allowed;
+}
+
+/* ===== カードベース ===== */
+.card {
+  @apply bg-white rounded-2xl shadow-md p-6 border border-gray-200;
+}
+
+/* ===== セクション区切り線 ===== */
+.divider {
+  @apply border-t border-gray-300 my-6;
+}
+
+/* ===== リンク ===== */
+a {
+  @apply text-blue-600 hover:text-blue-800 underline transition;
 }
