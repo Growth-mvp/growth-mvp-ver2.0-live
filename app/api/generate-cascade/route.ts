@@ -23,13 +23,13 @@ export async function POST(req: NextRequest) {
       csvFinanceData,
     } = await req.json();
 
-    // 🔍 受信データをログ出力（デバッグ用）
-    console.log('🔍 受信データ:', {
-      thought,
-      strategySummary,
-      story,
-      departments,
-    });
+    // ✅ 入力チェック
+    if (!Array.isArray(departments) || departments.length === 0) {
+      return NextResponse.json(
+        { error: '部門情報が未入力です。カスケード生成できません。' },
+        { status: 400 }
+      );
+    }
 
     const hasValidInput = !!(story?.trim() || strategySummary?.trim());
     if (!hasValidInput) {
@@ -53,9 +53,7 @@ export async function POST(req: NextRequest) {
             .join('\n')
         : '（財務データなし）';
 
-    const departmentNames = Array.isArray(departments)
-      ? departments.map((d: any) => d.name).join(', ')
-      : '（部門情報なし）';
+    const departmentNames = departments.map((d: any) => d.name).join(', ');
 
     const prompt = `
 あなたは経営戦略の専門家です。
@@ -119,8 +117,7 @@ ${departmentNames}
       ]
     }
   ]
-}
-`.trim();
+}`.trim();
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o',
@@ -139,12 +136,13 @@ ${departmentNames}
     });
 
     const content = completion.choices?.[0]?.message?.content || '';
+    console.log('🔵 GPT生データ:', content);
 
     let json = null;
     try {
-      const start = content.indexOf('{');
-      const end = content.lastIndexOf('}');
-      const jsonString = content.substring(start, end + 1);
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('JSON形式が見つかりません');
+      const jsonString = jsonMatch[0];
       json = JSON.parse(jsonString);
 
       if (!json.strategy || !json.strategy.summary) {

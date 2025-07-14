@@ -71,6 +71,7 @@ export interface StrategyState {
   updateDepartmentStrategy: (deptName: string, newStrategy: string) => void;
   updateProject: (deptName: string, projIndex: number, newProj: Project) => void;
   addProject: (deptName: string, newProj: Project) => void;
+  deleteProject: (deptName: string, projIndex: number) => void;
 
   setCsvFinanceData: (data: any[]) => void;
   setNotification: (v: string) => void;
@@ -153,6 +154,18 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
     const updated = get().editableCascadeResult.map((dept) => {
       if (dept.name === deptName) {
         return { ...dept, projects: [...dept.projects, newProj] };
+      }
+      return dept;
+    });
+    set({ editableCascadeResult: updated });
+  },
+
+  deleteProject: (deptName, projIndex) => {
+    const updated = get().editableCascadeResult.map((dept) => {
+      if (dept.name === deptName) {
+        const newProjects = [...dept.projects];
+        newProjects.splice(projIndex, 1);
+        return { ...dept, projects: newProjects };
       }
       return dept;
     });

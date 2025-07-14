@@ -20,11 +20,12 @@ export async function POST(req: NextRequest) {
       csvFinanceData,
     } = await req.json();
 
-    const financialSummary = Array.isArray(csvFinanceData) && csvFinanceData.length > 0
-      ? `\n\n【参考財務データ（CSVアップロード）】\n${csvFinanceData
-          .map((row: any) => Object.values(row).join(' / '))
-          .join('\n')}`
-      : '';
+    const financialSummary =
+      Array.isArray(csvFinanceData) && csvFinanceData.length > 0
+        ? `\n\n【参考財務データ（CSVアップロード）】\n${csvFinanceData
+            .map((row: any) => Object.values(row).join(' / '))
+            .join('\n')}`
+        : '';
 
     // --- 1. 戦略ストーリー生成プロンプト ---
     const storyPrompt = `
@@ -53,17 +54,21 @@ ${thought || '（経営者の思いが未入力）'}
 ${financialSummary}
 
 【出力フォーマット】
-### ① 現状の危機や背景（なぜ今、変革が必要なのか）
+以下の4章構成で、各章の見出しは必ず「■」から始めてください。全ての章を出力してください。
+
+■現状の危機や背景（なぜ今、変革が必要なのか）
 ...
 
-### ② 経営者が描く未来の方向性（どこを目指すのか）
+■経営者が描く未来の方向性（どこを目指すのか）
 ...
 
-### ③ SWOTに基づいた戦略的な選択（強み×機会などのクロス分析を含む）
+■SWOTに基づいた戦略的な選択（強み×機会などのクロス分析を含む）
 ...
 
-### ④ 社員に求める行動や期待（自分ごととして捉えてもらう）
-...
+■社員に求める行動や期待（自分ごととして捉えてもらう）
+この章では、社員にとっての意味や意義に加えて、
+必ず「3つ以上の具体的な行動例」を提示してください。
+例：「週に1回、業務改善提案を提出」「毎月1件の新規顧客開拓」「定例会でKPI進捗を共有する」など
 `.trim();
 
     const storyCompletion = await openai.chat.completions.create({
@@ -90,7 +95,6 @@ ${story}
     const summary = summaryCompletion.choices[0]?.message?.content?.trim() || '要約なし';
 
     return NextResponse.json({ story, summary });
-
   } catch (error) {
     console.error('❌ AIストーリー生成エラー:', error);
     return NextResponse.json(
