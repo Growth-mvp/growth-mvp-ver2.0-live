@@ -1,47 +1,66 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { useStrategyStore } from '@/store/strategyStore'
+import { useState } from 'react';
+import { useStrategyStore } from '@/store/strategyStore';
 
 export default function ChatWithAIPage() {
   const {
     vision,
     industry,
-    revenueRange,
-    employeeRange,
-    swot,
-  } = useStrategyStore()
+    revenue,
+    employees,
+    strength,
+    weakness,
+    opportunity,
+    threat,
+  } = useStrategyStore();
 
-  const [chatInput, setChatInput] = useState('')
-  const [chatResponse, setChatResponse] = useState('')
-  const [chatLoading, setChatLoading] = useState(false)
+  const [chatInput, setChatInput] = useState('');
+  const [chatResponse, setChatResponse] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
 
   const handleChatWithAI = async () => {
-    if (!chatInput.trim()) return
-    setChatLoading(true)
-    try {
-      const prompt = generatePrompt({
-        vision,
-        industry,
-        revenueRange,
-        employeeRange,
-        swot,
-        question: chatInput,
-      })
+    if (!chatInput.trim()) return;
+    setChatLoading(true);
+    setChatResponse(''); // 応答リセット
 
-      const response = await fetch('/api/generate', {
+    try {
+      const context = `
+【経営戦略の想い】${vision}
+【業種】${industry}
+【売上】${revenue}
+【社員数】${employees}
+【SWOT】
+- 強み: ${strength}
+- 弱み: ${weakness}
+- 機会: ${opportunity}
+- 脅威: ${threat}
+`;
+
+      const response = await fetch('/api/ask-ceo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
-      })
-      const data = await response.json()
-      setChatResponse(data.result || 'AI応答が取得できませんでした')
-    } catch (e) {
-      setChatResponse('エラーが発生しました')
+        body: JSON.stringify({
+          message: chatInput,
+          context: context,
+        }),
+      });
+
+      const data = await response.json();
+      console.log('✅ API応答データ:', data); // 🔍 追加ログ
+
+      if (response.ok && data.reply) {
+        setChatResponse(data.reply);
+      } else {
+        setChatResponse('⚠ CEOからの回答が取得できませんでした。');
+      }
+    } catch (error) {
+      console.error('❌ 通信エラー:', error);
+      setChatResponse('⚠ エラーが発生しました。ネットワークまたはAPIを確認してください。');
     } finally {
-      setChatLoading(false)
+      setChatLoading(false);
     }
-  }
+  };
 
   return (
     <div className="flex max-w-7xl mx-auto">
@@ -69,13 +88,14 @@ export default function ChatWithAIPage() {
           <button
             className="bg-gray-300 px-3 py-1 rounded hover:bg-gray-400"
             onClick={() => {
-              setChatInput('')
-              setChatResponse('')
+              setChatInput('');
+              setChatResponse('');
             }}
           >
             リセット
           </button>
         </div>
+
         {chatResponse && (
           <div className="mt-4 bg-gray-100 p-3 rounded text-sm whitespace-pre-wrap">
             {chatResponse}
@@ -93,45 +113,5 @@ export default function ChatWithAIPage() {
         </p>
       </aside>
     </div>
-  )
-}
-
-function generatePrompt({
-  vision,
-  industry,
-  revenueRange,
-  employeeRange,
-  swot,
-  question,
-}: {
-  vision: string
-  industry: string
-  revenueRange: string
-  employeeRange: string
-  swot: { strength: string; weakness: string; opportunity: string; threat: string }
-  question: string
-}) {
-  return `
-あなたは「社長の考えを補助的に伝えるAI」です。以下の経営情報に基づいて、社員からの質問に優しく簡潔に答えてください。
-
-【経営戦略の想い】${vision}
-【業種】${industry}
-【売上】${revenueRange}
-【社員数】${employeeRange}
-【SWOT】
-- 強み: ${swot.strength}
-- 弱み: ${swot.weakness}
-- 機会: ${swot.opportunity}
-- 脅威: ${swot.threat}
-
-ただし、次のような質問には絶対に答えないでください：
-・特定の人物や処遇（昇進・評価など）に関する質問
-・未公開の財務・投資情報
-・法務・契約・リスクに関する情報
-
-不適切な質問と判断した場合は以下のように答えてください：
-「申し訳ありません。その質問にはお答えできませんが、何か他にお力になれることがあればお聞かせください。」
-
-質問: ${question}
-  `
+  );
 }

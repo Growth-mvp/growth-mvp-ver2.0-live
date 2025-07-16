@@ -2,14 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useStrategyStore } from '../store/strategyStore';
+import { useEffect } from 'react';
+import { useStrategyStore } from '@/store/strategyStore';
 import {
   FileText,
-  BookOpen,
-  Layers,
-  Save,
-  RefreshCcw,
-  Trash2,
+  BookMarked,
+  Share,
+  Download,
+  XOctagon,
 } from 'lucide-react';
 
 export default function Sidebar() {
@@ -33,79 +33,83 @@ export default function Sidebar() {
   };
 
   const handleClear = async () => {
-    await clearAllData();
-    setNotification('🗑️ すべてのデータを削除しました');
+    const confirmed = confirm('⚠ 本当にすべてのデータを削除しますか？');
+    if (confirmed) {
+      await clearAllData();
+      setNotification('🗑️ すべてのデータを削除しました');
+    }
   };
+
+  // 通知は一定時間で自動クリア
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => {
+        setNotification('');
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification, setNotification]);
 
   return (
     <aside className="h-screen w-72 bg-gray-900 text-white flex flex-col justify-between p-6 shadow-xl">
       <div>
-        <h1 className="text-2xl font-bold text-white mb-10 tracking-wide">GROWTH</h1>
+        <h1 className="text-2xl font-bold mb-10 tracking-wide text-white">GROWTH</h1>
 
+        {/* ナビゲーション */}
         <nav className="space-y-3">
-          <Link
+          <SidebarLink
             href="/strategy"
-            className={`flex items-center gap-3 px-4 py-2 rounded-md ${
-              pathname === '/strategy'
-                ? 'bg-blue-600 text-white'
-                : 'hover:bg-gray-800 text-gray-300'
-            }`}
-          >
-            <FileText className="w-5 h-5" />
-            経営情報入力
-          </Link>
-
-          <Link
+            icon={<FileText className="w-5 h-5" />}
+            label="経営情報入力"
+            active={pathname === '/strategy'}
+          />
+          <SidebarLink
             href="/story"
-            className={`flex items-center gap-3 px-4 py-2 rounded-md ${
-              pathname === '/story'
-                ? 'bg-blue-600 text-white'
-                : 'hover:bg-gray-800 text-gray-300'
-            }`}
-          >
-            <BookOpen className="w-5 h-5" />
-            戦略ストーリー
-          </Link>
-
-          <Link
+            icon={<BookMarked className="w-5 h-5" />}
+            label="戦略ストーリー"
+            active={pathname === '/story'}
+          />
+          <SidebarLink
             href="/cascade"
-            className={`flex items-center gap-3 px-4 py-2 rounded-md ${
-              pathname === '/cascade'
-                ? 'bg-blue-600 text-white'
-                : 'hover:bg-gray-800 text-gray-300'
-            }`}
-          >
-            <Layers className="w-5 h-5" />
-            カスケード構造
-          </Link>
+            icon={<Share className="w-5 h-5" />}
+            label="カスケード構造"
+            active={pathname === '/cascade'}
+          />
         </nav>
 
+        {/* アクションボタン */}
         <div className="mt-10 space-y-2 text-sm">
-          <button
+          <ActionButton
             onClick={handleSave}
-            className="w-full flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-800 rounded hover:bg-blue-200 transition"
-          >
-            <Save className="w-4 h-4" />
-            保存
-          </button>
-          <button
+            icon={<Download className="w-4 h-4 text-white" />}
+            label="保存"
+            color="blue"
+          />
+          <ActionButton
             onClick={handleLoad}
-            className="w-full flex items-center gap-2 px-4 py-2 bg-green-100 text-green-800 rounded hover:bg-green-200 transition"
-          >
-            <RefreshCcw className="w-4 h-4" />
-            復元
-          </button>
-          <button
+            icon={<BookMarked className="w-4 h-4 text-white" />}
+            label="復元"
+            color="green"
+          />
+          <ActionButton
             onClick={handleClear}
-            className="w-full flex items-center gap-2 px-4 py-2 bg-red-100 text-red-700 rounded hover:bg-red-200 transition"
-          >
-            <Trash2 className="w-4 h-4" />
-            全削除
-          </button>
+            icon={<XOctagon className="w-4 h-4 text-white" />}
+            label="全削除"
+            color="red"
+          />
         </div>
 
+        {/* 通知表示 */}
         {notification && (
-          <div className="mt-4 text-sm text-green-400">{notification}</div>
+          <div
+            className={`mt-4 text-sm px-3 py-2 rounded transition ${
+              notification.includes('削除')
+                ? 'bg-rose-100 text-rose-700'
+                : 'bg-emerald-100 text-emerald-700'
+            }`}
+          >
+            {notification}
+          </div>
         )}
       </div>
 
@@ -113,5 +117,57 @@ export default function Sidebar() {
         © 2025 GROWTH Strategy Platform
       </div>
     </aside>
+  );
+}
+
+// ナビゲーションリンク
+function SidebarLink({
+  href,
+  icon,
+  label,
+  active,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  label: string;
+  active: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`flex items-center gap-3 px-4 py-2 rounded-md transition ${
+        active ? 'bg-sky-700 text-white' : 'hover:bg-gray-800 text-gray-300'
+      }`}
+    >
+      {icon}
+      {label}
+    </Link>
+  );
+}
+
+// アクションボタン（保存・復元・削除）
+function ActionButton({
+  onClick,
+  icon,
+  label,
+  color,
+}: {
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  color: 'blue' | 'green' | 'red';
+}) {
+  const baseStyle = 'w-full flex items-center gap-2 px-4 py-2 rounded-md transition transform hover:scale-[1.02] active:scale-95';
+  const colorClasses = {
+    blue: 'bg-sky-700 hover:bg-sky-800 text-white',
+    green: 'bg-emerald-600 hover:bg-emerald-700 text-white',
+    red: 'bg-rose-600 hover:bg-rose-700 text-white',
+  }[color];
+
+  return (
+    <button onClick={onClick} className={`${baseStyle} ${colorClasses}`}>
+      {icon}
+      {label}
+    </button>
   );
 }

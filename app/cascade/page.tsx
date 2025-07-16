@@ -70,9 +70,19 @@ export default function CascadePage() {
 
   return (
     <main className="p-8 min-h-screen bg-gradient-to-b from-white to-gray-50">
-      <h1 className="text-2xl font-semibold text-gray-800 text-center mb-8">
+      <h1 className="text-2xl font-semibold text-gray-800 text-center mb-4">
         戦略カスケード
       </h1>
+
+      {/* ✅ 経営戦略の要約表示 */}
+      {strategySummary && (
+        <div className="bg-white shadow border-l-4 border-blue-600 rounded-md p-4 mb-6 max-w-4xl mx-auto">
+          <h2 className="text-blue-700 font-semibold text-sm mb-2">経営戦略の要約</h2>
+          <p className="text-gray-800 text-sm whitespace-pre-wrap leading-relaxed">
+            {strategySummary}
+          </p>
+        </div>
+      )}
 
       {/* カスケード生成ボタン */}
       <div className="flex justify-center mb-6">

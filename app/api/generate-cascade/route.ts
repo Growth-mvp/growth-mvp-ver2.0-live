@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server'; 
 import { OpenAI } from 'openai';
+import { industryTemplates } from '@/utils/industryTemplates';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
@@ -55,9 +56,14 @@ export async function POST(req: NextRequest) {
 
     const departmentNames = departments.map((d: any) => d.name).join(', ');
 
+    const industryContext = industryTemplates[industry] || '';
+
     const prompt = `
 あなたは経営戦略の専門家です。
 以下の経営情報をもとに、経営戦略を部門戦略→プロジェクト→OKRへと分解してください。
+
+【業界背景・成功戦略パターン】
+${industryContext}
 
 【経営戦略の要約】
 ${summary}

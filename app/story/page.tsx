@@ -1,5 +1,5 @@
 'use client';
-import React from 'react'; // 👈 これを追加！
+import React from 'react';
 import { useState, useEffect } from 'react';
 import { useStrategyStore } from '../../store/strategyStore';
 import { useRouter } from 'next/navigation';
@@ -86,60 +86,57 @@ export default function StoryPage() {
     <div className="p-8 min-h-screen bg-gradient-to-b from-white to-blue-50">
       <h1 className="text-3xl font-semibold mb-6 text-gray-900 tracking-tight">戦略ストーリー生成</h1>
 
-      <button
-        onClick={generateStory}
-        disabled={loading}
-        className="bg-blue-700 text-white px-6 py-3 rounded-lg hover:bg-blue-800 transition text-sm font-medium"
-      >
-        {loading ? '生成中...' : '📘 ストーリー生成'}
-      </button>
+      <div className="flex items-center gap-4 mb-6">
+        <button
+          onClick={generateStory}
+          disabled={loading}
+          className="bg-blue-700 text-white px-6 py-3 rounded-lg hover:bg-blue-800 transition text-sm font-medium"
+        >
+          {loading ? '生成中...' : '📘 ストーリー生成'}
+        </button>
+        {error && <p className="text-red-500 text-sm">{error}</p>}
+      </div>
 
-      {error && <p className="text-red-500 mt-4 text-sm">{error}</p>}
-
-      {/* ストーリー4章表示 */}
-      <div className="mt-10 grid grid-cols-1 md:grid-cols-2 gap-8">
+      {/* ストーリー表示 */}
+      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* ① 現状の危機 */}
-        <div className="bg-white shadow-lg rounded-xl p-6 border-l-4 border-red-500">
+        <div className="bg-white shadow-lg rounded-xl p-6 border-l-4 border-red-500 max-h-[400px] overflow-auto">
           <div className="flex items-center mb-3 text-red-600 font-semibold text-base">
             <ShieldAlert className="w-5 h-5 mr-2" />
+            <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded text-xs font-bold mr-2">①</span>
             現状の危機や背景
           </div>
-          <p className="text-gray-800 text-sm whitespace-pre-wrap leading-relaxed">
-            {parts[1]?.trim()}
-          </p>
+          <p className="text-gray-800 text-sm whitespace-pre-wrap leading-relaxed">{parts[1]?.trim()}</p>
         </div>
 
         {/* ② 目指す方向性 */}
-        <div className="bg-white shadow-lg rounded-xl p-6 border-l-4 border-blue-500">
+        <div className="bg-white shadow-lg rounded-xl p-6 border-l-4 border-blue-500 max-h-[400px] overflow-auto">
           <div className="flex items-center mb-3 text-blue-600 font-semibold text-base">
             <Navigation className="w-5 h-5 mr-2" />
+            <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-bold mr-2">②</span>
             目指す方向性
           </div>
-          <p className="text-gray-800 text-sm whitespace-pre-wrap leading-relaxed">
-            {parts[2]?.trim()}
-          </p>
+          <p className="text-gray-800 text-sm whitespace-pre-wrap leading-relaxed">{parts[2]?.trim()}</p>
         </div>
 
         {/* ③ SWOT戦略 */}
-        <div className="bg-white shadow-lg rounded-xl p-6 border-l-4 border-purple-500">
+        <div className="bg-white shadow-lg rounded-xl p-6 border-l-4 border-purple-500 max-h-[400px] overflow-auto">
           <div className="flex items-center mb-3 text-purple-600 font-semibold text-base">
             <Network className="w-5 h-5 mr-2" />
+            <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-xs font-bold mr-2">③</span>
             SWOTに基づく戦略
           </div>
-          <p className="text-gray-800 text-sm whitespace-pre-wrap leading-relaxed">
-            {parts[3]?.trim()}
-          </p>
+          <p className="text-gray-800 text-sm whitespace-pre-wrap leading-relaxed">{parts[3]?.trim()}</p>
         </div>
 
-        {/* ④ 社員への期待 */}
-        <div className="bg-white shadow-lg rounded-xl p-6 border-l-4 border-green-500 md:col-span-2">
+        {/* ④ 社員への期待（全幅） */}
+        <div className="bg-white shadow-lg rounded-xl p-6 border-l-4 border-green-500 md:col-span-2 max-h-[400px] overflow-auto">
           <div className="flex items-center mb-3 text-green-600 font-semibold text-base">
             <Users className="w-5 h-5 mr-2" />
+            <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded text-xs font-bold mr-2">④</span>
             社員に求める行動や期待
           </div>
-          <p className="text-gray-800 text-sm whitespace-pre-wrap leading-relaxed">
-            {parts[4]?.trim()}
-          </p>
+          <p className="text-gray-800 text-sm whitespace-pre-wrap leading-relaxed">{parts[4]?.trim()}</p>
         </div>
       </div>
 
