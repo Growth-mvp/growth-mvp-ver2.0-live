@@ -26,8 +26,8 @@ export default function CEOChatPanel() {
   } = useStrategyStore();
 
   const departmentInfo = (editableCascadeResult || []).map((dept: Department) => {
-    const projectTitles = (dept.projects || []).map((proj: Project) => `  - ${proj.title}`).join("\n");
-    return `● ${dept.name}: ${dept.goal}\n${projectTitles}`;
+    const projectTitles = (dept.projects || []).map((proj: Project) => `  - ${proj.name}`).join("\n");
+    return `● ${dept.name}: ${dept.strategy}\n${projectTitles}`;
   }).join("\n\n");
 
   const context = `【経営戦略情報】

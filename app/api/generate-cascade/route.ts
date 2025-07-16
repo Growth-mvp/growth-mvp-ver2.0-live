@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'; 
+import { NextRequest, NextResponse } from 'next/server';
 import { OpenAI } from 'openai';
 import { industryTemplates } from '@/utils/industryTemplates';
 
@@ -24,7 +24,6 @@ export async function POST(req: NextRequest) {
       csvFinanceData,
     } = await req.json();
 
-    // ✅ 入力チェック
     if (!Array.isArray(departments) || departments.length === 0) {
       return NextResponse.json(
         { error: '部門情報が未入力です。カスケード生成できません。' },
@@ -55,27 +54,16 @@ export async function POST(req: NextRequest) {
         : '（財務データなし）';
 
     const departmentNames = departments.map((d: any) => d.name).join(', ');
-
     const industryContext = industryTemplates[industry] || '';
 
     const prompt = `
-あなたは経営戦略の専門家です。
-以下の経営情報をもとに、経営戦略を部門戦略→プロジェクト→OKRへと分解してください。
+あなたは世界最高の経営戦略コンサルタントです。以下の経営情報をもとに、経営戦略 → 部門戦略 → プロジェクト → OKR の順にロジカルに分解してください。
 
-【業界背景・成功戦略パターン】
+【業界背景・成功パターン】
 ${industryContext}
 
-【経営戦略の要約】
-${summary}
-
-【経営者の思い】
-${thought || '（経営者の思いが未入力です）'}
-
-【経営戦略のストーリー】
-${story || '（ストーリー未入力）'}
-
-【業界・規模】
-業種: ${industry}, 売上: ${revenue}百万円, 従業員数: ${employees}人
+【経営者の想い】
+${thought || '（未入力）'}
 
 【MVV】
 Mission: ${mission}
@@ -83,39 +71,46 @@ Vision: ${vision}
 Value: ${value}
 
 【SWOT分析】
-Strength: ${strength}
-Weakness: ${weakness}
-Opportunity: ${opportunity}
-Threat: ${threat}
+- 強み: ${strength}
+- 弱み: ${weakness}
+- 機会: ${opportunity}
+- 脅威: ${threat}
 
-【CSV財務データ（参考）】
+【業種・売上・従業員数】
+${industry}、年商${revenue}百万円、従業員${employees}人
+
+【CSV財務情報（参考）】
 ${financeText}
 
-【部門名一覧】
+【経営戦略のストーリー（抜粋）】
+${story?.slice(0, 500) || '（ストーリー未入力）'}
+
+【要約】
+${summary}
+
+【対象部門】
 ${departmentNames}
 
-上記の情報をもとに、以下の形式で**純粋なJSONのみを返してください**。
-前後に説明文を絶対に含めないでください。
-すでに記載されている部門名以外は絶対に追加・変更しないでください。
+以下の形式に厳密に従って、**日本語の純粋なJSON**のみを返してください。前後に説明は不要です。既存の部門名以外は出力しないでください。
 
 {
   "strategy": {
-    "summary": "全体経営戦略をここに記述"
+    "summary": "会社全体の経営戦略要約（現状の危機・方向性・優先課題など）"
   },
   "departments": [
     {
       "name": "部門名",
-      "strategy": "部門戦略の要約",
+      "strategy": "この部門が担うべき戦略的役割を明確に記述",
       "projects": [
         {
-          "name": "プロジェクト名",
-          "description": "目的や概要",
+          "name": "プロジェクト名（戦略推進のための活動名）",
+          "description": "このプロジェクトの目的・ねらい・達成姿勢などを簡潔に記述",
           "okrs": [
             {
-              "objective": "O: 目標",
+              "objective": "O: プロジェクトの定性的な達成目標",
               "keyResults": [
-                "KR1: 定量的指標1",
-                "KR2: 定量的指標2"
+                "KR1: 測定可能な成果指標1",
+                "KR2: 測定可能な成果指標2"
               ]
             }
           ]
@@ -130,26 +125,24 @@ ${departmentNames}
       messages: [
         {
           role: 'system',
-          content:
-            'あなたは優秀な戦略コンサルタントです。必ずJSON形式のみを返し、説明文は一切含めてはいけません。',
+          content: 'あなたは有能な経営戦略コンサルタントです。必ずJSON形式のみを返し、日本語で記述し、前後の説明文は禁止です。',
         },
         {
           role: 'user',
           content: prompt,
         },
       ],
-      temperature: 0.7,
+      temperature: 0.6,
     });
 
     const content = completion.choices?.[0]?.message?.content || '';
-    console.log('🔵 GPT生データ:', content);
+    console.log('🟢 GPT出力:', content);
 
     let json = null;
     try {
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('JSON形式が見つかりません');
-      const jsonString = jsonMatch[0];
-      json = JSON.parse(jsonString);
+      json = JSON.parse(jsonMatch[0]);
 
       if (!json.strategy || !json.strategy.summary) {
         json.strategy = { summary };

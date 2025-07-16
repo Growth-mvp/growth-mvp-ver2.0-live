@@ -1,6 +1,6 @@
-import { create } from 'zustand';
+import { create } from 'zustand'; 
 import { saveStrategyData, loadStrategyData, deleteStrategyData } from '../utils/supabase';
-import { Department, Project } from '@/types/strategy'; // ✅ 型を外部からインポート
+import { Department, Project, OKR } from '@/types/strategy'; // ✅ 型を外部からインポート
 
 export interface StrategyState {
   companyName: string;
@@ -200,7 +200,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
         story: data.story || '',
         strategySummary: data.strategySummary || '',
         csvFinanceData: data.csvFinanceData || [],
-        editableCascadeResult: (data.editableCascade || []).map((dept: any) => ({
+        editableCascadeResult: (data.editableCascadeResult || []).map((dept: any) => ({
           id: dept.id,
           name: dept.name,
           strategy: dept.strategy,
@@ -210,6 +210,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
             okrs: (proj.okrs || []).map((okr: any) => ({
               objective: okr.objective || '',
               keyResults: okr.keyResults || [],
+              owner: okr.owner || '',
             })),
           })),
         })),

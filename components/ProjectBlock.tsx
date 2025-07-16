@@ -3,7 +3,7 @@
 import { useStrategyStore } from '@/store/strategyStore';
 import { Trash2, Save, Plus } from 'lucide-react';
 import { useState } from 'react';
-import type { Project } from '@/store/strategyStore';
+import type { Project } from '@/types/strategy'; // ✅ 正しいパスでProject型をインポート
 
 interface Props {
   departmentName: string;
@@ -38,18 +38,24 @@ export default function ProjectBlock({
     setNotification('🗑️ プロジェクトを削除しました');
   };
 
-  const handleOKRChange = (index: number, field: 'objective' | 'keyResults', value: string) => {
+  const handleOKRChange = (
+    index: number,
+    field: 'objective' | 'keyResults' | 'owner',
+    value: string
+  ) => {
     const updated = [...okrs];
     if (field === 'objective') {
       updated[index].objective = value;
-    } else {
+    } else if (field === 'keyResults') {
       updated[index].keyResults = value.split('\n');
+    } else if (field === 'owner') {
+      updated[index].owner = value;
     }
     setOkrs(updated);
   };
 
   const handleAddOKR = () => {
-    setOkrs([...okrs, { objective: '', keyResults: [] }]);
+    setOkrs([...okrs, { objective: '', keyResults: [], owner: '' }]);
   };
 
   const handleDeleteOKR = (index: number) => {
@@ -100,6 +106,17 @@ export default function ProjectBlock({
                 placeholder="O: 目標を入力"
               />
             </div>
+
+            <div>
+              <label className="text-xs text-gray-500">Owner（担当者）</label>
+              <input
+                className="w-full text-sm border border-gray-300 px-2 py-1 rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
+                value={okr.owner || ''}
+                onChange={(e) => handleOKRChange(i, 'owner', e.target.value)}
+                placeholder="例: tanaka@example.com または 田中"
+              />
+            </div>
+
             <div>
               <label className="text-xs text-gray-500">Key Results（1行ごと）</label>
               <textarea
@@ -109,6 +126,7 @@ export default function ProjectBlock({
                 placeholder={'KR1: ...\nKR2: ...'}
               />
             </div>
+
             <button
               className="text-xs text-red-500 hover:underline"
               onClick={() => handleDeleteOKR(i)}

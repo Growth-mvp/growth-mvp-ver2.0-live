@@ -3,6 +3,7 @@
 export type OKR = {
   objective: string;
   keyResults: string[];
+  owner?: string; // 👈 担当者（オプションとして定義）
 };
 
 export type Project = {

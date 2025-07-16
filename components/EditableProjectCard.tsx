@@ -1,6 +1,6 @@
 'use client';
 
-import { Project } from '@/store/strategyStore';
+import { Project } from '@/types/strategy'; // ✅ 正しいインポート元に修正
 
 interface EditableProjectCardProps {
   department: string;
@@ -15,9 +15,19 @@ export default function EditableProjectCard({
   project,
   updateProject,
 }: EditableProjectCardProps) {
+  const handleProjectNameChange = (value: string) => {
+    updateProject(department, index, { ...project, name: value });
+  };
+
   const handleObjectiveChange = (okrIndex: number, value: string) => {
     const updatedOKRs = [...project.okrs];
     updatedOKRs[okrIndex].objective = value;
+    updateProject(department, index, { ...project, okrs: updatedOKRs });
+  };
+
+  const handleOwnerChange = (okrIndex: number, value: string) => {
+    const updatedOKRs = [...project.okrs];
+    updatedOKRs[okrIndex].owner = value;
     updateProject(department, index, { ...project, okrs: updatedOKRs });
   };
 
@@ -27,10 +37,6 @@ export default function EditableProjectCard({
     updatedKRs[krIndex] = value;
     updatedOKRs[okrIndex].keyResults = updatedKRs;
     updateProject(department, index, { ...project, okrs: updatedOKRs });
-  };
-
-  const handleProjectNameChange = (value: string) => {
-    updateProject(department, index, { ...project, name: value });
   };
 
   return (
@@ -54,8 +60,17 @@ export default function EditableProjectCard({
             placeholder="目的を入力"
           />
 
+          <label className="text-sm font-medium text-gray-600">担当者（Owner）</label>
+          <input
+            type="text"
+            value={okr.owner || ''}
+            onChange={(e) => handleOwnerChange(okrIndex, e.target.value)}
+            className="w-full border border-gray-300 rounded px-2 py-1 mb-2 mt-1"
+            placeholder="例：tanaka@example.com または 田中"
+          />
+
           <label className="text-sm font-medium text-gray-600 ml-1">Key Results</label>
-          {okr.keyResults.map((kr, krIndex) => (
+          {okr.keyResults.map((kr: string, krIndex: number) => (
             <input
               key={krIndex}
               type="text"

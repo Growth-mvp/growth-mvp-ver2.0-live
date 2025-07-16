@@ -1,9 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { Department } from '@/store/strategyStore';
+import { Department } from '@/types/strategy'; // ✅ 修正ポイント
 import ProjectBlock from './ProjectBlock';
-import { Plus, Trash2, ArrowUp, ArrowDown, Pencil } from 'lucide-react';
+import { Plus, Trash2, ArrowUp, ArrowDown, Pencil, ChevronDown } from 'lucide-react';
 import { useStrategyStore } from '@/store/strategyStore';
 
 interface Props {
@@ -27,7 +27,7 @@ export default function DepartmentBlock({ department }: Props) {
     const newProject = {
       name: '新規プロジェクト',
       description: '',
-      okrs: [{ objective: '', keyResults: [] }],
+      okrs: [{ objective: '', keyResults: [], owner: '' }],
     };
     addProject(department.name, newProject);
     setNotification('✅ プロジェクトを追加しました');
@@ -60,14 +60,18 @@ export default function DepartmentBlock({ department }: Props) {
   };
 
   return (
-    <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 shadow-sm">
+    <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 shadow-sm mb-6">
       {/* ヘッダー部分 */}
       <div className="flex justify-between items-center mb-3">
         <div
-          className="cursor-pointer font-semibold text-gray-800"
+          className="cursor-pointer font-semibold text-gray-800 flex items-center gap-1"
           onClick={() => setIsOpen(!isOpen)}
         >
-          ▸ {department.name}（部門戦略）
+          <ChevronDown
+            className={`transform transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+            size={16}
+          />
+          {department.name}（部門戦略）
         </div>
 
         <div className="flex items-center gap-2 text-gray-500">
@@ -106,7 +110,9 @@ export default function DepartmentBlock({ department }: Props) {
       {/* コンテンツ展開部分 */}
       {isOpen && (
         <>
-          <p className="text-sm text-gray-700 mb-3 whitespace-pre-wrap">{department.strategy}</p>
+          <p className="text-sm text-gray-700 mb-3 whitespace-pre-wrap">
+            {department.strategy || '（部門戦略が未入力です）'}
+          </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {department.projects.map((project, idx) => (
