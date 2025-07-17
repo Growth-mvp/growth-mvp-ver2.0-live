@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
-import { OKR } from '@/types/strategy';
-import { useSession } from 'next-auth/react';
+import { useUserStore } from '@/store/userStore';
 import Link from 'next/link';
 
 interface DisplayOKR {
@@ -11,12 +10,12 @@ interface DisplayOKR {
   project: string;
   objective: string;
   owner: string;
-  progress: number; // 将来的に進捗記録から取得
+  progress: number;
 }
 
 export default function ExecutionPage() {
-  const { data: session } = useSession();
-  const currentUserEmail = session?.user?.email || '';
+  const { user } = useUserStore();
+  const currentUserEmail = user?.email || '';
 
   const { editableCascadeResult } = useStrategyStore();
   const [userOKRs, setUserOKRs] = useState<DisplayOKR[]>([]);
@@ -33,7 +32,7 @@ export default function ExecutionPage() {
               project: proj.name,
               objective: okr.objective,
               owner: okr.owner,
-              progress: 0, // TODO: Supabaseの進捗データと連携
+              progress: 0, // 今後 Supabaseから取得可能
             });
           }
         });

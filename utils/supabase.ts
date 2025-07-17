@@ -1,18 +1,19 @@
 import { createClient } from '@supabase/supabase-js';
-import { Department } from '@/types/strategy'; // ✅ 統一型の読み込み
-import { StrategyState } from '@/store/strategyStore'; // 状態全体の型
+import { Department } from '@/types/strategy';
+import { StrategyState } from '@/store/strategyStore';
+import { useUserStore } from '@/store/userStore'; // ← ログイン中のユーザー取得
 
 // Supabase初期化
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
+export const supabase = createClient(supabaseUrl, supabaseKey);
 
 // テーブル名
 const TABLE_NAME = 'strategy_data';
 
-// Supabaseに保存するデータ型（StrategyStateから抽出）
+// Supabaseに保存するデータ型
 export type StrategyData = {
-  user_id: string; // 識別子（仮に 'demo_user' を使用）
+  user_id: string;
   companyName: string;
   foundationYear: string;
   location: string;
@@ -31,7 +32,7 @@ export type StrategyData = {
   vision: string;
   value: string;
 
-  thought: string; // 経営者の思い
+  thought: string;
 
   story: string;
   strategySummary: string;
@@ -39,10 +40,13 @@ export type StrategyData = {
   editableCascade: Department[];
 };
 
-// 保存関数
+// 保存関数（ログインユーザーごと）
 export async function saveStrategyData(state: StrategyState) {
+  const { user } = useUserStore.getState();
+  if (!user?.id) return { data: null, error: new Error('ログインユーザーが不明です') };
+
   const data: StrategyData = {
-    user_id: 'demo_user', // 今後ユーザー対応可能
+    user_id: user.id,
     companyName: state.companyName,
     foundationYear: state.foundationYear,
     location: state.location,
@@ -71,28 +75,34 @@ export async function saveStrategyData(state: StrategyState) {
 
   const { data: saved, error } = await supabase
     .from(TABLE_NAME)
-    .upsert(data, { onConflict: 'user_id' }); // ← user_idが一意キー
+    .upsert(data, { onConflict: 'user_id' }); // ユーザーごとに1件
 
   return { data: saved, error };
 }
 
-// 読込関数
+// 読込関数（ログインユーザーのみ）
 export async function loadStrategyData() {
+  const { user } = useUserStore.getState();
+  if (!user?.id) return { data: null, error: new Error('ログインユーザーが不明です') };
+
   const { data, error } = await supabase
     .from(TABLE_NAME)
     .select('*')
-    .eq('user_id', 'demo_user')
+    .eq('user_id', user.id)
     .single();
 
   return { data, error };
 }
 
-// 削除関数
+// 削除関数（ログインユーザーのデータだけ）
 export async function deleteStrategyData() {
+  const { user } = useUserStore.getState();
+  if (!user?.id) return { error: new Error('ログインユーザーが不明です') };
+
   const { error } = await supabase
     .from(TABLE_NAME)
     .delete()
-    .eq('user_id', 'demo_user');
+    .eq('user_id', user.id);
 
   return { error };
 }

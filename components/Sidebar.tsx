@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
+import { useUserStore } from '@/store/userStore';
+import LogoutButton from './LogoutButton'; // 🔹追加
 import {
   FileText,
   BookMarked,
@@ -26,17 +28,34 @@ export default function Sidebar() {
     setNotification,
   } = useStrategyStore();
 
+  const { user } = useUserStore();
+
   const handleSave = async () => {
+    if (!user?.id) {
+      setNotification('⚠️ ログインが必要です');
+      return;
+    }
+
     await saveToSupabase();
     setNotification('✅ データ保存に成功しました');
   };
 
   const handleLoad = async () => {
+    if (!user?.id) {
+      setNotification('⚠️ ログインが必要です');
+      return;
+    }
+
     await loadFromSupabase();
     setNotification('🔁 データ復元に成功しました');
   };
 
   const handleClear = async () => {
+    if (!user?.id) {
+      setNotification('⚠️ ログインが必要です');
+      return;
+    }
+
     const confirmed = confirm('⚠ 本当にすべてのデータを削除しますか？');
     if (confirmed) {
       await clearAllData();
@@ -86,7 +105,10 @@ export default function Sidebar() {
         )}
       </div>
 
-      <div className="text-xs text-gray-500 mt-8">© 2025 GROWTH Platform</div>
+      <div className="text-xs text-gray-500 mt-8 space-y-2">
+        <div>© 2025 GROWTH Platform</div>
+        {user && <LogoutButton />} {/* 🔹 ログイン中のみ表示 */}
+      </div>
     </aside>
   );
 }
