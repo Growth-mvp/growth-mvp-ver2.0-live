@@ -30,7 +30,7 @@ export default function LoginPage() {
       return;
     }
 
-    // usersテーブルからロール・部門を取得
+    // Supabaseのusersテーブルからロール・部門を取得
     const { data: userData, error: userError } = await supabase
       .from('users')
       .select('*')
@@ -42,8 +42,15 @@ export default function LoginPage() {
       return;
     }
 
-    // ✅ クッキーに user_id を保存（有効期限：1日）
-    document.cookie = `user_id=${data.user.id}; path=/; max-age=86400`;
+    // ✅ API経由でサーバー側にCookieを設定
+    await fetch('/api/set-cookie', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: data.user.id,
+        user_role: userData.role,
+      }),
+    });
 
     // Zustandにユーザ情報を保存
     setUser({
@@ -53,7 +60,7 @@ export default function LoginPage() {
       department: userData.department || '',
     });
 
-    // ✅ トップページへ遷移
+    // ✅ トップページへ遷移（または /admin に分岐してもOK）
     router.push('/');
   };
 

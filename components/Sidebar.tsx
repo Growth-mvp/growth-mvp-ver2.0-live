@@ -3,9 +3,10 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect } from 'react';
+import { supabase } from '@/lib/supabaseClient';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
-import LogoutButton from './LogoutButton'; // 🔹追加
+import LogoutButton from './LogoutButton';
 import {
   FileText,
   BookMarked,
@@ -28,14 +29,13 @@ export default function Sidebar() {
     setNotification,
   } = useStrategyStore();
 
-  const { user } = useUserStore();
+  const { user, setUser } = useUserStore();
 
   const handleSave = async () => {
     if (!user?.id) {
       setNotification('⚠️ ログインが必要です');
       return;
     }
-
     await saveToSupabase();
     setNotification('✅ データ保存に成功しました');
   };
@@ -45,7 +45,6 @@ export default function Sidebar() {
       setNotification('⚠️ ログインが必要です');
       return;
     }
-
     await loadFromSupabase();
     setNotification('🔁 データ復元に成功しました');
   };
@@ -55,13 +54,38 @@ export default function Sidebar() {
       setNotification('⚠️ ログインが必要です');
       return;
     }
-
     const confirmed = confirm('⚠ 本当にすべてのデータを削除しますか？');
     if (confirmed) {
       await clearAllData();
       setNotification('🗑️ すべてのデータを削除しました');
     }
   };
+
+  useEffect(() => {
+    const restoreUserFromCookie = async () => {
+      if (!user) {
+        const match = document.cookie.match(/user_id=([^;]+)/);
+        if (match) {
+          const userId = match[1];
+          const { data, error } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', userId)
+            .single();
+
+          if (!error && data) {
+            setUser({
+              id: userId,
+              email: data.email || '',
+              role: data.role || 'member',
+              department: data.department || '',
+            });
+          }
+        }
+      }
+    };
+    restoreUserFromCookie();
+  }, [user, setUser]);
 
   useEffect(() => {
     if (notification) {
@@ -71,9 +95,17 @@ export default function Sidebar() {
   }, [notification, setNotification]);
 
   return (
-    <aside className="h-screen w-72 bg-gray-900 text-white flex flex-col justify-between p-6 shadow-xl">
+    <aside className="fixed top-0 left-0 z-50 min-h-screen w-72 bg-gray-900 text-white flex flex-col justify-between p-6 shadow-xl overflow-y-auto">
       <div>
-        <h1 className="text-2xl font-bold mb-10 tracking-wide text-white">
+        {/* 🔵 ユーザー情報とログアウトを上部に */}
+        {user && (
+          <div className="mb-6 text-sm text-gray-300">
+            <div className="mb-1">ログイン中: {user.email}</div>
+            <LogoutButton />
+          </div>
+        )}
+
+        <h1 className="text-2xl font-bold mb-8 tracking-wide text-white">
           GROWTH<span className="text-sm text-gray-400 ml-1">戦略実行</span>
         </h1>
 
@@ -105,9 +137,8 @@ export default function Sidebar() {
         )}
       </div>
 
-      <div className="text-xs text-gray-500 mt-8 space-y-2">
-        <div>© 2025 GROWTH Platform</div>
-        {user && <LogoutButton />} {/* 🔹 ログイン中のみ表示 */}
+      <div className="text-xs text-gray-500 mt-8">
+        © 2025 GROWTH Platform
       </div>
     </aside>
   );

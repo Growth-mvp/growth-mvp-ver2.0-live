@@ -1,6 +1,7 @@
-import { create } from 'zustand'; 
+import { create } from 'zustand';
 import { saveStrategyData, loadStrategyData, deleteStrategyData } from '../utils/supabase';
-import { Department, Project, OKR } from '@/types/strategy'; // ✅ 型を外部からインポート
+import { useUserStore } from './userStore';
+import { Department, Project } from '@/types/strategy';
 
 export interface StrategyState {
   companyName: string;
@@ -11,22 +12,18 @@ export interface StrategyState {
   employees: string;
   businessContent: string;
   customerSegment: string;
-
   thought: string;
   strength: string;
   weakness: string;
   opportunity: string;
   threat: string;
-
   mission: string;
   vision: string;
   value: string;
   story: string;
   strategySummary: string;
-
   editableCascadeResult: Department[];
   csvFinanceData: any[];
-
   notification: string;
 
   setCompanyName: (v: string) => void;
@@ -37,28 +34,23 @@ export interface StrategyState {
   setEmployees: (v: string) => void;
   setBusinessContent: (v: string) => void;
   setCustomerSegment: (v: string) => void;
-
   setThought: (v: string) => void;
   setStrength: (v: string) => void;
   setWeakness: (v: string) => void;
   setOpportunity: (v: string) => void;
   setThreat: (v: string) => void;
-
   setMission: (v: string) => void;
   setVision: (v: string) => void;
   setValue: (v: string) => void;
   setStory: (v: string) => void;
   setStrategySummary: (v: string) => void;
-
   setEditableCascadeResult: (v: Department[]) => void;
   updateDepartmentStrategy: (deptName: string, newStrategy: string) => void;
   updateProject: (deptName: string, projIndex: number, newProj: Project) => void;
   addProject: (deptName: string, newProj: Project) => void;
   deleteProject: (deptName: string, projIndex: number) => void;
-
   setCsvFinanceData: (data: any[]) => void;
   setFinanceData: (data: any[]) => void;
-
   setNotification: (v: string) => void;
 
   saveToSupabase: () => Promise<void>;
@@ -75,22 +67,18 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   employees: '',
   businessContent: '',
   customerSegment: '',
-
   thought: '',
   strength: '',
   weakness: '',
   opportunity: '',
   threat: '',
-
   mission: '',
   vision: '',
   value: '',
   story: '',
   strategySummary: '',
-
   editableCascadeResult: [],
   csvFinanceData: [],
-
   notification: '',
 
   setCompanyName: (v) => set({ companyName: v }),
@@ -101,19 +89,16 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   setEmployees: (v) => set({ employees: v }),
   setBusinessContent: (v) => set({ businessContent: v }),
   setCustomerSegment: (v) => set({ customerSegment: v }),
-
   setThought: (v) => set({ thought: v }),
   setStrength: (v) => set({ strength: v }),
   setWeakness: (v) => set({ weakness: v }),
   setOpportunity: (v) => set({ opportunity: v }),
   setThreat: (v) => set({ threat: v }),
-
   setMission: (v) => set({ mission: v }),
   setVision: (v) => set({ vision: v }),
   setValue: (v) => set({ value: v }),
   setStory: (v) => set({ story: v }),
   setStrategySummary: (v) => set({ strategySummary: v }),
-
   setEditableCascadeResult: (v) => set({ editableCascadeResult: v }),
 
   updateDepartmentStrategy: (deptName, newStrategy) => {
@@ -159,12 +144,16 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
 
   setCsvFinanceData: (data) => set({ csvFinanceData: data }),
   setFinanceData: (data) => set({ csvFinanceData: data }),
-
   setNotification: (v) => set({ notification: v }),
 
   saveToSupabase: async () => {
     const state = get();
-    const { error } = await saveStrategyData(state);
+    const userId = useUserStore.getState().user?.id;
+    if (!userId) {
+      set({ notification: '⚠️ ユーザーIDが存在しないため保存できません' });
+      return;
+    }
+    const { error } = await saveStrategyData(state, userId);
     if (error) {
       console.error('❌ Supabase保存エラー:', error);
       set({ notification: '❌ 保存に失敗しました' });
@@ -174,52 +163,60 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   },
 
   loadFromSupabase: async () => {
-    const { data, error } = await loadStrategyData();
-    if (error) {
-      console.error('❌ Supabase読み込みエラー:', error);
+    const userId = useUserStore.getState().user?.id;
+    if (!userId) {
+      console.warn('⚠️ ユーザーIDが存在しないため読み込みできません');
       return;
     }
-    if (data) {
-      set({
-        companyName: data.companyName || '',
-        foundationYear: data.foundationYear || '',
-        location: data.location || '',
-        industry: data.industry || '',
-        revenue: data.revenue || '',
-        employees: data.employees || '',
-        businessContent: data.businessContent || '',
-        customerSegment: data.customerSegment || '',
-        thought: data.thought || '',
-        strength: data.strength || '',
-        weakness: data.weakness || '',
-        opportunity: data.opportunity || '',
-        threat: data.threat || '',
-        mission: data.mission || '',
-        vision: data.vision || '',
-        value: data.value || '',
-        story: data.story || '',
-        strategySummary: data.strategySummary || '',
-        csvFinanceData: data.csvFinanceData || [],
-        editableCascadeResult: (data.editableCascadeResult || []).map((dept: any) => ({
-          id: dept.id,
-          name: dept.name,
-          strategy: dept.strategy,
-          projects: (dept.projects || []).map((proj: any) => ({
-            name: proj.name,
-            description: proj.description || '',
-            okrs: (proj.okrs || []).map((okr: any) => ({
-              objective: okr.objective || '',
-              keyResults: okr.keyResults || [],
-              owner: okr.owner || '',
-            })),
+    const { data, error } = await loadStrategyData(userId);
+    if (error || !data) {
+      console.error('❌ Supabase読み込み失敗:', error);
+      return;
+    }
+    set({
+      companyName: data.companyName || '',
+      foundationYear: data.foundationYear || '',
+      location: data.location || '',
+      industry: data.industry || '',
+      revenue: data.revenue || '',
+      employees: data.employees || '',
+      businessContent: data.businessContent || '',
+      customerSegment: data.customerSegment || '',
+      thought: data.thought || '',
+      strength: data.strength || '',
+      weakness: data.weakness || '',
+      opportunity: data.opportunity || '',
+      threat: data.threat || '',
+      mission: data.mission || '',
+      vision: data.vision || '',
+      value: data.value || '',
+      story: data.story || '',
+      strategySummary: data.strategySummary || '',
+      csvFinanceData: data.csvFinanceData || [],
+      editableCascadeResult: (data.editableCascade || []).map((dept: any) => ({
+        id: dept.id,
+        name: dept.name,
+        strategy: dept.strategy,
+        projects: (dept.projects || []).map((proj: any) => ({
+          name: proj.name,
+          description: proj.description || '',
+          okrs: (proj.okrs || []).map((okr: any) => ({
+            objective: okr.objective || '',
+            keyResults: okr.keyResults || [],
+            owner: okr.owner || '',
           })),
         })),
-      });
-    }
+      })),
+    });
   },
 
   clearAllData: async () => {
-    const { error } = await deleteStrategyData();
+    const userId = useUserStore.getState().user?.id;
+    if (!userId) {
+      set({ notification: '⚠️ ユーザーIDが存在しないため削除できません' });
+      return;
+    }
+    const { error } = await deleteStrategyData(userId);
     if (error) {
       console.error('❌ Supabase削除エラー:', error);
       set({ notification: '❌ データ削除に失敗しました' });

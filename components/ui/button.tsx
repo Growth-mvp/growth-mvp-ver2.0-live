@@ -8,10 +8,16 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "primary" | "secondary";
 };
 
-export default function Button({ variant = "primary", className, ...props }: ButtonProps) {
+export default function Button({
+  variant = "primary",
+  className,
+  type = "button", // ✅ デフォルト値を明示
+  ...props
+}: ButtonProps) {
   return (
     <button
       {...props}
+      type={type}
       className={clsx(
         "px-4 py-2 rounded text-sm font-medium",
         variant === "primary"
