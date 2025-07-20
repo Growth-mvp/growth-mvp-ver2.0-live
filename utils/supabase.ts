@@ -1,47 +1,15 @@
-import { createClient } from '@supabase/supabase-js';
-import { Department } from '@/types/strategy';
 import { StrategyState } from '@/store/strategyStore';
+import { createClient } from '@supabase/supabase-js';
 
-// Supabase 初期化
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
-// テーブル名
 const TABLE_NAME = 'strategy_data';
 
-// 保存対象の型定義
-export type StrategyData = {
-  user_id: string;
-  companyName: string;
-  foundationYear: string;
-  location: string;
-  industry: string;
-  revenue: string;
-  employees: string;
-  businessContent: string;
-  customerSegment: string;
-  strength: string;
-  weakness: string;
-  opportunity: string;
-  threat: string;
-  mission: string;
-  vision: string;
-  value: string;
-  thought: string;
-  story: string;
-  strategySummary: string;
-  csvFinanceData: any[];
-  editableCascade: Department[];
-};
-
-// ✅ 保存関数
 export async function saveStrategyData(state: StrategyState, userId: string) {
-  if (!userId) {
-    return { data: null, error: new Error('ログインユーザーIDが不明です') };
-  }
-
-  const data: StrategyData = {
+  // 📝 Supabaseに送るデータ構築
+  const payload = {
     user_id: userId,
     companyName: state.companyName,
     foundationYear: state.foundationYear,
@@ -51,6 +19,7 @@ export async function saveStrategyData(state: StrategyState, userId: string) {
     employees: state.employees,
     businessContent: state.businessContent,
     customerSegment: state.customerSegment,
+    thought: state.thought,
     strength: state.strength,
     weakness: state.weakness,
     opportunity: state.opportunity,
@@ -58,47 +27,57 @@ export async function saveStrategyData(state: StrategyState, userId: string) {
     mission: state.mission,
     vision: state.vision,
     value: state.value,
-    thought: state.thought,
     story: state.story,
     strategySummary: state.strategySummary,
-    csvFinanceData: state.csvFinanceData,
     editableCascade: state.editableCascadeResult,
+    csvFinanceData: state.csvFinanceData,
   };
 
-  console.log('📤 Supabase保存対象:', data); // ✅ 確認用ログ
+  // ✅ 送信内容を表示（デバッグ用）
+  console.log('📤 Supabase保存リクエスト: ', payload);
 
-  const { data: saved, error } = await supabase
+  const { data, error } = await supabase
     .from(TABLE_NAME)
-    .upsert(data, { onConflict: 'user_id' });
+    .upsert([payload], { onConflict: 'user_id' });
 
-  return { data: saved, error };
-}
-
-// ✅ 読込関数
-export async function loadStrategyData(userId: string) {
-  if (!userId) {
-    return { data: null, error: new Error('ログインユーザーIDが不明です') };
+  if (error) {
+    console.error('❌ Supabase保存エラー詳細:', error);
+  } else {
+    console.log('✅ Supabase保存成功:', data);
   }
 
+  return { error };
+}
+
+export async function loadStrategyData(userId: string) {
+  console.log('🔍 Supabase読み込み: user_id =', userId);
   const { data, error } = await supabase
     .from(TABLE_NAME)
     .select('*')
     .eq('user_id', userId)
     .single();
 
+  if (error) {
+    console.error('❌ Supabase読み込みエラー:', error);
+  } else {
+    console.log('📥 Supabase読み込み成功:', data);
+  }
+
   return { data, error };
 }
 
-// ✅ 削除関数
 export async function deleteStrategyData(userId: string) {
-  if (!userId) {
-    return { error: new Error('ログインユーザーIDが不明です') };
-  }
-
+  console.log('🗑 Supabase削除リクエスト: user_id =', userId);
   const { error } = await supabase
     .from(TABLE_NAME)
     .delete()
     .eq('user_id', userId);
+
+  if (error) {
+    console.error('❌ Supabase削除エラー:', error);
+  } else {
+    console.log('✅ Supabase削除成功');
+  }
 
   return { error };
 }
