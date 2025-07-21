@@ -7,8 +7,8 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
 
 const TABLE_NAME = 'strategy_data';
 
+// 🎯 戦略データ保存
 export async function saveStrategyData(state: StrategyState, userId: string) {
-  // 📝 Supabaseに送るデータ構築
   const payload = {
     user_id: userId,
     companyName: state.companyName,
@@ -33,7 +33,6 @@ export async function saveStrategyData(state: StrategyState, userId: string) {
     csvFinanceData: state.csvFinanceData,
   };
 
-  // ✅ 送信内容を表示（デバッグ用）
   console.log('📤 Supabase保存リクエスト: ', payload);
 
   const { data, error } = await supabase
@@ -49,6 +48,7 @@ export async function saveStrategyData(state: StrategyState, userId: string) {
   return { error };
 }
 
+// 🎯 戦略データ読み込み
 export async function loadStrategyData(userId: string) {
   console.log('🔍 Supabase読み込み: user_id =', userId);
   const { data, error } = await supabase
@@ -66,6 +66,7 @@ export async function loadStrategyData(userId: string) {
   return { data, error };
 }
 
+// 🎯 戦略データ削除
 export async function deleteStrategyData(userId: string) {
   console.log('🗑 Supabase削除リクエスト: user_id =', userId);
   const { error } = await supabase
@@ -80,4 +81,27 @@ export async function deleteStrategyData(userId: string) {
   }
 
   return { error };
+}
+
+// ✅ 進捗ログを保存（/execution用）
+export async function saveProgressLog(
+  userId: string,
+  okrId: string,
+  progressText: string
+) {
+  const { error } = await supabase.from('progress_logs').insert([
+    {
+      user_id: userId,
+      okr_id: okrId,
+      progress_text: progressText,
+    },
+  ]);
+
+  if (error) {
+    console.error('❌ 進捗ログ保存エラー:', error);
+  } else {
+    console.log(`✅ 進捗ログ保存成功: ${okrId}`);
+  }
+
+  return error;
 }

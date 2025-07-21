@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
+import { useUserStore } from '@/store/userStore';
 import CascadeEditView from '@/components/CascadeEditView';
 import CascadeVisualView from '@/components/CascadeVisualView';
 import { Wand2, Edit3, LayoutPanelTop } from 'lucide-react';
@@ -30,8 +31,20 @@ export default function CascadePage() {
     setNotification,
   } = useStrategyStore();
 
+  const { user } = useUserStore();
+  const role = user?.role;
+
+  const readOnly = !user || (role !== 'admin' && role !== 'manager');
+  const isManager = role === 'manager';
+
   const handleGenerateCascade = async () => {
+    if (!user || readOnly) {
+      setNotification('⚠️ カスケードの生成権限がありません');
+      return;
+    }
+
     setNotification('⏳ カスケード生成中...');
+
     try {
       const response = await fetch('/api/generate-cascade', {
         method: 'POST',
@@ -57,11 +70,11 @@ export default function CascadePage() {
 
       const data = await response.json();
 
-      if (response.ok) {
-        setEditableCascadeResult(data.departments || []);
+      if (response.ok && data.departments) {
+        setEditableCascadeResult(data.departments);
         setNotification('✅ カスケード生成に成功しました');
       } else {
-        setNotification(`❌ 生成失敗: ${data.error}`);
+        setNotification(`❌ 生成失敗: ${data.error || '不明なエラー'}`);
       }
     } catch (err) {
       setNotification('❌ 通信エラーが発生しました');
@@ -74,7 +87,6 @@ export default function CascadePage() {
         戦略カスケード
       </h1>
 
-      {/* ✅ 経営戦略の要約表示 */}
       {strategySummary && (
         <div className="bg-white shadow border-l-4 border-blue-600 rounded-md p-4 mb-6 max-w-4xl mx-auto">
           <h2 className="text-blue-700 font-semibold text-sm mb-2">経営戦略の要約</h2>
@@ -84,16 +96,18 @@ export default function CascadePage() {
         </div>
       )}
 
-      {/* カスケード生成ボタン */}
-      <div className="flex justify-center mb-6">
-        <button
-          onClick={handleGenerateCascade}
-          className="flex items-center gap-2 px-5 py-2.5 bg-gray-900 text-white rounded hover:bg-gray-700 transition text-sm"
-        >
-          <Wand2 className="w-4 h-4" />
-          カスケードを生成
-        </button>
-      </div>
+      {/* カスケード生成ボタン（管理者・部長のみ表示） */}
+      {!readOnly && (
+        <div className="flex justify-center mb-6">
+          <button
+            onClick={handleGenerateCascade}
+            className="flex items-center gap-2 px-5 py-2.5 bg-gray-900 text-white rounded hover:bg-gray-700 transition text-sm"
+          >
+            <Wand2 className="w-4 h-4" />
+            カスケードを生成
+          </button>
+        </div>
+      )}
 
       {/* タブ切り替え */}
       <div className="flex justify-center gap-4 mb-6">
@@ -129,7 +143,11 @@ export default function CascadePage() {
       )}
 
       {/* ビュー切り替え */}
-      {activeTab === 'edit' ? <CascadeEditView /> : <CascadeVisualView />}
+      {activeTab === 'edit' ? (
+        <CascadeEditView readOnly={readOnly} isManager={isManager} userDepartment={user?.department} />
+      ) : (
+        <CascadeVisualView />
+      )}
     </main>
   );
 }

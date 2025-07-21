@@ -1,16 +1,31 @@
 'use client';
 
 import { useState } from 'react';
-import { Department } from '@/types/strategy'; // ✅ 修正ポイント
+import { Department } from '@/types/strategy';
 import ProjectBlock from './ProjectBlock';
-import { Plus, Trash2, ArrowUp, ArrowDown, Pencil, ChevronDown } from 'lucide-react';
+import {
+  Plus,
+  Trash2,
+  ArrowUp,
+  ArrowDown,
+  Pencil,
+  ChevronDown,
+} from 'lucide-react';
 import { useStrategyStore } from '@/store/strategyStore';
 
 interface Props {
   department: Department;
+  readOnly: boolean;
+  isManager: boolean;
+  userDepartment?: string;
 }
 
-export default function DepartmentBlock({ department }: Props) {
+export default function DepartmentBlock({
+  department,
+  readOnly,
+  isManager,
+  userDepartment,
+}: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [newName, setNewName] = useState(department.name);
@@ -22,6 +37,13 @@ export default function DepartmentBlock({ department }: Props) {
     deleteProject,
     setNotification,
   } = useStrategyStore();
+
+  // 権限による編集判定（adminまたは自部門マネージャーのみ編集可）
+  const canEdit = (): boolean => {
+    if (readOnly) return false;
+    if (isManager) return userDepartment === department.name;
+    return true; // admin
+  };
 
   const handleAddProject = () => {
     const newProject = {
@@ -61,7 +83,7 @@ export default function DepartmentBlock({ department }: Props) {
 
   return (
     <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 shadow-sm mb-6">
-      {/* ヘッダー部分 */}
+      {/* ヘッダー */}
       <div className="flex justify-between items-center mb-3">
         <div
           className="cursor-pointer font-semibold text-gray-800 flex items-center gap-1"
@@ -74,24 +96,26 @@ export default function DepartmentBlock({ department }: Props) {
           {department.name}（部門戦略）
         </div>
 
-        <div className="flex items-center gap-2 text-gray-500">
-          <button onClick={() => setEditingName(true)} title="部門名変更">
-            <Pencil size={16} />
-          </button>
-          <button onClick={() => handleMove('up')} title="上に移動">
-            <ArrowUp size={16} />
-          </button>
-          <button onClick={() => handleMove('down')} title="下に移動">
-            <ArrowDown size={16} />
-          </button>
-          <button onClick={handleDeleteDepartment} title="部門を削除">
-            <Trash2 size={16} />
-          </button>
-        </div>
+        {canEdit() && (
+          <div className="flex items-center gap-2 text-gray-500">
+            <button onClick={() => setEditingName(true)} title="部門名変更">
+              <Pencil size={16} />
+            </button>
+            <button onClick={() => handleMove('up')} title="上に移動">
+              <ArrowUp size={16} />
+            </button>
+            <button onClick={() => handleMove('down')} title="下に移動">
+              <ArrowDown size={16} />
+            </button>
+            <button onClick={handleDeleteDepartment} title="部門を削除">
+              <Trash2 size={16} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 名前編集 */}
-      {editingName && (
+      {editingName && canEdit() && (
         <div className="mb-3 flex gap-2">
           <input
             value={newName}
@@ -107,7 +131,7 @@ export default function DepartmentBlock({ department }: Props) {
         </div>
       )}
 
-      {/* コンテンツ展開部分 */}
+      {/* 展開内容 */}
       {isOpen && (
         <>
           <p className="text-sm text-gray-700 mb-3 whitespace-pre-wrap">
@@ -122,17 +146,20 @@ export default function DepartmentBlock({ department }: Props) {
                 departmentName={department.name}
                 projectIndex={idx}
                 deleteProject={deleteProject}
+                readOnly={!canEdit()}
               />
             ))}
           </div>
 
-          <button
-            onClick={handleAddProject}
-            className="mt-4 inline-flex items-center text-sm text-blue-600 hover:underline"
-          >
-            <Plus size={16} className="mr-1" />
-            プロジェクトを追加
-          </button>
+          {canEdit() && (
+            <button
+              onClick={handleAddProject}
+              className="mt-4 inline-flex items-center text-sm text-blue-600 hover:underline"
+            >
+              <Plus size={16} className="mr-1" />
+              プロジェクトを追加
+            </button>
+          )}
         </>
       )}
     </div>

@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function SignupPage() {
+  const [companyName, setCompanyName] = useState('');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<'admin' | 'manager' | 'member'>('member');
@@ -15,8 +17,8 @@ export default function SignupPage() {
   const handleSignup = async () => {
     setErrorMessage('');
 
-    if (!email || !password) {
-      setErrorMessage('メールアドレスとパスワードは必須です');
+    if (!companyName || !name || !email || !password) {
+      setErrorMessage('会社名・名前・メールアドレス・パスワードは必須です');
       return;
     }
 
@@ -30,17 +32,24 @@ export default function SignupPage() {
       password,
     });
 
+    if (error?.status === 422) {
+      setErrorMessage('このメールアドレスはすでに登録されています。ログイン画面からお進みください。');
+      return;
+    }
+
     if (error || !data.user?.id) {
       setErrorMessage('登録失敗: ' + (error?.message || '不明なエラー'));
       return;
     }
 
-    // usersテーブルにrole, departmentを追加
+    // Supabase users テーブルへ登録
     const insertResult = await supabase.from('users').insert({
       id: data.user.id,
+      name,
       email: data.user.email,
       role,
       department: role !== 'admin' ? department : '',
+      company_name: companyName,
     });
 
     if (insertResult.error) {
@@ -61,12 +70,29 @@ export default function SignupPage() {
       )}
 
       <input
+        type="text"
+        placeholder="会社名"
+        value={companyName}
+        onChange={(e) => setCompanyName(e.target.value)}
+        className="border p-2 w-full mb-2 rounded"
+      />
+
+      <input
+        type="text"
+        placeholder="名前（例：山田太郎）"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        className="border p-2 w-full mb-2 rounded"
+      />
+
+      <input
         type="email"
         placeholder="メールアドレス"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         className="border p-2 w-full mb-2 rounded"
       />
+
       <input
         type="password"
         placeholder="パスワード（6文字以上）"
@@ -74,6 +100,7 @@ export default function SignupPage() {
         onChange={(e) => setPassword(e.target.value)}
         className="border p-2 w-full mb-2 rounded"
       />
+
       <select
         value={role}
         onChange={(e) => setRole(e.target.value as any)}
@@ -83,6 +110,7 @@ export default function SignupPage() {
         <option value="manager">部長（manager）</option>
         <option value="member">社員（member）</option>
       </select>
+
       {role !== 'admin' && (
         <input
           type="text"
@@ -92,6 +120,7 @@ export default function SignupPage() {
           className="border p-2 w-full mb-4 rounded"
         />
       )}
+
       <button
         onClick={handleSignup}
         className="bg-green-600 text-white px-4 py-2 rounded w-full"

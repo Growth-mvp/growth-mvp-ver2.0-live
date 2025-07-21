@@ -1,83 +1,161 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
-import Link from 'next/link';
-
-interface DisplayOKR {
-  department: string;
-  project: string;
-  objective: string;
-  owner: string;
-  progress: number;
-}
+import { saveProgressLog } from '@/utils/supabase';
+import { supabase } from '@/lib/supabaseClient';
 
 export default function ExecutionPage() {
+  const { editableCascadeResult, strategySummary, story } = useStrategyStore();
   const { user } = useUserStore();
-  const currentUserEmail = user?.email || '';
 
-  const { editableCascadeResult } = useStrategyStore();
-  const [userOKRs, setUserOKRs] = useState<DisplayOKR[]>([]);
+  const [progressNotes, setProgressNotes] = useState<{ [key: string]: string }>({});
+  const [progressHistory, setProgressHistory] = useState<{ [key: string]: string[] }>({});
+  const [message, setMessage] = useState('');
+
+  const userId = useMemo(() => user?.id ?? '', [user]);
 
   useEffect(() => {
-    const collectedOKRs: DisplayOKR[] = [];
+    if (!userId) return;
+    loadProgressLogs(userId);
+  }, [userId]);
 
-    editableCascadeResult.forEach((dept) => {
-      dept.projects.forEach((proj) => {
-        proj.okrs.forEach((okr) => {
-          if (okr.owner === currentUserEmail) {
-            collectedOKRs.push({
-              department: dept.name,
-              project: proj.name,
-              objective: okr.objective,
-              owner: okr.owner,
-              progress: 0, // 今後 Supabaseから取得可能
-            });
-          }
-        });
-      });
+  const loadProgressLogs = async (userId: string) => {
+    const { data, error } = await supabase
+      .from('progress_logs')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('❌ 進捗履歴の取得に失敗:', error.message);
+      return;
+    }
+
+    const historyMap: { [key: string]: string[] } = {};
+    data.forEach((log) => {
+      if (!historyMap[log.okr_id]) historyMap[log.okr_id] = [];
+      historyMap[log.okr_id].push(
+        `${log.progress_text}（${new Date(log.created_at).toLocaleString()}）`
+      );
     });
 
-    setUserOKRs(collectedOKRs);
-  }, [editableCascadeResult, currentUserEmail]);
+    setProgressHistory(historyMap);
+  };
+
+  const handleChange = (okrId: string, value: string) => {
+    setProgressNotes((prev) => ({ ...prev, [okrId]: value }));
+  };
+
+  const handleSave = async (okrId: string) => {
+    if (!userId) {
+      setMessage('❌ ユーザーが未ログインです');
+      return;
+    }
+
+    const text = progressNotes[okrId];
+    if (!text || !text.trim()) {
+      alert('進捗内容を入力してください');
+      return;
+    }
+
+    const error = await saveProgressLog(userId, okrId, text);
+    if (error) {
+      alert(`❌ 保存失敗: ${okrId}`);
+      return;
+    }
+
+    setMessage(`✅ 保存しました（${okrId}）`);
+    await loadProgressLogs(userId);
+  };
+
+  const canEdit = (deptName: string, okrOwner: string | undefined): boolean => {
+    if (!user) return false;
+    if (user.role === 'admin') return true;
+    if (user.role === 'manager') return user.department === deptName;
+    if (user.role === 'member') return user.name === (okrOwner ?? '');
+    return false;
+  };
 
   return (
-    <main className="p-6 min-h-screen bg-gray-50">
-      <h1 className="text-xl font-bold mb-4 text-gray-800">🎯 あなたに割当されたOKR一覧</h1>
+    <main className="p-6 bg-gradient-to-b from-gray-50 to-white min-h-screen">
+      <h1 className="text-2xl font-bold mb-6 text-gray-800">🛠 OKR実行支援画面</h1>
 
-      {userOKRs.length === 0 ? (
-        <p className="text-gray-500">担当OKRが見つかりませんでした。</p>
-      ) : (
-        <div className="space-y-4">
-          {userOKRs.map((okr, idx) => (
-            <div
-              key={idx}
-              className="border border-gray-300 p-4 rounded-md bg-white shadow-sm"
-            >
-              <p className="text-sm text-gray-600 mb-1">
-                📂 {okr.department} / {okr.project}
-              </p>
-              <p className="text-base font-semibold text-gray-800 mb-2">
-                🎯 {okr.objective}
-              </p>
-              <p className="text-sm text-gray-500 mb-1">担当者: {okr.owner}</p>
-              <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
-                <div
-                  className="bg-blue-500 h-full"
-                  style={{ width: `${okr.progress}%` }}
-                ></div>
-              </div>
-              <Link
-                href={`/execution/${idx}`}
-                className="text-blue-600 text-sm underline mt-2 inline-block"
-              >
-                ▶ 詳細・進捗記録ページへ
-              </Link>
+      {/* 経営ストーリー */}
+      {story && (
+        <div className="mb-6 bg-white border-l-4 border-blue-600 p-4 rounded shadow-sm">
+          <h2 className="text-blue-700 text-sm font-semibold mb-2">経営ストーリー</h2>
+          <p className="text-sm text-gray-800 whitespace-pre-wrap">{story}</p>
+        </div>
+      )}
+
+      {/* 戦略要約 */}
+      {strategySummary && (
+        <div className="mb-6 bg-white border-l-4 border-green-600 p-4 rounded shadow-sm">
+          <h2 className="text-green-700 text-sm font-semibold mb-2">戦略要約</h2>
+          <p className="text-sm text-gray-800 whitespace-pre-wrap">{strategySummary}</p>
+        </div>
+      )}
+
+      {message && <p className="mb-4 text-green-600 font-semibold">{message}</p>}
+
+      {/* カスケード構造 + OKR進捗入力 */}
+      {editableCascadeResult.map((dept) => (
+        <div key={dept.name} className="mb-8 border p-4 rounded-lg bg-white shadow">
+          <h2 className="text-lg font-semibold text-blue-700 mb-2">{dept.name}</h2>
+
+          {dept.projects.map((proj, i) => (
+            <div key={i} className="ml-4 mb-4">
+              <h3 className="font-semibold text-gray-700">{proj.name}</h3>
+
+              {proj.okrs.map((okr, j) => {
+                const okrId = `${dept.name}-${proj.name}-${j}`;
+                const editable = canEdit(dept.name, okr.owner);
+
+                return (
+                  <div key={okrId} className="mt-3 ml-4 border rounded p-3 bg-gray-50">
+                    <p className="font-medium mb-1">🎯 {okr.objective}</p>
+
+                    <textarea
+                      className={`mt-1 w-full border rounded p-2 text-sm ${
+                        !editable ? 'bg-gray-100 text-gray-500' : 'bg-white'
+                      }`}
+                      rows={3}
+                      placeholder="進捗状況や課題を入力"
+                      value={progressNotes[okrId] || ''}
+                      onChange={(e) => handleChange(okrId, e.target.value)}
+                      readOnly={!editable}
+                    />
+
+                    {editable && (
+                      <div className="text-right mt-2">
+                        <button
+                          className="px-4 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+                          onClick={() => handleSave(okrId)}
+                        >
+                          💾 保存
+                        </button>
+                      </div>
+                    )}
+
+                    {progressHistory[okrId] && (
+                      <div className="mt-3 text-sm text-gray-600">
+                        <p className="font-semibold mb-1">📜 保存履歴:</p>
+                        <ul className="list-disc list-inside space-y-1">
+                          {progressHistory[okrId].map((entry, idx) => (
+                            <li key={idx}>{entry}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           ))}
         </div>
-      )}
+      ))}
     </main>
   );
 }

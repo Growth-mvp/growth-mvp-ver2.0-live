@@ -4,10 +4,12 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { Department } from '@/types/strategy';
+import { useUserStore } from '@/store/userStore';
 
 export default function AdminEditPage() {
   const params = useParams();
   const id = params?.id as string;
+  const { user } = useUserStore();
 
   const [companyName, setCompanyName] = useState('');
   const [mission, setMission] = useState('');
@@ -21,6 +23,8 @@ export default function AdminEditPage() {
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+
+  const readOnly = user?.role !== 'admin';
 
   useEffect(() => {
     const fetchData = async () => {
@@ -83,15 +87,7 @@ export default function AdminEditPage() {
       const response = await fetch('/api/generate-cascade', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mission,
-          vision,
-          value,
-          strength,
-          weakness,
-          opportunity,
-          threat,
-        }),
+        body: JSON.stringify({ mission, vision, value, strength, weakness, opportunity, threat }),
       });
 
       const result = await response.json();
@@ -111,65 +107,54 @@ export default function AdminEditPage() {
   };
 
   const addDepartment = () => {
-    setEditableCascadeResult([
-      ...editableCascadeResult,
-      {
-        name: '新しい部門',
-        strategy: '',
-        projects: [],
-      },
-    ]);
+    if (readOnly) return;
+    setEditableCascadeResult([...editableCascadeResult, { name: '新しい部門', strategy: '', projects: [] }]);
   };
 
   const deleteDepartment = (deptIndex: number) => {
+    if (readOnly) return;
     const updated = [...editableCascadeResult];
     updated.splice(deptIndex, 1);
     setEditableCascadeResult(updated);
   };
 
   const addProject = (deptIndex: number) => {
+    if (readOnly) return;
     const updated = [...editableCascadeResult];
-    updated[deptIndex].projects.push({
-      name: '新しいプロジェクト',
-      description: '',
-      okrs: [],
-    });
+    updated[deptIndex].projects.push({ name: '新しいプロジェクト', description: '', okrs: [] });
     setEditableCascadeResult(updated);
   };
 
   const deleteProject = (deptIndex: number, projIndex: number) => {
+    if (readOnly) return;
     const updated = [...editableCascadeResult];
     updated[deptIndex].projects.splice(projIndex, 1);
     setEditableCascadeResult(updated);
   };
 
   const addOKR = (deptIndex: number, projIndex: number) => {
+    if (readOnly) return;
     const updated = [...editableCascadeResult];
-    updated[deptIndex].projects[projIndex].okrs.push({
-      objective: '',
-      keyResults: [],
-    });
+    updated[deptIndex].projects[projIndex].okrs.push({ objective: '', keyResults: [] });
     setEditableCascadeResult(updated);
   };
 
   const deleteOKR = (deptIndex: number, projIndex: number, okrIndex: number) => {
+    if (readOnly) return;
     const updated = [...editableCascadeResult];
     updated[deptIndex].projects[projIndex].okrs.splice(okrIndex, 1);
     setEditableCascadeResult(updated);
   };
 
-  const deleteKeyResult = (
-    deptIndex: number,
-    projIndex: number,
-    okrIndex: number,
-    krIndex: number
-  ) => {
+  const deleteKeyResult = (deptIndex: number, projIndex: number, okrIndex: number, krIndex: number) => {
+    if (readOnly) return;
     const updated = [...editableCascadeResult];
     updated[deptIndex].projects[projIndex].okrs[okrIndex].keyResults.splice(krIndex, 1);
     setEditableCascadeResult(updated);
   };
 
   const addKeyResult = (deptIndex: number, projIndex: number, okrIndex: number) => {
+    if (readOnly) return;
     const updated = [...editableCascadeResult];
     updated[deptIndex].projects[projIndex].okrs[okrIndex].keyResults.push('');
     setEditableCascadeResult(updated);
@@ -180,159 +165,266 @@ export default function AdminEditPage() {
       <h1 className="text-2xl font-bold">戦略情報の編集</h1>
       {loading && <p className="text-gray-600">読み込み中...</p>}
       {message && <p className="text-green-600">{message}</p>}
+      {/* 編集フォームとカスケード構造のレンダリングがここに続きます */}
+      <div className="space-y-4">
+  {/* 基本情報 */}
+  <div>
+    <label className="block font-semibold">会社名</label>
+    <input
+      type="text"
+      value={companyName}
+      onChange={(e) => setCompanyName(e.target.value)}
+      disabled={readOnly}
+      className="w-full border rounded p-2"
+    />
+  </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* MVV・SWOT入力（省略せず） */}
-        {/* ...略...（前と同様） */}
-      </div>
+  {/* MVV */}
+  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div>
+      <label className="block font-semibold">Mission</label>
+      <textarea
+        value={mission}
+        onChange={(e) => setMission(e.target.value)}
+        disabled={readOnly}
+        className="w-full border rounded p-2"
+      />
+    </div>
+    <div>
+      <label className="block font-semibold">Vision</label>
+      <textarea
+        value={vision}
+        onChange={(e) => setVision(e.target.value)}
+        disabled={readOnly}
+        className="w-full border rounded p-2"
+      />
+    </div>
+    <div>
+      <label className="block font-semibold">Value</label>
+      <textarea
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        disabled={readOnly}
+        className="w-full border rounded p-2"
+      />
+    </div>
+  </div>
 
-      <div className="mt-6 space-y-4">
-        <h2 className="text-xl font-bold text-gray-800">カスケード構造（部門・PJ・OKR）</h2>
-        {editableCascadeResult.map((dept, deptIndex) => (
-          <div key={deptIndex} className="bg-gray-50 p-4 rounded border relative">
-            <button
-              onClick={() => deleteDepartment(deptIndex)}
-              className="absolute top-2 right-2 text-red-500 text-sm"
-            >
-              🗑️
+  {/* SWOT */}
+  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div>
+      <label className="block font-semibold">Strength</label>
+      <textarea
+        value={strength}
+        onChange={(e) => setStrength(e.target.value)}
+        disabled={readOnly}
+        className="w-full border rounded p-2"
+      />
+    </div>
+    <div>
+      <label className="block font-semibold">Weakness</label>
+      <textarea
+        value={weakness}
+        onChange={(e) => setWeakness(e.target.value)}
+        disabled={readOnly}
+        className="w-full border rounded p-2"
+      />
+    </div>
+    <div>
+      <label className="block font-semibold">Opportunity</label>
+      <textarea
+        value={opportunity}
+        onChange={(e) => setOpportunity(e.target.value)}
+        disabled={readOnly}
+        className="w-full border rounded p-2"
+      />
+    </div>
+    <div>
+      <label className="block font-semibold">Threat</label>
+      <textarea
+        value={threat}
+        onChange={(e) => setThreat(e.target.value)}
+        disabled={readOnly}
+        className="w-full border rounded p-2"
+      />
+    </div>
+  </div>
+
+  {/* カスケード構造の表示 */}
+  <div className="space-y-4">
+    <h2 className="text-lg font-semibold">部門構造</h2>
+    {!readOnly && (
+      <button onClick={addDepartment} className="bg-blue-600 text-white px-3 py-1 rounded">
+        ＋ 部門を追加
+      </button>
+    )}
+    {editableCascadeResult.map((dept, deptIndex) => (
+      <div key={deptIndex} className="border p-4 rounded bg-white space-y-2">
+        <div className="flex items-center justify-between">
+          <input
+            type="text"
+            value={dept.name}
+            onChange={(e) => {
+              const updated = [...editableCascadeResult];
+              updated[deptIndex].name = e.target.value;
+              setEditableCascadeResult(updated);
+            }}
+            disabled={readOnly}
+            className="font-bold text-lg border-b w-full"
+          />
+          {!readOnly && (
+            <button onClick={() => deleteDepartment(deptIndex)} className="text-red-600 ml-2">
+              削除
             </button>
+          )}
+        </div>
+
+        <textarea
+          value={dept.strategy}
+          onChange={(e) => {
+            const updated = [...editableCascadeResult];
+            updated[deptIndex].strategy = e.target.value;
+            setEditableCascadeResult(updated);
+          }}
+          disabled={readOnly}
+          className="w-full border rounded p-2"
+        />
+
+        {/* プロジェクト表示 */}
+        {dept.projects.map((proj, projIndex) => (
+          <div key={projIndex} className="border p-2 rounded bg-gray-50 space-y-2 ml-4">
             <input
-              className="border p-2 mb-2 w-full rounded font-bold"
-              value={dept.name}
+              type="text"
+              value={proj.name}
               onChange={(e) => {
                 const updated = [...editableCascadeResult];
-                updated[deptIndex].name = e.target.value;
+                updated[deptIndex].projects[projIndex].name = e.target.value;
                 setEditableCascadeResult(updated);
               }}
-              placeholder="部門名"
+              disabled={readOnly}
+              className="w-full border-b"
             />
             <textarea
-              className="border p-2 mb-4 w-full rounded"
-              value={dept.strategy}
+              value={proj.description}
               onChange={(e) => {
                 const updated = [...editableCascadeResult];
-                updated[deptIndex].strategy = e.target.value;
+                updated[deptIndex].projects[projIndex].description = e.target.value;
                 setEditableCascadeResult(updated);
               }}
-              placeholder="部門戦略"
+              disabled={readOnly}
+              className="w-full border rounded p-2"
             />
-            {dept.projects.map((proj, projIndex) => (
-              <div key={projIndex} className="ml-4 mb-4 pl-4 border-l border-gray-300 relative">
-                <button
-                  onClick={() => deleteProject(deptIndex, projIndex)}
-                  className="absolute top-2 right-2 text-red-500 text-sm"
-                >
-                  🗑️
-                </button>
+            {!readOnly && (
+              <button
+                onClick={() => deleteProject(deptIndex, projIndex)}
+                className="text-red-500 text-sm"
+              >
+                プロジェクト削除
+              </button>
+            )}
+
+            {/* OKR表示 */}
+            {proj.okrs.map((okr, okrIndex) => (
+              <div key={okrIndex} className="bg-white p-2 rounded border space-y-1 ml-4">
                 <input
-                  className="border p-2 mb-2 w-full rounded font-semibold"
-                  value={proj.name}
+                  type="text"
+                  value={okr.objective}
                   onChange={(e) => {
                     const updated = [...editableCascadeResult];
-                    updated[deptIndex].projects[projIndex].name = e.target.value;
+                    updated[deptIndex].projects[projIndex].okrs[okrIndex].objective =
+                      e.target.value;
                     setEditableCascadeResult(updated);
                   }}
-                  placeholder="プロジェクト名"
+                  disabled={readOnly}
+                  placeholder="Objective"
+                  className="w-full border-b"
                 />
-                <textarea
-                  className="border p-2 w-full rounded"
-                  value={proj.description}
-                  onChange={(e) => {
-                    const updated = [...editableCascadeResult];
-                    updated[deptIndex].projects[projIndex].description = e.target.value;
-                    setEditableCascadeResult(updated);
-                  }}
-                  placeholder="プロジェクト説明"
-                />
-                {proj.okrs.map((okr, okrIndex) => (
-                  <div key={okrIndex} className="mt-4 p-2 bg-white border rounded relative">
-                    <button
-                      onClick={() => deleteOKR(deptIndex, projIndex, okrIndex)}
-                      className="absolute top-2 right-2 text-red-500 text-sm"
-                    >
-                      🗑️
-                    </button>
+                {okr.keyResults.map((kr, krIndex) => (
+                  <div key={krIndex} className="flex gap-2 items-center">
                     <input
-                      className="border p-2 w-full mb-2 rounded font-medium"
-                      value={okr.objective}
+                      type="text"
+                      value={kr}
                       onChange={(e) => {
                         const updated = [...editableCascadeResult];
-                        updated[deptIndex].projects[projIndex].okrs[okrIndex].objective =
+                        updated[deptIndex].projects[projIndex].okrs[okrIndex].keyResults[krIndex] =
                           e.target.value;
                         setEditableCascadeResult(updated);
                       }}
-                      placeholder="Objective（目標）"
+                      disabled={readOnly}
+                      className="w-full border-b"
                     />
-                    {okr.keyResults.map((kr, krIndex) => (
-                      <div key={krIndex} className="flex gap-2 mb-1">
-                        <input
-                          className="border p-2 w-full rounded"
-                          value={kr}
-                          onChange={(e) => {
-                            const updated = [...editableCascadeResult];
-                            updated[deptIndex].projects[projIndex].okrs[okrIndex].keyResults[
-                              krIndex
-                            ] = e.target.value;
-                            setEditableCascadeResult(updated);
-                          }}
-                          placeholder={`Key Result ${krIndex + 1}`}
-                        />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            deleteKeyResult(deptIndex, projIndex, okrIndex, krIndex)
-                          }
-                          className="text-red-500 text-sm"
-                        >
-                          🗑️
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => addKeyResult(deptIndex, projIndex, okrIndex)}
-                      className="text-sm text-blue-600 underline mt-1"
-                    >
-                      + KRを追加
-                    </button>
+                    {!readOnly && (
+                      <button
+                        onClick={() =>
+                          deleteKeyResult(deptIndex, projIndex, okrIndex, krIndex)
+                        }
+                        className="text-red-500"
+                      >
+                        ✕
+                      </button>
+                    )}
                   </div>
                 ))}
-                <button
-                  onClick={() => addOKR(deptIndex, projIndex)}
-                  className="text-sm text-blue-600 underline mt-2"
-                >
-                  + OKRを追加
-                </button>
+                {!readOnly && (
+                  <button
+                    onClick={() => addKeyResult(deptIndex, projIndex, okrIndex)}
+                    className="text-blue-500 text-sm"
+                  >
+                    ＋ KRを追加
+                  </button>
+                )}
+                {!readOnly && (
+                  <button
+                    onClick={() => deleteOKR(deptIndex, projIndex, okrIndex)}
+                    className="text-red-500 text-sm"
+                  >
+                    OKR削除
+                  </button>
+                )}
               </div>
             ))}
-            <button
-              onClick={() => addProject(deptIndex)}
-              className="text-sm text-blue-600 underline"
-            >
-              + プロジェクトを追加
-            </button>
+
+            {!readOnly && (
+              <button
+                onClick={() => addOKR(deptIndex, projIndex)}
+                className="text-blue-500 text-sm"
+              >
+                ＋ OKRを追加
+              </button>
+            )}
           </div>
         ))}
-        <button onClick={addDepartment} className="mt-4 text-sm text-blue-600 underline">
-          + 部門を追加
-        </button>
-      </div>
 
-      {/* ✅ 保存・再生成ボタン */}
-      <div className="flex gap-4 mt-6">
+        {!readOnly && (
+          <button
+            onClick={() => addProject(deptIndex)}
+            className="bg-gray-200 px-2 py-1 rounded text-sm"
+          >
+            ＋ プロジェクト追加
+          </button>
+        )}
+      </div>
+    ))}
+  </div>
+
+  {/* アクションボタン */}
+  <div className="flex gap-4 mt-6">
+    {!readOnly && (
+      <>
+        <button onClick={handleSave} className="bg-green-600 text-white px-4 py-2 rounded">
+          💾 保存
+        </button>
         <button
           onClick={handleRegenerateCascade}
-          className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700"
+          className="bg-purple-600 text-white px-4 py-2 rounded"
         >
-          🤖 AIで再生成
+          ♻ AIで再生成
         </button>
-        <button
-          onClick={handleSave}
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-        >
-          保存する
-        </button>
-      </div>
+      </>
+    )}
+  </div>
+</div>
+
     </div>
   );
 }

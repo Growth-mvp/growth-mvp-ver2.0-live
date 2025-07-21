@@ -30,19 +30,19 @@ export default function LoginPage() {
       return;
     }
 
-    // Supabaseのusersテーブルからロール・部門を取得
+    // Supabaseのusersテーブルからロール・部門・名前を取得
     const { data: userData, error: userError } = await supabase
       .from('users')
       .select('*')
       .eq('id', data.user.id)
       .single();
 
-    if (userError) {
-      setErrorMessage('ユーザ情報の取得に失敗しました: ' + userError.message);
+    if (userError || !userData) {
+      setErrorMessage('ユーザ情報の取得に失敗しました: ' + userError?.message);
       return;
     }
 
-    // ✅ API経由でサーバー側にCookieを設定
+    // ✅ API経由でCookieを設定（任意）
     await fetch('/api/set-cookie', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -52,15 +52,16 @@ export default function LoginPage() {
       }),
     });
 
-    // Zustandにユーザ情報を保存
+    // Zustandにユーザ情報を保存（name を含める）
     setUser({
       id: data.user.id,
+      name: userData.name || '', // ✅ name を追加
       email: data.user.email || '',
       role: userData.role || 'member',
       department: userData.department || '',
     });
 
-    // ✅ トップページへ遷移（または /admin に分岐してもOK）
+    // ✅ トップページまたは管理画面へ遷移
     router.push('/');
   };
 

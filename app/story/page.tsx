@@ -1,7 +1,6 @@
 'use client';
-import React from 'react';
-import { useState, useEffect } from 'react';
-import { useStrategyStore } from '../../store/strategyStore';
+
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ShieldAlert,
@@ -9,10 +8,11 @@ import {
   Network,
   Users,
 } from 'lucide-react';
+import { useStrategyStore } from '@/store/strategyStore';
+import { useUserStore } from '@/store/userStore';
 
 export default function StoryPage() {
   const router = useRouter();
-
   const {
     vision,
     industry,
@@ -31,9 +31,13 @@ export default function StoryPage() {
     csvFinanceData,
   } = useStrategyStore();
 
+  const { user } = useUserStore();
+
   const [localStory, setLocalStory] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const isAdmin = user?.role === 'admin';
 
   useEffect(() => {
     if (story) setLocalStory(story);
@@ -84,22 +88,25 @@ export default function StoryPage() {
 
   return (
     <div className="p-8 min-h-screen bg-gradient-to-b from-white to-blue-50">
-      <h1 className="text-3xl font-semibold mb-6 text-gray-900 tracking-tight">戦略ストーリー生成</h1>
+      <h1 className="text-3xl font-semibold mb-6 text-gray-900 tracking-tight">戦略ストーリー</h1>
 
-      <div className="flex items-center gap-4 mb-6">
-        <button
-          onClick={generateStory}
-          disabled={loading}
-          className="bg-blue-700 text-white px-6 py-3 rounded-lg hover:bg-blue-800 transition text-sm font-medium"
-        >
-          {loading ? '生成中...' : '📘 ストーリー生成'}
-        </button>
-        {error && <p className="text-red-500 text-sm">{error}</p>}
-      </div>
+      {/* 生成ボタン（adminのみ） */}
+      {isAdmin && (
+        <div className="flex items-center gap-4 mb-6">
+          <button
+            onClick={generateStory}
+            disabled={loading}
+            className="bg-blue-700 text-white px-6 py-3 rounded-lg hover:bg-blue-800 transition text-sm font-medium"
+          >
+            {loading ? '生成中...' : '📘 ストーリー生成'}
+          </button>
+          {error && <p className="text-red-500 text-sm">{error}</p>}
+        </div>
+      )}
 
       {/* ストーリー表示 */}
       <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-8">
-        {/* ① 現状の危機 */}
+        {/* ① 現状の危機や背景 */}
         <div className="bg-white shadow-lg rounded-xl p-6 border-l-4 border-red-500 max-h-[400px] overflow-auto">
           <div className="flex items-center mb-3 text-red-600 font-semibold text-base">
             <ShieldAlert className="w-5 h-5 mr-2" />
@@ -129,7 +136,7 @@ export default function StoryPage() {
           <p className="text-gray-800 text-sm whitespace-pre-wrap leading-relaxed">{parts[3]?.trim()}</p>
         </div>
 
-        {/* ④ 社員への期待（全幅） */}
+        {/* ④ 社員への期待 */}
         <div className="bg-white shadow-lg rounded-xl p-6 border-l-4 border-green-500 md:col-span-2 max-h-[400px] overflow-auto">
           <div className="flex items-center mb-3 text-green-600 font-semibold text-base">
             <Users className="w-5 h-5 mr-2" />
@@ -140,7 +147,7 @@ export default function StoryPage() {
         </div>
       </div>
 
-      {/* カスケードへの遷移ボタン */}
+      {/* カスケードへの遷移 */}
       <div className="mt-16 flex justify-center">
         <button
           onClick={() => router.push('/cascade')}
