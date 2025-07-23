@@ -31,6 +31,7 @@ export async function saveStrategyData(state: StrategyState, userId: string) {
     strategySummary: state.strategySummary,
     editableCascade: state.editableCascadeResult,
     csvFinanceData: state.csvFinanceData,
+    answers: state.answers || [], // ✅ 第1ラウンド回答
   };
 
   console.log('📤 Supabase保存リクエスト: ', payload);
@@ -104,4 +105,77 @@ export async function saveProgressLog(
   }
 
   return error;
+}
+
+// ✅ 第1ラウンドのStory Guide回答を保存
+export async function saveStoryAnswers(userId: string, answers: string[]) {
+  const { error } = await supabase
+    .from('story_answers')
+    .upsert(
+      [
+        {
+          user_id: userId,
+          answers,
+        },
+      ],
+      { onConflict: 'user_id' }
+    );
+
+  if (error) {
+    console.error('❌ ストーリー回答保存エラー:', error);
+  } else {
+    console.log('✅ ストーリー回答保存成功:', answers);
+  }
+
+  return error;
+}
+
+// ✅ 第2ラウンドのStory Guide回答を保存
+export async function saveStoryAnswers2(userId: string, answers2: string[]) {
+  const { error } = await supabase
+    .from('story_answers2')
+    .upsert(
+      [
+        {
+          user_id: userId,
+          answers: answers2,
+        },
+      ],
+      { onConflict: 'user_id' }
+    );
+
+  if (error) {
+    console.error('❌ ストーリー回答2 保存エラー:', error);
+  } else {
+    console.log('✅ ストーリー回答2 保存成功:', answers2);
+  }
+
+  return error;
+}
+
+// ✅ ストーリー生成結果のみ保存（storyページ用）
+export async function saveStoryToSupabase(
+  userId: string,
+  story: string,
+  summary: string
+) {
+  const { error } = await supabase
+    .from(TABLE_NAME)
+    .upsert(
+      [
+        {
+          user_id: userId,
+          story,
+          strategySummary: summary,
+        },
+      ],
+      { onConflict: 'user_id' }
+    );
+
+  if (error) {
+    console.error('❌ ストーリー単独保存エラー:', error);
+    throw new Error('ストーリーの保存に失敗しました');
+  }
+
+  console.log('✅ ストーリー単独保存成功');
 }

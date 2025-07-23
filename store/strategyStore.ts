@@ -25,6 +25,8 @@ export interface StrategyState {
   editableCascadeResult: Department[];
   csvFinanceData: any[];
   notification: string;
+  answers: string[];
+  answers2: string[]; // ✅ 第2ラウンド追加
 
   setCompanyName: (v: string) => void;
   setFoundationYear: (v: string) => void;
@@ -52,6 +54,8 @@ export interface StrategyState {
   setCsvFinanceData: (data: any[]) => void;
   setFinanceData: (data: any[]) => void;
   setNotification: (v: string) => void;
+  setAnswers: (v: string[]) => void;
+  setAnswers2: (v: string[]) => void; // ✅ 追加
 
   saveToSupabase: () => Promise<void>;
   loadFromSupabase: () => Promise<void>;
@@ -80,6 +84,8 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   editableCascadeResult: [],
   csvFinanceData: [],
   notification: '',
+  answers: [],
+  answers2: [], // ✅ 初期値
 
   setCompanyName: (v) => set({ companyName: v }),
   setFoundationYear: (v) => set({ foundationYear: v }),
@@ -100,6 +106,11 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   setStory: (v) => set({ story: v }),
   setStrategySummary: (v) => set({ strategySummary: v }),
   setEditableCascadeResult: (v) => set({ editableCascadeResult: v }),
+  setCsvFinanceData: (data) => set({ csvFinanceData: data }),
+  setFinanceData: (data) => set({ csvFinanceData: data }),
+  setNotification: (v) => set({ notification: v }),
+  setAnswers: (v) => set({ answers: v }),
+  setAnswers2: (v) => set({ answers2: v }), // ✅ 追加
 
   updateDepartmentStrategy: (deptName, newStrategy) => {
     const updated = get().editableCascadeResult.map((dept) =>
@@ -141,10 +152,6 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
     });
     set({ editableCascadeResult: updated });
   },
-
-  setCsvFinanceData: (data) => set({ csvFinanceData: data }),
-  setFinanceData: (data) => set({ csvFinanceData: data }),
-  setNotification: (v) => set({ notification: v }),
 
   saveToSupabase: async () => {
     const state = get();
@@ -207,6 +214,8 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
           })),
         })),
       })),
+      answers: data.answers || [],
+      answers2: data.answers2 || [], // ✅ 読み込み時に追加
     });
   },
 
@@ -242,6 +251,8 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
         strategySummary: '',
         editableCascadeResult: [],
         csvFinanceData: [],
+        answers: [],
+        answers2: [], // ✅ 初期化時
         notification: '🧹 データを初期化しました',
       });
     }

@@ -18,6 +18,8 @@ export async function POST(req: NextRequest) {
       opportunity,
       threat,
       csvFinanceData,
+      answers,
+      answers2,
     } = await req.json();
 
     const financialSummary =
@@ -27,7 +29,12 @@ export async function POST(req: NextRequest) {
             .join('\n')}`
         : '';
 
-    // --- 戦略ストーリー生成プロンプト ---
+    const deepInsight = `\n\n【社員の生の声・深掘り回答】\n第1ラウンド回答:\n${(answers || [])
+      .map((a: string, i: number) => `Q${i + 1}: ${a}`)
+      .join('\n')}\n\n第2ラウンド回答:\n${(answers2 || [])
+      .map((a: string, i: number) => `Q${i + 1}: ${a}`)
+      .join('\n')}`;
+
     const storyPrompt = `
 あなたは経営戦略の専門家であり、社員に対して「やさしく、わかりやすく」経営戦略をストーリーとして伝える役割です。
 以下の経営情報をもとに、4章構成の戦略ストーリーを作成してください。
@@ -50,8 +57,8 @@ ${thought || '（経営者の思いが未入力）'}
 - 弱み: ${weakness}
 - 機会: ${opportunity}
 - 脅威: ${threat}
-
 ${financialSummary}
+${deepInsight}
 
 【出力フォーマット】
 以下の4章構成で、各章の見出しは必ず「■」から始めてください。全ての章を出力してください。
@@ -82,7 +89,6 @@ ${financialSummary}
 
     const story = storyCompletion.choices[0]?.message?.content?.trim() || '';
 
-    // --- 要約生成プロンプト ---
     const summaryPrompt = `
 以下の戦略ストーリーを読んで、社員に最初に読ませる「経営戦略の要約（200文字以内）」を1文で作ってください。
 

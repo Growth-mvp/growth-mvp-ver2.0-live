@@ -1,17 +1,17 @@
 // components/ui/button.tsx
-"use client";
+"use client"
 
-import { ButtonHTMLAttributes } from "react";
-import clsx from "clsx";
+import { ButtonHTMLAttributes } from "react"
+import clsx from "clsx"
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "secondary";
-};
+  variant?: "primary" | "secondary"
+}
 
 export default function Button({
   variant = "primary",
   className,
-  type = "button", // ✅ デフォルト値を明示
+  type = "button",
   ...props
 }: ButtonProps) {
   return (
@@ -26,5 +26,5 @@ export default function Button({
         className
       )}
     />
-  );
+  )
 }

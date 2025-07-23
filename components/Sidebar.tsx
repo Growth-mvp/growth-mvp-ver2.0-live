@@ -32,7 +32,7 @@ export default function Sidebar() {
   const { user, setUser } = useUserStore();
 
   const handleSave = async () => {
-    if (!user?.id) {
+    if (!user) {
       setNotification('⚠️ ログインが必要です');
       return;
     }
@@ -41,7 +41,7 @@ export default function Sidebar() {
   };
 
   const handleLoad = async () => {
-    if (!user?.id) {
+    if (!user) {
       setNotification('⚠️ ログインが必要です');
       return;
     }
@@ -50,7 +50,7 @@ export default function Sidebar() {
   };
 
   const handleClear = async () => {
-    if (!user?.id) {
+    if (!user) {
       setNotification('⚠️ ログインが必要です');
       return;
     }
@@ -75,10 +75,11 @@ export default function Sidebar() {
 
           if (!error && data) {
             setUser({
-              id: userId,
-              email: data.email || '',
-              role: data.role || 'member',
-              department: data.department || '',
+              id: data.id,
+              email: data.email ?? '',
+              role: data.role ?? 'member',
+              department: data.department ?? '',
+              name: data.name ?? '未設定',
             });
           }
         }
@@ -97,7 +98,6 @@ export default function Sidebar() {
   return (
     <aside className="fixed top-0 left-0 z-50 min-h-screen w-72 bg-gray-900 text-white flex flex-col justify-between p-6 shadow-xl overflow-y-auto">
       <div>
-        {/* 🔵 ユーザー情報とログアウトを上部に */}
         {user && (
           <div className="mb-6 text-sm text-gray-300">
             <div className="mb-1">ログイン中: {user.email}</div>
@@ -110,12 +110,14 @@ export default function Sidebar() {
         </h1>
 
         <nav className="space-y-2">
-          <SidebarLink href="/strategy" icon={<FileText />} label="経営情報入力" active={pathname === '/strategy'} />
-          <SidebarLink href="/story" icon={<BookMarked />} label="戦略ストーリー" active={pathname === '/story'} />
-          <SidebarLink href="/cascade" icon={<Share />} label="カスケード構造" active={pathname === '/cascade'} />
-          <SidebarLink href="/execution" icon={<Activity />} label="OKR実行支援" active={pathname === '/execution'} />
-          <SidebarLink href="/review" icon={<BarChart />} label="OKRレビュー" active={pathname === '/review'} />
-          <SidebarLink href="/admin" icon={<Settings />} label="管理画面" active={pathname === '/admin'} />
+          <SidebarLink href="/strategy" icon={<FileText />} label="STEP1：経営情報" active={pathname === '/strategy'} />
+          <SidebarLink href="/story" icon={<BookMarked />} label="STEP2：戦略ストーリー" active={pathname === '/story'} />
+          <SidebarLink href="/story-guide" icon={<BookMarked />} label=" ┗ 質問ラウンド1" active={pathname === '/story-guide'} />
+          <SidebarLink href="/story-guide/round2" icon={<BookMarked />} label=" ┗ 質問ラウンド2" active={pathname === '/story-guide/round2'} />
+          <SidebarLink href="/cascade" icon={<Share />} label="STEP3：カスケード" active={pathname === '/cascade'} />
+          <SidebarLink href="/execution" icon={<Activity />} label="STEP4：実行支援" active={pathname === '/execution'} />
+          <SidebarLink href="/review" icon={<BarChart />} label="レビュー" active={pathname === '/review'} />
+          <SidebarLink href="/admin" icon={<Settings />} label="管理者専用" active={pathname === '/admin'} />
         </nav>
 
         <div className="mt-8 space-y-2 text-sm">
