@@ -1,4 +1,3 @@
-// app/api/generate-question/route.ts
 import { OpenAI } from 'openai';
 import { NextResponse } from 'next/server';
 
@@ -8,6 +7,7 @@ export async function POST(req: Request) {
   const body = await req.json();
 
   const {
+    step,
     role,
     industry,
     revenue,
@@ -23,8 +23,12 @@ export async function POST(req: Request) {
   } = body;
 
   const prompt = `
-あなたはドラッカーのような経営思想家です。${role}が本質的に考えるべき問いを生成してください。
-文脈に基づいた深い思考を促す問いであることが重要です。
+あなたはドラッカーのような経営思想家です。
+現在は第${step + 1}ラウンドの質問を作成しています。
+${role}が今、この段階で本質的に考えるべき問いを生成してください。
+
+単なる表面的な質問ではなく、
+戦略の方向性や意思決定、組織変革、価値創造に深く関わる問いであることが重要です。
 
 【会社情報】
 - 役職: ${role}
@@ -45,10 +49,10 @@ export async function POST(req: Request) {
 - 脅威: ${threat}
 
 【出力形式】
-問い: （30〜100字程度の問い）
+問い: （30〜100字）
 理由: なぜこの問いが重要なのか（背景と意図）
 
-1つだけ、深く考えさせる問いを出力してください。
+※1つだけ、深く考えさせる問いを出力してください。
 `;
 
   const response = await openai.chat.completions.create({

@@ -11,7 +11,7 @@ export default function Home() {
 
   useEffect(() => {
     if (user?.id && user?.role) {
-      // ログイン済みなら個別のページにリダイレクト（任意で有効化）
+      // 任意でログイン済み時の自動遷移を有効化できます
       // router.push('/strategy');
     }
   }, [user?.id]);
@@ -19,15 +19,14 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gradient-to-b from-white to-gray-100 py-16 px-6">
       <section className="text-center max-w-3xl mx-auto mb-16">
-        <h1 className="text-4xl font-bold text-gray-800 mb-4">戦略の不全を変える</h1>
+        <h1 className="text-6xl font-bold text-gray-800 mb-4">GROWTH</h1>
         <p className="text-lg text-gray-600 mb-6">
-          社員と共に創る、納得と実行のある戦略へ。
+          ー経営と現場をつなぎ、戦略を行動に変えるー
         </p>
-        <Link
-          href="/info"
-          className="inline-block bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition"
-        >
-          さっそく始める →
+        <Link href="/strategy">
+          <button className="inline-block bg-blue-600 text-white px-8 py-4 rounded-lg hover:bg-blue-700 transition text-lg font-semibold">
+            さっそく始める →
+          </button>
         </Link>
       </section>
 

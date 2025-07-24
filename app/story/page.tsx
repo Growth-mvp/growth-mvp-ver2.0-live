@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ShieldAlert,
   Navigation,
@@ -15,24 +15,30 @@ import { loadStrategyData } from '@/utils/supabase';
 
 export default function StoryPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const shouldGenerate = searchParams.get('generate') === '1';
+  const hasLoadedRef = useRef(false);
+
   const {
-    vision,
-    industry,
-    revenue,
-    employees,
-    strength,
-    weakness,
-    opportunity,
-    threat,
-    thought,
-    story,
-    setStory,
-    setStrategySummary,
-    mission,
-    value,
-    csvFinanceData,
     answers,
     answers2,
+    csvFinanceData,
+    employees,
+    industry,
+    mission,
+    revenue,
+    setAnswers,
+    setAnswers2,
+    setStory,
+    setStrategySummary,
+    story,
+    strength,
+    thought,
+    opportunity,
+    threat,
+    value,
+    vision,
+    weakness, // ← ★★★ これが漏れているので追加してください
   } = useStrategyStore();
 
   const { user } = useUserStore();
@@ -42,9 +48,12 @@ export default function StoryPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Supabaseからデータ読み込み（初回のみ）
   useEffect(() => {
     const load = async () => {
-      if (!user?.id) return;
+      if (!user?.id || hasLoadedRef.current) return;
+      hasLoadedRef.current = true;
+
       const { data, error } = await loadStrategyData(user.id);
       if (error) {
         console.error('❌ Supabaseからの読み込み失敗:', error);
@@ -54,16 +63,23 @@ export default function StoryPage() {
         setStory(data.story);
         setLocalStory(data.story);
       }
-      if (data?.strategySummary) {
-        setStrategySummary(data.strategySummary);
-      }
+      if (data?.strategySummary) setStrategySummary(data.strategySummary);
+      if (data?.answers) setAnswers(data.answers);
+      if (data?.answers2) setAnswers2(data.answers2);
     };
     load();
   }, [user?.id]);
 
+  // URLパラメータによる生成フラグがある場合に実行
+  useEffect(() => {
+    if (shouldGenerate) {
+      generateStory();
+    }
+  }, [shouldGenerate]);
+
   const generateStory = async () => {
-    if (!vision || !strength || !weakness || !opportunity || !threat || !thought) {
-      setError('必要な情報（思い・ビジョン・SWOT）が不足しています。');
+    if (!thought || !vision || !strength || !weakness || !opportunity || !threat) {
+      setError('⚠️ 必要な情報（思い・ビジョン・SWOT）が不足しています。');
       return;
     }
 
@@ -87,8 +103,8 @@ export default function StoryPage() {
           mission,
           value,
           csvFinanceData,
-          answers,
-          answers2,
+          answers: answers ?? [],
+          answers2: answers2 ?? [],
         }),
       });
 
@@ -99,11 +115,11 @@ export default function StoryPage() {
         setStrategySummary(data.summary);
         setLocalStory(data.story);
       } else {
-        setError('ストーリー生成に失敗しました');
+        setError('❌ ストーリー生成に失敗しました');
       }
     } catch (err) {
-      console.error('❌ ストーリー生成失敗:', err);
-      setError('ストーリー生成時にエラーが発生しました');
+      console.error('❌ ストーリー生成エラー:', err);
+      setError('ストーリー生成中にエラーが発生しました');
     } finally {
       setLoading(false);
     }
@@ -141,7 +157,7 @@ export default function StoryPage() {
         </div>
       )}
 
-      {parts.length < 5 ? (
+      {!localStory ? (
         <p className="text-gray-500 text-sm italic">※ まだストーリーが生成されていません。</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">

@@ -10,22 +10,29 @@ import QuestionCard from '@/components/guide/QuestionCard';
 
 export default function StoryGuideRound2Page() {
   const router = useRouter();
+
   const { questions2, answers2, setAnswers2 } = useQuestionStore();
+  const { user } = useUserStore();
+
   const [localAnswers, setLocalAnswers] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  const { user } = useUserStore();
 
-  // 初期表示時にanswers2または空配列をセット
+  // 初期ロード時に localAnswers をセット
   useEffect(() => {
-    if (answers2.length > 0) {
+    if (questions2.length === 0) {
+      setLocalAnswers([]);
+      return;
+    }
+
+    if (answers2.length === questions2.length) {
       setLocalAnswers(answers2);
     } else {
       setLocalAnswers(Array(questions2.length).fill(''));
     }
   }, [questions2, answers2]);
 
-  // 回答更新
+  // 回答変更
   const handleAnswerChange = (index: number, value: string) => {
     const updated = [...localAnswers];
     updated[index] = value;
@@ -54,10 +61,10 @@ export default function StoryGuideRound2Page() {
     }
   };
 
-  // 質問単体ごとの次の処理（任意）
+  // ステップごとの次へ（必要に応じて使用）
   const handleNext = (index: number) => {
     console.log(`Step ${index + 1} のNextがクリックされました`);
-    // 必要に応じて処理を追加
+    // 任意の処理を追加可能
   };
 
   return (

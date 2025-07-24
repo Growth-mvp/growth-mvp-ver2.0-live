@@ -1,3 +1,5 @@
+'use client';
+
 import { create } from 'zustand';
 import { saveStrategyData, loadStrategyData, deleteStrategyData } from '../utils/supabase';
 import { useUserStore } from './userStore';
@@ -10,6 +12,7 @@ export interface StrategyState {
   industry: string;
   revenue: string;
   employees: string;
+  role: string;
   businessContent: string;
   customerSegment: string;
   thought: string;
@@ -26,7 +29,11 @@ export interface StrategyState {
   csvFinanceData: any[];
   notification: string;
   answers: string[];
-  answers2: string[]; // ✅ 第2ラウンド追加
+  questions: string[];
+  reasons: string[];
+  answers2: string[];
+  questions2: string[];
+  reasons2: string[];
 
   setCompanyName: (v: string) => void;
   setFoundationYear: (v: string) => void;
@@ -41,6 +48,7 @@ export interface StrategyState {
   setWeakness: (v: string) => void;
   setOpportunity: (v: string) => void;
   setThreat: (v: string) => void;
+  setRole: (v: string) => void;
   setMission: (v: string) => void;
   setVision: (v: string) => void;
   setValue: (v: string) => void;
@@ -55,7 +63,15 @@ export interface StrategyState {
   setFinanceData: (data: any[]) => void;
   setNotification: (v: string) => void;
   setAnswers: (v: string[]) => void;
-  setAnswers2: (v: string[]) => void; // ✅ 追加
+  setAnswers2: (v: string[]) => void;
+  setAnswersToStrategyStore: (payload: {
+    answers: string[];
+    questions?: string[];
+    reasons?: string[];
+    answers2?: string[];
+    questions2?: string[];
+    reasons2?: string[];
+  }) => void;
 
   saveToSupabase: () => Promise<void>;
   loadFromSupabase: () => Promise<void>;
@@ -69,6 +85,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   industry: '',
   revenue: '',
   employees: '',
+  role: '',
   businessContent: '',
   customerSegment: '',
   thought: '',
@@ -85,7 +102,11 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   csvFinanceData: [],
   notification: '',
   answers: [],
-  answers2: [], // ✅ 初期値
+  questions: [],
+  reasons: [],
+  answers2: [],
+  questions2: [],
+  reasons2: [],
 
   setCompanyName: (v) => set({ companyName: v }),
   setFoundationYear: (v) => set({ foundationYear: v }),
@@ -100,6 +121,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   setWeakness: (v) => set({ weakness: v }),
   setOpportunity: (v) => set({ opportunity: v }),
   setThreat: (v) => set({ threat: v }),
+  setRole: (v) => set({ role: v }),
   setMission: (v) => set({ mission: v }),
   setVision: (v) => set({ vision: v }),
   setValue: (v) => set({ value: v }),
@@ -110,7 +132,17 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   setFinanceData: (data) => set({ csvFinanceData: data }),
   setNotification: (v) => set({ notification: v }),
   setAnswers: (v) => set({ answers: v }),
-  setAnswers2: (v) => set({ answers2: v }), // ✅ 追加
+  setAnswers2: (v) => set({ answers2: v }),
+  setAnswersToStrategyStore: (payload) =>
+    set((state) => ({
+      ...state,
+      answers: payload.answers,
+      questions: payload.questions ?? state.questions,
+      reasons: payload.reasons ?? state.reasons,
+      answers2: payload.answers2 ?? state.answers2,
+      questions2: payload.questions2 ?? state.questions2,
+      reasons2: payload.reasons2 ?? state.reasons2,
+    })),
 
   updateDepartmentStrategy: (deptName, newStrategy) => {
     const updated = get().editableCascadeResult.map((dept) =>
@@ -132,12 +164,11 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   },
 
   addProject: (deptName, newProj) => {
-    const updated = get().editableCascadeResult.map((dept) => {
-      if (dept.name === deptName) {
-        return { ...dept, projects: [...dept.projects, newProj] };
-      }
-      return dept;
-    });
+    const updated = get().editableCascadeResult.map((dept) =>
+      dept.name === deptName
+        ? { ...dept, projects: [...dept.projects, newProj] }
+        : dept
+    );
     set({ editableCascadeResult: updated });
   },
 
@@ -171,15 +202,14 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
 
   loadFromSupabase: async () => {
     const userId = useUserStore.getState().user?.id;
-    if (!userId) {
-      console.warn('⚠️ ユーザーIDが存在しないため読み込みできません');
-      return;
-    }
+    if (!userId) return;
+
     const { data, error } = await loadStrategyData(userId);
     if (error || !data) {
       console.error('❌ Supabase読み込み失敗:', error);
       return;
     }
+
     set({
       companyName: data.companyName || '',
       foundationYear: data.foundationYear || '',
@@ -215,16 +245,14 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
         })),
       })),
       answers: data.answers || [],
-      answers2: data.answers2 || [], // ✅ 読み込み時に追加
+      answers2: data.answers2 || [],
     });
   },
 
   clearAllData: async () => {
     const userId = useUserStore.getState().user?.id;
-    if (!userId) {
-      set({ notification: '⚠️ ユーザーIDが存在しないため削除できません' });
-      return;
-    }
+    if (!userId) return;
+
     const { error } = await deleteStrategyData(userId);
     if (error) {
       console.error('❌ Supabase削除エラー:', error);
@@ -252,7 +280,11 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
         editableCascadeResult: [],
         csvFinanceData: [],
         answers: [],
-        answers2: [], // ✅ 初期化時
+        questions: [],
+        reasons: [],
+        answers2: [],
+        questions2: [],
+        reasons2: [],
         notification: '🧹 データを初期化しました',
       });
     }

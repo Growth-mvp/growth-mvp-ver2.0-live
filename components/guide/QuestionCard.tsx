@@ -1,11 +1,14 @@
 'use client';
 
+import React from 'react'; // ✅ ← これが必要
+
 type QuestionCardProps = {
   step: number;
   question: string;
   reason?: string;
   answer: string;
   loading?: boolean;
+  onGenerateQuestion?: () => void; // すでに定義済
   onAnswerChange: (val: string) => void;
   onNext: () => void;
 };
@@ -16,6 +19,7 @@ export default function QuestionCard({
   reason,
   answer,
   loading = false,
+  onGenerateQuestion,
   onAnswerChange,
   onNext,
 }: QuestionCardProps) {
@@ -38,7 +42,15 @@ export default function QuestionCard({
         onChange={(e) => onAnswerChange(e.target.value)}
         placeholder="あなたの答えを入力してください"
       />
-      <div className="flex justify-end">
+      <div className="flex justify-between mt-2">
+        {onGenerateQuestion && (
+          <button
+            onClick={onGenerateQuestion}
+            className="text-sm text-blue-500 hover:underline"
+          >
+            質問を再生成する
+          </button>
+        )}
         <button
           onClick={onNext}
           className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded disabled:opacity-50"

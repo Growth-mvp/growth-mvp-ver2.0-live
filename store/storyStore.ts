@@ -5,6 +5,7 @@ interface StoryState {
   summary: string;
   setStory: (story: string) => void;
   setSummary: (summary: string) => void;
+  reset: () => void;
 }
 
 export const useStoryStore = create<StoryState>((set) => ({
@@ -12,4 +13,5 @@ export const useStoryStore = create<StoryState>((set) => ({
   summary: '',
   setStory: (story) => set({ story }),
   setSummary: (summary) => set({ summary }),
+  reset: () => set({ story: '', summary: '' }),
 }));
