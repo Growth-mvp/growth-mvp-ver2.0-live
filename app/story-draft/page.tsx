@@ -13,7 +13,7 @@ import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { loadStrategyData } from '@/utils/supabase';
 
-export default function StoryPage() {
+export default function StoryDraftPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const shouldGenerate = searchParams.get('generate') === '1';
@@ -38,7 +38,7 @@ export default function StoryPage() {
     threat,
     value,
     vision,
-    weakness, // ← ★★★ これが漏れているので追加してください
+    weakness,
   } = useStrategyStore();
 
   const { user } = useUserStore();
@@ -48,7 +48,7 @@ export default function StoryPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Supabaseからデータ読み込み（初回のみ）
+  // Supabaseから初回のみ読み込み
   useEffect(() => {
     const load = async () => {
       if (!user?.id || hasLoadedRef.current) return;
@@ -70,14 +70,14 @@ export default function StoryPage() {
     load();
   }, [user?.id]);
 
-  // URLパラメータによる生成フラグがある場合に実行
+  // 自動生成トリガー
   useEffect(() => {
     if (shouldGenerate) {
-      generateStory();
+      generateStoryDraft();
     }
   }, [shouldGenerate]);
 
-  const generateStory = async () => {
+  const generateStoryDraft = async () => {
     if (!thought || !vision || !strength || !weakness || !opportunity || !threat) {
       setError('⚠️ 必要な情報（思い・ビジョン・SWOT）が不足しています。');
       return;
@@ -87,12 +87,14 @@ export default function StoryPage() {
     setError('');
 
     try {
-      const res = await fetch('/api/generate-story', {
+      const res = await fetch('/api/generate-story-draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           thought,
           vision,
+          mission,
+          value,
           industry,
           revenue,
           employees,
@@ -100,22 +102,27 @@ export default function StoryPage() {
           weakness,
           opportunity,
           threat,
-          mission,
-          value,
           csvFinanceData,
-          answers: answers ?? [],
-          answers2: answers2 ?? [],
         }),
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        console.error('❌ JSONパースエラー:', text);
+        setError('❌ ストーリー生成に失敗しました（形式エラー）');
+        setLoading(false);
+        return;
+      }
 
       if (res.ok && data.story) {
         setStory(data.story);
-        setStrategySummary(data.summary);
         setLocalStory(data.story);
       } else {
-        setError('❌ ストーリー生成に失敗しました');
+        console.error('❌ ストーリーたたき台の生成に失敗:', data);
+        setError('❌ ストーリーたたき台の生成に失敗しました');
       }
     } catch (err) {
       console.error('❌ ストーリー生成エラー:', err);
@@ -129,16 +136,16 @@ export default function StoryPage() {
 
   return (
     <div className="p-8 min-h-screen bg-gradient-to-b from-white to-blue-50">
-      <h1 className="text-3xl font-semibold mb-4 text-gray-900">戦略ストーリー</h1>
+      <h1 className="text-3xl font-semibold mb-4 text-gray-900">📘 戦略ストーリーたたき台</h1>
 
       <p className="text-sm text-gray-500 mb-8">
-        ※ このストーリーはAIが生成したたたき台です。後のステップで「質問による掘り下げ」が可能です。
+        ※ このストーリーはAIが生成したたたき台です。次のステップで「質問による掘り下げ」が可能です。
       </p>
 
       {isAdmin && (
         <div className="flex flex-wrap items-center gap-4 mb-6">
           <button
-            onClick={generateStory}
+            onClick={generateStoryDraft}
             disabled={loading}
             className="bg-blue-700 text-white px-6 py-2 rounded-md hover:bg-blue-800 transition text-sm"
           >
@@ -158,44 +165,21 @@ export default function StoryPage() {
       )}
 
       {!localStory ? (
-        <p className="text-gray-500 text-sm italic">※ まだストーリーが生成されていません。</p>
+        <p className="text-gray-500 text-sm italic">
+          ※ まだストーリーが生成されていません。上のボタンから生成してください。
+        </p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <div className="bg-white shadow rounded-xl p-6 border-l-4 border-red-500 max-h-[400px] overflow-auto">
-            <div className="flex items-center mb-3 text-red-600 font-semibold">
-              <ShieldAlert className="w-5 h-5 mr-2" />
-              <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded text-xs font-bold mr-2">①</span>
-              現状の危機や背景
-            </div>
-            <p className="text-gray-800 text-sm whitespace-pre-wrap leading-relaxed">{parts[1]?.trim()}</p>
-          </div>
-
-          <div className="bg-white shadow rounded-xl p-6 border-l-4 border-blue-500 max-h-[400px] overflow-auto">
-            <div className="flex items-center mb-3 text-blue-600 font-semibold">
-              <Navigation className="w-5 h-5 mr-2" />
-              <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-bold mr-2">②</span>
-              目指す方向性
-            </div>
-            <p className="text-gray-800 text-sm whitespace-pre-wrap leading-relaxed">{parts[2]?.trim()}</p>
-          </div>
-
-          <div className="bg-white shadow rounded-xl p-6 border-l-4 border-purple-500 max-h-[400px] overflow-auto">
-            <div className="flex items-center mb-3 text-purple-600 font-semibold">
-              <Network className="w-5 h-5 mr-2" />
-              <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-xs font-bold mr-2">③</span>
-              SWOTに基づく戦略
-            </div>
-            <p className="text-gray-800 text-sm whitespace-pre-wrap leading-relaxed">{parts[3]?.trim()}</p>
-          </div>
-
-          <div className="bg-white shadow rounded-xl p-6 border-l-4 border-green-500 md:col-span-2 max-h-[400px] overflow-auto">
-            <div className="flex items-center mb-3 text-green-600 font-semibold">
-              <Users className="w-5 h-5 mr-2" />
-              <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded text-xs font-bold mr-2">④</span>
-              社員に求める行動や期待
-            </div>
-            <p className="text-gray-800 text-sm whitespace-pre-wrap leading-relaxed">{parts[4]?.trim()}</p>
-          </div>
+          <StoryBlock icon={ShieldAlert} title="① 現状の危機や背景" color="red" content={parts[1]} />
+          <StoryBlock icon={Navigation} title="② 目指す方向性" color="blue" content={parts[2]} />
+          <StoryBlock icon={Network} title="③ SWOTに基づく戦略" color="purple" content={parts[3]} />
+          <StoryBlock
+            icon={Users}
+            title="④ 社員に求める行動や期待"
+            color="green"
+            content={parts[4]}
+            fullWidth
+          />
         </div>
       )}
 
@@ -207,6 +191,44 @@ export default function StoryPage() {
           戦略カスケードを生成する →
         </button>
       </div>
+    </div>
+  );
+}
+
+function StoryBlock({
+  icon: Icon,
+  title,
+  content,
+  color,
+  fullWidth = false,
+}: {
+  icon: any;
+  title: string;
+  content: string;
+  color: string;
+  fullWidth?: boolean;
+}) {
+  const borderColor = `border-${color}-500`;
+  const textColor = `text-${color}-600`;
+  const bgColor = `bg-${color}-100`;
+  const textShade = `text-${color}-700`;
+
+  return (
+    <div
+      className={`bg-white shadow rounded-xl p-6 border-l-4 ${borderColor} ${
+        fullWidth ? 'md:col-span-2' : ''
+      } max-h-[400px] overflow-auto`}
+    >
+      <div className={`flex items-center mb-3 ${textColor} font-semibold`}>
+        <Icon className="w-5 h-5 mr-2" />
+        <span className={`${bgColor} ${textShade} px-2 py-0.5 rounded text-xs font-bold mr-2`}>
+          {title.slice(0, 2)}
+        </span>
+        {title.slice(2)}
+      </div>
+      <p className="text-gray-800 text-sm whitespace-pre-wrap leading-relaxed">
+        {content?.trim() || '（内容なし）'}
+      </p>
     </div>
   );
 }

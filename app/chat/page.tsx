@@ -97,13 +97,13 @@ export default function ChatWithAIPage() {
         </div>
 
         {chatResponse && (
-          <div className="mt-4 bg-gray-100 p-3 rounded text-sm whitespace-pre-wrap">
+          <div className="mt-4 bg-gray-450 p-3 rounded text-sm whitespace-pre-wrap">
             {chatResponse}
           </div>
         )}
       </main>
 
-      <aside className="w-1/3 bg-gray-50 p-4 border-l">
+      <aside className="w-1/3 bg-gray-450 p-4 border-l">
         <h3 className="font-semibold mb-2">経営者AIボット</h3>
         <p className="text-sm text-gray-600">
           あなたの質問に対して、社長の意図や戦略方針に基づいてAIが即座に回答します。

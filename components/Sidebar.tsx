@@ -9,14 +9,14 @@ import { useUserStore } from '@/store/userStore';
 import LogoutButton from './LogoutButton';
 import {
   FileText,
-  BookMarked,
+  BookOpen,
   Share,
   Activity,
-  BarChart,
   Settings,
   Download,
   RotateCcw,
   Trash2,
+  Clock,
 } from 'lucide-react';
 
 export default function Sidebar() {
@@ -110,14 +110,44 @@ export default function Sidebar() {
         </h1>
 
         <nav className="space-y-2">
-          <SidebarLink href="/strategy" icon={<FileText />} label="STEP1：経営情報" active={pathname === '/strategy'} />
-          <SidebarLink href="/story" icon={<BookMarked />} label="STEP2：戦略ストーリー" active={pathname === '/story'} />
-          <SidebarLink href="/story-guide" icon={<BookMarked />} label=" ┗ 質問ラウンド1" active={pathname === '/story-guide'} />
-          <SidebarLink href="/story-guide/round2" icon={<BookMarked />} label=" ┗ 質問ラウンド2" active={pathname === '/story-guide/round2'} />
-          <SidebarLink href="/cascade" icon={<Share />} label="STEP3：カスケード" active={pathname === '/cascade'} />
-          <SidebarLink href="/execution" icon={<Activity />} label="STEP4：実行支援" active={pathname === '/execution'} />
-          <SidebarLink href="/review" icon={<BarChart />} label="レビュー" active={pathname === '/review'} />
-          <SidebarLink href="/admin" icon={<Settings />} label="管理者専用" active={pathname === '/admin'} />
+          <SidebarLink
+            href="/strategy"
+            icon={<FileText />}
+            label="STEP1：経営情報＋たたき台"
+            active={pathname === '/strategy'}
+          />
+          <SidebarLink
+            href="/story-process"
+            icon={<BookOpen />}
+            label="STEP2：ストーリー深掘り"
+            active={pathname === '/story-process'}
+          />
+          <SidebarLink
+            href="/cascade"
+            icon={<Share />}
+            label="STEP3：カスケード戦略"
+            active={pathname === '/cascade'}
+          />
+          <SidebarLink
+            href="/execution"
+            icon={<Activity />}
+            label="STEP4：実行支援"
+            active={pathname === '/execution'}
+          />
+          <SidebarLink
+            href="/story-history"
+            icon={<Clock />}
+            label="📚 ストーリー履歴"
+            active={pathname === '/story-history'}
+          />
+          {user?.role === 'admin' && (
+            <SidebarLink
+              href="/admin"
+              icon={<Settings />}
+              label="管理者専用"
+              active={pathname === '/admin'}
+            />
+          )}
         </nav>
 
         <div className="mt-8 space-y-2 text-sm">

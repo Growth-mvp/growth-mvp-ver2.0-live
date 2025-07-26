@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react'; // ✅ ← これが必要
+import React from 'react';
 
 type QuestionCardProps = {
   step: number;
@@ -8,7 +8,7 @@ type QuestionCardProps = {
   reason?: string;
   answer: string;
   loading?: boolean;
-  onGenerateQuestion?: () => void; // すでに定義済
+  onGenerateQuestion?: () => void;
   onAnswerChange: (val: string) => void;
   onNext: () => void;
 };
@@ -33,30 +33,41 @@ export default function QuestionCard({
 
   return (
     <div className="border rounded-xl p-6 shadow-md bg-white space-y-4">
-      <div className="text-lg font-semibold text-gray-600">Step {step}</div>
-      <div className="text-xl font-bold text-blue-700">{question}</div>
-      {reason && <div className="text-sm text-gray-500">理由: {reason}</div>}
+      <div className="text-sm text-gray-500 font-semibold">Step {step}</div>
+
+      <div className="text-lg font-bold text-blue-800">
+        🧠 問い：{question}
+      </div>
+
+      {reason && (
+        <div className="text-sm text-gray-600 italic">
+          理由：{reason}
+        </div>
+      )}
+
       <textarea
-        className="w-full h-32 p-3 border rounded-md resize-none"
+        className="w-full h-32 p-3 border rounded-md resize-none text-sm text-gray-800"
         value={answer}
         onChange={(e) => onAnswerChange(e.target.value)}
-        placeholder="あなたの答えを入力してください"
+        placeholder="あなたの考えを自由に記入してください"
       />
-      <div className="flex justify-between mt-2">
+
+      <div className="flex justify-between items-center mt-2">
         {onGenerateQuestion && (
           <button
             onClick={onGenerateQuestion}
             className="text-sm text-blue-500 hover:underline"
           >
-            質問を再生成する
+            ↻ 質問を再生成する
           </button>
         )}
+
         <button
           onClick={onNext}
-          className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded disabled:opacity-50"
-          disabled={!answer}
+          className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded disabled:opacity-50"
+          disabled={!answer.trim()}
         >
-          次の質問へ
+          {step === 4 ? '完了 → ストーリー反映' : '次の質問へ'}
         </button>
       </div>
     </div>

@@ -17,6 +17,9 @@ import {
 export default function StoryGuidePage() {
   const router = useRouter();
 
+  const MAX_STEPS = 4;
+  const STEP_LABELS = ['現状の危機', '目指す方向性', 'SWOTに基づく戦略', '社員に求めること'];
+
   const {
     step,
     answer,
@@ -46,8 +49,12 @@ export default function StoryGuidePage() {
   } = useStrategyStore();
 
   const { user } = useUserStore();
-
-  const MAX_STEPS = 4;
+  const role =
+    user?.role === 'admin'
+      ? '経営者'
+      : user?.role === 'manager'
+      ? '部門責任者'
+      : '現場担当者';
 
   const [answers, setAnswers] = useState<{
     answers: string[];
@@ -61,13 +68,6 @@ export default function StoryGuidePage() {
 
   const [hasLoadedAnswers, setHasLoadedAnswers] = useState(false);
   const [fetchError, setFetchError] = useState('');
-
-  const role =
-    user?.role === 'admin'
-      ? '経営者'
-      : user?.role === 'manager'
-      ? '部門責任者'
-      : '現場担当者';
 
   useEffect(() => {
     if (user === null) {
@@ -222,17 +222,14 @@ export default function StoryGuidePage() {
   return (
     <main className="max-w-3xl mx-auto p-6 space-y-6">
       <h1 className="text-2xl font-bold text-center text-gray-800">
-        経営層向け 対話ガイド
+        経営層向け 対話ガイド（ステップ {step + 1} / {MAX_STEPS}）
       </h1>
       <p className="text-gray-600 text-center text-sm">
-        以下はAIが生成した戦略ストーリーを深めるための“問い”です。あなたの考えを言語化することで、より実行可能な戦略に近づけていきましょう。
+        「{STEP_LABELS[step]}」に関する問いにあなた自身の言葉で答えてください。
       </p>
-      <div className="text-sm text-gray-500 text-right mt-2">
-        ステップ {step + 1} / {MAX_STEPS}
-      </div>
 
       {fetchError && (
-        <div className="text-red-500 text-sm font-medium">{fetchError}</div>
+        <div className="text-red-500 text-sm font-medium mt-2">{fetchError}</div>
       )}
 
       <QuestionCard
@@ -246,7 +243,7 @@ export default function StoryGuidePage() {
         onGenerateQuestion={() => fetchQuestion(step)}
       />
 
-      <div className="flex justify-end mt-4">
+      <div className="flex justify-end mt-6">
         <Button onClick={handleNext} disabled={!answer || loading}>
           {step === MAX_STEPS - 1 ? '完了 → ストーリー反映' : '次へ'}
         </Button>

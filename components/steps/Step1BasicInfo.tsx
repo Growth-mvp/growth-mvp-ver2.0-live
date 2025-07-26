@@ -37,6 +37,7 @@ export default function Step1BasicInfo() {
     { value: 'retail', label: '小売・流通業（EC含む）' },
     { value: 'education', label: '教育・研修・スクールビジネス' },
     { value: 'healthcare', label: '医療・介護・ヘルスケア' },
+    { value: 'other', label: 'その他' }, // ✅ 追加
   ];
 
   return (
@@ -103,13 +104,13 @@ export default function Step1BasicInfo() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">売上（億円）</label>
+            <label className="block text-sm font-medium text-gray-700">売上（百万円）</label> {/* ✅ 単位修正 */}
             <input
               type="text"
               value={revenue}
               onChange={(e) => setRevenue(e.target.value)}
               className="w-full border rounded px-3 py-2"
-              placeholder="例：50"
+              placeholder="例：5000"
             />
           </div>
 

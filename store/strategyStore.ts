@@ -3,7 +3,7 @@
 import { create } from 'zustand';
 import { saveStrategyData, loadStrategyData, deleteStrategyData } from '../utils/supabase';
 import { useUserStore } from './userStore';
-import { Department, Project } from '@/types/strategy';
+import { Department, Project, DeepQuestion } from '@/types/strategy';
 
 export interface StrategyState {
   companyName: string;
@@ -31,7 +31,7 @@ export interface StrategyState {
   answers: string[];
   questions: string[];
   reasons: string[];
-  answers2: string[];
+  answers2: DeepQuestion[];
   questions2: string[];
   reasons2: string[];
 
@@ -63,12 +63,12 @@ export interface StrategyState {
   setFinanceData: (data: any[]) => void;
   setNotification: (v: string) => void;
   setAnswers: (v: string[]) => void;
-  setAnswers2: (v: string[]) => void;
+  setAnswers2: (v: DeepQuestion[]) => void;
   setAnswersToStrategyStore: (payload: {
     answers: string[];
     questions?: string[];
     reasons?: string[];
-    answers2?: string[];
+    answers2?: DeepQuestion[];
     questions2?: string[];
     reasons2?: string[];
   }) => void;
@@ -245,7 +245,16 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
         })),
       })),
       answers: data.answers || [],
-      answers2: data.answers2 || [],
+      questions: data.questions || [],
+      reasons: data.reasons || [],
+      answers2: (data.answers2 || []).map((item: any) => ({
+        chapter: item.chapter || '',
+        question: item.question || '',
+        reason: item.reason || '',
+        answer: item.answer || '',
+      })),
+      questions2: data.questions2 || [],
+      reasons2: data.reasons2 || [],
     });
   },
 

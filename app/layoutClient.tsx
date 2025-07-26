@@ -14,12 +14,12 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
 
   return (
     <div className="min-h-screen relative">
-      {!hideSidebar && <Sidebar />} {/* ← fixedで表示される */}
+      {!hideSidebar && <Sidebar />}
 
       <main
         className={`min-h-screen transition-all ${
           !hideSidebar ? 'pl-72 pr-96' : ''
-        } bg-gradient-to-b from-gray-100 to-white p-6`}
+        } bg-gray-200 p-6`} // ← 単色の薄いグレーに変更
       >
         {children}
       </main>

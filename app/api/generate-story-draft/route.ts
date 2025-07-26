@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { OpenAI } from 'openai';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY!,
+});
 
 export async function POST(req: NextRequest) {
   try {
+    const body = await req.json();
+
     const {
       thought,
       mission,
@@ -18,26 +22,24 @@ export async function POST(req: NextRequest) {
       opportunity,
       threat,
       csvFinanceData,
-      answers,
-      answers2,
-    } = await req.json();
+    } = body;
 
     const financialSummary =
       Array.isArray(csvFinanceData) && csvFinanceData.length > 0
-        ? `\n\n【参考財務データ（CSVアップロード）】\n${csvFinanceData
+        ? `\n\n【参考財務データ】\n${csvFinanceData
             .map((row: any) => Object.values(row).join(' / '))
             .join('\n')}`
         : '';
 
-    const deepInsight = `\n\n【社員の生の声・深掘り回答】\n第1ラウンド回答:\n${(answers || [])
-      .map((a: string, i: number) => `Q${i + 1}: ${a}`)
-      .join('\n')}\n\n第2ラウンド回答:\n${(answers2 || [])
-      .map((a: string, i: number) => `Q${i + 1}: ${a}`)
-      .join('\n')}`;
-
     const storyPrompt = `
-あなたは経営戦略の専門家であり、社員に対して「やさしく、わかりやすく」経営戦略をストーリーとして伝える役割です。
-以下の経営情報をもとに、4章構成の戦略ストーリーを作成してください。
+あなたは経営戦略の専門家であり、社員に対して「やさしく、情熱をもって」経営戦略を伝える役割を担っています。
+以下の経営情報をもとに、社員が納得して動きたくなるような、4章構成のストーリー（たたき台）を作成してください。
+
+【出力トーンと形式】
+- 口調：「社員に語りかける口調」
+- 文体：やさしく、情熱をもって
+- 表現：難解な用語は避け、できるだけ平易な言葉で
+- 各章は必ず「■」で始めること
 
 【経営者の思い】
 ${thought || '（経営者の思いが未入力）'}
@@ -58,15 +60,10 @@ ${thought || '（経営者の思いが未入力）'}
 - 機会: ${opportunity}
 - 脅威: ${threat}
 ${financialSummary}
-${deepInsight}
 
-【出力フォーマット】
-以下の4章構成で、各章の見出しは必ず「■」から始めてください。全ての章を出力してください。
-
+【出力フォーマット（必ずすべて出力してください）】
 ■現状の危機や背景（なぜ今、変革しなければならないのか）
-・この章では、会社が直面している外部環境・業界動向・財務課題・人材課題などを踏まえ、
-　「このままでは成長が止まる／生き残れない」という危機感を社員が理解できるように、
-　事実と感情の両面から語ってください。
+・会社が直面している外部環境・業界動向・財務課題・人材課題などを踏まえ、「このままでは成長が止まる／生き残れない」という危機感を社員が理解できるように、事実と感情の両面から語ってください。
 ・抽象論ではなく、具体的な「数字」や「変化」「競合の動き」も含めてください。
 
 ■経営者が描く未来の方向性（どこを目指すのか）
@@ -81,33 +78,29 @@ ${deepInsight}
 ・全員が自分の業務の中で戦略をどう実行に移すかを考え、日々の判断や行動に反映させてください。
 `.trim();
 
-    const storyCompletion = await openai.chat.completions.create({
+    const completion = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [{ role: 'user', content: storyPrompt }],
       temperature: 0.7,
+      max_tokens: 2000, // 出力長さを明示
     });
 
-    const story = storyCompletion.choices[0]?.message?.content?.trim() || '';
+    const generatedStory = completion.choices?.[0]?.message?.content?.trim();
 
-    const summaryPrompt = `
-以下の戦略ストーリーを読んで、社員に最初に読ませる「経営戦略の要約（200文字以内）」を1文で作ってください。
+    if (!generatedStory || generatedStory.length < 100) {
+      console.error('⚠️ ストーリー出力が不完全:', generatedStory);
+      return NextResponse.json(
+        { error: 'AIからの出力が不完全でした' },
+        { status: 500 }
+      );
+    }
 
-${story}
-`.trim();
-
-    const summaryCompletion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [{ role: 'user', content: summaryPrompt }],
-      temperature: 0.5,
-    });
-
-    const summary = summaryCompletion.choices[0]?.message?.content?.trim() || '要約なし';
-
-    return NextResponse.json({ story, summary });
-  } catch (error) {
-    console.error('❌ AIストーリー生成エラー:', error);
+    console.log('✅ たたき台ストーリー出力成功');
+    return NextResponse.json({ story: generatedStory });
+  } catch (error: any) {
+    console.error('❌ ストーリー生成エラー:', error?.message || error);
     return NextResponse.json(
-      { error: 'ストーリー生成に失敗しました' },
+      { error: 'ストーリーたたき台の生成に失敗しました' },
       { status: 500 }
     );
   }
