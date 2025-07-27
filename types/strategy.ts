@@ -20,10 +20,20 @@ export type Department = {
   projects: Project[];
 };
 
-// 深掘り質問（ストーリー掘り下げ用）の型
-export type DeepQuestion = {
-  chapter: string;     // 該当章（例："現状の危機"）
-  question: string;    // 質問文
-  reason: string;      // 質問の意図・背景
-  answer: string;      // 回答内容
+// 掘り下げ質問ステップ（1問）の型
+export type AnswerStep = {
+  question: string;
+  reason: string;
+  answer: string;
 };
+
+// 章ごとの掘り下げ質問セット
+export type ChapterAnswers = {
+  chapterTitle: string;       // 例: "現状の危機や背景"
+  steps: AnswerStep[];        // 例: 3問など
+};
+
+// ✅ 不要な旧型は削除（または非推奨化）
+// ❌ 以下は今後使わないため削除またはコメントアウトしてOK
+// export type QuestionItem = {...}
+// export type DeepQuestion = {...}

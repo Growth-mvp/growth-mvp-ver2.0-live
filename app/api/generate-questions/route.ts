@@ -18,7 +18,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // 明示的に定義された章タイトル
     const sectionTitles = [
       '■現状の危機や背景（なぜ今、変革しなければならないのか）',
       '■経営者が描く未来の方向性（どこを目指すのか）',
@@ -26,9 +25,10 @@ export async function POST(req: Request) {
       '■社員に求める行動や期待（自分ごととして捉えてもらう）',
     ];
 
-    // 実際の本文を各見出しで分割（ただし、最初の空要素除外）
-    const splitSections = story.split(/■[^\n]+/).slice(1);
-    console.log('📚 splitSections:', splitSections);
+    const matches = story.match(/■[^\n]+\n[\s\S]*?(?=(■[^\n]+\n)|$)/g) || [];
+    const splitSections = matches.map((section: string) =>
+      section.replace(/^■[^\n]+\n?/, '').trim()
+    );
 
     if (splitSections.length !== sectionTitles.length) {
       return new NextResponse(
@@ -44,19 +44,27 @@ export async function POST(req: Request) {
       body: splitSections[index].trim(),
     }));
 
-    console.log('✅ chapters:', chapters);
+    const promptsByChapter: Record<string, string> = {
+      '現状の危機や背景（なぜ今、変革しなければならないのか）':
+        'この章では社員に「なぜ今、変革が必要なのか？」を深く問い直させ、危機感と変革の必然性を腹落ちさせる問いを設計してください。',
+      '経営者が描く未来の方向性（どこを目指すのか）':
+        'この章では社員が未来のビジョンを自分ごととして捉え、どんな価値を社会に生み出そうとしているのかを内省できる問いを設計してください。',
+      'SWOTに基づいた戦略的な選択（強み×機会などのクロス分析を含む）':
+        'この章では社員が戦略的な意思決定の背景や、なぜその選択肢が重要なのかを深く理解できる問いを設計してください。',
+      '社員に求める行動や期待（自分ごととして捉えてもらう）':
+        'この章では社員が自分の行動変容や役割に真剣に向き合い、自律的な一歩を考えるような問いを設計してください。',
+    };
 
-    const allQuestions: {
-      chapter: string;
-      question: string;
-      reason: string;
-      answer: string;
-    }[] = [];
+    const chapterAnswers = [];
 
     for (const chapter of chapters) {
+      const extraPrompt = promptsByChapter[chapter.title] || '';
+
       const prompt = `
-あなたはドラッカーのような経営思想家です。 
+あなたはドラッカーのような経営思想家です。
 以下のストーリー章（${chapter.title}）を読んで、その章に関して社員の理解と自律を深めるための「深い問い」を2～3問設計してください。
+
+${extraPrompt}
 
 各問いには「なぜこの問いが重要か」という理由も添えてください。
 表面的な確認ではなく、戦略・組織・価値創造・人間理解などに関わる本質的な問いにしてください。
@@ -113,22 +121,24 @@ ${chapter.body}
         );
       }
 
-      parsed.forEach((item) => {
-        allQuestions.push({
-          chapter: chapter.title,
-          question: item.question,
-          reason: item.reason,
-          answer: '',
-        });
+      const steps = parsed.map((item) => ({
+        question: item.question,
+        reason: item.reason,
+        answer: '',
+      }));
+
+      chapterAnswers.push({
+        chapterTitle: chapter.title,
+        steps,
       });
     }
 
-    console.log('✅ 生成された質問数:', allQuestions.length);
+    console.log('✅ 章ごとの質問生成完了');
 
-    return new NextResponse(JSON.stringify({ questions: allQuestions }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return new NextResponse(
+      JSON.stringify({ answers2: chapterAnswers }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
   } catch (error) {
     console.error('❌ 質問生成エラー:', error);
     return new NextResponse(

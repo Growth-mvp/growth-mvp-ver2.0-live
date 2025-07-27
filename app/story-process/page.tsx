@@ -1,17 +1,11 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useStrategyStore } from '@/store/strategyStore';
-import { useUserStore } from '@/store/userStore';
-import Button from '@/components/ui/button';
-
-type DeepQuestion = {
-  chapter: string;
-  question: string;
-  reason: string;
-  answer: string;
-};
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useStrategyStore } from "@/store/strategyStore";
+import { useUserStore } from "@/store/userStore";
+import Button from "@/components/ui/button";
+import QuestionStepper from "@/components/QuestionStepper";
 
 export default function StoryProcessPage() {
   const router = useRouter();
@@ -38,65 +32,53 @@ export default function StoryProcessPage() {
     setNotification,
   } = useStrategyStore();
 
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [showInfo, setShowInfo] = useState(false);
+  const [loadingType, setLoadingType] = useState<"questions" | "story" | null>(null);
+  const [error, setError] = useState("");
 
-  const storyParts = story?.split('■').filter((s) => s.trim().length > 0) || [];
-
-  const groupedAnswers: Record<string, DeepQuestion[]> =
-    answers2 && answers2.length > 0
-      ? answers2.reduce((acc, cur) => {
-          if (!acc[cur.chapter]) acc[cur.chapter] = [];
-          acc[cur.chapter].push(cur);
-          return acc;
-        }, {} as Record<string, DeepQuestion[]>)
-      : {};
+  const storyParts = story?.split("■").filter((s) => s.trim().length > 0) || [];
 
   const handleGenerateQuestions = async () => {
     if (!story || story.length < 10) {
-      setError('⚠️ ストーリーが未生成です');
+      setError("⚠️ ストーリーが未生成です");
       return;
     }
 
-    setLoading(true);
-    setError('');
+    setLoadingType("questions");
+    setError("");
+
     try {
-      console.log('📤 ストーリー送信開始');
-      const res = await fetch('/api/generate-questions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/generate-questions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ story }),
       });
 
       const data = await res.json();
-      console.log('📥 AIからの返却:', data);
-
-      if (!res.ok || !data.questions || !Array.isArray(data.questions)) {
-        throw new Error(data.error || '質問の生成に失敗しました');
+      if (!res.ok || !data.answers2 || !Array.isArray(data.answers2)) {
+        throw new Error(data.error || "質問の生成に失敗しました");
       }
 
-      setAnswers2(data.questions as DeepQuestion[]);
-      setNotification('✅ 掘り下げ質問を生成しました');
+      setAnswers2(data.answers2);
+      setNotification("✅ 掘り下げ質問を生成しました");
     } catch (err: any) {
-      console.error('❌ 質問生成エラー:', err);
-      setError(err.message || '不明なエラーが発生しました');
+      console.error("❌ 質問生成エラー:", err);
+      setError(err.message || "不明なエラーが発生しました");
     } finally {
-      setLoading(false);
+      setLoadingType(null);
     }
   };
 
   const handleGenerateFinalStory = async () => {
     if (!user) {
-      setError('⚠️ ログインが必要です');
+      setError("⚠️ ログインが必要です");
       return;
     }
 
-    setLoading(true);
+    setLoadingType("story");
     try {
-      const response = await fetch('/api/generate-story', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const response = await fetch("/api/generate-final-story", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           industry,
           revenue,
@@ -115,31 +97,30 @@ export default function StoryProcessPage() {
       });
 
       const result = await response.json();
-
       if (response.ok && result.story) {
         setStory(result.story);
         setStrategySummary(result.summary);
-        setNotification('✅ 最終ストーリーを生成しました');
+        setNotification("✅ 最終ストーリーを生成しました");
       } else {
-        setError(result.error || 'ストーリー生成に失敗しました');
+        setError(result.error || "ストーリー生成に失敗しました");
       }
     } catch (err) {
       console.error(err);
-      setError('ストーリー生成中にエラーが発生しました');
+      setError("ストーリー生成中にエラーが発生しました");
     } finally {
-      setLoading(false);
+      setLoadingType(null);
     }
   };
 
   useEffect(() => {
-    if (!user) router.push('/login');
+    if (!user) router.push("/login");
   }, [user]);
 
   return (
     <main className="p-6 min-h-screen bg-gradient-to-b from-gray-50 to-white">
       <h1 className="text-2xl font-bold text-center mb-6">📖 ストーリー生成プロセス</h1>
 
-      {story && storyParts.length > 0 ? (
+      {story && storyParts.length > 0 && (
         <section className="mb-10">
           <h2 className="text-xl font-semibold mb-2">📝 ストーリーたたき台</h2>
           <div className="grid md:grid-cols-2 gap-6">
@@ -151,43 +132,45 @@ export default function StoryProcessPage() {
             ))}
           </div>
         </section>
-      ) : (
+      )}
+
+      {story && storyParts.length === 0 && (
+        <section className="mb-10">
+          <h2 className="text-xl font-semibold mb-2">🎉 最終ストーリー</h2>
+          <div className="p-4 bg-white border rounded shadow-sm whitespace-pre-wrap text-gray-800 text-sm">
+            {story}
+          </div>
+        </section>
+      )}
+
+      {!story && (
         <p className="text-red-600 text-sm mb-6">※ ストーリーが未生成です。先にたたき台を生成してください。</p>
       )}
 
       <div className="mb-8">
-        <Button onClick={handleGenerateQuestions} disabled={loading || !story}>
-          {loading ? '生成中...' : '🔍 掘り下げ質問を生成'}
+        <Button onClick={handleGenerateQuestions} disabled={loadingType !== null}>
+          {loadingType === "questions" ? "掘り下げ質問を生成中..." : "🔍 掘り下げ質問を生成"}
         </Button>
         {error && <p className="text-red-600 mt-2">{error}</p>}
       </div>
 
-      {Object.keys(groupedAnswers).length > 0 && (
+      {Array.isArray(answers2) && answers2.length > 0 && (
         <section className="mb-12">
           <h2 className="text-xl font-semibold mb-3">🧠 掘り下げ質問と回答</h2>
-          {Object.entries(groupedAnswers).map(([chapter, items], idx) => (
-            <div key={chapter} className="mb-6">
-              <h3 className="text-gray-600 font-bold mb-2">{chapter}（第{idx + 1}章）</h3>
-              <div className="space-y-4">
-                {items.map((item, index) => (
-                  <div key={index} className="p-4 bg-white border rounded shadow-sm">
-                    <p className="text-sm text-gray-500">Q{index + 1}：{item.question}</p>
-                    <p className="text-xs text-gray-400 mb-1">理由：{item.reason}</p>
-                    <textarea
-                      className="w-full p-2 border rounded text-sm"
-                      rows={3}
-                      placeholder="あなたの回答を入力..."
-                      value={item.answer}
-                      onChange={(e) => {
-                        const updated = [...answers2];
-                        const target = updated.find((q) => q.question === item.question && q.chapter === item.chapter);
-                        if (target) target.answer = e.target.value;
-                        setAnswers2(updated);
-                      }}
-                    />
-                  </div>
-                ))}
-              </div>
+          {answers2.map((chapterAnswer, idx) => (
+            <div key={`${chapterAnswer.chapterTitle}-${idx}`} className="mb-12">
+              <h3 className="text-gray-600 font-bold mb-4 text-lg border-b pb-1">
+                第{idx + 1}章：{chapterAnswer.chapterTitle}
+              </h3>
+              <QuestionStepper
+                chapterTitle={chapterAnswer.chapterTitle}
+                questions={chapterAnswer.steps}
+                onUpdateAnswer={(qIdx, answer) => {
+                  const updated = [...answers2];
+                  updated[idx].steps[qIdx].answer = answer;
+                  setAnswers2(updated);
+                }}
+              />
             </div>
           ))}
         </section>
@@ -195,35 +178,14 @@ export default function StoryProcessPage() {
 
       <section className="mb-10">
         <h2 className="text-xl font-semibold mb-2">🎬 最終ストーリー生成</h2>
-        <Button onClick={handleGenerateFinalStory} disabled={loading}>
-          {loading ? '生成中...' : 'ストーリーを完成させる'}
+        <Button onClick={handleGenerateFinalStory} disabled={loadingType !== null}>
+          {loadingType === "story" ? "ストーリーを生成中..." : "ストーリーを完成させる"}
         </Button>
         {error && <p className="text-red-600 mt-2">{error}</p>}
       </section>
 
-      <section>
-        <button
-          className="text-sm text-blue-600 underline mb-2"
-          onClick={() => setShowInfo(!showInfo)}
-        >
-          {showInfo ? '▲ 経営情報を隠す' : '▼ 経営情報を表示'}
-        </button>
-        {showInfo && (
-          <div className="p-4 bg-white border rounded shadow text-sm">
-            <ul className="list-disc pl-5 text-gray-700 space-y-1">
-              <li>業種: {industry}</li>
-              <li>売上: {revenue}</li>
-              <li>従業員数: {employees}</li>
-              <li>思い: {thought}</li>
-              <li>MVV: {mission} / {vision} / {value}</li>
-              <li>SWOT: S={strength} / W={weakness} / O={opportunity} / T={threat}</li>
-            </ul>
-          </div>
-        )}
-      </section>
-
       <div className="text-center mt-10">
-        <Button onClick={() => router.push('/cascade')} className="bg-blue-600 text-white hover:bg-blue-700">
+        <Button onClick={() => router.push("/cascade")} className="bg-blue-600 text-white hover:bg-blue-700">
           👉 戦略カスケードへ進む
         </Button>
       </div>

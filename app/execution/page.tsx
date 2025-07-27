@@ -82,7 +82,6 @@ export default function ExecutionPage() {
     <main className="p-6 bg-gradient-to-b from-gray-50 to-white min-h-screen">
       <h1 className="text-2xl font-bold mb-6 text-gray-800">🛠 OKR実行支援画面</h1>
 
-      {/* 経営ストーリー */}
       {story && (
         <div className="mb-6 bg-white border-l-4 border-blue-600 p-4 rounded shadow-sm">
           <h2 className="text-blue-700 text-sm font-semibold mb-2">経営ストーリー</h2>
@@ -90,7 +89,6 @@ export default function ExecutionPage() {
         </div>
       )}
 
-      {/* 戦略要約 */}
       {strategySummary && (
         <div className="mb-6 bg-white border-l-4 border-green-600 p-4 rounded shadow-sm">
           <h2 className="text-green-700 text-sm font-semibold mb-2">戦略要約</h2>
@@ -100,7 +98,6 @@ export default function ExecutionPage() {
 
       {message && <p className="mb-4 text-green-600 font-semibold">{message}</p>}
 
-      {/* カスケード構造 + OKR進捗入力 */}
       {editableCascadeResult.map((dept) => (
         <div key={dept.name} className="mb-8 border p-4 rounded-lg bg-white shadow">
           <h2 className="text-lg font-semibold text-blue-700 mb-2">{dept.name}</h2>
