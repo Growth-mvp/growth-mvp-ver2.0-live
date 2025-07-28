@@ -1,4 +1,4 @@
-// OKRの型
+// OKRの型 
 export type OKR = {
   objective: string;
   keyResults: string[];
@@ -31,6 +31,12 @@ export type AnswerStep = {
 export type ChapterAnswers = {
   chapterTitle: string;       // 例: "現状の危機や背景"
   steps: AnswerStep[];        // 例: 3問など
+};
+
+// 最終ストーリーの1章分の型
+export type ChapterStory = {
+  title: string;
+  body: string;
 };
 
 // ✅ 不要な旧型は削除（または非推奨化）

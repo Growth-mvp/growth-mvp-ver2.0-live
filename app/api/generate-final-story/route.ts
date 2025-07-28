@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
 
     const financialSummary =
       Array.isArray(csvFinanceData) && csvFinanceData.length > 0
-        ? `\n\n【参考財務データ（CSVアップロード）】\n${csvFinanceData
+        ? `\n\n【参考財務データ】\n${csvFinanceData
             .map((row: any) => Object.values(row).join(' / '))
             .join('\n')}`
         : '';
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     const deepInsight = `
 【社員の生の声・深掘り回答】
 
-第1ラウンド回答（ストーリーたたき台を踏まえた感想・意見）:
+第1ラウンド回答（たたき台を踏まえた感想）:
 ${(answers || [])
   .map((a: string, i: number) => `Q${i + 1}: ${a}`)
   .join('\n')}
@@ -40,12 +40,12 @@ ${(answers || [])
 第2ラウンド（章ごとの深掘りQ&A）:
 ${(answers2 || [])
   .map((chapterObj: any, chapterIndex: number) => {
-    const title = chapterObj.chapter || `第${chapterIndex + 1}章`;
-    const questions = chapterObj.questions || [];
-    const qaText = questions
+    const title = chapterObj.chapterTitle || `第${chapterIndex + 1}章`;
+    const steps = chapterObj.steps || [];
+    const qaText = steps
       .map(
-        (q: any, i: number) =>
-          `  Q${i + 1}: ${q.question}\n  A${i + 1}: ${q.answer || '（未回答）'}`
+        (step: any, i: number) =>
+          `  Q${i + 1}: ${step.question}\n  A${i + 1}: ${step.answer || '（未回答）'}`
       )
       .join('\n');
     return `■${title}\n${qaText}`;
@@ -95,12 +95,22 @@ ${deepInsight}
       temperature: 0.7,
     });
 
-    const story = storyResponse.choices[0]?.message?.content?.trim() || '';
+    const storyText = storyResponse.choices[0]?.message?.content?.trim() || '';
+
+    // ■ で始まる章を分割 → [{ title, body }]
+    const storyChapters =
+      storyText.match(/■[^\n]+\n[\s\S]*?(?=(■[^\n]+\n)|$)/g)?.map((section: string) => {
+        const [titleLine, ...bodyLines] = section.trim().split('\n');
+        return {
+          title: titleLine.replace(/^■/, '').trim(),
+          body: bodyLines.join('\n').trim(),
+        };
+      }) || [];
 
     const summaryPrompt = `
 以下のストーリーを読んで、社員が最初に読む「要約文（200文字以内）」を1文で作成してください。
 
-${story}
+${storyText}
 `;
 
     const summaryResponse = await openai.chat.completions.create({
@@ -111,7 +121,10 @@ ${story}
 
     const summary = summaryResponse.choices[0]?.message?.content?.trim() || '要約なし';
 
-    return NextResponse.json({ story, summary });
+    return NextResponse.json({
+      story: storyChapters,
+      summary,
+    });
   } catch (error) {
     console.error('❌ 最終ストーリー生成エラー:', error);
     return NextResponse.json(

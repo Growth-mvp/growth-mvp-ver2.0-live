@@ -82,10 +82,15 @@ export default function ExecutionPage() {
     <main className="p-6 bg-gradient-to-b from-gray-50 to-white min-h-screen">
       <h1 className="text-2xl font-bold mb-6 text-gray-800">🛠 OKR実行支援画面</h1>
 
-      {story && (
+      {story && Array.isArray(story) && story.length > 0 && (
         <div className="mb-6 bg-white border-l-4 border-blue-600 p-4 rounded shadow-sm">
           <h2 className="text-blue-700 text-sm font-semibold mb-2">経営ストーリー</h2>
-          <p className="text-sm text-gray-800 whitespace-pre-wrap">{story}</p>
+          {story.map((chapter, idx) => (
+            <section key={idx} className="mb-4">
+              <h3 className="text-md font-bold text-blue-800 mb-1">{chapter.title}</h3>
+              <p className="text-sm text-gray-800 whitespace-pre-wrap">{chapter.body}</p>
+            </section>
+          ))}
         </div>
       )}
 

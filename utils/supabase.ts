@@ -1,5 +1,5 @@
 import { StrategyState } from '@/store/strategyStore';
-import { ChapterAnswers } from '@/types/strategy';
+import { ChapterAnswers, ChapterStory } from '@/types/strategy';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -34,7 +34,7 @@ export async function saveStrategyData(state: StrategyState, userId: string) {
       editableCascade: state.editableCascadeResult,
       csvFinanceData: state.csvFinanceData,
       answers: JSON.stringify(state.answers || []),
-      answers2: state.answers2 || [],
+      answers2: JSON.stringify(state.answers2 || []),
     };
 
     const { data, error } = await supabase
@@ -42,7 +42,6 @@ export async function saveStrategyData(state: StrategyState, userId: string) {
       .upsert([payload], { onConflict: 'user_id' });
 
     if (error) throw error;
-
     console.log('✅ Supabase保存成功:', data);
     return { error: null };
   } catch (error) {
@@ -62,7 +61,22 @@ export async function loadStrategyData(userId: string) {
 
     if (error) throw error;
 
-    if (data.answers) data.answers = JSON.parse(data.answers);
+    if (data.answers) {
+      try {
+        data.answers = JSON.parse(data.answers);
+      } catch {
+        data.answers = [];
+      }
+    }
+
+    if (data.answers2) {
+      try {
+        data.answers2 = JSON.parse(data.answers2);
+      } catch {
+        data.answers2 = [];
+      }
+    }
+
     return { data, error: null };
   } catch (error) {
     console.error('❌ Supabase読み込みエラー:', error);
@@ -79,7 +93,6 @@ export async function deleteStrategyData(userId: string) {
       .eq('user_id', userId);
 
     if (error) throw error;
-
     console.log('🗑️ Supabase削除成功');
     return { error: null };
   } catch (error) {
@@ -88,14 +101,10 @@ export async function deleteStrategyData(userId: string) {
   }
 }
 
-// ✅ 第2ラウンド回答保存（章構造）
+// ✅ 第2ラウンド回答保存
 export async function saveStoryAnswers2(userId: string, answers2: ChapterAnswers[]) {
   try {
-    const payload = {
-      user_id: userId,
-      answers2,
-    };
-
+    const payload = { user_id: userId, answers2 };
     const { error } = await supabase
       .from('story_answers2')
       .upsert([payload], { onConflict: 'user_id' });
@@ -121,6 +130,60 @@ export async function loadStoryAnswers2(userId: string): Promise<ChapterAnswers[
     return data?.answers2 || null;
   } catch (error) {
     console.error('❌ 第2ラウンド読み込みエラー:', error);
+    return null;
+  }
+}
+
+// ✅ OKR進捗ログ保存
+export async function saveProgressLog(userId: string, okrId: string, note: string) {
+  const { error } = await supabase.from('progress_logs').insert([
+    { user_id: userId, okr_id: okrId, note },
+  ]);
+  return { error };
+}
+
+// ✅ 最終ストーリー保存
+export async function saveFinalStory(
+  userId: string,
+  story: ChapterStory[],
+  summary: string
+) {
+  try {
+    const { error } = await supabase
+      .from('final_stories')
+      .upsert(
+        [
+          {
+            user_id: userId,
+            story,
+            summary,
+          },
+        ],
+        { onConflict: 'user_id' }
+      );
+
+    if (error) throw error;
+    console.log('✅ 最終ストーリー保存成功');
+    return null;
+  } catch (error) {
+    console.error('❌ 最終ストーリー保存エラー:', error);
+    return error;
+  }
+}
+
+// ✅ 最終ストーリー読み込み
+export async function loadFinalStory(userId: string): Promise<ChapterStory[] | null> {
+  try {
+    const { data, error } = await supabase
+      .from('final_stories')
+      .select('story')
+      .eq('user_id', userId)
+      .single();
+
+    if (error) throw error;
+    return data?.story || null;
+  } catch (error) {
+    console.error('❌ 最終ストーリー読み込みエラー:', error);
     return null;
   }
 }

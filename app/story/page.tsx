@@ -5,12 +5,14 @@ import { useRouter } from 'next/navigation';
 import { useUserStore } from '@/store/userStore';
 import { useStrategyStore } from '@/store/strategyStore';
 
+type ChapterStory = { title: string; body: string };
+
 export default function StoryPage() {
   const router = useRouter();
   const { user } = useUserStore();
-  const { story } = useStrategyStore();
+  const { story, finalStory } = useStrategyStore();
 
-  const [storyChapters, setStoryChapters] = useState<{ title: string; body: string }[]>([]);
+  const [storyChapters, setStoryChapters] = useState<ChapterStory[]>([]);
 
   useEffect(() => {
     if (!user) {
@@ -18,10 +20,16 @@ export default function StoryPage() {
       return;
     }
 
-    if (story && typeof story === 'string') {
-      // 文字列から構造化されていない場合：■で4章に分割
+    // 優先順位: finalStory → story(string/array)
+    if (Array.isArray(finalStory) && finalStory.length > 0) {
+      const validChapters = finalStory.filter(
+        (item): item is ChapterStory =>
+          typeof item.title === 'string' && typeof item.body === 'string'
+      );
+      setStoryChapters(validChapters);
+    } else if (typeof story === 'string') {
       const matches = story.match(/■[^\n]+\n[\s\S]*?(?=(■[^\n]+\n)|$)/g) || [];
-      const parsed = matches.map((section) => {
+      const parsed = matches.map((section: string): ChapterStory => {
         const [titleLine, ...bodyLines] = section.trim().split('\n');
         return {
           title: titleLine.replace(/^■/, '').trim(),
@@ -30,17 +38,22 @@ export default function StoryPage() {
       });
       setStoryChapters(parsed);
     } else if (Array.isArray(story)) {
-      // すでに構造化されている場合（title, body）
-      setStoryChapters(story);
+      const validChapters = story.filter(
+        (item): item is ChapterStory =>
+          typeof item.title === 'string' && typeof item.body === 'string'
+      );
+      setStoryChapters(validChapters);
+    } else {
+      setStoryChapters([]);
     }
-  }, [user, story]);
+  }, [user, story, finalStory, router]);
 
   return (
     <main className="p-6 min-h-screen bg-gradient-to-b from-gray-50 to-white">
       <h1 className="text-2xl font-bold mb-6 text-center">🎉 最終ストーリー</h1>
 
       {storyChapters.length === 0 ? (
-        <p className="text-center text-gray-500">ストーリーが未生成です。</p>
+        <p className="text-center text-gray-500">※ ストーリーが未生成です。</p>
       ) : (
         <div className="grid md:grid-cols-2 gap-6">
           {storyChapters.map((chapter, idx) => (

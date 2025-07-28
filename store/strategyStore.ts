@@ -3,7 +3,7 @@
 import { create } from 'zustand';
 import { saveStrategyData, loadStrategyData, deleteStrategyData } from '../utils/supabase';
 import { useUserStore } from './userStore';
-import { Department, Project, ChapterAnswers } from '@/types/strategy';
+import { Department, Project, ChapterAnswers, ChapterStory } from '@/types/strategy';
 
 export interface StrategyState {
   companyName: string;
@@ -23,11 +23,15 @@ export interface StrategyState {
   mission: string;
   vision: string;
   value: string;
-  story: string;
+
+  story: string | ChapterStory[];
+  finalStory: ChapterStory[];
   strategySummary: string;
+
   editableCascadeResult: Department[];
   csvFinanceData: any[];
   notification: string;
+
   answers: string[];
   questions: string[];
   reasons: string[];
@@ -52,16 +56,21 @@ export interface StrategyState {
   setMission: (v: string) => void;
   setVision: (v: string) => void;
   setValue: (v: string) => void;
-  setStory: (v: string) => void;
+
+  setStory: (v: string | ChapterStory[]) => void;
+  setFinalStory: (v: ChapterStory[]) => void;
   setStrategySummary: (v: string) => void;
+
   setEditableCascadeResult: (v: Department[]) => void;
   updateDepartmentStrategy: (deptName: string, newStrategy: string) => void;
   updateProject: (deptName: string, projIndex: number, newProj: Project) => void;
   addProject: (deptName: string, newProj: Project) => void;
   deleteProject: (deptName: string, projIndex: number) => void;
+
   setCsvFinanceData: (data: any[]) => void;
   setFinanceData: (data: any[]) => void;
   setNotification: (v: string) => void;
+
   setAnswers: (v: string[]) => void;
   setAnswers2: (v: ChapterAnswers[]) => void;
   setAnswersToStrategyStore: (payload: {
@@ -96,7 +105,8 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   mission: '',
   vision: '',
   value: '',
-  story: '',
+  story: [],
+  finalStory: [],
   strategySummary: '',
   editableCascadeResult: [],
   csvFinanceData: [],
@@ -126,6 +136,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   setVision: (v) => set({ vision: v }),
   setValue: (v) => set({ value: v }),
   setStory: (v) => set({ story: v }),
+  setFinalStory: (v) => set({ finalStory: v }),
   setStrategySummary: (v) => set({ strategySummary: v }),
   setEditableCascadeResult: (v) => set({ editableCascadeResult: v }),
   setCsvFinanceData: (data) => set({ csvFinanceData: data }),
@@ -228,7 +239,8 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
       mission: data.mission || '',
       vision: data.vision || '',
       value: data.value || '',
-      story: data.story || '',
+      story: typeof data.story === 'string' || Array.isArray(data.story) ? data.story : [],
+      finalStory: Array.isArray(data.finalStory) ? data.finalStory : [],
       strategySummary: data.strategySummary || '',
       csvFinanceData: data.csvFinanceData || [],
       editableCascadeResult: (data.editableCascade || []).map((dept: any) => ({
@@ -280,7 +292,8 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
         mission: '',
         vision: '',
         value: '',
-        story: '',
+        story: [],
+        finalStory: [],
         strategySummary: '',
         editableCascadeResult: [],
         csvFinanceData: [],
