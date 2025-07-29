@@ -1,9 +1,17 @@
-'use client';
-
+// 'use client';
 import { create } from 'zustand';
-import { saveStrategyData, loadStrategyData, deleteStrategyData } from '../utils/supabase';
+import {
+  saveStrategyData,
+  loadStrategyData,
+  deleteStrategyData,
+} from '../utils/supabase';
 import { useUserStore } from './userStore';
-import { Department, Project, ChapterAnswers, ChapterStory } from '@/types/strategy';
+import {
+  Department,
+  Project,
+  ChapterAnswers,
+  ChapterStory,
+} from '@/types/strategy';
 
 export interface StrategyState {
   companyName: string;
@@ -243,20 +251,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
       finalStory: Array.isArray(data.finalStory) ? data.finalStory : [],
       strategySummary: data.strategySummary || '',
       csvFinanceData: data.csvFinanceData || [],
-      editableCascadeResult: (data.editableCascade || []).map((dept: any) => ({
-        id: dept.id,
-        name: dept.name,
-        strategy: dept.strategy,
-        projects: (dept.projects || []).map((proj: any) => ({
-          name: proj.name,
-          description: proj.description || '',
-          okrs: (proj.okrs || []).map((okr: any) => ({
-            objective: okr.objective || '',
-            keyResults: okr.keyResults || [],
-            owner: okr.owner || '',
-          })),
-        })),
-      })),
+      editableCascadeResult: Array.isArray(data.editableCascadeResult) ? data.editableCascadeResult : [],
       answers: data.answers || [],
       questions: data.questions || [],
       reasons: data.reasons || [],

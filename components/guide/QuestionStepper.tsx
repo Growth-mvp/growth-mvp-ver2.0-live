@@ -1,100 +1,180 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import Button from '@/components/ui/button';
 import { AnimatePresence, motion } from 'framer-motion';
-
-// ✅ 統一された AnswerStep 型に対応
-export interface AnswerStep {
-  question: string;
-  reason: string;
-  answer: string;
-}
+import { AnswerStep } from '@/types/strategy';
 
 interface QuestionStepperProps {
   questions: AnswerStep[];
   chapterTitle: string;
-  onUpdateAnswer: (index: number, answer: string) => void;
+  chapterBody: string;
+  chapterIndex: number;
+  onUpdateAnswer: (chapterIdx: number, stepIdx: number, answer: string) => void | Promise<void>;
   onComplete?: () => void;
 }
 
 export default function QuestionStepper({
   questions,
   chapterTitle,
+  chapterBody,
+  chapterIndex,
   onUpdateAnswer,
   onComplete,
 }: QuestionStepperProps) {
+  const [steps, setSteps] = useState<AnswerStep[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [direction, setDirection] = useState<1 | -1>(1);
+  const [touched, setTouched] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState('');
 
-  if (!questions || questions.length === 0) {
-    return (
-      <div className="border rounded-xl shadow-md p-6 bg-white mb-8">
-        <p className="text-gray-500">この章には質問がありません。</p>
-      </div>
-    );
-  }
-
-  const current = questions[currentIndex];
+  const current = steps[currentIndex];
   const isFirst = currentIndex === 0;
-  const isLast = currentIndex === questions.length - 1;
-  const isComplete = questions.every((q) => q.answer.trim() !== '');
+  const isLast = currentIndex === steps.length - 1;
+  const hasUnansweredStep = steps.some((step) => step.answer.trim() === '');
 
-  const handleNext = () => {
+  // 初期化：questionsが空なら最初の質問を生成
+  useEffect(() => {
+    const init = async () => {
+      if (questions.length > 0) {
+        setSteps(questions);
+      } else {
+        await generateNextQuestion('');
+      }
+      setCurrentIndex(0);
+    };
+    init();
+  }, []);
+
+  const generateNextQuestion = async (previousAnswer: string) => {
+    setGenerating(true);
+    setError('');
+
+    try {
+      const res = await fetch('/api/generate-question', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chapterTitle,
+          chapterBody,
+          stepNumber: steps.length + 1,
+          previousAnswer,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data?.step) {
+        const newStep = data.step;
+        const newSteps = [...steps, newStep];
+        setSteps(newSteps);
+        setCurrentIndex(newSteps.length - 1);
+        await onUpdateAnswer(chapterIndex, newSteps.length - 1, newStep.answer || '');
+      } else {
+        setError(data?.error || 'サーバーエラーが発生しました');
+        console.error('❌ 質問生成エラー:', data?.error);
+      }
+    } catch (err) {
+      console.error('❌ 通信エラー:', err);
+      setError('通信エラーが発生しました');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleNext = async () => {
+    setTouched(true);
+    if (!current?.answer.trim()) return;
+
+    setDirection(1);
+
     if (!isLast) {
       setCurrentIndex((prev) => prev + 1);
-    } else {
-      if (isComplete && onComplete) onComplete();
+    } else if (steps.length < 3) {
+      await generateNextQuestion(current.answer);
     }
   };
 
   const handlePrev = () => {
-    if (!isFirst) setCurrentIndex((prev) => prev - 1);
+    setDirection(-1);
+    if (!isFirst) {
+      setCurrentIndex((prev) => prev - 1);
+    }
+  };
+
+  const handleAnswerChange = async (value: string) => {
+    setTouched(true);
+    const updatedSteps = [...steps];
+    updatedSteps[currentIndex] = {
+      ...updatedSteps[currentIndex],
+      answer: value,
+    };
+    setSteps(updatedSteps);
+
+    try {
+      await onUpdateAnswer(chapterIndex, currentIndex, value);
+    } catch (err) {
+      console.error('❌ 回答保存失敗:', err);
+      setError('回答の保存に失敗しました');
+    }
   };
 
   return (
     <div className="border rounded-xl shadow-md p-6 bg-white mb-8">
       <h3 className="text-lg font-bold mb-4 text-indigo-700">
-        {chapterTitle}（{currentIndex + 1} / {questions.length}）
+        {chapterTitle}（{currentIndex + 1} / {steps.length}）
       </h3>
 
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={currentIndex}
-          initial={{ x: 100, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          exit={{ x: -100, opacity: 0 }}
-          transition={{ duration: 0.3 }}
-        >
-          <div className="mb-4">
-            <p className="font-semibold text-gray-800">問い：</p>
-            <p className="text-gray-900 mb-2">{current.question}</p>
-            <p className="text-sm text-gray-500">※{current.reason}</p>
-          </div>
+      <div className="relative h-[260px]">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={currentIndex}
+            initial={{ x: direction === 1 ? 150 : -150, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: direction === 1 ? -150 : 150, opacity: 0 }}
+            transition={{ duration: 0.35 }}
+            className="absolute w-full top-0"
+          >
+            <div className="mb-4">
+              <p className="font-semibold text-gray-800">問い：</p>
+              <p className="text-gray-900 mb-2">{current?.question}</p>
+              <p className="text-sm text-gray-500">※{current?.reason}</p>
+            </div>
 
-          <div className="mb-4">
             <Textarea
               placeholder="あなたの考えを書いてください..."
-              value={current.answer}
-              onChange={(e) => onUpdateAnswer(currentIndex, e.target.value)}
-              className="min-h-[120px]"
+              value={current?.answer || ''}
+              onChange={(e) => handleAnswerChange(e.target.value)}
+              className={`min-h-[120px] ${touched && !current?.answer.trim() ? 'border-red-500' : ''}`}
             />
-          </div>
-        </motion.div>
-      </AnimatePresence>
+            {touched && !current?.answer.trim() && (
+              <p className="text-sm text-red-600 mt-1">※ 回答を入力してください</p>
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </div>
 
-      <div className="flex justify-between">
+      {error && <p className="text-sm text-red-500 mt-2">⚠️ {error}</p>}
+
+      <div className="flex justify-between mt-6">
         <Button onClick={handlePrev} disabled={isFirst} variant="secondary">
           ← 前へ
         </Button>
-        <Button onClick={handleNext}>
-          {isLast ? '完了 →' : '次へ →'}
-        </Button>
+
+        {generating ? (
+          <Button disabled>生成中...</Button>
+        ) : (
+          <Button onClick={handleNext} disabled={!current?.answer.trim()}>
+            {isLast ? 'さらに深掘り →' : '次へ →'}
+          </Button>
+        )}
       </div>
 
-      {isComplete && (
-        <div className="mt-6 text-center text-green-600 font-semibold">
-          ✅ この章の質問はすべて回答済みです。
+      {!generating && steps.length >= 3 && !hasUnansweredStep && onComplete && (
+        <div className="mt-6 text-center">
+          <Button onClick={onComplete}>✅ この章は完了 → 次へ</Button>
         </div>
       )}
     </div>

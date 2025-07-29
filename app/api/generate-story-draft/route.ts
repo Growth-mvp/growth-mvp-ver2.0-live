@@ -5,10 +5,16 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
+const titleTemplates = [
+  '第1章：現状の危機や背景（なぜ今、変革しなければならないのか）',
+  '第2章：経営者が描く未来の方向性（どこを目指すのか）',
+  '第3章：SWOTに基づいた戦略的な選択（強み×機会などのクロス分析を含む）',
+  '第4章：社員に求める行動や期待（自分ごととして捉えてもらう）',
+];
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-
     const {
       thought,
       mission,
@@ -63,26 +69,16 @@ ${financialSummary}
 
 【出力フォーマット（必ずすべて出力してください）】
 ■現状の危機や背景（なぜ今、変革しなければならないのか）
-・会社が直面している外部環境・業界動向・財務課題・人材課題などを踏まえ、「このままでは成長が止まる／生き残れない」という危機感を社員が理解できるように、事実と感情の両面から語ってください。
-・抽象論ではなく、具体的な「数字」や「変化」「競合の動き」も含めてください。
-
 ■経営者が描く未来の方向性（どこを目指すのか）
-・会社が目指す理想の姿、実現したい未来像をわかりやすく伝えてください。
-
 ■SWOTに基づいた戦略的な選択（強み×機会などのクロス分析を含む）
-・SWOTを組み合わせた戦略オプションを具体的に提案してください。
-
 ■社員に求める行動や期待（自分ごととして捉えてもらう）
-・この戦略は一部の社員ではなく、全社員が一丸となって取り組む必要があります。
-・競争力を早期に高め、成長を実現するためには、実行の「ボリューム」と「スピード」を高めることが重要です。
-・全員が自分の業務の中で戦略をどう実行に移すかを考え、日々の判断や行動に反映させてください。
 `.trim();
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [{ role: 'user', content: storyPrompt }],
       temperature: 0.7,
-      max_tokens: 2000, // 出力長さを明示
+      max_tokens: 2000,
     });
 
     const generatedStory = completion.choices?.[0]?.message?.content?.trim();
@@ -95,8 +91,16 @@ ${financialSummary}
       );
     }
 
+    // 「■」で分割 → 各章ごとにパース
+    const rawSections = generatedStory.split('■').map((s) => s.trim()).filter(Boolean);
+
+    const story = rawSections.slice(0, 4).map((body, idx) => ({
+      title: titleTemplates[idx] || `第${idx + 1}章`,
+      body,
+    }));
+
     console.log('✅ たたき台ストーリー出力成功');
-    return NextResponse.json({ story: generatedStory });
+    return NextResponse.json({ story });
   } catch (error: any) {
     console.error('❌ ストーリー生成エラー:', error?.message || error);
     return NextResponse.json(

@@ -31,7 +31,7 @@ export async function saveStrategyData(state: StrategyState, userId: string) {
       value: state.value,
       story: state.story,
       strategySummary: state.strategySummary,
-      editableCascade: state.editableCascadeResult,
+      editableCascadeResult: state.editableCascadeResult, // ✅ 修正済
       csvFinanceData: state.csvFinanceData,
       answers: JSON.stringify(state.answers || []),
       answers2: JSON.stringify(state.answers2 || []),
