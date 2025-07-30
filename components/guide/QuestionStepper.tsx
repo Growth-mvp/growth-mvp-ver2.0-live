@@ -29,26 +29,23 @@ export default function QuestionStepper({
   const [touched, setTouched] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
+  const [started, setStarted] = useState(false);
 
   const current = steps[currentIndex];
   const isFirst = currentIndex === 0;
   const isLast = currentIndex === steps.length - 1;
   const hasUnansweredStep = steps.some((step) => step.answer.trim() === '');
+  const maxSteps = 3;
 
-  // 初期化：questionsが空なら最初の質問を生成
   useEffect(() => {
-    const init = async () => {
-      if (questions.length > 0) {
-        setSteps(questions);
-      } else {
-        await generateNextQuestion('');
-      }
-      setCurrentIndex(0);
-    };
-    init();
-  }, []);
+    if (questions.length > 0) {
+      setSteps(questions);
+      setStarted(true);
+    }
+  }, [questions]);
 
   const generateNextQuestion = async (previousAnswer: string) => {
+    if (steps.length >= maxSteps) return;
     setGenerating(true);
     setError('');
 
@@ -84,6 +81,11 @@ export default function QuestionStepper({
     }
   };
 
+  const handleStart = async () => {
+    setStarted(true);
+    await generateNextQuestion('');
+  };
+
   const handleNext = async () => {
     setTouched(true);
     if (!current?.answer.trim()) return;
@@ -92,7 +94,7 @@ export default function QuestionStepper({
 
     if (!isLast) {
       setCurrentIndex((prev) => prev + 1);
-    } else if (steps.length < 3) {
+    } else if (steps.length < maxSteps) {
       await generateNextQuestion(current.answer);
     }
   };
@@ -120,6 +122,16 @@ export default function QuestionStepper({
       setError('回答の保存に失敗しました');
     }
   };
+
+  if (!started) {
+    return (
+      <div className="border rounded-xl shadow-md p-6 bg-white mb-8 text-center">
+        <h3 className="text-lg font-bold text-indigo-700 mb-4">{chapterTitle}</h3>
+        <p className="text-gray-600 mb-6">この章について、最初の質問を生成しましょう。</p>
+        <Button onClick={handleStart}>💬 最初の質問を生成する</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="border rounded-xl shadow-md p-6 bg-white mb-8">
@@ -172,7 +184,7 @@ export default function QuestionStepper({
         )}
       </div>
 
-      {!generating && steps.length >= 3 && !hasUnansweredStep && onComplete && (
+      {!generating && steps.length >= maxSteps && !hasUnansweredStep && onComplete && (
         <div className="mt-6 text-center">
           <Button onClick={onComplete}>✅ この章は完了 → 次へ</Button>
         </div>

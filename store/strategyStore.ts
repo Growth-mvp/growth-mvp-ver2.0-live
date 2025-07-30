@@ -11,42 +11,10 @@ import {
   Project,
   ChapterAnswers,
   ChapterStory,
+  StrategyData, // ✅ 修正：types/strategy.ts からインポート
 } from '@/types/strategy';
 
-export interface StrategyState {
-  companyName: string;
-  foundationYear: string;
-  location: string;
-  industry: string;
-  revenue: string;
-  employees: string;
-  role: string;
-  businessContent: string;
-  customerSegment: string;
-  thought: string;
-  strength: string;
-  weakness: string;
-  opportunity: string;
-  threat: string;
-  mission: string;
-  vision: string;
-  value: string;
-
-  story: string | ChapterStory[];
-  finalStory: ChapterStory[];
-  strategySummary: string;
-
-  editableCascadeResult: Department[];
-  csvFinanceData: any[];
-  notification: string;
-
-  answers: string[];
-  questions: string[];
-  reasons: string[];
-  answers2: ChapterAnswers[];
-  questions2: string[];
-  reasons2: string[];
-
+export interface StrategyState extends StrategyData {
   setCompanyName: (v: string) => void;
   setFoundationYear: (v: string) => void;
   setLocation: (v: string) => void;
@@ -60,7 +28,7 @@ export interface StrategyState {
   setWeakness: (v: string) => void;
   setOpportunity: (v: string) => void;
   setThreat: (v: string) => void;
-  setRole: (v: string) => void;
+  setRole: (v: 'admin' | 'manager' | 'member') => void;
   setMission: (v: string) => void;
   setVision: (v: string) => void;
   setValue: (v: string) => void;
@@ -95,6 +63,7 @@ export interface StrategyState {
   clearAllData: () => Promise<void>;
 }
 
+// ✅ Zustand ストア作成
 export const useStrategyStore = create<StrategyState>((set, get) => ({
   companyName: '',
   foundationYear: '',
@@ -102,7 +71,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   industry: '',
   revenue: '',
   employees: '',
-  role: '',
+  role: 'member',
   businessContent: '',
   customerSegment: '',
   thought: '',
@@ -147,8 +116,8 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   setFinalStory: (v) => set({ finalStory: v }),
   setStrategySummary: (v) => set({ strategySummary: v }),
   setEditableCascadeResult: (v) => set({ editableCascadeResult: v }),
-  setCsvFinanceData: (data) => set({ csvFinanceData: data }),
-  setFinanceData: (data) => set({ csvFinanceData: data }),
+  setCsvFinanceData: (v) => set({ csvFinanceData: v }),
+  setFinanceData: (v) => set({ csvFinanceData: v }),
   setNotification: (v) => set({ notification: v }),
   setAnswers: (v) => set({ answers: v }),
   setAnswers2: (v) => set({ answers2: v }),
@@ -211,7 +180,13 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
       set({ notification: '⚠️ ユーザーIDが存在しないため保存できません' });
       return;
     }
-    const { error } = await saveStrategyData(state, userId);
+
+    const dataToSave: StrategyData = {
+      ...state,
+      notification: '', // ✅ 通知は保存しない
+    };
+
+    const { error } = await saveStrategyData(dataToSave, userId);
     if (error) {
       console.error('❌ Supabase保存エラー:', error);
       set({ notification: '❌ 保存に失敗しました' });
@@ -231,33 +206,8 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
     }
 
     set({
-      companyName: data.companyName || '',
-      foundationYear: data.foundationYear || '',
-      location: data.location || '',
-      industry: data.industry || '',
-      revenue: data.revenue || '',
-      employees: data.employees || '',
-      businessContent: data.businessContent || '',
-      customerSegment: data.customerSegment || '',
-      thought: data.thought || '',
-      strength: data.strength || '',
-      weakness: data.weakness || '',
-      opportunity: data.opportunity || '',
-      threat: data.threat || '',
-      mission: data.mission || '',
-      vision: data.vision || '',
-      value: data.value || '',
-      story: typeof data.story === 'string' || Array.isArray(data.story) ? data.story : [],
-      finalStory: Array.isArray(data.finalStory) ? data.finalStory : [],
-      strategySummary: data.strategySummary || '',
-      csvFinanceData: data.csvFinanceData || [],
-      editableCascadeResult: Array.isArray(data.editableCascadeResult) ? data.editableCascadeResult : [],
-      answers: data.answers || [],
-      questions: data.questions || [],
-      reasons: data.reasons || [],
-      answers2: data.answers2 || [],
-      questions2: data.questions2 || [],
-      reasons2: data.reasons2 || [],
+      ...data,
+      notification: '', // 初期化
     });
   },
 
@@ -277,6 +227,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
         industry: '',
         revenue: '',
         employees: '',
+        role: 'member',
         businessContent: '',
         customerSegment: '',
         thought: '',

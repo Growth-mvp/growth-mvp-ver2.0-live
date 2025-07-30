@@ -7,7 +7,7 @@ import { useUserStore } from '@/store/userStore';
 import { saveStrategyData } from '@/utils/supabase';
 import Button from '@/components/ui/button';
 import QuestionStepper from '@/components/guide/QuestionStepper';
-import { AnswerStep } from '@/types/strategy';
+import { AnswerStep, StrategyData, ChapterStory } from '@/types/strategy';
 
 export default function StoryProcessPage() {
   const router = useRouter();
@@ -33,31 +33,58 @@ export default function StoryProcessPage() {
     setStory,
     setStrategySummary,
     setNotification,
+    companyName,
+    foundationYear,
+    location,
+    businessContent,
+    customerSegment,
+    csvFinanceData,
+    strategySummary,
+    editableCascadeResult,
+    notification,
+    role,
   } = useStrategyStore();
 
   const [loadingType, setLoadingType] = useState<"story" | "question" | null>(null);
   const [error, setError] = useState('');
-  const [visibleChapters, setVisibleChapters] = useState(1);
+  const [visibleChapters, setVisibleChapters] = useState(0);
+  const [initialGenerated, setInitialGenerated] = useState(false);
 
-  const storyChapters = Array.isArray(story)
-    ? story.slice(0, 4)
-    : typeof story === 'string'
-    ? story
-        .split("■")
-        .filter((s) => s.trim() !== "")
-        .slice(0, 4)
-        .map((section) => {
-          const [titleLine, ...bodyLines] = section.trim().split('\n');
-          return {
-            title: titleLine?.trim() || '無題',
-            body: bodyLines.join('\n').trim(),
-          };
-        })
-    : [];
+  let storyChapters: ChapterStory[] = [];
+  try {
+    if (typeof story === 'string') {
+      const parsed = JSON.parse(story);
+      if (Array.isArray(parsed) && parsed[0]?.title && parsed[0]?.body) {
+        storyChapters = parsed.slice(0, 4);
+      } else {
+        storyChapters = story
+          .split("\u25a0")
+          .filter((s) => s.trim() !== '')
+          .slice(0, 4)
+          .map((section, i) => {
+            const [titleLine, ...bodyLines] = section.trim().split('\n');
+            return {
+              title: titleLine?.trim() || `第${i + 1}章`,
+              body: bodyLines.join('\n').trim(),
+            };
+          });
+      }
+    } else if (Array.isArray(story)) {
+      storyChapters = story.slice(0, 4);
+    }
+  } catch (e) {
+    console.error("❌ ストーリーパースエラー:", e);
+  }
 
   useEffect(() => {
     if (!user) router.push("/login");
   }, [user]);
+
+  useEffect(() => {
+    if (!initialGenerated && storyChapters.length > 0 && answers2.length === 0) {
+      generateInitialQuestions();
+    }
+  }, [storyChapters, answers2]);
 
   const generateInitialQuestions = async () => {
     if (!storyChapters.length) return;
@@ -89,7 +116,7 @@ export default function StoryProcessPage() {
           steps: [result.step as AnswerStep],
         };
       } else {
-        console.error("質問生成エラー:", result?.error);
+        console.error("❌ 質問生成エラー:", result?.error);
         newAnswers[i] = {
           chapterIndex: i,
           chapterTitle: storyChapters[i].title,
@@ -99,20 +126,81 @@ export default function StoryProcessPage() {
     }
 
     setAnswers2(newAnswers);
+    setVisibleChapters(1);
+    setInitialGenerated(true);
     setLoadingType(null);
   };
 
-  const handleGenerateFinalStory = async () => {
-    if (!user?.id) {
-      setError("⚠️ ログインが必要です");
-      return;
+  const handleAnswerUpdate = async (chapterIdx: number, stepIdx: number, answer: string) => {
+    const updated = [...answers2];
+
+    if (!updated[chapterIdx]) {
+      updated[chapterIdx] = {
+        chapterIndex: chapterIdx,
+        chapterTitle: storyChapters[chapterIdx]?.title || '',
+        steps: [],
+      };
     }
 
+    if (!updated[chapterIdx].steps[stepIdx]) {
+      updated[chapterIdx].steps[stepIdx] = {
+        stepNumber: stepIdx + 1,
+        question: '',
+        reason: '',
+        answer: '',
+      };
+    }
+
+    updated[chapterIdx].steps[stepIdx].answer = answer;
+    setAnswers2(updated);
+
+    if (!user?.id) return;
+
+    const dataToSave: StrategyData = {
+      story,
+      finalStory,
+      answers2: updated,
+      answers,
+      industry,
+      revenue,
+      employees,
+      thought,
+      mission,
+      vision,
+      value,
+      strength,
+      weakness,
+      opportunity,
+      threat,
+      companyName,
+      foundationYear,
+      location,
+      businessContent,
+      customerSegment,
+      csvFinanceData,
+      strategySummary,
+      editableCascadeResult,
+      notification: '',
+      role: role as 'admin' | 'manager' | 'member',
+      questions: [],
+      reasons: [],
+      questions2: [],
+      reasons2: [],
+    };
+
+    await saveStrategyData(dataToSave, user.id);
+  };
+
+  const handleChapterComplete = (chapterIndex: number) => {
+    setVisibleChapters((prev) => Math.max(prev, chapterIndex + 2));
+  };
+
+  const handleGenerateFinalStory = async () => {
     setLoadingType("story");
     setError("");
 
     try {
-      const response = await fetch("/api/generate-final-story", {
+      const res = await fetch("/api/generate-story-draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -129,160 +217,96 @@ export default function StoryProcessPage() {
           threat,
           answers,
           answers2,
+          csvFinanceData,
         }),
       });
 
-      const result = await response.json();
-      if (!response.ok || !result.story) {
-        throw new Error(result.error || "ストーリー生成に失敗しました");
-      }
+      const data = await res.json();
+      console.log("✅ API呼び出し成功: /api/generate-story-draft");
+      console.log("📦 APIから受け取ったdata:", data);
 
-      const parsedStory = typeof result.story === 'string'
-        ? result.story
-            .split("■")
-            .filter((s: string) => s.trim() !== "")
-            .slice(0, 4)
-            .map((section: string) => {
-              const [titleLine, ...bodyLines] = section.trim().split('\n');
-              return {
-                title: titleLine?.trim() || '無題',
-                body: bodyLines.join('\n').trim(),
-              };
-            })
-        : result.story.slice(0, 4);
-
-      setStory(parsedStory);
-      setFinalStory(parsedStory);
-      setStrategySummary(result.summary);
-      setNotification("✅ 最終ストーリーを生成しました");
-
-      const { error: saveError } = await saveStrategyData(useStrategyStore.getState(), user.id);
-      if (saveError) {
-        console.error("❌ Supabase保存エラー:", saveError);
-        setNotification("⚠️ ストーリー保存に失敗しました");
+      if (res.ok && Array.isArray(data?.story)) {
+        console.log("✅ 最終ストーリー構造チェックOK、セット処理へ進行");
+        setFinalStory(data.story);
+        setStrategySummary("（要約が未返却）");
+        setNotification("✅ 最終ストーリーを生成しました");
       } else {
-        setNotification("💾 最終ストーリーを保存しました");
+        console.error("❌ レスポンス内容に異常:", data);
+        setError(data?.error || "ストーリー生成に失敗しました");
       }
-    } catch (err: any) {
-      console.error(err);
-      setError("ストーリー生成中にエラーが発生しました");
+    } catch (err) {
+      console.error("❌ ストーリー生成中の例外発生:", err);
+      setError("通信エラーが発生しました");
     } finally {
       setLoadingType(null);
     }
   };
 
-  const handleAnswerUpdate = async (chapterIdx: number, stepIdx: number, answer: string) => {
-    const updated = [...answers2];
-    if (!updated[chapterIdx]) {
-      console.error(`❌ chapterIdx ${chapterIdx} が存在しません`);
-      return;
-    }
-    if (!updated[chapterIdx].steps[stepIdx]) {
-      console.error(`❌ stepIdx ${stepIdx} が chapter ${chapterIdx} に存在しません`);
-      return;
-    }
-    updated[chapterIdx].steps[stepIdx].answer = answer;
-    setAnswers2(updated);
-
-    if (!user?.id) return;
-
-    const { error: saveError } = await saveStrategyData(
-      { ...useStrategyStore.getState(), answers2: updated },
-      user.id
-    );
-    if (saveError) console.error("❌ 自動保存エラー:", saveError);
-  };
-
-  const handleChapterComplete = (chapterIdx: number) => {
-    if (chapterIdx + 1 >= visibleChapters) {
-      setVisibleChapters((prev) => prev + 1);
-    }
-  };
-
   return (
-    <main className="p-6 min-h-screen bg-gradient-to-b from-gray-50 to-white">
-      <h1 className="text-2xl font-bold text-center mb-6">📖 ストーリー生成プロセス</h1>
+    <div className="p-6">
+      <h1 className="text-2xl font-bold text-gray-800 mb-4">戦略ストーリー生成プロセス</h1>
 
-      {storyChapters.length > 0 ? (
-        <section className="mb-10">
-          <h2 className="text-xl font-semibold mb-2">✍️ ストーリーたたき台</h2>
-          <div className="grid md:grid-cols-2 gap-6">
-            {storyChapters.map((chapter, index) => (
-              <div key={index} className="p-4 bg-white border rounded shadow-sm">
-                <h3 className="text-sm text-gray-500 mb-1">{chapter.title}</h3>
-                <p className="text-gray-800 whitespace-pre-wrap text-sm">{chapter.body}</p>
-              </div>
-            ))}
+      <section className="mb-6">
+        <h2 className="text-xl font-semibold text-indigo-700 mb-2">📝 たたき台ストーリー</h2>
+        {storyChapters.map((chapter, idx) => (
+          <div key={idx} className="mb-4 p-4 bg-gray-50 border rounded">
+            <h3 className="font-semibold text-gray-700 mb-1">{chapter.title}</h3>
+            <p className="text-gray-800 whitespace-pre-line">{chapter.body}</p>
           </div>
-        </section>
-      ) : (
-        <p className="text-red-600 text-sm mb-6">
-          ※ ストーリーが未生成です。先にたたき台を生成してください。
-        </p>
-      )}
+        ))}
+      </section>
 
-      {answers2.length === 0 && (
-        <div className="text-center mb-12">
-          <Button onClick={generateInitialQuestions} disabled={loadingType === "question"}>
-            {loadingType === "question" ? "質問生成中..." : "💬 質問を生成する"}
+      {!initialGenerated && (
+        <div className="mb-8 text-center">
+          <Button onClick={generateInitialQuestions} disabled={!!loadingType}>
+            {loadingType === "question" ? "生成中..." : "🧠 質問を生成する"}
           </Button>
         </div>
       )}
 
-      {answers2.length > 0 && (
-        <section className="mb-12">
-          <h2 className="text-xl font-semibold mb-3">🧠 掘り下げ質問と回答</h2>
-          {answers2.slice(0, visibleChapters).map((chapterAnswer, idx) => (
-            <div key={`chapter-${idx}`} className="mb-12">
-              <h3 className="text-gray-600 font-bold mb-4 text-lg border-b pb-1">
-                {chapterAnswer.chapterTitle}
-              </h3>
-              <QuestionStepper
-                chapterIndex={chapterAnswer.chapterIndex ?? idx}
-                chapterTitle={chapterAnswer.chapterTitle}
-                chapterBody={storyChapters?.[idx]?.body ?? ''}
-                questions={chapterAnswer.steps}
-                onUpdateAnswer={handleAnswerUpdate}
-                onComplete={() => handleChapterComplete(idx)}
-              />
+      <section className="space-y-6">
+        {storyChapters.map((chapter, chapterIdx) => {
+          const steps = answers2.find((a) => a.chapterIndex === chapterIdx)?.steps || [];
+
+          return (
+            <div key={chapterIdx}>
+              {chapterIdx < visibleChapters && (
+                <QuestionStepper
+                  questions={steps}
+                  chapterTitle={chapter.title}
+                  chapterBody={chapter.body}
+                  chapterIndex={chapterIdx}
+                  onUpdateAnswer={handleAnswerUpdate}
+                  onComplete={() => handleChapterComplete(chapterIdx)}
+                />
+              )}
+            </div>
+          );
+        })}
+      </section>
+
+      {visibleChapters >= storyChapters.length && (
+        <div className="mt-8 text-center">
+          <Button onClick={handleGenerateFinalStory} disabled={!!loadingType}>
+            {loadingType === "story" ? "生成中..." : "🎉 最終ストーリーを生成する"}
+          </Button>
+        </div>
+      )}
+
+      {/* ✅ 最終ストーリー表示ブロック */}
+      {finalStory && Array.isArray(finalStory) && finalStory.length > 0 && (
+        <section className="mt-12">
+          <h2 className="text-xl font-semibold text-green-700 mb-2">✅ 最終ストーリー</h2>
+          {finalStory.map((chapter, idx) => (
+            <div key={idx} className="mb-4 p-4 bg-green-50 border border-green-200 rounded">
+              <h3 className="font-semibold text-green-700 mb-1">{chapter.title}</h3>
+              <p className="text-gray-800 whitespace-pre-line">{chapter.body}</p>
             </div>
           ))}
         </section>
       )}
 
-      <section className="mb-10">
-        <h2 className="text-xl font-semibold mb-2">🎮 最終ストーリー生成</h2>
-        <Button onClick={handleGenerateFinalStory} disabled={loadingType !== null}>
-          {loadingType === "story" ? "ストーリーを生成中..." : "ストーリーを完成させる"}
-        </Button>
-        {error && <p className="text-red-600 mt-2">{error}</p>}
-      </section>
-
-      {finalStory.length > 0 && (
-        <section className="mb-12">
-          <h2 className="text-xl font-semibold mb-3 text-green-700">✅ 最終ストーリー</h2>
-          <div className="grid md:grid-cols-2 gap-6">
-            {finalStory.map((chapter, idx) => (
-              <div
-                key={`final-${idx}`}
-                className="p-4 bg-green-50 border border-green-200 rounded shadow-sm"
-              >
-                <h3 className="text-sm text-green-600 mb-1">{chapter.title}</h3>
-                <p className="text-gray-800 whitespace-pre-wrap text-sm">{chapter.body}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      <div className="text-center mt-10">
-        <Button
-          onClick={() => router.push("/cascade")}
-          className="bg-blue-600 text-white hover:bg-blue-700"
-        >
-          👉 戦略カスケードへ進む
-        </Button>
-      </div>
-    </main>
+      {error && <p className="text-red-500 text-sm mt-4">⚠️ {error}</p>}
+    </div>
   );
 }

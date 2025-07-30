@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
 - 口調：「社員に語りかける口調」
 - 文体：やさしく、情熱をもって
 - 表現：難解な用語は避け、できるだけ平易な言葉で
-- 各章は必ず「■」で始めること
+- 各章は必ず「■」で始めること（例：■現状の危機や背景）
 
 【経営者の思い】
 ${thought || '（経営者の思いが未入力）'}
@@ -91,13 +91,19 @@ ${financialSummary}
       );
     }
 
-    // 「■」で分割 → 各章ごとにパース
-    const rawSections = generatedStory.split('■').map((s) => s.trim()).filter(Boolean);
+    // 「■」で分割 → 各章ごとにパース（不要な空行も除去）
+    const rawSections = generatedStory
+      .split(/^■/gm) // 正規表現で行頭の■を基準に分割
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
 
-    const story = rawSections.slice(0, 4).map((body, idx) => ({
-      title: titleTemplates[idx] || `第${idx + 1}章`,
-      body,
-    }));
+    const story = titleTemplates.map((title, idx) => {
+      const sectionBody = rawSections[idx] || '（この章は未生成です）';
+      return {
+        title,
+        body: sectionBody,
+      };
+    });
 
     console.log('✅ たたき台ストーリー出力成功');
     return NextResponse.json({ story });

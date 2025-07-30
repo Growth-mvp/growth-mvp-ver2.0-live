@@ -1,4 +1,4 @@
-import { StrategyState } from '@/store/strategyStore';
+import { StrategyData } from '@/types/strategy';
 import { ChapterAnswers, ChapterStory } from '@/types/strategy';
 import { createClient } from '@supabase/supabase-js';
 
@@ -9,7 +9,7 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
 const TABLE_NAME = 'strategy_data';
 
 // 🎯 戦略データ保存（全体）
-export async function saveStrategyData(state: StrategyState, userId: string) {
+export async function saveStrategyData(state: StrategyData, userId: string) {
   try {
     const payload = {
       user_id: userId,
@@ -29,13 +29,21 @@ export async function saveStrategyData(state: StrategyState, userId: string) {
       mission: state.mission,
       vision: state.vision,
       value: state.value,
+      role: state.role,
       story: state.story,
+      finalStory: state.finalStory || [],
       strategySummary: state.strategySummary,
-      editableCascadeResult: state.editableCascadeResult, // ✅ 修正済
+      editableCascadeResult: state.editableCascadeResult,
       csvFinanceData: state.csvFinanceData,
-      answers: JSON.stringify(state.answers || []),
-      answers2: JSON.stringify(state.answers2 || []),
+      answers: state.answers || [],
+      answers2: state.answers2 || [],
+      questions: state.questions || [],
+      reasons: state.reasons || [],
+      questions2: state.questions2 || [],
+      reasons2: state.reasons2 || [],
     };
+
+    console.log('📤 Supabase保存データ:', JSON.stringify(payload, null, 2));
 
     const { data, error } = await supabase
       .from(TABLE_NAME)
@@ -44,8 +52,8 @@ export async function saveStrategyData(state: StrategyState, userId: string) {
     if (error) throw error;
     console.log('✅ Supabase保存成功:', data);
     return { error: null };
-  } catch (error) {
-    console.error('❌ Supabase保存エラー:', error);
+  } catch (error: any) {
+    console.error('❌ Supabase保存エラー:', error?.message || error);
     return { error };
   }
 }
@@ -61,25 +69,24 @@ export async function loadStrategyData(userId: string) {
 
     if (error) throw error;
 
-    if (data.answers) {
-      try {
-        data.answers = JSON.parse(data.answers);
-      } catch {
-        data.answers = [];
-      }
-    }
-
-    if (data.answers2) {
+    // ✅ answers2の形式を確認・整形
+    if (data && typeof data.answers2 === 'string') {
       try {
         data.answers2 = JSON.parse(data.answers2);
-      } catch {
+      } catch (e) {
+        console.warn('⚠️ answers2のJSON.parseに失敗しました:', e);
         data.answers2 = [];
       }
     }
 
+    if (!Array.isArray(data.answers2)) {
+      console.warn('⚠️ answers2が配列でないため初期化');
+      data.answers2 = [];
+    }
+
     return { data, error: null };
-  } catch (error) {
-    console.error('❌ Supabase読み込みエラー:', error);
+  } catch (error: any) {
+    console.error('❌ Supabase読み込みエラー:', error?.message || error);
     return { data: null, error };
   }
 }
@@ -95,8 +102,8 @@ export async function deleteStrategyData(userId: string) {
     if (error) throw error;
     console.log('🗑️ Supabase削除成功');
     return { error: null };
-  } catch (error) {
-    console.error('❌ Supabase削除エラー:', error);
+  } catch (error: any) {
+    console.error('❌ Supabase削除エラー:', error?.message || error);
     return { error };
   }
 }
@@ -112,8 +119,8 @@ export async function saveStoryAnswers2(userId: string, answers2: ChapterAnswers
     if (error) throw error;
     console.log('✅ 第2ラウンド保存成功');
     return null;
-  } catch (error) {
-    console.error('❌ 第2ラウンド保存エラー:', error);
+  } catch (error: any) {
+    console.error('❌ 第2ラウンド保存エラー:', error?.message || error);
     return error;
   }
 }
@@ -127,9 +134,25 @@ export async function loadStoryAnswers2(userId: string): Promise<ChapterAnswers[
       .eq('user_id', userId)
       .single();
 
-    return data?.answers2 || null;
-  } catch (error) {
-    console.error('❌ 第2ラウンド読み込みエラー:', error);
+    let result = data?.answers2;
+
+    if (typeof result === 'string') {
+      try {
+        result = JSON.parse(result);
+      } catch (e) {
+        console.warn('⚠️ answers2のJSON.parseに失敗しました:', e);
+        result = [];
+      }
+    }
+
+    if (!Array.isArray(result)) {
+      console.warn('⚠️ answers2が配列でないため初期化');
+      result = [];
+    }
+
+    return result;
+  } catch (error: any) {
+    console.error('❌ 第2ラウンド読み込みエラー:', error?.message || error);
     return null;
   }
 }
@@ -165,8 +188,8 @@ export async function saveFinalStory(
     if (error) throw error;
     console.log('✅ 最終ストーリー保存成功');
     return null;
-  } catch (error) {
-    console.error('❌ 最終ストーリー保存エラー:', error);
+  } catch (error: any) {
+    console.error('❌ 最終ストーリー保存エラー:', error?.message || error);
     return error;
   }
 }
@@ -182,8 +205,8 @@ export async function loadFinalStory(userId: string): Promise<ChapterStory[] | n
 
     if (error) throw error;
     return data?.story || null;
-  } catch (error) {
-    console.error('❌ 最終ストーリー読み込みエラー:', error);
+  } catch (error: any) {
+    console.error('❌ 最終ストーリー読み込みエラー:', error?.message || error);
     return null;
   }
 }

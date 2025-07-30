@@ -29,28 +29,31 @@ export async function POST(req: NextRequest) {
             .join('\n')}`
         : '';
 
-    const deepInsight = `
-【社員の生の声・深掘り回答】
+    const deepInsight = `【社員の生の声・深掘り回答】
 
 第1ラウンド回答（たたき台を踏まえた感想）:
-${(answers || [])
-  .map((a: string, i: number) => `Q${i + 1}: ${a}`)
-  .join('\n')}
+${Array.isArray(answers)
+  ? answers.map((a: string, i: number) => `Q${i + 1}: ${a}`).join('\n')
+  : '（未回答）'}
 
 第2ラウンド（章ごとの深掘りQ&A）:
-${(answers2 || [])
-  .map((chapterObj: any, chapterIndex: number) => {
-    const title = chapterObj.chapterTitle || `第${chapterIndex + 1}章`;
-    const steps = chapterObj.steps || [];
-    const qaText = steps
-      .map(
-        (step: any, i: number) =>
-          `  Q${i + 1}: ${step.question}\n  A${i + 1}: ${step.answer || '（未回答）'}`
-      )
-      .join('\n');
-    return `■${title}\n${qaText}`;
-  })
-  .join('\n\n')}
+${Array.isArray(answers2)
+  ? answers2
+      .map((chapterObj: any, chapterIndex: number) => {
+        const title = chapterObj?.chapterTitle || `第${chapterIndex + 1}章`;
+        const steps = Array.isArray(chapterObj?.steps) ? chapterObj.steps : [];
+        const qaText = steps
+          .map(
+            (step: any, i: number) =>
+              `  Q${i + 1}: ${step?.question || '（質問不明）'}\n  A${i + 1}: ${
+                step?.answer || '（未回答）'
+              }`
+          )
+          .join('\n');
+        return `■${title}\n${qaText}`;
+      })
+      .join('\n\n')
+  : '（深掘り回答なし）'}
 `;
 
     const storyPrompt = `
@@ -60,20 +63,20 @@ ${(answers2 || [])
 ${thought || '（未入力）'}
 
 【会社概要】
-- 業種: ${industry}
-- 売上高: ${revenue} 百万円
-- 従業員数: ${employees} 人
+- 業種: ${industry || '未入力'}
+- 売上高: ${revenue || '未入力'} 百万円
+- 従業員数: ${employees || '未入力'} 人
 
 【MVV（ミッション・ビジョン・バリュー）】
-- Mission: ${mission}
-- Vision: ${vision}
-- Value: ${value}
+- Mission: ${mission || '未入力'}
+- Vision: ${vision || '未入力'}
+- Value: ${value || '未入力'}
 
 【SWOT分析】
-- 強み: ${strength}
-- 弱み: ${weakness}
-- 機会: ${opportunity}
-- 脅威: ${threat}
+- 強み: ${strength || '未入力'}
+- 弱み: ${weakness || '未入力'}
+- 機会: ${opportunity || '未入力'}
+- 脅威: ${threat || '未入力'}
 ${financialSummary}
 ${deepInsight}
 
@@ -97,7 +100,6 @@ ${deepInsight}
 
     const storyText = storyResponse.choices[0]?.message?.content?.trim() || '';
 
-    // ■ で始まる章を分割 → [{ title, body }]
     const storyChapters =
       storyText.match(/■[^\n]+\n[\s\S]*?(?=(■[^\n]+\n)|$)/g)?.map((section: string) => {
         const [titleLine, ...bodyLines] = section.trim().split('\n');
@@ -125,7 +127,7 @@ ${storyText}
       story: storyChapters,
       summary,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ 最終ストーリー生成エラー:', error);
     return NextResponse.json(
       { error: '最終ストーリーの生成に失敗しました' },
