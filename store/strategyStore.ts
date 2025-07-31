@@ -174,42 +174,56 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   },
 
   saveToSupabase: async () => {
-    const state = get();
-    const userId = useUserStore.getState().user?.id;
-    if (!userId) {
-      set({ notification: '⚠️ ユーザーIDが存在しないため保存できません' });
-      return;
-    }
+  const state = get();
+  const userId = useUserStore.getState().user?.id;
+  if (!userId) {
+    set({ notification: '⚠️ ユーザーIDが存在しないため保存できません' });
+    return;
+  }
 
-    const dataToSave: StrategyData = {
-      ...state,
-      notification: '', // ✅ 通知は保存しない
-    };
+  // ✅ answers2をdeep copyしてstepsのquestion, reasonも含める
+  const answers2WithQuestions = state.answers2.map((chapter) => ({
+    chapterIndex: chapter.chapterIndex,
+    chapterTitle: chapter.chapterTitle,
+    steps: chapter.steps.map((step) => ({
+      stepNumber: step.stepNumber,
+      question: step.question ?? '',
+      reason: step.reason ?? '',
+      answer: step.answer ?? '',
+    })),
+  }));
 
-    const { error } = await saveStrategyData(dataToSave, userId);
-    if (error) {
-      console.error('❌ Supabase保存エラー:', error);
-      set({ notification: '❌ 保存に失敗しました' });
-    } else {
-      set({ notification: '✅ 保存に成功しました' });
-    }
-  },
+  const dataToSave: StrategyData = {
+    ...state,
+    notification: '', // ✅ 通知は保存しない
+    answers2: answers2WithQuestions, // ✅ 修正：質問・理由も含める
+  };
 
-  loadFromSupabase: async () => {
-    const userId = useUserStore.getState().user?.id;
-    if (!userId) return;
+  const { error } = await saveStrategyData(dataToSave, userId);
+  if (error) {
+    console.error('❌ Supabase保存エラー:', error);
+    set({ notification: '❌ 保存に失敗しました' });
+  } else {
+    set({ notification: '✅ 保存に成功しました' });
+  }
+},
 
-    const { data, error } = await loadStrategyData(userId);
-    if (error || !data) {
-      console.error('❌ Supabase読み込み失敗:', error);
-      return;
-    }
+loadFromSupabase: async () => {
+  const userId = useUserStore.getState().user?.id;
+  if (!userId) return;
 
-    set({
-      ...data,
-      notification: '', // 初期化
-    });
-  },
+  const { data, error } = await loadStrategyData(userId);
+  if (error || !data) {
+    console.error('❌ Supabase読み込み失敗:', error);
+    return;
+  }
+
+  // ✅ answers2をそのまま復元（questionも含まれる）
+  set({
+    ...data,
+    notification: '', // 初期化
+  });
+},
 
   clearAllData: async () => {
     const userId = useUserStore.getState().user?.id;

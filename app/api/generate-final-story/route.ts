@@ -101,13 +101,14 @@ ${deepInsight}
     const storyText = storyResponse.choices[0]?.message?.content?.trim() || '';
 
     const storyChapters =
-      storyText.match(/■[^\n]+\n[\s\S]*?(?=(■[^\n]+\n)|$)/g)?.map((section: string) => {
+      storyText.match(/■[^\n]+[\s\S]*?(?=\n■[^\n]+|$)/g)?.map((section: string) => {
         const [titleLine, ...bodyLines] = section.trim().split('\n');
         return {
           title: titleLine.replace(/^■/, '').trim(),
           body: bodyLines.join('\n').trim(),
         };
       }) || [];
+
 
     const summaryPrompt = `
 以下のストーリーを読んで、社員が最初に読む「要約文（200文字以内）」を1文で作成してください。

@@ -41,6 +41,7 @@ export default function QuestionStepper({
     if (questions.length > 0) {
       setSteps(questions);
       setStarted(true);
+      setCurrentIndex(0); // 念のため先頭に戻す
     }
   }, [questions]);
 
@@ -151,8 +152,9 @@ export default function QuestionStepper({
           >
             <div className="mb-4">
               <p className="font-semibold text-gray-800">問い：</p>
-              <p className="text-gray-900 mb-2">{current?.question}</p>
-              <p className="text-sm text-gray-500">※{current?.reason}</p>
+              <p className="text-gray-900 mb-2">{current?.question || '（質問が未設定です）'}</p>
+              <p className="text-sm text-gray-500">※{current?.reason || '（理由が未設定です）'}</p>
+
             </div>
 
             <Textarea
