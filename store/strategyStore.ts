@@ -1,4 +1,4 @@
-// 'use client';
+// 'use client';  
 import { create } from 'zustand';
 import {
   saveStrategyData,
@@ -11,10 +11,12 @@ import {
   Project,
   ChapterAnswers,
   ChapterStory,
-  StrategyData, // ✅ 修正：types/strategy.ts からインポート
+  StrategyData,
+  AnswerStep,
 } from '@/types/strategy';
 
 export interface StrategyState extends StrategyData {
+  // Setter関数
   setCompanyName: (v: string) => void;
   setFoundationYear: (v: string) => void;
   setLocation: (v: string) => void;
@@ -33,20 +35,24 @@ export interface StrategyState extends StrategyData {
   setVision: (v: string) => void;
   setValue: (v: string) => void;
 
+  // ストーリー・戦略要約
   setStory: (v: string | ChapterStory[]) => void;
   setFinalStory: (v: ChapterStory[]) => void;
   setStrategySummary: (v: string) => void;
 
+  // カスケード
   setEditableCascadeResult: (v: Department[]) => void;
   updateDepartmentStrategy: (deptName: string, newStrategy: string) => void;
   updateProject: (deptName: string, projIndex: number, newProj: Project) => void;
   addProject: (deptName: string, newProj: Project) => void;
   deleteProject: (deptName: string, projIndex: number) => void;
 
+  // その他
   setCsvFinanceData: (data: any[]) => void;
   setFinanceData: (data: any[]) => void;
   setNotification: (v: string) => void;
 
+  // 質問・回答
   setAnswers: (v: string[]) => void;
   setAnswers2: (v: ChapterAnswers[]) => void;
   setAnswersToStrategyStore: (payload: {
@@ -57,14 +63,16 @@ export interface StrategyState extends StrategyData {
     questions2?: string[];
     reasons2?: string[];
   }) => void;
+  updateDepartmentAnswer: (chapterIdx: number, stepIdx: number, answer: string) => void;
 
+  // Supabase
   saveToSupabase: () => Promise<void>;
   loadFromSupabase: () => Promise<void>;
   clearAllData: () => Promise<void>;
 }
 
-// ✅ Zustand ストア作成
 export const useStrategyStore = create<StrategyState>((set, get) => ({
+  // 初期状態
   companyName: '',
   foundationYear: '',
   location: '',
@@ -95,6 +103,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   questions2: [],
   reasons2: [],
 
+  // Setter
   setCompanyName: (v) => set({ companyName: v }),
   setFoundationYear: (v) => set({ foundationYear: v }),
   setLocation: (v) => set({ location: v }),
@@ -132,6 +141,42 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
       questions2: payload.questions2 ?? state.questions2,
       reasons2: payload.reasons2 ?? state.reasons2,
     })),
+
+  updateDepartmentAnswer: (chapterIdx, stepIdx, newAnswer) => {
+  set((state) => {
+    const updatedDepartments = [...state.editableCascadeResult];
+    const department = updatedDepartments[chapterIdx];
+
+    if (!department) return state;
+
+    const currentAnswers = department.answers2 || [];
+    const updatedAnswers = [...currentAnswers];
+
+    if (!updatedAnswers[0]) {
+      updatedAnswers[0] = { chapterIndex: chapterIdx, chapterTitle: department.name, steps: [] };
+    }
+
+    const updatedSteps: AnswerStep[] = [...updatedAnswers[0].steps];
+    updatedSteps[stepIdx] = {
+      ...(updatedSteps[stepIdx] || {}),
+      stepNumber: stepIdx + 1,
+      answer: newAnswer,
+    };
+
+    updatedAnswers[0] = {
+      ...updatedAnswers[0],
+      steps: updatedSteps,
+    };
+
+    updatedDepartments[chapterIdx] = {
+      ...department,
+      answers2: updatedAnswers,
+    };
+
+    return { editableCascadeResult: updatedDepartments };
+  });
+},
+
 
   updateDepartmentStrategy: (deptName, newStrategy) => {
     const updated = get().editableCascadeResult.map((dept) =>
@@ -174,56 +219,54 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   },
 
   saveToSupabase: async () => {
-  const state = get();
-  const userId = useUserStore.getState().user?.id;
-  if (!userId) {
-    set({ notification: '⚠️ ユーザーIDが存在しないため保存できません' });
-    return;
-  }
+    const state = get();
+    const userId = useUserStore.getState().user?.id;
+    if (!userId) {
+      set({ notification: '⚠️ ユーザーIDが存在しないため保存できません' });
+      return;
+    }
 
-  // ✅ answers2をdeep copyしてstepsのquestion, reasonも含める
-  const answers2WithQuestions = state.answers2.map((chapter) => ({
-    chapterIndex: chapter.chapterIndex,
-    chapterTitle: chapter.chapterTitle,
-    steps: chapter.steps.map((step) => ({
-      stepNumber: step.stepNumber,
-      question: step.question ?? '',
-      reason: step.reason ?? '',
-      answer: step.answer ?? '',
-    })),
-  }));
+    const answers2WithQuestions = state.answers2.map((chapter) => ({
+      chapterIndex: chapter.chapterIndex,
+      chapterTitle: chapter.chapterTitle,
+      steps: chapter.steps.map((step) => ({
+        stepNumber: step.stepNumber,
+        question: step.question ?? '',
+        reason: step.reason ?? '',
+        answer: step.answer ?? '',
+      })),
+    }));
 
-  const dataToSave: StrategyData = {
-    ...state,
-    notification: '', // ✅ 通知は保存しない
-    answers2: answers2WithQuestions, // ✅ 修正：質問・理由も含める
-  };
+    const dataToSave: StrategyData = {
+      ...state,
+      notification: '',
+      answers2: answers2WithQuestions,
+    };
 
-  const { error } = await saveStrategyData(dataToSave, userId);
-  if (error) {
-    console.error('❌ Supabase保存エラー:', error);
-    set({ notification: '❌ 保存に失敗しました' });
-  } else {
-    set({ notification: '✅ 保存に成功しました' });
-  }
-},
+    const { error } = await saveStrategyData(dataToSave, userId);
+    if (error) {
+      console.error('❌ Supabase保存エラー:', error);
+      set({ notification: '❌ 保存に失敗しました' });
+    } else {
+      set({ notification: '✅ 保存に成功しました' });
+    }
+  },
 
-loadFromSupabase: async () => {
-  const userId = useUserStore.getState().user?.id;
-  if (!userId) return;
+  loadFromSupabase: async () => {
+    const userId = useUserStore.getState().user?.id;
+    if (!userId) return;
 
-  const { data, error } = await loadStrategyData(userId);
-  if (error || !data) {
-    console.error('❌ Supabase読み込み失敗:', error);
-    return;
-  }
+    const { data, error } = await loadStrategyData(userId);
+    if (error || !data) {
+      console.error('❌ Supabase読み込み失敗:', error);
+      return;
+    }
 
-  // ✅ answers2をそのまま復元（questionも含まれる）
-  set({
-    ...data,
-    notification: '', // 初期化
-  });
-},
+    set({
+      ...data,
+      notification: '',
+    });
+  },
 
   clearAllData: async () => {
     const userId = useUserStore.getState().user?.id;

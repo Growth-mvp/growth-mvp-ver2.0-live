@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Department } from '@/types/strategy';
 import ProjectBlock from './ProjectBlock';
+import QuestionStepper from './guide/QuestionStepper';
 import {
   Plus,
   Trash2,
@@ -15,6 +16,7 @@ import { useStrategyStore } from '@/store/strategyStore';
 
 interface Props {
   department: Department;
+  index: number; // ✅ 追加
   readOnly: boolean;
   isManager: boolean;
   userDepartment?: string;
@@ -22,6 +24,7 @@ interface Props {
 
 export default function DepartmentBlock({
   department,
+  index,
   readOnly,
   isManager,
   userDepartment,
@@ -36,19 +39,19 @@ export default function DepartmentBlock({
     addProject,
     deleteProject,
     setNotification,
+    updateDepartmentAnswer,
   } = useStrategyStore();
 
-  // 権限による編集判定（adminまたは自部門マネージャーのみ編集可）
   const canEdit = (): boolean => {
     if (readOnly) return false;
     if (isManager) return userDepartment === department.name;
-    return true; // admin
+    return true;
   };
 
   const handleAddProject = () => {
     const newProject = {
-      name: '新規プロジェクト',
-      description: '',
+      title: '新規プロジェクト',
+      reason: '',
       okrs: [{ objective: '', keyResults: [], owner: '' }],
     };
     addProject(department.name, newProject);
@@ -81,6 +84,14 @@ export default function DepartmentBlock({
     setNotification('✏️ 部門名を更新しました');
   };
 
+  const handleUpdateAnswer = async (
+    chapterIdx: number,
+    stepIdx: number,
+    answer: string
+  ) => {
+    await updateDepartmentAnswer(chapterIdx, stepIdx, answer); // ✅ string → number
+  };
+
   return (
     <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 shadow-sm mb-6">
       {/* ヘッダー */}
@@ -90,7 +101,9 @@ export default function DepartmentBlock({
           onClick={() => setIsOpen(!isOpen)}
         >
           <ChevronDown
-            className={`transform transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+            className={`transform transition-transform duration-200 ${
+              isOpen ? 'rotate-180' : ''
+            }`}
             size={16}
           />
           {department.name}（部門戦略）
@@ -138,6 +151,18 @@ export default function DepartmentBlock({
             {department.strategy || '（部門戦略が未入力です）'}
           </p>
 
+          {/* 質問ステッパー（answers2に基づく） */}
+          {department.answers2 && department.answers2.length > 0 && (
+            <QuestionStepper
+              questions={department.answers2[0].steps}
+              chapterTitle={`${department.name}の戦略`}
+              chapterBody={department.strategy || ''}
+              chapterIndex={index} // ✅ number 型で渡す
+              onUpdateAnswer={handleUpdateAnswer}
+            />
+          )}
+
+          {/* プロジェクト一覧 */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {department.projects.map((project, idx) => (
               <ProjectBlock
@@ -151,6 +176,7 @@ export default function DepartmentBlock({
             ))}
           </div>
 
+          {/* プロジェクト追加 */}
           {canEdit() && (
             <button
               onClick={handleAddProject}

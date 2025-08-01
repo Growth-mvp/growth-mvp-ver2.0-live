@@ -1,23 +1,27 @@
-// OKR（Objective & Key Results）の型
+// OKR（Objective & Key Results）の型 
 export type OKR = {
   objective: string;
   keyResults: string[];
   owner?: string; // 担当者（例: メンバー名やメールアドレス）
 };
 
-// プロジェクトの型
+// プロジェクトの型（プロジェクト名・目的・OKR）
 export type Project = {
-  name: string;
-  description: string;
-  okrs: OKR[];
+  title: string;             // ✅ 修正: 一貫して title に統一
+  reason?: string;           // プロジェクトの目的・背景
+  okrs?: OKR[];
 };
 
-// 部門の型
+// 部門の型（missionDraftやdiscussionNotesを含める）
 export type Department = {
   id?: number;
   name: string;
-  strategy: string;
-  projects: Project[];
+  strategy?: string;         // 手動編集用の戦略メモ（任意）
+  missionDraft?: string;     // ✅ 追加: AIが提案した部門ミッション
+  discussionNotes?: string;  // ✅ 追加: 部門内の自由記述メモ
+  projects: Project[];       // プロジェクト群（AI案または編集済）
+  questions?: AnswerStep[]; // 👈 これを追加（optional 推奨）
+  answers2?: ChapterAnswers[]; // 各部門に紐づく掘り下げ質問（ステップ形式）
 };
 
 // 深掘り質問1ステップ分の型（段階的な質問対応構造）
@@ -42,7 +46,7 @@ export type ChapterStory = {
 };
 
 //
-// 🎯 Supabase保存・読み込み用の純粋なデータ型（副作用のない構造）
+// 🎯 Supabase保存・読み込み用の純粋なデータ型
 //
 export type StrategyData = {
   companyName: string;
@@ -53,11 +57,6 @@ export type StrategyData = {
   employees: string;
   businessContent: string;
   customerSegment: string;
-
-  questions: string[];
-  reasons: string[];
-  questions2: string[];
-  reasons2: string[];
 
   thought: string;
   mission: string;
@@ -73,21 +72,26 @@ export type StrategyData = {
 
   story: string | ChapterStory[];
   finalStory: ChapterStory[];
+  strategySummary: string;
+
+  questions: string[];
+  reasons: string[];
+  questions2: string[];
+  reasons2: string[];
+
   answers: string[];
   answers2: ChapterAnswers[];
 
-  strategySummary: string;
   editableCascadeResult: Department[];
 
   notification: string;
-  role: 'admin' | 'manager' | 'member'; // ← ✅ 修正済み: Union型で安全に保持
+  role: 'admin' | 'manager' | 'member';
 };
 
 //
-// 🎯 Zustandストア用の拡張型（setter 関数などを含む）
+// 🎯 Zustandストア用の拡張型（setter 関数など含む）
 //
 export interface StrategyState extends StrategyData {
-  // Setter群（例）必要に応じて追加可能
   setCompanyName: (v: string) => void;
   setFoundationYear: (v: string) => void;
   setLocation: (v: string) => void;
@@ -120,7 +124,6 @@ export interface StrategyState extends StrategyData {
   setNotification: (v: string) => void;
   setRole: (v: 'admin' | 'manager' | 'member') => void;
 
-  // 保存・読み込み・削除処理
   saveToSupabase: () => Promise<void>;
   loadFromSupabase: () => Promise<void>;
   clearAllData: () => void;

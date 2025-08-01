@@ -1,3 +1,5 @@
+'use server';
+
 import { OpenAI } from 'openai';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -108,7 +110,6 @@ ${deepInsight}
           body: bodyLines.join('\n').trim(),
         };
       }) || [];
-
 
     const summaryPrompt = `
 以下のストーリーを読んで、社員が最初に読む「要約文（200文字以内）」を1文で作成してください。

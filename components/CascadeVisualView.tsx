@@ -20,23 +20,33 @@ export default function CascadeVisualView() {
         {editableCascadeResult.map((dept, i) => (
           <div key={i} className="border-l-4 border-blue-500 pl-4">
             <h3 className="text-lg font-semibold text-blue-800 mb-1">{dept.name}</h3>
-            <p className="text-sm text-gray-700 mb-3 whitespace-pre-wrap">{dept.strategy}</p>
+            <p className="text-sm text-gray-700 mb-3 whitespace-pre-wrap">
+              {dept.strategy || dept.missionDraft || '（部門戦略が未設定です）'}
+            </p>
 
-            {dept.projects.map((proj, j) => (
+            {dept.projects?.map((proj, j) => (
               <div key={j} className="ml-4 pl-4 border-l-2 border-gray-300 mb-4">
-                <h4 className="text-base font-medium text-gray-800">{proj.name}</h4>
-                <p className="text-sm text-gray-600 mb-2 whitespace-pre-wrap">{proj.description}</p>
+                <h4 className="text-base font-medium text-gray-800">{proj.title}</h4>
+                <p className="text-sm text-gray-600 mb-2 whitespace-pre-wrap">
+                  {proj.reason || '（プロジェクト説明が未設定です）'}
+                </p>
 
-                {proj.okrs.map((okr, k) => (
-                  <div key={k} className="ml-4 pl-4 border-l border-gray-200 mb-3">
-                    <p className="text-sm font-medium text-gray-700 mb-1">Objective: {okr.objective}</p>
-                    <ul className="list-disc text-sm text-gray-600 pl-5 space-y-1">
-                      {okr.keyResults.map((kr, l) => (
-                        <li key={l}>{kr}</li>
-                      ))}
-                    </ul>
+                {Array.isArray(proj.okrs) && proj.okrs.length > 0 && (
+                  <div className="mt-2 space-y-3">
+                    {proj.okrs.map((okr, k) => (
+                      <div key={k} className="ml-4 pl-4 border-l border-gray-200">
+                        <p className="text-sm font-medium text-gray-700 mb-1">
+                          Objective: {okr.objective}
+                        </p>
+                        <ul className="list-disc text-sm text-gray-600 pl-5 space-y-1">
+                          {okr.keyResults.map((kr, l) => (
+                            <li key={l}>{kr}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             ))}
           </div>

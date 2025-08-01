@@ -7,6 +7,7 @@ export interface StepLayoutProps {
   step: number;
   totalSteps: number;
   title: string;
+  nextButtonLabel?: string; // ← ✅ これを追加
   children: React.ReactNode;
 }
 

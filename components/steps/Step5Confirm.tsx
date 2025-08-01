@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStrategyStore } from '@/store/strategyStore';
 import StepLayout from '@/components/StepLayout';
+import Button from '@/components/ui/button';
 
 export default function Step5Confirm() {
   const router = useRouter();
@@ -69,8 +70,7 @@ export default function Step5Confirm() {
 
       setStory(data.story);
       setStrategySummary(data.summary);
-
-      router.push('/story-draft');
+      router.push('/story-process'); // ✅ 遷移先
     } catch (err) {
       console.error('❌ 通信エラー:', err);
       setNotification('❌ 通信エラーが発生しました');
@@ -80,21 +80,14 @@ export default function Step5Confirm() {
   };
 
   return (
-    <StepLayout
-      step={5}
-      totalSteps={5}
-      title="入力内容の最終確認"
-      nextButtonLabel={isGenerating ? '🌀 生成中...' : 'ストーリーを生成 →'}
-      onNext={handleGenerate}
-      disableNext={isGenerating}
-    >
+    <StepLayout step={5} totalSteps={5} title="入力内容の最終確認">
       <div className="space-y-6 text-sm text-gray-800">
         <Section title="🧾 会社情報">
           <Info label="会社名" value={companyName} />
           <Info label="設立年" value={foundationYear} />
           <Info label="所在地" value={location} />
           <Info label="業種" value={industry} />
-          <Info label="売上" value={`${revenue} 百万円`} />
+          <Info label="売上" value={`${revenue} 円`} />
           <Info label="従業員数" value={`${employees} 人`} />
         </Section>
 
@@ -121,6 +114,13 @@ export default function Step5Confirm() {
 
         <div className="text-center text-sm text-gray-500 mt-8">
           👉「ストーリーを生成 →」を押すと、AIがたたき台ストーリーを生成します。
+        </div>
+
+        {/* ✅ 下部中央に表示 */}
+        <div className="text-center mt-8">
+          <Button onClick={handleGenerate} disabled={isGenerating}>
+            {isGenerating ? '🌀 生成中...' : 'ストーリーを生成 →'}
+          </Button>
         </div>
       </div>
     </StepLayout>

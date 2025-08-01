@@ -31,17 +31,20 @@ export default function QuestionStepper({
   const [error, setError] = useState('');
   const [started, setStarted] = useState(false);
 
+  const maxSteps = 3;
   const current = steps[currentIndex];
   const isFirst = currentIndex === 0;
   const isLast = currentIndex === steps.length - 1;
   const hasUnansweredStep = steps.some((step) => step.answer.trim() === '');
-  const maxSteps = 3;
 
+  // 初期読み込み
   useEffect(() => {
     if (questions.length > 0) {
       setSteps(questions);
       setStarted(true);
-      setCurrentIndex(0); // 念のため先頭に戻す
+      setCurrentIndex(0);
+      setTouched(false);
+      setError('');
     }
   }, [questions]);
 
@@ -57,22 +60,23 @@ export default function QuestionStepper({
         body: JSON.stringify({
           chapterTitle,
           chapterBody,
-          stepNumber: steps.length + 1,
           previousAnswer,
+          stepNumber: steps.length + 1,
         }),
       });
 
       const data = await res.json();
 
       if (res.ok && data?.step) {
-        const newStep = data.step;
-        const newSteps = [...steps, newStep];
+        const newStep = data.step as AnswerStep;
+        const newSteps = [...steps, {
+          ...newStep,
+          answer: '', // 空で初期化
+        }];
         setSteps(newSteps);
         setCurrentIndex(newSteps.length - 1);
-        await onUpdateAnswer(chapterIndex, newSteps.length - 1, newStep.answer || '');
       } else {
         setError(data?.error || 'サーバーエラーが発生しました');
-        console.error('❌ 質問生成エラー:', data?.error);
       }
     } catch (err) {
       console.error('❌ 通信エラー:', err);
@@ -93,6 +97,7 @@ export default function QuestionStepper({
 
     setDirection(1);
 
+    // 次のステップに移動
     if (!isLast) {
       setCurrentIndex((prev) => prev + 1);
     } else if (steps.length < maxSteps) {
@@ -154,7 +159,6 @@ export default function QuestionStepper({
               <p className="font-semibold text-gray-800">問い：</p>
               <p className="text-gray-900 mb-2">{current?.question || '（質問が未設定です）'}</p>
               <p className="text-sm text-gray-500">※{current?.reason || '（理由が未設定です）'}</p>
-
             </div>
 
             <Textarea

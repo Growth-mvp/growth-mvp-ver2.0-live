@@ -200,7 +200,7 @@ export default function StoryProcessPage() {
     setError("");
 
     try {
-      const res = await fetch("/api/generate-story-draft", {
+      const res = await fetch("/api/generate-final-story", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -222,13 +222,13 @@ export default function StoryProcessPage() {
       });
 
       const data = await res.json();
-      console.log("✅ API呼び出し成功: /api/generate-story-draft");
+      console.log("✅ API呼び出し成功: /api/generate-final-story");
       console.log("📦 APIから受け取ったdata:", data);
 
       if (res.ok && Array.isArray(data?.story)) {
         console.log("✅ 最終ストーリー構造チェックOK、セット処理へ進行");
         setFinalStory(data.story);
-        setStrategySummary("（要約が未返却）");
+        setStrategySummary(data.summary || '');
         setNotification("✅ 最終ストーリーを生成しました");
       } else {
         console.error("❌ レスポンス内容に異常:", data);
@@ -293,7 +293,6 @@ export default function StoryProcessPage() {
         </div>
       )}
 
-      {/* ✅ 最終ストーリー表示ブロック */}
       {finalStory && Array.isArray(finalStory) && finalStory.length > 0 && (
         <section className="mt-12">
           <h2 className="text-xl font-semibold text-green-700 mb-2">✅ 最終ストーリー</h2>

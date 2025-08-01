@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
     const industryContext = industryTemplates[industry] || '';
 
     const prompt = `
-あなたは世界最高の経営戦略コンサルタントです。以下の経営情報をもとに、経営戦略 → 部門戦略 → プロジェクト → OKR の順にロジカルに分解してください。
+あなたは世界最高の経営戦略コンサルタントです。以下の経営情報をもとに、部門ごとの戦略ミッションとプロジェクト案を簡潔に提案してください。
 
 【業界背景・成功パターン】
 ${industryContext}
@@ -91,34 +91,26 @@ ${summary}
 【対象部門】
 ${departmentNames}
 
-以下の形式に厳密に従って、**日本語の純粋なJSON**のみを返してください。前後に説明は不要です。既存の部門名以外は出力しないでください。
+--- 出力フォーマット（日本語のJSONのみ、説明なし） ---
 
 {
   "strategy": {
-    "summary": "会社全体の経営戦略要約（現状の危機・方向性・優先課題など）"
+    "summary": "会社全体の経営戦略要約"
   },
   "departments": [
     {
       "name": "部門名",
-      "strategy": "この部門が担うべき戦略的役割を明確に記述",
+      "missionDraft": "この部門の戦略ミッション案",
       "projects": [
         {
-          "name": "プロジェクト名（戦略推進のための活動名）",
-          "description": "このプロジェクトの目的・ねらい・達成姿勢などを簡潔に記述",
-          "okrs": [
-            {
-              "objective": "O: プロジェクトの定性的な達成目標",
-              "keyResults": [
-                "KR1: 測定可能な成果指標1",
-                "KR2: 測定可能な成果指標2"
-              ]
-            }
-          ]
+          "title": "プロジェクト名",
+          "reason": "目的・ねらい・達成の姿勢など"
         }
       ]
     }
   ]
-}`.trim();
+}
+`.trim();
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o',
@@ -138,15 +130,11 @@ ${departmentNames}
     const content = completion.choices?.[0]?.message?.content || '';
     console.log('🟢 GPT出力:', content);
 
-    let json = null;
+    let parsed: any = null;
     try {
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('JSON形式が見つかりません');
-      json = JSON.parse(jsonMatch[0]);
-
-      if (!json.strategy || !json.strategy.summary) {
-        json.strategy = { summary };
-      }
+      parsed = JSON.parse(jsonMatch[0]);
     } catch (jsonError) {
       console.error('⚠️ JSON解析エラー:', jsonError);
       console.error('⚠️ GPT出力:', content);
@@ -156,7 +144,26 @@ ${departmentNames}
       );
     }
 
-    return NextResponse.json(json || {});
+    // 構造の整合性チェック・補完
+    const result = {
+      strategy: parsed.strategy || { summary },
+      departments: Array.isArray(parsed.departments)
+        ? parsed.departments
+            .filter((d: any) => departments.some((orig: any) => orig.name === d.name))
+            .map((d: any) => ({
+              name: d.name,
+              missionDraft: d.missionDraft || '',
+              projects: Array.isArray(d.projects)
+                ? d.projects.map((p: any) => ({
+                    title: p.title,
+                    reason: p.reason || '',
+                  }))
+                : [],
+            }))
+        : [],
+    };
+
+    return NextResponse.json(result);
   } catch (err) {
     console.error('❌ APIエラー（generate-cascade）:', err);
     return NextResponse.json(
