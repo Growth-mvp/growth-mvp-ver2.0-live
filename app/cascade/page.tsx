@@ -4,15 +4,14 @@ import { useState } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import QuestionStepper from '@/components/guide/QuestionStepper';
-import CascadeVisualView from '@/components/CascadeVisualView';
 import { PlusCircle, Trash2, CheckCircle2 } from 'lucide-react';
 
 export default function CascadePage() {
   const [activeTab, setActiveTab] = useState<'edit' | 'visual'>('edit');
 
   const {
-    strategySummary,
     story,
+    strategySummary,
     editableCascadeResult,
     setEditableCascadeResult,
     updateDepartmentAnswer,
@@ -24,7 +23,6 @@ export default function CascadePage() {
 
   const { user } = useUserStore();
   const role = user?.role ?? '';
-  const departmentName = user?.department ?? '';
   const isAdmin = role === 'admin';
 
   const handleAddDepartment = () => {
@@ -67,7 +65,7 @@ export default function CascadePage() {
       const updated = [...editableCascadeResult];
       updated[index].projects = data.projects.map((title: string) => ({
         title,
-        okrs: [{ objective: '', keyResults: [''], owner: '' }],
+        okrs: [],
       }));
       setEditableCascadeResult(updated);
       setNotification(`✅ ${dept.name} のたたき台生成成功`);
@@ -79,7 +77,7 @@ export default function CascadePage() {
 
   const handleGenerateInitialQuestion = async (index: number) => {
     const dept = editableCascadeResult[index];
-    if (!dept?.missionDraft) return;
+    if (!dept?.missionDraft?.trim()) return;
 
     setNotification(`⏳ ${dept.name}の質問生成中...`);
     try {
@@ -120,10 +118,71 @@ export default function CascadePage() {
     }
   };
 
+  const handleRegenerateDepartmentStrategy = async (index: number) => {
+    const dept = editableCascadeResult[index];
+    if (!story || !dept.name) return;
+
+    setNotification(`⏳ ${dept.name}の戦略再生成中...`);
+    try {
+      const res = await fetch('/api/generate-department-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ departmentName: dept.name, story }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data) throw new Error(data?.error || 'エラー');
+
+      regenerateDepartmentMission(index, data.mission);
+      const updated = [...editableCascadeResult];
+      updated[index].projects = data.projects.map((title: string) => ({
+        title,
+        okrs: [],
+      }));
+      setEditableCascadeResult(updated);
+      setNotification(`✅ ${dept.name} の戦略再生成完了`);
+    } catch (err) {
+      console.error(err);
+      setNotification(`❌ ${dept.name} の戦略再生成失敗`);
+    }
+  };
+
+  const handleRegenerateProjectsOnly = async (index: number) => {
+    const dept = editableCascadeResult[index];
+    if (!story || !dept.name || !dept.missionDraft) return;
+
+    setNotification(`⏳ ${dept.name}のプロジェクト再生成中...`);
+    try {
+      const res = await fetch('/api/generate-projects-only', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          departmentName: dept.name,
+          mission: dept.missionDraft,
+          story,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.projects) throw new Error(data?.error || 'プロジェクト再生成に失敗');
+
+      const updated = [...editableCascadeResult];
+      updated[index].projects = data.projects.map((title: string) => ({
+        title,
+        okrs: [],
+      }));
+      setEditableCascadeResult(updated);
+      setNotification(`✅ ${dept.name} のプロジェクト再生成成功`);
+    } catch (err) {
+      console.error(err);
+      setNotification(`❌ ${dept.name} のプロジェクト再生成失敗`);
+    }
+  };
+
   return (
     <main className="p-8 min-h-screen bg-gradient-to-b from-white to-gray-50">
       <div className="max-w-5xl mx-auto">
-        <h1 className="text-2xl font-bold text-gray-800 mb-4">戦略カスケード</h1>
+        <h1 className="text-2xl font-bold text-gray-800 mb-4">
+          第3章：各部門の役割（この物語をどう支えるか）
+        </h1>
 
         {strategySummary && (
           <div className="mb-6 p-4 bg-white border rounded shadow">
@@ -167,18 +226,6 @@ export default function CascadePage() {
               </div>
             )}
 
-            <div className="mt-4">
-              <h4 className="font-medium text-sm text-gray-600 mb-2">📂 プロジェクトとOKR</h4>
-              {dept.projects.map((proj, projIndex) => (
-                <div key={projIndex} className="mb-4">
-                  <p className="font-semibold">{proj.title}</p>
-                  <p className="text-sm">🎯 Objective: {proj.okrs?.[0]?.objective || '未入力'}</p>
-                  <p className="text-sm">📌 Key Results: {proj.okrs?.[0]?.keyResults?.join(', ') || '未入力'}</p>
-                  <p className="text-sm">👤 Owner: {proj.okrs?.[0]?.owner || '未入力'}</p>
-                </div>
-              ))}
-            </div>
-
             {!dept.answers2 || dept.answers2.length === 0 ? (
               <button
                 onClick={() => handleGenerateInitialQuestion(index)}
@@ -188,7 +235,7 @@ export default function CascadePage() {
               </button>
             ) : (
               dept.answers2[0]?.steps?.length > 0 && (
-                <div className="mt-4">
+                <div className="mt-4 space-y-4">
                   <QuestionStepper
                     questions={dept.answers2[0].steps}
                     chapterTitle={dept.answers2[0].chapterTitle}
@@ -198,8 +245,36 @@ export default function CascadePage() {
                       updateDepartmentAnswer(index, chapterIdx, stepIdx, answer)
                     }
                   />
+
+                  {dept.answers2[0].steps.every((s) => s.answer) && (
+                    <div className="flex gap-4 mt-4 flex-wrap">
+                      <button
+                        onClick={() => handleRegenerateDepartmentStrategy(index)}
+                        className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-500"
+                      >
+                        ♻️ 部門戦略を再生成
+                      </button>
+                      <button
+                        onClick={() => handleRegenerateProjectsOnly(index)}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-500"
+                      >
+                        📁 プロジェクトのみ再生成
+                      </button>
+                    </div>
+                  )}
                 </div>
               )
+            )}
+
+            {dept.projects?.length > 0 && (
+              <div className="mt-4">
+                <h4 className="font-medium text-sm text-gray-600 mb-1">📂 プロジェクト案</h4>
+                <ul className="list-disc pl-5 text-gray-800">
+                  {dept.projects.map((proj, i) => (
+                    <li key={i}>{proj.title}</li>
+                  ))}
+                </ul>
+              </div>
             )}
           </div>
         ))}

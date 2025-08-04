@@ -1,4 +1,4 @@
-'use client';
+// 'use client';
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -17,6 +17,7 @@ import {
   RotateCcw,
   Trash2,
   Clock,
+  CheckCircle,
 } from 'lucide-react';
 
 export default function Sidebar() {
@@ -109,44 +110,15 @@ export default function Sidebar() {
           GROWTH<span className="text-sm text-gray-400 ml-1">戦略実行</span>
         </h1>
 
-        <nav className="space-y-2">
-          <SidebarLink
-            href="/strategy"
-            icon={<FileText />}
-            label="STEP1：経営情報＋たたき台"
-            active={pathname === '/strategy'}
-          />
-          <SidebarLink
-            href="/story-process"
-            icon={<BookOpen />}
-            label="STEP2：ストーリー深掘り"
-            active={pathname === '/story-process'}
-          />
-          <SidebarLink
-            href="/cascade"
-            icon={<Share />}
-            label="STEP3：カスケード戦略"
-            active={pathname === '/cascade'}
-          />
-          <SidebarLink
-            href="/execution"
-            icon={<Activity />}
-            label="STEP4：実行支援"
-            active={pathname === '/execution'}
-          />
-          <SidebarLink
-            href="/story-history"
-            icon={<Clock />}
-            label="📚 ストーリー履歴"
-            active={pathname === '/story-history'}
-          />
+        <nav className="space-y-2 text-sm">
+          <SidebarLink href="/strategy" icon={<FileText />} label="第1章：この会社は何者か？" active={pathname === '/strategy'} />
+          <SidebarLink href="/story-process" icon={<BookOpen />} label="第2章：未来を描く" active={pathname === '/story-process'} />
+          <SidebarLink href="/cascade" icon={<Share />} label="第3章：各部門の役割" active={pathname === '/cascade'} />
+          <SidebarLink href="/okr" icon={<CheckCircle />} label="第4章：物語を行動に" active={pathname === '/okr'} />
+          <SidebarLink href="/execution" icon={<Activity />} label="最終章：本番の舞台へ" active={pathname === '/execution'} />
+          <SidebarLink href="/story-history" icon={<Clock />} label="📚 ストーリー履歴" active={pathname === '/story-history'} />
           {user?.role === 'admin' && (
-            <SidebarLink
-              href="/admin"
-              icon={<Settings />}
-              label="管理者専用"
-              active={pathname === '/admin'}
-            />
+            <SidebarLink href="/admin" icon={<Settings />} label="管理者専用" active={pathname === '/admin'} />
           )}
         </nav>
 
@@ -169,9 +141,7 @@ export default function Sidebar() {
         )}
       </div>
 
-      <div className="text-xs text-gray-500 mt-8">
-        © 2025 GROWTH Platform
-      </div>
+      <div className="text-xs text-gray-500 mt-8">© 2025 GROWTH Platform</div>
     </aside>
   );
 }
@@ -190,7 +160,7 @@ function SidebarLink({
   return (
     <Link
       href={href}
-      className={`flex items-center gap-3 px-4 py-2 rounded-md transition ${
+      className={`flex items-center gap-3 px-4 py-2 rounded-md transition text-sm ${
         active ? 'bg-sky-700 text-white' : 'hover:bg-gray-800 text-gray-300'
       }`}
     >

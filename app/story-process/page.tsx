@@ -7,6 +7,7 @@ import { useUserStore } from '@/store/userStore';
 import { saveStrategyData } from '@/utils/supabase';
 import Button from '@/components/ui/button';
 import QuestionStepper from '@/components/guide/QuestionStepper';
+import StepLayout from '@/components/StepLayout';
 import { AnswerStep, StrategyData, ChapterStory } from '@/types/strategy';
 
 export default function StoryProcessPage() {
@@ -222,20 +223,15 @@ export default function StoryProcessPage() {
       });
 
       const data = await res.json();
-      console.log("✅ API呼び出し成功: /api/generate-final-story");
-      console.log("📦 APIから受け取ったdata:", data);
 
       if (res.ok && Array.isArray(data?.story)) {
-        console.log("✅ 最終ストーリー構造チェックOK、セット処理へ進行");
         setFinalStory(data.story);
         setStrategySummary(data.summary || '');
         setNotification("✅ 最終ストーリーを生成しました");
       } else {
-        console.error("❌ レスポンス内容に異常:", data);
         setError(data?.error || "ストーリー生成に失敗しました");
       }
     } catch (err) {
-      console.error("❌ ストーリー生成中の例外発生:", err);
       setError("通信エラーが発生しました");
     } finally {
       setLoadingType(null);
@@ -243,9 +239,7 @@ export default function StoryProcessPage() {
   };
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold text-gray-800 mb-4">戦略ストーリー生成プロセス</h1>
-
+    <StepLayout step={2} totalSteps={5} title="第2章：未来を描く" subtitle="何が起きようとしているか">
       <section className="mb-6">
         <h2 className="text-xl font-semibold text-indigo-700 mb-2">📝 たたき台ストーリー</h2>
         {storyChapters.map((chapter, idx) => (
@@ -293,7 +287,7 @@ export default function StoryProcessPage() {
         </div>
       )}
 
-      {finalStory && Array.isArray(finalStory) && finalStory.length > 0 && (
+      {finalStory?.length > 0 && (
         <section className="mt-12">
           <h2 className="text-xl font-semibold text-green-700 mb-2">✅ 最終ストーリー</h2>
           {finalStory.map((chapter, idx) => (
@@ -306,6 +300,6 @@ export default function StoryProcessPage() {
       )}
 
       {error && <p className="text-red-500 text-sm mt-4">⚠️ {error}</p>}
-    </div>
+    </StepLayout>
   );
 }

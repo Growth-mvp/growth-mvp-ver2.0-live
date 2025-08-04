@@ -109,18 +109,26 @@ export default function ExecutionPage() {
 
           {dept.projects.map((proj, i) => (
             <div key={i} className="ml-4 mb-4">
-              <h3 className="font-semibold text-gray-700">{proj.name}</h3>
+              <h3 className="font-semibold text-gray-700">{proj.title}</h3>
 
-              {proj.okrs.map((okr, j) => {
-                const okrId = `${dept.name}-${proj.name}-${j}`;
+              {proj.okrs?.map((okr, j) => {
+                const okrId = `${dept.name}-${proj.title}-${j}`;
                 const editable = canEdit(dept.name, okr.owner);
 
                 return (
                   <div key={okrId} className="mt-3 ml-4 border rounded p-3 bg-gray-50">
                     <p className="font-medium mb-1">🎯 {okr.objective}</p>
 
+                    <ul className="list-disc ml-5 text-gray-600 text-sm mb-2">
+                      {okr.keyResults?.map((kr, idx) => (
+                        <li key={idx}>KR{idx + 1}: {kr}</li>
+                      ))}
+                    </ul>
+
+                    <p className="text-xs text-gray-500 mb-2">担当者: {okr.owner}</p>
+
                     <textarea
-                      className={`mt-1 w-full border rounded p-2 text-sm ${
+                      className={`w-full border rounded p-2 text-sm ${
                         !editable ? 'bg-gray-100 text-gray-500' : 'bg-white'
                       }`}
                       rows={3}

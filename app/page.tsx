@@ -11,17 +11,45 @@ export default function Home() {
 
   useEffect(() => {
     if (user?.id && user?.role) {
-      // 任意でログイン済み時の自動遷移を有効化できます
+      // 自動遷移させたい場合
       // router.push('/strategy');
     }
   }, [user?.id]);
+
+  const chapters = [
+    {
+      title: '第1章：この会社は何者か？',
+      description: '経営情報、MVV、SWOT、財務などの入力',
+      path: '/strategy',
+    },
+    {
+      title: '第2章：未来を描く',
+      description: 'ストーリー生成・質問・深掘り対話',
+      path: '/story-process',
+    },
+    {
+      title: '第3章：各部門の役割',
+      description: '部門ミッション・プロジェクト生成・深掘り質問',
+      path: '/cascade',
+    },
+    {
+      title: '第4章：物語を行動に落とす',
+      description: 'OKR（Objective・Key Results・Owner）の入力・表示',
+      path: '/okr',
+    },
+    {
+      title: '最終章：本番の舞台へ',
+      description: 'メンバーの実行支援・進捗・フィードバック',
+      path: '/execution',
+    },
+  ];
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-white to-gray-100 py-16 px-6">
       <section className="text-center max-w-3xl mx-auto mb-16">
         <h1 className="text-6xl font-bold text-gray-800 mb-4">GROWTH</h1>
         <p className="text-lg text-gray-600 mb-6">
-          ー経営と現場をつなぎ、戦略を行動に変えるー
+          ― 経営と現場をつなぎ、戦略を行動に変える ―
         </p>
         <Link href="/strategy">
           <button className="inline-block bg-blue-600 text-white px-8 py-4 rounded-lg hover:bg-blue-700 transition text-lg font-semibold">
@@ -30,26 +58,15 @@ export default function Home() {
         </Link>
       </section>
 
-      <section className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8">
-        <div className="bg-white rounded-xl shadow p-6">
-          <h2 className="text-xl font-semibold text-gray-800 mb-2">STEP 1：経営情報の入力</h2>
-          <p className="text-gray-600 text-sm">会社の思い、SWOT、財務情報などを入力</p>
-        </div>
-
-        <div className="bg-white rounded-xl shadow p-6">
-          <h2 className="text-xl font-semibold text-gray-800 mb-2">STEP 2：ストーリー生成と対話</h2>
-          <p className="text-gray-600 text-sm">AIとの対話を通じて深掘りし、共感ある戦略を形成</p>
-        </div>
-
-        <div className="bg-white rounded-xl shadow p-6">
-          <h2 className="text-xl font-semibold text-gray-800 mb-2">STEP 3：戦略カスケード</h2>
-          <p className="text-gray-600 text-sm">部門戦略・プロジェクト・OKRに展開しピラミッド化</p>
-        </div>
-
-        <div className="bg-white rounded-xl shadow p-6">
-          <h2 className="text-xl font-semibold text-gray-800 mb-2">STEP 4：OKR実行支援</h2>
-          <p className="text-gray-600 text-sm">担当者ごとの進捗記録やSlack風の対話サポート</p>
-        </div>
+      <section className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8">
+        {chapters.map((chapter, index) => (
+          <Link href={chapter.path} key={index}>
+            <div className="bg-white rounded-xl shadow p-6 hover:shadow-lg transition cursor-pointer">
+              <h2 className="text-xl font-semibold text-gray-800 mb-2">{chapter.title}</h2>
+              <p className="text-gray-600 text-sm">{chapter.description}</p>
+            </div>
+          </Link>
+        ))}
       </section>
     </main>
   );
