@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { saveStrategyData } from '@/utils/supabase';
-import Button from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import QuestionStepper from '@/components/guide/QuestionStepper';
 import StepLayout from '@/components/StepLayout';
 import { AnswerStep, StrategyData, ChapterStory } from '@/types/strategy';

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Textarea } from '@/components/ui/textarea';
-import Button from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { AnimatePresence, motion } from 'framer-motion';
 import { AnswerStep } from '@/types/strategy';
 

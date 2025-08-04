@@ -49,11 +49,11 @@ export default function Home() {
       <section className="text-center max-w-3xl mx-auto mb-16">
         <h1 className="text-6xl font-bold text-gray-800 mb-4">GROWTH</h1>
         <p className="text-lg text-gray-600 mb-6">
-          ― 経営と現場をつなぎ、戦略を行動に変える ―
+          ― 伝わる戦略、動く組織へ ―
         </p>
         <Link href="/strategy">
           <button className="inline-block bg-blue-600 text-white px-8 py-4 rounded-lg hover:bg-blue-700 transition text-lg font-semibold">
-            さっそく始める →
+            さっそく始める 
           </button>
         </Link>
       </section>

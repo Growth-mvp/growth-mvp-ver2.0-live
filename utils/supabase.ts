@@ -1,5 +1,4 @@
-import { StrategyData } from '@/types/strategy';
-import { ChapterAnswers, ChapterStory } from '@/types/strategy';
+import { StrategyData, ChapterAnswers, ChapterStory } from '@/types/strategy';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -8,7 +7,7 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
 
 const TABLE_NAME = 'strategy_data';
 
-// 🎯 戦略データ保存（全体）
+// 戦略データ保存（全体）
 export async function saveStrategyData(state: StrategyData, userId: string) {
   try {
     const payload = {
@@ -43,14 +42,11 @@ export async function saveStrategyData(state: StrategyData, userId: string) {
       reasons2: state.reasons2 || [],
     };
 
-    console.log('📤 Supabase保存データ:', JSON.stringify(payload, null, 2));
-
     const { data, error } = await supabase
       .from(TABLE_NAME)
       .upsert([payload], { onConflict: 'user_id' });
 
     if (error) throw error;
-    console.log('✅ Supabase保存成功:', data);
     return { error: null };
   } catch (error: any) {
     console.error('❌ Supabase保存エラー:', error?.message || error);
@@ -58,7 +54,7 @@ export async function saveStrategyData(state: StrategyData, userId: string) {
   }
 }
 
-// 🎯 戦略データ読み込み
+// 戦略データ読み込み
 export async function loadStrategyData(userId: string) {
   try {
     const { data, error } = await supabase
@@ -69,7 +65,6 @@ export async function loadStrategyData(userId: string) {
 
     if (error) throw error;
 
-    // ✅ answers2の形式を確認・整形
     if (data && typeof data.answers2 === 'string') {
       try {
         data.answers2 = JSON.parse(data.answers2);
@@ -80,18 +75,16 @@ export async function loadStrategyData(userId: string) {
     }
 
     if (!Array.isArray(data.answers2)) {
-      console.warn('⚠️ answers2が配列でないため初期化');
       data.answers2 = [];
     }
 
     return { data, error: null };
   } catch (error: any) {
-    console.error('❌ Supabase読み込みエラー:', error?.message || error);
     return { data: null, error };
   }
 }
 
-// 🎯 戦略データ削除（全体）
+// 戦略データ削除（全体）
 export async function deleteStrategyData(userId: string) {
   try {
     const { error } = await supabase
@@ -100,15 +93,13 @@ export async function deleteStrategyData(userId: string) {
       .eq('user_id', userId);
 
     if (error) throw error;
-    console.log('🗑️ Supabase削除成功');
     return { error: null };
   } catch (error: any) {
-    console.error('❌ Supabase削除エラー:', error?.message || error);
     return { error };
   }
 }
 
-// ✅ 第2ラウンド回答保存
+// 第2ラウンド回答保存
 export async function saveStoryAnswers2(userId: string, answers2: ChapterAnswers[]) {
   try {
     const payload = { user_id: userId, answers2 };
@@ -117,15 +108,13 @@ export async function saveStoryAnswers2(userId: string, answers2: ChapterAnswers
       .upsert([payload], { onConflict: 'user_id' });
 
     if (error) throw error;
-    console.log('✅ 第2ラウンド保存成功');
     return null;
   } catch (error: any) {
-    console.error('❌ 第2ラウンド保存エラー:', error?.message || error);
     return error;
   }
 }
 
-// ✅ 第2ラウンド回答読み込み
+// 第2ラウンド回答読み込み
 export async function loadStoryAnswers2(userId: string): Promise<ChapterAnswers[] | null> {
   try {
     const { data } = await supabase
@@ -140,61 +129,78 @@ export async function loadStoryAnswers2(userId: string): Promise<ChapterAnswers[
       try {
         result = JSON.parse(result);
       } catch (e) {
-        console.warn('⚠️ answers2のJSON.parseに失敗しました:', e);
         result = [];
       }
     }
 
     if (!Array.isArray(result)) {
-      console.warn('⚠️ answers2が配列でないため初期化');
       result = [];
     }
 
     return result;
   } catch (error: any) {
-    console.error('❌ 第2ラウンド読み込みエラー:', error?.message || error);
     return null;
   }
 }
 
-// ✅ OKR進捗ログ保存
-export async function saveProgressLog(userId: string, okrId: string, note: string) {
-  const { error } = await supabase.from('progress_logs').insert([
-    { user_id: userId, okr_id: okrId, note },
-  ]);
-  return { error };
-}
-
-// ✅ 最終ストーリー保存
-export async function saveFinalStory(
+// ✅ OKR進捗ログ保存（統一・修正版）
+export async function saveProgressLog(
   userId: string,
-  story: ChapterStory[],
-  summary: string
+  okrId: string,
+  log: {
+    progressText?: string;
+    rating?: number;
+    ratingComment?: string;
+    advice?: string;
+    helpRequest?: string;
+    department?: string;
+  }
 ) {
   try {
-    const { error } = await supabase
-      .from('final_stories')
-      .upsert(
-        [
-          {
-            user_id: userId,
-            story,
-            summary,
-          },
-        ],
-        { onConflict: 'user_id' }
-      );
+    const { error } = await supabase.from('progress_logs').insert([
+      {
+        user_id: userId,
+        okr_id: okrId,
+        progress_text: log.progressText ?? '',
+        rating: log.rating ?? null,
+        rating_comment: log.ratingComment ?? '',
+        advice: log.advice ?? '',
+        help_request: log.helpRequest ?? '',
+        department: log.department ?? '',
+        created_at: new Date().toISOString(),
+      },
+    ]);
 
     if (error) throw error;
-    console.log('✅ 最終ストーリー保存成功');
     return null;
   } catch (error: any) {
-    console.error('❌ 最終ストーリー保存エラー:', error?.message || error);
+    console.error('❌ 進捗ログ保存エラー:', error?.message || error);
     return error;
   }
 }
 
-// ✅ 最終ストーリー読み込み
+// 最終ストーリー保存
+export async function saveFinalStory(userId: string, story: ChapterStory[], summary: string) {
+  try {
+    const { error } = await supabase.from('final_stories').upsert(
+      [
+        {
+          user_id: userId,
+          story,
+          summary,
+        },
+      ],
+      { onConflict: 'user_id' }
+    );
+
+    if (error) throw error;
+    return null;
+  } catch (error: any) {
+    return error;
+  }
+}
+
+// 最終ストーリー読み込み
 export async function loadFinalStory(userId: string): Promise<ChapterStory[] | null> {
   try {
     const { data, error } = await supabase
@@ -206,7 +212,6 @@ export async function loadFinalStory(userId: string): Promise<ChapterStory[] | n
     if (error) throw error;
     return data?.story || null;
   } catch (error: any) {
-    console.error('❌ 最終ストーリー読み込みエラー:', error?.message || error);
     return null;
   }
 }

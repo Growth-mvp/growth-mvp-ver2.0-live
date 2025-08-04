@@ -46,6 +46,19 @@ export type Department = {
   finalized: boolean;           // ✅ 追加: 部門戦略が確定済みかどうか
 };
 
+// ✅ 進捗ログの型（OKRModal用）
+export type ProgressLog = {
+  userId: string;
+  okrId: string;
+  progressText?: string;
+  rating?: number;
+  ratingComment?: string;
+  advice?: string;
+  helpRequest?: string;
+  department?: string;
+  project?: string;
+};
+
 // 🎯 Supabase保存・読み込み用の純粋なデータ型
 export type StrategyData = {
   companyName: string;
