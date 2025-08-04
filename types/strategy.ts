@@ -12,18 +12,6 @@ export type Project = {
   okrs?: OKR[];
 };
 
-// 部門の型（missionDraftやdiscussionNotesを含める）
-export type Department = {
-  id?: number;
-  name: string;
-  strategy?: string;         // 手動編集用の戦略メモ（任意）
-  missionDraft?: string;     // ✅ 追加: AIが提案した部門ミッション
-  discussionNotes?: string;  // ✅ 追加: 部門内の自由記述メモ
-  projects: Project[];       // プロジェクト群（AI案または編集済）
-  questions?: AnswerStep[]; // 👈 これを追加（optional 推奨）
-  answers2?: ChapterAnswers[]; // 各部門に紐づく掘り下げ質問（ステップ形式）
-};
-
 // 深掘り質問1ステップ分の型（段階的な質問対応構造）
 export type AnswerStep = {
   stepNumber: number;  // ステップ番号（1から順に）
@@ -45,9 +33,20 @@ export type ChapterStory = {
   body: string;            // その章の本文（生成済みストーリー）
 };
 
-//
+// 部門の型（missionDraftやdiscussionNotesを含める）
+export type Department = {
+  id?: number;
+  name: string;
+  strategy?: string;            // 手動編集用の戦略メモ（任意）
+  missionDraft?: string;        // ✅ 追加: AIが提案した部門ミッション
+  discussionNotes?: string;     // ✅ 追加: 部門内の自由記述メモ
+  projects: Project[];          // プロジェクト群（AI案または編集済）
+  questions?: AnswerStep[];     // 掘り下げ質問（任意）
+  answers2?: ChapterAnswers[];  // 各部門に紐づく掘り下げ質問（ステップ形式）
+  finalized: boolean;           // ✅ 追加: 部門戦略が確定済みかどうか
+};
+
 // 🎯 Supabase保存・読み込み用の純粋なデータ型
-//
 export type StrategyData = {
   companyName: string;
   foundationYear: string;
@@ -88,9 +87,7 @@ export type StrategyData = {
   role: 'admin' | 'manager' | 'member';
 };
 
-//
 // 🎯 Zustandストア用の拡張型（setter 関数など含む）
-//
 export interface StrategyState extends StrategyData {
   setCompanyName: (v: string) => void;
   setFoundationYear: (v: string) => void;

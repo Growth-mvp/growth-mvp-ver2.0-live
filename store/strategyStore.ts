@@ -1,4 +1,4 @@
-// 'use client';  
+// 'use client';
 import { create } from 'zustand';
 import {
   saveStrategyData,
@@ -16,7 +16,7 @@ import {
 } from '@/types/strategy';
 
 export interface StrategyState extends StrategyData {
-  // Setter関数
+  // setter群
   setCompanyName: (v: string) => void;
   setFoundationYear: (v: string) => void;
   setLocation: (v: string) => void;
@@ -34,25 +34,13 @@ export interface StrategyState extends StrategyData {
   setMission: (v: string) => void;
   setVision: (v: string) => void;
   setValue: (v: string) => void;
-
-  // ストーリー・戦略要約
   setStory: (v: string | ChapterStory[]) => void;
   setFinalStory: (v: ChapterStory[]) => void;
   setStrategySummary: (v: string) => void;
-
-  // カスケード
   setEditableCascadeResult: (v: Department[]) => void;
-  updateDepartmentStrategy: (deptName: string, newStrategy: string) => void;
-  updateProject: (deptName: string, projIndex: number, newProj: Project) => void;
-  addProject: (deptName: string, newProj: Project) => void;
-  deleteProject: (deptName: string, projIndex: number) => void;
-
-  // その他
   setCsvFinanceData: (data: any[]) => void;
   setFinanceData: (data: any[]) => void;
   setNotification: (v: string) => void;
-
-  // 質問・回答
   setAnswers: (v: string[]) => void;
   setAnswers2: (v: ChapterAnswers[]) => void;
   setAnswersToStrategyStore: (payload: {
@@ -63,16 +51,28 @@ export interface StrategyState extends StrategyData {
     questions2?: string[];
     reasons2?: string[];
   }) => void;
-  updateDepartmentAnswer: (chapterIdx: number, stepIdx: number, answer: string) => void;
+  updateDepartmentAnswer: (
+    deptIdx: number,
+    chapterIdx: number,
+    stepIdx: number,
+    answer: string
+  ) => void;
+  updateDepartmentStrategy: (deptName: string, newStrategy: string) => void;
+  updateProject: (deptName: string, projIndex: number, newProj: Project) => void;
+  addProject: (deptName: string, newProj: Project) => void;
+  deleteProject: (deptName: string, projIndex: number) => void;
+  finalizeDepartment: (index: number) => void;
+  regenerateDepartmentMission: (deptIdx: number, newMission: string) => void;
+  confirmDepartmentStrategy: (deptIdx: number) => void;
 
-  // Supabase
+
+
   saveToSupabase: () => Promise<void>;
   loadFromSupabase: () => Promise<void>;
   clearAllData: () => Promise<void>;
 }
 
 export const useStrategyStore = create<StrategyState>((set, get) => ({
-  // 初期状態
   companyName: '',
   foundationYear: '',
   location: '',
@@ -103,7 +103,6 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
   questions2: [],
   reasons2: [],
 
-  // Setter
   setCompanyName: (v) => set({ companyName: v }),
   setFoundationYear: (v) => set({ foundationYear: v }),
   setLocation: (v) => set({ location: v }),
@@ -142,40 +141,99 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
       reasons2: payload.reasons2 ?? state.reasons2,
     })),
 
-  updateDepartmentAnswer: (chapterIdx, stepIdx, newAnswer) => {
+  updateDepartmentAnswer: (
+  deptIdx,
+  chapterIdx,
+  stepIdx,
+  answer,
+  question = '',
+  reason = ''
+) => {
   set((state) => {
-    const updatedDepartments = [...state.editableCascadeResult];
-    const department = updatedDepartments[chapterIdx];
-
+    const departments = [...state.editableCascadeResult];
+    const department = departments[deptIdx];
     if (!department) return state;
 
-    const currentAnswers = department.answers2 || [];
-    const updatedAnswers = [...currentAnswers];
+    const answers2 = department.answers2 ?? [];
+    let chapter = answers2.find((ch) => ch.chapterIndex === chapterIdx);
 
-    if (!updatedAnswers[0]) {
-      updatedAnswers[0] = { chapterIndex: chapterIdx, chapterTitle: department.name, steps: [] };
+    if (!chapter) {
+      chapter = {
+        chapterIndex: chapterIdx, // ← 正しく変数を使う
+        chapterTitle: department.name,
+        steps: [],
+      };
+      answers2.push(chapter);
     }
 
-    const updatedSteps: AnswerStep[] = [...updatedAnswers[0].steps];
-    updatedSteps[stepIdx] = {
-      ...(updatedSteps[stepIdx] || {}),
-      stepNumber: stepIdx + 1,
-      answer: newAnswer,
-    };
+    const steps = [...chapter.steps];
 
-    updatedAnswers[0] = {
-      ...updatedAnswers[0],
-      steps: updatedSteps,
-    };
+    if (!steps[stepIdx]) {
+      // ステップが存在しなければ初期化
+      steps[stepIdx] = {
+        stepNumber: stepIdx + 1,
+        question,
+        reason,
+        answer,
+      };
+    } else {
+      // ステップが既に存在すれば上書き
+      steps[stepIdx] = {
+        ...steps[stepIdx],
+        answer,
+        question: question || steps[stepIdx].question,
+        reason: reason || steps[stepIdx].reason,
+      };
+    }
 
-    updatedDepartments[chapterIdx] = {
+    chapter.steps = steps;
+
+    departments[deptIdx] = {
       ...department,
-      answers2: updatedAnswers,
+      answers2,
     };
 
-    return { editableCascadeResult: updatedDepartments };
+    return { editableCascadeResult: departments };
   });
 },
+
+
+
+  finalizeDepartment: (index) => {
+    set((state) => {
+      const updated = [...state.editableCascadeResult];
+      if (updated[index]) updated[index].finalized = true;
+      return { editableCascadeResult: updated };
+    });
+  },
+
+    regenerateDepartmentMission: (deptIdx, newMission) => {
+    set((state) => {
+      const departments = [...state.editableCascadeResult];
+      if (!departments[deptIdx]) return state;
+
+      departments[deptIdx] = {
+        ...departments[deptIdx],
+        strategy: newMission, // mission ではなく strategy に保存されている想定
+      };
+
+      return { editableCascadeResult: departments };
+    });
+  },
+
+  confirmDepartmentStrategy: (deptIdx) => {
+    set((state) => {
+      const departments = [...state.editableCascadeResult];
+      if (!departments[deptIdx]) return state;
+
+      departments[deptIdx] = {
+        ...departments[deptIdx],
+        finalized: true,
+      };
+
+      return { editableCascadeResult: departments };
+    });
+  },
 
 
   updateDepartmentStrategy: (deptName, newStrategy) => {
@@ -217,6 +275,117 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
     });
     set({ editableCascadeResult: updated });
   },
+  
+  // OKRの追加
+addOKRToProject(deptIdx: number, projIdx: number) {
+  set((state) => {
+    const departments = [...state.editableCascadeResult];
+    const department = departments[deptIdx];
+    if (!department) return state;
+
+    const projects = [...department.projects];
+    const project = projects[projIdx];
+    if (!project) return state;
+
+    const newOKRs = [...(project.okrs ?? [])];
+    newOKRs.push({ objective: '', keyResults: [''], owner: '' });
+
+    projects[projIdx] = { ...project, okrs: newOKRs };
+    departments[deptIdx] = { ...department, projects };
+
+    return { editableCascadeResult: departments };
+  });
+},
+
+// OKRの更新（objective / keyResults / owner）
+updateProjectOKR(
+  deptIdx: number,
+  projIdx: number,
+  okrIdx: number,
+  field: 'objective' | 'keyResults' | 'owner',
+  value: string
+) {
+  set((state) => {
+    const departments = [...state.editableCascadeResult];
+    const department = departments[deptIdx];
+    if (!department) return state;
+
+    const projects = [...department.projects];
+    const project = projects[projIdx];
+    if (!project || !project.okrs) return state;
+
+    const okrs = [...project.okrs];
+    if (!okrs[okrIdx]) return state;
+
+    okrs[okrIdx] = {
+      ...okrs[okrIdx],
+      [field]: value,
+    };
+
+    projects[projIdx] = { ...project, okrs };
+    departments[deptIdx] = { ...department, projects };
+
+    return { editableCascadeResult: departments };
+  });
+},
+
+// OKRの削除
+deleteOKRFromProject(deptIdx: number, projIdx: number, okrIdx: number) {
+  set((state) => {
+    const departments = [...state.editableCascadeResult];
+    const department = departments[deptIdx];
+    if (!department) return state;
+
+    const projects = [...department.projects];
+    const project = projects[projIdx];
+    if (!project || !project.okrs) return state;
+
+    const okrs = [...project.okrs];
+    okrs.splice(okrIdx, 1);
+
+    projects[projIdx] = { ...project, okrs };
+    departments[deptIdx] = { ...department, projects };
+
+    return { editableCascadeResult: departments };
+  });
+},
+
+// OKRの上下移動
+moveOKRInProject(
+  deptIdx: number,
+  projIdx: number,
+  fromIdx: number,
+  toIdx: number
+) {
+  set((state) => {
+    const departments = [...state.editableCascadeResult];
+    const department = departments[deptIdx];
+    if (!department) return state;
+
+    const projects = [...department.projects];
+    const project = projects[projIdx];
+    if (!project || !project.okrs) return state;
+
+    const okrs = [...project.okrs];
+    if (
+      fromIdx < 0 ||
+      toIdx < 0 ||
+      fromIdx >= okrs.length ||
+      toIdx >= okrs.length
+    )
+      return state;
+
+    const [moved] = okrs.splice(fromIdx, 1);
+    okrs.splice(toIdx, 0, moved);
+
+    projects[projIdx] = { ...project, okrs };
+    departments[deptIdx] = { ...department, projects };
+
+    return { editableCascadeResult: departments };
+  });
+},
+
+  
 
   saveToSupabase: async () => {
     const state = get();
@@ -262,10 +431,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
       return;
     }
 
-    set({
-      ...data,
-      notification: '',
-    });
+    set({ ...data, notification: '' });
   },
 
   clearAllData: async () => {

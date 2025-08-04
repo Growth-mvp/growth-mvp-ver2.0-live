@@ -8,6 +8,7 @@ import Step4MVV from '@/components/steps/Step4MVV';
 import Step5Confirm from '@/components/steps/Step5Confirm';
 import { useStrategyStore } from '@/store/strategyStore';
 
+
 export default function StrategyPage() {
   const [step, setStep] = useState(1);
   const totalSteps = 5;
@@ -28,16 +29,19 @@ export default function StrategyPage() {
     setStory,
   } = useStrategyStore();
 
+  // 戻るボタンの処理
   const goBack = () => {
     if (step > 1) setStep(step - 1);
   };
 
+  // 次へボタンの処理
   const goNext = () => {
     if (step < totalSteps) {
       setStep(step + 1);
     }
   };
 
+  // ステップごとのコンポーネントを表示
   const renderStepContent = () => {
     switch (step) {
       case 1:
@@ -57,6 +61,7 @@ export default function StrategyPage() {
 
   return (
     <main className="max-w-4xl mx-auto p-6 bg-white rounded shadow space-y-6">
+      {/* ステップタイトル */}
       <div className="text-center">
         <p className="text-sm text-gray-500">
           STEP {step} / {totalSteps}
@@ -66,9 +71,10 @@ export default function StrategyPage() {
         </h1>
       </div>
 
+      {/* 各ステップの内容 */}
       {renderStepContent()}
 
-      {/* 最終ステップ以外でのみ「戻る」「次へ」ボタンを表示 */}
+      {/* ナビゲーションボタン：最終確認以外では表示 */}
       {step < totalSteps && (
         <div className="flex justify-between mt-6">
           <button

@@ -39,14 +39,15 @@ export default function QuestionStepper({
 
   // 初期読み込み
   useEffect(() => {
-    if (questions.length > 0) {
-      setSteps(questions);
-      setStarted(true);
-      setCurrentIndex(0);
-      setTouched(false);
-      setError('');
-    }
-  }, [questions]);
+  if (!started && questions.length > 0) {
+    setSteps(questions);
+    setStarted(true);
+    setCurrentIndex(0);
+    setTouched(false);
+    setError('');
+  }
+}, [questions, started]);
+
 
   const generateNextQuestion = async (previousAnswer: string) => {
     if (steps.length >= maxSteps) return;
@@ -68,11 +69,16 @@ export default function QuestionStepper({
       const data = await res.json();
 
       if (res.ok && data?.step) {
-        const newStep = data.step as AnswerStep;
-        const newSteps = [...steps, {
-          ...newStep,
-          answer: '', // 空で初期化
-        }];
+        const newStep: AnswerStep = {
+          ...data.step,
+          answer: '',
+        };
+
+        const newSteps = [...steps, newStep];
+
+        // ✅ ストア側にも空のステップとして保存
+        await onUpdateAnswer(chapterIndex, newSteps.length - 1, '');
+
         setSteps(newSteps);
         setCurrentIndex(newSteps.length - 1);
       } else {
@@ -97,7 +103,6 @@ export default function QuestionStepper({
 
     setDirection(1);
 
-    // 次のステップに移動
     if (!isLast) {
       setCurrentIndex((prev) => prev + 1);
     } else if (steps.length < maxSteps) {
@@ -114,6 +119,9 @@ export default function QuestionStepper({
 
   const handleAnswerChange = async (value: string) => {
     setTouched(true);
+
+    if (!steps[currentIndex]) return;
+
     const updatedSteps = [...steps];
     updatedSteps[currentIndex] = {
       ...updatedSteps[currentIndex],
