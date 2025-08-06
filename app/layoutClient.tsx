@@ -13,31 +13,26 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
     pathname.startsWith('/404');
 
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen relative flex">
       {/* 左サイドバー */}
       {!hideSidebar && <Sidebar />}
 
-      {/* 中央ペイン */}
+      {/* 中央ペイン（←修正ポイント） */}
       <main
-        className={`flex-1 transition-all ${
-          !hideSidebar ? 'pl-6' : ''
-        } bg-gradient-to-b from-gray-100 to-white py-4 px-6`}
+        className={`flex-1 bg-gradient-to-b from-gray-100 to-white p-8 ${
+          !hideSidebar ? 'ml-[18rem] mr-[24rem]' : ''
+        }`}
       >
         {children}
       </main>
 
-      {/* 右ペイン：経営者AIエージェント */}
+      {/* 右のエージェントペイン */}
       {!hideSidebar && (
-        <aside className="fixed top-0 right-0 w-96 h-screen bg-white border-l border-gray-200 shadow-inner z-10 flex flex-col">
-          {/* ヘッダー（ネイビーグラデーション＋中央寄せテキスト） */}
-          <header className="p-4 bg-gradient-to-r from-blue-900 to-blue-700 text-white text-center text-lg font-semibold flex items-center justify-center h-16">
+        <aside className="fixed top-0 right-0 w-96 h-screen bg-white border-l border-gray-200 shadow-inner z-10">
+          <div className="h-12 bg-gradient-to-r from-blue-800 to-blue-600 text-white text-center flex items-center justify-center font-semibold">
             経営者AIエージェント
-          </header>
-
-          {/* チャットパネル本体 */}
-          <div className="flex-1 overflow-y-auto">
-            <CEOChatPanel />
           </div>
+          <CEOChatPanel />
         </aside>
       )}
     </div>

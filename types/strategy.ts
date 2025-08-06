@@ -37,6 +37,7 @@ export type ChapterStory = {
 export type Department = {
   id?: number;
   name: string;
+  mission: string; // ←これを追加
   strategy?: string;            // 手動編集用の戦略メモ（任意）
   missionDraft?: string;        // ✅ 追加: AIが提案した部門ミッション
   discussionNotes?: string;     // ✅ 追加: 部門内の自由記述メモ

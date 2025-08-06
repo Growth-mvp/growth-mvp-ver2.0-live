@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
-import { saveStrategyData } from '@/utils/supabase';
+import { saveStrategyData, loadStrategyData } from '@/utils/supabase';
 import { Button } from '@/components/ui/button';
 import QuestionStepper from '@/components/guide/QuestionStepper';
 import StepLayout from '@/components/StepLayout';
@@ -14,6 +14,8 @@ export default function StoryProcessPage() {
   const router = useRouter();
   const { user } = useUserStore();
   const {
+    strategyId,
+    setStrategyId,
     story,
     finalStory,
     setFinalStory,
@@ -34,6 +36,14 @@ export default function StoryProcessPage() {
     setStory,
     setStrategySummary,
     setNotification,
+    setCompanyName,
+    setFoundationYear,
+    setLocation,
+    setBusinessContent,
+    setCustomerSegment,
+    setEditableCascadeResult,
+    setCsvFinanceData,
+    setRole,
     companyName,
     foundationYear,
     location,
@@ -50,6 +60,36 @@ export default function StoryProcessPage() {
   const [error, setError] = useState('');
   const [visibleChapters, setVisibleChapters] = useState(0);
   const [initialGenerated, setInitialGenerated] = useState(false);
+
+  // ✅ Supabaseから戦略データを読み込み、strategyIdなどを設定
+  useEffect(() => {
+    const load = async () => {
+      if (!user?.id) return;
+      const { data, error } = await loadStrategyData(user.id);
+      if (!data || error) return;
+
+      setStrategyId(data.id);
+      setStory(data.story);
+      setFinalStory(data.finalStory);
+      setAnswers2(data.answers2 ?? []);
+      
+      setCompanyName(data.companyName);
+      setFoundationYear(data.foundationYear);
+      setLocation(data.location);
+      setBusinessContent(data.businessContent);
+      setCustomerSegment(data.customerSegment);
+      
+      setStrategySummary(data.strategySummary);
+      setEditableCascadeResult(data.editableCascadeResult ?? []);
+      setCsvFinanceData(data.csvFinanceData ?? []);
+      setRole(data.role ?? 'member');
+    };
+    load();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) router.push("/login");
+  }, [user]);
 
   let storyChapters: ChapterStory[] = [];
   try {
@@ -76,10 +116,6 @@ export default function StoryProcessPage() {
   } catch (e) {
     console.error("❌ ストーリーパースエラー:", e);
   }
-
-  useEffect(() => {
-    if (!user) router.push("/login");
-  }, [user]);
 
   useEffect(() => {
     if (!initialGenerated && storyChapters.length > 0 && answers2.length === 0) {

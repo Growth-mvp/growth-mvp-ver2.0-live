@@ -13,7 +13,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ja">
       <body className={`${inter.className} bg-gradient-to-b from-gray-100 to-white text-gray-900`}>
-        <div className="pl-72"> {/* ← Sidebar (w-72 = 18rem) に合わせて余白を確保 */}
+        <div className="pl-4"> {/* ← Sidebar (w-72 = 18rem) に合わせて余白を確保 */}
           <LayoutClient>{children}</LayoutClient>
         </div>
       </body>
