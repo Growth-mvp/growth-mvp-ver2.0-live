@@ -1,9 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useAgentStore } from '@/store/useAgentStore';
 import { useStrategyStore } from '@/store/strategyStore';
+import { useUserStore } from '@/store/userStore';
+import { insertAgentLog } from '@/lib/supabase/agentLogs';
 
-export default function ChatWithAIPage() {
+export default function ChatPage() {
   const {
     vision,
     industry,
@@ -13,19 +16,38 @@ export default function ChatWithAIPage() {
     weakness,
     opportunity,
     threat,
+    strategyId,
   } = useStrategyStore();
 
+  const { user } = useUserStore();
+  const userId = user?.id;
+
+  const {
+    step,
+    chatLog,
+    addMessage,
+    incrementStep,
+    resetConversation,
+  } = useAgentStore();
+
   const [chatInput, setChatInput] = useState('');
-  const [chatResponse, setChatResponse] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
-  const handleChatWithAI = async () => {
-    if (!chatInput.trim()) return;
+  // 初期化：最初の質問を AI から
+  useEffect(() => {
+    if (step === 0 && chatLog.length === 0) {
+      handleSendMessage('');
+    }
+  }, [step, chatLog]);
+
+  const handleSendMessage = async (userInput: string) => {
+    if (chatLoading || !userId || !strategyId) return;
+
     setChatLoading(true);
-    setChatResponse(''); // 応答リセット
+    setErrorMessage('');
 
-    try {
-      const context = `
+    const context = `
 【経営戦略の想い】${vision}
 【業種】${industry}
 【売上】${revenue}
@@ -34,82 +56,113 @@ export default function ChatWithAIPage() {
 - 強み: ${strength}
 - 弱み: ${weakness}
 - 機会: ${opportunity}
-- 脅威: ${threat}
-`;
+- 脅威: ${threat}`;
 
-      const response = await fetch('/api/ask-ceo', {
+    try {
+      const res = await fetch('/api/ask-ceo-agent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: chatInput,
-          context: context,
-        }),
+        body: JSON.stringify({ userInput, step, context }),
       });
 
-      const data = await response.json();
-      console.log('✅ API応答データ:', data); // 🔍 追加ログ
+      const data = await res.json();
 
-      if (response.ok && data.reply) {
-        setChatResponse(data.reply);
+      if (res.ok && data.reply) {
+        if (userInput.trim()) {
+          addMessage({ role: 'user', content: userInput });
+          await insertAgentLog({
+            userId,
+            strategyId,
+            step,
+            role: 'user',
+            content: userInput,
+          });
+        }
+
+        addMessage({ role: 'assistant', content: data.reply });
+        await insertAgentLog({
+          userId,
+          strategyId,
+          step,
+          role: 'assistant',
+          content: data.reply,
+        });
+
+        incrementStep();
+        setChatInput('');
       } else {
-        setChatResponse('⚠ CEOからの回答が取得できませんでした。');
+        setErrorMessage('⚠ 回答を取得できませんでした。');
       }
-    } catch (error) {
-      console.error('❌ 通信エラー:', error);
-      setChatResponse('⚠ エラーが発生しました。ネットワークまたはAPIを確認してください。');
+    } catch (err) {
+      console.error('APIエラー:', err);
+      setErrorMessage('⚠ 通信エラーが発生しました。');
     } finally {
       setChatLoading(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (chatInput.trim()) {
+        handleSendMessage(chatInput);
+      }
     }
   };
 
   return (
     <div className="flex max-w-7xl mx-auto">
       <main className="w-2/3 pr-6">
-        <h2 className="text-2xl font-bold">AIに聞く：社長の考え</h2>
+        <h2 className="text-2xl font-bold">経営者AIエージェント</h2>
         <p className="text-sm text-gray-600 mb-4">
-          経営戦略に関して、社長の代わりにAIが優しく回答します。
+          経営者のように問いかけ、あなたの思考を引き出しながら、戦略を共につくっていきます。
         </p>
 
-        <textarea
-          className="w-full border p-2 rounded mb-2"
-          rows={3}
-          placeholder="社長に聞きたいことを入力してください"
-          value={chatInput}
-          onChange={(e) => setChatInput(e.target.value)}
-        />
-        <div className="flex gap-2">
-          <button
-            className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
-            onClick={handleChatWithAI}
-            disabled={chatLoading}
-          >
-            {chatLoading ? '送信中...' : '質問する'}
-          </button>
-          <button
-            className="bg-gray-300 px-3 py-1 rounded hover:bg-gray-400"
-            onClick={() => {
-              setChatInput('');
-              setChatResponse('');
-            }}
-          >
-            リセット
-          </button>
+        <div className="space-y-2 text-sm">
+          {chatLog.map((msg, i) => (
+            <div
+              key={i}
+              className={`p-2 rounded ${
+                msg.role === 'user' ? 'bg-white border' : 'bg-gray-100'
+              }`}
+            >
+              <strong>{msg.role === 'user' ? 'あなた' : '経営者AI'}：</strong>{' '}
+              {msg.content}
+            </div>
+          ))}
         </div>
 
-        {chatResponse && (
-          <div className="mt-4 bg-gray-450 p-3 rounded text-sm whitespace-pre-wrap">
-            {chatResponse}
+        {!chatLoading && (
+          <div className="mt-4">
+            <textarea
+              rows={3}
+              className="w-full p-2 border rounded"
+              placeholder="返信を入力してください（Enterで送信）"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+            />
           </div>
         )}
+
+        {chatLoading && <p className="text-sm mt-4 text-gray-500">AIが考え中です...</p>}
+        {errorMessage && <p className="text-sm mt-4 text-red-500">{errorMessage}</p>}
+
+        <button
+          onClick={resetConversation}
+          className="mt-6 text-xs text-gray-500 underline"
+        >
+          会話をリセット
+        </button>
       </main>
 
       <aside className="w-1/3 bg-gray-450 p-4 border-l">
-        <h3 className="font-semibold mb-2">経営者AIボット</h3>
+        <h3 className="font-semibold mb-2">経営者AIエージェント</h3>
         <p className="text-sm text-gray-600">
-          あなたの質問に対して、社長の意図や戦略方針に基づいてAIが即座に回答します。
+          あなたの状況に応じて、戦略的な問いを立て、思考の整理と方向づけを支援します。
         </p>
         <p className="text-xs text-gray-400 mt-4">
-          ※特定の人物・未公開情報・法務関連には答えられません。
+          ※個人情報や評価制度などには回答できません。
         </p>
       </aside>
     </div>

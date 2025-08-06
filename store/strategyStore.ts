@@ -16,6 +16,9 @@ import {
 } from '@/types/strategy';
 
 export interface StrategyState extends StrategyData {
+  strategyId: string; // ✅ 追加
+  setStrategyId: (id: string) => void; // ✅ 追加
+  
   // setter群
   setCompanyName: (v: string) => void;
   setFoundationYear: (v: string) => void;
@@ -73,6 +76,10 @@ export interface StrategyState extends StrategyData {
 }
 
 export const useStrategyStore = create<StrategyState>((set, get) => ({
+  strategyId: '', // ✅ 追加
+  setStrategyId: (id) => set({ strategyId: id }), // ✅ 追加
+  
+  
   companyName: '',
   foundationYear: '',
   location: '',

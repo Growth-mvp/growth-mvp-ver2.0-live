@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStrategyStore } from '@/store/strategyStore';
 import StepLayout from '@/components/StepLayout';
-import Button from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 
 export default function Step5Confirm() {
   const router = useRouter();
