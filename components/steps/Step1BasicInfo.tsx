@@ -1,150 +1,232 @@
+// /components/steps/Step1BasicInfo.tsx
 'use client';
 
+import { useEffect, useId } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import StepLayout from '@/components/StepLayout';
+import { industryOptions } from '@/utils/industryTemplates';
 
+/* ---------------- UI atoms（Apple風） ---------------- */
+function Field({
+  label,
+  children,
+  hint,
+  required,
+}: {
+  label: string;
+  children: React.ReactNode;
+  hint?: string;
+  required?: boolean;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-baseline justify-between">
+        <label className="text-[13px] font-medium text-neutral-700">
+          {label}{required && <span className="ml-1 text-rose-500">*</span>}
+        </label>
+        {hint && <span className="text-[12px] text-neutral-400">{hint}</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      {...props}
+      className={
+        [
+          "w-full h-11 rounded-xl px-3.5",
+          "bg-white text-neutral-900 placeholder:text-neutral-400",
+          "ring-1 ring-neutral-300 focus:ring-2 focus:ring-neutral-900/90 focus:outline-none",
+          "transition shadow-[0_1px_0_rgba(0,0,0,0.02)]"
+        ].join(' ')
+      }
+    />
+  );
+}
+
+function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      {...props}
+      className={
+        [
+          "w-full rounded-xl px-3.5 py-3",
+          "bg-white text-neutral-900 placeholder:text-neutral-400",
+          "ring-1 ring-neutral-300 focus:ring-2 focus:ring-neutral-900/90 focus:outline-none",
+          "transition shadow-[0_1px_0_rgba(0,0,0,0.02)]"
+        ].join(' ')
+      }
+    />
+  );
+}
+
+function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select
+      {...props}
+      className={
+        [
+          "w-full h-11 rounded-xl px-3.5",
+          "bg-white text-neutral-900",
+          "ring-1 ring-neutral-300 focus:ring-2 focus:ring-neutral-900/90 focus:outline-none",
+          "transition appearance-none pr-9"
+        ].join(' ')
+      }
+    />
+  );
+}
+
+/* --------------- セッター安全ラッパー --------------- */
+function setFieldSafe(store: any, key: string, value: any) {
+  const fnName = 'set' + key.charAt(0).toUpperCase() + key.slice(1);
+  const setter = store?.[fnName];
+  if (typeof setter === 'function') {
+    setter(value);
+  } else if (typeof useStrategyStore?.setState === 'function') {
+    (useStrategyStore as any).setState({ [key]: value });
+  }
+}
+
+/* ---------------------- 本体 ---------------------- */
 export default function Step1BasicInfo() {
-  const {
-    companyName,
-    foundationYear,
-    location,
-    industry,
-    revenue,
-    employees,
-    businessContent,
-    customerSegment,
-    thought,
-    setCompanyName,
-    setFoundationYear,
-    setLocation,
-    setIndustry,
-    setRevenue,
-    setEmployees,
-    setBusinessContent,
-    setCustomerSegment,
-    setThought,
-  } = useStrategyStore();
+  const st = useStrategyStore() as any;
 
-  const industries = [
-    { value: '', label: '-- 選択してください --' },
-    { value: 'manufacturing', label: '製造業（機械・部品・素材）' },
-    { value: 'it', label: '情報通信業（SIer・SaaSなど）' },
-    { value: 'trading', label: '商社・卸売業（専門商社含む）' },
-    { value: 'itSolution', label: 'システム販売・ITソリューション' },
-    { value: 'hrService', label: '人材サービス（派遣・紹介・研修）' },
-    { value: 'logistics', label: '運輸・物流業（ラストワンマイル含む）' },
-    { value: 'construction', label: '建設・設備工事業（ゼネコン・サブコン）' },
-    { value: 'retail', label: '小売・流通業（EC含む）' },
-    { value: 'education', label: '教育・研修・スクールビジネス' },
-    { value: 'healthcare', label: '医療・介護・ヘルスケア' },
-    { value: 'other', label: 'その他' }, // ✅ 追加
-  ];
+  const companyName: string = st?.companyName ?? '';
+  const foundationYear: string = st?.foundationYear ?? '';
+  const location: string = st?.location ?? '';
+  const industry: string = st?.industry ?? '';
+  const revenue: string = st?.revenue ?? '';
+  const employees: string = st?.employees ?? '';
+  const businessContent: string = st?.businessContent ?? '';
+  const customerSegment: string = st?.customerSegment ?? '';
+  const thought: string = st?.thought ?? '';
+  const aiSuggestedBasicInfo: any = st?.aiSuggestedBasicInfo ?? null;
+
+  // AI提案の静かな自動反映（上書きではなく“初期値補完”の想定）
+  useEffect(() => {
+    if (!aiSuggestedBasicInfo) return;
+    if (aiSuggestedBasicInfo.thought) setFieldSafe(st, 'thought', aiSuggestedBasicInfo.thought);
+    if (aiSuggestedBasicInfo.companyName) setFieldSafe(st, 'companyName', aiSuggestedBasicInfo.companyName);
+    if (aiSuggestedBasicInfo.foundationYear) setFieldSafe(st, 'foundationYear', aiSuggestedBasicInfo.foundationYear);
+    if (aiSuggestedBasicInfo.location) setFieldSafe(st, 'location', aiSuggestedBasicInfo.location);
+    if (aiSuggestedBasicInfo.industry) setFieldSafe(st, 'industry', aiSuggestedBasicInfo.industry);
+    if (aiSuggestedBasicInfo.revenue) setFieldSafe(st, 'revenue', aiSuggestedBasicInfo.revenue);
+    if (aiSuggestedBasicInfo.employees) setFieldSafe(st, 'employees', aiSuggestedBasicInfo.employees);
+    if (aiSuggestedBasicInfo.businessContent) setFieldSafe(st, 'businessContent', aiSuggestedBasicInfo.businessContent);
+    if (aiSuggestedBasicInfo.customerSegment) setFieldSafe(st, 'customerSegment', aiSuggestedBasicInfo.customerSegment);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiSuggestedBasicInfo]);
+
+  // アクセシビリティ用のID
+  const idPrefix = useId();
 
   return (
-    <StepLayout step={1} totalSteps={5} title="基本情報の入力">
-      <div className="space-y-8">
-        <div className="p-4 bg-yellow-50 border-l-4 border-yellow-400 rounded">
-          <label className="block text-lg font-semibold text-gray-800 mb-2">経営者の思い</label>
-          <textarea
-            value={thought}
-            onChange={(e) => setThought(e.target.value)}
-            className="w-full border rounded px-3 py-2"
-            rows={3}
-            placeholder="例：社員が誇れる会社にしたい。日本の製造業の未来を創りたい。"
-          />
+    <StepLayout step={1} totalSteps={5} title="STEP 1：基本情報（会社プロフィール）">
+      <div className="space-y-10">
+
+        {/* 経営者の思い（Apple風アラートカード） */}
+        <div className="rounded-2xl bg-amber-50 ring-1 ring-amber-200/70 p-5 md:p-6">
+          <Field label="経営者の思い" hint="3〜5行で端的に" required>
+            <TextArea
+              id={`${idPrefix}-thought`}
+              rows={4}
+              value={thought}
+              onChange={(e) => setFieldSafe(st, 'thought', e.target.value)}
+              placeholder="例：社員が誇れる会社にする。日本の製造業の未来をつくる。"
+            />
+          </Field>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">会社名</label>
-            <input
-              type="text"
+        {/* 2カラムフォーム */}
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          <Field label="会社名" required>
+            <Input
+              id={`${idPrefix}-company`}
               value={companyName}
-              onChange={(e) => setCompanyName(e.target.value)}
-              className="w-full border rounded px-3 py-2"
+              onChange={(e) => setFieldSafe(st, 'companyName', e.target.value)}
               placeholder="例：株式会社○○"
             />
-          </div>
+          </Field>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700">設立年</label>
-            <input
-              type="text"
+          <Field label="設立年">
+            <Input
+              id={`${idPrefix}-foundation`}
               value={foundationYear}
-              onChange={(e) => setFoundationYear(e.target.value)}
-              className="w-full border rounded px-3 py-2"
+              onChange={(e) => setFieldSafe(st, 'foundationYear', e.target.value)}
               placeholder="例：2005"
+              inputMode="numeric"
             />
-          </div>
+          </Field>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700">所在地</label>
-            <input
-              type="text"
+          <Field label="所在地">
+            <Input
+              id={`${idPrefix}-location`}
               value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              className="w-full border rounded px-3 py-2"
+              onChange={(e) => setFieldSafe(st, 'location', e.target.value)}
               placeholder="例：東京都港区"
             />
-          </div>
+          </Field>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700">業種</label>
-            <select
+          <Field label="業種">
+            <Select
+              id={`${idPrefix}-industry`}
               value={industry}
-              onChange={(e) => setIndustry(e.target.value)}
-              className="w-full border rounded px-3 py-2 bg-white"
+              onChange={(e) => setFieldSafe(st, 'industry', e.target.value)}
             >
-              {industries.map((item) => (
+              <option value="">-- 選択してください --</option>
+              {industryOptions.map((item) => (
                 <option key={item.value} value={item.value}>
                   {item.label}
                 </option>
               ))}
-            </select>
-          </div>
+            </Select>
+          </Field>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700">売上（百万円）</label> {/* ✅ 単位修正 */}
-            <input
-              type="text"
+          <Field label="売上（百万円）">
+            <Input
+              id={`${idPrefix}-revenue`}
               value={revenue}
-              onChange={(e) => setRevenue(e.target.value)}
-              className="w-full border rounded px-3 py-2"
+              onChange={(e) => setFieldSafe(st, 'revenue', e.target.value)}
               placeholder="例：5000"
+              inputMode="numeric"
             />
-          </div>
+          </Field>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700">従業員数（人）</label>
-            <input
-              type="text"
+          <Field label="従業員数（人）">
+            <Input
+              id={`${idPrefix}-employees`}
               value={employees}
-              onChange={(e) => setEmployees(e.target.value)}
-              className="w-full border rounded px-3 py-2"
+              onChange={(e) => setFieldSafe(st, 'employees', e.target.value)}
               placeholder="例：200"
+              inputMode="numeric"
             />
+          </Field>
+
+          <div className="md:col-span-2">
+            <Field label="主な事業内容">
+              <TextArea
+                id={`${idPrefix}-business`}
+                rows={3}
+                value={businessContent}
+                onChange={(e) => setFieldSafe(st, 'businessContent', e.target.value)}
+                placeholder="例：自動車部品の設計・製造・販売"
+              />
+            </Field>
           </div>
 
           <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700">主な事業内容</label>
-            <textarea
-              value={businessContent}
-              onChange={(e) => setBusinessContent(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-              rows={2}
-              placeholder="例：自動車部品の設計・製造・販売"
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700">主要な顧客層</label>
-            <textarea
-              value={customerSegment}
-              onChange={(e) => setCustomerSegment(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-              rows={2}
-              placeholder="例：国内外の完成車メーカー、部品メーカー"
-            />
+            <Field label="主要な顧客層">
+              <TextArea
+                id={`${idPrefix}-customer`}
+                rows={3}
+                value={customerSegment}
+                onChange={(e) => setFieldSafe(st, 'customerSegment', e.target.value)}
+                placeholder="例：国内外の完成車メーカー、部品メーカー"
+              />
+            </Field>
           </div>
         </div>
       </div>

@@ -1,0 +1,45 @@
+{
+  "name": "growth-mvp",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.14",
+    "@radix-ui/react-tabs": "^1.1.12",
+    "@supabase/supabase-js": "^2.50.3",
+    "@tailwindcss/forms": "^0.5.10",
+    "ai": "^4.3.16",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.23.9",
+    "lucide-react": "^0.525.0",
+    "next": "15.3.4",
+    "openai": "^5.8.2",
+    "papaparse": "^5.5.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-flow-renderer": "^10.3.17",
+    "reactflow": "^11.11.4",
+    "uuid": "^11.1.0",
+    "zustand": "^5.0.6"
+  },
+  "devDependencies": {
+    "@next/swc-win32-x64-msvc": "^15.3.4",
+    "@types/d3": "^7.4.3",
+    "@types/d3-delaunay": "^6.0.4",
+    "@types/d3-scale-chromatic": "^3.1.0",
+    "@types/node": "20.19.10",
+    "@types/papaparse": "^5.3.16",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/uuid": "^10.0.0",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.4.5"
+  }
+}

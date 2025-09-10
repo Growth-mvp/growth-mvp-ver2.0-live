@@ -1,5 +1,31 @@
 // utils/industryTemplates.ts
 
+// === 表示用の業種オプション（共通定義） ============================
+// labelShort … 一覧やサマリーに出す短い日本語表記（例：「製造業」）
+// label       … セレクトの見出しに出す詳細表記（例：「製造業（機械・部品・素材）」）
+export const industryOptions = [
+  { value: 'manufacturing', labelShort: '製造業', label: '製造業（機械・部品・素材）' },
+  { value: 'it',            labelShort: '情報通信業', label: '情報通信業（SIer・SaaSなど）' },
+  { value: 'trading',       labelShort: '商社・卸売業', label: '商社・卸売業（専門商社含む）' },
+  { value: 'itSolution',    labelShort: 'ITソリューション', label: 'システム販売・ITソリューション' },
+  { value: 'hrService',     labelShort: '人材サービス', label: '人材サービス（派遣・紹介・研修）' },
+  { value: 'logistics',     labelShort: '運輸・物流業', label: '運輸・物流業（ラストワンマイル含む）' },
+  { value: 'construction',  labelShort: '建設・設備工事業', label: '建設・設備工事業（ゼネコン・サブコン）' },
+  { value: 'retail',        labelShort: '小売・流通業', label: '小売・流通業（EC含む）' },
+  { value: 'education',     labelShort: '教育・研修', label: '教育・研修・スクールビジネス' },
+  { value: 'healthcare',    labelShort: '医療・介護', label: '医療・介護・ヘルスケア' },
+] as const;
+
+type IndustryValue = (typeof industryOptions)[number]['value'];
+
+// 英語コード → 日本語ラベルに変換（デフォルトは短い表記）
+export function getIndustryLabel(value: string, opts?: { full?: boolean }) {
+  const opt = industryOptions.find((i) => i.value === value as IndustryValue);
+  if (!opt) return value; // マッピングに無ければ原文のまま
+  return opts?.full ? opt.label : opt.labelShort;
+}
+
+// === 各業種のテンプレ（既存定義を温存） ============================
 export const industryTemplates: Record<string, string> = {
   manufacturing: `
 製造業では、品質とコスト競争力の両立が鍵となります。成功企業は、高付加価値な加工技術の確立や、自社製品ブランドの構築、BtoB向けのOEM事業からの脱却に成功しています。また、工場のIoT化や生産工程のDXにより、少人数運営・技術継承を実現した企業も多く存在します。

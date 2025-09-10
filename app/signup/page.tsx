@@ -1,139 +1,224 @@
+// /app/signup/page.tsx
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import { useUserStore } from '@/store/userStore';
 
-export default function SignupPage() {
-  const [companyName, setCompanyName] = useState('');
-  const [name, setName] = useState('');
+/** 起動中のポートを自動で拾いつつ SSR でも安全にコールバックURL生成 */
+function makeCallbackUrl(path = '/auth/callback') {
+  if (typeof window !== 'undefined') {
+    return new URL(path, window.location.origin).toString();
+  }
+  const base =
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, '') || 'http://localhost:3000';
+  return `${base}${path}`;
+}
+
+export default function SignUpPage() {
+  const router = useRouter();
+  const search = useSearchParams();
+  const { setUser, setCompanyId } = useUserStore();
+
+  // 招待リンク (?company=...) の取得（必須）
+  const joinCompanyId: string | null = search?.get('company') ?? null;
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'admin' | 'manager' | 'member'>('member');
-  const [department, setDepartment] = useState('');
-  const [errorMessage, setErrorMessage] = useState('');
-  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState<string>('');
+  const [error, setError] = useState<string>('');
 
-  const handleSignup = async () => {
-    setErrorMessage('');
+  /** セッションが存在する＝メールリンク等でログイン完了後の自動参加処理 */
+  useEffect(() => {
+    (async () => {
+      if (!joinCompanyId) return;
 
-    if (!companyName || !name || !email || !password) {
-      setErrorMessage('会社名・名前・メールアドレス・パスワードは必須です');
+      const { data: userRes } = await supabase.auth.getUser();
+      const authed = userRes?.user;
+      if (!authed) return;
+
+      const { error } = await supabase
+        .from('company_members')
+        .upsert(
+          [
+            {
+              company_id: joinCompanyId,
+              user_id: authed.id,
+              role: 'member',
+              department_id: null,
+            },
+          ],
+          { onConflict: 'company_id,user_id' }
+        );
+
+      if (error) {
+        console.error('company_members upsert error:', error);
+        setError('会社への参加処理に失敗しました');
+      } else {
+        // setCompanyId は string | undefined を受ける前提に合わせる
+        setCompanyId(joinCompanyId ?? undefined);
+        router.replace('/'); // 相対遷移でトップへ
+      }
+    })();
+  }, [joinCompanyId, router, setCompanyId]);
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (loading) return;
+
+    setMsg('');
+    setError('');
+
+    if (!joinCompanyId) {
+      setError('⚠️ 招待リンク（?company=...）が必要です。管理者にご依頼ください。');
+      return;
+    }
+    if (!email.trim() || !password.trim()) {
+      setError('必要項目を入力してください');
       return;
     }
 
-    if (password.length < 6) {
-      setErrorMessage('パスワードは6文字以上で入力してください');
-      return;
+    setLoading(true);
+    try {
+      const emailRedirectTo = makeCallbackUrl('/auth/callback');
+
+      // 新規アカウント作成（メール確認が前提）
+      const { data, error: signErr } = await supabase.auth.signUp({
+        email: email.trim().toLowerCase(),
+        password: password.trim(),
+        options: { emailRedirectTo },
+      });
+
+      if (signErr) {
+        // 既登録（422）＝招待/仮登録/過去登録が既に存在 → 確認メールを再送して案内
+        const status = (signErr as any).status;
+        const message = (signErr as any).message || '';
+        if (status === 422 || /already registered/i.test(message)) {
+          const { error: resendErr } = await supabase.auth.resend({
+            type: 'signup',
+            email: email.trim().toLowerCase(),
+            options: { emailRedirectTo },
+          });
+          if (resendErr) {
+            setError(
+              'このメールは既に登録されています。ログインまたはパスワード再設定をお試しください。'
+            );
+          } else {
+            setMsg(
+              'このメールは既に登録済みです。確認メールを再送しました。メール内リンクから続行してください。'
+            );
+          }
+          return;
+        }
+        // その他のエラーは表示
+        setError(`サインアップに失敗: ${signErr.message}`);
+        return;
+      }
+
+      // ここから signUp 成功
+      // 通常は「確認メールを送信」状態（セッションなし）
+      if (data?.user && !data.session) {
+        setMsg('確認メールを送信しました。メール内リンクから登録を完了してください。');
+        return;
+      }
+
+      // 稀にその場でセッションが付与されるケース
+      if (data?.session && data.user) {
+        // ✅ 修正：departmentId は undefined（もしくはプロパティ自体省略）にする
+        setUser({
+          id: data.user.id,
+          email: data.user.email ?? '',
+          role: 'member',
+          name: '',
+          departmentId: undefined,
+        });
+
+        // 会社に参加（冪等 upsert）
+        const { error: upErr } = await supabase
+          .from('company_members')
+          .upsert(
+            [
+              {
+                company_id: joinCompanyId,
+                user_id: data.user.id,
+                role: 'member',
+                department_id: null,
+              },
+            ],
+            { onConflict: 'company_id,user_id' }
+          );
+        if (!upErr) setCompanyId(joinCompanyId ?? undefined);
+
+        router.replace('/');
+        return;
+      }
+
+      setMsg('サインアップ要求を受け付けました。メールをご確認ください。');
+    } catch (err: any) {
+      setError(err?.message || '新規登録に失敗しました');
+    } finally {
+      setLoading(false);
     }
-
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-    });
-
-    if (error?.status === 422) {
-      setErrorMessage('このメールアドレスはすでに登録されています。ログイン画面からお進みください。');
-      return;
-    }
-
-    if (error || !data.user?.id) {
-      setErrorMessage('登録失敗: ' + (error?.message || '不明なエラー'));
-      return;
-    }
-
-    // Supabase users テーブルへ登録
-    const insertResult = await supabase.from('users').insert({
-      id: data.user.id,
-      name,
-      email: data.user.email,
-      role,
-      department: role !== 'admin' ? department : '',
-      company_name: companyName,
-    });
-
-    if (insertResult.error) {
-      setErrorMessage('ユーザー情報の保存に失敗しました: ' + insertResult.error.message);
-      return;
-    }
-
-    alert('✅ 登録に成功しました。ログインしてください');
-    router.push('/login');
   };
 
   return (
-    <div className="p-6 max-w-md mx-auto">
-      <h2 className="text-xl font-bold mb-4">新規ユーザー登録</h2>
+    <main className="mx-auto max-w-md p-6">
+      <h1 className="mb-4 text-xl font-bold">新規登録（招待専用）</h1>
 
-      {errorMessage && (
-        <div className="text-sm text-red-600 mb-2">{errorMessage}</div>
+      {!joinCompanyId && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800 text-sm">
+          ⚠️ このページは招待リンク専用です。管理者からの招待URL（?company=...）でアクセスしてください。
+        </div>
       )}
 
-      <input
-        type="text"
-        placeholder="会社名"
-        value={companyName}
-        onChange={(e) => setCompanyName(e.target.value)}
-        className="border p-2 w-full mb-2 rounded"
-      />
+      <form onSubmit={onSubmit} className="space-y-3" autoComplete="on">
+        <div>
+          <label className="block text-sm text-gray-600">メールアドレス</label>
+          <input
+            type="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="mt-1 w-full rounded border px-3 py-2"
+            placeholder="you@example.com"
+          />
+        </div>
 
-      <input
-        type="text"
-        placeholder="名前（例：山田太郎）"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        className="border p-2 w-full mb-2 rounded"
-      />
+        <div>
+          <label className="block text-sm text-gray-600">パスワード</label>
+          <input
+            type="password"
+            required
+            minLength={6}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="mt-1 w-full rounded border px-3 py-2"
+            placeholder="6文字以上"
+          />
+        </div>
 
-      <input
-        type="email"
-        placeholder="メールアドレス"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        className="border p-2 w-full mb-2 rounded"
-      />
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        {msg && <p className="text-sm text-green-700">{msg}</p>}
 
-      <input
-        type="password"
-        placeholder="パスワード（6文字以上）"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        className="border p-2 w-full mb-2 rounded"
-      />
+        <button
+          type="submit"
+          disabled={loading || !joinCompanyId}
+          className={`w-full rounded px-4 py-2 font-semibold ${
+            loading || !joinCompanyId
+              ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
+              : 'bg-black text-white hover:opacity-90'
+          }`}
+        >
+          {loading ? '送信中…' : '登録'}
+        </button>
 
-      <select
-        value={role}
-        onChange={(e) => setRole(e.target.value as any)}
-        className="border p-2 w-full mb-2 rounded"
-      >
-        <option value="admin">経営者（admin）</option>
-        <option value="manager">部長（manager）</option>
-        <option value="member">社員（member）</option>
-      </select>
-
-      {role !== 'admin' && (
-        <input
-          type="text"
-          placeholder="所属部門"
-          value={department}
-          onChange={(e) => setDepartment(e.target.value)}
-          className="border p-2 w-full mb-4 rounded"
-        />
-      )}
-
-      <button
-        onClick={handleSignup}
-        className="bg-green-600 text-white px-4 py-2 rounded w-full"
-      >
-        登録する
-      </button>
-
-      <p className="mt-4 text-sm text-center">
-        すでにアカウントをお持ちですか？{' '}
-        <a href="/login" className="text-blue-600 underline">
-          ログインはこちら
-        </a>
-      </p>
-    </div>
+        <div className="mt-3 text-sm text-gray-600">
+          すでに招待メールを受け取っている方は、メール内のリンクから続行してください。
+          もし「すでに登録済み」エラーが出た場合は、この画面で確認メールの再送手続きを行います。
+        </div>
+      </form>
+    </main>
   );
 }

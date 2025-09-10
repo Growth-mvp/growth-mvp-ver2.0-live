@@ -1,135 +1,127 @@
 'use client';
 
-import { useState } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { Textarea } from '@/components/ui/textarea';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { useUserStore } from '@/store/userStore';
+import React, { useState } from 'react';
+import { emit } from '@/utils/actionBus';
 import { saveProgressLog } from '@/utils/supabase';
-import { Department } from '@/types/strategy';
+import { useUserStore } from '@/store/userStore';
+import { useStrategyStore } from '@/store/strategyStore';
 
-type OKRModalProps = {
-  department: Department;
-  projectIndex: number;
-  okrIndex: number;
+interface OKRModalProps {
+  open: boolean;
   onClose: () => void;
-};
+  okrId: string;
+  objective?: string;
+  keyResults?: string[];
+  owner?: string;
+}
 
 export default function OKRModal({
-  department,
-  projectIndex,
-  okrIndex,
+  open,
   onClose,
+  okrId,
+  objective,
+  keyResults,
+  owner,
 }: OKRModalProps) {
   const { user } = useUserStore();
+  // const { strategyId } = useStrategyStore();
+const s = useStrategyStore();
+const strategyId = (s as any).strategyId as string | undefined;
 
-  const project = department?.projects?.[projectIndex];
-  const okr = project?.okrs?.[okrIndex];
-
-  if (!project || !okr) return null; // 安全対策
-
-  const okrId = `${department.name}-${projectIndex}-${okrIndex}`;
-
-  const [progressText, setProgressText] = useState('');
-  const [rating, setRating] = useState(3); // 初期値3（1〜5）
-  const [ratingComment, setRatingComment] = useState('');
-  const [advice, setAdvice] = useState('');
-  const [helpRequest, setHelpRequest] = useState('');
+  const [text, setText] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const handleSave = async () => {
-    if (!user?.id) return;
+  if (!open) return null;
 
+  const onSave = async () => {
+    if (!user?.id || !okrId) return;
     setSaving(true);
+    try {
+      // utils/supabase.ts に実装済み想定：saveProgressLog(userId, okrId, { content: string })
+      const { data, error } = await saveProgressLog(user.id, okrId, {
+        content: text,
+      } as any);
 
-    await saveProgressLog(user.id, okrId, {
-      progressText,
-      rating,
-      ratingComment,
-      advice,
-      helpRequest,
-      department: department.name,
-    });
-
-    setSaving(false);
-    onClose();
+      if (error) throw error;
+      const logId = data?.id ?? '';
+      // ★EventBus：進捗ログ登録→他画面を同報更新
+      if (strategyId) {
+        emit('okr:progress:logged', { strategyId, okrId, logId });
+      }
+      onClose();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="text-lg font-bold mb-2">
-            OKR詳細（{okr.objective || '未設定'}）
-          </DialogTitle>
-        </DialogHeader>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center">
+      {/* backdrop */}
+      <div
+        className="absolute inset-0 bg-black/40"
+        onClick={() => !saving && onClose()}
+      />
+      {/* modal */}
+      <div className="relative z-[101] w-full max-w-xl rounded-2xl bg-white p-5 shadow-2xl">
+        <header className="mb-3">
+          <h3 className="text-lg font-bold">進捗ログの追加</h3>
+          <p className="text-xs text-gray-500">
+            OKR: {objective ?? '（タイトル未設定）'}
+          </p>
+        </header>
 
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-semibold mb-1">進捗コメント</label>
-            <Textarea
-              value={progressText}
-              onChange={(e) => setProgressText(e.target.value)}
-              placeholder="現在の進捗状況や課題を記入してください"
-              className="w-full"
-            />
+        {Array.isArray(keyResults) && keyResults.length > 0 && (
+          <div className="mb-3 rounded-lg bg-gray-50 p-3 text-sm text-gray-700">
+            <div className="mb-1 font-semibold">Key Results</div>
+            <ul className="list-disc pl-5">
+              {keyResults.map((kr, i) => (
+                <li key={i}>{kr}</li>
+              ))}
+            </ul>
           </div>
+        )}
 
-          <div>
-            <label className="block text-sm font-semibold mb-1">進捗評価（1〜5）</label>
-            <Input
-              type="number"
-              min={1}
-              max={5}
-              value={rating}
-              onChange={(e) => setRating(Number(e.target.value))}
-              className="w-24"
-            />
+        <div className="mb-3 grid grid-cols-2 gap-3 text-sm">
+          <div className="rounded-lg bg-gray-50 p-3">
+            <div className="text-gray-500">Owner</div>
+            <div className="font-semibold">{owner ?? '未設定'}</div>
           </div>
-
-          <div>
-            <label className="block text-sm font-semibold mb-1">評価理由</label>
-            <Textarea
-              value={ratingComment}
-              onChange={(e) => setRatingComment(e.target.value)}
-              placeholder="その評価をつけた理由を記入"
-              className="w-full"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold mb-1">アドバイス・工夫</label>
-            <Textarea
-              value={advice}
-              onChange={(e) => setAdvice(e.target.value)}
-              placeholder="工夫している点や他メンバーへのアドバイス"
-              className="w-full"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold mb-1">協力依頼・支援要望</label>
-            <Textarea
-              value={helpRequest}
-              onChange={(e) => setHelpRequest(e.target.value)}
-              placeholder="他部門やマネージャーへの協力依頼など"
-              className="w-full"
-            />
-          </div>
-
-          <div className="text-right">
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? '保存中...' : '保存する'}
-            </Button>
+          <div className="rounded-lg bg-gray-50 p-3">
+            <div className="text-gray-500">OKR ID</div>
+            <div className="font-semibold">{okrId}</div>
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+
+        <textarea
+          className="h-32 w-full rounded-lg border p-3 text-sm outline-none focus:ring"
+          placeholder="今日の進捗・所感・課題を記入"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+        />
+
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-lg px-3 py-2 text-sm hover:bg-gray-100 disabled:opacity-50"
+          >
+            キャンセル
+          </button>
+          <button
+            onClick={onSave}
+            disabled={saving || !text.trim()}
+            className={`rounded-lg px-4 py-2 text-sm font-semibold ${
+              saving || !text.trim()
+                ? 'bg-gray-200 text-gray-500'
+                : 'bg-emerald-600 text-white hover:bg-emerald-700'
+            }`}
+          >
+            {saving ? '保存中…' : '保存'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -1,7 +1,14 @@
+// next.config.js
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // experimentalの記述は削除
-}
 
-module.exports = nextConfig
+  async redirects() {
+    return [
+      { source: '/register', destination: '/signup', permanent: true },
+      
+    ];
+  },
+};
+
+module.exports = nextConfig;

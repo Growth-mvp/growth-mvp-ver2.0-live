@@ -1,0 +1,17 @@
+{
+  // globals.css を Tailwind CSS モードで扱う
+  "files.associations": {
+    "app/globals.css": "tailwindcss"
+  },
+
+  // 組み込みCSSバリデータの重複警告を止める（Tailwind拡張に任せる）
+  "css.validate": false,
+
+  // 任意：補完強化
+  "tailwindCSS.emmetCompletions": true,
+  "tailwindCSS.includeLanguages": {
+    "plaintext": "html",
+    "javascript": "javascriptreact",
+    "typescript": "typescriptreact"
+  }
+}

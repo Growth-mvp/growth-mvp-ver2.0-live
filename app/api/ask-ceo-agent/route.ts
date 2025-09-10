@@ -1,215 +1,258 @@
+// /app/api/ask-ceo-agent/route.ts
+export const runtime = 'nodejs';
+
 import { NextResponse } from 'next/server';
 import { openai } from '@/lib/openai';
-import { supabase } from '@/utils/supabase';
-import { StrategyData, ChapterStory, Department } from '@/types/strategy';
+import { supabase, getFullStrategyData } from '@/utils/supabase';
+import { normalizeStrategyData } from '@/utils/supabase/normalize';
+import agentPrompt from '@/lib/agentPrompt';
+import { insertAgentLog } from '@/lib/supabase/agentLogs';
+import {
+  classifyHeuristic,
+  classifyLLM,
+  chooseBetter,
+  includesAny,
+  type IntentResult,
+} from '@/lib/intentRouter';
+import type { StrategyData } from '@/types/strategy';
 
-type Role = 'user' | 'assistant' | 'system';
+/* =========================
+ * 型
+ * ========================= */
+type Role = 'system' | 'user' | 'assistant';
+type Message = { role: Role; content: string };
 
-interface Message {
-  role: Role;
-  content: string;
-}
-
-interface RequestBody {
+type RequestBody = {
   messages: Message[];
   userId: string;
   strategyId: string;
+  meta?: { stage?: 'strategy' | 'manual' | 'generic' | 'hybrid' };
+};
+
+/* =========================
+ * 禁則テーマ（systemに常時付与）
+ * ========================= */
+const TABOO =
+  '【回答禁止】給与・評価・異動・役員情報・株主・個人情報・人事制度・社内トラブルなどには絶対に答えないでください。';
+
+/* =========================
+ * ユーティリティ
+ * ========================= */
+const cap = (s: any, n: number) => {
+  const t = String(s ?? '');
+  return t.length > n ? `${t.slice(0, n)}…` : t;
+};
+const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? (v as T[]) : []);
+
+function normalizeMessages(msgs: Message[]) {
+  const okRole = new Set<Role>(['system', 'user', 'assistant']);
+  return (Array.isArray(msgs) ? msgs : [])
+    .map((m) => ({
+      role: okRole.has(m?.role as Role) ? (m.role as Role) : ('user' as Role),
+      content: String(m?.content ?? ''),
+    }))
+    .filter((m) => m.content.trim().length > 0)
+    .slice(-12);
 }
 
-function formatChapters(chapters: ChapterStory[] = []) {
-  return chapters.map((ch, i) => `【第${i + 1}章：${ch.title}】\n${ch.body}`).join('\n\n');
+/* =========================
+ * 操作マニュアル（残す）
+ * ========================= */
+const MANUAL_QA: Array<{ q: RegExp; a: string }> = [
+  {
+    q: /(okr).*(どこ|どれ|入力|書|やり方|方法)/i,
+    a: [
+      '【OKRの入力場所】',
+      '1) 上部メニュー「/cascade」',
+      '2) 対象の部門カードを開く',
+      '3) 「質問を生成」に回答 → 右上「AI要約を生成」で OKR 下書きを反映',
+      '',
+      '【編集のコツ】',
+      '- 数値/期限が弱い時は、回答に%や件数/期を入れてから再生成',
+    ].join('\n'),
+  },
+  { q: /mvv.*(どこ|入力|やり方|方法)/i, a: '【MVV】「戦略 → 基本情報」で Mission/Vision/Value を入力→保存。' },
+  { q: /swot.*(どこ|入力|書|やり方|方法)/i, a: '【SWOT】「戦略 → SWOT」で各欄に短文を3つ以上。迷ったら「例を表示」で下書きを挿入。' },
+  { q: /ストーリー.*(確定|最終|どう|やり方|方法)/i, a: '【ストーリー確定】4章を編集→最終化→/cascade で部門ごとのミッション/プロジェクトを整備。' },
+];
+
+function answerManual(messages: Message[]) {
+  const last = messages.slice().reverse().find((m) => m.role === 'user')?.content ?? '';
+  const hit = MANUAL_QA.find((x) => x.q.test(last));
+  if (hit) return `【操作ガイド】\n${hit.a}`;
+  const list = [
+    '・MVVの入力手順',
+    '・SWOTの書き方',
+    '・ストーリー確定から部門戦略へ',
+    '・「OKRはどこに入力？」など、具体的に聞いてください',
+  ].join('\n');
+  return `【操作ガイド】よくある質問\n${list}`;
 }
 
-function formatDepartments(departments: Department[] = []) {
-  return departments.map((dept) => {
-    const projText = dept.projects?.map((proj) => {
-      const okr = proj.okrs?.[0];
-      return `  - プロジェクト: ${proj.title}
-    - Objective: ${okr?.objective || '（未設定）'}
-    - KeyResults: ${okr?.keyResults || '（未設定）'}
-    - Owner: ${okr?.owner || '（未設定）'}`;
-    }).join('\n') || '  - プロジェクトなし';
-
-    return `■部門: ${dept.name}
-・ミッション: ${dept.mission || '（未設定）'}
-${projText}`;
-  }).join('\n\n');
+/* =========================
+ * OKR/進捗サマリ
+ * ========================= */
+function buildOKRSummary(departments: any[] = []) {
+  const lines: string[] = [];
+  departments.forEach((d, di) => {
+    const dName = String(d?.name ?? `Department ${di + 1}`);
+    const projects = safeArray<any>(d?.projects);
+    if (!projects.length) return;
+    lines.push(`■ 部門: ${dName}`);
+    projects.forEach((p, pi) => {
+      const pTitle = String(p?.title ?? p?.name ?? `Project ${pi + 1}`);
+      const okrs = safeArray<any>(p?.okrs);
+      if (!okrs.length) {
+        lines.push(`  - プロジェクト: ${pTitle}（OKRなし）`);
+        return;
+      }
+      lines.push(`  - プロジェクト: ${pTitle}`);
+      okrs.forEach((o: any, oi: number) => {
+        const kr = safeArray<string>(o?.keyResults);
+        const owner = o?.owner ? ` / Owner: ${String(o.owner)}` : '';
+        lines.push(`    • O${oi + 1}: ${cap(o?.objective ?? '', 200)}（KR: ${kr.length}件${owner}）`);
+        kr.forEach((k, ki) => lines.push(`       - KR${ki + 1}: ${cap(String(k || ''), 160)}`));
+      });
+    });
+  });
+  return lines.join('\n');
 }
 
+function buildProgressSummary(progressLogs: any[] = []) {
+  if (!progressLogs.length) return '（進捗ログなし）';
+  const sorted = [...progressLogs].sort(
+    (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+  );
+  const recent = sorted.slice(0, 30);
+  const lines: string[] = [];
+  recent.forEach((r: any) => {
+    const ts = String(r?.created_at ?? '').replace('T', ' ').replace('Z', '');
+    const dept = r?.department ? ` [${String(r.department)}]` : '';
+    const rating = Number.isFinite(r?.rating) ? ` ★${r.rating}` : '';
+    const txt = cap(r?.progress_text ?? '', 200);
+    const adv = r?.advice ? ` / Advice: ${cap(String(r.advice), 120)}` : '';
+    lines.push(`- ${ts}${dept}${rating} : ${txt}${adv}`);
+  });
+  return lines.join('\n');
+}
+
+/* =========================
+ * コンテキスト取得（normalize を必ず通す）
+ * ========================= */
+async function fetchStrategyContext(strategyId: string, userId: string) {
+  const { data: sRow, error } = await getFullStrategyData(userId, strategyId);
+  if (error) console.warn('getFullStrategyData error:', error?.message || error);
+
+  // camelCase に統一（JSONは [] / {} を保証）。null の場合も空オブジェクトで受ける。
+  const strategy: StrategyData = (normalizeStrategyData(sRow as any) ?? {}) as StrategyData;
+
+  const answers2 = safeArray<any>(strategy.answers2);
+  const finalStory = safeArray<any>(strategy.finalStory);
+  const departments = safeArray<any>(strategy.departments ?? strategy.editableCascadeResult);
+
+  const okrSummaryText = buildOKRSummary(departments);
+
+  let progressLogs: any[] = [];
+  try {
+    const { data: logs, error: plErr } = await supabase
+      .from('progress_logs')
+      .select(
+        'id, created_at, progress_text, rating, rating_comment, advice, help_request, department, user_id, okr_id'
+      )
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(200);
+
+    if (plErr) console.warn('progress_logs select error:', plErr);
+    progressLogs = safeArray<any>(logs);
+  } catch (e: any) {
+    console.warn('progress_logs select exception:', e?.message || e);
+  }
+
+  const progressSummaryText = buildProgressSummary(progressLogs);
+  const extraBlock =
+    `\n\n---\n# OKRサマリ\n${okrSummaryText || '（OKRなし）'}\n` +
+    `\n# 直近進捗ログ\n${progressSummaryText}\n---\n`;
+
+  return { strategy, answers2, finalStory, extraBlock };
+}
+
+/* =========================
+ * route
+ * ========================= */
 export async function POST(req: Request) {
   try {
-    const body: RequestBody = await req.json();
-    const { messages, userId, strategyId } = body;
-
-    console.log('✅ APIリクエスト受信:', { userId, strategyId, messageCount: messages.length });
-
-    if (
-      !Array.isArray(messages) ||
-      !messages.every((m) => typeof m.role === 'string' && typeof m.content === 'string')
-    ) {
-      console.warn('❌ メッセージ形式エラー:', messages);
-      return NextResponse.json({ error: '無効なメッセージ形式です。' }, { status: 400 });
+    const { messages, userId, strategyId, meta } = (await req.json()) as RequestBody;
+    if (!userId || !strategyId || !Array.isArray(messages)) {
+      return NextResponse.json({ content: 'invalid payload', error: 'invalid payload' }, { status: 400 });
     }
 
-    const { data, error } = await supabase
-      .from('strategy_data')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('id', strategyId)
-      .single();
+    const { strategy, answers2, finalStory, extraBlock } = await fetchStrategyContext(strategyId, userId);
+    const lastUser = (messages || []).slice().reverse().find((m) => m.role === 'user')?.content || '';
 
-    if (error) {
-      console.error('❌ Supabase取得エラー:', error);
-    } else {
-      console.log('✅ Supabaseデータ取得成功');
+    // 1) 自動判定（ヒューリスティック → 信頼不足ならLLM）
+    let intent: IntentResult = classifyHeuristic(lastUser);
+    if (intent.confidence < 0.7) {
+      try {
+        intent = chooseBetter(intent, await classifyLLM(openai, lastUser));
+      } catch {}
     }
+    if (meta?.stage) intent = { stage: meta.stage, confidence: 0.99, reasons: ['forced'] };
 
-    const strategy: StrategyData | null = data ?? null;
+    // 2) systemPrompt 構築（禁則テーマを追加）
+    const systemBase =
+      (intent.stage === 'generic'
+        ? 'あなたは博識なアシスタントです。日本語で簡潔・正確に答えます。推測は推測と明記。'
+        : agentPrompt(strategy, answers2, finalStory) + '\n' + extraBlock) +
+      '\n' +
+      TABOO;
 
-    const statusLines: string[] = [];
-    const adviceLines: string[] = [];
-
-    if (!strategy) {
-      statusLines.push('⚠️ 戦略データが取得できませんでした。');
-      adviceLines.push('ログインや保存状態をご確認ください。');
-    } else {
-      if (!strategy.mission || !strategy.vision || !strategy.value) {
-        statusLines.push('・MVV（Mission, Vision, Value）が未入力');
-        adviceLines.push('企業としての方向性・価値観を明確にしましょう。');
-      } else {
-        statusLines.push('・MVVは入力済み');
-      }
-
-      if (!strategy.story || (Array.isArray(strategy.story) && strategy.story.length === 0)) {
-        statusLines.push('・戦略ストーリーが未作成');
-        adviceLines.push('MVVやSWOTをもとに、戦略ストーリーを構築してください。');
-      } else {
-        statusLines.push('・戦略ストーリーは作成済み');
-      }
-
-      if (!strategy.editableCascadeResult?.length) {
-        statusLines.push('・部門戦略が未設定');
-        adviceLines.push('全社戦略を部門ごとに分解して、役割を明確にしましょう。');
-      } else {
-        statusLines.push('・部門戦略は設定済み');
-      }
-
-      const hasOKRs = strategy.editableCascadeResult?.some((d) =>
-        d.projects?.some((p) => p.okrs?.length)
-      );
-      if (!hasOKRs) {
-        statusLines.push('・OKRが未設定');
-        adviceLines.push('プロジェクトの目的を明確にするOKRを設定しましょう。');
-      } else {
-        statusLines.push('・OKRは設定済み');
-      }
-    }
-
-    // 🔍 ユーザーの直近入力とスニペット生成
-    const userMessagesOnly = messages.filter((m) => m.role === 'user');
-    const userInput = userMessagesOnly.at(-1)?.content ?? '';
-
-    const contextSnippet = `
-【経営戦略の想い】${strategy?.vision || ''}
-【業種】${strategy?.industry || ''}
-【売上】${strategy?.revenue || ''}
-【社員数】${strategy?.employees || ''}
-【SWOT】
-- 強み: ${strategy?.strength || ''}
-- 弱み: ${strategy?.weakness || ''}
-- 機会: ${strategy?.opportunity || ''}
-- 脅威: ${strategy?.threat || ''}
-    `.trim();
-
-    console.log('📋 戦略ステータス:\n', statusLines.join('\n'));
-
-    const systemMessage: Message = {
-      role: 'system',
-      content: `
-あなたは「GROWTH」という戦略実行プラットフォームのAIエージェントです。
-ユーザーは中堅企業の経営者であり、あなたの役割は以下です：
-- ユーザーの状況に応じて、次のステップを優しく促すこと
-- MVV・ストーリー・部門戦略・OKRの一貫性を支援すること
-- 専門用語は使わず、温かく前向きにアドバイスをすること
-
-【現在の戦略ステータス】
-${statusLines.join('\n')}
-
-【経営戦略の内容】
-■MVV
-- Mission: ${strategy?.mission || '（未入力）'}
-- Vision: ${strategy?.vision || '（未入力）'}
-- Value: ${strategy?.value || '（未入力）'}
-
-■基本情報
-- 事業内容: ${strategy?.businessContent || '（未入力）'}
-- 顧客セグメント: ${strategy?.customerSegment || '（未入力）'}
-- 業種: ${strategy?.industry || '（未入力）'}
-- 売上: ${strategy?.revenue || '（未入力）'}
-- 従業員数: ${strategy?.employees || '（未入力）'}
-
-■SWOT
-- 強み: ${strategy?.strength || '（未入力）'}
-- 弱み: ${strategy?.weakness || '（未入力）'}
-- 機会: ${strategy?.opportunity || '（未入力）'}
-- 脅威: ${strategy?.threat || '（未入力）'}
-
-■ストーリー要約
-${strategy?.strategySummary || '（未入力）'}
-
-■最終ストーリー（各章）
-${formatChapters(strategy?.finalStory || [])}
-
-■部門戦略とOKR
-${formatDepartments(strategy?.editableCascadeResult || [])}
-
-【アドバイスのヒント】
-${adviceLines.join('\n')}
-
-【直近の戦略文脈（スニペット）】
-${contextSnippet}
-
-※以下は禁止事項です：
-- 評価・昇進・報酬など人事的な判断
-- 法務・税務・労務・会計など専門的助言
-
-ユーザーが自然に前向きな行動に進めるよう、あなたは「信頼できる戦略コーチ」として振る舞ってください。
-      `.trim(),
-    };
-
-    // 初回アクセスは挨拶のみ返す
-    if (userMessagesOnly.length === 0) {
-      console.log('ℹ️ 初回アクセスのため挨拶メッセージを返します。');
-      return NextResponse.json({
-        content: `こんにちは。私はあなたの経営戦略実行を支援するAIエージェントです。\n\n戦略の整理や、実行へのヒントが必要なときは、いつでもお声がけください。`,
-      });
-    }
-
-    console.log('🧠 OpenAI API 呼び出し開始');
-
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [systemMessage, ...messages],
-      temperature: 0.7,
+    // 先に短答
+    const direct = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      temperature: 0.2,
+      messages: [
+        { role: 'system', content: 'ユーザーの質問に、まず1〜3行で端的・具体に答えよ。断定しない。' },
+        { role: 'user', content: lastUser },
+      ],
     });
 
-    const content = completion.choices?.[0]?.message?.content;
+    // 本文
+    const detailed = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      temperature: 0.2,
+      messages: [{ role: 'system', content: systemBase }, ...normalizeMessages(messages)],
+    });
 
-    if (!content) {
-      console.error('❌ OpenAI応答なし');
-      return NextResponse.json(
-        { error: 'AIエージェントが応答できませんでした。' },
-        { status: 500 }
-      );
+    // 操作系ならガイドを短く添える（残す）
+    let manualBlock = '';
+    const isLikelyManual =
+      /どこ|どうやって|手順|クリック|開く|入力|保存|画面|表示されない|エラー|UI|ボタン/i.test(lastUser) ||
+      includesAny(lastUser, ['MVV', 'SWOT', 'OKR', '/cascade', '/story']);
+    if (intent.stage === 'manual' || isLikelyManual) {
+      manualBlock = '\n\n' + answerManual(messages);
     }
 
-    console.log('✅ OpenAI 応答取得成功');
-    return NextResponse.json({ content });
-  } catch (e) {
-    console.error('❌ ask-ceo-agent エラー:', e);
-    return NextResponse.json(
-      { error: 'OpenAI APIでエラーが発生しました。' },
-      { status: 500 }
-    );
+    const content = [
+      (direct.choices[0]?.message?.content || '').trim(),
+      '',
+      (detailed.choices[0]?.message?.content || '').trim(),
+      manualBlock,
+    ]
+      .join('\n')
+      .trim();
+
+    try {
+      await insertAgentLog({ userId, strategyId, step: 0, role: 'assistant', content });
+    } catch {}
+
+    return NextResponse.json({
+      content,
+      stageUsed: intent.stage,
+      confidence: intent.confidence,
+    });
+  } catch (e: any) {
+    console.error('ask-ceo-agent failed:', e?.message || e);
+    return NextResponse.json({ content: 'サーバーエラーが発生しました。', error: 'ask-ceo-agent failed' }, { status: 500 });
   }
 }

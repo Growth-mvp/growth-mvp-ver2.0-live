@@ -1,22 +1,31 @@
 {
   "compilerOptions": {
-    "target": "esnext",
+    "target": "ESNext",
     "lib": [
       "dom",
       "dom.iterable",
-      "esnext"
+      "ESNext"
     ],
     "allowJs": true,
+    "checkJs": false,
     "skipLibCheck": true,
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "node",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
+    // ★ JSX を自動変換（React 17+ / Next 13+ 推奨）
     "jsx": "preserve",
+    "jsxImportSource": "react",
+    // ★ JSX の型を確実に読み込む
+    "types": [
+      "react",
+      "react-dom",
+      "node"
+    ],
     "incremental": true,
     "baseUrl": ".",
     "paths": {
@@ -31,12 +40,17 @@
     ]
   },
   "include": [
+    "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
-    "next-env.d.ts",
-    ".next/types/**/*.ts"
+    "**/*.js",
+    "**/*.jsx",
+    ".next/types/**/*.ts",
+    "types/**/*.d.ts" // ★ これを追加
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    ".next/**",
+    "archive/**"
   ]
 }

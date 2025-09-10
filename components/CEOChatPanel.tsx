@@ -1,184 +1,357 @@
+// /components/CEOChatPanel.tsx
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { on } from '@/utils/actionBus';
 import { useUserStore } from '@/store/userStore';
 import { useStrategyStore } from '@/store/strategyStore';
-import { askCeoAgent } from '@/utils/askCeoAgent';
+import AbstractCoachAvatar from '@/components/AbstractCoachAvatar';
+import { supabase } from '@/lib/supabaseClient';
+import { ensureStrategyId } from '@/utils/strategyBootstrap';
 
-type ChatMessage = {
-  role: 'user' | 'assistant';
-  content: string;
+type Msg = { role: 'user' | 'assistant'; content: string };
+
+type AskResp = {
+  content?: string;
+  reply?: { content?: string };
+  // stageUsed/confidence は返ってきても **表示しない**
+  stageUsed?: 'strategy' | 'manual' | 'generic' | 'hybrid';
+  confidence?: number;
+  error?: string;
 };
 
-export default function CEOChatPanel() {
+type Props = { embedded?: boolean };
+
+export default function CEOChatPanel({ embedded = true }: Props) {
   const { user } = useUserStore();
-  const { strategyId, mission, vision, value } = useStrategyStore();
+  const s = useStrategyStore() as any;
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const strategyId = s?.strategyId as string | undefined;
+  const setStrategyId =
+    typeof s?.setStrategyId === 'function'
+      ? (s.setStrategyId as (id: string) => void)
+      : (id: string) => useStrategyStore.setState({ strategyId: id });
+
+  const [messages, setMessages] = useState<Msg[]>([
+    {
+      role: 'assistant',
+      content:
+        'こんにちは。経営者AIエージェントです。GROWTHを理解した上で、一般質問も戦略相談もまとめてお答えします。',
+    },
+  ]);
+  const messagesRef = useRef(messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const bottomRef = useRef<HTMLDivElement | null>(null);
-  const idleTimer = useRef<NodeJS.Timeout | null>(null);
+  const [sending, setSending] = useState(false);
+  const [ctxUpdated, setCtxUpdated] = useState(false);
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [booting, setBooting] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
 
-  // 📌 初期ログ
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const endRef = useRef<HTMLDivElement | null>(null);
+  const debounceRef = useRef<number | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const bootingLockRef = useRef(false);
+  const unmountedRef = useRef(false);
+
   useEffect(() => {
-    console.log('🧩 CEOChatPanel Mounted');
-    console.log('🧑‍💼 user:', user);
-    console.log('📌 strategyId:', strategyId);
-  }, [user, strategyId]);
+    setMounted(true);
+    return () => { unmountedRef.current = true; };
+  }, []);
 
-  // 🎉 初回あいさつ
+  const userOK = mounted && Boolean(user?.id);
+  const strategyOK = mounted && Boolean(strategyId);
+  const inputOK = Boolean(input.trim());
+  const readyAll = userOK && strategyOK && !booting;
+
+  const avatarStatus =
+    !userOK ? ('loading' as const)
+    : booting ? ('loading' as const)
+    : sending ? ('thinking' as const)
+    : ctxUpdated ? ('responding' as const)
+    : ('idle' as const);
+
+  /** ====== strategyId 自動復元 ====== */
   useEffect(() => {
-    if (!user?.id || !user?.name) return;
+    let cancelled = false;
+    (async () => {
+      if (!userOK || strategyOK || booting || bootingLockRef.current) return;
+      try {
+        setInitError(null);
+        setBooting(true);
+        bootingLockRef.current = true;
+        const id = await ensureStrategyId(supabase, user!.id);
+        if (!cancelled && !unmountedRef.current && id) setStrategyId(id);
+      } catch (e: any) {
+        if (!cancelled && !unmountedRef.current) {
+          const msg = typeof e?.message === 'string' ? e.message : '戦略データ初期化に失敗しました。';
+          setInitError(msg);
+          setMessages((prev) => [...prev, { role: 'assistant', content: `初期化エラー: ${msg}` }]);
+        }
+      } finally {
+        if (!cancelled && !unmountedRef.current) {
+          setBooting(false);
+          setTimeout(() => { bootingLockRef.current = false; }, 300);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userOK, strategyOK]);
 
-    const greetedKey = `agentGreeted-${user.id}`;
-    const hasGreeted = localStorage.getItem(greetedKey);
-
-    if (!hasGreeted) {
-      const greetingContent = `こんにちは、${user.name}さん。GROWTHへようこそ。\n\n私は経営者AIエージェントです。経営のこと、組織のこと、戦略のこと、何でもお気軽にご相談ください。${
-        !mission || !vision || !value
-          ? '\n\n※「MVV（Mission・Vision・Value）」が未入力の場合は、左メニューの「戦略策定」から入力いただくと、より深いアドバイスが可能になります。'
-          : ''
-      }`;
-
-      setMessages((prev) => [...prev, { role: 'assistant', content: greetingContent }]);
-      localStorage.setItem(greetedKey, 'true');
-      console.log('💬 初回あいさつを表示しました');
-    }
-  }, [user?.id, user?.name, mission, vision, value]);
-
-  // 🕑 アイドル提案
+  /** ====== スクロール追従 ====== */
   useEffect(() => {
-    if (!user) return;
+    if (endRef.current) endRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages, sending]);
 
-    const startIdleTimer = () => {
-      if (idleTimer.current) clearTimeout(idleTimer.current);
+  /** ====== コンテキスト更新イベント ====== */
+  useEffect(() => {
+    const off1 = on('agent:prompt:refresh', () => {
+      if (debounceRef.current) window.clearTimeout(debounceRef.current);
+      debounceRef.current = window.setTimeout(() => {
+        setCtxUpdated(true);
+        setRefreshTick((t) => t + 1);
+        window.setTimeout(() => setCtxUpdated(false), 2000);
+      }, 400);
+    });
+    return () => { off1(); if (debounceRef.current) window.clearTimeout(debounceRef.current); };
+  }, []);
 
-      idleTimer.current = setTimeout(() => {
-        setMessages((prev) => {
-          if (prev.length > 3) return prev;
-          return [
-            ...prev,
-            {
-              role: 'assistant',
-              content:
-                'ご不明点やお困りごとはありませんか？戦略ストーリー、部門戦略、OKR設計などもお気軽にご相談ください。',
-            },
-          ];
-        });
-        console.log('⏱️ アイドルメッセージを表示しました');
-      }, 2 * 60 * 1000);
-    };
+  /** ====== textarea オートリサイズ ====== */
+  const autoResize = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 20 * 6) + 'px';
+  }, []);
+  useEffect(() => { autoResize(); }, [input, autoResize]);
 
-    startIdleTimer();
+  /** ====== 送信 ====== */
+  const send = useCallback(async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || sending) return;
 
-    return () => {
-      if (idleTimer.current) clearTimeout(idleTimer.current);
-    };
-  }, [messages, user]);
+    const current = messagesRef.current;
 
-  // ✉️ メッセージ送信処理
-  const handleSend = async () => {
-    if (!input.trim() || !user?.id) {
-      console.warn('⚠️ 入力が空、または user.id が未定義');
-      return;
-    }
-
-    if (!strategyId) {
-      console.warn('⚠️ strategyId が未定義。戦略データ未読込の可能性あり');
-      setMessages((prev) => [
-        ...prev,
+    if (!userOK || booting || !strategyOK) {
+      setMessages([
+        ...current,
+        { role: 'user', content: trimmed },
         {
           role: 'assistant',
-          content:
-            '⚠️ 戦略データがまだ読み込まれていないようです。\n\n左メニューの「戦略策定」から基本情報を入力・保存してください。',
+          content: !userOK
+            ? '（ログイン情報が未取得です。再ログインまたは画面リロードをお試しください）'
+            : booting
+            ? '（戦略IDを初期化中です。数秒後に再送信するか、下の「ワンクリック初期化」を押してください）'
+            : initError
+            ? `（初期化でエラーが発生しています: ${initError}）`
+            : '（戦略IDが未設定です。初期化を実行してください）',
         },
       ]);
+      setInput('');
+      if (textareaRef.current) textareaRef.current.style.height = 'auto';
       return;
     }
 
-    const newMessages: ChatMessage[] = [...messages, { role: 'user', content: input }];
-    setMessages(newMessages);
-    setInput('');
-    setLoading(true);
+    const userMsg: Msg = { role: 'user', content: trimmed };
+    setSending(true);
+    setMessages([...current, userMsg]);
 
     try {
-      const res = await askCeoAgent({
-        messages: newMessages,
-        userId: user.id,
-        strategyId,
+      const res = await fetch('/api/ask-ceo-agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user!.id,
+          strategyId,
+          messages: [...current.slice(-9), userMsg],
+        }),
       });
+      const raw = await res.text();
+      if (!res.ok) throw new Error(`API ${res.status}: ${raw || 'unknown error'}`);
 
-      console.log('✅ API 応答:', res);
+      let data: AskResp | null = null;
+      try { data = raw ? (JSON.parse(raw) as AskResp) : null; } catch { data = null; }
 
       const content =
-        typeof res === 'string'
-          ? res
-          : typeof res === 'object' && res !== null && 'content' in res
-          ? (res as { content?: string }).content ?? '回答の取得に失敗しました。'
-          : '回答の取得に失敗しました。';
+        (data?.content && String(data.content)) ||
+        (data?.reply?.content && String(data.reply.content)) ||
+        '（応答の取得に失敗しました）';
 
       setMessages((prev) => [...prev, { role: 'assistant', content }]);
-    } catch (err) {
-      console.error('❌ handleSend error:', err);
+    } catch (e) {
+      console.error(e);
       setMessages((prev) => [
         ...prev,
-        {
-          role: 'assistant',
-          content: '通信エラーが発生しました。時間をおいて再試行してください。',
-        },
+        { role: 'assistant', content: '通信エラー。ネットワーク/ログイン/戦略IDをご確認のうえ再試行してください。' },
       ]);
     } finally {
-      setLoading(false);
+      if (!unmountedRef.current) {
+        setSending(false);
+        setInput('');
+        if (textareaRef.current) textareaRef.current.style.height = 'auto';
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sending, userOK, booting, strategyOK, initError, strategyId, user?.id]);
+
+  const onSubmit = () => { if (input.trim()) void send(input); };
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(); }
+  };
+
+  const showDev = mounted && process.env.NODE_ENV !== 'production';
+
+  /** ====== 手動初期化 ====== */
+  const manualInit = async () => {
+    if (!userOK || booting || bootingLockRef.current) return;
+    try {
+      setInitError(null);
+      setBooting(true);
+      bootingLockRef.current = true;
+      const id = await ensureStrategyId(supabase, user!.id);
+      setStrategyId(id);
+      setMessages((prev) => [...prev, { role: 'assistant', content: '戦略IDを初期化しました。送信できます。' }]);
+    } catch (e: any) {
+      const msg = typeof e?.message === 'string' ? e.message : '初期化に失敗しました';
+      setInitError(msg);
+      setMessages((prev) => [...prev, { role: 'assistant', content: `初期化エラー: ${msg}` }]);
+    } finally {
+      setBooting(false);
+      setTimeout(() => { bootingLockRef.current = false; }, 300);
     }
   };
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading]);
+  // ====== Apple風に：見出し1行＋控えめサブ、余白・タイポ強化 ======
+  const rootCls = embedded
+    ? ['w-full h-full','flex flex-col','bg-transparent','min-w-0 overflow-hidden','[&_*]:max-w-full'].join(' ')
+    : ['hidden md:flex','w-[380px] h-full flex-col','border-l bg-white/70 backdrop-blur'].join(' ');
 
-  // 💬 表示部
   return (
-    <div className="flex flex-col h-[calc(100vh-48px)] p-4 bg-white">
-      <div className="flex-1 overflow-y-auto space-y-4 pr-1">
-        {messages.map((msg, index) => (
-          <div
-            key={index}
-            className={`p-3 rounded-md text-sm ${
-              msg.role === 'user'
-                ? 'bg-blue-100 text-right ml-auto'
-                : 'bg-gray-100 text-left mr-auto'
-            } max-w-[80%] whitespace-pre-wrap`}
-          >
-            {msg.content}
+    <div className={rootCls} data-embedded={embedded ? 'true' : 'false'}>
+      {/* ヘッダー */}
+      <header className="shrink-0 px-5 pt-5 pb-3 border-b">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <AbstractCoachAvatar size={60} status={avatarStatus as any} />
+            <div className="leading-tight">
+              <div className="text-[20px] font-semibold tracking-[-0.01em]">経営者AIエージェント</div>
+              <div className="text-[12px] text-zinc-500 mt-0.5">
+                {!userOK ? 'ユーザー未読み込み'
+                  : booting ? '戦略IDを初期化中…'
+                  : strategyOK ? '準備完了'
+                  : '戦略ID未設定'}
+              </div>
+            </div>
           </div>
-        ))}
-        {loading && (
-          <div className="p-3 rounded-md bg-gray-200 text-left mr-auto max-w-[80%] animate-pulse">
-            生成中...
+          {ctxUpdated && (
+            <span className="rounded-full bg-emerald-100 px-2 py-[2px] text-[10px] font-semibold text-emerald-700 mt-1">
+              コンテキスト更新
+            </span>
+          )}
+        </div>
+      </header>
+
+      {/* 会話ログ */}
+      <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-3" aria-live="polite">
+        {/* 未初期化時のガイダンス */}
+        {userOK && !strategyOK && (
+          <div className="mr-auto max-w-[90%] rounded-lg bg-amber-50 p-3 text-[12px] text-amber-800 space-y-2">
+            <div>戦略IDが未設定です。ボタン一発で初期化できます。</div>
+            {initError && <div className="text-red-700">エラー: {initError}</div>}
+            <button
+              onClick={manualInit}
+              disabled={booting}
+              className={`rounded-md px-3 py-1.5 text-[12px] font-semibold ${
+                booting ? 'bg-gray-300 text-gray-600' : 'bg-black text-white hover:opacity-90'
+              }`}
+            >
+              {booting ? '初期化中…' : 'ワンクリック初期化'}
+            </button>
           </div>
         )}
-        <div ref={bottomRef} />
+
+        {messages.map((m, i) => (
+          <div
+            key={i}
+            className={[
+              'mb-1 max-w-[90%] whitespace-pre-wrap text-[14px] leading-6 rounded-lg px-3 py-2',
+              m.role === 'user'
+                ? 'ml-auto bg-zinc-100 text-zinc-900'
+                : 'mr-auto bg-white border border-zinc-200 text-zinc-900'
+            ].join(' ')}
+          >
+            {m.content}
+          </div>
+        ))}
+        {sending && (
+          <div className="mr-auto inline-flex items-center gap-2 rounded-lg bg-white border border-zinc-200 px-2 py-1 text-[12px] text-zinc-500">
+            <span className="h-2 w-2 animate-pulse rounded-full" />
+            思考中…
+          </div>
+        )}
+        <div ref={endRef} />
       </div>
 
-      <div className="mt-4 flex gap-2">
-        <input
-          type="text"
-          className="flex-1 border rounded px-3 py-2"
-          placeholder="経営者AIに質問..."
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleSend();
-          }}
-        />
-        <button
-          onClick={handleSend}
-          disabled={loading}
-          className="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50"
-        >
-          送信
-        </button>
+      {/* 入力フォーム */}
+      <div className="shrink-0 border-t px-5 py-3">
+        <div className="space-y-2">
+          <textarea
+            ref={textareaRef}
+            className="w-full resize-none overflow-hidden rounded-lg border p-2 text-[14px] leading-6 outline-none focus:ring"
+            placeholder={
+              readyAll
+                ? '質問を入力（Shift+Enterで改行、Enterで送信）'
+                : !userOK
+                ? 'ユーザーを読み込み中…'
+                : booting
+                ? '戦略IDを初期化中…'
+                : '初期化が必要です。質問を送るとガイダンスが返ります。'
+            }
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onInput={autoResize}
+            onKeyDown={onKeyDown}
+            rows={1}
+            disabled={sending || booting}
+          />
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-gray-500">
+              {refreshTick > 0 ? `更新 ${refreshTick}` : readyAll ? '準備OK' : booting ? '初期化中' : '待機中'}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { setMessages([{ role: 'assistant', content: '履歴をリセットしました。' }]); }}
+                className="rounded-md px-2 py-1 text-[12px] hover:bg-gray-100"
+                type="button"
+              >
+                クリア
+              </button>
+              <button
+                onClick={() => { if (input.trim()) void send(input); }}
+                disabled={!inputOK || sending}
+                className={`rounded-md px-3 py-1.5 text-[12px] font-semibold ${
+                  (!inputOK || sending) ? 'bg-gray-200 text-gray-500' : 'bg-black text-white hover:opacity-90'
+                }`}
+                type="button"
+              >
+                送信
+              </button>
+            </div>
+          </div>
+
+          {showDev && (
+            <div className="text-[10px] text-gray-500 mt-1 space-x-2">
+              <span>user:{String(user?.id ? '✓' : '×')}</span>
+              <span>strategyId:{String(strategyId ? '✓' : '×')}</span>
+              <span>booting:{String(booting)}</span>
+              {initError && <span className="text-red-600">initError:{initError}</span>}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

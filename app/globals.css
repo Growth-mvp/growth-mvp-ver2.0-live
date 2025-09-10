@@ -1,54 +1,114 @@
+/* globals.css（フル置き換え） */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ===== 共通ベース設定 ===== */
-body {
-  @apply bg-gray-50 text-gray-900 font-sans leading-relaxed antialiased;
+/* ================== カスタムプロパティ ================== */
+:root {
+  /* 右側AIドックの“理想幅” */
+  --agent-dock-w: 460px;
+
+  /* Appleブルー寄りのアクセント（任意：上書き可） */
+  --accent: #0a84ff;
+  --accent-ink: #ffffff;
 }
 
-h1 {
-  @apply text-3xl font-bold text-gray-800 tracking-tight mb-4;
+/* 画面幅に応じた調整（必要ならここで可変化） */
+@media (max-width: 1440px) {
+  :root {
+    --agent-dock-w: 460px;
+  }
 }
 
-h2 {
-  @apply text-2xl font-semibold text-gray-700 mb-2;
+/* ================== 右ドック回避ユーティリティ ================== */
+/* コンテンツ領域の右余白を確保（通常のフロー要素に） */
+.avoid-agent-dock {
+  padding-right: var(--agent-dock-w);
+}
+@media (max-width: 1024px) {
+  .avoid-agent-dock {
+    padding-right: 0;
+  }
 }
 
-h3 {
-  @apply text-xl font-medium text-gray-600 mb-1;
+/* 固定/Stickyなフッター・ヘッダーの right をずらす（重なり解消） */
+.avoid-agent-dock-fixed {
+  right: var(--agent-dock-w);
+}
+@media (max-width: 1024px) {
+  .avoid-agent-dock-fixed {
+    right: 0;
+  }
 }
 
-p {
-  @apply text-base text-gray-700 leading-relaxed;
+/* ドック内の入力フッターぶん、スクロール末尾に余白を確保したい時に使用 */
+.reserve-agent-input {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 64px);
 }
 
-/* ===== フォーム系統一 ===== */
-input,
-textarea,
-select {
-  @apply w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500;
+/* ================== Apple風ベース設定 ================== */
+@layer base {
+  body {
+    @apply bg-zinc-50 text-zinc-900 font-sans leading-relaxed antialiased;
+    font-feature-settings: "liga","kern";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1 { @apply text-[28px] font-semibold text-zinc-900 tracking-tight mb-4; }
+  h2 { @apply text-[22px] font-medium  text-zinc-800 mb-3; }
+  h3 { @apply text-[18px] font-medium  text-zinc-700 mb-2; }
+  p  { @apply text-[15px] text-zinc-800 leading-7; }
 }
 
-button {
-  @apply font-medium transition duration-200 ease-in-out;
+/* ================== フォーム要素（Apple入力風） ================== */
+@layer components {
+  input,
+  textarea,
+  select {
+    @apply w-full px-3 py-2.5 rounded-xl border border-zinc-300 bg-white/90
+           outline-none transition focus:ring-4 focus:ring-zinc-200 focus:border-zinc-400;
+  }
+
+  /* ボタン（共通：丸み＋滑らか） */
+  button {
+    @apply rounded-full font-medium transition duration-200 ease-in-out;
+  }
+  button:disabled {
+    @apply opacity-50 cursor-not-allowed;
+  }
+
+  /* カード（ガラス感＋淡い影） */
+  .card {
+    @apply rounded-2xl border border-zinc-200 bg-white/70 backdrop-blur-sm p-6;
+    /* Tailwindの@applyでは任意shadowを合成できないためCSSで指定 */
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  }
+
+  /* 区切り線 */
+  .divider {
+    @apply my-8 border-t border-zinc-200;
+  }
 }
 
-button:disabled {
-  @apply opacity-50 cursor-not-allowed;
+/* ================== ユーティリティ追加（微影など） ================== */
+@layer utilities {
+  /* ごく薄い影を汎用クラス化（.card以外でも使える） */
+  .shadow-subtle {
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  }
 }
 
-/* ===== カードベース ===== */
-.card {
-  @apply bg-white rounded-2xl shadow-md p-6 border border-gray-200;
-}
-
-/* ===== セクション区切り線 ===== */
-.divider {
-  @apply border-t border-gray-300 my-6;
-}
-
-/* ===== リンク ===== */
+/* ================== リンク（Appleブルー寄せ） ================== */
 a {
-  @apply text-blue-600 hover:text-blue-800 underline transition;
+  @apply no-underline;
+  color: var(--accent);
+  transition: color 0.2s ease;
 }
+a:hover {
+  color: color-mix(in oklab, var(--accent), black 10%);
+}
+
+/* ================== 安全余白 ================== */
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0); }
+.safe-top    { padding-top:    env(safe-area-inset-top, 0); }

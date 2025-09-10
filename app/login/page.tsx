@@ -1,106 +1,183 @@
+// /app/login/page.tsx（フル置き換え）
 'use client';
 
 import { useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
-import { useRouter } from 'next/navigation';
 import { useUserStore } from '@/store/userStore';
+import { resolveCompanyId } from '@/utils/company';
+import { joinCompany } from '@/utils/supabase/membership';
+import { isValidUUID, setCompanyIdCookie } from '@/utils/supabase/client';
 
 export default function LoginPage() {
+  const router = useRouter();
+  const search = useSearchParams();
+
+  const { setUser, setMembership, setCompanyId } = useUserStore();
+
+  // 招待リンク (?company=...) に対応
+  const joinCompanyId = (search?.get('company') || '').trim() || null;
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [errorMessage, setErrorMessage] = useState('');
-  const { setUser } = useUserStore();
-  const router = useRouter();
+
+  const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string>('');
 
   const handleLogin = async () => {
     setErrorMessage('');
-
     if (!email || !password) {
       setErrorMessage('メールアドレスとパスワードを入力してください');
       return;
     }
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    setLoading(true);
+    try {
+      // 1) サインイン
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error || !data?.user) throw new Error(error?.message || 'ログインに失敗しました');
 
-    if (error || !data.user) {
-      setErrorMessage('ログイン失敗: ' + (error?.message || '不明なエラー'));
-      return;
+      const userId = data.user.id;
+      const userEmail = data.user.email ?? '';
+
+      // 2) プロフィールは Auth の user_metadata から取得（/rest/v1/users は使わない）
+      const name =
+        (data.user.user_metadata?.name as string | undefined) ??
+        (data.user.user_metadata?.full_name as string | undefined) ??
+        '';
+
+      // 3) まずはプロフィールだけ反映（role はここでは使わない）
+      setUser({ id: userId, email: userEmail, name, role: 'member' });
+
+      // 4) 招待付きなら参加（company_members へ upsert）
+      let cid: string | null = null;
+      if (joinCompanyId && isValidUUID(joinCompanyId)) {
+        try {
+          const joined = await joinCompany({ userId, companyId: joinCompanyId, role: 'member' });
+          cid = joined.companyId ?? null;
+          if (cid) setCompanyIdCookie(cid);
+        } catch (e) {
+          console.warn('joinCompany failed:', e);
+        }
+      }
+
+      // 5) 会社IDを解決（未招待 or 失敗時の保険）
+      if (!cid) cid = await resolveCompanyId();
+
+      // 6) 現在の membership を取得（部門ID・ロールの決定）
+      //    RLS により自分の行のみ見える想定
+      let departmentId: string | null = null;
+      let role: 'admin' | 'manager' | 'member' | null = null;
+
+      try {
+        const { data: membershipRow } = await supabase
+          .from('company_members')
+          .select('company_id, department_id, role')
+          .eq('user_id', userId)
+          .limit(1)
+          .maybeSingle();
+
+        if (membershipRow) {
+          // サーバーの真実を優先
+          cid = (membershipRow as any).company_id ?? cid ?? null;
+          departmentId = (membershipRow as any).department_id ?? null;
+          role = (membershipRow as any).role ?? null;
+        }
+      } catch {
+        /* noop */
+      }
+
+      // 7) ストアの membership を更新（UI権限はここから確定）
+      setMembership({
+        companyId: cid ?? null,
+        departmentId: departmentId ?? null,
+        role, // null でもOK（未プロビジョニングなど）
+      });
+
+      // 8) companyId のミラー（互換用途で残す）
+      setCompanyId(cid ?? null);
+
+      // 9) トップへ
+      router.replace('/');
+    } catch (e: any) {
+      setErrorMessage('ログイン失敗: ' + (e?.message || '不明なエラー'));
+    } finally {
+      setLoading(false);
     }
+  };
 
-    // Supabaseのusersテーブルからロール・部門・名前を取得
-    const { data: userData, error: userError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', data.user.id)
-      .single();
-
-    if (userError || !userData) {
-      setErrorMessage('ユーザ情報の取得に失敗しました: ' + userError?.message);
-      return;
-    }
-
-    // ✅ API経由でCookieを設定（任意）
-    await fetch('/api/set-cookie', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id: data.user.id,
-        user_role: userData.role,
-      }),
-    });
-
-    // Zustandにユーザ情報を保存（name を含める）
-    setUser({
-      id: data.user.id,
-      name: userData.name || '', // ✅ name を追加
-      email: data.user.email || '',
-      role: userData.role || 'member',
-      department: userData.department || '',
-    });
-
-    // ✅ トップページまたは管理画面へ遷移
-    router.push('/');
+  const onSubmit: React.FormEventHandler<HTMLFormElement> = (e) => {
+    e.preventDefault();
+    if (!loading) void handleLogin();
   };
 
   return (
-    <div className="p-6 max-w-md mx-auto">
-      <h2 className="text-xl font-bold mb-4">ログイン</h2>
+    <main className="min-h-screen bg-gradient-to-b from-white to-slate-50/60 px-4 py-10">
+      <div className="mx-auto w-full max-w-md">
+        <div className="mb-6 text-center">
+          <div className="text-[28px] font-semibold tracking-tight text-zinc-900">サインイン</div>
+          <p className="mt-1 text-[13px] text-zinc-500">アカウントにログインしてください</p>
+        </div>
 
-      {errorMessage && (
-        <div className="text-sm text-red-600 mb-3">{errorMessage}</div>
-      )}
+        {joinCompanyId && (
+          <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[13px] text-emerald-800">
+            招待リンクからのログインです。ログイン後に会社
+            （ID: <code className="font-mono">{joinCompanyId}</code>）
+            へ参加します。
+          </div>
+        )}
 
-      <input
-        type="email"
-        placeholder="メールアドレス"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        className="border p-2 w-full mb-2 rounded"
-      />
-      <input
-        type="password"
-        placeholder="パスワード"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        className="border p-2 w-full mb-4 rounded"
-      />
+        <div className="rounded-2xl border border-zinc-200 bg-white/80 backdrop-blur-md p-6 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+          {errorMessage && (
+            <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[13px] text-rose-700" role="alert">
+              {errorMessage}
+            </div>
+          )}
 
-      <button
-        onClick={handleLogin}
-        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded w-full"
-      >
-        ログイン
-      </button>
+          <form onSubmit={onSubmit} className="space-y-4" autoComplete="on">
+            <div>
+              <label className="mb-1 block text-[12px] font-medium text-zinc-700">メールアドレス</label>
+              <input
+                type="email" placeholder="you@example.com" value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full rounded-xl border border-zinc-300 bg-white/90 px-3 py-2 text-[14px] outline-none focus:ring-4 focus:ring-zinc-200"
+                autoComplete="email" inputMode="email" required
+              />
+            </div>
 
-      <p className="mt-4 text-sm text-center">
-        アカウントをお持ちでないですか？{' '}
-        <a href="/signup" className="text-blue-500 underline">
-          新規登録はこちら
-        </a>
-      </p>
-    </div>
+            <div>
+              <label className="mb-1 block text-[12px] font-medium text-zinc-700">パスワード</label>
+              <input
+                type="password" placeholder="6文字以上" value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full rounded-xl border border-zinc-300 bg-white/90 px-3 py-2 text-[14px] outline-none focus:ring-4 focus:ring-zinc-200"
+                autoComplete="current-password" minLength={6} required
+              />
+            </div>
+
+            <button
+              type="submit" disabled={loading} aria-busy={loading}
+              className={`mt-2 w-full rounded-full h-11 px-5 text-[14px] font-semibold transition ${
+                loading
+                  ? 'bg-zinc-200 text-zinc-500 cursor-not-allowed'
+                  : 'bg-[color:var(--accent)] text-[color:var(--accent-ink)] hover:opacity-90 active:opacity-85'
+              }`}
+              title="Enterキーでも送信できます"
+            >
+              {loading ? 'ログイン中…' : 'ログイン'}
+            </button>
+          </form>
+
+          <p className="mt-4 text-center text-[13px] text-zinc-600">
+            アカウントをお持ちでないですか？{' '}
+            <a href="/signup" className="font-medium text-[color:var(--accent)] hover:opacity-90 underline">
+              新規登録はこちら
+            </a>
+          </p>
+        </div>
+
+        <p className="mt-4 text-center text-[11px] text-zinc-500">Enter で送信・Shift+Enter で改行に対応しています</p>
+      </div>
+    </main>
   );
 }

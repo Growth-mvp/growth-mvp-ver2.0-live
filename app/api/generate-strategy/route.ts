@@ -1,39 +1,72 @@
-import { NextRequest, NextResponse } from "next/server";
-import { OpenAI } from "openai";
-import { createClient } from "@supabase/supabase-js";
 
-// Supabaseクライアント
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+import { NextRequest, NextResponse } from 'next/server';
+import { OpenAI } from 'openai';
+import { createClient } from '@supabase/supabase-js';
+
+/** ====== サーバー用 Supabase（service role） ======
+ *  フロント用の anon ではなく、SERVER環境変数の service_role を使う。
+ *  ※ このファイルは server-only のため、NEXT_PUBLIC は使わない。
+ */
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,           // URL は public でもOK
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,          // ★ server 環境変数
+  { auth: { persistSession: false, autoRefreshToken: false } }
 );
 
-// OpenAIクライアント
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+
+type DeptIn = { name: string };
+type BodyIn = {
+  userId?: string;
+  companyId?: string;              // あれば会社単位で保存
+  thought?: string;
+  industry?: string;
+  revenue?: string;
+  employees?: string;
+  mission?: string;
+  visionStatement?: string;
+  value?: string;
+  strength?: string;
+  weakness?: string;
+  opportunity?: string;
+  threat?: string;
+  story?: string;
+  departments?: DeptIn[];          // 部門名だけの配列を期待
+};
+
+export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const body = (await req.json()) as BodyIn;
 
     const {
-      thought,
-      industry,
-      revenue,
-      employees,
-      mission,
-      visionStatement,
-      value,
-      strength,
-      weakness,
-      opportunity,
-      threat,
-      story,
-      departments, // ✅ 部門名（ユーザー入力）を必ず渡す
-    } = body;
+      userId,
+      companyId,
+      thought = '',
+      industry = '',
+      revenue = '',
+      employees = '',
+      mission = '',
+      visionStatement = '',
+      value = '',
+      strength = '',
+      weakness = '',
+      opportunity = '',
+      threat = '',
+      story = '',
+      departments = [],
+    } = body ?? {};
 
-    const departmentNames = departments?.map((d: any) => d.name).filter(Boolean).join("、") || "";
+    if (!userId && !companyId) {
+      return NextResponse.json({ error: 'userId か companyId のどちらかが必要です' }, { status: 400 });
+    }
+
+    const departmentNames =
+      (Array.isArray(departments) ? departments : [])
+        .map(d => (d?.name ?? '').trim())
+        .filter(Boolean)
+        .join('、') || '';
 
     const prompt = `
 あなたは大手企業向けの戦略コンサルタントです。
@@ -73,7 +106,7 @@ export async function POST(req: NextRequest) {
 【使用すべき部門名】：${departmentNames}
 ※上記の部門名のみを使用してください。GPTが勝手に新しい部門名を作らないようにしてください。
 
-出力形式：
+出力は JSON のみ：
 {
   "strategy": { "summary": "..." },
   "departments": [
@@ -95,47 +128,83 @@ export async function POST(req: NextRequest) {
     }
   ]
 }
-`;
+`.trim();
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [{ role: "user", content: prompt }],
+      model: 'gpt-4o',
       temperature: 0.7,
+      messages: [{ role: 'user', content: prompt }],
     });
 
-    const text = completion.choices[0].message.content || "";
-    const jsonStart = text.indexOf("{");
-    const jsonEnd = text.lastIndexOf("}");
-    const jsonText = text.slice(jsonStart, jsonEnd + 1);
-    const parsed = JSON.parse(jsonText);
+    const raw = completion.choices?.[0]?.message?.content ?? '';
 
-    // ✅ Supabaseに保存（部門名とカスケード構造を含めて）
-    const { error } = await supabase.from("strategies").insert([
-      {
-        thought,
-        industry,
-        revenue,
-        employees,
-        mission,
-        vision: visionStatement,
-        value,
-        strength,
-        weakness,
-        opportunity,
-        threat,
-        story,
-        strategy: parsed.strategy,
-        departments: parsed.departments,
-      },
-    ]);
+    // コードブロック/前後の文字を許容してJSONを抽出
+    const jsonText = (() => {
+      const m = raw.match(/\{[\s\S]*\}$/m);
+      return m ? m[0] : raw;
+    })();
 
-    if (error) {
-      console.error("❌ Supabase保存エラー:", error);
+    let parsed: any = {};
+    try {
+      parsed = JSON.parse(jsonText);
+    } catch {
+      // 最後の保険：JSONモードで再試行
+      const again = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        temperature: 0.2,
+        messages: [
+          { role: 'system', content: '前の回答を正しいJSONだけに整形して返して。' },
+          { role: 'user', content: raw },
+        ],
+        response_format: { type: 'json_object' as const },
+      });
+      parsed = JSON.parse(again.choices?.[0]?.message?.content ?? '{}');
     }
 
-    return NextResponse.json(parsed);
-  } catch (error) {
-    console.error("❌ 生成エラー:", error);
-    return NextResponse.json({ error: "戦略生成に失敗しました。" }, { status: 500 });
+    const strategySummary: string = parsed?.strategy?.summary ?? '';
+    const cascade = Array.isArray(parsed?.departments) ? parsed.departments : [];
+
+    // ====== 保存：strategy_data へ upsert ======
+    // 会社単位があれば company_id で、無ければ user_id で互換 upsert
+    const payload: any = {
+      company_id: companyId ?? null,
+      user_id: userId ?? null,
+      strategySummary,
+      editableCascadeResult: cascade,  // ツリー本体はここへ
+      // 参考：必要ならフロントの入力も一緒に残せる
+      thought,
+      industry,
+      revenue,
+      employees,
+      mission,
+      vision: visionStatement,
+      value,
+      strength,
+      weakness,
+      opportunity,
+      threat,
+      story,
+      updated_by: userId ?? null,
+      updated_at: new Date().toISOString(),
+    };
+
+    const onConflict = companyId ? 'company_id' : 'user_id';
+
+    const { error: upsertError } = await supabaseAdmin
+      .from('strategy_data')
+      .upsert([payload], { onConflict, returning: 'representation' } as any);
+
+    if (upsertError) {
+      console.error('❌ strategy_data upsert error:', upsertError);
+      // 保存失敗でも、生成結果は返してフロントで扱えるようにする
+    }
+
+    return NextResponse.json({
+      strategy: { summary: strategySummary },
+      departments: cascade,
+    });
+  } catch (err) {
+    console.error('❌ 生成エラー:', err);
+    return NextResponse.json({ error: '戦略生成に失敗しました。' }, { status: 500 });
   }
 }
