@@ -4,8 +4,8 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import getSupabaseAdmin from '@/lib/supabaseAdmin';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin'; // ★ named import に修正
 
 function bearer(req: Request) {
   const h = req.headers.get('authorization') || req.headers.get('Authorization') || '';
