@@ -38,7 +38,6 @@
     "zustand": "^5.0.6"
   },
   "devDependencies": {
-    "@next/swc-win32-x64-msvc": "15.3.4",
     "@types/d3": "^7.4.3",
     "@types/d3-delaunay": "^6.0.4",
     "@types/d3-scale-chromatic": "^3.1.0",
