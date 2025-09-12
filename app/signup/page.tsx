@@ -1,7 +1,7 @@
-// /app/signup/page.tsx
+// /app/signup/page.tsx（フル置き換え）
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { useUserStore } from '@/store/userStore';
@@ -16,7 +16,11 @@ function makeCallbackUrl(path = '/auth/callback') {
   return `${base}${path}`;
 }
 
-export default function SignUpPage() {
+// SSGでの事前レンダリングを避け、CSR前提にする（Next 13+ 推奨）
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+function SignUpInner() {
   const router = useRouter();
   const search = useSearchParams();
   const { setUser, setCompanyId } = useUserStore();
@@ -126,7 +130,7 @@ export default function SignUpPage() {
 
       // 稀にその場でセッションが付与されるケース
       if (data?.session && data.user) {
-        // ✅ 修正：departmentId は undefined（もしくはプロパティ自体省略）にする
+        // ✅ departmentId は undefined（もしくは省略）で整合
         setUser({
           id: data.user.id,
           email: data.user.email ?? '',
@@ -220,5 +224,13 @@ export default function SignUpPage() {
         </div>
       </form>
     </main>
+  );
+}
+
+export default function SignUpPage() {
+  return (
+    <Suspense fallback={<div>Loading…</div>}>
+      <SignUpInner />
+    </Suspense>
   );
 }
