@@ -1,15 +1,20 @@
-// /app/login/page.tsx（フル置き換え）
+// /app/login/page.tsx
 'use client';
 
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useUserStore } from '@/store/userStore';
 import { resolveCompanyId } from '@/utils/company';
 import { joinCompany } from '@/utils/supabase/membership';
 import { isValidUUID, setCompanyIdCookie } from '@/utils/supabase/client';
 
-export default function LoginPage() {
+// Next.js 15 以降: SSG で落ちないように強制的に動的レンダリング
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+function LoginInner() {
   const router = useRouter();
   const search = useSearchParams();
 
@@ -40,16 +45,16 @@ export default function LoginPage() {
       const userId = data.user.id;
       const userEmail = data.user.email ?? '';
 
-      // 2) プロフィールは Auth の user_metadata から取得（/rest/v1/users は使わない）
+      // 2) プロフィールは user_metadata から取得
       const name =
         (data.user.user_metadata?.name as string | undefined) ??
         (data.user.user_metadata?.full_name as string | undefined) ??
         '';
 
-      // 3) まずはプロフィールだけ反映（role はここでは使わない）
+      // 3) まずはプロフィールだけ反映
       setUser({ id: userId, email: userEmail, name, role: 'member' });
 
-      // 4) 招待付きなら参加（company_members へ upsert）
+      // 4) 招待付きなら参加
       let cid: string | null = null;
       if (joinCompanyId && isValidUUID(joinCompanyId)) {
         try {
@@ -61,14 +66,12 @@ export default function LoginPage() {
         }
       }
 
-      // 5) 会社IDを解決（未招待 or 失敗時の保険）
+      // 5) 会社IDを解決（未招待時など）
       if (!cid) cid = await resolveCompanyId();
 
-      // 6) 現在の membership を取得（部門ID・ロールの決定）
-      //    RLS により自分の行のみ見える想定
+      // 6) membership を取得
       let departmentId: string | null = null;
       let role: 'admin' | 'manager' | 'member' | null = null;
-
       try {
         const { data: membershipRow } = await supabase
           .from('company_members')
@@ -78,7 +81,6 @@ export default function LoginPage() {
           .maybeSingle();
 
         if (membershipRow) {
-          // サーバーの真実を優先
           cid = (membershipRow as any).company_id ?? cid ?? null;
           departmentId = (membershipRow as any).department_id ?? null;
           role = (membershipRow as any).role ?? null;
@@ -87,17 +89,15 @@ export default function LoginPage() {
         /* noop */
       }
 
-      // 7) ストアの membership を更新（UI権限はここから確定）
+      // 7) ストア更新
       setMembership({
         companyId: cid ?? null,
         departmentId: departmentId ?? null,
-        role, // null でもOK（未プロビジョニングなど）
+        role,
       });
-
-      // 8) companyId のミラー（互換用途で残す）
       setCompanyId(cid ?? null);
 
-      // 9) トップへ
+      // 8) トップへ
       router.replace('/');
     } catch (e: any) {
       setErrorMessage('ログイン失敗: ' + (e?.message || '不明なエラー'));
@@ -129,7 +129,10 @@ export default function LoginPage() {
 
         <div className="rounded-2xl border border-zinc-200 bg-white/80 backdrop-blur-md p-6 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
           {errorMessage && (
-            <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[13px] text-rose-700" role="alert">
+            <div
+              className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[13px] text-rose-700"
+              role="alert"
+            >
               {errorMessage}
             </div>
           )}
@@ -138,25 +141,35 @@ export default function LoginPage() {
             <div>
               <label className="mb-1 block text-[12px] font-medium text-zinc-700">メールアドレス</label>
               <input
-                type="email" placeholder="you@example.com" value={email}
+                type="email"
+                placeholder="you@example.com"
+                value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full rounded-xl border border-zinc-300 bg-white/90 px-3 py-2 text-[14px] outline-none focus:ring-4 focus:ring-zinc-200"
-                autoComplete="email" inputMode="email" required
+                autoComplete="email"
+                inputMode="email"
+                required
               />
             </div>
 
             <div>
               <label className="mb-1 block text-[12px] font-medium text-zinc-700">パスワード</label>
               <input
-                type="password" placeholder="6文字以上" value={password}
+                type="password"
+                placeholder="6文字以上"
+                value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full rounded-xl border border-zinc-300 bg-white/90 px-3 py-2 text-[14px] outline-none focus:ring-4 focus:ring-zinc-200"
-                autoComplete="current-password" minLength={6} required
+                autoComplete="current-password"
+                minLength={6}
+                required
               />
             </div>
 
             <button
-              type="submit" disabled={loading} aria-busy={loading}
+              type="submit"
+              disabled={loading}
+              aria-busy={loading}
               className={`mt-2 w-full rounded-full h-11 px-5 text-[14px] font-semibold transition ${
                 loading
                   ? 'bg-zinc-200 text-zinc-500 cursor-not-allowed'
@@ -170,14 +183,27 @@ export default function LoginPage() {
 
           <p className="mt-4 text-center text-[13px] text-zinc-600">
             アカウントをお持ちでないですか？{' '}
-            <a href="/signup" className="font-medium text-[color:var(--accent)] hover:opacity-90 underline">
+            <a
+              href="/signup"
+              className="font-medium text-[color:var(--accent)] hover:opacity-90 underline"
+            >
               新規登録はこちら
             </a>
           </p>
         </div>
 
-        <p className="mt-4 text-center text-[11px] text-zinc-500">Enter で送信・Shift+Enter で改行に対応しています</p>
+        <p className="mt-4 text-center text-[11px] text-zinc-500">
+          Enter で送信・Shift+Enter で改行に対応しています
+        </p>
       </div>
     </main>
+  );
+}
+
+export default function LoginPageWrapper() {
+  return (
+    <Suspense fallback={<div>Loading…</div>}>
+      <LoginInner />
+    </Suspense>
   );
 }
