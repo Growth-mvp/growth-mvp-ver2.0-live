@@ -7,6 +7,7 @@ import Sidebar from '@/components/Sidebar';
 import CEOChatPanel from '@/components/CEOChatPanel';
 import { supabase } from '@/lib/supabaseClient';
 import { useUserStore } from '@/store/userStore';
+import { useStrategyStore } from '@/store/strategyStore';
 
 const AUTH_PREFIXES = [
   '/login',
@@ -15,7 +16,7 @@ const AUTH_PREFIXES = [
   '/signup-admin',
   '/auth',
   '/auth/callback',
-  '/auth/welcome', // ← 追加：ウェルカムも認証系扱い（サイドバー非表示）
+  '/auth/welcome', // 認証系扱い（サイドバー非表示）
   '/404',
 ];
 
@@ -33,12 +34,7 @@ function exposeError(e: any) {
   }
 }
 
-/**
- * ストアの“会社所属”を安全に読むためのセレクタ。
- * - membership?.companyId があればそれを返す
- * - なければ companyId 単体、user?.companyId など将来拡張も吸収
- * - 型揺れを許容するため any を限定使用（UI側TSエラー回避）
- */
+/** 会社所属を安全に読むためのセレクタ */
 function selectCompanyId(state: any): string | undefined {
   return (
     state?.membership?.companyId ??
@@ -52,34 +48,54 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
   const pathname = usePathname();
   const router = useRouter();
 
-  // ===== Store =====
+  // ===== User store =====
   const user = useUserStore((s) => s.user);
   const role = useUserStore((s) => s.role);
   const setUser = useUserStore((s) => s.setUser);
-  const setRole = useUserStore((s) => s.setRole); // 'admin' | 'manager' | 'member' | null
-  const setMembership = useUserStore((s) => s.setMembership); // { companyId?: string; departmentId?: string }
+  const setRole = useUserStore((s) => s.setRole);
+  const setMembership = useUserStore((s) => s.setMembership);
 
-  // “会社所属の有無”を型に縛られず取得
   const companyId = useUserStore(selectCompanyId);
 
-  // ===== Guard state =====
-  const [checking, setChecking] = useState(true);          // セッション判定中のみ true
-  const [bootstrapped, setBootstrapped] = useState(false); // membership 同期完了フラグ
+  // ===== Strategy store =====
+  const setStrategyId = useStrategyStore((s) => s.setStrategyId);
 
-  // StrictMode/再入対策フラグ
+  // layout 側で “同一ストア識別子” を刻印（Panel と一致するか確認用）
+  useEffect(() => {
+    const g = (window as any);
+    if (!g.__STRATEGY_STORE_GETSTATE__) {
+      g.__STRATEGY_STORE_GETSTATE__ = useStrategyStore.getState;
+      console.log('[layout] store marker set');
+    } else {
+      console.log(
+        '[layout] store marker already set, same =',
+        g.__STRATEGY_STORE_GETSTATE__ === useStrategyStore.getState
+      );
+    }
+  }, []);
+
+  // ===== Guard state =====
+  const [checking, setChecking] = useState(true);          // セッション判定中
+  const [bootstrapped, setBootstrapped] = useState(false); // membership 同期完了
+
+  // StrictMode/再入対策
   const initInFlight = useRef(false);
   const memInFlight = useRef(false);
   const cleaned = useRef(false);
   const routedRef = useRef(false);
 
-  // 単一タイムアウト（membership待ちフェイルセーフ）
+  // membership待ちフェイルセーフ
   const bootstrapTimer = useRef<number | null>(null);
+
+  // provision 多重実行ガード
+  const provisionInFlight = useRef(false);
+  const lastProvisionForCompany = useRef<string | null>(null);
 
   // 事前フェッチ
   useEffect(() => {
     router.prefetch('/login');
     router.prefetch('/');
-    router.prefetch('/auth/welcome'); // ← 追加
+    router.prefetch('/auth/welcome');
   }, [router]);
 
   /** 6秒フェイルセーフ：user がいても membership/companyId が上がらない時に UI を ready 化 */
@@ -90,7 +106,7 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
     bootstrapTimer.current = window.setTimeout(() => {
       if (!cleaned.current && !bootstrapped) {
         console.warn('[bootstrap] membership timeout → force ready');
-        setBootstrapped(true); // UIは進める
+        setBootstrapped(true);
       }
     }, 6000);
 
@@ -102,7 +118,7 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
     };
   }, [user?.id, bootstrapped]);
 
-  // 1) セッション初期確認 + 監視（onAuthStateChange）
+  // 1) セッション初期確認 + 監視
   useEffect(() => {
     if (initInFlight.current) return;
     initInFlight.current = true;
@@ -126,10 +142,11 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
         const session = sres?.session ?? null;
 
         if (!session) {
-          // 未ログイン：storeクリア→保護ページなら /login
+          // 未ログイン：store クリア
           setUser(null);
           setRole(null);
           setMembership({ companyId: undefined, departmentId: undefined });
+          setStrategyId(null); // 戦略IDもクリア
 
           if (!isAuthPath(pathname) && !routedRef.current) {
             routedRef.current = true;
@@ -138,7 +155,7 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
           return;
         }
 
-        // ログイン中：ユーザー情報セット（emailはセッションから）
+        // ログイン中：ユーザー情報セット
         const uid = session.user.id;
         const email = session.user.email ?? '';
 
@@ -146,10 +163,8 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
           id: uid,
           email,
           name: '',
-          role: 'member', // 仮置き。membershipで上書き
+          role: 'member', // 仮置き。membership で上書き
         });
-
-        // membership を別エフェクトで取得するため、ここでは終わり
       } finally {
         finishChecking();
       }
@@ -167,6 +182,7 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
         setUser(null);
         setRole(null);
         setMembership({ companyId: undefined, departmentId: undefined });
+        setStrategyId(null);
         setBootstrapped(true); // UIは進める
         if (!isAuthPath(pathname) && !routedRef.current) {
           routedRef.current = true;
@@ -175,7 +191,7 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
         return;
       }
 
-      // ログイン（またはトークン更新）→ user反映 & membership再取得へ
+      // ログイン/トークン更新
       setUser({
         id: sess.user.id,
         email: sess.user.email ?? '',
@@ -215,7 +231,6 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
         if (signal.aborted) return;
 
         if (error) {
-          // RLS等の可能性。UIは先に進める（ウェルカム誘導は後段で）
           if (status && status !== 406) {
             console.warn('[init] company_members error:', exposeError(error), { status });
           }
@@ -225,7 +240,7 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
         }
 
         if (!data) {
-          // 所属なし：正常
+          // 所属なし
           setMembership({ companyId: undefined, departmentId: undefined });
           setRole('member');
           return;
@@ -247,7 +262,80 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
     };
   }, [user?.id, setMembership, setRole]);
 
-  // 3) ルーティング制御（checking 完了後に判定）
+  // 2.5) strategyId provision：bootstrapped かつ companyId 確定、認証系画面以外のみ
+  useEffect(() => {
+    const onAuthScene = isAuthPath(pathname);
+    if (!bootstrapped) {
+      console.log('[layout] skip provision: bootstrapped=false');
+      return;
+    }
+    if (!companyId) {
+      // 所属不明：一旦クリア
+      setStrategyId(null);
+      return;
+    }
+    if (onAuthScene) return;
+
+    // 同じ companyId で多重呼び出ししない
+    if (provisionInFlight.current) return;
+    if (lastProvisionForCompany.current === companyId) {
+      console.log('[layout] skip provision: already provisioned for', companyId);
+      return;
+    }
+
+    console.log('[layout] companyId, bootstrapped =', companyId, bootstrapped);
+
+    provisionInFlight.current = true;
+    const ac = new AbortController();
+    const { signal } = ac;
+
+    (async () => {
+      try {
+        const res = await fetch('/api/companies/provision', { method: 'POST', signal });
+        const json = await res.json().catch(() => null);
+
+        // 期待: { ok: true, companyId: '...', strategyId: '...', note: '...' }
+        console.log('[layout] provision json =', json ?? 'null');
+        if (signal.aborted) return;
+
+        if (json?.ok) {
+          // 念のため companyId の整合
+          if (json.companyId && json.companyId !== companyId) {
+            useUserStore.getState().setMembership({
+              companyId: json.companyId,
+              departmentId: undefined,
+            });
+          }
+
+          console.log('[layout] setStrategyId(', json.strategyId, ')');
+          setStrategyId(json.strategyId ?? null);
+
+          // 反映確認（read-back）
+          const readBack = useStrategyStore.getState().strategyId;
+          console.log('[layout] read-back strategyId =', readBack);
+
+          lastProvisionForCompany.current = json.companyId ?? companyId;
+        } else {
+          console.warn('[layout] provision response not ok:', json);
+          setStrategyId(null);
+        }
+      } catch (e) {
+        if (!signal.aborted) {
+          console.warn('[layout] provision failed:', exposeError(e));
+          setStrategyId(null);
+        }
+      } finally {
+        provisionInFlight.current = false;
+      }
+    })();
+
+    return () => {
+      ac.abort();
+      provisionInFlight.current = false;
+    };
+  }, [bootstrapped, companyId, pathname, setStrategyId]);
+
+  // 3) ルーティング制御（checking 完了後）
   useEffect(() => {
     if (checking) return; // セッション未判定
     if (routedRef.current) return;
@@ -262,14 +350,14 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
       return;
     }
 
-    // ログイン済みで所属なし → /auth/welcome（ただし認証系画面は除外）
+    // ログイン済みで所属なし → /auth/welcome
     if (authed && !onAuthScene && bootstrapped && !companyId) {
       routedRef.current = true;
       router.replace('/auth/welcome');
       return;
     }
 
-    // /admin は admin のみ（bootstrapped 後にロール判定）
+    // /admin は admin のみ
     if (authed && isAdminPath(pathname) && bootstrapped) {
       const r = (role ?? 'member') as 'admin' | 'manager' | 'member';
       if (r !== 'admin') {
@@ -282,9 +370,12 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
 
   // ==== 表示制御 ====
   const hideSidebar = isAuthPath(pathname);
-  const dockWidthExpr = 'min(calc(100vw - 8px), var(--agent-dock-w, 360px))';
 
-  // ローディングは “認証チェック中のみ” に限定
+  // Sidebar と CEOChatPanel を同幅に揃える（base:16rem=64、md:18rem=72）
+  // ここで定義した CSS 変数 --pane-w を本文左右の margin にも共用
+  const dockWidthExpr = 'var(--pane-w, 16rem)';
+
+  // 認証チェック中のみローディング
   if (!hideSidebar && checking) {
     return (
       <div className="grid min-h-dvh place-items-center text-sm text-gray-500">
@@ -294,9 +385,17 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
   }
 
   return (
-    <div className="relative min-h-dvh overflow-hidden">
+    // ▼ base: 16rem (=w-64), md以上: 18rem (=w-72)
+    <div
+      className={[
+        'relative min-h-dvh overflow-hidden',
+        '[--pane-w:16rem] md:[--pane-w:18rem]',
+      ].join(' ')}
+    >
+      {/* 左サイドバー（内部はおそらく w-64 md:w-72） */}
       {!hideSidebar && <Sidebar />}
 
+      {/* 右ドック：Sidebar と同幅に統一 */}
       {!hideSidebar && (
         <aside
           className={[
@@ -312,7 +411,7 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
             <div
               className={[
                 'ml-auto w-full h-full',
-                'max-w-[var(--agent-dock-w,360px)]',
+                'max-w-[var(--pane-w)]',
                 '[&>*]:w-full [&>*]:max-w-none [&>*]:ml-0',
               ].join(' ')}
             >
@@ -322,15 +421,18 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
         </aside>
       )}
 
+      {/* メイン：左右のマージンを --pane-w で同期（Sidebar・Dock と完全一致） */}
       <main
         className={[
           'absolute inset-0 overflow-y-auto overflow-x-hidden',
           'bg-gradient-to-b from-white to-slate-50/60',
           'p-4 md:p-8 pb-[calc(2rem+env(safe-area-inset-bottom))]',
           'min-w-0',
-          !hideSidebar ? 'ml-64 md:ml-72' : '',
         ].join(' ')}
-        style={{ marginRight: !hideSidebar ? `calc(${dockWidthExpr})` : undefined }}
+        style={{
+          marginLeft: !hideSidebar ? dockWidthExpr : undefined,
+          marginRight: !hideSidebar ? dockWidthExpr : undefined,
+        }}
         role="main"
         aria-live="polite"
       >
