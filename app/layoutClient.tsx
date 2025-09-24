@@ -16,7 +16,7 @@ const AUTH_PREFIXES = [
   '/signup-admin',
   '/auth',
   '/auth/callback',
-  '/auth/welcome', // 認証系扱い（サイドバー非表示）
+  '/auth/welcome',
   '/404',
 ];
 
@@ -54,29 +54,25 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
   const setUser = useUserStore((s) => s.setUser);
   const setRole = useUserStore((s) => s.setRole);
   const setMembership = useUserStore((s) => s.setMembership);
-
   const companyId = useUserStore(selectCompanyId);
 
   // ===== Strategy store =====
   const setStrategyId = useStrategyStore((s) => s.setStrategyId);
 
-  // layout 側で “同一ストア識別子” を刻印（Panel と一致するか確認用）
+  // デバッグ用マーカー
   useEffect(() => {
     const g = (window as any);
     if (!g.__STRATEGY_STORE_GETSTATE__) {
       g.__STRATEGY_STORE_GETSTATE__ = useStrategyStore.getState;
       console.log('[layout] store marker set');
     } else {
-      console.log(
-        '[layout] store marker already set, same =',
-        g.__STRATEGY_STORE_GETSTATE__ === useStrategyStore.getState
-      );
+      console.log('[layout] store marker already set, same =', g.__STRATEGY_STORE_GETSTATE__ === useStrategyStore.getState);
     }
   }, []);
 
   // ===== Guard state =====
-  const [checking, setChecking] = useState(true);          // セッション判定中
-  const [bootstrapped, setBootstrapped] = useState(false); // membership 同期完了
+  const [checking, setChecking] = useState(true);
+  const [bootstrapped, setBootstrapped] = useState(false);
 
   // StrictMode/再入対策
   const initInFlight = useRef(false);
@@ -91,6 +87,10 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
   const provisionInFlight = useRef(false);
   const lastProvisionForCompany = useRef<string | null>(null);
 
+  // ====== モバイル用：左右ドロワーの開閉 ======
+  const [openLeft, setOpenLeft] = useState(false);
+  const [openRight, setOpenRight] = useState(false);
+
   // 事前フェッチ
   useEffect(() => {
     router.prefetch('/login');
@@ -98,18 +98,16 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
     router.prefetch('/auth/welcome');
   }, [router]);
 
-  /** 6秒フェイルセーフ：user がいても membership/companyId が上がらない時に UI を ready 化 */
+  /** 6秒フェイルセーフ */
   useEffect(() => {
     if (!user?.id || bootstrapped) return;
     if (bootstrapTimer.current != null) return;
-
     bootstrapTimer.current = window.setTimeout(() => {
       if (!cleaned.current && !bootstrapped) {
         console.warn('[bootstrap] membership timeout → force ready');
         setBootstrapped(true);
       }
     }, 6000);
-
     return () => {
       if (bootstrapTimer.current != null) {
         clearTimeout(bootstrapTimer.current);
@@ -142,12 +140,11 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
         const session = sres?.session ?? null;
 
         if (!session) {
-          // 未ログイン：store クリア
+          // 未ログイン
           setUser(null);
           setRole(null);
           setMembership({ companyId: undefined, departmentId: undefined });
-          setStrategyId(null); // 戦略IDもクリア
-
+          setStrategyId(null);
           if (!isAuthPath(pathname) && !routedRef.current) {
             routedRef.current = true;
             router.replace('/login');
@@ -155,25 +152,17 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
           return;
         }
 
-        // ログイン中：ユーザー情報セット
+        // ログイン中
         const uid = session.user.id;
         const email = session.user.email ?? '';
-
-        setUser({
-          id: uid,
-          email,
-          name: '',
-          role: 'member', // 仮置き。membership で上書き
-        });
+        setUser({ id: uid, email, name: '', role: 'member' }); // roleはmembershipで上書き
       } finally {
         finishChecking();
       }
     };
 
-    // 初回実行
     bootstrapSession();
 
-    // セッション変化に追従
     const { data: sub } = supabase.auth.onAuthStateChange((_evt, sess) => {
       if (signal.aborted) return;
 
@@ -183,7 +172,7 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
         setRole(null);
         setMembership({ companyId: undefined, departmentId: undefined });
         setStrategyId(null);
-        setBootstrapped(true); // UIは進める
+        setBootstrapped(true);
         if (!isAuthPath(pathname) && !routedRef.current) {
           routedRef.current = true;
           router.replace('/login');
@@ -192,12 +181,7 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
       }
 
       // ログイン/トークン更新
-      setUser({
-        id: sess.user.id,
-        email: sess.user.email ?? '',
-        name: '',
-        role: 'member',
-      });
+      setUser({ id: sess.user.id, email: sess.user.email ?? '', name: '', role: 'member' });
       setBootstrapped(false);
     });
 
@@ -208,9 +192,9 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
       initInFlight.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // 初回のみ
+  }, []);
 
-  // 2) membership 読み込み（user.id が確定してから）
+  // 2) membership 読み込み
   useEffect(() => {
     if (!user?.id) return;
     if (memInFlight.current) return;
@@ -240,7 +224,6 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
         }
 
         if (!data) {
-          // 所属なし
           setMembership({ companyId: undefined, departmentId: undefined });
           setRole('member');
           return;
@@ -255,35 +238,23 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
     };
 
     loadMembership();
-
     return () => {
       ac.abort();
       memInFlight.current = false;
     };
   }, [user?.id, setMembership, setRole]);
 
-  // 2.5) strategyId provision：bootstrapped かつ companyId 確定、認証系画面以外のみ
+  // 2.5) strategyId provision
   useEffect(() => {
     const onAuthScene = isAuthPath(pathname);
-    if (!bootstrapped) {
-      console.log('[layout] skip provision: bootstrapped=false');
-      return;
-    }
+    if (!bootstrapped) return;
     if (!companyId) {
-      // 所属不明：一旦クリア
       setStrategyId(null);
       return;
     }
     if (onAuthScene) return;
-
-    // 同じ companyId で多重呼び出ししない
     if (provisionInFlight.current) return;
-    if (lastProvisionForCompany.current === companyId) {
-      console.log('[layout] skip provision: already provisioned for', companyId);
-      return;
-    }
-
-    console.log('[layout] companyId, bootstrapped =', companyId, bootstrapped);
+    if (lastProvisionForCompany.current === companyId) return;
 
     provisionInFlight.current = true;
     const ac = new AbortController();
@@ -293,27 +264,13 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
       try {
         const res = await fetch('/api/companies/provision', { method: 'POST', signal });
         const json = await res.json().catch(() => null);
-
-        // 期待: { ok: true, companyId: '...', strategyId: '...', note: '...' }
-        console.log('[layout] provision json =', json ?? 'null');
         if (signal.aborted) return;
 
         if (json?.ok) {
-          // 念のため companyId の整合
           if (json.companyId && json.companyId !== companyId) {
-            useUserStore.getState().setMembership({
-              companyId: json.companyId,
-              departmentId: undefined,
-            });
+            useUserStore.getState().setMembership({ companyId: json.companyId, departmentId: undefined });
           }
-
-          console.log('[layout] setStrategyId(', json.strategyId, ')');
           setStrategyId(json.strategyId ?? null);
-
-          // 反映確認（read-back）
-          const readBack = useStrategyStore.getState().strategyId;
-          console.log('[layout] read-back strategyId =', readBack);
-
           lastProvisionForCompany.current = json.companyId ?? companyId;
         } else {
           console.warn('[layout] provision response not ok:', json);
@@ -335,29 +292,24 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
     };
   }, [bootstrapped, companyId, pathname, setStrategyId]);
 
-  // 3) ルーティング制御（checking 完了後）
+  // 3) ルーティング制御
   useEffect(() => {
-    if (checking) return; // セッション未判定
+    if (checking) return;
     if (routedRef.current) return;
 
     const authed = !!user?.id;
     const onAuthScene = isAuthPath(pathname);
 
-    // 未ログインで保護ルート → /login
     if (!authed && !onAuthScene) {
       routedRef.current = true;
       router.replace('/login');
       return;
     }
-
-    // ログイン済みで所属なし → /auth/welcome
     if (authed && !onAuthScene && bootstrapped && !companyId) {
       routedRef.current = true;
       router.replace('/auth/welcome');
       return;
     }
-
-    // /admin は admin のみ
     if (authed && isAdminPath(pathname) && bootstrapped) {
       const r = (role ?? 'member') as 'admin' | 'manager' | 'member';
       if (r !== 'admin') {
@@ -371,11 +323,13 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
   // ==== 表示制御 ====
   const hideSidebar = isAuthPath(pathname);
 
-  // Sidebar と CEOChatPanel を同幅に揃える（base:16rem=64、md:18rem=72）
-  // ここで定義した CSS 変数 --pane-w を本文左右の margin にも共用
-  const dockWidthExpr = 'var(--pane-w, 16rem)';
+  // 可変マージン：モバイルは 0、lg以上で左右ペイン分を確保
+  // left: 16rem(=w-64) → xlで18rem(=w-72)
+  // right: 16rem(=w-64) → xlで18rem(=w-72)
+  const leftVar = 'var(--left-w, 0px)';
+  const rightVar = 'var(--right-w, 0px)';
 
-  // 認証チェック中のみローディング
+  // ローディング
   if (!hideSidebar && checking) {
     return (
       <div className="grid min-h-dvh place-items-center text-sm text-gray-500">
@@ -385,57 +339,149 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
   }
 
   return (
-    // ▼ base: 16rem (=w-64), md以上: 18rem (=w-72)
+    // base: 1ペイン（左右=0）→ lg: 左右固定幅 → xl: 少し広げる
     <div
       className={[
         'relative min-h-dvh overflow-hidden',
-        '[--pane-w:16rem] md:[--pane-w:18rem]',
+        '[--left-w:0] [--right-w:0]',
+        'lg:[--left-w:16rem] lg:[--right-w:16rem]',
+        'xl:[--left-w:18rem] xl:[--right-w:18rem]',
       ].join(' ')}
     >
-      {/* 左サイドバー（内部はおそらく w-64 md:w-72） */}
-      {!hideSidebar && <Sidebar />}
-
-      {/* 右ドック：Sidebar と同幅に統一 */}
+      {/* ===== 左サイドバー ===== */}
       {!hideSidebar && (
-        <aside
-          className={[
-            'fixed top-0 right-0 z-10 h-dvh',
-            'border-l border-black/5 bg-white/70 backdrop-blur-md supports-[backdrop-filter]:bg-white/60',
-            'shadow-[0_0_24px_rgba(0,0,0,0.04)]',
-            'flex flex-col box-border overflow-hidden',
-          ].join(' ')}
-          style={{ width: dockWidthExpr }}
-          aria-label="AIアシスタントドック"
-        >
-          <div className="min-h-0 flex-1 overflow-y-auto">
+        <>
+          {/* デスクトップ固定（lg+） */}
+          <div className="hidden lg:block fixed left-0 top-0 z-10 h-dvh w-[var(--left-w)]">
+            <Sidebar />
+          </div>
+
+          {/* モバイル/タブレット：ドロワー（lg未満で使用） */}
+          <div
+            className={[
+              'lg:hidden fixed inset-0 z-40',
+              openLeft ? 'pointer-events-auto' : 'pointer-events-none',
+            ].join(' ')}
+            aria-hidden={!openLeft}
+          >
+            {/* 背景 */}
             <div
               className={[
-                'ml-auto w-full h-full',
-                'max-w-[var(--pane-w)]',
-                '[&>*]:w-full [&>*]:max-w-none [&>*]:ml-0',
+                'absolute inset-0 bg-black/40 transition-opacity',
+                openLeft ? 'opacity-100' : 'opacity-0',
               ].join(' ')}
+              onClick={() => setOpenLeft(false)}
+            />
+            {/* パネル */}
+            <div
+              className={[
+                'absolute left-0 top-0 h-dvh w-[16rem] max-w-[80vw]',
+                'bg-white shadow-xl border-r border-black/5',
+                'transition-transform duration-200',
+                openLeft ? 'translate-x-0' : '-translate-x-full',
+              ].join(' ')}
+              role="dialog"
+              aria-label="メニュー"
             >
-              <CEOChatPanel />
+              <Sidebar />
             </div>
           </div>
-        </aside>
+        </>
       )}
 
-      {/* メイン：左右のマージンを --pane-w で同期（Sidebar・Dock と完全一致） */}
+      {/* ===== 右AIドック ===== */}
+      {!hideSidebar && (
+        <>
+          {/* デスクトップ固定（lg+） */}
+          <aside
+            className={[
+              'hidden lg:flex fixed top-0 right-0 z-10 h-dvh',
+              'border-l border-black/5 bg-white/70 backdrop-blur-md supports-[backdrop-filter]:bg-white/60',
+              'shadow-[0_0_24px_rgba(0,0,0,0.04)]',
+              'flex-col box-border overflow-hidden',
+              'w-[var(--right-w)]',
+            ].join(' ')}
+            aria-label="AIアシスタントドック"
+          >
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="ml-auto w-full h-full max-w-[var(--right-w)] [&>*]:w-full [&>*]:max-w-none [&>*]:ml-0">
+                <CEOChatPanel />
+              </div>
+            </div>
+          </aside>
+
+          {/* モバイル/タブレット：ドロワー（lg未満で使用） */}
+          <div
+            className={[
+              'lg:hidden fixed inset-0 z-40',
+              openRight ? 'pointer-events-auto' : 'pointer-events-none',
+            ].join(' ')}
+            aria-hidden={!openRight}
+          >
+            {/* 背景 */}
+            <div
+              className={[
+                'absolute inset-0 bg-black/40 transition-opacity',
+                openRight ? 'opacity-100' : 'opacity-0',
+              ].join(' ')}
+              onClick={() => setOpenRight(false)}
+            />
+            {/* パネル（右から） */}
+            <div
+              className={[
+                'absolute right-0 top-0 h-dvh w-[16rem] max-w-[90vw]',
+                'bg-white shadow-xl border-l border-black/5',
+                'transition-transform duration-200',
+                openRight ? 'translate-x-0' : 'translate-x-full',
+              ].join(' ')}
+              role="dialog"
+              aria-label="AIアシスタント"
+            >
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <div className="[&>*]:w-full [&>*]:max-w-none [&>*]:ml-0">
+                  <CEOChatPanel />
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ===== メイン ===== */}
       <main
         className={[
           'absolute inset-0 overflow-y-auto overflow-x-hidden',
           'bg-gradient-to-b from-white to-slate-50/60',
-          'p-4 md:p-8 pb-[calc(2rem+env(safe-area-inset-bottom))]',
+          'p-3 sm:p-4 md:p-6 lg:p-8 pb-[calc(2rem+env(safe-area-inset-bottom))]',
           'min-w-0',
         ].join(' ')}
         style={{
-          marginLeft: !hideSidebar ? dockWidthExpr : undefined,
-          marginRight: !hideSidebar ? dockWidthExpr : undefined,
+          marginLeft: !hideSidebar ? leftVar : undefined,
+          marginRight: !hideSidebar ? rightVar : undefined,
         }}
         role="main"
         aria-live="polite"
       >
+        {/* モバイル：トップバーにトグル（lg未満で表示） */}
+        {!hideSidebar && (
+          <div className="lg:hidden sticky top-0 z-20 -mt-3 -mx-3 sm:-mx-4 md:-mx-6 mb-3 sm:mb-4 bg-white/70 backdrop-blur supports-[backdrop-filter]:bg-white/60 border-b border-black/5">
+            <div className="px-3 sm:px-4 md:px-6 py-2 flex items-center justify-between">
+              <button
+                onClick={() => setOpenLeft(true)}
+                className="rounded-lg border border-black/10 px-3 py-1.5 text-sm shadow-sm bg-white active:scale-[0.99]"
+              >
+                メニュー
+              </button>
+              <button
+                onClick={() => setOpenRight(true)}
+                className="rounded-lg border border-black/10 px-3 py-1.5 text-sm shadow-sm bg-white active:scale-[0.99]"
+              >
+                AIアシスタント
+              </button>
+            </div>
+          </div>
+        )}
+
         {children}
       </main>
     </div>
