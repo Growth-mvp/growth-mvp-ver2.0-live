@@ -5,12 +5,11 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStrategyStore } from '@/store/strategyStore';
 import StepLayout from '@/components/StepLayout';
+import { getIndustryLabel } from '@/utils/industryTemplates';
 
 /* =========================================================
  * Apple風ミニマル確認画面
  * - ガラスカード / 余白広め / モノトーン / 情報の階層化
- * - 絵文字装飾は最小限にし、アイコンも控えめ
- * - 生成ボタンは pill 形状 + スピナー
  * ========================================================= */
 
 // セッターが無ければ setState にフォールバックする安全ラッパー
@@ -57,12 +56,12 @@ function InfoRow({ label, value }: { label: string; value: string | number | nul
 
 export default function Step5Confirm() {
   const router = useRouter();
-  const st = useStrategyStore() as any; // ストア全体
+  const st = useStrategyStore() as any;
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [localNotice, setLocalNotice] = useState('');
 
-  // 値は未定義でも空扱いにしておく
+  // 値（空文字防止）
   const companyName: string = st?.companyName ?? '';
   const foundationYear: string = st?.foundationYear ?? '';
   const location: string = st?.location ?? '';
@@ -86,6 +85,10 @@ export default function Step5Confirm() {
   const answers: any = st?.answers ?? null;
   const answers2: any = st?.answers2 ?? null;
 
+  // 日本語ラベルへ変換（full: 詳細表記）
+  const industryJa = industry ? getIndustryLabel(industry, { full: true }) : '';
+
+  // ストーリー生成
   const handleGenerate = async () => {
     if (isGenerating) return;
     setIsGenerating(true);
@@ -135,9 +138,12 @@ export default function Step5Confirm() {
   return (
     <StepLayout step={5} totalSteps={5} title="入力内容の最終確認">
       <div className="space-y-6">
-        {/* 通知（ストア通知が無い場合はローカル表示） */}
+        {/* 通知 */}
         {localNotice && (
-          <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          <div
+            role="alert"
+            className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"
+          >
             {localNotice}
           </div>
         )}
@@ -149,7 +155,8 @@ export default function Step5Confirm() {
               <InfoRow label="会社名" value={companyName} />
               <InfoRow label="設立年" value={foundationYear} />
               <InfoRow label="所在地" value={location} />
-              <InfoRow label="業種" value={industry} />
+              {/* ✅ 業種を日本語で表示 */}
+              <InfoRow label="業種" value={industryJa} />
               <InfoRow label="売上" value={revenue ? `${revenue} 百万円` : ''} />
               <InfoRow label="従業員数" value={employees ? `${employees} 人` : ''} />
             </div>
@@ -210,7 +217,9 @@ export default function Step5Confirm() {
         </GlassCard>
 
         {/* 注意書き */}
-        <div className="text-center text-xs text-gray-500">「ストーリーを生成」を押すと、AIがたたき台ストーリーを作成します。</div>
+        <div className="text-center text-xs text-gray-500">
+          「ストーリーを生成」を押すと、AIがたたき台ストーリーを作成します。
+        </div>
 
         {/* 生成ボタン */}
         <div className="flex justify-center">
