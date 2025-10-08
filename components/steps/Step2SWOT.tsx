@@ -4,6 +4,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import StepLayout from '@/components/StepLayout';
+import { getIndustryLabel } from '@/utils/industryTemplates';
 
 /* =========================
  * 共通ユーティリティ
@@ -63,7 +64,6 @@ type OTParsed = { opp: string; thr: string };
 const THREAT_WORDS = [
   '脅威','競争','価格','コスト','原材料','為替','景気','不況','低迷','縮小','不足','遅延','規制','関税','罰則',
   '人材不足','離職','流出','模倣','訴訟','サイバー','セキュリティ','地政学','災害','不確実','不安定','インフレ','デフレ','金利','リスク','顧客離れ',
-  // 追加の“やわらか表現”
   '需要減','値下げ圧力','原価上昇','納期','品質問題','クレーム','情報漏えい','個人情報','障壁','停滞','先行投資負担',
   'threat','threats','risk','risks','competition','price','regulation','tariff','lawsuit','inflation','recession','shortage','delay','security','cyber','geopolitical'
 ];
@@ -90,7 +90,6 @@ function toText(v: any): string {
   return '';
 }
 
-// 追加：Markdown表対応（| 機会 | 脅威 | 形式）
 function tryMarkdownTable(text: string): OTParsed | null {
   const lines = text.split('\n').map(l => l.trim());
   if (lines.length < 2) return null;
@@ -150,7 +149,6 @@ function tryHeadings(text: string): OTParsed | null {
 }
 
 function tryInline(text: string): OTParsed | null {
-  // 機会: ... / 脅威: ... 形式
   const reOpp = /(Opportunit(?:y|ies)|機会)\s*:\s*([\s\S]*?)(?=(?:\n{2,}|[/／｜\|]|$|\n\s*(?:Threats?|脅威)\s*:))/i;
   const reThr = /(Threats?|脅威)\s*:\s*([\s\S]*)/i;
   const m1 = text.match(reOpp);
@@ -163,7 +161,6 @@ function tryInline(text: string): OTParsed | null {
 }
 
 function tryScan(text: string): OTParsed | null {
-  // 行走査で [O]/[T]・見出し末尾・箇条書きを分類
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
   let mode: 'opp' | 'thr' | null = null;
   const oppL: string[] = [];
@@ -191,7 +188,6 @@ function tryScan(text: string): OTParsed | null {
 }
 
 function forceSplit(text: string): OTParsed {
-  // 最初に出現する「脅威/Threat」位置で強制スプリット
   const idxThr = text.search(/(?:^|\n)\s*(?:[#■【\[]?\s*(?:Threats?|脅威)\s*[\]】]?)\s*:?/i);
   if (idxThr > -1) {
     const left = text.slice(0, idxThr);
@@ -200,7 +196,6 @@ function forceSplit(text: string): OTParsed {
     const thr = stripLabel(right.replace(/^(?:[#■【\[]?\s*(?:Threats?|脅威)\s*[\]】]?)\s*:?\s*/i, '')).trim();
     return { opp, thr };
   }
-  // 「機会/Opportunity」の位置で逆スプリット（機会ラベルが後方にある珍例）
   const idxOpp = text.search(/(?:^|\n)\s*(?:[#■【\[]?\s*(?:Opportunit(?:y|ies)|機会)\s*[\]】]?)\s*:?/i);
   if (idxOpp > -1 && idxOpp > 0) {
     const left = text.slice(0, idxOpp);
@@ -222,7 +217,6 @@ function classifyFallback(text: string): OTParsed {
       THREAT_WORDS.some((kw) => lower.includes(kw)) ||
       /(不|難|低迷|下落|減少|弱|課題|懸念|阻害|障害|問題)/.test(l);
     if (/(?:機会|opportunit(?:y|ies))/i.test(l) && /(脅威|threat)/i.test(l)) {
-      // 1行に両語：脅威語の直前で分割
       const idx = l.search(/(脅威|threat)/i);
       const left = l.slice(0, idx).replace(/(機会|opportunit(?:y|ies))[:：]?\s*/i, '').trim();
       const right = l.slice(idx).replace(/(脅威|threats?)[:：]?\s*/i, '').trim();
@@ -240,35 +234,27 @@ function classifyFallback(text: string): OTParsed {
 function parseOT(raw: string): OTParsed {
   const text = normalize(raw);
 
-  // 0) Markdown表（最優先）
   const tbl = tryMarkdownTable(text);
   if (tbl && (tbl.opp || tbl.thr)) return tbl;
 
-  // 1) JSON
   const j = tryJSON(text);
   if (j && (j.opp || j.thr)) return j;
 
-  // 2) 見出し
   const h = tryHeadings(text);
   if (h && (h.opp || h.thr)) return h;
 
-  // 3) インライン
   const inl = tryInline(text);
   if (inl && (inl.opp || inl.thr)) return inl;
 
-  // 4) 行スキャン
   const sc = tryScan(text);
   if (sc && (sc.opp || sc.thr)) return sc;
 
-  // 5) 強制スプリット
   const fs = forceSplit(text);
   if (fs.opp || fs.thr) return fs;
 
-  // 6) 行単位分類
   const fb = classifyFallback(text);
   if (fb.opp || fb.thr) return fb;
 
-  // 7) 最終：混在回避のため opp のみに置く
   return { opp: text, thr: '' };
 }
 
@@ -288,6 +274,9 @@ export default function Step2SWOT() {
   const revenue: string = st?.revenue ?? '';
   const employees: string = st?.employees ?? '';
   const businessContent: string = st?.businessContent ?? '';
+
+  // 日本語ラベル（ヘッダ表示用）
+  const industryJa = industry ? getIndustryLabel(industry, { full: true }) : '';
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -310,6 +299,7 @@ export default function Step2SWOT() {
       const res = await fetch('/api/generate-ot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        // API には従来どおり英語コードの industry を送る（表示だけ日本語）
         body: JSON.stringify({ industry, revenue, employees, businessContent }),
         signal: controller.signal,
       });
@@ -329,17 +319,14 @@ export default function Step2SWOT() {
         thrText = thrText || thr;
       }
 
-      // 最低限の安全策：どちらも空の場合は何もしない（UIにエラー表示はしない）
       if (!oppText && !thrText) {
         setLoading(false);
         return;
       }
 
-      // 先にクリアして混在上書き回避
       setFieldSafe(st, 'opportunity', '');
       setFieldSafe(st, 'threat', '');
 
-      // 取得できたほうだけ更新（混在回避）
       if (oppText) setFieldSafe(st, 'opportunity', oppText);
       if (thrText) setFieldSafe(st, 'threat', thrText);
 
@@ -354,11 +341,15 @@ export default function Step2SWOT() {
   };
 
   const headerNote = useMemo(() => {
-    const parts = [industry && `業種：${industry}`, revenue && `売上：${revenue}`, employees && `従業員：${employees}`]
+    const parts = [
+      industryJa && `業種：${industryJa}`,
+      revenue && `売上：${revenue}`,
+      employees && `従業員：${employees}`,
+    ]
       .filter(Boolean)
       .join(' / ');
     return parts || '会社情報（業種・売上・従業員 等）を入れると精度が上がります';
-  }, [industry, revenue, employees]);
+  }, [industryJa, revenue, employees]);
 
   return (
     <StepLayout step={2} totalSteps={5} title="STEP 2：SWOT分析（強み・弱み・機会・脅威）">
