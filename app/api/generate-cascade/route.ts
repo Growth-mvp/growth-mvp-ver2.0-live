@@ -3,7 +3,7 @@ export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { openai } from '@/lib/openai';
-import { industryTemplates } from '@/utils/industryTemplates';
+import { industryTemplates, getIndustryLabel } from '@/utils/industryTemplates'; // ★ getIndustryLabel追加
 import { toTextStory, extractJsonObject, sanitizeText } from '@/app/api/_shared/utils';
 import { z } from 'zod';
 
@@ -31,13 +31,34 @@ const ResponseSchema = z.object({
 });
 
 /* =========================
+ * リクエスト軽量バリデーション
+ * ======================= */
+const ReqSchema = z.object({
+  thought: z.string().optional(),
+  vision: z.string().optional(),
+  mission: z.string().optional(),
+  industry: z.string().optional(),
+  revenue: z.union([z.string(), z.number()]).optional(),
+  employees: z.union([z.string(), z.number()]).optional(),
+  value: z.string().optional(),
+  strength: z.string().optional(),
+  weakness: z.string().optional(),
+  opportunity: z.string().optional(),
+  threat: z.string().optional(),
+  story: z.any().optional(), // 既存仕様：toTextStory で吸収
+  strategySummary: z.string().optional(),
+  departments: z.array(z.any()).optional().default([]),
+  csvFinanceData: z.array(z.record(z.any())).optional().default([]),
+});
+
+/* =========================
  * 小ユーティリティ
  * ======================= */
 const toLinesFromCsv = (csvRows: any[], limit = 5) =>
-  csvRows
+  (csvRows || [])
     .slice(0, limit)
     .map((row: any, i: number) =>
-      `【${i + 1}行目】 ${Object.entries(row)
+      `【${i + 1}行目】 ${Object.entries(row || {})
         .map(([k, v]) => `${k}: ${v}`)
         .join(', ')}`
     )
@@ -45,7 +66,11 @@ const toLinesFromCsv = (csvRows: any[], limit = 5) =>
 
 function onlyDeptNames(list: any[]): string[] {
   return (list || [])
-    .map((d) => (typeof d?.name === 'string' ? d.name.trim() : ''))
+    .map((d) => {
+      if (typeof d === 'string') return d.trim();
+      if (typeof d?.name === 'string') return d.name.trim();
+      return '';
+    })
     .filter(Boolean);
 }
 
@@ -54,7 +79,12 @@ function onlyDeptNames(list: any[]): string[] {
  * ======================= */
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const raw = await req.json().catch(() => ({}));
+    const parsedReq = ReqSchema.safeParse(raw);
+
+    if (!parsedReq.success) {
+      return NextResponse.json({ error: '入力の形式が不正です。' }, { status: 400 });
+    }
 
     const {
       thought,
@@ -72,9 +102,9 @@ export async function POST(req: NextRequest) {
       strategySummary,
       departments,
       csvFinanceData,
-    } = body ?? {};
+    } = parsedReq.data;
 
-    // 前提チェック
+    // ---- 入力チェック ----
     if (!Array.isArray(departments) || departments.length === 0) {
       return NextResponse.json(
         { error: '部門情報が未入力です。カスケード生成できません。' },
@@ -93,13 +123,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 文字数・プロンプト組み立て
-    const summary = (strategySummary?.trim() || storyText.slice(0, 160) || '（要約なし）');
-    const financeText = Array.isArray(csvFinanceData) && csvFinanceData.length > 0
-      ? toLinesFromCsv(csvFinanceData, 5)
-      : '（財務データなし）';
+    /* =========================
+     * プロンプト組み立て
+     * ======================= */
+    const summary = strategySummary?.trim() || storyText.slice(0, 160) || '（要約なし）';
+    const financeText =
+      Array.isArray(csvFinanceData) && csvFinanceData.length > 0
+        ? toLinesFromCsv(csvFinanceData, 5)
+        : '（財務データなし）';
 
     const departmentNames = onlyDeptNames(departments).join(', ');
+
+    // ★ 日本語ラベル補完
+    const industryLabel = industry ? getIndustryLabel(industry, { full: true }) : '';
+    const industryLine =
+      industryLabel
+        ? `${industryLabel}${industry ? `（${industry}）` : ''}`
+        : industry ?? '（不明）';
+
     const industryContext = (industry && industryTemplates?.[industry]) || '';
 
     const prompt = `
@@ -123,13 +164,13 @@ Value: ${value ?? ''}
 - 脅威: ${threat ?? ''}
 
 【業種・売上・従業員数】
-${industry ?? '（不明）'}、年商${revenue ?? '（不明）'}百万円、従業員${employees ?? '（不明）'}人
+${industryLine}、年商${String(revenue ?? '（不明）')}百万円、従業員${String(employees ?? '（不明）')}人
 
 【CSV財務情報（参考）】
 ${financeText}
 
 【経営戦略のストーリー（抜粋）】
-${sanitizeText(storyText, 800) || '（ストーリー未入力）'}
+${sanitizeText(storyText || '', 800) || '（ストーリー未入力）'}
 
 【要約（参考）】
 ${summary}
@@ -152,11 +193,12 @@ ${departmentNames}
 }
 `.trim();
 
-    /* ========== OpenAI 呼び出し ========== */
+    /* =========================
+     * OpenAI 呼び出し
+     * ======================= */
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o',
       temperature: 0.5,
-      // 念のための最大トークン（JSONのみなので控えめ）
       max_tokens: 1000,
       messages: [
         { role: 'system', content: '必ずJSONのみを返し、日本語で。前後の説明は禁止。' },
@@ -164,8 +206,8 @@ ${departmentNames}
       ],
     });
 
-    const raw = completion.choices?.[0]?.message?.content || '';
-    const parsed = extractJsonObject(raw);
+    const rawContent = completion.choices?.[0]?.message?.content || '';
+    const parsed = extractJsonObject(rawContent);
 
     if (!parsed) {
       return NextResponse.json(
@@ -174,28 +216,28 @@ ${departmentNames}
       );
     }
 
-    // まずはスキーマで整形
+    // スキーマ整形
     const safe = ResponseSchema.safeParse(parsed);
     if (!safe.success) {
-      // 解析できたが形が不完全な場合でも極力整えて返す
       console.warn('generate-cascade: schema validation errors:', safe.error?.issues);
     }
     const normalized = (safe.success ? safe.data : parsed) as z.infer<typeof ResponseSchema>;
 
-    // 入力部門名に含まれるものだけフィルタ
+    // 入力部門名フィルタリング
     const inputNames = new Set(onlyDeptNames(departments));
     const result = {
       strategy: {
         summary:
-          typeof normalized?.strategy?.summary === 'string'
-            ? normalized.strategy.summary
+          typeof normalized?.strategy?.summary === 'string' && normalized.strategy.summary.trim()
+            ? normalized.strategy.summary.trim()
             : summary,
       },
       departments: Array.isArray(normalized?.departments)
         ? normalized.departments
             .map((d: any) => ({
               name: typeof d?.name === 'string' ? d.name.trim() : '',
-              missionDraft: typeof d?.missionDraft === 'string' ? d.missionDraft.trim() : '',
+              missionDraft:
+                typeof d?.missionDraft === 'string' ? d.missionDraft.trim() : '',
               projects: Array.isArray(d?.projects)
                 ? d.projects
                     .map((p: any) => ({
@@ -212,7 +254,6 @@ ${departmentNames}
     return NextResponse.json(result);
   } catch (err: any) {
     console.error('❌ APIエラー（generate-cascade）:', err?.message || err);
-    // OpenAI からのエラー内容を軽くマスクして返す（内部情報を漏らさない）
     return NextResponse.json({ error: 'サーバーエラーが発生しました。' }, { status: 500 });
   }
 }
