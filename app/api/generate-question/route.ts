@@ -9,7 +9,7 @@ import { sanitizeText } from '@/app/api/_shared/utils';
 
 /* ========== 型 ========== */
 type Depth = 'board' | 'exec' | 'ops';
-type DepthBias = 'abstract' | 'standard' | 'concrete';
+type DepthBias = 'abstract' | 'standard' | 'concrete' | 'expert'; // ★ expert 追加
 type ConsultantLens = 'drucker' | 'porter' | 'christensen' | 'collins' | 'charan' | 'design';
 type Portfolio = {
   businesses: Array<{
@@ -26,7 +26,7 @@ type ReqBodyA = {
   chapterIndex?: number; // 0..3
   chapterTitle: string;
   chapterBody: string;
-  stepNumber: number; // 1..3
+  stepNumber: number; // 1..可変（章により上限）
   previousAnswer?: string;
   answersSoFar?: Array<{ stepNumber: number; answer: string }>;
   csvFinanceData?: any[] | string;
@@ -58,6 +58,8 @@ type ReqBodyB = {
     threat?: string;
     csvFinanceData?: any[] | string;
     portfolio?: Portfolio;
+    // 任意で顧客課題を注入可能（将来拡張）
+    customerInsights?: { pains?: string[]; latents?: string[]; jobs?: string[] };
   };
 };
 
@@ -72,11 +74,6 @@ type AnswerStep = {
 };
 
 /* ========== Utils（軽量） ========== */
-function clampStep(n: unknown, fallback: number): number {
-  const x = typeof n === 'number' ? n : Number(n);
-  const v = Number.isFinite(x) ? (x as number) : fallback;
-  return Math.max(1, Math.min(3, v));
-}
 function tryParseJsonLocal<T = any>(text: string): T | null {
   try { return JSON.parse(text); } catch { return null; }
 }
@@ -221,54 +218,21 @@ function buildFinanceSummary(csvFinanceData?: any[] | string | null): FinanceSum
 function fmtMilYen(n?: number | null) { return n == null ? '—' : `${Math.round(n).toLocaleString()} 百万円`; }
 function fmtPct(n?: number | null) { return n == null ? '—' : `${(Math.round((n as number) * 10) / 10).toLocaleString()}%`; }
 
-/* ========== 章ゴール & プローブ（単一/複数事業） ========== */
-const CHAPTER_GUIDE = [
-  { label: '現状', goal: '経営が感じる危機を全社員と共有し、「このままではまずい」を自分ごと化させる。', probes: [
-    '直近の変化で最も深刻な1点は何ですか？いつから兆候が見え、どのKPI（例：受注単価・粗利・解約率等）にどの程度の変化が出ていますか？',
-    'その事象が続くと今期〜来期にどのKPIにどの幅の悪化を及ぼしますか？数値幅（△◯%/△◯件）と期限（◯年◯Q）を1つで示してください。',
-    '「放置できない臨界域」を1つ定義し、早期警戒トリガー（例：月次クレーム◯件）・発動時の即応アクション・責任者を示してください。',
-  ]},
-  { label: '戦略', goal: '何に注力し何を捨てるかを定め、資源配分と優先順位を明確化する。', probes: [
-    '最優先の市場/顧客/用途を1つだけ選び、その根拠を客単価・粗利・獲得難易度・参入障壁などの基準で簡潔に示してください。',
-    'この戦略の**目指すゴール（Objective）**を1つに絞り、測る**Key Results**を2〜3個（数値と期限付き）で定義してください。',
-    '当面やめる/縮小する施策を1つ特定し、KILL基準（◯Q時点で◯未達なら停止）・責任者・見直し時期（◯年◯Q）を明記してください。',
-  ]},
-  { label: '未来像', goal: '顧客の風景で未来を描写し、希望と判断の物差しを共有する。', probes: [
-    '3年後の「顧客の現場」を1シーンだけ描写してください。誰がどこで何をし、当社の価値がどう見えるかを具体に。',
-    'その未来像に近づいていることを示す最重要な外部シグナルを1つ挙げ、観測方法と頻度（例：月次レビュー）を定義してください。',
-    '顧客のBefore→Afterを1行で表現してください（例：「検査に◯日→◯時間、手戻り率◯%→目安下限」など）。',
-  ]},
-  { label: '行動', goal: '社員が戦略を自分ごと化し、行動に移せるようにする。', probes: [
-    'どの役割（例：インサイドセールス/PM/現場SV）が、どの行動をいつから繰り返すべきかを1つだけ具体に示してください。',
-    'その行動のチェックリストを3項目以内で定義し、頻度（毎日/毎週/毎商談）・使用ツール（CRM/BI等）・完了判定条件を明確にしてください。',
-    'オーナー（役職名可）・モニタリングKPI（先行指標を1つ）・レビュー頻度（例：毎週/月次）・報酬/称賛の連動方法を簡潔に定義してください。',
-  ]},
-] as const;
+/* ========== 章ごとの最大ステップ（Ver4） ========== */
+// 0:現状=2問, 1:戦略=6問, 2:未来像=2問, 3:行動=2問
+const MAX_STEPS_BY_CHAPTER: Record<number, number> = { 0: 2, 1: 6, 2: 2, 3: 2 };
+function maxStepsForChapter(chapterIndex: number) {
+  const idx = Math.max(0, Math.min(3, Number.isFinite(chapterIndex) ? (chapterIndex as number) : 0));
+  return MAX_STEPS_BY_CHAPTER[idx] ?? 2;
+}
+function clampStepDyn(chapterIndex: number, n: unknown, fallback: number): number {
+  const x = typeof n === 'number' ? n : Number(n);
+  const v = Number.isFinite(x) ? (x as number) : fallback;
+  const hi = maxStepsForChapter(chapterIndex);
+  return Math.max(1, Math.min(hi, v));
+}
 
-const CHAPTER_GUIDE_PORTFOLIO = [
-  { label: '現状', goal: '事業ポートフォリオの健康状態と波及リスクを把握する。', probes: [
-    '直近の四半期で**悪化が最も大きい事業**を1つ挙げ、影響するKPI（例：解約率/案件単価/在庫回転）と変化幅・開始時期を具体に示してください。',
-    '**最大の伸び事業**と**最大の減速事業**を各1つ挙げ、会社全体の売上/粗利に与える影響（目安%）を簡潔に述べてください。',
-    '全社として「放置できない臨界域」を1つ定義し、早期警戒トリガー（例：旗艦事業の粗利率△1pt）と即応アクションを明記してください。',
-  ]},
-  { label: '戦略', goal: '成長/収益/資本効率に照らして配分と撤退基準を決める。', probes: [
-    '今期〜来期で**資源を最優先配分する事業**を1つ選び、根拠を売上構成比/粗利/成長率/参入障壁から1行ずつ示してください。',
-    '選んだ事業の**目指すゴール（Objective）**を1つと、測る**Key Results**を2〜3個（数値と期限付き）で定義してください。',
-    '**縮小/撤退候補**の事業を1つ挙げ、停止・縮小の基準（◯Qで◯未達）と、捻出リソースの再配分先を明記してください。',
-  ]},
-  { label: '未来像', goal: '旗艦/新規の各事業で顧客体験の変化を描く。', probes: [
-    '旗艦事業の**3年後の顧客現場**を1シーンで描写してください（人物・場所・当社の価値を具体に）。',
-    '新規/拡大型の事業で、進捗を示す**外部サイン**を1つ定義し（例：業界標準採用の打診）、観測方法と頻度を書いてください。',
-    '旗艦と新規の**Before→After**を各1行で（例：「導入工数◯日→◯時間」「滞在単価◯円→◯円」）。',
-  ]},
-  { label: '行動', goal: '事業別のOKR・責任体制・レビューを仕組み化する。', probes: [
-    '注力事業で**誰が**どの行動を**いつから**繰り返すかを1つ（例：営業が「比較表提示」を**毎商談**）。',
-    'その行動の**チェックリスト**を3項目以内、レビュー頻度（毎週/隔週/⽉次）と**先行KPI**を1つ定義してください。',
-    '各事業の**Objective/Key Results/Owner**とレビューのリズム（例：隔週金曜）を簡潔に示してください。',
-  ]},
-] as const;
-
-/* ========== 汎用すぎ・粒度違反チェック ========== */
+/* ========== 汎用すぎ・粒度違反チェック（既存） ========== */
 const GENERIC_TOKENS_BY_CHAPTER: Record<number, string[]> = {
   0: ['外部環境','市場変化','競争激化','不確実性','リスク','課題'],
   1: ['戦略','差別化','資源配分','優先順位','選択と集中','ロードマップ','取り組み'],
@@ -298,17 +262,66 @@ function looksTooGeneric(q: string, chapterIndex: number, depth: Depth) {
   return hasGeneric && !(hasNumDeadline || mentionsOwner || hasConcreteNoun);
 }
 
-/* ========== ガイド切替 ========== */
+/* ========== ガイド（Ver4：standard / expert） ========== */
+type ChapterGuide = { label: string; goal: string; probes: string[] };
+
+const CHAPTER_GUIDE_V4_STANDARD: ChapterGuide[] = [
+  { label: '現状', goal: '変化と危機感を共有し、「なぜ今やるのか」を腹落ちさせる。', probes: [
+    'ここ1〜2年で、お客様や業界で「変わってきたな」と感じることは何ですか？具体例を1つ。',
+    'このまま今のやり方を続けると、会社として最もマズいのは何ですか？影響するKPI/場面を1つ。'
+  ]},
+  { label: '戦略', goal: '顧客課題×自社の強み×制約×脅威で、勝ち筋を1本に絞る。', probes: [
+    'あなたのお客様が今いちばん困っていることは何ですか？対象と困りごとを具体・数値で1つ。',
+    'その困りごとを、あなたの会社はどんな強み（資産/能力/関係）で解決できそうですか？',
+    'それが実現すると、お客様にどんな「嬉しい変化」が起きますか？Before→Afterを1行で。',
+    '競合や新技術の登場で、その強みが通用しなくなるとしたら、どんな状況ですか？',
+    '進める上で一番の「やりにくさ」（社内ルール/習慣/体制など）は何ですか？どうかわしますか？',
+    'この戦い方が正しいと確かめる数字（KR）を1〜2個と、やめる条件（KILL）を1つ。'
+  ]},
+  { label: '未来像', goal: '顧客視点の1シーンで価値を見える化し、希望を共有する。', probes: [
+    'この戦略が実現したら、お客様のどんな場面で「ありがとう」と言われたいですか？1シーンで。',
+    'その未来が近づいているとわかる「小さなサイン」を1つ。観測方法と頻度も。'
+  ]},
+  { label: '行動', goal: '最初の一歩と学習リズムを決め、動ける状態を作る。', probes: [
+    'まず最初の一歩を、誰といつから始めますか？具体行動を1つだけ。',
+    'それを続けるため、どんな話し合いやチェックの場を作りますか？頻度と役割も。'
+  ]},
+];
+
+const CHAPTER_GUIDE_V4_EXPERT: ChapterGuide[] = [
+  { label: '現状', goal: '外部変化→KPIインパクト→臨界域を明確化。', probes: [
+    '過去4〜8Qで構造的変化が顕著な指標を1つ（例：解約率/粗利/在庫回転）。推移と要因を簡潔に。',
+    '変化が継続した場合の影響を1つのKPIで定量化（△◯%/◯件、期限◯年◯Q）。臨界域も定義。'
+  ]},
+  { label: '戦略', goal: '顧客Job×自社Moat×制約×DisruptionでGTMウェッジとKR/KILLを定義。', probes: [
+    '優先セグメントと最大のPain/Jobを1つ。単位金額や時間損失など経済負担で示す。',
+    '痛みに最短で効く自社資産/能力/関係を特定。価値式（成果＝現状−痛み＋強み）を1行で。',
+    '競合/代替/新技術で価値式が壊れる条件を特定。回避の設計変更を1つ。',
+    '実装制約（人/資本/プロセス）を踏まえた最小GTMウェッジ（誰に/何を/いくら/導入LT）。',
+    '検証用KRを2個（数値・期限）と撤退KILL1個（条件・期限）。',
+    '優先しない領域/施策を1つ（トレードオフ）。見直し期日も。'
+  ]},
+  { label: '未来像', goal: '顧客現場1シーン＋外部シグナル（Leading）で検証可能に。', probes: [
+    '3年後の顧客現場を1シーンで描写（人物/場所/当社の価値の見え方）。',
+    '外部Leading指標を1つ（例：標準採用打診）。観測方法/周期/閾値を定義。'
+  ]},
+  { label: '行動', goal: '最初の一歩→レビューリズム→Owner/KPIを明記。', probes: [
+    'ロール（例：IS/PM/SV）×行動×開始時期を1つ。チェックリスト3点以内。',
+    'Owner/先行KPI/レビュー頻度（毎週/隔週/月次）を定義。'
+  ]},
+];
+
+// 事業ポートフォリオ用は従来のままでも良いが、ここでは標準/エキスパートを優先
 function hasPortfolio(ctx?: ReqBodyB['context']) { return !!ctx?.portfolio?.businesses?.length; }
-function getChapterGuide(chapterIndex: number, ctx?: ReqBodyB['context']) {
-  const base = hasPortfolio(ctx) ? CHAPTER_GUIDE_PORTFOLIO : CHAPTER_GUIDE;
-  return base[Math.max(0, Math.min(3, chapterIndex))];
+function getChapterGuide(chapterIndex: number, ctx?: ReqBodyB['context'], depthBias?: DepthBias): ChapterGuide {
+  const base = depthBias === 'expert' ? CHAPTER_GUIDE_V4_EXPERT : CHAPTER_GUIDE_V4_STANDARD;
+  const idx = Math.max(0, Math.min(3, chapterIndex));
+  return base[idx];
 }
 
-/* ========== レンズ定義 & 選択 ========== */
+/* ========== レンズ（既存。裏の品質担保として残置） ========== */
 const CONSULTING_LENSES: Record<ConsultantLens, {
-  title: string; principles: string[]; sampleAngles: string[]; goodTerms?: string[]; avoidTerms?: string[];
-}> = {
+  title: string; principles: string[]; sampleAngles: string[]; goodTerms?: string[]; avoidTerms?: string[]; }> = {
   drucker: { title: 'ドラッカー（顧客・使命・強み）',
     principles: ['顧客は誰か／顧客にとっての価値','使命の文脈で問う','強みに資源集中'],
     sampleAngles: ['誰のどの不便','顧客側の成果指標'], goodTerms: ['顧客','価値','強み','成果','貢献'], avoidTerms: ['抽象的価値'] },
@@ -404,20 +417,22 @@ function isTooSimilar(candidate: string, prev: string[]): { ok: boolean; maxSim:
   return { ok: maxSim < SIMILARITY_THRESHOLD, maxSim, nearest };
 }
 
-/** プローブ選択（単一/複数事業に対応） */
 function isNegationJa(s: string) {
   const t = (s || '').toLowerCase();
   return /(ない|ありません|不要|求めていない|求めない|変える必要はない|変革は不要|しなくていい|問題ない|問題はない|影響はない|危機ではない|方向性はない|課題はない)/.test(t);
 }
+
+/** プローブ選択（Ver4：章ごとのステップ数に対応） */
 function pickSeedProbe(
   chapterIndex: number,
   stepNumber: number,
   previousQuestions: string[],
   previousAnswer?: string,
-  context?: ReqBodyB['context']
+  context?: ReqBodyB['context'],
+  depthBias?: DepthBias
 ): string | '' {
   const idx = Math.max(0, Math.min(3, chapterIndex));
-  const stepIdx = Math.max(1, Math.min(3, stepNumber)) - 1;
+  const stepIdx = clampStepDyn(idx, stepNumber, 1) - 1;
 
   if (isNegationJa(previousAnswer || '')) {
     const pool = [...(CONTRADICT_SEEDS as any)[idx]] as string[];
@@ -425,7 +440,7 @@ function pickSeedProbe(
     return '';
   }
 
-  const guide = getChapterGuide(idx, context);
+  const guide = getChapterGuide(idx, context, depthBias);
   const baseList: string[] = [...(guide?.probes ?? [])];
   const candidate = baseList[stepIdx];
   if (!candidate) return '';
@@ -439,17 +454,17 @@ function pickSeedProbe(
   return '';
 }
 
-/* ========== SYSTEM_PROMPT ========== */
+/* ========== SYSTEM_PROMPT（Ver4仕様） ========== */
 const SYSTEM_PROMPT = `
 あなたは経営者に伴走する戦略ファシリテーターです。
 与えられる情報（SEEDテーマ / 直前回答 / Q&A履歴 / 財務サマリ / LENSヒント）を使い、
 重複せず、直前回答の具体語を必ず含める次の問いを「1つだけ」提示してください。
 
-【章別ステップの狙い】
-- なぜ今(0): Step1 具体事象 / Step2 影響の定量化 / Step3 臨界域・トリガー
-- どう戦う(1): Step1 最優先領域 / Step2 Objective & KRs / Step3 トレードオフ
-- どんな未来像(2): Step1 顧客の1シーン / Step2 外部シグナル / Step3 Before→After
-- どう行動する(3): Step1 誰が何をいつから / Step2 基準×頻度×道具 / Step3 仕組み化
+【Ver4の章別ステップ数】
+- なぜ今(0): 2問（変化の具体 / 危機の具体）
+- どう戦う(1): 6問（顧客課題 / 強み / 価値のBefore→After / 脅威 / 制約 / KR&KILL）
+- どんな未来像(2): 2問（顧客の1シーン / 外部シグナル）
+- どう行動する(3): 2問（最初の一歩 / レビューの場）
 
 【厳守】
 - 「北極星KPI」は使わず、「Objective/OKR/Key Results」を用いる
@@ -499,9 +514,9 @@ function safeParseJson<T = any>(raw: string): T | null {
   return null;
 }
 
-function resolveStepFixed(answers: Array<{ stepNumber: number; answer: string }>, hint?: number, explicit?: number) {
-  if (typeof explicit === 'number') return clampStep(explicit, 1);
-  if (Number.isFinite(hint)) return clampStep(Number(hint), 1);
+function resolveStepFixed(chapterIndex: number, answers: Array<{ stepNumber: number; answer: string }>, hint?: number, explicit?: number) {
+  if (typeof explicit === 'number') return clampStepDyn(chapterIndex, explicit, 1);
+  if (Number.isFinite(hint)) return clampStepDyn(chapterIndex, Number(hint), 1);
   return 1;
 }
 
@@ -548,7 +563,7 @@ function normalizeBody(body: ReqBody): {
 
   const explicitStep = (body as any).stepNumber;
   const stepHint = typeof (body as any).stepHint === 'number' ? (body as any).stepHint : Number((body as any).stepHint);
-  const stepNumber = resolveStepFixed(answersSoFar ?? [], stepHint, explicitStep);
+  const stepNumber = resolveStepFixed(chapterIndex, answersSoFar ?? [], stepHint, explicitStep);
 
   let previousAnswer = '';
   if (stepNumber > 1 && answersSoFar?.length) {
@@ -583,6 +598,7 @@ function normalizeBody(body: ReqBody): {
 function depthFromBias(b?: DepthBias): Depth {
   if (b === 'abstract') return 'board';
   if (b === 'concrete') return 'ops';
+  if (b === 'expert') return 'exec'; // expertは実装上はexecベースで扱う
   return 'exec';
 }
 
@@ -598,17 +614,18 @@ function buildUserPrompt(payload: {
   csvFinanceData?: any[] | string;
   context?: ReqBodyB['context'];
   depth: Depth;
+  depthBias?: DepthBias;
   lensOverride?: ConsultantLens[];
 }) {
-  const { chapterIndex, chapterTitle, depth } = payload;
+  const { chapterIndex, chapterTitle, depth, depthBias } = payload;
   const fin = buildFinanceSummary(payload.csvFinanceData);
-  const guide = getChapterGuide(Math.max(0, Math.min(3, chapterIndex)), payload.context);
+  const guide = getChapterGuide(Math.max(0, Math.min(3, chapterIndex)), payload.context, depthBias);
 
   const chapterBodyRaw = payload.chapterBody && payload.chapterBody.trim().length > 0
     ? payload.chapterBody
     : buildFallbackBody(payload.context, fin);
   const chapterBody = sanitizeText(chapterBodyRaw || '', 4000);
-  const stepNumber = payload.stepNumber;
+  const stepNumber = clampStepDyn(chapterIndex, payload.stepNumber, 1);
 
   const qaHistoryBlock = (() => {
     const chFromCtx = payload.context?.answers2?.find((c) => c.chapterIndex === chapterIndex);
@@ -627,7 +644,7 @@ function buildUserPrompt(payload: {
 
   const prev = payload.previousAnswer ? `直前の回答:\n${sanitizeText(payload.previousAnswer, 800)}\n` : '';
 
-  const seed = pickSeedProbe(chapterIndex, stepNumber, payload.previousQuestions, payload.previousAnswer, payload.context);
+  const seed = pickSeedProbe(chapterIndex, stepNumber, payload.previousQuestions, payload.previousAnswer, payload.context, depthBias);
 
   const financeBlock = fin
     ? `\n【財務KPIサマリ（参照のみ）】\n- 最新年度: ${fin.latestYear ?? '—'}\n- 売上: ${fmtMilYen(fin.latestSales)} ／ 売上CAGR: ${fmtPct(fin.revCagrPct)} ／ トレンド: ${
@@ -645,7 +662,7 @@ function buildUserPrompt(payload: {
 
   const seedLine = seed
     ? `SEEDテーマ（この主題の範囲内で具体化）:\n> ${seed}\n`
-    : `SEEDは使い切り（1〜3）。既出と重複しない「補助的なまとめ質問」を1つだけ出してください。\n`;
+    : `SEEDは使い切り（章内の手番数に応じて）。既出と重複しない「補助的なまとめ質問」を1つだけ出してください。\n`;
 
   const lenses = pickConsultingLenses({
     chapterIndex,
@@ -655,14 +672,12 @@ function buildUserPrompt(payload: {
     lensOverride: payload.lensOverride,
   });
   const lensBlock = lenses.length ? (
-    '\n【LENSヒント（優先順）】\n' +
+    '\n【LENSヒント（裏の品質担保）】\n' +
     lenses.map((k, i) => {
       const L = CONSULTING_LENSES[k];
       const principles = `- 原則: ${L.principles.join(' / ')}`;
       const angles = L.sampleAngles.length ? `- 典型観点: ${L.sampleAngles.join(' / ')}` : '';
-      const goods = L.goodTerms?.length ? `- 推奨語彙: ${L.goodTerms.join(' / ')}` : '';
-      const avoids = L.avoidTerms?.length ? `- 回避語彙: ${L.avoidTerms.join(' / ')}` : '';
-      return `${i+1}. ${L.title}\n${principles}\n${angles}\n${goods}\n${avoids}`.trim();
+      return `${i+1}. ${L.title}\n${principles}\n${angles}`.trim();
     }).join('\n')
   ) : '';
 
@@ -684,7 +699,10 @@ ${financeBlock}
 これまでのQ/A履歴:
 ${qaHistoryBlock}
 ${prev}
-今回のステップ: ${stepNumber}
+今回のステップ: ${stepNumber} / 上限 ${maxStepsForChapter(chapterIndex)}
+【本章の推奨プローブ例】
+- ${getChapterGuide(chapterIndex, payload.context, depthBias).probes.join('\n- ')}
+
 ${askedTopics}
 ${seedLine}
 ${negHint}
@@ -700,22 +718,35 @@ ${depthHint}
 
 /* ========== Route ========== */
 export async function POST(req: Request) {
+  const routeHeaders = {
+    'Cache-Control': 'no-store',
+    'X-GROWTH-Route': 'app/api/generate-question',
+  } as const;
+
   try {
     const rawBody = (await req.json()) as ReqBody;
-    const norm = normalizeBody(rawBody);
+    const norm0 = normalizeBody(rawBody);
 
-    if (norm.safety?.requireConfirm && !norm.safety?.confirmed) {
-      return NextResponse.json(
-        { error: 'Confirmation required', needConfirm: true },
-        { status: 412, headers: { 'Cache-Control': 'no-store' } }
-      );
+    // depthBias を normalizeBody から受ける（expert対応）
+    const depth: Depth = depthFromBias(norm0.depthBias);
+
+    if (norm0.safety?.requireConfirm && !norm0.safety?.confirmed) {
+      return new NextResponse(JSON.stringify({ error: 'Confirmation required', needConfirm: true }), {
+        status: 412,
+        headers: { ...routeHeaders, 'Content-Type': 'application/json; charset=utf-8' },
+      });
     }
-    if (!norm.chapterTitle) {
-      return NextResponse.json({ error: 'chapterTitle が不足しています' }, { status: 400 });
+    if (!norm0.chapterTitle) {
+      return new NextResponse(JSON.stringify({ error: 'chapterTitle が不足しています' }), {
+        status: 400,
+        headers: { ...routeHeaders, 'Content-Type': 'application/json; charset=utf-8' },
+      });
     }
 
-    const depth: Depth = depthFromBias(norm.depthBias);
-    const userPrompt = buildUserPrompt({ ...norm, depth });
+    // 章ごとの上限に合わせて stepNumber を再クランプ
+    const norm = { ...norm0, stepNumber: clampStepDyn(norm0.chapterIndex, norm0.stepNumber, 1) };
+
+    const userPrompt = buildUserPrompt({ ...norm, depth, depthBias: norm.depthBias });
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 55_000);
@@ -737,7 +768,10 @@ export async function POST(req: Request) {
     const raw = completion.choices?.[0]?.message?.content ?? '';
     let parsed = safeParseJson<any>(raw);
     if (!parsed || typeof parsed !== 'object') {
-      return NextResponse.json({ error: 'LLM JSON parse error', raw }, { status: 502 });
+      return new NextResponse(JSON.stringify({ error: 'LLM JSON parse error', raw }), {
+        status: 502,
+        headers: { ...routeHeaders, 'Content-Type': 'application/json; charset=utf-8' },
+      });
     }
 
     let q = (parsed.step?.question ?? parsed.question ?? '').trim();
@@ -752,7 +786,7 @@ export async function POST(req: Request) {
 - 元出力: Q="${q}" / R="${r}"
 - JSONのみ {"question":"...","reason":"..."}
 - question 50〜120字 / reason 40〜100字
-- 観点をずらす（トレードオフ/期限/KPI/役割/顧客像/現場シーン等）`.trim();
+- 観点をずらす（第2章なら：脅威/制約/価値のBefore→After/KR・KILL/顧客像/GTM等)`.trim();
 
       const fix = await openai.chat.completions.create({
         model: process.env.OPENAI_MODEL ?? process.env.NEXT_PUBLIC_OPENAI_MODEL ?? 'gpt-4o',
@@ -806,22 +840,35 @@ export async function POST(req: Request) {
     }
 
     if (!q || !r) {
-      return NextResponse.json({ error: 'Invalid step payload', parsed }, { status: 502 });
+      return new NextResponse(JSON.stringify({ error: 'Invalid step payload', parsed }), {
+        status: 502,
+        headers: { ...routeHeaders, 'Content-Type': 'application/json; charset=utf-8' },
+      });
     }
 
     const step: AnswerStep = {
-      stepNumber: clampStep(norm.stepNumber, 1),
+      stepNumber: clampStepDyn(norm.chapterIndex, norm.stepNumber, 1),
       depth,
       question: q,
       reason: r,
       answer: '',
     };
 
-    return NextResponse.json({ step }, { headers: { 'Cache-Control': 'no-store' } });
+    return new NextResponse(JSON.stringify({ step, meta: {
+      chapterIndex: norm.chapterIndex,
+      maxSteps: maxStepsForChapter(norm.chapterIndex), // ★ 第2章は常に 6 を返す
+      depthBias: norm.depthBias ?? 'standard',
+    }}), {
+      status: 200,
+      headers: { ...routeHeaders, 'Content-Type': 'application/json; charset=utf-8' },
+    });
   } catch (e: any) {
     const msg = e?.message || String(e);
     const status = e?.name === 'AbortError' ? 504 : 500;
     console.error('generate-question error:', e?.name, msg);
-    return NextResponse.json({ error: 'Server error', detail: msg }, { status });
+    return new NextResponse(JSON.stringify({ error: 'Server error', detail: msg }), {
+      status,
+      headers: { ...routeHeaders, 'Content-Type': 'application/json; charset=utf-8' },
+    });
   }
 }
