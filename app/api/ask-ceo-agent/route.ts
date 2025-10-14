@@ -16,12 +16,23 @@ import {
 } from '@/lib/intentRouter';
 import type { StrategyData } from '@/types/strategy';
 
-/* =========================
- * 型
- * ========================= */
+// Service Role（所属検証・最小文脈fallback）
+import { createClient as createAdminClient, type SupabaseClient } from '@supabase/supabase-js';
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+type AdminClient = SupabaseClient<any, 'public', any>;
+function admin(): AdminClient {
+  return createAdminClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } }) as AdminClient;
+}
+function getBearer(req: Request) {
+  const h = req.headers.get('authorization') || req.headers.get('Authorization') || '';
+  const m = h.match(/^\s*Bearer\s+(.+)\s*$/i);
+  return m?.[1] ?? null;
+}
+
+/* ========= 型 ========= */
 type Role = 'system' | 'user' | 'assistant';
 type Message = { role: Role; content: string };
-
 type RequestBody = {
   messages: Message[];
   userId: string;
@@ -29,21 +40,16 @@ type RequestBody = {
   meta?: { stage?: 'strategy' | 'manual' | 'generic' | 'hybrid' };
 };
 
-/* =========================
- * 禁則テーマ（systemに常時付与）
- * ========================= */
+/* ========= 禁則 ========= */
 const TABOO =
   '【回答禁止】給与・評価・異動・役員情報・株主・個人情報・人事制度・社内トラブルなどには絶対に答えないでください。';
 
-/* =========================
- * ユーティリティ
- * ========================= */
+/* ========= ユーティリティ ========= */
 const cap = (s: any, n: number) => {
   const t = String(s ?? '');
   return t.length > n ? `${t.slice(0, n)}…` : t;
 };
 const safeArray = <T,>(v: any): T[] => (Array.isArray(v) ? (v as T[]) : []);
-
 function normalizeMessages(msgs: Message[]) {
   const okRole = new Set<Role>(['system', 'user', 'assistant']);
   return (Array.isArray(msgs) ? msgs : [])
@@ -55,9 +61,7 @@ function normalizeMessages(msgs: Message[]) {
     .slice(-12);
 }
 
-/* =========================
- * 操作マニュアル（残す）
- * ========================= */
+/* ========= 操作マニュアル ========= */
 const MANUAL_QA: Array<{ q: RegExp; a: string }> = [
   {
     q: /(okr).*(どこ|どれ|入力|書|やり方|方法)/i,
@@ -75,7 +79,6 @@ const MANUAL_QA: Array<{ q: RegExp; a: string }> = [
   { q: /swot.*(どこ|入力|書|やり方|方法)/i, a: '【SWOT】「戦略 → SWOT」で各欄に短文を3つ以上。迷ったら「例を表示」で下書きを挿入。' },
   { q: /ストーリー.*(確定|最終|どう|やり方|方法)/i, a: '【ストーリー確定】4章を編集→最終化→/cascade で部門ごとのミッション/プロジェクトを整備。' },
 ];
-
 function answerManual(messages: Message[]) {
   const last = messages.slice().reverse().find((m) => m.role === 'user')?.content ?? '';
   const hit = MANUAL_QA.find((x) => x.q.test(last));
@@ -89,9 +92,7 @@ function answerManual(messages: Message[]) {
   return `【操作ガイド】よくある質問\n${list}`;
 }
 
-/* =========================
- * OKR/進捗サマリ
- * ========================= */
+/* ========= OKR/進捗サマリ ========= */
 function buildOKRSummary(departments: any[] = []) {
   const lines: string[] = [];
   departments.forEach((d, di) => {
@@ -117,7 +118,6 @@ function buildOKRSummary(departments: any[] = []) {
   });
   return lines.join('\n');
 }
-
 function buildProgressSummary(progressLogs: any[] = []) {
   if (!progressLogs.length) return '（進捗ログなし）';
   const sorted = [...progressLogs].sort(
@@ -136,21 +136,17 @@ function buildProgressSummary(progressLogs: any[] = []) {
   return lines.join('\n');
 }
 
-/* =========================
- * コンテキスト取得（normalize を必ず通す）
- * ========================= */
+/* ========= コンテキスト取得（フル→最小 fallback） ========= */
 async function fetchStrategyContext(strategyId: string, userId: string) {
-  const { data: sRow, error } = await getFullStrategyData(userId, strategyId);
-  if (error) console.warn('getFullStrategyData error:', error?.message || error);
-
-  // camelCase に統一（JSONは [] / {} を保証）。null の場合も空オブジェクトで受ける。
-  const strategy: StrategyData = (normalizeStrategyData(sRow as any) ?? {}) as StrategyData;
-
-  const answers2 = safeArray<any>(strategy.answers2);
-  const finalStory = safeArray<any>(strategy.finalStory);
-  const departments = safeArray<any>(strategy.departments ?? strategy.editableCascadeResult);
-
-  const okrSummaryText = buildOKRSummary(departments);
+  let strategy: StrategyData | null = null;
+  try {
+    const { data: sRow, error } = await getFullStrategyData(userId, strategyId);
+    if (error) console.warn('getFullStrategyData error:', error?.message || error);
+    strategy = (normalizeStrategyData(sRow as any) ?? null) as StrategyData | null;
+  } catch (e: any) {
+    console.warn('getFullStrategyData exception:', e?.message || e);
+    strategy = null;
+  }
 
   let progressLogs: any[] = [];
   try {
@@ -162,44 +158,117 @@ async function fetchStrategyContext(strategyId: string, userId: string) {
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(200);
-
     if (plErr) console.warn('progress_logs select error:', plErr);
     progressLogs = safeArray<any>(logs);
   } catch (e: any) {
     console.warn('progress_logs select exception:', e?.message || e);
   }
 
+  const departments = safeArray<any>(strategy?.departments ?? strategy?.editableCascadeResult);
+  const okrSummaryText = buildOKRSummary(departments);
   const progressSummaryText = buildProgressSummary(progressLogs);
-  const extraBlock =
+  const extraBlockFromFull =
     `\n\n---\n# OKRサマリ\n${okrSummaryText || '（OKRなし）'}\n` +
     `\n# 直近進捗ログ\n${progressSummaryText}\n---\n`;
 
-  return { strategy, answers2, finalStory, extraBlock };
+  if (!strategy || Object.keys(strategy).length === 0) {
+    const a = admin();
+    const { data: srow } = await a.from('strategy_data').select('*').eq('id', strategyId).maybeSingle();
+    if (!srow) {
+      return { strategy: null, answers2: [], finalStory: [], extraBlock: '' };
+    }
+    const minimal: StrategyData = {
+      id: String(srow.id),
+      companyId: String(srow.company_id),
+      companyName: (srow.companyName as string) ?? undefined,
+      mission: (srow.mission as string) ?? undefined,
+      vision: (srow.vision as string) ?? undefined,
+      values: (srow.values as string) ?? undefined,
+      departments: Array.isArray((srow as any).departments) ? (srow as any).departments : [],
+    } as any;
+
+    const dept2 = safeArray<any>(minimal.departments);
+    const okrText = buildOKRSummary(dept2);
+    const extraBlockMinimal =
+      `\n\n---\n# OKRサマリ（最小）\n${okrText || '（OKRなし）'}\n` +
+      `\n# 直近進捗ログ\n${progressSummaryText}\n---\n`;
+
+    return { strategy: minimal, answers2: [], finalStory: [], extraBlock: extraBlockMinimal };
+  }
+
+  const answers2 = safeArray<any>(strategy?.answers2);
+  const finalStory = safeArray<any>(strategy?.finalStory);
+  return { strategy, answers2, finalStory, extraBlock: extraBlockFromFull };
 }
 
-/* =========================
- * route
- * ========================= */
+/* ========= route ========= */
 export async function POST(req: Request) {
   try {
-    const { messages, userId, strategyId, meta } = (await req.json()) as RequestBody;
+    // 認証
+    const token = getBearer(req);
+    if (!token) {
+      return NextResponse.json({ content: '認証が必要です', error: 'no bearer' }, { status: 401 });
+    }
+
+    // 入力
+    let body: RequestBody | null = null;
+    try {
+      body = (await req.json()) as RequestBody;
+    } catch {
+      return NextResponse.json({ content: 'invalid payload', error: 'invalid payload' }, { status: 400 });
+    }
+    const { messages, userId, strategyId, meta } = body ?? ({} as RequestBody);
     if (!userId || !strategyId || !Array.isArray(messages)) {
       return NextResponse.json({ content: 'invalid payload', error: 'invalid payload' }, { status: 400 });
     }
 
+    // 本人確認
+    const a = admin();
+    const { data: ures } = await a.auth.getUser(token);
+    const authUserId = ures?.user?.id as string | undefined;
+    if (!authUserId) return NextResponse.json({ content: 'トークンが無効です', error: 'invalid token' }, { status: 401 });
+    if (authUserId !== userId) {
+      return NextResponse.json({ content: '権限がありません（ユーザー不一致）', error: 'user mismatch' }, { status: 403 });
+    }
+
+    // strategy 所属検証
+    const { data: srow } = await a
+      .from('strategy_data')
+      .select('id, company_id')
+      .eq('id', strategyId)
+      .maybeSingle();
+    if (!srow?.company_id) {
+      return NextResponse.json({ content: '戦略データが見つかりません', error: 'strategy not found' }, { status: 404 });
+    }
+    const { data: mem } = await a
+      .from('company_members')
+      .select('company_id')
+      .eq('user_id', authUserId)
+      .eq('company_id', srow.company_id)
+      .maybeSingle();
+    if (!mem?.company_id) {
+      return NextResponse.json({ content: 'この戦略へのアクセス権がありません', error: 'no membership' }, { status: 403 });
+    }
+
+    // 文脈（フル→最小 fallback）
     const { strategy, answers2, finalStory, extraBlock } = await fetchStrategyContext(strategyId, userId);
+    if (!strategy) {
+      return NextResponse.json(
+        { content: '戦略コンテキストを取得できませんでした。初期化や保存状況をご確認ください。', error: 'context missing' },
+        { status: 400 }
+      );
+    }
+
     const lastUser = (messages || []).slice().reverse().find((m) => m.role === 'user')?.content || '';
 
-    // 1) 自動判定（ヒューリスティック → 信頼不足ならLLM）
+    // 意図判定
     let intent: IntentResult = classifyHeuristic(lastUser);
     if (intent.confidence < 0.7) {
-      try {
-        intent = chooseBetter(intent, await classifyLLM(openai, lastUser));
-      } catch {}
+      try { intent = chooseBetter(intent, await classifyLLM(openai, lastUser)); } catch {}
     }
     if (meta?.stage) intent = { stage: meta.stage, confidence: 0.99, reasons: ['forced'] };
 
-    // 2) systemPrompt 構築（禁則テーマを追加）
+    // systemPrompt
     const systemBase =
       (intent.stage === 'generic'
         ? 'あなたは博識なアシスタントです。日本語で簡潔・正確に答えます。推測は推測と明記。'
@@ -207,24 +276,15 @@ export async function POST(req: Request) {
       '\n' +
       TABOO;
 
-    // 先に短答
-    const direct = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      temperature: 0.2,
-      messages: [
-        { role: 'system', content: 'ユーザーの質問に、まず1〜3行で端的・具体に答えよ。断定しない。' },
-        { role: 'user', content: lastUser },
-      ],
-    });
-
-    // 本文
+    // === ここが変更点 ===
+    // 短答（direct）は廃止。本文（detailed）のみ生成して返す。
     const detailed = await openai.chat.completions.create({
       model: 'gpt-4o',
       temperature: 0.2,
       messages: [{ role: 'system', content: systemBase }, ...normalizeMessages(messages)],
     });
 
-    // 操作系ならガイドを短く添える（残す）
+    // 操作系ならガイドを短く添える（同一メッセージ内に追記するだけなので「二重回答」にはならない）
     let manualBlock = '';
     const isLikelyManual =
       /どこ|どうやって|手順|クリック|開く|入力|保存|画面|表示されない|エラー|UI|ボタン/i.test(lastUser) ||
@@ -233,18 +293,10 @@ export async function POST(req: Request) {
       manualBlock = '\n\n' + answerManual(messages);
     }
 
-    const content = [
-      (direct.choices[0]?.message?.content || '').trim(),
-      '',
-      (detailed.choices[0]?.message?.content || '').trim(),
-      manualBlock,
-    ]
-      .join('\n')
-      .trim();
+    const content =
+      (detailed.choices[0]?.message?.content || '（応答の取得に失敗しました）').trim() + manualBlock;
 
-    try {
-      await insertAgentLog({ userId, strategyId, step: 0, role: 'assistant', content });
-    } catch {}
+    try { await insertAgentLog({ userId, strategyId, step: 0, role: 'assistant', content }); } catch {}
 
     return NextResponse.json({
       content,
