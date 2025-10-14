@@ -3,7 +3,6 @@ import { supabase, isValidUUID, getCompanyIdFromCookie, setCompanyIdCookie } fro
 import {
   debugExtractPostgrest,
   isInvalidJsonSyntax,
-  // 一意衝突系
   isUniqueViolation,
   isConflict,
 } from './errors';
@@ -12,67 +11,71 @@ import { getMembership } from './membership';
 import type { StrategyData } from '@/types/strategy';
 
 const T_STRATEGY = 'strategy_data';
+const T_PROGRESS = 'progress_logs'; // 既存のログテーブルに保存
+
+type ReadResult  = { data: StrategyData | null; error: any | null };
+type WriteResult = { error: any | null };
 
 /* ===================================================================
- *  カラム整合
- *   - アプリ層: camelCase
- *   - DB層   : snake_case（今回ここに統一）
+ *  アプリ↔DB カラム整合（camelCase / snake_case）
  * =================================================================== */
 
 const STRATEGY_COLS_APP = new Set<string>([
-  // メタ（app側には基本持たせないが白リストに含めておく）
-  'id', 'user_id', 'company_id', 'created_at', 'updated_at', 'updated_by',
-  // 基本情報（app/camel）
-  'companyName', 'foundationYear', 'location', 'industry',
-  'revenue', 'employees', 'businessContent', 'customerSegment',
-  // MVV / SWOT / 思考
-  'thought', 'mission', 'vision', 'value',
-  'strength', 'weakness', 'opportunity', 'threat',
-  // JSON・テキスト（app/camel）
-  'story', 'finalStory', 'answers2', 'departments', 'csvFinanceData',
-  // 読み専用想定（app/camel）
-  'strategySummary', 'editableCascade', 'editableCascadeResult',
+  'id','user_id','company_id','created_at','updated_at',
+  'companyName','foundationYear','location','industry','revenue','employees',
+  'businessContent','customerSegment',
+  'thought','mission','vision','value','strength','weakness','opportunity','threat',
+  'story','finalStory','answers2','departments','csvFinanceData',
+  'businessPortfolio','financeSummary',
+  'strategySummary','editableCascade','editableCascadeResult',
 ]);
 
-/** 受信側: DBの snake → アプリの camel へ寄せる（既存） */
+/** 受信時：snake→camel 互換吸収 */
 const LEGACY_KEY_MAP: Record<string, string> = {
   company_name: 'companyName',
   foundation_year: 'foundationYear',
   business_content: 'businessContent',
   customer_segment: 'customerSegment',
   csv_finance_data: 'csvFinanceData',
+  csv_finance_data_json: 'csvFinanceData',        // 互換
   final_story: 'finalStory',
   strategy_summary: 'strategySummary',
   editable_cascade: 'editableCascade',
   editable_cascade_result: 'editableCascadeResult',
-  // 一部の過去揺れ吸収
+  business_portfolio: 'businessPortfolio',
+  business_portfolio_json: 'businessPortfolio',   // 互換
+  finance_summary: 'financeSummary',
+  finance_summary_json: 'financeSummary',         // 互換
   finalstory: 'finalStory',
 };
 
-/** 送信側: アプリの camel → DBの snake へ寄せる（新規） */
-const WRITE_KEY_MAP: Record<string, string> = {
+/** 送信時：camel→snake（固定列のみ） */
+const WRITE_KEY_MAP_BASE: Record<string, string> = {
   companyName: 'company_name',
   foundationYear: 'foundation_year',
   businessContent: 'business_content',
   customerSegment: 'customer_segment',
-  csvFinanceData: 'csv_finance_data',
   finalStory: 'final_story',
   strategySummary: 'strategy_summary',
   editableCascade: 'editable_cascade',
   editableCascadeResult: 'editable_cascade_result',
-  // story / answers2 / departments は DB でも同名（小文字）なのでマップ不要
 };
+
+/** 保存で使う実在カラム（*_json は送らない） */
+const COLS = {
+  financeSummary: 'finance_summary',
+  businessPortfolio: 'business_portfolio',
+  csvFinanceData: 'csv_finance_data',
+} as const;
 
 function pickAppCols(obj: Record<string, unknown> | null | undefined): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   const src = obj ?? {};
-  for (const k of Object.keys(src)) {
-    if (STRATEGY_COLS_APP.has(k)) out[k] = (src as any)[k];
-  }
+  for (const k of Object.keys(src)) if (STRATEGY_COLS_APP.has(k)) out[k] = (src as any)[k];
   return out;
 }
 
-/** DB→アプリ（snake→camel）受信正規化の前処理 */
+/** 受信正規化：snake→camel、ざっくり整形 */
 function normalizeIncomingKeys(obj: Record<string, unknown> | null | undefined) {
   const src = obj ?? {};
   const patched: Record<string, unknown> = { ...src };
@@ -82,104 +85,142 @@ function normalizeIncomingKeys(obj: Record<string, unknown> | null | undefined) 
       delete patched[legacy];
     }
   }
-  return pickAppCols(patched);
+  const afterPick = pickAppCols(patched);
+
+  if ('csvFinanceData' in afterPick) {
+    (afterPick as any).csvFinanceData = coerceCsvArray((afterPick as any).csvFinanceData);
+  }
+  if ('businessPortfolio' in afterPick) {
+    (afterPick as any).businessPortfolio = ensureObjectOrNullJson((afterPick as any).businessPortfolio);
+  }
+  if ('financeSummary' in afterPick) {
+    const fs = parseJsonIfString((afterPick as any).financeSummary);
+    (afterPick as any).financeSummary = Array.isArray(fs)
+      ? fs
+      : (fs && typeof fs === 'object' && !Array.isArray(fs) && Array.isArray((fs as any).items))
+        ? (fs as any).items
+        : ensureArrayJson(fs);
+  }
+  return afterPick;
 }
 
-/** アプリ→DB（camel→snake）送信時に使用 */
-function toDbKeys(obj: Record<string, unknown>): Record<string, unknown> {
+function toDbKeysBasic(obj: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(obj)) {
-    const dbKey = WRITE_KEY_MAP[k] ?? k; // マップに無ければそのまま（story/answers2/departments 等）
-    out[dbKey] = v;
-  }
+  for (const [k, v] of Object.entries(obj)) out[WRITE_KEY_MAP_BASE[k] ?? k] = v;
   return out;
 }
 
 /* ===================================================================
- *  JSON 正規化（ここが根治ポイント）
+ *  JSON 正規化ユーティリティ
  * =================================================================== */
 
-// 汎用
-const asArray = (v: any) => (Array.isArray(v) ? v : []);
-// 財務は配列で取り扱うため asObject は使用しない
+function parseJsonIfString(v: any) {
+  if (typeof v === 'string') { try { return JSON.parse(v); } catch { return v; } }
+  return v;
+}
+function ensureArrayJson(v: any) {
+  const p = parseJsonIfString(v);
+  return Array.isArray(p) ? p : [];
+}
+function ensureObjectOrNullJson(v: any) {
+  const p = parseJsonIfString(v);
+  return p && typeof p === 'object' && !Array.isArray(p) ? p : null;
+}
+function ensureObjectJson(v: any) {
+  const p = parseJsonIfString(v);
+  if (p && typeof p === 'object' && !Array.isArray(p)) return p;
+  return {};
+}
+/** string→JSON.parse、配列/オブジェクトは通し、それ以外は {} */
+function ensureArrayOrObjectJson(v: any) {
+  const p = typeof v === 'string' ? (() => { try { return JSON.parse(v); } catch { return v; } })() : v;
+  if (Array.isArray(p)) return p;
+  if (p && typeof p === 'object') return p;
+  return {};
+}
+/** DBのCHECK: finance_summary は object 必須 → { items: [...] } へ包む */
+function toFinanceObjectShape(src: any) {
+  const arr = ensureArrayJson(src);
+  return { items: arr };
+}
+function coerceCsvArray(src: any): any[] {
+  const v = parseJsonIfString(src);
+  if (Array.isArray(v)) return v;
+  if (v && typeof v === 'object') {
+    const candKeys = ['rows', 'data', 'records', 'entries', 'table'];
+    for (const k of candKeys) {
+      const inner = (v as any)[k];
+      if (Array.isArray(inner)) return inner;
+    }
+  }
+  if (typeof v === 'string') {
+    const text = v.trim();
+    if (!text) return [];
+    const lines = text.split(/\r?\n/);
+    const rows = lines
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((line) => line.split(',').map((cell) => cell.trim()));
+    return rows;
+  }
+  return [];
+}
 
-// StrategyData 用（NOT NULL の jsonb 配列は必ず [] に）
+/** 保存直前の正規化（空上書き防止のため “undefined は送らない” を後段で適用） */
 function normalizeJsonColumnsForSave(anyState: any) {
   return {
     ...anyState,
-    story: asArray(anyState?.story),
-    finalStory: asArray(anyState?.finalStory),
-    answers2: asArray(anyState?.answers2),
-    departments: asArray(anyState?.departments),
-    csvFinanceData: asArray(anyState?.csvFinanceData), // ★ ここを配列運用に統一
+    story: ensureArrayJson(anyState?.story),
+    finalStory: ensureArrayJson(anyState?.finalStory),
+    answers2: ensureArrayJson(anyState?.answers2),
+    departments: ensureArrayJson(anyState?.departments),
+
+    // ← ここは “元データを保持”。送るかどうかは insertOrUpdate で判定
+    csvFinanceData: anyState?.csvFinanceData,
+    businessPortfolio: anyState?.businessPortfolio,
+    financeSummary: anyState?.financeSummary,
+
+    // DB CHECKが array/object の列は最低限整形
+    strategySummary: ensureArrayOrObjectJson(anyState?.strategySummary),
+    editableCascade: ensureArrayOrObjectJson(anyState?.editableCascade),
+    editableCascadeResult: ensureArrayOrObjectJson(anyState?.editableCascadeResult),
   };
 }
-
-// stringify フォールバック用
-function maybeStringify(v: any) {
-  if (typeof v === 'undefined') return undefined;
-  if (v === null) return null;
-  if (typeof v === 'string') return v;
-  try { return JSON.stringify(v); } catch { return String(v); }
-}
-
-// JSONそのまま通す（プレビュー用のコピー安全化）
 function safeJson(v: any) {
   if (typeof v === 'undefined') return undefined;
-  if (typeof v === 'string') return v;
+  if (typeof v === 'string') return parseJsonIfString(v);
   try { return JSON.parse(JSON.stringify(v)); } catch { return v; }
 }
 
 /* ===================================================================
- *  ログ＆ユーティリティ
+ *  ログ／エラー整形
  * =================================================================== */
 
 function omitId<T extends Record<string, any>>(row: T): T {
-  const c = { ...row };
-  delete (c as any).id;
-  delete (c as any).strategy_id;
-  return c;
+  const c = { ...row }; delete (c as any).id; delete (c as any).strategy_id; return c;
 }
 function safeStringify(obj: any) {
   try {
     const seen = new WeakSet();
-    return JSON.stringify(
-      obj,
-      (k, v) => {
-        if (typeof v === 'object' && v !== null) {
-          if (seen.has(v)) return '[Circular]';
-          seen.add(v);
-        }
-        return v;
-      },
-      2
-    );
-  } catch {
-    try { return String(obj); } catch { return '[Unserializable]'; }
-  }
+    return JSON.stringify(obj,(k,v)=>{ if(typeof v==='object'&&v!==null){ if(seen.has(v))return'[Circular]'; seen.add(v); } return v;},2);
+  } catch { try { return String(obj); } catch { return '[Unserializable]'; } }
 }
 function previewValue(v: any) {
-  const { story, finalStory, answers2, departments, csvFinanceData, ...rest } = v || {};
+  const { story, finalStory, answers2, departments, csvFinanceData, businessPortfolio, financeSummary, ...rest } = v || {};
   return {
     ...rest,
     story: Array.isArray(story) ? `array(${story.length})` : typeof story,
     finalStory: Array.isArray(finalStory) ? `array(${finalStory.length})` : typeof finalStory,
     answers2: Array.isArray(answers2) ? `array(${answers2.length})` : typeof answers2,
     departments: Array.isArray(departments) ? `array(${departments.length})` : typeof departments,
-    hasCsvFinanceData: !!csvFinanceData,
+    hasCsvFinanceData: Array.isArray(csvFinanceData) ? `array(${csvFinanceData.length})` : !!csvFinanceData,
+    businessPortfolio: businessPortfolio && typeof businessPortfolio === 'object' ? 'object' : businessPortfolio,
+    financeSummary: Array.isArray(financeSummary) ? `array(${financeSummary.length})` : financeSummary,
   };
 }
 function group(label: string, color = '#1976d2') {
-  try {
-    // @ts-ignore
-    console.groupCollapsed?.(`%c${label}`, `color:${color}`);
-    return () => {
-      // @ts-ignore
-      console.groupEnd?.();
-    };
-  } catch {
-    return () => {};
-  }
+  try { /* @ts-ignore */ console.groupCollapsed?.(`%c${label}`, `color:${color}`); return () => { /* @ts-ignore */ console.groupEnd?.(); }; }
+  catch { return () => {}; }
 }
 function extractErrorVerbose(e: any) {
   const info = debugExtractPostgrest(e);
@@ -189,344 +230,413 @@ function extractErrorVerbose(e: any) {
   return merged;
 }
 
-/** companyId を (1)明示引数→(2)Cookie→(3)membership の順で解決 */
+/** 未定義列: 42703 / PGRST204 */
+const isUndefinedColumn = (e: any) => {
+  const code = e?.code || e?.__raw?.status || e?.__raw?.code;
+  const msg  = `${e?.message || ''} ${e?.details || ''}`.toLowerCase();
+  return code === '42703' || code === 'PGRST204' || msg.includes('could not find the');
+};
+const isCheckViolation = (e: any) => (e?.code === '23514');
+const constraintIncludes = (e: any, key: string) => {
+  const s = `${e?.constraint || ''} ${e?.details || ''} ${e?.message || ''}`;
+  return s.toLowerCase().includes(key.toLowerCase());
+};
+
+/** 送信前に __ で始まる一時キーを除去 */
+function stripPrivateKeys(row: Record<string, unknown>) {
+  const r: Record<string, unknown> = { ...row };
+  for (const k of Object.keys(r)) if (k.startsWith('__')) delete r[k];
+  return r;
+}
+
+/* ===================================================================
+ *  companyId 解決
+ * =================================================================== */
+
 async function resolveCompanyId(userId: string, override?: string | null): Promise<string | null> {
   const end = group('🧭 resolveCompanyId', '#546e7a');
   try {
     if (override && isValidUUID(override)) {
-      console.log('override companyId:', override);
-      try { setCompanyIdCookie(override); } catch (e) { console.warn('setCompanyIdCookie failed', e); }
+      try { setCompanyIdCookie(override); } catch {}
       return override;
     }
     try {
       const fromCookie = getCompanyIdFromCookie();
-      if (fromCookie) {
-        console.log('fromCookie:', fromCookie);
-        return fromCookie;
-      }
-    } catch (e) {
-      console.warn('getCompanyIdFromCookie failed', e);
-    }
+      if (fromCookie) return fromCookie;
+    } catch {}
     try {
       const m: any = await getMembership(userId);
-      console.log('membership:', m);
       const cid = m?.companyId;
       if (cid && isValidUUID(cid)) {
-        try { setCompanyIdCookie(cid); } catch (e) { console.warn('setCompanyIdCookie failed', e); }
-        console.log('set cookie companyId:', cid);
+        try { setCompanyIdCookie(cid); } catch {}
         return cid;
       }
-    } catch (e) {
-      console.warn('getMembership failed', e);
-    }
-    console.log('companyId not found');
+    } catch {}
     return null;
-  } finally {
-    end();
-  }
+  } finally { end(); }
+}
+
+async function resolveCompanyIdOrThrow(userId: string, override?: string | null): Promise<string> {
+  const cid = await resolveCompanyId(userId, override);
+  if (!cid) throw new Error('companyIdを解決できません。会社メンバーシップやCookieの設定を確認してください。');
+  return cid;
 }
 
 /* ===================================================================
  *  取得
  * =================================================================== */
 
-export async function getFullStrategyDataByCompany(companyId: string) {
+export async function getFullStrategyDataByCompany(companyId: string): Promise<ReadResult> {
   const end = group('📥 getFullStrategyDataByCompany');
   try {
-    if (!isValidUUID(companyId)) {
-      console.warn('invalid companyId:', companyId);
-      return { data: null, error: new Error('invalid companyId') };
-    }
-    const res: any = await supabase
-      .from(T_STRATEGY)
-      .select('*')
-      .eq('company_id', companyId)
-      .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (res?.error) {
-      console.error('getFullStrategyDataByCompany error:', extractErrorVerbose(res.error));
-      return { data: null, error: res.error };
-    }
-    console.log('row exists:', !!res?.data);
-    const camel = res?.data ? normalizeIncomingKeys(res.data as any) : null; // ★ snake→camel
+    if (!isValidUUID(companyId)) return { data: null, error: new Error('invalid companyId') };
+    const res: any = await supabase.from(T_STRATEGY).select('*')
+      .eq('company_id', companyId).order('updated_at', { ascending: false })
+      .limit(1).maybeSingle();
+    if (res?.error) return { data: null, error: res.error };
+    const camel = res?.data ? normalizeIncomingKeys(res.data as any) : null;
     return { data: camel ? normalizeStrategyData(camel as any) : null, error: null };
-  } catch (e: any) {
-    const info = extractErrorVerbose(e);
-    console.error('getFullStrategyDataByCompany fatal:', info);
-    return { data: null, error: e };
-  } finally {
-    end();
-  }
+  } catch (e: any) { return { data: null, error: e }; } finally { end(); }
 }
 
-export async function getFullStrategyData(userId: string, strategyId?: string | null) {
+export async function getFullStrategyData(userId: string, strategyId?: string | null): Promise<ReadResult> {
   const end = group('📥 getFullStrategyData');
   try {
     if (!userId) return { data: null, error: new Error('userId is required') };
 
+    // id指定があれば優先
     if (isValidUUID(strategyId ?? undefined)) {
       const byId: any = await supabase.from(T_STRATEGY).select('*').eq('id', strategyId).maybeSingle();
       if (!byId?.error && byId?.data) {
-        console.log('fetched by id');
-        const camel = normalizeIncomingKeys(byId.data as any); // ★
+        const camel = normalizeIncomingKeys(byId.data as any);
         return { data: normalizeStrategyData(camel as any), error: null };
       }
     }
-    const m: any = await getMembership(userId);
-    if (m?.companyId) {
-      console.log('fetch by companyId:', m.companyId);
-      return getFullStrategyDataByCompany(m.companyId);
-    }
 
-    console.log('fallback: user_id && company_id is null');
-    const byUser: any = await supabase
-      .from(T_STRATEGY)
-      .select('*')
-      .eq('user_id', userId)
-      .is('company_id', null)
-      .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    // 常に会社で取得
+    const companyId = await resolveCompanyIdOrThrow(userId, null);
+    return await getFullStrategyDataByCompany(companyId);
 
-    if (byUser?.error) {
-      console.error('fallback fetch error:', extractErrorVerbose(byUser.error));
-      return { data: null, error: byUser.error };
-    }
-    const camel = byUser?.data ? normalizeIncomingKeys(byUser.data as any) : null; // ★
-    return { data: camel ? normalizeStrategyData(camel as any) : null, error: null };
-  } catch (e: any) {
-    const info = extractErrorVerbose(e);
-    console.error('getFullStrategyData fatal:', info);
-    return { data: null, error: e };
-  } finally {
-    end();
-  }
+  } catch (e: any) { return { data: null, error: e }; } finally { end(); }
 }
 
 /* ===================================================================
- *  保存（company_id 単位で 1 行維持）
+ *  保存（UPDATE-first、会社必須）
+ *   - ❗ 3カラムは“条件付き送信”で空上書きを防止
+ *     * src === undefined → 送らない（現状維持）
+ *     * src === null      → null を送って明示クリア
+ *     * それ以外          → 正規化して送る
  * =================================================================== */
+
+type WhereMode = { kind: 'company'; companyId: string };
+
+function applyOptionalJsonColumns(
+  baseRow: Record<string, unknown>,
+  opts: {
+    financeSummarySrc: any;
+    businessPortfolioSrc: any;
+    csvFinanceDataSrc: any;
+    isInsert: boolean;
+  }
+) {
+  const row: Record<string, unknown> = { ...baseRow };
+
+  // finance_summary（object）
+  if (opts.financeSummarySrc !== undefined) {
+    row[COLS.financeSummary] =
+      opts.financeSummarySrc === null ? null : toFinanceObjectShape(opts.financeSummarySrc);
+  } else if (opts.isInsert) {
+    // insert時は指定が無ければ触らない
+  }
+
+  // business_portfolio（object）
+  if (opts.businessPortfolioSrc !== undefined) {
+    row[COLS.businessPortfolio] =
+      opts.businessPortfolioSrc === null ? null : ensureObjectJson(opts.businessPortfolioSrc);
+  } else if (opts.isInsert) {
+    // 触らない
+  }
+
+  // csv_finance_data（array）
+  if (opts.csvFinanceDataSrc !== undefined) {
+    row[COLS.csvFinanceData] =
+      opts.csvFinanceDataSrc === null ? null : coerceCsvArray(opts.csvFinanceDataSrc);
+  } else if (opts.isInsert) {
+    // 触らない
+  }
+
+  return row;
+}
+
+async function insertOrUpdateFixed(
+  mode: 'insert' | 'update',
+  baseRow: Record<string, unknown>,
+  where: WhereMode,
+  srcs: { financeSummarySrc: any; businessPortfolioSrc: any; csvFinanceDataSrc: any }
+) {
+  const isInsert = mode === 'insert';
+
+  const row = stripPrivateKeys(
+    applyOptionalJsonColumns(
+      { ...baseRow },
+      {
+        ...srcs,
+        isInsert,
+      },
+    ),
+  );
+
+  if (isInsert) {
+    return await supabase.from(T_STRATEGY).insert([row]).select('id').single();
+  }
+  return await supabase
+    .from(T_STRATEGY)
+    .update(row)
+    .eq('company_id', where.companyId)
+    .select('id')
+    .maybeSingle();
+}
 
 export async function saveStrategyData(
   state: StrategyData,
   userId: string,
-  companyIdOverride?: string | null
-) {
+  companyIdOverride?: string | null,
+): Promise<WriteResult> {
   const end = group('💾 saveStrategyData', '#2e7d32');
   try {
-    try { console.log('args → userId:', userId); } catch {}
-    try { console.log('state keys:', Object.keys((state as any) || {})); } catch {}
-
     const now = new Date().toISOString();
-    const companyId = await resolveCompanyId(userId, companyIdOverride);
-    console.log('resolved companyId:', companyId);
+    const companyId = await resolveCompanyIdOrThrow(userId, companyIdOverride);
 
-    // 1) アプリ受取 → camel に正規化（id等は除外）
+    // 1) 受取正規化（id等除去）
     const baseCamel = normalizeIncomingKeys(omitId(state as any));
 
-    // 2) JSON系を NOT NULL 方針で正規化
+    // 2) JSON 正規化（※ 3カラムは“送る/送らない”判定のため raw を保持）
     const jsonFixedCamel = normalizeJsonColumnsForSave({
       ...baseCamel,
       story: safeJson((state as any)?.story),
       finalStory: safeJson((state as any)?.finalStory),
       answers2: safeJson((state as any)?.answers2),
       departments: safeJson((state as any)?.departments),
-      csvFinanceData: safeJson((state as any)?.csvFinanceData),
+      csvFinanceData: (state as any)?.csvFinanceData,       // raw維持
+      businessPortfolio: (state as any)?.businessPortfolio, // raw維持
+      financeSummary: (state as any)?.financeSummary,       // raw維持
+      strategySummary: safeJson((state as any)?.strategySummary),
+      editableCascade: safeJson((state as any)?.editableCascade),
+      editableCascadeResult: safeJson((state as any)?.editableCascadeResult),
     });
 
-    // 3) 書き込み直前で camel → snake に変換
-    const payloadDB: Record<string, unknown> = toDbKeys(jsonFixedCamel);
+    // 3) camel→snake（固定列のみ）
+    const payloadDBBase: Record<string, unknown> = toDbKeysBasic(jsonFixedCamel);
+    (payloadDBBase as any).story        = ensureArrayJson((payloadDBBase as any).story);
+    (payloadDBBase as any).final_story  = ensureArrayJson((payloadDBBase as any).final_story);
+    (payloadDBBase as any).answers2     = ensureArrayJson((payloadDBBase as any).answers2);
+    (payloadDBBase as any).departments  = ensureArrayJson((payloadDBBase as any).departments);
 
-    const endPreview = group('🧪 payload preview');
-    try {
-      console.log('keys(camel):', Object.keys(jsonFixedCamel || {}));
-      console.log('preview(camel):', previewValue(jsonFixedCamel));
-      console.log('payload DB keys:', Object.keys(payloadDB || {}));
-      console.log('payload DB full:', safeStringify(payloadDB));
-    } catch (e) { console.warn('payload preview failed', e); }
-    endPreview();
+    // ★3カラムはこの段階では送らない（insertOrUpdateFixed で条件付き付与）
+    delete (payloadDBBase as any).csv_finance_data;
+    delete (payloadDBBase as any).csvFinanceData;
+    delete (payloadDBBase as any).businessPortfolio;
+    delete (payloadDBBase as any).financeSummary;
 
-    /* ============ 会社所属あり：INSERT → 23505/409 だけ UPDATE ============ */
-    if (companyId) {
-      const rowBase = {
-        ...payloadDB,
-        user_id: userId,
-        company_id: companyId,
-        updated_by: userId,
-        updated_at: now,
-      } as Record<string, unknown>;
-
-      const endInsert = group('➕ INSERT strategy_data');
-      let rI: any;
-      try {
-        rI = await supabase
-          .from(T_STRATEGY)
-          .insert([{ ...rowBase, created_at: now }])
-          .select('id')
-          .single();
-
-        // JSON型エラーなら stringify で再試行（※camel→snake も維持）
-        if (rI?.error && isInvalidJsonSyntax(rI)) {
-          console.warn('INSERT invalid json → fallback stringify');
-          const rowStr = {
-            ...rowBase,
-            created_at: now,
-            // フィールドごとに stringify（DBキー名で！）
-            story: maybeStringify((payloadDB as any).story),
-            final_story: maybeStringify((payloadDB as any).final_story),
-            departments: maybeStringify((payloadDB as any).departments),
-            answers2: maybeStringify((payloadDB as any).answers2),
-            csv_finance_data: maybeStringify((payloadDB as any).csv_finance_data),
-          } as any;
-
-          rI = await supabase.from(T_STRATEGY).insert([rowStr]).select('id').single();
-        }
-      } finally {
-        endInsert();
-      }
-
-      if (!rI?.error) {
-        console.log('✅ INSERT ok →', rI?.data);
-        return { error: null };
-      }
-
-      // 一意衝突のみ UPDATE へ切替
-      const isDup = isUniqueViolation(rI.error) || isConflict(rI.error);
-      if (isDup) {
-        const endUpdate = group('✏️ UPDATE after unique/conflict');
-        try {
-          let rU: any = await supabase
-            .from(T_STRATEGY)
-            .update(rowBase)
-            .eq('company_id', companyId)
-            .select('id')
-            .maybeSingle();
-
-          if (rU?.error && isInvalidJsonSyntax(rU)) {
-            console.warn('UPDATE invalid json → fallback stringify');
-            const rowStr = {
-              ...rowBase,
-              story: maybeStringify((payloadDB as any).story),
-              final_story: maybeStringify((payloadDB as any).final_story),
-              departments: maybeStringify((payloadDB as any).departments),
-              answers2: maybeStringify((payloadDB as any).answers2),
-              csv_finance_data: maybeStringify((payloadDB as any).csv_finance_data),
-            } as any;
-
-            rU = await supabase
-              .from(T_STRATEGY)
-              .update(rowStr)
-              .eq('company_id', companyId)
-              .select('id')
-              .maybeSingle();
-          }
-
-          if (rU?.error) {
-            const info = extractErrorVerbose(rU.error);
-            console.error('❌ UPDATE after conflict error:', info);
-            return { error: info };
-          }
-          console.log('✅ UPDATE ok →', rU?.data);
-          return { error: null };
-        } finally {
-          endUpdate();
-        }
-      }
-
-      // それ以外のエラーは詳細出力
-      const info = extractErrorVerbose(rI.error);
-      console.error('❌ INSERT error:', info, { raw: rI });
-      return { error: info };
-    }
-
-    /* ============ 会社未所属（レガシー）：user_id + company_id IS NULL ============ */
-    const endLegacy = group('🧰 legacy mode (company_id is NULL)', '#8e24aa');
-    const rowLegacyBase = {
-      ...payloadDB,
+    // 送信用共通本体
+    const common = {
+      ...payloadDBBase,
       user_id: userId,
-      company_id: null,
-      updated_by: userId,
       updated_at: now,
-    } as any;
+      company_id: companyId,
+    } as Record<string, unknown>;
 
-    // 先に UPDATE
-    const u: any = await supabase
+    // 会社行の存在チェック → UPDATE or INSERT
+    const exists: any = await supabase
       .from(T_STRATEGY)
-      .update(rowLegacyBase)
-      .eq('user_id', userId)
-      .is('company_id', null)
-      .select('id');
-
-    if (!u?.error && Array.isArray(u?.data) && u.data.length > 0) {
-      endLegacy();
-      console.log('legacy UPDATE ok →', u?.data);
-      return { error: null };
-    }
-
-    // なければ INSERT
-    const i: any = await supabase
-      .from(T_STRATEGY)
-      .insert([{ ...rowLegacyBase, created_at: now } as any])
       .select('id')
-      .single();
+      .eq('company_id', companyId)
+      .limit(1)
+      .maybeSingle();
 
-    console.log('legacy INSERT result:', i);
-    endLegacy();
+    const srcs = {
+      financeSummarySrc: (jsonFixedCamel as any).financeSummary,     // undefined/null/配列のまま
+      businessPortfolioSrc: (jsonFixedCamel as any).businessPortfolio,
+      csvFinanceDataSrc: (jsonFixedCamel as any).csvFinanceData,
+    };
 
-    if (i?.error) {
-      const info = extractErrorVerbose(i.error);
-      console.error('❌ legacy INSERT error:', info);
-      return { error: info };
+    if (!exists?.error && exists?.data) {
+      const upd = await insertOrUpdateFixed('update', common, { kind: 'company', companyId }, srcs);
+      return upd?.error ? { error: extractErrorVerbose(upd.error) } : { error: null };
+    } else {
+      const ins = await insertOrUpdateFixed('insert', { ...common, created_at: now }, { kind: 'company', companyId }, srcs);
+      return ins?.error ? { error: extractErrorVerbose(ins.error) } : { error: null };
     }
-    return { error: null };
   } catch (error: any) {
     const info = extractErrorVerbose(error);
     console.error('❌ saveStrategyData fatal:', info);
     return { error: info };
-  } finally {
-    end();
-  }
+  } finally { end(); }
 }
 
 /* ===================================================================
- *  削除
+ *  削除（会社単位）
  * =================================================================== */
 
-export async function deleteStrategyData(userId: string) {
+export async function deleteStrategyData(userId: string): Promise<WriteResult> {
   const end = group('🗑 deleteStrategyData', '#c62828');
   try {
-    const m: any = await getMembership(userId);
-    console.log('membership:', m);
-
-    if (m?.companyId) {
-      const { error }: any = await supabase.from(T_STRATEGY).delete().eq('company_id', m.companyId);
-      if (error) {
-        const info = extractErrorVerbose(error);
-        console.error('❌ delete by company_id error:', info);
-        return { error: info };
-      }
-      console.log('✅ deleted by company_id:', m.companyId);
-    } else {
-      const { error }: any = await supabase
-        .from(T_STRATEGY)
-        .delete()
-        .eq('user_id', userId)
-        .is('company_id', null);
-      if (error) {
-        const info = extractErrorVerbose(error);
-        console.error('❌ delete legacy error:', info);
-        return { error: info };
-      }
-      console.log('✅ deleted legacy rows for user:', userId);
+    const companyId = await resolveCompanyIdOrThrow(userId, null);
+    const { error }: any = await supabase.from(T_PROGRESS).delete().eq('company_id', companyId); // ログも消すならこちら
+    if (error) {
+      // ログ削除に失敗しても本体削除は試みる
+      console.warn('⚠ progress_logs delete failed:', extractErrorVerbose(error));
     }
+    const delStrategy: any = await supabase.from(T_STRATEGY).delete().eq('company_id', companyId);
+    if (delStrategy?.error) return { error: extractErrorVerbose(delStrategy.error) };
     return { error: null };
   } catch (error: any) {
-    const info = extractErrorVerbose(error);
-    console.error('❌ deleteStrategyData fatal:', info);
-    return { error: info };
-  } finally {
-    end();
-  }
+    return { error: extractErrorVerbose(error) };
+  } finally { end(); }
+}
+
+/* ===================================================================
+ *  追加：シミュレーション保存 / 取得
+ *   - progress_logs に category='simulation' として保存（列が無ければ最小構成にフォールバック）
+ *   - 既存のOKRログと同居できる柔軟な形にしている
+ * =================================================================== */
+
+export type SimulationSavePayload = {
+  projection: {
+    points: Array<{ year: string; sales: number; op: number; opMargin?: number }>;
+  };
+  finalProb: number; // 0..1
+  krsSnapshot?: any; // その時点のKR構成（ダンプ）
+  meta?: { label?: string; note?: string }; // 任意メタ
+};
+
+export type SimulationLogRow = {
+  id: string;
+  created_at: string;
+  user_id: string;
+  company_id: string;
+  category?: string; // 'simulation'
+  kind?: string;     // 互換キー
+  type?: string;     // 互換キー
+  okr_id?: string | null;
+  log?: any;
+  payload?: any;
+  // data?: any;  ← 使いません
+};
+
+export async function saveSimulationResult(
+  userId: string,
+  payload: SimulationSavePayload,
+  companyIdOverride?: string | null,
+): Promise<WriteResult> {
+  const end = group('📈 saveSimulationResult', '#6a1b9a');
+  try {
+    const companyId = await resolveCompanyIdOrThrow(userId, companyIdOverride);
+    const now = new Date().toISOString();
+
+    // 基本（メタ列あり）
+    const baseRow = {
+      user_id: userId,
+      company_id: companyId,
+      created_at: now,
+      category: 'simulation',
+      kind: 'simulation',
+      type: 'simulation',
+      okr_id: null,
+    } as Record<string, any>;
+
+    // 1st: log 列
+    {
+      const row = { ...baseRow, log: safeJson(payload) };
+      const res: any = await supabase.from(T_PROGRESS).insert([row]).select('id').single();
+      if (!res?.error) return { error: null };
+      const e = extractErrorVerbose(res.error);
+      if (!isUndefinedColumn(e)) return { error: e };
+      // 列未定義（categoryやlog等）→ 次の試行へ
+    }
+
+    // 2nd: payload 列
+    {
+      const row = { ...baseRow, payload: safeJson(payload) };
+      const res: any = await supabase.from(T_PROGRESS).insert([row]).select('id').single();
+      if (!res?.error) return { error: null };
+      const e = extractErrorVerbose(res.error);
+      if (!isUndefinedColumn(e)) return { error: e };
+      // 列未定義 → 最小構成へ
+    }
+
+    // 3rd: 最小構成（メタ列を外す／JSON列は log→payload の順で再試行）
+    const minimal = { user_id: userId, company_id: companyId, created_at: now } as Record<string, any>;
+
+    // 3-1: log
+    {
+      const row = { ...minimal, log: safeJson(payload) };
+      const res: any = await supabase.from(T_PROGRESS).insert([row]).select('id').single();
+      if (!res?.error) return { error: null };
+      const e = extractErrorVerbose(res.error);
+      if (!isUndefinedColumn(e)) return { error: e };
+    }
+
+    // 3-2: payload
+    {
+      const row = { ...minimal, payload: safeJson(payload) };
+      const res: any = await supabase.from(T_PROGRESS).insert([row]).select('id').single();
+      if (!res?.error) return { error: null };
+      return { error: extractErrorVerbose(res.error) };
+    }
+
+  } catch (error: any) {
+    return { error: extractErrorVerbose(error) };
+  } finally { end(); }
+}
+
+export async function getSimulationResults(
+  userId: string,
+  companyIdOverride?: string | null,
+  opts?: { limit?: number }
+): Promise<{ rows: SimulationLogRow[]; error: any | null }> {
+  const end = group('📊 getSimulationResults', '#00838f');
+  try {
+    const companyId = await resolveCompanyIdOrThrow(userId, companyIdOverride);
+    const limit = Math.max(1, Math.min(200, opts?.limit ?? 50));
+
+    // 1st: category 列がある前提でフィルタ
+    {
+      const q = supabase
+        .from(T_PROGRESS)
+        .select('*')
+        .eq('company_id', companyId)
+        .eq('category', 'simulation')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      const res: any = await q;
+      if (!res?.error) {
+        const rows: SimulationLogRow[] = Array.isArray(res?.data) ? res.data : [];
+        return { rows, error: null };
+      }
+      const e = extractErrorVerbose(res.error);
+      if (!isUndefinedColumn(e)) return { rows: [], error: e };
+      // 列未定義 → フォールバック
+    }
+
+    // 2nd: category 無し全件（同社）から新しい順で取得
+    {
+      const q = supabase
+        .from(T_PROGRESS)
+        .select('*')
+        .eq('company_id', companyId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      const res: any = await q;
+      if (res?.error) return { rows: [], error: extractErrorVerbose(res.error) };
+
+      const rows: SimulationLogRow[] = Array.isArray(res?.data) ? res.data : [];
+      return { rows, error: null };
+    }
+
+  } catch (error: any) {
+    return { rows: [], error: extractErrorVerbose(error) };
+  } finally { end(); }
 }
