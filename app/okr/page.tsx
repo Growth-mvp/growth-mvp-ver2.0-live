@@ -5,7 +5,11 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { saveStrategyData } from '@/utils/supabase';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
+
+// t→eブリッジ
+import { mapTopToExecIds } from '@/lib/strategyPatterns.map';
+import type { TopPatternId } from '@/lib/strategyPatterns.top';
 
 /* ========================
  *  ローカル型（storeに依存し過ぎない）
@@ -13,7 +17,16 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 type KR = string;
 type OKR = { objective: string; keyResults: KR[]; owner?: string; due?: string; status?: string };
 type Project = { title?: string; name?: string; okrs?: OKR[] };
-type Department = { name?: string; projects?: Project[] };
+type RecommendedPattern = { id: string; title?: string; score?: number; why?: string[] };
+type Department = {
+  name?: string;
+  projects?: Project[];
+  // STAGE3 から渡ってくる可能性のあるフィールド
+  strategy?: string;
+  mission?: string;
+  recommendedPatterns?: RecommendedPattern[];      // t系
+  recommendedExecPatterns?: RecommendedPattern[];  // e系
+};
 
 /* ==========================================================
  *  保存ステータス & 今すぐ保存ボタン（フッティング・ドック）
@@ -329,34 +342,146 @@ export default function OKRPage() {
       return { ...o, keyResults: copy };
     });
 
+  /* ---------- 実装→OKR雛形：自動展開（部門単位） ---------- */
+  const [busy, setBusy] = useState<Record<number, boolean>>({});
+  const applyOKRsFromExec = async (deptIdx: number) => {
+    const dept = cascade[deptIdx];
+    if (!dept) return;
+
+    // e系があればそれを優先、無ければ t→e ブリッジ
+    const execIdsFromE =
+      (dept.recommendedExecPatterns ?? []).map(p => p.id).filter(Boolean);
+    const execIds = execIdsFromE.length
+      ? execIdsFromE
+      : mapTopToExecIds(
+          (dept.recommendedPatterns ?? [])
+            .map(p => p.id as TopPatternId)
+            .filter(Boolean) as TopPatternId[]
+        );
+
+    if (!execIds.length) {
+      alert('実装パターンが見つかりません（STAGE3で推薦を実行してください）');
+      return;
+    }
+
+    setBusy(p => ({ ...p, [deptIdx]: true }));
+    try {
+      const res = await fetch('/api/okr-from-exec', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          execIds,
+          context: {
+            departmentName: dept.name,
+            mission: (dept.strategy ?? dept.mission ?? '') as string,
+          },
+        }),
+      });
+      const text = await res.text();
+      const data = (() => {
+        try { return JSON.parse(text); } catch {
+          const m = text.match(/\{[\s\S]*\}/m);
+          return m ? JSON.parse(m[0]) : { items: [] };
+        }
+      })();
+
+      const items: { id: string; title: string; okr: OKR }[] = Array.isArray(data?.items) ? data.items : [];
+      if (!items.length) {
+        alert('OKR雛形が生成されませんでした');
+        return;
+      }
+
+      // 既存プロジェクトにマージ（同名タイトルはKR追記）
+      const next = cascade.map((d, i) => {
+        if (i !== deptIdx) return d;
+        const projects = [...ensureArray(d.projects)];
+        for (const it of items) {
+          const title = it.title || 'OKR';
+          const okr = it.okr;
+          const existIdx = projects.findIndex(p => (p?.title ?? p?.name ?? '') === title);
+          if (existIdx >= 0) {
+            const exist = { ...projects[existIdx] };
+            const existOkrs = [...ensureArray(exist.okrs)];
+            existOkrs.push({
+              objective: okr.objective,
+              keyResults: ensureArray(okr.keyResults),
+              owner: okr.owner,
+            });
+            exist.okrs = existOkrs;
+            projects[existIdx] = exist;
+          } else {
+            projects.push({
+              title,
+              okrs: [{
+                objective: okr.objective,
+                keyResults: ensureArray(okr.keyResults),
+                owner: okr.owner,
+              }],
+            });
+          }
+        }
+        return { ...d, projects };
+      });
+
+      commit(next);
+    } catch (e: any) {
+      console.warn('applyOKRsFromExec error:', e?.message || e);
+      alert('OKR雛形の展開に失敗しました');
+    } finally {
+      setBusy(p => ({ ...p, [deptIdx]: false }));
+    }
+  };
+
   /* ---------- Render ---------- */
   return (
     <main className="min-h-screen bg-zinc-50 px-6 py-8">
       <header className="mb-8">
         <h1 className="text-[28px] font-semibold tracking-tight text-zinc-900">STAGE４ 実行計画策定</h1>
-        <p className="text-[14px] text-zinc-600">部門戦略をベースにプロジェクト・OKRを設定してください。変更は自動保存されます。</p>
+        <p className="text-[14px] text-zinc-600">
+          部門戦略をベースにプロジェクト・OKRを設定してください。変更は自動保存されます。<br />
+          STAGE3で推薦した「実装パターン」から OKR雛形を一括追加できます。
+        </p>
         <div className="mt-6 h-px w-full bg-zinc-200" />
       </header>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
         {cascade.map((dept: Department, deptIdx: number) => {
           const projects = ensureArray(dept.projects);
+          const isGenBusy = !!busy[deptIdx];
+
           return (
             <section key={deptIdx} className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-[17px] font-semibold text-zinc-900 tracking-tight">{dept?.name ?? '部門'}</h2>
-                <button
-                  onClick={() => addProject(deptIdx)}
-                  className="inline-flex items-center justify-center rounded-full h-9 px-4 text-[13px] font-medium bg-black text-white hover:opacity-90 active:opacity-85"
-                  title="プロジェクトを追加"
-                >
-                  プロジェクトを追加
-                </button>
+                <h2 className="text-[17px] font-semibold text-zinc-900 tracking-tight">
+                  {dept?.name ?? '部門'}
+                </h2>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => applyOKRsFromExec(deptIdx)}
+                    disabled={isGenBusy}
+                    className={`inline-flex items-center justify-center rounded-full h-9 px-4 text-[13px] font-medium border
+                      ${isGenBusy ? 'bg-zinc-200 text-zinc-500' : 'bg-white text-zinc-800 hover:bg-zinc-50'}`}
+                    title="実装パターンからOKR雛形を一括追加"
+                  >
+                    <Sparkles className="h-4 w-4 mr-1" />
+                    {isGenBusy ? '生成中…' : '実装→OKR雛形'}
+                  </button>
+
+                  <button
+                    onClick={() => addProject(deptIdx)}
+                    className="inline-flex items-center justify-center rounded-full h-9 px-4 text-[13px] font-medium bg-black text-white hover:opacity-90 active:opacity-85"
+                    title="プロジェクトを追加"
+                  >
+                    プロジェクトを追加
+                  </button>
+                </div>
               </div>
 
               {projects.length === 0 && (
                 <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600">
-                  プロジェクトがありません。「プロジェクトを追加」から始めてください。
+                  プロジェクトがありません。「プロジェクトを追加」または「実装→OKR雛形」から始めてください。
                 </div>
               )}
 
