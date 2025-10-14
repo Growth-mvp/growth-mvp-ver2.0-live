@@ -248,6 +248,29 @@ export function isTimeoutOrNetwork(err: unknown): boolean {
   );
 }
 
+/* ---- 追加の便利判定（非破壊・任意で利用可） ----------------------- */
+
+/** レート制限（HTTP 429） */
+export function isRateLimited(err: unknown): boolean {
+  const i = debugExtractPostgrest(err);
+  return i.status === 429 || `${i.message} ${i.details}`.toLowerCase().includes('rate limit');
+}
+
+/** ペイロード過大（HTTP 413） */
+export function isPayloadTooLarge(err: unknown): boolean {
+  const i = debugExtractPostgrest(err);
+  return i.status === 413 || `${i.message} ${i.details}`.toLowerCase().includes('payload too large');
+}
+
+/** 互換エイリアス（読みやすさ向上） */
+export const isTooManyRequests = isRateLimited;
+
+/** PGコードが付与されているかの簡易チェック */
+export function hasPgCode(err: unknown): boolean {
+  const i = debugExtractPostgrest(err);
+  return !!i.code;
+}
+
 /* -------------------------- convenience --------------------------- */
 
 /** 例: ログでまとめて使う */
