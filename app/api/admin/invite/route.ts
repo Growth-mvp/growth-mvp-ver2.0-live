@@ -24,19 +24,32 @@ function normalizeEmail(e: string): string {
 
 /** 実行時のオリジンを安全に推定（★ ポート自動スライド対応） */
 function resolveOrigin(req: Request): string {
-  // 1) ブラウザ/クライアントが送ってくる Origin を最優先
   const h = new Headers(req.headers);
   const origin = h.get('origin');
   if (origin) return origin.replace(/\/+$/, '');
 
-  // 2) プロキシ経由（Vercel など）も考慮
   const proto = h.get('x-forwarded-proto') || 'http';
   const host = h.get('x-forwarded-host') || h.get('host');
   if (host) return `${proto}://${host}`.replace(/\/+$/, '');
 
-  // 3) ローカル開発のフォールバック（3000 を既定）
   return 'http://localhost:3000';
 }
+
+/** 指定列が無い（42703）かどうかの簡易判定 */
+function looksMissingColumn(errOrResp: any, col: string) {
+  try {
+    const code = errOrResp?.error?.code ?? errOrResp?.code ?? '';
+    const msg = `${errOrResp?.error?.message ?? errOrResp?.message ?? ''} ${
+      errOrResp?.error?.details ?? errOrResp?.details ?? ''
+    }`
+      .toLowerCase()
+      .trim();
+    return code === '42703' || msg.includes(col.toLowerCase()) || (msg.includes('column') && msg.includes('does not exist'));
+  } catch {
+    return false;
+  }
+}
+const looksMissingDepartmentId = (e: any) => looksMissingColumn(e, 'department_id');
 
 export async function POST(req: Request) {
   if (!SUPABASE_URL || !SERVICE_ROLE) {
@@ -76,7 +89,7 @@ export async function POST(req: Request) {
       .eq('user_id', callerId)
       .maybeSingle();
     if (q.error || !q.data?.company_id) {
-      return NextResponse.json({ error: 'caller_company_not_found' }, { status: 403 });
+      return NextResponse.json({ error: 'caller_company_not_found', detail: q.error?.message }, { status: 403 });
     }
     if (q.data.role !== 'admin') {
       return NextResponse.json({ error: 'admin_only' }, { status: 403 });
@@ -90,14 +103,13 @@ export async function POST(req: Request) {
       .eq('user_id', callerId)
       .maybeSingle();
     if (chk.error || chk.data?.role !== 'admin') {
-      return NextResponse.json({ error: 'admin_only' }, { status: 403 });
+      return NextResponse.json({ error: 'admin_only', detail: chk.error?.message }, { status: 403 });
     }
   }
 
   // 4) 既存ユーザー検索（auth.users は環境により不可の場合があるため try/catch で緩く）
   let existingUserId: string | null = null;
   try {
-    // 環境により auth.users は PostgREST 経由で読めない場合あり
     const u = await admin.from('auth.users' as any).select('id').ilike('email', email).maybeSingle();
     if (!u.error && u.data?.id) existingUserId = String(u.data.id);
   } catch {}
@@ -120,12 +132,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, added: false, invited: false, companyId });
     }
 
-    const up = await admin
+    // まず department_id ありで upsert を試行 → なければフォールバック
+    let up = await admin
       .from('company_members')
-      .upsert(
-        [{ company_id: companyId, user_id: existingUserId, role: nextRole, department_id: departmentId }],
-        { onConflict: 'company_id,user_id' }
-      );
+      .upsert([{ company_id: companyId, user_id: existingUserId, role: nextRole, department_id: departmentId }], {
+        onConflict: 'company_id,user_id',
+      });
+    if (up.error && looksMissingDepartmentId(up)) {
+      up = await admin
+        .from('company_members')
+        .upsert([{ company_id: companyId, user_id: existingUserId, role: nextRole }], {
+          onConflict: 'company_id,user_id',
+        });
+    }
     if (up.error) {
       console.error('❌ upsert_failed', up.error);
       return NextResponse.json({ error: 'upsert_failed', detail: up.error.message }, { status: 400 });
@@ -134,18 +153,12 @@ export async function POST(req: Request) {
   }
 
   // 6) 新規ユーザー → 招待メール or magic link
-  // ★ ここが重要：実行時のオリジンを最優先で使用（ポート自動スライドでも正しいURLに）
   const origin = resolveOrigin(req);
-  // 直接 /signup?company=... に戻す。/auth/callback を挟みたい場合は
-  // `${origin}/auth/callback?next=${encodeURIComponent(`/signup?company=${companyId}`)}`
   const redirectTo = `${origin}/signup?company=${encodeURIComponent(companyId!)}`;
 
   // 招待メール
   try {
-    const { error: inviteErr } = await admin.auth.admin.inviteUserByEmail(
-      email,
-      { redirectTo } as any
-    );
+    const { error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, { redirectTo } as any);
     if (!inviteErr) {
       return NextResponse.json({ ok: true, added: false, invited: true, companyId });
     }
@@ -161,7 +174,7 @@ export async function POST(req: Request) {
       redirectTo,
     } as any);
     if (linkErr || !linkRes?.properties?.action_link) {
-      return NextResponse.json({ error: 'generate_link_failed' }, { status: 500 });
+      return NextResponse.json({ error: 'generate_link_failed', detail: linkErr?.message }, { status: 500 });
     }
     return NextResponse.json({
       ok: true,
@@ -170,8 +183,8 @@ export async function POST(req: Request) {
       inviteLink: linkRes.properties.action_link,
       companyId,
     });
-  } catch (e) {
+  } catch (e: any) {
     console.error('generateLink failed', e);
-    return NextResponse.json({ error: 'invite_failed' }, { status: 500 });
+    return NextResponse.json({ error: 'invite_failed', detail: e?.message }, { status: 500 });
   }
 }
