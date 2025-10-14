@@ -81,15 +81,19 @@ export type ProgressLog = {
 
 /* =========================
  * 財務データ（JSONB）
- * ========================= */
-export type CsvFinanceData = Record<string, unknown>; // ✅ DBは jsonb（{}）既定
+ * =========================
+ * Supabase 側は jsonb で array/object を許容。
+ * 取得/保存を非破壊にするため、UIは「配列」を基本とする。
+ */
+export type CsvFinanceData = any[];
 
 /* =========================
  * Supabase保存・読み込み用（純粋データ）
  * =========================
  * - アプリ内部では camelCase を正とする
  * - DBメタは snake_case を優先（互換で camel も残す）
- * - JSONB は必ず [] / {}（NOT NULL運用）
+ * - ★重要：3カラム（businessPortfolio / financeSummary / csvFinanceData）は optional
+ *            → 未定義時は保存しない（空上書き回避）
  */
 export type StrategyData = {
   /** === メタ（DBの snake_case を優先） === */
@@ -129,13 +133,21 @@ export type StrategyData = {
   opportunity: string;
   threat: string;
 
-  /** === 財務JSON（必ずオブジェクト）=== */
-  csvFinanceData: CsvFinanceData;
+  /** === 事業ポートフォリオ（jsonb object）=== */
+  businessPortfolio?: Record<string, any>; // ← optional（undefined は送らない）
 
-  /** === ストーリー（必ず配列）=== */
+  /** === 財務サマリ（保存は {items: []}、読みは配列）=== */
+  financeSummary?: any[]; // ← optional（undefined は送らない）
+
+  /** === 財務明細CSV（配列ベース）=== */
+  csvFinanceData?: CsvFinanceData; // ← optional（undefined は送らない）
+
+  /** === ストーリー（配列）=== */
   story: ChapterStory[];       // たたき台
   finalStory: ChapterStory[];  // 確定版
-  strategySummary?: string;    // 要約（任意）
+
+  /** 要約など（DBのCHECK都合で array/object/string 混在の可能性 → unknown で受ける） */
+  strategySummary?: unknown;
 
   /** === 旧：一括生成の問い/理由（レガシー互換, 任意）=== */
   questions?: string[];
@@ -165,6 +177,7 @@ export type StrategyData = {
  * Zustand ストア用（拡張）
  * =========================
  * - setter 群は UI から直接呼ばれる想定
+ * - 3カラム用の setter を追加（optional前提）
  */
 export interface StrategyState extends StrategyData {
   setCompanyName: (v: string) => void;
@@ -186,7 +199,10 @@ export interface StrategyState extends StrategyData {
   setOpportunity: (v: string) => void;
   setThreat: (v: string) => void;
 
-  setCsvFinanceData: (v: CsvFinanceData) => void;
+  // ★3カラム（optional）
+  setBusinessPortfolio: (v: Record<string, any> | undefined) => void;
+  setFinanceSummary: (v: any[] | undefined) => void;
+  setCsvFinanceData: (v: CsvFinanceData | undefined) => void;
 
   setStory: (v: ChapterStory[]) => void;
   setFinalStory: (v: ChapterStory[]) => void;
@@ -194,7 +210,7 @@ export interface StrategyState extends StrategyData {
   setAnswers: (v: string[]) => void;             // 旧
   setAnswers2: (v: ChapterAnswers[]) => void;     // 新（推奨）
 
-  setStrategySummary: (v: string) => void;
+  setStrategySummary: (v: unknown) => void;
 
   // 部門：正→departments、互換→editableCascadeResult
   setDepartments: (v: Department[]) => void;      // ✅ 正規
@@ -207,3 +223,57 @@ export interface StrategyState extends StrategyData {
   loadFromSupabase: () => Promise<void>;
   clearAllData: () => void;
 }
+
+/* =========================================================
+ * ここから追加：勝ちパターン（上位/下位）＆ V2 ストーリー型
+ * ========================================================= */
+
+/** 上位（経営）パターン：外資系コンサル系の経営テーマに相当 */
+export type TopStrategyPattern = {
+  id: string;          // 例: 't1'..'t10'
+  title: string;       // 例: '選択と集中（Focus & Scale）'
+  summary: string;     // 概要（短文）
+  firstMove: string;   // 経営としての最初の一手
+  kpiAxis: string;     // KPI軸（ROIC/海外売上比率 など）
+  pitfalls: string[];  // 典型的な落とし穴
+};
+
+/** 下位（実行）パターン：部門・現場実装の型 */
+export type ExecStrategyPattern = {
+  id: string;          // 例: 'e1'..'e10'
+  title: string;       // 例: 'フリクション撲滅ファネル'
+  when: string[];      // 効く条件
+  firstStep: string;   // 初手（1スプリントでやること）
+  kpi: string;         // 先行指標（1軸）
+  pitfalls: string[];  // ありがちな失敗
+};
+
+/** 上位→下位の推奨マッピング（最大3件程度が基本） */
+export type PatternBridge = {
+  topId: string;                // 't*'
+  recommendedExecIds: string[]; // ['e1','e4','e5']
+};
+
+/** ストーリー下書き V2：上位/下位パターンの候補を両方持つ */
+export type StoryDraftV2 = {
+  outline: { title: string; summary: string }[];
+  lead: string;
+  options: string[];
+  topPatternSuggestions: { id: string; reason: string }[]; // t*
+  patternSuggestions: { id: string; reason: string }[];    // e*（互換名）
+  kpiStarters: string[];
+  nextActions: string[];
+};
+
+/** ストーリー完成 V2：パターンの根拠と橋渡しを明示 */
+export type FinalStoryV2 = {
+  finalStory: string; // Markdown
+  patternTrace: { patternId: string; where: string }[]; // 段落→t*/e*
+  kpiPack: string[];                                    // 章ごとのKPIまとめ
+  riskNotes: string[];                                  // 落とし穴と回避策
+  execPatternBridge: {                                   // 上位→下位の橋渡し説明
+    fromTopId: string;          // t*
+    toExecIds: string[];        // e*
+    rationale: string;          // なぜその橋渡しなのか
+  }[];
+};
