@@ -6,25 +6,22 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { getServerUser } from '@/lib/supabaseServer'; // Cookie セッションから user を取得
+import { getServerUser } from '@/lib/supabaseServer';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-// createClient の戻りと合わせた型
 type AdminClient = SupabaseClient<any, 'public', any>;
 
 type Body = {
   companyName?: string;
-  /** 任意: company_members に列がある場合だけ使われます */
   departmentId?: string | null;
 };
 
+/* ============== 小ヘルパ ============== */
 function json(status: number, obj: unknown, cookies?: string[]) {
   const res = NextResponse.json(obj, { status });
-  if (cookies && cookies.length) {
-    cookies.forEach((c) => res.headers.append('Set-Cookie', c));
-  }
+  if (cookies && cookies.length) cookies.forEach((c) => res.headers.append('Set-Cookie', c));
   return res;
 }
 
@@ -34,126 +31,147 @@ function getBearer(req: NextRequest) {
   return m?.[1] ?? null;
 }
 
-/** フォールバック用の会社名を生成（UTCタイムスタンプ入り） */
 function makeDefaultCompanyName(email?: string | null) {
   const ts = new Date().toISOString().replace('T', ' ').replace('Z', '');
-  if (email) return `Company of ${email} (${ts})`;
-  return `My Company (${ts})`;
+  return email ? `Company of ${email} (${ts})` : `My Company (${ts})`;
 }
 
-/** Set-Cookie: company_id */
 function buildCompanyCookie(companyId: string, isHttps: boolean) {
-  const attrs = [
-    'Path=/',
-    'SameSite=Lax',
-    `Max-Age=${60 * 60 * 24 * 30}`, // 30 days
-    isHttps ? 'Secure' : '',
-  ]
+  const attrs = ['Path=/', 'SameSite=Lax', `Max-Age=${60 * 60 * 24 * 30}`, isHttps ? 'Secure' : '']
     .filter(Boolean)
     .join('; ');
   return `company_id=${encodeURIComponent(companyId)}; ${attrs}`;
 }
 
+// 常に id を返す（uuid想定）
+function pickId(row: any): string | null {
+  const v = row?.id ?? null;
+  return typeof v === 'string' && v ? v : null;
+}
+
+async function findStrategyByCompany(admin: AdminClient, companyId: string) {
+  return admin.from('strategy_data').select('id').eq('company_id', companyId).limit(1).maybeSingle();
+}
+
+async function findStrategyByUser(admin: AdminClient, userId: string) {
+  return admin.from('strategy_data').select('id').eq('user_id', userId).limit(1).maybeSingle();
+}
+
+/** profiles.id = userId が無ければ最小行を作る（存在すれば何もしない） */
+async function ensureProfileExists(admin: AdminClient, userId: string) {
+  try {
+    const ex = await admin.from('profiles').select('id').eq('id', userId).limit(1).maybeSingle();
+    if (!ex.error && ex.data?.id) return { ok: true };
+    const now = new Date().toISOString();
+    const ins = await admin
+      .from('profiles')
+      .insert([{ id: userId, created_at: now, updated_at: now }])
+      .select('id')
+      .single();
+    if (ins.error) return { ok: true, note: 'profile_insert_error_ignored', detail: ins.error };
+    return { ok: true };
+  } catch (e) {
+    return { ok: true, note: 'profile_check_failed_ignored', detail: String(e) };
+  }
+}
+
+/** 指定列が無い（42703）かどうかの簡易判定 */
+function looksMissingColumn(errOrResp: any, col: string) {
+  const code = errOrResp?.error?.code ?? errOrResp?.code ?? '';
+  const msg = `${errOrResp?.error?.message ?? errOrResp?.message ?? ''} ${
+    errOrResp?.error?.details ?? errOrResp?.details ?? ''
+  }`
+    .toLowerCase()
+    .trim();
+  return code === '42703' || msg.includes(col.toLowerCase()) || (msg.includes('column') && msg.includes('does not exist'));
+}
+const looksMissingDepartmentId = (e: any) => looksMissingColumn(e, 'department_id');
+
 /**
- * strategy_data の初期行を「存在しなければ」作成し、
- * 既存/新規に関わらず strategyId を返す。
+ * strategy_data の初期行を“存在しなければ”作成し、strategyId を返す。
+ * 重要ポイント：
+ *  - 既存は company_id → 無ければ user_id で探索
+ *  - 挿入は最小5カラムのみ（company_id, user_id, updated_by, created_at, updated_at）
+ *  - FK(23503) は profiles を作って 1 回だけ再試行
+ *  - 返却 ID は常に `id`
  */
 async function ensureStrategySeed(
   admin: AdminClient,
   userId: string,
   companyId: string
 ): Promise<{ ok: true; created: boolean; strategyId: string } | { ok: false; error: any }> {
-  // 既存チェック
-  const existed = await admin
-    .from('strategy_data')
-    .select('id')
-    .eq('company_id', companyId)
-    .limit(1)
-    .maybeSingle();
-
-  if (!existed.error && existed.data?.id) {
-    return { ok: true, created: false, strategyId: String(existed.data.id) };
+  // 1) 既存チェック：company_id
+  {
+    const ex = await findStrategyByCompany(admin, companyId);
+    const sid = !ex.error ? pickId(ex.data) : null;
+    if (sid) return { ok: true, created: false, strategyId: sid };
   }
 
-  // 挿入（snake_case カラムで投入）
+  // 2) 既存チェック：user_id（スキーマに user_id 一意制約があるプロジェクト向けの保険）
+  {
+    const exU = await findStrategyByUser(admin, userId);
+    const sid = !exU.error ? pickId(exU.data) : null;
+    if (sid) return { ok: true, created: false, strategyId: sid };
+  }
+
+  // 3) 無ければ作成（最小フィールドのみ）
   const now = new Date().toISOString();
-  const seed = {
+  const seedMinimal = {
     company_id: companyId,
     user_id: userId,
     updated_by: userId,
     created_at: now,
     updated_at: now,
-
-    // 文字列系は空でOK
-    company_name: '',
-    foundation_year: '',
-    location: '',
-    industry: '',
-    revenue: '',
-    employees: '',
-    business_content: '',
-    customer_segment: '',
-    thought: '',
-    mission: '',
-    vision: '',
-    value: '',
-    strength: '',
-    weakness: '',
-    opportunity: '',
-    threat: '',
-
-    // JSONB は必ず NOT NULL で投入
-    departments: [] as unknown[],
-    story: [] as unknown[],
-    answers2: [] as unknown[],
-    final_story: [] as unknown[],
-    csv_finance_data: {} as Record<string, unknown>,
-
-    // 列が存在すれば保存される（無ければ無視される）
-    strategy_summary: null as unknown,
-    editable_cascade: null as unknown,
-    editable_cascade_result: null as unknown,
   };
 
-  const ins = await admin.from('strategy_data').insert([seed]).select('id').single();
+  const tryInsert = async () =>
+    admin.from('strategy_data').insert([seedMinimal]).select('id').single();
 
-  if (ins.error) {
-    const code = (ins as any).error?.code;
-    if (code === '23505' || code === '409') {
-      // 重複等の競合は再取得で拾う
-      const re = await admin
-        .from('strategy_data')
-        .select('id')
-        .eq('company_id', companyId)
-        .limit(1)
-        .maybeSingle();
-      if (!re.error && re.data?.id) {
-        return { ok: true, created: false, strategyId: String(re.data.id) };
-      }
-      return { ok: false, error: ins.error };
-    }
-    return { ok: false, error: ins.error };
+  let ins = await tryInsert();
+
+  // FK: profiles がない → 1回だけ作って再試行
+  if ((ins as any).error && (ins as any).error.code === '23503') {
+    await ensureProfileExists(admin, userId);
+    ins = await tryInsert();
   }
 
-  return { ok: true, created: true, strategyId: String(ins.data?.id) };
+  if ((ins as any).error) {
+    const code = (ins as any).error.code;
+    if (code === '23505' || code === '409') {
+      // 重複：user_id 優先 → ダメなら company_id
+      const reU = await findStrategyByUser(admin, userId);
+      const sidU = !reU.error ? pickId(reU.data) : null;
+      if (sidU) return { ok: true, created: false, strategyId: sidU };
+
+      const reC = await findStrategyByCompany(admin, companyId);
+      const sidC = !reC.error ? pickId(reC.data) : null;
+      if (sidC) return { ok: true, created: false, strategyId: sidC };
+
+      return { ok: false, error: (ins as any).error };
+    }
+    return { ok: false, error: (ins as any).error };
+  }
+
+  const newId = pickId((ins as any).data);
+  if (!newId) return { ok: false, error: new Error('inserted but id missing') };
+  return { ok: true, created: true, strategyId: newId };
 }
 
+/* ============== route ============== */
 export async function POST(req: NextRequest) {
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return json(500, { ok: false, code: 'server_not_configured' });
   }
 
-  // Service Role（RLS無視）クライアント
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false },
   }) as AdminClient;
 
   try {
-    // 1) 認証: まず Cookie（App Router 推奨）→ ダメなら Bearer
+    // 1) 認証（Cookie → Bearer）
     let userId: string | null = null;
     let userEmail: string | null = null;
 
-    // 1-1) Cookie セッション（App Router）経由
     try {
       const { user } = await getServerUser();
       if (user?.id) {
@@ -161,14 +179,14 @@ export async function POST(req: NextRequest) {
         userEmail = (user.email as string) ?? null;
       }
     } catch {
-      /* noop */
+      // ignore
     }
 
-    // 1-2) Bearer が来ていれば上書き
     if (!userId) {
       const token = getBearer(req);
-      if (!token) return json(401, { ok: false, code: 'no_auth', message: 'cookie or bearer required' });
-
+      if (!token) {
+        return json(401, { ok: false, code: 'no_auth', message: 'cookie or bearer required' });
+      }
       const { data: ures, error: uerr } = await admin.auth.getUser(token);
       if (uerr || !ures?.user?.id) {
         return json(401, { ok: false, code: 'invalid_token', details: uerr });
@@ -184,14 +202,15 @@ export async function POST(req: NextRequest) {
         body = (await req.json()) as Body;
       }
     } catch {
-      // body なしでもOK（companyName は後でフォールバック生成）
+      // ignore
     }
-
-    const companyNameRaw = (body.companyName || '').trim();
-    const companyName = companyNameRaw || makeDefaultCompanyName(userEmail);
+    const companyName = (body.companyName || '').trim() || makeDefaultCompanyName(userEmail);
     const departmentId = body.departmentId ?? null;
 
-    // 3) 既所属チェック（多重作成防止）→ 成功扱いで返す
+    // HTTPS 判定（Set-Cookie Secure判定用）
+    const isHttps = (req.nextUrl?.protocol || '').toLowerCase() === 'https:';
+
+    // 3) 既所属チェック（多重作成防止）
     {
       const { data: ex, error: exErr } = await admin
         .from('company_members')
@@ -200,24 +219,37 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
 
       if (!exErr && ex?.company_id) {
-        // 既所属でも strategy_data が無いケースがあるので seed を試みる
         const seeded = await ensureStrategySeed(admin, userId!, String(ex.company_id));
-        const cookie = buildCompanyCookie(String(ex.company_id), req.nextUrl.protocol === 'https:');
+        const cookie = buildCompanyCookie(String(ex.company_id), isHttps);
+
+        if (!(seeded as any).ok) {
+          console.warn('[provision] seed failed on already_in_company:', {
+            userId,
+            companyId: ex.company_id,
+            error: (seeded as any).error,
+          });
+        }
 
         return json(
           200,
           {
             ok: true,
             companyId: ex.company_id,
-            strategyId: seeded.ok ? seeded.strategyId : null, // ★ 追加
+            strategyId: (seeded as any).ok ? (seeded as any).strategyId : null,
             note: 'already_in_company',
+            seedError: (seeded as any).ok
+              ? undefined
+              : {
+                  code: (seeded as any).error?.code ?? null,
+                  message: (seeded as any).error?.message ?? String((seeded as any).error ?? ''),
+                },
           },
           [cookie],
         );
       }
     }
 
-    // 4) RPC があれば優先（原子・冪等）
+    // 4) RPC（あれば優先）
     const { data: rpcData, error: rpcErr } = await admin.rpc('provision_company', {
       p_user_id: userId!,
       p_company_name: companyName,
@@ -226,22 +258,31 @@ export async function POST(req: NextRequest) {
     if (!rpcErr && rpcData) {
       const cid = String(rpcData);
       const seeded = await ensureStrategySeed(admin, userId!, cid);
-      const cookie = buildCompanyCookie(cid, req.nextUrl.protocol === 'https:');
+      const cookie = buildCompanyCookie(cid, isHttps);
+
+      if (!(seeded as any).ok) {
+        console.warn('[provision] seed failed on rpc:', { userId, companyId: cid, error: (seeded as any).error });
+      }
 
       return json(
         200,
         {
           ok: true,
           companyId: cid,
-          strategyId: seeded.ok ? seeded.strategyId : null, // ★ 追加
+          strategyId: (seeded as any).ok ? (seeded as any).strategyId : null,
           via: 'rpc',
+          seedError: (seeded as any).ok
+            ? undefined
+            : {
+                code: (seeded as any).error?.code ?? null,
+                message: (seeded as any).error?.message ?? String((seeded as any).error ?? ''),
+              },
         },
         [cookie],
       );
     }
 
     // 5) フォールバック（手動原子処理）
-    // 5-1) companies 作成
     const { data: insCompany, error: insErr } = await admin
       .from('companies')
       .insert([{ name: companyName, created_by: userId! }])
@@ -249,91 +290,83 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (insErr || !insCompany?.id) {
-      return json(500, {
-        ok: false,
-        code: 'create_company_failed',
-        details: insErr,
-        rpcError: rpcErr,
-      });
+      return json(500, { ok: false, code: 'create_company_failed', details: insErr, rpcError: rpcErr });
     }
     const companyId = String(insCompany.id);
 
-    // 5-2) 自分を admin で参加（冪等）
-    const payload: Record<string, any> = {
-      company_id: companyId,
-      user_id: userId!,
-      role: 'admin',
-    };
-    if (departmentId !== null) payload['department_id'] = departmentId;
+    // upsert（department_id あり → 無ければフォールバック）
+    let insMember = await admin
+      .from('company_members')
+      .upsert(
+        [{ company_id: companyId, user_id: userId!, role: 'admin', ...(departmentId !== null ? { department_id: departmentId } : {}) }],
+        { onConflict: 'company_id,user_id', ignoreDuplicates: false }
+      );
 
-    let insMember = await admin.from('company_members').upsert(payload, {
-      onConflict: 'company_id,user_id',
-      ignoreDuplicates: false,
-    });
-
-    // 列なし（undefined_column）フォールバック
-    if (insMember.error && (insMember as any).error?.code === '42703') {
-      const payloadNoDept = { company_id: companyId, user_id: userId!, role: 'admin' };
-      insMember = await admin.from('company_members').upsert(payloadNoDept, {
-        onConflict: 'company_id,user_id',
-        ignoreDuplicates: false,
-      });
+    if (insMember.error && looksMissingDepartmentId(insMember)) {
+      insMember = await admin
+        .from('company_members')
+        .upsert(
+          [{ company_id: companyId, user_id: userId!, role: 'admin' }],
+          { onConflict: 'company_id,user_id', ignoreDuplicates: false }
+        );
     }
 
     if (insMember.error) {
-      // 重複（unique/PK）なら成功扱い
       if ((insMember as any).error?.code === '23505') {
         const seeded = await ensureStrategySeed(admin, userId!, companyId);
-        const cookie = buildCompanyCookie(companyId, req.nextUrl.protocol === 'https:');
+        const cookie = buildCompanyCookie(companyId, isHttps);
+
+        if (!(seeded as any).ok) {
+          console.warn('[provision] seed failed on duplicate_membership:', {
+            userId,
+            companyId,
+            error: (seeded as any).error,
+          });
+        }
 
         return json(
           200,
           {
             ok: true,
             companyId,
-            strategyId: seeded.ok ? seeded.strategyId : null, // ★ 追加
+            strategyId: (seeded as any).ok ? (seeded as any).strategyId : null,
             note: 'duplicate_membership_treated_as_success',
+            seedError: (seeded as any).ok
+              ? undefined
+              : {
+                  code: (seeded as any).error?.code ?? null,
+                  message: (seeded as any).error?.message ?? String((seeded as any).error ?? ''),
+                },
           },
           [cookie],
         );
       }
-      // 途中失敗: 会社だけ残さない（簡易ロールバック）
+      // 失敗時は companies をロールバック
       await admin.from('companies').delete().eq('id', companyId);
-      return json(500, {
-        ok: false,
-        code: 'join_admin_failed',
-        companyId,
-        details: insMember.error,
-        rpcError: rpcErr,
-      });
+      return json(500, { ok: false, code: 'join_admin_failed', companyId, details: insMember.error, rpcError: rpcErr });
     }
 
-    // 5-3) strategy_data の初期行を“存在しなければ”作成
     const seedRes = await ensureStrategySeed(admin, userId!, companyId);
-    if (!seedRes.ok) {
-      const cookie = buildCompanyCookie(companyId, req.nextUrl.protocol === 'https:');
+    const cookie = buildCompanyCookie(companyId, isHttps);
+
+    if (!(seedRes as any).ok) {
+      console.warn('[provision] seed failed on fallback:', { userId, companyId, error: (seedRes as any).error });
       return json(
         500,
-        {
-          ok: false,
-          code: 'strategy_seed_failed',
-          companyId,
-          details: seedRes.error,
-          rpcError: rpcErr,
-        },
+        { ok: false, code: 'strategy_seed_failed', companyId, details: (seedRes as any).error, rpcError: rpcErr },
         [cookie],
       );
     }
 
-    const cookie = buildCompanyCookie(companyId, req.nextUrl.protocol === 'https:');
     return json(
       200,
       {
         ok: true,
         companyId,
-        strategyId: seedRes.strategyId, // ★ 追加
+        strategyId: (seedRes as any).strategyId,
         via: 'fallback',
-        strategySeeded: seedRes.created,
+        strategySeeded: (seedRes as any).created,
+        seedError: undefined,
       },
       [cookie],
     );
