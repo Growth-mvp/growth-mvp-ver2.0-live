@@ -8,9 +8,8 @@ import { useUserStore } from '@/store/userStore';
 import { saveStrategyData } from '@/utils/supabase';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useAccess } from '@/utils/access'; // Cookie/Store ベースの権限
+import { useAccess } from '@/utils/access';
 
-// ストア/永続化側で使う公式型（createdAt/depth が無い想定）
 import type { AnswerStep as StrategyAnswerStep } from '@/types/strategy';
 
 /* ===== 型 ===== */
@@ -35,13 +34,12 @@ const CHAPTER_COLORS = [
   { badge: 'bg-amber-50 text-amber-700 border-amber-200', ring: 'ring-amber-300', border: 'border-amber-200' },
 ];
 
-/** 章×Stepの既定粒度（QuestionStepper側と同期） */
-const DEFAULT_DEPTH_PLAN: Depth[][] = [
-  ['board', 'exec', 'exec'],
-  ['board', 'exec', 'exec'],
-  ['board', 'exec', 'exec'],
-  ['board', 'exec', 'ops'],
-];
+/** 章×Stepの既定粒度（1: board / それ以外: exec、ただし Ch4 Step3 は ops） */
+function getDepthFor(chapterIndex: number, stepNumber: number): Depth {
+  if (stepNumber === 1) return 'board';
+  if (chapterIndex === 3 && stepNumber === 3) return 'ops';
+  return 'exec';
+}
 
 /* ===== Utils ===== */
 function tryParseJson<T = any>(text: string): T | null { try { return JSON.parse(text); } catch { return null; } }
@@ -119,13 +117,10 @@ function alignToGrowthOrder(chs: ChapterStory[], titlesOverride: readonly string
   return ordered.slice(0, 4).map((c, i) => ({ ...c, title: titlesOverride[i] ?? c.title }));
 }
 
-const clampStepNumber = (n: any): 1|2|3 => {
-  const x = Number(n); if (!Number.isFinite(x)) return 1; if (x <= 1) return 1; if (x >= 3) return 3; return 2;
-};
-
+/** 比較用：ステップ配列を正規化（番号のクランプ禁止） */
 const normalizeForCompare = (steps: StepperAnswerStep[]) =>
   [...(steps ?? [])].map(s => ({
-    stepNumber: clampStepNumber(s.stepNumber),
+    stepNumber: Number(s.stepNumber),
     question: s.question ?? '',
     reason: s.reason ?? '',
     answer: s.answer ?? '',
@@ -143,17 +138,15 @@ const isStepsEqual = (a: StepperAnswerStep[] = [], b: StepperAnswerStep[] = []) 
 };
 
 /* ===== StrategyStep ↔ StepperStep 変換 ===== */
-
-// Stepper で必須の createdAt/depth を補完
 const STABLE_TS = '1970-01-01T00:00:00.000Z';
+
 function inflateToStepper(steps: StrategyAnswerStep[] | undefined, chapterIndex: number): StepperAnswerStep[] {
   if (!Array.isArray(steps)) return [];
-  const plan = DEFAULT_DEPTH_PLAN[chapterIndex] || ['board', 'exec', 'exec'];
   return steps
     .filter((s) => s && s.stepNumber != null)
     .map((s) => {
-      const sn = clampStepNumber(s.stepNumber as any);
-      const depth: Depth = (s as any).depth ?? plan[(sn - 1) as 0|1|2];
+      const sn = Number(s.stepNumber);
+      const depth: Depth = (s as any).depth ?? getDepthFor(chapterIndex, sn);
       return {
         stepNumber: sn,
         question: s.question ?? '',
@@ -166,15 +159,13 @@ function inflateToStepper(steps: StrategyAnswerStep[] | undefined, chapterIndex:
     .sort((a, b) => a.stepNumber - b.stepNumber);
 }
 
-// 保存用に不要な createdAt を落とす（depth は保持）
 function deflateToStrategy(steps: StepperAnswerStep[]): StrategyAnswerStep[] {
   return (steps ?? [])
     .map((s) => ({
-      stepNumber: clampStepNumber(s.stepNumber),
+      stepNumber: Number(s.stepNumber),
       question: s.question ?? '',
       reason: s.reason ?? '',
       answer: s.answer ?? '',
-      // depth は types/strategy 側に存在しない場合もあるが JSON 保存時に付いていても問題ないため as any
       ...(s as any).depth ? { depth: (s as any).depth } : {},
     } as any as StrategyAnswerStep))
     .sort((a, b) => Number(a.stepNumber) - Number(b.stepNumber));
@@ -183,14 +174,12 @@ function deflateToStrategy(steps: StepperAnswerStep[]): StrategyAnswerStep[] {
 /* ===== ページ ===== */
 export default function StoryProcessPage() {
   const { user } = useUserStore();
-  const companyId = useUserStore((s) => s.companyId); // ← companyId確定トリガ
+  const companyId = useUserStore((s) => s.companyId);
   const store = useStrategyStore() as any;
 
-  // アクセス（閲覧はOK、編集は会社レベルAdminのみ）
   const { canView, canEditCompany } = useAccess();
   const canEdit = canEditCompany();
 
-  // companyId 確定時にサーバ再取得（strategy-store 新旧API両対応）
   useEffect(() => {
     if (!companyId) return;
     const st: any = useStrategyStore.getState();
@@ -219,7 +208,6 @@ export default function StoryProcessPage() {
     Array.isArray(store?.finalStory) ? store.finalStory :
     (typeof store?.finalStory === 'string' ? (tryParseJson<ChapterStory[]>(store.finalStory) ?? []) : []);
 
-  // ★ ストア answers2 は StrategyAnswerStep[] の可能性があるため、内部型は StepperAnswerStep[] に統一
   const answers2: ChapterAnswers[] = useMemo(() => {
     const raw = Array.isArray(store?.answers2) ? store.answers2 : [];
     return raw.map((c: any) => ({
@@ -234,10 +222,11 @@ export default function StoryProcessPage() {
     industry, revenue, employees,
     thought, strength, weakness, opportunity, threat,
     csvFinanceData,
+    portfolio, // ★ 1) STAGE1の事業ポートフォリオを取得
   } = store ?? {};
 
   const setStorySafe = (chs: ChapterStory[]) => {
-    if (!canEdit) return; // 非Adminはローカルstore変更による保存を抑止
+    if (!canEdit) return;
     if (typeof store?.setStory === 'function') store.setStory(chs);
     else (useStrategyStore as any).setState({ story: chs });
   };
@@ -248,7 +237,6 @@ export default function StoryProcessPage() {
   };
   const setAnswers2Safe = (a2: ChapterAnswers[]) => {
     if (!canEdit) return;
-    // 永続化は StrategyAnswerStep[] 互換の形に変換して保存
     const payload = a2.map((c) => ({
       chapterIndex: c.chapterIndex,
       chapterTitle: c.chapterTitle,
@@ -270,6 +258,9 @@ export default function StoryProcessPage() {
 
   const referenceArr: ChapterStory[] = draftArr.length ? draftArr : finalArr;
 
+  /* ------- 章ごとの上限（子からの通知で拡大反映） ------- */
+  const [maxStepsByChapter, setMaxStepsByChapter] = useState<Record<number, number>>({ 0: 2, 1: 6, 2: 2, 3: 2 });
+
   /* ------- 状態 ------- */
   const [loadingDraft, setLoadingDraft] = useState(false);
   const [finalLoading, setFinalLoading] = useState(false);
@@ -284,11 +275,23 @@ export default function StoryProcessPage() {
     window.localStorage.setItem('storyProcess.currentIdx', String(currentIdx));
   }, [currentIdx]);
 
-  const TOTAL_STEPS = 12;
-  const completedSteps = useMemo(
-    () => (answers2 ?? []).reduce((sum, c) => sum + Math.min((c?.steps?.length ?? 0), 3), 0),
-    [answers2]
-  );
+  const TOTAL_STEPS = (maxStepsByChapter[0] ?? 2) + (maxStepsByChapter[1] ?? 6) + (maxStepsByChapter[2] ?? 2) + (maxStepsByChapter[3] ?? 2);
+
+  // 章ごとの「必要数に対して回答済み（非空）」のカウント
+  const completedSteps = useMemo(() => {
+    let sum = 0;
+    for (let ch = 0; ch < 4; ch++) {
+      const need = maxStepsByChapter[ch] ?? (ch === 1 ? 6 : 2);
+      const steps = (answers2.find(a => a.chapterIndex === ch)?.steps ?? []);
+      let done = 0;
+      for (let s = 1; s <= need; s++) {
+        const rec = steps.find(x => Number(x.stepNumber) === s);
+        if (rec && String(rec.answer || '').trim()) done++;
+      }
+      sum += Math.min(done, need);
+    }
+    return sum;
+  }, [answers2, maxStepsByChapter]);
   const progressPct = Math.round((completedSteps / TOTAL_STEPS) * 100);
 
   /* ------- 自動保存（デバウンス） ------- */
@@ -298,7 +301,6 @@ export default function StoryProcessPage() {
       draft: ChapterStory[] = storyRawArr,
       fin: ChapterStory[] = finalRawArr
     ) => {
-      // 非Admin または companyId 未確定は保存しない（company 起点に統一）
       if (!canEdit || !companyId) return;
       if (persistTimer.current) window.clearTimeout(persistTimer.current);
       persistTimer.current = window.setTimeout(async () => {
@@ -309,7 +311,6 @@ export default function StoryProcessPage() {
               strategyId,
               story: draft,
               finalStory: fin,
-              // StrategyAnswerStep 互換ペイロードに整形
               answers2: (a2 ?? []).map((c) => ({
                 chapterIndex: c.chapterIndex,
                 chapterTitle: c.chapterTitle,
@@ -319,6 +320,7 @@ export default function StoryProcessPage() {
               industry, revenue, employees,
               thought, strength, weakness, opportunity, threat,
               csvFinanceData,
+              portfolio, // （保存にも含めておくと一貫）
             } as any,
             user.id
           );
@@ -330,37 +332,37 @@ export default function StoryProcessPage() {
     [
       answers2, csvFinanceData, employees, finalRawArr, industry, mission,
       opportunity, revenue, storyRawArr, strength, strategyId, thought, threat,
-      user?.id, value, vision, weakness, canEdit, companyId,
+      user?.id, value, vision, weakness, canEdit, companyId, portfolio,
     ]
   );
 
-  /* ------- Stepper → 親へQ/A同期 ------- */
-  const onStepperChange = useCallback((p: { chapterIndex: number; answers: StepperAnswerStep[]; currentStep: 1|2|3; }) => {
-    if (!canEdit) return; // 非Adminは編集イベントを無視
-    const { chapterIndex, answers, currentStep } = p;
+  /* ------- Stepper → 親へQ/A同期（丸め禁止） ------- */
+  const onStepperChange = useCallback((p: { chapterIndex: number; answers: StepperAnswerStep[]; currentStep: number; maxSteps?: number; }) => {
+    if (!canEdit) return;
+    const { chapterIndex, answers, maxSteps } = p;
+
+    // 子が通知してきた maxSteps を拡大方向のみ採用（縮小は無視）。Ch2 は最低6を維持。
+    setMaxStepsByChapter(prev => {
+      const prevMax = prev[chapterIndex] ?? (chapterIndex === 1 ? 6 : 2);
+      const desired = Math.max(prevMax, Number(maxSteps || 0), (chapterIndex === 1 ? 6 : 0));
+      return desired !== prevMax ? { ...prev, [chapterIndex]: desired } : prev;
+    });
 
     const prev = (answers2 ?? []).find(c => c.chapterIndex === chapterIndex);
     if (prev && isStepsEqual(prev.steps, answers)) {
       if (typeof store?.setChapterCurrentStep === 'function') {
-        store.setChapterCurrentStep(chapterIndex, currentStep);
+        store.setChapterCurrentStep(chapterIndex, Number(p.currentStep));
       }
       return;
     }
 
-    // depth/createdAt を含む StepperAnswerStep[] をそのまま内部状態として持つ
     const next = [...(answers2 ?? [])];
     const title = referenceArr[chapterIndex]?.title ?? `Chapter ${chapterIndex + 1}`;
 
     const withDepthFallback: StepperAnswerStep[] = (answers ?? []).map((s) => {
-      const sn = clampStepNumber(s.stepNumber);
-      if ((s as any).depth) {
-        // createdAt が未定義なら固定付与
-        return (s.stepNumber === sn) ? { ...s, createdAt: (s as any).createdAt ?? STABLE_TS } :
-          { ...s, stepNumber: sn, createdAt: (s as any).createdAt ?? STABLE_TS };
-      }
-      const plan = DEFAULT_DEPTH_PLAN[chapterIndex] || ['board','exec','exec'];
-      const fallbackDepth = plan[(sn - 1) as 0|1|2];
-      return { ...s, stepNumber: sn, depth: fallbackDepth, createdAt: (s as any).createdAt ?? STABLE_TS };
+      const sn = Number(s.stepNumber);
+      const depth = (s as any).depth ?? getDepthFor(chapterIndex, sn);
+      return { ...s, stepNumber: sn, depth, createdAt: (s as any).createdAt ?? STABLE_TS };
     });
 
     const idx = next.findIndex((c) => c.chapterIndex === chapterIndex);
@@ -370,11 +372,11 @@ export default function StoryProcessPage() {
       next.push({ chapterIndex, chapterTitle: title, steps: withDepthFallback });
     }
 
-    setAnswers2Safe(next);            // ← 永続化向けに deflate 済みで保存
-    persistDebounced(next, draftArr, finalArr); // 最新を保存
+    setAnswers2Safe(next);
+    persistDebounced(next, draftArr, finalArr);
 
     if (typeof store?.setChapterCurrentStep === 'function') {
-      store.setChapterCurrentStep(chapterIndex, currentStep);
+      store.setChapterCurrentStep(chapterIndex, Number(p.currentStep));
     }
   }, [answers2, persistDebounced, referenceArr, store, canEdit, draftArr, finalArr]);
 
@@ -385,13 +387,14 @@ export default function StoryProcessPage() {
       mission, vision, value,
       strength, weakness, opportunity, threat,
       csvFinanceData,
+      portfolio, // ★ 2) 子の QuestionStepper に渡す → API まで伝搬
     }),
-    [referenceArr, mission, vision, value, strength, weakness, opportunity, threat, csvFinanceData]
+    [referenceArr, mission, vision, value, strength, weakness, opportunity, threat, csvFinanceData, portfolio]
   );
 
   /* ------- 参考ストーリー生成 ------- */
   const onGenerateDraft = useCallback(async () => {
-    if (!canEdit) return; // 非Adminは実行不可
+    if (!canEdit) return;
     setLoadingDraft(true);
     try {
       const res = await fetch('/api/generate-story-draft', {
@@ -417,7 +420,6 @@ export default function StoryProcessPage() {
 
       const uniq = alignToGrowthOrder(uniqChapters(draft), REFERENCE_TITLES);
       setStorySafe(uniq);
-      // 最新の uniq / finalArr で保存
       persistDebounced(answers2, uniq, finalArr);
     } catch (e) {
       console.error('draft generate failed', e);
@@ -455,6 +457,7 @@ export default function StoryProcessPage() {
         industry, revenue, employees,
         thought, strength, weakness, opportunity, threat,
         csvFinanceData,
+        portfolio, // ★ 3) 将来の文脈利用に備え、最終生成にも含める
         userId: user?.id,
         budgets: { longform: [1600, 2400] },
       }),
@@ -464,11 +467,11 @@ export default function StoryProcessPage() {
     return safeJsonFromText<any>(text) ?? {};
   }, [
     answers2, csvFinanceData, employees, industry, mission, revenue,
-    strategyId, thought, threat, user?.id, value, vision, weakness,
+    strategyId, thought, threat, user?.id, value, vision, weakness, portfolio,
   ]);
 
   const onGenerateFinal = useCallback(async () => {
-    if (!canEdit) return; // 非Adminは実行不可
+    if (!canEdit) return;
     setFinalLoading(true);
     try {
       const data = await callFinalApi();
@@ -488,7 +491,6 @@ export default function StoryProcessPage() {
 
       const ordered = alignToGrowthOrder(uniqChapters(nextFinalRaw), FINAL_TITLES);
       setFinalStorySafe(ordered);
-      // 最新の ordered / draftArr で保存
       persistDebounced(answers2, draftArr, ordered);
     } catch (e: any) {
       if (String(e?.message || '').includes('AbortError')) return;
@@ -505,22 +507,21 @@ export default function StoryProcessPage() {
     }
   }, [answers2, callFinalApi, persistDebounced, setFinalStorySafe, draftArr, canEdit]);
 
-  // 自動生成は Admin のみ
+  /* 自動生成トリガ（全12問完了時・一度だけ） */
   const hasAutoTriggeredRef = useRef(false);
   useEffect(() => {
     hasAutoTriggeredRef.current = window.localStorage.getItem(autoKey) === '1';
   }, [autoKey]);
   useEffect(() => {
-    const ready = referenceArr.length >= 4 && completedSteps >= 12;
     const alreadyFinal = finalRawArr.length > 0;
     const alreadyAuto = hasAutoTriggeredRef.current;
+    const ready = completedSteps >= TOTAL_STEPS;
     if (canEdit && ready && !alreadyFinal && !finalLoading && !alreadyAuto) {
       hasAutoTriggeredRef.current = true;
       try { window.localStorage.setItem(autoKey, '1'); } catch {}
       onGenerateFinal();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [completedSteps, referenceArr.length, finalRawArr.length, finalLoading, autoKey, canEdit]);
+  }, [completedSteps, finalRawArr.length, finalLoading, autoKey, canEdit, onGenerateFinal, TOTAL_STEPS]);
 
   /* ===== 編集UI（最終ストーリー） ===== */
   const [editing, setEditing] = useState(false);
@@ -534,7 +535,7 @@ export default function StoryProcessPage() {
   const withinBudget = totalChars >= 1600 && totalChars <= 2400;
 
   const applySaveEdits = async () => {
-    if (!canEdit) return; // 非Adminは保存不可
+    if (!canEdit) return;
     const clean = draftEdit.map((c, i) => ({ title: FINAL_TITLES[i] ?? c.title, body: c.body || '' }));
     setFinalStorySafe(clean);
     persistDebounced(answers2, draftArr, clean);
@@ -551,7 +552,13 @@ export default function StoryProcessPage() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 min-w-0">
         {referenceArr.slice(0, 4).map((ch, i) => {
           const chapterAns = answers2.find(a => a.chapterIndex === i);
-          const done = Math.min(chapterAns?.steps?.length ?? 0, 3);
+          const need = maxStepsByChapter[i] ?? (i === 1 ? 6 : 2);
+          const steps = chapterAns?.steps ?? [];
+          let done = 0;
+          for (let s = 1; s <= need; s++) {
+            const rec = steps.find(x => Number(x.stepNumber) === s);
+            if (rec && String(rec.answer || '').trim()) done++;
+          }
           const color = CHAPTER_COLORS[i % CHAPTER_COLORS.length];
           return (
             <article
@@ -567,7 +574,7 @@ export default function StoryProcessPage() {
               <div className="mb-2 flex items-center justify-between">
                 <h3 className="text-[15px] font-semibold text-zinc-900">{ch?.title ?? `Chapter ${i + 1}`}</h3>
                 <span className={`text-[11px] px-2 py-0.5 rounded-full border ${color.badge}`}>
-                  進捗 {done}/3
+                  進捗 {done}/{need}
                 </span>
               </div>
               <ForceMultiline text={ch?.body} className="text-[13px] text-zinc-700" />
@@ -594,14 +601,10 @@ export default function StoryProcessPage() {
         answers2.find((c) => c.chapterIndex === i) ??
         ({ chapterIndex: i, chapterTitle: ch?.title ?? `Chapter ${i + 1}`, steps: [] } as ChapterAnswers);
 
-      // ここで StepperAnswerStep[] を保証（inflate済みのため OK）
+      // 既存データをそのまま（クランプ・トリムなし）で子へ渡す
       const steps: StepperAnswerStep[] = (chapterAns.steps ?? []).map((s) => {
-        const sn = clampStepNumber(s.stepNumber);
-        if ((s as any).depth) {
-          return (s.stepNumber === sn) ? s : { ...s, stepNumber: sn };
-        }
-        const plan = DEFAULT_DEPTH_PLAN[i] || ['board','exec','exec'];
-        const depth = plan[(sn - 1) as 0|1|2];
+        const sn = Number(s.stepNumber);
+        const depth = (s as any).depth ?? getDepthFor(i, sn);
         return { ...s, stepNumber: sn, depth, createdAt: (s as any).createdAt ?? STABLE_TS };
       });
 
@@ -613,7 +616,6 @@ export default function StoryProcessPage() {
           data-slide={i}
           className="min-w-full max-w-full shrink-0 snap-start px-2 relative"
         >
-          {/* ★ 要素型を固定するため常にオーバーレイを描画し、属性だけ切り替える */}
           <div
             className="absolute inset-0 z-10 bg-transparent"
             data-locked={!canEdit}
@@ -648,8 +650,6 @@ export default function StoryProcessPage() {
   }, [answers2, onStepperChange, referenceArr, stepperBaseContext, canEdit]);
 
   /* ===================== Render ===================== */
-
-  // 閲覧不可（通常は middleware で弾かれるが保険）
   if (!canView()) {
     return (
       <div className="mx-auto max-w-5xl px-4 md:px-0 pt-10">
@@ -668,12 +668,11 @@ export default function StoryProcessPage() {
           <div className="min-w-0">
             <h1 className="text-[28px] font-semibold tracking-tight text-zinc-900 break-words">STAGE２ 経営戦略策定</h1>
             <p className="text-[13px] text-zinc-500">
-              参考ストーリーをたたき台として、各章ごとの質問に回答してください。
+              参考ストーリーをたたき台として、各章ごとの質問に回答してください（全12問：第2章は6問）。
             </p>
           </div>
 
           <div className="flex items-center gap-2">
-            {/* 閲覧モードバッジ：要素型を固定（常に描画し可視性だけ切替） */}
             <span
               className={[
                 'inline-flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-900',
@@ -685,7 +684,6 @@ export default function StoryProcessPage() {
               閲覧モード（Adminのみ編集可）
             </span>
 
-            {/* 参考を生成（Adminのみ有効） */}
             <Button
               onClick={onGenerateDraft}
               disabled={loadingDraft || !canEdit}
@@ -695,7 +693,6 @@ export default function StoryProcessPage() {
               {loadingDraft ? '生成中…' : storyRawArr.length ? '参考を再生成' : '参考を生成'}
             </Button>
 
-            {/* 最終ストーリー生成（Adminのみ有効） */}
             <Button
               onClick={onGenerateFinal}
               disabled={finalLoading || !canEdit}
@@ -708,7 +705,7 @@ export default function StoryProcessPage() {
         </div>
       </header>
 
-      {/* 参考ストーリー（4章マトリクス） */}
+      {/* 参考ストーリー */}
       <ReferenceMatrix />
 
       {/* 質問スライダー */}
@@ -760,7 +757,7 @@ export default function StoryProcessPage() {
         </div>
       </section>
 
-      {/* 最終ストーリー（短い4見出し＆編集対応） */}
+      {/* 最終ストーリー */}
       <section className="rounded-2xl border border-zinc-200 bg-white/80 backdrop-blur-sm p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)] min-w-0 overflow-hidden">
         <div className="flex items-center justify-between">
           <h2 className="text-[17px] font-semibold tracking-tight text-zinc-900">最終ストーリー</h2>
@@ -788,7 +785,7 @@ export default function StoryProcessPage() {
         </div>
 
         {finalArr.length === 0 ? (
-          <p className="mt-2 text-[13px] text-zinc-600">4章をすべて3問ずつ回答すると、一度だけ自動で生成されます。</p>
+          <p className="mt-2 text-[13px] text-zinc-600">全12問（第2章は6問）を回答すると、自動で一度だけ生成されます。</p>
         ) : !editing ? (
           <div className="mt-3 grid grid-cols-1 gap-4">
             {finalArr.map((c: ChapterStory, idx: number) => (
