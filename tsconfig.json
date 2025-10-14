@@ -1,11 +1,7 @@
 {
   "compilerOptions": {
     "target": "ESNext",
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "ESNext"
-    ],
+    "lib": ["DOM", "DOM.Iterable", "ESNext"],
     "allowJs": true,
     "checkJs": false,
     "skipLibCheck": true,
@@ -17,21 +13,13 @@
     "moduleResolution": "Bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    // ★ JSX を自動変換（React 17+ / Next 13+ 推奨）
     "jsx": "preserve",
     "jsxImportSource": "react",
-    // ★ JSX の型を確実に読み込む
-    "types": [
-      "react",
-      "react-dom",
-      "node"
-    ],
+    "types": ["react", "react-dom", "node"],
     "incremental": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": [
-        "./*"
-      ]
+      "@/*": ["./*"]
     },
     "plugins": [
       {
@@ -46,7 +34,7 @@
     "**/*.js",
     "**/*.jsx",
     ".next/types/**/*.ts",
-    "types/**/*.d.ts" // ★ これを追加
+    "types/**/*.d.ts"
   ],
   "exclude": [
     "node_modules",
