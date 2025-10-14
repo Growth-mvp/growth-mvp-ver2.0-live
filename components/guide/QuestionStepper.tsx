@@ -6,9 +6,11 @@ import { useAccess } from '@/utils/access';
 
 /* ========= types ========= */
 type Depth = 'board' | 'exec' | 'ops';
-type DepthBias = 'abstract' | 'standard' | 'concrete';
-export type StepNumber = 1 | 2 | 3;
-type ConsultantLens = 'drucker' | 'porter' | 'christensen' | 'collins' | 'charan' | 'design';
+// 粒度プリセット（UIトグル用）
+type DepthBias = 'abstract' | 'concrete';
+
+// ★ 可変ステップに対応（1..max）
+export type StepNumber = number;
 
 type GeneratedStep = {
   stepNumber: StepNumber;
@@ -31,53 +33,49 @@ export type QuestionStepperProps = {
   chapterIndex: number; // 0..3
   chapterTitle?: string;
   chapterBody?: string;
+  // ★ 後方互換：初期は1..3もOKだが、内部で章別上限にクランプ
   initialStep?: StepNumber;
   context?: Record<string, any>;
   initialAnswers?: AnswerStep[];
-  onChange?: (p: { chapterIndex: number; answers: AnswerStep[]; currentStep: StepNumber }) => void;
+  onChange?: (p: { chapterIndex: number; answers: AnswerStep[]; currentStep: StepNumber; maxSteps: number }) => void;
 };
 
-/* ========= labels / default depth plan ========= */
+/* ========= labels ========= */
 const CHAPTER_META: { label: string; goal: string }[] = [
-  { label: 'なぜ今（現状）', goal: '経営が感じる危機を全社員と共有し、「このままではまずい」を自分ごと化させる。' },
-  { label: 'どう戦う（戦略）', goal: '何に注力し何を捨てるかを定め、資源配分と優先順位を明確化する。' },
-  { label: 'どんな未来像',   goal: '顧客の風景で未来を描写し、希望と判断の物差しを共有する。' },
-  { label: 'どう行動する',   goal: '社員が戦略を自分ごと化し、行動に移せるようにする。' },
+  { label: 'なぜ今（現状）',   goal: '変化と危機感を共有し、「なぜ今やるのか」を腹落ちさせる。' },
+  { label: 'どう戦う（戦略）', goal: '顧客課題×自社の強み×制約×脅威で、勝ち筋を1本に絞る。' },
+  { label: 'どんな未来像',     goal: '顧客視点の1シーンで価値を見える化し、希望を共有する。' },
+  { label: 'どう行動する',     goal: '最初の一歩と学習リズムを決め、動ける状態を作る。' },
 ];
 
-const DEFAULT_DEPTH_PLAN: Depth[][] = [
-  ['board', 'exec', 'exec'],
-  ['board', 'exec', 'exec'],
-  ['board', 'exec', 'exec'],
-  ['board', 'exec', 'ops'],
-];
+// ★ Ver4の章別上限（初期ローカル既定。サーバ応答で上書き）
+// 第2章はローカル既定も 6（サーバ縮小の影響を受けにくくする）
+const LOCAL_MAX_STEPS: Record<number, number> = { 0: 2, 1: 6, 2: 2, 3: 2 };
 
-function clampStep(n: number): StepNumber {
-  return Math.max(1, Math.min(3, Math.round(n))) as StepNumber;
+function maxStepsForChapterLocal(chapterIndex: number) {
+  const idx = Math.max(0, Math.min(3, chapterIndex | 0));
+  return LOCAL_MAX_STEPS[idx] ?? 2;
 }
 
-/* ========= helpers ========= */
+function clampStep(n: number, maxSteps: number): StepNumber {
+  const v = Math.round(Number.isFinite(n as number) ? (n as number) : 1);
+  return Math.max(1, Math.min(maxSteps, v));
+}
 function depthLabel(d: Depth) {
   return d === 'board' ? '抽象的（役員向け）' : d === 'exec' ? '具体的（実務向け）' : 'より具体的（実行設計）';
 }
-function biasLabel(b: DepthBias) {
-  return b === 'abstract' ? '抽象的' : b === 'concrete' ? 'より具体的' : '具体的（標準）';
-}
-const LENS_OPTIONS: Array<{ key: ConsultantLens; label: string; hint: string }> = [
-  { key: 'drucker',     label: 'ドラッカー',     hint: '顧客・使命・強みの観点で問う' },
-  { key: 'porter',      label: 'ポーター',       hint: 'ポジショニング/トレードオフ' },
-  { key: 'christensen', label: 'クリステンセン', hint: 'ジョブ理論/非消費/別解' },
-  { key: 'collins',     label: 'ジム・コリンズ', hint: '人/規律/経済エンジン' },
-  { key: 'charan',      label: 'ラム・チャラン', hint: 'Execution/誰が・いつまでに' },
-  { key: 'design',      label: 'デザイン思考',   hint: '体験/一場面/Before→After' },
-];
 function answersEqual(a?: AnswerStep[], b?: AnswerStep[]) {
   if (a === b) return true;
   if (!a || !b || a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
     const x = a[i], y = b[i];
-    if (x.stepNumber !== y.stepNumber || x.depth !== y.depth || (x.question ?? '') !== (y.question ?? '')
-      || (x.reason ?? '') !== (y.reason ?? '') || (x.answer ?? '') !== (y.answer ?? '')) return false;
+    if (
+      x.stepNumber !== y.stepNumber ||
+      x.depth !== y.depth ||
+      (x.question ?? '') !== (y.question ?? '') ||
+      (x.reason ?? '') !== (y.reason ?? '') ||
+      (x.answer ?? '') !== (y.answer ?? '')
+    ) return false;
   }
   return true;
 }
@@ -99,80 +97,100 @@ export default function QuestionStepper(props: QuestionStepperProps) {
 
   const meta = CHAPTER_META[chapterIndex] ?? { label: `Chapter ${chapterIndex + 1}`, goal: '' };
 
+  // ★ 章ごとの最大ステップ。初期はローカル既定、サーバ応答(meta.maxSteps)が来たら更新
+  const [maxSteps, setMaxSteps] = useState<number>(() => maxStepsForChapterLocal(chapterIndex));
+
   /* ===== state ===== */
-  const [step, setStep] = useState<StepNumber>(clampStep(initialStep));
-  const [tempBias, setTempBias] = useState<DepthBias>('standard');
-  const [lensOverride, setLensOverride] = useState<ConsultantLens[]>([]);
+  const [step, setStep] = useState<StepNumber>(() => clampStep(initialStep, maxSteps));
+
+  // Portfolio（注力先）
   const hasPortfolio = !!context?.portfolio?.businesses?.length;
   const businessNames: string[] = useMemo(
-    () => (hasPortfolio ? (context?.portfolio?.businesses ?? []).map((b: any) => String(b?.name ?? '')).filter(Boolean) : []),
+    () => (hasPortfolio ? (context?.portfolio?.businesses ?? [])
+      .map((b: any) => String(b?.name ?? '')).filter(Boolean) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [hasPortfolio, context?.portfolio?.businesses]
   );
   const [portfolioFocus, setPortfolioFocus] = useState<string>(() => String(context?.portfolio?.focus ?? '') || '');
 
-  // ★ 修正1: initialAnswers の変更を**同期**（章の state を壊さない・並びは stepNumber 昇順）
-  const sortedInitial = useMemo(
-    () => (initialAnswers || [])
-      .filter(a => a && a.stepNumber && a.question)
-      .slice()
-      .sort((a, b) => a.stepNumber - b.stepNumber) as AnswerStep[],
-    [initialAnswers]
-  );
+  // initialAnswers 同期（昇順）＋ 重複排除
+  const sortedInitial = useMemo(() => {
+    const valid = (initialAnswers || []).filter(a => a && a.stepNumber && a.question);
+    const map = new Map<number, AnswerStep>();
+    for (const a of valid) map.set(a.stepNumber, a);
+    return Array.from(map.values()).sort((a, b) => a.stepNumber - b.stepNumber) as AnswerStep[];
+  }, [initialAnswers]);
+
   const [answers, setAnswers] = useState<AnswerStep[]>(sortedInitial);
   useEffect(() => {
-    // サーバ再取得/別タブ保存などで initialAnswers が更新された場合にだけ反映
-    if (!answersEqual(answers, sortedInitial)) {
-      setAnswers(sortedInitial);
-    }
+    if (!answersEqual(answers, sortedInitial)) setAnswers(sortedInitial);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sortedInitial]); // answers は依存に入れない（ユーザー入力の直後反映を邪魔しない）
+  }, [sortedInitial]);
+
+  // 表示用：answers の重複完全排除
+  const dedupedAnswersForView = useMemo(() => {
+    const seen = new Set<string>();
+    const out: AnswerStep[] = [];
+    for (const a of answers ?? []) {
+      const k = `${a.stepNumber}::${(a.question || '').trim()}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(a);
+    }
+    return out;
+  }, [answers]);
 
   const [question, setQuestion] = useState<string>('');
   const [reason, setReason] = useState<string>('');
-  const [depth, setDepth] = useState<Depth>(() => DEFAULT_DEPTH_PLAN[chapterIndex]?.[step - 1] ?? 'exec');
+  const [depth, setDepth] = useState<Depth>('exec'); // 表示用（サーバ応答で上書き）
   const [answerText, setAnswerText] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>('');
 
+  // ★ 粒度トグル（二択）：抽象的 ↔ 具体的（デフォルト：具体的）
+  const [depthBiasPref, setDepthBiasPref] = useState<DepthBias>('concrete');
+
   // cache & inflight
   const fetchedCacheRef = useRef<Record<string, { question: string; reason: string; depth: Depth }>>({});
   const inflightKeyRef = useRef<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const isFirstMountRef = useRef(true);
   const lastNotifiedRef = useRef<AnswerStep[] | null>(null);
   const lastStepNotifiedRef = useRef<StepNumber | null>(null);
+  const lastMaxStepsRef = useRef<number | null>(null);
 
-  // 章変更時は初期化（自動生成なし）
+  // 章変更時の初期化
   useEffect(() => {
+    const localMax = maxStepsForChapterLocal(chapterIndex);
+    setMaxSteps(localMax);
+
     const sorted = [...answers].sort((a, b) => a.stepNumber - b.stepNumber);
     let target: StepNumber = 1;
-    for (let s: StepNumber = 1 as StepNumber; s <= 3; s = (s + 1) as StepNumber) {
+    for (let s = 1; s <= localMax; s++) {
       const rec = sorted.find(a => a.stepNumber === s);
       if (!rec || !String(rec.answer || '').trim()) { target = s; break; }
       target = s;
     }
     setStep(target);
-    setDepth(DEFAULT_DEPTH_PLAN[chapterIndex]?.[target - 1] ?? 'exec');
     setQuestion('');
     setReason('');
     setAnswerText('');
     setErrorMsg('');
+    setDepthBiasPref('concrete');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chapterIndex]);
 
-  const previousAnswer = useMemo(() => answers.find(a => a.stepNumber === (step - 1))?.answer || '', [answers, step]);
-  const answersSoFarPayload = useMemo(() => answers.map(a => ({ stepNumber: a.stepNumber, answer: a.answer })), [answers]);
-
-  const baseDepth = useMemo<Depth>(() => {
-    const plan = DEFAULT_DEPTH_PLAN[chapterIndex] || ['board', 'exec', 'exec'];
-    return (plan[step - 1] ?? 'exec') as Depth;
-  }, [chapterIndex, step]);
-
-  const previewDepth: Depth = useMemo(
-    () => (tempBias === 'abstract' ? 'board' : tempBias === 'concrete' ? 'ops' : 'exec'),
-    [tempBias]
+  const previousAnswer = useMemo(
+    () => answers.find(a => a.stepNumber === (step - 1))?.answer || '',
+    [answers, step]
+  );
+  const answersSoFarPayload = useMemo(
+    () => answers.map(a => ({ stepNumber: a.stepNumber, answer: a.answer })),
+    [answers]
   );
 
+  // context 整形
   const mergedContext = useMemo(() => {
     const base = { ...(context || {}) };
     const baseAnswers2: Array<any> = Array.isArray(base.answers2) ? [...base.answers2] : [];
@@ -196,36 +214,57 @@ export default function QuestionStepper(props: QuestionStepperProps) {
     return { ...base, ...(hasPortfolio ? { portfolio: portfolioPatched } : {}), answers2: [...filtered, myChapter] };
   }, [context, answers, chapterIndex, chapterTitle, meta.label, hasPortfolio, portfolioFocus]);
 
+  // キャッシュキー（章/ステップ/直前回答/注力先/上限/粒度）
   const reqKey = useMemo(() => JSON.stringify({
     c: chapterIndex,
     s: step,
     pa: (previousAnswer || '').slice(0, 300),
-    b: tempBias,
-    l: (lensOverride || []).join(','),
     pf: (portfolioFocus || ''),
-  }), [chapterIndex, step, previousAnswer, tempBias, lensOverride, portfolioFocus]);
+    mx: maxSteps,
+    db: depthBiasPref,
+  }), [chapterIndex, step, previousAnswer, portfolioFocus, maxSteps, depthBiasPref]);
 
   // 親通知
+  const normalizedForNotify = useMemo(() => {
+    const m = new Map<number, AnswerStep>();
+    for (const a of answers) m.set(a.stepNumber, a);
+    return Array.from(m.values()).sort((x, y) => x.stepNumber - y.stepNumber);
+  }, [answers]);
+
   useEffect(() => {
     if (!onChange) return;
     if (isFirstMountRef.current) {
       isFirstMountRef.current = false;
-      lastNotifiedRef.current = answers;
+      lastNotifiedRef.current = normalizedForNotify;
       lastStepNotifiedRef.current = step;
+      lastMaxStepsRef.current = maxSteps;
+      onChange({ chapterIndex, answers: normalizedForNotify, currentStep: step, maxSteps });
       return;
     }
     const last = lastNotifiedRef.current ?? [];
-    if (answersEqual(last, answers) && lastStepNotifiedRef.current === step) return;
-    lastNotifiedRef.current = answers;
+    const need =
+      !answersEqual(last, normalizedForNotify) ||
+      lastStepNotifiedRef.current !== step ||
+      lastMaxStepsRef.current !== maxSteps;
+    if (!need) return;
+    lastNotifiedRef.current = normalizedForNotify;
     lastStepNotifiedRef.current = step;
-    onChange({ chapterIndex, answers, currentStep: step });
-  }, [answers, chapterIndex, step, onChange]);
+    lastMaxStepsRef.current = maxSteps;
+    onChange({ chapterIndex, answers: normalizedForNotify, currentStep: step, maxSteps });
+  }, [normalizedForNotify, chapterIndex, step, onChange, maxSteps]);
 
   const handleSaveAnswerLocally = useCallback(() => {
     if (!editable) { alert('編集権限がありません（閲覧のみ）'); return; }
     const trimmed = (answerText || '').trim();
     const existingIndex = answers.findIndex(a => a.stepNumber === step);
-    const payload: AnswerStep = { stepNumber: step, depth, question, reason, answer: trimmed, createdAt: new Date().toISOString() };
+    const payload: AnswerStep = {
+      stepNumber: step,
+      depth,
+      question,
+      reason,
+      answer: trimmed,
+      createdAt: existingIndex >= 0 ? answers[existingIndex].createdAt : new Date().toISOString(),
+    };
     const next = [...answers];
     if (existingIndex >= 0) next[existingIndex] = payload; else next.push(payload);
     next.sort((a, b) => a.stepNumber - b.stepNumber);
@@ -233,23 +272,24 @@ export default function QuestionStepper(props: QuestionStepperProps) {
   }, [answers, step, depth, question, reason, answerText, editable]);
 
   const canGoNext = (answerText || '').trim().length > 0;
-  const isLastStep = step === 3;
+  const isLastStep = step === maxSteps;
 
   const onClickNext = useCallback(() => {
     if (!editable) { alert('編集権限がありません（閲覧のみ）'); return; }
     if (!canGoNext || loading) return;
     handleSaveAnswerLocally();
     if (!isLastStep) {
-      setStep((s) => clampStep(s + 1));
+      setStep((s) => clampStep(s + 1, maxSteps));
       setAnswerText('');
       setQuestion('');
       setReason('');
       setErrorMsg('');
     }
-  }, [editable, canGoNext, loading, handleSaveAnswerLocally, isLastStep]);
+  }, [editable, canGoNext, loading, handleSaveAnswerLocally, isLastStep, maxSteps]);
 
   const onRedoFromHere = useCallback(() => {
     if (!editable) { alert('編集権限がありません（閲覧のみ）'); return; }
+    // このステップ以降をリセットし、キャッシュも消去
     const kept = answers.filter(a => a.stepNumber < step);
     setAnswers(kept);
     setAnswerText('');
@@ -259,12 +299,13 @@ export default function QuestionStepper(props: QuestionStepperProps) {
     const keys = Object.keys(fetchedCacheRef.current);
     for (const k of keys) {
       try {
-        const j = JSON.parse(k) as { c:number; s:number; pa:string; b:DepthBias; l?:string; pf?:string };
+        const j = JSON.parse(k) as { c:number; s:number; pa:string; pf?:string; mx?:number; db?: string };
         if (j.c === chapterIndex && j.s >= step) delete fetchedCacheRef.current[k];
       } catch {}
     }
   }, [answers, step, chapterIndex, editable]);
 
+  // 質問生成（UI粒度トグルを depthBias としてサーバへ送る）
   const generate = useCallback(async (forceRegenerate: boolean) => {
     if (!editable) { setErrorMsg('編集権限がありません（閲覧のみ）'); return; }
     const existing = answers.find(a => a.stepNumber === step);
@@ -281,27 +322,24 @@ export default function QuestionStepper(props: QuestionStepperProps) {
         return;
       }
     }
+
     if (inflightKeyRef.current === reqKey) return;
     inflightKeyRef.current = reqKey;
+
+    if (abortRef.current) { try { abortRef.current.abort(); } catch {} }
+    const controller = new AbortController();
+    // ★★★ 修正ポイント：ref自体を再代入せず、.current に代入
+    abortRef.current = controller;
 
     setLoading(true);
     setErrorMsg('');
     try {
-      const depthBiasToSend: DepthBias = tempBias;
-      if (forceRegenerate) {
-        const keys = Object.keys(fetchedCacheRef.current);
-        for (const k of keys) {
-          try {
-            const j = JSON.parse(k) as { c:number; s:number; pa:string; b:DepthBias; l?:string; pf?:string };
-            if (j.c === chapterIndex && j.s === step) delete fetchedCacheRef.current[k];
-          } catch {}
-        }
-      }
       const doFetch = async () => {
         const res = await fetch('/api/generate-question', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           cache: 'no-store',
+          signal: controller.signal,
           body: JSON.stringify({
             chapterIndex,
             chapterTitle,
@@ -309,8 +347,7 @@ export default function QuestionStepper(props: QuestionStepperProps) {
             stepNumber: step,
             previousAnswer,
             answersSoFar: answersSoFarPayload,
-            depthBias: depthBiasToSend,
-            lensOverride: (lensOverride && lensOverride.length) ? lensOverride : undefined,
+            depthBias: depthBiasPref, // ★ 二択トグルの指定を反映
             context: mergedContext,
           }),
         });
@@ -321,16 +358,18 @@ export default function QuestionStepper(props: QuestionStepperProps) {
           try { msg = (JSON.parse(txt)?.error) || msg; } catch {}
           throw new Error(msg);
         }
-        return JSON.parse(txt) as { step: GeneratedStep };
+        return JSON.parse(txt) as { step: GeneratedStep; meta?: { chapterIndex: number; maxSteps?: number; depthBias?: string } };
       };
 
-      let data: { step: GeneratedStep } | null = null;
+      let data: { step: GeneratedStep; meta?: { chapterIndex: number; maxSteps?: number; depthBias?: string } } | null = null;
       try {
         data = await doFetch();
       } catch (e: any) {
         if (e?.code === 429) {
           await new Promise(r => setTimeout(r, 900 + Math.floor(Math.random()*300)));
           data = await doFetch();
+        } else if (e?.name === 'AbortError') {
+          return; // 中断
         } else {
           throw e;
         }
@@ -340,45 +379,112 @@ export default function QuestionStepper(props: QuestionStepperProps) {
       const g = data.step;
       const q = (g.question ?? '').trim();
       const r = (g.reason ?? '').trim();
-      const d: Depth = (g.depth as Depth) || (tempBias === 'abstract' ? 'board' : tempBias === 'concrete' ? 'ops' : 'exec');
+      const d: Depth = (g.depth as Depth) || 'exec';
 
       setQuestion(q);
       setReason(r);
       setDepth(d);
       setAnswerText(existing?.answer ?? '');
       fetchedCacheRef.current[reqKey] = { question: q, reason: r, depth: d };
+
+      // ★ サーバ応答から maxSteps が返ってきたら同期（第2章は最低6、縮小は無視）
+      const serverMax = Number(data?.meta?.maxSteps || 0);
+      const desired = Math.max(chapterIndex === 1 ? 6 : 0, serverMax || 0);
+      if (desired && desired > maxSteps) {
+        setMaxSteps(desired);
+        setStep((s) => clampStep(s, desired));
+      }
     } catch (e: any) {
-      setErrorMsg(e?.message || 'エラーが発生しました');
+      if (e?.name !== 'AbortError') setErrorMsg(e?.message || 'エラーが発生しました');
     } finally {
       setLoading(false);
       if (inflightKeyRef.current === reqKey) inflightKeyRef.current = null;
+      abortRef.current = null;
     }
   }, [
     editable, answers, step, chapterIndex, chapterTitle, chapterBody,
-    previousAnswer, answersSoFarPayload, mergedContext, tempBias, reqKey, lensOverride
+    previousAnswer, answersSoFarPayload, mergedContext, reqKey, maxSteps, depthBiasPref
   ]);
 
-  /* === UI === */
-  const depthBadge = depthLabel(depth);
-  const previewLine = `次に作成する質問の具体性：${depthLabel(previewDepth)}（選択中）`;
-  const showOKRHint = chapterIndex === 1 && step === 2;
+  // ステップボタン群（1..maxSteps）
+  const stepButtons = useMemo(() => {
+    const arr: number[] = Array.from({ length: maxSteps }, (_, i) => i + 1);
+    return arr.map((n) => {
+      const done = answers.some(a => a.stepNumber === n && a.answer?.trim());
+      const active = step === n;
+      return (
+        <button
+          key={n}
+          onClick={() => {
+            if (editable && (answerText || '').trim() && step !== n) {
+              const exists = answers.find(a => a.stepNumber === step)?.answer ?? '';
+              if (exists.trim() !== (answerText || '').trim()) {
+                const payload: AnswerStep = {
+                  stepNumber: step, depth, question, reason, answer: (answerText || '').trim(),
+                  createdAt: new Date().toISOString()
+                };
+                const next = [...answers];
+                const idx = next.findIndex(a => a.stepNumber === step);
+                if (idx >= 0) next[idx] = payload; else next.push(payload);
+                next.sort((a, b) => a.stepNumber - b.stepNumber);
+                setAnswers(next);
+              }
+            }
+            setStep(clampStep(n, maxSteps));
+            setAnswerText('');
+            setQuestion('');
+            setReason('');
+            setErrorMsg('');
+          }}
+          className={[
+            'flex-1 rounded-xl border px-3 py-2 text-sm',
+            active ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:bg-gray-50',
+            !editable ? 'opacity-80' : ''
+          ].join(' ')}
+        >
+          Step {n}{done && <span className="ml-1 text-green-600">✓</span>}
+        </button>
+      );
+    });
+  }, [answers, step, editable, answerText, depth, question, reason, maxSteps]);
 
+  // 二択トグル UI（抽象的 ↔ 具体的）
+  const DepthToggle = () => (
+    <div className="flex items-center gap-2" title="質問の粒度を切り替え（抽象的／具体的）">
+      <span className={`text-xs font-medium ${depthBiasPref === 'abstract' ? 'text-blue-600' : 'text-gray-500'}`}>抽象的</span>
+      <button
+        type="button"
+        aria-label="粒度を切り替え"
+        onClick={() => setDepthBiasPref(prev => prev === 'abstract' ? 'concrete' : 'abstract')}
+        className={`relative w-11 h-6 rounded-full transition-colors ${depthBiasPref === 'concrete' ? 'bg-blue-600' : 'bg-gray-300'}`}
+      >
+        <span
+          className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
+            depthBiasPref === 'concrete' ? 'translate-x-5' : 'translate-x-0'
+          }`}
+        />
+      </button>
+      <span className={`text-xs font-medium ${depthBiasPref === 'concrete' ? 'text-blue-600' : 'text-gray-500'}`}>具体的</span>
+    </div>
+  );
+
+  /* === UI === */
   return (
     <div className="w-full max-w-3xl mx-auto space-y-6">
       {/* header */}
       <header className="space-y-1">
         <div className="text-sm text-gray-500">
-          {meta.label}（Chapter {chapterIndex + 1} / Step {step}） {editable ? '' : '・閲覧のみ'}
+          {meta.label}（Chapter {chapterIndex + 1} / Step {step} / Max {maxSteps}） {editable ? '' : '・閲覧のみ'}
         </div>
         <h1 className="text-xl font-semibold">{chapterTitle || meta.label}</h1>
         {meta.goal && <p className="text-gray-600 text-sm">{meta.goal}</p>}
       </header>
 
-      {/* portfolio focus */}
+      {/* portfolio focus（任意） */}
       {hasPortfolio && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3">
           <div className="text-sm font-medium text-amber-900">事業ポートフォリオ</div>
-          <div className="text-xs text-amber-900/80">複数事業の文脈が検出されました。注力対象を選ぶと、当面の問いがその事業に寄ります（未選択=全社視点）。</div>
+          <div className="text-xs text-amber-900/80">注力対象を選ぶと、問いがその事業に寄ります（未選択=全社視点）。</div>
           <div className="flex items-center gap-2">
             <label className="text-sm text-amber-900/90">注力事業</label>
             <select
@@ -396,136 +502,16 @@ export default function QuestionStepper(props: QuestionStepperProps) {
 
       {/* steps */}
       <div className="flex gap-2">
-        {[1, 2, 3].map((n) => {
-          const sn = clampStep(n);
-          const done = answers.some(a => a.stepNumber === sn && a.answer?.trim());
-          const active = step === sn;
-          return (
-            <button
-              key={sn}
-              onClick={() => {
-                if (editable && (answerText || '').trim() && step !== sn) {
-                  const exists = answers.find(a => a.stepNumber === step)?.answer ?? '';
-                  if (exists.trim() !== (answerText || '').trim()) {
-                    const payload: AnswerStep = { stepNumber: step, depth, question, reason, answer: (answerText || '').trim(), createdAt: new Date().toISOString() };
-                    const next = [...answers];
-                    const idx = next.findIndex(a => a.stepNumber === step);
-                    if (idx >= 0) next[idx] = payload; else next.push(payload);
-                    next.sort((a, b) => a.stepNumber - b.stepNumber);
-                    setAnswers(next);
-                  }
-                }
-                setStep(sn);
-                setAnswerText('');
-                setQuestion('');
-                setReason('');
-                setErrorMsg('');
-                setDepth(DEFAULT_DEPTH_PLAN[chapterIndex]?.[sn - 1] ?? 'exec');
-              }}
-              className={[
-                'flex-1 rounded-xl border px-3 py-2 text-sm',
-                active ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:bg-gray-50',
-                !editable ? 'opacity-80' : ''
-              ].join(' ')}
-            >
-              Step {sn}{done && <span className="ml-1 text-green-600">✓</span>}
-            </button>
-          );
-        })}
+        {stepButtons}
       </div>
 
-      {/* depth bias & lens */}
-      <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-4">
-        <div className="flex items-baseline justify-between gap-3">
-          <div>
-            <div className="text-sm font-medium">質問の具体性（次の1問だけ変更できます）</div>
-            <p className="text-xs text-gray-500 mt-0.5">既に回答済みのステップには影響しません。好みは選択状態として保持されます。</p>
-          </div>
-          <div className="text-xs text-gray-600">現在の表示：<span className="font-medium">{depthBadge}</span></div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          {([
-            { key: 'abstract' as DepthBias, title: '抽象的',     subtitle: '役員向け',           desc: '上位方針や選択の確認。担当・ツール・頻度は含めません。' },
-            { key: 'standard' as DepthBias, title: '具体的',     subtitle: '実務向け（標準）',   desc: 'KPIと期限まで具体化。担当やツールは含めません。' },
-            { key: 'concrete' as DepthBias, title: 'より具体的', subtitle: '実行設計',           desc: '担当・頻度・ツールまで踏み込みます。' },
-          ]).map((opt) => {
-            const active = tempBias === opt.key;
-            return (
-              <button
-                key={opt.key}
-                type="button"
-                onClick={() => editable && setTempBias(opt.key)}
-                className={[
-                  'text-left rounded-xl border p-3 transition',
-                  active ? 'border-gray-900 bg-gray-900 text-white shadow-sm' : 'border-gray-200 bg-white hover:bg-gray-50',
-                  !editable ? 'opacity-70 cursor-not-allowed' : ''
-                ].join(' ')}
-                aria-pressed={active}
-                disabled={!editable}
-                title={`この具体性（${biasLabel(opt.key)}）で作る`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="text-base font-semibold">{opt.title}</div>
-                  {active && <span className="text-xs">選択中</span>}
-                </div>
-                <div className={['text-xs mt-0.5', active ? 'text-gray-200' : 'text-gray-600'].join(' ')}>{opt.subtitle}</div>
-                <div className={['text-xs mt-2 leading-5', active ? 'text-gray-100' : 'text-gray-600'].join(' ')}>{opt.desc}</div>
-              </button>
-            );
-          })}
-        </div>
-
-        {showOKRHint && (
-          <div className="text-xs text-blue-800 bg-blue-50 rounded-md px-2 py-1">
-            Step2では「目指すゴール（Objective）」と、その達成を測る「Key Results（数値＋期限）」を明確にします。
-          </div>
-        )}
-
-        <div className="space-y-1">
-          <div className="flex items-baseline justify-between">
-            <div className="text-sm font-medium">レンズ（問い方の流儀）</div>
-            <button
-              type="button"
-              onClick={() => editable && setLensOverride([])}
-              className="text-xs text-gray-600 underline decoration-dashed underline-offset-4 hover:text-gray-900 disabled:text-gray-400"
-              title="自動選択に戻す"
-              disabled={!editable}
-            >
-              自動選択に戻す
-            </button>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {LENS_OPTIONS.map((opt) => {
-              const active = lensOverride.includes(opt.key);
-              return (
-                <button
-                  key={opt.key}
-                  type="button"
-                  onClick={() => {
-                    if (!editable) return;
-                    setLensOverride((prev) => prev.includes(opt.key) ? prev.filter(k => k !== opt.key) : [...prev, opt.key]);
-                  }}
-                  className={[
-                    'text-left rounded-xl border p-3 transition text-sm',
-                    active ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200 bg-white hover:bg-gray-50',
-                    !editable ? 'opacity-70 cursor-not-allowed' : ''
-                  ].join(' ')}
-                  aria-pressed={active}
-                  disabled={!editable}
-                >
-                  <div className="font-medium">{opt.label}{active && <span className="ml-1 text-indigo-700">✓</span>}</div>
-                  <div className="text-xs text-gray-600 mt-0.5">{opt.hint}</div>
-                </button>
-              );
-            })}
-          </div>
-          <div className="text-xs text-gray-500">※ 指定が無い場合はサーバ側で章・文脈に応じて自動的に選択されます（複数指定可／優先順はサーバ側ロジック）。</div>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-blue-800 bg-blue-50 rounded-md px-2 py-1">{previewLine}</div>
-          <div className="flex items-center gap-2">
+      {/* action */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm font-medium">質問を生成</div>
+          <div className="flex items-center gap-3">
+            {/* 粒度トグル（二択） */}
+            <DepthToggle />
             <button
               type="button"
               onClick={() => generate(false)}
@@ -534,9 +520,9 @@ export default function QuestionStepper(props: QuestionStepperProps) {
                 'rounded-xl px-3 py-2 text-sm font-medium',
                 (loading || !editable) ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'
               ].join(' ')}
-              title={`この具体性（${biasLabel(tempBias)}）で質問を作る`}
+              title="次の1問を作る（粒度設定を反映）"
             >
-              この細かさで質問を作る
+              質問を作る
             </button>
             {!String(answers.find(a=>a.stepNumber===step)?.answer || '').trim() && question && (
               <button
@@ -544,11 +530,12 @@ export default function QuestionStepper(props: QuestionStepperProps) {
                 onClick={() => generate(true)}
                 disabled={loading || !editable}
                 className="rounded-xl px-3 py-2 text-sm font-medium border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-60"
-                title="このステップの質問をもう一度作る"
+                title="このステップの質問をもう一度作る（粒度設定を反映）"
               >
-                この問いをもう一度作る
+                もう一度作る
               </button>
             )}
+            {loading && <div className="text-xs text-gray-500">生成中…</div>}
           </div>
         </div>
       </div>
@@ -557,7 +544,11 @@ export default function QuestionStepper(props: QuestionStepperProps) {
       <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
         <div className="p-4 border-b border-gray-100 flex items-center justify-between">
           <div className="text-sm font-medium">次の問い</div>
-          <div className="flex items-center gap-3">{loading && <div className="text-xs text-gray-500">生成中…</div>}</div>
+          {question && (
+            <div className="text-xs text-gray-500">
+              粒度：{depthLabel(depth)}（指定：{depthBiasPref === 'abstract' ? '抽象的' : '具体的'}）
+            </div>
+          )}
         </div>
         <div className="p-4 space-y-3">
           {errorMsg ? (
@@ -579,8 +570,8 @@ export default function QuestionStepper(props: QuestionStepperProps) {
         <textarea
           className="w-full min-h-[120px] rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 p-3"
           placeholder={
-            chapterIndex === 1 && step === 2
-              ? '例）Objective: 既存大口の継続率を改善する。Key Results: 解約率3.0%→1.8%（FY25 Q4）/ NPS +10pt（FY25 Q3）…'
+            chapterIndex === 1 && step === 6
+              ? '例）Objective: 既存大口の継続率を改善する。Key Results: 解約率3.0%→1.8%（FY25 Q4）/ NPS +10pt（FY25 Q3）/ KILL: FY25 Q2時点でNPS +3pt未達なら施策A停止'
               : '考えを具体的に書いてください。数値や期限、役割などがあると次の問いが鋭くなります。'
           }
           value={answerText}
@@ -611,7 +602,7 @@ export default function QuestionStepper(props: QuestionStepperProps) {
                 'rounded-xl px-4 py-2 text-sm font-medium',
                 (loading || !(answerText || '').trim() || !editable) ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'
               ].join(' ')}
-              title="Step3の回答を保存"
+              title="この章の最終ステップの回答を保存"
             >
               回答を保存（完了）
             </button>
@@ -636,9 +627,9 @@ export default function QuestionStepper(props: QuestionStepperProps) {
       <div className="rounded-2xl border border-gray-200 bg-white">
         <div className="p-3 border-b border-gray-100 text-sm font-medium">これまでのQ/A（この章）</div>
         <div className="divide-y">
-          {answers.length === 0 && <div className="p-3 text-sm text-gray-500">まだありません</div>}
-          {answers.map((a) => (
-            <div key={a.stepNumber} className="p-3 text-sm space-y-1">
+          {dedupedAnswersForView.length === 0 && <div className="p-3 text-sm text-gray-500">まだありません</div>}
+          {dedupedAnswersForView.map((a, i) => (
+            <div key={`${a.stepNumber}-${i}`} className="p-3 text-sm space-y-1">
               <div className="text-gray-500">Step {a.stepNumber}・{depthLabel(a.depth)}</div>
               <div className="font-medium">Q: {a.question}</div>
               <div className="text-gray-700 whitespace-pre-wrap">A: {a.answer || '（未入力）'}</div>
