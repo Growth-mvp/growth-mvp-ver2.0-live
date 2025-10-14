@@ -1,0 +1,149 @@
+﻿{
+    "version":  "2.0",
+    "title":  "Acme 戦略ストーリー（ドラフトV2）",
+    "outline":  [
+                    "背景と狙い",
+                    "勝ち筋の選定",
+                    "実行計画",
+                    "指標と学習"
+                ],
+    "sections":  [
+                     {
+                         "heading":  "背景と狙い",
+                         "summary":  "Acme は MVV と SWOT を基に、価値提供の焦点と資源配分の原則を再定義します。",
+                         "bullets":  [
+                                         "顧客価値の再定義（誰に何を）",
+                                         "コア能力の集中",
+                                         "やらないことリスト"
+                                     ]
+                     },
+                     {
+                         "heading":  "勝ち筋の選定",
+                         "summary":  "勝ちパターンを選定し、競争優位の仕組み化を図ります。",
+                         "bullets":  [
+                                         "#manufacturingKaizen",
+                                         "#subscriptionMoat",
+                                         "#brandTrust"
+                                     ]
+                     },
+                     {
+                         "heading":  "実行計画",
+                         "summary":  "四半期マイルストーンで実行を管理し、学習ループを内蔵します。",
+                         "bullets":  [
+                                         "優先プロジェクト3件の着手",
+                                         "資源配分の見直し",
+                                         "意思決定の可視化"
+                                     ]
+                     },
+                     {
+                         "heading":  "指標と学習",
+                         "summary":  "先行指標/遅行指標で進捗を管理し、仮説検証を高速化。",
+                         "bullets":  [
+                                         "先行指標：商談化率、アクティブ率",
+                                         "遅行指標：売上、粗利",
+                                         "学習：勝ち筋の仮説更新"
+                                     ]
+                     }
+                 ],
+    "rationale":  {
+                      "winning_patterns_used":  [
+                                                    "manufacturingKaizen",
+                                                    "subscriptionMoat",
+                                                    "brandTrust"
+                                                ],
+                      "why_these_patterns":  "SWOTに基づく強み/機会の活用度が高く、弱み/脅威の回避策も明確なため。",
+                      "assumptions":  [
+                                          "顧客の主要課題が継続",
+                                          "価格弾力性は限定的"
+                                      ]
+                  },
+    "next":  {
+                 "dept_seed_prompts":  [
+                                           {
+                                               "department":  "Sales",
+                                               "mission_hint":  "重点セグメントへの集中と再現性のある受注",
+                                               "projects_hint":  [
+                                                                     "重点アカウント攻略",
+                                                                     "商談化率向上の仕組み"
+                                                                 ],
+                                               "okr_hint":  {
+                                                                "objective":  "重点セグメントで受注加速",
+                                                                "keyResults":  [
+                                                                                   "商談化率+10pp",
+                                                                                   "重点10社で受注5件"
+                                                                               ]
+                                                            }
+                                           },
+                                           {
+                                               "department":  "Marketing",
+                                               "mission_hint":  "勝ち筋に沿った需要創出",
+                                               "projects_hint":  [
+                                                                     "地図化：ICP×課題×導線",
+                                                                     "プロダクト記事の体系化"
+                                                                 ],
+                                               "okr_hint":  {
+                                                                "objective":  "パイプラインの質と量を向上",
+                                                                "keyResults":  [
+                                                                                   "MQL→SQL転換率+15pp",
+                                                                                   "指名検索+30%"
+                                                                               ]
+                                                            }
+                                           },
+                                           {
+                                               "department":  "R\u0026D",
+                                               "mission_hint":  "価値仮説に直結するUI/生産性の改善",
+                                               "projects_hint":  [
+                                                                     "トップ3課題の即応解消",
+                                                                     "内製ツールで開発速度+20%"
+                                                                 ],
+                                               "okr_hint":  {
+                                                                "objective":  "顧客価値の体感速度を上げる",
+                                                                "keyResults":  [
+                                                                                   "主要機能のNPS+10",
+                                                                                   "リードタイム-20%"
+                                                                               ]
+                                                            }
+                                           },
+                                           {
+                                               "department":  "Operations",
+                                               "mission_hint":  "原価/リードタイムの継続的改善",
+                                               "projects_hint":  [
+                                                                     "標準作業×自動化",
+                                                                     "品質起点の手戻り削減"
+                                                                 ],
+                                               "okr_hint":  {
+                                                                "objective":  "高効率な提供体制の確立",
+                                                                "keyResults":  [
+                                                                                   "原価率-3pp",
+                                                                                   "納期遵守率98%"
+                                                                               ]
+                                                            }
+                                           },
+                                           {
+                                               "department":  "CS",
+                                               "mission_hint":  "継続率の最大化と紹介の仕組み化",
+                                               "projects_hint":  [
+                                                                     "オンボードの定型化",
+                                                                     "ヘルススコア運用"
+                                                                 ],
+                                               "okr_hint":  {
+                                                                "objective":  "継続率・紹介率の改善",
+                                                                "keyResults":  [
+                                                                                   "GRR+5pp",
+                                                                                   "紹介経由リード比率+20%"
+                                                                               ]
+                                                            }
+                                           }
+                                       ],
+                 "final_story_hints":  [
+                                           "一次案を全社共有し、部門案へ展開",
+                                           "定量指標を確定し、四半期で見直し"
+                                       ]
+             },
+    "meta":  {
+                 "model":  "heuristic-fallback",
+                 "fallbackUsed":  true,
+                 "tokens_estimate":  500,
+                 "locale":  "ja"
+             }
+}
