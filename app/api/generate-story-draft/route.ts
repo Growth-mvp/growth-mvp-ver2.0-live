@@ -3,17 +3,20 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { openai } from '@/lib/openai';
-import { getIndustryLabel } from '@/utils/industryTemplates';
+import OpenAI from 'openai';
+
+// ★ 追加：勝ちパターン辞書
+import { topPatterns } from '@/lib/strategyPatterns.top';
 
 /**
  * 出力は常に { story: {title, body}[] }（最低4章に満たす）＋ summary(任意)
  * 章タイトルは固定テンプレで上書きして順序を安定化。
  */
 
-/* =========================
- * モデル選択（安全フォールバック）
- * =======================*/
+// ---- OpenAI ----
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+
+// ---- モデルの安全選択（環境変数が変でも既定に落とす）----
 const ALLOW_MODELS = new Set<string>([
   'gpt-4o-mini',
   'gpt-4o',
@@ -24,11 +27,8 @@ function pickSafeModel() {
   const envModel = process.env.OPENAI_MODEL || process.env.NEXT_PUBLIC_OPENAI_MODEL || '';
   return ALLOW_MODELS.has(envModel) ? envModel : 'gpt-4o-mini';
 }
-const SUPPORTS_JSON_MODE = /^gpt-4o($|-)/;
 
-/* =========================
- * 見出し／章ゴール（最新版）
- * =======================*/
+// ✅ 見出しテンプレ（固定）
 const TITLE_TEMPLATES = [
   '第1章：なぜ今（現状）',
   '第2章：どう戦う（戦略）',
@@ -36,6 +36,7 @@ const TITLE_TEMPLATES = [
   '第4章：どう行動する（行動）',
 ] as const;
 
+// ✅ 各章のゴール（固定）
 const CHAPTER_GOALS = [
   '現状：外因と内因を率直に示し、「このままではまずい」を共有する（責任転嫁はしない）。',
   '戦略：選ぶ/選ばないを明言し、Will（私の決意）とトレードオフ（やめること）を1点以上示す。原則（例：標準優先/学びを翌週反映）も明確に。',
@@ -43,11 +44,14 @@ const CHAPTER_GOALS = [
   '行動：社員が主役で「自分で決める」を明言。判断の三つの問いと《目的／仮説／最初の一歩／やめること／合図》の雛形のみ提示（具体タスクや会議指示は禁止）。',
 ] as const;
 
-/* =========================
- * ユーティリティ
- * =======================*/
-function sanitize(text: unknown, max = 2400): string {
-  const s = text == null ? '' : typeof text === 'string' ? text : String(text);
+/** 未入力は空文字に。JSON.stringifyは使わない */
+function sanitize(text: any, max = 2400): string {
+  const s =
+    text === null || text === undefined
+      ? ''
+      : typeof text === 'string'
+      ? text
+      : String(text);
   return s.replace(/\u0000/g, '').replace(/\s+$/g, '').slice(0, max);
 }
 
@@ -61,15 +65,18 @@ function extractJsonLoose(raw: string): any | null {
   if (direct && (typeof direct === 'object' || Array.isArray(direct))) return direct;
   const fence = raw.match(/```json\s*([\s\S]*?)```/i);
   if (fence?.[1]) {
-    const j = tryParse(fence[1]); if (j) return j;
+    const j = tryParse(fence[1]);
+    if (j && (typeof j === 'object' || Array.isArray(j))) return j;
   }
   const obj = raw.match(/\{[\s\S]*\}/);
   if (obj?.[0]) {
-    const j = tryParse(obj[0]); if (j && typeof j === 'object') return j;
+    const j = tryParse(obj[0]);
+    if (j && typeof j === 'object') return j;
   }
   const arr = raw.match(/\[[\s\S]*\]/);
   if (arr?.[0]) {
-    const j = tryParse(arr[0]); if (Array.isArray(j)) return j;
+    const j = tryParse(arr[0]);
+    if (Array.isArray(j)) return j;
   }
   return null;
 }
@@ -99,7 +106,11 @@ function coerceChapters(parsed: any): Array<{ title?: string; body?: string }> {
 
   const getBody = (o: any) => {
     const raw =
-      o?.body ?? o?.content ?? o?.text ?? o?.summary ?? o?.description ??
+      o?.body ??
+      o?.content ??
+      o?.text ??
+      o?.summary ??
+      o?.description ??
       (typeof o === 'string' ? o : '');
     return sanitize(raw, 2400);
   };
@@ -113,9 +124,8 @@ function coerceChapters(parsed: any): Array<{ title?: string; body?: string }> {
 /** story を短い要約列にしてプロンプトへ（※ Q&Aは使わない） */
 function buildStoryDigest(body: any): string {
   const storyArr: Array<{ title?: string; body?: string }> =
-    Array.isArray(body?.story) ? body.story
-      : Array.isArray(body?.context?.story) ? body.context.story
-      : [];
+    Array.isArray(body?.story) ? body.story : Array.isArray(body?.context?.story) ? body.context.story : [];
+
   if (!storyArr?.length) return '';
   return storyArr
     .slice(0, 4)
@@ -127,64 +137,22 @@ function buildStoryDigest(body: any): string {
     .join('\n');
 }
 
-/* =========================
- * OpenAI 呼び出し（JSON優先＋フォールバック）
- * =======================*/
-async function generateWithOpenAI(args: {
-  model: string;
-  temperature: number;
-  system: string;
-  user: string;
-  signal?: AbortSignal;
-}): Promise<string> {
-  // 1回目：JSON強制（対応モデルのみ）
-  try {
-    const c1 = await openai.chat.completions.create(
-      {
-        model: args.model,
-        temperature: args.temperature,
-        ...(SUPPORTS_JSON_MODE.test(args.model)
-          ? { response_format: { type: 'json_object' } }
-          : {}),
-        messages: [
-          { role: 'system', content: args.system },
-          { role: 'user', content: args.user },
-        ],
-        max_tokens: 1600,
-      },
-      args.signal ? { signal: args.signal } : undefined
-    );
-    return c1.choices?.[0]?.message?.content?.trim() || '';
-  } catch (e1: any) {
-    // 429/5xx は即フォールバック。その他はフォールバック試行に任せる
-  }
-
-  // 2回目：プレーンで再トライ
-  const c2 = await openai.chat.completions.create(
-    {
-      model: args.model,
-      temperature: args.temperature,
-      messages: [
-        { role: 'system', content: args.system },
-        { role: 'user', content: args.user },
-      ],
-      max_tokens: 1600,
-    },
-    args.signal ? { signal: args.signal } : undefined
-  );
-  return c2.choices?.[0]?.message?.content?.trim() || '';
+// ★ 追加：勝ちパターン辞書（t系）の要旨を生成
+function buildTopPatternDigest(ids?: string[]) {
+  const set = new Set((ids ?? []).map(s => String(s).toLowerCase().trim()));
+  const list = topPatterns
+    .filter(p => set.size === 0 || set.has(String(p.id).toLowerCase()))
+    .map(p => `#${p.id} ${p.title}：${sanitize(p.summary ?? '', 280)}`);
+  return list.length ? `【参考：勝ちパターン10選】\n${list.join('\n')}` : '';
 }
 
-/* =========================
- * ハンドラ
- * =======================*/
 export async function POST(req: NextRequest) {
   try {
+    // ---- デバッグ入口 ----
     const url = (req as any).nextUrl ?? new URL(req.url);
     const debug = url.searchParams.get('debug') || '';
     const model = pickSafeModel();
 
-    // ---- デバッグ入口 ----
     if (debug === 'stub') {
       const story = TITLE_TEMPLATES.map((t, i) => ({ title: t, body: `stub body ${i + 1}` }));
       return NextResponse.json(
@@ -193,10 +161,14 @@ export async function POST(req: NextRequest) {
       );
     }
     if (debug === 'ping') {
+      if (!process.env.OPENAI_API_KEY) {
+        return NextResponse.json({ ok: false, model, error: 'NO_API_KEY' }, { status: 500 });
+      }
       try {
         const c = await openai.chat.completions.create({
           model,
-          messages: [{ role: 'user', content: 'pong' }], max_tokens: 5,
+          messages: [{ role: 'user', content: 'pong' }],
+          max_tokens: 5,
         });
         return NextResponse.json(
           { ok: true, model, usage: c.usage, content: c.choices?.[0]?.message?.content || '' },
@@ -207,10 +179,13 @@ export async function POST(req: NextRequest) {
       }
     }
     if (debug === 'json') {
+      if (!process.env.OPENAI_API_KEY) {
+        return NextResponse.json({ ok: false, model, error: 'NO_API_KEY' }, { status: 500 });
+      }
       try {
         const c = await openai.chat.completions.create({
           model,
-          ...(SUPPORTS_JSON_MODE.test(model) ? { response_format: { type: 'json_object' } } : {}),
+          response_format: { type: 'json_object' },
           messages: [
             {
               role: 'system',
@@ -230,13 +205,18 @@ export async function POST(req: NextRequest) {
     }
 
     // ---- 通常処理 ----
-    const body = await req.json().catch(() => ({} as any));
+    if (!process.env.OPENAI_API_KEY) {
+      return NextResponse.json({ error: 'OPENAI_API_KEY is missing' }, { status: 500 });
+    }
+
+    const body = await req.json();
+
     const {
       thought,
       mission,
       vision,
       value,
-      industry,         // 英語コード（例: manufacturing）
+      industry,
       revenue,
       employees,
       strength,
@@ -245,12 +225,11 @@ export async function POST(req: NextRequest) {
       threat,
       csvFinanceData,
       temperature,
+      // ★ 追加：t系の優先参照（例：['t1','t4']）。未指定なら全体要旨。
+      patternIds,
     } = body || {};
 
-    // ★ 日本語ラベルをサーバ側で補う（プロンプトの理解精度UP）
-    const industryLabel = industry ? getIndustryLabel(industry, { full: true }) : '';
-
-    // 既存の story（ドラフト/前回出力など）だけを参照（Q&Aは使わない）
+    // 既存の story（ドラフト/前回出力など）だけを参照に使う（Q&Aは使わない）
     const storyNote = buildStoryDigest(body);
 
     const financialSummary =
@@ -261,7 +240,10 @@ export async function POST(req: NextRequest) {
             .join('\n')}${csvFinanceData.length > 12 ? '\n…' : ''}`
         : '';
 
-    // System（最新版の方針）
+    // ★ 追加：勝ちパターン要旨
+    const patternDigest = buildTopPatternDigest(Array.isArray(patternIds) ? patternIds : undefined);
+
+    // ✅ systemPrompt（強化）
     const systemPrompt = [
       'あなたは経営者に伴走するストーリーファシリテーターです。',
       '日本語で、必ず 4 章構成のドラフトを生成します。',
@@ -270,9 +252,9 @@ export async function POST(req: NextRequest) {
       '必ず json のオブジェクトだけを返してください（説明文やコードブロックは禁止）。',
       '',
       '【禁止/制限】',
-      '- 深掘りQ&A（ユーザーの問い/答え）は参考ストーリーのインプットに使用してはいけません。入力に含まれていても無視してください。',
+      '- 深掘りQ&A（ユーザーの問い/答え）は参考ストーリーのインプットに使用しない。',
       '- 具体タスクの指示や会議体の新設を細かく書かない（行動章は「問いと雛形」に留める）。',
-      '- 数値（売上/％など）は csvFinanceData に存在するもののみ使用可。無ければ定性表現（目安/短縮/上向き等）に置換する。',
+      '- 数値（売上/％など）は csvFinanceData に存在するもののみ使用可。無ければ定性表現に置換する。',
       '',
       '【各章のゴール】',
       `1) ${CHAPTER_GOALS[0]}`,
@@ -284,15 +266,17 @@ export async function POST(req: NextRequest) {
       '出力は JSON のみ（コードフェンスや説明文を付けない）。',
       '形式: { "chapters": [{"title":"...","body":"..."} ×4], "summary": {"tagline":"...", "bullets":["..."]} }',
       '各章は 250〜400 字程度で簡潔に。',
-    ].join('\n');
+      '',
+      // ★ ここで勝ちパターンの要旨を渡す（参照知識として）
+      patternDigest,
+    ].filter(Boolean).join('\n');
 
     const userPrompt = [
       '【経営者の思い】',
       sanitize(thought, 1000) || '（未入力）',
       '',
       '【会社概要】',
-      // ★ 日本語＋英語コードを併記（片方欠けても崩れない）
-      `- 業種: ${industryLabel ? `${industryLabel}${industry ? `（${industry}）` : ''}` : (industry || '')}`,
+      `- 業種: ${sanitize(industry, 120)}`,
       `- 売上高: ${sanitize(revenue, 120)} 百万円`,
       `- 従業員数: ${sanitize(employees, 120)} 人`,
       '',
@@ -320,49 +304,74 @@ export async function POST(req: NextRequest) {
 
     const temp = typeof temperature === 'number' ? temperature : 0.4;
 
-    // タイムアウト（ハング対策）
+    // ---- タイムアウト（ハング対策） ----
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 45_000);
-
+    const timer = setTimeout(() => controller.abort(), 45000);
     let raw = '';
     try {
-      raw = await generateWithOpenAI({
-        model,
-        temperature: temp,
-        system: systemPrompt,
-        user: userPrompt,
-        signal: controller.signal,
-      });
-    } catch (e2: any) {
-      clearTimeout(timer);
-      console.error('❌ ストーリー生成API失敗:', e2?.message || e2);
-      return NextResponse.json({ error: e2?.message || 'OpenAI error' }, { status: 500 });
+      // 1回目: JSON強制
+      const c1 = await openai.chat.completions.create(
+        {
+          model,
+          temperature: temp,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          max_tokens: 1600,
+        },
+        { signal: controller.signal }
+      );
+      raw = c1.choices?.[0]?.message?.content?.trim() || '';
+    } catch (e: any) {
+      // 2回目: JSON強制を外してフォールバック
+      try {
+        const c2 = await openai.chat.completions.create(
+          {
+            model,
+            temperature: temp,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt },
+            ],
+            max_tokens: 1600,
+          },
+          { signal: controller.signal }
+        );
+        raw = c2.choices?.[0]?.message?.content?.trim() || '';
+      } catch (e2: any) {
+        clearTimeout(timer);
+        console.error('❌ ストーリー生成API失敗:', e2?.message || e2);
+        return NextResponse.json({ error: e2?.message || 'OpenAI error' }, { status: 500 });
+      }
     } finally {
       clearTimeout(timer);
     }
 
-    // JSONゆる抽出 → 章配列へ
+    // --- ゆるい抽出 → 多形対応で章配列を取り出す ---
     const parsedLoose = extractJsonLoose(raw);
     const coerced = coerceChapters(parsedLoose);
 
+    // フォールバック（章が取れない時）
     if (!coerced.length) {
-      const chaptersFallback = TITLE_TEMPLATES.map((title) => ({
+      const chapters = TITLE_TEMPLATES.map((title) => ({
         title,
         body: '（この章は未生成です）',
       }));
       return NextResponse.json(
-        { story: chaptersFallback, _debug: { model, fallback: true } },
+        { story: chapters, _debug: { model, fallback: true } },
         { headers: { 'Cache-Control': 'no-store' } }
       );
     }
 
-    // 固定タイトルに乗せ替え（本文は生成内容を採用）
+    // サーバ側で章タイトル/順序を固定（本文はcoercedの中身を使用）
     const chapters = TITLE_TEMPLATES.map((title, i) => ({
       title,
       body: sanitize(coerced[i]?.body || '（この章は未生成です）', 2400),
     }));
 
-    // summary は多形対応
+    // summary は色々な形を許容
     let summary: any = undefined;
     const srcSummary =
       parsedLoose?.summary ??
@@ -375,9 +384,9 @@ export async function POST(req: NextRequest) {
         summary = sanitize(srcSummary, 300);
       } else {
         summary = {
-          tagline: sanitize((srcSummary as any)?.tagline || (srcSummary as any)?.title || '', 200),
-          bullets: Array.isArray((srcSummary as any)?.bullets)
-            ? (srcSummary as any).bullets.slice(0, 6).map((b: any) => sanitize(String(b || ''), 200))
+          tagline: sanitize(srcSummary.tagline || srcSummary.title || '', 200),
+          bullets: Array.isArray(srcSummary.bullets)
+            ? srcSummary.bullets.slice(0, 6).map((b: any) => sanitize(String(b || ''), 200))
             : [],
         };
       }
