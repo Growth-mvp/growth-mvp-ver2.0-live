@@ -12,15 +12,10 @@ import DepartmentQuestionStepper, {
 import { Button } from '@/components/ui/button';
 import {
   PlusCircle,
-  Trash2,
-  CheckCircle2,
-  RefreshCw,
-  FolderOpen,
-  FileText,
-  PencilLine,
   Save,
   Sparkles,
   Building2,
+  FileText,
 } from 'lucide-react';
 
 import type {
@@ -31,6 +26,10 @@ import type {
   AnswerStep as BaseAnswerStep,
 } from '@/types/strategy';
 
+// t→eブリッジ
+import { mapTopToExecIds, EXEC_TITLES } from '@/lib/strategyPatterns.map';
+import type { TopPatternId } from '@/lib/strategyPatterns.top';
+
 /* =========================================================
    ローカル型（store拡張対応）
 ========================================================= */
@@ -38,6 +37,14 @@ type Project = BaseProject;
 type StoreOKR = BaseOKR;
 type StoreAnswerStep = BaseAnswerStep;
 type StoreChapterAnswers = BaseChapterAnswers;
+
+type RecommendedPattern = {
+  id: string;
+  title?: string;
+  score?: number;
+  why?: string[];
+};
+
 type Department = BaseDepartment & {
   mission?: string;
   strategy?: string;
@@ -45,6 +52,10 @@ type Department = BaseDepartment & {
   discussionNotes?: string;
   answers2?: StoreChapterAnswers[];
   finalized?: boolean;
+  /** 経営レベル（t系）推薦 */
+  recommendedPatterns?: RecommendedPattern[];
+  /** 実装レベル（e系）推薦 */
+  recommendedExecPatterns?: RecommendedPattern[];
 };
 
 /* =========================================================
@@ -173,6 +184,69 @@ function toStoreOKR(o: DeptOKR): StoreOKR {
 }
 
 /* =========================================================
+   シグナル抽出（簡易）
+========================================================= */
+function extractSignals(params: {
+  industry?: string;
+  mission?: string;
+  answers?: DeptAnswerStep[];
+}) {
+  const { industry, mission = '', answers = [] } = params;
+
+  const text = [mission, ...answers.map((a) => a.answer || '')]
+    .join('\n')
+    .toLowerCase();
+
+  const has = (ks: string[]) => ks.some((k) => text.includes(k.toLowerCase()));
+
+  const goals: string[] = [];
+  const pains: string[] = [];
+  const funnel: string[] = [];
+  const channels: string[] = [];
+  const initiatives: string[] = [];
+
+  // goals
+  if (has(['海外', 'グローバル', '越境', '輸出'])) goals.push('海外売上');
+  if (has(['dx', 'デジタル', '自動化', '効率'])) goals.push('DX');
+  if (has(['顧客価値', 'ltv', '満足', 'cx'])) goals.push('顧客価値');
+  if (has(['利益', '粗利', '収益', 'roic', 'fcf'])) goals.push('収益性向上');
+
+  // pains
+  if (has(['解約', '離脱', 'nps低', '満足度低'])) pains.push('解約率高い');
+  if (has(['在庫過多', '在庫'])) pains.push('在庫過多');
+  if (has(['欠品'])) pains.push('欠品');
+  if (has(['リードタイム', 'lt', '納期遅延'])) pains.push('リードタイム長い');
+  if (has(['データ活用', '可視化不足', '分析不足', '属人', '手作業']))
+    pains.push('データ活用不足');
+  if (has(['価格が高い', '値引き', '値下げ', '価格抵抗']))
+    pains.push('価格抵抗');
+
+  // funnel
+  if (has(['cvr', 'コンバージョン', '成約率', 'ドロップ'])) funnel.push('CVR低い');
+  if (has(['導線', 'ステップが多い', '手続き'])) funnel.push('導線複雑');
+  if (has(['稟議', '承認'])) funnel.push('稟議長い');
+
+  // channels
+  if (has(['直販', 'インサイド', 'フィールド'])) channels.push('直販');
+  if (has(['代理店', 'パートナー', 'チャネル'])) channels.push('代理店');
+
+  // initiatives
+  if (has(['値上げ', '価格改定'])) initiatives.push('値上げ');
+  if (has(['sop', '標準化', 'プレイブック'])) initiatives.push('SOP');
+  if (has(['デモ', '試算', 'poc'])) initiatives.push('デモ/試算');
+  if (has(['週次', 'wbr'])) initiatives.push('週次改善');
+
+  return {
+    industry,
+    goals: Array.from(new Set(goals)),
+    pains: Array.from(new Set(pains)),
+    funnel: Array.from(new Set(funnel)),
+    channels: Array.from(new Set(channels)),
+    initiatives: Array.from(new Set(initiatives)),
+  };
+}
+
+/* =========================================================
    メインページ
 ========================================================= */
 export default function CascadePage() {
@@ -180,7 +254,6 @@ export default function CascadePage() {
   const access = useAccess();
   const canEditCompany = access.canEditCompany();
   const canEditDept = (deptId?: string) => access.canEditDepartment(deptId);
-  const canEditProj = (deptId?: string) => access.canEditProject(deptId);
 
   // 業種コンテキスト
   const industry: string =
@@ -243,7 +316,176 @@ export default function CascadePage() {
     return storyText;
   };
 
-  /* ================= 要約生成 ================= */
+  /* ================= 推薦API：経営レベル（t系） ================= */
+  const handleRecommendPatterns = async (index: number) => {
+    const dept = depsRef.current[index];
+    if (!dept) return;
+    if (!canEditDept((dept as any)?.id)) {
+      setNotice('⚠️ 編集権限がありません');
+      return;
+    }
+    const answers: DeptAnswerStep[] = toDeptAnswers(dept.answers2?.[0]?.steps);
+    const signals = extractSignals({
+      industry,
+      mission: dept.strategy ?? dept.mission ?? '',
+      answers,
+    });
+
+    setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), recommend: true } }));
+    try {
+      const res = await fetch('/api/recommend-top-patterns', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ signals, k: 3 }),
+      });
+      const text = await res.text();
+      const data = safeJsonFromText<{ detail?: RecommendedPattern[] }>(text) ?? {};
+      const next = [...depsRef.current];
+      const d = { ...next[index] };
+      d.recommendedPatterns = data.detail ?? [];
+      next[index] = d;
+      pushToStore(next);
+      setNotice(`✅ ${dept.name} に推奨パターン（t系）を反映しました`);
+    } catch (err: any) {
+      setNotice(`❌ 推薦に失敗：${err.message}`);
+    } finally {
+      setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), recommend: false } }));
+    }
+  };
+
+  /* ================= 推薦API：実装レベル（e系） ================= */
+  const handleRecommendExecPatterns = async (index: number) => {
+    const dept = depsRef.current[index];
+    if (!dept) return;
+    if (!canEditDept((dept as any)?.id)) {
+      setNotice('⚠️ 編集権限がありません');
+      return;
+    }
+    const answers: DeptAnswerStep[] = toDeptAnswers(dept.answers2?.[0]?.steps);
+    const signals = extractSignals({
+      industry,
+      mission: dept.strategy ?? dept.mission ?? '',
+      answers,
+    });
+
+    setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), recommendExec: true } }));
+    try {
+      const res = await fetch('/api/recommend-exec-patterns', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ signals, k: 3 }),
+      });
+      const text = await res.text();
+      const data = safeJsonFromText<{ detail?: RecommendedPattern[] }>(text) ?? {};
+      const next = [...depsRef.current];
+      const d = { ...next[index] };
+      d.recommendedExecPatterns = data.detail ?? [];
+      next[index] = d;
+      pushToStore(next);
+      setNotice(`✅ ${dept.name} に実装パターン（e系）を反映しました`);
+    } catch (err: any) {
+      setNotice(`❌ 実装パターン推薦に失敗：${err.message}`);
+    } finally {
+      setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), recommendExec: false } }));
+    }
+  };
+
+  /* ================= OKR雛形：e系→OKR 自動展開 ================= */
+  const handleOKRFromExec = async (index: number) => {
+    const dept = depsRef.current[index];
+    if (!dept) return;
+    if (!canEditDept((dept as any)?.id)) {
+      setNotice('⚠️ 編集権限がありません');
+      return;
+    }
+
+    // 1st: e系直接推薦 → 2nd: t→eブリッジ
+    const execIds: string[] =
+      (dept.recommendedExecPatterns?.map((p) => p.id) ?? []).length
+        ? dept.recommendedExecPatterns!.map((p) => p.id)
+        : mapTopToExecIds(
+            (dept.recommendedPatterns ?? [])
+              .map((p) => p.id as TopPatternId)
+              .filter(Boolean) as TopPatternId[],
+          );
+
+    if (!execIds.length) {
+      setNotice('⚠️ 実装パターンがありません（先に推薦を実行してください）');
+      return;
+    }
+
+    setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), okrGen: true } }));
+    try {
+      const res = await fetch('/api/okr-from-exec', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          execIds,
+          context: {
+            departmentName: dept.name,
+            industry,
+            mission: dept.strategy ?? dept.mission ?? '',
+          },
+        }),
+      });
+      const text = await res.text();
+      const data = safeJsonFromText<{
+        items: { id: string; title: string; okr: { objective: string; keyResults: string[]; owner?: string } }[];
+      }>(text) ?? { items: [] };
+
+      if (!data.items?.length) {
+        setNotice('⚠️ OKR雛形が生成されませんでした');
+        return;
+      }
+
+      // 既存プロジェクトにマージ（同名タイトルはKR追記）
+      const next = [...depsRef.current];
+      const d = { ...next[index] };
+      const projects: Project[] = [...(d.projects ?? [])];
+
+      for (const it of data.items) {
+        const title = it.title || 'OKR';
+        const okr = it.okr;
+        const existIdx = projects.findIndex((p) => (p?.title ?? '') === title);
+        if (existIdx >= 0) {
+          const exist = { ...projects[existIdx] };
+          const existOkrs = [...(exist.okrs ?? [])];
+          existOkrs.push({
+            objective: okr.objective,
+            keyResults: okr.keyResults ?? [],
+            owner: okr.owner,
+          });
+          exist.okrs = existOkrs;
+          projects[existIdx] = exist;
+        } else {
+          projects.push({
+            title,
+            okrs: [
+              {
+                objective: okr.objective,
+                keyResults: okr.keyResults ?? [],
+                owner: okr.owner,
+              },
+            ],
+          } as Project);
+        }
+      }
+
+      d.projects = projects;
+      next[index] = d;
+      pushToStore(next);
+      setNotice(`✅ ${dept.name} に OKR雛形を展開しました（${data.items.length}件）`);
+    } catch (e: any) {
+      setNotice(`❌ OKR雛形の展開に失敗：${e.message}`);
+    } finally {
+      setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), okrGen: false } }));
+    }
+  };
+
+  /* ================= 要約生成（生成後にt系推薦も自動実行） ================= */
   const handleGenerateSummary = async (index: number) => {
     const dept = depsRef.current[index];
     if (!dept) return;
@@ -261,7 +503,8 @@ export default function CascadePage() {
     }
     const story = requireStoryOrWarn();
     if (!story) return;
-    setLoading((p) => ({ ...p, [index]: { ...p[index], summary: true } }));
+
+    setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), summary: true } }));
     try {
       const res = await fetch('/api/generate-department-summary', {
         method: 'POST',
@@ -294,8 +537,11 @@ export default function CascadePage() {
     } catch (err: any) {
       setNotice(`❌ 要約生成に失敗：${err.message}`);
     } finally {
-      setLoading((p) => ({ ...p, [index]: { ...p[index], summary: false } }));
+      setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), summary: false } }));
     }
+
+    // 要約反映後に t系推薦を自動実行
+    await handleRecommendPatterns(index);
   };
 
   /* ================= ビジュアルビュー ================= */
@@ -324,6 +570,64 @@ export default function CascadePage() {
             <p className="text-sm text-zinc-700 mb-2">
               {d.strategy ?? d.mission}
             </p>
+
+            {/* 推奨パターン（t系） */}
+            {!!(d.recommendedPatterns?.length) && (
+              <div className="mb-2">
+                <div className="text-xs text-zinc-500 mb-1">推奨パターン（t系）</div>
+                <div className="flex flex-wrap gap-2">
+                  {d.recommendedPatterns!.map((p, idx) => (
+                    <span
+                      key={p.id + idx}
+                      className="text-xs px-2 py-1 rounded-full border bg-indigo-50 text-indigo-800"
+                      title={(p.why || []).join(' / ')}
+                    >
+                      {p.title ?? p.id}{p.score != null ? `（${p.score}）` : ''}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 関連する実装候補（t→eブリッジ） */}
+            {Array.isArray(d.recommendedPatterns) && d.recommendedPatterns.length > 0 && (
+              <div className="mb-2">
+                <div className="text-xs text-zinc-500 mb-1">関連する実装候補（ブリッジ）</div>
+                <div className="flex flex-wrap gap-2">
+                  {mapTopToExecIds(
+                    d.recommendedPatterns
+                      .map((p) => p.id as TopPatternId)
+                      .filter(Boolean) as TopPatternId[],
+                  ).map((eid, idx) => (
+                    <span
+                      key={eid + idx}
+                      className="text-xs px-2 py-1 rounded-full border bg-sky-50 text-sky-800"
+                    >
+                      {EXEC_TITLES[eid] ?? eid}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 実装パターン（e系） */}
+            {!!(d.recommendedExecPatterns?.length) && (
+              <div className="mb-2">
+                <div className="text-xs text-zinc-500 mb-1">実装パターン（e系）</div>
+                <div className="flex flex-wrap gap-2">
+                  {d.recommendedExecPatterns!.map((p, idx) => (
+                    <span
+                      key={p.id + idx}
+                      className="text-xs px-2 py-1 rounded-full border bg-emerald-50 text-emerald-800"
+                      title={(p.why || []).join(' / ')}
+                    >
+                      {p.title ?? p.id}{p.score != null ? `（${p.score}）` : ''}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {d.projects?.length ? (
               <ul className="text-sm text-zinc-800 space-y-1">
                 {d.projects.map((p, j) => (
@@ -455,6 +759,8 @@ export default function CascadePage() {
                     },
                   ],
                   finalized: false,
+                  recommendedPatterns: [],
+                  recommendedExecPatterns: [],
                 };
                 pushToStore([...depsRef.current, newDept]);
                 setDeptName('');
@@ -484,7 +790,7 @@ export default function CascadePage() {
           {departments.map((dept, index) => {
             const editableDept = canEditDept((dept as any)?.id);
             const L = loading[index] ?? {};
-            const inlineDraft = inlineEdit[index] ?? dept.strategy ?? '';
+            const inlineDraft = (inlineEdit[index] ?? dept.strategy ?? '').toString();
             const answers: DeptAnswerStep[] = toDeptAnswers(
               dept.answers2?.[0]?.steps,
             );
@@ -516,13 +822,105 @@ export default function CascadePage() {
                   className="w-full border rounded-xl p-2 mb-2 text-sm"
                   readOnly={!editableDept}
                 />
-                <Button
-                  onClick={() => saveInlineMission(index)}
-                  disabled={!editableDept}
-                  className="rounded-full h-9 px-4 mb-2"
-                >
-                  <Save className="w-4 h-4 mr-1" /> 保存
-                </Button>
+                <div className="flex flex-wrap gap-2 mb-3">
+                  <Button
+                    onClick={() => saveInlineMission(index)}
+                    disabled={!editableDept}
+                    className="rounded-full h-9 px-4"
+                  >
+                    <Save className="w-4 h-4 mr-1" /> 保存
+                  </Button>
+
+                  <Button
+                    variant="secondary"
+                    onClick={() => handleRecommendPatterns(index)}
+                    disabled={!editableDept || !!L.recommend}
+                    className="rounded-full h-9 px-4"
+                    title="回答・ミッションから勝ちパターン（t系）を推薦"
+                  >
+                    <Sparkles className="w-4 h-4 mr-1" />
+                    {L.recommend ? '推薦中…' : '勝ちパターンを推薦'}
+                  </Button>
+
+                  <Button
+                    variant="secondary"
+                    onClick={() => handleRecommendExecPatterns(index)}
+                    disabled={!editableDept || !!L.recommendExec}
+                    className="rounded-full h-9 px-4"
+                    title="現場実装パターン（e系）を直接推薦"
+                  >
+                    <Sparkles className="w-4 h-4 mr-1" />
+                    {L.recommendExec ? '実装推薦中…' : '実装パターンを推薦'}
+                  </Button>
+
+                  <Button
+                    variant="secondary"
+                    onClick={() => handleOKRFromExec(index)}
+                    disabled={!editableDept || !!L.okrGen}
+                    className="rounded-full h-9 px-4"
+                    title="実装パターンからOKR雛形を自動生成"
+                  >
+                    <Sparkles className="w-4 h-4 mr-1" />
+                    {L.okrGen ? 'OKR生成中…' : '実装→OKR雛形'}
+                  </Button>
+                </div>
+
+                {/* 推奨パターン（t系） */}
+                {!!(dept.recommendedPatterns?.length) && (
+                  <div className="mb-3">
+                    <div className="text-xs text-zinc-500 mb-1">推奨パターン（t系）</div>
+                    <div className="flex flex-wrap gap-2">
+                      {dept.recommendedPatterns!.map((p, idx) => (
+                        <span
+                          key={p.id + idx}
+                          className="text-xs px-2 py-1 rounded-full border bg-indigo-50 text-indigo-800"
+                          title={(p.why || []).join(' / ')}
+                        >
+                          {p.title ?? p.id}{p.score != null ? `（${p.score}）` : ''}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 関連する実装候補（t→eブリッジ） */}
+                {Array.isArray(dept.recommendedPatterns) && dept.recommendedPatterns.length > 0 && (
+                  <div className="mb-3">
+                    <div className="text-xs text-zinc-500 mb-1">関連する実装候補（ブリッジ）</div>
+                    <div className="flex flex-wrap gap-2">
+                      {mapTopToExecIds(
+                        dept.recommendedPatterns
+                          .map((p) => p.id as TopPatternId)
+                          .filter(Boolean) as TopPatternId[],
+                      ).map((eid, idx) => (
+                        <span
+                          key={eid + idx}
+                          className="text-xs px-2 py-1 rounded-full border bg-sky-50 text-sky-800"
+                        >
+                          {EXEC_TITLES[eid] ?? eid}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 実装パターン（e系） */}
+                {!!(dept.recommendedExecPatterns?.length) && (
+                  <div className="mb-3">
+                    <div className="text-xs text-zinc-500 mb-1">実装パターン（e系）</div>
+                    <div className="flex flex-wrap gap-2">
+                      {dept.recommendedExecPatterns!.map((p, idx) => (
+                        <span
+                          key={p.id + idx}
+                          className="text-xs px-2 py-1 rounded-full border bg-emerald-50 text-emerald-800"
+                          title={(p.why || []).join(' / ')}
+                        >
+                          {p.title ?? p.id}{p.score != null ? `（${p.score}）` : ''}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <DepartmentQuestionStepper
                   departmentName={dept.name}
@@ -566,11 +964,12 @@ export default function CascadePage() {
                   }}
                 />
 
+                {/* 3問回答完了 → AI要約（→自動t系推薦） */}
                 {allAnswered && (
                   <div className="mt-4 border rounded-2xl bg-blue-50 p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                     <div className="text-sm text-blue-900 flex items-center gap-2">
                       <Sparkles className="w-4 h-4" />
-                      回答から <b>Mission / Projects / OKR</b> を生成できます。
+                      回答から <b>Mission / Projects / OKR</b> を生成できます（生成後に勝ちパターンも推薦）。
                     </div>
                     <Button
                       onClick={() => handleGenerateSummary(index)}
