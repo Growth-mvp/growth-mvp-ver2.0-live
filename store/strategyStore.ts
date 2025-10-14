@@ -3,8 +3,15 @@
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { saveStrategyData, getFullStrategyDataByCompany } from '@/utils/supabase/strategy';
+import { saveStrategyData as saveStrategyDataApi, getFullStrategyDataByCompany } from '@/utils/supabase/strategy';
 import { useUserStore } from './userStore';
+
+import type {
+  UnitType,
+  BusinessUnit,
+  BusinessPortfolio,
+  PortfolioThreshold,
+} from '@/types/portfolio';
 
 /* =========================
  *        Types
@@ -42,11 +49,18 @@ export type Department = {
   projects: Project[];
 };
 
-export type StrategyState = {
-  // meta
-  strategyId?: string;
+export type FinanceSummaryRow = {
+  year: number;
+  business_unit: string;
+  revenue: number;
+  operating_income: number;
+  operating_margin_pct: number;
+  revenue_share_pct: number;
+};
 
-  // company profile
+export type StrategyState = {
+  strategyId: string | null;
+
   companyName?: string;
   foundationYear?: string;
   location?: string;
@@ -56,34 +70,34 @@ export type StrategyState = {
   businessContent?: string;
   customerSegment?: string;
 
-  // narrative inputs
   thought?: string;
   mission?: string;
   vision?: string;
   value?: string;
 
-  // SWOT
   strength?: string;
   weakness?: string;
   opportunity?: string;
   threat?: string;
 
-  // stories
-  story: ChapterStory[];       // draft
-  finalStory: ChapterStory[];  // final
+  story: ChapterStory[];
+  finalStory: ChapterStory[];
 
-  // Q&A
   answers2: ChapterAnswers[];
 
-  // 部門→プロジェクト→OKR
   departments: Department[];
 
-  // 財務CSV（配列 or JSON文字列を許容）
+  businessPortfolio?: BusinessPortfolio;
+
+  // ★ optional のまま維持（undefined なら保存しない／空上書きしない）
   csvFinanceData?: unknown;
+
+  // ★ optional のまま維持（undefined なら保存しない／空上書きしない）
+  financeSummary?: FinanceSummaryRow[];
 
   /* ===== actions ===== */
   reset: () => void;
-  setStrategyId: (id?: string) => void;
+  setStrategyId: (id: string | null) => void;
 
   setStory: (chapters: ChapterStory[]) => void;
   setFinalStory: (chapters: ChapterStory[]) => void;
@@ -109,24 +123,25 @@ export type StrategyState = {
   setSWOT: (patch: Partial<Pick<StrategyState, 'strength' | 'weakness' | 'opportunity' | 'threat'>>) => void;
 
   setDepartments: (deps: Department[]) => void;
+
+  // ★ undefined/配列/JSON文字列を許容。undefined を維持すると保存しない
   setCSVFinanceData: (data: unknown) => void;
 
-  // 掘り下げQA
+  // ★ undefined/配列/（明示クリア用に null も可）を許容
+  setFinanceSummary: (rows: FinanceSummaryRow[] | undefined | null) => void;
+
   updateAnswerStep: (chapterIdx: number, stepIdx: number, answer: string) => Promise<void>;
   appendQuestionStep: (chapterIdx: number, step: AnswerStep) => Promise<void>;
 
-  // 部門操作
   addDepartment: (name?: string) => Promise<void>;
   updateDepartmentName: (depIndex: number, name: string) => Promise<void>;
   removeDepartment: (depIndex: number) => Promise<void>;
 
-  // プロジェクト操作
   addProject: (depIndex: number, title?: string) => Promise<void>;
   updateProjectTitle: (depIndex: number, projIndex: number, title: string) => Promise<void>;
   removeProject: (depIndex: number, projIndex: number) => Promise<void>;
   moveProject: (depIndex: number, from: number, to: number) => Promise<void>;
 
-  // OKR操作
   addOKR: (depIndex: number, projIndex: number, okr?: Partial<OKR>) => Promise<void>;
   updateOKR: (
     depIndex: number,
@@ -138,7 +153,14 @@ export type StrategyState = {
   reorderOKRs: (depIndex: number, projIndex: number, from: number, to: number) => Promise<void>;
   setProjectOKRs: (depIndex: number, projIndex: number, okrs: OKR[]) => Promise<void>;
 
-  // サーバーから再取得（← companyId 起点・引数なし）
+  setBusinessPortfolio: (p: BusinessPortfolio) => void;
+  updateBusinessUnit: (id: string, patch: Partial<BusinessUnit>) => void;
+  addBusinessUnit: (u?: Partial<BusinessUnit>) => void;
+  removeBusinessUnit: (id: string) => void;
+  setPortfolioThreshold: (patch: Partial<PortfolioThreshold>) => void;
+  setPortfolioUnitType: (t: UnitType) => void;
+
+  saveStrategyData: () => Promise<void>;
   refetchFromServer: () => Promise<void>;
 };
 
@@ -146,6 +168,7 @@ export type StrategyState = {
  *     Initial State
  * =======================*/
 
+// ★ financeSummary を undefined（送らない＝上書きしない）に変更
 const emptyData: Omit<
   StrategyState,
   | 'reset'
@@ -158,6 +181,7 @@ const emptyData: Omit<
   | 'setSWOT'
   | 'setDepartments'
   | 'setCSVFinanceData'
+  | 'setFinanceSummary'
   | 'updateAnswerStep'
   | 'appendQuestionStep'
   | 'addDepartment'
@@ -172,9 +196,16 @@ const emptyData: Omit<
   | 'removeOKR'
   | 'reorderOKRs'
   | 'setProjectOKRs'
+  | 'setBusinessPortfolio'
+  | 'updateBusinessUnit'
+  | 'addBusinessUnit'
+  | 'removeBusinessUnit'
+  | 'setPortfolioThreshold'
+  | 'setPortfolioUnitType'
+  | 'saveStrategyData'
   | 'refetchFromServer'
 > = {
-  strategyId: undefined,
+  strategyId: null,
 
   companyName: '',
   foundationYear: '',
@@ -201,15 +232,16 @@ const emptyData: Omit<
 
   departments: [],
   csvFinanceData: undefined,
+  financeSummary: undefined,    // ★ ここを undefined に
+  businessPortfolio: undefined,
 };
 
 /* =========================
  *     Persist + Migrate
  * =======================*/
 
-const STORE_VERSION = 8; // bump: ステップ番号のローカル整合強化
+const STORE_VERSION = 11; // ★ version bump
 
-/** ゆるい JSON 文字列 → 配列 変換（失敗時は undefined） */
 function tryParseArrayString(v: unknown): any[] | undefined {
   if (Array.isArray(v)) return v;
   if (typeof v === 'string') {
@@ -223,34 +255,24 @@ function tryParseArrayString(v: unknown): any[] | undefined {
   return undefined;
 }
 
-// 旧データを現行スキーマへ正規化
 function normalizeState(raw: any): StrategyState {
   const s: any = { ...raw };
 
-  // 配列の土台
   s.story = Array.isArray(s.story) ? s.story : [];
   s.finalStory = Array.isArray(s.finalStory) ? s.finalStory : [];
   s.answers2 = Array.isArray(s.answers2) ? s.answers2 : [];
   s.departments = Array.isArray(s.departments) ? s.departments : [];
 
-  // 章
-  s.story = s.story.map((c: any) => ({
-    title: String(c?.title ?? ''),
-    body: String(c?.body ?? ''),
-  }));
-  s.finalStory = s.finalStory.map((c: any) => ({
-    title: String(c?.title ?? ''),
-    body: String(c?.body ?? ''),
-  }));
+  s.story = s.story.map((c: any) => ({ title: String(c?.title ?? ''), body: String(c?.body ?? '') }));
+  s.finalStory = s.finalStory.map((c: any) => ({ title: String(c?.title ?? ''), body: String(c?.body ?? '') }));
 
-  // Q&A
   s.answers2 = s.answers2.map((c: any, i: number) => ({
     chapterIndex: typeof c?.chapterIndex === 'number' ? c.chapterIndex : i,
     chapterTitle: String(c?.chapterTitle ?? `Chapter ${i + 1}`),
     steps: Array.isArray(c?.steps)
       ? c.steps
           .map((st: any, j: number) => ({
-            stepNumber: typeof st?.stepNumber === 'number' ? clamp1to3(st.stepNumber) : clamp1to3(j + 1),
+            stepNumber: typeof st?.stepNumber === 'number' ? st.stepNumber : j + 1,
             question: String(st?.question ?? ''),
             reason: String(st?.reason ?? ''),
             answer: String(st?.answer ?? ''),
@@ -259,48 +281,88 @@ function normalizeState(raw: any): StrategyState {
       : [],
   }));
 
-  // Departments/Projects/OKR 正規化（name/title の揺れや旧フィールドを吸収）
-  s.departments = s.departments.map((d: any) => ([
-    {
+  s.departments = s.departments.map((d: any) => {
+    const okDeps = Array.isArray(d?.projects)
+      ? d.projects.map((p: any) => {
+          const okrs = Array.isArray(p?.okrs) ? p.okrs : [];
+          const legacyOKR =
+            p?.objective || p?.keyResults || p?.owner
+              ? [
+                  {
+                    objective: String(p?.objective ?? ''),
+                    keyResults: Array.isArray(p?.keyResults) ? p.keyResults.map((k: any) => String(k)) : [],
+                    owner: p?.owner ? String(p.owner) : '',
+                  },
+                ]
+              : [];
+          return {
+            title: String(p?.title ?? p?.name ?? ''),
+            okrs: [...legacyOKR, ...okrs].map((o: any) => ({
+              objective: String(o?.objective ?? ''),
+              keyResults: Array.isArray(o?.keyResults) ? o.keyResults.map((k: any) => String(k)) : [],
+              owner: o?.owner ? String(o.owner) : undefined,
+            })),
+          } as Project;
+        })
+      : [];
+    return {
       id: d?.id ?? undefined,
       name: String(d?.name ?? d?.title ?? ''),
-      projects: Array.isArray(d?.projects)
-        ? d.projects.map((p: any) => {
-            const okrs = Array.isArray(p?.okrs) ? p.okrs : [];
+      projects: okDeps,
+    } as Department;
+  });
 
-            // レガシーフィールド（objective/keyResults/owner）をOKR 1件として吸収
-            const legacyOKR =
-              p?.objective || p?.keyResults || p?.owner
-                ? [
-                    {
-                      objective: String(p?.objective ?? ''),
-                      keyResults: Array.isArray(p?.keyResults)
-                        ? p.keyResults.map((k: any) => String(k))
-                        : [],
-                      owner: p?.owner ? String(p.owner) : '',
-                    },
-                  ]
-                : [];
+  s.strategyId = s.strategyId ? String(s.strategyId) : null;
 
-            return {
-              title: String(p?.title ?? p?.name ?? ''),
-              okrs: [...legacyOKR, ...okrs].map((o: any) => ({
-                objective: String(o?.objective ?? ''),
-                keyResults: Array.isArray(o?.keyResults) ? o.keyResults.map((k: any) => String(k)) : [],
-                owner: o?.owner ? String(o.owner) : undefined,
-              })),
-            } as Project;
-          })
-        : [],
-    }
-  ][0]));
-
-  // ID
-  s.strategyId = s.strategyId ?? undefined;
-
-  // csvFinanceData は配列 or 文字列(JSON)に対応
   const parsed = tryParseArrayString(s.csvFinanceData);
   s.csvFinanceData = typeof parsed !== 'undefined' ? parsed : s.csvFinanceData ?? undefined;
+
+  // businessPortfolio（snake互換）
+  const bp = (raw?.businessPortfolio ?? raw?.business_portfolio) as any;
+  if (bp && typeof bp === 'object') {
+    const units = Array.isArray(bp.units)
+      ? bp.units.map((u: any, i: number) => ({
+          id: String(u?.id ?? `${i}`),
+          name: String(u?.name ?? `Unit ${i + 1}`),
+          revenueShare: Number.isFinite(+u?.revenueShare) ? +u.revenueShare : 0,
+          growthRate: Number.isFinite(+u?.growthRate) ? +u.growthRate : 0,
+          profitMargin: Number.isFinite(+u?.profitMargin) ? +u.profitMargin : 0,
+          stage: u?.stage,
+          note: u?.note ? String(u.note) : undefined,
+          color: u?.color ? String(u.color) : undefined,
+        }))
+      : [];
+
+    const threshold = {
+      growthBaseline: Number.isFinite(+bp?.threshold?.growthBaseline) ? +bp.threshold.growthBaseline : 5,
+      profitBaseline: Number.isFinite(+bp?.threshold?.profitBaseline) ? +bp.threshold.profitBaseline : 10,
+    };
+
+    s.businessPortfolio = {
+      units,
+      threshold,
+      currency: (bp?.currency === 'USD' || bp?.currency === 'EUR') ? bp.currency : 'JPY',
+      periodLabel: String(bp?.periodLabel ?? 'FY2025'),
+      unitType: (bp?.unitType === 'product' || bp?.unitType === 'service') ? bp.unitType : 'business',
+    } as BusinessPortfolio;
+  } else if (typeof s.businessPortfolio === 'undefined' && typeof raw?.business_portfolio === 'undefined') {
+    s.businessPortfolio = undefined;
+  }
+
+  // financeSummary（snake互換）
+  const fs = (raw?.financeSummary ?? raw?.finance_summary) as any;
+  if (Array.isArray(fs)) {
+    s.financeSummary = fs.map((r: any) => ({
+      year: Number.isFinite(Number(r?.year)) ? Number(r?.year) : 0,
+      business_unit: String(r?.business_unit ?? r?.businessUnit ?? r?.bu ?? ''),
+      revenue: Number.isFinite(Number(r?.revenue)) ? Math.round(Number(r?.revenue)) : 0,
+      operating_income: Number.isFinite(Number(r?.operating_income ?? r?.operatingIncome)) ? Math.round(Number(r?.operating_income ?? r?.operatingIncome)) : 0,
+      operating_margin_pct: Number.isFinite(Number(r?.operating_margin_pct ?? r?.operatingMarginPct)) ? Number(Number(r?.operating_margin_pct ?? r?.operatingMarginPct).toFixed(1)) : 0,
+      revenue_share_pct: Number.isFinite(Number(r?.revenue_share_pct ?? r?.revenueSharePct)) ? Number(Number(r?.revenue_share_pct ?? r?.revenueSharePct).toFixed(1)) : 0,
+    })) as FinanceSummaryRow[];
+  } else if (typeof s.financeSummary === 'undefined') {
+    s.financeSummary = undefined; // ★ 未取得なら未定義のまま
+  }
 
   return s as StrategyState;
 }
@@ -313,9 +375,9 @@ function clamp1to3(n: number) {
   return Math.max(1, Math.min(3, Number.isFinite(n) ? n : 1));
 }
 
-/** saveStrategyData 用のペイロード整形 */
+/** saveStrategyData 用のペイロード整形（3カラムを“条件付きで送る”） */
 function buildSavePayload(s: StrategyState) {
-  return {
+  const base: any = {
     strategyId: s.strategyId,
     companyName: s.companyName,
     foundationYear: s.foundationYear,
@@ -337,27 +399,36 @@ function buildSavePayload(s: StrategyState) {
     finalStory: s.finalStory,
     answers2: s.answers2,
     departments: s.departments,
-    csvFinanceData: s.csvFinanceData,
-  } as any;
+  };
+
+  // ★ businessPortfolio：undefined なら送らない／null は消去意図でそのまま送る
+  if (typeof s.businessPortfolio !== 'undefined') base.businessPortfolio = s.businessPortfolio;
+
+  // ★ csvFinanceData：配列なら送る。null は明示クリア、undefined は送らない
+  if (s.csvFinanceData === null) base.csvFinanceData = null;
+  else if (Array.isArray(s.csvFinanceData)) base.csvFinanceData = s.csvFinanceData;
+
+  // ★ financeSummary：配列(>0)なら送る。null は明示クリア、undefined は送らない
+  if (s.financeSummary === null) base.financeSummary = null;
+  else if (Array.isArray(s.financeSummary) && s.financeSummary.length > 0) base.financeSummary = s.financeSummary;
+
+  return base;
 }
 
-/** 共通：現在のストア内容を Supabase へ保存（既存：同期 await 保存） */
+/** 共通：現在のストア内容を Supabase へ保存 */
 async function commitSave(get: () => StrategyState) {
   const userId = useUserStore.getState().user?.id;
-  const companyId = useUserStore.getState().companyId; // ★ 明示パス
+  const companyId = useUserStore.getState().companyId;
   if (!userId) return;
   try {
-    const r = await saveStrategyData(buildSavePayload(get()), userId, companyId);
-    if (r?.error) {
-      // strategy.ts 側で詳細ログは出るが、ここでも軽く補足
-      console.warn('saveStrategyData returned error (see console above for details):', r.error);
-    }
+    const r = await saveStrategyDataApi(buildSavePayload(get()), userId, companyId);
+    if (r?.error) console.warn('saveStrategyData returned error (see console above for details):', r.error);
   } catch (e) {
     console.warn('commitSave failed', e);
   }
 }
 
-/** 🔄 保存をまとめて非同期実行（QAで使用：UIをブロックしない） */
+/** 🔄 デバウンス保存 */
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let saving = false;
 let lastSnapshot: any = null;
@@ -369,23 +440,21 @@ function scheduleSave(get: () => StrategyState, delayMs = 600) {
 }
 
 async function runSave() {
-  if (saving) return; // 連続呼び出しを束ねる
+  if (saving) return;
   saving = true;
   const userId = useUserStore.getState().user?.id;
-  const companyId = useUserStore.getState().companyId; // ★ 明示パス
+  const companyId = useUserStore.getState().companyId;
   if (!userId) { saving = false; return; }
 
   const payload = lastSnapshot;
-  const timeout = new Promise<void>((resolve) => setTimeout(resolve, 5000)); // ⏱ 最長5秒で見切る
+  const timeout = new Promise<void>((resolve) => setTimeout(resolve, 5000));
 
   try {
     const r: any = await Promise.race([
-      saveStrategyData(payload, userId, companyId),
+      saveStrategyDataApi(payload, userId, companyId),
       timeout,
     ]);
-    if (r?.error) {
-      console.warn('debounced saveStrategyData error (see detailed log above):', r.error);
-    }
+    if (r?.error) console.warn('debounced saveStrategyData error (see detailed log above):', r.error);
   } catch (e) {
     console.warn('scheduleSave failed', e);
   } finally {
@@ -393,13 +462,24 @@ async function runSave() {
   }
 }
 
-/** 配列の要素入替（範囲外は安全に無視） */
 function arrayMove<T>(arr: T[], from: number, to: number): T[] {
   const copy = [...arr];
   if (from < 0 || from >= copy.length || to < 0 || to >= copy.length) return copy;
   const [item] = copy.splice(from, 1);
   copy.splice(to, 0, item);
   return copy;
+}
+
+const BP_COLORS = ['#4f46e5','#059669','#dc2626','#d97706','#2563eb','#16a34a','#ea580c','#7c3aed'];
+
+function cryptoRandomId() {
+  try {
+    const arr = new Uint32Array(4);
+    crypto.getRandomValues(arr);
+    return Array.from(arr).map(n => n.toString(16).padStart(8, '0')).join('');
+  } catch {
+    return Math.random().toString(36).slice(2);
+  }
 }
 
 /* =========================
@@ -413,7 +493,7 @@ export const useStrategyStore = create<StrategyState>()(
 
       reset: () => set(() => ({ ...emptyData })),
 
-      setStrategyId: (id?: string) => set(() => ({ strategyId: id })),
+      setStrategyId: (id: string | null) => set(() => ({ strategyId: id ?? null })),
 
       setStory: (chapters: ChapterStory[]) => set(() => ({ story: [...chapters] })),
 
@@ -435,22 +515,40 @@ export const useStrategyStore = create<StrategyState>()(
 
       setDepartments: (deps) => set(() => ({ departments: [...deps] })),
 
+      // ★ 保存をデバウンスで走らせる＆undefined を維持
       setCSVFinanceData: (data) =>
-        set(() => {
+        set((state) => {
           const parsed = tryParseArrayString(data);
-          return { csvFinanceData: typeof parsed !== 'undefined' ? parsed : data };
+          const next = typeof parsed !== 'undefined' ? parsed : data;
+          const out = { ...state, csvFinanceData: next };
+          // 変更が意味のあるときだけ save
+          scheduleSave(get);
+          return out;
         }),
 
-      /* ---------- 掘り下げQA（保存をノンブロッキング化） ---------- */
+      // ★ 保存をデバウンスで走らせる＆null で明示クリア可
+      setFinanceSummary: (rows) =>
+        set((state) => {
+          let next: FinanceSummaryRow[] | undefined | null = rows as any;
+          if (Array.isArray(rows)) {
+            next = rows.map((r) => ({
+              year: Number.isFinite(+r?.year) ? +r.year : 0,
+              business_unit: String((r as any)?.business_unit ?? ''),
+              revenue: Number.isFinite(+r?.revenue) ? Math.round(+r.revenue) : 0,
+              operating_income: Number.isFinite(+r?.operating_income) ? Math.round(+r.operating_income) : 0,
+              operating_margin_pct: Number.isFinite(+r?.operating_margin_pct) ? Number((+r.operating_margin_pct).toFixed(1)) : 0,
+              revenue_share_pct: Number.isFinite(+r?.revenue_share_pct) ? Number((+r.revenue_share_pct).toFixed(1)) : 0,
+            }));
+          }
+          const out = { ...state, financeSummary: next as any };
+          scheduleSave(get);
+          return out;
+        }),
 
       async appendQuestionStep(chapterIdx, step) {
         const st = get();
-        const answers2: ChapterAnswers[] = Array.isArray(st.answers2)
-          ? ([...st.answers2] as ChapterAnswers[])
-          : ([] as ChapterAnswers[]);
-        let chapter: ChapterAnswers | undefined = answers2.find(
-          (c: ChapterAnswers) => c.chapterIndex === chapterIdx
-        );
+        const answers2: ChapterAnswers[] = Array.isArray(st.answers2) ? [...st.answers2] : [];
+        let chapter = answers2.find((c) => c.chapterIndex === chapterIdx);
 
         if (!chapter) {
           const title =
@@ -462,19 +560,11 @@ export const useStrategyStore = create<StrategyState>()(
         }
 
         const steps: AnswerStep[] = Array.isArray(chapter.steps) ? [...chapter.steps] : [];
-
-        // 既存の step 番号と衝突したら 1→3 の空きを割当
         const used = new Set(steps.map((s) => clamp1to3(s.stepNumber)));
         let finalNo = clamp1to3(step.stepNumber);
         if (used.has(finalNo)) {
-          let assigned = false;
           for (let n = 1; n <= 3; n++) {
-            if (!used.has(n)) { finalNo = n; assigned = true; break; }
-          }
-          if (!assigned) {
-            // 3枠すべて埋まっている場合は上書きせずリターン（念のため）
-            set({ answers2 }); // 状態は変えないが UI を止めない
-            return;
+            if (!used.has(n)) { finalNo = n; break; }
           }
         }
 
@@ -485,33 +575,23 @@ export const useStrategyStore = create<StrategyState>()(
           answer: String(step.answer ?? ''),
         };
 
-        // 既存同番号があれば置換、無ければ追加
         const idxSame = steps.findIndex((s) => s.stepNumber === finalNo);
-        if (idxSame >= 0) steps[idxSame] = nextStep;
-        else steps.push(nextStep);
-
-        // stepNumber 昇順で整列
+        if (idxSame >= 0) steps[idxSame] = nextStep; else steps.push(nextStep);
         steps.sort((a, b) => a.stepNumber - b.stepNumber);
 
-        // 不変更新
         const chapterIdxInArray = answers2.findIndex((c) => c.chapterIndex === chapterIdx);
         const nextChapter: ChapterAnswers = { ...chapter, steps };
         if (chapterIdxInArray >= 0) answers2[chapterIdxInArray] = nextChapter;
         else answers2.push(nextChapter);
 
         set({ answers2 });
-        // ✅ 保存はバックグラウンド：次の質問生成をブロックしない
         scheduleSave(get);
       },
 
       async updateAnswerStep(chapterIdx, stepIdx, answer) {
         const st = get();
-        const answers2: ChapterAnswers[] = Array.isArray(st.answers2)
-          ? ([...st.answers2] as ChapterAnswers[])
-          : ([] as ChapterAnswers[]);
-        let chapter: ChapterAnswers | undefined = answers2.find(
-          (c: ChapterAnswers) => c.chapterIndex === chapterIdx
-        );
+        const answers2: ChapterAnswers[] = Array.isArray(st.answers2) ? [...st.answers2] : [];
+        let chapter = answers2.find((c) => c.chapterIndex === chapterIdx);
 
         if (!chapter) {
           const title =
@@ -522,37 +602,24 @@ export const useStrategyStore = create<StrategyState>()(
           answers2.push(chapter);
         }
 
-        let steps: AnswerStep[] = Array.isArray(chapter.steps)
-          ? ([...chapter.steps] as AnswerStep[])
-          : ([] as AnswerStep[]);
-
-        // 空スロット補充（衝突しない stepNumber を割当）
+        let steps: AnswerStep[] = Array.isArray(chapter.steps) ? [...chapter.steps] : [];
         if (!steps[stepIdx]) {
           const used = new Set(steps.map((s) => clamp1to3(s.stepNumber)));
           let assign = clamp1to3(stepIdx + 1);
           if (used.has(assign)) {
-            for (let n = 1; n <= 3; n++) {
-              if (!used.has(n)) { assign = n; break; }
-            }
+            for (let n = 1; n <= 3; n++) { if (!used.has(n)) { assign = n; break; } }
           }
-          steps[stepIdx] = {
-            stepNumber: assign,
-            question: '',
-            reason: '',
-            answer: '',
-          };
+          steps[stepIdx] = { stepNumber: assign, question: '', reason: '', answer: '' };
         }
 
         steps[stepIdx] = { ...steps[stepIdx], answer: String(answer ?? '') };
         steps = steps.sort((a, b) => a.stepNumber - b.stepNumber);
 
-        const idx = answers2.findIndex((c: ChapterAnswers) => c.chapterIndex === chapterIdx);
+        const idx = answers2.findIndex((c) => c.chapterIndex === chapterIdx);
         const nextChapter: ChapterAnswers = { ...chapter, steps };
         if (idx >= 0) answers2[idx] = nextChapter; else answers2.push(nextChapter);
 
         set({ answers2 });
-
-        // ✅ 保存はバックグラウンド：次の質問生成をブロックしない
         scheduleSave(get);
       },
 
@@ -708,7 +775,6 @@ export const useStrategyStore = create<StrategyState>()(
         const deps = [...(get().departments ?? [])];
         if (!deps[depIndex]) return;
         const projects = [...(deps[depIndex].projects ?? [])];
-        if (!projects[projIndex]) return;
 
         const safe = Array.isArray(okrs)
           ? okrs.map((o) => ({
@@ -724,8 +790,127 @@ export const useStrategyStore = create<StrategyState>()(
         await commitSave(get);
       },
 
-      /* ---------- サーバ再取得（companyId 起点） ---------- */
+      /* ---------- 事業ポートフォリオ（保存はデバウンス） ---------- */
 
+      setBusinessPortfolio: (p) => {
+        const safeUnits = Array.isArray(p?.units)
+          ? p.units.map((u, i) => ({
+              id: String(u?.id ?? cryptoRandomId()),
+              name: String(u?.name ?? `Unit ${i + 1}`),
+              revenueShare: Number.isFinite(+u?.revenueShare) ? +u.revenueShare : 0,
+              growthRate: Number.isFinite(+u?.growthRate) ? +u.growthRate : 0,
+              profitMargin: Number.isFinite(+u?.profitMargin) ? +u.profitMargin : 0,
+              stage: u?.stage,
+              note: u?.note,
+              color: u?.color ?? BP_COLORS[i % BP_COLORS.length],
+            }))
+          : [];
+        const safe: BusinessPortfolio = {
+          units: safeUnits,
+          threshold: {
+            growthBaseline: Number.isFinite(+p?.threshold?.growthBaseline) ? +p!.threshold!.growthBaseline : 5,
+            profitBaseline: Number.isFinite(+p?.threshold?.profitBaseline) ? +p!.threshold!.profitBaseline : 10,
+          },
+          currency: (p?.currency === 'USD' || p?.currency === 'EUR') ? p!.currency : 'JPY',
+          periodLabel: String(p?.periodLabel ?? 'FY2025'),
+          unitType: (p?.unitType === 'product' || p?.unitType === 'service') ? p!.unitType : 'business',
+        };
+        set({ businessPortfolio: safe });
+        scheduleSave(get);
+      },
+
+      updateBusinessUnit: (id, patch) => {
+        const cur = get().businessPortfolio;
+        if (!cur) return;
+        const units = cur.units.map(u => u.id === id ? {
+          ...u,
+          ...(patch.name !== undefined ? { name: String(patch.name) } : {}),
+          ...(patch.revenueShare !== undefined ? { revenueShare: Number(patch.revenueShare) } : {}),
+          ...(patch.growthRate !== undefined ? { growthRate: Number(patch.growthRate) } : {}),
+          ...(patch.profitMargin !== undefined ? { profitMargin: Number(patch.profitMargin) } : {}),
+          ...(patch.note !== undefined ? { note: patch.note } : {}),
+          ...(patch.color !== undefined ? { color: patch.color } : {}),
+          ...(patch.stage !== undefined ? { stage: patch.stage } : {}),
+        } : u);
+        set({ businessPortfolio: { ...cur, units } });
+        scheduleSave(get);
+      },
+
+      addBusinessUnit: (u) => {
+        const cur = get().businessPortfolio ?? {
+          units: [],
+          threshold: { growthBaseline: 5, profitBaseline: 10 },
+          currency: 'JPY' as const,
+          periodLabel: 'FY2025',
+          unitType: 'business' as const,
+        };
+        const idx = cur.units.length;
+        const nu: BusinessUnit = {
+          id: cryptoRandomId(),
+          name: String(u?.name ?? `Unit ${idx + 1}`),
+          revenueShare: Number.isFinite(+u?.revenueShare!) ? +u!.revenueShare! : 10,
+          growthRate: Number.isFinite(+u?.growthRate!) ? +u!.growthRate! : 0,
+          profitMargin: Number.isFinite(+u?.profitMargin!) ? +u!.profitMargin! : 0,
+          note: u?.note,
+          color: u?.color ?? BP_COLORS[idx % BP_COLORS.length],
+        };
+        set({ businessPortfolio: { ...cur, units: [...cur.units, nu] } });
+        scheduleSave(get);
+      },
+
+      removeBusinessUnit: (id) => {
+        const cur = get().businessPortfolio;
+        if (!cur) return;
+        const units = cur.units.filter(u => u.id !== id);
+        set({ businessPortfolio: { ...cur, units } });
+        scheduleSave(get);
+      },
+
+      setPortfolioThreshold: (patch) => {
+        const cur = get().businessPortfolio;
+        if (!cur) return;
+        const th = {
+          growthBaseline: Number.isFinite(+patch.growthBaseline!) ? +patch.growthBaseline! : cur.threshold.growthBaseline,
+          profitBaseline: Number.isFinite(+patch.profitBaseline!) ? +patch.profitBaseline! : cur.threshold.profitBaseline,
+        };
+        set({ businessPortfolio: { ...cur, threshold: th } });
+        scheduleSave(get);
+      },
+
+      setPortfolioUnitType: (t) => {
+        const cur = get().businessPortfolio;
+        const type: UnitType = (t === 'product' || t === 'service') ? t : 'business';
+        if (!cur) {
+          set({
+            businessPortfolio: {
+              units: [],
+              threshold: { growthBaseline: 5, profitBaseline: 10 },
+              currency: 'JPY',
+              periodLabel: 'FY2025',
+              unitType: type,
+            },
+          });
+        } else {
+          set({ businessPortfolio: { ...cur, unitType: type } });
+        }
+        scheduleSave(get);
+      },
+
+      /* ---------- 明示保存 ---------- */
+      async saveStrategyData() {
+        const st = get();
+        const userId = useUserStore.getState().user?.id;
+        const companyId = useUserStore.getState().companyId;
+        if (!userId) throw new Error('userId が未設定です');
+
+        const res = await saveStrategyDataApi(buildSavePayload(st), userId, companyId);
+        if (res?.error) {
+          console.error('saveStrategyData error:', res.error);
+          throw res.error;
+        }
+      },
+
+      /* ---------- サーバ再取得 ---------- */
       refetchFromServer: async () => {
         try {
           const companyId = useUserStore.getState().companyId;
@@ -742,21 +927,17 @@ export const useStrategyStore = create<StrategyState>()(
             return;
           }
 
-          // 受け取った形の揺れを吸収（将来の snake_case などに備えた保険）
           const incoming: any = {
             strategyId: (data as any)?.strategyId ?? (data as any)?.id ?? (data as any)?.strategy_id,
 
             companyName: (data as any)?.companyName ?? (data as any)?.company_name ?? '',
-            foundationYear:
-              (data as any)?.foundationYear ?? (data as any)?.foundation_year ?? '',
+            foundationYear: (data as any)?.foundationYear ?? (data as any)?.foundation_year ?? '',
             location: (data as any)?.location ?? '',
             industry: (data as any)?.industry ?? '',
             revenue: (data as any)?.revenue ?? '',
             employees: (data as any)?.employees ?? '',
-            businessContent:
-              (data as any)?.businessContent ?? (data as any)?.business_content ?? '',
-            customerSegment:
-              (data as any)?.customerSegment ?? (data as any)?.customer_segment ?? '',
+            businessContent: (data as any)?.businessContent ?? (data as any)?.business_content ?? '',
+            customerSegment: (data as any)?.customerSegment ?? (data as any)?.customer_segment ?? '',
 
             thought: (data as any)?.thought ?? '',
             mission: (data as any)?.mission ?? '',
@@ -769,15 +950,14 @@ export const useStrategyStore = create<StrategyState>()(
             threat: (data as any)?.threat ?? '',
 
             story: (data as any)?.story ?? [],
-            finalStory:
-              (data as any)?.finalStory ??
-              (data as any)?.finalstory ?? // snake互換
-              [],
+            finalStory: (data as any)?.finalStory ?? (data as any)?.finalstory ?? [],
             answers2: (data as any)?.answers2 ?? [],
             departments: (data as any)?.departments ?? [],
 
-            csvFinanceData:
-              (data as any)?.csvFinanceData ?? (data as any)?.csv_finance_data ?? undefined,
+            // ★ 取得できなければ undefined のまま（[] で埋めない）
+            csvFinanceData: (data as any)?.csvFinanceData ?? (data as any)?.csv_finance_data ?? undefined,
+            businessPortfolio: (data as any)?.businessPortfolio ?? (data as any)?.business_portfolio ?? undefined,
+            financeSummary: (data as any)?.financeSummary ?? (data as any)?.finance_summary ?? undefined,
           };
 
           const normalized = normalizeState(incoming);
@@ -824,7 +1004,9 @@ export const useStrategyStore = create<StrategyState>()(
         finalStory: s.finalStory,
         answers2: s.answers2,
         departments: s.departments,
-        csvFinanceData: s.csvFinanceData, // 永続対象
+        csvFinanceData: s.csvFinanceData,       // 永続
+        businessPortfolio: s.businessPortfolio, // 永続
+        financeSummary: s.financeSummary,       // 永続（undefined なら書かれない）
       }),
 
       storage: createJSONStorage(() => localStorage),
@@ -832,11 +1014,24 @@ export const useStrategyStore = create<StrategyState>()(
         if (error) {
           console.warn('rehydration error, resetting to emptyData', error);
         } else if (state) {
-          // 文字列で入っている csvFinanceData を配列に戻す（保険）
           const cur = (state as any).csvFinanceData;
           const parsed = tryParseArrayString(cur);
-          if (typeof parsed !== 'undefined') {
-            (state as any).csvFinanceData = parsed;
+          if (typeof parsed !== 'undefined') (state as any).csvFinanceData = parsed;
+
+          if (typeof (state as any).strategyId === 'undefined') {
+            (state as any).strategyId = null;
+          }
+
+          // ★ financeSummary は存在時のみ整形。無ければ undefined のまま
+          if (Array.isArray((state as any).financeSummary)) {
+            (state as any).financeSummary = (state as any).financeSummary.map((r: any) => ({
+              year: Number.isFinite(+r?.year) ? +r.year : 0,
+              business_unit: String(r?.business_unit ?? ''),
+              revenue: Number.isFinite(+r?.revenue) ? Math.round(+r.revenue) : 0,
+              operating_income: Number.isFinite(+r?.operating_income) ? Math.round(+r.operating_income) : 0,
+              operating_margin_pct: Number.isFinite(+r?.operating_margin_pct) ? Number((+r.operating_margin_pct).toFixed(1)) : 0,
+              revenue_share_pct: Number.isFinite(+r?.revenue_share_pct) ? Number((+r.revenue_share_pct).toFixed(1)) : 0,
+            })) as FinanceSummaryRow[];
           }
         }
       },
@@ -844,7 +1039,6 @@ export const useStrategyStore = create<StrategyState>()(
   )
 );
 
-/** 外から直接呼べるラッパ（ページ側で使うと楽） */
 export async function refetchFromServer() {
   return useStrategyStore.getState().refetchFromServer();
 }
