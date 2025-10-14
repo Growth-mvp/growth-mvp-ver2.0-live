@@ -4,13 +4,13 @@
 import { useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useUserStore } from '@/store/userStore';
-import { getMembership } from '@/utils/supabase'; // getMembership(userId: string) を想定
+import { getMembership } from '@/utils/supabase';
+import type { Role } from '@/utils/supabase/membership';
 
-type Role = 'admin' | 'manager' | 'member';
 type MembershipResult = {
-  companyId?: string | null;
-  departmentId?: string | null;
-  role?: Role | null;
+  companyId: string | null;
+  departmentId: string | null;
+  role: Role | null;
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -66,7 +66,7 @@ export default function MembershipBootstrap() {
             email: authed.email ?? '',
             role: 'member', // 初期値。membership 同期時に上書きされる
             name: '',
-            department: '',
+            departmentId: '', // ← 修正：department → departmentId
           });
         }
 
@@ -78,7 +78,7 @@ export default function MembershipBootstrap() {
           setMembership({
             companyId: before.companyId ?? null,
             departmentId: before.departmentId ?? null,
-            role: ((before.role ?? 'member') as Role) ?? 'member',
+            role: (before.role ?? 'member') as Role,
           });
           setMembershipLoaded(true);
           return;
@@ -91,7 +91,7 @@ export default function MembershipBootstrap() {
         try {
           await fetch('/api/companies/provision', {
             method: 'POST',
-            credentials: 'same-origin', // Cookie も送る（保険）
+            credentials: 'same-origin',
             headers: {
               'content-type': 'application/json',
               ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -117,7 +117,7 @@ export default function MembershipBootstrap() {
           setMembership({
             companyId: after.companyId ?? null,
             departmentId: after.departmentId ?? null,
-            role: ((after.role ?? 'member') as Role) ?? 'member',
+            role: (after.role ?? 'member') as Role,
           });
         }
       } finally {
@@ -138,7 +138,9 @@ export default function MembershipBootstrap() {
       alive = false;
       try {
         sub?.subscription?.unsubscribe();
-      } catch {}
+      } catch {
+        /* noop */
+      }
       inFlight.current = false;
     };
   }, [hydrated, user?.id, companyId, setUser, setMembership, setMembershipLoaded]);
