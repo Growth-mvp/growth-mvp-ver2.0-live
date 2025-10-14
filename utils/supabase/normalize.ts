@@ -7,30 +7,44 @@ const GROWTH_TITLES = [
   '第2章：どう戦う（選択と集中の戦略）',
   '第3章：どんな未来像（顧客の風景で描く）',
   '第4章：どう行動する（社員一人ひとりの役割と決意）',
-];
+] as const;
 
 /* =====================================================================
  * 基本ユーティリティ
  * ===================================================================== */
-const asArr = <T = any>(v: any): T[] => (Array.isArray(v) ? v : []);
-const toStr = (v: any, fallback = ''): string =>
+const asArr = <T = any>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+const toStr = (v: unknown, fallback = ''): string =>
   typeof v === 'string' ? v : v == null ? fallback : String(v);
 
-function tryParseJson<T = any>(text: string): T | null {
-  try { return JSON.parse(text); } catch { return null; }
+function tryParseJson<T = unknown>(text: string): T | null {
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
 }
 
 /** camel と snake の両方で来る可能性に備え、camel 優先で取り出す */
-function getEither(src: any, camel: string, snake: string) {
-  if (src && camel in src) return (src as any)[camel];
-  if (src && snake in src) return (src as any)[snake];
+function getEither(src: unknown, camel: string, snake: string): unknown {
+  const o = src as any;
+  if (o && camel in o) return o[camel];
+  if (o && snake in o) return o[snake];
   return undefined;
 }
 
+/** string なら JSON.parse を試す。失敗したらそのまま返す */
+function parseIfJsonString<T = unknown>(v: unknown): T | unknown {
+  if (typeof v === 'string') {
+    const p = tryParseJson<T>(v);
+    return p ?? v;
+  }
+  return v;
+}
+
 /* =====================================================================
- * story / finalStory 正規化
+ * story / finalStory 正規化（非破壊）
  * ===================================================================== */
-function toChapterArray(input: any): ChapterStory[] {
+function toChapterArray(input: unknown): ChapterStory[] {
   if (!input) return [];
 
   if (typeof input === 'string') {
@@ -65,7 +79,7 @@ function toChapterArray(input: any): ChapterStory[] {
 
   if (typeof input === 'object') {
     const arr: ChapterStory[] = [];
-    for (const k of Object.keys(input)) {
+    for (const k of Object.keys(input as any)) {
       const v = (input as any)[k];
       if (v && (typeof v === 'string' || typeof v === 'number')) {
         arr.push({ title: String(k ?? ''), body: String(v ?? '') });
@@ -82,7 +96,7 @@ function uniqChapters(chs: ChapterStory[]): ChapterStory[] {
   const out: ChapterStory[] = [];
   for (const c of chs || []) {
     const title = typeof c?.title === 'string' ? c.title : '';
-    const body  = typeof c?.body  === 'string' ? c.body  : '';
+    const body = typeof c?.body === 'string' ? c.body : '';
     const key = `${title.trim()}::${body.trim()}`;
     if (!seen.has(key)) {
       seen.add(key);
@@ -101,19 +115,26 @@ function alignToGrowthOrder(chs: ChapterStory[] = []): ChapterStory[] {
   ];
   const used = new Set<number>();
   const ordered: ChapterStory[] = [];
-  const scoreOf = (text: string, keys: string[]) =>
-    keys.reduce((acc, k) => acc + (text.includes(k) ? 1 : 0), 0);
+  const scoreOf = (text: string, keys: string[]) => keys.reduce((acc, k) => acc + (text.includes(k) ? 1 : 0), 0);
 
   for (const b of buckets) {
-    let bestIdx = -1; let bestScore = -1;
+    let bestIdx = -1;
+    let bestScore = -1;
     chs.forEach((c, idx) => {
       if (used.has(idx)) return;
       const hay = `${c?.title ?? ''}${c?.body ?? ''}`;
       const sc = scoreOf(hay, b.keys);
-      if (sc > bestScore) { bestScore = sc; bestIdx = idx; }
+      if (sc > bestScore) {
+        bestScore = sc;
+        bestIdx = idx;
+      }
     });
-    if (bestIdx >= 0) { used.add(bestIdx); ordered.push(chs[bestIdx]); }
-    else { ordered.push({ title: '', body: '' }); }
+    if (bestIdx >= 0) {
+      used.add(bestIdx);
+      ordered.push(chs[bestIdx]);
+    } else {
+      ordered.push({ title: '', body: '' });
+    }
   }
 
   return ordered.slice(0, 4).map((c, i) => ({
@@ -122,8 +143,8 @@ function alignToGrowthOrder(chs: ChapterStory[] = []): ChapterStory[] {
   }));
 }
 
-export function normalizeChaptersAny(input: any): ChapterStory[] {
-  const arr  = toChapterArray(input);
+export function normalizeChaptersAny(input: unknown): ChapterStory[] {
+  const arr = toChapterArray(input);
   const uniq = uniqChapters(arr);
   return alignToGrowthOrder(uniq);
 }
@@ -132,162 +153,189 @@ export function normalizeChaptersAny(input: any): ChapterStory[] {
  * departments 正規化
  * ===================================================================== */
 type AnyOKR =
-  | { objective?: any; keyResults?: any; owner?: any }
-  | null | undefined;
+  | { objective?: unknown; keyResults?: unknown; owner?: unknown }
+  | null
+  | undefined;
 
 type AnyProject =
-  | { title?: any; name?: any; okrs?: any; objective?: any; keyResults?: any; owner?: any }
-  | null | undefined;
+  | { title?: unknown; name?: unknown; okrs?: unknown; objective?: unknown; keyResults?: unknown; owner?: unknown }
+  | null
+  | undefined;
 
-type AnyDepartment =
-  | { id?: any; name?: any; title?: any; projects?: any }
-  | null | undefined;
+type AnyDepartment = { id?: unknown; name?: unknown; title?: unknown; projects?: unknown } | null | undefined;
 
-function normalizeOKR(input: AnyOKR) {
-  const o = input || {};
-  const objective = typeof (o as any).objective === 'string' ? (o as any).objective : '';
-  const keyResults = Array.isArray((o as any).keyResults)
-    ? (o as any).keyResults.map((k: any) => String(k))
-    : [];
+type NormalizedOKR = { objective: string; keyResults: string[]; owner?: string };
+type NormalizedProject = { title: string; okrs: NormalizedOKR[] };
+type NormalizedDepartment = { id?: unknown; name: string; projects: NormalizedProject[] };
+
+function normalizeOKR(input: AnyOKR): NormalizedOKR {
+  const o = (input || {}) as any;
+  const objective = typeof o.objective === 'string' ? o.objective : '';
+  const keyResults = Array.isArray(o.keyResults) ? o.keyResults.map((k: any) => String(k)) : [];
   const owner =
-    (o as any).owner !== undefined && (o as any).owner !== null && String((o as any).owner) !== ''
-      ? String((o as any).owner)
-      : undefined;
+    o.owner !== undefined && o.owner !== null && String(o.owner) !== '' ? String(o.owner) : undefined;
   return { objective, keyResults, owner };
 }
 
-function normalizeProject(p: AnyProject) {
+function normalizeProject(p: AnyProject): NormalizedProject {
+  const obj = (p || {}) as any;
   const title =
-    typeof (p as any)?.title === 'string' ? (p as any).title :
-    typeof (p as any)?.name  === 'string' ? (p as any).name  : '';
-  const okrsRaw = Array.isArray((p as any)?.okrs) ? (p as any).okrs : [];
+    typeof obj.title === 'string' ? obj.title : typeof obj.name === 'string' ? obj.name : '';
+  const okrsRaw = Array.isArray(obj.okrs) ? obj.okrs : [];
 
   // レガシー互換（objective/keyResults/owner を単一OKRとして包む）
   const legacy =
-    (p as any)?.objective || (p as any)?.keyResults || (p as any)?.owner
-      ? [{
-          objective: String((p as any)?.objective ?? ''),
-          keyResults: Array.isArray((p as any)?.keyResults)
-            ? (p as any).keyResults.map((k: any) => String(k))
-            : [],
-          owner: (p as any)?.owner ? String((p as any).owner) : '',
-        }]
+    obj.objective || obj.keyResults || obj.owner
+      ? [
+          {
+            objective: String(obj.objective ?? ''),
+            keyResults: Array.isArray(obj.keyResults) ? obj.keyResults.map((k: any) => String(k)) : [],
+            owner: obj.owner ? String(obj.owner) : '',
+          },
+        ]
       : [];
 
   const okrs = [...legacy, ...okrsRaw].map(normalizeOKR);
   return { title, okrs };
 }
 
-function normalizeDepartment(d: AnyDepartment) {
-  const id = (d as any)?.id ?? undefined;
-  const name =
-    typeof (d as any)?.name  === 'string' ? (d as any).name  :
-    typeof (d as any)?.title === 'string' ? (d as any).title : '';
-  const projectsRaw = Array.isArray((d as any)?.projects) ? (d as any).projects : [];
+// 引数 unknown を安全に整形
+function normalizeDepartment(d: unknown): NormalizedDepartment {
+  const obj = (d || {}) as any;
+  const id = obj.id ?? undefined;
+  const name = typeof obj.name === 'string' ? obj.name : typeof obj.title === 'string' ? obj.title : '';
+  const projectsRaw = Array.isArray(obj.projects) ? obj.projects : [];
   const projects = projectsRaw.map(normalizeProject);
   return { id, name, projects };
 }
 
-export function normalizeDepartmentsAny(input: any) {
+export function normalizeDepartmentsAny(input: unknown): NormalizedDepartment[] {
   if (!input) return [];
-  let src = input;
+  let src: unknown = input;
   if (typeof src === 'string') {
     const parsed = tryParseJson(src);
     if (parsed && typeof parsed === 'object') return normalizeDepartmentsAny(parsed);
     return [];
   }
-  if (Array.isArray(src)) return src.map(normalizeDepartment);
+  if (Array.isArray(src)) return (src as unknown[]).map(normalizeDepartment);
   if (typeof src === 'object' && Array.isArray((src as any).departments))
     return (src as any).departments.map(normalizeDepartment);
   return [];
 }
 
 /* =====================================================================
- * csv_finance_data 正規化
- * - 多様な形を「Record<string,string> の配列」に寄せる
+ * csv_finance_data 正規化（非破壊）
+ * - UI互換のため配列はそのまま通す
+ * - 文字列なら JSON.parse を試し、失敗したら行単位CSVをざっくり配列化
  * ===================================================================== */
-function normalizeCsvFinanceData(input: any): Array<Record<string, string>> {
-  if (!input) return [];
+function normalizeCsvFinanceDataLoose(input: unknown): any[] | undefined {
+  if (input == null) return undefined;
+  if (Array.isArray(input)) return input as any[];
+  const parsed = parseIfJsonString<any>(input);
+  if (Array.isArray(parsed)) return parsed;
 
+  // 簡易CSV（行ごとにカンマ区切り→配列化）
   if (typeof input === 'string') {
-    const parsed = tryParseJson(input);
-    return normalizeCsvFinanceData(parsed);
+    const text = input.trim();
+    if (!text) return [];
+    const rows = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => line.split(',').map((cell) => cell.trim()));
+    return rows;
   }
-
-  if (Array.isArray(input)) {
-    return input.map((row) => {
-      if (row && typeof row === 'object' && !Array.isArray(row)) {
-        const rec: Record<string, string> = {};
-        for (const [k, v] of Object.entries(row)) {
-          rec[String(k)] = toStr(v, '');
-        }
-        return rec;
-      }
-      return { value: toStr(row, '') };
-    });
-  }
-
-  if (typeof input === 'object') {
-    const rec: Record<string, string> = {};
-    for (const [k, v] of Object.entries(input)) {
-      rec[String(k)] = toStr(v, '');
-    }
-    return [rec];
-  }
-
-  return [];
+  // オブジェクトなら 1 レコード配列として返す（後方互換）
+  if (typeof parsed === 'object' && parsed) return [parsed];
+  return undefined;
 }
 
 /* =====================================================================
- * StrategyData 全体の正規化入口（入出力は camelCase）
- * - 入力: Supabase の行（camel/snake 混在可）
- * - 出力: StrategyData（camel）
+ * business_portfolio / finance_summary 正規化（非破壊）
  * ===================================================================== */
-export function normalizeStrategyData(input: StrategyData | any | null): StrategyData | null {
+function normalizeBusinessPortfolio(input: unknown): Record<string, any> | undefined {
+  if (input == null) return undefined;
+  const p = parseIfJsonString<Record<string, any>>(input);
+  return p && typeof p === 'object' && !Array.isArray(p) ? p : undefined;
+}
+
+/** finance_summary は {items:Array} or Array を受け取り、UIには配列で返す */
+function normalizeFinanceSummaryToArray(input: unknown): any[] | undefined {
+  if (input == null) return undefined;
+  const p = parseIfJsonString<any>(input);
+  if (Array.isArray(p)) return p;
+  if (p && typeof p === 'object' && !Array.isArray(p) && Array.isArray((p as any).items)) {
+    return (p as any).items;
+  }
+  return undefined;
+}
+
+/* =====================================================================
+ * StrategyData 全体の正規化入口（入出力は camelCase、非破壊）
+ * ===================================================================== */
+export function normalizeStrategyData(input: StrategyData | unknown | null): StrategyData | null {
   if (!input) return null;
   const src: any = { ...(input as any) };
 
-  let storyRaw       = getEither(src, 'story', 'story');
-  let finalStoryRaw  = getEither(src, 'finalStory', 'final_story');
-  let answers2Raw    = getEither(src, 'answers2', 'answers2');
+  // --- 基本文面系 ---
+  let storyRaw = getEither(src, 'story', 'story');
+  let finalStoryRaw = getEither(src, 'finalStory', 'final_story');
+  let answers2Raw = getEither(src, 'answers2', 'answers2');
   let departmentsRaw = getEither(src, 'departments', 'departments');
-  let financeRaw     = getEither(src, 'csvFinanceData', 'csv_finance_data');
+  let financeRaw = getEither(src, 'csvFinanceData', 'csv_finance_data');
 
-  if (typeof storyRaw === 'string')       { const p = tryParseJson(storyRaw);       if (p) storyRaw = p; }
-  if (typeof finalStoryRaw === 'string')  { const p = tryParseJson(finalStoryRaw);  if (p) finalStoryRaw = p; }
-  if (typeof answers2Raw === 'string')    { const p = tryParseJson(answers2Raw);    if (p) answers2Raw = p; }
+  if (typeof storyRaw === 'string') { const p = tryParseJson(storyRaw); if (p) storyRaw = p; }
+  if (typeof finalStoryRaw === 'string') { const p = tryParseJson(finalStoryRaw); if (p) finalStoryRaw = p; }
+  if (typeof answers2Raw === 'string') { const p = tryParseJson(answers2Raw); if (p) answers2Raw = p; }
   if (typeof departmentsRaw === 'string') { const p = tryParseJson(departmentsRaw); if (p) departmentsRaw = p; }
-  if (typeof financeRaw === 'string')     { const p = tryParseJson(financeRaw);     if (p) financeRaw = p; }
+  if (typeof financeRaw === 'string') { const p = tryParseJson(financeRaw); if (p) financeRaw = p; }
 
-  const story       = normalizeChaptersAny(storyRaw);
-  const finalStory  = normalizeChaptersAny(finalStoryRaw);
-  const answers2    = asArr<any>(answers2Raw);
+  const story = normalizeChaptersAny(storyRaw);
+  const finalStory = normalizeChaptersAny(finalStoryRaw);
+  const answers2 = asArr<any>(answers2Raw);
   const departments = normalizeDepartmentsAny(departmentsRaw);
-  const csvFinanceData = normalizeCsvFinanceData(financeRaw);
 
-  const companyName     = toStr(getEither(src, 'companyName', 'company_name'));
-  const foundationYear  = toStr(getEither(src, 'foundationYear', 'foundation_year'));
-  const location        = toStr(getEither(src, 'location', 'location'));
-  const industry        = toStr(getEither(src, 'industry', 'industry'));
-  const revenue         = toStr(getEither(src, 'revenue', 'revenue'));
-  const employees       = toStr(getEither(src, 'employees', 'employees'));
+  // --- 3カラム（非破壊に保持）---
+  const csvFinanceData = normalizeCsvFinanceDataLoose(financeRaw); // Array | undefined（UI側で ?? [] してOK）
+  const businessPortfolio = normalizeBusinessPortfolio(getEither(src, 'businessPortfolio', 'business_portfolio'));
+  const financeSummary = normalizeFinanceSummaryToArray(getEither(src, 'financeSummary', 'finance_summary'));
+
+  // --- その他 ---
+  const companyName = toStr(getEither(src, 'companyName', 'company_name'));
+  const foundationYear = toStr(getEither(src, 'foundationYear', 'foundation_year'));
+  const location = toStr(getEither(src, 'location', 'location'));
+  const industry = toStr(getEither(src, 'industry', 'industry'));
+  const revenue = toStr(getEither(src, 'revenue', 'revenue'));
+  const employees = toStr(getEither(src, 'employees', 'employees'));
   const businessContent = toStr(getEither(src, 'businessContent', 'business_content'));
   const customerSegment = toStr(getEither(src, 'customerSegment', 'customer_segment'));
-  const thought         = toStr(getEither(src, 'thought', 'thought'));
-  const mission         = toStr(getEither(src, 'mission', 'mission'));
-  const vision          = toStr(getEither(src, 'vision', 'vision'));
-  const value           = toStr(getEither(src, 'value', 'value'));
-  const strength        = toStr(getEither(src, 'strength', 'strength'));
-  const weakness        = toStr(getEither(src, 'weakness', 'weakness'));
-  const opportunity     = toStr(getEither(src, 'opportunity', 'opportunity'));
-  const threat          = toStr(getEither(src, 'threat', 'threat'));
+  const thought = toStr(getEither(src, 'thought', 'thought'));
+  const mission = toStr(getEither(src, 'mission', 'mission'));
+  const vision = toStr(getEither(src, 'vision', 'vision'));
+  const value = toStr(getEither(src, 'value', 'value'));
+  const strength = toStr(getEither(src, 'strength', 'strength'));
+  const weakness = toStr(getEither(src, 'weakness', 'weakness'));
+  const opportunity = toStr(getEither(src, 'opportunity', 'opportunity'));
+  const threat = toStr(getEither(src, 'threat', 'threat'));
 
-  const strategySummary       = toStr(getEither(src, 'strategySummary', 'strategy_summary'));
+  // strategy_summary / editable_cascade / editable_cascade_result は非破壊で
+  const strategySummaryRaw = parseIfJsonString<any>(getEither(src, 'strategySummary', 'strategy_summary'));
+  const strategySummary =
+    Array.isArray(strategySummaryRaw) || (strategySummaryRaw && typeof strategySummaryRaw === 'object')
+      ? strategySummaryRaw
+      : undefined;
+
+  const editableCascadeRaw = parseIfJsonString<any>(getEither(src, 'editableCascade', 'editable_cascade'));
+  const editableCascade =
+    Array.isArray(editableCascadeRaw) || (editableCascadeRaw && typeof editableCascadeRaw === 'object')
+      ? editableCascadeRaw
+      : undefined;
+
   const editableCascadeResult = normalizeDepartmentsAny(
     getEither(src, 'editableCascadeResult', 'editable_cascade_result')
   );
 
-  const out = {
+  const out: any = {
     companyName,
     foundationYear,
     location,
@@ -304,21 +352,29 @@ export function normalizeStrategyData(input: StrategyData | any | null): Strateg
     weakness,
     opportunity,
     threat,
+
+    // 3カラム＋関連：存在すればそのまま（UI側で ?? する）
     csvFinanceData,
+    businessPortfolio,
+    financeSummary,
+
     story,
     finalStory,
     strategySummary,
+    editableCascade,
+    editableCascadeResult,
+
+    // 既存項目（維持）
     questions: [],
     reasons: [],
     questions2: [],
     reasons2: [],
     answers: [],
     answers2,
-    editableCascadeResult,
     notification: '',
     role: 'member',
     departments,
   };
 
-  return out as unknown as StrategyData;
+  return out as StrategyData;
 }
