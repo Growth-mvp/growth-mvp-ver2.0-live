@@ -1,15 +1,17 @@
 // /components/steps/Step5Confirm.tsx
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStrategyStore } from '@/store/strategyStore';
 import StepLayout from '@/components/StepLayout';
 import { getIndustryLabel } from '@/utils/industryTemplates';
+import FinanceSummaryPanel from '@/components/finance/FinanceSummaryPanel';
 
 /* =========================================================
- * Apple風ミニマル確認画面
+ * Apple風ミニマル確認画面（Ver4）
  * - ガラスカード / 余白広め / モノトーン / 情報の階層化
+ * - 年度×事業サマリーの可視化を追加
  * ========================================================= */
 
 // セッターが無ければ setState にフォールバックする安全ラッパー
@@ -81,12 +83,22 @@ export default function Step5Confirm() {
   const vision: string = st?.vision ?? '';
   const value: string = st?.value ?? '';
 
-  const csvFinanceData: any = st?.csvFinanceData ?? null;
+  const csvFinanceData: any[] = Array.isArray(st?.csvFinanceData) ? st.csvFinanceData : [];
   const answers: any = st?.answers ?? null;
   const answers2: any = st?.answers2 ?? null;
 
+  const financeSummary: any[] = Array.isArray(st?.financeSummary) ? st.financeSummary : [];
+
   // 日本語ラベルへ変換（full: 詳細表記）
   const industryJa = industry ? getIndustryLabel(industry, { full: true }) : '';
+
+  const csvCount = csvFinanceData.length;
+  const summaryCount = financeSummary.length;
+
+  const summaryYears = useMemo(
+    () => Array.from(new Set(financeSummary.map((r: any) => r?.year))).filter(Boolean).sort(),
+    [financeSummary]
+  );
 
   // ストーリー生成
   const handleGenerate = async () => {
@@ -113,6 +125,8 @@ export default function Step5Confirm() {
           csvFinanceData,
           answers,
           answers2,
+          // 追加：サマリーもコンテキストに渡して精度向上
+          financeSummary,
         }),
       });
 
@@ -136,7 +150,7 @@ export default function Step5Confirm() {
   };
 
   return (
-    <StepLayout step={5} totalSteps={5} title="入力内容の最終確認">
+    <StepLayout step={6} totalSteps={6} title="入力内容の最終確認">
       <div className="space-y-6">
         {/* 通知 */}
         {localNotice && (
@@ -147,6 +161,21 @@ export default function Step5Confirm() {
             {localNotice}
           </div>
         )}
+
+        {/* 取り込み状況 */}
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="rounded-full border border-black/10 bg-white/70 px-2.5 py-1 shadow-sm">
+            CSV: {csvCount} 件
+          </span>
+          <span className="rounded-full border border-black/10 bg-white/70 px-2.5 py-1 shadow-sm">
+            サマリー: {summaryCount} 件 {summaryYears.length ? `（${summaryYears.join(', ')}）` : ''}
+          </span>
+          {!csvCount && (
+            <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-amber-900 shadow-sm">
+              財務CSVが未取り込みです（ステップ4でアップロード）
+            </span>
+          )}
+        </div>
 
         {/* 概要（会社 & 事業） */}
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
@@ -215,6 +244,9 @@ export default function Step5Confirm() {
             </div>
           </div>
         </GlassCard>
+
+        {/* 年度×事業サマリー（可視化） */}
+        <FinanceSummaryPanel className="mt-2" showHeader initialYear={summaryYears.at(-1)} />
 
         {/* 注意書き */}
         <div className="text-center text-xs text-gray-500">
