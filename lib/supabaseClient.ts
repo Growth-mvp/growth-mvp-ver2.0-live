@@ -1,4 +1,4 @@
-// /lib/supabaseClient.ts（フル置き換え）
+// /lib/supabaseClient.ts（堅牢化・互換維持）
 'use client';
 
 import { createBrowserClient } from '@supabase/ssr';
@@ -7,7 +7,6 @@ import type { SupabaseClient, Session } from '@supabase/supabase-js';
 declare global {
   // eslint-disable-next-line no-var
   var __growth_supabase__: SupabaseClient | undefined;
-  // ガード多重登録防止
   // eslint-disable-next-line no-var
   var __growth_supabase_guards_attached__: boolean | undefined;
 }
@@ -15,21 +14,23 @@ declare global {
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-// fail-fast（設定漏れは即検知）
 if (!supabaseUrl || !supabaseAnon) {
   throw new Error(
     'Supabase env is missing: set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local'
   );
 }
 
-/** ブラウザ用クライアント（@supabase/ssr / シングルトン）
- *  - これにより HTTP-Only Cookie がサーバーへ同期され、/lib/supabaseServer.ts 側で正しく読める
- */
+/** ブラウザ用クライアント（@supabase/ssr / シングルトン） */
 export function getSupabaseClient(): SupabaseClient {
   if (!globalThis.__growth_supabase__) {
     globalThis.__growth_supabase__ = createBrowserClient(supabaseUrl!, supabaseAnon!, {
-      // App Router では client 側は cookies オプション指定不要でOK
-      // （サーバー側は /lib/supabaseServer.ts で cookies() を扱う）
+      db: { schema: 'public' },             // ★ 明示
+      auth: {
+        persistSession: true,               // ★ 明示（将来の既定値揺れに備える）
+        autoRefreshToken: true,             // ★ 明示
+        detectSessionInUrl: true,           // ★ 明示（Magic Link対応）
+      },
+      // cookies オプションは App Router では client 側不要（server 側で扱う）
     });
   }
   return globalThis.__growth_supabase__!;
@@ -38,7 +39,6 @@ export function getSupabaseClient(): SupabaseClient {
 /** 表示用Cookie（自前）を掃除：SupabaseのセッションCookieではない */
 export function clearDisplayCookies() {
   try {
-    // 以前の名称や現在使用中の名称をまとめて掃除
     document.cookie = 'user_id=; Path=/; Max-Age=0; SameSite=Lax';
     document.cookie = 'user_role=; Path=/; Max-Age=0; SameSite=Lax';
     document.cookie = 'company_id=; Path=/; Max-Age=0; SameSite=Lax';
@@ -51,13 +51,16 @@ export function clearDisplayCookies() {
 export async function signOutLocalAndRedirect(redirectTo: string = '/login?reason=expired') {
   const supabase = getSupabaseClient();
   try {
-    await supabase.auth.signOut({ scope: 'local' }); // ← 重要：local（HTTPOnly Cookieは触らない）
+    await supabase.auth.signOut({ scope: 'local' }); // HTTPOnly Cookieは触らない
   } catch {
     /* noop */
   } finally {
     clearDisplayCookies();
     if (typeof window !== 'undefined') {
-      window.location.replace(redirectTo);
+      // ★ 二重遷移防止
+      if (window.location.pathname + window.location.search !== redirectTo) {
+        window.location.replace(redirectTo);
+      }
     }
   }
 }
@@ -76,24 +79,22 @@ function scrubMagicLinkHash() {
 
 /**
  * 起動時に一度だけ呼ぶガード（クライアントのみ想定）。
- * - onAuthStateChange：SIGNED_OUT 時の後処理（表示用Cookieを掃除）
- * - フォーカス/可視化時に getSession() を軽くプローブし、失敗なら安全にサインアウト
- * 返り値：デタッチ関数（任意で呼び出し元がクリーンアップ可能）
+ * - SIGNED_OUT 時は表示用Cookieを掃除
+ * - フォーカス/可視化時に getSession を軽くプローブし、失敗なら安全にサインアウト
+ * 戻り値：デタッチ関数（SSR時は no-op を返す）
  */
 export function attachAuthGuards() {
-  if (globalThis.__growth_supabase_guards_attached__) return;
+  if (globalThis.__growth_supabase_guards_attached__) {
+    return () => { /* no-op */ };
+  }
   globalThis.__growth_supabase_guards_attached__ = true;
 
   const supabase = getSupabaseClient();
 
   const authSub = supabase.auth.onAuthStateChange((event /*, session */) => {
-    if (event === 'SIGNED_OUT') {
-      clearDisplayCookies();
-    }
-    // TOKEN_REFRESHED は通知のみ、特に処理不要
+    if (event === 'SIGNED_OUT') clearDisplayCookies();
   });
 
-  // セッション健全性の軽量チェック
   const probe = async () => {
     try {
       const { data, error } = await supabase.auth.getSession();
@@ -101,35 +102,36 @@ export function attachAuthGuards() {
         await signOutLocalAndRedirect('/login?reason=expired');
         return;
       }
-      // data.session === null は未ログイン。ここでは何もしない。
+      // 未ログイン(null)は何もしない
       scrubMagicLinkHash();
     } catch {
       await signOutLocalAndRedirect('/login?reason=expired');
     }
   };
 
-  if (typeof window !== 'undefined') {
-    // 起動時に1回チェック
-    void probe();
-
-    // フォーカス復帰時（古いタブ対策）
-    const onFocus = () => void probe();
-    window.addEventListener('focus', onFocus);
-
-    // 可視化時（バックグラウンド復帰対策）
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') void probe();
-    };
-    document.addEventListener('visibilitychange', onVisible);
-
-    // オプション：デタッチ関数を返す（HMRや明示的解除用）
+  if (typeof window === 'undefined') {
+    // SSR: デタッチだけ返す
     return () => {
       authSub.data?.subscription?.unsubscribe?.();
-      window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onVisible);
       globalThis.__growth_supabase_guards_attached__ = false;
     };
   }
+
+  // CSR: 起動時 + 復帰時に健全性チェック
+  void probe();
+  const onFocus = () => void probe();
+  const onVisible = () => { if (document.visibilityState === 'visible') void probe(); };
+
+  window.addEventListener('focus', onFocus);
+  document.addEventListener('visibilitychange', onVisible);
+
+  // デタッチ
+  return () => {
+    authSub.data?.subscription?.unsubscribe?.();
+    window.removeEventListener('focus', onFocus);
+    document.removeEventListener('visibilitychange', onVisible);
+    globalThis.__growth_supabase_guards_attached__ = false;
+  };
 }
 
 /** 便利ヘルパ：APIや初期化で安全にセッション取得 */
@@ -150,8 +152,6 @@ export async function safeGetSession(): Promise<{ ok: boolean; session: Session 
   }
 }
 
-// 既存互換：そのまま import { supabase } でも使える
+// 既存互換
 export const supabase = getSupabaseClient();
-
-// 追加：default export も提供（既存コードの互換性を最大化）
 export default supabase;
