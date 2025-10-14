@@ -4,9 +4,10 @@ import { debugExtractPostgrest, isRlsDenied } from './errors';
 
 /** テーブル名 */
 const T_COMPANIES = 'companies';
-const T_MEMBERS   = 'company_members';
+const T_MEMBERS = 'company_members';
 
 export type Role = 'admin' | 'manager' | 'member';
+
 export type Membership = {
   companyId: string | null;
   departmentId: string | null;
@@ -25,7 +26,7 @@ function normRole(v: any): Role | null {
   return v === 'admin' || v === 'manager' || v === 'member' ? v : null;
 }
 
-/** 現在の userId を Supabase Auth から取得 */
+/** 現在の userId を Supabase Auth から取得（未ログイン時は null） */
 export async function getCurrentUserId(): Promise<string | null> {
   try {
     const { data, error } = await supabase.auth.getUser();
@@ -107,7 +108,7 @@ export async function getMembership(userId: string): Promise<Membership> {
 /**
  * 会社を新規作成し、自分を admin で参加させる
  * - department_id が無いスキーマでも成功するようフォールバック実装
- * - RLSで companies/ company_members の insert が拒否される場合は、Service Role API 経由の作成が必要
+ * - RLSで companies / company_members の insert が拒否される場合は、Service Role API 経由の作成が必要
  */
 export async function createCompanyAndJoin(params: {
   userId: string;
@@ -240,24 +241,21 @@ export async function listCompanyMembers(): Promise<MemberListItem[]> {
   if (!q1.error) {
     return (q1.data || []).map((r: any) => ({
       userId: String(r.user_id),
-      role: normRole(r.role) ?? 'member',
+      role: (normRole(r.role) ?? 'member') as Role,
       departmentId: typeof r?.department_id === 'string' ? r.department_id : null,
     }));
   }
 
   // department_id なし（フォールバック）
   if (looksMissingDepartmentId(q1)) {
-    const q2 = await supabase
-      .from(T_MEMBERS)
-      .select('user_id, role')
-      .eq('company_id', m.companyId);
+    const q2 = await supabase.from(T_MEMBERS).select('user_id, role').eq('company_id', m.companyId);
     if (q2.error) {
       debugExtractPostgrest(q2);
       return [];
     }
     return (q2.data || []).map((r: any) => ({
       userId: String(r.user_id),
-      role: normRole(r.role) ?? 'member',
+      role: (normRole(r.role) ?? 'member') as Role,
       departmentId: null,
     }));
   }
