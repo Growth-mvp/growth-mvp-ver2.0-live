@@ -21,6 +21,8 @@ export type DeptQuestionStepperProps = {
   mission?: string;
   projects?: string[];
   okrs?: OKR[];
+  /** 会社の業種コード/ラベル（APIへ文脈として渡す） */
+  industry?: string;
   /** 1..3（省略時は1） */
   initialStep?: StepNumber;
   /** 既存のQ/Aがあれば渡す（復元用） */
@@ -57,6 +59,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     mission,
     projects = [],
     okrs = [],
+    industry = '',
     initialStep = 1,
     initialAnswers = [],
     onChange,
@@ -91,7 +94,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
   const inFlightRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
 
-  // redo用トリガ
+  // 再生成トリガ
   const [reloadTick, setReloadTick] = useState(0);
 
   // 親通知のガード
@@ -156,6 +159,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
             mission,
             projects,
             okrs,
+            industry, // ★ 追加：業種をAPIへ
             answersSoFar: answersSoFarPayload,
             afterStepIndex: step - 2, // 現在stepの1つ前（初回は -1）
           }),
@@ -189,7 +193,18 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       inFlightRef.current = false;
     };
     // 依存
-  }, [step, departmentName, mission, answersSoFarPayload.length, reloadTick, projects, okrs, answers, canEdit]);
+  }, [
+    step,
+    departmentName,
+    mission,
+    projects,
+    okrs,
+    industry,               // ★ 追加：業種変更で再取得
+    answersSoFarPayload.length,
+    reloadTick,
+    answers,
+    canEdit,
+  ]);
 
   // 親へ進捗通知（初回スキップ＋同値ガード／★ 非Adminは通知しない）
   useEffect(() => {
@@ -238,7 +253,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     }
   }, [canGoNext, isLastStep, handleSaveAnswerLocally]);
 
-  // このステップからやり直す
+  // このステップからやり直す（質問の再生成）
   const onRedoFromHere = useCallback(() => {
     if (!canEdit) return;
     const kept = answers.filter(a => a.stepNumber < step);
@@ -270,6 +285,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
           mission,
           projects,
           okrs,
+          // 参照用に回答を渡す
           answers: answers
             .sort((a, b) => a.stepNumber - b.stepNumber)
             .map(a => ({
@@ -320,7 +336,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
               key={sn}
               onClick={() => setStep(sn)}
               className={[
-                'flex-1 rounded-xl border px-3 py-2 text-sm',
+                'flex-1 rounded-xl border px-3 py-2 text-sm transition-colors',
                 active ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:bg-gray-50',
               ].join(' ')}
               title={`Step ${sn}`}
@@ -335,7 +351,23 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
         <div className="p-4 border-b border-gray-100 flex items-center justify-between">
           <div className="text-sm font-medium">次の問い</div>
-          {loading && <div className="text-xs text-gray-500">生成中…</div>}
+          <div className="flex items-center gap-3">
+            {canEdit && (
+              <button
+                type="button"
+                onClick={onRedoFromHere}
+                disabled={loading}
+                className={[
+                  'rounded-lg px-3 py-1.5 text-xs font-medium border',
+                  loading ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                ].join(' ')}
+                title="このステップの問いを再生成します（このステップ以降の回答はリセット）"
+              >
+                再生成
+              </button>
+            )}
+            {loading && <div className="text-xs text-gray-500">生成中…</div>}
+          </div>
         </div>
         <div className="p-4 space-y-3">
           {errorMsg ? (
@@ -363,16 +395,9 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
           title={disabledTip}
         />
         <div className="flex items-center justify-between">
-          <button
-            type="button"
-            className="text-sm text-gray-600 underline decoration-dashed underline-offset-4 hover:text-gray-900 disabled:text-gray-400"
-            onClick={onRedoFromHere}
-            disabled={!canEdit}
-            title={disabledTip}
-          >
-            このステップからやり直す
-          </button>
-
+          <span className="text-xs text-gray-500">
+            {previousAnswer ? '直前の回答を踏まえて出題されています。' : '最初の問いです。'}
+          </span>
           <button
             type="button"
             onClick={onClickNext}
