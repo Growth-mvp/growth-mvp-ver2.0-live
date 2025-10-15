@@ -36,12 +36,20 @@ const TITLE_TEMPLATES = [
   '第4章：どう行動する（行動）',
 ] as const;
 
-// ✅ 各章のゴール（固定）
-const CHAPTER_GOALS = [
+// ✅ 各章のゴール（legacy / future で切替）
+const CHAPTER_GOALS_LEGACY = [
   '現状：外因と内因を率直に示し、「このままではまずい」を共有する（責任転嫁はしない）。',
   '戦略：選ぶ/選ばないを明言し、Will（私の決意）とトレードオフ（やめること）を1点以上示す。原則（例：標準優先/学びを翌週反映）も明確に。',
   '未来像：顧客の風景で描く（SHOW, DON’T TELL）。売上などの数値は入力にある場合のみ用い、無ければ定性表現で希望を描く。',
   '行動：社員が主役で「自分で決める」を明言。判断の三つの問いと《目的／仮説／最初の一歩／やめること／合図》の雛形のみ提示（具体タスクや会議指示は禁止）。',
+] as const;
+
+const CHAPTER_GOALS_FUTURE = [
+  // 未来逆算でも章タイトルは固定のまま。本文で「未来から見た現状」「逆算課題」に寄せる。
+  '未来から見た現状：3〜5年後の理想像を先に置き、そこから見える現在の制約・惰性・壁を率直に描く（過去/既存は“素材”として評価）。',
+  '戦略（両利き）：内部変革×外部変革を統合。既存資産の再定義（Exploitation）と新価値創造（Exploration）を同時に設計。選ばないこと/やめることも明言。',
+  '未来像：顧客・社員・社会の“情景”で示す（SHOW, DON’T TELL）。KPIが無ければKCI（創造の兆し）中心の定性で可視化。',
+  '逆算アクション：短期KPI（守り）とKCI（攻め）を併記。《目的／仮説／最初の一歩／やめること／合図》を雛形として提示（具体タスク過多は避ける）。',
 ] as const;
 
 /** 未入力は空文字に。JSON.stringifyは使わない */
@@ -146,6 +154,8 @@ function buildTopPatternDigest(ids?: string[]) {
   return list.length ? `【参考：勝ちパターン10選】\n${list.join('\n')}` : '';
 }
 
+type Mode = 'future' | 'legacy';
+
 export async function POST(req: NextRequest) {
   try {
     // ---- デバッグ入口 ----
@@ -225,9 +235,11 @@ export async function POST(req: NextRequest) {
       threat,
       csvFinanceData,
       temperature,
-      // ★ 追加：t系の優先参照（例：['t1','t4']）。未指定なら全体要旨。
       patternIds,
+      mode: _mode, // 'future' | 'legacy'（未指定は future）
     } = body || {};
+
+    const mode: Mode = _mode === 'legacy' ? 'legacy' : 'future';
 
     // 既存の story（ドラフト/前回出力など）だけを参照に使う（Q&Aは使わない）
     const storyNote = buildStoryDigest(body);
@@ -243,9 +255,13 @@ export async function POST(req: NextRequest) {
     // ★ 追加：勝ちパターン要旨
     const patternDigest = buildTopPatternDigest(Array.isArray(patternIds) ? patternIds : undefined);
 
-    // ✅ systemPrompt（強化）
+    // ✅ systemPrompt（モードで切替）
+    const goals = mode === 'future' ? CHAPTER_GOALS_FUTURE : CHAPTER_GOALS_LEGACY;
+
     const systemPrompt = [
-      'あなたは経営者に伴走するストーリーファシリテーターです。',
+      mode === 'future'
+        ? 'あなたは「未来逆算×両利きの経営」アーキテクトです。'
+        : 'あなたは「経営ストーリーの執筆者」です。',
       '日本語で、必ず 4 章構成のドラフトを生成します。',
       '抽象論を避け、不可逆性・比較・トレードオフ・原則・「小さな勝ち体験」を適切に織り込みます。',
       '章タイトルはサーバ側で最終整形するため、内容の充実を優先し、JSON で返答してください。',
@@ -257,19 +273,31 @@ export async function POST(req: NextRequest) {
       '- 数値（売上/％など）は csvFinanceData に存在するもののみ使用可。無ければ定性表現に置換する。',
       '',
       '【各章のゴール】',
-      `1) ${CHAPTER_GOALS[0]}`,
-      `2) ${CHAPTER_GOALS[1]}`,
-      `3) ${CHAPTER_GOALS[2]}`,
-      `4) ${CHAPTER_GOALS[3]}`,
+      `1) ${goals[0]}`,
+      `2) ${goals[1]}`,
+      `3) ${goals[2]}`,
+      `4) ${goals[3]}`,
       '',
       '【出力フォーマット（厳守）】',
       '出力は JSON のみ（コードフェンスや説明文を付けない）。',
       '形式: { "chapters": [{"title":"...","body":"..."} ×4], "summary": {"tagline":"...", "bullets":["..."]} }',
       '各章は 250〜400 字程度で簡潔に。',
       '',
-      // ★ ここで勝ちパターンの要旨を渡す（参照知識として）
+      // ★ 参照知識
       patternDigest,
-    ].filter(Boolean).join('\n');
+      // ★ future モードのときは追加の強調
+      mode === 'future'
+        ? [
+            '',
+            '【未来逆算×両利き（追加要件）】',
+            '- 未来（Exploration）を起点に、過去/既存資産（Exploitation）を“未来の素材”として再定義する。',
+            '- 内部変革（部門越境・役割破壊）と外部変革（顧客価値・市場・事業モデルの再定義）を両立する。',
+            '- KPI（短期）とKCI（Key Creation Indicator：創造の兆し）を併記する。',
+          ].join('\n')
+        : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
 
     const userPrompt = [
       '【経営者の思い】',
@@ -282,8 +310,8 @@ export async function POST(req: NextRequest) {
       '',
       '【MVV】',
       `- Mission: ${sanitize(mission, 300)}`,
-      `- Vision: ${sanitize(vision, 300)}`,
-      `- Value: ${sanitize(value, 300)}`,
+      `- Vision : ${sanitize(vision, 300)}`,
+      `- Value  : ${sanitize(value, 300)}`,
       '',
       '【SWOT】',
       `- 強み: ${sanitize(strength, 400)}`,
@@ -360,7 +388,7 @@ export async function POST(req: NextRequest) {
         body: '（この章は未生成です）',
       }));
       return NextResponse.json(
-        { story: chapters, _debug: { model, fallback: true } },
+        { story: chapters, _debug: { model, fallback: true, mode } },
         { headers: { 'Cache-Control': 'no-store' } }
       );
     }
@@ -393,7 +421,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { story: chapters, summary, _debug: { model } },
+      { story: chapters, summary, _debug: { model, mode } },
       { headers: { 'Cache-Control': 'no-store' } }
     );
   } catch (error: any) {
