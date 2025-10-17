@@ -332,7 +332,7 @@ export async function POST(req: NextRequest) {
 
     const temp = typeof temperature === 'number' ? temperature : 0.4;
 
-    // ---- タイムアウト（ハング対策） ----
+    // ---- タイムアウト（ハング対策）----
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 45000);
     let raw = '';
