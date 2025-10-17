@@ -58,6 +58,14 @@ export type FinanceSummaryRow = {
   revenue_share_pct: number;
 };
 
+/** ★ STAGE5出力を保持（Zustand / Supabase両対応） */
+export type SimulationResult = {
+  projection: { points: { year: string; sales: number; op: number; opMargin: number }[] };
+  finalProb: number; // 0..1
+  krsSnapshot?: any[];
+  meta?: { label?: string; note?: string } & Record<string, any>;
+} | null | undefined;
+
 export type StrategyState = {
   strategyId: string | null;
 
@@ -95,6 +103,9 @@ export type StrategyState = {
   // ★ optional のまま維持（undefined なら保存しない／空上書きしない）
   financeSummary?: FinanceSummaryRow[];
 
+  /** ★ STAGE5のシミュレーション結果（undefinedは送信抑止） */
+  simulationResult?: SimulationResult;
+
   /* ===== actions ===== */
   reset: () => void;
   setStrategyId: (id: string | null) => void;
@@ -129,6 +140,9 @@ export type StrategyState = {
 
   // ★ undefined/配列/（明示クリア用に null も可）を許容
   setFinanceSummary: (rows: FinanceSummaryRow[] | undefined | null) => void;
+
+  /** ★ STAGE5出力のセット（nullクリア可／undefinedは送信抑止） */
+  setSimulationResult: (r: SimulationResult) => void;
 
   updateAnswerStep: (chapterIdx: number, stepIdx: number, answer: string) => Promise<void>;
   appendQuestionStep: (chapterIdx: number, step: AnswerStep) => Promise<void>;
@@ -182,6 +196,7 @@ const emptyData: Omit<
   | 'setDepartments'
   | 'setCSVFinanceData'
   | 'setFinanceSummary'
+  | 'setSimulationResult'
   | 'updateAnswerStep'
   | 'appendQuestionStep'
   | 'addDepartment'
@@ -234,13 +249,16 @@ const emptyData: Omit<
   csvFinanceData: undefined,
   financeSummary: undefined,    // ★ ここを undefined に
   businessPortfolio: undefined,
+
+  /** ★ STAGE5の結果は未設定（undefined は送信抑止） */
+  simulationResult: undefined,
 };
 
 /* =========================
  *     Persist + Migrate
  * =======================*/
 
-const STORE_VERSION = 11; // ★ version bump
+const STORE_VERSION = 12; // ★ version bump（simulationResult 追加）
 
 function tryParseArrayString(v: unknown): any[] | undefined {
   if (Array.isArray(v)) return v;
@@ -364,6 +382,31 @@ function normalizeState(raw: any): StrategyState {
     s.financeSummary = undefined; // ★ 未取得なら未定義のまま
   }
 
+  // ★ simulationResult（snake互換）：object 以外は未設定扱い
+  const sim = (raw?.simulationResult ?? raw?.simulation_result) as any;
+  if (sim && typeof sim === 'object') {
+    try {
+      const points = Array.isArray(sim?.projection?.points) ? sim.projection.points : [];
+      s.simulationResult = {
+        projection: {
+          points: points.map((p: any) => ({
+            year: String(p?.year ?? ''),
+            sales: Math.round(Number(p?.sales ?? 0)),
+            op: Math.round(Number(p?.op ?? 0)),
+            opMargin: Number.isFinite(Number(p?.opMargin)) ? Number(Number(p?.opMargin).toFixed(4)) : 0,
+          })),
+        },
+        finalProb: Number.isFinite(Number(sim?.finalProb)) ? Number(sim.finalProb) : 0,
+        krsSnapshot: Array.isArray(sim?.krsSnapshot) ? sim.krsSnapshot : undefined,
+        meta: sim?.meta && typeof sim.meta === 'object' ? sim.meta : undefined,
+      } as SimulationResult;
+    } catch {
+      s.simulationResult = undefined;
+    }
+  } else if (typeof s.simulationResult === 'undefined') {
+    s.simulationResult = undefined;
+  }
+
   return s as StrategyState;
 }
 
@@ -375,7 +418,7 @@ function clamp1to3(n: number) {
   return Math.max(1, Math.min(3, Number.isFinite(n) ? n : 1));
 }
 
-/** saveStrategyData 用のペイロード整形（3カラムを“条件付きで送る”） */
+/** saveStrategyData 用のペイロード整形（“条件付きで送る”） */
 function buildSavePayload(s: StrategyState) {
   const base: any = {
     strategyId: s.strategyId,
@@ -411,6 +454,10 @@ function buildSavePayload(s: StrategyState) {
   // ★ financeSummary：配列(>0)なら送る。null は明示クリア、undefined は送らない
   if (s.financeSummary === null) base.financeSummary = null;
   else if (Array.isArray(s.financeSummary) && s.financeSummary.length > 0) base.financeSummary = s.financeSummary;
+
+  // ★ simulationResult：null は明示クリア、object なら送る、undefined は送らない
+  if (s.simulationResult === null) base.simulationResult = null;
+  else if (s.simulationResult && typeof s.simulationResult === 'object') base.simulationResult = s.simulationResult;
 
   return base;
 }
@@ -521,7 +568,6 @@ export const useStrategyStore = create<StrategyState>()(
           const parsed = tryParseArrayString(data);
           const next = typeof parsed !== 'undefined' ? parsed : data;
           const out = { ...state, csvFinanceData: next };
-          // 変更が意味のあるときだけ save
           scheduleSave(get);
           return out;
         }),
@@ -541,6 +587,15 @@ export const useStrategyStore = create<StrategyState>()(
             }));
           }
           const out = { ...state, financeSummary: next as any };
+          scheduleSave(get);
+          return out;
+        }),
+
+      /** ★ STAGE5結果の設定：nullで明示クリア、undefinedなら送信抑止のまま */
+      setSimulationResult: (r) =>
+        set((state) => {
+          const next = r === null ? null : (r && typeof r === 'object' ? r : undefined);
+          const out = { ...state, simulationResult: next as SimulationResult };
           scheduleSave(get);
           return out;
         }),
@@ -958,6 +1013,9 @@ export const useStrategyStore = create<StrategyState>()(
             csvFinanceData: (data as any)?.csvFinanceData ?? (data as any)?.csv_finance_data ?? undefined,
             businessPortfolio: (data as any)?.businessPortfolio ?? (data as any)?.business_portfolio ?? undefined,
             financeSummary: (data as any)?.financeSummary ?? (data as any)?.finance_summary ?? undefined,
+
+            // ★ simulation_result（snake互換）
+            simulationResult: (data as any)?.simulationResult ?? (data as any)?.simulation_result ?? undefined,
           };
 
           const normalized = normalizeState(incoming);
@@ -1007,6 +1065,7 @@ export const useStrategyStore = create<StrategyState>()(
         csvFinanceData: s.csvFinanceData,       // 永続
         businessPortfolio: s.businessPortfolio, // 永続
         financeSummary: s.financeSummary,       // 永続（undefined なら書かれない）
+        simulationResult: s.simulationResult,   // ★ 永続（undefinedなら書かれない）
       }),
 
       storage: createJSONStorage(() => localStorage),
@@ -1032,6 +1091,31 @@ export const useStrategyStore = create<StrategyState>()(
               operating_margin_pct: Number.isFinite(+r?.operating_margin_pct) ? Number((+r.operating_margin_pct).toFixed(1)) : 0,
               revenue_share_pct: Number.isFinite(+r?.revenue_share_pct) ? Number((+r.revenue_share_pct).toFixed(1)) : 0,
             })) as FinanceSummaryRow[];
+          }
+
+          // ★ simulationResult は object のみ保持（その他は未設定扱い）
+          const sim = (state as any).simulationResult;
+          if (sim && typeof sim === 'object') {
+            try {
+              const points = Array.isArray(sim?.projection?.points) ? sim.projection.points : [];
+              (state as any).simulationResult = {
+                projection: {
+                  points: points.map((p: any) => ({
+                    year: String(p?.year ?? ''),
+                    sales: Math.round(Number(p?.sales ?? 0)),
+                    op: Math.round(Number(p?.op ?? 0)),
+                    opMargin: Number.isFinite(Number(p?.opMargin)) ? Number(Number(p?.opMargin).toFixed(4)) : 0,
+                  })),
+                },
+                finalProb: Number.isFinite(Number(sim?.finalProb)) ? Number(sim.finalProb) : 0,
+                krsSnapshot: Array.isArray(sim?.krsSnapshot) ? sim.krsSnapshot : undefined,
+                meta: sim?.meta && typeof sim.meta === 'object' ? sim.meta : undefined,
+              } as SimulationResult;
+            } catch {
+              (state as any).simulationResult = undefined;
+            }
+          } else if (typeof sim !== 'undefined' && sim !== null && typeof sim !== 'object') {
+            (state as any).simulationResult = undefined;
           }
         }
       },
