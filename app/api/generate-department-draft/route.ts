@@ -8,7 +8,7 @@ import { sanitizeText, toTextStory } from '@/app/api/_shared/utils';
 import { z } from 'zod';
 
 /* ========= 型（既存I/Fを維持） ========= */
-type AnswerStep = { stepNumber: number; question: string; reason: string; answer: string };
+type AnswerStep = { stepNumber: number; question?: string; reason?: string; answer?: string; label?: string };
 type ReqBody = {
   departmentName: string;
   story?: Array<{ title: string; body: string }> | string;
@@ -19,7 +19,7 @@ type ReqBody = {
 type OKR = { objective: string; keyResults: string[]; owner?: string };
 type Out = { mission: string; projects: string[]; okrs: OKR[] };
 
-/* ========= 勝ちパターン10選（キーの定義は参考用。入力は string[] で受容） ========= */
+/* ========= 勝ちパターン（参考キー） ========= */
 type WinningPatternKey =
   | 'priceLeader'
   | 'categoryKing'
@@ -43,6 +43,7 @@ const ReqSchema = z.object({
         question: z.string().optional(),
         reason: z.string().optional(),
         answer: z.string().optional(),
+        label: z.string().optional(),
       })
     )
     .min(1),
@@ -50,14 +51,14 @@ const ReqSchema = z.object({
 });
 
 /* ========= ユーティリティ ========= */
-function ensureThreeAnswered(answers: AnswerStep[]): { ok: boolean; reason?: string } {
+function ensureSixAnswered(answers: AnswerStep[]): { ok: boolean; reason?: string } {
   const byStep = new Map<number, AnswerStep>();
   for (const a of answers) {
     const n = Number(a?.stepNumber);
-    if (n >= 1 && n <= 3 && !byStep.has(n)) byStep.set(n, a);
+    if (n >= 1 && n <= 6 && !byStep.has(n)) byStep.set(n, a);
   }
-  if (![1, 2, 3].every((n) => byStep.has(n))) return { ok: false, reason: '3問（1,2,3）の回答が必要です' };
-  for (const n of [1, 2, 3]) {
+  if (![1, 2, 3, 4, 5, 6].every((n) => byStep.has(n))) return { ok: false, reason: '6問（1〜6）の回答が必要です' };
+  for (const n of [1, 2, 3, 4, 5, 6]) {
     const ans = (byStep.get(n)?.answer || '').trim();
     if (!ans) return { ok: false, reason: `Q${n} の回答（answer）が空です` };
   }
@@ -102,9 +103,7 @@ function extractJsonObject<T = any>(raw: string): T | null {
   } catch {
     const m = raw.match(/\{[\s\S]*\}/m);
     if (m) {
-      try {
-        return JSON.parse(m[0]) as T;
-      } catch {}
+      try { return JSON.parse(m[0]) as T; } catch {}
     }
   }
   return null;
@@ -144,7 +143,7 @@ async function callOpenAIWithRetry(
     } catch (e: any) {
       lastErr = e;
       const status = Number(e?.status ?? e?.code ?? 0);
-      const isRetryable = status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+      const isRetryable = status === 429 || 500 <= status;
       if (!isRetryable || i === tries - 1) break;
       const retryAfter = Number(e?.response?.headers?.get?.('retry-after')) || 0;
       const backoff = retryAfter > 0 ? retryAfter * 1000 : [300, 800, 1500][Math.min(i, 2)];
@@ -159,7 +158,6 @@ function patternHintsByDepartment(dept: string, patterns: string[]) {
   const d = (dept || '').toLowerCase();
   const has = (k: WinningPatternKey) => patterns.map(p => p.toLowerCase()).includes(k.toLowerCase());
 
-  // デフォルト
   const common = {
     Sales: {
       projects: [
@@ -167,10 +165,7 @@ function patternHintsByDepartment(dept: string, patterns: string[]) {
         'SQL化率向上のための案件審査ゲート運用',
         'オンボ前提の見積もり/導線テンプレ導入',
       ],
-      okrs: {
-        objective: '重点セグメントで受注を加速',
-        krs: ['SQL化率 +10pp', 'Win rate +5pp', '上位10社で新規5件'],
-      },
+      okrs: { objective: '重点セグメントで受注を加速', krs: ['SQL化率 +10pp', 'Win rate +5pp', '上位10社で新規5件'] },
     },
     Marketing: {
       projects: [
@@ -178,10 +173,7 @@ function patternHintsByDepartment(dept: string, patterns: string[]) {
         'API連携・導入TTV短縮の事例ナラティブ制作',
         '指名/比較キーワードの中位までの順位改善',
       ],
-      okrs: {
-        objective: '勝ち筋に沿った需要創出を強化',
-        krs: ['MQL→SQL +15pp', '指名検索 +30%', '事例記事 月4本'],
-      },
+      okrs: { objective: '勝ち筋に沿った需要創出を強化', krs: ['MQL→SQL +15pp', '指名検索 +30%', '事例記事 月4本'] },
     },
     'R&D': {
       projects: [
@@ -189,10 +181,7 @@ function patternHintsByDepartment(dept: string, patterns: string[]) {
         'オンボTTV短縮のための設定ウィザード実装',
         '内製ツール整備で開発速度 +20%',
       ],
-      okrs: {
-        objective: '顧客価値の体感速度を上げる',
-        krs: ['主要機能NPS +10', 'リードタイム -20%', '重大不具合 -30%'],
-      },
+      okrs: { objective: '顧客価値の体感速度を上げる', krs: ['主要機能NPS +10', 'リードタイム -20%', '重大不具合 -30%'] },
     },
     Operations: {
       projects: [
@@ -200,10 +189,7 @@ function patternHintsByDepartment(dept: string, patterns: string[]) {
         '品質起点の一次解決率向上',
         '導入リードタイム短縮のクリティカルパス可視化',
       ],
-      okrs: {
-        objective: '高効率な提供体制の確立',
-        krs: ['COGS比率 -3pp', 'OTD 98%', '一次解決率 +10pp'],
-      },
+      okrs: { objective: '高効率な提供体制の確立', krs: ['COGS比率 -3pp', 'OTD 98%', '一次解決率 +10pp'] },
     },
     CS: {
       projects: [
@@ -211,10 +197,7 @@ function patternHintsByDepartment(dept: string, patterns: string[]) {
         'アダプション・キャンペーン（活用深度向上）',
         'リファラル・プログラムの運用',
       ],
-      okrs: {
-        objective: '継続率と紹介の構造化',
-        krs: ['GRR +5pp', '拡張MRR +10%', '紹介経由リード比率 +20%'],
-      },
+      okrs: { objective: '継続率と紹介の構造化', krs: ['GRR +5pp', '拡張MRR +10%', '紹介経由リード比率 +20%'] },
     },
   };
 
@@ -229,7 +212,6 @@ function patternHintsByDepartment(dept: string, patterns: string[]) {
 
   const base = choose();
 
-  // 勝ちパターンに応じて上書き/追記
   const add: string[] = [];
   const krsAdd: string[] = [];
 
@@ -271,7 +253,7 @@ function patternHintsByDepartment(dept: string, patterns: string[]) {
   return { projects, okrs: [okr] };
 }
 
-/* ========= ④: フォールバック用 ヒューリスティック生成 ========= */
+/* ========= フォールバック（6回答対応） ========= */
 function buildHeuristicDepartmentDraft(args: {
   departmentName: string;
   storyText: string;
@@ -280,24 +262,31 @@ function buildHeuristicDepartmentDraft(args: {
 }): Out {
   const { departmentName, storyText, answers, patterns } = args;
 
-  // Q1/Q2/Q3 を要約（ざっくり）
-  const a1 = tidyJa((answers.find(a => a.stepNumber === 1)?.answer || '').trim());
-  const a2 = tidyJa((answers.find(a => a.stepNumber === 2)?.answer || '').trim());
-  const a3 = tidyJa((answers.find(a => a.stepNumber === 3)?.answer || '').trim());
+  const pick = (n: number) => tidyJa((answers.find(a => a.stepNumber === n)?.answer || '').trim());
+
+  const a1 = pick(1); // 役まわり
+  const a2 = pick(2); // 既存
+  const a3 = pick(3); // 未来
+  const a4 = pick(4); // 犠牲
+  const a5 = pick(5); // 協力
+  const a6 = pick(6); // 撤退
 
   const mission = tidyJa(
-    `${departmentName}は、「${a2 || '顧客価値'}」を最速で実現するため、${a3 || '選択と集中'}を徹底し、全員で${a1 || '役割を果たす'}。`
+    `${departmentName}は、「${a2 || '顧客価値'}」を最速で実現するため、${a3 || '選択と集中'}を推進し、${a1 || '部門の役割'}を果たす。`
   ).slice(0, 140);
 
   const { projects, okrs } = patternHintsByDepartment(departmentName, patterns);
 
-  // ストーリー本文の存在を軽く反映（キーワード抽出の代わりに雰囲気だけ近づける）
-  const hint =
+  // 撤退/犠牲回答をもとに、無関係・重複・やめる系の語を軽く排除
+  const stopWords = [a4, a6].filter(Boolean);
+  const filteredProjects = projects.filter(p => !stopWords.some(sw => sw && p.includes(sw))).slice(0, 5);
+
+  const storyHint =
     storyText && storyText.length > 0
       ? normalizeProjects([`ストーリー整合レビュー（${departmentName}観点）`])
       : [];
 
-  const mergedProjects = normalizeProjects([...projects, ...hint]).slice(0, 5);
+  const mergedProjects = normalizeProjects([...filteredProjects, ...storyHint]);
 
   return {
     mission,
@@ -333,18 +322,17 @@ export async function POST(req: Request) {
 
     const storyText = typeof body.story === 'string' ? body.story : toTextStory(body.story);
     const steps = [...(body.answers || [])].sort((a, b) => a.stepNumber - b.stepNumber);
-    const okCheck = ensureThreeAnswered(steps as AnswerStep[]);
+
+    const okCheck = ensureSixAnswered(steps as AnswerStep[]);
     if (!okCheck.ok) {
-      return new NextResponse(JSON.stringify({ error: okCheck.reason || '3問の回答（answer）が必要です' }), {
+      return new NextResponse(JSON.stringify({ error: okCheck.reason || '6問の回答（answer）が必要です' }), {
         status: 400,
         headers: { 'content-type': 'application/json; charset=utf-8' },
       });
     }
 
-    // ④ 勝ちパターン（任意）。なければ空配列（=ベースヒントのみ）
-    const patterns: string[] = Array.isArray((raw as any).patterns)
-      ? (raw as any).patterns.map((p: any) => String(p))
-      : [];
+    // ④ 勝ちパターン（任意）— Zod後のデータから取得（型安全）
+    const patterns: string[] = Array.isArray(body.patterns) ? body.patterns.map(String) : [];
 
     const stepsText = steps
       .map(
@@ -360,21 +348,23 @@ export async function POST(req: Request) {
 部門: ${dept}
 【経営ストーリー（要約入力）】
 ${sanitizeText(storyText || '', 1600) || '(未入力)'}
-【部長の回答（1:役割/2:価値/3:集中と選択）】
+【部長の回答（1:役まわり/2:既存/3:未来/4:犠牲/5:協力/6:撤退）】
 ${stepsText}
 【勝ちパターン】${patterns.length ? patterns.join(', ') : '—'}
 `.trim();
 
     const system = `
 あなたは経営戦略ファシリテーターです。
-部長の3つの回答と勝ちパターンに基づき、以下を日本語で「実行可能な形」に整形して JSON のみ返してください。
-- mission: 80〜140字。存在意義と最終成果を1文で。
-- projects: 3〜5件。重複や抽象語を避け、実行主体とアウトプットが想像できる粒度で。
-- okrs: 1〜2セット。objectiveは短文、keyResultsは測定可能（数値or頻度）に。
+部長の6つの回答と勝ちパターンに基づき、以下を日本語で「実行可能な形」に整形して JSON のみ返してください。
+- mission: 80〜140字。存在意義と最終成果を1文で（役まわり/未来挑戦の要素を含める）。
+- projects: 3〜5件。抽象語や重複を避け、実行主体とアウトプットが想像できる粒度で。
+  * Q4（犠牲）とQ6（撤退）の内容に反するプロジェクトは提案しない。
+  * Q5（協力）で示された他部門連携が必要なものは、誰と何をするかが伝わる表現にする。
+- okrs: 1〜2セット。objectiveは短文、keyResultsは測定可能（数値or頻度）。
 制約:
 - 出力は {"mission": "...", "projects": ["..."], "okrs":[{"objective":"...","keyResults":["..."],"owner":""}]} の JSON のみ。
-- ストーリーに反する創作は禁止。回答の整合性と patterns の方針を優先して簡潔に要約。
-- 「やらないこと」はKRに含めない（別の意思決定とする）。
+- ストーリー/回答/patterns と矛盾する創作は禁止。
+- 「やめる/諦める」はKRに含めない（ただし、Projectsの選定には反映する）。
 `.trim();
 
     const user = `次の文脈を要約し、Mission/Projects/OKRを出力してください。\n${context}`;
@@ -391,7 +381,6 @@ ${stepsText}
       );
       rawAi = ai?.choices?.[0]?.message?.content ?? '';
     } catch (e: any) {
-      // ヒューリスティックで継続
       const out = buildHeuristicDepartmentDraft({
         departmentName: dept,
         storyText,
@@ -404,14 +393,14 @@ ${stepsText}
           'Cache-Control': 'no-store',
           'content-type': 'application/json; charset=utf-8',
           'x-fallback-used': 'heuristic',
+          'x-draft-shape': 'v4-6step',
         },
       });
     }
 
-    // JSON抽出（response_format でも保険で抽出）
+    // JSON抽出
     const parsedOut = extractJsonObject<Out>(rawAi);
     if (!parsedOut?.mission || !Array.isArray(parsedOut?.projects) || !Array.isArray(parsedOut?.okrs)) {
-      // 不正形でもヒューリスティックへ
       const out = buildHeuristicDepartmentDraft({
         departmentName: dept,
         storyText,
@@ -424,6 +413,7 @@ ${stepsText}
           'Cache-Control': 'no-store',
           'content-type': 'application/json; charset=utf-8',
           'x-fallback-used': 'heuristic-parse',
+          'x-draft-shape': 'v4-6step',
         },
       });
     }
@@ -439,7 +429,13 @@ ${stepsText}
 
     return new NextResponse(
       JSON.stringify({ mission, projects, okrs }),
-      { headers: { 'Cache-Control': 'no-store', 'content-type': 'application/json; charset=utf-8' } }
+      {
+        headers: {
+          'Cache-Control': 'no-store',
+          'content-type': 'application/json; charset=utf-8',
+          'x-draft-shape': 'v4-6step',
+        }
+      }
     );
   } catch (e: any) {
     console.error('dept-draft error:', e?.message || e);
