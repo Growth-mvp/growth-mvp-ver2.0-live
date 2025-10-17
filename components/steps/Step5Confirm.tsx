@@ -9,9 +9,10 @@ import { getIndustryLabel } from '@/utils/industryTemplates';
 import FinanceSummaryPanel from '@/components/finance/FinanceSummaryPanel';
 
 /* =========================================================
- * Apple風ミニマル確認画面（Ver4）
- * - ガラスカード / 余白広め / モノトーン / 情報の階層化
- * - 年度×事業サマリーの可視化を追加
+ * 確認画面（生成→保存→遷移の堅牢化）
+ * - APIの返却形（文字列/配列/ネスト）を吸収
+ * - store更新＋sessionStorage保険 → /story-process 側で確実に表示
+ * - 遷移は scroll: true
  * ========================================================= */
 
 // セッターが無ければ setState にフォールバックする安全ラッパー
@@ -32,6 +33,116 @@ function notifySafe(store: any, msg: string, setLocal: (s: string) => void) {
   } else {
     setLocal(msg);
   }
+}
+
+// JSONを安全抽出（LLMが前後にテキストを混ぜても拾う）
+function safeJsonFromText<T = any>(text: string): T | null {
+  try {
+    const direct = JSON.parse(text);
+    if (direct && typeof direct === 'object') return direct as T;
+  } catch {}
+  const m = text.match(/\{[\s\S]*\}/);
+  if (m) {
+    try {
+      const obj = JSON.parse(m[0]);
+      if (obj && typeof obj === 'object') return obj as T;
+    } catch {}
+  }
+  return null;
+}
+
+// 文字列のストーリー（長文）→ 4章配列に近似整形（最低限）
+function normalizeNewlines(s: string = '') {
+  let out = String(s);
+  for (let i = 0; i < 3; i++) {
+    if (out.includes('\\n')) out = out.replace(/\\n/g, '\n');
+    if (out.includes('\\r')) out = out.replace(/\\r/g, '\r');
+  }
+  return out.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+function longformToChapters(s: string) {
+  const text = normalizeNewlines((s || '').trim());
+  if (!text) return [] as { title: string; body: string }[];
+  // 「第1章/第2章…」で区切れれば優先
+  const markerRegex = /(第\s*[1-4]\s*章[^\\n]*)(?:\n+|$)/g;
+  const markers = [...text.matchAll(markerRegex)];
+  if (markers.length >= 2) {
+    const parts: { title: string; body: string }[] = [];
+    for (let i = 0; i < markers.length; i++) {
+      const start = markers[i].index ?? 0;
+      const end = i + 1 < markers.length ? (markers[i + 1].index ?? text.length) : text.length;
+      const chunk = text.slice(start, end).trim();
+      const title = (markers[i][1] || '').trim();
+      const body = chunk.replace(markers[i][1], '').trim();
+      parts.push({ title, body });
+    }
+    return parts.slice(0, 4);
+  }
+  // だめなら段落で等分
+  const REFERENCE_TITLES = [
+    '第1章：なぜ今（現状）',
+    '第2章：どう戦う（戦略）',
+    '第3章：どんな未来像（会社の未来像）',
+    '第4章：どう行動する（行動）',
+  ] as const;
+  const paras = text.split(/\n{2,}/).map(x => x.trim()).filter(Boolean);
+  const chunks = [[], [], [], []] as string[][];
+  paras.forEach((p, i) => chunks[i % 4].push(p));
+  return chunks.map((arr, i) => ({ title: REFERENCE_TITLES[i], body: arr.join('\n\n') }));
+}
+
+// APIレスポンスからストーリー＆サマリーを抽出
+function extractStoryAndSummary(payload: any): {
+  longform?: string;
+  chapters?: Array<{ title: string; body: string }>;
+  summary?: string;
+} {
+  if (!payload || typeof payload !== 'object') return {};
+  // 代表的なキーを広く吸収
+  let storyAny =
+    payload.story ??
+    payload.draft ??
+    payload.finalStory ??
+    payload.result ??
+    payload.content ??
+    undefined;
+
+  // OpenAI style
+  if (!storyAny && Array.isArray(payload.choices) && payload.choices[0]?.message?.content) {
+    storyAny = payload.choices[0].message.content;
+  }
+  if (!storyAny && payload?.story?.sections) {
+    const secs = payload.story.sections as Array<{ heading?: string; body?: string }>;
+    if (Array.isArray(secs)) {
+      return {
+        chapters: secs.slice(0, 4).map((s, i) => ({
+          title: ['なぜ今', 'どう戦う', 'どんな未来像', 'どう行動する'][i] ?? (s?.heading || ''),
+          body: String(s?.body || ''),
+        })),
+        summary: payload.summary ?? payload.strategySummary ?? payload.overview ?? undefined,
+      };
+    }
+  }
+
+  let longform: string | undefined;
+  let chapters: Array<{ title: string; body: string }> | undefined;
+
+  if (typeof storyAny === 'string') {
+    longform = storyAny;
+  } else if (Array.isArray(storyAny)) {
+    // すでに [{title, body}] 形式
+    chapters = storyAny;
+  } else if (storyAny && typeof storyAny === 'object' && typeof storyAny.text === 'string') {
+    longform = storyAny.text;
+  }
+
+  const summary =
+    payload.summary ??
+    payload.strategySummary ??
+    payload.overview ??
+    (Array.isArray(payload.choices) ? payload.choices[0]?.message?.summary : undefined);
+
+  return { longform, chapters, summary };
 }
 
 // Glassカード
@@ -100,7 +211,7 @@ export default function Step5Confirm() {
     [financeSummary]
   );
 
-  // ストーリー生成
+  // ストーリー生成（ロバスト版）
   const handleGenerate = async () => {
     if (isGenerating) return;
     setIsGenerating(true);
@@ -125,22 +236,50 @@ export default function Step5Confirm() {
           csvFinanceData,
           answers,
           answers2,
-          // 追加：サマリーもコンテキストに渡して精度向上
           financeSummary,
         }),
       });
 
-      const data = await res.json().catch(() => ({} as any));
-      if (!res.ok || data?.error) {
-        console.error('❌ 生成エラー:', data?.error || res.status);
+      const raw = await res.text();
+      if (!res.ok) {
+        console.error('❌ 生成API失敗:', res.status, raw);
         notifySafe(st, '❌ ストーリー生成に失敗しました', setLocalNotice);
         return;
       }
 
-      if (typeof data?.story !== 'undefined') setFieldSafe(st, 'story', data.story);
-      if (typeof data?.summary !== 'undefined') setFieldSafe(st, 'strategySummary', data.summary);
+      const data = safeJsonFromText<any>(raw) ?? {};
+      const { longform, chapters, summary } = extractStoryAndSummary(data);
 
-      router.push('/story-process');
+      // 1) まず store を更新（文字列/配列どちらでも受ける）
+      if (typeof longform === 'string' && longform.trim().length > 0) {
+        setFieldSafe(st, 'storyDraft', longform);
+        try { sessionStorage.setItem('growth.storyDraft', longform); } catch {}
+      } else if (Array.isArray(chapters) && chapters.length) {
+        setFieldSafe(st, 'story', chapters);
+        try { sessionStorage.setItem('growth.story', JSON.stringify(chapters)); } catch {}
+      } else {
+        // 文字列でも配列でも取れない場合は最後の手段：rawテキストを長文として試す
+        const fallback = (raw || '').trim();
+        if (fallback) {
+          setFieldSafe(st, 'storyDraft', fallback);
+          try { sessionStorage.setItem('growth.storyDraft', fallback); } catch {}
+        } else {
+          console.error('❌ 生成レスポンスに story が見つかりません', data);
+          notifySafe(st, '❌ 生成結果の取得に失敗しました', setLocalNotice);
+          return;
+        }
+      }
+
+      if (typeof summary === 'string' && summary.trim()) {
+        setFieldSafe(st, 'strategySummary', summary);
+        try { sessionStorage.setItem('growth.strategySummary', summary); } catch {}
+      }
+
+      // 2) 必要ならDB保存をここで await（任意）
+      // await saveStrategyData({ storyDraft: longform, story: chapters, strategySummary: summary });
+
+      // 3) 遷移（トップから始める）
+      router.push('/story-process', { scroll: true });
     } catch (err) {
       console.error('❌ 通信エラー:', err);
       notifySafe(st, '❌ 通信エラーが発生しました', setLocalNotice);
