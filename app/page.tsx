@@ -28,10 +28,20 @@ export default function Home() {
     <main className="min-h-screen bg-white text-neutral-900 antialiased [--accent:#0a0a0a] dark:bg-black dark:text-white">
       {/* ===== Hero ===== */}
       <section className="relative overflow-hidden">
-        {/* 背景：放射グラデ + ノイズ（/public/noise.png を配置） */}
+        {/* 背景：放射グラデ + ノイズ（ファイル不要のデータURLに変更） */}
         <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
           <div className="absolute -top-32 left-1/2 h-[120vh] w-[120vh] -translate-x-1/2 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0.06),transparent_60%)] dark:bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,0.08),transparent_60%)]" />
-          <div className="absolute inset-0 opacity-[0.06] mix-blend-multiply [background-image:url('/noise.png')]" />
+          {/* ▼ ここを修正：/noise.png → データURL（1px透明PNG：見た目の変化なし・404解消） */}
+          <div
+            className="
+              absolute inset-0 opacity-[0.06] mix-blend-multiply
+              [background-image:url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y3w5b8AAAAASUVORK5CYII=')]
+            "
+          />
+          {/*
+            本物のノイズ画像を使いたい場合は、下記に戻すだけでOK（/public/noise.png を配置）
+            <div className="absolute inset-0 opacity-[0.06] mix-blend-multiply [background-image:url('/noise.png')]" />
+          */}
         </div>
 
         <div className="container mx-auto px-6 pt-20 pb-12 md:pt-28 md:pb-20">
