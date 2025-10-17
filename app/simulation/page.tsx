@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import {
@@ -24,21 +25,73 @@ import {
 } from '@/utils/financeModel';
 
 import {
-  saveSimulationResult,
+  // B案：strategy_data 内の配列に追記し、そこから履歴を読む
+  appendSimulationResultToStrategy,
   getSimulationResults,
   type SimulationLogRow,
 } from '@/utils/supabase/strategy';
 
+// 遅延読み込み（サーバ負荷と初期描画軽減）
+const CoreInsightPanel = dynamic(() => import('@/components/insight/CoreInsightPanel'), {
+  ssr: false,
+  loading: () => null,
+});
+
+/** store.financeSummary(行配列) → FinanceModel用 baseline(Y0のみ) に整形 */
+function toBaselineFromStoreRows(rows: any[] | undefined | null) {
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+
+  // 年ごとに合算
+  const byYear = new Map<number, { sales: number; op: number }>();
+  for (const r of rows) {
+    const year = Number(r?.year);
+    if (!Number.isFinite(year)) continue;
+    const revenue = Number(r?.revenue) || 0;
+    const opInc = Number(r?.operating_income) || 0;
+    const cur = byYear.get(year) ?? { sales: 0, op: 0 };
+    byYear.set(year, { sales: cur.sales + revenue, op: cur.op + opInc });
+  }
+  if (byYear.size === 0) return null;
+
+  // 最新年＝Y0 として1点抽出
+  const latestYear = Math.max(...Array.from(byYear.keys()));
+  const total = byYear.get(latestYear)!;
+
+  return [
+    {
+      yearLabel: 'Y0',
+      sales: Math.round(total.sales),
+      operatingProfit: Math.round(total.op),
+    },
+  ];
+}
+
+/* ============ 小物 ============ */
+function fmtNum(n: any) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '-';
+  return v.toLocaleString();
+}
+
 export default function SimulationPage() {
   const s = useStrategyStore() as any;
   const { user } = useUserStore();
+  const { setSimulationResult } = useStrategyStore() as any;
 
   /* ---------------- 入力（finance & KR） ---------------- */
   const financeSummary: FinanceSummary = useMemo(() => {
-    const baseline = Array.isArray(s?.financeSummary?.baseline)
+    // 1) store.financeSummary（行配列）から生成
+    const baselineFromRows = toBaselineFromStoreRows(s?.financeSummary);
+    if (baselineFromRows) return { baseline: baselineFromRows };
+
+    // 2) 互換（過去版で s.financeSummary.baseline を直接持っていた場合）
+    const legacyBaseline = Array.isArray(s?.financeSummary?.baseline)
       ? s.financeSummary.baseline
-      : [{ yearLabel: 'Y0', sales: 1000, operatingProfit: 100 }];
-    return { baseline };
+      : null;
+    if (legacyBaseline) return { baseline: legacyBaseline };
+
+    // 3) フォールバック（ダミー）
+    return { baseline: [{ yearLabel: 'Y0', sales: 1000, operatingProfit: 100 }] };
   }, [s?.financeSummary]);
 
   const krs: KRStruct[] = useMemo(() => {
@@ -66,7 +119,9 @@ export default function SimulationPage() {
         }
       }
       if (arr.length > 0) return arr;
-    } catch {}
+    } catch {
+      // noop
+    }
 
     // ダミーKR
     return [
@@ -96,7 +151,8 @@ export default function SimulationPage() {
       year: p.year,
       sales: Math.round(p.sales),
       op: Math.round(p.op),
-      prob: Number((finalProb * 100).toFixed(1)) / 100, // 0..1 をそのまま
+      // 0..1 スケールを維持（右軸）
+      prob: Math.round(finalProb * 100) / 100,
     }));
   }, [projection, finalProb]);
 
@@ -149,13 +205,21 @@ export default function SimulationPage() {
         meta: { label: new Date().toLocaleString(), note: 'auto-saved from /simulation' },
       } as const;
 
-      const { error } = await saveSimulationResult(user.id, payload, null);
+      // B案：strategy_data.simulation_results 配列に追記 + simulation_result を最新で更新
+      const { error } = await appendSimulationResultToStrategy(user.id, payload, null, {
+        title: payload.meta?.label,
+      });
       if (error) throw error;
+
+      // ★ Zustand にも保持（STAGE6のAIに渡しやすくする）
+      if (typeof setSimulationResult === 'function') {
+        setSimulationResult(payload);
+      }
 
       setNotice('✅ シミュレーション結果を保存しました');
       await loadHistory();
     } catch (e) {
-      console.error('saveSimulationResult error:', e);
+      console.error('appendSimulationResultToStrategy error:', e);
       setNotice('❌ 保存に失敗しました');
     } finally {
       setSaving(false);
@@ -208,8 +272,8 @@ export default function SimulationPage() {
         <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
           <h2 className="text-lg font-medium mb-2">試算の要約</h2>
           <ul className="text-sm text-gray-700 space-y-1">
-            <li>売上（Y3）：<b>{y3 ? Math.round(y3.sales) : '-'}</b></li>
-            <li>営業利益（Y3）：<b>{y3 ? Math.round(y3.op) : '-'}</b></li>
+            <li>売上（Y3）：<b>{y3 ? Math.round(y3.sales).toLocaleString() : '-'}</b></li>
+            <li>営業利益（Y3）：<b>{y3 ? Math.round(y3.op).toLocaleString() : '-'}</b></li>
             <li>成功確率（最終）：<b>{Math.round(finalProb * 100)}%</b></li>
           </ul>
           <div className="mt-4 flex gap-2">
@@ -239,6 +303,11 @@ export default function SimulationPage() {
         </div>
       </section>
 
+      {/* AIインサイト（遅延読込） */}
+      <div className="mt-6">
+        <CoreInsightPanel />
+      </div>
+
       {/* 履歴 */}
       <section className="mt-6 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
         <div className="flex items-center justify-between gap-2 mb-2">
@@ -257,18 +326,26 @@ export default function SimulationPage() {
         ) : (
           <ul className="divide-y divide-gray-100">
             {history.map((row) => {
-              // 可変列対応：log / payload / data のどれかに保存されている
-              const body = (row as any).log ?? (row as any).payload ?? (row as any).data ?? {};
+              // B案：strategy_data の履歴は payload を持つ
+              // 互換：progress_logs 的な行も考慮して log/payload/data を順に参照
+              const body = (row as any).payload ?? (row as any).log ?? (row as any).data ?? {};
               const proj = body?.projection?.points ?? [];
               const last = Array.isArray(proj) && proj.length > 0 ? proj[proj.length - 1] : null;
               const prob = typeof body?.finalProb === 'number' ? Math.round(body.finalProb * 100) : null;
+
+              const label =
+                (row as any).title
+                  ? (row as any).title
+                  : new Date(row.created_at).toLocaleString();
 
               return (
                 <li key={row.id} className="py-3 text-sm">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col">
                       <span className="font-medium">
-                        {new Date(row.created_at).toLocaleString()} （{row.category || 'simulation'}）
+                        {label}
+                        {/* category は progress_logs 用。strategy_data では無い可能性が高い */}
+                        {row.category ? `（${row.category}）` : ''}
                       </span>
                       <span className="text-gray-500">
                         {last
@@ -287,11 +364,4 @@ export default function SimulationPage() {
       </section>
     </main>
   );
-}
-
-/* ============ 小物 ============ */
-function fmtNum(n: any) {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return '-';
-  return v.toLocaleString();
 }
