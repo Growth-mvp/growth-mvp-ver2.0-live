@@ -103,7 +103,7 @@ export type StrategyState = {
   // ★ optional のまま維持（undefined なら保存しない／空上書きしない）
   financeSummary?: FinanceSummaryRow[];
 
-  /** ★ STAGE5のシミュレーション結果（undefinedは送信抑止） */
+  /** ★ STAGE5出力のセット（nullクリア可／undefinedは送信抑止） */
   simulationResult?: SimulationResult;
 
   /* ===== actions ===== */
@@ -113,6 +113,21 @@ export type StrategyState = {
   setStory: (chapters: ChapterStory[]) => void;
   setFinalStory: (chapters: ChapterStory[]) => void;
   setAnswers2: (chapters: ChapterAnswers[]) => void;
+
+  // 🔽 追加：個別 setter（Step1 の setFieldSafe で拾われる）
+  setCompanyName: (v: string) => void;
+  setFoundationYear: (v: string) => void;
+  setLocation: (v: string) => void;
+  setIndustry: (v: string) => void;
+  setRevenue: (v: string) => void;
+  setEmployees: (v: string) => void;
+  setBusinessContent: (v: string) => void;
+  setCustomerSegment: (v: string) => void;
+
+  setThought: (v: string) => void;
+  setMission: (v: string) => void;
+  setVision: (v: string) => void;
+  setValue: (v: string) => void;
 
   setProfile: (
     patch: Partial<
@@ -219,6 +234,18 @@ const emptyData: Omit<
   | 'setPortfolioUnitType'
   | 'saveStrategyData'
   | 'refetchFromServer'
+  | 'setCompanyName'
+  | 'setFoundationYear'
+  | 'setLocation'
+  | 'setIndustry'
+  | 'setRevenue'
+  | 'setEmployees'
+  | 'setBusinessContent'
+  | 'setCustomerSegment'
+  | 'setThought'
+  | 'setMission'
+  | 'setVision'
+  | 'setValue'
 > = {
   strategyId: null,
 
@@ -554,11 +581,27 @@ export const useStrategyStore = create<StrategyState>()(
           })),
         })),
 
-      setProfile: (patch) => set((s) => ({ ...s, ...patch })),
+      /* ---------- 追加：個別 setter（保存はデバウンスで） ---------- */
+      setCompanyName: (v) => set((s) => { const out = { ...s, companyName: String(v ?? '') }; scheduleSave(get); return out; }),
+      setFoundationYear: (v) => set((s) => { const out = { ...s, foundationYear: String(v ?? '') }; scheduleSave(get); return out; }),
+      setLocation: (v) => set((s) => { const out = { ...s, location: String(v ?? '') }; scheduleSave(get); return out; }),
+      setIndustry: (v) => set((s) => { const out = { ...s, industry: String(v ?? '') }; scheduleSave(get); return out; }),
+      setRevenue: (v) => set((s) => { const out = { ...s, revenue: String(v ?? '') }; scheduleSave(get); return out; }),
+      setEmployees: (v) => set((s) => { const out = { ...s, employees: String(v ?? '') }; scheduleSave(get); return out; }),
+      setBusinessContent: (v) => set((s) => { const out = { ...s, businessContent: String(v ?? '') }; scheduleSave(get); return out; }),
+      setCustomerSegment: (v) => set((s) => { const out = { ...s, customerSegment: String(v ?? '') }; scheduleSave(get); return out; }),
 
-      setMVV: (patch) => set((s) => ({ ...s, ...patch })),
+      setThought: (v) => set((s) => { const out = { ...s, thought: String(v ?? '') }; scheduleSave(get); return out; }),
+      setMission: (v) => set((s) => { const out = { ...s, mission: String(v ?? '') }; scheduleSave(get); return out; }),
+      setVision: (v) => set((s) => { const out = { ...s, vision: String(v ?? '') }; scheduleSave(get); return out; }),
+      setValue: (v) => set((s) => { const out = { ...s, value: String(v ?? '') }; scheduleSave(get); return out; }),
 
-      setSWOT: (patch) => set((s) => ({ ...s, ...patch })),
+      /* ---------- 既存：バルク setter ---------- */
+      setProfile: (patch) => set((s) => { const out = { ...s, ...patch }; scheduleSave(get); return out; }),
+
+      setMVV: (patch) => set((s) => { const out = { ...s, ...patch }; scheduleSave(get); return out; }),
+
+      setSWOT: (patch) => set((s) => { const out = { ...s, ...patch }; scheduleSave(get); return out; }),
 
       setDepartments: (deps) => set(() => ({ departments: [...deps] })),
 
@@ -579,7 +622,7 @@ export const useStrategyStore = create<StrategyState>()(
           if (Array.isArray(rows)) {
             next = rows.map((r) => ({
               year: Number.isFinite(+r?.year) ? +r.year : 0,
-              business_unit: String((r as any)?.business_unit ?? ''),
+              business_unit: String(r?.business_unit ?? ''),
               revenue: Number.isFinite(+r?.revenue) ? Math.round(+r.revenue) : 0,
               operating_income: Number.isFinite(+r?.operating_income) ? Math.round(+r.operating_income) : 0,
               operating_margin_pct: Number.isFinite(+r?.operating_margin_pct) ? Number((+r.operating_margin_pct).toFixed(1)) : 0,
@@ -599,6 +642,8 @@ export const useStrategyStore = create<StrategyState>()(
           scheduleSave(get);
           return out;
         }),
+
+      /* ---------- Q/A ---------- */
 
       async appendQuestionStep(chapterIdx, step) {
         const st = get();
