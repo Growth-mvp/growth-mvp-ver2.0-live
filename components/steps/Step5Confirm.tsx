@@ -11,20 +11,10 @@ import FinanceSummaryPanel from '@/components/finance/FinanceSummaryPanel';
 /* =========================================================
  * 確認画面（生成→保存→遷移の堅牢化）
  * - APIの返却形（文字列/配列/ネスト）を吸収
- * - store更新＋sessionStorage保険 → /story-process 側で確実に表示
+ * - store.updateを確実に（stringでもchaptersへ整形して setStory に入れる）
+ * - sessionStorageも保険で書く
  * - 遷移は scroll: true
  * ========================================================= */
-
-// セッターが無ければ setState にフォールバックする安全ラッパー
-function setFieldSafe(store: any, key: string, value: any) {
-  const fnName = 'set' + key.charAt(0).toUpperCase() + key.slice(1);
-  const setter = store?.[fnName];
-  if (typeof setter === 'function') {
-    setter(value);
-  } else if (typeof (useStrategyStore as any)?.setState === 'function') {
-    (useStrategyStore as any).setState({ [key]: value });
-  }
-}
 
 // ストア通知 or ローカル通知を安全に出す
 function notifySafe(store: any, msg: string, setLocal: (s: string) => void) {
@@ -222,13 +212,17 @@ export default function Step5Confirm() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          // 入力素材（全部載せ）
           thought,
           mission,
           vision,
           value,
           industry,
+          industryLabel: industryJa, // 追加で渡す（使わなくても無害）
           revenue,
           employees,
+          businessContent,
+          customerSegment,
           strength,
           weakness,
           opportunity,
@@ -237,6 +231,9 @@ export default function Step5Confirm() {
           answers,
           answers2,
           financeSummary,
+          companyName,
+          foundationYear,
+          location,
         }),
       });
 
@@ -250,35 +247,43 @@ export default function Step5Confirm() {
       const data = safeJsonFromText<any>(raw) ?? {};
       const { longform, chapters, summary } = extractStoryAndSummary(data);
 
-      // 1) まず store を更新（文字列/配列どちらでも受ける）
-      if (typeof longform === 'string' && longform.trim().length > 0) {
-        setFieldSafe(st, 'storyDraft', longform);
+      // 1) store.story を確実に埋める（stringでもchapters化して保存）
+      let finalChapters: Array<{ title: string; body: string }> | null = null;
+
+      if (Array.isArray(chapters) && chapters.length) {
+        finalChapters = chapters.slice(0, 4);
+      } else if (typeof longform === 'string' && longform.trim().length > 0) {
+        finalChapters = longformToChapters(longform);
         try { sessionStorage.setItem('growth.storyDraft', longform); } catch {}
-      } else if (Array.isArray(chapters) && chapters.length) {
-        setFieldSafe(st, 'story', chapters);
-        try { sessionStorage.setItem('growth.story', JSON.stringify(chapters)); } catch {}
       } else {
         // 文字列でも配列でも取れない場合は最後の手段：rawテキストを長文として試す
         const fallback = (raw || '').trim();
         if (fallback) {
-          setFieldSafe(st, 'storyDraft', fallback);
+          finalChapters = longformToChapters(fallback);
           try { sessionStorage.setItem('growth.storyDraft', fallback); } catch {}
-        } else {
-          console.error('❌ 生成レスポンスに story が見つかりません', data);
-          notifySafe(st, '❌ 生成結果の取得に失敗しました', setLocalNotice);
-          return;
         }
       }
 
-      if (typeof summary === 'string' && summary.trim()) {
-        setFieldSafe(st, 'strategySummary', summary);
-        try { sessionStorage.setItem('growth.strategySummary', summary); } catch {}
+      if (finalChapters && finalChapters.length) {
+        // ✅ ここが重要：必ず setStory（配列）を更新して /story-process で即表示できるようにする
+        if (typeof st?.setStory === 'function') {
+          st.setStory(finalChapters);
+        } else {
+          (useStrategyStore as any).setState({ story: finalChapters });
+        }
+        try { sessionStorage.setItem('growth.story', JSON.stringify(finalChapters)); } catch {}
+      } else {
+        console.error('❌ 生成レスポンスに story が見つかりません', data);
+        notifySafe(st, '❌ 生成結果の取得に失敗しました', setLocalNotice);
+        return;
       }
 
-      // 2) 必要ならDB保存をここで await（任意）
-      // await saveStrategyData({ storyDraft: longform, story: chapters, strategySummary: summary });
+      if (typeof summary === 'string' && summary.trim()) {
+        try { sessionStorage.setItem('growth.strategySummary', summary); } catch {}
+        // store に summary フィールドが無い想定なので、通知のみに留める
+      }
 
-      // 3) 遷移（トップから始める）
+      // 2) 遷移（トップから始める）
       router.push('/story-process', { scroll: true });
     } catch (err) {
       console.error('❌ 通信エラー:', err);
