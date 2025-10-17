@@ -1,3 +1,4 @@
+// /app/api/generate-department-summary/route.ts
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -18,7 +19,21 @@ type ReqBody = {
   patterns?: string[];        // ④ 勝ちパターン（任意）
 };
 type OKR = { objective: string; keyResults: string[]; owner?: string };
-type Out = { mission: string; projects: string[]; okrs: OKR[] };
+
+/** 互換: 既存フィールド + Ver4の新フィールドを並存 */
+type OutV4 = {
+  // Ver4 新規
+  direction: string;          // 一言の方向性（20〜40字目安）
+  expectations: string[];     // 経営からの具体期待（2〜4）
+  focusThemes: string[];      // 注力テーマ（2〜4）
+  hint?: string;              // UIの“ヒントを見る”用（任意）
+  reason?: string;            // 生成の意図・根拠（任意）
+
+  // 後方互換（既存UIが参照）
+  mission: string;
+  projects: string[];
+  okrs: OKR[];
+};
 
 /* ========= バリデーション ========= */
 const ReqSchema = z.object({
@@ -122,7 +137,7 @@ async function callOpenAIWithRetry(
         model: process.env.OPENAI_MODEL ?? 'gpt-4o',
         response_format: { type: 'json_object' },
         temperature: 0.25,
-        max_tokens: 900,
+        max_tokens: 1000,
         messages,
       });
       return ai;
@@ -197,31 +212,35 @@ function patternHintsByDepartment(dept: string, patterns: string[]) {
   const add: string[] = [];
   const krsAdd: string[] = [];
 
-  if (has('subscriptionMoat')) {
+  const patternsLc = patterns.map(p => p.toLowerCase());
+
+  const hasAny = (keys: string[]) => keys.some(k => patternsLc.includes(k));
+
+  if (hasAny(['subscriptionmoat'])) {
     add.push('解約理由×対処プレイブックの整備', '成功体験の「やめない理由」メッセージセット');
     krsAdd.push('Churn -20%', 'NRR 110% 以上');
   }
-  if (has('platformPlay')) {
+  if (hasAny(['platformplay'])) {
     add.push('主要SaaS/APIとの接続テンプレ化', '連携カタログ/コネクタの公開');
     krsAdd.push('連携経由の受注 30%', '接続TTV -30%');
   }
-  if (has('serviceDelight')) {
+  if (hasAny(['servicedelight'])) {
     add.push('オンボTTV短縮の伴走CSパッケージ', 'NPS向上のサプライズ施策のABテスト');
     krsAdd.push('オンボTTV -40%', 'NPS +10');
   }
-  if (has('manufacturingKaizen')) {
+  if (hasAny(['manufacturingkaizen'])) {
     add.push('標準作業チェックリストと改善カンバン運用', '欠陥/手戻りの継続削減');
     krsAdd.push('手戻り -30%', '欠陥密度 -20%');
   }
-  if (has('brandTrust')) {
+  if (hasAny(['brandtrust'])) {
     add.push('信頼資産（SLA/セキュリティ/実績）の可視化', 'リファレンス整備と公開');
     krsAdd.push('指名検索 +30%', '信頼項目満足度 +10pt');
   }
-  if (has('dataNetwork')) {
+  if (hasAny(['datanetwork'])) {
     add.push('利用データを用いた推奨/通知の精度向上', 'ヘルススコア自動化');
     krsAdd.push('推奨CTR +20%', '健康スコア×解約予測AUC +0.05');
   }
-  if (has('speedOperator')) {
+  if (hasAny(['speedoperator'])) {
     add.push('週次リリースと小粒改善の連打', '意思決定の可視化（WIP制限）');
     krsAdd.push('リードタイム -20%', 'WIP 平均 -20%');
   }
@@ -236,18 +255,18 @@ function patternHintsByDepartment(dept: string, patterns: string[]) {
   };
 }
 
-/* ========= ヒューリスティック サマリー生成 ========= */
+/* ========= ヒューリスティック サマリー生成（V4埋め込み） ========= */
 function buildHeuristicSummary(args: {
   departmentName: string;
   storyText: string;
   answers: AnswerStep[];
   industryLabel: string;
   patterns: string[];
-}): Out {
+}): OutV4 {
   const { departmentName, storyText, answers, industryLabel, patterns } = args;
-  const a1 = tidyJa((answers.find(a => a.stepNumber === 1)?.answer || '').trim());
-  const a2 = tidyJa((answers.find(a => a.stepNumber === 2)?.answer || '').trim());
-  const a3 = tidyJa((answers.find(a => a.stepNumber === 3)?.answer || '').trim());
+  const a1 = tidyJa((answers.find(a => a.stepNumber === 1)?.answer || '').trim()); // 役まわり
+  const a2 = tidyJa((answers.find(a => a.stepNumber === 2)?.answer || '').trim()); // 既存の貢献
+  const a3 = tidyJa((answers.find(a => a.stepNumber === 3)?.answer || '').trim()); // 未来挑戦
 
   const base = patternHintsByDepartment(departmentName, patterns);
 
@@ -255,24 +274,43 @@ function buildHeuristicSummary(args: {
     `${departmentName}は、${industryLabel ? `${industryLabel}領域において` : ''}「${a2 || '顧客価値'}」を最速で実現するため、${a3 || '選択と集中'}を徹底し、全員で${a1 || '役割を果たす'}。`
   ).slice(0, 140);
 
-  const hint: string[] =
-    storyText && storyText.length > 0
-      ? normalizeProjects([`ストーリー整合レビュー（${departmentName}観点）`])
-      : [];
+  const projects = normalizeProjects(base.projects).map(tidyJa);
+  const okrs = base.okrs.map((o) => ({
+    objective: tidyJa(o.objective),
+    keyResults: o.keyResults.map(tidyJa),
+  }));
 
-  // ★ owner は任意。存在する場合のみ付与（TS2339対策）
-  const okrs = base.okrs.map((o) => {
-    const r: OKR = {
-      objective: tidyJa(o.objective),
-      keyResults: o.keyResults.map(tidyJa),
-    };
-    if ((o as any).owner) r.owner = String((o as any).owner);
-    return r;
-  });
+  // Ver4 追加フィールド
+  const direction = tidyJa(
+    a3 || a2 || `${departmentName}の価値最大化に集中`
+  ).slice(0, 36);
+
+  const expectations = normalizeProjects([
+    a2 && `既存の強みを磨き直し、${a2}で貢献`,
+    a1 && `部門の役まわり「${a1}」を自覚し実行`,
+    okrs[0]?.objective && `OKR達成：${okrs[0].objective}`,
+  ].filter(Boolean) as string[]).slice(0, 4).map(tidyJa);
+
+  const focusThemes = normalizeProjects([
+    a3 || '重点領域の選択と集中',
+    projects[0],
+    projects[1],
+  ].filter(Boolean) as string[]).slice(0, 4).map(tidyJa);
+
+  const hint =
+    storyText && storyText.length > 0
+      ? 'ストーリーと矛盾がないかを部門視点でレビューしてから質問に進みましょう。'
+      : undefined;
 
   return {
+    direction,
+    expectations,
+    focusThemes,
+    hint,
+    reason: '経営ストーリーと部長回答（Q1〜Q3）に整合する実行起点のたたき台です。',
+
     mission,
-    projects: normalizeProjects([...base.projects, ...hint]).map(tidyJa),
+    projects,
     okrs,
   };
 }
@@ -332,27 +370,35 @@ ${industryLine}
 部門: ${dept}
 【経営ストーリー（要約入力）】
 ${sanitizeText(storyText || '', 1600) || '(未入力)'}
-【部長の回答（1:役割/2:価値/3:集中と選択）】
+【部長の回答（1:役まわり/2:既存の貢献/3:未来挑戦）】
 ${stepsText}
 【勝ちパターン】${patterns.length ? patterns.join(', ') : '—'}
 `.trim();
 
     const system = `
 あなたは経営戦略ファシリテーターです。
-業種背景と勝ちパターン（patterns）を踏まえ、部長の3回答に整合する実行可能なサマリーを日本語で出力します。
+業種背景と勝ちパターン（patterns）を踏まえ、部長の3回答に整合する「方向性たたき台（V4）」を日本語で出力します。
+要件:
+- direction: 20〜40字の一言方向性。曖昧語や形容語の連打を避け、動きが想像できる表現。
+- expectations: 2〜4件の「経営からの具体期待」。主語省略OK。「〜を達成」「〜を供給」「〜を確立」など。
+- focusThemes: 2〜4件の注力テーマ。重複は避け、プロジェクト名になり得る粒度。
 - mission: 80〜140字。存在意義と最終成果を1文で。
-- projects: 3〜5件。実行主体とアウトプットが想像できる粒度で。
-- okrs: 1〜2セット。objectiveは短文、keyResultsは測定可能（数値or頻度）に。
+- projects: 3〜5件。実行主体とアウトプットが想像できる粒度。
+- okrs: 1〜2セット。objectiveは短文、keyResultsは測定可能（数値or頻度）。
+- hint: 1行（任意）。UIの「ヒントを見る」で表示するテキスト。
+- reason: 1行（任意）。生成の意図・根拠。
+
 制約:
-- 出力は {"mission":"...", "projects":["..."], "okrs":[{"objective":"...","keyResults":["..."],"owner":""}]} の JSON のみ。
-- 回答/ストーリー/業界特性/勝ちパターンと矛盾する創作は禁止。
+- JSONのみを返すこと。キー: {"direction":"", "expectations":[""], "focusThemes":[""], "mission":"", "projects":[""], "okrs":[{"objective":"", "keyResults":[""], "owner":""}], "hint":"", "reason":""}
+- 回答/ストーリー/業界特性/勝ちパターンとの矛盾は禁止。
 - 「やらないこと」はKRに含めない。
 `.trim();
 
-    const user = `次の文脈を要約し、Mission/Projects/OKRを出力してください。\n${context}`;
+    const user = `次の文脈を要約し、V4仕様のたたき台JSONを出力してください。\n${context}`;
 
     // === OpenAI呼び出し（失敗時はヒューリスティックで200返却） ===
     let rawAi = '';
+    let usedFallback = '';
     try {
       const ai = await callOpenAIWithRetry(
         [
@@ -376,42 +422,54 @@ ${stepsText}
           'Cache-Control': 'no-store',
           'content-type': 'application/json; charset=utf-8',
           'x-fallback-used': 'heuristic',
+          'x-summary-shape': 'v4',
         },
       });
     }
 
     // === JSON抽出 ===
-    const parsedOut = extractJsonObject<Out>(rawAi);
-    if (!parsedOut?.mission || !Array.isArray(parsedOut?.projects) || !Array.isArray(parsedOut?.okrs)) {
-      const out = buildHeuristicSummary({
+    const parsedOut = extractJsonObject<Partial<OutV4>>(rawAi);
+
+    // フィールド整形（不足時はヒューリスティックで補完）
+    let out: OutV4;
+    if (!parsedOut || !parsedOut.mission || !Array.isArray(parsedOut.projects) || !Array.isArray(parsedOut.okrs)) {
+      out = buildHeuristicSummary({
         departmentName: dept,
         storyText,
         answers: steps,
         industryLabel,
         patterns,
       });
-      return new NextResponse(JSON.stringify(out), {
-        status: 200,
+      usedFallback = 'heuristic-parse';
+    } else {
+      // 正規化＋整形（V4フィールドを含む）
+      const mission = tidyJa(String(parsedOut.mission || '').trim().slice(0, 240));
+      const projects = normalizeProjects(parsedOut.projects).map(tidyJa);
+      const okrs = normalizeOkrs(parsedOut.okrs).map((o) => ({
+        objective: tidyJa(o.objective),
+        keyResults: o.keyResults.map(tidyJa),
+        owner: o.owner,
+      }));
+
+      const direction = tidyJa(String(parsedOut.direction || '').trim()).slice(0, 48);
+      const expectations = normalizeProjects((parsedOut.expectations || []) as string[]).slice(0, 4).map(tidyJa);
+      const focusThemes = normalizeProjects((parsedOut.focusThemes || []) as string[]).slice(0, 4).map(tidyJa);
+      const hint = parsedOut.hint ? tidyJa(String(parsedOut.hint)) : undefined;
+      const reason = parsedOut.reason ? tidyJa(String(parsedOut.reason)) : '経営ストーリーと部長回答（Q1〜Q3）に整合する実行起点のたたき台です。';
+
+      out = { direction, expectations, focusThemes, hint, reason, mission, projects, okrs };
+    }
+
+    return new NextResponse(
+      JSON.stringify(out),
+      {
         headers: {
           'Cache-Control': 'no-store',
           'content-type': 'application/json; charset=utf-8',
-          'x-fallback-used': 'heuristic-parse',
-        },
-      });
-    }
-
-    // 正規化＋整形
-    const mission = tidyJa(String(parsedOut.mission || '').trim().slice(0, 240));
-    const projects = normalizeProjects(parsedOut.projects).map(tidyJa);
-    const okrs = normalizeOkrs(parsedOut.okrs).map((o) => ({
-      objective: tidyJa(o.objective),
-      keyResults: o.keyResults.map(tidyJa),
-      owner: o.owner,
-    }));
-
-    return new NextResponse(
-      JSON.stringify({ mission, projects, okrs }),
-      { headers: { 'Cache-Control': 'no-store', 'content-type': 'application/json; charset=utf-8' } }
+          'x-summary-shape': 'v4',
+          ...(usedFallback ? { 'x-fallback-used': usedFallback } : {}),
+        }
+      }
     );
   } catch (e: any) {
     console.error('dept-summary error:', e?.message || e);
