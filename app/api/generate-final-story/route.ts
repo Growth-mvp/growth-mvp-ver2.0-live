@@ -1,3 +1,4 @@
+// /app/api/generate-final-story/route.ts
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -6,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { openai } from '@/lib/openai';
 import { getIndustryLabel as _getIndustryLabel } from '@/utils/industryTemplates';
 import { saveFinalStory } from '@/utils/supabase';
+import type { ChatCompletionCreateParamsNonStreaming } from 'openai/resources/chat/completions';
 
 /* =========================
  * モデル選択（簡素化）
@@ -97,17 +99,17 @@ function extractJsonLoose<T = any>(raw: string): T | null {
 function tidyJa(s: string): string {
   if (!s) return s;
   let out = s;
-  // 漢字・ひらがな・カタカナの間の半角スペースを除去
+  // 漢字・ひらがな・カタカナ間の半角スペースを除去
   out = out.replace(
     /([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}])[ ]+([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}])/gu,
     '$1$2',
   );
-  // 記号の直前/直後の余計な半角スペースを削除
+  // 記号前後の余計なスペース
   out = out.replace(/([、。％%！!？?」』）)＞>])[ ]+/gu, '$1');
   out = out.replace(/[ ]+([、。％%！!？?」』）)＞>])/gu, '$1');
-  // 数字と％の間のスペースを詰める
+  // 数字と％を詰める
   out = out.replace(/(\d)[ ]+％/g, '$1％');
-  // 連続スペースを単一化
+  // 連続スペース縮約
   out = out.replace(/[ ]{2,}/g, ' ');
   return out;
 }
@@ -320,7 +322,7 @@ async function callOpenAIChat(args: ChatArgs): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 58_000);
 
-  const base: Record<string, unknown> = {
+  const base: ChatCompletionCreateParamsNonStreaming = {
     model,
     temperature,
     max_tokens,
@@ -330,13 +332,13 @@ async function callOpenAIChat(args: ChatArgs): Promise<string> {
       { role: 'system', content: system },
       { role: 'user', content: user },
     ],
+    ...(SUPPORTS_JSON_MODE.test(model)
+      ? { response_format: { type: 'json_object' as const } }
+      : {}),
   };
-  if (SUPPORTS_JSON_MODE.test(model)) {
-    (base as any).response_format = { type: 'json_object' };
-  }
 
   try {
-    const resp = await openai.chat.completions.create(base as any, {
+    const resp = await openai.chat.completions.create(base, {
       signal: controller.signal,
     });
     clearTimeout(timer);
@@ -494,19 +496,21 @@ function heuristicFinal(
     '資源の再配分：やめることを明確化し、勝ち筋に集中する。',
     ...howBullets.map((b) => `・${b}`),
     'やらないこと：汎用ビルド、カスタム過多、非中核の横展開は抑制。',
+    '──ここに、私たちの「誇り」を賭ける。安易な拡張よりも、本質的な価値で勝つ。',
   ].join('\n');
 
   const s3 = [
     '3年後、指名検索は現在比＋30％、プロダクトNPSは＋10を目指す。',
     '主要セグメントでの導入期間は半減、TTV短縮で事例創出→紹介の循環へ。',
     '現場の時間は価値体験へ再配置され、解約率は構造的に低下する。',
+    '──未知に踏み出す「賭け」を受け止める。迷いなく、未来の当たり前をこちらから作る。',
   ].join('\n');
 
   const s4 = [
     `まず今四半期：トップ3課題に直結する改善→顧客の体感に効く一撃を出す。`,
     `やめること：成果に寄与しないカスタム/個別最適の横展開。`,
     `各人の期待行動：学びを共有し、速く試し、速く直す（${sanitize(thought, 120) || '覚悟と誠実さ'}）。`,
-    'この難局を伝説へ変えるのは、私たち自身だ。',
+    '──どんな逆風でも「信念」は曲げない。仲間とやり抜く、ここからが本番だ。',
   ].join('\n');
 
   let sections = [
@@ -531,6 +535,69 @@ function heuristicFinal(
   }));
 
   return { finalStory, longform, sections };
+}
+
+/* =========================
+ * 二段階目：感情エディット（任意）
+ * =======================*/
+async function enhanceEmotionIfNeeded(
+  sections: { heading: string; body: string }[],
+  thought: unknown,
+  patternsLine: string,
+  temperature: number,
+  model: string,
+  enable: boolean,
+): Promise<{ heading: string; body: string }[]> {
+  if (!enable) return sections;
+
+  try {
+    const system = [
+      'あなたは経営ストーリーのエディターです。構造を壊さずに「経営者の語り口」へ整え、熱・覚悟・人間的な説得力を増幅します。',
+      '出力は JSON のみ。{"sections":[{"heading":"なぜ今","body":"..."},...]} の形式で返す。',
+    ].join('\n');
+
+    const user = [
+      '【編集方針】',
+      '- 第2章に「誇り」／第3章に「賭け」／第4章に「信念」を、自然な一文として必ず含める（既にあれば自然に残す）。',
+      '- 現場が腹落ちする具体性（情景・比較・選択）を強める。比喩は控えめ、断定的文体で。',
+      '- 文量は各章2〜4段落、長すぎるときは圧縮。',
+      '',
+      `【勝ちパターン】${patternsLine || '—'}`,
+      `【経営者の思い（断片）】${sanitize(thought, 600) || '—'}`,
+      '',
+      '【対象JSON】',
+      JSON.stringify({ sections }).slice(0, 7000),
+      '',
+      '【出力形式（厳守）】',
+      '{"sections":[{"heading":"なぜ今","body":"..."}]} のみ。',
+    ].join('\n');
+
+    const base: ChatCompletionCreateParamsNonStreaming = {
+      model,
+      temperature: Math.min(0.7, (typeof temperature === 'number' ? temperature : 0.95) + 0.1),
+      max_tokens: 1200,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      ...(SUPPORTS_JSON_MODE.test(model)
+        ? { response_format: { type: 'json_object' as const } }
+        : {}),
+    };
+
+    const r = await openai.chat.completions.create(base);
+    const raw = r.choices?.[0]?.message?.content?.trim() || '';
+    const parsed = extractJsonLoose<{ sections?: { heading?: string; body?: string }[] }>(raw);
+    const enhanced = Array.isArray(parsed?.sections) ? parsed!.sections! : null;
+    if (!enhanced || enhanced.length < 4) return sections;
+
+    // 正規化（見出し固定＆整形）
+    let fixed = coerceToSimpleHeads(enhanced);
+    fixed = ensureBridges(fixed).map((s) => ({ ...s, body: tidyJa(normalizeNewlines(s.body)) }));
+    return fixed;
+  } catch {
+    return sections;
+  }
 }
 
 /* =========================
@@ -566,10 +633,10 @@ export async function POST(req: NextRequest) {
       csvFinanceData,
       answers2,
       temperature = 0.95,
-      budgets, // { longform: [min, max] } など（現状は未使用・互換のため残置）
-      patterns, // ④ 追加：勝ちパターンの連携（string[] | WinningPatternKey[]）
-      // 追加：STAGE1由来のポートフォリオ（任意）
+      budgets, // 互換のため残置
+      patterns, // string[] | WinningPatternKey[]
       portfolio, // { businesses:[{name,...}], focus?:string }
+      enhanceEmotion, // ★ 追加：true/false（未指定はtrue）
     } = body;
 
     const fin = buildFinanceSummary(csvFinanceData);
@@ -606,6 +673,11 @@ export async function POST(req: NextRequest) {
 2. 【選択と集中の覚悟】勝つ所に資源を寄せ、やめることを明言。内部越境（営業×開発×生産×人事）を前提に。
 3. 【描く勝利のイメージ】顧客の一場面で価値を見える化（SHOW, DON’T TELL）。数値が無ければ定性で可視化（KCI=創造の兆し）。
 4. 【各個人への熱いバトン】期待行動を言い切る。「自分で決める」「速く試す」「学びを翌週反映」。
+
+【魂の三要素（必ず自然文で挿入）】
+- 第2章に「誇り」を示す一文（私たちが守り抜いてきた本質・流儀）。
+- 第3章に「賭け」を示す一文（未来へ踏み出す決断・リスクを受け止める覚悟）。
+- 第4章に「信念」を示す一文（仲間とやり抜く約束・何があってもブレない原則）。
 
 【勝ちパターン（必ず反映）】
 - 入力された勝ちパターンに整合する語り・事例・トレードオフを織り込む。
@@ -645,18 +717,12 @@ export async function POST(req: NextRequest) {
     })();
 
     const userPrompt = `
-【会社】業種=${industryJp || (typeof industry === 'string' ? industry : '—')}／売上=${
-      revenue ? `${revenue}百万円` : '—'
-    }／人数=${employees ? `${employees}人` : '—'}
-【MVV】M=${sanitize(mission, 300) || '—'}／V=${
-      sanitize(vision, 300) || '—'
-    }／Val=${sanitize(value, 300) || '—'}
-【SWOT】S=${sanitize(strength, 400) || '—'}／W=${
-      sanitize(weakness, 400) || '—'
-    }／O=${sanitize(opportunity, 400) || '—'}／T=${sanitize(threat, 400) || '—'}
+【会社】業種=${industryJp || (typeof industry === 'string' ? industry : '—')}／売上=${revenue ? `${revenue}百万円` : '—'}／人数=${employees ? `${employees}人` : '—'}
+【MVV】M=${sanitize(mission, 300) || '—'}／V=${sanitize(vision, 300) || '—'}／Val=${sanitize(value, 300) || '—'}
+【SWOT】S=${sanitize(strength, 400) || '—'}／W=${sanitize(weakness, 400) || '—'}／O=${sanitize(opportunity, 400) || '—'}／T=${sanitize(threat, 400) || '—'}
 【勝ちパターン】${patternsLine}
 【事業ポートフォリオ】${portfolioSummary}
-【経営者の思い(断片)】${sanitize(thought, 600) || '—'}
+【経営者の思い(断片)】${sanitize(thought, 1000) || '—'}
 
 【fin_json】
 ${JSON.stringify(finMini)}
@@ -689,7 +755,7 @@ ${answersRich || '—'}
       usedModel = 'heuristic-fallback';
     }
 
-    let finalStory, longform, sections;
+    let finalStory, longform, sections: { heading: string; body: string }[];
 
     if (!usedHeuristic && raw) {
       type GenOut = { sections?: Array<{ heading?: string; body?: string }> };
@@ -699,6 +765,17 @@ ${answersRich || '—'}
         Array.isArray(parsed?.sections) && parsed!.sections!.length >= 4
           ? coerceToSimpleHeads(parsed!.sections!)
           : coerceToSimpleHeads(parsed?.sections || []);
+
+      // 二段階目のエモーショナル補正（既定ON）
+      const doEnhance = enhanceEmotion !== false;
+      sections = await enhanceEmotionIfNeeded(
+        sections,
+        thought,
+        patternsLine,
+        typeof temperature === 'number' ? temperature : 0.95,
+        MODEL_PRIMARY,
+        doEnhance,
+      );
 
       sections = ensureBridges(sections);
       sections = sections.map((s) => ({ ...s, body: tidyJa(normalizeNewlines(s.body)) }));
@@ -752,6 +829,7 @@ ${answersRich || '—'}
           model: usedModel,
           patterns: patternsArr,
           heuristic: usedHeuristic,
+          enhanced: enhanceEmotion !== false,
         },
       }),
       {
