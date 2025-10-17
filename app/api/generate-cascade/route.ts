@@ -3,22 +3,35 @@ export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { openai } from '@/lib/openai';
-import { industryTemplates, getIndustryLabel } from '@/utils/industryTemplates'; // ★ getIndustryLabel追加
+import { industryTemplates, getIndustryLabel } from '@/utils/industryTemplates';
 import { toTextStory, extractJsonObject, sanitizeText } from '@/app/api/_shared/utils';
 import { z } from 'zod';
 
 /* =========================
- * スキーマ（AI応答の検証用）
+ * スキーマ（AI応答の検証用：後方互換＋拡張）
  * ======================= */
 const ProjectSchema = z.object({
   title: z.string().min(1).catch(''),
   reason: z.string().default(''),
 });
 
+const OKRSpec = z.object({
+  objective: z.string().default(''),
+  keyResults: z.array(z.string()).default([]),
+  owner: z.string().optional().default(''),
+});
+
 const DepartmentSchema = z.object({
   name: z.string().min(1).catch(''),
   missionDraft: z.string().default(''),
   projects: z.array(ProjectSchema).default([]),
+
+  // 追加（任意）
+  okrDraft: z.array(OKRSpec).optional().default([]),
+  needsCollab: z.array(z.string()).optional().default([]),  // 他部門と何をやるか
+  stopList: z.array(z.string()).optional().default([]),     // やめる/諦める
+  first90Days: z.array(z.string()).optional().default([]),  // 90日アクション
+  riskNotes: z.array(z.string()).optional().default([]),    // リスクと対策メモ
 });
 
 const ResponseSchema = z.object({
@@ -31,8 +44,35 @@ const ResponseSchema = z.object({
 });
 
 /* =========================
- * リクエスト軽量バリデーション
+ * リクエスト軽量バリデーション（Ver4情報を許容）
  * ======================= */
+const AnswersSchema = z.array(z.object({
+  stepNumber: z.number().int(),
+  label: z.string().optional(),
+  question: z.string().optional(),
+  answer: z.string().optional(),
+})).optional().default([]);
+
+const DeptInputSchema = z.object({
+  name: z.string().optional(),               // "name" or 旧"departmentName"許容
+  departmentName: z.string().optional(),
+  missionDraft: z.string().optional(),
+  projects: z.array(z.string()).optional(),
+  okrs: z.array(z.object({
+    objective: z.string().optional(),
+    keyResults: z.array(z.string()).optional(),
+    owner: z.string().optional(),
+  })).optional(),
+
+  // Ver4 summary
+  direction: z.string().optional(),
+  expectations: z.array(z.string()).optional(),
+  focusThemes: z.array(z.string()).optional(),
+
+  // Ver4 6回答
+  answers: AnswersSchema,
+}).passthrough();
+
 const ReqSchema = z.object({
   thought: z.string().optional(),
   vision: z.string().optional(),
@@ -45,9 +85,9 @@ const ReqSchema = z.object({
   weakness: z.string().optional(),
   opportunity: z.string().optional(),
   threat: z.string().optional(),
-  story: z.any().optional(), // 既存仕様：toTextStory で吸収
+  story: z.any().optional(),
   strategySummary: z.string().optional(),
-  departments: z.array(z.any()).optional().default([]),
+  departments: z.array(DeptInputSchema).optional().default([]),
   csvFinanceData: z.array(z.record(z.any())).optional().default([]),
 });
 
@@ -64,14 +104,17 @@ const toLinesFromCsv = (csvRows: any[], limit = 5) =>
     )
     .join('\n');
 
+function pickName(d: any) {
+  return (typeof d?.name === 'string' && d.name.trim()) ||
+         (typeof d?.departmentName === 'string' && d.departmentName.trim()) || '';
+}
+
 function onlyDeptNames(list: any[]): string[] {
-  return (list || [])
-    .map((d) => {
-      if (typeof d === 'string') return d.trim();
-      if (typeof d?.name === 'string') return d.name.trim();
-      return '';
-    })
-    .filter(Boolean);
+  return (list || []).map(pickName).filter(Boolean);
+}
+
+function trimList(list?: string[], max = 6) {
+  return (Array.isArray(list) ? list : []).map(s => String(s || '').trim()).filter(Boolean).slice(0, max);
 }
 
 /* =========================
@@ -83,33 +126,22 @@ export async function POST(req: NextRequest) {
     const parsedReq = ReqSchema.safeParse(raw);
 
     if (!parsedReq.success) {
-      return NextResponse.json({ error: '入力の形式が不正です。' }, { status: 400 });
+      return new NextResponse(JSON.stringify({ error: '入力の形式が不正です。' }), {
+        status: 400,
+        headers: { 'content-type': 'application/json; charset=utf-8' },
+      });
     }
 
     const {
-      thought,
-      vision,
-      mission,
-      industry,
-      revenue,
-      employees,
-      value,
-      strength,
-      weakness,
-      opportunity,
-      threat,
-      story,
-      strategySummary,
-      departments,
-      csvFinanceData,
+      thought, vision, mission: mvvMission, industry, revenue, employees,
+      value, strength, weakness, opportunity, threat,
+      story, strategySummary, departments, csvFinanceData,
     } = parsedReq.data;
 
-    // ---- 入力チェック ----
     if (!Array.isArray(departments) || departments.length === 0) {
-      return NextResponse.json(
-        { error: '部門情報が未入力です。カスケード生成できません。' },
-        { status: 400 }
-      );
+      return new NextResponse(JSON.stringify({ error: '部門情報が未入力です。カスケード生成できません。' }), {
+        status: 400, headers: { 'content-type': 'application/json; charset=utf-8' },
+      });
     }
 
     const storyText = toTextStory(story);
@@ -117,14 +149,13 @@ export async function POST(req: NextRequest) {
       (typeof strategySummary === 'string' && strategySummary.trim().length > 0) ||
       (typeof storyText === 'string' && storyText.trim().length > 0);
     if (!hasValidInput) {
-      return NextResponse.json(
-        { error: '経営戦略ストーリーと要約の両方が空です。どちらかを入力してください。' },
-        { status: 400 }
-      );
+      return new NextResponse(JSON.stringify({ error: '経営戦略ストーリーと要約の両方が空です。どちらかを入力してください。' }), {
+        status: 400, headers: { 'content-type': 'application/json; charset=utf-8' },
+      });
     }
 
     /* =========================
-     * プロンプト組み立て
+     * プロンプト組み立て（Ver4拡張）
      * ======================= */
     const summary = strategySummary?.trim() || storyText.slice(0, 160) || '（要約なし）';
     const financeText =
@@ -132,19 +163,54 @@ export async function POST(req: NextRequest) {
         ? toLinesFromCsv(csvFinanceData, 5)
         : '（財務データなし）';
 
-    const departmentNames = onlyDeptNames(departments).join(', ');
-
-    // ★ 日本語ラベル補完
+    // 日本語ラベル補完
     const industryLabel = industry ? getIndustryLabel(industry, { full: true }) : '';
-    const industryLine =
-      industryLabel
-        ? `${industryLabel}${industry ? `（${industry}）` : ''}`
-        : industry ?? '（不明）';
-
+    const industryLine = industryLabel ? `${industryLabel}${industry ? `（${industry}）` : ''}` : industry ?? '（不明）';
     const industryContext = (industry && industryTemplates?.[industry]) || '';
 
+    // 部門ごとの詳細文脈
+    const deptBlocks = departments.map((d) => {
+      const name = pickName(d);
+      const answers = (d?.answers || []) as Array<{ stepNumber: number; label?: string; answer?: string }>;
+      const dir = d?.direction || '';
+      const exps = trimList(d?.expectations, 4);
+      const focuses = trimList(d?.focusThemes, 4);
+
+      const ansLines = (answers || [])
+        .sort((a, b) => (a?.stepNumber || 0) - (b?.stepNumber || 0))
+        .slice(0, 6)
+        .map(a => `  - Q${a.stepNumber}${a.label ? `（${a.label}）` : ''}: ${sanitizeText(a?.answer || '', 220)}`)
+        .join('\n');
+
+      const projSeed = trimList(d?.projects, 5).map(p => `  - ${sanitizeText(p, 100)}`).join('\n');
+      const okrSeed = (Array.isArray(d?.okrs) ? d!.okrs! : [])
+        .slice(0, 2)
+        .map((o: any, i: number) => {
+          const kr = trimList(o?.keyResults, 3).map(k => `"${sanitizeText(k, 80)}"`).join(', ');
+          return `  - OKR${i + 1}: O="${sanitizeText(o?.objective || '', 100)}" KR=[${kr}]`;
+        })
+        .join('\n');
+
+      return `
+[部門] ${name}
+  direction: ${sanitizeText(dir || '', 140) || '（未設定）'}
+  expectations:
+${exps.map(e => `    - ${sanitizeText(e, 120)}`).join('\n') || '    - （未設定）'}
+  focusThemes:
+${focuses.map(f => `    - ${sanitizeText(f, 120)}`).join('\n') || '    - （未設定）'}
+  answers (1..6):
+${ansLines || '  - （未回答）'}
+  seeds.projects:
+${projSeed || '  - （なし）'}
+  seeds.okr:
+${okrSeed || '  - （なし）'}
+`.trim();
+    }).join('\n\n');
+
     const prompt = `
-あなたは世界最高の経営戦略コンサルタントです。以下の経営情報をもとに、部門ごとの戦略ミッションとプロジェクト案を簡潔に提案してください。
+あなたは世界最高の経営戦略コンサルタントです。以下の情報をもとに、部門ごとの「実行に落ちる」提案を返してください。
+- 入力には Ver4 のサマリー（direction/expectations/focusThemes）と 6回答（役まわり/既存/未来/犠牲/協力/撤退）が含まれる場合があります。
+- 既存案（missionDraft/projects/okrs）があれば尊重し、矛盾や重複を取り除いて磨き直します。
 
 【業界背景・成功パターン】
 ${industryContext || '（該当テンプレートなし）'}
@@ -153,32 +219,24 @@ ${industryContext || '（該当テンプレートなし）'}
 ${thought || '（未入力）'}
 
 【MVV】
-Mission: ${mission ?? ''}
-Vision: ${vision ?? ''}
-Value: ${value ?? ''}
+Mission: ${mvvMission ?? ''} / Vision: ${vision ?? ''} / Value: ${value ?? ''}
 
-【SWOT分析】
-- 強み: ${strength ?? ''}
-- 弱み: ${weakness ?? ''}
-- 機会: ${opportunity ?? ''}
-- 脅威: ${threat ?? ''}
+【SWOT】
+強み: ${strength ?? ''} / 弱み: ${weakness ?? ''} / 機会: ${opportunity ?? ''} / 脅威: ${threat ?? ''}
 
-【業種・売上・従業員数】
+【業種・規模・財務サマリ】
 ${industryLine}、年商${String(revenue ?? '（不明）')}百万円、従業員${String(employees ?? '（不明）')}人
-
-【CSV財務情報（参考）】
+CSV抜粋:
 ${financeText}
 
-【経営戦略のストーリー（抜粋）】
+【経営戦略ストーリー（要約/抜粋）】
 ${sanitizeText(storyText || '', 800) || '（ストーリー未入力）'}
+要約: ${summary}
 
-【要約（参考）】
-${summary}
+【部門文脈（Ver4準拠）】
+${deptBlocks}
 
-【対象部門】
-${departmentNames}
-
---- 出力フォーマット（日本語のJSONのみ、説明なし） ---
+--- 出力（日本語のJSONのみ、説明禁止） ---
 {
   "strategy": { "summary": "会社全体の経営戦略要約（2〜3文）" },
   "departments": [
@@ -187,19 +245,31 @@ ${departmentNames}
       "missionDraft": "この部門の戦略ミッション案（1〜2文。数値・指標があれば尚可）",
       "projects": [
         { "title": "プロジェクト名（名詞句）", "reason": "目的・ねらい・期待成果（1文）" }
-      ]
+      ],
+      "okrDraft": [
+        { "objective": "短文", "keyResults": ["測定可能なKR"], "owner": "任意" }
+      ],
+      "needsCollab": ["誰と何をする（例：営業×マーケ：付加価値強化）"],
+      "stopList": ["やめる/諦める項目（KRには含めない）"],
+      "first90Days": ["最初の90日でやること（週/マイルストン粒度）"],
+      "riskNotes": ["主要リスクと対処の一言"]
     }
   ]
 }
+制約：
+- 「撤退/やめる（Q6）」や「犠牲（Q4）」に反するプロジェクトは提案しない。
+- 「連携（Q5）」が必要な案件は needsCollab に明記し、プロジェクト名にも連携の相手/役割が想像できる表現にする。
+- OKR は1〜2セット、KRは測定可能に。やめる/諦めるはKRに含めない（stopListへ）。
 `.trim();
 
     /* =========================
-     * OpenAI 呼び出し
+     * OpenAI 呼び出し（JSON強制）
      * ======================= */
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      temperature: 0.5,
-      max_tokens: 1000,
+      model: process.env.OPENAI_MODEL ?? 'gpt-4o',
+      response_format: { type: 'json_object' },
+      temperature: 0.35,
+      max_tokens: 1600,
       messages: [
         { role: 'system', content: '必ずJSONのみを返し、日本語で。前後の説明は禁止。' },
         { role: 'user', content: prompt },
@@ -210,10 +280,9 @@ ${departmentNames}
     const parsed = extractJsonObject(rawContent);
 
     if (!parsed) {
-      return NextResponse.json(
-        { error: '生成結果のJSON解析に失敗しました。' },
-        { status: 500 }
-      );
+      return new NextResponse(JSON.stringify({ error: '生成結果のJSON解析に失敗しました。' }), {
+        status: 500, headers: { 'content-type': 'application/json; charset=utf-8' },
+      });
     }
 
     // スキーマ整形
@@ -223,7 +292,7 @@ ${departmentNames}
     }
     const normalized = (safe.success ? safe.data : parsed) as z.infer<typeof ResponseSchema>;
 
-    // 入力部門名フィルタリング
+    // 入力部門名でフィルタ（余計な部門を落とす）
     const inputNames = new Set(onlyDeptNames(departments));
     const result = {
       strategy: {
@@ -236,8 +305,7 @@ ${departmentNames}
         ? normalized.departments
             .map((d: any) => ({
               name: typeof d?.name === 'string' ? d.name.trim() : '',
-              missionDraft:
-                typeof d?.missionDraft === 'string' ? d.missionDraft.trim() : '',
+              missionDraft: typeof d?.missionDraft === 'string' ? d.missionDraft.trim() : '',
               projects: Array.isArray(d?.projects)
                 ? d.projects
                     .map((p: any) => ({
@@ -246,14 +314,35 @@ ${departmentNames}
                     }))
                     .filter((p: any) => p.title)
                 : [],
+              okrDraft: Array.isArray(d?.okrDraft)
+                ? d.okrDraft.map((o: any) => ({
+                    objective: typeof o?.objective === 'string' ? o.objective.trim() : '',
+                    keyResults: Array.isArray(o?.keyResults)
+                      ? o.keyResults.map((k: any) => String(k || '').trim()).filter(Boolean).slice(0, 4)
+                      : [],
+                    owner: typeof o?.owner === 'string' ? o.owner.trim() : '',
+                  })).filter((o: any) => o.objective || (o.keyResults?.length ?? 0) > 0)
+                : [],
+              needsCollab: trimList(d?.needsCollab, 6),
+              stopList: trimList(d?.stopList, 6),
+              first90Days: trimList(d?.first90Days, 8),
+              riskNotes: trimList(d?.riskNotes, 6),
             }))
             .filter((d: any) => d.name && inputNames.has(d.name))
         : [],
     };
 
-    return NextResponse.json(result);
+    return new NextResponse(JSON.stringify(result), {
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'x-cascade-shape': 'v4-6step',
+      },
+    });
   } catch (err: any) {
     console.error('❌ APIエラー（generate-cascade）:', err?.message || err);
-    return NextResponse.json({ error: 'サーバーエラーが発生しました。' }, { status: 500 });
+    return new NextResponse(JSON.stringify({ error: 'サーバーエラーが発生しました。' }), {
+      status: 500, headers: { 'content-type': 'application/json; charset=utf-8' },
+    });
   }
 }
