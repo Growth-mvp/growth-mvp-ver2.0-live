@@ -292,6 +292,7 @@ export default function StoryProcessPage() {
     thought, strength, weakness, opportunity, threat,
     csvFinanceData,
     portfolio,
+    enhanceEmotion = true, // ★ 追加：魂の補正（デフォルトON）
   } = store ?? {};
 
   const setStorySafe = (chs: ChapterStory[]) => {
@@ -390,6 +391,7 @@ export default function StoryProcessPage() {
               thought, strength, weakness, opportunity, threat,
               csvFinanceData,
               portfolio,
+              enhanceEmotion, // ★ 追加：状態も保存
             } as any,
             user.id
           );
@@ -401,7 +403,7 @@ export default function StoryProcessPage() {
     [
       answers2, csvFinanceData, employees, finalRawFromStore, industry, mission,
       opportunity, revenue, storyRawArr, strength, store?.strategyId, thought, threat,
-      user?.id, value, vision, weakness, canEdit, companyId, portfolio,
+      user?.id, value, vision, weakness, canEdit, companyId, portfolio, enhanceEmotion,
     ]
   );
 
@@ -474,6 +476,7 @@ export default function StoryProcessPage() {
           strength, weakness, opportunity, threat,
           csvFinanceData,
           story: storyRawArr,
+          enhanceEmotion, // ★ 追加：魂の補正フラグをAPIへ
         }),
       });
 
@@ -501,7 +504,7 @@ export default function StoryProcessPage() {
   }, [
     answers2, csvFinanceData, employees, finalRawFromStore, industry, mission,
     opportunity, persistDebounced, revenue, setStorySafe, storyRawArr,
-    strength, thought, threat, value, vision, weakness, canEdit,
+    strength, thought, threat, value, vision, weakness, canEdit, enhanceEmotion,
   ]);
 
   /* ------- 最終ストーリー ------- */
@@ -531,6 +534,7 @@ export default function StoryProcessPage() {
         portfolio,
         userId: user?.id,
         budgets: { longform: [1600, 2400] },
+        enhanceEmotion, // ★ 追加：最終ストーリーも魂の補正をAPIへ
       }),
     });
     const text = await res.text();
@@ -538,7 +542,7 @@ export default function StoryProcessPage() {
     return safeJsonFromText<any>(text) ?? {};
   }, [
     answers2, csvFinanceData, employees, industry, mission, revenue,
-    store?.strategyId, thought, threat, user?.id, value, vision, weakness, portfolio,
+    store?.strategyId, thought, threat, user?.id, value, vision, weakness, portfolio, enhanceEmotion,
   ]);
 
   const onGenerateFinal = useCallback(async () => {
@@ -692,7 +696,7 @@ export default function StoryProcessPage() {
               title={canEdit ? undefined : 'このページの編集は管理者（Admin）のみ可能です。今は閲覧モードです。'}
               aria-hidden={canEdit ? 'true' : undefined}
             >
-              閲覧モード（Adminのみ編集可）
+              観覧モード（Adminのみ編集可）
             </span>
 
             <Button
