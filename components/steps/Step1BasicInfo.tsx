@@ -1,7 +1,7 @@
 // /components/steps/Step1BasicInfo.tsx
 'use client';
 
-import { useEffect, useId } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import StepLayout from '@/components/StepLayout';
 import { industryOptions } from '@/utils/industryTemplates';
@@ -14,20 +14,25 @@ function Field({
   children,
   hint,
   required,
+  right,
 }: {
   label: string;
   children: React.ReactNode;
   hint?: string;
   required?: boolean;
+  right?: React.ReactNode;
 }) {
   return (
     <div className="space-y-2">
-      <div className="flex items-baseline justify-between">
+      <div className="flex items-baseline justify-between gap-3">
         <label className="text-[13px] font-medium text-neutral-700">
           {label}
           {required && <span className="ml-1 text-rose-500">*</span>}
         </label>
-        {hint && <span className="text-[12px] text-neutral-400">{hint}</span>}
+        <div className="flex items-center gap-3">
+          {hint && <span className="text-[12px] text-neutral-400">{hint}</span>}
+          {right}
+        </div>
       </div>
       {children}
     </div>
@@ -159,13 +164,35 @@ export default function Step1BasicInfo() {
   const employees: string = st?.employees ?? '';
   const businessContent: string = st?.businessContent ?? '';
   const customerSegment: string = st?.customerSegment ?? '';
-  const thought: string = st?.thought ?? '';
+  const thoughtRaw: string = st?.thought ?? '';
+  const enhanceEmotion: boolean = st?.enhanceEmotion ?? true; // ★ 追加：魂補正（既定ON）
   const aiSuggestedBasicInfo: any = st?.aiSuggestedBasicInfo ?? null;
+
+  // thought はAPI側の上限（1000字）に合わせて保持
+  const THOUGHT_MAX = 1000;
+  const [thoughtLocal, setThoughtLocal] = useState<string>(
+    typeof thoughtRaw === 'string' ? thoughtRaw.slice(0, THOUGHT_MAX) : ''
+  );
+  const thoughtCount = useMemo(() => (thoughtLocal?.length ?? 0), [thoughtLocal]);
+
+  // store → local（初期同期）
+  useEffect(() => {
+    const v = typeof thoughtRaw === 'string' ? thoughtRaw.slice(0, THOUGHT_MAX) : '';
+    setThoughtLocal(v);
+  }, [thoughtRaw]);
+
+  // local → store（即時反映）
+  useEffect(() => {
+    // 末尾の無駄なスペース/改行は軽く抑制
+    const trimmed = (thoughtLocal || '').replace(/\s+$/g, '').slice(0, THOUGHT_MAX);
+    setFieldSafe(st, 'thought', trimmed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thoughtLocal]);
 
   // AI提案の静かな自動反映（初期値補完）
   useEffect(() => {
     if (!aiSuggestedBasicInfo) return;
-    if (aiSuggestedBasicInfo.thought) setFieldSafe(st, 'thought', aiSuggestedBasicInfo.thought);
+    if (aiSuggestedBasicInfo.thought) setFieldSafe(st, 'thought', String(aiSuggestedBasicInfo.thought).slice(0, THOUGHT_MAX));
     if (aiSuggestedBasicInfo.companyName) setFieldSafe(st, 'companyName', aiSuggestedBasicInfo.companyName);
     if (aiSuggestedBasicInfo.foundationYear) setFieldSafe(st, 'foundationYear', aiSuggestedBasicInfo.foundationYear);
     if (aiSuggestedBasicInfo.location) setFieldSafe(st, 'location', aiSuggestedBasicInfo.location);
@@ -185,14 +212,37 @@ export default function Step1BasicInfo() {
       <div className="space-y-10">
         {/* 経営者の思い（日本語IMEを促す） */}
         <div className="rounded-2xl bg-amber-50 ring-1 ring-amber-200/70 p-5 md:p-6">
-          <Field label="経営者の思い" hint="3〜5行で端的に" required>
+          <Field
+            label="経営者の思い"
+            hint="3〜5行で端的に（最大1000字）"
+            required
+            right={
+              <span className="text-[12px] tabular-nums text-neutral-400">
+                {thoughtCount}/{THOUGHT_MAX}
+              </span>
+            }
+          >
             <TextAreaJa
               id={`${idPrefix}-thought`}
               rows={4}
-              value={thought}
-              onChange={(e) => setFieldSafe(st, 'thought', e.target.value)}
-              placeholder="例：社員が誇れる会社にする。日本の製造業の未来をつくる。"
+              value={thoughtLocal}
+              onChange={(e) => setThoughtLocal((e.target.value ?? '').slice(0, THOUGHT_MAX))}
+              placeholder="例：社員が胸を張れる会社にする。日本の製造業の価値を再定義する。そのために、守りの効率化と攻めの価値創造を同時にやり切る。"
             />
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <label className="inline-flex items-center gap-2 text-[13px] text-neutral-700">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900/80"
+                  checked={!!enhanceEmotion}
+                  onChange={(e) => setFieldSafe(st, 'enhanceEmotion', e.target.checked)}
+                />
+                魂の補正（文章の熱量強化）を有効化
+              </label>
+              <span className="text-[12px] text-neutral-400">
+                ※ 有効時は生成後に「経営者の語り口」へ自動エディット（既定ON）
+              </span>
+            </div>
           </Field>
         </div>
 
