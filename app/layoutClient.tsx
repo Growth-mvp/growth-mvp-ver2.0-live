@@ -59,6 +59,9 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
   // ===== Strategy store =====
   const setStrategyId = useStrategyStore((s) => s.setStrategyId);
 
+  // ===== スクロールコンテナ参照 =====
+  const mainRef = useRef<HTMLDivElement | null>(null);
+
   // デバッグ用マーカー
   useEffect(() => {
     const g = (window as any);
@@ -97,6 +100,27 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
     router.prefetch('/');
     router.prefetch('/auth/welcome');
   }, [router]);
+
+  /** ブラウザのスクロール復元を無効化（内部スクロール管理のため） */
+  useEffect(() => {
+    const prev = window.history.scrollRestoration;
+    window.history.scrollRestoration = 'manual';
+    return () => { window.history.scrollRestoration = prev; };
+  }, []);
+
+  /** ルート遷移ごとに <main> のスクロールを最上部へ（内部スクロール対策の決定版） */
+  useEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+
+    // rAF 2回で描画・計算後に確実に 0 に戻す
+    requestAnimationFrame(() => {
+      el.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      requestAnimationFrame(() => {
+        el.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      });
+    });
+  }, [pathname]);
 
   /** 6秒フェイルセーフ */
   useEffect(() => {
@@ -449,6 +473,8 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
 
       {/* ===== メイン ===== */}
       <main
+        id="app-scroll"
+        ref={mainRef}
         className={[
           'absolute inset-0 overflow-y-auto overflow-x-hidden',
           'bg-gradient-to-b from-white to-slate-50/60',
@@ -456,8 +482,8 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
           'min-w-0',
         ].join(' ')}
         style={{
-          marginLeft: !hideSidebar ? leftVar : undefined,
-          marginRight: !hideSidebar ? rightVar : undefined,
+          marginLeft: !hideSidebar ? 'var(--left-w, 0px)' : undefined,
+          marginRight: !hideSidebar ? 'var(--right-w, 0px)' : undefined,
         }}
         role="main"
         aria-live="polite"
