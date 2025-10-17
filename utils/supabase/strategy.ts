@@ -11,7 +11,8 @@ import { getMembership } from './membership';
 import type { StrategyData } from '@/types/strategy';
 
 const T_STRATEGY = 'strategy_data';
-const T_PROGRESS = 'progress_logs'; // 既存のログテーブルに保存
+const T_PROGRESS = 'progress_logs';          // 互換フォールバック用（B案の主保存先は使わない）
+const T_SIM = 'simulation_results';          // 互換フォールバック用（別テーブルがある環境）
 
 type ReadResult  = { data: StrategyData | null; error: any | null };
 type WriteResult = { error: any | null };
@@ -28,6 +29,9 @@ const STRATEGY_COLS_APP = new Set<string>([
   'story','finalStory','answers2','departments','csvFinanceData',
   'businessPortfolio','financeSummary',
   'strategySummary','editableCascade','editableCascadeResult',
+  // B案：strategy_data 内のスナップショット & 履歴
+  'simulationResult',     // 最新1件スナップショット
+  'simulationResults',    // 履歴（配列）
 ]);
 
 /** 受信時：snake→camel 互換吸収 */
@@ -37,16 +41,20 @@ const LEGACY_KEY_MAP: Record<string, string> = {
   business_content: 'businessContent',
   customer_segment: 'customerSegment',
   csv_finance_data: 'csvFinanceData',
-  csv_finance_data_json: 'csvFinanceData',        // 互換
+  csv_finance_data_json: 'csvFinanceData',
   final_story: 'finalStory',
   strategy_summary: 'strategySummary',
   editable_cascade: 'editableCascade',
   editable_cascade_result: 'editableCascadeResult',
   business_portfolio: 'businessPortfolio',
-  business_portfolio_json: 'businessPortfolio',   // 互換
+  business_portfolio_json: 'businessPortfolio',
   finance_summary: 'financeSummary',
-  finance_summary_json: 'financeSummary',         // 互換
+  finance_summary_json: 'financeSummary',
   finalstory: 'finalStory',
+  // 単数スナップショット
+  simulation_result: 'simulationResult',
+  // 履歴（配列）
+  simulation_results: 'simulationResults',
 };
 
 /** 送信時：camel→snake（固定列のみ） */
@@ -66,6 +74,8 @@ const COLS = {
   financeSummary: 'finance_summary',
   businessPortfolio: 'business_portfolio',
   csvFinanceData: 'csv_finance_data',
+  simulationResult: 'simulation_result',     // スナップショット
+  simulationResults: 'simulation_results',   // 履歴（配列）
 } as const;
 
 function pickAppCols(obj: Record<string, unknown> | null | undefined): Record<string, unknown> {
@@ -100,6 +110,19 @@ function normalizeIncomingKeys(obj: Record<string, unknown> | null | undefined) 
       : (fs && typeof fs === 'object' && !Array.isArray(fs) && Array.isArray((fs as any).items))
         ? (fs as any).items
         : ensureArrayJson(fs);
+  }
+  // 単数スナップショットは object 推奨。文字列なら parse して object/undefined に正規化
+  if ('simulationResult' in afterPick) {
+    const sim = parseJsonIfString((afterPick as any).simulationResult);
+    (afterPick as any).simulationResult =
+      sim && typeof sim === 'object' && !Array.isArray(sim) ? sim
+      : sim === null ? null
+      : undefined;
+  }
+  // 履歴（配列）正規化
+  if ('simulationResults' in afterPick) {
+    const arr = parseJsonIfString((afterPick as any).simulationResults);
+    (afterPick as any).simulationResults = Array.isArray(arr) ? arr : [];
   }
   return afterPick;
 }
@@ -175,12 +198,16 @@ function normalizeJsonColumnsForSave(anyState: any) {
     answers2: ensureArrayJson(anyState?.answers2),
     departments: ensureArrayJson(anyState?.departments),
 
-    // ← ここは “元データを保持”。送るかどうかは insertOrUpdate で判定
+    // raw を保持（送る/送らない判定は後段）
     csvFinanceData: anyState?.csvFinanceData,
     businessPortfolio: anyState?.businessPortfolio,
     financeSummary: anyState?.financeSummary,
 
-    // DB CHECKが array/object の列は最低限整形
+    // B案：strategy_data 内
+    simulationResult: anyState?.simulationResult,     // object|null|undefined
+    simulationResults: anyState?.simulationResults,   // array|null|undefined
+
+    // object/array 必須列の最低整形
     strategySummary: ensureArrayOrObjectJson(anyState?.strategySummary),
     editableCascade: ensureArrayOrObjectJson(anyState?.editableCascade),
     editableCascadeResult: ensureArrayOrObjectJson(anyState?.editableCascadeResult),
@@ -206,7 +233,7 @@ function safeStringify(obj: any) {
   } catch { try { return String(obj); } catch { return '[Unserializable]'; } }
 }
 function previewValue(v: any) {
-  const { story, finalStory, answers2, departments, csvFinanceData, businessPortfolio, financeSummary, ...rest } = v || {};
+  const { story, finalStory, answers2, departments, csvFinanceData, businessPortfolio, financeSummary, simulationResult, simulationResults, ...rest } = v || {};
   return {
     ...rest,
     story: Array.isArray(story) ? `array(${story.length})` : typeof story,
@@ -216,6 +243,8 @@ function previewValue(v: any) {
     hasCsvFinanceData: Array.isArray(csvFinanceData) ? `array(${csvFinanceData.length})` : !!csvFinanceData,
     businessPortfolio: businessPortfolio && typeof businessPortfolio === 'object' ? 'object' : businessPortfolio,
     financeSummary: Array.isArray(financeSummary) ? `array(${financeSummary.length})` : financeSummary,
+    simulationResult: simulationResult && typeof simulationResult === 'object' ? 'object' : simulationResult,
+    simulationResults: Array.isArray(simulationResults) ? `array(${simulationResults.length})` : typeof simulationResults,
   };
 }
 function group(label: string, color = '#1976d2') {
@@ -236,6 +265,13 @@ const isUndefinedColumn = (e: any) => {
   const msg  = `${e?.message || ''} ${e?.details || ''}`.toLowerCase();
   return code === '42703' || code === 'PGRST204' || msg.includes('could not find the');
 };
+/** 未定義テーブル: 42P01 */
+const isUndefinedTable = (e: any) => {
+  const code = e?.code || e?.__raw?.status || e?.__raw?.code;
+  const msg  = `${e?.message || ''} ${e?.details || ''}`.toLowerCase();
+  return code === '42P01' || msg.includes('relation') && msg.includes('does not exist');
+};
+
 const isCheckViolation = (e: any) => (e?.code === '23514');
 const constraintIncludes = (e: any, key: string) => {
   const s = `${e?.constraint || ''} ${e?.details || ''} ${e?.message || ''}`;
@@ -322,7 +358,7 @@ export async function getFullStrategyData(userId: string, strategyId?: string | 
 
 /* ===================================================================
  *  保存（UPDATE-first、会社必須）
- *   - ❗ 3カラムは“条件付き送信”で空上書きを防止
+ *   - ❗ 5カラムは“条件付き送信”で空上書きを防止
  *     * src === undefined → 送らない（現状維持）
  *     * src === null      → null を送って明示クリア
  *     * それ以外          → 正規化して送る
@@ -336,6 +372,8 @@ function applyOptionalJsonColumns(
     financeSummarySrc: any;
     businessPortfolioSrc: any;
     csvFinanceDataSrc: any;
+    simulationResultSrc: any;     // object
+    simulationResultsSrc?: any;   // array
     isInsert: boolean;
   }
 ) {
@@ -345,24 +383,30 @@ function applyOptionalJsonColumns(
   if (opts.financeSummarySrc !== undefined) {
     row[COLS.financeSummary] =
       opts.financeSummarySrc === null ? null : toFinanceObjectShape(opts.financeSummarySrc);
-  } else if (opts.isInsert) {
-    // insert時は指定が無ければ触らない
   }
 
   // business_portfolio（object）
   if (opts.businessPortfolioSrc !== undefined) {
     row[COLS.businessPortfolio] =
       opts.businessPortfolioSrc === null ? null : ensureObjectJson(opts.businessPortfolioSrc);
-  } else if (opts.isInsert) {
-    // 触らない
   }
 
   // csv_finance_data（array）
   if (opts.csvFinanceDataSrc !== undefined) {
     row[COLS.csvFinanceData] =
       opts.csvFinanceDataSrc === null ? null : coerceCsvArray(opts.csvFinanceDataSrc);
-  } else if (opts.isInsert) {
-    // 触らない
+  }
+
+  // simulation_result（object）
+  if (opts.simulationResultSrc !== undefined) {
+    const v = opts.simulationResultSrc;
+    row[COLS.simulationResult] = v === null ? null : ensureObjectJson(v);
+  }
+
+  // simulation_results（array）
+  if (opts.simulationResultsSrc !== undefined) {
+    const v = opts.simulationResultsSrc;
+    row[COLS.simulationResults] = v === null ? null : ensureArrayJson(v);
   }
 
   return row;
@@ -372,7 +416,13 @@ async function insertOrUpdateFixed(
   mode: 'insert' | 'update',
   baseRow: Record<string, unknown>,
   where: WhereMode,
-  srcs: { financeSummarySrc: any; businessPortfolioSrc: any; csvFinanceDataSrc: any }
+  srcs: {
+    financeSummarySrc: any;
+    businessPortfolioSrc: any;
+    csvFinanceDataSrc: any;
+    simulationResultSrc: any;
+    simulationResultsSrc?: any;
+  }
 ) {
   const isInsert = mode === 'insert';
 
@@ -410,16 +460,19 @@ export async function saveStrategyData(
     // 1) 受取正規化（id等除去）
     const baseCamel = normalizeIncomingKeys(omitId(state as any));
 
-    // 2) JSON 正規化（※ 3カラムは“送る/送らない”判定のため raw を保持）
+    // 2) JSON 正規化（※ 可変JSON列は“送る/送らない”判定のため raw を保持）
     const jsonFixedCamel = normalizeJsonColumnsForSave({
       ...baseCamel,
       story: safeJson((state as any)?.story),
       finalStory: safeJson((state as any)?.finalStory),
       answers2: safeJson((state as any)?.answers2),
       departments: safeJson((state as any)?.departments),
-      csvFinanceData: (state as any)?.csvFinanceData,       // raw維持
-      businessPortfolio: (state as any)?.businessPortfolio, // raw維持
-      financeSummary: (state as any)?.financeSummary,       // raw維持
+      csvFinanceData: (state as any)?.csvFinanceData,
+      businessPortfolio: (state as any)?.businessPortfolio,
+      financeSummary: (state as any)?.financeSummary,
+      // B案：strategy_data 内
+      simulationResult: (state as any)?.simulationResult,
+      simulationResults: (state as any)?.simulationResults,
       strategySummary: safeJson((state as any)?.strategySummary),
       editableCascade: safeJson((state as any)?.editableCascade),
       editableCascadeResult: safeJson((state as any)?.editableCascadeResult),
@@ -432,11 +485,17 @@ export async function saveStrategyData(
     (payloadDBBase as any).answers2     = ensureArrayJson((payloadDBBase as any).answers2);
     (payloadDBBase as any).departments  = ensureArrayJson((payloadDBBase as any).departments);
 
-    // ★3カラムはこの段階では送らない（insertOrUpdateFixed で条件付き付与）
+    // ★ 可変JSON列はこの段階では送らない（insertOrUpdateFixed で条件付き付与）
     delete (payloadDBBase as any).csv_finance_data;
     delete (payloadDBBase as any).csvFinanceData;
     delete (payloadDBBase as any).businessPortfolio;
     delete (payloadDBBase as any).financeSummary;
+
+    // B案：strategy_data 内（ここでは消して、下で条件付き付与）
+    delete (payloadDBBase as any).simulationResult;
+    delete (payloadDBBase as any).simulation_result;
+    delete (payloadDBBase as any).simulationResults;
+    delete (payloadDBBase as any).simulation_results;
 
     // 送信用共通本体
     const common = {
@@ -455,9 +514,11 @@ export async function saveStrategyData(
       .maybeSingle();
 
     const srcs = {
-      financeSummarySrc: (jsonFixedCamel as any).financeSummary,     // undefined/null/配列のまま
+      financeSummarySrc: (jsonFixedCamel as any).financeSummary,
       businessPortfolioSrc: (jsonFixedCamel as any).businessPortfolio,
       csvFinanceDataSrc: (jsonFixedCamel as any).csvFinanceData,
+      simulationResultSrc: (jsonFixedCamel as any).simulationResult,
+      simulationResultsSrc: (jsonFixedCamel as any).simulationResults,
     };
 
     if (!exists?.error && exists?.data) {
@@ -482,10 +543,12 @@ export async function deleteStrategyData(userId: string): Promise<WriteResult> {
   const end = group('🗑 deleteStrategyData', '#c62828');
   try {
     const companyId = await resolveCompanyIdOrThrow(userId, null);
-    const { error }: any = await supabase.from(T_PROGRESS).delete().eq('company_id', companyId); // ログも消すならこちら
-    if (error) {
-      // ログ削除に失敗しても本体削除は試みる
-      console.warn('⚠ progress_logs delete failed:', extractErrorVerbose(error));
+    // ログ削除（存在しない列/テーブルでも本体削除は続行）
+    try {
+      const { error }: any = await supabase.from(T_PROGRESS).delete().eq('company_id', companyId);
+      if (error) console.warn('⚠ progress_logs delete failed:', extractErrorVerbose(error));
+    } catch (e) {
+      console.warn('⚠ progress_logs delete skipped:', extractErrorVerbose(e));
     }
     const delStrategy: any = await supabase.from(T_STRATEGY).delete().eq('company_id', companyId);
     if (delStrategy?.error) return { error: extractErrorVerbose(delStrategy.error) };
@@ -496,9 +559,9 @@ export async function deleteStrategyData(userId: string): Promise<WriteResult> {
 }
 
 /* ===================================================================
- *  追加：シミュレーション保存 / 取得
- *   - progress_logs に category='simulation' として保存（列が無ければ最小構成にフォールバック）
- *   - 既存のOKRログと同居できる柔軟な形にしている
+ *  B案：strategy_data 内に履歴を保持する API
+ *   - appendSimulationResultToStrategy: 履歴に追記 + 最新スナップショット更新
+ *   - getSimulationResults: 履歴（配列）を返す（無ければ互換フォールバック）
  * =================================================================== */
 
 export type SimulationSavePayload = {
@@ -513,130 +576,291 @@ export type SimulationSavePayload = {
 export type SimulationLogRow = {
   id: string;
   created_at: string;
-  user_id: string;
-  company_id: string;
-  category?: string; // 'simulation'
-  kind?: string;     // 互換キー
-  type?: string;     // 互換キー
+  user_id?: string;
+  company_id?: string;
+  category?: string; // 互換（progress_logs）
+  kind?: string;     // 互換
+  type?: string;     // 互換
   okr_id?: string | null;
-  log?: any;
-  payload?: any;
-  // data?: any;  ← 使いません
+  title?: string | null;       // 任意メタ
+  scenario_id?: string | null; // 任意メタ
+  payload?: any;               // strategy_data 配列では payload を格納
+  log?: any;                   // 互換（progress_logs）
+  data?: any;                  // 互換
 };
 
-export async function saveSimulationResult(
+/** 履歴1件のエンベロープ（strategy_data.simulation_results配列の要素） */
+type StrategySimEntry = {
+  id: string;
+  created_at: string;
+  title?: string | null;
+  scenario_id?: string | null;
+  payload: SimulationSavePayload;
+};
+
+/** B案：履歴追記 + スナップショット更新 */
+export async function appendSimulationResultToStrategy(
   userId: string,
   payload: SimulationSavePayload,
   companyIdOverride?: string | null,
+  opts?: { title?: string; scenarioId?: string; maxKeep?: number } // maxKeep: 履歴上限
 ): Promise<WriteResult> {
-  const end = group('📈 saveSimulationResult', '#6a1b9a');
+  const end = group('➕ appendSimulationResultToStrategy', '#6a1b9a');
   try {
     const companyId = await resolveCompanyIdOrThrow(userId, companyIdOverride);
-    const now = new Date().toISOString();
 
-    // 基本（メタ列あり）
-    const baseRow = {
-      user_id: userId,
-      company_id: companyId,
-      created_at: now,
-      category: 'simulation',
-      kind: 'simulation',
-      type: 'simulation',
-      okr_id: null,
-    } as Record<string, any>;
+    // 既存の strategy_data を取得
+    const current = await getFullStrategyDataByCompany(companyId);
+    if (current.error) return { error: current.error };
 
-    // 1st: log 列
-    {
-      const row = { ...baseRow, log: safeJson(payload) };
-      const res: any = await supabase.from(T_PROGRESS).insert([row]).select('id').single();
-      if (!res?.error) return { error: null };
-      const e = extractErrorVerbose(res.error);
-      if (!isUndefinedColumn(e)) return { error: e };
-      // 列未定義（categoryやlog等）→ 次の試行へ
-    }
+    const existing = (current.data as any) ?? {};
+    const arr: StrategySimEntry[] = Array.isArray(existing.simulationResults)
+      ? existing.simulationResults
+      : [];
 
-    // 2nd: payload 列
-    {
-      const row = { ...baseRow, payload: safeJson(payload) };
-      const res: any = await supabase.from(T_PROGRESS).insert([row]).select('id').single();
-      if (!res?.error) return { error: null };
-      const e = extractErrorVerbose(res.error);
-      if (!isUndefinedColumn(e)) return { error: e };
-      // 列未定義 → 最小構成へ
-    }
+    const entry: StrategySimEntry = {
+      id:
+        (globalThis as any).crypto?.randomUUID?.() ??
+        `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      created_at: new Date().toISOString(),
+      title: opts?.title ?? null,
+      scenario_id: opts?.scenarioId ?? null,
+      payload: safeJson(payload),
+    };
 
-    // 3rd: 最小構成（メタ列を外す／JSON列は log→payload の順で再試行）
-    const minimal = { user_id: userId, company_id: companyId, created_at: now } as Record<string, any>;
+    const maxKeep = Math.max(1, Math.min(2000, opts?.maxKeep ?? 200));
+    const next = [entry, ...arr].slice(0, maxKeep);
 
-    // 3-1: log
-    {
-      const row = { ...minimal, log: safeJson(payload) };
-      const res: any = await supabase.from(T_PROGRESS).insert([row]).select('id').single();
-      if (!res?.error) return { error: null };
-      const e = extractErrorVerbose(res.error);
-      if (!isUndefinedColumn(e)) return { error: e };
-    }
+    // スナップショットも同時更新
+    const patch: any = {
+      ...existing,
+      simulationResults: next,
+      simulationResult: payload,
+    };
 
-    // 3-2: payload
-    {
-      const row = { ...minimal, payload: safeJson(payload) };
-      const res: any = await supabase.from(T_PROGRESS).insert([row]).select('id').single();
-      if (!res?.error) return { error: null };
-      return { error: extractErrorVerbose(res.error) };
-    }
-
+    return await saveStrategyData(patch, userId, companyId);
   } catch (error: any) {
     return { error: extractErrorVerbose(error) };
   } finally { end(); }
 }
 
+/** B案：履歴取得（strategy_data 配列を最優先）＋ 互換フォールバック */
 export async function getSimulationResults(
   userId: string,
   companyIdOverride?: string | null,
   opts?: { limit?: number }
 ): Promise<{ rows: SimulationLogRow[]; error: any | null }> {
-  const end = group('📊 getSimulationResults', '#00838f');
+  const end = group('📊 getSimulationResults (B案)', '#00838f');
   try {
     const companyId = await resolveCompanyIdOrThrow(userId, companyIdOverride);
     const limit = Math.max(1, Math.min(200, opts?.limit ?? 50));
 
-    // 1st: category 列がある前提でフィルタ
+    // 1) strategy_data.simulation_results（配列）を最優先
     {
+      const { data, error } = await getFullStrategyDataByCompany(companyId);
+      if (!error && data) {
+        const list: StrategySimEntry[] = Array.isArray((data as any).simulationResults)
+          ? (data as any).simulationResults
+          : [];
+
+        if (list.length > 0) {
+          const rows = list
+            .slice(0, limit)
+            .map((r) => ({
+              id: r.id,
+              created_at: r.created_at,
+              title: r.title ?? null,
+              scenario_id: r.scenario_id ?? null,
+              payload: r.payload,
+            } as SimulationLogRow));
+          return { rows, error: null };
+        }
+      }
+    }
+
+    // 2) 互換フォールバック：別テーブル simulation_results（存在する環境向け）
+    try {
       const q = supabase
+        .from(T_SIM)
+        .select('*')
+        .eq('company_id', companyId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      const res: any = await q;
+      if (!res?.error) {
+        const rows: SimulationLogRow[] = (Array.isArray(res?.data) ? res.data : []).map((r: any) => ({
+          id: r.id,
+          created_at: r.created_at,
+          user_id: r.created_by ?? r.user_id ?? '',
+          company_id: r.company_id,
+          title: r.title ?? null,
+          scenario_id: r.scenario_id ?? null,
+          payload: r.payload,
+        }));
+        if (rows.length > 0) return { rows, error: null };
+      } else {
+        const e = extractErrorVerbose(res.error);
+        if (!isUndefinedTable(e)) return { rows: [], error: e };
+      }
+    } catch (e) {
+      const info = extractErrorVerbose(e);
+      if (!isUndefinedTable(info)) return { rows: [], error: info };
+    }
+
+    // 3) 互換フォールバック：progress_logs（列揃っていない環境も想定）
+    {
+      // category あり
+      const q1 = supabase
         .from(T_PROGRESS)
         .select('*')
         .eq('company_id', companyId)
         .eq('category', 'simulation')
         .order('created_at', { ascending: false })
         .limit(limit);
-
-      const res: any = await q;
-      if (!res?.error) {
-        const rows: SimulationLogRow[] = Array.isArray(res?.data) ? res.data : [];
-        return { rows, error: null };
+      const r1: any = await q1;
+      if (!r1?.error) {
+        const rows: SimulationLogRow[] = Array.isArray(r1?.data) ? r1.data : [];
+        if (rows.length > 0) return { rows, error: null };
+      } else {
+        const e = extractErrorVerbose(r1.error);
+        if (!isUndefinedColumn(e)) return { rows: [], error: e };
       }
-      const e = extractErrorVerbose(res.error);
-      if (!isUndefinedColumn(e)) return { rows: [], error: e };
-      // 列未定義 → フォールバック
-    }
 
-    // 2nd: category 無し全件（同社）から新しい順で取得
-    {
-      const q = supabase
+      // category 無し全件
+      const q2 = supabase
         .from(T_PROGRESS)
         .select('*')
         .eq('company_id', companyId)
         .order('created_at', { ascending: false })
         .limit(limit);
-
-      const res: any = await q;
-      if (res?.error) return { rows: [], error: extractErrorVerbose(res.error) };
-
-      const rows: SimulationLogRow[] = Array.isArray(res?.data) ? res.data : [];
-      return { rows, error: null };
+      const r2: any = await q2;
+      if (!r2?.error) {
+        const rows: SimulationLogRow[] = Array.isArray(r2?.data) ? r2.data : [];
+        return { rows, error: null };
+      }
+      return { rows: [], error: extractErrorVerbose(r2?.error) };
     }
-
   } catch (error: any) {
     return { rows: [], error: extractErrorVerbose(error) };
+  } finally { end(); }
+}
+
+/* ===================================================================
+ *  旧API（互換）：progress_logs / simulation_results へ保存
+ *  ※ B案では通常使いません。必要なら呼び出し側で appendSimulationResultToStrategy を利用。
+ * =================================================================== */
+
+async function tryInsertSimulationResultsTable(row: {
+  company_id: string;
+  user_id: string;
+  payload: any;
+  title?: string | null;
+  scenario_id?: string | null;
+}): Promise<{ ok: boolean; error?: any }> {
+  const res: any = await supabase.from(T_SIM).insert([{
+    company_id: row.company_id,
+    created_by: row.user_id ?? null,
+    payload: safeJson(row.payload),
+    title: row.title ?? null,
+    scenario_id: row.scenario_id ?? null,
+  }]).select('id').single();
+
+  if (!res?.error) return { ok: true };
+  const e = extractErrorVerbose(res.error);
+  if (isUndefinedTable(e)) return { ok: false }; // テーブルが無ければフォールバック
+  return { ok: false, error: e };
+}
+
+/** 互換保存：まず別テーブル、なければ progress_logs へ。B案では通常未使用。 */
+export async function saveSimulationResult(
+  userId: string,
+  payload: SimulationSavePayload,
+  companyIdOverride?: string | null,
+  opts?: { title?: string; scenarioId?: string }
+): Promise<WriteResult> {
+  const end = group('📥(compat) saveSimulationResult', '#9e9d24');
+  try {
+    const companyId = await resolveCompanyIdOrThrow(userId, companyIdOverride);
+    const now = new Date().toISOString();
+
+    // 別テーブルがある場合のみ保存（利用しない場合はこの関数を呼ばない）
+    {
+      const r = await tryInsertSimulationResultsTable({
+        company_id: companyId,
+        user_id: userId,
+        payload,
+        title: opts?.title ?? null,
+        scenario_id: opts?.scenarioId ?? null,
+      });
+      if (r.ok) return { error: null };
+      if (r.error && !isUndefinedTable(r.error)) return { error: r.error };
+    }
+
+    // progress_logs フォールバック（互換）
+    // 1) メタ列あり + log
+    {
+      const row = {
+        user_id: userId,
+        company_id: companyId,
+        created_at: now,
+        category: 'simulation',
+        kind: 'simulation',
+        type: 'simulation',
+        okr_id: null,
+        log: safeJson(payload),
+      } as Record<string, any>;
+
+      const res: any = await supabase.from(T_PROGRESS).insert([row]).select('id').single();
+      if (!res?.error) return { error: null };
+      const e = extractErrorVerbose(res.error);
+      if (!isUndefinedColumn(e)) return { error: e };
+    }
+    // 2) メタ列あり + payload
+    {
+      const row = {
+        user_id: userId,
+        company_id: companyId,
+        created_at: now,
+        category: 'simulation',
+        kind: 'simulation',
+        type: 'simulation',
+        okr_id: null,
+        payload: safeJson(payload),
+      } as Record<string, any>;
+
+      const res: any = await supabase.from(T_PROGRESS).insert([row]).select('id').single();
+      if (!res?.error) return { error: null };
+      const e = extractErrorVerbose(res.error);
+      if (!isUndefinedColumn(e)) return { error: e };
+    }
+    // 3) 最小構成 + log
+    {
+      const row = {
+        user_id: userId,
+        company_id: companyId,
+        created_at: now,
+        log: safeJson(payload),
+      } as Record<string, any>;
+
+      const res: any = await supabase.from(T_PROGRESS).insert([row]).select('id').single();
+      if (!res?.error) return { error: null };
+      const e = extractErrorVerbose(res.error);
+      if (!isUndefinedColumn(e)) return { error: e };
+    }
+    // 4) 最小構成 + payload
+    {
+      const row = {
+        user_id: userId,
+        company_id: companyId,
+        created_at: now,
+        payload: safeJson(payload),
+      } as Record<string, any>;
+
+      const res: any = await supabase.from(T_PROGRESS).insert([row]).select('id').single();
+      if (!res?.error) return { error: null };
+      return { error: extractErrorVerbose(res.error) };
+    }
+  } catch (error: any) {
+    return { error: extractErrorVerbose(error) };
   } finally { end(); }
 }
