@@ -313,13 +313,13 @@ function ExecPanel(props: {
 
         {/* 本文 */}
         <div className="space-y-6 p-5">
-          {/* OKR 概要 */}
+          {/* OKR 概要（日本語表記） */}
           <section className="rounded-2xl border border-black/10 bg-white/70 p-4">
-            <div className="text-xs font-medium text-gray-600 tracking-wide mb-1">OBJECTIVE</div>
+            <div className="text-xs font-medium text-gray-600 tracking-wide mb-1">達成目標（O）</div>
             <div className="whitespace-pre-wrap text-[15px]">{objective || '（未設定）'}</div>
             {keyResults?.length ? (
               <>
-                <div className="mt-3 text-xs font-medium text-gray-600 tracking-wide">KEY RESULTS</div>
+                <div className="mt-3 text-xs font-medium text-gray-600 tracking-wide">主要な成果（KR）</div>
                 <ul className="mt-1 list-disc pl-5 text-sm text-gray-800">
                   {keyResults.map((k, i) => (
                     <li key={i}>{k}</li>
