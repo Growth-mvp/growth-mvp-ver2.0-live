@@ -247,6 +247,35 @@ function extractSignals(params: {
 }
 
 /* =========================================================
+   OKR 日本語表示ヘルパ
+   - Objective => 達成目標
+   - Key Results => 主要な成果
+========================================================= */
+function renderOKRJa(okr?: { objective?: string; keyResults?: string[]; owner?: string }) {
+  if (!okr) return null;
+  const objective = (okr.objective ?? '').trim();
+  const krs = (okr.keyResults ?? []).filter(Boolean);
+  if (!objective && krs.length === 0) return null;
+
+  return (
+    <div className="mt-2">
+      {objective && (
+        <div className="text-sm font-medium">
+          達成目標：{objective}
+        </div>
+      )}
+      {krs.length > 0 && (
+        <ul className="list-disc pl-5 text-sm mt-1 space-y-1">
+          {krs.map((kr, i) => (
+            <li key={i}>主要な成果：{kr}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/* =========================================================
    メインページ
 ========================================================= */
 export default function CascadePage() {
@@ -629,17 +658,11 @@ export default function CascadePage() {
             )}
 
             {d.projects?.length ? (
-              <ul className="text-sm text-zinc-800 space-y-1">
+              <ul className="text-sm text-zinc-800 space-y-3">
                 {d.projects.map((p, j) => (
                   <li key={j}>
                     • {p.title}
-                    {p.okrs?.[0] && (
-                      <ul className="ml-5 list-disc">
-                        {p.okrs[0].keyResults.map((kr, k) => (
-                          <li key={k}>{kr}</li>
-                        ))}
-                      </ul>
-                    )}
+                    {renderOKRJa(p.okrs?.[0])}
                   </li>
                 ))}
               </ul>
@@ -659,7 +682,7 @@ export default function CascadePage() {
         </h1>
         <p className="text-zinc-600 text-sm">
           経営ストーリーを基に、質問に答えながら各部門の
-          <b>ミッション・プロジェクト・OKR</b>を明確化します。
+          <b>ミッション・プロジェクト・OKR（達成目標/主要な成果）</b>を明確化します。
         </p>
       </header>
 
@@ -858,10 +881,12 @@ export default function CascadePage() {
                     onClick={() => handleOKRFromExec(index)}
                     disabled={!editableDept || !!L.okrGen}
                     className="rounded-full h-9 px-4"
-                    title="実装パターンからOKR雛形を自動生成"
+                    title="実装パターンから OKR（達成目標/主要な成果）の雛形を自動生成"
                   >
-                    <Sparkles className="w-4 h-4 mr-1" />
-                    {L.okrGen ? 'OKR生成中…' : '実装→OKR雛形'}
+                    <Sparkles className="w-4 h-4" />
+                    <span className="ml-1">
+                      {L.okrGen ? 'OKR生成中…' : '実装→OKR雛形（達成目標/主要な成果）'}
+                    </span>
                   </Button>
                 </div>
 
@@ -969,7 +994,7 @@ export default function CascadePage() {
                   <div className="mt-4 border rounded-2xl bg-blue-50 p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                     <div className="text-sm text-blue-900 flex items-center gap-2">
                       <Sparkles className="w-4 h-4" />
-                      回答から <b>Mission / Projects / OKR</b> を生成できます（生成後に勝ちパターンも推薦）。
+                      回答から <b>Mission / Projects / OKR（達成目標/主要な成果）</b> を生成できます（生成後に勝ちパターンも推薦）。
                     </div>
                     <Button
                       onClick={() => handleGenerateSummary(index)}
