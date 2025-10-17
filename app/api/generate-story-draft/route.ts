@@ -237,6 +237,7 @@ export async function POST(req: NextRequest) {
       temperature,
       patternIds,
       mode: _mode, // 'future' | 'legacy'（未指定は future）
+      enhanceEmotion, // ★ 追加：true/false（未指定はtrue）
     } = body || {};
 
     const mode: Mode = _mode === 'legacy' ? 'legacy' : 'future';
@@ -255,13 +256,14 @@ export async function POST(req: NextRequest) {
     // ★ 追加：勝ちパターン要旨
     const patternDigest = buildTopPatternDigest(Array.isArray(patternIds) ? patternIds : undefined);
 
-    // ✅ systemPrompt（モードで切替）
+    // ✅ systemPrompt（モードで切替 ＋ 魂の三要素を強制）
     const goals = mode === 'future' ? CHAPTER_GOALS_FUTURE : CHAPTER_GOALS_LEGACY;
 
     const systemPrompt = [
       mode === 'future'
-        ? 'あなたは「未来逆算×両利きの経営」アーキテクトです。'
-        : 'あなたは「経営ストーリーの執筆者」です。',
+        ? 'あなたは「未来逆算×両利きの経営」アーキテクトであり、同時に“社員の心を動かす経営者”です。'
+        : 'あなたは「経営ストーリーの執筆者」であり、“社員の心を動かす経営者”です。',
+      '論理の正確さだけでなく、情熱・覚悟・誇りを伴う語り口で書きます（コンサル調ではなく、経営者本人の声）。',
       '日本語で、必ず 4 章構成のドラフトを生成します。',
       '抽象論を避け、不可逆性・比較・トレードオフ・原則・「小さな勝ち体験」を適切に織り込みます。',
       '章タイトルはサーバ側で最終整形するため、内容の充実を優先し、JSON で返答してください。',
@@ -277,6 +279,11 @@ export async function POST(req: NextRequest) {
       `2) ${goals[1]}`,
       `3) ${goals[2]}`,
       `4) ${goals[3]}`,
+      '',
+      '【魂の三要素（必須）】',
+      '- 第2章には「誇り」に相当する1文を自然に挿入（私たちが大切に守り抜いてきた本質・流儀）。',
+      '- 第3章には「賭け」に相当する1文を自然に挿入（未来へ踏み出す決断・リスクを受け止める覚悟）。',
+      '- 第4章には「信念」に相当する1文を自然に挿入（仲間とやり抜く約束・何があってもブレない原則）。',
       '',
       '【出力フォーマット（厳守）】',
       '出力は JSON のみ（コードフェンスや説明文を付けない）。',
@@ -324,7 +331,7 @@ export async function POST(req: NextRequest) {
       '',
       '【執筆要件】',
       '- 章の見出し文言は最終的にサーバ側で上書きされるため、内容の質を最優先すること。',
-      '- それぞれの章が上記のゴールを満たすように書くこと。',
+      '- それぞれの章が上記のゴールと「魂の三要素」を満たすように書くこと。',
       '- 深掘りQ&Aの内容は参照しないこと。',
     ]
       .filter(Boolean)
@@ -393,10 +400,53 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // サーバ側で章タイトル/順序を固定（本文はcoercedの中身を使用）
+    // ---- ここから「感情補正（二段階目）」 ※デフォルトON。失敗時は無視して続行 ----
+    let enhancedChapters = coerced;
+    const doEnhance = enhanceEmotion !== false; // 既定で true（未指定は有効）
+    if (doEnhance) {
+      try {
+        const enhanceSystem =
+          'あなたは経営者ストーリーのエディターです。構造を壊さず、「熱・覚悟・人間的な語り」を増幅します。出力はJSONのみ。';
+        const enhanceUser = [
+          '【編集方針】',
+          '- 各章の論理は保ちつつ、語り口を「経営者本人の声」に寄せる。',
+          '- 第2章に「誇り」、第3章に「賭け」、第4章に「信念」を、自然な1文として必ず含める。',
+          '- 文体は断定的で、比喩は控えめ。SHOW, DON’T TELL を意識し、情景で伝える。',
+          '- 各章は250〜400字の範囲を目安に整える（超過時は圧縮）。',
+          '',
+          '【対象JSON】',
+          JSON.stringify({ chapters: enhancedChapters }, null, 2).slice(0, 6000), // 安全のため上限
+          '',
+          '【出力形式（厳守）】',
+          '{"chapters":[{"title":"...","body":"..."}]} のみ。',
+        ].join('\n');
+
+        const cEnh = await openai.chat.completions.create({
+          model,
+          temperature: Math.min(0.6, temp + 0.1),
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: enhanceSystem },
+            { role: 'user', content: enhanceUser },
+          ],
+          max_tokens: 900,
+        });
+
+        const rawEnh = cEnh.choices?.[0]?.message?.content?.trim() || '';
+        const parsedEnh = extractJsonLoose(rawEnh);
+        const coercedEnh = coerceChapters(parsedEnh);
+        if (coercedEnh?.length >= 4) {
+          enhancedChapters = coercedEnh;
+        }
+      } catch {
+        // 補正失敗時はそのまま続行（既存挙動維持）
+      }
+    }
+
+    // サーバ側で章タイトル/順序を固定（本文はenhancedの中身を使用）
     const chapters = TITLE_TEMPLATES.map((title, i) => ({
       title,
-      body: sanitize(coerced[i]?.body || '（この章は未生成です）', 2400),
+      body: sanitize(enhancedChapters[i]?.body || '（この章は未生成です）', 2400),
     }));
 
     // summary は色々な形を許容
@@ -421,7 +471,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { story: chapters, summary, _debug: { model, mode } },
+      { story: chapters, summary, _debug: { model, mode, enhanced: doEnhance === true } },
       { headers: { 'Cache-Control': 'no-store' } }
     );
   } catch (error: any) {
