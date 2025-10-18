@@ -280,7 +280,7 @@ export default function StoryProcessPage() {
 
   /* ----- すべての候補から表示用 story を構成（session は IDs 確定時のみ） ----- */
   const storyFromSession: ChapterStory[] = useMemo(() => {
-    if (!companyId || !store?.strategyId) return []; // ★未確定なら読まない
+    if (!companyId || !store?.strategyId) return [];
     try {
       const ss = sessionStorage.getItem(ssKey('story', companyId, store?.strategyId));
       if (!ss) return [];
@@ -301,7 +301,7 @@ export default function StoryProcessPage() {
 
   const storyRawFromStoreAlt: ChapterStory[] =
     Array.isArray(store?.storyChapters) ? store.storyChapters :
-    (typeof store?.storyChapters === 'string' ? (tryParseJson<ChapterStory[]>(store.storyChapters) ?? []) : []);
+    (typeof store?.storyChapters === 'string' ? (tryParseJson<ChapterStory[]>(store?.storyChapters) ?? []) : []);
 
   const finalRawFromStore: ChapterStory[] =
     Array.isArray(store?.finalStory) ? store.finalStory :
@@ -1004,7 +1004,7 @@ function FinalStorySection({
                   setDraftEdit(next);
                 }}
                 placeholder="この章の本文を編集…"
-                className="w-full min-h-[180px] rounded-lg border border-zinc-300 p-3 text-[13px] focus:outline-none focus:ring-2 focus:ring-zinc-400"
+                className="w-full min-h[180px] min-h-[180px] rounded-lg border border-zinc-300 p-3 text-[13px] focus:outline-none focus:ring-2 focus:ring-zinc-400"
                 disabled={!canEdit}
               />
               <div className="mt-1 text-[11px] text-zinc-600">文字数：{c.body.length}（各章の目安 300〜650 字）</div>
