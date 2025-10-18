@@ -8,13 +8,11 @@ import { useUserStore } from '@/store/userStore';
 import StepLayout from '@/components/StepLayout';
 import { getIndustryLabel } from '@/utils/industryTemplates';
 import FinanceSummaryPanel from '@/components/finance/FinanceSummaryPanel';
-import { saveStrategyData } from '@/utils/supabase';
+// ✅ 修正：新設計の保存APIを直接インポート
+import { saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
 
 /* =========================================================
  * 確認画面（生成→保存→遷移の堅牢化・名前空間つき）
- * - sessionStorage キーを companyId/strategyId で名前空間化
- * - DB にも保存してリロード時の不整合を防止
- * - 遷移前に microtask を挟み、状態反映を安定化
  * ========================================================= */
 
 /** 名前空間つき sessionStorage キー */
@@ -311,10 +309,10 @@ export default function Step5Confirm() {
         }
       } catch {}
 
-      // 3) DBにも保存（リロード対策の決定打）
+      // 3) DBにも保存（新設計APIに合わせて呼び出し先＆引数を修正）
       try {
         if (userId && companyId) {
-          await saveStrategyData(
+          await saveStrategyDataApi(
             {
               strategyId,
               story: finalChapters,
@@ -325,7 +323,8 @@ export default function Step5Confirm() {
               csvFinanceData,
               answers2, // もし使うなら
             } as any,
-            userId
+            userId,
+            companyId // ✅ 第3引数に companyId（override）を渡すのが新設計の正
           );
         }
       } catch (e) {
