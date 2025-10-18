@@ -9,7 +9,6 @@ import { saveStrategyData } from '@/utils/supabase';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAccess } from '@/utils/access';
-
 import type { AnswerStep as StrategyAnswerStep } from '@/types/strategy';
 
 /* ===== 型 ===== */
@@ -42,6 +41,12 @@ function getDepthFor(chapterIndex: number, stepNumber: number): Depth {
 }
 
 /* ===== Utils ===== */
+const STABLE_TS = '1970-01-01T00:00:00.000Z';
+
+// sessionStorage のキーを companyId / strategyId で名前空間化
+const ssKey = (base: string, companyId?: string | null, strategyId?: string | null) =>
+  `growth.${companyId || 'co'}.${strategyId || 'stg'}.${base}`;
+
 function tryParseJson<T = any>(text: string): T | null { try { return JSON.parse(text); } catch { return null; } }
 function safeJsonFromText<T = any>(text: string): T | null {
   const direct = tryParseJson<T>(text);
@@ -164,8 +169,6 @@ const isStepsEqual = (a: StepperAnswerStep[] = [], b: StepperAnswerStep[] = []) 
 };
 
 /* ===== StrategyStep ↔ StepperStep 変換 ===== */
-const STABLE_TS = '1970-01-01T00:00:00.000Z';
-
 function inflateToStepper(steps: StrategyAnswerStep[] | undefined, chapterIndex: number): StepperAnswerStep[] {
   if (!Array.isArray(steps)) return [];
   return steps
@@ -215,67 +218,120 @@ export default function StoryProcessPage() {
     return () => { window.history.scrollRestoration = prev; };
   }, []);
 
-  /* ----- 初回リフェッチ（競合に注意） ----- */
+  /* ----- 旧・非名前空間キーを初回に破棄（混入防止） ----- */
+  useEffect(() => {
+    try {
+      ['growth.story','growth.storyDraft','growth.strategySummary','growth.finalStory']
+        .forEach(k => sessionStorage.removeItem(k));
+    } catch {}
+  }, []);
+
+  /* ----- 案件切替でローカル状態をクリア（持ち越し防止） ----- */
+  const prevKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    const key = `${companyId || ''}::${store?.strategyId || ''}`;
+    if (!key || key === prevKeyRef.current) return;
+    prevKeyRef.current = key;
+    (useStrategyStore as any).setState({ story: [], storyChapters: [], chapters: [] });
+  }, [companyId, store?.strategyId]);
+
+  /* ----- セッションの story 復旧：companyId & strategyId が揃うまで絶対に読まない ----- */
+  useEffect(() => {
+    if (!companyId || !store?.strategyId) return; // ★超重要：未確定ならNOOP
+    try {
+      const ssStory = sessionStorage.getItem(ssKey('story', companyId, store?.strategyId));
+      if (ssStory) {
+        const chs = tryParseJson<ChapterStory[]>(ssStory) ?? [];
+        if (chs.length) {
+          const current: ChapterStory[] = Array.isArray(store?.story) ? store.story : [];
+          if (!current.length) {
+            if (typeof store?.setStory === 'function') store.setStory(chs);
+            else (useStrategyStore as any).setState({ story: chs, storyChapters: chs, chapters: chs });
+          }
+        }
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId, store?.strategyId]);
+
+  /* ----- 初回リフェッチ（※セッション適用後に遅延） ----- */
   useEffect(() => {
     if (!companyId) return;
     const st: any = useStrategyStore.getState();
     const fn: any = st?.refetchFromServer;
     if (typeof fn === 'function') {
-      try {
-        if (fn.length >= 1) {
-          if (user?.id) fn(user.id);
-        } else {
-          fn();
+      const delay = setTimeout(() => {
+        try {
+          if (fn.length >= 1) {
+            if (user?.id) fn(user.id);
+          } else {
+            fn();
+          }
+        } catch (e) {
+          console.warn('refetchFromServer call failed', e);
         }
-      } catch (e) {
-        console.warn('refetchFromServer call failed', e);
-      }
+      }, 350);
+      return () => clearTimeout(delay);
     }
   }, [companyId, user?.id]);
 
   const strategyId: string | undefined = store?.strategyId;
   const autoKey = `storyProcess.autoFinal.${strategyId || 'default'}`;
 
-  /* ----- ドラフト参照（storyDraft / story / finalStory の順にフェイルセーフ） ----- */
-  const storyDraftMaybe = store?.storyDraft; // 文字列 or 配列の可能性
+  /* ----- すべての候補から表示用 story を構成（session は IDs 確定時のみ） ----- */
+  const storyFromSession: ChapterStory[] = useMemo(() => {
+    if (!companyId || !store?.strategyId) return []; // ★未確定なら読まない
+    try {
+      const ss = sessionStorage.getItem(ssKey('story', companyId, store?.strategyId));
+      if (!ss) return [];
+      const arr = tryParseJson<ChapterStory[]>(ss) ?? [];
+      return Array.isArray(arr) ? arr : [];
+    } catch { return []; }
+  }, [companyId, store?.strategyId]);
+
+  const storyDraftMaybe = store?.storyDraft;
   const storyRawFromDraft: ChapterStory[] =
     Array.isArray(storyDraftMaybe)
       ? (storyDraftMaybe as ChapterStory[])
       : (typeof storyDraftMaybe === 'string' ? longformToChapters(storyDraftMaybe) : []);
 
-  const storyRawFromStore: ChapterStory[] =
+  const storyRawFromStoreMain: ChapterStory[] =
     Array.isArray(store?.story) ? store.story :
     (typeof store?.story === 'string' ? (tryParseJson<ChapterStory[]>(store.story) ?? []) : []);
+
+  const storyRawFromStoreAlt: ChapterStory[] =
+    Array.isArray(store?.storyChapters) ? store.storyChapters :
+    (typeof store?.storyChapters === 'string' ? (tryParseJson<ChapterStory[]>(store.storyChapters) ?? []) : []);
 
   const finalRawFromStore: ChapterStory[] =
     Array.isArray(store?.finalStory) ? store.finalStory :
     (typeof store?.finalStory === 'string' ? (tryParseJson<ChapterStory[]>(store.finalStory) ?? []) : []);
 
-  const storyRawArr: ChapterStory[] =
-    (storyRawFromDraft.length ? storyRawFromDraft :
-     (storyRawFromStore.length ? storyRawFromStore : finalRawFromStore));
+  // 優先順：session → store.story → store.storyChapters → storyDraft → finalStory
+  const storyRawArr: ChapterStory[] = useMemo(() => {
+    const candidates = [
+      storyFromSession,
+      storyRawFromStoreMain,
+      storyRawFromStoreAlt,
+      storyRawFromDraft,
+      finalRawFromStore,
+    ];
+    for (const c of candidates) if (Array.isArray(c) && c.length) return c;
+    return [];
+  }, [storyFromSession, storyRawFromStoreMain, storyRawFromStoreAlt, storyRawFromDraft, finalRawFromStore]);
 
-  /* ----- 初回だけ sessionStorage から復旧（Step5側フェイルセーフの受け口） ----- */
+  /* ----- 初回だけ sessionSummary を受け口として復旧（IDs 確定時のみ） ----- */
   const [restoredOnce, setRestoredOnce] = useState(false);
   useEffect(() => {
-    if (restoredOnce) return;
-    if (storyRawArr.length > 0) { setRestoredOnce(true); return; }
-
+    if (restoredOnce || !companyId || !store?.strategyId) return;
     try {
-      const ssDraft = sessionStorage.getItem('growth.storyDraft');
-      if (ssDraft && !store?.storyDraft && typeof store?.setStoryDraft === 'function') {
-        store.setStoryDraft(ssDraft); // 文字列として保存
-      } else if (ssDraft && !store?.story && typeof store?.setStory === 'function') {
-        const chs = longformToChapters(ssDraft);
-        if (chs.length) store.setStory(chs);
-      }
-      const ssSummary = sessionStorage.getItem('growth.strategySummary');
+      const ssSummary = sessionStorage.getItem(ssKey('strategySummary', companyId, store?.strategyId));
       if (ssSummary && typeof store?.setStrategySummary === 'function') {
         store.setStrategySummary(ssSummary);
       }
     } catch {}
     setRestoredOnce(true);
-  }, [restoredOnce, storyRawArr.length, store?.setStory, store?.setStoryDraft, store?.setStrategySummary, store?.story, store?.storyDraft]);
+  }, [restoredOnce, companyId, store?.strategyId, store?.setStrategySummary]);
 
   const answers2: ChapterAnswers[] = useMemo(() => {
     const raw = Array.isArray(store?.answers2) ? store.answers2 : [];
@@ -292,18 +348,28 @@ export default function StoryProcessPage() {
     thought, strength, weakness, opportunity, threat,
     csvFinanceData,
     portfolio,
-    enhanceEmotion = true, // ★ 追加：魂の補正（デフォルトON）
+    enhanceEmotion = true,
   } = store ?? {};
 
   const setStorySafe = (chs: ChapterStory[]) => {
     if (!canEdit) return;
     if (typeof store?.setStory === 'function') store.setStory(chs);
-    else (useStrategyStore as any).setState({ story: chs });
+    (useStrategyStore as any).setState({ story: chs, storyChapters: chs, chapters: chs });
+    try {
+      if (companyId && store?.strategyId) {
+        sessionStorage.setItem(ssKey('story', companyId, store?.strategyId), JSON.stringify(chs));
+      }
+    } catch {}
   };
   const setFinalStorySafe = (chs: ChapterStory[]) => {
     if (!canEdit) return;
     if (typeof store?.setFinalStory === 'function') store.setFinalStory(chs);
-    else (useStrategyStore as any).setState({ finalStory: chs });
+    (useStrategyStore as any).setState({ finalStory: chs });
+    try {
+      if (companyId && store?.strategyId) {
+        sessionStorage.setItem(ssKey('finalStory', companyId, store?.strategyId), JSON.stringify(chs));
+      }
+    } catch {}
   };
   const setAnswers2Safe = (a2: ChapterAnswers[]) => {
     if (!canEdit) return;
@@ -367,47 +433,45 @@ export default function StoryProcessPage() {
   /* ------- 自動保存（デバウンス） ------- */
   const persistTimer = useRef<number | null>(null);
   const persistDebounced = useCallback((
-      a2: ChapterAnswers[] = answers2,
-      draft: ChapterStory[] = storyRawArr,
-      fin: ChapterStory[] = finalRawFromStore
-    ) => {
-      if (!canEdit || !companyId) return;
-      if (persistTimer.current) window.clearTimeout(persistTimer.current);
-      persistTimer.current = window.setTimeout(async () => {
-        if (!user?.id || !companyId) return;
-        try {
-          await saveStrategyData(
-            {
-              strategyId: store?.strategyId,
-              story: draft,
-              finalStory: fin,
-              answers2: (a2 ?? []).map((c) => ({
-                chapterIndex: c.chapterIndex,
-                chapterTitle: c.chapterTitle,
-                steps: deflateToStrategy(c.steps),
-              })),
-              mission, vision, value,
-              industry, revenue, employees,
-              thought, strength, weakness, opportunity, threat,
-              csvFinanceData,
-              portfolio,
-              enhanceEmotion, // ★ 追加：状態も保存
-            } as any,
-            user.id
-          );
-        } catch (e) {
-          console.error('Auto save failed', e);
-        }
-      }, 800) as unknown as number;
-    },
-    [
-      answers2, csvFinanceData, employees, finalRawFromStore, industry, mission,
-      opportunity, revenue, storyRawArr, strength, store?.strategyId, thought, threat,
-      user?.id, value, vision, weakness, canEdit, companyId, portfolio, enhanceEmotion,
-    ]
-  );
+    a2: ChapterAnswers[] = answers2,
+    draft: ChapterStory[] = storyRawArr,
+    fin: ChapterStory[] = finalRawFromStore
+  ) => {
+    if (!canEdit || !companyId) return;
+    if (persistTimer.current) window.clearTimeout(persistTimer.current);
+    persistTimer.current = window.setTimeout(async () => {
+      if (!user?.id || !companyId) return;
+      try {
+        await saveStrategyData(
+          {
+            strategyId: store?.strategyId,
+            story: draft,
+            finalStory: fin,
+            answers2: (a2 ?? []).map((c) => ({
+              chapterIndex: c.chapterIndex,
+              chapterTitle: c.chapterTitle,
+              steps: deflateToStrategy(c.steps),
+            })),
+            mission, vision, value,
+            industry, revenue, employees,
+            thought, strength, weakness, opportunity, threat,
+            csvFinanceData,
+            portfolio,
+            enhanceEmotion,
+          } as any,
+          user.id
+        );
+      } catch (e) {
+        console.error('Auto save failed', e);
+      }
+    }, 800) as unknown as number;
+  }, [
+    answers2, csvFinanceData, employees, finalRawFromStore, industry, mission,
+    opportunity, revenue, storyRawArr, strength, store?.strategyId, thought, threat,
+    user?.id, value, vision, weakness, canEdit, companyId, portfolio, enhanceEmotion,
+  ]);
 
-  /* ------- Stepper → 親へQ/A同期（丸め禁止） ------- */
+  /* ------- Stepper → 親へQ/A同期 ------- */
   const onStepperChange = useCallback((p: { chapterIndex: number; answers: StepperAnswerStep[]; currentStep: number; maxSteps?: number; }) => {
     if (!canEdit) return;
     const { chapterIndex, answers, maxSteps } = p;
@@ -431,6 +495,7 @@ export default function StoryProcessPage() {
 
     const withDepthFallback: StepperAnswerStep[] = (answers ?? []).map((s) => {
       const sn = Number(s.stepNumber);
+      theDepth: { /* keep block label to avoid accidental var name changes */ }
       const depth = (s as any).depth ?? getDepthFor(chapterIndex, sn);
       return { ...s, stepNumber: sn, depth, createdAt: (s as any).createdAt ?? STABLE_TS };
     });
@@ -462,7 +527,7 @@ export default function StoryProcessPage() {
     [referenceArr, mission, vision, value, strength, weakness, opportunity, threat, csvFinanceData, portfolio]
   );
 
-  /* ------- 参考ストーリー生成 ------- */
+  /* ------- 参考ストーリー生成（手動） ------- */
   const onGenerateDraft = useCallback(async () => {
     if (!canEdit) return;
     setLoadingDraft(true);
@@ -475,8 +540,8 @@ export default function StoryProcessPage() {
           industry, revenue, employees,
           strength, weakness, opportunity, threat,
           csvFinanceData,
-          story: storyRawArr,
-          enhanceEmotion, // ★ 追加：魂の補正フラグをAPIへ
+          // ⚠ 古い文脈の混入を避けるため story は送らない
+          enhanceEmotion,
         }),
       });
 
@@ -493,7 +558,11 @@ export default function StoryProcessPage() {
 
       const uniq = alignToGrowthOrder(uniqChapters(draft), REFERENCE_TITLES);
       setStorySafe(uniq);
-      try { sessionStorage.setItem('growth.storyDraft', JSON.stringify(uniq)); } catch {}
+      try {
+        if (companyId && store?.strategyId) {
+          sessionStorage.setItem(ssKey('storyDraft', companyId, store?.strategyId), JSON.stringify(uniq));
+        }
+      } catch {}
       persistDebounced(answers2, uniq, finalRawFromStore);
     } catch (e) {
       console.error('draft generate failed', e);
@@ -503,8 +572,9 @@ export default function StoryProcessPage() {
     }
   }, [
     answers2, csvFinanceData, employees, finalRawFromStore, industry, mission,
-    opportunity, persistDebounced, revenue, setStorySafe, storyRawArr,
+    opportunity, persistDebounced, revenue, setStorySafe,
     strength, thought, threat, value, vision, weakness, canEdit, enhanceEmotion,
+    companyId, store?.strategyId
   ]);
 
   /* ------- 最終ストーリー ------- */
@@ -534,7 +604,7 @@ export default function StoryProcessPage() {
         portfolio,
         userId: user?.id,
         budgets: { longform: [1600, 2400] },
-        enhanceEmotion, // ★ 追加：最終ストーリーも魂の補正をAPIへ
+        enhanceEmotion,
       }),
     });
     const text = await res.text();
@@ -568,7 +638,11 @@ export default function StoryProcessPage() {
 
       const ordered = alignToGrowthOrder(uniqChapters(nextFinalRaw), FINAL_TITLES);
       setFinalStorySafe(ordered);
-      try { sessionStorage.setItem('growth.finalStory', JSON.stringify(ordered)); } catch {}
+      try {
+        if (companyId && store?.strategyId) {
+          sessionStorage.setItem(ssKey('finalStory', companyId, store?.strategyId), JSON.stringify(ordered));
+        }
+      } catch {}
       persistDebounced(answers2, draftArr, ordered);
     } catch (e: any) {
       if (String(e?.message || '').includes('AbortError')) return;
@@ -583,7 +657,7 @@ export default function StoryProcessPage() {
     } finally {
       setFinalLoading(false);
     }
-  }, [answers2, callFinalApi, persistDebounced, setFinalStorySafe, draftArr, canEdit]);
+  }, [answers2, callFinalApi, persistDebounced, setFinalStorySafe, draftArr, canEdit, companyId, store?.strategyId]);
 
   /* 自動生成トリガ（全12問完了時・一度だけ） */
   const hasAutoTriggeredRef = useRef(false);
@@ -619,6 +693,7 @@ export default function StoryProcessPage() {
 
       const steps: StepperAnswerStep[] = (chapterAns.steps ?? []).map((s) => {
         const sn = Number(s.stepNumber);
+        theDepth: { /* keep block label to avoid accidental var name changes */ }
         const depth = (s as any).depth ?? getDepthFor(i, sn);
         return { ...s, stepNumber: sn, depth, createdAt: (s as any).createdAt ?? STABLE_TS };
       });
@@ -631,12 +706,12 @@ export default function StoryProcessPage() {
           data-slide={i}
           className="min-w-full max-w-full shrink-0 snap-start px-2 relative"
         >
+          {/* 閲覧モード時のみ操作ブロック（描画は阻害しない） */}
           <div
             className="absolute inset-0 z-10 bg-transparent"
-            data-locked={!canEdit}
             style={{ pointerEvents: canEdit ? 'none' : 'auto' }}
-            title={canEdit ? undefined : '閲覧モード（編集は管理者のみ）'}
             aria-hidden={canEdit ? 'true' : undefined}
+            title={canEdit ? undefined : '閲覧モード（編集は管理者のみ）'}
           />
 
           <div className={`space-y-4 rounded-2xl border ${color.border} bg-white/90 p-4 shadow-sm min-w-0 overflow-hidden`}>
@@ -696,7 +771,7 @@ export default function StoryProcessPage() {
               title={canEdit ? undefined : 'このページの編集は管理者（Admin）のみ可能です。今は閲覧モードです。'}
               aria-hidden={canEdit ? 'true' : undefined}
             >
-              観覧モード（Adminのみ編集可）
+              閲覧モード（Adminのみ編集可）
             </span>
 
             <Button
@@ -714,7 +789,7 @@ export default function StoryProcessPage() {
               className="h-9 rounded-full px-5 text-[13px]"
               title={canEdit ? '' : '管理者のみ実行できます'}
             >
-              {finalLoading ? '最終生成中…' : '最終ストーリーを生成'}
+              {finalLoading ? '最終ストーリーを生成中…' : '最終ストーリーを生成'}
             </Button>
           </div>
         </div>
@@ -726,39 +801,45 @@ export default function StoryProcessPage() {
           <h2 className="text-[17px] font-semibold tracking-tight text-zinc-900">参考ストーリー</h2>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 min-w-0">
-          {referenceArr.slice(0, 4).map((ch, i) => {
-            const chapterAns = answers2.find(a => a.chapterIndex === i);
-            const need = maxStepsByChapter[i] ?? (i === 1 ? 6 : 2);
-            const steps = chapterAns?.steps ?? [];
-            let done = 0;
-            for (let s = 1; s <= need; s++) {
-              const rec = steps.find(x => Number(x.stepNumber) === s);
-              if (rec && String(rec.answer || '').trim()) done++;
-            }
-            const color = CHAPTER_COLORS[i % CHAPTER_COLORS.length];
-            return (
-              <article
-                key={`${(ch?.title || '').slice(0,50)}-${i}`}
-                className={`rounded-2xl p-4 transition shadow-sm border ${color.border} bg-white/90 hover:bg-white ${currentIdx === i ? `ring-2 ${color.ring}` : ''} cursor-pointer min-w-0 overflow-hidden`}
-                onClick={() => {
-                  setCurrentIdx(i);
-                  const el = document.getElementById('question-slider');
-                  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }}
-                title="クリックでこの章の質問に移動"
-              >
-                <div className="mb-2 flex items-center justify-between">
-                  <h3 className="text-[15px] font-semibold text-zinc-900">{ch?.title ?? `Chapter ${i + 1}`}</h3>
-                  <span className={`text-[11px] px-2 py-0.5 rounded-full border ${color.badge}`}>
-                    進捗 {done}/{need}
-                  </span>
-                </div>
-                <ForceMultiline text={ch?.body} className="text-[13px] text-zinc-700" />
-              </article>
-            );
-          })}
-        </div>
+        {referenceArr.length === 0 ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900 text-[13px]">
+            参考ストーリーが未設定です。Step5（確認）から生成するか、「参考を生成」を押してください。
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 min-w-0">
+            {referenceArr.slice(0, 4).map((ch, i) => {
+              const chapterAns = answers2.find(a => a.chapterIndex === i);
+              const need = maxStepsByChapter[i] ?? (i === 1 ? 6 : 2);
+              const steps = chapterAns?.steps ?? [];
+              let done = 0;
+              for (let s = 1; s <= need; s++) {
+                const rec = steps.find(x => Number(x.stepNumber) === s);
+                if (rec && String(rec.answer || '').trim()) done++;
+              }
+              const color = CHAPTER_COLORS[i % CHAPTER_COLORS.length];
+              return (
+                <article
+                  key={`${(ch?.title || '').slice(0,50)}-${i}`}
+                  className={`rounded-2xl p-4 transition shadow-sm border ${color.border} bg-white/90 hover:bg-white ${currentIdx === i ? `ring-2 ${color.ring}` : ''} cursor-pointer min-w-0 overflow-hidden`}
+                  onClick={() => {
+                    setCurrentIdx(i);
+                    const el = document.getElementById('question-slider');
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}
+                  title="クリックでこの章の質問に移動"
+                >
+                  <div className="mb-2 flex items-center justify-between">
+                    <h3 className="text-[15px] font-semibold text-zinc-900">{ch?.title ?? `Chapter ${i + 1}`}</h3>
+                    <span className={`text-[11px] px-2 py-0.5 rounded-full border ${color.badge}`}>
+                      進捗 {done}/{need}
+                    </span>
+                  </div>
+                  <ForceMultiline text={ch?.body} className="text-[13px] text-zinc-700" />
+                </article>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       {/* 質問スライダー */}
@@ -802,7 +883,7 @@ export default function StoryProcessPage() {
 
         <div className="mt-5">
           <div className="h-1.5 w-full rounded-full bg-zinc-200 overflow-hidden">
-            <div className="h-1.5 bg-zinc-400 transition-all" style={{ width: `${progressPct}%` }} />
+            <div className="h-1.5 transition-all bg-zinc-400" style={{ width: `${progressPct}%` }} />
           </div>
           <p className="mt-1 text-[12px] text-zinc-600">
             全体進捗：{completedSteps}/{TOTAL_STEPS}
@@ -819,6 +900,8 @@ export default function StoryProcessPage() {
         draftArr={draftArr}
         persistDebounced={persistDebounced}
         setFinalStorySafe={setFinalStorySafe}
+        companyId={companyId}
+        strategyId={store?.strategyId}
       />
     </div>
   );
@@ -833,6 +916,8 @@ function FinalStorySection({
   draftArr,
   persistDebounced,
   setFinalStorySafe,
+  companyId,
+  strategyId,
 }: {
   canEdit: boolean;
   finalLoading: boolean;
@@ -841,6 +926,8 @@ function FinalStorySection({
   draftArr: ChapterStory[];
   persistDebounced: (a2?: ChapterAnswers[], draft?: ChapterStory[], fin?: ChapterStory[]) => void;
   setFinalStorySafe: (chs: ChapterStory[]) => void;
+  companyId?: string | null;
+  strategyId?: string | null;
 }) {
   const [editing, setEditing] = useState(false);
   const [draftEdit, setDraftEdit] = useState<ChapterStory[]>([]);
@@ -858,7 +945,7 @@ function FinalStorySection({
   const applySaveEdits = async () => {
     const clean = draftEdit.map((c, i) => ({ title: FINAL_TITLES[i] ?? c.title, body: c.body || '' }));
     setFinalStorySafe(clean);
-    try { sessionStorage.setItem('growth.finalStory', JSON.stringify(clean)); } catch {}
+    try { if (companyId && strategyId) sessionStorage.setItem(ssKey('finalStory', companyId, strategyId), JSON.stringify(clean)); } catch {}
     persistDebounced(undefined, undefined, clean);
     setEditing(false);
   };
