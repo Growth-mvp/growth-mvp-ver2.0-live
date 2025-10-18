@@ -57,7 +57,7 @@ function normalizeIncomingKeys(obj: Record<string, unknown> | null | undefined) 
   const src = obj ?? {};
   const patched: Record<string, unknown> = { ...src };
 
-  // legacy→modern mapping
+  // legacy→modern mapping（snake→camel 互換）
   const LEGACY_KEY_MAP: Record<string, string> = {
     company_name: 'companyName',
     foundation_year: 'foundationYear',
@@ -66,6 +66,12 @@ function normalizeIncomingKeys(obj: Record<string, unknown> | null | undefined) 
     final_story: 'finalStory',
     business_portfolio: 'businessPortfolio',
     finance_summary: 'financeSummary',
+    csv_finance_data: 'csvFinanceData',
+    strategy_summary: 'strategySummary',
+    editable_cascade: 'editableCascade',
+    editable_cascade_result: 'editableCascadeResult',
+    simulation_result: 'simulationResult',
+    simulation_results: 'simulationResults',
   };
   for (const [legacy, modern] of Object.entries(LEGACY_KEY_MAP)) {
     if (legacy in patched && !(modern in patched)) {
@@ -74,15 +80,29 @@ function normalizeIncomingKeys(obj: Record<string, unknown> | null | undefined) 
     }
   }
 
-  // array/object columns normalize
+  // array/object columns normalize（最低限の型安全）
   patched.departments = ensureArrayJson((patched as any).departments);
   patched.answers2 = ensureArrayJson((patched as any).answers2);
   patched.story = ensureArrayJson((patched as any).story);
   patched.finalStory = ensureArrayJson((patched as any).finalStory);
   patched.financeSummary = ensureArrayJson((patched as any).financeSummary);
   patched.businessPortfolio = ensureObjectJson((patched as any).businessPortfolio);
-  patched.simulationResult = ensureObjectJson((patched as any).simulationResult);
-  patched.simulationResults = ensureArrayJson((patched as any).simulationResults);
+  // 互換で持ってくる可能性のある列
+  if ('csvFinanceData' in patched) {
+    const v = (patched as any).csvFinanceData;
+    const p = parseJsonIfString(v);
+    (patched as any).csvFinanceData = Array.isArray(p) ? p : v;
+  }
+  // B案：ストラテジー内スナップショット/履歴
+  if ('simulationResult' in patched) {
+    const sim = parseJsonIfString((patched as any).simulationResult);
+    (patched as any).simulationResult =
+      sim && typeof sim === 'object' && !Array.isArray(sim) ? sim : undefined;
+  }
+  if ('simulationResults' in patched) {
+    const arr = parseJsonIfString((patched as any).simulationResults);
+    (patched as any).simulationResults = Array.isArray(arr) ? arr : [];
+  }
 
   return patched;
 }
@@ -104,16 +124,27 @@ function extractErrorVerbose(e: any) {
 }
 
 /* ============================================================
- * companyId Resolver
+ * companyId Resolver（Cookieにも保存）
  * ============================================================ */
 async function resolveCompanyId(userId: string, override?: string | null): Promise<string | null> {
-  if (override && isValidUUID(override)) return override;
+  if (override && isValidUUID(override)) {
+    try { setCompanyIdCookie(override); } catch {}
+    return override;
+  }
   try {
     const cookie = getCompanyIdFromCookie();
     if (cookie) return cookie;
   } catch {}
-  const m: any = await getMembership(userId);
-  return m?.companyId ?? null;
+  try {
+    const m: any = await getMembership(userId);
+    const cid = m?.companyId ?? null;
+    if (cid) {
+      try { setCompanyIdCookie(cid); } catch {}
+    }
+    return cid;
+  } catch {
+    return null;
+  }
 }
 async function resolveCompanyIdOrThrow(userId: string, override?: string | null): Promise<string> {
   const cid = await resolveCompanyId(userId, override);
@@ -184,20 +215,28 @@ export async function saveStrategyData(
     const companyId = await resolveCompanyIdOrThrow(userId, companyIdOverride);
     const base = normalizeIncomingKeys(state as any);
 
+    // 送信前に最低限の型整形
     const payload = {
       ...base,
       story: ensureArrayJson(base.story),
       finalStory: ensureArrayJson(base.finalStory),
       answers2: ensureArrayJson(base.answers2),
       departments: ensureArrayJson(base.departments),
-      businessPortfolio: ensureObjectJson(base.businessPortfolio),
-      financeSummary: ensureArrayJson(base.financeSummary),
-      simulationResult: ensureObjectJson(base.simulationResult),
-      simulationResults: ensureArrayJson(base.simulationResults),
+      businessPortfolio: 'businessPortfolio' in base ? ensureObjectJson(base.businessPortfolio) : undefined,
+      financeSummary: 'financeSummary' in base ? ensureArrayJson(base.financeSummary) : undefined,
+      csvFinanceData: 'csvFinanceData' in base ? ensureArrayJson(base.csvFinanceData) : undefined,
+      simulationResult: 'simulationResult' in base ? ensureObjectJson(base.simulationResult) : undefined,
+      simulationResults: 'simulationResults' in base ? ensureArrayJson(base.simulationResults) : undefined,
+      // メタ
       updated_at: now,
       user_id: userId,
       company_id: companyId,
-    };
+    } as Record<string, any>;
+
+    // undefined は空上書きを防ぐため削除
+    for (const k of Object.keys(payload)) {
+      if (typeof payload[k] === 'undefined') delete payload[k];
+    }
 
     // 既存行チェック
     const exists: any = await supabase
@@ -213,8 +252,8 @@ export async function saveStrategyData(
         .from(T_STRATEGY)
         .update(payload)
         .eq('company_id', companyId)
-        .select('id') // ✅ 修正：count指定削除
-        .single(); // ✅ 引数なし
+        .select('id')
+        .single(); // ← 引数なし（v2仕様）
       if (error) return { error: extractErrorVerbose(error) };
       return { error: null };
     } else {
@@ -223,7 +262,7 @@ export async function saveStrategyData(
         .from(T_STRATEGY)
         .insert([{ ...payload, created_at: now }])
         .select('id')
-        .single(); // ✅ 引数なし
+        .single(); // ← 引数なし（v2仕様）
       if (error) return { error: extractErrorVerbose(error) };
       return { error: null };
     }
@@ -234,7 +273,7 @@ export async function saveStrategyData(
 }
 
 /* ============================================================
- * DELETE
+ * DELETE（会社単位）
  * ============================================================ */
 export async function deleteStrategyData(userId: string): Promise<WriteResult> {
   try {
@@ -247,7 +286,7 @@ export async function deleteStrategyData(userId: string): Promise<WriteResult> {
 }
 
 /* ============================================================
- * SIMULATION履歴保存（B案）
+ * SIMULATION履歴保存（B案：strategy_data 内に配列で保持）
  * ============================================================ */
 export type SimulationSavePayload = {
   projection: {
