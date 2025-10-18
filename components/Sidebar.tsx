@@ -1,4 +1,4 @@
-// /components/Sidebar.tsx
+// /components/Sidebar.tsx（修正版）
 'use client';
 
 import Link from 'next/link';
@@ -18,11 +18,10 @@ import {
   Download,
   RotateCcw,
   Trash2,
-  // Clock,   // ← 使わなくなるので削除
   CheckCircle,
   LogIn,
   UserPlus,
-  LineChart, // ← 追加：シミュレーション用アイコン
+  LineChart,
 } from 'lucide-react';
 
 /* ---------------- ユーティリティ ---------------- */
@@ -73,6 +72,10 @@ function AIcon({ children }: { children: React.ReactNode }) {
     </span>
   );
 }
+
+/* 共通テキストクラス（Apple風：細め・字間少し広め・行間ゆったり・13.5px） */
+const ITEM_TEXT_CLASS =
+  'font-normal tracking-[0.01em] leading-6 text-[13.5px]';
 
 /* ---------------- 本体 ---------------- */
 export default function Sidebar() {
@@ -255,7 +258,7 @@ export default function Sidebar() {
           <img
             src="/growth-logo4.png"
             alt="GROWTH Logo"
-            className="block mx-auto h-[65px] w-auto md:h-[150px] transition-transform hover:scale-[1.02]"
+            className="block mx-auto h-[60px] w-auto md:h-[140px] transition-transform hover:scale-[1.02]"
           />
         </Link>
       </div>
@@ -263,7 +266,7 @@ export default function Sidebar() {
       {/* 認証行 */}
       <div className="shrink-0 px-4 py-3 border-b border-gray-200">
         {user ? (
-          <div className="flex items-center justify-between gap-2 text-[12px] text-gray-600">
+          <div className={`flex items-center justify-between gap-2 text-gray-600 ${ITEM_TEXT_CLASS}`}>
             <span className="truncate max-w-[10rem]">{user.email}</span>
             <LogoutButton />
           </div>
@@ -295,7 +298,6 @@ export default function Sidebar() {
           <PillLink href="/cascade" icon={<Share size={18} strokeWidth={1.5} />} label="STAGE 3：部門戦略策定" active={isActive('/cascade')} />
           <PillLink href="/okr" icon={<CheckCircle size={18} strokeWidth={1.5} />} label="STAGE 4：実行計画策定" active={isActive('/okr')} />
           <PillLink href="/execution" icon={<Activity size={18} strokeWidth={1.5} />} label="STAGE 5：実行計画支援" active={isActive('/execution')} />
-          {/* ▼ 差し替え：ストーリー履歴 → 業績シミュレーション */}
           <PillLink href="/simulation" icon={<LineChart size={18} strokeWidth={1.5} />} label="STAGE 6：業績シミュレーション" active={isActive('/simulation')} />
           {/* 管理者 */}
           <PillLink
@@ -317,7 +319,7 @@ export default function Sidebar() {
         {notification && (
           <div
             role="alert"
-            className={`text-[13px] rounded-xl border px-3 py-2 shadow-sm ${
+            className={`rounded-xl border px-3 py-2 shadow-sm ${ITEM_TEXT_CLASS} ${
               notification.includes('削除') || notification.includes('❌')
                 ? 'border-rose-200 bg-rose-50 text-rose-700'
                 : 'border-emerald-200 bg-emerald-50 text-emerald-700'
@@ -329,7 +331,7 @@ export default function Sidebar() {
       </div>
 
       {/* フッター */}
-      <footer className="shrink-0 border-t border-gray-200 px-4 py-3 text-[12px] text-gray-500">
+      <footer className={`shrink-0 border-t border-gray-200 px-4 py-3 text-gray-500 ${ITEM_TEXT_CLASS}`}>
         © 2025 GROWTH Platform
         {currentUserId ? ` · uid:${String(currentUserId).slice(0, 6)}…` : ''}
       </footer>
@@ -361,10 +363,14 @@ function PillLink({
         }
       }}
       className={[
-        'no-underline group flex h-10 items-center gap-2 rounded-full px-3 text-[13px] transition',
+        // ベース：角はやや丸、細字、13.5px、字間広め
+        'no-underline group flex h-10 items-center gap-2 rounded-full px-3 transition',
+        ITEM_TEXT_CLASS,
+        // 状態
         active
-          ? 'bg-gray-900 text-white shadow hover:bgブラック/90'.replace('ブラック','black')
+          ? 'bg-gray-900 text-white shadow hover:bg-black/90'
           : 'bg-white text-gray-800 hover:bg-white/90 shadow-sm border border-gray-200',
+        // アクセシビリティ
         'focus:outline-none focus:ring-1 focus:ring-black/10',
         disabled ? 'opacity-60 pointer-events-auto cursor-not-allowed' : '',
       ].join(' ')}
@@ -393,7 +399,8 @@ function GhostAction({
     <button
       onClick={onClick}
       className={[
-        'no-underline group flex h-10 w-full items-center gap-2 rounded-xl px-3 text-[13px] transition',
+        'no-underline group flex h-10 w-full items-center gap-2 rounded-xl px-3 transition',
+        ITEM_TEXT_CLASS,
         'border border-gray-200 bg-white hover:bg-white/90 shadow-sm',
         'focus:outline-none focus:ring-1 focus:ring-black/10',
         tone === 'destructive' ? 'text-rose-600' : 'text-gray-800',
