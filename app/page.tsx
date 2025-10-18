@@ -1,3 +1,4 @@
+// /app/page.tsx（修正版フルコード）
 'use client';
 
 import { useEffect } from 'react';
@@ -28,45 +29,68 @@ export default function Home() {
     <main className="min-h-screen bg-white text-neutral-900 antialiased [--accent:#0a0a0a] dark:bg-black dark:text-white">
       {/* ===== Hero ===== */}
       <section className="relative overflow-hidden">
-        {/* 背景：放射グラデ + ノイズ（ファイル不要のデータURLに変更） */}
+        {/* 背景：放射グラデ + ノイズ（データURLで404回避） */}
         <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
-          <div className="absolute -top-32 left-1/2 h-[120vh] w-[120vh] -translate-x-1/2 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0.06),transparent_60%)] dark:bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,0.08),transparent_60%)]" />
-          {/* ▼ ここを修正：/noise.png → データURL（1px透明PNG：見た目の変化なし・404解消） */}
+          <div
+            className="
+              absolute -top-32 left-1/2 h-[120vh] w-[120vh] -translate-x-1/2 rounded-full
+              bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0.08),transparent_60%)]
+              dark:bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,0.12),transparent_60%)]
+            "
+          />
           <div
             className="
               absolute inset-0 opacity-[0.06] mix-blend-multiply
               [background-image:url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y3w5b8AAAAASUVORK5CYII=')]
             "
           />
-          {/*
-            本物のノイズ画像を使いたい場合は、下記に戻すだけでOK（/public/noise.png を配置）
-            <div className="absolute inset-0 opacity-[0.06] mix-blend-multiply [background-image:url('/noise.png')]" />
-          */}
         </div>
 
         <div className="container mx-auto px-6 pt-20 pb-12 md:pt-28 md:pb-20">
           <div className="mx-auto max-w-5xl text-center">
+            {/* 上：日本語サブヘッド（少しだけサイズを落として上品に） */}
+            <motion.p
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.55, ease: 'easeOut' }}
+              className="
+                font-semibold tracking-tight text-neutral-900 dark:text-neutral-100
+                leading-tight
+                text-[clamp(22px,3.2vw,34px)]
+              "
+            >
+              現状を壊し、 未来を変える
+            </motion.p>
+
+            {/* 中央：GROWTH（横余白を確保しつつ存在感） */}
             <motion.h1
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.7, ease: 'easeOut' }}
-              className="text-5xl font-extrabold tracking-tight sm:text-6xl md:text-7xl motion-reduce:transition-none motion-reduce:transform-none"
+              className="
+                mt-3 font-extrabold tracking-[-0.02em] select-none
+                text-[clamp(72px,10vw,120px)] leading-none
+                text-neutral-900 dark:text-neutral-100
+              "
             >
-              <span className="block leading-[1.05] text-[clamp(48px,8vw,96px)]">GROWTH</span>
-              <span
-                className="
-                  mt-3 block whitespace-nowrap
-                  max-[360px]:whitespace-normal
-                  text-[clamp(16px,3.5vw,28px)]
-                  bg-clip-text text-transparent
-                  bg-gradient-to-r from-black via-neutral-700 to-black
-                  dark:from-white dark:via-neutral-300 dark:to-white
-                "
-              >
-                現状を壊し、未来を変える 企業変革プラットフォーム
-              </span>
+              GROWTH
             </motion.h1>
 
+            {/* 下：サブコピー（読みやすさ優先で少し大きく） */}
+            <motion.p
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15, duration: 0.6 }}
+              className="
+                mt-5 mx-auto max-w-3xl
+                text-[clamp(16px,2.5vw,22px)] leading-relaxed
+                text-neutral-600 dark:text-neutral-300
+              "
+            >
+              戦略策定から実行まで、すべてをつなぐ変革プラットフォーム
+            </motion.p>
+
+            {/* CTA（既存機能維持） */}
             <motion.div
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
@@ -75,7 +99,12 @@ export default function Home() {
             >
               <Link
                 href="/strategy"
-                className="inline-flex h-12 items-center justify-center rounded-full bg-neutral-900 px-7 text-sm font-semibold text-white shadow-sm transition hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 dark:bg-white dark:text-black dark:hover:bg-neutral-200"
+                className="
+                  inline-flex h-12 items-center justify-center rounded-full
+                  bg-neutral-900 px-7 text-sm font-semibold text-white shadow-sm transition
+                  hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400
+                  dark:bg-white dark:text-black dark:hover:bg-neutral-200
+                "
                 aria-label="さっそく始める"
               >
                 さっそく始める
