@@ -42,7 +42,7 @@ function parseIfJsonString<T = unknown>(v: unknown): T | unknown {
 }
 
 /* =====================================================================
- * story / finalStory 正規化（非破壊）
+ * story / finalStory 正規化
  * ===================================================================== */
 function toChapterArray(input: unknown): ChapterStory[] {
   if (!input) return [];
@@ -115,7 +115,8 @@ function alignToGrowthOrder(chs: ChapterStory[] = []): ChapterStory[] {
   ];
   const used = new Set<number>();
   const ordered: ChapterStory[] = [];
-  const scoreOf = (text: string, keys: string[]) => keys.reduce((acc, k) => acc + (text.includes(k) ? 1 : 0), 0);
+  const scoreOf = (text: string, keys: string[]) =>
+    keys.reduce((acc, k) => acc + (text.includes(k) ? 1 : 0), 0);
 
   for (const b of buckets) {
     let bestIdx = -1;
@@ -158,11 +159,21 @@ type AnyOKR =
   | undefined;
 
 type AnyProject =
-  | { title?: unknown; name?: unknown; okrs?: unknown; objective?: unknown; keyResults?: unknown; owner?: unknown }
+  | {
+      title?: unknown;
+      name?: unknown;
+      okrs?: unknown;
+      objective?: unknown;
+      keyResults?: unknown;
+      owner?: unknown;
+    }
   | null
   | undefined;
 
-type AnyDepartment = { id?: unknown; name?: unknown; title?: unknown; projects?: unknown } | null | undefined;
+type AnyDepartment =
+  | { id?: unknown; name?: unknown; title?: unknown; projects?: unknown }
+  | null
+  | undefined;
 
 type NormalizedOKR = { objective: string; keyResults: string[]; owner?: string };
 type NormalizedProject = { title: string; okrs: NormalizedOKR[] };
@@ -171,25 +182,34 @@ type NormalizedDepartment = { id?: unknown; name: string; projects: NormalizedPr
 function normalizeOKR(input: AnyOKR): NormalizedOKR {
   const o = (input || {}) as any;
   const objective = typeof o.objective === 'string' ? o.objective : '';
-  const keyResults = Array.isArray(o.keyResults) ? o.keyResults.map((k: any) => String(k)) : [];
+  const keyResults = Array.isArray(o.keyResults)
+    ? o.keyResults.map((k: any) => String(k))
+    : [];
   const owner =
-    o.owner !== undefined && o.owner !== null && String(o.owner) !== '' ? String(o.owner) : undefined;
+    o.owner !== undefined && o.owner !== null && String(o.owner) !== ''
+      ? String(o.owner)
+      : undefined;
   return { objective, keyResults, owner };
 }
 
 function normalizeProject(p: AnyProject): NormalizedProject {
   const obj = (p || {}) as any;
   const title =
-    typeof obj.title === 'string' ? obj.title : typeof obj.name === 'string' ? obj.name : '';
+    typeof obj.title === 'string'
+      ? obj.title
+      : typeof obj.name === 'string'
+      ? obj.name
+      : '';
   const okrsRaw = Array.isArray(obj.okrs) ? obj.okrs : [];
 
-  // レガシー互換（objective/keyResults/owner を単一OKRとして包む）
   const legacy =
     obj.objective || obj.keyResults || obj.owner
       ? [
           {
             objective: String(obj.objective ?? ''),
-            keyResults: Array.isArray(obj.keyResults) ? obj.keyResults.map((k: any) => String(k)) : [],
+            keyResults: Array.isArray(obj.keyResults)
+              ? obj.keyResults.map((k: any) => String(k))
+              : [],
             owner: obj.owner ? String(obj.owner) : '',
           },
         ]
@@ -199,11 +219,15 @@ function normalizeProject(p: AnyProject): NormalizedProject {
   return { title, okrs };
 }
 
-// 引数 unknown を安全に整形
 function normalizeDepartment(d: unknown): NormalizedDepartment {
   const obj = (d || {}) as any;
   const id = obj.id ?? undefined;
-  const name = typeof obj.name === 'string' ? obj.name : typeof obj.title === 'string' ? obj.title : '';
+  const name =
+    typeof obj.name === 'string'
+      ? obj.name
+      : typeof obj.title === 'string'
+      ? obj.title
+      : '';
   const projectsRaw = Array.isArray(obj.projects) ? obj.projects : [];
   const projects = projectsRaw.map(normalizeProject);
   return { id, name, projects };
@@ -224,9 +248,7 @@ export function normalizeDepartmentsAny(input: unknown): NormalizedDepartment[] 
 }
 
 /* =====================================================================
- * csv_finance_data 正規化（非破壊）
- * - UI互換のため配列はそのまま通す
- * - 文字列なら JSON.parse を試し、失敗したら行単位CSVをざっくり配列化
+ * finance / business_portfolio 正規化
  * ===================================================================== */
 function normalizeCsvFinanceDataLoose(input: unknown): any[] | undefined {
   if (input == null) return undefined;
@@ -234,7 +256,6 @@ function normalizeCsvFinanceDataLoose(input: unknown): any[] | undefined {
   const parsed = parseIfJsonString<any>(input);
   if (Array.isArray(parsed)) return parsed;
 
-  // 簡易CSV（行ごとにカンマ区切り→配列化）
   if (typeof input === 'string') {
     const text = input.trim();
     if (!text) return [];
@@ -245,35 +266,37 @@ function normalizeCsvFinanceDataLoose(input: unknown): any[] | undefined {
       .map((line) => line.split(',').map((cell) => cell.trim()));
     return rows;
   }
-  // オブジェクトなら 1 レコード配列として返す（後方互換）
   if (typeof parsed === 'object' && parsed) return [parsed];
   return undefined;
 }
 
-/* =====================================================================
- * business_portfolio / finance_summary 正規化（非破壊）
- * ===================================================================== */
 function normalizeBusinessPortfolio(input: unknown): Record<string, any> | undefined {
   if (input == null) return undefined;
   const p = parseIfJsonString<Record<string, any>>(input);
   return p && typeof p === 'object' && !Array.isArray(p) ? p : undefined;
 }
 
-/** finance_summary は {items:Array} or Array を受け取り、UIには配列で返す */
 function normalizeFinanceSummaryToArray(input: unknown): any[] | undefined {
   if (input == null) return undefined;
   const p = parseIfJsonString<any>(input);
   if (Array.isArray(p)) return p;
-  if (p && typeof p === 'object' && !Array.isArray(p) && Array.isArray((p as any).items)) {
+  if (
+    p &&
+    typeof p === 'object' &&
+    !Array.isArray(p) &&
+    Array.isArray((p as any).items)
+  ) {
     return (p as any).items;
   }
   return undefined;
 }
 
 /* =====================================================================
- * StrategyData 全体の正規化入口（入出力は camelCase、非破壊）
+ * StrategyData 正規化（全体）
  * ===================================================================== */
-export function normalizeStrategyData(input: StrategyData | unknown | null): StrategyData | null {
+export function normalizeStrategyData(
+  input: StrategyData | unknown | null
+): StrategyData | null {
   if (!input) return null;
   const src: any = { ...(input as any) };
 
@@ -284,23 +307,40 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
   let departmentsRaw = getEither(src, 'departments', 'departments');
   let financeRaw = getEither(src, 'csvFinanceData', 'csv_finance_data');
 
-  if (typeof storyRaw === 'string') { const p = tryParseJson(storyRaw); if (p) storyRaw = p; }
-  if (typeof finalStoryRaw === 'string') { const p = tryParseJson(finalStoryRaw); if (p) finalStoryRaw = p; }
-  if (typeof answers2Raw === 'string') { const p = tryParseJson(answers2Raw); if (p) answers2Raw = p; }
-  if (typeof departmentsRaw === 'string') { const p = tryParseJson(departmentsRaw); if (p) departmentsRaw = p; }
-  if (typeof financeRaw === 'string') { const p = tryParseJson(financeRaw); if (p) financeRaw = p; }
+  if (typeof storyRaw === 'string') {
+    const p = tryParseJson(storyRaw);
+    if (p) storyRaw = p;
+  }
+  if (typeof finalStoryRaw === 'string') {
+    const p = tryParseJson(finalStoryRaw);
+    if (p) finalStoryRaw = p;
+  }
+  if (typeof answers2Raw === 'string') {
+    const p = tryParseJson(answers2Raw);
+    if (p) answers2Raw = p;
+  }
+  if (typeof departmentsRaw === 'string') {
+    const p = tryParseJson(departmentsRaw);
+    if (p) departmentsRaw = p;
+  }
+  if (typeof financeRaw === 'string') {
+    const p = tryParseJson(financeRaw);
+    if (p) financeRaw = p;
+  }
 
   const story = normalizeChaptersAny(storyRaw);
   const finalStory = normalizeChaptersAny(finalStoryRaw);
   const answers2 = asArr<any>(answers2Raw);
   const departments = normalizeDepartmentsAny(departmentsRaw);
 
-  // --- 3カラム（非破壊に保持）---
-  const csvFinanceData = normalizeCsvFinanceDataLoose(financeRaw); // Array | undefined（UI側で ?? [] してOK）
-  const businessPortfolio = normalizeBusinessPortfolio(getEither(src, 'businessPortfolio', 'business_portfolio'));
-  const financeSummary = normalizeFinanceSummaryToArray(getEither(src, 'financeSummary', 'finance_summary'));
+  const csvFinanceData = normalizeCsvFinanceDataLoose(financeRaw);
+  const businessPortfolio = normalizeBusinessPortfolio(
+    getEither(src, 'businessPortfolio', 'business_portfolio')
+  );
+  const financeSummary = normalizeFinanceSummaryToArray(
+    getEither(src, 'financeSummary', 'finance_summary')
+  );
 
-  // --- その他 ---
   const companyName = toStr(getEither(src, 'companyName', 'company_name'));
   const foundationYear = toStr(getEither(src, 'foundationYear', 'foundation_year'));
   const location = toStr(getEither(src, 'location', 'location'));
@@ -318,14 +358,17 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
   const opportunity = toStr(getEither(src, 'opportunity', 'opportunity'));
   const threat = toStr(getEither(src, 'threat', 'threat'));
 
-  // strategy_summary / editable_cascade / editable_cascade_result は非破壊で
-  const strategySummaryRaw = parseIfJsonString<any>(getEither(src, 'strategySummary', 'strategy_summary'));
+  const strategySummaryRaw = parseIfJsonString<any>(
+    getEither(src, 'strategySummary', 'strategy_summary')
+  );
   const strategySummary =
     Array.isArray(strategySummaryRaw) || (strategySummaryRaw && typeof strategySummaryRaw === 'object')
       ? strategySummaryRaw
       : undefined;
 
-  const editableCascadeRaw = parseIfJsonString<any>(getEither(src, 'editableCascade', 'editable_cascade'));
+  const editableCascadeRaw = parseIfJsonString<any>(
+    getEither(src, 'editableCascade', 'editable_cascade')
+  );
   const editableCascade =
     Array.isArray(editableCascadeRaw) || (editableCascadeRaw && typeof editableCascadeRaw === 'object')
       ? editableCascadeRaw
@@ -353,7 +396,6 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     opportunity,
     threat,
 
-    // 3カラム＋関連：存在すればそのまま（UI側で ?? する）
     csvFinanceData,
     businessPortfolio,
     financeSummary,
@@ -364,7 +406,6 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     editableCascade,
     editableCascadeResult,
 
-    // 既存項目（維持）
     questions: [],
     reasons: [],
     questions2: [],
