@@ -4,17 +4,22 @@
 import React, { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStrategyStore } from '@/store/strategyStore';
+import { useUserStore } from '@/store/userStore';
 import StepLayout from '@/components/StepLayout';
 import { getIndustryLabel } from '@/utils/industryTemplates';
 import FinanceSummaryPanel from '@/components/finance/FinanceSummaryPanel';
+import { saveStrategyData } from '@/utils/supabase';
 
 /* =========================================================
- * 確認画面（生成→保存→遷移の堅牢化）
- * - APIの返却形（文字列/配列/ネスト）を吸収
- * - store.updateを確実に（stringでもchaptersへ整形して setStory に入れる）
- * - sessionStorageも保険で書く
- * - 遷移は scroll: true
+ * 確認画面（生成→保存→遷移の堅牢化・名前空間つき）
+ * - sessionStorage キーを companyId/strategyId で名前空間化
+ * - DB にも保存してリロード時の不整合を防止
+ * - 遷移前に microtask を挟み、状態反映を安定化
  * ========================================================= */
+
+/** 名前空間つき sessionStorage キー */
+const ssKey = (base: string, companyId?: string | null, strategyId?: string | null) =>
+  `growth.${companyId || 'co'}.${strategyId || 'stg'}.${base}`;
 
 // ストア通知 or ローカル通知を安全に出す
 function notifySafe(store: any, msg: string, setLocal: (s: string) => void) {
@@ -25,7 +30,7 @@ function notifySafe(store: any, msg: string, setLocal: (s: string) => void) {
   }
 }
 
-// JSONを安全抽出（LLMが前後にテキストを混ぜても拾う）
+// JSON抽出（LLMの前後混入に耐性）
 function safeJsonFromText<T = any>(text: string): T | null {
   try {
     const direct = JSON.parse(text);
@@ -41,7 +46,7 @@ function safeJsonFromText<T = any>(text: string): T | null {
   return null;
 }
 
-// 文字列のストーリー（長文）→ 4章配列に近似整形（最低限）
+// 改行整形
 function normalizeNewlines(s: string = '') {
   let out = String(s);
   for (let i = 0; i < 3; i++) {
@@ -50,10 +55,11 @@ function normalizeNewlines(s: string = '') {
   }
   return out.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 }
+
+// 長文→4章配列
 function longformToChapters(s: string) {
   const text = normalizeNewlines((s || '').trim());
   if (!text) return [] as { title: string; body: string }[];
-  // 「第1章/第2章…」で区切れれば優先
   const markerRegex = /(第\s*[1-4]\s*章[^\\n]*)(?:\n+|$)/g;
   const markers = [...text.matchAll(markerRegex)];
   if (markers.length >= 2) {
@@ -68,7 +74,6 @@ function longformToChapters(s: string) {
     }
     return parts.slice(0, 4);
   }
-  // だめなら段落で等分
   const REFERENCE_TITLES = [
     '第1章：なぜ今（現状）',
     '第2章：どう戦う（戦略）',
@@ -81,14 +86,13 @@ function longformToChapters(s: string) {
   return chunks.map((arr, i) => ({ title: REFERENCE_TITLES[i], body: arr.join('\n\n') }));
 }
 
-// APIレスポンスからストーリー＆サマリーを抽出
+// APIレスポンスから story/summary を抽出
 function extractStoryAndSummary(payload: any): {
   longform?: string;
   chapters?: Array<{ title: string; body: string }>;
-  summary?: string;
+  summary?: any;
 } {
   if (!payload || typeof payload !== 'object') return {};
-  // 代表的なキーを広く吸収
   let storyAny =
     payload.story ??
     payload.draft ??
@@ -97,7 +101,6 @@ function extractStoryAndSummary(payload: any): {
     payload.content ??
     undefined;
 
-  // OpenAI style
   if (!storyAny && Array.isArray(payload.choices) && payload.choices[0]?.message?.content) {
     storyAny = payload.choices[0].message.content;
   }
@@ -120,7 +123,6 @@ function extractStoryAndSummary(payload: any): {
   if (typeof storyAny === 'string') {
     longform = storyAny;
   } else if (Array.isArray(storyAny)) {
-    // すでに [{title, body}] 形式
     chapters = storyAny;
   } else if (storyAny && typeof storyAny === 'object' && typeof storyAny.text === 'string') {
     longform = storyAny.text;
@@ -147,7 +149,7 @@ function GlassCard({ title, children }: { title: string; children: React.ReactNo
   );
 }
 
-// 情報1行（ラベル:値）
+// 情報1行
 function InfoRow({ label, value }: { label: string; value: string | number | null | undefined }) {
   return (
     <div className="flex items-start justify-between gap-3 py-1">
@@ -160,6 +162,9 @@ function InfoRow({ label, value }: { label: string; value: string | number | nul
 export default function Step5Confirm() {
   const router = useRouter();
   const st = useStrategyStore() as any;
+  const userId = useUserStore((s) => s.user?.id ?? null);
+  const companyId = useUserStore((s) => s.companyId ?? null);
+  const strategyId = st?.strategyId ?? null;
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [localNotice, setLocalNotice] = useState('');
@@ -187,10 +192,8 @@ export default function Step5Confirm() {
   const csvFinanceData: any[] = Array.isArray(st?.csvFinanceData) ? st.csvFinanceData : [];
   const answers: any = st?.answers ?? null;
   const answers2: any = st?.answers2 ?? null;
-
   const financeSummary: any[] = Array.isArray(st?.financeSummary) ? st.financeSummary : [];
 
-  // 日本語ラベルへ変換（full: 詳細表記）
   const industryJa = industry ? getIndustryLabel(industry, { full: true }) : '';
 
   const csvCount = csvFinanceData.length;
@@ -201,93 +204,146 @@ export default function Step5Confirm() {
     [financeSummary]
   );
 
-  // ストーリー生成（ロバスト版）
+  // ストーリー生成
   const handleGenerate = async () => {
     if (isGenerating) return;
     setIsGenerating(true);
     setLocalNotice('');
 
+    // エンドポイント候補
+    const endpoints = [
+      '/api/generate-story-draft-v2',
+      '/api/generate-story-draft',
+      '/api/final-story',
+    ];
+
+    // 送信ペイロード（全部載せ）
+    const payload = {
+      thought, mission, vision, value,
+      industry, industryLabel: industryJa,
+      revenue, employees,
+      businessContent, customerSegment,
+      strength, weakness, opportunity, threat,
+      csvFinanceData, answers, answers2,
+      financeSummary, companyName, foundationYear, location,
+      strategyId, companyId, userId,
+    };
+
+    // ユーティリティ
+    const pickChapters = (rawText: string, parsed: any) => {
+      const { longform, chapters } = extractStoryAndSummary(parsed || {});
+      if (Array.isArray(chapters) && chapters.length) return chapters.slice(0, 4);
+      const text = typeof longform === 'string' && longform.trim().length > 0 ? longform : rawText;
+      return longformToChapters(text || '');
+    };
+
+    const toSummaryText = (s: any): string => {
+      if (!s) return '';
+      if (typeof s === 'string') return s.trim();
+      if (typeof s === 'object') {
+        const head = s.tagline ? String(s.tagline).trim() : '';
+        const bullets = Array.isArray(s.bullets) ? s.bullets.map((b: any) => `- ${String(b)}`) : [];
+        return [head, ...bullets].filter(Boolean).join('\n');
+      }
+      return '';
+    };
+
+    let lastErrorText = '';
     try {
-      const res = await fetch('/api/generate-story-draft', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          // 入力素材（全部載せ）
-          thought,
-          mission,
-          vision,
-          value,
-          industry,
-          industryLabel: industryJa, // 追加で渡す（使わなくても無害）
-          revenue,
-          employees,
-          businessContent,
-          customerSegment,
-          strength,
-          weakness,
-          opportunity,
-          threat,
-          csvFinanceData,
-          answers,
-          answers2,
-          financeSummary,
-          companyName,
-          foundationYear,
-          location,
-        }),
+      let ok = false;
+      let finalChapters: Array<{ title: string; body: string }> | null = null;
+      let finalSummary: any;
+
+      for (const url of endpoints) {
+        try {
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+
+          const raw = await res.text();
+          if (!res.ok) {
+            lastErrorText = `[${res.status}] ${raw?.slice(0, 500) || '(no body)'}`;
+            if (res.status === 404) continue;
+            throw new Error(lastErrorText);
+          }
+
+          const parsed = safeJsonFromText<any>(raw) ?? {};
+          const extracted = extractStoryAndSummary(parsed);
+          finalSummary = extracted.summary;
+
+          const chs = pickChapters(raw, parsed);
+          if (Array.isArray(chs) && chs.length > 0) {
+            finalChapters = chs;
+            ok = true;
+            break;
+          } else {
+            lastErrorText = `no-story-in-response (endpoint: ${url}) first500="${(raw || '').slice(0, 500)}"`;
+          }
+        } catch (e: any) {
+          lastErrorText = String(e?.message || e);
+        }
+      }
+
+      if (!ok || !finalChapters?.length) {
+        console.error('❌ 生成に失敗: ', lastErrorText);
+        notifySafe(st, `❌ ストーリー生成に失敗しました: ${lastErrorText}`, setLocalNotice);
+        return;
+      }
+
+      // 1) store に保存（互換キーも埋める）
+      if (typeof st?.setStory === 'function') st.setStory(finalChapters);
+      (useStrategyStore as any).setState({
+        story: finalChapters,
+        storyChapters: finalChapters,
+        chapters: finalChapters,
       });
 
-      const raw = await res.text();
-      if (!res.ok) {
-        console.error('❌ 生成API失敗:', res.status, raw);
-        notifySafe(st, '❌ ストーリー生成に失敗しました', setLocalNotice);
-        return;
-      }
-
-      const data = safeJsonFromText<any>(raw) ?? {};
-      const { longform, chapters, summary } = extractStoryAndSummary(data);
-
-      // 1) store.story を確実に埋める（stringでもchapters化して保存）
-      let finalChapters: Array<{ title: string; body: string }> | null = null;
-
-      if (Array.isArray(chapters) && chapters.length) {
-        finalChapters = chapters.slice(0, 4);
-      } else if (typeof longform === 'string' && longform.trim().length > 0) {
-        finalChapters = longformToChapters(longform);
-        try { sessionStorage.setItem('growth.storyDraft', longform); } catch {}
-      } else {
-        // 文字列でも配列でも取れない場合は最後の手段：rawテキストを長文として試す
-        const fallback = (raw || '').trim();
-        if (fallback) {
-          finalChapters = longformToChapters(fallback);
-          try { sessionStorage.setItem('growth.storyDraft', fallback); } catch {}
+      // 2) sessionStorage（★名前空間つき）に保存
+      try {
+        if (companyId && strategyId) {
+          sessionStorage.setItem(ssKey('story', companyId, strategyId), JSON.stringify(finalChapters));
+          const summaryText = toSummaryText(finalSummary);
+          if (summaryText) {
+            sessionStorage.setItem(ssKey('strategySummary', companyId, strategyId), summaryText);
+          }
         }
-      }
+      } catch {}
 
-      if (finalChapters && finalChapters.length) {
-        // ✅ ここが重要：必ず setStory（配列）を更新して /story-process で即表示できるようにする
-        if (typeof st?.setStory === 'function') {
-          st.setStory(finalChapters);
-        } else {
-          (useStrategyStore as any).setState({ story: finalChapters });
+      // 3) DBにも保存（リロード対策の決定打）
+      try {
+        if (userId && companyId) {
+          await saveStrategyData(
+            {
+              strategyId,
+              story: finalChapters,
+              // 最終版ではないので finalStory には入れない
+              mission, vision, value,
+              industry, revenue, employees,
+              thought, strength, weakness, opportunity, threat,
+              csvFinanceData,
+              answers2, // もし使うなら
+            } as any,
+            userId
+          );
         }
-        try { sessionStorage.setItem('growth.story', JSON.stringify(finalChapters)); } catch {}
-      } else {
-        console.error('❌ 生成レスポンスに story が見つかりません', data);
-        notifySafe(st, '❌ 生成結果の取得に失敗しました', setLocalNotice);
-        return;
+      } catch (e) {
+        // DB保存に失敗してもUIは続行（ただしログ）
+        console.warn('saveStrategyData failed (draft story persisted only to session/store):', e);
       }
 
-      if (typeof summary === 'string' && summary.trim()) {
-        try { sessionStorage.setItem('growth.strategySummary', summary); } catch {}
-        // store に summary フィールドが無い想定なので、通知のみに留める
+      // 4) 状態反映を一拍待つ（別ページ初期描画で取りこぼさない）
+      await Promise.resolve(); // microtask flush
+      if (typeof window !== 'undefined') {
+        await new Promise(r => setTimeout(r, 0)); // next tick
       }
 
-      // 2) 遷移（トップから始める）
+      // 5) 遷移
       router.push('/story-process', { scroll: true });
     } catch (err) {
       console.error('❌ 通信エラー:', err);
-      notifySafe(st, '❌ 通信エラーが発生しました', setLocalNotice);
+      notifySafe(st, `❌ 通信エラー: ${String((err as any)?.message || err)}`, setLocalNotice);
     } finally {
       setIsGenerating(false);
     }
@@ -328,7 +384,6 @@ export default function Step5Confirm() {
               <InfoRow label="会社名" value={companyName} />
               <InfoRow label="設立年" value={foundationYear} />
               <InfoRow label="所在地" value={location} />
-              {/* ✅ 業種を日本語で表示 */}
               <InfoRow label="業種" value={industryJa} />
               <InfoRow label="売上" value={revenue ? `${revenue} 百万円` : ''} />
               <InfoRow label="従業員数" value={employees ? `${employees} 人` : ''} />
