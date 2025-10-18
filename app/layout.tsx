@@ -3,8 +3,9 @@ import './globals.css';
 import { Inter } from 'next/font/google';
 import type { Metadata } from 'next';
 import LayoutClient from './layoutClient';
-import AuthGuards from '@/components/AuthGuards'; // 無効トークン自動復旧
-import MembershipBootstrap from '@/components/MembershipBootstrap'; // 会社所属＆role同期
+import AuthGuards from '@/components/AuthGuards';
+import MembershipBootstrap from '@/components/MembershipBootstrap';
+import AccessGate from '@/components/AccessGate'; // ★ 追加
 
 const inter = Inter({ subsets: ['latin'], display: 'swap' });
 
@@ -16,16 +17,14 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ja">
-      {/* dvh を使った全画面レイアウトの安定化 */}
       <body className={`${inter.className} min-h-dvh bg-gradient-to-b from-gray-100 to-white text-gray-900`}>
-        {/* Provider（ストア / Supabase クライアント / Toaster 等）を内包している想定 */}
         <LayoutClient>
-          {/* 起動時/フォーカス復帰時にセッション健全性を自動チェック */}
           <AuthGuards />
-          {/* company_members → store（companyId / role）へ同期（membership=0件も正常として処理） */}
           <MembershipBootstrap />
-          {/* 以降のUIは store の role / companyId に基づいて権限判定 */}
-          {children}
+          {/* 初期化が完了するまで children を描画しない（≒ early 404/誤判定を防止） */}
+          <AccessGate>
+            {children}
+          </AccessGate>
         </LayoutClient>
       </body>
     </html>
