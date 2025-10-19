@@ -4,8 +4,13 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
-import { saveStrategyData } from '@/utils/supabase';
 import { ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
+
+// 会社スコープ・初期ロードの安定化
+import { useAccess } from '@/utils/access';
+import { hardResetForCompanySwitch } from '@/utils/resetAll';
+import { loadAndHydrate } from '@/utils/loader';
+import { useAutoSave } from '@/hooks/useAutoSave';
 
 // t→eブリッジ
 import { mapTopToExecIds } from '@/lib/strategyPatterns.map';
@@ -15,7 +20,13 @@ import type { TopPatternId } from '@/lib/strategyPatterns.top';
  *  ローカル型（storeに依存し過ぎない）
  * ====================== */
 type KR = string;
-type OKR = { objective: string; keyResults: KR[]; owner?: string; due?: string; status?: string };
+type OKR = {
+  objective: string;
+  keyResults: KR[];
+  owner?: string;
+  due?: string;
+  status?: string;
+};
 type Project = { title?: string; name?: string; okrs?: OKR[] };
 type RecommendedPattern = { id: string; title?: string; score?: number; why?: string[] };
 type Department = {
@@ -24,8 +35,8 @@ type Department = {
   // STAGE3 から渡ってくる可能性のあるフィールド
   strategy?: string;
   mission?: string;
-  recommendedPatterns?: RecommendedPattern[];      // t系
-  recommendedExecPatterns?: RecommendedPattern[];  // e系
+  recommendedPatterns?: RecommendedPattern[]; // t系
+  recommendedExecPatterns?: RecommendedPattern[]; // e系
 };
 
 /* ==========================================================
@@ -36,8 +47,10 @@ function SaveDock() {
   const { user } = useUserStore();
   const departments = state?.departments ?? [];
 
-  const [hydrated, setHydrated] = useState(false);
-  useEffect(() => { setHydrated(true); }, []);
+  const [hydratedUI, setHydratedUI] = useState(false);
+  useEffect(() => {
+    setHydratedUI(true);
+  }, []);
 
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -91,12 +104,13 @@ function SaveDock() {
     }
   }, [lastSavedAt]);
 
+  // 即時保存（AutoSaveとは別の手動フラッシュ）
   const saveNow = useCallback(async () => {
     if (!user?.id) return;
     setSaving(true);
     setError('');
     try {
-      await saveStrategyData(useStrategyStore.getState() as any, user.id);
+      await useStrategyStore.getState().saveStrategyData();
       savedHashRef.current = JSON.stringify((useStrategyStore.getState() as any).departments ?? []);
       setLastSavedAt(Date.now());
       setDirty(false);
@@ -119,7 +133,7 @@ function SaveDock() {
     return () => window.removeEventListener('keydown', onKey);
   }, [saveNow, saving]);
 
-  if (!hydrated) {
+  if (!hydratedUI) {
     return (
       <div className="fixed bottom-5 right-5 z-50">
         <div className="rounded-2xl border border-zinc-200 bg-white/95 backdrop-blur px-3 py-2 shadow">
@@ -169,9 +183,7 @@ function SaveDock() {
             onClick={saveNow}
             disabled={!canSave}
             className={`ml-2 inline-flex items-center rounded-full h-8 px-3 text-xs font-semibold transition ${
-              canSave
-                ? 'bg-black text-white hover:opacity-90 active:opacity-85'
-                : 'bg-zinc-200 text-zinc-500 cursor-not-allowed'
+              canSave ? 'bg-black text-white hover:opacity-90 active:opacity-85' : 'bg-zinc-200 text-zinc-500 cursor-not-allowed'
             }`}
             title="今すぐ保存（⌘/Ctrl+S）"
           >
@@ -188,40 +200,107 @@ function SaveDock() {
  *      メイン：OKRページ
  * ======================= */
 export default function OKRPage() {
+  // store フィールド
   const { departments, setDepartments } = useStrategyStore() as any;
-  const { user } = useUserStore();
 
+  // 会社スコープ制御
+  const { companyId: scopeCompanyId, hydrated, setCompanyScope, setHydrated, refetchFromServer } = useStrategyStore();
+
+  // アクセス情報（companyId は access 側を優先）
+  const access = useAccess();
+  const accessCompanyId: string | undefined = useMemo(
+    () => ((access as any)?.companyId ?? (useStrategyStore.getState().companyId as string | undefined)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [(access as any)?.companyId]
+  );
+
+  /* =========================================================
+     会社スコープ確立（StrictMode対策）
+     - 同一IDへの再適用は no-op
+     - ID変更時のみ hardReset + setCompanyScope
+  ========================================================= */
+  const lastAppliedCompanyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!accessCompanyId) return;
+
+    if (lastAppliedCompanyRef.current === accessCompanyId) {
+      return; // すでに適用済み
+    }
+
+    if (scopeCompanyId && scopeCompanyId !== accessCompanyId) {
+      hardResetForCompanySwitch(accessCompanyId); // 会社切替：全クリア
+    } else {
+      setCompanyScope(accessCompanyId); // 初回：スコープ確立
+    }
+    lastAppliedCompanyRef.current = accessCompanyId;
+  }, [accessCompanyId, scopeCompanyId, setCompanyScope]);
+
+  /* =========================================================
+     初期ロード（loadAndHydrate + refetch）
+     - 同一companyIdに対する多重起動ガード
+     - 7秒フェイルセーフで hydrated を立てる
+  ========================================================= */
+  const loadGuardRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!accessCompanyId) return;
+
+    // すでに同一IDで完了していれば再入しない
+    if (loadGuardRef.current === accessCompanyId && hydrated && scopeCompanyId === accessCompanyId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const run = async () => {
+      if (hydrated && scopeCompanyId === accessCompanyId) {
+        loadGuardRef.current = accessCompanyId;
+        return;
+      }
+
+      const doLoad = async () => {
+        await loadAndHydrate(accessCompanyId); // DB→store 取り込み
+        try {
+          await refetchFromServer?.(); // 追加差分の同期
+        } catch (e) {
+          console.warn('[okr] refetchFromServer failed (ignored)', e);
+        }
+        setHydrated?.(true); // 明示的にON
+      };
+
+      const timer = setTimeout(() => {
+        if (!cancelled) {
+          console.warn('[okr] ⚠️ Timeout reached, forcing hydration');
+          setHydrated?.(true);
+        }
+      }, 7000);
+
+      try {
+        await doLoad();
+        loadGuardRef.current = accessCompanyId;
+      } finally {
+        clearTimeout(timer);
+      }
+
+      if (cancelled) return;
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessCompanyId, hydrated, scopeCompanyId, refetchFromServer, setHydrated]);
+
+  // AutoSave：このページでは departments を編集するため依存に含める
+  useAutoSave([accessCompanyId, departments]); // ✅ companyId スコープに紐付け
+
+  // 表示用
   const cascade: Department[] = useMemo(
     () => (Array.isArray(departments) ? (departments as Department[]) : []),
     [departments]
   );
 
-  /* ---------- デバウンス保存 ---------- */
-  const timerRef = useRef<any>(null);
-  const persistDebounced = (nextDeps: Department[]) => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(async () => {
-      try {
-        if (!user?.id) return;
-        const state = useStrategyStore.getState() as any;
-        await saveStrategyData({ ...state, departments: nextDeps }, user.id);
-      } catch (e) {
-        console.warn('save departments failed', e);
-      }
-    }, 500);
-  };
-
-  const commit = (next: Department[]) => {
-    // 不変更新を明示化（Zustandでの変更検知を確実に）
-    const cloned = next.map(d => ({
-      ...d,
-      projects: Array.isArray(d.projects)
-        ? d.projects.map(p => ({ ...p, okrs: Array.isArray(p.okrs) ? p.okrs.map(o => ({ ...o, keyResults: [...(o.keyResults ?? [])] })) : [] }))
-        : []
-    }));
-    setDepartments(cloned);
-    persistDebounced(cloned);
-  };
+  // Hydration ガード
+  const isHydrating = !hydrated || scopeCompanyId !== accessCompanyId;
 
   /* ---------- ユーティリティ ---------- */
   const ensureArray = <T,>(v: T[] | undefined): T[] => (Array.isArray(v) ? v : []);
@@ -239,7 +318,28 @@ export default function OKRPage() {
   };
 
   /* ---------- ネスト更新ヘルパ ---------- */
+  const { setDepartments: setDepartmentsInStore } = useStrategyStore() as any; // 型補助
+
+  const commit = (next: Department[]) => {
+    // 不変更新を明示化（Zustandでの変更検知を確実に）
+    const cloned = next.map((d) => ({
+      ...d,
+      projects: Array.isArray(d.projects)
+        ? d.projects.map((p) => ({
+            ...p,
+            okrs: Array.isArray(p.okrs) ? p.okrs.map((o) => ({ ...o, keyResults: [...(o.keyResults ?? [])] })) : [],
+          }))
+        : [],
+    }));
+    // 画面 state
+    setDepartments(cloned);
+    // store state（persistへ）
+    setDepartmentsInStore(cloned);
+    // 保存は useAutoSave に任せる
+  };
+
   const setDept = (dIdx: number, mapper: (dept: Department) => Department) => {
+    if (isHydrating) return;
     const next = cascade.map((d, i) => (i === dIdx ? mapper({ ...d }) : d));
     commit(next);
   };
@@ -345,17 +445,17 @@ export default function OKRPage() {
   /* ---------- 実装→OKR雛形：自動展開（部門単位） ---------- */
   const [busy, setBusy] = useState<Record<number, boolean>>({});
   const applyOKRsFromExec = async (deptIdx: number) => {
+    if (isHydrating) return;
     const dept = cascade[deptIdx];
     if (!dept) return;
 
     // e系があればそれを優先、無ければ t→e ブリッジ
-    const execIdsFromE =
-      (dept.recommendedExecPatterns ?? []).map(p => p.id).filter(Boolean);
+    const execIdsFromE = (dept.recommendedExecPatterns ?? []).map((p) => p.id).filter(Boolean);
     const execIds = execIdsFromE.length
       ? execIdsFromE
       : mapTopToExecIds(
           (dept.recommendedPatterns ?? [])
-            .map(p => p.id as TopPatternId)
+            .map((p) => p.id as TopPatternId)
             .filter(Boolean) as TopPatternId[]
         );
 
@@ -364,7 +464,7 @@ export default function OKRPage() {
       return;
     }
 
-    setBusy(p => ({ ...p, [deptIdx]: true }));
+    setBusy((p) => ({ ...p, [deptIdx]: true }));
     try {
       const res = await fetch('/api/okr-from-exec', {
         method: 'POST',
@@ -380,7 +480,9 @@ export default function OKRPage() {
       });
       const text = await res.text();
       const data = (() => {
-        try { return JSON.parse(text); } catch {
+        try {
+          return JSON.parse(text);
+        } catch {
           const m = text.match(/\{[\s\S]*\}/m);
           return m ? JSON.parse(m[0]) : { items: [] };
         }
@@ -392,14 +494,14 @@ export default function OKRPage() {
         return;
       }
 
-      // 既存プロジェクトにマージ（同名タイトルはKR追記）
+      // 既存プロジェクトにマージ（同名タイトルはOKR追加）
       const next = cascade.map((d, i) => {
         if (i !== deptIdx) return d;
         const projects = [...ensureArray(d.projects)];
         for (const it of items) {
           const title = it.title || 'OKR';
           const okr = it.okr;
-          const existIdx = projects.findIndex(p => (p?.title ?? p?.name ?? '') === title);
+          const existIdx = projects.findIndex((p) => (p?.title ?? p?.name ?? '') === title);
           if (existIdx >= 0) {
             const exist = { ...projects[existIdx] };
             const existOkrs = [...ensureArray(exist.okrs)];
@@ -413,11 +515,13 @@ export default function OKRPage() {
           } else {
             projects.push({
               title,
-              okrs: [{
-                objective: okr.objective,
-                keyResults: ensureArray(okr.keyResults),
-                owner: okr.owner,
-              }],
+              okrs: [
+                {
+                  objective: okr.objective,
+                  keyResults: ensureArray(okr.keyResults),
+                  owner: okr.owner,
+                },
+              ],
             });
           }
         }
@@ -429,7 +533,7 @@ export default function OKRPage() {
       console.warn('applyOKRsFromExec error:', e?.message || e);
       alert('OKR雛形の展開に失敗しました');
     } finally {
-      setBusy(p => ({ ...p, [deptIdx]: false }));
+      setBusy((p) => ({ ...p, [deptIdx]: false }));
     }
   };
 
@@ -439,9 +543,15 @@ export default function OKRPage() {
       <header className="mb-8">
         <h1 className="text-[28px] font-semibold tracking-tight text-zinc-900">STAGE４ 実行計画策定</h1>
         <p className="text-[14px] text-zinc-600">
-          部門戦略をベースにプロジェクト・OKRを設定してください。変更は自動保存されます。<br />
+          部門戦略をベースにプロジェクト・OKRを設定してください。変更は自動保存されます。
+          <br />
           STAGE3で推薦した「実装パターン」から OKR雛形を一括追加できます。
         </p>
+        {isHydrating && (
+          <div className="mt-3 rounded-xl border border-zinc-200 bg-white/80 px-3 py-2 text-sm text-zinc-600">
+            サーバーのデータを読み込み中です…
+          </div>
+        )}
         <div className="mt-6 h-px w-full bg-zinc-200" />
       </header>
 
@@ -451,18 +561,17 @@ export default function OKRPage() {
           const isGenBusy = !!busy[deptIdx];
 
           return (
-            <section key={deptIdx} className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <section key={deptIdx} className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm opacity-100">
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-[17px] font-semibold text-zinc-900 tracking-tight">
-                  {dept?.name ?? '部門'}
-                </h2>
+                <h2 className="text-[17px] font-semibold text-zinc-900 tracking-tight">{dept?.name ?? '部門'}</h2>
 
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => applyOKRsFromExec(deptIdx)}
-                    disabled={isGenBusy}
-                    className={`inline-flex items-center justify-center rounded-full h-9 px-4 text-[13px] font-medium border
-                      ${isGenBusy ? 'bg-zinc-200 text-zinc-500' : 'bg-white text-zinc-800 hover:bg-zinc-50'}`}
+                    disabled={isGenBusy || isHydrating}
+                    className={`inline-flex items-center justify-center rounded-full h-9 px-4 text-[13px] font-medium border ${
+                      isGenBusy || isHydrating ? 'bg-zinc-200 text-zinc-500' : 'bg-white text-zinc-800 hover:bg-zinc-50'
+                    }`}
                     title="実装パターンからOKR雛形を一括追加"
                   >
                     <Sparkles className="h-4 w-4 mr-1" />
@@ -471,7 +580,8 @@ export default function OKRPage() {
 
                   <button
                     onClick={() => addProject(deptIdx)}
-                    className="inline-flex items-center justify-center rounded-full h-9 px-4 text-[13px] font-medium bg-black text-white hover:opacity-90 active:opacity-85"
+                    disabled={isHydrating}
+                    className="inline-flex items-center justify-center rounded-full h-9 px-4 text-[13px] font-medium bg-black text-white hover:opacity-90 active:opacity-85 disabled:opacity-40"
                     title="プロジェクトを追加"
                   >
                     プロジェクトを追加
@@ -507,13 +617,14 @@ export default function OKRPage() {
                           value={projTitle(proj, projIdx)}
                           onChange={(e) => renameProject(deptIdx, projIdx, e.target.value)}
                           placeholder="プロジェクト名"
+                          readOnly={isHydrating}
                         />
                       </div>
 
                       <div className="flex items-center gap-2 text-[13px]">
                         <button
                           onClick={() => moveProject(deptIdx, projIdx, -1)}
-                          disabled={projIdx === 0}
+                          disabled={projIdx === 0 || isHydrating}
                           className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-zinc-700 disabled:opacity-40"
                           title="上へ"
                         >
@@ -521,7 +632,7 @@ export default function OKRPage() {
                         </button>
                         <button
                           onClick={() => moveProject(deptIdx, projIdx, +1)}
-                          disabled={projIdx === projects.length - 1}
+                          disabled={projIdx === projects.length - 1 || isHydrating}
                           className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-zinc-700 disabled:opacity-40"
                           title="下へ"
                         >
@@ -529,7 +640,8 @@ export default function OKRPage() {
                         </button>
                         <button
                           onClick={() => deleteProject(deptIdx, projIdx)}
-                          className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-rose-600 hover:bg-rose-50"
+                          disabled={isHydrating}
+                          className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-rose-600 hover:bg-rose-50 disabled:opacity-40"
                           title="削除"
                         >
                           削除
@@ -556,7 +668,7 @@ export default function OKRPage() {
                               <div className="flex items-center gap-2 text-[13px]">
                                 <button
                                   onClick={() => moveOKR(deptIdx, projIdx, okrIdx, -1)}
-                                  disabled={okrIdx === 0}
+                                  disabled={okrIdx === 0 || isHydrating}
                                   className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-zinc-700 disabled:opacity-40"
                                   title="上へ"
                                 >
@@ -564,7 +676,7 @@ export default function OKRPage() {
                                 </button>
                                 <button
                                   onClick={() => moveOKR(deptIdx, projIdx, okrIdx, +1)}
-                                  disabled={okrIdx === okrs.length - 1}
+                                  disabled={okrIdx === okrs.length - 1 || isHydrating}
                                   className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-zinc-700 disabled:opacity-40"
                                   title="下へ"
                                 >
@@ -572,7 +684,8 @@ export default function OKRPage() {
                                 </button>
                                 <button
                                   onClick={() => deleteOKR(deptIdx, projIdx, okrIdx)}
-                                  className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-rose-600 hover:bg-rose-50"
+                                  disabled={isHydrating}
+                                  className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-rose-600 hover:bg-rose-50 disabled:opacity-40"
                                   title="このOKRを削除"
                                 >
                                   削除
@@ -588,6 +701,7 @@ export default function OKRPage() {
                               onChange={(e) => updateObjective(deptIdx, projIdx, okrIdx, e.target.value)}
                               placeholder="例：新規顧客獲得で持続可能な成長軌道に乗せる"
                               className="mb-3 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[14px] focus:outline-none focus:ring-4 focus:ring-zinc-200"
+                              readOnly={isHydrating}
                             />
 
                             {/* Key Results */}
@@ -600,11 +714,12 @@ export default function OKRPage() {
                                   onChange={(e) => updateKR(deptIdx, projIdx, okrIdx, krIdx, e.target.value)}
                                   placeholder="例：月間MQLを120件に増やす"
                                   className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[14px] focus:outline-none focus:ring-4 focus:ring-zinc-200"
+                                  readOnly={isHydrating}
                                 />
                                 <div className="flex items-center gap-2 text-[13px]">
                                   <button
                                     onClick={() => moveKR(deptIdx, projIdx, okrIdx, krIdx, -1)}
-                                    disabled={krIdx === 0}
+                                    disabled={krIdx === 0 || isHydrating}
                                     className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-zinc-700 disabled:opacity-40"
                                     title="上へ"
                                   >
@@ -612,7 +727,7 @@ export default function OKRPage() {
                                   </button>
                                   <button
                                     onClick={() => moveKR(deptIdx, projIdx, okrIdx, krIdx, +1)}
-                                    disabled={krIdx === (okr.keyResults?.length || 1) - 1}
+                                    disabled={krIdx === (okr.keyResults?.length || 1) - 1 || isHydrating}
                                     className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-zinc-700 disabled:opacity-40"
                                     title="下へ"
                                   >
@@ -620,7 +735,8 @@ export default function OKRPage() {
                                   </button>
                                   <button
                                     onClick={() => deleteKR(deptIdx, projIdx, okrIdx, krIdx)}
-                                    className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-rose-600 hover:bg-rose-50"
+                                    disabled={isHydrating}
+                                    className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-rose-600 hover:bg-rose-50 disabled:opacity-40"
                                     title="削除"
                                   >
                                     削除
@@ -631,7 +747,8 @@ export default function OKRPage() {
 
                             <button
                               onClick={() => addKR(deptIdx, projIdx, okrIdx)}
-                              className="mt-2 inline-flex items-center rounded-full px-3 py-1.5 text-[13px] font-medium text-zinc-800 hover:bg-zinc-100"
+                              disabled={isHydrating}
+                              className="mt-2 inline-flex items-center rounded-full px-3 py-1.5 text-[13px] font-medium text-zinc-800 hover:bg-zinc-100 disabled:opacity-40"
                             >
                               + Key Result を追加
                             </button>
@@ -646,6 +763,7 @@ export default function OKRPage() {
                                   onChange={(e) => updateOwner(deptIdx, projIdx, okrIdx, e.target.value)}
                                   placeholder="担当者名"
                                   className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[14px] focus:outline-none focus:ring-4 focus:ring-zinc-200"
+                                  readOnly={isHydrating}
                                 />
                               </div>
                               <div>
@@ -655,6 +773,7 @@ export default function OKRPage() {
                                   value={okr.due ?? ''}
                                   onChange={(e) => updateDue(deptIdx, projIdx, okrIdx, e.target.value)}
                                   className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[14px] focus:outline-none focus:ring-4 focus:ring-zinc-200"
+                                  readOnly={isHydrating}
                                 />
                               </div>
                               <div>
@@ -662,6 +781,7 @@ export default function OKRPage() {
                                 <select
                                   value={okr.status ?? 'draft'}
                                   onChange={(e) => updateStatus(deptIdx, projIdx, okrIdx, e.target.value)}
+                                  disabled={isHydrating}
                                   className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[14px] focus:outline-none focus:ring-4 focus:ring-zinc-200"
                                 >
                                   <option value="draft">draft</option>
@@ -675,7 +795,8 @@ export default function OKRPage() {
 
                         <button
                           onClick={() => addOKR(deptIdx, projIdx)}
-                          className="mt-2 inline-flex items-center rounded-full h-9 px-4 text-[13px] font-medium text-zinc-800 hover:bg-zinc-100"
+                          disabled={isHydrating}
+                          className="mt-2 inline-flex items-center rounded-full h-9 px-4 text-[13px] font-medium text-zinc-800 hover:bg-zinc-100 disabled:opacity-40"
                         >
                           + OKRを追加
                         </button>
@@ -687,9 +808,10 @@ export default function OKRPage() {
             </section>
           );
         })}
+        {cascade.length === 0 && !isHydrating && <div className="text-sm text-zinc-600">表示できるOKRがありません。</div>}
       </div>
 
-      {/* フローティング保存ドック */}
+      {/* フローティング保存ドック（手動フラッシュ用） */}
       <SaveDock />
     </main>
   );
