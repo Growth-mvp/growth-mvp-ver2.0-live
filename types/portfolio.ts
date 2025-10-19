@@ -1,5 +1,3 @@
-// /types/portfolio.ts
-
 /**
  * ポートフォリオの粒度（事業 / 商品 / サービス）
  */
@@ -18,14 +16,14 @@ export type PortfolioStage = 'invest' | 'maintain' | 'harvest' | 'exit';
  * マトリクス上の1バブル（1ユニット）
  */
 export type BusinessUnit = {
-  id: string;            // uuidなど
-  name: string;          // 事業名 / 商品名 / サービス名
-  revenueShare: number;  // 売上構成比 [% 0-100]
-  growthRate: number;    // 成長率 [% -100〜+300 目安]
-  profitMargin: number;  // 利益率 [% -100〜+100]
+  id: string;             // uuidなど
+  name: string;           // 事業名 / 商品名 / サービス名
+  revenueShare: number;   // 売上構成比 [% 0-100]
+  growthRate: number;     // 成長率 [% -100〜+300 目安]
+  profitMargin: number;   // 利益率 [% -100〜+100]
   stage?: PortfolioStage; // 手動上書き用。通常は classifyStage の推奨を利用
-  note?: string;         // 注釈
-  color?: string;        // 表示用（任意）
+  note?: string;          // 注釈
+  color?: string;         // 表示用（任意）
 };
 
 /**
@@ -43,12 +41,14 @@ export type BusinessPortfolio = {
   units: BusinessUnit[];
   threshold: PortfolioThreshold;
   currency: 'JPY' | 'USD' | 'EUR';
-  periodLabel: string;   // 例: 'FY2025'
-  unitType: UnitType;    // 事業/商品/サービスの粒度
+  periodLabel: string;    // 例: 'FY2025'
+  unitType: UnitType;     // 事業/商品/サービスの粒度
   lastSavedAt?: string | null;
 };
 
-/* ============== 便利ユーティリティ（任意で使用） ============== */
+/* ==========================================================
+ * 便利ユーティリティ
+ * ========================================================== */
 
 /**
  * 閾値に基づき推奨ステージを判定
@@ -68,11 +68,12 @@ export function classifyStage(
 
 /**
  * 型ガード：BusinessPortfolio っぽいものを最低限チェック
+ * - nullや不完全JSONでも安全にfalseを返す
  */
 export function isBusinessPortfolio(v: unknown): v is BusinessPortfolio {
+  if (!v || typeof v !== 'object') return false;
   const o = v as any;
   return (
-    !!o &&
     Array.isArray(o.units) &&
     typeof o.threshold?.growthBaseline === 'number' &&
     typeof o.threshold?.profitBaseline === 'number' &&
@@ -97,6 +98,6 @@ export function createDefaultPortfolio(
     currency,
     periodLabel,
     unitType,
-    lastSavedAt: null,
+    lastSavedAt: new Date().toISOString(),
   };
 }
