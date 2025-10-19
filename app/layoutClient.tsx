@@ -8,6 +8,8 @@ import CEOChatPanel from '@/components/CEOChatPanel';
 import { supabase } from '@/lib/supabaseClient';
 import { useUserStore } from '@/store/userStore';
 import { useStrategyStore } from '@/store/strategyStore';
+// ★追加：CompanyProvider / useCompany
+import { CompanyProvider } from '@/context/CompanyContext';
 
 /* ================================
  * ルート判定
@@ -49,7 +51,10 @@ function selectCompanyId(state: any): string | undefined {
   );
 }
 
-export default function LayoutClient({ children }: { children: React.ReactNode }) {
+/* ===========================================================
+ * メインレイアウト本体
+ * =========================================================== */
+function LayoutInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -68,40 +73,28 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
    * ============================== */
   const setStrategyId = useStrategyStore((s) => s.setStrategyId);
 
-  /* ================================
-   * スクロールコンテナ参照
-   * ============================== */
+  /* ================================ */
   const mainRef = useRef<HTMLDivElement | null>(null);
+  const [checking, setChecking] = useState(true);
+  const [bootstrapped, setBootstrapped] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
 
-  /* ================================
-   * StrictMode/多重実行ガード等
-   * ============================== */
-  const [checking, setChecking] = useState(true);     // セッション初期チェック中
-  const [bootstrapped, setBootstrapped] = useState(false); // membership読込完了サイン
-  const [hydrated, setHydrated] = useState(false);    // CSR再水和完了サイン（描画ガード）
-
-  const initInFlight = useRef(false);     // getSession 初期化多重実行ガード
-  const memInFlight = useRef(false);      // membership 取得ガード
+  const initInFlight = useRef(false);
+  const memInFlight = useRef(false);
   const provisionInFlight = useRef(false);
   const lastProvisionForCompany = useRef<string | null>(null);
-
-  const cleaned = useRef(false);          // アンマウント済みサイン
-  const routedRef = useRef(false);        // 同フレーム中に複数回置換しないためのガード
+  const cleaned = useRef(false);
+  const routedRef = useRef(false);
   const bootstrapTimer = useRef<number | null>(null);
 
   /* ================================
-   * デバッグマーカー（1回だけ）
+   * デバッグマーカー
    * ============================== */
   useEffect(() => {
-    const g = (window as any);
+    const g = window as any;
     if (!g.__STRATEGY_STORE_GETSTATE__) {
       g.__STRATEGY_STORE_GETSTATE__ = useStrategyStore.getState;
       console.log('[layout] store marker set');
-    } else {
-      console.log(
-        '[layout] store marker already set, same =',
-        g.__STRATEGY_STORE_GETSTATE__ === useStrategyStore.getState
-      );
     }
   }, []);
 
@@ -109,13 +102,12 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
    * Rehydrate ガード
    * ============================== */
   useEffect(() => {
-    // 1tick 後に true（SSR/CSR差分の瞬間チラつき・未初期化ロジック実行を防ぐ）
     const id = requestAnimationFrame(() => setHydrated(true));
     return () => cancelAnimationFrame(id);
   }, []);
 
   /* ================================
-   * 事前ルートプリフェッチ（軽量）
+   * 事前ルートプリフェッチ
    * ============================== */
   useEffect(() => {
     router.prefetch('/login');
@@ -124,7 +116,7 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
   }, [router]);
 
   /* ================================
-   * ネイティブスクロール復元を無効化
+   * スクロール復元無効化
    * ============================== */
   useEffect(() => {
     const prev = window.history.scrollRestoration;
@@ -135,7 +127,7 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
   }, []);
 
   /* ================================
-   * ルート遷移ごとに <main> をトップへ
+   * ルート遷移ごとに main をトップへ
    * ============================== */
   useEffect(() => {
     const el = mainRef.current;
@@ -149,7 +141,7 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
   }, [pathname]);
 
   /* ================================
-   * 6秒フェイルセーフ（membershipが返らない場合）
+   * 6秒フェイルセーフ
    * ============================== */
   useEffect(() => {
     if (!user?.id || bootstrapped) return;
@@ -169,14 +161,11 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
   }, [user?.id, bootstrapped]);
 
   /* ================================
-   * 1) セッション初期確認 + 監視
-   *  - ここで store をクリアするのは「未ログイン/ログアウト」のみ
-   *  - ルート遷移では絶対に store を触らない（チラつき防止）
+   * 1) セッション初期確認
    * ============================== */
   useEffect(() => {
     if (initInFlight.current) return;
     initInFlight.current = true;
-
     const ac = new AbortController();
     const { signal } = ac;
 
@@ -194,15 +183,11 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
         }
 
         const session = sres?.session ?? null;
-
         if (!session) {
-          // 未ログイン：store を安全に初期化
           setUser(null);
           setRole(null);
           setMembership({ companyId: undefined, departmentId: undefined });
           setStrategyId(null);
-
-          // 認証外ルートにいたらログインへ
           if (!isAuthPath(pathname) && !routedRef.current) {
             routedRef.current = true;
             router.replace('/login');
@@ -210,7 +195,6 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
           return;
         }
 
-        // ログイン中：最小情報をセット（roleは membership で上書き）
         const uid = session.user.id;
         const email = session.user.email ?? '';
         setUser({ id: uid, email, name: '', role: 'member' });
@@ -225,7 +209,6 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
       if (signal.aborted) return;
 
       if (!sess?.user) {
-        // ログアウト時のみ store をクリア
         setUser(null);
         setRole(null);
         setMembership({ companyId: undefined, departmentId: undefined });
@@ -237,8 +220,6 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
         }
         return;
       }
-
-      // ログイン/トークン更新
       setUser({ id: sess.user.id, email: sess.user.email ?? '', name: '', role: 'member' });
       setBootstrapped(false);
     });
@@ -249,18 +230,15 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
       sub?.subscription?.unsubscribe?.();
       initInFlight.current = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* ================================
-   * 2) membership 読み込み（会社ID/ロール）
-   *  - 一度だけ。成功/失敗に関わらず bootstrapped を true に
+   * 2) membership 読み込み
    * ============================== */
   useEffect(() => {
     if (!user?.id) return;
     if (memInFlight.current) return;
     memInFlight.current = true;
-
     const ac = new AbortController();
     const { signal } = ac;
 
@@ -307,8 +285,6 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
 
   /* ================================
    * 2.5) strategyId provision
-   *  - 会社ID確定後に一度だけ叩く
-   *  - ここで store を不要に初期化しない
    * ============================== */
   useEffect(() => {
     const onAuthScene = isAuthPath(pathname);
@@ -333,7 +309,9 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
 
         if (json?.ok) {
           if (json.companyId && json.companyId !== companyId) {
-            useUserStore.getState().setMembership({ companyId: json.companyId, departmentId: undefined });
+            useUserStore
+              .getState()
+              .setMembership({ companyId: json.companyId, departmentId: undefined });
           }
           setStrategyId(json.strategyId ?? null);
           lastProvisionForCompany.current = json.companyId ?? companyId;
@@ -358,7 +336,7 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
   }, [bootstrapped, companyId, pathname, setStrategyId]);
 
   /* ================================
-   * 3) ルーティング制御（リダイレクトは1回に限定）
+   * 3) ルーティング制御
    * ============================== */
   useEffect(() => {
     if (checking) return;
@@ -391,16 +369,11 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
    * 表示制御
    * ============================== */
   const hideSidebar = isAuthPath(pathname);
-
-  // サイドの可変幅（lg+: 固定枠, base: 0）
   const leftVar = 'var(--left-w, 0px)';
   const rightVar = 'var(--right-w, 0px)';
-
-  // モバイル：左右ドロワー
   const [openLeft, setOpenLeft] = useState(false);
   const [openRight, setOpenRight] = useState(false);
 
-  // ローディング表示：認証外は素通り／認証ルートのみ表示
   if (!hideSidebar && (checking || !hydrated)) {
     return (
       <div className="grid min-h-dvh place-items-center text-sm text-gray-500">
@@ -410,7 +383,6 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
   }
 
   return (
-    // base: 1ペイン → lg: 左右固定幅 → xl: さらに広げる
     <div
       className={[
         'relative min-h-dvh overflow-hidden',
@@ -422,12 +394,10 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
       {/* ===== 左サイドバー ===== */}
       {!hideSidebar && (
         <>
-          {/* デスクトップ固定（lg+） */}
           <div className="hidden lg:block fixed left-0 top-0 z-10 h-dvh w-[var(--left-w)]">
             <Sidebar />
           </div>
 
-          {/* モバイル/タブレット：ドロワー（lg未満） */}
           <div
             className={[
               'lg:hidden fixed inset-0 z-40',
@@ -435,7 +405,6 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
             ].join(' ')}
             aria-hidden={!openLeft}
           >
-            {/* 背景 */}
             <div
               className={[
                 'absolute inset-0 bg-black/40 transition-opacity',
@@ -443,7 +412,6 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
               ].join(' ')}
               onClick={() => setOpenLeft(false)}
             />
-            {/* パネル */}
             <div
               className={[
                 'absolute left-0 top-0 h-dvh w-[16rem] max-w-[80vw]',
@@ -451,8 +419,6 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
                 'transition-transform duration-200',
                 openLeft ? 'translate-x-0' : '-translate-x-full',
               ].join(' ')}
-              role="dialog"
-              aria-label="メニュー"
             >
               <Sidebar />
             </div>
@@ -463,7 +429,6 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
       {/* ===== 右AIドック ===== */}
       {!hideSidebar && (
         <>
-          {/* デスクトップ固定（lg+） */}
           <aside
             className={[
               'hidden lg:flex fixed top-0 right-0 z-10 h-dvh',
@@ -472,7 +437,6 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
               'flex-col box-border overflow-hidden',
               'w-[var(--right-w)]',
             ].join(' ')}
-            aria-label="AIアシスタントドック"
           >
             <div className="min-h-0 flex-1 overflow-y-auto">
               <div className="ml-auto w-full h-full max-w-[var(--right-w)] [&>*]:w-full [&>*]:max-w-none [&>*]:ml-0">
@@ -481,7 +445,6 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
             </div>
           </aside>
 
-          {/* モバイル/タブレット：ドロワー（lg未満） */}
           <div
             className={[
               'lg:hidden fixed inset-0 z-40',
@@ -489,7 +452,6 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
             ].join(' ')}
             aria-hidden={!openRight}
           >
-            {/* 背景 */}
             <div
               className={[
                 'absolute inset-0 bg-black/40 transition-opacity',
@@ -497,7 +459,6 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
               ].join(' ')}
               onClick={() => setOpenRight(false)}
             />
-            {/* パネル（右から） */}
             <div
               className={[
                 'absolute right-0 top-0 h-dvh w-[16rem] max-w-[90vw]',
@@ -505,8 +466,6 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
                 'transition-transform duration-200',
                 openRight ? 'translate-x-0' : 'translate-x-full',
               ].join(' ')}
-              role="dialog"
-              aria-label="AIアシスタント"
             >
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <div className="[&>*]:w-full [&>*]:max-w-none [&>*]:ml-0">
@@ -529,13 +488,10 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
           'min-w-0',
         ].join(' ')}
         style={{
-          marginLeft: !hideSidebar ? 'var(--left-w, 0px)' : undefined,
-          marginRight: !hideSidebar ? 'var(--right-w, 0px)' : undefined,
+          marginLeft: !hideSidebar ? leftVar : undefined,
+          marginRight: !hideSidebar ? rightVar : undefined,
         }}
-        role="main"
-        aria-live="polite"
       >
-        {/* モバイル：トップバーにトグル（lg未満） */}
         {!hideSidebar && (
           <div className="lg:hidden sticky top-0 z-20 -mt-3 -mx-3 sm:-mx-4 md:-mx-6 mb-3 sm:mb-4 bg-white/70 backdrop-blur supports-[backdrop-filter]:bg-white/60 border-b border-black/5">
             <div className="px-3 sm:px-4 md:px-6 py-2 flex items-center justify-between">
@@ -558,5 +514,16 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
         {children}
       </main>
     </div>
+  );
+}
+
+/* ===========================================================
+ * CompanyProviderで全体を包む（★ここが変更ポイント）
+ * =========================================================== */
+export default function LayoutClient({ children }: { children: React.ReactNode }) {
+  return (
+    <CompanyProvider>
+      <LayoutInner>{children}</LayoutInner>
+    </CompanyProvider>
   );
 }
