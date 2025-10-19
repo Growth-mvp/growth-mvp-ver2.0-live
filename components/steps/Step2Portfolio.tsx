@@ -12,6 +12,7 @@ import type {
   UnitType,
 } from '@/types/portfolio';
 import { classifyStage, createDefaultPortfolio } from '@/types/portfolio';
+import { saveStrategyData as saveStrategyDataApi } from '@/utils/supabase';
 
 /** 数値入力の安全パース（空文字は undefined にする） */
 function toNumberOrUndefined(v: string): number | undefined {
@@ -29,25 +30,15 @@ function clamp(n: number, min: number, max: number): number {
 const UNIT_TYPE_ITEMS: UnitType[] = ['business', 'product', 'service'];
 
 type Props = {
-  onPrev?: () => void; // 親のナビで使う場合のため残しておくが、本ステップでは描画しない
+  onPrev?: () => void;
   onNext?: () => void;
   onSkip?: () => void;
 };
 
 export default function Step2Portfolio(_props: Props) {
-  const {
-    businessPortfolio,
-    setBusinessPortfolio,
-    addBusinessUnit,
-    updateBusinessUnit,
-    removeBusinessUnit,
-    setPortfolioThreshold,
-    setPortfolioUnitType,
-    // 保存まわり（store 側に実装済み前提）
-    saveStrategyData,
-  } = useStrategyStore();
+  const { businessPortfolio, setBusinessPortfolio } = useStrategyStore() as any;
 
-  // ユーザー・会社コンテキストの可視化・チェック用
+  // ユーザー・会社の可視化用
   const { user, companyId, role, hydrated, membershipLoaded } = useUserStore();
   const userId = user?.id ?? null;
 
@@ -55,7 +46,7 @@ export default function Step2Portfolio(_props: Props) {
   const portfolio: BusinessPortfolio =
     businessPortfolio ?? createDefaultPortfolio('business', 'FY2025', 'JPY');
 
-  /** store を丸ごと更新するユーティリティ（period/currency 用） */
+  /** store を丸ごと更新するユーティリティ（period/currency/units/threshold 用） */
   const commit = (next: BusinessPortfolio): void => {
     setBusinessPortfolio(next);
     markDirty(); // 変更フラグ
@@ -73,11 +64,13 @@ export default function Step2Portfolio(_props: Props) {
     // 0.8秒デバウンスで保存
     timerRef.current = setTimeout(async () => {
       if (!dirtyRef.current) return;
+      if (!userId) return; // 未ログインなら保存しない
       dirtyRef.current = false;
       setSaving(true);
       setSaveError(null);
       try {
-        await saveStrategyData(); // store 側で businessPortfolio を含めて保存する実装を想定
+        const state = useStrategyStore.getState() as any;
+        await saveStrategyDataApi(state, userId);
       } catch (e: any) {
         setSaveError(e?.message || '保存に失敗しました');
         console.error('[AUTO SAVE] failed:', e);
@@ -85,7 +78,7 @@ export default function Step2Portfolio(_props: Props) {
         setSaving(false);
       }
     }, 800);
-  }, [saveStrategyData]);
+  }, [userId]);
 
   // アンマウント時にタイマー解除
   useEffect(() => {
@@ -93,15 +86,6 @@ export default function Step2Portfolio(_props: Props) {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, []);
-
-  /** 合計構成比（%） */
-  const totalShare = useMemo<number>(() => {
-    return (portfolio.units ?? []).reduce(
-      (sum: number, u: BusinessUnit) =>
-        sum + (Number.isFinite(u.revenueShare) ? (u.revenueShare as number) : 0),
-      0
-    );
-  }, [portfolio.units]);
 
   /** 表示用ユニット（stage を補完） */
   const displayUnits = useMemo<BusinessUnit[]>(() => {
@@ -112,16 +96,75 @@ export default function Step2Portfolio(_props: Props) {
     });
   }, [portfolio.units, portfolio.threshold]);
 
-  /** 閾値変更 */
-  const handleThresholdChange = (patch: Partial<PortfolioThreshold>): void => {
-    setPortfolioThreshold(patch);
-    markDirty();
+  /** 合計構成比（%） */
+  const totalShare = useMemo<number>(() => {
+    return (portfolio.units ?? []).reduce(
+      (sum: number, u: BusinessUnit) =>
+        sum + (Number.isFinite(u.revenueShare) ? (u.revenueShare as number) : 0),
+      0
+    );
+  }, [portfolio.units]);
+
+  /** ====== ストアに存在しなかった操作群をコンポーネント内で吸収 ====== */
+
+  // id 生成
+  const newId = () =>
+    (globalThis as any).crypto?.randomUUID?.() ??
+    `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  // 追加
+  const addUnit = (patch?: Partial<BusinessUnit>) => {
+    const next: BusinessPortfolio = {
+      ...portfolio,
+      units: [
+        ...(portfolio.units ?? []),
+        {
+          id: newId(),
+          name: `Unit ${(portfolio.units?.length ?? 0) + 1}`,
+          revenueShare: 10,
+          growthRate: 0,
+          profitMargin: 0,
+          ...patch,
+        },
+      ],
+    };
+    commit(next);
   };
 
-  /** 粒度切り替え */
-  const handleUnitTypeChange = (t: UnitType): void => {
-    setPortfolioUnitType(t);
-    markDirty();
+  // 更新
+  const updateUnit = (id: string, patch: Partial<BusinessUnit>) => {
+    const next: BusinessPortfolio = {
+      ...portfolio,
+      units: (portfolio.units ?? []).map((u) => (u.id === id ? { ...u, ...patch } : u)),
+    };
+    commit(next);
+  };
+
+  // 削除
+  const removeUnit = (id: string) => {
+    const next: BusinessPortfolio = {
+      ...portfolio,
+      units: (portfolio.units ?? []).filter((u) => u.id !== id),
+    };
+    commit(next);
+  };
+
+  // 閾値変更
+  const setThreshold = (patch: Partial<PortfolioThreshold>) => {
+    const next: BusinessPortfolio = {
+      ...portfolio,
+      threshold: { ...portfolio.threshold, ...patch },
+    };
+    commit(next);
+  };
+
+  // 粒度切り替え
+  const setUnitType = (t: UnitType) => {
+    const next: BusinessPortfolio = {
+      ...portfolio,
+      unitType: t,
+    };
+    commit(next);
   };
 
   /** ====== チャート設定/スケール ====== */
@@ -162,10 +205,12 @@ export default function Step2Portfolio(_props: Props) {
   const handleManualSave = useCallback(async () => {
     if (timerRef.current) clearTimeout(timerRef.current);
     dirtyRef.current = false;
+    if (!userId) return;
     setSaving(true);
     setSaveError(null);
     try {
-      await saveStrategyData();
+      const state = useStrategyStore.getState() as any;
+      await saveStrategyDataApi(state, userId);
       console.log('[MANUAL SAVE] businessPortfolio snapshot:', portfolio);
     } catch (e: any) {
       setSaveError(e?.message || '保存に失敗しました');
@@ -173,12 +218,13 @@ export default function Step2Portfolio(_props: Props) {
     } finally {
       setSaving(false);
     }
-  }, [saveStrategyData, portfolio]);
+  }, [userId, portfolio]);
 
   /** ====== テスト保存（ログを多めに出す） ====== */
   const handleTestSave = useCallback(async () => {
     if (timerRef.current) clearTimeout(timerRef.current);
     dirtyRef.current = false;
+    if (!userId) return;
     setSaving(true);
     setSaveError(null);
     try {
@@ -195,7 +241,8 @@ export default function Step2Portfolio(_props: Props) {
       } catch {}
       console.groupEnd();
 
-      await saveStrategyData();
+      const state = useStrategyStore.getState() as any;
+      await saveStrategyDataApi(state, userId);
       console.log('[TEST SAVE] saveStrategyData completed');
     } catch (e: any) {
       setSaveError(e?.message || '保存に失敗しました');
@@ -203,7 +250,7 @@ export default function Step2Portfolio(_props: Props) {
     } finally {
       setSaving(false);
     }
-  }, [saveStrategyData, portfolio, userId, companyId, role, hydrated, membershipLoaded]);
+  }, [userId, portfolio, companyId, role, hydrated, membershipLoaded]);
 
   return (
     <div className="space-y-6">
@@ -224,7 +271,7 @@ export default function Step2Portfolio(_props: Props) {
               <code className="text-gray-800">{role ?? '(none)'}</code>
             </div>
             <div className="text-gray-500">
-              hydrated: <code className="text-gray-800">{String(!!hydrated)}</code> / membershipLoaded:{' '}
+              hydrated: <code className="text-gray-800">{String(!!hydrated)}</code> / membershipLoaded{' '}
               <code className="text-gray-800">{String(!!membershipLoaded)}</code>
             </div>
           </div>
@@ -267,7 +314,7 @@ export default function Step2Portfolio(_props: Props) {
                 <Button
                   key={t}
                   variant={active ? 'primary' : 'outline'}
-                  onClick={() => handleUnitTypeChange(t)}
+                  onClick={() => { setUnitType(t); }}
                 >
                   {t === 'business' ? '事業' : t === 'product' ? '商品' : 'サービス'}
                 </Button>
@@ -317,7 +364,7 @@ export default function Step2Portfolio(_props: Props) {
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
               const n = toNumberOrUndefined(e.target.value);
               if (typeof n === 'undefined') return;
-              handleThresholdChange({ growthBaseline: n });
+              setThreshold({ growthBaseline: n });
             }}
           />
         </div>
@@ -330,7 +377,7 @@ export default function Step2Portfolio(_props: Props) {
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
               const n = toNumberOrUndefined(e.target.value);
               if (typeof n === 'undefined') return;
-              handleThresholdChange({ profitBaseline: n });
+              setThreshold({ profitBaseline: n });
             }}
           />
         </div>
@@ -383,12 +430,7 @@ export default function Step2Portfolio(_props: Props) {
             />
 
             {/* 軸ラベル */}
-            <text
-              x={width / 2}
-              y={height - 6}
-              textAnchor="middle"
-              className="fill-gray-500 text-[12px]"
-            >
+            <text x={width / 2} y={height - 6} textAnchor="middle" className="fill-gray-500 text-[12px]">
               利益率（%）
             </text>
             <text
@@ -410,13 +452,7 @@ export default function Step2Portfolio(_props: Props) {
               return (
                 <g key={u.id || i}>
                   <circle cx={cx} cy={cy} r={r} fill={fill} fillOpacity={0.2} stroke={fill} />
-                  <text
-                    x={cx}
-                    y={cy}
-                    textAnchor="middle"
-                    dy="0.35em"
-                    className="text-[12px] fill-gray-800"
-                  >
+                  <text x={cx} y={cy} textAnchor="middle" dy="0.35em" className="text-[12px] fill-gray-800">
                     {u.name}
                   </text>
                 </g>
@@ -430,17 +466,11 @@ export default function Step2Portfolio(_props: Props) {
       <div className="rounded-2xl border bg-white">
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <div className="font-medium">一覧編集</div>
-        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
             <Button
               variant="outline"
               onClick={() => {
-                addBusinessUnit({
-                  name: `Unit ${(portfolio.units?.length ?? 0) + 1}`,
-                  revenueShare: 10,
-                  growthRate: 0,
-                  profitMargin: 0,
-                });
-                markDirty();
+                addUnit();
               }}
             >
               追加
@@ -468,9 +498,9 @@ export default function Step2Portfolio(_props: Props) {
                       className="w-full rounded-lg border px-3 py-2"
                       value={u.name}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                        updateBusinessUnit(u.id, { name: e.target.value });
-                        markDirty();
+                        updateUnit(u.id, { name: e.target.value });
                       }}
+                      onBlur={markDirty}
                       placeholder={
                         portfolio.unitType === 'business'
                           ? '事業名'
@@ -488,9 +518,9 @@ export default function Step2Portfolio(_props: Props) {
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                         const n = toNumberOrUndefined(e.target.value);
                         if (typeof n === 'undefined') return;
-                        updateBusinessUnit(u.id, { revenueShare: clamp(n, 0, 100) });
-                        markDirty();
+                        updateUnit(u.id, { revenueShare: clamp(n, 0, 100) });
                       }}
+                      onBlur={markDirty}
                       placeholder="0-100"
                     />
                   </td>
@@ -502,9 +532,9 @@ export default function Step2Portfolio(_props: Props) {
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                         const n = toNumberOrUndefined(e.target.value);
                         if (typeof n === 'undefined') return;
-                        updateBusinessUnit(u.id, { growthRate: clamp(n, -100, 300) });
-                        markDirty();
+                        updateUnit(u.id, { growthRate: clamp(n, -100, 300) });
                       }}
+                      onBlur={markDirty}
                     />
                   </td>
                   <td className="px-4 py-2 text-right">
@@ -515,9 +545,9 @@ export default function Step2Portfolio(_props: Props) {
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                         const n = toNumberOrUndefined(e.target.value);
                         if (typeof n === 'undefined') return;
-                        updateBusinessUnit(u.id, { profitMargin: clamp(n, -100, 100) });
-                        markDirty();
+                        updateUnit(u.id, { profitMargin: clamp(n, -100, 100) });
                       }}
+                      onBlur={markDirty}
                     />
                   </td>
                   <td className="px-4 py-2">
@@ -525,9 +555,9 @@ export default function Step2Portfolio(_props: Props) {
                       className="w-full rounded-lg border px-3 py-2"
                       value={u.note ?? ''}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                        updateBusinessUnit(u.id, { note: e.target.value });
-                        markDirty();
+                        updateUnit(u.id, { note: e.target.value });
                       }}
+                      onBlur={markDirty}
                       placeholder="補足・課題・仮説など"
                     />
                   </td>
@@ -537,7 +567,7 @@ export default function Step2Portfolio(_props: Props) {
                         variant="destructive"
                         size="sm"
                         onClick={() => {
-                          removeBusinessUnit(u.id);
+                          removeUnit(u.id);
                           markDirty();
                         }}
                       >
@@ -584,8 +614,6 @@ export default function Step2Portfolio(_props: Props) {
           </div>
         </div>
       </div>
-
-      {/* ← フッターナビは親（StrategyClient）のステッパーに任せるため描画しない */}
     </div>
   );
 }
