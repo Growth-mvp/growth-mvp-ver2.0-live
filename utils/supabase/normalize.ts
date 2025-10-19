@@ -1,4 +1,3 @@
-// /utils/supabase/normalize.ts
 import type { StrategyData, ChapterStory } from '@/types/strategy';
 
 /** GROWTH 固定タイトル */
@@ -24,7 +23,6 @@ function tryParseJson<T = unknown>(text: string): T | null {
   }
 }
 
-/** camel と snake の両方で来る可能性に備え、camel 優先で取り出す */
 function getEither(src: unknown, camel: string, snake: string): unknown {
   const o = src as any;
   if (o && camel in o) return o[camel];
@@ -32,7 +30,6 @@ function getEither(src: unknown, camel: string, snake: string): unknown {
   return undefined;
 }
 
-/** string なら JSON.parse を試す。失敗したらそのまま返す */
 function parseIfJsonString<T = unknown>(v: unknown): T | unknown {
   if (typeof v === 'string') {
     const p = tryParseJson<T>(v);
@@ -270,25 +267,39 @@ function normalizeCsvFinanceDataLoose(input: unknown): any[] | undefined {
   return undefined;
 }
 
-function normalizeBusinessPortfolio(input: unknown): Record<string, any> | undefined {
-  if (input == null) return undefined;
+function normalizeBusinessPortfolio(input: unknown): Record<string, any> | {} {
+  if (input == null) return {};
   const p = parseIfJsonString<Record<string, any>>(input);
-  return p && typeof p === 'object' && !Array.isArray(p) ? p : undefined;
+  return p && typeof p === 'object' && !Array.isArray(p) ? p : {};
 }
 
-function normalizeFinanceSummaryToArray(input: unknown): any[] | undefined {
-  if (input == null) return undefined;
+/**
+ * finance_summary 正規化（常に配列を返す）
+ * - 新: 配列
+ * - 旧: { items: [...] } / { 2023: {...}, 2024: {...} }
+ * - その他: 空配列
+ */
+function normalizeFinanceSummaryObject(input: unknown): any[] {
+  if (input == null) return [];
   const p = parseIfJsonString<any>(input);
+
+  // 既に配列
   if (Array.isArray(p)) return p;
-  if (
-    p &&
-    typeof p === 'object' &&
-    !Array.isArray(p) &&
-    Array.isArray((p as any).items)
-  ) {
+
+  // 旧仕様: { items: [...] }
+  if (p && typeof p === 'object' && Array.isArray((p as any).items)) {
     return (p as any).items;
   }
-  return undefined;
+
+  // 年度をキーに持つ旧形式 { 2023: {...}, 2024: {...} }
+  if (p && typeof p === 'object') {
+    const entries = Object.entries(p as Record<string, any>);
+    if (entries.every(([k, v]) => typeof v === 'object')) {
+      return entries.map(([year, data]) => ({ year: Number(year), ...data }));
+    }
+  }
+
+  return [];
 }
 
 /* =====================================================================
@@ -296,125 +307,31 @@ function normalizeFinanceSummaryToArray(input: unknown): any[] | undefined {
  * ===================================================================== */
 export function normalizeStrategyData(
   input: StrategyData | unknown | null
-): StrategyData | null {
-  if (!input) return null;
-  const src: any = { ...(input as any) };
+): StrategyData {
+  const src: any = { ...(input ?? {}) };
 
-  // --- 基本文面系 ---
-  let storyRaw = getEither(src, 'story', 'story');
-  let finalStoryRaw = getEither(src, 'finalStory', 'final_story');
-  let answers2Raw = getEither(src, 'answers2', 'answers2');
-  let departmentsRaw = getEither(src, 'departments', 'departments');
-  let financeRaw = getEither(src, 'csvFinanceData', 'csv_finance_data');
+  const story = normalizeChaptersAny(getEither(src, 'story', 'story'));
+  const finalStory = normalizeChaptersAny(getEither(src, 'finalStory', 'final_story'));
+  const answers2 = asArr<any>(getEither(src, 'answers2', 'answers2'));
+  const departments = normalizeDepartmentsAny(getEither(src, 'departments', 'departments'));
+  const csvFinanceData = normalizeCsvFinanceDataLoose(getEither(src, 'csvFinanceData', 'csv_finance_data'));
 
-  if (typeof storyRaw === 'string') {
-    const p = tryParseJson(storyRaw);
-    if (p) storyRaw = p;
-  }
-  if (typeof finalStoryRaw === 'string') {
-    const p = tryParseJson(finalStoryRaw);
-    if (p) finalStoryRaw = p;
-  }
-  if (typeof answers2Raw === 'string') {
-    const p = tryParseJson(answers2Raw);
-    if (p) answers2Raw = p;
-  }
-  if (typeof departmentsRaw === 'string') {
-    const p = tryParseJson(departmentsRaw);
-    if (p) departmentsRaw = p;
-  }
-  if (typeof financeRaw === 'string') {
-    const p = tryParseJson(financeRaw);
-    if (p) financeRaw = p;
-  }
-
-  const story = normalizeChaptersAny(storyRaw);
-  const finalStory = normalizeChaptersAny(finalStoryRaw);
-  const answers2 = asArr<any>(answers2Raw);
-  const departments = normalizeDepartmentsAny(departmentsRaw);
-
-  const csvFinanceData = normalizeCsvFinanceDataLoose(financeRaw);
   const businessPortfolio = normalizeBusinessPortfolio(
     getEither(src, 'businessPortfolio', 'business_portfolio')
   );
-  const financeSummary = normalizeFinanceSummaryToArray(
+  const financeSummary = normalizeFinanceSummaryObject(
     getEither(src, 'financeSummary', 'finance_summary')
   );
 
-  const companyName = toStr(getEither(src, 'companyName', 'company_name'));
-  const foundationYear = toStr(getEither(src, 'foundationYear', 'foundation_year'));
-  const location = toStr(getEither(src, 'location', 'location'));
-  const industry = toStr(getEither(src, 'industry', 'industry'));
-  const revenue = toStr(getEither(src, 'revenue', 'revenue'));
-  const employees = toStr(getEither(src, 'employees', 'employees'));
-  const businessContent = toStr(getEither(src, 'businessContent', 'business_content'));
-  const customerSegment = toStr(getEither(src, 'customerSegment', 'customer_segment'));
-  const thought = toStr(getEither(src, 'thought', 'thought'));
-  const mission = toStr(getEither(src, 'mission', 'mission'));
-  const vision = toStr(getEither(src, 'vision', 'vision'));
-  const value = toStr(getEither(src, 'value', 'value'));
-  const strength = toStr(getEither(src, 'strength', 'strength'));
-  const weakness = toStr(getEither(src, 'weakness', 'weakness'));
-  const opportunity = toStr(getEither(src, 'opportunity', 'opportunity'));
-  const threat = toStr(getEither(src, 'threat', 'threat'));
-
-  const strategySummaryRaw = parseIfJsonString<any>(
-    getEither(src, 'strategySummary', 'strategy_summary')
-  );
-  const strategySummary =
-    Array.isArray(strategySummaryRaw) || (strategySummaryRaw && typeof strategySummaryRaw === 'object')
-      ? strategySummaryRaw
-      : undefined;
-
-  const editableCascadeRaw = parseIfJsonString<any>(
-    getEither(src, 'editableCascade', 'editable_cascade')
-  );
-  const editableCascade =
-    Array.isArray(editableCascadeRaw) || (editableCascadeRaw && typeof editableCascadeRaw === 'object')
-      ? editableCascadeRaw
-      : undefined;
-
-  const editableCascadeResult = normalizeDepartmentsAny(
-    getEither(src, 'editableCascadeResult', 'editable_cascade_result')
-  );
-
   const out: any = {
-    companyName,
-    foundationYear,
-    location,
-    industry,
-    revenue,
-    employees,
-    businessContent,
-    customerSegment,
-    thought,
-    mission,
-    vision,
-    value,
-    strength,
-    weakness,
-    opportunity,
-    threat,
-
+    ...src,
+    story,
+    finalStory,
+    answers2,
+    departments,
     csvFinanceData,
     businessPortfolio,
     financeSummary,
-
-    story,
-    finalStory,
-    strategySummary,
-    editableCascade,
-    editableCascadeResult,
-
-    questions: [],
-    reasons: [],
-    questions2: [],
-    reasons2: [],
-    answers: [],
-    answers2,
-    notification: '',
-    role: 'member',
-    departments,
   };
 
   return out as StrategyData;
