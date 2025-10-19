@@ -2,6 +2,13 @@
 'use client';
 
 import { useEffect, useId, useMemo, useState } from 'react';
+import type {
+  ReactNode,
+  InputHTMLAttributes,
+  TextareaHTMLAttributes,
+  SelectHTMLAttributes,
+  ChangeEvent,
+} from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import StepLayout from '@/components/StepLayout';
 import { industryOptions } from '@/utils/industryTemplates';
@@ -17,10 +24,10 @@ function Field({
   right,
 }: {
   label: string;
-  children: React.ReactNode;
+  children: ReactNode;
   hint?: string;
   required?: boolean;
-  right?: React.ReactNode;
+  right?: ReactNode;
 }) {
   return (
     <div className="space-y-2">
@@ -40,29 +47,26 @@ function Field({
 }
 
 // 共通スタイル
-const baseInputClass =
-  [
-    'w-full h-11 rounded-xl px-3.5',
-    'bg-white text-neutral-900 placeholder:text-neutral-400',
-    'ring-1 ring-neutral-300 focus:ring-2 focus:ring-neutral-900/90 focus:outline-none',
-    'transition shadow-[0_1px_0_rgba(0,0,0,0.02)]',
-  ].join(' ');
+const baseInputClass = [
+  'w-full h-11 rounded-xl px-3.5',
+  'bg-white text-neutral-900 placeholder:text-neutral-400',
+  'ring-1 ring-neutral-300 focus:ring-2 focus:ring-neutral-900/90 focus:outline-none',
+  'transition shadow-[0_1px_0_rgba(0,0,0,0.02)]',
+].join(' ');
 
-const baseTextAreaClass =
-  [
-    'w-full rounded-xl px-3.5 py-3',
-    'bg-white text-neutral-900 placeholder:text-neutral-400',
-    'ring-1 ring-neutral-300 focus:ring-2 focus:ring-neutral-900/90 focus:outline-none',
-    'transition shadow-[0_1px_0_rgba(0,0,0,0.02)]',
-  ].join(' ');
+const baseTextAreaClass = [
+  'w-full rounded-xl px-3.5 py-3',
+  'bg-white text-neutral-900 placeholder:text-neutral-400',
+  'ring-1 ring-neutral-300 focus:ring-2 focus:ring-neutral-900/90 focus:outline-none',
+  'transition shadow-[0_1px_0_rgba(0,0,0,0.02)]',
+].join(' ');
 
-const baseSelectClass =
-  [
-    'w-full h-11 rounded-xl px-3.5',
-    'bg-white text-neutral-900',
-    'ring-1 ring-neutral-300 focus:ring-2 focus:ring-neutral-900/90 focus:outline-none',
-    'transition appearance-none pr-9',
-  ].join(' ');
+const baseSelectClass = [
+  'w-full h-11 rounded-xl px-3.5',
+  'bg-white text-neutral-900',
+  'ring-1 ring-neutral-300 focus:ring-2 focus:ring-neutral-900/90 focus:outline-none',
+  'transition appearance-none pr-9',
+].join(' ');
 
 /**
  * 日本語入力向け（かな入力を促す）
@@ -70,7 +74,7 @@ const baseSelectClass =
  * - ime-mode: active（非標準だがヒント／未対応ブラウザでも無害）
  * - autoCapitalize/autoCorrect を無効化
  */
-function InputJa(props: React.InputHTMLAttributes<HTMLInputElement>) {
+function InputJa(props: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
@@ -84,7 +88,7 @@ function InputJa(props: React.InputHTMLAttributes<HTMLInputElement>) {
   );
 }
 
-function TextAreaJa(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+function TextAreaJa(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
       {...props}
@@ -107,7 +111,7 @@ function InputNum({
   onChange,
   value,
   ...rest
-}: React.InputHTMLAttributes<HTMLInputElement>) {
+}: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...rest}
@@ -128,16 +132,19 @@ function InputNum({
         // 数字以外を除去
         const digits = half.replace(/[^0-9]/g, '');
         if (onChange) {
-          const ev = Object.create(e);
-          Object.defineProperty(ev, 'target', { value: { ...e.target, value: digits } });
-          onChange(ev);
+          // 「value を書き換えたイベント風オブジェクト」を渡す
+          onChange({
+            ...e,
+            target: { ...e.target, value: digits },
+            currentTarget: { ...e.currentTarget, value: digits },
+          } as any as ChangeEvent<HTMLInputElement>);
         }
       }}
     />
   );
 }
 
-function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
+function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
   return <select {...props} className={[baseSelectClass, props.className || ''].join(' ')} />;
 }
 
@@ -147,7 +154,7 @@ function setFieldSafe(store: any, key: string, value: any) {
   const setter = store?.[fnName];
   if (typeof setter === 'function') {
     setter(value);
-  } else if (typeof useStrategyStore?.setState === 'function') {
+  } else if (typeof (useStrategyStore as any)?.setState === 'function') {
     (useStrategyStore as any).setState({ [key]: value });
   }
 }
@@ -282,7 +289,7 @@ export default function Step1BasicInfo() {
               onChange={(e) => setFieldSafe(st, 'industry', e.target.value)}
             >
               <option value="">-- 選択してください --</option>
-              {industryOptions.map((item) => (
+              {(industryOptions ?? []).map((item) => (
                 <option key={item.value} value={item.value}>
                   {item.label}
                 </option>
