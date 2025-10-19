@@ -13,6 +13,7 @@ import {
   Legend,
 } from 'recharts';
 
+/* ========= 型定義 ========= */
 type Row = {
   year: number;
   business_unit: string;
@@ -22,6 +23,41 @@ type Row = {
   revenue_share_pct: number;
 };
 
+/* ========= 正規化関数（objectや旧仕様にも対応） ========= */
+function normalizeSummary(input: unknown): Row[] {
+  if (!input) return [];
+  // 文字列ならJSONパース
+  let data: any;
+  try {
+    data = typeof input === 'string' ? JSON.parse(input) : input;
+  } catch {
+    data = [];
+  }
+
+  // 既に配列
+  if (Array.isArray(data)) return data as Row[];
+
+  // 旧仕様: { items: [...] }
+  if (data && typeof data === 'object' && Array.isArray((data as any).items)) {
+    return (data as any).items as Row[];
+  }
+
+  // 旧仕様: { 2023: {...}, 2024: {...} }
+  if (data && typeof data === 'object') {
+    const entries = Object.entries(data as Record<string, any>);
+    if (entries.every(([k, v]) => typeof v === 'object')) {
+      return entries.map(([year, d]) => ({
+        year: Number(year),
+        ...d,
+      })) as Row[];
+    }
+  }
+
+  // それ以外は空配列
+  return [];
+}
+
+/* ========= メインコンポーネント ========= */
 export default function FinanceSummaryPanel({
   initialYear,
   className = '',
@@ -31,46 +67,54 @@ export default function FinanceSummaryPanel({
   className?: string;
   showHeader?: boolean;
 }) {
-  const summary = (useStrategyStore((s) => s.financeSummary) ?? []) as Row[];
+  // Zustand store から financeSummary を取得（型不定対策）
+  const rawSummary = useStrategyStore((s) => s.financeSummary) as unknown;
+  const summary = normalizeSummary(rawSummary);
 
-  const years = useMemo(
-    () => Array.from(new Set(summary.map((r) => r.year))).sort((a, b) => a - b),
-    [summary]
-  );
+  const years = useMemo(() => {
+    const yearList = Array.from(new Set(summary.map((r) => r.year))).sort((a, b) => a - b);
+    return yearList;
+  }, [summary]);
+
   const [year, setYear] = useState<number | undefined>(
     initialYear ?? (years.length ? years[years.length - 1] : undefined)
   );
 
-  const rows = useMemo(
-    () => summary.filter((r) => (year ? r.year === year : true)).sort((a, b) => b.revenue - a.revenue),
-    [summary, year]
-  );
+  const rows = useMemo(() => {
+    return summary
+      .filter((r) => (year ? r.year === year : true))
+      .sort((a, b) => b.revenue - a.revenue);
+  }, [summary, year]);
 
-  const totalRevenue = useMemo(
-    () => rows.reduce((acc, r) => acc + r.revenue, 0),
-    [rows]
-  );
+  const totalRevenue = useMemo(() => {
+    return rows.reduce((acc, r) => acc + (r.revenue || 0), 0);
+  }, [rows]);
 
-  const dataForChart = useMemo(
-    () =>
-      rows.map((r) => ({
-        name: r.business_unit,
-        Revenue: r.revenue,
-        OperatingIncome: r.operating_income,
-      })),
-    [rows]
-  );
+  const dataForChart = useMemo(() => {
+    return rows.map((r) => ({
+      name: r.business_unit,
+      Revenue: r.revenue,
+      OperatingIncome: r.operating_income,
+    }));
+  }, [rows]);
 
+  /* ====== データがない場合 ====== */
   if (!summary.length) {
     return (
-      <div className={`rounded-2xl border border-black/10 bg-white/60 p-4 text-sm text-gray-600 ${className}`}>
+      <div
+        className={`rounded-2xl border border-black/10 bg-white/60 p-4 text-sm text-gray-600 ${className}`}
+      >
         集計サマリーがまだありません。CSVを取り込むと自動生成されます。
       </div>
     );
   }
 
+  /* ====== メイン表示 ====== */
   return (
-    <div className={`space-y-4 rounded-2xl border border-black/10 bg-white/60 p-4 backdrop-blur ${className}`}>
+    <div
+      className={`space-y-4 rounded-2xl border border-black/10 bg-white/60 p-4 backdrop-blur ${className}`}
+    >
+      {/* ヘッダー */}
       {showHeader && (
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
@@ -105,7 +149,7 @@ export default function FinanceSummaryPanel({
             <YAxis />
             <Tooltip formatter={(val: any) => Intl.NumberFormat().format(Number(val))} />
             <Legend />
-            {/* ※色は指定しない（デザインガイドに従いデフォルト） */}
+            {/* デフォルト色（カラールール指定なし） */}
             <Bar dataKey="Revenue" name="売上" />
             <Bar dataKey="OperatingIncome" name="営業利益" />
           </BarChart>
@@ -135,10 +179,10 @@ export default function FinanceSummaryPanel({
                   {Intl.NumberFormat().format(r.operating_income)}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">
-                  {r.operating_margin_pct.toFixed(1)}
+                  {r.operating_margin_pct?.toFixed(1)}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">
-                  {r.revenue_share_pct.toFixed(1)}
+                  {r.revenue_share_pct?.toFixed(1)}
                 </td>
               </tr>
             ))}
