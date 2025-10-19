@@ -1,7 +1,7 @@
 // /app/simulation/page.tsx
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
@@ -30,6 +30,12 @@ import {
   getSimulationResults,
   type SimulationLogRow,
 } from '@/utils/supabase/strategy';
+
+// ★ 追加：会社スコープ・初期ロードの安定化
+import { useAccess } from '@/utils/access';
+import { hardResetForCompanySwitch } from '@/utils/resetAll';
+import { loadAndHydrate } from '@/utils/loader';
+import { useAutoSave } from '@/hooks/useAutoSave';
 
 // 遅延読み込み（サーバ負荷と初期描画軽減）
 const CoreInsightPanel = dynamic(() => import('@/components/insight/CoreInsightPanel'), {
@@ -74,9 +80,63 @@ function fmtNum(n: any) {
 }
 
 export default function SimulationPage() {
+  // --- store/state hooks ---
   const s = useStrategyStore() as any;
   const { user } = useUserStore();
   const { setSimulationResult } = useStrategyStore() as any;
+
+  // ★ 会社スコープ制御／hydration
+  const { companyId: scopeCompanyId, hydrated, setCompanyScope } = useStrategyStore();
+  const access = useAccess();
+  const accessCompanyId: string | undefined =
+    (access as any)?.companyId ?? (useStrategyStore.getState().companyId as string | undefined);
+
+  // スコープ確立＆切替時の完全リセット
+  useEffect(() => {
+    if (!accessCompanyId) return;
+    if (scopeCompanyId && scopeCompanyId !== accessCompanyId) {
+      hardResetForCompanySwitch(accessCompanyId);
+    } else {
+      setCompanyScope(accessCompanyId);
+    }
+  }, [accessCompanyId, scopeCompanyId, setCompanyScope]);
+
+  // 初期ロード（7秒フェイルセーフ）
+  useEffect(() => {
+    if (!accessCompanyId) return;
+    let cancelled = false;
+
+    const run = async () => {
+      if (hydrated && scopeCompanyId === accessCompanyId) return;
+
+      const load = async () => {
+        await loadAndHydrate(accessCompanyId);
+      };
+
+      const timer = setTimeout(async () => {
+        try {
+          await loadAndHydrate(accessCompanyId);
+        } catch { /* silent */ }
+      }, 7000);
+
+      try {
+        await load();
+      } finally {
+        clearTimeout(timer);
+      }
+
+      if (cancelled) return;
+    };
+
+    run();
+    return () => { cancelled = true; };
+  }, [accessCompanyId, hydrated, scopeCompanyId]);
+
+  // AutoSave（このページは store 直接編集は少ないが、念のため companyId を依存に）
+  useAutoSave([scopeCompanyId]);
+
+  // Hydration ガード
+  const isHydrating = !hydrated || scopeCompanyId !== accessCompanyId;
 
   /* ---------------- 入力（finance & KR） ---------------- */
   const financeSummary: FinanceSummary = useMemo(() => {
@@ -105,15 +165,19 @@ export default function SimulationPage() {
           for (const okr of okrs) {
             const krList = Array.isArray(okr?.keyResults) ? okr.keyResults : [];
             for (const kr of krList) {
-              arr.push({
-                baseline: Number(kr?.baseline ?? 0) || 0,
-                target: Number(kr?.target ?? 0) || 0,
-                unit: String(kr?.unit ?? ''),
-                weight: typeof kr?.weight === 'number' ? kr.weight : undefined,
-                variable: kr?.variable,
-                alignmentScore:
-                  typeof kr?.alignmentScore === 'number' ? kr.alignmentScore : undefined,
-              });
+              // KR が string の場合に備えた防御
+              const baseline = Number((kr as any)?.baseline ?? 0) || 0;
+              const target = Number((kr as any)?.target ?? 0) || 0;
+              const unit = String((kr as any)?.unit ?? '');
+              const variable = (kr as any)?.variable;
+              const weight = typeof (kr as any)?.weight === 'number' ? (kr as any).weight : undefined;
+              const alignmentScore =
+                typeof (kr as any)?.alignmentScore === 'number' ? (kr as any).alignmentScore : undefined;
+
+              // string KR のときは variable 推定しにくいのでスキップ
+              if (typeof kr === 'string') continue;
+
+              arr.push({ baseline, target, unit, weight, variable, alignmentScore });
             }
           }
         }
@@ -164,7 +228,7 @@ export default function SimulationPage() {
   const [loadingHist, setLoadingHist] = useState(false);
   const [notice, setNotice] = useState<string>('');
 
-  const loadHistory = async () => {
+  const loadHistory = useCallback(async () => {
     if (!user?.id) return;
     setLoadingHist(true);
     try {
@@ -177,16 +241,22 @@ export default function SimulationPage() {
     } finally {
       setLoadingHist(false);
     }
-  };
+  }, [user?.id]);
 
   useEffect(() => {
-    loadHistory();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+    if (!isHydrating) {
+      // Hydration 完了後に履歴取得
+      loadHistory();
+    }
+  }, [isHydrating, loadHistory]);
 
   const handleSave = async () => {
     if (!user?.id) {
       setNotice('⚠️ ログインが必要です');
+      return;
+    }
+    if (isHydrating) {
+      setNotice('⚠️ データ読み込み中です。完了後に保存してください。');
       return;
     }
     setSaving(true);
@@ -235,6 +305,12 @@ export default function SimulationPage() {
       <p className="text-gray-600 mb-6">
         戦略（OKR/成果）と財務データから、3年の売上・営業利益・成功確率を試算します。
       </p>
+
+      {isHydrating && (
+        <div className="mb-4 rounded-xl border border-zinc-200 bg-white/80 px-3 py-2 text-sm text-zinc-600">
+          サーバーのデータを読み込み中です…
+        </div>
+      )}
 
       {notice && (
         <div
@@ -285,17 +361,19 @@ export default function SimulationPage() {
                 setNotice('ℹ️ 係数UI未実装のため、現在は即時再計算済みです');
                 setTimeout(() => setNotice(''), 2500);
               }}
+              disabled={isHydrating}
+              title={isHydrating ? '読み込み中は操作できません' : undefined}
             >
               施策影響を再計算
             </button>
             <button
-              disabled={saving || !user?.id}
+              disabled={saving || !user?.id || isHydrating}
               onClick={handleSave}
               className={[
                 'px-3 py-2 rounded-lg border border-gray-200 shadow-sm bg-white hover:bg-gray-50 text-sm',
-                saving ? 'opacity-60 cursor-not-allowed' : '',
+                saving || isHydrating ? 'opacity-60 cursor-not-allowed' : '',
               ].join(' ')}
-              title={!user?.id ? 'ログインしてください' : undefined}
+              title={!user?.id ? 'ログインしてください' : isHydrating ? '読み込み中は保存できません' : undefined}
             >
               {saving ? '保存中…' : '結果を保存'}
             </button>
@@ -314,7 +392,9 @@ export default function SimulationPage() {
           <h2 className="text-lg font-medium">シミュレーション履歴</h2>
           <button
             onClick={loadHistory}
-            className="text-xs px-2 py-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-50"
+            disabled={isHydrating}
+            className="text-xs px-2 py-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-50"
+            title={isHydrating ? '読み込み中は操作できません' : undefined}
           >
             再読み込み
           </button>
