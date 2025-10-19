@@ -28,8 +28,8 @@ export default baseClient;
 // ⚠️ freeze/seal 禁止：Supabaseクライアントは内部状態を書き換えるため
 export const supabase: SupabaseClient = libSupabase;
 
-// ---- 推奨：ブラウザ用の単一インスタンス getter（将来の一本化用）----
-let __singleton: SupabaseClient | null = null;
+// ---- 推奨：ブラウザ用の単一インスタンス getter（将来の入口一本化用）----
+let __singleton: SupabaseClient<any> | null = null;
 /** ブラウザで常に同一の SupabaseClient を返す（将来の入口一本化用） */
 export function getBrowserSupabase(): SupabaseClient {
   if (__singleton) return __singleton;
@@ -47,7 +47,7 @@ export function isValidUUID(v?: string | null): v is string {
 export function getCompanyIdFromCookie(): string | null {
   if (typeof document === 'undefined') return null;
   const m = /(?:^|;\s*)company_id=([^;]+)/.exec(document.cookie || '');
-  return m ? decodeURIComponent(m[1]) : null;
+  return m ? decodeURIComponent(m[1].trim()) : null;
 }
 
 /**
