@@ -7,9 +7,8 @@ import StepLayout from '@/components/StepLayout';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { saveStrategyData } from '@/utils/supabase';
-// ✅ 修正：クォートを付け、相対パスに変更（app/step3 → ルート/utils は ../../utils）
-import { buildFinanceSummary } from '../../utils/financeSummary';
-
+// ✅ エイリアスで統一（NextのbaseUrl/@エイリアスがある前提）
+import { buildFinanceSummary } from '@/utils/financeSummary';
 
 /* =========================================================
  * Ver4対応ポイント（日本語ヘッダ対応＋サマリー保存）
@@ -358,7 +357,6 @@ export default function Step3FinanceUpload() {
     el.addEventListener('drop', onDrop);
     el.addEventListener('dragenter', prevent);
     el.addEventListener('dragend', onDragLeave);
-    el.addEventListener('dragover', prevent);
 
     return () => {
       el.removeEventListener('dragover', onDragOver);
@@ -366,7 +364,6 @@ export default function Step3FinanceUpload() {
       el.removeEventListener('drop', onDrop);
       el.removeEventListener('dragenter', prevent);
       el.removeEventListener('dragend', onDragLeave);
-      el.removeEventListener('dragover', prevent);
     };
   }, []);
 
@@ -400,7 +397,7 @@ export default function Step3FinanceUpload() {
         <GlassCard>
           <div ref={dropRef} className="group relative overflow-hidden rounded-2xl p-6">
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/40 to-white/10" />
-            <div className="flex flex-col items-center gap-3 text中心">
+            <div className="flex flex-col items-center gap-3 text-center">
               <div className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-black/10 bg-white/70 shadow-sm">
                 <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5 text-gray-500">
                   <path d="M12 16V5m0 0l-4 4m4-4l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -473,7 +470,7 @@ Core A,2024,Main SKU,1200,5000,,,,,,,,85,example`}
             <button
               type="button"
               onClick={recalcAll}
-              className="rounded-full border border-black/10 bg白 px-2.5 py-1 text-xs font-medium text-gray-700 shadow-sm hover:bg白"
+              className="rounded-full border border-black/10 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 shadow-sm hover:bg-white"
             >
               再計算して保存
             </button>
