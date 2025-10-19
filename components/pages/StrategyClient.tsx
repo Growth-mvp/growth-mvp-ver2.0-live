@@ -1,4 +1,3 @@
-// components/pages/StrategyClient.tsx
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
@@ -11,6 +10,7 @@ import Step5Confirm from '@/components/steps/Step5Confirm';
 import { useStrategyStore, refetchFromServer as refetchStrategy } from '@/store/strategyStore';
 import { useAccess } from '@/utils/access';
 import { useUserStore } from '@/store/userStore';
+import { useAutoSave } from '@/hooks/useAutoSave';
 
 export default function StrategyClient() {
   /* ===== フックは無条件に先頭で呼ぶ ===== */
@@ -30,8 +30,12 @@ export default function StrategyClient() {
   const totalSteps = metas.length;
   const meta = metas[step - 1];
 
-  // ストア購読（セレクタ無し＝全体購読）
-  useStrategyStore();
+  // ✅ 各フィールドを“個別”に subscribe（オブジェクトを返さない）
+  const story        = useStrategyStore((s) => s.story);
+  const finalStory   = useStrategyStore((s) => s.finalStory);
+  const answers2     = useStrategyStore((s) => s.answers2);
+  const departments  = useStrategyStore((s) => s.departments);
+  const setCompanyScope = useStrategyStore((s) => s.setCompanyScope);
 
   const { canView, canEditCompany } = useAccess();
   const canEdit = canEditCompany();
@@ -51,7 +55,7 @@ export default function StrategyClient() {
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
     const run = async () => {
-      // companyId 未確定でも UI は開ける（“閲覧のみ”で表示）
+      // companyId 未確定でも UI は開ける（閲覧モード想定）
       if (!companyId) {
         if (!aborted) {
           setHydrated(true);
@@ -60,7 +64,7 @@ export default function StrategyClient() {
         return;
       }
 
-      // 同一 companyId へ二重呼び出ししない
+      // 同一 companyId への二重ロード抑止
       if (fetchedFor.current === companyId) {
         if (!hydrated) setHydrated(true);
         return;
@@ -70,17 +74,20 @@ export default function StrategyClient() {
       setLoading(true);
 
       try {
-        // タイムアウトレース（ネット吊り対策）
+        // ★ store スコープに companyId を反映（必ず副作用内で！）
+        if (setCompanyScope) setCompanyScope(companyId);
+
+        // ★ サーバーの最新状態を store へ反映（7秒でタイムアウト）
         await Promise.race([
           (async () => { await refetchStrategy(); })(),
-          sleep(7000), // 7秒で諦める
+          sleep(7000),
         ]);
       } catch (e) {
-        // 失敗はログだけ。UIは開ける
+        // 失敗しても UI は開ける
         console.error('StrategyClient: initial refetch failed:', e);
       } finally {
         if (!aborted) {
-          setHydrated(true); // 成功/失敗/タイムアウト いずれでも UI を開ける
+          setHydrated(true);
           setLoading(false);
         }
       }
@@ -88,19 +95,20 @@ export default function StrategyClient() {
 
     void run();
     return () => { aborted = true; };
-  }, [companyId, userId, hydrated]);
+  }, [companyId, userId, hydrated, setCompanyScope]);
 
+  // ステップ移動
   const goBack = useCallback(() => setStep((s) => Math.max(1, s - 1)), []);
   const goNext = useCallback(() => setStep((s) => Math.min(totalSteps, s + 1)), [totalSteps]);
 
-  // ステップ変更時はトップへスムーズスクロール
+  // ステップ変更時はトップへ
   useEffect(() => {
     if (typeof window !== 'undefined') {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   }, [step]);
 
-  // キーボード操作（← →）
+  // ← → キーで移動
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowRight') setStep((s) => Math.min(totalSteps, s + 1));
@@ -109,6 +117,9 @@ export default function StrategyClient() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [totalSteps]);
+
+  // ✅ オートセーブ：主要編集領域の変更をまとめて保存（競合/多重POSTを抑止）
+  useAutoSave([companyId, story, finalStory, answers2, departments], 800);
 
   const canBack = step > 1;
   const canNext = step < totalSteps;
@@ -329,9 +340,7 @@ function FooterNav({
               ← 戻る
             </button>
 
-            <div className="select-none text-xs text-gray-600 md:text-sm">
-              {/* 表示だけなので step/total は受け取り不要 */}
-            </div>
+            <div className="select-none text-xs text-gray-600 md:text-sm" />
 
             <button
               onClick={onNext}
