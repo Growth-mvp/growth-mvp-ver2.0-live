@@ -11,6 +11,13 @@ import { X, Stars, Send, Clock, CheckCircle2, Lock } from 'lucide-react';
 // アクセス制御（company_members.role が唯一の真実）
 import { useAccess } from '@/utils/access';
 
+// ★ 追加：安定化ユーティリティ（会社スコープ確立・初期ロード）
+import { hardResetForCompanySwitch } from '@/utils/resetAll';
+import { loadAndHydrate } from '@/utils/loader';
+
+// ★ 追加：保存の一本化フック（deps必須）
+import { useAutoSave } from '@/hooks/useAutoSave';
+
 // 公式型（最低限）
 import type { Department, Project as ProjectStrict, OKR as OKRStrict } from '@/types/strategy';
 
@@ -49,8 +56,6 @@ type LogRow = {
 
 /* =========================
  * 右ドロワー：実行支援パネル
- *   - チェックイン：全ログインユーザー可
- *   - フィードバック：会社編集可（Admin/Manager）のみ可
  * ======================= */
 function ExecPanel(props: {
   open: boolean;
@@ -132,7 +137,6 @@ function ExecPanel(props: {
         advice: '',        // シンプル化
         helpRequest: helpRequest.trim(),
         department: deptName,
-        // companyId は supabase 側（RLS/トリガ）で自動付与・検証している前提
       });
       setNotice('✅ 記録しました');
       const nowIso = new Date().toISOString();
@@ -483,11 +487,69 @@ function ExecPanel(props: {
  * ページ本体
  * ======================= */
 export default function ExecutionPage() {
+  // store：スコープ・hydration 制御を利用
   const { departments, editableCascadeResult } = useStrategyStore() as any;
+
+  // 会社スコープ制御
+  const {
+    companyId: scopeCompanyId,
+    hydrated,
+    setCompanyScope,
+  } = useStrategyStore();
+
+  // アクセス情報（companyId は access 側を優先）
+  const access = useAccess();
+  const accessCompanyId: string | undefined =
+    (access as any)?.companyId ?? (useStrategyStore.getState().companyId as string | undefined);
+
+  // 初期ロード（会社切替時の完全リセット＋loadAndHydrate）
+  useEffect(() => {
+    if (!accessCompanyId) return;
+    if (scopeCompanyId && scopeCompanyId !== accessCompanyId) {
+      // 会社切替：完全リセット＋スコープ更新
+      hardResetForCompanySwitch(accessCompanyId);
+    } else {
+      setCompanyScope(accessCompanyId);
+    }
+  }, [accessCompanyId, scopeCompanyId, setCompanyScope]);
+
+  useEffect(() => {
+    if (!accessCompanyId) return;
+    let cancelled = false;
+
+    const run = async () => {
+      if (hydrated && scopeCompanyId === accessCompanyId) return;
+
+      const load = async () => {
+        await loadAndHydrate(accessCompanyId);
+      };
+
+      const timer = setTimeout(async () => {
+        try {
+          await loadAndHydrate(accessCompanyId);
+        } catch { /* silent */ }
+      }, 7000);
+
+      try {
+        await load();
+      } finally {
+        clearTimeout(timer);
+      }
+
+      if (cancelled) return;
+    };
+
+    run();
+    return () => { cancelled = true; };
+  }, [accessCompanyId, hydrated, scopeCompanyId]);
+
+  // 最低限の useAutoSave（deps必須・このページでは表示の一貫性担保用）
+  useAutoSave([scopeCompanyId]);
 
   // store: user はそのまま。companyId は不要（RLS 側で付与想定）
   const user = useUserStore((s) => s.user);
 
+  // 表示用カスケード（編集可能結果 or departments）
   const cascade: Department[] = useMemo(() => {
     if (Array.isArray(editableCascadeResult)) return editableCascadeResult as Department[];
     if (Array.isArray(departments)) return departments as Department[];
@@ -513,11 +575,19 @@ export default function ExecutionPage() {
     };
   }, [selected, cascade]);
 
+  // Hydration 状態
+  const isHydrating = !hydrated || scopeCompanyId !== accessCompanyId;
+
   return (
     <main className="min-h-screen bg-gray-50 p-6 avoid-agent-dock">
       <header className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">STAGE5 実行計画支援</h1>
+          {isHydrating && (
+            <div className="mt-2 text-sm text-gray-500">
+              サーバーのデータを読み込み中です…
+            </div>
+          )}
         </div>
         {selection ? (
           <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-800">
@@ -528,7 +598,7 @@ export default function ExecutionPage() {
       </header>
 
       {/* OKRブロック一覧 */}
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 opacity-100">
         {cascade.map((dept, di) =>
           (dept?.projects ?? []).map((proj, pi) =>
             (proj?.okrs ?? []).map((okr, oi) => {
@@ -538,11 +608,17 @@ export default function ExecutionPage() {
                   key={`${dept?.name ?? 'dept'}-${strictProj.title}-${oi}`}
                   deptName={dept?.name ?? ''}
                   project={strictProj}
-                  onClick={() => setSelected({ d: di, p: pi, o: oi })}
+                  onClick={() => {
+                    if (isHydrating) return; // hydration完了前は操作不可
+                    setSelected({ d: di, p: pi, o: oi });
+                  }}
                 />
               );
             })
           )
+        )}
+        {cascade.length === 0 && !isHydrating && (
+          <div className="text-sm text-gray-600">表示できる実行計画がありません。</div>
         )}
       </div>
 
