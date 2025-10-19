@@ -383,7 +383,7 @@ export async function deleteStrategyData(userId: string): Promise<WriteResult> {
 }
 
 /* ============================================================
- * シミュレーション履歴
+ * シミュレーション履歴（strategy_data 内の配列を使用）
  * ============================================================ */
 export type SimulationSavePayload = {
   projection: {
@@ -440,4 +440,71 @@ export async function appendSimulationResultToStrategy(
     console.error('[StrategyData] ❌ appendSimulationResultToStrategy fatal:', error);
     return { error: extractErrorVerbose(error) };
   }
+}
+
+/* ============================================================
+ * 追加：履歴取得API（/app/simulation から利用）
+ * - strategy_data.simulation_results 配列を返す
+ * - limit で件数制御（デフォルト20）
+ * ============================================================ */
+export type SimulationResultRow = {
+  id: string;
+  created_at: string;
+  title?: string | null;
+  scenario_id?: string | null;
+  payload: SimulationSavePayload;
+};
+
+export async function getSimulationResults(
+  userId: string,
+  companyIdOverride: string | null = null,
+  opts: { limit?: number } = {},
+): Promise<{ rows: SimulationResultRow[]; error: any | null }> {
+  try {
+    const companyId = await resolveCompanyId(userId, companyIdOverride);
+    const { data, error } = await supabase
+      .from(T_STRATEGY)
+      .select('simulation_results')
+      .eq('company_id', companyId)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      const err = extractErrorVerbose(error);
+      console.error('[StrategyData] ❌ getSimulationResults DB error:', err);
+      return { rows: [], error: err };
+    }
+
+    const rowsAll: SimulationResultRow[] = ensureArray<SimulationResultRow>(data?.simulation_results);
+    const limit = Math.max(1, opts?.limit ?? 20);
+    // created_at の降順想定だが、保険でソート
+    const rows = [...rowsAll].sort((a, b) => (b?.created_at ?? '').localeCompare(a?.created_at ?? '')).slice(0, limit);
+
+    return { rows, error: null };
+  } catch (e) {
+    const err = extractErrorVerbose(e);
+    console.error('[StrategyData] ❌ getSimulationResults fatal:', err);
+    return { rows: [], error: err };
+  }
+}
+
+/* ============================================================
+ * 追加：保存API（append のシンタックスシュガー）
+ * - 既存コードが saveSimulationResult を呼んでいる場合の後方互換
+ * ============================================================ */
+export async function saveSimulationResult(args: {
+  userId: string;
+  companyId?: string | null;
+  payload: SimulationSavePayload;
+  title?: string;
+  scenarioId?: string;
+  maxKeep?: number;
+}): Promise<WriteResult> {
+  return appendSimulationResultToStrategy(
+    args.userId,
+    args.payload,
+    args.companyId ?? null,
+    { title: args.title, scenarioId: args.scenarioId, maxKeep: args.maxKeep },
+  );
 }
