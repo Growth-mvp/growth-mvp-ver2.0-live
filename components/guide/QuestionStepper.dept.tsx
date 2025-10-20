@@ -138,7 +138,39 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     return has(1) && has(2) && has(3) && has(4) && has(5) && has(6);
   }, [answers]);
 
-  // 問いの取得（★ 非Adminは新規生成しない：既存あれば表示のみ）
+  /* =========================================
+   * 追加１：props → state 同期
+   *  - 戻ってきた時に initialAnswers / initialStep が更新されたら反映
+   * ========================================= */
+  // initialAnswers が変わったら取り込み（同値なら何もしない）
+  useEffect(() => {
+    const next = (initialAnswers ?? [])
+      .filter(a => a && a.stepNumber && a.question != null)
+      .sort((a, b) => a.stepNumber - b.stepNumber) as DeptAnswerStep[];
+    if (!answersEqual(answers, next)) {
+      setAnswers(next);
+      // 現ステップのUIフィールドも同期
+      const exist = next.find(a => a.stepNumber === step);
+      if (exist) {
+        setLabel(exist.label);
+        setQuestion(exist.question);
+        setReason(exist.reason);
+        setHint(exist.hint);
+        setAnswerText(exist.answer ?? '');
+        setShowHint(false);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(initialAnswers)]);
+
+  // initialStep が変わったら反映（親が明示的にステップ指示する場合）
+  useEffect(() => {
+    setStep(clampStep(initialStep));
+  }, [initialStep]);
+
+  /* =========================================
+   * 問いの取得（★ 非Adminは新規生成しない：既存あれば表示のみ）
+   * ========================================= */
   useEffect(() => {
     const existing = answers.find(a => a.stepNumber === step);
     if (existing) {
@@ -183,7 +215,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
             mission,
             projects,
             okrs,
-            industry, // ★ 業種
+            industry,
             // Ver4 summary を渡す（問いのブレ抑制）
             direction,
             expectations,
@@ -240,7 +272,12 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     canEdit,
   ]);
 
-  // 親へ進捗通知（初回スキップ＋同値ガード／★ 非Adminは通知しない）
+  /* =========================================
+   * 親へ進捗通知
+   *  - 初回マウントはスキップ
+   *  - 同値/同ステップはスキップ
+   *  - 非Adminは通知しない
+   * ========================================= */
   useEffect(() => {
     if (!onChange || !canEdit) return;
     if (isFirstMountRef.current) {
@@ -255,6 +292,20 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     lastStepNotifiedRef.current = step;
     onChange({ answers, currentStep: step });
   }, [answers, step, onChange, canEdit]);
+
+  /* =========================================
+   * 追加２：アンマウント直前にフラッシュ通知
+   *  - デバウンス待たず、最後の state を親へ渡す
+   * ========================================= */
+  useEffect(() => {
+    return () => {
+      if (!onChange || !canEdit) return;
+      try {
+        onChange({ answers, currentStep: step });
+      } catch { /* noop */ }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onChange, canEdit]); // answers/step はクリーンアップ時点のクロージャで十分
 
   const handleSaveAnswerLocally = useCallback(() => {
     if (!canEdit) return;
@@ -275,7 +326,12 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     else next.push(payload);
     next.sort((a, b) => a.stepNumber - b.stepNumber);
     setAnswers(next);
-  }, [answers, step, label, question, reason, hint, answerText, canEdit]);
+
+    // ★ 追加３：即時で親にも反映（setState待ちによる取りこぼし防止）
+    if (onChange) {
+      try { onChange({ answers: next, currentStep: step }); } catch {}
+    }
+  }, [answers, step, label, question, reason, hint, answerText, canEdit, onChange]);
 
   const canGoNext = (answerText || '').trim().length > 0 && canEdit;
   const isLastStep = step === 6;
@@ -535,7 +591,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
                 onClick={handleGenerateDepartmentDraft}
                 disabled={genLoading || !canEdit}
                 className={[
-                  'rounded-xl px-4 py-2 text-sm font-medium',
+                  'rounded-xl px-4 py-2 text-sm font十分',
                   (genLoading || !canEdit) ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'
                 ].join(' ')}
                 title={canEdit ? '' : '閲覧モード（管理者のみ編集可）'}
@@ -547,7 +603,6 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
               </span>
             </div>
 
-            {/* 生成プレビュー（閲覧時も表示OK） */}
             {(missionDraft || (projectsDraft?.length ?? 0) > 0 || (okrsDraft?.length ?? 0) > 0) && (
               <div className="mt-3 space-y-3">
                 {missionDraft && (
@@ -565,24 +620,23 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
                   </div>
                 )}
                 {okrsDraft && okrsDraft.length > 0 && (
-  <div className="rounded-xl border border-blue-200 bg-white p-3">
-    <div className="text-xs font-semibold text-blue-900 mb-1">OKR（初期案）</div>
-    <div className="space-y-3">
-      {okrsDraft.map((o, i) => (
-        <div key={i} className="text-sm">
-          {o.objective && <div className="font-medium">達成目標：{o.objective}</div>}
-          {o.keyResults && o.keyResults.length > 0 && (
-            <ul className="list-disc pl-5 space-y-1">
-              {o.keyResults.map((kr, k) => <li key={k}>主要な成果：{kr}</li>)}
-            </ul>
-          )}
-          {o.owner && <div className="text-xs text-gray-600 mt-1">Owner: {o.owner}</div>}
-        </div>
-      ))}
-    </div>
-  </div>
-)}
-
+                  <div className="rounded-xl border border-blue-200 bg-white p-3">
+                    <div className="text-xs font-semibold text-blue-900 mb-1">OKR（初期案）</div>
+                    <div className="space-y-3">
+                      {okrsDraft.map((o, i) => (
+                        <div key={i} className="text-sm">
+                          {o.objective && <div className="font-medium">達成目標：{o.objective}</div>}
+                          {o.keyResults && o.keyResults.length > 0 && (
+                            <ul className="list-disc pl-5 space-y-1">
+                              {o.keyResults.map((kr, k) => <li key={k}>主要な成果：{kr}</li>)}
+                            </ul>
+                          )}
+                          {o.owner && <div className="text-xs text-gray-600 mt-1">Owner: {o.owner}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
