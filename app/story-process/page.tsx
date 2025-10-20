@@ -5,7 +5,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import QuestionStepper, { type AnswerStep as StepperAnswerStep } from '@/components/guide/QuestionStepper';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
-import { saveStrategyData } from '@/utils/supabase';
+// ▼ 修正：保存ユーティリティの正しいパスに
+import { saveStrategyData } from '@/utils/supabase/strategy';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAccess } from '@/utils/access';
@@ -99,7 +100,6 @@ function ForceMultiline({ text, className }: { text?: string; className?: string
 function longformToChapters(s: string): ChapterStory[] {
   const text = normalizeNewlines((s || '').trim());
   if (!text) return [];
-  // 「第1章/第2章…」が含まれていれば見出しで分割
   const markerRegex = /(第\s*[1-4]\s*章[^\\n]*)(?:\n+|$)/g;
   const markers = [...text.matchAll(markerRegex)];
   if (markers.length >= 2) {
@@ -114,7 +114,6 @@ function longformToChapters(s: string): ChapterStory[] {
     }
     return parts.slice(0, 4);
   }
-  // なければ段落で等分
   const paras = text.split(/\n{2,}/).map(x => x.trim()).filter(Boolean);
   const chunks = [[], [], [], []] as string[][];
   paras.forEach((p, i) => chunks[i % 4].push(p));
@@ -237,7 +236,7 @@ export default function StoryProcessPage() {
 
   /* ----- セッションの story 復旧：companyId & strategyId が揃うまで絶対に読まない ----- */
   useEffect(() => {
-    if (!companyId || !store?.strategyId) return; // ★超重要：未確定ならNOOP
+    if (!companyId || !store?.strategyId) return;
     try {
       const ssStory = sessionStorage.getItem(ssKey('story', companyId, store?.strategyId));
       if (ssStory) {
@@ -278,7 +277,7 @@ export default function StoryProcessPage() {
   const strategyId: string | undefined = store?.strategyId;
   const autoKey = `storyProcess.autoFinal.${strategyId || 'default'}`;
 
-  /* ----- すべての候補から表示用 story を構成（session は IDs 確定時のみ） ----- */
+  /* ----- すべての候補から表示用 story を構成 ----- */
   const storyFromSession: ChapterStory[] = useMemo(() => {
     if (!companyId || !store?.strategyId) return [];
     try {
@@ -307,7 +306,6 @@ export default function StoryProcessPage() {
     Array.isArray(store?.finalStory) ? store.finalStory :
     (typeof store?.finalStory === 'string' ? (tryParseJson<ChapterStory[]>(store.finalStory) ?? []) : []);
 
-  // 優先順：session → store.story → store.storyChapters → storyDraft → finalStory
   const storyRawArr: ChapterStory[] = useMemo(() => {
     const candidates = [
       storyFromSession,
@@ -320,7 +318,7 @@ export default function StoryProcessPage() {
     return [];
   }, [storyFromSession, storyRawFromStoreMain, storyRawFromStoreAlt, storyRawFromDraft, finalRawFromStore]);
 
-  /* ----- 初回だけ sessionSummary を受け口として復旧（IDs 確定時のみ） ----- */
+  /* ----- 初回だけ sessionSummary を復旧 ----- */
   const [restoredOnce, setRestoredOnce] = useState(false);
   useEffect(() => {
     if (restoredOnce || !companyId || !store?.strategyId) return;
@@ -347,7 +345,8 @@ export default function StoryProcessPage() {
     industry, revenue, employees,
     thought, strength, weakness, opportunity, threat,
     csvFinanceData,
-    portfolio,
+    // ▼ 修正：保存層に合わせて businessPortfolio を使う
+    businessPortfolio,
     enhanceEmotion = true,
   } = store ?? {};
 
@@ -456,7 +455,8 @@ export default function StoryProcessPage() {
             industry, revenue, employees,
             thought, strength, weakness, opportunity, threat,
             csvFinanceData,
-            portfolio,
+            // ▼ 修正：保存層と一致
+            businessPortfolio,
             enhanceEmotion,
           } as any,
           user.id
@@ -468,7 +468,49 @@ export default function StoryProcessPage() {
   }, [
     answers2, csvFinanceData, employees, finalRawFromStore, industry, mission,
     opportunity, revenue, storyRawArr, strength, store?.strategyId, thought, threat,
-    user?.id, value, vision, weakness, canEdit, companyId, portfolio, enhanceEmotion,
+    user?.id, value, vision, weakness, canEdit, companyId, businessPortfolio, enhanceEmotion,
+  ]);
+
+  /* ▼ 追加：タブ非表示/離脱時にフラッシュ保存（取りこぼし防止） */
+  useEffect(() => {
+    if (!canEdit) return;
+    const flush = async () => {
+      if (!user?.id || !companyId) return;
+      try {
+        await saveStrategyData(
+          {
+            strategyId: store?.strategyId,
+            story: draftArr,
+            finalStory: finalRawFromStore,
+            answers2: (answers2 ?? []).map((c) => ({
+              chapterIndex: c.chapterIndex,
+              chapterTitle: c.chapterTitle,
+              steps: deflateToStrategy(c.steps),
+            })),
+            mission, vision, value,
+            industry, revenue, employees,
+            thought, strength, weakness, opportunity, threat,
+            csvFinanceData,
+            businessPortfolio,
+            enhanceEmotion,
+          } as any,
+          user.id
+        );
+      } catch {}
+    };
+    const onVis = () => { if (document.visibilityState === 'hidden') flush(); };
+    const onUnload = () => { /* best-effort */ void flush(); };
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('beforeunload', onUnload);
+    return () => {
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('beforeunload', onUnload);
+    };
+  }, [
+    canEdit, user?.id, companyId, store?.strategyId, answers2,
+    draftArr, finalRawFromStore, mission, vision, value, industry,
+    revenue, employees, thought, strength, weakness, opportunity, threat,
+    csvFinanceData, businessPortfolio, enhanceEmotion
   ]);
 
   /* ------- Stepper → 親へQ/A同期 ------- */
@@ -495,7 +537,7 @@ export default function StoryProcessPage() {
 
     const withDepthFallback: StepperAnswerStep[] = (answers ?? []).map((s) => {
       const sn = Number(s.stepNumber);
-      theDepth: { /* keep block label to avoid accidental var name changes */ }
+      theDepth: {}
       const depth = (s as any).depth ?? getDepthFor(chapterIndex, sn);
       return { ...s, stepNumber: sn, depth, createdAt: (s as any).createdAt ?? STABLE_TS };
     });
@@ -522,9 +564,10 @@ export default function StoryProcessPage() {
       mission, vision, value,
       strength, weakness, opportunity, threat,
       csvFinanceData,
-      portfolio,
+      // ▼ 表示時に参照するなら businessPortfolio 名で
+      businessPortfolio,
     }),
-    [referenceArr, mission, vision, value, strength, weakness, opportunity, threat, csvFinanceData, portfolio]
+    [referenceArr, mission, vision, value, strength, weakness, opportunity, threat, csvFinanceData, businessPortfolio]
   );
 
   /* ------- 参考ストーリー生成（手動） ------- */
@@ -540,7 +583,6 @@ export default function StoryProcessPage() {
           industry, revenue, employees,
           strength, weakness, opportunity, threat,
           csvFinanceData,
-          // ⚠ 古い文脈の混入を避けるため story は送らない
           enhanceEmotion,
         }),
       });
@@ -601,7 +643,7 @@ export default function StoryProcessPage() {
         industry, revenue, employees,
         thought, strength, weakness, opportunity, threat,
         csvFinanceData,
-        portfolio,
+        businessPortfolio,
         userId: user?.id,
         budgets: { longform: [1600, 2400] },
         enhanceEmotion,
@@ -612,7 +654,7 @@ export default function StoryProcessPage() {
     return safeJsonFromText<any>(text) ?? {};
   }, [
     answers2, csvFinanceData, employees, industry, mission, revenue,
-    store?.strategyId, thought, threat, user?.id, value, vision, weakness, portfolio, enhanceEmotion,
+    store?.strategyId, thought, threat, user?.id, value, vision, weakness, businessPortfolio, enhanceEmotion,
   ]);
 
   const onGenerateFinal = useCallback(async () => {
@@ -693,10 +735,13 @@ export default function StoryProcessPage() {
 
       const steps: StepperAnswerStep[] = (chapterAns.steps ?? []).map((s) => {
         const sn = Number(s.stepNumber);
-        theDepth: { /* keep block label to avoid accidental var name changes */ }
+        theDepth: {}
         const depth = (s as any).depth ?? getDepthFor(i, sn);
         return { ...s, stepNumber: sn, depth, createdAt: (s as any).createdAt ?? STABLE_TS };
       });
+
+      // ▼ 追加：initialAnswers の変更に追従させるための “強制再マウントキー”
+      const stepsKey = steps.map(s => `${s.stepNumber}:${(s.answer || '').length}`).join('|');
 
       const color = CHAPTER_COLORS[i % CHAPTER_COLORS.length];
 
@@ -724,6 +769,7 @@ export default function StoryProcessPage() {
 
             <div className="min-w-0 w-full">
               <QuestionStepper
+                key={`qs-${i}-${stepsKey}`} // ← ここがポイント
                 chapterIndex={i}
                 chapterTitle={chapterAns.chapterTitle}
                 chapterBody={ch?.body ?? ''}
@@ -951,7 +997,7 @@ function FinalStorySection({
   };
 
   return (
-    <section className="rounded-2xl border border-zinc-200 bg-white/80 backdrop-blur-sm p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)] min-w-0 overflow-hidden">
+    <section className="rounded-2xl border border-zinc-200 bg白/80 backdrop-blur-sm p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)] min-w-0 overflow-hidden">
       <div className="flex items-center justify-between">
         <h2 className="text-[17px] font-semibold tracking-tight text-zinc-900">最終ストーリー</h2>
         <div className="flex items-center gap-2">
