@@ -6,16 +6,18 @@ import { getMembership } from './membership';
 import type { StrategyData } from '@/types/strategy';
 
 /* ============================================================
- * テーブル
+ * テーブル名
  * ============================================================ */
 const T_STRATEGY = 'strategy_data';
 const T_PROGRESS = 'progress_logs';
+const T_STORY_ANSWERS = 'story_answers2';
+const T_FINAL_STORIES = 'final_stories';
 
 /* ============================================================
  * 型
  * ============================================================ */
-type ReadResult = { data: StrategyData | null; error: any | null };
-type WriteResult = { data?: StrategyData | null; error: any | null };
+type ReadResult = { data: (StrategyData & { revision?: number }) | null; error: any | null };
+type WriteResult = { data?: (StrategyData & { revision?: number }) | null; error: any | null };
 
 /* ============================================================
  * エラー整形
@@ -27,7 +29,6 @@ function safeStringify(x: any) {
     return String(x);
   }
 }
-
 function extractErrorVerbose(e: any) {
   const info = debugExtractPostgrest?.(e) as any;
   const out = {
@@ -68,7 +69,7 @@ async function resolveCompanyId(userId: string, override?: string | null): Promi
 }
 
 /* ============================================================
- * JSON整形ユーティリティ
+ * JSONユーティリティ
  * ============================================================ */
 function parseJson(v: any) {
   if (typeof v === 'string') {
@@ -87,9 +88,8 @@ function ensureObject<T extends object = Record<string, any>>(v: any): T {
 
 /* ============================================================
  * finance_summary 双方向正規化
- *  - DB: 必ず object（{ rows: FinanceSummaryRow[] }）
- *  - UI(state): 配列 FinanceSummaryRow[]
- *  - DB制約: chk_strategy_finance_is_object (jsonb_typeof(finance_summary)='object')
+ *  - DB: { rows: FinanceSummaryRow[] } の object
+ *  - UI: FinanceSummaryRow[] の配列
  * ============================================================ */
 function toDbFinanceSummary(uiValue: any): Record<string, any> {
   if (uiValue == null) return {};
@@ -101,11 +101,10 @@ function toDbFinanceSummary(uiValue: any): Record<string, any> {
   }
   return {};
 }
-
 function toUiFinanceSummary(dbValue: any): any[] {
   if (dbValue == null) return [];
   const parsed = parseJson(dbValue);
-  if (Array.isArray(parsed)) return parsed; // 旧データ互換
+  if (Array.isArray(parsed)) return parsed; // 旧互換
   if (typeof parsed === 'object' && Array.isArray((parsed as any).rows)) {
     return (parsed as any).rows;
   }
@@ -114,8 +113,6 @@ function toUiFinanceSummary(dbValue: any): any[] {
 
 /* ============================================================
  * business_portfolio 安全化
- *  - DB: object を期待、null/配列/不正は {}
- *  - UI(state): object | undefined（不正は undefined）
  * ============================================================ */
 function toDbBusinessPortfolio(uiValue: any): Record<string, any> {
   if (uiValue == null) return {};
@@ -123,7 +120,6 @@ function toDbBusinessPortfolio(uiValue: any): Record<string, any> {
   if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, any>;
   return {};
 }
-
 function toUiBusinessPortfolio(dbValue: any): Record<string, any> | undefined {
   const v = parseJson(dbValue);
   if (v && typeof v === 'object' && !Array.isArray(v)) return v as Record<string, any>;
@@ -131,8 +127,7 @@ function toUiBusinessPortfolio(dbValue: any): Record<string, any> | undefined {
 }
 
 /* ============================================================
- * JSON 配列フィールド（NOT NULL 用）
- *  - DB: 常に配列（空は []）
+ * JSON 配列フィールド（NOT NULL想定）
  * ============================================================ */
 function toDbJsonArray(v: any): any[] {
   if (v == null) return [];
@@ -142,6 +137,7 @@ function toDbJsonArray(v: any): any[] {
 
 /* ============================================================
  * camelCase ⇄ snake_case マッピング
+ *  ※ 分離テーブル化したキーは FIELD_MAP から除外
  * ============================================================ */
 const FIELD_MAP: Record<string, string> = {
   companyName: 'company_name',
@@ -167,15 +163,35 @@ const FIELD_MAP: Record<string, string> = {
   story: 'story',
   strategySummary: 'strategy_summary',
   editableCascade: 'editable_cascade',
-  answers: 'answers',
-  answers2: 'answers2',
-  finalStory: 'final_story',
-  editableCascadeResult: 'editable_cascade_result',
   businessPortfolio: 'business_portfolio',
   financeSummary: 'finance_summary',
-  simulationResult: 'simulation_result',
   simulationResults: 'simulation_results',
 };
+
+/* ============================================================
+ * “実質空”判定（空保存ガード）
+ * ============================================================ */
+function isEffectivelyEmptyForServer(state: Partial<StrategyData>): boolean {
+  const arrEmpty = (a: any) => !Array.isArray(a) || a.length === 0;
+  const strEmpty = (v: any) => typeof v !== 'string' || v.trim() === '';
+
+  const sim = (state as any)?.simulationResult;
+  const simPoints = (sim as any)?.projection?.points;
+
+  return (
+    arrEmpty((state as any).story) &&
+    arrEmpty((state as any).finalStory) &&   // 読み込みで補完、保存はしない
+    arrEmpty((state as any).answers2) &&     // 読み込みで補完、保存はしない
+    arrEmpty((state as any).departments) &&
+    arrEmpty((state as any).csvFinanceData) &&
+    arrEmpty((state as any).financeSummary) &&
+    (!(state as any).businessPortfolio || arrEmpty(((state as any).businessPortfolio as any)?.units)) &&
+    (!sim || arrEmpty(simPoints)) &&
+    ['companyName', 'mission', 'vision', 'value', 'thought']
+      .filter((k) => (state as any)[k] !== undefined)
+      .every((k) => strEmpty((state as any)[k]))
+  );
+}
 
 /* ============================================================
  * DB ⇄ State 変換
@@ -188,58 +204,40 @@ function buildDbRowFromState(state: StrategyData) {
     let v = (state as any)[camel];
     v = parseJson(v);
 
-    // === 配列で保存するフィールド ===
-    if (snake === 'story' || snake === 'final_story') v = ensureArray(v);
-    if (snake === 'answers2') v = ensureArray(v);
+    // 配列保存
+    if (snake === 'story') v = ensureArray(v);
     if (snake === 'departments') v = ensureArray(v);
     if (snake === 'simulation_results') v = ensureArray(v);
 
-    // === 特殊ルール ===
-    if (snake === 'csv_finance_data') {
-      // ★ NOT NULL 対策：常に配列で保存（空は []）
-      v = toDbJsonArray(v);
-    }
-
-    if (snake === 'finance_summary') {
-      // ★ DBは object 必須（{ rows: [...] }）。空は {}。
-      v = toDbFinanceSummary(v);
-    }
-
-    if (snake === 'business_portfolio') {
-      // DBは object。空や不正は {} として保存
-      v = toDbBusinessPortfolio(v);
-    }
+    // 特殊
+    if (snake === 'csv_finance_data') v = toDbJsonArray(v);
+    if (snake === 'finance_summary') v = toDbFinanceSummary(v);
+    if (snake === 'business_portfolio') v = toDbBusinessPortfolio(v);
 
     row[snake] = v;
   }
   return row;
 }
 
-function buildStateFromDbRow(row: any): StrategyData {
+function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const safeRow = row ?? {};
   const out: any = {};
 
-  // 1) マッピング
+  // 1) strategy_data の既存列を写す
   for (const [camel, snake] of Object.entries(FIELD_MAP)) {
     if (Object.prototype.hasOwnProperty.call(safeRow, snake)) {
       out[camel] = safeRow[snake];
     }
   }
 
-  // 2) 最低限の正規化（UIが配列前提で待ち続けるのを防止）
+  // 2) 最低限の正規化
   out.story = ensureArray(out.story);
-  out.finalStory = ensureArray(out.finalStory);
-  out.answers2 = ensureArray(out.answers2);
   out.departments = ensureArray(out.departments);
   out.simulationResults = ensureArray(out.simulationResults);
-
-  // financeSummary: DB(object) -> UI(array)
   out.financeSummary = toUiFinanceSummary(out.financeSummary);
-
-  // businessPortfolio: DB(object) -> UI(object|undefined)
   out.businessPortfolio = toUiBusinessPortfolio(out.businessPortfolio);
 
-  // departments.projects.okrs を配列保証
+  // 部門→プロジェクト→OKR 配列保証
   out.departments = out.departments.map((d: any) => ({
     name: d?.name ?? '',
     projects: ensureArray(d?.projects).map((p: any) => ({
@@ -248,24 +246,32 @@ function buildStateFromDbRow(row: any): StrategyData {
     })),
   }));
 
-  // answers2 が空ならデフォルト4章を補完
-  if (!Array.isArray(out.answers2) || out.answers2.length === 0) {
-    out.answers2 = [
-      { chapterIndex: 0, chapterTitle: '第1章：なぜ今（現状）', steps: [] },
-      { chapterIndex: 1, chapterTitle: '第2章：どう戦う（戦略）', steps: [] },
-      { chapterIndex: 2, chapterTitle: '第3章：どんな未来像（会社の未来像）', steps: [] },
-      { chapterIndex: 3, chapterTitle: '第4章：どう行動する（行動）', steps: [] },
-    ];
-  }
-
-  // 3) 追加の正規化（既存の normalizeStrategyData を活用）
+  // 3) normalize（互換吸収）
   const normalized = normalizeStrategyData(out) as StrategyData;
-  console.log('[StrategyData] ✅ buildStateFromDbRow normalized:', normalized);
-  return normalized;
+
+  // 4) revision
+  const revision = typeof safeRow?.revision === 'number' ? safeRow.revision : undefined;
+  return { ...normalized, revision };
 }
 
 /* ============================================================
- * データ取得
+ * 共通：既存行を * で取得（revision列の有無を動的判定したい）
+ * ============================================================ */
+async function fetchExistingRow(companyId: string) {
+  const res = await supabase
+    .from(T_STRATEGY)
+    .select('*')
+    .eq('company_id', companyId)
+    .maybeSingle();
+  // PGRST116 = No rows
+  if (res.error && res.error.code !== 'PGRST116') {
+    throw res.error;
+  }
+  return res as { data?: any; error?: any };
+}
+
+/* ============================================================
+ * 取得：strategy_data=* + 分離テーブル合流
  * ============================================================ */
 export async function getFullStrategyDataByCompany(companyId: string): Promise<ReadResult> {
   console.log('[StrategyData] 📥 getFullStrategyDataByCompany start:', companyId);
@@ -275,35 +281,57 @@ export async function getFullStrategyDataByCompany(companyId: string): Promise<R
       return { data: null, error: new Error('invalid companyId') };
     }
 
-    const selectCols = Object.values(FIELD_MAP).join(',');
-
-    const res = await supabase
+    // 1) strategy_data は * で取得
+    const baseRes = await supabase
       .from(T_STRATEGY)
-      .select(selectCols)
+      .select('*')
       .eq('company_id', companyId)
       .order('updated_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    console.log('[StrategyData] 📄 Supabase raw response:', res);
+    console.log('[StrategyData] 📄 Supabase raw response:', baseRes);
 
-    if (res.error) {
-      const err = extractErrorVerbose(res.error);
+    if (baseRes.error) {
+      const err = extractErrorVerbose(baseRes.error);
       console.error('[StrategyData] ❌ DB error:', err);
       return { data: null, error: err };
     }
-
-    if (!res.data) {
+    if (!baseRes.data) {
       console.warn('[StrategyData] ⚠️ No strategy_data found for company_id:', companyId);
       return { data: null, error: null };
     }
 
-    const rowData = res.data ?? {};
+    const rowData = baseRes.data ?? {};
     console.log('[StrategyData] 🧩 DB row data:', rowData);
 
-    const state = buildStateFromDbRow(rowData);
-    console.log('[StrategyData] ✅ Normalized state:', state);
+    // 2) 分離テーブルを並列取得
+    const [ansRes, finRes] = await Promise.allSettled([
+      supabase.from(T_STORY_ANSWERS)
+        .select('*')
+        .eq('company_id', companyId)
+        .order('updated_at', { ascending: false }),
+      supabase.from(T_FINAL_STORIES)
+        .select('*')
+        .eq('company_id', companyId)
+        .order('updated_at', { ascending: false }),
+    ]);
 
+    const answers2Rows =
+      ansRes.status === 'fulfilled' ? (ansRes.value.data ?? []) : (console.warn('[StrategyData] ⚠ story_answers2 fetch skipped:', ansRes.reason), []);
+    const finalStoryRows =
+      finRes.status === 'fulfilled' ? (finRes.value.data ?? []) : (console.warn('[StrategyData] ⚠ final_stories fetch skipped:', finRes.reason), []);
+
+    // 3) strategy_data -> state
+    const state = buildStateFromDbRow(rowData);
+
+    // 4) 分離テーブルを state に流し込む（最新優先）
+    const latestAnswers = answers2Rows[0]?.answers2 ?? answers2Rows[0]?.steps ?? [];
+    const latestFinal = finalStoryRows[0]?.final_story ?? finalStoryRows[0]?.story ?? [];
+    state.answers2 = ensureArray(state.answers2).length ? state.answers2 : ensureArray(latestAnswers);
+    state.finalStory = ensureArray(state.finalStory).length ? state.finalStory : ensureArray(latestFinal);
+
+    console.log('[StrategyData] ✅ Normalized state:', state);
     return { data: state, error: null };
   } catch (e) {
     const err = extractErrorVerbose(e);
@@ -313,49 +341,124 @@ export async function getFullStrategyDataByCompany(companyId: string): Promise<R
 }
 
 /* ============================================================
- * データ保存
+ * 保存（空保存抑止＋楽観ロック）
+ *  - revision列があれば revision ロック、無ければ updated_at ロックを使う
+ *  - 分離テーブル化した列は strategy_data へ書かない
  * ============================================================ */
 export async function saveStrategyData(
   state: StrategyData,
   userId: string,
   companyIdOverride?: string | null,
+  revision?: number,
 ): Promise<WriteResult> {
-  console.log('[StrategyData] 💾 saveStrategyData called. userId=', userId);
+  console.log('[StrategyData] 💾 saveStrategyData called. userId=', userId, 'rev=', revision);
   try {
     const now = new Date().toISOString();
     const companyId = await resolveCompanyId(userId, companyIdOverride);
     const cleanCompanyId = companyId.trim();
 
-    const payload = {
-      ...buildDbRowFromState(state),
+    if (isEffectivelyEmptyForServer(state)) {
+      console.warn('[StrategyData] ⛔ save skipped: effectively empty payload');
+      const cur = await getFullStrategyDataByCompany(cleanCompanyId);
+      return { data: cur.data ?? null, error: null };
+    }
+
+    const baseRow = buildDbRowFromState(state);
+
+    // 既存行の有無（*で取得して列の有無を確認）
+    let existingRow: any | null = null;
+    try {
+      const existingRes = await fetchExistingRow(cleanCompanyId);
+      existingRow = existingRes.data ?? null;
+    } catch (e) {
+      const err = extractErrorVerbose(e);
+      console.error('[StrategyData] ❌ check existing error:', err);
+      return { data: null, error: err };
+    }
+
+    const hasRevision: boolean =
+      !!existingRow && Object.prototype.hasOwnProperty.call(existingRow, 'revision');
+
+    const currentRev: number | undefined =
+      hasRevision && typeof existingRow?.revision === 'number'
+        ? existingRow.revision
+        : undefined;
+
+    const currentUpdatedAt: string | undefined =
+      typeof existingRow?.updated_at === 'string' ? existingRow.updated_at : undefined;
+
+    const selectAfter = '*'; // 列増減に強くする
+
+    // === UPDATE ===
+    if (existingRow) {
+      const expectedRev = typeof revision === 'number'
+        ? revision
+        : (typeof currentRev === 'number' ? currentRev : undefined);
+
+      const updatePayload: any = {
+        ...baseRow,
+        user_id: userId,
+        company_id: cleanCompanyId,
+        updated_at: now,
+      };
+
+      // revision列が存在している場合だけ、次世代をセット
+      if (hasRevision && typeof expectedRev === 'number') {
+        updatePayload.revision = expectedRev + 1;
+      }
+
+      let q = supabase
+        .from(T_STRATEGY)
+        .update(updatePayload)
+        .eq('company_id', cleanCompanyId);
+
+      // 楽観ロック条件
+      if (hasRevision && typeof expectedRev === 'number') {
+        q = q.eq('revision', expectedRev);
+      } else if (currentUpdatedAt) {
+        // revisionが無い環境では updated_at を軽量ロックとして使用
+        q = q.eq('updated_at', currentUpdatedAt);
+      }
+
+      const upd = await q.select(selectAfter).single();
+
+      if (upd.error) {
+        const err = extractErrorVerbose(upd.error);
+        if (err.code === 'PGRST116' || err.status === 406 || err.status === 409) {
+          console.error('[StrategyData] ⚠️ save conflict (stale).', { expectedRev, currentRev, currentUpdatedAt });
+          return { data: null, error: { ...err, message: 'conflict: stale state' } };
+        }
+        console.error('[StrategyData] ❌ update error:', err);
+        return { data: null, error: err };
+      }
+
+      const stateAfter = buildStateFromDbRow(upd.data ?? {});
+      return { data: stateAfter, error: null };
+    }
+
+    // === INSERT ===
+    // revision 列が無い環境でも成功するように、insertPayload には revision を含めない
+    const insertPayload: any = {
+      ...baseRow,
       user_id: userId,
       company_id: cleanCompanyId,
       updated_at: now,
       created_at: now,
     };
 
-    console.log('[StrategyData] 📨 upsert payload:', payload);
-
-    const selectColsAfter = Object.values(FIELD_MAP).join(',');
-
-    const res = await supabase
+    const ins = await supabase
       .from(T_STRATEGY)
-      .upsert(payload, { onConflict: 'company_id', ignoreDuplicates: false })
-      .select(selectColsAfter)
+      .insert(insertPayload)
+      .select(selectAfter)
       .single();
 
-    if (res.error) {
-      const err = extractErrorVerbose(res.error);
-      console.error('[StrategyData] ❌ saveStrategyData error:', err, 'rawRes:', safeStringify(res));
+    if (ins.error) {
+      const err = extractErrorVerbose(ins.error);
+      console.error('[StrategyData] ❌ insert error:', err, 'rawRes:', safeStringify(ins));
       return { data: null, error: err };
     }
 
-    console.log('[StrategyData] ✅ saveStrategyData success. DB returned:', res.data);
-
-    const rowData = res.data ?? {};
-    const stateAfter = buildStateFromDbRow(rowData);
-    console.log('[StrategyData] ✅ stateAfter normalization complete:', stateAfter);
-
+    const stateAfter = buildStateFromDbRow(ins.data ?? {});
     return { data: stateAfter, error: null };
   } catch (error) {
     const err = extractErrorVerbose(error);
@@ -400,10 +503,7 @@ export async function appendSimulationResultToStrategy(
   companyIdOverride?: string | null,
   opts?: { title?: string; scenarioId?: string; maxKeep?: number },
 ): Promise<WriteResult> {
-  console.log('[StrategyData] 📊 appendSimulationResultToStrategy called:', {
-    userId,
-    payload,
-  });
+  console.log('[StrategyData] 📊 appendSimulationResultToStrategy called:', { userId, payload });
   try {
     const companyId = await resolveCompanyId(userId, companyIdOverride);
     const current = await getFullStrategyDataByCompany(companyId);
@@ -430,12 +530,19 @@ export async function appendSimulationResultToStrategy(
     const patch = {
       ...(existing as any),
       simulationResults: next,
+      // 旧互換（state上の参照用。保存先は simulationResults のみ）
       simulationResult: payload,
     };
 
     console.log('[StrategyData] 🧩 simulation patch:', patch);
 
-    return await saveStrategyData(patch as unknown as StrategyData, userId, companyId);
+    const rev = (existing as any)?.revision;
+    return await saveStrategyData(
+      patch as unknown as StrategyData,
+      userId,
+      companyId,
+      typeof rev === 'number' ? rev : undefined
+    );
   } catch (error) {
     console.error('[StrategyData] ❌ appendSimulationResultToStrategy fatal:', error);
     return { error: extractErrorVerbose(error) };
@@ -443,9 +550,7 @@ export async function appendSimulationResultToStrategy(
 }
 
 /* ============================================================
- * 追加：履歴取得API（/app/simulation から利用）
- * - strategy_data.simulation_results 配列を返す
- * - limit で件数制御（デフォルト20）
+ * 履歴取得API
  * ============================================================ */
 export type SimulationResultRow = {
   id: string;
@@ -478,8 +583,9 @@ export async function getSimulationResults(
 
     const rowsAll: SimulationResultRow[] = ensureArray<SimulationResultRow>(data?.simulation_results);
     const limit = Math.max(1, opts?.limit ?? 20);
-    // created_at の降順想定だが、保険でソート
-    const rows = [...rowsAll].sort((a, b) => (b?.created_at ?? '').localeCompare(a?.created_at ?? '')).slice(0, limit);
+    const rows = [...rowsAll]
+      .sort((a, b) => (b?.created_at ?? '').localeCompare(a?.created_at ?? ''))
+      .slice(0, limit);
 
     return { rows, error: null };
   } catch (e) {
@@ -487,24 +593,4 @@ export async function getSimulationResults(
     console.error('[StrategyData] ❌ getSimulationResults fatal:', err);
     return { rows: [], error: err };
   }
-}
-
-/* ============================================================
- * 追加：保存API（append のシンタックスシュガー）
- * - 既存コードが saveSimulationResult を呼んでいる場合の後方互換
- * ============================================================ */
-export async function saveSimulationResult(args: {
-  userId: string;
-  companyId?: string | null;
-  payload: SimulationSavePayload;
-  title?: string;
-  scenarioId?: string;
-  maxKeep?: number;
-}): Promise<WriteResult> {
-  return appendSimulationResultToStrategy(
-    args.userId,
-    args.payload,
-    args.companyId ?? null,
-    { title: args.title, scenarioId: args.scenarioId, maxKeep: args.maxKeep },
-  );
 }
