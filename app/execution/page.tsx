@@ -92,7 +92,7 @@ function ExecPanel(props: {
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [loadingLogs, setLoadingLogs] = useState<boolean>(false);
 
-  // 履歴ロード（ユーザー×OKR 単位。RLS で company_id による制御を想定）
+  // 履歴ロード（ユーザー×OKR 単位）
   useEffect(() => {
     const loadLogs = async () => {
       if (!open || !userId || !okrId) return;
@@ -317,7 +317,7 @@ function ExecPanel(props: {
 
         {/* 本文 */}
         <div className="space-y-6 p-5">
-          {/* OKR 概要（日本語表記） */}
+          {/* OKR 概要 */}
           <section className="rounded-2xl border border-black/10 bg-white/70 p-4">
             <div className="text-xs font-medium text-gray-600 tracking-wide mb-1">達成目標（O）</div>
             <div className="whitespace-pre-wrap text-[15px]">{objective || '（未設定）'}</div>
@@ -419,7 +419,7 @@ function ExecPanel(props: {
             </>
           )}
 
-          {/* 履歴（簡素表示） */}
+          {/* 履歴 */}
           <section className="rounded-2xl border border-black/10 bg-white/70">
             <div className="flex items-center gap-2 border-b border-black/10 px-4 py-3">
               <Clock className="h-4 w-4 text-gray-600" />
@@ -597,32 +597,45 @@ export default function ExecutionPage() {
         ) : null}
       </header>
 
-      {/* OKRブロック一覧 */}
+      {/* OKRブロック一覧（OKRが0件でもカードを1枚表示） */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 opacity-100">
         {cascade.map((dept, di) =>
-          (dept?.projects ?? []).map((proj, pi) =>
-            (proj?.okrs ?? []).map((okr, oi) => {
-              const strictProj = toStrictProject(proj);
-              return (
+          (dept?.projects ?? []).flatMap((proj, pi) => {
+            const okrs = Array.isArray(proj?.okrs) ? proj.okrs : [];
+            const strictProj = toStrictProject(proj);
+
+            // OKRがある場合は従来通りOKRごとにカードを出す（クリックで右パネル）
+            if (okrs.length > 0) {
+              return okrs.map((okr, oi) => (
                 <ProjectCard
                   key={`${dept?.name ?? 'dept'}-${strictProj.title}-${oi}`}
                   deptName={dept?.name ?? ''}
                   project={strictProj}
                   onClick={() => {
-                    if (isHydrating) return; // hydration完了前は操作不可
+                    if (isHydrating) return;
                     setSelected({ d: di, p: pi, o: oi });
                   }}
                 />
-              );
-            })
-          )
+              ));
+            }
+
+            // OKRが0件でも1枚表示（クリックは無効）
+            return (
+              <ProjectCard
+                key={`${dept?.name ?? 'dept'}-${strictProj.title}-no-okr`}
+                deptName={dept?.name ?? ''}
+                project={strictProj}
+                onClick={() => {}}
+              />
+            );
+          })
         )}
         {cascade.length === 0 && !isHydrating && (
           <div className="text-sm text-gray-600">表示できる実行計画がありません。</div>
         )}
       </div>
 
-      {/* 実行支援パネル */}
+      {/* 実行支援パネル（OKR選択時のみ） */}
       <ExecPanel
         open={!!selection}
         onClose={() => setSelected(null)}
