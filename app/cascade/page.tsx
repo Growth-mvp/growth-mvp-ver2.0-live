@@ -165,6 +165,34 @@ function toStoreOKR(o: DeptOKR): StoreOKR {
 }
 
 /* =========================================================
+   簡易スナップショット（Dirty判定用・Store側と同等キーのみ）
+========================================================= */
+function makeSaveSnapshot(s: any) {
+  const snap: any = {
+    strategyId: s?.strategyId ?? undefined,
+    story: Array.isArray(s?.story) ? s.story : [],
+    finalStory: Array.isArray(s?.finalStory) ? s.finalStory : [],
+    answers2: Array.isArray(s?.answers2) ? s.answers2 : [],
+    departments: Array.isArray(s?.departments) ? s.departments : [],
+    companyName: s?.companyName,
+    mission: s?.mission,
+    vision: s?.vision,
+    value: s?.value,
+    thought: s?.thought,
+  };
+  if (Array.isArray(s?.csvFinanceData)) snap.csvFinanceData = s.csvFinanceData;
+  if (Array.isArray(s?.financeSummary)) snap.financeSummary = s.financeSummary;
+  if (typeof s?.businessPortfolio !== 'undefined') snap.businessPortfolio = s.businessPortfolio;
+  if (typeof s?.simulationResult !== 'undefined') snap.simulationResult = s.simulationResult;
+  return snap;
+}
+function hashSnapshot(obj: any) {
+  const s = JSON.stringify(obj ?? {});
+  let h = 5381; for (let i = 0; i < s.length; i++) h = (h * 33) ^ s.charCodeAt(i);
+  return (h >>> 0).toString(16);
+}
+
+/* =========================================================
    シグナル抽出（簡易）
 ========================================================= */
 function extractSignals(params: {
@@ -253,8 +281,13 @@ export default function CascadePage() {
     hydrated,
     setCompanyScope,
     refetchFromServer, // store の再取得API
-    setHydrated,       // 明示的にhydratedを立てる
+    setHydrated,       // 明示的にhydratedを立てる（互換）
   } = useStrategyStore();
+
+  // 追加参照（Dirty判定用）
+  const boot = useStrategyStore((st) => st.boot);
+  const lastServerSnapshot = useStrategyStore((st) => st.lastServerSnapshot);
+  const saveNow = useStrategyStore((st) => st.saveStrategyData);
 
   // 権限API
   const access = useAccess();
@@ -276,51 +309,58 @@ export default function CascadePage() {
 
   /* ---------------- デバッグログ ---------------- */
   useEffect(() => {
-    // eslint-disable-next-line no-console
     console.log('[cascade] mount', { hydrated, scopeCompanyId, accessCompanyId });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
-    // eslint-disable-next-line no-console
     console.log('[cascade] 🚧 hydrating...', { hydrated, scopeCompanyId, accessCompanyId });
   }, [hydrated, scopeCompanyId, accessCompanyId]);
 
   /* =========================================================
      会社スコープ確立（StrictMode対策）
+     - 切替時は reset → scope 再適用（これが抜けていたのが原因）
      - 同一IDへの再適用は no-op
-     - ID変更時のみ hardReset + setCompanyScope
   ========================================================= */
   const lastAppliedCompanyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!accessCompanyId) return;
 
     if (lastAppliedCompanyRef.current === accessCompanyId) {
-      // すでに確立済み
       return;
     }
 
-    // eslint-disable-next-line no-console
     console.log('[cascade] effect → setCompanyScope', { scopeCompanyId, accessCompanyId });
 
     if (scopeCompanyId && scopeCompanyId !== accessCompanyId) {
-      // 会社切替：全クリア＆スコープ更新
+      // 会社切替：必ず hydrated を落としてから、reset → scope 再適用
+      setHydrated?.(false);
       hardResetForCompanySwitch(accessCompanyId);
+      setCompanyScope(accessCompanyId);
+      // ロードガードをリセットして再ロード許可
+      loadGuardRef.current = null;
     } else {
       // 初回など：スコープだけ確立
       setCompanyScope(accessCompanyId);
     }
 
     lastAppliedCompanyRef.current = accessCompanyId;
-  }, [accessCompanyId, scopeCompanyId, setCompanyScope]);
+  }, [accessCompanyId, scopeCompanyId, setCompanyScope, setHydrated]);
 
   /* =========================================================
      初期ロード（loadAndHydrate + refetch）
      - 同一companyIdに対する多重起動ガード
+     - Dirty時はサーバ取得をスキップ（ローカル優先）
      - 7秒フェイルセーフで hydrated を立てる
+     - スコープ未セットなら念のため再適用
   ========================================================= */
   const loadGuardRef = useRef<string | null>(null);
   useEffect(() => {
     if (!accessCompanyId) return;
+
+    // 念のため：スコープ未設定なら適用
+    if (!scopeCompanyId) {
+      setCompanyScope(accessCompanyId);
+    }
 
     // 同一IDかつ既に完了なら再入防止
     if (loadGuardRef.current === accessCompanyId && hydrated && scopeCompanyId === accessCompanyId) {
@@ -335,23 +375,32 @@ export default function CascadePage() {
         return;
       }
 
-      // eslint-disable-next-line no-console
-      console.log('[cascade] 🌀 loadAndHydrate start', { hydrated, scopeCompanyId });
+      console.log('[cascade] 🌀 load start', { hydrated, scopeCompanyId });
+
+      // Dirty判定：サーバスナップショットと現在の差分があればローカル優先
+      const currentSnap = makeSaveSnapshot(useStrategyStore.getState());
+      const currentHash = hashSnapshot(currentSnap);
+      const isDirty = !!(lastServerSnapshot && lastServerSnapshot !== currentHash);
 
       const doLoad = async () => {
-        await loadAndHydrate(accessCompanyId); // DB→store 取り込み
-        try {
-          await refetchFromServer?.(); // 差分同期
-        } catch (e) {
-          // eslint-disable-next-line no-console
-          console.warn('[cascade] refetchFromServer failed (ignored)', e);
+        if (!isDirty) {
+          // きれいな状態のみサーバから hydrate（= 上書きの危険がない）
+          await loadAndHydrate(accessCompanyId);
+          try {
+            await refetchFromServer?.(); // 差分同期（クリーンな時のみ）
+          } catch (e) {
+            console.warn('[cascade] refetchFromServer failed (ignored)', e);
+          }
+          setHydrated?.(true);
+        } else {
+          // 編集中（Dirty）ならサーバ取得はスキップし、そのままhydratedへ
+          console.log('[cascade] ✋ skip server fetch (dirty local)');
+          setHydrated?.(true);
         }
-        setHydrated?.(true); // persist 依存せず明示的にON
       };
 
       const timer = setTimeout(() => {
         if (!cancelled) {
-          // eslint-disable-next-line no-console
           console.warn('[cascade] ⚠️ Timeout reached, forcing hydration');
           setHydrated?.(true);
         }
@@ -359,8 +408,7 @@ export default function CascadePage() {
 
       try {
         await doLoad();
-        // eslint-disable-next-line no-console
-        console.log('[cascade] ✅ loadAndHydrate done');
+        console.log('[cascade] ✅ load done (dirty=%s)', String(isDirty));
         loadGuardRef.current = accessCompanyId;
       } finally {
         clearTimeout(timer);
@@ -370,7 +418,7 @@ export default function CascadePage() {
 
     run();
     return () => { cancelled = true; };
-  }, [accessCompanyId, hydrated, scopeCompanyId, refetchFromServer, setHydrated]);
+  }, [accessCompanyId, hydrated, scopeCompanyId, refetchFromServer, setHydrated, lastServerSnapshot, setCompanyScope]);
 
   // useAutoSave は deps 必須（companyIdと部門）
   const [departments, setDepartments] = useState<Department[]>(Array.isArray(s?.departments) ? (s.departments as Department[]) : []);
@@ -435,6 +483,31 @@ export default function CascadePage() {
     }
     return storyText;
   };
+
+  /* ================== 離脱/非表示時に即時保存 ================== */
+  useEffect(() => {
+    const flush = async () => {
+      const st = useStrategyStore.getState();
+      if (!st.boot.isHydrated || st.boot.isHydrating) return;
+      const snap = makeSaveSnapshot(st);
+      const hash = hashSnapshot(snap);
+      if (st.lastServerSnapshot && st.lastServerSnapshot === hash) return; // 変更なし
+      try { await saveNow(); } catch (e) { console.warn('[cascade] flush save failed', e); }
+    };
+    const onBeforeUnload = () => { void flush(); };
+    const onPageHide = () => { void flush(); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') void flush();
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    window.addEventListener('pagehide', onPageHide);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      window.removeEventListener('pagehide', onPageHide);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [saveNow]);
 
   /* ================= 推薦API：経営レベル（t系） ================= */
   const handleRecommendPatterns = async (index: number) => {
@@ -988,7 +1061,7 @@ export default function CascadePage() {
                 {/* 3問回答完了 → AI要約（→自動t系推薦） */}
                 {allAnswered && !isHydrating && (
                   <div className="mt-4 border rounded-2xl bg-blue-50 p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                    <div className="text-sm text-blue-900 flex items-center gap-2">
+                    <div className="text-sm text-blue-900 flex items中心 gap-2">
                       <Sparkles className="w-4 h-4" />
                       回答から <b>Mission / Projects / OKR（達成目標/主要な成果）</b> を生成できます（生成後に勝ちパターンも推薦）。
                     </div>
