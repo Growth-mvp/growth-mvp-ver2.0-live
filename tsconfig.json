@@ -22,9 +22,7 @@
       "@/*": ["./*"]
     },
     "plugins": [
-      {
-        "name": "next"
-      }
+      { "name": "next" }
     ]
   },
   "include": [
