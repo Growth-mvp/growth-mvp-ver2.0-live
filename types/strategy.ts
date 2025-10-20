@@ -1,11 +1,18 @@
-// /types/strategy.ts
+/* =========================================================
+ * GROWTH Ver4 タイプ定義（strategy.ts）
+ * ---------------------------------------------------------
+ * - 旧OKR（文字列KR）と新OKR（構造化KR）を共存
+ * - OKR→財務シミュレーション連携のため KRStructured を拡張
+ * - Supabase JSONB保存の互換・後方互換を重視
+ * ========================================================= */
 
 /* =========================================================
- * OKR（Objective & Key Results）
+ * OKR（Objective & Key Results）【旧：互換維持】
  * ========================================================= */
 
 /** OKR（Objective/KeyResults/Owner）
- * - progress_logs との突き合わせ用に id を任意追加
+ * - 既存互換：文字列KRの配列を維持
+ * - progress_logs 突き合わせ用に id を任意追加
  */
 export type OKR = {
   id?: string;               // 任意ID（進捗ログ okrId と紐付ける場合に使用）
@@ -15,12 +22,94 @@ export type OKR = {
 };
 
 /* =========================================================
+ * 財務シミュレーション対応：構造化OKR（新）
+ *   - 段階移行のため旧OKRと共存させる
+ *   - 売上=数量×単価×継続率 などの演算に使う
+ * ========================================================= */
+
+export type KRKind =
+  | 'REVENUE'        // 売上（増減額を直接加算）
+  | 'ARPU'           // 顧客単価（+円）
+  | 'ACQ'            // 新規獲得数（+件）
+  | 'CHURN'          // 解約率（+率、改善は負値で表現）
+  | 'COST_FIXED'     // 固定費（+円）
+  | 'COST_VARIABLE'  // 変動費（+円）
+  | 'PERSONNEL'      // 人件費（+円）
+  | 'INVEST'         // 投資（+円, 効果はfinance側で扱う）
+  | 'SUCCESS_RATE'   // 成功率（+率, 投資効果などに乗算予定）
+  | 'SYNERGY'        // 相乗効果（+率, 収益/費用へ係数）
+  | 'ACTIVITY';      // 活動系（訪問件数・情報取得など→主要KPIに変換）
+
+export type KRScope = 'company' | 'department' | 'project';
+
+export type BaseKey =
+  | 'revenue'
+  | 'arpu'
+  | 'acq'
+  | 'churn'
+  | 'fixed_cost'
+  | 'variable_cost'
+  | 'personnel_cost'
+  | 'invest'
+  | 'success_rate'
+  | 'synergy';
+
+export type KRUnit = '%' | '¥' | '件' | '人' | '比率' | 'COUNT' | 'JPY' | 'RATIO' | 'OTHER';
+
+/** OKR構造化（財務ブリッジで使用）
+ * - target: 目標値（%は 0.10 のように小数で統一推奨。COUNT/JPYは実数）
+ * - elasticity?: 活動系→主要KPIへ変換する感度（弾性）
+ * - weight?: 同Kind内での合成ウェイト（未設定は均等）
+ * - baseKey/baseOverride: ベース母数参照／上書き
+ * - lagMonths?: 活動→成果までの遅行（0=即時）
+ * - startYm?: 'YYYY-MM' 形式の個別開始
+ */
+export type KRStructured = {
+  id: string;                      // 一意ID（将来の差分更新・履歴用）
+  kind: KRKind;                    // どの係数に効くか
+  label: string;                   // 表示名
+  target: number;                  // 目標値（数値化）
+  unit: KRUnit;                    // 単位（%は 0.10 等の小数推奨）
+  due?: string;                    // 期限（'YYYY-MM' or 'YYYY-MM-DD'）
+  owner?: string;                  // 担当者
+  scope: KRScope;                  // 適用スコープ
+  baseKey: BaseKey;                // 紐づくベース指標
+  baseOverride?: number;           // ベース上書き（母数を直接指定）
+
+  // 合成・変換・遅行
+  weight?: number;                 // 同Kind合成の重み（未指定は均等）
+  elasticity?: number;             // ACTIVITY→主要KPIの感度
+  lagMonths?: number;              // 遅行（月数）
+  startYm?: string;                // 個別開始 'YYYY-MM'
+  notes?: string;                  // 任意メモ
+};
+
+/** 役割でOKRを束ねる場合（任意：将来拡張） */
+export type ProjectRole = {
+  role: string;           // 例: '営業','CS','生産'
+  okrs: KRStructured[];   // 構造化OKRの束
+};
+
+/* =========================================================
  * プロジェクト
  * ========================================================= */
 export type Project = {
   title: string;             // ✅ 一貫して title に統一
   reason?: string;           // プロジェクトの目的・背景
-  okrs?: OKR[];              // proj.okrs?.[0]?.objective で参照想定
+
+  /** 旧：文字列型OKR（既存UI互換用）
+   *  - 参照例: proj.okrs?.[0]?.objective
+   */
+  okrs?: OKR[];
+
+  /** 新：構造化OKR（財務シミュレーション用）
+   *  - 段階移行のため optional とし、既存UIと共存
+   *  - 参照例: proj.okrsV2?.[0]?.kind
+   */
+  okrsV2?: KRStructured[];
+
+  /** 役割ごとにOKRを束ねる場合（任意） */
+  roles?: ProjectRole[];
 };
 
 /* =========================================================
@@ -232,7 +321,7 @@ export interface StrategyState extends StrategyData {
 }
 
 /* =========================================================
- * 勝ちパターン・ストーリーV2構造
+ * 勝ちパターン・ストーリーV2構造（将来拡張/互換）
  * ========================================================= */
 
 /** 上位（経営）パターン */
