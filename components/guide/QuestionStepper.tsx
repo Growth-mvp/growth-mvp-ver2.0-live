@@ -73,9 +73,9 @@ function answersEqual(a: AnswerStep[] = [], b: AnswerStep[] = []) {
 export default function QuestionStepper({
   chapterIndex,
   chapterTitle,
-  chapterBody, // 互換のため未使用
+  chapterBody, // 未使用
   initialStep = 1,
-  context, // 互換のため未使用
+  context, // 未使用
   initialAnswers = [],
   onChange,
 }: QuestionStepperProps) {
@@ -89,11 +89,13 @@ export default function QuestionStepper({
 
   /* 回答（重複排除しつつ初期昇順） */
   const sortedInitial = useMemo(() => {
-    const valid = (initialAnswers || []).filter(a => a && a.stepNumber && (a.question ?? '').trim() !== '');
+    // ✅ question 空でも受け入れる（保存層で空の可能性があるため）
+    const valid = (initialAnswers || []).filter(a => a && a.stepNumber);
     const map = new Map<number, AnswerStep>();
     for (const a of valid) map.set(a.stepNumber, a);
     return Array.from(map.values()).sort((a, b) => a.stepNumber - b.stepNumber);
   }, [initialAnswers]);
+
   const [answers, setAnswers] = useState<AnswerStep[]>(sortedInitial);
 
   useEffect(() => {
@@ -126,7 +128,7 @@ export default function QuestionStepper({
   const [hints, setHints] = useState<string[]>([]);
   const [examples, setExamples] = useState<string[]>([]);
 
-  /* 直前回答（UIヒントの文脈用に使用） */
+  /* 直前回答（UIヒントの文脈用） */
   const previousAnswer = useMemo(
     () => answers.find(a => a.stepNumber === (step - 1))?.answer || '',
     [answers, step]
@@ -173,60 +175,84 @@ export default function QuestionStepper({
   }, [answers, chapterIndex, step, onChange, maxSteps]);
 
   /* ======= テンプレ質問の取得（固定12問API） ======= */
+  const qAbortRef = useRef<AbortController | null>(null);
   useEffect(() => {
-    let aborted = false;
+    qAbortRef.current?.abort();
+    const ac = new AbortController();
+    qAbortRef.current = ac;
+
     (async () => {
       setLoading(true); setErrorMsg(''); setHints([]); setExamples([]);
       try {
         const res = await fetch('/api/generate-question', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: ac.signal,
           body: JSON.stringify({ chapterIndex, stepNumber: step }),
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data?.error || 'API error');
-        if (aborted) return;
         setQuestion(data?.step?.question ?? '');
         setReason(data?.step?.reason ?? '');
         setDepth(data?.step?.depth ?? 'exec');
       } catch (e: any) {
-        if (!aborted) setErrorMsg(e?.message || '読み込みエラー');
+        if (e?.name !== 'AbortError') setErrorMsg(e?.message || '読み込みエラー');
       } finally {
-        if (!aborted) setLoading(false);
+        if (!ac.signal.aborted) setLoading(false);
       }
     })();
-    return () => { aborted = true; };
+
+    return () => { ac.abort(); };
   }, [chapterIndex, step]);
 
   /* ======= ヒント／事例の取得 ======= */
+  const hintAbortRef = useRef<AbortController | null>(null);
+  const exAbortRef = useRef<AbortController | null>(null);
+
   const fetchHints = useCallback(async () => {
     if (!question) return;
+    hintAbortRef.current?.abort();
+    const ac = new AbortController();
+    hintAbortRef.current = ac;
+
     setHints([]); setLoading(true); setErrorMsg('');
     try {
       const res = await fetch('/api/generate-hint', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: ac.signal,
         body: JSON.stringify({ question, answer: answerText || previousAnswer }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       setHints(Array.isArray(data?.hints) ? data.hints : []);
     } catch (e: any) {
-      setErrorMsg(e?.message || 'ヒント取得エラー');
-    } finally { setLoading(false); }
+      if (e?.name !== 'AbortError') setErrorMsg(e?.message || 'ヒント取得エラー');
+    } finally {
+      if (!ac.signal.aborted) setLoading(false);
+    }
   }, [question, answerText, previousAnswer]);
 
   const fetchExamples = useCallback(async () => {
     if (!question) return;
+    exAbortRef.current?.abort();
+    const ac = new AbortController();
+    exAbortRef.current = ac;
+
     setExamples([]); setLoading(true); setErrorMsg('');
     try {
       const res = await fetch('/api/generate-example', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: ac.signal,
         body: JSON.stringify({ question }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       setExamples(Array.isArray(data?.examples) ? data.examples : []);
     } catch (e: any) {
-      setErrorMsg(e?.message || '事例取得エラー');
-    } finally { setLoading(false); }
+      if (e?.name !== 'AbortError') setErrorMsg(e?.message || '事例取得エラー');
+    } finally {
+      if (!ac.signal.aborted) setLoading(false);
+    }
   }, [question]);
 
   /* ======= 回答保存 ======= */
