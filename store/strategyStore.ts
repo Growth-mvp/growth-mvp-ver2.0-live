@@ -60,6 +60,13 @@ export type SimulationResult =
 
 type BootState = { isHydrating: boolean; isHydrated: boolean };
 
+// setDepartments への安全引数
+type SafeDepartmentsArg =
+  | Department[]
+  | { departments?: Department[] | null }
+  | null
+  | undefined;
+
 /* ==========================================================
  * StrategyState定義
  * ========================================================== */
@@ -95,7 +102,7 @@ export type StrategyState = {
   businessPortfolio?: BusinessPortfolio;
   simulationResult?: SimulationResult;
 
-  /** 旧: hydrated。新: boot へ移行（互換のため残置） */
+  /** 旧: hydrated。新: bootへ（互換のため残置） */
   hydrated: boolean;
   boot: BootState;
 
@@ -104,6 +111,9 @@ export type StrategyState = {
 
   /** 直近サーバスナップショットのハッシュ（空保存抑止/差分検知に使用） */
   lastServerSnapshot?: string;
+
+  /** 直近サーバデータの“影”（保存時のディープマージ用 / 永続化しない） */
+  serverShadow?: any;
 
   chapterCurrentStep: Record<number, number>;
 
@@ -148,7 +158,12 @@ export type StrategyState = {
 
   setSWOT: (patch: Partial<Pick<StrategyState, 'strength' | 'weakness' | 'opportunity' | 'threat'>>) => void;
 
-  setDepartments: (deps: Department[]) => void;
+  /** ★ ランタイム安全（undefined / {departments} / 配列 なんでもOK） */
+  setDepartments: (deps: SafeDepartmentsArg) => void;
+
+  /** ★ 差分更新用（推奨） */
+  updateDepartments: (updater: (prev: Department[]) => Department[]) => void;
+
   setBusinessPortfolio: (p: BusinessPortfolio) => void;
 
   /* ===== Supabase ===== */
@@ -160,7 +175,8 @@ export type StrategyState = {
  * ユーティリティ
  * ========================================================== */
 
-/** 深いundefined/null/空配列/空文字を可能な限り取り除く（JSONB上書きの安全性向上） */
+const jsonEq = (a: any, b: any) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
 function pruneUndefinedDeep<T>(obj: T): T {
   if (Array.isArray(obj)) {
     return obj.map(pruneUndefinedDeep).filter((v) => !(v === undefined || v === null)) as unknown as T;
@@ -189,13 +205,26 @@ function stableHash(input: any): string {
   return (h >>> 0).toString(16);
 }
 
+/** ディープマージ（右優先）。配列は右を採用（JSONB上書き対策） */
+function deepMerge<T>(base: any, patch: any): T {
+  if (Array.isArray(base) || Array.isArray(patch)) return (patch ?? base) as T;
+  if (base && typeof base === 'object' && patch && typeof patch === 'object') {
+    const keys = new Set([...Object.keys(base), ...Object.keys(patch)]);
+    const out: any = {};
+    keys.forEach((k) => {
+      out[k] = deepMerge(base?.[k], patch?.[k]);
+    });
+    return out;
+  }
+  return (patch !== undefined ? patch : base) as T;
+}
+
 /** “実質空”判定：重要領域がすべて未入力なら true */
 function isEffectivelyEmpty(payload: any): boolean {
   if (!payload) return true;
   const emptyArr = (a: any) => !Array.isArray(a) || a.length === 0;
   const emptyStr = (v: any) => typeof v !== 'string' || v.trim() === '';
 
-  // ストーリー/回答/部門/財務サマリー/ポートフォリオ/シミュレーションが全て空なら“空”
   const allEmpty =
     emptyArr(payload.story) &&
     emptyArr(payload.finalStory) &&
@@ -209,7 +238,6 @@ function isEffectivelyEmpty(payload: any): boolean {
       (Array.isArray(payload.simulationResult?.projection?.points) &&
         payload.simulationResult.projection.points.length === 0));
 
-  // MVV/プロフィール類も全部空（ある場合）
   const metaAllEmpty =
     [payload.companyName, payload.mission, payload.vision, payload.value, payload.thought]
       .filter((v) => v !== undefined)
@@ -228,7 +256,6 @@ function buildSavePayload(s: StrategyState) {
     finalStory: s.finalStory,
     answers2: s.answers2,
     departments: s.departments,
-    // メタ系（存在する時のみ送る）
     companyName: s.companyName,
     mission: s.mission,
     vision: s.vision,
@@ -260,33 +287,31 @@ function extractServerDecidedPatch(
 
 /* ==========================================================
  * 正規化（getFullStrategyDataByCompany → state）
+ * 重要：Department は“フル温存”。未知キーも落とさない。
  * ========================================================== */
 function normalizeFromDbRow(raw: any): Partial<StrategyState> {
   if (!raw || typeof raw !== 'object') return {};
 
-  const toArray = (v: any) => (Array.isArray(v) ? v : []);
   const isArray = Array.isArray;
 
-  // 1) プロファイル領域：snake_case と camelCase 両対応
   const companyName = raw.companyName ?? raw.company_name ?? '';
   const foundationYear = raw.foundationYear ?? raw.foundation_year ?? '';
-  const location = raw.location ?? raw.location ?? '';
-  const industry = raw.industry ?? raw.industry ?? '';
-  const revenue = raw.revenue ?? raw.revenue ?? '';
-  const employees = raw.employees ?? raw.employees ?? '';
+  const location = raw.location ?? raw.location_text ?? '';
+  const industry = raw.industry ?? raw.industry_text ?? '';
+  const revenue = raw.revenue ?? raw.revenue_text ?? '';
+  const employees = raw.employees ?? raw.employees_text ?? '';
   const businessContent = raw.businessContent ?? raw.business_content ?? '';
   const customerSegment = raw.customerSegment ?? raw.customer_segment ?? '';
 
-  const thought = raw.thought ?? raw.thought ?? '';
-  const mission = raw.mission ?? raw.mission ?? '';
-  const vision = raw.vision ?? raw.vision ?? '';
-  const value = raw.value ?? raw.value ?? '';
-  const strength = raw.strength ?? raw.strength ?? '';
-  const weakness = raw.weakness ?? raw.weakness ?? '';
-  const opportunity = raw.opportunity ?? raw.opportunity ?? '';
-  const threat = raw.threat ?? raw.threat ?? '';
+  const thought = raw.thought ?? '';
+  const mission = raw.mission ?? '';
+  const vision = raw.vision ?? '';
+  const value = raw.value ?? '';
+  const strength = raw.strength ?? '';
+  const weakness = raw.weakness ?? '';
+  const opportunity = raw.opportunity ?? '';
+  const threat = raw.threat ?? '';
 
-  // 2) 配列領域
   const story = isArray(raw.story) ? raw.story : [];
   const finalStory = isArray(raw.finalStory) ? raw.finalStory : isArray(raw.final_story) ? raw.final_story : [];
   const csvFinanceData = isArray(raw.csvFinanceData)
@@ -300,55 +325,58 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     ? raw.finance_summary
     : [];
 
-  // 3) departments/projects/okrs/okrsV2 正規化（okrsV2 や mission/strategy を温存）
+  // departments：未知キーも温存しつつ最低限の補正のみ
   const departmentsRaw = isArray(raw.departments) ? raw.departments : [];
-  const departments: Department[] = departmentsRaw.map((d: any) => {
+  const departments: Department[] = departmentsRaw.map((d: any, di: number) => {
     const projectsRaw = isArray(d?.projects) ? d.projects : [];
 
-    // 部門レベルの出力（任意フィールドは存在時のみ付与）
-    const deptOut: any = {
-      name: d?.name ?? d?.title ?? '',
-      projects: [] as any[],
-    };
-    if (typeof d?.mission === 'string') deptOut.mission = d.mission;
-    if (typeof d?.deptMission === 'string') deptOut.mission = d.deptMission;
-    if (typeof d?.strategy === 'string') deptOut.strategy = d.strategy;
-    if (typeof d?.deptStrategy === 'string') deptOut.strategy = d.deptStrategy;
+    // まず丸ごと展開して未知キーを温存
+    const deptOut: any = { ...d };
 
-    // プロジェクト配下
+    // name補正（titleのみの場合）
+    if (!deptOut.name) deptOut.name = d?.title ?? `Department ${di + 1}`;
+
+    // answers2正規化＋steps安定ソート
+    if (isArray(d?.answers2)) {
+      deptOut.answers2 = d.answers2.map((c: any, idx: number) => ({
+        chapterIndex: typeof c?.chapterIndex === 'number' ? c.chapterIndex : idx,
+        chapterTitle: typeof c?.chapterTitle === 'string' ? c.chapterTitle : (d?.name ?? `Chapter ${idx + 1}`),
+        steps: isArray(c?.steps)
+          ? [...c.steps].sort((a: any, b: any) => Number(a?.stepNumber ?? 0) - Number(b?.stepNumber ?? 0))
+          : [],
+      }));
+    }
+
+    // projects配下も未知キー温存＋最低の補正
     deptOut.projects = projectsRaw.map((p: any) => {
-      const projOut: any = {
-        title: p?.title ?? p?.name ?? '',
-        okrs: isArray(p?.okrs) ? p.okrs : [],
-      };
-      // 互換フィールドの温存（UI で参照する可能性あり）
-      if (typeof p?.name === 'string') projOut.name = p.name;
-      if (isArray(p?.okrsV2)) projOut.okrsV2 = p.okrsV2;
+      const projOut: any = { ...p };
+      projOut.title = p?.title ?? p?.name ?? '';
+      if (!Array.isArray(projOut.okrs)) projOut.okrs = Array.isArray(p?.okrs) ? p.okrs : [];
       return projOut;
     });
 
     return deptOut as Department;
   });
 
-  // 4) answers2 正規化（空なら4章デフォルト）
   const answers2Raw = isArray(raw.answers2) ? raw.answers2 : isArray(raw.answers) ? raw.answers : [];
   const answers2: ChapterAnswers[] =
     isArray(answers2Raw) && answers2Raw.length > 0
-      ? answers2Raw.map((c: any) => ({
-          chapterIndex: typeof c?.chapterIndex === 'number' ? c.chapterIndex : 0,
-          chapterTitle: typeof c?.chapterTitle === 'string' ? c.chapterTitle : '',
-          steps: isArray(c?.steps) ? c.steps : [],
+      ? answers2Raw.map((c: any, idx: number) => ({
+          chapterIndex: typeof c?.chapterIndex === 'number' ? c.chapterIndex : idx,
+          chapterTitle: typeof c?.chapterTitle === 'string' ? c.chapterTitle : `Chapter ${idx + 1}`,
+          steps: Array.isArray(c?.steps)
+            ? [...c.steps].sort((a: any, b: any) => Number(a?.stepNumber ?? 0) - Number(b?.stepNumber ?? 0))
+            : [],
         }))
       : [
           { chapterIndex: 0, chapterTitle: '第1章：なぜ今（現状）', steps: [] },
           { chapterIndex: 1, chapterTitle: '第2章：どう戦う（戦略）', steps: [] },
-          { chapterIndex: 2, chapterTitle: '第3章：どんな未来像（会社の未来像）', steps: [] },
+          { chapterIndex: 2, chapterTitle: 'どんな未来像（会社の未来像）', steps: [] },
           { chapterIndex: 3, chapterTitle: '第4章：どう行動する（行動）', steps: [] },
         ];
 
-  // 5) businessPortfolio 検証
-  let businessPortfolio: BusinessPortfolio | undefined = undefined;
   const rawBP = raw.businessPortfolio ?? raw.business_portfolio;
+  let businessPortfolio: BusinessPortfolio | undefined = undefined;
   if (rawBP && typeof rawBP === 'object') {
     const valid =
       Array.isArray(rawBP.units) &&
@@ -360,10 +388,8 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     if (valid) businessPortfolio = rawBP as BusinessPortfolio;
   }
 
-  // 6) simulationResult
   const simulationResult = raw.simulationResult ?? raw.simulation_result ?? undefined;
 
-  // 7) strategyId / revision（あれば）
   const strategyId = raw.strategyId ?? raw.strategy_id ?? undefined;
   const revision = typeof raw.revision === 'number' ? raw.revision : undefined;
 
@@ -428,11 +454,12 @@ const emptyData: StrategyState = {
   businessPortfolio: undefined,
   simulationResult: undefined,
 
-  hydrated: false, // 互換用
+  hydrated: false,
   boot: { isHydrating: false, isHydrated: false },
 
   revision: undefined,
   lastServerSnapshot: undefined,
+  serverShadow: undefined,
 
   chapterCurrentStep: {},
   _loadingRefetch: false,
@@ -453,10 +480,42 @@ const emptyData: StrategyState = {
   setMVV: () => {},
   setSWOT: () => {},
   setDepartments: () => {},
+  updateDepartments: () => {},
   setBusinessPortfolio: () => {},
   saveStrategyData: async () => {},
   refetchFromServer: async () => {},
 };
+
+/* ==========================================================
+ * 内部ヘルパ：Department配列の軽い正規化
+ * ========================================================== */
+function normalizeDepartmentsInput(input: any, fallback: Department[]): Department[] {
+  const fromArg = Array.isArray(input)
+    ? input
+    : Array.isArray(input?.departments)
+    ? (input.departments as Department[])
+    : undefined;
+
+  const base = Array.isArray(fromArg) ? fromArg : Array.isArray(fallback) ? fallback : [];
+
+  // 未知キー温存、最低限の補正のみ（projects/okrs）
+  return base
+    .filter(Boolean)
+    .map((d: any, di: number) => {
+      const out: any = { ...d };
+      if (!out.name) out.name = d?.title ?? `Department ${di + 1}`;
+      const projects = Array.isArray(d?.projects) ? d.projects : [];
+      out.projects = projects.map((p: any) => {
+        const po: any = { ...p };
+        po.title = p?.title ?? p?.name ?? '';
+        if (!Array.isArray(po.okrs)) po.okrs = Array.isArray(p?.okrs) ? p.okrs : [];
+        // okrsV2 等は未知キーとして温存（配列ならそのまま）
+        if (p?.okrsV2 && !Array.isArray(p.okrsV2)) po.okrsV2 = [];
+        return po;
+      });
+      return out as Department;
+    });
+}
 
 /* ==========================================================
  * Zustandストア
@@ -494,12 +553,11 @@ export const useStrategyStore = create<StrategyState>()(
       setCompanyScope: (id) =>
         set((s) => {
           if (s.companyId === id) return s; // no-op
-          // companyIdが変わる場合のみ全面初期化 + scope設定
           return {
             ...emptyData,
             companyId: id,
             hydrated: false,
-            boot: { isHydrating: true, isHydrated: false }, // これからロードする想定
+            boot: { isHydrating: true, isHydrated: false },
           };
         }),
 
@@ -520,23 +578,34 @@ export const useStrategyStore = create<StrategyState>()(
       setProfile: (patch) => set((s) => ({ ...s, ...patch })),
       setMVV: (patch) => set((s) => ({ ...s, ...patch })),
       setSWOT: (patch) => set((s) => ({ ...s, ...patch })),
-      setDepartments: (deps) => set({ departments: [...deps] }),
+
+      /** ★ ランタイム安全版：どんな引数でも落ちない */
+      setDepartments: (deps: SafeDepartmentsArg) =>
+        set((s) => ({
+          departments: normalizeDepartmentsInput(deps, s.departments),
+        })),
+
+      /** ★ 差分更新：呼び出し側で配列を作らずに更新できる */
+      updateDepartments: (updater) =>
+        set((s) => {
+          const prev = Array.isArray(s.departments) ? s.departments : [];
+          const next = updater([...prev]);
+          return { departments: normalizeDepartmentsInput(next, prev) };
+        }),
+
       setBusinessPortfolio: (p) => set({ businessPortfolio: { ...p } }),
 
       /* ====================================================
-       * Supabase 保存（初期ハイドレーション完了まで保存禁止）
-       *  - 空テンプレは保存しない
-       *  - 楽観ロック（revision）を渡す
-       *  - サーバスナップショットのハッシュを保持
+       * Supabase 保存（超厳格ガード + ディープマージ）
        * ==================================================== */
       async saveStrategyData() {
         const state = get();
 
-        // 初期ハイドレーションが完了するまで保存禁止（事故防止）
-        if (!state.boot.isHydrated || state.boot.isHydrating) {
-          // console.log('[strategyStore] save: blocked (boot not hydrated)');
-          return;
-        }
+        // 1) 初期ハイドレーション完了前は絶対に保存しない
+        if (!state.boot.isHydrated || state.boot.isHydrating) return;
+
+        // 2) サーバ由来のスナップショット/リビジョンが未確定なら保存しない
+        if (state.revision === undefined && !state.lastServerSnapshot) return;
 
         const userId = useUserStore.getState().user?.id;
         const companyId = state.companyId || useUserStore.getState().companyId;
@@ -545,33 +614,32 @@ export const useStrategyStore = create<StrategyState>()(
         if (state._loadingSave) return;
         set({ _loadingSave: true });
         try {
-          const payload = buildSavePayload(get());
+          const localPayload = buildSavePayload(get());
 
           // 空テンプレの保存は禁止（上書き事故を回避）
-          if (isEffectivelyEmpty(payload)) {
-            // console.warn('[strategyStore] save: skipped (effectively empty payload)');
-            return;
-          }
+          if (isEffectivelyEmpty(localPayload)) return;
 
-          const localHash = stableHash(payload);
+          // 3) サーバ影とディープマージして欠落キーを保持
+          const mergedPayload = state.serverShadow
+            ? deepMerge<any>(state.serverShadow, localPayload)
+            : localPayload;
+
+          const localHash = stableHash(mergedPayload);
           // 直近サーバスナップショットと同一なら保存スキップ
           if (state.lastServerSnapshot && state.lastServerSnapshot === localHash) {
             return;
           }
 
-          // APIに revision を渡せる実装の場合（第四引数）を想定
+          // APIに revision を渡す（互換フォールバックあり）
           const res = await (async () => {
             try {
-              // (payload, userId, companyId, revision) で実装している前提
-              // 互換のため第4引数無し実装でも動作するようフォールバック
-              return await (saveStrategyDataApi as any)(payload, userId, companyId, state.revision);
+              return await (saveStrategyDataApi as any)(mergedPayload, userId, companyId, state.revision);
             } catch {
-              return await (saveStrategyDataApi as any)(payload, userId, companyId);
+              return await (saveStrategyDataApi as any)(mergedPayload, userId, companyId);
             }
           })();
 
-          // サーバ応答取り扱い
-          // 期待：{ revision?: number, serverSnapshotHash?: string, data?: Partial<StrategyState> }
+          // 応答処理
           const serverHash: string | undefined =
             res?.serverSnapshotHash ?? res?.snapshotHash ?? res?.hash ?? localHash;
           const nextRevision: number | undefined =
@@ -581,30 +649,25 @@ export const useStrategyStore = create<StrategyState>()(
               ? res.data.revision
               : state.revision;
 
-          // サーバ決定事項のみ反映（strategyId / revision）
+          // サーバ決定事項のみ反映
           if (res?.data) {
             const minimal = extractServerDecidedPatch(res.data as Partial<StrategyState>, get());
-            if (Object.keys(minimal).length > 0) {
-              set(minimal);
-            }
+            if (Object.keys(minimal).length > 0) set(minimal);
           }
-          if (typeof nextRevision === 'number' || serverHash) {
-            set((s) => ({
-              revision: typeof nextRevision === 'number' ? nextRevision : s.revision,
-              lastServerSnapshot: serverHash ?? s.lastServerSnapshot ?? localHash,
-            }));
-          }
+
+          // サーバ影も更新（最新保存内容を影として保持）
+          set((s) => ({
+            serverShadow: mergedPayload,
+            revision: typeof nextRevision === 'number' ? nextRevision : s.revision,
+            lastServerSnapshot: serverHash ?? s.lastServerSnapshot ?? localHash,
+          }));
         } finally {
           set({ _loadingSave: false });
         }
       },
 
       /* ====================================================
-       * Supabase 再フェッチ（ロード順序を厳守）
-       *  1) setHydrating(true)
-       *  2) 取得→正規化→state反映
-       *  3) サーバスナップショットhashを記録
-       *  4) setHydrated(rev, hash)
+       * Supabase 再フェッチ（ロード順序厳守）
        * ==================================================== */
       async refetchFromServer() {
         const companyId = get().companyId || useUserStore.getState().companyId;
@@ -630,6 +693,7 @@ export const useStrategyStore = create<StrategyState>()(
               boot: { isHydrating: false, isHydrated: true },
               lastServerSnapshot: undefined,
               revision: undefined,
+              serverShadow: undefined,
             });
             console.log('[strategyStore] ⚠️ refetch: no data; hydrated=true');
             return;
@@ -638,20 +702,22 @@ export const useStrategyStore = create<StrategyState>()(
           // 正規化
           const patch = normalizeFromDbRow(data);
 
-          // stateに反映（bootはこの後 setHydrated で更新）
+          // stateに反映（未知キーは normalize 内で温存済）
           set((s) => ({ ...s, ...patch }));
 
-          // サーバスナップショットのハッシュを設定
+          // サーバスナップショット/影を設定
           const after = get();
           const snapshot = buildSavePayload(after);
           const hash = stableHash(snapshot);
 
           const rev = typeof patch.revision === 'number' ? patch.revision : after.revision ?? 0;
+
           set({
+            serverShadow: snapshot, // ★最新サーバの影
             lastServerSnapshot: hash,
           });
 
-          // 最後に hydrated フラグON（互換のため hydrated も true）
+          // hydrated ON
           get().setHydrated(rev, hash);
           console.log('[strategyStore] ✅ refetchFromServer hydrated=true (rev=%s)', String(rev));
         } finally {
@@ -661,7 +727,7 @@ export const useStrategyStore = create<StrategyState>()(
     }),
     {
       name: 'strategy-store',
-      version: 24, // boot導入・revision/hash導入
+      version: 26, // ★ ディープマージ保存 & serverShadow 導入
       partialize: (s) => ({
         companyId: s.companyId,
         strategyId: s.strategyId,
@@ -674,19 +740,18 @@ export const useStrategyStore = create<StrategyState>()(
         businessPortfolio: s.businessPortfolio,
         simulationResult: s.simulationResult,
         chapterCurrentStep: s.chapterCurrentStep,
-        // 注意: boot / revision / lastServerSnapshot は永続化しない（起動毎に安全側へ）
+        // 注意: boot / revision / lastServerSnapshot / serverShadow は永続化しない
       }),
       migrate: (persisted) => ({
         ...emptyData,
         ...(persisted ?? {}),
-        boot: { isHydrating: false, isHydrated: true }, // 旧バージョンとの互換
+        boot: { isHydrating: false, isHydrated: true }, // 旧バージョン互換
         hydrated: true,
       }),
       storage: createJSONStorage(() => localStorage),
       onRehydrateStorage: () => (state, error) => {
         if (error) console.warn('rehydration error:', error);
-        // 復元直後は最低限 spinner を外す（互換対応）
-        state?.setHydrated?.(true);
+        // 復元直後は setHydrated を呼ばず、refetch 完了で setHydrated する（保存暴発を防ぐ）
       },
     }
   )
