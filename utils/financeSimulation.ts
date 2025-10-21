@@ -1,11 +1,12 @@
 // /utils/financeSimulation.ts
 
 /* =========================================================
- * 主要KPIの月次デルタ → 月次/年次PLの計算
+ * 主要KPIの月次デルタ → 月次/年次PLの計算（進化版）
  * ---------------------------------------------------------
  * - 数量×単価×継続率 を基本に 売上 を算出
- * - 機械的な線形近似（まずは最小ルール）で OKR の効果を反映
- * - 相乗効果/成功率/投資 は最小処理（将来拡張で高度化）
+ * - CHURN(解約)とRETENTION(継続)の両系統に対応
+ * - 変動費は「金額」足し込み or 「率（cogsRate）」指定の両対応
+ * - 相乗効果/投資の簡易反映（成功率は将来拡張）
  * ========================================================= */
 
 import type { Ym, DeltasByMonth } from './simulationBridge';
@@ -23,9 +24,9 @@ export type BaseTrajectory = {
   churnMonthly: Record<Ym, number>;
   // コスト（円）
   fixedCostMonthly: Record<Ym, number>;
-  variableCostMonthly: Record<Ym, number>;
+  variableCostMonthly: Record<Ym, number>; // 金額でのベース（率指定の場合は参考として使用）
   personnelCostMonthly: Record<Ym, number>;
-  // 参考：ベース売上（月次）、無くても計算可能
+  // 参考：ベース売上（月次）、あれば率推定に使用
   revenueMonthly?: Record<Ym, number>;
 };
 
@@ -34,7 +35,7 @@ export type SimulationOptions = {
   // 相乗効果（synergy）の適用先（将来拡張可）
   applySynergyTo?: Array<'revenue' | 'cost'>;
   // 成功率の扱い（投資効果へ掛ける、などの将来拡張用）
-  investEffectAlpha?: number; // 投資→収益への影響係数（暫定）
+  investEffectAlpha?: number; // 投資→当期費用化の割合（0〜1、暫定）
 };
 
 // 月次結果
@@ -42,10 +43,10 @@ export type MonthlyPL = {
   ym: Ym;
   qty: number;
   arpu: number;
-  churn: number;
+  churn: number; // 実効解約率（0〜1）
   // 売上
   revenue: number;
-  // コスト
+  // コスト（円）
   fixed_cost: number;
   variable_cost: number;
   personnel_cost: number;
@@ -54,7 +55,7 @@ export type MonthlyPL = {
   sga: number;          // 固定＋人件費を SG&A と仮置き
   gross_profit: number;
   op_income: number;
-  margin: number;
+  margin: number;       // 営業利益率
 };
 
 // 年次集計
@@ -68,6 +69,7 @@ export type YearlyPL = {
   margin: number;
 };
 
+/* ========== ユーティリティ（年月処理） ========== */
 function ymToYearMonth(y: Ym) {
   const [Y, M] = y.split('-').map(Number);
   return { Y, M };
@@ -89,80 +91,103 @@ function ymRange(startYm: Ym, endYm: Ym): Ym[] {
   return out;
 }
 
-/**
- * OKRのデルタをベース軌道に反映し、月次PLを生成
- * ルール（最小）:
- * - qty は「前月のqty + acq - churn影響」で近似
- * - arpu はベース arpu + delta.arpu
- * - revenue は（qty * arpu）に “直接revenue加算” と “synergy(%)” を反映
- * - cost は各コスト + delta、synergy(%) が 'cost' に指定ならコストにも反映
- */
+/* ========== 安全クリップ等 ========== */
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+const nz = (v?: number) => (typeof v === 'number' && Number.isFinite(v)) ? v : 0;
+
+/* =========================================================
+ * OKRのデルタをベース軌道に反映し、月次PLを生成（拡張版）
+ * ---------------------------------------------------------
+ * - retention/churn 両対応
+ * - variable_cost を「金額」or「率（cogsRate）」の両方に対応
+ * - synergy（+率）は売上のみ／コストにも適用の指定をサポート
+ * ========================================================= */
 export function simulateMonthlyPL(
   base: BaseTrajectory,
-  deltas: DeltasByMonth,
+  deltas: DeltasByMonth & {
+    // 追加: 率系（存在すれば使用）
+    retention?: Record<Ym, number>;   // +0.01 で継続率1pt改善（実効churnを下げる）
+    cogsRate?: Record<Ym, number>;    // 変動費率の増減（+0.01で1pt悪化）
+  },
   opt?: SimulationOptions
 ): MonthlyPL[] {
   const applySynergyTo = opt?.applySynergyTo ?? ['revenue']; // 既定は売上側のみ
   const months = ymRange(base.startYm, base.endYm);
 
   const out: MonthlyPL[] = [];
-
   let prevQty: number | undefined = undefined;
 
   for (const ym of months) {
-    const baseQty = base.qtyMonthly[ym] ?? 0;
-    const baseArpu = base.arpuMonthly[ym] ?? 0;
-    const baseChurn = base.churnMonthly[ym] ?? 0;
+    const baseQty    = nz(base.qtyMonthly[ym]);
+    const baseArpu   = nz(base.arpuMonthly[ym]);
+    const baseChurn  = clamp01(nz(base.churnMonthly[ym])); // 例: 0.02
+    const baseFixed  = Math.max(0, nz(base.fixedCostMonthly[ym]));
+    const baseVarAmt = Math.max(0, nz(base.variableCostMonthly[ym])); // 金額ベース
+    const basePers   = Math.max(0, nz(base.personnelCostMonthly[ym]));
 
-    // デルタ（無ければ0）
-    const dAcq = deltas.acq[ym] ?? 0;
-    const dArpu = deltas.arpu[ym] ?? 0;
-    const dChurn = deltas.churn[ym] ?? 0;
-    const dRevenue = deltas.revenue[ym] ?? 0;
+    // デルタ（なければ0）
+    const dAcq      = nz(deltas.acq?.[ym]);
+    const dArpu     = nz(deltas.arpu?.[ym]);
+    const dChurn    = nz(deltas.churn?.[ym]);       // 率の変化（+で悪化）
+    const dRet      = nz(deltas.retention?.[ym]);   // 率の変化（+で継続改善=churn減少）
+    const dRevenue  = nz(deltas.revenue?.[ym]);     // 金額
+    const dFixed    = nz(deltas.fixed_cost?.[ym]);  // 金額
+    const dVarAmt   = nz(deltas.variable_cost?.[ym]);// 金額として扱う分
+    const dPers     = nz(deltas.personnel_cost?.[ym]);// 金額
+    const dSynergy  = nz(deltas.synergy?.[ym]);     // 率（+0.05で+5%）
+    const dCogsRate = nz(deltas.cogsRate?.[ym]);    // 変動費率の増減（+で悪化）
+    const invest    = nz(deltas.invest?.[ym]);      // 金額（α一部費用化）
 
-    const dFixed = deltas.fixed_cost[ym] ?? 0;
-    const dVariable = deltas.variable_cost[ym] ?? 0;
-    const dPersonnel = deltas.personnel_cost[ym] ?? 0;
+    // 実効churn率：baseChurn + dChurn - dRet（0〜1でクリップ）
+    const churnRate = clamp01(baseChurn + dChurn - dRet);
 
-    const synergy = deltas.synergy[ym] ?? 0;          // +率
-    const successRate = deltas.success_rate[ym] ?? 0; // +率（暫定未使用）
-    const invest = deltas.invest[ym] ?? 0;            // +円（暫定：PLに直接は入れない）
-
-    // qty の更新：前月qtyを基に、新規獲得から解約影響を差し引く近似
-    //   qty_t ≒ max(0, (qty_base or prev) + dAcq - (qty_base or prev)*(baseChurn + dChurn))
-    //   ※ まずは単純近似。より厳密なコホート等は将来拡張。
-    const lastQty = prevQty ?? baseQty;
-    const churnRate = Math.max(0, baseChurn + dChurn); // 負値なら改善だが、0未満は抑止
+    // qty 更新（単純近似）
+    const lastQty = (typeof prevQty === 'number') ? prevQty : baseQty;
     const qty = Math.max(0, lastQty + dAcq - lastQty * churnRate);
 
     // 単価
     const arpu = Math.max(0, baseArpu + dArpu);
 
     // 売上（基本）：qty * arpu
-    let revenueCore = qty * arpu;
+    let revenueCore = Math.max(0, qty * arpu);
 
-    // 売上へ直接加算（REVENUE KR）
-    revenueCore += dRevenue;
+    // 売上へ直接加算（REVENUE KR 等）
+    revenueCore += Math.max(0, dRevenue);
 
     // 相乗効果（+率）
     if (applySynergyTo.includes('revenue')) {
-      revenueCore *= (1 + synergy);
+      revenueCore *= (1 + dSynergy);
     }
-
-    // コスト
-    let fixed = (base.fixedCostMonthly[ym] ?? 0) + dFixed + (invest * (opt?.investEffectAlpha ?? 0)); // 投資の一部を当期費用化する場合はalpha>0
-    let variable = (base.variableCostMonthly[ym] ?? 0) + dVariable;
-    let personnel = (base.personnelCostMonthly[ym] ?? 0) + dPersonnel;
-
-    if (applySynergyTo.includes('cost')) {
-      fixed *= (1 + synergy);
-      variable *= (1 + synergy);
-      personnel *= (1 + synergy);
-    }
-
-    const cogs = Math.max(0, variable);
-    const sga = Math.max(0, fixed + personnel);
     const revenue = Math.max(0, revenueCore);
+
+    // 変動費：金額足し込み or 率で計算の両対応
+    // 優先度：率（dCogsRate）が与えられたら「率で計算」、なければ金額を足し込み。
+    let variable: number;
+    if (dCogsRate !== 0) {
+      // ベースの変動費率を推定（可能ならベース売上から、無ければ金額/内生売上で近似）
+      const baseSales =
+        (base.revenueMonthly?.[ym] ?? (qty * baseArpu)) || (revenueCore - dRevenue);
+      const safeSales = Math.max(1, baseSales); // 0割回避
+      const estBaseCogsRate = clamp01(baseVarAmt / safeSales);
+      const appliedRate = clamp01(estBaseCogsRate + dCogsRate);
+      variable = Math.max(0, appliedRate * revenueCore);
+    } else {
+      variable = Math.max(0, baseVarAmt + dVarAmt);
+    }
+
+    // 固定費・人件費（投資の一部当期費用化）
+    let fixed = Math.max(0, baseFixed + dFixed + invest * (opt?.investEffectAlpha ?? 0));
+    let personnel = Math.max(0, basePers + dPers);
+
+    // コスト側にも相乗効果を適用する指定なら
+    if (applySynergyTo.includes('cost')) {
+      fixed *= (1 + dSynergy);
+      variable *= (1 + dSynergy);
+      personnel *= (1 + dSynergy);
+    }
+
+    const cogs = variable;
+    const sga = fixed + personnel;
     const gross_profit = revenue - cogs;
     const op_income = revenue - (cogs + sga);
     const margin = revenue > 0 ? op_income / revenue : 0;
@@ -171,7 +196,7 @@ export function simulateMonthlyPL(
       ym,
       qty,
       arpu,
-      churn: Math.max(0, churnRate),
+      churn: churnRate,
       revenue,
       fixed_cost: fixed,
       variable_cost: variable,
