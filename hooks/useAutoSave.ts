@@ -9,7 +9,25 @@ import { useUserStore } from '@/store/userStore';
 type Options = {
   enabled?: boolean;
   debounceMs?: number;
+  /** INSERT を禁止し、既存行がある場合のみ UPDATE（削除直後の再生成を防止） */
+  updateOnly?: boolean;
+  /** 削除フラグ(__deleting_company__)が立っている間は自動保存をスキップ（既定: true） */
+  forceSkipWhenDeleting?: boolean;
 };
+
+/* ============================================
+ * 定数：削除フラグ（/utils/supabase/strategy.ts と合わせる）
+ * ========================================== */
+const DELETION_FLAG_KEY = '__deleting_company__';
+function isCompanyDeleting(targetCompanyId?: string | null): boolean {
+  try {
+    const v = localStorage.getItem(DELETION_FLAG_KEY);
+    if (!v) return false;
+    return targetCompanyId ? v === targetCompanyId : true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * 小型デバウンスユーティリティ
@@ -59,7 +77,7 @@ function safeStableStringify(obj: unknown): string {
 /**
  * 互換対応:
  *  - 旧: useAutoSave([dep1, dep2, ...])
- *  - 新: useAutoSave({ enabled, debounceMs })
+ *  - 新: useAutoSave({ enabled, debounceMs, updateOnly, forceSkipWhenDeleting })
  *  - 併用: useAutoSave({ enabled }, [dep1, dep2])
  */
 export function useAutoSave(
@@ -72,9 +90,16 @@ export function useAutoSave(
 
   const enabled = options.enabled ?? true;
   const debounceMs = options.debounceMs ?? 1200;
+  const updateOnly = options.updateOnly ?? false;
+  const forceSkipWhenDeleting = options.forceSkipWhenDeleting ?? true;
 
   // ユーザー情報
   const { user } = useUserStore();
+
+  // ★ 型に membership が無い環境でも安全に companyId を取るセレクタ
+  const companyId = useUserStore((s: any) =>
+    s?.membership?.companyId ?? s?.companyId ?? s?.user?.companyId ?? undefined
+  );
 
   // Strategy の全体状態（storeのshapeは any 扱い）
   const strategy = useStrategyStore((s: any) => s);
@@ -85,7 +110,7 @@ export function useAutoSave(
   // 保存中フラグ
   const savingRef = useRef(false);
 
-  // 内部で主要フィールドから変更シグネチャを生成
+  // 主要フィールドから変更シグネチャを生成
   const internalSignature = useMemo(() => {
     const pick = {
       companyName: (strategy as any)?.companyName,
@@ -143,6 +168,14 @@ export function useAutoSave(
       console.log('[useAutoSave] skipped: no user id');
       return;
     }
+
+    // --- 削除中フラグの監視（再生成や空upsertを防ぐ） ---
+    if (forceSkipWhenDeleting && isCompanyDeleting(companyId)) {
+      // eslint-disable-next-line no-console
+      console.log('[useAutoSave] skipped: company deleting in progress');
+      return;
+    }
+
     if (savingRef.current) {
       // eslint-disable-next-line no-console
       console.log('[useAutoSave] skipped: already saving');
@@ -153,15 +186,23 @@ export function useAutoSave(
     try {
       const payload = { ...(strategy as any) };
       // eslint-disable-next-line no-console
-      console.log('[useAutoSave] saving...', { rev: revision });
+      console.log('[useAutoSave] saving...', { rev: revision, updateOnly });
 
-      const res = await saveStrategyData(payload, user.id, null, revision);
-      if (res.error) {
+      // ★ 後方互換：strategy.ts が4引数シグネチャでも通るよう any キャストで呼び出す
+      const res = await (saveStrategyData as any)(
+        payload,
+        user.id,
+        null,
+        revision,
+        { mode: updateOnly ? 'updateOnly' : 'upsert' } // 5引数対応版ならこのoptsが効く
+      );
+
+      if (res?.error) {
         // eslint-disable-next-line no-console
         console.error('[useAutoSave] ❌ save error:', res.error);
         return;
       }
-      if (res.data) {
+      if (res?.data) {
         if (typeof setAfterSave === 'function') {
           try {
             setAfterSave(res.data);
@@ -172,6 +213,10 @@ export function useAutoSave(
         }
         // eslint-disable-next-line no-console
         console.log('[useAutoSave] ✅ saved (rev maybe):', (res.data as any)?.revision);
+      } else {
+        // 例: updateOnly で既存行が無く INSERT をスキップ → data なし
+        // eslint-disable-next-line no-console
+        console.log('[useAutoSave] noop (no data returned)');
       }
     } catch (e: any) {
       // eslint-disable-next-line no-console
@@ -185,7 +230,7 @@ export function useAutoSave(
     } finally {
       savingRef.current = false;
     }
-  }, [enabled, hydrated, user?.id, strategy, revision, setAfterSave]);
+  }, [enabled, hydrated, user?.id, companyId, strategy, revision, setAfterSave, updateOnly, forceSkipWhenDeleting]);
 
   const { trigger, cancel } = useDebounced(doSave, debounceMs);
 
