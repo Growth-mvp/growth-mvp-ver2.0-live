@@ -6,6 +6,8 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import {
   saveStrategyData as saveStrategyDataApi,
   getFullStrategyDataByCompany,
+  deleteStrategyData as deleteStrategyDataApi,
+  purgeLegacyTables as purgeLegacyTablesApi, // 任意: 未実装なら no-op でOK
 } from '@/utils/supabase/strategy';
 import { useUserStore } from './userStore';
 import type {
@@ -169,13 +171,14 @@ export type StrategyState = {
   /* ===== Supabase ===== */
   saveStrategyData: () => Promise<void>;
   refetchFromServer: () => Promise<void>;
+
+  /** ★ 追加：会社スコープの全データをサーバで削除し、ローカルも完全クリア */
+  deleteAllOnServer: () => Promise<void>;
 };
 
 /* ==========================================================
  * ユーティリティ
  * ========================================================== */
-
-const jsonEq = (a: any, b: any) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 function pruneUndefinedDeep<T>(obj: T): T {
   if (Array.isArray(obj)) {
@@ -256,15 +259,32 @@ function buildSavePayload(s: StrategyState) {
     finalStory: s.finalStory,
     answers2: s.answers2,
     departments: s.departments,
+
+    // プロフィール一式
     companyName: s.companyName,
+    foundationYear: s.foundationYear,
+    location: s.location,
+    industry: s.industry,
+    revenue: s.revenue,
+    employees: s.employees,
+    businessContent: s.businessContent,
+    customerSegment: s.customerSegment,
+
     mission: s.mission,
     vision: s.vision,
     value: s.value,
     thought: s.thought,
+
+    // SWOT
+    strength: s.strength,
+    weakness: s.weakness,
+    opportunity: s.opportunity,
+    threat: s.threat,
   };
   if (typeof s.businessPortfolio !== 'undefined') base.businessPortfolio = s.businessPortfolio;
   if (Array.isArray(s.csvFinanceData)) base.csvFinanceData = s.csvFinanceData;
   if (Array.isArray(s.financeSummary)) base.financeSummary = s.financeSummary;
+  // 注意: simulationResult（単体）はサーバ保存対象外（履歴は append API で管理）
   if (s.simulationResult !== undefined) base.simulationResult = s.simulationResult;
 
   return pruneUndefinedDeep(base);
@@ -424,7 +444,7 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
 }
 
 /* ==========================================================
- * 初期状態
+ * 初期状態（ダミーデータ一切なし）
  * ========================================================== */
 const emptyData: StrategyState = {
   companyId: null,
@@ -484,6 +504,7 @@ const emptyData: StrategyState = {
   setBusinessPortfolio: () => {},
   saveStrategyData: async () => {},
   refetchFromServer: async () => {},
+  deleteAllOnServer: async () => {},
 };
 
 /* ==========================================================
@@ -596,16 +617,13 @@ export const useStrategyStore = create<StrategyState>()(
       setBusinessPortfolio: (p) => set({ businessPortfolio: { ...p } }),
 
       /* ====================================================
-       * Supabase 保存（超厳格ガード + ディープマージ）
+       * Supabase 保存（厳格ガード + ディープマージ）
        * ==================================================== */
       async saveStrategyData() {
         const state = get();
 
         // 1) 初期ハイドレーション完了前は絶対に保存しない
         if (!state.boot.isHydrated || state.boot.isHydrating) return;
-
-        // 2) サーバ由来のスナップショット/リビジョンが未確定なら保存しない
-        if (state.revision === undefined && !state.lastServerSnapshot) return;
 
         const userId = useUserStore.getState().user?.id;
         const companyId = state.companyId || useUserStore.getState().companyId;
@@ -619,7 +637,7 @@ export const useStrategyStore = create<StrategyState>()(
           // 空テンプレの保存は禁止（上書き事故を回避）
           if (isEffectivelyEmpty(localPayload)) return;
 
-          // 3) サーバ影とディープマージして欠落キーを保持
+          // 2) サーバ影とディープマージして欠落キーを保持
           const mergedPayload = state.serverShadow
             ? deepMerge<any>(state.serverShadow, localPayload)
             : localPayload;
@@ -687,15 +705,42 @@ export const useStrategyStore = create<StrategyState>()(
           if (error) throw error;
 
           if (!data) {
-            // データ無しでも少なくとも hydrated は立てる
+            // ★ サーバーに行が無い：ローカルを“完全クリア”してhydrate
             set({
+              // 主要配列/オブジェクトを空へ
+              story: [],
+              finalStory: [],
+              answers2: [],
+              departments: [],
+              csvFinanceData: undefined,
+              financeSummary: undefined,
+              businessPortfolio: undefined,
+              simulationResult: undefined,
+              // プロフィール一式も空へ
+              companyName: '',
+              foundationYear: '',
+              location: '',
+              industry: '',
+              revenue: '',
+              employees: '',
+              businessContent: '',
+              customerSegment: '',
+              mission: '',
+              vision: '',
+              value: '',
+              thought: '',
+              strength: '',
+              weakness: '',
+              opportunity: '',
+              threat: '',
+              // ハウスキーピング
               hydrated: true,
               boot: { isHydrating: false, isHydrated: true },
               lastServerSnapshot: undefined,
               revision: undefined,
               serverShadow: undefined,
             });
-            console.log('[strategyStore] ⚠️ refetch: no data; hydrated=true');
+            console.log('[strategyStore] ⚠️ refetch: no data; store cleared & hydrated=true');
             return;
           }
 
@@ -724,10 +769,48 @@ export const useStrategyStore = create<StrategyState>()(
           set({ _loadingRefetch: false });
         }
       },
+
+      /* ====================================================
+       * ★ 追加：サーバ削除 + ローカル完全クリア（統一削除口）
+       * ==================================================== */
+      async deleteAllOnServer() {
+        const userId = useUserStore.getState().user?.id;
+        const companyId = get().companyId || useUserStore.getState().companyId;
+        if (!userId || !companyId) throw new Error('missing ids');
+
+        // サーバ削除（引数互換あり）
+        const delRes = await (async () => {
+          try {
+            return await (deleteStrategyDataApi as any)(userId, companyId);
+          } catch {
+            return await (deleteStrategyDataApi as any)(userId);
+          }
+        })();
+        if (delRes?.error) throw delRes.error;
+
+        // 任意：レガシーテーブル掃除（存在すれば実行）
+        try {
+          await (purgeLegacyTablesApi as any)?.(userId, companyId);
+        } catch (e) {
+          console.warn('[strategyStore] purgeLegacyTables warn:', e);
+        }
+
+        // ローカル完全クリア（companyId は維持）
+        set((s) => ({
+          ...emptyData,
+          companyId: companyId,
+          hydrated: true,
+          boot: { isHydrating: false, isHydrated: true },
+          revision: undefined,
+          lastServerSnapshot: undefined,
+          serverShadow: undefined,
+        }));
+        console.log('[strategyStore] ✅ deleteAllOnServer: local store cleared');
+      },
     }),
     {
       name: 'strategy-store',
-      version: 26, // ★ ディープマージ保存 & serverShadow 導入
+      version: 27, // ★ “サーバ行なし時に完全クリア”対応
       partialize: (s) => ({
         companyId: s.companyId,
         strategyId: s.strategyId,
