@@ -1,6 +1,6 @@
 // /utils/supabase/membership.ts
 import { supabase, isValidUUID, setCompanyIdCookie } from './client';
-import { debugExtractPostgrest, isRlsDenied } from './errors';
+import { debugExtractPostgrest, isRlsDenied, isNoRows } from './errors';
 
 /** テーブル名 */
 const T_COMPANIES = 'companies';
@@ -23,7 +23,8 @@ export type MemberListItem = {
 /* ============================== helpers ============================== */
 
 function normRole(v: any): Role | null {
-  return v === 'admin' || v === 'manager' || v === 'member' ? v : null;
+  const s = typeof v === 'string' ? v.toLowerCase() : '';
+  return s === 'admin' || s === 'manager' || s === 'member' ? (s as Role) : null;
 }
 
 /** 現在の userId を Supabase Auth から取得（未ログイン時は null） */
@@ -54,54 +55,128 @@ function looksMissingDepartmentId(errOrResp: unknown) {
   return looksMissingColumn(errOrResp, 'department_id');
 }
 
+/** 成功時のみ Cookie を設定したい場所で使用（create/joinなど） */
+function setCompanyCookieIfValid(id: string | null | undefined) {
+  if (id && isValidUUID(id)) {
+    try { setCompanyIdCookie(id); } catch {}
+  }
+}
+
+/** 複数所属から 役割優先（admin > manager > member）かつ新しい順で1件選ぶ */
+function pickOneMembership(rows: any[]): Membership {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return { companyId: null, departmentId: null, role: null };
+  }
+  const weight: Record<Role, number> = { admin: 3, manager: 2, member: 1 };
+  const sorted = [...rows].sort((a, b) => {
+    const ra = normRole(a?.role) ?? 'member';
+    const rb = normRole(b?.role) ?? 'member';
+    const wa = weight[ra];
+    const wb = weight[rb];
+    if (wa !== wb) return wb - wa; // 役割優先
+    // created_at が無いスキーマでも安定するように文字列比較で降順
+    const ca = String(a?.created_at ?? '');
+    const cb = String(b?.created_at ?? '');
+    return cb.localeCompare(ca);
+  });
+  const best = sorted[0];
+  return {
+    companyId: typeof best?.company_id === 'string' ? best.company_id : null,
+    departmentId: typeof best?.department_id === 'string' ? best.department_id : null,
+    role: normRole(best?.role),
+  };
+}
+
 /* ============================== read ============================== */
 /**
- * 所属を1件だけ取得（**created_at に依存しない**：limit(1) のみ）
- * - まず department_id ありで取得
- * - 列が無ければ department_id を要求しないクエリにフォールバック
+ * 所属を決定的に1件返す（Cookieは書き換えない）
+ * - 複数行取得 → admin > manager > member の優先度で選択
+ * - department_id の有無に自動対応
+ * - 所属無しは空オブジェクトで返す
  */
 export async function getMembership(userId: string): Promise<Membership> {
   if (!userId) return { companyId: null, departmentId: null, role: null };
 
-  // department_id あり
+  // department_id あり想定で複数行取得
   const q1 = await supabase
     .from(T_MEMBERS)
-    .select('company_id, department_id, role')
-    .eq('user_id', userId)
-    .limit(1)
-    .maybeSingle();
+    .select('company_id, department_id, role, created_at')
+    .eq('user_id', userId);
 
-  if (!q1.error && q1.data) {
-    const row = q1.data as any;
-    const companyId = typeof row.company_id === 'string' ? row.company_id : null;
-    const departmentId = typeof row.department_id === 'string' ? row.department_id : null;
-    const role = normRole(row.role);
-    if (companyId) setCompanyIdCookie(companyId);
-    return { companyId, departmentId, role };
+  if (!q1.error) {
+    return pickOneMembership(q1.data || []);
   }
 
-  // 列が無い場合のフォールバック（department_id を要求しない）
-  if (q1.error && looksMissingDepartmentId(q1)) {
-    const q2 = await supabase
-      .from(T_MEMBERS)
-      .select('company_id, role')
-      .eq('user_id', userId)
-      .limit(1)
-      .maybeSingle();
-
-    if (!q2.error && q2.data) {
-      const row = q2.data as any;
-      const companyId = typeof row.company_id === 'string' ? row.company_id : null;
-      const role = normRole(row.role);
-      if (companyId) setCompanyIdCookie(companyId);
-      return { companyId, departmentId: null, role };
-    }
-    if (q2.error) debugExtractPostgrest(q2);
+  // 所属なし（No rows）は空
+  if (isNoRows(q1)) {
     return { companyId: null, departmentId: null, role: null };
   }
 
-  if (q1.error) debugExtractPostgrest(q1);
+  // 列が無い場合のフォールバック（department_id 抜き）
+  if (looksMissingDepartmentId(q1)) {
+    const q2 = await supabase
+      .from(T_MEMBERS)
+      .select('company_id, role, created_at')
+      .eq('user_id', userId);
+    if (!q2.error) {
+      const picked = pickOneMembership(q2.data || []);
+      return { companyId: picked.companyId, departmentId: null, role: picked.role };
+    }
+    if (isNoRows(q2)) {
+      return { companyId: null, departmentId: null, role: null };
+    }
+    debugExtractPostgrest(q2);
+    return { companyId: null, departmentId: null, role: null };
+  }
+
+  debugExtractPostgrest(q1);
   return { companyId: null, departmentId: null, role: null };
+}
+
+/**
+ * 明示会社で所属を取得（削除など company を固定したいときに使用）
+ * - Cookieは書き換えない
+ */
+export async function getMembershipForCompany(userId: string, companyId: string): Promise<Membership> {
+  if (!userId || !isValidUUID(companyId)) return { companyId: null, departmentId: null, role: null };
+
+  // department_id あり
+  let q = await supabase
+    .from(T_MEMBERS)
+    .select('company_id, department_id, role')
+    .eq('user_id', userId)
+    .eq('company_id', companyId)
+    .limit(1)
+    .maybeSingle();
+
+  if (q.error && looksMissingDepartmentId(q)) {
+    // department_id なし
+    q = await supabase
+      .from(T_MEMBERS)
+      .select('company_id, role')
+      .eq('user_id', userId)
+      .eq('company_id', companyId)
+      .limit(1)
+      .maybeSingle();
+  }
+
+  if (q.error) {
+    if (!isNoRows(q)) debugExtractPostgrest(q);
+    return { companyId: null, departmentId: null, role: null };
+  }
+
+  const row = q.data as any;
+  return {
+    companyId: typeof row?.company_id === 'string' ? row.company_id : null,
+    departmentId: typeof row?.department_id === 'string' ? row.department_id : null,
+    role: normRole(row?.role),
+  };
+}
+
+/** 指定会社に対する admin 判定（RLSのDELETE可否の事前チェックに） */
+export async function isAdminOf(userId: string, companyId: string): Promise<boolean> {
+  const m = await getMembershipForCompany(userId, companyId);
+  return m.companyId === companyId && m.role === 'admin';
 }
 
 /* ============================== create/join ============================== */
@@ -109,6 +184,7 @@ export async function getMembership(userId: string): Promise<Membership> {
  * 会社を新規作成し、自分を admin で参加させる
  * - department_id が無いスキーマでも成功するようフォールバック実装
  * - RLSで companies / company_members の insert が拒否される場合は、Service Role API 経由の作成が必要
+ * - 成功時のみ Cookie を設定
  */
 export async function createCompanyAndJoin(params: {
   userId: string;
@@ -136,8 +212,12 @@ export async function createCompanyAndJoin(params: {
     return { companyId: null, departmentId: null, role: null };
   }
 
-  const companyId = String((insCompany.data as any)?.id || '');
-  if (!companyId) return { companyId: null, departmentId: null, role: null };
+  const companyIdRaw = (insCompany.data as any)?.id ?? '';
+  const companyId = typeof companyIdRaw === 'string' ? companyIdRaw : String(companyIdRaw || '');
+  if (!isValidUUID(companyId)) {
+    // 期待通りに UUID が返らない場合は異常系として扱う
+    return { companyId: null, departmentId: null, role: null };
+  }
 
   // 2) 自分を admin として upsert（まず department_id ありで試す）
   const payloadWithDept = [{ company_id: companyId, user_id: userId, role: 'admin', department_id: departmentId }];
@@ -165,7 +245,9 @@ export async function createCompanyAndJoin(params: {
   }
 
   const row = insMember.data as any;
-  if (companyId) setCompanyIdCookie(companyId);
+
+  // ★ 成功時のみ Cookie を設定（getMembership では設定しない）
+  setCompanyCookieIfValid(companyId);
 
   return {
     companyId,
@@ -176,6 +258,7 @@ export async function createCompanyAndJoin(params: {
 
 /**
  * 既存会社へ参加（department_id 無しスキーマにも対応）
+ * - 成功時のみ Cookie を設定
  */
 export async function joinCompany(params: {
   userId: string;
@@ -214,7 +297,9 @@ export async function joinCompany(params: {
   }
 
   const row = up.data as any;
-  if (companyId) setCompanyIdCookie(companyId);
+
+  // ★ 成功時のみ Cookie を設定（getMembership では設定しない）
+  setCompanyCookieIfValid(companyId);
 
   return {
     companyId,
@@ -271,6 +356,8 @@ export async function updateMemberRole(
 ): Promise<{ ok: boolean; error?: any }> {
   const myUid = await getCurrentUserId();
   if (!myUid) return { ok: false, error: new Error('not signed in') };
+
+  // 明示会社IDで判定したい場合は呼び出し側で getMembershipForCompany を使って渡す
   const m = await getMembership(myUid);
   if (!m.companyId) return { ok: false, error: new Error('company not found') };
 
@@ -293,6 +380,7 @@ export async function updateMemberRole(
 export async function removeMember(targetUserId: string): Promise<{ ok: boolean; error?: any }> {
   const myUid = await getCurrentUserId();
   if (!myUid) return { ok: false, error: new Error('not signed in') };
+
   const m = await getMembership(myUid);
   if (!m.companyId) return { ok: false, error: new Error('company not found') };
 
@@ -317,6 +405,7 @@ export async function addMemberByUserId(
 ): Promise<{ ok: boolean; error?: any }> {
   const myUid = await getCurrentUserId();
   if (!myUid) return { ok: false, error: new Error('not signed in') };
+
   const m = await getMembership(myUid);
   if (!m.companyId) return { ok: false, error: new Error('company not found') };
 
