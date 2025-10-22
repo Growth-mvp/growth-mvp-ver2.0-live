@@ -87,6 +87,21 @@ function looksMissingColumn(errOrResp: any, col: string) {
 }
 const looksMissingDepartmentId = (e: any) => looksMissingColumn(e, 'department_id');
 
+/* ============== 削除フラグ検知（Cookie / ヘッダー） ============== */
+const DELETION_FLAG_KEY = '__deleting_company__';
+function readDeletionFlag(req: NextRequest): { deleting: boolean; companyId?: string | null } {
+  // ヘッダー優先
+  const h = req.headers.get('x-deleting-company') || req.headers.get('x-growth-deleting-company');
+  if (h && h.trim()) return { deleting: true, companyId: h.trim() };
+
+  // Cookieでも許容（Layout側でlocalStorage→Cookieへ同期する場合に対応可）
+  const c = req.cookies.get(DELETION_FLAG_KEY)?.value;
+  if (c && c.trim()) return { deleting: true, companyId: c.trim() };
+
+  // 会社ID不明でも「削除中のため seed しない」シグナルとして扱えるように boolean だけ返す
+  return { deleting: false, companyId: undefined };
+}
+
 /**
  * strategy_data の初期行を“存在しなければ”作成し、strategyId を返す。
  * 重要ポイント：
@@ -107,7 +122,7 @@ async function ensureStrategySeed(
     if (sid) return { ok: true, created: false, strategyId: sid };
   }
 
-  // 2) 既存チェック：user_id（スキーマに user_id 一意制約があるプロジェクト向けの保険）
+  // 2) 既存チェック：user_id
   {
     const exU = await findStrategyByUser(admin, userId);
     const sid = !exU.error ? pickId(exU.data) : null;
@@ -167,6 +182,9 @@ export async function POST(req: NextRequest) {
     auth: { persistSession: false },
   }) as AdminClient;
 
+  // ★ 削除フラグを最初に読み取る
+  const deleting = readDeletionFlag(req);
+
   try {
     // 1) 認証（Cookie → Bearer）
     let userId: string | null = null;
@@ -219,13 +237,23 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
 
       if (!exErr && ex?.company_id) {
-        const seeded = await ensureStrategySeed(admin, userId!, String(ex.company_id));
-        const cookie = buildCompanyCookie(String(ex.company_id), isHttps);
+        const cid = String(ex.company_id);
+        const cookie = buildCompanyCookie(cid, isHttps);
 
+        // ★ 削除中は seed しない
+        if (deleting.deleting && (!deleting.companyId || deleting.companyId === cid)) {
+          return json(
+            200,
+            { ok: true, companyId: cid, strategyId: null, note: 'skip_seed_deleting' },
+            [cookie],
+          );
+        }
+
+        const seeded = await ensureStrategySeed(admin, userId!, cid);
         if (!(seeded as any).ok) {
           console.warn('[provision] seed failed on already_in_company:', {
             userId,
-            companyId: ex.company_id,
+            companyId: cid,
             error: (seeded as any).error,
           });
         }
@@ -234,7 +262,7 @@ export async function POST(req: NextRequest) {
           200,
           {
             ok: true,
-            companyId: ex.company_id,
+            companyId: cid,
             strategyId: (seeded as any).ok ? (seeded as any).strategyId : null,
             note: 'already_in_company',
             seedError: (seeded as any).ok
@@ -257,9 +285,18 @@ export async function POST(req: NextRequest) {
 
     if (!rpcErr && rpcData) {
       const cid = String(rpcData);
-      const seeded = await ensureStrategySeed(admin, userId!, cid);
       const cookie = buildCompanyCookie(cid, isHttps);
 
+      // ★ 削除中は seed しない
+      if (deleting.deleting && (!deleting.companyId || deleting.companyId === cid)) {
+        return json(
+          200,
+          { ok: true, companyId: cid, strategyId: null, via: 'rpc', note: 'skip_seed_deleting' },
+          [cookie],
+        );
+      }
+
+      const seeded = await ensureStrategySeed(admin, userId!, cid);
       if (!(seeded as any).ok) {
         console.warn('[provision] seed failed on rpc:', { userId, companyId: cid, error: (seeded as any).error });
       }
@@ -313,9 +350,23 @@ export async function POST(req: NextRequest) {
 
     if (insMember.error) {
       if ((insMember as any).error?.code === '23505') {
-        const seeded = await ensureStrategySeed(admin, userId!, companyId);
         const cookie = buildCompanyCookie(companyId, isHttps);
 
+        // ★ 削除中は seed しない
+        if (deleting.deleting && (!deleting.companyId || deleting.companyId === companyId)) {
+          return json(
+            200,
+            {
+              ok: true,
+              companyId,
+              strategyId: null,
+              note: 'duplicate_membership_treated_as_success_skip_seed_deleting',
+            },
+            [cookie],
+          );
+        }
+
+        const seeded = await ensureStrategySeed(admin, userId!, companyId);
         if (!(seeded as any).ok) {
           console.warn('[provision] seed failed on duplicate_membership:', {
             userId,
@@ -346,9 +397,24 @@ export async function POST(req: NextRequest) {
       return json(500, { ok: false, code: 'join_admin_failed', companyId, details: insMember.error, rpcError: rpcErr });
     }
 
-    const seedRes = await ensureStrategySeed(admin, userId!, companyId);
     const cookie = buildCompanyCookie(companyId, isHttps);
 
+    // ★ 削除中は seed しない
+    if (deleting.deleting && (!deleting.companyId || deleting.companyId === companyId)) {
+      return json(
+        200,
+        {
+          ok: true,
+          companyId,
+          strategyId: null,
+          via: 'fallback',
+          note: 'skip_seed_deleting',
+        },
+        [cookie],
+      );
+    }
+
+    const seedRes = await ensureStrategySeed(admin, userId!, companyId);
     if (!(seedRes as any).ok) {
       console.warn('[provision] seed failed on fallback:', { userId, companyId, error: (seedRes as any).error });
       return json(
