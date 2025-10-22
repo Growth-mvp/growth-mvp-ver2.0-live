@@ -8,7 +8,7 @@ import { useUserStore } from '@/store/userStore';
 import StepLayout from '@/components/StepLayout';
 import { getIndustryLabel } from '@/utils/industryTemplates';
 import FinanceSummaryPanel from '@/components/finance/FinanceSummaryPanel';
-// ✅ 修正：新設計の保存APIを直接インポート
+// ✅ 新設計の保存APIを直接インポート
 import { saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
 
 /* =========================================================
@@ -160,8 +160,14 @@ function InfoRow({ label, value }: { label: string; value: string | number | nul
 export default function Step5Confirm() {
   const router = useRouter();
   const st = useStrategyStore() as any;
+
+  // ユーザー・会社スコープ
   const userId = useUserStore((s) => s.user?.id ?? null);
   const companyId = useUserStore((s) => s.companyId ?? null);
+  const hydrated = useUserStore((s) => s.hydrated ?? false);
+  const membershipLoaded = useUserStore((s) => s.membershipLoaded ?? false);
+  const canPersist = !!userId && !!companyId && !!hydrated && !!membershipLoaded;
+
   const strategyId = st?.strategyId ?? null;
 
   const [isGenerating, setIsGenerating] = useState(false);
@@ -205,6 +211,11 @@ export default function Step5Confirm() {
   // ストーリー生成
   const handleGenerate = async () => {
     if (isGenerating) return;
+    if (!canPersist) {
+      notifySafe(st, '会社スコープの解決待ちです。数秒後に再試行してください。', setLocalNotice);
+      return;
+    }
+
     setIsGenerating(true);
     setLocalNotice('');
 
@@ -309,24 +320,20 @@ export default function Step5Confirm() {
         }
       } catch {}
 
-      // 3) DBにも保存（新設計APIに合わせて呼び出し先＆引数を修正）
+      // 3) DBにも保存（store全体＋パッチで安全に）
       try {
-        if (userId && companyId) {
-          await saveStrategyDataApi(
-            {
-              strategyId,
-              story: finalChapters,
-              // 最終版ではないので finalStory には入れない
-              mission, vision, value,
-              industry, revenue, employees,
-              thought, strength, weakness, opportunity, threat,
-              csvFinanceData,
-              answers2, // もし使うなら
-            } as any,
-            userId,
-            companyId // ✅ 第3引数に companyId（override）を渡すのが新設計の正
-          );
-        }
+        const current = useStrategyStore.getState() as any;
+        const patch = {
+          strategyId,
+          story: finalChapters,
+          // 最終版ではないので finalStory には入れない
+          mission, vision, value,
+          industry, revenue, employees,
+          thought, strength, weakness, opportunity, threat,
+          csvFinanceData,
+          answers2, // もし使うなら
+        };
+        await saveStrategyDataApi({ ...current, ...patch }, userId!, companyId!);
       } catch (e) {
         // DB保存に失敗してもUIは続行（ただしログ）
         console.warn('saveStrategyData failed (draft story persisted only to session/store):', e);
@@ -389,12 +396,12 @@ export default function Step5Confirm() {
             </div>
           </GlassCard>
 
-          <GlassCard title="事業情報">
-            <div className="divide-y divide-black/5">
-              <InfoRow label="主な事業内容" value={businessContent} />
-              <InfoRow label="主要な顧客層" value={customerSegment} />
-            </div>
-          </GlassCard>
+            <GlassCard title="事業情報">
+              <div className="divide-y divide-black/5">
+                <InfoRow label="主な事業内容" value={businessContent} />
+                <InfoRow label="主要な顧客層" value={customerSegment} />
+              </div>
+            </GlassCard>
         </div>
 
         {/* MVV */}
@@ -446,9 +453,14 @@ export default function Step5Confirm() {
         {/* 年度×事業サマリー（可視化） */}
         <FinanceSummaryPanel className="mt-2" showHeader initialYear={summaryYears.at(-1)} />
 
-        {/* 注意書き */}
+        {/* 注意書き / ステータス */}
         <div className="text-center text-xs text-gray-500">
           「ストーリーを生成」を押すと、AIがたたき台ストーリーを作成します。
+          {!canPersist && (
+            <div className="mt-1 text-amber-700">
+              現在、会社スコープの解決中（user/company/hydration）。完了後に保存可能になります。
+            </div>
+          )}
         </div>
 
         {/* 生成ボタン */}
