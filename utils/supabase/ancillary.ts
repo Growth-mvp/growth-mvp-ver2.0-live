@@ -1,4 +1,13 @@
 // /utils/supabase/ancillary.ts
+// 役割: strategy_data から分離されている「章回答(answers2)」「最終ストーリー(final_stories)」
+//      「進捗ログ(progress_logs)」の保存/読取のみを扱う補助モジュール。
+// ポリシー:
+//  - company_id は必須（NULL company_id への保存・読取はしない）
+//  - ブラウザ（クライアント）からは呼び出さない（Service Role Key を利用するため）
+//  - レガシーテーブル(financesummary / business_portfolio / simulationresults 等)は一切触らない
+//  - JSONB への書込は常に JSON として行い、互換フォールバックを保持
+//  - 書込は UPSERT(onConflict: company_id,user_id) を基本形に統一
+
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { getCompanyIdFromCookie, setCompanyIdCookie, isValidUUID } from './client';
 import { debugExtractPostgrest, isInvalidJsonSyntax } from './errors';
@@ -10,8 +19,17 @@ const T_ANSWERS2 = 'story_answers2';
 const T_LOGS = 'progress_logs';
 const T_FINAL = 'final_stories';
 
+/* ======================= 実行ガード（サーバ専用） ======================= */
+function assertServerOnly() {
+  // 誤ってブラウザから呼び出された場合は即時エラーにする
+  if (typeof window !== 'undefined') {
+    throw new Error('[ancillary] This module must not be called from the browser.');
+  }
+}
+
 /* ======================= 共通: 管理者クライアント ======================= */
 function createAdminClient(): SupabaseClient {
+  assertServerOnly();
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
   if (!url || !serviceKey) {
@@ -23,25 +41,29 @@ function createAdminClient(): SupabaseClient {
   });
 }
 
-/* ---------------------- 共通: companyId 解決 ---------------------- */
-async function resolveCompanyId(userId: string): Promise<string | null> {
+/* ---------------------- 共通: companyId 解決（厳格） ---------------------- */
+async function resolveCompanyIdStrict(userId: string): Promise<string> {
+  // 1) Cookie（会社スコープ切替後はここが最速）
   try {
     const c = getCompanyIdFromCookie();
-    if (c) return c;
+    if (isValidUUID(c)) return c!;
   } catch {}
-  try {
-    const m = await getMembership(userId);
-    if (m.companyId) {
-      try {
-        setCompanyIdCookie(m.companyId);
-      } catch {}
-      return m.companyId;
-    }
-  } catch {}
-  return null;
+
+  // 2) membership
+  const m = await getMembership(userId);
+  if (isValidUUID(m?.companyId)) {
+    try {
+      setCompanyIdCookie(m!.companyId!);
+    } catch {}
+    return m!.companyId!;
+  }
+
+  // 厳格化: ここまでで解決できなければ失敗
+  throw new Error('companyId を解決できません（Strict）。Cookie または membership を確認してください。');
 }
 
 /* ======================= story_answers2 ======================= */
+/** 章別回答を保存（company_id,user_id で UPSERT） */
 export async function saveStoryAnswers2(
   userId: string,
   answers2: ChapterAnswers[],
@@ -49,37 +71,34 @@ export async function saveStoryAnswers2(
   const db = createAdminClient();
   try {
     if (!userId) return new Error('invalid userId');
-    const companyId = await resolveCompanyId(userId);
-    const payload = { user_id: userId, answers2 };
 
-    if (companyId) {
-      let ins = await db.from(T_ANSWERS2).upsert([{ ...payload, company_id: companyId }], {
-        onConflict: 'company_id,user_id',
-      });
-      if (ins.error && isInvalidJsonSyntax(ins)) {
-        ins = await db
-          .from(T_ANSWERS2)
-          .upsert(
-            [{ ...payload, company_id: companyId, answers2: JSON.stringify(answers2 ?? []) }],
-            { onConflict: 'company_id,user_id' },
-          );
-      }
-      if (ins.error) {
-        console.error('❌ saveStoryAnswers2 company:', debugExtractPostgrest(ins.error));
-        return ins.error as any;
-      }
-      return null;
-    }
+    const companyId = await resolveCompanyIdStrict(userId);
+    const now = new Date().toISOString();
 
-    let ins2 = await db.from(T_ANSWERS2).upsert([payload], { onConflict: 'user_id' });
-    if (ins2.error && isInvalidJsonSyntax(ins2)) {
-      ins2 = await db
+    // JSONB 安全: まずはそのまま、ダメなら stringify フォールバック
+    let up = await db
+      .from(T_ANSWERS2)
+      .upsert(
+        [{ user_id: userId, company_id: companyId, answers2, updated_at: now, created_at: now }],
+        { onConflict: 'company_id,user_id' }
+      );
+    if (up.error && isInvalidJsonSyntax(up)) {
+      up = await db
         .from(T_ANSWERS2)
-        .upsert([{ user_id: userId, answers2: JSON.stringify(answers2 ?? []) }], { onConflict: 'user_id' });
+        .upsert(
+          [{
+            user_id: userId,
+            company_id: companyId,
+            answers2: JSON.stringify(answers2 ?? []),
+            updated_at: now,
+            created_at: now
+          }],
+          { onConflict: 'company_id,user_id' }
+        );
     }
-    if (ins2.error) {
-      console.error('❌ saveStoryAnswers2 legacy:', debugExtractPostgrest(ins2.error));
-      return ins2.error as any;
+    if (up.error) {
+      console.error('❌ saveStoryAnswers2:', debugExtractPostgrest(up.error));
+      return up.error as any;
     }
     return null;
   } catch (error) {
@@ -88,25 +107,24 @@ export async function saveStoryAnswers2(
   }
 }
 
+/** 章別回答を読取（company_id,user_id で単一行） */
 export async function loadStoryAnswers2(userId: string): Promise<ChapterAnswers[] | null> {
   const db = createAdminClient();
   try {
     if (!userId) return [];
-    const companyId = await resolveCompanyId(userId);
+    const companyId = await resolveCompanyIdStrict(userId);
 
-    const q = db.from(T_ANSWERS2).select('answers2').eq('user_id', userId);
-    const r = companyId
-      ? await q.eq('company_id', companyId).maybeSingle()
-      : await q.is('company_id', null).maybeSingle();
+    const r = await db
+      .from(T_ANSWERS2)
+      .select('answers2')
+      .eq('user_id', userId)
+      .eq('company_id', companyId)
+      .maybeSingle();
 
     if (!r.error && r.data) {
       let result: unknown = (r.data as any).answers2;
       if (typeof result === 'string') {
-        try {
-          result = JSON.parse(result);
-        } catch {
-          result = [];
-        }
+        try { result = JSON.parse(result); } catch { result = []; }
       }
       if (!Array.isArray(result)) result = [];
       return result as ChapterAnswers[];
@@ -128,6 +146,7 @@ type ProgressLogInput = {
   department?: string;
 };
 
+/** 進捗ログを company_id 付きで挿入（NULL company 禁止） */
 export async function saveProgressLog(
   userId: string,
   okrId: string,
@@ -136,23 +155,21 @@ export async function saveProgressLog(
   const db = createAdminClient();
   try {
     if (!userId || !isValidUUID(okrId)) return new Error('invalid userId or okrId');
-    const companyId = await resolveCompanyId(userId);
+    const companyId = await resolveCompanyIdStrict(userId);
     const now = new Date().toISOString();
 
-    const rows = [
-      {
-        user_id: userId,
-        okr_id: okrId,
-        company_id: companyId ?? null,
-        progress_text: log.progressText ?? '',
-        rating: typeof log.rating === 'number' ? log.rating : null,
-        rating_comment: log.ratingComment ?? '',
-        advice: log.advice ?? '',
-        help_request: log.helpRequest ?? '',
-        department: log.department ?? '',
-        created_at: now,
-      },
-    ];
+    const rows = [{
+      user_id: userId,
+      okr_id: okrId,
+      company_id: companyId,
+      progress_text: log.progressText ?? '',
+      rating: typeof log.rating === 'number' ? log.rating : null,
+      rating_comment: log.ratingComment ?? '',
+      advice: log.advice ?? '',
+      help_request: log.helpRequest ?? '',
+      department: log.department ?? '',
+      created_at: now,
+    }];
 
     const ins = await db.from(T_LOGS).insert(rows);
     if (ins.error) {
@@ -167,6 +184,7 @@ export async function saveProgressLog(
 }
 
 /* ======================= final_stories ======================= */
+/** 最終ストーリーを保存（company_id,user_id で UPSERT） */
 export async function saveFinalStory(
   userId: string,
   story: ChapterStory[],
@@ -175,64 +193,41 @@ export async function saveFinalStory(
   const db = createAdminClient();
   try {
     if (!userId) return new Error('invalid userId');
-    const companyId = await resolveCompanyId(userId);
+    const companyId = await resolveCompanyIdStrict(userId);
     const normalized = normalizeChaptersAny(story ?? []);
     const now = new Date().toISOString();
 
-    const baseRow = {
-      user_id: userId,
-      story: normalized,
-      summary,
-      updated_at: now,
-      created_at: now,
-    };
-
-    if (companyId) {
-      const found = await db
+    let up = await db
+      .from(T_FINAL)
+      .upsert(
+        [{
+          user_id: userId,
+          company_id: companyId,
+          story: normalized,
+          summary,
+          updated_at: now,
+          created_at: now,
+        }],
+        { onConflict: 'company_id,user_id' }
+      );
+    if (up.error && isInvalidJsonSyntax(up)) {
+      up = await db
         .from(T_FINAL)
-        .select('id')
-        .eq('company_id', companyId)
-        .eq('user_id', userId)
-        .limit(1)
-        .maybeSingle();
-
-      if (found.data?.id) {
-        let up = await db.from(T_FINAL).update(baseRow).eq('id', found.data.id);
-        if (up.error && isInvalidJsonSyntax(up)) {
-          up = await db
-            .from(T_FINAL)
-            .update({ ...baseRow, story: JSON.stringify(normalized ?? []) })
-            .eq('id', found.data.id);
-        }
-        if (up.error) {
-          console.error('❌ saveFinalStory UPDATE:', debugExtractPostgrest(up.error));
-          return up.error as any;
-        }
-        return null;
-      }
-
-      let ins = await db.from(T_FINAL).insert([{ ...baseRow, company_id: companyId }]);
-      if (ins.error && isInvalidJsonSyntax(ins)) {
-        ins = await db
-          .from(T_FINAL)
-          .insert([{ ...baseRow, company_id: companyId, story: JSON.stringify(normalized ?? []) }]);
-      }
-      if (ins.error) {
-        console.error('❌ saveFinalStory INSERT:', debugExtractPostgrest(ins.error));
-        return ins.error as any;
-      }
-      return null;
+        .upsert(
+          [{
+            user_id: userId,
+            company_id: companyId,
+            story: JSON.stringify(normalized ?? []),
+            summary,
+            updated_at: now,
+            created_at: now,
+          }],
+          { onConflict: 'company_id,user_id' }
+        );
     }
-
-    let up2 = await db.from(T_FINAL).upsert([{ ...baseRow }], { onConflict: 'user_id' });
-    if (up2.error && isInvalidJsonSyntax(up2)) {
-      up2 = await db
-        .from(T_FINAL)
-        .upsert([{ ...baseRow, story: JSON.stringify(normalized ?? []) }], { onConflict: 'user_id' });
-    }
-    if (up2.error) {
-      console.error('❌ saveFinalStory legacy UPSERT:', debugExtractPostgrest(up2.error));
-      return up2.error as any;
+    if (up.error) {
+      console.error('❌ saveFinalStory UPSERT:', debugExtractPostgrest(up.error));
+      return up.error as any;
     }
     return null;
   } catch (error) {
@@ -241,16 +236,19 @@ export async function saveFinalStory(
   }
 }
 
+/** 最終ストーリーを読取（company_id,user_id で単一行） */
 export async function loadFinalStory(userId: string): Promise<ChapterStory[] | null> {
   const db = createAdminClient();
   try {
     if (!userId) return [];
-    const companyId = await resolveCompanyId(userId);
+    const companyId = await resolveCompanyIdStrict(userId);
 
-    const q = db.from(T_FINAL).select('story').eq('user_id', userId);
-    const r = companyId
-      ? await q.eq('company_id', companyId).maybeSingle()
-      : await q.is('company_id', null).maybeSingle();
+    const r = await db
+      .from(T_FINAL)
+      .select('story')
+      .eq('user_id', userId)
+      .eq('company_id', companyId)
+      .maybeSingle();
 
     if (!r.error && r.data) {
       return normalizeChaptersAny((r.data as any).story ?? []);
@@ -262,10 +260,10 @@ export async function loadFinalStory(userId: string): Promise<ChapterStory[] | n
   }
 }
 
-/* ======================= 便利系 ======================= */
+/* ======================= 便利系（サーバ専用） ======================= */
 export async function findUserIdByEmail(email: string): Promise<string | null> {
-  if (!email) return null;
   const db = createAdminClient();
+  if (!email) return null;
   try {
     const u = await db.from('users').select('id').ilike('email', email).maybeSingle();
     if (!u.error && (u.data as any)?.id) return String((u.data as any).id);
