@@ -14,9 +14,7 @@ export type ProjectionPoint = {
   opMargin?: number;   // 営業利益率（0..1）
 };
 
-export type Projection = {
-  points: ProjectionPoint[];
-};
+export type Projection = { points: ProjectionPoint[] };
 
 export type SimulationPeriod = {
   revenue?: number;
@@ -89,27 +87,47 @@ function pickDefaultConfig(mod: any): any {
   };
 }
 
+// ========= 入力チェック（空なら描画しない） =========
+function isMeaningfulBase(base: any): boolean {
+  if (!base || typeof base !== 'object') return false;
+  const vals = [
+    base?.year0Sales, base?.year0Op, base?.growthRatePct, base?.opMarginPct,
+  ].map(Number);
+  return vals.some((v) => Number.isFinite(v) && v !== 0);
+}
+function isMeaningfulLevers(levers: any[]): boolean {
+  if (!Array.isArray(levers) || levers.length === 0) return false;
+  return levers.some((l) =>
+    ['deltaSalesPct', 'deltaOpPct', 'capex', 'opex'].some((k) => {
+      const v = Number(l?.[k]);
+      return Number.isFinite(v) && v !== 0;
+    })
+  );
+}
+
 // ========= フォールバック簡易シミュレーター（3年） =========
-// extractBaseAndLevers の出力（base/levers）前提で計算
+// ※ 入力が無意味なら periods: [] を返す（0パディングしない）
 const fallbackRun: RunFn = (base: any, levers: any[], _config: any): SimulationResult => {
+  if (!isMeaningfulBase(base) && !isMeaningfulLevers(levers)) {
+    return { periods: [] };
+  }
+
   const y0Sales = toNum(base?.year0Sales, 0);
   const y0Op = toNum(base?.year0Op, 0);
-  // 入力が % 表記なので 100 で除する
-  const growthPct = toNum(base?.growthRatePct, 0) / 100;
-  const opMarginPct = toNum(base?.opMarginPct, 0); // %（後で/100）
+  const growthPct = toNum(base?.growthRatePct, 0) / 100; // %
+  const opMarginPct0 = toNum(base?.opMarginPct, 0);      // %（後で/100）
 
   // レバーの集約（単純加算）
   const totalDeltaSalesPct = levers.reduce((acc, l) => acc + (toNum(l?.deltaSalesPct, 0) / 100), 0);
-  const totalDeltaOpPctPt  = levers.reduce((acc, l) => acc + (toNum(l?.deltaOpPct, 0)), 0);    // 利益率の%pt
+  const totalDeltaOpPctPt  = levers.reduce((acc, l) => acc + (toNum(l?.deltaOpPct, 0)), 0); // 利益率の%pt
   const totalCapex         = levers.reduce((acc, l) => acc + toNum(l?.capex, 0), 0);
   const totalOpex          = levers.reduce((acc, l) => acc + toNum(l?.opex, 0), 0);
 
   const periods: SimulationPeriod[] = [];
   let salesPrev = y0Sales;
-  let marginPct = opMarginPct; // %
+  let marginPct = opMarginPct0; // %
 
   for (let i = 0; i < 3; i++) {
-    // 成長 + レバー（売上%）
     const growthFactor = 1 + growthPct;
     const leverFactor = 1 + totalDeltaSalesPct; // 例: +5% → 1.05
     const sales = salesPrev * growthFactor * leverFactor;
@@ -121,34 +139,42 @@ const fallbackRun: RunFn = (base: any, levers: any[], _config: any): SimulationR
     // capex/opex は営業利益から控除（投資は費用扱いの簡易モデル）
     const op = opBeforeCosts - totalCapex - totalOpex;
 
-    periods.push({
-      revenue: sales,
-      operatingIncome: op,
-    });
-
-    salesPrev = sales; // 次年の基準
+    periods.push({ revenue: sales, operatingIncome: op });
+    salesPrev = sales;
   }
 
-  return { periods };
+  // すべてゼロなら空扱い（描画しない）
+  const allZero = periods.every(
+    (p) => !Number.isFinite(Number(p.revenue)) || Number(p.revenue) === 0
+  );
+  return allZero ? { periods: [] } : { periods };
 };
 
 /** StrategyData 全体から、3期シミュレーションを返す */
 export function runThreeYearFromStrategy(strategy: StrategyData): AdapterOutput {
   // simulationBridge は named/default 両対応
   const bridge = typeof namedExtract === 'function' ? namedExtract : extractBaseAndLevers;
-  const { base, levers } = bridge(strategy);
+  const { base, levers } = bridge(strategy) ?? { base: null, levers: [] };
+
+  // 入力が空なら「描画しない」ために points: [] を返す
+  if (!isMeaningfulBase(base) && !isMeaningfulLevers(levers)) {
+    return { projection: { points: [] }, raw: { periods: [] } };
+  }
 
   // financeSimulation が提供されていればそれを使う。無ければフォールバック。
   const run = pickRunFn(financeSim) ?? fallbackRun;
   const cfg = pickDefaultConfig(financeSim);
 
-  const result = run(base, levers, cfg);
-
-  // periods のフィールド名差異に対応（revenue/operatingIncome or sales/op）
+  const result = run(base, levers, cfg) ?? { periods: [] };
   const periods = Array.isArray((result as any)?.periods) ? (result as any).periods : [];
 
-  // threeYear 互換の points に整形（Y1..Y3固定）
-  const rawPoints: ProjectionPoint[] = periods.map((p: any, i: number) => {
+  // periods が空なら描画しない
+  if (periods.length === 0) {
+    return { projection: { points: [] }, raw: result };
+  }
+
+  // threeYear 互換の points に整形（存在分のみ、0パディングしない）
+  const points: ProjectionPoint[] = periods.slice(0, 3).map((p: any, i: number) => {
     const revenue = (p?.revenue ?? p?.sales ?? 0);
     const opInc = (p?.operatingIncome ?? p?.op ?? 0);
 
@@ -156,32 +182,10 @@ export function runThreeYearFromStrategy(strategy: StrategyData): AdapterOutput 
     const op = safeRound(opInc);
     const opMargin = safeRatio(opInc, revenue, 4);
 
-    return {
-      year: `Y${i + 1}`,
-      sales,
-      op,
-      opMargin,
-    };
+    return { year: `Y${i + 1}`, sales, op, opMargin };
   });
 
-  // 先頭3年を採用。3年未満なら 0 でパディング
-  let points: ProjectionPoint[] = rawPoints.slice(0, 3);
-  if (points.length < 3) {
-    const paddingCount = 3 - points.length;
-    const startIndex = points.length;
-    const pads: ProjectionPoint[] = Array.from({ length: paddingCount }).map((_, k) => ({
-      year: `Y${startIndex + k + 1}`,
-      sales: 0,
-      op: 0,
-      opMargin: 0,
-    }));
-    points = [...points, ...pads];
-  }
-
-  return {
-    projection: { points },
-    raw: result,
-  };
+  return { projection: { points }, raw: result };
 }
 
 export default runThreeYearFromStrategy;
