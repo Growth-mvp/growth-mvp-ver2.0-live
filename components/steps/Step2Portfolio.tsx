@@ -12,7 +12,8 @@ import type {
   UnitType,
 } from '@/types/portfolio';
 import { classifyStage, createDefaultPortfolio } from '@/types/portfolio';
-import { saveStrategyData as saveStrategyDataApi } from '@/utils/supabase';
+// ★ 修正：保存関数は strategy 直下から
+import { saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
 
 /** 数値入力の安全パース（空文字は undefined にする） */
 function toNumberOrUndefined(v: string): number | undefined {
@@ -46,11 +47,8 @@ export default function Step2Portfolio(_props: Props) {
   const portfolio: BusinessPortfolio =
     businessPortfolio ?? createDefaultPortfolio('business', 'FY2025', 'JPY');
 
-  /** store を丸ごと更新するユーティリティ（period/currency/units/threshold 用） */
-  const commit = (next: BusinessPortfolio): void => {
-    setBusinessPortfolio(next);
-    markDirty(); // 変更フラグ
-  };
+  /** ====== 保存ガード：companyId/所属が確定するまで保存させない ====== */
+  const canPersist = !!userId && !!companyId && !!hydrated && !!membershipLoaded;
 
   /** ====== 自動保存（デバウンス） ====== */
   const [saving, setSaving] = useState(false);
@@ -58,27 +56,49 @@ export default function Step2Portfolio(_props: Props) {
   const dirtyRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const markDirty = useCallback(() => {
-    dirtyRef.current = true;
+  // 会社切替時などで一時的にセーブを抑止するゲート（ロード完了まで false）
+  const savingGateRef = useRef(true);
+  useEffect(() => {
+    // membershipResolved 後にゲート開放
+    savingGateRef.current = canPersist;
+  }, [canPersist]);
+
+  const scheduleSave = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    // 0.8秒デバウンスで保存
     timerRef.current = setTimeout(async () => {
+      // ゲート/前提満たない間はリトライ
+      if (!savingGateRef.current || !canPersist) {
+        // 待機を継続：dirtyは保持したまま、少し後に再試行
+        timerRef.current = setTimeout(scheduleSave, 600);
+        return;
+      }
       if (!dirtyRef.current) return;
-      if (!userId) return; // 未ログインなら保存しない
+
+      // 以降は保存
       dirtyRef.current = false;
       setSaving(true);
       setSaveError(null);
       try {
         const state = useStrategyStore.getState() as any;
-        await saveStrategyDataApi(state, userId);
+        // ★ 会社IDを明示して渡す（サーバ側でも company_id を必ず解決）
+        await saveStrategyDataApi(state, userId!, companyId!);
       } catch (e: any) {
+        // 失敗時は dirty を戻して後続リトライ可に
+        dirtyRef.current = true;
         setSaveError(e?.message || '保存に失敗しました');
         console.error('[AUTO SAVE] failed:', e);
+        // 再試行を少し後に
+        timerRef.current = setTimeout(scheduleSave, 1500);
       } finally {
         setSaving(false);
       }
     }, 800);
-  }, [userId]);
+  }, [canPersist, userId, companyId]);
+
+  const markDirty = useCallback(() => {
+    dirtyRef.current = true;
+    scheduleSave();
+  }, [scheduleSave]);
 
   // アンマウント時にタイマー解除
   useEffect(() => {
@@ -86,6 +106,13 @@ export default function Step2Portfolio(_props: Props) {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, []);
+
+  /** store を丸ごと更新するユーティリティ（period/currency/units/threshold 用） */
+  const commit = (next: BusinessPortfolio): void => {
+    setBusinessPortfolio(next);
+    // onChange系は commit 内だけで dirty を付ける（onBlurの二重トリガ回避）
+    markDirty();
+  };
 
   /** 表示用ユニット（stage を補完） */
   const displayUnits = useMemo<BusinessUnit[]>(() => {
@@ -201,30 +228,31 @@ export default function Step2Portfolio(_props: Props) {
   const baselineX = gx(portfolio.threshold.profitBaseline);
   const baselineY = gy(portfolio.threshold.growthBaseline);
 
-  /** ====== 手動保存（念のため） ====== */
+  /** ====== 手動保存（ゲートと会社IDを考慮） ====== */
   const handleManualSave = useCallback(async () => {
     if (timerRef.current) clearTimeout(timerRef.current);
+    if (!canPersist) return;
     dirtyRef.current = false;
-    if (!userId) return;
     setSaving(true);
     setSaveError(null);
     try {
       const state = useStrategyStore.getState() as any;
-      await saveStrategyDataApi(state, userId);
+      await saveStrategyDataApi(state, userId!, companyId!);
       console.log('[MANUAL SAVE] businessPortfolio snapshot:', portfolio);
     } catch (e: any) {
+      dirtyRef.current = true; // 手動でも失敗時は dirty 維持
       setSaveError(e?.message || '保存に失敗しました');
       console.error('[MANUAL SAVE] failed:', e);
     } finally {
       setSaving(false);
     }
-  }, [userId, portfolio]);
+  }, [canPersist, userId, companyId, portfolio]);
 
   /** ====== テスト保存（ログを多めに出す） ====== */
   const handleTestSave = useCallback(async () => {
     if (timerRef.current) clearTimeout(timerRef.current);
+    if (!canPersist) return;
     dirtyRef.current = false;
-    if (!userId) return;
     setSaving(true);
     setSaveError(null);
     try {
@@ -242,15 +270,16 @@ export default function Step2Portfolio(_props: Props) {
       console.groupEnd();
 
       const state = useStrategyStore.getState() as any;
-      await saveStrategyDataApi(state, userId);
+      await saveStrategyDataApi(state, userId!, companyId!);
       console.log('[TEST SAVE] saveStrategyData completed');
     } catch (e: any) {
+      dirtyRef.current = true;
       setSaveError(e?.message || '保存に失敗しました');
       console.error('[TEST SAVE] failed:', e);
     } finally {
       setSaving(false);
     }
-  }, [userId, portfolio, companyId, role, hydrated, membershipLoaded]);
+  }, [canPersist, userId, companyId, role, hydrated, membershipLoaded, portfolio]);
 
   return (
     <div className="space-y-6">
@@ -296,9 +325,9 @@ export default function Step2Portfolio(_props: Props) {
             </Button>
           </div>
         </div>
-        {!userId && (
-          <div className="mt-2 text-xs text-red-600">
-            userId がありません。ログイン/認証が完了しているか確認してください（保存は無効化されます）。
+        {!canPersist && (
+          <div className="mt-2 text-xs text-amber-600">
+            保存前提が揃っていません（userId / companyId / hydrated / membershipLoaded）。会社切替・初期化の完了を待っています。
           </div>
         )}
       </div>
@@ -396,7 +425,7 @@ export default function Step2Portfolio(_props: Props) {
             ) : (
               <span className="text-xs text-gray-500">保存待ち</span>
             )}
-            <Button variant="outline" size="sm" onClick={handleManualSave} disabled={saving || !userId}>
+            <Button variant="outline" size="sm" onClick={handleManualSave} disabled={!canPersist || saving}>
               手動で保存
             </Button>
           </div>
@@ -412,34 +441,14 @@ export default function Step2Portfolio(_props: Props) {
         <div className="p-4 overflow-x-auto">
           <svg width={width} height={height} role="img" aria-label="事業ポートフォリオ">
             {/* ガイド線 */}
-            <line
-              x1={baselineX}
-              y1={padding}
-              x2={baselineX}
-              y2={height - padding}
-              stroke="#e5e7eb"
-              strokeDasharray="6 6"
-            />
-            <line
-              x1={padding}
-              y1={baselineY}
-              x2={width - padding}
-              y2={baselineY}
-              stroke="#e5e7eb"
-              strokeDasharray="6 6"
-            />
+            <line x1={baselineX} y1={padding} x2={baselineX} y2={height - padding} stroke="#e5e7eb" strokeDasharray="6 6" />
+            <line x1={padding} y1={baselineY} x2={width - padding} y2={baselineY} stroke="#e5e7eb" strokeDasharray="6 6" />
 
             {/* 軸ラベル */}
             <text x={width / 2} y={height - 6} textAnchor="middle" className="fill-gray-500 text-[12px]">
               利益率（%）
             </text>
-            <text
-              x={12}
-              y={height / 2}
-              transform={`rotate(-90 12 ${height / 2})`}
-              textAnchor="middle"
-              className="fill-gray-500 text-[12px]"
-            >
+            <text x={12} y={height / 2} transform={`rotate(-90 12 ${height / 2})`} textAnchor="middle" className="fill-gray-500 text-[12px]">
               成長率（%）
             </text>
 
@@ -467,12 +476,7 @@ export default function Step2Portfolio(_props: Props) {
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <div className="font-medium">一覧編集</div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              onClick={() => {
-                addUnit();
-              }}
-            >
+            <Button variant="outline" onClick={() => { addUnit(); }}>
               追加
             </Button>
           </div>
@@ -497,17 +501,8 @@ export default function Step2Portfolio(_props: Props) {
                     <input
                       className="w-full rounded-lg border px-3 py-2"
                       value={u.name}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                        updateUnit(u.id, { name: e.target.value });
-                      }}
-                      onBlur={markDirty}
-                      placeholder={
-                        portfolio.unitType === 'business'
-                          ? '事業名'
-                          : portfolio.unitType === 'product'
-                          ? '商品名'
-                          : 'サービス名'
-                      }
+                      onChange={(e) => { updateUnit(u.id, { name: e.target.value }); }}
+                      placeholder={portfolio.unitType === 'business' ? '事業名' : portfolio.unitType === 'product' ? '商品名' : 'サービス名'}
                     />
                   </td>
                   <td className="px-4 py-2 text-right">
@@ -515,12 +510,11 @@ export default function Step2Portfolio(_props: Props) {
                       type="number"
                       className="w-full rounded-lg border px-3 py-2 text-right"
                       value={u.revenueShare}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      onChange={(e) => {
                         const n = toNumberOrUndefined(e.target.value);
                         if (typeof n === 'undefined') return;
                         updateUnit(u.id, { revenueShare: clamp(n, 0, 100) });
                       }}
-                      onBlur={markDirty}
                       placeholder="0-100"
                     />
                   </td>
@@ -529,12 +523,11 @@ export default function Step2Portfolio(_props: Props) {
                       type="number"
                       className="w-full rounded-lg border px-3 py-2 text-right"
                       value={u.growthRate}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      onChange={(e) => {
                         const n = toNumberOrUndefined(e.target.value);
                         if (typeof n === 'undefined') return;
                         updateUnit(u.id, { growthRate: clamp(n, -100, 300) });
                       }}
-                      onBlur={markDirty}
                     />
                   </td>
                   <td className="px-4 py-2 text-right">
@@ -542,22 +535,18 @@ export default function Step2Portfolio(_props: Props) {
                       type="number"
                       className="w-full rounded-lg border px-3 py-2 text-right"
                       value={u.profitMargin}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      onChange={(e) => {
                         const n = toNumberOrUndefined(e.target.value);
                         if (typeof n === 'undefined') return;
                         updateUnit(u.id, { profitMargin: clamp(n, -100, 100) });
                       }}
-                      onBlur={markDirty}
                     />
                   </td>
                   <td className="px-4 py-2">
                     <input
                       className="w-full rounded-lg border px-3 py-2"
                       value={u.note ?? ''}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                        updateUnit(u.id, { note: e.target.value });
-                      }}
-                      onBlur={markDirty}
+                      onChange={(e) => { updateUnit(u.id, { note: e.target.value }); }}
                       placeholder="補足・課題・仮説など"
                     />
                   </td>
@@ -568,7 +557,6 @@ export default function Step2Portfolio(_props: Props) {
                         size="sm"
                         onClick={() => {
                           removeUnit(u.id);
-                          markDirty();
                         }}
                       >
                         削除
@@ -605,10 +593,10 @@ export default function Step2Portfolio(_props: Props) {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleManualSave} disabled={saving || !userId}>
+            <Button variant="outline" size="sm" onClick={handleManualSave} disabled={!canPersist || saving}>
               手動で保存
             </Button>
-            <Button variant="primary" size="sm" onClick={handleTestSave} disabled={saving || !userId}>
+            <Button variant="primary" size="sm" onClick={handleTestSave} disabled={!canPersist || saving}>
               テスト保存（ログ出力）
             </Button>
           </div>
