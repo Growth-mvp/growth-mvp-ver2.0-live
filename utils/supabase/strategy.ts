@@ -13,21 +13,33 @@ const T_PROGRESS = 'progress_logs';
 const T_STORY_ANSWERS = 'story_answers2';
 const T_FINAL_STORIES = 'final_stories';
 
+// レガシー分離テーブル（移行後は原則読み書きしない／掃除対象）
+const T_LEGACY = ['simulationresults', 'simulationresult', 'financesummary', 'business_portfolio'] as const;
+
 /* ============================================================
  * 型
  * ============================================================ */
 type ReadResult = { data: (StrategyData & { revision?: number }) | null; error: any | null };
 type WriteResult = { data?: (StrategyData & { revision?: number }) | null; error: any | null };
 
+/* 進捗ログの入力型（必要に応じて拡張OK） */
+export type ProgressLogInput = {
+  userId: string;
+  okrId: string;
+  projectId?: string | null;
+  departmentId?: string | null;
+  companyIdOverride?: string | null;
+  content: string; // 本文
+  status?: 'ontrack' | 'atrisk' | 'offtrack' | null;
+  score?: number | null; // 0-1 など任意
+  createdAt?: string;    // 指定なければサーバ側で now()
+};
+
 /* ============================================================
  * エラー整形
  * ============================================================ */
 function safeStringify(x: any) {
-  try {
-    return JSON.stringify(x, null, 2);
-  } catch {
-    return String(x);
-  }
+  try { return JSON.stringify(x, null, 2); } catch { return String(x); }
 }
 function extractErrorVerbose(e: any) {
   const info = debugExtractPostgrest?.(e) as any;
@@ -88,8 +100,6 @@ function ensureObject<T extends object = Record<string, any>>(v: any): T {
 
 /* ============================================================
  * finance_summary 双方向正規化
- *  - DB: { rows: FinanceSummaryRow[] } の object
- *  - UI: FinanceSummaryRow[] の配列
  * ============================================================ */
 function toDbFinanceSummary(uiValue: any): Record<string, any> {
   if (uiValue == null) return {};
@@ -237,10 +247,12 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   out.financeSummary = toUiFinanceSummary(out.financeSummary);
   out.businessPortfolio = toUiBusinessPortfolio(out.businessPortfolio);
 
-  // 部門→プロジェクト→OKR 配列保証
+  // 部門→プロジェクト→OKR 配列保証（最小限。未知キーは残る）
   out.departments = out.departments.map((d: any) => ({
+    ...d,
     name: d?.name ?? '',
     projects: ensureArray(d?.projects).map((p: any) => ({
+      ...p,
       title: p?.title ?? '',
       okrs: ensureArray(p?.okrs),
     })),
@@ -255,7 +267,7 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
 }
 
 /* ============================================================
- * 共通：既存行を * で取得（revision列の有無を動的判定したい）
+ * 共通：既存行を * で取得
  * ============================================================ */
 async function fetchExistingRow(companyId: string) {
   const res = await supabase
@@ -281,7 +293,7 @@ export async function getFullStrategyDataByCompany(companyId: string): Promise<R
       return { data: null, error: new Error('invalid companyId') };
     }
 
-    // 1) strategy_data は * で取得
+    // 1) strategy_data は * で取得（列増減耐性のため *）
     const baseRes = await supabase
       .from(T_STRATEGY)
       .select('*')
@@ -290,22 +302,16 @@ export async function getFullStrategyDataByCompany(companyId: string): Promise<R
       .limit(1)
       .maybeSingle();
 
-    console.log('[StrategyData] 📄 Supabase raw response:', baseRes);
-
     if (baseRes.error) {
-      const err = extractErrorVerbose(baseRes.error);
-      console.error('[StrategyData] ❌ DB error:', err);
-      return { data: null, error: err };
+      return { data: null, error: extractErrorVerbose(baseRes.error) };
     }
     if (!baseRes.data) {
-      console.warn('[StrategyData] ⚠️ No strategy_data found for company_id:', companyId);
       return { data: null, error: null };
     }
 
     const rowData = baseRes.data ?? {};
-    console.log('[StrategyData] 🧩 DB row data:', rowData);
 
-    // 2) 分離テーブルを並列取得
+    // 2) 分離テーブルを並列取得（存在すれば読み込み時のみ合流）
     const [ansRes, finRes] = await Promise.allSettled([
       supabase.from(T_STORY_ANSWERS)
         .select('*')
@@ -318,32 +324,28 @@ export async function getFullStrategyDataByCompany(companyId: string): Promise<R
     ]);
 
     const answers2Rows =
-      ansRes.status === 'fulfilled' ? (ansRes.value.data ?? []) : (console.warn('[StrategyData] ⚠ story_answers2 fetch skipped:', ansRes.reason), []);
+      ansRes.status === 'fulfilled' ? (ansRes.value.data ?? []) : [];
     const finalStoryRows =
-      finRes.status === 'fulfilled' ? (finRes.value.data ?? []) : (console.warn('[StrategyData] ⚠ final_stories fetch skipped:', finRes.reason), []);
+      finRes.status === 'fulfilled' ? (finRes.value.data ?? []) : [];
 
     // 3) strategy_data -> state
     const state = buildStateFromDbRow(rowData);
 
-    // 4) 分離テーブルを state に流し込む（最新優先）
+    // 4) 分離テーブルを state に流し込む（最新優先／既にstateにあれば尊重）
     const latestAnswers = answers2Rows[0]?.answers2 ?? answers2Rows[0]?.steps ?? [];
     const latestFinal = finalStoryRows[0]?.final_story ?? finalStoryRows[0]?.story ?? [];
     state.answers2 = ensureArray(state.answers2).length ? state.answers2 : ensureArray(latestAnswers);
     state.finalStory = ensureArray(state.finalStory).length ? state.finalStory : ensureArray(latestFinal);
 
-    console.log('[StrategyData] ✅ Normalized state:', state);
     return { data: state, error: null };
   } catch (e) {
-    const err = extractErrorVerbose(e);
-    console.error('[StrategyData] ❌ Fatal error in getFullStrategyDataByCompany:', err);
-    return { data: null, error: err };
+    return { data: null, error: extractErrorVerbose(e) };
   }
 }
 
 /* ============================================================
  * 保存（空保存抑止＋楽観ロック）
- *  - revision列があれば revision ロック、無ければ updated_at ロックを使う
- *  - 分離テーブル化した列は strategy_data へ書かない
+ *  - revision列があれば revision ロック、無ければ updated_at ロック
  * ============================================================ */
 export async function saveStrategyData(
   state: StrategyData,
@@ -365,15 +367,13 @@ export async function saveStrategyData(
 
     const baseRow = buildDbRowFromState(state);
 
-    // 既存行の有無（*で取得して列の有無を確認）
+    // 既存行の有無
     let existingRow: any | null = null;
     try {
       const existingRes = await fetchExistingRow(cleanCompanyId);
       existingRow = existingRes.data ?? null;
     } catch (e) {
-      const err = extractErrorVerbose(e);
-      console.error('[StrategyData] ❌ check existing error:', err);
-      return { data: null, error: err };
+      return { data: null, error: extractErrorVerbose(e) };
     }
 
     const hasRevision: boolean =
@@ -421,15 +421,8 @@ export async function saveStrategyData(
       }
 
       const upd = await q.select(selectAfter).single();
-
       if (upd.error) {
-        const err = extractErrorVerbose(upd.error);
-        if (err.code === 'PGRST116' || err.status === 406 || err.status === 409) {
-          console.error('[StrategyData] ⚠️ save conflict (stale).', { expectedRev, currentRev, currentUpdatedAt });
-          return { data: null, error: { ...err, message: 'conflict: stale state' } };
-        }
-        console.error('[StrategyData] ❌ update error:', err);
-        return { data: null, error: err };
+        return { data: null, error: extractErrorVerbose(upd.error) };
       }
 
       const stateAfter = buildStateFromDbRow(upd.data ?? {});
@@ -453,35 +446,102 @@ export async function saveStrategyData(
       .single();
 
     if (ins.error) {
-      const err = extractErrorVerbose(ins.error);
-      console.error('[StrategyData] ❌ insert error:', err, 'rawRes:', safeStringify(ins));
-      return { data: null, error: err };
+      return { data: null, error: extractErrorVerbose(ins.error) };
     }
 
     const stateAfter = buildStateFromDbRow(ins.data ?? {});
     return { data: stateAfter, error: null };
   } catch (error) {
-    const err = extractErrorVerbose(error);
-    console.error('[StrategyData] ❌ saveStrategyData fatal:', err);
-    return { data: null, error: err };
+    return { data: null, error: extractErrorVerbose(error) };
   }
 }
 
 /* ============================================================
- * 削除
+ * 削除（統一化後の標準：子→親）
  * ============================================================ */
 export async function deleteStrategyData(userId: string): Promise<WriteResult> {
   console.log('[StrategyData] 🗑 deleteStrategyData called for', userId);
   try {
     const companyId = await resolveCompanyId(userId, null);
-    await supabase.from(T_PROGRESS).delete().eq('company_id', companyId);
+
+    // 1) 子テーブルから先に削除（冪等）
+    const delAns = await supabase.from(T_STORY_ANSWERS).delete().eq('company_id', companyId);
+    if (delAns.error && delAns.error.code !== 'PGRST116') {
+      console.warn('[StrategyData] ⚠ story_answers2 delete warn:', extractErrorVerbose(delAns.error));
+    }
+    const delFinal = await supabase.from(T_FINAL_STORIES).delete().eq('company_id', companyId);
+    if (delFinal.error && delFinal.error.code !== 'PGRST116') {
+      console.warn('[StrategyData] ⚠ final_stories delete warn:', extractErrorVerbose(delFinal.error));
+    }
+
+    // 2) 進捗ログも掃除
+    const delProg = await supabase.from(T_PROGRESS).delete().eq('company_id', companyId);
+    if (delProg.error && delProg.error.code !== 'PGRST116') {
+      console.warn('[StrategyData] ⚠ progress_logs delete warn:', extractErrorVerbose(delProg.error));
+    }
+
+    // 3) 親テーブル（strategy_data）を削除
     const del = await supabase.from(T_STRATEGY).delete().eq('company_id', companyId);
     if (del.error) return { error: extractErrorVerbose(del.error) };
+
     console.log('[StrategyData] ✅ delete success for companyId:', companyId);
     return { error: null };
   } catch (error) {
-    console.error('[StrategyData] ❌ deleteStrategyData fatal:', error);
     return { error: extractErrorVerbose(error) };
+  }
+}
+
+/* ============================================================
+ * 全削除（会社スコープの完全掃除：レガシー含む）
+ *  - 依存の少ない順に削除し、最後に strategy_data
+ *  - 失敗は収集して返す（冪等）
+ * ============================================================ */
+export async function deleteAllCompanyData(userId: string, companyIdOverride?: string | null) {
+  const companyId = await resolveCompanyId(userId, companyIdOverride);
+  const tablesInOrder = [
+    T_PROGRESS,
+    T_STORY_ANSWERS,
+    T_FINAL_STORIES,
+    ...T_LEGACY,
+    T_STRATEGY,
+  ];
+
+  const errors: Array<{ table: string; error: any }> = [];
+  for (const t of tablesInOrder) {
+    try {
+      const r = await supabase.from(t).delete().eq('company_id', companyId);
+      if (r.error && r.error.code !== 'PGRST116') {
+        errors.push({ table: t, error: extractErrorVerbose(r.error) });
+      }
+    } catch (e) {
+      errors.push({ table: t, error: extractErrorVerbose(e) });
+    }
+  }
+
+  if (errors.length) {
+    console.warn('[deleteAllCompanyData] some tables failed to delete', errors);
+    return { ok: false, errors };
+  }
+  console.log('[deleteAllCompanyData] ✅ wiped for company_id=', companyId);
+  return { ok: true };
+}
+
+/* ============================================================
+ * レガシーテーブル削除（任意の掃除用ユーティリティ）
+ * ============================================================ */
+export async function purgeLegacyTables(userId: string, companyIdOverride?: string | null) {
+  const companyId = await resolveCompanyId(userId, companyIdOverride);
+  for (const t of T_LEGACY) {
+    try {
+      const res = await supabase.from(t).delete().eq('company_id', companyId);
+      if (res.error && res.error.code !== 'PGRST116') {
+        console.warn(`[LegacyPurge] ${t} delete warn:`, extractErrorVerbose(res.error));
+      } else {
+        console.log(`[LegacyPurge] ${t} deleted for company_id=${companyId}`);
+      }
+    } catch (e) {
+      console.warn(`[LegacyPurge] ${t} fatal:`, extractErrorVerbose(e));
+    }
   }
 }
 
@@ -534,8 +594,6 @@ export async function appendSimulationResultToStrategy(
       simulationResult: payload,
     };
 
-    console.log('[StrategyData] 🧩 simulation patch:', patch);
-
     const rev = (existing as any)?.revision;
     return await saveStrategyData(
       patch as unknown as StrategyData,
@@ -544,7 +602,6 @@ export async function appendSimulationResultToStrategy(
       typeof rev === 'number' ? rev : undefined
     );
   } catch (error) {
-    console.error('[StrategyData] ❌ appendSimulationResultToStrategy fatal:', error);
     return { error: extractErrorVerbose(error) };
   }
 }
@@ -576,9 +633,7 @@ export async function getSimulationResults(
       .maybeSingle();
 
     if (error) {
-      const err = extractErrorVerbose(error);
-      console.error('[StrategyData] ❌ getSimulationResults DB error:', err);
-      return { rows: [], error: err };
+      return { rows: [], error: extractErrorVerbose(error) };
     }
 
     const rowsAll: SimulationResultRow[] = ensureArray<SimulationResultRow>(data?.simulation_results);
@@ -589,8 +644,54 @@ export async function getSimulationResults(
 
     return { rows, error: null };
   } catch (e) {
-    const err = extractErrorVerbose(e);
-    console.error('[StrategyData] ❌ getSimulationResults fatal:', err);
-    return { rows: [], error: err };
+    return { rows: [], error: extractErrorVerbose(e) };
+  }
+}
+
+/* ============================================================
+ * 進捗ログ保存（INSERT）
+ *  - /app/execution/page.tsx から呼び出し
+ *  - このモジュールからは supabase をエクスポートしない
+ * ============================================================ */
+export async function saveProgressLog(input: ProgressLogInput): Promise<{ data: any | null; error: any | null }> {
+  try {
+    const {
+      userId,
+      okrId,
+      projectId = null,
+      departmentId = null,
+      companyIdOverride = null,
+      content,
+      status = null,
+      score = null,
+      createdAt,
+    } = input;
+
+    const companyId = await resolveCompanyId(userId, companyIdOverride);
+
+    const row = {
+      user_id: userId,
+      company_id: companyId,
+      okr_id: okrId,
+      project_id: projectId,
+      department_id: departmentId,
+      content,
+      status,
+      score,
+      ...(createdAt ? { created_at: createdAt } : {}),
+    };
+
+    const { data, error } = await supabase
+      .from(T_PROGRESS)
+      .insert(row)
+      .select('*')
+      .single();
+
+    if (error) {
+      return { data: null, error: extractErrorVerbose(error) };
+    }
+    return { data, error: null };
+  } catch (e) {
+    return { data: null, error: extractErrorVerbose(e) };
   }
 }
