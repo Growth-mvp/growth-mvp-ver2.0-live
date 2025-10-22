@@ -246,79 +246,117 @@ export function normalizeDepartmentsAny(input: unknown): NormalizedDepartment[] 
 
 /* =====================================================================
  * finance / business_portfolio 正規化
+ * 重要: 「空」は undefined を返す（＝保存スキップを誘導）
  * ===================================================================== */
 function normalizeCsvFinanceDataLoose(input: unknown): any[] | undefined {
   if (input == null) return undefined;
-  if (Array.isArray(input)) return input as any[];
+  if (Array.isArray(input)) return (input.length > 0 ? input : undefined) as any[] | undefined;
+
   const parsed = parseIfJsonString<any>(input);
-  if (Array.isArray(parsed)) return parsed;
+
+  if (Array.isArray(parsed)) return (parsed.length > 0 ? parsed : undefined);
 
   if (typeof input === 'string') {
     const text = input.trim();
-    if (!text) return [];
+    if (!text) return undefined;
     const rows = text
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean)
       .map((line) => line.split(',').map((cell) => cell.trim()));
-    return rows;
+    return rows.length > 0 ? rows : undefined;
   }
-  if (typeof parsed === 'object' && parsed) return [parsed];
+
+  if (typeof parsed === 'object' && parsed) return [parsed]; // 1行だけだった場合に配列化
   return undefined;
 }
 
-function normalizeBusinessPortfolio(input: unknown): Record<string, any> | {} {
-  if (input == null) return {};
+type PortfolioLike = {
+  units?: unknown;
+  threshold?: { growthBaseline?: unknown; profitBaseline?: unknown };
+  currency?: unknown;
+  periodLabel?: unknown;
+  unitType?: unknown;
+};
+
+function normalizeBusinessPortfolio(input: unknown): Record<string, any> | undefined {
+  if (input == null) return undefined;
   const p = parseIfJsonString<Record<string, any>>(input);
-  return p && typeof p === 'object' && !Array.isArray(p) ? p : {};
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return undefined;
+
+  const bp = p as PortfolioLike;
+
+  // 最低限の妥当性: units 配列が存在し、中身が1件以上ある
+  const validUnits = Array.isArray(bp.units) && bp.units.length > 0;
+
+  // オプション: しきい値や付帯情報も最低限チェック
+  const th = bp.threshold || {};
+  const validThreshold =
+    typeof th.growthBaseline === 'number' && typeof th.profitBaseline === 'number';
+
+  const validMeta =
+    typeof bp.currency === 'string' &&
+    typeof bp.periodLabel === 'string' &&
+    typeof bp.unitType === 'string';
+
+  // 単に {} や構造が未完成のものは undefined（保存スキップ）へ
+  if (!validUnits) return undefined;
+
+  // units が妥当であれば、残りは UI/保存側で補完可能なので通す
+  return p;
 }
 
 /**
- * finance_summary 正規化（常に配列を返す）
- * - 新: 配列
- * - 旧: { items: [...] } / { 2023: {...}, 2024: {...} }
- * - その他: 空配列
+ * finance_summary 正規化
+ * 返り値:
+ *  - 有効配列: 配列 (items/年度Key形式を配列化)
+ *  - 空または無効: undefined（保存スキップ）
  */
-function normalizeFinanceSummaryObject(input: unknown): any[] {
-  if (input == null) return [];
+function normalizeFinanceSummaryObject(input: unknown): any[] | undefined {
+  if (input == null) return undefined;
   const p = parseIfJsonString<any>(input);
 
   // 既に配列
-  if (Array.isArray(p)) return p;
+  if (Array.isArray(p)) return p.length > 0 ? p : undefined;
 
   // 旧仕様: { items: [...] }
   if (p && typeof p === 'object' && Array.isArray((p as any).items)) {
-    return (p as any).items;
+    const arr = (p as any).items;
+    return arr.length > 0 ? arr : undefined;
   }
 
   // 年度をキーに持つ旧形式 { 2023: {...}, 2024: {...} }
   if (p && typeof p === 'object') {
     const entries = Object.entries(p as Record<string, any>);
-    if (entries.every(([k, v]) => typeof v === 'object')) {
-      return entries.map(([year, data]) => ({ year: Number(year), ...data }));
+    if (entries.length > 0 && entries.every(([, v]) => typeof v === 'object')) {
+      const arr = entries.map(([year, data]) => ({ year: Number(year), ...data }));
+      return arr.length > 0 ? arr : undefined;
     }
   }
 
-  return [];
+  return undefined;
 }
 
 /* =====================================================================
  * StrategyData 正規化（全体）
+ * 重要: 「空」は undefined にして保存スキップを誘導
  * ===================================================================== */
-export function normalizeStrategyData(
-  input: StrategyData | unknown | null
-): StrategyData {
+export function normalizeStrategyData(input: StrategyData | unknown | null): StrategyData {
   const src: any = { ...(input ?? {}) };
 
   const story = normalizeChaptersAny(getEither(src, 'story', 'story'));
   const finalStory = normalizeChaptersAny(getEither(src, 'finalStory', 'final_story'));
   const answers2 = asArr<any>(getEither(src, 'answers2', 'answers2'));
   const departments = normalizeDepartmentsAny(getEither(src, 'departments', 'departments'));
-  const csvFinanceData = normalizeCsvFinanceDataLoose(getEither(src, 'csvFinanceData', 'csv_finance_data'));
+
+  const csvFinanceData = normalizeCsvFinanceDataLoose(
+    getEither(src, 'csvFinanceData', 'csv_finance_data')
+  );
 
   const businessPortfolio = normalizeBusinessPortfolio(
     getEither(src, 'businessPortfolio', 'business_portfolio')
   );
+
   const financeSummary = normalizeFinanceSummaryObject(
     getEither(src, 'financeSummary', 'finance_summary')
   );
@@ -329,9 +367,10 @@ export function normalizeStrategyData(
     finalStory,
     answers2,
     departments,
-    csvFinanceData,
-    businessPortfolio,
-    financeSummary,
+    // ⬇ 空は undefined（＝保存スキップ方針）
+    ...(csvFinanceData !== undefined ? { csvFinanceData } : {}),
+    ...(businessPortfolio !== undefined ? { businessPortfolio } : {}),
+    ...(financeSummary !== undefined ? { financeSummary } : {}),
   };
 
   return out as StrategyData;
