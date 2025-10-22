@@ -9,13 +9,7 @@ import DepartmentQuestionStepper, {
   type OKR as DeptOKR,
 } from '@/components/guide/QuestionStepper.dept';
 import { Button } from '@/components/ui/button';
-import {
-  PlusCircle,
-  Save,
-  Sparkles,
-  Building2,
-  FileText,
-} from 'lucide-react';
+import { PlusCircle, Save, Sparkles, Building2, FileText } from 'lucide-react';
 
 // 依存
 import { useAutoSave } from '@/hooks/useAutoSave';
@@ -63,17 +57,7 @@ type Department = BaseDepartment & {
    共通ヘルパ
 ========================================================= */
 function escapeHtml(s: string) {
-  return String(s ?? '').replace(
-    /[&<>"']/g,
-    (m) =>
-      ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#39;',
-      }[m]!),
-  );
+  return String(s ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]!));
 }
 function nl2brSafe(s?: string) {
   return s ? escapeHtml(s).replace(/\r?\n/g, '<br>') : '';
@@ -99,23 +83,16 @@ const jsonEq = (a: any, b: any) => JSON.stringify(a ?? null) === JSON.stringify(
 ========================================================= */
 function isNonEmptyStoryPayload(v: any): boolean {
   if (!v) return false;
-  if (Array.isArray(v))
-    return v.some((c) => (c.title ?? '').trim() || (c.body ?? '').trim());
+  if (Array.isArray(v)) return v.some((c) => (c.title ?? '').trim() || (c.body ?? '').trim());
   if (typeof v === 'string') return v.trim().length > 0;
   return false;
 }
-
 function getStory(raw: any) {
   if (Array.isArray(raw) && raw.length) {
     const chapters = raw
-      .map((c: any, i: number) => ({
-        title: c?.title?.trim() || `Chapter ${i + 1}`,
-        body: c?.body ?? '',
-      }))
+      .map((c: any, i: number) => ({ title: c?.title?.trim() || `Chapter ${i + 1}`, body: c?.body ?? '' }))
       .filter((c) => c.title.trim() || c.body.trim());
-    const text = chapters
-      .map((c, i) => `【第${i + 1}章】${c.title}\n${c.body}`)
-      .join('\n\n');
+    const text = chapters.map((c, i) => `【第${i + 1}章】${c.title}\n${c.body}`).join('\n\n');
     return { text, chapters };
   }
   if (typeof raw === 'string' && raw.trim()) {
@@ -123,12 +100,8 @@ function getStory(raw: any) {
     const lines = text.split(/\r?\n/);
     const chunkSize = Math.ceil(lines.length / 4);
     const chunks: string[] = [];
-    for (let i = 0; i < lines.length; i += chunkSize)
-      chunks.push(lines.slice(i, i + chunkSize).join('\n'));
-    const chapters = chunks.map((body, i) => ({
-      title: `Chapter ${i + 1}`,
-      body,
-    }));
+    for (let i = 0; i < lines.length; i += chunkSize) chunks.push(lines.slice(i, i + chunkSize).join('\n'));
+    const chapters = chunks.map((body, i) => ({ title: `Chapter ${i + 1}`, body }));
     return { text, chapters };
   }
   return { text: '', chapters: [] };
@@ -150,19 +123,10 @@ function toDeptAnswers(steps: StoreAnswerStep[] | undefined): DeptAnswerStep[] {
   );
 }
 function toStoreSteps(answers: DeptAnswerStep[]): StoreAnswerStep[] {
-  return answers.map((a) => ({
-    stepNumber: a.stepNumber,
-    question: a.question,
-    reason: a.reason,
-    answer: a.answer,
-  }));
+  return answers.map((a) => ({ stepNumber: a.stepNumber, question: a.question, reason: a.reason, answer: a.answer }));
 }
 function toStoreOKR(o: DeptOKR): StoreOKR {
-  return {
-    objective: (o.objective ?? '').trim(),
-    keyResults: o.keyResults?.filter(Boolean) ?? [],
-    owner: o.owner?.trim() || undefined,
-  };
+  return { objective: (o.objective ?? '').trim(), keyResults: o.keyResults?.filter(Boolean) ?? [], owner: o.owner?.trim() || undefined };
 }
 
 /* =========================================================
@@ -189,24 +153,17 @@ function makeSaveSnapshot(s: any) {
 }
 function hashSnapshot(obj: any) {
   const s = JSON.stringify(obj ?? {});
-  let h = 5381; for (let i = 0; i < s.length; i++) h = (h * 33) ^ s.charCodeAt(i);
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = (h * 33) ^ s.charCodeAt(i);
   return (h >>> 0).toString(16);
 }
 
 /* =========================================================
    シグナル抽出（簡易）
 ========================================================= */
-function extractSignals(params: {
-  industry?: string;
-  mission?: string;
-  answers?: DeptAnswerStep[];
-}) {
+function extractSignals(params: { industry?: string; mission?: string; answers?: DeptAnswerStep[] }) {
   const { industry, mission = '', answers = [] } = params;
-
-  const text = [mission, ...answers.map((a) => a.answer || '')]
-    .join('\n')
-    .toLowerCase();
-
+  const text = [mission, ...answers.map((a) => a.answer || '')].join('\n').toLowerCase();
   const has = (ks: string[]) => ks.some((k) => text.includes(k.toLowerCase()));
 
   const goals: string[] = [];
@@ -263,7 +220,9 @@ function renderOKRJa(okr?: { objective?: string; keyResults?: string[]; owner?: 
       {objective && <div className="text-sm font-medium">達成目標：{objective}</div>}
       {krs.length > 0 && (
         <ul className="list-disc pl-5 text-sm mt-1 space-y-1">
-          {krs.map((kr, i) => <li key={i}>主要な成果：{kr}</li>)}
+          {krs.map((kr, i) => (
+            <li key={i}>主要な成果：{kr}</li>
+          ))}
         </ul>
       )}
     </div>
@@ -282,10 +241,11 @@ export default function CascadePage() {
     hydrated,
     setCompanyScope,
     refetchFromServer, // store の再取得API
-    setHydrated,       // 明示的にhydratedを立てる（互換）
-    boot,              // { isHydrating, isHydrated } 想定
+    setHydrated, // 明示的にhydratedを立てる（互換）
+    boot, // { isHydrating, isHydrated } 想定
     saveStrategyData: saveNow,
     lastServerSnapshot,
+    setDepartments: setDepartmentsInStore, // ← 公式 setter を使用
   } = useStrategyStore();
 
   // 権限API
@@ -301,10 +261,7 @@ export default function CascadePage() {
   );
 
   // 業種
-  const industry: string =
-    (s?.industry as string) ||
-    (s?.company?.industry as string) ||
-    '';
+  const industry: string = (s?.industry as string) || (s?.company?.industry as string) || '';
 
   /* ---------------- デバッグログ ---------------- */
   useEffect(() => {
@@ -317,17 +274,12 @@ export default function CascadePage() {
 
   /* =========================================================
      会社スコープ確立（StrictMode対策）
-     - 切替時は reset → scope 再適用
-     - 同一IDへの再適用は no-op
-     - 無限ループ防止：useRef で一度だけ適用
   ========================================================= */
   const lastAppliedCompanyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!accessCompanyId) return;
 
-    if (lastAppliedCompanyRef.current === accessCompanyId) {
-      return;
-    }
+    if (lastAppliedCompanyRef.current === accessCompanyId) return;
 
     console.log('[cascade] effect → setCompanyScope', { scopeCompanyId, accessCompanyId });
 
@@ -417,23 +369,52 @@ export default function CascadePage() {
     };
 
     run();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [accessCompanyId, hydrated, scopeCompanyId, refetchFromServer, setHydrated, lastServerSnapshot, setCompanyScope]);
 
-  // useAutoSave は deps 必須（companyIdと部門）
-  const [departments, setDepartments] = useState<Department[]>(Array.isArray(s?.departments) ? (s.departments as Department[]) : []);
+  /* =========================================================
+     ローカル departments とストアの同期
+     - ハイドレーション中に自動保存させない
+     - ストアが undefined / [] どちらでもローカルを空へ
+     - 会社切替や全削除直後はローカルを即リセット
+  ========================================================= */
+  const [departments, setDepartments] = useState<Department[]>(
+    Array.isArray(s?.departments) ? (s.departments as Department[]) : []
+  );
   const depsRef = useRef(departments);
-  useEffect(() => { depsRef.current = departments; }, [departments]);
-  useAutoSave([accessCompanyId, departments]); // ← companyIdスコープに紐付け
+  useEffect(() => {
+    depsRef.current = departments;
+  }, [departments]);
 
-  // Storeのdepartments変更を画面に同期（外部更新時に追従）→ 差分がある時だけ
+  // ★ ハイドレーション完了時のみ自動保存を有効化
+  useAutoSave(hydrated && !boot?.isHydrating ? [accessCompanyId, departments] : []);
+
+  // ストア側の departments を監視してローカルに反映
   const storeDepartments = useStrategyStore((st) => st.departments) as Department[] | undefined;
   useEffect(() => {
-    if (!Array.isArray(storeDepartments)) return;
-    setDepartments((prev) => (jsonEq(prev, storeDepartments) ? prev : (storeDepartments as Department[])));
+    // undefined or [] → ローカルも空へ
+    if (!Array.isArray(storeDepartments) || storeDepartments.length === 0) {
+      if (departments.length !== 0) setDepartments([]);
+      return;
+    }
+    // 差分があれば置き換える
+    if (!jsonEq(departments, storeDepartments)) {
+      setDepartments(storeDepartments as Department[]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeDepartments]);
 
-  // 読み込み状態（boot の状態も見る）
+  // 会社切替/全削除後（boot.isHydrating になった瞬間）にローカル即初期化
+  useEffect(() => {
+    if (boot?.isHydrating) {
+      if (departments.length) setDepartments([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boot?.isHydrating]);
+
+  // 読み込み状態
   const isHydrating =
     Boolean(boot?.isHydrating) ||
     !hydrated ||
@@ -445,18 +426,16 @@ export default function CascadePage() {
     if (isNonEmptyStoryPayload(s?.strategyStory)) return s.strategyStory;
     return '';
   }, [s?.finalStory, s?.story, s?.strategyStory]);
-  const { text: storyText, chapters: storyChapters } = useMemo(
-    () => getStory(rawStory),
-    [rawStory],
-  );
+  const { text: storyText, chapters: storyChapters } = useMemo(() => getStory(rawStory), [rawStory]);
 
-  const pushToStore = useCallback((next: Department[]) => {
-    setDepartments(next);
-    useStrategyStore.setState((prev: any) => ({
-      ...prev,
-      departments: next,
-    }));
-  }, []);
+  // ★ ストア更新は公式 setter を使う（正規化＆保存統一化）
+  const pushToStore = useCallback(
+    (next: Department[]) => {
+      setDepartments(next);
+      setDepartmentsInStore?.(next);
+    },
+    [setDepartmentsInStore]
+  );
 
   const [activeTab, setActiveTab] = useState<'edit' | 'visual'>('edit');
   const [notice, setNotice] = useState('');
@@ -499,14 +478,23 @@ export default function CascadePage() {
   useEffect(() => {
     const flush = async () => {
       const st = useStrategyStore.getState();
-      if (st.boot?.isHydrating) return;
+      // ハイドレーション中は保存しない
+      if (st.boot?.isHydrating || !st.boot?.isHydrated) return;
       const snap = makeSaveSnapshot(st);
       const hash = hashSnapshot(snap);
       if (st.lastServerSnapshot && st.lastServerSnapshot === hash) return; // 変更なし
-      try { await saveNow(); } catch (e) { console.warn('[cascade] flush save failed', e); }
+      try {
+        await saveNow();
+      } catch (e) {
+        console.warn('[cascade] flush save failed', e);
+      }
     };
-    const onBeforeUnload = () => { void flush(); };
-    const onPageHide = () => { void flush(); };
+    const onBeforeUnload = () => {
+      void flush();
+    };
+    const onPageHide = () => {
+      void flush();
+    };
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') void flush();
     };
@@ -529,11 +517,7 @@ export default function CascadePage() {
       return;
     }
     const answers: DeptAnswerStep[] = toDeptAnswers(dept.answers2?.[0]?.steps);
-    const signals = extractSignals({
-      industry,
-      mission: dept.strategy ?? dept.mission ?? '',
-      answers,
-    });
+    const signals = extractSignals({ industry, mission: dept.strategy ?? dept.mission ?? '', answers });
 
     setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), recommend: true } }));
     try {
@@ -569,11 +553,7 @@ export default function CascadePage() {
       return;
     }
     const answers: DeptAnswerStep[] = toDeptAnswers(dept.answers2?.[0]?.steps);
-    const signals = extractSignals({
-      industry,
-      mission: dept.strategy ?? dept.mission ?? '',
-      answers,
-    });
+    const signals = extractSignals({ industry, mission: dept.strategy ?? dept.mission ?? '', answers });
 
     setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), recommendExec: true } }));
     try {
@@ -613,9 +593,7 @@ export default function CascadePage() {
       (dept.recommendedExecPatterns?.map((p) => p.id) ?? []).length
         ? dept.recommendedExecPatterns!.map((p) => p.id)
         : mapTopToExecIds(
-            (dept.recommendedPatterns ?? [])
-              .map((p) => p.id as TopPatternId)
-              .filter(Boolean) as TopPatternId[],
+            (dept.recommendedPatterns ?? []).map((p) => p.id as TopPatternId).filter(Boolean) as TopPatternId[]
           );
 
     if (!execIds.length) {
@@ -631,17 +609,13 @@ export default function CascadePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           execIds,
-          context: {
-            departmentName: dept.name,
-            industry,
-            mission: dept.strategy ?? dept.mission ?? '',
-          },
+          context: { departmentName: dept.name, industry, mission: dept.strategy ?? dept.mission ?? '' },
         }),
       });
       const text = await res.text();
-      const data = safeJsonFromText<{
-        items: { id: string; title: string; okr: { objective: string; keyResults: string[]; owner?: string } }[];
-      }>(text) ?? { items: [] };
+      const data = safeJsonFromText<{ items: { id: string; title: string; okr: { objective: string; keyResults: string[]; owner?: string } }[] }>(text) ?? {
+        items: [],
+      };
 
       if (!data.items?.length) {
         setNotice('⚠️ OKR雛形が生成されませんでした');
@@ -667,16 +641,7 @@ export default function CascadePage() {
             projects[existIdx] = exist;
           }
         } else {
-          projects.push({
-            title,
-            okrs: [
-              {
-                objective: okr.objective,
-                keyResults: okr.keyResults ?? [],
-                owner: okr.owner,
-              },
-            ],
-          } as Project);
+          projects.push({ title, okrs: [{ objective: okr.objective, keyResults: okr.keyResults ?? [], owner: okr.owner }] } as Project);
         }
       }
 
@@ -701,10 +666,7 @@ export default function CascadePage() {
       setNotice('⚠️ 編集権限がありません');
       return;
     }
-    const steps =
-      dept.answers2?.[0]?.steps && dept.answers2[0].steps.length > 0
-        ? dept.answers2[0].steps
-        : [];
+    const steps = dept.answers2?.[0]?.steps && dept.answers2[0].steps.length > 0 ? dept.answers2[0].steps : [];
     if (steps.length < 3 || steps.some((s) => !(s.answer ?? '').trim())) {
       setNotice('⚠️ 3問すべて回答してください');
       return;
@@ -718,12 +680,7 @@ export default function CascadePage() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          departmentName: dept.name,
-          story,
-          answers: steps,
-          industry,
-        }),
+        body: JSON.stringify({ departmentName: dept.name, story, answers: steps, industry }),
       });
       const text = await res.text();
       const data = safeJsonFromText<any>(text) ?? {};
@@ -733,10 +690,7 @@ export default function CascadePage() {
       const nextMission = data.mission ?? d.mission ?? '';
       const nextProjects: Project[] = (data.projects ?? []).map((t: string) => ({
         title: t,
-        okrs:
-          data.okrs && data.okrs[0]
-            ? [toStoreOKR(data.okrs[0] as DeptOKR)]
-            : [],
+        okrs: data.okrs && data.okrs[0] ? [toStoreOKR(data.okrs[0] as DeptOKR)] : [],
       }));
 
       let changed = false;
@@ -767,8 +721,7 @@ export default function CascadePage() {
 
   /* ================= ビジュアルビュー ================= */
   const VisualView = useMemo(() => {
-    if (!departments.length)
-      return <div className="text-zinc-600">部門がまだ登録されていません。</div>;
+    if (!departments.length) return <div className="text-zinc-600">部門がまだ登録されていません。</div>;
     return (
       <div className="grid md:grid-cols-2 gap-6">
         {departments.map((d, i) => (
@@ -777,23 +730,18 @@ export default function CascadePage() {
               <h3 className="font-semibold flex items-center gap-2">
                 <Building2 className="w-4 h-4" /> {d.name}
               </h3>
-              {d.finalized && (
-                <span className="text-xs bg-zinc-900 text-white rounded-full px-2 py-1">確定済み</span>
-              )}
+              {d.finalized && <span className="text-xs bg-zinc-900 text-white rounded-full px-2 py-1">確定済み</span>}
             </div>
             <p className="text-sm text-zinc-700 mb-2">{d.strategy ?? d.mission}</p>
 
-            {!!(d.recommendedPatterns?.length) && (
+            {!!d.recommendedPatterns?.length && (
               <div className="mb-2">
                 <div className="text-xs text-zinc-500 mb-1">推奨パターン（t系）</div>
                 <div className="flex flex-wrap gap-2">
                   {d.recommendedPatterns!.map((p, idx) => (
-                    <span
-                      key={p.id + idx}
-                      className="text-xs px-2 py-1 rounded-full border bg-indigo-50 text-indigo-800"
-                      title={(p.why || []).join(' / ')}
-                    >
-                      {p.title ?? p.id}{p.score != null ? `（${p.score}）` : ''}
+                    <span key={p.id + idx} className="text-xs px-2 py-1 rounded-full border bg-indigo-50 text-indigo-800" title={(p.why || []).join(' / ')}>
+                      {p.title ?? p.id}
+                      {p.score != null ? `（${p.score}）` : ''}
                     </span>
                   ))}
                 </div>
@@ -804,11 +752,7 @@ export default function CascadePage() {
               <div className="mb-2">
                 <div className="text-xs text-zinc-500 mb-1">関連する実装候補（ブリッジ）</div>
                 <div className="flex flex-wrap gap-2">
-                  {mapTopToExecIds(
-                    d.recommendedPatterns
-                      .map((p) => p.id as TopPatternId)
-                      .filter(Boolean) as TopPatternId[],
-                  ).map((eid, idx) => (
+                  {mapTopToExecIds(d.recommendedPatterns.map((p) => p.id as TopPatternId).filter(Boolean) as TopPatternId[]).map((eid, idx) => (
                     <span key={eid + idx} className="text-xs px-2 py-1 rounded-full border bg-sky-50 text-sky-800">
                       {EXEC_TITLES[eid] ?? eid}
                     </span>
@@ -817,17 +761,14 @@ export default function CascadePage() {
               </div>
             )}
 
-            {!!(d.recommendedExecPatterns?.length) && (
+            {!!d.recommendedExecPatterns?.length && (
               <div className="mb-2">
                 <div className="text-xs text-zinc-500 mb-1">実装パターン（e系）</div>
                 <div className="flex flex-wrap gap-2">
                   {d.recommendedExecPatterns!.map((p, idx) => (
-                    <span
-                      key={p.id + idx}
-                      className="text-xs px-2 py-1 rounded-full border bg-emerald-50 text-emerald-800"
-                      title={(p.why || []).join(' / ')}
-                    >
-                      {p.title ?? p.id}{p.score != null ? `（${p.score}）` : ''}
+                    <span key={p.id + idx} className="text-xs px-2 py-1 rounded-full border bg-emerald-50 text-emerald-800" title={(p.why || []).join(' / ')}>
+                      {p.title ?? p.id}
+                      {p.score != null ? `（${p.score}）` : ''}
                     </span>
                   ))}
                 </div>
@@ -852,16 +793,9 @@ export default function CascadePage() {
 
   /* =========================================================
      map 内で Hooks を使わないための一括メモ化（安定参照）
-     - Stepper の initialAnswers / projects を安定化
   ========================================================= */
-  const answersMemo: DeptAnswerStep[][] = useMemo(
-    () => departments.map((d) => toDeptAnswers(d.answers2?.[0]?.steps)),
-    [departments]
-  );
-  const projectsMemo: string[][] = useMemo(
-    () => departments.map((d) => (d.projects?.map((p) => p.title) ?? [])),
-    [departments]
-  );
+  const answersMemo: DeptAnswerStep[][] = useMemo(() => departments.map((d) => toDeptAnswers(d.answers2?.[0]?.steps)), [departments]);
+  const projectsMemo: string[][] = useMemo(() => departments.map((d) => d.projects?.map((p) => p.title) ?? []), [departments]);
 
   /* ================= JSX ================= */
   return (
@@ -869,17 +803,12 @@ export default function CascadePage() {
       <header className="mb-8">
         <h1 className="text-[28px] font-semibold mb-2">STAGE 3：部門戦略策定</h1>
         <p className="text-zinc-600 text-sm">
-          経営ストーリーを基に、質問に答えながら各部門の
-          <b>ミッション・プロジェクト・OKR（達成目標/主要な成果）</b>を明確化します。
+          経営ストーリーを基に、質問に答えながら各部門の<b>ミッション・プロジェクト・OKR（達成目標/主要な成果）</b>を明確化します。
         </p>
       </header>
 
       {/* 読み込みインジケータ */}
-      {isHydrating && (
-        <div className="mb-8 rounded-xl border p-4 text-sm text-muted-foreground">
-          サーバーのデータを読み込み中です…
-        </div>
-      )}
+      {isHydrating && <div className="mb-8 rounded-xl border p-4 text-sm text-muted-foreground">サーバーのデータを読み込み中です…</div>}
 
       {/* ストーリー */}
       {!isHydrating && (
@@ -887,19 +816,14 @@ export default function CascadePage() {
           {storyChapters.length ? (
             <div className="grid md:grid-cols-2 gap-4">
               {storyChapters.map((ch, i) => (
-                <div key={i} className="p-4 border rounded-2xl bg-white/60 backdrop-blur-sm">
+                <div key={i} className="p-4 border rounded-2xl bg白/60 backdrop-blur-sm">
                   <h3 className="font-semibold">{ch.title}</h3>
-                  <div
-                    dangerouslySetInnerHTML={{ __html: nl2brSafe(ch.body) }}
-                    className="text-sm text-zinc-700 mt-1"
-                  />
+                  <div dangerouslySetInnerHTML={{ __html: nl2brSafe(ch.body) }} className="text-sm text-zinc-700 mt-1" />
                 </div>
               ))}
             </div>
           ) : (
-            <div className="p-4 bg-yellow-50 text-yellow-800 text-sm rounded-xl border border-yellow-200">
-              経営ストーリーが未設定です。
-            </div>
+            <div className="p-4 bg-yellow-50 text-yellow-800 text-sm rounded-xl border border-yellow-200">経営ストーリーが未設定です。</div>
           )}
         </section>
       )}
@@ -934,7 +858,9 @@ export default function CascadePage() {
             <input value={deptMission} onChange={(e) => setDeptMission(e.target.value)} placeholder="ミッション" className="border rounded-xl px-3 py-2" />
           </div>
           <div className="mt-4 flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => setShowForm(false)} className="rounded-full h-9 px-4">キャンセル</Button>
+            <Button variant="secondary" onClick={() => setShowForm(false)} className="rounded-full h-9 px-4">
+              キャンセル
+            </Button>
             <Button
               onClick={() => {
                 if (!deptName.trim()) return setNotice('⚠️ 部門名を入力してください');
@@ -952,7 +878,9 @@ export default function CascadePage() {
                 };
                 const next = [...depsRef.current, newDept];
                 pushToStore(next);
-                setDeptName(''); setDeptMission(''); setShowForm(false);
+                setDeptName('');
+                setDeptMission('');
+                setShowForm(false);
               }}
               className="rounded-full h-9 px-4"
             >
@@ -975,8 +903,8 @@ export default function CascadePage() {
             const L = loading[index] ?? {};
             const inlineDraft = (inlineEdit[index] ?? dept.strategy ?? dept.mission ?? '').toString();
 
-            const answers = answersMemo[index];        // ← 安定化済み
-            const projTitles = projectsMemo[index];    // ← 安定化済み
+            const answers = answersMemo[index];
+            const projTitles = projectsMemo[index];
             const allAnswered = answers.length >= 3 && answers.every((a) => (a.answer ?? '').trim().length > 0);
 
             // 既存 answers2 と今回 onChange 反映の等価判定で無限ループ抑止
@@ -1005,7 +933,7 @@ export default function CascadePage() {
                   <Button
                     variant="secondary"
                     onClick={() => handleRecommendPatterns(index)}
-                    disabled={!editableDept || !!(L.recommend) || isHydrating}
+                    disabled={!editableDept || !!L.recommend || isHydrating}
                     className="rounded-full h-9 px-4"
                     title="回答・ミッションから勝ちパターン（t系）を推薦"
                   >
@@ -1016,7 +944,7 @@ export default function CascadePage() {
                   <Button
                     variant="secondary"
                     onClick={() => handleRecommendExecPatterns(index)}
-                    disabled={!editableDept || !!(L.recommendExec) || isHydrating}
+                    disabled={!editableDept || !!L.recommendExec || isHydrating}
                     className="rounded-full h-9 px-4"
                     title="現場実装パターン（e系）を直接推薦"
                   >
@@ -1027,7 +955,7 @@ export default function CascadePage() {
                   <Button
                     variant="secondary"
                     onClick={() => handleOKRFromExec(index)}
-                    disabled={!editableDept || !!(L.okrGen) || isHydrating}
+                    disabled={!editableDept || !!L.okrGen || isHydrating}
                     className="rounded-full h-9 px-4"
                     title="実装パターンから OKR（達成目標/主要な成果）の雛形を自動生成"
                   >
@@ -1037,13 +965,14 @@ export default function CascadePage() {
                 </div>
 
                 {/* 推奨パターン（t系） */}
-                {!!(dept.recommendedPatterns?.length) && (
+                {!!dept.recommendedPatterns?.length && (
                   <div className="mb-3">
                     <div className="text-xs text-zinc-500 mb-1">推奨パターン（t系）</div>
                     <div className="flex flex-wrap gap-2">
                       {dept.recommendedPatterns!.map((p, idx) => (
                         <span key={p.id + idx} className="text-xs px-2 py-1 rounded-full border bg-indigo-50 text-indigo-800" title={(p.why || []).join(' / ')}>
-                          {p.title ?? p.id}{p.score != null ? `（${p.score}）` : ''}
+                          {p.title ?? p.id}
+                          {p.score != null ? `（${p.score}）` : ''}
                         </span>
                       ))}
                     </div>
@@ -1055,9 +984,7 @@ export default function CascadePage() {
                   <div className="mb-3">
                     <div className="text-xs text-zinc-500 mb-1">関連する実装候補（ブリッジ）</div>
                     <div className="flex flex-wrap gap-2">
-                      {mapTopToExecIds(
-                        dept.recommendedPatterns.map((p) => p.id as TopPatternId).filter(Boolean) as TopPatternId[],
-                      ).map((eid, idx) => (
+                      {mapTopToExecIds(dept.recommendedPatterns.map((p) => p.id as TopPatternId).filter(Boolean) as TopPatternId[]).map((eid, idx) => (
                         <span key={eid + idx} className="text-xs px-2 py-1 rounded-full border bg-sky-50 text-sky-800">
                           {EXEC_TITLES[eid] ?? eid}
                         </span>
@@ -1067,13 +994,14 @@ export default function CascadePage() {
                 )}
 
                 {/* 実装パターン（e系） */}
-                {!!(dept.recommendedExecPatterns?.length) && (
+                {!!dept.recommendedExecPatterns?.length && (
                   <div className="mb-3">
                     <div className="text-xs text-zinc-500 mb-1">実装パターン（e系）</div>
                     <div className="flex flex-wrap gap-2">
                       {dept.recommendedExecPatterns!.map((p, idx) => (
                         <span key={p.id + idx} className="text-xs px-2 py-1 rounded-full border bg-emerald-50 text-emerald-800" title={(p.why || []).join(' / ')}>
-                          {p.title ?? p.id}{p.score != null ? `（${p.score}）` : ''}
+                          {p.title ?? p.id}
+                          {p.score != null ? `（${p.score}）` : ''}
                         </span>
                       ))}
                     </div>
@@ -1091,7 +1019,7 @@ export default function CascadePage() {
                     if (!editableDept || isHydrating) return;
                     const nextSteps = toStoreSteps(answers);
                     if (jsonEq(nextSteps, currentStoreSteps)) {
-                      // 同一内容なら何もしない（無限ループ/再描画抑止）
+                      // 同一内容なら何もしない（無限ループ抑止）
                       return;
                     }
                     const next = [...depsRef.current];
@@ -1105,8 +1033,10 @@ export default function CascadePage() {
                     const next = [...depsRef.current];
                     const d = { ...next[index] };
                     const patch: Partial<Department> = {};
-                    if (mission && !jsonEq(mission, d.mission) ) {
-                      patch.mission = mission; patch.strategy = mission; patch.missionDraft = mission;
+                    if (mission && !jsonEq(mission, d.mission)) {
+                      patch.mission = mission;
+                      patch.strategy = mission;
+                      patch.missionDraft = mission;
                     }
                     if (projects?.length) {
                       const projList = projects.map((t) => ({ title: t, okrs: [] as StoreOKR[] }));
@@ -1114,7 +1044,7 @@ export default function CascadePage() {
                     }
                     if (okrs?.length) {
                       const add = { title: '初期OKR', okrs: [toStoreOKR(okrs[0])] };
-                      const merged = [ ...(patch.projects ?? d.projects ?? []), add ];
+                      const merged = [...(patch.projects ?? d.projects ?? []), add];
                       if (!jsonEq(merged, d.projects)) patch.projects = merged as any;
                     }
                     const changed = Object.keys(patch).length > 0;
@@ -1133,7 +1063,7 @@ export default function CascadePage() {
                       <Sparkles className="w-4 h-4" />
                       回答から <b>Mission / Projects / OKR（達成目標/主要な成果）</b> を生成できます（生成後に勝ちパターンも推薦）。
                     </div>
-                    <Button onClick={() => handleGenerateSummary(index)} disabled={!editableDept || !!(loading[index]?.summary)} className="rounded-full h-9 px-4">
+                    <Button onClick={() => handleGenerateSummary(index)} disabled={!editableDept || !!loading[index]?.summary} className="rounded-full h-9 px-4">
                       <FileText className="w-4 h-4 mr-2" />
                       {loading[index]?.summary ? '生成中…' : 'AI要約を生成'}
                     </Button>
