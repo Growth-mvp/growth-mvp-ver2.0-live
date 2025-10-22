@@ -28,6 +28,20 @@ const isAuthPath = (p?: string | null) => !!p && AUTH_PREFIXES.some((x) => p.sta
 const isAdminPath = (p?: string | null) => !!p && p.startsWith('/admin');
 
 /* ================================
+ * ★ 全削除フラグ（再生成ブロック）
+ * - /utils/supabase/strategy.ts 側とキー名を合わせる
+ * ============================== */
+const DELETION_FLAG_KEY = '__deleting_company__';
+function isCompanyDeleting(companyId?: string) {
+  try {
+    const v = localStorage.getItem(DELETION_FLAG_KEY);
+    return companyId ? v === companyId : !!v;
+  } catch {
+    return false;
+  }
+}
+
+/* ================================
  * デバッグ用
  * ============================== */
 function exposeError(e: any) {
@@ -289,6 +303,16 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const onAuthScene = isAuthPath(pathname);
     if (!bootstrapped) return;
+
+    // ★ 全削除フラグがONの場合：provisionをスキップし、strategyIdも一旦nullにリセット
+    if (companyId && isCompanyDeleting(companyId)) {
+      if (!provisionInFlight.current) {
+        console.log('[layout] skip provision (deleting company in progress):', companyId);
+        setStrategyId(null);
+      }
+      return;
+    }
+
     if (!companyId) {
       setStrategyId(null);
       return;
@@ -374,10 +398,19 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   const [openLeft, setOpenLeft] = useState(false);
   const [openRight, setOpenRight] = useState(false);
 
+  // ★ 初期化・削除中の表示
+  const deletingNow = companyId ? isCompanyDeleting(companyId) : false;
   if (!hideSidebar && (checking || !hydrated)) {
     return (
       <div className="grid min-h-dvh place-items-center text-sm text-gray-500">
         初期化中…
+      </div>
+    );
+  }
+  if (!hideSidebar && deletingNow) {
+    return (
+      <div className="grid min-h-dvh place-items-center text-sm text-gray-500">
+        会社データを削除中です…（完了までプロビジョンと自動保存を停止）
       </div>
     );
   }
