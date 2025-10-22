@@ -141,15 +141,15 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
   /* =========================================
    * 追加１：props → state 同期
    *  - 戻ってきた時に initialAnswers / initialStep が更新されたら反映
+   *  - 全削除で initialAnswers=[] の場合も UI をリセット
    * ========================================= */
-  // initialAnswers が変わったら取り込み（同値なら何もしない）
   useEffect(() => {
     const next = (initialAnswers ?? [])
       .filter(a => a && a.stepNumber && a.question != null)
       .sort((a, b) => a.stepNumber - b.stepNumber) as DeptAnswerStep[];
+
     if (!answersEqual(answers, next)) {
       setAnswers(next);
-      // 現ステップのUIフィールドも同期
       const exist = next.find(a => a.stepNumber === step);
       if (exist) {
         setLabel(exist.label);
@@ -157,6 +157,14 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
         setReason(exist.reason);
         setHint(exist.hint);
         setAnswerText(exist.answer ?? '');
+        setShowHint(false);
+      } else {
+        // 当該ステップのデータがなければ編集欄を初期化
+        setLabel(undefined);
+        setQuestion('');
+        setReason('');
+        setHint(undefined);
+        setAnswerText('');
         setShowHint(false);
       }
     }
@@ -264,8 +272,8 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     okrs,
     industry,
     direction,
-    expectations?.length,
-    focusThemes?.length,
+    JSON.stringify(expectations),
+    JSON.stringify(focusThemes),
     answersSoFarPayload.length,
     reloadTick,
     answers,
@@ -294,15 +302,16 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
   }, [answers, step, onChange, canEdit]);
 
   /* =========================================
-   * 追加２：アンマウント直前にフラッシュ通知
-   *  - デバウンス待たず、最後の state を親へ渡す
+   * 追加２：アンマウント直前にフラッシュ通知（編集可のみ）
    * ========================================= */
   useEffect(() => {
     return () => {
       if (!onChange || !canEdit) return;
       try {
         onChange({ answers, currentStep: step });
-      } catch { /* noop */ }
+      } catch {
+        /* noop */
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onChange, canEdit]); // answers/step はクリーンアップ時点のクロージャで十分
@@ -327,9 +336,11 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     next.sort((a, b) => a.stepNumber - b.stepNumber);
     setAnswers(next);
 
-    // ★ 追加３：即時で親にも反映（setState待ちによる取りこぼし防止）
+    // 即時で親にも反映（setState待ちによる取りこぼし防止）
     if (onChange) {
-      try { onChange({ answers: next, currentStep: step }); } catch {}
+      try {
+        onChange({ answers: next, currentStep: step });
+      } catch {}
     }
   }, [answers, step, label, question, reason, hint, answerText, canEdit, onChange]);
 
@@ -418,23 +429,19 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     }
   }, [answers, departmentName, mission, projects, okrs, isCompletedAll6, onDraftGenerated, canEdit]);
 
-  const disabledTip = canEdit ? '' : '閲覧モード（管理者のみ編集可）';
-
   return (
     <div className="w-full max-w-3xl mx-auto space-y-6">
       {/* Ver4 summary（任意表示） */}
       {(direction || expectations.length || focusThemes.length) && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50/60">
-          <div className="p-3 border-b border-amber-100 text-sm font-semibold text-amber-900">
-            AIたたき台（方向性）
-          </div>
+          <div className="p-3 border-b border-amber-100 text-sm font-semibold text-amber-900">AIたたき台（方向性）</div>
           <div className="p-3 space-y-2 text-sm text-amber-900">
             {direction && <div><span className="font-medium">方向性：</span>{direction}</div>}
             {expectations.length > 0 && (
               <div>
                 <div className="font-medium">経営からの期待：</div>
                 <ul className="list-disc pl-5">
-                  {expectations.slice(0,4).map((x, i) => <li key={i}>{x}</li>)}
+                  {expectations.slice(0, 4).map((x, i) => <li key={i}>{x}</li>)}
                 </ul>
               </div>
             )}
@@ -442,7 +449,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
               <div>
                 <div className="font-medium">注力テーマ：</div>
                 <ul className="list-disc pl-5">
-                  {focusThemes.slice(0,4).map((x, i) => <li key={i}>{x}</li>)}
+                  {focusThemes.slice(0, 4).map((x, i) => <li key={i}>{x}</li>)}
                 </ul>
               </div>
             )}
@@ -475,9 +482,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       {/* 質問カード */}
       <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
         <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-          <div className="text-sm font-medium">
-            {label ? `ステップ：${label}` : '次の問い'}
-          </div>
+          <div className="text-sm font-medium">{label ? `ステップ：${label}` : '次の問い'}</div>
           <div className="flex items-center gap-3">
             {hint && (
               <button
@@ -495,7 +500,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
                 disabled={loading}
                 className={[
                   'rounded-lg px-3 py-1.5 text-xs font-medium border',
-                  loading ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                  loading ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
                 ].join(' ')}
                 title="このステップの問いを再生成します（このステップ以降の回答はリセット）"
               >
@@ -547,7 +552,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
               'rounded-xl px-4 py-2 text-sm font-medium',
               (!(answerText || '').trim() || loading || !canEdit)
                 ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                : 'bg-blue-600 text-white hover:bg-blue-700'
+                : 'bg-blue-600 text-white hover:bg-blue-700',
             ].join(' ')}
             title={canEdit ? (isLastStep ? '回答を保存して完了にします' : '次の問いへ') : '閲覧モード（管理者のみ編集可）'}
           >
@@ -560,9 +565,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       <div className="rounded-2xl border border-gray-200 bg-white">
         <div className="p-3 border-b border-gray-100 text-sm font-medium">これまでのQ/A（この部門）</div>
         <div className="divide-y">
-          {answers.length === 0 && (
-            <div className="p-3 text-sm text-gray-500">まだありません</div>
-          )}
+          {answers.length === 0 && <div className="p-3 text-sm text-gray-500">まだありません</div>}
           {answers.map((a) => (
             <div key={a.stepNumber} className="p-3 text-sm space-y-1">
               <div className="text-gray-500">Step {a.stepNumber}{a.label ? `（${a.label}）` : ''}</div>
@@ -591,16 +594,14 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
                 onClick={handleGenerateDepartmentDraft}
                 disabled={genLoading || !canEdit}
                 className={[
-                  'rounded-xl px-4 py-2 text-sm font十分',
-                  (genLoading || !canEdit) ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'
+                  'rounded-xl px-4 py-2 text-sm font-medium',
+                  (genLoading || !canEdit) ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700',
                 ].join(' ')}
                 title={canEdit ? '' : '閲覧モード（管理者のみ編集可）'}
               >
                 部門ミッションを生成
               </button>
-              <span className="text-xs text-blue-900">
-                生成後は、親画面で保存・編集できます
-              </span>
+              <span className="text-xs text-blue-900">生成後は、親画面で保存・編集できます</span>
             </div>
 
             {(missionDraft || (projectsDraft?.length ?? 0) > 0 || (okrsDraft?.length ?? 0) > 0) && (
