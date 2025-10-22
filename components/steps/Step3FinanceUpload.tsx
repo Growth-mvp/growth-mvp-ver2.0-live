@@ -6,19 +6,14 @@ import Papa from 'papaparse';
 import StepLayout from '@/components/StepLayout';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
-import { saveStrategyData } from '@/utils/supabase';
-// ✅ エイリアスで統一（NextのbaseUrl/@エイリアスがある前提）
+// ★ 修正：strategy 経由で統一
+import { saveStrategyData } from '@/utils/supabase/strategy';
 import { buildFinanceSummary } from '@/utils/financeSummary';
 
 /* =========================================================
  * Ver4対応ポイント（日本語ヘッダ対応＋サマリー保存）
- * - 日本語→英語ヘッダ変換 → 正規化 → 自動計算
- * - CSV/貼り付け/Drag&Drop 対応
- * - 読み込み保存時に 年度×事業サマリー を自動生成
- * - サマリーは store.financeSummary として保持＆サーバ保存
  * ========================================================= */
 
-/** 受け付ける英語ヘッダ（社内基準） */
 const EXPECTED_HEADERS = [
   'business_unit',
   'year',
@@ -205,7 +200,9 @@ export default function Step3FinanceUpload() {
   const [pasteText, setPasteText] = useState('');
 
   const st = useStrategyStore() as any;
-  const { user } = useUserStore();
+  const { user, companyId, hydrated, membershipLoaded } = useUserStore(); // ★ companyId 等を取得
+  const userId = user?.id ?? null;
+  const canPersist = !!userId && !!companyId && !!hydrated && !!membershipLoaded; // ★ 保存ゲート
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   const dropRef = useRef<HTMLDivElement | null>(null);
@@ -223,28 +220,38 @@ export default function Step3FinanceUpload() {
 
   /** 共通保存（ストア→サーバ）＋サマリー生成 */
   async function saveAll(rows: FinanceRow[]) {
-    // 1) ストアへ原データ
+    // 1) ストアへ原データ（即時反映）
     setFieldSafe(st, 'csvFinanceData', rows);
 
     // 2) サマリー生成 → ストアへ保存
     const summary = buildFinanceSummary(rows);
     setFieldSafe(st, 'financeSummary', summary);
 
-    // 3) サーバ保存（ログイン時のみ）
-    if (!user?.id) {
-      setMessage('読み込み完了（未ログインのためサーバ保存はスキップ）');
+    // 3) サーバ保存（ログイン & 会社スコープ確定時のみ）
+    if (!userId || !companyId) {
+      setMessage('読み込み完了（サーバ保存はスキップ：未ログインまたは会社未確定）');
       return;
     }
+    if (!canPersist) {
+      // 読み込み直後に companyId が未確定なケースをケア
+      setMessage('読み込み完了（会社切替中のためサーバ保存は後で手動保存してください）');
+      return;
+    }
+
     try {
       const state = useStrategyStore.getState() as any;
+      // ★ 第3引数：companyId を明示
       await saveStrategyData(
         { ...state, csvFinanceData: rows, financeSummary: summary },
-        user.id
+        userId,
+        companyId
       );
       setMessage('財務データ＋集計サマリーを保存しました');
+      setError('');
     } catch (e) {
       console.error('finance save failed:', e);
       setError('サーバ保存に失敗しました');
+      setMessage('');
     }
   }
 
@@ -271,6 +278,7 @@ export default function Step3FinanceUpload() {
         } catch (err) {
           console.error('finance parse/save failed:', err);
           setError('CSVの解析または保存に失敗しました');
+          setMessage('');
         } finally {
           setUploading(false);
           if (inputRef.current) inputRef.current.value = '';
@@ -278,6 +286,7 @@ export default function Step3FinanceUpload() {
       },
       error: () => {
         setError('CSVの解析に失敗しました');
+        setMessage('');
         setUploading(false);
         if (inputRef.current) inputRef.current.value = '';
       },
@@ -313,6 +322,7 @@ export default function Step3FinanceUpload() {
     } catch (e) {
       console.error(e);
       setError('貼り付けデータの解析に失敗しました');
+      setMessage('');
     } finally {
       setUploading(false);
     }
@@ -325,6 +335,7 @@ export default function Step3FinanceUpload() {
     setParsedData(recalculated);
     await saveAll(recalculated);
     setMessage('再計算して保存しました');
+    setError('');
   };
 
   // Drag & Drop
