@@ -87,7 +87,7 @@ export default function Home() {
                 text-neutral-600 dark:text-neutral-300
               "
             >
-              戦略策定から実行まで、すべてをつなぐ変革プラットフォーム
+              戦略策定から浸透実行まで、すべてをつなぐ変革プラットフォーム
             </motion.p>
 
             {/* CTA（既存機能維持） */}
