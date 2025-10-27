@@ -56,8 +56,13 @@ const Y_L_BOT = ((Y_DIV2     + TRI.right.y) / 2) + TRI.label.botYOffset;
 /* ===== ボタン配置（デザイン準拠） ===== */
 const ROW_TOP_Y = 210;  // STAGE1 & STAGE2 横並び
 const ROW_MID_Y = 360;  // STAGE3
-const ROW_BOT_Y = 520;  // STAGE4 ← “もっと上” に（560→520）
-const LEFT_PCT  = 58;   // ピラミッド右脇からの開始位置
+const ROW_BOT_Y = 520;  // STAGE4（上寄せ）
+const LEFT_PCT  = 58;   // 行2/行3 は従来どおり％指定で固定
+
+// STAGE1/2 だけピラミッド右辺に寄せるための余白
+const BUTTON_MARGIN_PX =150;
+const pct = (x:number) => (x / VBW) * 100;
+const leftAt = (y:number) => pct(xRightAt(y) + BUTTON_MARGIN_PX);
 
 // Apple風：余白/角丸/フォントを少し大きく（押しやすい）
 const btnClass =
@@ -71,7 +76,7 @@ export default function PyramidNavigator() {
       {/* デスクトップ */}
       <div className="relative hidden md:block">
         <div className="relative aspect-[5/3]">
-          {/* 背景SVG：淡い層塗り + 枠・区切り・ラベル（コネクタ無し） */}
+          {/* 背景SVG：淡い層塗り + 枠・区切り・ラベル */}
           <svg
             viewBox={`0 0 ${VBW} ${VBH}`}
             className="absolute inset-0 h-full w-full pointer-events-none"
@@ -143,12 +148,12 @@ export default function PyramidNavigator() {
               fill="#0f172a" style={{ letterSpacing: `${TRI.label.trackEm}em` }}>BOTTOM</text>
           </svg>
 
-          {/* 行1：STAGE1 & STAGE2（横並び） */}
+          {/* 行1：STAGE1 & STAGE2（右辺追従＋寄せ） */}
           <div
-            className="absolute flex gap-8"
+            className="absolute flex gap-6"
             style={{
               top: `${(ROW_TOP_Y / VBH) * 100}%`,
-              left: `${LEFT_PCT}%`,
+              left: `${leftAt(ROW_TOP_Y)}%`,
               transform: 'translateY(-50%)',
             }}
           >
@@ -160,7 +165,7 @@ export default function PyramidNavigator() {
             </Link>
           </div>
 
-          {/* 行2：STAGE3 */}
+          {/* 行2：STAGE3（従来どおり％固定） */}
           <div
             className="absolute"
             style={{
@@ -174,7 +179,7 @@ export default function PyramidNavigator() {
             </Link>
           </div>
 
-          {/* 行3：STAGE4（上へ移動済み） */}
+          {/* 行3：STAGE4（従来どおり％固定） */}
           <div
             className="absolute"
             style={{
