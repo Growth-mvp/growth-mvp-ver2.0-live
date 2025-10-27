@@ -60,7 +60,8 @@ const ROW_BOT_Y = 520;  // STAGE4（上寄せ）
 const LEFT_PCT  = 58;   // 行2/行3 は従来どおり％指定で固定
 
 // STAGE1/2 だけピラミッド右辺に寄せるための余白
-const BUTTON_MARGIN_PX =150;
+const BUTTON_MARGIN_PX =80
+;
 const pct = (x:number) => (x / VBW) * 100;
 const leftAt = (y:number) => pct(xRightAt(y) + BUTTON_MARGIN_PX);
 
