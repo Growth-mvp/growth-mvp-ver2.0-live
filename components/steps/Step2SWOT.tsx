@@ -1,10 +1,12 @@
 // /components/steps/Step2SWOT.tsx
 'use client';
 
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
+import { useUserStore } from '@/store/userStore';
 import StepLayout from '@/components/StepLayout';
 import { getIndustryLabel } from '@/utils/industryTemplates';
+import { saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
 
 /* =========================
  * 共通ユーティリティ
@@ -259,7 +261,7 @@ function parseOT(raw: string): OTParsed {
 }
 
 /* =========================
- * コンポーネント本体
+ * コンポーネント本体（保存の安全化込み）
  * ======================= */
 export default function Step2SWOT() {
   const st = useStrategyStore() as any;
@@ -271,13 +273,69 @@ export default function Step2SWOT() {
 
   // 自動生成の補助情報
   const industry: string = st?.industry ?? '';
-  const revenue: string = st?.revenue ?? '';
-  const employees: string = st?.employees ?? '';
+  const revenueRaw: unknown = st?.revenue ?? '';
+  const employeesRaw: unknown = st?.employees ?? '';
   const businessContent: string = st?.businessContent ?? '';
 
   // 日本語ラベル（ヘッダ表示用）
   const industryJa = industry ? getIndustryLabel(industry, { full: true }) : '';
 
+  // 保存の安全化（Step2Portfolio と同等のゲート/デバウンス/再試行）
+  const user = useUserStore((s) => s.user);
+  const companyId = useUserStore((s) => s.companyId);
+  const hydrated = useUserStore((s) => (s as any).hydrated);
+  const membershipLoaded = useUserStore((s) => (s as any).membershipLoaded);
+  const userId = user?.id ?? null;
+  const canPersist = !!userId && !!companyId && !!hydrated && !!membershipLoaded;
+
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const dirtyRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savingGateRef = useRef(false);
+
+  useEffect(() => {
+    savingGateRef.current = canPersist;
+  }, [canPersist]);
+
+  const scheduleSave = useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(async function trySave() {
+      if (!savingGateRef.current || !canPersist) {
+        timerRef.current = setTimeout(trySave, 600);
+        return;
+      }
+      if (!dirtyRef.current) return;
+
+      dirtyRef.current = false;
+      setSaving(true);
+      setSaveError(null);
+      try {
+        const state = useStrategyStore.getState() as any;
+        await saveStrategyDataApi(state, userId!, companyId!);
+      } catch (e: any) {
+        dirtyRef.current = true;
+        setSaveError(e?.message || '保存に失敗しました');
+        console.error('[SWOT AUTO SAVE] failed:', e);
+        timerRef.current = setTimeout(trySave, 1500);
+      } finally {
+        setSaving(false);
+      }
+    }, 700); // SWOTは入力が長文なので少し短めでもOK
+  }, [canPersist, userId, companyId]);
+
+  const markDirty = useCallback(() => {
+    dirtyRef.current = true;
+    scheduleSave();
+  }, [scheduleSave]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  // O/T 自動生成
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const abortRef = useRef<AbortController | null>(null);
@@ -300,7 +358,12 @@ export default function Step2SWOT() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // API には従来どおり英語コードの industry を送る（表示だけ日本語）
-        body: JSON.stringify({ industry, revenue, employees, businessContent }),
+        body: JSON.stringify({
+          industry,
+          revenue: typeof revenueRaw === 'number' ? revenueRaw : String(revenueRaw ?? ''),
+          employees: typeof employeesRaw === 'number' ? employeesRaw : String(employeesRaw ?? ''),
+          businessContent,
+        }),
         signal: controller.signal,
       });
       if (!res.ok) throw new Error(`API ${res.status}`);
@@ -324,11 +387,15 @@ export default function Step2SWOT() {
         return;
       }
 
+      // 一旦空へ（差分検出のため）
       setFieldSafe(st, 'opportunity', '');
       setFieldSafe(st, 'threat', '');
 
       if (oppText) setFieldSafe(st, 'opportunity', oppText);
       if (thrText) setFieldSafe(st, 'threat', thrText);
+
+      // 自動生成結果も保存トリガー
+      markDirty();
 
     } catch (err: any) {
       if (err?.name !== 'AbortError') {
@@ -341,18 +408,25 @@ export default function Step2SWOT() {
   };
 
   const headerNote = useMemo(() => {
+    const rev = typeof revenueRaw === 'number' ? String(revenueRaw) : String(revenueRaw ?? '');
+    const emp = typeof employeesRaw === 'number' ? String(employeesRaw) : String(employeesRaw ?? '');
     const parts = [
       industryJa && `業種：${industryJa}`,
-      revenue && `売上：${revenue}`,
-      employees && `従業員：${employees}`,
+      rev && `売上：${rev}`,
+      emp && `従業員：${emp}`,
     ]
       .filter(Boolean)
       .join(' / ');
     return parts || '会社情報（業種・売上・従業員 等）を入れると精度が上がります';
-  }, [industryJa, revenue, employees]);
+  }, [industryJa, revenueRaw, employeesRaw]);
 
   return (
     <StepLayout step={2} totalSteps={5} title="STEP 2：SWOT分析（強み・弱み・機会・脅威）">
+      {/* 接続・保存ステータス（控えめに上部へ） */}
+      <div className="mb-3 text-xs text-gray-500">
+        {saving ? '保存中…' : saveError ? <span className="text-red-600">保存失敗：{saveError}</span> : '保存待ち'}
+      </div>
+
       <div className="mb-5 rounded-2xl border border-black/10 bg-white/60 shadow-sm backdrop-blur-md ring-1 ring-black/5 p-4 md:p-5">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
@@ -395,10 +469,10 @@ export default function Step2SWOT() {
           hint="例：高度な技術力／顧客との信頼関係／ブランド力 など"
         >
           <textarea
-            className="min-h-[200px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+            className="min-h[200px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
             rows={8}
             value={st?.strength ?? strength}
-            onChange={(e) => setFieldSafe(st, 'strength', e.target.value)}
+            onChange={(e) => { setFieldSafe(st, 'strength', e.target.value); markDirty(); }}
             placeholder="箇条書き可（・〜）"
           />
         </GlassCard>
@@ -409,10 +483,10 @@ export default function Step2SWOT() {
           hint="例：人材不足／情報発信の弱さ／老朽化した設備 など"
         >
           <textarea
-            className="min-h-[200px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+            className="min-h[200px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
             rows={8}
             value={st?.weakness ?? weakness}
-            onChange={(e) => setFieldSafe(st, 'weakness', e.target.value)}
+            onChange={(e) => { setFieldSafe(st, 'weakness', e.target.value); markDirty(); }}
             placeholder="箇条書き可（・〜）"
           />
         </GlassCard>
@@ -423,10 +497,10 @@ export default function Step2SWOT() {
           hint="例：市場拡大／規制緩和／技術革新 など"
         >
           <textarea
-            className="min-h-[200px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+            className="min-h[200px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
             rows={8}
             value={st?.opportunity ?? opportunity}
-            onChange={(e) => setFieldSafe(st, 'opportunity', e.target.value)}
+            onChange={(e) => { setFieldSafe(st, 'opportunity', e.target.value); markDirty(); }}
             placeholder="AI提案を基に加筆・修正してください"
           />
         </GlassCard>
@@ -437,10 +511,10 @@ export default function Step2SWOT() {
           hint="例：価格競争の激化／景気悪化／海外勢の参入 など"
         >
           <textarea
-            className="min-h-[200px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+            className="min-h[200px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
             rows={8}
             value={st?.threat ?? threat}
-            onChange={(e) => setFieldSafe(st, 'threat', e.target.value)}
+            onChange={(e) => { setFieldSafe(st, 'threat', e.target.value); markDirty(); }}
             placeholder="AI提案を基に加筆・修正してください"
           />
         </GlassCard>
