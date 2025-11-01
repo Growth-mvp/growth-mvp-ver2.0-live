@@ -56,7 +56,7 @@ const Y_L_BOT = ((Y_DIV2     + TRI.right.y) / 2) + TRI.label.botYOffset;
 
 /* ===== ボタン配置（デザイン準拠） ===== */
 // STAGE1/2 を縦並びで STAGE3/4 と同じ列に合わせ、少し下げる
-const ROW_TOP_Y = 205;  // ← 210 から下げた
+const ROW_TOP_Y = 160;  // ← 210 から下げた
 const ROW_MID_Y = 360;  // STAGE3
 const ROW_BOT_Y = 520;  // STAGE4（上げ済み）
 const LEFT_PCT  = 58;   // 全列で統一（STAGE3/4 と同じ列）
