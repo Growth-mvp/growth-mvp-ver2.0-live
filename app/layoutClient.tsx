@@ -6,9 +6,9 @@ import { usePathname, useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import CEOChatPanel from '@/components/CEOChatPanel';
 import { supabase } from '@/lib/supabaseClient';
+import { safeGetSession } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
 import { useStrategyStore } from '@/store/strategyStore';
-// ★追加：CompanyProvider / useCompany
 import { CompanyProvider } from '@/context/CompanyContext';
 
 /* ================================
@@ -29,7 +29,6 @@ const isAdminPath = (p?: string | null) => !!p && p.startsWith('/admin');
 
 /* ================================
  * ★ 全削除フラグ（再生成ブロック）
- * - /utils/supabase/strategy.ts 側とキー名を合わせる
  * ============================== */
 const DELETION_FLAG_KEY = '__deleting_company__';
 function isCompanyDeleting(companyId?: string) {
@@ -189,10 +188,10 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 
     const bootstrapSession = async () => {
       try {
-        const { data: sres, error: serr } = await supabase.auth.getSession();
+        const { data: sres, error: serr } = await safeGetSession(); // 互換ラッパー
         if (signal.aborted) return;
 
-        if (serr && serr?.status !== 400) {
+        if (serr && (serr as any)?.status !== 400) {
           console.warn('[init] getSession error:', exposeError(serr));
         }
 
@@ -222,6 +221,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
     const { data: sub } = supabase.auth.onAuthStateChange((_evt, sess) => {
       if (signal.aborted) return;
 
+      // user が無ければ未ログイン扱い（イベントコード個別比較は不要）
       if (!sess?.user) {
         setUser(null);
         setRole(null);
@@ -244,7 +244,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       sub?.subscription?.unsubscribe?.();
       initInFlight.current = false;
     };
-  }, []);
+  }, [pathname, router, setMembership, setRole, setStrategyId, setUser]);
 
   /* ================================
    * 2) membership 読み込み
@@ -304,7 +304,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
     const onAuthScene = isAuthPath(pathname);
     if (!bootstrapped) return;
 
-    // ★ 全削除フラグがONの場合：provisionをスキップし、strategyIdも一旦nullにリセット
+    // 全削除フラグONのときは provision を抑止
     if (companyId && isCompanyDeleting(companyId)) {
       if (!provisionInFlight.current) {
         console.log('[layout] skip provision (deleting company in progress):', companyId);
@@ -398,7 +398,6 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   const [openLeft, setOpenLeft] = useState(false);
   const [openRight, setOpenRight] = useState(false);
 
-  // ★ 初期化・削除中の表示
   const deletingNow = companyId ? isCompanyDeleting(companyId) : false;
   if (!hideSidebar && (checking || !hydrated)) {
     return (
@@ -424,7 +423,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         'xl:[--left-w:18rem] xl:[--right-w:18rem]',
       ].join(' ')}
     >
-      {/* ===== 左サイドバー ===== */}
+      {/* 左サイドバー */}
       {!hideSidebar && (
         <>
           <div className="hidden lg:block fixed left-0 top-0 z-10 h-dvh w-[var(--left-w)]">
@@ -459,7 +458,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         </>
       )}
 
-      {/* ===== 右AIドック ===== */}
+      {/* 右AIドック */}
       {!hideSidebar && (
         <>
           <aside
@@ -510,7 +509,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         </>
       )}
 
-      {/* ===== メイン ===== */}
+      {/* メイン */}
       <main
         id="app-scroll"
         ref={mainRef}
@@ -521,8 +520,8 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           'min-w-0',
         ].join(' ')}
         style={{
-          marginLeft: !hideSidebar ? leftVar : undefined,
-          marginRight: !hideSidebar ? rightVar : undefined,
+          marginLeft: !hideSidebar ? 'var(--left-w)' : undefined,
+          marginRight: !hideSidebar ? 'var(--right-w)' : undefined,
         }}
       >
         {!hideSidebar && (
@@ -551,7 +550,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 }
 
 /* ===========================================================
- * CompanyProviderで全体を包む（★ここが変更ポイント）
+ * CompanyProviderで全体を包む
  * =========================================================== */
 export default function LayoutClient({ children }: { children: React.ReactNode }) {
   return (
