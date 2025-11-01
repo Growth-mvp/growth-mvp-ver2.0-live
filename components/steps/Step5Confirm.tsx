@@ -54,11 +54,12 @@ function normalizeNewlines(s: string = '') {
   return out.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 }
 
-// 長文→4章配列
+// 長文→4章配列（見出し/Markdown両対応のマーカー広め）
 function longformToChapters(s: string) {
   const text = normalizeNewlines((s || '').trim());
   if (!text) return [] as { title: string; body: string }[];
-  const markerRegex = /(第\s*[1-4]\s*章[^\\n]*)(?:\n+|$)/g;
+  // 「第1章」「# 第1章」「## 第1章」などを広めに吸収
+  const markerRegex = /^(?:#{1,3}\s*)?(第\s*[1-4]\s*章[^\n\r]*)(?:\r?\n+|$)/gim;
   const markers = [...text.matchAll(markerRegex)];
   if (markers.length >= 2) {
     const parts: { title: string; body: string }[] = [];
@@ -67,7 +68,8 @@ function longformToChapters(s: string) {
       const end = i + 1 < markers.length ? (markers[i + 1].index ?? text.length) : text.length;
       const chunk = text.slice(start, end).trim();
       const title = (markers[i][1] || '').trim();
-      const body = chunk.replace(markers[i][1], '').trim();
+      const titleEscaped = markers[i][0];
+      const body = chunk.replace(titleEscaped, '').trim();
       parts.push({ title, body });
     }
     return parts.slice(0, 4);
@@ -152,7 +154,7 @@ function InfoRow({ label, value }: { label: string; value: string | number | nul
   return (
     <div className="flex items-start justify-between gap-3 py-1">
       <span className="min-w-[8rem] shrink-0 text-xs text-gray-500">{label}</span>
-      <span className="grow text-sm text-gray-800">{value ? String(value) : '（未入力）'}</span>
+      <span className="grow text-sm text-gray-800">{value !== undefined && value !== null && String(value) !== '' ? String(value) : '（未入力）'}</span>
     </div>
   );
 }
@@ -173,13 +175,13 @@ export default function Step5Confirm() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [localNotice, setLocalNotice] = useState('');
 
-  // 値（空文字防止）
+  // 値（数値は number|null に統一）
   const companyName: string = st?.companyName ?? '';
-  const foundationYear: string = st?.foundationYear ?? '';
+  const foundationYear: number | null = st?.foundationYear ?? null;
   const location: string = st?.location ?? '';
   const industry: string = st?.industry ?? '';
-  const revenue: string = st?.revenue ?? '';
-  const employees: string = st?.employees ?? '';
+  const revenue: number | null = st?.revenue ?? null;
+  const employees: number | null = st?.employees ?? null;
   const businessContent: string = st?.businessContent ?? '';
   const customerSegment: string = st?.customerSegment ?? '';
 
@@ -211,22 +213,23 @@ export default function Step5Confirm() {
   // ストーリー生成
   const handleGenerate = async () => {
     if (isGenerating) return;
+
+    // 生成は許可、保存だけ条件付き
     if (!canPersist) {
-      notifySafe(st, '会社スコープの解決待ちです。数秒後に再試行してください。', setLocalNotice);
-      return;
+      notifySafe(st, '会社スコープの解決中。生成は実行し、保存はスコープ確立後に再度行ってください。', setLocalNotice);
     }
 
     setIsGenerating(true);
     setLocalNotice('');
 
-    // エンドポイント候補
+    // エンドポイント候補（存在するものへフォールバック）
     const endpoints = [
       '/api/generate-story-draft-v2',
       '/api/generate-story-draft',
       '/api/final-story',
     ];
 
-    // 送信ペイロード（全部載せ）
+    // 送信ペイロード（数値は number|null のまま）
     const payload = {
       thought, mission, vision, value,
       industry, industryLabel: industryJa,
@@ -274,7 +277,7 @@ export default function Step5Confirm() {
           const raw = await res.text();
           if (!res.ok) {
             lastErrorText = `[${res.status}] ${raw?.slice(0, 500) || '(no body)'}`;
-            if (res.status === 404) continue;
+            if (res.status === 404) continue; // 次の候補へ
             throw new Error(lastErrorText);
           }
 
@@ -320,32 +323,35 @@ export default function Step5Confirm() {
         }
       } catch {}
 
-      // 3) DBにも保存（store全体＋パッチで安全に）
-      try {
-        const current = useStrategyStore.getState() as any;
-        const patch = {
-          strategyId,
-          story: finalChapters,
-          // 最終版ではないので finalStory には入れない
-          mission, vision, value,
-          industry, revenue, employees,
-          thought, strength, weakness, opportunity, threat,
-          csvFinanceData,
-          answers2, // もし使うなら
-        };
-        await saveStrategyDataApi({ ...current, ...patch }, userId!, companyId!);
-      } catch (e) {
-        // DB保存に失敗してもUIは続行（ただしログ）
-        console.warn('saveStrategyData failed (draft story persisted only to session/store):', e);
+      // 3) DBにも保存（canPersist のときだけ）
+      if (canPersist) {
+        try {
+          const current = useStrategyStore.getState() as any;
+          const patch = {
+            strategyId,
+            story: finalChapters,
+            // 最終版ではないので finalStory には入れない
+            mission, vision, value,
+            industry, revenue, employees,
+            thought, strength, weakness, opportunity, threat,
+            csvFinanceData,
+            answers2, // 使うなら
+          };
+          await saveStrategyDataApi({ ...current, ...patch }, userId!, companyId!);
+        } catch (e) {
+          console.warn('saveStrategyData failed (draft story persisted only to session/store):', e);
+        }
+      } else {
+        notifySafe(st, '保存はスコープ確立後に再実行してください（生成内容は画面内/セッションに保持）', setLocalNotice);
       }
 
-      // 4) 状態反映を一拍待つ（別ページ初期描画で取りこぼさない）
-      await Promise.resolve(); // microtask flush
+      // 4) 状態反映を一拍待つ
+      await Promise.resolve();
       if (typeof window !== 'undefined') {
-        await new Promise(r => setTimeout(r, 0)); // next tick
+        await new Promise(r => setTimeout(r, 0));
       }
 
-      // 5) 遷移
+      // 5) 遷移（DB未保存でも閲覧は可能）
       router.push('/story-process', { scroll: true });
     } catch (err) {
       console.error('❌ 通信エラー:', err);
@@ -356,6 +362,7 @@ export default function Step5Confirm() {
   };
 
   return (
+    // ✅ フローに合わせて 5/5 に統一
     <StepLayout step={6} totalSteps={6} title="入力内容の最終確認">
       <div className="space-y-6">
         {/* 通知 */}
@@ -391,17 +398,17 @@ export default function Step5Confirm() {
               <InfoRow label="設立年" value={foundationYear} />
               <InfoRow label="所在地" value={location} />
               <InfoRow label="業種" value={industryJa} />
-              <InfoRow label="売上" value={revenue ? `${revenue} 百万円` : ''} />
-              <InfoRow label="従業員数" value={employees ? `${employees} 人` : ''} />
+              <InfoRow label="売上" value={revenue !== null ? `${revenue} 百万円` : ''} />
+              <InfoRow label="従業員数" value={employees !== null ? `${employees} 人` : ''} />
             </div>
           </GlassCard>
 
-            <GlassCard title="事業情報">
-              <div className="divide-y divide-black/5">
-                <InfoRow label="主な事業内容" value={businessContent} />
-                <InfoRow label="主要な顧客層" value={customerSegment} />
-              </div>
-            </GlassCard>
+          <GlassCard title="事業情報">
+            <div className="divide-y divide-black/5">
+              <InfoRow label="主な事業内容" value={businessContent} />
+              <InfoRow label="主要な顧客層" value={customerSegment} />
+            </div>
+          </GlassCard>
         </div>
 
         {/* MVV */}
@@ -428,28 +435,6 @@ export default function Step5Confirm() {
           </div>
         </GlassCard>
 
-        {/* SWOT */}
-        <GlassCard title="SWOT分析">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div className="rounded-xl border border-black/10 bg-white/70 p-3">
-              <div className="mb-1 text-xs font-medium text-gray-500">Strength（強み）</div>
-              <p className="whitespace-pre-wrap text-sm text-gray-800">{strength || '（未入力）'}</p>
-            </div>
-            <div className="rounded-xl border border-black/10 bg-white/70 p-3">
-              <div className="mb-1 text-xs font-medium text-gray-500">Weakness（弱み）</div>
-              <p className="whitespace-pre-wrap text-sm text-gray-800">{weakness || '（未入力）'}</p>
-            </div>
-            <div className="rounded-xl border border-black/10 bg-white/70 p-3">
-              <div className="mb-1 text-xs font-medium text-gray-500">Opportunity（機会）</div>
-              <p className="whitespace-pre-wrap text-sm text-gray-800">{opportunity || '（未入力）'}</p>
-            </div>
-            <div className="rounded-xl border border-black/10 bg-white/70 p-3">
-              <div className="mb-1 text-xs font-medium text-gray-500">Threat（脅威）</div>
-              <p className="whitespace-pre-wrap text-sm text-gray-800">{threat || '（未入力）'}</p>
-            </div>
-          </div>
-        </GlassCard>
-
         {/* 年度×事業サマリー（可視化） */}
         <FinanceSummaryPanel className="mt-2" showHeader initialYear={summaryYears.at(-1)} />
 
@@ -458,7 +443,7 @@ export default function Step5Confirm() {
           「ストーリーを生成」を押すと、AIがたたき台ストーリーを作成します。
           {!canPersist && (
             <div className="mt-1 text-amber-700">
-              現在、会社スコープの解決中（user/company/hydration）。完了後に保存可能になります。
+              現在、会社スコープの解決中（user/company/hydration）。保存はスコープ確立後にもう一度実行してください。
             </div>
           )}
         </div>
