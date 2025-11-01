@@ -56,21 +56,10 @@ const Y_L_BOT = ((Y_DIV2     + TRI.right.y) / 2) + TRI.label.botYOffset;
 
 /* ===== ボタン配置（デザイン準拠） ===== */
 // STAGE1/2 を縦並びで STAGE3/4 と同じ列に合わせ、少し下げる
-const ROW_TOP_Y = 210;  // ← 200 から下げた
+const ROW_TOP_Y = 205;  // ← 210 から下げた
 const ROW_MID_Y = 360;  // STAGE3
-<<<<<<< HEAD
 const ROW_BOT_Y = 520;  // STAGE4（上げ済み）
 const LEFT_PCT  = 58;   // 全列で統一（STAGE3/4 と同じ列）
-=======
-const ROW_BOT_Y = 520;  // STAGE4（上寄せ）
-const LEFT_PCT  = 58;   // 行2/行3 は従来どおり％指定で固定
-
-// STAGE1/2 だけピラミッド右辺に寄せるための余白
-const BUTTON_MARGIN_PX =80
-;
-const pct = (x:number) => (x / VBW) * 100;
-const leftAt = (y:number) => pct(xRightAt(y) + BUTTON_MARGIN_PX);
->>>>>>> 9070dfafe87f274798aa779d959054c792eaf9bf
 
 // Apple風：余白/角丸/フォントを少し大きく（押しやすい）
 const btnClass =
@@ -84,7 +73,7 @@ export default function PyramidNavigator() {
       {/* デスクトップ */}
       <div className="relative hidden md:block">
         <div className="relative aspect-[5/3]">
-          {/* 背景SVG：淡い層塗り + 枠・区切り・ラベル */}
+          {/* 背景SVG：淡い層塗り + 枠・区切り・ラベル（コネクタ無し） */}
           <svg
             viewBox={`0 0 ${VBW} ${VBH}`}
             className="absolute inset-0 h-full w-full pointer-events-none"
@@ -156,18 +145,12 @@ export default function PyramidNavigator() {
               fill="#0f172a" style={{ letterSpacing: `${TRI.label.trackEm}em` }}>BOTTOM</text>
           </svg>
 
-<<<<<<< HEAD
           {/* 行1：STAGE1 & STAGE2（縦並び／列位置はSTAGE3/4に合わせる） */}
           <div
             className="absolute flex flex-col gap-3"
-=======
-          {/* 行1：STAGE1 & STAGE2（右辺追従＋寄せ） */}
-          <div
-            className="absolute flex gap-6"
->>>>>>> 9070dfafe87f274798aa779d959054c792eaf9bf
             style={{
               top: `${(ROW_TOP_Y / VBH) * 100}%`,
-              left: `${leftAt(ROW_TOP_Y)}%`,
+              left: `${LEFT_PCT}%`,
               transform: 'translateY(-50%)',
             }}
           >
@@ -179,7 +162,7 @@ export default function PyramidNavigator() {
             </Link>
           </div>
 
-          {/* 行2：STAGE3（従来どおり％固定） */}
+          {/* 行2：STAGE3 */}
           <div
             className="absolute"
             style={{
@@ -193,11 +176,7 @@ export default function PyramidNavigator() {
             </Link>
           </div>
 
-<<<<<<< HEAD
           {/* 行3：STAGE4 */}
-=======
-          {/* 行3：STAGE4（従来どおり％固定） */}
->>>>>>> 9070dfafe87f274798aa779d959054c792eaf9bf
           <div
             className="absolute"
             style={{
