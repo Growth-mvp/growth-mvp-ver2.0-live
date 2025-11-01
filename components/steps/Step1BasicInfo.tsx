@@ -1,7 +1,7 @@
 // /components/steps/Step1BasicInfo.tsx
 'use client';
 
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type {
   ReactNode,
   InputHTMLAttributes,
@@ -70,9 +70,6 @@ const baseSelectClass = [
 
 /**
  * 日本語入力向け（かな入力を促す）
- * - lang="ja"
- * - ime-mode: active（非標準だがヒント／未対応ブラウザでも無害）
- * - autoCapitalize/autoCorrect を無効化
  */
 function InputJa(props: InputHTMLAttributes<HTMLInputElement>) {
   return (
@@ -104,8 +101,8 @@ function TextAreaJa(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
 
 /**
  * 数字専用（英数字のみ）
- * - inputMode="numeric" / pattern="[0-9]*"
- * - onChangeで数字以外を除去（全角数字→半角、非数字を削除）
+ * - 入力は数字のみ許可（全角→半角、非数字除去）
+ * - ただし store へは number|null で保存する（型ゆらぎ防止）
  */
 function InputNum({
   onChange,
@@ -125,14 +122,11 @@ function InputNum({
       style={{ ...(rest.style || {}), imeMode: 'inactive' as any }}
       onChange={(e) => {
         const raw = e.target.value ?? '';
-        // 全角→半角
         const half = raw.replace(/[０-９]/g, (s) =>
           String.fromCharCode(s.charCodeAt(0) - 0xFEE0)
         );
-        // 数字以外を除去
         const digits = half.replace(/[^0-9]/g, '');
         if (onChange) {
-          // 「value を書き換えたイベント風オブジェクト」を渡す
           onChange({
             ...e,
             target: { ...e.target, value: digits },
@@ -145,8 +139,27 @@ function InputNum({
 }
 
 function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select {...props} className={[baseSelectClass, props.className || ''].join(' ')} />;
+  return (
+    <select
+      {...props}
+      className={[baseSelectClass, props.className || ''].join(' ')}
+    />
+  );
 }
+
+/* --------------- ユーティリティ --------------- */
+const toNumOrNull = (v: any): number | null => {
+  if (v === undefined || v === null) return null;
+  const s = String(v).trim();
+  if (s === '') return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+};
+
+const isBlank = (v: any) =>
+  v === undefined ||
+  v === null ||
+  (typeof v === 'string' && v.trim() === '');
 
 /* --------------- セッター安全ラッパー --------------- */
 function setFieldSafe(store: any, key: string, value: any) {
@@ -163,16 +176,17 @@ function setFieldSafe(store: any, key: string, value: any) {
 export default function Step1BasicInfo() {
   const st = useStrategyStore() as any;
 
+  // store 値（再取得での更新もリアクティブに反映される）
   const companyName: string = st?.companyName ?? '';
-  const foundationYear: string = st?.foundationYear ?? '';
+  const foundationYear: number | null = st?.foundationYear ?? null;
   const location: string = st?.location ?? '';
   const industry: string = st?.industry ?? '';
-  const revenue: string = st?.revenue ?? '';
-  const employees: string = st?.employees ?? '';
+  const revenue: number | null = st?.revenue ?? null;
+  const employees: number | null = st?.employees ?? null;
   const businessContent: string = st?.businessContent ?? '';
   const customerSegment: string = st?.customerSegment ?? '';
   const thoughtRaw: string = st?.thought ?? '';
-  const enhanceEmotion: boolean = st?.enhanceEmotion ?? true; // ★ 追加：魂補正（既定ON）
+  const enhanceEmotion: boolean = st?.enhanceEmotion ?? true;
   const aiSuggestedBasicInfo: any = st?.aiSuggestedBasicInfo ?? null;
 
   // thought はAPI側の上限（1000字）に合わせて保持
@@ -180,36 +194,80 @@ export default function Step1BasicInfo() {
   const [thoughtLocal, setThoughtLocal] = useState<string>(
     typeof thoughtRaw === 'string' ? thoughtRaw.slice(0, THOUGHT_MAX) : ''
   );
-  const thoughtCount = useMemo(() => (thoughtLocal?.length ?? 0), [thoughtLocal]);
+  const thoughtCount = useMemo(
+    () => (thoughtLocal?.length ?? 0),
+    [thoughtLocal]
+  );
 
-  // store → local（初期同期）
+  // store → local（初期＆再取得時に同期）
   useEffect(() => {
-    const v = typeof thoughtRaw === 'string' ? thoughtRaw.slice(0, THOUGHT_MAX) : '';
+    const v =
+      typeof thoughtRaw === 'string'
+        ? thoughtRaw.slice(0, THOUGHT_MAX)
+        : '';
     setThoughtLocal(v);
   }, [thoughtRaw]);
 
   // local → store（即時反映）
   useEffect(() => {
-    // 末尾の無駄なスペース/改行は軽く抑制
     const trimmed = (thoughtLocal || '').replace(/\s+$/g, '').slice(0, THOUGHT_MAX);
     setFieldSafe(st, 'thought', trimmed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [thoughtLocal]);
 
-  // AI提案の静かな自動反映（初期値補完）
+  // ★ AI提案の「空欄のみ補完」＋「一度きり適用」ガード
+  const appliedAISuggestRef = useRef(false);
   useEffect(() => {
-    if (!aiSuggestedBasicInfo) return;
-    if (aiSuggestedBasicInfo.thought) setFieldSafe(st, 'thought', String(aiSuggestedBasicInfo.thought).slice(0, THOUGHT_MAX));
-    if (aiSuggestedBasicInfo.companyName) setFieldSafe(st, 'companyName', aiSuggestedBasicInfo.companyName);
-    if (aiSuggestedBasicInfo.foundationYear) setFieldSafe(st, 'foundationYear', aiSuggestedBasicInfo.foundationYear);
-    if (aiSuggestedBasicInfo.location) setFieldSafe(st, 'location', aiSuggestedBasicInfo.location);
-    if (aiSuggestedBasicInfo.industry) setFieldSafe(st, 'industry', aiSuggestedBasicInfo.industry);
-    if (aiSuggestedBasicInfo.revenue) setFieldSafe(st, 'revenue', aiSuggestedBasicInfo.revenue);
-    if (aiSuggestedBasicInfo.employees) setFieldSafe(st, 'employees', aiSuggestedBasicInfo.employees);
-    if (aiSuggestedBasicInfo.businessContent) setFieldSafe(st, 'businessContent', aiSuggestedBasicInfo.businessContent);
-    if (aiSuggestedBasicInfo.customerSegment) setFieldSafe(st, 'customerSegment', aiSuggestedBasicInfo.customerSegment);
+    if (!aiSuggestedBasicInfo || appliedAISuggestRef.current) return;
+
+    // 何かしら空欄があるときのみ補完
+    const needs =
+      isBlank(st?.companyName) ||
+      st?.foundationYear == null ||
+      isBlank(st?.location) ||
+      isBlank(st?.industry) ||
+      st?.revenue == null ||
+      st?.employees == null ||
+      isBlank(st?.businessContent) ||
+      isBlank(st?.customerSegment) ||
+      isBlank(st?.thought);
+
+    if (!needs) return;
+
+    const pick = (k: string) => aiSuggestedBasicInfo?.[k];
+
+    // thought は上限付き
+    if (isBlank(st?.thought) && pick('thought')) {
+      setFieldSafe(st, 'thought', String(pick('thought')).slice(0, THOUGHT_MAX));
+    }
+    if (isBlank(st?.companyName) && pick('companyName')) {
+      setFieldSafe(st, 'companyName', String(pick('companyName')));
+    }
+    if (st?.foundationYear == null && pick('foundationYear') != null) {
+      setFieldSafe(st, 'foundationYear', toNumOrNull(pick('foundationYear')));
+    }
+    if (isBlank(st?.location) && pick('location')) {
+      setFieldSafe(st, 'location', String(pick('location')));
+    }
+    if (isBlank(st?.industry) && pick('industry')) {
+      setFieldSafe(st, 'industry', String(pick('industry')));
+    }
+    if (st?.revenue == null && pick('revenue') != null) {
+      setFieldSafe(st, 'revenue', toNumOrNull(pick('revenue')));
+    }
+    if (st?.employees == null && pick('employees') != null) {
+      setFieldSafe(st, 'employees', toNumOrNull(pick('employees')));
+    }
+    if (isBlank(st?.businessContent) && pick('businessContent')) {
+      setFieldSafe(st, 'businessContent', String(pick('businessContent')));
+    }
+    if (isBlank(st?.customerSegment) && pick('customerSegment')) {
+      setFieldSafe(st, 'customerSegment', String(pick('customerSegment')));
+    }
+
+    appliedAISuggestRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aiSuggestedBasicInfo]);
+  }, [aiSuggestedBasicInfo, st?.companyName, st?.foundationYear, st?.location, st?.industry, st?.revenue, st?.employees, st?.businessContent, st?.customerSegment, st?.thought]);
 
   // アクセシビリティ用のID
   const idPrefix = useId();
@@ -233,7 +291,9 @@ export default function Step1BasicInfo() {
               id={`${idPrefix}-thought`}
               rows={4}
               value={thoughtLocal}
-              onChange={(e) => setThoughtLocal((e.target.value ?? '').slice(0, THOUGHT_MAX))}
+              onChange={(e) =>
+                setThoughtLocal((e.target.value ?? '').slice(0, THOUGHT_MAX))
+              }
               placeholder="例：社員が胸を張れる会社にする。日本の製造業の価値を再定義する。そのために、守りの効率化と攻めの価値創造を同時にやり切る。"
             />
             <div className="mt-2 flex flex-wrap items-center gap-3">
@@ -267,8 +327,10 @@ export default function Step1BasicInfo() {
           <Field label="設立年">
             <InputNum
               id={`${idPrefix}-foundation`}
-              value={foundationYear}
-              onChange={(e: any) => setFieldSafe(st, 'foundationYear', e.target.value)}
+              value={foundationYear ?? ''}
+              onChange={(e: any) =>
+                setFieldSafe(st, 'foundationYear', toNumOrNull(e.target.value))
+              }
               placeholder="例：2005"
             />
           </Field>
@@ -300,8 +362,10 @@ export default function Step1BasicInfo() {
           <Field label="売上（百万円）">
             <InputNum
               id={`${idPrefix}-revenue`}
-              value={revenue}
-              onChange={(e: any) => setFieldSafe(st, 'revenue', e.target.value)}
+              value={revenue ?? ''}
+              onChange={(e: any) =>
+                setFieldSafe(st, 'revenue', toNumOrNull(e.target.value))
+              }
               placeholder="例：5000"
             />
           </Field>
@@ -309,8 +373,10 @@ export default function Step1BasicInfo() {
           <Field label="従業員数（人）">
             <InputNum
               id={`${idPrefix}-employees`}
-              value={employees}
-              onChange={(e: any) => setFieldSafe(st, 'employees', e.target.value)}
+              value={employees ?? ''}
+              onChange={(e: any) =>
+                setFieldSafe(st, 'employees', toNumOrNull(e.target.value))
+              }
               placeholder="例：200"
             />
           </Field>
