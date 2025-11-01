@@ -1,3 +1,4 @@
+// /components/home/PyramidNavigator.tsx
 'use client';
 
 import React from 'react';
@@ -54,10 +55,11 @@ const Y_L_MID = ((Y_DIV1     + Y_DIV2) / 2)      + TRI.label.midYOffset;
 const Y_L_BOT = ((Y_DIV2     + TRI.right.y) / 2) + TRI.label.botYOffset;
 
 /* ===== ボタン配置（デザイン準拠） ===== */
-const ROW_TOP_Y = 210;  // STAGE1 & STAGE2 横並び
+// STAGE1/2 を縦並びで STAGE3/4 と同じ列に合わせ、少し下げる
+const ROW_TOP_Y = 210;  // ← 200 から下げた
 const ROW_MID_Y = 360;  // STAGE3
-const ROW_BOT_Y = 520;  // STAGE4 ← “もっと上” に（560→520）
-const LEFT_PCT  = 58;   // ピラミッド右脇からの開始位置
+const ROW_BOT_Y = 520;  // STAGE4（上げ済み）
+const LEFT_PCT  = 58;   // 全列で統一（STAGE3/4 と同じ列）
 
 // Apple風：余白/角丸/フォントを少し大きく（押しやすい）
 const btnClass =
@@ -143,9 +145,9 @@ export default function PyramidNavigator() {
               fill="#0f172a" style={{ letterSpacing: `${TRI.label.trackEm}em` }}>BOTTOM</text>
           </svg>
 
-          {/* 行1：STAGE1 & STAGE2（横並び） */}
+          {/* 行1：STAGE1 & STAGE2（縦並び／列位置はSTAGE3/4に合わせる） */}
           <div
-            className="absolute flex gap-8"
+            className="absolute flex flex-col gap-3"
             style={{
               top: `${(ROW_TOP_Y / VBH) * 100}%`,
               left: `${LEFT_PCT}%`,
@@ -174,7 +176,7 @@ export default function PyramidNavigator() {
             </Link>
           </div>
 
-          {/* 行3：STAGE4（上へ移動済み） */}
+          {/* 行3：STAGE4 */}
           <div
             className="absolute"
             style={{
@@ -190,7 +192,7 @@ export default function PyramidNavigator() {
         </div>
       </div>
 
-      {/* モバイル：縦リスト */}
+      {/* モバイル：縦リスト（従来通り） */}
       <div className="md:hidden mt-6 space-y-3">
         {[
           { href: '/strategy', label: 'STAGE1：経営基本情報' },
