@@ -5,8 +5,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import QuestionStepper, { type AnswerStep as StepperAnswerStep } from '@/components/guide/QuestionStepper';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
-// ▼ 修正：保存ユーティリティの正しいパスに
-import { saveStrategyData } from '@/utils/supabase/strategy';
+// ▼ 修正：保存ユーティリティを strategy から。分離保存APIも追加。
+import { saveStrategyData, saveFinalStory, saveStoryAnswers2 } from '@/utils/supabase/strategy';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAccess } from '@/utils/access';
@@ -441,11 +441,12 @@ export default function StoryProcessPage() {
     persistTimer.current = window.setTimeout(async () => {
       if (!user?.id || !companyId) return;
       try {
+        // strategy_data 側（プロフィール・ドラフト等）
         await saveStrategyData(
           {
             strategyId: store?.strategyId,
             story: draft,
-            finalStory: fin,
+            finalStory: fin, // ← 読み込み補完項目だが、ここは単に state 側にも載せておく（本保存は分離API）
             answers2: (a2 ?? []).map((c) => ({
               chapterIndex: c.chapterIndex,
               chapterTitle: c.chapterTitle,
@@ -455,12 +456,28 @@ export default function StoryProcessPage() {
             industry, revenue, employees,
             thought, strength, weakness, opportunity, threat,
             csvFinanceData,
-            // ▼ 修正：保存層と一致
             businessPortfolio,
             enhanceEmotion,
           } as any,
           user.id
         );
+
+        // 分離テーブル：final_stories
+        if ((fin ?? []).length) {
+          await saveFinalStory(user.id, fin as ChapterStory[]).catch((e) => {
+            console.warn('saveFinalStory failed (debounced)', e);
+          });
+        }
+
+        // （任意）分離テーブル：answers2 を保存したい場合は有効化
+        // await saveStoryAnswers2(
+        //   user.id,
+        //   (a2 ?? []).map((c) => ({
+        //     chapterIndex: c.chapterIndex,
+        //     chapterTitle: c.chapterTitle,
+        //     steps: deflateToStrategy(c.steps),
+        //   }))
+        // ).catch(() => {});
       } catch (e) {
         console.error('Auto save failed', e);
       }
@@ -481,7 +498,7 @@ export default function StoryProcessPage() {
           {
             strategyId: store?.strategyId,
             story: draftArr,
-            finalStory: finalRawFromStore,
+            finalStory: finalRawFromStore, // state 側には反映
             answers2: (answers2 ?? []).map((c) => ({
               chapterIndex: c.chapterIndex,
               chapterTitle: c.chapterTitle,
@@ -496,6 +513,17 @@ export default function StoryProcessPage() {
           } as any,
           user.id
         );
+
+        // 分離テーブル保存（重要）
+        if ((finalRawFromStore ?? []).length) {
+          await saveFinalStory(user.id, finalRawFromStore as ChapterStory[]).catch(() => {});
+        }
+        // （任意）answers2 も分離保存するなら
+        // await saveStoryAnswers2(user.id, (answers2 ?? []).map(c => ({
+        //   chapterIndex: c.chapterIndex,
+        //   chapterTitle: c.chapterTitle,
+        //   steps: deflateToStrategy(c.steps),
+        // }))).catch(() => {});
       } catch {}
     };
     const onVis = () => { if (document.visibilityState === 'hidden') flush(); };
@@ -537,7 +565,6 @@ export default function StoryProcessPage() {
 
     const withDepthFallback: StepperAnswerStep[] = (answers ?? []).map((s) => {
       const sn = Number(s.stepNumber);
-      theDepth: {}
       const depth = (s as any).depth ?? getDepthFor(chapterIndex, sn);
       return { ...s, stepNumber: sn, depth, createdAt: (s as any).createdAt ?? STABLE_TS };
     });
@@ -685,6 +712,15 @@ export default function StoryProcessPage() {
           sessionStorage.setItem(ssKey('finalStory', companyId, store?.strategyId), JSON.stringify(ordered));
         }
       } catch {}
+
+      // 直ちに分離テーブルへ保存（重要）
+      if (user?.id) {
+        await saveFinalStory(user.id, ordered).catch((e) => {
+          console.warn('saveFinalStory after generate failed', e);
+        });
+      }
+
+      // デバウンス保存（strategy_data側も）
       persistDebounced(answers2, draftArr, ordered);
     } catch (e: any) {
       if (String(e?.message || '').includes('AbortError')) return;
@@ -699,7 +735,7 @@ export default function StoryProcessPage() {
     } finally {
       setFinalLoading(false);
     }
-  }, [answers2, callFinalApi, persistDebounced, setFinalStorySafe, draftArr, canEdit, companyId, store?.strategyId]);
+  }, [answers2, callFinalApi, persistDebounced, setFinalStorySafe, draftArr, canEdit, companyId, store?.strategyId, user?.id]);
 
   /* 自動生成トリガ（全12問完了時・一度だけ） */
   const hasAutoTriggeredRef = useRef(false);
@@ -735,7 +771,6 @@ export default function StoryProcessPage() {
 
       const steps: StepperAnswerStep[] = (chapterAns.steps ?? []).map((s) => {
         const sn = Number(s.stepNumber);
-        theDepth: {}
         const depth = (s as any).depth ?? getDepthFor(i, sn);
         return { ...s, stepNumber: sn, depth, createdAt: (s as any).createdAt ?? STABLE_TS };
       });
@@ -977,6 +1012,7 @@ function FinalStorySection({
 }) {
   const [editing, setEditing] = useState(false);
   const [draftEdit, setDraftEdit] = useState<ChapterStory[]>([]);
+  const userId = useUserStore((s) => s.user?.id); // ← 分離保存に必要
 
   const baseArr = finalRawArrFromStore.length ? finalRawArrFromStore : draftArr;
 
@@ -992,12 +1028,17 @@ function FinalStorySection({
     const clean = draftEdit.map((c, i) => ({ title: FINAL_TITLES[i] ?? c.title, body: c.body || '' }));
     setFinalStorySafe(clean);
     try { if (companyId && strategyId) sessionStorage.setItem(ssKey('finalStory', companyId, strategyId), JSON.stringify(clean)); } catch {}
+    // 分離テーブルへ即保存（重要）
+    if (userId) {
+      await saveFinalStory(userId, clean).catch(() => {});
+    }
+    // 既存のデバウンス保存処理も走らせる（strategy_data側の差分も反映）
     persistDebounced(undefined, undefined, clean);
     setEditing(false);
   };
 
   return (
-    <section className="rounded-2xl border border-zinc-200 bg白/80 backdrop-blur-sm p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)] min-w-0 overflow-hidden">
+    <section className="rounded-2xl border border-zinc-200 bg-white/80 backdrop-blur-sm p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)] min-w-0 overflow-hidden">
       <div className="flex items-center justify-between">
         <h2 className="text-[17px] font-semibold tracking-tight text-zinc-900">最終ストーリー</h2>
         <div className="flex items-center gap-2">
