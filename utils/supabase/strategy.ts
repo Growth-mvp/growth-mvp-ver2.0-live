@@ -493,8 +493,6 @@ export async function deleteStrategyData(userId: string): Promise<WriteResult> {
 
 /* ============================================================
  * 全削除（会社スコープの完全掃除：レガシー含む）
- *  - 依存の少ない順に削除し、最後に strategy_data
- *  - 失敗は収集して返す（冪等）
  * ============================================================ */
 export async function deleteAllCompanyData(userId: string, companyIdOverride?: string | null) {
   const companyId = await resolveCompanyId(userId, companyIdOverride);
@@ -693,5 +691,57 @@ export async function saveProgressLog(input: ProgressLogInput): Promise<{ data: 
     return { data, error: null };
   } catch (e) {
     return { data: null, error: extractErrorVerbose(e) };
+  }
+}
+
+/* ============================================================
+ * 追加：分離テーブルへの保存API
+ * ============================================================ */
+
+/** 最終ストーリーを final_stories に永続化 */
+export async function saveFinalStory(
+  userId: string,
+  finalStory: Array<{ title: string; body: string }>,
+  companyIdOverride?: string | null
+): Promise<{ ok: boolean; error: any | null }> {
+  try {
+    const companyId = await resolveCompanyId(userId, companyIdOverride);
+    const now = new Date().toISOString();
+
+    const { error } = await supabase
+      .from(T_FINAL_STORIES)
+      .upsert(
+        { company_id: companyId, user_id: userId, final_story: finalStory, updated_at: now },
+        { onConflict: 'company_id' }
+      );
+
+    if (error) return { ok: false, error: extractErrorVerbose(error) };
+    return { ok: true, error: null };
+  } catch (e) {
+    return { ok: false, error: extractErrorVerbose(e) };
+  }
+}
+
+/** 質問回答（answers2）を story_answers2 に永続化（任意運用） */
+export async function saveStoryAnswers2(
+  userId: string,
+  answers2: any[],
+  companyIdOverride?: string | null
+): Promise<{ ok: boolean; error: any | null }> {
+  try {
+    const companyId = await resolveCompanyId(userId, companyIdOverride);
+    const now = new Date().toISOString();
+
+    const { error } = await supabase
+      .from(T_STORY_ANSWERS)
+      .upsert(
+        { company_id: companyId, user_id: userId, answers2, updated_at: now },
+        { onConflict: 'company_id' }
+      );
+
+    if (error) return { ok: false, error: extractErrorVerbose(error) };
+    return { ok: true, error: null };
+  } catch (e) {
+    return { ok: false, error: extractErrorVerbose(e) };
   }
 }
