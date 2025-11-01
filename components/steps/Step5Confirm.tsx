@@ -22,10 +22,12 @@ const ssKey = (base: string, companyId?: string | null, strategyId?: string | nu
 // ストア通知 or ローカル通知を安全に出す
 function notifySafe(store: any, msg: string, setLocal: (s: string) => void) {
   if (typeof store?.setNotification === 'function') {
-    store.setNotification(msg);
-  } else {
-    setLocal(msg);
+    try {
+      store.setNotification(msg);
+      return;
+    } catch {}
   }
+  setLocal(msg);
 }
 
 // JSON抽出（LLMの前後混入に耐性）
@@ -86,12 +88,14 @@ function longformToChapters(s: string) {
   return chunks.map((arr, i) => ({ title: REFERENCE_TITLES[i], body: arr.join('\n\n') }));
 }
 
-// APIレスポンスから story/summary を抽出
-function extractStoryAndSummary(payload: any): {
+type Extracted = {
   longform?: string;
   chapters?: Array<{ title: string; body: string }>;
-  summary?: any;
-} {
+  summary?: unknown;
+};
+
+// APIレスポンスから story/summary を抽出
+function extractStoryAndSummary(payload: any): Extracted {
   if (!payload || typeof payload !== 'object') return {};
   let storyAny =
     payload.story ??
@@ -154,7 +158,9 @@ function InfoRow({ label, value }: { label: string; value: string | number | nul
   return (
     <div className="flex items-start justify-between gap-3 py-1">
       <span className="min-w-[8rem] shrink-0 text-xs text-gray-500">{label}</span>
-      <span className="grow text-sm text-gray-800">{value !== undefined && value !== null && String(value) !== '' ? String(value) : '（未入力）'}</span>
+      <span className="grow text-sm text-gray-800">
+        {value !== undefined && value !== null && String(value) !== '' ? String(value) : '（未入力）'}
+      </span>
     </div>
   );
 }
@@ -209,6 +215,7 @@ export default function Step5Confirm() {
     () => Array.from(new Set(financeSummary.map((r: any) => r?.year))).filter(Boolean).sort(),
     [financeSummary]
   );
+  const summaryYearsLatest = summaryYears.length ? summaryYears[summaryYears.length - 1] : undefined;
 
   // ストーリー生成
   const handleGenerate = async () => {
@@ -216,7 +223,11 @@ export default function Step5Confirm() {
 
     // 生成は許可、保存だけ条件付き
     if (!canPersist) {
-      notifySafe(st, '会社スコープの解決中。生成は実行し、保存はスコープ確立後に再度行ってください。', setLocalNotice);
+      notifySafe(
+        st,
+        '会社スコープの解決中です。生成は実行し、保存はスコープ確立後にもう一度行ってください。',
+        setLocalNotice
+      );
     }
 
     setIsGenerating(true);
@@ -243,7 +254,8 @@ export default function Step5Confirm() {
 
     // ユーティリティ
     const pickChapters = (rawText: string, parsed: any) => {
-      const { longform, chapters } = extractStoryAndSummary(parsed || {});
+      const extracted = extractStoryAndSummary(parsed || {});
+      const { longform, chapters } = extracted;
       if (Array.isArray(chapters) && chapters.length) return chapters.slice(0, 4);
       const text = typeof longform === 'string' && longform.trim().length > 0 ? longform : rawText;
       return longformToChapters(text || '');
@@ -345,14 +357,8 @@ export default function Step5Confirm() {
         notifySafe(st, '保存はスコープ確立後に再実行してください（生成内容は画面内/セッションに保持）', setLocalNotice);
       }
 
-      // 4) 状態反映を一拍待つ
-      await Promise.resolve();
-      if (typeof window !== 'undefined') {
-        await new Promise(r => setTimeout(r, 0));
-      }
-
-      // 5) 遷移（DB未保存でも閲覧は可能）
-      router.push('/story-process', { scroll: true });
+      // 4) 遷移（DB未保存でも閲覧は可能）
+      router.push('/story-process');
     } catch (err) {
       console.error('❌ 通信エラー:', err);
       notifySafe(st, `❌ 通信エラー: ${String((err as any)?.message || err)}`, setLocalNotice);
@@ -362,7 +368,7 @@ export default function Step5Confirm() {
   };
 
   return (
-    // ✅ フローに合わせて 5/5 に統一
+    // ✅ フローに合わせて 6/6 に統一
     <StepLayout step={6} totalSteps={6} title="入力内容の最終確認">
       <div className="space-y-6">
         {/* 通知 */}
@@ -436,7 +442,7 @@ export default function Step5Confirm() {
         </GlassCard>
 
         {/* 年度×事業サマリー（可視化） */}
-        <FinanceSummaryPanel className="mt-2" showHeader initialYear={summaryYears.at(-1)} />
+        <FinanceSummaryPanel className="mt-2" showHeader initialYear={summaryYearsLatest as any} />
 
         {/* 注意書き / ステータス */}
         <div className="text-center text-xs text-gray-500">
