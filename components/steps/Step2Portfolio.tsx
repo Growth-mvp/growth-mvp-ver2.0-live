@@ -12,13 +12,13 @@ import type {
   UnitType,
 } from '@/types/portfolio';
 import { classifyStage, createDefaultPortfolio } from '@/types/portfolio';
-// ★ 修正：保存関数は strategy 直下から
+// ★ 保存関数は strategy 直下から
 import { saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
 
-/** 数値入力の安全パース（空文字は undefined にする） */
-function toNumberOrUndefined(v: string): number | undefined {
-  if (v === '' || v === null) return undefined;
-  const n = Number(v);
+/** 数値入力の安全パース（空文字や不正は undefined に） */
+function toNumberOrUndefined(v: string | number | null | undefined): number | undefined {
+  if (v === '' || v === null || typeof v === 'undefined') return undefined;
+  const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? n : undefined;
 }
 
@@ -37,10 +37,17 @@ type Props = {
 };
 
 export default function Step2Portfolio(_props: Props) {
-  const { businessPortfolio, setBusinessPortfolio } = useStrategyStore() as any;
+  const { businessPortfolio, setBusinessPortfolio } = useStrategyStore() as {
+    businessPortfolio: BusinessPortfolio | undefined;
+    setBusinessPortfolio: (p: BusinessPortfolio) => void;
+  };
 
   // ユーザー・会社の可視化用
-  const { user, companyId, role, hydrated, membershipLoaded } = useUserStore();
+  const user = useUserStore((s) => s.user);
+  const companyId = useUserStore((s) => s.companyId);
+  const role = useUserStore((s) => (s as any).role);
+  const hydrated = useUserStore((s) => (s as any).hydrated);
+  const membershipLoaded = useUserStore((s) => (s as any).membershipLoaded);
   const userId = user?.id ?? null;
 
   /** 単一ソース：store の値（未設定ならデフォルト生成） */
@@ -57,24 +64,23 @@ export default function Step2Portfolio(_props: Props) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 会社切替時などで一時的にセーブを抑止するゲート（ロード完了まで false）
-  const savingGateRef = useRef(true);
+  const savingGateRef = useRef(false);
   useEffect(() => {
-    // membershipResolved 後にゲート開放
+    // 前提が満たされたらゲート開放、満たされなければ閉
     savingGateRef.current = canPersist;
   }, [canPersist]);
 
   const scheduleSave = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(async () => {
-      // ゲート/前提満たない間はリトライ
+    timerRef.current = setTimeout(async function trySave() {
+      // 前提が未充足のときは一定間隔で再確認
       if (!savingGateRef.current || !canPersist) {
-        // 待機を継続：dirtyは保持したまま、少し後に再試行
-        timerRef.current = setTimeout(scheduleSave, 600);
+        timerRef.current = setTimeout(trySave, 600);
         return;
       }
       if (!dirtyRef.current) return;
 
-      // 以降は保存
+      // 以降は保存実行
       dirtyRef.current = false;
       setSaving(true);
       setSaveError(null);
@@ -88,7 +94,7 @@ export default function Step2Portfolio(_props: Props) {
         setSaveError(e?.message || '保存に失敗しました');
         console.error('[AUTO SAVE] failed:', e);
         // 再試行を少し後に
-        timerRef.current = setTimeout(scheduleSave, 1500);
+        timerRef.current = setTimeout(trySave, 1500);
       } finally {
         setSaving(false);
       }
@@ -231,7 +237,7 @@ export default function Step2Portfolio(_props: Props) {
   /** ====== 手動保存（ゲートと会社IDを考慮） ====== */
   const handleManualSave = useCallback(async () => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    if (!canPersist) return;
+    if (!canPersist || !savingGateRef.current) return;
     dirtyRef.current = false;
     setSaving(true);
     setSaveError(null);
@@ -243,15 +249,17 @@ export default function Step2Portfolio(_props: Props) {
       dirtyRef.current = true; // 手動でも失敗時は dirty 維持
       setSaveError(e?.message || '保存に失敗しました');
       console.error('[MANUAL SAVE] failed:', e);
+      // 手動保存でも少し後に再試行できるようにスケジュール
+      scheduleSave();
     } finally {
       setSaving(false);
     }
-  }, [canPersist, userId, companyId, portfolio]);
+  }, [canPersist, userId, companyId, portfolio, scheduleSave]);
 
   /** ====== テスト保存（ログを多めに出す） ====== */
   const handleTestSave = useCallback(async () => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    if (!canPersist) return;
+    if (!canPersist || !savingGateRef.current) return;
     dirtyRef.current = false;
     setSaving(true);
     setSaveError(null);
@@ -276,10 +284,11 @@ export default function Step2Portfolio(_props: Props) {
       dirtyRef.current = true;
       setSaveError(e?.message || '保存に失敗しました');
       console.error('[TEST SAVE] failed:', e);
+      scheduleSave();
     } finally {
       setSaving(false);
     }
-  }, [canPersist, userId, companyId, role, hydrated, membershipLoaded, portfolio]);
+  }, [canPersist, userId, companyId, role, hydrated, membershipLoaded, portfolio, scheduleSave]);
 
   return (
     <div className="space-y-6">
@@ -306,8 +315,8 @@ export default function Step2Portfolio(_props: Props) {
           </div>
           <div className="flex items-center gap-2">
             <Button
-              variant="outline"
               size="sm"
+              className="border bg-white hover:bg-gray-50"
               onClick={() => {
                 console.groupCollapsed('%c[USER CHECK]', 'color:#0ea5e9');
                 console.log('user:', user);
@@ -342,7 +351,11 @@ export default function Step2Portfolio(_props: Props) {
               return (
                 <Button
                   key={t}
-                  variant={active ? 'primary' : 'outline'}
+                  className={
+                    active
+                      ? 'bg-gray-900 text-white hover:bg-gray-800'
+                      : 'border bg-white hover:bg-gray-50'
+                  }
                   onClick={() => { setUnitType(t); }}
                 >
                   {t === 'business' ? '事業' : t === 'product' ? '商品' : 'サービス'}
@@ -425,7 +438,12 @@ export default function Step2Portfolio(_props: Props) {
             ) : (
               <span className="text-xs text-gray-500">保存待ち</span>
             )}
-            <Button variant="outline" size="sm" onClick={handleManualSave} disabled={!canPersist || saving}>
+            <Button
+              size="sm"
+              className="border bg-white hover:bg-gray-50"
+              onClick={handleManualSave}
+              disabled={!canPersist || saving}
+            >
               手動で保存
             </Button>
           </div>
@@ -476,7 +494,10 @@ export default function Step2Portfolio(_props: Props) {
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <div className="font-medium">一覧編集</div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => { addUnit(); }}>
+            <Button
+              className="border bg-white hover:bg-gray-50"
+              onClick={() => { addUnit(); }}
+            >
               追加
             </Button>
           </div>
@@ -553,8 +574,8 @@ export default function Step2Portfolio(_props: Props) {
                   <td className="px-4 py-2 text-right">
                     <div className="flex justify-end gap-2">
                       <Button
-                        variant="destructive"
                         size="sm"
+                        className="bg-red-600 text-white hover:bg-red-700"
                         onClick={() => {
                           removeUnit(u.id);
                         }}
@@ -593,10 +614,20 @@ export default function Step2Portfolio(_props: Props) {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleManualSave} disabled={!canPersist || saving}>
+            <Button
+              size="sm"
+              className="border bg-white hover:bg-gray-50"
+              onClick={handleManualSave}
+              disabled={!canPersist || saving}
+            >
               手動で保存
             </Button>
-            <Button variant="primary" size="sm" onClick={handleTestSave} disabled={!canPersist || saving}>
+            <Button
+              size="sm"
+              className="bg-gray-900 text-white hover:bg-gray-800"
+              onClick={handleTestSave}
+              disabled={!canPersist || saving}
+            >
               テスト保存（ログ出力）
             </Button>
           </div>
