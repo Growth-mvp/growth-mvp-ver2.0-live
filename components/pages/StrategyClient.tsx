@@ -1,3 +1,4 @@
+// /components/pages/StrategyClient.tsx
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
@@ -11,6 +12,15 @@ import { useStrategyStore, refetchFromServer as refetchStrategy } from '@/store/
 import { useAccess } from '@/utils/access';
 import { useUserStore } from '@/store/userStore';
 import { useAutoSave } from '@/hooks/useAutoSave';
+
+/**
+ * StrategyClient
+ * - 保存安全化:
+ *   - finalStory は autosave 対象から除外（StoryProcess 側の即時保存が正）
+ *   - hydrated 完了かつ cooldown 後のみ autosave を有効化
+ *   - 主要配列が全て空なら autosave をスキップ
+ * - 初回 refetch と autosave のレースを回避
+ */
 
 export default function StrategyClient() {
   /* ===== フックは無条件に先頭で呼ぶ ===== */
@@ -30,9 +40,8 @@ export default function StrategyClient() {
   const totalSteps = metas.length;
   const meta = metas[step - 1];
 
-  // ✅ 各フィールドを“個別”に subscribe（オブジェクトを返さない）
+  // ✅ 主要領域のみ subscribe（finalStory は autosave 対象から外す）
   const story        = useStrategyStore((s) => s.story);
-  const finalStory   = useStrategyStore((s) => s.finalStory);
   const answers2     = useStrategyStore((s) => s.answers2);
   const departments  = useStrategyStore((s) => s.departments);
   const setCompanyScope = useStrategyStore((s) => s.setCompanyScope);
@@ -48,6 +57,14 @@ export default function StrategyClient() {
   const [hydrated, setHydrated] = useState(false);
   const [loading, setLoading] = useState(false);
   const fetchedFor = useRef<string | null>(null);
+
+  // 初回 refetch → autosave のレース回避用クールダウン
+  const [readyToAutosave, setReadyToAutosave] = useState(false);
+  useEffect(() => {
+    if (!hydrated) return;
+    const t = setTimeout(() => setReadyToAutosave(true), 600); // 600ms クールダウン
+    return () => clearTimeout(t);
+  }, [hydrated]);
 
   useEffect(() => {
     let aborted = false;
@@ -118,8 +135,24 @@ export default function StrategyClient() {
     return () => window.removeEventListener('keydown', onKey);
   }, [totalSteps]);
 
-  // ✅ オートセーブ：主要編集領域の変更をまとめて保存（競合/多重POSTを抑止）
-  useAutoSave([companyId, story, finalStory, answers2, departments], 800);
+  /**
+   * ===== 保存の安全化 =====
+   * - finalStory は autosave 対象から外す
+   * - hydrated && readyToAutosave && companyId が揃うまで autosave を無効化
+   * - 全部空（story / answers2 / departments）ならスキップ
+   */
+  const hasMeaningfulData = useMemo(() => {
+    const nonEmptyArray = (a: unknown) => Array.isArray(a) && a.length > 0;
+    return nonEmptyArray(story) || nonEmptyArray(answers2) || nonEmptyArray(departments);
+  }, [story, answers2, departments]);
+
+  // ✅ useAutoSave は 1引数（deps: any[]）仕様
+  const autosaveEnabled = hydrated && readyToAutosave && !!companyId && hasMeaningfulData;
+  const autoDeps = useMemo(
+    () => (autosaveEnabled ? [companyId, story, answers2, departments] : []),
+    [autosaveEnabled, companyId, story, answers2, departments]
+  );
+  useAutoSave(autoDeps);
 
   const canBack = step > 1;
   const canNext = step < totalSteps;
