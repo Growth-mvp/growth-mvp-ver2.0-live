@@ -85,6 +85,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
    * Strategy store
    * ============================== */
   const setStrategyId = useStrategyStore((s) => s.setStrategyId);
+  const setCompanyScope = useStrategyStore((s) => s.setCompanyScope);
 
   /* ================================ */
   const mainRef = useRef<HTMLDivElement | null>(null);
@@ -140,17 +141,23 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   }, []);
 
   /* ================================
-   * ルート遷移ごとに main をトップへ
+   * ルート遷移ごとに main をトップへ & ドロワー閉じ
    * ============================== */
+  const [openLeft, setOpenLeft] = useState(false);
+  const [openRight, setOpenRight] = useState(false);
   useEffect(() => {
     const el = mainRef.current;
-    if (!el) return;
-    requestAnimationFrame(() => {
-      el.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    if (el) {
       requestAnimationFrame(() => {
         el.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+        requestAnimationFrame(() => {
+          el.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+        });
       });
-    });
+    }
+    // 画面切り替え時にモバイルドロワーを閉じる
+    setOpenLeft(false);
+    setOpenRight(false);
   }, [pathname]);
 
   /* ================================
@@ -218,10 +225,10 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 
     bootstrapSession();
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_evt, sess) => {
+    // ✅ v2 仕様：unsubscribe は data.subscription にある
+    const { data: authListener } = supabase.auth.onAuthStateChange((_evt, sess) => {
       if (signal.aborted) return;
 
-      // user が無ければ未ログイン扱い（イベントコード個別比較は不要）
       if (!sess?.user) {
         setUser(null);
         setRole(null);
@@ -235,13 +242,13 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         return;
       }
       setUser({ id: sess.user.id, email: sess.user.email ?? '', name: '', role: 'member' });
-      setBootstrapped(false);
+      setBootstrapped(false); // membership 再ロードへ
     });
 
     return () => {
       cleaned.current = true;
       ac.abort();
-      sub?.subscription?.unsubscribe?.();
+      authListener?.subscription?.unsubscribe?.();
       initInFlight.current = false;
     };
   }, [pathname, router, setMembership, setRole, setStrategyId, setUser]);
@@ -282,7 +289,8 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        setMembership({ companyId: data.company_id ?? undefined, departmentId: undefined });
+        const cid = data.company_id ?? undefined;
+        setMembership({ companyId: cid, departmentId: undefined });
         setRole((data.role as 'admin' | 'manager' | 'member') ?? 'member');
       } finally {
         memInFlight.current = false;
@@ -298,11 +306,35 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   }, [user?.id, setMembership, setRole]);
 
   /* ================================
+   * 2.3) companyId → StrategyStore scope反映（早期）
+   * ============================== */
+  useEffect(() => {
+    if (!bootstrapped) return;
+    const deleting = companyId ? isCompanyDeleting(companyId) : false;
+    if (deleting) {
+      setCompanyScope(null);
+      setStrategyId(null);
+      return;
+    }
+    if (companyId) {
+      setCompanyScope(companyId);
+    } else {
+      setCompanyScope(null);
+      setStrategyId(null);
+    }
+  }, [bootstrapped, companyId, setCompanyScope, setStrategyId]);
+
+  /* ================================
    * 2.5) strategyId provision
    * ============================== */
   useEffect(() => {
     const onAuthScene = isAuthPath(pathname);
     if (!bootstrapped) return;
+
+    // companyId が変わったら前回記録をリセット（重複抑止のため）
+    if (lastProvisionForCompany.current && lastProvisionForCompany.current !== (companyId ?? null)) {
+      lastProvisionForCompany.current = null;
+    }
 
     // 全削除フラグONのときは provision を抑止
     if (companyId && isCompanyDeleting(companyId)) {
@@ -395,8 +427,6 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   const hideSidebar = isAuthPath(pathname);
   const leftVar = 'var(--left-w, 0px)';
   const rightVar = 'var(--right-w, 0px)';
-  const [openLeft, setOpenLeft] = useState(false);
-  const [openRight, setOpenRight] = useState(false);
 
   const deletingNow = companyId ? isCompanyDeleting(companyId) : false;
   if (!hideSidebar && (checking || !hydrated)) {
