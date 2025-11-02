@@ -1,23 +1,68 @@
 // /utils/supabase/client.ts
-// 役割：アプリ側からの“入口”をここに寄せる（段階的分割のためのハブ）
-// 互換性：既存挙動は保ちつつ、"レガシーテーブル誤書き込み" をガードする
-// 注意：ブラウザAPI（document.cookie等）を扱うため、確実にクライアント側で評価
 'use client';
-// /utils/supabase/client.ts
-// 役割：アプリ側からの“入口”をここに寄せる（段階的分割のためのハブ）
-// 互換性：既存挙動は保ちつつ、"レガシーテーブル誤書き込み" をガードする
-// 追加：safeGetSession を { ok, data, error } で統一（引数なし/ありどちらも可）
 
-import baseClient, {
-  supabase as libSupabase,
-  getSupabaseClient,
-  attachAuthGuards,
-  signOutLocalAndRedirect,
-  clearDisplayCookies,
-} from '@/lib/supabaseClient';
+/**
+ * 役割：
+ *  - ブラウザ用 Supabase クライアントの “唯一の入り口”
+ *  - ストレージキーを環境ごとに分離し、Refresh Token 衝突を回避
+ *  - レガシーテーブルへの誤書き込みを Proxy でブロック
+ *  - 互換API（safeGetSession, getSupabaseClient など）を提供
+ *
+ * 要件：
+ *  - NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY を設定
+ */
 
+import { createBrowserClient } from '@supabase/ssr';
 import type { SupabaseClient, Session, AuthError } from '@supabase/supabase-js';
 import type { PostgrestFilterBuilder } from '@supabase/postgrest-js';
+
+/* =========================================================
+ * 環境 & ストレージ設定（環境切替のたびに prefix を変えられる）
+ * ========================================================= */
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  // eslint-disable-next-line no-console
+  console.warn('[supabase] URL/ANON KEY is missing. Check env.');
+}
+
+// 例：growth-v4:yuerkbxpivdhaikrnsar
+const APP_STORAGE_PREFIX =
+  (process.env.NEXT_PUBLIC_APP_STORAGE_PREFIX ?? 'growth-v4') +
+  ':' +
+  (process.env.NEXT_PUBLIC_SUPABASE_PROJECT ?? 'yuerkbxpivdhaikrnsar');
+
+/** localStorage を prefix 付きでラップ（環境切替でキー衝突を回避） */
+const prefixedStorage = {
+  getItem: (k: string) =>
+    typeof window !== 'undefined'
+      ? window.localStorage.getItem(`${APP_STORAGE_PREFIX}:${k}`)
+      : null,
+  setItem: (k: string, v: string) =>
+    typeof window !== 'undefined'
+      ? window.localStorage.setItem(`${APP_STORAGE_PREFIX}:${k}`, v)
+      : undefined,
+  removeItem: (k: string) =>
+    typeof window !== 'undefined'
+      ? window.localStorage.removeItem(`${APP_STORAGE_PREFIX}:${k}`)
+      : undefined,
+};
+
+/** 任意：prefix 領域だけを安全に掃除（ログアウト時の取り残し防止） */
+export function clearPrefixedSupabaseStorage() {
+  if (typeof window === 'undefined') return;
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      if (k.startsWith(`${APP_STORAGE_PREFIX}:`)) keys.push(k);
+    }
+    for (const k of keys) localStorage.removeItem(k);
+  } catch (e) {
+    console.warn('[supabase] clearPrefixedSupabaseStorage failed:', e);
+  }
+}
 
 /* =========================================================
  * レガシーテーブル書き込みガード
@@ -35,7 +80,6 @@ const BLOCK_LEGACY =
   String(process.env.NEXT_PUBLIC_SUPABASE_BLOCK_LEGACY ?? process.env.SUPABASE_BLOCK_LEGACY ?? 'true') ===
   'true';
 
-/** SupabaseClient を Proxy で包み、レガシーテーブルへの書き込みを検知・阻止 */
 function wrapWithLegacyGuards<T = any>(client: SupabaseClient<T>): SupabaseClient<T> {
   const clientHandler: ProxyHandler<SupabaseClient<T>> = {
     get(target, prop, recv) {
@@ -78,13 +122,54 @@ function wrapWithLegacyGuards<T = any>(client: SupabaseClient<T>): SupabaseClien
 }
 
 /* =========================================================
+ * シングルトン生成（autoRefresh & persistSession を有効）
+ * ========================================================= */
+let __singleton: SupabaseClient<any> | null = null;
+
+function createClientSingleton(): SupabaseClient {
+  if (__singleton) return __singleton;
+
+  const base = createBrowserClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      storage: prefixedStorage,
+    },
+  });
+
+  // 任意：イベントログ（デバッグに便利、不要なら消してOK）
+  base.auth.onAuthStateChange((event) => {
+    if (event === 'TOKEN_REFRESHED') console.log('[auth] token refreshed');
+    if (event === 'SIGNED_OUT') console.log('[auth] signed out');
+    if (event === 'SIGNED_IN') console.log('[auth] signed in');
+  });
+
+  __singleton = wrapWithLegacyGuards(base);
+  return __singleton;
+}
+
+/* =========================================================
+ * 推奨：ブラウザ用単一インスタンス getter（ガード付き）
+ * ========================================================= */
+export function getBrowserSupabase(): SupabaseClient {
+  return createClientSingleton();
+}
+
+// 既存互換：getSupabaseClient という名前でのエクスポートも維持
+export const getSupabaseClient = getBrowserSupabase;
+
+/* デフォルト / 名前付き：supabase をそのまま使いたい箇所用 */
+export const supabase: SupabaseClient = getBrowserSupabase();
+export default supabase;
+
+/* =========================================================
  * 互換 safeGetSession（戻り値を { ok, data:{session}, error } に統一）
- *  - 引数なし/あり（SupabaseClient）両対応
  * ========================================================= */
 export async function safeGetSession(
   client?: SupabaseClient
 ): Promise<{ ok: boolean; data: { session: Session | null }; error: AuthError | null }> {
-  const c = client ?? libSupabase;
+  const c = client ?? getBrowserSupabase();
   try {
     const { data, error } = await c.auth.getSession();
     return { ok: !error, data: { session: data?.session ?? null }, error: error ?? null };
@@ -94,34 +179,58 @@ export async function safeGetSession(
 }
 
 /* =========================================================
- * 再エクスポート（既存互換）
+ * 互換：attachAuthGuards（必要ならここで追加のラップを実装）
+ * いまは no-op で互換シグネチャだけ提供
  * ========================================================= */
-export {
-  getSupabaseClient,
-  attachAuthGuards,
-  signOutLocalAndRedirect,
-  clearDisplayCookies,
-};
-
-/* =========================================================
- * supabase エクスポート（ガード付き）
- * ========================================================= */
-const guardedSupabase = wrapWithLegacyGuards(libSupabase);
-export default guardedSupabase;
-export const supabase: SupabaseClient = guardedSupabase;
-
-/* =========================================================
- * 推奨：ブラウザ用単一インスタンス getter（ガード付き）
- * ========================================================= */
-let __singleton: SupabaseClient<any> | null = null;
-export function getBrowserSupabase(): SupabaseClient {
-  if (__singleton) return __singleton;
-  __singleton = guardedSupabase;
-  return __singleton;
+export function attachAuthGuards(client?: SupabaseClient): SupabaseClient {
+  // 将来的に 401/400 抑止や再ログイン誘導をここに差し込める
+  return client ?? getBrowserSupabase();
 }
 
 /* =========================================================
- * ユーティリティ（UUID / Cookie）
+ * ログアウト/表示系ユーティリティ
+ * ========================================================= */
+export async function signOutLocalAndRedirect(redirectTo?: string) {
+  try {
+    const c = getBrowserSupabase();
+    await c.auth.signOut({ scope: 'global' });
+  } catch (e) {
+    console.warn('[auth] signOut failed (ignored):', e);
+  }
+  try {
+    // ★ 追加：prefix 付き Supabase セッション領域の掃除
+    clearPrefixedSupabaseStorage();
+    clearDisplayCookies();
+  } catch {}
+  if (typeof window !== 'undefined' && redirectTo) {
+    location.assign(redirectTo);
+  }
+}
+
+export function clearDisplayCookies() {
+  if (typeof document === 'undefined') return;
+  try {
+    // 必要に応じてアプリの表示用 cookie をここで全て除去
+    // 例: company_id / growth-*
+    document.cookie
+      .split(';')
+      .map((c) => c.trim())
+      .forEach((pair) => {
+        const [name] = pair.split('=');
+        if (!name) return;
+        if (name.startsWith('company_id') || name.startsWith('growth-')) {
+          const isHttps = typeof location !== 'undefined' && location.protocol === 'https:';
+          const attrs = ['Path=/', 'SameSite=Lax', isHttps ? 'Secure' : ''].filter(Boolean).join('; ');
+          document.cookie = `${name}=; Max-Age=0; ${attrs}`;
+        }
+      });
+  } catch (e) {
+    console.warn('[auth] clearDisplayCookies failed:', e);
+  }
+}
+
+/* =========================================================
+ * UUID / Cookie ユーティリティ（既存互換）
  * ========================================================= */
 export function isValidUUID(v?: string | null): v is string {
   return !!v && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
