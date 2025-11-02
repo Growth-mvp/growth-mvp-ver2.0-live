@@ -5,7 +5,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import CEOChatPanel from '@/components/CEOChatPanel';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/utils/supabase/client';
 import { safeGetSession } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
 import { useStrategyStore } from '@/store/strategyStore';
@@ -100,6 +100,9 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   const cleaned = useRef(false);
   const routedRef = useRef(false);
   const bootstrapTimer = useRef<number | null>(null);
+
+  // ★ 追加: 会社ごとの refetch 実行済みフラグ（window を使わず安全）
+  const refetchRanForCompany = useRef<string | null>(null);
 
   /* ================================
    * デバッグマーカー
@@ -323,6 +326,29 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       setStrategyId(null);
     }
   }, [bootstrapped, companyId, setCompanyScope, setStrategyId]);
+
+  /* ================================
+   * ★ 追加: 2.4) 会社スコープ確定後の refetch（1社につき1回）
+   * ============================== */
+  useEffect(() => {
+    const authed = !!useUserStore.getState().user?.id;
+    if (!bootstrapped || !companyId || !authed) return;
+    if (isCompanyDeleting(companyId)) return;
+    if (isAuthPath(pathname)) return; // 認証系画面では不要
+
+    // 同一 companyId に対しては一度だけ refetch
+    if (refetchRanForCompany.current === companyId) return;
+    refetchRanForCompany.current = companyId;
+
+    // 次フレームで安全に実行（描画の安定後）
+    requestAnimationFrame(() => {
+      try {
+        useStrategyStore.getState().refetchFromServer();
+      } catch (e) {
+        console.warn('[layout] refetchFromServer failed:', e);
+      }
+    });
+  }, [bootstrapped, companyId, pathname]);
 
   /* ================================
    * 2.5) strategyId provision
@@ -565,7 +591,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
               </button>
               <button
                 onClick={() => setOpenRight(true)}
-                className="rounded-lg border border-black/10 px-3 py-1.5 text-sm shadow-sm bg-white active:scale-[0.99]"
+                className="rounded-lg border border-black/10 px-3 py-1.5 text-sm shadow-sm bg白 active:scale-[0.99]"
               >
                 AIアシスタント
               </button>
