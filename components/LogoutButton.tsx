@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LogOut } from 'lucide-react';
-import { supabase, clearDisplayCookies } from '@/lib/supabaseClient';
+import { supabase, clearDisplayCookies } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
 import { useStrategyStore } from '@/store/strategyStore';
 
