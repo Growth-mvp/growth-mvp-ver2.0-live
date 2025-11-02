@@ -6,7 +6,7 @@ import { on } from '@/utils/actionBus';
 import { useUserStore } from '@/store/userStore';
 import { useStrategyStore } from '@/store/strategyStore';
 import AbstractCoachAvatar from '@/components/AbstractCoachAvatar';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/utils/supabase/client';
 import { ensureStrategyId } from '@/utils/strategyBootstrap';
 
 type Msg = { role: 'user' | 'assistant'; content: string };
