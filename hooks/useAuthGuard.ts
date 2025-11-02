@@ -3,7 +3,7 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/utils/supabase/client';
 
 /**
  * 未ログインなら指定のURLにリダイレクトする Hook
