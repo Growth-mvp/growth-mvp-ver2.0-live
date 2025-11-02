@@ -1,16 +1,34 @@
 // /utils/supabase/index.ts
-// 目的：Supabase 関連ユーティリティを1か所に集約するハブ。
-// ★ 根本対策：レガシー経路の再エクスポートを停止し、
-//   "誤って使えない" 状態にして再投入の根を断つ。
+'use client';
 
-export * from './client';       // supabase クライアント・Cookie系（ガード付き）
-export * from './errors';       // エラー処理・PostgRESTエラー整形
-export * from './normalize';    // データ正規化・変換
-export * from './membership';   // メンバー・ロール関連
-export * from './strategy';     // 戦略データ（保存・取得・ログ）
+/**
+ * 目的：
+ *  - Supabase 関連ユーティリティを1か所に集約するハブ。
+ *  - ただし `client.ts` は他の util に依存していない “leaf” なので、
+ *    再エクスポートは strict に制御して循環依存を防ぐ。
+ *
+ * 原則：
+ *  - client.ts → 他の util を import しない
+ *  - index.ts → client を import しても、他から index に import させない
+ *  - つまり、「上から下」方向の一方通行構造
+ */
 
-// 🚫 レガシーや補助でレガシー表に書きうるモジュールは再エクスポートしない
-// export * from './ancillary'; // ← （重要）外す。使っている呼び出し元があればエラーで気付ける。
+// ========================================================
+// ⚙️ 安全なユーティリティ群（循環しないもののみ）
+// ========================================================
+export * from './errors';       // エラー整形・PostgRESTエラー抽出
+export * from './normalize';    // データ正規化
+export * from './membership';   // メンバー／ロール
+export * from './strategy';     // 戦略データCRUD系
 
-// 互換：トップレベルから supabase を直接取得できるようにする
-export { supabase } from './client';
+// ========================================================
+// ⚠️ client.ts は leaf 専用。直接再エクスポートするが、
+// 他のモジュールから index 経由で参照しないこと。
+// ========================================================
+export { supabase, getBrowserSupabase, getSupabaseClient } from './client';
+
+// ========================================================
+// 🚫 レガシー経路の再エクスポートは禁止
+// ========================================================
+// export * from './ancillary';  // ← レガシーテーブル操作が含まれるためブロック
+// export * from './legacy';     // ← 将来削除予定
