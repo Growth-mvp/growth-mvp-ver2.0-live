@@ -22,6 +22,18 @@ import { useAutoSave } from '@/hooks/useAutoSave';
  * - 初回 refetch と autosave のレースを回避
  */
 
+/* ==========
+ * 安定 stringify（大きなオブジェクトの差分比較用）
+ * ========= */
+function stableSig(v: unknown): string {
+  try {
+    return JSON.stringify(v, (k, val) => (val instanceof Date ? val.toISOString() : val));
+  } catch {
+    return '';
+  }
+}
+const nonEmptyArray = (a: unknown) => Array.isArray(a) && a.length > 0;
+
 export default function StrategyClient() {
   /* ===== フックは無条件に先頭で呼ぶ ===== */
   const [mounted, setMounted] = useState(false);
@@ -66,6 +78,7 @@ export default function StrategyClient() {
     return () => clearTimeout(t);
   }, [hydrated]);
 
+  // ★ 初期ロード（依存から hydrated を外す -> 二重実行抑止）
   useEffect(() => {
     let aborted = false;
 
@@ -83,7 +96,7 @@ export default function StrategyClient() {
 
       // 同一 companyId への二重ロード抑止
       if (fetchedFor.current === companyId) {
-        if (!hydrated) setHydrated(true);
+        if (!aborted && !hydrated) setHydrated(true);
         return;
       }
       fetchedFor.current = companyId;
@@ -112,7 +125,7 @@ export default function StrategyClient() {
 
     void run();
     return () => { aborted = true; };
-  }, [companyId, userId, hydrated, setCompanyScope]);
+  }, [companyId, userId, setCompanyScope]);
 
   // ステップ移動
   const goBack = useCallback(() => setStep((s) => Math.max(1, s - 1)), []);
@@ -140,19 +153,21 @@ export default function StrategyClient() {
    * - finalStory は autosave 対象から外す
    * - hydrated && readyToAutosave && companyId が揃うまで autosave を無効化
    * - 全部空（story / answers2 / departments）ならスキップ
+   * - useAutoSave には “軽いシグネチャ” だけ渡す（巨大参照での無限発火を回避）
    */
   const hasMeaningfulData = useMemo(() => {
-    const nonEmptyArray = (a: unknown) => Array.isArray(a) && a.length > 0;
     return nonEmptyArray(story) || nonEmptyArray(answers2) || nonEmptyArray(departments);
   }, [story, answers2, departments]);
 
-  // ✅ useAutoSave は 1引数（deps: any[]）仕様
+  // 軽量化した依存（長さ＋安定 JSON で十分）
+  const storySig   = useMemo(() => (Array.isArray(story) ? `${story.length}:${stableSig(story)}` : stableSig(story)), [story]);
+  const answersSig = useMemo(() => (Array.isArray(answers2) ? `${answers2.length}:${stableSig(answers2)}` : stableSig(answers2)), [answers2]);
+  const deptSig    = useMemo(() => (Array.isArray(departments) ? `${departments.length}:${stableSig(departments)}` : stableSig(departments)), [departments]);
+
   const autosaveEnabled = hydrated && readyToAutosave && !!companyId && hasMeaningfulData;
-  const autoDeps = useMemo(
-    () => (autosaveEnabled ? [companyId, story, answers2, departments] : []),
-    [autosaveEnabled, companyId, story, answers2, departments]
-  );
-  useAutoSave(autoDeps);
+
+  // ✅ useAutoSave は 1引数（deps: any[]）で軽いシグネチャのみ渡す
+  useAutoSave(autosaveEnabled ? [companyId, storySig, answersSig, deptSig] : []);
 
   const canBack = step > 1;
   const canNext = step < totalSteps;
@@ -323,8 +338,8 @@ export default function StrategyClient() {
       <FooterNav
         left={footerPos.left}
         width={footerPos.width}
-        canBack={canBack}
-        canNext={canNext && hydrated /* 初回同期前は進行抑制 */}
+        canBack={step > 1}
+        canNext={step < totalSteps && hydrated /* 初回同期前は進行抑制 */}
         onBack={goBack}
         onNext={goNext}
       />
