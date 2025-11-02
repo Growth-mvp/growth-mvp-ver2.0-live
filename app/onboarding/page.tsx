@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { getMembership, createCompanyAndJoin, joinCompany } from '@/utils/supabase';
+import { getMembership, createCompanyAndJoin, joinCompany } from '@/utils/supabase/membership';
 import { useUserStore } from '@/store/userStore';
 
 export default function OnboardingPage() {
