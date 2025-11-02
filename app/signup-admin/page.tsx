@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
 
 /** （必要なら再利用）コールバックURL作成。本番で使う時はSupabase側に登録必須。 */
