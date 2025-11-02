@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
 import { resolveCompanyId } from '@/utils/company';
 import { joinCompany } from '@/utils/supabase/membership';
