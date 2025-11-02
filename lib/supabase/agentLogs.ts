@@ -1,7 +1,7 @@
 // lib/supabase/agentLogs.ts
 
 // ✅ ここを修正：createClient ではなく supabase を直接インポート
-import { supabase } from '@/utils/supabase';
+import { supabase } from '@/utils/supabase/client';
 
 export async function insertAgentLog({
   userId,
