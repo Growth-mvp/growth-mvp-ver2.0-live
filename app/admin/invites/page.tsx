@@ -2,7 +2,7 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
 
 type Role = 'admin' | 'manager' | 'member';
