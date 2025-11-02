@@ -58,6 +58,11 @@ function extractErrorVerbose(e: any) {
   }
   return out;
 }
+const isRlsPermissionError = (err: any) => {
+  const code = err?.code || err?.hint || '';
+  const status = err?.status;
+  return status === 401 || status === 403 || code === '42501';
+};
 
 /* ============================================================
  * companyId / userId 解決
@@ -197,7 +202,6 @@ function toUiBusinessPortfolio(dbValue: any): Record<string, any> | undefined {
  * JSON 配列フィールド（NOT NULL想定）
  * ========================================================== */
 function toDbJsonArray(v: any): any[] {
-  if (v == null) return [];
   const p = parseJson(v);
   return Array.isArray(p) ? p : [];
 }
@@ -237,7 +241,7 @@ const FIELD_MAP: Record<string, string> = {
 
 /* ============================================================
  * “実質空”判定（空保存ガード）
- *  ※ answers2 / finalStory は分離テーブルのため「非空でも saveStrategyData の保存対象にしない」
+ *  ※ answers2 / finalStory は分離テーブルのため saveStrategyData では保存しない
  * ========================================================== */
 function isEffectivelyEmptyForServer(state: Partial<StrategyData>): boolean {
   const arrEmpty = (a: any) => !Array.isArray(a) || a.length === 0;
@@ -246,7 +250,6 @@ function isEffectivelyEmptyForServer(state: Partial<StrategyData>): boolean {
   const sim = (state as any)?.simulationResult;
   const simPoints = (sim as any)?.projection?.points;
 
-  // ★ answers2 / finalStory は“空判定の対象から除外”
   return (
     arrEmpty((state as any).story) &&
     arrEmpty((state as any).departments) &&
@@ -304,7 +307,7 @@ function buildStateFromDbRow(row: any): (StrategyData & { revision?: number }) {
   out.financeSummary = toUiFinanceSummary(out.financeSummary);
   out.businessPortfolio = toUiBusinessPortfolio(out.businessPortfolio);
 
-  // 部門→プロジェクト→OKR 配列保証（最小限。未知キーは残る）
+  // 部門→プロジェクト→OKR 配列保証
   out.departments = out.departments.map((d: any) => ({
     ...d,
     name: d?.name ?? '',
@@ -371,11 +374,11 @@ export async function getFullStrategyDataByCompany(companyId: string): Promise<R
     // 2) 分離テーブルを並列取得（存在すれば読み込み時のみ合流）
     const [ansRes, finRes] = await Promise.allSettled([
       supabase.from(T_STORY_ANSWERS)
-        .select('*')
+        .select('answers2, steps, updated_at, user_id, strategy_id')
         .eq('company_id', companyId)
         .order('updated_at', { ascending: false }),
       supabase.from(T_FINAL_STORIES)
-        .select('*')
+        .select('final_story, story, updated_at, user_id, strategy_id')
         .eq('company_id', companyId)
         .order('updated_at', { ascending: false }),
     ]);
@@ -388,7 +391,7 @@ export async function getFullStrategyDataByCompany(companyId: string): Promise<R
     // 3) strategy_data -> state
     const state = buildStateFromDbRow(rowData);
 
-    // 4) 分離テーブルを state に流し込む（最新優先／既にstateにあれば尊重）
+    // 4) 分離テーブルを state に流し込む（最新優先／既存があれば尊重）
     const latestAnswers = answers2Rows[0]?.answers2 ?? answers2Rows[0]?.steps ?? [];
     const latestFinal = finalStoryRows[0]?.final_story ?? finalStoryRows[0]?.story ?? [];
     state.answers2 = ensureArray(state.answers2).length ? state.answers2 : ensureArray(latestAnswers);
@@ -417,7 +420,6 @@ export async function saveStrategyData(
   // 新API（1引数）であれば userId をセッションから解決
   if (args.length === 1) {
     userId = await getActiveUserId() ?? undefined;
-    // opts は既定 upsert
     opts = { mode: 'upsert' };
   }
 
@@ -662,7 +664,7 @@ export async function appendSimulationResultToStrategy(
 
     const entry = {
       id:
-        (globalThis as any).crypto?.randomUUID?.() ??
+        (globalThis as any).crypto?.randomUUID?.() ?? //
         `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       created_at: new Date().toISOString(),
       title: opts?.title ?? null,
@@ -791,8 +793,11 @@ async function robustUpsert(
   _conflictTargets: string[], // 互換のため未使用
 ) {
   try {
-    // 1) 既存行の存在確認
-    let q = supabase.from(table).select('*').eq('company_id', row.company_id).limit(1);
+    // 1) 既存行の存在確認（strategy_id がある場合はスコープを狭める）
+    let q = supabase.from(table)
+      .select('company_id, user_id, strategy_id, updated_at')
+      .eq('company_id', row.company_id)
+      .limit(1);
     if ('strategy_id' in row && row.strategy_id) {
       q = q.eq('strategy_id', row.strategy_id);
     }
@@ -803,16 +808,30 @@ async function robustUpsert(
 
     // 2) 存在すれば UPDATE、無ければ INSERT
     if (got.data) {
-      let uq = supabase.from(table).update(row).eq('company_id', row.company_id);
+      let uq = supabase.from(table)
+        .update(row)
+        .eq('company_id', row.company_id);
       if ('strategy_id' in row && row.strategy_id) {
         uq = (uq as any).eq('strategy_id', row.strategy_id);
       }
       const upd = await (uq as any).select('*').maybeSingle();
-      if (upd.error) return { ok: false, error: extractErrorVerbose(upd.error) };
+      if (upd.error) {
+        const ex = extractErrorVerbose(upd.error);
+        if (isRlsPermissionError(ex)) {
+          console.warn(`[${table}] RLS update blocked. Consider relaxing policy (same-company members).`, ex);
+        }
+        return { ok: false, error: ex };
+      }
       return { ok: true, error: null };
     } else {
       const ins = await supabase.from(table).insert(row).select('*').maybeSingle();
-      if (ins.error) return { ok: false, error: extractErrorVerbose(ins.error) };
+      if (ins.error) {
+        const ex = extractErrorVerbose(ins.error);
+        if (isRlsPermissionError(ex)) {
+          console.warn(`[${table}] RLS insert blocked. Check auth.uid() / membership.`, ex);
+        }
+        return { ok: false, error: ex };
+      }
       return { ok: true, error: null };
     }
   } catch (e) {
@@ -832,7 +851,7 @@ export async function saveFinalStory(
     const row: any = {
       company_id: companyId,
       user_id: userId,
-      final_story: finalStory,
+      final_story: ensureArray(finalStory),
       updated_at: now,
       ...(opts?.strategyId ? { strategy_id: opts.strategyId } : {}),
     };
@@ -856,7 +875,7 @@ export async function saveStoryAnswers2(
     const row: any = {
       company_id: companyId,
       user_id: userId,
-      answers2,
+      answers2: ensureArray(answers2),
       updated_at: now,
       ...(opts?.strategyId ? { strategy_id: opts.strategyId } : {}),
     };
