@@ -8,6 +8,9 @@ import {
   getFullStrategyDataByCompany,
   deleteStrategyData as deleteStrategyDataApi,
   purgeLegacyTables as purgeLegacyTablesApi,
+  // ▼ 分離テーブル保存API（answers2 / finalStory）
+  saveStoryAnswers2,
+  saveFinalStory,
 } from '@/utils/supabase/strategy';
 import { safeGetSession } from '@/utils/supabase/client';
 import { useUserStore } from './userStore';
@@ -71,6 +74,9 @@ type SafeDepartmentsArg =
 export type StrategyState = {
   companyId: string | null;
   strategyId: string | null;
+
+  /** スコープ切替の“仮”置き場（成功取得時のみ companyId に昇格） */
+  pendingCompanyId?: string | null;
 
   /* 会社プロフィール（すべて文字列で持つ） */
   companyName?: string;
@@ -268,8 +274,8 @@ function buildSavePayload(s: StrategyState) {
   const base: any = {
     strategyId: s.strategyId ?? undefined,
     story: s.story,
-    finalStory: s.finalStory,
-    answers2: s.answers2,
+    finalStory: s.finalStory, // ← 親にも持っておく（互換）
+    answers2: s.answers2,     // ← 親にも持っておく（互換）
     departments: s.departments,
 
     companyName: s.companyName,
@@ -442,6 +448,8 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
 const emptyData: StrategyState = {
   companyId: null,
   strategyId: null,
+  pendingCompanyId: undefined,
+
   companyName: '',
   foundationYear: '',
   location: '',
@@ -547,6 +555,38 @@ async function isSessionUsable(): Promise<boolean> {
   }
 }
 
+/* 内部：親(strategy_data)の存在を“できる限り”保証（空保存スキップを回避するため既存データを送る） */
+async function ensureParentExists(): Promise<void> {
+  const s = useStrategyStore.getState();
+  const userId = useUserStore.getState().user?.id;
+  const companyId = s.companyId || useUserStore.getState().companyId;
+  if (!userId || !companyId) return;
+  // 既に読み込み済みなら何もしない（strategy_data行がある前提で運用）
+  // ※ 厳密に存在確認したい場合は getFullStrategyDataByCompany を呼んでも良いが、
+  //   負荷と競合を避けるため、ここでは save を一度打つ方式に統一。
+  const payload = buildSavePayload(s);
+  if (isEffectivelyEmpty(payload)) {
+    // 何もない場合は今は作らない（後段の setStory 等で非空になったタイミングで再度呼ばれる）
+    return;
+  }
+  try {
+    await (saveStrategyDataApi as any)(payload, userId, companyId, s.revision, { mode: 'upsert' });
+  } catch {
+    // 旧互換
+    await (saveStrategyDataApi as any)(payload, userId, companyId);
+  }
+}
+
+/* ===== refetch再試行タイマー ===== */
+let __refetchRetryTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleRefetchRetry(delayMs = 1500) {
+  if (__refetchRetryTimer) return;
+  __refetchRetryTimer = setTimeout(() => {
+    __refetchRetryTimer = null;
+    useStrategyStore.getState().refetchFromServer();
+  }, delayMs);
+}
+
 /* ===== Zustand Store ===== */
 export const useStrategyStore = create<StrategyState>()(
   persist(
@@ -574,31 +614,62 @@ export const useStrategyStore = create<StrategyState>()(
 
       setStrategyId: (id) => set({ strategyId: id }),
 
+      /* ▼破壊的リセット禁止：即消さず、仮スコープでハイドレート開始 */
       setCompanyScope: (id) =>
-        set((s) => {
-          if (s.companyId === id) return s;
-          return {
-            ...emptyData,
-            companyId: id,
-            hydrated: false,
-            loaded: false,
-            dirty: false,
-            boot: { isHydrating: true, isHydrated: false },
-            __isFetchingFromServer: true,
-          };
-        }),
+        set((s) => ({
+          ...s,
+          pendingCompanyId: id,
+          boot: { isHydrating: true, isHydrated: false },
+          // 既存のローカルは温存（ここで ...emptyData はしない）
+          __isFetchingFromServer: true,
+        })),
 
-      setStory: (chs) => set({ story: [...chs], dirty: true }),
-      // finalStory は StoryProcess 側で即時保存する想定だが、ここでは dirty を立てておく
-      setFinalStory: (chs) => set({ finalStory: [...chs], dirty: true }),
-      setAnswers2: (answers) =>
+      setStory: (chs) => {
+        set({ story: [...chs], dirty: true });
+        // 親が無ければ作るチャンス
+        ensureParentExists().catch(() => {});
+      },
+
+      // finalStory は 分離API で即時保存（親保証→分離保存）
+      setFinalStory: (chs) => {
+        set({ finalStory: [...chs], dirty: true });
+        (async () => {
+          const s = get();
+          const userId = useUserStore.getState().user?.id;
+          const companyId = s.companyId || useUserStore.getState().companyId;
+          if (!userId || !companyId) return;
+          await ensureParentExists();
+          try {
+            await saveFinalStory(userId, get().finalStory, { companyId, strategyId: get().strategyId });
+          } catch (e) {
+            console.warn('[strategyStore] saveFinalStory warn:', e);
+          }
+        })();
+      },
+
+      // answers2 も 分離API で即時保存（親保証→分離保存）
+      setAnswers2: (answers) => {
         set({
           answers2: answers.map((c) => ({
             ...c,
             steps: [...c.steps].sort((a, b) => a.stepNumber - b.stepNumber),
           })),
           dirty: true,
-        }),
+        });
+        (async () => {
+          const s = get();
+          const userId = useUserStore.getState().user?.id;
+          const companyId = s.companyId || useUserStore.getState().companyId;
+          if (!userId || !companyId) return;
+          await ensureParentExists();
+          try {
+            await saveStoryAnswers2(userId, get().answers2 as any, { companyId, strategyId: get().strategyId });
+          } catch (e) {
+            console.warn('[strategyStore] saveStoryAnswers2 warn:', e);
+          }
+        })();
+      },
+
       setChapterCurrentStep: (chapterIndex, step) =>
         set((s) => ({
           chapterCurrentStep: { ...s.chapterCurrentStep, [chapterIndex]: step },
@@ -648,7 +719,8 @@ export const useStrategyStore = create<StrategyState>()(
         if (!state.boot.isHydrated || state.boot.isHydrating) return;
 
         const userId = useUserStore.getState().user?.id;
-        const companyId = state.companyId || useUserStore.getState().companyId;
+        const companyId =
+          state.companyId || state.pendingCompanyId || useUserStore.getState().companyId;
         if (!userId || !companyId) return;
         if (!(await isSessionUsable())) return;
 
@@ -692,20 +764,22 @@ export const useStrategyStore = create<StrategyState>()(
         }
       },
 
-      /** サーバから最新を反映（簡素化） */
+      /** サーバから最新を反映（“未認証/失敗で空確定しない”方針） */
       async refetchFromServer() {
-        const companyId = get().companyId || useUserStore.getState().companyId;
-        const authed = await isSessionUsable();
+        const s0 = get();
+        const companyId =
+          s0.pendingCompanyId || s0.companyId || useUserStore.getState().companyId;
 
+        const authed = await isSessionUsable();
         if (!companyId || !authed) {
-          set({
-            ...emptyData,
-            companyId: companyId ?? null,
-            hydrated: true,
-            loaded: true,
-            boot: { isHydrating: false, isHydrated: true },
+          // ここでは“空で確定させない”。ローカル温存で再試行。
+          set((s) => ({
+            ...s,
+            boot: { ...s.boot, isHydrating: true, isHydrated: false },
             __isFetchingFromServer: false,
-          });
+            loaded: false,
+          }));
+          scheduleRefetchRetry(1500);
           return;
         }
 
@@ -716,52 +790,36 @@ export const useStrategyStore = create<StrategyState>()(
         try {
           console.log('[StrategyData] 📥 getFullStrategyDataByCompany start:', companyId);
           const { data, error } = await getFullStrategyDataByCompany(companyId);
-          if (error) throw error;
-
-          if (!data) {
-            set({
-              story: [],
-              finalStory: [],
-              answers2: [],
-              departments: [],
-              csvFinanceData: undefined,
-              financeSummary: undefined,
-              businessPortfolio: undefined,
-              simulationResult: undefined,
-
-              companyName: '',
-              foundationYear: '',
-              location: '',
-              industry: '',
-              revenue: '',
-              employees: '',
-              businessContent: '',
-              customerSegment: '',
-
-              mission: '',
-              vision: '',
-              value: '',
-              thought: '',
-              strength: '',
-              weakness: '',
-              opportunity: '',
-              threat: '',
-
-              hydrated: true,
-              loaded: true,
-              boot: { isHydrating: false, isHydrated: true },
-              revision: undefined,
-              __isFetchingFromServer: false,
-              // 受信なし＝保存ハッシュもクリア
-              __lastSavedHash: undefined,
-              dirty: false,
-            });
-            console.log('[strategyStore] ⚠️ refetch: no data; store cleared & hydrated=true');
+          if (error) {
+            // 失敗しても空確定しない。再試行。
+            console.warn('[strategyStore] refetch error, will retry:', error);
+            scheduleRefetchRetry(2000);
             return;
           }
 
+          if (!data) {
+            // 親行がまだ無いケース。ローカルを保持し、後続の保存/生成で親を作る。
+            set((s) => ({
+              ...s,
+              // ここでクリアしない
+              boot: { isHydrating: true, isHydrated: false },
+              __isFetchingFromServer: false,
+              loaded: false,
+            }));
+            // 少し待って再試行（初回INSERTの余地を与える）
+            scheduleRefetchRetry(2000);
+            return;
+          }
+
+          // ▼ 正常時：パッチ適用
           const patch = normalizeFromDbRow(data);
-          set((s) => ({ ...(s as any), ...(patch as any) }));
+          set((s) => ({
+            ...(s as any),
+            ...(patch as any),
+            // 取得成功時にのみ pendingCompanyId → companyId に昇格
+            companyId: s.pendingCompanyId ?? s.companyId,
+            pendingCompanyId: undefined,
+          }));
 
           const after = get();
           const snapshot = buildSavePayload(after);
@@ -769,12 +827,10 @@ export const useStrategyStore = create<StrategyState>()(
           const rev = typeof patch.revision === 'number' ? patch.revision : after.revision ?? 0;
 
           set({
-            // 互換保持（使わないが、既存参照があっても壊れないため残す）
             serverShadow: snapshot,
             lastServerSnapshot: hash,
             __isFetchingFromServer: false,
             loaded: true,
-            // 受信直後は“保存済み”の状態に合わせる → 無駄保存を抑止
             __lastSavedHash: hash,
             dirty: false,
           });
@@ -824,11 +880,14 @@ export const useStrategyStore = create<StrategyState>()(
     }),
     {
       name: 'strategy-store',
-      version: 32, // ★ ハッシュ保存抑止の追加でバージョンアップ
+      version: 33, // ▲ バージョンアップ：起動順序＆分離保存の導入
       partialize: (s) => ({
         /* サーバ同期対象の主データ */
         companyId: s.companyId,
         strategyId: s.strategyId,
+        // pendingCompanyId も保持しておくと再起動時に継続取得できる
+        pendingCompanyId: s.pendingCompanyId,
+
         story: s.story,
         finalStory: s.finalStory,
         answers2: s.answers2,
@@ -860,16 +919,15 @@ export const useStrategyStore = create<StrategyState>()(
 
         /* 互換のため保持（使わなくてもOK） */
         revision: s.revision,
-        // 保存抑止のための直近ハッシュも保持（再読み込み後の暴発防止）
         __lastSavedHash: s.__lastSavedHash,
       }),
       migrate: (persisted) => ({
         ...emptyData,
         ...(persisted ?? {}),
-        boot: { isHydrating: false, isHydrated: true },
-        hydrated: true,
-        // ★ 既存プロジェクトを壊さないため loaded は true に上げておく（必要に応じて画面側で false→true に上書き可）
-        loaded: true,
+        // ★ 起動時は未確定（読み込み完了まで保存禁止）
+        boot: { isHydrating: true, isHydrated: false },
+        hydrated: false,
+        loaded: false,
         dirty: false,
         __isFetchingFromServer: false,
       }),
