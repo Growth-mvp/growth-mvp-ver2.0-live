@@ -1,5 +1,5 @@
 // /utils/company.ts
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/utils/supabase/client';
 
 /** PostgREST エラーをざっくり解析（列不存在 42703 などの判定用） */
 function looksMissingColumn(errOrResp: unknown, col: string) {
