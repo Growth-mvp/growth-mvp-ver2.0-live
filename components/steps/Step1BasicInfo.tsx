@@ -87,12 +87,15 @@ function TextAreaJa(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   );
 }
 
-/** 半角数字のみを許可し、store には「文字列」で保存 */
+/** 半角数字のみを許可し、store には「文字列」で保存（イベント改ざんしない版） */
 function InputNumString({
-  onChange,
+  onChange, // 互換維持のため残す（イベントはそのまま）
   value,
+  onValueChange, // 推奨：数値文字列だけを渡す
   ...rest
-}: React.InputHTMLAttributes<HTMLInputElement>) {
+}: React.InputHTMLAttributes<HTMLInputElement> & {
+  onValueChange?: (digits: string) => void;
+}) {
   return (
     <input
       {...rest}
@@ -106,17 +109,15 @@ function InputNumString({
       style={{ ...(rest.style || {}), imeMode: 'inactive' as any }}
       onChange={(e) => {
         const raw = e.target.value ?? '';
+        // 全角数字→半角
         const half = raw.replace(/[０-９]/g, (s) =>
           String.fromCharCode(s.charCodeAt(0) - 0xFEE0)
         );
+        // 数字以外除去
         const digits = half.replace(/[^0-9]/g, '');
-        if (onChange) {
-          (onChange as (ev: ChangeEvent<HTMLInputElement>) => void)({
-            ...e,
-            target: { ...e.target, value: digits },
-            currentTarget: { ...e.currentTarget, value: digits },
-          } as any);
-        }
+        onValueChange?.(digits);
+        // 互換のため元の onChange も呼ぶ（ただしイベントは改ざんしない）
+        onChange?.(e);
       }}
     />
   );
@@ -136,7 +137,7 @@ const isBlank = (v: any) => v == null || (typeof v === 'string' && v.trim() === 
 
 /* ---------------------- 本体 ---------------------- */
 export default function Step1BasicInfo() {
-  // ✅ storeから必要なセッターを“型安全に”取得
+  // ✅ storeから必要なセッターを取得
   const setProfile = useStrategyStore((s) => s.setProfile);
   const setMVV = useStrategyStore((s) => s.setMVV);
 
@@ -270,7 +271,7 @@ export default function Step1BasicInfo() {
             <InputNumString
               id={`${idPrefix}-foundation`}
               value={foundationYear}
-              onChange={(e) => setProfile({ foundationYear: e.currentTarget.value ?? '' })}
+              onValueChange={(digits) => setProfile({ foundationYear: digits })}
               placeholder="例：2005"
             />
           </Field>
@@ -292,7 +293,7 @@ export default function Step1BasicInfo() {
             >
               <option value="">-- 選択してください --</option>
               {(industryOptions ?? []).map((item) => (
-                <option key={item.value} value={item.value}>
+                <option key={String(item.value)} value={String(item.value)}>
                   {item.label}
                 </option>
               ))}
@@ -303,7 +304,7 @@ export default function Step1BasicInfo() {
             <InputNumString
               id={`${idPrefix}-revenue`}
               value={revenue}
-              onChange={(e) => setProfile({ revenue: e.currentTarget.value ?? '' })}
+              onValueChange={(digits) => setProfile({ revenue: digits })}
               placeholder="例：5000"
             />
           </Field>
@@ -312,7 +313,7 @@ export default function Step1BasicInfo() {
             <InputNumString
               id={`${idPrefix}-employees`}
               value={employees}
-              onChange={(e) => setProfile({ employees: e.currentTarget.value ?? '' })}
+              onValueChange={(digits) => setProfile({ employees: digits })}
               placeholder="例：200"
             />
           </Field>
