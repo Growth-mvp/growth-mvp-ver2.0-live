@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
 
 /** 起動中のポートを自動で拾いつつ SSR でも安全にコールバックURL生成 */
