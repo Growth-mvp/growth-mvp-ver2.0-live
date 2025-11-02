@@ -1,4 +1,5 @@
 // /app/api/generate-final-story/route.ts
+/* eslint-disable @typescript-eslint/no-explicit-any */
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -423,7 +424,7 @@ function heuristicFinal(
     thought?: unknown;
     // オプション：ポートフォリオ連携（存在時のみ）
     portfolio?: {
-      businesses?: Array<{ name: string; revenueShare?: number; margin?: number; growth?: number }>;
+      businesses?: Array<{ name: string; revenueShare?: number; margin?: number; growth?: number }>[];
       focus?: string;
     } | null;
   },
@@ -454,11 +455,12 @@ function heuristicFinal(
   const pat = patterns.length ? `【勝ちパターン】${patterns.join(', ')}` : '【勝ちパターン】—';
 
   const portfolioLine = (() => {
-    if (!portfolio?.businesses?.length) return '';
-    const focus = portfolio?.focus ? `／注力=${portfolio.focus}` : '';
-    const list = portfolio.businesses
+    const pf = portfolio as any;
+    if (!pf?.businesses?.length) return '';
+    const focus = pf?.focus ? `／注力=${pf.focus}` : '';
+    const list = (pf.businesses as any[])
       .slice(0, 6)
-      .map(b => b?.name)
+      .map((b) => b?.name)
       .filter(Boolean)
       .join('・');
     return `\n【事業ポートフォリオ】${list || '—'}${focus}`;
@@ -520,7 +522,6 @@ function heuristicFinal(
     { heading: 'どう行動する', body: s4 },
   ];
 
-  // ブリッジ & 整形
   sections = ensureBridges(sections);
   sections = sections.map((s) => ({ ...s, body: tidyJa(normalizeNewlines(s.body)) }));
 
@@ -591,7 +592,6 @@ async function enhanceEmotionIfNeeded(
     const enhanced = Array.isArray(parsed?.sections) ? parsed!.sections! : null;
     if (!enhanced || enhanced.length < 4) return sections;
 
-    // 正規化（見出し固定＆整形）
     let fixed = coerceToSimpleHeads(enhanced);
     fixed = ensureBridges(fixed).map((s) => ({ ...s, body: tidyJa(normalizeNewlines(s.body)) }));
     return fixed;
@@ -656,7 +656,6 @@ export async function POST(req: NextRequest) {
           }
         : null;
 
-    // 勝ちパターン表記（未指定なら '—'）
     const patternsArr: string[] = Array.isArray(patterns)
       ? (patterns as Array<string | WinningPatternKey>).map((p) => String(p))
       : [];
@@ -677,7 +676,7 @@ export async function POST(req: NextRequest) {
 【魂の三要素（必ず自然文で挿入）】
 - 第2章に「誇り」を示す一文（私たちが守り抜いてきた本質・流儀）。
 - 第3章に「賭け」を示す一文（未来へ踏み出す決断・リスクを受け止める覚悟）。
-- 第4章に「信念」を示す一文（仲間とやり抜く約束・何があってもブレない原則）。
+- 第4章に「信念」を示す一文（仲間とやり抜く、何があってもブレない原則）。
 
 【勝ちパターン（必ず反映）】
 - 入力された勝ちパターンに整合する語り・事例・トレードオフを織り込む。
@@ -703,7 +702,6 @@ export async function POST(req: NextRequest) {
       3,
     );
 
-    // 任意：ポートフォリオの要約（STAGE1 連携）
     const portfolioSummary = (() => {
       const p = portfolio as any;
       if (!p?.businesses?.length) return '—';
@@ -814,7 +812,7 @@ ${answersRich || '—'}
     // 任意保存（存在すれば実行）
     if (typeof userId === 'string' && userId && typeof saveFinalStory === 'function') {
       try {
-        await saveFinalStory(userId, finalStory as any, '');
+        await saveFinalStory(userId, finalStory as any, {});
       } catch (e: any) {
         console.warn('⚠️ final_stories 保存に失敗（続行）:', e?.message || e);
       }
