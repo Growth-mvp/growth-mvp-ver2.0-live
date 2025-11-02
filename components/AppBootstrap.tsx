@@ -2,7 +2,7 @@
 'use client';
 import { usePathname } from 'next/navigation';
 import { useEffect } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/utils/supabase/client';
 // import { ensureStrategyId } from '@/utils/strategyBootstrap';
 
 function isPublicPath(path: string) {
