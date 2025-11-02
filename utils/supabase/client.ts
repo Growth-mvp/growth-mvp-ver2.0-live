@@ -4,64 +4,39 @@
 /**
  * 役割：
  *  - ブラウザ用 Supabase クライアントの “唯一の入り口”
- *  - ストレージキーを環境ごとに分離し、Refresh Token 衝突を回避
- *  - レガシーテーブルへの誤書き込みを Proxy でブロック
+ *  - クライアント二重化を排除し、RLS 判定の不一致を防ぐ
+ *  - レガシーテーブルへの誤書き込みを Proxy でブロック（環境で無効化可）
  *  - 互換API（safeGetSession, getSupabaseClient など）を提供
  *
- * 要件：
- *  - NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY を設定
+ * 注意：
+ *  - ここから他の自作 util（./strategy や ./membership など）を import しない（循環防止）
  */
 
-import { createBrowserClient } from '@supabase/ssr';
-import type { SupabaseClient, Session, AuthError } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient, type Session, type AuthError } from '@supabase/supabase-js';
 import type { PostgrestFilterBuilder } from '@supabase/postgrest-js';
 
 /* =========================================================
- * 環境 & ストレージ設定（環境切替のたびに prefix を変えられる）
+ * ブラウザ用クライアント（唯一の実体）
  * ========================================================= */
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-if (!SUPABASE_URL || !SUPABASE_KEY) {
-  // eslint-disable-next-line no-console
-  console.warn('[supabase] URL/ANON KEY is missing. Check env.');
-}
+let __browserSingleton: SupabaseClient | null = null;
 
-// 例：growth-v4:yuerkbxpivdhaikrnsar
-const APP_STORAGE_PREFIX =
-  (process.env.NEXT_PUBLIC_APP_STORAGE_PREFIX ?? 'growth-v4') +
-  ':' +
-  (process.env.NEXT_PUBLIC_SUPABASE_PROJECT ?? 'yuerkbxpivdhaikrnsar');
-
-/** localStorage を prefix 付きでラップ（環境切替でキー衝突を回避） */
-const prefixedStorage = {
-  getItem: (k: string) =>
-    typeof window !== 'undefined'
-      ? window.localStorage.getItem(`${APP_STORAGE_PREFIX}:${k}`)
-      : null,
-  setItem: (k: string, v: string) =>
-    typeof window !== 'undefined'
-      ? window.localStorage.setItem(`${APP_STORAGE_PREFIX}:${k}`, v)
-      : undefined,
-  removeItem: (k: string) =>
-    typeof window !== 'undefined'
-      ? window.localStorage.removeItem(`${APP_STORAGE_PREFIX}:${k}`)
-      : undefined,
-};
-
-/** 任意：prefix 領域だけを安全に掃除（ログアウト時の取り残し防止） */
-export function clearPrefixedSupabaseStorage() {
-  if (typeof window === 'undefined') return;
-  try {
-    const keys: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (!k) continue;
-      if (k.startsWith(`${APP_STORAGE_PREFIX}:`)) keys.push(k);
-    }
-    for (const k of keys) localStorage.removeItem(k);
-  } catch (e) {
-    console.warn('[supabase] clearPrefixedSupabaseStorage failed:', e);
+function createBrowserClient(): SupabaseClient {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anonKey) {
+    throw new Error('Supabase env is missing: NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY');
   }
+
+  return createClient(url, anonKey, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+    },
+    global: {
+      headers: { 'x-growth-app': 'growth-mvp-ver2.0' },
+    },
+  });
 }
 
 /* =========================================================
@@ -81,19 +56,21 @@ const BLOCK_LEGACY =
   'true';
 
 function wrapWithLegacyGuards<T = any>(client: SupabaseClient<T>): SupabaseClient<T> {
+  if (!BLOCK_LEGACY) return client;
+
   const clientHandler: ProxyHandler<SupabaseClient<T>> = {
     get(target, prop, recv) {
       const original = Reflect.get(target, prop, recv);
 
       if (prop === 'from') {
+        // intercept .from('table')
         return (table: string) => {
           const t = String(table || '').trim();
           const builder = (target as any).from(t) as PostgrestFilterBuilder<any, any, any>;
 
-          if (!BLOCK_LEGACY || !LEGACY_TABLES.has(t)) {
-            return builder;
-          }
+          if (!LEGACY_TABLES.has(t)) return builder;
 
+          // 書き込み系を封じる
           const writeOps = new Set(['insert', 'update', 'upsert', 'delete']);
           const builderHandler: ProxyHandler<typeof builder> = {
             get(bTarget, bProp, bRecv) {
@@ -102,7 +79,7 @@ function wrapWithLegacyGuards<T = any>(client: SupabaseClient<T>): SupabaseClien
                 return (..._args: any[]) => {
                   throw new Error(
                     `[SupabaseGuard] ${String(bProp)} to LEGACY table "${t}" is blocked. ` +
-                      `Stop writing legacy tables (use unified "strategy_data" fields instead).`
+                      `Use unified tables/columns instead of legacy ones.`
                   );
                 };
               }
@@ -122,38 +99,26 @@ function wrapWithLegacyGuards<T = any>(client: SupabaseClient<T>): SupabaseClien
 }
 
 /* =========================================================
- * シングルトン生成（autoRefresh & persistSession を有効）
+ * 共有クライアント → ガード付ラッパ（Proxy）
+ *   - 実体は 1個（__browserSingleton）
+ *   - 参照は Proxy で追加保護（必要なときのみ）
  * ========================================================= */
-let __singleton: SupabaseClient<any> | null = null;
+let __guardedSingleton: SupabaseClient<any> | null = null;
 
-function createClientSingleton(): SupabaseClient {
-  if (__singleton) return __singleton;
-
-  const base = createBrowserClient(SUPABASE_URL, SUPABASE_KEY, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
-      storage: prefixedStorage,
-    },
-  });
-
-  // 任意：イベントログ（デバッグに便利、不要なら消してOK）
-  base.auth.onAuthStateChange((event) => {
-    if (event === 'TOKEN_REFRESHED') console.log('[auth] token refreshed');
-    if (event === 'SIGNED_OUT') console.log('[auth] signed out');
-    if (event === 'SIGNED_IN') console.log('[auth] signed in');
-  });
-
-  __singleton = wrapWithLegacyGuards(base);
-  return __singleton;
+function getGuardedSharedClient(): SupabaseClient {
+  if (__guardedSingleton) return __guardedSingleton;
+  if (!__browserSingleton) {
+    __browserSingleton = createBrowserClient();
+  }
+  __guardedSingleton = wrapWithLegacyGuards(__browserSingleton);
+  return __guardedSingleton;
 }
 
 /* =========================================================
  * 推奨：ブラウザ用単一インスタンス getter（ガード付き）
  * ========================================================= */
 export function getBrowserSupabase(): SupabaseClient {
-  return createClientSingleton();
+  return getGuardedSharedClient();
 }
 
 // 既存互換：getSupabaseClient という名前でのエクスポートも維持
@@ -179,15 +144,6 @@ export async function safeGetSession(
 }
 
 /* =========================================================
- * 互換：attachAuthGuards（必要ならここで追加のラップを実装）
- * いまは no-op で互換シグネチャだけ提供
- * ========================================================= */
-export function attachAuthGuards(client?: SupabaseClient): SupabaseClient {
-  // 将来的に 401/400 抑止や再ログイン誘導をここに差し込める
-  return client ?? getBrowserSupabase();
-}
-
-/* =========================================================
  * ログアウト/表示系ユーティリティ
  * ========================================================= */
 export async function signOutLocalAndRedirect(redirectTo?: string) {
@@ -198,12 +154,33 @@ export async function signOutLocalAndRedirect(redirectTo?: string) {
     console.warn('[auth] signOut failed (ignored):', e);
   }
   try {
-    // ★ 追加：prefix 付き Supabase セッション領域の掃除
-    clearPrefixedSupabaseStorage();
+    clearAllSupabaseLikeStorage();
     clearDisplayCookies();
   } catch {}
   if (typeof window !== 'undefined' && redirectTo) {
     location.assign(redirectTo);
+  }
+}
+
+/** Supabase が使いがちな localStorage キーを包括的に削除 */
+export function clearAllSupabaseLikeStorage() {
+  if (typeof window === 'undefined') return;
+  try {
+    const prefixes = [
+      'sb-',            // Supabase v2 既定
+      'supabase',       // 互換系
+      // 任意：プロジェクト固有の prefix がある場合はここに追加
+      (process.env.NEXT_PUBLIC_APP_STORAGE_PREFIX ?? '').trim(),
+    ].filter(Boolean);
+
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i) || '';
+      if (prefixes.some((p) => k.startsWith(p))) keys.push(k);
+    }
+    keys.forEach((k) => localStorage.removeItem(k));
+  } catch (e) {
+    console.warn('[supabase] clearAllSupabaseLikeStorage failed:', e);
   }
 }
 
