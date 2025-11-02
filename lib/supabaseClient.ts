@@ -1,9 +1,27 @@
 // /lib/supabaseClient.ts（堅牢化・互換維持：utils 側を再エクスポート一本化）
 'use client';
 
-// ここからは utils 側の単一シングルトン／ガード実装をそのまま利用します。
-// 既存コードが `@/lib/supabaseClient` を import していても、内部的には
-// `@/utils/supabase/client` の同一インスタンスを参照します。
+/**
+ * 役割：
+ *  - 既存コードが `@/lib/supabaseClient` を import していても動く互換レイヤ
+ *  - 実体はすべて `@/utils/supabase/client` の単一シングルトンを参照
+ * 注意：
+ *  - `@/utils/supabase/client` 側は “leaf” として他の自作 util を import しないこと
+ */
 
-export * from '@/utils/supabase/client';
-export { default } from '@/utils/supabase/client';
+export {
+  supabase,
+  default,
+  getBrowserSupabase,
+  getSupabaseClient,
+  safeGetSession,
+  signOutLocalAndRedirect,
+  clearAllSupabaseLikeStorage,
+  clearDisplayCookies,
+  isValidUUID,
+  getCompanyIdFromCookie,
+  setCompanyIdCookie,
+  clearCompanyIdCookie,
+  __SUPABASE_BLOCK_LEGACY__,
+  __SUPABASE_LEGACY_TABLES__,
+} from '@/utils/supabase/client';
