@@ -7,7 +7,7 @@ import type { StrategyData } from '@/types/strategy';
 
 /* ============================================================
  * テーブル名
- * ============================================================ */
+ * ========================================================== */
 const T_STRATEGY = 'strategy_data';
 const T_PROGRESS = 'progress_logs';
 const T_STORY_ANSWERS = 'story_answers2';
@@ -18,7 +18,7 @@ const T_LEGACY = ['simulationresults', 'simulationresult', 'financesummary', 'bu
 
 /* ============================================================
  * 型
- * ============================================================ */
+ * ========================================================== */
 type ReadResult = { data: (StrategyData & { revision?: number }) | null; error: any | null };
 type WriteResult = { data?: (StrategyData & { revision?: number }) | null; error: any | null };
 
@@ -37,7 +37,7 @@ export type ProgressLogInput = {
 
 /* ============================================================
  * エラー整形
- * ============================================================ */
+ * ========================================================== */
 function safeStringify(x: any) {
   try { return JSON.stringify(x, null, 2); } catch { return String(x); }
 }
@@ -60,8 +60,18 @@ function extractErrorVerbose(e: any) {
 }
 
 /* ============================================================
- * companyId 解決
- * ============================================================ */
+ * companyId / userId 解決
+ * ========================================================== */
+async function getActiveUserId(): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.auth.getUser();
+    if (error) return null;
+    return data?.user?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function resolveCompanyId(userId: string, override?: string | null): Promise<string> {
   if (override && isValidUUID(override)) {
     try { setCompanyIdCookie(override); } catch {}
@@ -82,7 +92,7 @@ async function resolveCompanyId(userId: string, override?: string | null): Promi
 
 /* ============================================================
  * JSONユーティリティ
- * ============================================================ */
+ * ========================================================== */
 function parseJson(v: any) {
   if (typeof v === 'string') {
     try { return JSON.parse(v); } catch { return v; }
@@ -98,9 +108,56 @@ function ensureObject<T extends object = Record<string, any>>(v: any): T {
   return (p && typeof p === 'object' && !Array.isArray(p)) ? (p as T) : ({} as T);
 }
 
+/* undefined を深い階層まで除去（“意図しない上書き”抑制） */
+function pruneUndefinedDeep<T = any>(input: T): T {
+  if (Array.isArray(input)) {
+    // @ts-ignore
+    return input.map((v) => pruneUndefinedDeep(v)).filter((v) => v !== undefined) as T;
+  }
+  if (input && typeof input === 'object') {
+    const obj = input as any;
+    const entries = Object.entries(obj)
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => [k, pruneUndefinedDeep(v)]);
+    // @ts-ignore
+    return Object.fromEntries(entries);
+  }
+  return input;
+}
+
+/* “空扱い”の判定 */
+function isEmptyLike(v: any): boolean {
+  if (v === null || v === undefined) return true;
+  if (typeof v === 'string') return v.trim() === '';
+  if (Array.isArray(v)) return v.length === 0;
+  if (typeof v === 'object') return Object.keys(v).length === 0;
+  return false;
+}
+
+/* Deep Merge（incoming優先。ただし incoming が“空”なら既存を保持） */
+function deepMergePreserveNonEmpty(target: any, incoming: any): any {
+  // 空 → 既存を返す
+  if (isEmptyLike(incoming)) return target;
+
+  // プリミティブ/配列は incoming を採用（ただし空配列は前段で弾いている）
+  if (typeof incoming !== 'object' || Array.isArray(incoming)) return incoming;
+
+  // 両方オブジェクトならキー単位でマージ
+  const out: any = { ...(target && typeof target === 'object' ? target : {}) };
+  for (const [k, v] of Object.entries(incoming)) {
+    const prev = out[k];
+    if (typeof v === 'object' && !Array.isArray(v)) {
+      out[k] = deepMergePreserveNonEmpty(prev, v);
+    } else {
+      out[k] = isEmptyLike(v) ? prev : v;
+    }
+  }
+  return out;
+}
+
 /* ============================================================
  * finance_summary 双方向正規化
- * ============================================================ */
+ * ========================================================== */
 function toDbFinanceSummary(uiValue: any): Record<string, any> {
   if (uiValue == null) return {};
   const parsed = parseJson(uiValue);
@@ -123,7 +180,7 @@ function toUiFinanceSummary(dbValue: any): any[] {
 
 /* ============================================================
  * business_portfolio 安全化
- * ============================================================ */
+ * ========================================================== */
 function toDbBusinessPortfolio(uiValue: any): Record<string, any> {
   if (uiValue == null) return {};
   const parsed = parseJson(uiValue);
@@ -138,7 +195,7 @@ function toUiBusinessPortfolio(dbValue: any): Record<string, any> | undefined {
 
 /* ============================================================
  * JSON 配列フィールド（NOT NULL想定）
- * ============================================================ */
+ * ========================================================== */
 function toDbJsonArray(v: any): any[] {
   if (v == null) return [];
   const p = parseJson(v);
@@ -148,7 +205,7 @@ function toDbJsonArray(v: any): any[] {
 /* ============================================================
  * camelCase ⇄ snake_case マッピング
  *  ※ 分離テーブル化したキーは FIELD_MAP から除外
- * ============================================================ */
+ * ========================================================== */
 const FIELD_MAP: Record<string, string> = {
   companyName: 'company_name',
   foundationYear: 'foundation_year',
@@ -180,7 +237,8 @@ const FIELD_MAP: Record<string, string> = {
 
 /* ============================================================
  * “実質空”判定（空保存ガード）
- * ============================================================ */
+ *  ※ answers2 / finalStory は分離テーブルのため「非空でも saveStrategyData の保存対象にしない」
+ * ========================================================== */
 function isEffectivelyEmptyForServer(state: Partial<StrategyData>): boolean {
   const arrEmpty = (a: any) => !Array.isArray(a) || a.length === 0;
   const strEmpty = (v: any) => typeof v !== 'string' || v.trim() === '';
@@ -188,10 +246,9 @@ function isEffectivelyEmptyForServer(state: Partial<StrategyData>): boolean {
   const sim = (state as any)?.simulationResult;
   const simPoints = (sim as any)?.projection?.points;
 
+  // ★ answers2 / finalStory は“空判定の対象から除外”
   return (
     arrEmpty((state as any).story) &&
-    arrEmpty((state as any).finalStory) &&   // 読み込みで補完、保存はしない
-    arrEmpty((state as any).answers2) &&     // 読み込みで補完、保存はしない
     arrEmpty((state as any).departments) &&
     arrEmpty((state as any).csvFinanceData) &&
     arrEmpty((state as any).financeSummary) &&
@@ -205,7 +262,7 @@ function isEffectivelyEmptyForServer(state: Partial<StrategyData>): boolean {
 
 /* ============================================================
  * DB ⇄ State 変換
- * ============================================================ */
+ * ========================================================== */
 function buildDbRowFromState(state: StrategyData) {
   const row: any = {};
   for (const [camel, snake] of Object.entries(FIELD_MAP)) {
@@ -229,7 +286,7 @@ function buildDbRowFromState(state: StrategyData) {
   return row;
 }
 
-function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
+function buildStateFromDbRow(row: any): (StrategyData & { revision?: number }) {
   const safeRow = row ?? {};
   const out: any = {};
 
@@ -268,7 +325,7 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
 
 /* ============================================================
  * 共通：既存行を * で取得
- * ============================================================ */
+ * ========================================================== */
 async function fetchExistingRow(companyId: string) {
   const res = await supabase
     .from(T_STRATEGY)
@@ -284,7 +341,7 @@ async function fetchExistingRow(companyId: string) {
 
 /* ============================================================
  * 取得：strategy_data=* + 分離テーブル合流
- * ============================================================ */
+ * ========================================================== */
 export async function getFullStrategyDataByCompany(companyId: string): Promise<ReadResult> {
   console.log('[StrategyData] 📥 getFullStrategyDataByCompany start:', companyId);
   try {
@@ -344,30 +401,44 @@ export async function getFullStrategyDataByCompany(companyId: string): Promise<R
 }
 
 /* ============================================================
- * 保存（空保存抑止＋楽観ロック）
- *  - revision列があれば revision ロック、無ければ updated_at ロック
- * ============================================================ */
+ * 保存（空保存抑止＋楽観ロック＋DB現行とのDeepMerge）
+ * ========================================================== */
 export async function saveStrategyData(
-  state: StrategyData,
-  userId: string,
-  companyIdOverride?: string | null,
-  revision?: number,
+  ...args: any[]
 ): Promise<WriteResult> {
-  console.log('[StrategyData] 💾 saveStrategyData called. userId=', userId, 'rev=', revision);
+  // 新API: (payload)
+  // 旧API: (payload, userId, companyIdOverride?, revision?, opts?)
+  const payload: StrategyData = args[0];
+  let userId: string | undefined = args[1];
+  let companyIdOverride: string | null | undefined = args[2];
+  let revision: number | undefined = args[3];
+  let opts: { mode?: 'upsert' | 'updateOnly' } | undefined = args[4];
+
+  // 新API（1引数）であれば userId をセッションから解決
+  if (args.length === 1) {
+    userId = await getActiveUserId() ?? undefined;
+    // opts は既定 upsert
+    opts = { mode: 'upsert' };
+  }
+
+  console.log('[StrategyData] 💾 saveStrategyData called. userId=', userId, 'rev=', revision, 'opts=', opts);
   try {
+    if (!userId) {
+      return { data: null, error: { status: 401, message: 'no userId (session not found)' } };
+    }
+
     const now = new Date().toISOString();
     const companyId = await resolveCompanyId(userId, companyIdOverride);
     const cleanCompanyId = companyId.trim();
 
-    if (isEffectivelyEmptyForServer(state)) {
+    // 0) 空保存ガード（answers2/finalStoryだけの変更は分離APIで保存する想定）
+    if (isEffectivelyEmptyForServer(payload)) {
       console.warn('[StrategyData] ⛔ save skipped: effectively empty payload');
       const cur = await getFullStrategyDataByCompany(cleanCompanyId);
       return { data: cur.data ?? null, error: null };
     }
 
-    const baseRow = buildDbRowFromState(state);
-
-    // 既存行の有無
+    // 1) 既存行の取得
     let existingRow: any | null = null;
     try {
       const existingRes = await fetchExistingRow(cleanCompanyId);
@@ -375,6 +446,19 @@ export async function saveStrategyData(
     } catch (e) {
       return { data: null, error: extractErrorVerbose(e) };
     }
+
+    // 2) 既存Stateへ変換（マージ元）
+    const existingState: StrategyData & { revision?: number } =
+      existingRow ? buildStateFromDbRow(existingRow) : ({} as any);
+
+    // 3) 送信前に undefined を除去
+    const prunedIncoming: StrategyData = pruneUndefinedDeep(payload);
+
+    // 4) DB現行と “空で上書きしない” ルールで DeepMerge
+    const mergedState = deepMergePreserveNonEmpty(existingState, prunedIncoming) as StrategyData;
+
+    // 5) DB用行を構築
+    const baseRow = buildDbRowFromState(mergedState);
 
     const hasRevision: boolean =
       !!existingRow && Object.prototype.hasOwnProperty.call(existingRow, 'revision');
@@ -416,7 +500,6 @@ export async function saveStrategyData(
       if (hasRevision && typeof expectedRev === 'number') {
         q = q.eq('revision', expectedRev);
       } else if (currentUpdatedAt) {
-        // revisionが無い環境では updated_at を軽量ロックとして使用
         q = q.eq('updated_at', currentUpdatedAt);
       }
 
@@ -429,8 +512,13 @@ export async function saveStrategyData(
       return { data: stateAfter, error: null };
     }
 
+    // === ここまでで既存行が無い ===
+    if (opts?.mode === 'updateOnly') {
+      console.log('[StrategyData] updateOnly mode → skip insert (no existing row).');
+      return { data: null, error: null };
+    }
+
     // === INSERT ===
-    // revision 列が無い環境でも成功するように、insertPayload には revision を含めない
     const insertPayload: any = {
       ...baseRow,
       user_id: userId,
@@ -458,11 +546,11 @@ export async function saveStrategyData(
 
 /* ============================================================
  * 削除（統一化後の標準：子→親）
- * ============================================================ */
-export async function deleteStrategyData(userId: string): Promise<WriteResult> {
-  console.log('[StrategyData] 🗑 deleteStrategyData called for', userId);
+ * ========================================================== */
+export async function deleteStrategyData(userId: string, companyIdOverride?: string | null): Promise<WriteResult> {
+  console.log('[StrategyData] 🗑 deleteStrategyData called for', userId, companyIdOverride ?? '(cookie/membership)');
   try {
-    const companyId = await resolveCompanyId(userId, null);
+    const companyId = await resolveCompanyId(userId, companyIdOverride ?? null);
 
     // 1) 子テーブルから先に削除（冪等）
     const delAns = await supabase.from(T_STORY_ANSWERS).delete().eq('company_id', companyId);
@@ -493,7 +581,7 @@ export async function deleteStrategyData(userId: string): Promise<WriteResult> {
 
 /* ============================================================
  * 全削除（会社スコープの完全掃除：レガシー含む）
- * ============================================================ */
+ * ========================================================== */
 export async function deleteAllCompanyData(userId: string, companyIdOverride?: string | null) {
   const companyId = await resolveCompanyId(userId, companyIdOverride);
   const tablesInOrder = [
@@ -526,7 +614,7 @@ export async function deleteAllCompanyData(userId: string, companyIdOverride?: s
 
 /* ============================================================
  * レガシーテーブル削除（任意の掃除用ユーティリティ）
- * ============================================================ */
+ * ========================================================== */
 export async function purgeLegacyTables(userId: string, companyIdOverride?: string | null) {
   const companyId = await resolveCompanyId(userId, companyIdOverride);
   for (const t of T_LEGACY) {
@@ -538,14 +626,14 @@ export async function purgeLegacyTables(userId: string, companyIdOverride?: stri
         console.log(`[LegacyPurge] ${t} deleted for company_id=${companyId}`);
       }
     } catch (e) {
-      console.warn(`[LegacyPurge] ${t} fatal:`, extractErrorVerbose(e));
+      console.warn(`[LegacyPurge] ${t} fatal:',`, extractErrorVerbose(e));
     }
   }
 }
 
 /* ============================================================
  * シミュレーション履歴（strategy_data 内の配列を使用）
- * ============================================================ */
+ * ========================================================== */
 export type SimulationSavePayload = {
   projection: {
     points: Array<{ year: string; sales: number; op: number; opMargin?: number }>;
@@ -606,7 +694,7 @@ export async function appendSimulationResultToStrategy(
 
 /* ============================================================
  * 履歴取得API
- * ============================================================ */
+ * ========================================================== */
 export type SimulationResultRow = {
   id: string;
   created_at: string;
@@ -648,9 +736,7 @@ export async function getSimulationResults(
 
 /* ============================================================
  * 進捗ログ保存（INSERT）
- *  - /app/execution/page.tsx から呼び出し
- *  - このモジュールからは supabase をエクスポートしない
- * ============================================================ */
+ * ========================================================== */
 export async function saveProgressLog(input: ProgressLogInput): Promise<{ data: any | null; error: any | null }> {
   try {
     const {
@@ -695,51 +781,87 @@ export async function saveProgressLog(input: ProgressLogInput): Promise<{ data: 
 }
 
 /* ============================================================
- * 追加：分離テーブルへの保存API
- * ============================================================ */
+ * 追加：分離テーブルへの保存API（company_id 一意／手動UPSERT固定）
+ * ========================================================== */
 
-/** 最終ストーリーを final_stories に永続化 */
+/** 手動UPSERT：company_id（+任意でstrategy_id）で存在確認 → UPDATE/INSERT */
+async function robustUpsert(
+  table: string,
+  row: Record<string, any>,
+  _conflictTargets: string[], // 互換のため未使用
+) {
+  try {
+    // 1) 既存行の存在確認
+    let q = supabase.from(table).select('*').eq('company_id', row.company_id).limit(1);
+    if ('strategy_id' in row && row.strategy_id) {
+      q = q.eq('strategy_id', row.strategy_id);
+    }
+    const got = await (q as any).maybeSingle();
+    if (got.error && got.error.code !== 'PGRST116') {
+      return { ok: false, error: extractErrorVerbose(got.error) };
+    }
+
+    // 2) 存在すれば UPDATE、無ければ INSERT
+    if (got.data) {
+      let uq = supabase.from(table).update(row).eq('company_id', row.company_id);
+      if ('strategy_id' in row && row.strategy_id) {
+        uq = (uq as any).eq('strategy_id', row.strategy_id);
+      }
+      const upd = await (uq as any).select('*').maybeSingle();
+      if (upd.error) return { ok: false, error: extractErrorVerbose(upd.error) };
+      return { ok: true, error: null };
+    } else {
+      const ins = await supabase.from(table).insert(row).select('*').maybeSingle();
+      if (ins.error) return { ok: false, error: extractErrorVerbose(ins.error) };
+      return { ok: true, error: null };
+    }
+  } catch (e) {
+    return { ok: false, error: extractErrorVerbose(e) };
+  }
+}
+
+/** 最終ストーリーを final_stories に永続化（company_id一意） */
 export async function saveFinalStory(
   userId: string,
   finalStory: Array<{ title: string; body: string }>,
-  companyIdOverride?: string | null
+  opts?: { companyId?: string | null; strategyId?: string | null }
 ): Promise<{ ok: boolean; error: any | null }> {
   try {
-    const companyId = await resolveCompanyId(userId, companyIdOverride);
+    const companyId = await resolveCompanyId(userId, opts?.companyId ?? null);
     const now = new Date().toISOString();
-
-    const { error } = await supabase
-      .from(T_FINAL_STORIES)
-      .upsert(
-        { company_id: companyId, user_id: userId, final_story: finalStory, updated_at: now },
-        { onConflict: 'company_id' }
-      );
-
-    if (error) return { ok: false, error: extractErrorVerbose(error) };
+    const row: any = {
+      company_id: companyId,
+      user_id: userId,
+      final_story: finalStory,
+      updated_at: now,
+      ...(opts?.strategyId ? { strategy_id: opts.strategyId } : {}),
+    };
+    const r = await robustUpsert(T_FINAL_STORIES, row, []);
+    if (!r.ok) return { ok: false, error: r.error };
     return { ok: true, error: null };
   } catch (e) {
     return { ok: false, error: extractErrorVerbose(e) };
   }
 }
 
-/** 質問回答（answers2）を story_answers2 に永続化（任意運用） */
+/** 質問回答（answers2）を story_answers2 に永続化（company_id一意） */
 export async function saveStoryAnswers2(
   userId: string,
   answers2: any[],
-  companyIdOverride?: string | null
+  opts?: { companyId?: string | null; strategyId?: string | null }
 ): Promise<{ ok: boolean; error: any | null }> {
   try {
-    const companyId = await resolveCompanyId(userId, companyIdOverride);
+    const companyId = await resolveCompanyId(userId, opts?.companyId ?? null);
     const now = new Date().toISOString();
-
-    const { error } = await supabase
-      .from(T_STORY_ANSWERS)
-      .upsert(
-        { company_id: companyId, user_id: userId, answers2, updated_at: now },
-        { onConflict: 'company_id' }
-      );
-
-    if (error) return { ok: false, error: extractErrorVerbose(error) };
+    const row: any = {
+      company_id: companyId,
+      user_id: userId,
+      answers2,
+      updated_at: now,
+      ...(opts?.strategyId ? { strategy_id: opts.strategyId } : {}),
+    };
+    const r = await robustUpsert(T_STORY_ANSWERS, row, []);
+    if (!r.ok) return { ok: false, error: r.error };
     return { ok: true, error: null };
   } catch (e) {
     return { ok: false, error: extractErrorVerbose(e) };
