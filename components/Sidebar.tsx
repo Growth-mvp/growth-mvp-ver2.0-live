@@ -1,11 +1,10 @@
-// /components/Sidebar.tsx（修正版）
+// /components/Sidebar.tsx（修正版・storeアクション連動）
 'use client';
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { saveStrategyData, deleteStrategyData, getFullStrategyDataByCompany } from '@/utils/supabase';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, refetchFromServer as refetchViaExport } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { useAccess } from '@/utils/access';
 import LogoutButton from './LogoutButton';
@@ -29,42 +28,7 @@ const toStr = (v: unknown, fallback = ''): string =>
   typeof v === 'string' ? v : v == null ? fallback : String(v);
 const asArr = (v: any) => (Array.isArray(v) ? v : []);
 const asObj = (v: any) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
-function safeStringify(obj: any) {
-  const seen = new WeakSet();
-  return JSON.stringify(
-    obj,
-    (k, v) => {
-      if (typeof v === 'object' && v !== null) {
-        if (seen.has(v)) return '[Circular]';
-        seen.add(v);
-      }
-      return v;
-    },
-    2
-  );
-}
-function previewValue(v: any) {
-  const {
-    answers2,
-    finalStory,
-    editableCascade,
-    editableCascadeResult,
-    csvFinanceData,
-    departments,
-    story,
-    ...rest
-  } = v || {};
-  return {
-    ...rest,
-    storyType: Array.isArray(story) ? `array(${story.length})` : typeof story,
-    finalStoryType: Array.isArray(finalStory) ? `array(${finalStory.length})` : typeof finalStory,
-    answers2Type: Array.isArray(answers2) ? `array(${answers2.length})` : typeof answers2,
-    departmentsType: Array.isArray(departments) ? `array(${departments.length})` : typeof departments,
-    hasEditableCascade: !!editableCascade,
-    hasEditableCascadeResult: !!editableCascadeResult,
-    hasCsvFinanceData: !!csvFinanceData,
-  };
-}
+
 function AIcon({ children }: { children: React.ReactNode }) {
   return (
     <span className="inline-flex h-[18px] w-[18px] items-center justify-center opacity-75">
@@ -74,30 +38,23 @@ function AIcon({ children }: { children: React.ReactNode }) {
 }
 
 /* 共通テキストクラス（Apple風：細め・字間少し広め・行間ゆったり・13.5px） */
-const ITEM_TEXT_CLASS =
-  'font-normal tracking-[0.01em] leading-6 text-[13.5px]';
+const ITEM_TEXT_CLASS = 'font-normal tracking-[0.01em] leading-6 text-[13.5px]';
 
 /* ---------------- 本体 ---------------- */
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const s = useStrategyStore() as any;
+  const s = useStrategyStore();
   const userStore = useUserStore();
-  const { user, setUser, clearUser, companyId, hydrated } = userStore;
+  const { user, companyId, hydrated } = userStore;
   const { canView, canEditCompany } = useAccess();
 
   const [domHydrated, setDomHydrated] = useState(false);
   useEffect(() => setDomHydrated(true), []);
 
-  const hasStoreNotice =
-    typeof s?.notification === 'string' && typeof s?.setNotification === 'function';
-  const [localNotice, setLocalNotice] = useState<string>('');
-  const notification: string = hasStoreNotice ? (s.notification as string) : localNotice;
-  const setNotification = (msg: string) =>
-    hasStoreNotice ? s.setNotification(msg) : setLocalNotice(msg);
+  const [notification, setNotification] = useState<string>('');
 
-  const currentUserId: string | undefined =
-    typeof s?.currentUserId === 'string' ? (s.currentUserId as string) : user?.id;
+  const currentUserId: string | undefined = user?.id;
 
   /* ===== アクション ===== */
   const ensureMembershipOrRedirect = () => {
@@ -130,53 +87,8 @@ export default function Sidebar() {
     }
 
     try {
-      if (typeof s?.saveToSupabase === 'function') {
-        console.groupCollapsed('%c[Sidebar] saveToSupabase() 呼び出し', 'color:#1976d2');
-        console.log('uid:', user?.id);
-        console.log('companyId:', companyId);
-        console.groupEnd();
-        await s.saveToSupabase();
-      } else {
-        const st = useStrategyStore.getState() as any;
-        const value = {
-          strategyId: st.strategyId ?? null,
-          companyName: toStr(st.companyName),
-          foundationYear: toStr(st.foundationYear),
-          location: toStr(st.location),
-          industry: toStr(st.industry),
-          revenue: toStr(st.revenue),
-          employees: toStr(st.employees),
-          businessContent: toStr(st.businessContent),
-          customerSegment: toStr(st.customerSegment),
-          thought: toStr(st.thought),
-          mission: toStr(st.mission),
-          vision: toStr(st.vision),
-          value: toStr(st.value),
-          strength: toStr(st.strength),
-          weakness: toStr(st.weakness),
-          opportunity: toStr(st.opportunity),
-          threat: toStr(st.threat),
-          story: asArr(st.story),
-          finalStory: asArr(st.finalStory),
-          answers2: asArr(st.answers2),
-          departments: asArr(st.departments),
-          csvFinanceData: asObj(st.csvFinanceData),
-        };
-        console.groupCollapsed('%c[handleSave] value preview', 'color:#1976d2');
-        console.log('uid:', user?.id);
-        console.log('companyId:', companyId);
-        console.log('keys:', Object.keys(value || {}));
-        console.log('preview:', previewValue(value));
-        try {
-          console.log('full value:', safeStringify(value));
-        } catch {}
-        console.groupEnd();
-
-        const result = await (saveStrategyData as any)(value as any, user!.id, companyId);
-        console.groupCollapsed('%c[handleSave] result', 'color:#2e7d32');
-        console.log(result);
-        console.groupEnd();
-      }
+      // store の revision 連動セーフセーブを使用
+      await useStrategyStore.getState().saveStrategyData();
       setNotification('✅ サーバーへ保存しました');
     } catch (e) {
       console.error('❌ handleSave error:', e);
@@ -190,22 +102,10 @@ export default function Sidebar() {
     if (!ok) return;
 
     try {
-      const { data, error } = await getFullStrategyDataByCompany(companyId!);
-      if (error) throw error;
-      if (!data) {
-        setNotification('ℹ サーバーにデータが見つかりませんでした');
-      } else {
-        useStrategyStore.setState((prev: any) => ({
-          ...prev,
-          ...data,
-          story: asArr((data as any).story),
-          finalStory: asArr((data as any).finalStory),
-          answers2: asArr((data as any).answers2),
-          departments: asArr((data as any).departments),
-          csvFinanceData: asObj((data as any).csvFinanceData),
-        }));
-        setNotification('✅ サーバーから最新を取得しました');
-      }
+      // store の refetch（__isFetchingFromServer ガード付き）
+      await useStrategyStore.getState().refetchFromServer();
+      // もしくはエクスポートを使用: await refetchViaExport();
+      setNotification('✅ サーバーから最新を取得しました');
     } catch (e) {
       console.error('❌ handleRefetch error:', e);
       setNotification('❌ 取得に失敗しました');
@@ -222,13 +122,8 @@ export default function Sidebar() {
     if (!ok) return;
 
     try {
-      console.groupCollapsed('%c[handleClear] delete', 'color:#c62828');
-      console.log('uid:', user?.id);
-      console.log('companyId:', companyId);
-      console.groupEnd();
-
-      await deleteStrategyData(user!.id);
-      useStrategyStore.setState((prev: any) => ({ ...prev, strategyId: null }));
+      await useStrategyStore.getState().deleteAllOnServer();
+      // ローカルの永続もリセット（store側でやっているが保険で）
       localStorage.removeItem('strategy-store');
       setNotification('🗑 すべて削除しました');
     } catch (e) {
@@ -241,7 +136,7 @@ export default function Sidebar() {
     if (!notification) return;
     const tm = setTimeout(() => setNotification(''), 4000);
     return () => clearTimeout(tm);
-  }, [notification, setNotification]);
+  }, [notification]);
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
   const adminDisabledVisual = !canEditCompany();
