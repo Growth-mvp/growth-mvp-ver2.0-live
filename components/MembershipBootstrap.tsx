@@ -2,9 +2,9 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
-import { getMembership } from '@/utils/supabase';
+import { getMembership } from '@/utils/supabase/membership';
 import type { Role } from '@/utils/supabase/membership';
 
 type MembershipResult = {
