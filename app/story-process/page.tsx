@@ -5,7 +5,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import QuestionStepper, { type AnswerStep as StepperAnswerStep } from '@/components/guide/QuestionStepper';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
-// ▼ 修正：保存ユーティリティを strategy から。分離保存APIも追加。
+// ▼ 保存ユーティリティ（final/answers 分離保存に対応）
 import { saveStrategyData, saveFinalStory, saveStoryAnswers2 } from '@/utils/supabase/strategy';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -31,7 +31,7 @@ const CHAPTER_COLORS = [
   { badge: 'bg-sky-50 text-sky-700 border-sky-200', ring: 'ring-sky-300', border: 'border-sky-200' },
   { badge: 'bg-violet-50 text-violet-700 border-violet-200', ring: 'ring-violet-300', border: 'border-violet-200' },
   { badge: 'bg-emerald-50 text-emerald-700 border-emerald-200', ring: 'ring-emerald-300', border: 'border-emerald-200' },
-  { badge: 'bg-amber-50 text-amber-700 border-amber-200', ring: 'ring-amber-300', border: 'border-amber-200' },
+  { badge: 'bg-amber-50 text-amber-700 border-amber-200', ring: 'ring-amber-300', border: 'border-amber-300' },
 ];
 
 /** 章×Stepの既定粒度（1: board / それ以外: exec、ただし Ch4 Step3 は ops） */
@@ -208,7 +208,7 @@ export default function StoryProcessPage() {
   const { canView, canEditCompany } = useAccess();
   const canEdit = canEditCompany();
 
-  /* ----- 初期スクロール補正：下から始まるのを防ぐ ----- */
+  /* ----- 初期スクロール補正 ----- */
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const prev = window.history.scrollRestoration;
@@ -217,7 +217,7 @@ export default function StoryProcessPage() {
     return () => { window.history.scrollRestoration = prev; };
   }, []);
 
-  /* ----- 旧・非名前空間キーを初回に破棄（混入防止） ----- */
+  /* ----- 旧キーの破棄 ----- */
   useEffect(() => {
     try {
       ['growth.story','growth.storyDraft','growth.strategySummary','growth.finalStory']
@@ -225,7 +225,7 @@ export default function StoryProcessPage() {
     } catch {}
   }, []);
 
-  /* ----- 案件切替でローカル状態をクリア（持ち越し防止） ----- */
+  /* ----- 案件切替でローカル状態クリア ----- */
   const prevKeyRef = useRef<string | null>(null);
   useEffect(() => {
     const key = `${companyId || ''}::${store?.strategyId || ''}`;
@@ -234,7 +234,7 @@ export default function StoryProcessPage() {
     (useStrategyStore as any).setState({ story: [], storyChapters: [], chapters: [] });
   }, [companyId, store?.strategyId]);
 
-  /* ----- セッションの story 復旧：companyId & strategyId が揃うまで絶対に読まない ----- */
+  /* ----- セッションの story 復旧（ID揃うまで読まない） ----- */
   useEffect(() => {
     if (!companyId || !store?.strategyId) return;
     try {
@@ -253,7 +253,7 @@ export default function StoryProcessPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId, store?.strategyId]);
 
-  /* ----- 初回リフェッチ（※セッション適用後に遅延） ----- */
+  /* ----- 初回リフェッチ（デバウンス完了後/ローカルが空の時だけ） ----- */
   useEffect(() => {
     if (!companyId) return;
     const st: any = useStrategyStore.getState();
@@ -261,15 +261,18 @@ export default function StoryProcessPage() {
     if (typeof fn === 'function') {
       const delay = setTimeout(() => {
         try {
-          if (fn.length >= 1) {
-            if (user?.id) fn(user.id);
-          } else {
-            fn();
+          const hasLocal =
+            (Array.isArray(st?.story) && st.story.length) ||
+            (Array.isArray(st?.storyChapters) && st.storyChapters.length) ||
+            (Array.isArray(st?.finalStory) && st.finalStory.length) ||
+            (Array.isArray(st?.answers2) && st.answers2.length);
+          if (!hasLocal) {
+            if (fn.length >= 1) { if (user?.id) fn(user.id); } else { fn(); }
           }
         } catch (e) {
           console.warn('refetchFromServer call failed', e);
         }
-      }, 350);
+      }, 900);
       return () => clearTimeout(delay);
     }
   }, [companyId, user?.id]);
@@ -277,7 +280,7 @@ export default function StoryProcessPage() {
   const strategyId: string | undefined = store?.strategyId;
   const autoKey = `storyProcess.autoFinal.${strategyId || 'default'}`;
 
-  /* ----- すべての候補から表示用 story を構成 ----- */
+  /* ----- 表示用 story 構成 ----- */
   const storyFromSession: ChapterStory[] = useMemo(() => {
     if (!companyId || !store?.strategyId) return [];
     try {
@@ -345,7 +348,6 @@ export default function StoryProcessPage() {
     industry, revenue, employees,
     thought, strength, weakness, opportunity, threat,
     csvFinanceData,
-    // ▼ 修正：保存層に合わせて businessPortfolio を使う
     businessPortfolio,
     enhanceEmotion = true,
   } = store ?? {};
@@ -379,6 +381,12 @@ export default function StoryProcessPage() {
     }));
     if (typeof store?.setAnswers2 === 'function') store.setAnswers2(payload);
     else (useStrategyStore as any).setState({ answers2: payload });
+    // セッションにも保険保存
+    try {
+      if (companyId && store?.strategyId) {
+        sessionStorage.setItem(ssKey('answers2', companyId, store?.strategyId), JSON.stringify(payload));
+      }
+    } catch {}
   };
 
   const draftArr: ChapterStory[] = useMemo(() => {
@@ -393,7 +401,7 @@ export default function StoryProcessPage() {
 
   const referenceArr: ChapterStory[] = draftArr.length ? draftArr : finalArrOrderedFromStore;
 
-  /* ------- 章ごとの上限（子からの通知で拡大反映） ------- */
+  /* ------- 章ごとの上限 ------- */
   const [maxStepsByChapter, setMaxStepsByChapter] = useState<Record<number, number>>({ 0: 2, 1: 6, 2: 2, 3: 2 });
 
   /* ------- 状態 ------- */
@@ -412,7 +420,7 @@ export default function StoryProcessPage() {
 
   const TOTAL_STEPS = (maxStepsByChapter[0] ?? 2) + (maxStepsByChapter[1] ?? 6) + (maxStepsByChapter[2] ?? 2) + (maxStepsByChapter[3] ?? 2);
 
-  // 章ごとの「必要数に対して回答済み（非空）」のカウント
+  // 章ごとの進捗
   const completedSteps = useMemo(() => {
     let sum = 0;
     for (let ch = 0; ch < 4; ch++) {
@@ -429,105 +437,127 @@ export default function StoryProcessPage() {
   }, [answers2, maxStepsByChapter]);
   const progressPct = Math.round((completedSteps / TOTAL_STEPS) * 100);
 
-  /* ------- 自動保存（デバウンス） ------- */
+  /* ------- 自動保存（“空で上書きしない”＋“最新state取り直し”） ------- */
   const persistTimer = useRef<number | null>(null);
   const persistDebounced = useCallback((
-    a2: ChapterAnswers[] = answers2,
-    draft: ChapterStory[] = storyRawArr,
-    fin: ChapterStory[] = finalRawFromStore
+    a2?: ChapterAnswers[],
+    draft?: ChapterStory[],
+    fin?: ChapterStory[],
   ) => {
     if (!canEdit || !companyId) return;
     if (persistTimer.current) window.clearTimeout(persistTimer.current);
     persistTimer.current = window.setTimeout(async () => {
       if (!user?.id || !companyId) return;
       try {
-        // strategy_data 側（プロフィール・ドラフト等）
-        await saveStrategyData(
-          {
-            strategyId: store?.strategyId,
-            story: draft,
-            finalStory: fin, // ← 読み込み補完項目だが、ここは単に state 側にも載せておく（本保存は分離API）
-            answers2: (a2 ?? []).map((c) => ({
+        // 最新 state を取得（既定引数の古いスナップショットを回避）
+        const stNow: any = useStrategyStore.getState();
+        const draftNow: ChapterStory[] = Array.isArray(draft) ? draft
+          : (Array.isArray(stNow?.storyChapters) ? stNow.storyChapters
+             : (Array.isArray(stNow?.story) ? stNow.story : []));
+        const finNow: ChapterStory[] = Array.isArray(fin) ? fin
+          : (Array.isArray(stNow?.finalStory) ? stNow.finalStory : []);
+        const a2Now: ChapterAnswers[] = Array.isArray(a2) ? a2
+          : (Array.isArray(stNow?.answers2) ? stNow.answers2.map((c: any)=>({
+              chapterIndex: c.chapterIndex, chapterTitle: c.chapterTitle,
+              steps: inflateToStepper(c.steps, Number(c.chapterIndex ?? 0))
+            })) : []);
+
+        // 空配列は送らない（上書き消失防止）
+        const payload: any = {
+          strategyId: stNow?.strategyId,
+          mission, vision, value, industry, revenue, employees,
+          thought, strength, weakness, opportunity, threat,
+          csvFinanceData, businessPortfolio, enhanceEmotion,
+        };
+        if (Array.isArray(draftNow) && draftNow.length > 0) payload.story = draftNow;
+        if (Array.isArray(finNow) && finNow.length > 0) payload.finalStory = finNow;
+        if (Array.isArray(a2Now) && a2Now.length > 0) {
+          payload.answers2 = a2Now.map(c => ({
+            chapterIndex: c.chapterIndex,
+            chapterTitle: c.chapterTitle,
+            steps: deflateToStrategy(c.steps),
+          }));
+        }
+
+        await saveStrategyData(payload, user.id);
+
+        // ▼ 分離テーブルへも保存（final + answers2）
+        if ((finNow ?? []).length) {
+          await saveFinalStory(
+            user.id,
+            finNow as ChapterStory[],
+            { companyId, strategyId: stNow?.strategyId }
+          ).catch((e) => {
+            console.warn('saveFinalStory failed (debounced)', e);
+          });
+        }
+        if ((a2Now ?? []).length) {
+          await saveStoryAnswers2(
+            user.id,
+            a2Now.map(c => ({
               chapterIndex: c.chapterIndex,
               chapterTitle: c.chapterTitle,
               steps: deflateToStrategy(c.steps),
             })),
-            mission, vision, value,
-            industry, revenue, employees,
-            thought, strength, weakness, opportunity, threat,
-            csvFinanceData,
-            businessPortfolio,
-            enhanceEmotion,
-          } as any,
-          user.id
-        );
-
-        // 分離テーブル：final_stories
-        if ((fin ?? []).length) {
-          await saveFinalStory(user.id, fin as ChapterStory[]).catch((e) => {
-            console.warn('saveFinalStory failed (debounced)', e);
+            { companyId, strategyId: stNow?.strategyId }
+          ).catch((e) => {
+            console.warn('saveStoryAnswers2 failed (debounced)', e);
           });
         }
-
-        // （任意）分離テーブル：answers2 を保存したい場合は有効化
-        // await saveStoryAnswers2(
-        //   user.id,
-        //   (a2 ?? []).map((c) => ({
-        //     chapterIndex: c.chapterIndex,
-        //     chapterTitle: c.chapterTitle,
-        //     steps: deflateToStrategy(c.steps),
-        //   }))
-        // ).catch(() => {});
       } catch (e) {
         console.error('Auto save failed', e);
       }
     }, 800) as unknown as number;
   }, [
-    answers2, csvFinanceData, employees, finalRawFromStore, industry, mission,
-    opportunity, revenue, storyRawArr, strength, store?.strategyId, thought, threat,
-    user?.id, value, vision, weakness, canEdit, companyId, businessPortfolio, enhanceEmotion,
+    canEdit, companyId, user?.id,
+    mission, vision, value, industry, revenue, employees,
+    thought, strength, weakness, opportunity, threat,
+    csvFinanceData, businessPortfolio, enhanceEmotion
   ]);
 
-  /* ▼ 追加：タブ非表示/離脱時にフラッシュ保存（取りこぼし防止） */
+  /* ▼ タブ離脱時のフラッシュ保存（空は保存しない） */
   useEffect(() => {
     if (!canEdit) return;
     const flush = async () => {
       if (!user?.id || !companyId) return;
       try {
-        await saveStrategyData(
-          {
-            strategyId: store?.strategyId,
-            story: draftArr,
-            finalStory: finalRawFromStore, // state 側には反映
-            answers2: (answers2 ?? []).map((c) => ({
+        const payload: any = { strategyId: store?.strategyId, mission, vision, value,
+          industry, revenue, employees, thought, strength, weakness, opportunity, threat,
+          csvFinanceData, businessPortfolio, enhanceEmotion };
+        if ((draftArr ?? []).length) payload.story = draftArr;
+        if ((finalRawFromStore ?? []).length) payload.finalStory = finalRawFromStore;
+        if ((answers2 ?? []).length) {
+          payload.answers2 = (answers2 ?? []).map(c => ({
+            chapterIndex: c.chapterIndex,
+            chapterTitle: c.chapterTitle,
+            steps: deflateToStrategy(c.steps),
+          }));
+        }
+        await saveStrategyData(payload, user.id);
+
+        // ▼ 分離テーブルへも保存
+        if ((finalRawFromStore ?? []).length) {
+          await saveFinalStory(
+            user.id,
+            finalRawFromStore as ChapterStory[],
+            { companyId, strategyId: store?.strategyId }
+          ).catch(() => {});
+        }
+        if ((answers2 ?? []).length) {
+          await saveStoryAnswers2(
+            user.id,
+            (answers2 ?? []).map(c => ({
               chapterIndex: c.chapterIndex,
               chapterTitle: c.chapterTitle,
               steps: deflateToStrategy(c.steps),
             })),
-            mission, vision, value,
-            industry, revenue, employees,
-            thought, strength, weakness, opportunity, threat,
-            csvFinanceData,
-            businessPortfolio,
-            enhanceEmotion,
-          } as any,
-          user.id
-        );
-
-        // 分離テーブル保存（重要）
-        if ((finalRawFromStore ?? []).length) {
-          await saveFinalStory(user.id, finalRawFromStore as ChapterStory[]).catch(() => {});
+            { companyId, strategyId: store?.strategyId }
+          ).catch(() => {});
         }
-        // （任意）answers2 も分離保存するなら
-        // await saveStoryAnswers2(user.id, (answers2 ?? []).map(c => ({
-        //   chapterIndex: c.chapterIndex,
-        //   chapterTitle: c.chapterTitle,
-        //   steps: deflateToStrategy(c.steps),
-        // }))).catch(() => {});
       } catch {}
     };
-    const onVis = () => { if (document.visibilityState === 'hidden') flush(); };
-    const onUnload = () => { /* best-effort */ void flush(); };
+    const onVis = () => { if (document.visibilityState === 'hidden') void flush(); };
+    const onUnload = () => { void flush(); };
     document.addEventListener('visibilitychange', onVis);
     window.addEventListener('beforeunload', onUnload);
     return () => {
@@ -591,7 +621,6 @@ export default function StoryProcessPage() {
       mission, vision, value,
       strength, weakness, opportunity, threat,
       csvFinanceData,
-      // ▼ 表示時に参照するなら businessPortfolio 名で
       businessPortfolio,
     }),
     [referenceArr, mission, vision, value, strength, weakness, opportunity, threat, csvFinanceData, businessPortfolio]
@@ -713,14 +742,18 @@ export default function StoryProcessPage() {
         }
       } catch {}
 
-      // 直ちに分離テーブルへ保存（重要）
+      // 直ちに分離テーブルへ保存（opts で companyId/strategyId 渡す）
       if (user?.id) {
-        await saveFinalStory(user.id, ordered).catch((e) => {
+        await saveFinalStory(
+          user.id,
+          ordered,
+          { companyId, strategyId: store?.strategyId }
+        ).catch((e) => {
           console.warn('saveFinalStory after generate failed', e);
         });
       }
 
-      // デバウンス保存（strategy_data側も）
+      // strategy_data 側のデバウンス保存も（空上書き防止ロジック付き）
       persistDebounced(answers2, draftArr, ordered);
     } catch (e: any) {
       if (String(e?.message || '').includes('AbortError')) return;
@@ -771,13 +804,11 @@ export default function StoryProcessPage() {
 
       const steps: StepperAnswerStep[] = (chapterAns.steps ?? []).map((s) => {
         const sn = Number(s.stepNumber);
-        const depth = (s as any).depth ?? getDepthFor(i, sn);
-        return { ...s, stepNumber: sn, depth, createdAt: (s as any).createdAt ?? STABLE_TS };
+        the: 0; // ← VS Code で混入した誤字対策：削除しておく（残っていると TS1434 が出る）
+        return { ...s, stepNumber: sn, depth: (s as any).depth ?? getDepthFor(i, sn), createdAt: (s as any).createdAt ?? STABLE_TS };
       });
 
-      // ▼ 追加：initialAnswers の変更に追従させるための “強制再マウントキー”
       const stepsKey = steps.map(s => `${s.stepNumber}:${(s.answer || '').length}`).join('|');
-
       const color = CHAPTER_COLORS[i % CHAPTER_COLORS.length];
 
       return (
@@ -786,7 +817,7 @@ export default function StoryProcessPage() {
           data-slide={i}
           className="min-w-full max-w-full shrink-0 snap-start px-2 relative"
         >
-          {/* 閲覧モード時のみ操作ブロック（描画は阻害しない） */}
+          {/* 閲覧モード時のみ操作ブロック */}
           <div
             className="absolute inset-0 z-10 bg-transparent"
             style={{ pointerEvents: canEdit ? 'none' : 'auto' }}
@@ -804,7 +835,7 @@ export default function StoryProcessPage() {
 
             <div className="min-w-0 w-full">
               <QuestionStepper
-                key={`qs-${i}-${stepsKey}`} // ← ここがポイント
+                key={`qs-${i}-${stepsKey}`}
                 chapterIndex={i}
                 chapterTitle={chapterAns.chapterTitle}
                 chapterBody={ch?.body ?? ''}
@@ -988,7 +1019,7 @@ export default function StoryProcessPage() {
   );
 }
 
-/* ------- 別コンポーネント化（見通し優先） ------- */
+/* ------- 別コンポーネント：最終ストーリー ------- */
 function FinalStorySection({
   canEdit,
   finalLoading,
@@ -1012,7 +1043,7 @@ function FinalStorySection({
 }) {
   const [editing, setEditing] = useState(false);
   const [draftEdit, setDraftEdit] = useState<ChapterStory[]>([]);
-  const userId = useUserStore((s) => s.user?.id); // ← 分離保存に必要
+  const userId = useUserStore((s) => s.user?.id); // 分離保存に必要
 
   const baseArr = finalRawArrFromStore.length ? finalRawArrFromStore : draftArr;
 
@@ -1028,11 +1059,15 @@ function FinalStorySection({
     const clean = draftEdit.map((c, i) => ({ title: FINAL_TITLES[i] ?? c.title, body: c.body || '' }));
     setFinalStorySafe(clean);
     try { if (companyId && strategyId) sessionStorage.setItem(ssKey('finalStory', companyId, strategyId), JSON.stringify(clean)); } catch {}
-    // 分離テーブルへ即保存（重要）
+    // 分離テーブルへ即保存（opts で companyId/strategyId 渡す）
     if (userId) {
-      await saveFinalStory(userId, clean).catch(() => {});
+      await saveFinalStory(
+        userId,
+        clean,
+        { companyId, strategyId }
+      ).catch(() => {});
     }
-    // 既存のデバウンス保存処理も走らせる（strategy_data側の差分も反映）
+    // strategy_data 側のデバウンス保存も走らせる
     persistDebounced(undefined, undefined, clean);
     setEditing(false);
   };
@@ -1043,15 +1078,18 @@ function FinalStorySection({
         <h2 className="text-[17px] font-semibold tracking-tight text-zinc-900">最終ストーリー</h2>
         <div className="flex items-center gap-2">
           {baseArr.length > 0 && (
-            <Button
-              onClick={() => canEdit && setEditing(e => !e)}
-              disabled={!canEdit}
-              className="h-9 rounded-full px-5 text-[13px]"
-              variant={editing ? 'secondary' : ('default' as any)}
-              title={canEdit ? '' : '管理者のみ編集できます'}
-            >
-              {editing ? '編集をやめる' : '編集'}
-            </Button>
+           <Button
+  onClick={() => canEdit && setEditing(e => !e)}
+  disabled={!canEdit}
+  className={[
+    'h-9 rounded-full px-5 text-[13px]',
+    editing ? 'bg-zinc-100 border border-zinc-300 text-zinc-900' : ''
+  ].join(' ')}
+  title={canEdit ? '' : '管理者のみ編集できます'}
+>
+  {editing ? '編集をやめる' : '編集'}
+</Button>
+
           )}
           <Button
             onClick={onGenerateFinal}
@@ -1103,9 +1141,13 @@ function FinalStorySection({
               合計文字数：{totalChars}（推奨 1600〜2400）
             </div>
             <div className="flex items-center gap-2">
-              <Button onClick={() => setEditing(false)} variant="secondary" className="h-9 rounded-full px-5 text-[13px]">
-                取消
-              </Button>
+              <Button
+  onClick={() => setEditing(false)}
+  className="h-9 rounded-full px-5 text-[13px] bg-zinc-100 border border-zinc-300 text-zinc-900"
+>
+  取消
+</Button>
+
               <Button onClick={applySaveEdits} disabled={!withinBudget || !canEdit} className="h-9 rounded-full px-5 text-[13px]">
                 保存
               </Button>
