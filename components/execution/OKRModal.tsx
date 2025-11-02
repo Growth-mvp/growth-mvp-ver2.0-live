@@ -3,7 +3,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { emit } from '@/utils/actionBus';
-import { saveProgressLog } from '@/utils/supabase';
+import { saveProgressLog, type ProgressLogInput } from '@/utils/supabase/strategy';
 import { useUserStore } from '@/store/userStore';
 import { useStrategyStore } from '@/store/strategyStore';
 
@@ -74,8 +74,9 @@ export default function OKRModal({
     }
   }, [mode, text, rating, advice, requestTo, requestBody]);
 
-  const buildPayload = () => {
-    const base = {
+  // ProgressLogInput から userId/okrId を除いた形で返す
+  const buildPayload = (): Omit<ProgressLogInput, 'userId' | 'okrId'> => {
+    const base: any = {
       content:
         mode === 'comment'
           ? text
@@ -90,7 +91,7 @@ export default function OKRModal({
         owner: owner ?? '',
         okrId,
       },
-    } as any;
+    };
 
     if (mode === 'rating') {
       base.rating = typeof rating === 'number' ? rating : null;
@@ -110,20 +111,21 @@ export default function OKRModal({
     setSaving(true);
     try {
       const payload = buildPayload();
-      const res: any = await saveProgressLog(user.id, okrId, payload as any);
 
-      // パターンA: { data, error } / パターンB: { error } / パターンC: Error | null
+      // ✅ ProgressLogInput をそのまま渡す（log プロパティは使わない）
+      const res: any = await saveProgressLog({
+        userId: user.id,
+        okrId,
+        ...payload,
+      });
+
       const maybeError =
         (res && typeof res === 'object' && 'error' in res ? res.error : null) ||
         (res instanceof Error ? res : null);
 
       if (maybeError) throw maybeError;
 
-      const logId =
-        (res && res.data && res.data.id) ??
-        res?.id ??
-        res?.logId ??
-        '';
+      const logId = (res && res.data && res.data.id) ?? res?.id ?? res?.logId ?? '';
 
       if (strategyId) {
         emit('okr:progress:logged', { strategyId, okrId, logId });
@@ -198,9 +200,7 @@ export default function OKRModal({
               onClick={() => setMode(t.id as Mode)}
               disabled={saving}
               className={`flex-1 rounded-lg px-3 py-2 font-medium transition ${
-                mode === t.id
-                  ? 'bg-white shadow'
-                  : 'text-gray-600 hover:bg-white/60'
+                mode === t.id ? 'bg-white shadow' : 'text-gray-600 hover:bg-white/60'
               }`}
             >
               {t.label}
