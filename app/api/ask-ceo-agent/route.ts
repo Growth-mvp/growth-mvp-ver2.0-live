@@ -1,9 +1,10 @@
-// /app/api/ask-ceo-agent/route.ts
+/* eslint-disable @typescript-eslint/no-explicit-any */
 export const runtime = 'nodejs';
 
 import { NextResponse } from 'next/server';
 import { openai } from '@/lib/openai';
-import { supabase, getFullStrategyData } from '@/utils/supabase';
+import { supabase } from '@/utils/supabase/client';
+import { getFullStrategyDataByCompany } from '@/utils/supabase/strategy';
 import { normalizeStrategyData } from '@/utils/supabase/normalize';
 import agentPrompt from '@/lib/agentPrompt';
 import { insertAgentLog } from '@/lib/supabase/agentLogs';
@@ -16,7 +17,7 @@ import {
 } from '@/lib/intentRouter';
 import type { StrategyData } from '@/types/strategy';
 
-// Service Role（所属検証・最小文脈fallback）
+// --- Service Role（所属検証・フォールバック用 最小ユーティリティ） ---
 import { createClient as createAdminClient, type SupabaseClient } from '@supabase/supabase-js';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -42,7 +43,7 @@ type RequestBody = {
 
 /* ========= 禁則 ========= */
 const TABOO =
-  '【回答禁止】給与・評価・異動・役員情報・株主・個人情報・人事制度・社内トラブルなどには絶対に答えないでください。';
+  '【回答禁止】個人情報・人事評価や人事異動の断定、株主・取締役の機微情報、具体的な法的助言、確証のない断定的表現には答えません。必要な場合は専門家相談を案内します。';
 
 /* ========= ユーティリティ ========= */
 const cap = (s: any, n: number) => {
@@ -58,26 +59,36 @@ function normalizeMessages(msgs: Message[]) {
       content: String(m?.content ?? ''),
     }))
     .filter((m) => m.content.trim().length > 0)
+  // モデルのコンテキスト圧迫を避けるため直近のみ
     .slice(-12);
 }
 
-/* ========= 操作マニュアル ========= */
+/* ========= 操作マニュアル簡易応答 ========= */
 const MANUAL_QA: Array<{ q: RegExp; a: string }> = [
   {
-    q: /(okr).*(どこ|どれ|入力|書|やり方|方法)/i,
+    q: /(okr).*(どこ|どれ|入力|書き方|やり方|方法)/i,
     a: [
       '【OKRの入力場所】',
-      '1) 上部メニュー「/cascade」',
-      '2) 対象の部門カードを開く',
-      '3) 「質問を生成」に回答 → 右上「AI要約を生成」で OKR 下書きを反映',
+      '1) 上部メニューの「カスケード（/cascade）」を開く',
+      '2) 対象の部門カードを開く → プロジェクト → OKR を編集',
+      '3) 右上「AI要約/生成」で下書きを反映可能',
       '',
       '【編集のコツ】',
-      '- 数値/期限が弱い時は、回答に%や件数/期を入れてから再生成',
+      '- KRは数値/期日を入れてから再生成すると精度が上がります',
     ].join('\n'),
   },
-  { q: /mvv.*(どこ|入力|やり方|方法)/i, a: '【MVV】「戦略 → 基本情報」で Mission/Vision/Value を入力→保存。' },
-  { q: /swot.*(どこ|入力|書|やり方|方法)/i, a: '【SWOT】「戦略 → SWOT」で各欄に短文を3つ以上。迷ったら「例を表示」で下書きを挿入。' },
-  { q: /ストーリー.*(確定|最終|どう|やり方|方法)/i, a: '【ストーリー確定】4章を編集→最終化→/cascade で部門ごとのミッション/プロジェクトを整備。' },
+  {
+    q: /mvv.*(どこ|入力|やり方|方法)/i,
+    a: '【MVV】「戦略 基本情報」画面で Mission / Vision / Value を入力・保存してください。',
+  },
+  {
+    q: /swot.*(どこ|入力|書き方|やり方|方法)/i,
+    a: '【SWOT】「戦略 SWOT」画面で強み/弱み/機会/脅威を3つ以上ずつ。必要なら「例を表示」で下書きを挿入できます。',
+  },
+  {
+    q: /ストーリー.*(確定|最終|まとめ|やり方|方法)/i,
+    a: '【ストーリー確定】各章の本文を整えて「最終化」。その後 /cascade で部門ミッション/プロジェクト→OKRへ展開します。',
+  },
 ];
 function answerManual(messages: Message[]) {
   const last = messages.slice().reverse().find((m) => m.role === 'user')?.content ?? '';
@@ -92,7 +103,7 @@ function answerManual(messages: Message[]) {
   return `【操作ガイド】よくある質問\n${list}`;
 }
 
-/* ========= OKR/進捗サマリ ========= */
+/* ========= OKR/進捗サマリ（プロンプトに埋め込む軽量要約） ========= */
 function buildOKRSummary(departments: any[] = []) {
   const lines: string[] = [];
   departments.forEach((d, di) => {
@@ -104,14 +115,14 @@ function buildOKRSummary(departments: any[] = []) {
       const pTitle = String(p?.title ?? p?.name ?? `Project ${pi + 1}`);
       const okrs = safeArray<any>(p?.okrs);
       if (!okrs.length) {
-        lines.push(`  - プロジェクト: ${pTitle}（OKRなし）`);
+        lines.push(`  - プロジェクト ${pTitle}（OKRなし）`);
         return;
       }
-      lines.push(`  - プロジェクト: ${pTitle}`);
+      lines.push(`  - プロジェクト ${pTitle}`);
       okrs.forEach((o: any, oi: number) => {
         const kr = safeArray<string>(o?.keyResults);
         const owner = o?.owner ? ` / Owner: ${String(o.owner)}` : '';
-        lines.push(`    • O${oi + 1}: ${cap(o?.objective ?? '', 200)}（KR: ${kr.length}件${owner}）`);
+        lines.push(`    • O${oi + 1}: ${cap(o?.objective ?? '', 200)} / KR: ${kr.length}件${owner}`);
         kr.forEach((k, ki) => lines.push(`       - KR${ki + 1}: ${cap(String(k || ''), 160)}`));
       });
     });
@@ -136,18 +147,22 @@ function buildProgressSummary(progressLogs: any[] = []) {
   return lines.join('\n');
 }
 
-/* ========= コンテキスト取得（フル→最小 fallback） ========= */
-async function fetchStrategyContext(strategyId: string, userId: string) {
+/* ========= コンテキスト取得（会社IDを元にフル→最小フォールバック） ========= */
+async function fetchStrategyContext(args: { companyId: string; strategyId: string; userId: string }) {
+  const { companyId, strategyId, userId } = args;
+
+  // 会社単位のフルデータを取得して正規化
   let strategy: StrategyData | null = null;
   try {
-    const { data: sRow, error } = await getFullStrategyData(userId, strategyId);
-    if (error) console.warn('getFullStrategyData error:', error?.message || error);
-    strategy = (normalizeStrategyData(sRow as any) ?? null) as StrategyData | null;
+    const { data: sRow, error } = await getFullStrategyDataByCompany(companyId);
+    if (error) console.warn('[ask-ceo-agent] getFullStrategyDataByCompany error:', error?.message || error);
+    strategy = sRow ? (normalizeStrategyData(sRow as Partial<StrategyData>) as StrategyData) : null;
   } catch (e: any) {
-    console.warn('getFullStrategyData exception:', e?.message || e);
+    console.warn('[ask-ceo-agent] strategy load exception:', e?.message || e);
     strategy = null;
   }
 
+  // 進捗ログ（本人の最近分）
   let progressLogs: any[] = [];
   try {
     const { data: logs, error: plErr } = await supabase
@@ -158,19 +173,20 @@ async function fetchStrategyContext(strategyId: string, userId: string) {
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(200);
-    if (plErr) console.warn('progress_logs select error:', plErr);
+    if (plErr) console.warn('[ask-ceo-agent] progress_logs select error:', plErr);
     progressLogs = safeArray<any>(logs);
   } catch (e: any) {
-    console.warn('progress_logs select exception:', e?.message || e);
+    console.warn('[ask-ceo-agent] progress_logs select exception:', e?.message || e);
   }
 
-  const departments = safeArray<any>(strategy?.departments ?? strategy?.editableCascadeResult);
+  const departments = safeArray<any>(strategy?.departments ?? (strategy as any)?.editableCascadeResult);
   const okrSummaryText = buildOKRSummary(departments);
   const progressSummaryText = buildProgressSummary(progressLogs);
   const extraBlockFromFull =
     `\n\n---\n# OKRサマリ\n${okrSummaryText || '（OKRなし）'}\n` +
     `\n# 直近進捗ログ\n${progressSummaryText}\n---\n`;
 
+  // フルが取れない場合は最小限フォールバック（Service Role）
   if (!strategy || Object.keys(strategy).length === 0) {
     const a = admin();
     const { data: srow } = await a.from('strategy_data').select('*').eq('id', strategyId).maybeSingle();
@@ -196,21 +212,21 @@ async function fetchStrategyContext(strategyId: string, userId: string) {
     return { strategy: minimal, answers2: [], finalStory: [], extraBlock: extraBlockMinimal };
   }
 
-  const answers2 = safeArray<any>(strategy?.answers2);
-  const finalStory = safeArray<any>(strategy?.finalStory);
+  const answers2 = safeArray<any>((strategy as any)?.answers2);
+  const finalStory = safeArray<any>((strategy as any)?.finalStory);
   return { strategy, answers2, finalStory, extraBlock: extraBlockFromFull };
 }
 
 /* ========= route ========= */
 export async function POST(req: Request) {
   try {
-    // 認証
+    // --- 認証 ---
     const token = getBearer(req);
     if (!token) {
-      return NextResponse.json({ content: '認証が必要です', error: 'no bearer' }, { status: 401 });
+      return NextResponse.json({ content: '認証が必要です。', error: 'no bearer' }, { status: 401 });
     }
 
-    // 入力
+    // --- 入力 ---
     let body: RequestBody | null = null;
     try {
       body = (await req.json()) as RequestBody;
@@ -222,69 +238,79 @@ export async function POST(req: Request) {
       return NextResponse.json({ content: 'invalid payload', error: 'invalid payload' }, { status: 400 });
     }
 
-    // 本人確認
+    // --- 本人確認（Service Role） ---
     const a = admin();
     const { data: ures } = await a.auth.getUser(token);
     const authUserId = ures?.user?.id as string | undefined;
-    if (!authUserId) return NextResponse.json({ content: 'トークンが無効です', error: 'invalid token' }, { status: 401 });
+    if (!authUserId) {
+      return NextResponse.json({ content: 'トークンが無効です。', error: 'invalid token' }, { status: 401 });
+    }
     if (authUserId !== userId) {
-      return NextResponse.json({ content: '権限がありません（ユーザー不一致）', error: 'user mismatch' }, { status: 403 });
+      return NextResponse.json({ content: '権限がありません（ユーザー不一致）。', error: 'user mismatch' }, { status: 403 });
     }
 
-    // strategy 所属検証
+    // --- strategy 所属検証（strategyId → companyId 解決） ---
     const { data: srow } = await a
       .from('strategy_data')
       .select('id, company_id')
       .eq('id', strategyId)
       .maybeSingle();
     if (!srow?.company_id) {
-      return NextResponse.json({ content: '戦略データが見つかりません', error: 'strategy not found' }, { status: 404 });
+      return NextResponse.json({ content: '戦略データが見つかりません。', error: 'strategy not found' }, { status: 404 });
     }
+    const companyId = String(srow.company_id);
     const { data: mem } = await a
       .from('company_members')
       .select('company_id')
       .eq('user_id', authUserId)
-      .eq('company_id', srow.company_id)
+      .eq('company_id', companyId)
       .maybeSingle();
     if (!mem?.company_id) {
-      return NextResponse.json({ content: 'この戦略へのアクセス権がありません', error: 'no membership' }, { status: 403 });
+      return NextResponse.json({ content: 'この戦略へのアクセス権がありません。', error: 'no membership' }, { status: 403 });
     }
 
-    // 文脈（フル→最小 fallback）
-    const { strategy, answers2, finalStory, extraBlock } = await fetchStrategyContext(strategyId, userId);
+    // --- コンテキスト取得（会社IDに紐づくフル → 最小フォールバック） ---
+    const { strategy, answers2, finalStory, extraBlock } = await fetchStrategyContext({
+      companyId,
+      strategyId,
+      userId,
+    });
     if (!strategy) {
       return NextResponse.json(
-        { content: '戦略コンテキストを取得できませんでした。初期化や保存状況をご確認ください。', error: 'context missing' },
+        { content: '戦略コンテキストを取得できませんでした。初期化・保存状況をご確認ください。', error: 'context missing' },
         { status: 400 }
       );
     }
 
     const lastUser = (messages || []).slice().reverse().find((m) => m.role === 'user')?.content || '';
 
-    // 意図判定
+    // --- 意図判定（ヒューリスティック → LLM 併用） ---
     let intent: IntentResult = classifyHeuristic(lastUser);
     if (intent.confidence < 0.7) {
-      try { intent = chooseBetter(intent, await classifyLLM(openai, lastUser)); } catch {}
+      try {
+        intent = chooseBetter(intent, await classifyLLM(openai, lastUser));
+      } catch {
+        /* LLM分類失敗は無視 */
+      }
     }
     if (meta?.stage) intent = { stage: meta.stage, confidence: 0.99, reasons: ['forced'] };
 
-    // systemPrompt
+    // --- system プロンプト組み立て ---
     const systemBase =
       (intent.stage === 'generic'
-        ? 'あなたは博識なアシスタントです。日本語で簡潔・正確に答えます。推測は推測と明記。'
-        : agentPrompt(strategy, answers2, finalStory) + '\n' + extraBlock) +
+        ? 'あなたは博識なアシスタントです。日本語で簡潔かつ正確に回答します。推測は推測と明記してください。'
+        : agentPrompt(strategy as any, answers2 as any, finalStory as any) + '\n' + extraBlock) +
       '\n' +
       TABOO;
 
-    // === ここが変更点 ===
-    // 短答（direct）は廃止。本文（detailed）のみ生成して返す。
+    // --- OpenAI 呼び出し ---
     const detailed = await openai.chat.completions.create({
       model: 'gpt-4o',
       temperature: 0.2,
       messages: [{ role: 'system', content: systemBase }, ...normalizeMessages(messages)],
     });
 
-    // 操作系ならガイドを短く添える（同一メッセージ内に追記するだけなので「二重回答」にはならない）
+    // --- 操作系ならガイドを短く添える ---
     let manualBlock = '';
     const isLikelyManual =
       /どこ|どうやって|手順|クリック|開く|入力|保存|画面|表示されない|エラー|UI|ボタン/i.test(lastUser) ||
@@ -294,9 +320,14 @@ export async function POST(req: Request) {
     }
 
     const content =
-      (detailed.choices[0]?.message?.content || '（応答の取得に失敗しました）').trim() + manualBlock;
+      (detailed.choices[0]?.message?.content || '応答の取得に失敗しました。').trim() + manualBlock;
 
-    try { await insertAgentLog({ userId, strategyId, step: 0, role: 'assistant', content }); } catch {}
+    // --- ログ保存（失敗は無視） ---
+    try {
+      await insertAgentLog({ userId, strategyId, step: 0, role: 'assistant', content });
+    } catch {
+      /* noop */
+    }
 
     return NextResponse.json({
       content,
@@ -304,7 +335,7 @@ export async function POST(req: Request) {
       confidence: intent.confidence,
     });
   } catch (e: any) {
-    console.error('ask-ceo-agent failed:', e?.message || e);
+    console.error('[ask-ceo-agent] failed:', e?.message || e);
     return NextResponse.json({ content: 'サーバーエラーが発生しました。', error: 'ask-ceo-agent failed' }, { status: 500 });
   }
 }
