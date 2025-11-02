@@ -2,15 +2,14 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/utils/supabase/client';
 import {
   listCompanyMembers,
   updateMemberRole,
   removeMember,
-  findUserIdByEmail,
   addMemberByUserId,
   type MemberListItem,
-} from '@/utils/supabase';
+} from '@/utils/supabase/membership'; // ✅ 必要なものだけ
 import { useUserStore, type Role } from '@/store/userStore';
 import { useAccess } from '@/utils/access';
 
@@ -20,9 +19,31 @@ type MemberRow = MemberListItem & {
   name?: string | null;
 };
 
+/** ✅ ローカル実装：メールアドレスから user_id を取得（public.users を参照） */
+async function findUserIdByEmailLocal(email: string): Promise<string | null> {
+  const e = email.trim().toLowerCase();
+  if (!e) return null;
+  try {
+    const { data, error } = await supabase
+      .from('users') // ※ プロジェクトの公開ユーザテーブル（RLSで読める想定）
+      .select('id')
+      .eq('email', e)
+      .maybeSingle();
+
+    if (error) {
+      console.warn('[findUserIdByEmailLocal] RLS/権限で取得不可の可能性:', error);
+      return null;
+    }
+    return data?.id ?? null;
+  } catch (err) {
+    console.error('[findUserIdByEmailLocal] failed:', err);
+    return null;
+  }
+}
+
 export default function AdminMembersPage() {
   const { user, companyId, membershipLoaded, hydrated } = useUserStore();
-  const { isAdmin } = useAccess(); // ★ 修正：canAdminCompany → isAdmin に統一
+  const { isAdmin } = useAccess(); // ★ canAdminCompany → isAdmin に統一
 
   const [rows, setRows] = useState<MemberRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -154,9 +175,9 @@ export default function AdminMembersPage() {
     }
     setNote('処理中…');
 
-    // 1) 既存ユーザーなら即追加
+    // 1) 既存ユーザーなら即追加（ローカル実装に切り替え）
     try {
-      const uid = await findUserIdByEmail(email);
+      const uid = await findUserIdByEmailLocal(email);
       if (uid) {
         const r = await addMemberByUserId(uid, newRole, newDept || null);
         if (r.ok) {
@@ -169,7 +190,7 @@ export default function AdminMembersPage() {
         // 失敗しても招待へフォールバック
       }
     } catch (e) {
-      console.warn('findUserIdByEmail / addMemberByUserId でフォールバックします', e);
+      console.warn('findUserIdByEmailLocal / addMemberByUserId でフォールバックします', e);
     }
 
     // 2) 新規ユーザー：API 経由で招待
