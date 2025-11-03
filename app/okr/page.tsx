@@ -602,7 +602,8 @@ export default function OKRPage() {
         <div className="mt-6 h-px w-full bg-zinc-200" />
       </header>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+      {/* ▼ ここだけ変更：MD以上で“めいっぱい横長”に（最小幅420pxを確保しつつ自動段組） */}
+      <div className="grid gap-6 md:[grid-template-columns:repeat(auto-fill,minmax(420px,1fr))]">
         {cascade.map((dept, deptIdx) => {
           const projects = ensureArray(dept.projects);
           return (
@@ -958,7 +959,7 @@ export default function OKRPage() {
 
                           {/* 上書き値 */}
                           <div className="space-y-1">
-                            <div className="flex items-center gap-1">
+                            <div className="flex items中心 gap-1">
                               <div className="text-[11px] text-zinc-600">上書き値（上書きを選んだ場合）</div>
                               <Tooltip text="反映方法で「上書き」を選んだ場合に、基準値として使う数値です。">
                                 <HelpCircle className="h-3.5 w-3.5 text-zinc-500" />
@@ -1214,8 +1215,8 @@ export default function OKRPage() {
                                     value={kk.overrideMode ?? 'APPORTION'}
                                     onChange={(e) =>
                                       updateStructuredKR(deptIdx, projIdx, i, {
-        overrideMode: e.target.value as 'APPORTION' | 'OVERRIDE',
-      })
+                                        overrideMode: e.target.value as 'APPORTION' | 'OVERRIDE',
+                                      })
                                     }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-2 text-[14px]"
                                     disabled={!hydrated || scopeCompanyId !== accessCompanyId}
