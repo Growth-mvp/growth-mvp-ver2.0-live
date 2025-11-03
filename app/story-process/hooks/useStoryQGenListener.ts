@@ -1,11 +1,8 @@
-// /app/story-process/hooks/useStoryQGenListener.ts
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { on, emit } from '@/utils/actionBus';
 import type { AnswerStep } from '@/components/guide/QuestionStepper';
-
-// 先頭〜型定義付近を差し替え
 
 type BusPayloadBase = {
   strategyId: string;
@@ -14,7 +11,7 @@ type BusPayloadBase = {
 };
 
 type Payload = BusPayloadBase & {
-  chapterTitle?: string; // 変更点: 必須→任意
+  chapterTitle?: string;
   stepHint?: number;
   answersSoFar?: Array<{ stepNumber: number; answer: string }>;
   previousAnswer?: string;
@@ -22,30 +19,53 @@ type Payload = BusPayloadBase & {
   context?: any;
 };
 
-// （中略）使用時はフォールバック
-// const title = payload.chapterTitle ?? `Chapter ${payload.chapterIndex + 1}`;
+export function useStoryQGenListener(
+  onStep: (payload: Payload, step: AnswerStep) => void | Promise<void>
+) {
+  const inFlight = useRef(false);       // ★ 連打抑止
+  const abortRef = useRef<AbortController | null>(null); // ★ 競合時にキャンセル
 
-export function useStoryQGenListener(onStep: (payload: Payload, step: AnswerStep) => void | Promise<void>) {
   useEffect(() => {
     const off = on('questions:generate:next', async (payload: Payload) => {
+      if (inFlight.current) return; // 連打無視（必要あればキュー化）
+      inFlight.current = true;
+
+      // 新しいリクエストに切替時は古いのを中断
+      abortRef.current?.abort();
+      abortRef.current = new AbortController();
+
       try {
         const res = await fetch('/api/generate-question', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify(payload),
+          signal: abortRef.current.signal,
         });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json?.error || 'generate failed');
-        const step = json?.step as AnswerStep;
-        if (!step?.question) throw new Error('invalid step');
 
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json?.error || `generate failed: ${res.status}`);
+
+        const step = json?.step as AnswerStep;
+        if (!step || !step.question) throw new Error('invalid step payload');
+
+        // ★ 状態更新（onStep）完了を待つ
         await onStep?.(payload, step);
-        emit('questions:generate:done', {});
+
+        // ★ 状態反映後に done を通知（購読側が保存するならここで）
+        emit('questions:generate:done', { chapterIndex: payload.chapterIndex });
       } catch (e: any) {
-        emit('questions:generate:error', { message: e?.message });
+        if (e?.name !== 'AbortError') {
+          emit('questions:generate:error', { message: e?.message ?? 'unknown error' });
+        }
+      } finally {
+        inFlight.current = false;
       }
     });
-    return () => off?.();
+
+    return () => {
+      off?.();
+      abortRef.current?.abort();
+    };
   }, [onStep]);
 }
