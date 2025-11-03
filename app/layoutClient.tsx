@@ -123,7 +123,9 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
    * Rehydrate ガード
    * ============================== */
   useEffect(() => {
-    const id = requestAnimationFrame(() => setHydrated(true));
+    const id = requestAnimationFrame(() => {
+      if (!cleaned.current) setHydrated(true);
+    });
     return () => cancelAnimationFrame(id);
   }, []);
 
@@ -211,10 +213,12 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         const session = sres?.session ?? null;
         if (!session) {
           accessTokenRef.current = null;
-          setUser(null);
-          setRole(null);
-          setMembership({ companyId: undefined, departmentId: undefined });
-          setStrategyId(null);
+          if (!cleaned.current) {
+            setUser(null);
+            setRole(null);
+            setMembership({ companyId: undefined, departmentId: undefined });
+            setStrategyId(null);
+          }
           // ★ ログアウト時は company_id Cookie もクリア
           try {
             clearCompanyIdCookie();
@@ -229,7 +233,9 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         accessTokenRef.current = session.access_token ?? null;
         const uid = session.user.id;
         const email = session.user.email ?? '';
-        setUser({ id: uid, email, name: '', role: 'member' });
+        if (!cleaned.current) {
+          setUser({ id: uid, email, name: '', role: 'member' });
+        }
       } finally {
         finishChecking();
       }
@@ -243,11 +249,13 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 
       if (!sess?.user) {
         accessTokenRef.current = null;
-        setUser(null);
-        setRole(null);
-        setMembership({ companyId: undefined, departmentId: undefined });
-        setStrategyId(null);
-        setBootstrapped(true);
+        if (!cleaned.current) {
+          setUser(null);
+          setRole(null);
+          setMembership({ companyId: undefined, departmentId: undefined });
+          setStrategyId(null);
+          setBootstrapped(true);
+        }
         // ★ ログアウト時は company_id Cookie もクリア
         try {
           clearCompanyIdCookie();
@@ -259,8 +267,10 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         return;
       }
       accessTokenRef.current = sess.access_token ?? null;
-      setUser({ id: sess.user.id, email: sess.user.email ?? '', name: '', role: 'member' });
-      setBootstrapped(false); // membership 再ロードへ
+      if (!cleaned.current) {
+        setUser({ id: sess.user.id, email: sess.user.email ?? '', name: '', role: 'member' });
+        setBootstrapped(false); // membership 再ロードへ
+      }
     });
 
     return () => {
@@ -297,23 +307,29 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           if (status && status !== 406) {
             console.warn('[init] company_members error:', exposeError(error), { status });
           }
-          setMembership({ companyId: undefined, departmentId: undefined });
-          setRole('member');
+          if (!cleaned.current) {
+            setMembership({ companyId: undefined, departmentId: undefined });
+            setRole('member');
+          }
           // ★ 所属が取れない場合は Cookie を無理に触らない（/auth/welcome で作成）
           return;
         }
 
         if (!data) {
-          setMembership({ companyId: undefined, departmentId: undefined });
-          setRole('member');
+          if (!cleaned.current) {
+            setMembership({ companyId: undefined, departmentId: undefined });
+            setRole('member');
+          }
           return;
         }
 
         const cid = (data.company_id ?? '') as string | undefined;
         const cidNorm = cid && isValidUUID(cid) ? cid : undefined;
 
-        setMembership({ companyId: cidNorm, departmentId: undefined });
-        setRole((data.role as 'admin' | 'manager' | 'member') ?? 'member');
+        if (!cleaned.current) {
+          setMembership({ companyId: cidNorm, departmentId: undefined });
+          setRole((data.role as 'admin' | 'manager' | 'member') ?? 'member');
+        }
 
         // ★ Cookie同期：membership が優先。差分があれば上書き
         if (cidNorm) {
@@ -362,6 +378,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const authed = !!useUserStore.getState().user?.id;
     if (!bootstrapped || !companyId || !authed) return;
+    if (!hydrated) return; // ← 初回描画前に叩かない
     if (isCompanyDeleting(companyId)) return;
     if (isAuthPath(pathname)) return;
     if (refetchRanForCompany.current === companyId) return;
@@ -375,7 +392,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         console.warn('[layout] refetchFromServer failed:', e);
       }
     });
-  }, [bootstrapped, companyId, pathname]);
+  }, [bootstrapped, companyId, hydrated, pathname]);
 
   /* ================================
    * 2.5) strategyId provision（Bearer 付与 & 未ログイン/無トークン時は実行しない）
@@ -425,11 +442,17 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
             Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
           },
+          body: JSON.stringify({ companyId }), // 明示
         });
-        const json = await res.json().catch(() => null);
+        let json: any = null;
+        try {
+          json = await res.json();
+        } catch {
+          json = null;
+        }
         if (signal.aborted) return;
 
-        if (json?.ok) {
+        if (res.ok && json?.ok) {
           // ★ サーバ側が companyId を返した場合も Cookie を同期
           const srvCid: string | undefined = isValidUUID(json?.companyId) ? json.companyId : undefined;
           if (srvCid && getCompanyIdFromCookie() !== srvCid) {
@@ -443,7 +466,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           setStrategyId(json.strategyId ?? null);
           lastProvisionForCompany.current = json.companyId ?? companyId;
         } else {
-          console.warn('[layout] provision response not ok:', json);
+          console.warn('[layout] provision response not ok:', { status: res.status, json });
           setStrategyId(null);
         }
       } catch (e) {
