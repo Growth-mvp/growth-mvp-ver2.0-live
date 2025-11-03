@@ -561,12 +561,10 @@ async function ensureParentExists(): Promise<void> {
   const userId = useUserStore.getState().user?.id;
   const companyId = s.companyId || useUserStore.getState().companyId;
   if (!userId || !companyId) return;
-  // 既に読み込み済みなら何もしない（strategy_data行がある前提で運用）
-  // ※ 厳密に存在確認したい場合は getFullStrategyDataByCompany を呼んでも良いが、
-  //   負荷と競合を避けるため、ここでは save を一度打つ方式に統一。
+
   const payload = buildSavePayload(s);
   if (isEffectivelyEmpty(payload)) {
-    // 何もない場合は今は作らない（後段の setStory 等で非空になったタイミングで再度呼ばれる）
+    // 空は作らない（非空になったら再トライ）
     return;
   }
   try {
@@ -640,7 +638,8 @@ export const useStrategyStore = create<StrategyState>()(
           if (!userId || !companyId) return;
           await ensureParentExists();
           try {
-            await saveFinalStory(userId, get().finalStory, { companyId, strategyId: get().strategyId });
+            // ▼ 修正：第3引数は { companyId } のみ渡す
+            await saveFinalStory(userId, get().finalStory, { companyId });
           } catch (e) {
             console.warn('[strategyStore] saveFinalStory warn:', e);
           }
@@ -663,7 +662,8 @@ export const useStrategyStore = create<StrategyState>()(
           if (!userId || !companyId) return;
           await ensureParentExists();
           try {
-            await saveStoryAnswers2(userId, get().answers2 as any, { companyId, strategyId: get().strategyId });
+            // ▼ 修正：第3引数は { companyId } のみ渡す
+            await saveStoryAnswers2(userId, get().answers2 as any, { companyId });
           } catch (e) {
             console.warn('[strategyStore] saveStoryAnswers2 warn:', e);
           }
