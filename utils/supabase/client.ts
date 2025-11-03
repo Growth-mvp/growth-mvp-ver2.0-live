@@ -6,20 +6,30 @@
  *  - ブラウザ用 Supabase クライアントの “唯一の入り口”
  *  - クライアント二重化を排除し、RLS 判定の不一致を防ぐ
  *  - レガシーテーブルへの誤書き込みを Proxy でブロック（環境で無効化可）
- *  - 互換API（safeGetSession, getSupabaseClient など）を提供
+ *  - 互換API（safeGetSession など）を提供
+ *  - company_id Cookie 補助ユーティリティ
  *
- * 注意：
- *  - ここから他の自作 util（./strategy や ./membership など）を import しない（循環防止）
+ * 重要：
+ *  - サーバ実行時にも import だけで落ちないよう、トップレベルでは**生成しない**
+ *  - ブラウザ外では NOOP クライアント/Proxy を返し、アクセス時にのみ分かりやすくエラー
  */
 
 import { createClient, type SupabaseClient, type Session, type AuthError } from '@supabase/supabase-js';
 import type { PostgrestFilterBuilder } from '@supabase/postgrest-js';
 
 /* =========================================================
- * ブラウザ用クライアント（唯一の実体）
+ * 環境判定
  * ========================================================= */
-let __browserSingleton: SupabaseClient | null = null;
+const isBrowser = () => typeof window !== 'undefined';
 
+declare global {
+  // eslint-disable-next-line no-var
+  var __growth_supabase_singleton__: SupabaseClient | undefined;
+}
+
+/* =========================================================
+ * ブラウザ用クライアント生成（まだ呼ばない）
+ * ========================================================= */
 function createBrowserClient(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -39,6 +49,16 @@ function createBrowserClient(): SupabaseClient {
   });
 }
 
+function getOrInitBrowserSingleton(): SupabaseClient {
+  if (!isBrowser()) {
+    throw new Error('getOrInitBrowserSingleton must be called in the browser.');
+  }
+  if (!window.__growth_supabase_singleton__) {
+    window.__growth_supabase_singleton__ = createBrowserClient();
+  }
+  return window.__growth_supabase_singleton__;
+}
+
 /* =========================================================
  * レガシーテーブル書き込みガード
  * ========================================================= */
@@ -52,31 +72,28 @@ const LEGACY_TABLES = new Set<string>([
 ]);
 
 const BLOCK_LEGACY =
-  String(process.env.NEXT_PUBLIC_SUPABASE_BLOCK_LEGACY ?? process.env.SUPABASE_BLOCK_LEGACY ?? 'true') ===
-  'true';
+  String(process.env.NEXT_PUBLIC_SUPABASE_BLOCK_LEGACY ?? process.env.SUPABASE_BLOCK_LEGACY ?? 'true') === 'true';
 
 function wrapWithLegacyGuards<T = any>(client: SupabaseClient<T>): SupabaseClient<T> {
   if (!BLOCK_LEGACY) return client;
 
-  const clientHandler: ProxyHandler<SupabaseClient<T>> = {
+  const handler: ProxyHandler<SupabaseClient<T>> = {
     get(target, prop, recv) {
       const original = Reflect.get(target, prop, recv);
 
       if (prop === 'from') {
-        // intercept .from('table')
         return (table: string) => {
           const t = String(table || '').trim();
           const builder = (target as any).from(t) as PostgrestFilterBuilder<any, any, any>;
 
           if (!LEGACY_TABLES.has(t)) return builder;
 
-          // 書き込み系を封じる
           const writeOps = new Set(['insert', 'update', 'upsert', 'delete']);
           const builderHandler: ProxyHandler<typeof builder> = {
             get(bTarget, bProp, bRecv) {
               const fn = Reflect.get(bTarget, bProp, bRecv);
               if (writeOps.has(String(bProp))) {
-                return (..._args: any[]) => {
+                return () => {
                   throw new Error(
                     `[SupabaseGuard] ${String(bProp)} to LEGACY table "${t}" is blocked. ` +
                       `Use unified tables/columns instead of legacy ones.`
@@ -95,47 +112,69 @@ function wrapWithLegacyGuards<T = any>(client: SupabaseClient<T>): SupabaseClien
     },
   };
 
-  return new Proxy(client, clientHandler);
+  return new Proxy(client, handler);
 }
 
 /* =========================================================
- * 共有クライアント → ガード付ラッパ（Proxy）
- *   - 実体は 1個（__browserSingleton）
- *   - 参照は Proxy で追加保護（必要なときのみ）
+ * クライアント解決：ブラウザでは実体、サーバでは NOOP
  * ========================================================= */
-let __guardedSingleton: SupabaseClient<any> | null = null;
+let __cachedGuarded__: SupabaseClient | null = null;
 
-function getGuardedSharedClient(): SupabaseClient {
-  if (__guardedSingleton) return __guardedSingleton;
-  if (!__browserSingleton) {
-    __browserSingleton = createBrowserClient();
+function resolveGuardedClient(): SupabaseClient<any> {
+  if (isBrowser()) {
+    if (!__cachedGuarded__) {
+      __cachedGuarded__ = wrapWithLegacyGuards(getOrInitBrowserSingleton());
+    }
+    return __cachedGuarded__;
   }
-  __guardedSingleton = wrapWithLegacyGuards(__browserSingleton);
-  return __guardedSingleton;
+
+  const serverNoop = new Proxy({} as SupabaseClient, {
+    get(_t, prop) {
+      const msg =
+        `[Supabase Client] You are trying to use the **browser** Supabase client on the server (prop: ${String(
+          prop
+        )}).\n` +
+        `• Call this API inside a Client Component (or useEffect) or \n` +
+        `• Use a dedicated server-side Supabase client instead.\n` +
+        `Import path: "@/utils/supabase/client"`;
+      throw new Error(msg);
+    },
+  });
+  return serverNoop;
 }
 
 /* =========================================================
- * 推奨：ブラウザ用単一インスタンス getter（ガード付き）
+ * 推奨：明示的に取得（クライアントで呼ぶこと）
  * ========================================================= */
 export function getBrowserSupabase(): SupabaseClient {
-  return getGuardedSharedClient();
+  return resolveGuardedClient();
 }
 
-// 既存互換：getSupabaseClient という名前でのエクスポートも維持
+/* 既存互換 */
 export const getSupabaseClient = getBrowserSupabase;
 
-/* デフォルト / 名前付き：supabase をそのまま使いたい箇所用 */
-export const supabase: SupabaseClient = getBrowserSupabase();
+/**
+ * 互換のため `supabase` をそのまま import 可能にする Proxy。
+ * ブラウザなら初アクセス時に実体を解決。サーバで触ると即エラー。
+ */
+export const supabase: SupabaseClient = new Proxy({} as SupabaseClient, {
+  get(_t, prop) {
+    const c = resolveGuardedClient() as any;
+    const v = c[prop];
+    return typeof v === 'function' ? v.bind(c) : v;
+  },
+});
 export default supabase;
 
 /* =========================================================
- * 互換 safeGetSession（戻り値を { ok, data:{session}, error } に統一）
+ * セッションユーティリティ
  * ========================================================= */
 export async function safeGetSession(
   client?: SupabaseClient
 ): Promise<{ ok: boolean; data: { session: Session | null }; error: AuthError | null }> {
-  const c = client ?? getBrowserSupabase();
   try {
+    const c = client ?? (isBrowser() ? getBrowserSupabase() : undefined);
+    if (!c) return { ok: false, data: { session: null }, error: null };
     const { data, error } = await c.auth.getSession();
     return { ok: !error, data: { session: data?.session ?? null }, error: error ?? null };
   } catch (e: any) {
@@ -148,8 +187,9 @@ export async function safeGetSession(
  * ========================================================= */
 export async function signOutLocalAndRedirect(redirectTo?: string) {
   try {
-    const c = getBrowserSupabase();
-    await c.auth.signOut({ scope: 'global' });
+    if (isBrowser()) {
+      await getBrowserSupabase().auth.signOut({ scope: 'global' });
+    }
   } catch (e) {
     console.warn('[auth] signOut failed (ignored):', e);
   }
@@ -157,22 +197,13 @@ export async function signOutLocalAndRedirect(redirectTo?: string) {
     clearAllSupabaseLikeStorage();
     clearDisplayCookies();
   } catch {}
-  if (typeof window !== 'undefined' && redirectTo) {
-    location.assign(redirectTo);
-  }
+  if (isBrowser() && redirectTo) location.assign(redirectTo);
 }
 
-/** Supabase が使いがちな localStorage キーを包括的に削除 */
 export function clearAllSupabaseLikeStorage() {
-  if (typeof window === 'undefined') return;
+  if (!isBrowser()) return;
   try {
-    const prefixes = [
-      'sb-',            // Supabase v2 既定
-      'supabase',       // 互換系
-      // 任意：プロジェクト固有の prefix がある場合はここに追加
-      (process.env.NEXT_PUBLIC_APP_STORAGE_PREFIX ?? '').trim(),
-    ].filter(Boolean);
-
+    const prefixes = ['sb-', 'supabase', (process.env.NEXT_PUBLIC_APP_STORAGE_PREFIX ?? '').trim()].filter(Boolean);
     const keys: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i) || '';
@@ -185,10 +216,8 @@ export function clearAllSupabaseLikeStorage() {
 }
 
 export function clearDisplayCookies() {
-  if (typeof document === 'undefined') return;
+  if (!isBrowser()) return;
   try {
-    // 必要に応じてアプリの表示用 cookie をここで全て除去
-    // 例: company_id / growth-*
     document.cookie
       .split(';')
       .map((c) => c.trim())
@@ -196,7 +225,7 @@ export function clearDisplayCookies() {
         const [name] = pair.split('=');
         if (!name) return;
         if (name.startsWith('company_id') || name.startsWith('growth-')) {
-          const isHttps = typeof location !== 'undefined' && location.protocol === 'https:';
+          const isHttps = location.protocol === 'https:';
           const attrs = ['Path=/', 'SameSite=Lax', isHttps ? 'Secure' : ''].filter(Boolean).join('; ');
           document.cookie = `${name}=; Max-Age=0; ${attrs}`;
         }
@@ -207,24 +236,29 @@ export function clearDisplayCookies() {
 }
 
 /* =========================================================
- * UUID / Cookie ユーティリティ（既存互換）
+ * UUID / Cookie ユーティリティ
  * ========================================================= */
 export function isValidUUID(v?: string | null): v is string {
   return !!v && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 }
 
 export function getCompanyIdFromCookie(): string | null {
-  if (typeof document === 'undefined') return null;
+  if (!isBrowser()) return null;
   const m = /(?:^|;\s*)company_id=([^;]+)/.exec(document.cookie || '');
-  return m ? decodeURIComponent(m[1].trim()) : null;
+  const v = m ? decodeURIComponent(m[1].trim()) : null;
+  return v && isValidUUID(v) ? v : null;
 }
 
 export function setCompanyIdCookie(companyId: string) {
-  if (typeof document === 'undefined') return;
+  if (!isBrowser()) return;
+  if (!isValidUUID(companyId)) {
+    console.warn('setCompanyIdCookie: invalid UUID, skip');
+    return;
+  }
   try {
     const maxAgeDays = 30;
     const maxAge = 60 * 60 * 24 * maxAgeDays;
-    const isHttps = typeof location !== 'undefined' && location.protocol === 'https:';
+    const isHttps = location.protocol === 'https:';
     const attrs = ['Path=/', 'SameSite=Lax', `Max-Age=${maxAge}`, isHttps ? 'Secure' : '']
       .filter(Boolean)
       .join('; ');
@@ -235,13 +269,38 @@ export function setCompanyIdCookie(companyId: string) {
 }
 
 export function clearCompanyIdCookie() {
-  if (typeof document === 'undefined') return;
+  if (!isBrowser()) return;
   try {
-    const isHttps = typeof location !== 'undefined' && location.protocol === 'https:';
+    const isHttps = location.protocol === 'https:';
     const attrs = ['Path=/', 'SameSite=Lax', isHttps ? 'Secure' : ''].filter(Boolean).join('; ');
     document.cookie = `company_id=; Max-Age=0; ${attrs}`;
   } catch (e) {
     console.warn('clearCompanyIdCookie failed:', e);
+  }
+}
+
+export function ensureCompanyIdCookie(companyId?: string | null) {
+  if (companyId && isValidUUID(companyId)) setCompanyIdCookie(companyId);
+}
+
+/* =========================================================
+ * company_id スコープ補助
+ * ！！ここを any 固定にして TS2344 を解消（GenericSchema 制約を回避）
+ * ========================================================= */
+export function withCompanyScope(
+  qb: PostgrestFilterBuilder<any, any, any>,
+  companyId: string | null | undefined
+): PostgrestFilterBuilder<any, any, any> {
+  if (!companyId || !isValidUUID(companyId)) {
+    console.warn('[withCompanyScope] invalid companyId. Did you resolve it via cookie/membership?');
+    return qb;
+  }
+  return qb.eq('company_id', companyId);
+}
+
+export function assertCompanyId(companyId: string | null | undefined): asserts companyId is string {
+  if (!companyId || !isValidUUID(companyId)) {
+    throw new Error('company_id is missing or invalid. Ensure cookie is set or resolve via membership.');
   }
 }
 
