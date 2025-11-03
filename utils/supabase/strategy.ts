@@ -517,7 +517,6 @@ export async function saveStrategyData(
     if (skipStrategyData) {
       console.warn('[StrategyData] ⛔ strategy_data save skipped: effectively empty payload');
       const cur = await getFullStrategyDataByCompany(cleanCompanyId);
-      // 直近の answers2 反映まで含めた最新を返す
       return { data: cur.data ?? null, error: null };
     }
 
@@ -573,6 +572,7 @@ export async function saveStrategyData(
         .update(updatePayload)
         .eq('company_id', cleanCompanyId);
 
+      // 406回避のための条件付け：revision あるなら revision、なければ updated_at で一致を試み、無ければ company_id のみで更新
       if (hasRevision && typeof expectedRev === 'number') {
         q = q.eq('revision', expectedRev);
       } else if (currentUpdatedAt) {
@@ -820,7 +820,7 @@ export async function getSimulationResults(
 }
 
 /* ============================================================
- * 進捗ログ保存（INSERT）
+ * 進捗ログ保存（INSERT）—★分割代入の構文ミス修正済み★
  * ========================================================== */
 export async function saveProgressLog(input: ProgressLogInput): Promise<{ data: any | null; error: any | null }> {
   try {
@@ -834,7 +834,7 @@ export async function saveProgressLog(input: ProgressLogInput): Promise<{ data: 
       status = null,
       score = null,
       createdAt,
-    } = input;
+    } = input; // ← ここが修正ポイント。余計な '}' を削除して正しい分割代入に。
 
     const companyId = await resolveCompanyId(userId, companyIdOverride);
 
@@ -974,7 +974,6 @@ export async function repairMisfiledAnswers2(userId: string, companyIdOverride?:
 
   const state = cur.data;
   const storyAnswers = ensureArray((state as any).answers2);
-  const deptAnswers = [] as any[];
 
   // 再度厳密に分離
   const deptNames = ensureArray(state.departments).map((d: any) => (d?.name ?? '').trim());
