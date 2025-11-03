@@ -30,7 +30,7 @@ const FINAL_TITLES = ['なぜ今', 'どう戦う', 'どんな未来像', 'どう
 const CHAPTER_COLORS = [
   { badge: 'bg-sky-50 text-sky-700 border-sky-200', ring: 'ring-sky-300', border: 'border-sky-200' },
   { badge: 'bg-violet-50 text-violet-700 border-violet-200', ring: 'ring-violet-300', border: 'border-violet-200' },
-  { badge: 'bg-emerald-50 text-emerald-700 border-emerald-200', ring: 'ring-emerald-300', border: 'border-emerald-200' },
+  { badge: 'bg-emerald-50 text-emerald-700 border-emerald-200', ring: 'ring-emerald-300', border: 'border-emerald-300' },
   { badge: 'bg-amber-50 text-amber-700 border-amber-200', ring: 'ring-amber-300', border: 'border-amber-300' },
 ];
 
@@ -201,8 +201,11 @@ function deflateToStrategy(steps: StepperAnswerStep[]): StrategyAnswerStep[] {
 
 /* ===== ページ ===== */
 export default function StoryProcessPage() {
-  const { user } = useUserStore();
+  // ⬇⬇⬇ 修正：Zustand の selector を分離して無限ループを防止
+  const user = useUserStore((s) => s.user);
   const companyId = useUserStore((s) => s.companyId);
+  // ⬆⬆⬆
+
   const store = useStrategyStore() as any;
 
   const { canView, canEditCompany } = useAccess();
@@ -252,6 +255,43 @@ export default function StoryProcessPage() {
     } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId, store?.strategyId]);
+
+  /* ----- セッションの answers2 復旧（ID揃うまで読まない） ----- */
+  useEffect(() => {
+    if (!companyId || !store?.strategyId) return;
+    try {
+      const ss = sessionStorage.getItem(ssKey('answers2', companyId, store?.strategyId));
+      if (!ss) return;
+      const parsed = JSON.parse(ss);
+      if (!Array.isArray(parsed) || parsed.length === 0) return;
+      const cur = Array.isArray(store?.answers2) ? store.answers2 : [];
+      if (cur.length === 0) {
+        const inflated = parsed.map((c: any) => ({
+          chapterIndex: Number(c?.chapterIndex ?? 0),
+          chapterTitle: c?.chapterTitle ?? '',
+          steps: inflateToStepper(c?.steps ?? [], Number(c?.chapterIndex ?? 0)),
+        }));
+        if (typeof store?.setAnswers2 === 'function') {
+          store.setAnswers2(
+            inflated.map((c: any) => ({
+              chapterIndex: c.chapterIndex,
+              chapterTitle: c.chapterTitle,
+              steps: deflateToStrategy(c.steps),
+            }))
+          );
+        } else {
+          (useStrategyStore as any).setState({
+            answers2: inflated.map((c: any) => ({
+              chapterIndex: c.chapterIndex,
+              chapterTitle: c.chapterTitle,
+              steps: deflateToStrategy(c.steps),
+            })),
+          });
+        }
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId, store?.strategyId, store?.answers2, store?.setAnswers2]);
 
   /* ----- 初回リフェッチ（デバウンス完了後/ローカルが空の時だけ） ----- */
   useEffect(() => {
@@ -486,7 +526,7 @@ export default function StoryProcessPage() {
           await saveFinalStory(
             user.id,
             finNow as ChapterStory[],
-            { companyId, strategyId: stNow?.strategyId }
+            { companyId } // ← strategyId を渡さない
           ).catch((e) => {
             console.warn('saveFinalStory failed (debounced)', e);
           });
@@ -499,7 +539,7 @@ export default function StoryProcessPage() {
               chapterTitle: c.chapterTitle,
               steps: deflateToStrategy(c.steps),
             })),
-            { companyId, strategyId: stNow?.strategyId }
+            { companyId } // ← strategyId を渡さない
           ).catch((e) => {
             console.warn('saveStoryAnswers2 failed (debounced)', e);
           });
@@ -540,7 +580,7 @@ export default function StoryProcessPage() {
           await saveFinalStory(
             user.id,
             finalRawFromStore as ChapterStory[],
-            { companyId, strategyId: store?.strategyId }
+            { companyId } // ← strategyId を渡さない
           ).catch(() => {});
         }
         if ((answers2 ?? []).length) {
@@ -551,7 +591,7 @@ export default function StoryProcessPage() {
               chapterTitle: c.chapterTitle,
               steps: deflateToStrategy(c.steps),
             })),
-            { companyId, strategyId: store?.strategyId }
+            { companyId } // ← strategyId を渡さない
           ).catch(() => {});
         }
       } catch {}
@@ -607,12 +647,28 @@ export default function StoryProcessPage() {
     }
 
     setAnswers2Safe(next);
+
+    // 章単位の即時保存（分離テーブルへ）。デバウンス前に最低限守る
+    try {
+      if (canEdit && user?.id && companyId) {
+        const single = [{
+          chapterIndex,
+          chapterTitle: title,
+          steps: deflateToStrategy(withDepthFallback),
+        }];
+        void saveStoryAnswers2(user.id, single, { companyId }); // ← strategyId を渡さない
+      }
+    } catch (e) {
+      console.warn('saveStoryAnswers2 (immediate) failed', e);
+    }
+
+    // 全体のデバウンス保存（strategy_data + 分離側）
     persistDebounced(next, draftArr, finalRawFromStore);
 
     if (typeof store?.setChapterCurrentStep === 'function') {
       store.setChapterCurrentStep(chapterIndex, Number(p.currentStep));
     }
-  }, [answers2, persistDebounced, referenceArr, store, canEdit, draftArr, finalRawFromStore]);
+  }, [answers2, persistDebounced, referenceArr, store, canEdit, draftArr, finalRawFromStore, user?.id, companyId]);
 
   /* ------- Stepper用 共通コンテキスト ------- */
   const stepperBaseContext = useMemo(
@@ -742,12 +798,12 @@ export default function StoryProcessPage() {
         }
       } catch {}
 
-      // 直ちに分離テーブルへ保存（opts で companyId/strategyId 渡す）
+      // 直ちに分離テーブルへ保存（opts は companyId のみ）
       if (user?.id) {
         await saveFinalStory(
           user.id,
           ordered,
-          { companyId, strategyId: store?.strategyId }
+          { companyId } // ← strategyId を渡さない
         ).catch((e) => {
           console.warn('saveFinalStory after generate failed', e);
         });
@@ -804,7 +860,6 @@ export default function StoryProcessPage() {
 
       const steps: StepperAnswerStep[] = (chapterAns.steps ?? []).map((s) => {
         const sn = Number(s.stepNumber);
-        the: 0; // ← VS Code で混入した誤字対策：削除しておく（残っていると TS1434 が出る）
         return { ...s, stepNumber: sn, depth: (s as any).depth ?? getDepthFor(i, sn), createdAt: (s as any).createdAt ?? STABLE_TS };
       });
 
@@ -1059,12 +1114,12 @@ function FinalStorySection({
     const clean = draftEdit.map((c, i) => ({ title: FINAL_TITLES[i] ?? c.title, body: c.body || '' }));
     setFinalStorySafe(clean);
     try { if (companyId && strategyId) sessionStorage.setItem(ssKey('finalStory', companyId, strategyId), JSON.stringify(clean)); } catch {}
-    // 分離テーブルへ即保存（opts で companyId/strategyId 渡す）
+    // 分離テーブルへ即保存（opts は companyId のみ）
     if (userId) {
       await saveFinalStory(
         userId,
         clean,
-        { companyId, strategyId }
+        { companyId } // ← strategyId を渡さない
       ).catch(() => {});
     }
     // strategy_data 側のデバウンス保存も走らせる
@@ -1078,18 +1133,17 @@ function FinalStorySection({
         <h2 className="text-[17px] font-semibold tracking-tight text-zinc-900">最終ストーリー</h2>
         <div className="flex items-center gap-2">
           {baseArr.length > 0 && (
-           <Button
-  onClick={() => canEdit && setEditing(e => !e)}
-  disabled={!canEdit}
-  className={[
-    'h-9 rounded-full px-5 text-[13px]',
-    editing ? 'bg-zinc-100 border border-zinc-300 text-zinc-900' : ''
-  ].join(' ')}
-  title={canEdit ? '' : '管理者のみ編集できます'}
->
-  {editing ? '編集をやめる' : '編集'}
-</Button>
-
+            <Button
+              onClick={() => canEdit && setEditing(e => !e)}
+              disabled={!canEdit}
+              className={[
+                'h-9 rounded-full px-5 text-[13px]',
+                editing ? 'bg-zinc-100 border border-zinc-300 text-zinc-900' : ''
+              ].join(' ')}
+              title={canEdit ? '' : '管理者のみ編集できます'}
+            >
+              {editing ? '編集をやめる' : '編集'}
+            </Button>
           )}
           <Button
             onClick={onGenerateFinal}
@@ -1142,11 +1196,11 @@ function FinalStorySection({
             </div>
             <div className="flex items-center gap-2">
               <Button
-  onClick={() => setEditing(false)}
-  className="h-9 rounded-full px-5 text-[13px] bg-zinc-100 border border-zinc-300 text-zinc-900"
->
-  取消
-</Button>
+                onClick={() => setEditing(false)}
+                className="h-9 rounded-full px-5 text-[13px] bg-zinc-100 border border-zinc-300 text-zinc-900"
+              >
+                取消
+              </Button>
 
               <Button onClick={applySaveEdits} disabled={!withinBudget || !canEdit} className="h-9 rounded-full px-5 text-[13px]">
                 保存
