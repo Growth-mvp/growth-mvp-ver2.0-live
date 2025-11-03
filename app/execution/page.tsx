@@ -1,4 +1,4 @@
-// /app/execution/page.tsx
+// /app/execution/page.tsx 
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -313,7 +313,7 @@ function ExecPanel(props: {
           {/* チェックイン */}
           {tab === 'checkin' && (
             <>
-              <section className="rounded-2xl border border-black/10 bg-white/70 p-4">
+              <section className="rounded-2xl border border-black/10 bg白/70 p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <h3 className="text-sm font-semibold tracking-tight">進捗メモ</h3>
                   <StarInput value={rating} onChange={setRating} />
@@ -512,6 +512,42 @@ export default function ExecutionPage() {
 
   const isHydrating = !hydrated || scopeCompanyId !== accessCompanyId;
 
+  // --- カード生成（重複描画を避けるためまとめて用意） ---
+  const cards = useMemo(() => {
+    const items: JSX.Element[] = [];
+    cascade.forEach((dept, di) => {
+      (dept?.projects ?? []).forEach((proj, pi) => {
+        const okrs = Array.isArray(proj?.okrs) ? proj.okrs : [];
+        const strictProj = toStrictProject(proj);
+        if (okrs.length > 0) {
+          okrs.forEach((okr, oi) => {
+            items.push(
+              <ProjectCard
+                key={`${dept?.name ?? 'dept'}-${strictProj.title}-${oi}`}
+                deptName={dept?.name ?? ''}
+                project={strictProj}
+                onClick={() => {
+                  if (isHydrating) return;
+                  setSelected({ d: di, p: pi, o: oi });
+                }}
+              />
+            );
+          });
+        } else {
+          items.push(
+            <ProjectCard
+              key={`${dept?.name ?? 'dept'}-${strictProj.title}-no-okr`}
+              deptName={dept?.name ?? ''}
+              project={strictProj}
+              onClick={() => {}}
+            />
+          );
+        }
+      });
+    });
+    return items;
+  }, [cascade, isHydrating]);
+
   return (
     <main className="min-h-screen bg-gray-50 p-6 avoid-agent-dock">
       <header className="mb-6 flex items-center justify-between">
@@ -529,36 +565,34 @@ export default function ExecutionPage() {
         ) : null}
       </header>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-        {cascade.map((dept, di) =>
-          (dept?.projects ?? []).flatMap((proj, pi) => {
-            const okrs = Array.isArray(proj?.okrs) ? proj.okrs : [];
-            const strictProj = toStrictProject(proj);
-            if (okrs.length > 0) {
-              return okrs.map((okr, oi) => (
-                <ProjectCard
-                  key={`${dept?.name ?? 'dept'}-${strictProj.title}-${oi}`}
-                  deptName={dept?.name ?? ''}
-                  project={strictProj}
-                  onClick={() => {
-                    if (isHydrating) return;
-                    setSelected({ d: di, p: pi, o: oi });
-                  }}
-                />
-              ));
-            }
-            return (
-              <ProjectCard
-                key={`${dept?.name ?? 'dept'}-${strictProj.title}-no-okr`}
-                deptName={dept?.name ?? ''}
-                project={strictProj}
-                onClick={() => {}}
-              />
-            );
-          })
-        )}
-        {cascade.length === 0 && !isHydrating && (
-          <div className="text-sm text-gray-600">表示できる実行計画がありません。</div>
+      {/* ▼ モバイル（～md）：横スクロールのカード行。カード幅を維持して縦長化を防止 */}
+      <div className="md:hidden -mx-6 px-6">
+        <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory">
+          {cards.length ? (
+            cards.map((el, i) => (
+              <div
+                key={`m-${i}`}
+                className="min-w-[300px] max-w-[360px] shrink-0 snap-start"
+              >
+                {el}
+              </div>
+            ))
+          ) : (
+            !isHydrating && (
+              <div className="text-sm text-gray-600">表示できる実行計画がありません。</div>
+            )
+          )}
+        </div>
+      </div>
+
+      {/* ▼ md以上：最小幅320pxを保証（縦長化を防止） */}
+      <div className="hidden md:grid gap-6 md:[grid-template-columns:repeat(auto-fill,minmax(320px,1fr))]">
+        {cards.length ? (
+          cards
+        ) : (
+          !isHydrating && (
+            <div className="text-sm text-gray-600">表示できる実行計画がありません。</div>
+          )
         )}
       </div>
 
