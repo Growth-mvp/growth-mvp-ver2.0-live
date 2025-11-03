@@ -279,7 +279,8 @@ export default function CascadePage() {
   useEffect(() => {
     if (!accessCompanyId) return;
 
-    if (lastAppliedCompanyRef.current === accessCompanyId) return;
+    // すでに同一IDを適用済みなら何もしない（再度 isHydrating を立てない）
+    if (lastAppliedCompanyRef.current === accessCompanyId && scopeCompanyId === accessCompanyId) return;
 
     console.log('[cascade] effect → setCompanyScope', { scopeCompanyId, accessCompanyId });
 
@@ -288,12 +289,11 @@ export default function CascadePage() {
       setHydrated?.(false);
       hardResetForCompanySwitch(accessCompanyId);
       setCompanyScope(accessCompanyId);
-      // ロードガードをリセットして再ロード許可
-      loadGuardRef.current = null;
-    } else {
-      // 初回など：スコープだけ確立
+    } else if (!scopeCompanyId) {
+      // 初回：スコープだけ確立（初回だけ呼ぶ）
       setCompanyScope(accessCompanyId);
     }
+    // ここで「同一ID・scopeも一致」なら呼ばない
 
     lastAppliedCompanyRef.current = accessCompanyId;
   }, [accessCompanyId, scopeCompanyId, setCompanyScope, setHydrated]);
@@ -375,6 +375,31 @@ export default function CascadePage() {
   }, [accessCompanyId, hydrated, scopeCompanyId, refetchFromServer, setHydrated, lastServerSnapshot, setCompanyScope]);
 
   /* =========================================================
+     ハイドレーション・ウォッチドッグ
+     - 5秒以上 isHydrating のままなら強制解除
+  ========================================================= */
+  const hydrateStartRef = useRef<number | null>(null);
+  useEffect(() => {
+    const mismatch = !!(accessCompanyId && scopeCompanyId && scopeCompanyId !== accessCompanyId);
+    const nowHydrating = (boot?.isHydrating && !hydrated) || mismatch;
+
+    if (nowHydrating) {
+      if (hydrateStartRef.current == null) hydrateStartRef.current = Date.now();
+    } else {
+      hydrateStartRef.current = null;
+    }
+
+    const id = setInterval(() => {
+      if (hydrateStartRef.current != null && Date.now() - hydrateStartRef.current > 5000) {
+        console.warn('[cascade] ⏱️ watchdog: force setHydrated(true)');
+        setHydrated?.(true);
+        hydrateStartRef.current = null;
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [boot?.isHydrating, hydrated, accessCompanyId, scopeCompanyId, setHydrated]);
+
+  /* =========================================================
      ローカル departments とストアの同期
      - ハイドレーション中に自動保存させない
      - ストアが undefined / [] どちらでもローカルを空へ
@@ -414,11 +439,10 @@ export default function CascadePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boot?.isHydrating]);
 
-  // 読み込み状態
+  // 読み込み状態（解除条件を厳密化）
+  const mismatch = !!(accessCompanyId && scopeCompanyId && scopeCompanyId !== accessCompanyId);
   const isHydrating =
-    Boolean(boot?.isHydrating) ||
-    !hydrated ||
-    (!!accessCompanyId && !!scopeCompanyId && scopeCompanyId !== accessCompanyId);
+    ((Boolean(boot?.isHydrating) && !hydrated) || mismatch || !hydrated);
 
   const rawStory = useMemo(() => {
     if (isNonEmptyStoryPayload(s?.finalStory)) return s.finalStory;
@@ -432,9 +456,11 @@ export default function CascadePage() {
   const pushToStore = useCallback(
     (next: Department[]) => {
       setDepartments(next);
+      // ハイドレーション中はストア書き込みを抑制（無限ロード防止）
+      if (boot?.isHydrating) return;
       setDepartmentsInStore?.(next);
     },
-    [setDepartmentsInStore]
+    [setDepartmentsInStore, boot?.isHydrating]
   );
 
   const [activeTab, setActiveTab] = useState<'edit' | 'visual'>('edit');
@@ -808,7 +834,19 @@ export default function CascadePage() {
       </header>
 
       {/* 読み込みインジケータ */}
-      {isHydrating && <div className="mb-8 rounded-xl border p-4 text-sm text-muted-foreground">サーバーのデータを読み込み中です…</div>}
+      {isHydrating && (
+        <div className="mb-8 rounded-xl border p-4 text-sm text-muted-foreground flex items-center justify-between">
+          <span>サーバーのデータを読み込み中です…</span>
+          <Button
+            variant="secondary"
+            className="h-8 rounded-full px-3"
+            onClick={() => setHydrated?.(true)}
+            title="強制的に読み込み完了にします"
+          >
+            手動で続行
+          </Button>
+        </div>
+      )}
 
       {/* ストーリー */}
       {!isHydrating && (
@@ -816,7 +854,7 @@ export default function CascadePage() {
           {storyChapters.length ? (
             <div className="grid md:grid-cols-2 gap-4">
               {storyChapters.map((ch, i) => (
-                <div key={i} className="p-4 border rounded-2xl bg白/60 backdrop-blur-sm">
+                <div key={i} className="p-4 border rounded-2xl bg-white/60 backdrop-blur-sm">
                   <h3 className="font-semibold">{ch.title}</h3>
                   <div dangerouslySetInnerHTML={{ __html: nl2brSafe(ch.body) }} className="text-sm text-zinc-700 mt-1" />
                 </div>
