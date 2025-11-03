@@ -58,7 +58,9 @@ function looksMissingDepartmentId(errOrResp: unknown) {
 /** 成功時のみ Cookie を設定したい場所で使用（create/joinなど） */
 function setCompanyCookieIfValid(id: string | null | undefined) {
   if (id && isValidUUID(id)) {
-    try { setCompanyIdCookie(id); } catch {}
+    try {
+      setCompanyIdCookie(id);
+    } catch {}
   }
 }
 
