@@ -1,4 +1,13 @@
-import type { StrategyData, ChapterStory } from '@/types/strategy';
+import type {
+  StrategyData,
+  ChapterStory,
+  Department,
+  Project,
+  OKR,
+  ChapterAnswers,
+  KRStructured,
+  ProjectRole,
+} from '@/types/strategy';
 
 /** GROWTH 固定タイトル（章タイトルはUIで固定表示） */
 const GROWTH_TITLES = [
@@ -23,13 +32,6 @@ function tryParseJson<T = unknown>(text: string): T | null {
   }
 }
 
-function getEither(src: unknown, camel: string, snake: string): unknown {
-  const o = src as any;
-  if (o && camel in o) return o[camel];
-  if (o && snake in o) return o[snake];
-  return undefined;
-}
-
 function parseIfJsonString<T = unknown>(v: unknown): T | unknown {
   if (typeof v === 'string') {
     const p = tryParseJson<T>(v);
@@ -38,15 +40,22 @@ function parseIfJsonString<T = unknown>(v: unknown): T | unknown {
   return v;
 }
 
+function pick<T extends object, K extends keyof T>(obj: T, ...keys: K[]): Pick<T, K> {
+  const out: any = {};
+  for (const k of keys) {
+    if (k in obj) out[k] = (obj as any)[k];
+  }
+  return out;
+}
+
 /* =====================================================================
- * story / finalStory 正規化（非破壊・階層維持）
+ * story / finalStory 正規化（非破壊・階層維持＝配列のまま）
  * ===================================================================== */
 
 /** 単文文字列も1章として採用。未入力は undefined を返し、保存スキップを誘導 */
 function toChapterArraySafe(input: unknown): ChapterStory[] | undefined {
   if (input == null) return undefined;
 
-  // 素直な配列
   if (Array.isArray(input)) {
     const arr: ChapterStory[] = [];
     for (const it of input) {
@@ -63,7 +72,6 @@ function toChapterArraySafe(input: unknown): ChapterStory[] | undefined {
     return arr.length ? arr : undefined;
   }
 
-  // 文字列：JSONなら再帰、JSONでなければ単文として1章
   if (typeof input === 'string') {
     const trimmed = input.trim();
     if (!trimmed) return undefined;
@@ -75,16 +83,14 @@ function toChapterArraySafe(input: unknown): ChapterStory[] | undefined {
     return [{ title: '', body: trimmed }];
   }
 
-  // オブジェクト：key-value を章化
   if (typeof input === 'object') {
+    // オブジェクトは key-value を章化（既存互換用）
     const arr: ChapterStory[] = [];
     for (const k of Object.keys(input as any)) {
       const v = (input as any)[k];
       if (v == null) continue;
-      if (typeof v === 'string' || typeof v === 'number') {
-        const s = String(v).trim();
-        if (s) arr.push({ title: String(k ?? ''), body: s });
-      }
+      const s = (typeof v === 'string' || typeof v === 'number') ? String(v).trim() : '';
+      if (s) arr.push({ title: String(k ?? ''), body: s });
     }
     return arr.length ? arr : undefined;
   }
@@ -108,7 +114,7 @@ function uniqChapters(chs?: ChapterStory[]): ChapterStory[] {
   return out;
 }
 
-/** 入力があるときだけGROWTH順で並べ替え。4章すべて空なら undefined */
+/** 可能ならGROWTH順に寄せるが、配列構造のまま返す（空は undefined） */
 function alignToGrowthOrderSafe(chs?: ChapterStory[]): ChapterStory[] | undefined {
   const base = uniqChapters(chs);
   if (!base.length) return undefined;
@@ -151,10 +157,11 @@ export function normalizeChaptersAnyNonDestructive(input: unknown): ChapterStory
 }
 
 /* =====================================================================
- * departments 正規化（非破壊）
+ * departments 正規化（非破壊・情報を落とさない）
  * ===================================================================== */
+
 type AnyOKR =
-  | { objective?: unknown; keyResults?: unknown; owner?: unknown }
+  | { id?: unknown; objective?: unknown; keyResults?: unknown; owner?: unknown }
   | null
   | undefined;
 
@@ -162,7 +169,11 @@ type AnyProject =
   | {
       title?: unknown;
       name?: unknown;
+      reason?: unknown;
       okrs?: unknown;
+      okrsV2?: unknown;
+      roles?: unknown;
+      // 旧単体互換
       objective?: unknown;
       keyResults?: unknown;
       owner?: unknown;
@@ -171,16 +182,25 @@ type AnyProject =
   | undefined;
 
 type AnyDepartment =
-  | { id?: unknown; name?: unknown; title?: unknown; projects?: unknown }
+  | {
+      id?: unknown;
+      name?: unknown;
+      title?: unknown;
+      mission?: unknown;
+      strategy?: unknown;
+      missionDraft?: unknown;
+      discussionNotes?: unknown;
+      projects?: unknown;
+      questions?: unknown;
+      answers2?: unknown;
+      finalized?: unknown;
+    }
   | null
   | undefined;
 
-type NormalizedOKR = { objective: string; keyResults: string[]; owner?: string };
-type NormalizedProject = { title: string; okrs: NormalizedOKR[] };
-type NormalizedDepartment = { id?: unknown; name: string; projects: NormalizedProject[] };
-
-function normalizeOKR(input: AnyOKR): NormalizedOKR {
+function normalizeOKR(input: AnyOKR): OKR {
   const o = (input || {}) as any;
+  const id = o.id != null ? String(o.id) : undefined;
   const objective = typeof o.objective === 'string' ? o.objective : '';
   const keyResults = Array.isArray(o.keyResults)
     ? o.keyResults.map((k: any) => String(k))
@@ -189,10 +209,10 @@ function normalizeOKR(input: AnyOKR): NormalizedOKR {
     o.owner !== undefined && o.owner !== null && String(o.owner) !== ''
       ? String(o.owner)
       : undefined;
-  return { objective, keyResults, owner };
+  return { id, objective, keyResults, owner };
 }
 
-function normalizeProject(p: AnyProject): NormalizedProject {
+function normalizeProject(p: AnyProject): Project {
   const obj = (p || {}) as any;
   const title =
     typeof obj.title === 'string'
@@ -200,65 +220,166 @@ function normalizeProject(p: AnyProject): NormalizedProject {
       : typeof obj.name === 'string'
       ? obj.name
       : '';
-  const okrsRaw = Array.isArray(obj.okrs) ? obj.okrs : [];
+  const reason = typeof obj.reason === 'string' ? obj.reason : undefined;
 
+  // 旧単体互換 → okrs 配列へ吸収
   const legacy =
     obj.objective || obj.keyResults || obj.owner
       ? [
-          {
+          normalizeOKR({
+            id: obj.id,
             objective: String(obj.objective ?? ''),
             keyResults: Array.isArray(obj.keyResults)
               ? obj.keyResults.map((k: any) => String(k))
               : [],
-            owner: obj.owner ? String(obj.owner) : '',
-          },
+            owner: obj.owner ? String(obj.owner) : undefined,
+          }),
         ]
       : [];
 
-  const okrs = [...legacy, ...okrsRaw].map(normalizeOKR);
-  return { title, okrs };
+  const okrsRaw = Array.isArray(obj.okrs) ? obj.okrs.map(normalizeOKR) : [];
+  const okrs: OKR[] = [...legacy, ...okrsRaw];
+
+  const okrsV2: KRStructured[] | undefined = Array.isArray(obj.okrsV2)
+    ? (obj.okrsV2 as any[]).map((r) => ({
+        id: String(r?.id ?? ''),
+        kind: r?.kind,
+        label: String(r?.label ?? ''),
+        target: Number(r?.target ?? 0),
+        unit: r?.unit,
+        due: typeof r?.due === 'string' ? r.due : undefined,
+        owner: typeof r?.owner === 'string' ? r.owner : undefined,
+        scope: r?.scope,
+        baseKey: r?.baseKey,
+        baseOverride: r?.baseOverride != null ? Number(r.baseOverride) : undefined,
+        weight: r?.weight != null ? Number(r.weight) : undefined,
+        elasticity: r?.elasticity != null ? Number(r.elasticity) : undefined,
+        lagMonths: r?.lagMonths != null ? Number(r.lagMonths) : undefined,
+        startYm: typeof r?.startYm === 'string' ? r.startYm : undefined,
+        notes: typeof r?.notes === 'string' ? r.notes : undefined,
+      }))
+    : undefined;
+
+  const roles: ProjectRole[] | undefined = Array.isArray(obj.roles)
+    ? (obj.roles as any[]).map((rr) => ({
+        role: String(rr?.role ?? ''),
+        okrs: Array.isArray(rr?.okrs)
+          ? (rr.okrs as any[]).map((r) => ({
+              id: String(r?.id ?? ''),
+              kind: r?.kind,
+              label: String(r?.label ?? ''),
+              target: Number(r?.target ?? 0),
+              unit: r?.unit,
+              due: typeof r?.due === 'string' ? r.due : undefined,
+              owner: typeof r?.owner === 'string' ? r.owner : undefined,
+              scope: r?.scope,
+              baseKey: r?.baseKey,
+              baseOverride: r?.baseOverride != null ? Number(r.baseOverride) : undefined,
+              weight: r?.weight != null ? Number(r.weight) : undefined,
+              elasticity: r?.elasticity != null ? Number(r.elasticity) : undefined,
+              lagMonths: r?.lagMonths != null ? Number(r.lagMonths) : undefined,
+              startYm: typeof r?.startYm === 'string' ? r.startYm : undefined,
+              notes: typeof r?.notes === 'string' ? r.notes : undefined,
+            }))
+          : [],
+      }))
+    : undefined;
+
+  const out: Project = { title, okrs };
+  if (reason) out.reason = reason;
+  if (okrsV2 && okrsV2.length) out.okrsV2 = okrsV2;
+  if (roles && roles.length) out.roles = roles;
+  return out;
 }
 
-function normalizeDepartment(d: unknown): NormalizedDepartment {
+function normalizeDepartment(d: AnyDepartment): Department {
   const obj = (d || {}) as any;
-  const id = obj.id ?? undefined;
+  const id = obj.id != null ? obj.id : undefined;
   const name =
     typeof obj.name === 'string'
       ? obj.name
       : typeof obj.title === 'string'
       ? obj.title
       : '';
+
+  const mission = typeof obj.mission === 'string' ? obj.mission : '';
+  const strategy = typeof obj.strategy === 'string' ? obj.strategy : undefined;
+  const missionDraft =
+    typeof obj.missionDraft === 'string' ? obj.missionDraft : undefined;
+  const discussionNotes =
+    typeof obj.discussionNotes === 'string' ? obj.discussionNotes : undefined;
+
+  const questions = Array.isArray(obj.questions)
+    ? (obj.questions as any[]).map((q) => ({
+        stepNumber: Number(q?.stepNumber ?? 0),
+        question: String(q?.question ?? ''),
+        reason: String(q?.reason ?? ''),
+        answer: String(q?.answer ?? ''),
+      }))
+    : undefined;
+
+  const answers2: ChapterAnswers[] | undefined = Array.isArray(obj.answers2)
+    ? (obj.answers2 as any[]).map((c, idx) => ({
+        chapterIndex: typeof c?.chapterIndex === 'number' ? c.chapterIndex : idx,
+        chapterTitle: typeof c?.chapterTitle === 'string' ? c.chapterTitle : `Chapter ${idx + 1}`,
+        steps: Array.isArray(c?.steps)
+          ? [...c.steps].map((s) => ({
+              stepNumber: Number(s?.stepNumber ?? 0),
+              question: String(s?.question ?? ''),
+              reason: String(s?.reason ?? ''),
+              answer: String(s?.answer ?? ''),
+            })).sort((a, b) => a.stepNumber - b.stepNumber)
+          : [],
+      }))
+    : undefined;
+
+  const finalized = Boolean(obj.finalized);
+
   const projectsRaw = Array.isArray(obj.projects) ? obj.projects : [];
   const projects = projectsRaw.map(normalizeProject);
-  return { id, name, projects };
+
+  const out: Department = {
+    id,
+    name,
+    mission,
+    projects,
+    finalized,
+  };
+  if (strategy) out.strategy = strategy;
+  if (missionDraft) out.missionDraft = missionDraft;
+  if (discussionNotes) out.discussionNotes = discussionNotes;
+  if (questions && questions.length) out.questions = questions;
+  if (answers2 && answers2.length) out.answers2 = answers2;
+
+  return out;
 }
 
-export function normalizeDepartmentsAny(input: unknown): NormalizedDepartment[] | undefined {
+export function normalizeDepartmentsAny(input: unknown): Department[] | undefined {
   if (!input) return undefined;
-  let src: unknown = input;
-  if (typeof src === 'string') {
-    const parsed = tryParseJson(src);
-    if (parsed && typeof parsed === 'object') return normalizeDepartmentsAny(parsed);
-    return undefined;
-  }
+  const src = parseIfJsonString<any>(input);
+
   if (Array.isArray(src)) {
-    const arr = (src as unknown[]).map(normalizeDepartment);
+    // src は unknown[] 扱い → 各要素を AnyDepartment にキャストして normalize
+    const arr = (src as unknown[]).map((v) => normalizeDepartment(v as AnyDepartment));
     return arr.length ? arr : undefined;
   }
-  if (typeof src === 'object' && Array.isArray((src as any).departments)) {
-    const arr = (src as any).departments.map(normalizeDepartment);
+  if (src && typeof src === 'object' && Array.isArray((src as any).departments)) {
+    const arr = ((src as any).departments as unknown[]).map((v) =>
+      normalizeDepartment(v as AnyDepartment)
+    );
     return arr.length ? arr : undefined;
   }
   return undefined;
 }
 
+
 /* =====================================================================
  * finance / business_portfolio 正規化
- * 重要: 「空」は undefined を返す（＝保存スキップを誘導）
+ * 重要: 「空」は undefined を返す（＝保存スキップ）
  * ===================================================================== */
 function normalizeCsvFinanceDataLoose(input: unknown): any[] | undefined {
   if (input == null) return undefined;
-  if (Array.isArray(input)) return (input.length > 0 ? input : undefined) as any[] | undefined;
+  if (Array.isArray(input)) return input.length > 0 ? input : undefined;
 
   const parsed = parseIfJsonString<any>(input);
   if (Array.isArray(parsed)) return parsed.length > 0 ? parsed : undefined;
@@ -292,8 +413,6 @@ function normalizeBusinessPortfolio(input: unknown): Record<string, any> | undef
   if (!p || typeof p !== 'object' || Array.isArray(p)) return undefined;
 
   const bp = p as PortfolioLike;
-
-  // 最低限の妥当性: units 配列が存在し、中身が1件以上ある
   const validUnits = Array.isArray(bp.units) && bp.units.length > 0;
   if (!validUnits) return undefined;
 
@@ -303,7 +422,7 @@ function normalizeBusinessPortfolio(input: unknown): Record<string, any> | undef
 /**
  * finance_summary 正規化
  * 返り値:
- *  - 有効配列: 配列 (items/年度Key形式を配列化)
+ *  - 有効配列: 配列 (rows/items/年度Key形式を配列化)
  *  - 空または無効: undefined（保存スキップ）
  */
 function normalizeFinanceSummaryObject(input: unknown): any[] | undefined {
@@ -312,6 +431,12 @@ function normalizeFinanceSummaryObject(input: unknown): any[] | undefined {
 
   // 既に配列
   if (Array.isArray(p)) return p.length > 0 ? p : undefined;
+
+  // { rows: [...] }（保存側の新正規）
+  if (p && typeof p === 'object' && Array.isArray((p as any).rows)) {
+    const arr = (p as any).rows;
+    return arr.length > 0 ? arr : undefined;
+  }
 
   // 旧仕様: { items: [...] }
   if (p && typeof p === 'object' && Array.isArray((p as any).items)) {
@@ -334,57 +459,120 @@ function normalizeFinanceSummaryObject(input: unknown): any[] | undefined {
 /* =====================================================================
  * StrategyData 正規化（全体・非破壊）
  * 重要: 「空」は undefined にして保存スキップを誘導
+ *       ★ 構造は組み替えない（story/answers2 は配列のまま）
  * ===================================================================== */
 export function normalizeStrategyData(input: StrategyData | unknown | null): StrategyData {
   const src: any = { ...(input ?? {}) };
 
-  // 互換読み：まず新スキーマ優先（story.{draft,final,answers2}）、なければ旧トップレベル
-  const storyObj = (src.story && typeof src.story === 'object') ? src.story : {};
-  const storyDraftIn =
-    getEither(storyObj, 'draft', 'draft') ?? getEither(src, 'story', 'story');
-  const storyFinalIn =
-    getEither(storyObj, 'final', 'final') ?? getEither(src, 'finalStory', 'final_story');
-  const answers2In =
-    getEither(storyObj, 'answers2', 'answers2') ?? getEither(src, 'answers2', 'answers2');
+  // story 系は配列のまま
+  const storyIn = src.story ?? src.story_draft ?? src.story_final ?? undefined;
+  const story = normalizeChaptersAnyNonDestructive(storyIn) ?? (Array.isArray(src.story) ? src.story : []);
 
-  const draft = normalizeChaptersAnyNonDestructive(storyDraftIn);
-  const final = normalizeChaptersAnyNonDestructive(storyFinalIn);
+  const finalStoryIn = src.finalStory ?? src.final_story ?? undefined;
+  const finalStory =
+    normalizeChaptersAnyNonDestructive(finalStoryIn) ??
+    (Array.isArray(src.finalStory) ? src.finalStory : (Array.isArray(src.final_story) ? src.final_story : []));
 
-  const answers2 =
-    Array.isArray(answers2In) && answers2In.length > 0
-      ? answers2In
-      : undefined; // 空はundefined→保存スキップ
+  // answers2 はトップレベルを優先。なければ story.answers2（互換読み）を補完。
+  const answers2Top = Array.isArray(src.answers2) ? src.answers2 : undefined;
+  const answers2FromStory =
+    src.story && typeof src.story === 'object' && Array.isArray((src.story as any).answers2)
+      ? (src.story as any).answers2
+      : undefined;
+  const answers2: ChapterAnswers[] = answers2Top ?? (answers2FromStory ?? []);
 
-  const departments = normalizeDepartmentsAny(getEither(src, 'departments', 'departments'));
+  // 部門（情報を落とさない）
+  const departments = normalizeDepartmentsAny(src.departments) ?? [];
 
-  const csvFinanceData = normalizeCsvFinanceDataLoose(
-    getEither(src, 'csvFinanceData', 'csv_finance_data')
-  );
+  // 財務
+  const csvFinanceData = normalizeCsvFinanceDataLoose(src.csvFinanceData ?? src.csv_finance_data);
+  const businessPortfolio = normalizeBusinessPortfolio(src.businessPortfolio ?? src.business_portfolio);
+  const financeSummary = normalizeFinanceSummaryObject(src.financeSummary ?? src.finance_summary);
 
-  const businessPortfolio = normalizeBusinessPortfolio(
-    getEither(src, 'businessPortfolio', 'business_portfolio')
-  );
+  // プロフィール/MVV/SWOT（文字列化）
+  const companyName = toStr(src.companyName ?? '');
+  const foundationYear = toStr(src.foundationYear ?? '');
+  const location = toStr(src.location ?? '');
+  const industry = toStr(src.industry ?? '');
+  const revenue = toStr(src.revenue ?? '');
+  const employees = toStr(src.employees ?? '');
+  const businessContent = toStr(src.businessContent ?? '');
+  const customerSegment = toStr(src.customerSegment ?? '');
 
-  const financeSummary = normalizeFinanceSummaryObject(
-    getEither(src, 'financeSummary', 'finance_summary')
-  );
+  const thought = toStr(src.thought ?? '');
+  const mission = toStr(src.mission ?? '');
+  const vision = toStr(src.vision ?? '');
+  const value = toStr(src.value ?? '');
 
-  const out: any = { ...src };
+  const strength = toStr(src.strength ?? '');
+  const weakness = toStr(src.weakness ?? '');
+  const opportunity = toStr(src.opportunity ?? '');
+  const threat = toStr(src.threat ?? '');
 
-  // ★ 重要：storyは階層を維持し、実体があるものだけ詰める（空配列で潰さない）
-  out.story = {
-    ...(storyObj || {}),
-    ...(draft ? { draft } : {}),
-    ...(final ? { final } : {}),
-    ...(answers2 ? { answers2 } : {}),
+  // 互換フィールドはそのまま温存
+  const out: StrategyData = {
+    // メタ互換はそのまま返す（あれば）
+    id: src.id,
+    user_id: src.user_id,
+    company_id: src.company_id,
+    created_at: src.created_at,
+    updated_at: src.updated_at,
+    updated_by: src.updated_by,
+    strategyId: src.strategyId ?? src.strategy_id,
+    userId: src.userId,
+    companyId: src.companyId,
+    createdAt: src.createdAt,
+    updatedAt: src.updatedAt,
+
+    // プロフィール/MVV/SWOT
+    companyName,
+    foundationYear,
+    location,
+    industry,
+    revenue,
+    employees,
+    businessContent,
+    customerSegment,
+    thought,
+    mission,
+    vision,
+    value,
+    strength,
+    weakness,
+    opportunity,
+    threat,
+
+    // ストーリー（配列のまま）
+    story,
+    finalStory,
+
+    // 旧互換（必要ならUIが参照）
+    strategySummary: src.strategySummary,
+    questions: Array.isArray(src.questions) ? src.questions : undefined,
+    reasons: Array.isArray(src.reasons) ? src.reasons : undefined,
+    questions2: Array.isArray(src.questions2) ? src.questions2 : undefined,
+    reasons2: Array.isArray(src.reasons2) ? src.reasons2 : undefined,
+    answers: Array.isArray(src.answers) ? src.answers : undefined,
+
+    // 新：段階ステップ
+    answers2,
+
+    // 部門
+    departments,
+
+    // 互換
+    editableCascadeResult: Array.isArray(src.editableCascadeResult) ? src.editableCascadeResult : undefined,
+    editableCascade: src.editableCascade,
+
+    // オプション3カラムは“undefinedなら付けない”（＝保存スキップ）
+    ...(csvFinanceData !== undefined ? { csvFinanceData } : {}),
+    ...(businessPortfolio !== undefined ? { businessPortfolio } : {}),
+    ...(financeSummary !== undefined ? { financeSummary } : {}),
+
+    // 通知/権限は温存
+    notification: typeof src.notification === 'string' ? src.notification : undefined,
+    role: src.role,
   };
 
-  // departments は実体が無ければ触らない（空配列で潰さない）
-  if (departments && departments.length > 0) out.departments = departments;
-
-  if (csvFinanceData !== undefined) out.csvFinanceData = csvFinanceData;
-  if (businessPortfolio !== undefined) out.businessPortfolio = businessPortfolio;
-  if (financeSummary !== undefined) out.financeSummary = financeSummary;
-
-  return out as StrategyData;
+  return out;
 }
