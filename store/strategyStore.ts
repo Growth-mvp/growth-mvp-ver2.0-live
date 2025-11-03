@@ -318,6 +318,7 @@ function extractServerDecidedPatch(
   return patch;
 }
 
+/** ★修正済み：余分な `}` を削除し構文を正常化 */
 function normalizeFromDbRow(raw: any): Partial<StrategyState> {
   if (!raw || typeof raw !== 'object') return {};
 
@@ -387,7 +388,9 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
           chapterIndex: typeof c?.chapterIndex === 'number' ? c.chapterIndex : idx,
           chapterTitle: typeof c?.chapterTitle === 'string' ? c.chapterTitle : `Chapter ${idx + 1}`,
           steps: Array.isArray(c?.steps)
-            ? [...c.steps].sort((a: any, b: any) => Number(a?.stepNumber ?? 0) - Number(b?.stepNumber ?? 0))
+            ? [...c.steps].sort(
+                (a: any, b: any) => Number(a?.stepNumber ?? 0) - Number(b?.stepNumber ?? 0)
+              )
             : [],
         }))
       : [
@@ -577,7 +580,7 @@ async function ensureParentExists(): Promise<void> {
 
 /* ===== refetch再試行タイマー ===== */
 let __refetchRetryTimer: ReturnType<typeof setTimeout> | null = null;
-function scheduleRefetchRetry(delayMs = 1500) {
+function scheduleRefetchRetry(delayMs = 1500): void {
   if (__refetchRetryTimer) return;
   __refetchRetryTimer = setTimeout(() => {
     __refetchRetryTimer = null;
@@ -638,7 +641,6 @@ export const useStrategyStore = create<StrategyState>()(
           if (!userId || !companyId) return;
           await ensureParentExists();
           try {
-            // ▼ 修正：第3引数は { companyId } のみ渡す
             await saveFinalStory(userId, get().finalStory, { companyId });
           } catch (e) {
             console.warn('[strategyStore] saveFinalStory warn:', e);
@@ -662,7 +664,6 @@ export const useStrategyStore = create<StrategyState>()(
           if (!userId || !companyId) return;
           await ensureParentExists();
           try {
-            // ▼ 修正：第3引数は { companyId } のみ渡す
             await saveStoryAnswers2(userId, get().answers2 as any, { companyId });
           } catch (e) {
             console.warn('[strategyStore] saveStoryAnswers2 warn:', e);
