@@ -1,6 +1,6 @@
 import type { StrategyData, ChapterStory } from '@/types/strategy';
 
-/** GROWTH 固定タイトル */
+/** GROWTH 固定タイトル（章タイトルはUIで固定表示） */
 const GROWTH_TITLES = [
   '第1章：なぜ今（現状の危機と背景）',
   '第2章：どう戦う（選択と集中の戦略）',
@@ -39,59 +39,64 @@ function parseIfJsonString<T = unknown>(v: unknown): T | unknown {
 }
 
 /* =====================================================================
- * story / finalStory 正規化
+ * story / finalStory 正規化（非破壊・階層維持）
  * ===================================================================== */
-function toChapterArray(input: unknown): ChapterStory[] {
-  if (!input) return [];
 
-  if (typeof input === 'string') {
-    const parsed = tryParseJson(input);
-    if (parsed && typeof parsed === 'object') return toChapterArray(parsed);
-    return [];
-  }
+/** 単文文字列も1章として採用。未入力は undefined を返し、保存スキップを誘導 */
+function toChapterArraySafe(input: unknown): ChapterStory[] | undefined {
+  if (input == null) return undefined;
 
+  // 素直な配列
   if (Array.isArray(input)) {
     const arr: ChapterStory[] = [];
     for (const it of input) {
       if (!it) continue;
       if (typeof it === 'string') {
-        arr.push({ title: '', body: it });
+        const s = it.trim();
+        if (s) arr.push({ title: '', body: s });
       } else if (typeof it === 'object') {
         const t = typeof (it as any).title === 'string' ? (it as any).title : '';
         const b = typeof (it as any).body === 'string' ? (it as any).body : '';
-        if (!t && !b) {
-          const keys = Object.keys(it || {});
-          if (keys.length === 1) {
-            const k = keys[0];
-            const v = (it as any)[k];
-            arr.push({ title: String(k ?? ''), body: typeof v === 'string' ? v : '' });
-          }
-        } else {
-          arr.push({ title: t, body: b });
-        }
+        if (t || b) arr.push({ title: t, body: b });
       }
     }
-    return arr;
+    return arr.length ? arr : undefined;
   }
 
+  // 文字列：JSONなら再帰、JSONでなければ単文として1章
+  if (typeof input === 'string') {
+    const trimmed = input.trim();
+    if (!trimmed) return undefined;
+
+    const parsed = tryParseJson<any>(trimmed);
+    if (parsed && typeof parsed === 'object') {
+      return toChapterArraySafe(parsed);
+    }
+    return [{ title: '', body: trimmed }];
+  }
+
+  // オブジェクト：key-value を章化
   if (typeof input === 'object') {
     const arr: ChapterStory[] = [];
     for (const k of Object.keys(input as any)) {
       const v = (input as any)[k];
-      if (v && (typeof v === 'string' || typeof v === 'number')) {
-        arr.push({ title: String(k ?? ''), body: String(v ?? '') });
+      if (v == null) continue;
+      if (typeof v === 'string' || typeof v === 'number') {
+        const s = String(v).trim();
+        if (s) arr.push({ title: String(k ?? ''), body: s });
       }
     }
-    return arr;
+    return arr.length ? arr : undefined;
   }
 
-  return [];
+  return undefined;
 }
 
-function uniqChapters(chs: ChapterStory[]): ChapterStory[] {
+function uniqChapters(chs?: ChapterStory[]): ChapterStory[] {
+  if (!chs || !chs.length) return [];
   const seen = new Set<string>();
   const out: ChapterStory[] = [];
-  for (const c of chs || []) {
+  for (const c of chs) {
     const title = typeof c?.title === 'string' ? c.title : '';
     const body = typeof c?.body === 'string' ? c.body : '';
     const key = `${title.trim()}::${body.trim()}`;
@@ -103,7 +108,11 @@ function uniqChapters(chs: ChapterStory[]): ChapterStory[] {
   return out;
 }
 
-function alignToGrowthOrder(chs: ChapterStory[] = []): ChapterStory[] {
+/** 入力があるときだけGROWTH順で並べ替え。4章すべて空なら undefined */
+function alignToGrowthOrderSafe(chs?: ChapterStory[]): ChapterStory[] | undefined {
+  const base = uniqChapters(chs);
+  if (!base.length) return undefined;
+
   const buckets = [
     { keys: ['なぜ今', '現状', '危機', '背景'] },
     { keys: ['どう戦う', '戦略', '選択', '集中', 'トレードオフ'] },
@@ -111,44 +120,38 @@ function alignToGrowthOrder(chs: ChapterStory[] = []): ChapterStory[] {
     { keys: ['どう行動する', '行動', '社員', '当事者', 'オーナー'] },
   ];
   const used = new Set<number>();
-  const ordered: ChapterStory[] = [];
   const scoreOf = (text: string, keys: string[]) =>
     keys.reduce((acc, k) => acc + (text.includes(k) ? 1 : 0), 0);
 
+  const ordered: ChapterStory[] = [];
   for (const b of buckets) {
     let bestIdx = -1;
     let bestScore = -1;
-    chs.forEach((c, idx) => {
+    base.forEach((c, idx) => {
       if (used.has(idx)) return;
       const hay = `${c?.title ?? ''}${c?.body ?? ''}`;
       const sc = scoreOf(hay, b.keys);
-      if (sc > bestScore) {
-        bestScore = sc;
-        bestIdx = idx;
-      }
+      if (sc > bestScore) { bestScore = sc; bestIdx = idx; }
     });
-    if (bestIdx >= 0) {
-      used.add(bestIdx);
-      ordered.push(chs[bestIdx]);
-    } else {
-      ordered.push({ title: '', body: '' });
-    }
+    ordered.push(bestIdx >= 0 ? (used.add(bestIdx), base[bestIdx]) && base[bestIdx] : { title: '', body: '' });
   }
 
-  return ordered.slice(0, 4).map((c, i) => ({
+  const final = ordered.slice(0, 4).map((c, i) => ({
     title: GROWTH_TITLES[i],
     body: (c?.body ?? '').trim(),
   }));
+
+  if (final.every(c => !c.body)) return undefined;
+  return final;
 }
 
-export function normalizeChaptersAny(input: unknown): ChapterStory[] {
-  const arr = toChapterArray(input);
-  const uniq = uniqChapters(arr);
-  return alignToGrowthOrder(uniq);
+export function normalizeChaptersAnyNonDestructive(input: unknown): ChapterStory[] | undefined {
+  const arr = toChapterArraySafe(input);
+  return alignToGrowthOrderSafe(arr);
 }
 
 /* =====================================================================
- * departments 正規化
+ * departments 正規化（非破壊）
  * ===================================================================== */
 type AnyOKR =
   | { objective?: unknown; keyResults?: unknown; owner?: unknown }
@@ -230,18 +233,23 @@ function normalizeDepartment(d: unknown): NormalizedDepartment {
   return { id, name, projects };
 }
 
-export function normalizeDepartmentsAny(input: unknown): NormalizedDepartment[] {
-  if (!input) return [];
+export function normalizeDepartmentsAny(input: unknown): NormalizedDepartment[] | undefined {
+  if (!input) return undefined;
   let src: unknown = input;
   if (typeof src === 'string') {
     const parsed = tryParseJson(src);
     if (parsed && typeof parsed === 'object') return normalizeDepartmentsAny(parsed);
-    return [];
+    return undefined;
   }
-  if (Array.isArray(src)) return (src as unknown[]).map(normalizeDepartment);
-  if (typeof src === 'object' && Array.isArray((src as any).departments))
-    return (src as any).departments.map(normalizeDepartment);
-  return [];
+  if (Array.isArray(src)) {
+    const arr = (src as unknown[]).map(normalizeDepartment);
+    return arr.length ? arr : undefined;
+  }
+  if (typeof src === 'object' && Array.isArray((src as any).departments)) {
+    const arr = (src as any).departments.map(normalizeDepartment);
+    return arr.length ? arr : undefined;
+  }
+  return undefined;
 }
 
 /* =====================================================================
@@ -253,8 +261,7 @@ function normalizeCsvFinanceDataLoose(input: unknown): any[] | undefined {
   if (Array.isArray(input)) return (input.length > 0 ? input : undefined) as any[] | undefined;
 
   const parsed = parseIfJsonString<any>(input);
-
-  if (Array.isArray(parsed)) return (parsed.length > 0 ? parsed : undefined);
+  if (Array.isArray(parsed)) return parsed.length > 0 ? parsed : undefined;
 
   if (typeof input === 'string') {
     const text = input.trim();
@@ -288,21 +295,8 @@ function normalizeBusinessPortfolio(input: unknown): Record<string, any> | undef
 
   // 最低限の妥当性: units 配列が存在し、中身が1件以上ある
   const validUnits = Array.isArray(bp.units) && bp.units.length > 0;
-
-  // オプション: しきい値や付帯情報も最低限チェック
-  const th = bp.threshold || {};
-  const validThreshold =
-    typeof th.growthBaseline === 'number' && typeof th.profitBaseline === 'number';
-
-  const validMeta =
-    typeof bp.currency === 'string' &&
-    typeof bp.periodLabel === 'string' &&
-    typeof bp.unitType === 'string';
-
-  // 単に {} や構造が未完成のものは undefined（保存スキップ）へ
   if (!validUnits) return undefined;
 
-  // units が妥当であれば、残りは UI/保存側で補完可能なので通す
   return p;
 }
 
@@ -325,7 +319,7 @@ function normalizeFinanceSummaryObject(input: unknown): any[] | undefined {
     return arr.length > 0 ? arr : undefined;
   }
 
-  // 年度をキーに持つ旧形式 { 2023: {...}, 2024: {...} }
+  // 年度キー形式 { 2023: {...}, 2024: {...} }
   if (p && typeof p === 'object') {
     const entries = Object.entries(p as Record<string, any>);
     if (entries.length > 0 && entries.every(([, v]) => typeof v === 'object')) {
@@ -338,15 +332,29 @@ function normalizeFinanceSummaryObject(input: unknown): any[] | undefined {
 }
 
 /* =====================================================================
- * StrategyData 正規化（全体）
+ * StrategyData 正規化（全体・非破壊）
  * 重要: 「空」は undefined にして保存スキップを誘導
  * ===================================================================== */
 export function normalizeStrategyData(input: StrategyData | unknown | null): StrategyData {
   const src: any = { ...(input ?? {}) };
 
-  const story = normalizeChaptersAny(getEither(src, 'story', 'story'));
-  const finalStory = normalizeChaptersAny(getEither(src, 'finalStory', 'final_story'));
-  const answers2 = asArr<any>(getEither(src, 'answers2', 'answers2'));
+  // 互換読み：まず新スキーマ優先（story.{draft,final,answers2}）、なければ旧トップレベル
+  const storyObj = (src.story && typeof src.story === 'object') ? src.story : {};
+  const storyDraftIn =
+    getEither(storyObj, 'draft', 'draft') ?? getEither(src, 'story', 'story');
+  const storyFinalIn =
+    getEither(storyObj, 'final', 'final') ?? getEither(src, 'finalStory', 'final_story');
+  const answers2In =
+    getEither(storyObj, 'answers2', 'answers2') ?? getEither(src, 'answers2', 'answers2');
+
+  const draft = normalizeChaptersAnyNonDestructive(storyDraftIn);
+  const final = normalizeChaptersAnyNonDestructive(storyFinalIn);
+
+  const answers2 =
+    Array.isArray(answers2In) && answers2In.length > 0
+      ? answers2In
+      : undefined; // 空はundefined→保存スキップ
+
   const departments = normalizeDepartmentsAny(getEither(src, 'departments', 'departments'));
 
   const csvFinanceData = normalizeCsvFinanceDataLoose(
@@ -361,17 +369,22 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     getEither(src, 'financeSummary', 'finance_summary')
   );
 
-  const out: any = {
-    ...src,
-    story,
-    finalStory,
-    answers2,
-    departments,
-    // ⬇ 空は undefined（＝保存スキップ方針）
-    ...(csvFinanceData !== undefined ? { csvFinanceData } : {}),
-    ...(businessPortfolio !== undefined ? { businessPortfolio } : {}),
-    ...(financeSummary !== undefined ? { financeSummary } : {}),
+  const out: any = { ...src };
+
+  // ★ 重要：storyは階層を維持し、実体があるものだけ詰める（空配列で潰さない）
+  out.story = {
+    ...(storyObj || {}),
+    ...(draft ? { draft } : {}),
+    ...(final ? { final } : {}),
+    ...(answers2 ? { answers2 } : {}),
   };
+
+  // departments は実体が無ければ触らない（空配列で潰さない）
+  if (departments && departments.length > 0) out.departments = departments;
+
+  if (csvFinanceData !== undefined) out.csvFinanceData = csvFinanceData;
+  if (businessPortfolio !== undefined) out.businessPortfolio = businessPortfolio;
+  if (financeSummary !== undefined) out.financeSummary = financeSummary;
 
   return out as StrategyData;
 }
