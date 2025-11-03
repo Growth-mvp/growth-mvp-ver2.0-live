@@ -323,6 +323,65 @@ async function fetchExistingRow(companyId: string) {
 }
 
 /* ============================================================
+ * answers2 <-> departments マージ用ヘルパ
+ * ========================================================== */
+function buildAnswers2FromDepartments(state: StrategyData): any[] {
+  const out: any[] = [];
+  const depts = ensureArray(state?.departments);
+  depts.forEach((d: any, idx: number) => {
+    const a0 = ensureArray(d?.answers2).find((x: any) => Array.isArray(x?.steps));
+    const steps = ensureArray(a0?.steps);
+    if (steps.length === 0) return;
+    const chapterTitle = (d?.name ?? '').trim();
+    out.push({
+      chapterIndex: typeof a0?.chapterIndex === 'number' ? a0.chapterIndex : idx,
+      chapterTitle,
+      steps,
+    });
+  });
+  return out;
+}
+
+function mergeAnswers2IntoDepartments(baseDepartments: any[], answers2Array: any[]): any[] {
+  const depts = ensureArray(baseDepartments).map((d: any) => ({ ...d }));
+  const byTitle = new Map<string, any>();
+  ensureArray(answers2Array).forEach((entry: any) => {
+    const title = (entry?.chapterTitle ?? '').trim();
+    if (!title) return;
+    byTitle.set(title, entry);
+  });
+
+  // 既存部門に注入
+  for (let i = 0; i < depts.length; i++) {
+    const name = (depts[i]?.name ?? '').trim();
+    if (!name) continue;
+    const hit = byTitle.get(name);
+    if (!hit) continue;
+    const steps = ensureArray(hit.steps);
+    if (steps.length === 0) continue;
+    depts[i] = {
+      ...depts[i],
+      answers2: [{ chapterIndex: i, chapterTitle: name, steps }],
+    };
+    byTitle.delete(name);
+  }
+
+  // 部門が存在しないが回答だけある → 新規で生やす
+  for (const [title, entry] of byTitle.entries()) {
+    const steps = ensureArray(entry?.steps);
+    if (steps.length === 0) continue;
+    depts.push({
+      name: title,
+      projects: [],
+      answers2: [{ chapterIndex: depts.length, chapterTitle: title, steps }],
+      finalized: false,
+    });
+  }
+
+  return depts;
+}
+
+/* ============================================================
  * 取得：strategy_data=* + 分離テーブル合流（列存在に依存しない）
  * ========================================================== */
 export async function getFullStrategyDataByCompany(companyId: string): Promise<ReadResult> {
@@ -351,7 +410,7 @@ export async function getFullStrategyDataByCompany(companyId: string): Promise<R
 
     const rowData = baseRes.data ?? {};
 
-    // 分離テーブルは実在カラムのみを取得（latest 1件）
+    // 分離テーブルの最新値
     const [ansRes, finRes] = await Promise.allSettled([
       supabase
         .from(T_STORY_ANSWERS)
@@ -376,12 +435,22 @@ export async function getFullStrategyDataByCompany(companyId: string): Promise<R
 
     const state = buildStateFromDbRow(rowData);
 
-    const latestAnswers = ansRow?.answers2 ?? [];
-    const latestFinal = finRow?.final_story ?? [];
+    const latestAnswersArray = ensureArray(ansRow?.answers2);   // ← answers2 は配列
+    const latestFinal = ensureArray(finRow?.final_story);
 
     // baseに無ければ分離テーブルの最新値で補完
-    state.answers2 = ensureArray(state.answers2).length ? state.answers2 : ensureArray(latestAnswers);
-    state.finalStory = ensureArray(state.finalStory).length ? state.finalStory : ensureArray(latestFinal);
+    // （answers2 は state.answers2 にも入れるが、部門にも突き合わせ注入）
+    const stateAnswers2 = ensureArray((state as any).answers2);
+    const mergedAnswers2 = stateAnswers2.length ? stateAnswers2 : latestAnswersArray;
+
+    // 部門に注入（chapterTitle = 部門名）
+    state.departments = mergeAnswers2IntoDepartments(state.departments ?? [], mergedAnswers2);
+
+    // state.answers2 自体も保持（互換）
+    (state as any).answers2 = mergedAnswers2;
+
+    // finalStory 補完
+    state.finalStory = ensureArray(state.finalStory).length ? state.finalStory : latestFinal;
 
     return { data: state, error: null };
   } catch (e) {
@@ -391,6 +460,9 @@ export async function getFullStrategyDataByCompany(companyId: string): Promise<R
 
 /* ============================================================
  * 保存（空保存抑止＋楽観ロック＋DB現行とのDeepMerge）
+ * 変更点：
+ *  - payload が空で strategy_data をスキップしても、answers2 は保存する
+ *  - strategy_data 保存成功後にも answers2 を確実に保存する
  * ========================================================== */
 export async function saveStrategyData(
   ...args: any[]
@@ -416,12 +488,30 @@ export async function saveStrategyData(
     const companyId = await resolveCompanyId(userId, companyIdOverride);
     const cleanCompanyId = companyId.trim();
 
-    if (isEffectivelyEmptyForServer(payload)) {
-      console.warn('[StrategyData] ⛔ save skipped: effectively empty payload');
+    // 抜き出し: departments[].answers2 → まとめ配列
+    const answersBundle = buildAnswers2FromDepartments(payload);
+
+    // --- strategy_data を保存すべきかの判定
+    const skipStrategyData = isEffectivelyEmptyForServer(payload);
+
+    // answers2 は strategy_data が空でも保存したい
+    if (answersBundle.length > 0) {
+      const ares = await saveStoryAnswers2(userId, answersBundle, { companyId: cleanCompanyId });
+      if (ares.error) {
+        console.warn('[StrategyData] ⚠ answers2 save failed but continue:', ares.error);
+      } else {
+        console.log('[StrategyData] ✅ answers2 upsert ok:', { count: answersBundle.length });
+      }
+    }
+
+    if (skipStrategyData) {
+      console.warn('[StrategyData] ⛔ strategy_data save skipped: effectively empty payload');
       const cur = await getFullStrategyDataByCompany(cleanCompanyId);
+      // 直近の answers2 反映まで含めた最新を返す
       return { data: cur.data ?? null, error: null };
     }
 
+    // strategy_data: 既存行を取得
     let existingRow: any | null = null;
     try {
       const existingRes = await fetchExistingRow(cleanCompanyId);
@@ -484,6 +574,12 @@ export async function saveStrategyData(
         return { data: null, error: extractErrorVerbose(upd.error) };
       }
 
+      // strategy_data 保存後、answers2 があれば（重ねて）保存（冪等）
+      if (answersBundle.length > 0) {
+        const ares = await saveStoryAnswers2(userId!, answersBundle, { companyId: cleanCompanyId });
+        if (ares.error) console.warn('[StrategyData] ⚠ answers2 post-update save failed:', ares.error);
+      }
+
       const stateAfter = buildStateFromDbRow(upd.data ?? {});
       return { data: stateAfter, error: null };
     }
@@ -510,6 +606,12 @@ export async function saveStrategyData(
 
     if (ins.error) {
       return { data: null, error: extractErrorVerbose(ins.error) };
+    }
+
+    // 挿入後にも answers2 を保存（冪等）
+    if (answersBundle.length > 0) {
+      const ares = await saveStoryAnswers2(userId!, answersBundle, { companyId: cleanCompanyId });
+      if (ares.error) console.warn('[StrategyData] ⚠ answers2 post-insert save failed:', ares.error);
     }
 
     const stateAfter = buildStateFromDbRow(ins.data ?? {});
