@@ -5,8 +5,14 @@ import React, { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import CEOChatPanel from '@/components/CEOChatPanel';
-import { supabase } from '@/utils/supabase/client';
-import { safeGetSession } from '@/utils/supabase/client';
+import {
+  supabase,
+  safeGetSession,
+  getCompanyIdFromCookie,
+  setCompanyIdCookie,
+  clearCompanyIdCookie,
+  isValidUUID,
+} from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
 import { useStrategyStore } from '@/store/strategyStore';
 import { CompanyProvider } from '@/context/CompanyContext';
@@ -28,7 +34,7 @@ const isAuthPath = (p?: string | null) => !!p && AUTH_PREFIXES.some((x) => p.sta
 const isAdminPath = (p?: string | null) => !!p && p.startsWith('/admin');
 
 /* ================================
- * ★ 全削除フラグ（再生成ブロック）
+ * 全削除フラグ（再生成ブロック）
  * ============================== */
 const DELETION_FLAG_KEY = '__deleting_company__';
 function isCompanyDeleting(companyId?: string) {
@@ -41,7 +47,7 @@ function isCompanyDeleting(companyId?: string) {
 }
 
 /* ================================
- * デバッグ用
+ * デバッグ
  * ============================== */
 function exposeError(e: any) {
   if (!e) return { message: 'unknown' };
@@ -56,12 +62,7 @@ function exposeError(e: any) {
 
 /** 会社所属を安全に読むためのセレクタ */
 function selectCompanyId(state: any): string | undefined {
-  return (
-    state?.membership?.companyId ??
-    state?.companyId ??
-    state?.user?.companyId ??
-    undefined
-  );
+  return state?.membership?.companyId ?? state?.companyId ?? state?.user?.companyId ?? undefined;
 }
 
 /* ===========================================================
@@ -101,8 +102,11 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   const routedRef = useRef(false);
   const bootstrapTimer = useRef<number | null>(null);
 
-  // ★ 追加: 会社ごとの refetch 実行済みフラグ（window を使わず安全）
+  // 会社ごとの refetch 実行済み
   const refetchRanForCompany = useRef<string | null>(null);
+
+  // 現在の access token
+  const accessTokenRef = useRef<string | null>(null);
 
   /* ================================
    * デバッグマーカー
@@ -158,7 +162,6 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         });
       });
     }
-    // 画面切り替え時にモバイルドロワーを閉じる
     setOpenLeft(false);
     setOpenRight(false);
   }, [pathname]);
@@ -184,7 +187,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   }, [user?.id, bootstrapped]);
 
   /* ================================
-   * 1) セッション初期確認
+   * 1) セッション初期確認 + access_token 取得
    * ============================== */
   useEffect(() => {
     if (initInFlight.current) return;
@@ -198,7 +201,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 
     const bootstrapSession = async () => {
       try {
-        const { data: sres, error: serr } = await safeGetSession(); // 互換ラッパー
+        const { data: sres, error: serr } = await safeGetSession();
         if (signal.aborted) return;
 
         if (serr && (serr as any)?.status !== 400) {
@@ -207,10 +210,15 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 
         const session = sres?.session ?? null;
         if (!session) {
+          accessTokenRef.current = null;
           setUser(null);
           setRole(null);
           setMembership({ companyId: undefined, departmentId: undefined });
           setStrategyId(null);
+          // ★ ログアウト時は company_id Cookie もクリア
+          try {
+            clearCompanyIdCookie();
+          } catch {}
           if (!isAuthPath(pathname) && !routedRef.current) {
             routedRef.current = true;
             router.replace('/login');
@@ -218,6 +226,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           return;
         }
 
+        accessTokenRef.current = session.access_token ?? null;
         const uid = session.user.id;
         const email = session.user.email ?? '';
         setUser({ id: uid, email, name: '', role: 'member' });
@@ -228,22 +237,28 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 
     bootstrapSession();
 
-    // ✅ v2 仕様：unsubscribe は data.subscription にある
+    // onAuthStateChange で token を維持
     const { data: authListener } = supabase.auth.onAuthStateChange((_evt, sess) => {
       if (signal.aborted) return;
 
       if (!sess?.user) {
+        accessTokenRef.current = null;
         setUser(null);
         setRole(null);
         setMembership({ companyId: undefined, departmentId: undefined });
         setStrategyId(null);
         setBootstrapped(true);
+        // ★ ログアウト時は company_id Cookie もクリア
+        try {
+          clearCompanyIdCookie();
+        } catch {}
         if (!isAuthPath(pathname) && !routedRef.current) {
           routedRef.current = true;
           router.replace('/login');
         }
         return;
       }
+      accessTokenRef.current = sess.access_token ?? null;
       setUser({ id: sess.user.id, email: sess.user.email ?? '', name: '', role: 'member' });
       setBootstrapped(false); // membership 再ロードへ
     });
@@ -257,7 +272,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   }, [pathname, router, setMembership, setRole, setStrategyId, setUser]);
 
   /* ================================
-   * 2) membership 読み込み
+   * 2) membership 読み込み + Cookie 同期（company_id 統一化の要）
    * ============================== */
   useEffect(() => {
     if (!user?.id) return;
@@ -272,6 +287,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           .from('company_members')
           .select('company_id, role')
           .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle();
 
@@ -283,6 +299,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           }
           setMembership({ companyId: undefined, departmentId: undefined });
           setRole('member');
+          // ★ 所属が取れない場合は Cookie を無理に触らない（/auth/welcome で作成）
           return;
         }
 
@@ -292,9 +309,21 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        const cid = data.company_id ?? undefined;
-        setMembership({ companyId: cid, departmentId: undefined });
+        const cid = (data.company_id ?? '') as string | undefined;
+        const cidNorm = cid && isValidUUID(cid) ? cid : undefined;
+
+        setMembership({ companyId: cidNorm, departmentId: undefined });
         setRole((data.role as 'admin' | 'manager' | 'member') ?? 'member');
+
+        // ★ Cookie同期：membership が優先。差分があれば上書き
+        if (cidNorm) {
+          const cookieCid = getCompanyIdFromCookie();
+          if (cookieCid !== cidNorm) {
+            try {
+              setCompanyIdCookie(cidNorm);
+            } catch {}
+          }
+        }
       } finally {
         memInFlight.current = false;
         if (!cleaned.current) setBootstrapped(true);
@@ -328,19 +357,17 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   }, [bootstrapped, companyId, setCompanyScope, setStrategyId]);
 
   /* ================================
-   * ★ 追加: 2.4) 会社スコープ確定後の refetch（1社につき1回）
+   * 2.4) 会社スコープ確定後の refetch（1社につき1回）
    * ============================== */
   useEffect(() => {
     const authed = !!useUserStore.getState().user?.id;
     if (!bootstrapped || !companyId || !authed) return;
     if (isCompanyDeleting(companyId)) return;
-    if (isAuthPath(pathname)) return; // 認証系画面では不要
-
-    // 同一 companyId に対しては一度だけ refetch
+    if (isAuthPath(pathname)) return;
     if (refetchRanForCompany.current === companyId) return;
+
     refetchRanForCompany.current = companyId;
 
-    // 次フレームで安全に実行（描画の安定後）
     requestAnimationFrame(() => {
       try {
         useStrategyStore.getState().refetchFromServer();
@@ -351,18 +378,19 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   }, [bootstrapped, companyId, pathname]);
 
   /* ================================
-   * 2.5) strategyId provision
+   * 2.5) strategyId provision（Bearer 付与 & 未ログイン/無トークン時は実行しない）
+   *     + Cookie 同期（プロビジョン側が companyId を返した場合）
    * ============================== */
   useEffect(() => {
     const onAuthScene = isAuthPath(pathname);
     if (!bootstrapped) return;
 
-    // companyId が変わったら前回記録をリセット（重複抑止のため）
+    // 会社変更で記録リセット
     if (lastProvisionForCompany.current && lastProvisionForCompany.current !== (companyId ?? null)) {
       lastProvisionForCompany.current = null;
     }
 
-    // 全削除フラグONのときは provision を抑止
+    // 削除中は抑止
     if (companyId && isCompanyDeleting(companyId)) {
       if (!provisionInFlight.current) {
         console.log('[layout] skip provision (deleting company in progress):', companyId);
@@ -371,11 +399,15 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    if (!companyId) {
+    const authed = !!useUserStore.getState().user?.id;
+    const accessToken = accessTokenRef.current;
+
+    if (!authed || !companyId) {
       setStrategyId(null);
       return;
     }
     if (onAuthScene) return;
+    if (!accessToken) return; // ← ★ token が無い間は叩かない（401対策）
     if (provisionInFlight.current) return;
     if (lastProvisionForCompany.current === companyId) return;
 
@@ -385,15 +417,28 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
-        const res = await fetch('/api/companies/provision', { method: 'POST', signal });
+        const res = await fetch('/api/companies/provision', {
+          method: 'POST',
+          signal,
+          credentials: 'include',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        });
         const json = await res.json().catch(() => null);
         if (signal.aborted) return;
 
         if (json?.ok) {
+          // ★ サーバ側が companyId を返した場合も Cookie を同期
+          const srvCid: string | undefined = isValidUUID(json?.companyId) ? json.companyId : undefined;
+          if (srvCid && getCompanyIdFromCookie() !== srvCid) {
+            try {
+              setCompanyIdCookie(srvCid);
+            } catch {}
+          }
           if (json.companyId && json.companyId !== companyId) {
-            useUserStore
-              .getState()
-              .setMembership({ companyId: json.companyId, departmentId: undefined });
+            useUserStore.getState().setMembership({ companyId: json.companyId, departmentId: undefined });
           }
           setStrategyId(json.strategyId ?? null);
           lastProvisionForCompany.current = json.companyId ?? companyId;
@@ -451,10 +496,8 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
    * 表示制御
    * ============================== */
   const hideSidebar = isAuthPath(pathname);
-  const leftVar = 'var(--left-w, 0px)';
-  const rightVar = 'var(--right-w, 0px)';
-
   const deletingNow = companyId ? isCompanyDeleting(companyId) : false;
+
   if (!hideSidebar && (checking || !hydrated)) {
     return (
       <div className="grid min-h-dvh place-items-center text-sm text-gray-500">
@@ -486,6 +529,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
             <Sidebar />
           </div>
 
+          {/* モバイル左ドロワー */}
           <div
             className={[
               'lg:hidden fixed inset-0 z-40',
@@ -533,6 +577,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
             </div>
           </aside>
 
+          {/* モバイル右ドロワー */}
           <div
             className={[
               'lg:hidden fixed inset-0 z-40',
@@ -591,7 +636,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
               </button>
               <button
                 onClick={() => setOpenRight(true)}
-                className="rounded-lg border border-black/10 px-3 py-1.5 text-sm shadow-sm bg白 active:scale-[0.99]"
+                className="rounded-lg border border-black/10 px-3 py-1.5 text-sm shadow-sm bg-white active:scale-[0.99]"
               >
                 AIアシスタント
               </button>
