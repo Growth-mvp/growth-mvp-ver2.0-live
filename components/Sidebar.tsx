@@ -3,8 +3,8 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { useStrategyStore, refetchFromServer as refetchViaExport } from '@/store/strategyStore';
+import { useEffect, useMemo, useState } from 'react';
+import { useStrategyStore /*, refetchFromServer as refetchViaExport*/ } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { useAccess } from '@/utils/access';
 import LogoutButton from './LogoutButton';
@@ -44,9 +44,15 @@ const ITEM_TEXT_CLASS = 'font-normal tracking-[0.01em] leading-6 text-[13.5px]';
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const s = useStrategyStore();
+
+  // store
+  const strategyStore = useStrategyStore();
   const userStore = useUserStore();
-  const { user, companyId, hydrated } = userStore;
+
+  const user = userStore.user;
+  const companyId = userStore.companyId;
+  const hydratedUser = userStore.hydrated; // userStore 側のハイドレーション完了フラグ想定
+
   const { canView, canEditCompany } = useAccess();
 
   const [domHydrated, setDomHydrated] = useState(false);
@@ -58,7 +64,7 @@ export default function Sidebar() {
 
   /* ===== アクション ===== */
   const ensureMembershipOrRedirect = () => {
-    if (!hydrated || !domHydrated) {
+    if (!domHydrated || !hydratedUser) {
       setNotification('⏳ 権限を判定中です…');
       return false;
     }
@@ -87,7 +93,6 @@ export default function Sidebar() {
     }
 
     try {
-      // store の revision 連動セーフセーブを使用
       await useStrategyStore.getState().saveStrategyData();
       setNotification('✅ サーバーへ保存しました');
     } catch (e) {
@@ -98,13 +103,12 @@ export default function Sidebar() {
 
   const handleRefetch = async () => {
     if (!ensureMembershipOrRedirect()) return;
-    const ok = confirm('ローカル変更を破棄しサーバー最新版を読み込みます。続行しますか？');
+    const ok = typeof window !== 'undefined' ? window.confirm('ローカル変更を破棄しサーバー最新版を読み込みます。続行しますか？') : false;
     if (!ok) return;
 
     try {
-      // store の refetch（__isFetchingFromServer ガード付き）
       await useStrategyStore.getState().refetchFromServer();
-      // もしくはエクスポートを使用: await refetchViaExport();
+      // もしくは：await refetchViaExport();
       setNotification('✅ サーバーから最新を取得しました');
     } catch (e) {
       console.error('❌ handleRefetch error:', e);
@@ -118,13 +122,15 @@ export default function Sidebar() {
       setNotification('⛔ 権限がありません（全削除は管理者のみ）');
       return;
     }
-    const ok = confirm('⚠ Supabase上の戦略データも含め、すべて削除します。よろしいですか？');
+    const ok = typeof window !== 'undefined' ? window.confirm('⚠ Supabase上の戦略データも含め、すべて削除します。よろしいですか？') : false;
     if (!ok) return;
 
     try {
       await useStrategyStore.getState().deleteAllOnServer();
-      // ローカルの永続もリセット（store側でやっているが保険で）
-      localStorage.removeItem('strategy-store');
+      // ローカルの永続もリセット（store側でも処理済みだが保険で）
+      try {
+        localStorage.removeItem('strategy-store');
+      } catch {}
       setNotification('🗑 すべて削除しました');
     } catch (e) {
       console.error('❌ handleClear error:', e);
