@@ -10,19 +10,29 @@ interface Props {
   deptName: string;
   project: Project;
   onClick: () => void;
+  /** ページ側から幅を上書きしたいときに使う（任意） */
+  className?: string;
 }
 
-export default function ProjectCard({ deptName, project, onClick }: Props) {
+export default function ProjectCard({
+  deptName,
+  project,
+  onClick,
+  className = '',
+}: Props) {
   const okr = project.okrs?.[0];
 
   return (
     <motion.div
       whileHover={{ scale: 1.03 }}
       whileTap={{ scale: 0.98 }}
-      className="cursor-pointer"
+      className={`cursor-pointer ${className}`}
       onClick={onClick}
+      role="button"
+      aria-label={`${deptName} ${project.title}`}
     >
-      <Card className="p-4 shadow-xl border border-blue-200 bg-white hover:shadow-2xl transition-all rounded-2xl">
+      {/* 横いっぱいに広げるため w-full / max-w-none を明示 */}
+      <Card className="w-full max-w-none p-4 shadow-xl border border-blue-200 bg-white hover:shadow-2xl transition-all rounded-2xl">
         <h2 className="text-md text-blue-800 font-semibold mb-2">{deptName}</h2>
         <h3 className="text-xl font-bold text-gray-800">{project.title}</h3>
 
