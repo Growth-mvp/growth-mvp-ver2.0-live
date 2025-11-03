@@ -225,15 +225,15 @@ export type StrategyData = {
   /** === 事業ポートフォリオ（jsonb object）=== */
   businessPortfolio?: Record<string, any>; // optional（undefinedは送らない）
 
-  /** === 財務サマリ（保存は {items: []}、読みは配列）=== */
+  /** === 財務サマリ（保存は {rows: []} 互換、読みは配列）=== */
   financeSummary?: any[];                  // optional
 
   /** === 財務明細CSV（配列ベース）=== */
   csvFinanceData?: CsvFinanceData;         // optional
 
   /** === ストーリー === */
-  story: ChapterStory[];                   // たたき台
-  finalStory: ChapterStory[];              // 確定版
+  story: ChapterStory[];                   // たたき台（配列）
+  finalStory: ChapterStory[];              // 確定版（配列）
 
   /** 要約など（DBのCHECK都合で array/object/string 混在の可能性） */
   strategySummary?: unknown;
@@ -263,113 +263,9 @@ export type StrategyData = {
 };
 
 /* =========================================================
- * Zustand ストア用（拡張）
- * =========================================================
- * - setter 群は UI から直接呼ばれる想定
- * - 3カラム用の setter を追加（optional前提）
- */
-export interface StrategyState extends StrategyData {
-  // 会社プロフィール
-  setCompanyName: (v: string) => void;
-  setFoundationYear: (v: string) => void;
-  setLocation: (v: string) => void;
-  setIndustry: (v: string) => void;
-  setRevenue: (v: string) => void;
-  setEmployees: (v: string) => void;
-  setBusinessContent: (v: string) => void;
-  setCustomerSegment: (v: string) => void;
-
-  // MVV
-  setThought: (v: string) => void;
-  setMission: (v: string) => void;
-  setVision: (v: string) => void;
-  setValue: (v: string) => void;
-
-  // SWOT
-  setStrength: (v: string) => void;
-  setWeakness: (v: string) => void;
-  setOpportunity: (v: string) => void;
-  setThreat: (v: string) => void;
-
-  // 財務・事業ポートフォリオ
-  setBusinessPortfolio: (v: Record<string, any> | undefined) => void;
-  setFinanceSummary: (v: any[] | undefined) => void;
-  setCsvFinanceData: (v: CsvFinanceData | undefined) => void;
-
-  // ストーリー
-  setStory: (v: ChapterStory[]) => void;
-  setFinalStory: (v: ChapterStory[]) => void;
-
-  // 質問・回答
-  setAnswers: (v: string[]) => void;             // 旧
-  setAnswers2: (v: ChapterAnswers[]) => void;    // 新（推奨）
-
-  setStrategySummary: (v: unknown) => void;
-
-  // 部門
-  setDepartments: (v: Department[]) => void;      // ✅ 正規
-  setEditableCascadeResult?: (v: Department[]) => void; // 互換
-
-  // 通知・権限
-  setNotification: (v: string) => void;
-  setRole: (v: 'admin' | 'manager' | 'member') => void;
-
-  // Supabase連携
-  saveToSupabase: () => Promise<void>;
-  loadFromSupabase: () => Promise<void>;
-  clearAllData: () => void;
-}
-
-/* =========================================================
- * 勝ちパターン・ストーリーV2構造（将来拡張/互換）
+ * （任意）Zustand ストア用の拡張IF
+ *   - 実際の store 実装に依存するので、アプリ側で必要に応じて定義/使用
  * ========================================================= */
-
-/** 上位（経営）パターン */
-export type TopStrategyPattern = {
-  id: string;          // 例: 't1'
-  title: string;       // 例: '選択と集中（Focus & Scale）'
-  summary: string;     // 概要
-  firstMove: string;   // 経営としての最初の一手
-  kpiAxis: string;     // KPI軸（ROICなど）
-  pitfalls: string[];  // 典型的な落とし穴
-};
-
-/** 下位（実行）パターン */
-export type ExecStrategyPattern = {
-  id: string;          // 例: 'e1'
-  title: string;       // 例: 'フリクション撲滅ファネル'
-  when: string[];      // 効く条件
-  firstStep: string;   // 初手（1スプリントでやること）
-  kpi: string;         // 先行指標
-  pitfalls: string[];  // ありがちな失敗
-};
-
-/** 上位→下位の推奨マッピング */
-export type PatternBridge = {
-  topId: string;                // 't*'
-  recommendedExecIds: string[]; // ['e1','e4','e5']
-};
-
-/** ストーリー下書き V2 */
-export type StoryDraftV2 = {
-  outline: { title: string; summary: string }[];
-  lead: string;
-  options: string[];
-  topPatternSuggestions: { id: string; reason: string }[]; // t*
-  patternSuggestions: { id: string; reason: string }[];    // e*
-  kpiStarters: string[];
-  nextActions: string[];
-};
-
-/** ストーリー完成 V2 */
-export type FinalStoryV2 = {
-  finalStory: string; // Markdown
-  patternTrace: { patternId: string; where: string }[]; // 段落→t*/e*
-  kpiPack: string[];                                    // KPIまとめ
-  riskNotes: string[];                                  // 落とし穴と回避策
-  execPatternBridge: {
-    fromTopId: string;          // t*
-    toExecIds: string[];        // e*
-    rationale: string;          // 橋渡しの理由
-  }[];
-};
+export interface StrategyState extends StrategyData {
+  // 任意：アプリ側でsetter群を定義して使う場合に拡張
+}
