@@ -434,16 +434,16 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
+        // ✅ 修正：Content-Type/Body を送らずに Bearer のみ
         const res = await fetch('/api/companies/provision', {
           method: 'POST',
           signal,
           credentials: 'include',
           headers: {
             Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ companyId }), // 明示
         });
+
         let json: any = null;
         try {
           json = await res.json();
@@ -618,7 +618,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
             <div
               className={[
                 'absolute right-0 top-0 h-dvh w-[16rem] max-w-[90vw]',
-                'bg-white shadow-xl border-l border-black/5',
+                'bg白 shadow-xl border-l border-black/5',
                 'transition-transform duration-200',
                 openRight ? 'translate-x-0' : 'translate-x-full',
               ].join(' ')}
@@ -659,7 +659,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
               </button>
               <button
                 onClick={() => setOpenRight(true)}
-                className="rounded-lg border border-black/10 px-3 py-1.5 text-sm shadow-sm bg-white active:scale-[0.99]"
+                className="rounded-lg border border-black/10 px-3 py-1.5 text-sm shadow-sm bg白 active:scale-[0.99]"
               >
                 AIアシスタント
               </button>
