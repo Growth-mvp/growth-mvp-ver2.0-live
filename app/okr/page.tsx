@@ -415,6 +415,46 @@ export default function OKRPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [departments?.length]);
 
+  /* ============================================================
+   * 🔧 ロールの“影”を保持してリフェッチ上書きを回避
+   * ============================================================ */
+  const [roleShadow, setRoleShadow] = useState<Record<string, Project['role'] | undefined>>({});
+
+  // 初回：サーバーデータに role がある場合は roleShadow に取り込む
+  useEffect(() => {
+    const next: Record<string, Project['role'] | undefined> = {};
+    cascade.forEach((d, di) =>
+      ensureArray(d.projects).forEach((p, pi) => {
+        const k = `${di}:${pi}`;
+        if (p.role != null) next[k] = p.role;
+      })
+    );
+    setRoleShadow((prev) => ({ ...next, ...prev })); // 既存影を優先
+  }, [cascade.length]);
+
+  // サーバーからのリフェッチ後に role が欠落していたら、影から復元して commit
+  useEffect(() => {
+    if (!Array.isArray(cascade) || cascade.length === 0) return;
+
+    // 欠落検知
+    let needsPatch = false;
+    const next: Department[] = cascade.map((d, di) => {
+      const projs = ensureArray(d.projects).map((p, pi) => {
+        const k = `${di}:${pi}`;
+        if (p.role == null && roleShadow[k] != null) {
+          needsPatch = true;
+          return { ...p, role: roleShadow[k] };
+        }
+        return p;
+      });
+      return { ...d, projects: projs };
+    });
+
+    if (needsPatch) {
+      commit(next);
+    }
+  }, [cascade, roleShadow]);
+
   /* -------- 構造化KR：インライン編集制御 -------- */
   const [editIdx, setEditIdx] = useState<string | null>(null);
 
@@ -426,15 +466,23 @@ export default function OKRPage() {
   ) {
     setDepartments((prev: Department[]) => {
       const next = [...prev];
-      const dept = next[dIdx];
-      if (!dept) return prev;
-      const proj = ensureArray(dept.projects)[pIdx];
-      if (!proj) return prev;
+      const deptPrev = next[dIdx];
+      if (!deptPrev) return prev;
+
+      // 不変更新
+      const dept = { ...deptPrev };
+      const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+      const projPrev = projs[pIdx];
+      if (!projPrev) return prev;
+      const proj = { ...projPrev };
       const list = Array.isArray(proj.okrsV2) ? [...(proj.okrsV2 as KRStructuredX[])] : [];
+
       if (list[idx]) list[idx] = { ...(list[idx] as KRStructuredX), ...(patch as KRStructuredX) };
-      (proj as any).okrsV2 = list as KRStructuredX[];
-      dept.projects![pIdx] = proj;
+      (proj as any).okrsV2 = list;
+      projs[pIdx] = proj;
+      dept.projects = projs;
       next[dIdx] = dept;
+
       commit(next);
       return next;
     });
@@ -443,57 +491,53 @@ export default function OKRPage() {
   const deleteStructuredKR = (dIdx: number, pIdx: number, idx: number) => {
     setDepartments((prev: Department[]) => {
       const next = [...prev];
-      const dept = next[dIdx];
-      if (!dept) return prev;
-      const proj = ensureArray(dept.projects)[pIdx];
-      if (!proj) return prev;
+      const deptPrev = next[dIdx];
+      if (!deptPrev) return prev;
+      const dept = { ...deptPrev };
+      const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+      const projPrev = projs[pIdx];
+      if (!projPrev) return prev;
+      const proj = { ...projPrev };
       const list = Array.isArray(proj.okrsV2)
         ? (proj.okrsV2 as KRStructuredX[]).filter((_, i) => i !== idx)
         : [];
       (proj as any).okrsV2 = list;
-      dept.projects![pIdx] = proj;
+      projs[pIdx] = proj;
+      dept.projects = projs;
       next[dIdx] = dept;
       commit(next);
       return next;
     });
   };
 
-  /* -------- プロジェクトのロール更新 -------- */
-const updateProjectRole = (dIdx: number, pIdx: number, role: Project['role']) => {
-  console.log('選択されたロール:', role); // デバッグ用ログ
+  /* -------- プロジェクトのロール更新（影にも保存） -------- */
+  const updateProjectRole = (dIdx: number, pIdx: number, role: Project['role'] | '') => {
+    const k = `${dIdx}:${pIdx}`;
+    const newRole: Project['role'] | undefined = role === '' ? undefined : role;
 
-  // setDepartmentsを呼び出し、プロジェクトのロールを更新
-  setDepartments((prev: Department[]) => {
-    const next = [...prev];
-    const dept = next[dIdx];
-    
-    // 部門が存在しない場合はそのまま返す
-    if (!dept) return prev;
+    // 影を先に更新（UI 即時反映）
+    setRoleShadow((prev) => ({ ...prev, [k]: newRole }));
 
-    // プロジェクトが存在しない場合はそのまま返す
-    const proj = ensureArray(dept.projects)[pIdx];
-    if (!proj) return prev;
+    // 本体も不変更新
+    setDepartments((prev: Department[]) => {
+      const next = [...prev];
+      const deptPrev = next[dIdx];
+      if (!deptPrev) return prev;
 
-    // プロジェクトのロールを更新
-    proj.role = role;
-    dept.projects![pIdx] = proj;
+      const dept = { ...deptPrev };
+      const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+      const projPrev = projs[pIdx];
+      if (!projPrev) return prev;
 
-    // 部門を更新
-    next[dIdx] = dept;
+      const proj = { ...projPrev, role: newRole };
+      projs[pIdx] = proj;
+      dept.projects = projs;
+      next[dIdx] = dept;
 
-    // 状態更新を保存
-    commit(next);
-
-    // 更新された状態を返す
-    return next;
-  });
-};
-
-// useEffectでstateの更新を監視してログを出力
-useEffect(() => {
-  console.log('更新されたdepartments:', departments);  // departmentsの更新後にログを表示
-}, [departments]);  // departmentsが更新されるたびにログが出力される
-
+      commit(next);
+      return next;
+    });
+  };
 
   /* -------- 構造化KR：追加フォーム（プロジェクト単位） -------- */
   const emptyDraft: Draft = {
@@ -571,15 +615,20 @@ useEffect(() => {
 
     setDepartments((prev: Department[]) => {
       const next = [...prev];
-      const dept = next[dIdx];
-      if (!dept) return prev;
-      const proj = ensureArray(dept.projects)[pIdx];
-      if (!proj) return prev;
+      const deptPrev = next[dIdx];
+      if (!deptPrev) return prev;
+      const dept = { ...deptPrev };
+      const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+      const projPrev = projs[pIdx];
+      if (!projPrev) return prev;
+      const proj = { ...projPrev };
       const list = Array.isArray(proj.okrsV2) ? [...(proj.okrsV2 as KRStructuredX[])] : [];
       list.push(kr);
       (proj as any).okrsV2 = list;
-      dept.projects![pIdx] = proj;
+      projs[pIdx] = proj;
+      dept.projects = projs;
       next[dIdx] = dept;
+
       commit(next);
       return next;
     });
@@ -644,7 +693,7 @@ useEffect(() => {
 
               {projects.map((proj, projIdx) => {
                 const okrsV2 = ensureArray(proj.okrsV2) as KRStructuredX[];
-                const addKey = keyFor(deptIdx, projIdx);
+                const addKey = `${deptIdx}:${projIdx}`;
                 const d = (draftMap[addKey] ?? emptyDraft) as Draft;
                 const isOpen = !!openAdd[addKey];
 
@@ -678,15 +727,13 @@ useEffect(() => {
                         </div>
                         <select
                           className="h-9 rounded-xl border border-zinc-200 bg-white px-2 text-[13px]"
-                          value={proj.role ?? ''}
-                          onChange={(e) =>
-                            updateProjectRole(deptIdx, projIdx, (e.target.value as Project['role']) || undefined)
-                          }
+                          value={roleShadow[addKey] ?? proj.role ?? ''}
+                          onChange={(e) => updateProjectRole(deptIdx, projIdx, e.target.value as Project['role'] | '')}
                           disabled={!hydrated || scopeCompanyId !== accessCompanyId}
                         >
                           <option value="">未選択</option>
                           {ROLE_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value ?? ''}>
+                            <option key={opt.value} value={opt.value}>
                               {opt.label}
                             </option>
                           ))}
@@ -980,7 +1027,7 @@ useEffect(() => {
 
                           {/* 上書き値 */}
                           <div className="space-y-1">
-                            <div className="flex items中心 gap-1">
+                            <div className="flex items-center gap-1">{/* 修正：items中心→items-center */}
                               <div className="text-[11px] text-zinc-600">上書き値（上書きを選んだ場合）</div>
                               <Tooltip text="反映方法で「上書き」を選んだ場合に、基準値として使う数値です。">
                                 <HelpCircle className="h-3.5 w-3.5 text-zinc-500" />
