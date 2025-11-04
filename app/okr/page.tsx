@@ -459,20 +459,41 @@ export default function OKRPage() {
   };
 
   /* -------- プロジェクトのロール更新 -------- */
-  const updateProjectRole = (dIdx: number, pIdx: number, role: Project['role']) => {
-    setDepartments((prev: Department[]) => {
-      const next = [...prev];
-      const dept = next[dIdx];
-      if (!dept) return prev;
-      const proj = ensureArray(dept.projects)[pIdx];
-      if (!proj) return prev;
-      (proj as any).role = role;
-      dept.projects![pIdx] = proj;
-      next[dIdx] = dept;
-      commit(next);
-      return next;
-    });
-  };
+const updateProjectRole = (dIdx: number, pIdx: number, role: Project['role']) => {
+  console.log('選択されたロール:', role); // デバッグ用ログ
+
+  // setDepartmentsを呼び出し、プロジェクトのロールを更新
+  setDepartments((prev: Department[]) => {
+    const next = [...prev];
+    const dept = next[dIdx];
+    
+    // 部門が存在しない場合はそのまま返す
+    if (!dept) return prev;
+
+    // プロジェクトが存在しない場合はそのまま返す
+    const proj = ensureArray(dept.projects)[pIdx];
+    if (!proj) return prev;
+
+    // プロジェクトのロールを更新
+    proj.role = role;
+    dept.projects![pIdx] = proj;
+
+    // 部門を更新
+    next[dIdx] = dept;
+
+    // 状態更新を保存
+    commit(next);
+
+    // 更新された状態を返す
+    return next;
+  });
+};
+
+// useEffectでstateの更新を監視してログを出力
+useEffect(() => {
+  console.log('更新されたdepartments:', departments);  // departmentsの更新後にログを表示
+}, [departments]);  // departmentsが更新されるたびにログが出力される
+
 
   /* -------- 構造化KR：追加フォーム（プロジェクト単位） -------- */
   const emptyDraft: Draft = {
