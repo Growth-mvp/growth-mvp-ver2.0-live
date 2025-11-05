@@ -1,6 +1,7 @@
+// /app/cascade/page.tsx（整理版・既存機能互換）
 'use client';
 
-import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useAccess } from '@/utils/access';
 import DepartmentQuestionStepper, {
@@ -11,7 +12,6 @@ import DepartmentQuestionStepper, {
 import { Button } from '@/components/ui/button';
 import { PlusCircle, Save, Sparkles, Building2, FileText } from 'lucide-react';
 
-// 依存
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
@@ -27,9 +27,9 @@ import type {
 import { mapTopToExecIds, EXEC_TITLES } from '@/lib/strategyPatterns.map';
 import type { TopPatternId } from '@/lib/strategyPatterns.top';
 
-/* =========================================================
-   ローカル型（store拡張対応）
-========================================================= */
+/* =========================
+   型（store拡張互換）
+========================= */
 type Project = BaseProject;
 type StoreOKR = BaseOKR;
 type StoreAnswerStep = BaseAnswerStep;
@@ -53,16 +53,15 @@ type Department = BaseDepartment & {
   recommendedExecPatterns?: RecommendedPattern[];
 };
 
-/* =========================================================
-   共通ヘルパ
-========================================================= */
-function escapeHtml(s: string) {
-  return String(s ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]!));
-}
-function nl2brSafe(s?: string) {
-  return s ? escapeHtml(s).replace(/\r?\n/g, '<br>') : '';
-}
-function safeJsonFromText<T = any>(raw: string): T | null {
+/* =========================
+   ユーティリティ
+========================= */
+const escapeHtml = (s: string) =>
+  String(s ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]!));
+
+const nl2brSafe = (s?: string) => (s ? escapeHtml(s).replace(/\r?\n/g, '<br>') : '');
+
+const safeJsonFromText = <T = any,>(raw: string): T | null => {
   if (!raw) return null;
   try {
     return JSON.parse(raw) as T;
@@ -75,18 +74,17 @@ function safeJsonFromText<T = any>(raw: string): T | null {
     }
   }
   return null;
-}
+};
+
 const jsonEq = (a: any, b: any) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
-/* =========================================================
-   ストーリー変換
-========================================================= */
-function isNonEmptyStoryPayload(v: any): boolean {
+/* ストーリー変換 */
+const isNonEmptyStoryPayload = (v: any): boolean => {
   if (!v) return false;
   if (Array.isArray(v)) return v.some((c) => (c.title ?? '').trim() || (c.body ?? '').trim());
   if (typeof v === 'string') return v.trim().length > 0;
   return false;
-}
+};
 function getStory(raw: any) {
   if (Array.isArray(raw) && raw.length) {
     const chapters = raw
@@ -107,31 +105,26 @@ function getStory(raw: any) {
   return { text: '', chapters: [] };
 }
 
-/* =========================================================
-   変換関数
-========================================================= */
-function toDeptAnswers(steps: StoreAnswerStep[] | undefined): DeptAnswerStep[] {
-  const STABLE_TS = '1970-01-01T00:00:00Z';
-  return (
-    steps?.map((s) => ({
-      stepNumber: Number(s.stepNumber) as StepNumber,
-      question: s.question ?? '',
-      reason: s.reason ?? '',
-      answer: s.answer ?? '',
-      createdAt: STABLE_TS,
-    })) ?? []
-  );
-}
-function toStoreSteps(answers: DeptAnswerStep[]): StoreAnswerStep[] {
-  return answers.map((a) => ({ stepNumber: a.stepNumber, question: a.question, reason: a.reason, answer: a.answer }));
-}
-function toStoreOKR(o: DeptOKR): StoreOKR {
-  return { objective: (o.objective ?? '').trim(), keyResults: o.keyResults?.filter(Boolean) ?? [], owner: o.owner?.trim() || undefined };
-}
+/* 変換 */
+const toDeptAnswers = (steps?: StoreAnswerStep[]): DeptAnswerStep[] =>
+  (steps ?? []).map((s) => ({
+    stepNumber: Number(s.stepNumber) as StepNumber,
+    question: s.question ?? '',
+    reason: s.reason ?? '',
+    answer: s.answer ?? '',
+    createdAt: '1970-01-01T00:00:00Z',
+  }));
 
-/* =========================================================
-   簡易スナップショット（Dirty判定用・Store側と同等キーのみ）
-========================================================= */
+const toStoreSteps = (answers: DeptAnswerStep[]): StoreAnswerStep[] =>
+  answers.map((a) => ({ stepNumber: a.stepNumber, question: a.question, reason: a.reason, answer: a.answer }));
+
+const toStoreOKR = (o: DeptOKR): StoreOKR => ({
+  objective: (o.objective ?? '').trim(),
+  keyResults: o.keyResults?.filter(Boolean) ?? [],
+  owner: o.owner?.trim() || undefined,
+});
+
+/* スナップショット＆ハッシュ（Dirty判定） */
 function makeSaveSnapshot(s: any) {
   const snap: any = {
     strategyId: s?.strategyId ?? undefined,
@@ -158,9 +151,7 @@ function hashSnapshot(obj: any) {
   return (h >>> 0).toString(16);
 }
 
-/* =========================================================
-   シグナル抽出（簡易）
-========================================================= */
+/* シグナル抽出（簡易） */
 function extractSignals(params: { industry?: string; mission?: string; answers?: DeptAnswerStep[] }) {
   const { industry, mission = '', answers = [] } = params;
   const text = [mission, ...answers.map((a) => a.answer || '')].join('\n').toLowerCase();
@@ -206,15 +197,12 @@ function extractSignals(params: { industry?: string; mission?: string; answers?:
   };
 }
 
-/* =========================================================
-   OKR 日本語表示ヘルパ
-========================================================= */
-function renderOKRJa(okr?: { objective?: string; keyResults?: string[]; owner?: string }) {
+/* OKR 日本語表示（簡素） */
+const OKRBlock = memo(function OKRBlock({ okr }: { okr?: { objective?: string; keyResults?: string[]; owner?: string } }) {
   if (!okr) return null;
   const objective = (okr.objective ?? '').trim();
   const krs = (okr.keyResults ?? []).filter(Boolean);
   if (!objective && krs.length === 0) return null;
-
   return (
     <div className="mt-2">
       {objective && <div className="text-sm font-medium">達成目標：{objective}</div>}
@@ -227,157 +215,188 @@ function renderOKRJa(okr?: { objective?: string; keyResults?: string[]; owner?: 
       )}
     </div>
   );
-}
+});
 
-/* =========================================================
-   メインページ
-========================================================= */
+/* ラベル群（t系/e系/ブリッジ） */
+const BadgeRow = memo(function BadgeRow({
+  title,
+  items,
+  tone,
+}: {
+  title: string;
+  items: Array<{ id: string; label: string; hint?: string }>;
+  tone: 'indigo' | 'sky' | 'emerald';
+}) {
+  if (!items?.length) return null;
+  const toneMap = {
+    indigo: 'border bg-indigo-50 text-indigo-800',
+    sky: 'border bg-sky-50 text-sky-800',
+    emerald: 'border bg-emerald-50 text-emerald-800',
+  } as const;
+  return (
+    <div className="mb-2">
+      <div className="text-xs text-zinc-500 mb-1">{title}</div>
+      <div className="flex flex-wrap gap-2">
+        {items.map((p) => (
+          <span key={p.id} className={`text-xs px-2 py-1 rounded-full ${toneMap[tone]}`} title={p.hint || ''}>
+            {p.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+});
+
+/* ビジュアルカード */
+const VisualCard = memo(function VisualCard({ d }: { d: Department }) {
+  return (
+    <div className="p-6 rounded-3xl border bg-white/70 backdrop-blur-sm shadow-sm">
+      <div className="flex justify-between items-center mb-2">
+        <h3 className="font-semibold flex items-center gap-2">
+          <Building2 className="w-4 h-4" /> {d.name}
+        </h3>
+        {d.finalized && <span className="text-xs bg-zinc-900 text-white rounded-full px-2 py-1">確定済み</span>}
+      </div>
+      <p className="text-sm text-zinc-700 mb-2">{d.strategy ?? d.mission}</p>
+
+      <BadgeRow
+        title="推奨パターン（t系）"
+        items={(d.recommendedPatterns ?? []).map((p, i) => ({
+          id: `${p.id}-${i}`,
+          label: p.title ?? p.id,
+          hint: (p.why || []).join(' / '),
+        }))}
+        tone="indigo"
+      />
+
+      <BadgeRow
+        title="関連する実装候補（ブリッジ）"
+        items={mapTopToExecIds((d.recommendedPatterns ?? []).map((p) => p.id as TopPatternId).filter(Boolean) as TopPatternId[]).map(
+          (eid, i) => ({
+            id: `${eid}-${i}`,
+            label: EXEC_TITLES[eid] ?? eid,
+          })
+        )}
+        tone="sky"
+      />
+
+      <BadgeRow
+        title="実装パターン（e系）"
+        items={(d.recommendedExecPatterns ?? []).map((p, i) => ({
+          id: `${p.id}-${i}`,
+          label: p.title ?? p.id,
+          hint: (p.why || []).join(' / '),
+        }))}
+        tone="emerald"
+      />
+
+      {d.projects?.length ? (
+        <ul className="text-sm text-zinc-800 space-y-3">
+          {d.projects.map((p, j) => (
+            <li key={j}>
+              • {p.title}
+              <OKRBlock okr={p.okrs?.[0]} />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+});
+
+/* =========================
+   メイン
+========================= */
 export default function CascadePage() {
   const s = useStrategyStore() as any;
 
-  // 会社スコープ＆hydration
   const {
     companyId: scopeCompanyId,
     hydrated,
     setCompanyScope,
-    refetchFromServer, // store の再取得API
-    setHydrated, // 明示的にhydratedを立てる（互換）
-    boot, // { isHydrating, isHydrated } 想定
+    refetchFromServer,
+    setHydrated,
+    boot,
     saveStrategyData: saveNow,
     lastServerSnapshot,
-    setDepartments: setDepartmentsInStore, // ← 公式 setter を使用
+    setDepartments: setDepartmentsInStore,
   } = useStrategyStore();
 
-  // 権限API
   const access = useAccess();
   const canEditCompany = access.canEditCompany();
-  const canEditDept = access.canEditDepartment; // () => boolean を想定
+  const canEditDept = access.canEditDepartment;
 
-  // companyId 取得（access優先）。安定化のため useMemo。
   const accessCompanyId: string | undefined = useMemo(
     () => ((access as any)?.companyId ?? (s?.companyId as string | undefined)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [(access as any)?.companyId, s?.companyId]
   );
 
-  // 業種
   const industry: string = (s?.industry as string) || (s?.company?.industry as string) || '';
 
-  /* ---------------- デバッグログ ---------------- */
+  /* ---- 初回ログだけ残す ---- */
   useEffect(() => {
     console.log('[cascade] mount', { hydrated, scopeCompanyId, accessCompanyId });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  useEffect(() => {
-    console.log('[cascade] 🚧 hydrating...', { hydrated, scopeCompanyId, accessCompanyId, boot });
-  }, [hydrated, scopeCompanyId, accessCompanyId, boot]);
 
-  /* =========================================================
-     会社スコープ確立（StrictMode対策）
-  ========================================================= */
+  /* ===== 会社スコープ確立（StrictMode耐性）===== */
   const lastAppliedCompanyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!accessCompanyId) return;
-
-    // すでに同一IDを適用済みなら何もしない（再度 isHydrating を立てない）
     if (lastAppliedCompanyRef.current === accessCompanyId && scopeCompanyId === accessCompanyId) return;
 
-    console.log('[cascade] effect → setCompanyScope', { scopeCompanyId, accessCompanyId });
-
     if (scopeCompanyId && scopeCompanyId !== accessCompanyId) {
-      // 会社切替：必ず hydrated を落としてから、reset → scope 再適用
       setHydrated?.(false);
       hardResetForCompanySwitch(accessCompanyId);
       setCompanyScope(accessCompanyId);
     } else if (!scopeCompanyId) {
-      // 初回：スコープだけ確立（初回だけ呼ぶ）
       setCompanyScope(accessCompanyId);
     }
-    // ここで「同一ID・scopeも一致」なら呼ばない
-
     lastAppliedCompanyRef.current = accessCompanyId;
   }, [accessCompanyId, scopeCompanyId, setCompanyScope, setHydrated]);
 
-  /* =========================================================
-     初期ロード（loadAndHydrate + refetch）
-     - 同一companyIdに対する多重起動ガード
-     - Dirty時はサーバ取得をスキップ（ローカル優先）
-     - 7秒フェイルセーフで hydrated を立てる
-     - スコープ未セットなら念のため再適用
-  ========================================================= */
+  /* ===== 初期ロード（Dirty回避＋フェイルセーフ） ===== */
   const loadGuardRef = useRef<string | null>(null);
   useEffect(() => {
     if (!accessCompanyId) return;
-
-    // 念のため：スコープ未設定なら適用
-    if (!scopeCompanyId) {
-      setCompanyScope(accessCompanyId);
-    }
-
-    // 同一IDかつ既に完了なら再入防止
-    if (loadGuardRef.current === accessCompanyId && hydrated && scopeCompanyId === accessCompanyId) {
-      return;
-    }
+    if (!scopeCompanyId) setCompanyScope(accessCompanyId);
+    if (loadGuardRef.current === accessCompanyId && hydrated && scopeCompanyId === accessCompanyId) return;
 
     let cancelled = false;
-
     const run = async () => {
       if (hydrated && scopeCompanyId === accessCompanyId) {
         loadGuardRef.current = accessCompanyId;
         return;
       }
-
-      console.log('[cascade] 🌀 load start', { hydrated, scopeCompanyId });
-
-      // Dirty判定：サーバスナップショットと現在の差分があればローカル優先
       const currentSnap = makeSaveSnapshot(useStrategyStore.getState());
       const currentHash = hashSnapshot(currentSnap);
       const isDirty = !!(lastServerSnapshot && lastServerSnapshot !== currentHash);
 
-      const doLoad = async () => {
+      const timer = setTimeout(() => !cancelled && setHydrated?.(true), 7000);
+      try {
         if (!isDirty) {
-          // きれいな状態のみサーバから hydrate（= 上書きの危険がない）
           await loadAndHydrate(accessCompanyId);
           try {
-            await refetchFromServer?.(); // 差分同期（クリーンな時のみ）
-          } catch (e) {
-            console.warn('[cascade] refetchFromServer failed (ignored)', e);
-          }
+            await refetchFromServer?.();
+          } catch {}
           setHydrated?.(true);
         } else {
-          // 編集中（Dirty）ならサーバ取得はスキップし、そのままhydratedへ
-          console.log('[cascade] ✋ skip server fetch (dirty local)');
           setHydrated?.(true);
         }
-      };
-
-      const timer = setTimeout(() => {
-        if (!cancelled) {
-          console.warn('[cascade] ⚠️ Timeout reached, forcing hydration');
-          setHydrated?.(true);
-        }
-      }, 7000);
-
-      try {
-        await doLoad();
-        console.log('[cascade] ✅ load done (dirty=%s)', String(isDirty));
         loadGuardRef.current = accessCompanyId;
       } finally {
         clearTimeout(timer);
       }
       if (cancelled) return;
     };
-
     run();
     return () => {
       cancelled = true;
     };
   }, [accessCompanyId, hydrated, scopeCompanyId, refetchFromServer, setHydrated, lastServerSnapshot, setCompanyScope]);
 
-  /* =========================================================
-     ハイドレーション・ウォッチドッグ
-     - 5秒以上 isHydrating のままなら強制解除
-  ========================================================= */
+  /* ===== ハイドレーション・ウォッチドッグ ===== */
   const hydrateStartRef = useRef<number | null>(null);
   useEffect(() => {
     const mismatch = !!(accessCompanyId && scopeCompanyId && scopeCompanyId !== accessCompanyId);
@@ -391,7 +410,6 @@ export default function CascadePage() {
 
     const id = setInterval(() => {
       if (hydrateStartRef.current != null && Date.now() - hydrateStartRef.current > 5000) {
-        console.warn('[cascade] ⏱️ watchdog: force setHydrated(true)');
         setHydrated?.(true);
         hydrateStartRef.current = null;
       }
@@ -399,12 +417,7 @@ export default function CascadePage() {
     return () => clearInterval(id);
   }, [boot?.isHydrating, hydrated, accessCompanyId, scopeCompanyId, setHydrated]);
 
-  /* =========================================================
-     ローカル departments とストアの同期
-     - ハイドレーション中に自動保存させない
-     - ストアが undefined / [] どちらでもローカルを空へ
-     - 会社切替や全削除直後はローカルを即リセット
-  ========================================================= */
+  /* ===== departments 同期（自動保存は hydrated 後のみ） ===== */
   const [departments, setDepartments] = useState<Department[]>(
     Array.isArray(s?.departments) ? (s.departments as Department[]) : []
   );
@@ -413,36 +426,25 @@ export default function CascadePage() {
     depsRef.current = departments;
   }, [departments]);
 
-  // ★ ハイドレーション完了時のみ自動保存を有効化
   useAutoSave(hydrated && !boot?.isHydrating ? [accessCompanyId, departments] : []);
 
-  // ストア側の departments を監視してローカルに反映
   const storeDepartments = useStrategyStore((st) => st.departments) as Department[] | undefined;
   useEffect(() => {
-    // undefined or [] → ローカルも空へ
     if (!Array.isArray(storeDepartments) || storeDepartments.length === 0) {
       if (departments.length !== 0) setDepartments([]);
       return;
     }
-    // 差分があれば置き換える
-    if (!jsonEq(departments, storeDepartments)) {
-      setDepartments(storeDepartments as Department[]);
-    }
+    if (!jsonEq(departments, storeDepartments)) setDepartments(storeDepartments as Department[]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeDepartments]);
 
-  // 会社切替/全削除後（boot.isHydrating になった瞬間）にローカル即初期化
   useEffect(() => {
-    if (boot?.isHydrating) {
-      if (departments.length) setDepartments([]);
-    }
+    if (boot?.isHydrating && departments.length) setDepartments([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boot?.isHydrating]);
 
-  // 読み込み状態（解除条件を厳密化）
   const mismatch = !!(accessCompanyId && scopeCompanyId && scopeCompanyId !== accessCompanyId);
-  const isHydrating =
-    ((Boolean(boot?.isHydrating) && !hydrated) || mismatch || !hydrated);
+  const isHydrating = ((Boolean(boot?.isHydrating) && !hydrated) || mismatch || !hydrated);
 
   const rawStory = useMemo(() => {
     if (isNonEmptyStoryPayload(s?.finalStory)) return s.finalStory;
@@ -452,11 +454,9 @@ export default function CascadePage() {
   }, [s?.finalStory, s?.story, s?.strategyStory]);
   const { text: storyText, chapters: storyChapters } = useMemo(() => getStory(rawStory), [rawStory]);
 
-  // ★ ストア更新は公式 setter を使う（正規化＆保存統一化）
   const pushToStore = useCallback(
     (next: Department[]) => {
       setDepartments(next);
-      // ハイドレーション中はストア書き込みを抑制（無限ロード防止）
       if (boot?.isHydrating) return;
       setDepartmentsInStore?.(next);
     },
@@ -471,7 +471,7 @@ export default function CascadePage() {
   const [inlineEdit, setInlineEdit] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState<Record<number, any>>({});
 
-  /* ================= 保存 ================= */
+  /* ===== その場保存 ===== */
   const saveInlineMission = (index: number) => {
     const next = [...depsRef.current];
     const d = { ...next[index] };
@@ -500,27 +500,20 @@ export default function CascadePage() {
     return storyText;
   };
 
-  /* ================== 離脱/非表示時に即時保存 ================== */
+  /* ===== 離脱/非表示時の即時保存 ===== */
   useEffect(() => {
     const flush = async () => {
       const st = useStrategyStore.getState();
-      // ハイドレーション中は保存しない
       if (st.boot?.isHydrating || !st.boot?.isHydrated) return;
       const snap = makeSaveSnapshot(st);
       const hash = hashSnapshot(snap);
-      if (st.lastServerSnapshot && st.lastServerSnapshot === hash) return; // 変更なし
+      if (st.lastServerSnapshot && st.lastServerSnapshot === hash) return;
       try {
         await saveNow();
-      } catch (e) {
-        console.warn('[cascade] flush save failed', e);
-      }
+      } catch {}
     };
-    const onBeforeUnload = () => {
-      void flush();
-    };
-    const onPageHide = () => {
-      void flush();
-    };
+    const onBeforeUnload = () => void flush();
+    const onPageHide = () => void flush();
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') void flush();
     };
@@ -534,14 +527,12 @@ export default function CascadePage() {
     };
   }, [saveNow]);
 
-  /* ================= 推薦API：経営レベル（t系） ================= */
+  /* ===== 推薦API（t系） ===== */
   const handleRecommendPatterns = async (index: number) => {
     const dept = depsRef.current[index];
     if (!dept) return;
-    if (!canEditDept()) {
-      setNotice('⚠️ 編集権限がありません');
-      return;
-    }
+    if (!canEditDept()) return setNotice('⚠️ 編集権限がありません');
+
     const answers: DeptAnswerStep[] = toDeptAnswers(dept.answers2?.[0]?.steps);
     const signals = extractSignals({ industry, mission: dept.strategy ?? dept.mission ?? '', answers });
 
@@ -570,14 +561,12 @@ export default function CascadePage() {
     }
   };
 
-  /* ================= 推薦API：実装レベル（e系） ================= */
+  /* ===== 推薦API（e系）===== */
   const handleRecommendExecPatterns = async (index: number) => {
     const dept = depsRef.current[index];
     if (!dept) return;
-    if (!canEditDept()) {
-      setNotice('⚠️ 編集権限がありません');
-      return;
-    }
+    if (!canEditDept()) return setNotice('⚠️ 編集権限がありません');
+
     const answers: DeptAnswerStep[] = toDeptAnswers(dept.answers2?.[0]?.steps);
     const signals = extractSignals({ industry, mission: dept.strategy ?? dept.mission ?? '', answers });
 
@@ -606,26 +595,18 @@ export default function CascadePage() {
     }
   };
 
-  /* ================= OKR雛形：e系→OKR 自動展開 ================= */
+  /* ===== e系→OKR 雛形 ===== */
   const handleOKRFromExec = async (index: number) => {
     const dept = depsRef.current[index];
     if (!dept) return;
-    if (!canEditDept()) {
-      setNotice('⚠️ 編集権限がありません');
-      return;
-    }
+    if (!canEditDept()) return setNotice('⚠️ 編集権限がありません');
 
     const execIds: string[] =
       (dept.recommendedExecPatterns?.map((p) => p.id) ?? []).length
         ? dept.recommendedExecPatterns!.map((p) => p.id)
-        : mapTopToExecIds(
-            (dept.recommendedPatterns ?? []).map((p) => p.id as TopPatternId).filter(Boolean) as TopPatternId[]
-          );
+        : mapTopToExecIds(((dept.recommendedPatterns ?? []).map((p) => p.id as TopPatternId).filter(Boolean) as TopPatternId[]));
 
-    if (!execIds.length) {
-      setNotice('⚠️ 実装パターンがありません（先に推薦を実行してください）');
-      return;
-    }
+    if (!execIds.length) return setNotice('⚠️ 実装パターンがありません（先に推薦を実行してください）');
 
     setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), okrGen: true } }));
     try {
@@ -639,14 +620,9 @@ export default function CascadePage() {
         }),
       });
       const text = await res.text();
-      const data = safeJsonFromText<{ items: { id: string; title: string; okr: { objective: string; keyResults: string[]; owner?: string } }[] }>(text) ?? {
-        items: [],
-      };
+      const data = safeJsonFromText<{ items: { id: string; title: string; okr: { objective: string; keyResults: string[]; owner?: string } }[] }>(text) ?? { items: [] };
 
-      if (!data.items?.length) {
-        setNotice('⚠️ OKR雛形が生成されませんでした');
-        return;
-      }
+      if (!data.items?.length) return setNotice('⚠️ OKR雛形が生成されませんでした');
 
       const next = [...depsRef.current];
       const d = { ...next[index] };
@@ -660,7 +636,6 @@ export default function CascadePage() {
           const exist = { ...projects[existIdx] };
           const existOkrs = [...(exist.okrs ?? [])];
           const candidate = { objective: okr.objective, keyResults: okr.keyResults ?? [], owner: okr.owner };
-          // 同一OKRの重複追加を防止
           if (!existOkrs.some((o) => jsonEq(o, candidate))) {
             existOkrs.push(candidate);
             exist.okrs = existOkrs;
@@ -684,18 +659,15 @@ export default function CascadePage() {
     }
   };
 
-  /* ================= 要約生成（→自動 t系推薦） ================= */
+  /* ===== 要約生成（→自動 t系推薦） ===== */
   const handleGenerateSummary = async (index: number) => {
     const dept = depsRef.current[index];
     if (!dept) return;
-    if (!canEditDept()) {
-      setNotice('⚠️ 編集権限がありません');
-      return;
-    }
+    if (!canEditDept()) return setNotice('⚠️ 編集権限がありません');
+
     const steps = dept.answers2?.[0]?.steps && dept.answers2[0].steps.length > 0 ? dept.answers2[0].steps : [];
     if (steps.length < 3 || steps.some((s) => !(s.answer ?? '').trim())) {
-      setNotice('⚠️ 3問すべて回答してください');
-      return;
+      return setNotice('⚠️ 3問すべて回答してください');
     }
     const story = requireStoryOrWarn();
     if (!story) return;
@@ -745,85 +717,23 @@ export default function CascadePage() {
     await handleRecommendPatterns(index);
   };
 
-  /* ================= ビジュアルビュー ================= */
+  /* ===== ビジュアルビュー ===== */
   const VisualView = useMemo(() => {
     if (!departments.length) return <div className="text-zinc-600">部門がまだ登録されていません。</div>;
     return (
       <div className="grid md:grid-cols-2 gap-6">
         {departments.map((d, i) => (
-          <div key={`v-${d.name}-${i}`} className="p-6 rounded-3xl border bg-white/70 backdrop-blur-sm shadow-sm">
-            <div className="flex justify-between items-center mb-2">
-              <h3 className="font-semibold flex items-center gap-2">
-                <Building2 className="w-4 h-4" /> {d.name}
-              </h3>
-              {d.finalized && <span className="text-xs bg-zinc-900 text-white rounded-full px-2 py-1">確定済み</span>}
-            </div>
-            <p className="text-sm text-zinc-700 mb-2">{d.strategy ?? d.mission}</p>
-
-            {!!d.recommendedPatterns?.length && (
-              <div className="mb-2">
-                <div className="text-xs text-zinc-500 mb-1">推奨パターン（t系）</div>
-                <div className="flex flex-wrap gap-2">
-                  {d.recommendedPatterns!.map((p, idx) => (
-                    <span key={p.id + idx} className="text-xs px-2 py-1 rounded-full border bg-indigo-50 text-indigo-800" title={(p.why || []).join(' / ')}>
-                      {p.title ?? p.id}
-                      {p.score != null ? `（${p.score}）` : ''}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {Array.isArray(d.recommendedPatterns) && d.recommendedPatterns.length > 0 && (
-              <div className="mb-2">
-                <div className="text-xs text-zinc-500 mb-1">関連する実装候補（ブリッジ）</div>
-                <div className="flex flex-wrap gap-2">
-                  {mapTopToExecIds(d.recommendedPatterns.map((p) => p.id as TopPatternId).filter(Boolean) as TopPatternId[]).map((eid, idx) => (
-                    <span key={eid + idx} className="text-xs px-2 py-1 rounded-full border bg-sky-50 text-sky-800">
-                      {EXEC_TITLES[eid] ?? eid}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {!!d.recommendedExecPatterns?.length && (
-              <div className="mb-2">
-                <div className="text-xs text-zinc-500 mb-1">実装パターン（e系）</div>
-                <div className="flex flex-wrap gap-2">
-                  {d.recommendedExecPatterns!.map((p, idx) => (
-                    <span key={p.id + idx} className="text-xs px-2 py-1 rounded-full border bg-emerald-50 text-emerald-800" title={(p.why || []).join(' / ')}>
-                      {p.title ?? p.id}
-                      {p.score != null ? `（${p.score}）` : ''}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {d.projects?.length ? (
-              <ul className="text-sm text-zinc-800 space-y-3">
-                {d.projects.map((p, j) => (
-                  <li key={j}>
-                    • {p.title}
-                    {renderOKRJa(p.okrs?.[0])}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </div>
+          <VisualCard key={`v-${d.name}-${i}`} d={d} />
         ))}
       </div>
     );
   }, [departments]);
 
-  /* =========================================================
-     map 内で Hooks を使わないための一括メモ化（安定参照）
-  ========================================================= */
+  /* map内 hooks 回避のためのメモ */
   const answersMemo: DeptAnswerStep[][] = useMemo(() => departments.map((d) => toDeptAnswers(d.answers2?.[0]?.steps)), [departments]);
   const projectsMemo: string[][] = useMemo(() => departments.map((d) => d.projects?.map((p) => p.title) ?? []), [departments]);
 
-  /* ================= JSX ================= */
+  /* ===== JSX ===== */
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
       <header className="mb-8">
@@ -833,22 +743,17 @@ export default function CascadePage() {
         </p>
       </header>
 
-      {/* 読み込みインジケータ */}
+      {/* 読み込みインジケータ（簡素） */}
       {isHydrating && (
         <div className="mb-8 rounded-xl border p-4 text-sm text-muted-foreground flex items-center justify-between">
-          <span>サーバーのデータを読み込み中です…</span>
-          <Button
-            variant="secondary"
-            className="h-8 rounded-full px-3"
-            onClick={() => setHydrated?.(true)}
-            title="強制的に読み込み完了にします"
-          >
+          <span>読み込み中…</span>
+          <Button variant="secondary" className="h-8 rounded-full px-3" onClick={() => setHydrated?.(true)} title="強制的に読み込み完了にします">
             手動で続行
           </Button>
         </div>
       )}
 
-      {/* ストーリー */}
+      {/* ストーリー（簡素） */}
       {!isHydrating && (
         <section className="mb-8">
           {storyChapters.length ? (
@@ -866,13 +771,13 @@ export default function CascadePage() {
         </section>
       )}
 
-      {/* タブ */}
+      {/* タブ＋追加ボタン */}
       <div className="flex justify-between items-center mb-6">
         <div className="inline-flex border rounded-full overflow-hidden">
-          {['edit', 'visual'].map((t) => (
+          {(['edit', 'visual'] as const).map((t) => (
             <button
               key={t}
-              onClick={() => setActiveTab(t as any)}
+              onClick={() => setActiveTab(t)}
               className={`px-4 py-2 text-sm ${activeTab === t ? 'bg-zinc-900 text-white' : 'bg-white text-zinc-800'}`}
               disabled={isHydrating}
             >
@@ -888,7 +793,7 @@ export default function CascadePage() {
         )}
       </div>
 
-      {/* 部門追加フォーム */}
+      {/* 追加フォーム（簡素） */}
       {showForm && canEditCompany && !isHydrating && (
         <div className="p-6 border rounded-3xl bg-white/70 mb-8">
           <div className="grid md:grid-cols-2 gap-4">
@@ -928,7 +833,7 @@ export default function CascadePage() {
         </div>
       )}
 
-      {/* 通知 */}
+      {/* 通知（簡素） */}
       {notice && <div className="mb-6 text-sm p-3 rounded-xl border bg-emerald-50 text-emerald-800">{notice}</div>}
 
       {/* 本体 */}
@@ -944,8 +849,6 @@ export default function CascadePage() {
             const answers = answersMemo[index];
             const projTitles = projectsMemo[index];
             const allAnswered = answers.length >= 3 && answers.every((a) => (a.answer ?? '').trim().length > 0);
-
-            // 既存 answers2 と今回 onChange 反映の等価判定で無限ループ抑止
             const currentStoreSteps = dept.answers2?.[0]?.steps ?? [];
 
             return (
@@ -963,6 +866,7 @@ export default function CascadePage() {
                   className="w-full border rounded-xl p-2 mb-2 text-sm"
                   readOnly={!editableDept || isHydrating}
                 />
+
                 <div className="flex flex-wrap gap-2 mb-3">
                   <Button onClick={() => saveInlineMission(index)} disabled={!editableDept || isHydrating} className="rounded-full h-9 px-4">
                     <Save className="w-4 h-4 mr-1" /> 保存
@@ -998,53 +902,43 @@ export default function CascadePage() {
                     title="実装パターンから OKR（達成目標/主要な成果）の雛形を自動生成"
                   >
                     <Sparkles className="w-4 h-4" />
-                    <span className="ml-1">{L.okrGen ? 'OKR生成中…' : '実装→OKR雛形（達成目標/主要な成果）'}</span>
+                    <span className="ml-1">{L.okrGen ? 'OKR生成中…' : '実装→OKR雛形'}</span>
                   </Button>
                 </div>
 
-                {/* 推奨パターン（t系） */}
-                {!!dept.recommendedPatterns?.length && (
-                  <div className="mb-3">
-                    <div className="text-xs text-zinc-500 mb-1">推奨パターン（t系）</div>
-                    <div className="flex flex-wrap gap-2">
-                      {dept.recommendedPatterns!.map((p, idx) => (
-                        <span key={p.id + idx} className="text-xs px-2 py-1 rounded-full border bg-indigo-50 text-indigo-800" title={(p.why || []).join(' / ')}>
-                          {p.title ?? p.id}
-                          {p.score != null ? `（${p.score}）` : ''}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                {/* t系 */}
+                <BadgeRow
+                  title="推奨パターン（t系）"
+                  items={(dept.recommendedPatterns ?? []).map((p, i) => ({
+                    id: `${p.id}-${i}`,
+                    label: p.title ?? p.id,
+                    hint: (p.why || []).join(' / '),
+                  }))}
+                  tone="indigo"
+                />
 
-                {/* 関連する実装候補（t→eブリッジ） */}
-                {Array.isArray(dept.recommendedPatterns) && dept.recommendedPatterns.length > 0 && (
-                  <div className="mb-3">
-                    <div className="text-xs text-zinc-500 mb-1">関連する実装候補（ブリッジ）</div>
-                    <div className="flex flex-wrap gap-2">
-                      {mapTopToExecIds(dept.recommendedPatterns.map((p) => p.id as TopPatternId).filter(Boolean) as TopPatternId[]).map((eid, idx) => (
-                        <span key={eid + idx} className="text-xs px-2 py-1 rounded-full border bg-sky-50 text-sky-800">
-                          {EXEC_TITLES[eid] ?? eid}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                {/* ブリッジ */}
+                <BadgeRow
+                  title="関連する実装候補（ブリッジ）"
+                  items={mapTopToExecIds((dept.recommendedPatterns ?? []).map((p) => p.id as TopPatternId).filter(Boolean) as TopPatternId[]).map(
+                    (eid, i) => ({
+                      id: `${eid}-${i}`,
+                      label: EXEC_TITLES[eid] ?? eid,
+                    })
+                  )}
+                  tone="sky"
+                />
 
-                {/* 実装パターン（e系） */}
-                {!!dept.recommendedExecPatterns?.length && (
-                  <div className="mb-3">
-                    <div className="text-xs text-zinc-500 mb-1">実装パターン（e系）</div>
-                    <div className="flex flex-wrap gap-2">
-                      {dept.recommendedExecPatterns!.map((p, idx) => (
-                        <span key={p.id + idx} className="text-xs px-2 py-1 rounded-full border bg-emerald-50 text-emerald-800" title={(p.why || []).join(' / ')}>
-                          {p.title ?? p.id}
-                          {p.score != null ? `（${p.score}）` : ''}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                {/* e系 */}
+                <BadgeRow
+                  title="実装パターン（e系）"
+                  items={(dept.recommendedExecPatterns ?? []).map((p, i) => ({
+                    id: `${p.id}-${i}`,
+                    label: p.title ?? p.id,
+                    hint: (p.why || []).join(' / '),
+                  }))}
+                  tone="emerald"
+                />
 
                 <DepartmentQuestionStepper
                   departmentName={dept.name}
@@ -1056,10 +950,7 @@ export default function CascadePage() {
                   onChange={({ answers }) => {
                     if (!editableDept || isHydrating) return;
                     const nextSteps = toStoreSteps(answers);
-                    if (jsonEq(nextSteps, currentStoreSteps)) {
-                      // 同一内容なら何もしない（無限ループ抑止）
-                      return;
-                    }
+                    if (jsonEq(nextSteps, currentStoreSteps)) return;
                     const next = [...depsRef.current];
                     const d = { ...next[index] };
                     d.answers2 = [{ chapterIndex: index, chapterTitle: d.name, steps: nextSteps }];
@@ -1094,7 +985,7 @@ export default function CascadePage() {
                   }}
                 />
 
-                {/* 3問回答完了 → AI要約（→自動t系推薦） */}
+                {/* 3問回答完了 → AI要約 */}
                 {allAnswered && !isHydrating && (
                   <div className="mt-4 border rounded-2xl bg-blue-50 p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                     <div className="text-sm text-blue-900 flex items-center gap-2">
