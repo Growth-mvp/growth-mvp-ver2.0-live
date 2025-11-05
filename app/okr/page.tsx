@@ -400,9 +400,20 @@ export default function OKRPage() {
           }))
         : [],
     }));
+    // ★ setter には必ず “配列” を渡す（関数は渡さない）
     setDepartments(cloned);
     setDepartmentsInStore(cloned);
   };
+
+  /* -------- 🔧 “安全更新” ヘルパー：setterに関数を渡さない -------- */
+  const getDepts = () =>
+    ((useStrategyStore.getState() as any).departments as Department[]) || [];
+
+  function patchDepartments(mutator: (draft: Department[]) => Department[]) {
+    const current = Array.isArray(getDepts()) ? getDepts() : [];
+    const next = mutator(current);
+    commit(next);
+  }
 
   /* -------- 初期補修：okrsV2 の id を一括補完 -------- */
   useEffect(() => {
@@ -464,12 +475,11 @@ export default function OKRPage() {
     idx: number,
     patch: Partial<KRStructuredX>
   ) {
-    setDepartments((prev: Department[]) => {
+    patchDepartments((prev) => {
       const next = [...prev];
       const deptPrev = next[dIdx];
       if (!deptPrev) return prev;
 
-      // 不変更新
       const dept = { ...deptPrev };
       const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
       const projPrev = projs[pIdx];
@@ -483,13 +493,12 @@ export default function OKRPage() {
       dept.projects = projs;
       next[dIdx] = dept;
 
-      commit(next);
       return next;
     });
   }
 
   const deleteStructuredKR = (dIdx: number, pIdx: number, idx: number) => {
-    setDepartments((prev: Department[]) => {
+    patchDepartments((prev) => {
       const next = [...prev];
       const deptPrev = next[dIdx];
       if (!deptPrev) return prev;
@@ -505,7 +514,6 @@ export default function OKRPage() {
       projs[pIdx] = proj;
       dept.projects = projs;
       next[dIdx] = dept;
-      commit(next);
       return next;
     });
   };
@@ -518,8 +526,8 @@ export default function OKRPage() {
     // 影を先に更新（UI 即時反映）
     setRoleShadow((prev) => ({ ...prev, [k]: newRole }));
 
-    // 本体も不変更新
-    setDepartments((prev: Department[]) => {
+    // 本体も不変更新（setterに関数は渡さない）
+    patchDepartments((prev) => {
       const next = [...prev];
       const deptPrev = next[dIdx];
       if (!deptPrev) return prev;
@@ -534,7 +542,6 @@ export default function OKRPage() {
       dept.projects = projs;
       next[dIdx] = dept;
 
-      commit(next);
       return next;
     });
   };
@@ -613,7 +620,7 @@ export default function OKRPage() {
       baseOverride: baseOverrideNum,
     });
 
-    setDepartments((prev: Department[]) => {
+    patchDepartments((prev) => {
       const next = [...prev];
       const deptPrev = next[dIdx];
       if (!deptPrev) return prev;
@@ -628,8 +635,6 @@ export default function OKRPage() {
       projs[pIdx] = proj;
       dept.projects = projs;
       next[dIdx] = dept;
-
-      commit(next);
       return next;
     });
 
@@ -1027,7 +1032,7 @@ export default function OKRPage() {
 
                           {/* 上書き値 */}
                           <div className="space-y-1">
-                            <div className="flex items-center gap-1">{/* 修正：items中心→items-center */}
+                            <div className="flex items-center gap-1">
                               <div className="text-[11px] text-zinc-600">上書き値（上書きを選んだ場合）</div>
                               <Tooltip text="反映方法で「上書き」を選んだ場合に、基準値として使う数値です。">
                                 <HelpCircle className="h-3.5 w-3.5 text-zinc-500" />
