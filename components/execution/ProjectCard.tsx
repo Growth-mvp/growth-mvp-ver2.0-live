@@ -20,7 +20,33 @@ export default function ProjectCard({
   onClick,
   className = '',
 }: Props) {
-  const okr = project.okrs?.[0];
+  // 1) 従来OKR（最優先）
+  const okr = Array.isArray(project?.okrs) ? project.okrs[0] : undefined;
+
+  // 2) 構造化KR（okrsV2）からプレビュー合成（従来OKRが無い場合に使用）
+  const okrsV2: any[] = Array.isArray((project as any)?.okrsV2) ? ((project as any).okrsV2 as any[]) : [];
+  const v2Labels = okrsV2.map(k => (k?.label ? String(k.label) : '')).filter(Boolean);
+  const synthesizedObjective = okr
+    ? undefined
+    : (v2Labels.length > 0 ? `構造化KR ${v2Labels.length}件（自動）` : undefined);
+
+  // 表示内容を決定
+  const displayObjective =
+    okr?.objective?.trim() ||
+    synthesizedObjective ||
+    '未設定のObjective';
+
+  const displayKRs: string[] = okr?.keyResults && Array.isArray(okr.keyResults)
+    ? okr.keyResults.map(k => (typeof k === 'string' ? k : String(k)))
+    : v2Labels;
+
+  // 長すぎるときは3件まで + 残数表示
+  const MAX_KR = 3;
+  const krHead = displayKRs.slice(0, MAX_KR);
+  const krRest = Math.max(0, displayKRs.length - krHead.length);
+
+  // 所有者（従来OKRにある場合のみ表示）
+  const owner = okr?.owner && String(okr.owner);
 
   return (
     <motion.div
@@ -38,18 +64,25 @@ export default function ProjectCard({
 
         <div className="mt-2">
           <p className="text-sm text-gray-600 line-clamp-2">
-            {okr?.objective || '未設定のObjective'}
+            {displayObjective}
           </p>
-          <ul className="mt-2 list-disc list-inside text-gray-500 text-sm space-y-1">
-            {(okr?.keyResults || []).map((kr, i) => (
-              <li key={i}>{typeof kr === 'string' ? kr : String(kr)}</li>
-            ))}
-          </ul>
+
+          {krHead.length > 0 && (
+            <ul className="mt-2 list-disc list-inside text-gray-500 text-sm space-y-1">
+              {krHead.map((kr, i) => (
+                <li key={i}>{kr}</li>
+              ))}
+              {krRest > 0 && (
+                <li className="text-gray-400">+{krRest}件</li>
+              )}
+            </ul>
+          )}
         </div>
 
-        {okr?.owner && (
+        {/* 従来OKRのownerのみ表示（構造化のみの場合は省略） */}
+        {owner && (
           <Badge className="mt-4" variant="default">
-            {okr.owner}
+            {owner}
           </Badge>
         )}
       </Card>
