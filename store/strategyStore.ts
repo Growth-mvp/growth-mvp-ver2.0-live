@@ -224,6 +224,7 @@ function stableHash(input: any): string {
   return (h >>> 0).toString(16);
 }
 
+// 現状未使用だが互換保持
 function deepMerge<T>(base: any, patch: any): T {
   if (Array.isArray(base) || Array.isArray(patch)) return (patch ?? base) as T;
   if (base && typeof base === 'object' && patch && typeof patch === 'object') {
@@ -653,7 +654,8 @@ export const useStrategyStore = create<StrategyState>()(
         set({
           answers2: answers.map((c) => ({
             ...c,
-            steps: [...c.steps].sort((a, b) => a.stepNumber - b.stepNumber),
+            // ★修正：数値比較で安定化
+            steps: [...c.steps].sort((a, b) => Number(a.stepNumber) - Number(b.stepNumber)),
           })),
           dirty: true,
         });
