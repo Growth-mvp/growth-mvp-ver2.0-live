@@ -349,14 +349,14 @@ export default function StoryProcessPage() {
     Array.isArray(store?.finalStory) ? store.finalStory :
     (typeof store?.finalStory === 'string' ? (tryParseJson<ChapterStory[]>(store.finalStory) ?? []) : []);
 
-  // ★重要修正：ドラフト候補の組み立てから finalRawFromStore を除外（混線の根本）
+  // ★重要：ドラフト候補から finalRawFromStore を除外（参照表示は別で行う）
   const storyRawArr: ChapterStory[] = useMemo(() => {
     const candidates = [
       storyFromSession,
       storyRawFromStoreMain,
       storyRawFromStoreAlt,
       storyRawFromDraft,
-      // finalRawFromStore はここに含めない（参照表示は別で行う）
+      // finalRawFromStore は混ぜない
     ];
     for (const c of candidates) if (Array.isArray(c) && c.length) return c;
     return [];
@@ -440,8 +440,8 @@ export default function StoryProcessPage() {
     return alignToGrowthOrder(uniqChapters(base), FINAL_TITLES);
   }, [finalRawFromStore]);
 
-  // 参照表示は「ドラフトがあればドラフト、無ければ最終」
-  const referenceArr: ChapterStory[] = draftArr.length ? draftArr : finalArrOrderedFromStore;
+  /** ★フォーム専用：常にドラフトのみを参照（無ければ空4章） */
+  const formReferenceArr: ChapterStory[] = draftArr;
 
   /* ------- 章ごとの上限 ------- */
   const [maxStepsByChapter, setMaxStepsByChapter] = useState<Record<number, number>>({ 0: 2, 1: 6, 2: 2, 3: 2 });
@@ -453,9 +453,9 @@ export default function StoryProcessPage() {
   const [currentIdx, setCurrentIdx] = useState(0);
   useEffect(() => {
     const saved = Number(window.localStorage.getItem('storyProcess.currentIdx'));
-    const total = Math.max(1, referenceArr.length);
+    const total = Math.max(1, (formReferenceArr.length || 4));
     if (Number.isFinite(saved)) setCurrentIdx(Math.min(Math.max(0, saved), total - 1));
-  }, [referenceArr.length]);
+  }, [formReferenceArr.length]);
   useEffect(() => {
     window.localStorage.setItem('storyProcess.currentIdx', String(currentIdx));
   }, [currentIdx]);
@@ -633,7 +633,7 @@ export default function StoryProcessPage() {
     }
 
     const next = [...(answers2 ?? [])];
-    const title = referenceArr[chapterIndex]?.title ?? `Chapter ${chapterIndex + 1}`;
+    const title = (formReferenceArr[chapterIndex]?.title ?? REFERENCE_TITLES[chapterIndex]) ?? `Chapter ${chapterIndex + 1}`;
 
     const withDepthFallback: StepperAnswerStep[] = (answers ?? []).map((s) => {
       const sn = Number(s.stepNumber);
@@ -650,7 +650,7 @@ export default function StoryProcessPage() {
 
     setAnswers2Safe(next);
 
-    // 章単位の即時保存（分離テーブルへ）。デバウンス前に最低限守る
+    // 章単位の即時保存（分離テーブルへ）
     try {
       if (canEdit && user?.id && companyId) {
         const single = [{
@@ -670,18 +670,18 @@ export default function StoryProcessPage() {
     if (typeof store?.setChapterCurrentStep === 'function') {
       store.setChapterCurrentStep(chapterIndex, Number(p.currentStep));
     }
-  }, [answers2, persistDebounced, referenceArr, store, canEdit, draftArr, finalRawFromStore, user?.id, companyId]);
+  }, [answers2, persistDebounced, formReferenceArr, store, canEdit, draftArr, finalRawFromStore, user?.id, companyId]);
 
   /* ------- Stepper用 共通コンテキスト ------- */
   const stepperBaseContext = useMemo(
     () => ({
-      story: referenceArr,
+      story: formReferenceArr, // ★フォームはドラフトのみを文脈に渡す
       mission, vision, value,
       strength, weakness, opportunity, threat,
       csvFinanceData,
       businessPortfolio,
     }),
-    [referenceArr, mission, vision, value, strength, weakness, opportunity, threat, csvFinanceData, businessPortfolio]
+    [formReferenceArr, mission, vision, value, strength, weakness, opportunity, threat, csvFinanceData, businessPortfolio]
   );
 
   /* ------- 参考ストーリー生成（手動） ------- */
@@ -855,10 +855,11 @@ export default function StoryProcessPage() {
   useEffect(() => { scrollToIndex(currentIdx); }, [currentIdx, scrollToIndex]);
 
   const Slides = useMemo(() => {
-    return referenceArr.slice(0, 4).map((ch: ChapterStory, i: number) => {
+    const base = (formReferenceArr.length ? formReferenceArr : Array(4).fill(null)) as (ChapterStory | null)[];
+    return base.slice(0, 4).map((ch: ChapterStory | null, i: number) => {
       const chapterAns =
         answers2.find((c) => c.chapterIndex === i) ??
-        ({ chapterIndex: i, chapterTitle: ch?.title ?? `Chapter ${i + 1}`, steps: [] } as ChapterAnswers);
+        ({ chapterIndex: i, chapterTitle: (formReferenceArr[i]?.title ?? REFERENCE_TITLES[i]) ?? `Chapter ${i + 1}`, steps: [] } as ChapterAnswers);
 
       const steps: StepperAnswerStep[] = (chapterAns.steps ?? []).map((s) => {
         const sn = Number(s.stepNumber);
@@ -870,7 +871,7 @@ export default function StoryProcessPage() {
 
       return (
         <div
-          key={`${(ch?.title || '').slice(0,50)}-${i}`}
+          key={`${(ch?.title || REFERENCE_TITLES[i] || '').slice(0,50)}-${i}`}
           data-slide={i}
           className="min-w-full max-w-full shrink-0 snap-start px-2 relative"
         >
@@ -885,7 +886,7 @@ export default function StoryProcessPage() {
           <div className={`space-y-4 rounded-2xl border ${color.border} bg-white/90 p-4 shadow-sm min-w-0 overflow-hidden`}>
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <h3 className="text-[15px] font-semibold text-zinc-900 break-words">{ch?.title ?? `Chapter ${i + 1}`}</h3>
+                <h3 className="text-[15px] font-semibold text-zinc-900 break-words">{ch?.title ?? REFERENCE_TITLES[i] ?? `Chapter ${i + 1}`}</h3>
                 <p className="text-[12px] text-zinc-500">{canEdit ? 'この章の質問に回答して、最終ストーリーの精度を高めます。' : '閲覧モード：この章の内容を確認できます。'}</p>
               </div>
             </div>
@@ -895,7 +896,7 @@ export default function StoryProcessPage() {
                 key={`qs-${i}-${stepsKey}`}
                 chapterIndex={i}
                 chapterTitle={chapterAns.chapterTitle}
-                chapterBody={ch?.body ?? ''}
+                chapterBody={ch?.body ?? ''} // ★最終ストーリーは混ぜない（ドラフトが無ければ空）
                 initialStep={1}
                 initialAnswers={steps}
                 context={stepperBaseContext}
@@ -906,7 +907,7 @@ export default function StoryProcessPage() {
         </div>
       );
     });
-  }, [answers2, onStepperChange, referenceArr, stepperBaseContext, canEdit]);
+  }, [answers2, onStepperChange, stepperBaseContext, canEdit, formReferenceArr]);
 
   /* ===================== Render ===================== */
   if (!canView()) {
@@ -949,7 +950,7 @@ export default function StoryProcessPage() {
               className="h-9 rounded-full px-5 text-[13px]"
               title={canEdit ? '' : '管理者のみ実行できます'}
             >
-              {loadingDraft ? '生成中…' : storyRawArr.length ? '参考を再生成' : '参考を生成'}
+              {loadingDraft ? '生成中…' : draftArr.length ? '参考を再生成' : '参考を生成'}
             </Button>
 
             <Button
@@ -964,19 +965,19 @@ export default function StoryProcessPage() {
         </div>
       </header>
 
-      {/* 参考ストーリー */}
+      {/* 参考ストーリー（ドラフトのみ表示） */}
       <section className="rounded-2xl border border-zinc-200 bg-white/80 backdrop-blur-sm p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)] min-w-0 overflow-hidden">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-[17px] font-semibold tracking-tight text-zinc-900">参考ストーリー</h2>
         </div>
 
-        {referenceArr.length === 0 ? (
+        {formReferenceArr.length === 0 ? (
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900 text-[13px]">
             参考ストーリーが未設定です。Step5（確認）から生成するか、「参考を生成」を押してください。
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 min-w-0">
-            {referenceArr.slice(0, 4).map((ch, i) => {
+            {formReferenceArr.slice(0, 4).map((ch, i) => {
               const chapterAns = answers2.find(a => a.chapterIndex === i);
               const need = maxStepsByChapter[i] ?? (i === 1 ? 6 : 2);
               const steps = chapterAns?.steps ?? [];
@@ -998,7 +999,7 @@ export default function StoryProcessPage() {
                   title="クリックでこの章の質問に移動"
                 >
                   <div className="mb-2 flex items-center justify-between">
-                    <h3 className="text-[15px] font-semibold text-zinc-900">{ch?.title ?? `Chapter ${i + 1}`}</h3>
+                    <h3 className="text-[15px] font-semibold text-zinc-900">{ch?.title ?? REFERENCE_TITLES[i]}</h3>
                     <span className={`text-[11px] px-2 py-0.5 rounded-full border ${color.badge}`}>
                       進捗 {done}/{need}
                     </span>
@@ -1028,7 +1029,7 @@ export default function StoryProcessPage() {
               <ArrowLeft className="w-5 h-5" />
             </button>
             <button
-              onClick={() => setCurrentIdx(Math.min(referenceArr.length - 1, currentIdx + 1))}
+              onClick={() => setCurrentIdx(Math.min(4 - 1, currentIdx + 1))}
               className="rounded-full border border-zinc-200 bg-white/90 p-2 shadow-sm hover:bg-white"
               aria-label="次へ"
               type="button"
@@ -1060,7 +1061,7 @@ export default function StoryProcessPage() {
         </div>
       </section>
 
-      {/* 最終ストーリー */}
+      {/* 最終ストーリー（フォームには混ぜない） */}
       <FinalStorySection
         canEdit={canEdit}
         finalLoading={finalLoading}
