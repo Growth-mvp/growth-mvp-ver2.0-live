@@ -61,7 +61,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   }, []);
 
   const [messages, setMessages] = useState<Msg[]>([
-    { role: 'assistant', content: 'こんにちは。経営者AIエージェントです。一般質問も戦略相談もまとめてお答えします。' },
+    { role: 'assistant', content: 'こんにちは。経営者AIエージェントです。' },
   ]);
   const messagesRef = useRef(messages);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
