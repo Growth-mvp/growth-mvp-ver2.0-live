@@ -1,4 +1,4 @@
-// /app/execution/page.tsx 
+// /app/execution/page.tsx
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -35,6 +35,7 @@ const toStrictOKR = (okr: any): OKRStrict => ({
   owner: okr?.owner ? String(okr.owner) : undefined,
 });
 
+// ⚠️ okrsV2 は通さず、title 正規化にのみ使用（カードへは元projを渡す）
 const toStrictProject = (proj: any): ProjectStrict => ({
   title: String(proj?.title ?? proj?.name ?? ''),
   okrs: Array.isArray(proj?.okrs) ? proj.okrs.map(toStrictOKR) : [],
@@ -313,7 +314,7 @@ function ExecPanel(props: {
           {/* チェックイン */}
           {tab === 'checkin' && (
             <>
-              <section className="rounded-2xl border border-black/10 bg白/70 p-4">
+              <section className="rounded-2xl border border-black/10 bg-white/70 p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <h3 className="text-sm font-semibold tracking-tight">進捗メモ</h3>
                   <StarInput value={rating} onChange={setRating} />
@@ -486,46 +487,83 @@ export default function ExecutionPage() {
   useAutoSave([scopeCompanyId]);
   const user = useUserStore((s) => s.user);
 
+  /* -----------------------------------------------------------
+   * ❗ 表示データの優先順位を departments に変更
+   *    （editableCascadeResult があれば “穴埋め” にだけ使う）
+   * --------------------------------------------------------- */
   const cascade: Department[] = useMemo(() => {
-    if (Array.isArray(editableCascadeResult)) return editableCascadeResult as Department[];
-    if (Array.isArray(departments)) return departments as Department[];
-    return [];
+    const base: Department[] = Array.isArray(departments) ? (departments as Department[]) : [];
+    const alt: Department[] = Array.isArray(editableCascadeResult) ? (editableCascadeResult as Department[]) : [];
+
+    if (base.length === 0) return alt;
+
+    // alt の補助情報（dept.name や mission など）だけマージ（OKR/プロジェクト構造は base を信頼）
+    return base.map((d, i) => {
+      const a = alt[i];
+      return {
+        ...d,
+        name: d.name ?? a?.name,
+        mission: d.mission ?? a?.mission,
+        strategy: d.strategy ?? a?.strategy,
+      };
+    });
   }, [editableCascadeResult, departments]);
 
   const [selected, setSelected] = useState<{ d: number; p: number; o: number } | null>(null);
+
   const selection = useMemo(() => {
     if (!selected) return null;
     const dept = cascade[selected.d];
     const proj = dept?.projects?.[selected.p];
     const okr = proj?.okrs?.[selected.o];
-    if (!dept || !proj || !okr) return null;
+
+    // okr が無い場合、okrsV2 から合成（安全側）
+    const okrsV2 = Array.isArray((proj as any)?.okrsV2) ? ((proj as any).okrsV2 as any[]) : [];
+    const synthesized =
+      !okr && okrsV2.length
+        ? {
+            objective: '構造化KRに基づく実行（自動生成）',
+            keyResults: okrsV2.map((k) => String(k?.label ?? '')).filter(Boolean),
+            owner: undefined,
+          }
+        : null;
+
+    const useO = okr ? toStrictOKR(okr) : synthesized ? toStrictOKR(synthesized) : null;
     const strictProj = toStrictProject(proj);
-    const strictOkr = toStrictOKR(okr);
+
+    if (!dept || !proj || !useO) return null;
+
     return {
       deptName: dept?.name ?? '',
       projectTitle: strictProj.title,
-      objective: strictOkr.objective,
-      keyResults: strictOkr.keyResults,
-      okrId: okrKey(selected.d, selected.p, selected.o, okr),
+      objective: useO.objective,
+      keyResults: useO.keyResults,
+      okrId: okrKey(selected.d, selected.p, selected.o, okr ?? { id: undefined }),
     };
   }, [selected, cascade]);
 
   const isHydrating = !hydrated || scopeCompanyId !== accessCompanyId;
 
-  // --- カード生成（重複描画を避けるためまとめて用意） ---
+  // --- カード生成：okrs が空でも okrsV2 があれば合成OKRで描画 ---
   const cards = useMemo(() => {
     const items: JSX.Element[] = [];
     cascade.forEach((dept, di) => {
       (dept?.projects ?? []).forEach((proj, pi) => {
-        const okrs = Array.isArray(proj?.okrs) ? proj.okrs : [];
         const strictProj = toStrictProject(proj);
+        const okrs = Array.isArray(proj?.okrs) ? proj.okrs : [];
+        const okrsV2 = Array.isArray((proj as any)?.okrsV2) ? ((proj as any).okrsV2 as any[]) : [];
+
+        // ここが重要：カードへは “元のprojに title だけ被せた” オブジェクトを渡す（okrsV2を失わない）
+        const projForCard = { ...(proj as any), title: strictProj.title };
+
+        // 1) 従来OKRあり：OKRごとにカード
         if (okrs.length > 0) {
           okrs.forEach((okr, oi) => {
             items.push(
               <ProjectCard
-                key={`${dept?.name ?? 'dept'}-${strictProj.title}-${oi}`}
+                key={`${dept?.name ?? 'dept'}-${strictProj.title}-okr-${oi}`}
                 deptName={dept?.name ?? ''}
-                project={strictProj}
+                project={projForCard as any}
                 onClick={() => {
                   if (isHydrating) return;
                   setSelected({ d: di, p: pi, o: oi });
@@ -533,16 +571,35 @@ export default function ExecutionPage() {
               />
             );
           });
-        } else {
+          return;
+        }
+
+        // 2) okrs が空だが okrsV2 あり：合成OKRとして1枚描画（クリックで右ペインを開く）
+        if (okrsV2.length > 0) {
           items.push(
             <ProjectCard
-              key={`${dept?.name ?? 'dept'}-${strictProj.title}-no-okr`}
+              key={`${dept?.name ?? 'dept'}-${strictProj.title}-v2`}
               deptName={dept?.name ?? ''}
-              project={strictProj}
-              onClick={() => {}}
+              project={projForCard as any}
+              onClick={() => {
+                if (isHydrating) return;
+                // o=0 を仮で選択（右ペインは合成OKRで表示するロジック）
+                setSelected({ d: di, p: pi, o: 0 });
+              }}
             />
           );
+          return;
         }
+
+        // 3) OKRも構造化KRも無い：プレースホルダとして1枚
+        items.push(
+          <ProjectCard
+            key={`${dept?.name ?? 'dept'}-${strictProj.title}-no-okr`}
+            deptName={dept?.name ?? ''}
+            project={projForCard as any}
+            onClick={() => {}}
+          />
+        );
       });
     });
     return items;
@@ -565,7 +622,7 @@ export default function ExecutionPage() {
         ) : null}
       </header>
 
-      {/* ▼ モバイル（～md）：横スクロールのカード行。カード幅を維持して縦長化を防止 */}
+      {/* ▼ モバイル（～md） */}
       <div className="md:hidden -mx-6 px-6">
         <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory">
           {cards.length ? (
@@ -585,7 +642,7 @@ export default function ExecutionPage() {
         </div>
       </div>
 
-      {/* ▼ md以上：最小幅320pxを保証（縦長化を防止） */}
+      {/* ▼ md以上 */}
       <div className="hidden md:grid gap-6 md:[grid-template-columns:repeat(auto-fill,minmax(320px,1fr))]">
         {cards.length ? (
           cards
