@@ -8,18 +8,15 @@ import { useUserStore } from '@/store/userStore';
 import StepLayout from '@/components/StepLayout';
 import { getIndustryLabel } from '@/utils/industryTemplates';
 import FinanceSummaryPanel from '@/components/finance/FinanceSummaryPanel';
-// ✅ 新設計の保存APIを直接インポート
 import { saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
 
 /* =========================================================
  * 確認画面（生成→保存→遷移の堅牢化・名前空間つき）
  * ========================================================= */
 
-/** 名前空間つき sessionStorage キー */
 const ssKey = (base: string, companyId?: string | null, strategyId?: string | null) =>
   `growth.${companyId || 'co'}.${strategyId || 'stg'}.${base}`;
 
-// ストア通知 or ローカル通知を安全に出す
 function notifySafe(store: any, msg: string, setLocal: (s: string) => void) {
   if (typeof store?.setNotification === 'function') {
     try {
@@ -30,7 +27,6 @@ function notifySafe(store: any, msg: string, setLocal: (s: string) => void) {
   setLocal(msg);
 }
 
-// JSON抽出（LLMの前後混入に耐性）
 function safeJsonFromText<T = any>(text: string): T | null {
   try {
     const direct = JSON.parse(text);
@@ -46,7 +42,6 @@ function safeJsonFromText<T = any>(text: string): T | null {
   return null;
 }
 
-// 改行整形
 function normalizeNewlines(s: string = '') {
   let out = String(s);
   for (let i = 0; i < 3; i++) {
@@ -56,11 +51,9 @@ function normalizeNewlines(s: string = '') {
   return out.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 }
 
-// 長文→4章配列（見出し/Markdown両対応のマーカー広め）
 function longformToChapters(s: string) {
   const text = normalizeNewlines((s || '').trim());
   if (!text) return [] as { title: string; body: string }[];
-  // 「第1章」「# 第1章」「## 第1章」などを広めに吸収
   const markerRegex = /^(?:#{1,3}\s*)?(第\s*[1-4]\s*章[^\n\r]*)(?:\r?\n+|$)/gim;
   const markers = [...text.matchAll(markerRegex)];
   if (markers.length >= 2) {
@@ -94,7 +87,6 @@ type Extracted = {
   summary?: unknown;
 };
 
-// APIレスポンスから story/summary を抽出
 function extractStoryAndSummary(payload: any): Extracted {
   if (!payload || typeof payload !== 'object') return {};
   let storyAny =
@@ -141,7 +133,6 @@ function extractStoryAndSummary(payload: any): Extracted {
   return { longform, chapters, summary };
 }
 
-// Glassカード
 function GlassCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="rounded-2xl border border-black/10 bg-white/60 shadow-sm backdrop-blur-md ring-1 ring-black/5">
@@ -153,7 +144,6 @@ function GlassCard({ title, children }: { title: string; children: React.ReactNo
   );
 }
 
-// 情報1行
 function InfoRow({ label, value }: { label: string; value: string | number | null | undefined }) {
   return (
     <div className="flex items-start justify-between gap-3 py-1">
@@ -169,7 +159,6 @@ export default function Step5Confirm() {
   const router = useRouter();
   const st = useStrategyStore() as any;
 
-  // ユーザー・会社スコープ
   const userId = useUserStore((s) => s.user?.id ?? null);
   const companyId = useUserStore((s) => s.companyId ?? null);
   const hydrated = useUserStore((s) => s.hydrated ?? false);
@@ -181,7 +170,6 @@ export default function Step5Confirm() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [localNotice, setLocalNotice] = useState('');
 
-  // 値（数値は number|null に統一）
   const companyName: string = st?.companyName ?? '';
   const foundationYear: number | null = st?.foundationYear ?? null;
   const location: string = st?.location ?? '';
@@ -208,20 +196,15 @@ export default function Step5Confirm() {
 
   const industryJa = industry ? getIndustryLabel(industry, { full: true }) : '';
 
-  const csvCount = csvFinanceData.length;
-  const summaryCount = financeSummary.length;
-
   const summaryYears = useMemo(
     () => Array.from(new Set(financeSummary.map((r: any) => r?.year))).filter(Boolean).sort(),
     [financeSummary]
   );
   const summaryYearsLatest = summaryYears.length ? summaryYears[summaryYears.length - 1] : undefined;
 
-  // ストーリー生成
   const handleGenerate = async () => {
     if (isGenerating) return;
 
-    // 生成は許可、保存だけ条件付き
     if (!canPersist) {
       notifySafe(
         st,
@@ -233,14 +216,12 @@ export default function Step5Confirm() {
     setIsGenerating(true);
     setLocalNotice('');
 
-    // エンドポイント候補（存在するものへフォールバック）
     const endpoints = [
       '/api/generate-story-draft-v2',
       '/api/generate-story-draft',
       '/api/final-story',
     ];
 
-    // 送信ペイロード（数値は number|null のまま）
     const payload = {
       thought, mission, vision, value,
       industry, industryLabel: industryJa,
@@ -252,7 +233,6 @@ export default function Step5Confirm() {
       strategyId, companyId, userId,
     };
 
-    // ユーティリティ
     const pickChapters = (rawText: string, parsed: any) => {
       const extracted = extractStoryAndSummary(parsed || {});
       const { longform, chapters } = extracted;
@@ -289,7 +269,7 @@ export default function Step5Confirm() {
           const raw = await res.text();
           if (!res.ok) {
             lastErrorText = `[${res.status}] ${raw?.slice(0, 500) || '(no body)'}`;
-            if (res.status === 404) continue; // 次の候補へ
+            if (res.status === 404) continue;
             throw new Error(lastErrorText);
           }
 
@@ -316,7 +296,6 @@ export default function Step5Confirm() {
         return;
       }
 
-      // 1) store に保存（互換キーも埋める）
       if (typeof st?.setStory === 'function') st.setStory(finalChapters);
       (useStrategyStore as any).setState({
         story: finalChapters,
@@ -324,7 +303,6 @@ export default function Step5Confirm() {
         chapters: finalChapters,
       });
 
-      // 2) sessionStorage（★名前空間つき）に保存
       try {
         if (companyId && strategyId) {
           sessionStorage.setItem(ssKey('story', companyId, strategyId), JSON.stringify(finalChapters));
@@ -335,19 +313,17 @@ export default function Step5Confirm() {
         }
       } catch {}
 
-      // 3) DBにも保存（canPersist のときだけ）
       if (canPersist) {
         try {
           const current = useStrategyStore.getState() as any;
           const patch = {
             strategyId,
             story: finalChapters,
-            // 最終版ではないので finalStory には入れない
             mission, vision, value,
             industry, revenue, employees,
             thought, strength, weakness, opportunity, threat,
             csvFinanceData,
-            answers2, // 使うなら
+            answers2,
           };
           await saveStrategyDataApi({ ...current, ...patch }, userId!, companyId!);
         } catch (e) {
@@ -357,7 +333,6 @@ export default function Step5Confirm() {
         notifySafe(st, '保存はスコープ確立後に再実行してください（生成内容は画面内/セッションに保持）', setLocalNotice);
       }
 
-      // 4) 遷移（DB未保存でも閲覧は可能）
       router.push('/story-process');
     } catch (err) {
       console.error('❌ 通信エラー:', err);
@@ -368,33 +343,13 @@ export default function Step5Confirm() {
   };
 
   return (
-    // ✅ フローに合わせて 6/6 に統一
     <StepLayout step={6} totalSteps={6} title="入力内容の最終確認">
       <div className="space-y-6">
-        {/* 通知 */}
         {localNotice && (
-          <div
-            role="alert"
-            className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"
-          >
+          <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
             {localNotice}
           </div>
         )}
-
-        {/* 取り込み状況 */}
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="rounded-full border border-black/10 bg-white/70 px-2.5 py-1 shadow-sm">
-            CSV: {csvCount} 件
-          </span>
-          <span className="rounded-full border border-black/10 bg-white/70 px-2.5 py-1 shadow-sm">
-            サマリー: {summaryCount} 件 {summaryYears.length ? `（${summaryYears.join(', ')}）` : ''}
-          </span>
-          {!csvCount && (
-            <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-amber-900 shadow-sm">
-              財務CSVが未取り込みです（ステップ4でアップロード）
-            </span>
-          )}
-        </div>
 
         {/* 概要（会社 & 事業） */}
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
@@ -441,8 +396,54 @@ export default function Step5Confirm() {
           </div>
         </GlassCard>
 
+        {/* SWOT */}
+        <GlassCard title="SWOT">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="rounded-xl border border-black/10 bg-white/70 p-3">
+              <div className="mb-1 text-xs font-medium text-gray-500">Strength（強み）</div>
+              <p className="whitespace-pre-wrap text-sm text-gray-800">{strength || '（未入力）'}</p>
+            </div>
+            <div className="rounded-xl border border-black/10 bg-white/70 p-3">
+              <div className="mb-1 text-xs font-medium text-gray-500">Weakness（弱み）</div>
+              <p className="whitespace-pre-wrap text-sm text-gray-800">{weakness || '（未入力）'}</p>
+            </div>
+            <div className="rounded-xl border border-black/10 bg-white/70 p-3">
+              <div className="mb-1 text-xs font-medium text-gray-500">Opportunity（機会）</div>
+              <p className="whitespace-pre-wrap text-sm text-gray-800">{opportunity || '（未入力）'}</p>
+            </div>
+            <div className="rounded-xl border border-black/10 bg-white/70 p-3">
+              <div className="mb-1 text-xs font-medium text-gray-500">Threat（脅威）</div>
+              <p className="whitespace-pre-wrap text-sm text-gray-800">{threat || '（未入力）'}</p>
+            </div>
+          </div>
+        </GlassCard>
+
         {/* 年度×事業サマリー（可視化） */}
-        <FinanceSummaryPanel className="mt-2" showHeader initialYear={summaryYearsLatest as any} />
+        <div className="rounded-2xl border border-black/10 bg-white/60 p-3 overflow-x-auto">
+          {/* ▼グラフ縮小＋フォント縮小適用用のラッパ */}
+          <div className="origin-top-left scale-[0.90] md:scale-[0.95] fs-compact-chart">
+            <FinanceSummaryPanel className="mt-2" showHeader initialYear={summaryYearsLatest as any} />
+          </div>
+
+          {/* ▼ここで Recharts の内部クラスを :global で安全に上書き */}
+          <style jsx>{`
+            /* 目盛りラベル（X/Y軸）の文字サイズを小さく */
+            :global(.fs-compact-chart .recharts-cartesian-axis .recharts-text tspan) {
+              font-size: 8px; /* お好みで 8〜11 に調整可 */
+            }
+
+            /* 凡例（営業利益/売上）の文字サイズを小さく */
+            :global(.fs-compact-chart .recharts-default-legend) {
+              font-size: 11px;
+              line-height: 1.1;
+            }
+
+            /* ツールチップ内テキスト（必要なら） */
+            :global(.fs-compact-chart .recharts-tooltip-wrapper) {
+              font-size: 11px;
+            }
+          `}</style>
+        </div>
 
         {/* 注意書き / ステータス */}
         <div className="text-center text-xs text-gray-500">
@@ -454,20 +455,20 @@ export default function Step5Confirm() {
           )}
         </div>
 
-        {/* 生成ボタン */}
+        {/* 生成ボタン（強調） */}
         <div className="flex justify-center">
           <button
             onClick={handleGenerate}
             disabled={isGenerating}
-            className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white/80 px-6 py-2.5 text-sm font-medium text-gray-800 shadow-sm backdrop-blur hover:bg-white focus:outline-none focus:ring-2 focus:ring-black/10 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-2xl bg-black px-7 py-3 text-base font-semibold text-white shadow-lg shadow-black/10 ring-1 ring-black/10 hover:bg-black/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-black/30 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isGenerating ? (
               <>
-                <span className="h-4 w-4 animate-spin rounded-full border border-black/30 border-t-transparent" />
+                <span className="h-4 w-4 animate-spin rounded-full border border-white/60 border-t-transparent" />
                 生成中…
               </>
             ) : (
-              <>ストーリーを生成 →</>
+              <>ストーリーを生成</>
             )}
           </button>
         </div>
