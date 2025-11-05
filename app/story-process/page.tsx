@@ -349,17 +349,18 @@ export default function StoryProcessPage() {
     Array.isArray(store?.finalStory) ? store.finalStory :
     (typeof store?.finalStory === 'string' ? (tryParseJson<ChapterStory[]>(store.finalStory) ?? []) : []);
 
+  // ★重要修正：ドラフト候補の組み立てから finalRawFromStore を除外（混線の根本）
   const storyRawArr: ChapterStory[] = useMemo(() => {
     const candidates = [
       storyFromSession,
       storyRawFromStoreMain,
       storyRawFromStoreAlt,
       storyRawFromDraft,
-      finalRawFromStore,
+      // finalRawFromStore はここに含めない（参照表示は別で行う）
     ];
     for (const c of candidates) if (Array.isArray(c) && c.length) return c;
     return [];
-  }, [storyFromSession, storyRawFromStoreMain, storyRawFromStoreAlt, storyRawFromDraft, finalRawFromStore]);
+  }, [storyFromSession, storyRawFromStoreMain, storyRawFromStoreAlt, storyRawFromDraft]);
 
   /* ----- 初回だけ sessionSummary を復旧 ----- */
   const [restoredOnce, setRestoredOnce] = useState(false);
@@ -439,6 +440,7 @@ export default function StoryProcessPage() {
     return alignToGrowthOrder(uniqChapters(base), FINAL_TITLES);
   }, [finalRawFromStore]);
 
+  // 参照表示は「ドラフトがあればドラフト、無ければ最終」
   const referenceArr: ChapterStory[] = draftArr.length ? draftArr : finalArrOrderedFromStore;
 
   /* ------- 章ごとの上限 ------- */
@@ -877,7 +879,7 @@ export default function StoryProcessPage() {
             className="absolute inset-0 z-10 bg-transparent"
             style={{ pointerEvents: canEdit ? 'none' : 'auto' }}
             aria-hidden={canEdit ? 'true' : undefined}
-            title={canEdit ? undefined : '閲覧モード（編集は管理者のみ）'}
+            title={canEdit ? undefined : '閲覧モード：この章の内容を確認できます。'}
           />
 
           <div className={`space-y-4 rounded-2xl border ${color.border} bg-white/90 p-4 shadow-sm min-w-0 overflow-hidden`}>
