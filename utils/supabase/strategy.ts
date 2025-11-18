@@ -32,14 +32,25 @@ export type ProgressLogInput = {
   content: string; // 本文
   status?: 'ontrack' | 'atrisk' | 'offtrack' | null;
   score?: number | null; // 0-1 など任意
-  createdAt?: string;    // 指定なければサーバ側で now()
+  createdAt?: string; // 指定なければサーバ側で now()
+};
+
+/* 🔰 新規追加：戦略全体スナップショット型（今後の「丸ごと保存」用） */
+export type FullStrategySnapshot = {
+  strategy: (StrategyData & { revision?: number }) | null;
+  storyAnswers2: any[];
+  finalStory: Array<{ title: string; body: string }> | null;
 };
 
 /* ============================================================
  * エラー整形
  * ========================================================== */
 function safeStringify(x: any) {
-  try { return JSON.stringify(x, null, 2); } catch { return String(x); }
+  try {
+    return JSON.stringify(x, null, 2);
+  } catch {
+    return String(x);
+  }
 }
 function extractErrorVerbose(e: any) {
   const info = debugExtractPostgrest?.(e) as any;
@@ -79,7 +90,9 @@ async function getActiveUserId(): Promise<string | null> {
 
 async function resolveCompanyId(userId: string, override?: string | null): Promise<string> {
   if (override && isValidUUID(override)) {
-    try { setCompanyIdCookie(override); } catch {}
+    try {
+      setCompanyIdCookie(override);
+    } catch {}
     return override;
   }
   try {
@@ -89,7 +102,9 @@ async function resolveCompanyId(userId: string, override?: string | null): Promi
   const membership = await getMembership(userId);
   const cid = membership?.companyId;
   if (isValidUUID(cid)) {
-    try { setCompanyIdCookie(cid!); } catch {}
+    try {
+      setCompanyIdCookie(cid!);
+    } catch {}
     return cid!;
   }
   throw new Error('companyIdを解決できません。Cookieまたはmembershipを確認してください。');
@@ -100,7 +115,11 @@ async function resolveCompanyId(userId: string, override?: string | null): Promi
  * ========================================================== */
 function parseJson(v: any) {
   if (typeof v === 'string') {
-    try { return JSON.parse(v); } catch { return v; }
+    try {
+      return JSON.parse(v);
+    } catch {
+      return v;
+    }
   }
   return v;
 }
@@ -110,7 +129,7 @@ function ensureArray<T = any>(v: any): T[] {
 }
 function ensureObject<T extends object = Record<string, any>>(v: any): T {
   const p = parseJson(v);
-  return (p && typeof p === 'object' && !Array.isArray(p)) ? (p as T) : ({} as T);
+  return p && typeof p === 'object' && !Array.isArray(p) ? (p as T) : ({} as T);
 }
 
 /* undefined を深い階層まで除去（“意図しない上書き”抑制） */
@@ -141,12 +160,21 @@ function isEmptyLike(v: any): boolean {
 
 /* Deep Merge（incoming優先。ただし incoming が“空”なら既存を保持） */
 function deepMergePreserveNonEmpty(target: any, incoming: any): any {
+  // ★ 先に配列を判定：配列は「そのまま上書き」する
+  if (Array.isArray(incoming)) return incoming;
+
+  // それ以外だけ「空なら既存を残す」ロジックを適用
   if (isEmptyLike(incoming)) return target;
-  if (typeof incoming !== 'object' || Array.isArray(incoming)) return incoming;
+
+  if (typeof incoming !== 'object') return incoming;
+
   const out: any = { ...(target && typeof target === 'object' ? target : {}) };
   for (const [k, v] of Object.entries(incoming)) {
     const prev = out[k];
-    if (typeof v === 'object' && !Array.isArray(v)) {
+    if (Array.isArray(v)) {
+      // ★ 子プロパティも配列ならそのまま上書き
+      out[k] = v;
+    } else if (typeof v === 'object' && v !== null) {
       out[k] = deepMergePreserveNonEmpty(prev, v);
     } else {
       out[k] = isEmptyLike(v) ? prev : v;
@@ -276,7 +304,7 @@ function buildDbRowFromState(state: StrategyData) {
   return row;
 }
 
-function buildStateFromDbRow(row: any): (StrategyData & { revision?: number }) {
+function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const safeRow = row ?? {};
   const out: any = {};
 
@@ -292,6 +320,7 @@ function buildStateFromDbRow(row: any): (StrategyData & { revision?: number }) {
   out.financeSummary = toUiFinanceSummary(out.financeSummary);
   out.businessPortfolio = toUiBusinessPortfolio(out.businessPortfolio);
 
+  // 部門・プロジェクトを一旦「生」の形で整形（okrsV2 を含む）
   out.departments = out.departments.map((d: any) => ({
     ...d,
     name: d?.name ?? '',
@@ -299,11 +328,49 @@ function buildStateFromDbRow(row: any): (StrategyData & { revision?: number }) {
       ...p,
       title: p?.title ?? '',
       okrs: ensureArray(p?.okrs),
+      // ★ okrsV2 はここでは触らずそのまま保持（...p で保持）
     })),
   }));
 
+  // ★ normalize 前の departments を保持（okrsV2 が入っている生データ）
+  const rawDepartmentsWithOkrsV2 = out.departments;
+
   const normalized = normalizeStrategyData(out) as StrategyData;
   const revision = typeof safeRow?.revision === 'number' ? safeRow.revision : undefined;
+
+  // ★ normalizeStrategyData の過程で消えてしまった okrsV2 を復元する
+  if (Array.isArray(rawDepartmentsWithOkrsV2) && Array.isArray((normalized as any).departments)) {
+    const mergedDepartments = (normalized as any).departments.map((dept: any, di: number) => {
+      const rawDept = rawDepartmentsWithOkrsV2[di] ?? {};
+      const rawProjs = ensureArray(rawDept.projects);
+      const normProjs = ensureArray(dept.projects);
+
+      const mergedProjs = normProjs.map((proj: any, pi: number) => {
+        const rawProj = rawProjs[pi] ?? {};
+        const rawOkrsV2 = ensureArray(rawProj.okrsV2);
+        if (rawOkrsV2.length === 0) return proj;
+
+        const existingOkrsV2 = ensureArray((proj as any).okrsV2);
+        if (existingOkrsV2.length > 0) return proj; // 既にあれば優先
+
+        // ★ ここで DB からの okrsV2 を復元
+        return { ...proj, okrsV2: rawOkrsV2 };
+      });
+
+      return { ...dept, projects: mergedProjs };
+    });
+
+    (normalized as any).departments = mergedDepartments;
+
+    // デバッグ用ログ（必要なければコメントアウト可）
+    console.log(
+      '[StrategyData] 🧩 restored okrsV2 from DB after normalize:',
+      Array.isArray((normalized as any).departments)
+        ? (normalized as any).departments.length
+        : 'no-field',
+    );
+  }
+
   return { ...normalized, revision };
 }
 
@@ -311,11 +378,7 @@ function buildStateFromDbRow(row: any): (StrategyData & { revision?: number }) {
  * 共通：既存行を * で取得
  * ========================================================== */
 async function fetchExistingRow(companyId: string) {
-  const res = await supabase
-    .from(T_STRATEGY)
-    .select('*')
-    .eq('company_id', companyId)
-    .maybeSingle();
+  const res = await supabase.from(T_STRATEGY).select('*').eq('company_id', companyId).maybeSingle();
   if (res.error && res.error.code !== 'PGRST116') {
     throw res.error;
   }
@@ -434,14 +497,12 @@ export async function getFullStrategyDataByCompany(companyId: string): Promise<R
         .maybeSingle(),
     ]);
 
-    const ansRow =
-      ansRes.status === 'fulfilled' && !ansRes.value.error ? ansRes.value.data ?? null : null;
-    const finRow =
-      finRes.status === 'fulfilled' && !finRes.value.error ? finRes.value.data ?? null : null;
+    const ansRow = ansRes.status === 'fulfilled' && !ansRes.value.error ? ansRes.value.data ?? null : null;
+    const finRow = finRes.status === 'fulfilled' && !finRes.value.error ? finRes.value.data ?? null : null;
 
     const state = buildStateFromDbRow(rowData);
 
-    const latestAnswersArray = ensureArray(ansRow?.answers2);   // ← answers2 は配列（会社ストーリー用）
+    const latestAnswersArray = ensureArray(ansRow?.answers2); // ← answers2 は配列（会社ストーリー用）
     const latestFinal = ensureArray(finRow?.final_story);
 
     // ★ 会社ストーリー answers2 と 部門 answers2 を分離（誤混入の自動リペア）
@@ -467,14 +528,15 @@ export async function getFullStrategyDataByCompany(companyId: string): Promise<R
 }
 
 /* ============================================================
- * 保存（空保存抑止＋楽観ロック＋DB現行とのDeepMerge）
+ * 保存（空保存抑止＋楽観ロック簡略化＋DB現行とのDeepMerge）
  *  ★ 重要修正：
  *    - 部門 answers2 を story_answers2 に保存しない
  *    - company-level の answers2（state.answers2）がある時だけ story_answers2 に保存
+ *    - UPDATE は company_id のみ条件にして「必ず1行更新」させる
+ *    - ★ departments は payload 側を常に真実として上書き（他の保存トリガーに潰されない）
+ *    - ★ 既存行が「ある」場合は、payload が空でも UPDATE 実行（削除反映のため）
  * ========================================================== */
-export async function saveStrategyData(
-  ...args: any[]
-): Promise<WriteResult> {
+export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
   const payload: StrategyData = args[0];
   let userId: string | undefined = args[1];
   let companyIdOverride: string | null | undefined = args[2];
@@ -482,18 +544,33 @@ export async function saveStrategyData(
   let opts: { mode?: 'upsert' | 'updateOnly' } | undefined = args[4];
 
   if (args.length === 1) {
-    userId = await getActiveUserId() ?? undefined;
+    userId = (await getActiveUserId()) ?? undefined;
     opts = { mode: 'upsert' };
   }
 
-  console.log('[StrategyData] 💾 saveStrategyData called. userId=', userId, 'rev=', revision, 'opts=', opts);
+  const deptLen = Array.isArray((payload as any).departments)
+    ? (payload as any).departments.length
+    : 'no-field';
+
+  console.log(
+    '[StrategyData] 💾 saveStrategyData called.',
+    'userId=',
+    userId,
+    'rev=',
+    revision,
+    'opts=',
+    opts,
+    'departmentsLen=',
+    deptLen,
+  );
+
   try {
     if (!userId) {
       return { data: null, error: { status: 401, message: 'no userId (session not found)' } };
     }
 
     const now = new Date().toISOString();
-    const companyId = await resolveCompanyId(userId, companyIdOverride);
+    const companyId = await resolveCompanyId(userId, companyIdOverride ?? null);
     const cleanCompanyId = companyId.trim();
 
     // ★ 会社ストーリー用 answers2 のみ抽出
@@ -501,26 +578,19 @@ export async function saveStrategyData(
       (x: any) => Array.isArray(x?.steps) && x.steps.length > 0,
     );
 
-    // --- strategy_data を保存すべきかの判定
-    const skipStrategyData = isEffectivelyEmptyForServer(payload);
-
     // ★ answers2 は company-level がある時だけ保存（部門用は保存しない）
     if (storyAnswersBundle.length > 0) {
       const ares = await saveStoryAnswers2(userId, storyAnswersBundle, { companyId: cleanCompanyId });
       if (ares.error) {
         console.warn('[StrategyData] ⚠ answers2 save failed but continue:', ares.error);
       } else {
-        console.log('[StrategyData] ✅ story answers2 upsert ok:', { count: storyAnswersBundle.length });
+        console.log('[StrategyData] ✅ story answers2 upsert ok:', {
+          count: storyAnswersBundle.length,
+        });
       }
     }
 
-    if (skipStrategyData) {
-      console.warn('[StrategyData] ⛔ strategy_data save skipped: effectively empty payload');
-      const cur = await getFullStrategyDataByCompany(cleanCompanyId);
-      return { data: cur.data ?? null, error: null };
-    }
-
-    // strategy_data: 既存行を取得
+    // ===== ここで既存行を取得してから「空スキップ」を判定する =====
     let existingRow: any | null = null;
     try {
       const existingRes = await fetchExistingRow(cleanCompanyId);
@@ -532,8 +602,36 @@ export async function saveStrategyData(
     const existingState: StrategyData & { revision?: number } =
       existingRow ? buildStateFromDbRow(existingRow) : ({} as any);
 
+    // ★ 既存行が無い場合だけ「実質空なら保存スキップ」する
+    const skipStrategyData = !existingRow && isEffectivelyEmptyForServer(payload);
+
+    if (skipStrategyData) {
+      console.warn(
+        '[StrategyData] ⛔ strategy_data save skipped: effectively empty payload (no existing row)',
+      );
+      const cur = await getFullStrategyDataByCompany(cleanCompanyId);
+      return { data: cur.data ?? null, error: null };
+    }
+
     const prunedIncoming: StrategyData = pruneUndefinedDeep(payload);
-    const mergedState = deepMergePreserveNonEmpty(existingState, prunedIncoming) as StrategyData;
+
+    // まずは汎用 DeepMerge
+    let mergedState = deepMergePreserveNonEmpty(existingState, prunedIncoming) as StrategyData;
+
+    // ★ departments だけは「payload 側を常に真実」として上書きする
+    if (Array.isArray((payload as any).departments)) {
+      const incomingDeps = ensureArray((payload as any).departments);
+      mergedState = {
+        ...(mergedState as any),
+        departments: incomingDeps,
+      } as StrategyData;
+
+      console.log(
+        '[StrategyData] 💾 saveStrategyData departments override:',
+        'incomingLen=',
+        incomingDeps.length,
+      );
+    }
 
     const baseRow = buildDbRowFromState(mergedState);
 
@@ -541,21 +639,14 @@ export async function saveStrategyData(
       !!existingRow && Object.prototype.hasOwnProperty.call(existingRow, 'revision');
 
     const currentRev: number | undefined =
-      hasRevision && typeof existingRow?.revision === 'number'
-        ? existingRow.revision
-        : undefined;
-
-    const currentUpdatedAt: string | undefined =
-      typeof existingRow?.updated_at === 'string' ? existingRow.updated_at : undefined;
+      hasRevision && typeof existingRow?.revision === 'number' ? existingRow.revision : undefined;
 
     const selectAfter = '*';
 
-    // UPDATE
+    // ===============================
+    // UPDATE（company_id のみで条件付け）
+    // ===============================
     if (existingRow) {
-      const expectedRev = typeof revision === 'number'
-        ? revision
-        : (typeof currentRev === 'number' ? currentRev : undefined);
-
       const updatePayload: any = {
         ...baseRow,
         user_id: userId,
@@ -563,24 +654,21 @@ export async function saveStrategyData(
         updated_at: now,
       };
 
-      if (hasRevision && typeof expectedRev === 'number') {
-        updatePayload.revision = expectedRev + 1;
+      // revision カラムがある場合は単純インクリメント（厳密ロックはしない）
+      if (hasRevision) {
+        const nextRev = typeof currentRev === 'number' ? currentRev + 1 : 1;
+        updatePayload.revision = nextRev;
       }
 
-      let q = supabase
+      const upd = await supabase
         .from(T_STRATEGY)
         .update(updatePayload)
-        .eq('company_id', cleanCompanyId);
+        .eq('company_id', cleanCompanyId)
+        .select(selectAfter)
+        .single();
 
-      // 406回避のための条件付け：revision あるなら revision、なければ updated_at で一致を試み、無ければ company_id のみで更新
-      if (hasRevision && typeof expectedRev === 'number') {
-        q = q.eq('revision', expectedRev);
-      } else if (currentUpdatedAt) {
-        q = q.eq('updated_at', currentUpdatedAt);
-      }
-
-      const upd = await q.select(selectAfter).single();
       if (upd.error) {
+        console.error('[StrategyData] ❌ update failed:', extractErrorVerbose(upd.error));
         return { data: null, error: extractErrorVerbose(upd.error) };
       }
 
@@ -591,10 +679,19 @@ export async function saveStrategyData(
       }
 
       const stateAfter = buildStateFromDbRow(upd.data ?? {});
+      console.log(
+        '[StrategyData] ✅ strategy_data update ok:',
+        'departmentsLen=',
+        Array.isArray((stateAfter as any).departments)
+          ? (stateAfter as any).departments.length
+          : 'no-field',
+      );
       return { data: stateAfter, error: null };
     }
 
-    // INSERT
+    // ===============================
+    // INSERT（まだ行が無い場合）
+    // ===============================
     if (opts?.mode === 'updateOnly') {
       console.log('[StrategyData] updateOnly mode → skip insert (no existing row).');
       return { data: null, error: null };
@@ -625,6 +722,13 @@ export async function saveStrategyData(
     }
 
     const stateAfter = buildStateFromDbRow(ins.data ?? {});
+    console.log(
+      '[StrategyData] ✅ strategy_data insert ok:',
+      'departmentsLen=',
+      Array.isArray((stateAfter as any).departments)
+        ? (stateAfter as any).departments.length
+        : 'no-field',
+    );
     return { data: stateAfter, error: null };
   } catch (error) {
     return { data: null, error: extractErrorVerbose(error) };
@@ -634,8 +738,15 @@ export async function saveStrategyData(
 /* ============================================================
  * 削除
  * ========================================================== */
-export async function deleteStrategyData(userId: string, companyIdOverride?: string | null): Promise<WriteResult> {
-  console.log('[StrategyData] 🗑 deleteStrategyData called for', userId, companyIdOverride ?? '(cookie/membership)');
+export async function deleteStrategyData(
+  userId: string,
+  companyIdOverride?: string | null,
+): Promise<WriteResult> {
+  console.log(
+    '[StrategyData] 🗑 deleteStrategyData called for',
+    userId,
+    companyIdOverride ?? '(cookie/membership)',
+  );
   try {
     const companyId = await resolveCompanyId(userId, companyIdOverride ?? null);
 
@@ -669,13 +780,7 @@ export async function deleteStrategyData(userId: string, companyIdOverride?: str
  * ========================================================== */
 export async function deleteAllCompanyData(userId: string, companyIdOverride?: string | null) {
   const companyId = await resolveCompanyId(userId, companyIdOverride);
-  const tablesInOrder = [
-    T_PROGRESS,
-    T_STORY_ANSWERS,
-    T_FINAL_STORIES,
-    ...T_LEGACY,
-    T_STRATEGY,
-  ];
+  const tablesInOrder = [T_PROGRESS, T_STORY_ANSWERS, T_FINAL_STORIES, ...T_LEGACY, T_STRATEGY];
 
   const errors: Array<{ table: string; error: any }> = [];
   for (const t of tablesInOrder) {
@@ -770,7 +875,7 @@ export async function appendSimulationResultToStrategy(
       patch as unknown as StrategyData,
       userId,
       companyId,
-      typeof rev === 'number' ? rev : undefined
+      typeof rev === 'number' ? rev : undefined,
     );
   } catch (error) {
     return { error: extractErrorVerbose(error) };
@@ -820,41 +925,41 @@ export async function getSimulationResults(
 }
 
 /* ============================================================
- * 進捗ログ保存（INSERT）—★分割代入の構文ミス修正済み★
+ * 進捗ログ保存（INSERT）
  * ========================================================== */
-export async function saveProgressLog(input: ProgressLogInput): Promise<{ data: any | null; error: any | null }> {
+export async function saveProgressLog(
+  input: ProgressLogInput,
+): Promise<{ data: any | null; error: any | null }> {
   try {
     const {
       userId,
       okrId,
-      projectId = null,
+      projectId = null, // 現在の progress_logs に project_id カラムが無いなら未使用
       departmentId = null,
       companyIdOverride = null,
       content,
       status = null,
       score = null,
       createdAt,
-    } = input; // ← ここが修正ポイント。余計な '}' を削除して正しい分割代入に。
+    } = input;
 
     const companyId = await resolveCompanyId(userId, companyIdOverride);
 
-    const row = {
+    const row: Record<string, any> = {
       user_id: userId,
       company_id: companyId,
       okr_id: okrId,
-      project_id: projectId,
-      department_id: departmentId,
+      // ⚠ Supabaseの progress_logs に project_id カラムがある場合のみ有効化
+      // project_id: projectId,
+      // ✅ DB のカラム名に合わせる（department_id ではなく department）
+      department: departmentId,
       content,
       status,
       score,
       ...(createdAt ? { created_at: createdAt } : {}),
     };
 
-    const { data, error } = await supabase
-      .from(T_PROGRESS)
-      .insert(row)
-      .select('*')
-      .single();
+    const { data, error } = await supabase.from(T_PROGRESS).insert(row).select('*').single();
 
     if (error) {
       return { data: null, error: extractErrorVerbose(error) };
@@ -916,7 +1021,7 @@ async function robustUpsertCompanyScoped(
 export async function saveFinalStory(
   userId: string,
   finalStory: Array<{ title: string; body: string }>,
-  opts?: { companyId?: string | null }
+  opts?: { companyId?: string | null },
 ): Promise<{ ok: boolean; error: any | null }> {
   try {
     const companyId = await resolveCompanyId(userId, opts?.companyId ?? null);
@@ -940,7 +1045,7 @@ export async function saveFinalStory(
 export async function saveStoryAnswers2(
   userId: string,
   answers2: any[],
-  opts?: { companyId?: string | null }
+  opts?: { companyId?: string | null },
 ): Promise<{ ok: boolean; error: any | null }> {
   try {
     const companyId = await resolveCompanyId(userId, opts?.companyId ?? null);
@@ -984,7 +1089,12 @@ export async function repairMisfiledAnswers2(userId: string, companyIdOverride?:
   const nextState: StrategyData = { ...(state as any), departments: mergedDepartments };
   const rev = (state as any)?.revision;
 
-  const saved = await saveStrategyData(nextState, userId, companyId, typeof rev === 'number' ? rev : undefined);
+  const saved = await saveStrategyData(
+    nextState,
+    userId,
+    companyId,
+    typeof rev === 'number' ? rev : undefined,
+  );
   if (saved.error) return { ok: false, error: saved.error };
 
   // 3) 会社ストーリーだけを story_answers2 に再保存
@@ -992,4 +1102,111 @@ export async function repairMisfiledAnswers2(userId: string, companyIdOverride?:
   if (ares.error) return { ok: false, error: ares.error };
 
   return { ok: true };
+}
+
+/* ============================================================
+ * 🔰 新規追加：戦略全体スナップショット I/O（まだどこからも呼ばれていない安全なユーティリティ）
+ *   - getFullStrategySnapshot: strategy_data + story_answers2 + final_stories をまとめて取得
+ *   - saveFullStrategySnapshot: 既存の save* 系を順に呼ぶだけのラッパー
+ * ========================================================== */
+
+/** companyスコープの戦略全体スナップショット取得 */
+export async function getFullStrategySnapshot(
+  userId: string,
+  companyIdOverride: string | null = null,
+): Promise<{ snapshot: FullStrategySnapshot | null; error: any | null }> {
+  try {
+    const companyId = await resolveCompanyId(userId, companyIdOverride);
+
+    // strategy_data（1行）取得
+    let strategy: (StrategyData & { revision?: number }) | null = null;
+    try {
+      const existing = await fetchExistingRow(companyId);
+      if (existing.error && existing.error.code !== 'PGRST116') {
+        return { snapshot: null, error: extractErrorVerbose(existing.error) };
+      }
+      strategy = existing.data ? buildStateFromDbRow(existing.data) : null;
+    } catch (e) {
+      return { snapshot: null, error: extractErrorVerbose(e) };
+    }
+
+    // story_answers2 / final_stories 取得（最新1件）
+    const [ansRes, finRes] = await Promise.all([
+      supabase
+        .from(T_STORY_ANSWERS)
+        .select('answers2')
+        .eq('company_id', companyId)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from(T_FINAL_STORIES)
+        .select('final_story')
+        .eq('company_id', companyId)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+
+    if (ansRes.error && ansRes.error.code !== 'PGRST116') {
+      return { snapshot: null, error: extractErrorVerbose(ansRes.error) };
+    }
+    if (finRes.error && finRes.error.code !== 'PGRST116') {
+      return { snapshot: null, error: extractErrorVerbose(finRes.error) };
+    }
+
+    const storyAnswers2 = ensureArray(ansRes.data?.answers2);
+    const finalStoryRaw = ensureArray(finRes.data?.final_story) as Array<{ title: string; body: string }>;
+
+    const snapshot: FullStrategySnapshot = {
+      strategy,
+      storyAnswers2,
+      finalStory: finalStoryRaw.length ? finalStoryRaw : null,
+    };
+
+    return { snapshot, error: null };
+  } catch (e) {
+    return { snapshot: null, error: extractErrorVerbose(e) };
+  }
+}
+
+/** 戦略全体スナップショットの保存ラッパー（挙動は既存APIをそのまま利用） */
+export async function saveFullStrategySnapshot(
+  userId: string,
+  snapshot: FullStrategySnapshot,
+  companyIdOverride: string | null = null,
+): Promise<{ ok: boolean; error: any | null }> {
+  try {
+    const companyId = await resolveCompanyId(userId, companyIdOverride);
+
+    // 1) strategy_data（本体）を保存（あれば）
+    if (snapshot.strategy) {
+      const { revision, ...rest } = snapshot.strategy as StrategyData & { revision?: number };
+      const rev = typeof snapshot.strategy.revision === 'number' ? snapshot.strategy.revision : undefined;
+      const saved = await saveStrategyData(rest as StrategyData, userId, companyId, rev);
+      if (saved.error) {
+        return { ok: false, error: saved.error };
+      }
+    }
+
+    // 2) story_answers2 を保存（あれば）
+    if (snapshot.storyAnswers2 && snapshot.storyAnswers2.length > 0) {
+      const ares = await saveStoryAnswers2(userId, snapshot.storyAnswers2, { companyId });
+      if (!ares.ok) {
+        return { ok: false, error: ares.error };
+      }
+    }
+
+    // 3) final_stories を保存（あれば）
+    if (snapshot.finalStory && snapshot.finalStory.length > 0) {
+      const fres = await saveFinalStory(userId, snapshot.finalStory, { companyId });
+      if (!fres.ok) {
+        return { ok: false, error: fres.error };
+      }
+    }
+
+    return { ok: true, error: null };
+  } catch (e) {
+    return { ok: false, error: extractErrorVerbose(e) };
+  }
 }

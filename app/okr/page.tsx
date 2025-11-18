@@ -1,7 +1,14 @@
 // /app/okr/page.tsx
 'use client';
 
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+} from 'react';
+import type { ReactNode } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { ChevronDown, HelpCircle } from 'lucide-react';
@@ -20,7 +27,7 @@ function Tooltip({
   side = 'top',
 }: {
   text: string;
-  children: React.ReactNode;
+  children: ReactNode;
   side?: 'top' | 'bottom' | 'left' | 'right';
 }) {
   const [open, setOpen] = useState(false);
@@ -112,7 +119,9 @@ const genId = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
-  return `kr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  return `kr_${Date.now().toString(36)}_${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
 };
 
 function mkKRStructured(
@@ -131,7 +140,7 @@ function mkKRStructured(
         | 'overrideMode'
         | 'baseOverride'
       >
-    >
+    >,
 ): KRStructuredX {
   return {
     id: p.id ?? genId(),
@@ -179,6 +188,38 @@ function ensureKrIds(departments: Department[]): Department[] {
 }
 
 /* ============================================================
+ * スナップショット & ハッシュ（cascade と同じ思想）
+ * ============================================================ */
+function makeSaveSnapshot(s: any) {
+  const snap: any = {
+    strategyId: s?.strategyId ?? undefined,
+    story: Array.isArray(s?.story) ? s.story : [],
+    finalStory: Array.isArray(s?.finalStory) ? s.finalStory : [],
+    answers2: Array.isArray(s?.answers2) ? s.answers2 : [],
+    departments: Array.isArray(s?.departments) ? s.departments : [],
+    companyName: s?.companyName,
+    mission: s?.mission,
+    vision: s?.vision,
+    value: s?.value,
+    thought: s?.thought,
+  };
+  if (Array.isArray(s?.csvFinanceData)) snap.csvFinanceData = s.csvFinanceData;
+  if (Array.isArray(s?.financeSummary)) snap.financeSummary = s.financeSummary;
+  if (typeof s?.businessPortfolio !== 'undefined')
+    snap.businessPortfolio = s.businessPortfolio;
+  if (typeof s?.simulationResult !== 'undefined')
+    snap.simulationResult = s.simulationResult;
+  return snap;
+}
+
+function hashSnapshot(obj: any) {
+  const s = JSON.stringify(obj ?? {});
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = (h * 33) ^ s.charCodeAt(i);
+  return (h >>> 0).toString(16);
+}
+
+/* ============================================================
  * 保存ステータス・ドック（日本語UI）
  * ============================================================ */
 function SaveDock() {
@@ -196,7 +237,10 @@ function SaveDock() {
   const savedHashRef = useRef<string>('');
 
   useEffect(() => setHydratedUI(true), []);
-  const currentHash = useMemo(() => JSON.stringify(departments), [departments]);
+  const currentHash = useMemo(
+    () => JSON.stringify(departments),
+    [departments],
+  );
 
   useEffect(() => {
     if (!savedHashRef.current) savedHashRef.current = currentHash;
@@ -232,8 +276,16 @@ function SaveDock() {
     setSaving(true);
     setError('');
     try {
+      // ★ 念のため dirty を強制的に true にしてから保存
+      useStrategyStore.setState((st: any) => ({
+        ...st,
+        dirty: true,
+      }));
+
       await useStrategyStore.getState().saveStrategyData();
-      savedHashRef.current = JSON.stringify((useStrategyStore.getState() as any).departments ?? []);
+      savedHashRef.current = JSON.stringify(
+        (useStrategyStore.getState() as any).departments ?? [],
+      );
       setLastSavedAt(Date.now());
       setDirty(false);
     } catch (e: any) {
@@ -248,7 +300,9 @@ function SaveDock() {
     return (
       <div className="fixed bottom-5 right-5 z-50">
         <div className="rounded-2xl border border-zinc-200 bg-white/95 px-3 py-2 shadow">
-          <span className="text-xs text-zinc-600">状態を確認しています…</span>
+          <span className="text-xs text-zinc-600">
+            状態を確認しています…
+          </span>
         </div>
       </div>
     );
@@ -257,26 +311,38 @@ function SaveDock() {
 
   return (
     <div className="fixed bottom-5 right-5 z-50">
-      <div className="rounded-2xl border border-zinc-200 bg-white/95 px-3 py-2 shadow flex items-center gap-2">
+      <div className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white/95 px-3 py-2 shadow">
         <span
           className={`inline-flex h-2 w-2 rounded-full ${
-            online ? 'bg-emerald-500' : online === false ? 'bg-amber-500' : 'bg-zinc-300'
+            online
+              ? 'bg-emerald-500'
+              : online === false
+              ? 'bg-amber-500'
+              : 'bg-zinc-300'
           }`}
         />
         <span className="text-xs text-zinc-800">
-          {saving ? '保存中…' : dirty ? '未保存の変更があります' : `保存済み ${formattedSavedAt || ''}`}
+          {saving
+            ? '保存中…'
+            : dirty
+            ? '未保存の変更があります'
+            : `保存済み ${formattedSavedAt || ''}`}
         </span>
         <button
           onClick={saveNow}
           disabled={!canSave}
           className={`ml-2 h-7 rounded-full px-3 text-xs font-semibold ${
-            canSave ? 'bg-black text-white' : 'bg-zinc-200 text-zinc-500 cursor-not-allowed'
+            canSave
+              ? 'bg-black text-white'
+              : 'cursor-not-allowed bg-zinc-200 text-zinc-500'
           }`}
         >
           今すぐ保存
         </button>
       </div>
-      {error && <div className="text-[11px] text-rose-600 mt-1">{error}</div>}
+      {error && (
+        <div className="mt-1 text-[11px] text-rose-600">{error}</div>
+      )}
     </div>
   );
 }
@@ -322,34 +388,63 @@ type Draft = {
 };
 
 export default function OKRPage() {
-  const { departments, setDepartments } = useStrategyStore() as any;
-  const { companyId: scopeCompanyId, hydrated, setCompanyScope, setHydrated, refetchFromServer } =
-    useStrategyStore();
+  const s = useStrategyStore() as any;
+  const {
+    companyId: scopeCompanyId,
+    hydrated,
+    setCompanyScope,
+    setHydrated,
+    refetchFromServer,
+    boot,
+    lastServerSnapshot,
+  } = useStrategyStore();
+
+  const departments = useStrategyStore(
+    (st) =>
+      ((st.departments as Department[] | undefined) ?? []) as Department[],
+  );
+
   const access = useAccess();
   const accessCompanyId: string | undefined = useMemo(
     () =>
-      (access as any)?.companyId ??
-      (useStrategyStore.getState().companyId as string | undefined),
-    [(access as any)?.companyId]
+      ((access as any)?.companyId ??
+        (s?.companyId as string | undefined)) as
+        | string
+        | undefined,
+    [(access as any)?.companyId, s?.companyId],
   );
 
-  /* -------- 会社スコープ & 初期ロード -------- */
+  /* -------- 会社スコープ確立（cascade と同じパターン） -------- */
   const lastAppliedCompanyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!accessCompanyId) return;
-    if (lastAppliedCompanyRef.current === accessCompanyId) return;
+    if (
+      lastAppliedCompanyRef.current === accessCompanyId &&
+      scopeCompanyId === accessCompanyId
+    )
+      return;
+
     if (scopeCompanyId && scopeCompanyId !== accessCompanyId) {
+      setHydrated?.(false);
       hardResetForCompanySwitch(accessCompanyId);
-    } else {
+      setCompanyScope(accessCompanyId);
+    } else if (!scopeCompanyId) {
       setCompanyScope(accessCompanyId);
     }
     lastAppliedCompanyRef.current = accessCompanyId;
-  }, [accessCompanyId, scopeCompanyId, setCompanyScope]);
+  }, [accessCompanyId, scopeCompanyId, setCompanyScope, setHydrated]);
 
+  /* -------- 初期ロード（Dirty 回避付き） -------- */
   const loadGuardRef = useRef<string | null>(null);
   useEffect(() => {
     if (!accessCompanyId) return;
-    if (loadGuardRef.current === accessCompanyId && hydrated && scopeCompanyId === accessCompanyId) return;
+    if (!scopeCompanyId) setCompanyScope(accessCompanyId);
+    if (
+      loadGuardRef.current === accessCompanyId &&
+      hydrated &&
+      scopeCompanyId === accessCompanyId
+    )
+      return;
 
     let cancelled = false;
     const run = async () => {
@@ -357,71 +452,104 @@ export default function OKRPage() {
         loadGuardRef.current = accessCompanyId;
         return;
       }
+
+      const currentSnap = makeSaveSnapshot(
+        useStrategyStore.getState(),
+      );
+      const currentHash = hashSnapshot(currentSnap);
+      const isDirty = !!(
+        lastServerSnapshot && lastServerSnapshot !== currentHash
+      );
+
       const timer = setTimeout(() => {
         if (!cancelled) setHydrated?.(true);
       }, 7000);
+
       try {
-        await loadAndHydrate(accessCompanyId);
-        await refetchFromServer?.();
-        setHydrated?.(true);
+        if (!isDirty) {
+          await loadAndHydrate(accessCompanyId);
+          try {
+            await refetchFromServer?.();
+          } catch {
+            // ignore
+          }
+          setHydrated?.(true);
+        } else {
+          // ローカル変更優先：hydrate フラグだけ立てる
+          setHydrated?.(true);
+        }
         loadGuardRef.current = accessCompanyId;
       } finally {
         clearTimeout(timer);
       }
+      if (cancelled) return;
     };
     run();
     return () => {
       cancelled = true;
     };
-  }, [accessCompanyId, hydrated, scopeCompanyId, refetchFromServer, setHydrated]);
+  }, [
+    accessCompanyId,
+    hydrated,
+    scopeCompanyId,
+    refetchFromServer,
+    setHydrated,
+    lastServerSnapshot,
+    setCompanyScope,
+  ]);
 
-  /* -------- 自動保存：会社スコープに紐付け -------- */
-  useAutoSave([accessCompanyId, departments]);
+  /* -------- 自動保存：cascade と同じ条件でガード -------- */
+  const mismatch = !!(
+    accessCompanyId &&
+    scopeCompanyId &&
+    scopeCompanyId !== accessCompanyId
+  );
+  const isHydrating =
+    ((Boolean(boot?.isHydrating) && !hydrated) ||
+      mismatch ||
+      !hydrated) ??
+    false;
+
+  useAutoSave(
+    !isHydrating ? [accessCompanyId, departments] : [],
+  );
 
   /* -------- 表示/編集ユーティリティ -------- */
   const cascade: Department[] = useMemo(
-    () => (Array.isArray(departments) ? (departments as Department[]) : []),
-    [departments]
+    () => (Array.isArray(departments) ? departments : []),
+    [departments],
   );
-  const isHydrating = !hydrated || scopeCompanyId !== accessCompanyId;
 
-  const ensureArray = <T,>(v: T[] | undefined): T[] => (Array.isArray(v) ? v : []);
-  const { setDepartments: setDepartmentsInStore } = useStrategyStore() as any;
+  const ensureArray = <T,>(v: T[] | undefined): T[] =>
+    Array.isArray(v) ? v : [];
 
-  const commit = (next: Department[]) => {
-    const cloned = next.map((d) => ({
-      ...d,
-      projects: Array.isArray(d.projects)
-        ? d.projects.map((p) => ({
-            ...p,
-            okrs: Array.isArray(p.okrs)
-              ? p.okrs.map((o) => ({ ...o, keyResults: [...(o.keyResults ?? [])] }))
-              : [],
-          }))
-        : [],
-    }));
-    // ★ setter には必ず “配列” を渡す（関数は渡さない）
-    setDepartments(cloned);
-    setDepartmentsInStore(cloned);
-  };
-
-  /* -------- 🔧 “安全更新” ヘルパー：setterに関数を渡さない -------- */
-  const getDepts = () =>
-    ((useStrategyStore.getState() as any).departments as Department[]) || [];
-
-  function patchDepartments(mutator: (draft: Department[]) => Department[]) {
-    const current = Array.isArray(getDepts()) ? getDepts() : [];
-    const next = mutator(current);
-    commit(next);
-  }
+  /* -------- 🔧 “安全更新” ヘルパー：常に setState 経由 + dirty=true -------- */
+  const patchDepartments = useCallback(
+    (mutator: (draft: Department[]) => Department[]) => {
+      useStrategyStore.setState((st: any) => {
+        const current: Department[] = Array.isArray(st.departments)
+          ? (st.departments as Department[])
+          : [];
+        const next = mutator(current);
+        if (next === current) return st;
+        // ★ 部門配下を更新したら常に dirty=true にする
+        return {
+          ...st,
+          departments: next,
+          dirty: true,
+        };
+      });
+    },
+    [],
+  );
 
   /* -------- 初期補修：okrsV2 の id を一括補完 -------- */
   useEffect(() => {
-    if (!Array.isArray(departments) || departments.length === 0) return;
+    if (!Array.isArray(departments) || departments.length === 0)
+      return;
     const patched = ensureKrIds(departments as Department[]);
     if (patched !== departments) {
-      setDepartments(patched);
-      setDepartmentsInStore(patched);
+      patchDepartments(() => patched);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [departments?.length]);
@@ -429,7 +557,9 @@ export default function OKRPage() {
   /* ============================================================
    * 🔧 ロールの“影”を保持してリフェッチ上書きを回避
    * ============================================================ */
-  const [roleShadow, setRoleShadow] = useState<Record<string, Project['role'] | undefined>>({});
+  const [roleShadow, setRoleShadow] = useState<
+    Record<string, Project['role'] | undefined>
+  >({});
 
   // 初回：サーバーデータに role がある場合は roleShadow に取り込む
   useEffect(() => {
@@ -438,16 +568,15 @@ export default function OKRPage() {
       ensureArray(d.projects).forEach((p, pi) => {
         const k = `${di}:${pi}`;
         if (p.role != null) next[k] = p.role;
-      })
+      }),
     );
     setRoleShadow((prev) => ({ ...next, ...prev })); // 既存影を優先
-  }, [cascade.length]);
+  }, [cascade.length, cascade]);
 
-  // サーバーからのリフェッチ後に role が欠落していたら、影から復元して commit
+  // サーバーからのリフェッチ後に role が欠落していたら、影から復元して patch
   useEffect(() => {
     if (!Array.isArray(cascade) || cascade.length === 0) return;
 
-    // 欠落検知
     let needsPatch = false;
     const next: Department[] = cascade.map((d, di) => {
       const projs = ensureArray(d.projects).map((p, pi) => {
@@ -462,9 +591,9 @@ export default function OKRPage() {
     });
 
     if (needsPatch) {
-      commit(next);
+      patchDepartments(() => next);
     }
-  }, [cascade, roleShadow]);
+  }, [cascade, roleShadow, patchDepartments]);
 
   /* -------- 構造化KR：インライン編集制御 -------- */
   const [editIdx, setEditIdx] = useState<string | null>(null);
@@ -473,7 +602,7 @@ export default function OKRPage() {
     dIdx: number,
     pIdx: number,
     idx: number,
-    patch: Partial<KRStructuredX>
+    patch: Partial<KRStructuredX>,
   ) {
     patchDepartments((prev) => {
       const next = [...prev];
@@ -481,13 +610,18 @@ export default function OKRPage() {
       if (!deptPrev) return prev;
 
       const dept = { ...deptPrev };
-      const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+      const projs = Array.isArray(dept.projects)
+        ? [...dept.projects]
+        : [];
       const projPrev = projs[pIdx];
       if (!projPrev) return prev;
       const proj = { ...projPrev };
-      const list = Array.isArray(proj.okrsV2) ? [...(proj.okrsV2 as KRStructuredX[])] : [];
+      const list = Array.isArray(proj.okrsV2)
+        ? [...(proj.okrsV2 as KRStructuredX[])]
+        : [];
 
-      if (list[idx]) list[idx] = { ...(list[idx] as KRStructuredX), ...(patch as KRStructuredX) };
+      if (list[idx])
+        list[idx] = { ...(list[idx] as KRStructuredX), ...(patch as KRStructuredX) };
       (proj as any).okrsV2 = list;
       projs[pIdx] = proj;
       dept.projects = projs;
@@ -497,18 +631,26 @@ export default function OKRPage() {
     });
   }
 
-  const deleteStructuredKR = (dIdx: number, pIdx: number, idx: number) => {
+  const deleteStructuredKR = (
+    dIdx: number,
+    pIdx: number,
+    idx: number,
+  ) => {
     patchDepartments((prev) => {
       const next = [...prev];
       const deptPrev = next[dIdx];
       if (!deptPrev) return prev;
       const dept = { ...deptPrev };
-      const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+      const projs = Array.isArray(dept.projects)
+        ? [...dept.projects]
+        : [];
       const projPrev = projs[pIdx];
       if (!projPrev) return prev;
       const proj = { ...projPrev };
       const list = Array.isArray(proj.okrsV2)
-        ? (proj.okrsV2 as KRStructuredX[]).filter((_, i) => i !== idx)
+        ? (proj.okrsV2 as KRStructuredX[]).filter(
+            (_: any, i) => i !== idx,
+          )
         : [];
       (proj as any).okrsV2 = list;
       projs[pIdx] = proj;
@@ -519,21 +661,28 @@ export default function OKRPage() {
   };
 
   /* -------- プロジェクトのロール更新（影にも保存） -------- */
-  const updateProjectRole = (dIdx: number, pIdx: number, role: Project['role'] | '') => {
+  const updateProjectRole = (
+    dIdx: number,
+    pIdx: number,
+    role: Project['role'] | '',
+  ) => {
     const k = `${dIdx}:${pIdx}`;
-    const newRole: Project['role'] | undefined = role === '' ? undefined : role;
+    const newRole: Project['role'] | undefined =
+      role === '' ? undefined : role;
 
     // 影を先に更新（UI 即時反映）
     setRoleShadow((prev) => ({ ...prev, [k]: newRole }));
 
-    // 本体も不変更新（setterに関数は渡さない）
+    // 本体も不変更新（＋dirty=true）
     patchDepartments((prev) => {
       const next = [...prev];
       const deptPrev = next[dIdx];
       if (!deptPrev) return prev;
 
       const dept = { ...deptPrev };
-      const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+      const projs = Array.isArray(dept.projects)
+        ? [...dept.projects]
+        : [];
       const projPrev = projs[pIdx];
       if (!projPrev) return prev;
 
@@ -567,18 +716,27 @@ export default function OKRPage() {
 
   // プロジェクト毎の draft をキー管理（"d:p"）
   const [draftMap, setDraftMap] = useState<Record<string, Draft>>({});
-  const [openAdd, setOpenAdd] = useState<Record<string, boolean>>({});
+  const [openAdd, setOpenAdd] =
+    useState<Record<string, boolean>>({});
   const [helpMode, setHelpMode] = useState<boolean>(false);
 
-  const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
+  const keyFor = (dIdx: number, pIdx: number) =>
+    `${dIdx}:${pIdx}`;
 
   const setDraft = (k: string, patch: Partial<Draft>) =>
-    setDraftMap((m) => ({ ...m, [k]: { ...(m[k] ?? emptyDraft), ...patch } }));
+    setDraftMap((m) => ({
+      ...m,
+      [k]: { ...(m[k] ?? emptyDraft), ...patch },
+    }));
 
-  const resetDraft = (k: string) => setDraftMap((m) => ({ ...m, [k]: { ...emptyDraft } }));
+  const resetDraft = (k: string) =>
+    setDraftMap((m) => ({ ...m, [k]: { ...emptyDraft } }));
 
   const toggleAdd = (k: string, open?: boolean) =>
-    setOpenAdd((m) => ({ ...m, [k]: typeof open === 'boolean' ? open : !m[k] }));
+    setOpenAdd((m) => ({
+      ...m,
+      [k]: typeof open === 'boolean' ? open : !m[k],
+    }));
 
   const addStructuredKR = (dIdx: number, pIdx: number) => {
     const k = keyFor(dIdx, pIdx);
@@ -595,8 +753,12 @@ export default function OKRPage() {
       return;
     }
     const weightNum = draft.weight ? Number(draft.weight) : 1;
-    const elasticityNum = draft.elasticity ? Number(draft.elasticity) : undefined;
-    const lagNum = draft.lagMonths ? Number(draft.lagMonths) : 0;
+    const elasticityNum = draft.elasticity
+      ? Number(draft.elasticity)
+      : undefined;
+    const lagNum = draft.lagMonths
+      ? Number(draft.lagMonths)
+      : 0;
     const baseOverrideNum =
       draft.overrideMode === 'OVERRIDE' && draft.baseOverride
         ? Number(draft.baseOverride)
@@ -625,11 +787,15 @@ export default function OKRPage() {
       const deptPrev = next[dIdx];
       if (!deptPrev) return prev;
       const dept = { ...deptPrev };
-      const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+      const projs = Array.isArray(dept.projects)
+        ? [...dept.projects]
+        : [];
       const projPrev = projs[pIdx];
       if (!projPrev) return prev;
       const proj = { ...projPrev };
-      const list = Array.isArray(proj.okrsV2) ? [...(proj.okrsV2 as KRStructuredX[])] : [];
+      const list = Array.isArray(proj.okrsV2)
+        ? [...(proj.okrsV2 as KRStructuredX[])]
+        : [];
       list.push(kr);
       (proj as any).okrsV2 = list;
       projs[pIdx] = proj;
@@ -649,9 +815,15 @@ export default function OKRPage() {
   return (
     <main className="min-h-screen bg-zinc-50 px-6 py-8">
       <header className="mb-8">
-        <h1 className="text-[28px] font-semibold tracking-tight text-zinc-900">STAGE4 実行計画（OKR設定）</h1>
+        <h1 className="text-[28px] font-semibold tracking-tight text-zinc-900">
+          STAGE4 実行計画（OKR設定）
+        </h1>
         <p className="text-[14px] text-zinc-600">
-          各プロジェクトで<strong className="font-semibold">構造化した成果指標（KR）</strong>を追加・編集・削除します。
+          各プロジェクトで
+          <strong className="font-semibold">
+            構造化した成果指標（KR）
+          </strong>
+          を追加・編集・削除します。
           ここで設定した内容は、後続の財務シミュレーションに連動します。
         </p>
 
@@ -666,7 +838,9 @@ export default function OKRPage() {
             />
             入力のガイドを表示
           </label>
-          <span className="text-[12px] text-zinc-500">（オンにすると各項目の補足が常時見えます）</span>
+          <span className="text-[12px] text-zinc-500">
+            （オンにすると各項目の補足が常時見えます）
+          </span>
         </div>
 
         {isHydrating && (
@@ -677,7 +851,7 @@ export default function OKRPage() {
         <div className="mt-6 h-px w-full bg-zinc-200" />
       </header>
 
-      {/* ▼ ここだけ変更：MD以上で“めいっぱい横長”に（最小幅420pxを確保しつつ自動段組） */}
+      {/* 部門 × プロジェクト */}
       <div className="grid gap-6 md:[grid-template-columns:repeat(auto-fill,minmax(420px,1fr))]">
         {cascade.map((dept, deptIdx) => {
           const projects = ensureArray(dept.projects);
@@ -687,7 +861,9 @@ export default function OKRPage() {
               className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm"
             >
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-[17px] font-semibold text-zinc-900">{dept?.name ?? '部門'}</h2>
+                <h2 className="text-[17px] font-semibold text-zinc-900">
+                  {dept?.name ?? '部門'}
+                </h2>
               </div>
 
               {projects.length === 0 && (
@@ -697,9 +873,12 @@ export default function OKRPage() {
               )}
 
               {projects.map((proj, projIdx) => {
-                const okrsV2 = ensureArray(proj.okrsV2) as KRStructuredX[];
+                const okrsV2 = ensureArray(
+                  proj.okrsV2,
+                ) as KRStructuredX[];
                 const addKey = `${deptIdx}:${projIdx}`;
-                const d = (draftMap[addKey] ?? emptyDraft) as Draft;
+                const d = (draftMap[addKey] ??
+                  emptyDraft) as Draft;
                 const isOpen = !!openAdd[addKey];
 
                 return (
@@ -708,7 +887,7 @@ export default function OKRPage() {
                     className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4"
                   >
                     {/* プロジェクトヘッダー */}
-                    <div className="mb-2 flex items-center justify-between flex-wrap gap-2">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <button
                           className="rounded-full border border-zinc-200 bg-white p-1.5 text-zinc-700 hover:bg-white/90"
@@ -725,30 +904,52 @@ export default function OKRPage() {
                       {/* プロジェクトのロール */}
                       <div className="flex items-center gap-2">
                         <div className="flex items-center gap-1">
-                          <span className="text-[12px] text-zinc-600">プロジェクトの役割</span>
+                          <span className="text-[12px] text-zinc-600">
+                            プロジェクトの役割
+                          </span>
                           <Tooltip text="このプロジェクトの方向性です。収益＝売上を伸ばす、コスト＝費用を抑える、未来＝投資や成功確率、全社連携＝他プロジェクトとの相乗。">
                             <HelpCircle className="h-4 w-4 text-zinc-500" />
                           </Tooltip>
                         </div>
                         <select
                           className="h-9 rounded-xl border border-zinc-200 bg-white px-2 text-[13px]"
-                          value={roleShadow[addKey] ?? proj.role ?? ''}
-                          onChange={(e) => updateProjectRole(deptIdx, projIdx, e.target.value as Project['role'] | '')}
-                          disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                          value={
+                            roleShadow[addKey] ??
+                            proj.role ??
+                            ''
+                          }
+                          onChange={(e) =>
+                            updateProjectRole(
+                              deptIdx,
+                              projIdx,
+                              e.target.value as
+                                | Project['role']
+                                | '',
+                            )
+                          }
+                          disabled={isHydrating}
                         >
                           <option value="">未選択</option>
                           {ROLE_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
+                            <option
+                              key={opt.value}
+                              value={opt.value}
+                            >
                               {opt.label}
                             </option>
                           ))}
                         </select>
 
                         <button
-                          onClick={() => setOpenAdd((m) => ({ ...m, [addKey]: !isOpen }))}
-                          disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                          onClick={() =>
+                            setOpenAdd((m) => ({
+                              ...m,
+                              [addKey]: !isOpen,
+                            }))
+                          }
+                          disabled={isHydrating}
                           className={`rounded-full border px-3 py-1.5 text-[13px] font-medium ${
-                            !hydrated || scopeCompanyId !== accessCompanyId
+                            isHydrating
                               ? 'border-zinc-200 bg-zinc-200 text-zinc-500'
                               : 'border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50'
                           }`}
@@ -761,11 +962,13 @@ export default function OKRPage() {
                     {/* 構造化KR 追加フォーム */}
                     {isOpen && (
                       <div className="mb-3 rounded-2xl border border-zinc-200 bg-white p-3">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                           {/* 種類 */}
                           <div className="space-y-1">
                             <div className="flex items-center gap-1">
-                              <div className="text-[11px] text-zinc-600">種類</div>
+                              <div className="text-[11px] text-zinc-600">
+                                種類
+                              </div>
                               <Tooltip text="このKRが何に効くかを選びます。新規獲得（ACQ）/単価（ARPU）/解約（CHURN）/各種コスト/投資/成功確率/シナジー/直接の売上増減。">
                                 <HelpCircle className="h-3.5 w-3.5 text-zinc-500" />
                               </Tooltip>
@@ -773,19 +976,44 @@ export default function OKRPage() {
                             <select
                               className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-2 text-[14px]"
                               value={d.kind}
-                              onChange={(e) => setDraft(addKey, { kind: e.target.value as KRKind })}
-                              disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                              onChange={(e) =>
+                                setDraft(addKey, {
+                                  kind: e.target
+                                    .value as KRKind,
+                                })
+                              }
+                              disabled={isHydrating}
                             >
-                              <option value="ACQ">新規獲得（ACQ）</option>
-                              <option value="ARPU">単価（ARPU）</option>
-                              <option value="CHURN">解約（CHURN）</option>
-                              <option value="COST_FIXED">固定費</option>
-                              <option value="COST_VARIABLE">変動費</option>
-                              <option value="PERSONNEL">人件費</option>
-                              <option value="INVEST">投資</option>
-                              <option value="SUCCESS_RATE">成功確率</option>
-                              <option value="SYNERGY">シナジー</option>
-                              <option value="REVENUE">売上の増減（Δ）</option>
+                              <option value="ACQ">
+                                新規獲得（ACQ）
+                              </option>
+                              <option value="ARPU">
+                                単価（ARPU）
+                              </option>
+                              <option value="CHURN">
+                                解約（CHURN）
+                              </option>
+                              <option value="COST_FIXED">
+                                固定費
+                              </option>
+                              <option value="COST_VARIABLE">
+                                繁動費
+                              </option>
+                              <option value="PERSONNEL">
+                                人件費
+                              </option>
+                              <option value="INVEST">
+                                投資
+                              </option>
+                              <option value="SUCCESS_RATE">
+                                成功確率
+                              </option>
+                              <option value="SYNERGY">
+                                シナジー
+                              </option>
+                              <option value="REVENUE">
+                                売上の増減（Δ）
+                              </option>
                             </select>
                             {helpMode && (
                               <p className="text-[11px] text-zinc-500">
@@ -797,7 +1025,9 @@ export default function OKRPage() {
                           {/* 単位 */}
                           <div className="space-y-1">
                             <div className="flex items-center gap-1">
-                              <div className="text-[11px] text-zinc-600">単位</div>
+                              <div className="text-[11px] text-zinc-600">
+                                単位
+                              </div>
                               <Tooltip text="％は割合（5と入力で5%）。件/人は数量。¥は金額です。">
                                 <HelpCircle className="h-3.5 w-3.5 text-zinc-500" />
                               </Tooltip>
@@ -805,24 +1035,35 @@ export default function OKRPage() {
                             <select
                               className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-2 text-[14px]"
                               value={d.unit}
-                              onChange={(e) => setDraft(addKey, { unit: e.target.value as Draft['unit'] })}
-                              disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                              onChange={(e) =>
+                                setDraft(addKey, {
+                                  unit: e.target
+                                    .value as Draft['unit'],
+                                })
+                              }
+                              disabled={isHydrating}
                             >
                               <option value="%">%</option>
                               <option value="¥">¥</option>
                               <option value="件">件</option>
                               <option value="人">人</option>
-                              <option value="比率">比率</option>
+                              <option value="比率">
+                                比率
+                              </option>
                             </select>
                             {helpMode && (
-                              <p className="text-[11px] text-zinc-500">％は自動で小数（0.05）に換算して扱います。</p>
+                              <p className="text-[11px] text-zinc-500">
+                                ％は自動で小数（0.05）に換算して扱います。
+                              </p>
                             )}
                           </div>
 
                           {/* 対象範囲 */}
                           <div className="space-y-1">
                             <div className="flex items-center gap-1">
-                              <div className="text-[11px] text-zinc-600">対象範囲</div>
+                              <div className="text-[11px] text-zinc-600">
+                                対象範囲
+                              </div>
                               <Tooltip text="値をどこに効かせるか。会社全体／部門／このプロジェクトのいずれか。">
                                 <HelpCircle className="h-3.5 w-3.5 text-zinc-500" />
                               </Tooltip>
@@ -830,20 +1071,37 @@ export default function OKRPage() {
                             <select
                               className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-2 text-[14px]"
                               value={d.scope}
-                              onChange={(e) => setDraft(addKey, { scope: e.target.value as Draft['scope'] })}
-                              disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                              onChange={(e) =>
+                                setDraft(addKey, {
+                                  scope: e.target
+                                    .value as Draft['scope'],
+                                })
+                              }
+                              disabled={isHydrating}
                             >
-                              <option value="company">会社全体</option>
-                              <option value="department">部門</option>
-                              <option value="project">このプロジェクト</option>
+                              <option value="company">
+                                会社全体
+                              </option>
+                              <option value="department">
+                                部門
+                              </option>
+                              <option value="project">
+                                このプロジェクト
+                              </option>
                             </select>
-                            {helpMode && <p className="text-[11px] text-zinc-500">通常は「このプロジェクト」でOKです。</p>}
+                            {helpMode && (
+                              <p className="text-[11px] text-zinc-500">
+                                通常は「このプロジェクト」でOKです。
+                              </p>
+                            )}
                           </div>
 
                           {/* 基準となる指標 */}
                           <div className="space-y-1">
                             <div className="flex items-center gap-1">
-                              <div className="text-[11px] text-zinc-600">基準となる指標</div>
+                              <div className="text-[11px] text-zinc-600">
+                                基準となる指標
+                              </div>
                               <Tooltip text="このKRがどの財務指標に紐づくか。acq=新規、arpu=単価、churn=解約、fixed/variable/personnel=費用、invest=投資、synergy=相乗、revenue=売上。">
                                 <HelpCircle className="h-3.5 w-3.5 text-zinc-500" />
                               </Tooltip>
@@ -851,27 +1109,58 @@ export default function OKRPage() {
                             <select
                               className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-2 text-[14px]"
                               value={d.baseKey}
-                              onChange={(e) => setDraft(addKey, { baseKey: e.target.value as Draft['baseKey'] })}
-                              disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                              onChange={(e) =>
+                                setDraft(addKey, {
+                                  baseKey: e.target
+                                    .value as Draft['baseKey'],
+                                })
+                              }
+                              disabled={isHydrating}
                             >
-                              <option value="acq">新規獲得（acq）</option>
-                              <option value="arpu">単価（arpu）</option>
-                              <option value="churn">解約（churn）</option>
-                              <option value="fixed_cost">固定費（fixed_cost）</option>
-                              <option value="variable_cost">変動費（variable_cost）</option>
-                              <option value="personnel_cost">人件費（personnel_cost）</option>
-                              <option value="invest">投資（invest）</option>
-                              <option value="success_rate">成功確率（success_rate）</option>
-                              <option value="synergy">シナジー（synergy）</option>
-                              <option value="revenue">売上（revenue）</option>
+                              <option value="acq">
+                                新規獲得（acq）
+                              </option>
+                              <option value="arpu">
+                                単価（arpu）
+                              </option>
+                              <option value="churn">
+                                解約（churn）
+                              </option>
+                              <option value="fixed_cost">
+                                固定費（fixed_cost）
+                              </option>
+                              <option value="variable_cost">
+                                変動費（variable_cost）
+                              </option>
+                              <option value="personnel_cost">
+                                人件費（personnel_cost）
+                              </option>
+                              <option value="invest">
+                                投資（invest）
+                              </option>
+                              <option value="success_rate">
+                                成功確率（success_rate）
+                              </option>
+                              <option value="synergy">
+                                シナジー（synergy）
+                              </option>
+                              <option value="revenue">
+                                売上（revenue）
+                              </option>
                             </select>
-                            {helpMode && <p className="text-[11px] text-zinc-500">迷ったら ACQ / ARPU / CHURN でOK。</p>}
+                            {helpMode && (
+                              <p className="text-[11px] text-zinc-500">
+                                迷ったら ACQ / ARPU / CHURN でOK。
+                              </p>
+                            )}
                           </div>
 
                           {/* 名称 */}
                           <div className="space-y-1 md:col-span-2">
                             <div className="flex items-center gap-1">
-                              <div className="text-[11px] text-zinc-600">名称（わかりやすく）</div>
+                              <div className="text-[11px] text-zinc-600">
+                                名称（わかりやすく）
+                              </div>
                               <Tooltip text="施策をひとことで。例：オンライン広告で新規200件増やす">
                                 <HelpCircle className="h-3.5 w-3.5 text-zinc-500" />
                               </Tooltip>
@@ -880,16 +1169,26 @@ export default function OKRPage() {
                               className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[14px]"
                               placeholder="例：オンライン広告で新規200件増やす"
                               value={d.label}
-                              onChange={(e) => setDraft(addKey, { label: e.target.value })}
-                              disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                              onChange={(e) =>
+                                setDraft(addKey, {
+                                  label: e.target.value,
+                                })
+                              }
+                              disabled={isHydrating}
                             />
-                            {helpMode && <p className="text-[11px] text-zinc-500">後で見ても意図が伝わる短い文が◎</p>}
+                            {helpMode && (
+                              <p className="text-[11px] text-zinc-500">
+                                後で見ても意図が伝わる短い文が◎
+                              </p>
+                            )}
                           </div>
 
                           {/* 目標値 */}
                           <div className="space-y-1">
                             <div className="flex items-center gap-1">
-                              <div className="text-[11px] text-zinc-600">目標値（数値）</div>
+                              <div className="text-[11px] text-zinc-600">
+                                目標値（数値）
+                              </div>
                               <Tooltip text="実現したい増減の量。％は5→5%（自動で0.05に換算）。解約の改善はマイナスで入力（例：-0.5）。">
                                 <HelpCircle className="h-3.5 w-3.5 text-zinc-500" />
                               </Tooltip>
@@ -899,28 +1198,44 @@ export default function OKRPage() {
                               inputMode="decimal"
                               placeholder="例：200 / 5 / -0.5 など"
                               value={d.target}
-                              onChange={(e) => setDraft(addKey, { target: e.target.value })}
-                              disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                              onChange={(e) =>
+                                setDraft(addKey, {
+                                  target: e.target.value,
+                                })
+                              }
+                              disabled={isHydrating}
                             />
-                            {helpMode && <p className="text-[11px] text-zinc-500">件/人/¥はそのままの数値でOK。</p>}
+                            {helpMode && (
+                              <p className="text-[11px] text-zinc-500">
+                                件/人/¥はそのままの数値でOK。
+                              </p>
+                            )}
                           </div>
 
                           {/* 担当者 */}
                           <div className="space-y-1">
-                            <div className="text-[11px] text-zinc-600">担当者（任意）</div>
+                            <div className="text-[11px] text-zinc-600">
+                              担当者（任意）
+                            </div>
                             <input
                               className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[14px]"
                               placeholder="氏名やメールなど"
                               value={d.owner}
-                              onChange={(e) => setDraft(addKey, { owner: e.target.value })}
-                              disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                              onChange={(e) =>
+                                setDraft(addKey, {
+                                  owner: e.target.value,
+                                })
+                              }
+                              disabled={isHydrating}
                             />
                           </div>
 
                           {/* 期限 */}
                           <div className="space-y-1">
                             <div className="flex items-center gap-1">
-                              <div className="text-[11px] text-zinc-600">期限（任意 / YYYY-MM）</div>
+                              <div className="text-[11px] text-zinc-600">
+                                期限（任意 / YYYY-MM）
+                              </div>
                               <Tooltip text="このKRの完了目安。例：2026-03">
                                 <HelpCircle className="h-3.5 w-3.5 text-zinc-500" />
                               </Tooltip>
@@ -929,8 +1244,12 @@ export default function OKRPage() {
                               className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[14px]"
                               placeholder="2026-03"
                               value={d.due}
-                              onChange={(e) => setDraft(addKey, { due: e.target.value })}
-                              disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                              onChange={(e) =>
+                                setDraft(addKey, {
+                                  due: e.target.value,
+                                })
+                              }
+                              disabled={isHydrating}
                             />
                           </div>
 
@@ -938,7 +1257,9 @@ export default function OKRPage() {
                           {/* 重み */}
                           <div className="space-y-1">
                             <div className="flex items-center gap-1">
-                              <div className="text-[11px] text-zinc-600">重み（複数KRの配分）</div>
+                              <div className="text-[11px] text-zinc-600">
+                                重み（複数KRの配分）
+                              </div>
                               <Tooltip text="同じ指標に効くKRが複数ある場合の配分比率。通常は1のままでOK。">
                                 <HelpCircle className="h-3.5 w-3.5 text-zinc-500" />
                               </Tooltip>
@@ -948,16 +1269,26 @@ export default function OKRPage() {
                               inputMode="decimal"
                               placeholder="1（標準）"
                               value={d.weight}
-                              onChange={(e) => setDraft(addKey, { weight: e.target.value })}
-                              disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                              onChange={(e) =>
+                                setDraft(addKey, {
+                                  weight: e.target.value,
+                                })
+                              }
+                              disabled={isHydrating}
                             />
-                            {helpMode && <p className="text-[11px] text-zinc-500">効き目の強さの相対比です。</p>}
+                            {helpMode && (
+                              <p className="text-[11px] text-zinc-500">
+                                効き目の強さの相対比です。
+                              </p>
+                            )}
                           </div>
 
                           {/* 弾性 */}
                           <div className="space-y-1">
                             <div className="flex items-center gap-1">
-                              <div className="text-[11px] text-zinc-600">弾性（効果の強さ）</div>
+                              <div className="text-[11px] text-zinc-600">
+                                弾性（効果の強さ）
+                              </div>
                               <Tooltip text="活動→指標（ACQ/ARPU/CHURN）への変換係数。0.2なら、入力の20%が実際の増分になります。未入力は1。">
                                 <HelpCircle className="h-3.5 w-3.5 text-zinc-500" />
                               </Tooltip>
@@ -967,15 +1298,21 @@ export default function OKRPage() {
                               inputMode="decimal"
                               placeholder="例：0.2"
                               value={d.elasticity}
-                              onChange={(e) => setDraft(addKey, { elasticity: e.target.value })}
-                              disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                              onChange={(e) =>
+                                setDraft(addKey, {
+                                  elasticity: e.target.value,
+                                })
+                              }
+                              disabled={isHydrating}
                             />
                           </div>
 
                           {/* ラグ（月） */}
                           <div className="space-y-1">
                             <div className="flex items-center gap-1">
-                              <div className="text-[11px] text-zinc-600">ラグ（月）</div>
+                              <div className="text-[11px] text-zinc-600">
+                                ラグ（月）
+                              </div>
                               <Tooltip text="効果が出るまでの遅れ。2なら2ヶ月後から効き始めます。">
                                 <HelpCircle className="h-3.5 w-3.5 text-zinc-500" />
                               </Tooltip>
@@ -985,16 +1322,26 @@ export default function OKRPage() {
                               inputMode="numeric"
                               placeholder="0"
                               value={d.lagMonths}
-                              onChange={(e) => setDraft(addKey, { lagMonths: e.target.value })}
-                              disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                              onChange={(e) =>
+                                setDraft(addKey, {
+                                  lagMonths: e.target.value,
+                                })
+                              }
+                              disabled={isHydrating}
                             />
-                            {helpMode && <p className="text-[11px] text-zinc-500">0〜3ヶ月程度が目安です。</p>}
+                            {helpMode && (
+                              <p className="text-[11px] text-zinc-500">
+                                0〜3ヶ月程度が目安です。
+                              </p>
+                            )}
                           </div>
 
                           {/* 開始月 */}
                           <div className="space-y-1">
                             <div className="flex items-center gap-1">
-                              <div className="text-[11px] text-zinc-600">開始月（YYYY-MM）</div>
+                              <div className="text-[11px] text-zinc-600">
+                                開始月（YYYY-MM）
+                              </div>
                               <Tooltip text="このKRの効果をいつから数えるか。空欄なら期間の開始月。">
                                 <HelpCircle className="h-3.5 w-3.5 text-zinc-500" />
                               </Tooltip>
@@ -1003,15 +1350,21 @@ export default function OKRPage() {
                               className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[14px]"
                               placeholder="2025-11"
                               value={d.startYm}
-                              onChange={(e) => setDraft(addKey, { startYm: e.target.value })}
-                              disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                              onChange={(e) =>
+                                setDraft(addKey, {
+                                  startYm: e.target.value,
+                                })
+                              }
+                              disabled={isHydrating}
                             />
                           </div>
 
                           {/* 反映方法 */}
                           <div className="space-y-1">
                             <div className="flex items-center gap-1">
-                              <div className="text-[11px] text-zinc-600">反映方法</div>
+                              <div className="text-[11px] text-zinc-600">
+                                反映方法
+                              </div>
                               <Tooltip text="按分：基準値に対して分け合って反映。上書き：指定値を基準として固定します。">
                                 <HelpCircle className="h-3.5 w-3.5 text-zinc-500" />
                               </Tooltip>
@@ -1019,21 +1372,35 @@ export default function OKRPage() {
                             <select
                               className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-2 text-[14px]"
                               value={d.overrideMode}
-                              onChange={(e) => setDraft(addKey, { overrideMode: e.target.value as Draft['overrideMode'] })}
-                              disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                              onChange={(e) =>
+                                setDraft(addKey, {
+                                  overrideMode:
+                                    e.target
+                                      .value as Draft['overrideMode'],
+                                })
+                              }
+                              disabled={isHydrating}
                             >
-                              <option value="APPORTION">按分（基準を分けて反映）</option>
-                              <option value="OVERRIDE">上書き（値を直接指定）</option>
+                              <option value="APPORTION">
+                                按分（基準を分けて反映）
+                              </option>
+                              <option value="OVERRIDE">
+                                上書き（値を直接指定）
+                              </option>
                             </select>
                             {helpMode && (
-                              <p className="text-[11px] text-zinc-500">通常は「按分」。計画で基準を固定したい時のみ「上書き」。</p>
+                              <p className="text-[11px] text-zinc-500">
+                                通常は「按分」。計画で基準を固定したい時のみ「上書き」。
+                              </p>
                             )}
                           </div>
 
                           {/* 上書き値 */}
                           <div className="space-y-1">
                             <div className="flex items-center gap-1">
-                              <div className="text-[11px] text-zinc-600">上書き値（上書きを選んだ場合）</div>
+                              <div className="text-[11px] text-zinc-600">
+                                上書き値（上書きを選んだ場合）
+                              </div>
                               <Tooltip text="反映方法で「上書き」を選んだ場合に、基準値として使う数値です。">
                                 <HelpCircle className="h-3.5 w-3.5 text-zinc-500" />
                               </Tooltip>
@@ -1043,15 +1410,24 @@ export default function OKRPage() {
                               inputMode="decimal"
                               placeholder="例：1000000"
                               value={d.baseOverride}
-                              onChange={(e) => setDraft(addKey, { baseOverride: e.target.value })}
-                              disabled={!hydrated || scopeCompanyId !== accessCompanyId || d.overrideMode !== 'OVERRIDE'}
+                              onChange={(e) =>
+                                setDraft(addKey, {
+                                  baseOverride: e.target.value,
+                                })
+                              }
+                              disabled={
+                                isHydrating ||
+                                d.overrideMode !== 'OVERRIDE'
+                              }
                             />
                           </div>
 
                           {/* メモ */}
                           <div className="space-y-1 md:col-span-3">
                             <div className="flex items-center gap-1">
-                              <div className="text-[11px] text-zinc-600">メモ（任意）</div>
+                              <div className="text-[11px] text-zinc-600">
+                                メモ（任意）
+                              </div>
                               <Tooltip text="補足や前提条件、計算根拠などを自由に残せます。">
                                 <HelpCircle className="h-3.5 w-3.5 text-zinc-500" />
                               </Tooltip>
@@ -1060,8 +1436,12 @@ export default function OKRPage() {
                               className="min-h-[72px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[14px]"
                               placeholder="補足や前提条件など"
                               value={d.notes}
-                              onChange={(e) => setDraft(addKey, { notes: e.target.value })}
-                              disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                              onChange={(e) =>
+                                setDraft(addKey, {
+                                  notes: e.target.value,
+                                })
+                              }
+                              disabled={isHydrating}
                             />
                           </div>
                         </div>
@@ -1071,16 +1451,21 @@ export default function OKRPage() {
                             className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-[13px] text-zinc-800 hover:bg-zinc-50"
                             onClick={() => {
                               resetDraft(addKey);
-                              setOpenAdd((m) => ({ ...m, [addKey]: false }));
+                              setOpenAdd((m) => ({
+                                ...m,
+                                [addKey]: false,
+                              }));
                             }}
-                            disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                            disabled={isHydrating}
                           >
                             やめる
                           </button>
                           <button
                             className="rounded-xl bg-black px-3 py-1.5 text-[13px] font-semibold text-white hover:opacity-90 active:opacity-85 disabled:opacity-40"
-                            onClick={() => addStructuredKR(deptIdx, projIdx)}
-                            disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                            onClick={() =>
+                              addStructuredKR(deptIdx, projIdx)
+                            }
+                            disabled={isHydrating}
                           >
                             追加する
                           </button>
@@ -1096,7 +1481,9 @@ export default function OKRPage() {
                     ) : (
                       <ul className="space-y-2">
                         {okrsV2.map((k, i) => {
-                          const editing = editIdx === `${deptIdx}:${projIdx}:${i}`;
+                          const editing =
+                            editIdx ===
+                            `${deptIdx}:${projIdx}:${i}`;
                           const kk = k as KRStructuredX;
                           return (
                             <li
@@ -1110,222 +1497,507 @@ export default function OKRPage() {
                                       <span className="rounded-full bg-zinc-900 px-2 py-0.5 text-[11px] font-semibold text-white">
                                         {kk.kind}
                                       </span>
-                                      <span className="text-[14px] text-zinc-900">{kk.label}</span>
+                                      <span className="text-[14px] text-zinc-900">
+                                        {kk.label}
+                                      </span>
                                     </div>
                                     <div className="text-[13px] text-zinc-700">
-                                      目標：<strong>{kk.target}</strong>
-                                      {kk.unit} ／ 対象：{kk.scope} ／ 基準：{kk.baseKey}
+                                      目標：
+                                      <strong>
+                                        {kk.target}
+                                      </strong>
+                                      {kk.unit} ／ 対象：
+                                      {kk.scope} ／ 基準：
+                                      {kk.baseKey}
                                     </div>
-                                    <div className="text-[12px] text-zinc-600 flex flex-wrap gap-2">
-                                      {kk.owner && <span>担当：{kk.owner}</span>}
-                                      {kk.due && <span>期限：{kk.due}</span>}
-                                      {kk.weight != null && <span>重み：{kk.weight}</span>}
-                                      {kk.elasticity != null && <span>弾性：{kk.elasticity}</span>}
-                                      {kk.lagMonths != null && <span>ラグ（月）：{kk.lagMonths}</span>}
-                                      {kk.startYm && <span>開始：{kk.startYm}</span>}
+                                    <div className="flex flex-wrap gap-2 text-[12px] text-zinc-600">
+                                      {kk.owner && (
+                                        <span>
+                                          担当：{kk.owner}
+                                        </span>
+                                      )}
+                                      {kk.due && (
+                                        <span>
+                                          期限：{kk.due}
+                                        </span>
+                                      )}
+                                      {kk.weight != null && (
+                                        <span>
+                                          重み：{kk.weight}
+                                        </span>
+                                      )}
+                                      {kk.elasticity != null && (
+                                        <span>
+                                          弾性：
+                                          {kk.elasticity}
+                                        </span>
+                                      )}
+                                      {kk.lagMonths != null && (
+                                        <span>
+                                          ラグ（月）：
+                                          {kk.lagMonths}
+                                        </span>
+                                      )}
+                                      {kk.startYm && (
+                                        <span>
+                                          開始：{kk.startYm}
+                                        </span>
+                                      )}
                                       {kk.overrideMode && (
-                                        <span>反映：{kk.overrideMode === 'OVERRIDE' ? '上書き' : '按分'}</span>
+                                        <span>
+                                          反映：
+                                          {kk.overrideMode ===
+                                          'OVERRIDE'
+                                            ? '上書き'
+                                            : '按分'}
+                                        </span>
                                       )}
-                                      {kk.baseOverride != null && kk.overrideMode === 'OVERRIDE' && (
-                                        <span>上書き値：{kk.baseOverride}</span>
-                                      )}
+                                      {kk.baseOverride != null &&
+                                        kk.overrideMode ===
+                                          'OVERRIDE' && (
+                                          <span>
+                                            上書き値：
+                                            {kk.baseOverride}
+                                          </span>
+                                        )}
                                     </div>
                                     {kk.notes && (
-                                      <div className="text-[12px] text-zinc-500 mt-1 whitespace-pre-wrap">
+                                      <div className="mt-1 whitespace-pre-wrap text-[12px] text-zinc-500">
                                         メモ：{kk.notes}
                                       </div>
                                     )}
                                   </div>
                                   <div className="flex gap-1">
                                     <button
-                                      onClick={() => setEditIdx(`${deptIdx}:${projIdx}:${i}`)}
+                                      onClick={() =>
+                                        setEditIdx(
+                                          `${deptIdx}:${projIdx}:${i}`,
+                                        )
+                                      }
                                       className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-[12px] text-zinc-800 hover:bg-zinc-50"
-                                      disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                                      disabled={isHydrating}
                                     >
                                       編集
                                     </button>
                                     <button
-                                      onClick={() => deleteStructuredKR(deptIdx, projIdx, i)}
+                                      onClick={() =>
+                                        deleteStructuredKR(
+                                          deptIdx,
+                                          projIdx,
+                                          i,
+                                        )
+                                      }
                                       className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-[12px] text-rose-600 hover:bg-rose-50"
-                                      disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                                      disabled={isHydrating}
                                     >
                                       削除
                                     </button>
                                   </div>
                                 </div>
                               ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
+                                <div className="grid grid-cols-1 gap-2 md:grid-cols-6">
                                   <select
                                     value={kk.kind}
-                                    onChange={(e) => updateStructuredKR(deptIdx, projIdx, i, { kind: e.target.value as KRKind })}
+                                    onChange={(e) =>
+                                      updateStructuredKR(
+                                        deptIdx,
+                                        projIdx,
+                                        i,
+                                        {
+                                          kind: e.target
+                                            .value as KRKind,
+                                        },
+                                      )
+                                    }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-2 text-[14px]"
-                                    disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                                    disabled={isHydrating}
                                   >
-                                    <option value="ACQ">新規獲得（ACQ）</option>
-                                    <option value="ARPU">単価（ARPU）</option>
-                                    <option value="CHURN">解約（CHURN）</option>
-                                    <option value="COST_FIXED">固定費</option>
-                                    <option value="COST_VARIABLE">変動費</option>
-                                    <option value="PERSONNEL">人件費</option>
-                                    <option value="INVEST">投資</option>
-                                    <option value="SUCCESS_RATE">成功確率</option>
-                                    <option value="SYNERGY">シナジー</option>
-                                    <option value="REVENUE">売上の増減（Δ）</option>
+                                    <option value="ACQ">
+                                      新規獲得（ACQ）
+                                    </option>
+                                    <option value="ARPU">
+                                      単価（ARPU）
+                                    </option>
+                                    <option value="CHURN">
+                                      解約（CHURN）
+                                    </option>
+                                    <option value="COST_FIXED">
+                                      固定費
+                                    </option>
+                                    <option value="COST_VARIABLE">
+                                      変動費
+                                    </option>
+                                    <option value="PERSONNEL">
+                                      人件費
+                                    </option>
+                                    <option value="INVEST">
+                                      投資
+                                    </option>
+                                    <option value="SUCCESS_RATE">
+                                      成功確率
+                                    </option>
+                                    <option value="SYNERGY">
+                                      シナジー
+                                    </option>
+                                    <option value="REVENUE">
+                                      売上の増減（Δ）
+                                    </option>
                                   </select>
 
                                   <input
                                     value={kk.label ?? ''}
-                                    onChange={(e) => updateStructuredKR(deptIdx, projIdx, i, { label: e.target.value })}
+                                    onChange={(e) =>
+                                      updateStructuredKR(
+                                        deptIdx,
+                                        projIdx,
+                                        i,
+                                        {
+                                          label: e.target.value,
+                                        },
+                                      )
+                                    }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[14px]"
                                     placeholder="名称（わかりやすく）"
-                                    disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                                    disabled={isHydrating}
                                   />
 
                                   <input
-                                    value={String(kk.target ?? '')}
-                                    onChange={(e) => updateStructuredKR(deptIdx, projIdx, i, { target: Number(e.target.value || 0) })}
+                                    value={String(
+                                      kk.target ?? '',
+                                    )}
+                                    onChange={(e) =>
+                                      updateStructuredKR(
+                                        deptIdx,
+                                        projIdx,
+                                        i,
+                                        {
+                                          target: Number(
+                                            e.target.value ||
+                                              0,
+                                          ),
+                                        },
+                                      )
+                                    }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[14px]"
                                     inputMode="decimal"
                                     placeholder="目標値（数値）"
-                                    disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                                    disabled={isHydrating}
                                   />
 
                                   <select
                                     value={kk.unit ?? '件'}
-                                    onChange={(e) => updateStructuredKR(deptIdx, projIdx, i, { unit: e.target.value as Draft['unit'] })}
+                                    onChange={(e) =>
+                                      updateStructuredKR(
+                                        deptIdx,
+                                        projIdx,
+                                        i,
+                                        {
+                                          unit: e.target
+                                            .value as Draft['unit'],
+                                        },
+                                      )
+                                    }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-2 text-[14px]"
-                                    disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                                    disabled={isHydrating}
                                   >
                                     <option value="%">%</option>
                                     <option value="¥">¥</option>
-                                    <option value="件">件</option>
-                                    <option value="人">人</option>
-                                    <option value="比率">比率</option>
+                                    <option value="件">
+                                      件
+                                    </option>
+                                    <option value="人">
+                                      人
+                                    </option>
+                                    <option value="比率">
+                                      比率
+                                    </option>
                                   </select>
 
                                   <select
                                     value={kk.scope ?? 'project'}
-                                    onChange={(e) => updateStructuredKR(deptIdx, projIdx, i, { scope: e.target.value as Draft['scope'] })}
+                                    onChange={(e) =>
+                                      updateStructuredKR(
+                                        deptIdx,
+                                        projIdx,
+                                        i,
+                                        {
+                                          scope: e.target
+                                            .value as Draft['scope'],
+                                        },
+                                      )
+                                    }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-2 text-[14px]"
-                                    disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                                    disabled={isHydrating}
                                   >
-                                    <option value="company">会社全体</option>
-                                    <option value="department">部門</option>
-                                    <option value="project">このプロジェクト</option>
+                                    <option value="company">
+                                      会社全体
+                                    </option>
+                                    <option value="department">
+                                      部門
+                                    </option>
+                                    <option value="project">
+                                      このプロジェクト
+                                    </option>
                                   </select>
 
                                   <select
                                     value={kk.baseKey ?? 'acq'}
-                                    onChange={(e) => updateStructuredKR(deptIdx, projIdx, i, { baseKey: e.target.value as Draft['baseKey'] })}
+                                    onChange={(e) =>
+                                      updateStructuredKR(
+                                        deptIdx,
+                                        projIdx,
+                                        i,
+                                        {
+                                          baseKey: e.target
+                                            .value as Draft['baseKey'],
+                                        },
+                                      )
+                                    }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-2 text-[14px]"
-                                    disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                                    disabled={isHydrating}
                                   >
-                                    <option value="acq">新規獲得（acq）</option>
-                                    <option value="arpu">単価（arpu）</option>
-                                    <option value="churn">解約（churn）</option>
-                                    <option value="fixed_cost">固定費（fixed_cost）</option>
-                                    <option value="variable_cost">変動費（variable_cost）</option>
-                                    <option value="personnel_cost">人件費（personnel_cost）</option>
-                                    <option value="invest">投資（invest）</option>
-                                    <option value="success_rate">成功確率（success_rate）</option>
-                                    <option value="synergy">シナジー（synergy）</option>
-                                    <option value="revenue">売上（revenue）</option>
+                                    <option value="acq">
+                                      新規獲得（acq）
+                                    </option>
+                                    <option value="arpu">
+                                      単価（arpu）
+                                    </option>
+                                    <option value="churn">
+                                      解約（churn）
+                                    </option>
+                                    <option value="fixed_cost">
+                                      固定費（fixed_cost）
+                                    </option>
+                                    <option value="variable_cost">
+                                      変動費（variable_cost）
+                                    </option>
+                                    <option value="personnel_cost">
+                                      人件費（personnel_cost）
+                                    </option>
+                                    <option value="invest">
+                                      投資（invest）
+                                    </option>
+                                    <option value="success_rate">
+                                      成功確率（success_rate）
+                                    </option>
+                                    <option value="synergy">
+                                      シナジー（synergy）
+                                    </option>
+                                    <option value="revenue">
+                                      売上（revenue）
+                                    </option>
                                   </select>
 
                                   <input
                                     value={kk.owner ?? ''}
-                                    onChange={(e) => updateStructuredKR(deptIdx, projIdx, i, { owner: e.target.value })}
+                                    onChange={(e) =>
+                                      updateStructuredKR(
+                                        deptIdx,
+                                        projIdx,
+                                        i,
+                                        {
+                                          owner: e.target.value,
+                                        },
+                                      )
+                                    }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[14px] md:col-span-3"
                                     placeholder="担当者（任意）"
-                                    disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                                    disabled={isHydrating}
                                   />
 
                                   <input
                                     value={kk.due ?? ''}
-                                    onChange={(e) => updateStructuredKR(deptIdx, projIdx, i, { due: e.target.value })}
+                                    onChange={(e) =>
+                                      updateStructuredKR(
+                                        deptIdx,
+                                        projIdx,
+                                        i,
+                                        {
+                                          due: e.target.value,
+                                        },
+                                      )
+                                    }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[14px] md:col-span-2"
                                     placeholder="期限（YYYY-MM）"
-                                    disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                                    disabled={isHydrating}
                                   />
 
-                                  {/* 追加：重み・弾性・ラグ・開始月・反映方法・上書き値・メモ */}
+                                  {/* 重み・弾性・ラグ・開始月・反映方法・上書き値・メモ */}
                                   <input
-                                    value={kk.weight ?? ''}
-                                    onChange={(e) => updateStructuredKR(deptIdx, projIdx, i, { weight: Number(e.target.value || 0) })}
+                                    value={
+                                      kk.weight ?? ''
+                                    }
+                                    onChange={(e) =>
+                                      updateStructuredKR(
+                                        deptIdx,
+                                        projIdx,
+                                        i,
+                                        {
+                                          weight: Number(
+                                            e.target.value ||
+                                              0,
+                                          ),
+                                        },
+                                      )
+                                    }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[14px]"
                                     inputMode="decimal"
                                     placeholder="重み"
-                                    disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                                    disabled={isHydrating}
                                   />
 
                                   <input
-                                    value={kk.elasticity ?? ''}
-                                    onChange={(e) => updateStructuredKR(deptIdx, projIdx, i, { elasticity: Number(e.target.value || 0) })}
+                                    value={
+                                      kk.elasticity ?? ''
+                                    }
+                                    onChange={(e) =>
+                                      updateStructuredKR(
+                                        deptIdx,
+                                        projIdx,
+                                        i,
+                                        {
+                                          elasticity:
+                                            Number(
+                                              e.target
+                                                .value || 0,
+                                            ),
+                                        },
+                                      )
+                                    }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[14px]"
                                     inputMode="decimal"
                                     placeholder="弾性（係数）"
-                                    disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                                    disabled={isHydrating}
                                   />
 
                                   <input
-                                    value={kk.lagMonths ?? ''}
-                                    onChange={(e) => updateStructuredKR(deptIdx, projIdx, i, { lagMonths: Number(e.target.value || 0) })}
+                                    value={
+                                      kk.lagMonths ?? ''
+                                    }
+                                    onChange={(e) =>
+                                      updateStructuredKR(
+                                        deptIdx,
+                                        projIdx,
+                                        i,
+                                        {
+                                          lagMonths:
+                                            Number(
+                                              e.target
+                                                .value || 0,
+                                            ),
+                                        },
+                                      )
+                                    }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[14px]"
                                     inputMode="numeric"
                                     placeholder="ラグ（月）"
-                                    disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                                    disabled={isHydrating}
                                   />
 
                                   <input
-                                    value={kk.startYm ?? ''}
-                                    onChange={(e) => updateStructuredKR(deptIdx, projIdx, i, { startYm: e.target.value })}
+                                    value={
+                                      kk.startYm ?? ''
+                                    }
+                                    onChange={(e) =>
+                                      updateStructuredKR(
+                                        deptIdx,
+                                        projIdx,
+                                        i,
+                                        {
+                                          startYm:
+                                            e.target.value,
+                                        },
+                                      )
+                                    }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[14px]"
                                     placeholder="開始月（YYYY-MM）"
-                                    disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                                    disabled={isHydrating}
                                   />
 
                                   <select
-                                    value={kk.overrideMode ?? 'APPORTION'}
+                                    value={
+                                      kk.overrideMode ??
+                                      'APPORTION'
+                                    }
                                     onChange={(e) =>
-                                      updateStructuredKR(deptIdx, projIdx, i, {
-                                        overrideMode: e.target.value as 'APPORTION' | 'OVERRIDE',
-                                      })
+                                      updateStructuredKR(
+                                        deptIdx,
+                                        projIdx,
+                                        i,
+                                        {
+                                          overrideMode:
+                                            e.target
+                                              .value as
+                                              | 'APPORTION'
+                                              | 'OVERRIDE',
+                                        },
+                                      )
                                     }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-2 text-[14px]"
-                                    disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                                    disabled={isHydrating}
                                   >
-                                    <option value="APPORTION">按分</option>
-                                    <option value="OVERRIDE">上書き</option>
+                                    <option value="APPORTION">
+                                      按分
+                                    </option>
+                                    <option value="OVERRIDE">
+                                      上書き
+                                    </option>
                                   </select>
 
                                   <input
-                                    value={kk.baseOverride ?? ''}
+                                    value={
+                                      kk.baseOverride ??
+                                      ''
+                                    }
                                     onChange={(e) =>
-                                      updateStructuredKR(deptIdx, projIdx, i, { baseOverride: Number(e.target.value || 0) })
+                                      updateStructuredKR(
+                                        deptIdx,
+                                        projIdx,
+                                        i,
+                                        {
+                                          baseOverride:
+                                            Number(
+                                              e.target
+                                                .value || 0,
+                                            ),
+                                        },
+                                      )
                                     }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[14px]"
                                     inputMode="decimal"
                                     placeholder="上書き値（上書き選択時）"
                                     disabled={
-                                      !hydrated ||
-                                      scopeCompanyId !== accessCompanyId ||
-                                      kk.overrideMode !== 'OVERRIDE'
+                                      isHydrating ||
+                                      kk.overrideMode !==
+                                        'OVERRIDE'
                                     }
                                   />
 
                                   <textarea
                                     value={kk.notes ?? ''}
-                                    onChange={(e) => updateStructuredKR(deptIdx, projIdx, i, { notes: e.target.value })}
+                                    onChange={(e) =>
+                                      updateStructuredKR(
+                                        deptIdx,
+                                        projIdx,
+                                        i,
+                                        {
+                                          notes:
+                                            e.target.value,
+                                        },
+                                      )
+                                    }
                                     className="min-h-[60px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[14px] md:col-span-3"
                                     placeholder="メモ（任意）"
-                                    disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                                    disabled={isHydrating}
                                   />
 
                                   <div className="flex items-center justify-end gap-2 md:col-span-3">
                                     <button
-                                      onClick={() => setEditIdx(null)}
+                                      onClick={() =>
+                                        setEditIdx(null)
+                                      }
                                       className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-[13px] text-zinc-800 hover:bg-zinc-50"
-                                      disabled={!hydrated || scopeCompanyId !== accessCompanyId}
+                                      disabled={isHydrating}
                                     >
                                       完了
                                     </button>

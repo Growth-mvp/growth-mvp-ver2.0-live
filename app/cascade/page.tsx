@@ -1,4 +1,4 @@
-// /app/cascade/page.tsx（整理版・既存機能互換）
+// /app/cascade/page.tsx（恒久安定版・store一元化＆部門追加/削除安定版）
 'use client';
 
 import { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
@@ -10,7 +10,7 @@ import DepartmentQuestionStepper, {
   type OKR as DeptOKR,
 } from '@/components/guide/QuestionStepper.dept';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, Save, Sparkles, Building2, FileText } from 'lucide-react';
+import { PlusCircle, Save, Sparkles, Building2, FileText, Trash2 } from 'lucide-react';
 
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
@@ -85,6 +85,7 @@ const isNonEmptyStoryPayload = (v: any): boolean => {
   if (typeof v === 'string') return v.trim().length > 0;
   return false;
 };
+
 function getStory(raw: any) {
   if (Array.isArray(raw) && raw.length) {
     const chapters = raw
@@ -144,6 +145,7 @@ function makeSaveSnapshot(s: any) {
   if (typeof s?.simulationResult !== 'undefined') snap.simulationResult = s.simulationResult;
   return snap;
 }
+
 function hashSnapshot(obj: any) {
   const s = JSON.stringify(obj ?? {});
   let h = 5381;
@@ -334,7 +336,7 @@ export default function CascadePage() {
 
   const industry: string = (s?.industry as string) || (s?.company?.industry as string) || '';
 
-  /* ---- 初回ログだけ残す ---- */
+  /* ---- 初回ログだけ ---- */
   useEffect(() => {
     console.log('[cascade] mount', { hydrated, scopeCompanyId, accessCompanyId });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -369,6 +371,7 @@ export default function CascadePage() {
         loadGuardRef.current = accessCompanyId;
         return;
       }
+
       const currentSnap = makeSaveSnapshot(useStrategyStore.getState());
       const currentHash = hashSnapshot(currentSnap);
       const isDirty = !!(lastServerSnapshot && lastServerSnapshot !== currentHash);
@@ -417,34 +420,16 @@ export default function CascadePage() {
     return () => clearInterval(id);
   }, [boot?.isHydrating, hydrated, accessCompanyId, scopeCompanyId, setHydrated]);
 
-  /* ===== departments 同期（自動保存は hydrated 後のみ） ===== */
-  const [departments, setDepartments] = useState<Department[]>(
-    Array.isArray(s?.departments) ? (s.departments as Department[]) : []
+  /* ===== departments（store を唯一のソースに） ===== */
+  const departments = useStrategyStore(
+    (st) => ((st.departments as Department[] | undefined) ?? []) as Department[]
   );
-  const depsRef = useRef(departments);
-  useEffect(() => {
-    depsRef.current = departments;
-  }, [departments]);
 
+  // hydrated 後のみオートセーブ対象にする
   useAutoSave(hydrated && !boot?.isHydrating ? [accessCompanyId, departments] : []);
 
-  const storeDepartments = useStrategyStore((st) => st.departments) as Department[] | undefined;
-  useEffect(() => {
-    if (!Array.isArray(storeDepartments) || storeDepartments.length === 0) {
-      if (departments.length !== 0) setDepartments([]);
-      return;
-    }
-    if (!jsonEq(departments, storeDepartments)) setDepartments(storeDepartments as Department[]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storeDepartments]);
-
-  useEffect(() => {
-    if (boot?.isHydrating && departments.length) setDepartments([]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boot?.isHydrating]);
-
   const mismatch = !!(accessCompanyId && scopeCompanyId && scopeCompanyId !== accessCompanyId);
-  const isHydrating = ((Boolean(boot?.isHydrating) && !hydrated) || mismatch || !hydrated);
+  const isHydrating = (Boolean(boot?.isHydrating) && !hydrated) || mismatch || !hydrated;
 
   const rawStory = useMemo(() => {
     if (isNonEmptyStoryPayload(s?.finalStory)) return s.finalStory;
@@ -454,17 +439,21 @@ export default function CascadePage() {
   }, [s?.finalStory, s?.story, s?.strategyStory]);
   const { text: storyText, chapters: storyChapters } = useMemo(() => getStory(rawStory), [rawStory]);
 
+  const [notice, setNotice] = useState('');
+
+  /* ===== 部門配列更新ヘルパー（常に最新 state を基準） ===== */
   const pushToStore = useCallback(
-    (next: Department[]) => {
-      setDepartments(next);
-      if (boot?.isHydrating) return;
-      setDepartmentsInStore?.(next);
+    (next: Department[] | ((prev: Department[]) => Department[])) => {
+      const prev = ((useStrategyStore.getState().departments as Department[] | undefined) ?? []) as Department[];
+      const resolved = typeof next === 'function' ? (next as (p: Department[]) => Department[])(prev) : next;
+      if (!jsonEq(prev, resolved)) {
+        setDepartmentsInStore?.(resolved);
+      }
     },
-    [setDepartmentsInStore, boot?.isHydrating]
+    [setDepartmentsInStore]
   );
 
   const [activeTab, setActiveTab] = useState<'edit' | 'visual'>('edit');
-  const [notice, setNotice] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [deptName, setDeptName] = useState('');
   const [deptMission, setDeptMission] = useState('');
@@ -472,23 +461,44 @@ export default function CascadePage() {
   const [loading, setLoading] = useState<Record<number, any>>({});
 
   /* ===== その場保存 ===== */
-  const saveInlineMission = (index: number) => {
-    const next = [...depsRef.current];
-    const d = { ...next[index] };
-    const draft = (inlineEdit[index] ?? d.strategy ?? d.mission ?? '').toString();
-    if ((d.mission ?? '') === draft && (d.strategy ?? '') === draft && (d.missionDraft ?? '') === draft) {
+  const saveInlineMission = async (index: number) => {
+    let changed = false;
+
+    pushToStore((prev) => {
+      const current = [...prev];
+      const d = current[index];
+      if (!d) return prev;
+
+      const draft = (inlineEdit[index] ?? d.strategy ?? d.mission ?? '').toString();
+      if ((d.mission ?? '') === draft && (d.strategy ?? '') === draft && (d.missionDraft ?? '') === draft) {
+        return prev;
+      }
+
+      const updated: Department = {
+        ...d,
+        mission: draft,
+        strategy: draft,
+        missionDraft: draft,
+      };
+      current[index] = updated;
+      changed = true;
+      return current;
+    });
+
+    if (!changed) {
       setNotice('（変更なし）');
       return;
     }
-    d.mission = draft;
-    d.strategy = draft;
-    d.missionDraft = draft;
-    next[index] = d;
-    if (!jsonEq(next, depsRef.current)) {
-      pushToStore(next);
-      setNotice('✅ 保存しました');
-    } else {
-      setNotice('（変更なし）');
+
+    setNotice('✅ 保存しました');
+
+    if (saveNow) {
+      try {
+        await saveNow();
+        setNotice('✅ 保存しました（サーバーにも反映済み）');
+      } catch {
+        setNotice('⚠️ ローカル保存は完了しましたが、サーバー保存に失敗しました');
+      }
     }
   };
 
@@ -509,7 +519,7 @@ export default function CascadePage() {
       const hash = hashSnapshot(snap);
       if (st.lastServerSnapshot && st.lastServerSnapshot === hash) return;
       try {
-        await saveNow();
+        await saveNow?.();
       } catch {}
     };
     const onBeforeUnload = () => void flush();
@@ -529,7 +539,8 @@ export default function CascadePage() {
 
   /* ===== 推薦API（t系） ===== */
   const handleRecommendPatterns = async (index: number) => {
-    const dept = depsRef.current[index];
+    const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
+    const dept = current[index];
     if (!dept) return;
     if (!canEditDept()) return setNotice('⚠️ 編集権限がありません');
 
@@ -546,13 +557,17 @@ export default function CascadePage() {
       });
       const text = await res.text();
       const data = safeJsonFromText<{ detail?: RecommendedPattern[] }>(text) ?? {};
-      const next = [...depsRef.current];
-      const d = { ...next[index] };
-      if (!jsonEq(d.recommendedPatterns, data.detail ?? [])) {
-        d.recommendedPatterns = data.detail ?? [];
-        next[index] = d;
-        pushToStore(next);
-      }
+
+      pushToStore((prev) => {
+        const list = [...prev];
+        const d = list[index];
+        if (!d) return prev;
+        const nextPatterns = data.detail ?? [];
+        if (jsonEq(d.recommendedPatterns, nextPatterns)) return prev;
+        list[index] = { ...d, recommendedPatterns: nextPatterns };
+        return list;
+      });
+
       setNotice(`✅ ${dept.name} に推奨パターン（t系）を反映しました`);
     } catch (err: any) {
       setNotice(`❌ 推薦に失敗：${err.message}`);
@@ -563,7 +578,8 @@ export default function CascadePage() {
 
   /* ===== 推薦API（e系）===== */
   const handleRecommendExecPatterns = async (index: number) => {
-    const dept = depsRef.current[index];
+    const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
+    const dept = current[index];
     if (!dept) return;
     if (!canEditDept()) return setNotice('⚠️ 編集権限がありません');
 
@@ -580,13 +596,17 @@ export default function CascadePage() {
       });
       const text = await res.text();
       const data = safeJsonFromText<{ detail?: RecommendedPattern[] }>(text) ?? {};
-      const next = [...depsRef.current];
-      const d = { ...next[index] };
-      if (!jsonEq(d.recommendedExecPatterns, data.detail ?? [])) {
-        d.recommendedExecPatterns = data.detail ?? [];
-        next[index] = d;
-        pushToStore(next);
-      }
+
+      pushToStore((prev) => {
+        const list = [...prev];
+        const d = list[index];
+        if (!d) return prev;
+        const nextPatterns = data.detail ?? [];
+        if (jsonEq(d.recommendedExecPatterns, nextPatterns)) return prev;
+        list[index] = { ...d, recommendedExecPatterns: nextPatterns };
+        return list;
+      });
+
       setNotice(`✅ ${dept.name} に実装パターン（e系）を反映しました`);
     } catch (err: any) {
       setNotice(`❌ 実装パターン推薦に失敗：${err.message}`);
@@ -597,7 +617,8 @@ export default function CascadePage() {
 
   /* ===== e系→OKR 雛形 ===== */
   const handleOKRFromExec = async (index: number) => {
-    const dept = depsRef.current[index];
+    const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
+    const dept = current[index];
     if (!dept) return;
     if (!canEditDept()) return setNotice('⚠️ 編集権限がありません');
 
@@ -620,37 +641,45 @@ export default function CascadePage() {
         }),
       });
       const text = await res.text();
-      const data = safeJsonFromText<{ items: { id: string; title: string; okr: { objective: string; keyResults: string[]; owner?: string } }[] }>(text) ?? { items: [] };
+      const data =
+        safeJsonFromText<{
+          items: { id: string; title: string; okr: { objective: string; keyResults: string[]; owner?: string } }[];
+        }>(text) ?? { items: [] };
 
       if (!data.items?.length) return setNotice('⚠️ OKR雛形が生成されませんでした');
 
-      const next = [...depsRef.current];
-      const d = { ...next[index] };
-      const projects: Project[] = [...(d.projects ?? [])];
+      pushToStore((prev) => {
+        const list = [...prev];
+        const d = list[index];
+        if (!d) return prev;
+        const projects: Project[] = [...(d.projects ?? [])];
 
-      for (const it of data.items) {
-        const title = it.title || 'OKR';
-        const okr = it.okr;
-        const existIdx = projects.findIndex((p) => (p?.title ?? '') === title);
-        if (existIdx >= 0) {
-          const exist = { ...projects[existIdx] };
-          const existOkrs = [...(exist.okrs ?? [])];
-          const candidate = { objective: okr.objective, keyResults: okr.keyResults ?? [], owner: okr.owner };
-          if (!existOkrs.some((o) => jsonEq(o, candidate))) {
-            existOkrs.push(candidate);
-            exist.okrs = existOkrs;
-            projects[existIdx] = exist;
+        for (const it of data.items) {
+          const title = it.title || 'OKR';
+          const okr = it.okr;
+          const existIdx = projects.findIndex((p) => (p?.title ?? '') === title);
+          if (existIdx >= 0) {
+            const exist = { ...projects[existIdx] };
+            const existOkrs = [...(exist.okrs ?? [])];
+            const candidate = { objective: okr.objective, keyResults: okr.keyResults ?? [], owner: okr.owner };
+            if (!existOkrs.some((o) => jsonEq(o, candidate))) {
+              existOkrs.push(candidate);
+              exist.okrs = existOkrs;
+              projects[existIdx] = exist;
+            }
+          } else {
+            projects.push({
+              title,
+              okrs: [{ objective: okr.objective, keyResults: okr.keyResults ?? [], owner: okr.owner }],
+            } as Project);
           }
-        } else {
-          projects.push({ title, okrs: [{ objective: okr.objective, keyResults: okr.keyResults ?? [], owner: okr.owner }] } as Project);
         }
-      }
 
-      if (!jsonEq(projects, d.projects)) {
-        d.projects = projects;
-        next[index] = d;
-        pushToStore(next);
-      }
+        if (jsonEq(projects, d.projects)) return prev;
+        list[index] = { ...d, projects };
+        return list;
+      });
+
       setNotice(`✅ ${dept.name} に OKR雛形を展開しました（${data.items.length}件）`);
     } catch (e: any) {
       setNotice(`❌ OKR雛形の展開に失敗：${e.message}`);
@@ -661,7 +690,8 @@ export default function CascadePage() {
 
   /* ===== 要約生成（→自動 t系推薦） ===== */
   const handleGenerateSummary = async (index: number) => {
-    const dept = depsRef.current[index];
+    const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
+    const dept = current[index];
     if (!dept) return;
     if (!canEditDept()) return setNotice('⚠️ 編集権限がありません');
 
@@ -682,31 +712,37 @@ export default function CascadePage() {
       });
       const text = await res.text();
       const data = safeJsonFromText<any>(text) ?? {};
-      const next = [...depsRef.current];
-      const d = { ...next[index] };
 
-      const nextMission = data.mission ?? d.mission ?? '';
-      const nextProjects: Project[] = (data.projects ?? []).map((t: string) => ({
-        title: t,
-        okrs: data.okrs && data.okrs[0] ? [toStoreOKR(data.okrs[0] as DeptOKR)] : [],
-      }));
+      pushToStore((prev) => {
+        const list = [...prev];
+        const d = list[index];
+        if (!d) return prev;
 
-      let changed = false;
-      if (!jsonEq(nextMission, d.mission) || !jsonEq(nextMission, d.strategy) || !jsonEq(nextMission, d.missionDraft)) {
-        d.mission = nextMission;
-        d.strategy = nextMission;
-        d.missionDraft = nextMission;
-        changed = true;
-      }
-      if (!jsonEq(nextProjects, d.projects)) {
-        d.projects = nextProjects;
-        changed = true;
-      }
+        const nextMission = data.mission ?? d.mission ?? '';
+        const nextProjects: Project[] = (data.projects ?? []).map((t: string) => ({
+          title: t,
+          okrs: data.okrs && data.okrs[0] ? [toStoreOKR(data.okrs[0] as DeptOKR)] : [],
+        }));
 
-      if (changed) {
-        next[index] = d;
-        pushToStore(next);
-      }
+        let changed = false;
+        const patch: Partial<Department> = {};
+
+        if (!jsonEq(nextMission, d.mission) || !jsonEq(nextMission, d.strategy) || !jsonEq(nextMission, d.missionDraft)) {
+          patch.mission = nextMission;
+          patch.strategy = nextMission;
+          patch.missionDraft = nextMission;
+          changed = true;
+        }
+        if (!jsonEq(nextProjects, d.projects)) {
+          patch.projects = nextProjects;
+          changed = true;
+        }
+
+        if (!changed) return prev;
+        list[index] = { ...d, ...patch } as Department;
+        return list;
+      });
+
       setNotice(`✅ ${dept.name} の要約を反映しました`);
     } catch (err: any) {
       setNotice(`❌ 要約生成に失敗：${err.message}`);
@@ -715,6 +751,45 @@ export default function CascadePage() {
     }
 
     await handleRecommendPatterns(index);
+  };
+
+  /* ===== 部門削除 ===== */
+  const handleDeleteDepartment = async (index: number) => {
+    if (!canEditCompany) {
+      setNotice('⚠️ 部門削除は管理者のみ可能です');
+      return;
+    }
+
+    const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
+    const target = current[index];
+    if (!target) return;
+
+    const ok = window.confirm(`「${target.name}」を削除しますか？\nこの操作は元に戻せません。`);
+    if (!ok) return;
+
+    pushToStore((prev) => {
+      const raw = prev.filter((_, i) => i !== index);
+      const next: Department[] = raw.map((d, i) => ({
+        ...d,
+        answers2: (d.answers2 ?? []).map((ch) => ({
+          ...ch,
+          chapterIndex: i,
+          chapterTitle: d.name,
+        })),
+      }));
+      return next;
+    });
+
+    setNotice(`🗑 ${target.name} を削除しました`);
+
+    if (saveNow) {
+      try {
+        await saveNow();
+        setNotice(`🗑 ${target.name} を削除しました（サーバーにも反映済み）`);
+      } catch {
+        setNotice(`⚠️ ${target.name} の削除をサーバーに保存できませんでした（画面上は削除済み）`);
+      }
+    }
   };
 
   /* ===== ビジュアルビュー ===== */
@@ -730,8 +805,14 @@ export default function CascadePage() {
   }, [departments]);
 
   /* map内 hooks 回避のためのメモ */
-  const answersMemo: DeptAnswerStep[][] = useMemo(() => departments.map((d) => toDeptAnswers(d.answers2?.[0]?.steps)), [departments]);
-  const projectsMemo: string[][] = useMemo(() => departments.map((d) => d.projects?.map((p) => p.title) ?? []), [departments]);
+  const answersMemo: DeptAnswerStep[][] = useMemo(
+    () => departments.map((d) => toDeptAnswers(d.answers2?.[0]?.steps)),
+    [departments]
+  );
+  const projectsMemo: string[][] = useMemo(
+    () => departments.map((d) => d.projects?.map((p) => p.title) ?? []),
+    [departments]
+  );
 
   /* ===== JSX ===== */
   return (
@@ -747,7 +828,12 @@ export default function CascadePage() {
       {isHydrating && (
         <div className="mb-8 rounded-xl border p-4 text-sm text-muted-foreground flex items-center justify-between">
           <span>読み込み中…</span>
-          <Button variant="secondary" className="h-8 rounded-full px-3" onClick={() => setHydrated?.(true)} title="強制的に読み込み完了にします">
+          <Button
+            variant="secondary"
+            className="h-8 rounded-full px-3"
+            onClick={() => setHydrated?.(true)}
+            title="強制的に読み込み完了にします"
+          >
             手動で続行
           </Button>
         </div>
@@ -766,13 +852,15 @@ export default function CascadePage() {
               ))}
             </div>
           ) : (
-            <div className="p-4 bg-yellow-50 text-yellow-800 text-sm rounded-xl border border-yellow-200">経営ストーリーが未設定です。</div>
+            <div className="p-4 bg-yellow-50 text-yellow-800 text-sm rounded-xl border border-yellow-200">
+              経営ストーリーが未設定です。
+            </div>
           )}
         </section>
       )}
 
-      {/* タブ＋追加ボタン */}
-      <div className="flex justify-between items-center mb-6">
+      {/* タブ＋追加ボタン＋全体保存 */}
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
         <div className="inline-flex border rounded-full overflow-hidden">
           {(['edit', 'visual'] as const).map((t) => (
             <button
@@ -785,45 +873,97 @@ export default function CascadePage() {
             </button>
           ))}
         </div>
-        {canEditCompany && (
-          <Button onClick={() => setShowForm((v) => !v)} className="rounded-full h-9 px-4" disabled={isHydrating}>
-            <PlusCircle className="w-4 h-4 mr-1" />
-            {showForm ? '閉じる' : '部門追加'}
+
+        <div className="flex gap-2 justify-end">
+          {/* 明示的な全体保存ボタン */}
+          <Button
+            variant="outline"
+            className="rounded-full h-9 px-4"
+            disabled={isHydrating}
+            onClick={async () => {
+              if (!saveNow) return;
+              try {
+                setNotice('💾 保存中です…');
+                await saveNow();
+                setNotice('✅ 全体を保存しました（サーバーにも反映済み）');
+              } catch (e: any) {
+                setNotice(`❌ 保存に失敗しました：${e?.message ?? '不明なエラー'}`);
+              }
+            }}
+          >
+            <Save className="w-4 h-4 mr-1" />
+            全体保存
           </Button>
-        )}
+
+          {canEditCompany && (
+            <Button onClick={() => setShowForm((v) => !v)} className="rounded-full h-9 px-4" disabled={isHydrating}>
+              <PlusCircle className="w-4 h-4 mr-1" />
+              {showForm ? '閉じる' : '部門追加'}
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* 追加フォーム（簡素） */}
       {showForm && canEditCompany && !isHydrating && (
         <div className="p-6 border rounded-3xl bg-white/70 mb-8">
           <div className="grid md:grid-cols-2 gap-4">
-            <input value={deptName} onChange={(e) => setDeptName(e.target.value)} placeholder="部門名" className="border rounded-xl px-3 py-2" />
-            <input value={deptMission} onChange={(e) => setDeptMission(e.target.value)} placeholder="ミッション" className="border rounded-xl px-3 py-2" />
+            <input
+              value={deptName}
+              onChange={(e) => setDeptName(e.target.value)}
+              placeholder="部門名"
+              className="border rounded-xl px-3 py-2"
+            />
+            <input
+              value={deptMission}
+              onChange={(e) => setDeptMission(e.target.value)}
+              placeholder="ミッション"
+              className="border rounded-xl px-3 py-2"
+            />
           </div>
           <div className="mt-4 flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setShowForm(false)} className="rounded-full h-9 px-4">
               キャンセル
             </Button>
             <Button
-              onClick={() => {
+              onClick={async () => {
                 if (!deptName.trim()) return setNotice('⚠️ 部門名を入力してください');
-                const newDept: Department = {
-                  name: deptName.trim(),
-                  mission: deptMission.trim(),
-                  strategy: deptMission.trim(),
-                  missionDraft: deptMission.trim(),
-                  discussionNotes: '',
-                  projects: [],
-                  answers2: [{ chapterIndex: departments.length, chapterTitle: deptName.trim(), steps: [] }],
-                  finalized: false,
-                  recommendedPatterns: [],
-                  recommendedExecPatterns: [],
-                };
-                const next = [...depsRef.current, newDept];
-                pushToStore(next);
+                const baseName = deptName.trim();
+                const baseMission = deptMission.trim();
+
+                let nextLength = 0;
+                pushToStore((prev) => {
+                  const current = [...prev];
+                  const newDept: Department = {
+                    name: baseName,
+                    mission: baseMission,
+                    strategy: baseMission,
+                    missionDraft: baseMission,
+                    discussionNotes: '',
+                    projects: [],
+                    answers2: [{ chapterIndex: current.length, chapterTitle: baseName, steps: [] }],
+                    finalized: false,
+                    recommendedPatterns: [],
+                    recommendedExecPatterns: [],
+                  };
+                  current.push(newDept);
+                  nextLength = current.length;
+                  return current;
+                });
+
                 setDeptName('');
                 setDeptMission('');
                 setShowForm(false);
+                setNotice(`✅ ${baseName} を追加しました（部門数: ${nextLength}）`);
+
+                if (saveNow) {
+                  try {
+                    await saveNow();
+                    setNotice(`✅ ${baseName} を追加しました（サーバーにも反映済み）`);
+                  } catch {
+                    setNotice(`⚠️ ${baseName} の追加は画面上は反映されていますが、サーバー保存に失敗しました`);
+                  }
+                }
               }}
               className="rounded-full h-9 px-4"
             >
@@ -857,7 +997,23 @@ export default function CascadePage() {
                   <h3 className="font-semibold text-zinc-900 flex items-center gap-2">
                     <Building2 className="w-4 h-4" /> {dept.name}
                   </h3>
-                  {dept.finalized && <span className="text-xs bg-zinc-900 text-white rounded-full px-2 py-1">確定済み</span>}
+                  <div className="flex items-center gap-2">
+                    {dept.finalized && (
+                      <span className="text-xs bg-zinc-900 text-white rounded-full px-2 py-1">確定済み</span>
+                    )}
+                    {canEditCompany && (
+                      <Button
+                        variant="outline"
+                        className="h-8 px-3 rounded-full border-red-500 text-red-600 hover:bg-red-50 flex items-center gap-1"
+                        disabled={isHydrating}
+                        onClick={() => handleDeleteDepartment(index)}
+                        title="この部門を削除"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span className="text-xs">削除</span>
+                      </Button>
+                    )}
+                  </div>
                 </div>
 
                 <textarea
@@ -868,7 +1024,11 @@ export default function CascadePage() {
                 />
 
                 <div className="flex flex-wrap gap-2 mb-3">
-                  <Button onClick={() => saveInlineMission(index)} disabled={!editableDept || isHydrating} className="rounded-full h-9 px-4">
+                  <Button
+                    onClick={() => void saveInlineMission(index)}
+                    disabled={!editableDept || isHydrating}
+                    className="rounded-full h-9 px-4"
+                  >
                     <Save className="w-4 h-4 mr-1" /> 保存
                   </Button>
 
@@ -951,37 +1111,51 @@ export default function CascadePage() {
                     if (!editableDept || isHydrating) return;
                     const nextSteps = toStoreSteps(answers);
                     if (jsonEq(nextSteps, currentStoreSteps)) return;
-                    const next = [...depsRef.current];
-                    const d = { ...next[index] };
-                    d.answers2 = [{ chapterIndex: index, chapterTitle: d.name, steps: nextSteps }];
-                    next[index] = d;
-                    pushToStore(next);
+
+                    pushToStore((prev) => {
+                      const list = [...prev];
+                      const d = list[index];
+                      if (!d) return prev;
+                      const updated: Department = {
+                        ...d,
+                        answers2: [{ chapterIndex: index, chapterTitle: d.name, steps: nextSteps }],
+                      };
+                      list[index] = updated;
+                      return list;
+                    });
                   }}
                   onDraftGenerated={({ mission, projects, okrs }) => {
                     if (isHydrating) return;
-                    const next = [...depsRef.current];
-                    const d = { ...next[index] };
-                    const patch: Partial<Department> = {};
-                    if (mission && !jsonEq(mission, d.mission)) {
-                      patch.mission = mission;
-                      patch.strategy = mission;
-                      patch.missionDraft = mission;
-                    }
-                    if (projects?.length) {
-                      const projList = projects.map((t) => ({ title: t, okrs: [] as StoreOKR[] }));
-                      if (!jsonEq(projList, d.projects)) patch.projects = projList;
-                    }
-                    if (okrs?.length) {
-                      const add = { title: '初期OKR', okrs: [toStoreOKR(okrs[0])] };
-                      const merged = [...(patch.projects ?? d.projects ?? []), add];
-                      if (!jsonEq(merged, d.projects)) patch.projects = merged as any;
-                    }
-                    const changed = Object.keys(patch).length > 0;
-                    if (changed) {
-                      next[index] = { ...d, ...patch } as Department;
-                      pushToStore(next);
-                      setNotice(`✅ ${d.name} の案を反映しました`);
-                    }
+
+                    pushToStore((prev) => {
+                      const list = [...prev];
+                      const d = list[index];
+                      if (!d) return prev;
+
+                      const patch: Partial<Department> = {};
+                      if (mission && !jsonEq(mission, d.mission)) {
+                        patch.mission = mission;
+                        patch.strategy = mission;
+                        patch.missionDraft = mission;
+                      }
+                      if (projects?.length) {
+                        const projList = projects.map((t) => ({ title: t, okrs: [] as StoreOKR[] }));
+                        if (!jsonEq(projList, d.projects)) patch.projects = projList;
+                      }
+                      if (okrs?.length) {
+                        const add = { title: '初期OKR', okrs: [toStoreOKR(okrs[0])] };
+                        const merged = [...(patch.projects ?? d.projects ?? []), add];
+                        if (!jsonEq(merged, d.projects)) patch.projects = merged as any;
+                      }
+                      const changed = Object.keys(patch).length > 0;
+                      if (!changed) return prev;
+
+                      const updated: Department = { ...d, ...patch };
+                      list[index] = updated;
+                      return list;
+                    });
+
+                    setNotice(`✅ ${dept.name} の案を反映しました`);
                   }}
                 />
 
@@ -992,7 +1166,11 @@ export default function CascadePage() {
                       <Sparkles className="w-4 h-4" />
                       回答から <b>Mission / Projects / OKR（達成目標/主要な成果）</b> を生成できます（生成後に勝ちパターンも推薦）。
                     </div>
-                    <Button onClick={() => handleGenerateSummary(index)} disabled={!editableDept || !!loading[index]?.summary} className="rounded-full h-9 px-4">
+                    <Button
+                      onClick={() => handleGenerateSummary(index)}
+                      disabled={!editableDept || !!loading[index]?.summary}
+                      className="rounded-full h-9 px-4"
+                    >
                       <FileText className="w-4 h-4 mr-2" />
                       {loading[index]?.summary ? '生成中…' : 'AI要約を生成'}
                     </Button>

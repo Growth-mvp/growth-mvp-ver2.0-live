@@ -1,9 +1,18 @@
 // /components/execution/OKRModal.tsx
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { emit } from '@/utils/actionBus';
-import { saveProgressLog, type ProgressLogInput } from '@/utils/supabase/strategy';
+import {
+  saveProgressLog,
+  type ProgressLogInput,
+} from '@/utils/supabase/strategy';
 import { useUserStore } from '@/store/userStore';
 import { useStrategyStore } from '@/store/strategyStore';
 
@@ -26,7 +35,7 @@ export default function OKRModal({
   keyResults,
   owner,
 }: OKRModalProps) {
-  const { user } = useUserStore();
+  const user = useUserStore((s) => s.user);
   const { strategyId } = useStrategyStore();
 
   const [mode, setMode] = useState<Mode>('comment');
@@ -39,26 +48,7 @@ export default function OKRModal({
 
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  useEffect(() => {
-    if (open) {
-      const t = setTimeout(() => textAreaRef.current?.focus(), 0);
-      return () => clearTimeout(t);
-    }
-  }, [open, mode]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !saving) onClose();
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'enter') onSave();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, saving, text, rating, advice, requestTo, requestBody, mode]);
-
-  if (!open) return null;
-
+  // 保存可能かどうか（常に useMemo で評価）
   const canSave = useMemo(() => {
     switch (mode) {
       case 'comment':
@@ -74,63 +64,72 @@ export default function OKRModal({
     }
   }, [mode, text, rating, advice, requestTo, requestBody]);
 
-  // ProgressLogInput から userId/okrId を除いた形で返す
-  const buildPayload = (): Omit<ProgressLogInput, 'userId' | 'okrId'> => {
-    const base: any = {
-      content:
-        mode === 'comment'
-          ? text
-          : mode === 'rating'
-          ? `評価: ${rating ?? '-'}\n${text || ''}`
-          : mode === 'advice'
-          ? advice
-          : `協力要請: ${requestTo}\n${requestBody}`,
-      mode,
-      meta: {
-        objective: objective ?? '',
-        owner: owner ?? '',
-        okrId,
-      },
-    };
+  // DB カラム（content / score のみ）に揃えたペイロード
+  // status は ProgressLogInput 側で 'ontrack' | 'atrisk' | 'offtrack' 用なので、ここでは送らない
+  const buildPayload = useCallback(
+    (): Omit<ProgressLogInput, 'userId' | 'okrId' | 'status'> => {
+      let content = '';
+      let score: number | null = null;
 
-    if (mode === 'rating') {
-      base.rating = typeof rating === 'number' ? rating : null;
-      if (text?.trim()) base.note = text.trim();
-    }
-    if (mode === 'advice') {
-      base.advice = advice.trim();
-    }
-    if (mode === 'request') {
-      base.request = { to: requestTo.trim(), body: requestBody.trim() };
-    }
-    return base;
-  };
+      switch (mode) {
+        case 'comment': {
+          content = text.trim();
+          break;
+        }
+        case 'rating': {
+          score = typeof rating === 'number' ? rating : null;
+          const body = text.trim();
+          content =
+            body.length > 0
+              ? `評価: ${score ?? '-'}\n${body}`
+              : `評価: ${score ?? '-'}`;
+          break;
+        }
+        case 'advice': {
+          content = advice.trim();
+          break;
+        }
+        case 'request': {
+          const to = requestTo.trim();
+          const body = requestBody.trim();
+          content = `協力要請先: ${to}\n${body}`;
+          break;
+        }
+        default: {
+          content = '';
+        }
+      }
 
-  const onSave = async () => {
-    if (!user?.id || !okrId || saving || !canSave) return;
+      return {
+        content,
+        score,
+      };
+    },
+    [mode, text, rating, advice, requestTo, requestBody]
+  );
+
+  const onSave = useCallback(async () => {
+    const userId = user?.id;
+    if (!userId || !okrId || saving || !canSave) return;
+
     setSaving(true);
     try {
       const payload = buildPayload();
 
-      // ✅ ProgressLogInput をそのまま渡す（log プロパティは使わない）
-      const res: any = await saveProgressLog({
-        userId: user.id,
+      const { data, error } = await saveProgressLog({
+        userId,
         okrId,
         ...payload,
       });
 
-      const maybeError =
-        (res && typeof res === 'object' && 'error' in res ? res.error : null) ||
-        (res instanceof Error ? res : null);
+      if (error) throw error;
 
-      if (maybeError) throw maybeError;
-
-      const logId = (res && res.data && res.data.id) ?? res?.id ?? res?.logId ?? '';
+      const logId =
+        (Array.isArray(data) ? data[0]?.id : (data as any)?.id) ?? undefined;
 
       if (strategyId) {
         emit('okr:progress:logged', { strategyId, okrId, logId });
       }
-      onClose();
 
       // 入力クリア
       setText('');
@@ -139,13 +138,39 @@ export default function OKRModal({
       setRequestBody('');
       setRating(null);
       setMode('comment');
+
+      onClose();
     } catch (e) {
       console.error('saveProgressLog failed:', e);
       alert('保存に失敗しました。ネットワークまたは権限をご確認ください。');
     } finally {
       setSaving(false);
     }
-  };
+  }, [user, okrId, saving, canSave, buildPayload, strategyId, onClose]);
+
+  // open + mode 変更時に textarea をフォーカス
+  useEffect(() => {
+    if (!open) return;
+    const t = setTimeout(() => textAreaRef.current?.focus(), 0);
+    return () => clearTimeout(t);
+  }, [open, mode]);
+
+  // Esc / Ctrl+Enter のショートカット
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !saving) onClose();
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'enter') {
+        e.preventDefault();
+        onSave();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, saving, onClose, onSave]);
+
+  // 🔚 ここで early return（Hook はすでに全部呼んだあと）
+  if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
@@ -163,20 +188,24 @@ export default function OKRModal({
         className="relative z-[101] w-full max-w-2xl rounded-2xl bg-white p-5 shadow-2xl"
       >
         <header className="mb-3">
-          <h3 id="okr-modal-title" className="text-lg font-bold">進捗ログの追加</h3>
-          <p className="text-xs text-gray-500">OKR: {objective ?? '（タイトル未設定）'}</p>
+          <h3 id="okr-modal-title" className="text-lg font-bold">
+            進捗ログの追加
+          </h3>
+          <p className="text-xs text-gray-500">
+            OKR: {objective ?? '（タイトル未設定）'}
+          </p>
         </header>
 
         {/* Objective Info */}
-        <div className="mb-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+        <div className="mb-3 grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
           <div className="rounded-lg bg-gray-50 p-3">
             <div className="text-gray-500">Owner</div>
             <div className="font-semibold">{owner ?? '未設定'}</div>
           </div>
           <div className="rounded-lg bg-gray-50 p-3 md:col-span-2">
-            <div className="text-gray-500 mb-1">Key Results</div>
+            <div className="mb-1 text-gray-500">Key Results</div>
             {Array.isArray(keyResults) && keyResults.length > 0 ? (
-              <ul className="list-disc pl-5 space-y-0.5">
+              <ul className="list-disc space-y-0.5 pl-5">
                 {keyResults.map((kr, i) => (
                   <li key={i}>{kr}</li>
                 ))}

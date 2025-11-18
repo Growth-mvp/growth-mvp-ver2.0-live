@@ -4,26 +4,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import ProjectCard from '@/components/execution/ProjectCard';
-
-// ✅ saveProgressLog は strategy.ts から import（supabaseはここからはimportしない）
 import { saveProgressLog } from '@/utils/supabase/strategy';
-// 履歴取得だけ Supabase クライアントを直 import
 import { supabase } from '@/utils/supabase/client';
-
 import { useUserStore } from '@/store/userStore';
 import { X, Stars, Send, Clock, CheckCircle2 } from 'lucide-react';
-
-// アクセス制御（company_members.role が唯一の真実）
 import { useAccess } from '@/utils/access';
-
-// 会社スコープ確立・初期ロード
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
-
-// 自動保存
 import { useAutoSave } from '@/hooks/useAutoSave';
-
-// 公式型（最低限）
 import type { Department, Project as ProjectStrict, OKR as OKRStrict } from '@/types/strategy';
 
 /* =========================
@@ -35,7 +23,7 @@ const toStrictOKR = (okr: any): OKRStrict => ({
   owner: okr?.owner ? String(okr.owner) : undefined,
 });
 
-// ⚠️ okrsV2 は通さず、title 正規化にのみ使用（カードへは元projを渡す）
+// okrsV2 を潰さないため、title だけ正規化して残りは元projを活かす
 const toStrictProject = (proj: any): ProjectStrict => ({
   title: String(proj?.title ?? proj?.name ?? ''),
   okrs: Array.isArray(proj?.okrs) ? proj.okrs.map(toStrictOKR) : [],
@@ -46,14 +34,14 @@ const okrKey = (d: number, p: number, o: number, okr?: any) =>
   (okr && typeof okr.id === 'string' && okr.id.trim()) ? okr.id : `okr-${d}-${p}-${o}`;
 
 /* =========================
- * 履歴Row型（progress_logs 取得：strategy.tsのsave形に整合）
+ * progress_logs ロード用型（content 版）
  * ======================= */
 type LogRow = {
   id?: string;
   created_at?: string;
   content?: string | null;
-  score?: number | null;   // 旧rating相当
-  status?: 'ontrack' | 'atrisk' | 'offtrack' | null;
+  score?: number | null;
+  status?: string | null;
 };
 
 /* =========================
@@ -88,7 +76,7 @@ function ExecPanel(props: {
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [loadingLogs, setLoadingLogs] = useState<boolean>(false);
 
-  // 履歴ロード（content/scoreベース）
+  // 履歴ロード（content / score / status 版）
   useEffect(() => {
     const loadLogs = async () => {
       if (!open || !userId || !okrId) return;
@@ -101,8 +89,11 @@ function ExecPanel(props: {
           .eq('okr_id', okrId)
           .order('created_at', { ascending: false })
           .limit(50);
-        if (error) console.warn('load progress_logs error:', error);
-        if (Array.isArray(data)) setLogs(data as any[]);
+
+        if (error) {
+          console.warn('load progress_logs error:', error);
+        }
+        if (Array.isArray(data)) setLogs(data as LogRow[]);
       } finally {
         setLoadingLogs(false);
       }
@@ -212,7 +203,9 @@ function ExecPanel(props: {
         <button
           key={n}
           onClick={() => onChange(n === value ? 0 : n)}
-          className={`rounded p-1 transition-colors ${value >= n ? 'text-amber-500' : 'text-gray-300'} hover:text-amber-600`}
+          className={`rounded p-1 transition-colors ${
+            value >= n ? 'text-amber-500' : 'text-gray-300'
+          } hover:text-amber-600`}
           type="button"
         >
           <Stars className="h-5 w-5" />
@@ -221,8 +214,21 @@ function ExecPanel(props: {
     </div>
   );
 
-  const isFeedback = (row: LogRow) => (row.content || '').startsWith('[FB]');
-  const feedbackBody = (row: LogRow) => (row.content || '').replace(/^\[FB]\s*\n?/, '').trim();
+  const isFeedback = (row: LogRow) =>
+    (row.content || '').startsWith('[FB]');
+
+  const feedbackBody = (row: LogRow) =>
+    (row.content || '').replace(/^\[FB]\s*\n?/, '').trim();
+
+  // チェックイン時の「支援依頼」分離表示
+  const splitContent = (content: string | null | undefined) => {
+    if (!content) return { memo: '', help: '' };
+    const [memoPart, helpPart] = content.split('\n\n--- Help ---\n');
+    return {
+      memo: (memoPart || '').trim(),
+      help: (helpPart || '').trim(),
+    };
+  };
 
   // Agent Dock 右スペースとの干渉対策
   const [agentDockPx, setAgentDockPx] = useState(0);
@@ -279,13 +285,17 @@ function ExecPanel(props: {
         <div className="px-5 pt-4">
           <div className="inline-flex rounded-xl border border-black/10 bg-white p-1">
             <button
-              className={`px-3 py-1.5 text-sm rounded-lg transition ${tab === 'checkin' ? 'bg-gray-900 text-white' : 'text-gray-800 hover:bg-gray-100'}`}
+              className={`px-3 py-1.5 text-sm rounded-lg transition ${
+                tab === 'checkin' ? 'bg-gray-900 text-white' : 'text-gray-800 hover:bg-gray-100'
+              }`}
               onClick={() => setTab('checkin')}
             >
               チェックイン
             </button>
             <button
-              className={`px-3 py-1.5 text-sm rounded-lg transition ${tab === 'feedback' ? 'bg-gray-900 text-white' : 'text-gray-800 hover:bg-gray-100'}`}
+              className={`px-3 py-1.5 text-sm rounded-lg transition ${
+                tab === 'feedback' ? 'bg-gray-900 text-white' : 'text-gray-800 hover:bg-gray-100'
+              }`}
               onClick={() => setTab('feedback')}
             >
               フィードバック
@@ -353,7 +363,7 @@ function ExecPanel(props: {
           {tab === 'feedback' && (
             <>
               <section className="rounded-2xl border border-black/10 bg-white/70 p-4">
-                <div className="mb-3 flex items-center justify-between">
+                <div className="mb-3 flex items-center justify_between">
                   <div className="text-sm font-semibold tracking-tight">フィードバック</div>
                   <StarInput value={reviewScore} onChange={setReviewScore} />
                 </div>
@@ -394,20 +404,18 @@ function ExecPanel(props: {
                   const when = row.created_at ? new Date(row.created_at).toLocaleString() : '';
                   const fb = isFeedback(row);
                   const body = fb ? feedbackBody(row) : (row.content ?? '');
-                  // チェックイン時に付与した支援依頼を分離表示
-                  const [memoPart, helpPart] = (row.content || '').split('\n\n--- Help ---\n');
-                  const showMemo = fb ? null : (memoPart || '').trim();
-                  const showHelp = fb ? null : (helpPart || '').trim();
+                  const { memo, help } = splitContent(row.content ?? '');
+                  const score = typeof row.score === 'number' ? row.score : null;
 
                   return (
                     <li key={row.id ?? i} className="px-4 py-3">
                       <div className="mb-1 flex items-center justify-between">
                         <div className="text-xs text-gray-500">{when}</div>
                         <div className="flex items-center gap-2 text-xs text-gray-700">
-                          {typeof row.score === 'number' && row.score! > 0 && (
+                          {score && score > 0 && (
                             <span className="inline-flex items-center gap-1">
                               <Stars className="h-3 w-3 text-amber-600" />
-                              {row.score}
+                              {score}
                             </span>
                           )}
                           <span className="rounded-full bg-gray-100 px-2 py-0.5">
@@ -416,19 +424,19 @@ function ExecPanel(props: {
                         </div>
                       </div>
                       {fb ? (
-                        <div className="rounded-xl bg-gray-50 p-3 text-sm text-gray-900 whitespace-pre-wrap">
+                        <div className="rounded-xl bg-gray-50 p-3 text_sm text-gray-900 whitespace-pre-wrap">
                           {body}
                         </div>
                       ) : (
                         <>
-                          {showMemo && (
+                          {memo && (
                             <div className="text-[15px] text-gray-900 whitespace-pre-wrap">
-                              {showMemo}
+                              {memo}
                             </div>
                           )}
-                          {showHelp && (
+                          {help && (
                             <div className="mt-2 rounded-xl bg-gray-50 p-3 text-sm text-gray-800 whitespace-pre-wrap">
-                              {showHelp}
+                              {help}
                             </div>
                           )}
                         </>
@@ -487,17 +495,12 @@ export default function ExecutionPage() {
   useAutoSave([scopeCompanyId]);
   const user = useUserStore((s) => s.user);
 
-  /* -----------------------------------------------------------
-   * ❗ 表示データの優先順位を departments に変更
-   *    （editableCascadeResult があれば “穴埋め” にだけ使う）
-   * --------------------------------------------------------- */
   const cascade: Department[] = useMemo(() => {
     const base: Department[] = Array.isArray(departments) ? (departments as Department[]) : [];
     const alt: Department[] = Array.isArray(editableCascadeResult) ? (editableCascadeResult as Department[]) : [];
 
     if (base.length === 0) return alt;
 
-    // alt の補助情報（dept.name や mission など）だけマージ（OKR/プロジェクト構造は base を信頼）
     return base.map((d, i) => {
       const a = alt[i];
       return {
@@ -515,36 +518,44 @@ export default function ExecutionPage() {
     if (!selected) return null;
     const dept = cascade[selected.d];
     const proj = dept?.projects?.[selected.p];
+
+    if (!dept || !proj) return null;
+
     const okr = proj?.okrs?.[selected.o];
-
-    // okr が無い場合、okrsV2 から合成（安全側）
     const okrsV2 = Array.isArray((proj as any)?.okrsV2) ? ((proj as any).okrsV2 as any[]) : [];
-    const synthesized =
-      !okr && okrsV2.length
-        ? {
-            objective: '構造化KRに基づく実行（自動生成）',
-            keyResults: okrsV2.map((k) => String(k?.label ?? '')).filter(Boolean),
-            owner: undefined,
-          }
-        : null;
+    const v2Labels = okrsV2.map((k) => String(k?.label ?? '')).filter(Boolean);
 
-    const useO = okr ? toStrictOKR(okr) : synthesized ? toStrictOKR(synthesized) : null;
+    let objective = '';
+    let keyResults: string[] = [];
+
+    if (okr) {
+      const strictO = toStrictOKR(okr);
+      objective = strictO.objective || (v2Labels.length ? '構造化KRに基づく実行（自動生成）' : '');
+      keyResults = [...strictO.keyResults];
+    } else if (v2Labels.length) {
+      objective = '構造化KRに基づく実行（自動生成）';
+      keyResults = [];
+    } else {
+      return null;
+    }
+
+    if (v2Labels.length) {
+      keyResults = [...keyResults, ...v2Labels];
+    }
+
     const strictProj = toStrictProject(proj);
-
-    if (!dept || !proj || !useO) return null;
 
     return {
       deptName: dept?.name ?? '',
       projectTitle: strictProj.title,
-      objective: useO.objective,
-      keyResults: useO.keyResults,
+      objective,
+      keyResults,
       okrId: okrKey(selected.d, selected.p, selected.o, okr ?? { id: undefined }),
     };
   }, [selected, cascade]);
 
   const isHydrating = !hydrated || scopeCompanyId !== accessCompanyId;
 
-  // --- カード生成：okrs が空でも okrsV2 があれば合成OKRで描画 ---
   const cards = useMemo(() => {
     const items: JSX.Element[] = [];
     cascade.forEach((dept, di) => {
@@ -553,10 +564,8 @@ export default function ExecutionPage() {
         const okrs = Array.isArray(proj?.okrs) ? proj.okrs : [];
         const okrsV2 = Array.isArray((proj as any)?.okrsV2) ? ((proj as any).okrsV2 as any[]) : [];
 
-        // ここが重要：カードへは “元のprojに title だけ被せた” オブジェクトを渡す（okrsV2を失わない）
         const projForCard = { ...(proj as any), title: strictProj.title };
 
-        // 1) 従来OKRあり：OKRごとにカード
         if (okrs.length > 0) {
           okrs.forEach((okr, oi) => {
             items.push(
@@ -574,7 +583,6 @@ export default function ExecutionPage() {
           return;
         }
 
-        // 2) okrs が空だが okrsV2 あり：合成OKRとして1枚描画（クリックで右ペインを開く）
         if (okrsV2.length > 0) {
           items.push(
             <ProjectCard
@@ -583,7 +591,6 @@ export default function ExecutionPage() {
               project={projForCard as any}
               onClick={() => {
                 if (isHydrating) return;
-                // o=0 を仮で選択（右ペインは合成OKRで表示するロジック）
                 setSelected({ d: di, p: pi, o: 0 });
               }}
             />
@@ -591,7 +598,6 @@ export default function ExecutionPage() {
           return;
         }
 
-        // 3) OKRも構造化KRも無い：プレースホルダとして1枚
         items.push(
           <ProjectCard
             key={`${dept?.name ?? 'dept'}-${strictProj.title}-no-okr`}
@@ -622,7 +628,7 @@ export default function ExecutionPage() {
         ) : null}
       </header>
 
-      {/* ▼ モバイル（～md） */}
+      {/* モバイル */}
       <div className="md:hidden -mx-6 px-6">
         <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory">
           {cards.length ? (
@@ -642,7 +648,7 @@ export default function ExecutionPage() {
         </div>
       </div>
 
-      {/* ▼ md以上 */}
+      {/* md以上 */}
       <div className="hidden md:grid gap-6 md:[grid-template-columns:repeat(auto-fill,minmax(320px,1fr))]">
         {cards.length ? (
           cards

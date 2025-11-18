@@ -2,7 +2,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { saveStrategyData, getFullStrategyDataByCompany } from '@/utils/supabase/strategy';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 
@@ -19,7 +18,7 @@ try {
 type Options = {
   enabled?: boolean;
   debounceMs?: number;
-  /** 既存行がある場合のみ UPDATE（INSERTしない） */
+  /** 既存行がある場合のみ UPDATE（INSERTしない）→ ※現行は store.saveStrategyData に委譲するため未使用 */
   updateOnly?: boolean;
   /** 削除フラグ中は自動保存スキップ（既定: true） */
   forceSkipWhenDeleting?: boolean;
@@ -41,9 +40,10 @@ type Options = {
 const DELETION_FLAG_KEY = '__deleting_company__';
 function isCompanyDeleting(targetCompanyId?: string | null): boolean {
   try {
-    const v = typeof localStorage !== 'undefined'
-      ? localStorage.getItem(DELETION_FLAG_KEY)
-      : null;
+    const v =
+      typeof localStorage !== 'undefined'
+        ? localStorage.getItem(DELETION_FLAG_KEY)
+        : null;
     if (!v) return false;
     return targetCompanyId ? v === targetCompanyId : true;
   } catch {
@@ -67,23 +67,6 @@ function safeStableStringify(obj: unknown): string {
   }
 }
 
-/** undefined/null を深い階層まで除去（“意図しない上書き”防止） */
-function pruneUndefinedDeep<T = any>(input: T): T {
-  if (Array.isArray(input)) {
-    // @ts-ignore
-    return input.map((v) => pruneUndefinedDeep(v)).filter((v) => v !== undefined) as T;
-  }
-  if (input && typeof input === 'object') {
-    const obj = input as any;
-    const entries = Object.entries(obj)
-      .filter(([, v]) => v !== undefined)
-      .map(([k, v]) => [k, pruneUndefinedDeep(v)]);
-    // @ts-ignore
-    return Object.fromEntries(entries);
-  }
-  return input;
-}
-
 /** セッション確認（安全にフォールバック） */
 async function hasActiveSession(): Promise<boolean> {
   if (!getBrowserSupabase) return false;
@@ -94,18 +77,6 @@ async function hasActiveSession(): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-/** PostgRESTの「条件UPDATEで0行だった」系かどうかの判定（rev不一致など） */
-function isOptimisticConflict(err: any): boolean {
-  const code = err?.code ?? err?.status;
-  const msg: string = err?.message ?? '';
-  return (
-    code === 'PGRST116' ||
-    code === 406 ||
-    /no\s+rows\s+returned/i.test(msg) ||
-    /multiple\s*\(or\s*no\)\s*rows\s*returned/i.test(msg)
-  );
 }
 
 /* ============================================
@@ -119,10 +90,7 @@ export function useAutoSave(options?: Options, deps?: any[]): void;
 /**
  * 実装（ランタイムはユニオンで解釈）
  */
-export function useAutoSave(
-  arg1?: Options | any[],
-  arg2?: any[],
-): void {
+export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
   const isArg1Array = Array.isArray(arg1);
   const options: Options = isArg1Array ? {} : (arg1 ?? {});
   const externalDeps: any[] = isArg1Array ? (arg1 as any[]) : (Array.isArray(arg2) ? arg2! : []);
@@ -130,7 +98,8 @@ export function useAutoSave(
   const {
     enabled = true,
     debounceMs = 1200,
-    updateOnly = false,
+    // updateOnly は現行ではストアに委譲しているため未使用
+    // updateOnly = false,
     forceSkipWhenDeleting = true,
     requireSession = true,
     requireHydrated = true,
@@ -142,19 +111,21 @@ export function useAutoSave(
   // ---- ユーザー情報 ----
   const userId = useUserStore((s) => s.user?.id);
   const companyIdFromUserStore = useUserStore((s: any) =>
-    s?.membership?.companyId ?? s?.companyId ?? s?.user?.companyId ?? undefined
+    s?.membership?.companyId ?? s?.companyId ?? s?.user?.companyId ?? undefined,
   );
 
-  // ---- Strategy の必要フィールドを個別購読（※オブジェクトselectorを使わない）----
-  const hydrated = useStrategyStore((s: any) => !!s?.hydrated);
-  const revision: number | undefined = useStrategyStore((s: any) => s?.revision);
+  // ---- Strategy の必要フィールドを個別購読 ----
+  const hydrated = useStrategyStore(
+    (s: any) => !!(s?.hydrated ?? s?.boot?.isHydrated),
+  );
   const companyIdFromStore = useStrategyStore((s: any) => s?.companyId as string | null);
   const isFetching = useStrategyStore((s: any) =>
-    typeof isFetchingSelector === 'function' ? !!isFetchingSelector(s) : !!s?.__isFetchingFromServer
+    typeof isFetchingSelector === 'function'
+      ? !!isFetchingSelector(s)
+      : !!s?.__isFetchingFromServer,
   );
-  const afterSave = useStrategyStore((s: any) => s?.__afterSave as (undefined | ((d: any)=>void)));
 
-  // 主要フィールド（保存対象）
+  // 主要フィールド（保存対象）※シグネチャ用
   const pickA = useStrategyStore((s: any) => s?.companyName);
   const pickB = useStrategyStore((s: any) => s?.mission);
   const pickC = useStrategyStore((s: any) => s?.vision);
@@ -167,7 +138,9 @@ export function useAutoSave(
   const pickJ = useStrategyStore((s: any) => s?.csvFinanceData);
   const pickK = useStrategyStore((s: any) => s?.financeSummary);
   const pickL = useStrategyStore((s: any) => s?.businessPortfolio);
-  const pickM = useStrategyStore((s: any) => s?.simulationResults ?? s?.simulationResult);
+  const pickM = useStrategyStore(
+    (s: any) => s?.simulationResults ?? s?.simulationResult,
+  );
 
   // companyId は store 優先
   const companyId = companyIdFromStore ?? companyIdFromUserStore;
@@ -204,16 +177,11 @@ export function useAutoSave(
   const savingRef = useRef(false);
   const lastSavedAtRef = useRef<number>(0);
 
-  // 直近の認証エラー抑止（一定時間は保存を止める）
-  const authErrorUntilRef = useRef<number>(0);
-  const AUTH_SUPPRESS_MS = 15_000; // 15秒
-
   // 初回猶予
   const mountedAtRef = useRef<number>(Date.now());
 
   const doSave = useCallback(async () => {
     try {
-      // 基本ガード
       if (!enabled) return;
       if (requireHydrated && !hydrated) return;
       if (!userId) return;
@@ -221,7 +189,7 @@ export function useAutoSave(
       if (forceSkipWhenDeleting && isCompanyDeleting(companyId)) return;
       if (isFetching) return;
 
-      // 初回猶予
+      // 初回マウントからの猶予時間
       if (Date.now() - mountedAtRef.current < initialDelayMs) return;
 
       // セッション必須ならチェック
@@ -230,79 +198,22 @@ export function useAutoSave(
         if (!active) return;
       }
 
-      // 認証エラー抑止ウィンドウ
       const now = Date.now();
-      if (authErrorUntilRef.current > now) return;
-
-      // 連打抑止
+      // 連続保存抑止
       if (now - lastSavedAtRef.current < (minIntervalMs ?? 1500)) return;
 
-      // 2重保存抑止
+      // 二重保存抑止
       if (savingRef.current) return;
       savingRef.current = true;
 
-      // 送信前サニタイズ
-      const payload = pruneUndefinedDeep({
-        companyName: pickA,
-        mission: pickB,
-        vision: pickC,
-        value: pickD,
-        thought: pickE,
-        story: pickF,
-        finalStory: pickG,
-        answers2: pickH,
-        departments: pickI,
-        csvFinanceData: pickJ,
-        financeSummary: pickK,
-        businessPortfolio: pickL,
-        simulationResults: pickM,
-      });
-
-      let res = await (saveStrategyData as any)(
-        payload,
-        userId,
-        null, // companyIdOverride: 内部解決
-        revision,
-        { mode: updateOnly ? 'updateOnly' : 'upsert' }
-      );
-
-      // 競合（rev不一致など）なら 1回だけ最新版を取得して再保存
-      if (res?.error && isOptimisticConflict(res.error)) {
-        const latest = await getFullStrategyDataByCompany(companyId);
-        if (!latest.error && latest.data) {
-          const nextRev = (latest.data as any)?.revision;
-          res = await (saveStrategyData as any)(
-            payload,
-            userId,
-            null,
-            typeof nextRev === 'number' ? nextRev : undefined,
-            { mode: updateOnly ? 'updateOnly' : 'upsert' }
-          );
-        }
-      }
+      // ★ ここがポイント：Supabase 直叩きではなく、Zustand ストアの saveStrategyData に一本化
+      const storeApi = useStrategyStore.getState();
+      await storeApi.saveStrategyData();
 
       lastSavedAtRef.current = Date.now();
-
-      if (res?.error) {
-        const status = res?.error?.status ?? res?.error?.code ?? res?.error?.statusCode;
-        if (status === 401 || status === 400) {
-          authErrorUntilRef.current = Date.now() + AUTH_SUPPRESS_MS;
-        }
-        return;
-      }
-
-      if (res?.data && typeof afterSave === 'function') {
-        try {
-          afterSave(res.data);
-        } catch {
-          /* noop */
-        }
-      }
-    } catch (e: any) {
-      const msg: string = e?.message ?? '';
-      if (/Invalid\s+Refresh\s+Token/i.test(msg) || /JWT/i.test(msg) || e?.status === 401 || e?.status === 400) {
-        authErrorUntilRef.current = Date.now() + AUTH_SUPPRESS_MS;
-      }
+    } catch (e) {
+      // ここでは詳細ログは出さず、store側のログに任せる
+      // console.warn('[useAutoSave] save error:', e);
     } finally {
       savingRef.current = false;
     }
@@ -315,13 +226,8 @@ export function useAutoSave(
     forceSkipWhenDeleting,
     isFetching,
     requireSession,
-    revision,
-    updateOnly,
     minIntervalMs,
     initialDelayMs,
-    afterSave,
-    // 依存：購読値
-    pickA, pickB, pickC, pickD, pickE, pickF, pickG, pickH, pickI, pickJ, pickK, pickL, pickM,
   ]);
 
   /* -----------------------------
