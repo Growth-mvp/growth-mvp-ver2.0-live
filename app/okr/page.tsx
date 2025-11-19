@@ -188,7 +188,7 @@ function ensureKrIds(departments: Department[]): Department[] {
 }
 
 /* ============================================================
- * スナップショット & ハッシュ（cascade と同じ思想）
+ * ユーティリティ
  * ============================================================ */
 function makeSaveSnapshot(s: any) {
   const snap: any = {
@@ -217,6 +217,82 @@ function hashSnapshot(obj: any) {
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = (h * 33) ^ s.charCodeAt(i);
   return (h >>> 0).toString(16);
+}
+
+const ensureArray = <T,>(v: T[] | undefined): T[] =>
+  Array.isArray(v) ? v : [];
+
+/* ---------- カスケードOKR → 構造化KR たたき台 用ヘルパー ---------- */
+
+// 単位の推定
+function guessUnit(text: string): '%' | '¥' | '件' | '人' | '比率' {
+  if (/[％%]/.test(text)) return '%';
+  if (/円|¥/.test(text)) return '¥';
+  if (/人/.test(text)) return '人';
+  if (/件|社|口座|契約/.test(text)) return '件';
+  if (/率|比率/.test(text)) return '比率';
+  return '件';
+}
+
+// 種類(kind)と baseKey の簡易推定
+function guessKindAndBase(
+  text: string,
+): { kind: KRKind; baseKey: Draft['baseKey'] } {
+  const t = text.toLowerCase();
+
+  if (/新規|獲得|リード|来店|登録/.test(text))
+    return { kind: 'ACQ', baseKey: 'acq' };
+  if (/単価|客単価|arpu/.test(text))
+    return { kind: 'ARPU', baseKey: 'arpu' };
+  if (/解約|離脱|チャーン/.test(text))
+    return { kind: 'CHURN', baseKey: 'churn' };
+  if (/固定費|家賃|減価/.test(text))
+    return { kind: 'COST_FIXED', baseKey: 'fixed_cost' };
+  if (/変動費|原価/.test(text))
+    return { kind: 'COST_VARIABLE', baseKey: 'variable_cost' };
+  if (/人件費|採用|給与|賞与|人員/.test(text))
+    return { kind: 'PERSONNEL', baseKey: 'personnel_cost' };
+  if (/投資|開発|新規事業|r&d|研究開発/i.test(t))
+    return { kind: 'INVEST', baseKey: 'invest' };
+  if (/成功率|成約率|勝率|転換率/.test(text))
+    return { kind: 'SUCCESS_RATE', baseKey: 'success_rate' };
+  if (/シナジー|連携|横串|コラボ/.test(text))
+    return { kind: 'SYNERGY', baseKey: 'synergy' };
+  if (/売上|収益|利益|arr|mrr/i.test(t))
+    return { kind: 'REVENUE', baseKey: 'revenue' };
+
+  // デフォルトは「新規獲得」
+  return { kind: 'ACQ', baseKey: 'acq' };
+}
+
+// テキスト1本から構造化KRを組み立てる
+function buildKRFromText(
+  text: string,
+  ownerHint?: string,
+): KRStructuredX {
+  // 目標値（最初に出てくる数値）を取得
+  const numMatch = text.match(/-?\d+(\.\d+)?/);
+  const target = numMatch ? Number(numMatch[0]) : 0;
+
+  const unit = guessUnit(text);
+  const { kind, baseKey } = guessKindAndBase(text);
+
+  return mkKRStructured({
+    kind,
+    label: text.trim(),
+    target,
+    unit,
+    scope: 'project',
+    baseKey,
+    owner: ownerHint,
+    weight: 1,
+    elasticity: undefined,
+    lagMonths: 0,
+    startYm: undefined,
+    notes: undefined,
+    overrideMode: 'APPORTION',
+    baseOverride: undefined,
+  });
 }
 
 /* ============================================================
@@ -520,9 +596,6 @@ export default function OKRPage() {
     [departments],
   );
 
-  const ensureArray = <T,>(v: T[] | undefined): T[] =>
-    Array.isArray(v) ? v : [];
-
   /* -------- 🔧 “安全更新” ヘルパー：常に setState 経由 + dirty=true -------- */
   const patchDepartments = useCallback(
     (mutator: (draft: Department[]) => Department[]) => {
@@ -694,6 +767,84 @@ export default function OKRPage() {
       return next;
     });
   };
+
+  /* -------- ★ カスケードOKR → 構造化KRたたき台生成 -------- */
+  const generateKRFromCascade = useCallback(
+    (dIdx: number, pIdx: number) => {
+      const st = useStrategyStore.getState() as any;
+      const current: Department[] = Array.isArray(st.departments)
+        ? (st.departments as Department[])
+        : [];
+
+      const dept = current[dIdx];
+      const proj =
+        dept && Array.isArray(dept.projects)
+          ? dept.projects[pIdx]
+          : undefined;
+
+      if (!proj) return;
+
+      const okrs = Array.isArray(proj.okrs)
+        ? (proj.okrs as OKR[])
+        : [];
+
+      if (!okrs.length) {
+        alert('このプロジェクトには、カスケードで生成されたOKRがありません。');
+        return;
+      }
+
+      patchDepartments((prev) => {
+        const next = [...prev];
+        const d = next[dIdx];
+        if (!d) return prev;
+
+        const projs = Array.isArray(d.projects)
+          ? [...d.projects]
+          : [];
+        const p = projs[pIdx];
+        if (!p) return prev;
+
+        const existing: KRStructuredX[] = Array.isArray(p.okrsV2)
+          ? [...(p.okrsV2 as KRStructuredX[])]
+          : [];
+
+        let changed = false;
+
+        okrs.forEach((o) => {
+          const ownerHint = o.owner;
+          const krs = ensureArray(o.keyResults as string[] | undefined);
+
+          krs.forEach((krText) => {
+            const label = (krText ?? '').trim();
+            if (!label) return;
+
+            const already = existing.some(
+              (x) => x.label?.trim() === label,
+            );
+            if (already) return;
+
+            const kr = buildKRFromText(label, ownerHint);
+            existing.push(kr);
+            changed = true;
+          });
+        });
+
+        if (!changed) {
+          // 何も追加されなければそのまま
+          return prev;
+        }
+
+        (p as any).okrsV2 = existing;
+        projs[pIdx] = p;
+        d.projects = projs;
+        next[dIdx] = d;
+        return next;
+      });
+
+      alert('カスケードOKRから、構造化KRのたたき台を追加しました。');
+    },
+    [patchDepartments],
+  );
 
   /* -------- 構造化KR：追加フォーム（プロジェクト単位） -------- */
   const emptyDraft: Draft = {
@@ -876,6 +1027,10 @@ export default function OKRPage() {
                 const okrsV2 = ensureArray(
                   proj.okrsV2,
                 ) as KRStructuredX[];
+
+                // カスケードで生成された OKR（Objective / KR / owner）
+                const okrs = ensureArray(proj.okrs as OKR[] | undefined);
+
                 const addKey = `${deptIdx}:${projIdx}`;
                 const d = (draftMap[addKey] ??
                   emptyDraft) as Draft;
@@ -901,8 +1056,8 @@ export default function OKRPage() {
                         </div>
                       </div>
 
-                      {/* プロジェクトのロール */}
-                      <div className="flex items-center gap-2">
+                      {/* プロジェクトのロール＋ボタン群 */}
+                      <div className="flex flex-wrap items-center gap-2">
                         <div className="flex items-center gap-1">
                           <span className="text-[12px] text-zinc-600">
                             プロジェクトの役割
@@ -940,6 +1095,24 @@ export default function OKRPage() {
                           ))}
                         </select>
 
+                        {/* ★ 1クリックで構造化KRたたき台生成 */}
+                        <button
+                          onClick={() =>
+                            generateKRFromCascade(
+                              deptIdx,
+                              projIdx,
+                            )
+                          }
+                          disabled={isHydrating}
+                          className={`rounded-full border px-3 py-1.5 text-[13px] font-medium ${
+                            isHydrating
+                              ? 'border-zinc-200 bg-zinc-200 text-zinc-500'
+                              : 'border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50'
+                          }`}
+                        >
+                          OKRからKRたたき台
+                        </button>
+
                         <button
                           onClick={() =>
                             setOpenAdd((m) => ({
@@ -958,6 +1131,46 @@ export default function OKRPage() {
                         </button>
                       </div>
                     </div>
+
+                    {/* ★ カスケードで生成されたOKR（参考表示） */}
+                    {okrs.length > 0 && (
+                      <div className="mb-3 rounded-2xl border border-dashed border-zinc-300 bg-white px-3 py-2 text-[13px] text-zinc-700">
+                        <div className="mb-1 flex items-center justify-between">
+                          <span className="font-semibold text-zinc-900">
+                            カスケードで生成されたOKR（参考）
+                          </span>
+                          <span className="text-[11px] text-zinc-500">
+                            ※「OKRからKRたたき台」ボタンで、下の構造化KRに自動変換します
+                          </span>
+                        </div>
+                        {okrs.map((o, oi) => (
+                          <div
+                            key={oi}
+                            className="mt-1 rounded-xl bg-zinc-50 px-3 py-2"
+                          >
+                            <div className="text-[12px] font-semibold text-zinc-800">
+                              Objective：
+                              <span className="font-normal text-zinc-900">
+                                {o.objective || '（未設定）'}
+                              </span>
+                            </div>
+                            {o.owner && (
+                              <div className="mt-0.5 text-[11px] text-zinc-600">
+                                オーナー：{o.owner}
+                              </div>
+                            )}
+                            {Array.isArray(o.keyResults) &&
+                              o.keyResults.length > 0 && (
+                                <ul className="mt-1 list-disc pl-4 text-[12px] text-zinc-800">
+                                  {o.keyResults.map((kr, ki) => (
+                                    <li key={ki}>{kr}</li>
+                                  ))}
+                                </ul>
+                              )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
 
                     {/* 構造化KR 追加フォーム */}
                     {isOpen && (
@@ -997,7 +1210,7 @@ export default function OKRPage() {
                                 固定費
                               </option>
                               <option value="COST_VARIABLE">
-                                繁動費
+                                変動費
                               </option>
                               <option value="PERSONNEL">
                                 人件費
@@ -1476,7 +1689,7 @@ export default function OKRPage() {
                     {/* 構造化KRリスト */}
                     {okrsV2.length === 0 ? (
                       <div className="rounded-xl border border-dashed border-zinc-300 bg-white p-4 text-sm text-zinc-600">
-                        指標（KR）はまだありません。「＋ 指標（KR）を追加」から登録してください。
+                        指標（KR）はまだありません。「OKRからKRたたき台」または「＋ 指標（KR）を追加」から登録してください。
                       </div>
                     ) : (
                       <ul className="space-y-2">
