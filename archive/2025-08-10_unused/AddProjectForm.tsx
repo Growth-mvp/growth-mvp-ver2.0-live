@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Project } from '@/store/strategyStore';
+import { Project } from  '@/store/strategyStore';
 
 interface AddProjectFormProps {
   deptName: string;
