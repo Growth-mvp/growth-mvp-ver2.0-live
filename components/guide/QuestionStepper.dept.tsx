@@ -114,8 +114,8 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
   const inFlightRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
 
-  // 再生成トリガ
-  const [reloadTick, setReloadTick] = useState(0);
+  // ★ 自動生成をやめて「ボタンを押したときだけ」生成するためのフラグ
+  const [shouldFetchQuestion, setShouldFetchQuestion] = useState(false);
 
   // 親通知のガード
   const isFirstMountRef = useRef(true);
@@ -138,10 +138,13 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     return has(1) && has(2) && has(3) && has(4) && has(5) && has(6);
   }, [answers]);
 
+  const hasQuestionForCurrentStep = useMemo(
+    () => !!answers.find(a => a.stepNumber === step) || !!question,
+    [answers, step, question]
+  );
+
   /* =========================================
-   * 追加１：props → state 同期
-   *  - 戻ってきた時に initialAnswers / initialStep が更新されたら反映
-   *  - 全削除で initialAnswers=[] の場合も UI をリセット
+   * props → state 同期
    * ========================================= */
   useEffect(() => {
     const next = (initialAnswers ?? [])
@@ -177,7 +180,10 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
   }, [initialStep]);
 
   /* =========================================
-   * 問いの取得（★ 非Adminは新規生成しない：既存あれば表示のみ）
+   * 問いの取得
+   *  - 既にある場合はそれを表示
+   *  - ない場合、「shouldFetchQuestion=true」のときだけAPI呼び出し
+   *  - 6問完了後は新規生成しない
    * ========================================= */
   useEffect(() => {
     const existing = answers.find(a => a.stepNumber === step);
@@ -188,18 +194,34 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       setHint(existing.hint);
       setAnswerText(existing.answer ?? '');
       setShowHint(false);
+      setErrorMsg('');
+      setLoading(false);
+      // 既存があるならAPIは呼ばない
       return;
     }
 
+    // 非Adminは新規生成しない
     if (!canEdit) {
-      // 閲覧モード：新規生成は行わない
       setLabel(undefined);
       setQuestion('');
       setReason('');
       setHint(undefined);
       setAnswerText('');
-      setLoading(false);
       setShowHint(false);
+      setErrorMsg('');
+      setLoading(false);
+      return;
+    }
+
+    // 6問すべて回答済みなら、それ以上は問いを生成しない
+    if (isCompletedAll6) {
+      setShouldFetchQuestion(false);
+      return;
+    }
+
+    // ボタンを押していないならAPIは呼ばない（手動トリガ）
+    if (!shouldFetchQuestion) {
+      setLoading(false);
       return;
     }
 
@@ -233,12 +255,12 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
           }),
         });
 
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
           const msg = data?.error || `Failed to fetch question (${res.status})`;
           throw new Error(msg);
         }
-        const data = await res.json();
+
         const g = data?.step;
         const q = (g?.question ?? '').trim();
         const r = (g?.reason ?? '').trim();
@@ -256,6 +278,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       } finally {
         inFlightRef.current = false;
         setLoading(false);
+        setShouldFetchQuestion(false); // 一度のボタンクリックごとに1回だけ生成
       }
     })();
 
@@ -275,16 +298,14 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     JSON.stringify(expectations),
     JSON.stringify(focusThemes),
     answersSoFarPayload.length,
-    reloadTick,
     answers,
     canEdit,
+    shouldFetchQuestion,
+    isCompletedAll6,
   ]);
 
   /* =========================================
    * 親へ進捗通知
-   *  - 初回マウントはスキップ
-   *  - 同値/同ステップはスキップ
-   *  - 非Adminは通知しない
    * ========================================= */
   useEffect(() => {
     if (!onChange || !canEdit) return;
@@ -302,7 +323,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
   }, [answers, step, onChange, canEdit]);
 
   /* =========================================
-   * 追加２：アンマウント直前にフラッシュ通知（編集可のみ）
+   * アンマウント直前にフラッシュ通知（編集可のみ）
    * ========================================= */
   useEffect(() => {
     return () => {
@@ -354,6 +375,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       setStep(s => clampStep(s + 1));
       setAnswerText('');
       setShowHint(false);
+      // 次のステップの問いは、ユーザーが「問いを生成」を押したときだけ取得
     }
   }, [canGoNext, isLastStep, handleSaveAnswerLocally]);
 
@@ -369,12 +391,13 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     setHint(undefined);
     setShowHint(false);
     setErrorMsg('');
-    setReloadTick(t => t + 1); // useEffectを起動
     // 生成結果は一旦リセット（再考のため）
     setMissionDraft(undefined);
     setProjectsDraft(undefined);
     setOkrsDraft(undefined);
     setGenError('');
+    // 次のレンダリングで、このステップの問いを再生成（ボタン押しと同じ扱い）
+    setShouldFetchQuestion(true);
   }, [answers, step, canEdit]);
 
   // ---- 部門ミッション生成 ----（★ 非Adminは実行不可／6問完了後）
@@ -482,7 +505,9 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       {/* 質問カード */}
       <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
         <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-          <div className="text-sm font-medium">{label ? `ステップ：${label}` : '次の問い'}</div>
+          <div className="text-sm font-medium">
+            {label ? `ステップ：${label}` : '次の問い'}
+          </div>
           <div className="flex items-center gap-3">
             {hint && (
               <button
@@ -493,20 +518,43 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
                 💡 ヒントを見る
               </button>
             )}
+
             {canEdit && (
-              <button
-                type="button"
-                onClick={onRedoFromHere}
-                disabled={loading}
-                className={[
-                  'rounded-lg px-3 py-1.5 text-xs font-medium border',
-                  loading ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
-                ].join(' ')}
-                title="このステップの問いを再生成します（このステップ以降の回答はリセット）"
-              >
-                再生成
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => { setShouldFetchQuestion(true); setErrorMsg(''); }}
+                  disabled={loading || isCompletedAll6}
+                  className={[
+                    'rounded-lg px-3 py-1.5 text-xs font-medium border',
+                    (loading || isCompletedAll6)
+                      ? 'bg-gray-100 text-gray-400 border-gray-200'
+                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
+                  ].join(' ')}
+                  title={isCompletedAll6 ? '6問すべて回答済みです' : 'このステップの問いを生成します'}
+                >
+                  問いを生成
+                </button>
+
+                {hasQuestionForCurrentStep && (
+                  <button
+                    type="button"
+                    onClick={onRedoFromHere}
+                    disabled={loading || isCompletedAll6}
+                    className={[
+                      'rounded-lg px-3 py-1.5 text-xs font-medium border',
+                      (loading || isCompletedAll6)
+                        ? 'bg-gray-100 text-gray-400 border-gray-200'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
+                    ].join(' ')}
+                    title="このステップの問いを再生成します（このステップ以降の回答はリセット）"
+                  >
+                    再生成
+                  </button>
+                )}
+              </>
             )}
+
             {loading && <div className="text-xs text-gray-500">生成中…</div>}
           </div>
         </div>
@@ -516,7 +564,11 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
           ) : (
             <>
               <p className="text-base leading-relaxed">
-                {question || (canEdit ? '...' : '（閲覧モード：新しい問いの生成は無効です）')}
+                {question
+                  ? question
+                  : canEdit
+                    ? 'まだ問いは生成されていません。「問いを生成」を押してください。'
+                    : '（閲覧モード：新しい問いの生成は無効です）'}
               </p>
               {reason && <p className="text-sm text-gray-500">狙い：{reason}</p>}
               {showHint && hint && (
