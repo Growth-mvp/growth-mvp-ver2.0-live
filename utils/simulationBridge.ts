@@ -157,13 +157,21 @@ function resolveBaseValue(kr: BridgeKR, base: BaseFigures): number | undefined {
   }
 }
 
-/** 適用月配列を算出（lagMonths で後ろ倒し） */
+/** 適用月配列を算出（lagMonths で後ろ倒し＆範囲クランプ） */
 function getApplyMonths(startYm: Ym, endYm: Ym, kr: BridgeKR): Ym[] {
-  const kStart = kr.startYm ?? startYm;
-  const kDue = kr.due ? kr.due.slice(0, 7) : endYm; // 'YYYY-MM' 期待
+  // 個別指定があってもシミュレーション範囲外にはみ出さないようクランプ
+  const rawStart = kr.startYm ?? startYm;
+  const rawDue = kr.due ? kr.due.slice(0, 7) : endYm; // 'YYYY-MM' 期待
+
+  const kStart = rawStart < startYm ? startYm : rawStart;
+  const kDueClamped = rawDue > endYm ? endYm : rawDue;
+
+  // start > end になってしまうKRは無視
+  if (kStart > kDueClamped) return [];
+
   const lag = kr.lagMonths ?? 0;
 
-  let applyMonths = ymRange(kStart, kDue);
+  let applyMonths = ymRange(kStart, kDueClamped);
   for (let i = 0; i < lag; i++) {
     applyMonths = applyMonths.map(m => nextYm(m)).filter(m => m <= endYm);
   }
@@ -175,7 +183,10 @@ function applyAdd(bucket: Record<Ym, number>, val: number, applyMonths: Ym[], we
   const w = typeof weight === 'number' ? weight : 1;
   const add = nz(val, 0) * w;
   if (add === 0) return;
-  for (const ym of applyMonths) bucket[ym] += add;
+  for (const ym of applyMonths) {
+    if (bucket[ym] === undefined) continue; // 範囲外ガード（念のため）
+    bucket[ym] += add;
+  }
 }
 
 /* ========== Core Bridge ========== */
@@ -208,6 +219,8 @@ export function buildBridgeDeltas(input: BridgeInput): DeltasByMonth {
 
   for (const kr of krs) {
     const applyMonths = getApplyMonths(startYm, endYm, kr);
+    if (!applyMonths.length) continue;
+
     const baseVal = resolveBaseValue(kr, base);
 
     switch (kr.kind) {
@@ -279,17 +292,17 @@ export function buildBridgeDeltas(input: BridgeInput): DeltasByMonth {
           (config?.activityRoute && config.activityRoute[kr.label]) ?? activityDefault;
 
         // 入力値の正規化：％なら小数化
-        const input = normalizeByUnit(kr.target, kr.unit);
+        const inputVal = normalizeByUnit(kr.target, kr.unit);
         const e = typeof kr.elasticity === 'number' ? kr.elasticity : 1;
 
         let delta: number;
         if (isPercentUnit(kr.unit)) {
           // 母数×割合×感度（母数が無ければ“割合×感度”だけ）
-          if (typeof baseVal === 'number') delta = baseVal * input * e;
-          else delta = input * e;
+          if (typeof baseVal === 'number') delta = baseVal * inputVal * e;
+          else delta = inputVal * e;
         } else {
           // 件/人/金額 等は“数量×感度”
-          delta = input * e;
+          delta = inputVal * e;
         }
 
         if (route === 'ACQ') applyAdd(deltas.acq, delta, applyMonths, kr.weight);
