@@ -63,7 +63,7 @@ function Tooltip({
       {open && (
         <div
           role="tooltip"
-          className={`pointer-events-none absolute z-[60] max-w-[280px] rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[12px] leading-5 text-zinc-800 shadow ${pos}`}
+          className={`pointer-events-none absolute z-[60] max-w=[280px] rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[12px] leading-5 text-zinc-800 shadow ${pos}`}
         >
           {text}
         </div>
@@ -119,9 +119,7 @@ const genId = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
-  return `kr_${Date.now().toString(36)}_${Math.random()
-    .toString(36)
-    .slice(2, 8)}`;
+  return `kr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 };
 
 function mkKRStructured(
@@ -234,10 +232,23 @@ function guessUnit(text: string): '%' | '¥' | '件' | '人' | '比率' {
   return '件';
 }
 
+// Draft 型は後ろで定義（TS 的には参照OK）
+type DraftBaseKey =
+  | 'acq'
+  | 'arpu'
+  | 'churn'
+  | 'fixed_cost'
+  | 'variable_cost'
+  | 'personnel_cost'
+  | 'invest'
+  | 'success_rate'
+  | 'synergy'
+  | 'revenue';
+
 // 種類(kind)と baseKey の簡易推定
 function guessKindAndBase(
   text: string,
-): { kind: KRKind; baseKey: Draft['baseKey'] } {
+): { kind: KRKind; baseKey: DraftBaseKey } {
   const t = text.toLowerCase();
 
   if (/新規|獲得|リード|来店|登録/.test(text))
@@ -266,10 +277,7 @@ function guessKindAndBase(
 }
 
 // テキスト1本から構造化KRを組み立てる
-function buildKRFromText(
-  text: string,
-  ownerHint?: string,
-): KRStructuredX {
+function buildKRFromText(text: string, ownerHint?: string): KRStructuredX {
   // 目標値（最初に出てくる数値）を取得
   const numMatch = text.match(/-?\d+(\.\d+)?/);
   const target = numMatch ? Number(numMatch[0]) : 0;
@@ -313,10 +321,7 @@ function SaveDock() {
   const savedHashRef = useRef<string>('');
 
   useEffect(() => setHydratedUI(true), []);
-  const currentHash = useMemo(
-    () => JSON.stringify(departments),
-    [departments],
-  );
+  const currentHash = useMemo(() => JSON.stringify(departments), [departments]);
 
   useEffect(() => {
     if (!savedHashRef.current) savedHashRef.current = currentHash;
@@ -376,9 +381,7 @@ function SaveDock() {
     return (
       <div className="fixed bottom-5 right-5 z-50">
         <div className="rounded-2xl border border-zinc-200 bg-white/95 px-3 py-2 shadow">
-          <span className="text-xs text-zinc-600">
-            状態を確認しています…
-          </span>
+          <span className="text-xs text-zinc-600">状態を確認しています…</span>
         </div>
       </div>
     );
@@ -439,17 +442,7 @@ type Draft = {
   target: string; // 入力は文字列、保存時に数値化
   unit: '%' | '¥' | '件' | '人' | '比率';
   scope: 'company' | 'department' | 'project';
-  baseKey:
-    | 'acq'
-    | 'arpu'
-    | 'churn'
-    | 'fixed_cost'
-    | 'variable_cost'
-    | 'personnel_cost'
-    | 'invest'
-    | 'success_rate'
-    | 'synergy'
-    | 'revenue';
+  baseKey: DraftBaseKey;
   owner?: string;
   due?: string;
 
@@ -484,9 +477,7 @@ export default function OKRPage() {
   const accessCompanyId: string | undefined = useMemo(
     () =>
       ((access as any)?.companyId ??
-        (s?.companyId as string | undefined)) as
-        | string
-        | undefined,
+        (s?.companyId as string | undefined)) as string | undefined,
     [(access as any)?.companyId, s?.companyId],
   );
 
@@ -529,9 +520,7 @@ export default function OKRPage() {
         return;
       }
 
-      const currentSnap = makeSaveSnapshot(
-        useStrategyStore.getState(),
-      );
+      const currentSnap = makeSaveSnapshot(useStrategyStore.getState());
       const currentHash = hashSnapshot(currentSnap);
       const isDirty = !!(
         lastServerSnapshot && lastServerSnapshot !== currentHash
@@ -581,14 +570,10 @@ export default function OKRPage() {
     scopeCompanyId !== accessCompanyId
   );
   const isHydrating =
-    ((Boolean(boot?.isHydrating) && !hydrated) ||
-      mismatch ||
-      !hydrated) ??
+    ((Boolean(boot?.isHydrating) && !hydrated) || mismatch || !hydrated) ??
     false;
 
-  useAutoSave(
-    !isHydrating ? [accessCompanyId, departments] : [],
-  );
+  useAutoSave(!isHydrating ? [accessCompanyId, departments] : []);
 
   /* -------- 表示/編集ユーティリティ -------- */
   const cascade: Department[] = useMemo(
@@ -618,14 +603,76 @@ export default function OKRPage() {
 
   /* -------- 初期補修：okrsV2 の id を一括補完 -------- */
   useEffect(() => {
-    if (!Array.isArray(departments) || departments.length === 0)
-      return;
+    if (!Array.isArray(departments) || departments.length === 0) return;
     const patched = ensureKrIds(departments as Department[]);
     if (patched !== departments) {
       patchDepartments(() => patched);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [departments?.length]);
+
+  /* -------- ★ 初回自動：カスケードOKR → 構造化KR へ一括変換 --------
+   * - okrs がある
+   * - まだ okrsV2 が未設定 or 足りない
+   * プロジェクトだけ、自動で buildKRFromText して埋める
+   * （同じ label は二重登録しない）
+   * ------------------------------------------------------- */
+  useEffect(() => {
+    if (!Array.isArray(cascade) || cascade.length === 0) return;
+
+    patchDepartments((prev) => {
+      const next = [...prev];
+      let anyChanged = false;
+
+      next.forEach((d, di) => {
+        const projList = ensureArray(d.projects);
+        let deptChanged = false;
+
+        const newProjs = projList.map((p) => {
+          const okrs = ensureArray(p.okrs as OKR[] | undefined);
+          if (!okrs.length) return p;
+
+          const existing: KRStructuredX[] = Array.isArray(p.okrsV2)
+            ? [...(p.okrsV2 as KRStructuredX[])]
+            : [];
+
+          let projChanged = false;
+
+          okrs.forEach((o) => {
+            const ownerHint = o.owner;
+            const krs = ensureArray(o.keyResults as string[] | undefined);
+
+            krs.forEach((krText) => {
+              const label = (krText ?? '').trim();
+              if (!label) return;
+
+              const already = existing.some(
+                (x) => x.label?.trim() === label,
+              );
+              if (already) return;
+
+              const kr = buildKRFromText(label, ownerHint);
+              existing.push(kr);
+              projChanged = true;
+            });
+          });
+
+          if (projChanged) {
+            deptChanged = true;
+            return { ...p, okrsV2: existing };
+          }
+          return p;
+        });
+
+        if (deptChanged) {
+          anyChanged = true;
+          next[di] = { ...d, projects: newProjs };
+        }
+      });
+
+      return anyChanged ? next : prev;
+    });
+  }, [cascade, patchDepartments]);
 
   /* ============================================================
    * 🔧 ロールの“影”を保持してリフェッチ上書きを回避
@@ -683,9 +730,7 @@ export default function OKRPage() {
       if (!deptPrev) return prev;
 
       const dept = { ...deptPrev };
-      const projs = Array.isArray(dept.projects)
-        ? [...dept.projects]
-        : [];
+      const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
       const projPrev = projs[pIdx];
       if (!projPrev) return prev;
       const proj = { ...projPrev };
@@ -704,26 +749,18 @@ export default function OKRPage() {
     });
   }
 
-  const deleteStructuredKR = (
-    dIdx: number,
-    pIdx: number,
-    idx: number,
-  ) => {
+  const deleteStructuredKR = (dIdx: number, pIdx: number, idx: number) => {
     patchDepartments((prev) => {
       const next = [...prev];
       const deptPrev = next[dIdx];
       if (!deptPrev) return prev;
       const dept = { ...deptPrev };
-      const projs = Array.isArray(dept.projects)
-        ? [...dept.projects]
-        : [];
+      const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
       const projPrev = projs[pIdx];
       if (!projPrev) return prev;
       const proj = { ...projPrev };
       const list = Array.isArray(proj.okrsV2)
-        ? (proj.okrsV2 as KRStructuredX[]).filter(
-            (_: any, i) => i !== idx,
-          )
+        ? (proj.okrsV2 as KRStructuredX[]).filter((_: any, i) => i !== idx)
         : [];
       (proj as any).okrsV2 = list;
       projs[pIdx] = proj;
@@ -740,8 +777,7 @@ export default function OKRPage() {
     role: Project['role'] | '',
   ) => {
     const k = `${dIdx}:${pIdx}`;
-    const newRole: Project['role'] | undefined =
-      role === '' ? undefined : role;
+    const newRole: Project['role'] | undefined = role === '' ? undefined : role;
 
     // 影を先に更新（UI 即時反映）
     setRoleShadow((prev) => ({ ...prev, [k]: newRole }));
@@ -753,9 +789,7 @@ export default function OKRPage() {
       if (!deptPrev) return prev;
 
       const dept = { ...deptPrev };
-      const projs = Array.isArray(dept.projects)
-        ? [...dept.projects]
-        : [];
+      const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
       const projPrev = projs[pIdx];
       if (!projPrev) return prev;
 
@@ -768,7 +802,7 @@ export default function OKRPage() {
     });
   };
 
-  /* -------- ★ カスケードOKR → 構造化KRたたき台生成 -------- */
+  /* -------- ★ ボタン用：カスケードOKR → 構造化KRたたき台生成（単一プロジェクト） -------- */
   const generateKRFromCascade = useCallback(
     (dIdx: number, pIdx: number) => {
       const st = useStrategyStore.getState() as any;
@@ -778,15 +812,11 @@ export default function OKRPage() {
 
       const dept = current[dIdx];
       const proj =
-        dept && Array.isArray(dept.projects)
-          ? dept.projects[pIdx]
-          : undefined;
+        dept && Array.isArray(dept.projects) ? dept.projects[pIdx] : undefined;
 
       if (!proj) return;
 
-      const okrs = Array.isArray(proj.okrs)
-        ? (proj.okrs as OKR[])
-        : [];
+      const okrs = Array.isArray(proj.okrs) ? (proj.okrs as OKR[]) : [];
 
       if (!okrs.length) {
         alert('このプロジェクトには、カスケードで生成されたOKRがありません。');
@@ -798,9 +828,7 @@ export default function OKRPage() {
         const d = next[dIdx];
         if (!d) return prev;
 
-        const projs = Array.isArray(d.projects)
-          ? [...d.projects]
-          : [];
+        const projs = Array.isArray(d.projects) ? [...d.projects] : [];
         const p = projs[pIdx];
         if (!p) return prev;
 
@@ -867,12 +895,10 @@ export default function OKRPage() {
 
   // プロジェクト毎の draft をキー管理（"d:p"）
   const [draftMap, setDraftMap] = useState<Record<string, Draft>>({});
-  const [openAdd, setOpenAdd] =
-    useState<Record<string, boolean>>({});
+  const [openAdd, setOpenAdd] = useState<Record<string, boolean>>({});
   const [helpMode, setHelpMode] = useState<boolean>(false);
 
-  const keyFor = (dIdx: number, pIdx: number) =>
-    `${dIdx}:${pIdx}`;
+  const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
 
   const setDraft = (k: string, patch: Partial<Draft>) =>
     setDraftMap((m) => ({
@@ -907,9 +933,7 @@ export default function OKRPage() {
     const elasticityNum = draft.elasticity
       ? Number(draft.elasticity)
       : undefined;
-    const lagNum = draft.lagMonths
-      ? Number(draft.lagMonths)
-      : 0;
+    const lagNum = draft.lagMonths ? Number(draft.lagMonths) : 0;
     const baseOverrideNum =
       draft.overrideMode === 'OVERRIDE' && draft.baseOverride
         ? Number(draft.baseOverride)
@@ -938,9 +962,7 @@ export default function OKRPage() {
       const deptPrev = next[dIdx];
       if (!deptPrev) return prev;
       const dept = { ...deptPrev };
-      const projs = Array.isArray(dept.projects)
-        ? [...dept.projects]
-        : [];
+      const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
       const projPrev = projs[pIdx];
       if (!projPrev) return prev;
       const proj = { ...projPrev };
@@ -1024,16 +1046,13 @@ export default function OKRPage() {
               )}
 
               {projects.map((proj, projIdx) => {
-                const okrsV2 = ensureArray(
-                  proj.okrsV2,
-                ) as KRStructuredX[];
+                const okrsV2 = ensureArray(proj.okrsV2) as KRStructuredX[];
 
                 // カスケードで生成された OKR（Objective / KR / owner）
                 const okrs = ensureArray(proj.okrs as OKR[] | undefined);
 
                 const addKey = `${deptIdx}:${projIdx}`;
-                const d = (draftMap[addKey] ??
-                  emptyDraft) as Draft;
+                const d = (draftMap[addKey] ?? emptyDraft) as Draft;
                 const isOpen = !!openAdd[addKey];
 
                 return (
@@ -1068,28 +1087,19 @@ export default function OKRPage() {
                         </div>
                         <select
                           className="h-9 rounded-xl border border-zinc-200 bg-white px-2 text-[13px]"
-                          value={
-                            roleShadow[addKey] ??
-                            proj.role ??
-                            ''
-                          }
+                          value={roleShadow[addKey] ?? proj.role ?? ''}
                           onChange={(e) =>
                             updateProjectRole(
                               deptIdx,
                               projIdx,
-                              e.target.value as
-                                | Project['role']
-                                | '',
+                              e.target.value as Project['role'] | '',
                             )
                           }
                           disabled={isHydrating}
                         >
                           <option value="">未選択</option>
                           {ROLE_OPTIONS.map((opt) => (
-                            <option
-                              key={opt.value}
-                              value={opt.value}
-                            >
+                            <option key={opt.value} value={opt.value}>
                               {opt.label}
                             </option>
                           ))}
@@ -1097,12 +1107,7 @@ export default function OKRPage() {
 
                         {/* ★ 1クリックで構造化KRたたき台生成 */}
                         <button
-                          onClick={() =>
-                            generateKRFromCascade(
-                              deptIdx,
-                              projIdx,
-                            )
-                          }
+                          onClick={() => generateKRFromCascade(deptIdx, projIdx)}
                           disabled={isHydrating}
                           className={`rounded-full border px-3 py-1.5 text-[13px] font-medium ${
                             isHydrating
@@ -1191,42 +1196,21 @@ export default function OKRPage() {
                               value={d.kind}
                               onChange={(e) =>
                                 setDraft(addKey, {
-                                  kind: e.target
-                                    .value as KRKind,
+                                  kind: e.target.value as KRKind,
                                 })
                               }
                               disabled={isHydrating}
                             >
-                              <option value="ACQ">
-                                新規獲得（ACQ）
-                              </option>
-                              <option value="ARPU">
-                                単価（ARPU）
-                              </option>
-                              <option value="CHURN">
-                                解約（CHURN）
-                              </option>
-                              <option value="COST_FIXED">
-                                固定費
-                              </option>
-                              <option value="COST_VARIABLE">
-                                変動費
-                              </option>
-                              <option value="PERSONNEL">
-                                人件費
-                              </option>
-                              <option value="INVEST">
-                                投資
-                              </option>
-                              <option value="SUCCESS_RATE">
-                                成功確率
-                              </option>
-                              <option value="SYNERGY">
-                                シナジー
-                              </option>
-                              <option value="REVENUE">
-                                売上の増減（Δ）
-                              </option>
+                              <option value="ACQ">新規獲得（ACQ）</option>
+                              <option value="ARPU">単価（ARPU）</option>
+                              <option value="CHURN">解約（CHURN）</option>
+                              <option value="COST_FIXED">固定費</option>
+                              <option value="COST_VARIABLE">変動費</option>
+                              <option value="PERSONNEL">人件費</option>
+                              <option value="INVEST">投資</option>
+                              <option value="SUCCESS_RATE">成功確率</option>
+                              <option value="SYNERGY">シナジー</option>
+                              <option value="REVENUE">売上の増減（Δ）</option>
                             </select>
                             {helpMode && (
                               <p className="text-[11px] text-zinc-500">
@@ -1250,8 +1234,7 @@ export default function OKRPage() {
                               value={d.unit}
                               onChange={(e) =>
                                 setDraft(addKey, {
-                                  unit: e.target
-                                    .value as Draft['unit'],
+                                  unit: e.target.value as Draft['unit'],
                                 })
                               }
                               disabled={isHydrating}
@@ -1260,9 +1243,7 @@ export default function OKRPage() {
                               <option value="¥">¥</option>
                               <option value="件">件</option>
                               <option value="人">人</option>
-                              <option value="比率">
-                                比率
-                              </option>
+                              <option value="比率">比率</option>
                             </select>
                             {helpMode && (
                               <p className="text-[11px] text-zinc-500">
@@ -1286,21 +1267,14 @@ export default function OKRPage() {
                               value={d.scope}
                               onChange={(e) =>
                                 setDraft(addKey, {
-                                  scope: e.target
-                                    .value as Draft['scope'],
+                                  scope: e.target.value as Draft['scope'],
                                 })
                               }
                               disabled={isHydrating}
                             >
-                              <option value="company">
-                                会社全体
-                              </option>
-                              <option value="department">
-                                部門
-                              </option>
-                              <option value="project">
-                                このプロジェクト
-                              </option>
+                              <option value="company">会社全体</option>
+                              <option value="department">部門</option>
+                              <option value="project">このプロジェクト</option>
                             </select>
                             {helpMode && (
                               <p className="text-[11px] text-zinc-500">
@@ -1324,42 +1298,27 @@ export default function OKRPage() {
                               value={d.baseKey}
                               onChange={(e) =>
                                 setDraft(addKey, {
-                                  baseKey: e.target
-                                    .value as Draft['baseKey'],
+                                  baseKey: e.target.value as Draft['baseKey'],
                                 })
                               }
                               disabled={isHydrating}
                             >
-                              <option value="acq">
-                                新規獲得（acq）
-                              </option>
-                              <option value="arpu">
-                                単価（arpu）
-                              </option>
-                              <option value="churn">
-                                解約（churn）
-                              </option>
-                              <option value="fixed_cost">
-                                固定費（fixed_cost）
-                              </option>
+                              <option value="acq">新規獲得（acq）</option>
+                              <option value="arpu">単価（arpu）</option>
+                              <option value="churn">解約（churn）</option>
+                              <option value="fixed_cost">固定費（fixed_cost）</option>
                               <option value="variable_cost">
                                 変動費（variable_cost）
                               </option>
                               <option value="personnel_cost">
                                 人件費（personnel_cost）
                               </option>
-                              <option value="invest">
-                                投資（invest）
-                              </option>
+                              <option value="invest">投資（invest）</option>
                               <option value="success_rate">
                                 成功確率（success_rate）
                               </option>
-                              <option value="synergy">
-                                シナジー（synergy）
-                              </option>
-                              <option value="revenue">
-                                売上（revenue）
-                              </option>
+                              <option value="synergy">シナジー（synergy）</option>
+                              <option value="revenue">売上（revenue）</option>
                             </select>
                             {helpMode && (
                               <p className="text-[11px] text-zinc-500">
@@ -1398,7 +1357,7 @@ export default function OKRPage() {
 
                           {/* 目標値 */}
                           <div className="space-y-1">
-                            <div className="flex items-center gap-1">
+                            <div className="flex items<center gap-1">
                               <div className="text-[11px] text-zinc-600">
                                 目標値（数値）
                               </div>
@@ -1587,9 +1546,7 @@ export default function OKRPage() {
                               value={d.overrideMode}
                               onChange={(e) =>
                                 setDraft(addKey, {
-                                  overrideMode:
-                                    e.target
-                                      .value as Draft['overrideMode'],
+                                  overrideMode: e.target.value as Draft['overrideMode'],
                                 })
                               }
                               disabled={isHydrating}
@@ -1628,10 +1585,7 @@ export default function OKRPage() {
                                   baseOverride: e.target.value,
                                 })
                               }
-                              disabled={
-                                isHydrating ||
-                                d.overrideMode !== 'OVERRIDE'
-                              }
+                              disabled={isHydrating || d.overrideMode !== 'OVERRIDE'}
                             />
                           </div>
 
@@ -1675,9 +1629,7 @@ export default function OKRPage() {
                           </button>
                           <button
                             className="rounded-xl bg-black px-3 py-1.5 text-[13px] font-semibold text-white hover:opacity-90 active:opacity-85 disabled:opacity-40"
-                            onClick={() =>
-                              addStructuredKR(deptIdx, projIdx)
-                            }
+                            onClick={() => addStructuredKR(deptIdx, projIdx)}
                             disabled={isHydrating}
                           >
                             追加する
@@ -1694,9 +1646,7 @@ export default function OKRPage() {
                     ) : (
                       <ul className="space-y-2">
                         {okrsV2.map((k, i) => {
-                          const editing =
-                            editIdx ===
-                            `${deptIdx}:${projIdx}:${i}`;
+                          const editing = editIdx === `${deptIdx}:${projIdx}:${i}`;
                           const kk = k as KRStructuredX;
                           return (
                             <li
@@ -1716,28 +1666,20 @@ export default function OKRPage() {
                                     </div>
                                     <div className="text-[13px] text-zinc-700">
                                       目標：
-                                      <strong>
-                                        {kk.target}
-                                      </strong>
+                                      <strong>{kk.target}</strong>
                                       {kk.unit} ／ 対象：
                                       {kk.scope} ／ 基準：
                                       {kk.baseKey}
                                     </div>
                                     <div className="flex flex-wrap gap-2 text-[12px] text-zinc-600">
                                       {kk.owner && (
-                                        <span>
-                                          担当：{kk.owner}
-                                        </span>
+                                        <span>担当：{kk.owner}</span>
                                       )}
                                       {kk.due && (
-                                        <span>
-                                          期限：{kk.due}
-                                        </span>
+                                        <span>期限：{kk.due}</span>
                                       )}
                                       {kk.weight != null && (
-                                        <span>
-                                          重み：{kk.weight}
-                                        </span>
+                                        <span>重み：{kk.weight}</span>
                                       )}
                                       {kk.elasticity != null && (
                                         <span>
@@ -1752,22 +1694,18 @@ export default function OKRPage() {
                                         </span>
                                       )}
                                       {kk.startYm && (
-                                        <span>
-                                          開始：{kk.startYm}
-                                        </span>
+                                        <span>開始：{kk.startYm}</span>
                                       )}
                                       {kk.overrideMode && (
                                         <span>
                                           反映：
-                                          {kk.overrideMode ===
-                                          'OVERRIDE'
+                                          {kk.overrideMode === 'OVERRIDE'
                                             ? '上書き'
                                             : '按分'}
                                         </span>
                                       )}
                                       {kk.baseOverride != null &&
-                                        kk.overrideMode ===
-                                          'OVERRIDE' && (
+                                        kk.overrideMode === 'OVERRIDE' && (
                                           <span>
                                             上書き値：
                                             {kk.baseOverride}
@@ -1783,9 +1721,7 @@ export default function OKRPage() {
                                   <div className="flex gap-1">
                                     <button
                                       onClick={() =>
-                                        setEditIdx(
-                                          `${deptIdx}:${projIdx}:${i}`,
-                                        )
+                                        setEditIdx(`${deptIdx}:${projIdx}:${i}`)
                                       }
                                       className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-[12px] text-zinc-800 hover:bg-zinc-50"
                                       disabled={isHydrating}
@@ -1794,11 +1730,7 @@ export default function OKRPage() {
                                     </button>
                                     <button
                                       onClick={() =>
-                                        deleteStructuredKR(
-                                          deptIdx,
-                                          projIdx,
-                                          i,
-                                        )
+                                        deleteStructuredKR(deptIdx, projIdx, i)
                                       }
                                       className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-[12px] text-rose-600 hover:bg-rose-50"
                                       disabled={isHydrating}
@@ -1812,62 +1744,33 @@ export default function OKRPage() {
                                   <select
                                     value={kk.kind}
                                     onChange={(e) =>
-                                      updateStructuredKR(
-                                        deptIdx,
-                                        projIdx,
-                                        i,
-                                        {
-                                          kind: e.target
-                                            .value as KRKind,
-                                        },
-                                      )
+                                      updateStructuredKR(deptIdx, projIdx, i, {
+                                        kind: e.target.value as KRKind,
+                                      })
                                     }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-2 text-[14px]"
                                     disabled={isHydrating}
                                   >
-                                    <option value="ACQ">
-                                      新規獲得（ACQ）
-                                    </option>
-                                    <option value="ARPU">
-                                      単価（ARPU）
-                                    </option>
-                                    <option value="CHURN">
-                                      解約（CHURN）
-                                    </option>
-                                    <option value="COST_FIXED">
-                                      固定費
-                                    </option>
-                                    <option value="COST_VARIABLE">
-                                      変動費
-                                    </option>
-                                    <option value="PERSONNEL">
-                                      人件費
-                                    </option>
-                                    <option value="INVEST">
-                                      投資
-                                    </option>
+                                    <option value="ACQ">新規獲得（ACQ）</option>
+                                    <option value="ARPU">単価（ARPU）</option>
+                                    <option value="CHURN">解約（CHURN）</option>
+                                    <option value="COST_FIXED">固定費</option>
+                                    <option value="COST_VARIABLE">変動費</option>
+                                    <option value="PERSONNEL">人件費</option>
+                                    <option value="INVEST">投資</option>
                                     <option value="SUCCESS_RATE">
                                       成功確率
                                     </option>
-                                    <option value="SYNERGY">
-                                      シナジー
-                                    </option>
-                                    <option value="REVENUE">
-                                      売上の増減（Δ）
-                                    </option>
+                                    <option value="SYNERGY">シナジー</option>
+                                    <option value="REVENUE">売上の増減（Δ）</option>
                                   </select>
 
                                   <input
                                     value={kk.label ?? ''}
                                     onChange={(e) =>
-                                      updateStructuredKR(
-                                        deptIdx,
-                                        projIdx,
-                                        i,
-                                        {
-                                          label: e.target.value,
-                                        },
-                                      )
+                                      updateStructuredKR(deptIdx, projIdx, i, {
+                                        label: e.target.value,
+                                      })
                                     }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[14px]"
                                     placeholder="名称（わかりやすく）"
@@ -1875,21 +1778,11 @@ export default function OKRPage() {
                                   />
 
                                   <input
-                                    value={String(
-                                      kk.target ?? '',
-                                    )}
+                                    value={String(kk.target ?? '')}
                                     onChange={(e) =>
-                                      updateStructuredKR(
-                                        deptIdx,
-                                        projIdx,
-                                        i,
-                                        {
-                                          target: Number(
-                                            e.target.value ||
-                                              0,
-                                          ),
-                                        },
-                                      )
+                                      updateStructuredKR(deptIdx, projIdx, i, {
+                                        target: Number(e.target.value || 0),
+                                      })
                                     }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[14px]"
                                     inputMode="decimal"
@@ -1900,84 +1793,48 @@ export default function OKRPage() {
                                   <select
                                     value={kk.unit ?? '件'}
                                     onChange={(e) =>
-                                      updateStructuredKR(
-                                        deptIdx,
-                                        projIdx,
-                                        i,
-                                        {
-                                          unit: e.target
-                                            .value as Draft['unit'],
-                                        },
-                                      )
+                                      updateStructuredKR(deptIdx, projIdx, i, {
+                                        unit: e.target.value as Draft['unit'],
+                                      })
                                     }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-2 text-[14px]"
                                     disabled={isHydrating}
                                   >
                                     <option value="%">%</option>
                                     <option value="¥">¥</option>
-                                    <option value="件">
-                                      件
-                                    </option>
-                                    <option value="人">
-                                      人
-                                    </option>
-                                    <option value="比率">
-                                      比率
-                                    </option>
+                                    <option value="件">件</option>
+                                    <option value="人">人</option>
+                                    <option value="比率">比率</option>
                                   </select>
 
                                   <select
                                     value={kk.scope ?? 'project'}
                                     onChange={(e) =>
-                                      updateStructuredKR(
-                                        deptIdx,
-                                        projIdx,
-                                        i,
-                                        {
-                                          scope: e.target
-                                            .value as Draft['scope'],
-                                        },
-                                      )
+                                      updateStructuredKR(deptIdx, projIdx, i, {
+                                        scope: e.target.value as Draft['scope'],
+                                      })
                                     }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-2 text-[14px]"
                                     disabled={isHydrating}
                                   >
-                                    <option value="company">
-                                      会社全体
-                                    </option>
-                                    <option value="department">
-                                      部門
-                                    </option>
-                                    <option value="project">
-                                      このプロジェクト
-                                    </option>
+                                    <option value="company">会社全体</option>
+                                    <option value="department">部門</option>
+                                    <option value="project">このプロジェクト</option>
                                   </select>
 
                                   <select
                                     value={kk.baseKey ?? 'acq'}
                                     onChange={(e) =>
-                                      updateStructuredKR(
-                                        deptIdx,
-                                        projIdx,
-                                        i,
-                                        {
-                                          baseKey: e.target
-                                            .value as Draft['baseKey'],
-                                        },
-                                      )
+                                      updateStructuredKR(deptIdx, projIdx, i, {
+                                        baseKey: e.target.value as Draft['baseKey'],
+                                      })
                                     }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-2 text-[14px]"
                                     disabled={isHydrating}
                                   >
-                                    <option value="acq">
-                                      新規獲得（acq）
-                                    </option>
-                                    <option value="arpu">
-                                      単価（arpu）
-                                    </option>
-                                    <option value="churn">
-                                      解約（churn）
-                                    </option>
+                                    <option value="acq">新規獲得（acq）</option>
+                                    <option value="arpu">単価（arpu）</option>
+                                    <option value="churn">解約（churn）</option>
                                     <option value="fixed_cost">
                                       固定費（fixed_cost）
                                     </option>
@@ -1987,31 +1844,20 @@ export default function OKRPage() {
                                     <option value="personnel_cost">
                                       人件費（personnel_cost）
                                     </option>
-                                    <option value="invest">
-                                      投資（invest）
-                                    </option>
+                                    <option value="invest">投資（invest）</option>
                                     <option value="success_rate">
                                       成功確率（success_rate）
                                     </option>
-                                    <option value="synergy">
-                                      シナジー（synergy）
-                                    </option>
-                                    <option value="revenue">
-                                      売上（revenue）
-                                    </option>
+                                    <option value="synergy">シナジー（synergy）</option>
+                                    <option value="revenue">売上（revenue）</option>
                                   </select>
 
                                   <input
                                     value={kk.owner ?? ''}
                                     onChange={(e) =>
-                                      updateStructuredKR(
-                                        deptIdx,
-                                        projIdx,
-                                        i,
-                                        {
-                                          owner: e.target.value,
-                                        },
-                                      )
+                                      updateStructuredKR(deptIdx, projIdx, i, {
+                                        owner: e.target.value,
+                                      })
                                     }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[14px] md:col-span-3"
                                     placeholder="担当者（任意）"
@@ -2021,14 +1867,9 @@ export default function OKRPage() {
                                   <input
                                     value={kk.due ?? ''}
                                     onChange={(e) =>
-                                      updateStructuredKR(
-                                        deptIdx,
-                                        projIdx,
-                                        i,
-                                        {
-                                          due: e.target.value,
-                                        },
-                                      )
+                                      updateStructuredKR(deptIdx, projIdx, i, {
+                                        due: e.target.value,
+                                      })
                                     }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[14px] md:col-span-2"
                                     placeholder="期限（YYYY-MM）"
@@ -2037,21 +1878,11 @@ export default function OKRPage() {
 
                                   {/* 重み・弾性・ラグ・開始月・反映方法・上書き値・メモ */}
                                   <input
-                                    value={
-                                      kk.weight ?? ''
-                                    }
+                                    value={kk.weight ?? ''}
                                     onChange={(e) =>
-                                      updateStructuredKR(
-                                        deptIdx,
-                                        projIdx,
-                                        i,
-                                        {
-                                          weight: Number(
-                                            e.target.value ||
-                                              0,
-                                          ),
-                                        },
-                                      )
+                                      updateStructuredKR(deptIdx, projIdx, i, {
+                                        weight: Number(e.target.value || 0),
+                                      })
                                     }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[14px]"
                                     inputMode="decimal"
@@ -2060,22 +1891,11 @@ export default function OKRPage() {
                                   />
 
                                   <input
-                                    value={
-                                      kk.elasticity ?? ''
-                                    }
+                                    value={kk.elasticity ?? ''}
                                     onChange={(e) =>
-                                      updateStructuredKR(
-                                        deptIdx,
-                                        projIdx,
-                                        i,
-                                        {
-                                          elasticity:
-                                            Number(
-                                              e.target
-                                                .value || 0,
-                                            ),
-                                        },
-                                      )
+                                      updateStructuredKR(deptIdx, projIdx, i, {
+                                        elasticity: Number(e.target.value || 0),
+                                      })
                                     }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[14px]"
                                     inputMode="decimal"
@@ -2084,22 +1904,11 @@ export default function OKRPage() {
                                   />
 
                                   <input
-                                    value={
-                                      kk.lagMonths ?? ''
-                                    }
+                                    value={kk.lagMonths ?? ''}
                                     onChange={(e) =>
-                                      updateStructuredKR(
-                                        deptIdx,
-                                        projIdx,
-                                        i,
-                                        {
-                                          lagMonths:
-                                            Number(
-                                              e.target
-                                                .value || 0,
-                                            ),
-                                        },
-                                      )
+                                      updateStructuredKR(deptIdx, projIdx, i, {
+                                        lagMonths: Number(e.target.value || 0),
+                                      })
                                     }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[14px]"
                                     inputMode="numeric"
@@ -2108,19 +1917,11 @@ export default function OKRPage() {
                                   />
 
                                   <input
-                                    value={
-                                      kk.startYm ?? ''
-                                    }
+                                    value={kk.startYm ?? ''}
                                     onChange={(e) =>
-                                      updateStructuredKR(
-                                        deptIdx,
-                                        projIdx,
-                                        i,
-                                        {
-                                          startYm:
-                                            e.target.value,
-                                        },
-                                      )
+                                      updateStructuredKR(deptIdx, projIdx, i, {
+                                        startYm: e.target.value,
+                                      })
                                     }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[14px]"
                                     placeholder="開始月（YYYY-MM）"
@@ -2128,76 +1929,42 @@ export default function OKRPage() {
                                   />
 
                                   <select
-                                    value={
-                                      kk.overrideMode ??
-                                      'APPORTION'
-                                    }
+                                    value={kk.overrideMode ?? 'APPORTION'}
                                     onChange={(e) =>
-                                      updateStructuredKR(
-                                        deptIdx,
-                                        projIdx,
-                                        i,
-                                        {
-                                          overrideMode:
-                                            e.target
-                                              .value as
-                                              | 'APPORTION'
-                                              | 'OVERRIDE',
-                                        },
-                                      )
+                                      updateStructuredKR(deptIdx, projIdx, i, {
+                                        overrideMode: e.target
+                                          .value as 'APPORTION' | 'OVERRIDE',
+                                      })
                                     }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-2 text-[14px]"
                                     disabled={isHydrating}
                                   >
-                                    <option value="APPORTION">
-                                      按分
-                                    </option>
-                                    <option value="OVERRIDE">
-                                      上書き
-                                    </option>
+                                    <option value="APPORTION">按分</option>
+                                    <option value="OVERRIDE">上書き</option>
                                   </select>
 
                                   <input
-                                    value={
-                                      kk.baseOverride ??
-                                      ''
-                                    }
+                                    value={kk.baseOverride ?? ''}
                                     onChange={(e) =>
-                                      updateStructuredKR(
-                                        deptIdx,
-                                        projIdx,
-                                        i,
-                                        {
-                                          baseOverride:
-                                            Number(
-                                              e.target
-                                                .value || 0,
-                                            ),
-                                        },
-                                      )
+                                      updateStructuredKR(deptIdx, projIdx, i, {
+                                        baseOverride: Number(e.target.value || 0),
+                                      })
                                     }
                                     className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[14px]"
                                     inputMode="decimal"
                                     placeholder="上書き値（上書き選択時）"
                                     disabled={
                                       isHydrating ||
-                                      kk.overrideMode !==
-                                        'OVERRIDE'
+                                      kk.overrideMode !== 'OVERRIDE'
                                     }
                                   />
 
                                   <textarea
                                     value={kk.notes ?? ''}
                                     onChange={(e) =>
-                                      updateStructuredKR(
-                                        deptIdx,
-                                        projIdx,
-                                        i,
-                                        {
-                                          notes:
-                                            e.target.value,
-                                        },
-                                      )
+                                      updateStructuredKR(deptIdx, projIdx, i, {
+                                        notes: e.target.value,
+                                      })
                                     }
                                     className="min-h-[60px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[14px] md:col-span-3"
                                     placeholder="メモ（任意）"
@@ -2206,9 +1973,7 @@ export default function OKRPage() {
 
                                   <div className="flex items-center justify-end gap-2 md:col-span-3">
                                     <button
-                                      onClick={() =>
-                                        setEditIdx(null)
-                                      }
+                                      onClick={() => setEditIdx(null)}
                                       className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-[13px] text-zinc-800 hover:bg-zinc-50"
                                       disabled={isHydrating}
                                     >
