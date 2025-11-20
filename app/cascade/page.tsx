@@ -444,6 +444,7 @@ export default function CascadePage() {
   const { text: storyText, chapters: storyChapters } = useMemo(() => getStory(rawStory), [rawStory]);
 
   const [notice, setNotice] = useState('');
+  const [isCascadeGenerating, setIsCascadeGenerating] = useState(false);
 
   /* ===== 部門配列更新ヘルパー（常に最新 state を基準） ===== */
   const pushToStore = useCallback(
@@ -848,7 +849,7 @@ export default function CascadePage() {
     }
   };
 
-  /* ===== AI一括アシスト：部門戦略案（ミッション・プロジェクト・目標）生成 ===== */
+  /* ===== AI一括アシスト：部門戦略案（ミッション・プロジェクト・目標）生成（1部門） ===== */
   const handleFullAssist = async (index: number) => {
     const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
     const dept = current[index];
@@ -995,6 +996,168 @@ export default function CascadePage() {
     }
   };
 
+  /* ===== /api/generate-cascade を使った全社一括生成 ===== */
+  const handleCascadeGenerateAll = async () => {
+    if (!canEditDept()) {
+      setNotice('⚠️ AI一括生成は編集権限があるユーザーのみ実行できます');
+      return;
+    }
+    if (!departments.length) {
+      setNotice('⚠️ 部門が登録されていません');
+      return;
+    }
+
+    const storyOrWarn = requireStoryOrWarn();
+    if (!storyOrWarn) return;
+
+    setIsCascadeGenerating(true);
+    setNotice('✨ 全社の部門戦略案（ミッション・プロジェクト・OKR）をAIが生成しています…');
+
+    try {
+      const payload: any = {
+        thought: s?.thought ?? '',
+        vision: s?.vision ?? '',
+        mission: s?.mission ?? '',
+        industry,
+        revenue: s?.revenue ?? s?.company?.revenue,
+        employees: s?.employees ?? s?.company?.employees,
+        value: s?.value ?? '',
+        strength: s?.strength ?? '',
+        weakness: s?.weakness ?? '',
+        opportunity: s?.opportunity ?? '',
+        threat: s?.threat ?? '',
+        story: rawStory, // finalStory / story / strategyStory のいずれか
+        strategySummary: s?.strategySummary ?? '',
+        departments: departments.map((d) => ({
+          name: d.name,
+          missionDraft: d.mission ?? d.strategy ?? d.missionDraft ?? '',
+          projects: (d.projects ?? []).map((p) => p.title),
+          okrs: (d.projects ?? [])
+            .flatMap((p) => p.okrs ?? [])
+            .map((o) => ({
+              objective: o.objective ?? '',
+              keyResults: (o.keyResults ?? []).slice(),
+              owner: o.owner ?? '',
+            })),
+          direction: (d as any).direction,
+          expectations: (d as any).expectations,
+          focusThemes: (d as any).focusThemes,
+          answers: d.answers2?.[0]?.steps ?? [],
+        })),
+        csvFinanceData: s?.csvFinanceData ?? [],
+        financeSummary: s?.financeSummary,
+        businessPortfolio: s?.businessPortfolio,
+      };
+
+      const res = await fetch('/api/generate-cascade', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const text = await res.text();
+      const data = safeJsonFromText<any>(text);
+
+      if (!res.ok || !data) {
+        setNotice(`❌ 一括生成に失敗しました：${data?.error ?? res.statusText}`);
+        return;
+      }
+
+      const resultDepts: any[] = Array.isArray(data.departments) ? data.departments : [];
+
+      pushToStore((prev) => {
+        const list = [...prev];
+
+        for (const rd of resultDepts) {
+          const name = (rd?.name ?? '').trim();
+          if (!name) continue;
+          const idx = list.findIndex((d) => d.name === name);
+          if (idx < 0) continue;
+
+          const d = list[idx];
+          const patch: Partial<Department> = {};
+
+          const missionDraft = (rd.missionDraft ?? '').trim();
+          if (
+            missionDraft &&
+            (!jsonEq(missionDraft, d.mission) ||
+              !jsonEq(missionDraft, d.strategy) ||
+              !jsonEq(missionDraft, d.missionDraft))
+          ) {
+            patch.mission = missionDraft;
+            patch.strategy = missionDraft;
+            patch.missionDraft = missionDraft;
+          }
+
+          const projectsDraft: any[] = Array.isArray(rd.projects) ? rd.projects : [];
+          const okrDraft: any[] = Array.isArray(rd.okrDraft) ? rd.okrDraft : [];
+
+          let projects: Project[] = [...(d.projects ?? [])];
+
+          if (projectsDraft.length) {
+            for (const pd of projectsDraft) {
+              const title = (pd?.title ?? '').trim();
+              if (!title) continue;
+
+              const okrsForProj: StoreOKR[] = okrDraft.map((o) =>
+                toStoreOKR({
+                  objective: o?.objective ?? '',
+                  keyResults: Array.isArray(o?.keyResults) ? o.keyResults : [],
+                  owner: o?.owner ?? '',
+                } as DeptOKR),
+              );
+
+              const existIdx = projects.findIndex((p) => (p.title ?? '') === title);
+              if (existIdx >= 0) {
+                const existing = { ...projects[existIdx] } as Project;
+                const existingOkrs: StoreOKR[] = [...(existing.okrs ?? [])];
+
+                for (const o of okrsForProj) {
+                  if (!existingOkrs.some((eo) => jsonEq(eo, o))) {
+                    existingOkrs.push(o);
+                  }
+                }
+                existing.okrs = existingOkrs;
+                projects[existIdx] = existing;
+              } else {
+                projects.push({
+                  title,
+                  okrs: okrsForProj,
+                } as Project);
+              }
+            }
+          }
+
+          if (!jsonEq(projects, d.projects)) {
+            patch.projects = projects;
+          }
+
+          if (Object.keys(patch).length > 0) {
+            list[idx] = { ...d, ...patch } as Department;
+          }
+        }
+
+        return list;
+      });
+
+      setNotice('✅ 全社の部門ミッション・プロジェクト・OKRたたき台をAIで更新しました（既存データはできるだけ尊重してマージしています）');
+
+      if (saveNow) {
+        try {
+          await saveNow();
+          setNotice('✅ 全社の部門戦略案を更新し、サーバーにも保存しました');
+        } catch {
+          setNotice('⚠️ 画面上の更新は完了しましたが、サーバー保存に失敗しました');
+        }
+      }
+    } catch (e: any) {
+      setNotice(`❌ 一括生成中にエラーが発生しました：${e?.message ?? '不明なエラー'}`);
+    } finally {
+      setIsCascadeGenerating(false);
+    }
+  };
+
   /* ===== ビジュアルビュー ===== */
   const VisualView = useMemo(() => {
     if (!departments.length) return <div className="text-zinc-600">部門がまだ登録されていません。</div>;
@@ -1062,7 +1225,7 @@ export default function CascadePage() {
         </section>
       )}
 
-      {/* タブ＋追加ボタン＋全体保存 */}
+      {/* タブ＋追加ボタン＋全体保存＋一括AI */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
         <div className="inline-flex border rounded-full overflow-hidden">
           {(['edit', 'visual'] as const).map((t) => (
@@ -1077,7 +1240,7 @@ export default function CascadePage() {
           ))}
         </div>
 
-        <div className="flex gap-2 justify-end">
+        <div className="flex gap-2 justify-end flex-wrap">
           {/* 明示的な全体保存ボタン */}
           <Button
             variant="outline"
@@ -1097,6 +1260,20 @@ export default function CascadePage() {
             <Save className="w-4 h-4 mr-1" />
             全体保存
           </Button>
+
+          {/* 全社一括AI生成 */}
+          {departments.length > 0 && (
+            <Button
+              variant="outline"
+              className="rounded-full h-9 px-4"
+              disabled={isHydrating || isCascadeGenerating}
+              onClick={handleCascadeGenerateAll}
+              title="全ての部門について、財務サマリーも踏まえたミッション・プロジェクト・OKR案を一括生成します"
+            >
+              <Sparkles className="w-4 h-4 mr-1" />
+              {isCascadeGenerating ? 'AIが全社のたたき台を生成中…' : 'AIで構造化KRたたき台を一括生成'}
+            </Button>
+          )}
 
           {canEditCompany && (
             <Button onClick={() => setShowForm((v) => !v)} className="rounded-full h-9 px-4" disabled={isHydrating}>
@@ -1319,7 +1496,7 @@ export default function CascadePage() {
                   }}
                 />
 
-                {/* 3問回答完了 → AI一括アシスト */}
+                {/* 3問回答完了 → AI一括アシスト（1部門） */}
                 {allAnswered && !isHydrating && (
                   <div className="mt-4 border rounded-2xl bg-blue-50 p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                     <div className="text-sm text-blue-900 flex flex-col gap-1">
