@@ -40,6 +40,7 @@ import {
   aggregateYearly,
   type BaseTrajectory,
 } from '@/utils/financeSimulation';
+import { okrsV2ToKRStruct } from '@/utils/okrToFinance';
 
 // 遅延読み込み（AIインサイト）
 const CoreInsightPanel = dynamic(
@@ -103,7 +104,9 @@ function collectAllKRs(departments: Department[] | undefined): KRStructured[] {
     const projs = Array.isArray(d?.projects) ? d.projects : [];
     for (const p of projs) {
       const krs = Array.isArray(p?.okrsV2) ? p.okrsV2 : [];
-      for (const k of krs) if (k && typeof k.kind === 'string') out.push(k);
+      for (const k of krs) {
+        if (k && typeof k.kind === 'string') out.push(k);
+      }
     }
   }
   return out;
@@ -124,7 +127,10 @@ function mkFlatTrajectory(
   const months = ymRange(startYm, endYm);
   const fill = (x: number) =>
     months.reduce(
-      (a, m) => ((a[m] = x), a),
+      (a, m) => {
+        a[m] = x;
+        return a;
+      },
       {} as Record<Ym, number>,
     );
   return {
@@ -170,28 +176,38 @@ type DerivedBase = {
   monthlySga: number;
   defaultQty: number;
   defaultArpu: number;
+  defaultChurn: number;
   defaultFixed: number;
   defaultVariable: number;
   defaultPersonnel: number;
   signature: string;
 };
 
+/**
+ * Step3 の financeSummary から OKR→PL 用のベース値をざっくり推定
+ * - 一番新しい年度（末尾）を使う
+ * - 年次値 → 月次値に割り戻し
+ * - 顧客数を仮に 1,000 とおき、ARPU = 月次売上 ÷ 顧客数
+ * - SG&A を 固定費:人件費 = 50:50 に分解
+ */
 function deriveBaseFromStrategy(strategy: any): DerivedBase {
   const fs: any[] = Array.isArray(strategy?.financeSummary)
     ? strategy.financeSummary
     : [];
-  const row0 = fs[0] ?? {};
 
-  const annualSales = Number(row0.sales ?? row0.revenue ?? 0) || 0;
-  const annualCogs = Number(row0.cogs ?? 0) || 0;
-  const annualSga = Number(row0.sga ?? 0) || 0;
+  const last = fs.length > 0 ? fs[fs.length - 1] : {};
 
-  const monthlyRevenue =
-    annualSales > 0 ? annualSales / 12 : 72_000_000 / 12;
+  const annualSales = Number(last.sales ?? last.revenue ?? 0) || 0;
+  const annualCogs = Number(last.cogs ?? 0) || 0;
+  const annualSga = Number(last.sga ?? 0) || 0;
+
+  const monthlyRevenue = annualSales > 0 ? annualSales / 12 : 0;
   const monthlyCogs =
     annualCogs > 0 ? annualCogs / 12 : monthlyRevenue * 0.4;
   const monthlySga =
     annualSga > 0 ? annualSga / 12 : monthlyRevenue * 0.4;
+
+  const defaultChurn = 0.02; // 月次 2% をデフォルト
 
   const defaultArpu = 12_000;
   const defaultQty =
@@ -209,6 +225,7 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
     monthlySga,
     defaultQty,
     defaultArpu,
+    defaultChurn,
     defaultFixed,
     defaultVariable,
     defaultPersonnel,
@@ -263,44 +280,24 @@ export default function SimulationDashboard({
     [s],
   );
 
+  /* ---------------- 共通：部門 & 構造化KR（okrsV2） ---------------- */
+
+  const departments: Department[] = Array.isArray(s?.departments)
+    ? s.departments
+    : [];
+
+  const allKRs = useMemo(
+    () => collectAllKRs(departments),
+    [departments],
+  );
+
   /* ---------------- 既存：3年予測 & 成功確率 ---------------- */
 
-  // KRs（成功確率用：従来のOKR形式）
-  const krs: KRStruct[] = useMemo(() => {
-    const out: KRStruct[] = [];
-    try {
-      const depts = Array.isArray(s?.departments) ? s.departments : [];
-      for (const d of depts) {
-        const projects = Array.isArray(d?.projects) ? d.projects : [];
-        for (const p of projects) {
-          const okrs = Array.isArray(p?.okrs) ? p.okrs : [];
-          for (const okr of okrs) {
-            const krList = Array.isArray(okr?.keyResults) ? okr.keyResults : [];
-            for (const kr of krList) {
-              if (typeof kr === 'string') continue;
-              out.push({
-                baseline: Number((kr as any)?.baseline ?? 0) || 0,
-                target: Number((kr as any)?.target ?? 0) || 0,
-                unit: String((kr as any)?.unit ?? ''),
-                variable: (kr as any)?.variable,
-                weight:
-                  typeof (kr as any)?.weight === 'number'
-                    ? (kr as any).weight
-                    : undefined,
-                alignmentScore:
-                  typeof (kr as any)?.alignmentScore === 'number'
-                    ? (kr as any).alignmentScore
-                    : undefined,
-              });
-            }
-          }
-        }
-      }
-    } catch {
-      // noop
-    }
-    return out;
-  }, [s?.departments]);
+  // 構造化KR(okrsV2) → KRStruct[] へ変換して成功確率に利用
+  const krs: KRStruct[] = useMemo(
+    () => okrsV2ToKRStruct(allKRs),
+    [allKRs],
+  );
 
   const { projection, finalProb, baseForDelta } = useMemo(() => {
     if (!hasAnyServerBackedContent) {
@@ -482,14 +479,6 @@ export default function SimulationDashboard({
 
   /* ---------------- Ver4：OKR→PL シミュレーション ---------------- */
 
-  const departments: Department[] = Array.isArray(s?.departments)
-    ? s.departments
-    : [];
-  const allKRs = useMemo(
-    () => collectAllKRs(departments),
-    [departments],
-  );
-
   const derivedBase = useMemo(
     () => deriveBaseFromStrategy(s),
     [s],
@@ -506,7 +495,9 @@ export default function SimulationDashboard({
   const [baseArpu, setBaseArpu] = useState<number>(
     derivedBase.defaultArpu,
   );
-  const [baseChurn, setBaseChurn] = useState<number>(0.02);
+  const [baseChurn, setBaseChurn] = useState<number>(
+    derivedBase.defaultChurn,
+  );
   const [baseFixed, setBaseFixed] = useState<number>(
     derivedBase.defaultFixed,
   );
@@ -521,6 +512,7 @@ export default function SimulationDashboard({
   useEffect(() => {
     setBaseQty(derivedBase.defaultQty);
     setBaseArpu(derivedBase.defaultArpu);
+    setBaseChurn(derivedBase.defaultChurn);
     setBaseFixed(derivedBase.defaultFixed);
     setBaseVariable(derivedBase.defaultVariable);
     setBasePersonnel(derivedBase.defaultPersonnel);
@@ -528,6 +520,7 @@ export default function SimulationDashboard({
     derivedBase.signature,
     derivedBase.defaultQty,
     derivedBase.defaultArpu,
+    derivedBase.defaultChurn,
     derivedBase.defaultFixed,
     derivedBase.defaultVariable,
     derivedBase.defaultPersonnel,
@@ -690,7 +683,11 @@ export default function SimulationDashboard({
                   ? `${Math.round(finalProb * 100)}%`
                   : '—'
               }
-              caption={krs.length ? 'KRの整合性・難易度を加味した成功確率' : 'KRの構造化が必要です'}
+              caption={
+                krs.length
+                  ? '構造化KRの整合性・難易度を加味した成功確率'
+                  : '構造化KRの設定が必要です'
+              }
             />
           </div>
         </div>
@@ -710,44 +707,55 @@ export default function SimulationDashboard({
           {hasAnyServerBackedContent && chartData.length > 0 ? (
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
-  <LineChart
-    data={chartData}
-    margin={{ top: 8, right: 24, bottom: 8, left: 80}}  // ★ 追加
-  >
-    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-    <XAxis dataKey="year" stroke="#6b7280" />
-    <YAxis
-      yAxisId="left"
-      stroke="#6b7280"
-      tickMargin={8}              // ★ 追加（目盛りラベルと軸の間）
-    />
-    <YAxis
-      yAxisId="right"
-      orientation="right"
-      stroke="#6b7280"
-      tickMargin={8}              // ★ お好みで
-    />
-    <ReTooltip
-      contentStyle={{
-        backgroundColor: '#ffffff',
-        border: '1px solid #e5e7eb',
-        fontSize: 12,
-        color: '#111827',
-      }}
-    />
-    <Legend />
-    <Line type="monotone" dataKey="sales" name="売上" yAxisId="left" dot={false} />
-    <Line type="monotone" dataKey="op" name="営業利益" yAxisId="left" dot={false} />
-    <Line
-      type="monotone"
-      dataKey="prob"
-      name="成功確率(0-1)"
-      yAxisId="right"
-      dot={false}
-    />
-  </LineChart>
-</ResponsiveContainer>
-
+                <LineChart
+                  data={chartData}
+                  margin={{ top: 8, right: 24, bottom: 8, left: 80 }} // 目盛りが隠れないように左余白を確保
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="year" stroke="#6b7280" />
+                  <YAxis
+                    yAxisId="left"
+                    stroke="#6b7280"
+                    tickMargin={8}
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    stroke="#6b7280"
+                    tickMargin={8}
+                  />
+                  <ReTooltip
+                    contentStyle={{
+                      backgroundColor: '#ffffff',
+                      border: '1px solid #e5e7eb',
+                      fontSize: 12,
+                      color: '#111827',
+                    }}
+                  />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="sales"
+                    name="売上"
+                    yAxisId="left"
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="op"
+                    name="営業利益"
+                    yAxisId="left"
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="prob"
+                    name="成功確率(0-1)"
+                    yAxisId="right"
+                    dot={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
             </div>
           ) : (
             <div className="grid h-64 place-items-center text-sm text-slate-400">
