@@ -21,6 +21,30 @@ type AnswerStep = {
   hint?: string;
 };
 
+/* ▼ 追加：財務サマリ＆ポートフォリオの簡易型（UIから渡す用） */
+type FinanceSummaryRow = {
+  year?: number | string;
+  yearLabel?: string;
+  business_unit?: string;
+  revenue?: number;
+  operating_income?: number;
+  operating_margin_pct?: number;
+};
+
+type BusinessPortfolioUnit = {
+  name?: string;
+  revenue?: number;
+  operatingProfit?: number;
+  growthScore?: number;
+  profitScore?: number;
+};
+
+type BusinessPortfolioLike = {
+  units?: BusinessPortfolioUnit[];
+  currency?: string;
+  periodLabel?: string;
+};
+
 type ReqBody = {
   departmentName: string;
 
@@ -37,6 +61,10 @@ type ReqBody = {
   industry?: string; // 会社業種（任意）
   answersSoFar?: Array<{ stepNumber: number; answer: string }>;
   afterStepIndex?: number; // 0-based「この直後」
+
+  /* ▼ 追加：ファイナンス／ポートフォリオ（任意） */
+  financeSummary?: FinanceSummaryRow[];
+  businessPortfolio?: BusinessPortfolioLike;
 };
 
 /* =========================
@@ -206,6 +234,72 @@ async function rewriteForConstraints(payload: {
   return { q, r, h };
 }
 
+/* ▼ 追加：ファイナンス系文脈をテキスト化する小さなヘルパー */
+function buildFinanceContext(financeSummary?: FinanceSummaryRow[]): string[] {
+  const lines: string[] = [];
+  if (!Array.isArray(financeSummary) || financeSummary.length === 0) return lines;
+
+  // 年度×事業のうち、直近3件だけ使う（AI向けサマリ）
+  const rows = [...financeSummary].slice(-3);
+  for (const row of rows) {
+    const yearLabel =
+      (row.yearLabel as string) ??
+      (typeof row.year === 'number' || typeof row.year === 'string'
+        ? String(row.year)
+        : '');
+    const bu = row.business_unit || '全社';
+    const rev = typeof row.revenue === 'number' ? `${row.revenue}` : '';
+    const op = typeof row.operating_income === 'number' ? `${row.operating_income}` : '';
+    const margin =
+      typeof row.operating_margin_pct === 'number'
+        ? `${row.operating_margin_pct}`
+        : '';
+
+    const parts: string[] = [];
+    if (rev) parts.push(`売上=${rev}`);
+    if (op) parts.push(`営業利益=${op}`);
+    if (margin) parts.push(`営業利益率=${margin}%`);
+
+    lines.push(
+      `- ${yearLabel} ${bu}: ${parts.length ? parts.join(' / ') : '（数値未入力）'}`,
+    );
+  }
+  return lines;
+}
+
+function buildBusinessPortfolioContext(bp?: BusinessPortfolioLike): string[] {
+  const lines: string[] = [];
+  if (!bp || !Array.isArray(bp.units) || bp.units.length === 0) return lines;
+
+  const header = `ポートフォリオ期間: ${bp.periodLabel || '不明'} / 通貨: ${
+    bp.currency || '不明'
+  }`;
+  lines.push(header);
+
+  // 成長×収益スコアでざっくり上位を3〜4件
+  const units = [...bp.units].slice(0, 4);
+  for (const u of units) {
+    const name = u.name || '事業';
+    const g =
+      typeof u.growthScore === 'number'
+        ? `成長スコア${u.growthScore}`
+        : undefined;
+    const p =
+      typeof u.profitScore === 'number'
+        ? `収益スコア${u.profitScore}`
+        : undefined;
+    const rev = typeof u.revenue === 'number' ? `売上=${u.revenue}` : undefined;
+    const op =
+      typeof u.operatingProfit === 'number'
+        ? `営業利益=${u.operatingProfit}`
+        : undefined;
+
+    const parts = [g, p, rev, op].filter(Boolean).join(' / ');
+    lines.push(`- ${name}: ${parts || '指標未入力'}`);
+  }
+  return lines;
+}
+
 /* =========================
  * ハンドラ
  * ======================= */
@@ -242,12 +336,18 @@ export async function POST(req: Request) {
     if (body.direction) summaryLines.push(`- direction: ${sanitizeText(body.direction, 140)}`);
     if (Array.isArray(body.expectations) && body.expectations.length) {
       summaryLines.push(
-        `- expectations:\n${body.expectations.slice(0, 4).map((x) => `  - ${sanitizeText(x, 120)}`).join('\n')}`
+        `- expectations:\n${body.expectations
+          .slice(0, 4)
+          .map((x) => `  - ${sanitizeText(x, 120)}`)
+          .join('\n')}`,
       );
     }
     if (Array.isArray(body.focusThemes) && body.focusThemes.length) {
       summaryLines.push(
-        `- focusThemes:\n${body.focusThemes.slice(0, 4).map((x) => `  - ${sanitizeText(x, 120)}`).join('\n')}`
+        `- focusThemes:\n${body.focusThemes
+          .slice(0, 4)
+          .map((x) => `  - ${sanitizeText(x, 120)}`)
+          .join('\n')}`,
       );
     }
 
@@ -264,7 +364,7 @@ export async function POST(req: Request) {
         `- プロジェクト案:\n${body.projects
           .slice(0, 6)
           .map((p) => `  - ${sanitizeText(p, 120)}`)
-          .join('\n')}`
+          .join('\n')}`,
       );
     }
 
@@ -274,30 +374,41 @@ export async function POST(req: Request) {
         `- OKR例: O="${sanitizeText(o.objective || '', 120)}" KR=${(o.keyResults || [])
           .slice(0, 3)
           .map((k) => `"${sanitizeText(k, 100)}"`)
-          .join(', ')}`
+          .join(', ')}`,
       );
     }
 
     const prevA =
       body.answersSoFar?.length
         ? `直前の回答: ${sanitizeText(
-            body.answersSoFar.sort((a, b) => a.stepNumber - b.stepNumber).slice(-1)[0]
-              .answer || '',
-            400
+            body.answersSoFar
+              .sort((a, b) => a.stepNumber - b.stepNumber)
+              .slice(-1)[0].answer || '',
+            400,
           )}`
         : '';
+
+    /* ▼ 追加：財務／ポートフォリオ情報をテキスト化 */
+    const financeLines = buildFinanceContext(body.financeSummary);
+    const portfolioLines = buildBusinessPortfolioContext(body.businessPortfolio);
+    const financeBlock =
+      financeLines.length || portfolioLines.length
+        ? [...financeLines, ...portfolioLines].join('\n')
+        : '(未入力)';
 
     const userContent = `
 部門: ${dept}
 Ver4 summary:
 ${summaryLines.join('\n') || '(なし)'}
+財務・事業ポートフォリオの概況（参考）:
+${financeBlock}
 文脈:
 ${contextLines.join('\n') || '(なし)'}
 ${prevA ? prevA + '\n' : ''}
 今回ステップ: ${stepNumber}（${guide.label}）
 goal: ${guide.goal}
 seed: ${guide.seed}
-→ seedの意味を保持しつつ、summary・業種・部門文脈と一貫する「単一の問い」をJSONで返してください。
+→ seedの意味を保持しつつ、summary・業種・部門文脈・財務状況と整合する「単一の問い」をJSONで返してください。
 `.trim();
 
     // OpenAI 呼び出し
@@ -312,7 +423,7 @@ seed: ${guide.seed}
           { role: 'user', content: userContent },
         ],
         3,
-        { temperature: 0.25, max_tokens: 380 }
+        { temperature: 0.25, max_tokens: 380 },
       );
     } catch (e: any) {
       clearTimeout(timer);
@@ -350,7 +461,9 @@ seed: ${guide.seed}
         departmentName: dept,
       });
       if (q2 && r2 && !needsRewrite(q2, r2, h2)) {
-        q = q2; r = r2; h = h2;
+        q = q2;
+        r = r2;
+        h = h2;
       }
     }
 
@@ -370,9 +483,15 @@ seed: ${guide.seed}
     });
   } catch (e: any) {
     console.error('dept-question error:', e?.message || e);
-    return new NextResponse(JSON.stringify(
-      { error: 'Server error', detail: e?.message || String(e) }),
-      { status: 500, headers: { 'Cache-Control': 'no-store', 'Content-Type': 'application/json; charset=utf-8' } }
+    return new NextResponse(
+      JSON.stringify({ error: 'Server error', detail: e?.message || String(e) }),
+      {
+        status: 500,
+        headers: {
+          'Cache-Control': 'no-store',
+          'Content-Type': 'application/json; charset=utf-8',
+        },
+      },
     );
   }
 }
