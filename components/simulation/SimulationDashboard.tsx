@@ -25,15 +25,12 @@ import {
   appendSimulationResultToStrategy,
   getSimulationResults,
 } from '@/utils/supabase/strategy';
-import { runThreeYearFromStrategy } from '@/utils/financeAdapter';
-
-import type { Department, KRStructured, StrategyData } from '@/types/strategy';
+import type { Department, KRStructured } from '@/types/strategy';
 import {
   buildBridgeDeltas,
   type BridgeInput,
   type BaseFigures,
   type Ym,
-  extractBaseAndLevers,
 } from '@/utils/simulationBridge';
 import {
   simulateMonthlyPL,
@@ -97,18 +94,41 @@ function ymRange(startYm: Ym, endYm: Ym): Ym[] {
 }
 
 /* ============ OKR / Trajectory ユーティリティ ============ */
-function collectAllKRs(departments: Department[] | undefined): KRStructured[] {
+/** 部門情報をメタデータとして付与した構造化KR一覧を作る */
+function collectAllKRs(
+  departments: Department[] | undefined,
+): KRStructured[] {
   if (!Array.isArray(departments)) return [];
   const out: KRStructured[] = [];
-  for (const d of departments) {
+
+  departments.forEach((d, idx) => {
+    const deptKey = String(
+      (d as any).id ??
+        (d as any).departmentId ??
+        (d as any).name ??
+        (d as any).departmentName ??
+        `dept-${idx}`,
+    );
+    const deptName =
+      (d as any).name ??
+      (d as any).departmentName ??
+      `部門${idx + 1}`;
+
     const projs = Array.isArray(d?.projects) ? d.projects : [];
     for (const p of projs) {
-      const krs = Array.isArray(p?.okrsV2) ? p.okrsV2 : [];
+      const krs = Array.isArray((p as any)?.okrsV2)
+        ? (p as any).okrsV2
+        : [];
       for (const k of krs) {
-        if (k && typeof k.kind === 'string') out.push(k);
+        if (!k || typeof k.kind !== 'string') continue;
+        const cloned: any = { ...k };
+        cloned._deptKey = deptKey;
+        cloned._deptName = deptName;
+        out.push(cloned as KRStructured);
       }
     }
-  }
+  });
+
   return out;
 }
 
@@ -161,7 +181,13 @@ function isEffectivelyEmptyClient(s: any): boolean {
     (!s?.simulationResult ||
       emptyArr(s?.simulationResult?.projection?.points));
 
-  const metaAllEmpty = [s?.companyName, s?.mission, s?.vision, s?.value, s?.thought]
+  const metaAllEmpty = [
+    s?.companyName,
+    s?.mission,
+    s?.vision,
+    s?.value,
+    s?.thought,
+  ]
     .filter((v) => v !== undefined)
     .every(emptyStr);
 
@@ -180,15 +206,13 @@ type DerivedBase = {
   defaultFixed: number;
   defaultVariable: number;
   defaultPersonnel: number;
+  baseYearSales: number;
+  baseYearOp: number;
   signature: string;
 };
 
 /**
  * Step3 の financeSummary から OKR→PL 用のベース値をざっくり推定
- * - 一番新しい年度（末尾）を使う
- * - 年次値 → 月次値に割り戻し
- * - 顧客数を仮に 1,000 とおき、ARPU = 月次売上 ÷ 顧客数
- * - SG&A を 固定費:人件費 = 50:50 に分解
  */
 function deriveBaseFromStrategy(strategy: any): DerivedBase {
   const fs: any[] = Array.isArray(strategy?.financeSummary)
@@ -211,11 +235,16 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
 
   const defaultArpu = 12_000;
   const defaultQty =
-    monthlyRevenue > 0 ? Math.max(1000, Math.round(monthlyRevenue / defaultArpu)) : 5_000;
+    monthlyRevenue > 0
+      ? Math.max(1000, Math.round(monthlyRevenue / defaultArpu))
+      : 5_000;
 
   const defaultFixed = monthlySga * 0.5;
   const defaultPersonnel = monthlySga * 0.5;
   const defaultVariable = monthlyCogs;
+
+  const baseYearSales = annualSales;
+  const baseYearOp = annualSales - annualCogs - annualSga;
 
   const signature = `${annualSales}-${annualCogs}-${annualSga}`;
 
@@ -229,8 +258,38 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
     defaultFixed,
     defaultVariable,
     defaultPersonnel,
+    baseYearSales,
+    baseYearOp,
     signature,
   };
+}
+
+/* ============ チャート用ツールチップ ============ */
+function ImpactTooltip({ active, payload }: any) {
+  if (!active || !payload || !payload.length) return null;
+  const p = payload[0].payload as {
+    yearLabel: string;
+    sales?: number;
+    op?: number;
+    probPct?: number;
+  };
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-800 shadow-lg">
+      <div className="mb-1 font-medium text-slate-900">
+        {p.yearLabel}
+      </div>
+      {typeof p.sales === 'number' && (
+        <div>売上：{fmtJPY(p.sales)}</div>
+      )}
+      {typeof p.op === 'number' && (
+        <div>営業利益：{fmtJPY(p.op)}</div>
+      )}
+      {typeof p.probPct === 'number' && (
+        <div>成功確率：{p.probPct.toFixed(0)}%</div>
+      )}
+    </div>
+  );
 }
 
 /* ============ 小さい数値入力 ============ */
@@ -291,193 +350,7 @@ export default function SimulationDashboard({
     [departments],
   );
 
-  /* ---------------- 既存：3年予測 & 成功確率 ---------------- */
-
-  // 構造化KR(okrsV2) → KRStruct[] へ変換して成功確率に利用
-  const krs: KRStruct[] = useMemo(
-    () => okrsV2ToKRStruct(allKRs),
-    [allKRs],
-  );
-
-  const { projection, finalProb, baseForDelta } = useMemo(() => {
-    if (!hasAnyServerBackedContent) {
-      return {
-        projection: { points: [] as any[] },
-        finalProb: 0,
-        baseForDelta: { year0Sales: 0, year0Op: 0 },
-      };
-    }
-
-    const projResult = runThreeYearFromStrategy(
-      s as StrategyData,
-    );
-    const proj = projResult.projection;
-
-    if (!proj?.points?.length) {
-      return {
-        projection: { points: [] as any[] },
-        finalProb: 0,
-        baseForDelta: { year0Sales: 0, year0Op: 0 },
-      };
-    }
-
-    const projectionForProb = {
-      points: (proj.points || []).map((p: any, i: number) => ({
-        year: (`Y${i + 1}` as 'Y1' | 'Y2' | 'Y3'),
-        sales: p.sales,
-        op: p.op,
-        opMargin:
-          typeof p.opMargin === 'number'
-            ? p.opMargin
-            : p.sales > 0
-            ? p.op / p.sales
-            : 0,
-      })),
-    };
-
-    const alignAvg =
-      krs.length > 0
-        ? krs.reduce((a, b) => a + (b.alignmentScore ?? 70), 0) /
-          krs.length
-        : 0;
-
-    const prob = successProbability({
-      projections: projectionForProb,
-      alignmentScoreAvg: alignAvg || 0,
-    });
-
-    const { base } = extractBaseAndLevers(
-      s as StrategyData,
-    ) ?? { base: null, levers: [] };
-
-    return {
-      projection: proj,
-      finalProb: prob,
-      baseForDelta: {
-        year0Sales: base?.year0Sales ?? 0,
-        year0Op: base?.year0Op ?? 0,
-      },
-    };
-  }, [s, krs, hasAnyServerBackedContent]);
-
-  const chartData = useMemo(() => {
-    return (projection.points || []).map((p: any) => ({
-      year: p.year,
-      sales: Math.round(p.sales),
-      op: Math.round(p.op),
-      prob: Math.round(finalProb * 100) / 100,
-    }));
-  }, [projection, finalProb]);
-
-  const y3 = (projection.points || []).at(-1) as
-    | { sales: number; op: number; opMargin?: number; year?: string }
-    | undefined;
-
-  const deltaVsBase = useMemo(() => {
-    if (!y3) return { deltaSales: 0, deltaOp: 0 };
-    const baseSales = Number(baseForDelta.year0Sales) || 0;
-    const baseOp = Number(baseForDelta.year0Op) || 0;
-    return {
-      deltaSales: baseSales ? y3.sales - baseSales : y3.sales,
-      deltaOp: baseOp ? y3.op - baseOp : y3.op,
-    };
-  }, [y3, baseForDelta]);
-
-  /* ---------------- 保存＆履歴（既存API） ---------------- */
-
-  const [saving, setSaving] = useState(false);
-  const [history, setHistory] = useState<SimulationLogRowLite[]>([]);
-  const [loadingHist, setLoadingHist] = useState(false);
-  const [notice, setNotice] = useState<string>('');
-
-  const loadHistory = useCallback(async () => {
-    if (!userId) return;
-    if (!hasAnyServerBackedContent) {
-      setHistory([]);
-      return;
-    }
-    setLoadingHist(true);
-    try {
-      const { rows, error } = await getSimulationResults(
-        userId,
-        null,
-        { limit: 20 },
-      );
-      if (error) throw error;
-      setHistory((rows || []) as SimulationLogRowLite[]);
-    } catch (e) {
-      console.error('getSimulationResults error:', e);
-      setNotice('❌ シミュレーション履歴の取得に失敗しました');
-    } finally {
-      setLoadingHist(false);
-    }
-  }, [userId, hasAnyServerBackedContent]);
-
-  useEffect(() => {
-    if (!isHydrating) loadHistory();
-  }, [isHydrating, loadHistory]);
-
-  const handleSave = async () => {
-    if (!userId) {
-      setNotice('⚠️ ログインが必要です');
-      return;
-    }
-    if (isHydrating) {
-      setNotice('⚠️ データ読み込み中です。完了後に保存してください。');
-      return;
-    }
-    if (!hasAnyServerBackedContent || (projection.points || []).length === 0) {
-      setNotice('⚠️ 保存対象のシミュレーション結果がありません');
-      return;
-    }
-    setSaving(true);
-    try {
-      const payload = {
-        projection: {
-          points: (projection.points || []).map((p: any) => ({
-            year: String(p.year),
-            sales: Math.round(p.sales),
-            op: Math.round(p.op),
-            opMargin: Number(
-              (
-                typeof p.opMargin === 'number'
-                  ? p.opMargin
-                  : p.sales > 0
-                  ? p.op / p.sales
-                  : 0
-              ).toFixed(4),
-            ),
-          })),
-        },
-        finalProb,
-        meta: {
-          label: new Date().toLocaleString(),
-          note: 'auto-saved from /simulation',
-        },
-      } as const;
-
-      const { error } = await appendSimulationResultToStrategy(
-        userId,
-        payload,
-        null,
-        {
-          title: payload.meta?.label,
-        },
-      );
-      if (error) throw error;
-
-      setNotice('✅ シミュレーション結果を保存しました');
-      await loadHistory();
-    } catch (e) {
-      console.error('appendSimulationResultToStrategy error:', e);
-      setNotice('❌ シミュレーション結果の保存に失敗しました');
-    } finally {
-      setSaving(false);
-      setTimeout(() => setNotice(''), 3500);
-    }
-  };
-
-  /* ---------------- Ver4：OKR→PL シミュレーション ---------------- */
+  /* ---------------- Ver4：OKR→PL シミュレーション本体 ---------------- */
 
   const derivedBase = useMemo(
     () => deriveBaseFromStrategy(s),
@@ -573,13 +446,13 @@ export default function SimulationDashboard({
         unit: k.unit,
         scope: k.scope,
         baseKey: k.baseKey,
-        baseOverride: k.baseOverride,
+        baseOverride: (k as any).baseOverride,
         weight: k.weight,
-        elasticity: k.elasticity,
+        elasticity: (k as any).elasticity,
         lagMonths: k.lagMonths,
         startYm: (k as any).startYm,
-        due: k.due,
-        notes: k.notes,
+        due: (k as any).due,
+        notes: (k as any).notes,
       })),
       base: baseFigures,
       config: { activityDefault: 'ACQ', activityRoute: {} },
@@ -604,6 +477,290 @@ export default function SimulationDashboard({
     [monthly],
   );
 
+  /* ---------------- 構造化KR → 成功確率用のKRStruct ---------------- */
+
+  const krsForProb: KRStruct[] = useMemo(
+    () => okrsV2ToKRStruct(allKRs),
+    [allKRs],
+  );
+
+  /* ---------------- 上部：3年（or 期間）予測 ＆ 成功確率 ---------------- */
+
+  const { projection, finalProb, baseForDelta } = useMemo(() => {
+    if (!hasAnyServerBackedContent) {
+      return {
+        projection: { points: [] as any[] },
+        finalProb: 0,
+        baseForDelta: { year0Sales: 0, year0Op: 0 },
+      };
+    }
+
+    if (!yearly.length) {
+      return {
+        projection: { points: [] as any[] },
+        finalProb: 0,
+        baseForDelta: {
+          year0Sales: derivedBase.baseYearSales,
+          year0Op: derivedBase.baseYearOp,
+        },
+      };
+    }
+
+    const points = yearly.map((y, idx) => ({
+      year: y.year ?? `Y${idx + 1}`,
+      sales: y.revenue,
+      op: y.op_income,
+      opMargin: y.revenue > 0 ? y.op_income / y.revenue : 0,
+    }));
+
+    const projectionForProb = {
+      points: points.slice(0, 3).map((p, idx) => ({
+        year: (`Y${idx + 1}` as 'Y1' | 'Y2' | 'Y3'),
+        sales: p.sales,
+        op: p.op,
+        opMargin: p.opMargin,
+      })),
+    };
+
+    const alignAvg =
+      krsForProb.length > 0
+        ? krsForProb.reduce(
+            (a, b) => a + (b.alignmentScore ?? 70),
+            0,
+          ) / krsForProb.length
+        : 0;
+
+    const prob = successProbability({
+      projections: projectionForProb,
+      alignmentScoreAvg: alignAvg || 0,
+    });
+
+    return {
+      projection: { points },
+      finalProb: prob,
+      baseForDelta: {
+        year0Sales: derivedBase.baseYearSales,
+        year0Op: derivedBase.baseYearOp,
+      },
+    };
+  }, [hasAnyServerBackedContent, yearly, derivedBase, krsForProb]);
+
+  const chartData = useMemo(() => {
+    const probPct = (finalProb || 0) * 100;
+    return (projection.points || []).map((p: any, idx: number) => ({
+      yearLabel: p.year ?? `Y${idx + 1}`,
+      sales: Math.round(p.sales),
+      op: Math.round(p.op),
+      probPct,
+    }));
+  }, [projection, finalProb]);
+
+  const y3 = (projection.points || []).at(-1) as
+    | { sales: number; op: number; opMargin?: number; year?: string }
+    | undefined;
+
+  const deltaVsBase = useMemo(() => {
+    if (!y3) return { deltaSales: 0, deltaOp: 0 };
+    const baseSales = Number(baseForDelta.year0Sales) || 0;
+    const baseOp = Number(baseForDelta.year0Op) || 0;
+    return {
+      deltaSales: baseSales ? y3.sales - baseSales : y3.sales,
+      deltaOp: baseOp ? y3.op - baseOp : y3.op,
+    };
+  }, [y3, baseForDelta]);
+
+  /* ---------------- 部門別シミュレーション用 ---------------- */
+
+  const deptOptions = useMemo(
+    () =>
+      departments.map((d, idx) => {
+        const key = String(
+          (d as any).id ??
+            (d as any).departmentId ??
+            (d as any).name ??
+            (d as any).departmentName ??
+            `dept-${idx}`,
+        );
+        const label =
+          (d as any).name ??
+          (d as any).departmentName ??
+          `部門${idx + 1}`;
+        return { key, label };
+      }),
+    [departments],
+  );
+
+  const [selectedDeptKey, setSelectedDeptKey] = useState<string>('');
+
+  useEffect(() => {
+    if (!deptOptions.length) {
+      setSelectedDeptKey('');
+      return;
+    }
+    setSelectedDeptKey((prev) =>
+      prev && deptOptions.some((o) => o.key === prev)
+        ? prev
+        : deptOptions[0].key,
+    );
+  }, [deptOptions]);
+
+  const selectedDeptLabel = useMemo(
+    () =>
+      deptOptions.find((o) => o.key === selectedDeptKey)?.label ?? '',
+    [deptOptions, selectedDeptKey],
+  );
+
+  const deptKRs = useMemo(() => {
+    if (!selectedDeptKey) return [] as KRStructured[];
+    return allKRs.filter(
+      (k) => (k as any)._deptKey === selectedDeptKey,
+    );
+  }, [allKRs, selectedDeptKey]);
+
+  const deptBridgeInput = useMemo<BridgeInput | null>(() => {
+    if (!selectedDeptKey || !deptKRs.length) return null;
+    return {
+      startYm,
+      endYm,
+      krs: deptKRs.map((k) => ({
+        id: k.id,
+        kind: k.kind,
+        label: k.label,
+        target: k.target,
+        unit: k.unit,
+        scope: k.scope,
+        baseKey: k.baseKey,
+        baseOverride: (k as any).baseOverride,
+        weight: k.weight,
+        elasticity: (k as any).elasticity,
+        lagMonths: k.lagMonths,
+        startYm: (k as any).startYm,
+        due: (k as any).due,
+        notes: (k as any).notes,
+      })),
+      base: baseFigures,
+      config: { activityDefault: 'ACQ', activityRoute: {} },
+    };
+  }, [selectedDeptKey, deptKRs, startYm, endYm, baseFigures]);
+
+  const deptDeltas = useMemo(
+    () => (deptBridgeInput ? buildBridgeDeltas(deptBridgeInput) : null),
+    [deptBridgeInput],
+  );
+
+  const deptMonthly = useMemo(() => {
+    if (!hasAnyServerBackedContent || !deptDeltas)
+      return [] as any[];
+    return simulateMonthlyPL(baseTrajectory, deptDeltas, {
+      applySynergyTo: ['revenue'],
+    });
+  }, [baseTrajectory, deptDeltas, hasAnyServerBackedContent]);
+
+  const deptYearly = useMemo(
+    () =>
+      deptMonthly.length ? aggregateYearly(deptMonthly) : [],
+    [deptMonthly],
+  );
+
+  /* ---------------- 保存＆履歴 ---------------- */
+
+  const [saving, setSaving] = useState(false);
+  const [history, setHistory] = useState<SimulationLogRowLite[]>([]);
+  const [loadingHist, setLoadingHist] = useState(false);
+  const [notice, setNotice] = useState<string>('');
+
+  const loadHistory = useCallback(async () => {
+    if (!userId) return;
+    if (!hasAnyServerBackedContent) {
+      setHistory([]);
+      return;
+    }
+    setLoadingHist(true);
+    try {
+      const { rows, error } = await getSimulationResults(
+        userId,
+        null,
+        { limit: 20 },
+      );
+      if (error) throw error;
+      setHistory((rows || []) as SimulationLogRowLite[]);
+    } catch (e) {
+      console.error('getSimulationResults error:', e);
+      setNotice('❌ シミュレーション履歴の取得に失敗しました');
+    } finally {
+      setLoadingHist(false);
+    }
+  }, [userId, hasAnyServerBackedContent]);
+
+  useEffect(() => {
+    if (!isHydrating) loadHistory();
+  }, [isHydrating, loadHistory]);
+
+  const handleSave = async () => {
+    if (!userId) {
+      setNotice('⚠️ ログインが必要です');
+      return;
+    }
+    if (isHydrating) {
+      setNotice(
+        '⚠️ データ読み込み中です。完了後に保存してください。',
+      );
+      return;
+    }
+    if (
+      !hasAnyServerBackedContent ||
+      (projection.points || []).length === 0
+    ) {
+      setNotice('⚠️ 保存対象のシミュレーション結果がありません');
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        projection: {
+          points: (projection.points || []).map((p: any) => ({
+            year: String(p.year),
+            sales: Math.round(p.sales),
+            op: Math.round(p.op),
+            opMargin: Number(
+              (
+                typeof p.opMargin === 'number'
+                  ? p.opMargin
+                  : p.sales > 0
+                  ? p.op / p.sales
+                  : 0
+              ).toFixed(4),
+            ),
+          })),
+        },
+        finalProb,
+        meta: {
+          label: new Date().toLocaleString(),
+          note: 'auto-saved from /simulation',
+        },
+      } as const;
+
+      const { error } = await appendSimulationResultToStrategy(
+        userId,
+        payload,
+        null,
+        {
+          title: payload.meta?.label,
+        },
+      );
+      if (error) throw error;
+
+      setNotice('✅ シミュレーション結果を保存しました');
+      await loadHistory();
+    } catch (e) {
+      console.error('appendSimulationResultToStrategy error:', e);
+      setNotice('❌ シミュレーション結果の保存に失敗しました');
+    } finally {
+      setSaving(false);
+      setTimeout(() => setNotice(''), 3500);
+    }
+  };
+
   const mounted = useRef(false);
   useEffect(() => {
     mounted.current = true;
@@ -613,7 +770,7 @@ export default function SimulationDashboard({
   }, []);
 
   /* =========================================================
-   * JSX（ライトテーマ）
+   * JSX
    * ========================================================= */
 
   return (
@@ -658,8 +815,8 @@ export default function SimulationDashboard({
               このOKRをやり切ったとき、業績はどこまで伸びるか？
             </h2>
             <p className="text-[13px] text-slate-600 md:text-sm">
-              ベースとなる財務サマリーと、各部門のプロジェクト / 構造化KR
-              をつなぎ、
+              ベースとなる財務サマリーと、各部門のプロジェクト /
+              構造化KR をつなぎ、
               <span className="font-medium">売上・営業利益・成功確率</span>
               を一体で試算しています。
             </p>
@@ -669,12 +826,16 @@ export default function SimulationDashboard({
             <StatCard
               label="Y3 売上インパクト"
               value={y3 ? fmtJPY(deltaVsBase.deltaSales) : '—'}
-              caption={y3 ? 'ベース比の増加額（推計）' : 'STAGE3の財務サマリーが必要です'}
+              caption={
+                y3 ? 'ベース比の増加額（推計）' : 'STAGE3の財務サマリーが必要です'
+              }
             />
             <StatCard
               label="Y3 営業利益インパクト"
               value={y3 ? fmtJPY(deltaVsBase.deltaOp) : '—'}
-              caption={y3 ? 'ベース比の増加額（推計）' : 'STAGE3の財務サマリーが必要です'}
+              caption={
+                y3 ? 'ベース比の増加額（推計）' : 'STAGE3の財務サマリーが必要です'
+              }
             />
             <StatCard
               label="成功確率"
@@ -684,7 +845,7 @@ export default function SimulationDashboard({
                   : '—'
               }
               caption={
-                krs.length
+                krsForProb.length
                   ? '構造化KRの整合性・難易度を加味した成功確率'
                   : '構造化KRの設定が必要です'
               }
@@ -693,7 +854,7 @@ export default function SimulationDashboard({
         </div>
       </section>
 
-      {/* ② 3年予測（既存エンジン） */}
+      {/* ② 3年予測：指標ごとにグラフを分割 */}
       <section className="mb-8 grid gap-6 md:grid-cols-[minmax(0,2.1fr)_minmax(0,1.1fr)]">
         <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-md">
           <div className="mb-3 flex items-center justify-between">
@@ -701,71 +862,148 @@ export default function SimulationDashboard({
               売上・営業利益・成功確率（3年予測）
             </h3>
             <span className="text-[11px] text-slate-400">
-              STAGE3 の財務サマリー + プロジェクト / OKR
+              STAGE3 の財務サマリー + STAGE4 の構造化KR
             </span>
           </div>
           {hasAnyServerBackedContent && chartData.length > 0 ? (
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart
-                  data={chartData}
-                  margin={{ top: 8, right: 24, bottom: 8, left: 80 }} // 目盛りが隠れないように左余白を確保
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="year" stroke="#6b7280" />
-                  <YAxis
-                    yAxisId="left"
-                    stroke="#6b7280"
-                    tickMargin={8}
-                  />
-                  <YAxis
-                    yAxisId="right"
-                    orientation="right"
-                    stroke="#6b7280"
-                    tickMargin={8}
-                  />
-                  <ReTooltip
-                    contentStyle={{
-                      backgroundColor: '#ffffff',
-                      border: '1px solid #e5e7eb',
-                      fontSize: 12,
-                      color: '#111827',
-                    }}
-                  />
-                  <Legend />
-                  <Line
-                    type="monotone"
-                    dataKey="sales"
-                    name="売上"
-                    yAxisId="left"
-                    dot={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="op"
-                    name="営業利益"
-                    yAxisId="left"
-                    dot={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="prob"
-                    name="成功確率(0-1)"
-                    yAxisId="right"
-                    dot={false}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+            <div className="grid gap-3 md:grid-cols-3">
+              {/* 売上 */}
+              <div>
+                <div className="mb-1 text-[12px] font-medium text-slate-700">
+                  売上（年次）
+                </div>
+                <div className="h-40">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={chartData}
+                      margin={{
+                        top: 8,
+                        right: 8,
+                        bottom: 4,
+                        left: 0,
+                      }}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="#e5e7eb"
+                      />
+                      <XAxis
+                        dataKey="yearLabel"
+                        stroke="#6b7280"
+                        tick={{ fontSize: 11 }}
+                      />
+                      <YAxis
+                        stroke="#6b7280"
+                        tick={{ fontSize: 11 }}
+                        tickFormatter={(v) => fmtNum(v)}
+                      />
+                      <ReTooltip content={<ImpactTooltip />} />
+                      <Line
+                        type="monotone"
+                        dataKey="sales"
+                        name="売上"
+                        dot={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* 営業利益 */}
+              <div>
+                <div className="mb-1 text-[12px] font-medium text-slate-700">
+                  営業利益（年次）
+                </div>
+                <div className="h-40">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={chartData}
+                      margin={{
+                        top: 8,
+                        right: 8,
+                        bottom: 4,
+                        left: 0,
+                      }}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="#e5e7eb"
+                      />
+                      <XAxis
+                        dataKey="yearLabel"
+                        stroke="#6b7280"
+                        tick={{ fontSize: 11 }}
+                      />
+                      <YAxis
+                        stroke="#6b7280"
+                        tick={{ fontSize: 11 }}
+                        tickFormatter={(v) => fmtNum(v)}
+                      />
+                      <ReTooltip content={<ImpactTooltip />} />
+                      <Line
+                        type="monotone"
+                        dataKey="op"
+                        name="営業利益"
+                        dot={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* 成功確率 */}
+              <div>
+                <div className="mb-1 text-[12px] font-medium text-slate-700">
+                  成功確率（%）
+                </div>
+                <div className="h-40">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={chartData}
+                      margin={{
+                        top: 8,
+                        right: 8,
+                        bottom: 4,
+                        left: 0,
+                      }}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="#e5e7eb"
+                      />
+                      <XAxis
+                        dataKey="yearLabel"
+                        stroke="#6b7280"
+                        tick={{ fontSize: 11 }}
+                      />
+                      <YAxis
+                        stroke="#6b7280"
+                        tick={{ fontSize: 11 }}
+                        tickFormatter={(v) => `${v}%`}
+                      />
+                      <ReTooltip content={<ImpactTooltip />} />
+                      <Line
+                        type="monotone"
+                        dataKey="probPct"
+                        name="成功確率"
+                        dot={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
             </div>
           ) : (
             <div className="grid h-64 place-items-center text-sm text-slate-400">
               表示できる予測データがありません。
               <br />
-              STAGE3 の財務サマリーと、各部門のプロジェクト / OKR を設定すると表示されます。
+              STAGE3 の財務サマリーと、各部門のプロジェクト /
+              構造化KR を設定すると表示されます。
             </div>
           )}
         </div>
 
+        {/* 試算の要約 */}
         <div className="flex flex-col justify-between gap-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-md">
           <div>
             <h3 className="mb-2 text-[15px] font-medium text-slate-900">
@@ -774,13 +1012,46 @@ export default function SimulationDashboard({
             {hasAnyServerBackedContent && y3 ? (
               <ul className="space-y-1 text-[13px] text-slate-700">
                 <li>
-                  Y3 売上： <b>{fmtNum(Math.round(y3.sales))}</b>
+                  Y3 売上：{' '}
+                  <b>{fmtNum(Math.round(y3.sales))}</b>
+                  {baseForDelta.year0Sales ? (
+                    <>
+                      {' '}
+                      （ベース{' '}
+                      {fmtNum(
+                        Math.round(baseForDelta.year0Sales),
+                      )}
+                      →
+                      {Math.round(
+                        (y3.sales /
+                          (baseForDelta.year0Sales || 1)) *
+                          100,
+                      )}
+                      %）
+                    </>
+                  ) : null}
                 </li>
                 <li>
-                  Y3 営業利益： <b>{fmtNum(Math.round(y3.op))}</b>
+                  Y3 営業利益：{' '}
+                  <b>{fmtNum(Math.round(y3.op))}</b>
+                  {baseForDelta.year0Op ? (
+                    <>
+                      {' '}
+                      （ベース{' '}
+                      {fmtNum(Math.round(baseForDelta.year0Op))}
+                      →
+                      {Math.round(
+                        (y3.op /
+                          (baseForDelta.year0Op || 1)) *
+                          100,
+                      )}
+                      %）
+                    </>
+                  ) : null}
                 </li>
                 <li>
-                  成功確率（最終）： <b>{Math.round(finalProb * 100)}%</b>
+                  成功確率（最終）：{' '}
+                  <b>{Math.round(finalProb * 100)}%</b>
                 </li>
               </ul>
             ) : (
@@ -794,7 +1065,9 @@ export default function SimulationDashboard({
             <button
               onClick={() => {
                 if (isHydrating) {
-                  setNotice('⚠️ 読み込み中は再計算メッセージのみ表示します。');
+                  setNotice(
+                    '⚠️ 読み込み中は再計算メッセージのみ表示します。',
+                  );
                   setTimeout(() => setNotice(''), 2500);
                   return;
                 }
@@ -824,7 +1097,7 @@ export default function SimulationDashboard({
         </div>
       </section>
 
-      {/* ③ OKR → PL（Ver4 新エンジン） */}
+      {/* ③ OKR → PL（全社・新エンジン） */}
       <section className="mb-8 rounded-3xl border border-slate-200 bg-white p-5 shadow-md md:p-6">
         <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
           <div>
@@ -835,7 +1108,9 @@ export default function SimulationDashboard({
               STAGE4 で設定した
               <span className="font-medium">構造化KR</span>
               を係数に変換し、ベースとなる PL 軌道に重ねて、
-              <span className="font-medium">売上・COGS・SG&A・営業利益</span>
+              <span className="font-medium">
+                売上・COGS・SG&A・営業利益
+              </span>
               の変化を試算します。
             </p>
           </div>
@@ -948,11 +1223,11 @@ export default function SimulationDashboard({
               </div>
             </div>
 
-            {/* サマリー（年次・月次） */}
+            {/* 全社PLサマリー（年次・月次） */}
             <div className="grid gap-5 md:grid-cols-2">
               <section className="rounded-2xl border border-slate-200 bg-white p-4">
                 <h3 className="mb-2 text-[14px] font-medium text-slate-900">
-                  年次PL（OKR反映後）
+                  年次PL（OKR反映後・全社）
                 </h3>
                 {yearly.length ? (
                   <table className="w-full text-[12px] text-slate-800">
@@ -1002,7 +1277,7 @@ export default function SimulationDashboard({
 
               <section className="rounded-2xl border border-slate-200 bg-white p-4">
                 <h3 className="mb-2 text-[14px] font-medium text-slate-900">
-                  月次ハイライト（直近3ヶ月）
+                  月次ハイライト（直近3ヶ月・全社）
                 </h3>
                 {monthly.length ? (
                   <table className="w-full text-[12px] text-slate-800">
@@ -1052,6 +1327,141 @@ export default function SimulationDashboard({
                   </div>
                 )}
               </section>
+            </div>
+
+            {/* 部門別シミュレーション（ベータ） */}
+            <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h3 className="text-[14px] font-medium text-slate-900">
+                    部門別シミュレーション（試験版）
+                  </h3>
+                  <p className="mt-1 text-[12px] text-slate-500">
+                    選択した部門の構造化KRのみを適用した場合の
+                    PLインパクトを表示します（全社ベースに対する寄与の概算です）。
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 text-[12px] text-slate-600">
+                  <span>対象部門：</span>
+                  <select
+                    className="h-8 rounded-xl border border-slate-300 bg-white px-2 text-[12px]"
+                    value={selectedDeptKey}
+                    onChange={(e) =>
+                      setSelectedDeptKey(e.target.value)
+                    }
+                  >
+                    {deptOptions.map((opt) => (
+                      <option key={opt.key} value={opt.key}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {!deptOptions.length ? (
+                <p className="text-[13px] text-slate-500">
+                  部門データが存在しないため、部門別シミュレーションは表示できません。
+                </p>
+              ) : !deptKRs.length ? (
+                <p className="text-[13px] text-slate-500">
+                  選択中の部門「{selectedDeptLabel}
+                  」には構造化KRが設定されていません。
+                </p>
+              ) : !deptYearly.length ? (
+                <p className="text-[13px] text-slate-500">
+                  表示できるPLデータがありません。
+                </p>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <section className="rounded-2xl border border-slate-200 bg-white p-3">
+                    <h4 className="mb-2 text-[13px] font-medium text-slate-900">
+                      年次PL（部門寄与分の概算）
+                    </h4>
+                    <table className="w-full text-[11px] text-slate-800">
+                      <thead>
+                        <tr className="text-left text-slate-500">
+                          <th className="py-1">年度</th>
+                          <th className="py-1">売上</th>
+                          <th className="py-1">COGS</th>
+                          <th className="py-1">SG&A</th>
+                          <th className="py-1">営業利益</th>
+                          <th className="py-1">利益率</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {deptYearly.map((y) => (
+                          <tr
+                            key={y.year}
+                            className="border-t border-slate-200"
+                          >
+                            <td className="py-1">{y.year}</td>
+                            <td className="py-1">
+                              {fmtJPY(y.revenue)}
+                            </td>
+                            <td className="py-1">
+                              {fmtJPY(y.cogs)}
+                            </td>
+                            <td className="py-1">
+                              {fmtJPY(y.sga)}
+                            </td>
+                            <td className="py-1">
+                              {fmtJPY(y.op_income)}
+                            </td>
+                            <td className="py-1">
+                              {(y.margin * 100).toFixed(1)}%
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </section>
+
+                  <section className="rounded-2xl border border-slate-200 bg-white p-3">
+                    <h4 className="mb-2 text-[13px] font-medium text-slate-900">
+                      月次ハイライト（直近3ヶ月・部門）
+                    </h4>
+                    <table className="w-full text-[11px] text-slate-800">
+                      <thead>
+                        <tr className="text-left text-slate-500">
+                          <th className="py-1">月</th>
+                          <th className="py-1">売上</th>
+                          <th className="py-1">COGS</th>
+                          <th className="py-1">SG&A</th>
+                          <th className="py-1">営業利益</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {deptMonthly.slice(-3).map((m) => (
+                          <tr
+                            key={m.ym}
+                            className="border-t border-slate-200"
+                          >
+                            <td className="py-1">{m.ym}</td>
+                            <td className="py-1">
+                              {fmtJPY(m.revenue)}
+                            </td>
+                            <td className="py-1">
+                              {fmtJPY(m.cogs)}
+                            </td>
+                            <td className="py-1">
+                              {fmtJPY(m.sga)}
+                            </td>
+                            <td className="py-1">
+                              {fmtJPY(m.op_income)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </section>
+                </div>
+              )}
+
+              <p className="mt-2 text-[11px] text-slate-500">
+                ※ 部門別シミュレーションは、指定部門の構造化KRだけを適用した場合の
+                「ベースPLに対する寄与分」の概算です。部門間の相互作用までは反映していません。
+              </p>
             </div>
 
             {/* 開発者向け：構造化KR / Bridge Delta の抜粋（折りたたみ） */}
@@ -1209,7 +1619,9 @@ function StatCard({
         {value}
       </div>
       {caption && (
-        <div className="mt-1 text-[11px] text-slate-500">{caption}</div>
+        <div className="mt-1 text-[11px] text-slate-500">
+          {caption}
+        </div>
       )}
     </div>
   );
