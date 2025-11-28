@@ -1,4 +1,7 @@
 // /components/simulation/SimulationDashboard.tsx
+
+
+
 'use client';
 
 import React, {
@@ -210,99 +213,300 @@ type DerivedBase = {
 };
 
 /**
- * Step4 の csvFinanceData を優先し、
- * 無い場合は Step3 の financeSummary から OKR→PL 用のベース値をざっくり推定
+ * financeSummary を FinanceSummaryPanel と同様に「年度 × 年度合計」ベースで正規化し、
+ * 最新年度の年度合計をベース値として採用する。
+ *
+ * 1. 最新年度を求める
+ * 2. その年度の全行を集める
+ * 3. 年度合計行（TOTAL / 年度合計 / 合計フラグ）を優先
+ * 4. annualSales = Σ revenue
+ *    annualOp    = Σ operating_income
+ * 5. annualCogs + annualSga = annualSales - annualOp となるように 50:50 分解
  */
 function deriveBaseFromStrategy(strategy: any): DerivedBase {
-  const num = (v: any): number =>
-    v === undefined || v === null || v === '' ? 0 : Number(v) || 0;
+  // ★ 修正: カンマ付き文字列や通貨記号を安全に数値化
+  const num = (v: any): number => {
+    if (v === undefined || v === null || v === '') return 0;
+    if (typeof v === 'number') {
+      return Number.isFinite(v) ? v : 0;
+    }
+    if (typeof v === 'string') {
+      const trimmed = v.trim();
+      if (!trimmed) return 0;
+      // カンマ・空白・円記号などを除去
+      const normalized = trimmed.replace(/[,\s￥¥]/g, '');
+      const n = Number(normalized);
+      return Number.isFinite(n) ? n : 0;
+    }
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
 
-  const csv: any[] = Array.isArray(strategy?.csvFinanceData)
-    ? strategy.csvFinanceData
-    : [];
+  /* ---------- financeSummary の正規化 ---------- */
+  const normalizeFinanceSummaryRows = (src: any): any[] => {
+    if (!src) return [];
+
+    const fs = src.financeSummary ?? src.finance_summary ?? src;
+
+    if (Array.isArray(fs)) return fs;
+    if (Array.isArray(fs?.baseline)) return fs.baseline;
+    if (Array.isArray(fs?.rows)) return fs.rows;
+
+    return [];
+  };
+
+  const getYearKey = (row: any): string | null => {
+    const raw =
+      row.year ??
+      row.yearLabel ??
+      row.fiscalYear ??
+      row.fy ??
+      row['年度'] ??
+      row['year'];
+
+    if (raw === undefined || raw === null) return null;
+    const s = String(raw).trim();
+    if (!s) return null;
+
+    // "FY2024" / "2024/03" などから 4桁年を優先して抽出
+    const m = s.match(/\d{4}/);
+    return m ? m[0] : s;
+  };
+
+  const isYearTotalRow = (row: any): boolean => {
+    if (row.isTotal || row.is_total || row.isYearTotal) return true;
+
+    const kind = String(row.kind ?? row.rowType ?? '').trim().toUpperCase();
+    if (kind === 'TOTAL' || kind === '年度合計') return true;
+
+    const unitName = String(
+      row.unitName ??
+        row.unit ??
+        row.segment ??
+        row.businessName ??
+        row.label ??
+        '',
+    ).trim();
+
+    if (!unitName) return false;
+    // 「年度合計」「全社合計」「合計」などを TOTAL とみなす
+    if (
+      unitName.includes('年度合計') ||
+      unitName.includes('全社合計') ||
+      (unitName.includes('合計') && !unitName.includes('小計'))
+    ) {
+      return true;
+    }
+
+    return false;
+  };
 
   let annualSales = 0;
+  let annualOp = 0;
   let annualCogs = 0;
   let annualSga = 0;
-  let annualOp = 0;
 
-  // ① CSV（STEP4）を優先
-  if (csv.length > 0) {
-    const last = csv[csv.length - 1] || {};
+  const fsRows = normalizeFinanceSummaryRows(strategy);
 
-    annualSales =
-      num(last.sales) ||
-      num(last.revenue) ||
-      num(last['売上高']) ||
-      num(last['売上']) ||
-      num(last['売上収益']);
+  if (fsRows.length) {
+    // 年度ごとにグルーピング
+    const byYear = new Map<string, { all: any[]; totals: any[] }>();
 
-    const cogsFromCols =
-      num(last.cogs) || num(last['売上原価']) || 0;
-    const sgaFromCols =
-      num(last.sga) ||
-      num(last['販管費']) ||
-      num(last['販売費及び一般管理費']) ||
-      0;
-    annualOp =
-      num(last.operatingProfit) ||
-      num(last.op) ||
-      num(last['営業利益']);
+    for (const r of fsRows) {
+      const y = getYearKey(r);
+      if (!y) continue;
 
-    if (annualSales > 0) {
-      // COGS / SG&A / 営業利益のどこかが欠けている場合は推定で補完
-      annualCogs = cogsFromCols;
-      annualSga = sgaFromCols;
+      const revenue = num(
+        r.revenue ??
+          r.sales ??
+          r.netSales ??
+          r['売上高'] ??
+          r['売上'] ??
+          r['売上収益'],
+      );
+      const op = num(
+        r.operatingIncome ??
+          r.operating_profit ??
+          r.operatingProfit ??
+          r.op ??
+          r['営業利益'],
+      );
 
-      if (!annualOp && (annualCogs || annualSga)) {
-        const tmpCogs = annualCogs || annualSales * 0.4;
-        const tmpSga = annualSga || annualSales * 0.4;
-        annualCogs = tmpCogs;
-        annualSga = tmpSga;
-        annualOp = annualSales - tmpCogs - tmpSga;
-      } else if (annualOp && (!annualCogs || !annualSga)) {
-        const remain = annualSales - annualOp;
-        if (!annualCogs && !annualSga) {
-          annualCogs = remain * 0.5;
-          annualSga = remain * 0.5;
-        } else if (!annualCogs) {
-          annualCogs = Math.max(0, remain - annualSga);
-        } else if (!annualSga) {
-          annualSga = Math.max(0, remain - annualCogs);
+      if (!byYear.has(y)) {
+        byYear.set(y, { all: [], totals: [] });
+      }
+      const bucket = byYear.get(y)!;
+      const enriched = { ...r, _revenue: revenue, _op: op };
+      bucket.all.push(enriched);
+      if (isYearTotalRow(r)) bucket.totals.push(enriched);
+    }
+
+    if (byYear.size) {
+      // 最新年度を決める（数字があれば数値として比較）
+      const years = Array.from(byYear.keys());
+      const withNum = years.map((y) => ({
+        year: y,
+        num: Number(y.match(/\d{4}/)?.[0] ?? y) || 0,
+      }));
+      withNum.sort((a, b) => a.num - b.num);
+      const latest = withNum[withNum.length - 1]?.year;
+      const group = latest ? byYear.get(latest) : undefined;
+
+      if (group) {
+        const rowsForCalc =
+          group.totals.length > 0 ? group.totals : group.all;
+
+        const sumSales = rowsForCalc.reduce(
+          (acc, r) => acc + num(r._revenue),
+          0,
+        );
+        const sumOp = rowsForCalc.reduce(
+          (acc, r) => acc + num(r._op),
+          0,
+        );
+
+        if (sumSales > 0) {
+          annualSales = sumSales;
+          // 営業利益が 0 の場合は 10% マージンを仮置き
+          annualOp = sumOp || annualSales * 0.1;
         }
       }
-
-      if (!annualCogs) annualCogs = annualSales * 0.4;
-      if (!annualSga) annualSga = annualSales * 0.4;
     }
   }
 
-  // ② CSVで有効な売上が取れなかった場合は financeSummary にフォールバック
+  /* ---------- financeSummary から取れなかった場合：CSV にフォールバック ---------- */
   if (!annualSales) {
-    const fs: any[] = Array.isArray(strategy?.financeSummary)
-      ? strategy.financeSummary
+    const csv: any[] = Array.isArray(strategy?.csvFinanceData)
+      ? strategy.csvFinanceData
       : [];
-    const last = fs.length > 0 ? fs[fs.length - 1] : {};
-    annualSales = num(last.sales ?? last.revenue ?? 0);
-    annualCogs = num(last.cogs ?? 0);
-    annualSga = num(last.sga ?? 0);
-    if (!annualCogs) annualCogs = annualSales * 0.4;
-    if (!annualSga) annualSga = annualSales * 0.4;
+
+    if (csv.length > 0) {
+      // ★ 修正: CSV も「最新年度 × 全事業合計」で集計する
+      const getYearFromCsv = (row: any): string | null => {
+        const raw =
+          row.year ?? row.fiscalYear ?? row.fy ?? row['年度'] ?? row['year'];
+        if (raw === undefined || raw === null) return null;
+        const s = String(raw).trim();
+        if (!s) return null;
+        const m = s.match(/\d{4}/);
+        return m ? m[0] : s;
+      };
+
+      const byYear = new Map<string, any[]>();
+      for (const r of csv) {
+        const y = getYearFromCsv(r);
+        if (!y) continue;
+        if (!byYear.has(y)) byYear.set(y, []);
+        byYear.get(y)!.push(r);
+      }
+
+      let csvSales = 0;
+      let csvOp = 0;
+
+      if (byYear.size) {
+        const years = Array.from(byYear.keys()).map((y) => ({
+          year: y,
+          num: Number(y.match(/\d{4}/)?.[0] ?? y) || 0,
+        }));
+        years.sort((a, b) => a.num - b.num);
+        const latest = years[years.length - 1]!.year;
+        const rows = byYear.get(latest)!;
+
+        for (const row of rows) {
+          const rev =
+            num(row.sales) ||
+            num(row.revenue) ||
+            num(row['売上高']) ||
+            num(row['売上']) ||
+            num(row['売上収益']);
+          csvSales += rev;
+
+          const op =
+            num(row.operatingProfit) ||
+            num(row.op) ||
+            num(row['営業利益']) ||
+            0;
+          csvOp += op;
+        }
+      } else {
+        // 年度情報が無い場合は全行合計を使用
+        for (const row of csv) {
+          const rev =
+            num(row.sales) ||
+            num(row.revenue) ||
+            num(row['売上高']) ||
+            num(row['売上']) ||
+            num(row['売上収益']);
+          csvSales += rev;
+
+          const op =
+            num(row.operatingProfit) ||
+            num(row.op) ||
+            num(row['営業利益']) ||
+            0;
+          csvOp += op;
+        }
+      }
+
+      if (csvSales > 0) {
+        annualSales = csvSales;
+        annualOp = csvOp || annualSales * 0.1;
+      }
+    }
+  }
+
+  /* ---------- 最終的に annualSales がまだ 0 の場合はゼロベース ---------- */
+  if (!annualSales) {
+    const monthlyRevenue = 0;
+    const monthlyCogs = 0;
+    const monthlySga = 0;
+
+    const defaultChurn = 0.02;
+    const defaultArpu = 12_000;
+    const defaultQty = 5_000;
+
+    const defaultFixed = 0;
+    const defaultPersonnel = 0;
+    const defaultVariable = 0;
+
+    return {
+      monthlyRevenue,
+      monthlyCogs,
+      monthlySga,
+      defaultQty,
+      defaultArpu,
+      defaultChurn,
+      defaultFixed,
+      defaultVariable,
+      defaultPersonnel,
+      baseYearSales: 0,
+      baseYearOp: 0,
+      signature: '0-0-0-0',
+    };
+  }
+
+  /* ---------- annualCogs / annualSga の分解（50:50） ---------- */
+  const grossForCogsAndSga = annualSales - annualOp;
+  if (grossForCogsAndSga > 0) {
+    annualCogs = grossForCogsAndSga / 2;
+    annualSga = grossForCogsAndSga / 2;
+  } else {
+    // 営業利益が売上を超えているなど、異常なケースではとりあえず 40:40:20 に分解
+    annualCogs = annualSales * 0.4;
+    annualSga = annualSales * 0.4;
     annualOp = annualSales - annualCogs - annualSga;
   }
 
-  const monthlyRevenue = annualSales > 0 ? annualSales / 12 : 0;
-  const monthlyCogs =
-    annualCogs > 0 ? annualCogs / 12 : monthlyRevenue * 0.4;
-  const monthlySga =
-    annualSga > 0 ? annualSga / 12 : monthlyRevenue * 0.4;
+  const monthlyRevenue = annualSales / 12;
+  const monthlyCogs = annualCogs / 12;
+  const monthlySga = annualSga / 12;
 
   const defaultChurn = 0.02; // 月次 2% をデフォルト
   const defaultArpu = 12_000;
-  const defaultQty =
-    monthlyRevenue > 0
-      ? Math.max(1000, Math.round(monthlyRevenue / defaultArpu))
-      : 5_000;
+  const defaultQty = Math.max(
+    1_000,
+    Math.round(monthlyRevenue / defaultArpu),
+  );
 
   const defaultFixed = monthlySga * 0.5;
   const defaultPersonnel = monthlySga * 0.5;
@@ -466,7 +670,8 @@ export default function SimulationDashboard({
 
   const baseFigures = useMemo<BaseFigures>(
     () => ({
-      acq: 0,
+      // ★ 修正: ACQのベースは「現状維持に必要な新規獲得数」として設定
+      acq: baseQty * baseChurn,
       arpu: baseArpu,
       churn: baseChurn,
       fixed_cost: baseFixed,
