@@ -110,9 +110,7 @@ function collectAllKRs(
         `dept-${idx}`,
     );
     const deptName =
-      (d as any).name ??
-      (d as any).departmentName ??
-      `部門${idx + 1}`;
+      (d as any).name ?? (d as any).departmentName ?? `部門${idx + 1}`;
 
     const projs = Array.isArray(d?.projects) ? d.projects : [];
     for (const p of projs) {
@@ -194,7 +192,7 @@ function isEffectivelyEmptyClient(s: any): boolean {
   return allEmpty && metaAllEmpty;
 }
 
-/* ============ 財務サマリー → ベース軌道の推定 ============ */
+/* ============ 財務サマリー / CSV → ベース軌道の推定 ============ */
 
 type DerivedBase = {
   monthlyRevenue: number;
@@ -212,18 +210,86 @@ type DerivedBase = {
 };
 
 /**
- * Step3 の financeSummary から OKR→PL 用のベース値をざっくり推定
+ * Step4 の csvFinanceData を優先し、
+ * 無い場合は Step3 の financeSummary から OKR→PL 用のベース値をざっくり推定
  */
 function deriveBaseFromStrategy(strategy: any): DerivedBase {
-  const fs: any[] = Array.isArray(strategy?.financeSummary)
-    ? strategy.financeSummary
+  const num = (v: any): number =>
+    v === undefined || v === null || v === '' ? 0 : Number(v) || 0;
+
+  const csv: any[] = Array.isArray(strategy?.csvFinanceData)
+    ? strategy.csvFinanceData
     : [];
 
-  const last = fs.length > 0 ? fs[fs.length - 1] : {};
+  let annualSales = 0;
+  let annualCogs = 0;
+  let annualSga = 0;
+  let annualOp = 0;
 
-  const annualSales = Number(last.sales ?? last.revenue ?? 0) || 0;
-  const annualCogs = Number(last.cogs ?? 0) || 0;
-  const annualSga = Number(last.sga ?? 0) || 0;
+  // ① CSV（STEP4）を優先
+  if (csv.length > 0) {
+    const last = csv[csv.length - 1] || {};
+
+    annualSales =
+      num(last.sales) ||
+      num(last.revenue) ||
+      num(last['売上高']) ||
+      num(last['売上']) ||
+      num(last['売上収益']);
+
+    const cogsFromCols =
+      num(last.cogs) || num(last['売上原価']) || 0;
+    const sgaFromCols =
+      num(last.sga) ||
+      num(last['販管費']) ||
+      num(last['販売費及び一般管理費']) ||
+      0;
+    annualOp =
+      num(last.operatingProfit) ||
+      num(last.op) ||
+      num(last['営業利益']);
+
+    if (annualSales > 0) {
+      // COGS / SG&A / 営業利益のどこかが欠けている場合は推定で補完
+      annualCogs = cogsFromCols;
+      annualSga = sgaFromCols;
+
+      if (!annualOp && (annualCogs || annualSga)) {
+        const tmpCogs = annualCogs || annualSales * 0.4;
+        const tmpSga = annualSga || annualSales * 0.4;
+        annualCogs = tmpCogs;
+        annualSga = tmpSga;
+        annualOp = annualSales - tmpCogs - tmpSga;
+      } else if (annualOp && (!annualCogs || !annualSga)) {
+        const remain = annualSales - annualOp;
+        if (!annualCogs && !annualSga) {
+          annualCogs = remain * 0.5;
+          annualSga = remain * 0.5;
+        } else if (!annualCogs) {
+          annualCogs = Math.max(0, remain - annualSga);
+        } else if (!annualSga) {
+          annualSga = Math.max(0, remain - annualCogs);
+        }
+      }
+
+      if (!annualCogs) annualCogs = annualSales * 0.4;
+      if (!annualSga) annualSga = annualSales * 0.4;
+    }
+  }
+
+  // ② CSVで有効な売上が取れなかった場合は financeSummary にフォールバック
+  if (!annualSales) {
+    const fs: any[] = Array.isArray(strategy?.financeSummary)
+      ? strategy.financeSummary
+      : [];
+    const last = fs.length > 0 ? fs[fs.length - 1] : {};
+    annualSales = num(last.sales ?? last.revenue ?? 0);
+    annualCogs = num(last.cogs ?? 0);
+    annualSga = num(last.sga ?? 0);
+    if (!annualCogs) annualCogs = annualSales * 0.4;
+    if (!annualSga) annualSga = annualSales * 0.4;
+    annualOp = annualSales - annualCogs - annualSga;
+  }
 
   const monthlyRevenue = annualSales > 0 ? annualSales / 12 : 0;
   const monthlyCogs =
@@ -232,7 +298,6 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
     annualSga > 0 ? annualSga / 12 : monthlyRevenue * 0.4;
 
   const defaultChurn = 0.02; // 月次 2% をデフォルト
-
   const defaultArpu = 12_000;
   const defaultQty =
     monthlyRevenue > 0
@@ -244,9 +309,9 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
   const defaultVariable = monthlyCogs;
 
   const baseYearSales = annualSales;
-  const baseYearOp = annualSales - annualCogs - annualSga;
+  const baseYearOp = annualOp;
 
-  const signature = `${annualSales}-${annualCogs}-${annualSga}`;
+  const signature = `${annualSales}-${annualCogs}-${annualSga}-${annualOp}`;
 
   return {
     monthlyRevenue,
@@ -361,7 +426,7 @@ export default function SimulationDashboard({
   const [startYm, setStartYm] = useState<Ym>('2025-04');
   const [endYm, setEndYm] = useState<Ym>('2026-03');
 
-  // ベース値（初期値は財務サマリーから推定）
+  // ベース値（初期値は財務サマリー/CSVから推定）
   const [baseQty, setBaseQty] = useState<number>(
     derivedBase.defaultQty,
   );
@@ -381,7 +446,7 @@ export default function SimulationDashboard({
     derivedBase.defaultPersonnel,
   );
 
-  // 財務サマリーが変わったらベース値を更新（会社切替時など）
+  // 財務基準が変わったらベース値を更新（会社切替時など）
   useEffect(() => {
     setBaseQty(derivedBase.defaultQty);
     setBaseArpu(derivedBase.defaultArpu);
@@ -582,9 +647,7 @@ export default function SimulationDashboard({
             `dept-${idx}`,
         );
         const label =
-          (d as any).name ??
-          (d as any).departmentName ??
-          `部門${idx + 1}`;
+          (d as any).name ?? (d as any).departmentName ?? `部門${idx + 1}`;
         return { key, label };
       }),
     [departments],
@@ -657,10 +720,78 @@ export default function SimulationDashboard({
   }, [baseTrajectory, deptDeltas, hasAnyServerBackedContent]);
 
   const deptYearly = useMemo(
-    () =>
-      deptMonthly.length ? aggregateYearly(deptMonthly) : [],
+    () => (deptMonthly.length ? aggregateYearly(deptMonthly) : []),
     [deptMonthly],
   );
+
+  /* ---------------- 事業ポートフォリオ（STEP2）別インパクト ---------------- */
+
+  type BusinessUnitView = {
+    key: string;
+    label: string;
+    share: number;
+  };
+
+  const businessUnits: BusinessUnitView[] = useMemo(() => {
+    const raw: any[] = Array.isArray(s?.businessPortfolio?.units)
+      ? (s.businessPortfolio.units as any[])
+      : [];
+    return raw.map((u, idx) => ({
+      key: String(
+        u.id ?? u.key ?? u.code ?? u.businessId ?? `biz-${idx}`,
+      ),
+      label: String(
+        u.label ?? u.name ?? u.businessName ?? `事業${idx + 1}`,
+      ),
+      share:
+        Number(
+          u.share ??
+            u.weight ??
+            u.revenueShare ??
+            u.salesShare ??
+            0,
+        ) || 0,
+    }));
+  }, [s]);
+
+  const businessImpactY3 = useMemo(() => {
+    if (!yearly.length || !businessUnits.length) return [] as any[];
+
+    const yLast = yearly[yearly.length - 1];
+    const baseRevenue = yLast.revenue || 0;
+    const baseOp = yLast.op_income || 0;
+
+    if (!baseRevenue && !baseOp) return [] as any[];
+
+    // シェアの正規化（全部0なら均等割り）
+    const totalShare = businessUnits.reduce(
+      (sum, u) => sum + (u.share > 0 ? u.share : 0),
+      0,
+    );
+    const denom = totalShare > 0 ? totalShare : businessUnits.length || 1;
+
+    return businessUnits.map((u) => {
+      const raw = u.share > 0 ? u.share : totalShare > 0 ? 0 : 1;
+      const factor = raw / denom;
+      const revenue = baseRevenue * factor;
+      const op = baseOp * factor;
+      const margin = baseRevenue
+        ? (baseOp / baseRevenue) * 100
+        : 0;
+
+      return {
+        key: u.key,
+        label: u.label,
+        shareDisplay:
+          totalShare > 0
+            ? `${((u.share / totalShare) * 100).toFixed(1)}%`
+            : `${(100 / (businessUnits.length || 1)).toFixed(1)}%`,
+        revenue,
+        op,
+        margin,
+      };
+    });
+  }, [yearly, businessUnits]);
 
   /* ---------------- 保存＆履歴 ---------------- */
 
@@ -815,8 +946,7 @@ export default function SimulationDashboard({
               このOKRをやり切ったとき、業績はどこまで伸びるか？
             </h2>
             <p className="text-[13px] text-slate-600 md:text-sm">
-              ベースとなる財務サマリーと、各部門のプロジェクト /
-              構造化KR をつなぎ、
+              CSV財務データと、各部門のプロジェクト / 構造化KR をつなぎ、
               <span className="font-medium">売上・営業利益・成功確率</span>
               を一体で試算しています。
             </p>
@@ -827,14 +957,14 @@ export default function SimulationDashboard({
               label="Y3 売上インパクト"
               value={y3 ? fmtJPY(deltaVsBase.deltaSales) : '—'}
               caption={
-                y3 ? 'ベース比の増加額（推計）' : 'STAGE3の財務サマリーが必要です'
+                y3 ? 'ベース比の増加額（推計）' : 'STEP4のCSV/STEP3の財務サマリーが必要です'
               }
             />
             <StatCard
               label="Y3 営業利益インパクト"
               value={y3 ? fmtJPY(deltaVsBase.deltaOp) : '—'}
               caption={
-                y3 ? 'ベース比の増加額（推計）' : 'STAGE3の財務サマリーが必要です'
+                y3 ? 'ベース比の増加額（推計）' : 'STEP4のCSV/STEP3の財務サマリーが必要です'
               }
             />
             <StatCard
@@ -862,7 +992,7 @@ export default function SimulationDashboard({
               売上・営業利益・成功確率（3年予測）
             </h3>
             <span className="text-[11px] text-slate-400">
-              STAGE3 の財務サマリー + STAGE4 の構造化KR
+              STEP4 CSV + STEP3 財務サマリー + STEP4 構造化KR
             </span>
           </div>
           {hasAnyServerBackedContent && chartData.length > 0 ? (
@@ -878,9 +1008,9 @@ export default function SimulationDashboard({
                       data={chartData}
                       margin={{
                         top: 8,
-                        right: 8,
-                        bottom: 4,
-                        left: 0,
+                        right: 12,
+                        bottom: 8,
+                        left: 40,
                       }}
                     >
                       <CartesianGrid
@@ -903,6 +1033,7 @@ export default function SimulationDashboard({
                         dataKey="sales"
                         name="売上"
                         dot={false}
+                        stroke="#0ea5e9"
                       />
                     </LineChart>
                   </ResponsiveContainer>
@@ -920,9 +1051,9 @@ export default function SimulationDashboard({
                       data={chartData}
                       margin={{
                         top: 8,
-                        right: 8,
-                        bottom: 4,
-                        left: 0,
+                        right: 12,
+                        bottom: 8,
+                        left: 40,
                       }}
                     >
                       <CartesianGrid
@@ -945,6 +1076,7 @@ export default function SimulationDashboard({
                         dataKey="op"
                         name="営業利益"
                         dot={false}
+                        stroke="#22c55e"
                       />
                     </LineChart>
                   </ResponsiveContainer>
@@ -962,9 +1094,9 @@ export default function SimulationDashboard({
                       data={chartData}
                       margin={{
                         top: 8,
-                        right: 8,
-                        bottom: 4,
-                        left: 0,
+                        right: 12,
+                        bottom: 8,
+                        left: 40,
                       }}
                     >
                       <CartesianGrid
@@ -987,6 +1119,7 @@ export default function SimulationDashboard({
                         dataKey="probPct"
                         name="成功確率"
                         dot={false}
+                        stroke="#f97316"
                       />
                     </LineChart>
                   </ResponsiveContainer>
@@ -997,8 +1130,7 @@ export default function SimulationDashboard({
             <div className="grid h-64 place-items-center text-sm text-slate-400">
               表示できる予測データがありません。
               <br />
-              STAGE3 の財務サマリーと、各部門のプロジェクト /
-              構造化KR を設定すると表示されます。
+              STEP4 のCSV・STEP3の財務サマリー・各部門の構造化KRを設定すると表示されます。
             </div>
           )}
         </div>
@@ -1012,8 +1144,7 @@ export default function SimulationDashboard({
             {hasAnyServerBackedContent && y3 ? (
               <ul className="space-y-1 text-[13px] text-slate-700">
                 <li>
-                  Y3 売上：{' '}
-                  <b>{fmtNum(Math.round(y3.sales))}</b>
+                  Y3 売上： <b>{fmtNum(Math.round(y3.sales))}</b>
                   {baseForDelta.year0Sales ? (
                     <>
                       {' '}
@@ -1072,7 +1203,7 @@ export default function SimulationDashboard({
                   return;
                 }
                 setNotice(
-                  'ℹ️ STAGE1〜5 の入力更新ごとに、3年予測は自動的に再計算されています。',
+                  'ℹ️ STEP1〜4 の入力更新ごとに、3年予測は自動的に再計算されています。',
                 );
                 setTimeout(() => setNotice(''), 3000);
               }}
@@ -1105,7 +1236,7 @@ export default function SimulationDashboard({
               OKR → PL（数量 × 単価 × 継続率 ベース）
             </h2>
             <p className="mt-1 text-[13px] text-slate-600">
-              STAGE4 で設定した
+              STEP4 で設定した
               <span className="font-medium">構造化KR</span>
               を係数に変換し、ベースとなる PL 軌道に重ねて、
               <span className="font-medium">
@@ -1125,7 +1256,7 @@ export default function SimulationDashboard({
         {!hasAnyServerBackedContent ? (
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-[13px] text-slate-600">
             戦略データがまだ無いため、PLシミュレーションは表示できません。
-            STAGE3 の財務サマリーと STAGE4 の構造化KR を設定してください。
+            STEP3 の財務サマリー / STEP4 のCSV と 構造化KR を設定してください。
           </div>
         ) : (
           <>
@@ -1137,7 +1268,7 @@ export default function SimulationDashboard({
                     ベース条件（現在の事業の状態）
                   </h3>
                   <p className="mt-1 text-[12px] text-slate-500">
-                    STAGE3 の財務サマリーから推定した月次ベースを初期値にしています。
+                    STEP4 のCSV / STEP3 の財務サマリーから推定した月次ベースを初期値にしています。
                     必要に応じて微調整してください。
                   </p>
                 </div>
@@ -1462,6 +1593,61 @@ export default function SimulationDashboard({
                 ※ 部門別シミュレーションは、指定部門の構造化KRだけを適用した場合の
                 「ベースPLに対する寄与分」の概算です。部門間の相互作用までは反映していません。
               </p>
+            </div>
+
+            {/* 事業ポートフォリオ別インパクト（STEP2） */}
+            <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <h3 className="mb-2 text-[14px] font-medium text-slate-900">
+                事業ポートフォリオ別インパクト（Y3 概算）
+              </h3>
+              {!businessUnits.length ? (
+                <p className="text-[13px] text-slate-500">
+                  STEP2 の事業ポートフォリオが未設定のため、事業別インパクトは表示できません。
+                </p>
+              ) : !businessImpactY3.length ? (
+                <p className="text-[13px] text-slate-500">
+                  Y3のPL試算が無いため、事業別インパクトは表示できません。
+                </p>
+              ) : (
+                <>
+                  <table className="w-full text-[12px] text-slate-800">
+                    <thead>
+                      <tr className="text-left text-slate-500">
+                        <th className="py-2">事業</th>
+                        <th className="py-2">ポートフォリオ比率</th>
+                        <th className="py-2">Y3 売上</th>
+                        <th className="py-2">Y3 営業利益</th>
+                        <th className="py-2">利益率</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {businessImpactY3.map((b) => (
+                        <tr
+                          key={b.key}
+                          className="border-t border-slate-200"
+                        >
+                          <td className="py-2">{b.label}</td>
+                          <td className="py-2">{b.shareDisplay}</td>
+                          <td className="py-2">
+                            {fmtJPY(b.revenue)}
+                          </td>
+                          <td className="py-2">
+                            {fmtJPY(b.op)}
+                          </td>
+                          <td className="py-2">
+                            {b.margin.toFixed(1)}%
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="mt-2 text-[11px] text-slate-500">
+                    ※ 事業別インパクトは、STEP2 のポートフォリオ比率で
+                    全社Y3 PLを按分した概算です。事業ごとに異なるKR強度・
+                    コスト構造まではまだ反映していません。
+                  </p>
+                </>
+              )}
             </div>
 
             {/* 開発者向け：構造化KR / Bridge Delta の抜粋（折りたたみ） */}
