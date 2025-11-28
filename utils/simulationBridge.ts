@@ -9,6 +9,10 @@
  * - COST_VARIABLE は「金額」or「率（cogsRate）」を単位で自動判定
  * - 期間は 'YYYY-MM'（Ym）で扱い、startYm〜endYm を含む
  * - financeSimulation.ts 側に渡してPLを算出
+ *
+ * ★今回の重要ポイント★
+ * - OKR（krs）が 0 件のときは「全項目0の deltas」をそのまま返す。
+ *   → simulateMonthlyPL 側の hasAnyDelta が false になり、ベースPLそのままになる。
  * ========================================================= */
 
 import type { StrategyData } from '@/types/strategy';
@@ -113,7 +117,7 @@ function nextYm(y: Ym): Ym {
   const { Y, M } = ymToYearMonth(y);
   const nM = M === 12 ? 1 : M + 1;
   const nY = M === 12 ? Y + 1 : Y;
-  return `${nY}-${pad(nM)}`;
+  return `${nY}-${pad(nM)}` as Ym;
 }
 function ymRange(startYm: Ym, endYm: Ym): Ym[] {
   const out: Ym[] = [];
@@ -125,7 +129,10 @@ function ymRange(startYm: Ym, endYm: Ym): Ym[] {
   return out;
 }
 function initDelta(range: Ym[]): Record<Ym, number> {
-  return range.reduce((acc, ym) => { acc[ym] = 0; return acc; }, {} as Record<Ym, number>);
+  return range.reduce((acc, ym) => {
+    acc[ym] = 0;
+    return acc;
+  }, {} as Record<Ym, number>);
 }
 
 /* ========== Helpers ========== */
@@ -195,6 +202,10 @@ function applyAdd(bucket: Record<Ym, number>, val: number, applyMonths: Ym[], we
  * - 率系は normalizeByUnit で小数化
  * - ACTIVITY は elasticity・baseOverride を考慮し、ACQ/ARPU/CHURN に配分
  * - COST_VARIABLE は単位が％/比率なら cogsRate（率Δ）、そうでなければ variable_cost（金額Δ）
+ *
+ * ★OKRゼロ扱い★
+ * - krs が 0 件のときは、初期化した deltas（全項目0）のまま return。
+ *   → simulateMonthlyPL 側で「デルタ無し＝ベースPLそのまま」と判定される。
  */
 export function buildBridgeDeltas(input: BridgeInput): DeltasByMonth {
   const { startYm, endYm, krs, base, config } = input;
@@ -215,9 +226,19 @@ export function buildBridgeDeltas(input: BridgeInput): DeltasByMonth {
     success_rate: initDelta(months),
   };
 
+  const safeKrs: BridgeKR[] = Array.isArray(krs) ? krs : [];
+
+  // ★ここが今回追加したガード★
+  // → OKR（構造化KR）が1件も無い場合
+  //    = 「OKRゼロの財務シミュレーション」では
+  //    deltas は全て 0 のまま返す。
+  if (safeKrs.length === 0) {
+    return deltas;
+  }
+
   const activityDefault: ActivityMapping = config?.activityDefault ?? 'ACQ';
 
-  for (const kr of krs) {
+  for (const kr of safeKrs) {
     const applyMonths = getApplyMonths(startYm, endYm, kr);
     if (!applyMonths.length) continue;
 
