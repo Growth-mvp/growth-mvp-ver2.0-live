@@ -1,7 +1,5 @@
 // /components/simulation/SimulationDashboard.tsx
 
-
-
 'use client';
 
 import React, {
@@ -133,6 +131,10 @@ function collectAllKRs(
   return out;
 }
 
+/**
+ * ベース軌道生成：年率成長率を考慮したフラット＋成長付きトラック
+ * annualGrowthRate: 0.05 なら年 +5%、-0.05 なら年 -5%
+ */
 function mkFlatTrajectory(
   startYm: Ym,
   endYm: Ym,
@@ -144,25 +146,45 @@ function mkFlatTrajectory(
     variable: number;
     personnel: number;
   },
+  annualGrowthRate: number = 0,
 ): BaseTrajectory {
   const months = ymRange(startYm, endYm);
-  const fill = (x: number) =>
-    months.reduce(
-      (a, m) => {
-        a[m] = x;
-        return a;
-      },
-      {} as Record<Ym, number>,
-    );
+
+  const qtyMonthly: Record<Ym, number> = {};
+  const arpuMonthly: Record<Ym, number> = {};
+  const churnMonthly: Record<Ym, number> = {};
+  const fixedCostMonthly: Record<Ym, number> = {};
+  const variableCostMonthly: Record<Ym, number> = {};
+  const personnelCostMonthly: Record<Ym, number> = {};
+
+  const hasGrowth =
+    Number.isFinite(annualGrowthRate) && annualGrowthRate !== 0;
+
+  months.forEach((m, idx) => {
+    // idx ヶ月目 → 年換算 idx/12 年後
+    const tYears = hasGrowth ? idx / 12 : 0;
+    const factor = hasGrowth ? Math.pow(1 + annualGrowthRate, tYears) : 1;
+
+    // ベースでは Qty に成長率を乗せる（ARPU / churn は一定と仮定）
+    const qty = v.qty * factor;
+
+    qtyMonthly[m] = qty;
+    arpuMonthly[m] = v.arpu;
+    churnMonthly[m] = v.churn;
+    fixedCostMonthly[m] = v.fixed; // 固定費は一定とする
+    variableCostMonthly[m] = v.variable * factor; // 変動費は Qty に比例
+    personnelCostMonthly[m] = v.personnel; // 人件費も一定（必要あれば後で拡張）
+  });
+
   return {
     startYm,
     endYm,
-    qtyMonthly: fill(v.qty),
-    arpuMonthly: fill(v.arpu),
-    churnMonthly: fill(v.churn),
-    fixedCostMonthly: fill(v.fixed),
-    variableCostMonthly: fill(v.variable),
-    personnelCostMonthly: fill(v.personnel),
+    qtyMonthly,
+    arpuMonthly,
+    churnMonthly,
+    fixedCostMonthly,
+    variableCostMonthly,
+    personnelCostMonthly,
   };
 }
 
@@ -213,18 +235,11 @@ type DerivedBase = {
 };
 
 /**
- * financeSummary を FinanceSummaryPanel と同様に「年度 × 年度合計」ベースで正規化し、
- * 最新年度の年度合計をベース値として採用する。
- *
- * 1. 最新年度を求める
- * 2. その年度の全行を集める
- * 3. 年度合計行（TOTAL / 年度合計 / 合計フラグ）を優先
- * 4. annualSales = Σ revenue
- *    annualOp    = Σ operating_income
- * 5. annualCogs + annualSga = annualSales - annualOp となるように 50:50 分解
+ * financeSummary / csvFinanceData からベース年度の売上・利益を推定し、
+ * 月次売上・コスト・Qty などのベース値を算出する。
  */
 function deriveBaseFromStrategy(strategy: any): DerivedBase {
-  // ★ 修正: カンマ付き文字列や通貨記号を安全に数値化
+  // ★ カンマ付き文字列や通貨記号を安全に数値化
   const num = (v: any): number => {
     if (v === undefined || v === null || v === '') return 0;
     if (typeof v === 'number') {
@@ -381,7 +396,9 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
       : [];
 
     if (csv.length > 0) {
-      // ★ 修正: CSV も「最新年度 × 全事業合計」で集計する
+      // ★ CSV も「最新年度 × 全事業合計」で集計
+      const numCsv = (v: any) => num(v);
+
       const getYearFromCsv = (row: any): string | null => {
         const raw =
           row.year ?? row.fiscalYear ?? row.fy ?? row['年度'] ?? row['year'];
@@ -414,17 +431,17 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
 
         for (const row of rows) {
           const rev =
-            num(row.sales) ||
-            num(row.revenue) ||
-            num(row['売上高']) ||
-            num(row['売上']) ||
-            num(row['売上収益']);
+            numCsv(row.sales) ||
+            numCsv(row.revenue) ||
+            numCsv(row['売上高']) ||
+            numCsv(row['売上']) ||
+            numCsv(row['売上収益']);
           csvSales += rev;
 
           const op =
-            num(row.operatingProfit) ||
-            num(row.op) ||
-            num(row['営業利益']) ||
+            numCsv(row.operatingProfit) ||
+            numCsv(row.op) ||
+            numCsv(row['営業利益']) ||
             0;
           csvOp += op;
         }
@@ -432,17 +449,17 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
         // 年度情報が無い場合は全行合計を使用
         for (const row of csv) {
           const rev =
-            num(row.sales) ||
-            num(row.revenue) ||
-            num(row['売上高']) ||
-            num(row['売上']) ||
-            num(row['売上収益']);
+            numCsv(row.sales) ||
+            numCsv(row.revenue) ||
+            numCsv(row['売上高']) ||
+            numCsv(row['売上']) ||
+            numCsv(row['売上収益']);
           csvSales += rev;
 
           const op =
-            num(row.operatingProfit) ||
-            num(row.op) ||
-            num(row['営業利益']) ||
+            numCsv(row.operatingProfit) ||
+            numCsv(row.op) ||
+            numCsv(row['営業利益']) ||
             0;
           csvOp += op;
         }
@@ -531,6 +548,70 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
     baseYearOp,
     signature,
   };
+}
+
+/* ============ 事業ポートフォリオ → ベース成長率 ============ */
+
+/**
+ * businessPortfolio.units の「シェア × 成長率」の加重平均から、
+ * 会社全体の年率成長率（何もしなかった場合のベースライン）を推定する。
+ * - 成長率は -0.05 や 0.1 のような比率、あるいは -5, +10 のような％表記を想定
+ * - 単位の混在にも耐えるよう、|g| <= 1 はそのまま比率、|g| > 1 は 100 で割って％とみなす
+ */
+function derivePortfolioGrowth(strategy: any): number {
+  const units: any[] = Array.isArray(strategy?.businessPortfolio?.units)
+    ? strategy.businessPortfolio.units
+    : [];
+
+  if (!units.length) return 0;
+
+  const num = (v: any): number => {
+    if (v === undefined || v === null || v === '') return 0;
+    if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+    if (typeof v === 'string') {
+      const normalized = v.replace(/[,\s％%]/g, '');
+      const n = Number(normalized);
+      return Number.isFinite(n) ? n : 0;
+    }
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const normalized = units
+    .map((u) => {
+      const share =
+        num(
+          u.share ??
+            u.weight ??
+            u.revenueShare ??
+            u.salesShare ??
+            u['比率'],
+        ) || 0;
+
+      let g = num(
+        u.growthRate ??
+          u.growth ??
+          u.growthPct ??
+          u.expectedGrowth ??
+          u['成長率'],
+      );
+
+      // |g| <= 1 ならそのまま比率、|g| > 1 なら ％表記とみなして 100 で割る
+      if (Math.abs(g) > 1) {
+        g = g / 100;
+      }
+
+      return { share, g };
+    })
+    .filter((x) => x.share > 0);
+
+  if (!normalized.length) return 0;
+
+  const totalShare = normalized.reduce((acc, x) => acc + x.share, 0) || 1;
+  const weightedGrowth =
+    normalized.reduce((acc, x) => acc + x.share * x.g, 0) / totalShare;
+
+  return weightedGrowth; // 例: -0.05 = -5%/year
 }
 
 /* ============ チャート用ツールチップ ============ */
@@ -626,9 +707,19 @@ export default function SimulationDashboard({
     [s],
   );
 
-  // 期間
+  // ★ 追加：事業ポートフォリオから年率成長率を推定
+  const portfolioGrowth = useMemo(
+    () => derivePortfolioGrowth(s),
+    [s],
+  );
+
+  // デバッグ用ログ
+  console.log('[SIM] derivedBase', derivedBase);
+  console.log('[SIM] portfolioGrowth (annual)', portfolioGrowth);
+
+  // 期間（デフォルトは 3年分：2025-04 〜 2028-03）
   const [startYm, setStartYm] = useState<Ym>('2025-04');
-  const [endYm, setEndYm] = useState<Ym>('2026-03');
+  const [endYm, setEndYm] = useState<Ym>('2028-03');
 
   // ベース値（初期値は財務サマリー/CSVから推定）
   const [baseQty, setBaseQty] = useState<number>(
@@ -670,7 +761,7 @@ export default function SimulationDashboard({
 
   const baseFigures = useMemo<BaseFigures>(
     () => ({
-      // ★ 修正: ACQのベースは「現状維持に必要な新規獲得数」として設定
+      // ACQベース：現状維持に必要な新規獲得数として Churn × Qty
       acq: baseQty * baseChurn,
       arpu: baseArpu,
       churn: baseChurn,
@@ -684,14 +775,19 @@ export default function SimulationDashboard({
 
   const baseTrajectory = useMemo(
     () =>
-      mkFlatTrajectory(startYm, endYm, {
-        qty: baseQty,
-        arpu: baseArpu,
-        churn: baseChurn,
-        fixed: baseFixed,
-        variable: baseVariable,
-        personnel: basePersonnel,
-      }),
+      mkFlatTrajectory(
+        startYm,
+        endYm,
+        {
+          qty: baseQty,
+          arpu: baseArpu,
+          churn: baseChurn,
+          fixed: baseFixed,
+          variable: baseVariable,
+          personnel: basePersonnel,
+        },
+        portfolioGrowth, // ★ ポートフォリオの年率成長をベースラインに反映
+      ),
     [
       startYm,
       endYm,
@@ -701,6 +797,7 @@ export default function SimulationDashboard({
       baseFixed,
       baseVariable,
       basePersonnel,
+      portfolioGrowth,
     ],
   );
 
@@ -735,6 +832,14 @@ export default function SimulationDashboard({
     [bridgeInput],
   );
 
+  // ★ デバッグ：OKRからのデルタ（最初の数ヶ月だけ確認）
+  console.log('[SIM] deltas sample', {
+    revenue: Object.values(deltas.revenue || {}).slice(0, 3),
+    acq: Object.values(deltas.acq || {}).slice(0, 3),
+    arpu: Object.values(deltas.arpu || {}).slice(0, 3),
+    churn: Object.values(deltas.churn || {}).slice(0, 3),
+  });
+
   const monthly = useMemo(() => {
     if (!hasAnyServerBackedContent) return [] as any[];
     return simulateMonthlyPL(baseTrajectory, deltas, {
@@ -746,6 +851,9 @@ export default function SimulationDashboard({
     () => (monthly.length ? aggregateYearly(monthly) : []),
     [monthly],
   );
+
+  // ★ デバッグ：年次PL（Y1〜Y3の売上・営業利益）
+  console.log('[SIM] yearly', yearly);
 
   /* ---------------- 構造化KR → 成功確率用のKRStruct ---------------- */
 
@@ -776,15 +884,17 @@ export default function SimulationDashboard({
       };
     }
 
-    const points = yearly.map((y, idx) => ({
-      year: y.year ?? `Y${idx + 1}`,
+    // ★ 修正：3年分（Y1〜Y3）に限定しつつ、年ラベルは相対的に Y1, Y2, Y3 として扱う
+    const limitedYearly = yearly.slice(0, 3);
+    const points = limitedYearly.map((y: any, idx: number) => ({
+      year: (`Y${idx + 1}` as 'Y1' | 'Y2' | 'Y3'),
       sales: y.revenue,
       op: y.op_income,
       opMargin: y.revenue > 0 ? y.op_income / y.revenue : 0,
     }));
 
     const projectionForProb = {
-      points: points.slice(0, 3).map((p, idx) => ({
+      points: points.map((p, idx) => ({
         year: (`Y${idx + 1}` as 'Y1' | 'Y2' | 'Y3'),
         sales: p.sales,
         op: p.op,
@@ -962,7 +1072,7 @@ export default function SimulationDashboard({
   const businessImpactY3 = useMemo(() => {
     if (!yearly.length || !businessUnits.length) return [] as any[];
 
-    const yLast = yearly[yearly.length - 1];
+    const yLast: any = yearly[yearly.length - 1];
     const baseRevenue = yLast.revenue || 0;
     const baseOp = yLast.op_income || 0;
 
@@ -1578,29 +1688,41 @@ export default function SimulationDashboard({
                       </tr>
                     </thead>
                     <tbody>
-                      {yearly.map((y) => (
-                        <tr
-                          key={y.year}
-                          className="border-t border-slate-200"
-                        >
-                          <td className="py-2">{y.year}</td>
-                          <td className="py-2">
-                            {fmtJPY(y.revenue)}
-                          </td>
-                          <td className="py-2">
-                            {fmtJPY(y.cogs)}
-                          </td>
-                          <td className="py-2">
-                            {fmtJPY(y.sga)}
-                          </td>
-                          <td className="py-2">
-                            {fmtJPY(y.op_income)}
-                          </td>
-                          <td className="py-2">
-                            {(y.margin * 100).toFixed(1)}%
-                          </td>
-                        </tr>
-                      ))}
+                      {yearly.map((y: any, idx: number) => {
+                        const yearLabel =
+                          typeof y.year === 'number'
+                            ? Number.isFinite(y.year)
+                              ? String(y.year)
+                              : `Y${idx + 1}`
+                            : typeof y.year === 'string' &&
+                              y.year.trim() !== ''
+                            ? y.year
+                            : `Y${idx + 1}`;
+
+                        return (
+                          <tr
+                            key={idx}
+                            className="border-t border-slate-200"
+                          >
+                            <td className="py-2">{yearLabel}</td>
+                            <td className="py-2">
+                              {fmtJPY(y.revenue)}
+                            </td>
+                            <td className="py-2">
+                              {fmtJPY(y.cogs)}
+                            </td>
+                            <td className="py-2">
+                              {fmtJPY(y.sga)}
+                            </td>
+                            <td className="py-2">
+                              {fmtJPY(y.op_income)}
+                            </td>
+                            <td className="py-2">
+                              {(y.margin * 100).toFixed(1)}%
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 ) : (
@@ -1629,7 +1751,7 @@ export default function SimulationDashboard({
                       </tr>
                     </thead>
                     <tbody>
-                      {monthly.slice(-3).map((m) => (
+                      {monthly.slice(-3).map((m: any) => (
                         <tr
                           key={m.ym}
                           className="border-t border-slate-200"
@@ -1726,29 +1848,41 @@ export default function SimulationDashboard({
                         </tr>
                       </thead>
                       <tbody>
-                        {deptYearly.map((y) => (
-                          <tr
-                            key={y.year}
-                            className="border-t border-slate-200"
-                          >
-                            <td className="py-1">{y.year}</td>
-                            <td className="py-1">
-                              {fmtJPY(y.revenue)}
-                            </td>
-                            <td className="py-1">
-                              {fmtJPY(y.cogs)}
-                            </td>
-                            <td className="py-1">
-                              {fmtJPY(y.sga)}
-                            </td>
-                            <td className="py-1">
-                              {fmtJPY(y.op_income)}
-                            </td>
-                            <td className="py-1">
-                              {(y.margin * 100).toFixed(1)}%
-                            </td>
-                          </tr>
-                        ))}
+                        {deptYearly.map((y: any, idx: number) => {
+                          const yearLabel =
+                            typeof y.year === 'number'
+                              ? Number.isFinite(y.year)
+                                ? String(y.year)
+                                : `Y${idx + 1}`
+                              : typeof y.year === 'string' &&
+                                y.year.trim() !== ''
+                              ? y.year
+                              : `Y${idx + 1}`;
+
+                          return (
+                            <tr
+                              key={idx}
+                              className="border-t border-slate-200"
+                            >
+                              <td className="py-1">{yearLabel}</td>
+                              <td className="py-1">
+                                {fmtJPY(y.revenue)}
+                              </td>
+                              <td className="py-1">
+                                {fmtJPY(y.cogs)}
+                              </td>
+                              <td className="py-1">
+                                {fmtJPY(y.sga)}
+                              </td>
+                              <td className="py-1">
+                                {fmtJPY(y.op_income)}
+                              </td>
+                              <td className="py-1">
+                                {(y.margin * 100).toFixed(1)}%
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </section>
@@ -1768,7 +1902,7 @@ export default function SimulationDashboard({
                         </tr>
                       </thead>
                       <tbody>
-                        {deptMonthly.slice(-3).map((m) => (
+                        {deptMonthly.slice(-3).map((m: any) => (
                           <tr
                             key={m.ym}
                             className="border-t border-slate-200"
@@ -1826,7 +1960,7 @@ export default function SimulationDashboard({
                       </tr>
                     </thead>
                     <tbody>
-                      {businessImpactY3.map((b) => (
+                      {businessImpactY3.map((b: any) => (
                         <tr
                           key={b.key}
                           className="border-t border-slate-200"
