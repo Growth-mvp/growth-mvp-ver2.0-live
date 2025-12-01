@@ -1,14 +1,23 @@
 // /components/pages/StrategyClient.tsx
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+} from 'react';
 import Step1BasicInfo from '@/components/steps/Step1BasicInfo';
 import Step2Portfolio from '@/components/steps/Step2Portfolio';
 import Step2SWOT from '@/components/steps/Step2SWOT';
 import Step3FinanceUpload from '@/components/steps/Step3FinanceUpload';
 import Step4MVV from '@/components/steps/Step4MVV';
 import Step5Confirm from '@/components/steps/Step5Confirm';
-import { useStrategyStore, refetchFromServer as refetchStrategy } from '@/store/strategyStore';
+import {
+  useStrategyStore,
+  refetchFromServer as refetchStrategy,
+} from '@/store/strategyStore';
 import { useAccess } from '@/utils/access';
 import { useUserStore } from '@/store/userStore';
 import { useAutoSave } from '@/hooks/useAutoSave';
@@ -22,12 +31,12 @@ import { useAutoSave } from '@/hooks/useAutoSave';
  * - 初回 refetch と autosave のレースを回避
  */
 
-/* ==========
- * 安定 stringify（大きなオブジェクトの差分比較用）
- * ========= */
+/* ========== 安定 stringify（大きなオブジェクトの差分比較用） ========== */
 function stableSig(v: unknown): string {
   try {
-    return JSON.stringify(v, (k, val) => (val instanceof Date ? val.toISOString() : val));
+    return JSON.stringify(v, (k, val) =>
+      val instanceof Date ? val.toISOString() : val,
+    );
   } catch {
     return '';
   }
@@ -40,12 +49,30 @@ export default function StrategyClient() {
   useEffect(() => setMounted(true), []);
 
   const metas = [
-    { title: 'STEP 1：経営基本情報', subtitle: '企業規模・業種・体制などの基本情報' },
-    { title: 'STEP 2：事業ポートフォリオ', subtitle: '成長率 × 利益率 × 構成比で可視化' },
-    { title: 'STEP 3：SWOT分析', subtitle: '強み・弱み・機会・脅威を整理' },
-    { title: 'STEP 4：財務データ', subtitle: 'CSVで売上・利益・継続率などを可視化' },
-    { title: 'STEP 5：MVV', subtitle: 'Mission / Vision / Value' },
-    { title: 'STEP 6：確認・送信', subtitle: '入力内容の最終チェック' },
+    {
+      title: 'STEP 1：経営基本情報',
+      subtitle: '企業規模・業種・体制などの基本情報',
+    },
+    {
+      title: 'STEP 2：事業ポートフォリオ',
+      subtitle: '成長率 × 利益率 × 構成比で可視化',
+    },
+    {
+      title: 'STEP 3：SWOT分析',
+      subtitle: '強み・弱み・機会・脅威を整理',
+    },
+    {
+      title: 'STEP 4：財務データ',
+      subtitle: 'CSVで売上・利益・継続率などを可視化',
+    },
+    {
+      title: 'STEP 5：MVV',
+      subtitle: 'Mission / Vision / Value',
+    },
+    {
+      title: 'STEP 6：確認・送信',
+      subtitle: '入力内容の最終チェック',
+    },
   ] as const;
 
   const [step, setStep] = useState<number>(1);
@@ -53,9 +80,9 @@ export default function StrategyClient() {
   const meta = metas[step - 1];
 
   // ✅ 主要領域のみ subscribe（finalStory は autosave 対象から外す）
-  const story        = useStrategyStore((s) => s.story);
-  const answers2     = useStrategyStore((s) => s.answers2);
-  const departments  = useStrategyStore((s) => s.departments);
+  const story = useStrategyStore((s) => s.story);
+  const answers2 = useStrategyStore((s) => s.answers2);
+  const departments = useStrategyStore((s) => s.departments);
   const setCompanyScope = useStrategyStore((s) => s.setCompanyScope);
 
   const { canView, canEditCompany } = useAccess();
@@ -82,7 +109,10 @@ export default function StrategyClient() {
   useEffect(() => {
     let aborted = false;
 
-    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const sleep = (ms: number) =>
+      new Promise<void>((r) => {
+        setTimeout(r, ms);
+      });
 
     const run = async () => {
       // companyId 未確定でも UI は開ける（閲覧モード想定）
@@ -109,7 +139,9 @@ export default function StrategyClient() {
 
         // ★ サーバーの最新状態を store へ反映（7秒でタイムアウト）
         await Promise.race([
-          (async () => { await refetchStrategy(); })(),
+          (async () => {
+            await refetchStrategy();
+          })(),
           sleep(7000),
         ]);
       } catch (e) {
@@ -124,12 +156,20 @@ export default function StrategyClient() {
     };
 
     void run();
-    return () => { aborted = true; };
-  }, [companyId, userId, setCompanyScope]);
+    return () => {
+      aborted = true;
+    };
+  }, [companyId, userId, setCompanyScope, hydrated]);
 
   // ステップ移動
-  const goBack = useCallback(() => setStep((s) => Math.max(1, s - 1)), []);
-  const goNext = useCallback(() => setStep((s) => Math.min(totalSteps, s + 1)), [totalSteps]);
+  const goBack = useCallback(
+    () => setStep((s) => Math.max(1, s - 1)),
+    [],
+  );
+  const goNext = useCallback(
+    () => setStep((s) => Math.min(totalSteps, s + 1)),
+    [totalSteps],
+  );
 
   // ステップ変更時はトップへ
   useEffect(() => {
@@ -141,8 +181,12 @@ export default function StrategyClient() {
   // ← → キーで移動
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight') setStep((s) => Math.min(totalSteps, s + 1));
-      if (e.key === 'ArrowLeft') setStep((s) => Math.max(1, s - 1));
+      if (e.key === 'ArrowRight') {
+        setStep((s) => Math.min(totalSteps, s + 1));
+      }
+      if (e.key === 'ArrowLeft') {
+        setStep((s) => Math.max(1, s - 1));
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -156,21 +200,43 @@ export default function StrategyClient() {
    * - useAutoSave には “軽いシグネチャ” だけ渡す（巨大参照での無限発火を回避）
    */
   const hasMeaningfulData = useMemo(() => {
-    return nonEmptyArray(story) || nonEmptyArray(answers2) || nonEmptyArray(departments);
+    return (
+      nonEmptyArray(story) ||
+      nonEmptyArray(answers2) ||
+      nonEmptyArray(departments)
+    );
   }, [story, answers2, departments]);
 
   // 軽量化した依存（長さ＋安定 JSON で十分）
-  const storySig   = useMemo(() => (Array.isArray(story) ? `${story.length}:${stableSig(story)}` : stableSig(story)), [story]);
-  const answersSig = useMemo(() => (Array.isArray(answers2) ? `${answers2.length}:${stableSig(answers2)}` : stableSig(answers2)), [answers2]);
-  const deptSig    = useMemo(() => (Array.isArray(departments) ? `${departments.length}:${stableSig(departments)}` : stableSig(departments)), [departments]);
+  const storySig = useMemo(
+    () =>
+      Array.isArray(story)
+        ? `${story.length}:${stableSig(story)}`
+        : stableSig(story),
+    [story],
+  );
+  const answersSig = useMemo(
+    () =>
+      Array.isArray(answers2)
+        ? `${answers2.length}:${stableSig(answers2)}`
+        : stableSig(answers2),
+    [answers2],
+  );
+  const deptSig = useMemo(
+    () =>
+      Array.isArray(departments)
+        ? `${departments.length}:${stableSig(departments)}`
+        : stableSig(departments),
+    [departments],
+  );
 
-  const autosaveEnabled = hydrated && readyToAutosave && !!companyId && hasMeaningfulData;
+  const autosaveEnabled =
+    hydrated && readyToAutosave && !!companyId && hasMeaningfulData;
 
   // ✅ useAutoSave は 1引数（deps: any[]）で軽いシグネチャのみ渡す
-  useAutoSave(autosaveEnabled ? [companyId, storySig, answersSig, deptSig] : []);
-
-  const canBack = step > 1;
-  const canNext = step < totalSteps;
+  useAutoSave(
+    autosaveEnabled ? [companyId, storySig, answersSig, deptSig] : [],
+  );
 
   const stepView = useMemo(() => {
     if (!hydrated) {
@@ -189,7 +255,9 @@ export default function StrategyClient() {
       case 1:
         return <Step1BasicInfo /* readOnly={!canEdit} */ />;
       case 2:
-        return <Step2Portfolio onPrev={goBack} onNext={goNext} onSkip={goNext} />;
+        return (
+          <Step2Portfolio onPrev={goBack} onNext={goNext} onSkip={goNext} />
+        );
       case 3:
         return <Step2SWOT /* readOnly={!canEdit} */ />;
       case 4:
@@ -204,7 +272,10 @@ export default function StrategyClient() {
   }, [step, goBack, goNext, canEdit, hydrated]);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const [footerPos, setFooterPos] = useState<{ left: number; width: number }>({ left: 0, width: 0 });
+  const [footerPos, setFooterPos] = useState<{ left: number; width: number }>({
+    left: 0,
+    width: 0,
+  });
 
   useEffect(() => {
     let rafId = 0;
@@ -217,7 +288,9 @@ export default function StrategyClient() {
     measure();
 
     const RO: typeof ResizeObserver | undefined =
-      typeof window !== 'undefined' ? (window as any).ResizeObserver : undefined;
+      typeof window !== 'undefined'
+        ? (window as any).ResizeObserver
+        : undefined;
 
     let ro: ResizeObserver | null = null;
     if (RO) {
@@ -255,7 +328,7 @@ export default function StrategyClient() {
 
   if (!canView()) {
     return (
-      <div className="mx-auto max-w-5xl px-4 md:px-0 pt-10">
+      <div className="mx-auto max-w-5xl px-4 pt-10 md:px-0">
         <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-rose-900">
           閲覧権限がありません。
         </div>
@@ -265,7 +338,7 @@ export default function StrategyClient() {
 
   if (!mounted) {
     return (
-      <div className="mx-auto max-w-5xl space-y-6 px-4 md:px-0 pt-6 pb-40 md:pb-44">
+      <div className="mx-auto max-w-5xl space-y-6 px-4 pt-6 pb-40 md:px-0 md:pb-44">
         <div className="animate-pulse space-y-4">
           <div className="h-6 w-2/3 rounded bg-black/10" />
           <div className="h-4 w-1/2 rounded bg-black/10" />
@@ -275,8 +348,14 @@ export default function StrategyClient() {
     );
   }
 
+  const canBack = step > 1;
+  const canNext = step < totalSteps && hydrated;
+
   return (
-    <div ref={containerRef} className="mx-auto max-w-5xl space-y-6 px-4 md:px-0 pt-6 pb-40 md:pb-44">
+    <div
+      ref={containerRef}
+      className="mx-auto max-w-5xl space-y-6 px-4 pt-6 pb-40 md:px-0 md:pb-44"
+    >
       {/* ヘッダ */}
       <header className="space-y-3">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -302,7 +381,9 @@ export default function StrategyClient() {
       {/* ステップヘッダー */}
       <div className="sticky top-0 z-40 -mx-4 border-b border-black/10 bg-white/70 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-white/50">
         <div className="mx-auto max-w-5xl">
-          <h2 className="text-base font-semibold text-gray-900">{meta.title}</h2>
+          <h2 className="text-base font-semibold text-gray-900">
+            {meta.title}
+          </h2>
           <p className="mt-0.5 text-sm text-gray-500">{meta.subtitle}</p>
 
           <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-black/5">
@@ -329,7 +410,9 @@ export default function StrategyClient() {
       {/* 本文 */}
       <div className="space-y-6">
         {loading && !hydrated ? (
-          <div className="text-xs text-gray-500">サーバーのデータを読み込み中…</div>
+          <div className="text-xs text-gray-500">
+            サーバーのデータを読み込み中…
+          </div>
         ) : null}
         {stepView}
       </div>
@@ -338,8 +421,8 @@ export default function StrategyClient() {
       <FooterNav
         left={footerPos.left}
         width={footerPos.width}
-        canBack={step > 1}
-        canNext={step < totalSteps && hydrated /* 初回同期前は進行抑制 */}
+        canBack={canBack}
+        canNext={canNext}
         onBack={goBack}
         onNext={goNext}
       />
@@ -380,7 +463,7 @@ function FooterNav({
               disabled={!canBack}
               className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-black/10 ${
                 canBack
-                  ? 'border-black/10 bg-white/80 text-gray-800 shadow-sm hover:bg-white'
+                  ? 'border-black/10 bg-white/80 text-gray-800 shadow-sm hover:bg白'
                   : 'cursor-not-allowed border-black/10 bg-white/60 text-gray-400'
               }`}
               aria-label="前のステップへ戻る"
@@ -394,7 +477,9 @@ function FooterNav({
               onClick={onNext}
               disabled={!canNext}
               className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-black/10 ${
-                canNext ? 'bg-black text-white shadow-sm hover:bg-black/90' : 'cursor-not-allowed bg-black/10 text-gray-400'
+                canNext
+                  ? 'bg-black text-white shadow-sm hover:bg-black/90'
+                  : 'cursor-not-allowed bg-black/10 text-gray-400'
               }`}
               aria-label="次のステップへ進む"
             >
