@@ -7,6 +7,9 @@ import OpenAI from 'openai';
 
 // ★ 追加：勝ちパターン辞書
 import { topPatterns } from '@/lib/strategyPatterns.top';
+import { mapTopToWin } from '@/lib/strategyPatterns.map';
+import { buildWinPatternsFromIds } from '@/lib/winPatterns';
+import type { WinPattern } from '@/types/strategy';
 
 /**
  * 出力は常に { story: {title, body}[] }（最低4章に満たす）＋ summary(任意)
@@ -24,7 +27,8 @@ const ALLOW_MODELS = new Set<string>([
   'gpt-4o-2024-08-06',
 ]);
 function pickSafeModel() {
-  const envModel = process.env.OPENAI_MODEL || process.env.NEXT_PUBLIC_OPENAI_MODEL || '';
+  const envModel =
+    process.env.OPENAI_MODEL || process.env.NEXT_PUBLIC_OPENAI_MODEL || '';
   return ALLOW_MODELS.has(envModel) ? envModel : 'gpt-4o-mini';
 }
 
@@ -67,7 +71,11 @@ function sanitize(text: any, max = 2400): string {
 function extractJsonLoose(raw: string): any | null {
   if (!raw) return null;
   const tryParse = (s: string) => {
-    try { return JSON.parse(s); } catch { return null; }
+    try {
+      return JSON.parse(s);
+    } catch {
+      return null;
+    }
   };
   const direct = tryParse(raw);
   if (direct && (typeof direct === 'object' || Array.isArray(direct))) return direct;
@@ -93,7 +101,9 @@ function extractJsonLoose(raw: string): any | null {
 function coerceChapters(parsed: any): Array<{ title?: string; body?: string }> {
   if (!parsed) return [];
   const candidates: any[] = [];
-  const pushIfArray = (v: any) => { if (Array.isArray(v)) candidates.push(v); };
+  const pushIfArray = (v: any) => {
+    if (Array.isArray(v)) candidates.push(v);
+  };
 
   if (Array.isArray(parsed)) candidates.push(parsed);
   if (parsed && typeof parsed === 'object') {
@@ -106,11 +116,18 @@ function coerceChapters(parsed: any): Array<{ title?: string; body?: string }> {
     pushIfArray(parsed.result?.chapters);
   }
 
-  const arr = candidates.find(a => Array.isArray(a)) || [];
+  const arr = candidates.find((a) => Array.isArray(a)) || [];
   if (!arr.length) return [];
 
   const getTitle = (o: any, i: number) =>
-    sanitize(o?.title ?? o?.heading ?? o?.name ?? o?.label ?? `Chapter ${i + 1}`, 120);
+    sanitize(
+      o?.title ??
+        o?.heading ??
+        o?.name ??
+        o?.label ??
+        `Chapter ${i + 1}`,
+      120,
+    );
 
   const getBody = (o: any) => {
     const raw =
@@ -131,8 +148,13 @@ function coerceChapters(parsed: any): Array<{ title?: string; body?: string }> {
 
 /** story を短い要約列にしてプロンプトへ（※ Q&Aは使わない） */
 function buildStoryDigest(body: any): string {
-  const storyArr: Array<{ title?: string; body?: string }> =
-    Array.isArray(body?.story) ? body.story : Array.isArray(body?.context?.story) ? body.context.story : [];
+  const storyArr: Array<{ title?: string; body?: string }> = Array.isArray(
+    body?.story,
+  )
+    ? body.story
+    : Array.isArray(body?.context?.story)
+    ? body.context.story
+    : [];
 
   if (!storyArr?.length) return '';
   return storyArr
@@ -147,11 +169,19 @@ function buildStoryDigest(body: any): string {
 
 // ★ 追加：勝ちパターン辞書（t系）の要旨を生成
 function buildTopPatternDigest(ids?: string[]) {
-  const set = new Set((ids ?? []).map(s => String(s).toLowerCase().trim()));
+  const set = new Set((ids ?? []).map((s) => String(s).toLowerCase().trim()));
   const list = topPatterns
-    .filter(p => set.size === 0 || set.has(String(p.id).toLowerCase()))
-    .map(p => `#${p.id} ${p.title}：${sanitize(p.summary ?? '', 280)}`);
-  return list.length ? `【参考：勝ちパターン10選】\n${list.join('\n')}` : '';
+    .filter(
+      (p) =>
+        set.size === 0 || set.has(String(p.id).toLowerCase()),
+    )
+    .map(
+      (p) =>
+        `#${p.id} ${p.title}：${sanitize(p.summary ?? '', 280)}`,
+    );
+  return list.length
+    ? `【参考：勝ちパターン10選】\n${list.join('\n')}`
+    : '';
 }
 
 type Mode = 'future' | 'legacy';
@@ -164,15 +194,21 @@ export async function POST(req: NextRequest) {
     const model = pickSafeModel();
 
     if (debug === 'stub') {
-      const story = TITLE_TEMPLATES.map((t, i) => ({ title: t, body: `stub body ${i + 1}` }));
+      const story = TITLE_TEMPLATES.map((t, i) => ({
+        title: t,
+        body: `stub body ${i + 1}`,
+      }));
       return NextResponse.json(
         { ok: true, phase: 'stub', story, _debug: { model } },
-        { headers: { 'Cache-Control': 'no-store' } }
+        { headers: { 'Cache-Control': 'no-store' } },
       );
     }
     if (debug === 'ping') {
       if (!process.env.OPENAI_API_KEY) {
-        return NextResponse.json({ ok: false, model, error: 'NO_API_KEY' }, { status: 500 });
+        return NextResponse.json(
+          { ok: false, model, error: 'NO_API_KEY' },
+          { status: 500 },
+        );
       }
       try {
         const c = await openai.chat.completions.create({
@@ -181,16 +217,28 @@ export async function POST(req: NextRequest) {
           max_tokens: 5,
         });
         return NextResponse.json(
-          { ok: true, model, usage: c.usage, content: c.choices?.[0]?.message?.content || '' },
-          { headers: { 'Cache-Control': 'no-store' } }
+          {
+            ok: true,
+            model,
+            usage: c.usage,
+            content:
+              c.choices?.[0]?.message?.content || '',
+          },
+          { headers: { 'Cache-Control': 'no-store' } },
         );
       } catch (e: any) {
-        return NextResponse.json({ ok: false, model, error: e?.message || String(e) }, { status: 500 });
+        return NextResponse.json(
+          { ok: false, model, error: e?.message || String(e) },
+          { status: 500 },
+        );
       }
     }
     if (debug === 'json') {
       if (!process.env.OPENAI_API_KEY) {
-        return NextResponse.json({ ok: false, model, error: 'NO_API_KEY' }, { status: 500 });
+        return NextResponse.json(
+          { ok: false, model, error: 'NO_API_KEY' },
+          { status: 500 },
+        );
       }
       try {
         const c = await openai.chat.completions.create({
@@ -199,24 +247,39 @@ export async function POST(req: NextRequest) {
           messages: [
             {
               role: 'system',
-              content: '日本語で、必ず json のオブジェクト {"chapters":[{"title":"t","body":"b"}]} だけを返す。説明文やコードブロックは禁止。',
+              content:
+                '日本語で、必ず json のオブジェクト {"chapters":[{"title":"t","body":"b"}]} だけを返す。説明文やコードブロックは禁止。',
             },
             { role: 'user', content: 'テストなので1章で良い。' },
           ],
           max_tokens: 300,
         });
         return NextResponse.json(
-          { ok: true, model, raw: c.choices?.[0]?.message?.content?.slice(0, 400) || '' },
-          { headers: { 'Cache-Control': 'no-store' } }
+          {
+            ok: true,
+            model,
+            raw:
+              c.choices?.[0]?.message?.content?.slice(
+                0,
+                400,
+              ) || '',
+          },
+          { headers: { 'Cache-Control': 'no-store' } },
         );
       } catch (e: any) {
-        return NextResponse.json({ ok: false, model, error: e?.message || String(e) }, { status: 500 });
+        return NextResponse.json(
+          { ok: false, model, error: e?.message || String(e) },
+          { status: 500 },
+        );
       }
     }
 
     // ---- 通常処理 ----
     if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json({ error: 'OPENAI_API_KEY is missing' }, { status: 500 });
+      return NextResponse.json(
+        { error: 'OPENAI_API_KEY is missing' },
+        { status: 500 },
+      );
     }
 
     const body = await req.json();
@@ -235,7 +298,7 @@ export async function POST(req: NextRequest) {
       threat,
       csvFinanceData,
       temperature,
-      patternIds,
+      patternIds, // ★ t1,t2,... （TopPatternId[] 想定）
       mode: _mode, // 'future' | 'legacy'（未指定は future）
       enhanceEmotion, // ★ 追加：true/false（未指定はtrue）
     } = body || {};
@@ -249,15 +312,27 @@ export async function POST(req: NextRequest) {
       Array.isArray(csvFinanceData) && csvFinanceData.length > 0
         ? `\n\n【参考財務データ（抜粋）】\n${csvFinanceData
             .slice(0, 12)
-            .map((row: any) => sanitize(Object.values(row).join(' / '), 200))
-            .join('\n')}${csvFinanceData.length > 12 ? '\n…' : ''}`
+            .map((row: any) =>
+              sanitize(
+                Object.values(row).join(' / '),
+                200,
+              ),
+            )
+            .join('\n')}${
+            csvFinanceData.length > 12 ? '\n…' : ''
+          }`
         : '';
 
     // ★ 追加：勝ちパターン要旨
-    const patternDigest = buildTopPatternDigest(Array.isArray(patternIds) ? patternIds : undefined);
+    const patternDigest = buildTopPatternDigest(
+      Array.isArray(patternIds) ? patternIds : undefined,
+    );
 
     // ✅ systemPrompt（モードで切替 ＋ 魂の三要素を強制）
-    const goals = mode === 'future' ? CHAPTER_GOALS_FUTURE : CHAPTER_GOALS_LEGACY;
+    const goals =
+      mode === 'future'
+        ? CHAPTER_GOALS_FUTURE
+        : CHAPTER_GOALS_LEGACY;
 
     const systemPrompt = [
       mode === 'future'
@@ -326,7 +401,9 @@ export async function POST(req: NextRequest) {
       `- 機会: ${sanitize(opportunity, 400)}`,
       `- 脅威: ${sanitize(threat, 400)}`,
       '',
-      storyNote ? `【既存の章メモ（参考）】\n${storyNote}` : '',
+      storyNote
+        ? `【既存の章メモ（参考）】\n${storyNote}`
+        : '',
       financialSummary,
       '',
       '【執筆要件】',
@@ -337,11 +414,15 @@ export async function POST(req: NextRequest) {
       .filter(Boolean)
       .join('\n');
 
-    const temp = typeof temperature === 'number' ? temperature : 0.4;
+    const temp =
+      typeof temperature === 'number' ? temperature : 0.4;
 
     // ---- タイムアウト（ハング対策）----
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 45000);
+    const timer = setTimeout(
+      () => controller.abort(),
+      45000,
+    );
     let raw = '';
     try {
       // 1回目: JSON強制
@@ -356,9 +437,10 @@ export async function POST(req: NextRequest) {
           ],
           max_tokens: 1600,
         },
-        { signal: controller.signal }
+        { signal: controller.signal },
       );
-      raw = c1.choices?.[0]?.message?.content?.trim() || '';
+      raw =
+        c1.choices?.[0]?.message?.content?.trim() || '';
     } catch (e: any) {
       // 2回目: JSON強制を外してフォールバック
       try {
@@ -372,13 +454,21 @@ export async function POST(req: NextRequest) {
             ],
             max_tokens: 1600,
           },
-          { signal: controller.signal }
+          { signal: controller.signal },
         );
-        raw = c2.choices?.[0]?.message?.content?.trim() || '';
+        raw =
+          c2.choices?.[0]?.message?.content?.trim() ||
+          '';
       } catch (e2: any) {
         clearTimeout(timer);
-        console.error('❌ ストーリー生成API失敗:', e2?.message || e2);
-        return NextResponse.json({ error: e2?.message || 'OpenAI error' }, { status: 500 });
+        console.error(
+          '❌ ストーリー生成API失敗:',
+          e2?.message || e2,
+        );
+        return NextResponse.json(
+          { error: e2?.message || 'OpenAI error' },
+          { status: 500 },
+        );
       }
     } finally {
       clearTimeout(timer);
@@ -395,8 +485,11 @@ export async function POST(req: NextRequest) {
         body: '（この章は未生成です）',
       }));
       return NextResponse.json(
-        { story: chapters, _debug: { model, fallback: true, mode } },
-        { headers: { 'Cache-Control': 'no-store' } }
+        {
+          story: chapters,
+          _debug: { model, fallback: true, mode },
+        },
+        { headers: { 'Cache-Control': 'no-store' } },
       );
     }
 
@@ -415,24 +508,31 @@ export async function POST(req: NextRequest) {
           '- 各章は250〜400字の範囲を目安に整える（超過時は圧縮）。',
           '',
           '【対象JSON】',
-          JSON.stringify({ chapters: enhancedChapters }, null, 2).slice(0, 6000), // 安全のため上限
+          JSON.stringify(
+            { chapters: enhancedChapters },
+            null,
+            2,
+          ).slice(0, 6000), // 安全のため上限
           '',
           '【出力形式（厳守）】',
           '{"chapters":[{"title":"...","body":"..."}]} のみ。',
         ].join('\n');
 
-        const cEnh = await openai.chat.completions.create({
-          model,
-          temperature: Math.min(0.6, temp + 0.1),
-          response_format: { type: 'json_object' },
-          messages: [
-            { role: 'system', content: enhanceSystem },
-            { role: 'user', content: enhanceUser },
-          ],
-          max_tokens: 900,
-        });
+        const cEnh =
+          await openai.chat.completions.create({
+            model,
+            temperature: Math.min(0.6, temp + 0.1),
+            response_format: { type: 'json_object' },
+            messages: [
+              { role: 'system', content: enhanceSystem },
+              { role: 'user', content: enhanceUser },
+            ],
+            max_tokens: 900,
+          });
 
-        const rawEnh = cEnh.choices?.[0]?.message?.content?.trim() || '';
+        const rawEnh =
+          cEnh.choices?.[0]?.message?.content?.trim() ||
+          '';
         const parsedEnh = extractJsonLoose(rawEnh);
         const coercedEnh = coerceChapters(parsedEnh);
         if (coercedEnh?.length >= 4) {
@@ -446,7 +546,10 @@ export async function POST(req: NextRequest) {
     // サーバ側で章タイトル/順序を固定（本文はenhancedの中身を使用）
     const chapters = TITLE_TEMPLATES.map((title, i) => ({
       title,
-      body: sanitize(enhancedChapters[i]?.body || '（この章は未生成です）', 2400),
+      body: sanitize(
+        enhancedChapters[i]?.body || '（この章は未生成です）',
+        2400,
+      ),
     }));
 
     // summary は色々な形を許容
@@ -462,21 +565,57 @@ export async function POST(req: NextRequest) {
         summary = sanitize(srcSummary, 300);
       } else {
         summary = {
-          tagline: sanitize(srcSummary.tagline || srcSummary.title || '', 200),
+          tagline: sanitize(
+            srcSummary.tagline || srcSummary.title || '',
+            200,
+          ),
           bullets: Array.isArray(srcSummary.bullets)
-            ? srcSummary.bullets.slice(0, 6).map((b: any) => sanitize(String(b || ''), 200))
+            ? srcSummary.bullets
+                .slice(0, 6)
+                .map((b: any) =>
+                  sanitize(String(b || ''), 200),
+                )
             : [],
         };
       }
     }
 
+    // ★ 追加：勝ち筋候補（WinPattern[]）
+    let winPatterns: WinPattern[] | undefined = undefined;
+    try {
+      const topIds = Array.isArray(patternIds)
+        ? (patternIds.filter(
+            (id: any) => typeof id === 'string',
+          ) as string[])
+        : [];
+      const winIds = mapTopToWin(
+        topIds as any, // TopPatternId[] 想定（実際にはUI側で制御）
+      );
+      winPatterns = buildWinPatternsFromIds(winIds);
+    } catch {
+      // 失敗しても全体処理は継続（付加情報なので）
+      winPatterns = undefined;
+    }
+
     return NextResponse.json(
-      { story: chapters, summary, _debug: { model, mode, enhanced: doEnhance === true } },
-      { headers: { 'Cache-Control': 'no-store' } }
+      {
+        story: chapters,
+        summary,
+        winPatterns, // ★ ここに勝ち筋候補を同梱
+        _debug: { model, mode, enhanced: doEnhance === true },
+      },
+      { headers: { 'Cache-Control': 'no-store' } },
     );
   } catch (error: any) {
-    console.error('❌ ストーリー生成エラー:', error?.message || error);
-    const status = error?.name === 'AbortError' ? 504 : 500;
-    return NextResponse.json({ error: error?.message || 'Server error' }, { status });
+    console.error(
+      '❌ ストーリー生成エラー:',
+      error?.message || error,
+    );
+    const status =
+      error?.name === 'AbortError' ? 504 : 500;
+    return NextResponse.json(
+      { error: error?.message || 'Server error' },
+      { status },
+    );
   }
 }
