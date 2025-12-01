@@ -1,4 +1,4 @@
-// /app/cascade/page.tsx（STEP0たたき台＋AI一括アシスト・シンプル版）
+// /app/cascade/page.tsx（STEP0たたき台＋シンプル版・OKR案編集対応・ボタン整理版）
 'use client';
 
 import { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
@@ -10,7 +10,7 @@ import DepartmentQuestionStepper, {
   type OKR as DeptOKR,
 } from '@/components/guide/QuestionStepper.dept';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, Save, Sparkles, Building2, FileText, Trash2 } from 'lucide-react';
+import { PlusCircle, Save, Sparkles, Building2, Trash2 } from 'lucide-react';
 
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
@@ -24,23 +24,32 @@ import type {
   AnswerStep as BaseAnswerStep,
 } from '@/types/strategy';
 
-import { mapTopToExecIds } from '@/lib/strategyPatterns.map';
-import type { TopPatternId } from '@/lib/strategyPatterns.top';
-
 /* =========================
    型（store拡張互換）
 ========================= */
-type Project = BaseProject;
+// プロジェクトの「仮説メタデータ」
+type Lever =
+  | 'ACQ'
+  | 'ARPU'
+  | 'CHURN'
+  | 'COST'
+  | 'EFFICIENCY'
+  | 'FUTURE';
+
+type Horizon = 'short' | 'mid' | 'long';
+
+type Kind = 'growth' | 'cost' | 'efficiency' | 'future';
+
+type Project = BaseProject & {
+  hypothesis?: string;
+  mainLever?: Lever;
+  horizon?: Horizon;
+  kind?: Kind;
+};
+
 type StoreOKR = BaseOKR;
 type StoreAnswerStep = BaseAnswerStep;
 type StoreChapterAnswers = BaseChapterAnswers;
-
-type RecommendedPattern = {
-  id: string;
-  title?: string;
-  score?: number;
-  why?: string[];
-};
 
 type Department = BaseDepartment & {
   mission?: string;
@@ -49,22 +58,60 @@ type Department = BaseDepartment & {
   discussionNotes?: string;
   answers2?: StoreChapterAnswers[];
   finalized?: boolean;
-  recommendedPatterns?: RecommendedPattern[];
-  recommendedExecPatterns?: RecommendedPattern[];
 };
+
+/* =========================
+   レバー/時間軸ラベル
+========================= */
+const LEVER_LABEL: Record<Lever, string> = {
+  ACQ: 'ACQ（顧客数）',
+  ARPU: 'ARPU（単価）',
+  CHURN: 'CHURN（解約/離脱）',
+  COST: 'COST（コスト）',
+  EFFICIENCY: 'EFFICIENCY（生産性）',
+  FUTURE: 'FUTURE（将来の種）',
+};
+
+const HORIZON_LABEL: Record<Horizon, string> = {
+  short: '短期（〜1年）',
+  mid: '中期（1〜3年）',
+  long: '長期（3年以上）',
+};
+
+const KIND_LABEL: Record<Kind, string> = {
+  growth: '成長（売上/LTV）',
+  cost: 'コスト削減',
+  efficiency: '業務効率',
+  future: '将来への投資',
+};
+
+const LEVER_VALUES: Lever[] = ['ACQ', 'ARPU', 'CHURN', 'COST', 'EFFICIENCY', 'FUTURE'];
+const HORIZON_VALUES: Horizon[] = ['short', 'mid', 'long'];
+const KIND_VALUES: Kind[] = ['growth', 'cost', 'efficiency', 'future'];
+
+const normalizeLever = (v: any): Lever | undefined =>
+  LEVER_VALUES.includes(v as Lever) ? (v as Lever) : undefined;
+
+const normalizeHorizon = (v: any): Horizon | undefined =>
+  HORIZON_VALUES.includes(v as Horizon) ? (v as Horizon) : undefined;
+
+const normalizeKind = (v: any): Kind | undefined =>
+  KIND_VALUES.includes(v as Kind) ? (v as Kind) : undefined;
 
 /* =========================
    ユーティリティ
 ========================= */
 const escapeHtml = (s: string) =>
-  String(s ?? '').replace(/[&<>"']/g, (m) =>
-    ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#39;',
-    }[m]!)
+  String(s ?? '').replace(
+    /[&<>"']/g,
+    (m) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      }[m]!),
   );
 
 const nl2brSafe = (s?: string) => (s ? escapeHtml(s).replace(/\r?\n/g, '<br>') : '');
@@ -99,7 +146,10 @@ const isNonEmptyStoryPayload = (v: any): boolean => {
 function getStory(raw: any) {
   if (Array.isArray(raw) && raw.length) {
     const chapters = raw
-      .map((c: any, i: number) => ({ title: c?.title?.trim() || `Chapter ${i + 1}`, body: c?.body ?? '' }))
+      .map((c: any, i: number) => ({
+        title: c?.title?.trim() || `Chapter ${i + 1}`,
+        body: c?.body ?? '',
+      }))
       .filter((c) => c.title.trim() || c.body.trim());
     const text = chapters.map((c, i) => `【第${i + 1}章】${c.title}\n${c.body}`).join('\n\n');
     return { text, chapters };
@@ -109,7 +159,8 @@ function getStory(raw: any) {
     const lines = text.split(/\r?\n/);
     const chunkSize = Math.ceil(lines.length / 4);
     const chunks: string[] = [];
-    for (let i = 0; i < lines.length; i += chunkSize) chunks.push(lines.slice(i, i + chunkSize).join('\n'));
+    for (let i = 0; i < lines.length; i += chunkSize)
+      chunks.push(lines.slice(i, i + chunkSize).join('\n'));
     const chapters = chunks.map((body, i) => ({ title: `Chapter ${i + 1}`, body }));
     return { text, chapters };
   }
@@ -127,7 +178,12 @@ const toDeptAnswers = (steps?: StoreAnswerStep[]): DeptAnswerStep[] =>
   }));
 
 const toStoreSteps = (answers: DeptAnswerStep[]): StoreAnswerStep[] =>
-  answers.map((a) => ({ stepNumber: a.stepNumber, question: a.question, reason: a.reason, answer: a.answer }));
+  answers.map((a) => ({
+    stepNumber: a.stepNumber,
+    question: a.question,
+    reason: a.reason,
+    answer: a.answer,
+  }));
 
 const toStoreOKR = (o: DeptOKR): StoreOKR => ({
   objective: (o.objective ?? '').trim(),
@@ -163,76 +219,10 @@ function hashSnapshot(obj: any) {
   return (h >>> 0).toString(16);
 }
 
-/* シグナル抽出（簡易） */
-function extractSignals(params: { industry?: string; mission?: string; answers?: DeptAnswerStep[] }) {
-  const { industry, mission = '', answers = [] } = params;
-  const text = [mission, ...answers.map((a) => a.answer || '')].join('\n').toLowerCase();
-  const has = (ks: string[]) => ks.some((k) => text.includes(k.toLowerCase()));
-
-  const goals: string[] = [];
-  const pains: string[] = [];
-  const funnel: string[] = [];
-  const channels: string[] = [];
-  const initiatives: string[] = [];
-
-  if (has(['海外', 'グローバル', '越境', '輸出'])) goals.push('海外売上');
-  if (has(['dx', 'デジタル', '自動化', '効率'])) goals.push('DX');
-  if (has(['顧客価値', 'ltv', '満足', 'cx'])) goals.push('顧客価値');
-  if (has(['利益', '粗利', '収益', 'roic', 'fcf'])) goals.push('収益性向上');
-
-  if (has(['解約', '離脱', 'nps低', '満足度低'])) pains.push('解約率高い');
-  if (has(['在庫過多', '在庫'])) pains.push('在庫過多');
-  if (has(['欠品'])) pains.push('欠品');
-  if (has(['リードタイム', 'lt', '納期遅延'])) pains.push('リードタイム長い');
-  if (has(['データ活用', '可視化不足', '分析不足', '属人', '手作業'])) pains.push('データ活用不足');
-  if (has(['価格が高い', '値引き', '値下げ', '価格抵抗'])) pains.push('価格抵抗');
-
-  if (has(['cvr', 'コンバージョン', '成約率', 'ドロップ'])) funnel.push('CVR低い');
-  if (has(['導線', 'ステップが多い', '手続き'])) funnel.push('導線複雑');
-  if (has(['稟議', '承認'])) funnel.push('稟議長い');
-
-  if (has(['直販', 'インサイド', 'フィールド'])) channels.push('直販');
-  if (has(['代理店', 'パートナー', 'チャネル'])) channels.push('代理店');
-
-  if (has(['値上げ', '価格改定'])) initiatives.push('値上げ');
-  if (has(['sop', '標準化', 'プレイブック'])) initiatives.push('SOP');
-  if (has(['デモ', '試算', 'poc'])) initiatives.push('デモ/試算');
-  if (has(['週次', 'wbr'])) initiatives.push('週次改善');
-
-  return {
-    industry,
-    goals: Array.from(new Set(goals)),
-    pains: Array.from(new Set(pains)),
-    funnel: Array.from(new Set(funnel)),
-    channels: Array.from(new Set(channels)),
-    initiatives: Array.from(new Set(initiatives)),
-  };
-}
-
-/* OKR 日本語表示（簡素） */
-const OKRBlock = memo(function OKRBlock({ okr }: { okr?: { objective?: string; keyResults?: string[]; owner?: string } }) {
-  if (!okr) return null;
-  const objective = (okr.objective ?? '').trim();
-  const krs = (okr.keyResults ?? []).filter(Boolean);
-  if (!objective && krs.length === 0) return null;
-  return (
-    <div className="mt-2">
-      {objective && <div className="text-sm font-medium">達成目標：{objective}</div>}
-      {krs.length > 0 && (
-        <ul className="list-disc pl-5 text-sm mt-1 space-y-1">
-          {krs.map((kr, i) => (
-            <li key={i}>主要な成果：{kr}</li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-});
-
 /* ビジュアルカード（部門戦略の全体像をシンプル表示） */
 const VisualCard = memo(function VisualCard({ d }: { d: Department }) {
   const mission = (d.strategy ?? d.mission ?? '').trim();
-  const projects = d.projects ?? [];
+  const projects = (d.projects ?? []) as Project[];
 
   const shortSummary = mission.length > 32 ? mission.slice(0, 32) + '…' : mission;
 
@@ -258,7 +248,7 @@ const VisualCard = memo(function VisualCard({ d }: { d: Department }) {
         )}
       </div>
 
-      {/* ミッション（ラベル無しで本文のみ） */}
+      {/* ミッション */}
       {mission && (
         <div className="mb-4">
           <p className="text-sm text-zinc-800 whitespace-pre-wrap">
@@ -282,8 +272,37 @@ const VisualCard = memo(function VisualCard({ d }: { d: Department }) {
                   <div className="text-sm font-medium text-zinc-900">
                     • {p.title || '無題のプロジェクト'}
                   </div>
+
+                  {/* 仮説とタグ（簡易表示） */}
+                  {(p.hypothesis || p.mainLever || p.horizon || p.kind) && (
+                    <div className="mt-1">
+                      {p.hypothesis && (
+                        <p className="text-[11px] text-zinc-600 whitespace-pre-wrap">
+                          仮説：{p.hypothesis}
+                        </p>
+                      )}
+                      <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-zinc-500">
+                        {p.kind && (
+                          <span className="px-2 py-0.5 rounded-full bg-zinc-50 border border-zinc-100">
+                            {KIND_LABEL[p.kind]}
+                          </span>
+                        )}
+                        {p.mainLever && (
+                          <span className="px-2 py-0.5 rounded-full bg-zinc-50 border border-zinc-100">
+                            {LEVER_LABEL[p.mainLever]}
+                          </span>
+                        )}
+                        {p.horizon && (
+                          <span className="px-2 py-0.5 rounded-full bg-zinc-50 border border-zinc-100">
+                            {HORIZON_LABEL[p.horizon]}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {okr?.objective && (
-                    <div className="mt-1 text-xs text-zinc-700">
+                    <div className="mt-2 text-xs text-zinc-700">
                       目標：{okr.objective}
                     </div>
                   )}
@@ -348,7 +367,8 @@ export default function CascadePage() {
   const lastAppliedCompanyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!accessCompanyId) return;
-    if (lastAppliedCompanyRef.current === accessCompanyId && scopeCompanyId === accessCompanyId) return;
+    if (lastAppliedCompanyRef.current === accessCompanyId && scopeCompanyId === accessCompanyId)
+      return;
 
     if (scopeCompanyId && scopeCompanyId !== accessCompanyId) {
       setHydrated?.(false);
@@ -360,12 +380,13 @@ export default function CascadePage() {
     lastAppliedCompanyRef.current = accessCompanyId;
   }, [accessCompanyId, scopeCompanyId, setCompanyScope, setHydrated]);
 
-  /* ===== 初期ロード（Dirty回避＋フェイルセーフ） ===== */
+  /* ===== 初期ロード ===== */
   const loadGuardRef = useRef<string | null>(null);
   useEffect(() => {
     if (!accessCompanyId) return;
     if (!scopeCompanyId) setCompanyScope(accessCompanyId);
-    if (loadGuardRef.current === accessCompanyId && hydrated && scopeCompanyId === accessCompanyId) return;
+    if (loadGuardRef.current === accessCompanyId && hydrated && scopeCompanyId === accessCompanyId)
+      return;
 
     let cancelled = false;
     const run = async () => {
@@ -401,7 +422,15 @@ export default function CascadePage() {
     return () => {
       cancelled = true;
     };
-  }, [accessCompanyId, hydrated, scopeCompanyId, refetchFromServer, setHydrated, lastServerSnapshot, setCompanyScope]);
+  }, [
+    accessCompanyId,
+    hydrated,
+    scopeCompanyId,
+    refetchFromServer,
+    setHydrated,
+    lastServerSnapshot,
+    setCompanyScope,
+  ]);
 
   /* ===== ハイドレーション・ウォッチドッグ ===== */
   const hydrateStartRef = useRef<number | null>(null);
@@ -429,7 +458,7 @@ export default function CascadePage() {
     (st) => ((st.departments as Department[] | undefined) ?? []) as Department[],
   );
 
-  // hydrated 後のみオートセーブ対象にする
+  // hydrated 後のみオートセーブ対象
   useAutoSave(hydrated && !boot?.isHydrating ? [accessCompanyId, departments] : []);
 
   const mismatch = !!(accessCompanyId && scopeCompanyId && scopeCompanyId !== accessCompanyId);
@@ -446,11 +475,13 @@ export default function CascadePage() {
   const [notice, setNotice] = useState('');
   const [isCascadeGenerating, setIsCascadeGenerating] = useState(false);
 
-  /* ===== 部門配列更新ヘルパー（常に最新 state を基準） ===== */
+  /* ===== 部門配列更新ヘルパー ===== */
   const pushToStore = useCallback(
     (next: Department[] | ((prev: Department[]) => Department[])) => {
-      const prev = ((useStrategyStore.getState().departments as Department[] | undefined) ?? []) as Department[];
-      const resolved = typeof next === 'function' ? (next as (p: Department[]) => Department[])(prev) : next;
+      const prev =
+        ((useStrategyStore.getState().departments as Department[] | undefined) ?? []) as Department[];
+      const resolved =
+        typeof next === 'function' ? (next as (p: Department[]) => Department[])(prev) : next;
       if (!jsonEq(prev, resolved)) {
         setDepartmentsInStore?.(resolved);
       }
@@ -470,7 +501,7 @@ export default function CascadePage() {
     setInlineEdit({});
   }, [departments.length]);
 
-  /* ===== その場保存 ===== */
+  /* ===== その場保存（部門ミッション） ===== */
   const saveInlineMission = async (index: number) => {
     let changed = false;
 
@@ -480,7 +511,11 @@ export default function CascadePage() {
       if (!d) return prev;
 
       const draft = (inlineEdit[index] ?? d.strategy ?? d.mission ?? '').toString();
-      if ((d.mission ?? '') === draft && (d.strategy ?? '') === draft && (d.missionDraft ?? '') === draft) {
+      if (
+        (d.mission ?? '') === draft &&
+        (d.strategy ?? '') === draft &&
+        (d.missionDraft ?? '') === draft
+      ) {
         return prev;
       }
 
@@ -496,7 +531,7 @@ export default function CascadePage() {
     });
 
     if (!changed) {
-      setNotice('（変更なし）');
+      setNotice('（変更はありません）');
       return;
     }
 
@@ -514,7 +549,7 @@ export default function CascadePage() {
 
   const requireStoryOrWarn = (): string | null => {
     if (!storyText.trim()) {
-      setNotice('⚠️ 経営ストーリーを作成してください');
+      setNotice('⚠️ 経営ストーリーを先に作成してください（STAGE 2 の完了が必要です）');
       return null;
     }
     return storyText;
@@ -549,342 +584,6 @@ export default function CascadePage() {
     };
   }, [saveNow]);
 
-  /* ===== 推薦API（t系） ===== */
-  const handleRecommendPatterns = async (index: number) => {
-    const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
-    const dept = current[index];
-    if (!dept) return;
-    if (!canEditDept()) return setNotice('⚠️ 編集権限がありません');
-
-    const answers: DeptAnswerStep[] = toDeptAnswers(dept.answers2?.[0]?.steps);
-    const signals = extractSignals({ industry, mission: dept.strategy ?? dept.mission ?? '', answers });
-
-    setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), recommend: true } }));
-    try {
-      const res = await fetch('/api/recommend-top-patterns', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ signals, k: 3 }),
-      });
-      const text = await res.text();
-      const data = safeJsonFromText<{ detail?: RecommendedPattern[] }>(text) ?? {};
-
-      pushToStore((prev) => {
-        const list = [...prev];
-        const d = list[index];
-        if (!d) return prev;
-        const nextPatterns = data.detail ?? [];
-        if (jsonEq(d.recommendedPatterns, nextPatterns)) return prev;
-        list[index] = { ...d, recommendedPatterns: nextPatterns };
-        return list;
-      });
-
-      setNotice(`✅ ${dept.name} にAIの推奨パターンを反映しました`);
-    } catch (err: any) {
-      setNotice(`❌ 推薦に失敗：${err.message}`);
-      throw err;
-    } finally {
-      setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), recommend: false } }));
-    }
-  };
-
-  /* ===== 推薦API（e系）===== */
-  const handleRecommendExecPatterns = async (index: number) => {
-    const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
-    const dept = current[index];
-    if (!dept) return;
-    if (!canEditDept()) return setNotice('⚠️ 編集権限がありません');
-
-    const answers: DeptAnswerStep[] = toDeptAnswers(dept.answers2?.[0]?.steps);
-    const signals = extractSignals({ industry, mission: dept.strategy ?? dept.mission ?? '', answers });
-
-    setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), recommendExec: true } }));
-    try {
-      const res = await fetch('/api/recommend-exec-patterns', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ signals, k: 3 }),
-      });
-      const text = await res.text();
-      const data = safeJsonFromText<{ detail?: RecommendedPattern[] }>(text) ?? {};
-
-      pushToStore((prev) => {
-        const list = [...prev];
-        const d = list[index];
-        if (!d) return prev;
-        const nextPatterns = data.detail ?? [];
-        if (jsonEq(d.recommendedExecPatterns, nextPatterns)) return prev;
-        list[index] = { ...d, recommendedExecPatterns: nextPatterns };
-        return list;
-      });
-
-      setNotice(`✅ ${dept.name} にAIの実行パターン候補を反映しました`);
-    } catch (err: any) {
-      setNotice(`❌ 実行パターン推薦に失敗：${err.message}`);
-      throw err;
-    } finally {
-      setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), recommendExec: false } }));
-    }
-  };
-
-  /* ===== e系→OKR 雛形 ===== */
-  const handleOKRFromExec = async (index: number) => {
-    const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
-    const dept = current[index];
-    if (!dept) return;
-    if (!canEditDept()) return setNotice('⚠️ OKR生成の権限がありません');
-
-    const execIds: string[] =
-      (dept.recommendedExecPatterns?.map((p) => p.id) ?? []).length
-        ? dept.recommendedExecPatterns!.map((p) => p.id)
-        : mapTopToExecIds(
-            (dept.recommendedPatterns ?? [])
-              .map((p) => p.id as TopPatternId)
-              .filter(Boolean) as TopPatternId[],
-          );
-
-    if (!execIds.length) {
-      setNotice('⚠️ 実行パターンがありません（先にAIの推薦を行ってください）');
-      return;
-    }
-
-    setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), okrGen: true } }));
-    try {
-      const res = await fetch('/api/okr-from-exec', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          execIds,
-          context: { departmentName: dept.name, industry, mission: dept.strategy ?? dept.mission ?? '' },
-        }),
-      });
-      const text = await res.text();
-      const data =
-        safeJsonFromText<{
-          items: { id: string; title: string; okr: { objective: string; keyResults: string[]; owner?: string } }[];
-        }>(text) ?? { items: [] };
-
-      if (!data.items?.length) {
-        setNotice('⚠️ OKR雛形が生成されませんでした');
-        return;
-      }
-
-      pushToStore((prev) => {
-        const list = [...prev];
-        const d = list[index];
-        if (!d) return prev;
-        const projects: Project[] = [...(d.projects ?? [])];
-
-        for (const it of data.items) {
-          const title = it.title || 'OKR';
-          const okr = it.okr;
-          const existIdx = projects.findIndex((p) => (p?.title ?? '') === title);
-          if (existIdx >= 0) {
-            const exist = { ...projects[existIdx] };
-            const existOkrs = [...(exist.okrs ?? [])];
-            const candidate = { objective: okr.objective, keyResults: okr.keyResults ?? [], owner: okr.owner };
-            if (!existOkrs.some((o) => jsonEq(o, candidate))) {
-              existOkrs.push(candidate);
-              exist.okrs = existOkrs;
-              projects[existIdx] = exist;
-            }
-          } else {
-            projects.push({
-              title,
-              okrs: [{ objective: okr.objective, keyResults: okr.keyResults ?? [], owner: okr.owner }],
-            } as Project);
-          }
-        }
-
-        if (jsonEq(projects, d.projects)) return prev;
-        list[index] = { ...d, projects };
-        return list;
-      });
-
-      setNotice(`✅ ${dept.name} に OKR雛形を追加しました（${data.items.length}件）`);
-    } catch (e: any) {
-      setNotice(`❌ OKR雛形の展開に失敗：${e.message}`);
-      throw e;
-    } finally {
-      setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), okrGen: false } }));
-    }
-  };
-
-  /* ===== 内部用：回答＋ストーリーから Mission / Projects / OKR を整理 ===== */
-  const generateSummaryAndPatch = async (index: number) => {
-    const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
-    const dept = current[index];
-    if (!dept) return;
-    if (!canEditDept()) {
-      setNotice('⚠️ 編集権限がありません');
-      return;
-    }
-
-    const steps = dept.answers2?.[0]?.steps && dept.answers2[0].steps.length > 0 ? dept.answers2[0].steps : [];
-    const story = requireStoryOrWarn();
-    if (!story) return;
-
-    try {
-      const res = await fetch('/api/generate-department-summary', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ departmentName: dept.name, story, answers: steps, industry }),
-      });
-      const text = await res.text();
-      const data = safeJsonFromText<any>(text) ?? {};
-
-      pushToStore((prev) => {
-        const list = [...prev];
-        const d = list[index];
-        if (!d) return prev;
-
-        const nextMission = data.mission ?? d.mission ?? '';
-        const nextProjects: Project[] = (data.projects ?? []).map((t: string) => ({
-          title: t,
-          okrs: data.okrs && data.okrs[0] ? [toStoreOKR(data.okrs[0] as DeptOKR)] : [],
-        }));
-
-        let changed = false;
-        const patch: Partial<Department> = {};
-
-        if (
-          nextMission &&
-          (!jsonEq(nextMission, d.mission) || !jsonEq(nextMission, d.strategy) || !jsonEq(nextMission, d.missionDraft))
-        ) {
-          patch.mission = nextMission;
-          patch.strategy = nextMission;
-          patch.missionDraft = nextMission;
-          changed = true;
-        }
-        if (nextProjects.length && !jsonEq(nextProjects, d.projects)) {
-          patch.projects = nextProjects;
-          changed = true;
-        }
-
-        if (!changed) return prev;
-        list[index] = { ...d, ...patch } as Department;
-        return list;
-      });
-    } catch (err) {
-      setNotice('❌ 回答からの部門戦略要約に失敗しました');
-      throw err;
-    }
-  };
-
-  /* ===== STEP0用：ミッション＋プロジェクトたたき台生成 ===== */
-  const handleInitialDraft = async (index: number) => {
-    const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
-    const dept = current[index];
-    if (!dept) return;
-    if (!canEditDept()) return setNotice('⚠️ 編集権限がありません');
-
-    const story = requireStoryOrWarn();
-    if (!story) return;
-
-    setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), initialDraft: true } }));
-    try {
-      const res = await fetch('/api/generate-department-summary', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          departmentName: dept.name,
-          story,
-          answers: [], // STEP0なので回答なしでたたき台だけ生成
-          industry,
-        }),
-      });
-      const text = await res.text();
-      const data = safeJsonFromText<any>(text) ?? {};
-
-      const nextMission = data.mission ?? '';
-      const nextProjectsRaw: string[] = data.projects ?? [];
-
-      if (!nextMission && (!nextProjectsRaw || nextProjectsRaw.length === 0)) {
-        setNotice('⚠️ ミッション / プロジェクト案が生成されませんでした（経営ストーリーや部門名を見直してください）');
-        return;
-      }
-
-      pushToStore((prev) => {
-        const list = [...prev];
-        const d = list[index];
-        if (!d) return prev;
-
-        const nextProjects: Project[] = nextProjectsRaw.map((t: string) => ({
-          title: t,
-          okrs: [],
-        }));
-
-        let changed = false;
-        const patch: Partial<Department> = {};
-
-        if (
-          nextMission &&
-          (!jsonEq(nextMission, d.mission) || !jsonEq(nextMission, d.strategy) || !jsonEq(nextMission, d.missionDraft))
-        ) {
-          patch.mission = nextMission;
-          patch.strategy = nextMission;
-          patch.missionDraft = nextMission;
-          changed = true;
-        }
-        if (nextProjects.length && !jsonEq(nextProjects, d.projects)) {
-          patch.projects = nextProjects;
-          changed = true;
-        }
-
-        if (!changed) return prev;
-        list[index] = { ...d, ...patch } as Department;
-        return list;
-      });
-
-      setNotice(`✅ ${dept.name} のミッションとプロジェクト案を反映しました`);
-    } catch (err: any) {
-      setNotice(`❌ ミッション/プロジェクト案の生成に失敗：${err.message}`);
-    } finally {
-      setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), initialDraft: false } }));
-    }
-  };
-
-  /* ===== AI一括アシスト：部門戦略案（ミッション・プロジェクト・目標）生成（1部門） ===== */
-  const handleFullAssist = async (index: number) => {
-    const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
-    const dept = current[index];
-    if (!dept) return;
-    if (!canEditDept()) return setNotice('⚠️ 編集権限がありません');
-
-    // 回答状況チェック（3問すべて回答済み前提）
-    const steps = dept.answers2?.[0]?.steps && dept.answers2[0].steps.length > 0 ? dept.answers2[0].steps : [];
-    if (steps.length < 3 || steps.some((s) => !(s.answer ?? '').trim())) {
-      return setNotice('⚠️ まず 3つの質問にすべて回答してください');
-    }
-
-    setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), fullAssist: true } }));
-    try {
-      // 1. 回答＋ストーリーから Mission / Projects / OKR を整理
-      await generateSummaryAndPatch(index);
-      // 2. 勝ちパターン推薦（t系）（画面には出さないが内部で利用）
-      await handleRecommendPatterns(index);
-      // 3. 実装パターン推薦（e系）（画面には出さないが内部で利用）
-      await handleRecommendExecPatterns(index);
-      // 4. 実装パターン → OKR雛形生成
-      await handleOKRFromExec(index);
-
-      setNotice(
-        `✅ ${dept.name} の部門戦略案をAIで整理しました（ミッション・プロジェクト・目標のたたき台を追加しています）`,
-      );
-    } catch (e: any) {
-      if (!e?.silenced) {
-        setNotice(`❌ 部門戦略案の生成に失敗しました：${e?.message ?? '不明なエラー'}`);
-      }
-    } finally {
-      setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), fullAssist: false } }));
-    }
-  };
-
   /* ===== プロジェクト削除 ===== */
   const handleDeleteProject = async (deptIndex: number, projectIndex: number) => {
     const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
@@ -892,7 +591,7 @@ export default function CascadePage() {
     if (!dept) return;
     if (!canEditDept()) return setNotice('⚠️ プロジェクト削除の権限がありません');
 
-    const targetProject = dept.projects?.[projectIndex];
+    const targetProject = (dept.projects as Project[] | undefined)?.[projectIndex];
     if (!targetProject) return;
 
     const ok = window.confirm(`プロジェクト「${targetProject.title || '無題'}」を削除しますか？`);
@@ -902,7 +601,7 @@ export default function CascadePage() {
       const list = [...prev];
       const d = list[deptIndex];
       if (!d) return prev;
-      const projects = [...(d.projects ?? [])];
+      const projects = [...((d.projects as Project[] | undefined) ?? [])];
       projects.splice(projectIndex, 1);
       list[deptIndex] = { ...d, projects };
       return list;
@@ -913,9 +612,13 @@ export default function CascadePage() {
     if (saveNow) {
       try {
         await saveNow();
-        setNotice(`🗑 プロジェクト「${targetProject.title || '無題'}」を削除しました（サーバーにも反映済み）`);
+        setNotice(
+          `🗑 プロジェクト「${targetProject.title || '無題'}」を削除しました（サーバーにも反映済み）`,
+        );
       } catch {
-        setNotice(`⚠️ プロジェクト削除をサーバーに保存できませんでした（画面上は削除済み）`);
+        setNotice(
+          `⚠️ プロジェクト削除をサーバーに保存できませんでした（画面上は削除済み）`,
+        );
       }
     }
   };
@@ -927,8 +630,9 @@ export default function CascadePage() {
     if (!dept) return;
     if (!canEditDept()) return setNotice('⚠️ プロジェクト追加の権限がありません');
 
+    const existingProjects = (dept.projects as Project[] | undefined) ?? [];
     const baseTitle = '新しいプロジェクト';
-    const existing = new Set((dept.projects ?? []).map((p) => p.title || ''));
+    const existing = new Set(existingProjects.map((p) => p.title || ''));
     let title = baseTitle;
     let n = 2;
     while (existing.has(title)) {
@@ -940,7 +644,15 @@ export default function CascadePage() {
       const list = [...prev];
       const d = list[deptIndex];
       if (!d) return prev;
-      const projects: Project[] = [...(d.projects ?? []), { title, okrs: [] as StoreOKR[] } as Project];
+
+      const projects: Project[] = [
+        ...((d.projects as Project[] | undefined) ?? []),
+        {
+          title,
+          okrs: [] as StoreOKR[],
+        } as Project,
+      ];
+
       list[deptIndex] = { ...d, projects };
       return list;
     });
@@ -952,7 +664,9 @@ export default function CascadePage() {
         await saveNow();
         setNotice(`✅ プロジェクト「${title}」を追加しました（サーバーにも反映済み）`);
       } catch {
-        setNotice(`⚠️ プロジェクト「${title}」の追加は画面上のみ反映されました（サーバー保存に失敗）`);
+        setNotice(
+          `⚠️ プロジェクト「${title}」の追加は画面上のみ反映されました（サーバー保存に失敗）`,
+        );
       }
     }
   };
@@ -991,7 +705,9 @@ export default function CascadePage() {
         await saveNow();
         setNotice(`🗑 ${target.name} を削除しました（サーバーにも反映済み）`);
       } catch {
-        setNotice(`⚠️ ${target.name} の削除をサーバーに保存できませんでした（画面上は削除済み）`);
+        setNotice(
+          `⚠️ ${target.name} の削除をサーバーに保存できませんでした（画面上は削除済み）`,
+        );
       }
     }
   };
@@ -1011,7 +727,7 @@ export default function CascadePage() {
     if (!storyOrWarn) return;
 
     setIsCascadeGenerating(true);
-    setNotice('✨ 全社の部門戦略案（ミッション・プロジェクト・OKR）をAIが生成しています…');
+    setNotice('✨ 全社の部門戦略案（ミッション・プロジェクト・OKR案）をAIが生成しています…');
 
     try {
       const payload: any = {
@@ -1026,19 +742,20 @@ export default function CascadePage() {
         weakness: s?.weakness ?? '',
         opportunity: s?.opportunity ?? '',
         threat: s?.threat ?? '',
-        story: rawStory, // finalStory / story / strategyStory のいずれか
+        story: rawStory,
         strategySummary: s?.strategySummary ?? '',
         departments: departments.map((d) => ({
           name: d.name,
           missionDraft: d.mission ?? d.strategy ?? d.missionDraft ?? '',
-          projects: (d.projects ?? []).map((p) => p.title),
-          okrs: (d.projects ?? [])
-            .flatMap((p) => p.okrs ?? [])
-            .map((o) => ({
-              objective: o.objective ?? '',
-              keyResults: (o.keyResults ?? []).slice(),
-              owner: o.owner ?? '',
-            })),
+          projects: (d.projects as Project[] | undefined)?.map((p) => p.title) ?? [],
+          okrs:
+            (d.projects as Project[] | undefined)
+              ?.flatMap((p) => p.okrs ?? [])
+              .map((o) => ({
+                objective: o.objective ?? '',
+                keyResults: (o.keyResults ?? []).slice(),
+                owner: o.owner ?? '',
+              })) ?? [],
           direction: (d as any).direction,
           expectations: (d as any).expectations,
           focusThemes: (d as any).focusThemes,
@@ -1076,6 +793,7 @@ export default function CascadePage() {
           if (idx < 0) continue;
 
           const d = list[idx];
+          const existingProjects = (d.projects as Project[] | undefined) ?? [];
           const patch: Partial<Department> = {};
 
           const missionDraft = (rd.missionDraft ?? '').trim();
@@ -1093,7 +811,7 @@ export default function CascadePage() {
           const projectsDraft: any[] = Array.isArray(rd.projects) ? rd.projects : [];
           const okrDraft: any[] = Array.isArray(rd.okrDraft) ? rd.okrDraft : [];
 
-          let projects: Project[] = [...(d.projects ?? [])];
+          let projects: Project[] = [...existingProjects];
 
           if (projectsDraft.length) {
             for (const pd of projectsDraft) {
@@ -1108,6 +826,16 @@ export default function CascadePage() {
                 } as DeptOKR),
               );
 
+              const newProjBase: Project = {
+                title,
+                hypothesis:
+                  typeof pd?.hypothesis === 'string' ? pd.hypothesis.trim() : undefined,
+                mainLever: normalizeLever(pd?.mainLever),
+                horizon: normalizeHorizon(pd?.horizon),
+                kind: normalizeKind(pd?.kind),
+                okrs: okrsForProj,
+              };
+
               const existIdx = projects.findIndex((p) => (p.title ?? '') === title);
               if (existIdx >= 0) {
                 const existing = { ...projects[existIdx] } as Project;
@@ -1118,18 +846,25 @@ export default function CascadePage() {
                     existingOkrs.push(o);
                   }
                 }
-                existing.okrs = existingOkrs;
-                projects[existIdx] = existing;
+
+                // 仮説メタ情報は、新しい値があれば上書き（なければ既存を維持）
+                const merged: Project = {
+                  ...existing,
+                  okrs: existingOkrs,
+                  hypothesis: newProjBase.hypothesis || existing.hypothesis,
+                  mainLever: newProjBase.mainLever || existing.mainLever,
+                  horizon: newProjBase.horizon || existing.horizon,
+                  kind: newProjBase.kind || existing.kind,
+                };
+
+                projects[existIdx] = merged;
               } else {
-                projects.push({
-                  title,
-                  okrs: okrsForProj,
-                } as Project);
+                projects.push(newProjBase);
               }
             }
           }
 
-          if (!jsonEq(projects, d.projects)) {
+          if (!jsonEq(projects, existingProjects)) {
             patch.projects = projects;
           }
 
@@ -1141,7 +876,9 @@ export default function CascadePage() {
         return list;
       });
 
-      setNotice('✅ 全社の部門ミッション・プロジェクト・OKRたたき台をAIで更新しました（既存データはできるだけ尊重してマージしています）');
+      setNotice(
+        '✅ 全社の部門ミッション・プロジェクト案・OKR案をAIで更新しました（既存データはできるだけ尊重してマージしています）',
+      );
 
       if (saveNow) {
         try {
@@ -1158,9 +895,183 @@ export default function CascadePage() {
     }
   };
 
+  /* ===== この部門だけ：/api/generate-cascade を使ったたたき台生成 ===== */
+  const handleDeptCascadeDraft = async (index: number) => {
+    const story = requireStoryOrWarn();
+    if (!story) return;
+    if (!canEditDept()) return setNotice('⚠️ 編集権限がありません');
+
+    const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
+    const dept = current[index];
+    if (!dept) return;
+
+    setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), deptDraft: true } }));
+
+    try {
+      const payload: any = {
+        thought: s?.thought ?? '',
+        vision: s?.vision ?? '',
+        mission: s?.mission ?? '',
+        industry,
+        revenue: s?.revenue ?? s?.company?.revenue,
+        employees: s?.employees ?? s?.company?.employees,
+        value: s?.value ?? '',
+        strength: s?.strength ?? '',
+        weakness: s?.weakness ?? '',
+        opportunity: s?.opportunity ?? '',
+        threat: s?.threat ?? '',
+        story: rawStory,
+        strategySummary: s?.strategySummary ?? '',
+        departments: [
+          {
+            name: dept.name,
+            missionDraft: dept.mission ?? dept.strategy ?? dept.missionDraft ?? '',
+            projects: ((dept.projects as Project[] | undefined) ?? []).map((p) => p.title),
+            okrs:
+              ((dept.projects as Project[] | undefined) ?? [])
+                .flatMap((p) => p.okrs ?? [])
+                .map((o) => ({
+                  objective: o.objective ?? '',
+                  keyResults: (o.keyResults ?? []).slice(),
+                  owner: o.owner ?? '',
+                })) ?? [],
+            direction: (dept as any).direction,
+            expectations: (dept as any).expectations,
+            focusThemes: (dept as any).focusThemes,
+            answers: dept.answers2?.[0]?.steps ?? [],
+          },
+        ],
+        csvFinanceData: s?.csvFinanceData ?? [],
+        financeSummary: s?.financeSummary,
+        businessPortfolio: s?.businessPortfolio,
+      };
+
+      const res = await fetch('/api/generate-cascade', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const text = await res.text();
+      const data = safeJsonFromText<any>(text);
+
+      if (!res.ok || !data) {
+        setNotice(`❌ 部門のたたき台生成に失敗しました：${data?.error ?? res.statusText}`);
+        return;
+      }
+
+      const rd = Array.isArray(data.departments) ? data.departments[0] : null;
+      if (!rd) {
+        setNotice('⚠️ この部門のたたき台が取得できませんでした');
+        return;
+      }
+
+      pushToStore((prev) => {
+        const list = [...prev];
+        const d = list[index];
+        if (!d) return prev;
+
+        const existingProjects = (d.projects as Project[] | undefined) ?? [];
+        const patch: Partial<Department> = {};
+
+        // ミッション
+        const missionDraft = (rd.missionDraft ?? '').trim();
+        if (
+          missionDraft &&
+          (!jsonEq(missionDraft, d.mission) ||
+            !jsonEq(missionDraft, d.strategy) ||
+            !jsonEq(missionDraft, d.missionDraft))
+        ) {
+          patch.mission = missionDraft;
+          patch.strategy = missionDraft;
+          patch.missionDraft = missionDraft;
+        }
+
+        // プロジェクト + OKR
+        const projectsDraft: any[] = Array.isArray(rd.projects) ? rd.projects : [];
+        const okrDraft: any[] = Array.isArray(rd.okrDraft) ? rd.okrDraft : [];
+        let projects: Project[] = [...existingProjects];
+
+        if (projectsDraft.length) {
+          for (const pd of projectsDraft) {
+            const title = (pd?.title ?? '').trim();
+            if (!title) continue;
+
+            const okrsForProj: StoreOKR[] = okrDraft.map((o) =>
+              toStoreOKR({
+                objective: o?.objective ?? '',
+                keyResults: Array.isArray(o?.keyResults) ? o.keyResults : [],
+                owner: o?.owner ?? '',
+              } as DeptOKR),
+            );
+
+            const newProjBase: Project = {
+              title,
+              hypothesis: typeof pd?.hypothesis === 'string' ? pd.hypothesis.trim() : undefined,
+              mainLever: normalizeLever(pd?.mainLever),
+              horizon: normalizeHorizon(pd?.horizon),
+              kind: normalizeKind(pd?.kind),
+              okrs: okrsForProj,
+            };
+
+            const existIdx = projects.findIndex((p) => (p.title ?? '') === title);
+            if (existIdx >= 0) {
+              const existing = { ...projects[existIdx] } as Project;
+              const existingOkrs: StoreOKR[] = [...(existing.okrs ?? [])];
+
+              for (const o of okrsForProj) {
+                if (!existingOkrs.some((eo) => jsonEq(eo, o))) {
+                  existingOkrs.push(o);
+                }
+              }
+
+              const merged: Project = {
+                ...existing,
+                okrs: existingOkrs,
+                hypothesis: newProjBase.hypothesis || existing.hypothesis,
+                mainLever: newProjBase.mainLever || existing.mainLever,
+                horizon: newProjBase.horizon || existing.horizon,
+                kind: newProjBase.kind || existing.kind,
+              };
+              projects[existIdx] = merged;
+            } else {
+              projects.push(newProjBase);
+            }
+          }
+        }
+
+        if (!jsonEq(projects, existingProjects)) {
+          patch.projects = projects;
+        }
+
+        if (Object.keys(patch).length > 0) {
+          list[index] = { ...d, ...patch } as Department;
+        }
+
+        return list;
+      });
+
+      setNotice(`✅ ${dept.name} のミッション・プロジェクト・OKR案を更新しました`);
+      if (saveNow) {
+        try {
+          await saveNow();
+          setNotice(`✅ ${dept.name} のたたき台を更新し、サーバーにも保存しました`);
+        } catch {
+          setNotice('⚠️ 画面上の更新は完了しましたが、サーバー保存に失敗しました');
+        }
+      }
+    } catch (e: any) {
+      setNotice(`❌ 部門のたたき台生成中にエラーが発生しました：${e?.message ?? '不明なエラー'}`);
+    } finally {
+      setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), deptDraft: false } }));
+    }
+  };
+
   /* ===== ビジュアルビュー ===== */
   const VisualView = useMemo(() => {
-    if (!departments.length) return <div className="text-zinc-600">部門がまだ登録されていません。</div>;
+    if (!departments.length)
+      return <div className="text-zinc-600">部門がまだ登録されていません。</div>;
     return (
       <div className="grid md:grid-cols-2 gap-6">
         {departments.map((d, i) => (
@@ -1176,7 +1087,7 @@ export default function CascadePage() {
     [departments],
   );
   const projectsMemo: string[][] = useMemo(
-    () => departments.map((d) => d.projects?.map((p) => p.title) ?? []),
+    () => departments.map((d) => ((d.projects as Project[] | undefined) ?? []).map((p) => p.title)),
     [departments],
   );
 
@@ -1184,16 +1095,18 @@ export default function CascadePage() {
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
       <header className="mb-8">
-        <h1 className="text-[28px] font-semibold mb-2">STAGE 3：部門戦略策定</h1>
+        <h1 className="text-[28px] font-semibold mb-2">STAGE 3：部門戦略（カスケード）</h1>
         <p className="text-zinc-600 text-sm">
-          経営ストーリーを基に、質問に答えながら各部門の<b>ミッション・プロジェクト・OKR（達成目標/主要な成果）</b>を明確化します。
+          経営ストーリーを基に、質問に答えながら各部門の
+          <b>ミッション・プロジェクト案・OKR案（目標と主要な成果）</b>
+          を明確化します。
         </p>
       </header>
 
-      {/* 読み込みインジケータ（簡素） */}
+      {/* 読み込みインジケータ */}
       {isHydrating && (
         <div className="mb-8 rounded-xl border p-4 text-sm text-muted-foreground flex items-center justify-between">
-          <span>読み込み中…</span>
+          <span>サーバーからデータを読み込んでいます…</span>
           <Button
             variant="secondary"
             className="h-8 rounded-full px-3"
@@ -1205,21 +1118,27 @@ export default function CascadePage() {
         </div>
       )}
 
-      {/* ストーリー（簡素） */}
+      {/* ストーリー概要 */}
       {!isHydrating && (
         <section className="mb-8">
           {storyChapters.length ? (
             <div className="grid md:grid-cols-2 gap-4">
               {storyChapters.map((ch, i) => (
-                <div key={i} className="p-4 border rounded-2xl bg白/60 backdrop-blur-sm">
+                <div
+                  key={i}
+                  className="p-4 border rounded-2xl bg-white/60 backdrop-blur-sm"
+                >
                   <h3 className="font-semibold">{ch.title}</h3>
-                  <div dangerouslySetInnerHTML={{ __html: nl2brSafe(ch.body) }} className="text-sm text-zinc-700 mt-1" />
+                  <div
+                    dangerouslySetInnerHTML={{ __html: nl2brSafe(ch.body) }}
+                    className="text-sm text-zinc-700 mt-1"
+                  />
                 </div>
               ))}
             </div>
           ) : (
             <div className="p-4 bg-yellow-50 text-yellow-800 text-sm rounded-xl border border-yellow-200">
-              経営ストーリーが未設定です。
+              経営ストーリーが未設定です。先に STAGE 2 で「経営ストーリー」を作成してください。
             </div>
           )}
         </section>
@@ -1232,10 +1151,12 @@ export default function CascadePage() {
             <button
               key={t}
               onClick={() => setActiveTab(t)}
-              className={`px-4 py-2 text-sm ${activeTab === t ? 'bg-zinc-900 text-white' : 'bg-white text-zinc-800'}`}
+              className={`px-4 py-2 text-sm ${
+                activeTab === t ? 'bg-zinc-900 text-white' : 'bg-white text-zinc-800'
+              }`}
               disabled={isHydrating}
             >
-              {t === 'edit' ? '編集' : 'ビジュアル'}
+              {t === 'edit' ? '編集ビュー' : 'ビジュアルビュー'}
             </button>
           ))}
         </div>
@@ -1261,48 +1182,58 @@ export default function CascadePage() {
             全体保存
           </Button>
 
-          {/* 全社一括AI生成 */}
+          {/* 全社一括AI生成（ミッション・プロジェクト・OKR案） */}
           {departments.length > 0 && (
             <Button
               variant="outline"
               className="rounded-full h-9 px-4"
               disabled={isHydrating || isCascadeGenerating}
               onClick={handleCascadeGenerateAll}
-              title="全ての部門について、財務サマリーも踏まえたミッション・プロジェクト・OKR案を一括生成します"
+              title="全ての部門について、ミッション・プロジェクト案・OKR案を一括生成します"
             >
               <Sparkles className="w-4 h-4 mr-1" />
-              {isCascadeGenerating ? 'AIが全社のたたき台を生成中…' : 'AIで構造化KRたたき台を一括生成'}
+              {isCascadeGenerating
+                ? 'AIが全社のたたき台を生成中…'
+                : 'AIで全社のたたき台（ミッション・プロジェクト・OKR案）'}
             </Button>
           )}
 
           {canEditCompany && (
-            <Button onClick={() => setShowForm((v) => !v)} className="rounded-full h-9 px-4" disabled={isHydrating}>
+            <Button
+              onClick={() => setShowForm((v) => !v)}
+              className="rounded-full h-9 px-4"
+              disabled={isHydrating}
+            >
               <PlusCircle className="w-4 h-4 mr-1" />
-              {showForm ? '閉じる' : '部門追加'}
+              {showForm ? '閉じる' : '部門を追加'}
             </Button>
           )}
         </div>
       </div>
 
-      {/* 追加フォーム（簡素） */}
+      {/* 追加フォーム */}
       {showForm && canEditCompany && !isHydrating && (
         <div className="p-6 border rounded-3xl bg-white/70 mb-8">
           <div className="grid md:grid-cols-2 gap-4">
             <input
               value={deptName}
               onChange={(e) => setDeptName(e.target.value)}
-              placeholder="部門名"
-              className="border rounded-xl px-3 py-2"
+              placeholder="部門名（例：営業部、人事部、生産本部など）"
+              className="border rounded-xl px-3 py-2 text-sm"
             />
             <input
               value={deptMission}
               onChange={(e) => setDeptMission(e.target.value)}
               placeholder="（任意）ミッションのメモ"
-              className="border rounded-xl px-3 py-2"
+              className="border rounded-xl px-3 py-2 text-sm"
             />
           </div>
           <div className="mt-4 flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => setShowForm(false)} className="rounded-full h-9 px-4">
+            <Button
+              variant="secondary"
+              onClick={() => setShowForm(false)}
+              className="rounded-full h-9 px-4"
+            >
               キャンセル
             </Button>
             <Button
@@ -1321,10 +1252,10 @@ export default function CascadePage() {
                     missionDraft: baseMission,
                     discussionNotes: '',
                     projects: [],
-                    answers2: [{ chapterIndex: current.length, chapterTitle: baseName, steps: [] }],
+                    answers2: [
+                      { chapterIndex: current.length, chapterTitle: baseName, steps: [] },
+                    ],
                     finalized: false,
-                    recommendedPatterns: [],
-                    recommendedExecPatterns: [],
                   };
                   current.push(newDept);
                   nextLength = current.length;
@@ -1341,7 +1272,9 @@ export default function CascadePage() {
                     await saveNow();
                     setNotice(`✅ ${baseName} を追加しました（サーバーにも反映済み）`);
                   } catch {
-                    setNotice(`⚠️ ${baseName} の追加は画面上は反映されていますが、サーバー保存に失敗しました`);
+                    setNotice(
+                      `⚠️ ${baseName} の追加は画面上は反映されていますが、サーバー保存に失敗しました`,
+                    );
                   }
                 }
               }}
@@ -1353,8 +1286,12 @@ export default function CascadePage() {
         </div>
       )}
 
-      {/* 通知（簡素） */}
-      {notice && <div className="mb-6 text-sm p-3 rounded-xl border bg-emerald-50 text-emerald-800">{notice}</div>}
+      {/* 通知 */}
+      {notice && (
+        <div className="mb-6 text-sm p-3 rounded-xl border bg-emerald-50 text-emerald-800">
+          {notice}
+        </div>
+      )}
 
       {/* 本体 */}
       {activeTab === 'visual' ? (
@@ -1368,20 +1305,25 @@ export default function CascadePage() {
 
             const answers = answersMemo[index];
             const projTitles = projectsMemo[index];
-            const allAnswered = answers.length >= 3 && answers.every((a) => (a.answer ?? '').trim().length > 0);
             const currentStoreSteps = dept.answers2?.[0]?.steps ?? [];
 
             const deptMissionText = (dept.strategy ?? dept.mission ?? '').trim();
+            const deptProjects = (dept.projects as Project[] | undefined) ?? [];
 
             return (
-              <div key={`e-${dept.name}-${index}`} className="p-6 border rounded-3xl bg-white/70 backdrop-blur-sm shadow-sm">
+              <div
+                key={`e-${dept.name}-${index}`}
+                className="p-6 border rounded-3xl bg-white/70 backdrop-blur-sm shadow-sm"
+              >
                 <div className="flex justify-between items-center mb-3">
                   <h3 className="font-semibold text-zinc-900 flex items-center gap-2">
                     <Building2 className="w-4 h-4" /> {dept.name}
                   </h3>
                   <div className="flex items-center gap-2">
                     {dept.finalized && (
-                      <span className="text-xs bg-zinc-900 text-white rounded-full px-2 py-1">確定済み</span>
+                      <span className="text-xs bg-zinc-900 text-white rounded-full px-2 py-1">
+                        確定済み
+                      </span>
                     )}
                     {canEditCompany && (
                       <Button
@@ -1407,7 +1349,7 @@ export default function CascadePage() {
                   placeholder="この部門の役割やミッションのイメージを記入してください（AIたたき台の修正もここで行います）"
                 />
 
-                {/* 保存＋AIたたき台（STEP0） */}
+                {/* 保存＋AIたたき台（この部門だけ） */}
                 <div className="flex flex-wrap gap-2 mb-1">
                   <Button
                     onClick={() => void saveInlineMission(index)}
@@ -1419,21 +1361,21 @@ export default function CascadePage() {
 
                   <Button
                     variant="outline"
-                    onClick={() => handleInitialDraft(index)}
-                    disabled={!editableDept || !!L.initialDraft || isHydrating}
+                    onClick={() => handleDeptCascadeDraft(index)}
+                    disabled={!editableDept || !!L.deptDraft || isHydrating}
                     className="rounded-full h-9 px-4"
-                    title="AIがミッションとプロジェクトのたたき台を提案します"
+                    title="この部門のミッション・プロジェクト案・OKR案をAIが提案します"
                   >
                     <Sparkles className="w-4 h-4 mr-1" />
-                    {L.initialDraft ? 'たたき台を生成中…' : 'AIでミッションとプロジェクト案'}
+                    {L.deptDraft
+                      ? 'たたき台を生成中…'
+                      : 'AIでこの部門のたたき台（ミッション・プロジェクト・OKR案）'}
                   </Button>
                 </div>
                 <p className="text-xs text-zinc-500 mb-3">
-                  ※ 「AIでミッションとプロジェクト案」を押すと、経営ストーリーと部門名から、
-                  <b>ミッションとプロジェクトのたたき台</b> をAIが提案します。
-                  <br />
-                  ※ 3つの質問に回答すると、この下部に「AIで部門戦略案を生成」ボタンが表示され、
-                  <b>部門戦略（ミッション・プロジェクト・目標）のたたき台</b> を一括で整理できます。
+                  ※ 「AIでこの部門のたたき台」を押すと、経営ストーリーと部門名から
+                  <b>ミッション・プロジェクト・OKR案</b> をAIが提案します。
+                  生成後は、この画面と「OKR設定」画面で自由に編集できます。
                 </p>
 
                 {/* 掘り下げ質問（3問） */}
@@ -1455,7 +1397,9 @@ export default function CascadePage() {
                       if (!d) return prev;
                       const updated: Department = {
                         ...d,
-                        answers2: [{ chapterIndex: index, chapterTitle: d.name, steps: nextSteps }],
+                        answers2: [
+                          { chapterIndex: index, chapterTitle: d.name, steps: nextSteps },
+                        ],
                       };
                       list[index] = updated;
                       return list;
@@ -1476,13 +1420,26 @@ export default function CascadePage() {
                         patch.missionDraft = mission;
                       }
                       if (projects?.length) {
-                        const projList = projects.map((t) => ({ title: t, okrs: [] as StoreOKR[] }));
+                        const projList: Project[] = projects.map((t) => ({
+                          title: t,
+                          okrs: [] as StoreOKR[],
+                        }));
                         if (!jsonEq(projList, d.projects)) patch.projects = projList;
                       }
                       if (okrs?.length) {
-                        const add = { title: '初期OKR', okrs: [toStoreOKR(okrs[0])] };
-                        const merged = [...(patch.projects ?? d.projects ?? []), add];
-                        if (!jsonEq(merged, d.projects)) patch.projects = merged as any;
+                        const add: Project = {
+                          title: '初期OKR案',
+                          okrs: [toStoreOKR(okrs[0])],
+                        };
+
+                        const baseProjects: Project[] =
+                          (patch.projects as Project[] | undefined) ??
+                          ((d.projects as Project[] | undefined) ?? []);
+                        const merged: Project[] = [...baseProjects, add];
+
+                        if (!jsonEq(merged, d.projects)) {
+                          patch.projects = merged;
+                        }
                       }
                       const changed = Object.keys(patch).length > 0;
                       if (!changed) return prev;
@@ -1492,45 +1449,17 @@ export default function CascadePage() {
                       return list;
                     });
 
-                    setNotice(`✅ ${dept.name} の案を反映しました`);
+                    setNotice(`✅ ${dept.name} のたたき台を反映しました`);
                   }}
                 />
 
-                {/* 3問回答完了 → AI一括アシスト（1部門） */}
-                {allAnswered && !isHydrating && (
-                  <div className="mt-4 border rounded-2xl bg-blue-50 p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                    <div className="text-sm text-blue-900 flex flex-col gap-1">
-                      <div className="flex items-center gap-2">
-                        <Sparkles className="w-4 h-4" />
-                        <span>
-                          3つの質問への回答をもとに、
-                          <b>部門戦略（ミッション・プロジェクト・目標）のたたき台</b> をAIが整理します。
-                        </span>
-                      </div>
-                      <span className="text-[11px] text-blue-800">
-                        ※ 部門の戦い方や実行アイデアを踏まえた OKR のたたき台も合わせて生成されます。生成後は自由に編集・削除できます。
-                      </span>
-                    </div>
-                    <Button
-                      onClick={() => handleFullAssist(index)}
-                      disabled={!editableDept || !!loading[index]?.fullAssist}
-                      className="rounded-full h-9 px-4"
-                    >
-                      <FileText className="w-4 h-4 mr-2" />
-                      {loading[index]?.fullAssist ? '部門戦略案を生成中…' : 'AIで部門戦略案を生成'}
-                    </Button>
-                  </div>
-                )}
-
-                {/* プロジェクト一覧（追加・削除・タイトル編集・Objective編集） */}
-                {dept.projects && dept.projects.length > 0 && (
+                {/* プロジェクト一覧（追加・削除・タイトル編集・OKR案の編集） */}
+                {deptProjects && deptProjects.length > 0 && (
                   <div className="mt-5 border-t pt-4">
-                    {/* 部門ミッションの再掲示（プロジェクト一覧の上） */}
+                    {/* 部門ミッションの再掲示 */}
                     {deptMissionText && (
                       <div className="mb-3 rounded-2xl border bg-zinc-50 px-3 py-2">
-                        <div className="text-[11px] text-zinc-500 mb-1">
-                          この部門のミッション
-                        </div>
+                        <div className="text-[11px] text-zinc-500 mb-1">この部門のミッション</div>
                         <div className="text-sm text-zinc-800 whitespace-pre-wrap">
                           {deptMissionText}
                         </div>
@@ -1538,10 +1467,10 @@ export default function CascadePage() {
                     )}
 
                     <div className="flex items-center justify-between mb-2 gap-2">
-                      <h4 className="text-sm font-semibold text-zinc-800">プロジェクト一覧</h4>
+                      <h4 className="text-sm font-semibold text-zinc-800">プロジェクト案とOKR案</h4>
                       <div className="flex items-center gap-2">
                         <span className="text-[11px] text-zinc-500 hidden sm:inline">
-                          ※ 詳細な目標（KR）の編集は「OKR設定」画面で行えます。
+                          ※ 詳細な編集や構造化は「OKR設定」画面で行えます。
                         </span>
                         {editableDept && (
                           <Button
@@ -1552,32 +1481,38 @@ export default function CascadePage() {
                             onClick={() => handleAddProject(index)}
                           >
                             <PlusCircle className="w-3 h-3 mr-1" />
-                            プロジェクト追加
+                            プロジェクトを追加
                           </Button>
                         )}
                       </div>
                     </div>
                     <p className="sm:hidden text-[11px] text-zinc-500 mb-2">
-                      ※ 詳細な目標（KR）の編集は「OKR設定」画面で行えます。
+                      ※ 詳細な編集や構造化は「OKR設定」画面で行えます。
                     </p>
+
                     <ul className="space-y-2">
-                      {dept.projects.map((p, pi) => {
-                        const primaryObjective = p.okrs?.[0]?.objective ?? '';
+                      {deptProjects.map((p, pi) => {
+                        const primaryOKR = p.okrs?.[0];
+                        const primaryObjective = primaryOKR?.objective ?? '';
+                        const krs = (primaryOKR?.keyResults ?? []).filter(
+                          (kr) => typeof kr === 'string',
+                        );
+                        const owner = primaryOKR?.owner ?? '';
 
                         return (
                           <li
                             key={`${dept.name}-proj-${pi}`}
                             className="flex flex-col gap-2 rounded-2xl border px-3 py-2 bg-white/70"
                           >
+                            {/* 1行目：プロジェクト名＋削除 */}
                             <div className="flex items-start justify-between gap-3">
                               <div className="flex-1">
                                 <div className="flex items-center gap-2">
                                   <span className="text-sm text-zinc-500">•</span>
-                                  {/* プロジェクト名（編集可能） */}
                                   <input
                                     className="flex-1 text-sm font-medium text-zinc-900 bg-transparent border-b border-dashed border-zinc-300 focus:outline-none focus:border-zinc-500"
                                     value={p.title || ''}
-                                    placeholder="プロジェクト名を入力"
+                                    placeholder="プロジェクト名を入力（例：新規顧客開拓の強化、人事評価制度の見直し など）"
                                     readOnly={!editableDept || isHydrating}
                                     onChange={(e) => {
                                       if (!editableDept || isHydrating) return;
@@ -1586,8 +1521,10 @@ export default function CascadePage() {
                                         const list = [...prev];
                                         const d = list[index];
                                         if (!d) return prev;
-                                        const projects = [...(d.projects ?? [])];
-                                        const proj: Project = { ...(projects[pi] ?? { title: '' }) } as Project;
+                                        const projects = [...((d.projects as Project[]) ?? [])];
+                                        const proj: Project = {
+                                          ...(projects[pi] ?? { title: '' }),
+                                        } as Project;
                                         proj.title = val;
                                         projects[pi] = proj;
                                         list[index] = { ...d, projects };
@@ -1598,26 +1535,58 @@ export default function CascadePage() {
                                 </div>
                               </div>
                               <div className="flex flex-col items-end gap-1">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7 px-2 rounded-full border-red-500 text-red-600 hover:bg-red-50 text-[11px]"
-                                  disabled={!editableDept || isHydrating}
-                                  onClick={() => handleDeleteProject(index, pi)}
-                                >
-                                  <Trash2 className="w-3 h-3 mr-1" />
-                                  削除
-                                </Button>
+                                {editableDept && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 rounded-full border-red-500 text-red-600 hover:bg-red-50 text-[11px]"
+                                    disabled={!editableDept || isHydrating}
+                                    onClick={() => handleDeleteProject(index, pi)}
+                                  >
+                                    <Trash2 className="w-3 h-3 mr-1" />
+                                    削除
+                                  </Button>
+                                )}
                               </div>
                             </div>
 
-                            {/* (O) 目標（Objective）の編集欄 */}
-                            <div className="pl-5">
-                              <div className="text-[11px] text-zinc-500 mb-1">このプロジェクトの目標（Objective）</div>
+                            {/* 仮説とタグ（閲覧用） */}
+                            {(p.hypothesis || p.mainLever || p.horizon || p.kind) && (
+                              <div className="pl-5 mt-1">
+                                {p.hypothesis && (
+                                  <p className="text-[11px] text-zinc-600 whitespace-pre-wrap">
+                                    仮説：{p.hypothesis}
+                                  </p>
+                                )}
+                                <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-zinc-500">
+                                  {p.kind && (
+                                    <span className="px-2 py-0.5 rounded-full bg-zinc-50 border border-zinc-100">
+                                      {KIND_LABEL[p.kind]}
+                                    </span>
+                                  )}
+                                  {p.mainLever && (
+                                    <span className="px-2 py-0.5 rounded-full bg-zinc-50 border border-zinc-100">
+                                      {LEVER_LABEL[p.mainLever]}
+                                    </span>
+                                  )}
+                                  {p.horizon && (
+                                    <span className="px-2 py-0.5 rounded-full bg-zinc-50 border border-zinc-100">
+                                      {HORIZON_LABEL[p.horizon]}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Objective（O） */}
+                            <div className="pl-5 mt-2">
+                              <div className="text-[11px] text-zinc-500 mb-1">
+                                このプロジェクトで実現したい状態（Objective／目標）
+                              </div>
                               <input
                                 className="w-full text-xs text-zinc-800 bg-white border border-zinc-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-400"
                                 value={primaryObjective}
-                                placeholder="例）●●を通じて、売上〇〇％成長 / 離職率△△％改善 など"
+                                placeholder="例）このプロジェクトを通じて、●●事業の売上を〇〇％成長させる／離職率を△△％改善する など"
                                 readOnly={!editableDept || isHydrating}
                                 onChange={(e) => {
                                   if (!editableDept || isHydrating) return;
@@ -1626,12 +1595,18 @@ export default function CascadePage() {
                                     const list = [...prev];
                                     const d = list[index];
                                     if (!d) return prev;
-                                    const projects = [...(d.projects ?? [])];
-                                    const proj: Project = { ...(projects[pi] ?? { title: '' }) } as Project;
+                                    const projects = [...((d.projects as Project[]) ?? [])];
+                                    const proj: Project = {
+                                      ...(projects[pi] ?? { title: '' }),
+                                    } as Project;
 
                                     const okrs: StoreOKR[] = [...(proj.okrs ?? [])];
                                     if (!okrs[0]) {
-                                      okrs[0] = { objective: '', keyResults: [], owner: undefined };
+                                      okrs[0] = {
+                                        objective: '',
+                                        keyResults: [],
+                                        owner: undefined,
+                                      };
                                     }
                                     okrs[0] = { ...okrs[0], objective: val };
                                     proj.okrs = okrs;
@@ -1644,11 +1619,201 @@ export default function CascadePage() {
                               />
                             </div>
 
-                            {/* KR のサマリ表示（編集はOKR画面で） */}
-                            {p.okrs && p.okrs[0]?.keyResults && p.okrs[0].keyResults.length > 0 && (
-                              <div className="pl-5 mt-1 text-[11px] text-zinc-600">
-                                主要な成果（KR）：{p.okrs[0].keyResults.slice(0, 2).join(' ／ ')}
-                                {p.okrs[0].keyResults.length > 2 && ' ほか'}
+                            {/* KR（主要な成果）の編集 */}
+                            <div className="pl-5 mt-3 space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-[11px] text-zinc-500">
+                                  このプロジェクトの主要な成果指標（KR案）
+                                </div>
+                                {editableDept && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 rounded-full text-[11px]"
+                                    disabled={isHydrating}
+                                    onClick={() => {
+                                      if (!editableDept || isHydrating) return;
+                                      pushToStore((prev) => {
+                                        const list = [...prev];
+                                        const d = list[index];
+                                        if (!d) return prev;
+                                        const projects = [...((d.projects as Project[]) ?? [])];
+                                        const proj: Project = {
+                                          ...(projects[pi] ?? { title: '' }),
+                                        } as Project;
+                                        const okrs: StoreOKR[] = [...(proj.okrs ?? [])];
+                                        if (!okrs[0]) {
+                                          okrs[0] = {
+                                            objective: '',
+                                            keyResults: [],
+                                            owner: undefined,
+                                          };
+                                        }
+                                        const nextKrs = [...(okrs[0].keyResults ?? [])];
+                                        nextKrs.push('');
+                                        okrs[0] = { ...okrs[0], keyResults: nextKrs };
+                                        proj.okrs = okrs;
+                                        projects[pi] = proj;
+                                        list[index] = { ...d, projects };
+                                        return list;
+                                      });
+                                    }}
+                                  >
+                                    <PlusCircle className="w-3 h-3 mr-1" />
+                                    KR行を追加
+                                  </Button>
+                                )}
+                              </div>
+
+                              {krs.length === 0 && (
+                                <p className="text-[11px] text-zinc-400">
+                                  まだKR案がありません。必要に応じて「KR行を追加」から入力してください。
+                                </p>
+                              )}
+
+                              {krs.map((kr, ki) => (
+                                <div key={ki} className="flex items-center gap-2">
+                                  <span className="text-[11px] text-zinc-400 whitespace-nowrap">
+                                    KR{ki + 1}
+                                  </span>
+                                  <input
+                                    className="flex-1 text-xs text-zinc-800 bg-white border border-zinc-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-400"
+                                    value={kr}
+                                    placeholder="例）新規顧客◯◯社を獲得／既存顧客へのアップセル売上◯◯百万円／離職率を◯◯％まで改善 など"
+                                    readOnly={!editableDept || isHydrating}
+                                    onChange={(e) => {
+                                      if (!editableDept || isHydrating) return;
+                                      const val = e.target.value;
+                                      pushToStore((prev) => {
+                                        const list = [...prev];
+                                        const d = list[index];
+                                        if (!d) return prev;
+                                        const projects = [...((d.projects as Project[]) ?? [])];
+                                        const proj: Project = {
+                                          ...(projects[pi] ?? { title: '' }),
+                                        } as Project;
+                                        const okrs: StoreOKR[] = [...(proj.okrs ?? [])];
+                                        if (!okrs[0]) {
+                                          okrs[0] = {
+                                            objective: '',
+                                            keyResults: [],
+                                            owner: undefined,
+                                          };
+                                        }
+                                        const nextKrs = [...(okrs[0].keyResults ?? [])];
+                                        nextKrs[ki] = val;
+                                        okrs[0] = { ...okrs[0], keyResults: nextKrs };
+                                        proj.okrs = okrs;
+                                        projects[pi] = proj;
+                                        list[index] = { ...d, projects };
+                                        return list;
+                                      });
+                                    }}
+                                  />
+                                  {editableDept && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 px-2 rounded-full text-[11px] border-red-400 text-red-600 hover:bg-red-50"
+                                      disabled={isHydrating}
+                                      onClick={() => {
+                                        if (!editableDept || isHydrating) return;
+                                        pushToStore((prev) => {
+                                          const list = [...prev];
+                                          const d = list[index];
+                                          if (!d) return prev;
+                                          const projects = [...((d.projects as Project[]) ?? [])];
+                                          const proj: Project = {
+                                            ...(projects[pi] ?? { title: '' }),
+                                          } as Project;
+                                          const okrs: StoreOKR[] = [...(proj.okrs ?? [])];
+                                          if (!okrs[0]) return prev;
+                                          const nextKrs = [...(okrs[0].keyResults ?? [])];
+                                          nextKrs.splice(ki, 1);
+                                          okrs[0] = { ...okrs[0], keyResults: nextKrs };
+                                          proj.okrs = okrs;
+                                          projects[pi] = proj;
+                                          list[index] = { ...d, projects };
+                                          return list;
+                                        });
+                                      }}
+                                    >
+                                      削除
+                                    </Button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Owner（主な担当） */}
+                            <div className="pl-5 mt-2">
+                              <div className="text-[11px] text-zinc-500 mb-1">主な担当（Owner）</div>
+                              <input
+                                className="w-full text-xs text-zinc-800 bg-white border border-zinc-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-400"
+                                value={owner}
+                                placeholder="例）営業部長、人事部マネジャー、工場長 など"
+                                readOnly={!editableDept || isHydrating}
+                                onChange={(e) => {
+                                  if (!editableDept || isHydrating) return;
+                                  const val = e.target.value;
+                                  pushToStore((prev) => {
+                                    const list = [...prev];
+                                    const d = list[index];
+                                    if (!d) return prev;
+                                    const projects = [...((d.projects as Project[]) ?? [])];
+                                    const proj: Project = {
+                                      ...(projects[pi] ?? { title: '' }),
+                                    } as Project;
+                                    const okrs: StoreOKR[] = [...(proj.okrs ?? [])];
+                                    if (!okrs[0]) {
+                                      okrs[0] = {
+                                        objective: '',
+                                        keyResults: [],
+                                        owner: undefined,
+                                      };
+                                    }
+                                    okrs[0] = { ...okrs[0], owner: val || undefined };
+                                    proj.okrs = okrs;
+                                    projects[pi] = proj;
+                                    list[index] = { ...d, projects };
+                                    return list;
+                                  });
+                                }}
+                              />
+                            </div>
+
+                            {/* OKR案クリア */}
+                            {(primaryObjective || krs.length > 0 || owner) && editableDept && (
+                              <div className="pl-5 mt-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-3 rounded-full text-[11px] border-zinc-300 text-zinc-600 hover:bg-zinc-50"
+                                  disabled={isHydrating}
+                                  onClick={() => {
+                                    if (!editableDept || isHydrating) return;
+                                    const ok = window.confirm(
+                                      'このプロジェクトのOKR案（目標・KR・Owner）をすべてクリアしますか？',
+                                    );
+                                    if (!ok) return;
+                                    pushToStore((prev) => {
+                                      const list = [...prev];
+                                      const d = list[index];
+                                      if (!d) return prev;
+                                      const projects = [...((d.projects as Project[]) ?? [])];
+                                      const proj: Project = {
+                                        ...(projects[pi] ?? { title: '' }),
+                                      } as Project;
+                                      proj.okrs = [];
+                                      projects[pi] = proj;
+                                      list[index] = { ...d, projects };
+                                      return list;
+                                    });
+                                    setNotice('🗑 このプロジェクトのOKR案をクリアしました');
+                                  }}
+                                >
+                                  OKR案をすべてクリア
+                                </Button>
                               </div>
                             )}
                           </li>
@@ -1659,13 +1824,11 @@ export default function CascadePage() {
                 )}
 
                 {/* プロジェクトがまだない場合も追加ボタンだけ出す */}
-                {(!dept.projects || dept.projects.length === 0) && editableDept && (
+                {(!deptProjects || deptProjects.length === 0) && editableDept && (
                   <div className="mt-4">
                     {deptMissionText && (
                       <div className="mb-3 rounded-2xl border bg-zinc-50 px-3 py-2">
-                        <div className="text-[11px] text-zinc-500 mb-1">
-                          この部門のミッション
-                        </div>
+                        <div className="text-[11px] text-zinc-500 mb-1">この部門のミッション</div>
                         <div className="text-sm text-zinc-800 whitespace-pre-wrap">
                           {deptMissionText}
                         </div>
