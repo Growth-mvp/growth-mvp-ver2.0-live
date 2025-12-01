@@ -381,22 +381,15 @@ function coerceToSimpleHeads(
   return out;
 }
 
+const ENABLE_BRIDGES = false; // 将来 true にすれば復活できる
+
 function ensureBridges(
   sections: { heading: string; body: string }[],
 ): { heading: string; body: string }[] {
-  const bridges: Record<string, string> = {
-    'なぜ今': '──では我々は、衰退を避けるために『どう戦う』べきなのか？',
-    'どう戦う': '──この戦略を進め、我々は『どんな未来』を実現するのか？',
-    'どんな未来': '──この未来を実現するために、我々は『どう行動する』べきなのか？',
-  };
-  return sections.map((s, i) => {
-    const b = bridges[s.heading];
-    if (!b || i === sections.length - 1) return s;
-    const txt = normalizeNewlines(s.body || '');
-    if (/──/.test(txt) || /どう戦う|どんな未来|どう行動する/.test(txt.slice(-50))) return s;
-    return { ...s, body: (txt.trim() + '\n' + b).trim() };
-  });
+  // 章間ブリッジを差し込まないバージョン
+  return sections;
 }
+
 
 /* =========================
  * 429/5xx 時のヒューリスティック最終ストーリー生成
@@ -424,7 +417,7 @@ function heuristicFinal(
     thought?: unknown;
     // オプション：ポートフォリオ連携（存在時のみ）
     portfolio?: {
-      businesses?: Array<{ name: string; revenueShare?: number; margin?: number; growth?: number }>[];
+      businesses?: Array<{ name: string; revenueShare?: number; margin?: number; growth?: number }>[]; // eslint-disable-line @typescript-eslint/indent
       focus?: string;
     } | null;
   },
@@ -494,7 +487,14 @@ function heuristicFinal(
     howBullets.push('重点セグメント集中と、勝ち筋に沿った投資配分の徹底');
   }
 
+  // ★フォールバック時も第2章冒頭に「自社の勝ち筋：〜」を1行入れる
+  const winningLine =
+    patterns.length > 0
+      ? `自社の勝ち筋：${patterns.join(' / ')}`
+      : '自社の勝ち筋：選んだ勝ちパターンに沿って、資源を集中して勝ち切る';
+
   const s2 = [
+    winningLine,
     '資源の再配分：やめることを明確化し、勝ち筋に集中する。',
     ...howBullets.map((b) => `・${b}`),
     'やらないこと：汎用ビルド、カスタム過多、非中核の横展開は抑制。',
@@ -681,6 +681,12 @@ export async function POST(req: NextRequest) {
 【勝ちパターン（必ず反映）】
 - 入力された勝ちパターンに整合する語り・事例・トレードオフを織り込む。
 - 「やらないこと」宣言は、選んだパターンのロジックと矛盾させない。
+
+【自社の勝ち筋（一文）の扱い】
+- ユーザーコンテンツの「現場の声（直近から抽出/引用候補）」は、全12問の回答のエッセンスである。
+- これらをもとに、「私たちは◯◯で勝つ」という一文の「自社の勝ち筋」をあなた自身で組み立てること。
+- 第2章「どう戦う」の本文の最初または2段落目以内に、「自社の勝ち筋：〜」という一文を必ず1回だけ明記すること。
+- 以降の段落・他章の内容は、この一文と矛盾しないように、資源配分・やめること・KPI・人の動き方を描くこと。
 
 【出力制約（厳守）】
 - 次の4章構成で自然に統合：なぜ今 / どう戦う / どんな未来 / どう行動する
