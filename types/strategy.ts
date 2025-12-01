@@ -4,7 +4,76 @@
  * - 旧OKR（文字列KR）と新OKR（構造化KR）を共存
  * - OKR→財務シミュレーション連携のため KRStructured を拡張
  * - Supabase JSONB保存の互換・後方互換を重視
+ * - ★今回追加：勝ち筋（WinPattern）＆部門×勝ち筋のひも付け
  * ========================================================= */
+
+/* =========================================================
+ * 勝ち筋（Win Pattern）定義
+ *   - STAGE2：ストーリー第2章「どう戦う（戦略）」に紐づく
+ *   - STAGE3：Department.winPatternPrimary / Secondary で使用
+ *   - 既存機能との衝突を避けるため、すべて optional で追加
+ * ========================================================= */
+
+/** 勝ち筋ID
+ *  - 代表的なパターンをリテラルで定義
+ *  - (string & {}) を含めることで将来の追加にも対応
+ */
+export type WinPatternId =
+  | 'SHORT_REVENUE'        // 短期で売上を伸ばす
+  | 'FUTURE_INVEST'        // 未来への投資・新規事業
+  | 'INDIRECT_PEOPLE'      // 人材・組織力を高める
+  | 'INDIRECT_PROCESS'     // プロセス・生産性を高める
+  | 'COST_FOCUS'           // コスト削減・効率化
+  | 'QUALITY_STABILITY'    // 品質・安定運行を高める
+  | 'HR_DEVELOPMENT'       // 人材育成・エンゲージメント
+  | 'OPERATION_EFFICIENCY' // 業務プロセス効率化
+  | (string & {});         // 将来の拡張用（既存データとの互換確保）
+
+export type WinPatternTimeHorizon = 'short' | 'mid' | 'long';
+
+export type WinPatternFocus =
+  | 'revenue'   // 売上・利益
+  | 'cost'      // コスト・効率
+  | 'product'   // プロダクト・サービス
+  | 'people'    // 人・組織
+  | 'process';  // 業務プロセス・オペレーション
+
+export type WinPatternDirectness = 'direct' | 'indirect';
+
+/** 勝ち筋（戦い方の選択肢） */
+export type WinPattern = {
+  id: WinPatternId;
+  label: string;                  // 例: 「短期で売上を伸ばす」
+  description: string;            // 簡潔な説明文
+  timeHorizon: WinPatternTimeHorizon;
+  focus: WinPatternFocus;
+  directness: WinPatternDirectness;
+  /** 任意メタ情報（部門種別との相性などを持たせる場合） */
+  tags?: string[];
+};
+
+/* =========================================================
+ * 経営レベル・実行レベルの戦略パターン型
+ *   - /lib/strategyPatterns.top.ts / .exec.ts から利用
+ * ========================================================= */
+
+export type TopStrategyPattern = {
+  id: string;        // 't1'〜't10' など
+  title: string;     // 戦略パターン名
+  summary: string;   // 概要
+  firstMove: string; // 最初の一手
+  kpiAxis: string;   // 見るべきKPIの軸
+  pitfalls: string[];// つまずきがちな落とし穴
+};
+
+export type ExecStrategyPattern = {
+  id: string;        // 'e1'〜'e10' など
+  title: string;     // 実行パターン名
+  when: string[];    // この型がハマる状況（箇条書き）
+  firstStep: string; // 最初の一手
+  kpi: string;       // 見るべきKPI軸
+  pitfalls: string[];// つまずきがちな落とし穴
+};
 
 /* =========================================================
  * OKR（Objective & Key Results）【旧：互換維持】
@@ -54,7 +123,16 @@ export type BaseKey =
   | 'success_rate'
   | 'synergy';
 
-export type KRUnit = '%' | '¥' | '件' | '人' | '比率' | 'COUNT' | 'JPY' | 'RATIO' | 'OTHER';
+export type KRUnit =
+  | '%'
+  | '¥'
+  | '件'
+  | '人'
+  | '比率'
+  | 'COUNT'
+  | 'JPY'
+  | 'RATIO'
+  | 'OTHER';
 
 /** OKR構造化（財務ブリッジで使用）
  * - target: 目標値（%は 0.10 のように小数で統一推奨。COUNT/JPYは実数）
@@ -151,6 +229,12 @@ export type Department = {
   questions?: AnswerStep[];       // 掘り下げ質問（旧構成互換）
   answers2?: ChapterAnswers[];    // ステップ形式の掘り下げ回答
   finalized: boolean;             // 部門戦略が確定済みかどうか
+
+  /** 部門が主に寄与する勝ち筋（主戦場） */
+  winPatternPrimary?: WinPatternId;
+
+  /** 必要に応じて寄与する補助ライン */
+  winPatternSecondary?: WinPatternId;
 };
 
 /* =========================================================
@@ -231,7 +315,9 @@ export type StrategyData = {
   /** === 財務明細CSV（配列ベース）=== */
   csvFinanceData?: CsvFinanceData;         // optional
 
-  /** === ストーリー === */
+  /** === ストーリー ===
+   *  - 実際には4章構成を前提とするが、型としては配列のまま維持（後方互換）
+   */
   story: ChapterStory[];                   // たたき台（配列）
   finalStory: ChapterStory[];              // 確定版（配列）
 
@@ -256,6 +342,16 @@ export type StrategyData = {
   /** === 互換（旧Cascade構造）=== */
   editableCascadeResult?: Department[];    // 旧フィールド互換
   editableCascade?: unknown;               // 旧構造の互換用
+
+  /** === 勝ち筋（全社レベル）=== */
+  /** STAGE2で生成された勝ち筋候補（2〜3本想定） */
+  winPatterns?: WinPattern[];
+
+  /** 会社としての主戦場（Primary） */
+  winPatternPrimary?: WinPatternId;
+
+  /** 補助ライン（Secondary） */
+  winPatternSecondary?: WinPatternId;
 
   /** === 通知・権限（UI専用）=== */
   notification?: string;
