@@ -1,7 +1,13 @@
 // /lib/strategyPatterns.top.ts
 import type { TopStrategyPattern } from '@/types/strategy';
 
-/** 経営レベル 勝ちパターン10選 */
+/**
+ * 経営レベル 勝ちパターン10選
+ *
+ * - 会社全体の「戦い方の型」
+ * - 部門レベルの WinPattern（SHORT_REVENUE など）とは別レイヤー
+ * - map ファイル（strategyPatterns.map.ts）で Execパターンや WinPattern と紐づける前提
+ */
 export const topPatterns: TopStrategyPattern[] = [
   {
     id: 't1',
@@ -87,8 +93,16 @@ export const topPatterns: TopStrategyPattern[] = [
 
 /** t系IDの型安全な参照に使う補助エクスポート */
 export const TOP_IDS = [
-  't1', 't2', 't3', 't4', 't5',
-  't6', 't7', 't8', 't9', 't10',
+  't1',
+  't2',
+  't3',
+  't4',
+  't5',
+  't6',
+  't7',
+  't8',
+  't9',
+  't10',
 ] as const;
 
-export type TopPatternId = typeof TOP_IDS[number];
+export type TopPatternId = (typeof TOP_IDS)[number];
