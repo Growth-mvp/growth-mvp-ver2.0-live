@@ -1,7 +1,13 @@
 // /lib/strategyPatterns.exec.ts
 import type { ExecStrategyPattern } from '@/types/strategy';
 
-/** 実行レベル 勝ちパターン10選（現場実装で再現性の高い型） */
+/**
+ * 実行レベル 勝ちパターン10選
+ *
+ * - 「現場でどう動くか」の再現性のある型
+ * - 経営レベル（topPatterns）と組み合わせて、
+ *   map ファイル（strategyPatterns.map.ts）で WinPattern などと紐づける前提
+ */
 export const execPatterns: ExecStrategyPattern[] = [
   {
     id: 'e1',
