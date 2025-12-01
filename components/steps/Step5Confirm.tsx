@@ -9,6 +9,7 @@ import StepLayout from '@/components/StepLayout';
 import { getIndustryLabel } from '@/utils/industryTemplates';
 import FinanceSummaryPanel from '@/components/finance/FinanceSummaryPanel';
 import { saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
+import type { WinPattern } from '@/types/strategy';
 
 /* =========================================================
  * 確認画面（生成→保存→遷移の堅牢化・名前空間つき）
@@ -231,6 +232,7 @@ export default function Step5Confirm() {
       csvFinanceData, answers, answers2,
       financeSummary, companyName, foundationYear, location,
       strategyId, companyId, userId,
+      // mode や patternIds は現状デフォルト／サーバ側推定に任せる
     };
 
     const pickChapters = (rawText: string, parsed: any) => {
@@ -257,6 +259,7 @@ export default function Step5Confirm() {
       let ok = false;
       let finalChapters: Array<{ title: string; body: string }> | null = null;
       let finalSummary: any;
+      let finalWinPatterns: WinPattern[] | undefined;
 
       for (const url of endpoints) {
         try {
@@ -277,6 +280,11 @@ export default function Step5Confirm() {
           const extracted = extractStoryAndSummary(parsed);
           finalSummary = extracted.summary;
 
+          // ★ ここで API からの winPatterns を拾う（存在する場合のみ）
+          if (Array.isArray((parsed as any).winPatterns) && (parsed as any).winPatterns.length > 0) {
+            finalWinPatterns = (parsed as any).winPatterns as WinPattern[];
+          }
+
           const chs = pickChapters(raw, parsed);
           if (Array.isArray(chs) && chs.length > 0) {
             finalChapters = chs;
@@ -296,6 +304,7 @@ export default function Step5Confirm() {
         return;
       }
 
+      // ==== ストア更新（ストーリー）====
       if (typeof st?.setStory === 'function') st.setStory(finalChapters);
       (useStrategyStore as any).setState({
         story: finalChapters,
@@ -303,16 +312,42 @@ export default function Step5Confirm() {
         chapters: finalChapters,
       });
 
+      // ==== ストア更新（勝ち筋候補：WinPattern[]）====
+      if (finalWinPatterns && finalWinPatterns.length > 0) {
+        if (typeof st?.setWinPatterns === 'function') {
+          try {
+            st.setWinPatterns(finalWinPatterns);
+          } catch {}
+        }
+        (useStrategyStore as any).setState({
+          winPatterns: finalWinPatterns,
+        });
+      }
+
+      // ==== sessionStorage 保存 ====
       try {
         if (companyId && strategyId) {
-          sessionStorage.setItem(ssKey('story', companyId, strategyId), JSON.stringify(finalChapters));
+          sessionStorage.setItem(
+            ssKey('story', companyId, strategyId),
+            JSON.stringify(finalChapters)
+          );
           const summaryText = toSummaryText(finalSummary);
           if (summaryText) {
-            sessionStorage.setItem(ssKey('strategySummary', companyId, strategyId), summaryText);
+            sessionStorage.setItem(
+              ssKey('strategySummary', companyId, strategyId),
+              summaryText
+            );
+          }
+          if (finalWinPatterns && finalWinPatterns.length > 0) {
+            sessionStorage.setItem(
+              ssKey('winPatterns', companyId, strategyId),
+              JSON.stringify(finalWinPatterns)
+            );
           }
         }
       } catch {}
 
+      // ==== Supabase 保存 ====
       if (canPersist) {
         try {
           const current = useStrategyStore.getState() as any;
@@ -324,19 +359,31 @@ export default function Step5Confirm() {
             thought, strength, weakness, opportunity, threat,
             csvFinanceData,
             answers2,
+            winPatterns: finalWinPatterns ?? current.winPatterns, // 既存があれば維持
           };
           await saveStrategyDataApi({ ...current, ...patch }, userId!, companyId!);
         } catch (e) {
-          console.warn('saveStrategyData failed (draft story persisted only to session/store):', e);
+          console.warn(
+            'saveStrategyData failed (draft story & winPatterns persisted only to session/store):',
+            e
+          );
         }
       } else {
-        notifySafe(st, '保存はスコープ確立後に再実行してください（生成内容は画面内/セッションに保持）', setLocalNotice);
+        notifySafe(
+          st,
+          '保存はスコープ確立後に再実行してください（生成内容は画面内/セッションに保持）',
+          setLocalNotice
+        );
       }
 
       router.push('/story-process');
     } catch (err) {
       console.error('❌ 通信エラー:', err);
-      notifySafe(st, `❌ 通信エラー: ${String((err as any)?.message || err)}`, setLocalNotice);
+      notifySafe(
+        st,
+        `❌ 通信エラー: ${String((err as any)?.message || err)}`,
+        setLocalNotice
+      );
     } finally {
       setIsGenerating(false);
     }
@@ -346,7 +393,10 @@ export default function Step5Confirm() {
     <StepLayout step={6} totalSteps={6} title="入力内容の最終確認">
       <div className="space-y-6">
         {localNotice && (
-          <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          <div
+            role="alert"
+            className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"
+          >
             {localNotice}
           </div>
         )}
@@ -359,8 +409,14 @@ export default function Step5Confirm() {
               <InfoRow label="設立年" value={foundationYear} />
               <InfoRow label="所在地" value={location} />
               <InfoRow label="業種" value={industryJa} />
-              <InfoRow label="売上" value={revenue !== null ? `${revenue} 百万円` : ''} />
-              <InfoRow label="従業員数" value={employees !== null ? `${employees} 人` : ''} />
+              <InfoRow
+                label="売上"
+                value={revenue !== null ? `${revenue} 百万円` : ''}
+              />
+              <InfoRow
+                label="従業員数"
+                value={employees !== null ? `${employees} 人` : ''}
+              />
             </div>
           </GlassCard>
 
@@ -376,21 +432,37 @@ export default function Step5Confirm() {
         <GlassCard title="経営者の思いとMVV">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="rounded-xl border border-black/10 bg-white/70 p-3">
-              <div className="mb-1 text-xs font-medium text-gray-500">経営者の思い</div>
-              <p className="whitespace-pre-wrap text-sm text-gray-800">{thought || '（未入力）'}</p>
+              <div className="mb-1 text-xs font-medium text-gray-500">
+                経営者の思い
+              </div>
+              <p className="whitespace-pre-wrap text-sm text-gray-800">
+                {thought || '（未入力）'}
+              </p>
             </div>
             <div className="grid grid-cols-1 gap-3">
               <div className="rounded-xl border border-black/10 bg-white/70 p-3">
-                <div className="mb-1 text-xs font-medium text-gray-500">Mission</div>
-                <p className="whitespace-pre-wrap text-sm text-gray-800">{mission || '（未入力）'}</p>
+                <div className="mb-1 text-xs font-medium text-gray-500">
+                  Mission
+                </div>
+                <p className="whitespace-pre-wrap text-sm text-gray-800">
+                  {mission || '（未入力）'}
+                </p>
               </div>
               <div className="rounded-xl border border-black/10 bg-white/70 p-3">
-                <div className="mb-1 text-xs font-medium text-gray-500">Vision</div>
-                <p className="whitespace-pre-wrap text-sm text-gray-800">{vision || '（未入力）'}</p>
+                <div className="mb-1 text-xs font-medium text-gray-500">
+                  Vision
+                </div>
+                <p className="whitespace-pre-wrap text-sm text-gray-800">
+                  {vision || '（未入力）'}
+                </p>
               </div>
               <div className="rounded-xl border border-black/10 bg-white/70 p-3">
-                <div className="mb-1 text-xs font-medium text-gray-500">Value</div>
-                <p className="whitespace-pre-wrap text-sm text-gray-800">{value || '（未入力）'}</p>
+                <div className="mb-1 text-xs font-medium text-gray-500">
+                  Value
+                </div>
+                <p className="whitespace-pre-wrap text-sm text-gray-800">
+                  {value || '（未入力）'}
+                </p>
               </div>
             </div>
           </div>
@@ -400,20 +472,36 @@ export default function Step5Confirm() {
         <GlassCard title="SWOT">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div className="rounded-xl border border-black/10 bg-white/70 p-3">
-              <div className="mb-1 text-xs font-medium text-gray-500">Strength（強み）</div>
-              <p className="whitespace-pre-wrap text-sm text-gray-800">{strength || '（未入力）'}</p>
+              <div className="mb-1 text-xs font-medium text-gray-500">
+                Strength（強み）
+              </div>
+              <p className="whitespace-pre-wrap text-sm text-gray-800">
+                {strength || '（未入力）'}
+              </p>
             </div>
             <div className="rounded-xl border border-black/10 bg-white/70 p-3">
-              <div className="mb-1 text-xs font-medium text-gray-500">Weakness（弱み）</div>
-              <p className="whitespace-pre-wrap text-sm text-gray-800">{weakness || '（未入力）'}</p>
+              <div className="mb-1 text-xs font-medium text-gray-500">
+                Weakness（弱み）
+              </div>
+              <p className="whitespace-pre-wrap text-sm text-gray-800">
+                {weakness || '（未入力）'}
+              </p>
             </div>
             <div className="rounded-xl border border-black/10 bg-white/70 p-3">
-              <div className="mb-1 text-xs font-medium text-gray-500">Opportunity（機会）</div>
-              <p className="whitespace-pre-wrap text-sm text-gray-800">{opportunity || '（未入力）'}</p>
+              <div className="mb-1 text-xs font-medium text-gray-500">
+                Opportunity（機会）
+              </div>
+              <p className="whitespace-pre-wrap text-sm text-gray-800">
+                {opportunity || '（未入力）'}
+              </p>
             </div>
             <div className="rounded-xl border border-black/10 bg-white/70 p-3">
-              <div className="mb-1 text-xs font-medium text-gray-500">Threat（脅威）</div>
-              <p className="whitespace-pre-wrap text-sm text-gray-800">{threat || '（未入力）'}</p>
+              <div className="mb-1 text-xs font-medium text-gray-500">
+                Threat（脅威）
+              </div>
+              <p className="whitespace-pre-wrap text-sm text-gray-800">
+                {threat || '（未入力）'}
+              </p>
             </div>
           </div>
         </GlassCard>
@@ -422,14 +510,18 @@ export default function Step5Confirm() {
         <div className="rounded-2xl border border-black/10 bg-white/60 p-3 overflow-x-auto">
           {/* ▼グラフ縮小＋フォント縮小適用用のラッパ */}
           <div className="origin-top-left scale-[0.90] md:scale-[0.95] fs-compact-chart">
-            <FinanceSummaryPanel className="mt-2" showHeader initialYear={summaryYearsLatest as any} />
+            <FinanceSummaryPanel
+              className="mt-2"
+              showHeader
+              initialYear={summaryYearsLatest as any}
+            />
           </div>
 
           {/* ▼ここで Recharts の内部クラスを :global で安全に上書き */}
           <style jsx>{`
             /* 目盛りラベル（X/Y軸）の文字サイズを小さく */
             :global(.fs-compact-chart .recharts-cartesian-axis .recharts-text tspan) {
-              font-size: 8px; /* お好みで 8〜11 に調整可 */
+              font-size: 8px;
             }
 
             /* 凡例（営業利益/売上）の文字サイズを小さく */
