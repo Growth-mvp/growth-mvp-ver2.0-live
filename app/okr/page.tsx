@@ -829,41 +829,30 @@ export default function OKRPage() {
 
   /* -------- ★ ボタン用：カスケードOKR → 構造化KRたたき台生成（単一プロジェクト） -------- */
   const generateKRFromCascade = useCallback(
-    (dIdx: number, pIdx: number) => {
-      const st = useStrategyStore.getState() as any;
-      const current: Department[] = Array.isArray(st.departments)
-        ? (st.departments as Department[])
-        : [];
-
-      const dept = current[dIdx];
-      const proj =
-        dept && Array.isArray(dept.projects) ? dept.projects[pIdx] : undefined;
-
-      if (!proj) return;
-
-      const okrs = Array.isArray(proj.okrs) ? (proj.okrs as OKR[]) : [];
-
-      if (!okrs.length) {
+    (dIdx: number, pIdx: number, okrSource: OKR[]) => {
+      if (!okrSource || okrSource.length === 0) {
         alert('このプロジェクトには、カスケードで生成されたOKRがありません。');
         return;
       }
 
       patchDepartments((prev) => {
         const next = [...prev];
-        const d = next[dIdx];
-        if (!d) return prev;
+        const deptPrev = next[dIdx];
+        if (!deptPrev) return prev;
 
-        const projs = Array.isArray(d.projects) ? [...d.projects] : [];
-        const p = projs[pIdx];
-        if (!p) return prev;
+        const dept = { ...deptPrev };
+        const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+        const projPrev = projs[pIdx];
+        if (!projPrev) return prev;
+        const proj = { ...projPrev };
 
-        const existing: KRStructuredX[] = Array.isArray(p.okrsV2)
-          ? [...(p.okrsV2 as KRStructuredX[])]
+        const existing: KRStructuredX[] = Array.isArray(proj.okrsV2)
+          ? [...(proj.okrsV2 as KRStructuredX[])]
           : [];
 
         let changed = false;
 
-        okrs.forEach((o) => {
+        okrSource.forEach((o) => {
           const ownerHint = o.owner;
           const krs = ensureArray(o.keyResults as string[] | undefined);
 
@@ -883,14 +872,14 @@ export default function OKRPage() {
         });
 
         if (!changed) {
-          // 何も追加されなければそのまま
+          // 新規追加がなければ変更なし
           return prev;
         }
 
-        (p as any).okrsV2 = existing;
-        projs[pIdx] = p;
-        d.projects = projs;
-        next[dIdx] = d;
+        (proj as any).okrsV2 = existing;
+        projs[pIdx] = proj;
+        dept.projects = projs;
+        next[dIdx] = dept;
         return next;
       });
 
@@ -1018,6 +1007,57 @@ export default function OKRPage() {
   // タブ：Objective & 概要 / Key Results
   const [activeTab, setActiveTab] = useState<'objective' | 'kr'>('kr');
 
+  // OKR画面内での「簡易プロジェクト追加」用 state
+  const [addingProjectForDept, setAddingProjectForDept] = useState<number | null>(
+    null,
+  );
+  const [newProjectTitle, setNewProjectTitle] = useState<string>('');
+
+  const startAddProject = (deptIdx: number) => {
+    if (isHydrating) return;
+    setAddingProjectForDept(deptIdx);
+    setNewProjectTitle('');
+  };
+
+  const cancelAddProject = () => {
+    setAddingProjectForDept(null);
+    setNewProjectTitle('');
+  };
+
+  const confirmAddProject = (deptIdx: number) => {
+    const title = newProjectTitle.trim();
+    if (!title) {
+      alert('プロジェクト名を入力してください。');
+      return;
+    }
+
+    const baseDept = cascade[deptIdx];
+    const currentProjs = baseDept ? ensureArray(baseDept.projects) : [];
+    const newProjIdx = currentProjs.length; // 追加後の index
+
+    patchDepartments((prev) => {
+      const next = [...prev];
+      const deptPrev = next[deptIdx];
+      if (!deptPrev) return prev;
+
+      const dept = { ...deptPrev };
+      const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+      const newProj: Project = {
+        title,
+        okrs: [],
+        okrsV2: [],
+      };
+      projs.push(newProj);
+      dept.projects = projs;
+      next[deptIdx] = dept;
+      return next;
+    });
+
+    setSelected({ deptIdx, projIdx: newProjIdx });
+    setAddingProjectForDept(null);
+    setNewProjectTitle('');
+  };
+
   // 部門・プロジェクトの変化に合わせて選択を補正
   useEffect(() => {
     if (!Array.isArray(cascade) || cascade.length === 0) {
@@ -1071,6 +1111,8 @@ export default function OKRPage() {
     : [];
   const mainOKR = selectedOkrs[0];
 
+  const hasCascadeOkrs = selectedOkrs.length > 0;
+
   const getRoleLabel = (role?: Project['role'] | null) => {
     if (!role) return 'ロール未設定';
     const found = ROLE_OPTIONS.find((r) => r.value === role);
@@ -1097,7 +1139,8 @@ export default function OKRPage() {
           と
           <span className="font-semibold">「Key Results」</span>
           を編集します。
-          設定内容は、後続の財務シミュレーションにそのまま連動します。
+          カスケード画面でAIが生成したプロジェクト／OKRをベースに、
+          部門長と現場メンバーが内容を具体化・調整するステージです。
         </p>
 
         {/* ヘルプトグル */}
@@ -1142,66 +1185,117 @@ export default function OKRPage() {
             <div className="space-y-4">
               {cascade.map((dept, di) => {
                 const projs = ensureArray(dept.projects);
-                if (projs.length === 0) return null;
+                if (projs.length === 0 && addingProjectForDept === null) {
+                  // プロジェクトが0でも、「追加」ボタンは表示したいのでここでは return しない
+                }
+
                 return (
                   <div key={di}>
-                    <div className="mb-1 text-[12px] font-semibold text-zinc-700">
-                      {dept.name || '部門'}
+                    <div className="mb-1 flex items-center justify-between">
+                      <div className="text-[12px] font-semibold text-zinc-700">
+                        {dept.name || '部門'}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => startAddProject(di)}
+                        disabled={isHydrating}
+                        className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400"
+                      >
+                        ＋ プロジェクトを追加
+                      </button>
                     </div>
-                    <ul className="space-y-1">
-                      {projs.map((proj, pi) => {
-                        const k = keyFor(di, pi);
-                        const krCount = ensureArray(
-                          proj.okrsV2 as KRStructuredX[] | undefined,
-                        ).length;
-                        const isSelected =
-                          selected?.deptIdx === di &&
-                          selected?.projIdx === pi;
-                        const role =
-                          roleShadow[k] != null
-                            ? roleShadow[k]
-                            : proj.role ?? undefined;
-                        return (
-                          <li key={pi}>
+
+                    {addingProjectForDept === di && (
+                      <div className="mb-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-2">
+                        <div className="mb-1 text-[11px] font-semibold text-zinc-700">
+                          新しいプロジェクト
+                        </div>
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <input
+                            className="h-9 flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-[13px]"
+                            placeholder="例：既存顧客向けアップセル強化プロジェクト"
+                            value={newProjectTitle}
+                            onChange={(e) => setNewProjectTitle(e.target.value)}
+                            disabled={isHydrating}
+                          />
+                          <div className="flex gap-2">
                             <button
                               type="button"
-                              onClick={() => {
-                                setSelected({ deptIdx: di, projIdx: pi });
-                              }}
-                              className={`flex w-full flex-col rounded-2xl border px-3 py-2 text-left transition ${
-                                isSelected
-                                  ? 'border-zinc-900 bg-zinc-900 text-white'
-                                  : 'border-zinc-200 bg-zinc-50 text-zinc-800 hover:bg-zinc-100'
-                              }`}
+                              onClick={() => confirmAddProject(di)}
+                              disabled={isHydrating}
+                              className="h-9 rounded-xl bg-black px-3 text-[12px] font-semibold text-white hover:opacity-90 disabled:opacity-40"
                             >
-                              <span className="flex items-center justify-between gap-2">
-                                <span className="text-[13px] font-semibold">
-                                  {proj.title || proj.name || 'プロジェクト'}
-                                </span>
-                                <span
-                                  className={`rounded-full px-2 py-0.5 text-[10px] ${
-                                    isSelected
-                                      ? 'bg-white/10 text-zinc-50'
-                                      : 'bg-white text-zinc-600'
-                                  }`}
-                                >
-                                  KR x{krCount}
-                                </span>
-                              </span>
-                              <span
-                                className={`mt-1 text-[11px] ${
+                              作成
+                            </button>
+                            <button
+                              type="button"
+                              onClick={cancelAddProject}
+                              disabled={isHydrating}
+                              className="h-9 rounded-xl border border-zinc-200 bg-white px-3 text-[12px] text-zinc-700 hover:bg-zinc-50 disabled:opacity-40"
+                            >
+                              やめる
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {projs.length > 0 && (
+                      <ul className="space-y-1">
+                        {projs.map((proj, pi) => {
+                          const k = keyFor(di, pi);
+                          const krCount = ensureArray(
+                            proj.okrsV2 as KRStructuredX[] | undefined,
+                          ).length;
+                          const isSelected =
+                            selected?.deptIdx === di &&
+                            selected?.projIdx === pi;
+                          const role =
+                            roleShadow[k] != null
+                              ? roleShadow[k]
+                              : proj.role ?? undefined;
+                          return (
+                            <li key={pi}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelected({ deptIdx: di, projIdx: pi });
+                                }}
+                                className={`flex w-full flex-col rounded-2xl border px-3 py-2 text-left transition ${
                                   isSelected
-                                    ? 'text-zinc-100'
-                                    : 'text-zinc-500'
+                                    ? 'border-zinc-900 bg-zinc-900 text-white'
+                                    : 'border-zinc-200 bg-zinc-50 text-zinc-800 hover:bg-zinc-100'
                                 }`}
                               >
-                                {getRoleLabel(role)}
-                              </span>
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
+                                <span className="flex items-center justify-between gap-2">
+                                  <span className="text-[13px] font-semibold">
+                                    {proj.title || proj.name || 'プロジェクト'}
+                                  </span>
+                                  <span
+                                    className={`rounded-full px-2 py-0.5 text-[10px] ${
+                                      isSelected
+                                        ? 'bg-white/10 text-zinc-50'
+                                        : 'bg-white text-zinc-600'
+                                    }`}
+                                  >
+                                    KR x{krCount}
+                                  </span>
+                                </span>
+                                <span
+                                  className={`mt-1 text-[11px] ${
+                                    isSelected
+                                      ? 'text-zinc-100'
+                                      : 'text-zinc-500'
+                                  }`}
+                                >
+                                  {getRoleLabel(role)}
+                                </span>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
                   </div>
                 );
               })}
@@ -1289,11 +1383,12 @@ export default function OKRPage() {
                       generateKRFromCascade(
                         selected.deptIdx,
                         selected.projIdx,
+                        selectedOkrs,
                       )
                     }
-                    disabled={isHydrating}
+                    disabled={isHydrating || !hasCascadeOkrs}
                     className={`rounded-full border px-3 py-1.5 text-[13px] font-medium ${
-                      isHydrating
+                      isHydrating || !hasCascadeOkrs
                         ? 'border-zinc-200 bg-zinc-200 text-zinc-500'
                         : 'border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50'
                     }`}
@@ -1304,7 +1399,7 @@ export default function OKRPage() {
                   <button
                     onClick={() =>
                       alert(
-                        'AIによるKR案の自動生成は、今後のバージョンで対応予定です。（カスケード側での多様なパターン生成と連携します）',
+                        'このプロジェクトのObjectiveや既存のKRをもとに、追加で設定しておくと良さそうなKR案をAIが提案する機能を、今後のバージョンで対応予定です。（勝ち筋やプロジェクト自体の設計は、カスケード画面側で行います）',
                       )
                     }
                     disabled={isHydrating}
@@ -1314,7 +1409,7 @@ export default function OKRPage() {
                         : 'border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50'
                     }`}
                   >
-                    AIでKR案を提案
+                    AIでKR追加案を提案
                   </button>
 
                   <button
