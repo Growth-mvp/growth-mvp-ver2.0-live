@@ -4,7 +4,9 @@
  * - 旧OKR（文字列KR）と新OKR（構造化KR）を共存
  * - OKR→財務シミュレーション連携のため KRStructured を拡張
  * - Supabase JSONB保存の互換・後方互換を重視
- * - ★今回追加：勝ち筋（WinPattern）＆部門×勝ち筋のひも付け
+ * - ★今回追加：
+ *    - 勝ち筋レバー（GrowthLever）
+ *    - 部門・プロジェクト・KRにレバー／セグメント等のメタ情報を付与
  * ========================================================= */
 
 /* =========================================================
@@ -51,6 +53,20 @@ export type WinPattern = {
   /** 任意メタ情報（部門種別との相性などを持たせる場合） */
   tags?: string[];
 };
+
+/* =========================================================
+ * 勝ち筋レバー（Growth Lever）
+ *   - OKR / プロジェクト / 部門で共通して使う軸
+ *   - STORYでは「やんわりにじむ」、OKRで「明確に紐づける」想定
+ * ========================================================= */
+
+/** 3〜5年スパンで「どのレバーで伸ばすか」を表す軸 */
+export type GrowthLever =
+  | 'ACQ'    // 新規獲得（Acquire）
+  | 'ARPU'   // 単価アップ（Average Revenue Per User）
+  | 'CHURN'  // チャーン抑制（解約・離脱）
+  | 'COST'   // コスト構造（固定費・変動費・人件費）
+  | 'INVEST';// 将来投資（新規事業・プラットフォーム・成功率 など)
 
 /* =========================================================
  * 経営レベル・実行レベルの戦略パターン型
@@ -141,6 +157,10 @@ export type KRUnit =
  * - baseKey/baseOverride: ベース母数参照／上書き
  * - lagMonths?: 活動→成果までの遅行（0=即時）
  * - startYm?: 'YYYY-MM' 形式の個別開始
+ *
+ * ★今回追加：
+ *  - bridgeToLever?: GrowthLever  … どの勝ち筋レバーに寄与するか
+ *  - mode?: 'direct' | 'indirect' … 直接レバーなのか・間接支援なのか
  */
 export type KRStructured = {
   id: string;                      // 一意ID（将来の差分更新・履歴用）
@@ -160,17 +180,33 @@ export type KRStructured = {
   lagMonths?: number;              // 遅行（月数）
   startYm?: string;                // 個別開始 'YYYY-MM'
   notes?: string;                  // 任意メモ
+
+  /** どの勝ち筋レバーに寄与するか（OKR画面／財務ブリッジ／実行支援で使用） */
+  bridgeToLever?: GrowthLever;
+
+  /** 直接レバーか／間接支援か（人事・総務など） */
+  mode?: 'direct' | 'indirect';
 };
 
 /** 役割でOKRを束ねる場合（任意：将来拡張） */
 export type ProjectRole = {
   role: string;           // 例: '営業','CS','生産'
   okrs: KRStructured[];   // 構造化OKRの束
+  /** 役割単位で特に効かせるレバー（任意） */
+  levers?: GrowthLever[];
 };
 
 /* =========================================================
  * プロジェクト
  * ========================================================= */
+
+/** プロジェクト単位
+ *  - 旧OKR（文字列）と新OKR（構造化）を共存
+ *  - ★今回追加：
+ *    - levers?: GrowthLever[]
+ *    - targetSegment / targetChannel / targetProduct
+ *      → 一般論ではなく「どの顧客・どのチャネル・どのプロダクトか」を必ず意識させる
+ */
 export type Project = {
   title: string;             // ✅ 一貫して title に統一
   reason?: string;           // プロジェクトの目的・背景
@@ -188,6 +224,18 @@ export type Project = {
 
   /** 役割ごとにOKRを束ねる場合（任意） */
   roles?: ProjectRole[];
+
+  /** このプロジェクトが主に効かせる勝ち筋レバー（複数可） */
+  levers?: GrowthLever[];
+
+  /** どの顧客セグメントを狙うか（例：中堅製造業、中小BtoBサービス、既存大口顧客 等） */
+  targetSegment?: string;
+
+  /** どのチャネルを軸にするか（例：直販、代理店、オンライン、インサイドセールス 等） */
+  targetChannel?: string;
+
+  /** どのプロダクト／サービスにフォーカスするか（例：主力Aプラン、新規Xサービス 等） */
+  targetProduct?: string;
 };
 
 /* =========================================================
@@ -218,6 +266,19 @@ export type ChapterStory = {
 /* =========================================================
  * 部門
  * ========================================================= */
+
+/** 部門種別（レバーのサジェストやテンプレ選択に使用） */
+export type DepartmentType =
+  | 'sales'
+  | 'marketing'
+  | 'cs'
+  | 'hr'
+  | 'corp'
+  | 'it'
+  | 'finance'
+  | 'production'
+  | 'other';
+
 export type Department = {
   id?: number | string;           // Supabase側で bigint / uuid 対応可能
   name: string;
@@ -229,6 +290,15 @@ export type Department = {
   questions?: AnswerStep[];       // 掘り下げ質問（旧構成互換）
   answers2?: ChapterAnswers[];    // ステップ形式の掘り下げ回答
   finalized: boolean;             // 部門戦略が確定済みかどうか
+
+  /** 部門種別（営業・人事・総務など、テンプレ選択・AIプロンプト用） */
+  departmentType?: DepartmentType;
+
+  /** この部門が主に効かせる勝ち筋レバー（複数可）
+   *  - STORYやミッションから暗黙のレバーを推定し、
+   *    プロジェクト＆OKR生成時に明確化するために使用
+   */
+  focusLevers?: GrowthLever[];
 
   /** 部門が主に寄与する勝ち筋（主戦場） */
   winPatternPrimary?: WinPatternId;
@@ -347,7 +417,9 @@ export type StrategyData = {
   /** STAGE2で生成された勝ち筋候補（2〜3本想定） */
   winPatterns?: WinPattern[];
 
-  /** 会社としての主戦場（Primary） */
+  /** 会社としての主戦場（Primary）
+   *  - 現行方針では「明示的に選ばない」運用もあるため optional のまま維持
+   */
   winPatternPrimary?: WinPatternId;
 
   /** 補助ライン（Secondary） */
