@@ -18,27 +18,40 @@ const ReqSchema = z.object({
 });
 
 /* =========================
- * プロジェクトスキーマ（仮説仕様）
+ * プロジェクトスキーマ（勝ち筋レバー付き）
  * ======================= */
 const LeverEnum = z.enum([
-  'ACQ',          // 新規・既存顧客数
-  'ARPU',         // 単価・顧客あたり収益
-  'CHURN',        // 解約・離脱
-  'COST',         // コスト全般
-  'EFFICIENCY',   // 業務効率・時間削減
-  'FUTURE',       // 将来の種・仕組み
+  'ACQ',        // 新規・既存顧客数（獲得・利用頻度）
+  'ARPU',       // 単価・顧客あたり収益
+  'CHURN',      // 解約・離脱
+  'COST',       // コスト全般
+  'EFFICIENCY', // 業務効率・時間削減
+  'FUTURE',     // 将来の種・仕組み（新規事業・基盤・人材 等）
 ]);
 
 const HorizonEnum = z.enum(['short', 'mid', 'long']); // 短期/中期/長期
 const KindEnum = z.enum(['growth', 'cost', 'efficiency', 'future']);
 
 const ProjectSchema = z.object({
-  title: z.string().min(1).catch(''),  // プロジェクト名（仮説が連想できるタイトル）
-  reason: z.string().default(''),      // 目的・狙い
-  hypothesis: z.string().default(''),  // 「こうすれば勝てる／効くはず」という仮説（1〜2文）
-  mainLever: LeverEnum.optional(),     // どのレバーに効かせたいか
-  horizon: HorizonEnum.optional(),     // いつ効いてくるか（short/mid/long）
-  kind: KindEnum.optional(),          // growth/cost/efficiency/future（UIの色分けなどで使用）
+  // プロジェクト名（仮説が連想できるタイトル）
+  title: z.string().min(1).catch(''),
+  // 目的・狙い
+  reason: z.string().default(''),
+  // 「こうすれば勝てる／効くはず」という仮説（1〜2文）
+  hypothesis: z.string().default(''),
+
+  // どのレバーに効かせるか
+  mainLever: LeverEnum.optional(),
+  // いつ効いてくるか（short/mid/long）
+  horizon: HorizonEnum.optional(),
+  // growth/cost/efficiency/future（UIの色分けなどで使用）
+  kind: KindEnum.optional(),
+
+  // ★ どこで勝つか（具体性アップ用フィールド）
+  targetCustomer: z.string().default('').optional(), // どの顧客セグメント
+  targetChannel: z.string().default('').optional(),  // どのチャネル（直販/代理店/EC/店舗など）
+  targetProduct: z.string().default('').optional(),  // どのプロダクト・サービス
+  mainKpi: z.string().default('').optional(),        // 主要KPI（例：月間新規リード数 等）
 });
 
 type Project = z.infer<typeof ProjectSchema>;
@@ -160,49 +173,66 @@ ${sanitizeText(missionText, 800)}
 この経営戦略と部門ミッションに基づき、「${dept}」部門で注力すべき
 「仮説ドリブンなプロジェクト案」を3〜6件、JSONで提案してください。
 
-# プロジェクトの考え方
+# 勝ち筋レバーの考え方（3〜5年スパンで、どのレバーで伸ばすか）
 
 プロジェクトは「こうすれば勝てる／効くはず」という**戦略仮説**のセットです。
-次の2軸で整理してください。
+次の視点から設計してください：
 
-1. 何に効かせるか（レバー: mainLever / kind）
+1. どのレバーで成果を出すか（mainLever / kind）
 
-- growth レバー
-  - ACQ: 新規・既存顧客数を増やす
-  - ARPU: 単価・顧客あたり売上を増やす
-  - CHURN: 解約・離脱を減らす
-- cost / efficiency レバー
-  - COST: コスト全体を下げる（固定費・変動費含む）
+- growth レバー（売上・LTVを伸ばす）
+  - ACQ: 新規・既存顧客数を増やす（獲得・利用頻度アップ）
+  - ARPU: 単価・顧客あたり売上を増やす（アップセル・値上げ・ミックス改善）
+  - CHURN: 解約・離脱を減らし、LTVを伸ばす
+- cost / efficiency レバー（コスト構造をひっくり返す）
+  - COST: コスト全体を下げる（固定費・変動費・外注費など）
   - EFFICIENCY: 業務効率・時間削減（結果としてコスト・スループットに効く）
-- future レバー
-  - FUTURE: 中長期の種・仕組み（データ基盤、人材育成、新規事業の種など）
+- future レバー（将来の種・仕組みを作る）
+  - FUTURE: 中長期の種・仕組み（新規事業、データ基盤、人材育成、プラットフォーム等）
 
 kind フィールドは、
 - growth（売上・LTV向上）
 - cost（コスト削減）
 - efficiency（生産性向上）
-- future（将来の成長の種）
-
+- future（将来の成長の種・能力開発）
 のいずれかを設定してください。
 
 2. いつ効くか（時間軸: horizon）
 
-- short: 〜1年でPLに効く施策
-- mid: 1〜3年
-- long: 3年以上（仕組み・能力・新規事業など）
+- short: 〜1年でPLに効く施策（クイックヒット）
+- mid: 1〜3年で効いてくる施策（ビジネスモデル強化）
+- long: 3年以上かけて効いてくる施策（新規事業・人材・基盤など）
 
-# 出力するプロジェクトの条件
+3. どこで勝つか（ターゲットの具体化）
+
+以下の3点を必ず意識し、フィールドとして埋めてください：
+
+- targetCustomer:
+  - どの顧客セグメントにフォーカスするか
+  - 例）「地方中核都市の中堅BtoB顧客」「主要空港を利用する訪日観光客」など
+- targetChannel:
+  - どのチャネルで攻めるか
+  - 例）「自社営業」「代理店」「Webフォーム」「アプリ」「社内イントラ」など
+- targetProduct:
+  - どのプロダクト・サービス/プロセスに焦点を当てるか
+  - 例）「主力定期便サービス」「サブスクリプションプラン」「社内人事制度」など
+- mainKpi:
+  - そのプロジェクトで最も重視するKPI（指標）を1つ
+  - 例）「月間新規リード数」「顧客単価」「離職率」「1案件あたり工数」など
+
+# プロジェクトの設計条件
 
 - growth×short（売上アップ・単価UP系）は必ず少なくとも1件
 - cost または efficiency（コスト削減・業務効率化）系も必ず1件以上
 - future×mid/long（中長期の投資的プロジェクト）も必ず1件以上
 - プロジェクト同士が被らないように、役割と射程を分けること
+  - 例）「既存大口向け単価UP」「新規中堅顧客獲得」「バックオフィス効率化」「人材育成・評価制度刷新」など
 
 # 各フィールドの意味
 
 - title:
   - プロジェクト名（名詞句）
-  - 見ただけで「何を通じてどこに効かせるか」が想像できるタイトルにしてください
+  - 見ただけで「どの顧客/チャネル/プロダクトを通じて、どのレバーに効かせるか」が想像できるタイトルにしてください
   - 例）「中堅B2B顧客向け高粗利パッケージの立ち上げ」
 - reason:
   - そのプロジェクトの目的・狙い・背景（1文）
@@ -216,6 +246,14 @@ kind フィールドは、
   - "short" | "mid" | "long"
 - kind:
   - "growth" | "cost" | "efficiency" | "future"
+- targetCustomer:
+  - どの顧客セグメントにフォーカスするか
+- targetChannel:
+  - どのチャネルを主に使うか
+- targetProduct:
+  - どのプロダクト・サービス/プロセスを主戦場とするか
+- mainKpi:
+  - そのプロジェクトで最も重視するKPI（1つ）
 
 # 出力形式（日本語のJSONのみ／説明禁止）
 
@@ -229,7 +267,11 @@ kind フィールドは、
       "hypothesis": "こうすれば勝てる／効くはずだという仮説（1〜2文）",
       "mainLever": "ACQ | ARPU | CHURN | COST | EFFICIENCY | FUTURE のいずれか",
       "horizon": "short | mid | long のいずれか",
-      "kind": "growth | cost | efficiency | future のいずれか"
+      "kind": "growth | cost | efficiency | future のいずれか",
+      "targetCustomer": "ターゲット顧客セグメント",
+      "targetChannel": "主なチャネル",
+      "targetProduct": "対象となるプロダクト・サービス/プロセス",
+      "mainKpi": "重視するKPI"
     }
   ]
 }
@@ -244,7 +286,10 @@ kind フィールドは、
     try {
       ai = await callOpenAIWithRetry(
         [
-          { role: 'system', content: 'あなたは有能な経営コンサルタントです。必ずJSONのみを返します。' },
+          {
+            role: 'system',
+            content: 'あなたは有能な経営コンサルタントです。必ずJSONのみを返します。',
+          },
           { role: 'user', content: prompt },
         ],
         3,
