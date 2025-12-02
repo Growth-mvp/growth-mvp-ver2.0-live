@@ -18,10 +18,12 @@ import type {
   ChapterStory,
   ChapterAnswers,
   Department,
+  WinPattern,
+  WinPatternId,
 } from '@/types/strategy';
 import type { BusinessPortfolio } from '@/types/portfolio';
 
-/* ===== 型定義 ===== */
+/* ===== 型定義（ローカル用：旧互換） ===== */
 export type AnswerStep = {
   stepNumber: number;
   question: string;
@@ -103,6 +105,11 @@ export type StrategyState = {
   finalStory: ChapterStory[];
   answers2: ChapterAnswers[];
   departments: Department[];
+
+  /* ★ 全社レベルの勝ち筋（今後使うかもしれないので受け皿だけ確保） */
+  winPatterns?: WinPattern[];
+  winPatternPrimary?: WinPatternId;
+  winPatternSecondary?: WinPatternId;
 
   /* 財務 */
   csvFinanceData?: unknown;
@@ -271,6 +278,10 @@ function isEffectivelyEmpty(payload: any): boolean {
   return allEmpty && metaAllEmpty;
 }
 
+/** 保存用ペイロード組み立て
+ *  - StrategyData に対応するフィールドのみを対象
+ *  - departments 以下はそのまま（新フィールドも透過的に保存される）
+ */
 function buildSavePayload(s: StrategyState) {
   const base: any = {
     strategyId: s.strategyId ?? undefined,
@@ -297,7 +308,13 @@ function buildSavePayload(s: StrategyState) {
     weakness: s.weakness,
     opportunity: s.opportunity,
     threat: s.threat,
+
+    // ★ 全社レベルの勝ち筋（使う場合に備えて透過保存）
+    winPatterns: s.winPatterns,
+    winPatternPrimary: s.winPatternPrimary,
+    winPatternSecondary: s.winPatternSecondary,
   };
+
   if (typeof s.businessPortfolio !== 'undefined') base.businessPortfolio = s.businessPortfolio;
   if (Array.isArray(s.csvFinanceData)) base.csvFinanceData = s.csvFinanceData;
   if (Array.isArray(s.financeSummary)) base.financeSummary = s.financeSummary;
@@ -365,6 +382,8 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     const projectsRaw = isArray(d?.projects) ? d.projects : [];
     const deptOut: any = { ...d };
     if (!deptOut.name) deptOut.name = d?.title ?? `Department ${di + 1}`;
+
+    // answers2 の正規化（department.answers2 にも chapterIndex / steps を整理）
     if (isArray(d?.answers2)) {
       deptOut.answers2 = d.answers2.map((c: any, idx: number) => ({
         chapterIndex: typeof c?.chapterIndex === 'number' ? c.chapterIndex : idx,
@@ -377,12 +396,16 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
           : [],
       }));
     }
+
+    // プロジェクト配下はスプレッドで新フィールド（levers / targetSegment 等）を透過
     deptOut.projects = projectsRaw.map((p: any) => {
       const projOut: any = { ...p };
       projOut.title = p?.title ?? p?.name ?? '';
       if (!Array.isArray(projOut.okrs)) projOut.okrs = Array.isArray(p?.okrs) ? p.okrs : [];
+      if (p?.okrsV2 && !Array.isArray(p.okrsV2)) projOut.okrsV2 = [];
       return projOut;
     });
+
     return deptOut as Department;
   });
 
@@ -426,6 +449,18 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
   const strategyId = raw.strategyId ?? raw.strategy_id ?? undefined;
   const revision = typeof raw.revision === 'number' ? raw.revision : undefined;
 
+  // ★ 勝ち筋関連（snake / camel 両対応）
+  const winPatterns: WinPattern[] | undefined = Array.isArray(raw.winPatterns)
+    ? raw.winPatterns
+    : Array.isArray(raw.win_patterns)
+    ? raw.win_patterns
+    : undefined;
+
+  const winPatternPrimary: WinPatternId | undefined =
+    raw.winPatternPrimary ?? raw.win_pattern_primary ?? undefined;
+  const winPatternSecondary: WinPatternId | undefined =
+    raw.winPatternSecondary ?? raw.win_pattern_secondary ?? undefined;
+
   return {
     strategyId,
     revision,
@@ -453,6 +488,9 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     financeSummary,
     businessPortfolio,
     simulationResult,
+    winPatterns,
+    winPatternPrimary,
+    winPatternSecondary,
   };
 }
 
@@ -482,6 +520,9 @@ const emptyData: StrategyState = {
   finalStory: [],
   answers2: [],
   departments: [],
+  winPatterns: undefined,
+  winPatternPrimary: undefined,
+  winPatternSecondary: undefined,
   csvFinanceData: undefined,
   financeSummary: undefined,
   businessPortfolio: undefined,
@@ -1052,7 +1093,8 @@ export const useStrategyStore = create<StrategyState>()(
     }),
     {
       name: 'strategy-store',
-      version: 33,
+      // 勝ち筋関連フィールド追加に合わせて version を +1
+      version: 34,
       partialize: (s) => ({
         companyId: s.companyId,
         strategyId: s.strategyId,
@@ -1085,6 +1127,11 @@ export const useStrategyStore = create<StrategyState>()(
         weakness: s.weakness,
         opportunity: s.opportunity,
         threat: s.threat,
+
+        // 勝ち筋関連もローカル永続化しておく（使う/使わないは後で決められるように）
+        winPatterns: s.winPatterns,
+        winPatternPrimary: s.winPatternPrimary,
+        winPatternSecondary: s.winPatternSecondary,
 
         revision: s.revision,
         __lastSavedHash: s.__lastSavedHash,
