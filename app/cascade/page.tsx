@@ -24,6 +24,14 @@ import type {
   AnswerStep as BaseAnswerStep,
 } from '@/types/strategy';
 
+// ★ 勝ち筋カタログ＆生成エンジン
+import {
+  generateProjectsForDepartment,
+  type IndustryCode,
+  type DepartmentKind as PatternDepartmentKind,
+  type GrowthLever,
+} from '@/lib/strategyPatterns.catalog';
+
 /* =========================
    型（store拡張互換）
 ========================= */
@@ -219,6 +227,107 @@ function hashSnapshot(obj: any) {
   return (h >>> 0).toString(16);
 }
 
+/* =========================
+   勝ち筋系ヘルパー
+========================= */
+
+// 業種文字列 → IndustryCode
+const detectIndustryCode = (raw: string | undefined): IndustryCode => {
+  const t = (raw ?? '').toLowerCase();
+  if (t.includes('saas') || t.includes('software') || t.includes('it')) return 'SAAS';
+  if (t.includes('製造') || t.includes('メーカー')) return 'MANUFACTURING';
+  if (t.includes('小売') || t.includes('retail')) return 'RETAIL';
+  if (t.includes('金融') || t.includes('bank') || t.includes('証券')) return 'FINANCE';
+  if (t.includes('サービス')) return 'SERVICE';
+  return 'OTHER';
+};
+
+// 部門名 → DepartmentKind
+const detectDepartmentKind = (name: string): PatternDepartmentKind => {
+  const n = name.toLowerCase();
+  if (/営業|sales/.test(name)) return 'SALES';
+  if (/マーケ|市場|marketing|宣伝|広報/.test(name)) return 'MARKETING';
+  if (/カスタマー|cs|サクセス|サポート/.test(name)) return 'CUSTOMER_SUCCESS';
+  if (/人事|hr/.test(name)) return 'HR';
+  if (/総務|コーポ|管理本部|管理部/.test(name)) return 'GENERAL_AFFAIRS';
+  if (/生産|製造|工場/.test(name)) return 'PRODUCTION';
+  if (/経理|財務|アカウンティング/.test(name)) return 'FINANCE_DEPT';
+  if (/情報システム|情シス|it|システム/.test(name)) return 'IT';
+  if (/経営企画|企画|戦略|社長室/.test(name)) return 'CORPORATE';
+  // 最後に英語も軽く見る
+  if (n.includes('sales')) return 'SALES';
+  if (n.includes('marketing')) return 'MARKETING';
+  if (n.includes('customer success')) return 'CUSTOMER_SUCCESS';
+  if (n.includes('hr') || n.includes('human resource')) return 'HR';
+  if (n.includes('corporate') || n.includes('strategy')) return 'CORPORATE';
+  return 'OTHER';
+};
+
+// ストーリー＆ミッション → GrowthLever優先度（最大2つ）
+const detectLeverPriority = (mission: string, story: string, dept: string): GrowthLever[] => {
+  const text = `${mission}\n${story}\n${dept}`.toLowerCase();
+  const result: GrowthLever[] = [];
+  const add = (l: GrowthLever) => {
+    if (!result.includes(l)) result.push(l);
+  };
+
+  if (/(新規|開拓|リード|商談|見込み|獲得|アポイント)/.test(text)) add('ACQ');
+  if (/(単価|アップセル|クロスセル|客単価|l tv|ltv|高付加価値)/i.test(text)) add('ARPU');
+  if (/(解約|離脱|継続|維持|チャーン|churn|ロイヤルティ|ロイヤリティ)/i.test(text)) add('CHURN');
+  if (/(コスト|費用|原価|削減|効率|生産性|固定費|変動費)/.test(text)) add('COST');
+  if (/(投資|新規事業|研究開発|r&d|イノベーション|将来|未来|種まき)/i.test(text))
+    add('INVEST');
+  if (/(連携|横串|シナジー|コラボ|横断)/.test(text)) add('SYNERGY');
+
+  // 何も引っかからない場合は、部門名ベースでざっくり決める
+  if (result.length === 0) {
+    if (/(営業|sales)/.test(dept.toLowerCase())) {
+      add('ACQ');
+      add('ARPU');
+    } else if (/(人事|hr)/.test(dept.toLowerCase())) {
+      add('ACQ'); // 採用支援としてACQ寄り
+      add('SYNERGY');
+    } else if (/(総務|コーポ|管理|finance|経理|財務)/i.test(dept)) {
+      add('COST');
+      add('SYNERGY');
+    } else if (/(生産|製造|工場)/.test(dept)) {
+      add('COST');
+      add('SYNERGY');
+    } else {
+      add('ACQ');
+      add('COST');
+    }
+  }
+
+  return result.slice(0, 2);
+};
+
+// GrowthLever → 画面側Leverへのマッピング
+const mapGrowthLeverToLever = (lever: GrowthLever): Lever | undefined => {
+  switch (lever) {
+    case 'ACQ':
+    case 'ARPU':
+    case 'CHURN':
+    case 'COST':
+      return lever;
+    case 'INVEST':
+      return 'FUTURE';
+    case 'SYNERGY':
+      return 'EFFICIENCY';
+    default:
+      return undefined;
+  }
+};
+
+// GrowthLever → Kind推定
+const mapLeverToKind = (lever: Lever | undefined): Kind | undefined => {
+  if (!lever) return undefined;
+  if (lever === 'COST') return 'cost';
+  if (lever === 'EFFICIENCY') return 'efficiency';
+  if (lever === 'FUTURE') return 'future';
+  return 'growth';
+};
+
 /* ビジュアルカード（部門戦略の全体像をシンプル表示） */
 const VisualCard = memo(function VisualCard({ d }: { d: Department }) {
   const mission = (d.strategy ?? d.mission ?? '').trim();
@@ -355,7 +464,8 @@ export default function CascadePage() {
     [(access as any)?.companyId, s?.companyId],
   );
 
-  const industry: string = (s?.industry as string) || (s?.company?.industry as string) || '';
+  const industry: string =
+    (s?.industry as string) || (s?.company?.industry as string) || '';
 
   /* ---- 初回ログだけ ---- */
   useEffect(() => {
@@ -455,7 +565,8 @@ export default function CascadePage() {
 
   /* ===== departments（store を唯一のソースに） ===== */
   const departments = useStrategyStore(
-    (st) => ((st.departments as Department[] | undefined) ?? []) as Department[],
+    (st) =>
+      ((st.departments as Department[] | undefined) ?? []) as Department[],
   );
 
   // hydrated 後のみオートセーブ対象
@@ -470,7 +581,10 @@ export default function CascadePage() {
     if (isNonEmptyStoryPayload(s?.strategyStory)) return s.strategyStory;
     return '';
   }, [s?.finalStory, s?.story, s?.strategyStory]);
-  const { text: storyText, chapters: storyChapters } = useMemo(() => getStory(rawStory), [rawStory]);
+  const { text: storyText, chapters: storyChapters } = useMemo(
+    () => getStory(rawStory),
+    [rawStory],
+  );
 
   const [notice, setNotice] = useState('');
   const [isCascadeGenerating, setIsCascadeGenerating] = useState(false);
@@ -479,9 +593,12 @@ export default function CascadePage() {
   const pushToStore = useCallback(
     (next: Department[] | ((prev: Department[]) => Department[])) => {
       const prev =
-        ((useStrategyStore.getState().departments as Department[] | undefined) ?? []) as Department[];
+        ((useStrategyStore.getState().departments as Department[] | undefined) ??
+          []) as Department[];
       const resolved =
-        typeof next === 'function' ? (next as (p: Department[]) => Department[])(prev) : next;
+        typeof next === 'function'
+          ? (next as (p: Department[]) => Department[])(prev)
+          : next;
       if (!jsonEq(prev, resolved)) {
         setDepartmentsInStore?.(resolved);
       }
@@ -586,7 +703,8 @@ export default function CascadePage() {
 
   /* ===== プロジェクト削除 ===== */
   const handleDeleteProject = async (deptIndex: number, projectIndex: number) => {
-    const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
+    const current =
+      (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
     const dept = current[deptIndex];
     if (!dept) return;
     if (!canEditDept()) return setNotice('⚠️ プロジェクト削除の権限がありません');
@@ -594,7 +712,9 @@ export default function CascadePage() {
     const targetProject = (dept.projects as Project[] | undefined)?.[projectIndex];
     if (!targetProject) return;
 
-    const ok = window.confirm(`プロジェクト「${targetProject.title || '無題'}」を削除しますか？`);
+    const ok = window.confirm(
+      `プロジェクト「${targetProject.title || '無題'}」を削除しますか？`,
+    );
     if (!ok) return;
 
     pushToStore((prev) => {
@@ -623,9 +743,10 @@ export default function CascadePage() {
     }
   };
 
-  /* ===== プロジェクト追加 ===== */
+  /* ===== プロジェクト追加（手入力／OKR画面で詳細編集する前提） ===== */
   const handleAddProject = async (deptIndex: number) => {
-    const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
+    const current =
+      (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
     const dept = current[deptIndex];
     if (!dept) return;
     if (!canEditDept()) return setNotice('⚠️ プロジェクト追加の権限がありません');
@@ -678,11 +799,14 @@ export default function CascadePage() {
       return;
     }
 
-    const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
+    const current =
+      (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
     const target = current[index];
     if (!target) return;
 
-    const ok = window.confirm(`「${target.name}」を削除しますか？\nこの操作は元に戻せません。`);
+    const ok = window.confirm(
+      `「${target.name}」を削除しますか？\nこの操作は元に戻せません。`,
+    );
     if (!ok) return;
 
     pushToStore((prev) => {
@@ -712,7 +836,7 @@ export default function CascadePage() {
     }
   };
 
-  /* ===== /api/generate-cascade を使った全社一括生成 ===== */
+  /* ===== /api/generate-cascade を使った全社一括生成（従来ロジック維持） ===== */
   const handleCascadeGenerateAll = async () => {
     if (!canEditDept()) {
       setNotice('⚠️ AI一括生成は編集権限があるユーザーのみ実行できます');
@@ -727,7 +851,9 @@ export default function CascadePage() {
     if (!storyOrWarn) return;
 
     setIsCascadeGenerating(true);
-    setNotice('✨ 全社の部門戦略案（ミッション・プロジェクト・OKR案）をAIが生成しています…');
+    setNotice(
+      '✨ 全社の部門戦略案（ミッション・プロジェクト・OKR案）をAIが生成しています…',
+    );
 
     try {
       const payload: any = {
@@ -781,7 +907,9 @@ export default function CascadePage() {
         return;
       }
 
-      const resultDepts: any[] = Array.isArray(data.departments) ? data.departments : [];
+      const resultDepts: any[] = Array.isArray(data.departments)
+        ? data.departments
+        : [];
 
       pushToStore((prev) => {
         const list = [...prev];
@@ -889,19 +1017,22 @@ export default function CascadePage() {
         }
       }
     } catch (e: any) {
-      setNotice(`❌ 一括生成中にエラーが発生しました：${e?.message ?? '不明なエラー'}`);
+      setNotice(
+        `❌ 一括生成中にエラーが発生しました：${e?.message ?? '不明なエラー'}`,
+      );
     } finally {
       setIsCascadeGenerating(false);
     }
   };
 
-  /* ===== この部門だけ：/api/generate-cascade を使ったたたき台生成 ===== */
+  /* ===== この部門だけ：/api/generate-cascade を使ったたたき台生成（従来ロジック） ===== */
   const handleDeptCascadeDraft = async (index: number) => {
     const story = requireStoryOrWarn();
     if (!story) return;
     if (!canEditDept()) return setNotice('⚠️ 編集権限がありません');
 
-    const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
+    const current =
+      (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
     const dept = current[index];
     if (!dept) return;
 
@@ -957,7 +1088,9 @@ export default function CascadePage() {
       const data = safeJsonFromText<any>(text);
 
       if (!res.ok || !data) {
-        setNotice(`❌ 部門のたたき台生成に失敗しました：${data?.error ?? res.statusText}`);
+        setNotice(
+          `❌ 部門のたたき台生成に失敗しました：${data?.error ?? res.statusText}`,
+        );
         return;
       }
 
@@ -1008,7 +1141,8 @@ export default function CascadePage() {
 
             const newProjBase: Project = {
               title,
-              hypothesis: typeof pd?.hypothesis === 'string' ? pd.hypothesis.trim() : undefined,
+              hypothesis:
+                typeof pd?.hypothesis === 'string' ? pd.hypothesis.trim() : undefined,
               mainLever: normalizeLever(pd?.mainLever),
               horizon: normalizeHorizon(pd?.horizon),
               kind: normalizeKind(pd?.kind),
@@ -1062,9 +1196,147 @@ export default function CascadePage() {
         }
       }
     } catch (e: any) {
-      setNotice(`❌ 部門のたたき台生成中にエラーが発生しました：${e?.message ?? '不明なエラー'}`);
+      setNotice(
+        `❌ 部門のたたき台生成中にエラーが発生しました：${e?.message ?? '不明なエラー'}`,
+      );
     } finally {
       setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), deptDraft: false } }));
+    }
+  };
+
+  /* ===== 勝ち筋カタログベース：この部門のプロジェクト＆OKR案を生成 ===== */
+  const handleDeptWinPatternGenerate = async (index: number) => {
+    if (!canEditDept()) {
+      setNotice('⚠️ プロジェクト＆OKR案の生成は編集権限があるユーザーのみ実行できます');
+      return;
+    }
+
+    const story = requireStoryOrWarn();
+    if (!story) return;
+
+    const current =
+      (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
+    const dept = current[index];
+    if (!dept) return;
+
+    const missionText = (dept.strategy ?? dept.mission ?? '').trim();
+
+    const industryCode = detectIndustryCode(industry);
+    const deptKind = detectDepartmentKind(dept.name);
+    const leverPriority = detectLeverPriority(missionText, storyText, dept.name);
+
+    setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), winPattern: true } }));
+    setNotice(
+      `✨ ${dept.name} のプロジェクト＆OKR案を「勝ち筋カタログ」から生成しています…`,
+    );
+
+    try {
+      const generated = generateProjectsForDepartment({
+        industry: industryCode,
+        departmentKind: deptKind,
+        leverPriority,
+        missionText,
+        storyText,
+        maxProjects: 3,
+      });
+
+      if (!generated.length) {
+        setNotice(
+          `⚠️ ${dept.name} に対して、勝ち筋カタログから該当するパターンが見つかりませんでした（業種・部門名の表現を見直すとマッチしやすくなります）`,
+        );
+        return;
+      }
+
+      pushToStore((prev) => {
+        const list = [...prev];
+        const d = list[index];
+        if (!d) return prev;
+
+        const existingProjects = (d.projects as Project[] | undefined) ?? [];
+        let projects: Project[] = [...existingProjects];
+
+        for (const gp of generated) {
+          const title = gp.title || '無題のプロジェクト';
+          const mappedLever = mapGrowthLeverToLever(gp.lever);
+          const kind = mapLeverToKind(mappedLever);
+
+          const okr: StoreOKR | null =
+            gp.objective || (gp.keyResults && gp.keyResults.length)
+              ? {
+                  objective: gp.objective || '',
+                  keyResults: gp.keyResults ?? [],
+                  owner: undefined,
+                }
+              : null;
+
+          const existIdx = projects.findIndex((p) => (p.title ?? '') === title);
+
+          if (existIdx >= 0) {
+            // 既存プロジェクトがある場合はOKRとメタ情報をマージ
+            const existing = { ...(projects[existIdx] as Project) };
+            const baseOkrs: StoreOKR[] = [...(existing.okrs ?? [])];
+
+            if (okr) {
+              if (!baseOkrs[0]) {
+                baseOkrs[0] = okr;
+              } else if (
+                !(
+                  baseOkrs[0].objective === okr.objective &&
+                  jsonEq(baseOkrs[0].keyResults, okr.keyResults)
+                )
+              ) {
+                baseOkrs.push(okr);
+              }
+            }
+
+            projects[existIdx] = {
+              ...existing,
+              okrs: baseOkrs,
+              hypothesis: existing.hypothesis || gp.description || '',
+              mainLever: existing.mainLever || mappedLever,
+              kind: existing.kind || kind,
+              // horizonはここでは決めない（ユーザーが後から決める）
+            };
+          } else {
+            projects.push({
+              title,
+              hypothesis: gp.description || '',
+              mainLever: mappedLever,
+              kind,
+              okrs: okr ? [okr] : [],
+            } as Project);
+          }
+        }
+
+        if (jsonEq(projects, existingProjects)) return prev;
+        list[index] = { ...d, projects };
+        return list;
+      });
+
+      setNotice(
+        `✅ ${dept.name} のプロジェクト＆OKR案を「勝ち筋カタログ」ベースで追加しました（詳細はOKR画面で詰めてください）`,
+      );
+
+      if (saveNow) {
+        try {
+          await saveNow();
+          setNotice(
+            `✅ ${dept.name} の勝ち筋ドリブンなプロジェクト＆OKR案を追加し、サーバーにも保存しました`,
+          );
+        } catch {
+          setNotice(
+            `⚠️ ${dept.name} の勝ち筋ドリブン案は画面上には反映されていますが、サーバー保存に失敗しました`,
+          );
+        }
+      }
+    } catch (e: any) {
+      setNotice(
+        `❌ ${dept.name} の勝ち筋カタログ生成中にエラーが発生しました：${
+          e?.message ?? '不明なエラー'
+        }`,
+      );
+    } finally {
+      setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), winPattern: false } }));
     }
   };
 
@@ -1238,7 +1510,8 @@ export default function CascadePage() {
             </Button>
             <Button
               onClick={async () => {
-                if (!deptName.trim()) return setNotice('⚠️ 部門名を入力してください');
+                if (!deptName.trim())
+                  return setNotice('⚠️ 部門名を入力してください');
                 const baseName = deptName.trim();
                 const baseMission = deptMission.trim();
 
@@ -1270,7 +1543,9 @@ export default function CascadePage() {
                 if (saveNow) {
                   try {
                     await saveNow();
-                    setNotice(`✅ ${baseName} を追加しました（サーバーにも反映済み）`);
+                    setNotice(
+                      `✅ ${baseName} を追加しました（サーバーにも反映済み）`,
+                    );
                   } catch {
                     setNotice(
                       `⚠️ ${baseName} の追加は画面上は反映されていますが、サーバー保存に失敗しました`,
@@ -1301,7 +1576,12 @@ export default function CascadePage() {
           {departments.map((dept, index) => {
             const editableDept = canEditDept();
             const L = loading[index] ?? {};
-            const inlineDraft = (inlineEdit[index] ?? dept.strategy ?? dept.mission ?? '').toString();
+            const inlineDraft = (
+              inlineEdit[index] ??
+              dept.strategy ??
+              dept.mission ??
+              ''
+            ).toString();
 
             const answers = answersMemo[index];
             const projTitles = projectsMemo[index];
@@ -1343,13 +1623,15 @@ export default function CascadePage() {
                 {/* 部門ミッション（AIたたき台＋手修正用） */}
                 <textarea
                   value={inlineDraft}
-                  onChange={(e) => setInlineEdit((p) => ({ ...p, [index]: e.target.value }))}
+                  onChange={(e) =>
+                    setInlineEdit((p) => ({ ...p, [index]: e.target.value }))
+                  }
                   className="w-full border rounded-xl p-2 mb-2 text-sm"
                   readOnly={!editableDept || isHydrating}
                   placeholder="この部門の役割やミッションのイメージを記入してください（AIたたき台の修正もここで行います）"
                 />
 
-                {/* 保存＋AIたたき台（この部門だけ） */}
+                {/* 保存＋AIたたき台（この部門だけ）＋勝ち筋カタログ生成 */}
                 <div className="flex flex-wrap gap-2 mb-1">
                   <Button
                     onClick={() => void saveInlineMission(index)}
@@ -1371,11 +1653,25 @@ export default function CascadePage() {
                       ? 'たたき台を生成中…'
                       : 'AIでこの部門のたたき台（ミッション・プロジェクト・OKR案）'}
                   </Button>
+
+                  <Button
+                    variant="outline"
+                    onClick={() => handleDeptWinPatternGenerate(index)}
+                    disabled={!editableDept || !!L.winPattern || isHydrating}
+                    className="rounded-full h-9 px-4"
+                    title="勝ち筋カタログに基づき、この部門のプロジェクト＆OKR案を生成します"
+                  >
+                    <Sparkles className="w-4 h-4 mr-1" />
+                    {L.winPattern
+                      ? '勝ち筋から生成中…'
+                      : '勝ち筋カタログからプロジェクト＆OKR案'}
+                  </Button>
                 </div>
                 <p className="text-xs text-zinc-500 mb-3">
-                  ※ 「AIでこの部門のたたき台」を押すと、経営ストーリーと部門名から
-                  <b>ミッション・プロジェクト・OKR案</b> をAIが提案します。
-                  生成後は、この画面と「OKR設定」画面で自由に編集できます。
+                  ※ 「AIでこの部門のたたき台」はミッションも含めて生成します。/
+                  「勝ち筋カタログからプロジェクト＆OKR案」は、経営ストーリーと部門名・ミッションから
+                  <b>勝ち筋ドリブンなプロジェクト＆OKR案</b>だけを追加生成します。
+                  詳細な数値や構造化は「OKR設定」画面で詰めてください。
                 </p>
 
                 {/* 掘り下げ質問（3問） */}
@@ -1459,7 +1755,9 @@ export default function CascadePage() {
                     {/* 部門ミッションの再掲示 */}
                     {deptMissionText && (
                       <div className="mb-3 rounded-2xl border bg-zinc-50 px-3 py-2">
-                        <div className="text-[11px] text-zinc-500 mb-1">この部門のミッション</div>
+                        <div className="text-[11px] text-zinc-500 mb-1">
+                          この部門のミッション
+                        </div>
                         <div className="text-sm text-zinc-800 whitespace-pre-wrap">
                           {deptMissionText}
                         </div>
@@ -1467,7 +1765,9 @@ export default function CascadePage() {
                     )}
 
                     <div className="flex items-center justify-between mb-2 gap-2">
-                      <h4 className="text-sm font-semibold text-zinc-800">プロジェクト案とOKR案</h4>
+                      <h4 className="text-sm font-semibold text-zinc-800">
+                        プロジェクト案とOKR案
+                      </h4>
                       <div className="flex items-center gap-2">
                         <span className="text-[11px] text-zinc-500 hidden sm:inline">
                           ※ 詳細な編集や構造化は「OKR設定」画面で行えます。
@@ -1747,7 +2047,9 @@ export default function CascadePage() {
 
                             {/* Owner（主な担当） */}
                             <div className="pl-5 mt-2">
-                              <div className="text-[11px] text-zinc-500 mb-1">主な担当（Owner）</div>
+                              <div className="text-[11px] text-zinc-500 mb-1">
+                                主な担当（Owner）
+                              </div>
                               <input
                                 className="w-full text-xs text-zinc-800 bg-white border border-zinc-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-400"
                                 value={owner}
@@ -1828,7 +2130,9 @@ export default function CascadePage() {
                   <div className="mt-4">
                     {deptMissionText && (
                       <div className="mb-3 rounded-2xl border bg-zinc-50 px-3 py-2">
-                        <div className="text-[11px] text-zinc-500 mb-1">この部門のミッション</div>
+                        <div className="text-[11px] text-zinc-500 mb-1">
+                          この部門のミッション
+                        </div>
                         <div className="text-sm text-zinc-800 whitespace-pre-wrap">
                           {deptMissionText}
                         </div>
