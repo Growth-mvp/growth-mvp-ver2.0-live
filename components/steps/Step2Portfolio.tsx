@@ -11,7 +11,7 @@ import type {
   PortfolioThreshold,
   UnitType,
 } from '@/types/portfolio';
-import { classifyStage, createDefaultPortfolio } from '@/types/portfolio';
+  import { classifyStage, createDefaultPortfolio } from '@/types/portfolio';
 import { saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
 
 /* ============ ユーティリティ ============ */
@@ -41,7 +41,7 @@ export default function Step2Portfolio(_props: Props) {
   };
 
   const { user, companyId, hydrated, membershipLoaded } = useUserStore() as any;
-  const role = (useUserStore() as any).role; // 必要なら保持
+  const role = (useUserStore() as any).role;
   const userId = user?.id ?? null;
 
   // 単一ソース（未設定ならデフォルト生成）
@@ -92,7 +92,12 @@ export default function Step2Portfolio(_props: Props) {
     scheduleSave();
   }, [scheduleSave]);
 
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    },
+    []
+  );
 
   // commit: store更新 + dirty
   const commit = (next: BusinessPortfolio) => {
@@ -117,14 +122,22 @@ export default function Step2Portfolio(_props: Props) {
 
   /* ============ 操作群 ============ */
   const newId = () =>
-    (globalThis as any).crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    (globalThis as any).crypto?.randomUUID?.() ??
+    `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   const addUnit = (patch?: Partial<BusinessUnit>) => {
     const next: BusinessPortfolio = {
       ...portfolio,
       units: [
         ...(portfolio.units ?? []),
-        { id: newId(), name: `Unit ${(portfolio.units?.length ?? 0) + 1}`, revenueShare: 10, growthRate: 0, profitMargin: 0, ...patch },
+        {
+          id: newId(),
+          name: `Unit ${(portfolio.units?.length ?? 0) + 1}`,
+          revenueShare: 10,
+          growthRate: 0,
+          profitMargin: 0,
+          ...patch,
+        },
       ],
     };
     commit(next);
@@ -147,7 +160,10 @@ export default function Step2Portfolio(_props: Props) {
   };
 
   const setThreshold = (patch: Partial<PortfolioThreshold>) => {
-    const next: BusinessPortfolio = { ...portfolio, threshold: { ...portfolio.threshold, ...patch } };
+    const next: BusinessPortfolio = {
+      ...portfolio,
+      threshold: { ...portfolio.threshold, ...patch },
+    };
     commit(next);
   };
 
@@ -156,16 +172,83 @@ export default function Step2Portfolio(_props: Props) {
     commit(next);
   };
 
-  /* ============ チャート設定 ============ */
-  const width = 760, height = 380, padding = 40;
-  const gx = (profitMargin: number) => clamp(padding + ((profitMargin - (-50)) / (100)) * (width - padding * 2), padding, width - padding);
-  const gy = (growthRate: number) => {
-    const min = -100, max = 150;
-    return clamp(height - padding - ((growthRate - min) / (max - min)) * (height - padding * 2), padding, height - padding);
-  };
+  /* ============ チャート設定（x=成長率, y=利益率, 0軸中心） ============ */
+  const width = 760;
+  const height = 380;
+  const padding = 40;
+  const innerWidth = width - padding * 2;
+  const innerHeight = height - padding * 2;
+
+  // x軸: 成長率（%）
+  // y軸: 利益率（%）
+
+  const growthValues: number[] = [];
+  const profitValues: number[] = [];
+
+  (portfolio.units ?? []).forEach((u) => {
+    if (Number.isFinite(u.growthRate)) growthValues.push(u.growthRate as number);
+    if (Number.isFinite(u.profitMargin)) profitValues.push(u.profitMargin as number);
+  });
+
+  // ベースラインと0%も必ず含める
+  growthValues.push(portfolio.threshold.growthBaseline ?? 0);
+  profitValues.push(portfolio.threshold.profitBaseline ?? 0);
+  growthValues.push(0);
+  profitValues.push(0);
+
+  // データがないときのデフォルト
+  let gMin = growthValues.length > 0 ? Math.min(...growthValues) : -10;
+  let gMax = growthValues.length > 0 ? Math.max(...growthValues) : 10;
+  let pMin = profitValues.length > 0 ? Math.min(...profitValues) : -10;
+  let pMax = profitValues.length > 0 ? Math.max(...profitValues) : 10;
+
+  // 余白を少し足す（15% or 最低2ポイント）
+  const gSpan = gMax - gMin || 1;
+  const pSpan = pMax - pMin || 1;
+  const gMargin = Math.max(gSpan * 0.15, 2);
+  const pMargin = Math.max(pSpan * 0.15, 2);
+  gMin -= gMargin;
+  gMax += gMargin;
+  pMin -= pMargin;
+  pMax += pMargin;
+
+  // 0%を中心に対称にする（0軸が必ず中心に来る）
+  const gExtent = Math.max(Math.abs(gMin), Math.abs(gMax), 10); // 最低 ±10%
+  const pExtent = Math.max(Math.abs(pMin), Math.abs(pMax), 10);
+  const gDomainMin = -gExtent;
+  const gDomainMax = gExtent;
+  const pDomainMin = -pExtent;
+  const pDomainMax = pExtent;
+
+  // x: growthRate -> 右方向がプラス
+  const gx = (growthRate: number) =>
+    clamp(
+      padding +
+        ((growthRate - gDomainMin) / (gDomainMax - gDomainMin)) * innerWidth,
+      padding,
+      width - padding
+    );
+
+  // y: profitMargin -> 上方向がプラス
+  const gy = (profitMargin: number) =>
+    clamp(
+      height -
+        padding -
+        ((profitMargin - pDomainMin) / (pDomainMax - pDomainMin)) * innerHeight,
+      padding,
+      height - padding
+    );
+
+  // バブルサイズ
   const rScale = (share: number) => 8 + (clamp(share, 0, 100) / 100) * (40 - 8);
-  const baselineX = gx(portfolio.threshold.profitBaseline);
-  const baselineY = gy(portfolio.threshold.growthBaseline);
+
+  // 0軸の位置（必ず中心）
+  const zeroX = gx(0);
+  const zeroY = gy(0);
+
+  // ベースライン（成長率ベースライン = 縦線 / 利益率ベースライン = 横線）
+  const baselineX = gx(portfolio.threshold.growthBaseline);
+  const baselineY = gy(portfolio.threshold.profitBaseline);
 
   /* ============ 手動保存 ============ */
   const handleManualSave = useCallback(async () => {
@@ -202,7 +285,12 @@ export default function Step2Portfolio(_props: Props) {
             <span className="text-xs text-gray-500">
               {saving ? '保存中…' : saveError ? `保存失敗：${saveError}` : '保存待ち'}
             </span>
-            <Button size="sm" className="border bg-white hover:bg-gray-50" onClick={handleManualSave} disabled={!canPersist || saving}>
+            <Button
+              size="sm"
+              className="border bg-white hover:bg-gray-50"
+              onClick={handleManualSave}
+              disabled={!canPersist || saving}
+            >
               手動で保存
             </Button>
           </div>
@@ -219,7 +307,11 @@ export default function Step2Portfolio(_props: Props) {
               return (
                 <Button
                   key={t}
-                  className={active ? 'bg-gray-900 text-white hover:bg-gray-800' : 'border bg-white hover:bg-gray-50'}
+                  className={
+                    active
+                      ? 'bg-gray-900 text-white hover:bg-gray-800'
+                      : 'border bg白 hover:bg-gray-50'
+                  }
                   onClick={() => setUnitType(t)}
                 >
                   {t === 'business' ? '事業' : t === 'product' ? '商品' : 'サービス'}
@@ -243,14 +335,21 @@ export default function Step2Portfolio(_props: Props) {
           <select
             className="w-full rounded-xl border px-3 py-2"
             value={portfolio.currency}
-            onChange={(e) => commit({ ...portfolio, currency: e.target.value as BusinessPortfolio['currency'] })}
+            onChange={(e) =>
+              commit({
+                ...portfolio,
+                currency: e.target.value as BusinessPortfolio['currency'],
+              })
+            }
           >
-            <option value="JPY">JPY</option><option value="USD">USD</option><option value="EUR">EUR</option>
+            <option value="JPY">JPY</option>
+            <option value="USD">USD</option>
+            <option value="EUR">EUR</option>
           </select>
         </div>
       </div>
 
-      {/* ベースライン */}
+      {/* ベースライン入力 */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
         <div>
           <label className="block text-sm text-gray-600 mb-1">成長率ベースライン（%）</label>
@@ -259,7 +358,8 @@ export default function Step2Portfolio(_props: Props) {
             className="w-full rounded-xl border px-3 py-2"
             value={portfolio.threshold.growthBaseline}
             onChange={(e) => {
-              const n = toNumberOrUndefined(e.target.value); if (n == null) return;
+              const n = toNumberOrUndefined(e.target.value);
+              if (n == null) return;
               setThreshold({ growthBaseline: n });
             }}
           />
@@ -271,7 +371,8 @@ export default function Step2Portfolio(_props: Props) {
             className="w-full rounded-xl border px-3 py-2"
             value={portfolio.threshold.profitBaseline}
             onChange={(e) => {
-              const n = toNumberOrUndefined(e.target.value); if (n == null) return;
+              const n = toNumberOrUndefined(e.target.value);
+              if (n == null) return;
               setThreshold({ profitBaseline: n });
             }}
           />
@@ -281,34 +382,95 @@ export default function Step2Portfolio(_props: Props) {
         </div>
       </div>
 
-      {/* チャート（必要最小のガイド線とラベルのみ） */}
-      <div className="rounded-2xl border bg-white p-4 overflow-x-auto">
+      {/* チャート */}
+      <div className="rounded-2xl border bg白 p-4 overflow-x-auto">
         <svg width={width} height={height} role="img" aria-label="事業ポートフォリオ">
-          <line x1={baselineX} y1={padding} x2={baselineX} y2={height - padding} stroke="#e5e7eb" strokeDasharray="6 6" />
-          <line x1={padding} y1={baselineY} x2={width - padding} y2={baselineY} stroke="#e5e7eb" strokeDasharray="6 6" />
-          <text x={width / 2} y={height - 6} textAnchor="middle" className="fill-gray-500 text-[12px]">利益率（%）</text>
-          <text x={12} y={height / 2} transform={`rotate(-90 12 ${height / 2})`} textAnchor="middle" className="fill-gray-500 text-[12px]">成長率（%）</text>
+          {/* 0%軸（太めの実線） */}
+          <line
+            x1={zeroX}
+            y1={padding}
+            x2={zeroX}
+            y2={height - padding}
+            stroke="#9ca3af"
+            strokeWidth={1}
+          />
+          <line
+            x1={padding}
+            y1={zeroY}
+            x2={width - padding}
+            y2={zeroY}
+            stroke="#9ca3af"
+            strokeWidth={1}
+          />
 
+          {/* ベースライン（破線） */}
+          <line
+            x1={baselineX}
+            y1={padding}
+            x2={baselineX}
+            y2={height - padding}
+            stroke="#e5e7eb"
+            strokeDasharray="6 6"
+          />
+          <line
+            x1={padding}
+            y1={baselineY}
+            x2={width - padding}
+            y2={baselineY}
+            stroke="#e5e7eb"
+            strokeDasharray="6 6"
+          />
+
+          {/* 軸ラベル */}
+          <text
+            x={width / 2}
+            y={height - 6}
+            textAnchor="middle"
+            className="fill-gray-500 text-[12px]"
+          >
+            成長率（%）
+          </text>
+          <text
+            x={12}
+            y={height / 2}
+            transform={`rotate(-90 12 ${height / 2})`}
+            textAnchor="middle"
+            className="fill-gray-500 text-[12px]"
+          >
+            利益率（%）
+          </text>
+
+          {/* 気泡 */}
           {displayUnits.map((u) => {
-            const cx = gx(u.profitMargin);
-            const cy = gy(u.growthRate);
-            const r  = rScale(u.revenueShare);
+            const cx = gx(u.growthRate);
+            const cy = gy(u.profitMargin);
+            const r = rScale(u.revenueShare);
             const fill = u.color || '#4f46e5';
             return (
               <g key={u.id}>
                 <circle cx={cx} cy={cy} r={r} fill={fill} fillOpacity={0.2} stroke={fill} />
-                <text x={cx} y={cy} textAnchor="middle" dy="0.35em" className="text-[12px] fill-gray-800">{u.name}</text>
+                <text
+                  x={cx}
+                  y={cy}
+                  textAnchor="middle"
+                  dy="0.35em"
+                  className="text-[12px] fill-gray-800"
+                >
+                  {u.name}
+                </text>
               </g>
             );
           })}
         </svg>
       </div>
 
-      {/* テーブル（最小限の操作のみ） */}
-      <div className="rounded-2xl border bg-white">
+      {/* テーブル */}
+      <div className="rounded-2xl border bg白">
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <div className="font-medium">一覧編集</div>
-          <Button className="border bg-white hover:bg-gray-50" onClick={() => addUnit()}>追加</Button>
+          <Button className="border bg白 hover:bg-gray-50" onClick={() => addUnit()}>
+            追加
+          </Button>
         </div>
 
         <div className="overflow-x-auto">
@@ -331,7 +493,13 @@ export default function Step2Portfolio(_props: Props) {
                       className="w-full rounded-lg border px-3 py-2"
                       value={u.name}
                       onChange={(e) => updateUnit(u.id, { name: e.target.value })}
-                      placeholder={portfolio.unitType === 'business' ? '事業名' : portfolio.unitType === 'product' ? '商品名' : 'サービス名'}
+                      placeholder={
+                        portfolio.unitType === 'business'
+                          ? '事業名'
+                          : portfolio.unitType === 'product'
+                          ? '商品名'
+                          : 'サービス名'
+                      }
                     />
                   </td>
                   <td className="px-4 py-2 text-right">
@@ -340,7 +508,8 @@ export default function Step2Portfolio(_props: Props) {
                       className="w-full rounded-lg border px-3 py-2 text-right"
                       value={u.revenueShare}
                       onChange={(e) => {
-                        const n = toNumberOrUndefined(e.target.value); if (n == null) return;
+                        const n = toNumberOrUndefined(e.target.value);
+                        if (n == null) return;
                         updateUnit(u.id, { revenueShare: clamp(n, 0, 100) });
                       }}
                       placeholder="0-100"
@@ -352,7 +521,8 @@ export default function Step2Portfolio(_props: Props) {
                       className="w-full rounded-lg border px-3 py-2 text-right"
                       value={u.growthRate}
                       onChange={(e) => {
-                        const n = toNumberOrUndefined(e.target.value); if (n == null) return;
+                        const n = toNumberOrUndefined(e.target.value);
+                        if (n == null) return;
                         updateUnit(u.id, { growthRate: clamp(n, -100, 300) });
                       }}
                     />
@@ -363,7 +533,8 @@ export default function Step2Portfolio(_props: Props) {
                       className="w-full rounded-lg border px-3 py-2 text-right"
                       value={u.profitMargin}
                       onChange={(e) => {
-                        const n = toNumberOrUndefined(e.target.value); if (n == null) return;
+                        const n = toNumberOrUndefined(e.target.value);
+                        if (n == null) return;
                         updateUnit(u.id, { profitMargin: clamp(n, -100, 100) });
                       }}
                     />
@@ -377,7 +548,11 @@ export default function Step2Portfolio(_props: Props) {
                     />
                   </td>
                   <td className="px-4 py-2 text-right">
-                    <Button size="sm" className="bg-red-600 text-white hover:bg-red-700" onClick={() => removeUnit(u.id)}>
+                    <Button
+                      size="sm"
+                      className="bg-red-600 text-white hover:bg-red-700"
+                      onClick={() => removeUnit(u.id)}
+                    >
                       削除
                     </Button>
                   </td>
