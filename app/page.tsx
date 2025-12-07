@@ -87,7 +87,7 @@ export default function Home() {
                 text-neutral-600 dark:text-neutral-300
               "
             >
-              全社で経営を議論し、行動と業績を変えるAIプラットフォーム
+              戦略を行動に、行動を成果に変える経営支援プラットフォーム
             </motion.p>
 
             {/* CTA（既存機能維持） */}
