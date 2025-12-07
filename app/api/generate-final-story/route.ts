@@ -1,4 +1,3 @@
-// /app/api/generate-final-story/route.ts
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -63,7 +62,7 @@ function safeSerialize(v: unknown): unknown {
 }
 function safeGetIndustryLabel(code: string, opts?: { full?: boolean }): string {
   try {
-    if (typeof _getIndustryLabel === 'function') return _getIndustryLabel(code, opts);
+      if (typeof _getIndustryLabel === 'function') return _getIndustryLabel(code, opts);
   } catch {}
   return code || '—';
 }
@@ -298,6 +297,94 @@ function buildAnswersRich(a2: ChapterAnswers[] = [], take = 3): string {
 }
 
 /* =========================
+ * 事業ポートフォリオ正規化
+ * =======================*/
+type NormalizedBusiness = {
+  name: string;
+  revenueShare?: number;
+  growth?: number;
+  margin?: number;
+};
+type NormalizedPortfolio = {
+  businesses?: NormalizedBusiness[];
+  focus?: string;
+};
+
+function normalizePortfolioInput(
+  portfolio: unknown,
+  businessPortfolio: unknown,
+): NormalizedPortfolio | null {
+  // ① 旧形式 { businesses: [...], focus?: string } が来ている場合
+  const p = portfolio as any;
+  if (p && Array.isArray(p.businesses)) {
+    const businesses: NormalizedBusiness[] = (p.businesses as any[]).map((b) => ({
+      name:
+        b?.name ??
+        b?.businessName ??
+        b?.segmentName ??
+        b?.title ??
+        '（名称未設定の事業）',
+      revenueShare:
+        typeof b?.revenueShare === 'number'
+          ? b.revenueShare
+          : typeof b?.salesShare === 'number'
+          ? b.salesShare
+          : typeof b?.share === 'number'
+          ? b.share
+          : undefined,
+      growth:
+        typeof b?.growthRate === 'number'
+          ? b.growthRate
+          : typeof b?.growth === 'number'
+          ? b.growth
+          : undefined,
+      margin:
+        typeof b?.profitMargin === 'number'
+          ? b.profitMargin
+          : typeof b?.margin === 'number'
+          ? b.margin
+          : undefined,
+    }));
+    return { businesses, focus: p?.focus };
+  }
+
+  // ② 新形式 businessPortfolio: BusinessPortfolioItem[] 想定
+  if (Array.isArray(businessPortfolio) && businessPortfolio.length) {
+    const businesses: NormalizedBusiness[] = (businessPortfolio as any[]).map((b) => ({
+      name:
+        b?.name ??
+        b?.businessName ??
+        b?.segmentName ??
+        b?.title ??
+        '（名称未設定の事業）',
+      revenueShare:
+        typeof b?.revenueShare === 'number'
+          ? b.revenueShare
+          : typeof b?.salesShare === 'number'
+          ? b.salesShare
+          : typeof b?.share === 'number'
+          ? b.share
+          : undefined,
+      growth:
+        typeof b?.growthRate === 'number'
+          ? b.growthRate
+          : typeof b?.growth === 'number'
+          ? b.growth
+          : undefined,
+      margin:
+        typeof b?.profitMargin === 'number'
+          ? b.profitMargin
+          : typeof b?.margin === 'number'
+          ? b.margin
+          : undefined,
+    }));
+    return { businesses };
+  }
+
+  return null;
+}
+
+/* =========================
  * OpenAI 呼び出し（JSON強制＋フォールバック）
  * =======================*/
 type ChatArgs = {
@@ -390,7 +477,6 @@ function ensureBridges(
   return sections;
 }
 
-
 /* =========================
  * 429/5xx 時のヒューリスティック最終ストーリー生成
  * =======================*/
@@ -415,9 +501,8 @@ function heuristicFinal(
     } | null;
     patterns: string[];
     thought?: unknown;
-    // オプション：ポートフォリオ連携（存在時のみ）
     portfolio?: {
-      businesses?: Array<{ name: string; revenueShare?: number; margin?: number; growth?: number }>[]; // eslint-disable-line @typescript-eslint/indent
+      businesses?: Array<{ name: string; revenueShare?: number; margin?: number; growth?: number }>;
       focus?: string;
     } | null;
   },
@@ -635,7 +720,8 @@ export async function POST(req: NextRequest) {
       temperature = 0.95,
       budgets, // 互換のため残置
       patterns, // string[] | WinningPatternKey[]
-      portfolio, // { businesses:[{name,...}], focus?:string }
+      portfolio, // 旧形式 { businesses: [...], focus?: string }
+      businessPortfolio, // 新形式 BusinessPortfolioItem[]（任意）
       enhanceEmotion, // ★ 追加：true/false（未指定はtrue）
     } = body;
 
@@ -661,6 +747,9 @@ export async function POST(req: NextRequest) {
       : [];
     const patternsLine = patternsArr.length ? patternsArr.join(', ') : '—';
 
+    // 旧 portfolio / 新 businessPortfolio を統合して正規化
+    const normalizedPortfolio = normalizePortfolioInput(portfolio, businessPortfolio);
+
     void budgets; // 未使用（互換のため残置）
 
     /* ---------- System ---------- */
@@ -681,6 +770,10 @@ export async function POST(req: NextRequest) {
 【勝ちパターン（必ず反映）】
 - 入力された勝ちパターンに整合する語り・事例・トレードオフを織り込む。
 - 「やらないこと」宣言は、選んだパターンのロジックと矛盾させない。
+
+【事業ポートフォリオを踏まえた書き方】
+- 主要事業の売上比率・成長率・利益率が与えられている場合、「どこで勝ちに行くか／どこを維持・縮小するか」を第2〜3章で自然に言語化する。
+- ただし個別事業の詳細な損益計画には入り込みすぎず、「勝ち筋」との整合がわかる粒度で語る。
 
 【自社の勝ち筋（一文）の扱い】
 - ユーザーコンテンツの「現場の声（直近から抽出/引用候補）」は、全12問の回答のエッセンスである。
@@ -709,11 +802,21 @@ export async function POST(req: NextRequest) {
     );
 
     const portfolioSummary = (() => {
-      const p = portfolio as any;
+      const p = normalizedPortfolio as any;
       if (!p?.businesses?.length) return '—';
       const list = (p.businesses as any[])
         .slice(0, 8)
-        .map((b) => b?.name)
+        .map((b) => {
+          const name = b?.name ?? '（名称未設定の事業）';
+          const bits: string[] = [];
+          if (typeof b?.revenueShare === 'number')
+            bits.push(`売上比${b.revenueShare}%`);
+          if (typeof b?.growth === 'number')
+            bits.push(`成長${b.growth}%`);
+          if (typeof b?.margin === 'number')
+            bits.push(`利益率${b.margin}%`);
+          return bits.length ? `${name}（${bits.join(' / ')}）` : name;
+        })
         .filter(Boolean)
         .join('・');
       const focus = p?.focus ? `（注力=${p.focus}）` : '';
@@ -808,7 +911,7 @@ ${answersRich || '—'}
         finMini,
         patterns: patternsArr,
         thought,
-        portfolio: (portfolio as any) ?? null,
+        portfolio: (normalizedPortfolio as any) ?? null,
       });
       finalStory = h.finalStory;
       longform = h.longform;
