@@ -53,7 +53,7 @@ const CHAPTER_GOALS_FUTURE = [
   '未来から見た現状：3〜5年後の理想像を先に置き、そこから見える現在の制約・惰性・壁を率直に描く（過去/既存は“素材”として評価）。',
   '戦略（両利き）：内部変革×外部変革を統合。既存資産の再定義（Exploitation）と新価値創造（Exploration）を同時に設計。選ばないこと/やめることも明言。',
   '未来像：顧客・社員・社会の“情景”で示す（SHOW, DON’T TELL）。KPIが無ければKCI（創造の兆し）中心の定性で可視化。',
-  '逆算アクション：短期KPI（守り）とKCI（攻め）を併記。《目的／仮説／最初の一歩／やめること／合図》を雛形として提示（具体タスク過多は避ける）。',
+  '逆算アクション：短期KPI（守り）とKCI（Key Creation Indicator：創造の兆し）を併記。《目的／仮説／最初の一歩／やめること／合図》を雛形として提示（具体タスク過多は避ける）。',
 ] as const;
 
 /** 未入力は空文字に。JSON.stringifyは使わない */
@@ -184,6 +184,206 @@ function buildTopPatternDigest(ids?: string[]) {
     : '';
 }
 
+/* ============================================================
+ * ★ 追加ヘルパー：事業ポートフォリオ＆財務サマリー要約
+ * ==========================================================*/
+
+/**
+ * businessPortfolio から
+ * 「事業名／売上構成比／成長率／利益率／ポジション」を抜き出して要約。
+ * 型は厳密に想定せず、よくありそうなプロパティ名をゆるく拾う。
+ */
+function buildBusinessPortfolioDigest(portfolio: any): string {
+  if (!Array.isArray(portfolio) || portfolio.length === 0) return '';
+
+  const lines = portfolio.slice(0, 8).map((p: any) => {
+    const name = sanitize(
+      p?.name ??
+        p?.businessName ??
+        p?.segmentName ??
+        p?.title ??
+        '（名称未設定の事業）',
+      80,
+    );
+
+    const share =
+      p?.revenueShare ??
+      p?.salesShare ??
+      p?.share ??
+      p?.ratio ??
+      null;
+    const growth =
+      p?.growthRate ??
+      p?.salesGrowth ??
+      p?.growth ??
+      null;
+    const margin =
+      p?.profitMargin ??
+      p?.margin ??
+      p?.opMargin ??
+      null;
+    const role =
+      p?.positionLabel ??
+      p?.position ??
+      p?.category ??
+      p?.role ??
+      '';
+
+    const metrics: string[] = [];
+    if (share !== null && share !== undefined)
+      metrics.push(`売上構成比 ${share}%`);
+    if (growth !== null && growth !== undefined)
+      metrics.push(`成長率 ${growth}%`);
+    if (margin !== null && margin !== undefined)
+      metrics.push(`利益率 ${margin}%`);
+
+    const parts: string[] = [name];
+    if (metrics.length) parts.push(metrics.join(' / '));
+    if (role) parts.push(`ポジション: ${role}`);
+
+    return '・' + parts.join(' ｜ ');
+  });
+
+  if (!lines.length) return '';
+  return `【事業ポートフォリオ（主要事業の位置づけ）】\n${lines.join('\n')}`;
+}
+
+/**
+ * financeSummary から「全社の規模感」と「直近数年のざっくりトレンド」を要約。
+ * latestYear / latestYearTotal / byYear / trend など、ありそうなプロパティを緩く利用。
+ */
+function buildFinanceSummaryDigest(financeSummary: any): string {
+  if (!financeSummary) return '';
+
+  try {
+    const lines: string[] = [];
+
+    // 最新年度
+    const latestYear =
+      financeSummary.latestYear ??
+      financeSummary.year ??
+      (Array.isArray(financeSummary.years) &&
+        financeSummary.years.length > 0
+        ? financeSummary.years[financeSummary.years.length - 1]?.year
+        : undefined);
+
+    if (latestYear !== undefined) {
+      let latestTotal =
+        financeSummary.latestYearTotal ??
+        financeSummary.totals?.[String(latestYear)] ??
+        undefined;
+
+      if (!latestTotal && Array.isArray(financeSummary.byYear)) {
+        const found = financeSummary.byYear.find(
+          (y: any) => String(y.year) === String(latestYear),
+        );
+        latestTotal = found?.total ?? found;
+      }
+
+      if (latestTotal) {
+        const rev =
+          latestTotal.revenue ??
+          latestTotal.sales ??
+          latestTotal.netSales ??
+          latestTotal.net_revenue;
+        const op =
+          latestTotal.operatingIncome ??
+          latestTotal.opIncome ??
+          latestTotal.operatingProfit;
+        const margin =
+          latestTotal.opMargin ??
+          latestTotal.margin ??
+          latestTotal.operatingMargin;
+
+        const metrics: string[] = [];
+        if (rev !== undefined && rev !== null)
+          metrics.push(`売上高: 約${rev}百万円`);
+        if (op !== undefined && op !== null)
+          metrics.push(`営業利益: 約${op}百万円`);
+        if (margin !== undefined && margin !== null)
+          metrics.push(`営業利益率: 約${margin}%`);
+
+        if (metrics.length) {
+          lines.push(
+            '・最新年度（' +
+              latestYear +
+              '年）: ' +
+              metrics.join(' / '),
+          );
+        }
+      }
+    }
+
+    // 3年分くらいのトレンド
+    const trendSource = Array.isArray(financeSummary.byYear)
+      ? financeSummary.byYear
+      : Array.isArray(financeSummary.trend)
+      ? financeSummary.trend
+      : null;
+
+    if (trendSource && trendSource.length > 0) {
+      const sliced = trendSource.slice(-3); // 直近3年程度
+      sliced.forEach((y: any) => {
+        const year = y.year ?? y.fiscalYear ?? '';
+        const rev =
+          y.revenue ?? y.sales ?? y.netSales ?? undefined;
+        const op =
+          y.operatingIncome ??
+          y.opIncome ??
+          y.operatingProfit ??
+          undefined;
+        const margin =
+          y.opMargin ??
+          y.margin ??
+          y.operatingMargin ??
+          undefined;
+
+        const metrics: string[] = [];
+        if (rev !== undefined && rev !== null)
+          metrics.push(`売上 ${rev}`);
+        if (op !== undefined && op !== null)
+          metrics.push(`営利 ${op}`);
+        if (margin !== undefined && margin !== null)
+          metrics.push(`利益率 ${margin}%`);
+
+        if (year && metrics.length) {
+          lines.push(
+            '・' + year + '年: ' + metrics.join(' / '),
+          );
+        }
+      });
+    }
+
+    // 何も拾えなければ、ざっくりテキスト化
+    if (!lines.length) {
+      if (Array.isArray(financeSummary)) {
+        financeSummary.slice(-3).forEach((row: any) => {
+          lines.push(
+            '・' +
+              sanitize(
+                Object.values(row).join(' / '),
+                200,
+              ),
+          );
+        });
+      } else if (typeof financeSummary === 'object') {
+        lines.push(
+          '・' +
+            sanitize(
+              JSON.stringify(financeSummary),
+              400,
+            ),
+        );
+      }
+    }
+
+    if (!lines.length) return '';
+    return `【財務サマリー（全社の規模感）】\n${lines.join('\n')}`;
+  } catch {
+    return '';
+  }
+}
+
 type Mode = 'future' | 'legacy';
 
 export async function POST(req: NextRequest) {
@@ -297,10 +497,12 @@ export async function POST(req: NextRequest) {
       opportunity,
       threat,
       csvFinanceData,
+      financeSummary,      // ★ 追加：全社財務サマリー（任意）
+      businessPortfolio,   // ★ 追加：事業ポートフォリオ配列（任意）
       temperature,
-      patternIds, // ★ t1,t2,... （TopPatternId[] 想定）
-      mode: _mode, // 'future' | 'legacy'（未指定は future）
-      enhanceEmotion, // ★ 追加：true/false（未指定はtrue）
+      patternIds,          // ★ t1,t2,... （TopPatternId[] 想定）
+      mode: _mode,         // 'future' | 'legacy'（未指定は future）
+      enhanceEmotion,      // ★ 追加：true/false（未指定はtrue）
     } = body || {};
 
     const mode: Mode = _mode === 'legacy' ? 'legacy' : 'future';
@@ -310,7 +512,7 @@ export async function POST(req: NextRequest) {
 
     const financialSummary =
       Array.isArray(csvFinanceData) && csvFinanceData.length > 0
-        ? `\n\n【参考財務データ（抜粋）】\n${csvFinanceData
+        ? `\n\n【参考財務データ（抜粋・元CSVより）】\n${csvFinanceData
             .slice(0, 12)
             .map((row: any) =>
               sanitize(
@@ -322,6 +524,14 @@ export async function POST(req: NextRequest) {
             csvFinanceData.length > 12 ? '\n…' : ''
           }`
         : '';
+
+    // ★ 新規：財務サマリー＆事業ポートフォリオの要約テキスト
+    const financeSummaryDigest = buildFinanceSummaryDigest(
+      financeSummary,
+    );
+    const portfolioDigest = buildBusinessPortfolioDigest(
+      businessPortfolio,
+    );
 
     // ★ 追加：勝ちパターン要旨
     const patternDigest = buildTopPatternDigest(
@@ -347,7 +557,7 @@ export async function POST(req: NextRequest) {
       '【禁止/制限】',
       '- 深掘りQ&A（ユーザーの問い/答え）は参考ストーリーのインプットに使用しない。',
       '- 具体タスクの指示や会議体の新設を細かく書かない（行動章は「問いと雛形」に留める）。',
-      '- 数値（売上/％など）は csvFinanceData に存在するもののみ使用可。無ければ定性表現に置換する。',
+      '- 数値（売上/％など）は csvFinanceData / financeSummary / businessPortfolio に存在するもののみ使用可。無ければ定性表現に置換する。',
       '',
       '【各章のゴール】',
       `1) ${goals[0]}`,
@@ -359,6 +569,10 @@ export async function POST(req: NextRequest) {
       '- 第2章には「誇り」に相当する1文を自然に挿入（私たちが大切に守り抜いてきた本質・流儀）。',
       '- 第3章には「賭け」に相当する1文を自然に挿入（未来へ踏み出す決断・リスクを受け止める覚悟）。',
       '- 第4章には「信念」に相当する1文を自然に挿入（仲間とやり抜く約束・何があってもブレない原則）。',
+      '',
+      '【ポートフォリオ／財務を踏まえた書き方】',
+      '- 事業ポートフォリオから、「どの事業に賭け、どの事業を守り、どこを絞るのか」を第2章・第3章に自然に織り込む。',
+      '- 財務サマリーからは、「会社全体の規模感」「成長か停滞か」といった大きな方向性のみを読み取り、詳細な損益計画には踏み込まない。',
       '',
       '【出力フォーマット（厳守）】',
       '出力は JSON のみ（コードフェンスや説明文を付けない）。',
@@ -404,7 +618,9 @@ export async function POST(req: NextRequest) {
       storyNote
         ? `【既存の章メモ（参考）】\n${storyNote}`
         : '',
-      financialSummary,
+      financeSummaryDigest, // ★ 全社財務サマリー
+      portfolioDigest,      // ★ 事業ポートフォリオ
+      financialSummary,     // （既存）元CSVの生テキスト抜粋
       '',
       '【執筆要件】',
       '- 章の見出し文言は最終的にサーバ側で上書きされるため、内容の質を最優先すること。',
