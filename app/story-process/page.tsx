@@ -1153,6 +1153,7 @@ export default function StoryProcessPage() {
     enhanceEmotion,
     companyId,
     store?.strategyId,
+    revenue, // ← 追加（ESLint向け）
   ]);
 
   /* ------- 最終ストーリー ------- */
@@ -1194,7 +1195,9 @@ export default function StoryProcessPage() {
         opportunity,
         threat,
         csvFinanceData,
-        businessPortfolio,
+        // ★ここがポイント：API側の `portfolio` に businessPortfolio を渡す
+        portfolio: businessPortfolio,
+        businessPortfolio, // 互換のため残しておく（他用途があってもOK）
         userId: user?.id,
         budgets: { longform: [1600, 2400] },
         enhanceEmotion,
@@ -1219,6 +1222,8 @@ export default function StoryProcessPage() {
     weakness,
     businessPortfolio,
     enhanceEmotion,
+    strength, // ← 追加
+    opportunity, // ← 追加
   ]);
 
   const onGenerateFinal = useCallback(async () => {
@@ -1482,7 +1487,7 @@ export default function StoryProcessPage() {
           <div className="flex items-center gap-2">
             <span
               className={[
-                'inline-flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-900',
+                'inline-flex.items-center.gap-2.rounded-full.border.border-amber-300.bg-amber-50.px-3.py-1.text-xs.font-medium.text-amber-900',
                 canEdit ? 'invisible' : '',
               ].join(' ')}
               title={
@@ -1557,7 +1562,7 @@ export default function StoryProcessPage() {
                 return (
                   <article
                     key={`${(ch?.title || '').slice(0, 50)}-${i}`}
-                    className={`rounded-2xl p-4 transition shadow-sm border ${color.border} bg-white/90 hover:bg-white ${
+                    className={`rounded-2xl p-4 transition shadow-sm border ${color.border} bg-white/90 hover:bg白 ${
                       currentIdx === i
                         ? `ring-2 ${color.ring}`
                         : ''
@@ -1601,7 +1606,7 @@ export default function StoryProcessPage() {
         id="question-slider"
         className="rounded-2xl border border-zinc-200 bg-white/80 backdrop-blur-sm p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)] min-w-0 overflow-hidden"
       >
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex.items-center.justify-between">
           <h2 className="text-[17px] font-semibold tracking-tight text-zinc-900">
             章ごとの質問
           </h2>
@@ -1788,7 +1793,7 @@ function FinalStorySection({
           全12問（第2章は6問）を回答すると、自動で一度だけ生成されます。
         </p>
       ) : !editing ? (
-        <div className="mt-3 grid grid-cols-1 gap-4">
+        <div className="mt-3.grid.grid-cols-1.gap-4">
           {baseArr.map((c: ChapterStory, idx: number) => (
             <article
               key={`${(c.title || '').slice(0, 50)}-${idx}`}
@@ -1822,7 +1827,7 @@ function FinalStorySection({
                   setDraftEdit(next);
                 }}
                 placeholder="この章の本文を編集…"
-                className="w-full min-h-[180px] rounded-lg border border-zinc-300 p-3 text-[13px] focus:outline-none.focus:ring-2 focus:ring-zinc-400"
+                className="w-full min-h-[180px] rounded-lg border border-zinc-300 p-3 text-[13px] focus:outline-none focus:ring-2 focus:ring-zinc-400"
                 disabled={!canEdit}
               />
               <div className="mt-1 text-[11px] text-zinc-600">
@@ -1842,7 +1847,7 @@ function FinalStorySection({
             >
               合計文字数：{totalChars}（推奨 1600〜2400）
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex.items-center.gap-2">
               <Button
                 onClick={() => setEditing(false)}
                 className="h-9 rounded-full px-5 text-[13px] bg-zinc-100 border border-zinc-300 text-zinc-900"
