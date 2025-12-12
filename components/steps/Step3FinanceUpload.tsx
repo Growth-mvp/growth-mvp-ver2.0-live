@@ -49,6 +49,12 @@ type PlanRow = {
   operating_income_plan?: number;
 };
 
+type ActualRow = {
+  year: number;
+  revenue_actual?: number;
+  operating_income_actual?: number;
+};
+
 /** 日本語→英語 ヘッダ変換マップ */
 const HEADER_JA_TO_EN: Record<string, string> = {
   '事業': 'business_unit',
@@ -248,7 +254,9 @@ function Banner({
     info: 'bg-gray-50 text-gray-700 border-gray-200',
   }[type];
   return (
-    <div className={`rounded-xl border px-3 py-2 text-sm ${styles}`}>{children}</div>
+    <div className={`rounded-xl border px-3 py-2 text-sm ${styles}`}>
+      {children}
+    </div>
   );
 }
 
@@ -257,16 +265,19 @@ export default function Step3FinanceUpload() {
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+
   const [parsedData, setParsedData] = useState<FinanceRow[]>([]);
+  const [actualRows, setActualRows] = useState<ActualRow[]>([]);
   const [planRows, setPlanRows] = useState<PlanRow[]>([]);
+
   const st = useStrategyStore() as any;
   const { user, companyId, hydrated, membershipLoaded } = useUserStore();
   const userId = user?.id ?? null;
   const canPersist = !!userId && !!companyId && !!hydrated && !!membershipLoaded;
 
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const dropRef = useRef<HTMLDivElement | null>(null);
-  const planInitializedRef = useRef(false);
+
+  const initRef = useRef(false);
 
   // ストアから CSV データをロード
   useEffect(() => {
@@ -297,6 +308,49 @@ export default function Step3FinanceUpload() {
     } catch (e) {
       console.error(e);
       setError('サーバ保存に失敗しました');
+    }
+  }
+
+  async function saveActual(rows: ActualRow[]) {
+    setMessage('');
+    setError('');
+    setFieldSafe(st, 'financeActual', rows);
+
+    // 手入力実績 → 会社合計の FinanceRow を生成して csvFinanceData として保存
+    // downstream（financeSummary等）を壊さないための橋渡し
+    const synthetic: FinanceRow[] = rows
+      .filter((r) => Number.isFinite(r.year))
+      .map((r) =>
+        autoCompute({
+          business_unit: '会社合計（手入力）',
+          year: r.year,
+          product_or_service: '（手入力）',
+          unit_price: '',
+          quantity: '',
+          revenue: r.revenue_actual ?? '',
+          cogs_variable: 0,
+          cogs_fixed: 0,
+          opex_variable: 0,
+          opex_fixed: 0,
+          operating_income: r.operating_income_actual ?? '',
+          gross_margin_pct: '',
+          operating_margin_pct: '',
+          retention_rate_pct: '',
+          notes: '',
+        }),
+      );
+
+    setParsedData(synthetic);
+    await saveAll(synthetic);
+
+    if (!userId || !companyId || !canPersist) return;
+    try {
+      const state = useStrategyStore.getState() as any;
+      await saveStrategyData({ ...state, financeActual: rows }, userId, companyId);
+      setMessage('実績（手入力）を保存しました');
+    } catch (e) {
+      console.error(e);
+      setError('実績（手入力）のサーバ保存に失敗しました');
     }
   }
 
@@ -347,8 +401,8 @@ export default function Step3FinanceUpload() {
     await saveAll(recalculated);
   };
 
-  // 年度別（会社トータル）実績集計
-  const yearlyActual = useMemo(() => {
+  // 年度別（会社トータル）実績集計（CSVからの実績）
+  const yearlyActualFromCsv = useMemo(() => {
     if (!parsedData.length)
       return [] as { year: number; revenue: number; operating_income: number }[];
     const map = new Map<
@@ -368,65 +422,97 @@ export default function Step3FinanceUpload() {
     return Array.from(map.values()).sort((a, b) => a.year - b.year);
   }, [parsedData]);
 
-  // 計画行の初期化（ストアにあればそれを優先）
+  const hasCsvActual = yearlyActualFromCsv.length > 0;
+
+  // 初期化：実績（手入力）と計画（手入力）を「常に」用意する
   useEffect(() => {
-    if (planInitializedRef.current) return;
-    const fromStore: PlanRow[] = Array.isArray(st?.financePlan) ? st.financePlan : [];
-    if (fromStore.length) {
+    if (initRef.current) return;
+
+    // 1) 手入力実績（store優先）
+    const fromStoreActual: ActualRow[] = Array.isArray(st?.financeActual) ? st.financeActual : [];
+    if (fromStoreActual.length) {
+      setActualRows(
+        fromStoreActual
+          .filter((a) => Number.isFinite(a.year))
+          .sort((a, b) => a.year - b.year),
+      );
+    } else {
+      // CSVがあるなら「直近年」を使う。無いなら「今年-1」を基準。
+      const baseYear = hasCsvActual
+        ? yearlyActualFromCsv[yearlyActualFromCsv.length - 1].year
+        : new Date().getFullYear() - 1;
+      const past5: ActualRow[] = Array.from({ length: 5 }).map((_, idx) => ({
+        year: baseYear - 4 + idx,
+      }));
+      setActualRows(past5);
+    }
+
+    // 2) 計画（store優先）
+    const fromStorePlan: PlanRow[] = Array.isArray(st?.financePlan) ? st.financePlan : [];
+    if (fromStorePlan.length) {
       setPlanRows(
-        fromStore
+        fromStorePlan
           .filter((p) => Number.isFinite(p.year))
           .sort((a, b) => a.year - b.year),
       );
-      planInitializedRef.current = true;
-      return;
+    } else {
+      const baseYear = hasCsvActual
+        ? yearlyActualFromCsv[yearlyActualFromCsv.length - 1].year
+        : new Date().getFullYear() - 1;
+      const future5: PlanRow[] = Array.from({ length: 5 }).map((_, idx) => ({
+        year: baseYear + 1 + idx,
+      }));
+      setPlanRows(future5);
     }
 
-    if (!yearlyActual.length) return;
-    const latestYear = yearlyActual[yearlyActual.length - 1].year;
-    const future: PlanRow[] = Array.from({ length: 5 }).map((_, idx) => ({
-      year: latestYear + 1 + idx,
-    }));
-    setPlanRows(future);
-    planInitializedRef.current = true;
-  }, [st?.financePlan, yearlyActual]);
+    initRef.current = true;
+  }, [st?.financeActual, st?.financePlan, hasCsvActual, yearlyActualFromCsv]);
 
-  // 表示する 10 年（過去 5 年 + 未来 5 年）を決定
+  // 表示する年：過去5年（実績）＋未来5年（計画）を常に出す
   const yearsForView = useMemo(() => {
-    if (!yearlyActual.length && !planRows.length) return [] as number[];
-    const actualYears = yearlyActual.map((a) => a.year);
-    const latestActual = actualYears.length
-      ? Math.max(...actualYears)
-      : new Date().getFullYear();
+    const actualYears =
+      actualRows.length > 0 ? actualRows.map((a) => a.year) : [];
+    const planYears = planRows.length > 0 ? planRows.map((p) => p.year) : [];
 
-    const pastYearsSorted = [...new Set(actualYears)].sort((a, b) => a - b);
-    const last5Actual = pastYearsSorted.slice(-5);
-
-    const futureYears =
-      planRows.length > 0
-        ? [...new Set(planRows.map((p) => p.year))].sort((a, b) => a - b)
-        : Array.from({ length: 5 }).map((_, idx) => latestActual + 1 + idx);
-
-    const combined = [...new Set([...last5Actual, ...futureYears])];
+    const combined = [...new Set([...actualYears, ...planYears])].filter((y) =>
+      Number.isFinite(y),
+    );
     return combined.sort((a, b) => a - b);
-  }, [yearlyActual, planRows]);
+  }, [actualRows, planRows]);
 
-  // 実績 + 計画をマージしたグラフ用データ
+  // 表示用：実績は「CSVがあるならCSV集計を優先」、無いなら手入力
+  const actualForView = useMemo(() => {
+    if (hasCsvActual) {
+      return yearlyActualFromCsv.map((a) => ({
+        year: a.year,
+        revenue_actual: a.revenue,
+        operating_income_actual: a.operating_income,
+      }));
+    }
+    return actualRows.map((a) => ({
+      year: a.year,
+      revenue_actual: a.revenue_actual ?? null,
+      operating_income_actual: a.operating_income_actual ?? null,
+    }));
+  }, [hasCsvActual, yearlyActualFromCsv, actualRows]);
+
+  // グラフ用データ（実績＋計画）
   const chartData = useMemo(() => {
     if (!yearsForView.length) return [] as any[];
-    return yearsForView.map((year) => {
-      const actual = yearlyActual.find((a) => a.year === year);
-      const plan = planRows.find((p) => p.year === year);
 
-      const revenue_actual = actual?.revenue ?? null;
-      const operating_income_actual = actual?.operating_income ?? null;
+    return yearsForView.map((year) => {
+      const a = actualForView.find((x) => x.year === year);
+      const p = planRows.find((x) => x.year === year);
+
+      const revenue_actual = a?.revenue_actual ?? null;
+      const operating_income_actual = a?.operating_income_actual ?? null;
       const operating_margin_actual =
         revenue_actual && revenue_actual !== 0 && operating_income_actual != null
           ? (operating_income_actual / revenue_actual) * 100
           : null;
 
-      const revenue_plan = plan?.revenue_plan ?? null;
-      const operating_income_plan = plan?.operating_income_plan ?? null;
+      const revenue_plan = p?.revenue_plan ?? null;
+      const operating_income_plan = p?.operating_income_plan ?? null;
       const operating_margin_plan =
         revenue_plan && revenue_plan !== 0 && operating_income_plan != null
           ? (operating_income_plan / revenue_plan) * 100
@@ -442,21 +528,25 @@ export default function Step3FinanceUpload() {
         operating_margin_plan,
       };
     });
-  }, [yearsForView, yearlyActual, planRows]);
+  }, [yearsForView, actualForView, planRows]);
 
-  // 全件＋日本語ラベルプレビュー（詳細確認用）
-  const preview = useMemo(() => {
-    if (!parsedData?.length)
-      return {
-        headers: [] as string[],
-        labels: [] as string[],
-        rows: [] as any[][],
-      };
-    const headers = [...EXPECTED_HEADERS];
-    const labels = headers.map((h) => EN_TO_JA_LABEL[h]);
-    const rows = parsedData.map((r) => headers.map((h) => r?.[h] ?? ''));
-    return { headers, labels, rows };
-  }, [parsedData]);
+  const updateActualValue = (
+    year: number,
+    field: keyof Omit<ActualRow, 'year'>,
+    value: string,
+  ) => {
+    const num = toNum(value);
+    setActualRows((prev) => {
+      const next = [...prev];
+      const idx = next.findIndex((r) => r.year === year);
+      if (idx >= 0) {
+        next[idx] = { ...next[idx], [field]: num };
+      } else {
+        next.push({ year, [field]: num } as ActualRow);
+      }
+      return next.sort((a, b) => a.year - b.year);
+    });
+  };
 
   const updatePlanValue = (
     year: number,
@@ -476,30 +566,46 @@ export default function Step3FinanceUpload() {
     });
   };
 
-  const hasActual = yearlyActual.length > 0;
+  // 全件＋日本語ラベルプレビュー（詳細確認用）
+  const preview = useMemo(() => {
+    if (!parsedData?.length)
+      return {
+        headers: [] as string[],
+        labels: [] as string[],
+        rows: [] as any[][],
+      };
+    const headers = [...EXPECTED_HEADERS];
+    const labels = headers.map((h) => EN_TO_JA_LABEL[h]);
+    const rows = parsedData.map((r) => headers.map((h) => r?.[h] ?? ''));
+    return { headers, labels, rows };
+  }, [parsedData]);
 
   return (
-    <StepLayout step={4} totalSteps={6} title="財務データのアップロード">
+    <StepLayout step={4} totalSteps={6} title="財務データ（実績・計画）">
       <div className="space-y-6">
         <GlassCard className="p-4 text-sm text-gray-700">
           <p className="mb-1">
-            過去の実績データ（できれば直近5年分）と、今後5年分の計画値を取り込みます。
+            経営が入力した「過去実績（5年）＋今後計画（5年）」を、社員が誰でも見られる状態にします。
           </p>
           <p>
-            実績と計画をあわせて10年分の売上・営業利益の推移をグラフ表示し、
-            社員が会社の「過去〜未来の業績ストーリー」を一目で把握できるようにします。
+            CSVアップロードを推奨しますが、ファイルが無い場合はこの画面で手入力して保存できます。
           </p>
+          {hasCsvActual && (
+            <div className="mt-2 text-xs text-gray-500">
+              ※ 現在はCSVの実績（会社トータル）を表示しています（手入力実績はCSV未使用時に表示されます）
+            </div>
+          )}
         </GlassCard>
 
-        {/* ファイル入力 */}
+        {/* ファイル入力（任意） */}
         <GlassCard>
-          <div ref={dropRef} className="p-6 text-center">
+          <div className="p-6 text-center">
             <button
               type="button"
               onClick={() => inputRef.current?.click()}
               className="rounded-full border border-black/10 bg-white/80 px-4 py-2 text-sm font-medium text-gray-700 shadow-sm"
             >
-              CSV / Excel からファイルを選ぶ
+              CSV / Excel からファイルを選ぶ（任意）
             </button>
             <div className="mt-2 text-xs text-gray-500">
               ※ 実績・計画をあわせて 10 年分を含むファイルのアップロードを推奨します
@@ -512,9 +618,7 @@ export default function Step3FinanceUpload() {
               className="hidden"
             />
             {uploading && (
-              <div className="mt-2 text-xs text-gray-500">
-                読み込み中です…
-              </div>
+              <div className="mt-2 text-xs text-gray-500">読み込み中です…</div>
             )}
           </div>
         </GlassCard>
@@ -531,242 +635,252 @@ export default function Step3FinanceUpload() {
           </div>
         )}
 
-        {!hasActual && (
-          <GlassCard className="p-4">
-            <div className="text-sm text-gray-700">
-              まずは過去の実績データを CSV / Excel でアップロードしてください。
-              その後、今後5年分の計画値入力と、10年分のグラフ表示が利用できます。
+        {/* 年度別サマリー（常に表示） */}
+        <GlassCard>
+          <div className="p-4 space-y-3">
+            <div className="text-sm font-medium text-gray-800">
+              年度別サマリー（実績：過去5年／計画：今後5年）
             </div>
-          </GlassCard>
-        )}
+            <div className="text-xs text-gray-500">
+              CSVがある場合は実績（売上・営業利益）は会社トータル集計が表示されます。CSVが無い場合は左の実績欄を手入力し保存してください。
+            </div>
 
-        {hasActual && (
-          <>
-            {/* 年度別サマリー（実績＋計画）入力 */}
-            <GlassCard>
-              <div className="p-4 space-y-3">
-                <div className="text-sm font-medium text-gray-800">
-                  年度別サマリー（実績：会社トータル ／ 計画：5年分）
-                </div>
-                <div className="text-xs text-gray-500">
-                  実績は CSV から自動集計された会社トータル値です。今後 5 年分の売上高・営業利益の計画を入力すると、
-                  下のグラフに実績と計画の 10 年推移が表示されます。
-                </div>
-                <div className="overflow-auto">
-                  <table className="min-w-full text-xs border-collapse">
-                    <thead className="bg-white/70">
-                      <tr>
-                        <th className="px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">
-                          年
-                        </th>
-                        <th className="px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">
-                          売上高（実績）
-                        </th>
-                        <th className="px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">
-                          営業利益（実績）
-                        </th>
-                        <th className="px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">
-                          営業利益率（実績）
-                        </th>
-                        <th className="px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">
-                          売上高（計画）
-                        </th>
-                        <th className="px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">
-                          営業利益（計画）
-                        </th>
-                        <th className="px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">
-                          営業利益率（計画）
-                        </th>
+            <div className="overflow-auto">
+              <table className="min-w-full text-xs border-collapse">
+                <thead className="bg-white/70">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">
+                      年
+                    </th>
+
+                    <th className="px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">
+                      売上高（実績）
+                    </th>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">
+                      営業利益（実績）
+                    </th>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">
+                      営業利益率（実績）
+                    </th>
+
+                    <th className="px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">
+                      売上高（計画）
+                    </th>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">
+                      営業利益（計画）
+                    </th>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-700 whitespace-nowrap">
+                      営業利益率（計画）
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {yearsForView.map((year) => {
+                    const a = actualForView.find((x) => x.year === year);
+                    const p = planRows.find((x) => x.year === year);
+
+                    const revenueActual = a?.revenue_actual ?? null;
+                    const opActual = a?.operating_income_actual ?? null;
+                    const marginActual =
+                      revenueActual && revenueActual !== 0 && opActual != null
+                        ? (opActual / revenueActual) * 100
+                        : null;
+
+                    const revenuePlan = p?.revenue_plan ?? undefined;
+                    const opPlan = p?.operating_income_plan ?? undefined;
+                    const marginPlan =
+                      revenuePlan && revenuePlan !== 0 && opPlan != null
+                        ? (opPlan / revenuePlan) * 100
+                        : null;
+
+                    const isActualYear = actualRows.some((r) => r.year === year);
+                    const isPlanYear = planRows.some((r) => r.year === year);
+
+                    return (
+                      <tr key={year} className="odd:bg-white/80 even:bg-white/60">
+                        <td className="px-3 py-2 text-gray-800 whitespace-nowrap">
+                          {year}年
+                        </td>
+
+                        {/* 実績：CSVがあれば表示のみ、無ければ入力 */}
+                        <td className="px-3 py-2 text-gray-800 whitespace-nowrap">
+                          {hasCsvActual ? (
+                            revenueActual != null ? revenueActual.toLocaleString() : '-'
+                          ) : isActualYear ? (
+                            <input
+                              type="text"
+                              className="w-28 rounded-md border border-black/10 bg-white/80 px-2 py-1 text-xs"
+                              value={revenueActual != null ? String(revenueActual) : ''}
+                              onChange={(e) =>
+                                updateActualValue(year, 'revenue_actual', e.target.value)
+                              }
+                              placeholder="例）120000"
+                            />
+                          ) : (
+                            '-'
+                          )}
+                        </td>
+
+                        <td className="px-3 py-2 text-gray-800 whitespace-nowrap">
+                          {hasCsvActual ? (
+                            opActual != null ? opActual.toLocaleString() : '-'
+                          ) : isActualYear ? (
+                            <input
+                              type="text"
+                              className="w-28 rounded-md border border-black/10 bg-white/80 px-2 py-1 text-xs"
+                              value={opActual != null ? String(opActual) : ''}
+                              onChange={(e) =>
+                                updateActualValue(
+                                  year,
+                                  'operating_income_actual',
+                                  e.target.value,
+                                )
+                              }
+                              placeholder="例）12000"
+                            />
+                          ) : (
+                            '-'
+                          )}
+                        </td>
+
+                        <td className="px-3 py-2 text-gray-800 whitespace-nowrap">
+                          {marginActual != null ? `${marginActual.toFixed(1)}%` : '-'}
+                        </td>
+
+                        {/* 計画：常に入力 */}
+                        <td className="px-3 py-2 text-gray-800 whitespace-nowrap">
+                          {isPlanYear ? (
+                            <input
+                              type="text"
+                              className="w-28 rounded-md border border-black/10 bg-white/80 px-2 py-1 text-xs"
+                              value={revenuePlan != null ? String(revenuePlan) : ''}
+                              onChange={(e) =>
+                                updatePlanValue(year, 'revenue_plan', e.target.value)
+                              }
+                              placeholder="例）120000"
+                            />
+                          ) : (
+                            '-'
+                          )}
+                        </td>
+
+                        <td className="px-3 py-2 text-gray-800 whitespace-nowrap">
+                          {isPlanYear ? (
+                            <input
+                              type="text"
+                              className="w-28 rounded-md border border-black/10 bg-white/80 px-2 py-1 text-xs"
+                              value={opPlan != null ? String(opPlan) : ''}
+                              onChange={(e) =>
+                                updatePlanValue(
+                                  year,
+                                  'operating_income_plan',
+                                  e.target.value,
+                                )
+                              }
+                              placeholder="例）12000"
+                            />
+                          ) : (
+                            '-'
+                          )}
+                        </td>
+
+                        <td className="px-3 py-2 text-gray-800 whitespace-nowrap">
+                          {marginPlan != null ? `${marginPlan.toFixed(1)}%` : '-'}
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {yearsForView.map((year) => {
-                        const actual = yearlyActual.find((a) => a.year === year);
-                        const plan = planRows.find((p) => p.year === year);
-                        const revenueActual = actual?.revenue ?? null;
-                        const opActual = actual?.operating_income ?? null;
-                        const marginActual =
-                          revenueActual &&
-                          revenueActual !== 0 &&
-                          opActual != null
-                            ? (opActual / revenueActual) * 100
-                            : null;
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
 
-                        const revenuePlan = plan?.revenue_plan ?? undefined;
-                        const opPlan = plan?.operating_income_plan ?? undefined;
-                        const marginPlan =
-                          revenuePlan &&
-                          revenuePlan !== 0 &&
-                          opPlan != null
-                            ? (opPlan / revenuePlan) * 100
-                            : null;
+            <div className="flex justify-end gap-2 pt-2">
+              {!hasCsvActual && (
+                <button
+                  onClick={() => saveActual(actualRows)}
+                  className="rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-medium text-gray-800"
+                >
+                  実績（手入力）を保存
+                </button>
+              )}
+              <button
+                onClick={() => savePlan(planRows)}
+                className="rounded-full bg-black px-4 py-2 text-xs font-medium text-white"
+              >
+                計画値を保存
+              </button>
+            </div>
+          </div>
+        </GlassCard>
 
-                        const lastActualYear = yearlyActual.length
-                          ? yearlyActual[yearlyActual.length - 1].year
-                          : 0;
-                        const isFutureOnly =
-                          !actual && year > lastActualYear;
-
-                        return (
-                          <tr
-                            key={year}
-                            className="odd:bg-white/80 even:bg-white/60"
-                          >
-                            <td className="px-3 py-2 text-gray-800 whitespace-nowrap">
-                              {year}年
-                            </td>
-                            <td className="px-3 py-2 text-gray-800 whitespace-nowrap">
-                              {revenueActual != null
-                                ? revenueActual.toLocaleString()
-                                : isFutureOnly
-                                ? '-'
-                                : ''}
-                            </td>
-                            <td className="px-3 py-2 text-gray-800 whitespace-nowrap">
-                              {opActual != null
-                                ? opActual.toLocaleString()
-                                : isFutureOnly
-                                ? '-'
-                                : ''}
-                            </td>
-                            <td className="px-3 py-2 text-gray-800 whitespace-nowrap">
-                              {marginActual != null
-                                ? `${marginActual.toFixed(1)}%`
-                                : isFutureOnly
-                                ? '-'
-                                : ''}
-                            </td>
-                            <td className="px-3 py-2 text-gray-800 whitespace-nowrap">
-                              <input
-                                type="text"
-                                className="w-28 rounded-md border border-black/10 bg-white/80 px-2 py-1 text-xs"
-                                value={
-                                  revenuePlan != null ? String(revenuePlan) : ''
-                                }
-                                onChange={(e) =>
-                                  updatePlanValue(
-                                    year,
-                                    'revenue_plan',
-                                    e.target.value,
-                                  )
-                                }
-                                placeholder={isFutureOnly ? '例）120000' : ''}
-                              />
-                            </td>
-                            <td className="px-3 py-2 text-gray-800 whitespace-nowrap">
-                              <input
-                                type="text"
-                                className="w-28 rounded-md border border-black/10 bg-white/80 px-2 py-1 text-xs"
-                                value={opPlan != null ? String(opPlan) : ''}
-                                onChange={(e) =>
-                                  updatePlanValue(
-                                    year,
-                                    'operating_income_plan',
-                                    e.target.value,
-                                  )
-                                }
-                                placeholder={isFutureOnly ? '例）12000' : ''}
-                              />
-                            </td>
-                            <td className="px-3 py-2 text-gray-800 whitespace-nowrap">
-                              {marginPlan != null
-                                ? `${marginPlan.toFixed(1)}%`
-                                : revenuePlan && opPlan
-                                ? '自動計算中…'
-                                : '-'}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="flex justify-end gap-2 pt-2">
-                  <button
-                    onClick={() => savePlan(planRows)}
-                    className="rounded-full bg-black px-4 py-2 text-xs font-medium text-white"
-                  >
-                    計画値を保存
-                  </button>
-                </div>
+        {/* 実績＋計画 10年分のグラフ（常に表示） */}
+        <GlassCard>
+          <div className="p-4 space-y-6">
+            <div>
+              <div className="text-sm font-medium text-gray-800 mb-1">
+                売上高の推移（実績／計画）
               </div>
-            </GlassCard>
+              <div className="text-xs text-gray-500 mb-2">
+                過去 5 年の実績と今後 5 年の計画を 1 本の折れ線グラフで確認できます。
+              </div>
+              <div className="h-60">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="year" />
+                    <YAxis />
+                    <ReTooltip />
+                    <Legend />
+                    <Line type="monotone" dataKey="revenue_actual" name="売上高（実績）" />
+                    <Line
+                      type="monotone"
+                      dataKey="revenue_plan"
+                      name="売上高（計画）"
+                      strokeDasharray="5 5"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
 
-            {/* 実績＋計画 10年分のグラフ */}
-            {chartData.length > 0 && (
-              <GlassCard>
-                <div className="p-4 space-y-6">
-                  <div>
-                    <div className="text-sm font-medium text-gray-800 mb-1">
-                      売上高の推移（実績／計画）
-                    </div>
-                    <div className="text-xs text-gray-500 mb-2">
-                      過去 5 年の実績と今後 5 年の計画を 1 本の折れ線グラフで確認できます。
-                    </div>
-                    <div className="h-60">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={chartData}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="year" />
-                          <YAxis />
-                          <ReTooltip />
-                          <Legend />
-                          <Line
-                            type="monotone"
-                            dataKey="revenue_actual"
-                            name="売上高（実績）"
-                          />
-                          <Line
-                            type="monotone"
-                            dataKey="revenue_plan"
-                            name="売上高（計画）"
-                            strokeDasharray="5 5"
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="text-sm font-medium text-gray-800 mb-1">
-                      営業利益率の推移（実績／計画）
-                    </div>
-                    <div className="text-xs text-gray-500 mb-2">
-                      売上だけでなく、収益性（営業利益率）の変化もあわせて確認できます。
-                    </div>
-                    <div className="h-60">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={chartData}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="year" />
-                          <YAxis />
-                          <ReTooltip />
-                          <Legend />
-                          <Line
-                            type="monotone"
-                            dataKey="operating_margin_actual"
-                            name="営業利益率（実績）"
-                          />
-                          <Line
-                            type="monotone"
-                            dataKey="operating_margin_plan"
-                            name="営業利益率（計画）"
-                            strokeDasharray="5 5"
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                </div>
-              </GlassCard>
-            )}
-          </>
-        )}
+            <div>
+              <div className="text-sm font-medium text-gray-800 mb-1">
+                営業利益率の推移（実績／計画）
+              </div>
+              <div className="text-xs text-gray-500 mb-2">
+                売上だけでなく、収益性（営業利益率）の変化もあわせて確認できます。
+              </div>
+              <div className="h-60">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="year" />
+                    <YAxis />
+                    <ReTooltip />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="operating_margin_actual"
+                      name="営業利益率（実績）"
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="operating_margin_plan"
+                      name="営業利益率（計画）"
+                      strokeDasharray="5 5"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        </GlassCard>
 
         {message && <Banner type="success">{message}</Banner>}
         {error && <Banner type="error">{error}</Banner>}
 
-        {/* 詳細プレビュー（必要なら残す） */}
+        {/* 詳細プレビュー（CSV or 手入力実績を保存した場合に表示） */}
         {parsedData.length > 0 && (
           <GlassCard>
             <div className="p-4 overflow-auto">
