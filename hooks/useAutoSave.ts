@@ -18,19 +18,11 @@ try {
 type Options = {
   enabled?: boolean;
   debounceMs?: number;
-  /** 既存行がある場合のみ UPDATE（INSERTしない）→ ※現行は store.saveStrategyData に委譲するため未使用 */
-  updateOnly?: boolean;
-  /** 削除フラグ中は自動保存スキップ（既定: true） */
   forceSkipWhenDeleting?: boolean;
-  /** セッション必須（既定: true） */
   requireSession?: boolean;
-  /** hydratedになるまでは保存しない（既定: true） */
   requireHydrated?: boolean;
-  /** 連続保存の最小間隔（ms）。既定: 1500 */
   minIntervalMs?: number;
-  /** 「サーバ再取得中」を示すセレクタ（任意） */
   isFetchingSelector?: (strategyState: any) => boolean;
-  /** 初回マウント後の猶予（ms）。既定: 1000 */
   initialDelayMs?: number;
 };
 
@@ -58,10 +50,9 @@ function isCompanyDeleting(targetCompanyId?: string | null): boolean {
 /** JSON安定化（循環対策＋Date→ISO） */
 function safeStableStringify(obj: unknown): string {
   try {
-    return JSON.stringify(obj, (key, value) => {
-      if (value instanceof Date) return value.toISOString();
-      return value;
-    });
+    return JSON.stringify(obj, (_k, v) =>
+      v instanceof Date ? v.toISOString() : v,
+    );
   } catch {
     return '';
   }
@@ -80,26 +71,26 @@ async function hasActiveSession(): Promise<boolean> {
 }
 
 /* ============================================
- * オーバーロード宣言（旧/新両対応）
+ * オーバーロード宣言
  * ========================================== */
-// 旧: 依存配列のみ
 export function useAutoSave(deps?: any[]): void;
-// 新: オプション + 依存配列
 export function useAutoSave(options?: Options, deps?: any[]): void;
 
-/**
- * 実装（ランタイムはユニオンで解釈）
- */
+/* ============================================
+ * 実装
+ * ========================================== */
 export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
   const isArg1Array = Array.isArray(arg1);
   const options: Options = isArg1Array ? {} : (arg1 ?? {});
-  const externalDeps: any[] = isArg1Array ? (arg1 as any[]) : (Array.isArray(arg2) ? arg2! : []);
+  const externalDeps: any[] = isArg1Array
+    ? (arg1 as any[])
+    : Array.isArray(arg2)
+    ? arg2
+    : [];
 
   const {
     enabled = true,
     debounceMs = 1200,
-    // updateOnly は現行ではストアに委譲しているため未使用
-    // updateOnly = false,
     forceSkipWhenDeleting = true,
     requireSession = true,
     requireHydrated = true,
@@ -114,18 +105,20 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
     s?.membership?.companyId ?? s?.companyId ?? s?.user?.companyId ?? undefined,
   );
 
-  // ---- Strategy の必要フィールドを個別購読 ----
+  // ---- Strategy ----
   const hydrated = useStrategyStore(
     (s: any) => !!(s?.hydrated ?? s?.boot?.isHydrated),
   );
-  const companyIdFromStore = useStrategyStore((s: any) => s?.companyId as string | null);
+  const companyIdFromStore = useStrategyStore(
+    (s: any) => s?.companyId as string | null,
+  );
   const isFetching = useStrategyStore((s: any) =>
     typeof isFetchingSelector === 'function'
       ? !!isFetchingSelector(s)
       : !!s?.__isFetchingFromServer,
   );
 
-  // 主要フィールド（保存対象）※シグネチャ用
+  // ---- 保存対象フィールド（署名用）----
   const pickA = useStrategyStore((s: any) => s?.companyName);
   const pickB = useStrategyStore((s: any) => s?.mission);
   const pickC = useStrategyStore((s: any) => s?.vision);
@@ -142,12 +135,17 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
     (s: any) => s?.simulationResults ?? s?.simulationResult,
   );
 
-  // companyId は store 優先
   const companyId = companyIdFromStore ?? companyIdFromUserStore;
 
-  // 変更シグネチャ（※オブジェクトそのものではなく、安定JSONで比較）
+  /* ============================================
+   * 変更シグネチャ
+   * ★ FIX: hydrated / isFetching / companyId を含める
+   * ========================================== */
   const internalSignature = useMemo(() => {
     const pick = {
+      companyId,
+      hydrated,
+      isFetching,
       companyName: pickA,
       mission: pickB,
       vision: pickC,
@@ -163,9 +161,25 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
       simulationResults: pickM,
     };
     return safeStableStringify(pick);
-  }, [pickA, pickB, pickC, pickD, pickE, pickF, pickG, pickH, pickI, pickJ, pickK, pickL, pickM]);
+  }, [
+    companyId,
+    hydrated,
+    isFetching,
+    pickA,
+    pickB,
+    pickC,
+    pickD,
+    pickE,
+    pickF,
+    pickG,
+    pickH,
+    pickI,
+    pickJ,
+    pickK,
+    pickL,
+    pickM,
+  ]);
 
-  // 互換: 依存配列を与えられた場合もトリガに含める
   const depsSignature = useMemo(() => {
     if (!externalDeps || externalDeps.length === 0) return '';
     return safeStableStringify(externalDeps);
@@ -173,12 +187,19 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
 
   const combinedSignature = internalSignature + '|' + depsSignature;
 
-  // 保存中フラグ & 最終保存時刻
+  // ---- 保存制御 ----
   const savingRef = useRef(false);
   const lastSavedAtRef = useRef<number>(0);
-
-  // 初回猶予
   const mountedAtRef = useRef<number>(Date.now());
+
+  /* ============================================
+   * ★ FIX: companyId 切替時のリセット
+   * ========================================== */
+  useEffect(() => {
+    mountedAtRef.current = Date.now();
+    lastSavedAtRef.current = 0;
+    savingRef.current = false;
+  }, [companyId]);
 
   const doSave = useCallback(async () => {
     try {
@@ -189,31 +210,25 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
       if (forceSkipWhenDeleting && isCompanyDeleting(companyId)) return;
       if (isFetching) return;
 
-      // 初回マウントからの猶予時間
       if (Date.now() - mountedAtRef.current < initialDelayMs) return;
 
-      // セッション必須ならチェック
       if (requireSession) {
         const active = await hasActiveSession();
         if (!active) return;
       }
 
       const now = Date.now();
-      // 連続保存抑止
-      if (now - lastSavedAtRef.current < (minIntervalMs ?? 1500)) return;
-
-      // 二重保存抑止
+      if (now - lastSavedAtRef.current < minIntervalMs) return;
       if (savingRef.current) return;
+
       savingRef.current = true;
 
-      // ★ ここがポイント：Supabase 直叩きではなく、Zustand ストアの saveStrategyData に一本化
       const storeApi = useStrategyStore.getState();
       await storeApi.saveStrategyData();
 
       lastSavedAtRef.current = Date.now();
-    } catch (e) {
-      // ここでは詳細ログは出さず、store側のログに任せる
-      // console.warn('[useAutoSave] save error:', e);
+    } catch {
+      // noop（詳細は store 側でログ）
     } finally {
       savingRef.current = false;
     }
@@ -230,17 +245,18 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
     initialDelayMs,
   ]);
 
-  /* -----------------------------
-   * デバウンス（変更検知 → doSave実行）
-   * --------------------------- */
+  /* ============================================
+   * デバウンス
+   * ========================================== */
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cancel = useCallback((): void => {
+  const cancel = useCallback(() => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
   }, []);
-  const trigger = useCallback((): void => {
+
+  const trigger = useCallback(() => {
     cancel();
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
@@ -253,6 +269,16 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
     trigger();
     return cancel;
   }, [enabled, trigger, cancel, combinedSignature]);
+
+  /* ============================================
+   * ★ FIX: gate解除時に再トリガ
+   * ========================================== */
+  useEffect(() => {
+    if (!enabled) return;
+    if (hydrated && !isFetching) {
+      trigger();
+    }
+  }, [enabled, hydrated, isFetching, trigger]);
 
   useEffect(() => {
     return () => {
