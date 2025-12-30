@@ -3,7 +3,11 @@ export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { openai } from '@/lib/openai';
-import { toTextStory, sanitizeText, extractJsonObject } from '@/app/api/_shared/utils';
+import {
+  toTextStory,
+  sanitizeText,
+  extractJsonObject,
+} from '@/app/api/_shared/utils';
 import { getIndustryLabel } from '@/utils/industryTemplates';
 import { z } from 'zod';
 
@@ -18,43 +22,57 @@ const ReqSchema = z.object({
 });
 
 /* =========================
- * プロジェクトスキーマ（勝ち筋レバー付き）
+ * 列挙（勝ち筋レバー付き）
  * ======================= */
 const LeverEnum = z.enum([
-  'ACQ',        // 新規・既存顧客数（獲得・利用頻度）
-  'ARPU',       // 単価・顧客あたり収益
-  'CHURN',      // 解約・離脱
-  'COST',       // コスト全般
+  'ACQ', // 新規・既存顧客数（獲得・利用頻度）
+  'ARPU', // 単価・顧客あたり収益
+  'CHURN', // 解約・離脱
+  'COST', // コスト全般
   'EFFICIENCY', // 業務効率・時間削減
-  'FUTURE',     // 将来の種・仕組み（新規事業・基盤・人材 等）
+  'FUTURE', // 将来の種・仕組み（新規事業・基盤・人材 等）
 ]);
 
 const HorizonEnum = z.enum(['short', 'mid', 'long']); // 短期/中期/長期
 const KindEnum = z.enum(['growth', 'cost', 'efficiency', 'future']);
 
-const ProjectSchema = z.object({
-  // プロジェクト名（仮説が連想できるタイトル）
+/* =========================
+ * AI出力を受け止めるための “ゆるい” スキーマ
+ *  - ここでは optional を許容（AIが欠落させる可能性があるため）
+ * ======================= */
+const ProjectSchemaLoose = z.object({
   title: z.string().min(1).catch(''),
-  // 目的・狙い
   reason: z.string().default(''),
-  // 「こうすれば勝てる／効くはず」という仮説（1〜2文）
   hypothesis: z.string().default(''),
 
-  // どのレバーに効かせるか
   mainLever: LeverEnum.optional(),
-  // いつ効いてくるか（short/mid/long）
   horizon: HorizonEnum.optional(),
-  // growth/cost/efficiency/future（UIの色分けなどで使用）
   kind: KindEnum.optional(),
 
-  // ★ どこで勝つか（具体性アップ用フィールド）
-  targetCustomer: z.string().default('').optional(), // どの顧客セグメント
-  targetChannel: z.string().default('').optional(),  // どのチャネル（直販/代理店/EC/店舗など）
-  targetProduct: z.string().default('').optional(),  // どのプロダクト・サービス
-  mainKpi: z.string().default('').optional(),        // 主要KPI（例：月間新規リード数 等）
+  targetCustomer: z.string().default('').optional(),
+  targetChannel: z.string().default('').optional(),
+  targetProduct: z.string().default('').optional(),
+  mainKpi: z.string().default('').optional(),
 });
 
-type Project = z.infer<typeof ProjectSchema>;
+type ProjectLoose = z.infer<typeof ProjectSchemaLoose>;
+
+/* =========================
+ * 返却用（下流が扱いやすい “完全正規化” 型）
+ *  - undefined を出さない（空文字で返す）
+ * ======================= */
+export type Project = {
+  title: string;
+  reason: string;
+  hypothesis: string;
+  mainLever: string; // 'ACQ' | ... | ''（空は未設定）
+  horizon: string; // 'short' | ... | ''（空は未設定）
+  kind: string; // 'growth' | ... | ''（空は未設定）
+  targetCustomer: string;
+  targetChannel: string;
+  targetProduct: string;
+  mainKpi: string;
+};
 
 /* =========================
  * ユーティリティ
@@ -63,24 +81,51 @@ function normalizeProjects(list: unknown[], max = 6): Project[] {
   const out: Project[] = [];
   const seen = new Set<string>();
 
+  const allowedLevers = new Set(LeverEnum.options);
+  const allowedHorizons = new Set(HorizonEnum.options);
+  const allowedKinds = new Set(KindEnum.options);
+
   for (const raw of Array.isArray(list) ? list : []) {
     const candidate =
       typeof raw === 'string'
         ? { title: raw }
         : (raw as Record<string, unknown> | undefined) ?? {};
 
-    const parsed = ProjectSchema.safeParse(candidate);
+    const parsed = ProjectSchemaLoose.safeParse(candidate);
     if (!parsed.success) continue;
 
-    const proj = parsed.data;
-    const key = proj.title
+    const p: ProjectLoose = parsed.data;
+
+    const title = typeof p.title === 'string' ? p.title.trim() : '';
+    if (!title) continue;
+
+    const key = title
       .toLowerCase()
       .normalize('NFKC')
       .replace(/[！!。．.、,・\s]+$/g, '');
 
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(proj);
+
+    const mainLeverRaw =
+      typeof p.mainLever === 'string' ? p.mainLever.trim().toUpperCase() : '';
+    const horizonRaw =
+      typeof p.horizon === 'string' ? p.horizon.trim().toLowerCase() : '';
+    const kindRaw = typeof p.kind === 'string' ? p.kind.trim().toLowerCase() : '';
+
+    out.push({
+      title,
+      reason: typeof p.reason === 'string' ? p.reason.trim() : '',
+      hypothesis: typeof p.hypothesis === 'string' ? p.hypothesis.trim() : '',
+      mainLever: allowedLevers.has(mainLeverRaw as any) ? mainLeverRaw : '',
+      horizon: allowedHorizons.has(horizonRaw as any) ? horizonRaw : '',
+      kind: allowedKinds.has(kindRaw as any) ? kindRaw : '',
+      targetCustomer: typeof p.targetCustomer === 'string' ? p.targetCustomer.trim() : '',
+      targetChannel: typeof p.targetChannel === 'string' ? p.targetChannel.trim() : '',
+      targetProduct: typeof p.targetProduct === 'string' ? p.targetProduct.trim() : '',
+      mainKpi: typeof p.mainKpi === 'string' ? p.mainKpi.trim() : '',
+    });
+
     if (out.length >= max) break;
   }
 
@@ -114,8 +159,13 @@ async function callOpenAIWithRetry(
       lastErr = e;
       const status = Number(e?.status ?? e?.code ?? 0);
       const retryable =
-        status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+        status === 429 ||
+        status === 500 ||
+        status === 502 ||
+        status === 503 ||
+        status === 504;
       if (!retryable || i === tries - 1) break;
+
       const retryAfter = Number(e?.response?.headers?.get?.('retry-after')) || 0;
       const backoff = retryAfter > 0 ? retryAfter * 1000 : [300, 700, 1300][Math.min(i, 2)];
       await new Promise((r) => setTimeout(r, backoff));
@@ -209,16 +259,12 @@ kind フィールドは、
 
 - targetCustomer:
   - どの顧客セグメントにフォーカスするか
-  - 例）「地方中核都市の中堅BtoB顧客」「主要空港を利用する訪日観光客」など
 - targetChannel:
   - どのチャネルで攻めるか
-  - 例）「自社営業」「代理店」「Webフォーム」「アプリ」「社内イントラ」など
 - targetProduct:
   - どのプロダクト・サービス/プロセスに焦点を当てるか
-  - 例）「主力定期便サービス」「サブスクリプションプラン」「社内人事制度」など
 - mainKpi:
   - そのプロジェクトで最も重視するKPI（指標）を1つ
-  - 例）「月間新規リード数」「顧客単価」「離職率」「1案件あたり工数」など
 
 # プロジェクトの設計条件
 
@@ -226,34 +272,6 @@ kind フィールドは、
 - cost または efficiency（コスト削減・業務効率化）系も必ず1件以上
 - future×mid/long（中長期の投資的プロジェクト）も必ず1件以上
 - プロジェクト同士が被らないように、役割と射程を分けること
-  - 例）「既存大口向け単価UP」「新規中堅顧客獲得」「バックオフィス効率化」「人材育成・評価制度刷新」など
-
-# 各フィールドの意味
-
-- title:
-  - プロジェクト名（名詞句）
-  - 見ただけで「どの顧客/チャネル/プロダクトを通じて、どのレバーに効かせるか」が想像できるタイトルにしてください
-  - 例）「中堅B2B顧客向け高粗利パッケージの立ち上げ」
-- reason:
-  - そのプロジェクトの目的・狙い・背景（1文）
-- hypothesis:
-  - 以下のような形の仮説を1〜2文で日本語で書いてください
-  - 例）「もし【ターゲット顧客/業務】に対して【施策/仕組み】を実行すれば、
-          【行動/体験】がこう変わり、結果として【mainLever】が改善するはずだ。」
-- mainLever:
-  - "ACQ" | "ARPU" | "CHURN" | "COST" | "EFFICIENCY" | "FUTURE"
-- horizon:
-  - "short" | "mid" | "long"
-- kind:
-  - "growth" | "cost" | "efficiency" | "future"
-- targetCustomer:
-  - どの顧客セグメントにフォーカスするか
-- targetChannel:
-  - どのチャネルを主に使うか
-- targetProduct:
-  - どのプロダクト・サービス/プロセスを主戦場とするか
-- mainKpi:
-  - そのプロジェクトで最も重視するKPI（1つ）
 
 # 出力形式（日本語のJSONのみ／説明禁止）
 
@@ -264,7 +282,7 @@ kind フィールドは、
     {
       "title": "プロジェクト名",
       "reason": "目的・ねらい（1文）",
-      "hypothesis": "こうすれば勝てる／効くはずだという仮説（1〜2文）",
+      "hypothesis": "仮説（1〜2文）",
       "mainLever": "ACQ | ARPU | CHURN | COST | EFFICIENCY | FUTURE のいずれか",
       "horizon": "short | mid | long のいずれか",
       "kind": "growth | cost | efficiency | future のいずれか",
