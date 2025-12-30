@@ -56,10 +56,10 @@ export default function Home() {
               className="
                 font-semibold tracking-tight text-neutral-900 dark:text-neutral-100
                 leading-tight
-                text-[clamp(22px,3.2vw,34px)]
+                text-[clamp(30px,3.2vw,30px)]
               "
             >
-              現状を壊し、 未来を変える
+              戦略を行動に、行動を成果に
             </motion.p>
 
             {/* 中央：GROWTH（横余白を確保しつつ存在感） */}
@@ -69,7 +69,7 @@ export default function Home() {
               transition={{ duration: 0.7, ease: 'easeOut' }}
               className="
                 mt-3 font-extrabold tracking-[-0.02em] select-none
-                text-[clamp(72px,10vw,120px)] leading-none
+                text-[clamp(120px,10vw,120px)] leading-none
                 text-neutral-900 dark:text-neutral-100
               "
             >
@@ -83,11 +83,11 @@ export default function Home() {
               transition={{ delay: 0.15, duration: 0.6 }}
               className="
                 mt-5 mx-auto max-w-3xl
-                text-[clamp(16px,2.5vw,22px)] leading-relaxed
+                text-[clamp(22px,2.5vw,20px)] leading-relaxed
                 text-neutral-600 dark:text-neutral-300
               "
             >
-              戦略を行動に、行動を成果に変える経営支援プラットフォーム
+              ー組織と業績が自走する、経営プラットフォームー
             </motion.p>
 
             {/* CTA（既存機能維持） */}
