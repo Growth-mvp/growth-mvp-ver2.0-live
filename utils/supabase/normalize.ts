@@ -152,6 +152,12 @@ export function normalizeChaptersAnyNonDestructive(input: unknown): ChapterStory
   return alignToGrowthOrderSafe(arr);
 }
 
+// 互換のためのエクスポート（ancillary.ts など旧コードが参照）
+// 破壊的変更を避けるため、非破壊版に委譲する
+export function normalizeChaptersAny(input: unknown): ChapterStory[] | null {
+  return normalizeChaptersAnyNonDestructive(input) ?? null;
+}
+
 /* =====================================================================
  * departments 正規化（非破壊・情報を落とさない）
  * ===================================================================== */

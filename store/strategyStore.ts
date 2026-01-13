@@ -13,12 +13,17 @@ import {
 } from '@/utils/supabase/strategy';
 import { safeGetSession } from '@/utils/supabase/client';
 import { useUserStore } from './userStore';
+import { computeValueAnalysis } from '@/utils/valueAnalysis';
 import type {
   ChapterStory,
   ChapterAnswers,
   Department,
   WinPattern,
   WinPatternId,
+  BusinessSegment,
+  FinanceBSRow,
+  ValueAnalysis,
+  IssueBlock,
 } from '@/types/strategy';
 import type { BusinessPortfolio } from '@/types/portfolio';
 
@@ -63,6 +68,9 @@ export type SimulationResult =
   | null
   | undefined;
 
+/* ===== STAGE1: 論点ブロック ===== */
+export type Stage1IssueBlock = IssueBlock;
+
 type BootState = { isHydrating: boolean; isHydrated: boolean };
 
 type SafeDepartmentsArg =
@@ -76,7 +84,7 @@ export type StrategyState = {
   companyId: string | null;
   strategyId: string | null;
 
-  /** スコープ切替の“仮”置き場（成功取得時のみ companyId に昇格） */
+  /** スコープ切替の"仮"置き場（成功取得時のみ companyId に昇格） */
   pendingCompanyId?: string | null;
 
   /* 会社プロフィール（すべて文字列で持つ） */
@@ -88,6 +96,29 @@ export type StrategyState = {
   employees?: string;
   businessContent?: string;
   customerSegment?: string;
+
+  /* 会計・期間設定（STAGE1 拡張） */
+  fiscalYearEnd?: string;
+  currency?: string;
+  periodStartYear?: string;
+  periodEndYear?: string;
+
+  /* 事業セグメント（STAGE1 拡張） */
+  businessSegments?: BusinessSegment[];
+
+  /* 上場情報・指標⑤準備（STAGE1 拡張） */
+  isListed?: boolean;
+  ticker?: string;
+  pbrManual?: string;
+
+  /* 財務BS（STAGE1 指標⑤用） */
+  financeBS?: FinanceBSRow[];
+
+  /* 5指標分析（STAGE1 → STAGE2 接続） */
+  valueAnalysis?: ValueAnalysis;
+
+  /* STAGE1：論点整理（Issue Block） */
+  stage1Issues?: Stage1IssueBlock[];
 
   /* MVV / SWOT */
   thought?: string;
@@ -163,19 +194,40 @@ export type StrategyState = {
   setAnswers2: (answers: ChapterAnswers[]) => void;
   setChapterCurrentStep: (chapterIndex: number, step: number) => void;
 
-  setProfile: (patch: Partial<
-    Pick<
-      StrategyState,
-      | 'companyName'
-      | 'foundationYear'
-      | 'location'
-      | 'industry'
-      | 'revenue'
-      | 'employees'
-      | 'businessContent'
-      | 'customerSegment'
+  setProfile: (
+    patch: Partial<
+      Pick<
+        StrategyState,
+        | 'companyName'
+        | 'foundationYear'
+        | 'location'
+        | 'industry'
+        | 'revenue'
+        | 'employees'
+        | 'businessContent'
+        | 'customerSegment'
+        | 'fiscalYearEnd'
+        | 'currency'
+        | 'periodStartYear'
+        | 'periodEndYear'
+        | 'businessSegments'
+        | 'isListed'
+        | 'ticker'
+        | 'pbrManual'
+        | 'financeBS'
+        | 'valueAnalysis'
+        | 'stage1Issues'
+      >
     >
-  >) => void;
+  ) => void;
+
+  /* ▼ 互換用ショートカット（CompanyScopePanel 等で使う） */
+  setCompanyName: (name: string) => void;
+  setIndustry: (industry: string) => void;
+  setStage1Issues: (issues: Stage1IssueBlock[]) => void;
+
+  /** ValueAnalysis 再計算（source: 'local'|'refetchFromServer'） */
+  recomputeValueAnalysis: (source?: 'local' | 'refetchFromServer') => void;
 
   setMVV: (patch: Partial<Pick<StrategyState, 'thought' | 'mission' | 'vision' | 'value'>>) => void;
   setSWOT: (patch: Partial<Pick<StrategyState, 'strength' | 'weakness' | 'opportunity' | 'threat'>>) => void;
@@ -184,6 +236,7 @@ export type StrategyState = {
   updateDepartments: (updater: (prev: Department[]) => Department[]) => void;
 
   setBusinessPortfolio: (p: BusinessPortfolio) => void;
+  setFinanceSummary: (rows: FinanceSummaryRow[]) => void;
 
   markLoaded: () => void;
   markDirty: () => void;
@@ -206,10 +259,7 @@ function pruneUndefinedDeep<T>(obj: T): T {
     const out: any = {};
     for (const [k, v] of Object.entries(obj as any)) {
       const pv = pruneUndefinedDeep(v);
-      const drop =
-        pv === undefined ||
-        pv === null ||
-        (typeof pv === 'string' && pv.trim() === '');
+      const drop = pv === undefined || pv === null || (typeof pv === 'string' && pv.trim() === '');
       // 空配列は残す（[]を保存したい）
       if (!drop) out[k] = pv;
     }
@@ -237,23 +287,16 @@ function isEffectivelyEmpty(payload: any): boolean {
     emptyArr(payload.departments) &&
     emptyArr(payload.csvFinanceData) &&
     emptyArr(payload.financeSummary) &&
+    emptyArr(payload.stage1Issues) &&
     (payload.businessPortfolio == null ||
-      (Array.isArray(payload.businessPortfolio?.units) &&
-        payload.businessPortfolio.units.length === 0)) &&
+      (Array.isArray(payload.businessPortfolio?.units) && payload.businessPortfolio.units.length === 0)) &&
     (payload.simulationResult == null ||
       (Array.isArray(payload.simulationResult?.projection?.points) &&
         payload.simulationResult.projection.points.length === 0));
 
-  const metaAllEmpty =
-    [
-      payload.companyName,
-      payload.mission,
-      payload.vision,
-      payload.value,
-      payload.thought,
-    ]
-      .filter((v) => v !== undefined)
-      .every(emptyStr);
+  const metaAllEmpty = [payload.companyName, payload.mission, payload.vision, payload.value, payload.thought]
+    .filter((v) => v !== undefined)
+    .every(emptyStr);
 
   return allEmpty && metaAllEmpty;
 }
@@ -275,6 +318,20 @@ function buildSavePayload(s: StrategyState) {
     employees: s.employees,
     businessContent: s.businessContent,
     customerSegment: s.customerSegment,
+
+    fiscalYearEnd: s.fiscalYearEnd,
+    currency: s.currency,
+    periodStartYear: s.periodStartYear,
+    periodEndYear: s.periodEndYear,
+    businessSegments: s.businessSegments,
+
+    isListed: s.isListed,
+    ticker: s.ticker,
+    pbrManual: s.pbrManual,
+    financeBS: s.financeBS,
+    valueAnalysis: s.valueAnalysis,
+
+    stage1Issues: s.stage1Issues,
 
     mission: s.mission,
     vision: s.vision,
@@ -320,8 +377,8 @@ function normalizeDepartmentsInput(input: any, fallback: Department[]): Departme
   const fromArg = Array.isArray(input)
     ? input
     : Array.isArray(input?.departments)
-    ? (input.departments as Department[])
-    : undefined;
+      ? (input.departments as Department[])
+      : undefined;
 
   const base = Array.isArray(fromArg) ? fromArg : Array.isArray(fallback) ? fallback : [];
 
@@ -354,7 +411,7 @@ async function isSessionUsable(): Promise<boolean> {
 }
 
 /* ============================================================
- * 親(strategy_data)の存在を“できる限り”保証
+ * 親(strategy_data)の存在を"できる限り"保証
  * - store保存制御を迂回するが、in-flight を1本化して競合を抑止
  * ========================================================== */
 let __ensureParentInflight: Promise<void> | null = null;
@@ -365,8 +422,7 @@ async function ensureParentExists(): Promise<void> {
   __ensureParentInflight = (async () => {
     const s = useStrategyStore.getState();
     const userId = useUserStore.getState().user?.id;
-    const companyId =
-      s.companyId || s.pendingCompanyId || useUserStore.getState().companyId;
+    const companyId = s.companyId || s.pendingCompanyId || useUserStore.getState().companyId;
 
     console.log('[strategyStore] ensureParentExists()', { userId, companyId });
 
@@ -422,6 +478,20 @@ const emptyData: StrategyState = {
   employees: '',
   businessContent: '',
   customerSegment: '',
+
+  fiscalYearEnd: '',
+  currency: 'JPY',
+  periodStartYear: '',
+  periodEndYear: '',
+  businessSegments: [],
+  isListed: false,
+  ticker: '',
+  pbrManual: '',
+  financeBS: [],
+  valueAnalysis: undefined,
+
+  stage1Issues: [],
+
   thought: '',
   mission: '',
   vision: '',
@@ -472,11 +542,18 @@ const emptyData: StrategyState = {
   setAnswers2: () => {},
   setChapterCurrentStep: () => {},
   setProfile: () => {},
+
+  setCompanyName: () => {},
+  setIndustry: () => {},
+  setStage1Issues: () => {},
+  recomputeValueAnalysis: () => {},
+
   setMVV: () => {},
   setSWOT: () => {},
   setDepartments: () => {},
   updateDepartments: () => {},
   setBusinessPortfolio: () => {},
+  setFinanceSummary: () => {},
   markLoaded: () => {},
   markDirty: () => {},
   buildPayload: () => ({}),
@@ -501,6 +578,32 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
   const businessContent = raw.businessContent ?? raw.business_content ?? '';
   const customerSegment = raw.customerSegment ?? raw.customer_segment ?? '';
 
+  const fiscalYearEnd = raw.fiscalYearEnd ?? raw.fiscal_year_end ?? '';
+  const currency = raw.currency ?? 'JPY';
+  const periodStartYear = raw.periodStartYear ?? raw.period_start_year ?? '';
+  const periodEndYear = raw.periodEndYear ?? raw.period_end_year ?? '';
+  const businessSegments = isArray(raw.businessSegments)
+    ? raw.businessSegments
+    : isArray(raw.business_segments)
+      ? raw.business_segments
+      : [];
+
+  const isListed = typeof raw.isListed === 'boolean' ? raw.isListed : (typeof raw.is_listed === 'boolean' ? raw.is_listed : false);
+  const ticker = raw.ticker ?? raw.ticker_text ?? '';
+  const pbrManual = raw.pbrManual ?? raw.pbr_manual ?? '';
+  const financeBS = isArray(raw.financeBS)
+    ? raw.financeBS
+    : isArray(raw.finance_bs)
+      ? raw.finance_bs
+      : [];
+  const valueAnalysis = raw.valueAnalysis ?? raw.value_analysis ?? undefined;
+
+  const stage1Issues = isArray(raw.stage1Issues)
+    ? raw.stage1Issues
+    : isArray(raw.stage1_issues)
+      ? raw.stage1_issues
+      : [];
+
   const thought = raw.thought ?? '';
   const mission = raw.mission ?? '';
   const vision = raw.vision ?? '';
@@ -511,23 +614,19 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
   const threat = raw.threat ?? '';
 
   const story = isArray(raw.story) ? raw.story : [];
-  const finalStory = isArray(raw.finalStory)
-    ? raw.finalStory
-    : isArray(raw.final_story)
-    ? raw.final_story
-    : [];
+  const finalStory = isArray(raw.finalStory) ? raw.finalStory : isArray(raw.final_story) ? raw.final_story : [];
 
   const csvFinanceData = isArray(raw.csvFinanceData)
     ? raw.csvFinanceData
     : isArray(raw.csv_finance_data)
-    ? raw.csv_finance_data
-    : [];
+      ? raw.csv_finance_data
+      : [];
 
   const financeSummary = isArray(raw.financeSummary)
     ? raw.financeSummary
     : isArray(raw.finance_summary)
-    ? raw.finance_summary
-    : [];
+      ? raw.finance_summary
+      : [];
 
   const departmentsRaw = isArray(raw.departments) ? raw.departments : [];
   const departments: Department[] = departmentsRaw.map((d: any, di: number) => {
@@ -539,13 +638,9 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
       deptOut.answers2 = d.answers2.map((c: any, idx: number) => ({
         chapterIndex: typeof c?.chapterIndex === 'number' ? c.chapterIndex : idx,
         chapterTitle:
-          typeof c?.chapterTitle === 'string'
-            ? c.chapterTitle
-            : (d?.name ?? `Chapter ${idx + 1}`),
+          typeof c?.chapterTitle === 'string' ? c.chapterTitle : (d?.name ?? `Chapter ${idx + 1}`),
         steps: isArray(c?.steps)
-          ? [...c.steps].sort(
-              (a: any, b: any) => Number(a?.stepNumber ?? 0) - Number(b?.stepNumber ?? 0)
-            )
+          ? [...c.steps].sort((a: any, b: any) => Number(a?.stepNumber ?? 0) - Number(b?.stepNumber ?? 0))
           : [],
       }));
     }
@@ -561,11 +656,7 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     return deptOut as Department;
   });
 
-  const answers2Raw = isArray(raw.answers2)
-    ? raw.answers2
-    : isArray(raw.answers)
-    ? raw.answers
-    : [];
+  const answers2Raw = isArray(raw.answers2) ? raw.answers2 : isArray(raw.answers) ? raw.answers : [];
 
   const answers2: ChapterAnswers[] =
     isArray(answers2Raw) && answers2Raw.length > 0
@@ -573,9 +664,7 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
           chapterIndex: typeof c?.chapterIndex === 'number' ? c.chapterIndex : idx,
           chapterTitle: typeof c?.chapterTitle === 'string' ? c.chapterTitle : `Chapter ${idx + 1}`,
           steps: Array.isArray(c?.steps)
-            ? [...c.steps].sort(
-                (a: any, b: any) => Number(a?.stepNumber ?? 0) - Number(b?.stepNumber ?? 0)
-              )
+            ? [...c.steps].sort((a: any, b: any) => Number(a?.stepNumber ?? 0) - Number(b?.stepNumber ?? 0))
             : [],
         }))
       : [
@@ -605,11 +694,10 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
   const winPatterns: WinPattern[] | undefined = Array.isArray(raw.winPatterns)
     ? raw.winPatterns
     : Array.isArray(raw.win_patterns)
-    ? raw.win_patterns
-    : undefined;
+      ? raw.win_patterns
+      : undefined;
 
-  const winPatternPrimary: WinPatternId | undefined =
-    raw.winPatternPrimary ?? raw.win_pattern_primary ?? undefined;
+  const winPatternPrimary: WinPatternId | undefined = raw.winPatternPrimary ?? raw.win_pattern_primary ?? undefined;
   const winPatternSecondary: WinPatternId | undefined =
     raw.winPatternSecondary ?? raw.win_pattern_secondary ?? undefined;
 
@@ -624,6 +712,20 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     employees,
     businessContent,
     customerSegment,
+
+    fiscalYearEnd,
+    currency,
+    periodStartYear,
+    periodEndYear,
+    businessSegments,
+    isListed,
+    ticker,
+    pbrManual,
+    financeBS,
+    valueAnalysis,
+
+    stage1Issues,
+
     thought,
     mission,
     vision,
@@ -693,8 +795,7 @@ export const useStrategyStore = create<StrategyState>()(
         (async () => {
           const s = get();
           const userId = useUserStore.getState().user?.id;
-          const companyId =
-            s.companyId || s.pendingCompanyId || useUserStore.getState().companyId;
+          const companyId = s.companyId || s.pendingCompanyId || useUserStore.getState().companyId;
           if (!userId || !companyId) return;
 
           await ensureParentExists();
@@ -719,8 +820,7 @@ export const useStrategyStore = create<StrategyState>()(
         (async () => {
           const s = get();
           const userId = useUserStore.getState().user?.id;
-          const companyId =
-            s.companyId || s.pendingCompanyId || useUserStore.getState().companyId;
+          const companyId = s.companyId || s.pendingCompanyId || useUserStore.getState().companyId;
           if (!userId || !companyId) return;
 
           await ensureParentExists();
@@ -737,7 +837,56 @@ export const useStrategyStore = create<StrategyState>()(
           chapterCurrentStep: { ...s.chapterCurrentStep, [chapterIndex]: step },
         })),
 
-      setProfile: (patch) => set((s) => ({ ...s, ...patch, dirty: true })),
+      setProfile: (patch) => {
+        set((s) => ({ ...s, ...patch, dirty: true }));
+        // pbrManual, financeSummary, financeBS の変更を含む場合は valueAnalysis を再計算
+        const needsRecompute =
+          patch.pbrManual !== undefined ||
+          patch.financeBS !== undefined;
+        if (needsRecompute) {
+          // 次の tick で recompute（set の反映後）
+          setTimeout(() => {
+            get().recomputeValueAnalysis('local');
+          }, 0);
+        }
+      },
+
+      /* ▼ 互換用ショートカット */
+      setCompanyName: (name) => set((s) => ({ ...s, companyName: name, dirty: true })),
+      setIndustry: (industry) => set((s) => ({ ...s, industry, dirty: true })),
+      setStage1Issues: (issues) => set((s) => ({ ...s, stage1Issues: issues, dirty: true })),
+
+      /** ValueAnalysis 再計算 */
+      recomputeValueAnalysis: (source = 'local') => {
+        const s = get();
+        // refetch/hydrating 中は dirty 保護のため計算しない
+        if (s.__isFetchingFromServer || s.boot?.isHydrating) {
+          console.log('[strategyStore] recomputeValueAnalysis: skip while fetching/hydrating');
+          return;
+        }
+
+        const newValueAnalysis = computeValueAnalysis({
+          financeSummary: s.financeSummary,
+          financeBS: s.financeBS,
+          pbrManual: s.pbrManual,
+        });
+
+        // source 情報をメタに反映
+        newValueAnalysis.meta = {
+          ...newValueAnalysis.meta,
+          source: source === 'refetchFromServer' ? 'server' : 'local',
+        };
+
+        console.log('[strategyStore] recomputeValueAnalysis:', { source, newValueAnalysis });
+
+        set((prev) => ({
+          ...prev,
+          valueAnalysis: newValueAnalysis,
+          // refetchFromServer 以外は dirty=true
+          dirty: source === 'refetchFromServer' ? prev.dirty : true,
+        }));
+      },
+
       setMVV: (patch) => set((s) => ({ ...s, ...patch, dirty: true })),
       setSWOT: (patch) => set((s) => ({ ...s, ...patch, dirty: true })),
 
@@ -782,6 +931,14 @@ export const useStrategyStore = create<StrategyState>()(
 
       setBusinessPortfolio: (p) => set({ businessPortfolio: { ...p }, dirty: true }),
 
+      setFinanceSummary: (rows) => {
+        set({ financeSummary: rows, dirty: true });
+        // financeSummary 変更時に valueAnalysis を再計算
+        setTimeout(() => {
+          get().recomputeValueAnalysis('local');
+        }, 0);
+      },
+
       __afterSave(data) {
         const cur = get();
         const minimal = extractServerDecidedPatch(data ?? {}, cur);
@@ -803,8 +960,7 @@ export const useStrategyStore = create<StrategyState>()(
         }
 
         const userId = useUserStore.getState().user?.id;
-        const companyId =
-          state.companyId || state.pendingCompanyId || useUserStore.getState().companyId;
+        const companyId = state.companyId || state.pendingCompanyId || useUserStore.getState().companyId;
 
         console.log('[strategyStore] saveStrategyData() start', {
           userId,
@@ -847,13 +1003,7 @@ export const useStrategyStore = create<StrategyState>()(
 
           const res = await (async () => {
             try {
-              return await (saveStrategyDataApi as any)(
-                payload,
-                userId,
-                companyId,
-                state.revision,
-                { mode: 'upsert' }
-              );
+              return await (saveStrategyDataApi as any)(payload, userId, companyId, state.revision, { mode: 'upsert' });
             } catch (e) {
               console.warn('[strategyStore] saveStrategyData thrown, fallback legacy call:', e);
               try {
@@ -866,20 +1016,29 @@ export const useStrategyStore = create<StrategyState>()(
           })();
 
           if (!res || (res as any).error) {
-            console.error(
-              '[strategyStore] saveStrategyData API error:',
-              (res as any)?.error ?? 'unknown error'
-            );
+            const err = (res as any)?.error;
+            const errCode = (res as any)?.errorCode;
+
+            // ★ 409 REVISION_CONFLICT: サーバ側で変更があった
+            if (errCode === 'REVISION_CONFLICT' || err?.code === 'REVISION_CONFLICT') {
+              console.warn('[strategyStore] ⚠ REVISION_CONFLICT detected. Refetching latest data...');
+              try {
+                await get().refetchFromServer();
+                console.log('[strategyStore] ✅ Refetch completed after conflict. User changes preserved in dirty state.');
+              } catch (refetchErr) {
+                console.error('[strategyStore] refetch after conflict failed:', refetchErr);
+              }
+              return;
+            }
+
+            console.error('[strategyStore] saveStrategyData API error:', err ?? 'unknown error');
             return;
           }
 
           const serverData = (res as any).data ?? {};
           const minimal = extractServerDecidedPatch(serverData, get() as StrategyState);
 
-          const nextPatch: Partial<StrategyState> = {
-            dirty: false,
-            __lastSavedHash: currentHash,
-          };
+          const nextPatch: Partial<StrategyState> = { dirty: false, __lastSavedHash: currentHash };
           if (Object.keys(minimal).length > 0) Object.assign(nextPatch, minimal);
           set(nextPatch);
         } finally {
@@ -889,8 +1048,7 @@ export const useStrategyStore = create<StrategyState>()(
 
       async refetchFromServer() {
         const s0 = get();
-        const companyId =
-          s0.pendingCompanyId || s0.companyId || useUserStore.getState().companyId;
+        const companyId = s0.pendingCompanyId || s0.companyId || useUserStore.getState().companyId;
 
         const authed = await isSessionUsable();
         if (!companyId || !authed) {
@@ -930,18 +1088,14 @@ export const useStrategyStore = create<StrategyState>()(
           const patch = normalizeFromDbRow(data);
           const cur = get();
 
-          const isSwitchingCompany =
-            cur.pendingCompanyId !== undefined && cur.pendingCompanyId !== cur.companyId;
+          const isSwitchingCompany = cur.pendingCompanyId !== undefined && cur.pendingCompanyId !== cur.companyId;
 
           // dirtyでも会社切替中は「ローカル保護」しない（混線防止）
           const wasDirty = cur.dirty && !isSwitchingCompany;
 
           const curRev = typeof cur.revision === 'number' ? cur.revision : undefined;
           const patchRev = typeof patch.revision === 'number' ? patch.revision : undefined;
-          const isStale =
-            typeof patchRev === 'number' &&
-            typeof curRev === 'number' &&
-            patchRev < curRev;
+          const isStale = typeof patchRev === 'number' && typeof curRev === 'number' && patchRev < curRev;
 
           if (wasDirty) {
             // dirtyを守る：サーバ決定項目のみ反映
@@ -957,8 +1111,7 @@ export const useStrategyStore = create<StrategyState>()(
             });
 
             const after = get();
-            const rev =
-              typeof patch.revision === 'number' ? patch.revision : after.revision ?? 0;
+            const rev = typeof patch.revision === 'number' ? patch.revision : after.revision ?? 0;
 
             set({ loaded: true });
             get().setHydrated(rev);
@@ -994,8 +1147,7 @@ export const useStrategyStore = create<StrategyState>()(
             const after = get();
             const snapshot = buildSavePayload(after as StrategyState);
             const hash = stableHash(snapshot);
-            const rev =
-              typeof patch.revision === 'number' ? patch.revision : after.revision ?? 0;
+            const rev = typeof patch.revision === 'number' ? patch.revision : after.revision ?? 0;
 
             set({
               serverShadow: snapshot,
@@ -1007,6 +1159,11 @@ export const useStrategyStore = create<StrategyState>()(
             });
 
             get().setHydrated(rev, hash);
+
+            // ★ refetch 完了後に valueAnalysis を再計算（dirty保護なしルート）
+            setTimeout(() => {
+              get().recomputeValueAnalysis('refetchFromServer');
+            }, 0);
           }
         } finally {
           set({ _loadingRefetch: false, __isFetchingFromServer: false });
@@ -1036,7 +1193,7 @@ export const useStrategyStore = create<StrategyState>()(
           console.warn('[strategyStore] purgeLegacyTables warn:', e);
         }
 
-        set((s) => ({
+        set(() => ({
           ...emptyData,
           companyId: companyId,
           hydrated: true,
@@ -1051,7 +1208,7 @@ export const useStrategyStore = create<StrategyState>()(
     }),
     {
       name: 'strategy-store',
-      version: 34,
+      version: 36,
       partialize: (s) => ({
         companyId: s.companyId,
         strategyId: s.strategyId,
@@ -1075,6 +1232,19 @@ export const useStrategyStore = create<StrategyState>()(
         employees: s.employees,
         businessContent: s.businessContent,
         customerSegment: s.customerSegment,
+
+        fiscalYearEnd: s.fiscalYearEnd,
+        currency: s.currency,
+        periodStartYear: s.periodStartYear,
+        periodEndYear: s.periodEndYear,
+        businessSegments: s.businessSegments,
+        isListed: s.isListed,
+        ticker: s.ticker,
+        pbrManual: s.pbrManual,
+        financeBS: s.financeBS,
+        valueAnalysis: s.valueAnalysis,
+
+        stage1Issues: s.stage1Issues,
 
         mission: s.mission,
         vision: s.vision,
@@ -1102,7 +1272,7 @@ export const useStrategyStore = create<StrategyState>()(
         __isFetchingFromServer: false,
       }),
       storage: createJSONStorage(() => localStorage),
-      onRehydrateStorage: () => (state, error) => {
+      onRehydrateStorage: () => (_state, error) => {
         if (error) console.warn('rehydration error:', error);
       },
     }

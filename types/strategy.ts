@@ -263,6 +263,14 @@ export type ExecStrategyPattern = {
   pitfalls: string[];
 };
 
+/**
+ * 上位戦略パターン → 下位実行パターンの推奨マッピング
+ */
+export type PatternBridge = {
+  topId: string;
+  recommendedExecIds: string[];
+};
+
 /* =========================================================
  * OKR（旧：互換維持）
  * ========================================================= */
@@ -474,6 +482,125 @@ export type ChapterStory = {
 };
 
 /* =========================================================
+ * 事業セグメント（STAGE1 基本情報で定義）
+ * ========================================================= */
+
+export type BusinessSegment = {
+  id: string;       // UUID
+  name: string;     // セグメント名（例：製造事業、サービス事業）
+  scope?: string;   // 対象範囲・備考（任意）
+};
+
+/* =========================================================
+ * 財務BS（STAGE1 指標⑤用）
+ * ========================================================= */
+
+/**
+ * 年度別 BS（貸借対照表）+ 投下資本
+ * - ROIC 計算に必要な最小項目
+ */
+export type FinanceBSRow = {
+  year: number;
+  totalAssets?: number;          // 総資産
+  netAssets?: number;            // 純資産（株主資本）
+  interestBearingDebt?: number;  // 有利子負債
+  investedCapital?: number;      // 投下資本（純資産 + 有利子負債）※自動計算可
+  nopat?: number;                // NOPAT（税引後営業利益）※営業利益 × (1 - 税率) で算出
+};
+
+/* =========================================================
+ * 5指標分析（STAGE1 → STAGE2 第1章への接続）
+ * ========================================================= */
+
+/**
+ * 5指標の計算結果と経営者の論点
+ * - 指標①〜⑤の値と、それぞれに対する所感・論点を保持
+ * - STAGE2 第1章の自動生成インプットとして使用
+ *
+ * ★ Ver4 拡張：
+ * - 旧形式（baseYear, revenueGrowthRate, ...Note 等）を維持しつつ、
+ * - 新形式（operatingMarginPctLatest, revenueCagrPct, debtEquityRatio, roic, roe, roa, per, pbr）を追加
+ * - 両形式を optional で共存させ、段階移行を可能にする
+ */
+export type ValueAnalysis = {
+  // === 旧形式（互換維持） ===
+  // 基準年度
+  baseYear?: number;
+
+  // ① 売上高成長率（CAGR %）
+  revenueGrowthRate?: number;
+  revenueGrowthNote?: string;
+
+  // ② 営業利益率（%）
+  operatingMarginRate?: number;
+  operatingMarginNote?: string;
+
+  // ③ ROIC（%）= NOPAT / 投下資本
+  roic?: number;
+  roicNote?: string;
+
+  // ④ WACC（%）※簡易入力 or 業界平均
+  wacc?: number;
+  waccNote?: string;
+
+  // ⑤ PBR（倍）= 時価総額 / 純資産
+  pbr?: number;
+  pbrNote?: string;
+
+  // 総合所感（経営者が記入）
+  overallNote?: string;
+
+  // 計算日時
+  calculatedAt?: string;
+
+  // === 新形式（Ver4 拡張） ===
+  /** 最新年の営業利益率（%） */
+  operatingMarginPctLatest?: number;
+
+  /** 期間の売上CAGR（%） */
+  revenueCagrPct?: number;
+
+  /** D/E レシオ（倍率） */
+  debtEquityRatio?: number;
+
+  /** ROE（%） */
+  roe?: number;
+
+  /** ROA（%） */
+  roa?: number;
+
+  /** PER（倍） */
+  per?: number;
+
+  /** メタ情報（計算根拠・出所など） */
+  meta?: {
+    computedAt?: string;
+    source?: 'local' | 'server';
+    basis?: {
+      years?: number[];
+      latestYear?: number;
+    };
+    notes?: string[];
+  };
+};
+
+/* =========================================================
+ * STAGE1 論点ブロック（IssueBlock）
+ * ========================================================= */
+
+/**
+ * STAGE1 の論点整理で使う「論点ブロック」
+ * - 財務指標を踏まえて、経営として向き合うべき論点を整理
+ * - STAGE2 第1章への接続点として使用
+ */
+export type IssueBlock = {
+  title: string;
+  description: string;
+  linkedMetrics: string[];
+  scope: 'company' | 'business';
+};
+
+/* =========================================================
  * 部門
  * ========================================================= */
 
@@ -570,6 +697,26 @@ export type StrategyData = {
   employees: string;
   businessContent: string;
   customerSegment: string;
+
+  /** === 会計・期間設定（STAGE1 拡張） === */
+  fiscalYearEnd?: string;       // 決算期（例：'3' = 3月決算）
+  currency?: string;            // 通貨（'JPY', 'USD' など）
+  periodStartYear?: string;     // 計画開始年度
+  periodEndYear?: string;       // 計画終了年度
+
+  /** === 事業セグメント（STAGE1 拡張） === */
+  businessSegments?: BusinessSegment[];
+
+  /** === 上場情報・指標⑤準備（STAGE1 拡張） === */
+  isListed?: boolean;           // 上場/非上場
+  ticker?: string;              // 証券コード（任意）
+  pbrManual?: string;           // PBR手入力（API未実装時のフォールバック）
+
+  /** === 財務BS（STAGE1 指標⑤用） === */
+  financeBS?: FinanceBSRow[];
+
+  /** === 5指標分析（STAGE1 → STAGE2 接続） === */
+  valueAnalysis?: ValueAnalysis;
 
   /** === MVV / 思考など === */
   thought: string;
