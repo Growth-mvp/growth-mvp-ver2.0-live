@@ -194,8 +194,8 @@ export default function Sidebar() {
       {/* コンテンツ */}
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-6 overscroll-contain">
         <nav className="space-y-1.5" role="navigation" aria-label="メインナビゲーション">
-          <PillLink href="/strategy" icon={<FileText size={18} strokeWidth={1.5} />} label="STAGE 1：経営基本情報" active={isActive('/strategy')} />
-          <PillLink href="/story-process" icon={<BookOpen size={18} strokeWidth={1.5} />} label="STAGE 2：経営戦略策定" active={isActive('/story-process')} />
+          <PillLink href="/stage1" icon={<FileText size={18} strokeWidth={1.5} />} label="STAGE 1：企業価値分析" active={isActive('/stage1')} />
+          <PillLink href="/stage2" icon={<BookOpen size={18} strokeWidth={1.5} />} label="STAGE 2：経営戦略策定" active={isActive('/stage2')} />
           <PillLink href="/cascade" icon={<Share size={18} strokeWidth={1.5} />} label="STAGE 3：部門戦略策定" active={isActive('/cascade')} />
           <PillLink href="/okr" icon={<CheckCircle size={18} strokeWidth={1.5} />} label="STAGE 4：実行計画策定" active={isActive('/okr')} />
           <PillLink href="/execution" icon={<Activity size={18} strokeWidth={1.5} />} label="STAGE 5：実行計画支援" active={isActive('/execution')} />
