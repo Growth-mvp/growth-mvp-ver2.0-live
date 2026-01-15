@@ -1,5 +1,10 @@
 // /utils/valueAnalysis.ts
-import type { FinanceBSRow, ValueAnalysis } from '@/types/strategy';
+import type {
+  FinanceBSRow,
+  FinancePLRow,
+  SegmentBSRow,
+  ValueAnalysis,
+} from '@/types/strategy';
 import type { FinanceSummaryRow } from '@/store/strategyStore';
 
 /* ===============================
@@ -332,4 +337,461 @@ export function computeValueAnalysis(args: {
       source: 'local',
     },
   };
+}
+
+/* ===============================
+ * 新形式：FinancePLRow/FinanceBSRow から直接計算
+ * =============================== */
+
+/** 最新年（year が最大）の行を取得 */
+function getLatestRow<T extends { year: number }>(rows: T[]): T | undefined {
+  if (rows.length === 0) return undefined;
+  return rows.reduce((a, b) => (a.year >= b.year ? a : b));
+}
+
+/** 最古年（year が最小）の行を取得 */
+function getOldestRow<T extends { year: number }>(rows: T[]): T | undefined {
+  if (rows.length === 0) return undefined;
+  return rows.reduce((a, b) => (a.year <= b.year ? a : b));
+}
+
+/**
+ * 投下資本を計算（FinanceBSRow または SegmentBSRow）
+ * 優先順位：
+ * 1. investedCapital が直接あればそれを使用
+ * 2. (AR + Inventory - AP) + FixedAssets（運転資本 + 固定資産）
+ * 3. netAssets + interestBearingDebt（純資産 + 有利子負債）
+ */
+function computeInvestedCapital(row: FinanceBSRow | SegmentBSRow): number | undefined {
+  if (row.investedCapital && row.investedCapital > 0) {
+    return row.investedCapital;
+  }
+
+  const ar = toNumber(row.ar);
+  const inventory = toNumber(row.inventory);
+  const ap = toNumber(row.ap);
+  const fixedAssets = toNumber(row.fixedAssets);
+
+  // 運転資本 + 固定資産方式
+  if ((ar > 0 || inventory > 0) && fixedAssets > 0) {
+    const workingCapital = ar + inventory - ap;
+    return workingCapital + fixedAssets;
+  }
+
+  // 純資産 + 有利子負債方式（FinanceBSRow のみ）
+  const bsRow = row as FinanceBSRow;
+  const netAssets = toNumber(bsRow.netAssets) || toNumber(bsRow.equity);
+  const debt = toNumber(bsRow.interestBearingDebt);
+  if (netAssets > 0) {
+    return netAssets + debt;
+  }
+
+  return undefined;
+}
+
+/**
+ * PL行から NOPAT を計算
+ * - NOPAT = operatingIncome * (1 - taxRate)
+ * - taxRate が未指定の場合は 0.3（30%）をデフォルト使用
+ */
+function computeNOPAT(pl: FinancePLRow, taxRate: number = 0.3): number | undefined {
+  const opIncome = toNumber(pl.operatingIncome);
+  if (!opIncome) return undefined;
+
+  // PL に tax があればそれを使って実効税率を推定
+  if (pl.tax !== undefined && opIncome > 0) {
+    const effectiveTaxRate = Math.min(1, Math.max(0, toNumber(pl.tax) / opIncome));
+    return opIncome * (1 - effectiveTaxRate);
+  }
+
+  return opIncome * (1 - taxRate);
+}
+
+/**
+ * FinancePLRow 配列から営業利益率（最新年）を計算
+ */
+export function computeOperatingMarginFromPL(
+  rows: FinancePLRow[]
+): number | undefined {
+  const latest = getLatestRow(rows);
+  if (!latest) return undefined;
+
+  const revenue = toNumber(latest.revenue);
+  const opIncome = toNumber(latest.operatingIncome);
+  if (!revenue || revenue === 0) return undefined;
+
+  return safePct(opIncome, revenue);
+}
+
+/**
+ * FinancePLRow 配列から売上 CAGR（期間全体）を計算
+ */
+export function computeRevenueCagrFromPL(
+  rows: FinancePLRow[]
+): number | undefined {
+  if (rows.length < 2) return undefined;
+
+  const oldest = getOldestRow(rows);
+  const latest = getLatestRow(rows);
+  if (!oldest || !latest || oldest.year >= latest.year) return undefined;
+
+  const startRev = toNumber(oldest.revenue);
+  const endRev = toNumber(latest.revenue);
+  const years = latest.year - oldest.year;
+
+  return calcCagrPct(startRev, endRev, years);
+}
+
+/**
+ * FinanceBSRow 配列から D/E レシオ（最新年）を計算
+ */
+export function computeDERatioFromBS(
+  rows: FinanceBSRow[]
+): number | undefined {
+  const latest = getLatestRow(rows);
+  if (!latest) return undefined;
+
+  const equity = toNumber(latest.equity) || toNumber(latest.netAssets);
+  const debt = toNumber(latest.interestBearingDebt);
+
+  if (!equity || equity === 0) return undefined;
+  return debt / equity;
+}
+
+/**
+ * FinancePLRow + FinanceBSRow から ROIC を計算（最新年同士をマッチ）
+ */
+export function computeROICFromPLBS(
+  plRows: FinancePLRow[],
+  bsRows: FinanceBSRow[],
+  taxRate: number = 0.3
+): { roic: number | undefined; meta: string[] } {
+  const meta: string[] = [];
+
+  const latestPL = getLatestRow(plRows);
+  const latestBS = getLatestRow(bsRows);
+
+  if (!latestPL || !latestBS) {
+    return { roic: undefined, meta: ['PL/BS データが不足'] };
+  }
+
+  // 年度マッチ確認
+  if (latestPL.year !== latestBS.year) {
+    meta.push(`PL年度(${latestPL.year})とBS年度(${latestBS.year})が不一致。直近年で計算。`);
+  }
+
+  const nopat = computeNOPAT(latestPL, taxRate);
+  const investedCapital = computeInvestedCapital(latestBS);
+
+  if (nopat === undefined) {
+    meta.push('NOPAT 算出不可（operatingIncome なし）');
+    return { roic: undefined, meta };
+  }
+  if (!investedCapital || investedCapital === 0) {
+    meta.push('投下資本 算出不可');
+    return { roic: undefined, meta };
+  }
+
+  // デフォルト税率使用時は明記
+  if (latestPL.tax === undefined) {
+    meta.push(`税率は仮定値 ${(taxRate * 100).toFixed(0)}% を使用`);
+  }
+
+  return { roic: safePct(nopat, investedCapital), meta };
+}
+
+/**
+ * FinancePLRow + FinanceBSRow から ROE を計算
+ * - netIncome があればそれを使用
+ * - なければ operatingIncome - interest - tax で推計
+ */
+export function computeROEFromPLBS(
+  plRows: FinancePLRow[],
+  bsRows: FinanceBSRow[]
+): { roe: number | undefined; meta: string[] } {
+  const meta: string[] = [];
+
+  const latestPL = getLatestRow(plRows);
+  const latestBS = getLatestRow(bsRows);
+
+  if (!latestPL || !latestBS) {
+    return { roe: undefined, meta: ['PL/BS データが不足'] };
+  }
+
+  // 純利益
+  let netIncome = toNumber(latestPL.netIncome);
+  if (!netIncome) {
+    // 推計：営業利益 - 支払利息 - 法人税
+    const opIncome = toNumber(latestPL.operatingIncome);
+    const interest = toNumber(latestPL.interest);
+    const tax = toNumber(latestPL.tax);
+    if (opIncome) {
+      netIncome = opIncome - interest - tax;
+      meta.push('netIncome は operatingIncome - interest - tax で推計');
+    }
+  }
+
+  const equity = toNumber(latestBS.equity) || toNumber(latestBS.netAssets);
+
+  if (!netIncome) {
+    return { roe: undefined, meta: ['純利益データなし'] };
+  }
+  if (!equity || equity === 0) {
+    return { roe: undefined, meta: ['株主資本データなし'] };
+  }
+
+  return { roe: safePct(netIncome, equity), meta };
+}
+
+/**
+ * FinancePLRow + FinanceBSRow から ROA を計算
+ */
+export function computeROAFromPLBS(
+  plRows: FinancePLRow[],
+  bsRows: FinanceBSRow[]
+): { roa: number | undefined; meta: string[] } {
+  const meta: string[] = [];
+
+  const latestPL = getLatestRow(plRows);
+  const latestBS = getLatestRow(bsRows);
+
+  if (!latestPL || !latestBS) {
+    return { roa: undefined, meta: ['PL/BS データが不足'] };
+  }
+
+  // 純利益
+  let netIncome = toNumber(latestPL.netIncome);
+  if (!netIncome) {
+    const opIncome = toNumber(latestPL.operatingIncome);
+    const interest = toNumber(latestPL.interest);
+    const tax = toNumber(latestPL.tax);
+    if (opIncome) {
+      netIncome = opIncome - interest - tax;
+      meta.push('netIncome は operatingIncome - interest - tax で推計');
+    }
+  }
+
+  // 総資産
+  let totalAssets = toNumber(latestBS.totalAssets);
+  if (!totalAssets) {
+    // 近似：cash + ar + inventory + fixedAssets
+    const cash = toNumber(latestBS.cash);
+    const ar = toNumber(latestBS.ar);
+    const inventory = toNumber(latestBS.inventory);
+    const fixedAssets = toNumber(latestBS.fixedAssets);
+    if (cash > 0 || ar > 0 || inventory > 0 || fixedAssets > 0) {
+      totalAssets = cash + ar + inventory + fixedAssets;
+      meta.push('totalAssets は cash+ar+inventory+fixedAssets で近似');
+    }
+  }
+
+  if (!netIncome) {
+    return { roa: undefined, meta: ['純利益データなし'] };
+  }
+  if (!totalAssets || totalAssets === 0) {
+    return { roa: undefined, meta: ['総資産データなし'] };
+  }
+
+  return { roa: safePct(netIncome, totalAssets), meta };
+}
+
+/* ===============================
+ * computeValueAnalysisFromPLBS
+ * FinancePLRow + FinanceBSRow から ValueAnalysis を算出
+ * =============================== */
+
+export function computeValueAnalysisFromPLBS(args: {
+  companyPL: FinancePLRow[];
+  companyBS: FinanceBSRow[];
+  pbrManual?: string;
+  taxRate?: number;
+}): ValueAnalysis {
+  const { companyPL, companyBS, pbrManual, taxRate = 0.3 } = args;
+  const metaNotes: string[] = [];
+
+  const years = companyPL.map((r) => r.year).filter((y) => Number.isFinite(y));
+  const firstY = years.length > 0 ? Math.min(...years) : undefined;
+  const lastY = years.length > 0 ? Math.max(...years) : undefined;
+
+  // 営業利益率（最新年）
+  const operatingMarginPctLatest = computeOperatingMarginFromPL(companyPL);
+
+  // 売上CAGR
+  const revenueCagrPct = computeRevenueCagrFromPL(companyPL);
+
+  // D/E レシオ
+  const debtEquityRatio = computeDERatioFromBS(companyBS);
+
+  // ROIC
+  const roicResult = computeROICFromPLBS(companyPL, companyBS, taxRate);
+  if (roicResult.meta.length > 0) metaNotes.push(...roicResult.meta);
+
+  // ROE
+  const roeResult = computeROEFromPLBS(companyPL, companyBS);
+  if (roeResult.meta.length > 0) metaNotes.push(...roeResult.meta);
+
+  // ROA
+  const roaResult = computeROAFromPLBS(companyPL, companyBS);
+  if (roaResult.meta.length > 0) metaNotes.push(...roaResult.meta);
+
+  // PBR（手入力）
+  const pbrStr = pbrManual?.trim();
+  const pbr = pbrStr ? toNumber(pbrStr) : undefined;
+
+  return {
+    // 新形式
+    operatingMarginPctLatest,
+    revenueCagrPct,
+    debtEquityRatio,
+    roic: roicResult.roic,
+    roe: roeResult.roe,
+    roa: roaResult.roa,
+    pbr,
+
+    // 旧形式互換
+    operatingMarginRate: operatingMarginPctLatest,
+    revenueGrowthRate: revenueCagrPct,
+    baseYear: lastY,
+    calculatedAt: new Date().toISOString(),
+
+    meta: {
+      computedAt: new Date().toISOString(),
+      source: 'local',
+      basis: {
+        years: years.sort((a, b) => a - b),
+        latestYear: lastY,
+      },
+      notes: metaNotes.length > 0 ? metaNotes : undefined,
+    },
+  };
+}
+
+/* ===============================
+ * セグメント別 ValueAnalysis 計算
+ * =============================== */
+
+/**
+ * セグメントの PL/BS から ValueAnalysis を算出
+ * - BS がない場合は margin/cagr のみ計算
+ */
+export function computeSegmentValueAnalysis(args: {
+  segmentPL: FinancePLRow[];
+  segmentBS?: SegmentBSRow[];
+  taxRate?: number;
+}): ValueAnalysis {
+  const { segmentPL, segmentBS, taxRate = 0.3 } = args;
+  const metaNotes: string[] = [];
+
+  const years = segmentPL.map((r) => r.year).filter((y) => Number.isFinite(y));
+  const lastY = years.length > 0 ? Math.max(...years) : undefined;
+
+  // 営業利益率（最新年）
+  const operatingMarginPctLatest = computeOperatingMarginFromPL(segmentPL);
+
+  // 売上CAGR
+  const revenueCagrPct = computeRevenueCagrFromPL(segmentPL);
+
+  // ROIC（BS があれば）
+  let roic: number | undefined;
+  if (segmentBS && segmentBS.length > 0) {
+    const latestPL = getLatestRow(segmentPL);
+    const latestBS = getLatestRow(segmentBS);
+
+    if (latestPL && latestBS) {
+      const nopat = computeNOPAT(latestPL, taxRate);
+      const investedCapital = computeInvestedCapital(latestBS);
+
+      if (nopat !== undefined && investedCapital && investedCapital > 0) {
+        roic = safePct(nopat, investedCapital);
+        if (latestPL.tax === undefined) {
+          metaNotes.push(`税率は仮定値 ${(taxRate * 100).toFixed(0)}% を使用`);
+        }
+      } else {
+        metaNotes.push('セグメントROIC算出不可（NOPAT or 投下資本不足）');
+      }
+    }
+  } else {
+    metaNotes.push('セグメントBSなし（ROIC算出不可）');
+  }
+
+  return {
+    operatingMarginPctLatest,
+    revenueCagrPct,
+    roic,
+
+    // 旧形式互換
+    operatingMarginRate: operatingMarginPctLatest,
+    revenueGrowthRate: revenueCagrPct,
+    baseYear: lastY,
+    calculatedAt: new Date().toISOString(),
+
+    meta: {
+      computedAt: new Date().toISOString(),
+      source: 'local',
+      basis: {
+        years: years.sort((a, b) => a - b),
+        latestYear: lastY,
+      },
+      notes: metaNotes.length > 0 ? metaNotes : undefined,
+    },
+  };
+}
+
+/* ===============================
+ * computeValueAnalysisBundle
+ * 会社全体 + セグメント別の ValueAnalysis を一括算出
+ * =============================== */
+
+export type ValueAnalysisBundleResult = {
+  company: ValueAnalysis;
+  segments: Record<string, ValueAnalysis>;
+};
+
+/**
+ * 会社全体とセグメント別の ValueAnalysis を一括計算
+ *
+ * @param args.companyPL - 会社全体のPL（必須）
+ * @param args.companyBS - 会社全体のBS（必須）
+ * @param args.segmentPL - セグメント別PL（任意）。キーは BusinessSegment.name
+ * @param args.segmentBS - セグメント別BS（任意）。キーは BusinessSegment.name
+ * @param args.pbrManual - PBR手入力値
+ * @param args.taxRate - 税率（デフォルト 0.3）
+ *
+ * @returns { company: ValueAnalysis, segments: Record<string, ValueAnalysis> }
+ */
+export function computeValueAnalysisBundle(args: {
+  companyPL: FinancePLRow[];
+  companyBS: FinanceBSRow[];
+  segmentPL?: Record<string, FinancePLRow[]>;
+  segmentBS?: Record<string, SegmentBSRow[]>;
+  pbrManual?: string;
+  taxRate?: number;
+}): ValueAnalysisBundleResult {
+  const { companyPL, companyBS, segmentPL, segmentBS, pbrManual, taxRate = 0.3 } = args;
+
+  // 会社全体
+  const company = computeValueAnalysisFromPLBS({
+    companyPL,
+    companyBS,
+    pbrManual,
+    taxRate,
+  });
+
+  // セグメント別
+  const segments: Record<string, ValueAnalysis> = {};
+
+  if (segmentPL) {
+    for (const [segmentName, plRows] of Object.entries(segmentPL)) {
+      if (!Array.isArray(plRows) || plRows.length === 0) continue;
+
+      const bsRows = segmentBS?.[segmentName];
+      segments[segmentName] = computeSegmentValueAnalysis({
+        segmentPL: plRows,
+        segmentBS: bsRows,
+        taxRate,
+      });
+    }
+  }
+
+  return { company, segments };
 }
