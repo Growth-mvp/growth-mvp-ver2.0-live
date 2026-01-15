@@ -154,8 +154,8 @@ export default function PyramidNavigator() {
               transform: 'translateY(-50%)',
             }}
           >
-            <Link href="/strategy" prefetch className={btnClass} title="基本情報・MVV">
-              <span className="text-[15px] font-semibold text-neutral-900">STAGE1：経営基本情報</span>
+            <Link href="/stage1" prefetch className={btnClass} title="企業価値分析">
+              <span className="text-[15px] font-semibold text-neutral-900">STAGE1：企業価値分析</span>
             </Link>
             <Link href="/story-process" prefetch className={btnClass} title="仮説→最終ストーリー">
               <span className="text-[15px] font-semibold text-neutral-900">STAGE2：経営戦略策定</span>
@@ -195,7 +195,7 @@ export default function PyramidNavigator() {
       {/* モバイル：縦リスト（従来通り） */}
       <div className="md:hidden mt-6 space-y-3">
         {[
-          { href: '/strategy', label: 'STAGE1：経営基本情報' },
+          { href: '/stage1', label: 'STAGE1：企業価値分析' },
           { href: '/story-process', label: 'STAGE2：経営戦略策定' },
           { href: '/cascade', label: 'STAGE3：部門戦略策定' },
           { href: '/okr', label: 'STAGE4：実行計画策定' },
