@@ -18,7 +18,7 @@ export default function Home() {
   }, [user?.id, user?.role]);
 
   const steps = [
-    { step: 1, title: 'STAGE 1：経営基本情報', description: '経営基本情報・MVV・SWOT・財務等を入力', path: '/strategy' },
+    { step: 1, title: 'STAGE 1：企業価値分析', description: '財務事実から企業価値の現状を整理', path: '/stage1' },
     { step: 2, title: 'STAGE 2：経営戦略策定', description: 'たたき台ストーリー→AI質問生成→最終ストーリー', path: '/story-process' },
     { step: 3, title: 'STAGE 3：部門戦略策定', description: '部門ミッション・プロジェクト生成', path: '/cascade' },
     { step: 4, title: 'STAGE 4：実行計画策定', description: 'OKRの検討・設定', path: '/okr' },
@@ -98,7 +98,7 @@ export default function Home() {
               className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row motion-reduce:transition-none motion-reduce:transform-none"
             >
               <Link
-                href="/strategy"
+                href="/stage1"
                 className="
                   inline-flex h-12 items-center justify-center rounded-full
                   bg-neutral-900 px-7 text-sm font-semibold text-white shadow-sm transition
