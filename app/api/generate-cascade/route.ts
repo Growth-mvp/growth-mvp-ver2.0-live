@@ -11,7 +11,7 @@ import { z } from 'zod';
  * スキーマ（AI応答の検証用：後方互換＋2レーン拡張）
  * ======================= */
 
-// プロジェクト：仮説＋レバー×時間軸
+// プロジェクト：仮説＋レバー×時間軸＋STAGE3拡張
 const ProjectSchema = z.object({
   title: z.string().min(1).catch(''),
   reason: z.string().default(''),
@@ -19,6 +19,24 @@ const ProjectSchema = z.object({
   mainLever: z.enum(['ACQ', 'ARPU', 'CHURN', 'COST', 'EFFICIENCY', 'FUTURE']).optional(),
   horizon: z.enum(['short', 'mid', 'long']).optional(),
   kind: z.enum(['growth', 'cost', 'efficiency', 'future']).optional(),
+
+  // ★STAGE3拡張：価値指標への紐づけ
+  valueDriverLinks: z.array(z.string()).optional().default([]),
+
+  // ★STAGE3拡張：スキル要件
+  skillRequirements: z.object({
+    roleSkills: z.array(z.string()).optional(),
+    executionSkills: z.array(z.string()).optional(),
+  }).optional(),
+
+  // ★STAGE3拡張：人的投資施策
+  humanInvestments: z.array(z.object({
+    category: z.enum(['TRAINING_OJT', 'HIRING', 'ALLOCATION', 'EXTERNAL', 'TOOLS_PROCESS']),
+    title: z.string(),
+    detail: z.string().optional(),
+    owner: z.string().optional(),
+    horizon: z.enum(['0_3M', '3_6M', '6_12M', '']).optional(),
+  })).optional().default([]),
 });
 
 // OKR（新規探索レーンだけ expectedImpactYen / probability を付与できる）
@@ -132,6 +150,17 @@ const ReqSchema = z.object({
 
   financeSummary: z.any().optional(),
   businessPortfolio: z.any().optional(),
+
+  // ★STAGE2構造化データ
+  winPatternPrimary: z.string().optional(),
+  winPatternSecondary: z.string().optional(),
+  valueDriverKPIs: z.array(z.object({
+    id: z.string(),
+    label: z.string(),
+    description: z.string().optional(),
+    category: z.string().optional(),
+  })).optional().default([]),
+  targetRanges: z.any().optional(),
 });
 
 /* =========================
@@ -619,6 +648,10 @@ export async function POST(req: NextRequest) {
       csvFinanceData,
       financeSummary,
       businessPortfolio,
+      winPatternPrimary,
+      winPatternSecondary,
+      valueDriverKPIs,
+      targetRanges,
     } = parsedReq.data;
 
     if (!Array.isArray(departments) || departments.length === 0) {
@@ -747,6 +780,14 @@ ${sanitizeText(storyText || '', 800) || '（ストーリー未入力）'}
 【部門文脈（Ver4準拠）】
 ${deptBlocks}
 
+【STAGE2 価値指標（ValueDriverKPIs）】
+${valueDriverKPIs && valueDriverKPIs.length > 0
+  ? valueDriverKPIs.map((kpi: any) => `- ${kpi.id}: ${kpi.label}${kpi.description ? ` (${kpi.description})` : ''}`).join('\n')
+  : '（未設定）'}
+
+【STAGE2 勝ち筋パターン】
+主要: ${winPatternPrimary ?? '（未設定）'} / 副次: ${winPatternSecondary ?? '（未設定）'}
+
 【プロジェクト設計ルール（仮説ベース＋2軸）】
 - projects は「仮説ベースのプロジェクト」として設計する。
 - 各プロジェクトは以下の2軸を必ず持つ：
@@ -768,6 +809,19 @@ ${deptBlocks}
     - 'future'     : 将来の種・仕組み・新規事業
 - hypothesis は「もし誰に対して/どの業務に対して◯◯を行えば、行動や体験がこう変わり、その結果 mainLever の指標がこう改善するはず」という形で1〜2文。
 
+【★STAGE3拡張フィールド（必須）】
+各プロジェクトに以下を必ず含めること：
+1. valueDriverLinks: string[] - STAGE2で定義された価値指標（valueDriverKPIs）の id を最低1つ以上含める。複数選択可。valueDriverKPIs が存在する場合、それ以外の値は禁止（自由記述不可）。
+2. skillRequirements: { roleSkills?: string[]; executionSkills?: string[] } - 実行に必要なスキル
+   - roleSkills: 職種スキル（例：「営業」「エンジニア」「デザイナー」「マーケター」等）1〜3個
+   - executionSkills: 実行スキル（例：「PM」「標準化」「データ活用」「改善運用」「設計力」「交渉力」等）必ず1〜3個
+3. humanInvestments: HumanInvestment[] - 人的投資施策、最低2カテゴリ以上を含める
+   - category: 固定5カテゴリのみ使用可能（'TRAINING_OJT' | 'HIRING' | 'ALLOCATION' | 'EXTERNAL' | 'TOOLS_PROCESS'）
+   - title: 施策名（短く、5〜15文字）
+   - detail: 詳細（任意、1〜2文程度）
+   - owner: 担当者（任意）
+   - horizon: 実行時期（任意、'0_3M' | '3_6M' | '6_12M' | ''）
+
 --- 出力（日本語のJSONのみ、説明禁止） ---
 {
   "strategy": { "summary": "会社全体の経営戦略要約（2〜3文）" },
@@ -778,7 +832,23 @@ ${deptBlocks}
       "lanes": {
         "existing": {
           "projects": [
-            { "title": "既存進化：プロジェクト名（名詞句）", "reason": "目的（1文）", "hypothesis": "仮説（1〜2文）", "mainLever": "ACQ", "horizon": "short", "kind": "growth" }
+            {
+              "title": "既存進化：プロジェクト名（名詞句）",
+              "reason": "目的（1文）",
+              "hypothesis": "仮説（1〜2文）",
+              "mainLever": "ACQ",
+              "horizon": "short",
+              "kind": "growth",
+              "valueDriverLinks": ["kpi_id_1", "kpi_id_2"],
+              "skillRequirements": {
+                "roleSkills": ["営業", "マーケター"],
+                "executionSkills": ["PM", "データ活用"]
+              },
+              "humanInvestments": [
+                { "category": "TRAINING_OJT", "title": "営業研修プログラム", "detail": "提案力向上のための実践研修" },
+                { "category": "TOOLS_PROCESS", "title": "CRM導入", "detail": "顧客データの一元管理" }
+              ]
+            }
           ],
           "okrDraft": [
             {
@@ -794,7 +864,23 @@ ${deptBlocks}
         },
         "new": {
           "projects": [
-            { "title": "新規探索：プロジェクト名（名詞句）", "reason": "目的（1文）", "hypothesis": "仮説（1〜2文）", "mainLever": "FUTURE", "horizon": "mid", "kind": "future" }
+            {
+              "title": "新規探索：プロジェクト名（名詞句）",
+              "reason": "目的（1文）",
+              "hypothesis": "仮説（1〜2文）",
+              "mainLever": "FUTURE",
+              "horizon": "mid",
+              "kind": "future",
+              "valueDriverLinks": ["kpi_id_1"],
+              "skillRequirements": {
+                "roleSkills": ["エンジニア"],
+                "executionSkills": ["PM", "設計力", "検証力"]
+              },
+              "humanInvestments": [
+                { "category": "HIRING", "title": "プロダクトマネジャー採用" },
+                { "category": "EXTERNAL", "title": "MVP開発パートナー契約" }
+              ]
+            }
           ],
           "okrDraft": [
             {
@@ -825,6 +911,9 @@ ${deptBlocks}
 - lanes.new.okrDraft の各要素に expectedImpactYen（円）と probability（0〜1）を必ず含める。
 - keyResults は3〜4個。「[構造]」「[検証]」「[結果]」のいずれかで始める。
 - financeSummary / businessPortfolio とかけ離れた非現実（売上10倍等）は避ける。
+- ★全プロジェクトに valueDriverLinks、skillRequirements、humanInvestments を必ず含める（空は不可）。
+- valueDriverLinks は valueDriverKPIs の id から選ぶこと（自由記述禁止）。
+- humanInvestments は最低2カテゴリを含めること。
 `.trim();
 
     /* =========================
@@ -856,6 +945,82 @@ ${deptBlocks}
       console.warn('generate-cascade: schema validation errors:', safe.error?.issues);
     }
     const normalized = (safe.success ? safe.data : parsed) as z.infer<typeof ResponseSchema>;
+
+    /* =========================
+     * ★STAGE3フィールドの補完（fallback）
+     * AIが返さなかった場合の最低限の補完処理
+     * ======================= */
+    function fillMissingStage3Fields(project: any, availableKPIs: any[]): void {
+      // 1. valueDriverLinks の補完
+      if (!project.valueDriverLinks || project.valueDriverLinks.length === 0) {
+        if (availableKPIs && availableKPIs.length > 0) {
+          // 先頭1〜2個を自動セット
+          project.valueDriverLinks = availableKPIs
+            .slice(0, 2)
+            .map((kpi: any) => kpi.id)
+            .filter(Boolean);
+        } else {
+          project.valueDriverLinks = [];
+        }
+      }
+
+      // 2. skillRequirements の補完
+      if (!project.skillRequirements) {
+        project.skillRequirements = {};
+      }
+      if (!project.skillRequirements.executionSkills || project.skillRequirements.executionSkills.length === 0) {
+        // デフォルトの実行スキルを設定
+        project.skillRequirements.executionSkills = ['PM', '標準化', 'データ活用'].slice(0, 2);
+      }
+      if (!project.skillRequirements.roleSkills) {
+        project.skillRequirements.roleSkills = [];
+      }
+
+      // 3. humanInvestments の補完
+      if (!project.humanInvestments || project.humanInvestments.length === 0) {
+        // 最低2カテゴリの雛形を作成
+        project.humanInvestments = [
+          {
+            category: 'TRAINING_OJT',
+            title: 'スキルアップ研修',
+            detail: '実行に必要なスキル習得のための研修プログラム',
+            owner: '',
+            horizon: '0_3M',
+          },
+          {
+            category: 'TOOLS_PROCESS',
+            title: 'ツール・仕組み整備',
+            detail: '効率的な実行を支援するツールやプロセスの導入',
+            owner: '',
+            horizon: '3_6M',
+          },
+        ];
+      }
+    }
+
+    // すべてのプロジェクトに補完処理を適用
+    if (Array.isArray(normalized?.departments)) {
+      for (const dept of normalized.departments) {
+        // lanes.existing.projects
+        if (dept?.lanes?.existing?.projects) {
+          for (const proj of dept.lanes.existing.projects) {
+            fillMissingStage3Fields(proj, valueDriverKPIs);
+          }
+        }
+        // lanes.new.projects
+        if (dept?.lanes?.new?.projects) {
+          for (const proj of dept.lanes.new.projects) {
+            fillMissingStage3Fields(proj, valueDriverKPIs);
+          }
+        }
+        // 後方互換: projects（フラット配列）
+        if (Array.isArray(dept?.projects)) {
+          for (const proj of dept.projects) {
+            fillMissingStage3Fields(proj, valueDriverKPIs);
+          }
+        }
+      }
+    }
 
     const inputNames = new Set(onlyDeptNames(departments));
 
