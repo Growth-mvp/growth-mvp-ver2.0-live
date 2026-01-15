@@ -480,26 +480,43 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
         </div>
       )}
 
-      {/* ステップインジケータ */}
-      <div className="grid grid-cols-6 gap-2">
-        {[1, 2, 3, 4, 5, 6].map(n => {
-          const sn = n as StepNumber;
-          const done = answers.some(a => a.stepNumber === sn && a.answer?.trim());
-          const active = step === sn;
-          return (
-            <button
-              key={sn}
-              onClick={() => setStep(sn)}
-              className={[
-                'rounded-xl border px-3 py-2 text-xs transition-colors',
-                active ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:bg-gray-50',
-              ].join(' ')}
-              title={`Step ${sn}`}
-            >
-              Step {sn}{done && <span className="ml-1 text-green-600">✓</span>}
-            </button>
-          );
-        })}
+      {/* ステップインジケータ（進捗バッジ付き） */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-medium text-gray-700">6つの問い（進捗：{answers.filter(a => a.answer?.trim()).length}/6）</div>
+          <div className="flex gap-1 text-xs text-gray-500">
+            <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span>回答済</span>
+            <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span>現在</span>
+            <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-300"></span>未回答</span>
+          </div>
+        </div>
+        <div className="grid grid-cols-6 gap-2">
+          {[1, 2, 3, 4, 5, 6].map(n => {
+            const sn = n as StepNumber;
+            const done = answers.some(a => a.stepNumber === sn && a.answer?.trim());
+            const active = step === sn;
+            return (
+              <button
+                key={sn}
+                onClick={() => setStep(sn)}
+                className={[
+                  'rounded-xl border px-3 py-2 text-xs font-medium transition-all',
+                  active
+                    ? 'border-blue-500 bg-blue-50 shadow-sm scale-105'
+                    : done
+                      ? 'border-green-400 bg-green-50 hover:bg-green-100'
+                      : 'border-gray-200 bg-white hover:bg-gray-50',
+                ].join(' ')}
+                title={`Q${sn}${done ? '（回答済）' : '（未回答）'}`}
+              >
+                <div className="flex items-center justify-center gap-1">
+                  Q{sn}
+                  {done && <span className="text-green-600">✓</span>}
+                </div>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* 質問カード */}
