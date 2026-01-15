@@ -14,7 +14,8 @@
     "start:3001": "next start -p 3001",
     "start:3002": "next start -p 3002",
     "lint": "next lint",
-    "type-check": "tsc -p tsconfig.json --noEmit"
+    "type-check": "tsc -p tsconfig.json --noEmit",
+    "stage3:smoke": "node scripts/stage3.smoke.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.14",
@@ -30,12 +31,14 @@
     "next": "^15.3.6",
     "openai": "^5.8.2",
     "papaparse": "^5.5.3",
+    "pdf-parse": "^2.4.5",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-flow-renderer": "^10.3.17",
     "reactflow": "^11.11.4",
     "recharts": "^3.2.1",
     "uuid": "^11.1.0",
+    "xlsx": "^0.18.5",
     "zustand": "^5.0.6"
   },
   "devDependencies": {
@@ -44,6 +47,7 @@
     "@types/d3-scale-chromatic": "^3.1.0",
     "@types/node": "20.19.10",
     "@types/papaparse": "^5.3.16",
+    "@types/pdf-parse": "^1.1.5",
     "@types/react": "^18.2.67",
     "@types/react-dom": "^18.2.23",
     "@types/uuid": "^10.0.0",
