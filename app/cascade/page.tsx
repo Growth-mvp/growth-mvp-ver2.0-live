@@ -1,6 +1,6 @@
-// /app/cascade/page.tsx（STEP0たたき台＋シンプル版・OKR案編集対応・ボタン整理版）
+// /app/cascade/page.tsx（STAGE3 完成版・KPI表記統一＋人的投資セクション対応）
 // ※ユーザー提示コードを「削らず」ベースに、/api/generate-cascade の 2レーン（existing/new）を取り込み
-//   - 既存機能（タブ/追加/削除/保存/一括生成/部門生成/勝ち筋カタログ/QuestionStepper/OKR簡易編集）を維持
+//   - 既存機能（タブ/追加/削除/保存/一括生成/部門生成/勝ち筋カタログ/QuestionStepper/KPI簡易編集）を維持
 //   - 生成結果が lanes.existing / lanes.new を返す場合、両方をマージして projects に反映（既存UIが壊れない）
 //   - さらに「レーン別の表示（参考表示）」を部門カード内に追加（保存モデルは変えず、このページ内で保持）
 //
@@ -38,6 +38,11 @@ import { toProbability } from '@/types/strategy';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
+import {
+  getStage2ValueDriverKPIs,
+  getStage2TargetRanges,
+  getStage2WinPatterns,
+} from '@/utils/stage2Selectors';
 
 import type {
   Department as BaseDepartment,
@@ -45,6 +50,10 @@ import type {
   OKR as BaseOKR,
   ChapterAnswers as BaseChapterAnswers,
   AnswerStep as BaseAnswerStep,
+  HumanInvestment,
+  HumanInvestmentCategory,
+  HumanInvestmentHorizon,
+  SkillRequirements,
 } from '@/types/strategy';
 
 // ★ 勝ち筋カタログ＆生成エンジン
@@ -857,6 +866,11 @@ export default function CascadePage() {
   );
 
   const industry: string = (s?.industry as string) || (s?.company?.industry as string) || '';
+  // ★STAGE2構造化データ取得（セレクタ経由で一本化）
+  const valueDriverKPIs = getStage2ValueDriverKPIs(s);
+  const targetRanges = getStage2TargetRanges(s);
+  const { primary: winPatternPrimary, secondary: winPatternSecondary } = getStage2WinPatterns(s);
+  const businessSegments = (s?.businessSegments as any[]) ?? [];
 
   /* ---- 初回ログだけ ---- */
   useEffect(() => {
@@ -956,6 +970,34 @@ export default function CascadePage() {
   const departments = useStrategyStore(
     (st) => ((st.departments as Department[] | undefined) ?? []) as Department[],
   );
+
+  /* ===== STAGE1事業部名→初期部門展開（One-time import）===== */
+  const hasInitializedFromStage1Ref = useRef(false);
+  useEffect(() => {
+    if (!hydrated || hasInitializedFromStage1Ref.current) return;
+    if (departments.length > 0) {
+      hasInitializedFromStage1Ref.current = true;
+      return;
+    }
+    if (businessSegments.length === 0) return;
+
+    // departments が空で、businessSegments があれば初期展開
+    const initialDepts: Department[] = businessSegments.map((seg: any) => ({
+      name: seg?.name || '無題の部門',
+      mission: seg?.scope || '',
+      strategy: seg?.scope || '',
+      missionDraft: '',
+      discussionNotes: '',
+      projects: [],
+      answers2: [{ chapterIndex: 0, chapterTitle: seg?.name || '無題の部門', steps: [] }],
+      finalized: false,
+      source: 'stage1' as const,
+    }));
+
+    setDepartmentsInStore?.(initialDepts);
+    hasInitializedFromStage1Ref.current = true;
+    console.log('[cascade] STAGE1事業部から初期部門を生成しました:', initialDepts.length);
+  }, [hydrated, departments.length, businessSegments, setDepartmentsInStore]);
 
   // hydrated 後のみオートセーブ対象
   useAutoSave(hydrated && !boot?.isHydrating ? [accessCompanyId, departments] : []);
@@ -1117,7 +1159,7 @@ export default function CascadePage() {
     }
   };
 
-  /* ===== プロジェクト追加（手入力／OKR画面で詳細編集する前提） ===== */
+  /* ===== プロジェクト追加（手入力／OKR画面で詳細編集も可能） ===== */
   const handleAddProject = async (deptIndex: number) => {
     const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
     const dept = current[deptIndex];
@@ -1228,7 +1270,7 @@ export default function CascadePage() {
     if (!storyOrWarn) return;
 
     setIsCascadeGenerating(true);
-    setNotice('✨ 全社の部門戦略案（ミッション・プロジェクト・OKR案）をAIが生成しています…');
+    setNotice('✨ 全社の部門戦略案（ミッション・プロジェクト・KPI案）をAIが生成しています…');
 
     try {
       const payload: any = {
@@ -1268,6 +1310,11 @@ export default function CascadePage() {
         csvFinanceData: s?.csvFinanceData ?? [],
         financeSummary: s?.financeSummary,
         businessPortfolio: s?.businessPortfolio,
+        // ★STAGE2構造化データを追加
+        winPatternPrimary,
+        winPatternSecondary,
+        valueDriverKPIs,
+        targetRanges,
       };
 
       const res = await fetch('/api/generate-cascade', {
@@ -1352,7 +1399,7 @@ export default function CascadePage() {
       });
 
       setNotice(
-        '✅ 全社の部門ミッション・プロジェクト案・OKR案をAIで更新しました（既存データはできるだけ尊重してマージしています）',
+        '✅ 全社の部門ミッション・プロジェクト案・KPI案をAIで更新しました（既存データはできるだけ尊重してマージしています）',
       );
 
       if (saveNow) {
@@ -1423,6 +1470,11 @@ export default function CascadePage() {
         csvFinanceData: s?.csvFinanceData ?? [],
         financeSummary: s?.financeSummary,
         businessPortfolio: s?.businessPortfolio,
+        // ★STAGE2構造化データを追加
+        winPatternPrimary,
+        winPatternSecondary,
+        valueDriverKPIs,
+        targetRanges,
       };
 
       const res = await fetch('/api/generate-cascade', {
@@ -1498,7 +1550,7 @@ export default function CascadePage() {
         return list;
       });
 
-      setNotice(`✅ ${dept.name} のミッション・プロジェクト・OKR案を更新しました`);
+      setNotice(`✅ ${dept.name} のミッション・プロジェクト・KPI案を更新しました`);
 
       if (saveNow) {
         try {
@@ -1515,10 +1567,10 @@ export default function CascadePage() {
     }
   };
 
-  /* ===== 勝ち筋カタログベース：この部門のプロジェクト＆OKR案を生成 ===== */
+  /* ===== 勝ち筋カタログベース：この部門のプロジェクト＆KPI案を生成 ===== */
   const handleDeptWinPatternGenerate = async (index: number) => {
     if (!canEditDept()) {
-      setNotice('⚠️ プロジェクト＆OKR案の生成は編集権限があるユーザーのみ実行できます');
+      setNotice('⚠️ プロジェクト＆KPI案の生成は編集権限があるユーザーのみ実行できます');
       return;
     }
 
@@ -1536,7 +1588,7 @@ export default function CascadePage() {
     const leverPriority = detectLeverPriority(missionText, storyText, dept.name);
 
     setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), winPattern: true } }));
-    setNotice(`✨ ${dept.name} のプロジェクト＆OKR案を「勝ち筋カタログ」から生成しています…`);
+    setNotice(`✨ ${dept.name} のプロジェクト＆KPI案を「勝ち筋カタログ」から生成しています…`);
 
     try {
       const generated = generateProjectsForDepartment({
@@ -1623,13 +1675,13 @@ export default function CascadePage() {
       });
 
       setNotice(
-        `✅ ${dept.name} のプロジェクト＆OKR案を「勝ち筋カタログ」ベースで追加しました（詳細はOKR画面で詰めてください）`,
+        `✅ ${dept.name} のプロジェクト＆KPI案を「勝ち筋カタログ」ベースで追加しました（詳細はOKR画面で詰めてください）`,
       );
 
       if (saveNow) {
         try {
           await saveNow();
-          setNotice(`✅ ${dept.name} の勝ち筋ドリブンなプロジェクト＆OKR案を追加し、サーバーにも保存しました`);
+          setNotice(`✅ ${dept.name} の勝ち筋ドリブンなプロジェクト＆KPI案を追加し、サーバーにも保存しました`);
         } catch {
           setNotice(`⚠️ ${dept.name} の勝ち筋ドリブン案は画面上には反映されていますが、サーバー保存に失敗しました`);
         }
@@ -1669,7 +1721,7 @@ export default function CascadePage() {
       <header className="mb-8">
         <h1 className="text-[28px] font-semibold mb-2">STAGE 3：部門戦略（カスケード）</h1>
         <p className="text-zinc-600 text-sm">
-          経営ストーリーを基に、質問に答えながら各部門の<b>ミッション・プロジェクト案・OKR案（目標と主要な成果）</b>
+          経営ストーリーを基に、質問に答えながら各部門の<b>ミッション・プロジェクト案・KPI案（実現したい状態と主要指標）</b>
           を明確化します。
         </p>
       </header>
@@ -1750,12 +1802,12 @@ export default function CascadePage() {
               className="rounded-full h-9 px-4"
               disabled={isHydrating || isCascadeGenerating}
               onClick={handleCascadeGenerateAll}
-              title="全ての部門について、ミッション・プロジェクト案・OKR案を一括生成します（2レーン対応）"
+              title="全ての部門について、ミッション・プロジェクト案・KPI案を一括生成します（2レーン対応）"
             >
               <Sparkles className="w-4 h-4 mr-1" />
               {isCascadeGenerating
                 ? 'AIが全社のたたき台を生成中…'
-                : 'AIで全社のたたき台（ミッション・プロジェクト・OKR案）'}
+                : 'AIで全社のたたき台（ミッション・プロジェクト・KPI案）'}
             </Button>
           )}
 
@@ -1912,10 +1964,10 @@ export default function CascadePage() {
                     onClick={() => handleDeptCascadeDraft(index)}
                     disabled={!editableDept || !!L.deptDraft || isHydrating}
                     className="rounded-full h-9 px-4"
-                    title="この部門のミッション・プロジェクト案・OKR案をAIが提案します（2レーン対応）"
+                    title="この部門のミッション・プロジェクト案・KPI案をAIが提案します（2レーン対応）"
                   >
                     <Sparkles className="w-4 h-4 mr-1" />
-                    {L.deptDraft ? 'たたき台を生成中…' : 'AIでこの部門のたたき台（ミッション・プロジェクト・OKR案）'}
+                    {L.deptDraft ? 'たたき台を生成中…' : 'AIでこの部門のたたき台（ミッション・プロジェクト・KPI案）'}
                   </Button>
 
                   <Button
@@ -1923,10 +1975,10 @@ export default function CascadePage() {
                     onClick={() => handleDeptWinPatternGenerate(index)}
                     disabled={!editableDept || !!L.winPattern || isHydrating}
                     className="rounded-full h-9 px-4"
-                    title="勝ち筋カタログに基づき、この部門のプロジェクト＆OKR案を生成します"
+                    title="勝ち筋カタログに基づき、この部門のプロジェクト＆KPI案を生成します"
                   >
                     <Sparkles className="w-4 h-4 mr-1" />
-                    {L.winPattern ? '勝ち筋から生成中…' : '勝ち筋カタログからプロジェクト＆OKR案'}
+                    {L.winPattern ? '勝ち筋から生成中…' : '勝ち筋カタログからプロジェクト＆KPI案'}
                   </Button>
 
                   {(exCount > 0 || newCount > 0) && (
@@ -1952,9 +2004,23 @@ export default function CascadePage() {
                   )}
                 </div>
 
+                {/* 価値指標（STAGE2）の表示 */}
+                {valueDriverKPIs.length > 0 && (
+                  <div className="mb-3 rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2">
+                    <div className="text-[11px] font-semibold text-blue-700 mb-1">価値指標（STAGE2で設定）</div>
+                    <div className="flex flex-wrap gap-1">
+                      {valueDriverKPIs.map((kpi: any, i: number) => (
+                        <span key={i} className="inline-block px-2 py-0.5 rounded-full bg-blue-100 border border-blue-200 text-[10px] text-blue-700">
+                          {kpi?.label || kpi?.id || `指標${i + 1}`}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <p className="text-xs text-zinc-500 mb-3">
-                  ※ 「AIでこの部門のたたき台」はミッションも含めて生成します。/ 「勝ち筋カタログからプロジェクト＆OKR案」は、経営ストーリーと部門名・ミッションから
-                  <b>勝ち筋ドリブンなプロジェクト＆OKR案</b>だけを追加生成します。詳細な数値や構造化は「OKR設定」画面で詰めてください。
+                  ※ 「AIでこの部門のたたき台」はミッションも含めて生成します。/ 「勝ち筋カタログからプロジェクト＆KPI案」は、経営ストーリーと部門名・ミッションから
+                  <b>勝ち筋ドリブンなプロジェクト＆KPI案</b>だけを追加生成します。詳細な数値や構造化は「OKR設定」画面で詰めてください。
                 </p>
 
                 {laneOpen && (exCount > 0 || newCount > 0) && (
@@ -2053,8 +2119,8 @@ export default function CascadePage() {
                       }
                       if (okrs?.length) {
                         const add: Project = {
-                          title: '初期OKR案',
-                          okrs: sanitizeOkrsForProject({ title: '初期OKR案' } as Project, [toStoreOKR(okrs[0])]),
+                          title: '初期KPI案',
+                          okrs: sanitizeOkrsForProject({ title: '初期KPI案' } as Project, [toStoreOKR(okrs[0])]),
                         };
 
                         const baseProjects: Project[] =
@@ -2087,10 +2153,10 @@ export default function CascadePage() {
                     )}
 
                     <div className="flex items-center justify-between mb-2 gap-2">
-                      <h4 className="text-sm font-semibold text-zinc-800">プロジェクト案とOKR案</h4>
+                      <h4 className="text-sm font-semibold text-zinc-800">プロジェクト案とKPI案</h4>
                       <div className="flex items-center gap-2">
                         <span className="text-[11px] text-zinc-500 hidden sm:inline">
-                          ※ 詳細な編集や構造化は「OKR設定」画面で行えます。
+                          ※ 詳細な編集や構造化は「OKR設定」画面でも行えます。
                         </span>
                         {editableDept && (
                           <Button
@@ -2108,7 +2174,7 @@ export default function CascadePage() {
                     </div>
 
                     <p className="sm:hidden text-[11px] text-zinc-500 mb-2">
-                      ※ 詳細な編集や構造化は「OKR設定」画面で行えます。
+                      ※ 詳細な編集や構造化は「OKR設定」画面でも行えます。
                     </p>
 
                     <ul className="space-y-2">
@@ -2194,7 +2260,7 @@ export default function CascadePage() {
 
                             <div className="pl-5 mt-2">
                               <div className="text-[11px] text-zinc-500 mb-1">
-                                このプロジェクトで実現したい状態（Objective／目標）
+                                KPI（実現したい状態）
                               </div>
                               <input
                                 className="w-full text-xs text-zinc-800 bg-white border border-zinc-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-400"
@@ -2230,7 +2296,7 @@ export default function CascadePage() {
 
                             <div className="pl-5 mt-3 space-y-2">
                               <div className="flex items-center justify-between gap-2">
-                                <div className="text-[11px] text-zinc-500">このプロジェクトの主要な成果指標（KR案）</div>
+                                <div className="text-[11px] text-zinc-500">主要指標（KPI指標案）</div>
                                 {editableDept && (
                                   <Button
                                     variant="outline"
@@ -2260,20 +2326,20 @@ export default function CascadePage() {
                                     }}
                                   >
                                     <PlusCircle className="w-3 h-3 mr-1" />
-                                    KR行を追加
+                                    指標を追加
                                   </Button>
                                 )}
                               </div>
 
                               {krs.length === 0 && (
                                 <p className="text-[11px] text-zinc-400">
-                                  まだKR案がありません。必要に応じて「KR行を追加」から入力してください。
+                                  まだ指標案がありません。必要に応じて「指標を追加」から入力してください。
                                 </p>
                               )}
 
                               {krs.map((kr, ki) => (
                                 <div key={ki} className="flex items-center gap-2">
-                                  <span className="text-[11px] text-zinc-400 whitespace-nowrap">KR{ki + 1}</span>
+                                  <span className="text-[11px] text-zinc-400 whitespace-nowrap">指標{ki + 1}</span>
                                   <input
                                     className="flex-1 text-xs text-zinc-800 bg-white border border-zinc-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-400"
                                     value={kr}
@@ -2367,6 +2433,287 @@ export default function CascadePage() {
                               />
                             </div>
 
+                            {/* ========== 価値指標紐づけセクション（STAGE3拡張） ========== */}
+                            {valueDriverKPIs.length > 0 && (
+                              <div className="pl-5 mt-3 pt-3 border-t border-zinc-100">
+                                <div className="text-[11px] font-semibold text-zinc-700 mb-2">効かせる価値指標（STAGE2との連携）</div>
+                                <div className="flex flex-wrap gap-1 mb-1">
+                                  {valueDriverKPIs.map((kpi: any) => {
+                                    const kpiId = kpi?.id || kpi?.label;
+                                    const isLinked = (p.valueDriverLinks ?? []).includes(kpiId);
+                                    return (
+                                      <button
+                                        key={kpiId}
+                                        className={[
+                                          'px-2 py-1 rounded-full text-[10px] font-medium transition-colors border',
+                                          isLinked
+                                            ? 'bg-blue-500 text-white border-blue-600'
+                                            : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50',
+                                        ].join(' ')}
+                                        disabled={!editableDept || isHydrating}
+                                        onClick={() => {
+                                          if (!editableDept || isHydrating) return;
+                                          pushToStore((prev) => {
+                                            const list = [...prev];
+                                            const d = list[index];
+                                            if (!d) return prev;
+                                            const projects = [...((d.projects as Project[]) ?? [])];
+                                            const proj: Project = { ...(projects[pi] ?? { title: '' }) } as Project;
+                                            const links = [...(proj.valueDriverLinks ?? [])];
+                                            const idx = links.indexOf(kpiId);
+                                            if (idx >= 0) {
+                                              links.splice(idx, 1);
+                                            } else {
+                                              links.push(kpiId);
+                                            }
+                                            proj.valueDriverLinks = links;
+                                            projects[pi] = proj;
+                                            list[index] = { ...d, projects };
+                                            return list;
+                                          });
+                                        }}
+                                        title={isLinked ? `「${kpi?.label || kpiId}」との紐づけを解除` : `「${kpi?.label || kpiId}」に効かせる`}
+                                      >
+                                        {isLinked && '✓ '}
+                                        {kpi?.label || kpiId}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                {(!p.valueDriverLinks || p.valueDriverLinks.length === 0) && (
+                                  <div className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-1">
+                                    ⚠️ 価値指標が未設定です。このプロジェクトがどの価値指標に効くかを選択してください。
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {/* ========== 価値指標紐づけセクション終了 ========== */}
+
+                            {/* ========== 人的投資セクション（STAGE3拡張） ========== */}
+                            <div className="pl-5 mt-4 pt-4 border-t border-zinc-100">
+                              <div className="text-[11px] font-semibold text-zinc-700 mb-3">人的投資（スキル要件＋施策案）</div>
+
+                              {/* スキル要件 */}
+                              <div className="mb-3">
+                                <div className="text-[10px] text-zinc-500 mb-1">職種スキル</div>
+                                <div className="flex flex-wrap gap-1 mb-1">
+                                  {(p.skillRequirements?.roleSkills ?? []).map((skill, si) => (
+                                    <span key={si} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 border border-blue-200 text-[10px] text-blue-700">
+                                      {skill}
+                                      {editableDept && (
+                                        <button
+                                          className="hover:text-red-600"
+                                          onClick={() => {
+                                            if (!editableDept || isHydrating) return;
+                                            pushToStore((prev) => {
+                                              const list = [...prev];
+                                              const d = list[index];
+                                              if (!d) return prev;
+                                              const projects = [...((d.projects as Project[]) ?? [])];
+                                              const proj: Project = { ...(projects[pi] ?? { title: '' }) } as Project;
+                                              const skills = { ...proj.skillRequirements };
+                                              const roleSkills = [...(skills.roleSkills ?? [])];
+                                              roleSkills.splice(si, 1);
+                                              skills.roleSkills = roleSkills;
+                                              proj.skillRequirements = skills;
+                                              projects[pi] = proj;
+                                              list[index] = { ...d, projects };
+                                              return list;
+                                            });
+                                          }}
+                                        >×</button>
+                                      )}
+                                    </span>
+                                  ))}
+                                  {editableDept && (
+                                    <button
+                                      className="px-2 py-0.5 rounded-full border border-dashed border-zinc-300 text-[10px] text-zinc-500 hover:bg-zinc-50"
+                                      onClick={() => {
+                                        if (!editableDept || isHydrating) return;
+                                        const newSkill = window.prompt('職種スキルを入力（例：営業、エンジニア、デザイナー）');
+                                        if (!newSkill?.trim()) return;
+                                        pushToStore((prev) => {
+                                          const list = [...prev];
+                                          const d = list[index];
+                                          if (!d) return prev;
+                                          const projects = [...((d.projects as Project[]) ?? [])];
+                                          const proj: Project = { ...(projects[pi] ?? { title: '' }) } as Project;
+                                          const skills = { ...proj.skillRequirements };
+                                          const roleSkills = [...(skills.roleSkills ?? []), newSkill.trim()];
+                                          skills.roleSkills = roleSkills;
+                                          proj.skillRequirements = skills;
+                                          projects[pi] = proj;
+                                          list[index] = { ...d, projects };
+                                          return list;
+                                        });
+                                      }}
+                                    >+ 追加</button>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="mb-3">
+                                <div className="text-[10px] text-zinc-500 mb-1">実行スキル</div>
+                                <div className="flex flex-wrap gap-1 mb-1">
+                                  {(p.skillRequirements?.executionSkills ?? []).map((skill, si) => (
+                                    <span key={si} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-50 border border-green-200 text-[10px] text-green-700">
+                                      {skill}
+                                      {editableDept && (
+                                        <button
+                                          className="hover:text-red-600"
+                                          onClick={() => {
+                                            if (!editableDept || isHydrating) return;
+                                            pushToStore((prev) => {
+                                              const list = [...prev];
+                                              const d = list[index];
+                                              if (!d) return prev;
+                                              const projects = [...((d.projects as Project[]) ?? [])];
+                                              const proj: Project = { ...(projects[pi] ?? { title: '' }) } as Project;
+                                              const skills = { ...proj.skillRequirements };
+                                              const executionSkills = [...(skills.executionSkills ?? [])];
+                                              executionSkills.splice(si, 1);
+                                              skills.executionSkills = executionSkills;
+                                              proj.skillRequirements = skills;
+                                              projects[pi] = proj;
+                                              list[index] = { ...d, projects };
+                                              return list;
+                                            });
+                                          }}
+                                        >×</button>
+                                      )}
+                                    </span>
+                                  ))}
+                                  {editableDept && (
+                                    <button
+                                      className="px-2 py-0.5 rounded-full border border-dashed border-zinc-300 text-[10px] text-zinc-500 hover:bg-zinc-50"
+                                      onClick={() => {
+                                        if (!editableDept || isHydrating) return;
+                                        const newSkill = window.prompt('実行スキルを入力（例：PM、標準化、データ活用、改善運用）');
+                                        if (!newSkill?.trim()) return;
+                                        pushToStore((prev) => {
+                                          const list = [...prev];
+                                          const d = list[index];
+                                          if (!d) return prev;
+                                          const projects = [...((d.projects as Project[]) ?? [])];
+                                          const proj: Project = { ...(projects[pi] ?? { title: '' }) } as Project;
+                                          const skills = { ...proj.skillRequirements };
+                                          const executionSkills = [...(skills.executionSkills ?? []), newSkill.trim()];
+                                          skills.executionSkills = executionSkills;
+                                          proj.skillRequirements = skills;
+                                          projects[pi] = proj;
+                                          list[index] = { ...d, projects };
+                                          return list;
+                                        });
+                                      }}
+                                    >+ 追加</button>
+                                  )}
+                                </div>
+                                {(!p.skillRequirements?.executionSkills || p.skillRequirements.executionSkills.length === 0) && (
+                                  <div className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-1">
+                                    ⚠️ 実行スキルが未設定です。PM、標準化、データ活用などを追加してください。
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* 人的投資施策 */}
+                              <div className="mt-3">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="text-[10px] text-zinc-500">人的投資施策（カテゴリ別）</div>
+                                </div>
+                                {(() => {
+                                  const investments = p.humanInvestments ?? [];
+                                  const categories: HumanInvestmentCategory[] = ['TRAINING_OJT', 'HIRING', 'ALLOCATION', 'EXTERNAL', 'TOOLS_PROCESS'];
+                                  const categoryLabels: Record<HumanInvestmentCategory, string> = {
+                                    TRAINING_OJT: '研修・OJT',
+                                    HIRING: '採用',
+                                    ALLOCATION: '配置・異動',
+                                    EXTERNAL: '外部活用',
+                                    TOOLS_PROCESS: 'ツール・仕組み',
+                                  };
+                                  const uniqueCategories = new Set(investments.map(inv => inv.category));
+                                  const hasTwoOrMoreCategories = uniqueCategories.size >= 2;
+
+                                  return (
+                                    <>
+                                      {!hasTwoOrMoreCategories && (
+                                        <div className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1 mb-2">
+                                          ⚠️ 人的投資施策のカテゴリが2種類未満です。多角的な施策を検討してください。
+                                        </div>
+                                      )}
+                                      <div className="space-y-2">
+                                        {categories.map((category) => {
+                                          const items = investments.filter(inv => inv.category === category);
+                                          return (
+                                            <div key={category} className="rounded-lg border border-zinc-100 bg-white p-2">
+                                              <div className="flex items-center justify-between mb-1">
+                                                <div className="text-[10px] font-semibold text-zinc-700">{categoryLabels[category]}</div>
+                                                {editableDept && (
+                                                  <button
+                                                    className="text-[10px] text-blue-600 hover:underline"
+                                                    onClick={() => {
+                                                      if (!editableDept || isHydrating) return;
+                                                      const title = window.prompt(`${categoryLabels[category]}の施策を入力`);
+                                                      if (!title?.trim()) return;
+                                                      pushToStore((prev) => {
+                                                        const list = [...prev];
+                                                        const d = list[index];
+                                                        if (!d) return prev;
+                                                        const projects = [...((d.projects as Project[]) ?? [])];
+                                                        const proj: Project = { ...(projects[pi] ?? { title: '' }) } as Project;
+                                                        const newInv: HumanInvestment = { category, title: title.trim() };
+                                                        proj.humanInvestments = [...(proj.humanInvestments ?? []), newInv];
+                                                        projects[pi] = proj;
+                                                        list[index] = { ...d, projects };
+                                                        return list;
+                                                      });
+                                                    }}
+                                                  >+ 追加</button>
+                                                )}
+                                              </div>
+                                              {items.length === 0 ? (
+                                                <div className="text-[10px] text-zinc-400">（未設定）</div>
+                                              ) : (
+                                                <ul className="space-y-1">
+                                                  {items.map((inv, ii) => (
+                                                    <li key={ii} className="text-[10px] text-zinc-700 flex items-start gap-1">
+                                                      <span className="flex-1">• {inv.title}{inv.detail ? ` (${inv.detail})` : ''}</span>
+                                                      {editableDept && (
+                                                        <button
+                                                          className="text-red-600 hover:underline"
+                                                          onClick={() => {
+                                                            if (!editableDept || isHydrating) return;
+                                                            pushToStore((prev) => {
+                                                              const list = [...prev];
+                                                              const d = list[index];
+                                                              if (!d) return prev;
+                                                              const projects = [...((d.projects as Project[]) ?? [])];
+                                                              const proj: Project = { ...(projects[pi] ?? { title: '' }) } as Project;
+                                                              const allInv = [...(proj.humanInvestments ?? [])];
+                                                              const globalIndex = allInv.findIndex((x, idx) => x === inv && items.indexOf(x) === ii);
+                                                              if (globalIndex >= 0) allInv.splice(globalIndex, 1);
+                                                              proj.humanInvestments = allInv;
+                                                              projects[pi] = proj;
+                                                              list[index] = { ...d, projects };
+                                                              return list;
+                                                            });
+                                                          }}
+                                                        >削除</button>
+                                                      )}
+                                                    </li>
+                                                  ))}
+                                                </ul>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </>
+                                  );
+                                })()}
+                              </div>
+                            </div>
+                            {/* ========== 人的投資セクション終了 ========== */}
+
                             {(primaryObjective || krs.length > 0 || owner) && editableDept && (
                               <div className="pl-5 mt-2">
                                 <Button
@@ -2377,7 +2724,7 @@ export default function CascadePage() {
                                   onClick={() => {
                                     if (!editableDept || isHydrating) return;
                                     const ok = window.confirm(
-                                      'このプロジェクトのOKR案（目標・KR・Owner）をすべてクリアしますか？',
+                                      'このプロジェクトのKPI案（目標・指標・担当）をすべてクリアしますか？',
                                     );
                                     if (!ok) return;
                                     pushToStore((prev) => {
@@ -2391,10 +2738,10 @@ export default function CascadePage() {
                                       list[index] = { ...d, projects };
                                       return list;
                                     });
-                                    setNotice('🗑 このプロジェクトのOKR案をクリアしました');
+                                    setNotice('🗑 このプロジェクトのKPI案をクリアしました');
                                   }}
                                 >
-                                  OKR案をすべてクリア
+                                  KPI案をすべてクリア
                                 </Button>
                               </div>
                             )}
