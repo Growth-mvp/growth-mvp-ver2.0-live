@@ -13,19 +13,35 @@ import {
 } from '@/utils/supabase/strategy';
 import { safeGetSession } from '@/utils/supabase/client';
 import { useUserStore } from './userStore';
-import { computeValueAnalysis } from '@/utils/valueAnalysis';
+import { computeValueAnalysis, computeValueAnalysisBundle } from '@/utils/valueAnalysis';
+import { stage1DummyDataBundle } from '@/utils/stage1DummyData';
 import type {
   ChapterStory,
   ChapterAnswers,
   Department,
   WinPattern,
   WinPatternId,
+  WinPatternCandidate,
   BusinessSegment,
   FinanceBSRow,
+  FinancePLRow,
+  SegmentBSRow,
   ValueAnalysis,
   IssueBlock,
+  MetricsSummary,
+  Stage2State,
+  Stage2Answer,
+  StoryChapter,
 } from '@/types/strategy';
 import type { BusinessPortfolio } from '@/types/portfolio';
+import {
+  saveStage1SnapshotToLocalStorage,
+  saveStage2SnapshotToLocalStorage,
+  loadStage1SnapshotFromLocalStorage,
+  loadStage2SnapshotFromLocalStorage,
+  valueAnalysisToMetricsSummary,
+  buildStage2StateFromStore,
+} from '@/utils/stageSnapshot';
 
 /* ===== 型定義（ローカル用：旧互換） ===== */
 export type AnswerStep = {
@@ -114,8 +130,22 @@ export type StrategyState = {
   /* 財務BS（STAGE1 指標⑤用） */
   financeBS?: FinanceBSRow[];
 
+  /* 財務PL（STAGE1 企業価値分析用） */
+  financePL?: FinancePLRow[];
+
+  /* 事業部別 PL/BS（STAGE1 セグメント分析用） */
+  segmentPL?: Record<string, FinancePLRow[]>;
+  segmentBS?: Record<string, SegmentBSRow[]>;
+
+  /* 本社・共通費調整（事業部合計との差分） */
+  hqAdjustmentPL?: FinancePLRow[];
+  hqAdjustmentBS?: Partial<SegmentBSRow>[];
+
   /* 5指標分析（STAGE1 → STAGE2 接続） */
   valueAnalysis?: ValueAnalysis;
+
+  /* 事業部別 ValueAnalysis（STAGE1 セグメント分析結果） */
+  segmentValueAnalysis?: Record<string, ValueAnalysis>;
 
   /* STAGE1：論点整理（Issue Block） */
   stage1Issues?: Stage1IssueBlock[];
@@ -135,6 +165,11 @@ export type StrategyState = {
   finalStory: ChapterStory[];
   answers2: ChapterAnswers[];
   departments: Department[];
+
+  /* ★ STAGE2：たたき台・12問 */
+  storyDraft?: StoryChapter[];
+  winPatternsCandidate?: WinPatternCandidate[];
+  answers12?: Stage2Answer[];
 
   /* ★ 全社レベルの勝ち筋（受け皿） */
   winPatterns?: WinPattern[];
@@ -215,7 +250,13 @@ export type StrategyState = {
         | 'ticker'
         | 'pbrManual'
         | 'financeBS'
+        | 'financePL'
+        | 'segmentPL'
+        | 'segmentBS'
+        | 'hqAdjustmentPL'
+        | 'hqAdjustmentBS'
         | 'valueAnalysis'
+        | 'segmentValueAnalysis'
         | 'stage1Issues'
       >
     >
@@ -226,8 +267,32 @@ export type StrategyState = {
   setIndustry: (industry: string) => void;
   setStage1Issues: (issues: Stage1IssueBlock[]) => void;
 
-  /** ValueAnalysis 再計算（source: 'local'|'refetchFromServer'） */
-  recomputeValueAnalysis: (source?: 'local' | 'refetchFromServer') => void;
+  /* ▼ STAGE2 setter */
+  setStoryDraft: (draft: StoryChapter[]) => void;
+  setWinPatternsCandidate: (candidates: WinPatternCandidate[]) => void;
+  setAnswers12: (answers: Stage2Answer[]) => void;
+  updateAnswer12: (id: string, patch: Partial<Stage2Answer>) => void;
+
+  /** ValueAnalysis 再計算（source: 変更元を示す） */
+  recomputeValueAnalysis: (
+    source?:
+      | 'local'
+      | 'refetchFromServer'
+      | 'setFinanceSummary'
+      | 'setProfile'
+      | 'setFinancePL'
+      | 'setFinanceBS'
+      | 'setBusinessSegments'
+      | 'setSegmentPL'
+      | 'setSegmentBS'
+  ) => void;
+
+  /* STAGE1 財務データ setter */
+  setFinancePL: (rows: FinancePLRow[]) => void;
+  setFinanceBS: (rows: FinanceBSRow[]) => void;
+  setSegmentPL: (data: Record<string, FinancePLRow[]>) => void;
+  setSegmentBS: (data: Record<string, SegmentBSRow[]>) => void;
+  setBusinessSegmentsWithSync: (segments: BusinessSegment[]) => void;
 
   setMVV: (patch: Partial<Pick<StrategyState, 'thought' | 'mission' | 'vision' | 'value'>>) => void;
   setSWOT: (patch: Partial<Pick<StrategyState, 'strength' | 'weakness' | 'opportunity' | 'threat'>>) => void;
@@ -246,6 +311,21 @@ export type StrategyState = {
   saveStrategyData: () => Promise<void>;
   refetchFromServer: () => Promise<void>;
   deleteAllOnServer: () => Promise<void>;
+
+  /** STAGE1 ダミーデータ投入（開発用） */
+  loadStage1DummyData: () => void;
+
+  /** STAGE1 スナップショットを localStorage に保存 */
+  saveStage1Snapshot: () => boolean;
+
+  /** STAGE2 スナップショットを localStorage に保存 */
+  saveStage2Snapshot: () => boolean;
+
+  /** STAGE1 スナップショットを localStorage から復元 */
+  restoreStage1FromSnapshot: () => boolean;
+
+  /** MetricsSummary を取得（valueAnalysis から生成） */
+  getMetricsSummary: () => MetricsSummary;
 };
 
 /* ===== ユーティリティ群 ===== */
@@ -329,7 +409,13 @@ function buildSavePayload(s: StrategyState) {
     ticker: s.ticker,
     pbrManual: s.pbrManual,
     financeBS: s.financeBS,
+    financePL: s.financePL,
+    segmentPL: s.segmentPL,
+    segmentBS: s.segmentBS,
+    hqAdjustmentPL: s.hqAdjustmentPL,
+    hqAdjustmentBS: s.hqAdjustmentBS,
     valueAnalysis: s.valueAnalysis,
+    segmentValueAnalysis: s.segmentValueAnalysis,
 
     stage1Issues: s.stage1Issues,
 
@@ -488,7 +574,13 @@ const emptyData: StrategyState = {
   ticker: '',
   pbrManual: '',
   financeBS: [],
+  financePL: [],
+  segmentPL: {},
+  segmentBS: {},
+  hqAdjustmentPL: undefined,
+  hqAdjustmentBS: undefined,
   valueAnalysis: undefined,
+  segmentValueAnalysis: undefined,
 
   stage1Issues: [],
 
@@ -504,6 +596,9 @@ const emptyData: StrategyState = {
   finalStory: [],
   answers2: [],
   departments: [],
+  storyDraft: undefined,
+  winPatternsCandidate: undefined,
+  answers12: undefined,
   winPatterns: undefined,
   winPatternPrimary: undefined,
   winPatternSecondary: undefined,
@@ -546,7 +641,17 @@ const emptyData: StrategyState = {
   setCompanyName: () => {},
   setIndustry: () => {},
   setStage1Issues: () => {},
+  setStoryDraft: () => {},
+  setWinPatternsCandidate: () => {},
+  setAnswers12: () => {},
+  updateAnswer12: () => {},
   recomputeValueAnalysis: () => {},
+
+  setFinancePL: () => {},
+  setFinanceBS: () => {},
+  setSegmentPL: () => {},
+  setSegmentBS: () => {},
+  setBusinessSegmentsWithSync: () => {},
 
   setMVV: () => {},
   setSWOT: () => {},
@@ -560,6 +665,11 @@ const emptyData: StrategyState = {
   saveStrategyData: async () => {},
   refetchFromServer: async () => {},
   deleteAllOnServer: async () => {},
+  loadStage1DummyData: () => {},
+  saveStage1Snapshot: () => false,
+  saveStage2Snapshot: () => false,
+  restoreStage1FromSnapshot: () => false,
+  getMetricsSummary: () => ({}),
 };
 
 /* ============================================================
@@ -596,7 +706,40 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     : isArray(raw.finance_bs)
       ? raw.finance_bs
       : [];
+  const financePL = isArray(raw.financePL)
+    ? raw.financePL
+    : isArray(raw.finance_pl)
+      ? raw.finance_pl
+      : [];
+  const segmentPL =
+    raw.segmentPL && typeof raw.segmentPL === 'object'
+      ? raw.segmentPL
+      : raw.segment_pl && typeof raw.segment_pl === 'object'
+        ? raw.segment_pl
+        : undefined;
+  const segmentBS =
+    raw.segmentBS && typeof raw.segmentBS === 'object'
+      ? raw.segmentBS
+      : raw.segment_bs && typeof raw.segment_bs === 'object'
+        ? raw.segment_bs
+        : undefined;
+  const hqAdjustmentPL = isArray(raw.hqAdjustmentPL)
+    ? raw.hqAdjustmentPL
+    : isArray(raw.hq_adjustment_pl)
+      ? raw.hq_adjustment_pl
+      : undefined;
+  const hqAdjustmentBS = isArray(raw.hqAdjustmentBS)
+    ? raw.hqAdjustmentBS
+    : isArray(raw.hq_adjustment_bs)
+      ? raw.hq_adjustment_bs
+      : undefined;
   const valueAnalysis = raw.valueAnalysis ?? raw.value_analysis ?? undefined;
+  const segmentValueAnalysis =
+    raw.segmentValueAnalysis && typeof raw.segmentValueAnalysis === 'object'
+      ? raw.segmentValueAnalysis
+      : raw.segment_value_analysis && typeof raw.segment_value_analysis === 'object'
+        ? raw.segment_value_analysis
+        : undefined;
 
   const stage1Issues = isArray(raw.stage1Issues)
     ? raw.stage1Issues
@@ -722,7 +865,13 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     ticker,
     pbrManual,
     financeBS,
+    financePL,
+    segmentPL,
+    segmentBS,
+    hqAdjustmentPL,
+    hqAdjustmentBS,
     valueAnalysis,
+    segmentValueAnalysis,
 
     stage1Issues,
 
@@ -838,15 +987,52 @@ export const useStrategyStore = create<StrategyState>()(
         })),
 
       setProfile: (patch) => {
-        set((s) => ({ ...s, ...patch, dirty: true }));
-        // pbrManual, financeSummary, financeBS の変更を含む場合は valueAnalysis を再計算
+        // businessSegments が変更された場合、segmentPL/segmentBS のキー整合を保つ
+        if (patch.businessSegments !== undefined) {
+          const currentState = get();
+          const newSegmentNames = new Set(patch.businessSegments.map((seg) => seg.name));
+
+          // 既存の segmentPL/segmentBS から不要なキーを削除し、新規キーを空配列で初期化
+          let newSegmentPL = currentState.segmentPL ? { ...currentState.segmentPL } : {};
+          let newSegmentBS = currentState.segmentBS ? { ...currentState.segmentBS } : {};
+
+          // 削除されたセグメントのデータを削除
+          for (const key of Object.keys(newSegmentPL)) {
+            if (!newSegmentNames.has(key)) delete newSegmentPL[key];
+          }
+          for (const key of Object.keys(newSegmentBS)) {
+            if (!newSegmentNames.has(key)) delete newSegmentBS[key];
+          }
+
+          // 新規セグメントは空配列で初期化
+          for (const segName of newSegmentNames) {
+            if (!(segName in newSegmentPL)) newSegmentPL[segName] = [];
+            if (!(segName in newSegmentBS)) newSegmentBS[segName] = [];
+          }
+
+          set((s) => ({
+            ...s,
+            ...patch,
+            segmentPL: Object.keys(newSegmentPL).length > 0 ? newSegmentPL : undefined,
+            segmentBS: Object.keys(newSegmentBS).length > 0 ? newSegmentBS : undefined,
+            dirty: true,
+          }));
+        } else {
+          set((s) => ({ ...s, ...patch, dirty: true }));
+        }
+
+        // pbrManual, financePL, financeBS, segmentPL, segmentBS の変更を含む場合は valueAnalysis を再計算
         const needsRecompute =
           patch.pbrManual !== undefined ||
-          patch.financeBS !== undefined;
+          patch.financeBS !== undefined ||
+          patch.financePL !== undefined ||
+          patch.segmentPL !== undefined ||
+          patch.segmentBS !== undefined ||
+          patch.businessSegments !== undefined;
         if (needsRecompute) {
           // 次の tick で recompute（set の反映後）
           setTimeout(() => {
-            get().recomputeValueAnalysis('local');
+            get().recomputeValueAnalysis('setProfile');
           }, 0);
         }
       },
@@ -854,7 +1040,38 @@ export const useStrategyStore = create<StrategyState>()(
       /* ▼ 互換用ショートカット */
       setCompanyName: (name) => set((s) => ({ ...s, companyName: name, dirty: true })),
       setIndustry: (industry) => set((s) => ({ ...s, industry, dirty: true })),
-      setStage1Issues: (issues) => set((s) => ({ ...s, stage1Issues: issues, dirty: true })),
+      setStage1Issues: (issues) => {
+        set((s) => ({ ...s, stage1Issues: issues, dirty: true }));
+        // ★ localStorage にも即座に保存（デモ安定のため）
+        setTimeout(() => {
+          get().saveStage1Snapshot();
+        }, 0);
+      },
+
+      /* ▼ STAGE2 setter */
+      setStoryDraft: (draft) => {
+        set((s) => ({ ...s, storyDraft: draft, dirty: true }));
+        setTimeout(() => { get().saveStage2Snapshot(); }, 0);
+      },
+      setWinPatternsCandidate: (candidates) => {
+        set((s) => ({ ...s, winPatternsCandidate: candidates, dirty: true }));
+        setTimeout(() => { get().saveStage2Snapshot(); }, 0);
+      },
+      setAnswers12: (answers) => {
+        set((s) => ({ ...s, answers12: answers, dirty: true }));
+        setTimeout(() => { get().saveStage2Snapshot(); }, 0);
+      },
+      updateAnswer12: (id, patch) => {
+        set((s) => {
+          const prev = s.answers12 ?? [];
+          const idx = prev.findIndex((a) => a.id === id);
+          if (idx < 0) return s;
+          const next = [...prev];
+          next[idx] = { ...next[idx], ...patch };
+          return { ...s, answers12: next, dirty: true };
+        });
+        setTimeout(() => { get().saveStage2Snapshot(); }, 0);
+      },
 
       /** ValueAnalysis 再計算 */
       recomputeValueAnalysis: (source = 'local') => {
@@ -865,11 +1082,32 @@ export const useStrategyStore = create<StrategyState>()(
           return;
         }
 
-        const newValueAnalysis = computeValueAnalysis({
-          financeSummary: s.financeSummary,
-          financeBS: s.financeBS,
-          pbrManual: s.pbrManual,
-        });
+        // financePL が存在する場合は新形式を優先
+        const hasNewFormat = Array.isArray(s.financePL) && s.financePL.length > 0;
+
+        let newValueAnalysis: ValueAnalysis;
+        let newSegmentValueAnalysis: Record<string, ValueAnalysis> | undefined;
+
+        if (hasNewFormat) {
+          // 新形式：computeValueAnalysisBundle を使用
+          const result = computeValueAnalysisBundle({
+            companyPL: s.financePL!,
+            companyBS: s.financeBS ?? [],
+            segmentPL: s.segmentPL,
+            segmentBS: s.segmentBS,
+            pbrManual: s.pbrManual,
+          });
+          newValueAnalysis = result.company;
+          newSegmentValueAnalysis = Object.keys(result.segments).length > 0 ? result.segments : undefined;
+        } else {
+          // 旧形式：computeValueAnalysis を使用（financeSummary ベース）
+          newValueAnalysis = computeValueAnalysis({
+            financeSummary: s.financeSummary,
+            financeBS: s.financeBS,
+            pbrManual: s.pbrManual,
+          });
+          newSegmentValueAnalysis = undefined;
+        }
 
         // source 情報をメタに反映
         newValueAnalysis.meta = {
@@ -877,14 +1115,79 @@ export const useStrategyStore = create<StrategyState>()(
           source: source === 'refetchFromServer' ? 'server' : 'local',
         };
 
-        console.log('[strategyStore] recomputeValueAnalysis:', { source, newValueAnalysis });
+        console.log('[strategyStore] recomputeValueAnalysis:', { source, hasNewFormat, newValueAnalysis, newSegmentValueAnalysis });
 
         set((prev) => ({
           ...prev,
           valueAnalysis: newValueAnalysis,
+          segmentValueAnalysis: newSegmentValueAnalysis,
           // refetchFromServer 以外は dirty=true
           dirty: source === 'refetchFromServer' ? prev.dirty : true,
         }));
+      },
+
+      /* STAGE1 財務データ setter */
+      setFinancePL: (rows: FinancePLRow[]) => {
+        set((s) => ({ ...s, financePL: rows, dirty: true }));
+        setTimeout(() => {
+          get().recomputeValueAnalysis('setFinancePL');
+        }, 0);
+      },
+
+      setFinanceBS: (rows: FinanceBSRow[]) => {
+        set((s) => ({ ...s, financeBS: rows, dirty: true }));
+        setTimeout(() => {
+          get().recomputeValueAnalysis('setFinanceBS');
+        }, 0);
+      },
+
+      setSegmentPL: (data: Record<string, FinancePLRow[]>) => {
+        set((s) => ({ ...s, segmentPL: data, dirty: true }));
+        setTimeout(() => {
+          get().recomputeValueAnalysis('setSegmentPL');
+        }, 0);
+      },
+
+      setSegmentBS: (data: Record<string, SegmentBSRow[]>) => {
+        set((s) => ({ ...s, segmentBS: data, dirty: true }));
+        setTimeout(() => {
+          get().recomputeValueAnalysis('setSegmentBS');
+        }, 0);
+      },
+
+      setBusinessSegmentsWithSync: (segments: BusinessSegment[]) => {
+        const currentState = get();
+        const newSegmentNames = new Set(segments.map((seg) => seg.name));
+
+        // 既存の segmentPL/segmentBS から不要なキーを削除し、新規キーを空配列で初期化
+        let newSegmentPL = currentState.segmentPL ? { ...currentState.segmentPL } : {};
+        let newSegmentBS = currentState.segmentBS ? { ...currentState.segmentBS } : {};
+
+        // 削除されたセグメントのデータを削除
+        for (const key of Object.keys(newSegmentPL)) {
+          if (!newSegmentNames.has(key)) delete newSegmentPL[key];
+        }
+        for (const key of Object.keys(newSegmentBS)) {
+          if (!newSegmentNames.has(key)) delete newSegmentBS[key];
+        }
+
+        // 新規セグメントは空配列で初期化
+        for (const segName of newSegmentNames) {
+          if (!(segName in newSegmentPL)) newSegmentPL[segName] = [];
+          if (!(segName in newSegmentBS)) newSegmentBS[segName] = [];
+        }
+
+        set((s) => ({
+          ...s,
+          businessSegments: segments,
+          segmentPL: Object.keys(newSegmentPL).length > 0 ? newSegmentPL : undefined,
+          segmentBS: Object.keys(newSegmentBS).length > 0 ? newSegmentBS : undefined,
+          dirty: true,
+        }));
+
+        setTimeout(() => {
+          get().recomputeValueAnalysis('setBusinessSegments');
+        }, 0);
       },
 
       setMVV: (patch) => set((s) => ({ ...s, ...patch, dirty: true })),
@@ -1205,6 +1508,116 @@ export const useStrategyStore = create<StrategyState>()(
           dirty: false,
         }));
       },
+
+      /** STAGE1 ダミーデータ投入（開発用） */
+      loadStage1DummyData: () => {
+        console.log('[strategyStore] loadStage1DummyData() called');
+
+        const {
+          businessSegments,
+          financePL,
+          financeBS,
+          segmentPL,
+          segmentBS,
+          pbrManual,
+          stage1Issues,
+        } = stage1DummyDataBundle;
+
+        // setProfile で businessSegments, pbrManual, stage1Issues を設定
+        set((s) => ({
+          ...s,
+          businessSegments,
+          pbrManual,
+          stage1Issues,
+          financePL,
+          financeBS,
+          segmentPL,
+          segmentBS,
+          dirty: true,
+        }));
+
+        // 次の tick で recomputeValueAnalysis を呼ぶ
+        setTimeout(() => {
+          get().recomputeValueAnalysis('local');
+          console.log('[strategyStore] loadStage1DummyData() recompute done');
+          // ダミーデータ投入後もスナップショット保存
+          get().saveStage1Snapshot();
+        }, 0);
+      },
+
+      /** STAGE1 スナップショットを localStorage に保存 */
+      saveStage1Snapshot: () => {
+        const s = get();
+        const issueBlocks = s.stage1Issues ?? [];
+        const valueAnalysis = s.valueAnalysis;
+        const companyName = s.companyName;
+        const companyId = s.companyId ?? s.pendingCompanyId ?? undefined;
+
+        const result = saveStage1SnapshotToLocalStorage(
+          issueBlocks,
+          valueAnalysis,
+          companyName,
+          companyId ?? undefined
+        );
+        console.log('[strategyStore] saveStage1Snapshot:', { result, issueBlocksCount: issueBlocks.length });
+        return result;
+      },
+
+      /** STAGE2 スナップショットを localStorage に保存 */
+      saveStage2Snapshot: () => {
+        const s = get();
+        // ストア直接のキー（storyDraft, winPatternsCandidate, answers12）を優先
+        const state: Stage2State = {
+          mvv: {
+            thought: s.thought,
+            mission: s.mission,
+            vision: s.vision,
+            value: s.value,
+          },
+          swot: {
+            strength: s.strength,
+            weakness: s.weakness,
+            opportunity: s.opportunity,
+            threat: s.threat,
+          },
+          storyDraft: s.storyDraft ?? (s.story?.length ? s.story.map((ch) => ({ title: ch.title, body: ch.body })) : undefined),
+          winPatternsCandidate: s.winPatternsCandidate,
+          answers12: s.answers12,
+          finalStory: s.finalStory,
+        };
+        const companyId = s.companyId ?? s.pendingCompanyId ?? undefined;
+        const result = saveStage2SnapshotToLocalStorage(state, companyId ?? undefined);
+        console.log('[strategyStore] saveStage2Snapshot:', { result, answers12Count: s.answers12?.length ?? 0 });
+        return result;
+      },
+
+      /** STAGE1 スナップショットを localStorage から復元 */
+      restoreStage1FromSnapshot: () => {
+        const snapshot = loadStage1SnapshotFromLocalStorage();
+        if (!snapshot || snapshot.issueBlocks.length === 0) {
+          console.log('[strategyStore] restoreStage1FromSnapshot: no valid snapshot');
+          return false;
+        }
+
+        set((s) => ({
+          ...s,
+          stage1Issues: snapshot.issueBlocks,
+          // valueAnalysis は metricsSummary から完全復元できないため、
+          // 既存の valueAnalysis があればそれを維持
+          dirty: true,
+        }));
+
+        console.log('[strategyStore] restoreStage1FromSnapshot: restored', {
+          issueBlocksCount: snapshot.issueBlocks.length,
+        });
+        return true;
+      },
+
+      /** MetricsSummary を取得（valueAnalysis から生成） */
+      getMetricsSummary: () => {
+        const s = get();
+        return valueAnalysisToMetricsSummary(s.valueAnalysis, s.valueAnalysis?.overallNote);
+      },
     }),
     {
       name: 'strategy-store',
@@ -1242,7 +1655,13 @@ export const useStrategyStore = create<StrategyState>()(
         ticker: s.ticker,
         pbrManual: s.pbrManual,
         financeBS: s.financeBS,
+        financePL: s.financePL,
+        segmentPL: s.segmentPL,
+        segmentBS: s.segmentBS,
+        hqAdjustmentPL: s.hqAdjustmentPL,
+        hqAdjustmentBS: s.hqAdjustmentBS,
         valueAnalysis: s.valueAnalysis,
+        segmentValueAnalysis: s.segmentValueAnalysis,
 
         stage1Issues: s.stage1Issues,
 
