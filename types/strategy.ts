@@ -290,6 +290,8 @@ export type OKR = {
   probability?: ProbabilityLike;
   impact?: Impact;
   validation?: ValidationPlan;
+  /** ★STAGE3拡張：価値指標への紐づけ（任意：OKR単位で持つ場合） */
+  valueDriverLinks?: string[];
 };
 
 /* =========================================================
@@ -412,6 +414,55 @@ export type ProjectRole = {
 };
 
 /* =========================================================
+ * 人的投資関連の型定義（STAGE3拡張）
+ * ========================================================= */
+
+/**
+ * 人的投資施策のカテゴリ
+ */
+export type HumanInvestmentCategory =
+  | 'TRAINING_OJT'   // 研修・OJT
+  | 'HIRING'         // 採用
+  | 'ALLOCATION'     // 配置・異動
+  | 'EXTERNAL'       // 外部活用（業務委託・パートナー）
+  | 'TOOLS_PROCESS'; // ツール・仕組み
+
+/**
+ * 人的投資施策の実行時期
+ */
+export type HumanInvestmentHorizon =
+  | '0_3M'   // 0〜3ヶ月
+  | '3_6M'   // 3〜6ヶ月
+  | '6_12M'  // 6〜12ヶ月
+  | '';      // 未設定
+
+/**
+ * 人的投資施策（個別の施策項目）
+ */
+export type HumanInvestment = {
+  /** カテゴリ */
+  category: HumanInvestmentCategory;
+  /** 施策タイトル（必須） */
+  title: string;
+  /** 詳細説明（任意） */
+  detail?: string;
+  /** 担当者（任意） */
+  owner?: string;
+  /** 実行時期（任意） */
+  horizon?: HumanInvestmentHorizon;
+};
+
+/**
+ * スキル要件
+ */
+export type SkillRequirements = {
+  /** 職種スキル（例：営業、エンジニア、デザイナー等） */
+  roleSkills?: string[];
+  /** 実行スキル（例：PM、標準化、データ活用、改善運用等） */
+  executionSkills?: string[];
+};
+
+/* =========================================================
  * プロジェクト（戦略OKRの主戦場）
  * ========================================================= */
 
@@ -453,6 +504,15 @@ export type Project = {
 
   /** 追加説明（レビュー/監査向け） */
   rationale?: string; // なぜこのプロジェクトか（戦略整合）
+
+  /** ★STAGE3拡張：スキル要件（職種スキル＋実行スキル） */
+  skillRequirements?: SkillRequirements;
+
+  /** ★STAGE3拡張：人的投資施策（カテゴリ別の施策リスト） */
+  humanInvestments?: HumanInvestment[];
+
+  /** ★STAGE3拡張：価値指標への紐づけ（STAGE2で定義された valueDriverKPIs の id or label） */
+  valueDriverLinks?: string[];
 };
 
 /* =========================================================
@@ -492,20 +552,123 @@ export type BusinessSegment = {
 };
 
 /* =========================================================
+ * 財務PL（STAGE1 企業価値分析用）
+ * ========================================================= */
+
+/**
+ * 年度別 PL（損益計算書）の最小項目
+ * - ROIC/ROE/営業利益率/CAGR 計算に必要
+ * - 過去5年のみを前提（計画値は扱わない）
+ */
+export type FinancePLRow = {
+  year: number;
+  revenue?: number;             // 売上高
+  grossProfit?: number;         // 売上総利益（任意：cogs から逆算可能）
+  cogs?: number;                // 売上原価（任意：grossProfit から逆算可能）
+  sga?: number;                 // 販管費
+  operatingIncome?: number;     // 営業利益
+  depreciation?: number;        // 減価償却費（任意：EBITDA計算用）
+  interest?: number;            // 支払利息（任意）
+  tax?: number;                 // 法人税等（任意）
+  netIncome?: number;           // 当期純利益（任意：ROE計算用）
+};
+
+/* =========================================================
  * 財務BS（STAGE1 指標⑤用）
  * ========================================================= */
 
 /**
  * 年度別 BS（貸借対照表）+ 投下資本
  * - ROIC 計算に必要な最小項目
+ * - 過去5年のみを前提（計画値は扱わない）
+ *
+ * ★ Ver4 拡張：投下資本計算用の詳細項目を追加
+ * - 投下資本 = (AR + Inventory - AP) + FixedAssets（運転資本 + 固定資産）
  */
 export type FinanceBSRow = {
   year: number;
+  // --- 既存項目（互換維持） ---
   totalAssets?: number;          // 総資産
   netAssets?: number;            // 純資産（株主資本）
   interestBearingDebt?: number;  // 有利子負債
   investedCapital?: number;      // 投下資本（純資産 + 有利子負債）※自動計算可
   nopat?: number;                // NOPAT（税引後営業利益）※営業利益 × (1 - 税率) で算出
+
+  // --- Ver4 拡張：投下資本詳細計算用 ---
+  cash?: number;                 // 現金及び預金
+  ar?: number;                   // 売掛金・受取手形（売上債権）
+  inventory?: number;            // 棚卸資産
+  ap?: number;                   // 買掛金・支払手形（仕入債務）
+  fixedAssets?: number;          // 固定資産
+  equity?: number;               // 株主資本（netAssets の代替/詳細）
+};
+
+/* =========================================================
+ * 事業部別 PL/BS（STAGE1 セグメント分析用）
+ * ========================================================= */
+
+/**
+ * 事業部別 PL
+ * - 会社PLと同じ構造を持つ（セグメント売上・営業利益等）
+ * - 事業部間調整は hqAdjustmentPL で保持
+ */
+export type SegmentPLRow = FinancePLRow; // 構造は同一
+
+/**
+ * 事業部別 BS（投下資本算出用）
+ * - 事業部への資産配賦は企業によって異なるため、投下資本に必要な項目のみ
+ * - 完全なBSが無くても、推計値で計算できるようにする
+ */
+export type SegmentBSRow = {
+  year: number;
+  ar?: number;                   // 売掛金・受取手形
+  inventory?: number;            // 棚卸資産
+  ap?: number;                   // 買掛金・支払手形
+  fixedAssets?: number;          // 固定資産（事業部配賦分）
+  investedCapital?: number;      // 投下資本（計算済み or 直接入力）
+  equity?: number;               // 株主資本配賦（任意）
+  interestBearingDebt?: number;  // 有利子負債配賦（任意）
+};
+
+/* =========================================================
+ * STAGE1 財務データ統合型
+ * ========================================================= */
+
+/**
+ * Stage1Finance: STAGE1 の財務入力を一括保持
+ * - companyPL/companyBS: 会社全体（必須入力）
+ * - segmentPL/segmentBS: 事業部別（任意入力）
+ * - hqAdjustmentPL/hqAdjustmentBS: 本社・共通費調整（事業部合計との差分）
+ *
+ * ★ キー構造:
+ * - segmentPL/segmentBS の Record キーは BusinessSegment.name を使用
+ */
+export type Stage1Finance = {
+  companyPL: FinancePLRow[];
+  companyBS: FinanceBSRow[];
+  segmentPL?: Record<string, FinancePLRow[]>;
+  segmentBS?: Record<string, SegmentBSRow[]>;
+  hqAdjustmentPL?: FinancePLRow[];
+  hqAdjustmentBS?: Partial<SegmentBSRow>[];
+};
+
+/* =========================================================
+ * STAGE1 論点ブロック拡張型
+ * ========================================================= */
+
+/**
+ * Stage1IssueBlock: IssueBlockPanel で使用する拡張構造
+ * - 既存の IssueBlock を継承しつつ、財務指標との紐付けを強化
+ */
+export type Stage1IssueBlock = IssueBlock & {
+  /** 紐付く事業セグメント名（company全体の場合は undefined） */
+  segmentName?: string;
+  /** 算出された指標値（参照用） */
+  metricValues?: Record<string, number | undefined>;
+  /** 優先度（任意） */
+  priority?: 'high' | 'medium' | 'low';
+  /** 生成元（manual / ai） */
+  source?: 'manual' | 'ai';
 };
 
 /* =========================================================
@@ -644,6 +807,9 @@ export type Department = {
 
   /** 部門単位の補足（例：他部門との依存関係） */
   dependencies?: string[];
+
+  /** ★STAGE3拡張：部門の由来（'stage1' = STAGE1事業部から生成、'manual' = 手動追加） */
+  source?: 'stage1' | 'manual';
 };
 
 /* =========================================================
@@ -715,8 +881,22 @@ export type StrategyData = {
   /** === 財務BS（STAGE1 指標⑤用） === */
   financeBS?: FinanceBSRow[];
 
+  /** === 財務PL（STAGE1 企業価値分析用） === */
+  financePL?: FinancePLRow[];
+
+  /** === 事業部別 PL/BS（STAGE1 セグメント分析用） === */
+  segmentPL?: Record<string, FinancePLRow[]>;
+  segmentBS?: Record<string, SegmentBSRow[]>;
+
+  /** === 本社・共通費調整（事業部合計との差分） === */
+  hqAdjustmentPL?: FinancePLRow[];
+  hqAdjustmentBS?: Partial<SegmentBSRow>[];
+
   /** === 5指標分析（STAGE1 → STAGE2 接続） === */
   valueAnalysis?: ValueAnalysis;
+
+  /** === 事業部別 ValueAnalysis（STAGE1 セグメント分析結果） === */
+  segmentValueAnalysis?: Record<string, ValueAnalysis>;
 
   /** === MVV / 思考など === */
   thought: string;
@@ -776,6 +956,21 @@ export type StrategyData = {
    */
   trackRationales?: TrackRationale[];
 
+  /** === STAGE2 価値指標（Value Driver KPIs）=== */
+  valueDriverKPIs?: Array<{
+    id: string;
+    label: string;
+    description?: string;
+    category?: 'growth' | 'profitability' | 'efficiency' | 'market' | 'other';
+  }>;
+
+  /** === STAGE2 目標レンジ（Target Ranges）=== */
+  targetRanges?: {
+    low?: Record<string, number>;   // 低位シナリオ（id → 数値）
+    base?: Record<string, number>;  // 基準シナリオ
+    high?: Record<string, number>;  // 高位シナリオ
+  };
+
   /** === 通知・権限（UI専用）=== */
   notification?: string;
   role?: 'admin' | 'manager' | 'member';
@@ -788,3 +983,209 @@ export type StrategyData = {
 export interface StrategyState extends StrategyData {
   // store側で setter を合成する場合に拡張
 }
+
+/* =========================================================
+ * STAGE1 PDF/Excel インポート候補型
+ * ========================================================= */
+
+/**
+ * インポート候補の種別
+ */
+export type ImportCandidateKind =
+  | 'companyPL'
+  | 'companyBS'
+  | 'segmentPL'
+  | 'segmentBS'
+  | 'pbr';
+
+/**
+ * 抽出候補（サーバから返す）
+ * - 画面でプレビュー表示し、ユーザーが「適用」で store に反映
+ */
+export type Stage1ImportCandidate = {
+  /** 候補の種別 */
+  kind: ImportCandidateKind;
+  /** 年度（PLやBSの場合） */
+  year?: number;
+  /** セグメント名（segmentPL/segmentBS の場合） */
+  segmentName?: string;
+  /** 抽出した項目→値のマップ */
+  fields: Record<string, number | string | undefined>;
+  /** 信頼度（0〜1） */
+  confidence: number;
+  /** 抽出元の参照（ページ番号、セル範囲など） */
+  sourceRef?: string;
+};
+
+/**
+ * インポート解析結果（APIレスポンス）
+ */
+export type Stage1ImportResult = {
+  /** 成功/失敗 */
+  success: boolean;
+  /** エラーメッセージ（失敗時） */
+  error?: string;
+  /** 抽出候補リスト */
+  candidates: Stage1ImportCandidate[];
+  /** プレビュー用テキスト（任意） */
+  previewText?: string;
+  /** テーブルヒント（任意） */
+  tableHints?: string[];
+  /** キャッシュキー（再アップロード抑止用） */
+  cacheKey?: string;
+};
+
+/**
+ * 候補を適用する際のオプション
+ */
+export type ImportApplyOptions = {
+  /** 既存データとマージするか、上書きするか */
+  mode: 'merge' | 'overwrite';
+  /** 適用対象の候補インデックス（空なら全て） */
+  candidateIndices?: number[];
+};
+
+/* =========================================================
+ * STAGE1 → STAGE2 接続用の型定義
+ * ========================================================= */
+
+/**
+ * MetricsSummary: ValueAnalysis のエイリアス
+ * - 既存 ValueAnalysis をそのまま流用できるようにする
+ * - 将来拡張で独自プロパティを持つ場合は interface に変更可能
+ */
+export type MetricsSummary = ValueAnalysis;
+
+/**
+ * StoryChapter: ストーリー章データ型
+ * - 既存 ChapterStory と同一構造（エイリアス）
+ */
+export type StoryChapter = ChapterStory;
+
+/**
+ * WinPatternCandidate: STAGE2で生成される勝ち筋候補
+ * - AI/ユーザーが提案する「勝ち筋」の候補
+ * - 最終決定前の検討段階で使用
+ */
+export type WinPatternCandidate = {
+  /** ID（uuid or stable id） */
+  id: string;
+  /** 勝ち筋名称 */
+  name: string;
+  /** バリュードライバー（収益性/成長性/資本効率/安全性/市場評価など） */
+  valueDrivers: string[];
+  /** なぜこの勝ち筋か（論点との因果） */
+  rationale: string;
+  /** 捨てるもの/副作用 */
+  tradeoffs: string;
+  /** スコープ（全社/事業部）（optional） */
+  scope?: 'company' | 'segment';
+  /** 関連セグメント名（scopeがsegmentの場合） */
+  segmentName?: string;
+};
+
+/**
+ * Stage2DraftOutput: STAGE2 出力1（たたき台）
+ * - 4章ストーリードラフト + 勝ち筋候補
+ */
+export type Stage2DraftOutput = {
+  /** 4章ストーリードラフト（固定4章） */
+  storyDraft: StoryChapter[];
+  /** 勝ち筋候補（2〜3件） */
+  winPatternsCandidate: WinPatternCandidate[];
+};
+
+/**
+ * Stage2Answer: 12問（入力2）の回答型
+ * - 第2フェーズで使用
+ */
+export type Stage2Answer = {
+  /** 質問ID */
+  id: string;
+  /** 質問文 */
+  question: string;
+  /** 回答 */
+  answer: string;
+  /** 必須かどうか（骨格4問など） */
+  required?: boolean;
+};
+
+/**
+ * Stage2FinalOutput: 最終ストーリー（出力2）
+ */
+export type Stage2FinalOutput = {
+  /** 最終ストーリー（4章） */
+  finalStory: StoryChapter[];
+  /** 要点3つ（任意） */
+  keyMessages?: string[];
+  /** 行動宣言（任意） */
+  actionCommitments?: string[];
+};
+
+/**
+ * Stage2State: STAGE2の全状態
+ * - MVV, SWOT, ストーリードラフト, 勝ち筋候補を包括
+ */
+export type Stage2State = {
+  /** MVV */
+  mvv: {
+    thought?: string;
+    mission?: string;
+    vision?: string;
+    value?: string;
+  };
+  /** SWOT */
+  swot: {
+    strength?: string;
+    weakness?: string;
+    opportunity?: string;
+    threat?: string;
+  };
+  /** 4章ストーリードラフト */
+  storyDraft?: StoryChapter[];
+  /** 勝ち筋候補リスト */
+  winPatternsCandidate?: WinPatternCandidate[];
+  /** 12問回答（任意） */
+  answers12?: Stage2Answer[];
+  /** 最終ストーリー（任意） */
+  finalStory?: StoryChapter[];
+  /** 要点（任意） */
+  keyMessages?: string[];
+  /** 行動宣言（任意） */
+  actionCommitments?: string[];
+};
+
+/* =========================================================
+ * localStorage Snapshot 型定義
+ * ========================================================= */
+
+/**
+ * Stage1Snapshot: STAGE1のlocalStorageスナップショット
+ * - STAGE2へ渡すための最小データセット
+ * - Supabase保存とは独立して管理
+ */
+export type Stage1Snapshot = {
+  /** 保存日時 */
+  savedAt: string;
+  /** 論点ブロック */
+  issueBlocks: IssueBlock[];
+  /** 指標要約（ValueAnalysisと同型） */
+  metricsSummary: MetricsSummary;
+  /** 会社名（識別用） */
+  companyName?: string;
+  /** 会社ID（識別用） */
+  companyId?: string;
+};
+
+/**
+ * Stage2Snapshot: STAGE2のlocalStorageスナップショット
+ * - 作業中状態の復元用
+ */
+export type Stage2Snapshot = {
+  /** 保存日時 */
+  savedAt: string;
+  /** Stage2の状態 */
+  state: Stage2State;
+  /** 会社ID（識別用） */
+  companyId?: string;
+};
