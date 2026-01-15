@@ -1,7 +1,7 @@
 // /app/strategy/page.tsx
-import StrategyClient from '@/components/pages/StrategyClient';
+// 旧URL互換：/strategy → /stage1 へリダイレクト
+import { redirect } from 'next/navigation';
 
 export default function StrategyPage() {
-  // ここは Server Component（'use client' を書かない）
-  return <StrategyClient />;
+  redirect('/stage1');
 }
