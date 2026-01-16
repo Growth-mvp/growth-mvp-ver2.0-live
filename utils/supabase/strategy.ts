@@ -74,10 +74,7 @@ function extractErrorVerbose(e: any) {
   const out = {
     status: e?.status ?? info?.status ?? null,
     code: e?.code ?? info?.code ?? null,
-    message:
-      e?.message ??
-      info?.message ??
-      (typeof e === 'string' ? e : null),
+    message: e?.message ?? info?.message ?? (typeof e === 'string' ? e : null),
     details: e?.details ?? info?.details ?? null,
     hint: (e as any)?.hint ?? info?.hint ?? null,
     name: e?.name ?? null,
@@ -155,9 +152,7 @@ function ensureArray<T = any>(v: any): T[] {
 }
 function ensureObject<T extends object = Record<string, any>>(v: any): T {
   const p = parseJson(v);
-  return p && typeof p === 'object' && !Array.isArray(p)
-    ? (p as T)
-    : ({} as T);
+  return p && typeof p === 'object' && !Array.isArray(p) ? (p as T) : ({} as T);
 }
 
 /* undefined を深い階層まで除去（“意図しない上書き”抑制） */
@@ -223,8 +218,7 @@ function toDbFinanceSummary(uiValue: any): Record<string, any> {
   const parsed = parseJson(uiValue);
   if (Array.isArray(parsed)) return { rows: parsed };
   if (typeof parsed === 'object') {
-    if (Array.isArray((parsed as any).rows))
-      return parsed as Record<string, any>;
+    if (Array.isArray((parsed as any).rows)) return parsed as Record<string, any>;
     return {};
   }
   return {};
@@ -233,10 +227,7 @@ function toUiFinanceSummary(dbValue: any): any[] {
   if (dbValue == null) return [];
   const parsed = parseJson(dbValue);
   if (Array.isArray(parsed)) return parsed; // 旧互換
-  if (
-    typeof parsed === 'object' &&
-    Array.isArray((parsed as any).rows)
-  ) {
+  if (typeof parsed === 'object' && Array.isArray((parsed as any).rows)) {
     return (parsed as any).rows;
   }
   return [];
@@ -248,16 +239,14 @@ function toUiFinanceSummary(dbValue: any): any[] {
 function toDbBusinessPortfolio(uiValue: any): Record<string, any> {
   if (uiValue == null) return {};
   const parsed = parseJson(uiValue);
-  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
     return parsed as Record<string, any>;
+  }
   return {};
 }
-function toUiBusinessPortfolio(
-  dbValue: any,
-): Record<string, any> | undefined {
+function toUiBusinessPortfolio(dbValue: any): Record<string, any> | undefined {
   const v = parseJson(dbValue);
-  if (v && typeof v === 'object' && !Array.isArray(v))
-    return v as Record<string, any>;
+  if (v && typeof v === 'object' && !Array.isArray(v)) return v as Record<string, any>;
   return undefined;
 }
 
@@ -293,7 +282,10 @@ const FIELD_MAP: Record<string, string> = {
   role: 'role',
   departments: 'departments',
   csvFinanceData: 'csv_finance_data',
+  financePL: 'finance_pl',
+  businessSegments: 'business_segments',
   story: 'story',
+  finalStory: 'final_story',
   strategySummary: 'strategy_summary',
   editableCascade: 'editable_cascade',
   businessPortfolio: 'business_portfolio',
@@ -335,9 +327,12 @@ function buildDbRowFromState(state: StrategyData) {
     let v = (state as any)[camel];
     v = parseJson(v);
     if (snake === 'story') v = ensureArray(v);
+    if (snake === 'final_story') v = ensureArray(v);
     if (snake === 'departments') v = ensureArray(v);
     if (snake === 'simulation_results') v = ensureArray(v);
     if (snake === 'csv_finance_data') v = toDbJsonArray(v);
+    if (snake === 'finance_pl') v = toDbJsonArray(v);
+    if (snake === 'business_segments') v = toDbJsonArray(v);
     if (snake === 'finance_summary') v = toDbFinanceSummary(v);
     if (snake === 'business_portfolio') v = toDbBusinessPortfolio(v);
     row[snake] = v;
@@ -356,8 +351,11 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   }
 
   out.story = ensureArray(out.story);
+  out.finalStory = ensureArray(out.finalStory);
   out.departments = ensureArray(out.departments);
   out.simulationResults = ensureArray(out.simulationResults);
+  out.financePL = ensureArray(out.financePL);
+  out.businessSegments = ensureArray(out.businessSegments);
   out.financeSummary = toUiFinanceSummary(out.financeSummary);
   out.businessPortfolio = toUiBusinessPortfolio(out.businessPortfolio);
 
@@ -377,6 +375,8 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const rawDepartmentsWithOkrsV2 = out.departments;
 
   const normalized = normalizeStrategyData(out) as StrategyData;
+
+  // revision（FIELD_MAPに含めない）
   const revision =
     typeof safeRow?.revision === 'number' ? safeRow.revision : undefined;
 
@@ -422,7 +422,8 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
 }
 
 /* ============================================================
- * 共通：既存行を * で取得
+ * 共通：既存行を取得
+ *  - revision を確実に含めるため select('*') はそのまま（列があれば返る）
  * ========================================================== */
 async function fetchExistingRow(companyId: string) {
   const res = await supabase
@@ -438,7 +439,6 @@ async function fetchExistingRow(companyId: string) {
 
 /* ============================================================
  * ★ 誤混入の切り分け用：answers2 を「会社ストーリー用 / 部門用」に分離
- *    分離ルール：chapterTitle が部門名に一致 → 部門用
  * ========================================================== */
 function splitAnswers2ByDeptNames(
   answers2: any[],
@@ -504,10 +504,6 @@ function mergeDeptAnswersIntoDepartments(
 
 /* ============================================================
  * 取得：strategy_data=* + 分離テーブル合流（列存在に依存しない）
- *  ★ 修正点：
- *    - story_answers2 は state.answers2 にのみ反映
- *    - chapterTitle が部門名に一致する分は部門へ分離注入（誤混入のリペア）
- *    - ★ orphan部門を自動生成しない（削除復活を防止）
  * ========================================================== */
 export async function getFullStrategyDataByCompany(
   companyId: string,
@@ -519,7 +515,6 @@ export async function getFullStrategyDataByCompany(
       return { data: null, error: new Error('invalid companyId') };
     }
 
-    // strategy_data は * で取得
     const baseRes = await supabase
       .from(T_STRATEGY)
       .select('*')
@@ -566,7 +561,7 @@ export async function getFullStrategyDataByCompany(
 
     const state = buildStateFromDbRow(rowData);
 
-    const latestAnswersArray = ensureArray(ansRow?.answers2); // ← answers2 は配列（会社ストーリー用）
+    const latestAnswersArray = ensureArray(ansRow?.answers2);
     const latestFinal = ensureArray(finRow?.final_story);
 
     // ★ 会社ストーリー answers2 と 部門 answers2 を分離（誤混入の自動リペア）
@@ -591,10 +586,8 @@ export async function getFullStrategyDataByCompany(
       );
     }
 
-    // finalStory 補完
-    state.finalStory = ensureArray(state.finalStory).length
-      ? state.finalStory
-      : latestFinal;
+    // finalStory 補完（strategy_data.final_story 優先、無ければ分離テーブル）
+    state.finalStory = ensureArray(state.finalStory).length ? state.finalStory : latestFinal;
 
     return { data: state, error: null };
   } catch (e) {
@@ -604,12 +597,11 @@ export async function getFullStrategyDataByCompany(
 
 /* ============================================================
  * 保存（空保存抑止＋楽観ロック簡略化＋DB現行とのDeepMerge）
- *  ★ 重要修正：
- *    - 部門 answers2 を story_answers2 に保存しない
- *    - company-level の answers2（state.answers2）がある時だけ story_answers2 に保存
- *    - UPDATE は company_id のみ条件にして「必ず1行更新」させる
- *    - ★ departments は payload 側を常に真実として上書き（他の保存トリガーに潰されない）
- *    - ★ 既存行が「ある」場合は、payload が空でも UPDATE 実行（削除反映のため）
+ *
+ * ★重要：revision について
+ * - revision の増分は DB の trg_bump_strategy_data_revision に任せる
+ * - saveStrategyData は WHERE 条件 (company_id + revision) で衝突検知する
+ * - payload に revision を書き込まない（トリガと二重になるのを防ぐ）
  * ========================================================== */
 export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
   const payload: StrategyData = args[0];
@@ -730,10 +722,8 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         ? existingRow.revision
         : undefined;
 
-    const selectAfter = '*';
-
     // ===============================
-    // UPDATE（company_id のみで条件付け）
+    // UPDATE（company_id + 楽観ロック：revision）
     // ===============================
     if (existingRow) {
       const updatePayload: any = {
@@ -743,18 +733,25 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         updated_at: now,
       };
 
-      // revision カラムがある場合は単純インクリメント（厳密ロックはしない）
+      // ★ 楽観ロック：revision カラムがある場合
+      //   - expectedRev は「引数で渡された revision」優先、無ければ currentRev
+      //   - revision の更新（+1）は DBトリガに任せる（payloadに入れない）
+      let expectedRev: number | undefined;
       if (hasRevision) {
-        const nextRev = typeof currentRev === 'number' ? currentRev + 1 : 1;
-        updatePayload.revision = nextRev;
+        expectedRev = typeof revision === 'number' ? revision : currentRev;
       }
 
-      const upd = await supabase
+      let updateQuery = supabase
         .from(T_STRATEGY)
         .update(updatePayload)
-        .eq('company_id', cleanCompanyId)
-        .select(selectAfter)
-        .single();
+        .eq('company_id', cleanCompanyId);
+
+      if (hasRevision && typeof expectedRev === 'number') {
+        updateQuery = updateQuery.eq('revision', expectedRev);
+      }
+
+      // ★ 返却行は object（maybeSingle）で受ける。revision を明示して返させる。
+      const upd = await updateQuery.select('*,revision').maybeSingle();
 
       if (upd.error) {
         console.error(
@@ -764,21 +761,70 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         return { data: null, error: extractErrorVerbose(upd.error) };
       }
 
+      // ★ 楽観ロック衝突検知：UPDATE結果が0件（data が null）なら衝突
+      if (!upd.data) {
+        console.warn(
+          '[StrategyData] ⚠ REVISION_CONFLICT: expected revision',
+          expectedRev,
+          'but data was already updated by another session',
+        );
+
+        // 現在の revision を再取得して返す
+        let currentRevisionOnServer: number | undefined;
+        try {
+          const refetch = await supabase
+            .from(T_STRATEGY)
+            .select('revision')
+            .eq('company_id', cleanCompanyId)
+            .maybeSingle();
+          if (refetch.data && typeof refetch.data.revision === 'number') {
+            currentRevisionOnServer = refetch.data.revision;
+          }
+        } catch (e) {
+          console.warn('[StrategyData] failed to refetch current revision:', e);
+        }
+
+        return {
+          data: null,
+          error: {
+            code: 'REVISION_CONFLICT',
+            message:
+              'Data was modified by another session. Please refresh and try again.',
+            expectedRevision: expectedRev,
+            currentRevision: currentRevisionOnServer,
+          },
+        };
+      }
+
       // ★ strategy_data 保存後、「会社ストーリー answers2」がある時だけ重ねて保存（冪等）
       if (storyAnswersBundle.length > 0) {
         const ares = await saveStoryAnswers2(userId!, storyAnswersBundle, {
           companyId: cleanCompanyId,
         });
-        if (ares.error)
-          console.warn('[StrategyData] ⚠ answers2 post-update save failed:', ares.error);
+        if (ares.error) {
+          console.warn(
+            '[StrategyData] ⚠ answers2 post-update save failed:',
+            ares.error,
+          );
+        }
       }
 
       const stateAfter = buildStateFromDbRow(upd.data ?? {});
       console.log(
         '[StrategyData] ✅ strategy_data update ok:',
+        'revision=',
+        stateAfter.revision,
         'departmentsLen=',
         Array.isArray((stateAfter as any).departments)
           ? (stateAfter as any).departments.length
+          : 'no-field',
+        'businessSegmentsLen=',
+        Array.isArray((stateAfter as any).businessSegments)
+          ? (stateAfter as any).businessSegments.length
+          : 'no-field',
+        'finalStoryLen=',
+        Array.isArray((stateAfter as any).finalStory)
+          ? (stateAfter as any).finalStory.length
           : 'no-field',
       );
       return { data: stateAfter, error: null };
@@ -798,12 +844,13 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       company_id: cleanCompanyId,
       updated_at: now,
       created_at: now,
+      // revision は DB default に任せる（0 等）
     };
 
     const ins = await supabase
       .from(T_STRATEGY)
       .insert(insertPayload)
-      .select(selectAfter)
+      .select('*,revision')
       .single();
 
     if (ins.error) {
@@ -815,16 +862,30 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       const ares = await saveStoryAnswers2(userId!, storyAnswersBundle, {
         companyId: cleanCompanyId,
       });
-      if (ares.error)
-        console.warn('[StrategyData] ⚠ answers2 post-insert save failed:', ares.error);
+      if (ares.error) {
+        console.warn(
+          '[StrategyData] ⚠ answers2 post-insert save failed:',
+          ares.error,
+        );
+      }
     }
 
     const stateAfter = buildStateFromDbRow(ins.data ?? {});
     console.log(
       '[StrategyData] ✅ strategy_data insert ok:',
+      'revision=',
+      stateAfter.revision,
       'departmentsLen=',
       Array.isArray((stateAfter as any).departments)
         ? (stateAfter as any).departments.length
+        : 'no-field',
+      'businessSegmentsLen=',
+      Array.isArray((stateAfter as any).businessSegments)
+        ? (stateAfter as any).businessSegments.length
+        : 'no-field',
+      'finalStoryLen=',
+      Array.isArray((stateAfter as any).finalStory)
+        ? (stateAfter as any).finalStory.length
         : 'no-field',
     );
     return { data: stateAfter, error: null };
@@ -849,14 +910,21 @@ export async function deleteStrategyData(
     const companyId = await resolveCompanyId(userId, companyIdOverride ?? null);
 
     // 子テーブルから先に削除
-    const delAns = await supabase.from(T_STORY_ANSWERS).delete().eq('company_id', companyId);
+    const delAns = await supabase
+      .from(T_STORY_ANSWERS)
+      .delete()
+      .eq('company_id', companyId);
     if (delAns.error && delAns.error.code !== 'PGRST116') {
       console.warn(
         '[StrategyData] ⚠ story_answers2 delete warn:',
         extractErrorVerbose(delAns.error),
       );
     }
-    const delFinal = await supabase.from(T_FINAL_STORIES).delete().eq('company_id', companyId);
+
+    const delFinal = await supabase
+      .from(T_FINAL_STORIES)
+      .delete()
+      .eq('company_id', companyId);
     if (delFinal.error && delFinal.error.code !== 'PGRST116') {
       console.warn(
         '[StrategyData] ⚠ final_stories delete warn:',
@@ -864,7 +932,10 @@ export async function deleteStrategyData(
       );
     }
 
-    const delProg = await supabase.from(T_PROGRESS).delete().eq('company_id', companyId);
+    const delProg = await supabase
+      .from(T_PROGRESS)
+      .delete()
+      .eq('company_id', companyId);
     if (delProg.error && delProg.error.code !== 'PGRST116') {
       console.warn(
         '[StrategyData] ⚠ progress_logs delete warn:',
@@ -890,7 +961,13 @@ export async function deleteAllCompanyData(
   companyIdOverride?: string | null,
 ) {
   const companyId = await resolveCompanyId(userId, companyIdOverride);
-  const tablesInOrder = [T_PROGRESS, T_STORY_ANSWERS, T_FINAL_STORIES, ...T_LEGACY, T_STRATEGY];
+  const tablesInOrder = [
+    T_PROGRESS,
+    T_STORY_ANSWERS,
+    T_FINAL_STORIES,
+    ...T_LEGACY,
+    T_STRATEGY,
+  ];
 
   const errors: Array<{ table: string; error: any }> = [];
   for (const t of tablesInOrder) {
@@ -1047,7 +1124,7 @@ export async function saveProgressLog(
     const {
       userId,
       okrId,
-      projectId = null, // 現在の progress_logs に project_id カラムが無いなら未使用
+      projectId = null,
       departmentId = null,
       companyIdOverride = null,
       content,
@@ -1062,9 +1139,7 @@ export async function saveProgressLog(
       user_id: userId,
       company_id: companyId,
       okr_id: okrId,
-      // ⚠ Supabaseの progress_logs に project_id カラムがある場合のみ有効化
-      // project_id: projectId,
-      // ✅ DB のカラム名に合わせる（department_id ではなく department）
+      // project_id: projectId, // DBにあれば有効化
       department: departmentId,
       content,
       status,
@@ -1072,7 +1147,11 @@ export async function saveProgressLog(
       ...(createdAt ? { created_at: createdAt } : {}),
     };
 
-    const { data, error } = await supabase.from(T_PROGRESS).insert(row).select('*').single();
+    const { data, error } = await supabase
+      .from(T_PROGRESS)
+      .insert(row)
+      .select('*')
+      .single();
 
     if (error) {
       return { data: null, error: extractErrorVerbose(error) };
@@ -1084,8 +1163,7 @@ export async function saveProgressLog(
 }
 
 /* ============================================================
- * 追加：分離テーブルへの保存API（company_id 一意／手動UPSERT固定）
- *  ※ strategy_id/updated_at が無い環境でも常に成功させる
+ * 分離テーブルへの保存API（company_id 一意／手動UPSERT固定）
  * ========================================================== */
 
 /** あるカラムが存在しない系のエラーか（updated_atなど） */
@@ -1111,15 +1189,12 @@ function omitKeys<T extends Record<string, any>>(row: T, keys: string[]): T {
   return out as T;
 }
 
-/** 手動UPSERT：company_id のみで存在確認 → UPDATE/INSERT
- *  ★ 変更点：updated_at 等の列不存在で失敗した場合に「その列を落として再試行」
- */
+/** 手動UPSERT：company_id のみで存在確認 → UPDATE/INSERT */
 async function robustUpsertCompanyScoped(
   table: string,
-  row: Record<string, any>, // 必須: company_id, user_id, 本体列, 任意: updated_at
+  row: Record<string, any>,
 ) {
   try {
-    // 1) 既存行の存在確認（列は company_id のみ）
     const got = await supabase
       .from(table)
       .select('company_id')
@@ -1131,7 +1206,6 @@ async function robustUpsertCompanyScoped(
       return { ok: false, error: extractErrorVerbose(got.error) };
     }
 
-    // 2) 存在すれば UPDATE、無ければ INSERT（where は company_id のみ）
     if (got.data) {
       const upd1 = await supabase
         .from(table)
@@ -1143,7 +1217,6 @@ async function robustUpsertCompanyScoped(
       if (!upd1.error) return { ok: true, error: null };
 
       const err1 = extractErrorVerbose(upd1.error);
-      // ★ 列不存在なら updated_at 等を落として再試行
       if (isMissingColumnError(err1)) {
         const row2 = omitKeys(row, ['updated_at', 'created_at']);
         const upd2 = await supabase
@@ -1167,7 +1240,6 @@ async function robustUpsertCompanyScoped(
       if (!ins1.error) return { ok: true, error: null };
 
       const err1 = extractErrorVerbose(ins1.error);
-      // ★ 列不存在なら updated_at 等を落として再試行
       if (isMissingColumnError(err1)) {
         const row2 = omitKeys(row, ['updated_at', 'created_at']);
         const ins2 = await supabase
@@ -1200,7 +1272,6 @@ export async function saveFinalStory(
       company_id: companyId,
       user_id: userId,
       final_story: ensureArray(finalStory),
-      // updated_at が無い環境でも robustUpsert がフォールバックする
       updated_at: now,
     };
 
@@ -1226,7 +1297,6 @@ export async function saveStoryAnswers2(
       company_id: companyId,
       user_id: userId,
       answers2: ensureArray(answers2),
-      // updated_at が無い環境でも robustUpsert がフォールバックする
       updated_at: now,
     };
 
@@ -1240,9 +1310,6 @@ export async function saveStoryAnswers2(
 
 /* ============================================================
  * ★ワンショット修復用ユーティリティ（任意）
- *   story_answers2 に誤混入した部門 answers2 を strategy_data.departments に移し、
- *   story_answers2 には会社ストーリー分だけを残す。
- *   ※ 必要なときだけ呼び出してください（UIからは呼ばない運用でOK）
  * ========================================================== */
 export async function repairMisfiledAnswers2(
   userId: string,
@@ -1250,18 +1317,15 @@ export async function repairMisfiledAnswers2(
 ) {
   const companyId = await resolveCompanyId(userId, companyIdOverride ?? null);
 
-  // 1) 現状をロード（内部で自動分離してくれる）
   const cur = await getFullStrategyDataByCompany(companyId);
   if (cur.error || !cur.data) return { ok: false, error: cur.error ?? 'no data' };
 
   const state = cur.data;
   const storyAnswers = ensureArray((state as any).answers2);
 
-  // 再度厳密に分離
   const deptNames = ensureArray(state.departments).map((d: any) => (d?.name ?? '').trim());
   const split = splitAnswers2ByDeptNames(storyAnswers, deptNames);
 
-  // 2) 部門へ注入した状態を strategy_data に保存
   const mergedDepartments = mergeDeptAnswersIntoDepartments(state.departments, split.deptAnswers);
   const nextState: StrategyData = { ...(state as any), departments: mergedDepartments };
   const rev = (state as any)?.revision;
@@ -1274,7 +1338,6 @@ export async function repairMisfiledAnswers2(
   );
   if (saved.error) return { ok: false, error: saved.error };
 
-  // 3) 会社ストーリーだけを story_answers2 に再保存
   const ares = await saveStoryAnswers2(userId, split.storyAnswers, { companyId });
   if (ares.error) return { ok: false, error: ares.error };
 
@@ -1282,12 +1345,8 @@ export async function repairMisfiledAnswers2(
 }
 
 /* ============================================================
- * 🔰 新規追加：戦略全体スナップショット I/O（まだどこからも呼ばれていない安全なユーティリティ）
- *   - getFullStrategySnapshot: strategy_data + story_answers2 + final_stories をまとめて取得
- *   - saveFullStrategySnapshot: 既存の save* 系を順に呼ぶだけのラッパー
+ * 🔰 戦略全体スナップショット I/O
  * ========================================================== */
-
-/** companyスコープの戦略全体スナップショット取得 */
 export async function getFullStrategySnapshot(
   userId: string,
   companyIdOverride: string | null = null,
@@ -1295,7 +1354,6 @@ export async function getFullStrategySnapshot(
   try {
     const companyId = await resolveCompanyId(userId, companyIdOverride);
 
-    // strategy_data（1行）取得
     let strategy: (StrategyData & { revision?: number }) | null = null;
     try {
       const existing = await fetchExistingRow(companyId);
@@ -1307,7 +1365,6 @@ export async function getFullStrategySnapshot(
       return { snapshot: null, error: extractErrorVerbose(e) };
     }
 
-    // story_answers2 / final_stories 取得（最新1件）
     const [ansRes, finRes] = await Promise.all([
       supabase
         .from(T_STORY_ANSWERS)
@@ -1350,7 +1407,6 @@ export async function getFullStrategySnapshot(
   }
 }
 
-/** 戦略全体スナップショットの保存ラッパー（挙動は既存APIをそのまま利用） */
 export async function saveFullStrategySnapshot(
   userId: string,
   snapshot: FullStrategySnapshot,
@@ -1359,7 +1415,6 @@ export async function saveFullStrategySnapshot(
   try {
     const companyId = await resolveCompanyId(userId, companyIdOverride);
 
-    // 1) strategy_data（本体）を保存（あれば）
     if (snapshot.strategy) {
       const { revision, ...rest } = snapshot.strategy as StrategyData & { revision?: number };
       const rev =
@@ -1372,7 +1427,6 @@ export async function saveFullStrategySnapshot(
       }
     }
 
-    // 2) story_answers2 を保存（あれば）
     if (snapshot.storyAnswers2 && snapshot.storyAnswers2.length > 0) {
       const ares = await saveStoryAnswers2(userId, snapshot.storyAnswers2, { companyId });
       if (!ares.ok) {
@@ -1380,7 +1434,6 @@ export async function saveFullStrategySnapshot(
       }
     }
 
-    // 3) final_stories を保存（あれば）
     if (snapshot.finalStory && snapshot.finalStory.length > 0) {
       const fres = await saveFinalStory(userId, snapshot.finalStory, { companyId });
       if (!fres.ok) {
