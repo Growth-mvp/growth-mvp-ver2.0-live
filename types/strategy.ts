@@ -463,6 +463,71 @@ export type SkillRequirements = {
 };
 
 /* =========================================================
+ * STAGE4 実行計画：SkillPlan, PlanStatus拡張
+ * ========================================================= */
+
+/**
+ * 計画ステータス (project単位)
+ * - draft: 編集中
+ * - review: レビュー待ち（manager/admin のみ遷移可）
+ * - approved: 確定（admin のみ遷移可、編集ロック）
+ */
+export type PlanStatus = 'draft' | 'review' | 'approved';
+
+/**
+ * スキル育成方法
+ */
+export type SkillMethod = 'TRAINING' | 'OJT' | 'HIRE' | 'OUTSOURCE' | 'TOOL' | 'OTHER';
+
+/**
+ * スキルプラン（実行計画タブで入力される）
+ */
+export type SkillPlan = {
+  id: UUID;
+  /** スキル名（例：営業スキル、データ分析スキル） */
+  skillName: string;
+  /** 優先度（1-5、1=最高） */
+  priority?: 1 | 2 | 3 | 4 | 5;
+  /** 育成方法（TRAINING/OJT/HIRE/OUTSOURCE/TOOL/OTHER） */
+  method?: SkillMethod;
+  /** 期限（YYYY-MM） */
+  dueYm?: Ym;
+  /** 必要時間（時間） */
+  hours?: number;
+  /** 予想コスト（JPY） */
+  cost?: number;
+  /** 担当者（任意） */
+  owner?: string;
+  /** 備考（任意） */
+  note?: string;
+};
+
+/**
+ * 人的投資のタイプ（STAGE4 実行計画用）
+ */
+export type HumanInvestmentType = 'HIRE' | 'TRAINING' | 'OUTSOURCE' | 'SYSTEM' | 'TOOL' | 'OTHER';
+
+/**
+ * 人的投資計画（STAGE4 実行計画：人員・外部活用・システム等）
+ * 注：既存 HumanInvestment（STAGE3）と区別するため、Project.executionHumanInvestments のキーで使用
+ */
+export type ExecutionHumanInvestment = {
+  id: UUID;
+  /** 投資タイプ */
+  type: HumanInvestmentType;
+  /** 金額（JPY） */
+  amount?: number;
+  /** 実行時期（YYYY-MM） */
+  timingYm?: Ym;
+  /** 人数 */
+  headcount?: number;
+  /** チーム/部署名 */
+  team?: string;
+  /** 備考 */
+  note?: string;
+};
+
+/* =========================================================
  * プロジェクト（戦略OKRの主戦場）
  * ========================================================= */
 
@@ -513,6 +578,21 @@ export type Project = {
 
   /** ★STAGE3拡張：価値指標への紐づけ（STAGE2で定義された valueDriverKPIs の id or label） */
   valueDriverLinks?: string[];
+
+  /** ★STAGE4 実行計画：計画ステータス（draft/review/approved） */
+  planStatus?: PlanStatus;
+
+  /** ★STAGE4 実行計画：承認日時（approved の場合） */
+  approvedAt?: ISODateString;
+
+  /** ★STAGE4 実行計画：承認者ID（approved の場合） */
+  approvedBy?: string;
+
+  /** ★STAGE4 実行計画：スキルプラン（プロジェクト単位） */
+  skillPlans?: SkillPlan[];
+
+  /** ★STAGE4 実行計画：人的投資計画（採用・委託・配置・システム等） */
+  executionHumanInvestments?: ExecutionHumanInvestment[];
 };
 
 /* =========================================================
@@ -813,6 +893,61 @@ export type Department = {
 };
 
 /* =========================================================
+ * STAGE4 実行計画（部門ごとの編集・差分・整合状態）
+ * ========================================================= */
+
+/**
+ * Stage4Plan: STAGE4で編集される部門ごとの実行計画
+ * - baseline: STAGE3完了時点のスナップショット（差分比較の基準）
+ * - current: 現在の編集内容（STAGE4での変更を反映）
+ * - status: 編集ステータス（Draft/Review/Approved）
+ */
+export type Stage4Plan = {
+  /** 部門ID（Department.id または Department.name） */
+  departmentId: string;
+
+  /** 編集ステータス */
+  status: 'Draft' | 'Review' | 'Approved';
+
+  /** STAGE3完了時点のベースライン（差分比較用・軽量版） */
+  baseline: Stage4Baseline;
+
+  /** 現在の編集内容（STAGE4での変更を反映） */
+  current: Stage4Current;
+
+  /** 最終更新日時 */
+  updatedAt?: string;
+
+  /** 編集者（任意） */
+  updatedBy?: string;
+};
+
+/**
+ * Stage4Baseline: STAGE3完了時点のスナップショット（差分表示用）
+ * - プロジェクト単位で最小限のデータを保持
+ */
+export type Stage4Baseline = {
+  /** プロジェクト一覧（タイトル、KPI、スキル、人的投資のみ） */
+  projects: Array<{
+    title: string;
+    /** KPIターゲット（差分対象） */
+    kpiTargets?: Record<string, number>;
+    /** スキル要件（差分対象） */
+    skillRequirements?: SkillRequirements;
+    /** 人的投資（差分対象） */
+    humanInvestments?: HumanInvestment[];
+    /** 価値指標リンク（差分対象） */
+    valueDriverLinks?: string[];
+  }>;
+};
+
+/**
+ * Stage4Current: STAGE4での編集内容
+ * - baseline と同じ構造で、編集後の値を保持
+ */
+export type Stage4Current = Stage4Baseline;
+
+/* =========================================================
  * 進捗ログ（OKRModal 用）
  * ========================================================= */
 
@@ -969,6 +1104,22 @@ export type StrategyData = {
     low?: Record<string, number>;   // 低位シナリオ（id → 数値）
     base?: Record<string, number>;  // 基準シナリオ
     high?: Record<string, number>;  // 高位シナリオ
+  };
+
+  /** === 楽観ロック（revision：保存時の衝突検知用） === */
+  revision?: number;
+
+  /** === STAGE4 実行計画（部門ごとの編集状態・差分・整合チェック） === */
+  stage4Plans?: Stage4Plan[];
+
+  /** === STAGE4 実行計画：Baseline（hydrate後に1回のみ作成、変更なし）=== */
+  executionPlanBaseline?: {
+    /** 会社ID（baseline の valid check用） */
+    companyId?: string;
+    /** baseline 作成日時（Unix timestamp ms） */
+    createdAt?: number;
+    /** departments 全体の deep copy */
+    snapshot?: Department[];
   };
 
   /** === 通知・権限（UI専用）=== */
