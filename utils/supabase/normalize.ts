@@ -494,7 +494,7 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
       ? src.finalStory
       : Array.isArray(src.final_story)
       ? src.final_story
-      : []);
+      : undefined);
 
   // answers2 はトップレベルを優先。なければ story.answers2（互換読み）を補完。
   const answers2Top = Array.isArray(src.answers2) ? src.answers2 : undefined;
@@ -514,6 +514,24 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
   const csvFinanceData = normalizeCsvFinanceDataLoose(
     src.csvFinanceData ?? src.csv_financeData ?? src.csv_finance_data,
   );
+  const financePL = Array.isArray(src.financePL)
+    ? src.financePL.length > 0
+      ? src.financePL
+      : undefined
+    : Array.isArray(src.finance_pl)
+    ? src.finance_pl.length > 0
+      ? src.finance_pl
+      : undefined
+    : undefined;
+  const businessSegments = Array.isArray(src.businessSegments)
+    ? src.businessSegments.length > 0
+      ? src.businessSegments
+      : undefined
+    : Array.isArray(src.business_segments)
+    ? src.business_segments.length > 0
+      ? src.business_segments
+      : undefined
+    : undefined;
   const businessPortfolio = normalizeBusinessPortfolio(
     src.businessPortfolio ?? src.business_portfolio,
   );
@@ -598,8 +616,10 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
       : undefined,
     editableCascade: src.editableCascade,
 
-    // オプション3カラムは“undefinedなら付けない”（＝保存スキップ）
+    // オプション3カラムは"undefinedなら付けない"（＝保存スキップ）
     ...(csvFinanceData !== undefined ? { csvFinanceData } : {}),
+    ...(financePL !== undefined ? { financePL } : {}),
+    ...(businessSegments !== undefined ? { businessSegments } : {}),
     ...(businessPortfolio !== undefined ? { businessPortfolio } : {}),
     ...(financeSummary !== undefined ? { financeSummary } : {}),
 
