@@ -634,6 +634,30 @@ function pickOkrsForProject(okrsAll: StoreOKR[], pd: ApiProjectDraft, index: num
   return okrsAll[0] ? [okrsAll[0]] : [];
 }
 
+// スキルリストが「未設定」かどうかを判定（空配列、空文字のみは未設定扱い）
+function isSkillListEmpty(skills?: string[]): boolean {
+  if (!skills || skills.length === 0) return true;
+  return skills.every((s) => !String(s).trim());
+}
+
+// デフォルトの人的投資施策を生成
+function createDefaultHumanInvestments(): any[] {
+  return [
+    {
+      title: 'OJT・実践的トレーニング',
+      category: 'TRAINING_OJT',
+      owner: '未定',
+      horizon: 'SHORT',
+    },
+    {
+      title: 'ツール・プロセス標準化',
+      category: 'TOOLS_PROCESS',
+      owner: '未定',
+      horizon: 'SHORT',
+    },
+  ];
+}
+
 function normalizeProjectDraft(pd: ApiProjectDraft, okrsForThisProject: StoreOKR[]): Project | null {
   const title = (pd?.title ?? '').trim();
   if (!title) return null;
@@ -653,6 +677,32 @@ function normalizeProjectDraft(pd: ApiProjectDraft, okrsForThisProject: StoreOKR
     kind: normalizeKind(pd?.kind),
     okrs: okrsForThisProject,
   } as Project;
+
+  // skillRequirements を API レスポンスから取り込む
+  const pdSkills = (pd as any)?.skillRequirements;
+  if (pdSkills) {
+    (p as any).skillRequirements = pdSkills;
+  }
+
+  // humanInvestments を API レスポンスから取り込む
+  const pdInvestments = (pd as any)?.humanInvestments;
+  if (pdInvestments) {
+    (p as any).humanInvestments = pdInvestments;
+  }
+
+  // ★空の場合はデフォルト値を補完（未設定を防ぐ）
+  const pSkills = (p as any).skillRequirements;
+  if (!pSkills || isSkillListEmpty(pSkills?.executionSkills)) {
+    (p as any).skillRequirements = {
+      roleSkills: pSkills?.roleSkills ?? [],
+      executionSkills: ['PM', '標準化', 'データ活用'],
+    };
+  }
+
+  const pInvestments = (p as any).humanInvestments;
+  if (!pInvestments || pInvestments.length === 0) {
+    (p as any).humanInvestments = createDefaultHumanInvestments();
+  }
 
   // ★OKR品質補正（プレースホルダ除去/重複KR回避）
   p.okrs = sanitizeOkrsForProject(p, (p.okrs ?? []) as StoreOKR[]);
@@ -684,6 +734,60 @@ function mergeProjectInto(projects: Project[], incoming: Project): Project[] {
     horizon: incoming.horizon || existing.horizon,
     kind: incoming.kind || existing.kind,
   };
+
+  // skillRequirements: 空は「未設定」として補完対象
+  const existingSkills = (existing as any)?.skillRequirements;
+  const incomingSkills = (incoming as any)?.skillRequirements;
+
+  const existingExecSkills = existingSkills?.executionSkills;
+  const incomingExecSkills = incomingSkills?.executionSkills;
+  const existingRoleSkills = existingSkills?.roleSkills;
+  const incomingRoleSkills = incomingSkills?.roleSkills;
+
+  // executionSkills: existing が未設定の場合は補完
+  let finalExecSkills: string[];
+  if (isSkillListEmpty(existingExecSkills)) {
+    // existing が空 → incoming を使うか、それも空ならデフォルト
+    if (!isSkillListEmpty(incomingExecSkills)) {
+      finalExecSkills = incomingExecSkills;
+    } else {
+      finalExecSkills = ['PM', '標準化', 'データ活用'];
+    }
+  } else {
+    // existing に有効な値がある → 保持
+    finalExecSkills = existingExecSkills;
+  }
+
+  // roleSkills: existing があれば保持、無ければ incoming（無ければ[]）
+  let finalRoleSkills: string[];
+  if (!isSkillListEmpty(existingRoleSkills)) {
+    finalRoleSkills = existingRoleSkills;
+  } else if (!isSkillListEmpty(incomingRoleSkills)) {
+    finalRoleSkills = incomingRoleSkills;
+  } else {
+    finalRoleSkills = [];
+  }
+
+  (merged as any).skillRequirements = {
+    executionSkills: finalExecSkills,
+    roleSkills: finalRoleSkills,
+  };
+
+  // humanInvestments: existing が未設定の場合は補完
+  const existingInvestments = (existing as any)?.humanInvestments;
+  const incomingInvestments = (incoming as any)?.humanInvestments;
+
+  if (!existingInvestments || existingInvestments.length === 0) {
+    // existing が空 → incoming を使うか、それも空ならデフォルト
+    if (incomingInvestments && incomingInvestments.length > 0) {
+      (merged as any).humanInvestments = incomingInvestments;
+    } else {
+      (merged as any).humanInvestments = createDefaultHumanInvestments();
+    }
+  } else {
+    // existing に有効な値がある → 保持
+    (merged as any).humanInvestments = existingInvestments;
+  }
 
   const next = [...projects];
   next[existIdx] = merged;
@@ -1186,6 +1290,10 @@ export default function CascadePage() {
         {
           title,
           okrs: [] as StoreOKR[],
+          skillRequirements: {
+            roleSkills: [],
+            executionSkills: ['PM', '標準化', 'データ活用'],
+          },
         } as Project,
       ];
 
