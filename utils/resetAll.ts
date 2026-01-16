@@ -20,8 +20,14 @@ export function hardResetForCompanySwitch(nextCompanyId: string | null) {
     // 型が古い環境でも安全に落とすフォールバック
     st.reset?.();
   }
-  // 会社スコープを最新に
-  st.setCompanyScope?.(nextCompanyId);
+
+  // ★ resetAll() 後に getState() を取り直して、新しい store 参照で setCompanyScope を実行
+  const freshStore = useStrategyStore.getState();
+  freshStore.setCompanyScope?.(nextCompanyId);
+  console.log('[reset] setCompanyScope 完了。現在の state:', {
+    companyId: freshStore.companyId,
+    pendingCompanyId: freshStore.pendingCompanyId,
+  });
 
   // --- 2. ユーザーストアの membership も更新 ---
   useUserStore
