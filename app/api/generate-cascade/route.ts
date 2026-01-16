@@ -815,12 +815,14 @@ ${valueDriverKPIs && valueDriverKPIs.length > 0
 2. skillRequirements: { roleSkills?: string[]; executionSkills?: string[] } - 実行に必要なスキル
    - roleSkills: 職種スキル（例：「営業」「エンジニア」「デザイナー」「マーケター」等）1〜3個
    - executionSkills: 実行スキル（例：「PM」「標準化」「データ活用」「改善運用」「設計力」「交渉力」等）必ず1〜3個
+   - ★重要：全プロジェクトで同一のスキルセットは厳禁。各プロジェクトごとに、title/hypothesis/mainLever/kind/valueDriverLinks/departmentName/laneを分析し、プロジェクトのアーキタイプ（品質改善型/自動化型/営業強化型/新規事業型/ITデータ型/組織改革型など）を内部で推定してから、そのアーキタイプに最適なスキルを選択すること。
 3. humanInvestments: HumanInvestment[] - 人的投資施策、最低2カテゴリ以上を含める
    - category: 固定5カテゴリのみ使用可能（'TRAINING_OJT' | 'HIRING' | 'ALLOCATION' | 'EXTERNAL' | 'TOOLS_PROCESS'）
    - title: 施策名（短く、5〜15文字）
    - detail: 詳細（任意、1〜2文程度）
    - owner: 担当者（任意）
    - horizon: 実行時期（任意、'0_3M' | '3_6M' | '6_12M' | ''）
+   - ★重要：全プロジェクトで同一の人的投資施策は厳禁。各プロジェクトのアーキタイプに基づき、適切なカテゴリと具体的な施策名を選択すること。例：品質改善型なら「品質管理研修」＋「検証ツール導入」、営業強化型なら「提案力研修」＋「CRM導入」など。
 
 --- 出力（日本語のJSONのみ、説明禁止） ---
 {
@@ -914,6 +916,7 @@ ${valueDriverKPIs && valueDriverKPIs.length > 0
 - ★全プロジェクトに valueDriverLinks、skillRequirements、humanInvestments を必ず含める（空は不可）。
 - valueDriverLinks は valueDriverKPIs の id から選ぶこと（自由記述禁止）。
 - humanInvestments は最低2カテゴリを含めること。
+- ★★重要：全プロジェクトで skillRequirements.executionSkills や humanInvestments が同一になることは絶対に禁止。各プロジェクトのアーキタイプ（品質/自動化/営業/新規/ITデータ/組織など）を推定し、それぞれに適したスキルと施策を割り当てること。
 `.trim();
 
     /* =========================
@@ -949,8 +952,131 @@ ${valueDriverKPIs && valueDriverKPIs.length > 0
     /* =========================
      * ★STAGE3フィールドの補完（fallback）
      * AIが返さなかった場合の最低限の補完処理
+     * アーキタイプ推定により、プロジェクトごとに異なるスキル/施策を割り当てる
      * ======================= */
-    function fillMissingStage3Fields(project: any, availableKPIs: any[]): void {
+
+    // プロジェクトのアーキタイプを推定する関数
+    function inferProjectArchetype(project: any, deptName: string, lane: string): string {
+      const title = (project?.title ?? '').toLowerCase();
+      const hypothesis = (project?.hypothesis ?? '').toLowerCase();
+      const kind = project?.kind ?? '';
+      const mainLever = project?.mainLever ?? '';
+
+      // キーワードマッチングでアーキタイプを推定
+      if (title.includes('品質') || title.includes('テスト') || hypothesis.includes('品質') || hypothesis.includes('不具合')) {
+        return 'quality';
+      }
+      if (title.includes('自動化') || title.includes('効率化') || hypothesis.includes('自動化') || kind === 'efficiency') {
+        return 'automation';
+      }
+      if (title.includes('営業') || title.includes('販売') || deptName.includes('営業') || mainLever === 'ACQ') {
+        return 'sales';
+      }
+      if (title.includes('新規') || title.includes('事業') || kind === 'future' || lane === 'new') {
+        return 'new_business';
+      }
+      if (title.includes('データ') || title.includes('分析') || title.includes('IT') || hypothesis.includes('データ')) {
+        return 'data_it';
+      }
+      if (title.includes('組織') || title.includes('人事') || title.includes('育成') || deptName.includes('人事')) {
+        return 'org_hr';
+      }
+      if (title.includes('コスト') || title.includes('削減') || kind === 'cost') {
+        return 'cost';
+      }
+      if (title.includes('マーケ') || title.includes('広告') || deptName.includes('マーケ')) {
+        return 'marketing';
+      }
+
+      // デフォルト：一般的なビジネス改善
+      return 'general';
+    }
+
+    // アーキタイプに基づいてスキルと施策を返す
+    function getSkillsAndInvestmentsByArchetype(archetype: string): {
+      executionSkills: string[];
+      roleSkills: string[];
+      investments: any[]
+    } {
+      const templates: Record<string, any> = {
+        quality: {
+          executionSkills: ['品質管理', '検証力', '改善運用'],
+          roleSkills: ['QAエンジニア'],
+          investments: [
+            { category: 'TRAINING_OJT', title: '品質管理研修', detail: 'テスト設計と品質保証の実践トレーニング', owner: '', horizon: '0_3M' },
+            { category: 'TOOLS_PROCESS', title: '検証ツール導入', detail: '自動テストツールとCI/CD環境の整備', owner: '', horizon: '3_6M' },
+          ],
+        },
+        automation: {
+          executionSkills: ['自動化設計', 'プロセス標準化', 'データ活用'],
+          roleSkills: ['エンジニア'],
+          investments: [
+            { category: 'TOOLS_PROCESS', title: '業務自動化ツール導入', detail: 'RPA・ワークフロー自動化の環境構築', owner: '', horizon: '0_3M' },
+            { category: 'TRAINING_OJT', title: '効率化ワークショップ', detail: '業務プロセス分析と改善手法の習得', owner: '', horizon: '3_6M' },
+          ],
+        },
+        sales: {
+          executionSkills: ['提案力', '交渉力', 'PM'],
+          roleSkills: ['営業', 'セールス'],
+          investments: [
+            { category: 'TRAINING_OJT', title: '提案力強化研修', detail: '顧客課題発見と提案スキルの向上', owner: '', horizon: '0_3M' },
+            { category: 'TOOLS_PROCESS', title: 'CRM・SFA導入', detail: '顧客管理と営業活動の可視化ツール', owner: '', horizon: '3_6M' },
+          ],
+        },
+        new_business: {
+          executionSkills: ['事業開発', '仮説検証', 'MVP設計'],
+          roleSkills: ['プロダクトマネジャー'],
+          investments: [
+            { category: 'HIRING', title: 'プロダクトマネジャー採用', detail: '新規事業推進のための専門人材獲得', owner: '', horizon: '3_6M' },
+            { category: 'EXTERNAL', title: 'MVP開発パートナー契約', detail: '迅速な仮説検証のための外部リソース活用', owner: '', horizon: '0_3M' },
+          ],
+        },
+        data_it: {
+          executionSkills: ['データ分析', 'システム設計', '標準化'],
+          roleSkills: ['データアナリスト', 'エンジニア'],
+          investments: [
+            { category: 'TOOLS_PROCESS', title: 'データ基盤構築', detail: 'BI・分析環境の整備とデータ統合', owner: '', horizon: '3_6M' },
+            { category: 'TRAINING_OJT', title: 'データ活用研修', detail: 'SQL・分析手法の実践トレーニング', owner: '', horizon: '0_3M' },
+          ],
+        },
+        org_hr: {
+          executionSkills: ['育成設計', '組織開発', 'ファシリテーション'],
+          roleSkills: ['人事', 'HRビジネスパートナー'],
+          investments: [
+            { category: 'TRAINING_OJT', title: 'マネジメント研修', detail: 'リーダーシップと育成スキルの強化', owner: '', horizon: '0_3M' },
+            { category: 'ALLOCATION', title: '人材配置最適化', detail: 'スキルマトリクスに基づく適材適所の実現', owner: '', horizon: '3_6M' },
+          ],
+        },
+        cost: {
+          executionSkills: ['コスト分析', '調達力', '標準化'],
+          roleSkills: ['経営企画', '調達'],
+          investments: [
+            { category: 'TOOLS_PROCESS', title: 'コスト管理システム導入', detail: '経費可視化と予実管理の効率化', owner: '', horizon: '3_6M' },
+            { category: 'TRAINING_OJT', title: 'コスト削減ワークショップ', detail: 'ムダ発見と改善提案の手法習得', owner: '', horizon: '0_3M' },
+          ],
+        },
+        marketing: {
+          executionSkills: ['マーケティング分析', 'コンテンツ企画', 'データ活用'],
+          roleSkills: ['マーケター', 'デザイナー'],
+          investments: [
+            { category: 'TOOLS_PROCESS', title: 'MA・広告ツール導入', detail: 'マーケティングオートメーションと効果測定', owner: '', horizon: '3_6M' },
+            { category: 'TRAINING_OJT', title: 'デジタルマーケ研修', detail: 'SEO・広告運用の実践スキル習得', owner: '', horizon: '0_3M' },
+          ],
+        },
+        general: {
+          executionSkills: ['PM', '改善運用', '標準化'],
+          roleSkills: [],
+          investments: [
+            { category: 'TRAINING_OJT', title: 'プロジェクト管理研修', detail: '計画立案と進捗管理スキルの習得', owner: '', horizon: '0_3M' },
+            { category: 'TOOLS_PROCESS', title: '業務標準化の仕組み整備', detail: '効率的な実行を支援するプロセス導入', owner: '', horizon: '3_6M' },
+          ],
+        },
+      };
+
+      return templates[archetype] || templates['general'];
+    }
+
+    function fillMissingStage3Fields(project: any, availableKPIs: any[], deptName: string = '', lane: string = ''): void {
       // 1. valueDriverLinks の補完
       if (!project.valueDriverLinks || project.valueDriverLinks.length === 0) {
         if (availableKPIs && availableKPIs.length > 0) {
@@ -964,59 +1090,49 @@ ${valueDriverKPIs && valueDriverKPIs.length > 0
         }
       }
 
+      // アーキタイプを推定
+      const archetype = inferProjectArchetype(project, deptName, lane);
+      const template = getSkillsAndInvestmentsByArchetype(archetype);
+
       // 2. skillRequirements の補完
       if (!project.skillRequirements) {
         project.skillRequirements = {};
       }
       if (!project.skillRequirements.executionSkills || project.skillRequirements.executionSkills.length === 0) {
-        // デフォルトの実行スキルを設定
-        project.skillRequirements.executionSkills = ['PM', '標準化', 'データ活用'].slice(0, 2);
+        // アーキタイプに基づいた実行スキルを設定
+        project.skillRequirements.executionSkills = template.executionSkills.slice(0, 2);
       }
       if (!project.skillRequirements.roleSkills) {
-        project.skillRequirements.roleSkills = [];
+        project.skillRequirements.roleSkills = template.roleSkills;
       }
 
       // 3. humanInvestments の補完
       if (!project.humanInvestments || project.humanInvestments.length === 0) {
-        // 最低2カテゴリの雛形を作成
-        project.humanInvestments = [
-          {
-            category: 'TRAINING_OJT',
-            title: 'スキルアップ研修',
-            detail: '実行に必要なスキル習得のための研修プログラム',
-            owner: '',
-            horizon: '0_3M',
-          },
-          {
-            category: 'TOOLS_PROCESS',
-            title: 'ツール・仕組み整備',
-            detail: '効率的な実行を支援するツールやプロセスの導入',
-            owner: '',
-            horizon: '3_6M',
-          },
-        ];
+        // アーキタイプに基づいた人的投資施策を設定
+        project.humanInvestments = template.investments;
       }
     }
 
     // すべてのプロジェクトに補完処理を適用
     if (Array.isArray(normalized?.departments)) {
       for (const dept of normalized.departments) {
+        const deptName = dept?.name ?? '';
         // lanes.existing.projects
         if (dept?.lanes?.existing?.projects) {
           for (const proj of dept.lanes.existing.projects) {
-            fillMissingStage3Fields(proj, valueDriverKPIs);
+            fillMissingStage3Fields(proj, valueDriverKPIs, deptName, 'existing');
           }
         }
         // lanes.new.projects
         if (dept?.lanes?.new?.projects) {
           for (const proj of dept.lanes.new.projects) {
-            fillMissingStage3Fields(proj, valueDriverKPIs);
+            fillMissingStage3Fields(proj, valueDriverKPIs, deptName, 'new');
           }
         }
         // 後方互換: projects（フラット配列）
         if (Array.isArray(dept?.projects)) {
           for (const proj of dept.projects) {
-            fillMissingStage3Fields(proj, valueDriverKPIs);
+            fillMissingStage3Fields(proj, valueDriverKPIs, deptName, '');
           }
         }
       }
