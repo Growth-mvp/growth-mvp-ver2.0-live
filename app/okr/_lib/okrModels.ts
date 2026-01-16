@@ -94,6 +94,21 @@ export type Project = {
   okrVariants?: OkrVariant[];
   activeVariantId?: string;
   okrRevision?: number;
+
+  /** ★STAGE4 実行計画：計画ステータス（draft/review/approved） */
+  planStatus?: 'draft' | 'review' | 'approved';
+
+  /** ★STAGE4 実行計画：承認日時 */
+  approvedAt?: string;
+
+  /** ★STAGE4 実行計画：承認者ID */
+  approvedBy?: string;
+
+  /** ★STAGE4 実行計画：スキルプラン */
+  skillPlans?: Array<{ id: string; skillName: string; priority?: number; method?: string; dueYm?: string; hours?: number; cost?: number; owner?: string; note?: string }>;
+
+  /** ★STAGE4 実行計画：人的投資計画 */
+  executionHumanInvestments?: Array<{ id: string; type: string; amount?: number; timingYm?: string; headcount?: number; team?: string; note?: string }>;
 };
 
 /* ============================================================
