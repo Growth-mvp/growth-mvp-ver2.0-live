@@ -385,6 +385,32 @@ export default function OKRPage() {
 
   useAutoSave(!isHydrating ? [accessCompanyId, departments] : []);
 
+  /* -------- STAGE4 Baseline 作成ガード（hydrate 完了時に1回だけ、companyId単位） -------- */
+  const baselineCreatedRef = useRef<boolean>(false);
+  const {
+    executionPlanBaseline,
+    setExecutionPlanBaseline,
+  } = useStrategyStore();
+
+  useEffect(() => {
+    if (!hydrated || isHydrating || !accessCompanyId || baselineCreatedRef.current) return;
+    // 既に baseline があり、かつ same companyId なら スキップ
+    if (executionPlanBaseline?.snapshot && executionPlanBaseline.companyId === accessCompanyId) {
+      baselineCreatedRef.current = true;
+      return;
+    }
+
+    // baseline 作成：departments 全体を deep copy
+    const baseline = {
+      companyId: accessCompanyId,
+      createdAt: Date.now(),
+      snapshot: JSON.parse(JSON.stringify(departments)),
+    };
+
+    setExecutionPlanBaseline?.(baseline);
+    baselineCreatedRef.current = true;
+  }, [hydrated, isHydrating, accessCompanyId, executionPlanBaseline, departments, setExecutionPlanBaseline]);
+
   /* -------- 表示/編集ユーティリティ -------- */
   const cascade: Department[] = useMemo(() => (Array.isArray(departments) ? departments : []), [departments]);
 
@@ -410,15 +436,103 @@ export default function OKRPage() {
   const [krDetailOpen, setKrDetailOpen] = useState<Record<string, boolean>>({});
   const [helpMode, setHelpMode] = useState<boolean>(false);
 
+  /* STAGE4: planStatus, skillPlans/humanInvestments CRUD UI */
+  const [addingSkillPlan, setAddingSkillPlan] = useState<{ deptIdx: number; projIdx: number } | null>(null);
+  const [addingHumanInvestment, setAddingHumanInvestment] = useState<{ deptIdx: number; projIdx: number } | null>(null);
+  const [editingSkillIdx, setEditingSkillIdx] = useState<number | null>(null);
+  const [editingInvestmentIdx, setEditingInvestmentIdx] = useState<number | null>(null);
+
+  // SkillPlan フォーム
+  const [newSkillFormData, setNewSkillFormData] = useState<{
+    skillName: string;
+    method: 'TRAINING' | 'OJT' | 'HIRE' | 'OUTSOURCE' | 'TOOL' | 'OTHER';
+    priority: string;
+    dueYm: string;
+    hours: string;
+    cost: string;
+    owner: string;
+    note: string;
+  }>({
+    skillName: '',
+    method: 'TRAINING',
+    priority: '',
+    dueYm: '',
+    hours: '',
+    cost: '',
+    owner: '',
+    note: '',
+  });
+
+  // ExecutionHumanInvestment フォーム
+  const [newInvestFormData, setNewInvestFormData] = useState<{
+    type: 'HIRE' | 'TRAINING' | 'OUTSOURCE' | 'SYSTEM' | 'TOOL' | 'OTHER';
+    amount: string;
+    timingYm: string;
+    headcount: string;
+    team: string;
+    note: string;
+  }>({
+    type: 'HIRE',
+    amount: '',
+    timingYm: '',
+    headcount: '',
+    team: '',
+    note: '',
+  });
+
   const toggleKrDetail = (key: string) => {
     setKrDetailOpen((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  /* ============================================================
+   * STAGE4: planStatus ロジック・permission チェック
+   * ========================================================== */
+  const userRole = (access as any)?.role ?? 'member';
+
+  const getPlanStatus = (): string => selectedProj?.planStatus ?? 'draft';
+  const isApproved = (): boolean => getPlanStatus() === 'approved';
+  const isReview = (): boolean => getPlanStatus() === 'review';
+
+  const canTransitionToPlanStatus = (targetStatus: string): boolean => {
+    if (userRole === 'admin') return true;
+    if (userRole === 'manager' && targetStatus === 'review') return true;
+    return false;
+  };
+
+  const canEditContent = (): boolean => {
+    if (isApproved()) return false; // approved はロック
+    return true;
+  };
+
+  const updatePlanStatus = (status: 'draft' | 'review' | 'approved') => {
+    if (!selected || !selectedProj || !canTransitionToPlanStatus(status)) return;
+
+    patchDepartments((prev) => {
+      const next = [...prev];
+      const dept = next[selected.deptIdx];
+      if (!dept) return prev;
+      const deptCopy = { ...dept };
+      const projs = Array.isArray(deptCopy.projects) ? [...deptCopy.projects] : [];
+      const proj = { ...projs[selected.projIdx] };
+
+      proj.planStatus = status;
+      if (status === 'approved') {
+        proj.approvedAt = new Date().toISOString();
+        proj.approvedBy = (access as any)?.user?.id ?? 'admin';
+      }
+
+      projs[selected.projIdx] = proj;
+      deptCopy.projects = projs;
+      next[selected.deptIdx] = deptCopy;
+      return next;
+    });
   };
 
   /* ============================================================
    * プロジェクト選択（左→右）
    * ========================================================== */
   const [selected, setSelected] = useState<{ deptIdx: number; projIdx: number } | null>(null);
-  const [activeTab, setActiveTab] = useState<'objective' | 'kr'>('kr');
+  const [activeTab, setActiveTab] = useState<'objective' | 'kr' | 'plan'>('kr');
 
   const [addingProjectForDept, setAddingProjectForDept] = useState<number | null>(null);
   const [newProjectTitle, setNewProjectTitle] = useState<string>('');
@@ -809,7 +923,8 @@ export default function OKRPage() {
     setOpenAdd((om) => ({ ...om, [k]: true }));
   };
 
-  const canEditKr = !(editingMode === 'variant' && !activeVariant);
+  // approved の場合は KR/plan 編集ロック
+  const canEditKr = !(editingMode === 'variant' && !activeVariant) && !isApproved();
 
   /* ============================================================
    * Render
@@ -818,13 +933,10 @@ export default function OKRPage() {
     <main className="min-h-screen bg-zinc-50 px-6 py-8">
       <header className="mb-8">
         <h1 className="text-[28px] font-semibold tracking-tight text-zinc-900">
-          STAGE4 実行計画（OKR設定）
+          STAGE4 実行計画策定（KPI設定確定）
         </h1>
         <p className="text-[14px] text-zinc-600">
-          各プロジェクトごとに<strong className="font-semibold"> 構造化した成果指標（KR）</strong>
-          を設定します。進化/探索を織り込むため、この画面では
-          <span className="font-semibold">「確定版（財務に反映）」</span>と
-          <span className="font-semibold">「探索案（候補）」</span>を分けて編集できます。
+          <span className="text-[13px] text-zinc-500">承認・確定されたOKRから、プロジェクト単位で実行計画（スキル・人的投資）を策定します。</span>
         </p>
 
         <div className="mt-3 inline-flex flex-wrap items-center gap-2 rounded-2xl border border-zinc-200 bg-white/90 px-3 py-2">
@@ -1298,16 +1410,29 @@ export default function OKRPage() {
                 <button
                   type="button"
                   onClick={() => setActiveTab('kr')}
-                  className={`border-b-2 px-1 pb-2 ${
+                  className={`mr-4 border-b-2 px-1 pb-2 ${
                     activeTab === 'kr' ? 'border-zinc-900 font-semibold text-zinc-900' : 'border-transparent text-zinc-500'
                   }`}
                 >
                   Key Results
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('plan')}
+                  className={`border-b-2 px-1 pb-2 ${
+                    activeTab === 'plan' ? 'border-zinc-900 font-semibold text-zinc-900' : 'border-transparent text-zinc-500'
+                  }`}
+                >
+                  実行計画
+                </button>
 
                 <div className="ml-auto flex items-center gap-2 pb-2 text-[11px] text-zinc-500">
-                  <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">
-                    {editingMode === 'committed' ? '確定版' : '探索案'}
+                  <span className={`rounded-full px-2 py-0.5 font-semibold ${
+                    getPlanStatus() === 'approved' ? 'border border-emerald-300 bg-emerald-50 text-emerald-700' :
+                    getPlanStatus() === 'review' ? 'border border-amber-300 bg-amber-50 text-amber-700' :
+                    'border border-zinc-200 bg-zinc-50 text-zinc-600'
+                  }`}>
+                    {getPlanStatus() === 'approved' ? '✓確定' : getPlanStatus() === 'review' ? '○レビュー中' : '●下書き'}
                   </span>
                   {editingMode === 'committed' && (
                     <span className="rounded-full border border-zinc-200 bg-white px-2 py-0.5">
@@ -1336,7 +1461,7 @@ export default function OKRPage() {
                           objective: e.target.value,
                         })
                       }
-                      disabled={isHydrating}
+                      disabled={isHydrating || isApproved()}
                     />
                     {helpMode && (
                       <p className="mt-1 text-[11px] text-zinc-500">
@@ -1353,7 +1478,7 @@ export default function OKRPage() {
                         placeholder="氏名や役職など"
                         value={mainOKR?.owner ?? ''}
                         onChange={(e) => updateProjectOKR(selected.deptIdx, selected.projIdx, { owner: e.target.value })}
-                        disabled={isHydrating}
+                        disabled={isHydrating || isApproved()}
                       />
                     </div>
                     <div>
@@ -1368,7 +1493,7 @@ export default function OKRPage() {
                         placeholder="2026-03"
                         value={mainOKR?.due ?? ''}
                         onChange={(e) => updateProjectOKR(selected.deptIdx, selected.projIdx, { due: e.target.value })}
-                        disabled={isHydrating}
+                        disabled={isHydrating || isApproved()}
                       />
                     </div>
                   </div>
@@ -2066,6 +2191,545 @@ export default function OKRPage() {
                       </ul>
                     )}
                   </div>
+                </div>
+              )}
+
+              {/* STAGE4 実行計画タブ */}
+              {activeTab === 'plan' && selectedProj && (
+                <div className="space-y-4">
+                  {/* planStatus 遷移 + Approved 解除（new revision） */}
+                  <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                    <div className="mb-2 text-[12px] font-semibold text-zinc-700">計画ステータス</div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => updatePlanStatus('draft')}
+                        disabled={!canTransitionToPlanStatus('draft')}
+                        className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition ${
+                          getPlanStatus() === 'draft'
+                            ? 'bg-zinc-900 text-white'
+                            : 'border border-zinc-300 text-zinc-600 hover:bg-zinc-50'
+                        }`}
+                      >
+                        下書き
+                      </button>
+                      <button
+                        onClick={() => updatePlanStatus('review')}
+                        disabled={!canTransitionToPlanStatus('review')}
+                        className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition ${
+                          getPlanStatus() === 'review'
+                            ? 'bg-amber-500 text-white'
+                            : 'border border-zinc-300 text-zinc-600 hover:bg-amber-50'
+                        }`}
+                      >
+                        レビュー待ち
+                      </button>
+                      <button
+                        onClick={() => updatePlanStatus('approved')}
+                        disabled={!canTransitionToPlanStatus('approved')}
+                        className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition ${
+                          getPlanStatus() === 'approved'
+                            ? 'bg-emerald-600 text-white'
+                            : 'border border-zinc-300 text-zinc-600 hover:bg-emerald-50'
+                        }`}
+                      >
+                        確定
+                      </button>
+                      {isApproved() && userRole === 'admin' && (
+                        <button
+                          onClick={() => {
+                            // Approved 解除：新 revision 作成 → draft に戻す
+                            if (!selected || !selectedProj) return;
+                            patchDepartments((prev) => {
+                              const next = [...prev];
+                              const dept = next[selected.deptIdx];
+                              if (!dept) return prev;
+                              const deptCopy = { ...dept };
+                              const projs = Array.isArray(deptCopy.projects) ? [...deptCopy.projects] : [];
+                              const proj = { ...projs[selected.projIdx] };
+                              proj.okrRevision = ((proj.okrRevision ?? 0) as number) + 1;
+                              proj.planStatus = 'draft';
+                              proj.approvedAt = undefined;
+                              proj.approvedBy = undefined;
+                              projs[selected.projIdx] = proj;
+                              deptCopy.projects = projs;
+                              next[selected.deptIdx] = deptCopy;
+                              return next;
+                            });
+                          }}
+                          className="ml-auto rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-100"
+                        >
+                          新revision作成（解除）
+                        </button>
+                      )}
+                      <span className="ml-auto text-[11px] text-zinc-500">
+                        {userRole === 'admin' ? 'Admin' : userRole === 'manager' ? 'Manager' : 'Member'} ロール
+                      </span>
+                    </div>
+                    {isApproved() && (
+                      <div className="mt-2 rounded-lg bg-emerald-50 p-2 text-[11px] text-emerald-700">
+                        ✓ このプロジェクトは確定済みです。編集はロックされています。
+                      </div>
+                    )}
+                  </div>
+
+                  {/* スキルプラン CRUD */}
+                  <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                    <div className="mb-3 flex items-center justify-between">
+                      <div className="text-[12px] font-semibold text-zinc-700">スキルプラン</div>
+                      {!isApproved() && (
+                        <button
+                          onClick={() => setAddingSkillPlan({ deptIdx: selected.deptIdx, projIdx: selected.projIdx })}
+                          className="text-[11px] text-blue-600 hover:underline"
+                        >
+                          + 追加
+                        </button>
+                      )}
+                    </div>
+                    {addingSkillPlan?.deptIdx === selected.deptIdx && addingSkillPlan?.projIdx === selected.projIdx && !isApproved() && (
+                      <div className="mb-3 rounded-lg bg-blue-50 p-3 space-y-2">
+                        <div className="grid gap-2 md:grid-cols-3">
+                          <input
+                            autoFocus
+                            type="text"
+                            placeholder="スキル名（必須）"
+                            value={newSkillFormData.skillName}
+                            onChange={(e) => setNewSkillFormData({ ...newSkillFormData, skillName: e.target.value })}
+                            className="h-9 rounded-lg border border-blue-200 px-3 text-[12px]"
+                          />
+                          <select
+                            value={newSkillFormData.method}
+                            onChange={(e) => setNewSkillFormData({ ...newSkillFormData, method: e.target.value as any })}
+                            className="h-9 rounded-lg border border-blue-200 px-2 text-[12px]"
+                          >
+                            <option value="TRAINING">研修</option>
+                            <option value="OJT">OJT</option>
+                            <option value="HIRE">採用</option>
+                            <option value="OUTSOURCE">外部委託</option>
+                            <option value="TOOL">ツール/システム</option>
+                            <option value="OTHER">その他</option>
+                          </select>
+                          <input
+                            type="number"
+                            placeholder="優先度(1-5)"
+                            min="1"
+                            max="5"
+                            value={newSkillFormData.priority}
+                            onChange={(e) => setNewSkillFormData({ ...newSkillFormData, priority: e.target.value })}
+                            className="h-9 rounded-lg border border-blue-200 px-3 text-[12px]"
+                          />
+                        </div>
+                        <div className="grid gap-2 md:grid-cols-3">
+                          <input
+                            type="text"
+                            placeholder="期限(YYYY-MM)"
+                            value={newSkillFormData.dueYm}
+                            onChange={(e) => setNewSkillFormData({ ...newSkillFormData, dueYm: e.target.value })}
+                            className="h-9 rounded-lg border border-blue-200 px-3 text-[12px]"
+                          />
+                          <input
+                            type="number"
+                            placeholder="必要時間(h)"
+                            value={newSkillFormData.hours}
+                            onChange={(e) => setNewSkillFormData({ ...newSkillFormData, hours: e.target.value })}
+                            className="h-9 rounded-lg border border-blue-200 px-3 text-[12px]"
+                          />
+                          <input
+                            type="number"
+                            placeholder="予想コスト(¥)"
+                            value={newSkillFormData.cost}
+                            onChange={(e) => setNewSkillFormData({ ...newSkillFormData, cost: e.target.value })}
+                            className="h-9 rounded-lg border border-blue-200 px-3 text-[12px]"
+                          />
+                        </div>
+                        <div className="grid gap-2 md:grid-cols-2">
+                          <input
+                            type="text"
+                            placeholder="担当者"
+                            value={newSkillFormData.owner}
+                            onChange={(e) => setNewSkillFormData({ ...newSkillFormData, owner: e.target.value })}
+                            className="h-9 rounded-lg border border-blue-200 px-3 text-[12px]"
+                          />
+                          <textarea
+                            placeholder="備考"
+                            value={newSkillFormData.note}
+                            onChange={(e) => setNewSkillFormData({ ...newSkillFormData, note: e.target.value })}
+                            className="rounded-lg border border-blue-200 px-3 py-1.5 text-[12px]"
+                            rows={2}
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              if (!newSkillFormData.skillName.trim()) {
+                                alert('スキル名を入力してください。');
+                                return;
+                              }
+                              patchDepartments((prev) => {
+                                const next = [...prev];
+                                const dept = { ...next[selected.deptIdx] };
+                                const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+                                const proj = { ...projs[selected.projIdx] };
+                                const skillPlans = Array.isArray(proj.skillPlans) ? [...proj.skillPlans] : [];
+                                const id = (() => {
+                                  try { return (crypto as any).randomUUID(); } catch { return `skill-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
+                                })();
+                                skillPlans.push({
+                                  id,
+                                  skillName: newSkillFormData.skillName.trim(),
+                                  method: newSkillFormData.method,
+                                  priority: newSkillFormData.priority ? parseInt(newSkillFormData.priority) : undefined,
+                                  dueYm: newSkillFormData.dueYm || undefined,
+                                  hours: newSkillFormData.hours ? parseInt(newSkillFormData.hours) : undefined,
+                                  cost: newSkillFormData.cost ? parseInt(newSkillFormData.cost) : undefined,
+                                  owner: newSkillFormData.owner || undefined,
+                                  note: newSkillFormData.note || undefined,
+                                });
+                                proj.skillPlans = skillPlans;
+                                projs[selected.projIdx] = proj;
+                                dept.projects = projs;
+                                next[selected.deptIdx] = dept;
+                                return next;
+                              });
+                              setNewSkillFormData({
+                                skillName: '',
+                                method: 'TRAINING',
+                                priority: '',
+                                dueYm: '',
+                                hours: '',
+                                cost: '',
+                                owner: '',
+                                note: '',
+                              });
+                              setAddingSkillPlan(null);
+                            }}
+                            className="flex-1 rounded-lg bg-blue-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-blue-700"
+                          >
+                            追加
+                          </button>
+                          <button
+                            onClick={() => {
+                              setNewSkillFormData({
+                                skillName: '',
+                                method: 'TRAINING',
+                                priority: '',
+                                dueYm: '',
+                                hours: '',
+                                cost: '',
+                                owner: '',
+                                note: '',
+                              });
+                              setAddingSkillPlan(null);
+                            }}
+                            className="rounded-lg bg-zinc-300 px-3 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-400"
+                          >
+                            キャンセル
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    <ul className="space-y-1.5">
+                      {(selectedProj.skillPlans || []).map((skill, idx) => (
+                        <li key={skill.id} className="flex items-center gap-2 rounded-lg bg-zinc-50 p-2">
+                          <div className="flex-1 text-[12px]">
+                            <div className="font-semibold">{skill.skillName}</div>
+                            <div className="text-[10px] text-zinc-600">
+                              {[skill.priority && `優先度:${skill.priority}`, skill.method, skill.dueYm && `期限:${skill.dueYm}`, skill.cost && `¥${skill.cost.toLocaleString()}`].filter(Boolean).join(' | ')}
+                            </div>
+                          </div>
+                          {!isApproved() && (
+                            <button
+                              onClick={() => {
+                                patchDepartments((prev) => {
+                                  const next = [...prev];
+                                  const dept = { ...next[selected.deptIdx] };
+                                  const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+                                  const proj = { ...projs[selected.projIdx] };
+                                  proj.skillPlans = (proj.skillPlans || []).filter((_, i) => i !== idx);
+                                  projs[selected.projIdx] = proj;
+                                  dept.projects = projs;
+                                  next[selected.deptIdx] = dept;
+                                  return next;
+                                });
+                              }}
+                              className="text-[11px] text-rose-600 hover:text-rose-700"
+                            >
+                              削除
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+
+                    {/* 人的投資計画（ExecutionHumanInvestment） */}
+                    <div className="mt-6 rounded-lg border border-purple-200 bg-purple-50 p-3">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="text-[12px] font-semibold text-purple-900">人的投資計画</div>
+                        {!isApproved() && (
+                          <button
+                            onClick={() => setAddingHumanInvestment({ deptIdx: selected.deptIdx, projIdx: selected.projIdx })}
+                            className="text-[11px] text-purple-600 hover:underline"
+                          >
+                            + 追加
+                          </button>
+                        )}
+                      </div>
+                      {addingHumanInvestment?.deptIdx === selected.deptIdx && addingHumanInvestment?.projIdx === selected.projIdx && !isApproved() && (
+                        <div className="mb-3 rounded-lg bg-white p-3 space-y-2">
+                          <div className="grid gap-2 md:grid-cols-3">
+                            <select
+                              value={newInvestFormData.type}
+                              onChange={(e) => setNewInvestFormData({ ...newInvestFormData, type: e.target.value as any })}
+                              className="h-9 rounded-lg border border-purple-200 px-2 text-[12px]"
+                            >
+                              <option value="HIRE">採用</option>
+                              <option value="TRAINING">研修</option>
+                              <option value="OUTSOURCE">外部委託</option>
+                              <option value="SYSTEM">システム</option>
+                              <option value="TOOL">ツール</option>
+                              <option value="OTHER">その他</option>
+                            </select>
+                            <input
+                              type="number"
+                              placeholder="金額(¥)"
+                              value={newInvestFormData.amount}
+                              onChange={(e) => setNewInvestFormData({ ...newInvestFormData, amount: e.target.value })}
+                              className="h-9 rounded-lg border border-purple-200 px-3 text-[12px]"
+                            />
+                            <input
+                              type="text"
+                              placeholder="実行時期(YYYY-MM)"
+                              value={newInvestFormData.timingYm}
+                              onChange={(e) => setNewInvestFormData({ ...newInvestFormData, timingYm: e.target.value })}
+                              className="h-9 rounded-lg border border-purple-200 px-3 text-[12px]"
+                            />
+                          </div>
+                          <div className="grid gap-2 md:grid-cols-2">
+                            <input
+                              type="number"
+                              placeholder="人数"
+                              value={newInvestFormData.headcount}
+                              onChange={(e) => setNewInvestFormData({ ...newInvestFormData, headcount: e.target.value })}
+                              className="h-9 rounded-lg border border-purple-200 px-3 text-[12px]"
+                            />
+                            <input
+                              type="text"
+                              placeholder="チーム/部署"
+                              value={newInvestFormData.team}
+                              onChange={(e) => setNewInvestFormData({ ...newInvestFormData, team: e.target.value })}
+                              className="h-9 rounded-lg border border-purple-200 px-3 text-[12px]"
+                            />
+                          </div>
+                          <textarea
+                            placeholder="備考"
+                            value={newInvestFormData.note}
+                            onChange={(e) => setNewInvestFormData({ ...newInvestFormData, note: e.target.value })}
+                            className="rounded-lg border border-purple-200 px-3 py-1.5 text-[12px]"
+                            rows={2}
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => {
+                                const amount = newInvestFormData.amount ? parseInt(newInvestFormData.amount) : undefined;
+                                const headcount = newInvestFormData.headcount ? parseInt(newInvestFormData.headcount) : undefined;
+                                if (!Number.isFinite(amount) && !Number.isFinite(headcount)) {
+                                  alert('金額または人数を入力してください。');
+                                  return;
+                                }
+                                patchDepartments((prev) => {
+                                  const next = [...prev];
+                                  const dept = { ...next[selected.deptIdx] };
+                                  const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+                                  const proj = { ...projs[selected.projIdx] };
+                                  const investments = Array.isArray(proj.executionHumanInvestments) ? [...proj.executionHumanInvestments] : [];
+                                  const id = (() => {
+                                    try { return (crypto as any).randomUUID(); } catch { return `invest-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
+                                  })();
+                                  investments.push({
+                                    id,
+                                    type: newInvestFormData.type,
+                                    amount,
+                                    timingYm: newInvestFormData.timingYm || undefined,
+                                    headcount,
+                                    team: newInvestFormData.team || undefined,
+                                    note: newInvestFormData.note || undefined,
+                                  });
+                                  proj.executionHumanInvestments = investments;
+                                  projs[selected.projIdx] = proj;
+                                  dept.projects = projs;
+                                  next[selected.deptIdx] = dept;
+                                  return next;
+                                });
+                                setNewInvestFormData({
+                                  type: 'HIRE',
+                                  amount: '',
+                                  timingYm: '',
+                                  headcount: '',
+                                  team: '',
+                                  note: '',
+                                });
+                                setAddingHumanInvestment(null);
+                              }}
+                              className="flex-1 rounded-lg bg-purple-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-purple-700"
+                            >
+                              追加
+                            </button>
+                            <button
+                              onClick={() => {
+                                setNewInvestFormData({
+                                  type: 'HIRE',
+                                  amount: '',
+                                  timingYm: '',
+                                  headcount: '',
+                                  team: '',
+                                  note: '',
+                                });
+                                setAddingHumanInvestment(null);
+                              }}
+                              className="rounded-lg bg-zinc-300 px-3 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-400"
+                            >
+                              キャンセル
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      <ul className="space-y-1.5">
+                        {(selectedProj.executionHumanInvestments || []).map((invest, idx) => (
+                          <li key={invest.id} className="flex items-center gap-2 rounded-lg bg-white p-2">
+                            <div className="flex-1 text-[12px]">
+                              <div className="font-semibold">{invest.type}</div>
+                              <div className="text-[10px] text-zinc-600">
+                                {[invest.amount && `¥${invest.amount.toLocaleString()}`, invest.timingYm && `${invest.timingYm}実行`, invest.headcount && `${invest.headcount}人`, invest.team && `${invest.team}`].filter(Boolean).join(' | ')}
+                              </div>
+                              {invest.note && <div className="text-[10px] text-zinc-600 mt-1">{invest.note}</div>}
+                            </div>
+                            {!isApproved() && (
+                              <button
+                                onClick={() => {
+                                  patchDepartments((prev) => {
+                                    const next = [...prev];
+                                    const dept = { ...next[selected.deptIdx] };
+                                    const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+                                    const proj = { ...projs[selected.projIdx] };
+                                    proj.executionHumanInvestments = (proj.executionHumanInvestments || []).filter((_, i) => i !== idx);
+                                    projs[selected.projIdx] = proj;
+                                    dept.projects = projs;
+                                    next[selected.deptIdx] = dept;
+                                    return next;
+                                  });
+                                }}
+                                className="text-[11px] text-rose-600 hover:text-rose-700"
+                              >
+                                削除
+                              </button>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+
+                  {/* Baseline 差分パネル */}
+                  {executionPlanBaseline?.snapshot && (
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                      <div className="mb-2 flex items-center gap-2">
+                        <GitCompare className="h-4 w-4 text-amber-700" />
+                        <div className="text-[12px] font-semibold text-amber-900">Baseline との差分</div>
+                      </div>
+                      {(() => {
+                        if (!Array.isArray(executionPlanBaseline.snapshot)) return <div className="text-[11px] text-amber-700">差分なし</div>;
+                        const baselineDepts = executionPlanBaseline.snapshot;
+                        const baseDept = baselineDepts?.[selected?.deptIdx];
+                        const baseProj: Project | undefined = baseDept?.projects?.[selected?.projIdx];
+                        if (!baseProj) return <div className="text-[11px] text-amber-700">差分なし</div>;
+
+                        const baselineKrs = ensureArray(baseProj.okrsV2) as typeof committedOkrsV2;
+                        const currentKrs = committedOkrsV2;
+                        const krDiffItems = diffKrSets(baselineKrs, currentKrs);
+                        const krAdded = krDiffItems.filter((d: any) => d.type === 'added').length;
+                        const krRemoved = krDiffItems.filter((d: any) => d.type === 'removed').length;
+                        const krChanged = krDiffItems.filter((d: any) => d.type === 'changed').length;
+
+                        // スキルプラン：id 優先で added/removed/changed 判定
+                        const baselineSkills = (baseProj.skillPlans || []) as Array<{ id: string; skillName: string; priority?: number; method?: string; cost?: number }>;
+                        const currentSkills = (selectedProj.skillPlans || []) as Array<{ id: string; skillName: string; priority?: number; method?: string; cost?: number }>;
+                        const baselineSkillIds = new Set(baselineSkills.map(s => s.id));
+                        const currentSkillIds = new Set(currentSkills.map(s => s.id));
+                        const skillAdded = currentSkills.filter(s => !baselineSkillIds.has(s.id)).length;
+                        const skillRemoved = baselineSkills.filter(s => !currentSkillIds.has(s.id)).length;
+                        const skillChanged = baselineSkills.filter((s): boolean => {
+                          const curr = currentSkills.find(c => c.id === s.id);
+                          return !!(curr && (s.skillName !== curr.skillName || s.priority !== curr.priority || s.method !== curr.method || s.cost !== curr.cost));
+                        }).length;
+
+                        // 人的投資：id 優先で added/removed/changed 判定
+                        const baselineInvests = (baseProj.executionHumanInvestments || []) as Array<{ id: string; type: string; amount?: number; timingYm?: string }>;
+                        const currentInvests = (selectedProj.executionHumanInvestments || []) as Array<{ id: string; type: string; amount?: number; timingYm?: string }>;
+                        const baselineInvestIds = new Set(baselineInvests.map(i => i.id));
+                        const currentInvestIds = new Set(currentInvests.map(i => i.id));
+                        const investAdded = currentInvests.filter(i => !baselineInvestIds.has(i.id)).length;
+                        const investRemoved = baselineInvests.filter(i => !currentInvestIds.has(i.id)).length;
+                        const investChanged = baselineInvests.filter((i): boolean => {
+                          const curr = currentInvests.find(c => c.id === i.id);
+                          return !!(curr && (i.type !== curr.type || i.amount !== curr.amount || i.timingYm !== curr.timingYm));
+                        }).length;
+
+                        return (
+                          <div className="space-y-1 text-[11px] text-amber-800">
+                            <div>
+                              <strong>KR:</strong> 追加{krAdded} / 削除{krRemoved} / 変更{krChanged}
+                            </div>
+                            <div>
+                              <strong>スキル:</strong> 追加{skillAdded} / 削除{skillRemoved} / 変更{skillChanged}
+                            </div>
+                            <div>
+                              <strong>投資:</strong> 追加{investAdded} / 削除{investRemoved} / 変更{investChanged}
+                            </div>
+                            <div>
+                              <strong>ステータス:</strong> {baseProj.planStatus ?? 'draft'} → {getPlanStatus()}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  {/* 再計算プレビュー（approved 時のみ） */}
+                  {isApproved() && (
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                      <div className="mb-3 text-[12px] font-semibold text-emerald-900">実行計画プレビュー</div>
+                      <div className="grid gap-3 md:grid-cols-3">
+                        <div className="rounded-lg bg-white p-3">
+                          <div className="text-[11px] text-zinc-600">投資合計</div>
+                          <div className="mt-2 text-[16px] font-semibold text-emerald-600">
+                            {(() => {
+                              const total = (selectedProj.executionHumanInvestments || []).reduce((sum, inv) => sum + (inv.amount || 0), 0) +
+                                            (selectedProj.skillPlans || []).reduce((sum, sk) => sum + (sk.cost || 0), 0);
+                              return total > 0 ? `¥${total.toLocaleString()}` : '未設定';
+                            })()}
+                          </div>
+                        </div>
+                        <div className="rounded-lg bg-white p-3">
+                          <div className="text-[11px] text-zinc-600">月別集計（上位3件）</div>
+                          <div className="mt-2 space-y-0.5 text-[10px] text-zinc-700">
+                            {(() => {
+                              const monthly: Record<string, number> = {};
+                              ((selectedProj.executionHumanInvestments || []) as Array<{ timingYm?: string; amount?: number }>).forEach((inv: any) => {
+                                if (inv.timingYm) monthly[inv.timingYm] = (monthly[inv.timingYm] || 0) + (inv.amount || 0);
+                              });
+                              const entries = Object.entries(monthly) as Array<[string, number]>;
+                              return entries.length > 0
+                                ? entries.sort(([, a], [, b]) => b - a).slice(0, 3).map(([ym, amount]) => <div key={ym}>{ym}: ¥{amount.toLocaleString()}</div>)
+                                : <div>-</div>;
+                            })()}
+                          </div>
+                        </div>
+                        <div className="rounded-lg bg-white p-3">
+                          <div className="text-[11px] text-zinc-600">確定KR数</div>
+                          <div className="mt-2 text-[16px] font-semibold text-emerald-600">{committedOkrsV2.length}</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </>
