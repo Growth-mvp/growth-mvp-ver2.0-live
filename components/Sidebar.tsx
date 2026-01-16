@@ -1,9 +1,9 @@
-// /components/Sidebar.tsx（修正版・storeアクション連動）
+﻿// /components/Sidebar.tsx（修正版・storeアクション連動・/stage6統一・未使用整理）
 'use client';
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useStrategyStore /*, refetchFromServer as refetchViaExport*/ } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { useAccess } from '@/utils/access';
@@ -23,12 +23,7 @@ import {
   LineChart,
 } from 'lucide-react';
 
-/* ---------------- ユーティリティ ---------------- */
-const toStr = (v: unknown, fallback = ''): string =>
-  typeof v === 'string' ? v : v == null ? fallback : String(v);
-const asArr = (v: any) => (Array.isArray(v) ? v : []);
-const asObj = (v: any) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
-
+/* ---------------- 小物 ---------------- */
 function AIcon({ children }: { children: React.ReactNode }) {
   return (
     <span className="inline-flex h-[18px] w-[18px] items-center justify-center opacity-75">
@@ -46,9 +41,7 @@ export default function Sidebar() {
   const router = useRouter();
 
   // store
-  const strategyStore = useStrategyStore();
   const userStore = useUserStore();
-
   const user = userStore.user;
   const companyId = userStore.companyId;
   const hydratedUser = userStore.hydrated; // userStore 側のハイドレーション完了フラグ想定
@@ -103,7 +96,10 @@ export default function Sidebar() {
 
   const handleRefetch = async () => {
     if (!ensureMembershipOrRedirect()) return;
-    const ok = typeof window !== 'undefined' ? window.confirm('ローカル変更を破棄しサーバー最新版を読み込みます。続行しますか？') : false;
+    const ok =
+      typeof window !== 'undefined'
+        ? window.confirm('ローカル変更を破棄しサーバー最新版を読み込みます。続行しますか？')
+        : false;
     if (!ok) return;
 
     try {
@@ -122,7 +118,10 @@ export default function Sidebar() {
       setNotification('⛔ 権限がありません（全削除は管理者のみ）');
       return;
     }
-    const ok = typeof window !== 'undefined' ? window.confirm('⚠ Supabase上の戦略データも含め、すべて削除します。よろしいですか？') : false;
+    const ok =
+      typeof window !== 'undefined'
+        ? window.confirm('⚠ Supabase上の戦略データも含め、すべて削除します。よろしいですか？')
+        : false;
     if (!ok) return;
 
     try {
@@ -194,12 +193,44 @@ export default function Sidebar() {
       {/* コンテンツ */}
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-6 overscroll-contain">
         <nav className="space-y-1.5" role="navigation" aria-label="メインナビゲーション">
-          <PillLink href="/stage1" icon={<FileText size={18} strokeWidth={1.5} />} label="STAGE 1：企業価値分析" active={isActive('/stage1')} />
-          <PillLink href="/stage2" icon={<BookOpen size={18} strokeWidth={1.5} />} label="STAGE 2：経営戦略策定" active={isActive('/stage2')} />
-          <PillLink href="/cascade" icon={<Share size={18} strokeWidth={1.5} />} label="STAGE 3：部門戦略策定" active={isActive('/cascade')} />
-          <PillLink href="/okr" icon={<CheckCircle size={18} strokeWidth={1.5} />} label="STAGE 4：実行計画策定" active={isActive('/okr')} />
-          <PillLink href="/execution" icon={<Activity size={18} strokeWidth={1.5} />} label="STAGE 5：実行計画支援" active={isActive('/execution')} />
-          <PillLink href="/simulation" icon={<LineChart size={18} strokeWidth={1.5} />} label="STAGE 6：業績シミュレーション" active={isActive('/simulation')} />
+          <PillLink
+            href="/stage1"
+            icon={<FileText size={18} strokeWidth={1.5} />}
+            label="STAGE 1：企業価値分析"
+            active={isActive('/stage1')}
+          />
+          <PillLink
+            href="/stage2"
+            icon={<BookOpen size={18} strokeWidth={1.5} />}
+            label="STAGE 2：経営戦略策定"
+            active={isActive('/stage2')}
+          />
+          <PillLink
+            href="/cascade"
+            icon={<Share size={18} strokeWidth={1.5} />}
+            label="STAGE 3：部門戦略策定"
+            active={isActive('/cascade')}
+          />
+          <PillLink
+            href="/okr"
+            icon={<CheckCircle size={18} strokeWidth={1.5} />}
+            label="STAGE 4：実行計画策定"
+            active={isActive('/okr')}
+          />
+          <PillLink
+            href="/execution"
+            icon={<Activity size={18} strokeWidth={1.5} />}
+            label="STAGE 5：実行計画支援"
+            active={isActive('/execution')}
+          />
+          {/* 重要：/simulation ではなく /stage6 に統一 */}
+          <PillLink
+            href="/stage6"
+            icon={<LineChart size={18} strokeWidth={1.5} />}
+            label="STAGE 6：業績シミュレーション"
+            active={isActive('/stage6')}
+          />
+
           {/* 管理者 */}
           <PillLink
             href="/admin/members"
@@ -221,7 +252,7 @@ export default function Sidebar() {
           <div
             role="alert"
             className={`rounded-xl border px-3 py-2 shadow-sm ${ITEM_TEXT_CLASS} ${
-              notification.includes('削除') || notification.includes('❌')
+              notification.includes('削除') || notification.includes('❌') || notification.includes('⛔')
                 ? 'border-rose-200 bg-rose-50 text-rose-700'
                 : 'border-emerald-200 bg-emerald-50 text-emerald-700'
             }`}
@@ -264,14 +295,11 @@ function PillLink({
         }
       }}
       className={[
-        // ベース：角はやや丸、細字、13.5px、字間広め
         'no-underline group flex h-10 items-center gap-2 rounded-full px-3 transition',
         ITEM_TEXT_CLASS,
-        // 状態
         active
           ? 'bg-gray-900 text-white shadow hover:bg-black/90'
           : 'bg-white text-gray-800 hover:bg-white/90 shadow-sm border border-gray-200',
-        // アクセシビリティ
         'focus:outline-none focus:ring-1 focus:ring-black/10',
         disabled ? 'opacity-60 pointer-events-auto cursor-not-allowed' : '',
       ].join(' ')}
