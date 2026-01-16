@@ -1,4 +1,4 @@
-// /components/simulation/SimulationDashboard.tsx
+﻿// /components/stage6/SimulationDashboard.tsx
 
 'use client';
 
@@ -32,7 +32,7 @@ import {
   type BridgeInput,
   type BaseFigures,
   type Ym,
-} from '@/utils/simulationBridge';
+} from '@/utils/stage6Bridge';
 import {
   simulateMonthlyPL,
   aggregateYearly,
@@ -40,7 +40,7 @@ import {
 } from '@/utils/financeSimulation';
 import { okrsV2ToKRStruct } from '@/utils/okrToFinance';
 
-// 遅延読み込み（AIインサイト）
+// 驕・ｻｶ隱ｭ縺ｿ霎ｼ縺ｿ・・I繧､繝ｳ繧ｵ繧､繝茨ｼ・
 const CoreInsightPanel = dynamic(
   () => import('@/components/insight/CoreInsightPanel'),
   {
@@ -49,7 +49,7 @@ const CoreInsightPanel = dynamic(
   },
 );
 
-/* ============ 小物ユーティリティ ============ */
+/* ============ 蟆冗黄繝ｦ繝ｼ繝・ぅ繝ｪ繝・ぅ ============ */
 function fmtNum(n: any) {
   const v = Number(n);
   if (!Number.isFinite(v)) return '-';
@@ -74,7 +74,7 @@ type SimulationLogRowLite = {
   data?: any;
 };
 
-/* ============ YM ユーティリティ ============ */
+/* ============ YM 繝ｦ繝ｼ繝・ぅ繝ｪ繝・ぅ ============ */
 function pad(n: number) {
   return n < 10 ? `0${n}` : String(n);
 }
@@ -94,8 +94,8 @@ function ymRange(startYm: Ym, endYm: Ym): Ym[] {
   return out;
 }
 
-/* ============ OKR / Trajectory ユーティリティ ============ */
-/** 部門情報をメタデータとして付与した構造化KR一覧を作る */
+/* ============ OKR / Trajectory 繝ｦ繝ｼ繝・ぅ繝ｪ繝・ぅ ============ */
+/** 驛ｨ髢諠・ｱ繧偵Γ繧ｿ繝・・繧ｿ縺ｨ縺励※莉倅ｸ弱＠縺滓ｧ矩蛹訪R荳隕ｧ繧剃ｽ懊ｋ */
 function collectAllKRs(
   departments: Department[] | undefined,
 ): KRStructured[] {
@@ -111,7 +111,7 @@ function collectAllKRs(
         `dept-${idx}`,
     );
     const deptName =
-      (d as any).name ?? (d as any).departmentName ?? `部門${idx + 1}`;
+      (d as any).name ?? (d as any).departmentName ?? `驛ｨ髢${idx + 1}`;
 
     const projs = Array.isArray(d?.projects) ? d.projects : [];
     for (const p of projs) {
@@ -132,8 +132,8 @@ function collectAllKRs(
 }
 
 /**
- * ベース軌道生成：年率成長率を考慮したフラット＋成長付きトラック
- * annualGrowthRate: 0.05 なら年 +5%、-0.05 なら年 -5%
+ * 繝吶・繧ｹ霆碁％逕滓・・壼ｹｴ邇・・髟ｷ邇・ｒ閠・・縺励◆繝輔Λ繝・ヨ・区・髟ｷ莉倥″繝医Λ繝・け
+ * annualGrowthRate: 0.05 縺ｪ繧牙ｹｴ +5%縲・0.05 縺ｪ繧牙ｹｴ -5%
  */
 function mkFlatTrajectory(
   startYm: Ym,
@@ -161,19 +161,19 @@ function mkFlatTrajectory(
     Number.isFinite(annualGrowthRate) && annualGrowthRate !== 0;
 
   months.forEach((m, idx) => {
-    // idx ヶ月目 → 年換算 idx/12 年後
+    // idx 繝ｶ譛育岼 竊・蟷ｴ謠帷ｮ・idx/12 蟷ｴ蠕・
     const tYears = hasGrowth ? idx / 12 : 0;
     const factor = hasGrowth ? Math.pow(1 + annualGrowthRate, tYears) : 1;
 
-    // ベースでは Qty に成長率を乗せる（ARPU / churn は一定と仮定）
+    // 繝吶・繧ｹ縺ｧ縺ｯ Qty 縺ｫ謌宣聞邇・ｒ荵励○繧具ｼ・RPU / churn 縺ｯ荳螳壹→莉ｮ螳夲ｼ・
     const qty = v.qty * factor;
 
     qtyMonthly[m] = qty;
     arpuMonthly[m] = v.arpu;
     churnMonthly[m] = v.churn;
-    fixedCostMonthly[m] = v.fixed; // 固定費は一定とする
-    variableCostMonthly[m] = v.variable * factor; // 変動費は Qty に比例
-    personnelCostMonthly[m] = v.personnel; // 人件費も一定（必要あれば後で拡張）
+    fixedCostMonthly[m] = v.fixed; // 蝗ｺ螳夊ｲｻ縺ｯ荳螳壹→縺吶ｋ
+    variableCostMonthly[m] = v.variable * factor; // 螟牙虚雋ｻ縺ｯ Qty 縺ｫ豈比ｾ・
+    personnelCostMonthly[m] = v.personnel; // 莠ｺ莉ｶ雋ｻ繧ゆｸ螳夲ｼ亥ｿ・ｦ√≠繧後・蠕後〒諡｡蠑ｵ・・
   });
 
   return {
@@ -188,7 +188,7 @@ function mkFlatTrajectory(
   };
 }
 
-/* ============ 「実質空」判定 ============ */
+/* ============ 縲悟ｮ溯ｳｪ遨ｺ縲榊愛螳・============ */
 function isEffectivelyEmptyClient(s: any): boolean {
   const emptyArr = (a: any) => !Array.isArray(a) || a.length === 0;
   const emptyStr = (v: any) => typeof v !== 'string' || v.trim() === '';
@@ -217,7 +217,7 @@ function isEffectivelyEmptyClient(s: any): boolean {
   return allEmpty && metaAllEmpty;
 }
 
-/* ============ 財務サマリー / CSV → ベース軌道の推定 ============ */
+/* ============ 雋｡蜍吶し繝槭Μ繝ｼ / CSV 竊・繝吶・繧ｹ霆碁％縺ｮ謗ｨ螳・============ */
 
 type DerivedBase = {
   monthlyRevenue: number;
@@ -235,11 +235,11 @@ type DerivedBase = {
 };
 
 /**
- * financeSummary / csvFinanceData からベース年度の売上・利益を推定し、
- * 月次売上・コスト・Qty などのベース値を算出する。
+ * financeSummary / csvFinanceData 縺九ｉ繝吶・繧ｹ蟷ｴ蠎ｦ縺ｮ螢ｲ荳翫・蛻ｩ逶翫ｒ謗ｨ螳壹＠縲・
+ * 譛域ｬ｡螢ｲ荳翫・繧ｳ繧ｹ繝医・Qty 縺ｪ縺ｩ縺ｮ繝吶・繧ｹ蛟､繧堤ｮ怜・縺吶ｋ縲・
  */
 function deriveBaseFromStrategy(strategy: any): DerivedBase {
-  // ★ カンマ付き文字列や通貨記号を安全に数値化
+  // 笘・繧ｫ繝ｳ繝樔ｻ倥″譁・ｭ怜・繧・夊ｲｨ險伜捷繧貞ｮ牙・縺ｫ謨ｰ蛟､蛹・
   const num = (v: any): number => {
     if (v === undefined || v === null || v === '') return 0;
     if (typeof v === 'number') {
@@ -248,8 +248,8 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
     if (typeof v === 'string') {
       const trimmed = v.trim();
       if (!trimmed) return 0;
-      // カンマ・空白・円記号などを除去
-      const normalized = trimmed.replace(/[,\s￥¥]/g, '');
+      // 繧ｫ繝ｳ繝槭・遨ｺ逋ｽ繝ｻ蜀・ｨ伜捷縺ｪ縺ｩ繧帝勁蜴ｻ
+      const normalized = trimmed.replace(/[,\s・･ﾂ･]/g, '');
       const n = Number(normalized);
       return Number.isFinite(n) ? n : 0;
     }
@@ -257,7 +257,7 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
     return Number.isFinite(n) ? n : 0;
   };
 
-  /* ---------- financeSummary の正規化 ---------- */
+  /* ---------- financeSummary 縺ｮ豁｣隕丞喧 ---------- */
   const normalizeFinanceSummaryRows = (src: any): any[] => {
     if (!src) return [];
 
@@ -276,14 +276,14 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
       row.yearLabel ??
       row.fiscalYear ??
       row.fy ??
-      row['年度'] ??
+      row['蟷ｴ蠎ｦ'] ??
       row['year'];
 
     if (raw === undefined || raw === null) return null;
     const s = String(raw).trim();
     if (!s) return null;
 
-    // "FY2024" / "2024/03" などから 4桁年を優先して抽出
+    // "FY2024" / "2024/03" 縺ｪ縺ｩ縺九ｉ 4譯∝ｹｴ繧貞━蜈医＠縺ｦ謚ｽ蜃ｺ
     const m = s.match(/\d{4}/);
     return m ? m[0] : s;
   };
@@ -292,7 +292,7 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
     if (row.isTotal || row.is_total || row.isYearTotal) return true;
 
     const kind = String(row.kind ?? row.rowType ?? '').trim().toUpperCase();
-    if (kind === 'TOTAL' || kind === '年度合計') return true;
+    if (kind === 'TOTAL' || kind === '蟷ｴ蠎ｦ蜷郁ｨ・) return true;
 
     const unitName = String(
       row.unitName ??
@@ -304,11 +304,11 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
     ).trim();
 
     if (!unitName) return false;
-    // 「年度合計」「全社合計」「合計」などを TOTAL とみなす
+    // 縲悟ｹｴ蠎ｦ蜷郁ｨ医阪悟・遉ｾ蜷郁ｨ医阪悟粋險医阪↑縺ｩ繧・TOTAL 縺ｨ縺ｿ縺ｪ縺・
     if (
-      unitName.includes('年度合計') ||
-      unitName.includes('全社合計') ||
-      (unitName.includes('合計') && !unitName.includes('小計'))
+      unitName.includes('蟷ｴ蠎ｦ蜷郁ｨ・) ||
+      unitName.includes('蜈ｨ遉ｾ蜷郁ｨ・) ||
+      (unitName.includes('蜷郁ｨ・) && !unitName.includes('蟆剰ｨ・))
     ) {
       return true;
     }
@@ -324,7 +324,7 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
   const fsRows = normalizeFinanceSummaryRows(strategy);
 
   if (fsRows.length) {
-    // 年度ごとにグルーピング
+    // 蟷ｴ蠎ｦ縺斐→縺ｫ繧ｰ繝ｫ繝ｼ繝斐Φ繧ｰ
     const byYear = new Map<string, { all: any[]; totals: any[] }>();
 
     for (const r of fsRows) {
@@ -335,16 +335,16 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
         r.revenue ??
           r.sales ??
           r.netSales ??
-          r['売上高'] ??
-          r['売上'] ??
-          r['売上収益'],
+          r['螢ｲ荳企ｫ・] ??
+          r['螢ｲ荳・] ??
+          r['螢ｲ荳雁庶逶・],
       );
       const op = num(
         r.operatingIncome ??
           r.operating_profit ??
           r.operatingProfit ??
           r.op ??
-          r['営業利益'],
+          r['蝟ｶ讌ｭ蛻ｩ逶・],
       );
 
       if (!byYear.has(y)) {
@@ -357,7 +357,7 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
     }
 
     if (byYear.size) {
-      // 最新年度を決める（数字があれば数値として比較）
+      // 譛譁ｰ蟷ｴ蠎ｦ繧呈ｱｺ繧√ｋ・域焚蟄励′縺ゅｌ縺ｰ謨ｰ蛟､縺ｨ縺励※豈碑ｼ・ｼ・
       const years = Array.from(byYear.keys());
       const withNum = years.map((y) => ({
         year: y,
@@ -382,26 +382,26 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
 
         if (sumSales > 0) {
           annualSales = sumSales;
-          // 営業利益が 0 の場合は 10% マージンを仮置き
+          // 蝟ｶ讌ｭ蛻ｩ逶翫′ 0 縺ｮ蝣ｴ蜷医・ 10% 繝槭・繧ｸ繝ｳ繧剃ｻｮ鄂ｮ縺・
           annualOp = sumOp || annualSales * 0.1;
         }
       }
     }
   }
 
-  /* ---------- financeSummary から取れなかった場合：CSV にフォールバック ---------- */
+  /* ---------- financeSummary 縺九ｉ蜿悶ｌ縺ｪ縺九▲縺溷ｴ蜷茨ｼ咾SV 縺ｫ繝輔か繝ｼ繝ｫ繝舌ャ繧ｯ ---------- */
   if (!annualSales) {
     const csv: any[] = Array.isArray(strategy?.csvFinanceData)
       ? strategy.csvFinanceData
       : [];
 
     if (csv.length > 0) {
-      // ★ CSV も「最新年度 × 全事業合計」で集計
+      // 笘・CSV 繧ゅ梧怙譁ｰ蟷ｴ蠎ｦ ﾃ・蜈ｨ莠区･ｭ蜷郁ｨ医阪〒髮・ｨ・
       const numCsv = (v: any) => num(v);
 
       const getYearFromCsv = (row: any): string | null => {
         const raw =
-          row.year ?? row.fiscalYear ?? row.fy ?? row['年度'] ?? row['year'];
+          row.year ?? row.fiscalYear ?? row.fy ?? row['蟷ｴ蠎ｦ'] ?? row['year'];
         if (raw === undefined || raw === null) return null;
         const s = String(raw).trim();
         if (!s) return null;
@@ -433,33 +433,33 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
           const rev =
             numCsv(row.sales) ||
             numCsv(row.revenue) ||
-            numCsv(row['売上高']) ||
-            numCsv(row['売上']) ||
-            numCsv(row['売上収益']);
+            numCsv(row['螢ｲ荳企ｫ・]) ||
+            numCsv(row['螢ｲ荳・]) ||
+            numCsv(row['螢ｲ荳雁庶逶・]);
           csvSales += rev;
 
           const op =
             numCsv(row.operatingProfit) ||
             numCsv(row.op) ||
-            numCsv(row['営業利益']) ||
+            numCsv(row['蝟ｶ讌ｭ蛻ｩ逶・]) ||
             0;
           csvOp += op;
         }
       } else {
-        // 年度情報が無い場合は全行合計を使用
+        // 蟷ｴ蠎ｦ諠・ｱ縺檎┌縺・ｴ蜷医・蜈ｨ陦悟粋險医ｒ菴ｿ逕ｨ
         for (const row of csv) {
           const rev =
             numCsv(row.sales) ||
             numCsv(row.revenue) ||
-            numCsv(row['売上高']) ||
-            numCsv(row['売上']) ||
-            numCsv(row['売上収益']);
+            numCsv(row['螢ｲ荳企ｫ・]) ||
+            numCsv(row['螢ｲ荳・]) ||
+            numCsv(row['螢ｲ荳雁庶逶・]);
           csvSales += rev;
 
           const op =
             numCsv(row.operatingProfit) ||
             numCsv(row.op) ||
-            numCsv(row['営業利益']) ||
+            numCsv(row['蝟ｶ讌ｭ蛻ｩ逶・]) ||
             0;
           csvOp += op;
         }
@@ -472,7 +472,7 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
     }
   }
 
-  /* ---------- 最終的に annualSales がまだ 0 の場合はゼロベース ---------- */
+  /* ---------- 譛邨ら噪縺ｫ annualSales 縺後∪縺 0 縺ｮ蝣ｴ蜷医・繧ｼ繝ｭ繝吶・繧ｹ ---------- */
   if (!annualSales) {
     const monthlyRevenue = 0;
     const monthlyCogs = 0;
@@ -502,13 +502,13 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
     };
   }
 
-  /* ---------- annualCogs / annualSga の分解（50:50） ---------- */
+  /* ---------- annualCogs / annualSga 縺ｮ蛻・ｧ｣・・0:50・・---------- */
   const grossForCogsAndSga = annualSales - annualOp;
   if (grossForCogsAndSga > 0) {
     annualCogs = grossForCogsAndSga / 2;
     annualSga = grossForCogsAndSga / 2;
   } else {
-    // 営業利益が売上を超えているなど、異常なケースではとりあえず 40:40:20 に分解
+    // 蝟ｶ讌ｭ蛻ｩ逶翫′螢ｲ荳翫ｒ雜・∴縺ｦ縺・ｋ縺ｪ縺ｩ縲∫焚蟶ｸ縺ｪ繧ｱ繝ｼ繧ｹ縺ｧ縺ｯ縺ｨ繧翫≠縺医★ 40:40:20 縺ｫ蛻・ｧ｣
     annualCogs = annualSales * 0.4;
     annualSga = annualSales * 0.4;
     annualOp = annualSales - annualCogs - annualSga;
@@ -518,7 +518,7 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
   const monthlyCogs = annualCogs / 12;
   const monthlySga = annualSga / 12;
 
-  const defaultChurn = 0.02; // 月次 2% をデフォルト
+  const defaultChurn = 0.02; // 譛域ｬ｡ 2% 繧偵ョ繝輔か繝ｫ繝・
   const defaultArpu = 12_000;
   const defaultQty = Math.max(
     1_000,
@@ -550,13 +550,13 @@ function deriveBaseFromStrategy(strategy: any): DerivedBase {
   };
 }
 
-/* ============ 事業ポートフォリオ → ベース成長率 ============ */
+/* ============ 莠区･ｭ繝昴・繝医ヵ繧ｩ繝ｪ繧ｪ 竊・繝吶・繧ｹ謌宣聞邇・============ */
 
 /**
- * businessPortfolio.units の「シェア × 成長率」の加重平均から、
- * 会社全体の年率成長率（何もしなかった場合のベースライン）を推定する。
- * - 成長率は -0.05 や 0.1 のような比率、あるいは -5, +10 のような％表記を想定
- * - 単位の混在にも耐えるよう、|g| <= 1 はそのまま比率、|g| > 1 は 100 で割って％とみなす
+ * businessPortfolio.units 縺ｮ縲後す繧ｧ繧｢ ﾃ・謌宣聞邇・阪・蜉驥榊ｹｳ蝮・°繧峨・
+ * 莨夂､ｾ蜈ｨ菴薙・蟷ｴ邇・・髟ｷ邇・ｼ井ｽ輔ｂ縺励↑縺九▲縺溷ｴ蜷医・繝吶・繧ｹ繝ｩ繧､繝ｳ・峨ｒ謗ｨ螳壹☆繧九・
+ * - 謌宣聞邇・・ -0.05 繧・0.1 縺ｮ繧医≧縺ｪ豈皮紫縲√≠繧九＞縺ｯ -5, +10 縺ｮ繧医≧縺ｪ・・｡ｨ險倥ｒ諠ｳ螳・
+ * - 蜊倅ｽ阪・豺ｷ蝨ｨ縺ｫ繧り舌∴繧九ｈ縺・－g| <= 1 縺ｯ縺昴・縺ｾ縺ｾ豈皮紫縲－g| > 1 縺ｯ 100 縺ｧ蜑ｲ縺｣縺ｦ・・→縺ｿ縺ｪ縺・
  */
 function derivePortfolioGrowth(strategy: any): number {
   const units: any[] = Array.isArray(strategy?.businessPortfolio?.units)
@@ -569,7 +569,7 @@ function derivePortfolioGrowth(strategy: any): number {
     if (v === undefined || v === null || v === '') return 0;
     if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
     if (typeof v === 'string') {
-      const normalized = v.replace(/[,\s％%]/g, '');
+      const normalized = v.replace(/[,\s・・]/g, '');
       const n = Number(normalized);
       return Number.isFinite(n) ? n : 0;
     }
@@ -585,7 +585,7 @@ function derivePortfolioGrowth(strategy: any): number {
             u.weight ??
             u.revenueShare ??
             u.salesShare ??
-            u['比率'],
+            u['豈皮紫'],
         ) || 0;
 
       let g = num(
@@ -593,10 +593,10 @@ function derivePortfolioGrowth(strategy: any): number {
           u.growth ??
           u.growthPct ??
           u.expectedGrowth ??
-          u['成長率'],
+          u['謌宣聞邇・],
       );
 
-      // |g| <= 1 ならそのまま比率、|g| > 1 なら ％表記とみなして 100 で割る
+      // |g| <= 1 縺ｪ繧峨◎縺ｮ縺ｾ縺ｾ豈皮紫縲－g| > 1 縺ｪ繧・・・｡ｨ險倥→縺ｿ縺ｪ縺励※ 100 縺ｧ蜑ｲ繧・
       if (Math.abs(g) > 1) {
         g = g / 100;
       }
@@ -611,10 +611,10 @@ function derivePortfolioGrowth(strategy: any): number {
   const weightedGrowth =
     normalized.reduce((acc, x) => acc + x.share * x.g, 0) / totalShare;
 
-  return weightedGrowth; // 例: -0.05 = -5%/year
+  return weightedGrowth; // 萓・ -0.05 = -5%/year
 }
 
-/* ============ チャート用ツールチップ ============ */
+/* ============ 繝√Ε繝ｼ繝育畑繝・・繝ｫ繝√ャ繝・============ */
 function ImpactTooltip({ active, payload }: any) {
   if (!active || !payload || !payload.length) return null;
   const p = payload[0].payload as {
@@ -630,19 +630,19 @@ function ImpactTooltip({ active, payload }: any) {
         {p.yearLabel}
       </div>
       {typeof p.sales === 'number' && (
-        <div>売上：{fmtJPY(p.sales)}</div>
+        <div>螢ｲ荳奇ｼ嘴fmtJPY(p.sales)}</div>
       )}
       {typeof p.op === 'number' && (
-        <div>営業利益：{fmtJPY(p.op)}</div>
+        <div>蝟ｶ讌ｭ蛻ｩ逶奇ｼ嘴fmtJPY(p.op)}</div>
       )}
       {typeof p.probPct === 'number' && (
-        <div>成功確率：{p.probPct.toFixed(0)}%</div>
+        <div>謌仙粥遒ｺ邇・ｼ嘴p.probPct.toFixed(0)}%</div>
       )}
     </div>
   );
 }
 
-/* ============ 小さい数値入力 ============ */
+/* ============ 蟆上＆縺・焚蛟､蜈･蜉・============ */
 function Num({
   label,
   value,
@@ -689,7 +689,7 @@ export default function SimulationDashboard({
     [s],
   );
 
-  /* ---------------- 共通：部門 & 構造化KR（okrsV2） ---------------- */
+  /* ---------------- 蜈ｱ騾夲ｼ夐Κ髢 & 讒矩蛹訪R・・krsV2・・---------------- */
 
   const departments: Department[] = Array.isArray(s?.departments)
     ? s.departments
@@ -700,28 +700,28 @@ export default function SimulationDashboard({
     [departments],
   );
 
-  /* ---------------- Ver4：OKR→PL シミュレーション本体 ---------------- */
+  /* ---------------- Ver4・唹KR竊単L 繧ｷ繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ譛ｬ菴・---------------- */
 
   const derivedBase = useMemo(
     () => deriveBaseFromStrategy(s),
     [s],
   );
 
-  // ★ 追加：事業ポートフォリオから年率成長率を推定
+  // 笘・霑ｽ蜉・壻ｺ区･ｭ繝昴・繝医ヵ繧ｩ繝ｪ繧ｪ縺九ｉ蟷ｴ邇・・髟ｷ邇・ｒ謗ｨ螳・
   const portfolioGrowth = useMemo(
     () => derivePortfolioGrowth(s),
     [s],
   );
 
-  // デバッグ用ログ
+  // 繝・ヰ繝・げ逕ｨ繝ｭ繧ｰ
   console.log('[SIM] derivedBase', derivedBase);
   console.log('[SIM] portfolioGrowth (annual)', portfolioGrowth);
 
-  // 期間（デフォルトは 3年分：2025-04 〜 2028-03）
+  // 譛滄俣・医ョ繝輔か繝ｫ繝医・ 3蟷ｴ蛻・ｼ・025-04 縲・2028-03・・
   const [startYm, setStartYm] = useState<Ym>('2025-04');
   const [endYm, setEndYm] = useState<Ym>('2028-03');
 
-  // ベース値（初期値は財務サマリー/CSVから推定）
+  // 繝吶・繧ｹ蛟､・亥・譛溷､縺ｯ雋｡蜍吶し繝槭Μ繝ｼ/CSV縺九ｉ謗ｨ螳夲ｼ・
   const [baseQty, setBaseQty] = useState<number>(
     derivedBase.defaultQty,
   );
@@ -741,7 +741,7 @@ export default function SimulationDashboard({
     derivedBase.defaultPersonnel,
   );
 
-  // 財務基準が変わったらベース値を更新（会社切替時など）
+  // 雋｡蜍吝渕貅悶′螟峨ｏ縺｣縺溘ｉ繝吶・繧ｹ蛟､繧呈峩譁ｰ・井ｼ夂､ｾ蛻・崛譎ゅ↑縺ｩ・・
   useEffect(() => {
     setBaseQty(derivedBase.defaultQty);
     setBaseArpu(derivedBase.defaultArpu);
@@ -761,7 +761,7 @@ export default function SimulationDashboard({
 
   const baseFigures = useMemo<BaseFigures>(
     () => ({
-      // ACQベース：現状維持に必要な新規獲得数として Churn × Qty
+      // ACQ繝吶・繧ｹ・夂樟迥ｶ邯ｭ謖√↓蠢・ｦ√↑譁ｰ隕冗佐蠕玲焚縺ｨ縺励※ Churn ﾃ・Qty
       acq: baseQty * baseChurn,
       arpu: baseArpu,
       churn: baseChurn,
@@ -786,7 +786,7 @@ export default function SimulationDashboard({
           variable: baseVariable,
           personnel: basePersonnel,
         },
-        portfolioGrowth, // ★ ポートフォリオの年率成長をベースラインに反映
+        portfolioGrowth, // 笘・繝昴・繝医ヵ繧ｩ繝ｪ繧ｪ縺ｮ蟷ｴ邇・・髟ｷ繧偵・繝ｼ繧ｹ繝ｩ繧､繝ｳ縺ｫ蜿肴丐
       ),
     [
       startYm,
@@ -832,7 +832,7 @@ export default function SimulationDashboard({
     [bridgeInput],
   );
 
-  // ★ デバッグ：OKRからのデルタ（最初の数ヶ月だけ確認）
+  // 笘・繝・ヰ繝・げ・唹KR縺九ｉ縺ｮ繝・Ν繧ｿ・域怙蛻昴・謨ｰ繝ｶ譛医□縺醍｢ｺ隱搾ｼ・
   console.log('[SIM] deltas sample', {
     revenue: Object.values(deltas.revenue || {}).slice(0, 3),
     acq: Object.values(deltas.acq || {}).slice(0, 3),
@@ -852,17 +852,17 @@ export default function SimulationDashboard({
     [monthly],
   );
 
-  // ★ デバッグ：年次PL（Y1〜Y3の売上・営業利益）
+  // 笘・繝・ヰ繝・げ・壼ｹｴ谺｡PL・・1縲弸3縺ｮ螢ｲ荳翫・蝟ｶ讌ｭ蛻ｩ逶奇ｼ・
   console.log('[SIM] yearly', yearly);
 
-  /* ---------------- 構造化KR → 成功確率用のKRStruct ---------------- */
+  /* ---------------- 讒矩蛹訪R 竊・謌仙粥遒ｺ邇・畑縺ｮKRStruct ---------------- */
 
   const krsForProb: KRStruct[] = useMemo(
     () => okrsV2ToKRStruct(allKRs),
     [allKRs],
   );
 
-  /* ---------------- 上部：3年（or 期間）予測 ＆ 成功確率 ---------------- */
+  /* ---------------- 荳企Κ・・蟷ｴ・・r 譛滄俣・我ｺ域ｸｬ ・・謌仙粥遒ｺ邇・---------------- */
 
   const { projection, finalProb, baseForDelta } = useMemo(() => {
     if (!hasAnyServerBackedContent) {
@@ -884,7 +884,7 @@ export default function SimulationDashboard({
       };
     }
 
-    // ★ 修正：3年分（Y1〜Y3）に限定しつつ、年ラベルは相対的に Y1, Y2, Y3 として扱う
+    // 笘・菫ｮ豁｣・・蟷ｴ蛻・ｼ・1縲弸3・峨↓髯仙ｮ壹＠縺､縺､縲∝ｹｴ繝ｩ繝吶Ν縺ｯ逶ｸ蟇ｾ逧・↓ Y1, Y2, Y3 縺ｨ縺励※謇ｱ縺・
     const limitedYearly = yearly.slice(0, 3);
     const points = limitedYearly.map((y: any, idx: number) => ({
       year: (`Y${idx + 1}` as 'Y1' | 'Y2' | 'Y3'),
@@ -949,7 +949,7 @@ export default function SimulationDashboard({
     };
   }, [y3, baseForDelta]);
 
-  /* ---------------- 部門別シミュレーション用 ---------------- */
+  /* ---------------- 驛ｨ髢蛻･繧ｷ繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ逕ｨ ---------------- */
 
   const deptOptions = useMemo(
     () =>
@@ -962,7 +962,7 @@ export default function SimulationDashboard({
             `dept-${idx}`,
         );
         const label =
-          (d as any).name ?? (d as any).departmentName ?? `部門${idx + 1}`;
+          (d as any).name ?? (d as any).departmentName ?? `驛ｨ髢${idx + 1}`;
         return { key, label };
       }),
     [departments],
@@ -1039,7 +1039,7 @@ export default function SimulationDashboard({
     [deptMonthly],
   );
 
-  /* ---------------- 事業ポートフォリオ（STEP2）別インパクト ---------------- */
+  /* ---------------- 莠区･ｭ繝昴・繝医ヵ繧ｩ繝ｪ繧ｪ・・TEP2・牙挨繧､繝ｳ繝代け繝・---------------- */
 
   type BusinessUnitView = {
     key: string;
@@ -1056,7 +1056,7 @@ export default function SimulationDashboard({
         u.id ?? u.key ?? u.code ?? u.businessId ?? `biz-${idx}`,
       ),
       label: String(
-        u.label ?? u.name ?? u.businessName ?? `事業${idx + 1}`,
+        u.label ?? u.name ?? u.businessName ?? `莠区･ｭ${idx + 1}`,
       ),
       share:
         Number(
@@ -1078,7 +1078,7 @@ export default function SimulationDashboard({
 
     if (!baseRevenue && !baseOp) return [] as any[];
 
-    // シェアの正規化（全部0なら均等割り）
+    // 繧ｷ繧ｧ繧｢縺ｮ豁｣隕丞喧・亥・驛ｨ0縺ｪ繧牙插遲牙牡繧奇ｼ・
     const totalShare = businessUnits.reduce(
       (sum, u) => sum + (u.share > 0 ? u.share : 0),
       0,
@@ -1108,7 +1108,7 @@ export default function SimulationDashboard({
     });
   }, [yearly, businessUnits]);
 
-  /* ---------------- 保存＆履歴 ---------------- */
+  /* ---------------- 菫晏ｭ假ｼ・ｱ･豁ｴ ---------------- */
 
   const [saving, setSaving] = useState(false);
   const [history, setHistory] = useState<SimulationLogRowLite[]>([]);
@@ -1132,7 +1132,7 @@ export default function SimulationDashboard({
       setHistory((rows || []) as SimulationLogRowLite[]);
     } catch (e) {
       console.error('getSimulationResults error:', e);
-      setNotice('❌ シミュレーション履歴の取得に失敗しました');
+      setNotice('笶・繧ｷ繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ螻･豁ｴ縺ｮ蜿門ｾ励↓螟ｱ謨励＠縺ｾ縺励◆');
     } finally {
       setLoadingHist(false);
     }
@@ -1144,12 +1144,12 @@ export default function SimulationDashboard({
 
   const handleSave = async () => {
     if (!userId) {
-      setNotice('⚠️ ログインが必要です');
+      setNotice('笞・・繝ｭ繧ｰ繧､繝ｳ縺悟ｿ・ｦ√〒縺・);
       return;
     }
     if (isHydrating) {
       setNotice(
-        '⚠️ データ読み込み中です。完了後に保存してください。',
+        '笞・・繝・・繧ｿ隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ縺ｧ縺吶ょｮ御ｺ・ｾ後↓菫晏ｭ倥＠縺ｦ縺上□縺輔＞縲・,
       );
       return;
     }
@@ -1157,7 +1157,7 @@ export default function SimulationDashboard({
       !hasAnyServerBackedContent ||
       (projection.points || []).length === 0
     ) {
-      setNotice('⚠️ 保存対象のシミュレーション結果がありません');
+      setNotice('笞・・菫晏ｭ伜ｯｾ雎｡縺ｮ繧ｷ繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ邨先棡縺後≠繧翫∪縺帙ｓ');
       return;
     }
     setSaving(true);
@@ -1182,7 +1182,7 @@ export default function SimulationDashboard({
         finalProb,
         meta: {
           label: new Date().toLocaleString(),
-          note: 'auto-saved from /simulation',
+          note: 'auto-saved from /stage6',
         },
       } as const;
 
@@ -1196,11 +1196,11 @@ export default function SimulationDashboard({
       );
       if (error) throw error;
 
-      setNotice('✅ シミュレーション結果を保存しました');
+      setNotice('笨・繧ｷ繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ邨先棡繧剃ｿ晏ｭ倥＠縺ｾ縺励◆');
       await loadHistory();
     } catch (e) {
       console.error('appendSimulationResultToStrategy error:', e);
-      setNotice('❌ シミュレーション結果の保存に失敗しました');
+      setNotice('笶・繧ｷ繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ邨先棡縺ｮ菫晏ｭ倥↓螟ｱ謨励＠縺ｾ縺励◆');
     } finally {
       setSaving(false);
       setTimeout(() => setNotice(''), 3500);
@@ -1221,19 +1221,19 @@ export default function SimulationDashboard({
 
   return (
     <>
-      {/* Hydration 状態 */}
+      {/* Hydration 迥ｶ諷・*/}
       {isHydrating && (
         <div className="mb-4 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-[13px] text-zinc-600 shadow-sm">
-          サーバーのデータを読み込み中です…
+          繧ｵ繝ｼ繝舌・縺ｮ繝・・繧ｿ繧定ｪｭ縺ｿ霎ｼ縺ｿ荳ｭ縺ｧ縺吮ｦ
         </div>
       )}
 
-      {/* メッセージ */}
+      {/* 繝｡繝・そ繝ｼ繧ｸ */}
       {notice && (
         <div
           role="alert"
           className={`mb-4 rounded-2xl border px-3 py-2 text-[13px] shadow-sm ${
-            notice.includes('❌')
+            notice.includes('笶・)
               ? 'border-rose-200 bg-rose-50 text-rose-700'
               : 'border-emerald-200 bg-emerald-50 text-emerald-700'
           }`}
@@ -1242,15 +1242,15 @@ export default function SimulationDashboard({
         </div>
       )}
 
-      {/* データ無しの明示 */}
+      {/* 繝・・繧ｿ辟｡縺励・譏守､ｺ */}
       {!isHydrating && !hasAnyServerBackedContent && (
         <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-900">
-          この会社の戦略データはまだ作成されていません（または全削除済み）です。
-          STAGE1〜5で編集・保存すると、ここにシミュレーション結果が表示されます。
+          縺薙・莨夂､ｾ縺ｮ謌ｦ逡･繝・・繧ｿ縺ｯ縺ｾ縺菴懈・縺輔ｌ縺ｦ縺・∪縺帙ｓ・医∪縺溘・蜈ｨ蜑企勁貂医∩・峨〒縺吶・
+          STAGE1縲・縺ｧ邱ｨ髮・・菫晏ｭ倥☆繧九→縲√％縺薙↓繧ｷ繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ邨先棡縺瑚｡ｨ遉ｺ縺輔ｌ縺ｾ縺吶・
         </div>
       )}
 
-      {/* ① ヒーロー：会社全体のインパクト */}
+      {/* 竭 繝偵・繝ｭ繝ｼ・壻ｼ夂､ｾ蜈ｨ菴薙・繧､繝ｳ繝代け繝・*/}
       <section className="mb-8 rounded-3xl bg-gradient-to-br from-white via-slate-50 to-slate-100 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.12)] ring-1 ring-slate-200 md:p-7">
         <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
           <div className="space-y-3">
@@ -1258,64 +1258,64 @@ export default function SimulationDashboard({
               COMPANY IMPACT
             </p>
             <h2 className="text-xl font-semibold text-slate-900 md:text-2xl">
-              このOKRをやり切ったとき、業績はどこまで伸びるか？
+              縺薙・OKR繧偵ｄ繧雁・縺｣縺溘→縺阪∵･ｭ邵ｾ縺ｯ縺ｩ縺薙∪縺ｧ莨ｸ縺ｳ繧九°・・
             </h2>
             <p className="text-[13px] text-slate-600 md:text-sm">
-              CSV財務データと、各部門のプロジェクト / 構造化KR をつなぎ、
-              <span className="font-medium">売上・営業利益・成功確率</span>
-              を一体で試算しています。
+              CSV雋｡蜍吶ョ繝ｼ繧ｿ縺ｨ縲∝推驛ｨ髢縺ｮ繝励Ο繧ｸ繧ｧ繧ｯ繝・/ 讒矩蛹訪R 繧偵▽縺ｪ縺弱・
+              <span className="font-medium">螢ｲ荳翫・蝟ｶ讌ｭ蛻ｩ逶翫・謌仙粥遒ｺ邇・/span>
+              繧剃ｸ菴薙〒隧ｦ邂励＠縺ｦ縺・∪縺吶・
             </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
             <StatCard
-              label="Y3 売上インパクト"
-              value={y3 ? fmtJPY(deltaVsBase.deltaSales) : '—'}
+              label="Y3 螢ｲ荳翫う繝ｳ繝代け繝・
+              value={y3 ? fmtJPY(deltaVsBase.deltaSales) : '窶・}
               caption={
-                y3 ? 'ベース比の増加額（推計）' : 'STEP4のCSV/STEP3の財務サマリーが必要です'
+                y3 ? '繝吶・繧ｹ豈斐・蠅怜刈鬘搾ｼ域耳險茨ｼ・ : 'STEP4縺ｮCSV/STEP3縺ｮ雋｡蜍吶し繝槭Μ繝ｼ縺悟ｿ・ｦ√〒縺・
               }
             />
             <StatCard
-              label="Y3 営業利益インパクト"
-              value={y3 ? fmtJPY(deltaVsBase.deltaOp) : '—'}
+              label="Y3 蝟ｶ讌ｭ蛻ｩ逶翫う繝ｳ繝代け繝・
+              value={y3 ? fmtJPY(deltaVsBase.deltaOp) : '窶・}
               caption={
-                y3 ? 'ベース比の増加額（推計）' : 'STEP4のCSV/STEP3の財務サマリーが必要です'
+                y3 ? '繝吶・繧ｹ豈斐・蠅怜刈鬘搾ｼ域耳險茨ｼ・ : 'STEP4縺ｮCSV/STEP3縺ｮ雋｡蜍吶し繝槭Μ繝ｼ縺悟ｿ・ｦ√〒縺・
               }
             />
             <StatCard
-              label="成功確率"
+              label="謌仙粥遒ｺ邇・
               value={
                 Number.isFinite(finalProb)
                   ? `${Math.round(finalProb * 100)}%`
-                  : '—'
+                  : '窶・
               }
               caption={
                 krsForProb.length
-                  ? '構造化KRの整合性・難易度を加味した成功確率'
-                  : '構造化KRの設定が必要です'
+                  ? '讒矩蛹訪R縺ｮ謨ｴ蜷域ｧ繝ｻ髮｣譏灘ｺｦ繧貞刈蜻ｳ縺励◆謌仙粥遒ｺ邇・
+                  : '讒矩蛹訪R縺ｮ險ｭ螳壹′蠢・ｦ√〒縺・
               }
             />
           </div>
         </div>
       </section>
 
-      {/* ② 3年予測：指標ごとにグラフを分割 */}
+      {/* 竭｡ 3蟷ｴ莠域ｸｬ・壽欠讓吶＃縺ｨ縺ｫ繧ｰ繝ｩ繝輔ｒ蛻・牡 */}
       <section className="mb-8 grid gap-6 md:grid-cols-[minmax(0,2.1fr)_minmax(0,1.1fr)]">
         <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-md">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-[15px] font-medium text-slate-900">
-              売上・営業利益・成功確率（3年予測）
+              螢ｲ荳翫・蝟ｶ讌ｭ蛻ｩ逶翫・謌仙粥遒ｺ邇・ｼ・蟷ｴ莠域ｸｬ・・
             </h3>
             <span className="text-[11px] text-slate-400">
-              STEP4 CSV + STEP3 財務サマリー + STEP4 構造化KR
+              STEP4 CSV + STEP3 雋｡蜍吶し繝槭Μ繝ｼ + STEP4 讒矩蛹訪R
             </span>
           </div>
           {hasAnyServerBackedContent && chartData.length > 0 ? (
             <div className="grid gap-3 md:grid-cols-3">
-              {/* 売上 */}
+              {/* 螢ｲ荳・*/}
               <div>
                 <div className="mb-1 text-[12px] font-medium text-slate-700">
-                  売上（年次）
+                  螢ｲ荳奇ｼ亥ｹｴ谺｡・・
                 </div>
                 <div className="h-40">
                   <ResponsiveContainer width="100%" height="100%">
@@ -1346,7 +1346,7 @@ export default function SimulationDashboard({
                       <Line
                         type="monotone"
                         dataKey="sales"
-                        name="売上"
+                        name="螢ｲ荳・
                         dot={false}
                         stroke="#0ea5e9"
                       />
@@ -1355,10 +1355,10 @@ export default function SimulationDashboard({
                 </div>
               </div>
 
-              {/* 営業利益 */}
+              {/* 蝟ｶ讌ｭ蛻ｩ逶・*/}
               <div>
                 <div className="mb-1 text-[12px] font-medium text-slate-700">
-                  営業利益（年次）
+                  蝟ｶ讌ｭ蛻ｩ逶奇ｼ亥ｹｴ谺｡・・
                 </div>
                 <div className="h-40">
                   <ResponsiveContainer width="100%" height="100%">
@@ -1389,7 +1389,7 @@ export default function SimulationDashboard({
                       <Line
                         type="monotone"
                         dataKey="op"
-                        name="営業利益"
+                        name="蝟ｶ讌ｭ蛻ｩ逶・
                         dot={false}
                         stroke="#22c55e"
                       />
@@ -1398,10 +1398,10 @@ export default function SimulationDashboard({
                 </div>
               </div>
 
-              {/* 成功確率 */}
+              {/* 謌仙粥遒ｺ邇・*/}
               <div>
                 <div className="mb-1 text-[12px] font-medium text-slate-700">
-                  成功確率（%）
+                  謌仙粥遒ｺ邇・ｼ・・・
                 </div>
                 <div className="h-40">
                   <ResponsiveContainer width="100%" height="100%">
@@ -1432,7 +1432,7 @@ export default function SimulationDashboard({
                       <Line
                         type="monotone"
                         dataKey="probPct"
-                        name="成功確率"
+                        name="謌仙粥遒ｺ邇・
                         dot={false}
                         stroke="#f97316"
                       />
@@ -1443,66 +1443,66 @@ export default function SimulationDashboard({
             </div>
           ) : (
             <div className="grid h-64 place-items-center text-sm text-slate-400">
-              表示できる予測データがありません。
+              陦ｨ遉ｺ縺ｧ縺阪ｋ莠域ｸｬ繝・・繧ｿ縺後≠繧翫∪縺帙ｓ縲・
               <br />
-              STEP4 のCSV・STEP3の財務サマリー・各部門の構造化KRを設定すると表示されます。
+              STEP4 縺ｮCSV繝ｻSTEP3縺ｮ雋｡蜍吶し繝槭Μ繝ｼ繝ｻ蜷・Κ髢縺ｮ讒矩蛹訪R繧定ｨｭ螳壹☆繧九→陦ｨ遉ｺ縺輔ｌ縺ｾ縺吶・
             </div>
           )}
         </div>
 
-        {/* 試算の要約 */}
+        {/* 隧ｦ邂励・隕∫ｴ・*/}
         <div className="flex flex-col justify-between gap-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-md">
           <div>
             <h3 className="mb-2 text-[15px] font-medium text-slate-900">
-              試算の要約
+              隧ｦ邂励・隕∫ｴ・
             </h3>
             {hasAnyServerBackedContent && y3 ? (
               <ul className="space-y-1 text-[13px] text-slate-700">
                 <li>
-                  Y3 売上： <b>{fmtNum(Math.round(y3.sales))}</b>
+                  Y3 螢ｲ荳奇ｼ・<b>{fmtNum(Math.round(y3.sales))}</b>
                   {baseForDelta.year0Sales ? (
                     <>
                       {' '}
-                      （ベース{' '}
+                      ・医・繝ｼ繧ｹ{' '}
                       {fmtNum(
                         Math.round(baseForDelta.year0Sales),
                       )}
-                      →
+                      竊・
                       {Math.round(
                         (y3.sales /
                           (baseForDelta.year0Sales || 1)) *
                           100,
                       )}
-                      %）
+                      %・・
                     </>
                   ) : null}
                 </li>
                 <li>
-                  Y3 営業利益：{' '}
+                  Y3 蝟ｶ讌ｭ蛻ｩ逶奇ｼ嘴' '}
                   <b>{fmtNum(Math.round(y3.op))}</b>
                   {baseForDelta.year0Op ? (
                     <>
                       {' '}
-                      （ベース{' '}
+                      ・医・繝ｼ繧ｹ{' '}
                       {fmtNum(Math.round(baseForDelta.year0Op))}
-                      →
+                      竊・
                       {Math.round(
                         (y3.op /
                           (baseForDelta.year0Op || 1)) *
                           100,
                       )}
-                      %）
+                      %・・
                     </>
                   ) : null}
                 </li>
                 <li>
-                  成功確率（最終）：{' '}
+                  謌仙粥遒ｺ邇・ｼ域怙邨ゑｼ会ｼ嘴' '}
                   <b>{Math.round(finalProb * 100)}%</b>
                 </li>
               </ul>
             ) : (
               <p className="text-[13px] text-slate-400">
-                試算サマリーを表示できるデータがありません。
+                隧ｦ邂励し繝槭Μ繝ｼ繧定｡ｨ遉ｺ縺ｧ縺阪ｋ繝・・繧ｿ縺後≠繧翫∪縺帙ｓ縲・
               </p>
             )}
           </div>
@@ -1512,56 +1512,56 @@ export default function SimulationDashboard({
               onClick={() => {
                 if (isHydrating) {
                   setNotice(
-                    '⚠️ 読み込み中は再計算メッセージのみ表示します。',
+                    '笞・・隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ縺ｯ蜀崎ｨ育ｮ励Γ繝・そ繝ｼ繧ｸ縺ｮ縺ｿ陦ｨ遉ｺ縺励∪縺吶・,
                   );
                   setTimeout(() => setNotice(''), 2500);
                   return;
                 }
                 setNotice(
-                  'ℹ️ STEP1〜4 の入力更新ごとに、3年予測は自動的に再計算されています。',
+                  '邃ｹ・・STEP1縲・ 縺ｮ蜈･蜉帶峩譁ｰ縺斐→縺ｫ縲・蟷ｴ莠域ｸｬ縺ｯ閾ｪ蜍慕噪縺ｫ蜀崎ｨ育ｮ励＆繧後※縺・∪縺吶・,
                 );
                 setTimeout(() => setNotice(''), 3000);
               }}
               disabled={isHydrating}
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px] text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-60"
             >
-              施策影響を再確認
+              譁ｽ遲門ｽｱ髻ｿ繧貞・遒ｺ隱・
             </button>
             <button
               disabled={saving || !userId || isHydrating}
               onClick={handleSave}
               className="w-full rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-[13px] text-emerald-800 shadow-sm hover:bg-emerald-100 disabled:opacity-60"
             >
-              {saving ? '保存中…' : 'この試算を履歴に保存'}
+              {saving ? '菫晏ｭ倅ｸｭ窶ｦ' : '縺薙・隧ｦ邂励ｒ螻･豁ｴ縺ｫ菫晏ｭ・}
             </button>
             {!userId && (
               <p className="text-[11px] text-slate-500">
-                ログインすると、シミュレーション履歴を保存できます。
+                繝ｭ繧ｰ繧､繝ｳ縺吶ｋ縺ｨ縲√す繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ螻･豁ｴ繧剃ｿ晏ｭ倥〒縺阪∪縺吶・
               </p>
             )}
           </div>
         </div>
       </section>
 
-      {/* ③ OKR → PL（全社・新エンジン） */}
+      {/* 竭｢ OKR 竊・PL・亥・遉ｾ繝ｻ譁ｰ繧ｨ繝ｳ繧ｸ繝ｳ・・*/}
       <section className="mb-8 rounded-3xl border border-slate-200 bg-white p-5 shadow-md md:p-6">
         <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
           <div>
             <h2 className="text-[15px] font-semibold text-slate-900 md:text-[16px]">
-              OKR → PL（数量 × 単価 × 継続率 ベース）
+              OKR 竊・PL・域焚驥・ﾃ・蜊倅ｾ｡ ﾃ・邯咏ｶ夂紫 繝吶・繧ｹ・・
             </h2>
             <p className="mt-1 text-[13px] text-slate-600">
-              STEP4 で設定した
-              <span className="font-medium">構造化KR</span>
-              を係数に変換し、ベースとなる PL 軌道に重ねて、
+              STEP4 縺ｧ險ｭ螳壹＠縺・
+              <span className="font-medium">讒矩蛹訪R</span>
+              繧剃ｿよ焚縺ｫ螟画鋤縺励√・繝ｼ繧ｹ縺ｨ縺ｪ繧・PL 霆碁％縺ｫ驥阪・縺ｦ縲・
               <span className="font-medium">
-                売上・COGS・SG&A・営業利益
+                螢ｲ荳翫・COGS繝ｻSG&A繝ｻ蝟ｶ讌ｭ蛻ｩ逶・
               </span>
-              の変化を試算します。
+              縺ｮ螟牙喧繧定ｩｦ邂励＠縺ｾ縺吶・
             </p>
           </div>
           <div className="text-[12px] text-slate-500">
-            構造化KR 件数：{' '}
+            讒矩蛹訪R 莉ｶ謨ｰ・嘴' '}
             <span className="font-semibold text-slate-900">
               {allKRs.length}
             </span>
@@ -1570,25 +1570,25 @@ export default function SimulationDashboard({
 
         {!hasAnyServerBackedContent ? (
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-[13px] text-slate-600">
-            戦略データがまだ無いため、PLシミュレーションは表示できません。
-            STEP3 の財務サマリー / STEP4 のCSV と 構造化KR を設定してください。
+            謌ｦ逡･繝・・繧ｿ縺後∪縺辟｡縺・◆繧√￣L繧ｷ繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ縺ｯ陦ｨ遉ｺ縺ｧ縺阪∪縺帙ｓ縲・
+            STEP3 縺ｮ雋｡蜍吶し繝槭Μ繝ｼ / STEP4 縺ｮCSV 縺ｨ 讒矩蛹訪R 繧定ｨｭ螳壹＠縺ｦ縺上□縺輔＞縲・
           </div>
         ) : (
           <>
-            {/* ベース条件 */}
+            {/* 繝吶・繧ｹ譚｡莉ｶ */}
             <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <div className="mb-3 flex items-center justify-between gap-2">
                 <div>
                   <h3 className="text-[14px] font-medium text-slate-900">
-                    ベース条件（現在の事業の状態）
+                    繝吶・繧ｹ譚｡莉ｶ・育樟蝨ｨ縺ｮ莠区･ｭ縺ｮ迥ｶ諷具ｼ・
                   </h3>
                   <p className="mt-1 text-[12px] text-slate-500">
-                    STEP4 のCSV / STEP3 の財務サマリーから推定した月次ベースを初期値にしています。
-                    必要に応じて微調整してください。
+                    STEP4 縺ｮCSV / STEP3 縺ｮ雋｡蜍吶し繝槭Μ繝ｼ縺九ｉ謗ｨ螳壹＠縺滓怦谺｡繝吶・繧ｹ繧貞・譛溷､縺ｫ縺励※縺・∪縺吶・
+                    蠢・ｦ√↓蠢懊§縺ｦ蠕ｮ隱ｿ謨ｴ縺励※縺上□縺輔＞縲・
                   </p>
                 </div>
                 <div className="text-right text-[11px] text-slate-500">
-                  ベース月次売上（推定）：
+                  繝吶・繧ｹ譛域ｬ｡螢ｲ荳奇ｼ域耳螳夲ｼ会ｼ・
                   <br />
                   <span className="font-semibold text-slate-900">
                     {fmtJPY(derivedBase.monthlyRevenue)}
@@ -1599,7 +1599,7 @@ export default function SimulationDashboard({
               <div className="grid gap-3 md:grid-cols-3">
                 <div>
                   <div className="text-[11px] text-slate-500">
-                    期間（YYYY-MM）
+                    譛滄俣・・YYY-MM・・
                   </div>
                   <div className="mt-1 grid grid-cols-[1.1fr_1.1fr_auto] gap-2">
                     <input
@@ -1617,31 +1617,31 @@ export default function SimulationDashboard({
                       }
                     />
                     <span className="flex items-center text-[11px] text-slate-500">
-                      {ymRange(startYm, endYm).length} ヶ月
+                      {ymRange(startYm, endYm).length} 繝ｶ譛・
                     </span>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <Num
-                    label="Base 顧客数（Qty）"
+                    label="Base 鬘ｧ螳｢謨ｰ・・ty・・
                     value={baseQty}
                     setValue={setBaseQty}
                   />
                   <Num
-                    label="Base ARPU（円）"
+                    label="Base ARPU・亥・・・
                     value={baseArpu}
                     setValue={setBaseArpu}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <Num
-                    label="Base Churn（率）"
+                    label="Base Churn・育紫・・
                     value={baseChurn}
                     setValue={setBaseChurn}
                     step="0.001"
                   />
                   <Num
-                    label="構造KRの期間（遅行含む）"
+                    label="讒矩KR縺ｮ譛滄俣・磯≦陦悟性繧・・
                     value={ymRange(startYm, endYm).length}
                     setValue={() => {
                       /* readonly */
@@ -1652,39 +1652,39 @@ export default function SimulationDashboard({
 
               <div className="mt-4 grid gap-3 md:grid-cols-3">
                 <Num
-                  label="固定費（円／月）"
+                  label="蝗ｺ螳夊ｲｻ・亥・・乗怦・・
                   value={baseFixed}
                   setValue={setBaseFixed}
                 />
                 <Num
-                  label="変動費（円／月）"
+                  label="螟牙虚雋ｻ・亥・・乗怦・・
                   value={baseVariable}
                   setValue={setBaseVariable}
                 />
                 <Num
-                  label="人件費（円／月）"
+                  label="莠ｺ莉ｶ雋ｻ・亥・・乗怦・・
                   value={basePersonnel}
                   setValue={setBasePersonnel}
                 />
               </div>
             </div>
 
-            {/* 全社PLサマリー（年次・月次） */}
+            {/* 蜈ｨ遉ｾPL繧ｵ繝槭Μ繝ｼ・亥ｹｴ谺｡繝ｻ譛域ｬ｡・・*/}
             <div className="grid gap-5 md:grid-cols-2">
               <section className="rounded-2xl border border-slate-200 bg-white p-4">
                 <h3 className="mb-2 text-[14px] font-medium text-slate-900">
-                  年次PL（OKR反映後・全社）
+                  蟷ｴ谺｡PL・・KR蜿肴丐蠕後・蜈ｨ遉ｾ・・
                 </h3>
                 {yearly.length ? (
                   <table className="w-full text-[12px] text-slate-800">
                     <thead>
                       <tr className="text-left text-slate-500">
-                        <th className="py-2">年度</th>
-                        <th className="py-2">売上</th>
+                        <th className="py-2">蟷ｴ蠎ｦ</th>
+                        <th className="py-2">螢ｲ荳・/th>
                         <th className="py-2">COGS</th>
                         <th className="py-2">SG&A</th>
-                        <th className="py-2">営業利益</th>
-                        <th className="py-2">利益率</th>
+                        <th className="py-2">蝟ｶ讌ｭ蛻ｩ逶・/th>
+                        <th className="py-2">蛻ｩ逶顔紫</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1727,27 +1727,27 @@ export default function SimulationDashboard({
                   </table>
                 ) : (
                   <div className="text-[13px] text-slate-500">
-                    表示できる年次PLがありません。
-                    構造化KR（okrsV2）を設定すると表示されます。
+                    陦ｨ遉ｺ縺ｧ縺阪ｋ蟷ｴ谺｡PL縺後≠繧翫∪縺帙ｓ縲・
+                    讒矩蛹訪R・・krsV2・峨ｒ險ｭ螳壹☆繧九→陦ｨ遉ｺ縺輔ｌ縺ｾ縺吶・
                   </div>
                 )}
               </section>
 
               <section className="rounded-2xl border border-slate-200 bg-white p-4">
                 <h3 className="mb-2 text-[14px] font-medium text-slate-900">
-                  月次ハイライト（直近3ヶ月・全社）
+                  譛域ｬ｡繝上う繝ｩ繧､繝茨ｼ育峩霑・繝ｶ譛医・蜈ｨ遉ｾ・・
                 </h3>
                 {monthly.length ? (
                   <table className="w-full text-[12px] text-slate-800">
                     <thead>
                       <tr className="text-left text-slate-500">
-                        <th className="py-2">月</th>
+                        <th className="py-2">譛・/th>
                         <th className="py-2">Qty</th>
                         <th className="py-2">ARPU</th>
-                        <th className="py-2">売上</th>
+                        <th className="py-2">螢ｲ荳・/th>
                         <th className="py-2">COGS</th>
                         <th className="py-2">SG&A</th>
-                        <th className="py-2">営業利益</th>
+                        <th className="py-2">蝟ｶ讌ｭ蛻ｩ逶・/th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1781,26 +1781,26 @@ export default function SimulationDashboard({
                   </table>
                 ) : (
                   <div className="text-[13px] text-slate-500">
-                    表示できる月次データがありません。
+                    陦ｨ遉ｺ縺ｧ縺阪ｋ譛域ｬ｡繝・・繧ｿ縺後≠繧翫∪縺帙ｓ縲・
                   </div>
                 )}
               </section>
             </div>
 
-            {/* 部門別シミュレーション（ベータ） */}
+            {/* 驛ｨ髢蛻･繧ｷ繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ・医・繝ｼ繧ｿ・・*/}
             <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h3 className="text-[14px] font-medium text-slate-900">
-                    部門別シミュレーション（試験版）
+                    驛ｨ髢蛻･繧ｷ繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ・郁ｩｦ鬨鍋沿・・
                   </h3>
                   <p className="mt-1 text-[12px] text-slate-500">
-                    選択した部門の構造化KRのみを適用した場合の
-                    PLインパクトを表示します（全社ベースに対する寄与の概算です）。
+                    驕ｸ謚槭＠縺滄Κ髢縺ｮ讒矩蛹訪R縺ｮ縺ｿ繧帝←逕ｨ縺励◆蝣ｴ蜷医・
+                    PL繧､繝ｳ繝代け繝医ｒ陦ｨ遉ｺ縺励∪縺呻ｼ亥・遉ｾ繝吶・繧ｹ縺ｫ蟇ｾ縺吶ｋ蟇・ｸ弱・讎らｮ励〒縺呻ｼ峨・
                   </p>
                 </div>
                 <div className="flex items-center gap-2 text-[12px] text-slate-600">
-                  <span>対象部門：</span>
+                  <span>蟇ｾ雎｡驛ｨ髢・・/span>
                   <select
                     className="h-8 rounded-xl border border-slate-300 bg-white px-2 text-[12px]"
                     value={selectedDeptKey}
@@ -1819,32 +1819,32 @@ export default function SimulationDashboard({
 
               {!deptOptions.length ? (
                 <p className="text-[13px] text-slate-500">
-                  部門データが存在しないため、部門別シミュレーションは表示できません。
+                  驛ｨ髢繝・・繧ｿ縺悟ｭ伜惠縺励↑縺・◆繧√・Κ髢蛻･繧ｷ繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ縺ｯ陦ｨ遉ｺ縺ｧ縺阪∪縺帙ｓ縲・
                 </p>
               ) : !deptKRs.length ? (
                 <p className="text-[13px] text-slate-500">
-                  選択中の部門「{selectedDeptLabel}
-                  」には構造化KRが設定されていません。
+                  驕ｸ謚樔ｸｭ縺ｮ驛ｨ髢縲鶏selectedDeptLabel}
+                  縲阪↓縺ｯ讒矩蛹訪R縺瑚ｨｭ螳壹＆繧後※縺・∪縺帙ｓ縲・
                 </p>
               ) : !deptYearly.length ? (
                 <p className="text-[13px] text-slate-500">
-                  表示できるPLデータがありません。
+                  陦ｨ遉ｺ縺ｧ縺阪ｋPL繝・・繧ｿ縺後≠繧翫∪縺帙ｓ縲・
                 </p>
               ) : (
                 <div className="grid gap-4 md:grid-cols-2">
                   <section className="rounded-2xl border border-slate-200 bg-white p-3">
                     <h4 className="mb-2 text-[13px] font-medium text-slate-900">
-                      年次PL（部門寄与分の概算）
+                      蟷ｴ谺｡PL・磯Κ髢蟇・ｸ主・縺ｮ讎らｮ暦ｼ・
                     </h4>
                     <table className="w-full text-[11px] text-slate-800">
                       <thead>
                         <tr className="text-left text-slate-500">
-                          <th className="py-1">年度</th>
-                          <th className="py-1">売上</th>
+                          <th className="py-1">蟷ｴ蠎ｦ</th>
+                          <th className="py-1">螢ｲ荳・/th>
                           <th className="py-1">COGS</th>
                           <th className="py-1">SG&A</th>
-                          <th className="py-1">営業利益</th>
-                          <th className="py-1">利益率</th>
+                          <th className="py-1">蝟ｶ讌ｭ蛻ｩ逶・/th>
+                          <th className="py-1">蛻ｩ逶顔紫</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1889,16 +1889,16 @@ export default function SimulationDashboard({
 
                   <section className="rounded-2xl border border-slate-200 bg-white p-3">
                     <h4 className="mb-2 text-[13px] font-medium text-slate-900">
-                      月次ハイライト（直近3ヶ月・部門）
+                      譛域ｬ｡繝上う繝ｩ繧､繝茨ｼ育峩霑・繝ｶ譛医・驛ｨ髢・・
                     </h4>
                     <table className="w-full text-[11px] text-slate-800">
                       <thead>
                         <tr className="text-left text-slate-500">
-                          <th className="py-1">月</th>
-                          <th className="py-1">売上</th>
+                          <th className="py-1">譛・/th>
+                          <th className="py-1">螢ｲ荳・/th>
                           <th className="py-1">COGS</th>
                           <th className="py-1">SG&A</th>
-                          <th className="py-1">営業利益</th>
+                          <th className="py-1">蝟ｶ讌ｭ蛻ｩ逶・/th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1929,34 +1929,34 @@ export default function SimulationDashboard({
               )}
 
               <p className="mt-2 text-[11px] text-slate-500">
-                ※ 部門別シミュレーションは、指定部門の構造化KRだけを適用した場合の
-                「ベースPLに対する寄与分」の概算です。部門間の相互作用までは反映していません。
+                窶ｻ 驛ｨ髢蛻･繧ｷ繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ縺ｯ縲∵欠螳夐Κ髢縺ｮ讒矩蛹訪R縺縺代ｒ驕ｩ逕ｨ縺励◆蝣ｴ蜷医・
+                縲後・繝ｼ繧ｹPL縺ｫ蟇ｾ縺吶ｋ蟇・ｸ主・縲阪・讎らｮ励〒縺吶るΚ髢髢薙・逶ｸ莠剃ｽ懃畑縺ｾ縺ｧ縺ｯ蜿肴丐縺励※縺・∪縺帙ｓ縲・
               </p>
             </div>
 
-            {/* 事業ポートフォリオ別インパクト（STEP2） */}
+            {/* 莠区･ｭ繝昴・繝医ヵ繧ｩ繝ｪ繧ｪ蛻･繧､繝ｳ繝代け繝茨ｼ・TEP2・・*/}
             <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <h3 className="mb-2 text-[14px] font-medium text-slate-900">
-                事業ポートフォリオ別インパクト（Y3 概算）
+                莠区･ｭ繝昴・繝医ヵ繧ｩ繝ｪ繧ｪ蛻･繧､繝ｳ繝代け繝茨ｼ・3 讎らｮ暦ｼ・
               </h3>
               {!businessUnits.length ? (
                 <p className="text-[13px] text-slate-500">
-                  STEP2 の事業ポートフォリオが未設定のため、事業別インパクトは表示できません。
+                  STEP2 縺ｮ莠区･ｭ繝昴・繝医ヵ繧ｩ繝ｪ繧ｪ縺梧悴險ｭ螳壹・縺溘ａ縲∽ｺ区･ｭ蛻･繧､繝ｳ繝代け繝医・陦ｨ遉ｺ縺ｧ縺阪∪縺帙ｓ縲・
                 </p>
               ) : !businessImpactY3.length ? (
                 <p className="text-[13px] text-slate-500">
-                  Y3のPL試算が無いため、事業別インパクトは表示できません。
+                  Y3縺ｮPL隧ｦ邂励′辟｡縺・◆繧√∽ｺ区･ｭ蛻･繧､繝ｳ繝代け繝医・陦ｨ遉ｺ縺ｧ縺阪∪縺帙ｓ縲・
                 </p>
               ) : (
                 <>
                   <table className="w-full text-[12px] text-slate-800">
                     <thead>
                       <tr className="text-left text-slate-500">
-                        <th className="py-2">事業</th>
-                        <th className="py-2">ポートフォリオ比率</th>
-                        <th className="py-2">Y3 売上</th>
-                        <th className="py-2">Y3 営業利益</th>
-                        <th className="py-2">利益率</th>
+                        <th className="py-2">莠区･ｭ</th>
+                        <th className="py-2">繝昴・繝医ヵ繧ｩ繝ｪ繧ｪ豈皮紫</th>
+                        <th className="py-2">Y3 螢ｲ荳・/th>
+                        <th className="py-2">Y3 蝟ｶ讌ｭ蛻ｩ逶・/th>
+                        <th className="py-2">蛻ｩ逶顔紫</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1981,23 +1981,23 @@ export default function SimulationDashboard({
                     </tbody>
                   </table>
                   <p className="mt-2 text-[11px] text-slate-500">
-                    ※ 事業別インパクトは、STEP2 のポートフォリオ比率で
-                    全社Y3 PLを按分した概算です。事業ごとに異なるKR強度・
-                    コスト構造まではまだ反映していません。
+                    窶ｻ 莠区･ｭ蛻･繧､繝ｳ繝代け繝医・縲ヾTEP2 縺ｮ繝昴・繝医ヵ繧ｩ繝ｪ繧ｪ豈皮紫縺ｧ
+                    蜈ｨ遉ｾY3 PL繧呈潔蛻・＠縺滓ｦらｮ励〒縺吶ゆｺ区･ｭ縺斐→縺ｫ逡ｰ縺ｪ繧規R蠑ｷ蠎ｦ繝ｻ
+                    繧ｳ繧ｹ繝域ｧ矩縺ｾ縺ｧ縺ｯ縺ｾ縺蜿肴丐縺励※縺・∪縺帙ｓ縲・
                   </p>
                 </>
               )}
             </div>
 
-            {/* 開発者向け：構造化KR / Bridge Delta の抜粋（折りたたみ） */}
+            {/* 髢狗匱閠・髄縺托ｼ壽ｧ矩蛹訪R / Bridge Delta 縺ｮ謚懃ｲ具ｼ域釜繧翫◆縺溘∩・・*/}
             <details className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-[12px] text-slate-700">
               <summary className="cursor-pointer text-[12px] font-medium text-slate-900">
-                開発者向け詳細（構造化KR / Bridge Deltas を確認）
+                髢狗匱閠・髄縺題ｩｳ邏ｰ・域ｧ矩蛹訪R / Bridge Deltas 繧堤｢ｺ隱搾ｼ・
               </summary>
               <div className="mt-3 grid gap-4 md:grid-cols-2">
                 <div>
                   <div className="text-[11px] text-slate-500">
-                    構造化KR 例（先頭5件）
+                    讒矩蛹訪R 萓具ｼ亥・鬆ｭ5莉ｶ・・
                   </div>
                   <pre className="mt-1 max-h-56 overflow-auto rounded-xl bg-white p-3 text-[11px] text-slate-800">
                     {JSON.stringify(allKRs.slice(0, 5), null, 2)}
@@ -2005,7 +2005,7 @@ export default function SimulationDashboard({
                 </div>
                 <div>
                   <div className="text-[11px] text-slate-500">
-                    Bridge Deltas 抜粋（最初の数ヶ月のみ）
+                    Bridge Deltas 謚懃ｲ具ｼ域怙蛻昴・謨ｰ繝ｶ譛医・縺ｿ・・
                   </div>
                   <pre className="mt-1 max-h-56 overflow-auto rounded-xl bg-white p-3 text-[11px] text-slate-800">
                     {JSON.stringify(
@@ -2039,41 +2039,41 @@ export default function SimulationDashboard({
         )}
       </section>
 
-      {/* ④ AIインサイト */}
+      {/* 竭｣ AI繧､繝ｳ繧ｵ繧､繝・*/}
       <section className="mb-8 rounded-3xl border border-slate-200 bg-white p-4 shadow-md">
         <h2 className="mb-2 text-[15px] font-semibold text-slate-900">
-          AI インサイト
+          AI 繧､繝ｳ繧ｵ繧､繝・
         </h2>
         <p className="mb-3 text-[13px] text-slate-600">
-          現在の戦略・ポートフォリオ・OKR・シミュレーション結果をもとに、
-          AIが着眼点やリスク、次の一手のアイデアを提示します。
+          迴ｾ蝨ｨ縺ｮ謌ｦ逡･繝ｻ繝昴・繝医ヵ繧ｩ繝ｪ繧ｪ繝ｻOKR繝ｻ繧ｷ繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ邨先棡繧偵ｂ縺ｨ縺ｫ縲・
+          AI縺檎捩逵ｼ轤ｹ繧・Μ繧ｹ繧ｯ縲∵ｬ｡縺ｮ荳謇九・繧｢繧､繝・い繧呈署遉ｺ縺励∪縺吶・
         </p>
         <CoreInsightPanel />
       </section>
 
-      {/* ⑤ 履歴 */}
+      {/* 竭､ 螻･豁ｴ */}
       <section className="mb-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-md">
         <div className="mb-2 flex items-center justify-between gap-2">
           <h2 className="text-[15px] font-medium text-slate-900">
-            シミュレーション履歴
+            繧ｷ繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ螻･豁ｴ
           </h2>
           <button
             onClick={loadHistory}
             disabled={isHydrating}
             className="rounded-xl border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-50 disabled:opacity-60"
           >
-            再読み込み
+            蜀崎ｪｭ縺ｿ霎ｼ縺ｿ
           </button>
         </div>
         {loadingHist ? (
-          <p className="text-[13px] text-slate-500">読み込み中…</p>
+          <p className="text-[13px] text-slate-500">隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ窶ｦ</p>
         ) : !hasAnyServerBackedContent ? (
           <p className="text-[13px] text-slate-500">
-            戦略データがないため、履歴はまだありません。
+            謌ｦ逡･繝・・繧ｿ縺後↑縺・◆繧√∝ｱ･豁ｴ縺ｯ縺ｾ縺縺ゅｊ縺ｾ縺帙ｓ縲・
           </p>
         ) : history.length === 0 ? (
           <p className="text-[13px] text-slate-500">
-            シミュレーション履歴がありません。
+            繧ｷ繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ螻･豁ｴ縺後≠繧翫∪縺帙ｓ縲・
           </p>
         ) : (
           <ul className="divide-y divide-slate-200">
@@ -2103,16 +2103,16 @@ export default function SimulationDashboard({
                     <div>
                       <div className="font-medium text-slate-900">
                         {label}
-                        {row.category ? `（${row.category}）` : ''}
+                        {row.category ? `・・{row.category}・荏 : ''}
                       </div>
                       <div className="text-[12px] text-slate-500">
                         {last
-                          ? `Y3: 売上 ${fmtNum(
+                          ? `Y3: 螢ｲ荳・${fmtNum(
                               last.sales,
-                            )} / 営業利益 ${fmtNum(last.op)}`
-                          : '—'}
+                            )} / 蝟ｶ讌ｭ蛻ｩ逶・${fmtNum(last.op)}`
+                          : '窶・}
                         {typeof prob === 'number'
-                          ? ` ・ 成功確率 ${prob}%`
+                          ? ` 繝ｻ 謌仙粥遒ｺ邇・${prob}%`
                           : ''}
                       </div>
                     </div>
@@ -2127,7 +2127,7 @@ export default function SimulationDashboard({
   );
 }
 
-/* ============ 小さな統計カード ============ */
+/* ============ 蟆上＆縺ｪ邨ｱ險医き繝ｼ繝・============ */
 function StatCard({
   label,
   value,
