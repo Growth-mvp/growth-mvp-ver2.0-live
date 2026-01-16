@@ -14,10 +14,8 @@ import { useStrategyStore } from '@/store/strategyStore';
 export async function loadAndHydrate(companyId: string) {
   if (!companyId) throw new Error('companyId is required');
 
+  // 初回取得（これからロードするので Hydrating ON）
   const store = useStrategyStore.getState();
-
-  // これからロードするので Hydrating ON（autosave 停止）
-  // ※ setCompanyScope でも hydrating を立てるが、既存呼び出し互換のため明示しておく
   store.setHydrating(true);
 
   // 会社切替（ローカル破壊はしない：pendingCompanyId に退避）
@@ -25,24 +23,41 @@ export async function loadAndHydrate(companyId: string) {
 
   try {
     // store 側の正規ルートで取得・正規化・hydrated を完了させる
+    console.log('[loadAndHydrate] refetchFromServer 実行前');
     await store.refetchFromServer();
+    console.log('[loadAndHydrate] refetchFromServer 完了');
 
-    // 念のため：UI 側で「サーバ読込完了」を条件にしている場合があるため立てる
-    // （store.refetchFromServer() 側でも loaded:true にしているが、ここは冪等）
-    store.markLoaded?.();
-
+    console.log('[loadAndHydrate] 成功完了', {
+      hydrated: useStrategyStore.getState().hydrated,
+      loaded: useStrategyStore.getState().loaded,
+    });
     return useStrategyStore.getState();
   } catch (e) {
-    // 失敗時でも画面が固まらないよう最低限 hydrated を立てる（従来互換）
-    useStrategyStore.setState((s) => ({
-      ...s,
-      boot: { isHydrating: false, isHydrated: true },
-      hydrated: true,
-    }));
+    console.error('[loadAndHydrate] エラー発生:', e);
     throw e;
   } finally {
-    // store.refetchFromServer が成功していれば setHydrated() 内で isHydrating=false になる。
-    // 失敗時も UI が解除されるようにしておく（冪等）
-    store.setHydrating(false);
+    // ★ finally 内で getState() を取り直して、最新の store 参照を使う
+    const freshStore = useStrategyStore.getState();
+
+    // 成功/失敗に関わらず必ず markLoaded を呼んで loaded:true にする（画面固まり防止）
+    console.log('[loadAndHydrate] finally ブロック：markLoaded 実行');
+    if (freshStore.markLoaded) {
+      freshStore.markLoaded();
+    } else {
+      console.warn('[loadAndHydrate] markLoaded が存在しません（手動設定）');
+      useStrategyStore.setState((s) => ({ ...s, loaded: true, hydrated: true }));
+    }
+
+    // setHydrating も最新の参照で実行
+    freshStore.setHydrating(false);
+
+    // 最終的な state を確認（companyId と pendingCompanyId も含む）
+    const finalState = useStrategyStore.getState();
+    console.log('[loadAndHydrate] finally 完了後の state:', {
+      loaded: finalState.loaded,
+      hydrated: finalState.hydrated,
+      companyId: finalState.companyId,
+      pendingCompanyId: finalState.pendingCompanyId,
+    });
   }
 }
