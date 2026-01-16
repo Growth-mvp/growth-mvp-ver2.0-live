@@ -1,74 +1,74 @@
-// /utils/financeSimulation.ts
+﻿// /utils/financeSimulation.ts
 
 /* =========================================================
- * 主要KPIの月次デルタ → 月次/年次PLの計算（進化版）
+ * 荳ｻ隕゜PI縺ｮ譛域ｬ｡繝・Ν繧ｿ 竊・譛域ｬ｡/蟷ｴ谺｡PL縺ｮ險育ｮ暦ｼ磯ｲ蛹也沿・・
  * ---------------------------------------------------------
- * - 数量×単価×継続率 を基本に 売上 を算出
- * - CHURN(解約)とRETENTION(継続)の両系統に対応
- * - 変動費は「金額」足し込み or 「率（cogsRate）」指定の両対応
- * - 相乗効果/投資の簡易反映（成功率は将来拡張）
+ * - 謨ｰ驥湘怜腰萓｡ﾃ礼ｶ咏ｶ夂紫 繧貞渕譛ｬ縺ｫ 螢ｲ荳・繧堤ｮ怜・
+ * - CHURN(隗｣邏・縺ｨRETENTION(邯咏ｶ・縺ｮ荳｡邉ｻ邨ｱ縺ｫ蟇ｾ蠢・
+ * - 螟牙虚雋ｻ縺ｯ縲碁≡鬘阪崎ｶｳ縺苓ｾｼ縺ｿ or 縲檎紫・・ogsRate・峨肴欠螳壹・荳｡蟇ｾ蠢・
+ * - 逶ｸ荵怜柑譫・謚戊ｳ・・邁｡譏灘渚譏・域・蜉溽紫縺ｯ蟆・擂諡｡蠑ｵ・・
  *
- * ★ポイント（今回修正）★
- * - OKRのインパクト（deltas）が完全に 0 のときは、
- *   ベース軌道（BaseTrajectory）そのままのPLを返す。
- *   → OKRを何も入れていないときに、売上が勝手に縮小しない。
- * - deltas があるときでも、
- *   「ベース数量 qtyMonthly はそのまま維持」し、
- *   その上に “増減分 deltaQty” を累積する方式に変更。
- *   → 解約率（churn）の影響は増減分だけに効くため、
- *      OKRの設定が「ベース全体の崩壊」にはならない。
+ * 笘・・繧､繝ｳ繝茨ｼ井ｻ雁屓菫ｮ豁｣・俄・
+ * - OKR縺ｮ繧､繝ｳ繝代け繝茨ｼ・eltas・峨′螳悟・縺ｫ 0 縺ｮ縺ｨ縺阪・縲・
+ *   繝吶・繧ｹ霆碁％・・aseTrajectory・峨◎縺ｮ縺ｾ縺ｾ縺ｮPL繧定ｿ斐☆縲・
+ *   竊・OKR繧剃ｽ輔ｂ蜈･繧後※縺・↑縺・→縺阪↓縲∝｣ｲ荳翫′蜍晄焔縺ｫ邵ｮ蟆上＠縺ｪ縺・・
+ * - deltas 縺後≠繧九→縺阪〒繧ゅ・
+ *   縲後・繝ｼ繧ｹ謨ｰ驥・qtyMonthly 縺ｯ縺昴・縺ｾ縺ｾ邯ｭ謖√阪＠縲・
+ *   縺昴・荳翫↓ 窶懷｢玲ｸ帛・ deltaQty窶・繧堤ｴｯ遨阪☆繧区婿蠑上↓螟画峩縲・
+ *   竊・隗｣邏・紫・・hurn・峨・蠖ｱ髻ｿ縺ｯ蠅玲ｸ帛・縺縺代↓蜉ｹ縺上◆繧√・
+ *      OKR縺ｮ險ｭ螳壹′縲後・繝ｼ繧ｹ蜈ｨ菴薙・蟠ｩ螢翫阪↓縺ｯ縺ｪ繧峨↑縺・・
  * ========================================================= */
 
-import type { Ym, DeltasByMonth } from './simulationBridge';
+import type { Ym, DeltasByMonth } from './stage6Bridge';
 
-/* ========== 入力データ定義 ========== */
-// ベースの月次トラック（OKR介入が無かった場合の軌道）
+/* ========== 蜈･蜉帙ョ繝ｼ繧ｿ螳夂ｾｩ ========== */
+// 繝吶・繧ｹ縺ｮ譛域ｬ｡繝医Λ繝・け・・KR莉句・縺檎┌縺九▲縺溷ｴ蜷医・霆碁％・・
 export type BaseTrajectory = {
   startYm: Ym;
   endYm: Ym;
-  // 数量（例：有効顧客数 or 販売数量）の月次ベース値
+  // 謨ｰ驥擾ｼ井ｾ具ｼ壽怏蜉ｹ鬘ｧ螳｢謨ｰ or 雋ｩ螢ｲ謨ｰ驥擾ｼ峨・譛域ｬ｡繝吶・繧ｹ蛟､
   qtyMonthly: Record<Ym, number>;
-  // 単価（円）
+  // 蜊倅ｾ｡・亥・・・
   arpuMonthly: Record<Ym, number>;
-  // 月次解約率（0.02=2%）
+  // 譛域ｬ｡隗｣邏・紫・・.02=2%・・
   churnMonthly: Record<Ym, number>;
-  // コスト（円）
+  // 繧ｳ繧ｹ繝茨ｼ亥・・・
   fixedCostMonthly: Record<Ym, number>;
-  variableCostMonthly: Record<Ym, number>; // 金額でのベース（率指定の場合は参考として使用）
+  variableCostMonthly: Record<Ym, number>; // 驥鷹｡阪〒縺ｮ繝吶・繧ｹ・育紫謖・ｮ壹・蝣ｴ蜷医・蜿り・→縺励※菴ｿ逕ｨ・・
   personnelCostMonthly: Record<Ym, number>;
-  // 参考：ベース売上（月次）、あれば率推定に使用
+  // 蜿り・ｼ壹・繝ｼ繧ｹ螢ｲ荳奇ｼ域怦谺｡・峨√≠繧後・邇・耳螳壹↓菴ｿ逕ｨ
   revenueMonthly?: Record<Ym, number>;
 };
 
-// シミュレーションの計算オプション
+// 繧ｷ繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ縺ｮ險育ｮ励が繝励す繝ｧ繝ｳ
 export type SimulationOptions = {
-  // 相乗効果（synergy）の適用先（将来拡張可）
+  // 逶ｸ荵怜柑譫懶ｼ・ynergy・峨・驕ｩ逕ｨ蜈茨ｼ亥ｰ・擂諡｡蠑ｵ蜿ｯ・・
   applySynergyTo?: Array<'revenue' | 'cost'>;
-  // 成功率の扱い（投資効果へ掛ける、などの将来拡張用）
-  investEffectAlpha?: number; // 投資→当期費用化の割合（0〜1、暫定）
+  // 謌仙粥邇・・謇ｱ縺・ｼ域兜雉・柑譫懊∈謗帙￠繧九√↑縺ｩ縺ｮ蟆・擂諡｡蠑ｵ逕ｨ・・
+  investEffectAlpha?: number; // 謚戊ｳ・・蠖捺悄雋ｻ逕ｨ蛹悶・蜑ｲ蜷茨ｼ・縲・縲∵圻螳夲ｼ・
 };
 
-// 月次結果
+// 譛域ｬ｡邨先棡
 export type MonthlyPL = {
   ym: Ym;
   qty: number;
   arpu: number;
-  churn: number; // 実効解約率（0〜1）
-  // 売上
+  churn: number; // 螳溷柑隗｣邏・紫・・縲・・・
+  // 螢ｲ荳・
   revenue: number;
-  // コスト（円）
+  // 繧ｳ繧ｹ繝茨ｼ亥・・・
   fixed_cost: number;
   variable_cost: number;
   personnel_cost: number;
-  // 計
-  cogs: number;         // 変動費を COGS と仮置き
-  sga: number;          // 固定＋人件費を SG&A と仮置き
+  // 險・
+  cogs: number;         // 螟牙虚雋ｻ繧・COGS 縺ｨ莉ｮ鄂ｮ縺・
+  sga: number;          // 蝗ｺ螳夲ｼ倶ｺｺ莉ｶ雋ｻ繧・SG&A 縺ｨ莉ｮ鄂ｮ縺・
   gross_profit: number;
   op_income: number;
-  margin: number;       // 営業利益率
+  margin: number;       // 蝟ｶ讌ｭ蛻ｩ逶顔紫
 };
 
-// 年次集計
+// 蟷ｴ谺｡髮・ｨ・
 export type YearlyPL = {
   year: number;
   revenue: number;
@@ -79,7 +79,7 @@ export type YearlyPL = {
   margin: number;
 };
 
-/* ========== ユーティリティ（年月処理） ========== */
+/* ========== 繝ｦ繝ｼ繝・ぅ繝ｪ繝・ぅ・亥ｹｴ譛亥・逅・ｼ・========== */
 function ymToYearMonth(y: Ym) {
   const [Y, M] = y.split('-').map(Number);
   return { Y, M };
@@ -101,38 +101,38 @@ function ymRange(startYm: Ym, endYm: Ym): Ym[] {
   return out;
 }
 
-/* ========== 安全クリップ等 ========== */
+/* ========== 螳牙・繧ｯ繝ｪ繝・・遲・========== */
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 const nz = (v?: number) => (typeof v === 'number' && Number.isFinite(v)) ? v : 0;
 
 /* =========================================================
- * OKRのデルタをベース軌道に反映し、月次PLを生成（拡張版）
+ * OKR縺ｮ繝・Ν繧ｿ繧偵・繝ｼ繧ｹ霆碁％縺ｫ蜿肴丐縺励∵怦谺｡PL繧堤函謌撰ｼ域僑蠑ｵ迚茨ｼ・
  * ---------------------------------------------------------
- * - retention/churn 両対応
- * - variable_cost を「金額」or「率（cogsRate）」の両方に対応
- * - synergy（+率）は売上のみ／コストにも適用の指定をサポート
+ * - retention/churn 荳｡蟇ｾ蠢・
+ * - variable_cost 繧偵碁≡鬘阪腔r縲檎紫・・ogsRate・峨阪・荳｡譁ｹ縺ｫ蟇ｾ蠢・
+ * - synergy・・邇・ｼ峨・螢ｲ荳翫・縺ｿ・上さ繧ｹ繝医↓繧る←逕ｨ縺ｮ謖・ｮ壹ｒ繧ｵ繝昴・繝・
  *
- * ★今回の重要仕様★
- * - deltas が全期間・全項目で 0 の場合は、
- *   BaseTrajectory をそのままPL化して返す（＝ベースラインと同じ）。
- *   → OKRが何も設定されていない状態では「ベース160億のまま／インパクト0」になる。
- * - deltas がある場合でも、ベース数量 qtyMonthly はそのまま残し、
- *   その上に「増減分 deltaQty」を累積していく。
- *   → 解約率の影響は“増減分”にだけ効き、ベースは崩壊しない。
+ * 笘・ｻ雁屓縺ｮ驥崎ｦ∽ｻ墓ｧ倪・
+ * - deltas 縺悟・譛滄俣繝ｻ蜈ｨ鬆・岼縺ｧ 0 縺ｮ蝣ｴ蜷医・縲・
+ *   BaseTrajectory 繧偵◎縺ｮ縺ｾ縺ｾPL蛹悶＠縺ｦ霑斐☆・茨ｼ昴・繝ｼ繧ｹ繝ｩ繧､繝ｳ縺ｨ蜷後§・峨・
+ *   竊・OKR縺御ｽ輔ｂ險ｭ螳壹＆繧後※縺・↑縺・憾諷九〒縺ｯ縲後・繝ｼ繧ｹ160蜆・・縺ｾ縺ｾ・上う繝ｳ繝代け繝・縲阪↓縺ｪ繧九・
+ * - deltas 縺後≠繧句ｴ蜷医〒繧ゅ√・繝ｼ繧ｹ謨ｰ驥・qtyMonthly 縺ｯ縺昴・縺ｾ縺ｾ谿九＠縲・
+ *   縺昴・荳翫↓縲悟｢玲ｸ帛・ deltaQty縲阪ｒ邏ｯ遨阪＠縺ｦ縺・￥縲・
+ *   竊・隗｣邏・紫縺ｮ蠖ｱ髻ｿ縺ｯ窶懷｢玲ｸ帛・窶昴↓縺縺大柑縺阪√・繝ｼ繧ｹ縺ｯ蟠ｩ螢翫＠縺ｪ縺・・
  * ========================================================= */
 export function simulateMonthlyPL(
   base: BaseTrajectory,
   deltas: DeltasByMonth & {
-    // 追加: 率系（存在すれば使用）
-    retention?: Record<Ym, number>;   // +0.01 で継続率1pt改善（実効churnを下げる）
-    cogsRate?: Record<Ym, number>;    // 変動費率の増減（+0.01で1pt悪化）
+    // 霑ｽ蜉: 邇・ｳｻ・亥ｭ伜惠縺吶ｌ縺ｰ菴ｿ逕ｨ・・
+    retention?: Record<Ym, number>;   // +0.01 縺ｧ邯咏ｶ夂紫1pt謾ｹ蝟・ｼ亥ｮ溷柑churn繧剃ｸ九￡繧具ｼ・
+    cogsRate?: Record<Ym, number>;    // 螟牙虚雋ｻ邇・・蠅玲ｸ幢ｼ・0.01縺ｧ1pt謔ｪ蛹厄ｼ・
   },
   opt?: SimulationOptions
 ): MonthlyPL[] {
-  const applySynergyTo = opt?.applySynergyTo ?? ['revenue']; // 既定は売上側のみ
+  const applySynergyTo = opt?.applySynergyTo ?? ['revenue']; // 譌｢螳壹・螢ｲ荳雁・縺ｮ縺ｿ
   const months = ymRange(base.startYm, base.endYm);
 
-  /* ---------- 1. deltas が完全に 0 かどうかを判定 ---------- */
+  /* ---------- 1. deltas 縺悟ｮ悟・縺ｫ 0 縺九←縺・°繧貞愛螳・---------- */
   const hasAnyDelta = months.some((ym) => {
     const vals = [
       deltas.acq?.[ym],
@@ -150,7 +150,7 @@ export function simulateMonthlyPL(
     return vals.some((v) => typeof v === 'number' && Math.abs(v) > 1e-9);
   });
 
-  /* ---------- 2. デルタなし ⇒ ベース軌道そのままを返す ---------- */
+  /* ---------- 2. 繝・Ν繧ｿ縺ｪ縺・竍・繝吶・繧ｹ霆碁％縺昴・縺ｾ縺ｾ繧定ｿ斐☆ ---------- */
   if (!hasAnyDelta) {
     const out: MonthlyPL[] = [];
 
@@ -196,47 +196,47 @@ export function simulateMonthlyPL(
     return out;
   }
 
-  /* ---------- 3. デルタあり ⇒ ベース＋増減分deltaQtyでシミュレーション ---------- */
+  /* ---------- 3. 繝・Ν繧ｿ縺ゅｊ 竍・繝吶・繧ｹ・句｢玲ｸ帛・deltaQty縺ｧ繧ｷ繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ ---------- */
   const out: MonthlyPL[] = [];
 
-  // ベースからの「増減分」のみを累積する
+  // 繝吶・繧ｹ縺九ｉ縺ｮ縲悟｢玲ｸ帛・縲阪・縺ｿ繧堤ｴｯ遨阪☆繧・
   let deltaQtyPrev = 0;
 
   for (const ym of months) {
     const baseQty    = Math.max(0, nz(base.qtyMonthly[ym]));
     const baseArpu   = Math.max(0, nz(base.arpuMonthly[ym]));
-    const baseChurn  = clamp01(nz(base.churnMonthly[ym])); // 情報として保持
+    const baseChurn  = clamp01(nz(base.churnMonthly[ym])); // 諠・ｱ縺ｨ縺励※菫晄戟
     const baseFixed  = Math.max(0, nz(base.fixedCostMonthly[ym]));
-    const baseVarAmt = Math.max(0, nz(base.variableCostMonthly[ym])); // 金額ベース
+    const baseVarAmt = Math.max(0, nz(base.variableCostMonthly[ym])); // 驥鷹｡阪・繝ｼ繧ｹ
     const basePers   = Math.max(0, nz(base.personnelCostMonthly[ym]));
 
-    // デルタ（なければ0）
+    // 繝・Ν繧ｿ・医↑縺代ｌ縺ｰ0・・
     const dAcq      = nz(deltas.acq?.[ym]);
     const dArpu     = nz(deltas.arpu?.[ym]);
-    const dChurn    = nz(deltas.churn?.[ym]);       // 率の変化（+で悪化）※ベースからの差分として扱う
-    const dRet      = nz(deltas.retention?.[ym]);   // 率の変化（+で継続改善=churn減少）
-    const dRevenue  = nz(deltas.revenue?.[ym]);     // 金額
-    const dFixed    = nz(deltas.fixed_cost?.[ym]);  // 金額
-    const dVarAmt   = nz(deltas.variable_cost?.[ym]);// 金額として扱う分
-    const dPers     = nz(deltas.personnel_cost?.[ym]);// 金額
-    const dSynergy  = nz(deltas.synergy?.[ym]);     // 率（+0.05で+5%）
-    const dCogsRate = nz(deltas.cogsRate?.[ym]);    // 変動費率の増減（+で悪化）
-    const invest    = nz(deltas.invest?.[ym]);      // 金額（α一部費用化）
+    const dChurn    = nz(deltas.churn?.[ym]);       // 邇・・螟牙喧・・縺ｧ謔ｪ蛹厄ｼ俄ｻ繝吶・繧ｹ縺九ｉ縺ｮ蟾ｮ蛻・→縺励※謇ｱ縺・
+    const dRet      = nz(deltas.retention?.[ym]);   // 邇・・螟牙喧・・縺ｧ邯咏ｶ壽隼蝟・churn貂帛ｰ托ｼ・
+    const dRevenue  = nz(deltas.revenue?.[ym]);     // 驥鷹｡・
+    const dFixed    = nz(deltas.fixed_cost?.[ym]);  // 驥鷹｡・
+    const dVarAmt   = nz(deltas.variable_cost?.[ym]);// 驥鷹｡阪→縺励※謇ｱ縺・・
+    const dPers     = nz(deltas.personnel_cost?.[ym]);// 驥鷹｡・
+    const dSynergy  = nz(deltas.synergy?.[ym]);     // 邇・ｼ・0.05縺ｧ+5%・・
+    const dCogsRate = nz(deltas.cogsRate?.[ym]);    // 螟牙虚雋ｻ邇・・蠅玲ｸ幢ｼ・縺ｧ謔ｪ蛹厄ｼ・
+    const invest    = nz(deltas.invest?.[ym]);      // 驥鷹｡搾ｼ夷ｱ荳驛ｨ雋ｻ逕ｨ蛹厄ｼ・
 
-    // 実効churn率（情報用）：baseChurn + 差分
+    // 螳溷柑churn邇・ｼ域ュ蝣ｱ逕ｨ・会ｼ喘aseChurn + 蟾ｮ蛻・
     const churnRate = clamp01(baseChurn + dChurn - dRet);
 
-    // ★重要：数量は「ベース + 増減分」で計算する
-    // - baseQty はその月の“素の”軌道（ベース）
-    // - deltaQty は OKR 由来の増減分だけを累積
+    // 笘・㍾隕・ｼ壽焚驥上・縲後・繝ｼ繧ｹ + 蠅玲ｸ帛・縲阪〒險育ｮ励☆繧・
+    // - baseQty 縺ｯ縺昴・譛医・窶懃ｴ縺ｮ窶晁ｻ碁％・医・繝ｼ繧ｹ・・
+    // - deltaQty 縺ｯ OKR 逕ｱ譚･縺ｮ蠅玲ｸ帛・縺縺代ｒ邏ｯ遨・
     const prevDeltaQty = deltaQtyPrev;
     const qPrev = baseQty + prevDeltaQty;
 
-    // churn/retention は「ベースからの差分」として、
-    // 増減分にだけ効かせるイメージ（ベース自体は崩さない）
-    const churnDelta = dChurn - dRet; // >0 で悪化、<0 で改善
+    // churn/retention 縺ｯ縲後・繝ｼ繧ｹ縺九ｉ縺ｮ蟾ｮ蛻・阪→縺励※縲・
+    // 蠅玲ｸ帛・縺ｫ縺縺大柑縺九○繧九う繝｡繝ｼ繧ｸ・医・繝ｼ繧ｹ閾ｪ菴薙・蟠ｩ縺輔↑縺・ｼ・
+    const churnDelta = dChurn - dRet; // >0 縺ｧ謔ｪ蛹悶・0 縺ｧ謾ｹ蝟・
 
-    // 増減分の更新：deltaQty_next = deltaQty_prev + 新規獲得 - (qPrev * churnDelta)
+    // 蠅玲ｸ帛・縺ｮ譖ｴ譁ｰ・單eltaQty_next = deltaQty_prev + 譁ｰ隕冗佐蠕・- (qPrev * churnDelta)
     const deltaQtyNext = Math.max(
       0,
       prevDeltaQty + dAcq - qPrev * churnDelta,
@@ -245,30 +245,30 @@ export function simulateMonthlyPL(
     const qty = Math.max(0, baseQty + deltaQtyNext);
     deltaQtyPrev = deltaQtyNext;
 
-    // 単価：ベース＋差分
+    // 蜊倅ｾ｡・壹・繝ｼ繧ｹ・句ｷｮ蛻・
     const arpu = Math.max(0, baseArpu + dArpu);
 
-    // 売上（基本）：qty * arpu
+    // 螢ｲ荳奇ｼ亥渕譛ｬ・会ｼ嘔ty * arpu
     let revenueCore = Math.max(0, qty * arpu);
 
-    // 売上へ直接加算（REVENUE KR 等）
+    // 螢ｲ荳翫∈逶ｴ謗･蜉邂暦ｼ・EVENUE KR 遲会ｼ・
     revenueCore += Math.max(0, dRevenue);
 
-    // 相乗効果（+率）を売上に適用
+    // 逶ｸ荵怜柑譫懶ｼ・邇・ｼ峨ｒ螢ｲ荳翫↓驕ｩ逕ｨ
     if (applySynergyTo.includes('revenue')) {
       revenueCore *= (1 + dSynergy);
     }
     const revenue = Math.max(0, revenueCore);
 
-    // 変動費：金額足し込み or 率で計算の両対応
+    // 螟牙虚雋ｻ・夐≡鬘崎ｶｳ縺苓ｾｼ縺ｿ or 邇・〒險育ｮ励・荳｡蟇ｾ蠢・
     let variable: number;
     if (dCogsRate !== 0) {
-      // ベースの変動費率を推定（可能ならベース売上から、無ければ金額/内生売上で近似）
+      // 繝吶・繧ｹ縺ｮ螟牙虚雋ｻ邇・ｒ謗ｨ螳夲ｼ亥庄閭ｽ縺ｪ繧峨・繝ｼ繧ｹ螢ｲ荳翫°繧峨∫┌縺代ｌ縺ｰ驥鷹｡・蜀・函螢ｲ荳翫〒霑台ｼｼ・・
       const baseSales =
         (base.revenueMonthly?.[ym] ??
           (baseQty * baseArpu)) ||
         (revenueCore - dRevenue);
-      const safeSales = Math.max(1, baseSales); // 0割回避
+      const safeSales = Math.max(1, baseSales); // 0蜑ｲ蝗樣∩
       const estBaseCogsRate = clamp01(baseVarAmt / safeSales);
       const appliedRate = clamp01(estBaseCogsRate + dCogsRate);
       variable = Math.max(0, appliedRate * revenueCore);
@@ -276,14 +276,14 @@ export function simulateMonthlyPL(
       variable = Math.max(0, baseVarAmt + dVarAmt);
     }
 
-    // 固定費・人件費（投資の一部当期費用化）
+    // 蝗ｺ螳夊ｲｻ繝ｻ莠ｺ莉ｶ雋ｻ・域兜雉・・荳驛ｨ蠖捺悄雋ｻ逕ｨ蛹厄ｼ・
     let fixed = Math.max(
       0,
       baseFixed + dFixed + invest * (opt?.investEffectAlpha ?? 0),
     );
     let personnel = Math.max(0, basePers + dPers);
 
-    // コスト側にも相乗効果を適用する指定なら
+    // 繧ｳ繧ｹ繝亥・縺ｫ繧ら嶌荵怜柑譫懊ｒ驕ｩ逕ｨ縺吶ｋ謖・ｮ壹↑繧・
     if (applySynergyTo.includes('cost')) {
       fixed *= (1 + dSynergy);
       variable *= (1 + dSynergy);
@@ -317,8 +317,8 @@ export function simulateMonthlyPL(
 }
 
 /**
- * 年次集計（暦年で単純合算）
- * - 12ヶ月未満の端数年は入っている分だけ合算
+ * 蟷ｴ谺｡髮・ｨ茨ｼ域圜蟷ｴ縺ｧ蜊倡ｴ泌粋邂暦ｼ・
+ * - 12繝ｶ譛域悴貅縺ｮ遶ｯ謨ｰ蟷ｴ縺ｯ蜈･縺｣縺ｦ縺・ｋ蛻・□縺大粋邂・
  */
 export function aggregateYearly(monthlies: MonthlyPL[]): YearlyPL[] {
   const byYear = new Map<number, YearlyPL>();
@@ -340,7 +340,7 @@ export function aggregateYearly(monthlies: MonthlyPL[]): YearlyPL[] {
     byYear.set(year, prev);
   }
 
-  // margin 再計算
+  // margin 蜀崎ｨ育ｮ・
   const out: YearlyPL[] = [];
   for (const y of Array.from(byYear.keys()).sort((a, b) => a - b)) {
     const v = byYear.get(y)!;
