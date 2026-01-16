@@ -1,0 +1,542 @@
+// app/stage4/page.tsx
+'use client';
+
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
+import { useStrategyStore } from '@/store/strategyStore';
+import { useUserStore } from '@/store/userStore';
+import { useAccess } from '@/utils/access';
+import { hardResetForCompanySwitch } from '@/utils/resetAll';
+import { loadAndHydrate } from '@/utils/loader';
+import { Save, RefreshCw, AlertCircle } from 'lucide-react';
+import { StatusBadge, StatusSelect, type Status } from '@/components/stage4/StatusBadge';
+import { DiffViewer } from '@/components/stage4/DiffViewer';
+import { AlignmentPreview } from '@/components/stage4/AlignmentPreview';
+import { ProjectEditor } from '@/components/stage4/ProjectEditor';
+import type { Stage4Plan, Stage4Baseline, Stage4Current, Department, Project, HumanInvestment } from '@/types/strategy';
+
+/* =========================
+ * STAGE3データからbaselineを生成
+ * ======================= */
+function createBaselineFromStage3(dept: Department): Stage4Baseline {
+  const projects = (dept.projects || []).map((p: Project) => ({
+    title: p.title,
+    kpiTargets: extractKpiTargets(p),
+    skillRequirements: (p as { skillRequirements?: { roleSkills?: string[]; executionSkills?: string[] } }).skillRequirements,
+    humanInvestments: (p as { humanInvestments?: HumanInvestment[] }).humanInvestments,
+    valueDriverLinks: (p as { valueDriverLinks?: string[] }).valueDriverLinks,
+  }));
+  return { projects };
+}
+
+function extractKpiTargets(p: Project): Record<string, number> {
+  // OKRのkey resultsからKPIターゲットを抽出（簡易実装）
+  const targets: Record<string, number> = {};
+  const okrs = p.okrs || [];
+  okrs.forEach((okr, idx) => {
+    if (okr.objective) {
+      targets[`OKR${idx + 1}: ${okr.objective}`] = 100; // デフォルト値
+    }
+  });
+  return targets;
+}
+
+/* =========================
+ * メイン画面
+ * ======================= */
+export default function Stage4Page() {
+  // Zustand selector で個別購読（副作用最小化）
+  const loaded = useStrategyStore((s) => s.loaded);
+  const hydrated = useStrategyStore((s) => s.hydrated);
+  const departments = useStrategyStore((s) => s.departments);
+  const stage4Plans = useStrategyStore((s) => s.stage4Plans);
+  const setStage4Plans = useStrategyStore((s) => s.setStage4Plans);
+  const saveStrategyData = useStrategyStore((s) => s.saveStrategyData);
+  const refetchFromServer = useStrategyStore((s) => s.refetchFromServer);
+  const valueDriverKPIs = useStrategyStore((s) => (s as any).valueDriverKPIs);
+  const targetRanges = useStrategyStore((s) => (s as any).targetRanges);
+
+  // userStore も selector 化
+  const companyId = useUserStore((s) => s.companyId);
+  const access = useAccess();
+
+  const [selectedDeptId, setSelectedDeptId] = useState<string | null>(null);
+  const [localPlans, setLocalPlans] = useState<Stage4Plan[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [conflictError, setConflictError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [isInitializing, setIsInitializing] = useState(true);
+
+  // ★ UI表示のゲート（store.loaded に依存しない）
+  const [initializedReady, setInitializedReady] = useState(false);
+
+  // 初期化ガード（StrictMode二重実行対策）
+  const initOnceRef = useRef<string | null>(null);
+  const lastInitializedCompanyId = useRef<string | null>(null);
+
+  // 初期化・ハイドレーション
+  useEffect(() => {
+    const init = async () => {
+      // companyId 未確定時は待つ（ここでエラーにしない）
+      if (!companyId) {
+        console.log('[STAGE4] companyId 未確定のため初期化待機');
+        setIsInitializing(false);
+        setInitializedReady(false);
+        return;
+      }
+
+      // 二重実行防止：同じ companyId で既に初期化中/完了している場合はスキップ
+      if (initOnceRef.current === companyId) {
+        console.log('[STAGE4] 初期化スキップ（既に実行済み）:', companyId);
+        return;
+      }
+
+      console.log('[STAGE4] 初期化開始', { companyId });
+      initOnceRef.current = companyId;
+
+      setIsInitializing(true);
+      setInitializedReady(false);
+      setLoadError(null);
+
+      // タイムアウト（15秒）
+      const timeoutId = setTimeout(() => {
+        console.warn('[STAGE4] タイムアウト：15秒経過。UIは表示し、エラーとして案内します');
+        setIsInitializing(false);
+        setInitializedReady(true); // UIは表示して操作可能にする
+        setLoadError('読み込みがタイムアウトしました。右上の「最新取得」または「プロビジョニング再実行」をお試しください。');
+      }, 15000);
+
+      try {
+        // hardResetForCompanySwitch は会社IDが変わった時のみ実行
+        if (lastInitializedCompanyId.current !== companyId) {
+          console.log('[STAGE4] hardResetForCompanySwitch 実行（会社ID変更検知）', {
+            from: lastInitializedCompanyId.current,
+            to: companyId,
+          });
+          hardResetForCompanySwitch(companyId);
+          lastInitializedCompanyId.current = companyId;
+        } else {
+          console.log('[STAGE4] hardResetForCompanySwitch スキップ（同一会社ID）');
+        }
+
+        console.log('[STAGE4] loadAndHydrate 実行前');
+        await loadAndHydrate(companyId);
+        console.log('[STAGE4] loadAndHydrate 完了', {
+          hydrated: useStrategyStore.getState().hydrated,
+          loaded: useStrategyStore.getState().loaded,
+          companyId: useStrategyStore.getState().companyId,
+          departments: useStrategyStore.getState().departments?.length ?? 0,
+        });
+
+        // ★ 重要：store.loaded を待たずにUIゲートを開ける
+        setInitializedReady(true);
+        clearTimeout(timeoutId);
+      } catch (error) {
+        clearTimeout(timeoutId);
+        const err = error as Error;
+        console.error('[STAGE4] 初期ロードエラー:', err);
+        setLoadError(err.message || '初期化に失敗しました');
+        // エラー時は再試行できるようにガードを解除
+        initOnceRef.current = null;
+        // UIは表示して、ユーザーが「再試行/最新取得」を押せるようにする
+        setInitializedReady(true);
+      } finally {
+        console.log('[STAGE4] finally → isInitializing=false');
+        setIsInitializing(false);
+      }
+    };
+
+    init();
+  }, [companyId]);
+
+  // store から stage4Plans を取得
+  useEffect(() => {
+    if (stage4Plans) {
+      setLocalPlans(stage4Plans);
+    }
+  }, [stage4Plans]);
+
+  // strategyStore の状態変化を監視（デバッグ用）
+  useEffect(() => {
+    console.log('[STAGE4] store state:', {
+      hydrated,
+      loaded,
+      departments: departments?.length ?? 0,
+      companyIdInStore: useStrategyStore.getState().companyId,
+    });
+  }, [hydrated, loaded, departments]);
+
+  // 部門リスト
+  const departmentsList = useMemo(() => departments || [], [departments]);
+
+  // 選択中の部門
+  const selectedDept = useMemo(
+    () => departmentsList.find((d) => (d.id || d.name) === selectedDeptId),
+    [departmentsList, selectedDeptId]
+  );
+
+  // 選択中の部門のStage4Plan
+  const selectedPlan = useMemo(
+    () => localPlans.find((plan) => plan.departmentId === selectedDeptId),
+    [localPlans, selectedDeptId]
+  );
+
+  // baseline初期化（STAGE3データから生成）
+  useEffect(() => {
+    if (!selectedDept) return;
+
+    const deptId = String(selectedDept.id || selectedDept.name);
+    if (!deptId) return;
+
+    // すでに plan があるなら何もしない
+    const exists = localPlans.some((p) => p.departmentId === deptId);
+    if (exists) return;
+
+    const baseline = createBaselineFromStage3(selectedDept);
+    const newPlan: Stage4Plan = {
+      departmentId: deptId,
+      status: 'Draft',
+      baseline,
+      current: JSON.parse(JSON.stringify(baseline)), // deep copy
+      updatedAt: new Date().toISOString(),
+    };
+
+    // setState は関数形式で安全に（依存のループを避ける）
+    setLocalPlans((prev) => {
+      const next = [...prev, newPlan];
+      setStage4Plans(next);
+      return next;
+    });
+  }, [selectedDept, localPlans, setStage4Plans]);
+
+  // ステータス変更
+  const updateStatus = useCallback(
+    (deptId: string, newStatus: Status) => {
+      setLocalPlans((prev) => {
+        const updated = prev.map((plan) =>
+          plan.departmentId === deptId ? { ...plan, status: newStatus, updatedAt: new Date().toISOString() } : plan
+        );
+        setStage4Plans(updated);
+        return updated;
+      });
+    },
+    [setStage4Plans]
+  );
+
+  // current編集
+  const updateCurrent = useCallback(
+    (deptId: string, newCurrent: Stage4Current) => {
+      setLocalPlans((prev) => {
+        const updated = prev.map((plan) =>
+          plan.departmentId === deptId ? { ...plan, current: newCurrent, updatedAt: new Date().toISOString() } : plan
+        );
+        setStage4Plans(updated);
+        return updated;
+      });
+    },
+    [setStage4Plans]
+  );
+
+  // 保存（楽観ロック対応）
+  const handleSave = async () => {
+    if (!access.canEditCompany()) {
+      alert('保存権限がありません');
+      return;
+    }
+
+    setSaving(true);
+    setConflictError(null);
+
+    try {
+      await saveStrategyData();
+      alert('保存しました');
+    } catch (error) {
+      const err = error as { code?: string; message?: string; currentRevision?: number; expectedRevision?: number };
+      if (err.code === 'REVISION_CONFLICT') {
+        setConflictError(
+          `データが他のセッションで更新されました（期待: ${err.expectedRevision}, 実際: ${err.currentRevision}）。最新データを取得してください。`
+        );
+      } else {
+        alert(`保存に失敗しました: ${err.message || '不明なエラー'}`);
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // 最新データ取得
+  const handleRefresh = async () => {
+    setConflictError(null);
+    setLoadError(null);
+    try {
+      await refetchFromServer();
+      alert('最新データを取得しました');
+    } catch (error) {
+      const err = error as Error;
+      console.error('[STAGE4] refetch エラー:', err);
+      setLoadError(err.message || '最新データの取得に失敗しました');
+    }
+  };
+
+  // provision 再実行
+  const handleProvision = async () => {
+    setLoadError(null);
+    setIsInitializing(true);
+    try {
+      if (!companyId) {
+        throw new Error('会社IDが見つかりません');
+      }
+
+      const res = await fetch('/api/companies/provision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: 'プロビジョニングに失敗しました' }));
+        throw new Error(errData.error || `HTTP ${res.status}`);
+      }
+
+      alert('プロビジョニングが完了しました。データを再読み込みします。');
+      hardResetForCompanySwitch(companyId);
+      await loadAndHydrate(companyId);
+
+      // UI表示ゲートを開く（loaded に依存しない）
+      setInitializedReady(true);
+    } catch (error) {
+      const err = error as Error;
+      console.error('[STAGE4] provision エラー:', err);
+      setLoadError(err.message || 'プロビジョニングに失敗しました');
+      setInitializedReady(true);
+    } finally {
+      setIsInitializing(false);
+    }
+  };
+
+  // 初回読み込み中：★ store.loaded/hydrated に依存しない
+  if (isInitializing || !initializedReady) {
+    console.log('[STAGE4] ローディング中:', {
+      isInitializing,
+      initializedReady,
+      hydrated,
+      loaded,
+    });
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mb-4" />
+          <p className="text-sm text-gray-600">STAGE4を読み込んでいます...</p>
+          <p className="text-xs text-gray-500 mt-2">
+            isInitializing: {String(isInitializing)} / initializedReady: {String(initializedReady)} / loaded: {String(loaded)} / hydrated:{' '}
+            {String(hydrated)}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // 初回読み込みエラー（UIは出したまま、操作ボタンを提示）
+  if (loadError) {
+    return (
+      <div className="p-8">
+        <div className="max-w-4xl mx-auto">
+          <h1 className="text-2xl font-bold text-gray-900 mb-4">STAGE4: 実行計画策定</h1>
+          <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+            <div className="flex items-start gap-3 mb-4">
+              <AlertCircle className="w-6 h-6 text-red-600 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h3 className="text-base font-medium text-red-900 mb-2">初期化エラー</h3>
+                <p className="text-sm text-red-800">{loadError}</p>
+                <p className="text-xs text-red-700 mt-2">
+                  debug: loaded={String(loaded)} hydrated={String(hydrated)}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => {
+                  // init をやり直したいのでガード解除
+                  initOnceRef.current = null;
+                  setLoadError(null);
+                  setInitializedReady(false);
+                  setIsInitializing(true);
+                }}
+                className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700"
+              >
+                再試行
+              </button>
+              <button
+                onClick={handleProvision}
+                className="px-4 py-2 text-sm border border-red-300 text-red-700 rounded-lg hover:bg-red-50"
+              >
+                プロビジョニング再実行
+              </button>
+              <button
+                onClick={handleRefresh}
+                className="px-4 py-2 text-sm border border-red-300 text-red-700 rounded-lg hover:bg-red-50"
+              >
+                最新取得
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 部門なし
+  if (departmentsList.length === 0) {
+    return (
+      <div className="p-8">
+        <div className="max-w-4xl mx-auto">
+          <h1 className="text-2xl font-bold text-gray-900 mb-4">STAGE4: 実行計画策定</h1>
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-800">
+            STAGE3の部門・プロジェクトが見つかりません。先にSTAGE3を完了してください。
+          </div>
+          <div className="mt-4 flex gap-3">
+            <button
+              onClick={handleRefresh}
+              className="flex items-center gap-2 px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              <RefreshCw className="w-4 h-4" />
+              最新取得
+            </button>
+            <button
+              onClick={handleProvision}
+              className="flex items-center gap-2 px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              <AlertCircle className="w-4 h-4" />
+              プロビジョニング再実行
+            </button>
+          </div>
+          <p className="text-xs text-gray-500 mt-3">
+            debug: loaded={String(loaded)} hydrated={String(hydrated)}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-8">
+      <div className="max-w-6xl mx-auto space-y-6">
+        {/* ヘッダー */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">STAGE4: 実行計画策定</h1>
+            <p className="text-sm text-gray-600 mt-1">現場が編集して初めてコミットが成立</p>
+            <p className="text-xs text-gray-500 mt-1">
+              debug: loaded={String(loaded)} hydrated={String(hydrated)}
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleRefresh}
+              disabled={saving}
+              className="flex items-center gap-2 px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+            >
+              <RefreshCw className="w-4 h-4" />
+              最新取得
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving || !access.canEditCompany()}
+              className="flex items-center gap-2 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              <Save className="w-4 h-4" />
+              {saving ? '保存中...' : '保存'}
+            </button>
+          </div>
+        </div>
+
+        {/* 衝突警告 */}
+        {conflictError && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <h3 className="text-sm font-medium text-red-900">保存に失敗しました（REVISION_CONFLICT）</h3>
+              <p className="text-sm text-red-800 mt-1">{conflictError}</p>
+              <button
+                onClick={handleRefresh}
+                className="mt-2 px-3 py-1.5 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+              >
+                最新データを取得
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-12 gap-6">
+          {/* 左サイドバー：部門一覧 */}
+          <div className="col-span-3 space-y-2">
+            <h2 className="text-sm font-medium text-gray-700 mb-3">部門一覧</h2>
+            {departmentsList.map((dept) => {
+              const deptId = String(dept.id || dept.name);
+              const plan = localPlans.find((p) => p.departmentId === deptId);
+              const isSelected = deptId === selectedDeptId;
+
+              return (
+                <button
+                  key={deptId}
+                  onClick={() => setSelectedDeptId(deptId)}
+                  className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                    isSelected ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="font-medium text-sm text-gray-900">{dept.name}</div>
+                  <div className="flex items-center gap-2 mt-2">
+                    <StatusBadge status={plan?.status || 'Draft'} />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* 右メインエリア：選択中の部門 */}
+          <div className="col-span-9 space-y-6">
+            {!selectedPlan ? (
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center text-gray-600">
+                左から部門を選択してください
+              </div>
+            ) : (
+              <>
+                {/* ステータス切替 */}
+                <div className="bg-white border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-medium text-gray-700">ステータス</h3>
+                    <StatusSelect
+                      value={selectedPlan.status}
+                      onChange={(newStatus) => updateStatus(selectedPlan.departmentId, newStatus)}
+                      disabled={!access.canEditCompany()}
+                    />
+                  </div>
+                </div>
+
+                {/* 差分表示 */}
+                <div className="bg-white border border-gray-200 rounded-lg p-4">
+                  <h3 className="text-sm font-medium text-gray-700 mb-4">差分（STAGE3 → STAGE4編集後）</h3>
+                  <DiffViewer baseline={selectedPlan.baseline} current={selectedPlan.current} />
+                </div>
+
+                {/* 整合プレビュー */}
+                <div className="bg-white border border-gray-200 rounded-lg p-4">
+                  <AlignmentPreview current={selectedPlan.current} valueDriverKPIs={valueDriverKPIs} targetRanges={targetRanges} />
+                </div>
+
+                {/* プロジェクト編集 */}
+                <div className="bg-white border border-gray-200 rounded-lg p-4">
+                  <h3 className="text-sm font-medium text-gray-700 mb-4">プロジェクト編集</h3>
+                  <ProjectEditor
+                    current={selectedPlan.current}
+                    onChange={(newCurrent) => updateCurrent(selectedPlan.departmentId, newCurrent)}
+                    disabled={!access.canEditCompany()}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
