@@ -95,6 +95,24 @@ type SafeDepartmentsArg =
   | null
   | undefined;
 
+/* ============================================================
+ * 保存直列化（最重要）
+ * - 複数トリガ（Sidebar手動保存 / 部門即時保存 / スナップショット等）が同時に走ると
+ *   revision がサーバで先に進み、REVISION_CONFLICT になりやすい。
+ * - ここで「保存系」を必ず直列化する。
+ * ========================================================== */
+let __saveChain: Promise<void> = Promise.resolve();
+
+function enqueueSave<T>(fn: () => Promise<T>): Promise<T> {
+  const run = async () => fn();
+  const p = __saveChain.then(run, run);
+  __saveChain = p.then(
+    () => undefined,
+    () => undefined
+  );
+  return p;
+}
+
 /* ===== StrategyState ===== */
 export type StrategyState = {
   companyId: string | null;
@@ -175,6 +193,23 @@ export type StrategyState = {
   winPatterns?: WinPattern[];
   winPatternPrimary?: WinPatternId;
   winPatternSecondary?: WinPatternId;
+
+  /* ★ STAGE4：実行計画（部門ごとの編集状態・差分） */
+  stage4Plans?: Array<{
+    departmentId: string;
+    status: 'Draft' | 'Review' | 'Approved';
+    baseline: any;
+    current: any;
+    updatedAt?: string;
+    updatedBy?: string;
+  }>;
+
+  /* ★ STAGE4：Baseline（hydrate後に1回のみ作成、変更なし） */
+  executionPlanBaseline?: {
+    companyId?: string;
+    createdAt?: number;
+    snapshot?: any[];
+  };
 
   /* 財務 */
   csvFinanceData?: unknown;
@@ -272,6 +307,22 @@ export type StrategyState = {
   setWinPatternsCandidate: (candidates: WinPatternCandidate[]) => void;
   setAnswers12: (answers: Stage2Answer[]) => void;
   updateAnswer12: (id: string, patch: Partial<Stage2Answer>) => void;
+
+  /* ▼ STAGE4 setter */
+  setStage4Plans: (plans: Array<{
+    departmentId: string;
+    status: 'Draft' | 'Review' | 'Approved';
+    baseline: any;
+    current: any;
+    updatedAt?: string;
+    updatedBy?: string;
+  }>) => void;
+
+  setExecutionPlanBaseline: (baseline: {
+    companyId?: string;
+    createdAt?: number;
+    snapshot?: any[];
+  }) => void;
 
   /** ValueAnalysis 再計算（source: 変更元を示す） */
   recomputeValueAnalysis: (
@@ -432,6 +483,9 @@ function buildSavePayload(s: StrategyState) {
     winPatterns: s.winPatterns,
     winPatternPrimary: s.winPatternPrimary,
     winPatternSecondary: s.winPatternSecondary,
+
+    stage4Plans: s.stage4Plans,
+    executionPlanBaseline: s.executionPlanBaseline,
   };
 
   if (typeof s.businessPortfolio !== 'undefined') base.businessPortfolio = s.businessPortfolio;
@@ -498,14 +552,15 @@ async function isSessionUsable(): Promise<boolean> {
 
 /* ============================================================
  * 親(strategy_data)の存在を"できる限り"保証
- * - store保存制御を迂回するが、in-flight を1本化して競合を抑止
+ * - 重要: 既に親が存在していそうな場合は「何もしない」。
+ * - 保存直列化キューに乗せて、revision の前後不一致を減らす。
  * ========================================================== */
 let __ensureParentInflight: Promise<void> | null = null;
 
 async function ensureParentExists(): Promise<void> {
   if (__ensureParentInflight) return __ensureParentInflight;
 
-  __ensureParentInflight = (async () => {
+  __ensureParentInflight = enqueueSave(async () => {
     const s = useStrategyStore.getState();
     const userId = useUserStore.getState().user?.id;
     const companyId = s.companyId || s.pendingCompanyId || useUserStore.getState().companyId;
@@ -517,6 +572,12 @@ async function ensureParentExists(): Promise<void> {
       return;
     }
 
+    // ★最重要：revision が取れている／loaded の場合は親が存在している可能性が極めて高いので何もしない
+    if (typeof s.revision === 'number' || s.loaded || s.hydrated) {
+      console.log('[strategyStore] ensureParentExists: parent likely exists (revision/loaded/hydrated), skip');
+      return;
+    }
+
     const payload = buildSavePayload(s);
     if (isEffectivelyEmpty(payload)) {
       console.log('[strategyStore] ensureParentExists: payload effectively empty, skip');
@@ -524,7 +585,8 @@ async function ensureParentExists(): Promise<void> {
     }
 
     try {
-      await (saveStrategyDataApi as any)(payload, userId, companyId, s.revision, { mode: 'upsert' });
+      // revision が未知の段階なので undefined で upsert（存在すれば更新してしまうが、ここは「初回のみ」に絞っている）
+      await (saveStrategyDataApi as any)(payload, userId, companyId, undefined, { mode: 'upsert' });
     } catch (e) {
       console.warn('[strategyStore] ensureParentExists primary call failed, fallback legacy:', e);
       try {
@@ -533,7 +595,7 @@ async function ensureParentExists(): Promise<void> {
         console.warn('[strategyStore] ensureParentExists legacy failed:', e2);
       }
     }
-  })().finally(() => {
+  }).finally(() => {
     __ensureParentInflight = null;
   });
 
@@ -602,6 +664,8 @@ const emptyData: StrategyState = {
   winPatterns: undefined,
   winPatternPrimary: undefined,
   winPatternSecondary: undefined,
+  stage4Plans: undefined,
+  executionPlanBaseline: undefined,
   csvFinanceData: undefined,
   financeSummary: undefined,
   businessPortfolio: undefined,
@@ -645,6 +709,8 @@ const emptyData: StrategyState = {
   setWinPatternsCandidate: () => {},
   setAnswers12: () => {},
   updateAnswer12: () => {},
+  setStage4Plans: () => {},
+  setExecutionPlanBaseline: () => {},
   recomputeValueAnalysis: () => {},
 
   setFinancePL: () => {},
@@ -669,7 +735,7 @@ const emptyData: StrategyState = {
   saveStage1Snapshot: () => false,
   saveStage2Snapshot: () => false,
   restoreStage1FromSnapshot: () => false,
-  getMetricsSummary: () => ({}),
+  getMetricsSummary: () => ({} as any),
 };
 
 /* ============================================================
@@ -698,7 +764,12 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
       ? raw.business_segments
       : [];
 
-  const isListed = typeof raw.isListed === 'boolean' ? raw.isListed : (typeof raw.is_listed === 'boolean' ? raw.is_listed : false);
+  const isListed =
+    typeof raw.isListed === 'boolean'
+      ? raw.isListed
+      : typeof raw.is_listed === 'boolean'
+        ? raw.is_listed
+        : false;
   const ticker = raw.ticker ?? raw.ticker_text ?? '';
   const pbrManual = raw.pbrManual ?? raw.pbr_manual ?? '';
   const financeBS = isArray(raw.financeBS)
@@ -780,8 +851,7 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     if (isArray(d?.answers2)) {
       deptOut.answers2 = d.answers2.map((c: any, idx: number) => ({
         chapterIndex: typeof c?.chapterIndex === 'number' ? c.chapterIndex : idx,
-        chapterTitle:
-          typeof c?.chapterTitle === 'string' ? c.chapterTitle : (d?.name ?? `Chapter ${idx + 1}`),
+        chapterTitle: typeof c?.chapterTitle === 'string' ? c.chapterTitle : d?.name ?? `Chapter ${idx + 1}`,
         steps: isArray(c?.steps)
           ? [...c.steps].sort((a: any, b: any) => Number(a?.stepNumber ?? 0) - Number(b?.stepNumber ?? 0))
           : [],
@@ -844,6 +914,16 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
   const winPatternSecondary: WinPatternId | undefined =
     raw.winPatternSecondary ?? raw.win_pattern_secondary ?? undefined;
 
+  const executionPlanBaseline = (() => {
+    const base = raw.executionPlanBaseline ?? raw.execution_plan_baseline;
+    if (!base || typeof base !== 'object') return undefined;
+    return {
+      companyId: base.companyId ?? base.company_id,
+      createdAt: typeof base.createdAt === 'number' ? base.createdAt : undefined,
+      snapshot: Array.isArray(base.snapshot) ? base.snapshot : undefined,
+    };
+  })();
+
   return {
     strategyId,
     revision,
@@ -894,6 +974,7 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     winPatterns,
     winPatternPrimary,
     winPatternSecondary,
+    executionPlanBaseline,
   };
 }
 
@@ -1051,15 +1132,21 @@ export const useStrategyStore = create<StrategyState>()(
       /* ▼ STAGE2 setter */
       setStoryDraft: (draft) => {
         set((s) => ({ ...s, storyDraft: draft, dirty: true }));
-        setTimeout(() => { get().saveStage2Snapshot(); }, 0);
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
       },
       setWinPatternsCandidate: (candidates) => {
         set((s) => ({ ...s, winPatternsCandidate: candidates, dirty: true }));
-        setTimeout(() => { get().saveStage2Snapshot(); }, 0);
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
       },
       setAnswers12: (answers) => {
         set((s) => ({ ...s, answers12: answers, dirty: true }));
-        setTimeout(() => { get().saveStage2Snapshot(); }, 0);
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
       },
       updateAnswer12: (id, patch) => {
         set((s) => {
@@ -1070,7 +1157,18 @@ export const useStrategyStore = create<StrategyState>()(
           next[idx] = { ...next[idx], ...patch };
           return { ...s, answers12: next, dirty: true };
         });
-        setTimeout(() => { get().saveStage2Snapshot(); }, 0);
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
+      /* ▼ STAGE4 setter */
+      setStage4Plans: (plans) => {
+        set((s) => ({ ...s, stage4Plans: plans, dirty: true }));
+      },
+
+      setExecutionPlanBaseline: (baseline) => {
+        set((s) => ({ ...s, executionPlanBaseline: baseline, dirty: true }));
       },
 
       /** ValueAnalysis 再計算 */
@@ -1115,7 +1213,12 @@ export const useStrategyStore = create<StrategyState>()(
           source: source === 'refetchFromServer' ? 'server' : 'local',
         };
 
-        console.log('[strategyStore] recomputeValueAnalysis:', { source, hasNewFormat, newValueAnalysis, newSegmentValueAnalysis });
+        console.log('[strategyStore] recomputeValueAnalysis:', {
+          source,
+          hasNewFormat,
+          newValueAnalysis,
+          newSegmentValueAnalysis,
+        });
 
         set((prev) => ({
           ...prev,
@@ -1248,105 +1351,141 @@ export const useStrategyStore = create<StrategyState>()(
         if (Object.keys(minimal).length > 0) set(minimal);
       },
 
-      markLoaded: () => set({ loaded: true }),
+      markLoaded: () => {
+        console.log('[strategyStore] markLoaded 実行');
+        set({ loaded: true, hydrated: true });
+        console.log('[strategyStore] markLoaded 完了', { loaded: get().loaded, hydrated: get().hydrated });
+      },
       markDirty: () => set({ dirty: true }),
 
       buildPayload: () => buildSavePayload(get() as StrategyState),
 
       async saveStrategyData() {
-        const state = get();
+        // ★保存を必ず直列化（REVISION_CONFLICTの主因を除去）
+        return enqueueSave(async () => {
+          const state0 = get();
 
-        // ★重要：refetch/hydrating中の保存は競合の温床（削除復活・無限ループ）なので抑止
-        if (state.__isFetchingFromServer || state.boot?.isHydrating) {
-          console.log('[strategyStore] saveStrategyData: skip while fetching/hydrating');
-          return;
-        }
-
-        const userId = useUserStore.getState().user?.id;
-        const companyId = state.companyId || state.pendingCompanyId || useUserStore.getState().companyId;
-
-        console.log('[strategyStore] saveStrategyData() start', {
-          userId,
-          companyId,
-          dirty: state.dirty,
-          _loadingSave: state._loadingSave,
-        });
-
-        if (!userId || !companyId) {
-          console.warn('[strategyStore] saveStrategyData skipped: missing ids');
-          return;
-        }
-
-        if (!state.dirty) {
-          console.log('[strategyStore] saveStrategyData: dirty=false, skip');
-          return;
-        }
-
-        if (state._loadingSave) {
-          console.log('[strategyStore] saveStrategyData: already saving, skip');
-          return;
-        }
-
-        set({ _loadingSave: true });
-        try {
-          const payload = buildSavePayload(get() as StrategyState);
-
-          if (isEffectivelyEmpty(payload)) {
-            console.log('[strategyStore] saveStrategyData: payload effectively empty, clear dirty');
-            set({ dirty: false });
+          // refetch/hydrating中の保存は競合の温床なので抑止
+          if (state0.__isFetchingFromServer || state0.boot?.isHydrating) {
+            console.log('[strategyStore] saveStrategyData: skip while fetching/hydrating');
             return;
           }
 
-          const currentHash = stableHash(payload);
-          if (state.__lastSavedHash && state.__lastSavedHash === currentHash) {
-            console.log('[strategyStore] saveStrategyData: same hash, skip');
-            set({ dirty: false });
+          const userId = useUserStore.getState().user?.id;
+          const companyId = state0.companyId || state0.pendingCompanyId || useUserStore.getState().companyId;
+
+          console.log('[strategyStore] saveStrategyData() start', {
+            userId,
+            companyId,
+            revision: state0.revision,
+            dirty: state0.dirty,
+            _loadingSave: state0._loadingSave,
+          });
+
+          if (!userId || !companyId) {
+            console.warn('[strategyStore] saveStrategyData skipped: missing ids');
             return;
           }
 
-          const res = await (async () => {
-            try {
-              return await (saveStrategyDataApi as any)(payload, userId, companyId, state.revision, { mode: 'upsert' });
-            } catch (e) {
-              console.warn('[strategyStore] saveStrategyData thrown, fallback legacy call:', e);
-              try {
-                return await (saveStrategyDataApi as any)(payload, userId, companyId);
-              } catch (e2) {
-                console.error('[strategyStore] saveStrategyData legacy call failed:', e2);
-                return { error: e2 };
-              }
-            }
-          })();
+          // dirty=false なら何もしない
+          if (!state0.dirty) {
+            console.log('[strategyStore] saveStrategyData: dirty=false, skip');
+            return;
+          }
 
-          if (!res || (res as any).error) {
-            const err = (res as any)?.error;
-            const errCode = (res as any)?.errorCode;
+          // UI/他ロジック向けのガード（キュー化により“同時実行”は起きないが、見た目制御のため残す）
+          if (state0._loadingSave) {
+            console.log('[strategyStore] saveStrategyData: already saving, skip (queued)');
+            return;
+          }
 
-            // ★ 409 REVISION_CONFLICT: サーバ側で変更があった
-            if (errCode === 'REVISION_CONFLICT' || err?.code === 'REVISION_CONFLICT') {
-              console.warn('[strategyStore] ⚠ REVISION_CONFLICT detected. Refetching latest data...');
-              try {
-                await get().refetchFromServer();
-                console.log('[strategyStore] ✅ Refetch completed after conflict. User changes preserved in dirty state.');
-              } catch (refetchErr) {
-                console.error('[strategyStore] refetch after conflict failed:', refetchErr);
+          set({ _loadingSave: true });
+
+          try {
+            // ★最大2回：1回目で conflict なら refetch → 2回目で最新 revision で再保存
+            for (let attempt = 1; attempt <= 2; attempt++) {
+              const state = get(); // ★キュー実行時点の最新 state を必ず参照
+              const payload = buildSavePayload(state as StrategyState);
+
+              if (isEffectivelyEmpty(payload)) {
+                console.log('[strategyStore] saveStrategyData: payload effectively empty, clear dirty');
+                set({ dirty: false });
+                return;
               }
+
+              const currentHash = stableHash(payload);
+              if (state.__lastSavedHash && state.__lastSavedHash === currentHash) {
+                console.log('[strategyStore] saveStrategyData: same hash, skip');
+                set({ dirty: false });
+                return;
+              }
+
+              const res = await (async () => {
+                try {
+                  return await (saveStrategyDataApi as any)(
+                    payload,
+                    userId,
+                    companyId,
+                    state.revision,
+                    { mode: 'upsert' }
+                  );
+                } catch (e) {
+                  console.warn('[strategyStore] saveStrategyData thrown, fallback legacy call:', e);
+                  try {
+                    return await (saveStrategyDataApi as any)(payload, userId, companyId);
+                  } catch (e2) {
+                    console.error('[strategyStore] saveStrategyData legacy call failed:', e2);
+                    return { error: e2 };
+                  }
+                }
+              })();
+
+              if (!res || (res as any).error) {
+                const err = (res as any)?.error;
+                const errCode = (res as any)?.errorCode;
+
+                // ★ 409 REVISION_CONFLICT: サーバ側で変更があった（または並列保存で revision が先に進んだ）
+                if (errCode === 'REVISION_CONFLICT' || err?.code === 'REVISION_CONFLICT') {
+                  console.warn(
+                    `[strategyStore] ⚠ REVISION_CONFLICT detected (attempt ${attempt}/2). Refetching latest data...`
+                  );
+
+                  try {
+                    await get().refetchFromServer();
+                    console.log('[strategyStore] ✅ Refetch completed after conflict. User changes preserved in dirty state.');
+                  } catch (refetchErr) {
+                    console.error('[strategyStore] refetch after conflict failed:', refetchErr);
+                    return;
+                  }
+
+                  // 2回目なら打ち切り（無限ループ防止）
+                  if (attempt >= 2) {
+                    console.warn('[strategyStore] REVISION_CONFLICT persists after retry. Keeping dirty state.');
+                    return;
+                  }
+
+                  // 2回目ループへ（最新 revision で再保存）
+                  continue;
+                }
+
+                console.error('[strategyStore] saveStrategyData API error:', err ?? 'unknown error');
+                return;
+              }
+
+              // 成功
+              const serverData = (res as any).data ?? {};
+              const minimal = extractServerDecidedPatch(serverData, get() as StrategyState);
+
+              const nextPatch: Partial<StrategyState> = { dirty: false, __lastSavedHash: currentHash };
+              if (Object.keys(minimal).length > 0) Object.assign(nextPatch, minimal);
+              set(nextPatch);
+
               return;
             }
-
-            console.error('[strategyStore] saveStrategyData API error:', err ?? 'unknown error');
-            return;
+          } finally {
+            set({ _loadingSave: false });
           }
-
-          const serverData = (res as any).data ?? {};
-          const minimal = extractServerDecidedPatch(serverData, get() as StrategyState);
-
-          const nextPatch: Partial<StrategyState> = { dirty: false, __lastSavedHash: currentHash };
-          if (Object.keys(minimal).length > 0) Object.assign(nextPatch, minimal);
-          set(nextPatch);
-        } finally {
-          set({ _loadingSave: false });
-        }
+        });
       },
 
       async refetchFromServer() {
@@ -1362,7 +1501,7 @@ export const useStrategyStore = create<StrategyState>()(
             loaded: false,
           }));
           scheduleRefetchRetry(1500);
-          return;
+          throw new Error('会社IDまたは認証情報が見つかりません');
         }
 
         if (get()._loadingRefetch) return;
@@ -1372,9 +1511,10 @@ export const useStrategyStore = create<StrategyState>()(
         try {
           const { data, error } = await getFullStrategyDataByCompany(companyId);
           if (error) {
-            console.warn('[strategyStore] refetch error, will retry:', error);
+            console.warn('[strategyStore] refetch error:', error);
             scheduleRefetchRetry(2000);
-            return;
+            const errMsg = (error as any)?.message || (error as any)?.code || 'データ取得に失敗しました';
+            throw new Error(errMsg);
           }
 
           if (!data) {
@@ -1385,7 +1525,7 @@ export const useStrategyStore = create<StrategyState>()(
               loaded: false,
             }));
             scheduleRefetchRetry(2000);
-            return;
+            throw new Error('データが見つかりません');
           }
 
           const patch = normalizeFromDbRow(data);
@@ -1488,7 +1628,7 @@ export const useStrategyStore = create<StrategyState>()(
           }
         })();
 
-        if (delRes?.error) throw delRes.error;
+        if ((delRes as any)?.error) throw (delRes as any).error;
 
         try {
           await (purgeLegacyTablesApi as any)?.(userId, companyId);
@@ -1513,15 +1653,8 @@ export const useStrategyStore = create<StrategyState>()(
       loadStage1DummyData: () => {
         console.log('[strategyStore] loadStage1DummyData() called');
 
-        const {
-          businessSegments,
-          financePL,
-          financeBS,
-          segmentPL,
-          segmentBS,
-          pbrManual,
-          stage1Issues,
-        } = stage1DummyDataBundle;
+        const { businessSegments, financePL, financeBS, segmentPL, segmentBS, pbrManual, stage1Issues } =
+          stage1DummyDataBundle;
 
         // setProfile で businessSegments, pbrManual, stage1Issues を設定
         set((s) => ({
@@ -1553,15 +1686,13 @@ export const useStrategyStore = create<StrategyState>()(
         const companyName = s.companyName;
         const companyId = s.companyId ?? s.pendingCompanyId ?? undefined;
 
-        const result = saveStage1SnapshotToLocalStorage(
-          issueBlocks,
-          valueAnalysis,
-          companyName,
-          companyId ?? undefined
-        );
+        const result = saveStage1SnapshotToLocalStorage(issueBlocks, valueAnalysis, companyName, companyId ?? undefined);
         console.log('[strategyStore] saveStage1Snapshot:', { result, issueBlocksCount: issueBlocks.length });
         return result;
       },
+
+      /** STAGE2 スナップショットを localStorage から復元（現状は未使用だが読み込みログに出ていたため維持） */
+      // ここではアクションは提供していないが、snapshot.ts 側で呼ぶことがあるため import は維持
 
       /** STAGE2 スナップショットを localStorage に保存 */
       saveStage2Snapshot: () => {
@@ -1677,6 +1808,9 @@ export const useStrategyStore = create<StrategyState>()(
         winPatterns: s.winPatterns,
         winPatternPrimary: s.winPatternPrimary,
         winPatternSecondary: s.winPatternSecondary,
+
+        stage4Plans: s.stage4Plans,
+        executionPlanBaseline: s.executionPlanBaseline,
 
         revision: s.revision,
         __lastSavedHash: s.__lastSavedHash,
