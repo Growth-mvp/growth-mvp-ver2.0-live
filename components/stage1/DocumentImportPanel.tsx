@@ -14,16 +14,15 @@ import type {
 /* =========================================================
  * 安定した空参照（selector で ?? [] / ?? {} を使わないため）
  * ========================================================= */
-
 const EMPTY_PL_ARR: FinancePLRow[] = Object.freeze([]) as unknown as FinancePLRow[];
 const EMPTY_BS_ARR: FinanceBSRow[] = Object.freeze([]) as unknown as FinanceBSRow[];
 const EMPTY_SEG_PL: Record<string, FinancePLRow[]> = Object.freeze({}) as unknown as Record<string, FinancePLRow[]>;
 const EMPTY_SEG_BS: Record<string, SegmentBSRow[]> = Object.freeze({}) as unknown as Record<string, SegmentBSRow[]>;
+const EMPTY_SEGMENTS: any[] = Object.freeze([]) as unknown as any[];
 
 /* =========================================================
  * 型定義
  * ========================================================= */
-
 type TabKey = 'companyPL' | 'companyBS' | 'segmentPL' | 'segmentBS' | 'pbr';
 
 const TAB_LABELS: Record<TabKey, string> = {
@@ -61,7 +60,6 @@ const BS_FIELD_LABELS: Record<string, string> = {
 /* =========================================================
  * ユーティリティ
  * ========================================================= */
-
 function formatNumber(n: number | string | undefined): string {
   if (n === undefined || n === null) return '—';
   const num = typeof n === 'number' ? n : Number(n);
@@ -75,16 +73,159 @@ function getConfidenceColor(confidence: number): string {
   return 'text-red-600';
 }
 
+function safeJsonStringify(obj: any): string {
+  try {
+    return JSON.stringify(obj, null, 2);
+  } catch {
+    return String(obj);
+  }
+}
+
+/**
+ * 年度を number に正規化（"2024", "2024年度", 2024 などを許容）
+ */
+function toYear(v: any): number | null {
+  if (v === undefined || v === null) return null;
+  if (typeof v === 'number' && Number.isFinite(v)) return Math.trunc(v);
+  const s = String(v).trim();
+  if (!s) return null;
+
+  // 例: "2024年度", "FY2024" などから数字だけ抜く
+  const m = s.match(/(19|20)\d{2}/);
+  if (!m) return null;
+
+  const n = Number(m[0]);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * kind の表記ゆれを吸収する（API側の出力ブレに耐える）
+ * - "segment_pl"
+ * - "segmentPL:事業部A"
+ * - "segmentBS/事業部B"
+ * のような場合も許容
+ */
+function normalizeKind(k: any): TabKey | null {
+  const raw = String(k ?? '').trim();
+  if (!raw) return null;
+
+  // suffix を落とす（":" "/" "|" 以降は事業部名などの可能性）
+  const head = raw.split(':')[0].split('/')[0].split('|')[0].trim();
+  const lower = head.toLowerCase();
+
+  if (lower === 'companypl' || lower === 'company_pl') return 'companyPL';
+  if (lower === 'companybs' || lower === 'company_bs') return 'companyBS';
+  if (lower === 'segmentpl' || lower === 'segment_pl' || lower === 'segpl') return 'segmentPL';
+  if (lower === 'segmentbs' || lower === 'segment_bs' || lower === 'segbs') return 'segmentBS';
+  if (lower === 'pbr') return 'pbr';
+
+  // 元が正規の TabKey ならそのまま
+  if (head in TAB_LABELS) return head as TabKey;
+
+  return null;
+}
+
+/**
+ * 事業部名（segmentName）の表記ゆれを吸収する
+ * - APIが segmentName 以外のキーで返しても適用できるようにする
+ * - kind に "segmentPL:事業部A" のように埋め込まれていても拾う
+ */
+function pickSegmentName(c: any): string | null {
+  const raw =
+    c?.segmentName ??
+    c?.segment ??
+    c?.segment_name ??
+    c?.businessSegment ??
+    c?.businessSegmentName ??
+    c?.departmentName ??
+    c?.deptName ??
+    c?.fields?.segmentName ??
+    c?.fields?.segment ??
+    c?.fields?.departmentName ??
+    c?.['事業部'];
+
+  const s0 = typeof raw === 'string' ? raw : raw != null ? String(raw) : '';
+  const out0 = s0.trim();
+  if (out0) return out0;
+
+  // kind に埋め込まれているケースを拾う（例: "segmentPL:事業部A"）
+  const kind = String(c?.kind ?? '').trim();
+  if (kind) {
+    const parts = kind.split(':');
+    if (parts.length >= 2) {
+      const out1 = parts.slice(1).join(':').trim();
+      if (out1) return out1;
+    }
+    // "segmentBS/事業部B" など
+    const parts2 = kind.split('/');
+    if (parts2.length >= 2) {
+      const out2 = parts2.slice(1).join('/').trim();
+      if (out2) return out2;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * businessSegments の型が（string[] / {name}[] / {segmentName}[] 等）混在しても
+ * 事業部名の重複を避けて追加する
+ */
+function mergeBusinessSegments(existing: any[], addNames: string[]): any[] {
+  const ex = Array.isArray(existing) ? existing : [];
+  const names = new Set<string>();
+
+  const extractName = (x: any): string | null => {
+    if (typeof x === 'string') return x.trim() || null;
+    if (x && typeof x === 'object') {
+      const v = x.name ?? x.segmentName ?? x.title ?? x.label;
+      const s = typeof v === 'string' ? v.trim() : v != null ? String(v).trim() : '';
+      return s || null;
+    }
+    return null;
+  };
+
+  for (const item of ex) {
+    const n = extractName(item);
+    if (n) names.add(n);
+  }
+  for (const n of addNames.map((x) => String(x ?? '').trim()).filter(Boolean)) {
+    names.add(n);
+  }
+
+  // 既存の型に寄せる：string[] なら string[]、object[] なら {name} を追加
+  const existingLooksString = ex.length === 0 ? false : ex.every((x) => typeof x === 'string');
+  if (existingLooksString) {
+    return Array.from(names);
+  }
+
+  // object[] 想定
+  const byName = new Map<string, any>();
+  for (const item of ex) {
+    const n = extractName(item);
+    if (n) byName.set(n, item);
+  }
+  for (const n of names) {
+    if (!byName.has(n)) byName.set(n, { name: n });
+  }
+
+  return Array.from(byName.values());
+}
+
 /* =========================================================
  * メインコンポーネント
  * ========================================================= */
-
 export default function DocumentImportPanel() {
-  // Store - 安定した参照を使用（毎回新しい [] / {} を作らない）
+  // Store
   const financePL = useStrategyStore((s) => s.financePL ?? EMPTY_PL_ARR);
   const financeBS = useStrategyStore((s) => s.financeBS ?? EMPTY_BS_ARR);
   const segmentPL = useStrategyStore((s) => s.segmentPL ?? EMPTY_SEG_PL);
   const segmentBS = useStrategyStore((s) => s.segmentBS ?? EMPTY_SEG_BS);
+
+  // 事業部一覧（ここが更新されないと「事業部別が画面に出ない」）
+  const businessSegments = useStrategyStore((s) => (s as any).businessSegments ?? EMPTY_SEGMENTS);
+  const setBusinessSegments = useStrategyStore((s) => (s as any).setBusinessSegments);
+
   const setFinancePL = useStrategyStore((s) => s.setFinancePL);
   const setFinanceBS = useStrategyStore((s) => s.setFinanceBS);
   const setSegmentPL = useStrategyStore((s) => s.setSegmentPL);
@@ -101,7 +242,16 @@ export default function DocumentImportPanel() {
   const [activeTab, setActiveTab] = useState<TabKey>('companyPL');
   const [applyMessage, setApplyMessage] = useState<string | null>(null);
 
-  // 候補をタブ別にグループ化
+  // 解析レスポンスの要約（ボタンが出ない時に原因が見えるようにする）
+  const [lastDebug, setLastDebug] = useState<{
+    ok: boolean;
+    httpStatus?: number;
+    candidatesCount?: number;
+    kinds?: Record<string, number>;
+    rawPreviewText?: string;
+  } | null>(null);
+
+  // 候補をタブ別にグループ化（kind 正規化込み）
   const groupedCandidates = useMemo(() => {
     const groups: Record<TabKey, Stage1ImportCandidate[]> = {
       companyPL: [],
@@ -110,15 +260,16 @@ export default function DocumentImportPanel() {
       segmentBS: [],
       pbr: [],
     };
+
     for (const c of candidates) {
-      if (c.kind in groups) {
-        groups[c.kind as TabKey].push(c);
-      }
+      const k = normalizeKind((c as any)?.kind);
+      if (!k) continue;
+      groups[k].push(c);
     }
     return groups;
   }, [candidates]);
 
-  // 各タブの候補数
+  // 各タブの候補数（kind 正規化込み）
   const tabCounts = useMemo(() => {
     const counts: Record<TabKey, number> = {
       companyPL: 0,
@@ -127,10 +278,11 @@ export default function DocumentImportPanel() {
       segmentBS: 0,
       pbr: 0,
     };
+
     for (const c of candidates) {
-      if (c.kind in counts) {
-        counts[c.kind as TabKey]++;
-      }
+      const k = normalizeKind((c as any)?.kind);
+      if (!k) continue;
+      counts[k]++;
     }
     return counts;
   }, [candidates]);
@@ -140,11 +292,15 @@ export default function DocumentImportPanel() {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
+    // アップロード開始時に必ず開く（結果が見えず「ボタンが出ない」状態を防ぐ）
+    setIsOpen(true);
+
     setIsUploading(true);
     setError(null);
     setCandidates([]);
     setTableHints([]);
     setApplyMessage(null);
+    setLastDebug(null);
 
     try {
       const formData = new FormData();
@@ -152,37 +308,76 @@ export default function DocumentImportPanel() {
         formData.append('files', file);
       }
 
-      const res = await fetch('/api/stage1/import', {
-        method: 'POST',
-        body: formData,
-      });
+      const res = await fetch('/api/stage1/import', { method: 'POST', body: formData });
 
-      const result: Stage1ImportResult = await res.json();
-
-      if (!result.success) {
-        setError(result.error || '解析に失敗しました');
+      // 非200のとき、本文も含めて表示（原因が見える）
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        setLastDebug({ ok: false, httpStatus: res.status });
+        setError(`取込APIが失敗しました（HTTP ${res.status}）。\n${text ? `\n${text}` : ''}`.trim());
         return;
       }
 
-      setCandidates(result.candidates);
-      setTableHints(result.tableHints || []);
+      const result = (await res.json()) as Stage1ImportResult;
 
-      if (result.previewText) {
-        setError(result.previewText);
+      if (!result || typeof result !== 'object') {
+        setLastDebug({ ok: false, httpStatus: res.status });
+        setError('取込APIのレスポンス形式が不正です（JSONではありません）');
+        return;
       }
 
-      // 候補があるタブを自動選択
-      if (result.candidates.length > 0) {
-        const firstKind = result.candidates[0].kind as TabKey;
-        if (firstKind in TAB_LABELS) {
-          setActiveTab(firstKind);
-        }
+      if (!(result as any).success) {
+        setLastDebug({
+          ok: false,
+          httpStatus: res.status,
+          rawPreviewText: (result as any).previewText,
+        });
+        setError((result as any).error || '解析に失敗しました');
+        return;
+      }
+
+      const nextCandidates = Array.isArray((result as any).candidates)
+        ? ((result as any).candidates as Stage1ImportCandidate[])
+        : [];
+      const nextHints = Array.isArray((result as any).tableHints) ? ((result as any).tableHints as string[]) : [];
+
+      // kinds 要約（生kind + 正規化kind を両方見えるようにする）
+      const kinds: Record<string, number> = {};
+      for (const c of nextCandidates) {
+        const rawKind = String((c as any)?.kind ?? 'unknown');
+        const norm = normalizeKind((c as any)?.kind);
+        const key = norm ? `${rawKind} -> ${norm}` : `${rawKind} -> (unmapped)`;
+        kinds[key] = (kinds[key] ?? 0) + 1;
+      }
+      setLastDebug({
+        ok: true,
+        httpStatus: res.status,
+        candidatesCount: nextCandidates.length,
+        kinds,
+        rawPreviewText: (result as any).previewText,
+      });
+
+      setCandidates(nextCandidates);
+      setTableHints(nextHints);
+
+      // previewText は「エラー」ではなく注意書きとして出るケースがあるため、
+      // UI上は amber に表示する（既存挙動維持）
+      if ((result as any).previewText) {
+        setError(String((result as any).previewText));
+      }
+
+      // 候補があるタブを自動選択（正規化kindで）
+      if (nextCandidates.length > 0) {
+        const firstNorm = normalizeKind((nextCandidates[0] as any)?.kind);
+        if (firstNorm) setActiveTab(firstNorm);
+      } else {
+        setError((prev) => prev ?? '解析は完了しましたが、抽出候補が0件でした。PDF/Excelの表構造（年度列・項目名・単位）を確認してください。');
       }
     } catch (err) {
+      setLastDebug({ ok: false });
       setError(err instanceof Error ? err.message : '通信エラー');
     } finally {
       setIsUploading(false);
-      // ファイル入力をリセット
       e.target.value = '';
     }
   }, []);
@@ -192,28 +387,33 @@ export default function DocumentImportPanel() {
     if (candidates.length === 0) return;
 
     let appliedCount = 0;
+    let appliedSegmentAnything = false;
+
+    // 事業部名の収集（適用後に businessSegments を自動登録する）
+    const importedSegNames = new Set<string>();
+    for (const c of [...groupedCandidates.segmentPL, ...groupedCandidates.segmentBS]) {
+      const n = pickSegmentName(c as any);
+      if (n) importedSegNames.add(n);
+    }
 
     // PL候補を適用
     const plCandidates = groupedCandidates.companyPL;
     if (plCandidates.length > 0) {
       const plMap = new Map<number, FinancePLRow>();
-      // 既存データをマップに
-      for (const row of financePL) {
-        plMap.set(row.year, { ...row });
-      }
-      // 候補をマージ
+      for (const row of financePL) plMap.set(row.year, { ...row });
+
       for (const c of plCandidates) {
-        if (!c.year) continue;
-        const existing = plMap.get(c.year) ?? { year: c.year };
-        for (const [key, val] of Object.entries(c.fields)) {
-          if (val !== undefined && typeof val === 'number') {
-            (existing as any)[key] = val;
-          }
+        const y = toYear((c as any).year);
+        if (!y) continue;
+
+        const existing = plMap.get(y) ?? ({ year: y } as FinancePLRow);
+        for (const [key, val] of Object.entries((c as any).fields ?? {})) {
+          if (val !== undefined && typeof val === 'number') (existing as any)[key] = val;
         }
-        plMap.set(c.year, existing);
+        plMap.set(y, existing);
         appliedCount++;
       }
-      // ソートして設定
+
       const newPL = Array.from(plMap.values()).sort((a, b) => a.year - b.year);
       setFinancePL(newPL);
     }
@@ -222,94 +422,116 @@ export default function DocumentImportPanel() {
     const bsCandidates = groupedCandidates.companyBS;
     if (bsCandidates.length > 0) {
       const bsMap = new Map<number, FinanceBSRow>();
-      // 既存データをマップに
-      for (const row of financeBS) {
-        bsMap.set(row.year, { ...row });
-      }
-      // 候補をマージ
+      for (const row of financeBS) bsMap.set(row.year, { ...row });
+
       for (const c of bsCandidates) {
-        if (!c.year) continue;
-        const existing = bsMap.get(c.year) ?? { year: c.year };
-        for (const [key, val] of Object.entries(c.fields)) {
-          if (val !== undefined && typeof val === 'number') {
-            (existing as any)[key] = val;
-          }
+        const y = toYear((c as any).year);
+        if (!y) continue;
+
+        const existing = bsMap.get(y) ?? ({ year: y } as FinanceBSRow);
+        for (const [key, val] of Object.entries((c as any).fields ?? {})) {
+          if (val !== undefined && typeof val === 'number') (existing as any)[key] = val;
         }
-        bsMap.set(c.year, existing);
+        bsMap.set(y, existing);
         appliedCount++;
       }
-      // ソートして設定
+
       const newBS = Array.from(bsMap.values()).sort((a, b) => a.year - b.year);
       setFinanceBS(newBS);
     }
 
-    // segmentPL候補を適用
+    // segmentPL候補を適用（segmentName 表記ゆれ吸収 + year 正規化）
     const segPlCandidates = groupedCandidates.segmentPL;
     if (segPlCandidates.length > 0) {
-      const newSegmentPL = { ...segmentPL };
+      const newSegmentPL: Record<string, FinancePLRow[]> = { ...(segmentPL ?? {}) };
+
       for (const c of segPlCandidates) {
-        if (!c.year || !c.segmentName) continue;
-        const segName = c.segmentName;
-        if (!newSegmentPL[segName]) {
-          newSegmentPL[segName] = [];
-        }
+        const y = toYear((c as any).year);
+        if (!y) continue;
+
+        const segName = pickSegmentName(c as any);
+        if (!segName) continue;
+
+        if (!newSegmentPL[segName]) newSegmentPL[segName] = [];
+
         const segMap = new Map<number, FinancePLRow>();
-        for (const row of newSegmentPL[segName]) {
-          segMap.set(row.year, { ...row });
+        for (const row of newSegmentPL[segName]) segMap.set(row.year, { ...row });
+
+        const existing = segMap.get(y) ?? ({ year: y } as FinancePLRow);
+        for (const [key, val] of Object.entries((c as any).fields ?? {})) {
+          if (val !== undefined && typeof val === 'number') (existing as any)[key] = val;
         }
-        const existing = segMap.get(c.year) ?? { year: c.year };
-        for (const [key, val] of Object.entries(c.fields)) {
-          if (val !== undefined && typeof val === 'number') {
-            (existing as any)[key] = val;
-          }
-        }
-        segMap.set(c.year, existing);
+        segMap.set(y, existing);
         newSegmentPL[segName] = Array.from(segMap.values()).sort((a, b) => a.year - b.year);
+
         appliedCount++;
+        appliedSegmentAnything = true;
       }
+
       setSegmentPL(newSegmentPL);
     }
 
-    // segmentBS候補を適用
+    // segmentBS候補を適用（segmentName 表記ゆれ吸収 + year 正規化）
     const segBsCandidates = groupedCandidates.segmentBS;
     if (segBsCandidates.length > 0) {
-      const newSegmentBS = { ...segmentBS };
+      const newSegmentBS: Record<string, SegmentBSRow[]> = { ...(segmentBS ?? {}) };
+
       for (const c of segBsCandidates) {
-        if (!c.year || !c.segmentName) continue;
-        const segName = c.segmentName;
-        if (!newSegmentBS[segName]) {
-          newSegmentBS[segName] = [];
-        }
+        const y = toYear((c as any).year);
+        if (!y) continue;
+
+        const segName = pickSegmentName(c as any);
+        if (!segName) continue;
+
+        if (!newSegmentBS[segName]) newSegmentBS[segName] = [];
+
         const segMap = new Map<number, SegmentBSRow>();
         for (const row of newSegmentBS[segName]) {
-          segMap.set(row.year, { ...row });
+          const ry = toYear((row as any)?.year);
+          if (ry) segMap.set(ry, { ...(row as any) });
         }
-        const existing = segMap.get(c.year) ?? { year: c.year };
-        for (const [key, val] of Object.entries(c.fields)) {
-          if (val !== undefined && typeof val === 'number') {
-            (existing as any)[key] = val;
-          }
+
+        const existing = (segMap.get(y) ?? ({ year: y } as any)) as SegmentBSRow;
+        for (const [key, val] of Object.entries((c as any).fields ?? {})) {
+          if (val !== undefined && typeof val === 'number') (existing as any)[key] = val;
         }
-        segMap.set(c.year, existing);
-        newSegmentBS[segName] = Array.from(segMap.values()).sort((a, b) => a.year - b.year);
+        segMap.set(y, existing);
+
+        newSegmentBS[segName] = Array.from(segMap.values()).sort(
+          (a: any, b: any) => (toYear(a?.year) ?? 0) - (toYear(b?.year) ?? 0)
+        ) as any;
+
         appliedCount++;
+        appliedSegmentAnything = true;
       }
+
       setSegmentBS(newSegmentBS);
     }
 
     // PBR候補を適用
     const pbrCandidates = groupedCandidates.pbr;
     if (pbrCandidates.length > 0) {
-      const pbr = pbrCandidates[0].fields.pbr;
+      const pbr = (pbrCandidates[0] as any)?.fields?.pbr;
       if (pbr !== undefined) {
         setProfile({ pbrManual: String(pbr) });
         appliedCount++;
       }
     }
 
-    // valueAnalysis を再計算（importApply として呼び出し）
+    // 重要：事業部が抽出できた場合は businessSegments に自動登録（表示されない問題の根治）
+    if (typeof setBusinessSegments === 'function' && importedSegNames.size > 0) {
+      const merged = mergeBusinessSegments(businessSegments, Array.from(importedSegNames));
+      setBusinessSegments(merged);
+    }
+
+    // valueAnalysis を再計算（引数は union に収まる値のみ）
     setTimeout(() => {
-      recomputeValueAnalysis('setFinancePL');
+      // 事業部が絡んだときは segment を起点に再計算（ダッシュボードの反映も安定する）
+      if (appliedSegmentAnything) {
+        recomputeValueAnalysis('setSegmentPL');
+      } else {
+        recomputeValueAnalysis('setFinancePL');
+      }
     }, 100);
 
     setApplyMessage(`${appliedCount}件の候補を適用しました`);
@@ -321,6 +543,8 @@ export default function DocumentImportPanel() {
     financeBS,
     segmentPL,
     segmentBS,
+    businessSegments,
+    setBusinessSegments,
     setFinancePL,
     setFinanceBS,
     setSegmentPL,
@@ -335,42 +559,36 @@ export default function DocumentImportPanel() {
     setTableHints([]);
     setError(null);
     setApplyMessage(null);
+    setLastDebug(null);
   }, []);
 
   // 年度別にグループ化した候補テーブル
   const renderCandidateTable = useCallback(
     (tabCandidates: Stage1ImportCandidate[], fieldLabels: Record<string, string>) => {
       if (tabCandidates.length === 0) {
-        return (
-          <div className="text-sm text-gray-500 py-4 text-center">
-            候補がありません
-          </div>
-        );
+        return <div className="text-sm text-gray-500 py-4 text-center">候補がありません</div>;
       }
 
-      // 年度でグループ化
       const byYear = new Map<number, Record<string, number | string | undefined>>();
       const allFields = new Set<string>();
 
       for (const c of tabCandidates) {
-        if (!c.year) continue;
-        const existing = byYear.get(c.year) ?? {};
-        for (const [key, val] of Object.entries(c.fields)) {
-          existing[key] = val;
+        const y = toYear((c as any).year);
+        if (!y) continue;
+
+        const existing = byYear.get(y) ?? {};
+        for (const [key, val] of Object.entries((c as any).fields ?? {})) {
+          existing[key] = val as any;
           allFields.add(key);
         }
-        byYear.set(c.year, existing);
+        byYear.set(y, existing);
       }
 
       const years = Array.from(byYear.keys()).sort((a, b) => a - b);
       const fields = Array.from(allFields).filter((f) => f in fieldLabels);
 
       if (years.length === 0) {
-        return (
-          <div className="text-sm text-gray-500 py-4 text-center">
-            年度情報がありません
-          </div>
-        );
+        return <div className="text-sm text-gray-500 py-4 text-center">年度情報がありません</div>;
       }
 
       return (
@@ -389,12 +607,10 @@ export default function DocumentImportPanel() {
             <tbody>
               {fields.map((field) => (
                 <tr key={field} className="border-t">
-                  <td className="px-3 py-2 text-gray-700 border bg-white">
-                    {fieldLabels[field] || field}
-                  </td>
+                  <td className="px-3 py-2 text-gray-700 border bg-white">{fieldLabels[field] || field}</td>
                   {years.map((y) => {
                     const data = byYear.get(y);
-                    const val = data?.[field];
+                    const val = data?.[field] as any;
                     return (
                       <td key={y} className="px-3 py-2 text-right border bg-white">
                         {formatNumber(val)}
@@ -414,7 +630,7 @@ export default function DocumentImportPanel() {
   // 信頼度表示
   const avgConfidence = useMemo(() => {
     if (candidates.length === 0) return 0;
-    const sum = candidates.reduce((acc, c) => acc + c.confidence, 0);
+    const sum = candidates.reduce((acc, c) => acc + (Number((c as any).confidence) || 0), 0);
     return sum / candidates.length;
   }, [candidates]);
 
@@ -429,9 +645,7 @@ export default function DocumentImportPanel() {
         <div className="flex items-center gap-2">
           <span className="font-medium text-sm">資料アップロード（PDF/Excel/CSV）</span>
           {candidates.length > 0 && (
-            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
-              {candidates.length}件の候補
-            </span>
+            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">{candidates.length}件の候補</span>
           )}
         </div>
         <svg
@@ -473,15 +687,7 @@ export default function DocumentImportPanel() {
                 {isUploading ? (
                   <>
                     <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                        fill="none"
-                      />
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                       <path
                         className="opacity-75"
                         fill="currentColor"
@@ -493,12 +699,7 @@ export default function DocumentImportPanel() {
                 ) : (
                   <>
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
-                      />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                     </svg>
                     ファイルを選択
                   </>
@@ -507,6 +708,14 @@ export default function DocumentImportPanel() {
             </label>
             <span className="text-xs text-gray-500">PDF / Excel / CSV（複数可）</span>
           </div>
+
+          {/* 解析レスポンス要約（ボタンが出ない原因を可視化） */}
+          {lastDebug && (
+            <div className="text-xs text-gray-700 bg-gray-50 p-3 rounded border border-gray-200">
+              <div className="font-semibold mb-1">解析結果（デバッグ要約）</div>
+              <pre className="whitespace-pre-wrap break-words">{safeJsonStringify(lastDebug)}</pre>
+            </div>
+          )}
 
           {/* テーブルヒント */}
           {tableHints.length > 0 && (
@@ -519,7 +728,7 @@ export default function DocumentImportPanel() {
 
           {/* エラー/警告 */}
           {error && (
-            <div className="text-sm text-amber-600 bg-amber-50 p-3 rounded border border-amber-200">
+            <div className="text-sm text-amber-600 bg-amber-50 p-3 rounded border border-amber-200 whitespace-pre-wrap">
               {error}
             </div>
           )}
@@ -530,14 +739,8 @@ export default function DocumentImportPanel() {
               {/* 信頼度表示 */}
               <div className="flex items-center gap-2 text-xs">
                 <span className="text-gray-500">平均信頼度:</span>
-                <span className={getConfidenceColor(avgConfidence)}>
-                  {Math.round(avgConfidence * 100)}%
-                </span>
-                {avgConfidence < 0.5 && (
-                  <span className="text-amber-600">
-                    （信頼度が低いため、適用後に確認してください）
-                  </span>
-                )}
+                <span className={getConfidenceColor(avgConfidence)}>{Math.round(avgConfidence * 100)}%</span>
+                {avgConfidence < 0.5 && <span className="text-amber-600">（信頼度が低いため、適用後に確認してください）</span>}
               </div>
 
               {/* タブ */}
@@ -547,35 +750,25 @@ export default function DocumentImportPanel() {
                     key={key}
                     onClick={() => setActiveTab(key)}
                     className={`px-3 py-2 text-xs font-medium transition ${
-                      activeTab === key
-                        ? 'text-blue-600 border-b-2 border-blue-600'
-                        : 'text-gray-500 hover:text-gray-700'
+                      activeTab === key ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'
                     }`}
                   >
                     {TAB_LABELS[key]}
-                    {tabCounts[key] > 0 && (
-                      <span className="ml-1 text-gray-400">({tabCounts[key]})</span>
-                    )}
+                    {tabCounts[key] > 0 && <span className="ml-1 text-gray-400">({tabCounts[key]})</span>}
                   </button>
                 ))}
               </div>
 
               {/* タブコンテンツ */}
               <div className="min-h-[100px]">
-                {activeTab === 'companyPL' &&
-                  renderCandidateTable(groupedCandidates.companyPL, PL_FIELD_LABELS)}
-                {activeTab === 'companyBS' &&
-                  renderCandidateTable(groupedCandidates.companyBS, BS_FIELD_LABELS)}
-                {activeTab === 'segmentPL' &&
-                  renderCandidateTable(groupedCandidates.segmentPL, PL_FIELD_LABELS)}
-                {activeTab === 'segmentBS' &&
-                  renderCandidateTable(groupedCandidates.segmentBS, BS_FIELD_LABELS)}
+                {activeTab === 'companyPL' && renderCandidateTable(groupedCandidates.companyPL, PL_FIELD_LABELS)}
+                {activeTab === 'companyBS' && renderCandidateTable(groupedCandidates.companyBS, BS_FIELD_LABELS)}
+                {activeTab === 'segmentPL' && renderCandidateTable(groupedCandidates.segmentPL, PL_FIELD_LABELS)}
+                {activeTab === 'segmentBS' && renderCandidateTable(groupedCandidates.segmentBS, BS_FIELD_LABELS)}
                 {activeTab === 'pbr' && (
                   <div className="text-sm">
                     {groupedCandidates.pbr.length > 0 ? (
-                      <div className="p-4 bg-gray-50 rounded">
-                        PBR: {formatNumber(groupedCandidates.pbr[0]?.fields.pbr)}
-                      </div>
+                      <div className="p-4 bg-gray-50 rounded">PBR: {formatNumber((groupedCandidates.pbr[0] as any)?.fields?.pbr)}</div>
                     ) : (
                       <div className="text-gray-500 py-4 text-center">PBR候補がありません</div>
                     )}
@@ -583,14 +776,12 @@ export default function DocumentImportPanel() {
                 )}
               </div>
 
-              {/* 適用ボタン（目立つように） */}
+              {/* 適用ボタン */}
               <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                 <div className="flex items-center justify-between gap-4">
                   <div className="text-sm text-blue-800">
                     <span className="font-medium">抽出した{candidates.length}件のデータを財務入力に反映します</span>
-                    <p className="text-xs text-blue-600 mt-1">
-                      ※ 既存のデータがある場合はマージされます
-                    </p>
+                    <p className="text-xs text-blue-600 mt-1">※ 既存のデータがある場合はマージされます</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
@@ -608,11 +799,22 @@ export default function DocumentImportPanel() {
                   </div>
                 </div>
                 {applyMessage && (
-                  <div className="mt-3 text-sm text-green-700 bg-green-100 px-3 py-2 rounded">
-                    ✓ {applyMessage}
-                  </div>
+                  <div className="mt-3 text-sm text-green-700 bg-green-100 px-3 py-2 rounded">✓ {applyMessage}</div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* 候補0件のときのガイド */}
+          {candidates.length === 0 && !isUploading && (
+            <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded border border-gray-200">
+              <div className="font-medium mb-1">適用ボタンが出ない場合</div>
+              <ul className="list-disc pl-5 space-y-1">
+                <li>解析結果の抽出候補が0件だと、適用ボタンは表示されません（このパネルの仕様です）。</li>
+                <li>上の「解析結果（デバッグ要約）」で candidatesCount が 0 になっていないか確認してください。</li>
+                <li>PDF/Excelの表で「年度列」「項目名」「数値」「単位（千円/百万円）」が崩れていると候補が出ません。</li>
+                <li>HTTPエラーの場合は、API側（/api/stage1/import）のログが必要です。</li>
+              </ul>
             </div>
           )}
         </div>
