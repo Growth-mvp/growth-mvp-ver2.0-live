@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { TrendingUp, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 
 import { useStrategyStore } from '@/store/strategyStore';
 import { useAccess } from '@/utils/access';
@@ -26,10 +26,37 @@ import {
 import type { Department, KRStructured } from '@/types/strategy';
 
 /**
- * STAGE6：価値検証・財務シミュレーション
- * - Approved のみを計算対象にしてシミュレーション
- * - STAGE1〜4 のデータから PL推移（Low/Base/High）を表示
+ * STAGE6：価値検証・財務シミュレーション（社員向け最小構成）
+ *
+ * 目的：
+ * 1) 会社全体の「売上・営業利益」の将来推移を、Baseline + シナリオで可視化
+ * 2) 企業価値に直結する最小指標（売上成長率・営業利益率）を推移で可視化
+ * 3) Approved プロジェクトの寄与を「複数選択」で合算し、会社推移の中で位置づける
+ *
+ * 非表示（情報量を削減）：
+ * - My Impact
+ * - KR別寄与
+ * - 感度Top5
+ * - 前提・スナップショット
+ * - ガバナンス
+ *
+ * 注意：
+ * - 現状の財務モデルは「STAGE1 financePL をベースにした簡易推計」です。
+ * - PJ寄与は「選択PJのKRのみON」した結果とBaselineの差分（概算）です。
  */
+
+/* Recharts（既存プロジェクトで使用実績がある前提） */
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip as ReTooltip,
+  Legend,
+  CartesianGrid,
+} from 'recharts';
+
 export default function Stage6Page() {
   const strategyState: any = useStrategyStore();
 
@@ -90,16 +117,63 @@ export default function Stage6Page() {
 
       // ハング回避：7秒で強制的に hydrated=true（UI待ちを解消）
       const timer = setTimeout(() => {
-        if (!cancelled) setHydrated?.(true);
+        if (!cancelled) {
+          console.warn('[STAGE6] 7秒タイムアウト：hydrated=true を強制設定');
+          setHydrated?.(true);
+        }
       }, 7000);
 
       try {
+        // ★ DEBUG：loadAndHydrate 前のログ
+        const storeBefore = useStrategyStore.getState();
+        console.log('[STAGE6] 📥 loadAndHydrate 前', {
+          accessCompanyId,
+          loadGuardRef_current: loadGuardRef.current,
+          hydrated,
+          revision: storeBefore.revision,
+          issueBlocks_length: Array.isArray(storeBefore.stage1Issues) ? storeBefore.stage1Issues.length : 0,
+          csvFinanceData_BS_length: Array.isArray((storeBefore.csvFinanceData as any)?.financeBS)
+            ? (storeBefore.csvFinanceData as any).financeBS.length : 0,
+          segmentPL_keys: Object.keys((storeBefore as any).segmentPL || {}).length,
+          baseline_exists: !!(storeBefore.executionPlanBaseline?.baseline),
+          snapshot_exists: !!(storeBefore.executionPlanBaseline?.snapshot),
+        });
+
         await loadAndHydrate(accessCompanyId);
+
+        // ★ DEBUG：loadAndHydrate 後のログ
+        const storeAfter = useStrategyStore.getState();
+        console.log('[STAGE6] ✅ loadAndHydrate 後', {
+          hydrated: storeAfter.hydrated,
+          loaded: storeAfter.loaded,
+          boot_isHydrating: (storeAfter.boot as any)?.isHydrating,
+          revision: storeAfter.revision,
+          issueBlocks_length: Array.isArray(storeAfter.stage1Issues) ? storeAfter.stage1Issues.length : 0,
+          csvFinanceData_BS_length: Array.isArray((storeAfter.csvFinanceData as any)?.financeBS)
+            ? (storeAfter.csvFinanceData as any).financeBS.length : 0,
+          segmentPL_keys: Object.keys((storeAfter as any).segmentPL || {}).length,
+          baseline_exists: !!(storeAfter.executionPlanBaseline?.baseline),
+          snapshot_exists: !!(storeAfter.executionPlanBaseline?.snapshot),
+        });
+
         try {
           await refetchFromServer?.();
         } catch {
           // ignore
         }
+        setHydrated?.(true);
+        loadGuardRef.current = accessCompanyId;
+      } catch (err) {
+        // 🐛 FIX: loadAndHydrate may throw if refetch fails (transient/permanent error)
+        // Still need to mark hydrated=true to exit loading state (error handling UI will display)
+        const errObj = err as any;
+        console.error('[STAGE6] ❌ loadAndHydrate error', {
+          message: errObj?.message || String(err),
+          code: errObj?.code,
+          details: errObj?.details,
+          stack: errObj?.stack?.split('\n')[0],
+        });
+        console.warn('[STAGE6] hydrated=true を強制設定（エラー時UI表示対応）');
         setHydrated?.(true);
         loadGuardRef.current = accessCompanyId;
       } finally {
@@ -121,7 +195,7 @@ export default function Stage6Page() {
     setCompanyScope,
   ]);
 
-  /* -------- 自動保存 -------- */
+  /* -------- 自動保存（現行踏襲） -------- */
   const mismatch = !!(
     accessCompanyId &&
     scopeCompanyId &&
@@ -137,7 +211,6 @@ export default function Stage6Page() {
   const departments = useStrategyStore(
     (st) => ((st.departments as Department[] | undefined) ?? []) as Department[],
   );
-
   useAutoSave(!isHydrating ? [accessCompanyId, departments] : []);
 
   /* -------- UI State -------- */
@@ -145,207 +218,458 @@ export default function Stage6Page() {
     'base',
   );
 
-  /* -------- Approved Projects 抽出＆シミュレーション -------- */
-  const simData = useMemo(() => {
+  const [deptFilter, setDeptFilter] = useState<string>('all');
+
+  // 複数選択
+  const [selectedProjectKeys, setSelectedProjectKeys] = useState<string[]>([]);
+
+  /* =========================================================
+   * ① データ抽出（Approved PJ / KR集約 / baseline / 全体シナリオ）
+   * ======================================================= */
+
+  const core = useMemo(() => {
     if (!hydrated || isHydrating || !strategyState) {
       return {
-        approved: [],
-        yearlyResults: { low: [], base: [], high: [] },
+        ready: false,
+        companyName: '会社名未設定',
         error: 'データ読込中...',
+        deptNames: [] as string[],
+        approved: [] as ApprovedProject[],
+        projectKrsMap: new Map<string, BridgeKR[]>(),
+        baselineYearly: [] as YearlyPL[],
+        yearlyAll: { low: [], base: [], high: [] } as Record<
+          'low' | 'base' | 'high',
+          YearlyPL[]
+        >,
       };
     }
 
-    const depts = Array.isArray(strategyState.departments)
+    const companyName = strategyState?.companyName ?? '会社名未設定';
+    const depts = Array.isArray(strategyState?.departments)
       ? strategyState.departments
       : [];
 
-    const approved: Array<{
-      dept: string;
-      proj: string;
-      planStatus: string;
-      krCount: number;
-      investTotal: number;
-    }> = [];
+    // Approved PJと、PJ→KR を作る
+    const approved: ApprovedProject[] = [];
+    const projectKrsMap = new Map<string, BridgeKR[]>();
+    const deptNameSet = new Set<string>();
 
     depts.forEach((d: any) => {
       const deptName = d?.name ?? d?.departmentName ?? '（未名）';
-      const projects = Array.isArray(d?.projects) ? d.projects : [];
+      deptNameSet.add(deptName);
 
-      projects.forEach((p: any) => {
+      const projects = Array.isArray(d?.projects) ? d.projects : [];
+      projects.forEach((p: any, pIndex: number) => {
         const planStatus = p?.planStatus ?? 'draft';
         if (planStatus !== 'approved') return;
 
-        const krs = Array.isArray(p?.okrsV2) ? p.okrsV2 : [];
+        const projTitle = p?.title ?? '（未名）';
+        const projKey = makeProjectKey(deptName, projTitle, pIndex);
+
+        const krs: BridgeKR[] = [];
+
+        const okrsV2 = Array.isArray(p?.okrsV2) ? p.okrsV2 : [];
+        okrsV2.forEach((kr: KRStructured, krIndex: number) => {
+          if (!kr || !(kr as any).kind) return;
+
+          krs.push({
+            id:
+              (kr as any).id ??
+              `kr-${projKey}-${krIndex}-${Math.random().toString(36).slice(2)}`,
+            kind: (kr as any).kind,
+            label: (kr as any).label ?? '（ラベル未設定）',
+            target: (kr as any).target ?? 0,
+            unit: (kr as any).unit,
+            scope: (kr as any).scope ?? 'company',
+            baseKey: (kr as any).baseKey ?? 'revenue',
+            baseOverride: (kr as any).baseOverride,
+            weight: (kr as any).weight,
+            elasticity: (kr as any).elasticity,
+            lagMonths: (kr as any).lagMonths,
+            startYm: (kr as any).startYm as Ym | undefined,
+            due: (kr as any).due,
+            notes: (kr as any).notes,
+          } as BridgeKR);
+        });
+
+        // 投資（skillPlans + executionHumanInvestments）を INVEST として追加
         const skillPlans = Array.isArray(p?.skillPlans) ? p.skillPlans : [];
         const investments = Array.isArray(p?.executionHumanInvestments)
           ? p.executionHumanInvestments
           : [];
 
-        const krCount = krs.length;
         const investTotal =
-          investments.reduce((s: number, inv: any) => s + (inv?.amount ?? 0), 0) +
-          skillPlans.reduce((s: number, sk: any) => s + (sk?.cost ?? 0), 0);
+          skillPlans.reduce((s: number, sk: any) => s + (sk?.cost ?? 0), 0) +
+          investments.reduce((s: number, inv: any) => s + (inv?.amount ?? 0), 0);
+
+        if (investTotal > 0) {
+          krs.push({
+            id: `invest-${projKey}-${Math.random().toString(36).slice(2)}`,
+            kind: 'INVEST' as any,
+            label: `${projTitle}: 投資計画`,
+            target: investTotal,
+            unit: '¥',
+            scope: 'project' as any,
+            baseKey: 'invest' as any,
+          } as BridgeKR);
+        }
+
+        projectKrsMap.set(projKey, krs);
 
         approved.push({
+          key: projKey,
           dept: deptName,
-          proj: p?.title ?? '（未名）',
-          planStatus,
-          krCount,
+          proj: projTitle,
+          krCount: okrsV2.length,
           investTotal,
         });
       });
     });
 
-    // ベースラインの生成（STAGE1 financePL から）
+    // ベースライン
     const baseTraj = mkBaselineTrajectory(strategyState);
     if (!baseTraj) {
       return {
-        approved,
-        yearlyResults: { low: [], base: [], high: [] },
+        ready: false,
+        companyName,
         error: 'ベースラインが未設定です。STAGE1の財務データを入力してください。',
+        deptNames: Array.from(deptNameSet).sort(),
+        approved,
+        projectKrsMap,
+        baselineYearly: [],
+        yearlyAll: { low: [], base: [], high: [] },
       };
     }
 
-    // Approved project から KR を集める
-    const allBridgeKrs: BridgeKR[] = [];
+    const baseFigures = mkBaseFigures(strategyState);
 
-    depts.forEach((d: any) => {
-      const projects = Array.isArray(d?.projects) ? d.projects : [];
-      projects.forEach((p: any) => {
-        if (p?.planStatus !== 'approved') return;
-
-        const krs = Array.isArray(p?.okrsV2) ? p.okrsV2 : [];
-        krs.forEach((kr: KRStructured) => {
-          if (!kr || !kr.kind) return;
-
-          const bridgeKr: BridgeKR = {
-            id: kr.id ?? `kr-${Math.random().toString(36).slice(2)}`,
-            kind: kr.kind,
-            label: kr.label ?? '（ラベル未設定）',
-            target: kr.target ?? 0,
-            unit: kr.unit,
-            scope: kr.scope ?? 'company',
-            baseKey: kr.baseKey ?? 'revenue',
-            baseOverride: kr.baseOverride,
-            weight: kr.weight,
-            elasticity: kr.elasticity,
-            lagMonths: kr.lagMonths,
-            startYm: kr.startYm as Ym | undefined,
-            due: kr.due,
-            notes: kr.notes,
-          };
-
-          allBridgeKrs.push(bridgeKr);
-        });
-
-        // skillPlans / executionHumanInvestments を「投資」として BridgeKR に追加
-        const skillPlans = Array.isArray(p?.skillPlans) ? p.skillPlans : [];
-        const investments = Array.isArray(p?.executionHumanInvestments)
-          ? p.executionHumanInvestments
-          : [];
-
-        const totalProjectInvest =
-          skillPlans.reduce((s: number, sk: any) => s + (sk?.cost ?? 0), 0) +
-          investments.reduce((s: number, inv: any) => s + (inv?.amount ?? 0), 0);
-
-        if (totalProjectInvest > 0) {
-          const investKr: BridgeKR = {
-            id: `invest-${p?.title ?? 'unknown'}-${Math.random()
-              .toString(36)
-              .slice(2)}`,
-            kind: 'INVEST',
-            label: `${p?.title ?? '（プロジェクト）'}: 投資計画`,
-            target: totalProjectInvest,
-            unit: '¥',
-            scope: 'project',
-            baseKey: 'invest',
-          };
-          allBridgeKrs.push(investKr);
-        }
-      });
+    // Baseline（影響なし）
+    const baselineYearly = calcYearlyFromKrs({
+      baseTraj,
+      baseFigures,
+      krs: [],
+      scenario: { successRate: 1, synergyRate: 0 },
     });
 
-    // BaseFigures を STAGE1 financePL から抽出
-    const latestPL = Array.isArray(strategyState?.financePL)
-      ? strategyState.financePL[strategyState.financePL.length - 1]
-      : null;
+    // 全PJ合算（会社全体のシナリオ）
+    const allKrs: BridgeKR[] = [];
+    projectKrsMap.forEach((arr) => arr.forEach((x) => allKrs.push(x)));
 
-    const baseFigures: BaseFigures = {
-      revenue: latestPL?.revenue ?? 100000000,
-      acq: Math.max(
-        1000,
-        (latestPL?.revenue ?? 100000000) / (latestPL?.cogs ?? 100000),
-      ),
-      arpu: Math.max(
-        50000,
-        (latestPL?.revenue ?? 100000000) /
-          Math.max(
-            1000,
-            (latestPL?.revenue ?? 100000000) / (latestPL?.cogs ?? 100000),
-          ),
-      ),
-      churn: 0.02,
-      fixed_cost: (latestPL?.sga ?? 10000000) / 12,
-      variable_cost: (latestPL?.cogs ?? 30000000) / 12,
-      personnel_cost: ((latestPL?.sga ?? 10000000) / 2) / 12,
-      invest: 0,
-      success_rate: 0.8,
-      synergy: 0,
-    };
-
-    // 3シナリオ計算（buildBridgeDeltas ベース）
     const scenarios = {
       low: { successRate: 0.5, synergyRate: -0.05 },
       base: { successRate: 0.8, synergyRate: 0.0 },
       high: { successRate: 1.0, synergyRate: 0.1 },
     };
 
-    const yearlyResults = {
-      low: [] as YearlyPL[],
-      base: [] as YearlyPL[],
-      high: [] as YearlyPL[],
+    const yearlyAll = {
+      low: calcYearlyFromKrs({
+        baseTraj,
+        baseFigures,
+        krs: allKrs,
+        scenario: scenarios.low,
+      }),
+      base: calcYearlyFromKrs({
+        baseTraj,
+        baseFigures,
+        krs: allKrs,
+        scenario: scenarios.base,
+      }),
+      high: calcYearlyFromKrs({
+        baseTraj,
+        baseFigures,
+        krs: allKrs,
+        scenario: scenarios.high,
+      }),
     };
 
-    Object.entries(scenarios).forEach(([key, cfg]) => {
-      const scenarioKrs = allBridgeKrs.map((kr) => ({
-        ...kr,
-        target: kr.kind === 'SUCCESS_RATE' ? kr.target * cfg.successRate : kr.target,
-      }));
-
-      if (cfg.synergyRate !== 0) {
-        scenarioKrs.push({
-          id: `synergy-${key}`,
-          kind: 'SYNERGY' as const,
-          label: `${key}シナリオ相乗効果`,
-          target: cfg.synergyRate,
-          unit: '%',
-          scope: 'company' as const,
-          baseKey: 'synergy' as const,
-        } as BridgeKR);
-      }
-
-      const bridgeInput: BridgeInput = {
-        startYm: baseTraj.startYm,
-        endYm: baseTraj.endYm,
-        krs: scenarioKrs,
-        base: baseFigures,
-        config: {
-          activityDefault: 'ACQ',
-          activityRoute: { 訪問: 'ACQ', 新規: 'ACQ' },
-        },
-      };
-
-      const deltas = buildBridgeDeltas(bridgeInput);
-      const monthly = simulateMonthlyPL(baseTraj, deltas);
-      const yearly = aggregateYearly(monthly);
-      yearlyResults[key as keyof typeof yearlyResults] = yearly;
-    });
-
-    return { approved, yearlyResults, error: null as string | null };
+    return {
+      ready: true,
+      companyName,
+      error: null as string | null,
+      deptNames: Array.from(deptNameSet).sort(),
+      approved,
+      projectKrsMap,
+      baselineYearly,
+      yearlyAll,
+      // baseTraj/baseFigures/scenariosは selected 計算で再利用するため、外に出さず関数で再計算（最小改修）
+    };
   }, [hydrated, isHydrating, strategyState]);
 
-  const companyName = strategyState?.companyName ?? '会社名未設定';
+  // 初期：Approvedがあるなら「全選択」にする（最も分かりやすい）
+  useEffect(() => {
+    if (!core.ready) return;
+    if (selectedProjectKeys.length > 0) return;
+    if (core.approved.length === 0) return;
+    setSelectedProjectKeys(core.approved.map((a) => a.key));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [core.ready, core.approved]);
 
+  /* =========================================================
+   * ② PJ複数選択の合算（選択PJだけONした推移）
+   * ======================================================= */
+
+  const selectedYearly = useMemo(() => {
+    if (!core.ready) {
+      return { low: [], base: [], high: [] } as Record<
+        'low' | 'base' | 'high',
+        YearlyPL[]
+      >;
+    }
+
+    const baseTraj = mkBaselineTrajectory(strategyState);
+    if (!baseTraj) {
+      return { low: [], base: [], high: [] };
+    }
+    const baseFigures = mkBaseFigures(strategyState);
+
+    const selectedSet = new Set(selectedProjectKeys);
+
+    // deptFilter を反映した “表示対象テーブル” と、寄与計算対象を分けたい場合はここで分岐可能。
+    // 今回は「選択されたもの」が対象。
+    const krs: BridgeKR[] = [];
+    core.projectKrsMap.forEach((arr, key) => {
+      if (!selectedSet.has(key)) return;
+      arr.forEach((x) => krs.push(x));
+    });
+
+    const scenarios = {
+      low: { successRate: 0.5, synergyRate: -0.05 },
+      base: { successRate: 0.8, synergyRate: 0.0 },
+      high: { successRate: 1.0, synergyRate: 0.1 },
+    };
+
+    return {
+      low: calcYearlyFromKrs({
+        baseTraj,
+        baseFigures,
+        krs,
+        scenario: scenarios.low,
+      }),
+      base: calcYearlyFromKrs({
+        baseTraj,
+        baseFigures,
+        krs,
+        scenario: scenarios.base,
+      }),
+      high: calcYearlyFromKrs({
+        baseTraj,
+        baseFigures,
+        krs,
+        scenario: scenarios.high,
+      }),
+    };
+  }, [core.ready, core.projectKrsMap, selectedProjectKeys, strategyState]);
+
+  /* =========================================================
+   * ③ PJ別寄与（単独ON差分：一覧で理解するため）
+   * ======================================================= */
+
+  const projectContrib = useMemo(() => {
+    if (!core.ready) return [] as ProjectContribution[];
+
+    const baseTraj = mkBaselineTrajectory(strategyState);
+    if (!baseTraj) return [];
+    const baseFigures = mkBaseFigures(strategyState);
+
+    const baseline = core.baselineYearly;
+
+    // 寄与は“基準シナリオ”で一覧化（社員に分かりやすい）
+    const baseScenario = { successRate: 0.8, synergyRate: 0.0 };
+
+    return core.approved.map((p) => {
+      const krs = core.projectKrsMap.get(p.key) ?? [];
+      const yearly = calcYearlyFromKrs({
+        baseTraj,
+        baseFigures,
+        krs,
+        scenario: baseScenario,
+      });
+
+      const delta = diffYearly(baseline, yearly);
+
+      const deltaRevenueTotal = sumYearly(delta, 'revenue');
+      const deltaOpTotal = sumYearly(delta, 'op_income');
+      const roi =
+        p.investTotal > 0 ? deltaOpTotal / p.investTotal : undefined;
+
+      return {
+        key: p.key,
+        dept: p.dept,
+        proj: p.proj,
+        investTotal: p.investTotal,
+        krCount: p.krCount,
+        deltaRevenueTotal,
+        deltaOpTotal,
+        roi,
+      };
+    });
+  }, [core.ready, core.approved, core.projectKrsMap, core.baselineYearly, strategyState]);
+
+  /* =========================================================
+   * ④ 指標（売上成長率・営業利益率）の推移（表示は scenarioKey に追随）
+   * ======================================================= */
+
+  const indicatorSeries = useMemo(() => {
+    const baseline = core.baselineYearly ?? [];
+    const all = core.yearlyAll?.[scenarioKey] ?? [];
+    const selected = selectedYearly?.[scenarioKey] ?? [];
+
+    return buildIndicators({
+      baseline,
+      all,
+      selected,
+    });
+  }, [core.baselineYearly, core.yearlyAll, scenarioKey, selectedYearly]);
+
+  /* =========================================================
+   * ⑤ グラフ用データ（売上・営業利益：baseline / 全体 / 選択PJ）
+   * ======================================================= */
+
+  const chartData = useMemo(() => {
+    const baseline = core.baselineYearly ?? [];
+    const all = core.yearlyAll?.[scenarioKey] ?? [];
+    const selected = selectedYearly?.[scenarioKey] ?? [];
+
+    const byYear = new Map<number, any>();
+
+    baseline.forEach((y) => {
+      byYear.set(y.year, {
+        year: y.year,
+        baselineRevenue: y.revenue ?? 0,
+        baselineOp: y.op_income ?? 0,
+      });
+    });
+
+    all.forEach((y) => {
+      const cur = byYear.get(y.year) ?? { year: y.year };
+      cur.allRevenue = y.revenue ?? 0;
+      cur.allOp = y.op_income ?? 0;
+      byYear.set(y.year, cur);
+    });
+
+    selected.forEach((y) => {
+      const cur = byYear.get(y.year) ?? { year: y.year };
+      cur.selectedRevenue = y.revenue ?? 0;
+      cur.selectedOp = y.op_income ?? 0;
+      byYear.set(y.year, cur);
+    });
+
+    return Array.from(byYear.values()).sort((a, b) => a.year - b.year);
+  }, [core.baselineYearly, core.yearlyAll, scenarioKey, selectedYearly]);
+
+  /* =========================================================
+   * UI helpers
+   * ======================================================= */
+
+  const companyName = core.companyName;
+
+  const approvedFiltered = useMemo(() => {
+    if (!core.ready) return [] as ApprovedProject[];
+
+    if (deptFilter === 'all') return core.approved;
+    return core.approved.filter((p) => p.dept === deptFilter);
+  }, [core.ready, core.approved, deptFilter]);
+
+  const selectedSet = useMemo(
+    () => new Set(selectedProjectKeys),
+    [selectedProjectKeys],
+  );
+
+  const selectedSummary = useMemo(() => {
+    const baseline = core.baselineYearly ?? [];
+    const sel = selectedYearly?.base ?? []; // サマリーは基準で固定（理解しやすい）
+    const delta = diffYearly(baseline, sel);
+    const deltaRev = sumYearly(delta, 'revenue');
+    const deltaOp = sumYearly(delta, 'op_income');
+
+    const invest = core.approved
+      .filter((p) => selectedSet.has(p.key))
+      .reduce((s, p) => s + (p.investTotal ?? 0), 0);
+
+    return { deltaRev, deltaOp, invest };
+  }, [core.baselineYearly, selectedYearly, core.approved, selectedSet]);
+
+  const toggleProject = (key: string) => {
+    setSelectedProjectKeys((prev) => {
+      const set = new Set(prev);
+      if (set.has(key)) set.delete(key);
+      else set.add(key);
+      return Array.from(set);
+    });
+  };
+
+  const selectAllFiltered = () => {
+    setSelectedProjectKeys((prev) => {
+      const set = new Set(prev);
+      approvedFiltered.forEach((p) => set.add(p.key));
+      return Array.from(set);
+    });
+  };
+
+  const clearAllFiltered = () => {
+    setSelectedProjectKeys((prev) => {
+      const set = new Set(prev);
+      approvedFiltered.forEach((p) => set.delete(p.key));
+      return Array.from(set);
+    });
+  };
+
+  /* =========================================================
+   * ✅ ALL HOOKS MUST BE DEFINED HERE (BEFORE ANY CONDITIONAL RENDERING)
+   * ======================================================= */
+
+  // 診断情報を計算（hooks: 条件付き return の前に定義）
+  const diagnostics = useMemo(() => {
+    const financeSummaryCount = Array.isArray(strategyState?.financeSummary)
+      ? strategyState.financeSummary.length
+      : 0;
+    const departmentCount = Array.isArray(strategyState?.departments)
+      ? strategyState.departments.length
+      : 0;
+
+    let projectTotal = 0;
+    let okrTotal = 0;
+    let structuredKrTotal = 0;
+
+    if (Array.isArray(strategyState?.departments)) {
+      strategyState.departments.forEach((dept: any) => {
+        const projects = Array.isArray(dept?.projects) ? dept.projects : [];
+        projectTotal += projects.length;
+
+        projects.forEach((p: any) => {
+          const okrsV2 = Array.isArray(p?.okrsV2) ? p.okrsV2 : [];
+          okrTotal += okrsV2.length;
+
+          okrsV2.forEach((kr: any) => {
+            if (kr && kr.kind && kr.baseKey && typeof kr.target === 'number') {
+              structuredKrTotal += 1;
+            }
+          });
+        });
+      });
+    }
+
+    const financePLCount = Array.isArray(strategyState?.financePL)
+      ? strategyState.financePL.length
+      : 0;
+    const hasPL = financePLCount > 0;
+
+    return {
+      financeSummaryCount,
+      departmentCount,
+      projectTotal,
+      okrTotal,
+      structuredKrTotal,
+      financePLCount,
+      hasPL,
+    };
+  }, [strategyState]);
+
+  /* =========================================================
+   * CONDITIONAL RENDERING (single return path)
+   * ======================================================= */
+
+  // Guard: no company selected
   if (!accessCompanyId) {
     return (
       <main className="min-h-screen bg-slate-50 text-slate-900">
@@ -358,6 +682,7 @@ export default function Stage6Page() {
     );
   }
 
+  // Guard: hydrating
   if (isHydrating) {
     return (
       <main className="min-h-screen bg-slate-50 text-slate-900">
@@ -370,167 +695,512 @@ export default function Stage6Page() {
     );
   }
 
+  // Main content
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
       <div className="mx-auto max-w-7xl px-4 pb-12 pt-8 md:px-6 md:pt-10">
+        {/* 診断パネル（開発用） */}
+        <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4">
+          <div className="text-xs font-semibold text-blue-900 mb-3">
+            📊 データロード状態（開発用診断）
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7">
+            <div className="rounded bg-white px-2 py-1">
+              <div className="text-blue-600 font-medium">financeSummary</div>
+              <div className="text-blue-900 font-bold">
+                {diagnostics.financeSummaryCount}
+              </div>
+            </div>
+            <div className="rounded bg-white px-2 py-1">
+              <div className="text-blue-600 font-medium">部門</div>
+              <div className="text-blue-900 font-bold">
+                {diagnostics.departmentCount}
+              </div>
+            </div>
+            <div className="rounded bg-white px-2 py-1">
+              <div className="text-blue-600 font-medium">プロジェクト</div>
+              <div className="text-blue-900 font-bold">
+                {diagnostics.projectTotal}
+              </div>
+            </div>
+            <div className="rounded bg-white px-2 py-1">
+              <div className="text-blue-600 font-medium">OKR</div>
+              <div className="text-blue-900 font-bold">
+                {diagnostics.okrTotal}
+              </div>
+            </div>
+            <div className="rounded bg-white px-2 py-1">
+              <div className="text-blue-600 font-medium">構造化KR</div>
+              <div className="text-blue-900 font-bold">
+                {diagnostics.structuredKrTotal}
+              </div>
+            </div>
+            <div className="rounded bg-white px-2 py-1">
+              <div className="text-blue-600 font-medium">財務PL</div>
+              <div className={`font-bold ${diagnostics.hasPL ? 'text-green-700' : 'text-red-700'}`}>
+                {diagnostics.financePLCount}
+              </div>
+            </div>
+            <div className="rounded bg-white px-2 py-1">
+              <div className="text-blue-600 font-medium">Hydrated</div>
+              <div className={`font-bold ${hydrated ? 'text-green-700' : 'text-red-700'}`}>
+                {hydrated ? 'Yes' : 'No'}
+              </div>
+            </div>
+          </div>
+          {!diagnostics.hasPL && (
+            <div className="mt-2 text-xs text-blue-800 bg-white px-2 py-1 rounded border-l-2 border-amber-400">
+              ⚠️ <strong>Warning:</strong> financePL がロードされていません。STAGE1で財務データを入力してください。フォールバックベースラインで表示を継続します。
+            </div>
+          )}
+        </div>
+
         {/* ヘッダー */}
-        <header className="mb-8">
+        <header className="mb-6">
           <p className="text-[11px] uppercase tracking-[0.25em] text-slate-400">
             STAGE 6 / VALUE VALIDATION
           </p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight">
-            価値検証・財務シミュレーション
-          </h1>
-          <p className="mt-1 text-sm text-slate-600">{companyName}</p>
+          <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight">
+                価値検証（会社の未来とプロジェクト寄与）
+              </h1>
+              <p className="mt-1 text-sm text-slate-600">{companyName}</p>
+            </div>
+
+            <div className="flex gap-2">
+              {(['low', 'base', 'high'] as const).map((scen) => (
+                <button
+                  key={scen}
+                  onClick={() => setScenarioKey(scen)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                    scenarioKey === scen
+                      ? 'bg-slate-900 text-white'
+                      : 'border border-slate-300 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {scen === 'low' ? '悲観' : scen === 'base' ? '基準' : '楽観'}
+                </button>
+              ))}
+            </div>
+          </div>
         </header>
 
         {/* エラー表示 */}
-        {simData.error && (
+        {core.error && (
           <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 flex gap-3">
             <AlertCircle className="h-5 w-5 text-amber-700 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-amber-800">{simData.error}</div>
+            <div className="text-sm text-amber-800">{core.error}</div>
           </div>
         )}
 
+        {/* A. 会社全体の推移（グラフ） */}
         <div className="space-y-6">
-          {/* 結果カード */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-bold text-slate-900">PL推移（シナリオ別）</h2>
-              <div className="flex gap-2">
-                {(['low', 'base', 'high'] as const).map((scen) => (
-                  <button
-                    key={scen}
-                    onClick={() => setScenarioKey(scen)}
-                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
-                      scenarioKey === scen
-                        ? 'bg-slate-900 text-white'
-                        : 'border border-slate-300 text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    {scen === 'low' ? '悲観' : scen === 'base' ? '基準' : '楽観'}
-                  </button>
-                ))}
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="mb-4">
+              <h2 className="text-lg font-bold text-slate-900">会社全体の推移（売上・営業利益）</h2>
+              <p className="mt-1 text-[12px] text-slate-600">
+                Baseline（影響なし）／全プロジェクト（Approved合算）／選択プロジェクト（複数選択合算）
+              </p>
+            </div>
+
+            {/* 売上 */}
+            <div className="mb-6">
+              <div className="mb-2 text-sm font-semibold text-slate-800">売上</div>
+              <div className="h-[280px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="year" />
+                    <YAxis tickFormatter={(v) => compactJPY(v)} />
+                    <ReTooltip
+                      formatter={(value: any, name: any) => [
+                        fmtJPY(Number(value)),
+                        name,
+                      ]}
+                    />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="baselineRevenue"
+                      name="Baseline"
+                      stroke="#64748b"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="allRevenue"
+                      name="全プロジェクト（Approved合算）"
+                      stroke="#0f172a"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="selectedRevenue"
+                      name="選択プロジェクト（合算）"
+                      stroke="#334155"
+                      strokeWidth={2}
+                      strokeDasharray="6 3"
+                      dot={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
             </div>
 
-            {/* 年次PL表 */}
+            {/* 営業利益 */}
+            <div>
+              <div className="mb-2 text-sm font-semibold text-slate-800">営業利益</div>
+              <div className="h-[280px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="year" />
+                    <YAxis tickFormatter={(v) => compactJPY(v)} />
+                    <ReTooltip
+                      formatter={(value: any, name: any) => [
+                        fmtJPY(Number(value)),
+                        name,
+                      ]}
+                    />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="baselineOp"
+                      name="Baseline"
+                      stroke="#64748b"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="allOp"
+                      name="全プロジェクト（Approved合算）"
+                      stroke="#0f172a"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="selectedOp"
+                      name="選択プロジェクト（合算）"
+                      stroke="#334155"
+                      strokeWidth={2}
+                      strokeDasharray="6 3"
+                      dot={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="mt-3 text-[11px] text-slate-500">
+              注：STAGE1の財務入力とKR/投資の前提に基づく簡易推計です。厳密な予算ではなく「因果の検証」を目的にします。
+            </div>
+          </section>
+
+          {/* B. 企業価値に直結する最小指標（推移） */}
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="mb-4">
+              <h2 className="text-lg font-bold text-slate-900">企業価値につながる指標（最小セット）</h2>
+              <p className="mt-1 text-[12px] text-slate-600">
+                売上成長率（成長性）／営業利益率（収益性）
+              </p>
+            </div>
+
+            <div className="grid gap-6 md:grid-cols-2">
+              {/* 売上成長率 */}
+              <div>
+                <div className="mb-2 text-sm font-semibold text-slate-800">
+                  売上成長率（年次）
+                </div>
+                <div className="h-[240px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={indicatorSeries.growth}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="year" />
+                      <YAxis tickFormatter={(v) => `${(v * 100).toFixed(0)}%`} />
+                      <ReTooltip
+                        formatter={(value: any, name: any) => [
+                          `${(Number(value) * 100).toFixed(1)}%`,
+                          name,
+                        ]}
+                      />
+                      <Legend />
+                      <Line
+                        type="monotone"
+                        dataKey="baseline"
+                        name="Baseline"
+                        stroke="#64748b"
+                        strokeWidth={2}
+                        dot={false}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="all"
+                        name="全プロジェクト"
+                        stroke="#0f172a"
+                        strokeWidth={2}
+                        dot={false}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="selected"
+                        name="選択プロジェクト"
+                        stroke="#334155"
+                        strokeWidth={2}
+                        strokeDasharray="6 3"
+                        dot={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* 営業利益率 */}
+              <div>
+                <div className="mb-2 text-sm font-semibold text-slate-800">
+                  営業利益率（年次）
+                </div>
+                <div className="h-[240px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={indicatorSeries.margin}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="year" />
+                      <YAxis tickFormatter={(v) => `${(v * 100).toFixed(0)}%`} />
+                      <ReTooltip
+                        formatter={(value: any, name: any) => [
+                          `${(Number(value) * 100).toFixed(1)}%`,
+                          name,
+                        ]}
+                      />
+                      <Legend />
+                      <Line
+                        type="monotone"
+                        dataKey="baseline"
+                        name="Baseline"
+                        stroke="#64748b"
+                        strokeWidth={2}
+                        dot={false}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="all"
+                        name="全プロジェクト"
+                        stroke="#0f172a"
+                        strokeWidth={2}
+                        dot={false}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="selected"
+                        name="選択プロジェクト"
+                        stroke="#334155"
+                        strokeWidth={2}
+                        strokeDasharray="6 3"
+                        dot={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* C. プロジェクト寄与（複数選択） */}
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">
+                  プロジェクト寄与（複数選択）
+                </h2>
+                <p className="mt-1 text-[12px] text-slate-600">
+                  チェックしたプロジェクトだけを合算し、会社推移の中で位置づけます（基準シナリオで寄与一覧を表示）。
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm text-slate-600">部門</span>
+                <select
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                  value={deptFilter}
+                  onChange={(e) => setDeptFilter(e.target.value)}
+                >
+                  <option value="all">全社（全部門）</option>
+                  {core.deptNames.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  onClick={selectAllFiltered}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50"
+                >
+                  表示中を全選択
+                </button>
+                <button
+                  onClick={clearAllFiltered}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50"
+                >
+                  表示中を解除
+                </button>
+              </div>
+            </div>
+
+            {/* 選択サマリー */}
+            <div className="mb-4 grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg bg-slate-50 p-4">
+                <div className="text-[12px] font-semibold text-slate-600">
+                  選択PJ数
+                </div>
+                <div className="mt-1 text-lg font-bold text-slate-900">
+                  {selectedProjectKeys.length} 件
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-slate-50 p-4">
+                <div className="text-[12px] font-semibold text-slate-600">
+                  投資合計（選択PJ）
+                </div>
+                <div className="mt-1 text-lg font-bold text-slate-900">
+                  {fmtJPY(selectedSummary.invest)}
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-slate-50 p-4">
+                <div className="text-[12px] font-semibold text-slate-600">
+                  営業利益差分（概算 / Baseline比）
+                </div>
+                <div className="mt-1 text-lg font-bold text-slate-900">
+                  {fmtJPY(selectedSummary.deltaOp)}
+                </div>
+                <div className="mt-1 text-[12px] text-slate-600">
+                  売上差分：{fmtJPY(selectedSummary.deltaRev)}
+                </div>
+              </div>
+            </div>
+
+            {/* PJ一覧（寄与ランキング + チェック） */}
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200">
-                    <th className="px-4 py-2 text-left text-slate-700 font-semibold">年度</th>
-                    <th className="px-4 py-2 text-right text-slate-700 font-semibold">売上</th>
-                    <th className="px-4 py-2 text-right text-slate-700 font-semibold">営業利益</th>
-                    <th className="px-4 py-2 text-right text-slate-700 font-semibold">利益率</th>
+                    <th className="px-3 py-2 text-left text-slate-700 font-semibold">
+                      選択
+                    </th>
+                    <th className="px-3 py-2 text-left text-slate-700 font-semibold">
+                      部門
+                    </th>
+                    <th className="px-3 py-2 text-left text-slate-700 font-semibold">
+                      プロジェクト
+                    </th>
+                    <th className="px-3 py-2 text-right text-slate-700 font-semibold">
+                      投資合計
+                    </th>
+                    <th className="px-3 py-2 text-right text-slate-700 font-semibold">
+                      売上差分（概算）
+                    </th>
+                    <th className="px-3 py-2 text-right text-slate-700 font-semibold">
+                      営業利益差分（概算）
+                    </th>
+                    <th className="px-3 py-2 text-right text-slate-700 font-semibold">
+                      ROI（概算）
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {simData.yearlyResults[scenarioKey].map((yr) => (
-                    <tr key={yr.year} className="border-b border-slate-100 hover:bg-slate-50">
-                      <td className="px-4 py-2 text-slate-900 font-medium">{yr.year}</td>
-                      <td className="px-4 py-2 text-right text-slate-700">{fmtJPY(yr.revenue)}</td>
-                      <td className="px-4 py-2 text-right text-slate-700">{fmtJPY(yr.op_income)}</td>
-                      <td className="px-4 py-2 text-right text-slate-700">
-                        {(yr.margin * 100).toFixed(1)}%
-                      </td>
-                    </tr>
-                  ))}
+                  {projectContrib
+                    .filter((p) =>
+                      deptFilter === 'all' ? true : p.dept === deptFilter,
+                    )
+                    .slice()
+                    .sort(
+                      (a, b) =>
+                        Math.abs(b.deltaOpTotal) - Math.abs(a.deltaOpTotal),
+                    )
+                    .map((p) => {
+                      const checked = selectedSet.has(p.key);
+                      return (
+                        <tr
+                          key={p.key}
+                          className="border-b border-slate-100 hover:bg-slate-50"
+                        >
+                          <td className="px-3 py-2">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleProject(p.key)}
+                              className="h-4 w-4"
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-slate-900 font-medium">
+                            {p.dept}
+                          </td>
+                          <td className="px-3 py-2 text-slate-700">{p.proj}</td>
+                          <td className="px-3 py-2 text-right text-slate-700">
+                            {fmtJPY(p.investTotal)}
+                          </td>
+                          <td className="px-3 py-2 text-right text-slate-700">
+                            {fmtJPY(p.deltaRevenueTotal)}
+                          </td>
+                          <td className="px-3 py-2 text-right text-slate-700">
+                            {fmtJPY(p.deltaOpTotal)}
+                          </td>
+                          <td className="px-3 py-2 text-right text-slate-700">
+                            {Number.isFinite(p.roi as any)
+                              ? `${((p.roi as number) * 100).toFixed(1)}%`
+                              : '-'}
+                          </td>
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </table>
             </div>
-          </div>
 
-          {/* 前提カード */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="mb-4 text-lg font-bold text-slate-900">前提・スナップショット</h2>
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="rounded-lg bg-slate-50 p-4">
-                <div className="text-[12px] font-semibold text-slate-600">ベースラインステータス</div>
-                <div className="mt-2 text-sm text-slate-900">
-                  {strategyState?.financePL?.length ? '✓ 設定済み' : '✗ 未設定'}
-                </div>
+            {core.approved.length === 0 && (
+              <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                Approved のプロジェクトがありません（planStatus=approved のプロジェクトが対象です）。
               </div>
-
-              <div className="rounded-lg bg-slate-50 p-4">
-                <div className="text-[12px] font-semibold text-slate-600">投資合計</div>
-                <div className="mt-2 text-sm text-slate-900">
-                  {fmtJPY(simData.approved.reduce((s: number, a: any) => s + a.investTotal, 0))}
-                </div>
-              </div>
-
-              <div className="rounded-lg bg-slate-50 p-4">
-                <div className="text-[12px] font-semibold text-slate-600">KR件数</div>
-                <div className="mt-2 text-sm text-slate-900">
-                  {simData.approved.reduce((s: number, a: any) => s + a.krCount, 0)} 件
-                </div>
-              </div>
-
-              <div className="rounded-lg bg-slate-50 p-4">
-                <div className="text-[12px] font-semibold text-slate-600">対象プロジェクト</div>
-                <div className="mt-2 text-sm text-slate-900">{simData.approved.length} 件</div>
-              </div>
-
-              <div className="rounded-lg bg-slate-50 p-4">
-                <div className="text-[12px] font-semibold text-slate-600">Revision状態</div>
-                <div className="mt-2 text-sm text-slate-900">確認中...</div>
-              </div>
-
-              <div className="rounded-lg bg-slate-50 p-4">
-                <div className="text-[12px] font-semibold text-slate-600">更新日時</div>
-                <div className="mt-2 text-[11px] text-slate-600">
-                  {new Date().toLocaleDateString('ja-JP')}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* 因果マップ枠（未実装） */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="mb-4 text-lg font-bold text-slate-900">因果マップ</h2>
-            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-              <TrendingUp className="mx-auto h-8 w-8 text-slate-400 mb-2" />
-              <p className="text-sm text-slate-600">勝ち筋 → 価値指標 → レバー</p>
-              <p className="text-[11px] text-slate-500 mt-1">（次の反復で実装）</p>
-            </div>
-          </div>
-
-          {/* 寄与分解枠（未実装） */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="mb-4 text-lg font-bold text-slate-900">寄与分解</h2>
-            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-              <CheckCircle2 className="mx-auto h-8 w-8 text-slate-400 mb-2" />
-              <p className="text-sm text-slate-600">部門別 / プロジェクト別の寄与度（Top N）</p>
-              <p className="text-[11px] text-slate-500 mt-1">（次の反復で実装）</p>
-            </div>
-          </div>
-
-          {/* 検証枠（未実装） */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="mb-4 text-lg font-bold text-slate-900">検証・感度分析</h2>
-            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-              <AlertCircle className="mx-auto h-8 w-8 text-slate-400 mb-2" />
-              <p className="text-sm text-slate-600">感度 Top 5 / 反証ポイント</p>
-              <p className="text-[11px] text-slate-500 mt-1">（次の反復で実装）</p>
-            </div>
-          </div>
-
-          {/* ガバナンス枠（未実装） */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="mb-4 text-lg font-bold text-slate-900">ガバナンス・バージョン管理</h2>
-            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-              <TrendingUp className="mx-auto h-8 w-8 text-slate-400 mb-2" />
-              <p className="text-sm text-slate-600">Revision / 差分比較 / コメント</p>
-              <p className="text-[11px] text-slate-500 mt-1">（次の反復で実装）</p>
-            </div>
-          </div>
+            )}
+          </section>
         </div>
       </div>
     </main>
   );
 }
 
-/* ========== ユーティリティ ========== */
+/* =========================================================
+ * Types
+ * ======================================================= */
+
+type ApprovedProject = {
+  key: string;
+  dept: string;
+  proj: string;
+  krCount: number;
+  investTotal: number;
+};
+
+type ProjectContribution = {
+  key: string;
+  dept: string;
+  proj: string;
+  investTotal: number;
+  krCount: number;
+  deltaRevenueTotal: number;
+  deltaOpTotal: number;
+  roi?: number;
+};
+
+/* =========================================================
+ * Utilities (format)
+ * ======================================================= */
+
 function fmtJPY(n: number) {
   const v = Number(n);
   if (!Number.isFinite(v)) return '-';
@@ -540,6 +1210,210 @@ function fmtJPY(n: number) {
     maximumFractionDigits: 0,
   });
 }
+
+function compactJPY(n: number) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '-';
+  const abs = Math.abs(v);
+  if (abs >= 1e12) return `${(v / 1e12).toFixed(1)}T`;
+  if (abs >= 1e9) return `${(v / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+  if (abs >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
+  return `${v.toFixed(0)}`;
+}
+
+/* =========================================================
+ * Key / Baseline / BaseFigures
+ * ======================================================= */
+
+function makeProjectKey(dept: string, proj: string, idx: number) {
+  // title重複や並び替えに弱いが、現状コードに合わせて最小実装
+  return `${dept}::${proj}::${idx}`;
+}
+
+function mkBaseFigures(strategyState: any): BaseFigures {
+  const latestPL = Array.isArray(strategyState?.financePL)
+    ? strategyState.financePL[strategyState.financePL.length - 1]
+    : null;
+
+  return {
+    revenue: latestPL?.revenue ?? 100000000,
+    acq: Math.max(
+      1000,
+      (latestPL?.revenue ?? 100000000) / (latestPL?.cogs ?? 100000),
+    ),
+    arpu: Math.max(
+      50000,
+      (latestPL?.revenue ?? 100000000) /
+        Math.max(1000, (latestPL?.revenue ?? 100000000) / (latestPL?.cogs ?? 100000)),
+    ),
+    churn: 0.02,
+    fixed_cost: (latestPL?.sga ?? 10000000) / 12,
+    variable_cost: (latestPL?.cogs ?? 30000000) / 12,
+    personnel_cost: ((latestPL?.sga ?? 10000000) / 2) / 12,
+    invest: 0,
+    success_rate: 0.8,
+    synergy: 0,
+  };
+}
+
+/* =========================================================
+ * Simulation helpers
+ * ======================================================= */
+
+function calcYearlyFromKrs(args: {
+  baseTraj: BaseTrajectory;
+  baseFigures: BaseFigures;
+  krs: BridgeKR[];
+  scenario: { successRate: number; synergyRate: number };
+}): YearlyPL[] {
+  const { baseTraj, baseFigures, krs, scenario } = args;
+
+  // 最小のシナリオ適用（現行互換）
+  const scenarioKrs = krs.map((kr) => ({
+    ...kr,
+    target:
+      String((kr as any).kind ?? '') === 'SUCCESS_RATE'
+        ? (Number(kr.target) || 0) * scenario.successRate
+        : kr.target,
+  }));
+
+  if (scenario.synergyRate !== 0) {
+    scenarioKrs.push({
+      id: `synergy-${Math.random().toString(36).slice(2)}`,
+      kind: 'SYNERGY' as any,
+      label: `相乗効果（シナリオ）`,
+      target: scenario.synergyRate,
+      unit: '%',
+      scope: 'company' as any,
+      baseKey: 'synergy' as any,
+    } as BridgeKR);
+  }
+
+  const bridgeInput: BridgeInput = {
+    startYm: baseTraj.startYm,
+    endYm: baseTraj.endYm,
+    krs: scenarioKrs,
+    base: baseFigures,
+    config: {
+      activityDefault: 'ACQ',
+      activityRoute: { 訪問: 'ACQ', 新規: 'ACQ' },
+    },
+  };
+
+  const deltas = buildBridgeDeltas(bridgeInput);
+  const monthly = simulateMonthlyPL(baseTraj, deltas);
+  return aggregateYearly(monthly);
+}
+
+function diffYearly(a: YearlyPL[], b: YearlyPL[]): YearlyPL[] {
+  const mapA = new Map<number, YearlyPL>();
+  a.forEach((x) => mapA.set(x.year, x));
+
+  return b.map((x) => {
+    const y = mapA.get(x.year);
+    if (!y) {
+      return { ...x };
+    }
+    const revenue = (x.revenue ?? 0) - (y.revenue ?? 0);
+    const op_income = (x.op_income ?? 0) - (y.op_income ?? 0);
+    const margin = revenue !== 0 ? op_income / revenue : 0;
+
+    return {
+      ...x,
+      revenue,
+      op_income,
+      margin,
+    };
+  });
+}
+
+function sumYearly(rows: YearlyPL[], key: 'revenue' | 'op_income'): number {
+  return rows.reduce((s, r) => s + (Number((r as any)[key]) || 0), 0);
+}
+
+/* =========================================================
+ * Indicators (growth/margin)
+ * ======================================================= */
+
+function buildIndicators(args: {
+  baseline: YearlyPL[];
+  all: YearlyPL[];
+  selected: YearlyPL[];
+}) {
+  const { baseline, all, selected } = args;
+
+  const years = Array.from(
+    new Set<number>([
+      ...baseline.map((x) => x.year),
+      ...all.map((x) => x.year),
+      ...selected.map((x) => x.year),
+    ]),
+  ).sort((a, b) => a - b);
+
+  const map = (arr: YearlyPL[]) => {
+    const m = new Map<number, YearlyPL>();
+    arr.forEach((x) => m.set(x.year, x));
+    return m;
+  };
+
+  const mb = map(baseline);
+  const ma = map(all);
+  const ms = map(selected);
+
+  // growth：前年比（売上）
+  const growth = years.map((year, idx) => {
+    const b = mb.get(year);
+    const a = ma.get(year);
+    const s = ms.get(year);
+
+    const prevYear = years[idx - 1];
+    const bPrev = prevYear ? mb.get(prevYear) : undefined;
+    const aPrev = prevYear ? ma.get(prevYear) : undefined;
+    const sPrev = prevYear ? ms.get(prevYear) : undefined;
+
+    const g = (cur?: YearlyPL, prev?: YearlyPL) => {
+      const cr = Number(cur?.revenue);
+      const pr = Number(prev?.revenue);
+      if (!Number.isFinite(cr) || !Number.isFinite(pr) || pr === 0) return 0;
+      return cr / pr - 1;
+    };
+
+    return {
+      year,
+      baseline: g(b, bPrev),
+      all: g(a, aPrev),
+      selected: g(s, sPrev),
+    };
+  });
+
+  // margin：営業利益率
+  const margin = years.map((year) => {
+    const b = mb.get(year);
+    const a = ma.get(year);
+    const s = ms.get(year);
+
+    const m = (cur?: YearlyPL) => {
+      const rev = Number(cur?.revenue);
+      const op = Number(cur?.op_income);
+      if (!Number.isFinite(rev) || !Number.isFinite(op) || rev === 0) return 0;
+      return op / rev;
+    };
+
+    return {
+      year,
+      baseline: m(b),
+      all: m(a),
+      selected: m(s),
+    };
+  });
+
+  return { growth, margin };
+}
+
+/* =========================================================
+ * Baseline builder（現行踏襲）
+ * ======================================================= */
 
 function pad(n: number) {
   return n < 10 ? `0${n}` : String(n);

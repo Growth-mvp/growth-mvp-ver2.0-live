@@ -481,9 +481,20 @@ export default function ExecutionPage() {
     const run = async () => {
       if (hydrated && scopeCompanyId === accessCompanyId) return;
       try {
+        console.log('[execution] 📥 loadAndHydrate 開始', { accessCompanyId });
         await loadAndHydrate(accessCompanyId);
+        console.log('[execution] ✅ loadAndHydrate 完了');
+      } catch (err) {
+        // 🐛 FIX: loadAndHydrate may throw if refetch fails
+        const errObj = err as any;
+        console.error('[execution] ❌ loadAndHydrate error:', {
+          message: errObj?.message || String(err),
+          code: errObj?.code,
+        });
       } finally {
-        if (!cancelled) {}
+        if (!cancelled) {
+          console.log('[execution] 🏁 loadAndHydrate effect 終了');
+        }
       }
     };
     run();

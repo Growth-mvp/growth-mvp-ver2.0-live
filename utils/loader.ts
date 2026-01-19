@@ -16,6 +16,9 @@ export async function loadAndHydrate(companyId: string) {
 
   // 初回取得（これからロードするので Hydrating ON）
   const store = useStrategyStore.getState();
+
+  console.log('[loadAndHydrate] 🚀 開始', { companyId });
+
   store.setHydrating(true);
 
   // 会社切替（ローカル破壊はしない：pendingCompanyId に退避）
@@ -23,24 +26,30 @@ export async function loadAndHydrate(companyId: string) {
 
   try {
     // store 側の正規ルートで取得・正規化・hydrated を完了させる
-    console.log('[loadAndHydrate] refetchFromServer 実行前');
+    console.log('[loadAndHydrate] 📡 refetchFromServer 実行前');
     await store.refetchFromServer();
-    console.log('[loadAndHydrate] refetchFromServer 完了');
+    console.log('[loadAndHydrate] ✅ refetchFromServer 完了');
 
-    console.log('[loadAndHydrate] 成功完了', {
+    console.log('[loadAndHydrate] 🎉 成功完了', {
       hydrated: useStrategyStore.getState().hydrated,
       loaded: useStrategyStore.getState().loaded,
     });
     return useStrategyStore.getState();
   } catch (e) {
-    console.error('[loadAndHydrate] エラー発生:', e);
+    const errObj = e as any;
+    console.error('[loadAndHydrate] ❌ エラー発生:', {
+      message: errObj?.message || String(e),
+      code: errObj?.code,
+      details: errObj?.details,
+      stack: errObj?.stack?.split('\n')[0],
+    });
     throw e;
   } finally {
     // ★ finally 内で getState() を取り直して、最新の store 参照を使う
     const freshStore = useStrategyStore.getState();
 
     // 成功/失敗に関わらず必ず markLoaded を呼んで loaded:true にする（画面固まり防止）
-    console.log('[loadAndHydrate] finally ブロック：markLoaded 実行');
+    console.log('[loadAndHydrate] 🔧 finally ブロック：markLoaded 実行');
     if (freshStore.markLoaded) {
       freshStore.markLoaded();
     } else {
@@ -53,11 +62,13 @@ export async function loadAndHydrate(companyId: string) {
 
     // 最終的な state を確認（companyId と pendingCompanyId も含む）
     const finalState = useStrategyStore.getState();
-    console.log('[loadAndHydrate] finally 完了後の state:', {
+    console.log('[loadAndHydrate] 📋 finally 完了後の state:', {
       loaded: finalState.loaded,
       hydrated: finalState.hydrated,
       companyId: finalState.companyId,
       pendingCompanyId: finalState.pendingCompanyId,
+      boot_isHydrating: (finalState.boot as any)?.isHydrating,
+      boot_isHydrated: (finalState.boot as any)?.isHydrated,
     });
   }
 }

@@ -1019,7 +1019,9 @@ export default function CascadePage() {
       const timer = setTimeout(() => !cancelled && setHydrated?.(true), 7000);
       try {
         if (!isDirty) {
+          console.log('[cascade] 📥 loadAndHydrate 前', { accessCompanyId, isDirty });
           await loadAndHydrate(accessCompanyId);
+          console.log('[cascade] ✅ loadAndHydrate 後');
           try {
             await refetchFromServer?.();
           } catch {
@@ -1027,8 +1029,20 @@ export default function CascadePage() {
           }
           setHydrated?.(true);
         } else {
+          console.log('[cascade] ⏭️ isDirty のためスキップ');
           setHydrated?.(true);
         }
+        loadGuardRef.current = accessCompanyId;
+      } catch (err) {
+        // 🐛 FIX: loadAndHydrate may throw if refetch fails
+        // Still need to mark hydrated=true to exit loading state
+        const errObj = err as any;
+        console.error('[cascade] ❌ loadAndHydrate error:', {
+          message: errObj?.message || String(err),
+          code: errObj?.code,
+        });
+        console.warn('[cascade] hydrated=true を強制設定（エラー時UI表示対応）');
+        setHydrated?.(true);
         loadGuardRef.current = accessCompanyId;
       } finally {
         clearTimeout(timer);

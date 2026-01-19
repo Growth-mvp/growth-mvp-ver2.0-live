@@ -239,6 +239,9 @@ export type StrategyState = {
   /** after-save フック（互換のため残置） */
   __afterSave?: (serverData: Partial<StrategyState> & { revision?: number }) => void;
 
+  /** 直近サーバ取得エラー（RLS/404/不許可など永続エラーを格納、ネットワークエラーは retry のためここに置かない） */
+  __lastServerError?: Error | null;
+
   /** 章ごとのUIステップ */
   chapterCurrentStep: Record<number, number>;
 
@@ -496,13 +499,112 @@ function buildSavePayload(s: StrategyState) {
   return pruneUndefinedDeep(base);
 }
 
+/**
+ * wasDirty=true の場合にもサーバから必ず反映すべきフィールドを抽出
+ *
+ * 目的：
+ * - ユーザー入力中（dirty=true）の場合でも、重要なサーバ側決定項目は反映する
+ * - Stage1の財務系・Stage2のストーリー系・Stage3の部門系など、
+ *   「ユーザーが別操作で更新した」可能性が低いデータは常に最新化
+ * - strategyId と revision は常に必須（オプティミスティックロック用）
+ *
+ * 反映対象フィールド（wasDirty=true でも上書き）：
+ * ├─ Stage1（財務・セグメント分析）:
+ * │  ├─ financeBS / financePL（会計データは完全データソース）
+ * │  ├─ segmentPL / segmentBS / hqAdjustmentPL / hqAdjustmentBS
+ * │  ├─ valueAnalysis / segmentValueAnalysis（計算結果）
+ * │  ├─ financeSummary / businessPortfolio
+ * │  └─ companyName / industry / revenue（会社情報は確実性重視）
+ * ├─ Stage2（ストーリー・戦略）:
+ * │  ├─ storyDraft / finalStory（生成結果）
+ * │  ├─ winPatternsCandidate / answers12
+ * │  └─ answers2
+ * ├─ Stage3（部門・OKR）:
+ * │  ├─ departments（部門構成は変動が多い）
+ * │  └─ thought / mission / vision / value
+ * └─ System: strategyId / revision / loaded / hydrated
+ */
 function extractServerDecidedPatch(
   resData: Partial<StrategyState> & { revision?: number },
   current: StrategyState
 ): Partial<StrategyState> {
   const patch: Partial<StrategyState> = {};
-  if (resData.strategyId && resData.strategyId !== current.strategyId) patch.strategyId = resData.strategyId;
-  if (typeof resData.revision === 'number') patch.revision = resData.revision;
+
+  /* ========== 常に反映（System） ========== */
+  if (resData.strategyId && resData.strategyId !== current.strategyId)
+    patch.strategyId = resData.strategyId;
+  if (typeof resData.revision === 'number')
+    patch.revision = resData.revision;
+
+  /* ========== STAGE1: 財務・会社情報・セグメント分析 ========== */
+  // 財務BS/PLはサーバが唯一の真実源 → 常に反映
+  if (Array.isArray(resData.financeBS))
+    patch.financeBS = resData.financeBS;
+  if (Array.isArray(resData.financePL))
+    patch.financePL = resData.financePL;
+
+  // セグメント別財務も常に最新化（ユーザー編集の対象外）
+  if (resData.segmentPL && typeof resData.segmentPL === 'object')
+    patch.segmentPL = resData.segmentPL;
+  if (resData.segmentBS && typeof resData.segmentBS === 'object')
+    patch.segmentBS = resData.segmentBS;
+
+  // 本社調整額
+  if (Array.isArray(resData.hqAdjustmentPL))
+    patch.hqAdjustmentPL = resData.hqAdjustmentPL;
+  if (Array.isArray(resData.hqAdjustmentBS))
+    patch.hqAdjustmentBS = resData.hqAdjustmentBS;
+
+  // 計算結果（5指標・セグメント分析）
+  if (resData.valueAnalysis && typeof resData.valueAnalysis === 'object')
+    patch.valueAnalysis = resData.valueAnalysis;
+  if (resData.segmentValueAnalysis && typeof resData.segmentValueAnalysis === 'object')
+    patch.segmentValueAnalysis = resData.segmentValueAnalysis;
+
+  // その他財務サマリ
+  if (Array.isArray(resData.financeSummary))
+    patch.financeSummary = resData.financeSummary;
+  if (resData.businessPortfolio && typeof resData.businessPortfolio === 'object')
+    patch.businessPortfolio = resData.businessPortfolio;
+
+  // 会社基本情報も確実性重視で常に反映
+  if (typeof resData.companyName === 'string')
+    patch.companyName = resData.companyName;
+  if (typeof resData.industry === 'string')
+    patch.industry = resData.industry;
+  if (typeof resData.revenue === 'string')
+    patch.revenue = resData.revenue;
+
+  /* ========== STAGE2: ストーリー・戦略候補 ========== */
+  // 生成結果は常に最新化
+  if (Array.isArray(resData.storyDraft))
+    patch.storyDraft = resData.storyDraft;
+  if (Array.isArray(resData.finalStory))
+    patch.finalStory = resData.finalStory;
+  if (Array.isArray(resData.answers2))
+    patch.answers2 = resData.answers2;
+
+  // 戦略候補
+  if (Array.isArray(resData.winPatternsCandidate))
+    patch.winPatternsCandidate = resData.winPatternsCandidate;
+  if (Array.isArray(resData.answers12))
+    patch.answers12 = resData.answers12;
+
+  /* ========== STAGE3: 部門・戦略方針 ========== */
+  // 部門構成は会社構造の基本情報 → 常に最新化（削除復活防止と同様の重要性）
+  if (Array.isArray(resData.departments))
+    patch.departments = resData.departments;
+
+  // MVV/SWOT も会社の指針なので常に反映
+  if (typeof resData.thought === 'string')
+    patch.thought = resData.thought;
+  if (typeof resData.mission === 'string')
+    patch.mission = resData.mission;
+  if (typeof resData.vision === 'string')
+    patch.vision = resData.vision;
+  if (typeof resData.value === 'string')
+    patch.value = resData.value;
+
   return patch;
 }
 
@@ -682,6 +784,7 @@ const emptyData: StrategyState = {
 
   __isFetchingFromServer: false,
   __afterSave: undefined,
+  __lastServerError: undefined,
 
   chapterCurrentStep: {},
   _loadingRefetch: false,
@@ -1509,26 +1612,91 @@ export const useStrategyStore = create<StrategyState>()(
         set((s) => ({ ...s, boot: { ...s.boot, isHydrating: true } }));
 
         try {
+          console.log('[strategyStore] 🔍 getFullStrategyDataByCompany 呼び出し前', {
+            companyId,
+            _loadingRefetch: get()._loadingRefetch,
+          });
+
           const { data, error } = await getFullStrategyDataByCompany(companyId);
+
+          // ★ DEBUG：レスポンス確認
           if (error) {
-            console.warn('[strategyStore] refetch error:', error);
-            scheduleRefetchRetry(2000);
-            const errMsg = (error as any)?.message || (error as any)?.code || 'データ取得に失敗しました';
-            throw new Error(errMsg);
+            console.error('[strategyStore] ❌ getFullStrategyDataByCompany エラー', {
+              code: (error as any)?.code,
+              status: (error as any)?.status,
+              message: (error as any)?.message,
+              details: (error as any)?.details,
+            });
+          } else if (data) {
+            console.log('[strategyStore] ✅ getFullStrategyDataByCompany 成功', {
+              companyId: (data as any)?.company_id,
+              revision: (data as any)?.revision,
+              hasFinancePL: !!((data as any)?.finance_pl?.length),
+              hasCsvFinanceData: !!((data as any)?.csv_finance_data),
+            });
+          } else {
+            console.warn('[strategyStore] ⚠️ getFullStrategyDataByCompany: data と error 両方 null/undefined');
           }
 
-          if (!data) {
+          // ★ D) 選別的リトライロジック：RLS/403/0行は永続エラー、ネットワークエラーのみリトライ
+          if (error) {
+            const errorCode = (error as any)?.code;
+            const errorStatus = (error as any)?.status;
+            const isTransientError =
+              errorCode === 'FETCH_FAILED' ||
+              errorCode === 'NETWORK_ERROR' ||
+              errorStatus === 502 ||
+              errorStatus === 503 ||
+              errorStatus === 504;
+
+            console.warn('[strategyStore] refetch error - selective retry', {
+              errorCode,
+              errorStatus,
+              isTransientError,
+              message: (error as any)?.message,
+            });
+
             set((s) => ({
               ...s,
               boot: { isHydrating: true, isHydrated: false },
               __isFetchingFromServer: false,
               loaded: false,
+              __lastServerError: isTransientError ? undefined : error, // 永続エラーは保存
             }));
-            scheduleRefetchRetry(2000);
+
+            if (isTransientError) {
+              scheduleRefetchRetry(2000);
+            } else {
+              // RLS/403/permission エラー：リトライなし、ユーザー通知へ
+              console.error('[strategyStore] 🚫 permanent error, no retry scheduled:', errorCode, errorStatus);
+            }
+            const errMsg = (error as any)?.message || (error as any)?.code || 'データ取得に失敗しました';
+            throw new Error(errMsg);
+          }
+
+          if (!data) {
+            console.log('[strategyStore] refetch returned 0 rows (RLS/not found) - no retry');
+            set((s) => ({
+              ...s,
+              boot: { isHydrating: true, isHydrated: false },
+              __isFetchingFromServer: false,
+              loaded: false,
+              __lastServerError: new Error('データが見つかりません'), // 0行は永続エラー扱い
+            }));
+            // 0行 = RLS制限またはデータなし → リトライなし
             throw new Error('データが見つかりません');
           }
 
           const patch = normalizeFromDbRow(data);
+
+          // ★ デバッグ：refetchFromServer での normalize 結果確認
+          console.log('[strategyStore refetch] normalized patch', {
+            financeBS_len: Array.isArray((patch as any).financeBS) ? (patch as any).financeBS.length : null,
+            segmentBS_len: Array.isArray((patch as any).segmentBS) ? (patch as any).segmentBS.length : null,
+            segmentPL_len: Array.isArray((patch as any).segmentPL) ? (patch as any).segmentPL.length : null,
+            financePL_len: Array.isArray((patch as any).financePL) ? (patch as any).financePL.length : null,
+          });
+
           const cur = get();
 
           const isSwitchingCompany = cur.pendingCompanyId !== undefined && cur.pendingCompanyId !== cur.companyId;
@@ -1541,7 +1709,15 @@ export const useStrategyStore = create<StrategyState>()(
           const isStale = typeof patchRev === 'number' && typeof curRev === 'number' && patchRev < curRev;
 
           if (wasDirty) {
-            // dirtyを守る：サーバ決定項目のみ反映
+            // ★ユーザー入力中（dirty=true）でも、サーバの重要データを反映する
+            // 戦略：extractServerDecidedPatch() で以下を常に反映
+            // ├─ Stage1: 財務系（financeBS/PL）・セグメント・会社情報（ユーザー編集対象外）
+            // ├─ Stage2: ストーリー・戦略候補（生成結果は常に最新化）
+            // └─ Stage3: 部門・MVV（会社構造・方針の基本情報）
+            // 効果：
+            // ① BS/事業別 0化の原因を排除（サーバ最新値が常に反映される）
+            // ② Draft/Finalの揺れを軽減（生成結果が確実に反映される）
+            // ③ ユーザーの個別入力は draft フィールド等で保護される
             set((s) => {
               const base = s as StrategyState;
               const minimal = extractServerDecidedPatch(patch as any, base);
@@ -1555,6 +1731,14 @@ export const useStrategyStore = create<StrategyState>()(
 
             const after = get();
             const rev = typeof patch.revision === 'number' ? patch.revision : after.revision ?? 0;
+
+            // ★ デバッグ：dirty=true でも extractServerDecidedPatch で反映されたデータ確認
+            console.log('[strategyStore refetch] after extractServerDecidedPatch (wasDirty=true)', {
+              financeBS_len: Array.isArray((after as any).financeBS) ? (after as any).financeBS.length : null,
+              segmentBS_len: Array.isArray((after as any).segmentBS) ? (after as any).segmentBS.length : null,
+              segmentPL_len: Array.isArray((after as any).segmentPL) ? (after as any).segmentPL.length : null,
+              financePL_len: Array.isArray((after as any).financePL) ? (after as any).financePL.length : null,
+            });
 
             set({ loaded: true });
             get().setHydrated(rev);
@@ -1588,6 +1772,15 @@ export const useStrategyStore = create<StrategyState>()(
             });
 
             const after = get();
+
+            // ★ デバッグ：dirty=false で full merge されたデータ確認
+            console.log('[strategyStore refetch] after full merge (wasDirty=false)', {
+              financeBS_len: Array.isArray((after as any).financeBS) ? (after as any).financeBS.length : null,
+              segmentBS_len: Array.isArray((after as any).segmentBS) ? (after as any).segmentBS.length : null,
+              segmentPL_len: Array.isArray((after as any).segmentPL) ? (after as any).segmentPL.length : null,
+              financePL_len: Array.isArray((after as any).financePL) ? (after as any).financePL.length : null,
+            });
+
             const snapshot = buildSavePayload(after as StrategyState);
             const hash = stableHash(snapshot);
             const rev = typeof patch.revision === 'number' ? patch.revision : after.revision ?? 0;
