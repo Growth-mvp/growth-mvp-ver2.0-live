@@ -57,6 +57,9 @@ import {
   CartesianGrid,
 } from 'recharts';
 
+/** DEBUG フラグ（console.log をガード） */
+const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
+
 export default function Stage6Page() {
   const strategyState: any = useStrategyStore();
 
@@ -126,35 +129,51 @@ export default function Stage6Page() {
       try {
         // ★ DEBUG：loadAndHydrate 前のログ
         const storeBefore = useStrategyStore.getState();
-        console.log('[STAGE6] 📥 loadAndHydrate 前', {
-          accessCompanyId,
-          loadGuardRef_current: loadGuardRef.current,
-          hydrated,
-          revision: storeBefore.revision,
-          issueBlocks_length: Array.isArray(storeBefore.stage1Issues) ? storeBefore.stage1Issues.length : 0,
-          csvFinanceData_BS_length: Array.isArray((storeBefore.csvFinanceData as any)?.financeBS)
-            ? (storeBefore.csvFinanceData as any).financeBS.length : 0,
-          segmentPL_keys: Object.keys((storeBefore as any).segmentPL || {}).length,
-          executionPlanBaseline_exists: !!(storeBefore.executionPlanBaseline),
-          executionPlanBaseline_snapshot: !!(storeBefore.executionPlanBaseline?.snapshot),
-        });
+        if (DEBUG)
+          console.log('[STAGE6] 📥 loadAndHydrate 前', {
+            accessCompanyId,
+            loadGuardRef_current: loadGuardRef.current,
+            hydrated,
+            revision: storeBefore.revision,
+            issueBlocks_length: Array.isArray(storeBefore.stage1Issues)
+              ? storeBefore.stage1Issues.length
+              : 0,
+            csvFinanceData_BS_length: Array.isArray(
+              (storeBefore.csvFinanceData as any)?.financeBS,
+            )
+              ? (storeBefore.csvFinanceData as any).financeBS.length
+              : 0,
+            segmentPL_keys: Object.keys((storeBefore as any).segmentPL || {})
+              .length,
+            executionPlanBaseline_exists: !!storeBefore.executionPlanBaseline,
+            executionPlanBaseline_snapshot: !!storeBefore.executionPlanBaseline
+              ?.snapshot,
+          });
 
         await loadAndHydrate(accessCompanyId);
 
         // ★ DEBUG：loadAndHydrate 後のログ
         const storeAfter = useStrategyStore.getState();
-        console.log('[STAGE6] ✅ loadAndHydrate 後', {
-          hydrated: storeAfter.hydrated,
-          loaded: storeAfter.loaded,
-          boot_isHydrating: (storeAfter.boot as any)?.isHydrating,
-          revision: storeAfter.revision,
-          issueBlocks_length: Array.isArray(storeAfter.stage1Issues) ? storeAfter.stage1Issues.length : 0,
-          csvFinanceData_BS_length: Array.isArray((storeAfter.csvFinanceData as any)?.financeBS)
-            ? (storeAfter.csvFinanceData as any).financeBS.length : 0,
-          segmentPL_keys: Object.keys((storeAfter as any).segmentPL || {}).length,
-          executionPlanBaseline_exists: !!(storeAfter.executionPlanBaseline),
-          executionPlanBaseline_snapshot: !!(storeAfter.executionPlanBaseline?.snapshot),
-        });
+        if (DEBUG)
+          console.log('[STAGE6] ✅ loadAndHydrate 後', {
+            hydrated: storeAfter.hydrated,
+            loaded: storeAfter.loaded,
+            boot_isHydrating: (storeAfter.boot as any)?.isHydrating,
+            revision: storeAfter.revision,
+            issueBlocks_length: Array.isArray(storeAfter.stage1Issues)
+              ? storeAfter.stage1Issues.length
+              : 0,
+            csvFinanceData_BS_length: Array.isArray(
+              (storeAfter.csvFinanceData as any)?.financeBS,
+            )
+              ? (storeAfter.csvFinanceData as any).financeBS.length
+              : 0,
+            segmentPL_keys: Object.keys((storeAfter as any).segmentPL || {})
+              .length,
+            executionPlanBaseline_exists: !!storeAfter.executionPlanBaseline,
+            executionPlanBaseline_snapshot: !!storeAfter.executionPlanBaseline
+              ?.snapshot,
+          });
 
         try {
           await refetchFromServer?.();
@@ -164,8 +183,7 @@ export default function Stage6Page() {
         setHydrated?.(true);
         loadGuardRef.current = accessCompanyId;
       } catch (err) {
-        // 🐛 FIX: loadAndHydrate may throw if refetch fails (transient/permanent error)
-        // Still need to mark hydrated=true to exit loading state (error handling UI will display)
+        // loadAndHydrate が throw しても UI を固めない
         const errObj = err as any;
         console.error('[STAGE6] ❌ loadAndHydrate error', {
           message: errObj?.message || String(err),
@@ -391,11 +409,10 @@ export default function Stage6Page() {
       projectKrsMap,
       baselineYearly,
       yearlyAll,
-      // baseTraj/baseFigures/scenariosは selected 計算で再利用するため、外に出さず関数で再計算（最小改修）
     };
   }, [hydrated, isHydrating, strategyState]);
 
-  // 初期：Approvedがあるなら「全選択」にする（最も分かりやすい）
+  // 初期：Approvedがあるなら「全選択」にする
   useEffect(() => {
     if (!core.ready) return;
     if (selectedProjectKeys.length > 0) return;
@@ -424,8 +441,6 @@ export default function Stage6Page() {
 
     const selectedSet = new Set(selectedProjectKeys);
 
-    // deptFilter を反映した “表示対象テーブル” と、寄与計算対象を分けたい場合はここで分岐可能。
-    // 今回は「選択されたもの」が対象。
     const krs: BridgeKR[] = [];
     core.projectKrsMap.forEach((arr, key) => {
       if (!selectedSet.has(key)) return;
@@ -461,7 +476,7 @@ export default function Stage6Page() {
   }, [core.ready, core.projectKrsMap, selectedProjectKeys, strategyState]);
 
   /* =========================================================
-   * ③ PJ別寄与（単独ON差分：一覧で理解するため）
+   * ③ PJ別寄与（単独ON差分）
    * ======================================================= */
 
   const projectContrib = useMemo(() => {
@@ -472,8 +487,6 @@ export default function Stage6Page() {
     const baseFigures = mkBaseFigures(strategyState);
 
     const baseline = core.baselineYearly;
-
-    // 寄与は“基準シナリオ”で一覧化（社員に分かりやすい）
     const baseScenario = { successRate: 0.8, synergyRate: 0.0 };
 
     return core.approved.map((p) => {
@@ -489,8 +502,7 @@ export default function Stage6Page() {
 
       const deltaRevenueTotal = sumYearly(delta, 'revenue');
       const deltaOpTotal = sumYearly(delta, 'op_income');
-      const roi =
-        p.investTotal > 0 ? deltaOpTotal / p.investTotal : undefined;
+      const roi = p.investTotal > 0 ? deltaOpTotal / p.investTotal : undefined;
 
       return {
         key: p.key,
@@ -503,10 +515,16 @@ export default function Stage6Page() {
         roi,
       };
     });
-  }, [core.ready, core.approved, core.projectKrsMap, core.baselineYearly, strategyState]);
+  }, [
+    core.ready,
+    core.approved,
+    core.projectKrsMap,
+    core.baselineYearly,
+    strategyState,
+  ]);
 
   /* =========================================================
-   * ④ 指標（売上成長率・営業利益率）の推移（表示は scenarioKey に追随）
+   * ④ 指標（売上成長率・営業利益率）
    * ======================================================= */
 
   const indicatorSeries = useMemo(() => {
@@ -522,7 +540,7 @@ export default function Stage6Page() {
   }, [core.baselineYearly, core.yearlyAll, scenarioKey, selectedYearly]);
 
   /* =========================================================
-   * ⑤ グラフ用データ（売上・営業利益：baseline / 全体 / 選択PJ）
+   * ⑤ グラフ用データ
    * ======================================================= */
 
   const chartData = useMemo(() => {
@@ -577,7 +595,7 @@ export default function Stage6Page() {
 
   const selectedSummary = useMemo(() => {
     const baseline = core.baselineYearly ?? [];
-    const sel = selectedYearly?.base ?? []; // サマリーは基準で固定（理解しやすい）
+    const sel = selectedYearly?.base ?? [];
     const delta = diffYearly(baseline, sel);
     const deltaRev = sumYearly(delta, 'revenue');
     const deltaOp = sumYearly(delta, 'op_income');
@@ -615,10 +633,9 @@ export default function Stage6Page() {
   };
 
   /* =========================================================
-   * ✅ ALL HOOKS MUST BE DEFINED HERE (BEFORE ANY CONDITIONAL RENDERING)
+   * ✅ ALL HOOKS MUST BE DEFINED HERE
    * ======================================================= */
 
-  // 診断情報を計算（hooks: 条件付き return の前に定義）
   const diagnostics = useMemo(() => {
     const financeSummaryCount = Array.isArray(strategyState?.financeSummary)
       ? strategyState.financeSummary.length
@@ -666,10 +683,9 @@ export default function Stage6Page() {
   }, [strategyState]);
 
   /* =========================================================
-   * CONDITIONAL RENDERING (single return path)
+   * CONDITIONAL RENDERING
    * ======================================================= */
 
-  // Guard: no company selected
   if (!accessCompanyId) {
     return (
       <main className="min-h-screen bg-slate-50 text-slate-900">
@@ -682,7 +698,6 @@ export default function Stage6Page() {
     );
   }
 
-  // Guard: hydrating
   if (isHydrating) {
     return (
       <main className="min-h-screen bg-slate-50 text-slate-900">
@@ -695,61 +710,66 @@ export default function Stage6Page() {
     );
   }
 
-  // Main content
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
       <div className="mx-auto max-w-7xl px-4 pb-12 pt-8 md:px-6 md:pt-10">
         {/* 診断パネル（開発用） */}
         <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4">
-          <div className="text-xs font-semibold text-blue-900 mb-3">
+          <div className="mb-3 text-xs font-semibold text-blue-900">
             📊 データロード状態（開発用診断）
           </div>
           <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7">
             <div className="rounded bg-white px-2 py-1">
-              <div className="text-blue-600 font-medium">financeSummary</div>
-              <div className="text-blue-900 font-bold">
+              <div className="font-medium text-blue-600">financeSummary</div>
+              <div className="font-bold text-blue-900">
                 {diagnostics.financeSummaryCount}
               </div>
             </div>
             <div className="rounded bg-white px-2 py-1">
-              <div className="text-blue-600 font-medium">部門</div>
-              <div className="text-blue-900 font-bold">
+              <div className="font-medium text-blue-600">部門</div>
+              <div className="font-bold text-blue-900">
                 {diagnostics.departmentCount}
               </div>
             </div>
             <div className="rounded bg-white px-2 py-1">
-              <div className="text-blue-600 font-medium">プロジェクト</div>
-              <div className="text-blue-900 font-bold">
+              <div className="font-medium text-blue-600">プロジェクト</div>
+              <div className="font-bold text-blue-900">
                 {diagnostics.projectTotal}
               </div>
             </div>
             <div className="rounded bg-white px-2 py-1">
-              <div className="text-blue-600 font-medium">OKR</div>
-              <div className="text-blue-900 font-bold">
-                {diagnostics.okrTotal}
-              </div>
+              <div className="font-medium text-blue-600">OKR</div>
+              <div className="font-bold text-blue-900">{diagnostics.okrTotal}</div>
             </div>
             <div className="rounded bg-white px-2 py-1">
-              <div className="text-blue-600 font-medium">構造化KR</div>
-              <div className="text-blue-900 font-bold">
+              <div className="font-medium text-blue-600">構造化KR</div>
+              <div className="font-bold text-blue-900">
                 {diagnostics.structuredKrTotal}
               </div>
             </div>
             <div className="rounded bg-white px-2 py-1">
-              <div className="text-blue-600 font-medium">財務PL</div>
-              <div className={`font-bold ${diagnostics.hasPL ? 'text-green-700' : 'text-red-700'}`}>
+              <div className="font-medium text-blue-600">財務PL</div>
+              <div
+                className={`font-bold ${
+                  diagnostics.hasPL ? 'text-green-700' : 'text-red-700'
+                }`}
+              >
                 {diagnostics.financePLCount}
               </div>
             </div>
             <div className="rounded bg-white px-2 py-1">
-              <div className="text-blue-600 font-medium">Hydrated</div>
-              <div className={`font-bold ${hydrated ? 'text-green-700' : 'text-red-700'}`}>
+              <div className="font-medium text-blue-600">Hydrated</div>
+              <div
+                className={`font-bold ${
+                  hydrated ? 'text-green-700' : 'text-red-700'
+                }`}
+              >
                 {hydrated ? 'Yes' : 'No'}
               </div>
             </div>
           </div>
           {!diagnostics.hasPL && (
-            <div className="mt-2 text-xs text-blue-800 bg-white px-2 py-1 rounded border-l-2 border-amber-400">
+            <div className="mt-2 rounded border-l-2 border-amber-400 bg-white px-2 py-1 text-xs text-blue-800">
               ⚠️ <strong>Warning:</strong> financePL がロードされていません。STAGE1で財務データを入力してください。フォールバックベースラインで表示を継続します。
             </div>
           )}
@@ -773,7 +793,7 @@ export default function Stage6Page() {
                 <button
                   key={scen}
                   onClick={() => setScenarioKey(scen)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
                     scenarioKey === scen
                       ? 'bg-slate-900 text-white'
                       : 'border border-slate-300 text-slate-600 hover:bg-slate-50'
@@ -788,8 +808,8 @@ export default function Stage6Page() {
 
         {/* エラー表示 */}
         {core.error && (
-          <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 flex gap-3">
-            <AlertCircle className="h-5 w-5 text-amber-700 flex-shrink-0 mt-0.5" />
+          <div className="mb-6 flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-700" />
             <div className="text-sm text-amber-800">{core.error}</div>
           </div>
         )}
@@ -798,7 +818,9 @@ export default function Stage6Page() {
         <div className="space-y-6">
           <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="mb-4">
-              <h2 className="text-lg font-bold text-slate-900">会社全体の推移（売上・営業利益）</h2>
+              <h2 className="text-lg font-bold text-slate-900">
+                会社全体の推移（売上・営業利益）
+              </h2>
               <p className="mt-1 text-[12px] text-slate-600">
                 Baseline（影響なし）／全プロジェクト（Approved合算）／選択プロジェクト（複数選択合算）
               </p>
@@ -806,7 +828,9 @@ export default function Stage6Page() {
 
             {/* 売上 */}
             <div className="mb-6">
-              <div className="mb-2 text-sm font-semibold text-slate-800">売上</div>
+              <div className="mb-2 text-sm font-semibold text-slate-800">
+                売上
+              </div>
               <div className="h-[280px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData}>
@@ -852,7 +876,9 @@ export default function Stage6Page() {
 
             {/* 営業利益 */}
             <div>
-              <div className="mb-2 text-sm font-semibold text-slate-800">営業利益</div>
+              <div className="mb-2 text-sm font-semibold text-slate-800">
+                営業利益
+              </div>
               <div className="h-[280px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData}>
@@ -904,7 +930,9 @@ export default function Stage6Page() {
           {/* B. 企業価値に直結する最小指標（推移） */}
           <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="mb-4">
-              <h2 className="text-lg font-bold text-slate-900">企業価値につながる指標（最小セット）</h2>
+              <h2 className="text-lg font-bold text-slate-900">
+                企業価値につながる指標（最小セット）
+              </h2>
               <p className="mt-1 text-[12px] text-slate-600">
                 売上成長率（成長性）／営業利益率（収益性）
               </p>
@@ -1084,44 +1112,39 @@ export default function Stage6Page() {
               </div>
             </div>
 
-            {/* PJ一覧（寄与ランキング + チェック） */}
+            {/* PJ一覧 */}
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200">
-                    <th className="px-3 py-2 text-left text-slate-700 font-semibold">
+                    <th className="px-3 py-2 text-left font-semibold text-slate-700">
                       選択
                     </th>
-                    <th className="px-3 py-2 text-left text-slate-700 font-semibold">
+                    <th className="px-3 py-2 text-left font-semibold text-slate-700">
                       部門
                     </th>
-                    <th className="px-3 py-2 text-left text-slate-700 font-semibold">
+                    <th className="px-3 py-2 text-left font-semibold text-slate-700">
                       プロジェクト
                     </th>
-                    <th className="px-3 py-2 text-right text-slate-700 font-semibold">
+                    <th className="px-3 py-2 text-right font-semibold text-slate-700">
                       投資合計
                     </th>
-                    <th className="px-3 py-2 text-right text-slate-700 font-semibold">
+                    <th className="px-3 py-2 text-right font-semibold text-slate-700">
                       売上差分（概算）
                     </th>
-                    <th className="px-3 py-2 text-right text-slate-700 font-semibold">
+                    <th className="px-3 py-2 text-right font-semibold text-slate-700">
                       営業利益差分（概算）
                     </th>
-                    <th className="px-3 py-2 text-right text-slate-700 font-semibold">
+                    <th className="px-3 py-2 text-right font-semibold text-slate-700">
                       ROI（概算）
                     </th>
                   </tr>
                 </thead>
                 <tbody>
                   {projectContrib
-                    .filter((p) =>
-                      deptFilter === 'all' ? true : p.dept === deptFilter,
-                    )
+                    .filter((p) => (deptFilter === 'all' ? true : p.dept === deptFilter))
                     .slice()
-                    .sort(
-                      (a, b) =>
-                        Math.abs(b.deltaOpTotal) - Math.abs(a.deltaOpTotal),
-                    )
+                    .sort((a, b) => Math.abs(b.deltaOpTotal) - Math.abs(a.deltaOpTotal))
                     .map((p) => {
                       const checked = selectedSet.has(p.key);
                       return (
@@ -1137,7 +1160,7 @@ export default function Stage6Page() {
                               className="h-4 w-4"
                             />
                           </td>
-                          <td className="px-3 py-2 text-slate-900 font-medium">
+                          <td className="px-3 py-2 font-medium text-slate-900">
                             {p.dept}
                           </td>
                           <td className="px-3 py-2 text-slate-700">{p.proj}</td>
@@ -1227,7 +1250,6 @@ function compactJPY(n: number) {
  * ======================================================= */
 
 function makeProjectKey(dept: string, proj: string, idx: number) {
-  // title重複や並び替えに弱いが、現状コードに合わせて最小実装
   return `${dept}::${proj}::${idx}`;
 }
 
@@ -1245,12 +1267,15 @@ function mkBaseFigures(strategyState: any): BaseFigures {
     arpu: Math.max(
       50000,
       (latestPL?.revenue ?? 100000000) /
-        Math.max(1000, (latestPL?.revenue ?? 100000000) / (latestPL?.cogs ?? 100000)),
+        Math.max(
+          1000,
+          (latestPL?.revenue ?? 100000000) / (latestPL?.cogs ?? 100000),
+        ),
     ),
     churn: 0.02,
     fixed_cost: (latestPL?.sga ?? 10000000) / 12,
     variable_cost: (latestPL?.cogs ?? 30000000) / 12,
-    personnel_cost: ((latestPL?.sga ?? 10000000) / 2) / 12,
+    personnel_cost: (latestPL?.sga ?? 10000000) / 2 / 12,
     invest: 0,
     success_rate: 0.8,
     synergy: 0,
@@ -1269,7 +1294,6 @@ function calcYearlyFromKrs(args: {
 }): YearlyPL[] {
   const { baseTraj, baseFigures, krs, scenario } = args;
 
-  // 最小のシナリオ適用（現行互換）
   const scenarioKrs = krs.map((kr) => ({
     ...kr,
     target:
@@ -1312,19 +1336,13 @@ function diffYearly(a: YearlyPL[], b: YearlyPL[]): YearlyPL[] {
 
   return b.map((x) => {
     const y = mapA.get(x.year);
-    if (!y) {
-      return { ...x };
-    }
+    if (!y) return { ...x };
+
     const revenue = (x.revenue ?? 0) - (y.revenue ?? 0);
     const op_income = (x.op_income ?? 0) - (y.op_income ?? 0);
     const margin = revenue !== 0 ? op_income / revenue : 0;
 
-    return {
-      ...x,
-      revenue,
-      op_income,
-      margin,
-    };
+    return { ...x, revenue, op_income, margin };
   });
 }
 
@@ -1361,7 +1379,6 @@ function buildIndicators(args: {
   const ma = map(all);
   const ms = map(selected);
 
-  // growth：前年比（売上）
   const growth = years.map((year, idx) => {
     const b = mb.get(year);
     const a = ma.get(year);
@@ -1379,15 +1396,9 @@ function buildIndicators(args: {
       return cr / pr - 1;
     };
 
-    return {
-      year,
-      baseline: g(b, bPrev),
-      all: g(a, aPrev),
-      selected: g(s, sPrev),
-    };
+    return { year, baseline: g(b, bPrev), all: g(a, aPrev), selected: g(s, sPrev) };
   });
 
-  // margin：営業利益率
   const margin = years.map((year) => {
     const b = mb.get(year);
     const a = ma.get(year);
@@ -1400,12 +1411,7 @@ function buildIndicators(args: {
       return op / rev;
     };
 
-    return {
-      year,
-      baseline: m(b),
-      all: m(a),
-      selected: m(s),
-    };
+    return { year, baseline: m(b), all: m(a), selected: m(s) };
   });
 
   return { growth, margin };
@@ -1436,10 +1442,6 @@ function ymRange(startYm: Ym, endYm: Ym): Ym[] {
   return out;
 }
 
-/**
- * STAGE1 の financePL から BaseTrajectory を生成
- * 最新年度をベースに 3年分を簡易推定（月次均等配分）
- */
 function mkBaselineTrajectory(strategyState: any): BaseTrajectory | null {
   const pls = Array.isArray(strategyState?.financePL) ? strategyState.financePL : [];
   if (pls.length === 0) {
@@ -1460,10 +1462,7 @@ function mkBaselineTrajectory(strategyState: any): BaseTrajectory | null {
     1000,
     (latestPL?.revenue ?? 100000000) / (latestPL?.cogs ?? 100000),
   );
-  const monthlyArpu = Math.max(
-    50000,
-    (latestPL?.revenue ?? 100000000) / monthlyQty,
-  );
+  const monthlyArpu = Math.max(50000, (latestPL?.revenue ?? 100000000) / monthlyQty);
 
   const result: BaseTrajectory = {
     startYm,
