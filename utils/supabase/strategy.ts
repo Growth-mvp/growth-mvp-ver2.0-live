@@ -363,16 +363,14 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   // DB には finance_bs/segment_bs/segment_pl 列がないため、csv_finance_data に格納されている
   const csvFinanceData = out.csvFinanceData || {};
 
-  // ★ DEBUG：raw 復元後の確認
-  console.log('[buildStateFromDbRow] 📋 raw 復元後（normalize前）', {
-    issueBlocks_length: Array.isArray(out.stage1Issues) ? out.stage1Issues.length : 0,
-    csvFinanceData_exists: !!out.csvFinanceData,
-    csvFinanceData_financeBS: Array.isArray(csvFinanceData.financeBS) ? csvFinanceData.financeBS.length : 0,
-    csvFinanceData_segmentPL_keys: Object.keys(csvFinanceData.segmentPL || {}).length,
-    csvFinanceData_segmentBS_keys: Object.keys(csvFinanceData.segmentBS || {}).length,
-    financePL_length: Array.isArray(out.financePL) ? out.financePL.length : 0,
-    departments_length: Array.isArray(out.departments) ? out.departments.length : 0,
-  });
+  // ★ DEBUG：raw 復元後の確認（プリミティブ値のみ）
+  const issueBlocksLen = Array.isArray(out.stage1Issues) ? out.stage1Issues.length : 0;
+  const csvFdExists = !!out.csvFinanceData;
+  const csvFdFinanceBSLen = Array.isArray(csvFinanceData.financeBS) ? csvFinanceData.financeBS.length : 0;
+  const csvFdSegmentPLKeys = Object.keys(csvFinanceData.segmentPL || {}).length;
+  const csvFdSegmentBSKeys = Object.keys(csvFinanceData.segmentBS || {}).length;
+  const financePLLen = Array.isArray(out.financePL) ? out.financePL.length : 0;
+  console.log('[buildStateFromDbRow] raw_復元 issueBlocks:' + issueBlocksLen + ' csvFd:' + csvFdExists + ' financeBS:' + csvFdFinanceBSLen + ' segmentPL:' + csvFdSegmentPLKeys + ' segmentBS:' + csvFdSegmentBSKeys + ' financePL:' + financePLLen);
 
   out.financeBS = ensureArray(csvFinanceData.financeBS);
   out.segmentPL = csvFinanceData.segmentPL; // Record<string, FinancePLRow[]>
@@ -395,21 +393,24 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   // ★ normalize 前の departments を保持（okrsV2 が入っている生データ）
   const rawDepartmentsWithOkrsV2 = out.departments;
 
-  // ★ DEBUG：normalize 前
-  console.log('[buildStateFromDbRow] 🔷 normalize 前', {
-    out_csvFinanceData_exists: !!out.csvFinanceData,
-    out_segmentPL_keys: Object.keys(out.segmentPL || {}).length,
-    out_segmentBS_keys: Object.keys(out.segmentBS || {}).length,
-  });
+  // ★ 修正：raw の csvFinanceData/segmentPL/segmentBS を保持（normalize で落ちるため）
+  const rawCsvFinanceData = out.csvFinanceData;
+  const rawSegmentPL = out.segmentPL;
+  const rawSegmentBS = out.segmentBS;
+
+  // ★ DEBUG：normalize 前（プリミティブ値のみ）
+  const outCsvFdExists = !!out.csvFinanceData;
+  const outSegmentPLKeys = Object.keys(out.segmentPL || {}).length;
+  const outSegmentBSKeys = Object.keys(out.segmentBS || {}).length;
+  console.log('[buildStateFromDbRow] norm前 csvFd:' + outCsvFdExists + ' segmentPL:' + outSegmentPLKeys + ' segmentBS:' + outSegmentBSKeys);
 
   const normalized = normalizeStrategyData(out) as StrategyData;
 
-  // ★ DEBUG：normalize 後
-  console.log('[buildStateFromDbRow] 🔷 normalize 後', {
-    normalized_csvFinanceData_exists: !!normalized.csvFinanceData,
-    normalized_segmentPL_exists: !!normalized.segmentPL,
-    normalized_segmentBS_exists: !!normalized.segmentBS,
-  });
+  // ★ DEBUG：normalize 後（プリミティブ値のみ）
+  const normCsvFdExists = !!normalized.csvFinanceData;
+  const normSegmentPLExists = !!normalized.segmentPL;
+  const normSegmentBSExists = !!normalized.segmentBS;
+  console.log('[buildStateFromDbRow] norm後 csvFd:' + normCsvFdExists + ' segmentPL:' + normSegmentPLExists + ' segmentBS:' + normSegmentBSExists);
 
   // revision（FIELD_MAPに含めない）
   const revision =
@@ -455,23 +456,26 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
 
   // ★ 修正：normalizeStrategyData で消えた csvFinanceData/segmentPL/segmentBS を復元
   // normalize では配列型のみを認識するため、Record型のsegmentPL/segmentBSが失われる
-  if (!normalized.csvFinanceData && out.csvFinanceData) {
-    (normalized as any).csvFinanceData = out.csvFinanceData;
-    console.log(
-      '[StrategyData] 🧩 restored csvFinanceData from raw after normalize'
-    );
+  // プリミティブ値のみでログ出力
+  let restoredCsvFd = false;
+  let restoredSegmentPL = false;
+  let restoredSegmentBS = false;
+
+  if (rawCsvFinanceData && !normalized.csvFinanceData) {
+    (normalized as any).csvFinanceData = rawCsvFinanceData;
+    restoredCsvFd = true;
   }
-  if (!normalized.segmentPL && out.segmentPL) {
-    (normalized as any).segmentPL = out.segmentPL;
-    console.log(
-      '[StrategyData] 🧩 restored segmentPL from raw after normalize'
-    );
+  if (rawSegmentPL && !normalized.segmentPL) {
+    (normalized as any).segmentPL = rawSegmentPL;
+    restoredSegmentPL = true;
   }
-  if (!normalized.segmentBS && out.segmentBS) {
-    (normalized as any).segmentBS = out.segmentBS;
-    console.log(
-      '[StrategyData] 🧩 restored segmentBS from raw after normalize'
-    );
+  if (rawSegmentBS && !normalized.segmentBS) {
+    (normalized as any).segmentBS = rawSegmentBS;
+    restoredSegmentBS = true;
+  }
+
+  if (restoredCsvFd || restoredSegmentPL || restoredSegmentBS) {
+    console.log('[buildStateFromDbRow] restored csvFd:' + restoredCsvFd + ' segmentPL:' + restoredSegmentPL + ' segmentBS:' + restoredSegmentBS);
   }
 
   return { ...normalized, revision };
@@ -632,14 +636,12 @@ export async function getFullStrategyDataByCompany(
     // finance_pl は finance_pl 列、financeBS/segmentPL/segmentBS は csv_finance_data に格納
     const csvData = rowData?.csv_finance_data ?? {};
     const financePl = rowData?.finance_pl;
-    console.log('[LOAD raw financial data]', {
-      csv_finance_data_keys: Object.keys(csvData || {}).slice(0, 40),
-      financeBS_len: Array.isArray((csvData as any).financeBS) ? (csvData as any).financeBS.length : null,
-      segmentBS_len: Object.keys((csvData as any).segmentBS || {}).length,
-      segmentPL_len: Object.keys((csvData as any).segmentPL || {}).length,
-      financePL_len: Array.isArray((financePl as any)) ? (financePl as any).length : null,
-      hqAdjustmentPL_len: Array.isArray((csvData as any).hqAdjustmentPL) ? (csvData as any).hqAdjustmentPL.length : null,
-    });
+    // ★ プリミティブ値のみを計算してログ出力
+    const rawFinanceBSLen = Array.isArray((csvData as any).financeBS) ? (csvData as any).financeBS.length : 0;
+    const rawSegmentBSKeys = Object.keys((csvData as any).segmentBS || {}).length;
+    const rawSegmentPLKeys = Object.keys((csvData as any).segmentPL || {}).length;
+    const rawFinancePLLen = Array.isArray((financePl as any)) ? (financePl as any).length : 0;
+    console.log('[LOAD raw financial data] financePL_len:' + rawFinancePLLen + ' financeBS_len:' + rawFinanceBSLen + ' segmentPL_keys:' + rawSegmentPLKeys + ' segmentBS_keys:' + rawSegmentBSKeys);
 
     const state = buildStateFromDbRow(rowData);
 
@@ -672,12 +674,14 @@ export async function getFullStrategyDataByCompany(
     state.finalStory = ensureArray(state.finalStory).length ? state.finalStory : latestFinal;
 
     // ★ デバッグ：buildStateFromDbRow 後の normalized データの財務系フィールド確認
-    console.log('[LOAD normalized]', {
-      financeBS_len: Array.isArray((state as any).financeBS) ? (state as any).financeBS.length : null,
-      segmentBS_len: Array.isArray((state as any).segmentBS) ? (state as any).segmentBS.length : null,
-      segmentPL_len: Array.isArray((state as any).segmentPL) ? (state as any).segmentPL.length : null,
-      financePL_len: Array.isArray((state as any).financePL) ? (state as any).financePL.length : null,
-    });
+    // プリミティブ値のみを出力
+    const normalizedFinanceBSLen = Array.isArray((state as any).financeBS) ? (state as any).financeBS.length : 0;
+    const normalizedSegmentBSKeys = Object.keys((state as any).segmentBS || {}).length;
+    const normalizedSegmentPLKeys = Object.keys((state as any).segmentPL || {}).length;
+    const normalizedFinancePLLen = Array.isArray((state as any).financePL) ? (state as any).financePL.length : 0;
+    const normalizedIssueBlocksLen = Array.isArray((state as any).stage1Issues) ? (state as any).stage1Issues.length : 0;
+    const normalizedCsvFinanceDataExists = !!(state as any).csvFinanceData;
+    console.log('[LOAD normalized] financePL_len:' + normalizedFinancePLLen + ' financeBS_len:' + normalizedFinanceBSLen + ' segmentPL_keys:' + normalizedSegmentPLKeys + ' segmentBS_keys:' + normalizedSegmentBSKeys + ' issueBlocks_len:' + normalizedIssueBlocksLen + ' csvFinanceData_exists:' + normalizedCsvFinanceDataExists);
 
     return { data: state, error: null };
   } catch (e) {

@@ -1086,12 +1086,27 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     executionPlanBaseline,
   };
 
+  // ★ DEBUG：patch生成直後のログ（プリミティブ値のみ）
+  const patchFinancePLLen = Array.isArray(patch.financePL) ? patch.financePL.length : 0;
+  const patchStage1IssuesLen = Array.isArray(patch.stage1Issues) ? patch.stage1Issues.length : 0;
+  console.log('[normalizeFromDbRow] patch生成 financePL_len:' + patchFinancePLLen + ' stage1Issues_len:' + patchStage1IssuesLen);
+
   // undefined のフィールドを削除（merge で既存データを保護）
+  let pruned = 0;
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) {
       delete patch[key];
+      pruned++;
     }
   }
+
+  if (pruned > 0) {
+    console.log('[normalizeFromDbRow] pruned_fields:' + pruned);
+  }
+
+  // ★ DEBUG：pruning後のログ
+  const finalPatchFinancePLLen = Array.isArray(patch.financePL) ? patch.financePL.length : 0;
+  console.log('[normalizeFromDbRow] patch最終 financePL_len:' + finalPatchFinancePLLen + ' financePL_exists:' + ('financePL' in patch));
 
   return patch as Partial<StrategyState>;
 }
@@ -1644,25 +1659,15 @@ export const useStrategyStore = create<StrategyState>()(
             });
           } else if (data) {
             const csvFd = (data as any)?.csv_finance_data;
-            const csvFdKeys = typeof csvFd === 'object' && csvFd
-              ? Object.keys(csvFd).filter((k) => k !== 'financeBS' && k !== 'segmentPL' && k !== 'segmentBS')
-              : [];
             const dbCompanyId = (data as any)?.company_id || companyId; // fallback to companyId parameter
-            console.log('[strategyStore] ✅ getFullStrategyDataByCompany 成功', {
-              companyId: dbCompanyId,
-              revision: (data as any)?.revision,
-              financePL_length: Array.isArray((data as any)?.finance_pl)
-                ? (data as any).finance_pl.length
-                : 0,
-              csvFinanceData_exists: !!csvFd,
-              csvFinanceData_financeBS_len: Array.isArray(csvFd?.financeBS)
-                ? csvFd.financeBS.length
-                : 0,
-              csvFinanceData_segmentPL_keys: Object.keys(csvFd?.segmentPL || {}).length,
-              stage1Issues_len: Array.isArray((data as any)?.stage1_issues)
-                ? (data as any).stage1_issues.length
-                : 0,
-            });
+            // プリミティブ値のみを計算
+            const dbRevision = typeof (data as any)?.revision === 'number' ? (data as any).revision : 0;
+            const hasFinancePL = Array.isArray((data as any)?.finance_pl) && (data as any).finance_pl.length > 0;
+            const hasCsvFinanceData = !!csvFd && typeof csvFd === 'object';
+            const csvFdFinanceBSLen = Array.isArray(csvFd?.financeBS) ? csvFd.financeBS.length : 0;
+            const csvFdSegmentPLKeys = Object.keys(csvFd?.segmentPL || {}).length;
+            const stage1IssuesLen = Array.isArray((data as any)?.stage1_issues) ? (data as any).stage1_issues.length : 0;
+            console.log('[getFullStrategyDataByCompany] revision:' + dbRevision + ' hasFinancePL:' + hasFinancePL + ' hasCsvFinanceData:' + hasCsvFinanceData + ' financeBS_len:' + csvFdFinanceBSLen + ' segmentPL_keys:' + csvFdSegmentPLKeys + ' stage1Issues_len:' + stage1IssuesLen);
           } else {
             console.warn('[strategyStore] ⚠️ getFullStrategyDataByCompany: data と error 両方 null/undefined');
           }
