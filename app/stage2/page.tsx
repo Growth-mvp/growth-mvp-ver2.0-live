@@ -704,7 +704,7 @@ export default function Stage2Page() {
   // Active tab
   const [activeTab, setActiveTab] = useState<TabId>('input');
 
-  // storeAnswers12 -> local sync
+  // ★ storeAnswers12 -> local sync（サーバから復元時のみ）
   useEffect(() => {
     if (storeAnswers12 && storeAnswers12.length > 0) {
       setLocalAnswers12((prev) =>
@@ -716,16 +716,115 @@ export default function Stage2Page() {
     }
   }, [storeAnswers12]);
 
+  // ★ local answers12 -> store sync（debounce版）
+  // 効果：
+  // 1. handleUpdateAnswer はローカル状態のみ更新
+  // 2. 300ms の debounce で、1文字ごとの store 更新→snapshot保存を回避
+  // 3. cleanup で timeout をクリアし、メモリリーク防止
+  // 4. ★ 修正：空削除も同期される（ユーザーが全削除した場合でもstore反映）
+  //
+  // パフォーマンス改善：
+  // - 修正前：onChange のたびに（1文字ごと）setAnswers12 → saveSnapshot
+  // - 修正後：入力終了後 300ms で集約して setAnswers12
+  // - 効果：snapshot 保存が 10-20倍削減される見込み
+  //
+  // 修正内容：
+  // - 「空のまま→何もしない」という判定を削除
+  // - すべての状態変更（入力・編集・削除）が同じように 300ms debounce される
+  // - 空配列になった場合も確実に store に同期
+  useEffect(() => {
+    // 空でも、すべての状態変更を 300ms debounce して store に同期
+    const timer = setTimeout(() => {
+      setAnswers12(answers12);
+    }, 300);
+
+    // cleanup: unmount または answers12 変更時に前の timer をクリア
+    return () => clearTimeout(timer);
+  }, [answers12, setAnswers12]);
+
+  // ★ 修正：state updater 内からのsetState呼び出しを廃止
+  // 代わりに、この関数はローカル状態のみ更新し、
+  // 上記の useEffect で自動的にストアに同期されます
+  // 参考：https://react.dev/reference/react/useState#im-getting-an-error-cannot-update-a-component-while-rendering-a-different-component
   const handleUpdateAnswer = useCallback(
     (id: string, answer: string) => {
-      setLocalAnswers12((prev) => {
-        const next = prev.map((a) => (a.id === id ? { ...a, answer } : a));
-        setAnswers12(next);
-        return next;
-      });
+      setLocalAnswers12((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, answer } : a))
+      );
     },
-    [setAnswers12]
+    [] // ★ 依存配列から setAnswers12 を削除（useEffect で管理）
   );
+
+  /* ===================================================
+   * ★ 検証手順1：render中のsetState警告が再現しないか確認
+   *
+   * 1) Chrome DevTools → Console で警告を確認
+   *    警告: "Cannot update a component while rendering a different component"
+   *
+   * 2) Stage2 の「勝ち筋」タブで「12の質問」セクションに移動
+   *
+   * 3) textarea にテキストを入力
+   *    ✅ 期待：警告なく入力値が反映される
+   *    ✅ 期待：自動でストアに同期される（別タブから戻っても値が保持される）
+   *
+   * 4) DevTools Network → 入力後 setAnswers12 の保存API呼び出しがあるか確認
+   *    ✅ 期待：入力後に保存リクエストが送られる
+   *
+   * 5) コンソール警告が消える → 修正成功
+   * =================================================== */
+
+  /* ===================================================
+   * ★ 検証手順2：debounce による保存頻度削減を確認
+   *
+   * 【パフォーマンス検証】
+   *
+   * 1) DevTools Network タブで「XHR」フィルタをオン
+   *
+   * 2) Stage2 の「勝ち筋」タブで「12の質問」セクションに移動
+   *
+   * 3) textarea に「テストテストテスト」と 10文字連続入力
+   *    (1秒以内に)
+   *
+   * 修正前の動作（debounce なし）：
+   *    └─ network リクエストが 10回程度 (1文字ごと)
+   *
+   * 修正後の動作（300ms debounce）：
+   *    └─ network リクエストが 1-2回 (入力完了後 300ms で集約)
+   *
+   * 4) 入力を停止してから 300-500ms 後に setAnswers12 リクエストが 1回だけ送られる
+   *    ✅ 期待：snapshot 保存が 10倍以上削減される
+   *
+   * 5) 複数の質問に答えてから「最終生成」ボタンを押す
+   *    ✅ 期待：UI がスムーズ（localStorage 保存負荷が軽い）
+   * =================================================== */
+
+  /* ===================================================
+   * ★ 検証手順3：空削除が同期されるか確認（修正後）
+   *
+   * 【削除同期検証】
+   *
+   * 1) DevTools Network タブで「XHR」フィルタをオン
+   *
+   * 2) Stage2 の「勝ち筋」タブで「12の質問」セクションに移動
+   *
+   * 3) 任意の質問に「テスト回答」と入力して 300ms 以上待つ
+   *    ✅ 期待：setAnswers12 リクエストが 1回送られる
+   *
+   * 4) textarea の内容を全削除（Ctrl+A → Delete）
+   *
+   * 修正前の問題（空チェックがあった場合）：
+   *    └─ 削除してもリクエストが送られない
+   *    └─ ストアに古い回答が残ったまま
+   *    └─ 別タブから戻っても削除前の回答が復活する ⚠️
+   *
+   * 修正後の動作（空チェックを削除）：
+   *    └─ 削除後 300-500ms で setAnswers12 リクエストが送られる
+   *    └─ ストアの answers12 が空配列に更新される
+   *    └─ 別タブから戻っても削除状態が保持される ✅
+   *
+   * 5) Network で削除直後のリクエストペイロードを確認
+   *    ✅ 期待：answers12 が空配列 [] で送られている
+   * =================================================== */
 
   // Stage1 data fallback loader
   const loadStage1Data = useCallback(async () => {
