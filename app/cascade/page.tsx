@@ -64,6 +64,8 @@ import {
   type GrowthLever,
 } from '@/lib/strategyPatterns.catalog';
 
+const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === "1";
+
 /* =========================
    型（store拡張互換）
 ========================= */
@@ -978,7 +980,7 @@ export default function CascadePage() {
 
   /* ---- 初回ログだけ ---- */
   useEffect(() => {
-    console.log('[cascade] mount', { hydrated, scopeCompanyId, accessCompanyId });
+    if (DEBUG) console.log('[cascade] mount', { hydrated, scopeCompanyId, accessCompanyId });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1019,9 +1021,9 @@ export default function CascadePage() {
       const timer = setTimeout(() => !cancelled && setHydrated?.(true), 7000);
       try {
         if (!isDirty) {
-          console.log('[cascade] 📥 loadAndHydrate 前', { accessCompanyId, isDirty });
+          if (DEBUG) console.log('[cascade] 📥 loadAndHydrate 前', { accessCompanyId, isDirty });
           await loadAndHydrate(accessCompanyId);
-          console.log('[cascade] ✅ loadAndHydrate 後');
+          if (DEBUG) console.log('[cascade] ✅ loadAndHydrate 後');
           try {
             await refetchFromServer?.();
           } catch {
@@ -1029,7 +1031,7 @@ export default function CascadePage() {
           }
           setHydrated?.(true);
         } else {
-          console.log('[cascade] ⏭️ isDirty のためスキップ');
+          if (DEBUG) console.log('[cascade] ⏭️ isDirty のためスキップ');
           setHydrated?.(true);
         }
         loadGuardRef.current = accessCompanyId;
@@ -1114,7 +1116,7 @@ export default function CascadePage() {
 
     setDepartmentsInStore?.(initialDepts);
     hasInitializedFromStage1Ref.current = true;
-    console.log('[cascade] STAGE1事業部から初期部門を生成しました:', initialDepts.length);
+    if (DEBUG) console.log('[cascade] STAGE1事業部から初期部門を生成しました:', initialDepts.length);
   }, [hydrated, departments.length, businessSegments, setDepartmentsInStore]);
 
   // hydrated 後のみオートセーブ対象
