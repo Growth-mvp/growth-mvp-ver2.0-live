@@ -14,6 +14,8 @@ import { loadAndHydrate } from '@/utils/loader';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import type { Department, Project as ProjectStrict, OKR as OKRStrict } from '@/types/strategy';
 
+const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === "1";
+
 /* =========================
  * ユーティリティ
  * ======================= */
@@ -481,9 +483,9 @@ export default function ExecutionPage() {
     const run = async () => {
       if (hydrated && scopeCompanyId === accessCompanyId) return;
       try {
-        console.log('[execution] 📥 loadAndHydrate 開始', { accessCompanyId });
+        if (DEBUG) console.log('[execution] 📥 loadAndHydrate 開始', { accessCompanyId });
         await loadAndHydrate(accessCompanyId);
-        console.log('[execution] ✅ loadAndHydrate 完了');
+        if (DEBUG) console.log('[execution] ✅ loadAndHydrate 完了');
       } catch (err) {
         // 🐛 FIX: loadAndHydrate may throw if refetch fails
         const errObj = err as any;
@@ -493,7 +495,7 @@ export default function ExecutionPage() {
         });
       } finally {
         if (!cancelled) {
-          console.log('[execution] 🏁 loadAndHydrate effect 終了');
+          if (DEBUG) console.log('[execution] 🏁 loadAndHydrate effect 終了');
         }
       }
     };
