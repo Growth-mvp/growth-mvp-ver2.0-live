@@ -42,3 +42,12 @@ next-env.d.ts
 
 # Claude local settings
 .claude/
+
+# Claude Code session remnants and backup files
+tmpclaude-*-cwd/
+*.bak
+*.tmp
+*.backup
+
+# Temporary debug documents
+DEBUG_GUARD_CHANGES.md
