@@ -1,9 +1,8 @@
 ﻿// /utils/okrFinanceRunner.ts
 // ----------------------------------------------------------
-// 逶ｮ逧・ｼ售trategyData 蜀・・縲梧ｧ矩蛹飽KR(KRStructured)縲阪ｒ縲・
-//       迴ｾ蝨ｨ縺ｮ繝輔ぃ繧､繝翫Φ繧ｹ繝・・繧ｿ・・inanceSummary・峨ｒ繝吶・繧ｹ縺ｫ
-//       simulationBridge + financeSimulation 縺ｸ縺､縺ｪ縺弱・
-//       譛域ｬ｡ / 蟷ｴ谺｡縺ｮPL繧ｷ繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ邨先棡繧定ｿ斐☆縲・
+// StrategyData から OKR（KRStructured）を抽出し、
+// simulationBridge（buildBridgeDeltas） + financeSimulation（simulateMonthlyPL）で
+// 月次/年次PLシミュレーションを生成するユーティリティ。
 // ----------------------------------------------------------
 
 import type { StrategyData, KRStructured } from '@/types/strategy';
@@ -14,7 +13,7 @@ import {
   type BridgeInput,
   type DeltasByMonth,
   type Ym,
-} from '@/utils/stage6Bridge';
+} from '@/utils/simulationBridge';
 import {
   simulateMonthlyPL,
   aggregateYearly,
@@ -24,17 +23,17 @@ import {
 } from '@/utils/financeSimulation';
 
 /* =========================================================
- * 蝙句ｮ夂ｾｩ
+ * Options / Result
  * =======================================================*/
 
 export type OkrFinanceOptions = {
-  /** 繧ｷ繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ髢句ｧ戯m・井ｾ・ '2026-01'・峨よ悴謖・ｮ壹↑繧臥樟蝨ｨ蟷ｴ縺ｮ1譛亥ｧ九∪繧翫・*/
+  /** シミュレーション開始Ym（例: '2026-01'）。未指定なら「当年-01」 */
   startYm?: Ym;
-  /** 繧ｷ繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ邨ゆｺ・m・井ｾ・ '2028-12'・峨よ悴謖・ｮ壹↑繧蛾幕蟋句ｹｴ+2蟷ｴ縺ｮ12譛医・*/
+  /** シミュレーション終了Ym（例: '2028-12'）。未指定なら「当年+2年-12」 */
   endYm?: Ym;
-  /** 逶ｸ荵怜柑譫懊ｒ螢ｲ荳翫□縺代↓謗帙￠繧九°縲√さ繧ｹ繝医↓繧よ寺縺代ｋ縺・*/
+  /** シナジー適用先 */
   applySynergyTo?: Array<'revenue' | 'cost'>;
-  /** 謚戊ｳ・ｒ菴募牡蠖捺悄雋ｻ逕ｨ蛹悶☆繧九°・・縲・・峨ゅョ繝輔か繝ｫ繝・.0・亥・鬘崎ｲｻ逕ｨ謇ｱ縺・ｼ峨・*/
+  /** INVEST を固定費側に反映する係数（financeSimulation 側のオプション） */
   investEffectAlpha?: number;
 };
 
@@ -47,27 +46,26 @@ export type OkrFinanceResult = {
     krsCount: number;
     hasFinanceSummary: boolean;
     baseFigures: BaseFigures;
-    /** 菴輔°縺励ｉ繧ｷ繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ縺ｧ縺阪↑縺九▲縺溷ｴ蜷医・逅・罰繝｡繝｢・医≠繧後・・・*/
     warning?: string;
   };
 };
 
 /* =========================================================
- * YM繝ｦ繝ｼ繝・ぅ繝ｪ繝・ぅ
+ * YM utils
  * =======================================================*/
 
 function ymToYearMonth(y: Ym) {
   const [Y, M] = y.split('-').map(Number);
   return { Y, M };
 }
-function pad(n: number) {
+function pad2(n: number) {
   return n < 10 ? `0${n}` : String(n);
 }
 function nextYm(y: Ym): Ym {
   const { Y, M } = ymToYearMonth(y);
   const nM = M === 12 ? 1 : M + 1;
   const nY = M === 12 ? Y + 1 : Y;
-  return `${nY}-${pad(nM)}`;
+  return `${nY}-${pad2(nM)}` as Ym;
 }
 function ymRange(startYm: Ym, endYm: Ym): Ym[] {
   const out: Ym[] = [];
@@ -80,11 +78,10 @@ function ymRange(startYm: Ym, endYm: Ym): Ym[] {
 }
 
 /* =========================================================
- * FinanceSummary 縺九ｉ繝吶・繧ｹ霆碁％/BaseFigures繧堤ｵ・∩遶九※
+ * FinanceSummary -> BaseFigures / BaseTrajectory
  * ---------------------------------------------------------
- * 蜑肴署・嘖trategy.financeSummary 縺ｯ YearRow[] 逶ｸ蠖・
- *   { yearLabel: string; sales: number; cogs?: number; sga?: number; operatingProfit?: number }
- * 辟｡縺・ｴ蜷医・縲後＃縺冗ｰ｡譏薙↑繝・ヵ繧ｩ繝ｫ繝医阪ｒ菴懊ｋ縲・
+ * financeSummary があればそれをベースに月次の簡易ベースを構築。
+ * financeSummary が無い場合は、UIを破綻させないためのダミー前提を使う。
  * =======================================================*/
 
 type FinanceRow = {
@@ -97,6 +94,11 @@ type FinanceRow = {
   op?: number;
 };
 
+const toNum = (v: any, d = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+};
+
 function buildBaseFromFinanceSummary(
   strategy: StrategyData,
   startYm: Ym,
@@ -106,49 +108,44 @@ function buildBaseFromFinanceSummary(
     ? ((strategy as any).financeSummary as FinanceRow[])
     : [];
 
-  // 蝓ｺ貅冶｡鯉ｼ壹→繧翫≠縺医★譛蛻昴・陦後ｒ蝓ｺ貅悶→縺吶ｋ・・0諠ｳ螳夲ｼ・
   const row0: FinanceRow | undefined = fs[0];
 
-  // 螢ｲ荳翫・繧ｳ繧ｹ繝医′縺ｪ縺代ｌ縺ｰ邁｡譏薙ョ繝輔か繝ｫ繝茨ｼ亥ｰ上＆繧√・謨ｰ蛟､縺ｧ蜍輔°縺呻ｼ・
-  const hasFinanceSummary: boolean = Boolean(row0 && (row0.sales ?? row0.revenue));
+  const hasFinanceSummary = Boolean(row0 && (row0.sales ?? row0.revenue));
+
+  // 年次売上（financeSummary が無ければダミー）
   const annualRevenue = hasFinanceSummary
-    ? Number(row0!.sales ?? row0!.revenue ?? 0) || 0
-    : 120_000_000; // 蟷ｴ髢・.2蜆・ｒ莉ｮ螳夲ｼ・0M/譛茨ｼ・
+    ? toNum(row0!.sales ?? row0!.revenue ?? 0, 0)
+    : 120_000_000; // 例: 年商1.2億（UIが動くための仮値）
 
-  // 蝟ｶ讌ｭ蛻ｩ逶翫′縺ゅｌ縺ｰ縺昴％縺九ｉ邊怜茜・剰ｲｩ邂｡雋ｻ繧定ｿ台ｼｼ
+  // 年次営業利益（financeSummary が無ければ売上の10%）
   const annualOp = hasFinanceSummary
-    ? Number(row0!.operatingProfit ?? row0!.op ?? 0) || 0
-    : annualRevenue * 0.1; // 蛻ｩ逶顔紫10%諠ｳ螳・
+    ? toNum(row0!.operatingProfit ?? row0!.op ?? 0, 0)
+    : annualRevenue * 0.1;
 
-  // cogs, sga 縺後≠繧後・縺昴ｌ繧剃ｽｿ縺・ら┌縺代ｌ縺ｰ驕ｩ蠖薙↓ 50/40/10 縺ｮ豈皮紫縺ｫ蛻・ｧ｣縲・
-  let annualCogs = Number(row0?.cogs ?? 0);
-  let annualSga = Number(row0?.sga ?? 0);
+  // 年次COGS/SGA（無ければ 50/40/10 を仮置き）
+  let annualCogs = toNum(row0?.cogs ?? 0, 0);
+  let annualSga = toNum(row0?.sga ?? 0, 0);
 
   if (!annualCogs && !annualSga) {
-    // 邊怜茜=螢ｲ荳翫・50%縲∬ｲｩ邂｡雋ｻ=螢ｲ荳翫・40%縲∝霧讌ｭ蛻ｩ逶・谿九ｊ10%縺上ｉ縺・・邁｡譏薙Δ繝・Ν
     annualCogs = annualRevenue * 0.5;
     annualSga = annualRevenue * 0.4;
   } else if (!annualSga) {
-    // cogs縺縺代≠繧句ｴ蜷茨ｼ嗤p繧定・・縺励※雋ｩ邂｡雋ｻ繧帝・ｮ・
     annualSga = Math.max(0, annualRevenue - annualCogs - annualOp);
   } else if (!annualCogs) {
-    // sga縺縺代≠繧句ｴ蜷茨ｼ壼酔讒倥↓騾・ｮ・
     annualCogs = Math.max(0, annualRevenue - annualSga - annualOp);
   }
 
   const months = ymRange(startYm, endYm);
-  const monthsPerYear = 12;
 
-  // 蜊倡ｴ斐↓蟷ｴ髢灘､繧・2縺ｧ蜑ｲ縺｣縺ｦ譛域ｬ｡縺ｸ螻暮幕
-  const monthlyRevenue = annualRevenue / monthsPerYear;
-  const monthlyCogs = annualCogs / monthsPerYear;
-  const monthlySga = annualSga / monthsPerYear;
+  const monthlyRevenue = annualRevenue / 12;
+  const monthlyCogs = annualCogs / 12;
+  const monthlySga = annualSga / 12;
 
-  // SG&A 繧貞崋螳夊ｲｻ・丈ｺｺ莉ｶ雋ｻ縺ｫ縺悶▲縺上ｊ蛻・牡・・:4・・
+  // SGA を固定費/人件費へ（簡易 6:4）
   const monthlyFixed = monthlySga * 0.6;
   const monthlyPersonnel = monthlySga * 0.4;
 
-  // qty 縺ｨ arpu 縺ｯ縲繋ty=1縲∥rpu=螢ｲ荳翫阪→縺・≧蜊倡ｴ斐Δ繝・Ν
+  // financeSimulation の簡易モデルに合わせ、qty=1 / arpu=月次売上 とする
   const qtyMonthly: Record<Ym, number> = {};
   const arpuMonthly: Record<Ym, number> = {};
   const churnMonthly: Record<Ym, number> = {};
@@ -159,8 +156,8 @@ function buildBaseFromFinanceSummary(
 
   for (const ym of months) {
     qtyMonthly[ym] = 1;
-    arpuMonthly[ym] = monthlyRevenue;   // qty(=1)ﾃ預rpu 縺ｧ螢ｲ荳翫↓蜷医≧
-    churnMonthly[ym] = 0.02;            // 譛域ｬ｡隗｣邏・紫2%縺上ｉ縺・・繝・ヵ繧ｩ繝ｫ繝・
+    arpuMonthly[ym] = monthlyRevenue;
+    churnMonthly[ym] = 0.02; // 仮の月次解約率2%
     fixedCostMonthly[ym] = monthlyFixed;
     variableCostMonthly[ym] = monthlyCogs;
     personnelCostMonthly[ym] = monthlyPersonnel;
@@ -179,10 +176,11 @@ function buildBaseFromFinanceSummary(
     revenueMonthly,
   };
 
+  // simulationBridge が参照する「基準値」
   const baseFigures: BaseFigures = {
-    revenue: monthlyRevenue,          // 1繝ｶ譛亥・
-    acq: 100,                         // 譛域ｬ｡縺ｮ蝓ｺ貅匁眠隕冗佐蠕玲焚・井ｻｮ: 100・峨・
-    arpu: monthlyRevenue,             // qty=1蜑肴署縺ｮ蟷ｳ蝮・腰萓｡
+    revenue: monthlyRevenue,
+    acq: 100, // 仮の月次獲得数
+    arpu: monthlyRevenue,
     churn: 0.02,
     fixed_cost: monthlyFixed,
     variable_cost: monthlyCogs,
@@ -196,12 +194,46 @@ function buildBaseFromFinanceSummary(
 }
 
 /* =========================================================
- * StrategyData 竊・BridgeKR[] 謚ｽ蜃ｺ
+ * StrategyData -> BridgeKR[]
  * ---------------------------------------------------------
- * departments[].projects[].okrs[].structuredKrs[] 繧呈Φ螳壹・
- * types/strategy.ts 縺ｮ KRStructured 縺ｨ simulationBridge.BridgeKR 繧・
- * 1蟇ｾ1縺ｫ繝槭ャ繝斐Φ繧ｰ縺吶ｋ縲・
+ * departments[].projects[].okrs[].structuredKrs[] を走査し、
+ * simulationBridge.BridgeKR にマッピング。
  * =======================================================*/
+
+function normalizeKind(v: any): BridgeKR['kind'] {
+  const s = String(v || '').toUpperCase();
+  const allow = new Set<BridgeKR['kind']>([
+    'REVENUE',
+    'ARPU',
+    'ACQ',
+    'CHURN',
+    'COST_FIXED',
+    'COST_VARIABLE',
+    'PERSONNEL',
+    'INVEST',
+    'SUCCESS_RATE',
+    'SYNERGY',
+    'ACTIVITY',
+  ]);
+  return (allow.has(s as any) ? (s as BridgeKR['kind']) : 'REVENUE');
+}
+
+function normalizeBaseKey(v: any): BridgeKR['baseKey'] {
+  const s = String(v || '').toLowerCase();
+  const allow = new Set<BridgeKR['baseKey']>([
+    'revenue',
+    'arpu',
+    'acq',
+    'churn',
+    'fixed_cost',
+    'variable_cost',
+    'personnel_cost',
+    'invest',
+    'success_rate',
+    'synergy',
+  ]);
+  return (allow.has(s as any) ? (s as BridgeKR['baseKey']) : 'revenue');
+}
 
 function collectBridgeKRs(strategy: StrategyData): BridgeKR[] {
   const out: BridgeKR[] = [];
@@ -216,8 +248,9 @@ function collectBridgeKRs(strategy: StrategyData): BridgeKR[] {
 
     for (const p of projects) {
       const projTitle: string = (p?.title ?? '').toString();
-      const okrs: any[] = Array.isArray(p?.okrs) ? p.okrs : [];
 
+      // 形式1: okrs[].structuredKrs[] （従来形式）
+      const okrs: any[] = Array.isArray(p?.okrs) ? p.okrs : [];
       for (const okr of okrs) {
         const structured: KRStructured[] = Array.isArray(okr?.structuredKrs)
           ? (okr.structuredKrs as KRStructured[])
@@ -225,28 +258,73 @@ function collectBridgeKRs(strategy: StrategyData): BridgeKR[] {
 
         structured.forEach((kr, idx) => {
           const bridge: BridgeKR = {
-            id: kr.id || `${depName}:${projTitle}:${idx}`,
-            kind: kr.kind,
-            label: kr.label ?? kr.kind,
-            target: typeof kr.target === 'number' ? kr.target : Number(kr.target ?? 0) || 0,
-            unit: kr.unit,
-            scope: kr.scope ?? 'project',
-            baseKey: kr.baseKey ?? 'revenue',
+            id: (kr as any).id || `${depName}:${projTitle}:${idx}`,
+            kind: normalizeKind((kr as any).kind),
+            label: ((kr as any).label ?? (kr as any).kind ?? 'KR').toString(),
+            target:
+              typeof (kr as any).target === 'number'
+                ? (kr as any).target
+                : Number((kr as any).target ?? 0) || 0,
+            unit: (kr as any).unit,
+            scope: ((kr as any).scope ?? 'project') as BridgeKR['scope'],
+            baseKey: normalizeBaseKey((kr as any).baseKey),
             baseOverride:
-              typeof kr.baseOverride === 'number'
-                ? kr.baseOverride
-                : (kr.baseOverride != null ? Number(kr.baseOverride) : undefined),
-            weight: typeof kr.weight === 'number' ? kr.weight : undefined,
-            elasticity: typeof kr.elasticity === 'number' ? kr.elasticity : undefined,
-            lagMonths: typeof kr.lagMonths === 'number' ? kr.lagMonths : undefined,
-            startYm: kr.startYm,
-            due: kr.due,
-            notes: kr.notes,
+              typeof (kr as any).baseOverride === 'number'
+                ? (kr as any).baseOverride
+                : (kr as any).baseOverride != null
+                  ? Number((kr as any).baseOverride)
+                  : undefined,
+            weight: typeof (kr as any).weight === 'number' ? (kr as any).weight : undefined,
+            elasticity:
+              typeof (kr as any).elasticity === 'number' ? (kr as any).elasticity : undefined,
+            lagMonths:
+              typeof (kr as any).lagMonths === 'number' ? (kr as any).lagMonths : undefined,
+            startYm: (kr as any).startYm,
+            due: (kr as any).due,
+            notes: (kr as any).notes,
           };
 
           out.push(bridge);
         });
       }
+
+      // 形式2: okrsV2[] （新形式: KRStructured の直接配列）
+      const okrsV2: any[] = Array.isArray(p?.okrsV2) ? p.okrsV2 : [];
+      okrsV2.forEach((kr, idx) => {
+        // okrsV2 にはすでに kind/baseKey/target が揃っているので直接使用
+        if (!kr || typeof kr.kind !== 'string' || typeof kr.baseKey !== 'string') {
+          return; // スキップ
+        }
+
+        const bridge: BridgeKR = {
+          id: (kr as any).id || `${depName}:${projTitle}:${idx}`,
+          kind: normalizeKind((kr as any).kind),
+          label: ((kr as any).label ?? (kr as any).kind ?? 'KR').toString(),
+          target:
+            typeof (kr as any).target === 'number'
+              ? (kr as any).target
+              : Number((kr as any).target ?? 0) || 0,
+          unit: (kr as any).unit,
+          scope: ((kr as any).scope ?? 'project') as BridgeKR['scope'],
+          baseKey: normalizeBaseKey((kr as any).baseKey),
+          baseOverride:
+            typeof (kr as any).baseOverride === 'number'
+              ? (kr as any).baseOverride
+              : (kr as any).baseOverride != null
+                ? Number((kr as any).baseOverride)
+                : undefined,
+          weight: typeof (kr as any).weight === 'number' ? (kr as any).weight : undefined,
+          elasticity:
+            typeof (kr as any).elasticity === 'number' ? (kr as any).elasticity : undefined,
+          lagMonths:
+            typeof (kr as any).lagMonths === 'number' ? (kr as any).lagMonths : undefined,
+          startYm: (kr as any).startYm,
+          due: (kr as any).due,
+          notes: (kr as any).notes,
+        };
+
+        out.push(bridge);
+      });
     }
   }
 
@@ -254,58 +332,57 @@ function collectBridgeKRs(strategy: StrategyData): BridgeKR[] {
 }
 
 /* =========================================================
- * 繝｡繧､繝ｳ・售trategyData 竊・OKR騾｣蜍姫L繧ｷ繝溘Η繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ
+ * Main
  * =======================================================*/
+
+function createZeroDeltas(startYm: Ym, endYm: Ym): DeltasByMonth {
+  const months = ymRange(startYm, endYm);
+  const init = () =>
+    months.reduce((acc, ym) => {
+      acc[ym] = 0;
+      return acc;
+    }, {} as Record<Ym, number>);
+
+  return {
+    revenue: init(),
+    acq: init(),
+    arpu: init(),
+    churn: init(),
+    retention: init(),
+    fixed_cost: init(),
+    variable_cost: init(),
+    cogsRate: init(),
+    personnel_cost: init(),
+    invest: init(),
+    synergy: init(),
+    success_rate: init(),
+  };
+}
 
 export function runOkrFinanceFromStrategy(
   strategy: StrategyData,
   options?: OkrFinanceOptions,
 ): OkrFinanceResult {
-  // 1) 譛滄俣豎ｺ螳夲ｼ医ョ繝輔か繝ｫ繝医・縲御ｻ雁ｹｴ縲・蟷ｴ蛻・搾ｼ・
+  // 1) 期間（デフォルト: 当年〜当年+2年の3年）
   const now = new Date();
-  const defaultYear = now.getFullYear();
-  const startYm: Ym = options?.startYm ?? `${defaultYear}-01`;
-  const endYm: Ym =
-    options?.endYm ??
-    `${defaultYear + 2}-12`; // 繝・ヵ繧ｩ繝ｫ繝医〒3蟷ｴ髢難ｼ・0縲弸2・臥嶌蠖薙ｒ繧ｫ繝舌・
+  const y = now.getFullYear();
+  const startYm: Ym = options?.startYm ?? (`${y}-01` as Ym);
+  const endYm: Ym = options?.endYm ?? (`${y + 2}-12` as Ym);
 
-  // 2) FinanceSummary 縺九ｉ繝吶・繧ｹ霆碁％縺ｨBaseFigures繧呈ｧ狗ｯ・
+  // 2) financeSummary から baseFigures / trajectory を構築
   const { baseFigures, trajectory, hasFinanceSummary } = buildBaseFromFinanceSummary(
     strategy,
     startYm,
     endYm,
   );
 
-  // 3) 讒矩蛹訪R 竊・BridgeKR[] 謚ｽ蜃ｺ
-  const krs: BridgeKR[] = collectBridgeKRs(strategy);
+  // 3) KR 抽出
+  const krs = collectBridgeKRs(strategy);
   const krsCount = krs.length;
 
-  // KR縺御ｸ縺､繧ゅ↑縺・ｴ蜷医〒繧ゅ∝渕貅鳳L閾ｪ菴薙・蜃ｺ縺帙ｋ縺後・
-  // 縲薫KR騾｣蜍輔阪→縺・≧諢丞袖縺ｧ縺ｯ隴ｦ蜻翫ｒ莉倥￠縺ｦ霑斐☆縲・
+  // 4) KRが無ければ baseline（deltas=0）だけ返す
   if (krsCount === 0) {
-    // deltas=0縺ｮ縺ｾ縺ｾ simulate 縺励※繧り憶縺・′縲√％縺薙〒縺ｯ譏守､ｺ逧・↓ baseline 縺ｮ縺ｿ霑斐☆
-    const deltasZero: DeltasByMonth = (() => {
-      const months = ymRange(startYm, endYm);
-      const init = (ms: Ym[]) =>
-        ms.reduce((acc, ym) => {
-          acc[ym] = 0;
-          return acc;
-        }, {} as Record<Ym, number>);
-      return {
-        revenue: init(months),
-        acq: init(months),
-        arpu: init(months),
-        churn: init(months),
-        retention: init(months),
-        fixed_cost: init(months),
-        variable_cost: init(months),
-        cogsRate: init(months),
-        personnel_cost: init(months),
-        invest: init(months),
-        synergy: init(months),
-        success_rate: init(months),
-      };
-    })();
+    const deltasZero = createZeroDeltas(startYm, endYm);
 
     const monthly = simulateMonthlyPL(trajectory, deltasZero, {
       applySynergyTo: options?.applySynergyTo ?? ['revenue'],
@@ -323,12 +400,12 @@ export function runOkrFinanceFromStrategy(
         hasFinanceSummary,
         baseFigures,
         warning:
-          '讒矩蛹訪R縺・莉ｶ繧ゅ↑縺・◆繧√＾KR縺ｫ繧医ｋ螟牙喧縺ｯ蜿肴丐縺輔ｌ縺ｦ縺・∪縺帙ｓ・医・繝ｼ繧ｹ繝ｩ繧､繝ｳ縺ｮ縺ｿ・峨・,
+          'structuredKrs が存在しないため、ベースライン（差分なし）のPLのみを表示しています。',
       },
     };
   }
 
-  // 4) BridgeInput 繧呈ｧ区・縺励※譛域ｬ｡繝・Ν繧ｿ繧堤ｮ怜・
+  // 5) ブリッジ差分（deltas）を生成
   const bridgeInput: BridgeInput = {
     startYm,
     endYm,
@@ -337,25 +414,23 @@ export function runOkrFinanceFromStrategy(
     config: {
       activityDefault: 'ACQ',
       activityRoute: {
-        // 繝ｩ繝吶Ν蜷阪↓蠢懊§縺ｦ荳頑嶌縺阪＠縺溘￠繧後・縺薙％縺ｫ險倩ｿｰ
-        // 萓・ '險ｪ蝠丈ｻｶ謨ｰ': 'ACQ'
+        // 必要なら label->route の明示マップを追加
+        // 例: '商談数': 'ACQ'
       },
     },
   };
 
   const deltas = buildBridgeDeltas(bridgeInput);
 
-  // 5) simulateMonthlyPL / aggregateYearly 縺ｧPL險育ｮ・
+  // 6) PL シミュレーション
   const monthly = simulateMonthlyPL(trajectory, deltas, {
     applySynergyTo: options?.applySynergyTo ?? ['revenue'],
     investEffectAlpha: options?.investEffectAlpha ?? 1.0,
   });
-
   const yearly = aggregateYearly(monthly);
 
-  // 6) 邨先棡繧定ｿ泌唆
   const metaWarning = !hasFinanceSummary
-    ? 'financeSummary 縺梧悴險ｭ螳壹・縺溘ａ縲√ョ繝輔か繝ｫ繝医・莉ｮ螳壼､縺ｧ繝吶・繧ｹ繝ｩ繧､繝ｳ繧呈ｧ狗ｯ峨＠縺ｦ縺・∪縺吶・
+    ? 'financeSummary が未入力のため、仮のベース前提（ダミー）でシミュレーションしています。'
     : undefined;
 
   return {
