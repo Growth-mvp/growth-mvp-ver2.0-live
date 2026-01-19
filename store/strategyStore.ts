@@ -933,11 +933,14 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
   const story = isArray(raw.story) ? raw.story : [];
   const finalStory = isArray(raw.finalStory) ? raw.finalStory : isArray(raw.final_story) ? raw.final_story : [];
 
-  const csvFinanceData = isArray(raw.csvFinanceData)
-    ? raw.csvFinanceData
-    : isArray(raw.csv_finance_data)
-      ? raw.csv_finance_data
-      : [];
+  // ★ 修正：csvFinanceData は Record<string, ...> のオブジェクトであり、配列ではない
+  // raw から直接取得し、オブジェクト型チェックを行う
+  const csvFinanceData =
+    raw.csvFinanceData && typeof raw.csvFinanceData === 'object'
+      ? raw.csvFinanceData
+      : raw.csv_finance_data && typeof raw.csv_finance_data === 'object'
+        ? raw.csv_finance_data
+        : undefined;
 
   const financeSummary = isArray(raw.financeSummary)
     ? raw.financeSummary
@@ -1027,7 +1030,10 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     };
   })();
 
-  return {
+  // ★ 修正：undefined のフィールドを除去する
+  // merge で ...(patch as any) をするので、undefined が含まれると既存データが上書きされる
+  // undefined のフィールドは含めず、既存データを保護する
+  const patch: any = {
     strategyId,
     revision,
     companyName,
@@ -1079,6 +1085,15 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     winPatternSecondary,
     executionPlanBaseline,
   };
+
+  // undefined のフィールドを削除（merge で既存データを保護）
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) {
+      delete patch[key];
+    }
+  }
+
+  return patch as Partial<StrategyState>;
 }
 
 /* ===== Zustand Store ===== */
@@ -1628,11 +1643,25 @@ export const useStrategyStore = create<StrategyState>()(
               details: (error as any)?.details,
             });
           } else if (data) {
+            const csvFd = (data as any)?.csv_finance_data;
+            const csvFdKeys = typeof csvFd === 'object' && csvFd
+              ? Object.keys(csvFd).filter((k) => k !== 'financeBS' && k !== 'segmentPL' && k !== 'segmentBS')
+              : [];
+            const dbCompanyId = (data as any)?.company_id || companyId; // fallback to companyId parameter
             console.log('[strategyStore] ✅ getFullStrategyDataByCompany 成功', {
-              companyId: (data as any)?.company_id,
+              companyId: dbCompanyId,
               revision: (data as any)?.revision,
-              hasFinancePL: !!((data as any)?.finance_pl?.length),
-              hasCsvFinanceData: !!((data as any)?.csv_finance_data),
+              financePL_length: Array.isArray((data as any)?.finance_pl)
+                ? (data as any).finance_pl.length
+                : 0,
+              csvFinanceData_exists: !!csvFd,
+              csvFinanceData_financeBS_len: Array.isArray(csvFd?.financeBS)
+                ? csvFd.financeBS.length
+                : 0,
+              csvFinanceData_segmentPL_keys: Object.keys(csvFd?.segmentPL || {}).length,
+              stage1Issues_len: Array.isArray((data as any)?.stage1_issues)
+                ? (data as any).stage1_issues.length
+                : 0,
             });
           } else {
             console.warn('[strategyStore] ⚠️ getFullStrategyDataByCompany: data と error 両方 null/undefined');
@@ -1690,11 +1719,13 @@ export const useStrategyStore = create<StrategyState>()(
           const patch = normalizeFromDbRow(data);
 
           // ★ デバッグ：refetchFromServer での normalize 結果確認
-          console.log('[strategyStore refetch] normalized patch', {
-            financeBS_len: Array.isArray((patch as any).financeBS) ? (patch as any).financeBS.length : null,
-            segmentBS_len: Array.isArray((patch as any).segmentBS) ? (patch as any).segmentBS.length : null,
-            segmentPL_len: Array.isArray((patch as any).segmentPL) ? (patch as any).segmentPL.length : null,
-            financePL_len: Array.isArray((patch as any).financePL) ? (patch as any).financePL.length : null,
+          console.log('[strategyStore refetch] 📦 normalized patch', {
+            financeBS_len: Array.isArray((patch as any).financeBS) ? (patch as any).financeBS.length : 0,
+            segmentBS_keys: Object.keys((patch as any).segmentBS || {}).length,
+            segmentPL_keys: Object.keys((patch as any).segmentPL || {}).length,
+            csvFinanceData_exists: !!((patch as any).csvFinanceData),
+            financePL_len: Array.isArray((patch as any).financePL) ? (patch as any).financePL.length : 0,
+            stage1Issues_len: Array.isArray((patch as any).stage1Issues) ? (patch as any).stage1Issues.length : 0,
           });
 
           const cur = get();
@@ -1733,11 +1764,13 @@ export const useStrategyStore = create<StrategyState>()(
             const rev = typeof patch.revision === 'number' ? patch.revision : after.revision ?? 0;
 
             // ★ デバッグ：dirty=true でも extractServerDecidedPatch で反映されたデータ確認
-            console.log('[strategyStore refetch] after extractServerDecidedPatch (wasDirty=true)', {
-              financeBS_len: Array.isArray((after as any).financeBS) ? (after as any).financeBS.length : null,
-              segmentBS_len: Array.isArray((after as any).segmentBS) ? (after as any).segmentBS.length : null,
-              segmentPL_len: Array.isArray((after as any).segmentPL) ? (after as any).segmentPL.length : null,
-              financePL_len: Array.isArray((after as any).financePL) ? (after as any).financePL.length : null,
+            console.log('[strategyStore refetch] ✅ after extractServerDecidedPatch (wasDirty=true)', {
+              financeBS_len: Array.isArray((after as any).financeBS) ? (after as any).financeBS.length : 0,
+              segmentBS_keys: Object.keys((after as any).segmentBS || {}).length,
+              segmentPL_keys: Object.keys((after as any).segmentPL || {}).length,
+              csvFinanceData_exists: !!((after as any).csvFinanceData),
+              financePL_len: Array.isArray((after as any).financePL) ? (after as any).financePL.length : 0,
+              stage1Issues_len: Array.isArray((after as any).stage1Issues) ? (after as any).stage1Issues.length : 0,
             });
 
             set({ loaded: true });
@@ -1774,11 +1807,13 @@ export const useStrategyStore = create<StrategyState>()(
             const after = get();
 
             // ★ デバッグ：dirty=false で full merge されたデータ確認
-            console.log('[strategyStore refetch] after full merge (wasDirty=false)', {
-              financeBS_len: Array.isArray((after as any).financeBS) ? (after as any).financeBS.length : null,
-              segmentBS_len: Array.isArray((after as any).segmentBS) ? (after as any).segmentBS.length : null,
-              segmentPL_len: Array.isArray((after as any).segmentPL) ? (after as any).segmentPL.length : null,
-              financePL_len: Array.isArray((after as any).financePL) ? (after as any).financePL.length : null,
+            console.log('[strategyStore refetch] ✅ after full merge (wasDirty=false)', {
+              financeBS_len: Array.isArray((after as any).financeBS) ? (after as any).financeBS.length : 0,
+              segmentBS_keys: Object.keys((after as any).segmentBS || {}).length,
+              segmentPL_keys: Object.keys((after as any).segmentPL || {}).length,
+              csvFinanceData_exists: !!((after as any).csvFinanceData),
+              financePL_len: Array.isArray((after as any).financePL) ? (after as any).financePL.length : 0,
+              stage1Issues_len: Array.isArray((after as any).stage1Issues) ? (after as any).stage1Issues.length : 0,
             });
 
             const snapshot = buildSavePayload(after as StrategyState);

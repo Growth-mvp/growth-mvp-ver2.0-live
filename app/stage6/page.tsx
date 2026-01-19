@@ -135,8 +135,8 @@ export default function Stage6Page() {
           csvFinanceData_BS_length: Array.isArray((storeBefore.csvFinanceData as any)?.financeBS)
             ? (storeBefore.csvFinanceData as any).financeBS.length : 0,
           segmentPL_keys: Object.keys((storeBefore as any).segmentPL || {}).length,
-          baseline_exists: !!(storeBefore.executionPlanBaseline?.baseline),
-          snapshot_exists: !!(storeBefore.executionPlanBaseline?.snapshot),
+          executionPlanBaseline_exists: !!(storeBefore.executionPlanBaseline),
+          executionPlanBaseline_snapshot: !!(storeBefore.executionPlanBaseline?.snapshot),
         });
 
         await loadAndHydrate(accessCompanyId);
@@ -152,8 +152,8 @@ export default function Stage6Page() {
           csvFinanceData_BS_length: Array.isArray((storeAfter.csvFinanceData as any)?.financeBS)
             ? (storeAfter.csvFinanceData as any).financeBS.length : 0,
           segmentPL_keys: Object.keys((storeAfter as any).segmentPL || {}).length,
-          baseline_exists: !!(storeAfter.executionPlanBaseline?.baseline),
-          snapshot_exists: !!(storeAfter.executionPlanBaseline?.snapshot),
+          executionPlanBaseline_exists: !!(storeAfter.executionPlanBaseline),
+          executionPlanBaseline_snapshot: !!(storeAfter.executionPlanBaseline?.snapshot),
         });
 
         try {

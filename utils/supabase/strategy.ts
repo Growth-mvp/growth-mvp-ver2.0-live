@@ -359,6 +359,27 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   out.financeSummary = toUiFinanceSummary(out.financeSummary);
   out.businessPortfolio = toUiBusinessPortfolio(out.businessPortfolio);
 
+  // ★ 修正：csv_finance_data から financeBS/segmentPL/segmentBS/hqAdjustmentPL/BS を復元
+  // DB には finance_bs/segment_bs/segment_pl 列がないため、csv_finance_data に格納されている
+  const csvFinanceData = out.csvFinanceData || {};
+
+  // ★ DEBUG：raw 復元後の確認
+  console.log('[buildStateFromDbRow] 📋 raw 復元後（normalize前）', {
+    issueBlocks_length: Array.isArray(out.stage1Issues) ? out.stage1Issues.length : 0,
+    csvFinanceData_exists: !!out.csvFinanceData,
+    csvFinanceData_financeBS: Array.isArray(csvFinanceData.financeBS) ? csvFinanceData.financeBS.length : 0,
+    csvFinanceData_segmentPL_keys: Object.keys(csvFinanceData.segmentPL || {}).length,
+    csvFinanceData_segmentBS_keys: Object.keys(csvFinanceData.segmentBS || {}).length,
+    financePL_length: Array.isArray(out.financePL) ? out.financePL.length : 0,
+    departments_length: Array.isArray(out.departments) ? out.departments.length : 0,
+  });
+
+  out.financeBS = ensureArray(csvFinanceData.financeBS);
+  out.segmentPL = csvFinanceData.segmentPL; // Record<string, FinancePLRow[]>
+  out.segmentBS = csvFinanceData.segmentBS; // Record<string, SegmentBSRow[]>
+  out.hqAdjustmentPL = ensureArray(csvFinanceData.hqAdjustmentPL);
+  out.hqAdjustmentBS = ensureArray(csvFinanceData.hqAdjustmentBS);
+
   // 部門・プロジェクトを一旦「生」の形で整形（okrsV2 を含む）
   out.departments = out.departments.map((d: any) => ({
     ...d,
@@ -374,7 +395,21 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   // ★ normalize 前の departments を保持（okrsV2 が入っている生データ）
   const rawDepartmentsWithOkrsV2 = out.departments;
 
+  // ★ DEBUG：normalize 前
+  console.log('[buildStateFromDbRow] 🔷 normalize 前', {
+    out_csvFinanceData_exists: !!out.csvFinanceData,
+    out_segmentPL_keys: Object.keys(out.segmentPL || {}).length,
+    out_segmentBS_keys: Object.keys(out.segmentBS || {}).length,
+  });
+
   const normalized = normalizeStrategyData(out) as StrategyData;
+
+  // ★ DEBUG：normalize 後
+  console.log('[buildStateFromDbRow] 🔷 normalize 後', {
+    normalized_csvFinanceData_exists: !!normalized.csvFinanceData,
+    normalized_segmentPL_exists: !!normalized.segmentPL,
+    normalized_segmentBS_exists: !!normalized.segmentBS,
+  });
 
   // revision（FIELD_MAPに含めない）
   const revision =
@@ -415,6 +450,27 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
       Array.isArray((normalized as any).departments)
         ? (normalized as any).departments.length
         : 'no-field',
+    );
+  }
+
+  // ★ 修正：normalizeStrategyData で消えた csvFinanceData/segmentPL/segmentBS を復元
+  // normalize では配列型のみを認識するため、Record型のsegmentPL/segmentBSが失われる
+  if (!normalized.csvFinanceData && out.csvFinanceData) {
+    (normalized as any).csvFinanceData = out.csvFinanceData;
+    console.log(
+      '[StrategyData] 🧩 restored csvFinanceData from raw after normalize'
+    );
+  }
+  if (!normalized.segmentPL && out.segmentPL) {
+    (normalized as any).segmentPL = out.segmentPL;
+    console.log(
+      '[StrategyData] 🧩 restored segmentPL from raw after normalize'
+    );
+  }
+  if (!normalized.segmentBS && out.segmentBS) {
+    (normalized as any).segmentBS = out.segmentBS;
+    console.log(
+      '[StrategyData] 🧩 restored segmentBS from raw after normalize'
     );
   }
 
@@ -523,6 +579,19 @@ export async function getFullStrategyDataByCompany(
       .limit(1)
       .maybeSingle();
 
+    // ★ C) 包括的なクエリ結果ログ（RLS/権限/0行を区別する）
+    console.log('[StrategyData] 📊 query result (baseRes)', {
+      hasData: !!baseRes.data,
+      hasError: !!baseRes.error,
+      errorCode: baseRes.error?.code,
+      errorStatus: (baseRes.error as any)?.status,
+      errorMessage: baseRes.error?.message,
+      rowsCount: baseRes.data ? 1 : 0,
+      data_id: baseRes.data?.id,
+      data_company_id: baseRes.data?.company_id,
+      data_revision: baseRes.data?.revision,
+    });
+
     if (baseRes.error) {
       return { data: null, error: extractErrorVerbose(baseRes.error) };
     }
@@ -559,6 +628,19 @@ export async function getFullStrategyDataByCompany(
         ? finRes.value.data ?? null
         : null;
 
+    // ★ 修正：csv_finance_data から財務系フィールド確認
+    // finance_pl は finance_pl 列、financeBS/segmentPL/segmentBS は csv_finance_data に格納
+    const csvData = rowData?.csv_finance_data ?? {};
+    const financePl = rowData?.finance_pl;
+    console.log('[LOAD raw financial data]', {
+      csv_finance_data_keys: Object.keys(csvData || {}).slice(0, 40),
+      financeBS_len: Array.isArray((csvData as any).financeBS) ? (csvData as any).financeBS.length : null,
+      segmentBS_len: Object.keys((csvData as any).segmentBS || {}).length,
+      segmentPL_len: Object.keys((csvData as any).segmentPL || {}).length,
+      financePL_len: Array.isArray((financePl as any)) ? (financePl as any).length : null,
+      hqAdjustmentPL_len: Array.isArray((csvData as any).hqAdjustmentPL) ? (csvData as any).hqAdjustmentPL.length : null,
+    });
+
     const state = buildStateFromDbRow(rowData);
 
     const latestAnswersArray = ensureArray(ansRow?.answers2);
@@ -588,6 +670,14 @@ export async function getFullStrategyDataByCompany(
 
     // finalStory 補完（strategy_data.final_story 優先、無ければ分離テーブル）
     state.finalStory = ensureArray(state.finalStory).length ? state.finalStory : latestFinal;
+
+    // ★ デバッグ：buildStateFromDbRow 後の normalized データの財務系フィールド確認
+    console.log('[LOAD normalized]', {
+      financeBS_len: Array.isArray((state as any).financeBS) ? (state as any).financeBS.length : null,
+      segmentBS_len: Array.isArray((state as any).segmentBS) ? (state as any).segmentBS.length : null,
+      segmentPL_len: Array.isArray((state as any).segmentPL) ? (state as any).segmentPL.length : null,
+      financePL_len: Array.isArray((state as any).financePL) ? (state as any).financePL.length : null,
+    });
 
     return { data: state, error: null };
   } catch (e) {
@@ -630,6 +720,15 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
     'departmentsLen=',
     deptLen,
   );
+
+  // ★ デバッグ：payload 作成直後（pruneUndefinedDeep 前）
+  console.log('[SAVE payload raw]', {
+    financeBS_len: Array.isArray((payload as any).financeBS) ? (payload as any).financeBS.length : null,
+    segmentBS_len: Array.isArray((payload as any).segmentBS) ? (payload as any).segmentBS.length : null,
+    segmentPL_len: Array.isArray((payload as any).segmentPL) ? (payload as any).segmentPL.length : null,
+    financePL_len: Array.isArray((payload as any).financePL) ? (payload as any).financePL.length : null,
+    keys: Object.keys(payload || {}).slice(0, 80),
+  });
 
   try {
     if (!userId) {
@@ -691,11 +790,28 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
 
     const prunedIncoming: StrategyData = pruneUndefinedDeep(payload);
 
+    // ★ デバッグ：prunedIncoming 作成後（pruneUndefinedDeep の後）
+    console.log('[SAVE payload pruned]', {
+      financeBS_len: Array.isArray((prunedIncoming as any).financeBS) ? (prunedIncoming as any).financeBS.length : null,
+      segmentBS_len: Array.isArray((prunedIncoming as any).segmentBS) ? (prunedIncoming as any).segmentBS.length : null,
+      segmentPL_len: Array.isArray((prunedIncoming as any).segmentPL) ? (prunedIncoming as any).segmentPL.length : null,
+      financePL_len: Array.isArray((prunedIncoming as any).financePL) ? (prunedIncoming as any).financePL.length : null,
+      keys: Object.keys(prunedIncoming || {}).slice(0, 80),
+    });
+
     // まずは汎用 DeepMerge
     let mergedState = deepMergePreserveNonEmpty(
       existingState,
       prunedIncoming,
     ) as StrategyData;
+
+    // ★ デバッグ：deepMerge 後（mergedState の内容確認）
+    console.log('[SAVE merged]', {
+      financeBS_len: Array.isArray((mergedState as any).financeBS) ? (mergedState as any).financeBS.length : null,
+      segmentBS_len: Array.isArray((mergedState as any).segmentBS) ? (mergedState as any).segmentBS.length : null,
+      segmentPL_len: Array.isArray((mergedState as any).segmentPL) ? (mergedState as any).segmentPL.length : null,
+      financePL_len: Array.isArray((mergedState as any).financePL) ? (mergedState as any).financePL.length : null,
+    });
 
     // ★ departments だけは「payload 側を常に真実」として上書きする
     if (Array.isArray((payload as any).departments)) {
@@ -726,12 +842,36 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
     // UPDATE（company_id + 楽観ロック：revision）
     // ===============================
     if (existingRow) {
+      // ★ 修正：financeBS/segmentPL/segmentBS/hqAdjustment* を csv_finance_data に格納
+      // financePL は finance_pl に格納（既存カラム）
+      // 既存 csv_finance_data を保持しつつ、新しい値でマージ
+      const existingCsv = (existingState as any)?.csvFinanceData || {};
+      const nextCsv = {
+        ...existingCsv,
+        financeBS: (mergedState as any).financeBS,
+        segmentPL: (mergedState as any).segmentPL,
+        segmentBS: (mergedState as any).segmentBS,
+        hqAdjustmentPL: (mergedState as any).hqAdjustmentPL,
+        hqAdjustmentBS: (mergedState as any).hqAdjustmentBS,
+      };
+
       const updatePayload: any = {
-        ...baseRow,
+        finance_pl: (mergedState as any).financePL,
+        csv_finance_data: nextCsv,
         user_id: userId,
         company_id: cleanCompanyId,
         updated_at: now,
       };
+
+      console.log('[SAVE update payload]', {
+        finance_pl_len: Array.isArray((updatePayload.finance_pl as any))
+          ? (updatePayload.finance_pl as any).length
+          : null,
+        financeBS_in_csv: Array.isArray((updatePayload.csv_finance_data as any)?.financeBS)
+          ? (updatePayload.csv_finance_data as any).financeBS.length
+          : null,
+        segmentBS_keys_in_csv: Object.keys((updatePayload.csv_finance_data as any)?.segmentBS || {}).length,
+      });
 
       // ★ 楽観ロック：revision カラムがある場合
       //   - expectedRev は「引数で渡された revision」優先、無ければ currentRev
@@ -750,8 +890,8 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         updateQuery = updateQuery.eq('revision', expectedRev);
       }
 
-      // ★ 返却行は object（maybeSingle）で受ける。revision を明示して返させる。
-      const upd = await updateQuery.select('*,revision').maybeSingle();
+      // ★ 修正：SELECT 句で finance_pl と csv_finance_data を返す
+      const upd = await updateQuery.select('revision, finance_pl, csv_finance_data').maybeSingle();
 
       if (upd.error) {
         console.error(
@@ -759,6 +899,20 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
           extractErrorVerbose(upd.error),
         );
         return { data: null, error: extractErrorVerbose(upd.error) };
+      }
+
+      // ★ 修正：Supabase UPDATE 戻り値の csv_finance_data と finance_pl 確認
+      if (upd.data) {
+        const returnedCsv = upd.data?.csv_finance_data ?? {};
+        const returnedFinancePl = upd.data?.finance_pl ?? [];
+        console.log('[SAVE returned UPDATE financial data]', {
+          csv_finance_data_keys: Object.keys(returnedCsv).slice(0, 40),
+          financeBS_len: Array.isArray((returnedCsv as any).financeBS) ? (returnedCsv as any).financeBS.length : null,
+          financePL_len: Array.isArray(returnedFinancePl) ? returnedFinancePl.length : null,
+          segmentBS_keys: Object.keys((returnedCsv as any).segmentBS || {}).length,
+          segmentPL_keys: Object.keys((returnedCsv as any).segmentPL || {}).length,
+          hqAdjustmentPL_len: Array.isArray((returnedCsv as any).hqAdjustmentPL) ? (returnedCsv as any).hqAdjustmentPL.length : null,
+        });
       }
 
       // ★ 楽観ロック衝突検知：UPDATE結果が0件（data が null）なら衝突
@@ -814,17 +968,13 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         '[StrategyData] ✅ strategy_data update ok:',
         'revision=',
         stateAfter.revision,
+        'financeBS=',
+        Array.isArray((stateAfter as any).financeBS)
+          ? (stateAfter as any).financeBS.length
+          : 'no-field',
         'departmentsLen=',
         Array.isArray((stateAfter as any).departments)
           ? (stateAfter as any).departments.length
-          : 'no-field',
-        'businessSegmentsLen=',
-        Array.isArray((stateAfter as any).businessSegments)
-          ? (stateAfter as any).businessSegments.length
-          : 'no-field',
-        'finalStoryLen=',
-        Array.isArray((stateAfter as any).finalStory)
-          ? (stateAfter as any).finalStory.length
           : 'no-field',
       );
       return { data: stateAfter, error: null };
@@ -838,8 +988,19 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       return { data: null, error: null };
     }
 
+    // ★ 修正：financeBS/segmentPL/segmentBS/hqAdjustment* を csv_finance_data に格納
+    // financePL は finance_pl に格納（既存カラム）
+    const insertCsv = {
+      financeBS: (mergedState as any).financeBS,
+      segmentPL: (mergedState as any).segmentPL,
+      segmentBS: (mergedState as any).segmentBS,
+      hqAdjustmentPL: (mergedState as any).hqAdjustmentPL,
+      hqAdjustmentBS: (mergedState as any).hqAdjustmentBS,
+    };
+
     const insertPayload: any = {
-      ...baseRow,
+      finance_pl: (mergedState as any).financePL,
+      csv_finance_data: insertCsv,
       user_id: userId,
       company_id: cleanCompanyId,
       updated_at: now,
@@ -847,14 +1008,39 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       // revision は DB default に任せる（0 等）
     };
 
+    console.log('[SAVE insert payload]', {
+      finance_pl_len: Array.isArray((insertPayload.finance_pl as any))
+        ? (insertPayload.finance_pl as any).length
+        : null,
+      financeBS_in_csv: Array.isArray((insertPayload.csv_finance_data as any)?.financeBS)
+        ? (insertPayload.csv_finance_data as any).financeBS.length
+        : null,
+      segmentBS_keys_in_csv: Object.keys((insertPayload.csv_finance_data as any)?.segmentBS || {}).length,
+    });
+
+    // ★ 修正：SELECT 句で finance_pl と csv_finance_data を返す
     const ins = await supabase
       .from(T_STRATEGY)
       .insert(insertPayload)
-      .select('*,revision')
+      .select('revision, finance_pl, csv_finance_data')
       .single();
 
     if (ins.error) {
       return { data: null, error: extractErrorVerbose(ins.error) };
+    }
+
+    // ★ 修正：Supabase INSERT 戻り値の csv_finance_data と finance_pl 確認
+    if (ins.data) {
+      const returnedCsv = ins.data?.csv_finance_data ?? {};
+      const returnedFinancePl = ins.data?.finance_pl ?? [];
+      console.log('[SAVE returned INSERT financial data]', {
+        csv_finance_data_keys: Object.keys(returnedCsv).slice(0, 40),
+        financeBS_len: Array.isArray((returnedCsv as any).financeBS) ? (returnedCsv as any).financeBS.length : null,
+        financePL_len: Array.isArray(returnedFinancePl) ? returnedFinancePl.length : null,
+        segmentBS_keys: Object.keys((returnedCsv as any).segmentBS || {}).length,
+        segmentPL_keys: Object.keys((returnedCsv as any).segmentPL || {}).length,
+        hqAdjustmentPL_len: Array.isArray((returnedCsv as any).hqAdjustmentPL) ? (returnedCsv as any).hqAdjustmentPL.length : null,
+      });
     }
 
     // ★ 挿入後にも「会社ストーリー answers2」がある時だけ保存（冪等）
@@ -875,17 +1061,13 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       '[StrategyData] ✅ strategy_data insert ok:',
       'revision=',
       stateAfter.revision,
+      'financeBS=',
+      Array.isArray((stateAfter as any).financeBS)
+        ? (stateAfter as any).financeBS.length
+        : 'no-field',
       'departmentsLen=',
       Array.isArray((stateAfter as any).departments)
         ? (stateAfter as any).departments.length
-        : 'no-field',
-      'businessSegmentsLen=',
-      Array.isArray((stateAfter as any).businessSegments)
-        ? (stateAfter as any).businessSegments.length
-        : 'no-field',
-      'finalStoryLen=',
-      Array.isArray((stateAfter as any).finalStory)
-        ? (stateAfter as any).finalStory.length
         : 'no-field',
     );
     return { data: stateAfter, error: null };
