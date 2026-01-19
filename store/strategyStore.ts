@@ -568,12 +568,12 @@ function extractServerDecidedPatch(
   if (resData.businessPortfolio && typeof resData.businessPortfolio === 'object')
     patch.businessPortfolio = resData.businessPortfolio;
 
-  // 会社基本情報も確実性重視で常に反映
-  if (typeof resData.companyName === 'string')
+  // 会社基本情報も確実性重視で常に反映（ただし empty string は除外してユーザー入力を保護）
+  if (typeof resData.companyName === 'string' && resData.companyName.trim() !== '')
     patch.companyName = resData.companyName;
-  if (typeof resData.industry === 'string')
+  if (typeof resData.industry === 'string' && resData.industry.trim() !== '')
     patch.industry = resData.industry;
-  if (typeof resData.revenue === 'string')
+  if (typeof resData.revenue === 'string' && resData.revenue.trim() !== '')
     patch.revenue = resData.revenue;
 
   /* ========== STAGE2: ストーリー・戦略候補 ========== */
