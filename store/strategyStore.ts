@@ -44,6 +44,7 @@ import {
 } from '@/utils/stageSnapshot';
 
 /* ===== 型定義（ローカル用：旧互換） ===== */
+const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
 export type AnswerStep = {
   stepNumber: number;
   question: string;
@@ -667,7 +668,7 @@ async function ensureParentExists(): Promise<void> {
     const userId = useUserStore.getState().user?.id;
     const companyId = s.companyId || s.pendingCompanyId || useUserStore.getState().companyId;
 
-    console.log('[strategyStore] ensureParentExists()', { userId, companyId });
+    if (DEBUG) console.log('[strategyStore] ensureParentExists()', { userId, companyId });
 
     if (!userId || !companyId) {
       console.warn('[strategyStore] ensureParentExists skipped: missing ids');
@@ -676,13 +677,13 @@ async function ensureParentExists(): Promise<void> {
 
     // ★最重要：revision が取れている／loaded の場合は親が存在している可能性が極めて高いので何もしない
     if (typeof s.revision === 'number' || s.loaded || s.hydrated) {
-      console.log('[strategyStore] ensureParentExists: parent likely exists (revision/loaded/hydrated), skip');
+      if (DEBUG) console.log('[strategyStore] ensureParentExists: parent likely exists (revision/loaded/hydrated), skip');
       return;
     }
 
     const payload = buildSavePayload(s);
     if (isEffectivelyEmpty(payload)) {
-      console.log('[strategyStore] ensureParentExists: payload effectively empty, skip');
+      if (DEBUG) console.log('[strategyStore] ensureParentExists: payload effectively empty, skip');
       return;
     }
 
@@ -1089,7 +1090,7 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
   // ★ DEBUG：patch生成直後のログ（プリミティブ値のみ）
   const patchFinancePLLen = Array.isArray(patch.financePL) ? patch.financePL.length : 0;
   const patchStage1IssuesLen = Array.isArray(patch.stage1Issues) ? patch.stage1Issues.length : 0;
-  console.log('[normalizeFromDbRow] patch生成 financePL_len:' + patchFinancePLLen + ' stage1Issues_len:' + patchStage1IssuesLen);
+  if (DEBUG) console.log('[normalizeFromDbRow] patch生成 financePL_len:' + patchFinancePLLen + ' stage1Issues_len:' + patchStage1IssuesLen);
 
   // undefined のフィールドを削除（merge で既存データを保護）
   let pruned = 0;
@@ -1101,12 +1102,12 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
   }
 
   if (pruned > 0) {
-    console.log('[normalizeFromDbRow] pruned_fields:' + pruned);
+    if (DEBUG) console.log('[normalizeFromDbRow] pruned_fields:' + pruned);
   }
 
   // ★ DEBUG：pruning後のログ
   const finalPatchFinancePLLen = Array.isArray(patch.financePL) ? patch.financePL.length : 0;
-  console.log('[normalizeFromDbRow] patch最終 financePL_len:' + finalPatchFinancePLLen + ' financePL_exists:' + ('financePL' in patch));
+  if (DEBUG) console.log('[normalizeFromDbRow] patch最終 financePL_len:' + finalPatchFinancePLLen + ' financePL_exists:' + ('financePL' in patch));
 
   return patch as Partial<StrategyState>;
 }
@@ -1119,7 +1120,7 @@ export const useStrategyStore = create<StrategyState>()(
 
       reset: () => set({ ...emptyData }),
       resetAll: () => {
-        console.log('[strategyStore] resetAll() called');
+        if (DEBUG) console.log('[strategyStore] resetAll() called');
         set({ ...emptyData });
       },
 
@@ -1309,7 +1310,7 @@ export const useStrategyStore = create<StrategyState>()(
         const s = get();
         // refetch/hydrating 中は dirty 保護のため計算しない
         if (s.__isFetchingFromServer || s.boot?.isHydrating) {
-          console.log('[strategyStore] recomputeValueAnalysis: skip while fetching/hydrating');
+          if (DEBUG) console.log('[strategyStore] recomputeValueAnalysis: skip while fetching/hydrating');
           return;
         }
 
@@ -1346,7 +1347,7 @@ export const useStrategyStore = create<StrategyState>()(
           source: source === 'refetchFromServer' ? 'server' : 'local',
         };
 
-        console.log('[strategyStore] recomputeValueAnalysis:', {
+        if (DEBUG) console.log('[strategyStore] recomputeValueAnalysis:', {
           source,
           hasNewFormat,
           newValueAnalysis,
@@ -1431,17 +1432,17 @@ export const useStrategyStore = create<StrategyState>()(
 
       // ▼ 部門セット後に即座に保存（※ ensureParentExists は呼ばない：二重保存を防ぐ）
       setDepartments: (deps: SafeDepartmentsArg) => {
-        console.log('[strategyStore] setDepartments() called', deps);
+        if (DEBUG) console.log('[strategyStore] setDepartments() called', deps);
         set((s) => ({
           departments: normalizeDepartmentsInput(deps, s.departments),
           dirty: true,
         }));
 
         (async () => {
-          console.log('[strategyStore] setDepartments() immediate-save start');
+          if (DEBUG) console.log('[strategyStore] setDepartments() immediate-save start');
           try {
             await get().saveStrategyData();
-            console.log('[strategyStore] setDepartments() immediate-save done');
+            if (DEBUG) console.log('[strategyStore] setDepartments() immediate-save done');
           } catch (e) {
             console.warn('[strategyStore] setDepartments immediate save failed:', e);
           }
@@ -1450,7 +1451,7 @@ export const useStrategyStore = create<StrategyState>()(
 
       // ▼ updateDepartments も同様
       updateDepartments: (updater) => {
-        console.log('[strategyStore] updateDepartments() called');
+        if (DEBUG) console.log('[strategyStore] updateDepartments() called');
         set((s) => {
           const prev = Array.isArray(s.departments) ? s.departments : [];
           const next = updater([...prev]);
@@ -1458,10 +1459,10 @@ export const useStrategyStore = create<StrategyState>()(
         });
 
         (async () => {
-          console.log('[strategyStore] updateDepartments() immediate-save start');
+          if (DEBUG) console.log('[strategyStore] updateDepartments() immediate-save start');
           try {
             await get().saveStrategyData();
-            console.log('[strategyStore] updateDepartments() immediate-save done');
+            if (DEBUG) console.log('[strategyStore] updateDepartments() immediate-save done');
           } catch (e) {
             console.warn('[strategyStore] updateDepartments immediate save failed:', e);
           }
@@ -1485,9 +1486,9 @@ export const useStrategyStore = create<StrategyState>()(
       },
 
       markLoaded: () => {
-        console.log('[strategyStore] markLoaded 実行');
+        if (DEBUG) console.log('[strategyStore] markLoaded 実行');
         set({ loaded: true, hydrated: true });
-        console.log('[strategyStore] markLoaded 完了', { loaded: get().loaded, hydrated: get().hydrated });
+        if (DEBUG) console.log('[strategyStore] markLoaded 完了', { loaded: get().loaded, hydrated: get().hydrated });
       },
       markDirty: () => set({ dirty: true }),
 
@@ -1500,14 +1501,14 @@ export const useStrategyStore = create<StrategyState>()(
 
           // refetch/hydrating中の保存は競合の温床なので抑止
           if (state0.__isFetchingFromServer || state0.boot?.isHydrating) {
-            console.log('[strategyStore] saveStrategyData: skip while fetching/hydrating');
+            if (DEBUG) console.log('[strategyStore] saveStrategyData: skip while fetching/hydrating');
             return;
           }
 
           const userId = useUserStore.getState().user?.id;
           const companyId = state0.companyId || state0.pendingCompanyId || useUserStore.getState().companyId;
 
-          console.log('[strategyStore] saveStrategyData() start', {
+          if (DEBUG) console.log('[strategyStore] saveStrategyData() start', {
             userId,
             companyId,
             revision: state0.revision,
@@ -1522,13 +1523,13 @@ export const useStrategyStore = create<StrategyState>()(
 
           // dirty=false なら何もしない
           if (!state0.dirty) {
-            console.log('[strategyStore] saveStrategyData: dirty=false, skip');
+            if (DEBUG) console.log('[strategyStore] saveStrategyData: dirty=false, skip');
             return;
           }
 
           // UI/他ロジック向けのガード（キュー化により“同時実行”は起きないが、見た目制御のため残す）
           if (state0._loadingSave) {
-            console.log('[strategyStore] saveStrategyData: already saving, skip (queued)');
+            if (DEBUG) console.log('[strategyStore] saveStrategyData: already saving, skip (queued)');
             return;
           }
 
@@ -1541,14 +1542,14 @@ export const useStrategyStore = create<StrategyState>()(
               const payload = buildSavePayload(state as StrategyState);
 
               if (isEffectivelyEmpty(payload)) {
-                console.log('[strategyStore] saveStrategyData: payload effectively empty, clear dirty');
+                if (DEBUG) console.log('[strategyStore] saveStrategyData: payload effectively empty, clear dirty');
                 set({ dirty: false });
                 return;
               }
 
               const currentHash = stableHash(payload);
               if (state.__lastSavedHash && state.__lastSavedHash === currentHash) {
-                console.log('[strategyStore] saveStrategyData: same hash, skip');
+                if (DEBUG) console.log('[strategyStore] saveStrategyData: same hash, skip');
                 set({ dirty: false });
                 return;
               }
@@ -1585,7 +1586,7 @@ export const useStrategyStore = create<StrategyState>()(
 
                   try {
                     await get().refetchFromServer();
-                    console.log('[strategyStore] ✅ Refetch completed after conflict. User changes preserved in dirty state.');
+                    if (DEBUG) console.log('[strategyStore] ✅ Refetch completed after conflict. User changes preserved in dirty state.');
                   } catch (refetchErr) {
                     console.error('[strategyStore] refetch after conflict failed:', refetchErr);
                     return;
@@ -1642,7 +1643,7 @@ export const useStrategyStore = create<StrategyState>()(
         set((s) => ({ ...s, boot: { ...s.boot, isHydrating: true } }));
 
         try {
-          console.log('[strategyStore] 🔍 getFullStrategyDataByCompany 呼び出し前', {
+          if (DEBUG) console.log('[strategyStore] 🔍 getFullStrategyDataByCompany 呼び出し前', {
             companyId,
             _loadingRefetch: get()._loadingRefetch,
           });
@@ -1667,7 +1668,7 @@ export const useStrategyStore = create<StrategyState>()(
             const csvFdFinanceBSLen = Array.isArray(csvFd?.financeBS) ? csvFd.financeBS.length : 0;
             const csvFdSegmentPLKeys = Object.keys(csvFd?.segmentPL || {}).length;
             const stage1IssuesLen = Array.isArray((data as any)?.stage1_issues) ? (data as any).stage1_issues.length : 0;
-            console.log('[getFullStrategyDataByCompany] revision:' + dbRevision + ' hasFinancePL:' + hasFinancePL + ' hasCsvFinanceData:' + hasCsvFinanceData + ' financeBS_len:' + csvFdFinanceBSLen + ' segmentPL_keys:' + csvFdSegmentPLKeys + ' stage1Issues_len:' + stage1IssuesLen);
+            if (DEBUG) console.log('[getFullStrategyDataByCompany] revision:' + dbRevision + ' hasFinancePL:' + hasFinancePL + ' hasCsvFinanceData:' + hasCsvFinanceData + ' financeBS_len:' + csvFdFinanceBSLen + ' segmentPL_keys:' + csvFdSegmentPLKeys + ' stage1Issues_len:' + stage1IssuesLen);
           } else {
             console.warn('[strategyStore] ⚠️ getFullStrategyDataByCompany: data と error 両方 null/undefined');
           }
@@ -1709,7 +1710,7 @@ export const useStrategyStore = create<StrategyState>()(
           }
 
           if (!data) {
-            console.log('[strategyStore] refetch returned 0 rows (RLS/not found) - no retry');
+            if (DEBUG) console.log('[strategyStore] refetch returned 0 rows (RLS/not found) - no retry');
             set((s) => ({
               ...s,
               boot: { isHydrating: true, isHydrated: false },
@@ -1724,7 +1725,7 @@ export const useStrategyStore = create<StrategyState>()(
           const patch = normalizeFromDbRow(data);
 
           // ★ デバッグ：refetchFromServer での normalize 結果確認
-          console.log('[strategyStore refetch] 📦 normalized patch', {
+          if (DEBUG) console.log('[strategyStore refetch] 📦 normalized patch', {
             financeBS_len: Array.isArray((patch as any).financeBS) ? (patch as any).financeBS.length : 0,
             segmentBS_keys: Object.keys((patch as any).segmentBS || {}).length,
             segmentPL_keys: Object.keys((patch as any).segmentPL || {}).length,
@@ -1769,7 +1770,7 @@ export const useStrategyStore = create<StrategyState>()(
             const rev = typeof patch.revision === 'number' ? patch.revision : after.revision ?? 0;
 
             // ★ デバッグ：dirty=true でも extractServerDecidedPatch で反映されたデータ確認
-            console.log('[strategyStore refetch] ✅ after extractServerDecidedPatch (wasDirty=true)', {
+            if (DEBUG) console.log('[strategyStore refetch] ✅ after extractServerDecidedPatch (wasDirty=true)', {
               financeBS_len: Array.isArray((after as any).financeBS) ? (after as any).financeBS.length : 0,
               segmentBS_keys: Object.keys((after as any).segmentBS || {}).length,
               segmentPL_keys: Object.keys((after as any).segmentPL || {}).length,
@@ -1812,7 +1813,7 @@ export const useStrategyStore = create<StrategyState>()(
             const after = get();
 
             // ★ デバッグ：dirty=false で full merge されたデータ確認
-            console.log('[strategyStore refetch] ✅ after full merge (wasDirty=false)', {
+            if (DEBUG) console.log('[strategyStore refetch] ✅ after full merge (wasDirty=false)', {
               financeBS_len: Array.isArray((after as any).financeBS) ? (after as any).financeBS.length : 0,
               segmentBS_keys: Object.keys((after as any).segmentBS || {}).length,
               segmentPL_keys: Object.keys((after as any).segmentPL || {}).length,
@@ -1884,7 +1885,7 @@ export const useStrategyStore = create<StrategyState>()(
 
       /** STAGE1 ダミーデータ投入（開発用） */
       loadStage1DummyData: () => {
-        console.log('[strategyStore] loadStage1DummyData() called');
+        if (DEBUG) console.log('[strategyStore] loadStage1DummyData() called');
 
         const { businessSegments, financePL, financeBS, segmentPL, segmentBS, pbrManual, stage1Issues } =
           stage1DummyDataBundle;
@@ -1905,7 +1906,7 @@ export const useStrategyStore = create<StrategyState>()(
         // 次の tick で recomputeValueAnalysis を呼ぶ
         setTimeout(() => {
           get().recomputeValueAnalysis('local');
-          console.log('[strategyStore] loadStage1DummyData() recompute done');
+          if (DEBUG) console.log('[strategyStore] loadStage1DummyData() recompute done');
           // ダミーデータ投入後もスナップショット保存
           get().saveStage1Snapshot();
         }, 0);
@@ -1920,7 +1921,7 @@ export const useStrategyStore = create<StrategyState>()(
         const companyId = s.companyId ?? s.pendingCompanyId ?? undefined;
 
         const result = saveStage1SnapshotToLocalStorage(issueBlocks, valueAnalysis, companyName, companyId ?? undefined);
-        console.log('[strategyStore] saveStage1Snapshot:', { result, issueBlocksCount: issueBlocks.length });
+        if (DEBUG) console.log('[strategyStore] saveStage1Snapshot:', { result, issueBlocksCount: issueBlocks.length });
         return result;
       },
 
@@ -1951,7 +1952,7 @@ export const useStrategyStore = create<StrategyState>()(
         };
         const companyId = s.companyId ?? s.pendingCompanyId ?? undefined;
         const result = saveStage2SnapshotToLocalStorage(state, companyId ?? undefined);
-        console.log('[strategyStore] saveStage2Snapshot:', { result, answers12Count: s.answers12?.length ?? 0 });
+        if (DEBUG) console.log('[strategyStore] saveStage2Snapshot:', { result, answers12Count: s.answers12?.length ?? 0 });
         return result;
       },
 
@@ -1959,7 +1960,7 @@ export const useStrategyStore = create<StrategyState>()(
       restoreStage1FromSnapshot: () => {
         const snapshot = loadStage1SnapshotFromLocalStorage();
         if (!snapshot || snapshot.issueBlocks.length === 0) {
-          console.log('[strategyStore] restoreStage1FromSnapshot: no valid snapshot');
+          if (DEBUG) console.log('[strategyStore] restoreStage1FromSnapshot: no valid snapshot');
           return false;
         }
 
@@ -1971,7 +1972,7 @@ export const useStrategyStore = create<StrategyState>()(
           dirty: true,
         }));
 
-        console.log('[strategyStore] restoreStage1FromSnapshot: restored', {
+        if (DEBUG) console.log('[strategyStore] restoreStage1FromSnapshot: restored', {
           issueBlocksCount: snapshot.issueBlocks.length,
         });
         return true;
