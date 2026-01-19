@@ -10,6 +10,8 @@ import { normalizeStrategyData } from './normalize';
 import { getMembership } from './membership';
 import type { StrategyData } from '@/types/strategy';
 
+const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
+
 /* ============================================================
  * テーブル名
  * ========================================================== */
@@ -370,7 +372,7 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const csvFdSegmentPLKeys = Object.keys(csvFinanceData.segmentPL || {}).length;
   const csvFdSegmentBSKeys = Object.keys(csvFinanceData.segmentBS || {}).length;
   const financePLLen = Array.isArray(out.financePL) ? out.financePL.length : 0;
-  console.log('[buildStateFromDbRow] raw_復元 issueBlocks:' + issueBlocksLen + ' csvFd:' + csvFdExists + ' financeBS:' + csvFdFinanceBSLen + ' segmentPL:' + csvFdSegmentPLKeys + ' segmentBS:' + csvFdSegmentBSKeys + ' financePL:' + financePLLen);
+  if (DEBUG) console.log('[buildStateFromDbRow] raw_復元 issueBlocks:' + issueBlocksLen + ' csvFd:' + csvFdExists + ' financeBS:' + csvFdFinanceBSLen + ' segmentPL:' + csvFdSegmentPLKeys + ' segmentBS:' + csvFdSegmentBSKeys + ' financePL:' + financePLLen);
 
   out.financeBS = ensureArray(csvFinanceData.financeBS);
   out.segmentPL = csvFinanceData.segmentPL; // Record<string, FinancePLRow[]>
@@ -402,7 +404,7 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const outCsvFdExists = !!out.csvFinanceData;
   const outSegmentPLKeys = Object.keys(out.segmentPL || {}).length;
   const outSegmentBSKeys = Object.keys(out.segmentBS || {}).length;
-  console.log('[buildStateFromDbRow] norm前 csvFd:' + outCsvFdExists + ' segmentPL:' + outSegmentPLKeys + ' segmentBS:' + outSegmentBSKeys);
+  if (DEBUG) console.log('[buildStateFromDbRow] norm前 csvFd:' + outCsvFdExists + ' segmentPL:' + outSegmentPLKeys + ' segmentBS:' + outSegmentBSKeys);
 
   const normalized = normalizeStrategyData(out) as StrategyData;
 
@@ -410,7 +412,7 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const normCsvFdExists = !!normalized.csvFinanceData;
   const normSegmentPLExists = !!normalized.segmentPL;
   const normSegmentBSExists = !!normalized.segmentBS;
-  console.log('[buildStateFromDbRow] norm後 csvFd:' + normCsvFdExists + ' segmentPL:' + normSegmentPLExists + ' segmentBS:' + normSegmentBSExists);
+  if (DEBUG) console.log('[buildStateFromDbRow] norm後 csvFd:' + normCsvFdExists + ' segmentPL:' + normSegmentPLExists + ' segmentBS:' + normSegmentBSExists);
 
   // revision（FIELD_MAPに含めない）
   const revision =
@@ -446,7 +448,7 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
 
     (normalized as any).departments = mergedDepartments;
 
-    console.log(
+    if (DEBUG) console.log(
       '[StrategyData] 🧩 restored okrsV2 from DB after normalize:',
       Array.isArray((normalized as any).departments)
         ? (normalized as any).departments.length
@@ -475,7 +477,7 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   }
 
   if (restoredCsvFd || restoredSegmentPL || restoredSegmentBS) {
-    console.log('[buildStateFromDbRow] restored csvFd:' + restoredCsvFd + ' segmentPL:' + restoredSegmentPL + ' segmentBS:' + restoredSegmentBS);
+    if (DEBUG) console.log('[buildStateFromDbRow] restored csvFd:' + restoredCsvFd + ' segmentPL:' + restoredSegmentPL + ' segmentBS:' + restoredSegmentBS);
   }
 
   return { ...normalized, revision };
@@ -568,7 +570,7 @@ function mergeDeptAnswersIntoDepartments(
 export async function getFullStrategyDataByCompany(
   companyId: string,
 ): Promise<ReadResult> {
-  console.log('[StrategyData] 📥 getFullStrategyDataByCompany start:', companyId);
+  if (DEBUG) console.log('[StrategyData] 📥 getFullStrategyDataByCompany start:', companyId);
   try {
     if (!isValidUUID(companyId)) {
       console.error('[StrategyData] ❌ invalid companyId:', companyId);
@@ -584,7 +586,7 @@ export async function getFullStrategyDataByCompany(
       .maybeSingle();
 
     // ★ C) 包括的なクエリ結果ログ（RLS/権限/0行を区別する）
-    console.log('[StrategyData] 📊 query result (baseRes)', {
+    if (DEBUG) console.log('[StrategyData] 📊 query result (baseRes)', {
       hasData: !!baseRes.data,
       hasError: !!baseRes.error,
       errorCode: baseRes.error?.code,
@@ -641,7 +643,7 @@ export async function getFullStrategyDataByCompany(
     const rawSegmentBSKeys = Object.keys((csvData as any).segmentBS || {}).length;
     const rawSegmentPLKeys = Object.keys((csvData as any).segmentPL || {}).length;
     const rawFinancePLLen = Array.isArray((financePl as any)) ? (financePl as any).length : 0;
-    console.log('[LOAD raw financial data] financePL_len:' + rawFinancePLLen + ' financeBS_len:' + rawFinanceBSLen + ' segmentPL_keys:' + rawSegmentPLKeys + ' segmentBS_keys:' + rawSegmentBSKeys);
+    if (DEBUG) console.log('[LOAD raw financial data] financePL_len:' + rawFinancePLLen + ' financeBS_len:' + rawFinanceBSLen + ' segmentPL_keys:' + rawSegmentPLKeys + ' segmentBS_keys:' + rawSegmentBSKeys);
 
     const state = buildStateFromDbRow(rowData);
 
@@ -681,7 +683,7 @@ export async function getFullStrategyDataByCompany(
     const normalizedFinancePLLen = Array.isArray((state as any).financePL) ? (state as any).financePL.length : 0;
     const normalizedIssueBlocksLen = Array.isArray((state as any).stage1Issues) ? (state as any).stage1Issues.length : 0;
     const normalizedCsvFinanceDataExists = !!(state as any).csvFinanceData;
-    console.log('[LOAD normalized] financePL_len:' + normalizedFinancePLLen + ' financeBS_len:' + normalizedFinanceBSLen + ' segmentPL_keys:' + normalizedSegmentPLKeys + ' segmentBS_keys:' + normalizedSegmentBSKeys + ' issueBlocks_len:' + normalizedIssueBlocksLen + ' csvFinanceData_exists:' + normalizedCsvFinanceDataExists);
+    if (DEBUG) console.log('[LOAD normalized] financePL_len:' + normalizedFinancePLLen + ' financeBS_len:' + normalizedFinanceBSLen + ' segmentPL_keys:' + normalizedSegmentPLKeys + ' segmentBS_keys:' + normalizedSegmentBSKeys + ' issueBlocks_len:' + normalizedIssueBlocksLen + ' csvFinanceData_exists:' + normalizedCsvFinanceDataExists);
 
     return { data: state, error: null };
   } catch (e) {
@@ -713,7 +715,7 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
     ? (payload as any).departments.length
     : 'no-field';
 
-  console.log(
+  if (DEBUG) console.log(
     '[StrategyData] 💾 saveStrategyData called.',
     'userId=',
     userId,
@@ -726,7 +728,7 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
   );
 
   // ★ デバッグ：payload 作成直後（pruneUndefinedDeep 前）
-  console.log('[SAVE payload raw]', {
+  if (DEBUG) console.log('[SAVE payload raw]', {
     financeBS_len: Array.isArray((payload as any).financeBS) ? (payload as any).financeBS.length : null,
     segmentBS_len: Array.isArray((payload as any).segmentBS) ? (payload as any).segmentBS.length : null,
     segmentPL_len: Array.isArray((payload as any).segmentPL) ? (payload as any).segmentPL.length : null,
@@ -762,7 +764,7 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
           ares.error,
         );
       } else {
-        console.log('[StrategyData] ✅ story answers2 upsert ok:', {
+        if (DEBUG) console.log('[StrategyData] ✅ story answers2 upsert ok:', {
           count: storyAnswersBundle.length,
         });
       }
@@ -795,7 +797,7 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
     const prunedIncoming: StrategyData = pruneUndefinedDeep(payload);
 
     // ★ デバッグ：prunedIncoming 作成後（pruneUndefinedDeep の後）
-    console.log('[SAVE payload pruned]', {
+    if (DEBUG) console.log('[SAVE payload pruned]', {
       financeBS_len: Array.isArray((prunedIncoming as any).financeBS) ? (prunedIncoming as any).financeBS.length : null,
       segmentBS_len: Array.isArray((prunedIncoming as any).segmentBS) ? (prunedIncoming as any).segmentBS.length : null,
       segmentPL_len: Array.isArray((prunedIncoming as any).segmentPL) ? (prunedIncoming as any).segmentPL.length : null,
@@ -810,7 +812,7 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
     ) as StrategyData;
 
     // ★ デバッグ：deepMerge 後（mergedState の内容確認）
-    console.log('[SAVE merged]', {
+    if (DEBUG) console.log('[SAVE merged]', {
       financeBS_len: Array.isArray((mergedState as any).financeBS) ? (mergedState as any).financeBS.length : null,
       segmentBS_len: Array.isArray((mergedState as any).segmentBS) ? (mergedState as any).segmentBS.length : null,
       segmentPL_len: Array.isArray((mergedState as any).segmentPL) ? (mergedState as any).segmentPL.length : null,
@@ -825,7 +827,7 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         departments: incomingDeps,
       } as StrategyData;
 
-      console.log(
+      if (DEBUG) console.log(
         '[StrategyData] 💾 saveStrategyData departments override:',
         'incomingLen=',
         incomingDeps.length,
@@ -867,7 +869,7 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         updated_at: now,
       };
 
-      console.log('[SAVE update payload]', {
+      if (DEBUG) console.log('[SAVE update payload]', {
         finance_pl_len: Array.isArray((updatePayload.finance_pl as any))
           ? (updatePayload.finance_pl as any).length
           : null,
@@ -909,7 +911,7 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       if (upd.data) {
         const returnedCsv = upd.data?.csv_finance_data ?? {};
         const returnedFinancePl = upd.data?.finance_pl ?? [];
-        console.log('[SAVE returned UPDATE financial data]', {
+        if (DEBUG) console.log('[SAVE returned UPDATE financial data]', {
           csv_finance_data_keys: Object.keys(returnedCsv).slice(0, 40),
           financeBS_len: Array.isArray((returnedCsv as any).financeBS) ? (returnedCsv as any).financeBS.length : null,
           financePL_len: Array.isArray(returnedFinancePl) ? returnedFinancePl.length : null,
@@ -968,7 +970,7 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       }
 
       const stateAfter = buildStateFromDbRow(upd.data ?? {});
-      console.log(
+      if (DEBUG) console.log(
         '[StrategyData] ✅ strategy_data update ok:',
         'revision=',
         stateAfter.revision,
@@ -988,7 +990,7 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
     // INSERT（まだ行が無い場合）
     // ===============================
     if (opts?.mode === 'updateOnly') {
-      console.log('[StrategyData] updateOnly mode → skip insert (no existing row).');
+      if (DEBUG) console.log('[StrategyData] updateOnly mode → skip insert (no existing row).');
       return { data: null, error: null };
     }
 
@@ -1012,7 +1014,7 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       // revision は DB default に任せる（0 等）
     };
 
-    console.log('[SAVE insert payload]', {
+    if (DEBUG) console.log('[SAVE insert payload]', {
       finance_pl_len: Array.isArray((insertPayload.finance_pl as any))
         ? (insertPayload.finance_pl as any).length
         : null,
@@ -1037,7 +1039,7 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
     if (ins.data) {
       const returnedCsv = ins.data?.csv_finance_data ?? {};
       const returnedFinancePl = ins.data?.finance_pl ?? [];
-      console.log('[SAVE returned INSERT financial data]', {
+      if (DEBUG) console.log('[SAVE returned INSERT financial data]', {
         csv_finance_data_keys: Object.keys(returnedCsv).slice(0, 40),
         financeBS_len: Array.isArray((returnedCsv as any).financeBS) ? (returnedCsv as any).financeBS.length : null,
         financePL_len: Array.isArray(returnedFinancePl) ? returnedFinancePl.length : null,
@@ -1061,7 +1063,7 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
     }
 
     const stateAfter = buildStateFromDbRow(ins.data ?? {});
-    console.log(
+    if (DEBUG) console.log(
       '[StrategyData] ✅ strategy_data insert ok:',
       'revision=',
       stateAfter.revision,
@@ -1087,7 +1089,7 @@ export async function deleteStrategyData(
   userId: string,
   companyIdOverride?: string | null,
 ): Promise<WriteResult> {
-  console.log(
+  if (DEBUG) console.log(
     '[StrategyData] 🗑 deleteStrategyData called for',
     userId,
     companyIdOverride ?? '(cookie/membership)',
@@ -1132,7 +1134,7 @@ export async function deleteStrategyData(
     const del = await supabase.from(T_STRATEGY).delete().eq('company_id', companyId);
     if (del.error) return { error: extractErrorVerbose(del.error) };
 
-    console.log('[StrategyData] ✅ delete success for companyId:', companyId);
+    if (DEBUG) console.log('[StrategyData] ✅ delete success for companyId:', companyId);
     return { error: null };
   } catch (error) {
     return { error: extractErrorVerbose(error) };
@@ -1171,7 +1173,7 @@ export async function deleteAllCompanyData(
     console.warn('[deleteAllCompanyData] some tables failed to delete', errors);
     return { ok: false, errors };
   }
-  console.log('[deleteAllCompanyData] ✅ wiped for company_id=', companyId);
+  if (DEBUG) console.log('[deleteAllCompanyData] ✅ wiped for company_id=', companyId);
   return { ok: true };
 }
 
@@ -1189,7 +1191,7 @@ export async function purgeLegacyTables(
       if (res.error && res.error.code !== 'PGRST116') {
         console.warn(`[LegacyPurge] ${t} delete warn:`, extractErrorVerbose(res.error));
       } else {
-        console.log(`[LegacyPurge] ${t} deleted for company_id=${companyId}`);
+        if (DEBUG) console.log(`[LegacyPurge] ${t} deleted for company_id=${companyId}`);
       }
     } catch (e) {
       console.warn(`[LegacyPurge] ${t} fatal:',`, extractErrorVerbose(e));
@@ -1215,7 +1217,7 @@ export async function appendSimulationResultToStrategy(
   companyIdOverride?: string | null,
   opts?: { title?: string; scenarioId?: string; maxKeep?: number },
 ): Promise<WriteResult> {
-  console.log('[StrategyData] 📊 appendSimulationResultToStrategy called:', { userId, payload });
+  if (DEBUG) console.log('[StrategyData] 📊 appendSimulationResultToStrategy called:', { userId, payload });
   try {
     const companyId = await resolveCompanyId(userId, companyIdOverride);
     const current = await getFullStrategyDataByCompany(companyId);
