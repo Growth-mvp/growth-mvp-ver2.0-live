@@ -212,6 +212,84 @@ async function runSmokeTest() {
   console.log('  → 既存のユーザー入力データは上書きされません');
   console.log('');
 
+  console.log('【ステップ6】多様性チェック（全プロジェクト同一問題の検証）...');
+
+  // 全プロジェクトの executionSkills を収集
+  const allExecutionSkills = [];
+  const allHumanInvestmentTitles = [];
+
+  for (const dept of data.departments) {
+    if (dept.lanes?.existing?.projects) {
+      for (const project of dept.lanes.existing.projects) {
+        if (project.skillRequirements?.executionSkills) {
+          allExecutionSkills.push(JSON.stringify(project.skillRequirements.executionSkills.sort()));
+        }
+        if (project.humanInvestments) {
+          allHumanInvestmentTitles.push(JSON.stringify(project.humanInvestments.map(inv => inv.title).sort()));
+        }
+      }
+    }
+    if (dept.lanes?.new?.projects) {
+      for (const project of dept.lanes.new.projects) {
+        if (project.skillRequirements?.executionSkills) {
+          allExecutionSkills.push(JSON.stringify(project.skillRequirements.executionSkills.sort()));
+        }
+        if (project.humanInvestments) {
+          allHumanInvestmentTitles.push(JSON.stringify(project.humanInvestments.map(inv => inv.title).sort()));
+        }
+      }
+    }
+  }
+
+  // executionSkills の同一率を計算
+  if (allExecutionSkills.length >= 2) {
+    const skillCounts = {};
+    for (const skillSet of allExecutionSkills) {
+      skillCounts[skillSet] = (skillCounts[skillSet] || 0) + 1;
+    }
+
+    const maxCount = Math.max(...Object.values(skillCounts));
+    const identicalRate = maxCount / allExecutionSkills.length;
+
+    console.log(`executionSkills 多様性:`);
+    console.log(`  - 総プロジェクト数: ${allExecutionSkills.length}`);
+    console.log(`  - ユニークなスキルセット数: ${Object.keys(skillCounts).length}`);
+    console.log(`  - 最頻出スキルセット: ${maxCount}回 (${(identicalRate * 100).toFixed(1)}%)`);
+
+    if (identicalRate > 0.9) {
+      console.error(`  ❌ executionSkills の同一率が90%を超えています (${(identicalRate * 100).toFixed(1)}%)`);
+      console.error(`  → プロジェクト間で多様性が不足しています`);
+      process.exit(1);
+    } else {
+      console.log(`  ✓ executionSkills に十分な多様性があります (同一率: ${(identicalRate * 100).toFixed(1)}%)`);
+    }
+  }
+
+  // humanInvestments の同一率を計算
+  if (allHumanInvestmentTitles.length >= 2) {
+    const investmentCounts = {};
+    for (const investmentSet of allHumanInvestmentTitles) {
+      investmentCounts[investmentSet] = (investmentCounts[investmentSet] || 0) + 1;
+    }
+
+    const maxCount = Math.max(...Object.values(investmentCounts));
+    const identicalRate = maxCount / allHumanInvestmentTitles.length;
+
+    console.log(`humanInvestments 多様性:`);
+    console.log(`  - 総プロジェクト数: ${allHumanInvestmentTitles.length}`);
+    console.log(`  - ユニークな施策セット数: ${Object.keys(investmentCounts).length}`);
+    console.log(`  - 最頻出施策セット: ${maxCount}回 (${(identicalRate * 100).toFixed(1)}%)`);
+
+    if (identicalRate > 0.9) {
+      console.error(`  ❌ humanInvestments の同一率が90%を超えています (${(identicalRate * 100).toFixed(1)}%)`);
+      console.error(`  → プロジェクト間で多様性が不足しています`);
+      process.exit(1);
+    } else {
+      console.log(`  ✓ humanInvestments に十分な多様性があります (同一率: ${(identicalRate * 100).toFixed(1)}%)`);
+    }
+  }
+  console.log('');
+
   console.log('='.repeat(60));
   console.log('✅ 全ての検証に成功しました！');
   console.log('='.repeat(60));
@@ -221,6 +299,7 @@ async function runSmokeTest() {
   console.log('  2. 全プロジェクトに skillRequirements.executionSkills が存在する');
   console.log('  3. 全プロジェクトに humanInvestments が存在する');
   console.log('  4. フォールバックは既存データを上書きしない実装になっている');
+  console.log('  5. プロジェクト間で十分な多様性が確保されている（同一率<90%）');
 }
 
 // 実行
