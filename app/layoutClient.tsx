@@ -385,8 +385,19 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 
     refetchRanForCompany.current = companyId;
 
-    requestAnimationFrame(() => {
+    requestAnimationFrame(async () => {
       try {
+        // ★ B) ブラウザのログインユーザーID確認（最重要）
+        const { data: authData, error: authErr } = await supabase.auth.getUser();
+        const actualUserId = authData?.user?.id ?? 'unknown';
+        const storeUserId = useUserStore.getState().user?.id ?? 'unknown';
+        console.log('[auth] login user verification', {
+          actualUserId,
+          storeUserId,
+          match: actualUserId === storeUserId,
+          companyId,
+        });
+
         useStrategyStore.getState().refetchFromServer();
       } catch (e) {
         console.warn('[layout] refetchFromServer failed:', e);
