@@ -61,7 +61,18 @@ import {
 const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
 
 export default function Stage6Page() {
-  const strategyState: any = useStrategyStore();
+  // ★ 修正：入力源を selector で明確に取得（参照の安定性を確保）
+  const companyName = useStrategyStore((s) => s.companyName ?? '会社名未設定');
+  const departments = useStrategyStore((s) =>
+    Array.isArray(s.departments) ? s.departments : [],
+  ) as Department[];
+  const financePL = useStrategyStore((s) =>
+    Array.isArray(s.financePL) ? s.financePL : [],
+  );
+  const csvFinanceData = useStrategyStore((s) =>
+    s.csvFinanceData ?? {}
+  );
+  const revision = useStrategyStore((s) => s.revision);
 
   const {
     companyId: scopeCompanyId,
@@ -75,8 +86,8 @@ export default function Stage6Page() {
   const accessCompanyId: string | undefined = useMemo(
     () =>
       ((access as any)?.companyId ??
-        (strategyState?.companyId as string | undefined)) as string | undefined,
-    [(access as any)?.companyId, strategyState?.companyId],
+        (scopeCompanyId as string | undefined)) as string | undefined,
+    [(access as any)?.companyId, scopeCompanyId],
   );
 
   /* -------- 会社スコープ確立（cascade と同じパターン） -------- */
@@ -245,8 +256,19 @@ export default function Stage6Page() {
    * ① データ抽出（Approved PJ / KR集約 / baseline / 全体シナリオ）
    * ======================================================= */
 
+  // ★ 修正：診断ログ（Store から入力が正しく取得できているか確認）
+  if (DEBUG && hydrated) {
+    console.log('[STAGE6] 📊 input sources after hydrate', {
+      hydrated,
+      financePL_len: Array.isArray(financePL) ? financePL.length : 0,
+      departments_len: Array.isArray(departments) ? departments.length : 0,
+      csvFinanceData_exists: !!csvFinanceData && typeof csvFinanceData === 'object',
+      revision,
+    });
+  }
+
   const core = useMemo(() => {
-    if (!hydrated || isHydrating || !strategyState) {
+    if (!hydrated || isHydrating) {
       return {
         ready: false,
         companyName: '会社名未設定',
@@ -262,10 +284,7 @@ export default function Stage6Page() {
       };
     }
 
-    const companyName = strategyState?.companyName ?? '会社名未設定';
-    const depts = Array.isArray(strategyState?.departments)
-      ? strategyState.departments
-      : [];
+    const depts = departments ?? [];
 
     // Approved PJと、PJ→KR を作る
     const approved: ApprovedProject[] = [];
@@ -344,8 +363,8 @@ export default function Stage6Page() {
       });
     });
 
-    // ベースライン
-    const baseTraj = mkBaselineTrajectory(strategyState);
+    // ★ 修正：baseTraj を構築する際の入力値を explicit に渡す
+    const baseTraj = mkBaselineTrajectory({ financePL } as any);
     if (!baseTraj) {
       return {
         ready: false,
@@ -359,7 +378,7 @@ export default function Stage6Page() {
       };
     }
 
-    const baseFigures = mkBaseFigures(strategyState);
+    const baseFigures = mkBaseFigures({ financePL } as any);
 
     // Baseline（影響なし）
     const baselineYearly = calcYearlyFromKrs({
@@ -410,7 +429,7 @@ export default function Stage6Page() {
       baselineYearly,
       yearlyAll,
     };
-  }, [hydrated, isHydrating, strategyState]);
+  }, [hydrated, isHydrating, financePL, departments, companyName, revision]);
 
   // 初期：Approvedがあるなら「全選択」にする
   useEffect(() => {
@@ -433,11 +452,12 @@ export default function Stage6Page() {
       >;
     }
 
-    const baseTraj = mkBaselineTrajectory(strategyState);
+    // ★ 修正：explicit に financePL を渡す
+    const baseTraj = mkBaselineTrajectory({ financePL } as any);
     if (!baseTraj) {
       return { low: [], base: [], high: [] };
     }
-    const baseFigures = mkBaseFigures(strategyState);
+    const baseFigures = mkBaseFigures({ financePL } as any);
 
     const selectedSet = new Set(selectedProjectKeys);
 
@@ -473,7 +493,7 @@ export default function Stage6Page() {
         scenario: scenarios.high,
       }),
     };
-  }, [core.ready, core.projectKrsMap, selectedProjectKeys, strategyState]);
+  }, [core.ready, core.projectKrsMap, selectedProjectKeys, financePL, revision]);
 
   /* =========================================================
    * ③ PJ別寄与（単独ON差分）
@@ -482,9 +502,10 @@ export default function Stage6Page() {
   const projectContrib = useMemo(() => {
     if (!core.ready) return [] as ProjectContribution[];
 
-    const baseTraj = mkBaselineTrajectory(strategyState);
+    // ★ 修正：explicit に financePL を渡す
+    const baseTraj = mkBaselineTrajectory({ financePL } as any);
     if (!baseTraj) return [];
-    const baseFigures = mkBaseFigures(strategyState);
+    const baseFigures = mkBaseFigures({ financePL } as any);
 
     const baseline = core.baselineYearly;
     const baseScenario = { successRate: 0.8, synergyRate: 0.0 };
@@ -520,7 +541,8 @@ export default function Stage6Page() {
     core.approved,
     core.projectKrsMap,
     core.baselineYearly,
-    strategyState,
+    financePL,
+    revision,
   ]);
 
   /* =========================================================
@@ -637,19 +659,17 @@ export default function Stage6Page() {
    * ======================================================= */
 
   const diagnostics = useMemo(() => {
-    const financeSummaryCount = Array.isArray(strategyState?.financeSummary)
-      ? strategyState.financeSummary.length
-      : 0;
-    const departmentCount = Array.isArray(strategyState?.departments)
-      ? strategyState.departments.length
+    // ★ 修正：selector で取得した値を使用
+    const departmentCount = Array.isArray(departments)
+      ? departments.length
       : 0;
 
     let projectTotal = 0;
     let okrTotal = 0;
     let structuredKrTotal = 0;
 
-    if (Array.isArray(strategyState?.departments)) {
-      strategyState.departments.forEach((dept: any) => {
+    if (Array.isArray(departments)) {
+      departments.forEach((dept: any) => {
         const projects = Array.isArray(dept?.projects) ? dept.projects : [];
         projectTotal += projects.length;
 
@@ -666,21 +686,21 @@ export default function Stage6Page() {
       });
     }
 
-    const financePLCount = Array.isArray(strategyState?.financePL)
-      ? strategyState.financePL.length
+    const financePLCount = Array.isArray(financePL)
+      ? financePL.length
       : 0;
     const hasPL = financePLCount > 0;
 
     return {
-      financeSummaryCount,
       departmentCount,
       projectTotal,
       okrTotal,
       structuredKrTotal,
       financePLCount,
       hasPL,
+      revision,
     };
-  }, [strategyState]);
+  }, [departments, financePL, revision]);
 
   /* =========================================================
    * CONDITIONAL RENDERING
@@ -718,13 +738,7 @@ export default function Stage6Page() {
           <div className="mb-3 text-xs font-semibold text-blue-900">
             📊 データロード状態（開発用診断）
           </div>
-          <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7">
-            <div className="rounded bg-white px-2 py-1">
-              <div className="font-medium text-blue-600">financeSummary</div>
-              <div className="font-bold text-blue-900">
-                {diagnostics.financeSummaryCount}
-              </div>
-            </div>
+          <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8">
             <div className="rounded bg-white px-2 py-1">
               <div className="font-medium text-blue-600">部門</div>
               <div className="font-bold text-blue-900">
@@ -758,6 +772,12 @@ export default function Stage6Page() {
               </div>
             </div>
             <div className="rounded bg-white px-2 py-1">
+              <div className="font-medium text-blue-600">Revision</div>
+              <div className="font-bold text-blue-900">
+                {diagnostics.revision ?? '-'}
+              </div>
+            </div>
+            <div className="rounded bg-white px-2 py-1">
               <div className="font-medium text-blue-600">Hydrated</div>
               <div
                 className={`font-bold ${
@@ -767,10 +787,25 @@ export default function Stage6Page() {
                 {hydrated ? 'Yes' : 'No'}
               </div>
             </div>
+            <div className="rounded bg-white px-2 py-1">
+              <div className="font-medium text-blue-600">Ready</div>
+              <div
+                className={`font-bold ${
+                  core.ready ? 'text-green-700' : 'text-red-700'
+                }`}
+              >
+                {core.ready ? 'Yes' : 'No'}
+              </div>
+            </div>
           </div>
           {!diagnostics.hasPL && (
             <div className="mt-2 rounded border-l-2 border-amber-400 bg-white px-2 py-1 text-xs text-blue-800">
               ⚠️ <strong>Warning:</strong> financePL がロードされていません。STAGE1で財務データを入力してください。フォールバックベースラインで表示を継続します。
+            </div>
+          )}
+          {DEBUG && hydrated && (
+            <div className="mt-2 rounded border-l-2 border-blue-400 bg-white px-2 py-1 text-xs text-blue-800">
+              💡 <strong>入力源確認：</strong> selector で financePL/departments/revision を明確取得しています。Store 更新時に再計算が実行されます。
             </div>
           )}
         </div>
