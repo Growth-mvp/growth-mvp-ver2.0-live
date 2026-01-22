@@ -237,9 +237,7 @@ export default function Stage6Page() {
       !hydrated) ??
     false;
 
-  const departments = useStrategyStore(
-    (st) => ((st.departments as Department[] | undefined) ?? []) as Department[],
-  );
+  // ★ departments は既に Line 66 で selector で取得済み
   useAutoSave(!isHydrating ? [accessCompanyId, departments] : []);
 
   /* -------- UI State -------- */
@@ -601,8 +599,7 @@ export default function Stage6Page() {
    * UI helpers
    * ======================================================= */
 
-  const companyName = core.companyName;
-
+  // ★ companyName は既に Line 65 で selector で取得済み
   const approvedFiltered = useMemo(() => {
     if (!core.ready) return [] as ApprovedProject[];
 
