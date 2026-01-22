@@ -34,6 +34,38 @@ function generateYears(latestYear: number, count: number = 5): number[] {
   return Array.from({ length: count }, (_, i) => latestYear - count + 1 + i);
 }
 
+/**
+ * 事業部名の強力な正規化
+ * - Unicode NFKC（全角英数・記号を半角に寄せる等）
+ * - 全角スペース→半角スペース
+ * - ゼロ幅/不可視制御文字を除去
+ * - 連続空白を1つに縮約
+ */
+function normSegName(v: unknown): string {
+  const raw = String(v ?? '');
+  return raw
+    .normalize('NFKC')
+    .replace(/\u3000/g, ' ')
+    // zero-width / BOM / other invisibles
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    // control chars (except TAB/CR/LF)
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** normalizedName -> originalKey */
+function buildKeyMap(obj: Record<string, any> | undefined | null): Map<string, string> {
+  const m = new Map<string, string>();
+  if (!obj) return m;
+  for (const k of Object.keys(obj)) {
+    const nk = normSegName(k);
+    if (!nk) continue;
+    if (!m.has(nk)) m.set(nk, k);
+  }
+  return m;
+}
+
 /* =========================================================
  * アコーディオン
  * ========================================================= */
@@ -112,10 +144,7 @@ function CompanyPLTable({
   const handleChange = useCallback(
     (year: number, field: PLFieldKey, value: string) => {
       const existingRow = dataMap.get(year) ?? { year };
-      const updatedRow: FinancePLRow = {
-        ...existingRow,
-        [field]: toNum(value),
-      };
+      const updatedRow: FinancePLRow = { ...existingRow, [field]: toNum(value) };
       const newData = data.filter((r) => r.year !== year);
       newData.push(updatedRow);
       newData.sort((a, b) => a.year - b.year);
@@ -204,10 +233,7 @@ function CompanyBSTable({
   const handleChange = useCallback(
     (year: number, field: BSFieldKey, value: string) => {
       const existingRow = dataMap.get(year) ?? { year };
-      const updatedRow: FinanceBSRow = {
-        ...existingRow,
-        [field]: toNum(value),
-      };
+      const updatedRow: FinanceBSRow = { ...existingRow, [field]: toNum(value) };
       const newData = data.filter((r) => r.year !== year);
       newData.push(updatedRow);
       newData.sort((a, b) => a.year - b.year);
@@ -216,24 +242,17 @@ function CompanyBSTable({
     [data, dataMap, onChange]
   );
 
-  // 投下資本を自動計算して表示
   const computedIC = useMemo(() => {
     const map = new Map<number, number | undefined>();
     years.forEach((y) => {
       const row = dataMap.get(y);
-      if (!row) {
-        map.set(y, undefined);
-        return;
-      }
+      if (!row) return map.set(y, undefined);
       const ar = row.ar ?? 0;
       const inventory = row.inventory ?? 0;
       const ap = row.ap ?? 0;
       const fixedAssets = row.fixedAssets ?? 0;
-      if (ar || inventory || fixedAssets) {
-        map.set(y, ar + inventory - ap + fixedAssets);
-      } else {
-        map.set(y, undefined);
-      }
+      if (ar || inventory || fixedAssets) map.set(y, ar + inventory - ap + fixedAssets);
+      else map.set(y, undefined);
     });
     return map;
   }, [years, dataMap]);
@@ -277,11 +296,8 @@ function CompanyBSTable({
               })}
             </tr>
           ))}
-          {/* 投下資本（自動計算） */}
           <tr className="border-t border-gray-200 bg-blue-50">
-            <td className="px-3 py-2 text-gray-700 font-medium sticky left-0 bg-blue-50">
-              投下資本（自動計算）
-            </td>
+            <td className="px-3 py-2 text-gray-700 font-medium sticky left-0 bg-blue-50">投下資本（自動計算）</td>
             {years.map((y) => (
               <td key={y} className="px-3 py-2 text-right text-gray-700">
                 {computedIC.get(y) !== undefined ? formatNum(computedIC.get(y)) : '—'}
@@ -290,9 +306,7 @@ function CompanyBSTable({
           </tr>
         </tbody>
       </table>
-      <p className="text-xs text-gray-500 mt-2">
-        投下資本 = 売掛金 + 棚卸資産 - 買掛金 + 固定資産
-      </p>
+      <p className="text-xs text-gray-500 mt-2">投下資本 = 売掛金 + 棚卸資産 - 買掛金 + 固定資産</p>
     </div>
   );
 }
@@ -307,7 +321,6 @@ const SEGMENT_PL_FIELDS = [
 ] as const;
 
 function SegmentPLTable({
-  segmentName,
   years,
   data,
   onChange,
@@ -326,10 +339,7 @@ function SegmentPLTable({
   const handleChange = useCallback(
     (year: number, field: string, value: string) => {
       const existingRow = dataMap.get(year) ?? { year };
-      const updatedRow: FinancePLRow = {
-        ...existingRow,
-        [field]: toNum(value),
-      };
+      const updatedRow: FinancePLRow = { ...existingRow, [field]: toNum(value) };
       const newData = data.filter((r) => r.year !== year);
       newData.push(updatedRow);
       newData.sort((a, b) => a.year - b.year);
@@ -385,7 +395,6 @@ function SegmentPLTable({
 type EstimationMethod = 'manual' | 'revenueRatio' | 'dso';
 
 function SegmentBSTable({
-  segmentName,
   years,
   data,
   plData,
@@ -422,10 +431,7 @@ function SegmentBSTable({
   const handleChange = useCallback(
     (year: number, field: string, value: string) => {
       const existingRow = dataMap.get(year) ?? { year };
-      const updatedRow: SegmentBSRow = {
-        ...existingRow,
-        [field]: toNum(value),
-      };
+      const updatedRow: SegmentBSRow = { ...existingRow, [field]: toNum(value) };
       const newData = data.filter((r) => r.year !== year);
       newData.push(updatedRow);
       newData.sort((a, b) => a.year - b.year);
@@ -434,7 +440,6 @@ function SegmentBSTable({
     [data, dataMap, onChange]
   );
 
-  // 推計ボタン：売上比で計算して流し込む
   const applyEstimation = useCallback(() => {
     if (method !== 'revenueRatio') return;
 
@@ -442,11 +447,8 @@ function SegmentBSTable({
       const segPL = plMap.get(y);
       const corpBS = companyBSMap.get(y);
       const existing = dataMap.get(y) ?? { year: y };
-
       if (!segPL?.revenue || !corpBS) return existing;
 
-      // 全社売上を取得（全社PLがあれば使う、なければBSから推定しない）
-      // ここでは単純に全社ARを基準にした比率で計算
       const ratio = corpBS.ar && corpBS.ar > 0 ? segPL.revenue / (corpBS.ar * 10) : 0.2;
 
       return {
@@ -461,24 +463,17 @@ function SegmentBSTable({
     onChange(newData);
   }, [method, years, plMap, companyBSMap, dataMap, onChange]);
 
-  // 投下資本を自動計算して表示
   const computedIC = useMemo(() => {
     const map = new Map<number, number | undefined>();
     years.forEach((y) => {
       const row = dataMap.get(y);
-      if (!row) {
-        map.set(y, undefined);
-        return;
-      }
+      if (!row) return map.set(y, undefined);
       const ar = row.ar ?? 0;
       const inventory = row.inventory ?? 0;
       const ap = row.ap ?? 0;
       const fixedAssets = row.fixedAssets ?? 0;
-      if (ar || inventory || fixedAssets) {
-        map.set(y, ar + inventory - ap + fixedAssets);
-      } else {
-        map.set(y, undefined);
-      }
+      if (ar || inventory || fixedAssets) map.set(y, ar + inventory - ap + fixedAssets);
+      else map.set(y, undefined);
     });
     return map;
   }, [years, dataMap]);
@@ -496,10 +491,7 @@ function SegmentBSTable({
           <option value="revenueRatio">売上比で推計</option>
         </select>
         {method === 'revenueRatio' && (
-          <button
-            onClick={applyEstimation}
-            className="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
-          >
+          <button onClick={applyEstimation} className="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">
             推計値を適用
           </button>
         )}
@@ -543,7 +535,6 @@ function SegmentBSTable({
                 })}
               </tr>
             ))}
-            {/* 投下資本（自動計算） */}
             <tr className="border-t border-gray-200 bg-blue-50">
               <td className="px-3 py-2 text-gray-700 font-medium">投下資本</td>
               {years.map((y) => (
@@ -588,23 +579,19 @@ function HQAdjustmentDisplay({
 
       return {
         year: y,
-        revenue: company?.revenue !== undefined ? (company.revenue - segRevenue) : undefined,
-        operatingIncome:
-          company?.operatingIncome !== undefined ? (company.operatingIncome - segOpIncome) : undefined,
+        revenue: company?.revenue !== undefined ? company.revenue - segRevenue : undefined,
+        operatingIncome: company?.operatingIncome !== undefined ? company.operatingIncome - segOpIncome : undefined,
       };
     });
   }, [years, companyPL, segmentPL]);
 
   const hasData = adjustment.some((a) => a.revenue !== undefined || a.operatingIncome !== undefined);
-
   if (!hasData) return null;
 
   return (
     <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
       <h4 className="text-sm font-medium text-amber-800 mb-2">本社・共通費/調整（自動計算）</h4>
-      <p className="text-xs text-amber-600 mb-3">
-        全社PL - 事業部PL合計 の差分です。本社費用や連結調整が含まれます。
-      </p>
+      <p className="text-xs text-amber-600 mb-3">全社PL - 事業部PL合計 の差分です。本社費用や連結調整が含まれます。</p>
       <div className="overflow-x-auto">
         <table className="min-w-full text-xs border-collapse">
           <thead>
@@ -646,19 +633,20 @@ function HQAdjustmentDisplay({
  * ========================================================= */
 
 export default function FinanceInputPanel() {
-  // 安定した参照を使用（毎回新しい [] / {} を作らない）
   const financePL = useStrategyStore((s) => s.financePL ?? EMPTY_PL_ARR);
   const financeBS = useStrategyStore((s) => s.financeBS ?? EMPTY_BS_ARR);
   const segmentPL = useStrategyStore((s) => s.segmentPL ?? EMPTY_SEG_PL);
   const segmentBS = useStrategyStore((s) => s.segmentBS ?? EMPTY_SEG_BS);
   const businessSegments = useStrategyStore((s) => s.businessSegments ?? EMPTY_SEGMENTS);
+
   const setFinancePL = useStrategyStore((s) => s.setFinancePL);
   const setFinanceBS = useStrategyStore((s) => s.setFinanceBS);
   const setSegmentPL = useStrategyStore((s) => s.setSegmentPL);
   const setSegmentBS = useStrategyStore((s) => s.setSegmentBS);
 
-  // 過去5年の年度を生成
-  // financePL にデータがあればその年度を使用、なければ現在年-1を直近年とする
+  const upsertSegmentPL = useStrategyStore((s) => (s as any).upsertSegmentPL);
+  const upsertSegmentBS = useStrategyStore((s) => (s as any).upsertSegmentBS);
+
   const years = useMemo(() => {
     if (financePL.length > 0) {
       const dataYears = financePL.map((r) => r.year).sort((a, b) => a - b);
@@ -668,26 +656,82 @@ export default function FinanceInputPanel() {
     return generateYears(currentYear - 1, 5);
   }, [financePL]);
 
-  // 事業部名リスト（name が空でないもののみ）
-  const validSegments = useMemo(
-    () => businessSegments.filter((seg) => seg.name.trim()),
-    [businessSegments]
+  const segBSKeyMap = useMemo(() => buildKeyMap(segmentBS), [segmentBS]);
+  const segPLKeyMap = useMemo(() => buildKeyMap(segmentPL), [segmentPL]);
+
+  const hasAnySegmentPL = useMemo(() => {
+    return Object.values(segmentPL ?? {}).some((rows) => Array.isArray(rows) && rows.length > 0);
+  }, [segmentPL]);
+
+  /**
+   * 表示対象セグメント：normalizedName で完全ユニーク化
+   * ※ これで「全角B/半角B」「不可視文字」「スペース差」等が同一視される
+   */
+  const displaySegments = useMemo(() => {
+    const byNorm = new Map<string, { id: string; name: string }>();
+
+    // store segments
+    for (const seg of businessSegments ?? []) {
+      const norm = normSegName(seg.name);
+      if (!norm) continue;
+      if (!byNorm.has(norm)) byNorm.set(norm, { id: seg.id, name: norm });
+    }
+
+    // segmentBS keys
+    for (const norm of segBSKeyMap.keys()) {
+      if (!norm) continue;
+      if (!byNorm.has(norm)) byNorm.set(norm, { id: `__imported_bs__${norm}`, name: norm });
+    }
+
+    // segmentPL keys
+    for (const norm of segPLKeyMap.keys()) {
+      if (!norm) continue;
+      if (!byNorm.has(norm)) byNorm.set(norm, { id: `__imported_pl__${norm}`, name: norm });
+    }
+
+    const arr = Array.from(byNorm.values());
+    arr.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+    return arr;
+  }, [businessSegments, segBSKeyMap, segPLKeyMap]);
+
+  const getSegmentPLRows = useCallback(
+    (displayName: string): FinancePLRow[] => {
+      const norm = normSegName(displayName);
+      const key = segPLKeyMap.get(norm) ?? norm;
+      return (segmentPL?.[key] ?? []) as FinancePLRow[];
+    },
+    [segmentPL, segPLKeyMap]
   );
 
-  // 事業部PL更新
+  const getSegmentBSRows = useCallback(
+    (displayName: string): SegmentBSRow[] => {
+      const norm = normSegName(displayName);
+      const key = segBSKeyMap.get(norm) ?? norm;
+      return (segmentBS?.[key] ?? []) as SegmentBSRow[];
+    },
+    [segmentBS, segBSKeyMap]
+  );
+
   const handleSegmentPLChange = useCallback(
     (segmentName: string, rows: FinancePLRow[]) => {
-      setSegmentPL({ ...segmentPL, [segmentName]: rows });
+      const canonical = normSegName(segmentName);
+      if (!canonical) return;
+
+      if (upsertSegmentPL) upsertSegmentPL(canonical, rows);
+      else setSegmentPL({ ...segmentPL, [canonical]: rows });
     },
-    [segmentPL, setSegmentPL]
+    [segmentPL, setSegmentPL, upsertSegmentPL]
   );
 
-  // 事業部BS更新
   const handleSegmentBSChange = useCallback(
     (segmentName: string, rows: SegmentBSRow[]) => {
-      setSegmentBS({ ...segmentBS, [segmentName]: rows });
+      const canonical = normSegName(segmentName);
+      if (!canonical) return;
+
+      if (upsertSegmentBS) upsertSegmentBS(canonical, rows);
+      else setSegmentBS({ ...segmentBS, [canonical]: rows });
     },
-    [segmentBS, setSegmentBS]
+    [segmentBS, setSegmentBS, upsertSegmentBS]
   );
 
   return (
@@ -700,7 +744,6 @@ export default function FinanceInputPanel() {
         </p>
       </div>
 
-      {/* 全社PL */}
       <Accordion
         title="全社PL（損益計算書）"
         defaultOpen={true}
@@ -709,7 +752,6 @@ export default function FinanceInputPanel() {
         <CompanyPLTable years={years} data={financePL} onChange={setFinancePL} />
       </Accordion>
 
-      {/* 全社BS */}
       <Accordion
         title="全社BS（貸借対照表）"
         defaultOpen={true}
@@ -718,57 +760,58 @@ export default function FinanceInputPanel() {
         <CompanyBSTable years={years} data={financeBS} onChange={setFinanceBS} />
       </Accordion>
 
-      {/* 事業部別入力（セグメントが定義されている場合のみ） */}
-      {validSegments.length > 0 && (
+      {displaySegments.length > 0 && (
         <div className="space-y-4">
           <div className="border-t border-gray-200 pt-6">
             <h3 className="text-lg font-medium mb-2">事業部別データ（任意）</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              事業部別の財務データを入力すると、セグメント別の分析が可能になります。
+            <p className="text-sm text-gray-600 mb-2">
+              事業部別のBS（投下資本）を入力すると、セグメント別の分析が可能になります。
             </p>
+            {!hasAnySegmentPL && (
+              <p className="text-xs text-gray-500">※ 事業部PLが未入力のため、PL入力欄は表示していません。</p>
+            )}
           </div>
 
-          {validSegments.map((seg) => (
-            <div key={seg.id} className="space-y-3">
-              <Accordion
-                title={`${seg.name} - PL`}
-                badge={<span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">任意</span>}
-              >
-                <SegmentPLTable
-                  segmentName={seg.name}
-                  years={years}
-                  data={segmentPL[seg.name] ?? []}
-                  onChange={(rows) => handleSegmentPLChange(seg.name, rows)}
-                />
-              </Accordion>
+          {displaySegments.map((seg) => {
+            const name = seg.name;
+            const plRows = getSegmentPLRows(name);
+            const bsRows = getSegmentBSRows(name);
 
-              <Accordion
-                title={`${seg.name} - BS（投下資本）`}
-                badge={<span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">推計可</span>}
-              >
-                <SegmentBSTable
-                  segmentName={seg.name}
-                  years={years}
-                  data={segmentBS[seg.name] ?? []}
-                  plData={segmentPL[seg.name] ?? []}
-                  companyBS={financeBS}
-                  onChange={(rows) => handleSegmentBSChange(seg.name, rows)}
-                />
-              </Accordion>
-            </div>
-          ))}
+            return (
+              <div key={seg.id} className="space-y-3">
+                {(hasAnySegmentPL || (plRows?.length ?? 0) > 0) && (
+                  <Accordion
+                    title={`${name} - PL`}
+                    badge={<span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">任意</span>}
+                  >
+                    <SegmentPLTable
+                      segmentName={name}
+                      years={years}
+                      data={plRows ?? []}
+                      onChange={(rows) => handleSegmentPLChange(name, rows)}
+                    />
+                  </Accordion>
+                )}
 
-          {/* 本社/調整（自動差分表示） */}
-          <HQAdjustmentDisplay years={years} companyPL={financePL} segmentPL={segmentPL} />
-        </div>
-      )}
+                <Accordion
+                  title={`${name} - BS（投下資本）`}
+                  badge={<span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">推計可</span>}
+                  defaultOpen={(bsRows?.length ?? 0) > 0}
+                >
+                  <SegmentBSTable
+                    segmentName={name}
+                    years={years}
+                    data={bsRows ?? []}
+                    plData={plRows ?? []}
+                    companyBS={financeBS}
+                    onChange={(rows) => handleSegmentBSChange(name, rows)}
+                  />
+                </Accordion>
+              </div>
+            );
+          })}
 
-      {validSegments.length === 0 && businessSegments.length > 0 && (
-        <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-          <p className="text-sm text-amber-700">
-            事業セグメントが定義されていますが、名前が未入力です。
-            事業部別データを入力するには、セグメント名を入力してください。
-          </p>
+          {hasAnySegmentPL && <HQAdjustmentDisplay years={years} companyPL={financePL} segmentPL={segmentPL} />}
         </div>
       )}
     </section>

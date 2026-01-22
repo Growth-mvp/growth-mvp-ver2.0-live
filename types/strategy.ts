@@ -629,6 +629,8 @@ export type BusinessSegment = {
   id: string;       // UUID
   name: string;     // セグメント名（例：製造事業、サービス事業）
   scope?: string;   // 対象範囲・備考（任意）
+  summary?: string; // 事業概要（1文：例）中堅製造業向けに設備保全の予兆検知をSaaSで提供
+  keyCustomers?: string[]; // 主要顧客（最大3件）
 };
 
 /* =========================================================
@@ -964,10 +966,31 @@ export type ProgressLog = {
 };
 
 /* =========================================================
- * 財務データ（JSONB）
+ * 財務データ（JSONB）- DB csv_finance_data 列に集約
+ * =========================================================
+ * DB構造上、finance_bs / segment_pl / segment_bs 列がないため、
+ * csv_finance_data（JSONB）にこれらすべてを格納する。
  * ========================================================= */
 
-export type CsvFinanceData = any[];
+export type CsvFinanceData = {
+  /** 全社BS（STAGE1指標⑤用） */
+  financeBS?: FinanceBSRow[];
+
+  /** 事業部別PL */
+  segmentPL?: Record<string, FinancePLRow[]>;
+
+  /** 事業部別BS */
+  segmentBS?: Record<string, SegmentBSRow[]>;
+
+  /** 本社・共通費調整PL */
+  hqAdjustmentPL?: FinancePLRow[];
+
+  /** 本社・共通費調整BS */
+  hqAdjustmentBS?: Partial<SegmentBSRow>[];
+
+  /** その他（後方互換・拡張用） */
+  [k: string]: any;
+};
 
 /* =========================================================
  * Supabase保存・読み込み用（純粋データ）

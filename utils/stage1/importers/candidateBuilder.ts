@@ -6,7 +6,7 @@
  */
 
 import type { Stage1ImportCandidate } from '@/types/strategy';
-import type { ExtractedTable, TableRow } from './excelCsvImporter';
+import type { ExtractedTable } from './excelCsvImporter';
 import type { PdfPageText } from './pdfImporter';
 
 /** PL項目のマッピング */
@@ -44,13 +44,74 @@ const YEAR_PATTERNS = [
   /(\d{4})/,
 ];
 
+type ScopeInfo = { scope: 'company' | 'segment'; segmentName?: string };
+
+/**
+ * テーブルから「セグメント名」を推定
+ * - excelCsvImporter 側で table.segmentName / table.sheetName / table.title 等を付けている場合に拾う
+ * - sourceRef に含まれる場合も簡易抽出
+ */
+function detectScopeFromTable(table: ExtractedTable): ScopeInfo {
+  const seg =
+    String((table as any).segmentName ?? '').trim() ||
+    String((table as any).sheetName ?? '').trim() ||
+    String((table as any).title ?? '').trim();
+
+  if (seg) {
+    // シート名が "全社" 等なら company 扱いにしたい場合はここで除外
+    if (/^(全社|連結|合算|会社|company)$/i.test(seg)) return { scope: 'company' };
+    return { scope: 'segment', segmentName: seg };
+  }
+
+  const ref = String((table as any).sourceRef ?? '').trim();
+  if (ref) {
+    // 例: "...:事業部A" / "...:セグメントB" などを拾う
+    const m = ref.match(/(?:事業部|セグメント)\s*[:：]?\s*([^\s\]\)\}、,]+)\s*$/);
+    if (m && m[1]) return { scope: 'segment', segmentName: m[1].trim() };
+  }
+
+  return { scope: 'company' };
+}
+
+/**
+ * PDFページから「セグメント名」を推定
+ * - pdfImporter 側で page.segmentName 等を付けている場合に拾う
+ * - テキスト末尾の "事業部A" 的な記述も簡易抽出
+ */
+function detectScopeFromPdfPage(page: PdfPageText): ScopeInfo {
+  const seg = String((page as any).segmentName ?? '').trim();
+  if (seg) {
+    if (/^(全社|連結|合算|会社|company)$/i.test(seg)) return { scope: 'company' };
+    return { scope: 'segment', segmentName: seg };
+  }
+
+  const text = String((page as any).text ?? '');
+  const m = text.match(/(?:事業部|セグメント)\s*[:：]?\s*([^\s\]\)\}、,]+)\s*(?:\n|$)/);
+  if (m && m[1]) return { scope: 'segment', segmentName: m[1].trim() };
+
+  return { scope: 'company' };
+}
+
 /**
  * テーブルから候補を生成
  */
-export function buildCandidatesFromTable(
-  table: ExtractedTable
-): Stage1ImportCandidate[] {
+export function buildCandidatesFromTable(table: ExtractedTable): Stage1ImportCandidate[] {
   const candidates: Stage1ImportCandidate[] = [];
+
+  const { scope, segmentName } = detectScopeFromTable(table);
+
+  // ★ DEBUG：テーブル解析開始
+  if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+    console.log('[candidateBuilder] buildCandidatesFromTable start', {
+      sourceRef: (table as any).sourceRef,
+      sheetName: (table as any).sheetName,
+      title: (table as any).title,
+      detectedScope: scope,
+      detectedSegmentName: segmentName,
+      headersCount: table.headers?.length,
+      rowsCount: table.rows?.length,
+    });
+  }
 
   // ヘッダーから年度列を特定
   const yearColumns = findYearColumns(table.headers);
@@ -59,7 +120,7 @@ export function buildCandidatesFromTable(
   for (const row of table.rows) {
     // 行の最初の列を項目名として扱う
     const firstCol = Object.keys(row)[0];
-    const itemName = String(row[firstCol] ?? '').trim();
+    const itemName = String((row as any)[firstCol] ?? '').trim();
 
     if (!itemName) continue;
 
@@ -68,15 +129,17 @@ export function buildCandidatesFromTable(
     if (plField) {
       for (const yearCol of yearColumns) {
         const year = yearCol.year;
-        const value = row[yearCol.column];
+        const value = (row as any)[yearCol.column];
         if (value !== null && value !== undefined && typeof value === 'number') {
+          const kind = scope === 'segment' ? ('segmentPL' as any) : ('companyPL' as any);
           candidates.push({
-            kind: 'companyPL',
+            kind,
             year,
             fields: { [plField]: value },
             confidence: 0.7,
-            sourceRef: `${table.sourceRef}:${itemName}`,
-          });
+            sourceRef: `${(table as any).sourceRef}:${itemName}`,
+            ...(scope === 'segment' && segmentName ? { segmentName } : {}),
+          } as Stage1ImportCandidate);
         }
       }
       continue;
@@ -87,34 +150,57 @@ export function buildCandidatesFromTable(
     if (bsField) {
       for (const yearCol of yearColumns) {
         const year = yearCol.year;
-        const value = row[yearCol.column];
+        const value = (row as any)[yearCol.column];
         if (value !== null && value !== undefined && typeof value === 'number') {
+          const kind = scope === 'segment' ? ('segmentBS' as any) : ('companyBS' as any);
           candidates.push({
-            kind: 'companyBS',
+            kind,
             year,
             fields: { [bsField]: value },
             confidence: 0.7,
-            sourceRef: `${table.sourceRef}:${itemName}`,
-          });
+            sourceRef: `${(table as any).sourceRef}:${itemName}`,
+            ...(scope === 'segment' && segmentName ? { segmentName } : {}),
+          } as Stage1ImportCandidate);
         }
       }
     }
   }
 
   // 同一年度・同一kindの候補をマージ
-  return mergeCandidates(candidates);
+  const merged = mergeCandidates(candidates);
+
+  // ★ DEBUG：テーブル解析終了
+  if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+    const byKind: Record<string, number> = {};
+    const bySegment: Record<string, number> = {};
+    for (const c of merged) {
+      const kind = String((c as any).kind);
+      byKind[kind] = (byKind[kind] ?? 0) + 1;
+
+      const seg = (c as any).segmentName;
+      if (seg) bySegment[seg] = (bySegment[seg] ?? 0) + 1;
+    }
+    console.log('[candidateBuilder] buildCandidatesFromTable end', {
+      sourceRef: (table as any).sourceRef,
+      generatedCandidates: merged.length,
+      byKind,
+      bySegment,
+    });
+  }
+
+  return merged;
 }
 
 /**
  * PDFテキストから候補を生成（簡易実装）
  */
-export function buildCandidatesFromPdfText(
-  pages: PdfPageText[]
-): Stage1ImportCandidate[] {
+export function buildCandidatesFromPdfText(pages: PdfPageText[]): Stage1ImportCandidate[] {
   const candidates: Stage1ImportCandidate[] = [];
 
   for (const page of pages) {
     if (!page.isPriority) continue;
+
+    const { scope, segmentName } = detectScopeFromPdfPage(page);
 
     const text = page.text;
     const lines = text.split('\n');
@@ -130,15 +216,16 @@ export function buildCandidatesFromPdfText(
       // PL項目をチェック
       const plField = matchField(line, PL_FIELD_PATTERNS);
       if (plField && years.length > 0) {
-        // 複数の数値があれば年度に対応させる
         for (let i = 0; i < Math.min(numbers.length, years.length); i++) {
+          const kind = scope === 'segment' ? ('segmentPL' as any) : ('companyPL' as any);
           candidates.push({
-            kind: 'companyPL',
+            kind,
             year: years[i],
             fields: { [plField]: numbers[i] },
-            confidence: 0.5, // PDFからの抽出は信頼度低め
+            confidence: 0.5,
             sourceRef: `PDF:P${page.pageNumber}`,
-          });
+            ...(scope === 'segment' && segmentName ? { segmentName } : {}),
+          } as Stage1ImportCandidate);
         }
         continue;
       }
@@ -147,13 +234,15 @@ export function buildCandidatesFromPdfText(
       const bsField = matchField(line, BS_FIELD_PATTERNS);
       if (bsField && years.length > 0) {
         for (let i = 0; i < Math.min(numbers.length, years.length); i++) {
+          const kind = scope === 'segment' ? ('segmentBS' as any) : ('companyBS' as any);
           candidates.push({
-            kind: 'companyBS',
+            kind,
             year: years[i],
             fields: { [bsField]: numbers[i] },
             confidence: 0.5,
             sourceRef: `PDF:P${page.pageNumber}`,
-          });
+            ...(scope === 'segment' && segmentName ? { segmentName } : {}),
+          } as Stage1ImportCandidate);
         }
       }
     }
@@ -165,9 +254,7 @@ export function buildCandidatesFromPdfText(
 /**
  * ヘッダーから年度列を特定
  */
-function findYearColumns(
-  headers: string[]
-): Array<{ column: string; year: number }> {
+function findYearColumns(headers: string[]): Array<{ column: string; year: number }> {
   const results: Array<{ column: string; year: number }> = [];
 
   for (const header of headers) {
@@ -205,7 +292,6 @@ function extractYearsFromText(text: string): number[] {
     }
   }
 
-  // ソートして返す
   return years.sort((a, b) => a - b);
 }
 
@@ -214,8 +300,6 @@ function extractYearsFromText(text: string): number[] {
  */
 function extractNumbersFromLine(line: string): number[] {
   const numbers: number[] = [];
-
-  // 数値パターン（カンマ区切り対応）
   const pattern = /[-−]?[\d,]+(?:\.\d+)?/g;
   let match;
 
@@ -233,10 +317,7 @@ function extractNumbersFromLine(line: string): number[] {
 /**
  * 文字列がどの項目にマッチするか判定
  */
-function matchField(
-  text: string,
-  patterns: Record<string, RegExp[]>
-): string | null {
+function matchField(text: string, patterns: Record<string, RegExp[]>): string | null {
   for (const [field, regexes] of Object.entries(patterns)) {
     for (const regex of regexes) {
       if (regex.test(text)) {
@@ -250,9 +331,7 @@ function matchField(
 /**
  * 同一年度・同一kindの候補をマージ
  */
-function mergeCandidates(
-  candidates: Stage1ImportCandidate[]
-): Stage1ImportCandidate[] {
+function mergeCandidates(candidates: Stage1ImportCandidate[]): Stage1ImportCandidate[] {
   const map = new Map<string, Stage1ImportCandidate>();
 
   for (const c of candidates) {
@@ -260,16 +339,13 @@ function mergeCandidates(
     const existing = map.get(key);
 
     if (existing) {
-      // フィールドをマージ
-      existing.fields = { ...existing.fields, ...c.fields };
-      // 信頼度は高い方を採用
-      existing.confidence = Math.max(existing.confidence, c.confidence);
-      // ソース参照を追加
-      if (c.sourceRef && !existing.sourceRef?.includes(c.sourceRef)) {
-        existing.sourceRef = `${existing.sourceRef}, ${c.sourceRef}`;
+      existing.fields = { ...(existing as any).fields, ...(c as any).fields };
+      existing.confidence = Math.max((existing as any).confidence ?? 0, (c as any).confidence ?? 0);
+      if ((c as any).sourceRef && !(existing as any).sourceRef?.includes((c as any).sourceRef)) {
+        (existing as any).sourceRef = `${(existing as any).sourceRef}, ${(c as any).sourceRef}`;
       }
     } else {
-      map.set(key, { ...c });
+      map.set(key, { ...(c as any) });
     }
   }
 
@@ -279,39 +355,29 @@ function mergeCandidates(
 /**
  * 候補を正規化（5年分のみ、年度昇順、重複排除）
  */
-export function normalizeCandidates(
-  candidates: Stage1ImportCandidate[]
-): Stage1ImportCandidate[] {
-  // 年度でソート
+export function normalizeCandidates(candidates: Stage1ImportCandidate[]): Stage1ImportCandidate[] {
   const sorted = [...candidates].sort((a, b) => {
-    if (a.kind !== b.kind) return a.kind.localeCompare(b.kind);
+    if (a.kind !== b.kind) return String(a.kind).localeCompare(String(b.kind));
     return (a.year ?? 0) - (b.year ?? 0);
   });
 
-  // 各kindで最新5年分のみを残す
   const result: Stage1ImportCandidate[] = [];
   const kindYears = new Map<string, number[]>();
 
   for (const c of sorted) {
     const key = `${c.kind}:${c.segmentName ?? ''}`;
-    if (!kindYears.has(key)) {
-      kindYears.set(key, []);
-    }
+    if (!kindYears.has(key)) kindYears.set(key, []);
     const years = kindYears.get(key)!;
 
-    if (c.year && !years.includes(c.year)) {
-      years.push(c.year);
-    }
+    if (c.year && !years.includes(c.year)) years.push(c.year);
   }
 
-  // 各kindで最新5年を特定
   const kindLatest5 = new Map<string, Set<number>>();
   for (const [key, years] of kindYears) {
     const latest5 = years.sort((a, b) => b - a).slice(0, 5);
     kindLatest5.set(key, new Set(latest5));
   }
 
-  // フィルタリング
   for (const c of sorted) {
     const key = `${c.kind}:${c.segmentName ?? ''}`;
     const allowed = kindLatest5.get(key);

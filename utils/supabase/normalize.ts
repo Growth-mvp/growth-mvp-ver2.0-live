@@ -1,3 +1,4 @@
+// /utils/supabase/normalize.ts
 import type {
   StrategyData,
   ChapterStory,
@@ -7,6 +8,9 @@ import type {
   ChapterAnswers,
   KRStructured,
   ProjectRole,
+  FinancePLRow,
+  FinanceBSRow,
+  SegmentBSRow,
 } from '@/types/strategy';
 
 /** GROWTH 固定タイトル（章タイトルはUIで固定表示） */
@@ -37,6 +41,17 @@ function parseIfJsonString<T = unknown>(v: unknown): T | unknown {
     return p ?? v;
   }
   return v;
+}
+
+function isPlainObject(v: unknown): v is Record<string, any> {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+/** csvFinanceData が「配列で包まれている」旧互換を吸収（[ {..} ] -> {..}） */
+function unwrapSingleObjectArray(v: unknown): Record<string, any> | undefined {
+  if (Array.isArray(v) && v.length === 1 && isPlainObject(v[0])) return v[0] as any;
+  if (isPlainObject(v)) return v as any;
+  return undefined;
 }
 
 /* =====================================================================
@@ -153,7 +168,6 @@ export function normalizeChaptersAnyNonDestructive(input: unknown): ChapterStory
 }
 
 // 互換のためのエクスポート（ancillary.ts など旧コードが参照）
-// 破壊的変更を避けるため、非破壊版に委譲する
 export function normalizeChaptersAny(input: unknown): ChapterStory[] | null {
   return normalizeChaptersAnyNonDestructive(input) ?? null;
 }
@@ -190,7 +204,6 @@ type AnyDepartment =
   | null
   | undefined;
 
-/** OKR：既存フィールドを正規化しつつ、未知フィールドはそのまま残す */
 function normalizeOKR(input: AnyOKR): OKR {
   const raw = (input || {}) as any;
   const base: any = { ...raw };
@@ -218,7 +231,6 @@ function normalizeOKR(input: AnyOKR): OKR {
   return base as OKR;
 }
 
-/** Project：title/okrs などを正規化しつつ、その他プロパティは温存 */
 function normalizeProject(p: AnyProject): Project {
   const obj = (p || {}) as any;
   const base: any = { ...obj };
@@ -231,7 +243,6 @@ function normalizeProject(p: AnyProject): Project {
       : '';
   const reason = typeof obj.reason === 'string' ? obj.reason : undefined;
 
-  // 旧単体互換 → okrs 配列へ吸収
   const legacy =
     obj.objective || obj.keyResults || obj.owner
       ? [
@@ -303,7 +314,6 @@ function normalizeProject(p: AnyProject): Project {
   return base as Project;
 }
 
-/** Department：name/mission/projects などを正規化しつつ、未知フィールドは温存 */
 function normalizeDepartment(d: AnyDepartment): Department {
   const obj = (d || {}) as any;
   const base: any = { ...obj };
@@ -317,10 +327,8 @@ function normalizeDepartment(d: AnyDepartment): Department {
       : '';
   const mission = typeof obj.mission === 'string' ? obj.mission : '';
   const strategy = typeof obj.strategy === 'string' ? obj.strategy : undefined;
-  const missionDraft =
-    typeof obj.missionDraft === 'string' ? obj.missionDraft : undefined;
-  const discussionNotes =
-    typeof obj.discussionNotes === 'string' ? obj.discussionNotes : undefined;
+  const missionDraft = typeof obj.missionDraft === 'string' ? obj.missionDraft : undefined;
+  const discussionNotes = typeof obj.discussionNotes === 'string' ? obj.discussionNotes : undefined;
 
   const questions = Array.isArray(obj.questions)
     ? (obj.questions as any[]).map((q) => ({
@@ -334,10 +342,7 @@ function normalizeDepartment(d: AnyDepartment): Department {
   const answers2: ChapterAnswers[] | undefined = Array.isArray(obj.answers2)
     ? (obj.answers2 as any[]).map((c, idx) => ({
         chapterIndex: typeof c?.chapterIndex === 'number' ? c.chapterIndex : idx,
-        chapterTitle:
-          typeof c?.chapterTitle === 'string'
-            ? c.chapterTitle
-            : `Chapter ${idx + 1}`,
+        chapterTitle: typeof c?.chapterTitle === 'string' ? c.chapterTitle : `Chapter ${idx + 1}`,
         steps: Array.isArray(c?.steps)
           ? [...c.steps]
               .map((s) => ({
@@ -352,7 +357,6 @@ function normalizeDepartment(d: AnyDepartment): Department {
     : undefined;
 
   const finalized = Boolean(obj.finalized);
-
   const projectsRaw = Array.isArray(obj.projects) ? obj.projects : [];
   const projects = projectsRaw.map(normalizeProject);
 
@@ -370,15 +374,12 @@ function normalizeDepartment(d: AnyDepartment): Department {
   return base as Department;
 }
 
-/** 部門配列：正規化できなければそのまま返す（＝壊さない） */
 export function normalizeDepartmentsAny(input: unknown): Department[] | undefined {
   if (!input) return undefined;
   const src = parseIfJsonString<any>(input);
 
   if (Array.isArray(src)) {
-    const arr = (src as unknown[]).map((v) =>
-      normalizeDepartment(v as AnyDepartment),
-    );
+    const arr = (src as unknown[]).map((v) => normalizeDepartment(v as AnyDepartment));
     return arr.length ? arr : undefined;
   }
   if (src && typeof src === 'object' && Array.isArray((src as any).departments)) {
@@ -394,25 +395,52 @@ export function normalizeDepartmentsAny(input: unknown): Department[] | undefine
  * finance / business_portfolio 正規化
  * 重要: 「空」は undefined を返す（＝保存スキップ）
  * ===================================================================== */
-function normalizeCsvFinanceDataLoose(input: unknown): any[] | undefined {
+
+/**
+ * csvFinanceData 正規化（型互換を優先）
+ * - DB csv_finance_data には financeBS/segmentPL/segmentBS/hqAdjustmentPL/BS を格納
+ * - 配列の場合は unwrapSingleObjectArray で剥がす（旧互換）
+ * - オブジェクトの場合はそのまま返す（financeBS/segmentPL 等を内包）
+ * - 返り値: オブジェクト | undefined
+ */
+function normalizeCsvFinanceDataLoose(input: unknown): Record<string, any> | undefined {
   if (input == null) return undefined;
-  if (Array.isArray(input)) return input.length > 0 ? input : undefined;
 
   const parsed = parseIfJsonString<any>(input);
-  if (Array.isArray(parsed)) return parsed.length > 0 ? parsed : undefined;
 
+  // オブジェクトの場合：キーが financeBS/segmentPL/segmentBS など財務系ならそのまま返す
+  if (isPlainObject(parsed)) {
+    const keys = Object.keys(parsed);
+    const hasFinanceKeys = keys.some(
+      (k) => k === 'financeBS' || k === 'segmentPL' || k === 'segmentBS' ||
+             k === 'finance_bs' || k === 'segment_pl' || k === 'segment_bs' ||
+             k === 'hqAdjustmentPL' || k === 'hqAdjustmentBS'
+    );
+    // 財務系キーがあれば、このオブジェクトが csvFinanceData
+    if (hasFinanceKeys) return parsed;
+    // それ以外も空でなければ返す（後方互換）
+    if (keys.length > 0) return parsed;
+    return undefined;
+  }
+
+  // 配列の場合：1要素なら剥がす、複数要素ならCSV扱い（旧互換、現在は未使用）
+  if (Array.isArray(parsed)) {
+    if (parsed.length === 1 && isPlainObject(parsed[0])) {
+      const obj = parsed[0] as any;
+      if (isPlainObject(obj)) return obj;
+    }
+    // 複数要素の配列は CSV 扱い（現在は使用されていない）
+    return undefined;
+  }
+
+  // 素の文字列 CSV（現在は使用されていない）
   if (typeof input === 'string') {
     const text = input.trim();
     if (!text) return undefined;
-    const rows = text
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => line.split(',').map((cell) => cell.trim()));
-    return rows.length > 0 ? rows : undefined;
+    // CSV は未使用なので undefined
+    return undefined;
   }
 
-  if (typeof parsed === 'object' && parsed) return [parsed]; // 1行だけだった場合に配列化
   return undefined;
 }
 
@@ -436,32 +464,22 @@ function normalizeBusinessPortfolio(input: unknown): Record<string, any> | undef
   return p;
 }
 
-/**
- * finance_summary 正規化
- * 返り値:
- *  - 有効配列: 配列 (rows/items/年度Key形式を配列化)
- *  - 空または無効: undefined（保存スキップ）
- */
 function normalizeFinanceSummaryObject(input: unknown): any[] | undefined {
   if (input == null) return undefined;
   const p = parseIfJsonString<any>(input);
 
-  // 既に配列
   if (Array.isArray(p)) return p.length > 0 ? p : undefined;
 
-  // { rows: [...] }（保存側の新正規）
   if (p && typeof p === 'object' && Array.isArray((p as any).rows)) {
     const arr = (p as any).rows;
     return arr.length > 0 ? arr : undefined;
   }
 
-  // 旧仕様: { items: [...] }
   if (p && typeof p === 'object' && Array.isArray((p as any).items)) {
     const arr = (p as any).items;
     return arr.length > 0 ? arr : undefined;
   }
 
-  // 年度キー形式 { 2023: {...}, 2024: {...} }
   if (p && typeof p === 'object') {
     const entries = Object.entries(p as Record<string, any>);
     if (entries.length > 0 && entries.every(([, v]) => typeof v === 'object')) {
@@ -473,10 +491,71 @@ function normalizeFinanceSummaryObject(input: unknown): any[] | undefined {
   return undefined;
 }
 
+/* -----------------------------
+ * STAGE1 財務（BS / セグメント）正規化（復元用）
+ * ----------------------------- */
+
+function normalizeFinanceBSRows(input: unknown): FinanceBSRow[] | undefined {
+  const p = parseIfJsonString<any>(input);
+  if (!Array.isArray(p)) return undefined;
+  const arr = (p as any[])
+    .map((r) => {
+      if (!r) return null;
+      const year = Number((r as any).year);
+      if (!Number.isFinite(year)) return null;
+      const row: FinanceBSRow = { ...(r as any), year } as any;
+      return row;
+    })
+    .filter(Boolean) as FinanceBSRow[];
+  return arr.length > 0 ? arr : undefined;
+}
+
+function normalizeSegmentPLRecord(input: unknown): Record<string, FinancePLRow[]> | undefined {
+  const p = parseIfJsonString<any>(input);
+  if (!isPlainObject(p)) return undefined;
+  const out: Record<string, FinancePLRow[]> = {};
+  for (const [k, v] of Object.entries(p)) {
+    const key = String(k ?? '').trim();
+    if (!key) continue;
+    const rows = Array.isArray(v)
+      ? (v as any[])
+          .map((r) => {
+            if (!r) return null;
+            const year = Number((r as any).year);
+            if (!Number.isFinite(year)) return null;
+            return { ...(r as any), year } as FinancePLRow;
+          })
+          .filter(Boolean) as FinancePLRow[]
+      : [];
+    if (rows.length > 0) out[key] = rows;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function normalizeSegmentBSRecord(input: unknown): Record<string, SegmentBSRow[]> | undefined {
+  const p = parseIfJsonString<any>(input);
+  if (!isPlainObject(p)) return undefined;
+  const out: Record<string, SegmentBSRow[]> = {};
+  for (const [k, v] of Object.entries(p)) {
+    const key = String(k ?? '').trim();
+    if (!key) continue;
+    const rows = Array.isArray(v)
+      ? (v as any[])
+          .map((r) => {
+            if (!r) return null;
+            const year = Number((r as any).year);
+            if (!Number.isFinite(year)) return null;
+            return { ...(r as any), year } as SegmentBSRow;
+          })
+          .filter(Boolean) as SegmentBSRow[]
+      : [];
+    if (rows.length > 0) out[key] = rows;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 /* =====================================================================
  * StrategyData 正規化（全体・非破壊）
- * 重要: 「空」は undefined にして保存スキップを誘導
- *       ★ 構造は組み替えない（story/answers2 は配列のまま）
  * ===================================================================== */
 export function normalizeStrategyData(input: StrategyData | unknown | null): StrategyData {
   const src: any = { ...(input ?? {}) };
@@ -496,7 +575,7 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
       ? src.final_story
       : undefined);
 
-  // answers2 はトップレベルを優先。なければ story.answers2（互換読み）を補完。
+  // answers2
   const answers2Top = Array.isArray(src.answers2) ? src.answers2 : undefined;
   const answers2FromStory =
     src.story && typeof src.story === 'object' && Array.isArray((src.story as any).answers2)
@@ -504,16 +583,20 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
       : undefined;
   const answers2: ChapterAnswers[] = answers2Top ?? (answers2FromStory ?? []);
 
-  // 部門（情報を落とさない：正規化できなければ元の配列をそのまま使う）
+  // 部門
   const departmentsNorm = normalizeDepartmentsAny(src.departments);
   const departments =
     departmentsNorm ??
     (Array.isArray(src.departments) ? (src.departments as Department[]) : []);
 
-  // 財務
+  // 財務：csvFinanceData はオブジェクトとして保持（financeBS/segmentPL/segmentBS を内包）
   const csvFinanceData = normalizeCsvFinanceDataLoose(
-    src.csvFinanceData ?? src.csv_financeData ?? src.csv_finance_data,
+    src.csvFinanceData ?? src.csv_financeData ?? src.csv_finance_data ?? src.csv_financeData,
   );
+
+  // csvObj は csvFinanceData 本体（normalizeCsvFinanceDataLoose で既に正規化済み）
+  const csvObj = csvFinanceData ?? (isPlainObject(src.csvFinanceData) ? src.csvFinanceData : undefined);
+
   const financePL = Array.isArray(src.financePL)
     ? src.financePL.length > 0
       ? src.financePL
@@ -522,7 +605,32 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     ? src.finance_pl.length > 0
       ? src.finance_pl
       : undefined
+    : (csvObj && Array.isArray((csvObj as any).financePL) && (csvObj as any).financePL.length > 0)
+    ? (csvObj as any).financePL
+    : (csvObj && Array.isArray((csvObj as any).finance_pl) && (csvObj as any).finance_pl.length > 0)
+    ? (csvObj as any).finance_pl
     : undefined;
+
+  // ★ 全社BS
+  const financeBS =
+    normalizeFinanceBSRows(src.financeBS) ??
+    normalizeFinanceBSRows(src.finance_bs) ??
+    (csvObj ? normalizeFinanceBSRows((csvObj as any).financeBS) : undefined) ??
+    (csvObj ? normalizeFinanceBSRows((csvObj as any).finance_bs) : undefined);
+
+  // ★ 事業部別PL/BS
+  const segmentPL =
+    normalizeSegmentPLRecord(src.segmentPL) ??
+    normalizeSegmentPLRecord(src.segment_pl) ??
+    (csvObj ? normalizeSegmentPLRecord((csvObj as any).segmentPL) : undefined) ??
+    (csvObj ? normalizeSegmentPLRecord((csvObj as any).segment_pl) : undefined);
+
+  const segmentBS =
+    normalizeSegmentBSRecord(src.segmentBS) ??
+    normalizeSegmentBSRecord(src.segment_bs) ??
+    (csvObj ? normalizeSegmentBSRecord((csvObj as any).segmentBS) : undefined) ??
+    (csvObj ? normalizeSegmentBSRecord((csvObj as any).segment_bs) : undefined);
+
   const businessSegments = Array.isArray(src.businessSegments)
     ? src.businessSegments.length > 0
       ? src.businessSegments
@@ -531,7 +639,12 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     ? src.business_segments.length > 0
       ? src.business_segments
       : undefined
+    : (csvObj && Array.isArray((csvObj as any).businessSegments) && (csvObj as any).businessSegments.length > 0)
+    ? (csvObj as any).businessSegments
+    : (csvObj && Array.isArray((csvObj as any).business_segments) && (csvObj as any).business_segments.length > 0)
+    ? (csvObj as any).business_segments
     : undefined;
+
   const businessPortfolio = normalizeBusinessPortfolio(
     src.businessPortfolio ?? src.business_portfolio,
   );
@@ -539,7 +652,7 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     src.financeSummary ?? src.finance_summary,
   );
 
-  // プロフィール/MVV/SWOT（文字列化）
+  // プロフィール/MVV/SWOT
   const companyName = toStr(src.companyName ?? '');
   const foundationYear = toStr(src.foundationYear ?? '');
   const location = toStr(src.location ?? '');
@@ -559,9 +672,10 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
   const opportunity = toStr(src.opportunity ?? '');
   const threat = toStr(src.threat ?? '');
 
-  // 互換フィールドはそのまま温存
+  // ★ 修正：stage1Issues を保持
+  const stage1Issues = Array.isArray(src.stage1Issues) ? src.stage1Issues : undefined;
+
   const out: StrategyData = {
-    // メタ互換はそのまま返す（あれば）
     id: src.id,
     user_id: src.user_id,
     company_id: src.company_id,
@@ -574,7 +688,6 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     createdAt: src.createdAt,
     updatedAt: src.updatedAt,
 
-    // プロフィール/MVV/SWOT
     companyName,
     foundationYear,
     location,
@@ -592,11 +705,9 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     opportunity,
     threat,
 
-    // ストーリー（配列のまま）
     story,
     finalStory,
 
-    // 旧互換（必要ならUIが参照）
     strategySummary: src.strategySummary,
     questions: Array.isArray(src.questions) ? src.questions : undefined,
     reasons: Array.isArray(src.reasons) ? src.reasons : undefined,
@@ -604,28 +715,25 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     reasons2: Array.isArray(src.reasons2) ? src.reasons2 : undefined,
     answers: Array.isArray(src.answers) ? src.answers : undefined,
 
-    // 新：段階ステップ
     answers2,
-
-    // 部門
     departments,
+    stage1Issues,  // ★ 修正：stage1Issues を出力オブジェクトに含める
 
-    // 互換
     editableCascadeResult: Array.isArray(src.editableCascadeResult)
       ? src.editableCascadeResult
       : undefined,
     editableCascade: src.editableCascade,
 
-    // オプション3カラムは"undefinedなら付けない"（＝保存スキップ）
     ...(csvFinanceData !== undefined ? { csvFinanceData } : {}),
     ...(financePL !== undefined ? { financePL } : {}),
+    ...(financeBS !== undefined ? { financeBS } : {}),
+    ...(segmentPL !== undefined ? { segmentPL } : {}),
+    ...(segmentBS !== undefined ? { segmentBS } : {}),
     ...(businessSegments !== undefined ? { businessSegments } : {}),
     ...(businessPortfolio !== undefined ? { businessPortfolio } : {}),
     ...(financeSummary !== undefined ? { financeSummary } : {}),
 
-    // 通知/権限は温存
-    notification:
-      typeof src.notification === 'string' ? src.notification : undefined,
+    notification: typeof src.notification === 'string' ? src.notification : undefined,
     role: src.role,
   };
 

@@ -61,6 +61,22 @@ const SWOTSchema = z.object({
   threat: z.string().optional(),
 });
 
+const BusinessSegmentDetailSchema = z
+  .object({
+    id: z.string().optional(),
+    name: z.string().optional().default(''),
+    summary: z.string().optional(),
+    keyCustomers: z.array(z.string()).optional().default([]),
+    scope: z.string().optional(),
+  })
+  .passthrough();
+
+/**
+ * 事業ポートフォリオはプロジェクト側で型が揺れる可能性が高いので、
+ * ここでは「あるなら受け取り、プロンプトへ文字列化して反映」する方針で緩く受ける。
+ */
+const BusinessPortfolioSchema = z.any().optional();
+
 const InputSchema = z.object({
   issueBlocks: z.array(IssueBlockSchema),
   metricsSummary: MetricsSummarySchema.optional(),
@@ -68,6 +84,8 @@ const InputSchema = z.object({
   swot: SWOTSchema,
   industry: z.string().optional(),
   segments: z.array(z.string()).optional(),
+  businessSegments: z.array(BusinessSegmentDetailSchema).optional().default([]), // ★ STAGE1セグメント（summary/keyCustomers含む）
+  businessPortfolio: BusinessPortfolioSchema, // ★ 任意：現在の事業ポートフォリオ
 });
 
 /* ===== 出力スキーマ ===== */
@@ -269,6 +287,14 @@ STAGE1の論点と指標を根拠に、ドライで論理的なたたき台ス�
 - 数値や指標があれば積極的に引用する
 - 抽象論より具体の方向性（何をどう変えるか）が伝わることを優先する
 
+【最重要：事業セグメント前提（厳守）】
+- 入力に「事業セグメント前提」が与えられた場合、それを必ず本文に反映する
+- 次の条件を必ず満たす：
+  1) 第1章または第3章の冒頭に「当社の事業と顧客」という小見出しを作る
+  2) 各セグメント名を本文中に必ず1回以上登場させる
+  3) 主要顧客（keyCustomers）を“具体語”として本文に含める（一般論禁止）
+- 事業ポートフォリオが与えられた場合、戦略案（第2章）と未来像（第3章）に矛盾がないよう反映する
+
 【最重要：型（厳守）】
 - storyDraft[i].body は必ず「文字列」で返す（配列やオブジェクトは禁止）
 - 第2章は自由作文ではなく、必ず以下の固定書式の“文字列”にする（1)〜3) まで）：
@@ -330,10 +356,71 @@ STAGE1の論点と指標を根拠に、ドライで論理的なたたき台ス�
 `.trim();
 }
 
-function buildUserPrompt(input: z.infer<typeof InputSchema>): string {
-  const { issueBlocks, metricsSummary, mvv, swot, industry, segments } = input;
+/**
+ * businessSegments を「事業セグメント前提」として整形
+ * 未入力は行ごと省略、keyCustomers は配列から join
+ */
+function buildBusinessSegmentsPreamble(segments?: any[]): string {
+  if (!segments || !Array.isArray(segments) || segments.length === 0) {
+    return '';
+  }
 
-  // 論点ブロックの整形
+  const lines: string[] = [];
+  for (const seg of segments) {
+    const name = typeof seg?.name === 'string' ? seg.name.trim() : '';
+    if (!name) continue;
+
+    const summary = typeof seg?.summary === 'string' ? seg.summary.trim() : '';
+    const keyCustomers = Array.isArray(seg?.keyCustomers)
+      ? seg.keyCustomers
+          .map((c: any) => (typeof c === 'string' ? c.trim() : ''))
+          .filter(Boolean)
+          .slice(0, 3)
+          .join(', ')
+      : '';
+
+    lines.push(`- セグメント：${name}`);
+    if (summary) lines.push(`  事業概要：${summary}`);
+    if (keyCustomers) lines.push(`  主要顧客：${keyCustomers}`);
+  }
+
+  return lines.length > 0 ? `【事業セグメント前提】\n${lines.join('\n')}\n` : '';
+}
+
+function buildBusinessPortfolioText(portfolio: any): string {
+  if (!portfolio) return '';
+  // 可能なら読みやすい形式へ寄せる。型が揺れるので安全第一で stringify へフォールバック
+  if (typeof portfolio === 'string') {
+    const s = portfolio.trim();
+    return s ? `【現在の事業ポートフォリオ】\n${sanitize(s, 1800)}\n` : '';
+  }
+  if (Array.isArray(portfolio)) {
+    const lines = portfolio
+      .map((x) => {
+        if (typeof x === 'string') return x.trim();
+        if (x && typeof x === 'object') {
+          const name = x.name ?? x.segmentName ?? x.title ?? x.business ?? x.id ?? '';
+          const share = x.share ?? x.revenueShare ?? x.salesShare ?? x.mix ?? '';
+          const note = x.note ?? x.comment ?? x.memo ?? '';
+          const parts = [String(name || '').trim(), share !== '' ? `（比率: ${String(share).trim()}）` : '', note ? `- ${String(note).trim()}` : '']
+            .filter(Boolean)
+            .join(' ');
+          return parts || safeStringify(x);
+        }
+        return String(x ?? '').trim();
+      })
+      .filter(Boolean);
+    return lines.length ? `【現在の事業ポートフォリオ】\n- ${lines.join('\n- ')}\n` : `【現在の事業ポートフォリオ】\n${safeStringify(portfolio).slice(0, 1800)}\n`;
+  }
+  if (typeof portfolio === 'object') {
+    return `【現在の事業ポートフォリオ】\n${sanitize(safeStringify(portfolio), 1800)}\n`;
+  }
+  return `【現在の事業ポートフォリオ】\n${sanitize(String(portfolio), 1800)}\n`;
+}
+
+function buildUserPrompt(input: z.infer<typeof InputSchema>): string {
+  const { issueBlocks, metricsSummary, mvv, swot, industry, segments, businessSegments, businessPortfolio } = input;
+
   const issueBlocksText = issueBlocks
     .map((ib, i) => {
       const metrics = ib.linkedMetrics?.length ? `（根拠指標: ${ib.linkedMetrics.join(', ')}）` : '';
@@ -342,7 +429,13 @@ function buildUserPrompt(input: z.infer<typeof InputSchema>): string {
     })
     .join('\n');
 
-  // 指標サマリの整形
+  // 事業セグメント前提（summary/keyCustomers）
+  const businessSegmentsPreamble = buildBusinessSegmentsPreamble(businessSegments);
+
+  // 事業ポートフォリオ（あるなら）
+  const portfolioText = buildBusinessPortfolioText(businessPortfolio);
+
+  // 指標サマリ
   const metricsText = metricsSummary
     ? [
         metricsSummary.roic !== undefined ? `ROIC: ${metricsSummary.roic.toFixed(1)}%` : null,
@@ -368,7 +461,20 @@ function buildUserPrompt(input: z.infer<typeof InputSchema>): string {
         .join(' / ')
     : '（指標データなし）';
 
-  return `【STAGE1で特定された論点】
+  const segmentsText = segments?.length ? `【事業セグメント（名称のみ）】${segments.join(', ')}` : '';
+
+  // 重要強制（user側でも重ねる）
+  const mustFollow = `【重要（厳守）】
+- 上の「事業セグメント前提」がある場合、必ず本文に反映する
+- 第1章または第3章の冒頭に「当社の事業と顧客」という小見出しを入れる
+- 各セグメント名を本文中に必ず1回以上登場させる
+- 主要顧客（keyCustomers）を具体語として本文に含める（一般論禁止）
+- 事業ポートフォリオがある場合、戦略案（第2章）と未来像（第3章）に矛盾がないよう反映する`;
+
+  // preamble を先頭へ（優先度を上げる）
+  return `${businessSegmentsPreamble || ''}${segmentsText ? segmentsText + '\n\n' : ''}${portfolioText || ''}${mustFollow}
+
+【STAGE1で特定された論点】
 ${issueBlocksText}
 
 【財務指標サマリ】
@@ -388,11 +494,10 @@ ${mvv.thought ? `- 経営者の思い: ${sanitize(mvv.thought, 500)}` : ''}
 - 脅威: ${sanitize(swot.threat, 400) || '（未入力）'}
 
 ${industry ? `【業種】${industry}` : ''}
-${segments?.length ? `【事業セグメント】${segments.join(', ')}` : ''}
 
 上記の情報を踏まえ、4章ストーリーと勝ち筋候補（2〜3案）を生成してください。
 第1章は必ず「論点サマリ：」を含め、根拠指標を可能な範囲で引用してください。
-第2章は必ず固定書式（1)〜3)）の“文字列”で返してください。`;
+第2章は必ず固定書式（1)〜3)）の"文字列"で返してください。`;
 }
 
 /* ===== APIハンドラ ===== */
@@ -412,6 +517,19 @@ export async function POST(req: NextRequest) {
     }
 
     const input = parseResult.data;
+
+    // 開発環境：受信観測ログ（businessSegments/portfolio）
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[stage2/generate-draft] businessSegments count:', input.businessSegments?.length ?? 0);
+      console.log(
+        '[stage2/generate-draft] businessSegments preview:',
+        safeStringify((input.businessSegments ?? []).slice(0, 3))
+      );
+      const pre = buildBusinessSegmentsPreamble(input.businessSegments);
+      console.log('[stage2/generate-draft] businessSegmentsPreamble:', pre ? pre.slice(0, 900) : '(empty)');
+      const port = buildBusinessPortfolioText(input.businessPortfolio);
+      console.log('[stage2/generate-draft] businessPortfolioText:', port ? port.slice(0, 900) : '(empty)');
+    }
 
     // 論点が空の場合
     if (input.issueBlocks.length === 0) {

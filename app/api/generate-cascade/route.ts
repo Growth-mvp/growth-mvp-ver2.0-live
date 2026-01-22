@@ -1,5 +1,6 @@
 // /app/api/generate-cascade/route.ts
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { openai } from '@/lib/openai';
@@ -24,19 +25,26 @@ const ProjectSchema = z.object({
   valueDriverLinks: z.array(z.string()).optional().default([]),
 
   // ★STAGE3拡張：スキル要件
-  skillRequirements: z.object({
-    roleSkills: z.array(z.string()).optional(),
-    executionSkills: z.array(z.string()).optional(),
-  }).optional(),
+  skillRequirements: z
+    .object({
+      roleSkills: z.array(z.string()).optional(),
+      executionSkills: z.array(z.string()).optional(),
+    })
+    .optional(),
 
   // ★STAGE3拡張：人的投資施策
-  humanInvestments: z.array(z.object({
-    category: z.enum(['TRAINING_OJT', 'HIRING', 'ALLOCATION', 'EXTERNAL', 'TOOLS_PROCESS']),
-    title: z.string(),
-    detail: z.string().optional(),
-    owner: z.string().optional(),
-    horizon: z.enum(['0_3M', '3_6M', '6_12M', '']).optional(),
-  })).optional().default([]),
+  humanInvestments: z
+    .array(
+      z.object({
+        category: z.enum(['TRAINING_OJT', 'HIRING', 'ALLOCATION', 'EXTERNAL', 'TOOLS_PROCESS']),
+        title: z.string(),
+        detail: z.string().optional(),
+        owner: z.string().optional(),
+        horizon: z.enum(['0_3M', '3_6M', '6_12M', '']).optional(),
+      }),
+    )
+    .optional()
+    .default([]),
 });
 
 // OKR（新規探索レーンだけ expectedImpactYen / probability を付与できる）
@@ -104,12 +112,25 @@ const AnswersSchema = z
   .optional()
   .default([]);
 
+/**
+ * NOTE:
+ * - ここが今回の主因でした。
+ *   フロントの csvFinanceData は「配列」ではなく、
+ *   { financeBS: [...], segmentPL: {...}, 0: {...} } のような“オブジェクト”で来ることがある。
+ *   旧スキーマは csvFinanceData: z.array(...) で弾いていたため、ReqSchema.safeParse が失敗していました。
+ *
+ * - また departments[].projects は string[] の場合もあれば、Project[]（オブジェクト）の場合もあり得るため、
+ *   seeds 用として any[] を許容し、テキスト化の際に正規化します。
+ */
 const DeptInputSchema = z
   .object({
     name: z.string().optional(),
     departmentName: z.string().optional(),
     missionDraft: z.string().optional(),
-    projects: z.array(z.string()).optional(),
+
+    // seeds: string[] でも object[] でも許容（後段でテキスト化）
+    projects: z.array(z.any()).optional(),
+
     okrs: z
       .array(
         z.object({
@@ -130,38 +151,46 @@ const DeptInputSchema = z
   })
   .passthrough();
 
-const ReqSchema = z.object({
-  thought: z.string().optional(),
-  vision: z.string().optional(),
-  mission: z.string().optional(),
-  industry: z.string().optional(),
-  revenue: z.union([z.string(), z.number()]).optional(),
-  employees: z.union([z.string(), z.number()]).optional(),
-  value: z.string().optional(),
-  strength: z.string().optional(),
-  weakness: z.string().optional(),
-  opportunity: z.string().optional(),
-  threat: z.string().optional(),
-  story: z.any().optional(),
-  strategySummary: z.string().optional(),
-  departments: z.array(DeptInputSchema).optional().default([]),
+const ReqSchema = z
+  .object({
+    thought: z.string().optional(),
+    vision: z.string().optional(),
+    mission: z.string().optional(),
+    industry: z.string().optional(),
+    revenue: z.union([z.string(), z.number()]).optional(),
+    employees: z.union([z.string(), z.number()]).optional(),
+    value: z.string().optional(),
+    strength: z.string().optional(),
+    weakness: z.string().optional(),
+    opportunity: z.string().optional(),
+    threat: z.string().optional(),
+    story: z.any().optional(),
+    strategySummary: z.string().optional(),
+    departments: z.array(DeptInputSchema).optional().default([]),
 
-  csvFinanceData: z.array(z.record(z.any())).optional().default([]),
+    // ★ここを緩和：配列/オブジェクトどちらも許容（strictで弾かない）
+    csvFinanceData: z.any().optional(),
 
-  financeSummary: z.any().optional(),
-  businessPortfolio: z.any().optional(),
+    financeSummary: z.any().optional(),
+    businessPortfolio: z.any().optional(),
 
-  // ★STAGE2構造化データ
-  winPatternPrimary: z.string().optional(),
-  winPatternSecondary: z.string().optional(),
-  valueDriverKPIs: z.array(z.object({
-    id: z.string(),
-    label: z.string(),
-    description: z.string().optional(),
-    category: z.string().optional(),
-  })).optional().default([]),
-  targetRanges: z.any().optional(),
-});
+    // ★STAGE2構造化データ
+    winPatternPrimary: z.string().optional(),
+    winPatternSecondary: z.string().optional(),
+    valueDriverKPIs: z
+      .array(
+        z.object({
+          id: z.string(),
+          label: z.string(),
+          description: z.string().optional(),
+          category: z.string().optional(),
+        }),
+      )
+      .optional()
+      .default([]),
+    targetRanges: z.any().optional(),
+  })
+  .passthrough();
 
 /* =========================
  * 小ユーティリティ
@@ -169,11 +198,12 @@ const ReqSchema = z.object({
 const toLinesFromCsv = (csvRows: any[], limit = 5) =>
   (csvRows || [])
     .slice(0, limit)
-    .map((row: any, i: number) =>
-      `【${i + 1}行目】 ${Object.entries(row || {})
+    .map((row: any, i: number) => {
+      const obj = row && typeof row === 'object' ? row : { value: row };
+      return `【${i + 1}行目】 ${Object.entries(obj)
         .map(([k, v]) => `${k}: ${v}`)
-        .join(', ')}`,
-    )
+        .join(', ')}`;
+    })
     .join('\n');
 
 function pickName(d: any) {
@@ -210,6 +240,74 @@ function normalizeProbability(v: any): number | undefined {
   if (n <= 0) return 0;
   if (n > 1 && n <= 100) return Math.max(0, Math.min(1, n / 100));
   return Math.max(0, Math.min(1, n));
+}
+
+/**
+ * csvFinanceData から「表示用に抜粋できる“行配列”」を抽出する。
+ * - 旧：csvFinanceData が配列（row[]）
+ * - 新：csvFinanceData がオブジェクト（{financeBS, segmentPL, segmentBS, 0: {...}} 等）
+ */
+function extractCsvPreviewRows(csvFinanceData: any): any[] {
+  if (!csvFinanceData) return [];
+
+  // 1) 既に配列
+  if (Array.isArray(csvFinanceData)) return csvFinanceData;
+
+  // 2) rows/data が配列
+  if (Array.isArray(csvFinanceData?.rows)) return csvFinanceData.rows;
+  if (Array.isArray(csvFinanceData?.data)) return csvFinanceData.data;
+
+  // 3) 数値キーが混ざるケース（0,1,...）
+  if (typeof csvFinanceData === 'object') {
+    const numericKeys = Object.keys(csvFinanceData).filter((k) => /^\d+$/.test(k));
+    if (numericKeys.length > 0) {
+      numericKeys.sort((a, b) => Number(a) - Number(b));
+      const first = (csvFinanceData as any)[numericKeys[0]];
+      if (Array.isArray(first)) return first;
+      if (first && typeof first === 'object') return [first];
+    }
+  }
+
+  // 4) financeBS / segmentPL / segmentBS などの構造から無理やり数行作る
+  const out: any[] = [];
+
+  if (Array.isArray(csvFinanceData?.financeBS)) {
+    out.push(...csvFinanceData.financeBS.slice(0, 3).map((r: any) => ({ source: 'financeBS', ...r })));
+  }
+
+  const segPL = csvFinanceData?.segmentPL;
+  if (segPL && typeof segPL === 'object') {
+    const segNames = Object.keys(segPL).slice(0, 2);
+    for (const name of segNames) {
+      const rows = Array.isArray(segPL[name]) ? segPL[name] : [];
+      out.push(...rows.slice(0, 2).map((r: any) => ({ source: `segmentPL:${name}`, ...r })));
+    }
+  }
+
+  const segBS = csvFinanceData?.segmentBS;
+  if (segBS && typeof segBS === 'object') {
+    const segNames = Object.keys(segBS).slice(0, 1);
+    for (const name of segNames) {
+      const rows = Array.isArray(segBS[name]) ? segBS[name] : [];
+      out.push(...rows.slice(0, 2).map((r: any) => ({ source: `segmentBS:${name}`, ...r })));
+    }
+  }
+
+  return out;
+}
+
+/** 部門seed projects（string[]/object[] 混在）を string[] に正規化 */
+function normalizeProjectSeeds(raw: any): string[] {
+  const arr = Array.isArray(raw) ? raw : [];
+  return arr
+    .map((p) => {
+      if (typeof p === 'string') return p;
+      if (p && typeof p === 'object') return String(p.title ?? p.name ?? '').trim();
+      return '';
+    })
+    .map((s) => String(s || '').trim())
+    .filter(Boolean)
+    .slice(0, 5);
 }
 
 /* =========================
@@ -269,9 +367,7 @@ function summarizeFinanceSummary(financeSummary: any, limitYears = 4): string {
         const opNum = toNum(op);
         const margin =
           toNum(r.operating_margin_pct ?? r.opMargin) ??
-          (revNum != null && revNum !== 0 && opNum != null
-            ? Math.round((opNum / revNum) * 1000) / 10
-            : null);
+          (revNum != null && revNum !== 0 && opNum != null ? Math.round((opNum / revNum) * 1000) / 10 : null);
 
         const revStr = revNum != null ? `${revNum}百万円` : '—';
         const opStr = opNum != null ? `${opNum}百万円` : '—';
@@ -346,17 +442,11 @@ function normalizeProjects(raw: any): NormProject[] {
       const reason = typeof p?.reason === 'string' ? p.reason.trim() : '';
       const hypothesis = typeof p?.hypothesis === 'string' ? p.hypothesis.trim() : '';
 
-      const mainLeverRaw =
-        typeof p?.mainLever === 'string' ? p.mainLever.trim().toUpperCase() : '';
-      const mainLever = allowedLevers.includes(mainLeverRaw as any)
-        ? (mainLeverRaw as NormProject['mainLever'])
-        : undefined;
+      const mainLeverRaw = typeof p?.mainLever === 'string' ? p.mainLever.trim().toUpperCase() : '';
+      const mainLever = allowedLevers.includes(mainLeverRaw as any) ? (mainLeverRaw as NormProject['mainLever']) : undefined;
 
-      const horizonRaw =
-        typeof p?.horizon === 'string' ? p.horizon.trim().toLowerCase() : '';
-      const horizon = allowedHorizons.includes(horizonRaw as any)
-        ? (horizonRaw as NormProject['horizon'])
-        : undefined;
+      const horizonRaw = typeof p?.horizon === 'string' ? p.horizon.trim().toLowerCase() : '';
+      const horizon = allowedHorizons.includes(horizonRaw as any) ? (horizonRaw as NormProject['horizon']) : undefined;
 
       const kindRaw = typeof p?.kind === 'string' ? p.kind.trim().toLowerCase() : '';
       const kind = allowedKinds.includes(kindRaw as any) ? (kindRaw as NormProject['kind']) : undefined;
@@ -489,14 +579,10 @@ function coerceStrategicKrs(params: { krs: string[]; lane: 'existing' | 'new'; y
     `[構造] 高付加価値（価格交渉が少ない）案件比率を40%に引き上げ／${year}`,
     `[構造] 設計・仕様段階から入る商談比率を50%にする／${year}`,
   ];
-  const validationDefaultsExisting = [
-    `[検証] 重点セグメントで勝てる提案型（再現性）を2つ確立し、月次で運用／${year}`,
-  ];
+  const validationDefaultsExisting = [`[検証] 重点セグメントで勝てる提案型（再現性）を2つ確立し、月次で運用／${year}`];
   const resultDefaultsExisting = [`[結果] 主要KPI（売上・利益率など）を合意した目標に到達／${year}`];
 
-  const structureDefaultsNew = [
-    `[構造] 想定ターゲットの一次ニーズを満たす提供形（MVP/PoC）を2パターン作る／YYYY-MMまで`,
-  ];
+  const structureDefaultsNew = [`[構造] 想定ターゲットの一次ニーズを満たす提供形（MVP/PoC）を2パターン作る／YYYY-MMまで`];
   const validationDefaultsNew = [
     `[検証] PoC顧客3社で有効性を検証し、継続意思（有料化/導入前提）を2社で獲得／YYYY-MMまで`,
     `[検証] スケール条件（誰に・何を・いくらで・どう売るか）を1枚に整理し合意／YYYY-MMまで`,
@@ -504,9 +590,7 @@ function coerceStrategicKrs(params: { krs: string[]; lane: 'existing' | 'new'; y
   const resultDefaultsNew = [`[結果] 期待インパクト（円）×成功確率の前提を更新し、次フェーズ移行判定を行う／YYYY-MMまで`];
 
   const structure =
-    structureCandidates.length > 0
-      ? structureCandidates
-      : rest.slice(0, 2).map((s) => ensureKrLayerPrefix(s, '[構造]'));
+    structureCandidates.length > 0 ? structureCandidates : rest.slice(0, 2).map((s) => ensureKrLayerPrefix(s, '[構造]'));
 
   const validation =
     validationCandidates.length > 0
@@ -554,8 +638,7 @@ function ensureFallbackOkrsStrategic(params: {
     lane,
   });
 
-  const keyResults =
-    lane === 'new' ? coerceStrategicKrs({ krs: [], lane: 'new' }) : coerceStrategicKrs({ krs: [], lane: 'existing', yearHint: 'YYYY年度' });
+  const keyResults = lane === 'new' ? coerceStrategicKrs({ krs: [], lane: 'new' }) : coerceStrategicKrs({ krs: [], lane: 'existing', yearHint: 'YYYY年度' });
 
   const base: any = { objective, keyResults, owner: '' };
 
@@ -624,10 +707,17 @@ export async function POST(req: NextRequest) {
     const parsedReq = ReqSchema.safeParse(raw);
 
     if (!parsedReq.success) {
-      return new NextResponse(JSON.stringify({ error: '入力の形式が不正です。' }), {
-        status: 400,
-        headers: { 'content-type': 'application/json; charset=utf-8' },
-      });
+      // ★デバッグ可能に：どこが不正か返す
+      return new NextResponse(
+        JSON.stringify({
+          error: '入力の形式が不正です。',
+          issues: parsedReq.error.issues,
+        }),
+        {
+          status: 400,
+          headers: { 'content-type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+        },
+      );
     }
 
     const {
@@ -657,7 +747,7 @@ export async function POST(req: NextRequest) {
     if (!Array.isArray(departments) || departments.length === 0) {
       return new NextResponse(JSON.stringify({ error: '部門情報が未入力です。カスケード生成できません。' }), {
         status: 400,
-        headers: { 'content-type': 'application/json; charset=utf-8' },
+        headers: { 'content-type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
       });
     }
 
@@ -666,10 +756,10 @@ export async function POST(req: NextRequest) {
       (typeof strategySummary === 'string' && strategySummary.trim().length > 0) ||
       (typeof storyText === 'string' && storyText.trim().length > 0);
     if (!hasValidInput) {
-      return new NextResponse(
-        JSON.stringify({ error: '経営戦略ストーリーと要約の両方が空です。どちらかを入力してください。' }),
-        { status: 400, headers: { 'content-type': 'application/json; charset=utf-8' } },
-      );
+      return new NextResponse(JSON.stringify({ error: '経営戦略ストーリーと要約の両方が空です。どちらかを入力してください。' }), {
+        status: 400,
+        headers: { 'content-type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+      });
     }
 
     /* =========================
@@ -677,8 +767,9 @@ export async function POST(req: NextRequest) {
      * ======================= */
     const summary = strategySummary?.trim() || storyText.slice(0, 160) || '（要約なし）';
 
-    const financeCsvText =
-      Array.isArray(csvFinanceData) && csvFinanceData.length > 0 ? toLinesFromCsv(csvFinanceData, 5) : '（CSVベースの財務データなし）';
+    // ★csvFinanceData はオブジェクトで来ても落とさない（抜粋行を抽出）
+    const previewRows = extractCsvPreviewRows(csvFinanceData);
+    const financeCsvText = previewRows.length > 0 ? toLinesFromCsv(previewRows, 5) : '（CSVベースの財務データなし）';
 
     const financeSummaryText = summarizeFinanceSummary(financeSummary);
     const portfolioText = summarizeBusinessPortfolio(businessPortfolio);
@@ -701,9 +792,9 @@ export async function POST(req: NextRequest) {
           .map((a) => `  - Q${a.stepNumber}${a.label ? `（${a.label}）` : ''}: ${sanitizeText(a?.answer || '', 220)}`)
           .join('\n');
 
-        const projSeed = trimList(d?.projects, 5)
-          .map((p) => `  - ${sanitizeText(p, 100)}`)
-          .join('\n');
+        // ★projects seed を string[]/object[] 混在から正規化
+        const projSeedList = normalizeProjectSeeds(d?.projects);
+        const projSeed = projSeedList.map((p) => `  - ${sanitizeText(p, 100)}`).join('\n');
 
         const okrSeed = (Array.isArray(d?.okrs) ? d!.okrs! : [])
           .slice(0, 2)
@@ -781,9 +872,11 @@ ${sanitizeText(storyText || '', 800) || '（ストーリー未入力）'}
 ${deptBlocks}
 
 【STAGE2 価値指標（ValueDriverKPIs）】
-${valueDriverKPIs && valueDriverKPIs.length > 0
-  ? valueDriverKPIs.map((kpi: any) => `- ${kpi.id}: ${kpi.label}${kpi.description ? ` (${kpi.description})` : ''}`).join('\n')
-  : '（未設定）'}
+${
+  valueDriverKPIs && valueDriverKPIs.length > 0
+    ? valueDriverKPIs.map((kpi: any) => `- ${kpi.id}: ${kpi.label}${kpi.description ? ` (${kpi.description})` : ''}`).join('\n')
+    : '（未設定）'
+}
 
 【STAGE2 勝ち筋パターン】
 主要: ${winPatternPrimary ?? '（未設定）'} / 副次: ${winPatternSecondary ?? '（未設定）'}
@@ -939,7 +1032,7 @@ ${valueDriverKPIs && valueDriverKPIs.length > 0
     if (!parsed) {
       return new NextResponse(JSON.stringify({ error: '生成結果のJSON解析に失敗しました。' }), {
         status: 500,
-        headers: { 'content-type': 'application/json; charset=utf-8' },
+        headers: { 'content-type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
       });
     }
 
@@ -951,52 +1044,30 @@ ${valueDriverKPIs && valueDriverKPIs.length > 0
 
     /* =========================
      * ★STAGE3フィールドの補完（fallback）
-     * AIが返さなかった場合の最低限の補完処理
-     * アーキタイプ推定により、プロジェクトごとに異なるスキル/施策を割り当てる
      * ======================= */
 
-    // プロジェクトのアーキタイプを推定する関数
     function inferProjectArchetype(project: any, deptName: string, lane: string): string {
       const title = (project?.title ?? '').toLowerCase();
       const hypothesis = (project?.hypothesis ?? '').toLowerCase();
       const kind = project?.kind ?? '';
       const mainLever = project?.mainLever ?? '';
 
-      // キーワードマッチングでアーキタイプを推定
-      if (title.includes('品質') || title.includes('テスト') || hypothesis.includes('品質') || hypothesis.includes('不具合')) {
-        return 'quality';
-      }
-      if (title.includes('自動化') || title.includes('効率化') || hypothesis.includes('自動化') || kind === 'efficiency') {
-        return 'automation';
-      }
-      if (title.includes('営業') || title.includes('販売') || deptName.includes('営業') || mainLever === 'ACQ') {
-        return 'sales';
-      }
-      if (title.includes('新規') || title.includes('事業') || kind === 'future' || lane === 'new') {
-        return 'new_business';
-      }
-      if (title.includes('データ') || title.includes('分析') || title.includes('IT') || hypothesis.includes('データ')) {
-        return 'data_it';
-      }
-      if (title.includes('組織') || title.includes('人事') || title.includes('育成') || deptName.includes('人事')) {
-        return 'org_hr';
-      }
-      if (title.includes('コスト') || title.includes('削減') || kind === 'cost') {
-        return 'cost';
-      }
-      if (title.includes('マーケ') || title.includes('広告') || deptName.includes('マーケ')) {
-        return 'marketing';
-      }
+      if (title.includes('品質') || title.includes('テスト') || hypothesis.includes('品質') || hypothesis.includes('不具合')) return 'quality';
+      if (title.includes('自動化') || title.includes('効率化') || hypothesis.includes('自動化') || kind === 'efficiency') return 'automation';
+      if (title.includes('営業') || title.includes('販売') || deptName.includes('営業') || mainLever === 'ACQ') return 'sales';
+      if (title.includes('新規') || title.includes('事業') || kind === 'future' || lane === 'new') return 'new_business';
+      if (title.includes('データ') || title.includes('分析') || title.includes('it') || hypothesis.includes('データ')) return 'data_it';
+      if (title.includes('組織') || title.includes('人事') || title.includes('育成') || deptName.includes('人事')) return 'org_hr';
+      if (title.includes('コスト') || title.includes('削減') || kind === 'cost') return 'cost';
+      if (title.includes('マーケ') || title.includes('広告') || deptName.includes('マーケ')) return 'marketing';
 
-      // デフォルト：一般的なビジネス改善
       return 'general';
     }
 
-    // アーキタイプに基づいてスキルと施策を返す
     function getSkillsAndInvestmentsByArchetype(archetype: string): {
       executionSkills: string[];
       roleSkills: string[];
-      investments: any[]
+      investments: any[];
     } {
       const templates: Record<string, any> = {
         quality: {
@@ -1080,7 +1151,6 @@ ${valueDriverKPIs && valueDriverKPIs.length > 0
       // 1. valueDriverLinks の補完
       if (!project.valueDriverLinks || project.valueDriverLinks.length === 0) {
         if (availableKPIs && availableKPIs.length > 0) {
-          // 先頭1〜2個を自動セット
           project.valueDriverLinks = availableKPIs
             .slice(0, 2)
             .map((kpi: any) => kpi.id)
@@ -1090,16 +1160,12 @@ ${valueDriverKPIs && valueDriverKPIs.length > 0
         }
       }
 
-      // アーキタイプを推定
       const archetype = inferProjectArchetype(project, deptName, lane);
       const template = getSkillsAndInvestmentsByArchetype(archetype);
 
       // 2. skillRequirements の補完
-      if (!project.skillRequirements) {
-        project.skillRequirements = {};
-      }
+      if (!project.skillRequirements) project.skillRequirements = {};
       if (!project.skillRequirements.executionSkills || project.skillRequirements.executionSkills.length === 0) {
-        // アーキタイプに基づいた実行スキルを設定
         project.skillRequirements.executionSkills = template.executionSkills.slice(0, 2);
       }
       if (!project.skillRequirements.roleSkills) {
@@ -1108,32 +1174,22 @@ ${valueDriverKPIs && valueDriverKPIs.length > 0
 
       // 3. humanInvestments の補完
       if (!project.humanInvestments || project.humanInvestments.length === 0) {
-        // アーキタイプに基づいた人的投資施策を設定
         project.humanInvestments = template.investments;
       }
     }
 
-    // すべてのプロジェクトに補完処理を適用
     if (Array.isArray(normalized?.departments)) {
       for (const dept of normalized.departments) {
         const deptName = dept?.name ?? '';
-        // lanes.existing.projects
+
         if (dept?.lanes?.existing?.projects) {
-          for (const proj of dept.lanes.existing.projects) {
-            fillMissingStage3Fields(proj, valueDriverKPIs, deptName, 'existing');
-          }
+          for (const proj of dept.lanes.existing.projects) fillMissingStage3Fields(proj, valueDriverKPIs, deptName, 'existing');
         }
-        // lanes.new.projects
         if (dept?.lanes?.new?.projects) {
-          for (const proj of dept.lanes.new.projects) {
-            fillMissingStage3Fields(proj, valueDriverKPIs, deptName, 'new');
-          }
+          for (const proj of dept.lanes.new.projects) fillMissingStage3Fields(proj, valueDriverKPIs, deptName, 'new');
         }
-        // 後方互換: projects（フラット配列）
         if (Array.isArray(dept?.projects)) {
-          for (const proj of dept.projects) {
-            fillMissingStage3Fields(proj, valueDriverKPIs, deptName, '');
-          }
+          for (const proj of dept.projects) fillMissingStage3Fields(proj, valueDriverKPIs, deptName, '');
         }
       }
     }
@@ -1218,8 +1274,7 @@ ${valueDriverKPIs && valueDriverKPIs.length > 0
                     {
                       title: '新規探索：仮説検証プロジェクト',
                       reason: '将来成長の可能性を検証する',
-                      hypothesis:
-                        '特定の顧客課題に対し小さく提供すれば、反応が得られ、スケールの条件が見えるはず。',
+                      hypothesis: '特定の顧客課題に対し小さく提供すれば、反応が得られ、スケールの条件が見えるはず。',
                       mainLever: 'FUTURE',
                       horizon: 'mid',
                       kind: 'future',
@@ -1269,7 +1324,7 @@ ${valueDriverKPIs && valueDriverKPIs.length > 0
     console.error('❌ APIエラー（generate-cascade）:', err?.message || err);
     return new NextResponse(JSON.stringify({ error: 'サーバーエラーが発生しました。' }), {
       status: 500,
-      headers: { 'content-type': 'application/json; charset=utf-8' },
+      headers: { 'content-type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
     });
   }
 }

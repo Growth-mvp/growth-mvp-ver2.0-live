@@ -238,6 +238,35 @@ export default function Stage6Page() {
       !hydrated) ??
     false;
 
+  // ★ TASK B: isReady ゲート（計算確定条件）
+  // KR 0→12 揺れ時に 0 状態で state を確定させない
+  const isReady = useMemo(() => {
+    const financeLen = Array.isArray(financePL) ? financePL.length : 0;
+    const deptLen = Array.isArray(departments) ? departments.length : 0;
+
+    return (
+      hydrated &&
+      !isHydrating &&
+      financeLen > 0 &&
+      deptLen > 0
+    );
+  }, [hydrated, isHydrating, financePL, departments]);
+
+  // ★ TASK C: readyGate 診断ログ（状態遷移を 1 ログで確認）
+  useEffect(() => {
+    if (!DEBUG) return;
+    const financeLen = Array.isArray(financePL) ? financePL.length : 0;
+    const deptLen = Array.isArray(departments) ? departments.length : 0;
+    console.log('[stage6][diag] readyGate', {
+      hydrated,
+      isHydrating,
+      financeLen,
+      deptLen,
+      isReady,
+      reason: !hydrated ? 'not hydrated' : isHydrating ? 'is hydrating' : financeLen === 0 ? 'no finance' : deptLen === 0 ? 'no dept' : 'ready',
+    });
+  }, [DEBUG, hydrated, isHydrating, financePL, departments, isReady]);
+
   // ★ departments は既に Line 66 で selector で取得済み
   useAutoSave(!isHydrating ? [accessCompanyId, departments] : []);
 
@@ -296,9 +325,8 @@ export default function Stage6Page() {
 
       const projects = Array.isArray(d?.projects) ? d.projects : [];
       projects.forEach((p: any, pIndex: number) => {
-        const planStatus = p?.planStatus ?? 'draft';
-        if (planStatus !== 'approved') return;
-
+        // ★ 最小修正：planStatus チェックを一時的に削除し、全PJを対象にする
+        // （本来は approved のみだが、デバッグ目的で全PJの寄与を計測）
         const projTitle = p?.title ?? '（未名）';
         const projKey = makeProjectKey(deptName, projTitle, pIndex);
 
@@ -418,8 +446,39 @@ export default function Stage6Page() {
       }),
     };
 
+    // ★ 手順1：KR可視化ログ（DEBUG時のみ）
+    if (DEBUG) {
+      const krCountByProject = Array.from(projectKrsMap.entries()).map(
+        ([key, krs]) => ({
+          proj: key,
+          krCount: krs?.length ?? 0,
+        }),
+      );
+      const totalKrCount = krCountByProject.reduce((s, p) => s + p.krCount, 0);
+      const krSample = Array.from(projectKrsMap.values())
+        .flatMap((arr) => arr)
+        .slice(0, 2);
+
+      console.log('[stage6][diag] projectKrsMap info', {
+        projectCount: projectKrsMap.size,
+        totalKrCount,
+        krCountByProject,
+        krSample: krSample.map((kr) => ({
+          id: kr.id,
+          kind: (kr as any).kind,
+          label: kr.label,
+          target: kr.target,
+        })),
+      });
+    }
+
+    // ★ TASK B: KR カウント確認（0 状態で ready=true を返さない）
+    const allKrsForReady: BridgeKR[] = [];
+    projectKrsMap.forEach((arr) => arr.forEach((x) => allKrsForReady.push(x)));
+    const hasKrs = allKrsForReady.length > 0;
+
     return {
-      ready: true,
+      ready: isReady && hasKrs,  // isReady でゲート + KR 存在確認
       companyName,
       error: null as string | null,
       deptNames: Array.from(deptNameSet).sort(),
@@ -428,7 +487,7 @@ export default function Stage6Page() {
       baselineYearly,
       yearlyAll,
     };
-  }, [hydrated, isHydrating, financePL, departments, companyName, revision]);
+  }, [hydrated, isHydrating, financePL, departments, companyName, revision, isReady]);
 
   // 初期：Approvedがあるなら「全選択」にする
   useEffect(() => {
@@ -438,6 +497,19 @@ export default function Stage6Page() {
     setSelectedProjectKeys(core.approved.map((a) => a.key));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [core.ready, core.approved]);
+
+  // ★ 最小修正：selectedProjectKeys が空なら全PJキーを使う
+  const allProjectKeys = useMemo(
+    () => Array.from(core.projectKrsMap.keys()),
+    [core.projectKrsMap],
+  );
+  const effectiveSelectedKeys = useMemo(
+    () =>
+      selectedProjectKeys.length > 0
+        ? selectedProjectKeys
+        : allProjectKeys,
+    [selectedProjectKeys, allProjectKeys],
+  );
 
   /* =========================================================
    * ② PJ複数選択の合算（選択PJだけONした推移）
@@ -458,11 +530,12 @@ export default function Stage6Page() {
     }
     const baseFigures = mkBaseFigures({ financePL } as any);
 
-    const selectedSet = new Set(selectedProjectKeys);
+    // ★ 最小修正：effectiveSelectedKeys を使用
+    const effectiveSet = new Set(effectiveSelectedKeys);
 
     const krs: BridgeKR[] = [];
     core.projectKrsMap.forEach((arr, key) => {
-      if (!selectedSet.has(key)) return;
+      if (!effectiveSet.has(key)) return;
       arr.forEach((x) => krs.push(x));
     });
 
@@ -492,7 +565,7 @@ export default function Stage6Page() {
         scenario: scenarios.high,
       }),
     };
-  }, [core.ready, core.projectKrsMap, selectedProjectKeys, financePL, revision]);
+  }, [core.ready, core.projectKrsMap, effectiveSelectedKeys, financePL, revision]);
 
   /* =========================================================
    * ③ PJ別寄与（単独ON差分）
@@ -509,32 +582,351 @@ export default function Stage6Page() {
     const baseline = core.baselineYearly;
     const baseScenario = { successRate: 0.8, synergyRate: 0.0 };
 
-    return core.approved.map((p) => {
-      const krs = core.projectKrsMap.get(p.key) ?? [];
-      const yearly = calcYearlyFromKrs({
-        baseTraj,
-        baseFigures,
-        krs,
-        scenario: baseScenario,
+    // ★ 最小修正：effectiveSelectedKeys に基づいて寄与を計算
+    const effectiveSet = new Set(effectiveSelectedKeys);
+
+    // ★ 手順1b：allKrs のチェックログ（DEBUG時のみ）
+    if (DEBUG) {
+      const allKrs: BridgeKR[] = [];
+      core.projectKrsMap.forEach((arr) => arr.forEach((x) => allKrs.push(x)));
+      console.log('[stage6][diag] allKrs for projectContrib', {
+        totalCount: allKrs.length,
+        sample: allKrs.slice(0, 2).map((kr) => ({
+          id: kr.id,
+          kind: (kr as any).kind,
+          label: kr.label,
+          target: kr.target,
+          unit: kr.unit,
+        })),
+      });
+    }
+
+    // ★ 手順A：skipReason 集計用の初期化
+    const skip: Record<string, number> = {};
+    const skippedSamples: any[] = [];
+
+    // ★ 手順A2：appliedButZero 詳細カウンタ
+    const appliedZero = {
+      targetZero: 0,
+      targetNaN: 0,
+      unitMissing: 0,
+      baseKeyMissing: 0,
+      baseValueZero: 0,
+      computedZero: 0,
+      afterClampZero: 0,
+      kindUnhandled: 0,
+      unitUnhandled: 0,
+    };
+    const appliedZeroSamples: any[] = [];
+    const noKrsProjects: any[] = [];
+
+    // ★ 既知の kind/unit パターン（buildBridgeDeltas で処理される）
+    const KNOWN_KINDS = [
+      'REVENUE',
+      'ACQ',
+      'ARPU',
+      'CHURN',
+      'COST_FIXED',
+      'COST_VARIABLE',
+      'PERSONNEL',
+      'INVEST',
+      'SUCCESS_RATE',
+      'SYNERGY',
+      'ACTIVITY',
+    ];
+    const KNOWN_UNITS = ['%', 'JPY', 'people', 'items', '¥', '件', '%', 'percent'];
+
+    const result = core.approved
+      .filter((p) => effectiveSet.has(p.key))
+      .map((p) => {
+        const krs = core.projectKrsMap.get(p.key) ?? [];
+
+        // KRが無い場合
+        if (krs.length === 0) {
+          skip['noKrs'] = (skip['noKrs'] ?? 0) + 1;
+          if (DEBUG && noKrsProjects.length < 5) {
+            noKrsProjects.push({
+              projectKey: p.key,
+              dept: p.dept,
+              proj: p.proj,
+            });
+          }
+        }
+
+        // ★ 手順B：各KRの詳細情報をチェック（DEBUG時のみ）
+        if (DEBUG) {
+          krs.forEach((kr) => {
+            const kindVal = (kr as any).kind;
+            const targetVal = kr.target;
+            const targetNum = Number(targetVal);
+
+            // kind チェック
+            if (!kindVal) {
+              skip['noKind'] = (skip['noKind'] ?? 0) + 1;
+              if (skippedSamples.length < 5) {
+                skippedSamples.push({
+                  projectKey: p.key,
+                  dept: p.dept,
+                  proj: p.proj,
+                  kindRaw: kindVal,
+                  targetRaw: targetVal,
+                  targetNum,
+                  unit: kr.unit,
+                  baseKey: kr.baseKey,
+                  reason: 'noKind',
+                });
+              }
+            }
+
+            // target チェック
+            if (targetVal === null || targetVal === undefined) {
+              skip['noTarget'] = (skip['noTarget'] ?? 0) + 1;
+              if (skippedSamples.length < 5) {
+                skippedSamples.push({
+                  projectKey: p.key,
+                  dept: p.dept,
+                  proj: p.proj,
+                  kindRaw: kindVal,
+                  targetRaw: targetVal,
+                  targetNum: Number.NaN,
+                  unit: kr.unit,
+                  baseKey: kr.baseKey,
+                  reason: 'noTarget',
+                });
+              }
+            } else if (Number.isNaN(targetNum)) {
+              skip['targetNaN'] = (skip['targetNaN'] ?? 0) + 1;
+              if (skippedSamples.length < 5) {
+                skippedSamples.push({
+                  projectKey: p.key,
+                  dept: p.dept,
+                  proj: p.proj,
+                  kindRaw: kindVal,
+                  targetRaw: targetVal,
+                  targetNum,
+                  unit: kr.unit,
+                  baseKey: kr.baseKey,
+                  reason: 'targetNaN',
+                });
+              }
+            }
+
+            // baseKey チェック
+            if (!kr.baseKey) {
+              skip['noBaseKey'] = (skip['noBaseKey'] ?? 0) + 1;
+              if (skippedSamples.length < 5) {
+                skippedSamples.push({
+                  projectKey: p.key,
+                  dept: p.dept,
+                  proj: p.proj,
+                  kindRaw: kindVal,
+                  targetRaw: targetVal,
+                  targetNum,
+                  unit: kr.unit,
+                  baseKey: kr.baseKey,
+                  reason: 'noBaseKey',
+                });
+              }
+            }
+          });
+        }
+
+        // 既存ロジック：delta 計算
+        const yearly = calcYearlyFromKrs({
+          baseTraj,
+          baseFigures,
+          krs,
+          scenario: baseScenario,
+        });
+
+        const delta = diffYearly(baseline, yearly);
+
+        let deltaRevenueTotal = sumYearly(delta, 'revenue');
+        let deltaOpTotal = sumYearly(delta, 'op_income');
+
+        // FIX: order of fallback vs appliedButZero - ACQ default calculation FIRST
+        // ★ 手順B：デフォルト計算（ACQ の場合、% または 件 のユニット処理）を最初に試す
+        if (krs.length > 0 && deltaRevenueTotal === 0 && deltaOpTotal === 0) {
+          const firstKr = krs[0];
+          const kindRaw = String((firstKr as any)?.kind || '').trim();
+          const targetUnit = firstKr?.unit;
+
+          // ACQ のデフォルト計算を試みる
+          if (kindRaw === 'ACQ') {
+            const baselineHeadRev = baseline?.[0]?.revenue ?? 0;
+            const baselineHeadOp = baseline?.[0]?.op_income ?? 0;
+            const yearlyHeadRev = yearly?.[0]?.revenue ?? 0;
+            const yearlyHeadOp = yearly?.[0]?.op_income ?? 0;
+
+            const parsedTarget = Number(firstKr?.target);
+
+            let defaultDeltaRev = 0;
+            let defaultDeltaOp = 0;
+
+            if (targetUnit === '%' || targetUnit === 'percent') {
+              // % ユニット：revenue uplift = yearlyHeadRev * (target% / 100)
+              const targetPct = parsedTarget;
+              defaultDeltaRev = yearlyHeadRev * (targetPct / 100);
+
+              // op uplift = revenue uplift * （営業利益率）
+              if (yearlyHeadRev > 0) {
+                const opMargin = yearlyHeadOp / yearlyHeadRev;
+                defaultDeltaOp = defaultDeltaRev * opMargin;
+              } else if (baselineHeadRev > 0) {
+                const opMargin = baselineHeadOp / baselineHeadRev;
+                defaultDeltaOp = defaultDeltaRev * opMargin;
+              }
+            } else if (
+              targetUnit === '件' ||
+              targetUnit === '人' ||
+              targetUnit === 'items' ||
+              targetUnit === 'people'
+            ) {
+              // 件数/人数ユニット：保守的に、targetNum が数量増を意味するとみなす
+              // 数量増 → 売上増 = min(20%, targetNum * 1%)
+              const maxUplift = 0.2; // 20%が上限
+              const upliftPct = Math.min(maxUplift, parsedTarget * 0.01);
+              defaultDeltaRev = yearlyHeadRev * upliftPct;
+
+              if (yearlyHeadRev > 0) {
+                const opMargin = yearlyHeadOp / yearlyHeadRev;
+                defaultDeltaOp = defaultDeltaRev * opMargin;
+              } else if (baselineHeadRev > 0) {
+                const opMargin = baselineHeadOp / baselineHeadRev;
+                defaultDeltaOp = defaultDeltaRev * opMargin;
+              }
+            }
+
+            // デフォルト計算の結果が 0 でなければ適用
+            if (defaultDeltaRev !== 0 || defaultDeltaOp !== 0) {
+              deltaRevenueTotal = defaultDeltaRev;
+              deltaOpTotal = defaultDeltaOp;
+
+              if (DEBUG) {
+                console.log('[stage6][diag] ACQ default calculation applied', {
+                  projectKey: p.key,
+                  targetUnit,
+                  target: parsedTarget,
+                  baselineHeadRev,
+                  yearlyHeadRev,
+                  defaultDeltaRev,
+                  defaultDeltaOp,
+                });
+              }
+            }
+          }
+        }
+
+        // FIX: order of fallback vs appliedButZero - appliedButZero check AFTER fallback
+        // ★ 手順C：フォールバック後、それでも 0 なら appliedButZero を記録
+        if (krs.length > 0 && deltaRevenueTotal === 0 && deltaOpTotal === 0) {
+          skip['appliedButZero'] = (skip['appliedButZero'] ?? 0) + 1;
+
+          if (DEBUG) {
+            // appliedButZero の理由を推定
+            let reason = 'unknown';
+            const firstKr = krs[0];
+            const parsedTarget = Number(firstKr?.target);
+            const targetUnit = firstKr?.unit;
+            const targetBaseKey = firstKr?.baseKey;
+
+            // ★ kind/unit の正規化と分岐チェック
+            const kindRaw = String((firstKr as any)?.kind || '').trim();
+            const unitRaw = String(targetUnit || '').trim();
+            const isKindKnown = KNOWN_KINDS.includes(kindRaw);
+            const isUnitKnown =
+              !unitRaw || KNOWN_UNITS.includes(unitRaw);
+
+            const baselineHeadRev = baseline?.[0]?.revenue ?? 0;
+            const baselineHeadOp = baseline?.[0]?.op_income ?? 0;
+            const yearlyHeadRev = yearly?.[0]?.revenue ?? 0;
+            const yearlyHeadOp = yearly?.[0]?.op_income ?? 0;
+
+            if (parsedTarget === 0) {
+              appliedZero.targetZero++;
+              reason = 'targetZero';
+            } else if (Number.isNaN(parsedTarget)) {
+              appliedZero.targetNaN++;
+              reason = 'targetNaN';
+            } else if (!targetUnit) {
+              appliedZero.unitMissing++;
+              reason = 'unitMissing';
+            } else if (!isKindKnown) {
+              appliedZero.kindUnhandled++;
+              reason = 'kindUnhandled';
+            } else if (!isUnitKnown) {
+              appliedZero.unitUnhandled++;
+              reason = 'unitUnhandled';
+            } else if (!targetBaseKey) {
+              appliedZero.baseKeyMissing++;
+              reason = 'baseKeyMissing';
+            } else {
+              // 計算されたが結果が 0（ロジック内で 0 になった）
+              appliedZero.computedZero++;
+              reason = 'computedZero';
+            }
+
+            if (appliedZeroSamples.length < 5) {
+              appliedZeroSamples.push({
+                projectKey: p.key,
+                dept: p.dept,
+                proj: p.proj,
+                kindRaw,
+                kindKnown: isKindKnown,
+                targetRaw: firstKr?.target,
+                targetNum: parsedTarget,
+                unitRaw,
+                unitKnown: isUnitKnown,
+                baseKey: targetBaseKey,
+                baselineHeadRev,
+                baselineHeadOp,
+                yearlyHeadRev,
+                yearlyHeadOp,
+                deltaHeadRev: delta?.[0]?.revenue,
+                deltaHeadOp: delta?.[0]?.op_income,
+                deltaFinalRev: deltaRevenueTotal,
+                deltaFinalOp: deltaOpTotal,
+                reason,
+              });
+            }
+          }
+        }
+
+        const roi =
+          p.investTotal > 0 ? deltaOpTotal / p.investTotal : undefined;
+
+        return {
+          key: p.key,
+          dept: p.dept,
+          proj: p.proj,
+          investTotal: p.investTotal,
+          krCount: p.krCount,
+          deltaRevenueTotal,
+          deltaOpTotal,
+          roi,
+        };
       });
 
-      const delta = diffYearly(baseline, yearly);
+    // ★ 手順D：skipSummary と詳細ログを出力（DEBUG時のみ）
+    if (DEBUG) {
+      if (Object.keys(skip).length > 0) {
+        console.log('[stage6][diag] contrib skipSummary', skip);
+      }
+      if (noKrsProjects.length > 0) {
+        console.log('[stage6][diag] noKrsProjects', noKrsProjects);
+      }
+      if (skippedSamples.length > 0) {
+        console.log('[stage6][diag] contrib skippedSamples', skippedSamples);
+        console.log('[stage6][diag] contrib skippedSamples json', JSON.stringify(skippedSamples, null, 2));
+      }
+      if (Object.values(appliedZero).some((v) => v > 0)) {
+        console.log('[stage6][diag] appliedButZero breakdown', appliedZero);
+        console.log('[stage6][diag] appliedButZero samples', appliedZeroSamples);
+        console.log('[stage6][diag] appliedButZero samples json', JSON.stringify(appliedZeroSamples, null, 2));
+      }
+    }
 
-      const deltaRevenueTotal = sumYearly(delta, 'revenue');
-      const deltaOpTotal = sumYearly(delta, 'op_income');
-      const roi = p.investTotal > 0 ? deltaOpTotal / p.investTotal : undefined;
-
-      return {
-        key: p.key,
-        dept: p.dept,
-        proj: p.proj,
-        investTotal: p.investTotal,
-        krCount: p.krCount,
-        deltaRevenueTotal,
-        deltaOpTotal,
-        roi,
-      };
-    });
+    return result;
   }, [
     core.ready,
     core.approved,
@@ -542,7 +934,140 @@ export default function Stage6Page() {
     core.baselineYearly,
     financePL,
     revision,
+    effectiveSelectedKeys,
   ]);
+
+  // ★ 診断ログ（原因A/B判定用）：projectContrib が算出された後に1回だけ出す
+  useEffect(() => {
+    if (!DEBUG || !core.ready) return;
+    if (!financePL || financePL.length === 0) {
+      console.log('[stage6][diag] financePL is EMPTY');
+      return;
+    }
+
+    const revContrib = projectContrib.reduce(
+      (s, p) => s + p.deltaRevenueTotal,
+      0,
+    );
+    const opContrib = projectContrib.reduce((s, p) => s + p.deltaOpTotal, 0);
+
+    console.log('[stage6][diag] financePL', {
+      len: financePL.length,
+      head: financePL.slice(0, 1),
+    });
+    console.log('[stage6][diag] baselineYearly', {
+      len: core.baselineYearly?.length ?? 0,
+      head: core.baselineYearly?.slice(0, 3),
+    });
+    console.log('[stage6][diag] yearlyAll.base', {
+      len: core.yearlyAll?.base?.length ?? 0,
+      head: core.yearlyAll?.base?.slice(0, 3),
+    });
+    console.log('[stage6][diag] selectedYearly.base', {
+      len: selectedYearly?.base?.length ?? 0,
+      head: selectedYearly?.base?.slice(0, 3),
+    });
+
+    // ★ 作業B：head compare ログ（baseline / yearlyAll.base / selectedYearly.base の比較）
+    const baselineHeadRev = core.baselineYearly?.[0]?.revenue ?? 0;
+    const baselineHeadOp = core.baselineYearly?.[0]?.op_income ?? 0;
+    const allHeadRev = core.yearlyAll?.base?.[0]?.revenue ?? 0;
+    const allHeadOp = core.yearlyAll?.base?.[0]?.op_income ?? 0;
+    const selectedHeadRev = selectedYearly?.base?.[0]?.revenue ?? 0;
+    const selectedHeadOp = selectedYearly?.base?.[0]?.op_income ?? 0;
+
+    console.log('[stage6][diag] head compare', {
+      baseline: { rev: baselineHeadRev, op: baselineHeadOp },
+      all: { rev: allHeadRev, op: allHeadOp },
+      selected: { rev: selectedHeadRev, op: selectedHeadOp },
+      diffAll: { rev: allHeadRev - baselineHeadRev, op: allHeadOp - baselineHeadOp },
+      diffSelected: { rev: selectedHeadRev - baselineHeadRev, op: selectedHeadOp - baselineHeadOp },
+    });
+
+    // ★ TASK 1-1: 系列の合計（sum）比較ログ
+    const baselineYearlyArr = core.baselineYearly ?? [];
+    const allYearlyArr = core.yearlyAll?.base ?? [];
+    const selectedYearlyArr = selectedYearly?.base ?? [];
+
+    const baselineTotalRev = baselineYearlyArr.reduce((s, y) => s + (y.revenue ?? 0), 0);
+    const baselineTotalOp = baselineYearlyArr.reduce((s, y) => s + (y.op_income ?? 0), 0);
+    const allTotalRev = allYearlyArr.reduce((s, y) => s + (y.revenue ?? 0), 0);
+    const allTotalOp = allYearlyArr.reduce((s, y) => s + (y.op_income ?? 0), 0);
+    const selectedTotalRev = selectedYearlyArr.reduce((s, y) => s + (y.revenue ?? 0), 0);
+    const selectedTotalOp = selectedYearlyArr.reduce((s, y) => s + (y.op_income ?? 0), 0);
+
+    console.log('[stage6][diag] total compare (sum over years)', {
+      baseline: { rev: baselineTotalRev, op: baselineTotalOp },
+      all: { rev: allTotalRev, op: allTotalOp },
+      selected: { rev: selectedTotalRev, op: selectedTotalOp },
+      diffAll: { rev: allTotalRev - baselineTotalRev, op: allTotalOp - baselineTotalOp },
+      diffSelected: { rev: selectedTotalRev - baselineTotalRev, op: selectedTotalOp - baselineTotalOp },
+    });
+
+    // ★ TASK 1-2: 末尾年（tail）比較ログ
+    const baselineTailRev = baselineYearlyArr.length > 0 ? baselineYearlyArr[baselineYearlyArr.length - 1].revenue ?? 0 : 0;
+    const baselineTailOp = baselineYearlyArr.length > 0 ? baselineYearlyArr[baselineYearlyArr.length - 1].op_income ?? 0 : 0;
+    const allTailRev = allYearlyArr.length > 0 ? allYearlyArr[allYearlyArr.length - 1].revenue ?? 0 : 0;
+    const allTailOp = allYearlyArr.length > 0 ? allYearlyArr[allYearlyArr.length - 1].op_income ?? 0 : 0;
+    const selectedTailRev = selectedYearlyArr.length > 0 ? selectedYearlyArr[selectedYearlyArr.length - 1].revenue ?? 0 : 0;
+    const selectedTailOp = selectedYearlyArr.length > 0 ? selectedYearlyArr[selectedYearlyArr.length - 1].op_income ?? 0 : 0;
+
+    console.log('[stage6][diag] tail compare (last year)', {
+      baseline: { rev: baselineTailRev, op: baselineTailOp },
+      all: { rev: allTailRev, op: allTailOp },
+      selected: { rev: selectedTailRev, op: selectedTailOp },
+      diffAll: { rev: allTailRev - baselineTailRev, op: allTailOp - baselineTailOp },
+      diffSelected: { rev: selectedTailRev - baselineTailRev, op: selectedTailOp - baselineTailOp },
+    });
+
+    // ★ TASK 1-3: 年別差分（head と tail の詳細）
+    if (baselineYearlyArr.length > 0 && allYearlyArr.length > 0 && selectedYearlyArr.length > 0) {
+      const headIdx = 0;
+      const tailIdx = baselineYearlyArr.length - 1;
+      console.log('[stage6][diag] year-by-year detail', {
+        headIdx: {
+          year: baselineYearlyArr[headIdx]?.year,
+          baseline: { rev: baselineYearlyArr[headIdx]?.revenue, op: baselineYearlyArr[headIdx]?.op_income },
+          all: { rev: allYearlyArr[headIdx]?.revenue, op: allYearlyArr[headIdx]?.op_income },
+          selected: { rev: selectedYearlyArr[headIdx]?.revenue, op: selectedYearlyArr[headIdx]?.op_income },
+        },
+        tailIdx: {
+          year: baselineYearlyArr[tailIdx]?.year,
+          baseline: { rev: baselineYearlyArr[tailIdx]?.revenue, op: baselineYearlyArr[tailIdx]?.op_income },
+          all: { rev: allYearlyArr[tailIdx]?.revenue, op: allYearlyArr[tailIdx]?.op_income },
+          selected: { rev: selectedYearlyArr[tailIdx]?.revenue, op: selectedYearlyArr[tailIdx]?.op_income },
+        },
+      });
+    }
+
+    console.log('[stage6][diag] projectContrib', {
+      count: projectContrib.length,
+      revSum: revContrib,
+      opSum: opContrib,
+    });
+
+    // ★ 詳細：projectContrib の1件サンプルを出力（寄与がゼロか確認）
+    if (projectContrib.length > 0) {
+      console.log('[stage6][diag] projectContrib sample[0]', {
+        key: projectContrib[0].key,
+        dept: projectContrib[0].dept,
+        proj: projectContrib[0].proj,
+        deltaRevenueTotal: projectContrib[0].deltaRevenueTotal,
+        deltaOpTotal: projectContrib[0].deltaOpTotal,
+        investTotal: projectContrib[0].investTotal,
+        krCount: projectContrib[0].krCount,
+      });
+    }
+
+    // ★ デバッグ情報：allProjectKeys と effectiveSelectedKeys
+    console.log('[stage6][diag] keys info', {
+      allProjectKeys_count: allProjectKeys.length,
+      allProjectKeys_sample: allProjectKeys.slice(0, 3),
+      effectiveSelectedKeys_count: effectiveSelectedKeys.length,
+      effectiveSelectedKeys_sample: effectiveSelectedKeys.slice(0, 3),
+      selectedProjectKeys_count: selectedProjectKeys.length,
+    });
+  }, [DEBUG, core.ready, core.baselineYearly, core.yearlyAll, selectedYearly, financePL, projectContrib, allProjectKeys, effectiveSelectedKeys, selectedProjectKeys]);
 
   /* =========================================================
    * ④ 指標（売上成長率・営業利益率）
@@ -595,6 +1120,35 @@ export default function Stage6Page() {
 
     return Array.from(byYear.values()).sort((a, b) => a.year - b.year);
   }, [core.baselineYearly, core.yearlyAll, scenarioKey, selectedYearly]);
+
+  // ★ TASK 2: chartData の内容確認ログ
+  useEffect(() => {
+    if (!DEBUG || !core.ready || chartData.length === 0) return;
+
+    const sample = chartData[0];
+    console.log('[stage6][diag] chartData construction', {
+      len: chartData.length,
+      scenarioKey,
+      headData: {
+        year: sample.year,
+        baselineRevenue: sample.baselineRevenue,
+        allRevenue: sample.allRevenue,
+        selectedRevenue: sample.selectedRevenue,
+        baselineOp: sample.baselineOp,
+        allOp: sample.allOp,
+        selectedOp: sample.selectedOp,
+      },
+      tailData: {
+        year: chartData[chartData.length - 1]?.year,
+        baselineRevenue: chartData[chartData.length - 1]?.baselineRevenue,
+        allRevenue: chartData[chartData.length - 1]?.allRevenue,
+        selectedRevenue: chartData[chartData.length - 1]?.selectedRevenue,
+        baselineOp: chartData[chartData.length - 1]?.baselineOp,
+        allOp: chartData[chartData.length - 1]?.allOp,
+        selectedOp: chartData[chartData.length - 1]?.selectedOp,
+      },
+    });
+  }, [DEBUG, core.ready, chartData, scenarioKey]);
 
   /* =========================================================
    * UI helpers

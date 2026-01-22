@@ -51,3 +51,7 @@ tmpclaude-*-cwd/
 
 # Temporary debug documents
 DEBUG_GUARD_CHANGES.md
+
+# local caches
+.cache/
+

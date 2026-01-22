@@ -1,7 +1,7 @@
 // /app/stage2/page.tsx
 'use client';
 
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
@@ -12,7 +12,14 @@ import {
   saveStage2SnapshotToLocalStorage,
 } from '@/utils/stageSnapshot';
 import { getFullStrategyDataByCompany, saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
-import type { IssueBlock, MetricsSummary, StoryChapter, WinPatternCandidate, Stage2State, Stage2Answer } from '@/types/strategy';
+import type {
+  IssueBlock,
+  MetricsSummary,
+  StoryChapter,
+  WinPatternCandidate,
+  Stage2State,
+  Stage2Answer,
+} from '@/types/strategy';
 
 /* ===================================================
  * 12問テンプレート（固定）
@@ -97,7 +104,8 @@ const TEMPLATE12: { id: string; question: string; reason: string; chapter: numbe
   // 章3（どう行動する）- 2問
   {
     id: 'ch3-q1',
-    question: 'この戦略を全社員に伝え、「本気だ」と感じてもらうために、経営層はまず「どんな行動」を起こすべきですか？',
+    question:
+      'この戦略を全社員に伝え、「本気だ」と感じてもらうために、経営層はまず「どんな行動」を起こすべきですか？',
     reason: '最初に動くのは言葉ではなく行動です。小さくても具体的な初動を示すと、信頼が生まれます。',
     chapter: 3,
     required: false,
@@ -112,6 +120,17 @@ const TEMPLATE12: { id: string; question: string; reason: string; chapter: numbe
 ];
 
 const CHAPTER_LABELS = ['第1章：なぜ今', '第2章：どう戦う', '第3章：どんな未来像', '第4章：どう行動する'];
+
+/* ===================================================
+ * answers12 同一判定（無限同期ループ防止）
+ * =================================================== */
+function hashAnswers12(a: Stage2Answer[] | undefined | null): string {
+  if (!a || a.length === 0) return '';
+  const slim = [...a]
+    .map((x) => ({ id: x.id, answer: x.answer ?? '' }))
+    .sort((p, q) => p.id.localeCompare(q.id));
+  return JSON.stringify(slim);
+}
 
 /* ===================================================
  * 小物：スクロール付き本文
@@ -149,15 +168,7 @@ interface StepperTabsProps {
   hasFinal: boolean;
 }
 
-function StepperTabs({
-  activeTab,
-  onChange,
-  canOpenDraft,
-  hasDraft,
-  canOpenWin,
-  hasWinReady,
-  hasFinal,
-}: StepperTabsProps) {
+function StepperTabs({ activeTab, onChange, canOpenDraft, hasDraft, canOpenWin, hasWinReady, hasFinal }: StepperTabsProps) {
   const tabs: {
     id: TabId;
     label: string;
@@ -664,6 +675,8 @@ export default function Stage2Page() {
   const threat = useStrategyStore((s) => s.threat ?? '');
 
   const industry = useStrategyStore((s) => s.industry ?? '');
+  const businessSegments = useStrategyStore((s) => s.businessSegments ?? []); // ★ STAGE1で定義されたセグメント情報
+  const businessPortfolio = useStrategyStore((s) => (s as any).businessPortfolio ?? null); // ★ 現在の事業ポートフォリオ（型揺れ許容）
   const companyId = useUserStore((s) => s.companyId);
   const userId = useUserStore((s) => s.user?.id);
   const hydrated = useStrategyStore((s) => s.hydrated);
@@ -704,127 +717,12 @@ export default function Stage2Page() {
   // Active tab
   const [activeTab, setActiveTab] = useState<TabId>('input');
 
-  // ★ storeAnswers12 -> local sync（サーバから復元時のみ）
-  useEffect(() => {
-    if (storeAnswers12 && storeAnswers12.length > 0) {
-      setLocalAnswers12((prev) =>
-        prev.map((a) => {
-          const fromStore = storeAnswers12.find((s) => s.id === a.id);
-          return fromStore ? { ...a, answer: fromStore.answer ?? '' } : a;
-        })
-      );
-    }
-  }, [storeAnswers12]);
+  // 初期復元が完了したか（復元前に local->store が走って store を空で上書きするのを防ぐ）
+  const [stage2Ready, setStage2Ready] = useState(false);
 
-  // ★ local answers12 -> store sync（debounce版）
-  // 効果：
-  // 1. handleUpdateAnswer はローカル状態のみ更新
-  // 2. 300ms の debounce で、1文字ごとの store 更新→snapshot保存を回避
-  // 3. cleanup で timeout をクリアし、メモリリーク防止
-  // 4. ★ 修正：空削除も同期される（ユーザーが全削除した場合でもstore反映）
-  //
-  // パフォーマンス改善：
-  // - 修正前：onChange のたびに（1文字ごと）setAnswers12 → saveSnapshot
-  // - 修正後：入力終了後 300ms で集約して setAnswers12
-  // - 効果：snapshot 保存が 10-20倍削減される見込み
-  //
-  // 修正内容：
-  // - 「空のまま→何もしない」という判定を削除
-  // - すべての状態変更（入力・編集・削除）が同じように 300ms debounce される
-  // - 空配列になった場合も確実に store に同期
-  useEffect(() => {
-    // 空でも、すべての状態変更を 300ms debounce して store に同期
-    const timer = setTimeout(() => {
-      setAnswers12(answers12);
-    }, 300);
-
-    // cleanup: unmount または answers12 変更時に前の timer をクリア
-    return () => clearTimeout(timer);
-  }, [answers12, setAnswers12]);
-
-  // ★ 修正：state updater 内からのsetState呼び出しを廃止
-  // 代わりに、この関数はローカル状態のみ更新し、
-  // 上記の useEffect で自動的にストアに同期されます
-  // 参考：https://react.dev/reference/react/useState#im-getting-an-error-cannot-update-a-component-while-rendering-a-different-component
-  const handleUpdateAnswer = useCallback(
-    (id: string, answer: string) => {
-      setLocalAnswers12((prev) =>
-        prev.map((a) => (a.id === id ? { ...a, answer } : a))
-      );
-    },
-    [] // ★ 依存配列から setAnswers12 を削除（useEffect で管理）
-  );
-
-  /* ===================================================
-   * ★ 検証手順1：render中のsetState警告が再現しないか確認
-   *
-   * 1) Chrome DevTools → Console で警告を確認
-   *    警告: "Cannot update a component while rendering a different component"
-   *
-   * 2) Stage2 の「勝ち筋」タブで「12の質問」セクションに移動
-   *
-   * 3) textarea にテキストを入力
-   *    ✅ 期待：警告なく入力値が反映される
-   *    ✅ 期待：自動でストアに同期される（別タブから戻っても値が保持される）
-   *
-   * 4) DevTools Network → 入力後 setAnswers12 の保存API呼び出しがあるか確認
-   *    ✅ 期待：入力後に保存リクエストが送られる
-   *
-   * 5) コンソール警告が消える → 修正成功
-   * =================================================== */
-
-  /* ===================================================
-   * ★ 検証手順2：debounce による保存頻度削減を確認
-   *
-   * 【パフォーマンス検証】
-   *
-   * 1) DevTools Network タブで「XHR」フィルタをオン
-   *
-   * 2) Stage2 の「勝ち筋」タブで「12の質問」セクションに移動
-   *
-   * 3) textarea に「テストテストテスト」と 10文字連続入力
-   *    (1秒以内に)
-   *
-   * 修正前の動作（debounce なし）：
-   *    └─ network リクエストが 10回程度 (1文字ごと)
-   *
-   * 修正後の動作（300ms debounce）：
-   *    └─ network リクエストが 1-2回 (入力完了後 300ms で集約)
-   *
-   * 4) 入力を停止してから 300-500ms 後に setAnswers12 リクエストが 1回だけ送られる
-   *    ✅ 期待：snapshot 保存が 10倍以上削減される
-   *
-   * 5) 複数の質問に答えてから「最終生成」ボタンを押す
-   *    ✅ 期待：UI がスムーズ（localStorage 保存負荷が軽い）
-   * =================================================== */
-
-  /* ===================================================
-   * ★ 検証手順3：空削除が同期されるか確認（修正後）
-   *
-   * 【削除同期検証】
-   *
-   * 1) DevTools Network タブで「XHR」フィルタをオン
-   *
-   * 2) Stage2 の「勝ち筋」タブで「12の質問」セクションに移動
-   *
-   * 3) 任意の質問に「テスト回答」と入力して 300ms 以上待つ
-   *    ✅ 期待：setAnswers12 リクエストが 1回送られる
-   *
-   * 4) textarea の内容を全削除（Ctrl+A → Delete）
-   *
-   * 修正前の問題（空チェックがあった場合）：
-   *    └─ 削除してもリクエストが送られない
-   *    └─ ストアに古い回答が残ったまま
-   *    └─ 別タブから戻っても削除前の回答が復活する ⚠️
-   *
-   * 修正後の動作（空チェックを削除）：
-   *    └─ 削除後 300-500ms で setAnswers12 リクエストが送られる
-   *    └─ ストアの answers12 が空配列に更新される
-   *    └─ 別タブから戻っても削除状態が保持される ✅
-   *
-   * 5) Network で削除直後のリクエストペイロードを確認
-   *    ✅ 期待：answers12 が空配列 [] で送られている
-   * =================================================== */
+  // 同期ループ防止用
+  const lastSyncedAnswersHashRef = useRef<string>('');
+  const didInitRef = useRef(false);
 
   // Stage1 data fallback loader
   const loadStage1Data = useCallback(async () => {
@@ -890,7 +788,10 @@ export default function Stage2Page() {
   // Stage2 snapshot restore
   const restoreStage2Snapshot = useCallback(() => {
     const snapshot = loadStage2SnapshotFromLocalStorage();
-    if (!snapshot || !snapshot.state) return;
+    if (!snapshot || !snapshot.state) {
+      setStage2Ready(true);
+      return;
+    }
 
     const st = snapshot.state;
 
@@ -914,7 +815,7 @@ export default function Stage2Page() {
       if (wp[0]?.id) setSelectedWinPatternId(wp[0].id);
     }
 
-    // answers12
+    // answers12（localのみ復元。store同期は stage2Ready 後の debounce で1回だけ行う）
     const a12 = st.answers12 ?? [];
     if (Array.isArray(a12) && a12.length > 0) {
       setLocalAnswers12((prev) =>
@@ -923,7 +824,7 @@ export default function Stage2Page() {
           return fromSnapshot ? { ...a, answer: fromSnapshot.answer ?? '' } : a;
         })
       );
-      setAnswers12(a12);
+      lastSyncedAnswersHashRef.current = hashAnswers12(a12);
     }
 
     // finalStory
@@ -938,14 +839,82 @@ export default function Stage2Page() {
         );
       }
     }
-  }, [setAnswers12, setStoreFinalStory]);
 
+    setStage2Ready(true);
+  }, [setStoreFinalStory]);
+
+  // 初回だけロード＆復元（複数回走ってスナップショット保存が暴発するのを防ぐ）
   useEffect(() => {
-    if (hydrated) {
+    if (hydrated && !didInitRef.current) {
+      didInitRef.current = true;
       loadStage1Data();
       restoreStage2Snapshot();
     }
   }, [hydrated, loadStage1Data, restoreStage2Snapshot]);
+
+  // storeAnswers12 -> local sync（サーバから復元/他画面更新時）
+  useEffect(() => {
+    if (!stage2Ready) return;
+
+    const storeHash = hashAnswers12(storeAnswers12);
+    const localHash = hashAnswers12(answers12);
+
+    // 既に一致しているなら何もしない（同期ループ防止）
+    if (storeHash && storeHash === localHash) {
+      lastSyncedAnswersHashRef.current = storeHash;
+      return;
+    }
+
+    // storeが空で localに値があるなら localを優先（ここでは何もしない）
+    if (!storeHash && localHash) return;
+
+    if (storeAnswers12 && storeAnswers12.length > 0) {
+      setLocalAnswers12((prev) =>
+        prev.map((a) => {
+          const fromStore = storeAnswers12.find((s) => s.id === a.id);
+          return fromStore ? { ...a, answer: fromStore.answer ?? '' } : a;
+        })
+      );
+      lastSyncedAnswersHashRef.current = storeHash;
+    }
+  }, [stage2Ready, storeAnswers12, answers12]);
+
+  // local answers12 -> store sync（debounce + 同一スキップ）
+  useEffect(() => {
+    if (!stage2Ready) return;
+
+    const localHash = hashAnswers12(answers12);
+    const storeHash = hashAnswers12(storeAnswers12);
+
+    // 既に一致しているなら同期不要
+    if (localHash === storeHash) {
+      lastSyncedAnswersHashRef.current = localHash;
+      return;
+    }
+
+    // 直近で同じ内容を同期済みなら不要（ループ抑止）
+    if (localHash && localHash === lastSyncedAnswersHashRef.current) return;
+
+    const timer = window.setTimeout(() => {
+      const nowStoreHash = hashAnswers12(useStrategyStore.getState().answers12);
+      if (localHash === nowStoreHash) {
+        lastSyncedAnswersHashRef.current = localHash;
+        return;
+      }
+
+      setAnswers12(answers12);
+      lastSyncedAnswersHashRef.current = localHash;
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [stage2Ready, answers12, storeAnswers12, setAnswers12]);
+
+  // ★ 修正：state updater 内からのsetState呼び出しを廃止
+  // 代わりに、この関数はローカル状態のみ更新し、
+  // 上記の useEffect で自動的にストアに同期されます
+  const handleUpdateAnswer = useCallback((id: string, answer: string) => {
+    setLocalAnswers12((prev) => prev.map((a) => (a.id === id ? { ...a, answer } : a)));
+  }, []);
 
   // Draft generation
   const handleGenerate = useCallback(async () => {
@@ -956,15 +925,30 @@ export default function Stage2Page() {
     setSaveWarning(null);
 
     try {
+      // 事業セグメント名の冗長送信（API側の揺れ吸収・プロンプトでの参照に有利）
+      const segmentNames = Array.isArray(businessSegments)
+        ? businessSegments
+            .map((s: any) => (typeof s?.name === 'string' ? s.name.trim() : ''))
+            .filter(Boolean)
+        : [];
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Stage2] send businessSegments count:', businessSegments?.length ?? 0);
+        console.log('[Stage2] send businessPortfolio exists:', !!businessPortfolio);
+      }
+
       const response = await fetch('/api/stage2/generate-draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           issueBlocks,
           metricsSummary,
-          mvv: { thought, mission, vision, value },
-          swot: { strength, weakness, opportunity, threat },
+          mvv: { thought, mission, vision, value }, // ★ MVV は既に送れている
+          swot: { strength, weakness, opportunity, threat }, // ★ SWOT も既に送れている
           industry,
+          segments: segmentNames, // ★ 追加（名称のみ）
+          businessSegments, // ★ STAGE1で定義されたセグメント情報（summary/keyCustomers含む想定）
+          businessPortfolio, // ★ 追加：現在の事業ポートフォリオ
         }),
       });
 
@@ -1037,6 +1021,8 @@ export default function Stage2Page() {
     opportunity,
     threat,
     industry,
+    businessSegments,
+    businessPortfolio, // ★ 依存関係に追加
     companyId,
     userId,
   ]);
@@ -1049,6 +1035,12 @@ export default function Stage2Page() {
     setGenerateFinalError(null);
 
     try {
+      const segmentNames = Array.isArray(businessSegments)
+        ? businessSegments
+            .map((s: any) => (typeof s?.name === 'string' ? s.name.trim() : ''))
+            .filter(Boolean)
+        : [];
+
       const response = await fetch('/api/stage2/generate-final', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1063,6 +1055,9 @@ export default function Stage2Page() {
           selectedWinPatternId: selectedWinPatternId ?? winPatternsCandidate?.[0]?.id ?? null,
           answers12, // 未回答でもOK（空文字が混ざっていても許容）
           industry,
+          segments: segmentNames, // ★ 追加（名称のみ）
+          businessSegments, // ★ 追加：最終生成でもセグメント前提を維持
+          businessPortfolio, // ★ 追加：最終生成でもポートフォリオ前提を維持
         }),
       });
 
@@ -1113,6 +1108,8 @@ export default function Stage2Page() {
     selectedWinPatternId,
     answers12,
     industry,
+    businessSegments, // ★ 依存関係に追加
+    businessPortfolio, // ★ 依存関係に追加
     companyId,
     setStoreFinalStory,
   ]);

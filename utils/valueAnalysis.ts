@@ -21,8 +21,16 @@ function safePct(num: number, den: number): number {
   return (num / den) * 100;
 }
 
-function calcCagrPct(start: number, end: number, years: number): number {
-  if (start <= 0 || end <= 0 || years <= 0) return 0;
+/**
+ * CAGR 計算：計算不可の場合は undefined を返す（0でなく）
+ * @param start 初年度の値（>0 であること）
+ * @param end 最終年度の値（>0 であること）
+ * @param years 期間（年数、>0 であること）
+ * @returns CAGR %、計算不可なら undefined
+ */
+function calcCagrPct(start: number, end: number, years: number): number | undefined {
+  if (!Number.isFinite(start) || !Number.isFinite(end) || !Number.isFinite(years)) return undefined;
+  if (start <= 0 || end <= 0 || years <= 0) return undefined;
   return (Math.pow(end / start, 1 / years) - 1) * 100;
 }
 
@@ -425,14 +433,25 @@ export function computeOperatingMarginFromPL(
 
 /**
  * FinancePLRow 配列から売上 CAGR（期間全体）を計算
+ * ★ 修正：売上が有効（>0）な年だけを対象にする
+ * - 2021 年の売上が 0 でも、2022-2024 の売上があれば 2022→2024 で計算
+ * - データ不足なら undefined を返す
  */
 export function computeRevenueCagrFromPL(
   rows: FinancePLRow[]
 ): number | undefined {
   if (rows.length < 2) return undefined;
 
-  const oldest = getOldestRow(rows);
-  const latest = getLatestRow(rows);
+  // ★ 売上が有効（>0）な行だけでフィルタリング
+  const validRows = rows.filter((r) => {
+    const rev = toNumber(r.revenue);
+    return Number.isFinite(r.year) && rev > 0;
+  });
+
+  if (validRows.length < 2) return undefined;
+
+  const oldest = getOldestRow(validRows);
+  const latest = getLatestRow(validRows);
   if (!oldest || !latest || oldest.year >= latest.year) return undefined;
 
   const startRev = toNumber(oldest.revenue);
@@ -609,9 +628,17 @@ export function computeValueAnalysisFromPLBS(args: {
   const { companyPL, companyBS, pbrManual, taxRate = 0.3 } = args;
   const metaNotes: string[] = [];
 
-  const years = companyPL.map((r) => r.year).filter((y) => Number.isFinite(y));
-  const firstY = years.length > 0 ? Math.min(...years) : undefined;
-  const lastY = years.length > 0 ? Math.max(...years) : undefined;
+  // ★ 修正：meta.basis.years に「有効な売上がある年」だけを入れる
+  const validYears = companyPL
+    .filter((r) => {
+      const rev = toNumber(r.revenue);
+      return Number.isFinite(r.year) && rev > 0;
+    })
+    .map((r) => r.year)
+    .sort((a, b) => a - b);
+
+  const firstY = validYears.length > 0 ? validYears[0] : undefined;
+  const lastY = validYears.length > 0 ? validYears[validYears.length - 1] : undefined;
 
   // 営業利益率（最新年）
   const operatingMarginPctLatest = computeOperatingMarginFromPL(companyPL);
@@ -658,7 +685,8 @@ export function computeValueAnalysisFromPLBS(args: {
       computedAt: new Date().toISOString(),
       source: 'local',
       basis: {
-        years: years.sort((a, b) => a - b),
+        // ★ 修正：meta.basis.years は「有効な売上がある年」だけを使用
+        years: validYears,
         latestYear: lastY,
       },
       notes: metaNotes.length > 0 ? metaNotes : undefined,
@@ -682,8 +710,16 @@ export function computeSegmentValueAnalysis(args: {
   const { segmentPL, segmentBS, taxRate = 0.3 } = args;
   const metaNotes: string[] = [];
 
-  const years = segmentPL.map((r) => r.year).filter((y) => Number.isFinite(y));
-  const lastY = years.length > 0 ? Math.max(...years) : undefined;
+  // ★ 修正：「有効な売上がある年」だけを抽出
+  const validYears = segmentPL
+    .filter((r) => {
+      const rev = toNumber(r.revenue);
+      return Number.isFinite(r.year) && rev > 0;
+    })
+    .map((r) => r.year)
+    .sort((a, b) => a - b);
+
+  const lastY = validYears.length > 0 ? validYears[validYears.length - 1] : undefined;
 
   // 営業利益率（最新年）
   const operatingMarginPctLatest = computeOperatingMarginFromPL(segmentPL);
@@ -729,7 +765,8 @@ export function computeSegmentValueAnalysis(args: {
       computedAt: new Date().toISOString(),
       source: 'local',
       basis: {
-        years: years.sort((a, b) => a - b),
+        // ★ 修正：meta.basis.years は「有効な売上がある年」だけを使用
+        years: validYears,
         latestYear: lastY,
       },
       notes: metaNotes.length > 0 ? metaNotes : undefined,

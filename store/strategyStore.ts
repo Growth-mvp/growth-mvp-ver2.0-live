@@ -40,11 +40,11 @@ import {
   loadStage1SnapshotFromLocalStorage,
   loadStage2SnapshotFromLocalStorage,
   valueAnalysisToMetricsSummary,
-  buildStage2StateFromStore,
 } from '@/utils/stageSnapshot';
 
 /* ===== 型定義（ローカル用：旧互換） ===== */
 const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
+
 export type AnswerStep = {
   stepNumber: number;
   question: string;
@@ -96,11 +96,24 @@ type SafeDepartmentsArg =
   | null
   | undefined;
 
+/** 保存結果（UI/ログで成功可視化するため） */
+export type SaveResult =
+  | {
+      ok: true;
+      revision?: number;
+      updatedAt?: string;
+      skipped?: false;
+    }
+  | {
+      ok: false;
+      skipped?: boolean;
+      reason: string;
+      error?: unknown;
+      code?: string;
+    };
+
 /* ============================================================
  * 保存直列化（最重要）
- * - 複数トリガ（Sidebar手動保存 / 部門即時保存 / スナップショット等）が同時に走ると
- *   revision がサーバで先に進み、REVISION_CONFLICT になりやすい。
- * - ここで「保存系」を必ず直列化する。
  * ========================================================== */
 let __saveChain: Promise<void> = Promise.resolve();
 
@@ -195,7 +208,7 @@ export type StrategyState = {
   winPatternPrimary?: WinPatternId;
   winPatternSecondary?: WinPatternId;
 
-  /* ★ STAGE4：実行計画（部門ごとの編集状態・差分） */
+  /* ★ STAGE4：実行計画 */
   stage4Plans?: Array<{
     departmentId: string;
     status: 'Draft' | 'Review' | 'Approved';
@@ -205,7 +218,6 @@ export type StrategyState = {
     updatedBy?: string;
   }>;
 
-  /* ★ STAGE4：Baseline（hydrate後に1回のみ作成、変更なし） */
   executionPlanBaseline?: {
     companyId?: string;
     createdAt?: number;
@@ -240,7 +252,7 @@ export type StrategyState = {
   /** after-save フック（互換のため残置） */
   __afterSave?: (serverData: Partial<StrategyState> & { revision?: number }) => void;
 
-  /** 直近サーバ取得エラー（RLS/404/不許可など永続エラーを格納、ネットワークエラーは retry のためここに置かない） */
+  /** 直近サーバ取得エラー */
   __lastServerError?: Error | null;
 
   /** 章ごとのUIステップ */
@@ -301,7 +313,7 @@ export type StrategyState = {
     >
   ) => void;
 
-  /* ▼ 互換用ショートカット（CompanyScopePanel 等で使う） */
+  /* ▼ 互換用ショートカット */
   setCompanyName: (name: string) => void;
   setIndustry: (industry: string) => void;
   setStage1Issues: (issues: Stage1IssueBlock[]) => void;
@@ -328,7 +340,7 @@ export type StrategyState = {
     snapshot?: any[];
   }) => void;
 
-  /** ValueAnalysis 再計算（source: 変更元を示す） */
+  /** ValueAnalysis 再計算 */
   recomputeValueAnalysis: (
     source?:
       | 'local'
@@ -347,6 +359,9 @@ export type StrategyState = {
   setFinanceBS: (rows: FinanceBSRow[]) => void;
   setSegmentPL: (data: Record<string, FinancePLRow[]>) => void;
   setSegmentBS: (data: Record<string, SegmentBSRow[]>) => void;
+  /** ★ セグメント単位マージ更新（必ずマージ、上書きしない） */
+  upsertSegmentPL: (segName: string, rows: FinancePLRow[]) => void;
+  upsertSegmentBS: (segName: string, rows: SegmentBSRow[]) => void;
   setBusinessSegmentsWithSync: (segments: BusinessSegment[]) => void;
 
   setMVV: (patch: Partial<Pick<StrategyState, 'thought' | 'mission' | 'vision' | 'value'>>) => void;
@@ -363,7 +378,7 @@ export type StrategyState = {
 
   buildPayload: () => any;
 
-  saveStrategyData: () => Promise<void>;
+  saveStrategyData: (opts?: { reason?: string; force?: boolean }) => Promise<SaveResult>;
   refetchFromServer: () => Promise<void>;
   deleteAllOnServer: () => Promise<void>;
 
@@ -395,7 +410,7 @@ function pruneUndefinedDeep<T>(obj: T): T {
     for (const [k, v] of Object.entries(obj as any)) {
       const pv = pruneUndefinedDeep(v);
       const drop = pv === undefined || pv === null || (typeof pv === 'string' && pv.trim() === '');
-      // 空配列は残す（[]を保存したい）
+      // 空配列は残す
       if (!drop) out[k] = pv;
     }
     return out;
@@ -410,17 +425,24 @@ function stableHash(input: any): string {
   return (h >>> 0).toString(16);
 }
 
+function isNonEmptyObject(v: any): boolean {
+  return !!v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length > 0;
+}
+
 function isEffectivelyEmpty(payload: any): boolean {
   if (!payload) return true;
   const emptyArr = (a: any) => !Array.isArray(a) || a.length === 0;
   const emptyStr = (v: any) => typeof v !== 'string' || v.trim() === '';
+
+  // csvFinanceData は object が主
+  const csvFinanceEmpty = emptyArr(payload.csvFinanceData) && !isNonEmptyObject(payload.csvFinanceData);
 
   const allEmpty =
     emptyArr(payload.story) &&
     emptyArr(payload.finalStory) &&
     emptyArr(payload.answers2) &&
     emptyArr(payload.departments) &&
-    emptyArr(payload.csvFinanceData) &&
+    csvFinanceEmpty &&
     emptyArr(payload.financeSummary) &&
     emptyArr(payload.stage1Issues) &&
     (payload.businessPortfolio == null ||
@@ -433,7 +455,19 @@ function isEffectivelyEmpty(payload: any): boolean {
     .filter((v) => v !== undefined)
     .every(emptyStr);
 
-  return allEmpty && metaAllEmpty;
+  const isEmpty = allEmpty && metaAllEmpty;
+
+  // ★ 診断ログ：isEffectivelyEmpty チェック（特に stage1Issues）
+  if (DEBUG && (Array.isArray(payload.stage1Issues) && payload.stage1Issues.length > 0)) {
+    console.log('[isEffectivelyEmpty] stage1Issues is NOT empty but payload is marked empty:', {
+      stage1Issues_len: payload.stage1Issues.length,
+      isEmpty,
+      allEmpty,
+      metaAllEmpty,
+    });
+  }
+
+  return isEmpty;
 }
 
 /** 保存用ペイロード組み立て（StrategyData相当） */
@@ -493,37 +527,61 @@ function buildSavePayload(s: StrategyState) {
   };
 
   if (typeof s.businessPortfolio !== 'undefined') base.businessPortfolio = s.businessPortfolio;
-  if (Array.isArray(s.csvFinanceData)) base.csvFinanceData = s.csvFinanceData;
+
+  // csvFinanceData は object 前提
+  if (s.csvFinanceData && typeof s.csvFinanceData === 'object') base.csvFinanceData = s.csvFinanceData;
+
   if (Array.isArray(s.financeSummary)) base.financeSummary = s.financeSummary;
   if (s.simulationResult !== undefined) base.simulationResult = s.simulationResult;
+
+  if (DEBUG) {
+    const busSegLen = Array.isArray(s.businessSegments) ? s.businessSegments.length : 0;
+    const financeBSLen = Array.isArray(s.financeBS) ? s.financeBS.length : 0;
+    const financePLLen = Array.isArray(s.financePL) ? s.financePL.length : 0;
+
+    // ★ segmentPL 詳細ログ
+    const segmentPLDetails: Record<string, number> = {};
+    if (s.segmentPL && typeof s.segmentPL === 'object') {
+      for (const [k, v] of Object.entries(s.segmentPL as any)) {
+        segmentPLDetails[k] = Array.isArray(v) ? v.length : 0;
+      }
+    }
+
+    // ★ segmentBS 詳細ログ
+    const segmentBSDetails: Record<string, number> = {};
+    if (s.segmentBS && typeof s.segmentBS === 'object') {
+      for (const [k, v] of Object.entries(s.segmentBS as any)) {
+        segmentBSDetails[k] = Array.isArray(v) ? v.length : 0;
+      }
+    }
+
+    // ★ financeBS プレビュー
+    const financeBSPreview =
+      Array.isArray(s.financeBS) && s.financeBS.length > 0
+        ? {
+            totalAssets: (s.financeBS[0] as any)?.totalAssets,
+            interestBearingDebt: (s.financeBS[0] as any)?.interestBearingDebt,
+          }
+        : null;
+
+    console.log('[buildSavePayload] ★ payload内容確認', {
+      businessSegments_len: busSegLen,
+      businessSegments_names: Array.isArray(s.businessSegments) ? s.businessSegments.map((b) => b.name) : [],
+      financeBS_len: financeBSLen,
+      financeBS_preview: financeBSPreview,
+      financePL_len: financePLLen,
+      segmentPL_keys: Object.keys(segmentPLDetails),
+      segmentPL_rowCountsByKey: segmentPLDetails,
+      segmentBS_keys: Object.keys(segmentBSDetails),
+      segmentBS_rowCountsByKey: segmentBSDetails,
+    });
+  }
 
   return pruneUndefinedDeep(base);
 }
 
 /**
  * wasDirty=true の場合にもサーバから必ず反映すべきフィールドを抽出
- *
- * 目的：
- * - ユーザー入力中（dirty=true）の場合でも、重要なサーバ側決定項目は反映する
- * - Stage1の財務系・Stage2のストーリー系・Stage3の部門系など、
- *   「ユーザーが別操作で更新した」可能性が低いデータは常に最新化
- * - strategyId と revision は常に必須（オプティミスティックロック用）
- *
- * 反映対象フィールド（wasDirty=true でも上書き）：
- * ├─ Stage1（財務・セグメント分析）:
- * │  ├─ financeBS / financePL（会計データは完全データソース）
- * │  ├─ segmentPL / segmentBS / hqAdjustmentPL / hqAdjustmentBS
- * │  ├─ valueAnalysis / segmentValueAnalysis（計算結果）
- * │  ├─ financeSummary / businessPortfolio
- * │  └─ companyName / industry / revenue（会社情報は確実性重視）
- * ├─ Stage2（ストーリー・戦略）:
- * │  ├─ storyDraft / finalStory（生成結果）
- * │  ├─ winPatternsCandidate / answers12
- * │  └─ answers2
- * ├─ Stage3（部門・OKR）:
- * │  ├─ departments（部門構成は変動が多い）
- * │  └─ thought / mission / vision / value
- * └─ System: strategyId / revision / loaded / hydrated
  */
 function extractServerDecidedPatch(
   resData: Partial<StrategyState> & { revision?: number },
@@ -532,86 +590,55 @@ function extractServerDecidedPatch(
   const patch: Partial<StrategyState> = {};
 
   /* ========== 常に反映（System） ========== */
-  if (resData.strategyId && resData.strategyId !== current.strategyId)
-    patch.strategyId = resData.strategyId;
-  if (typeof resData.revision === 'number')
-    patch.revision = resData.revision;
+  if (resData.strategyId && resData.strategyId !== current.strategyId) patch.strategyId = resData.strategyId;
+  if (typeof resData.revision === 'number') patch.revision = resData.revision;
 
   /* ========== STAGE1: 財務・会社情報・セグメント分析 ========== */
-  // 財務BS/PLはサーバが唯一の真実源 → 常に反映
-  if (Array.isArray(resData.financeBS))
-    patch.financeBS = resData.financeBS;
-  if (Array.isArray(resData.financePL))
-    patch.financePL = resData.financePL;
+  if (Array.isArray(resData.financeBS)) patch.financeBS = resData.financeBS;
+  if (Array.isArray(resData.financePL)) patch.financePL = resData.financePL;
 
-  // セグメント別財務も常に最新化（ユーザー編集の対象外）
-  if (resData.segmentPL && typeof resData.segmentPL === 'object')
-    patch.segmentPL = resData.segmentPL;
-  if (resData.segmentBS && typeof resData.segmentBS === 'object')
-    patch.segmentBS = resData.segmentBS;
+  if (resData.segmentPL && typeof resData.segmentPL === 'object') patch.segmentPL = resData.segmentPL;
+  if (resData.segmentBS && typeof resData.segmentBS === 'object') patch.segmentBS = resData.segmentBS;
 
-  // 本社調整額
-  if (Array.isArray(resData.hqAdjustmentPL))
-    patch.hqAdjustmentPL = resData.hqAdjustmentPL;
-  if (Array.isArray(resData.hqAdjustmentBS))
-    patch.hqAdjustmentBS = resData.hqAdjustmentBS;
+  if (Array.isArray(resData.hqAdjustmentPL)) patch.hqAdjustmentPL = resData.hqAdjustmentPL;
+  if (Array.isArray(resData.hqAdjustmentBS)) patch.hqAdjustmentBS = resData.hqAdjustmentBS;
 
-  // 計算結果（5指標・セグメント分析）
-  if (resData.valueAnalysis && typeof resData.valueAnalysis === 'object')
-    patch.valueAnalysis = resData.valueAnalysis;
+  if (resData.valueAnalysis && typeof resData.valueAnalysis === 'object') patch.valueAnalysis = resData.valueAnalysis;
   if (resData.segmentValueAnalysis && typeof resData.segmentValueAnalysis === 'object')
     patch.segmentValueAnalysis = resData.segmentValueAnalysis;
 
-  // その他財務サマリ
-  if (Array.isArray(resData.financeSummary))
-    patch.financeSummary = resData.financeSummary;
+  if (Array.isArray(resData.financeSummary)) patch.financeSummary = resData.financeSummary;
   if (resData.businessPortfolio && typeof resData.businessPortfolio === 'object')
     patch.businessPortfolio = resData.businessPortfolio;
 
-  // 会社基本情報も確実性重視で常に反映（ただし empty string は除外してユーザー入力を保護）
-  if (typeof resData.companyName === 'string' && resData.companyName.trim() !== '')
-    patch.companyName = resData.companyName;
-  if (typeof resData.industry === 'string' && resData.industry.trim() !== '')
-    patch.industry = resData.industry;
-  if (typeof resData.revenue === 'string' && resData.revenue.trim() !== '')
-    patch.revenue = resData.revenue;
+  if (Array.isArray(resData.stage1Issues)) patch.stage1Issues = resData.stage1Issues;
+
+  if (typeof resData.companyName === 'string' && resData.companyName.trim() !== '') patch.companyName = resData.companyName;
+  if (typeof resData.industry === 'string' && resData.industry.trim() !== '') patch.industry = resData.industry;
+  if (typeof resData.revenue === 'string' && resData.revenue.trim() !== '') patch.revenue = resData.revenue;
 
   /* ========== STAGE2: ストーリー・戦略候補 ========== */
-  // 生成結果は常に最新化
-  if (Array.isArray(resData.storyDraft))
-    patch.storyDraft = resData.storyDraft;
-  if (Array.isArray(resData.finalStory))
-    patch.finalStory = resData.finalStory;
-  if (Array.isArray(resData.answers2))
-    patch.answers2 = resData.answers2;
+  if (Array.isArray(resData.storyDraft)) patch.storyDraft = resData.storyDraft;
+  if (Array.isArray(resData.finalStory)) patch.finalStory = resData.finalStory;
+  if (Array.isArray(resData.answers2)) patch.answers2 = resData.answers2;
 
-  // 戦略候補
-  if (Array.isArray(resData.winPatternsCandidate))
-    patch.winPatternsCandidate = resData.winPatternsCandidate;
-  if (Array.isArray(resData.answers12))
-    patch.answers12 = resData.answers12;
+  if (Array.isArray(resData.winPatternsCandidate)) patch.winPatternsCandidate = resData.winPatternsCandidate;
+  if (Array.isArray(resData.answers12)) patch.answers12 = resData.answers12;
 
   /* ========== STAGE3: 部門・戦略方針 ========== */
-  // 部門構成は会社構造の基本情報 → 常に最新化（削除復活防止と同様の重要性）
-  if (Array.isArray(resData.departments))
-    patch.departments = resData.departments;
+  if (Array.isArray(resData.departments)) patch.departments = resData.departments;
 
-  // MVV/SWOT も会社の指針なので常に反映
-  if (typeof resData.thought === 'string')
-    patch.thought = resData.thought;
-  if (typeof resData.mission === 'string')
-    patch.mission = resData.mission;
-  if (typeof resData.vision === 'string')
-    patch.vision = resData.vision;
-  if (typeof resData.value === 'string')
-    patch.value = resData.value;
+  if (typeof resData.thought === 'string') patch.thought = resData.thought;
+  if (typeof resData.mission === 'string') patch.mission = resData.mission;
+  if (typeof resData.vision === 'string') patch.vision = resData.vision;
+  if (typeof resData.value === 'string') patch.value = resData.value;
 
   return patch;
 }
 
 /* ===== Department 正規化 ===== */
 function normalizeDepartmentsInput(input: any, fallback: Department[]): Department[] {
-  // ★重要：null / {departments:null} は「空にしたい」意図として扱う（削除復活防止）
+  // null / {departments:null} は「空にしたい」
   if (input === null) return [];
   if (typeof input === 'object' && input && 'departments' in input && (input as any).departments == null) {
     return [];
@@ -655,8 +682,6 @@ async function isSessionUsable(): Promise<boolean> {
 
 /* ============================================================
  * 親(strategy_data)の存在を"できる限り"保証
- * - 重要: 既に親が存在していそうな場合は「何もしない」。
- * - 保存直列化キューに乗せて、revision の前後不一致を減らす。
  * ========================================================== */
 let __ensureParentInflight: Promise<void> | null = null;
 
@@ -675,7 +700,7 @@ async function ensureParentExists(): Promise<void> {
       return;
     }
 
-    // ★最重要：revision が取れている／loaded の場合は親が存在している可能性が極めて高いので何もしない
+    // revision が取れている／loaded の場合は親が存在している可能性が高いので何もしない
     if (typeof s.revision === 'number' || s.loaded || s.hydrated) {
       if (DEBUG) console.log('[strategyStore] ensureParentExists: parent likely exists (revision/loaded/hydrated), skip');
       return;
@@ -688,7 +713,6 @@ async function ensureParentExists(): Promise<void> {
     }
 
     try {
-      // revision が未知の段階なので undefined で upsert（存在すれば更新してしまうが、ここは「初回のみ」に絞っている）
       await (saveStrategyDataApi as any)(payload, userId, companyId, undefined, { mode: 'upsert' });
     } catch (e) {
       console.warn('[strategyStore] ensureParentExists primary call failed, fallback legacy:', e);
@@ -707,6 +731,7 @@ async function ensureParentExists(): Promise<void> {
 
 /* ===== refetch再試行タイマー ===== */
 let __refetchRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
 function scheduleRefetchRetry(delayMs = 1500): void {
   if (__refetchRetryTimer) return;
   __refetchRetryTimer = setTimeout(() => {
@@ -821,6 +846,8 @@ const emptyData: StrategyState = {
   setFinanceBS: () => {},
   setSegmentPL: () => {},
   setSegmentBS: () => {},
+  upsertSegmentPL: () => {},
+  upsertSegmentBS: () => {},
   setBusinessSegmentsWithSync: () => {},
 
   setMVV: () => {},
@@ -832,9 +859,11 @@ const emptyData: StrategyState = {
   markLoaded: () => {},
   markDirty: () => {},
   buildPayload: () => ({}),
-  saveStrategyData: async () => {},
+
+  saveStrategyData: async () => ({ ok: false, reason: 'uninitialized', skipped: true }),
   refetchFromServer: async () => {},
   deleteAllOnServer: async () => {},
+
   loadStage1DummyData: () => {},
   saveStage1Snapshot: () => false,
   saveStage2Snapshot: () => false,
@@ -862,11 +891,34 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
   const currency = raw.currency ?? 'JPY';
   const periodStartYear = raw.periodStartYear ?? raw.period_start_year ?? '';
   const periodEndYear = raw.periodEndYear ?? raw.period_end_year ?? '';
-  const businessSegments = isArray(raw.businessSegments)
+  let businessSegments = isArray(raw.businessSegments)
     ? raw.businessSegments
     : isArray(raw.business_segments)
       ? raw.business_segments
       : [];
+
+  // ★ businessSegments の正規化：summary/keyCustomers を安全化
+  businessSegments = businessSegments.map((seg: any) => {
+    const normalized: any = { ...seg };
+    // summary は string または undefined
+    if (typeof normalized.summary !== 'string' && normalized.summary !== undefined) {
+      normalized.summary = undefined;
+    }
+    // keyCustomers は string[] として正規化、最大3件
+    if (normalized.keyCustomers !== undefined) {
+      const kc = normalized.keyCustomers;
+      if (Array.isArray(kc)) {
+        normalized.keyCustomers = kc
+          .filter(Boolean)
+          .map((v: any) => String(v).trim())
+          .filter(Boolean)
+          .slice(0, 3);
+      } else {
+        normalized.keyCustomers = undefined;
+      }
+    }
+    return normalized;
+  });
 
   const isListed =
     typeof raw.isListed === 'boolean'
@@ -874,41 +926,31 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
       : typeof raw.is_listed === 'boolean'
         ? raw.is_listed
         : false;
+
   const ticker = raw.ticker ?? raw.ticker_text ?? '';
   const pbrManual = raw.pbrManual ?? raw.pbr_manual ?? '';
-  const financeBS = isArray(raw.financeBS)
-    ? raw.financeBS
-    : isArray(raw.finance_bs)
-      ? raw.finance_bs
-      : [];
-  const financePL = isArray(raw.financePL)
-    ? raw.financePL
-    : isArray(raw.finance_pl)
-      ? raw.finance_pl
-      : [];
+  const financeBS = isArray(raw.financeBS) ? raw.financeBS : isArray(raw.finance_bs) ? raw.finance_bs : [];
+  const financePL = isArray(raw.financePL) ? raw.financePL : isArray(raw.finance_pl) ? raw.finance_pl : [];
+
   const segmentPL =
     raw.segmentPL && typeof raw.segmentPL === 'object'
       ? raw.segmentPL
       : raw.segment_pl && typeof raw.segment_pl === 'object'
         ? raw.segment_pl
         : undefined;
+
   const segmentBS =
     raw.segmentBS && typeof raw.segmentBS === 'object'
       ? raw.segmentBS
       : raw.segment_bs && typeof raw.segment_bs === 'object'
         ? raw.segment_bs
         : undefined;
-  const hqAdjustmentPL = isArray(raw.hqAdjustmentPL)
-    ? raw.hqAdjustmentPL
-    : isArray(raw.hq_adjustment_pl)
-      ? raw.hq_adjustment_pl
-      : undefined;
-  const hqAdjustmentBS = isArray(raw.hqAdjustmentBS)
-    ? raw.hqAdjustmentBS
-    : isArray(raw.hq_adjustment_bs)
-      ? raw.hq_adjustment_bs
-      : undefined;
+
+  const hqAdjustmentPL = isArray(raw.hqAdjustmentPL) ? raw.hqAdjustmentPL : isArray(raw.hq_adjustment_pl) ? raw.hq_adjustment_pl : undefined;
+  const hqAdjustmentBS = isArray(raw.hqAdjustmentBS) ? raw.hqAdjustmentBS : isArray(raw.hq_adjustment_bs) ? raw.hq_adjustment_bs : undefined;
+
   const valueAnalysis = raw.valueAnalysis ?? raw.value_analysis ?? undefined;
+
   const segmentValueAnalysis =
     raw.segmentValueAnalysis && typeof raw.segmentValueAnalysis === 'object'
       ? raw.segmentValueAnalysis
@@ -916,11 +958,16 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
         ? raw.segment_value_analysis
         : undefined;
 
-  const stage1Issues = isArray(raw.stage1Issues)
-    ? raw.stage1Issues
-    : isArray(raw.stage1_issues)
-      ? raw.stage1_issues
-      : [];
+  const stage1Issues = isArray(raw.stage1Issues) ? raw.stage1Issues : isArray(raw.stage1_issues) ? raw.stage1_issues : [];
+
+  // ★ 診断ログ：DB行からの復元状況
+  if (DEBUG && (raw.stage1Issues || raw.stage1_issues)) {
+    console.log('[normalizeFromDbRow] stage1Issues 復元:', {
+      raw_stage1Issues_len: isArray(raw.stage1Issues) ? (raw.stage1Issues as any[]).length : 0,
+      raw_stage1_issues_len: isArray(raw.stage1_issues) ? (raw.stage1_issues as any[]).length : 0,
+      final_len: Array.isArray(stage1Issues) ? stage1Issues.length : 0,
+    });
+  }
 
   const thought = raw.thought ?? '';
   const mission = raw.mission ?? '';
@@ -934,8 +981,6 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
   const story = isArray(raw.story) ? raw.story : [];
   const finalStory = isArray(raw.finalStory) ? raw.finalStory : isArray(raw.final_story) ? raw.final_story : [];
 
-  // ★ 修正：csvFinanceData は Record<string, ...> のオブジェクトであり、配列ではない
-  // raw から直接取得し、オブジェクト型チェックを行う
   const csvFinanceData =
     raw.csvFinanceData && typeof raw.csvFinanceData === 'object'
       ? raw.csvFinanceData
@@ -943,11 +988,7 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
         ? raw.csv_finance_data
         : undefined;
 
-  const financeSummary = isArray(raw.financeSummary)
-    ? raw.financeSummary
-    : isArray(raw.finance_summary)
-      ? raw.finance_summary
-      : [];
+  const financeSummary = isArray(raw.financeSummary) ? raw.financeSummary : isArray(raw.finance_summary) ? raw.finance_summary : [];
 
   const departmentsRaw = isArray(raw.departments) ? raw.departments : [];
   const departments: Department[] = departmentsRaw.map((d: any, di: number) => {
@@ -1018,8 +1059,7 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
       : undefined;
 
   const winPatternPrimary: WinPatternId | undefined = raw.winPatternPrimary ?? raw.win_pattern_primary ?? undefined;
-  const winPatternSecondary: WinPatternId | undefined =
-    raw.winPatternSecondary ?? raw.win_pattern_secondary ?? undefined;
+  const winPatternSecondary: WinPatternId | undefined = raw.winPatternSecondary ?? raw.win_pattern_secondary ?? undefined;
 
   const executionPlanBaseline = (() => {
     const base = raw.executionPlanBaseline ?? raw.execution_plan_baseline;
@@ -1031,12 +1071,10 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     };
   })();
 
-  // ★ 修正：undefined のフィールドを除去する
-  // merge で ...(patch as any) をするので、undefined が含まれると既存データが上書きされる
-  // undefined のフィールドは含めず、既存データを保護する
   const patch: any = {
     strategyId,
     revision,
+
     companyName,
     foundationYear,
     location,
@@ -1051,15 +1089,20 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     periodStartYear,
     periodEndYear,
     businessSegments,
+
     isListed,
     ticker,
     pbrManual,
+
     financeBS,
     financePL,
+
     segmentPL,
     segmentBS,
+
     hqAdjustmentPL,
     hqAdjustmentBS,
+
     valueAnalysis,
     segmentValueAnalysis,
 
@@ -1073,26 +1116,31 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     weakness,
     opportunity,
     threat,
+
     story,
     finalStory,
+
     answers2,
     departments,
+
     csvFinanceData,
     financeSummary,
     businessPortfolio,
     simulationResult,
+
     winPatterns,
     winPatternPrimary,
     winPatternSecondary,
+
     executionPlanBaseline,
   };
 
-  // ★ DEBUG：patch生成直後のログ（プリミティブ値のみ）
-  const patchFinancePLLen = Array.isArray(patch.financePL) ? patch.financePL.length : 0;
-  const patchStage1IssuesLen = Array.isArray(patch.stage1Issues) ? patch.stage1Issues.length : 0;
-  if (DEBUG) console.log('[normalizeFromDbRow] patch生成 financePL_len:' + patchFinancePLLen + ' stage1Issues_len:' + patchStage1IssuesLen);
+  if (DEBUG) {
+    const patchFinancePLLen = Array.isArray(patch.financePL) ? patch.financePL.length : 0;
+    const patchStage1IssuesLen = Array.isArray(patch.stage1Issues) ? patch.stage1Issues.length : 0;
+    console.log('[normalizeFromDbRow] patch生成 financePL_len:' + patchFinancePLLen + ' stage1Issues_len:' + patchStage1IssuesLen);
+  }
 
-  // undefined のフィールドを削除（merge で既存データを保護）
   let pruned = 0;
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) {
@@ -1100,14 +1148,17 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
       pruned++;
     }
   }
+  if (DEBUG && pruned > 0) console.log('[normalizeFromDbRow] pruned_fields:' + pruned);
 
-  if (pruned > 0) {
-    if (DEBUG) console.log('[normalizeFromDbRow] pruned_fields:' + pruned);
+  if (DEBUG) {
+    const finalPatchFinancePLLen = Array.isArray(patch.financePL) ? patch.financePL.length : 0;
+    console.log(
+      '[normalizeFromDbRow] patch最終 financePL_len:' +
+        finalPatchFinancePLLen +
+        ' financePL_exists:' +
+        ('financePL' in patch)
+    );
   }
-
-  // ★ DEBUG：pruning後のログ
-  const finalPatchFinancePLLen = Array.isArray(patch.financePL) ? patch.financePL.length : 0;
-  if (DEBUG) console.log('[normalizeFromDbRow] patch最終 financePL_len:' + finalPatchFinancePLLen + ' financePL_exists:' + ('financePL' in patch));
 
   return patch as Partial<StrategyState>;
 }
@@ -1132,8 +1183,10 @@ export const useStrategyStore = create<StrategyState>()(
             boot: { isHydrating: false, isHydrated: true },
             revision: isBool ? s.revision : (revOrBool as number),
             lastServerSnapshot: hash ?? s.lastServerSnapshot,
+            __isFetchingFromServer: false,
           };
         }),
+
       setHydrating: (b) => set((s) => ({ ...s, boot: { ...s.boot, isHydrating: b } })),
       setServerSnapshotHash: (hash) => set({ lastServerSnapshot: hash }),
 
@@ -1146,6 +1199,8 @@ export const useStrategyStore = create<StrategyState>()(
           pendingCompanyId: id,
           boot: { isHydrating: true, isHydrated: false },
           __isFetchingFromServer: true,
+          _loadingRefetch: false,
+          __lastServerError: undefined,
         })),
 
       setStory: (chs) => {
@@ -1202,16 +1257,22 @@ export const useStrategyStore = create<StrategyState>()(
         })),
 
       setProfile: (patch) => {
+        // ★ 診断ログ：setProfile に stage1Issues が含まれている場合を検知
+        if (DEBUG && 'stage1Issues' in patch) {
+          console.log('[strategyStore] setProfile contains stage1Issues:', {
+            stage1Issues_len: Array.isArray((patch as any).stage1Issues) ? (patch as any).stage1Issues.length : 0,
+            stage1Issues_titles: Array.isArray((patch as any).stage1Issues) ? (patch as any).stage1Issues.map((i: any) => i.title) : [],
+          });
+        }
+
         // businessSegments が変更された場合、segmentPL/segmentBS のキー整合を保つ
         if (patch.businessSegments !== undefined) {
           const currentState = get();
-          const newSegmentNames = new Set(patch.businessSegments.map((seg) => seg.name));
+          const newSegmentNames = new Set((patch.businessSegments ?? []).map((seg) => seg.name));
 
-          // 既存の segmentPL/segmentBS から不要なキーを削除し、新規キーを空配列で初期化
           let newSegmentPL = currentState.segmentPL ? { ...currentState.segmentPL } : {};
           let newSegmentBS = currentState.segmentBS ? { ...currentState.segmentBS } : {};
 
-          // 削除されたセグメントのデータを削除
           for (const key of Object.keys(newSegmentPL)) {
             if (!newSegmentNames.has(key)) delete newSegmentPL[key];
           }
@@ -1219,10 +1280,19 @@ export const useStrategyStore = create<StrategyState>()(
             if (!newSegmentNames.has(key)) delete newSegmentBS[key];
           }
 
-          // 新規セグメントは空配列で初期化
           for (const segName of newSegmentNames) {
             if (!(segName in newSegmentPL)) newSegmentPL[segName] = [];
             if (!(segName in newSegmentBS)) newSegmentBS[segName] = [];
+          }
+
+          if (DEBUG) {
+            const plKeys = Object.keys(newSegmentPL).length;
+            const bsKeys = Object.keys(newSegmentBS).length;
+            console.log('[strategyStore] setProfile: segment sync', {
+              newSegmentNames: Array.from(newSegmentNames),
+              plKeys,
+              bsKeys,
+            });
           }
 
           set((s) => ({
@@ -1236,7 +1306,6 @@ export const useStrategyStore = create<StrategyState>()(
           set((s) => ({ ...s, ...patch, dirty: true }));
         }
 
-        // pbrManual, financePL, financeBS, segmentPL, segmentBS の変更を含む場合は valueAnalysis を再計算
         const needsRecompute =
           patch.pbrManual !== undefined ||
           patch.financeBS !== undefined ||
@@ -1244,8 +1313,8 @@ export const useStrategyStore = create<StrategyState>()(
           patch.segmentPL !== undefined ||
           patch.segmentBS !== undefined ||
           patch.businessSegments !== undefined;
+
         if (needsRecompute) {
-          // 次の tick で recompute（set の反映後）
           setTimeout(() => {
             get().recomputeValueAnalysis('setProfile');
           }, 0);
@@ -1256,10 +1325,22 @@ export const useStrategyStore = create<StrategyState>()(
       setCompanyName: (name) => set((s) => ({ ...s, companyName: name, dirty: true })),
       setIndustry: (industry) => set((s) => ({ ...s, industry, dirty: true })),
       setStage1Issues: (issues) => {
+        // ★ 診断ログ：setStage1Issues 呼び出し確認
+        if (DEBUG) {
+          console.log('[strategyStore] setStage1Issues called:', {
+            issuesCount: Array.isArray(issues) ? issues.length : 0,
+            issue_titles: Array.isArray(issues) ? issues.map((i) => i.title) : [],
+          });
+        }
+
         set((s) => ({ ...s, stage1Issues: issues, dirty: true }));
-        // ★ localStorage にも即座に保存（デモ安定のため）
+
+        // localStorage にも即座に保存（デモ安定）
         setTimeout(() => {
-          get().saveStage1Snapshot();
+          const result = get().saveStage1Snapshot();
+          if (DEBUG) {
+            console.log('[strategyStore] setStage1Issues snapshot saved:', { result });
+          }
         }, 0);
       },
 
@@ -1270,18 +1351,21 @@ export const useStrategyStore = create<StrategyState>()(
           get().saveStage2Snapshot();
         }, 0);
       },
+
       setWinPatternsCandidate: (candidates) => {
         set((s) => ({ ...s, winPatternsCandidate: candidates, dirty: true }));
         setTimeout(() => {
           get().saveStage2Snapshot();
         }, 0);
       },
+
       setAnswers12: (answers) => {
         set((s) => ({ ...s, answers12: answers, dirty: true }));
         setTimeout(() => {
           get().saveStage2Snapshot();
         }, 0);
       },
+
       updateAnswer12: (id, patch) => {
         set((s) => {
           const prev = s.answers12 ?? [];
@@ -1308,20 +1392,43 @@ export const useStrategyStore = create<StrategyState>()(
       /** ValueAnalysis 再計算 */
       recomputeValueAnalysis: (source = 'local') => {
         const s = get();
-        // refetch/hydrating 中は dirty 保護のため計算しない
-        if (s.__isFetchingFromServer || s.boot?.isHydrating) {
-          if (DEBUG) console.log('[strategyStore] recomputeValueAnalysis: skip while fetching/hydrating');
+        // ★ source='local'（手動更新）の場合はhydrating をスキップ、無反応を防ぐ
+        // source='refetchFromServer'の場合はhydratingを待つ
+        if (source !== 'local' && (s.__isFetchingFromServer || s.boot?.isHydrating)) {
+          if (DEBUG) console.log('[strategyStore] recomputeValueAnalysis: skip while fetching/hydrating (not local)');
           return;
         }
 
-        // financePL が存在する場合は新形式を優先
+        if (DEBUG) console.log('[strategyStore] recomputeValueAnalysis called', { source });
+
         const hasNewFormat = Array.isArray(s.financePL) && s.financePL.length > 0;
+
+        // ★ 診断ログ：入力データ確認（A-3）
+        if (DEBUG) {
+          const financePLPreview = Array.isArray(s.financePL) && s.financePL.length > 0
+            ? {
+                firstYear: (s.financePL[0] as any)?.year,
+                lastYear: (s.financePL[s.financePL.length - 1] as any)?.year,
+                firstRevenue: (s.financePL[0] as any)?.revenue,
+                lastRevenue: (s.financePL[s.financePL.length - 1] as any)?.revenue,
+              }
+            : null;
+
+          console.log('[strategyStore] recomputeValueAnalysis input data:', {
+            source,
+            hasNewFormat,
+            financePL_len: Array.isArray(s.financePL) ? s.financePL.length : 0,
+            financePL_preview: financePLPreview,
+            financeBS_len: Array.isArray(s.financeBS) ? s.financeBS.length : 0,
+            financeSummary_len: Array.isArray(s.financeSummary) ? s.financeSummary.length : 0,
+            pbrManual: s.pbrManual,
+          });
+        }
 
         let newValueAnalysis: ValueAnalysis;
         let newSegmentValueAnalysis: Record<string, ValueAnalysis> | undefined;
 
         if (hasNewFormat) {
-          // 新形式：computeValueAnalysisBundle を使用
           const result = computeValueAnalysisBundle({
             companyPL: s.financePL!,
             companyBS: s.financeBS ?? [],
@@ -1332,7 +1439,6 @@ export const useStrategyStore = create<StrategyState>()(
           newValueAnalysis = result.company;
           newSegmentValueAnalysis = Object.keys(result.segments).length > 0 ? result.segments : undefined;
         } else {
-          // 旧形式：computeValueAnalysis を使用（financeSummary ベース）
           newValueAnalysis = computeValueAnalysis({
             financeSummary: s.financeSummary,
             financeBS: s.financeBS,
@@ -1341,66 +1447,151 @@ export const useStrategyStore = create<StrategyState>()(
           newSegmentValueAnalysis = undefined;
         }
 
-        // source 情報をメタに反映
         newValueAnalysis.meta = {
           ...newValueAnalysis.meta,
           source: source === 'refetchFromServer' ? 'server' : 'local',
         };
 
-        if (DEBUG) console.log('[strategyStore] recomputeValueAnalysis:', {
-          source,
-          hasNewFormat,
-          newValueAnalysis,
-          newSegmentValueAnalysis,
-        });
+        // ★ 診断ログ：計算結果確認
+        if (DEBUG) {
+          console.log('[strategyStore] recomputeValueAnalysis result:', {
+            source,
+            hasNewFormat,
+            revenueCagrPct: (newValueAnalysis as any)?.revenueCagrPct,
+            operatingMarginPctLatest: (newValueAnalysis as any)?.operatingMarginPctLatest,
+            basis_years: (newValueAnalysis as any)?.meta?.basis?.years,
+            basis_latestYear: (newValueAnalysis as any)?.meta?.basis?.latestYear,
+            meta_source: (newValueAnalysis as any)?.meta?.source,
+          });
+        }
 
         set((prev) => ({
           ...prev,
           valueAnalysis: newValueAnalysis,
           segmentValueAnalysis: newSegmentValueAnalysis,
-          // refetchFromServer 以外は dirty=true
           dirty: source === 'refetchFromServer' ? prev.dirty : true,
         }));
       },
 
       /* STAGE1 財務データ setter */
-      setFinancePL: (rows: FinancePLRow[]) => {
+      setFinancePL: (rows) => {
         set((s) => ({ ...s, financePL: rows, dirty: true }));
-        setTimeout(() => {
-          get().recomputeValueAnalysis('setFinancePL');
-        }, 0);
+        setTimeout(() => get().recomputeValueAnalysis('setFinancePL'), 0);
       },
 
-      setFinanceBS: (rows: FinanceBSRow[]) => {
-        set((s) => ({ ...s, financeBS: rows, dirty: true }));
-        setTimeout(() => {
-          get().recomputeValueAnalysis('setFinanceBS');
-        }, 0);
+      setFinanceBS: (rows) => {
+        if (DEBUG) {
+          console.log('[strategyStore] setFinanceBS called', {
+            rowsLen: Array.isArray(rows) ? rows.length : '?',
+            firstRow:
+              Array.isArray(rows) && rows.length > 0
+                ? {
+                    year: (rows[0] as any).year,
+                    totalAssets: (rows[0] as any).totalAssets,
+                    interestBearingDebt: (rows[0] as any).interestBearingDebt,
+                  }
+                : null,
+          });
+        }
+        // ★ 修正：csvFinanceData と同期
+        set((s) => ({
+          ...s,
+          financeBS: rows,
+          csvFinanceData: {
+            ...(s.csvFinanceData || {}),
+            financeBS: rows,
+          },
+          dirty: true,
+        }));
+        setTimeout(() => get().recomputeValueAnalysis('setFinanceBS'), 0);
       },
 
-      setSegmentPL: (data: Record<string, FinancePLRow[]>) => {
-        set((s) => ({ ...s, segmentPL: data, dirty: true }));
-        setTimeout(() => {
-          get().recomputeValueAnalysis('setSegmentPL');
-        }, 0);
+      setSegmentPL: (data) => {
+        // ★ 修正：csvFinanceData と同期
+        set((s) => ({
+          ...s,
+          segmentPL: data,
+          csvFinanceData: {
+            ...(s.csvFinanceData || {}),
+            segmentPL: data,
+          },
+          dirty: true,
+        }));
+        setTimeout(() => get().recomputeValueAnalysis('setSegmentPL'), 0);
       },
 
-      setSegmentBS: (data: Record<string, SegmentBSRow[]>) => {
-        set((s) => ({ ...s, segmentBS: data, dirty: true }));
-        setTimeout(() => {
-          get().recomputeValueAnalysis('setSegmentBS');
-        }, 0);
+      setSegmentBS: (data) => {
+        // ★ 修正：csvFinanceData と同期
+        set((s) => ({
+          ...s,
+          segmentBS: data,
+          csvFinanceData: {
+            ...(s.csvFinanceData || {}),
+            segmentBS: data,
+          },
+          dirty: true,
+        }));
+        setTimeout(() => get().recomputeValueAnalysis('setSegmentBS'), 0);
       },
 
-      setBusinessSegmentsWithSync: (segments: BusinessSegment[]) => {
+      /** ★ セグメント単位マージ更新（必ずマージ） */
+      upsertSegmentPL: (segName, rows) => {
+        if (DEBUG) {
+          console.log('[strategyStore] upsertSegmentPL', {
+            segName,
+            rowsLen: Array.isArray(rows) ? rows.length : 0,
+            currentKeys: Object.keys((get().segmentPL || {}) as any),
+          });
+        }
+        set((s) => {
+          const current = (s.segmentPL || {}) as Record<string, FinancePLRow[]>;
+          const updated = { ...current, [segName]: rows };
+          // ★ 修正：csvFinanceData と同期
+          return {
+            ...s,
+            segmentPL: updated,
+            csvFinanceData: {
+              ...(s.csvFinanceData || {}),
+              segmentPL: updated,
+            },
+            dirty: true,
+          };
+        });
+        setTimeout(() => get().recomputeValueAnalysis('setSegmentPL'), 0);
+      },
+
+      upsertSegmentBS: (segName, rows) => {
+        if (DEBUG) {
+          console.log('[strategyStore] upsertSegmentBS', {
+            segName,
+            rowsLen: Array.isArray(rows) ? rows.length : 0,
+            currentKeys: Object.keys((get().segmentBS || {}) as any),
+          });
+        }
+        set((s) => {
+          const current = (s.segmentBS || {}) as Record<string, SegmentBSRow[]>;
+          const updated = { ...current, [segName]: rows };
+          // ★ 修正：csvFinanceData と同期
+          return {
+            ...s,
+            segmentBS: updated,
+            csvFinanceData: {
+              ...(s.csvFinanceData || {}),
+              segmentBS: updated,
+            },
+            dirty: true,
+          };
+        });
+        setTimeout(() => get().recomputeValueAnalysis('setSegmentBS'), 0);
+      },
+
+      setBusinessSegmentsWithSync: (segments) => {
         const currentState = get();
         const newSegmentNames = new Set(segments.map((seg) => seg.name));
 
-        // 既存の segmentPL/segmentBS から不要なキーを削除し、新規キーを空配列で初期化
         let newSegmentPL = currentState.segmentPL ? { ...currentState.segmentPL } : {};
         let newSegmentBS = currentState.segmentBS ? { ...currentState.segmentBS } : {};
 
-        // 削除されたセグメントのデータを削除
         for (const key of Object.keys(newSegmentPL)) {
           if (!newSegmentNames.has(key)) delete newSegmentPL[key];
         }
@@ -1408,31 +1599,38 @@ export const useStrategyStore = create<StrategyState>()(
           if (!newSegmentNames.has(key)) delete newSegmentBS[key];
         }
 
-        // 新規セグメントは空配列で初期化
         for (const segName of newSegmentNames) {
           if (!(segName in newSegmentPL)) newSegmentPL[segName] = [];
           if (!(segName in newSegmentBS)) newSegmentBS[segName] = [];
         }
 
+        // ★ 修正：csvFinanceData も同期
+        const nextSegmentPL = Object.keys(newSegmentPL).length > 0 ? newSegmentPL : undefined;
+        const nextSegmentBS = Object.keys(newSegmentBS).length > 0 ? newSegmentBS : undefined;
+
         set((s) => ({
           ...s,
           businessSegments: segments,
-          segmentPL: Object.keys(newSegmentPL).length > 0 ? newSegmentPL : undefined,
-          segmentBS: Object.keys(newSegmentBS).length > 0 ? newSegmentBS : undefined,
+          segmentPL: nextSegmentPL,
+          segmentBS: nextSegmentBS,
+          csvFinanceData: {
+            ...(s.csvFinanceData || {}),
+            segmentPL: nextSegmentPL,
+            segmentBS: nextSegmentBS,
+          },
           dirty: true,
         }));
 
-        setTimeout(() => {
-          get().recomputeValueAnalysis('setBusinessSegments');
-        }, 0);
+        setTimeout(() => get().recomputeValueAnalysis('setBusinessSegments'), 0);
       },
 
       setMVV: (patch) => set((s) => ({ ...s, ...patch, dirty: true })),
       setSWOT: (patch) => set((s) => ({ ...s, ...patch, dirty: true })),
 
       // ▼ 部門セット後に即座に保存（※ ensureParentExists は呼ばない：二重保存を防ぐ）
-      setDepartments: (deps: SafeDepartmentsArg) => {
+      setDepartments: (deps) => {
         if (DEBUG) console.log('[strategyStore] setDepartments() called', deps);
+
         set((s) => ({
           departments: normalizeDepartmentsInput(deps, s.departments),
           dirty: true,
@@ -1441,7 +1639,7 @@ export const useStrategyStore = create<StrategyState>()(
         (async () => {
           if (DEBUG) console.log('[strategyStore] setDepartments() immediate-save start');
           try {
-            await get().saveStrategyData();
+            await get().saveStrategyData({ reason: 'setDepartments' });
             if (DEBUG) console.log('[strategyStore] setDepartments() immediate-save done');
           } catch (e) {
             console.warn('[strategyStore] setDepartments immediate save failed:', e);
@@ -1449,9 +1647,9 @@ export const useStrategyStore = create<StrategyState>()(
         })();
       },
 
-      // ▼ updateDepartments も同様
       updateDepartments: (updater) => {
         if (DEBUG) console.log('[strategyStore] updateDepartments() called');
+
         set((s) => {
           const prev = Array.isArray(s.departments) ? s.departments : [];
           const next = updater([...prev]);
@@ -1461,7 +1659,7 @@ export const useStrategyStore = create<StrategyState>()(
         (async () => {
           if (DEBUG) console.log('[strategyStore] updateDepartments() immediate-save start');
           try {
-            await get().saveStrategyData();
+            await get().saveStrategyData({ reason: 'updateDepartments' });
             if (DEBUG) console.log('[strategyStore] updateDepartments() immediate-save done');
           } catch (e) {
             console.warn('[strategyStore] updateDepartments immediate save failed:', e);
@@ -1473,10 +1671,7 @@ export const useStrategyStore = create<StrategyState>()(
 
       setFinanceSummary: (rows) => {
         set({ financeSummary: rows, dirty: true });
-        // financeSummary 変更時に valueAnalysis を再計算
-        setTimeout(() => {
-          get().recomputeValueAnalysis('local');
-        }, 0);
+        setTimeout(() => get().recomputeValueAnalysis('setFinanceSummary'), 0);
       },
 
       __afterSave(data) {
@@ -1490,79 +1685,94 @@ export const useStrategyStore = create<StrategyState>()(
         set({ loaded: true, hydrated: true });
         if (DEBUG) console.log('[strategyStore] markLoaded 完了', { loaded: get().loaded, hydrated: get().hydrated });
       },
+
       markDirty: () => set({ dirty: true }),
 
       buildPayload: () => buildSavePayload(get() as StrategyState),
 
-      async saveStrategyData() {
-        // ★保存を必ず直列化（REVISION_CONFLICTの主因を除去）
+      async saveStrategyData(opts) {
         return enqueueSave(async () => {
+          const reason = opts?.reason ?? 'manual';
+          const force = opts?.force ?? false;
           const state0 = get();
 
-          // refetch/hydrating中の保存は競合の温床なので抑止
-          if (state0.__isFetchingFromServer || state0.boot?.isHydrating) {
-            if (DEBUG) console.log('[strategyStore] saveStrategyData: skip while fetching/hydrating');
-            return;
+          // ★ force: true のときは hydrating をスキップ（無反応を防ぐ）
+          // force: false のときはガード
+          if (!force && (state0.__isFetchingFromServer || state0.boot?.isHydrating)) {
+            if (DEBUG) console.log('[strategyStore] saveStrategyData: skip while fetching/hydrating (not forced)');
+            return { ok: false, skipped: true, reason: 'fetching_or_hydrating' };
           }
 
           const userId = useUserStore.getState().user?.id;
           const companyId = state0.companyId || state0.pendingCompanyId || useUserStore.getState().companyId;
 
-          if (DEBUG) console.log('[strategyStore] saveStrategyData() start', {
-            userId,
-            companyId,
-            revision: state0.revision,
-            dirty: state0.dirty,
-            _loadingSave: state0._loadingSave,
-          });
+          if (DEBUG) {
+            console.log('[strategyStore] saveStrategyData() start', {
+              reason,
+              force,
+              userId,
+              companyId,
+              revision: state0.revision,
+              dirty: state0.dirty,
+              hydrating: state0.boot?.isHydrating,
+              fetching: state0.__isFetchingFromServer,
+              _loadingSave: state0._loadingSave,
+            });
+          }
 
           if (!userId || !companyId) {
-            console.warn('[strategyStore] saveStrategyData skipped: missing ids');
-            return;
+            // ここは "黙って成功扱い" にしない
+            console.warn('[strategyStore] saveStrategyData skipped: missing ids', { userId, companyId });
+            return { ok: false, skipped: true, reason: 'missing_ids' };
           }
 
-          // dirty=false なら何もしない
-          if (!state0.dirty) {
-            if (DEBUG) console.log('[strategyStore] saveStrategyData: dirty=false, skip');
-            return;
+          // ★ force: true のときは dirty をスキップ（手動保存は常に走る）
+          if (!force && !state0.dirty) {
+            if (DEBUG) console.log('[strategyStore] saveStrategyData: dirty=false, skip (not forced)');
+            return { ok: false, skipped: true, reason: 'dirty_false' };
           }
 
-          // UI/他ロジック向けのガード（キュー化により“同時実行”は起きないが、見た目制御のため残す）
           if (state0._loadingSave) {
             if (DEBUG) console.log('[strategyStore] saveStrategyData: already saving, skip (queued)');
-            return;
+            return { ok: false, skipped: true, reason: 'already_saving' };
           }
 
           set({ _loadingSave: true });
 
           try {
-            // ★最大2回：1回目で conflict なら refetch → 2回目で最新 revision で再保存
             for (let attempt = 1; attempt <= 2; attempt++) {
-              const state = get(); // ★キュー実行時点の最新 state を必ず参照
+              const state = get();
               const payload = buildSavePayload(state as StrategyState);
+
+              // ★ 診断ログ：保存ペイロードに stage1Issues が含まれているか確認
+              if (DEBUG) {
+                console.log('[strategyStore] saveStrategyData payload check:', {
+                  reason,
+                  attempt,
+                  state_stage1Issues_len: Array.isArray(state.stage1Issues) ? state.stage1Issues.length : 0,
+                  payload_stage1Issues_len: Array.isArray((payload as any).stage1Issues) ? (payload as any).stage1Issues.length : 0,
+                  payload_has_stage1Issues: 'stage1Issues' in payload,
+                  payload_keys: Object.keys(payload).slice(0, 10),
+                });
+              }
 
               if (isEffectivelyEmpty(payload)) {
                 if (DEBUG) console.log('[strategyStore] saveStrategyData: payload effectively empty, clear dirty');
                 set({ dirty: false });
-                return;
+                return { ok: false, skipped: true, reason: 'payload_empty' };
               }
 
               const currentHash = stableHash(payload);
-              if (state.__lastSavedHash && state.__lastSavedHash === currentHash) {
+
+              if (!force && state.__lastSavedHash && state.__lastSavedHash === currentHash) {
                 if (DEBUG) console.log('[strategyStore] saveStrategyData: same hash, skip');
                 set({ dirty: false });
-                return;
+                return { ok: false, skipped: true, reason: 'same_hash' };
               }
 
               const res = await (async () => {
                 try {
-                  return await (saveStrategyDataApi as any)(
-                    payload,
-                    userId,
-                    companyId,
-                    state.revision,
-                    { mode: 'upsert' }
-                  );
+                  return await (saveStrategyDataApi as any)(payload, userId, companyId, state.revision, { mode: 'upsert' });
                 } catch (e) {
                   console.warn('[strategyStore] saveStrategyData thrown, fallback legacy call:', e);
                   try {
@@ -1576,46 +1786,57 @@ export const useStrategyStore = create<StrategyState>()(
 
               if (!res || (res as any).error) {
                 const err = (res as any)?.error;
-                const errCode = (res as any)?.errorCode;
+                const errCode = (res as any)?.errorCode || (err as any)?.code;
 
-                // ★ 409 REVISION_CONFLICT: サーバ側で変更があった（または並列保存で revision が先に進んだ）
-                if (errCode === 'REVISION_CONFLICT' || err?.code === 'REVISION_CONFLICT') {
-                  console.warn(
-                    `[strategyStore] ⚠ REVISION_CONFLICT detected (attempt ${attempt}/2). Refetching latest data...`
-                  );
+                if (errCode === 'REVISION_CONFLICT') {
+                  console.warn(`[strategyStore] ⚠ REVISION_CONFLICT (attempt ${attempt}/2). Refetching latest...`);
 
                   try {
                     await get().refetchFromServer();
-                    if (DEBUG) console.log('[strategyStore] ✅ Refetch completed after conflict. User changes preserved in dirty state.');
                   } catch (refetchErr) {
                     console.error('[strategyStore] refetch after conflict failed:', refetchErr);
-                    return;
+                    return { ok: false, reason: 'refetch_failed_after_conflict', error: refetchErr, code: 'REFETCH_FAILED' };
                   }
 
-                  // 2回目なら打ち切り（無限ループ防止）
                   if (attempt >= 2) {
                     console.warn('[strategyStore] REVISION_CONFLICT persists after retry. Keeping dirty state.');
-                    return;
+                    return { ok: false, reason: 'revision_conflict_persist', error: err, code: 'REVISION_CONFLICT' };
                   }
 
-                  // 2回目ループへ（最新 revision で再保存）
                   continue;
                 }
 
                 console.error('[strategyStore] saveStrategyData API error:', err ?? 'unknown error');
-                return;
+                return { ok: false, reason: 'api_error', error: err, code: errCode };
               }
 
-              // 成功
               const serverData = (res as any).data ?? {};
               const minimal = extractServerDecidedPatch(serverData, get() as StrategyState);
+
+              const updatedAt =
+                (serverData as any)?.updatedAt ??
+                (serverData as any)?.updated_at ??
+                (res as any)?.updatedAt ??
+                new Date().toISOString();
 
               const nextPatch: Partial<StrategyState> = { dirty: false, __lastSavedHash: currentHash };
               if (Object.keys(minimal).length > 0) Object.assign(nextPatch, minimal);
               set(nextPatch);
 
-              return;
+              const nextRev =
+                typeof (minimal as any).revision === 'number'
+                  ? (minimal as any).revision
+                  : typeof (get().revision) === 'number'
+                    ? get().revision
+                    : undefined;
+
+              if (DEBUG) console.log('[strategyStore] saveStrategyData success', { reason, revision: nextRev, updatedAt });
+
+              return { ok: true, revision: nextRev, updatedAt };
             }
+
+            // ループを抜けることは基本ないが保険
+            return { ok: false, reason: 'unknown_exit' };
           } finally {
             set({ _loadingSave: false });
           }
@@ -1643,14 +1864,15 @@ export const useStrategyStore = create<StrategyState>()(
         set((s) => ({ ...s, boot: { ...s.boot, isHydrating: true } }));
 
         try {
-          if (DEBUG) console.log('[strategyStore] 🔍 getFullStrategyDataByCompany 呼び出し前', {
-            companyId,
-            _loadingRefetch: get()._loadingRefetch,
-          });
+          if (DEBUG) {
+            console.log('[strategyStore] 🔍 getFullStrategyDataByCompany 呼び出し前', {
+              companyId,
+              _loadingRefetch: get()._loadingRefetch,
+            });
+          }
 
           const { data, error } = await getFullStrategyDataByCompany(companyId);
 
-          // ★ DEBUG：レスポンス確認
           if (error) {
             console.error('[strategyStore] ❌ getFullStrategyDataByCompany エラー', {
               code: (error as any)?.code,
@@ -1659,21 +1881,34 @@ export const useStrategyStore = create<StrategyState>()(
               details: (error as any)?.details,
             });
           } else if (data) {
-            const csvFd = (data as any)?.csv_finance_data;
-            const dbCompanyId = (data as any)?.company_id || companyId; // fallback to companyId parameter
-            // プリミティブ値のみを計算
-            const dbRevision = typeof (data as any)?.revision === 'number' ? (data as any).revision : 0;
-            const hasFinancePL = Array.isArray((data as any)?.finance_pl) && (data as any).finance_pl.length > 0;
-            const hasCsvFinanceData = !!csvFd && typeof csvFd === 'object';
-            const csvFdFinanceBSLen = Array.isArray(csvFd?.financeBS) ? csvFd.financeBS.length : 0;
-            const csvFdSegmentPLKeys = Object.keys(csvFd?.segmentPL || {}).length;
-            const stage1IssuesLen = Array.isArray((data as any)?.stage1_issues) ? (data as any).stage1_issues.length : 0;
-            if (DEBUG) console.log('[getFullStrategyDataByCompany] revision:' + dbRevision + ' hasFinancePL:' + hasFinancePL + ' hasCsvFinanceData:' + hasCsvFinanceData + ' financeBS_len:' + csvFdFinanceBSLen + ' segmentPL_keys:' + csvFdSegmentPLKeys + ' stage1Issues_len:' + stage1IssuesLen);
+            if (DEBUG) {
+              const csvFd = (data as any)?.csv_finance_data;
+              const dbRevision = typeof (data as any)?.revision === 'number' ? (data as any).revision : 0;
+              const hasFinancePL = Array.isArray((data as any)?.finance_pl) && (data as any).finance_pl.length > 0;
+              const hasCsvFinanceData = !!csvFd && typeof csvFd === 'object';
+              const csvFdFinanceBSLen = Array.isArray(csvFd?.financeBS) ? csvFd.financeBS.length : 0;
+              const csvFdSegmentPLKeys = Object.keys(csvFd?.segmentPL || {}).length;
+              const stage1IssuesLen = Array.isArray((data as any)?.stage1_issues) ? (data as any).stage1_issues.length : 0;
+
+              console.log(
+                '[getFullStrategyDataByCompany] revision:' +
+                  dbRevision +
+                  ' hasFinancePL:' +
+                  hasFinancePL +
+                  ' hasCsvFinanceData:' +
+                  hasCsvFinanceData +
+                  ' financeBS_len:' +
+                  csvFdFinanceBSLen +
+                  ' segmentPL_keys:' +
+                  csvFdSegmentPLKeys +
+                  ' stage1Issues_len:' +
+                  stage1IssuesLen
+              );
+            }
           } else {
             console.warn('[strategyStore] ⚠️ getFullStrategyDataByCompany: data と error 両方 null/undefined');
           }
 
-          // ★ D) 選別的リトライロジック：RLS/403/0行は永続エラー、ネットワークエラーのみリトライ
           if (error) {
             const errorCode = (error as any)?.code;
             const errorStatus = (error as any)?.status;
@@ -1696,15 +1931,10 @@ export const useStrategyStore = create<StrategyState>()(
               boot: { isHydrating: true, isHydrated: false },
               __isFetchingFromServer: false,
               loaded: false,
-              __lastServerError: isTransientError ? undefined : error, // 永続エラーは保存
+              __lastServerError: isTransientError ? undefined : error,
             }));
 
-            if (isTransientError) {
-              scheduleRefetchRetry(2000);
-            } else {
-              // RLS/403/permission エラー：リトライなし、ユーザー通知へ
-              console.error('[strategyStore] 🚫 permanent error, no retry scheduled:', errorCode, errorStatus);
-            }
+            if (isTransientError) scheduleRefetchRetry(2000);
             const errMsg = (error as any)?.message || (error as any)?.code || 'データ取得に失敗しました';
             throw new Error(errMsg);
           }
@@ -1716,29 +1946,28 @@ export const useStrategyStore = create<StrategyState>()(
               boot: { isHydrating: true, isHydrated: false },
               __isFetchingFromServer: false,
               loaded: false,
-              __lastServerError: new Error('データが見つかりません'), // 0行は永続エラー扱い
+              __lastServerError: new Error('データが見つかりません'),
             }));
-            // 0行 = RLS制限またはデータなし → リトライなし
             throw new Error('データが見つかりません');
           }
 
           const patch = normalizeFromDbRow(data);
 
-          // ★ デバッグ：refetchFromServer での normalize 結果確認
-          if (DEBUG) console.log('[strategyStore refetch] 📦 normalized patch', {
-            financeBS_len: Array.isArray((patch as any).financeBS) ? (patch as any).financeBS.length : 0,
-            segmentBS_keys: Object.keys((patch as any).segmentBS || {}).length,
-            segmentPL_keys: Object.keys((patch as any).segmentPL || {}).length,
-            csvFinanceData_exists: !!((patch as any).csvFinanceData),
-            financePL_len: Array.isArray((patch as any).financePL) ? (patch as any).financePL.length : 0,
-            stage1Issues_len: Array.isArray((patch as any).stage1Issues) ? (patch as any).stage1Issues.length : 0,
-          });
+          if (DEBUG) {
+            console.log('[strategyStore refetch] 📦 normalized patch', {
+              financeBS_len: Array.isArray((patch as any).financeBS) ? (patch as any).financeBS.length : 0,
+              segmentBS_keys: Object.keys((patch as any).segmentBS || {}).length,
+              segmentPL_keys: Object.keys((patch as any).segmentPL || {}).length,
+              csvFinanceData_exists: !!(patch as any).csvFinanceData,
+              financePL_len: Array.isArray((patch as any).financePL) ? (patch as any).financePL.length : 0,
+              stage1Issues_len: Array.isArray((patch as any).stage1Issues) ? (patch as any).stage1Issues.length : 0,
+              stage1Issues_titles: Array.isArray((patch as any).stage1Issues) ? (patch as any).stage1Issues.map((i: any) => i.title) : [],
+              patch_has_stage1Issues: 'stage1Issues' in patch,
+            });
+          }
 
           const cur = get();
-
           const isSwitchingCompany = cur.pendingCompanyId !== undefined && cur.pendingCompanyId !== cur.companyId;
-
-          // dirtyでも会社切替中は「ローカル保護」しない（混線防止）
           const wasDirty = cur.dirty && !isSwitchingCompany;
 
           const curRev = typeof cur.revision === 'number' ? cur.revision : undefined;
@@ -1746,15 +1975,6 @@ export const useStrategyStore = create<StrategyState>()(
           const isStale = typeof patchRev === 'number' && typeof curRev === 'number' && patchRev < curRev;
 
           if (wasDirty) {
-            // ★ユーザー入力中（dirty=true）でも、サーバの重要データを反映する
-            // 戦略：extractServerDecidedPatch() で以下を常に反映
-            // ├─ Stage1: 財務系（financeBS/PL）・セグメント・会社情報（ユーザー編集対象外）
-            // ├─ Stage2: ストーリー・戦略候補（生成結果は常に最新化）
-            // └─ Stage3: 部門・MVV（会社構造・方針の基本情報）
-            // 効果：
-            // ① BS/事業別 0化の原因を排除（サーバ最新値が常に反映される）
-            // ② Draft/Finalの揺れを軽減（生成結果が確実に反映される）
-            // ③ ユーザーの個別入力は draft フィールド等で保護される
             set((s) => {
               const base = s as StrategyState;
               const minimal = extractServerDecidedPatch(patch as any, base);
@@ -1769,16 +1989,6 @@ export const useStrategyStore = create<StrategyState>()(
             const after = get();
             const rev = typeof patch.revision === 'number' ? patch.revision : after.revision ?? 0;
 
-            // ★ デバッグ：dirty=true でも extractServerDecidedPatch で反映されたデータ確認
-            if (DEBUG) console.log('[strategyStore refetch] ✅ after extractServerDecidedPatch (wasDirty=true)', {
-              financeBS_len: Array.isArray((after as any).financeBS) ? (after as any).financeBS.length : 0,
-              segmentBS_keys: Object.keys((after as any).segmentBS || {}).length,
-              segmentPL_keys: Object.keys((after as any).segmentPL || {}).length,
-              csvFinanceData_exists: !!((after as any).csvFinanceData),
-              financePL_len: Array.isArray((after as any).financePL) ? (after as any).financePL.length : 0,
-              stage1Issues_len: Array.isArray((after as any).stage1Issues) ? (after as any).stage1Issues.length : 0,
-            });
-
             set({ loaded: true });
             get().setHydrated(rev);
           } else {
@@ -1788,14 +1998,11 @@ export const useStrategyStore = create<StrategyState>()(
               const localDeps = normalizeDepartmentsInput(base.departments, []);
               const serverDeps = normalizeDepartmentsInput((patch as any).departments, []);
 
-              // ★最重要：dirtyでなければ「サーバを正」として departments を上書き（削除復活を防ぐ）
               let nextDepartments: Department[] = serverDeps;
 
               if (!isSwitchingCompany) {
-                // 通常時：サーバが古いと判断できるならローカル保護
                 if (isStale) nextDepartments = localDeps;
               } else {
-                // 会社切替：必ずサーバ優先（ローカル混ぜない）
                 nextDepartments = serverDeps;
               }
 
@@ -1811,17 +2018,6 @@ export const useStrategyStore = create<StrategyState>()(
             });
 
             const after = get();
-
-            // ★ デバッグ：dirty=false で full merge されたデータ確認
-            if (DEBUG) console.log('[strategyStore refetch] ✅ after full merge (wasDirty=false)', {
-              financeBS_len: Array.isArray((after as any).financeBS) ? (after as any).financeBS.length : 0,
-              segmentBS_keys: Object.keys((after as any).segmentBS || {}).length,
-              segmentPL_keys: Object.keys((after as any).segmentPL || {}).length,
-              csvFinanceData_exists: !!((after as any).csvFinanceData),
-              financePL_len: Array.isArray((after as any).financePL) ? (after as any).financePL.length : 0,
-              stage1Issues_len: Array.isArray((after as any).stage1Issues) ? (after as any).stage1Issues.length : 0,
-            });
-
             const snapshot = buildSavePayload(after as StrategyState);
             const hash = stableHash(snapshot);
             const rev = typeof patch.revision === 'number' ? patch.revision : after.revision ?? 0;
@@ -1837,7 +2033,6 @@ export const useStrategyStore = create<StrategyState>()(
 
             get().setHydrated(rev, hash);
 
-            // ★ refetch 完了後に valueAnalysis を再計算（dirty保護なしルート）
             setTimeout(() => {
               get().recomputeValueAnalysis('refetchFromServer');
             }, 0);
@@ -1887,10 +2082,8 @@ export const useStrategyStore = create<StrategyState>()(
       loadStage1DummyData: () => {
         if (DEBUG) console.log('[strategyStore] loadStage1DummyData() called');
 
-        const { businessSegments, financePL, financeBS, segmentPL, segmentBS, pbrManual, stage1Issues } =
-          stage1DummyDataBundle;
+        const { businessSegments, financePL, financeBS, segmentPL, segmentBS, pbrManual, stage1Issues } = stage1DummyDataBundle;
 
-        // setProfile で businessSegments, pbrManual, stage1Issues を設定
         set((s) => ({
           ...s,
           businessSegments,
@@ -1903,11 +2096,9 @@ export const useStrategyStore = create<StrategyState>()(
           dirty: true,
         }));
 
-        // 次の tick で recomputeValueAnalysis を呼ぶ
         setTimeout(() => {
           get().recomputeValueAnalysis('local');
           if (DEBUG) console.log('[strategyStore] loadStage1DummyData() recompute done');
-          // ダミーデータ投入後もスナップショット保存
           get().saveStage1Snapshot();
         }, 0);
       },
@@ -1925,13 +2116,9 @@ export const useStrategyStore = create<StrategyState>()(
         return result;
       },
 
-      /** STAGE2 スナップショットを localStorage から復元（現状は未使用だが読み込みログに出ていたため維持） */
-      // ここではアクションは提供していないが、snapshot.ts 側で呼ぶことがあるため import は維持
-
       /** STAGE2 スナップショットを localStorage に保存 */
       saveStage2Snapshot: () => {
         const s = get();
-        // ストア直接のキー（storyDraft, winPatternsCandidate, answers12）を優先
         const state: Stage2State = {
           mvv: {
             thought: s.thought,
@@ -1945,11 +2132,14 @@ export const useStrategyStore = create<StrategyState>()(
             opportunity: s.opportunity,
             threat: s.threat,
           },
-          storyDraft: s.storyDraft ?? (s.story?.length ? s.story.map((ch) => ({ title: ch.title, body: ch.body })) : undefined),
+          storyDraft:
+            s.storyDraft ??
+            (s.story?.length ? s.story.map((ch) => ({ title: ch.title, body: ch.body })) : undefined),
           winPatternsCandidate: s.winPatternsCandidate,
           answers12: s.answers12,
           finalStory: s.finalStory,
         };
+
         const companyId = s.companyId ?? s.pendingCompanyId ?? undefined;
         const result = saveStage2SnapshotToLocalStorage(state, companyId ?? undefined);
         if (DEBUG) console.log('[strategyStore] saveStage2Snapshot:', { result, answers12Count: s.answers12?.length ?? 0 });
@@ -1967,14 +2157,15 @@ export const useStrategyStore = create<StrategyState>()(
         set((s) => ({
           ...s,
           stage1Issues: snapshot.issueBlocks,
-          // valueAnalysis は metricsSummary から完全復元できないため、
-          // 既存の valueAnalysis があればそれを維持
           dirty: true,
         }));
 
-        if (DEBUG) console.log('[strategyStore] restoreStage1FromSnapshot: restored', {
-          issueBlocksCount: snapshot.issueBlocks.length,
-        });
+        if (DEBUG) {
+          console.log('[strategyStore] restoreStage1FromSnapshot: restored', {
+            issueBlocksCount: snapshot.issueBlocks.length,
+          });
+        }
+
         return true;
       },
 
@@ -1996,10 +2187,12 @@ export const useStrategyStore = create<StrategyState>()(
         finalStory: s.finalStory,
         answers2: s.answers2,
         departments: s.departments,
+
         csvFinanceData: s.csvFinanceData,
         financeSummary: s.financeSummary,
         businessPortfolio: s.businessPortfolio,
         simulationResult: s.simulationResult,
+
         chapterCurrentStep: s.chapterCurrentStep,
 
         companyName: s.companyName,
@@ -2015,16 +2208,22 @@ export const useStrategyStore = create<StrategyState>()(
         currency: s.currency,
         periodStartYear: s.periodStartYear,
         periodEndYear: s.periodEndYear,
+
         businessSegments: s.businessSegments,
+
         isListed: s.isListed,
         ticker: s.ticker,
         pbrManual: s.pbrManual,
+
         financeBS: s.financeBS,
         financePL: s.financePL,
+
         segmentPL: s.segmentPL,
         segmentBS: s.segmentBS,
+
         hqAdjustmentPL: s.hqAdjustmentPL,
         hqAdjustmentBS: s.hqAdjustmentBS,
+
         valueAnalysis: s.valueAnalysis,
         segmentValueAnalysis: s.segmentValueAnalysis,
 

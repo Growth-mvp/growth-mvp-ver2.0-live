@@ -168,6 +168,35 @@ function pickSegmentName(c: any): string | null {
 }
 
 /**
+ * segmentPL / segmentBS の kind が崩れているケースを fields から推定して補正
+ * - keys が PL_FIELD_LABELS に多く一致する → segmentPL
+ * - keys が BS_FIELD_LABELS に多く一致する → segmentBS
+ */
+function inferSegmentKindFromFields(c: any): TabKey | null {
+  const fields = c?.fields ?? {};
+  const keys = Object.keys(fields);
+
+  const plHit = keys.some((k) => k in PL_FIELD_LABELS);
+  const bsHit = keys.some((k) => k in BS_FIELD_LABELS);
+
+  if (plHit && !bsHit) return 'segmentPL';
+  if (bsHit && !plHit) return 'segmentBS';
+  return null;
+}
+
+/** kindを正規化し、必要ならfieldsから補正する（UI側で最短復旧するため） */
+function resolveTabKey(c: any): TabKey | null {
+  let k = normalizeKind(c?.kind);
+  if (!k) return null;
+
+  if (k === 'segmentPL' || k === 'segmentBS') {
+    const inferred = inferSegmentKindFromFields(c);
+    if (inferred) k = inferred;
+  }
+  return k;
+}
+
+/**
  * businessSegments の型が（string[] / {name}[] / {segmentName}[] 等）混在しても
  * 事業部名の重複を避けて追加する
  */
@@ -251,7 +280,7 @@ export default function DocumentImportPanel() {
     rawPreviewText?: string;
   } | null>(null);
 
-  // 候補をタブ別にグループ化（kind 正規化込み）
+  // 候補をタブ別にグループ化（kind 正規化 + fields補正込み）
   const groupedCandidates = useMemo(() => {
     const groups: Record<TabKey, Stage1ImportCandidate[]> = {
       companyPL: [],
@@ -262,14 +291,40 @@ export default function DocumentImportPanel() {
     };
 
     for (const c of candidates) {
-      const k = normalizeKind((c as any)?.kind);
+      const k = resolveTabKey(c as any);
       if (!k) continue;
       groups[k].push(c);
     }
+
+    // ★ DEBUG：グループ化結果をログ
+    if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+      const segmentPLSegs = new Set<string>();
+      const segmentBSSegs = new Set<string>();
+
+      for (const c of groups.segmentPL) {
+        const seg = pickSegmentName(c as any);
+        if (seg) segmentPLSegs.add(seg);
+      }
+      for (const c of groups.segmentBS) {
+        const seg = pickSegmentName(c as any);
+        if (seg) segmentBSSegs.add(seg);
+      }
+
+      console.log('[DocumentImportPanel] groupedCandidates', {
+        companyPL: groups.companyPL.length,
+        companyBS: groups.companyBS.length,
+        segmentPL: groups.segmentPL.length,
+        segmentPLSegments: Array.from(segmentPLSegs),
+        segmentBS: groups.segmentBS.length,
+        segmentBSSegments: Array.from(segmentBSSegs),
+        pbr: groups.pbr.length,
+      });
+    }
+
     return groups;
   }, [candidates]);
 
-  // 各タブの候補数（kind 正規化込み）
+  // 各タブの候補数（kind 正規化 + fields補正込み）
   const tabCounts = useMemo(() => {
     const counts: Record<TabKey, number> = {
       companyPL: 0,
@@ -280,7 +335,7 @@ export default function DocumentImportPanel() {
     };
 
     for (const c of candidates) {
-      const k = normalizeKind((c as any)?.kind);
+      const k = resolveTabKey(c as any);
       if (!k) continue;
       counts[k]++;
     }
@@ -345,7 +400,7 @@ export default function DocumentImportPanel() {
       const kinds: Record<string, number> = {};
       for (const c of nextCandidates) {
         const rawKind = String((c as any)?.kind ?? 'unknown');
-        const norm = normalizeKind((c as any)?.kind);
+        const norm = resolveTabKey(c as any);
         const key = norm ? `${rawKind} -> ${norm}` : `${rawKind} -> (unmapped)`;
         kinds[key] = (kinds[key] ?? 0) + 1;
       }
@@ -356,6 +411,31 @@ export default function DocumentImportPanel() {
         kinds,
         rawPreviewText: (result as any).previewText,
       });
+
+      // ★ DEBUG：APIレスポンスで受け取った候補をセグメント別に分析
+      if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+        const segmentNames = new Set<string>();
+        const byKind: Record<string, number> = {};
+        const bySegment: Record<string, number> = {};
+
+        for (const c of nextCandidates) {
+          const kind = String((c as any).kind ?? 'unknown');
+          byKind[kind] = (byKind[kind] ?? 0) + 1;
+
+          const segName = pickSegmentName(c as any);
+          if (segName) {
+            segmentNames.add(segName);
+            bySegment[segName] = (bySegment[segName] ?? 0) + 1;
+          }
+        }
+
+        console.log('[DocumentImportPanel] candidates from API', {
+          totalCandidates: nextCandidates.length,
+          uniqueSegmentNames: Array.from(segmentNames),
+          byKind,
+          bySegment,
+        });
+      }
 
       setCandidates(nextCandidates);
       setTableHints(nextHints);
@@ -368,10 +448,14 @@ export default function DocumentImportPanel() {
 
       // 候補があるタブを自動選択（正規化kindで）
       if (nextCandidates.length > 0) {
-        const firstNorm = normalizeKind((nextCandidates[0] as any)?.kind);
+        const firstNorm = resolveTabKey(nextCandidates[0] as any);
         if (firstNorm) setActiveTab(firstNorm);
       } else {
-        setError((prev) => prev ?? '解析は完了しましたが、抽出候補が0件でした。PDF/Excelの表構造（年度列・項目名・単位）を確認してください。');
+        setError(
+          (prev) =>
+            prev ??
+            '解析は完了しましたが、抽出候補が0件でした。PDF/Excelの表構造（年度列・項目名・単位）を確認してください。'
+        );
       }
     } catch (err) {
       setLastDebug({ ok: false });
@@ -444,6 +528,7 @@ export default function DocumentImportPanel() {
     const segPlCandidates = groupedCandidates.segmentPL;
     if (segPlCandidates.length > 0) {
       const newSegmentPL: Record<string, FinancePLRow[]> = { ...(segmentPL ?? {}) };
+      const processedSegments = new Set<string>();
 
       for (const c of segPlCandidates) {
         const y = toYear((c as any).year);
@@ -453,6 +538,7 @@ export default function DocumentImportPanel() {
         if (!segName) continue;
 
         if (!newSegmentPL[segName]) newSegmentPL[segName] = [];
+        processedSegments.add(segName);
 
         const segMap = new Map<number, FinancePLRow>();
         for (const row of newSegmentPL[segName]) segMap.set(row.year, { ...row });
@@ -468,6 +554,27 @@ export default function DocumentImportPanel() {
         appliedSegmentAnything = true;
       }
 
+      // ★ DEBUG：セグメントPL適用前後の状態をログ
+      if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+        const candidateSegments = new Map<string, number>();
+        for (const c of segPlCandidates) {
+          const seg = pickSegmentName(c as any);
+          if (seg) candidateSegments.set(seg, (candidateSegments.get(seg) ?? 0) + 1);
+        }
+
+        console.log('[DocumentImportPanel] segmentPL apply', {
+          totalCandidates: segPlCandidates.length,
+          candidatesBySegment: Object.fromEntries(candidateSegments),
+          processedSegments: Array.from(processedSegments),
+          beforeKeys: Object.keys(segmentPL || {}),
+          afterKeys: Object.keys(newSegmentPL),
+          keysAdded: Object.keys(newSegmentPL).filter((k) => !(segmentPL as any)?.[k]),
+          finalSegmentPLDistribution: Object.fromEntries(
+            Object.entries(newSegmentPL).map(([k, v]) => [k, v?.length ?? 0])
+          ),
+        });
+      }
+
       setSegmentPL(newSegmentPL);
     }
 
@@ -475,6 +582,7 @@ export default function DocumentImportPanel() {
     const segBsCandidates = groupedCandidates.segmentBS;
     if (segBsCandidates.length > 0) {
       const newSegmentBS: Record<string, SegmentBSRow[]> = { ...(segmentBS ?? {}) };
+      const processedSegmentsBS = new Set<string>();
 
       for (const c of segBsCandidates) {
         const y = toYear((c as any).year);
@@ -484,6 +592,7 @@ export default function DocumentImportPanel() {
         if (!segName) continue;
 
         if (!newSegmentBS[segName]) newSegmentBS[segName] = [];
+        processedSegmentsBS.add(segName);
 
         const segMap = new Map<number, SegmentBSRow>();
         for (const row of newSegmentBS[segName]) {
@@ -503,6 +612,27 @@ export default function DocumentImportPanel() {
 
         appliedCount++;
         appliedSegmentAnything = true;
+      }
+
+      // ★ DEBUG：セグメントBS適用前後の状態をログ
+      if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+        const candidateSegmentsBS = new Map<string, number>();
+        for (const c of segBsCandidates) {
+          const seg = pickSegmentName(c as any);
+          if (seg) candidateSegmentsBS.set(seg, (candidateSegmentsBS.get(seg) ?? 0) + 1);
+        }
+
+        console.log('[DocumentImportPanel] segmentBS apply', {
+          totalCandidates: segBsCandidates.length,
+          candidatesBySegment: Object.fromEntries(candidateSegmentsBS),
+          processedSegments: Array.from(processedSegmentsBS),
+          beforeKeys: Object.keys(segmentBS || {}),
+          afterKeys: Object.keys(newSegmentBS),
+          keysAdded: Object.keys(newSegmentBS).filter((k) => !(segmentBS as any)?.[k]),
+          finalSegmentBSDistribution: Object.fromEntries(
+            Object.entries(newSegmentBS).map(([k, v]) => [k, v?.length ?? 0])
+          ),
+        });
       }
 
       setSegmentBS(newSegmentBS);
@@ -562,65 +692,100 @@ export default function DocumentImportPanel() {
     setLastDebug(null);
   }, []);
 
-  // 年度別にグループ化した候補テーブル
+  // 年度別にグループ化した候補テーブル（事業部の場合は “事業部別に分割表示” して上書きを防ぐ）
   const renderCandidateTable = useCallback(
     (tabCandidates: Stage1ImportCandidate[], fieldLabels: Record<string, string>) => {
       if (tabCandidates.length === 0) {
         return <div className="text-sm text-gray-500 py-4 text-center">候補がありません</div>;
       }
 
-      const byYear = new Map<number, Record<string, number | string | undefined>>();
-      const allFields = new Set<string>();
-
-      for (const c of tabCandidates) {
-        const y = toYear((c as any).year);
-        if (!y) continue;
-
-        const existing = byYear.get(y) ?? {};
-        for (const [key, val] of Object.entries((c as any).fields ?? {})) {
-          existing[key] = val as any;
-          allFields.add(key);
+      const renderSingleTable = (rows: Stage1ImportCandidate[]) => {
+        if (rows.length === 0) {
+          return <div className="text-sm text-gray-500 py-4 text-center">候補がありません</div>;
         }
-        byYear.set(y, existing);
+
+        const byYear = new Map<number, Record<string, number | string | undefined>>();
+        const allFields = new Set<string>();
+
+        for (const c of rows) {
+          const y = toYear((c as any).year);
+          if (!y) continue;
+
+          const existing = byYear.get(y) ?? {};
+          for (const [key, val] of Object.entries((c as any).fields ?? {})) {
+            existing[key] = val as any;
+            allFields.add(key);
+          }
+          byYear.set(y, existing);
+        }
+
+        const years = Array.from(byYear.keys()).sort((a, b) => a - b);
+        const fields = Array.from(allFields).filter((f) => f in fieldLabels);
+
+        if (years.length === 0) {
+          return <div className="text-sm text-gray-500 py-4 text-center">年度情報がありません</div>;
+        }
+
+        return (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-xs border-collapse">
+              <thead>
+                <tr className="bg-gray-50">
+                  <th className="px-3 py-2 text-left font-semibold text-gray-700 border">項目</th>
+                  {years.map((y) => (
+                    <th key={y} className="px-3 py-2 text-right font-semibold text-gray-700 border min-w-[80px]">
+                      {y}年度
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {fields.map((field) => (
+                  <tr key={field} className="border-t">
+                    <td className="px-3 py-2 text-gray-700 border bg-white">{fieldLabels[field] || field}</td>
+                    {years.map((y) => {
+                      const data = byYear.get(y);
+                      const val = data?.[field] as any;
+                      return (
+                        <td key={y} className="px-3 py-2 text-right border bg-white">
+                          {formatNumber(val)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      };
+
+      // 事業部名が取れる候補がある場合は、事業部ごとに分割表示（年度上書き・潰れを防止）
+      const segNames = new Set<string>();
+      for (const c of tabCandidates) {
+        const n = pickSegmentName(c as any);
+        if (n) segNames.add(n);
       }
+      const segList = Array.from(segNames).sort((a, b) => a.localeCompare(b, 'ja'));
 
-      const years = Array.from(byYear.keys()).sort((a, b) => a - b);
-      const fields = Array.from(allFields).filter((f) => f in fieldLabels);
-
-      if (years.length === 0) {
-        return <div className="text-sm text-gray-500 py-4 text-center">年度情報がありません</div>;
+      if (segList.length === 0) {
+        return renderSingleTable(tabCandidates);
       }
 
       return (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-xs border-collapse">
-            <thead>
-              <tr className="bg-gray-50">
-                <th className="px-3 py-2 text-left font-semibold text-gray-700 border">項目</th>
-                {years.map((y) => (
-                  <th key={y} className="px-3 py-2 text-right font-semibold text-gray-700 border min-w-[80px]">
-                    {y}年度
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {fields.map((field) => (
-                <tr key={field} className="border-t">
-                  <td className="px-3 py-2 text-gray-700 border bg-white">{fieldLabels[field] || field}</td>
-                  {years.map((y) => {
-                    const data = byYear.get(y);
-                    const val = data?.[field] as any;
-                    return (
-                      <td key={y} className="px-3 py-2 text-right border bg-white">
-                        {formatNumber(val)}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-4">
+          {segList.map((seg) => {
+            const rows = tabCandidates.filter((c) => pickSegmentName(c as any) === seg);
+            return (
+              <div key={seg} className="border border-gray-200 rounded-lg overflow-hidden">
+                <div className="px-3 py-2 bg-gray-50 text-xs font-semibold text-gray-700">
+                  {seg}
+                  <span className="ml-2 text-gray-400">({rows.length}件)</span>
+                </div>
+                <div className="p-2">{renderSingleTable(rows)}</div>
+              </div>
+            );
+          })}
         </div>
       );
     },
@@ -687,7 +852,15 @@ export default function DocumentImportPanel() {
                 {isUploading ? (
                   <>
                     <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                        fill="none"
+                      />
                       <path
                         className="opacity-75"
                         fill="currentColor"
@@ -699,7 +872,12 @@ export default function DocumentImportPanel() {
                 ) : (
                   <>
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+                      />
                     </svg>
                     ファイルを選択
                   </>
@@ -768,7 +946,9 @@ export default function DocumentImportPanel() {
                 {activeTab === 'pbr' && (
                   <div className="text-sm">
                     {groupedCandidates.pbr.length > 0 ? (
-                      <div className="p-4 bg-gray-50 rounded">PBR: {formatNumber((groupedCandidates.pbr[0] as any)?.fields?.pbr)}</div>
+                      <div className="p-4 bg-gray-50 rounded">
+                        PBR: {formatNumber((groupedCandidates.pbr[0] as any)?.fields?.pbr)}
+                      </div>
                     ) : (
                       <div className="text-gray-500 py-4 text-center">PBR候補がありません</div>
                     )}
