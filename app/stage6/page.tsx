@@ -73,6 +73,7 @@ export default function Stage6Page() {
     s.csvFinanceData ?? {}
   );
   const revision = useStrategyStore((s) => s.revision);
+  const boot = useStrategyStore((s) => s.boot);
 
   const {
     companyId: scopeCompanyId,
@@ -232,7 +233,7 @@ export default function Stage6Page() {
   );
 
   const isHydrating =
-    ((Boolean((strategyState.boot as any)?.isHydrating) && !hydrated) ||
+    ((Boolean((boot as any)?.isHydrating) && !hydrated) ||
       mismatch ||
       !hydrated) ??
     false;
