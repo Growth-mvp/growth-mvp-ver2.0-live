@@ -675,6 +675,11 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
   // ★ 修正：stage1Issues を保持
   const stage1Issues = Array.isArray(src.stage1Issues) ? src.stage1Issues : undefined;
 
+  // ★ 修正：stage1Benchmarks を保持
+  const stage1Benchmarks = src.stage1Benchmarks && typeof src.stage1Benchmarks === 'object'
+    ? src.stage1Benchmarks
+    : undefined;
+
   const out: StrategyData = {
     id: src.id,
     user_id: src.user_id,
@@ -718,6 +723,7 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     answers2,
     departments,
     stage1Issues,  // ★ 修正：stage1Issues を出力オブジェクトに含める
+    stage1Benchmarks,  // ★ 修正：stage1Benchmarks を出力オブジェクトに含める
 
     editableCascadeResult: Array.isArray(src.editableCascadeResult)
       ? src.editableCascadeResult
