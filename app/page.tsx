@@ -59,7 +59,7 @@ export default function Home() {
                 text-[clamp(30px,3.2vw,30px)]
               "
             >
-              戦略を行動に、行動を成果に
+              現状を壊し、未来を変える
             </motion.p>
 
             {/* 中央：GROWTH（横余白を確保しつつ存在感） */}
@@ -87,7 +87,7 @@ export default function Home() {
                 text-neutral-600 dark:text-neutral-300
               "
             >
-              ー組織と業績が自走する、経営プラットフォームー
+              企業価値創造を、組織の行動と成果に変える経営プラットフォーム
             </motion.p>
 
             {/* CTA（既存機能維持） */}
