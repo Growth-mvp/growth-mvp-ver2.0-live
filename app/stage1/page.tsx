@@ -9,10 +9,40 @@ import BusinessSegmentsPanel from '@/components/stage1/BusinessSegmentsPanel';
 import DocumentImportPanel from '@/components/stage1/DocumentImportPanel';
 import FinanceInputPanel from '@/components/stage1/FinanceInputPanel';
 import MetricsPanel from '@/components/stage1/MetricsPanel';
+import Stage1BenchmarkPanel from '@/components/stage1/Stage1BenchmarkPanel';
 import IssueBlockPanel from '@/components/stage1/IssueBlockPanel';
 import Stage2Bridge from '@/components/stage1/Stage2Bridge';
 
 type SaveState = 'idle' | 'saving' | 'success' | 'error';
+type TabType = 'input' | 'analysis';
+
+/* ===============================
+ * SectionCard（折りたたみコンポーネント）
+ * =============================== */
+function SectionCard({
+  title,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  return (
+    <div className="border rounded-lg">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full px-4 py-3 flex items-center justify-between bg-gray-50 hover:bg-gray-100 transition rounded-lg"
+      >
+        <div className="font-semibold text-left">{title}</div>
+        <div className="text-gray-600">{isOpen ? '▼' : '▶'}</div>
+      </button>
+      {isOpen && <div className="p-4">{children}</div>}
+    </div>
+  );
+}
 
 function safeKeysCount(v: unknown): number {
   if (!v || typeof v !== 'object') return 0;
@@ -66,6 +96,7 @@ export default function Stage1Page() {
   // UI State
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [saveMessage, setSaveMessage] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<TabType>('input');
 
   const savingRef = useRef(false);
   const debounceRef = useRef<number | null>(null);
@@ -233,7 +264,7 @@ export default function Stage1Page() {
           : 'bg-blue-600 text-white hover:bg-blue-700';
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-8 space-y-12">
+    <div className="max-w-5xl mx-auto px-6 py-8 space-y-8">
       <header className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">STAGE1｜企業価値分析</h1>
@@ -286,13 +317,90 @@ export default function Stage1Page() {
         </div>
       </header>
 
-      <CompanyScopePanel />
-      <BusinessSegmentsPanel />
-      <DocumentImportPanel />
-      <FinanceInputPanel />
-      <MetricsPanel />
-      <IssueBlockPanel />
-      <Stage2Bridge />
+      {/* ========== タブUI ========== */}
+      <div className="border-b">
+        <div className="flex gap-4">
+          {['input', 'analysis'].map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab as TabType)}
+              className={`px-4 py-3 font-semibold text-sm border-b-2 transition ${
+                activeTab === tab
+                  ? 'text-blue-600 border-blue-600'
+                  : 'text-gray-600 border-transparent hover:text-gray-700'
+              }`}
+            >
+              {tab === 'input' ? '入力' : '分析・論点'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ========== タブ内容：入力 ========== */}
+      {activeTab === 'input' && (
+        <div className="space-y-6">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-900">
+            <div className="font-semibold mb-1">📋 次にやること</div>
+            <div className="text-xs leading-relaxed">
+              1. まず「資料取込」で決算資料をアップロード
+              <br />
+              2. PL/BSの数値を「財務適用」で入力
+              <br />
+              3. 「分析・論点」タブで指標と論点を確認
+            </div>
+          </div>
+
+          <SectionCard title="① 事業領域の確認（自社/競争環境）" defaultOpen={false}>
+            <CompanyScopePanel />
+          </SectionCard>
+
+          <SectionCard title="② セグメント構成（事業ポートフォリオ）" defaultOpen={false}>
+            <BusinessSegmentsPanel />
+          </SectionCard>
+
+          <SectionCard title="③ 資料取込" defaultOpen={true}>
+            <DocumentImportPanel />
+          </SectionCard>
+
+          <SectionCard title="④ 財務適用" defaultOpen={true}>
+            <FinanceInputPanel />
+          </SectionCard>
+        </div>
+      )}
+
+      {/* ========== タブ内容：分析・論点 ========== */}
+      {activeTab === 'analysis' && (
+        <div className="space-y-6">
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-900">
+            <div className="font-semibold mb-1">📊 次にやること</div>
+            <div className="text-xs leading-relaxed">
+              1. 「財務指標」で計算結果を確認
+              <br />
+              2. 「外部ベンチマーク」を入力して業界比較
+              <br />
+              3. 「論点整理」で経営課題・機会を抽出
+              <br />
+              4. 「STAGE2へ」で次フェーズへ
+            </div>
+          </div>
+
+          <SectionCard title="⑤ 財務指標" defaultOpen={true}>
+            <MetricsPanel />
+          </SectionCard>
+
+          <SectionCard title="⑥ 外部ベンチマーク（任意）" defaultOpen={true}>
+            <Stage1BenchmarkPanel />
+          </SectionCard>
+
+          <SectionCard title="⑦ 論点整理（STAGE2への接続点）" defaultOpen={true}>
+            <IssueBlockPanel />
+          </SectionCard>
+
+          <SectionCard title="⑧ STAGE2へ" defaultOpen={false}>
+            <Stage2Bridge />
+          </SectionCard>
+        </div>
+      )}
     </div>
   );
 }
