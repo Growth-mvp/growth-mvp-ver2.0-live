@@ -846,6 +846,52 @@ export type IssueBlock = {
 };
 
 /* =========================================================
+ * STAGE1 外部ベンチマーク（任意入力）
+ * ========================================================= */
+
+/**
+ * ベンチマーク対象の品質レベル
+ */
+export type BenchmarkQuality = 'primary' | 'secondary' | 'estimated' | 'reference';
+
+/**
+ * 単一のベンチマーク対象（業界中央値、競合A、競合B など）
+ */
+export type BenchmarkTarget = {
+  /** 期間（例：'2023年度'、'TTM'） */
+  period?: string;
+
+  /** URL/メモ */
+  sourceNote?: string;
+
+  /** データ品質 */
+  quality?: BenchmarkQuality;
+
+  /** 指標値 */
+  metrics?: {
+    growthPct?: number;        // 成長率 (%)
+    opMarginPct?: number;      // 営業利益率 (%)
+    roicPct?: number;          // ROIC (%)
+    capitalTurnover?: number;  // 資本回転率
+    pbr?: number;              // PBR
+  };
+};
+
+/**
+ * STAGE1 全体のベンチマーク設定（最大3対象）
+ */
+export type Stage1Benchmarks = {
+  /** 業界中央値 */
+  industryMedian?: BenchmarkTarget;
+
+  /** 競合A */
+  competitorA?: BenchmarkTarget;
+
+  /** 競合B */
+  competitorB?: BenchmarkTarget;
+};
+
+/* =========================================================
  * 部門
  * ========================================================= */
 
@@ -1056,6 +1102,12 @@ export type StrategyData = {
   /** === 事業部別 ValueAnalysis（STAGE1 セグメント分析結果） === */
   segmentValueAnalysis?: Record<string, ValueAnalysis>;
 
+  /** === STAGE1 論点ブロック === */
+  stage1Issues?: IssueBlock[];
+
+  /** === STAGE1 外部ベンチマーク（任意入力） === */
+  stage1Benchmarks?: Stage1Benchmarks;
+
   /** === MVV / 思考など === */
   thought: string;
   mission: string;
@@ -1156,6 +1208,7 @@ export type StrategyData = {
 
 export interface StrategyState extends StrategyData {
   // store側で setter を合成する場合に拡張
+  stage1Benchmarks?: Stage1Benchmarks;
 }
 
 /* =========================================================
