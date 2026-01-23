@@ -5,7 +5,8 @@ import type { ChangeEvent } from 'react';
 import { useCallback, useMemo, useState } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import type { Stage1IssueBlock } from '@/store/strategyStore';
-import type { ValueAnalysis } from '@/types/strategy';
+import type { ValueAnalysis, Stage1Benchmarks } from '@/types/strategy';
+import { buildExternalIssueCandidates, type SelfMetrics, type ExternalIssueCandidatesResult, type CandidateMode } from '@/utils/stage1/benchmarkIssues';
 
 /* ===============================
  * 定数
@@ -33,6 +34,8 @@ type DraftCandidate = Stage1IssueBlock & {
     | 'ポートフォリオ'
     | '実行/組織'
     | '機会';
+  source: 'internal' | 'external'; // 候補の出所
+  evidenceKey?: string; // 重複判定用（外部候補用）
 };
 
 /* ===============================
@@ -79,9 +82,10 @@ function buildIssueDraftCandidatesFromValueAnalysis(
   const { startYear, latestYear } = getBasisYears(va);
   const spanText = startYear && latestYear ? `（期間: ${startYear}→${latestYear}）` : '';
 
-  const push = (d: Omit<DraftCandidate, 'draftId'>) => {
+  const push = (d: Omit<DraftCandidate, 'draftId' | 'source'>) => {
     drafts.push({
       ...d,
+      source: 'internal',
       draftId: `${d.scope}-${d.category}-${d.title}`.slice(0, 120),
     });
   };
@@ -302,6 +306,79 @@ function buildIssueDraftCandidatesFromValueAnalysis(
 }
 
 /* ===============================
+ * 候補統合ユーティリティ
+ * =============================== */
+
+/**
+ * 外部候補（IssueBlock）をDraftCandidateに変換
+ */
+function convertExternalCandidate(
+  externalCand: ReturnType<typeof buildExternalIssueCandidates>['candidates'][number],
+  index: number
+): DraftCandidate {
+  // evidence キーを生成（重複判定用）
+  const evidenceKey = (externalCand as any).evidence
+    ? `${(externalCand as any).evidence.benchmarkId}-${(externalCand as any).evidence.metricKey}`
+    : `external-${index}`;
+
+  return {
+    ...externalCand,
+    source: 'external',
+    category: '機会', // 外部候補はとりあえず「機会」カテゴリ
+    draftId: `external-${index}-${externalCand.title}`.slice(0, 120),
+    evidenceKey,
+  };
+}
+
+/**
+ * 内部候補と外部候補を統合して最大12件にする
+ * 優先順位: 外部候補(3件まで) + 内部候補(残り)
+ */
+function mergeAndPrioritizeCandidates(
+  internalCandidates: DraftCandidate[],
+  externalCandidates: typeof buildExternalIssueCandidates extends (...args: any[]) => infer R
+    ? R extends { candidates: infer C }
+      ? C
+      : never
+    : never
+): DraftCandidate[] {
+  const maxExternal = 3;
+  const maxTotal = 12;
+
+  // 外部候補を統合型に変換
+  const convertedExternal = externalCandidates
+    .slice(0, maxExternal)
+    .map((cand, idx) => convertExternalCandidate(cand, idx));
+
+  // 重複を除外（内部候補のタイトル、または外部候補のevidenceKeyで）
+  const externalTitles = new Set(convertedExternal.map((c) => c.title));
+  const externalEvidenceKeys = new Set(convertedExternal.map((c) => c.evidenceKey));
+
+  const filteredInternal = internalCandidates.filter((ic) => {
+    // 外部とのタイトル重複を避ける
+    if (externalTitles.has(ic.title)) return false;
+    return true;
+  });
+
+  // 統合: 外部優先 + 内部で補充
+  const merged = [...convertedExternal, ...filteredInternal].slice(0, maxTotal);
+
+  return merged;
+}
+
+/**
+ * 候補をフィルタ
+ */
+function filterCandidates(
+  candidates: DraftCandidate[],
+  filterMode: 'all' | 'internal' | 'external'
+): DraftCandidate[] {
+  if (filterMode === 'internal') return candidates.filter((c) => c.source === 'internal');
+  if (filterMode === 'external') return candidates.filter((c) => c.source === 'external');
+  return candidates;
+}
+
+/* ===============================
  * コンポーネント
  * =============================== */
 
@@ -311,9 +388,42 @@ export default function IssueBlockPanel() {
 
   const valueAnalysis = useStrategyStore((s) => s.valueAnalysis);
   const recomputeValueAnalysis = useStrategyStore((s) => s.recomputeValueAnalysis);
+  const benchmarks = useStrategyStore((s) => (s as any).stage1Benchmarks);
+  const isListed = useStrategyStore((s) => s.isListed ?? false);
 
   const [infoMessage, setInfoMessage] = useState<string>('');
   const [showDrafts, setShowDrafts] = useState<boolean>(true);
+  const [refreshKey, setRefreshKey] = useState<number>(0);
+  const [candidateMode, setCandidateMode] = useState<CandidateMode>('weakness');
+  const [candidateFilter, setCandidateFilter] = useState<'all' | 'internal' | 'external'>('all');
+
+  // ========== 外部比較候補の計算 ==========
+  const selfMetrics = useMemo<SelfMetrics | undefined>(() => {
+    if (!valueAnalysis) return undefined;
+    return {
+      growthPct: (valueAnalysis as any).revenueCagrPct,
+      opMarginPct: (valueAnalysis as any).operatingMarginPctLatest,
+      roicPct: (valueAnalysis as any).roic,
+      pbr: (valueAnalysis as any).pbr,
+      // capitalTurnover はまだ valueAnalysis に無い
+    };
+  }, [valueAnalysis]);
+
+  const externalCandidatesResult = useMemo<ExternalIssueCandidatesResult>(() => {
+    return buildExternalIssueCandidates(selfMetrics, benchmarks, { isListed, mode: candidateMode });
+    // refreshKey を依存に入れることで、明示的な再計算をトリガーできる
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selfMetrics, benchmarks, isListed, candidateMode, refreshKey]);
+
+  const externalIssueCandidates = externalCandidatesResult.candidates;
+  const externalCandidatesDebug = externalCandidatesResult.debug;
+
+  // 候補を再計算するハンドラ
+  const handleRefreshCandidates = useCallback(() => {
+    setRefreshKey((prev) => prev + 1);
+    setInfoMessage('候補を更新しました');
+    setTimeout(() => setInfoMessage(''), 2500);
+  }, []);
 
   // ★ 診断ログ：valueAnalysis の状態確認（A-1）
   if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
@@ -327,8 +437,8 @@ export default function IssueBlockPanel() {
     });
   }
 
-  // ★ 候補は多め（最大12件）
-  const draftCandidates = useMemo(() => {
+  // ★ 内部候補（最大12件）
+  const internalCandidates = useMemo(() => {
     const candidates = buildIssueDraftCandidatesFromValueAnalysis(valueAnalysis, { includeOpportunity: true, maxCandidates: 12 });
 
     // ★ 診断ログ：候補生成時の valueAnalysis 確認
@@ -343,6 +453,17 @@ export default function IssueBlockPanel() {
 
     return candidates;
   }, [valueAnalysis]);
+
+  // ★ 内部 + 外部候補を統合（最大12件）
+  const allCandidates = useMemo(() => {
+    const merged = mergeAndPrioritizeCandidates(internalCandidates, externalIssueCandidates);
+    return merged;
+  }, [internalCandidates, externalIssueCandidates]);
+
+  // ★ フィルタ適用
+  const filteredCandidates = useMemo(() => {
+    return filterCandidates(allCandidates, candidateFilter);
+  }, [allCandidates, candidateFilter]);
 
   // ★ 候補の選択状態（draftIdのSet）
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
@@ -359,8 +480,8 @@ export default function IssueBlockPanel() {
   }, []);
 
   const selectAllDrafts = useCallback(() => {
-    setSelectedDraftIds(new Set(draftCandidates.map((d) => d.draftId)));
-  }, [draftCandidates]);
+    setSelectedDraftIds(new Set(filteredCandidates.map((d) => d.draftId)));
+  }, [filteredCandidates]);
 
   const clearAllDrafts = useCallback(() => {
     setSelectedDraftIds(new Set());
@@ -439,7 +560,7 @@ export default function IssueBlockPanel() {
       return;
     }
 
-    const selected = draftCandidates.filter((d) => selectedDraftIds.has(d.draftId));
+    const selected = filteredCandidates.filter((d) => selectedDraftIds.has(d.draftId));
     if (selected.length === 0) {
       setInfoMessage('追加する候補を選択してください');
       setTimeout(() => setInfoMessage(''), 2000);
@@ -466,19 +587,135 @@ export default function IssueBlockPanel() {
       for (const d of selected.slice(0, remainingSlots)) nextSel.delete(d.draftId);
       return nextSel;
     });
-  }, [draftCandidates, issues, remainingSlots, selectedDraftIds, setStage1Issues]);
+  }, [filteredCandidates, issues, remainingSlots, selectedDraftIds, setStage1Issues]);
 
   const hasIssues = issues.length > 0;
-  const hasDrafts = draftCandidates.length > 0;
+  const hasAllCandidates = allCandidates.length > 0;
+  const filteredCount = filteredCandidates.length;
+  const internalCount = allCandidates.filter((c) => c.source === 'internal').length;
+  const externalCount = allCandidates.filter((c) => c.source === 'external').length;
+
+  // 外部比較候補を追加
+  const handleAddExternalCandidate = useCallback(
+    (candidateIssue: typeof externalIssueCandidates[number]) => {
+      // 重複防止：タイトルが同じなら追加しない（簡易版）
+      const isDuplicate = issues.some((iss) => iss.title === candidateIssue.title);
+      if (isDuplicate) {
+        setInfoMessage('同じ内容の論点が既に存在します');
+        setTimeout(() => setInfoMessage(''), 2000);
+        return;
+      }
+
+      const next = [...issues, candidateIssue];
+      setStage1Issues(next);
+      setInfoMessage(`外部比較の論点を追加しました`);
+      setTimeout(() => setInfoMessage(''), 2500);
+    },
+    [issues, setStage1Issues]
+  );
+
+  // 外部比較候補をすべて追加
+  const handleAddAllExternalCandidates = useCallback(() => {
+    if (externalIssueCandidates.length === 0) {
+      setInfoMessage('追加できる候補がありません');
+      setTimeout(() => setInfoMessage(''), 2000);
+      return;
+    }
+
+    // 重複を除外して追加
+    const toAdd = externalIssueCandidates.filter(
+      (cand) => !issues.some((iss) => iss.title === cand.title)
+    );
+
+    if (toAdd.length === 0) {
+      setInfoMessage('追加できる候補がありません（すべて既存の論点と重複）');
+      setTimeout(() => setInfoMessage(''), 2000);
+      return;
+    }
+
+    const next = [...issues, ...toAdd];
+    setStage1Issues(next);
+    setInfoMessage(`${toAdd.length}個の論点を追加しました`);
+    setTimeout(() => setInfoMessage(''), 2500);
+  }, [externalIssueCandidates, issues, setStage1Issues]);
 
   return (
     <section>
-      <h2 className="text-xl font-semibold mb-4">④ 論点整理（STAGE2への接続点）</h2>
+      <h2 className="text-xl font-semibold mb-4">⑤ 論点整理（STAGE2への接続点）</h2>
 
       <p className="text-sm text-gray-600 mb-6">
         財務指標を踏まえ、経営として向き合うべき論点を整理します。解決策や戦略はここでは書かず、
         「何が論点か」を明確にしてください。
       </p>
+
+      {/* ========== 統合候補セクション＋外部ステータス ========== */}
+      {externalCount > 0 && (
+        <div className="border border-blue-300 rounded-lg p-4 mb-6 bg-blue-50">
+          <div className="flex items-center justify-between mb-2">
+            <div className="font-semibold text-sm">外部比較からの論点候補（{externalCount}件）</div>
+            <button
+              onClick={handleRefreshCandidates}
+              className="px-3 py-1 text-xs font-semibold rounded border border-blue-400 bg-white text-blue-600 hover:bg-blue-100 transition"
+            >
+              ↻ 候補を更新
+            </button>
+          </div>
+
+          {/* 候補タイプ選択トグル */}
+          <div className="flex items-center gap-3 mb-3 text-xs">
+            <span className="text-gray-700 font-medium">候補タイプ：</span>
+            <label className="flex items-center gap-1 cursor-pointer">
+              <input
+                type="radio"
+                name="candidate-mode"
+                value="weakness"
+                checked={candidateMode === 'weakness'}
+                onChange={(e) => setCandidateMode(e.target.value as CandidateMode)}
+                className="w-3 h-3"
+              />
+              <span className="text-gray-700">課題</span>
+            </label>
+            <label className="flex items-center gap-1 cursor-pointer">
+              <input
+                type="radio"
+                name="candidate-mode"
+                value="strength"
+                checked={candidateMode === 'strength'}
+                onChange={(e) => setCandidateMode(e.target.value as CandidateMode)}
+                className="w-3 h-3"
+              />
+              <span className="text-gray-700">強み</span>
+            </label>
+            <label className="flex items-center gap-1 cursor-pointer">
+              <input
+                type="radio"
+                name="candidate-mode"
+                value="both"
+                checked={candidateMode === 'both'}
+                onChange={(e) => setCandidateMode(e.target.value as CandidateMode)}
+                className="w-3 h-3"
+              />
+              <span className="text-gray-700">両方</span>
+            </label>
+          </div>
+
+          {/* ステータス情報 */}
+          <div className="bg-white border border-blue-200 rounded p-3 space-y-1 text-xs text-gray-700">
+            <div>
+              <span className="font-semibold">ベンチマーク：</span>
+              {benchmarks?.industryMedian
+                ? `✓ 業界中央値（${benchmarks.industryMedian.period || '未指定'}）`
+                : '✗ 未入力'}
+            </div>
+            <div>
+              <span className="font-semibold">自社指標：</span>
+              {externalCandidatesDebug.missingSelfMetrics.length === 0
+                ? '✓ OK'
+                : `✗ 不足（${externalCandidatesDebug.missingSelfMetrics.join(', ')}）`}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="border rounded p-4 mb-6 flex flex-wrap items-center justify-between gap-3">
         <div className="text-sm text-gray-700">
@@ -506,12 +743,12 @@ export default function IssueBlockPanel() {
         </div>
       </div>
 
-      {/* ★ 候補一覧 */}
+      {/* ★ 統合候補一覧 */}
       {showDrafts && (
         <div className="bg-gray-50 border rounded-lg p-4 mb-6">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center justify-between gap-3 mb-3">
             <div>
-              <div className="font-semibold text-sm">論点候補（最大12件）</div>
+              <div className="font-semibold text-sm">論点候補（{allCandidates.length}/12件）</div>
               <div className="text-xs text-gray-600 mt-1">
                 追加したい候補にチェックを付けてください（残り{remainingSlots}件まで追加できます）
               </div>
@@ -520,7 +757,7 @@ export default function IssueBlockPanel() {
             <div className="flex items-center gap-2">
               <button
                 onClick={selectAllDrafts}
-                disabled={!hasDrafts}
+                disabled={!hasAllCandidates}
                 className="px-3 py-1.5 text-xs font-semibold rounded border bg-white hover:bg-gray-50 disabled:opacity-50"
               >
                 全選択
@@ -542,13 +779,47 @@ export default function IssueBlockPanel() {
             </div>
           </div>
 
-          {!hasDrafts ? (
+          {/* フィルタタブ */}
+          <div className="flex items-center gap-2 mb-3 border-b">
+            {(['all', 'internal', 'external'] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setCandidateFilter(mode)}
+                className={`px-3 py-2 text-xs font-semibold transition border-b-2 -mb-1 ${
+                  candidateFilter === mode
+                    ? 'text-blue-600 border-blue-600'
+                    : 'text-gray-600 border-transparent hover:text-gray-700'
+                }`}
+              >
+                {mode === 'all'
+                  ? `すべて（${allCandidates.length}）`
+                  : mode === 'internal'
+                    ? `内部（${internalCount}）`
+                    : `外部比較（${externalCount}）`}
+              </button>
+            ))}
+          </div>
+
+          {!hasAllCandidates ? (
             <div className="text-sm text-gray-600 mt-4">
-              候補を生成できません。数値が不足している場合は「分析を更新」を押してください。
+              <div className="font-semibold mb-2">💡 候補を生成できません。理由：</div>
+              {internalCount === 0 && externalCount === 0 && (
+                <div>
+                  {!benchmarks?.industryMedian ? (
+                    <div>・外部比較の業界中央値が未入力です</div>
+                  ) : (
+                    <div>・数値が不足している場合は「分析を更新」を押してください</div>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : filteredCount === 0 ? (
+            <div className="text-sm text-gray-600 mt-4">
+              <div>このフィルタには候補がありません</div>
             </div>
           ) : (
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-              {draftCandidates.map((d) => {
+              {filteredCandidates.map((d) => {
                 const checked = selectedDraftIds.has(d.draftId);
                 return (
                   <label
@@ -569,6 +840,11 @@ export default function IssueBlockPanel() {
                           <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-700">
                             {d.category}
                           </span>
+                          {d.source === 'external' && (
+                            <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700 font-semibold">
+                              外部比較
+                            </span>
+                          )}
                           <span className="font-semibold text-sm truncate">{d.title}</span>
                         </div>
                         <div className="text-xs text-gray-600 mt-1 leading-relaxed">
@@ -613,6 +889,7 @@ export default function IssueBlockPanel() {
             issue={issue}
             onChange={(patch) => updateIssue(index, patch)}
             onRemove={() => removeIssue(index)}
+            benchmarks={benchmarks}
           />
         ))}
       </div>
@@ -635,17 +912,37 @@ export default function IssueBlockPanel() {
  * Issue 編集ブロック
  * =============================== */
 
+function buildBenchmarkComparison(benchmarks: Stage1Benchmarks | undefined): string {
+  if (!benchmarks?.industryMedian?.metrics) return '';
+
+  const im = benchmarks.industryMedian.metrics;
+  const parts: string[] = [];
+
+  if (im.opMarginPct !== undefined && Number.isFinite(im.opMarginPct)) {
+    parts.push(`営業利益率 ${im.opMarginPct > 0 ? '+' : ''}${im.opMarginPct.toFixed(1)}pt`);
+  }
+  if (im.roicPct !== undefined && Number.isFinite(im.roicPct)) {
+    parts.push(`ROIC ${im.roicPct > 0 ? '+' : ''}${im.roicPct.toFixed(1)}pt`);
+  }
+
+  return parts.length > 0 ? `業界中央値比：${parts.join(' / ')}` : '';
+}
+
 function IssueEditor({
   index,
   issue,
   onChange,
   onRemove,
+  benchmarks,
 }: {
   index: number;
   issue: Stage1IssueBlock;
   onChange: (patch: Partial<Stage1IssueBlock>) => void;
   onRemove: () => void;
+  benchmarks?: Stage1Benchmarks;
 }) {
+  const benchmarkComparison = buildBenchmarkComparison(benchmarks);
+
   return (
     <div className="border rounded p-4 space-y-4">
       <div className="flex justify-between items-center">
@@ -654,6 +951,12 @@ function IssueEditor({
           削除
         </button>
       </div>
+
+      {benchmarkComparison && (
+        <div className="text-xs text-gray-500 bg-blue-50 border border-blue-100 rounded px-2 py-1">
+          外部比較根拠：{benchmarkComparison}
+        </div>
+      )}
 
       <div>
         <label className="block text-sm font-medium">論点タイトル</label>
