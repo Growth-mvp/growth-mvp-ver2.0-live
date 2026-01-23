@@ -32,6 +32,7 @@ import type {
   Stage2State,
   Stage2Answer,
   StoryChapter,
+  Stage1Benchmarks,
 } from '@/types/strategy';
 import type { BusinessPortfolio } from '@/types/portfolio';
 import {
@@ -317,6 +318,7 @@ export type StrategyState = {
   setCompanyName: (name: string) => void;
   setIndustry: (industry: string) => void;
   setStage1Issues: (issues: Stage1IssueBlock[]) => void;
+  setStage1Benchmarks: (benchmarks: Stage1Benchmarks | undefined) => void;
 
   /* ▼ STAGE2 setter */
   setStoryDraft: (draft: StoryChapter[]) => void;
@@ -834,6 +836,7 @@ const emptyData: StrategyState = {
   setCompanyName: () => {},
   setIndustry: () => {},
   setStage1Issues: () => {},
+  setStage1Benchmarks: () => {},
   setStoryDraft: () => {},
   setWinPatternsCandidate: () => {},
   setAnswers12: () => {},
@@ -1342,6 +1345,17 @@ export const useStrategyStore = create<StrategyState>()(
             console.log('[strategyStore] setStage1Issues snapshot saved:', { result });
           }
         }, 0);
+      },
+
+      setStage1Benchmarks: (benchmarks) => {
+        if (DEBUG) {
+          console.log('[strategyStore] setStage1Benchmarks called:', {
+            hasBenchmarks: !!benchmarks,
+            benchmarkKeys: benchmarks ? Object.keys(benchmarks) : [],
+          });
+        }
+
+        set((s) => ({ ...s, stage1Benchmarks: benchmarks, dirty: true }));
       },
 
       /* ▼ STAGE2 setter */
@@ -1983,6 +1997,9 @@ export const useStrategyStore = create<StrategyState>()(
                 ...minimal,
                 companyId: s.pendingCompanyId ?? s.companyId,
                 pendingCompanyId: undefined,
+                // DB に無い値は既存の persist 値を保持
+                stage1Benchmarks: (minimal as any).stage1Benchmarks ?? (base as any).stage1Benchmarks,
+                stage1Issues: (minimal as any).stage1Issues ?? (base as any).stage1Issues,
               };
             });
 
@@ -2011,6 +2028,9 @@ export const useStrategyStore = create<StrategyState>()(
                 ...(patch as any),
                 companyId: s.pendingCompanyId ?? s.companyId,
                 pendingCompanyId: undefined,
+                // DB に無い値は既存の persist 値を保持
+                stage1Benchmarks: (patch as any).stage1Benchmarks ?? (base as any).stage1Benchmarks,
+                stage1Issues: (patch as any).stage1Issues ?? (base as any).stage1Issues,
               };
 
               merged.departments = nextDepartments;
@@ -2228,6 +2248,7 @@ export const useStrategyStore = create<StrategyState>()(
         segmentValueAnalysis: s.segmentValueAnalysis,
 
         stage1Issues: s.stage1Issues,
+        stage1Benchmarks: (s as any).stage1Benchmarks,
 
         mission: s.mission,
         vision: s.vision,
