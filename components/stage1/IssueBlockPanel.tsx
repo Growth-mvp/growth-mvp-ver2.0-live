@@ -641,7 +641,7 @@ export default function IssueBlockPanel() {
 
   return (
     <section>
-      <h2 className="text-xl font-semibold mb-4">⑤ 論点整理（STAGE2への接続点）</h2>
+      <h2 className="text-xl font-semibold mb-4">論点整理</h2>
 
       <p className="text-sm text-gray-600 mb-6">
         財務指標を踏まえ、経営として向き合うべき論点を整理します。解決策や戦略はここでは書かず、
