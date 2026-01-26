@@ -8,6 +8,11 @@ import type { FinanceSummaryRow } from '@/store/strategyStore';
 import type { ValueAnalysis, BusinessSegment, FinancePLRow, FinanceBSRow } from '@/types/strategy';
 
 /* ===============================
+ * DEBUG フラグ
+ * =============================== */
+const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
+
+/* ===============================
  * 安定した空参照
  * =============================== */
 
@@ -693,6 +698,7 @@ export default function MetricsPanel() {
   const handlePbrManualChange = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
       const v = e.target.value;
+      if (DEBUG) console.log('[MetricsPanel] handlePbrManualChange:', { v, hasPbrManual: !!setPbrManual, hasSetProfile: !!setProfile });
       if (setPbrManual) setPbrManual(v);
       if (setProfile) setProfile({ pbrManual: v });
     },
@@ -726,6 +732,7 @@ export default function MetricsPanel() {
       }
 
       const v = String(data.pbr);
+      if (DEBUG) console.log('[MetricsPanel] PBR fetched:', { v, hasPbrManual: !!setPbrManual, hasSetProfile: !!setProfile });
       if (setPbrManual) setPbrManual(v);
       if (setProfile) setProfile({ pbrManual: v });
 
@@ -872,7 +879,7 @@ export default function MetricsPanel() {
 
   return (
     <section>
-      <h2 className="text-xl font-semibold mb-4">④ 企業価値の主要指標（STAGE1）</h2>
+      <h2 className="text-xl font-semibold mb-4"> 企業価値の主要指標</h2>
 
       <p className="text-sm text-gray-600 mb-6">
         取り込んだ財務データから、全社・事業部の状態を整理し、STAGE2（戦略ストーリー）に接続します。まずは「現状の数値を見える化」することが目的です。
