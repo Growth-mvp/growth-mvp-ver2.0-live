@@ -1,7 +1,7 @@
 // /components/stage1/Stage1BenchmarkPanel.tsx
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import type { BenchmarkQuality, BenchmarkTarget, Stage1Benchmarks } from '@/types/strategy';
 
@@ -175,11 +175,9 @@ export default function Stage1BenchmarkPanel() {
   const benchmarks = useStrategyStore((s) => ((s as any).stage1Benchmarks as Stage1Benchmarks | undefined));
   const setBenchmarks = useStrategyStore((s) => s.setStage1Benchmarks);
 
-  const [expanded, setExpanded] = useState(false);
-
   const handleUpdateTarget = useCallback(
     (key: BenchmarkKey, target: BenchmarkTarget | undefined) => {
-      const next: Stage1Benchmarks = { ...benchmarks };
+      const next: Stage1Benchmarks = { ...(benchmarks || {}) };
       if (target === undefined) {
         delete next[key];
       } else {
@@ -190,18 +188,14 @@ export default function Stage1BenchmarkPanel() {
     [benchmarks, setBenchmarks]
   );
 
-  // ベンチマークが設定されているかどうかを確認
   const hasBenchmarks =
     benchmarks &&
     (benchmarks.industryMedian || benchmarks.competitorA || benchmarks.competitorB);
 
   return (
     <div className="border rounded-lg mb-6">
-      {/* ヘッダー */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full px-4 py-3 flex items-center justify-between bg-gray-50 hover:bg-gray-100 transition rounded-lg"
-      >
+      {/* ヘッダー（折りたたみ無し：button→div） */}
+      <div className="w-full px-4 py-3 flex items-center justify-between bg-gray-50 rounded-lg">
         <div className="flex items-center gap-3">
           <div className="text-lg font-semibold">外部ベンチマーク（任意）</div>
           {hasBenchmarks && (
@@ -210,28 +204,25 @@ export default function Stage1BenchmarkPanel() {
             </div>
           )}
         </div>
-        <div className="text-lg text-gray-600">{expanded ? '▼' : '▶'}</div>
-      </button>
+      </div>
 
-      {/* パネル内容 */}
-      {expanded && (
-        <div className="px-4 py-4 space-y-6">
-          <p className="text-sm text-gray-600">
-            外部ベンチマーク（業界中央値や競合企業）を入力すると、論点カード表示に「外部比較根拠」として反映されます。すべて任意です。
-          </p>
+      {/* パネル内容（常に表示） */}
+      <div className="px-4 py-4 space-y-6">
+        <p className="text-sm text-gray-600">
+          外部ベンチマーク（業界中央値や競合企業）を入力すると、論点カード表示に「外部比較根拠」として反映されます。すべて任意です。
+        </p>
 
-          <div className="space-y-4">
-            {(Object.keys(BENCHMARK_LABELS) as BenchmarkKey[]).map((key) => (
-              <BenchmarkTargetInput
-                key={key}
-                label={BENCHMARK_LABELS[key]}
-                target={benchmarks?.[key]}
-                onChange={(target) => handleUpdateTarget(key, target)}
-              />
-            ))}
-          </div>
+        <div className="space-y-4">
+          {(Object.keys(BENCHMARK_LABELS) as BenchmarkKey[]).map((key) => (
+            <BenchmarkTargetInput
+              key={key}
+              label={BENCHMARK_LABELS[key]}
+              target={benchmarks?.[key]}
+              onChange={(target) => handleUpdateTarget(key, target)}
+            />
+          ))}
         </div>
-      )}
+      </div>
     </div>
   );
 }
