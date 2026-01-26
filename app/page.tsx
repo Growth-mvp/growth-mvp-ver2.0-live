@@ -87,7 +87,7 @@ export default function Home() {
                 text-neutral-600 dark:text-neutral-300
               "
             >
-              企業価値創造の実行と成果を高める経営プラットフォーム
+              戦略を行動に変え、成果を企業価値につなぐ経営プラットフォーム
             </motion.p>
 
             {/* CTA（既存機能維持） */}
