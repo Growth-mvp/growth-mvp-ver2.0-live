@@ -344,6 +344,9 @@ const FIELD_MAP: Record<string, string> = {
   financePL: 'finance_pl',
   businessSegments: 'business_segments',
   stage1Issues: 'stage1_issues',  // ★ 修正：stage1Issues をマッピングに追加
+  isListed: 'is_listed',  // ★ 修正：上場フラグを追加
+  ticker: 'ticker',  // ★ 修正：証券コードを追加
+  pbrManual: 'pbr_manual',  // ★ 修正：PBR手入力を追加
   story: 'story',
   finalStory: 'final_story',
   strategySummary: 'strategy_summary',
