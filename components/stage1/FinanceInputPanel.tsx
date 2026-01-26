@@ -737,7 +737,7 @@ export default function FinanceInputPanel() {
   return (
     <section className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold mb-2">③ 財務データ入力（過去5年）</h2>
+        <h2 className="text-xl font-semibold mb-2">財務データ入力（過去5年）</h2>
         <p className="text-sm text-gray-600">
           全社PL/BSを入力すると、企業価値指標（ROIC等）が自動計算されます。
           事業セグメントを定義している場合は、事業部別データも入力できます。
@@ -781,16 +781,18 @@ export default function FinanceInputPanel() {
               <div key={seg.id} className="space-y-3">
                 {(hasAnySegmentPL || (plRows?.length ?? 0) > 0) && (
                   <Accordion
-                    title={`${name} - PL`}
-                    badge={<span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">任意</span>}
-                  >
-                    <SegmentPLTable
-                      segmentName={name}
-                      years={years}
-                      data={plRows ?? []}
-                      onChange={(rows) => handleSegmentPLChange(name, rows)}
-                    />
-                  </Accordion>
+  title={`${name} - PL`}
+  defaultOpen={true}
+  badge={<span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">任意</span>}
+>
+  <SegmentPLTable
+    segmentName={name}
+    years={years}
+    data={plRows ?? []}
+    onChange={(rows) => handleSegmentPLChange(name, rows)}
+  />
+</Accordion>
+
                 )}
 
                 <Accordion
