@@ -39,7 +39,7 @@ export default function CompanyScopePanel() {
 
   return (
     <section>
-      <h2 className="text-xl font-semibold mb-4">① 対象企業（スコープ設定）</h2>
+      <h2 className="text-xl font-semibold mb-4">対象企業</h2>
 
       <p className="text-sm text-gray-600 mb-6">
         STAGE1（企業価値分析）の前提となる企業情報を、最小限で設定します。
