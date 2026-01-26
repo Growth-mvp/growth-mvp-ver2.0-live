@@ -680,6 +680,11 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     ? src.stage1Benchmarks
     : undefined;
 
+  // ★ 修正：上場情報（isListed, ticker, pbrManual）を保持
+  const isListed = typeof src.isListed === 'boolean' ? src.isListed : undefined;
+  const ticker = toStr(src.ticker ?? '');
+  const pbrManual = toStr(src.pbrManual ?? '');
+
   const out: StrategyData = {
     id: src.id,
     user_id: src.user_id,
@@ -729,6 +734,11 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
       ? src.editableCascadeResult
       : undefined,
     editableCascade: src.editableCascade,
+
+    // ★ 修正：上場情報フィールドを出力オブジェクトに含める
+    ...(isListed !== undefined ? { isListed } : {}),
+    ...(ticker ? { ticker } : {}),
+    ...(pbrManual ? { pbrManual } : {}),
 
     ...(csvFinanceData !== undefined ? { csvFinanceData } : {}),
     ...(financePL !== undefined ? { financePL } : {}),
