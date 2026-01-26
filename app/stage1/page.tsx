@@ -340,29 +340,29 @@ export default function Stage1Page() {
       {activeTab === 'input' && (
         <div className="space-y-6">
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-900">
-            <div className="font-semibold mb-1">📋 次にやること</div>
+            <div className="font-semibold mb-1">入力画面でやること</div>
             <div className="text-xs leading-relaxed">
-              1. まず「資料取込」で決算資料をアップロード
+              1. 企業情報の入力
               <br />
-              2. PL/BSの数値を「財務適用」で入力
+              2. 事業内容の入力
               <br />
-              3. 「分析・論点」タブで指標と論点を確認
+              3. 会社全体、事業別のBS/PLの入力
             </div>
           </div>
 
-          <SectionCard title="① 事業領域の確認（自社/競争環境）" defaultOpen={false}>
+          <SectionCard title="① 企業情報の入力" defaultOpen={false}>
             <CompanyScopePanel />
           </SectionCard>
 
-          <SectionCard title="② セグメント構成（事業ポートフォリオ）" defaultOpen={false}>
+          <SectionCard title="② 事業内容の入力" defaultOpen={false}>
             <BusinessSegmentsPanel />
           </SectionCard>
 
-          <SectionCard title="③ 資料取込" defaultOpen={true}>
+          <SectionCard title="③ 財務データの読込み" defaultOpen={false}>
             <DocumentImportPanel />
           </SectionCard>
 
-          <SectionCard title="④ 財務適用" defaultOpen={true}>
+          <SectionCard title="④ 財務データの手入力" defaultOpen={false}>
             <FinanceInputPanel />
           </SectionCard>
         </div>
@@ -372,7 +372,7 @@ export default function Stage1Page() {
       {activeTab === 'analysis' && (
         <div className="space-y-6">
           <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-900">
-            <div className="font-semibold mb-1">📊 次にやること</div>
+            <div className="font-semibold mb-1">分析・論点でやること</div>
             <div className="text-xs leading-relaxed">
               1. 「財務指標」で計算結果を確認
               <br />
@@ -384,19 +384,19 @@ export default function Stage1Page() {
             </div>
           </div>
 
-          <SectionCard title="⑤ 財務指標" defaultOpen={true}>
+          <SectionCard title="① 財務指標" defaultOpen={false}>
             <MetricsPanel />
           </SectionCard>
 
-          <SectionCard title="⑥ 外部ベンチマーク（任意）" defaultOpen={true}>
+          <SectionCard title="② 外部ベンチマーク（任意）" defaultOpen={false}>
             <Stage1BenchmarkPanel />
           </SectionCard>
 
-          <SectionCard title="⑦ 論点整理（STAGE2への接続点）" defaultOpen={true}>
+          <SectionCard title="③ 論点整理（STAGE2への接続点）" defaultOpen={false}>
             <IssueBlockPanel />
           </SectionCard>
 
-          <SectionCard title="⑧ STAGE2へ" defaultOpen={false}>
+          <SectionCard title="④ STAGE2へ" defaultOpen={false}>
             <Stage2Bridge />
           </SectionCard>
         </div>
