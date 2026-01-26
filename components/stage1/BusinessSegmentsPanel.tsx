@@ -122,7 +122,7 @@ export default function BusinessSegmentsPanel() {
 
   return (
     <section>
-      <h2 className="text-xl font-semibold mb-4">② 事業セグメント定義</h2>
+      <h2 className="text-xl font-semibold mb-4">事業セグメント定義</h2>
 
       <p className="text-sm text-gray-600 mb-6">
         分析対象とする事業セグメントを定義します。事業部別の財務データを入力する場合に使用します。
