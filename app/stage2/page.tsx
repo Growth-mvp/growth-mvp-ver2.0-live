@@ -792,6 +792,11 @@ export default function Stage2Page() {
   // finalStory store連携
   const setStoreFinalStory = useStrategyStore((s) => s.setFinalStory);
 
+  // SWOT suggestions store連携（Hooks Rule: top-level で呼ぶ）
+  const swotSuggestions = useStrategyStore((s) => s.swotSuggestions);
+  const addSwotOpportunity = useStrategyStore((s) => s.addSwotOpportunity);
+  const addSwotThreat = useStrategyStore((s) => s.addSwotThreat);
+
   // Local UI state
   const [loading, setLoading] = useState(true);
   const [issueBlocks, setIssueBlocks] = useState<IssueBlock[]>([]);
@@ -1357,9 +1362,9 @@ export default function Stage2Page() {
                 <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
                   <SWOTSection />
                   <OTSuggestionsPanel
-                    suggestions={useStrategyStore((s) => s.swotSuggestions)}
-                    onAddOpportunity={(text) => useStrategyStore.getState().addSwotOpportunity(text)}
-                    onAddThreat={(text) => useStrategyStore.getState().addSwotThreat(text)}
+                    suggestions={swotSuggestions}
+                    onAddOpportunity={addSwotOpportunity}
+                    onAddThreat={addSwotThreat}
                   />
                 </div>
 
