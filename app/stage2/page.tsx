@@ -776,6 +776,9 @@ export default function Stage2Page() {
   const threat = useStrategyStore((s) => s.threat ?? '');
 
   const industry = useStrategyStore((s) => s.industry ?? '');
+  const revenue = useStrategyStore((s) => s.revenue ?? '');
+  const employees = useStrategyStore((s) => s.employees ?? '');
+  const businessContent = useStrategyStore((s) => s.businessContent ?? '');
   const businessSegments = useStrategyStore((s) => s.businessSegments ?? []); // ★ STAGE1で定義されたセグメント情報
   const businessPortfolio = useStrategyStore((s) => (s as any).businessPortfolio ?? null); // ★ 現在の事業ポートフォリオ（型揺れ許容）
   const companyId = useUserStore((s) => s.companyId);
