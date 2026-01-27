@@ -15,6 +15,16 @@ import {
   includesAny,
   type IntentResult,
 } from '@/lib/intentRouter';
+import { buildFacilitatorBlock } from '@/lib/facilitatorProtocol';
+import { buildJSONOutputInstruction, safeParseFacilitatorJSON } from '@/lib/facilitatorSchema';
+import { buildStage1Insight } from '@/utils/insights/stage1Insight';
+import { detectAutoMode } from '@/lib/autoModeRouter';
+import { buildHelpSystemPrompt } from '@/lib/helpPrompt';
+import { pickRelevantKnowledge } from '@/lib/growthKnowledge';
+// ★ Sprint 6A: Light RAG 統合
+import { getGrowthRagIndex, clearRagCache } from '@/lib/rag/indexer';
+import { retrieveGrowthKnowledge } from '@/lib/rag/retriever';
+import { buildRagContextBlock, buildRagDebugFooter } from '@/lib/rag/prompt';
 import type { StrategyData } from '@/types/strategy';
 
 // --- Service Role（所属検証・フォールバック用 最小ユーティリティ） ---
@@ -38,7 +48,12 @@ type RequestBody = {
   messages: Message[];
   userId: string;
   strategyId: string;
-  meta?: { stage?: 'strategy' | 'manual' | 'generic' | 'hybrid' };
+  meta?: {
+    stage?: 'strategy' | 'manual' | 'generic' | 'hybrid'; // 既存
+    mode?: 'text' | 'facilitator' | 'help';               // Sprint 1-4: text/facilitator/help
+    output?: 'text' | 'json';                              // Sprint 1: 出力形式
+    insights?: 'none' | 'stage1';                          // Sprint 2: STAGE1インサイト注入
+  };
 };
 
 /* ========= 禁則 ========= */
@@ -284,6 +299,22 @@ export async function POST(req: Request) {
 
     const lastUser = (messages || []).slice().reverse().find((m) => m.role === 'user')?.content || '';
 
+    // ★ Sprint 4: mode 解決ロジック（優先順位：明示指定 > auto判定）
+    let resolvedMode: 'facilitator' | 'help' | 'advisor' = 'advisor';
+    let autoModeResult: any = undefined;
+
+    if (meta?.mode === 'facilitator') {
+      // A) meta.mode が明示的に 'facilitator' → 固定
+      resolvedMode = 'facilitator';
+    } else if (meta?.mode === 'help') {
+      // B) meta.mode が明示的に 'help' → 固定
+      resolvedMode = 'help';
+    } else {
+      // C) meta.mode が無い → auto 判定
+      autoModeResult = detectAutoMode({ lastUserText: lastUser });
+      resolvedMode = autoModeResult.mode === 'help' ? 'help' : 'advisor';
+    }
+
     // --- 意図判定（ヒューリスティック → LLM 併用） ---
     let intent: IntentResult = classifyHeuristic(lastUser);
     if (intent.confidence < 0.7) {
@@ -295,20 +326,104 @@ export async function POST(req: Request) {
     }
     if (meta?.stage) intent = { stage: meta.stage, confidence: 0.99, reasons: ['forced'] };
 
-    // --- system プロンプト組み立て ---
-    const systemBase =
-      (intent.stage === 'generic'
-        ? 'あなたは博識なアシスタントです。日本語で簡潔かつ正確に回答します。推測は推測と明記してください。'
-        : agentPrompt(strategy as any, answers2 as any, finalStory as any) + '\n' + extraBlock) +
-      '\n' +
-      TABOO;
+    // ★ Sprint 6A.1: system プロンプト構築（help/facilitator/advisor で分岐）
+    // help モード時の注入順（UI創作防止）：
+    // 1) buildHelpSystemPrompt（新規約：UI創作禁止、RAG優先）
+    // 2) pickRelevantKnowledge（growthKnowledge から関連ナレッジ抽出）
+    // 3) RAG 検索結果（buildRagContextBlock）
+    // → 規約を最上位に配置し、RAG根拠を優先させる
+    let systemBase: string;
+    let knowledgeIdsUsed: string[] = [];
+    let ragResultDebug = '';
+
+    if (resolvedMode === 'help') {
+      // help モード: 関連ナレッジを取得（growthKnowledge）
+      const relevantKnowledge = pickRelevantKnowledge(lastUser, 3);
+      knowledgeIdsUsed = relevantKnowledge.map((k) => k.id);
+
+      // RAG 検索を実行（help モードのみ）→ RAG根拠を優先
+      let ragContextBlock = '';
+      try {
+        const ragIndex = getGrowthRagIndex();
+        const ragResult = retrieveGrowthKnowledge(lastUser, ragIndex, 4);
+        if (ragResult.hits.length > 0) {
+          ragContextBlock = '\n\n' + buildRagContextBlock(ragResult);
+          if (process.env.NEXT_PUBLIC_DEBUG_AGENT === '1') {
+            ragResultDebug = buildRagDebugFooter(ragResult);
+          }
+        }
+      } catch (err) {
+        // RAG エラーは黙ってスキップ（既存ナレッジで対応）
+        console.error('[RAG] 検索エラー', err);
+      }
+
+      // 注入順: 規約 → growthKnowledge → RAG検索結果 → 禁則
+      systemBase =
+        buildHelpSystemPrompt({
+          productName: 'GROWTH',
+          relevantKnowledge,
+        }) +
+        ragContextBlock +
+        '\n' +
+        TABOO;
+    } else {
+      // advisor/facilitator モード: 既存ロジック（agent-based systemPrompt）
+      systemBase =
+        (intent.stage === 'generic'
+          ? 'あなたは博識なアシスタントです。日本語で簡潔かつ正確に回答します。推測は推測と明記してください。'
+          : agentPrompt(strategy as any, answers2 as any, finalStory as any) + '\n' + extraBlock) +
+        '\n' +
+        TABOO;
+
+      // facilitator モード時のみファシリテーション指示を追加
+      if (resolvedMode === 'facilitator') {
+        systemBase += '\n\n' + buildFacilitatorBlock({ stage: 'generic' });
+      }
+    }
+
+    // ★ meta.output === 'json' のときだけJSON出力指示を追加
+    const output = meta?.output ?? 'text';
+    if (output === 'json') {
+      systemBase += '\n\n' + buildJSONOutputInstruction();
+    }
+
+    // ★ meta.insights === 'stage1' のときだけSTAGE1インサイトを注入
+    const insightsMode = meta?.insights ?? 'none';
+    if (insightsMode === 'stage1' && strategy) {
+      try {
+        const insight = buildStage1Insight({
+          strategy,
+          valueAnalysis: (strategy as any)?.valueAnalysis,
+          financeSummary: (strategy as any)?.financeSummary,
+          businessPortfolio: (strategy as any)?.businessPortfolio,
+          issueBlocks: (strategy as any)?.issueBlocks,
+        });
+        if (Object.keys(insight).length > 0) {
+          systemBase +=
+            '\n\n【STAGE1 企業価値分析 INSIGHTS（JSON）】\n' +
+            JSON.stringify(insight) +
+            '\n' +
+            'INSIGHTSの各項目（赤旗・推奨勝ち筋・必要データ）を根拠に、具体的な助言をしてください。推測や想定の部分は「推測ですが」と明記してください。';
+        }
+      } catch (e) {
+        // insights 生成失敗は無視（systemBase は変更しない）
+        console.warn('[ask-ceo-agent] buildStage1Insight error:', e);
+      }
+    }
 
     // --- OpenAI 呼び出し ---
-    const detailed = await openai.chat.completions.create({
+    const openaiReq: any = {
       model: 'gpt-4o',
       temperature: 0.2,
       messages: [{ role: 'system', content: systemBase }, ...normalizeMessages(messages)],
-    });
+    };
+
+    // ★ meta.output === 'json' のときだけ response_format を付与（JSON形式を要求）
+    if (output === 'json') {
+      openaiReq.response_format = { type: 'json_object' };
+    }
+
+    const detailed = await openai.chat.completions.create(openaiReq);
 
     // --- 操作系ならガイドを短く添える ---
     let manualBlock = '';
@@ -319,8 +434,24 @@ export async function POST(req: Request) {
       manualBlock = '\n\n' + answerManual(messages);
     }
 
-    const content =
-      (detailed.choices[0]?.message?.content || '応答の取得に失敗しました。').trim() + manualBlock;
+    // ★ LLM応答を取得（JSON出力時も含む）
+    const rawContent = (detailed.choices[0]?.message?.content || '応答の取得に失敗しました。').trim();
+    const content = rawContent + manualBlock;
+
+    // ★ meta.output === 'json' のときだけJSON解析 & 検証
+    let structured: boolean | undefined = undefined;
+    let parsed: any = undefined;
+
+    if (output === 'json') {
+      const facilResp = safeParseFacilitatorJSON(rawContent);
+      if (facilResp) {
+        structured = true;
+        parsed = facilResp;
+      } else {
+        structured = false;
+        // JSON parse失敗でも content は必ず返す
+      }
+    }
 
     // --- ログ保存（失敗は無視） ---
     try {
@@ -329,11 +460,38 @@ export async function POST(req: Request) {
       /* noop */
     }
 
-    return NextResponse.json({
+    // ★ 後方互換 + optional 拡張フィールド
+    const response: any = {
       content,
       stageUsed: intent.stage,
       confidence: intent.confidence,
-    });
+      resolvedMode,  // Sprint 4: モード解決結果を返す
+    };
+
+    // JSON出力時のみ optional フィールドを追加
+    if (output === 'json') {
+      response.structured = structured;
+      if (parsed) response.parsed = parsed;
+    }
+
+    // meta.mode が無い場合のみ、auto 判定結果を返す
+    if (!meta?.mode && autoModeResult) {
+      response.autoMode = autoModeResult;
+    }
+
+    // ★ Sprint 5: help モード時のみ、使用したナレッジID を返す（debug/改善用）
+    if (resolvedMode === 'help' && knowledgeIdsUsed.length > 0) {
+      response.knowledgeIdsUsed = knowledgeIdsUsed;
+    }
+
+    // ★ Sprint 5.1: debug footer（NEXT_PUBLIC_DEBUG_AGENT=1 時のみ）
+    // ★ Sprint 6A: RAG 情報を debug footer に追加
+    if (process.env.NEXT_PUBLIC_DEBUG_AGENT === '1') {
+      const debugFooter = `\n\n[debug] mode=${resolvedMode} knowledge=${knowledgeIdsUsed?.join(',') || '-'} reasons=${autoModeResult?.reasons?.join('|') || '-'}${ragResultDebug ? ' ' + ragResultDebug : ''}`;
+      response.content += debugFooter;
+    }
+
+    return NextResponse.json(response);
   } catch (e: any) {
     console.error('[ask-ceo-agent] failed:', e?.message || e);
     return NextResponse.json({ content: 'サーバーエラーが発生しました。', error: 'ask-ceo-agent failed' }, { status: 500 });
