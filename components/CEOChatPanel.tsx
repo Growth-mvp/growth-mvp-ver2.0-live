@@ -21,6 +21,12 @@ type AskResp = {
 
 type Props = { embedded?: boolean };
 
+// ★ Sprint 3B': 自動チェックイン設定（控えめ）
+const IDLE_MS = 180_000;               // 3分無操作で発火
+const COOLDOWN_MS = 600_000;           // 発火後10分はクールダウン
+const CHECK_TICK_MS = 15_000;          // 15秒ごとにポーリング
+const MAX_NUDGES_PER_SESSION = 2;      // セッション中最大2回
+
 export default function CEOChatPanel({ embedded = true }: Props) {
   const { user } = useUserStore();
 
@@ -81,6 +87,12 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   const unmountedRef = useRef(false);
   const autoEnsureOnceRef = useRef(false);
   const sendingWatchdogRef = useRef<number | null>(null);
+
+  // ★ Sprint 3B': 自動チェックイン用 refs
+  const lastUserActionAtRef = useRef<number>(Date.now());
+  const lastNudgeAtRef = useRef<number>(0);
+  const nudgeCountRef = useRef<number>(0);
+  const nudgeInFlightRef = useRef<boolean>(false);
 
   useEffect(() => {
     setMounted(true);
@@ -146,6 +158,26 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     return () => { off1(); if (debounceRef.current) window.clearTimeout(debounceRef.current); };
   }, []);
 
+  /** ====== ユーザー操作検知（idle リセット用） ====== */
+  useEffect(() => {
+    const updateLastAction = () => {
+      lastUserActionAtRef.current = Date.now();
+    };
+
+    // ★ Sprint 3B': 各種操作でタイムスタンプをリセット
+    window.addEventListener('pointerdown', updateLastAction);
+    window.addEventListener('keydown', updateLastAction);
+    window.addEventListener('scroll', updateLastAction);
+    window.addEventListener('focus', updateLastAction);
+
+    return () => {
+      window.removeEventListener('pointerdown', updateLastAction);
+      window.removeEventListener('keydown', updateLastAction);
+      window.removeEventListener('scroll', updateLastAction);
+      window.removeEventListener('focus', updateLastAction);
+    };
+  }, []);
+
   /** ====== textarea オートリサイズ ====== */
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
@@ -156,7 +188,8 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   useEffect(() => { autoResize(); }, [input, autoResize]);
 
   /** ====== 送信 ====== */
-  const send = useCallback(async (text: string) => {
+  // ★ Sprint 3A': meta オプション対応に拡張
+  const send = useCallback(async (text: string, overrideMeta?: any) => {
     const trimmed = text.trim();
     if (!trimmed || sending) return;
 
@@ -191,6 +224,16 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       const latestStrategyId = useStrategyStore.getState().strategyId;
 
       const doAsk = async () => {
+        // ★ Sprint 3A': meta を付与する場合と付与しない場合に対応
+        const payload: any = {
+          userId: user!.id,
+          strategyId: latestStrategyId,
+          messages: [...current.slice(-9), userMsg],
+        };
+        if (overrideMeta) {
+          payload.meta = overrideMeta;  // AI診断時のみ meta を付与
+        }
+
         const res = await fetch('/api/ask-ceo-agent', {
           method: 'POST',
           headers: {
@@ -198,11 +241,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             Authorization: `Bearer ${accessToken}`,
           },
           credentials: 'include',
-          body: JSON.stringify({
-            userId: user!.id,
-            strategyId: latestStrategyId,
-            messages: [...current.slice(-9), userMsg],
-          }),
+          body: JSON.stringify(payload),
         });
         const raw = await res.text();
         return { ok: res.ok, status: res.status, raw };
@@ -263,10 +302,86 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     }
   }, [sending, userOK, strategyOK, user?.id]);
 
+  /** ====== 自動チェックイン（idle時のみ） ====== */
+  // ★ Sprint 3B': nudgeIfNeeded - ガード条件を満たしたら1回だけ自動送信
+  const nudgeIfNeeded = useCallback(async () => {
+    const now = Date.now();
+
+    // ガード条件（すべて満たしたら実行）
+    if (document.visibilityState !== 'visible') return;
+    if (nudgeInFlightRef.current) return;
+    if (nudgeCountRef.current >= MAX_NUDGES_PER_SESSION) return;
+    if (now - lastUserActionAtRef.current < IDLE_MS) return;
+    if (now - lastNudgeAtRef.current < COOLDOWN_MS) return;
+
+    nudgeInFlightRef.current = true;
+
+    try {
+      const nudgeMeta = {
+        mode: 'facilitator',
+        output: 'text',
+        stage: 'strategy',
+        insights: 'stage1'
+      };
+      const nudgeMsg =
+        '（自動チェックイン）現在の入力状況を2〜5行で要約し、次にやるべき最小アクションを最大3つ提案してください。提案は"どこを触るか"が分かるように書いてください。';
+
+      // Sprint 3A' で拡張した send を使用（meta付与）
+      await send(nudgeMsg, nudgeMeta);
+
+      // 成功時のみカウント＆タイムスタンプ更新
+      lastNudgeAtRef.current = now;
+      nudgeCountRef.current++;
+      lastUserActionAtRef.current = now; // 連続 idle 発火を抑止
+
+    } catch (e) {
+      // エラーは黙って握りつぶす
+      if (process.env.NODE_ENV !== 'production') {
+        console.debug('[nudge] auto-checkin failed:', e);
+      }
+    } finally {
+      nudgeInFlightRef.current = false;
+    }
+  }, [send]);
+
   const onSubmit = () => { if (input.trim()) void send(input); };
+
+  // ★ Sprint 3A': Shift+Enter で AI診断送信
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(); }
+    if (e.key === 'Enter') {
+      if (e.shiftKey) {
+        // Shift+Enter: AI診断送信（facilitator + insights='stage1'）
+        e.preventDefault();
+        const diagnosticMeta = {
+          mode: 'facilitator',
+          output: 'text',
+          stage: 'strategy',
+          insights: 'stage1'
+        };
+        const diagnosticMsg =
+          '（AI診断）現在の入力状況を要約し、企業価値に効いていない点があれば根拠付きで指摘し、次にやるべき最小アクションを最大3つ提案してください。提案は"どこを触るか"が分かるように書いてください。';
+        void send(diagnosticMsg, diagnosticMeta);
+      } else {
+        // Enter: 従来通り送信（meta無し）
+        e.preventDefault();
+        onSubmit();
+      }
+    }
   };
+
+  /** ====== 自動チェックインポーリング ====== */
+  // ★ Sprint 3B': CHECK_TICK_MS ごとに nudgeIfNeeded をポーリング
+  useEffect(() => {
+    const interval = setInterval(() => {
+      nudgeIfNeeded().catch((e) => {
+        if (process.env.NODE_ENV !== 'production') {
+          console.debug('[polling] nudgeIfNeeded error:', e);
+        }
+      });
+    }, CHECK_TICK_MS);
+
+    return () => clearInterval(interval);
+  }, [nudgeIfNeeded]);
 
   // ====== 見た目 ======
   const rootCls = embedded
