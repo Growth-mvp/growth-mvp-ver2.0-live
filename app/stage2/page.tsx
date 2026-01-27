@@ -416,6 +416,32 @@ function IssueBlockPreview({
 }
 
 /* ===================================================
+ * CEO Intent セクション
+ * =================================================== */
+function CEOIntentSection() {
+  const setCeoIntent = useStrategyStore((s) => s.setCeoIntent);
+  const ceoIntent = useStrategyStore((s) => s.ceoIntent ?? '');
+
+  return (
+    <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
+      <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">経営者の思い</h3>
+
+      <GlassCard
+        title="経営者の思い"
+        hint="原点・譲れない価値観・実現したい未来など、企業の根底にある思いを記入してください"
+      >
+        <textarea
+          value={ceoIntent}
+          onChange={(e) => setCeoIntent(e.target.value)}
+          placeholder="例：なぜこの会社を続けるのか / 何を実現したいのか / 譲れない価値観…"
+          className="min-h-[120px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+        />
+      </GlassCard>
+    </div>
+  );
+}
+
+/* ===================================================
  * MVVセクション
  * =================================================== */
 function MVVSection() {
@@ -459,10 +485,85 @@ function MVVSection() {
 }
 
 /* ===================================================
+ * O/T提案セクション（候補表示・追加）
+ * =================================================== */
+function OTSuggestionsPanel({
+  suggestions,
+  onAddOpportunity,
+  onAddThreat,
+}: {
+  suggestions?: { opportunity?: string[]; threat?: string[] };
+  onAddOpportunity: (text: string) => void;
+  onAddThreat: (text: string) => void;
+}) {
+  if (!suggestions || (!Array.isArray(suggestions.opportunity) && !Array.isArray(suggestions.threat))) {
+    return null;
+  }
+
+  const opportunities = Array.isArray(suggestions.opportunity) ? suggestions.opportunity : [];
+  const threats = Array.isArray(suggestions.threat) ? suggestions.threat : [];
+
+  if (opportunities.length === 0 && threats.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-2xl border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/20 p-6">
+      <h4 className="text-base font-semibold text-blue-700 dark:text-blue-300 mb-4">提案された機会と脅威</h4>
+
+      {opportunities.length > 0 && (
+        <div className="mb-6">
+          <h5 className="text-sm font-medium text-blue-600 dark:text-blue-400 mb-3">
+            提案された機会（Opportunity）
+          </h5>
+          <div className="space-y-2">
+            {opportunities.map((opp, idx) => (
+              <div key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-white/50 dark:bg-white/5">
+                <span className="flex-1 text-sm text-gray-700 dark:text-gray-300">{opp}</span>
+                <button
+                  onClick={() => onAddOpportunity(opp)}
+                  className="px-3 py-1 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors whitespace-nowrap"
+                >
+                  追加
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {threats.length > 0 && (
+        <div>
+          <h5 className="text-sm font-medium text-amber-600 dark:text-amber-400 mb-3">
+            提案された脅威（Threat）
+          </h5>
+          <div className="space-y-2">
+            {threats.map((threat, idx) => (
+              <div key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-white/50 dark:bg-white/5">
+                <span className="flex-1 text-sm text-gray-700 dark:text-gray-300">{threat}</span>
+                <button
+                  onClick={() => onAddThreat(threat)}
+                  className="px-3 py-1 rounded-lg bg-amber-600 text-white text-xs font-medium hover:bg-amber-700 transition-colors whitespace-nowrap"
+                >
+                  追加
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ===================================================
  * SWOTセクション
  * =================================================== */
 function SWOTSection() {
   const setSWOT = useStrategyStore((s) => s.setSWOT);
+  const addSwotOpportunity = useStrategyStore((s) => s.addSwotOpportunity);
+  const addSwotThreat = useStrategyStore((s) => s.addSwotThreat);
+  const swotSuggestions = useStrategyStore((s) => s.swotSuggestions);
   const strength = useStrategyStore((s) => s.strength ?? '');
   const weakness = useStrategyStore((s) => s.weakness ?? '');
   const opportunity = useStrategyStore((s) => s.opportunity ?? '');
@@ -700,7 +801,9 @@ export default function Stage2Page() {
   const [storyDraft, setStoryDraft] = useState<StoryChapter[]>([]);
   const [winPatternsCandidate, setWinPatternsCandidate] = useState<WinPatternCandidate[]>([]);
   const [generating, setGenerating] = useState(false);
+  const [generatingOT, setGeneratingOT] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [generateOTError, setGenerateOTError] = useState<string | null>(null);
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
 
   // Final
@@ -915,6 +1018,47 @@ export default function Stage2Page() {
   const handleUpdateAnswer = useCallback((id: string, answer: string) => {
     setLocalAnswers12((prev) => prev.map((a) => (a.id === id ? { ...a, answer } : a)));
   }, []);
+
+  // O/T generation
+  const handleGenerateOT = useCallback(async () => {
+    if (generatingOT) return;
+
+    setGeneratingOT(true);
+    setGenerateOTError(null);
+
+    try {
+      const response = await fetch('/api/generate-ot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          industry: industry || '',
+          revenue: revenue || '',
+          employees: employees || '',
+          businessContent: businessContent || '',
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const opportunities = Array.isArray(data.opportunity) ? data.opportunity : [];
+      const threats = Array.isArray(data.threat) ? data.threat : [];
+
+      useStrategyStore.getState().setSwotSuggestions({
+        opportunity: opportunities,
+        threat: threats,
+        generatedAt: new Date().toISOString(),
+      });
+    } catch (e: any) {
+      console.error('[Stage2] Generate O/T error:', e);
+      setGenerateOTError(e?.message || 'O/Tの提案生成に失敗しました');
+    } finally {
+      setGeneratingOT(false);
+    }
+  }, [generatingOT, industry, revenue, employees, businessContent]);
 
   // Draft generation
   const handleGenerate = useCallback(async () => {
@@ -1198,18 +1342,32 @@ export default function Stage2Page() {
 
           {/* Tab Content */}
           <div className="max-w-[1100px] mx-auto px-6 py-6 space-y-6">
-            {/* 入力タグ：MVV＋SWOT→たたき台生成 */}
+            {/* 入力タグ：CEO意図→MVV＋SWOT→たたき台生成 */}
             {activeTab === 'input' && (
               <div className="space-y-6">
+                <CEOIntentSection />
+
                 <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
                   <MVVSection />
                 </div>
 
                 <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
                   <SWOTSection />
+                  <OTSuggestionsPanel
+                    suggestions={useStrategyStore((s) => s.swotSuggestions)}
+                    onAddOpportunity={(text) => useStrategyStore.getState().addSwotOpportunity(text)}
+                    onAddThreat={(text) => useStrategyStore.getState().addSwotThreat(text)}
+                  />
                 </div>
 
-                <div className="flex justify-center">
+                <div className="flex gap-4 justify-center">
+                  <button
+                    onClick={handleGenerateOT}
+                    disabled={generatingOT}
+                    className="px-6 py-3 rounded-xl bg-amber-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-amber-700 transition-colors shadow-lg"
+                  >
+                    {generatingOT ? 'AIで提案中...' : 'AIで機会・脅威を提案'}
+                  </button>
                   <button
                     onClick={handleGenerate}
                     disabled={generating}
@@ -1219,6 +1377,11 @@ export default function Stage2Page() {
                   </button>
                 </div>
 
+                {generateOTError && (
+                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-700 dark:text-red-400">
+                    {generateOTError}
+                  </div>
+                )}
                 {generateError && (
                   <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-700 dark:text-red-400">
                     {generateError}

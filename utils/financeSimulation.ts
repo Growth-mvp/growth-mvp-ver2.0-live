@@ -12,6 +12,7 @@
  * - COGS = variable_cost、SG&A = fixed_cost + personnel_cost
  * - synergy は revenue/cost へ倍率適用（オプション）
  * - success_rate は売上側レバー（ACQ/ARPU/REVENUE）に掛けてシナリオ差を作る
+ * - INVEST は固定費側に上乗せ（investEffectAlpha 未指定なら 1.0 = 100%計上）
  * ========================================================= */
 
 import type { Ym, DeltasByMonth } from './simulationBridge';
@@ -34,7 +35,13 @@ export type BaseTrajectory = {
 
 export type SimulationOptions = {
   applySynergyTo?: Array<'revenue' | 'cost'>;
-  investEffectAlpha?: number; // INVEST を固定費側に上乗せする係数（0なら無効）
+  /**
+   * INVEST を固定費側に上乗せする係数
+   * - 未指定: 1.0（100% 固定費として計上）
+   * - 0: 無効（INVESTをPLに反映しない）
+   * - 0〜1: 一部計上（例: 0.5）
+   */
+  investEffectAlpha?: number;
 };
 
 export type MonthlyPL = {
@@ -116,7 +123,11 @@ export function simulateMonthlyPL(
   opt?: SimulationOptions,
 ): MonthlyPL[] {
   const applySynergyTo = opt?.applySynergyTo ?? ['revenue'];
-  const investAlpha = nz(opt?.investEffectAlpha);
+
+  // ✅ FIX: investEffectAlpha が未指定の場合は 1.0（=100%固定費計上）
+  // 既存挙動（未指定→0）だと INVEST がPLに反映されず、投資入力が無意味になっていたため。
+  const investAlpha =
+    opt?.investEffectAlpha === undefined ? 1.0 : nz(opt.investEffectAlpha);
 
   const months = ymRange(base.startYm, base.endYm);
 
@@ -150,8 +161,8 @@ export function simulateMonthlyPL(
       const variable = Math.max(0, nz(base.variableCostMonthly[ym]));
       const personnel = Math.max(0, nz(base.personnelCostMonthly[ym]));
 
-      const revenue =
-        Math.max(0, nz(base.revenueMonthly?.[ym])) || Math.max(0, qty * arpu);
+      // ★ UNIFIED: 売上は常に qty * arpu（base.revenueMonthly は参考値、使わない）
+      const revenue = Math.max(0, qty * arpu);
 
       const cogs = variable;
       const sga = fixed + personnel;
@@ -232,8 +243,8 @@ export function simulateMonthlyPL(
     // variable_cost / cogsRate
     let variable: number;
     if (dCogsRate !== 0) {
-      const baseSales =
-        nz(base.revenueMonthly?.[ym]) || Math.max(0, baseQty * baseArpu);
+      // ★ UNIFIED: baseSales も qty * arpu で統一（revenueMonthly は参照しない）
+      const baseSales = Math.max(0, baseQty * baseArpu);
 
       const safeSales = Math.max(1, baseSales);
       const estBaseCogsRate = clamp01(baseVarAmt / safeSales);
@@ -245,6 +256,7 @@ export function simulateMonthlyPL(
       variable = Math.max(0, baseVarAmt + dVarAmt);
     }
 
+    // ✅ INVEST を固定費に計上（investAlpha は未指定なら 1.0）
     let fixed = Math.max(0, baseFixed + dFixed + invest * investAlpha);
     let personnel = Math.max(0, basePers + dPers);
 

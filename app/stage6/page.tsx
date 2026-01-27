@@ -60,34 +60,64 @@ import {
 /** DEBUG フラグ（console.log をガード） */
 const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
 
+/* =========================================================
+ * BridgeKR 型整合のための正規化ヘルパ
+ * - kind は union なので string を直接入れない
+ * - unit は optional なので「値がある時だけ付ける」
+ * ======================================================= */
+
+const BRIDGE_KINDS = [
+  'SUCCESS_RATE',
+  'SYNERGY',
+  'REVENUE',
+  'ARPU',
+  'ACQ',
+  'CHURN',
+  'COST_FIXED',
+  'COST_VARIABLE',
+  'PERSONNEL',
+  'INVEST',
+  'ACTIVITY',
+] as const;
+
+type BridgeKind = (typeof BRIDGE_KINDS)[number];
+
+function normalizeKind(v: unknown): BridgeKind | null {
+  const s = String(v ?? '').trim().toUpperCase();
+  return (BRIDGE_KINDS as readonly string[]).includes(s) ? (s as BridgeKind) : null;
+}
+
+function normalizeUnit(v: unknown): string | undefined {
+  const s = String(v ?? '').trim();
+  if (!s) return undefined;
+
+  // 代表的な揺れを吸収（既存挙動の範囲）
+  if (s === '¥' || s === '円') return 'JPY';
+  if (s === '％') return '%';
+  if (s.toLowerCase() === 'percent') return 'percent';
+  return s;
+}
+
 export default function Stage6Page() {
   // ★ 修正：入力源を selector で明確に取得（参照の安定性を確保）
   const companyName = useStrategyStore((s) => s.companyName ?? '会社名未設定');
   const departments = useStrategyStore((s) =>
     Array.isArray(s.departments) ? s.departments : [],
   ) as Department[];
-  const financePL = useStrategyStore((s) =>
-    Array.isArray(s.financePL) ? s.financePL : [],
-  );
-  const csvFinanceData = useStrategyStore((s) =>
-    s.csvFinanceData ?? {}
-  );
+  const financePL = useStrategyStore((s) => (Array.isArray(s.financePL) ? s.financePL : []));
+  const csvFinanceData = useStrategyStore((s) => s.csvFinanceData ?? {});
   const revision = useStrategyStore((s) => s.revision);
   const boot = useStrategyStore((s) => s.boot);
 
-  const {
-    companyId: scopeCompanyId,
-    hydrated,
-    setCompanyScope,
-    refetchFromServer,
-    setHydrated,
-  } = useStrategyStore();
+  const { companyId: scopeCompanyId, hydrated, setCompanyScope, refetchFromServer, setHydrated } =
+    useStrategyStore();
 
   const access = useAccess();
   const accessCompanyId: string | undefined = useMemo(
     () =>
-      ((access as any)?.companyId ??
-        (scopeCompanyId as string | undefined)) as string | undefined,
+      ((access as any)?.companyId ?? (scopeCompanyId as string | undefined)) as
+        | string
+        | undefined,
     [(access as any)?.companyId, scopeCompanyId],
   );
 
@@ -116,11 +146,7 @@ export default function Stage6Page() {
   useEffect(() => {
     if (!accessCompanyId) return;
     if (!scopeCompanyId) setCompanyScope(accessCompanyId);
-    if (
-      loadGuardRef.current === accessCompanyId &&
-      hydrated &&
-      scopeCompanyId === accessCompanyId
-    )
+    if (loadGuardRef.current === accessCompanyId && hydrated && scopeCompanyId === accessCompanyId)
       return;
 
     let cancelled = false;
@@ -150,16 +176,12 @@ export default function Stage6Page() {
             issueBlocks_length: Array.isArray(storeBefore.stage1Issues)
               ? storeBefore.stage1Issues.length
               : 0,
-            csvFinanceData_BS_length: Array.isArray(
-              (storeBefore.csvFinanceData as any)?.financeBS,
-            )
+            csvFinanceData_BS_length: Array.isArray((storeBefore.csvFinanceData as any)?.financeBS)
               ? (storeBefore.csvFinanceData as any).financeBS.length
               : 0,
-            segmentPL_keys: Object.keys((storeBefore as any).segmentPL || {})
-              .length,
+            segmentPL_keys: Object.keys((storeBefore as any).segmentPL || {}).length,
             executionPlanBaseline_exists: !!storeBefore.executionPlanBaseline,
-            executionPlanBaseline_snapshot: !!storeBefore.executionPlanBaseline
-              ?.snapshot,
+            executionPlanBaseline_snapshot: !!storeBefore.executionPlanBaseline?.snapshot,
           });
 
         await loadAndHydrate(accessCompanyId);
@@ -175,16 +197,12 @@ export default function Stage6Page() {
             issueBlocks_length: Array.isArray(storeAfter.stage1Issues)
               ? storeAfter.stage1Issues.length
               : 0,
-            csvFinanceData_BS_length: Array.isArray(
-              (storeAfter.csvFinanceData as any)?.financeBS,
-            )
+            csvFinanceData_BS_length: Array.isArray((storeAfter.csvFinanceData as any)?.financeBS)
               ? (storeAfter.csvFinanceData as any).financeBS.length
               : 0,
-            segmentPL_keys: Object.keys((storeAfter as any).segmentPL || {})
-              .length,
+            segmentPL_keys: Object.keys((storeAfter as any).segmentPL || {}).length,
             executionPlanBaseline_exists: !!storeAfter.executionPlanBaseline,
-            executionPlanBaseline_snapshot: !!storeAfter.executionPlanBaseline
-              ?.snapshot,
+            executionPlanBaseline_snapshot: !!storeAfter.executionPlanBaseline?.snapshot,
           });
 
         try {
@@ -216,27 +234,13 @@ export default function Stage6Page() {
     return () => {
       cancelled = true;
     };
-  }, [
-    accessCompanyId,
-    hydrated,
-    scopeCompanyId,
-    refetchFromServer,
-    setHydrated,
-    setCompanyScope,
-  ]);
+  }, [accessCompanyId, hydrated, scopeCompanyId, refetchFromServer, setHydrated, setCompanyScope]);
 
   /* -------- 自動保存（現行踏襲） -------- */
-  const mismatch = !!(
-    accessCompanyId &&
-    scopeCompanyId &&
-    scopeCompanyId !== accessCompanyId
-  );
+  const mismatch = !!(accessCompanyId && scopeCompanyId && scopeCompanyId !== accessCompanyId);
 
   const isHydrating =
-    ((Boolean((boot as any)?.isHydrating) && !hydrated) ||
-      mismatch ||
-      !hydrated) ??
-    false;
+    ((Boolean((boot as any)?.isHydrating) && !hydrated) || mismatch || !hydrated) ?? false;
 
   // ★ TASK B: isReady ゲート（計算確定条件）
   // KR 0→12 揺れ時に 0 状態で state を確定させない
@@ -244,12 +248,7 @@ export default function Stage6Page() {
     const financeLen = Array.isArray(financePL) ? financePL.length : 0;
     const deptLen = Array.isArray(departments) ? departments.length : 0;
 
-    return (
-      hydrated &&
-      !isHydrating &&
-      financeLen > 0 &&
-      deptLen > 0
-    );
+    return hydrated && !isHydrating && financeLen > 0 && deptLen > 0;
   }, [hydrated, isHydrating, financePL, departments]);
 
   // ★ TASK C: readyGate 診断ログ（状態遷移を 1 ログで確認）
@@ -263,20 +262,24 @@ export default function Stage6Page() {
       financeLen,
       deptLen,
       isReady,
-      reason: !hydrated ? 'not hydrated' : isHydrating ? 'is hydrating' : financeLen === 0 ? 'no finance' : deptLen === 0 ? 'no dept' : 'ready',
+      reason: !hydrated
+        ? 'not hydrated'
+        : isHydrating
+          ? 'is hydrating'
+          : financeLen === 0
+            ? 'no finance'
+            : deptLen === 0
+              ? 'no dept'
+              : 'ready',
     });
-  }, [DEBUG, hydrated, isHydrating, financePL, departments, isReady]);
+  }, [hydrated, isHydrating, financePL, departments, isReady]);
 
-  // ★ departments は既に Line 66 で selector で取得済み
+  // ★ departments は selector で取得済み
   useAutoSave(!isHydrating ? [accessCompanyId, departments] : []);
 
   /* -------- UI State -------- */
-  const [scenarioKey, setScenarioKey] = useState<'low' | 'base' | 'high'>(
-    'base',
-  );
-
+  const [scenarioKey, setScenarioKey] = useState<'low' | 'base' | 'high'>('base');
   const [deptFilter, setDeptFilter] = useState<string>('all');
-
   // 複数選択
   const [selectedProjectKeys, setSelectedProjectKeys] = useState<string[]>([]);
 
@@ -305,10 +308,7 @@ export default function Stage6Page() {
         approved: [] as ApprovedProject[],
         projectKrsMap: new Map<string, BridgeKR[]>(),
         baselineYearly: [] as YearlyPL[],
-        yearlyAll: { low: [], base: [], high: [] } as Record<
-          'low' | 'base' | 'high',
-          YearlyPL[]
-        >,
+        yearlyAll: { low: [], base: [], high: [] } as Record<'low' | 'base' | 'high', YearlyPL[]>,
       };
     }
 
@@ -334,16 +334,21 @@ export default function Stage6Page() {
 
         const okrsV2 = Array.isArray(p?.okrsV2) ? p.okrsV2 : [];
         okrsV2.forEach((kr: KRStructured, krIndex: number) => {
-          if (!kr || !(kr as any).kind) return;
+          if (!kr) return;
 
-          krs.push({
+          // ★ kind を union に合わせて安全化（unknown はスキップ）
+          const kind = normalizeKind((kr as any).kind);
+          if (!kind) return;
+
+          const unit = normalizeUnit((kr as any).unit);
+
+          const base: BridgeKR = {
             id:
               (kr as any).id ??
               `kr-${projKey}-${krIndex}-${Math.random().toString(36).slice(2)}`,
-            kind: (kr as any).kind,
+            kind,
             label: (kr as any).label ?? '（ラベル未設定）',
             target: (kr as any).target ?? 0,
-            unit: (kr as any).unit,
             scope: (kr as any).scope ?? 'company',
             baseKey: (kr as any).baseKey ?? 'revenue',
             baseOverride: (kr as any).baseOverride,
@@ -353,14 +358,15 @@ export default function Stage6Page() {
             startYm: (kr as any).startYm as Ym | undefined,
             due: (kr as any).due,
             notes: (kr as any).notes,
-          } as BridgeKR);
+            ...(unit ? { unit } : {}), // ★ unit は値がある時だけ付与
+          };
+
+          krs.push(base);
         });
 
         // 投資（skillPlans + executionHumanInvestments）を INVEST として追加
         const skillPlans = Array.isArray(p?.skillPlans) ? p.skillPlans : [];
-        const investments = Array.isArray(p?.executionHumanInvestments)
-          ? p.executionHumanInvestments
-          : [];
+        const investments = Array.isArray(p?.executionHumanInvestments) ? p.executionHumanInvestments : [];
 
         const investTotal =
           skillPlans.reduce((s: number, sk: any) => s + (sk?.cost ?? 0), 0) +
@@ -369,13 +375,13 @@ export default function Stage6Page() {
         if (investTotal > 0) {
           krs.push({
             id: `invest-${projKey}-${Math.random().toString(36).slice(2)}`,
-            kind: 'INVEST' as any,
+            kind: 'INVEST',
             label: `${projTitle}: 投資計画`,
             target: investTotal,
-            unit: '¥',
-            scope: 'project' as any,
-            baseKey: 'invest' as any,
-          } as BridgeKR);
+            unit: 'JPY',
+            scope: 'project',
+            baseKey: 'invest',
+          });
         }
 
         projectKrsMap.set(projKey, krs);
@@ -448,12 +454,10 @@ export default function Stage6Page() {
 
     // ★ 手順1：KR可視化ログ（DEBUG時のみ）
     if (DEBUG) {
-      const krCountByProject = Array.from(projectKrsMap.entries()).map(
-        ([key, krs]) => ({
-          proj: key,
-          krCount: krs?.length ?? 0,
-        }),
-      );
+      const krCountByProject = Array.from(projectKrsMap.entries()).map(([key, krs]) => ({
+        proj: key,
+        krCount: krs?.length ?? 0,
+      }));
       const totalKrCount = krCountByProject.reduce((s, p) => s + p.krCount, 0);
       const krSample = Array.from(projectKrsMap.values())
         .flatMap((arr) => arr)
@@ -478,7 +482,7 @@ export default function Stage6Page() {
     const hasKrs = allKrsForReady.length > 0;
 
     return {
-      ready: isReady && hasKrs,  // isReady でゲート + KR 存在確認
+      ready: isReady && hasKrs, // isReady でゲート + KR 存在確認
       companyName,
       error: null as string | null,
       deptNames: Array.from(deptNameSet).sort(),
@@ -499,15 +503,9 @@ export default function Stage6Page() {
   }, [core.ready, core.approved]);
 
   // ★ 最小修正：selectedProjectKeys が空なら全PJキーを使う
-  const allProjectKeys = useMemo(
-    () => Array.from(core.projectKrsMap.keys()),
-    [core.projectKrsMap],
-  );
+  const allProjectKeys = useMemo(() => Array.from(core.projectKrsMap.keys()), [core.projectKrsMap]);
   const effectiveSelectedKeys = useMemo(
-    () =>
-      selectedProjectKeys.length > 0
-        ? selectedProjectKeys
-        : allProjectKeys,
+    () => (selectedProjectKeys.length > 0 ? selectedProjectKeys : allProjectKeys),
     [selectedProjectKeys, allProjectKeys],
   );
 
@@ -517,10 +515,7 @@ export default function Stage6Page() {
 
   const selectedYearly = useMemo(() => {
     if (!core.ready) {
-      return { low: [], base: [], high: [] } as Record<
-        'low' | 'base' | 'high',
-        YearlyPL[]
-      >;
+      return { low: [], base: [], high: [] } as Record<'low' | 'base' | 'high', YearlyPL[]>;
     }
 
     // ★ 修正：explicit に financePL を渡す
@@ -596,7 +591,7 @@ export default function Stage6Page() {
           kind: (kr as any).kind,
           label: kr.label,
           target: kr.target,
-          unit: kr.unit,
+          unit: (kr as any).unit,
         })),
       });
     }
@@ -634,7 +629,7 @@ export default function Stage6Page() {
       'SYNERGY',
       'ACTIVITY',
     ];
-    const KNOWN_UNITS = ['%', 'JPY', 'people', 'items', '¥', '件', '%', 'percent'];
+    const KNOWN_UNITS = ['%', 'JPY', 'people', 'items', '¥', '件', 'percent'];
 
     const result = core.approved
       .filter((p) => effectiveSet.has(p.key))
@@ -671,7 +666,7 @@ export default function Stage6Page() {
                   kindRaw: kindVal,
                   targetRaw: targetVal,
                   targetNum,
-                  unit: kr.unit,
+                  unit: (kr as any).unit,
                   baseKey: kr.baseKey,
                   reason: 'noKind',
                 });
@@ -689,7 +684,7 @@ export default function Stage6Page() {
                   kindRaw: kindVal,
                   targetRaw: targetVal,
                   targetNum: Number.NaN,
-                  unit: kr.unit,
+                  unit: (kr as any).unit,
                   baseKey: kr.baseKey,
                   reason: 'noTarget',
                 });
@@ -704,7 +699,7 @@ export default function Stage6Page() {
                   kindRaw: kindVal,
                   targetRaw: targetVal,
                   targetNum,
-                  unit: kr.unit,
+                  unit: (kr as any).unit,
                   baseKey: kr.baseKey,
                   reason: 'targetNaN',
                 });
@@ -722,7 +717,7 @@ export default function Stage6Page() {
                   kindRaw: kindVal,
                   targetRaw: targetVal,
                   targetNum,
-                  unit: kr.unit,
+                  unit: (kr as any).unit,
                   baseKey: kr.baseKey,
                   reason: 'noBaseKey',
                 });
@@ -749,7 +744,7 @@ export default function Stage6Page() {
         if (krs.length > 0 && deltaRevenueTotal === 0 && deltaOpTotal === 0) {
           const firstKr = krs[0];
           const kindRaw = String((firstKr as any)?.kind || '').trim();
-          const targetUnit = firstKr?.unit;
+          const targetUnit = (firstKr as any)?.unit;
 
           // ACQ のデフォルト計算を試みる
           if (kindRaw === 'ACQ') {
@@ -827,15 +822,14 @@ export default function Stage6Page() {
             let reason = 'unknown';
             const firstKr = krs[0];
             const parsedTarget = Number(firstKr?.target);
-            const targetUnit = firstKr?.unit;
+            const targetUnit = (firstKr as any)?.unit;
             const targetBaseKey = firstKr?.baseKey;
 
             // ★ kind/unit の正規化と分岐チェック
             const kindRaw = String((firstKr as any)?.kind || '').trim();
             const unitRaw = String(targetUnit || '').trim();
             const isKindKnown = KNOWN_KINDS.includes(kindRaw);
-            const isUnitKnown =
-              !unitRaw || KNOWN_UNITS.includes(unitRaw);
+            const isUnitKnown = !unitRaw || KNOWN_UNITS.includes(unitRaw);
 
             const baselineHeadRev = baseline?.[0]?.revenue ?? 0;
             const baselineHeadOp = baseline?.[0]?.op_income ?? 0;
@@ -882,8 +876,8 @@ export default function Stage6Page() {
                 baselineHeadOp,
                 yearlyHeadRev,
                 yearlyHeadOp,
-                deltaHeadRev: delta?.[0]?.revenue,
-                deltaHeadOp: delta?.[0]?.op_income,
+                deltaHeadRev: (delta?.[0] as any)?.revenue,
+                deltaHeadOp: (delta?.[0] as any)?.op_income,
                 deltaFinalRev: deltaRevenueTotal,
                 deltaFinalOp: deltaOpTotal,
                 reason,
@@ -892,8 +886,7 @@ export default function Stage6Page() {
           }
         }
 
-        const roi =
-          p.investTotal > 0 ? deltaOpTotal / p.investTotal : undefined;
+        const roi = p.investTotal > 0 ? deltaOpTotal / p.investTotal : undefined;
 
         return {
           key: p.key,
@@ -922,7 +915,10 @@ export default function Stage6Page() {
       if (Object.values(appliedZero).some((v) => v > 0)) {
         console.log('[stage6][diag] appliedButZero breakdown', appliedZero);
         console.log('[stage6][diag] appliedButZero samples', appliedZeroSamples);
-        console.log('[stage6][diag] appliedButZero samples json', JSON.stringify(appliedZeroSamples, null, 2));
+        console.log(
+          '[stage6][diag] appliedButZero samples json',
+          JSON.stringify(appliedZeroSamples, null, 2),
+        );
       }
     }
 
@@ -945,10 +941,7 @@ export default function Stage6Page() {
       return;
     }
 
-    const revContrib = projectContrib.reduce(
-      (s, p) => s + p.deltaRevenueTotal,
-      0,
-    );
+    const revContrib = projectContrib.reduce((s, p) => s + p.deltaRevenueTotal, 0);
     const opContrib = projectContrib.reduce((s, p) => s + p.deltaOpTotal, 0);
 
     console.log('[stage6][diag] financePL', {
@@ -1005,12 +998,24 @@ export default function Stage6Page() {
     });
 
     // ★ TASK 1-2: 末尾年（tail）比較ログ
-    const baselineTailRev = baselineYearlyArr.length > 0 ? baselineYearlyArr[baselineYearlyArr.length - 1].revenue ?? 0 : 0;
-    const baselineTailOp = baselineYearlyArr.length > 0 ? baselineYearlyArr[baselineYearlyArr.length - 1].op_income ?? 0 : 0;
-    const allTailRev = allYearlyArr.length > 0 ? allYearlyArr[allYearlyArr.length - 1].revenue ?? 0 : 0;
-    const allTailOp = allYearlyArr.length > 0 ? allYearlyArr[allYearlyArr.length - 1].op_income ?? 0 : 0;
-    const selectedTailRev = selectedYearlyArr.length > 0 ? selectedYearlyArr[selectedYearlyArr.length - 1].revenue ?? 0 : 0;
-    const selectedTailOp = selectedYearlyArr.length > 0 ? selectedYearlyArr[selectedYearlyArr.length - 1].op_income ?? 0 : 0;
+    const baselineTailRev =
+      baselineYearlyArr.length > 0 ? baselineYearlyArr[baselineYearlyArr.length - 1].revenue ?? 0 : 0;
+    const baselineTailOp =
+      baselineYearlyArr.length > 0
+        ? baselineYearlyArr[baselineYearlyArr.length - 1].op_income ?? 0
+        : 0;
+    const allTailRev =
+      allYearlyArr.length > 0 ? allYearlyArr[allYearlyArr.length - 1].revenue ?? 0 : 0;
+    const allTailOp =
+      allYearlyArr.length > 0 ? allYearlyArr[allYearlyArr.length - 1].op_income ?? 0 : 0;
+    const selectedTailRev =
+      selectedYearlyArr.length > 0
+        ? selectedYearlyArr[selectedYearlyArr.length - 1].revenue ?? 0
+        : 0;
+    const selectedTailOp =
+      selectedYearlyArr.length > 0
+        ? selectedYearlyArr[selectedYearlyArr.length - 1].op_income ?? 0
+        : 0;
 
     console.log('[stage6][diag] tail compare (last year)', {
       baseline: { rev: baselineTailRev, op: baselineTailOp },
@@ -1067,7 +1072,17 @@ export default function Stage6Page() {
       effectiveSelectedKeys_sample: effectiveSelectedKeys.slice(0, 3),
       selectedProjectKeys_count: selectedProjectKeys.length,
     });
-  }, [DEBUG, core.ready, core.baselineYearly, core.yearlyAll, selectedYearly, financePL, projectContrib, allProjectKeys, effectiveSelectedKeys, selectedProjectKeys]);
+  }, [
+    core.ready,
+    core.baselineYearly,
+    core.yearlyAll,
+    selectedYearly,
+    financePL,
+    projectContrib,
+    allProjectKeys,
+    effectiveSelectedKeys,
+    selectedProjectKeys,
+  ]);
 
   /* =========================================================
    * ④ 指標（売上成長率・営業利益率）
@@ -1148,13 +1163,12 @@ export default function Stage6Page() {
         selectedOp: chartData[chartData.length - 1]?.selectedOp,
       },
     });
-  }, [DEBUG, core.ready, chartData, scenarioKey]);
+  }, [core.ready, chartData, scenarioKey]);
 
   /* =========================================================
    * UI helpers
    * ======================================================= */
 
-  // ★ companyName は既に Line 65 で selector で取得済み
   const approvedFiltered = useMemo(() => {
     if (!core.ready) return [] as ApprovedProject[];
 
@@ -1162,10 +1176,7 @@ export default function Stage6Page() {
     return core.approved.filter((p) => p.dept === deptFilter);
   }, [core.ready, core.approved, deptFilter]);
 
-  const selectedSet = useMemo(
-    () => new Set(selectedProjectKeys),
-    [selectedProjectKeys],
-  );
+  const selectedSet = useMemo(() => new Set(selectedProjectKeys), [selectedProjectKeys]);
 
   const selectedSummary = useMemo(() => {
     const baseline = core.baselineYearly ?? [];
@@ -1211,10 +1222,7 @@ export default function Stage6Page() {
    * ======================================================= */
 
   const diagnostics = useMemo(() => {
-    // ★ 修正：selector で取得した値を使用
-    const departmentCount = Array.isArray(departments)
-      ? departments.length
-      : 0;
+    const departmentCount = Array.isArray(departments) ? departments.length : 0;
 
     let projectTotal = 0;
     let okrTotal = 0;
@@ -1230,7 +1238,8 @@ export default function Stage6Page() {
           okrTotal += okrsV2.length;
 
           okrsV2.forEach((kr: any) => {
-            if (kr && kr.kind && kr.baseKey && typeof kr.target === 'number') {
+            const kind = normalizeKind(kr?.kind);
+            if (kr && kind && kr.baseKey && typeof kr.target === 'number') {
               structuredKrTotal += 1;
             }
           });
@@ -1238,9 +1247,7 @@ export default function Stage6Page() {
       });
     }
 
-    const financePLCount = Array.isArray(financePL)
-      ? financePL.length
-      : 0;
+    const financePLCount = Array.isArray(financePL) ? financePL.length : 0;
     const hasPL = financePLCount > 0;
 
     return {
@@ -1287,21 +1294,15 @@ export default function Stage6Page() {
       <div className="mx-auto max-w-7xl px-4 pb-12 pt-8 md:px-6 md:pt-10">
         {/* 診断パネル（開発用） */}
         <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4">
-          <div className="mb-3 text-xs font-semibold text-blue-900">
-            📊 データロード状態（開発用診断）
-          </div>
+          <div className="mb-3 text-xs font-semibold text-blue-900">📊 データロード状態（開発用診断）</div>
           <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8">
             <div className="rounded bg-white px-2 py-1">
               <div className="font-medium text-blue-600">部門</div>
-              <div className="font-bold text-blue-900">
-                {diagnostics.departmentCount}
-              </div>
+              <div className="font-bold text-blue-900">{diagnostics.departmentCount}</div>
             </div>
             <div className="rounded bg-white px-2 py-1">
               <div className="font-medium text-blue-600">プロジェクト</div>
-              <div className="font-bold text-blue-900">
-                {diagnostics.projectTotal}
-              </div>
+              <div className="font-bold text-blue-900">{diagnostics.projectTotal}</div>
             </div>
             <div className="rounded bg-white px-2 py-1">
               <div className="font-medium text-blue-600">OKR</div>
@@ -1309,43 +1310,27 @@ export default function Stage6Page() {
             </div>
             <div className="rounded bg-white px-2 py-1">
               <div className="font-medium text-blue-600">構造化KR</div>
-              <div className="font-bold text-blue-900">
-                {diagnostics.structuredKrTotal}
-              </div>
+              <div className="font-bold text-blue-900">{diagnostics.structuredKrTotal}</div>
             </div>
             <div className="rounded bg-white px-2 py-1">
               <div className="font-medium text-blue-600">財務PL</div>
-              <div
-                className={`font-bold ${
-                  diagnostics.hasPL ? 'text-green-700' : 'text-red-700'
-                }`}
-              >
+              <div className={`font-bold ${diagnostics.hasPL ? 'text-green-700' : 'text-red-700'}`}>
                 {diagnostics.financePLCount}
               </div>
             </div>
             <div className="rounded bg-white px-2 py-1">
               <div className="font-medium text-blue-600">Revision</div>
-              <div className="font-bold text-blue-900">
-                {diagnostics.revision ?? '-'}
-              </div>
+              <div className="font-bold text-blue-900">{diagnostics.revision ?? '-'}</div>
             </div>
             <div className="rounded bg-white px-2 py-1">
               <div className="font-medium text-blue-600">Hydrated</div>
-              <div
-                className={`font-bold ${
-                  hydrated ? 'text-green-700' : 'text-red-700'
-                }`}
-              >
+              <div className={`font-bold ${hydrated ? 'text-green-700' : 'text-red-700'}`}>
                 {hydrated ? 'Yes' : 'No'}
               </div>
             </div>
             <div className="rounded bg-white px-2 py-1">
               <div className="font-medium text-blue-600">Ready</div>
-              <div
-                className={`font-bold ${
-                  core.ready ? 'text-green-700' : 'text-red-700'
-                }`}
-              >
+              <div className={`font-bold ${core.ready ? 'text-green-700' : 'text-red-700'}`}>
                 {core.ready ? 'Yes' : 'No'}
               </div>
             </div>
@@ -1369,9 +1354,7 @@ export default function Stage6Page() {
           </p>
           <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">
-                価値検証（会社の未来とプロジェクト寄与）
-              </h1>
+              <h1 className="text-3xl font-bold tracking-tight">価値検証（会社の未来とプロジェクト寄与）</h1>
               <p className="mt-1 text-sm text-slate-600">{companyName}</p>
             </div>
 
@@ -1405,9 +1388,7 @@ export default function Stage6Page() {
         <div className="space-y-6">
           <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="mb-4">
-              <h2 className="text-lg font-bold text-slate-900">
-                会社全体の推移（売上・営業利益）
-              </h2>
+              <h2 className="text-lg font-bold text-slate-900">会社全体の推移（売上・営業利益）</h2>
               <p className="mt-1 text-[12px] text-slate-600">
                 Baseline（影響なし）／全プロジェクト（Approved合算）／選択プロジェクト（複数選択合算）
               </p>
@@ -1415,21 +1396,14 @@ export default function Stage6Page() {
 
             {/* 売上 */}
             <div className="mb-6">
-              <div className="mb-2 text-sm font-semibold text-slate-800">
-                売上
-              </div>
+              <div className="mb-2 text-sm font-semibold text-slate-800">売上</div>
               <div className="h-[280px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="year" />
                     <YAxis tickFormatter={(v) => compactJPY(v)} />
-                    <ReTooltip
-                      formatter={(value: any, name: any) => [
-                        fmtJPY(Number(value)),
-                        name,
-                      ]}
-                    />
+                    <ReTooltip formatter={(value: any, name: any) => [fmtJPY(Number(value)), name]} />
                     <Legend />
                     <Line
                       type="monotone"
@@ -1463,21 +1437,14 @@ export default function Stage6Page() {
 
             {/* 営業利益 */}
             <div>
-              <div className="mb-2 text-sm font-semibold text-slate-800">
-                営業利益
-              </div>
+              <div className="mb-2 text-sm font-semibold text-slate-800">営業利益</div>
               <div className="h-[280px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="year" />
                     <YAxis tickFormatter={(v) => compactJPY(v)} />
-                    <ReTooltip
-                      formatter={(value: any, name: any) => [
-                        fmtJPY(Number(value)),
-                        name,
-                      ]}
-                    />
+                    <ReTooltip formatter={(value: any, name: any) => [fmtJPY(Number(value)), name]} />
                     <Legend />
                     <Line
                       type="monotone"
@@ -1517,20 +1484,14 @@ export default function Stage6Page() {
           {/* B. 企業価値に直結する最小指標（推移） */}
           <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="mb-4">
-              <h2 className="text-lg font-bold text-slate-900">
-                企業価値につながる指標（最小セット）
-              </h2>
-              <p className="mt-1 text-[12px] text-slate-600">
-                売上成長率（成長性）／営業利益率（収益性）
-              </p>
+              <h2 className="text-lg font-bold text-slate-900">企業価値につながる指標（最小セット）</h2>
+              <p className="mt-1 text-[12px] text-slate-600">売上成長率（成長性）／営業利益率（収益性）</p>
             </div>
 
             <div className="grid gap-6 md:grid-cols-2">
               {/* 売上成長率 */}
               <div>
-                <div className="mb-2 text-sm font-semibold text-slate-800">
-                  売上成長率（年次）
-                </div>
+                <div className="mb-2 text-sm font-semibold text-slate-800">売上成長率（年次）</div>
                 <div className="h-[240px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={indicatorSeries.growth}>
@@ -1538,10 +1499,7 @@ export default function Stage6Page() {
                       <XAxis dataKey="year" />
                       <YAxis tickFormatter={(v) => `${(v * 100).toFixed(0)}%`} />
                       <ReTooltip
-                        formatter={(value: any, name: any) => [
-                          `${(Number(value) * 100).toFixed(1)}%`,
-                          name,
-                        ]}
+                        formatter={(value: any, name: any) => [`${(Number(value) * 100).toFixed(1)}%`, name]}
                       />
                       <Legend />
                       <Line
@@ -1576,9 +1534,7 @@ export default function Stage6Page() {
 
               {/* 営業利益率 */}
               <div>
-                <div className="mb-2 text-sm font-semibold text-slate-800">
-                  営業利益率（年次）
-                </div>
+                <div className="mb-2 text-sm font-semibold text-slate-800">営業利益率（年次）</div>
                 <div className="h-[240px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={indicatorSeries.margin}>
@@ -1586,10 +1542,7 @@ export default function Stage6Page() {
                       <XAxis dataKey="year" />
                       <YAxis tickFormatter={(v) => `${(v * 100).toFixed(0)}%`} />
                       <ReTooltip
-                        formatter={(value: any, name: any) => [
-                          `${(Number(value) * 100).toFixed(1)}%`,
-                          name,
-                        ]}
+                        formatter={(value: any, name: any) => [`${(Number(value) * 100).toFixed(1)}%`, name]}
                       />
                       <Legend />
                       <Line
@@ -1628,9 +1581,7 @@ export default function Stage6Page() {
           <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
               <div>
-                <h2 className="text-lg font-bold text-slate-900">
-                  プロジェクト寄与（複数選択）
-                </h2>
+                <h2 className="text-lg font-bold text-slate-900">プロジェクト寄与（複数選択）</h2>
                 <p className="mt-1 text-[12px] text-slate-600">
                   チェックしたプロジェクトだけを合算し、会社推移の中で位置づけます（基準シナリオで寄与一覧を表示）。
                 </p>
@@ -1669,33 +1620,19 @@ export default function Stage6Page() {
             {/* 選択サマリー */}
             <div className="mb-4 grid gap-3 md:grid-cols-3">
               <div className="rounded-lg bg-slate-50 p-4">
-                <div className="text-[12px] font-semibold text-slate-600">
-                  選択PJ数
-                </div>
-                <div className="mt-1 text-lg font-bold text-slate-900">
-                  {selectedProjectKeys.length} 件
-                </div>
+                <div className="text-[12px] font-semibold text-slate-600">選択PJ数</div>
+                <div className="mt-1 text-lg font-bold text-slate-900">{selectedProjectKeys.length} 件</div>
               </div>
 
               <div className="rounded-lg bg-slate-50 p-4">
-                <div className="text-[12px] font-semibold text-slate-600">
-                  投資合計（選択PJ）
-                </div>
-                <div className="mt-1 text-lg font-bold text-slate-900">
-                  {fmtJPY(selectedSummary.invest)}
-                </div>
+                <div className="text-[12px] font-semibold text-slate-600">投資合計（選択PJ）</div>
+                <div className="mt-1 text-lg font-bold text-slate-900">{fmtJPY(selectedSummary.invest)}</div>
               </div>
 
               <div className="rounded-lg bg-slate-50 p-4">
-                <div className="text-[12px] font-semibold text-slate-600">
-                  営業利益差分（概算 / Baseline比）
-                </div>
-                <div className="mt-1 text-lg font-bold text-slate-900">
-                  {fmtJPY(selectedSummary.deltaOp)}
-                </div>
-                <div className="mt-1 text-[12px] text-slate-600">
-                  売上差分：{fmtJPY(selectedSummary.deltaRev)}
-                </div>
+                <div className="text-[12px] font-semibold text-slate-600">営業利益差分（概算 / Baseline比）</div>
+                <div className="mt-1 text-lg font-bold text-slate-900">{fmtJPY(selectedSummary.deltaOp)}</div>
+                <div className="mt-1 text-[12px] text-slate-600">売上差分：{fmtJPY(selectedSummary.deltaRev)}</div>
               </div>
             </div>
 
@@ -1704,27 +1641,13 @@ export default function Stage6Page() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200">
-                    <th className="px-3 py-2 text-left font-semibold text-slate-700">
-                      選択
-                    </th>
-                    <th className="px-3 py-2 text-left font-semibold text-slate-700">
-                      部門
-                    </th>
-                    <th className="px-3 py-2 text-left font-semibold text-slate-700">
-                      プロジェクト
-                    </th>
-                    <th className="px-3 py-2 text-right font-semibold text-slate-700">
-                      投資合計
-                    </th>
-                    <th className="px-3 py-2 text-right font-semibold text-slate-700">
-                      売上差分（概算）
-                    </th>
-                    <th className="px-3 py-2 text-right font-semibold text-slate-700">
-                      営業利益差分（概算）
-                    </th>
-                    <th className="px-3 py-2 text-right font-semibold text-slate-700">
-                      ROI（概算）
-                    </th>
+                    <th className="px-3 py-2 text-left font-semibold text-slate-700">選択</th>
+                    <th className="px-3 py-2 text-left font-semibold text-slate-700">部門</th>
+                    <th className="px-3 py-2 text-left font-semibold text-slate-700">プロジェクト</th>
+                    <th className="px-3 py-2 text-right font-semibold text-slate-700">投資合計</th>
+                    <th className="px-3 py-2 text-right font-semibold text-slate-700">売上差分（概算）</th>
+                    <th className="px-3 py-2 text-right font-semibold text-slate-700">営業利益差分（概算）</th>
+                    <th className="px-3 py-2 text-right font-semibold text-slate-700">ROI（概算）</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1735,10 +1658,7 @@ export default function Stage6Page() {
                     .map((p) => {
                       const checked = selectedSet.has(p.key);
                       return (
-                        <tr
-                          key={p.key}
-                          className="border-b border-slate-100 hover:bg-slate-50"
-                        >
+                        <tr key={p.key} className="border-b border-slate-100 hover:bg-slate-50">
                           <td className="px-3 py-2">
                             <input
                               type="checkbox"
@@ -1747,23 +1667,13 @@ export default function Stage6Page() {
                               className="h-4 w-4"
                             />
                           </td>
-                          <td className="px-3 py-2 font-medium text-slate-900">
-                            {p.dept}
-                          </td>
+                          <td className="px-3 py-2 font-medium text-slate-900">{p.dept}</td>
                           <td className="px-3 py-2 text-slate-700">{p.proj}</td>
+                          <td className="px-3 py-2 text-right text-slate-700">{fmtJPY(p.investTotal)}</td>
+                          <td className="px-3 py-2 text-right text-slate-700">{fmtJPY(p.deltaRevenueTotal)}</td>
+                          <td className="px-3 py-2 text-right text-slate-700">{fmtJPY(p.deltaOpTotal)}</td>
                           <td className="px-3 py-2 text-right text-slate-700">
-                            {fmtJPY(p.investTotal)}
-                          </td>
-                          <td className="px-3 py-2 text-right text-slate-700">
-                            {fmtJPY(p.deltaRevenueTotal)}
-                          </td>
-                          <td className="px-3 py-2 text-right text-slate-700">
-                            {fmtJPY(p.deltaOpTotal)}
-                          </td>
-                          <td className="px-3 py-2 text-right text-slate-700">
-                            {Number.isFinite(p.roi as any)
-                              ? `${((p.roi as number) * 100).toFixed(1)}%`
-                              : '-'}
+                            {Number.isFinite(p.roi as any) ? `${((p.roi as number) * 100).toFixed(1)}%` : '-'}
                           </td>
                         </tr>
                       );
@@ -1847,17 +1757,11 @@ function mkBaseFigures(strategyState: any): BaseFigures {
 
   return {
     revenue: latestPL?.revenue ?? 100000000,
-    acq: Math.max(
-      1000,
-      (latestPL?.revenue ?? 100000000) / (latestPL?.cogs ?? 100000),
-    ),
+    acq: Math.max(1000, (latestPL?.revenue ?? 100000000) / (latestPL?.cogs ?? 100000)),
     arpu: Math.max(
       50000,
       (latestPL?.revenue ?? 100000000) /
-        Math.max(
-          1000,
-          (latestPL?.revenue ?? 100000000) / (latestPL?.cogs ?? 100000),
-        ),
+        Math.max(1000, (latestPL?.revenue ?? 100000000) / (latestPL?.cogs ?? 100000)),
     ),
     churn: 0.02,
     fixed_cost: (latestPL?.sga ?? 10000000) / 12,
@@ -1881,24 +1785,31 @@ function calcYearlyFromKrs(args: {
 }): YearlyPL[] {
   const { baseTraj, baseFigures, krs, scenario } = args;
 
-  const scenarioKrs = krs.map((kr) => ({
-    ...kr,
-    target:
-      String((kr as any).kind ?? '') === 'SUCCESS_RATE'
-        ? (Number(kr.target) || 0) * scenario.successRate
-        : kr.target,
-  }));
+  // ★ 修正：BridgeKR.kind は union。string 比較ではなく union のまま扱う
+  // ★ unit は optional なので「値がある時だけ付与」
+  const scenarioKrs: BridgeKR[] = krs.map((kr) => {
+    const unit = normalizeUnit((kr as any).unit);
+
+    const target =
+      kr.kind === 'SUCCESS_RATE' ? (Number(kr.target) || 0) * scenario.successRate : kr.target;
+
+    return {
+      ...kr,
+      target,
+      ...(unit ? { unit } : {}),
+    };
+  });
 
   if (scenario.synergyRate !== 0) {
     scenarioKrs.push({
       id: `synergy-${Math.random().toString(36).slice(2)}`,
-      kind: 'SYNERGY' as any,
+      kind: 'SYNERGY',
       label: `相乗効果（シナリオ）`,
       target: scenario.synergyRate,
       unit: '%',
-      scope: 'company' as any,
-      baseKey: 'synergy' as any,
-    } as BridgeKR);
+      scope: 'company',
+      baseKey: 'synergy',
+    });
   }
 
   const bridgeInput: BridgeInput = {
@@ -1941,19 +1852,11 @@ function sumYearly(rows: YearlyPL[], key: 'revenue' | 'op_income'): number {
  * Indicators (growth/margin)
  * ======================================================= */
 
-function buildIndicators(args: {
-  baseline: YearlyPL[];
-  all: YearlyPL[];
-  selected: YearlyPL[];
-}) {
+function buildIndicators(args: { baseline: YearlyPL[]; all: YearlyPL[]; selected: YearlyPL[] }) {
   const { baseline, all, selected } = args;
 
   const years = Array.from(
-    new Set<number>([
-      ...baseline.map((x) => x.year),
-      ...all.map((x) => x.year),
-      ...selected.map((x) => x.year),
-    ]),
+    new Set<number>([...baseline.map((x) => x.year), ...all.map((x) => x.year), ...selected.map((x) => x.year)]),
   ).sort((a, b) => a - b);
 
   const map = (arr: YearlyPL[]) => {
@@ -2045,10 +1948,7 @@ function mkBaselineTrajectory(strategyState: any): BaseTrajectory | null {
   const endYm = `${year + 3}-12` as Ym;
 
   const months = ymRange(startYm, endYm);
-  const monthlyQty = Math.max(
-    1000,
-    (latestPL?.revenue ?? 100000000) / (latestPL?.cogs ?? 100000),
-  );
+  const monthlyQty = Math.max(1000, (latestPL?.revenue ?? 100000000) / (latestPL?.cogs ?? 100000));
   const monthlyArpu = Math.max(50000, (latestPL?.revenue ?? 100000000) / monthlyQty);
 
   const result: BaseTrajectory = {

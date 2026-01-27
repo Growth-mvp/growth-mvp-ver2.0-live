@@ -333,6 +333,8 @@ const FIELD_MAP: Record<string, string> = {
   weakness: 'weakness',
   opportunity: 'opportunity',
   threat: 'threat',
+  ceoIntent: 'ceo_intent',
+  swotSuggestions: 'swot_suggestions',
   mission: 'mission',
   vision: 'vision',
   value: 'value',
@@ -408,6 +410,10 @@ function buildDbRowFromState(state: StrategyData) {
     if (snake === 'business_segments') v = toDbJsonArray(v);
     if (snake === 'finance_summary') v = toDbFinanceSummary(v);
     if (snake === 'business_portfolio') v = toDbBusinessPortfolio(v);
+    if (snake === 'swot_suggestions') {
+      // swotSuggestions は object のまま保持
+      v = (typeof v === 'object' && !Array.isArray(v)) ? v : null;
+    }
     row[snake] = v;
   }
   return row;
@@ -432,6 +438,13 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   out.businessSegments = ensureArray(out.businessSegments);
   out.financeSummary = toUiFinanceSummary(out.financeSummary);
   out.businessPortfolio = toUiBusinessPortfolio(out.businessPortfolio);
+
+  // swotSuggestions is object - restore as-is if present
+  if (out.swotSuggestions && typeof out.swotSuggestions === 'object' && !Array.isArray(out.swotSuggestions)) {
+    // Already in the right format
+  } else {
+    out.swotSuggestions = undefined;
+  }
 
   // ★ 診断ログ：buildStateFromDbRow での stage1Issues 復元状況
   if (DEBUG && (Array.isArray(out.stage1Issues) && out.stage1Issues.length > 0)) {

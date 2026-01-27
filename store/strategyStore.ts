@@ -188,10 +188,16 @@ export type StrategyState = {
   mission?: string;
   vision?: string;
   value?: string;
+  ceoIntent?: string;
   strength?: string;
   weakness?: string;
   opportunity?: string;
   threat?: string;
+  swotSuggestions?: {
+    opportunity?: string[];
+    threat?: string[];
+    generatedAt?: string;
+  };
 
   /* 物語 / 部門 */
   story: ChapterStory[];
@@ -366,8 +372,14 @@ export type StrategyState = {
   upsertSegmentBS: (segName: string, rows: SegmentBSRow[]) => void;
   setBusinessSegmentsWithSync: (segments: BusinessSegment[]) => void;
 
-  setMVV: (patch: Partial<Pick<StrategyState, 'thought' | 'mission' | 'vision' | 'value'>>) => void;
+  setMVV: (patch: Partial<Pick<StrategyState, 'thought' | 'mission' | 'vision' | 'value' | 'ceoIntent'>>) => void;
   setSWOT: (patch: Partial<Pick<StrategyState, 'strength' | 'weakness' | 'opportunity' | 'threat'>>) => void;
+  setCeoIntent: (text: string) => void;
+  setSwotSuggestions: (suggestions?: { opportunity?: string[]; threat?: string[]; generatedAt?: string }) => void;
+  addSwotOpportunity: (text: string) => void;
+  addSwotThreat: (text: string) => void;
+  removeSwotOpportunity: (textOrIndex: string | number) => void;
+  removeSwotThreat: (textOrIndex: string | number) => void;
 
   setDepartments: (deps: SafeDepartmentsArg) => void;
   updateDepartments: (updater: (prev: Department[]) => Department[]) => void;
@@ -514,11 +526,13 @@ function buildSavePayload(s: StrategyState) {
     vision: s.vision,
     value: s.value,
     thought: s.thought,
+    ceoIntent: s.ceoIntent,
 
     strength: s.strength,
     weakness: s.weakness,
     opportunity: s.opportunity,
     threat: s.threat,
+    swotSuggestions: s.swotSuggestions,
 
     winPatterns: s.winPatterns,
     winPatternPrimary: s.winPatternPrimary,
@@ -634,6 +648,9 @@ function extractServerDecidedPatch(
   if (typeof resData.mission === 'string') patch.mission = resData.mission;
   if (typeof resData.vision === 'string') patch.vision = resData.vision;
   if (typeof resData.value === 'string') patch.value = resData.value;
+  if (typeof resData.ceoIntent === 'string') patch.ceoIntent = resData.ceoIntent;
+
+  if (resData.swotSuggestions && typeof resData.swotSuggestions === 'object') patch.swotSuggestions = resData.swotSuggestions;
 
   return patch;
 }
@@ -780,10 +797,12 @@ const emptyData: StrategyState = {
   mission: '',
   vision: '',
   value: '',
+  ceoIntent: '',
   strength: '',
   weakness: '',
   opportunity: '',
   threat: '',
+  swotSuggestions: undefined,
   story: [],
   finalStory: [],
   answers2: [],
@@ -855,6 +874,12 @@ const emptyData: StrategyState = {
 
   setMVV: () => {},
   setSWOT: () => {},
+  setCeoIntent: () => {},
+  setSwotSuggestions: () => {},
+  addSwotOpportunity: () => {},
+  addSwotThreat: () => {},
+  removeSwotOpportunity: () => {},
+  removeSwotThreat: () => {},
   setDepartments: () => {},
   updateDepartments: () => {},
   setBusinessPortfolio: () => {},
@@ -1640,6 +1665,61 @@ export const useStrategyStore = create<StrategyState>()(
 
       setMVV: (patch) => set((s) => ({ ...s, ...patch, dirty: true })),
       setSWOT: (patch) => set((s) => ({ ...s, ...patch, dirty: true })),
+
+      setCeoIntent: (text: string) => set((s) => ({ ...s, ceoIntent: text.trim(), dirty: true })),
+
+      setSwotSuggestions: (suggestions) =>
+        set((s) => ({ ...s, swotSuggestions: suggestions, dirty: true })),
+
+      addSwotOpportunity: (text: string) => {
+        const trimmed = text.trim();
+        if (!trimmed) return;
+        set((s) => {
+          const current = s.opportunity ? s.opportunity.split('\n').filter(Boolean) : [];
+          if (!current.includes(trimmed)) {
+            current.push(trimmed);
+          }
+          return { ...s, opportunity: current.join('\n'), dirty: true };
+        });
+      },
+
+      addSwotThreat: (text: string) => {
+        const trimmed = text.trim();
+        if (!trimmed) return;
+        set((s) => {
+          const current = s.threat ? s.threat.split('\n').filter(Boolean) : [];
+          if (!current.includes(trimmed)) {
+            current.push(trimmed);
+          }
+          return { ...s, threat: current.join('\n'), dirty: true };
+        });
+      },
+
+      removeSwotOpportunity: (textOrIndex) => {
+        set((s) => {
+          const current = s.opportunity ? s.opportunity.split('\n').filter(Boolean) : [];
+          if (typeof textOrIndex === 'number') {
+            current.splice(textOrIndex, 1);
+          } else {
+            const idx = current.indexOf(textOrIndex);
+            if (idx >= 0) current.splice(idx, 1);
+          }
+          return { ...s, opportunity: current.join('\n'), dirty: true };
+        });
+      },
+
+      removeSwotThreat: (textOrIndex) => {
+        set((s) => {
+          const current = s.threat ? s.threat.split('\n').filter(Boolean) : [];
+          if (typeof textOrIndex === 'number') {
+            current.splice(textOrIndex, 1);
+          } else {
+            const idx = current.indexOf(textOrIndex);
+            if (idx >= 0) current.splice(idx, 1);
+          }
+          return { ...s, threat: current.join('\n'), dirty: true };
+        });
+      },
 
       // ▼ 部門セット後に即座に保存（※ ensureParentExists は呼ばない：二重保存を防ぐ）
       setDepartments: (deps) => {
