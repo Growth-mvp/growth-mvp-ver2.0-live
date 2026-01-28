@@ -1354,6 +1354,7 @@ export type Stage2FinalOutput = {
  * - MVV, SWOT, ストーリードラフト, 勝ち筋候補を包括
  */
 export type Stage2State = {
+  ceoIntent?: string; // ✅ 追加：経営者の思い
   /** MVV */
   mvv: {
     thought?: string;
