@@ -878,6 +878,31 @@ export default function Stage2Page() {
 
     const st = snapshot.state;
 
+    // ✅ ceoIntent 復元（snapshot → store）
+    if (typeof (st as any).ceoIntent === 'string') {
+      useStrategyStore.getState().setCeoIntent((st as any).ceoIntent);
+    }
+
+    // ✅ MVV 復元（snapshot → store）
+    if (st.mvv) {
+      useStrategyStore.getState().setMVV({
+        thought: st.mvv.thought ?? '',
+        mission: st.mvv.mission ?? '',
+        vision: st.mvv.vision ?? '',
+        value: st.mvv.value ?? '',
+      });
+    }
+
+    // ✅ SWOT 復元（snapshot → store）
+    if (st.swot) {
+      useStrategyStore.getState().setSWOT({
+        strength: st.swot.strength ?? '',
+        weakness: st.swot.weakness ?? '',
+        opportunity: st.swot.opportunity ?? '',
+        threat: st.swot.threat ?? '',
+      });
+    }
+
     // storyDraft
     const sd = st.storyDraft ?? [];
     if (Array.isArray(sd) && sd.length > 0) {
@@ -934,6 +959,53 @@ export default function Stage2Page() {
       restoreStage2Snapshot();
     }
   }, [hydrated, loadStage1Data, restoreStage2Snapshot]);
+
+  // ✅ Stage2 入力の自動スナップショット保存（debounce）
+  // - 生成ボタンを押さなくても localStorage に残す
+  useEffect(() => {
+    if (!stage2Ready) return;
+
+    const t = window.setTimeout(() => {
+      const stage2State: Stage2State = {
+        ceoIntent,
+        mvv: { thought, mission, vision, value },
+        swot: { strength, weakness, opportunity, threat },
+        storyDraft,
+        winPatternsCandidate,
+        answers12,
+        finalStory,
+      };
+
+      saveStage2SnapshotToLocalStorage(stage2State, companyId ?? undefined);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Stage2] autosave snapshot', {
+          ceoIntentLen: ceoIntent?.length ?? 0,
+          answered: answers12?.filter((a) => a.answer?.trim()).length ?? 0,
+          hasDraft: storyDraft?.length ?? 0,
+          hasWin: winPatternsCandidate?.length ?? 0,
+          hasFinal: finalStory?.length ?? 0,
+        });
+      }
+    }, 300);
+
+    return () => window.clearTimeout(t);
+  }, [
+    stage2Ready,
+    companyId,
+    ceoIntent,
+    thought,
+    mission,
+    vision,
+    value,
+    strength,
+    weakness,
+    opportunity,
+    threat,
+    answers12,
+    storyDraft,
+    winPatternsCandidate,
+    finalStory,
+  ]);
 
   // ★ Development環境での fetch フック（限定版：/api/stage2/ は素通し）
   useEffect(() => {
@@ -1274,10 +1346,12 @@ export default function Stage2Page() {
         setActiveTab('draft');
 
         const stage2State: Stage2State = {
+          ceoIntent,
           mvv: { thought, mission, vision, value },
           swot: { strength, weakness, opportunity, threat },
           storyDraft: newStoryDraft,
           winPatternsCandidate: newWinPatterns,
+          answers12,
         };
         saveStage2SnapshotToLocalStorage(stage2State, companyId ?? undefined);
 
@@ -1437,6 +1511,7 @@ export default function Stage2Page() {
       setActiveTab('final');
 
       const stage2State: Stage2State = {
+        ceoIntent,
         mvv: { thought, mission, vision, value },
         swot: { strength, weakness, opportunity, threat },
         storyDraft,
