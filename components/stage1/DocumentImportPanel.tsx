@@ -290,14 +290,18 @@ export default function DocumentImportPanel() {
       pbr: [],
     };
 
+    const unmapped: Stage1ImportCandidate[] = [];
     for (const c of candidates) {
       const k = resolveTabKey(c as any);
-      if (!k) continue;
+      if (!k) {
+        unmapped.push(c);
+        continue;
+      }
       groups[k].push(c);
     }
 
     // ★ DEBUG：グループ化結果をログ
-    if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+    if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1' || unmapped.length > 0) {
       const segmentPLSegs = new Set<string>();
       const segmentBSSegs = new Set<string>();
 
@@ -318,6 +322,8 @@ export default function DocumentImportPanel() {
         segmentBS: groups.segmentBS.length,
         segmentBSSegments: Array.from(segmentBSSegs),
         pbr: groups.pbr.length,
+        unmappedCount: unmapped.length,
+        unmappedKinds: unmapped.map((c) => (c as any).kind),
       });
     }
 
@@ -473,6 +479,25 @@ export default function DocumentImportPanel() {
     let appliedCount = 0;
     let appliedSegmentAnything = false;
 
+    // ★ DEBUG：適用ボタン押下時の詳細ログ
+    console.log('[DocumentImportPanel] handleApply START', {
+      totalCandidates: candidates.length,
+      groupedByKind: {
+        companyPL: groupedCandidates.companyPL.length,
+        companyBS: groupedCandidates.companyBS.length,
+        segmentPL: groupedCandidates.segmentPL.length,
+        segmentBS: groupedCandidates.segmentBS.length,
+        pbr: groupedCandidates.pbr.length,
+      },
+      currentStoreState: {
+        financePL_len: financePL?.length ?? 0,
+        financeBS_len: financeBS?.length ?? 0,
+        segmentPL_keys: Object.keys(segmentPL ?? {}).length,
+        segmentBS_keys: Object.keys(segmentBS ?? {}).length,
+        businessSegments_len: businessSegments?.length ?? 0,
+      },
+    });
+
     // 事業部名の収集（適用後に businessSegments を自動登録する）
     const importedSegNames = new Set<string>();
     for (const c of [...groupedCandidates.segmentPL, ...groupedCandidates.segmentBS]) {
@@ -500,6 +525,11 @@ export default function DocumentImportPanel() {
 
       const newPL = Array.from(plMap.values()).sort((a, b) => a.year - b.year);
       setFinancePL(newPL);
+      console.log('[DocumentImportPanel] companyPL applied', {
+        candidatesCount: plCandidates.length,
+        appliedRowCount: newPL.length,
+        yearsInNewPL: newPL.map((r) => r.year),
+      });
     }
 
     // BS候補を適用
@@ -522,6 +552,11 @@ export default function DocumentImportPanel() {
 
       const newBS = Array.from(bsMap.values()).sort((a, b) => a.year - b.year);
       setFinanceBS(newBS);
+      console.log('[DocumentImportPanel] companyBS applied', {
+        candidatesCount: bsCandidates.length,
+        appliedRowCount: newBS.length,
+        yearsInNewBS: newBS.map((r) => r.year),
+      });
     }
 
     // segmentPL候補を適用（segmentName 表記ゆれ吸収 + year 正規化）
@@ -653,6 +688,20 @@ export default function DocumentImportPanel() {
       const merged = mergeBusinessSegments(businessSegments, Array.from(importedSegNames));
       setBusinessSegments(merged);
     }
+
+    // ★ DEBUG：適用完了時の最終状態をログ
+    console.log('[DocumentImportPanel] handleApply COMPLETE', {
+      totalAppliedCount: appliedCount,
+      appliedSegmentAnything,
+      importedSegmentNames: Array.from(importedSegNames),
+      finalStoreState: {
+        financePL_len: financePL?.length ?? 0,
+        financeBS_len: financeBS?.length ?? 0,
+        segmentPL_keys: Object.keys(segmentPL ?? {}).length,
+        segmentBS_keys: Object.keys(segmentBS ?? {}).length,
+        businessSegments_len: businessSegments?.length ?? 0,
+      },
+    });
 
     // valueAnalysis を再計算（引数は union に収まる値のみ）
     setTimeout(() => {
