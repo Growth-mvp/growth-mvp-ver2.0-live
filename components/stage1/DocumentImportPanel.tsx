@@ -553,6 +553,17 @@ export default function DocumentImportPanel() {
         appliedRowCount: newPL.length,
         yearsInNewPL: newPL.map((r) => r.year),
       });
+
+      // ★ DEBUG：setFinancePL 直後のスナップショット
+      setTimeout(() => {
+        const s = useStrategyStore.getState();
+        console.log('[DocumentImportPanel] after setFinancePL snapshot', {
+          financePL_len: s.financePL?.length ?? null,
+          financeBS_len: s.financeBS?.length ?? null,
+          segmentPL_keys: Object.keys(s.segmentPL ?? {}),
+          segmentBS_keys: Object.keys(s.segmentBS ?? {}),
+        });
+      }, 10);
     }
 
     // BS候補を適用
@@ -580,6 +591,17 @@ export default function DocumentImportPanel() {
         appliedRowCount: newBS.length,
         yearsInNewBS: newBS.map((r) => r.year),
       });
+
+      // ★ DEBUG：setFinanceBS 直後のスナップショット
+      setTimeout(() => {
+        const s = useStrategyStore.getState();
+        console.log('[DocumentImportPanel] after setFinanceBS snapshot', {
+          financePL_len: s.financePL?.length ?? null,
+          financeBS_len: s.financeBS?.length ?? null,
+          segmentPL_keys: Object.keys(s.segmentPL ?? {}),
+          segmentBS_keys: Object.keys(s.segmentBS ?? {}),
+        });
+      }, 10);
     }
 
     // segmentPL候補を適用（segmentName 表記ゆれ吸収 + year 正規化）
@@ -634,6 +656,20 @@ export default function DocumentImportPanel() {
       }
 
       setSegmentPL(newSegmentPL);
+
+      // ★ DEBUG：setSegmentPL 直後のスナップショット
+      setTimeout(() => {
+        const s = useStrategyStore.getState();
+        console.log('[DocumentImportPanel] after setSegmentPL snapshot', {
+          financePL_len: s.financePL?.length ?? null,
+          financeBS_len: s.financeBS?.length ?? null,
+          segmentPL_keys: Object.keys(s.segmentPL ?? {}),
+          segmentPL_distribution: Object.fromEntries(
+            Object.entries(s.segmentPL ?? {}).map(([k, v]) => [k, (v as any)?.length ?? 0])
+          ),
+          segmentBS_keys: Object.keys(s.segmentBS ?? {}),
+        });
+      }, 10);
     }
 
     // segmentBS候補を適用（segmentName 表記ゆれ吸収 + year 正規化）
@@ -694,6 +730,20 @@ export default function DocumentImportPanel() {
       }
 
       setSegmentBS(newSegmentBS);
+
+      // ★ DEBUG：setSegmentBS 直後のスナップショット
+      setTimeout(() => {
+        const s = useStrategyStore.getState();
+        console.log('[DocumentImportPanel] after setSegmentBS snapshot', {
+          financePL_len: s.financePL?.length ?? null,
+          financeBS_len: s.financeBS?.length ?? null,
+          segmentPL_keys: Object.keys(s.segmentPL ?? {}),
+          segmentBS_keys: Object.keys(s.segmentBS ?? {}),
+          segmentBS_distribution: Object.fromEntries(
+            Object.entries(s.segmentBS ?? {}).map(([k, v]) => [k, (v as any)?.length ?? 0])
+          ),
+        });
+      }, 10);
     }
 
     // PBR候補を適用
