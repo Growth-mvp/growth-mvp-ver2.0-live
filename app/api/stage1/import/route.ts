@@ -8,6 +8,10 @@
  * - 事業部別CSVが candidates 0 件になる問題へのフォールバック解析を強化
  *   - 「事業部,項目,2022年度,...」の matrix 形式（ヘッダ名の揺れ許容）
  *   - 「kind,segmentName,year,...」の long 形式（ヘッダ名の揺れ許容）
+ *
+ * ★今回の修正（確定）
+ * - long形式が segmentPL/segmentBS しか候補化しない制約を撤廃（companyPL/companyBS も許可）
+ * - 1ファイル統合向け matrix（kind,segmentName,item,2019年度,...）を正式対応
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -229,6 +233,48 @@ function detectMatrixColumns(headers: string[]): {
   return { segIdx, itemIdx, yearCols };
 }
 
+/**
+ * ★統合1ファイル向け matrix（kind,segmentName,item,2019年度,...）の列位置を検出
+ * - kind, segmentName, item が必須
+ * - 年度列（2019/2020/.. または 2019年度 等）が複数
+ */
+function detectMatrixWithKindColumns(headers: string[]): {
+  kindIdx: number;
+  segIdx: number;
+  itemIdx: number;
+  yearCols: Array<{ col: number; year: number }>;
+} | null {
+  if (!headers || headers.length < 4) return null;
+
+  const yearCols: Array<{ col: number; year: number }> = [];
+  for (let i = 0; i < headers.length; i++) {
+    const y = headerToYear(headers[i]);
+    if (y) yearCols.push({ col: i, year: y });
+  }
+  if (yearCols.length === 0) return null;
+
+  const lower = headers.map((h) => normalizeHeaderKey(h));
+
+  const kindIdx = lower.findIndex((h) => h === 'kind');
+  const segIdx = lower.findIndex(
+    (h) =>
+      h === 'segmentname' ||
+      h === 'segment_name' ||
+      h === 'segment' ||
+      /事業部|セグメント/.test(h)
+  );
+  const itemIdx = lower.findIndex((h) => h === 'item' || /項目|科目|勘定/.test(h));
+
+  if (kindIdx < 0 || segIdx < 0 || itemIdx < 0) return null;
+
+  const yearSet = new Set(yearCols.map((y) => y.col));
+  if (yearSet.has(kindIdx) || yearSet.has(segIdx) || yearSet.has(itemIdx)) return null;
+
+  if (kindIdx === segIdx || kindIdx === itemIdx || segIdx === itemIdx) return null;
+
+  return { kindIdx, segIdx, itemIdx, yearCols };
+}
+
 /** long形式の列位置を検出（ヘッダ名の揺れを許容） */
 function detectLongColumns(headers: string[]): {
   kindIdx: number;
@@ -278,16 +324,77 @@ function buildCandidatesFromCsvFallback(
   const headers = rows[0].map((c) => normalizeText(c));
   const body = rows.slice(1);
 
+  // 0) ★統合1ファイル matrix（kind付き）形式
+  const matKind = detectMatrixWithKindColumns(headers);
+  if (matKind) {
+    hintsOut.push(
+      `${filename}: CSVフォールバック解析（matrix+kind） kindIdx=${matKind.kindIdx}, segIdx=${matKind.segIdx}, itemIdx=${matKind.itemIdx}, years=${matKind.yearCols.length}`
+    );
+
+    const bucket = new Map<
+      string,
+      { kind: TabKey; year: number; segmentName: string; fields: Record<string, number> }
+    >();
+
+    for (const r of body) {
+      const kind = normalizeKind(r[matKind.kindIdx]);
+      const segRaw = normalizeText(r[matKind.segIdx]);
+      const seg = segRaw || '全社';
+      const itemRaw = normalizeText(r[matKind.itemIdx]);
+
+      if (!kind || !itemRaw) continue;
+
+      const item = normalizeItemName(itemRaw);
+      const itemLower = item.toLowerCase();
+
+      const plKey = PL_ITEM_MAP[item] || PL_ITEM_MAP[itemLower];
+      const bsKey = BS_ITEM_MAP[item] || BS_ITEM_MAP[itemLower];
+
+      // kindに応じて、PL/BSどちらのマップを採用するか決める
+      let fieldKey: string | null = null;
+      if (kind === 'companyPL' || kind === 'segmentPL') fieldKey = plKey ?? null;
+      if (kind === 'companyBS' || kind === 'segmentBS') fieldKey = bsKey ?? null;
+      if (!fieldKey) continue;
+
+      for (const yc of matKind.yearCols) {
+        const v = toNum(r[yc.col]);
+        if (v === undefined) continue;
+
+        const key = `${kind}::${seg}::${yc.year}`;
+        if (!bucket.has(key)) bucket.set(key, { kind, year: yc.year, segmentName: seg, fields: {} });
+
+        bucket.get(key)!.fields[fieldKey] = v;
+      }
+    }
+
+    const out: Stage1ImportCandidate[] = [];
+    for (const rec of bucket.values()) {
+      if (Object.keys(rec.fields).length === 0) continue;
+      out.push({
+        kind: rec.kind as any,
+        year: rec.year as any,
+        segmentName: rec.segmentName as any,
+        fields: rec.fields as any,
+        confidence: 0.97 as any,
+        source: filename as any,
+      } as any);
+    }
+    return out;
+  }
+
   // 1) long形式
   const long = detectLongColumns(headers);
   if (long) {
     const out: Stage1ImportCandidate[] = [];
     for (const r of body) {
       const kind = normalizeKind(r[long.kindIdx]);
-      const seg = normalizeText(r[long.segIdx]);
+      const segRaw = normalizeText(r[long.segIdx]);
+      const seg = segRaw || '全社';
       const year = Number(normalizeText(r[long.yearIdx]));
-      if (!kind || !seg || !Number.isFinite(year)) continue;
-      if (kind !== 'segmentPL' && kind !== 'segmentBS') continue;
+      if (!kind || !Number.isFinite(year)) continue;
+
+      // ★修正：companyPL/companyBS も通す（統合1ファイル対応）
+      // 以前は segmentPL/segmentBS に限定していたため、全社が候補化されないバグになっていた
 
       const fields: Record<string, number> = {};
       for (const fc of long.fieldCols) {
@@ -313,7 +420,7 @@ function buildCandidatesFromCsvFallback(
     return out;
   }
 
-  // 2) matrix形式
+  // 2) matrix形式（従来：事業部,項目,2019年度,...）
   const mat = detectMatrixColumns(headers);
   if (!mat) {
     hintsOut.push(
