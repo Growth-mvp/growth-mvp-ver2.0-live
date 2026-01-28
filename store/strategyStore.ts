@@ -2315,6 +2315,7 @@ export const useStrategyStore = create<StrategyState>()(
       saveStage2Snapshot: () => {
         const s = get();
         const state: Stage2State = {
+          ceoIntent: s.ceoIntent,
           mvv: {
             thought: s.thought,
             mission: s.mission,
@@ -2380,6 +2381,7 @@ export const useStrategyStore = create<StrategyState>()(
 
         story: s.story,
         finalStory: s.finalStory,
+        ceoIntent: s.ceoIntent, // ✅ 追加：経営者の思いを persist 対象に含める
         answers2: s.answers2,
         departments: s.departments,
 
