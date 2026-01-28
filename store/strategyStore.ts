@@ -1514,11 +1514,35 @@ export const useStrategyStore = create<StrategyState>()(
 
       /* STAGE1 財務データ setter */
       setFinancePL: (rows) => {
+        // ★ DEBUG：入力ログ（弾き判定用）
+        console.log('[strategyStore] setFinancePL input', {
+          len: Array.isArray(rows) ? rows.length : 'not-array',
+          sample: Array.isArray(rows) && rows.length > 0 ? rows[0] : null,
+          allYears: Array.isArray(rows) ? rows.map((r: any) => ({ year: r.year, yearType: typeof r.year })) : null,
+        });
+
         set((s) => ({ ...s, financePL: rows, dirty: true }));
+
+        // ★ DEBUG：set直後の確認
+        setTimeout(() => {
+          const after = get().financePL;
+          console.log('[strategyStore] setFinancePL accepted', {
+            len: after?.length ?? 0,
+            sample: after?.[0] ?? null,
+          });
+        }, 0);
+
         setTimeout(() => get().recomputeValueAnalysis('setFinancePL'), 0);
       },
 
       setFinanceBS: (rows) => {
+        // ★ DEBUG：入力ログ（弾き判定用）
+        console.log('[strategyStore] setFinanceBS input', {
+          len: Array.isArray(rows) ? rows.length : 'not-array',
+          sample: Array.isArray(rows) && rows.length > 0 ? rows[0] : null,
+          allYears: Array.isArray(rows) ? rows.map((r: any) => ({ year: r.year, yearType: typeof r.year })) : null,
+        });
+
         if (DEBUG) {
           console.log('[strategyStore] setFinanceBS called', {
             rowsLen: Array.isArray(rows) ? rows.length : '?',
@@ -1542,10 +1566,31 @@ export const useStrategyStore = create<StrategyState>()(
           },
           dirty: true,
         }));
+
+        // ★ DEBUG：set直後の確認
+        setTimeout(() => {
+          const after = get().financeBS;
+          console.log('[strategyStore] setFinanceBS accepted', {
+            len: after?.length ?? 0,
+            sample: after?.[0] ?? null,
+          });
+        }, 0);
+
         setTimeout(() => get().recomputeValueAnalysis('setFinanceBS'), 0);
       },
 
       setSegmentPL: (data) => {
+        // ★ DEBUG：入力ログ（弾き判定用）
+        const keys = Object.keys(data ?? {});
+        const distribution = Object.fromEntries(
+          keys.map((k) => [k, Array.isArray((data as any)?.[k]) ? (data as any)[k].length : '?'])
+        );
+        console.log('[strategyStore] setSegmentPL input', {
+          keys,
+          distribution,
+          sample: keys.length > 0 ? { [keys[0]]: (data as any)?.[keys[0]]?.[0] } : null,
+        });
+
         // ★ 修正：csvFinanceData と同期
         set((s) => ({
           ...s,
@@ -1556,10 +1601,35 @@ export const useStrategyStore = create<StrategyState>()(
           },
           dirty: true,
         }));
+
+        // ★ DEBUG：set直後の確認
+        setTimeout(() => {
+          const after = get().segmentPL;
+          const afterKeys = Object.keys(after ?? {});
+          const afterDist = Object.fromEntries(
+            afterKeys.map((k) => [k, Array.isArray((after as any)?.[k]) ? (after as any)[k].length : '?'])
+          );
+          console.log('[strategyStore] setSegmentPL accepted', {
+            keys: afterKeys,
+            distribution: afterDist,
+          });
+        }, 0);
+
         setTimeout(() => get().recomputeValueAnalysis('setSegmentPL'), 0);
       },
 
       setSegmentBS: (data) => {
+        // ★ DEBUG：入力ログ（弾き判定用）
+        const keys = Object.keys(data ?? {});
+        const distribution = Object.fromEntries(
+          keys.map((k) => [k, Array.isArray((data as any)?.[k]) ? (data as any)[k].length : '?'])
+        );
+        console.log('[strategyStore] setSegmentBS input', {
+          keys,
+          distribution,
+          sample: keys.length > 0 ? { [keys[0]]: (data as any)?.[keys[0]]?.[0] } : null,
+        });
+
         // ★ 修正：csvFinanceData と同期
         set((s) => ({
           ...s,
@@ -1570,6 +1640,20 @@ export const useStrategyStore = create<StrategyState>()(
           },
           dirty: true,
         }));
+
+        // ★ DEBUG：set直後の確認
+        setTimeout(() => {
+          const after = get().segmentBS;
+          const afterKeys = Object.keys(after ?? {});
+          const afterDist = Object.fromEntries(
+            afterKeys.map((k) => [k, Array.isArray((after as any)?.[k]) ? (after as any)[k].length : '?'])
+          );
+          console.log('[strategyStore] setSegmentBS accepted', {
+            keys: afterKeys,
+            distribution: afterDist,
+          });
+        }, 0);
+
         setTimeout(() => get().recomputeValueAnalysis('setSegmentBS'), 0);
       },
 
