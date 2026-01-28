@@ -77,11 +77,19 @@ const BusinessSegmentDetailSchema = z
  */
 const BusinessPortfolioSchema = z.any().optional();
 
+const SWOTSuggestionsSchema = z.object({
+  opportunity: z.array(z.string()).optional(),
+  threat: z.array(z.string()).optional(),
+  generatedAt: z.string().optional(),
+}).optional();
+
 const InputSchema = z.object({
   issueBlocks: z.array(IssueBlockSchema),
   metricsSummary: MetricsSummarySchema.optional(),
+  ceoIntent: z.string().optional(), // ★ 新規：CEO意図
   mvv: MVVSchema,
   swot: SWOTSchema,
+  swotSuggestions: SWOTSuggestionsSchema, // ★ 新規：AI提案のO/T候補（参考）
   industry: z.string().optional(),
   segments: z.array(z.string()).optional(),
   businessSegments: z.array(BusinessSegmentDetailSchema).optional().default([]), // ★ STAGE1セグメント（summary/keyCustomers含む）
@@ -419,7 +427,7 @@ function buildBusinessPortfolioText(portfolio: any): string {
 }
 
 function buildUserPrompt(input: z.infer<typeof InputSchema>): string {
-  const { issueBlocks, metricsSummary, mvv, swot, industry, segments, businessSegments, businessPortfolio } = input;
+  const { issueBlocks, metricsSummary, ceoIntent, mvv, swot, swotSuggestions, industry, segments, businessSegments, businessPortfolio } = input;
 
   const issueBlocksText = issueBlocks
     .map((ib, i) => {
@@ -463,13 +471,34 @@ function buildUserPrompt(input: z.infer<typeof InputSchema>): string {
 
   const segmentsText = segments?.length ? `【事業セグメント（名称のみ）】${segments.join(', ')}` : '';
 
+  // CEO意図が入力されているか
+  const ceoIntentBlock = ceoIntent?.trim()
+    ? `【CEO意図・経営者の思い】
+"${sanitize(ceoIntent, 400)}"`
+    : '【CEO意図・経営者の思い】（未入力）';
+
+  // SWOT提案がある場合は参考として表示
+  const swotSuggestionsBlock = swotSuggestions && (swotSuggestions.opportunity?.length || swotSuggestions.threat?.length)
+    ? `
+【AI提案のSWOT候補（参考）】
+- 提案機会: ${swotSuggestions.opportunity?.slice(0, 3).join(' / ') || 'なし'}
+- 提案脅威: ${swotSuggestions.threat?.slice(0, 3).join(' / ') || 'なし'}`
+    : '';
+
   // 重要強制（user側でも重ねる）
-  const mustFollow = `【重要（厳守）】
+  const mustFollow = `【重要（厳守・整合性チェック）】
 - 上の「事業セグメント前提」がある場合、必ず本文に反映する
 - 第1章または第3章の冒頭に「当社の事業と顧客」という小見出しを入れる
 - 各セグメント名を本文中に必ず1回以上登場させる
 - 主要顧客（keyCustomers）を具体語として本文に含める（一般論禁止）
-- 事業ポートフォリオがある場合、戦略案（第2章）と未来像（第3章）に矛盾がないよう反映する`;
+- 事業ポートフォリオがある場合、戦略案（第2章）と未来像（第3章）に矛盾がないよう反映する
+【整合性MUST（★新規）】
+- CEO意図が入力されている場合、第1章（現状）に「CEO意図から見た危機・必然性」を1段落含める
+- 第2章（戦略）では、SWOT分析の「機会（O）」「脅威（T）」を最低各2件ずつ具体的に根拠として引用する
+- 第2章で強み（S）・弱み（W）から対策を最低1件以上ずつ導出する
+- 第3章（未来像）には、MVV（特にVision/Mission/Value）のキーワードを最低1つ含める
+- 第4章（90日計画）には、Value（行動原則）に沿った実行ルールを最低1つ組み込む
+- SWOT/MVV/CEO意図が空の場合は「★未入力のため一般化した」と明記してハルシネを防ぐ`;
 
   // preamble を先頭へ（優先度を上げる）
   return `${businessSegmentsPreamble || ''}${segmentsText ? segmentsText + '\n\n' : ''}${portfolioText || ''}${mustFollow}
@@ -481,6 +510,9 @@ ${issueBlocksText}
 ${metricsText}
 ${metricsSummary?.overallNote ? `所感: ${metricsSummary.overallNote}` : ''}
 
+【CEO意図・経営者の思い】
+${ceoIntentBlock}
+
 【MVV（ミッション・ビジョン・バリュー）】
 - Mission: ${sanitize(mvv.mission, 300) || '（未入力）'}
 - Vision: ${sanitize(mvv.vision, 300) || '（未入力）'}
@@ -491,11 +523,12 @@ ${mvv.thought ? `- 経営者の思い: ${sanitize(mvv.thought, 500)}` : ''}
 - 強み: ${sanitize(swot.strength, 400) || '（未入力）'}
 - 弱み: ${sanitize(swot.weakness, 400) || '（未入力）'}
 - 機会: ${sanitize(swot.opportunity, 400) || '（未入力）'}
-- 脅威: ${sanitize(swot.threat, 400) || '（未入力）'}
+- 脅威: ${sanitize(swot.threat, 400) || '（未入力）'}${swotSuggestionsBlock}
 
 ${industry ? `【業種】${industry}` : ''}
 
 上記の情報を踏まえ、4章ストーリーと勝ち筋候補（2〜3案）を生成してください。
+各章では「【整合性MUST】」の制約を厳守し、CEO意図・MVV・SWOT を本文に明示的に根拠として組み込んでください。
 第1章は必ず「論点サマリ：」を含め、根拠指標を可能な範囲で引用してください。
 第2章は必ず固定書式（1)〜3)）の"文字列"で返してください。`;
 }

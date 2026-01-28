@@ -1085,9 +1085,24 @@ export default function Stage2Page() {
             .filter(Boolean)
         : [];
 
+      // ★ ログ：入力内容の確認（整合性チェック用）
       if (process.env.NODE_ENV === 'development') {
         console.log('[Stage2] send businessSegments count:', businessSegments?.length ?? 0);
         console.log('[Stage2] send businessPortfolio exists:', !!businessPortfolio);
+        console.log('[Stage2] send ceoIntent_len:', ceoIntent?.length ?? 0, '(content:', ceoIntent?.substring(0, 50) ?? 'empty', ')');
+        console.log('[Stage2] send mvv:', {
+          mission_len: mission?.length ?? 0,
+          vision_len: vision?.length ?? 0,
+          value_len: value?.length ?? 0,
+          thought_len: thought?.length ?? 0
+        });
+        console.log('[Stage2] send swot lens:', {
+          S: strength?.length ?? 0,
+          W: weakness?.length ?? 0,
+          O: opportunity?.length ?? 0,
+          T: threat?.length ?? 0,
+        });
+        console.log('[Stage2] send swotSuggestions:', swotSuggestions ? { opp_count: swotSuggestions.opportunity?.length, thr_count: swotSuggestions.threat?.length } : 'none');
       }
 
       const response = await fetch('/api/stage2/generate-draft', {
@@ -1096,8 +1111,10 @@ export default function Stage2Page() {
         body: JSON.stringify({
           issueBlocks,
           metricsSummary,
+          ceoIntent, // ★ 新規：CEO意図を必ず送信
           mvv: { thought, mission, vision, value }, // ★ MVV は既に送れている
           swot: { strength, weakness, opportunity, threat }, // ★ SWOT も既に送れている
+          swotSuggestions, // ★ 新規：AI提案のO/T候補（参考情報として同梱）
           industry,
           segments: segmentNames, // ★ 追加（名称のみ）
           businessSegments, // ★ STAGE1で定義されたセグメント情報（summary/keyCustomers含む想定）
