@@ -2034,15 +2034,27 @@ export const useStrategyStore = create<StrategyState>()(
           }
 
           if (!data) {
-            if (DEBUG) console.log('[strategyStore] refetch returned 0 rows (RLS/not found) - no retry');
-            set((s) => ({
-              ...s,
-              boot: { isHydrating: true, isHydrated: false },
-              __isFetchingFromServer: false,
-              loaded: false,
-              __lastServerError: new Error('データが見つかりません'),
-            }));
-            throw new Error('データが見つかりません');
+            // 初回の可能性：DBに strategy_data 行が無い
+            // → ここで throw すると画面が落ちるので、初期行を作ってから再取得する
+            try {
+              // 1) 初期行作成（空データでOK）
+              // saveStrategyDataApi が companyId/userId を内部解決する実装なら、ストア全体を渡してよい
+              const base = get();
+              await saveStrategyDataApi(base as any);
+
+              // 2) 作成後に再取得
+              const retry = await getFullStrategyDataByCompany(companyId);
+              if (!retry?.data) {
+                const err = new Error('データ初期化後も取得できません（RLS/会社ID/デプロイ反映を確認）');
+                set(() => ({ __lastServerError: err }));
+                throw err;
+              }
+              data = retry.data;
+            } catch (e) {
+              const err = e instanceof Error ? e : new Error(String(e));
+              set(() => ({ __lastServerError: err }));
+              throw err; // 初期化にも失敗した場合だけは致命なので throw は残す
+            }
           }
 
           const patch = normalizeFromDbRow(data);
