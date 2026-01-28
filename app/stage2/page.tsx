@@ -426,10 +426,7 @@ function CEOIntentSection() {
     <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
       <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">経営者の思い</h3>
 
-      <GlassCard
-        title="経営者の思い"
-        hint="原点・譲れない価値観・実現したい未来など、企業の根底にある思いを記入してください"
-      >
+      <GlassCard title="経営者の思い" hint="原点・譲れない価値観・実現したい未来など、企業の根底にある思いを記入してください">
         <textarea
           value={ceoIntent}
           onChange={(e) => setCeoIntent(e.target.value)}
@@ -513,9 +510,7 @@ function OTSuggestionsPanel({
 
       {opportunities.length > 0 && (
         <div className="mb-6">
-          <h5 className="text-sm font-medium text-blue-600 dark:text-blue-400 mb-3">
-            提案された機会（Opportunity）
-          </h5>
+          <h5 className="text-sm font-medium text-blue-600 dark:text-blue-400 mb-3">提案された機会（Opportunity）</h5>
           <div className="space-y-2">
             {opportunities.map((opp, idx) => (
               <div key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-white/50 dark:bg-white/5">
@@ -534,9 +529,7 @@ function OTSuggestionsPanel({
 
       {threats.length > 0 && (
         <div>
-          <h5 className="text-sm font-medium text-amber-600 dark:text-amber-400 mb-3">
-            提案された脅威（Threat）
-          </h5>
+          <h5 className="text-sm font-medium text-amber-600 dark:text-amber-400 mb-3">提案された脅威（Threat）</h5>
           <div className="space-y-2">
             {threats.map((threat, idx) => (
               <div key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-white/50 dark:bg-white/5">
@@ -561,9 +554,6 @@ function OTSuggestionsPanel({
  * =================================================== */
 function SWOTSection() {
   const setSWOT = useStrategyStore((s) => s.setSWOT);
-  const addSwotOpportunity = useStrategyStore((s) => s.addSwotOpportunity);
-  const addSwotThreat = useStrategyStore((s) => s.addSwotThreat);
-  const swotSuggestions = useStrategyStore((s) => s.swotSuggestions);
   const strength = useStrategyStore((s) => s.strength ?? '');
   const weakness = useStrategyStore((s) => s.weakness ?? '');
   const opportunity = useStrategyStore((s) => s.opportunity ?? '');
@@ -770,6 +760,9 @@ export default function Stage2Page() {
   const vision = useStrategyStore((s) => s.vision ?? '');
   const value = useStrategyStore((s) => s.value ?? '');
 
+  // ★ 追加：Stage2Page内でもceoIntentを参照できるようにする（ReferenceError対策）
+  const ceoIntent = useStrategyStore((s) => s.ceoIntent ?? '');
+
   const strength = useStrategyStore((s) => s.strength ?? '');
   const weakness = useStrategyStore((s) => s.weakness ?? '');
   const opportunity = useStrategyStore((s) => s.opportunity ?? '');
@@ -963,6 +956,48 @@ export default function Stage2Page() {
     }
   }, [hydrated, loadStage1Data, restoreStage2Snapshot]);
 
+  // ★ Development環境での fetch フック（全 fetch 呼び出しをキャッチ）
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') return;
+
+    const w = window as any;
+    if (w.__stage2FetchHooked) return;
+    w.__stage2FetchHooked = true;
+
+    const origFetch = window.fetch.bind(window);
+
+    window.fetch = async (...args: any[]) => {
+      try {
+        const [input, init] = args;
+        const url = typeof input === 'string' ? input : (input?.url ?? String(input));
+        const method = init?.method ?? 'GET';
+
+        // ★ 全 fetch を記録
+        console.log('[Stage2][fetch-hook] called', {
+          url,
+          method,
+          at: new Date().toISOString(),
+        });
+
+        // ★ generate-draft の場合は詳細ログ
+        if (url.includes('generate-draft')) {
+          console.log('[Stage2][fetch-hook] GENERATE-DRAFT DETECTED', {
+            url,
+            method,
+            hasBody: !!init?.body,
+            bodyLen: init?.body ? String(init.body).length : 0,
+          });
+        }
+      } catch (e) {
+        console.warn('[Stage2][fetch-hook] error in hook:', e);
+      }
+
+      return origFetch(...args);
+    };
+
+    console.log('[Stage2][fetch-hook] installed globally');
+  }, []);
+
   // storeAnswers12 -> local sync（サーバから復元/他画面更新時）
   useEffect(() => {
     if (!stage2Ready) return;
@@ -1070,15 +1105,45 @@ export default function Stage2Page() {
   }, [generatingOT, industry, revenue, employees, businessContent]);
 
   // Draft generation
-  const handleGenerate = useCallback(async () => {
-    if (generating) return;
+  const handleGenerate = useCallback(async (e?: React.MouseEvent<HTMLButtonElement>) => {
+    // ★ (1) 関数到達ログ
+    const isPing = !!e?.shiftKey;
+    console.log('[Stage2] handleGenerate ENTER', { at: new Date().toISOString(), pingMode: isPing, shiftKey: !!e?.shiftKey });
 
-    setGenerating(true);
+    // ★ precheck（ここだけ return OK）
+    if (generating) {
+      console.log('[Stage2] handleGenerate EARLY RETURN: already generating');
+      return;
+    }
+
+    const issueBlocksCount = issueBlocks?.length ?? 0;
+    console.log('[Stage2] precheck', {
+      issueBlocksCount,
+      hasMetricsSummary: !!metricsSummary,
+      hasMVV: !!(mission || vision || value || thought),
+      hasSWOT: !!(strength || weakness || opportunity || threat),
+    });
+
+    if (issueBlocksCount === 0) {
+      console.warn('[Stage2] precheck failed: issueBlocks empty');
+      setGenerateError('論点（issueBlocks）が空です。STAGE1を完了してください。');
+      return;
+    }
+
+    // ★ precheck 成功後、初めて setGenerating(true)
     setGenerateError(null);
     setSaveWarning(null);
+    setGenerating(true);
+    console.log('[Stage2] after setGenerating(true)');
+
+    // AbortController（55秒タイムアウト）
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
     try {
-      // 事業セグメント名の冗長送信（API側の揺れ吸収・プロンプトでの参照に有利）
+      timer = setTimeout(() => controller.abort(), 55000);
+
+      // ★ payload 生成を try 内に（ここで例外が出ると finally で必ず清掃される）
       const segmentNames = Array.isArray(businessSegments)
         ? businessSegments
             .map((s: any) => (typeof s?.name === 'string' ? s.name.trim() : ''))
@@ -1089,12 +1154,18 @@ export default function Stage2Page() {
       if (process.env.NODE_ENV === 'development') {
         console.log('[Stage2] send businessSegments count:', businessSegments?.length ?? 0);
         console.log('[Stage2] send businessPortfolio exists:', !!businessPortfolio);
-        console.log('[Stage2] send ceoIntent_len:', ceoIntent?.length ?? 0, '(content:', ceoIntent?.substring(0, 50) ?? 'empty', ')');
+        console.log(
+          '[Stage2] send ceoIntent_len:',
+          ceoIntent?.length ?? 0,
+          '(content:',
+          ceoIntent?.substring(0, 50) ?? 'empty',
+          ')'
+        );
         console.log('[Stage2] send mvv:', {
           mission_len: mission?.length ?? 0,
           vision_len: vision?.length ?? 0,
           value_len: value?.length ?? 0,
-          thought_len: thought?.length ?? 0
+          thought_len: thought?.length ?? 0,
         });
         console.log('[Stage2] send swot lens:', {
           S: strength?.length ?? 0,
@@ -1102,32 +1173,83 @@ export default function Stage2Page() {
           O: opportunity?.length ?? 0,
           T: threat?.length ?? 0,
         });
-        console.log('[Stage2] send swotSuggestions:', swotSuggestions ? { opp_count: swotSuggestions.opportunity?.length, thr_count: swotSuggestions.threat?.length } : 'none');
+        console.log(
+          '[Stage2] send swotSuggestions:',
+          swotSuggestions ? { opp_count: swotSuggestions.opportunity?.length, thr_count: swotSuggestions.threat?.length } : 'none'
+        );
       }
 
-      const response = await fetch('/api/stage2/generate-draft', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          issueBlocks,
-          metricsSummary,
-          ceoIntent, // ★ 新規：CEO意図を必ず送信
-          mvv: { thought, mission, vision, value }, // ★ MVV は既に送れている
-          swot: { strength, weakness, opportunity, threat }, // ★ SWOT も既に送れている
-          swotSuggestions, // ★ 新規：AI提案のO/T候補（参考情報として同梱）
-          industry,
-          segments: segmentNames, // ★ 追加（名称のみ）
-          businessSegments, // ★ STAGE1で定義されたセグメント情報（summary/keyCustomers含む想定）
-          businessPortfolio, // ★ 追加：現在の事業ポートフォリオ
-        }),
+      const payload: any = {
+        issueBlocks,
+        metricsSummary,
+        ceoIntent,
+        mvv: { thought, mission, vision, value },
+        swot: { strength, weakness, opportunity, threat },
+        swotSuggestions,
+        industry,
+        segments: segmentNames,
+        businessSegments,
+        businessPortfolio,
+      };
+
+      // ★ Shift キー押下時は PING モード
+      if (isPing) {
+        payload.__ping = true;
+        console.log('[Stage2] PING MODE ACTIVATED - __ping added to payload');
+      }
+
+      // ★ (3) fetch 直前ログ
+      const url = '/api/stage2/generate-draft';
+      console.log('[Stage2] BEFORE fetch', {
+        url,
+        issueBlocksCount,
+        payloadSize: JSON.stringify(payload).length,
+        pingMode: isPing,
       });
 
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+
+      // ★ レスポンス本文を先に読む（ok チェック前に）
+      const contentType = response.headers.get('content-type') || '';
+      const responseText = await response.text();
+
+      // ★ (4) fetch 直後ログ
+      console.log('[Stage2] AFTER fetch', { status: response.status, ok: response.ok, ct: contentType });
+
+      // ★ res.ok チェック
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `API error: ${response.status}`);
+        console.error('[Stage2] generate failed body:', responseText.substring(0, 400));
+        throw new Error(`API error: ${response.status} ${response.statusText}`);
       }
 
-      const data = await response.json();
+      // ★ Content-Type チェック
+      if (!contentType.includes('application/json')) {
+        console.error('[Stage2] non-json response:', responseText.substring(0, 400));
+        throw new Error(`Unexpected Content-Type: ${contentType}`);
+      }
+
+      // ★ JSON パース
+      const data = JSON.parse(responseText);
+
+      // ★ PING モード レスポンス確認
+      if (isPing && data.__pong === true) {
+        console.log('[Stage2] PING MODE SUCCESS - API is alive', {
+          timestamp: data.timestamp,
+          message: data.message,
+        });
+        // ユーザーに確認メッセージを表示
+        const msgText = `✓ API疎通確認成功\n${data.message}\nタイムスタンプ: ${data.timestamp}`;
+        alert(msgText);
+        // ★ PING 成功時は処理完了（storyDraft 反映は不要）
+        // finally で setGenerating(false) が実行される
+        throw new Error('PING_MODE_SUCCESS'); // 意図的に throw して finally へ
+      }
+
       const newStoryDraft: StoryChapter[] = Array.isArray(data.storyDraft) ? data.storyDraft : [];
       const newWinPatterns: WinPatternCandidate[] = Array.isArray(data.winPatternsCandidate) ? data.winPatternsCandidate : [];
 
@@ -1141,7 +1263,6 @@ export default function Stage2Page() {
 
       setStoryDraft(newStoryDraft);
       setWinPatternsCandidate(newWinPatterns);
-      // 内部的に先頭候補を採用（選択UIは出さない）
       setSelectedWinPatternId(newWinPatterns?.[0]?.id ?? null);
 
       // Auto navigate to Draft tab
@@ -1173,15 +1294,35 @@ export default function Stage2Page() {
         }
       }
     } catch (e: any) {
-      console.error('[Stage2] Generate error:', e);
-      setGenerateError(e?.message || 'たたき台の生成に失敗しました');
+      // ★ PING モード成功時の特別処理
+      if (e?.message === 'PING_MODE_SUCCESS') {
+        console.log('[Stage2] PING mode completed successfully');
+        setGenerateError(null);
+        // ここでは何もしない（alert 済み）
+      } else {
+        // ★ エラーハンドリング
+        let errorMsg = 'たたき台の生成に失敗しました';
+
+        if (e?.name === 'AbortError' || e?.message?.includes('aborted')) {
+          errorMsg = 'たたき台の生成がタイムアウトしました（55秒以上かかりました）。再度実行してください。';
+        } else if (e?.message) {
+          errorMsg = e.message;
+        }
+
+        console.error('[Stage2] Generate error:', e);
+        setGenerateError(errorMsg);
+      }
     } finally {
+      // ★ 必ず実行される（return禁止で絶対に到達）
+      if (timer) clearTimeout(timer);
       setGenerating(false);
+      console.log('[Stage2] finally: setGenerating(false) - ALWAYS EXECUTED');
     }
   }, [
     generating,
     issueBlocks,
     metricsSummary,
+    ceoIntent, // ★ 追加：stale closure 防止
     thought,
     mission,
     vision,
@@ -1190,9 +1331,10 @@ export default function Stage2Page() {
     weakness,
     opportunity,
     threat,
+    swotSuggestions, // ★ 追加：stale closure 防止
     industry,
     businessSegments,
-    businessPortfolio, // ★ 依存関係に追加
+    businessPortfolio,
     companyId,
     userId,
   ]);
@@ -1225,9 +1367,9 @@ export default function Stage2Page() {
           selectedWinPatternId: selectedWinPatternId ?? winPatternsCandidate?.[0]?.id ?? null,
           answers12, // 未回答でもOK（空文字が混ざっていても許容）
           industry,
-          segments: segmentNames, // ★ 追加（名称のみ）
-          businessSegments, // ★ 追加：最終生成でもセグメント前提を維持
-          businessPortfolio, // ★ 追加：最終生成でもポートフォリオ前提を維持
+          segments: segmentNames,
+          businessSegments,
+          businessPortfolio,
         }),
       });
 
@@ -1278,8 +1420,8 @@ export default function Stage2Page() {
     selectedWinPatternId,
     answers12,
     industry,
-    businessSegments, // ★ 依存関係に追加
-    businessPortfolio, // ★ 依存関係に追加
+    businessSegments,
+    businessPortfolio,
     companyId,
     setStoreFinalStory,
   ]);
@@ -1309,7 +1451,7 @@ export default function Stage2Page() {
   const canOpenDraft = issueBlocks.length > 0; // STAGE1論点は常に見せる
   const hasDraft = storyDraft.length > 0;
   const canOpenWin = hasDraft; // たたき台生成後に進める
-  const hasWinReady = hasDraft; // 修正：必須回答ではなく、Draft生成済みなら最終生成が可能
+  const hasWinReady = hasDraft; // Draft生成済みなら最終生成が可能
   const hasFinal = finalStory.length > 0;
 
   return (
@@ -1379,11 +1521,7 @@ export default function Stage2Page() {
 
                 <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
                   <SWOTSection />
-                  <OTSuggestionsPanel
-                    suggestions={swotSuggestions}
-                    onAddOpportunity={addSwotOpportunity}
-                    onAddThreat={addSwotThreat}
-                  />
+                  <OTSuggestionsPanel suggestions={swotSuggestions} onAddOpportunity={addSwotOpportunity} onAddThreat={addSwotThreat} />
                 </div>
 
                 <div className="flex gap-4 justify-center">
@@ -1397,9 +1535,20 @@ export default function Stage2Page() {
                   </button>
                   <button
                     type="button"
-                    onClick={handleGenerate}
+                    onClick={(e) => {
+                      console.log('[Stage2] GENERATE BUTTON CLICK (input tab)', {
+                        at: new Date().toISOString(),
+                        disabled: (e.currentTarget as HTMLButtonElement)?.disabled,
+                        generating: generating,
+                        shiftKey: e.shiftKey,
+                      });
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void handleGenerate(e);
+                    }}
                     disabled={generating}
                     className="px-8 py-4 rounded-xl bg-blue-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors shadow-lg"
+                    title="Shift+クリックで API 疎通テスト（PING モード）"
                   >
                     {generating ? '生成中...' : 'たたき台を生成'}
                   </button>
@@ -1438,9 +1587,21 @@ export default function Stage2Page() {
 
                 <div className="flex justify-center">
                   <button
-                    onClick={handleGenerate}
+                    type="button"
+                    onClick={(e) => {
+                      console.log('[Stage2] GENERATE BUTTON CLICK (draft tab)', {
+                        at: new Date().toISOString(),
+                        disabled: (e.currentTarget as HTMLButtonElement)?.disabled,
+                        generating: generating,
+                        shiftKey: e.shiftKey,
+                      });
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void handleGenerate(e);
+                    }}
                     disabled={generating}
                     className="px-8 py-4 rounded-xl bg-blue-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors shadow-lg"
+                    title="Shift+クリックで API 疎通テスト（PING モード）"
                   >
                     {generating ? '生成中...' : hasDraft ? 'たたき台を再生成' : 'たたき台を生成'}
                   </button>
@@ -1464,11 +1625,7 @@ export default function Stage2Page() {
               <div className="space-y-6">
                 <WinPatternList candidates={winPatternsCandidate} />
 
-                <Questions12Section
-                  answers12={answers12}
-                  onUpdateAnswer={handleUpdateAnswer}
-                  disabled={!hasDraft} // たたき台未生成なら実質入力を止める
-                />
+                <Questions12Section answers12={answers12} onUpdateAnswer={handleUpdateAnswer} disabled={!hasDraft} />
 
                 {!hasDraft && (
                   <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4 text-sm text-amber-700 dark:text-amber-400">
@@ -1486,11 +1643,7 @@ export default function Stage2Page() {
                   </button>
                 </div>
 
-                {hasDraft && (
-                  <p className="text-sm text-gray-500 text-center">
-                    ※ 12の質問は未回答でも生成できます（回答があるほど、内容は具体化されます）
-                  </p>
-                )}
+                {hasDraft && <p className="text-sm text-gray-500 text-center">※ 12の質問は未回答でも生成できます（回答があるほど、内容は具体化されます）</p>}
 
                 {generateFinalError && (
                   <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-700 dark:text-red-400">
@@ -1517,9 +1670,7 @@ export default function Stage2Page() {
                       </button>
                     </div>
 
-                    <p className="text-sm text-gray-500 text-center">
-                      ※ 12の質問は未回答でも再生成できます（回答があるほど、内容は具体化されます）
-                    </p>
+                    <p className="text-sm text-gray-500 text-center">※ 12の質問は未回答でも再生成できます（回答があるほど、内容は具体化されます）</p>
                   </>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50/50 dark:bg-gray-800/50 p-8 text-center">
