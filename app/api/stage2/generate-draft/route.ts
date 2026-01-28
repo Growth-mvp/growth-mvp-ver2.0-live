@@ -2,8 +2,10 @@
 // STAGE2：ドライなたたき台生成API（story-process形式に寄せて安定化 + CEO/MVV/SWOT反映を強制）
 //
 // 改修ポイント（このファイル内で完結）
-// - 第2章の固定書式に「根拠（SWOT）」行を追加し、O/T各2件・S/W各1件を“具体語のまま”入れやすくする
-// - normalizeChapterBody：AIが第2章をobject/arrayで返しても、固定書式（根拠SWOT含む）に確実に文字列化
+// - ★「生成されない」主因：InputSchema/issueBlocks必須 & issueBlocks空で400 return を緩和
+//   => issueBlocks/mvv/swot を optional + default で受け、論点ゼロでも生成続行（未入力と明記）
+// - 第2章の固定書式に「根拠（SWOT）」行を追加（O/T各2件・S/W各1件）
+// - normalizeChapterBody：AIが第2章をobject/arrayで返しても固定書式（根拠SWOT含む）に確実に文字列化
 // - Repair(2nd pass)：固定書式とSWOT具体語の追記を最小修正で強制
 
 export const runtime = 'nodejs';
@@ -32,6 +34,7 @@ function pickSafeModel(): string {
 /* ===== 入力バリデーション ===== */
 const IssueBlockSchema = z.object({
   title: z.string(),
+  summary: z.string().optional(), // compactPayloadが参照
   description: z.string().optional(),
   linkedMetrics: z.array(z.string()).optional(),
   scope: z.enum(['company', 'business']).optional(),
@@ -46,26 +49,32 @@ const MetricsSummarySchema = z
     operatingMarginRate: z.number().optional(),
     revenueGrowthRate: z.number().optional(),
     roic: z.number().optional(),
+    roicPctLatest: z.number().optional(),
     roe: z.number().optional(),
     wacc: z.number().optional(),
     pbr: z.number().optional(),
+    pbrManual: z.number().optional(),
     overallNote: z.string().optional(),
   })
   .passthrough();
 
-const MVVSchema = z.object({
-  thought: z.string().optional(),
-  mission: z.string().optional(),
-  vision: z.string().optional(),
-  value: z.string().optional(),
-});
+const MVVSchema = z
+  .object({
+    thought: z.string().optional(),
+    mission: z.string().optional(),
+    vision: z.string().optional(),
+    value: z.string().optional(),
+  })
+  .passthrough();
 
-const SWOTSchema = z.object({
-  strength: z.string().optional(),
-  weakness: z.string().optional(),
-  opportunity: z.string().optional(),
-  threat: z.string().optional(),
-});
+const SWOTSchema = z
+  .object({
+    strength: z.string().optional(),
+    weakness: z.string().optional(),
+    opportunity: z.string().optional(),
+    threat: z.string().optional(),
+  })
+  .passthrough();
 
 const BusinessSegmentDetailSchema = z
   .object({
@@ -91,12 +100,17 @@ const SWOTSuggestionsSchema = z
   })
   .optional();
 
+/**
+ * ★重要：生成されない主因対策
+ * - issueBlocks/mvv/swot を optional + default で受ける
+ * - STAGE1未完（論点ゼロ）でも生成可能に（プロンプトで未入力明記）
+ */
 const InputSchema = z.object({
-  issueBlocks: z.array(IssueBlockSchema),
+  issueBlocks: z.array(IssueBlockSchema).optional().default([]),
   metricsSummary: MetricsSummarySchema.optional(),
   ceoIntent: z.string().optional(), // CEO意図（経営者の思い）
-  mvv: MVVSchema,
-  swot: SWOTSchema,
+  mvv: MVVSchema.optional().default({}),
+  swot: SWOTSchema.optional().default({}),
   swotSuggestions: SWOTSuggestionsSchema, // AI提案のO/T候補（参考）
   industry: z.string().optional(),
   segments: z.array(z.string()).optional(),
@@ -202,7 +216,6 @@ function normalizeChapterBody(ch: any, fallback: string): string {
         const sLines = toLines(Array.isArray(strategies) ? strategies : [strategies]);
         const aLines = toLines(Array.isArray(actions) ? actions : [actions]);
 
-        // evidence を「1行」に安全化（長くても一応読める）
         const evText =
           evidence === null || evidence === undefined
             ? ''
@@ -224,10 +237,7 @@ function normalizeChapterBody(ch: any, fallback: string): string {
         out.push(...(sLines.length ? sLines.map((s) => `   - ${s}`) : [`   - （未生成）`]));
         out.push(`   90日アクション：`);
         out.push(...(aLines.length ? aLines.map((a) => `   - ${a}`) : [`   - （未生成）`]));
-
-        // ★追加：根拠（SWOT）
         out.push(`   根拠（SWOT）：${evText ? evText : '（未提示）'}`);
-
         out.push(`   トレードオフ：${String(tradeoff).trim() || '（未生成）'}`);
 
         return out.join('\n');
@@ -252,7 +262,6 @@ function normalizeChapterBody(ch: any, fallback: string): string {
       'actions90' in body ||
       'tradeoff' in body ||
       'tradeoffs' in body ||
-      // ★追加：根拠SWOTのキーがあれば戦略ブロックとして救済
       'evidenceSwot' in body ||
       'swotEvidence' in body ||
       'evidence' in body ||
@@ -347,8 +356,8 @@ function buildMustQuotePhrases(input: z.infer<typeof InputSchema>) {
 
   const s = splitPhrases(input.swot?.strength, 2);
   const w = splitPhrases(input.swot?.weakness, 2);
-  const o = splitPhrases(input.swot?.opportunity, 8); // ★少し多めに確保
-  const t = splitPhrases(input.swot?.threat, 8); // ★少し多めに確保
+  const o = splitPhrases(input.swot?.opportunity, 8);
+  const t = splitPhrases(input.swot?.threat, 8);
 
   return { ceo, mission, vision, value, s, w, o, t };
 }
@@ -392,7 +401,6 @@ function computeCoverageIssues(
     missing.push(`第4章にValueのキーワードを1つ以上含める（候補: ${must.value.join(' / ')}）`);
   }
 
-  // SWOT：第2章で O/T を各2つ、S/W を各1つ（“本文”に具体語が入ることをチェック）
   if (must.o.length > 0 && countHits(ch2, must.o) < 2) {
     missing.push(`第2章に機会（O）の具体語を2つ以上含める（候補: ${must.o.slice(0, 6).join(' / ')}）`);
   }
@@ -586,7 +594,6 @@ function clip(s: any, n: number): string {
 }
 
 function compactPayload(input: z.infer<typeof InputSchema>) {
-  // ★ issueBlocks：title + 1行要約だけ（最大5件）
   const issueBlocks = Array.isArray(input.issueBlocks)
     ? input.issueBlocks
         .slice(0, 5)
@@ -596,7 +603,6 @@ function compactPayload(input: z.infer<typeof InputSchema>) {
         }))
     : [];
 
-  // ★ SWOT：各カテゴリ最大3件、各要素は最大200文字
   const swot = input?.swot ?? {};
   const compactSwotArray = (arr: any[]): string[] =>
     Array.isArray(arr)
@@ -607,21 +613,12 @@ function compactPayload(input: z.infer<typeof InputSchema>) {
       : [];
 
   const swotCompact = {
-    S: compactSwotArray(
-      typeof swot.strength === 'string' ? swot.strength.split(/[\n,、。・/／]/) : []
-    ),
-    W: compactSwotArray(
-      typeof swot.weakness === 'string' ? swot.weakness.split(/[\n,、。・/／]/) : []
-    ),
-    O: compactSwotArray(
-      typeof swot.opportunity === 'string' ? swot.opportunity.split(/[\n,、。・/／]/) : []
-    ),
-    T: compactSwotArray(
-      typeof swot.threat === 'string' ? swot.threat.split(/[\n,、。・/／]/) : []
-    ),
+    S: compactSwotArray(typeof swot.strength === 'string' ? swot.strength.split(/[\n,、。・/／]/) : []),
+    W: compactSwotArray(typeof swot.weakness === 'string' ? swot.weakness.split(/[\n,、。・/／]/) : []),
+    O: compactSwotArray(typeof swot.opportunity === 'string' ? swot.opportunity.split(/[\n,、。・/／]/) : []),
+    T: compactSwotArray(typeof swot.threat === 'string' ? swot.threat.split(/[\n,、。・/／]/) : []),
   };
 
-  // ★ metricsSummary：主要指標だけ（数値は丸め）
   const round1 = (v: unknown): number | undefined =>
     typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 10) / 10 : undefined;
 
@@ -630,12 +627,11 @@ function compactPayload(input: z.infer<typeof InputSchema>) {
     ? {
         revenueCagrPct: round1(ms.revenueCagrPct),
         operatingMarginPctLatest: round1(ms.operatingMarginPctLatest),
-        roic: round1(ms.roicPctLatest ?? ms.roic),
-        pbr: ms.pbr ?? ms.pbrManual ?? undefined,
+        roic: round1((ms as any).roicPctLatest ?? ms.roic),
+        pbr: (ms as any).pbr ?? (ms as any).pbrManual ?? undefined,
       }
     : null;
 
-  // ★ businessSegments：名前だけ（最大8件）
   const businessSegments = Array.isArray(input.businessSegments)
     ? input.businessSegments
         .slice(0, 8)
@@ -645,10 +641,8 @@ function compactPayload(input: z.infer<typeof InputSchema>) {
         .filter((s: any) => s.name)
     : [];
 
-  // ★ ceoIntent：最大200文字
   const ceoIntent = clip(String(input.ceoIntent ?? ''), 200);
 
-  // ★ MVV（Mission/Vision/Value）も簡潔に
   const mvv = input?.mvv ?? {};
   const mvvCompact = {
     mission: clip(String(mvv.mission ?? ''), 150),
@@ -666,30 +660,28 @@ function compactPayload(input: z.infer<typeof InputSchema>) {
   };
 }
 
-function buildUserPrompt(input: z.infer<typeof InputSchema>): string {
-  // ★ F-2) 軽量化したペイロードを使う
-  const compact = compactPayload(input);
+function buildUserPrompt(
+  input: z.infer<typeof InputSchema>,
+  precomputedCompact?: ReturnType<typeof compactPayload>
+): string {
+  const compact = precomputedCompact ?? compactPayload(input);
 
   const {
-    issueBlocks: issueBlocksOrig,
     metricsSummary,
-    ceoIntent: ceoIntentOrig,
     mvv: mvvOrig,
     swot,
     swotSuggestions,
     industry,
     segments,
-    businessSegments: businessSegmentsOrig,
     businessPortfolio,
   } = input;
 
-  // ★ compact から取得（圧縮版を使う）
+  // compactから取得
   const issueBlocks = compact.issueBlocks;
   const ceoIntent = compact.ceoIntent;
   const businessSegments = compact.businessSegments;
-  const mvv = { ...mvvOrig, ...compact.mvv }; // コンパクト版を優先
+  const mvv = { ...(mvvOrig ?? {}), ...(compact.mvv ?? {}) };
 
-  // ★ SWOT の compact 形式を元の形式に変換（プロンプト用）
   const swotCompact = {
     strength: compact.swot.S.join(' / '),
     weakness: compact.swot.W.join(' / '),
@@ -697,12 +689,13 @@ function buildUserPrompt(input: z.infer<typeof InputSchema>): string {
     threat: compact.swot.T.join(' / '),
   };
 
-  const issueBlocksText = issueBlocks
-    .map((ib, i) => {
-      // ★ compact では title と summary のみ
-      return `${i + 1}. ${ib.title}\n   ${ib.summary || ''}`.trim();
-    })
-    .join('\n');
+  // ★論点ゼロでも生成続行：プロンプトで未入力明記
+  const issueBlocksText =
+    issueBlocks.length > 0
+      ? issueBlocks
+          .map((ib, i) => `${i + 1}. ${ib.title}\n   ${ib.summary || ''}`.trim())
+          .join('\n')
+      : '（論点未入力：STAGE1の論点が未生成/未保存のため、一般化してドラフトを作成する）';
 
   const businessSegmentsPreamble = buildBusinessSegmentsPreamble(businessSegments);
   const portfolioText = buildBusinessPortfolioText(businessPortfolio);
@@ -744,7 +737,6 @@ function buildUserPrompt(input: z.infer<typeof InputSchema>): string {
 - 提案脅威: ${swotSuggestions.threat?.slice(0, 3).join(' / ') || 'なし'}`
       : '';
 
-  // ★ compact 版から必須引用フレーズを取得
   const mustCeo = compact.ceoIntent ? [compact.ceoIntent] : [];
   const mustMission = compact.mvv.mission ? [compact.mvv.mission] : [];
   const mustVision = compact.mvv.vision ? [compact.mvv.vision] : [];
@@ -779,7 +771,8 @@ function buildUserPrompt(input: z.infer<typeof InputSchema>): string {
 - ★第2章は各ブロックに「根拠（SWOT）：機会(O): ... / ...｜脅威(T): ... / ...｜強み(S): ...｜弱み(W): ...」を必ず含める
 - 第3章（未来像）には、MVV（特にVision/Mission/Value）のキーワードを最低1つ含める
 - 第4章（90日計画）には、Value（行動原則）に沿った実行ルールを最低1つ組み込む
-- CEO/MVV/SWOTが空の場合は「★未入力のため一般化した」と明記してハルシネを防ぐ`;
+- CEO/MVV/SWOTが空の場合は「★未入力のため一般化した」と明記してハルシネを防ぐ
+- ★論点が未入力の場合は「★論点未入力のため一般化した」を第1章の冒頭に明記する`;
 
   return `${businessSegmentsPreamble || ''}${segmentsText ? segmentsText + '\n\n' : ''}${portfolioText || ''}
 
@@ -859,7 +852,6 @@ ${safeStringify(original)}
 
 /* ===== APIハンドラ ===== */
 export async function POST(req: NextRequest) {
-  // ★ (1) 到達ログ + request meta
   const t0 = Date.now();
   const host = req.headers.get('host') || 'unknown';
   const method = req.method;
@@ -867,7 +859,6 @@ export async function POST(req: NextRequest) {
   console.log('[stage2/generate-draft] POST ENTER', { at: new Date().toISOString(), host, method, contentLength });
 
   try {
-    // ★ (2) 疎通PINGモード（テスト用）
     let body: any;
     try {
       body = await req.json();
@@ -879,11 +870,7 @@ export async function POST(req: NextRequest) {
     if (body.__ping === true || body.__ping === 'true') {
       console.log('[stage2/generate-draft] PING MODE - immediate pong response');
       return NextResponse.json(
-        {
-          __pong: true,
-          timestamp: new Date().toISOString(),
-          message: 'API is alive',
-        },
+        { __pong: true, timestamp: new Date().toISOString(), message: 'API is alive' },
         { status: 200 }
       );
     }
@@ -896,7 +883,7 @@ export async function POST(req: NextRequest) {
 
     const parseResult = InputSchema.safeParse(body);
     if (!parseResult.success) {
-      console.error('[stage2/generate-draft] input validation failed');
+      console.error('[stage2/generate-draft] input validation failed', parseResult.error.flatten());
       return NextResponse.json({ error: 'Invalid input', details: parseResult.error.format() }, { status: 400 });
     }
 
@@ -904,6 +891,7 @@ export async function POST(req: NextRequest) {
     const input = parseResult.data;
 
     if (process.env.NODE_ENV === 'development') {
+      console.log('[stage2/generate-draft] issueBlocks count:', input.issueBlocks?.length ?? 0);
       console.log('[stage2/generate-draft] businessSegments count:', input.businessSegments?.length ?? 0);
       console.log(
         '[stage2/generate-draft] businessSegments preview:',
@@ -921,30 +909,33 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    console.log('[stage2/generate-draft] issueBlocks check:', { count: input.issueBlocks.length });
-    if (input.issueBlocks.length === 0) {
-      console.error('[stage2/generate-draft] issueBlocks is empty');
-      return NextResponse.json({ error: 'issueBlocks is empty. Please complete STAGE1 first.' }, { status: 400 });
+    // ★生成されない主因の撤去：issueBlocks空でも続行（ただしログで警告）
+    if ((input.issueBlocks?.length ?? 0) === 0) {
+      console.warn('[stage2/generate-draft] issueBlocks is empty -> proceed with generalized draft');
     }
 
     const model = pickSafeModel();
     console.log('[stage2/generate-draft] model:', model);
 
+    const compact = compactPayload(input);
+
     console.log('[stage2/generate-draft] building prompts');
     const systemPrompt = buildSystemPrompt();
-    const userPrompt = buildUserPrompt(input);
+    const userPrompt = buildUserPrompt(input, compact);
     console.log('[stage2/generate-draft] prompts built', { systemLen: systemPrompt.length, userLen: userPrompt.length });
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 55000);
 
     let raw = '';
+    let tOpenAIStart = 0;
+
     try {
-      // ★ OpenAI呼び出し直前ログ（モデル/timeout/プロンプト長）
       const timeoutMs = 55000;
       const elapsedMs = Date.now() - t0;
       const systemPromptLen = systemPrompt.length;
       const userPromptLen = userPrompt.length;
+
       console.log('[stage2/generate-draft] BEFORE openai.chat.completions.create (1st attempt)', {
         model,
         timeoutMs,
@@ -954,12 +945,17 @@ export async function POST(req: NextRequest) {
         totalPromptLen: systemPromptLen + userPromptLen,
         compactInfo: {
           issueBlocksCount: compact.issueBlocks.length,
-          swotCounts: { S: compact.swot.S.length, W: compact.swot.W.length, O: compact.swot.O.length, T: compact.swot.T.length },
+          swotCounts: {
+            S: compact.swot.S.length,
+            W: compact.swot.W.length,
+            O: compact.swot.O.length,
+            T: compact.swot.T.length,
+          },
           segmentsCount: compact.businessSegments.length,
         },
       });
 
-      const tOpenAI = Date.now();
+      tOpenAIStart = Date.now();
       const completion = await openai.chat.completions.create(
         {
           model,
@@ -969,27 +965,32 @@ export async function POST(req: NextRequest) {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
           ],
-          max_tokens: 5200, // ★少し増やす（第2章の根拠行追加で足りなくなるのを回避）
+          max_tokens: 5200,
         },
         { signal: controller.signal }
       );
+
       raw = completion.choices?.[0]?.message?.content?.trim() || '';
-      const tOpenAI1 = Date.now() - tOpenAI;
+      const dur = Date.now() - tOpenAIStart;
       console.log('[stage2/generate-draft] AFTER openai.chat.completions.create (1st attempt)', {
-        durationMs: `${tOpenAI1}ms`,
+        durationMs: `${dur}ms`,
         rawLen: raw.length,
         hasContent: !!raw,
       });
     } catch (e: any) {
-      const tOpenAI1 = Date.now() - tOpenAI;
-      console.warn('[stage2/generate-draft] 1st OpenAI attempt failed (duration: ' + tOpenAI1 + 'ms), retrying without json_schema:', e?.message);
+      const dur = tOpenAIStart ? Date.now() - tOpenAIStart : undefined;
+      console.warn(
+        '[stage2/generate-draft] 1st OpenAI attempt failed' + (dur !== undefined ? ` (duration: ${dur}ms)` : ''),
+        e?.message || e
+      );
+
       try {
         const elapsedMs = Date.now() - t0;
         console.log('[stage2/generate-draft] BEFORE openai.chat.completions.create (2nd attempt)', {
           model,
           timeoutMs: 55000,
           elapsedMs: `${elapsedMs}ms`,
-          reason: 'retry without json_schema',
+          reason: 'retry without response_format',
         });
 
         const tOpenAI2 = Date.now();
@@ -1005,6 +1006,7 @@ export async function POST(req: NextRequest) {
           },
           { signal: controller.signal }
         );
+
         raw = completion2.choices?.[0]?.message?.content?.trim() || '';
         const tOpenAI2Dur = Date.now() - tOpenAI2;
         console.log('[stage2/generate-draft] AFTER openai.chat.completions.create (2nd attempt)', {
@@ -1021,14 +1023,17 @@ export async function POST(req: NextRequest) {
           totalDurationMs: `${totalDurationMs}ms`,
           isAbortError: e2?.name === 'AbortError',
         });
-        return NextResponse.json({
-          error: e2?.message || 'OpenAI API error',
-          details: {
-            attempts: 2,
-            totalDurationMs,
-            isTimeout: e2?.name === 'AbortError',
+        return NextResponse.json(
+          {
+            error: e2?.message || 'OpenAI API error',
+            details: {
+              attempts: 2,
+              totalDurationMs,
+              isTimeout: e2?.name === 'AbortError',
+            },
           },
-        }, { status: 500 });
+          { status: 500 }
+        );
       }
     } finally {
       clearTimeout(timer);
@@ -1127,7 +1132,7 @@ export async function POST(req: NextRequest) {
               { role: 'system', content: buildRepairSystemPrompt() },
               { role: 'user', content: buildRepairUserPrompt(repairPayload, missing, must) },
             ],
-            max_tokens: 2600, // ★根拠行の追記余地
+            max_tokens: 2600,
           },
           { signal: repairController.signal }
         );
@@ -1185,9 +1190,12 @@ export async function POST(req: NextRequest) {
     }
 
     const totalDurationMs = Date.now() - t0;
-    console.log('[stage2/generate-draft] SUCCESS - returning result', {
+    // ★ 修正3：レスポンス返却直前ログ
+    console.log('[stage2/generate-draft] END - preparing response', {
       storyDraftCount: finalStory.length,
+      storyDraftLengths: finalStory.map((ch, i) => `Ch${i}: ${ch.body.length}`),
       winPatternsCount: normalizedWinPatterns.length,
+      hasRepair: missing.length > 0,
       totalDurationMs: `${totalDurationMs}ms`,
       at: new Date().toISOString(),
     });
@@ -1206,13 +1214,16 @@ export async function POST(req: NextRequest) {
       isAbortError: error?.name === 'AbortError',
       stack: error?.stack?.substring(0, 500),
     });
-    return NextResponse.json({
-      error: error?.message || 'Server error',
-      details: {
-        status,
-        totalDurationMs,
-        isTimeout: error?.name === 'AbortError',
+    return NextResponse.json(
+      {
+        error: error?.message || 'Server error',
+        details: {
+          status,
+          totalDurationMs,
+          isTimeout: error?.name === 'AbortError',
+        },
       },
-    }, { status });
+      { status }
+    );
   }
 }
