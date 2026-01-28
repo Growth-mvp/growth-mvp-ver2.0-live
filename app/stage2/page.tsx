@@ -12,14 +12,7 @@ import {
   saveStage2SnapshotToLocalStorage,
 } from '@/utils/stageSnapshot';
 import { getFullStrategyDataByCompany, saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
-import type {
-  IssueBlock,
-  MetricsSummary,
-  StoryChapter,
-  WinPatternCandidate,
-  Stage2State,
-  Stage2Answer,
-} from '@/types/strategy';
+import type { IssueBlock, MetricsSummary, StoryChapter, WinPatternCandidate, Stage2State, Stage2Answer } from '@/types/strategy';
 
 /* ===================================================
  * 12問テンプレート（固定）
@@ -41,6 +34,7 @@ const TEMPLATE12: { id: string; question: string; reason: string; chapter: numbe
     chapter: 0,
     required: false,
   },
+
   // 章1（どう戦う）- 6問
   {
     id: 'ch1-q1',
@@ -51,8 +45,7 @@ const TEMPLATE12: { id: string; question: string; reason: string; chapter: numbe
   },
   {
     id: 'ch1-q2',
-    question:
-      'その変化の中で、顧客が本当に求める「価値」は何であり、なぜそれが自社を選ぶ理由になるのでしょうか？',
+    question: 'その変化の中で、顧客が本当に求める「価値」は何であり、なぜそれが自社を選ぶ理由になるのでしょうか？',
     reason: '提供価値を再定義すると、意思決定の軸が一本化します。',
     chapter: 1,
     required: false,
@@ -85,6 +78,7 @@ const TEMPLATE12: { id: string; question: string; reason: string; chapter: numbe
     chapter: 1,
     required: false,
   },
+
   // 章2（どんな未来像）- 2問
   {
     id: 'ch2-q1',
@@ -101,11 +95,11 @@ const TEMPLATE12: { id: string; question: string; reason: string; chapter: numbe
     chapter: 2,
     required: false,
   },
+
   // 章3（どう行動する）- 2問
   {
     id: 'ch3-q1',
-    question:
-      'この戦略を全社員に伝え、「本気だ」と感じてもらうために、経営層はまず「どんな行動」を起こすべきですか？',
+    question: 'この戦略を全社員に伝え、「本気だ」と感じてもらうために、経営層はまず「どんな行動」を起こすべきですか？',
     reason: '最初に動くのは言葉ではなく行動です。小さくても具体的な初動を示すと、信頼が生まれます。',
     chapter: 3,
     required: false,
@@ -144,11 +138,7 @@ function ScrollText({
   maxH?: string;
   className?: string;
 }) {
-  return (
-    <div className={`${maxH} overflow-auto pr-2 whitespace-pre-wrap break-words leading-relaxed ${className}`}>
-      {children}
-    </div>
-  );
+  return <div className={`${maxH} overflow-auto pr-2 whitespace-pre-wrap break-words leading-relaxed ${className}`}>{children}</div>;
 }
 
 /* ===================================================
@@ -202,9 +192,7 @@ function StepperTabs({ activeTab, onChange, canOpenDraft, hasDraft, canOpenWin, 
               }`}
             >
               {tab.completed && (
-                <span className="w-5 h-5 rounded-full bg-green-500 text-white flex items-center justify-center text-xs">
-                  ✓
-                </span>
+                <span className="w-5 h-5 rounded-full bg-green-500 text-white flex items-center justify-center text-xs">✓</span>
               )}
               {!tab.completed && isDisabled && (
                 <span className="w-5 h-5 rounded-full bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-600 flex items-center justify-center text-xs">
@@ -244,10 +232,7 @@ function WinPatternList({ candidates }: { candidates: WinPatternCandidate[] }) {
 
       <div className="max-h-[520px] overflow-auto pr-2 space-y-3">
         {candidates.map((wp) => (
-          <div
-            key={wp.id}
-            className="w-full text-left p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-white/5"
-          >
+          <div key={wp.id} className="w-full text-left p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-white/5">
             <div className="flex items-center gap-2">
               <span className="font-medium text-gray-800 dark:text-gray-200">{wp.name}</span>
             </div>
@@ -255,10 +240,7 @@ function WinPatternList({ candidates }: { candidates: WinPatternCandidate[] }) {
             {wp.valueDrivers?.length > 0 && (
               <div className="flex gap-1 mt-2 flex-wrap">
                 {wp.valueDrivers.map((vd, i) => (
-                  <span
-                    key={i}
-                    className="text-xs bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 px-2 py-0.5 rounded"
-                  >
+                  <span key={i} className="text-xs bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 px-2 py-0.5 rounded">
                     {vd}
                   </span>
                 ))}
@@ -397,10 +379,7 @@ function IssueBlockPreview({
                 {issue.linkedMetrics?.length > 0 && (
                   <div className="flex gap-1 mt-2 flex-wrap">
                     {issue.linkedMetrics.map((m) => (
-                      <span
-                        key={m}
-                        className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded"
-                      >
+                      <span key={m} className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded">
                         {m}
                       </span>
                     ))}
@@ -956,7 +935,7 @@ export default function Stage2Page() {
     }
   }, [hydrated, loadStage1Data, restoreStage2Snapshot]);
 
-  // ★ Development環境での fetch フック（全 fetch 呼び出しをキャッチ）
+  // ★ Development環境での fetch フック（限定版：/api/stage2/ は素通し）
   useEffect(() => {
     if (process.env.NODE_ENV !== 'development') return;
 
@@ -966,36 +945,37 @@ export default function Stage2Page() {
 
     const origFetch = window.fetch.bind(window);
 
-    window.fetch = async (...args: any[]) => {
+    // ★ 修正：input/init を関数シグネチャで明示的に宣言
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       try {
-        const [input, init] = args;
-        const url = typeof input === 'string' ? input : (input?.url ?? String(input));
+        // ★ URL を文字列化（Request オブジェクト対応）
+        const urlStr: string = typeof input === 'string'
+          ? input
+          : (input instanceof Request ? input.url : String(input));
+
+        // ★ /api/stage2/ 配下は必ず素通し（hook を一切適用しない）
+        if (urlStr.includes('/api/stage2/')) {
+          console.log('[Stage2][fetch-hook] BYPASS /api/stage2/', { url: urlStr });
+          return (origFetch as any)(input as any, init as any);
+        }
+
         const method = init?.method ?? 'GET';
 
-        // ★ 全 fetch を記録
+        // ★ 全 fetch を記録（stage2以外のみ）
         console.log('[Stage2][fetch-hook] called', {
-          url,
+          url: urlStr,
           method,
           at: new Date().toISOString(),
         });
-
-        // ★ generate-draft の場合は詳細ログ
-        if (url.includes('generate-draft')) {
-          console.log('[Stage2][fetch-hook] GENERATE-DRAFT DETECTED', {
-            url,
-            method,
-            hasBody: !!init?.body,
-            bodyLen: init?.body ? String(init.body).length : 0,
-          });
-        }
       } catch (e) {
         console.warn('[Stage2][fetch-hook] error in hook:', e);
       }
 
-      return origFetch(...args);
+      // ★ 必ず return する（どの分岐からでも）
+      return (origFetch as any)(input as any, init as any);
     };
 
-    console.log('[Stage2][fetch-hook] installed globally');
+    console.log('[Stage2][fetch-hook] installed (limited scope: stage2 bypass)');
   }, []);
 
   // storeAnswers12 -> local sync（サーバから復元/他画面更新時）
@@ -1105,248 +1085,301 @@ export default function Stage2Page() {
   }, [generatingOT, industry, revenue, employees, businessContent]);
 
   // Draft generation
-  const handleGenerate = useCallback(async (e?: React.MouseEvent<HTMLButtonElement>) => {
-    // ★ (1) 関数到達ログ
-    const isPing = !!e?.shiftKey;
-    console.log('[Stage2] handleGenerate ENTER', { at: new Date().toISOString(), pingMode: isPing, shiftKey: !!e?.shiftKey });
+  const handleGenerate = useCallback(
+    async (e?: React.MouseEvent<HTMLButtonElement>) => {
+      // ★ (1) 関数到達ログ
+      const isPing = !!e?.shiftKey;
+      console.log('[Stage2] handleGenerate ENTER', { at: new Date().toISOString(), pingMode: isPing, shiftKey: !!e?.shiftKey });
 
-    // ★ precheck（ここだけ return OK）
-    if (generating) {
-      console.log('[Stage2] handleGenerate EARLY RETURN: already generating');
-      return;
-    }
-
-    const issueBlocksCount = issueBlocks?.length ?? 0;
-    console.log('[Stage2] precheck', {
-      issueBlocksCount,
-      hasMetricsSummary: !!metricsSummary,
-      hasMVV: !!(mission || vision || value || thought),
-      hasSWOT: !!(strength || weakness || opportunity || threat),
-    });
-
-    if (issueBlocksCount === 0) {
-      console.warn('[Stage2] precheck failed: issueBlocks empty');
-      setGenerateError('論点（issueBlocks）が空です。STAGE1を完了してください。');
-      return;
-    }
-
-    // ★ precheck 成功後、初めて setGenerating(true)
-    setGenerateError(null);
-    setSaveWarning(null);
-    setGenerating(true);
-    console.log('[Stage2] after setGenerating(true)');
-
-    // AbortController（55秒タイムアウト）
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    try {
-      timer = setTimeout(() => controller.abort(), 55000);
-
-      // ★ payload 生成を try 内に（ここで例外が出ると finally で必ず清掃される）
-      const segmentNames = Array.isArray(businessSegments)
-        ? businessSegments
-            .map((s: any) => (typeof s?.name === 'string' ? s.name.trim() : ''))
-            .filter(Boolean)
-        : [];
-
-      // ★ ログ：入力内容の確認（整合性チェック用）
-      if (process.env.NODE_ENV === 'development') {
-        console.log('[Stage2] send businessSegments count:', businessSegments?.length ?? 0);
-        console.log('[Stage2] send businessPortfolio exists:', !!businessPortfolio);
-        console.log(
-          '[Stage2] send ceoIntent_len:',
-          ceoIntent?.length ?? 0,
-          '(content:',
-          ceoIntent?.substring(0, 50) ?? 'empty',
-          ')'
-        );
-        console.log('[Stage2] send mvv:', {
-          mission_len: mission?.length ?? 0,
-          vision_len: vision?.length ?? 0,
-          value_len: value?.length ?? 0,
-          thought_len: thought?.length ?? 0,
-        });
-        console.log('[Stage2] send swot lens:', {
-          S: strength?.length ?? 0,
-          W: weakness?.length ?? 0,
-          O: opportunity?.length ?? 0,
-          T: threat?.length ?? 0,
-        });
-        console.log(
-          '[Stage2] send swotSuggestions:',
-          swotSuggestions ? { opp_count: swotSuggestions.opportunity?.length, thr_count: swotSuggestions.threat?.length } : 'none'
-        );
+      // ★ precheck（ここだけ return OK）
+      if (generating) {
+        console.log('[Stage2] handleGenerate EARLY RETURN: already generating');
+        return;
       }
 
-      const payload: any = {
-        issueBlocks,
-        metricsSummary,
-        ceoIntent,
-        mvv: { thought, mission, vision, value },
-        swot: { strength, weakness, opportunity, threat },
-        swotSuggestions,
-        industry,
-        segments: segmentNames,
-        businessSegments,
-        businessPortfolio,
-      };
-
-      // ★ Shift キー押下時は PING モード
-      if (isPing) {
-        payload.__ping = true;
-        console.log('[Stage2] PING MODE ACTIVATED - __ping added to payload');
-      }
-
-      // ★ (3) fetch 直前ログ
-      const url = '/api/stage2/generate-draft';
-      console.log('[Stage2] BEFORE fetch', {
-        url,
+      const issueBlocksCount = issueBlocks?.length ?? 0;
+      console.log('[Stage2] precheck', {
         issueBlocksCount,
-        payloadSize: JSON.stringify(payload).length,
-        pingMode: isPing,
+        hasMetricsSummary: !!metricsSummary,
+        hasMVV: !!(mission || vision || value || thought),
+        hasSWOT: !!(strength || weakness || opportunity || threat),
       });
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-
-      // ★ レスポンス本文を先に読む（ok チェック前に）
-      const contentType = response.headers.get('content-type') || '';
-      const responseText = await response.text();
-
-      // ★ (4) fetch 直後ログ
-      console.log('[Stage2] AFTER fetch', { status: response.status, ok: response.ok, ct: contentType });
-
-      // ★ res.ok チェック
-      if (!response.ok) {
-        console.error('[Stage2] generate failed body:', responseText.substring(0, 400));
-        throw new Error(`API error: ${response.status} ${response.statusText}`);
+      if (issueBlocksCount === 0) {
+        console.warn('[Stage2] precheck failed: issueBlocks empty');
+        setGenerateError('論点（issueBlocks）が空です。STAGE1を完了してください。');
+        return;
       }
 
-      // ★ Content-Type チェック
-      if (!contentType.includes('application/json')) {
-        console.error('[Stage2] non-json response:', responseText.substring(0, 400));
-        throw new Error(`Unexpected Content-Type: ${contentType}`);
-      }
+      // ★ precheck 成功後、初めて setGenerating(true)
+      setGenerateError(null);
+      setSaveWarning(null);
+      setGenerating(true);
+      console.log('[Stage2] after setGenerating(true)');
 
-      // ★ JSON パース
-      const data = JSON.parse(responseText);
+      // AbortController（55秒タイムアウト）
+      const controller = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      let didTimeout = false;
+      let done = false; // ★追加：レース防止（レスポンス受領後は abort しない）
 
-      // ★ PING モード レスポンス確認
-      if (isPing && data.__pong === true) {
-        console.log('[Stage2] PING MODE SUCCESS - API is alive', {
-          timestamp: data.timestamp,
-          message: data.message,
-        });
-        // ユーザーに確認メッセージを表示
-        const msgText = `✓ API疎通確認成功\n${data.message}\nタイムスタンプ: ${data.timestamp}`;
-        alert(msgText);
-        // ★ PING 成功時は処理完了（storyDraft 反映は不要）
-        // finally で setGenerating(false) が実行される
-        throw new Error('PING_MODE_SUCCESS'); // 意図的に throw して finally へ
-      }
-
-      const newStoryDraft: StoryChapter[] = Array.isArray(data.storyDraft) ? data.storyDraft : [];
-      const newWinPatterns: WinPatternCandidate[] = Array.isArray(data.winPatternsCandidate) ? data.winPatternsCandidate : [];
-
-      if (process.env.NODE_ENV === 'development') {
-        console.log(
-          '[Stage2] API response storyDraft lengths:',
-          newStoryDraft.map((ch, i) => `Ch${i}: ${ch.body.length}`)
-        );
-        console.log('[Stage2] API response winPatternsCandidate count:', newWinPatterns.length);
-      }
-
-      setStoryDraft(newStoryDraft);
-      setWinPatternsCandidate(newWinPatterns);
-      setSelectedWinPatternId(newWinPatterns?.[0]?.id ?? null);
-
-      // Auto navigate to Draft tab
-      setActiveTab('draft');
-
-      const stage2State: Stage2State = {
-        mvv: { thought, mission, vision, value },
-        swot: { strength, weakness, opportunity, threat },
-        storyDraft: newStoryDraft,
-        winPatternsCandidate: newWinPatterns,
-      };
-      saveStage2SnapshotToLocalStorage(stage2State, companyId ?? undefined);
-
-      // Supabase best effort
-      if (userId && companyId) {
+      // ★追加：abort reason を明示 + done フラグでレース防止
+      const abortByTimeout = () => {
+        if (done) return;
+        didTimeout = true;
         try {
-          const storeState = useStrategyStore.getState() as any;
-          await saveStrategyDataApi(
-            {
-              ...storeState,
-              story: newStoryDraft,
-            },
-            userId,
-            companyId
+          controller.abort(new DOMException('timeout', 'AbortError'));
+        } catch {
+          // noop
+        }
+      };
+
+      try {
+        // ★ 修正2：120秒にタイムアウト（デバッグ用：サーバ側の速度確認）
+        const TIMEOUT_MS = 120_000;
+        timer = setTimeout(abortByTimeout, TIMEOUT_MS);
+
+        // ★ payload 生成を try 内に（ここで例外が出ると finally で必ず清掃される）
+        const segmentNames = Array.isArray(businessSegments)
+          ? businessSegments
+              .map((s: any) => (typeof s?.name === 'string' ? s.name.trim() : ''))
+              .filter(Boolean)
+          : [];
+
+        // ★ ログ：入力内容の確認（整合性チェック用）
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[Stage2] send businessSegments count:', businessSegments?.length ?? 0);
+          console.log('[Stage2] send businessPortfolio exists:', !!businessPortfolio);
+          console.log(
+            '[Stage2] send ceoIntent_len:',
+            ceoIntent?.length ?? 0,
+            '(content:',
+            ceoIntent?.substring(0, 50) ?? 'empty',
+            ')'
           );
-        } catch (saveError) {
-          console.warn('[Stage2] Supabase save failed:', saveError);
-          setSaveWarning('サーバー保存に失敗しましたが、ローカルに保存済みです');
+          console.log('[Stage2] send mvv:', {
+            mission_len: mission?.length ?? 0,
+            vision_len: vision?.length ?? 0,
+            value_len: value?.length ?? 0,
+            thought_len: thought?.length ?? 0,
+          });
+          console.log('[Stage2] send swot lens:', {
+            S: strength?.length ?? 0,
+            W: weakness?.length ?? 0,
+            O: opportunity?.length ?? 0,
+            T: threat?.length ?? 0,
+          });
+          console.log(
+            '[Stage2] send swotSuggestions:',
+            swotSuggestions
+              ? { opp_count: swotSuggestions.opportunity?.length, thr_count: swotSuggestions.threat?.length }
+              : 'none'
+          );
         }
-      }
-    } catch (e: any) {
-      // ★ PING モード成功時の特別処理
-      if (e?.message === 'PING_MODE_SUCCESS') {
-        console.log('[Stage2] PING mode completed successfully');
-        setGenerateError(null);
-        // ここでは何もしない（alert 済み）
-      } else {
-        // ★ エラーハンドリング
-        let errorMsg = 'たたき台の生成に失敗しました';
 
-        if (e?.name === 'AbortError' || e?.message?.includes('aborted')) {
-          errorMsg = 'たたき台の生成がタイムアウトしました（55秒以上かかりました）。再度実行してください。';
-        } else if (e?.message) {
-          errorMsg = e.message;
+        const payload: any = {
+          issueBlocks,
+          metricsSummary,
+          ceoIntent,
+          mvv: { thought, mission, vision, value },
+          swot: { strength, weakness, opportunity, threat },
+          swotSuggestions,
+          industry,
+          segments: segmentNames,
+          businessSegments,
+          businessPortfolio,
+        };
+
+        // ★ Shift キー押下時は PING モード
+        if (isPing) {
+          payload.__ping = true;
+          console.log('[Stage2] PING MODE ACTIVATED - __ping added to payload');
         }
 
-        console.error('[Stage2] Generate error:', e);
-        setGenerateError(errorMsg);
-      }
-    } finally {
-      // ★ 必ず実行される（return禁止で絶対に到達）
-      if (timer) clearTimeout(timer);
-      setGenerating(false);
-      console.log('[Stage2] finally: setGenerating(false) - ALWAYS EXECUTED');
-    }
-  }, [
-    generating,
-    issueBlocks,
-    metricsSummary,
-    ceoIntent, // ★ 追加：stale closure 防止
-    thought,
-    mission,
-    vision,
-    value,
-    strength,
-    weakness,
-    opportunity,
-    threat,
-    swotSuggestions, // ★ 追加：stale closure 防止
-    industry,
-    businessSegments,
-    businessPortfolio,
-    companyId,
-    userId,
-  ]);
+        // ★ (3) fetch 直前ログ
+        const url = '/api/stage2/generate-draft';
+        console.log('[Stage2] BEFORE fetch', {
+          url,
+          issueBlocksCount,
+          payloadSize: JSON.stringify(payload).length,
+          pingMode: isPing,
+        });
 
-  // Final generation
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+          cache: 'no-store',
+        });
+
+        // ★★★ 重要：レスポンスが返った時点で timeout を解除する（本文読取/parse 中に abort されるのを防ぐ）
+        done = true; // ★追加：これ以上 abort させない（race 防止）
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+
+        // ★ レスポンス本文を先に読む（ok チェック前に）
+        const contentType = response.headers.get('content-type') || '';
+        const responseText = await response.text();
+
+        // ★ (4) fetch 直後ログ
+        console.log('[Stage2] AFTER fetch', { status: response.status, ok: response.ok, ct: contentType });
+
+        // ★ res.ok チェック
+        if (!response.ok) {
+          console.error('[Stage2] generate failed body:', responseText.substring(0, 400));
+          throw new Error(`API error: ${response.status} ${response.statusText}`);
+        }
+
+        // ★ Content-Type チェック
+        if (!contentType.includes('application/json')) {
+          console.error('[Stage2] non-json response:', responseText.substring(0, 400));
+          throw new Error(`Unexpected Content-Type: ${contentType}`);
+        }
+
+        // ★ JSON パース
+        const data = JSON.parse(responseText);
+
+        // ★ PING モード レスポンス確認
+        if (isPing && data.__pong === true) {
+          console.log('[Stage2] PING MODE SUCCESS - API is alive', {
+            timestamp: data.timestamp,
+            message: data.message,
+          });
+          // ユーザーに確認メッセージを表示
+          const msgText = `✓ API疎通確認成功\n${data.message}\nタイムスタンプ: ${data.timestamp}`;
+          alert(msgText);
+          // ★ PING 成功時は処理完了（storyDraft 反映は不要）
+          throw new Error('PING_MODE_SUCCESS'); // 意図的に throw して finally へ
+        }
+
+        const newStoryDraft: StoryChapter[] = Array.isArray(data.storyDraft) ? data.storyDraft : [];
+        const newWinPatterns: WinPatternCandidate[] = Array.isArray(data.winPatternsCandidate) ? data.winPatternsCandidate : [];
+
+        if (process.env.NODE_ENV === 'development') {
+          console.log(
+            '[Stage2] API response storyDraft lengths:',
+            newStoryDraft.map((ch, i) => `Ch${i}: ${ch.body.length}`)
+          );
+          console.log('[Stage2] API response winPatternsCandidate count:', newWinPatterns.length);
+        }
+
+        setStoryDraft(newStoryDraft);
+        setWinPatternsCandidate(newWinPatterns);
+        setSelectedWinPatternId(newWinPatterns?.[0]?.id ?? null);
+
+        // Auto navigate to Draft tab
+        setActiveTab('draft');
+
+        const stage2State: Stage2State = {
+          mvv: { thought, mission, vision, value },
+          swot: { strength, weakness, opportunity, threat },
+          storyDraft: newStoryDraft,
+          winPatternsCandidate: newWinPatterns,
+        };
+        saveStage2SnapshotToLocalStorage(stage2State, companyId ?? undefined);
+
+        // Supabase best effort
+        if (userId && companyId) {
+          try {
+            const storeState = useStrategyStore.getState() as any;
+            await saveStrategyDataApi(
+              {
+                ...storeState,
+                story: newStoryDraft,
+              },
+              userId,
+              companyId
+            );
+          } catch (saveError) {
+            console.warn('[Stage2] Supabase save failed:', saveError);
+            setSaveWarning('サーバー保存に失敗しましたが、ローカルに保存済みです');
+          }
+        }
+      } catch (e: any) {
+        // ★ PING モード成功時の特別処理
+        if (e?.message === 'PING_MODE_SUCCESS') {
+          console.log('[Stage2] PING mode completed successfully');
+          setGenerateError(null);
+        } else {
+          // ★ エラーハンドリング
+          let errorMsg = 'たたき台の生成に失敗しました';
+
+          // AbortError / aborted
+          if (e?.name === 'AbortError' || e?.message?.includes('aborted')) {
+            // ★ timeout 由来かどうかを確定
+            if (didTimeout) {
+              errorMsg = 'たたき台の生成がタイムアウトしました（55秒以上かかりました）。再度実行してください。';
+            } else {
+              errorMsg = '通信が中断されました（abort）。ネットワーク/拡張機能/画面遷移などを確認してください。';
+            }
+          } else if (e?.message) {
+            errorMsg = e.message;
+          }
+
+          console.error('[Stage2] Generate error:', e);
+          setGenerateError(errorMsg);
+        }
+      } finally {
+        // ★ 必ず実行される（return禁止で絶対に到達）
+        done = true; // ★追加：timeout abort を確実に防ぐ
+        if (timer) clearTimeout(timer);
+        setGenerating(false);
+        console.log('[Stage2] finally: setGenerating(false) - ALWAYS EXECUTED');
+      }
+    },
+    [
+      generating,
+      issueBlocks,
+      metricsSummary,
+      ceoIntent,
+      thought,
+      mission,
+      vision,
+      value,
+      strength,
+      weakness,
+      opportunity,
+      threat,
+      swotSuggestions,
+      industry,
+      businessSegments,
+      businessPortfolio,
+      companyId,
+      userId,
+    ]
+  );
+
+  // Final generation（※こちらも timeout が絡むなら同じ問題が出るので対策を入れる）
   const handleGenerateFinal = useCallback(async () => {
     if (generatingFinal) return;
 
     setGeneratingFinal(true);
     setGenerateFinalError(null);
 
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let didTimeout = false;
+    let done = false; // ★追加：レース防止（レスポンス受領後は abort しない）
+
+    // ★追加：abort reason を明示 + done フラグでレース防止
+    const abortByTimeout = () => {
+      if (done) return;
+      didTimeout = true;
+      try {
+        controller.abort(new DOMException('timeout', 'AbortError'));
+      } catch {
+        // noop
+      }
+    };
+
     try {
+      // ★ 修正2：120秒にタイムアウト（デバッグ用：サーバ側の速度確認）
+      const TIMEOUT_MS = 120_000;
+      timer = setTimeout(abortByTimeout, TIMEOUT_MS);
+
       const segmentNames = Array.isArray(businessSegments)
         ? businessSegments
             .map((s: any) => (typeof s?.name === 'string' ? s.name.trim() : ''))
@@ -1371,11 +1404,27 @@ export default function Stage2Page() {
           businessSegments,
           businessPortfolio,
         }),
+        signal: controller.signal,
+        cache: 'no-store',
       });
 
+      // ★★★ 重要：レスポンスが返ったら timeout を解除（本文 parse 中に abort されるのを防ぐ）
+      done = true; // ★追加：これ以上 abort させない（race 防止）
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `API error: ${response.status}`);
+        const errorText = await response.text().catch(() => '');
+        const errorData = (() => {
+          try {
+            return JSON.parse(errorText || '{}');
+          } catch {
+            return {};
+          }
+        })();
+        throw new Error(errorData.error || `API error: ${response.status} ${response.statusText}`);
       }
 
       const data = await response.json();
@@ -1396,11 +1445,21 @@ export default function Stage2Page() {
         finalStory: newFinalStory,
       };
       saveStage2SnapshotToLocalStorage(stage2State, companyId ?? undefined);
-    } catch (e: unknown) {
-      const err = e as Error;
-      console.error('[Stage2] GenerateFinal error:', err);
-      setGenerateFinalError(err?.message || '最終ストーリーの生成に失敗しました');
+    } catch (e: any) {
+      console.error('[Stage2] GenerateFinal error:', e);
+
+      if (e?.name === 'AbortError' || e?.message?.includes('aborted')) {
+        setGenerateFinalError(
+          didTimeout
+            ? '最終ストーリーの生成がタイムアウトしました（55秒以上かかりました）。再度実行してください。'
+            : '通信が中断されました（abort）。ネットワーク/拡張機能/画面遷移などを確認してください。'
+        );
+      } else {
+        setGenerateFinalError(e?.message || '最終ストーリーの生成に失敗しました');
+      }
     } finally {
+      done = true; // ★追加：timeout abort を確実に防ぐ
+      if (timer) clearTimeout(timer);
       setGeneratingFinal(false);
     }
   }, [
@@ -1533,6 +1592,7 @@ export default function Stage2Page() {
                   >
                     {generatingOT ? 'AIで提案中...' : 'AIで機会・脅威を提案'}
                   </button>
+
                   <button
                     type="button"
                     onClick={(e) => {
@@ -1643,7 +1703,9 @@ export default function Stage2Page() {
                   </button>
                 </div>
 
-                {hasDraft && <p className="text-sm text-gray-500 text-center">※ 12の質問は未回答でも生成できます（回答があるほど、内容は具体化されます）</p>}
+                {hasDraft && (
+                  <p className="text-sm text-gray-500 text-center">※ 12の質問は未回答でも生成できます（回答があるほど、内容は具体化されます）</p>
+                )}
 
                 {generateFinalError && (
                   <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-700 dark:text-red-400">
