@@ -94,6 +94,9 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   const [bootstrapped, setBootstrapped] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
+  // ★ 追加：membership読み込みがタイムアウトしたか（「ready扱い」にしないためのフラグ）
+  const [bootstrapTimedOut, setBootstrapTimedOut] = useState(false);
+
   const initInFlight = useRef(false);
   const memInFlight = useRef(false);
   const provisionInFlight = useRef(false);
@@ -170,16 +173,21 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 
   /* ================================
    * 6秒フェイルセーフ
+   * - 修正：bootstrapped=true にしない（ready扱いが事故の元）
+   * - 代わりに timeout フラグだけ立てる
    * ============================== */
   useEffect(() => {
     if (!user?.id || bootstrapped) return;
     if (bootstrapTimer.current != null) return;
+
     bootstrapTimer.current = window.setTimeout(() => {
       if (!cleaned.current && !bootstrapped) {
-        console.warn('[bootstrap] membership timeout → force ready');
-        setBootstrapped(true);
+        console.warn('[bootstrap] membership timeout (NO force ready)');
+        setBootstrapTimedOut(true);
+        // setBootstrapped(true); // ★禁止：これがルーティング/リフェッチの暴発原因
       }
     }, 6000);
+
     return () => {
       if (bootstrapTimer.current != null) {
         clearTimeout(bootstrapTimer.current);
@@ -218,6 +226,8 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
             setRole(null);
             setMembership({ companyId: undefined, departmentId: undefined });
             setStrategyId(null);
+            setBootstrapped(false);
+            setBootstrapTimedOut(false);
           }
           // ★ ログアウト時は company_id Cookie もクリア
           try {
@@ -235,6 +245,9 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         const email = session.user.email ?? '';
         if (!cleaned.current) {
           setUser({ id: uid, email, name: '', role: 'member' });
+          // membership 再ロード局面
+          setBootstrapped(false);
+          setBootstrapTimedOut(false);
         }
       } finally {
         finishChecking();
@@ -254,7 +267,8 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           setRole(null);
           setMembership({ companyId: undefined, departmentId: undefined });
           setStrategyId(null);
-          setBootstrapped(true);
+          setBootstrapped(false);
+          setBootstrapTimedOut(false);
         }
         // ★ ログアウト時は company_id Cookie もクリア
         try {
@@ -266,10 +280,13 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         }
         return;
       }
+
       accessTokenRef.current = sess.access_token ?? null;
       if (!cleaned.current) {
         setUser({ id: sess.user.id, email: sess.user.email ?? '', name: '', role: 'member' });
-        setBootstrapped(false); // membership 再ロードへ
+        // membership を読み直す
+        setBootstrapped(false);
+        setBootstrapTimedOut(false);
       }
     });
 
@@ -288,6 +305,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
     if (!user?.id) return;
     if (memInFlight.current) return;
     memInFlight.current = true;
+
     const ac = new AbortController();
     const { signal } = ac;
 
@@ -342,7 +360,11 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         }
       } finally {
         memInFlight.current = false;
-        if (!cleaned.current) setBootstrapped(true);
+        if (!cleaned.current) {
+          // ★ 修正：membership 読込が「本当に完了」したときだけ ready にする
+          setBootstrapTimedOut(false);
+          setBootstrapped(true);
+        }
       }
     };
 
@@ -358,6 +380,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
    * ============================== */
   useEffect(() => {
     if (!bootstrapped) return;
+
     const deleting = companyId ? isCompanyDeleting(companyId) : false;
     if (deleting) {
       setCompanyScope(null);
@@ -374,11 +397,13 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 
   /* ================================
    * 2.4) 会社スコープ確定後の refetch（1社につき1回）
+   * - 修正：membership timeout中は走らせない（暴発抑止）
    * ============================== */
   useEffect(() => {
     const authed = !!useUserStore.getState().user?.id;
     if (!bootstrapped || !companyId || !authed) return;
     if (!hydrated) return; // ← 初回描画前に叩かない
+    if (bootstrapTimedOut) return; // ★追加：timeout中は抑止
     if (isCompanyDeleting(companyId)) return;
     if (isAuthPath(pathname)) return;
     if (refetchRanForCompany.current === companyId) return;
@@ -388,7 +413,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
     requestAnimationFrame(async () => {
       try {
         // ★ B) ブラウザのログインユーザーID確認（最重要）
-        const { data: authData, error: authErr } = await supabase.auth.getUser();
+        const { data: authData } = await supabase.auth.getUser();
         const actualUserId = authData?.user?.id ?? 'unknown';
         const storeUserId = useUserStore.getState().user?.id ?? 'unknown';
         console.log('[auth] login user verification', {
@@ -403,7 +428,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         console.warn('[layout] refetchFromServer failed:', e);
       }
     });
-  }, [bootstrapped, companyId, hydrated, pathname]);
+  }, [bootstrapped, companyId, hydrated, pathname, bootstrapTimedOut]);
 
   /* ================================
    * 2.5) strategyId provision（Bearer 付与 & 未ログイン/無トークン時は実行しない）
@@ -498,6 +523,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 
   /* ================================
    * 3) ルーティング制御
+   * - 修正：membership timeout中は /auth/welcome へ飛ばさない（暴発抑止）
    * ============================== */
   useEffect(() => {
     if (checking) return;
@@ -511,11 +537,16 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       router.replace('/login');
       return;
     }
+
     if (authed && !onAuthScene && bootstrapped && !companyId) {
+      // ★ timeout中は membership 未確定なので飛ばさない（保険）
+      if (bootstrapTimedOut) return;
+
       routedRef.current = true;
       router.replace('/auth/welcome');
       return;
     }
+
     if (authed && isAdminPath(pathname) && bootstrapped) {
       const r = (role ?? 'member') as 'admin' | 'manager' | 'member';
       if (r !== 'admin') {
@@ -524,7 +555,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         return;
       }
     }
-  }, [checking, bootstrapped, user?.id, pathname, router, role, companyId]);
+  }, [checking, bootstrapped, user?.id, pathname, router, role, companyId, bootstrapTimedOut]);
 
   /* ================================
    * 表示制御
@@ -533,16 +564,21 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   const deletingNow = companyId ? isCompanyDeleting(companyId) : false;
 
   if (!hideSidebar && (checking || !hydrated)) {
-    return (
-      <div className="grid min-h-dvh place-items-center text-sm text-gray-500">
-        初期化中…
-      </div>
-    );
+    return <div className="grid min-h-dvh place-items-center text-sm text-gray-500">初期化中…</div>;
   }
   if (!hideSidebar && deletingNow) {
     return (
       <div className="grid min-h-dvh place-items-center text-sm text-gray-500">
         会社データを削除中です…（完了までプロビジョンと自動保存を停止）
+      </div>
+    );
+  }
+
+  // ★ 追加：membershipが取れずにタイムアウトした場合の表示（勝手にreadyにしない）
+  if (!hideSidebar && user?.id && !bootstrapped && bootstrapTimedOut) {
+    return (
+      <div className="grid min-h-dvh place-items-center text-sm text-gray-500">
+        会社所属を確認中です…（通信状況を確認して再読込してください）
       </div>
     );
   }
@@ -564,18 +600,9 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           </div>
 
           {/* モバイル左ドロワー */}
-          <div
-            className={[
-              'lg:hidden fixed inset-0 z-40',
-              openLeft ? 'pointer-events-auto' : 'pointer-events-none',
-            ].join(' ')}
-            aria-hidden={!openLeft}
-          >
+          <div className={['lg:hidden fixed inset-0 z-40', openLeft ? 'pointer-events-auto' : 'pointer-events-none'].join(' ')} aria-hidden={!openLeft}>
             <div
-              className={[
-                'absolute inset-0 bg-black/40 transition-opacity',
-                openLeft ? 'opacity-100' : 'opacity-0',
-              ].join(' ')}
+              className={['absolute inset-0 bg-black/40 transition-opacity', openLeft ? 'opacity-100' : 'opacity-0'].join(' ')}
               onClick={() => setOpenLeft(false)}
             />
             <div
@@ -612,24 +639,15 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           </aside>
 
           {/* モバイル右ドロワー */}
-          <div
-            className={[
-              'lg:hidden fixed inset-0 z-40',
-              openRight ? 'pointer-events-auto' : 'pointer-events-none',
-            ].join(' ')}
-            aria-hidden={!openRight}
-          >
+          <div className={['lg:hidden fixed inset-0 z-40', openRight ? 'pointer-events-auto' : 'pointer-events-none'].join(' ')} aria-hidden={!openRight}>
             <div
-              className={[
-                'absolute inset-0 bg-black/40 transition-opacity',
-                openRight ? 'opacity-100' : 'opacity-0',
-              ].join(' ')}
+              className={['absolute inset-0 bg-black/40 transition-opacity', openRight ? 'opacity-100' : 'opacity-0'].join(' ')}
               onClick={() => setOpenRight(false)}
             />
             <div
               className={[
                 'absolute right-0 top-0 h-dvh w-[16rem] max-w-[90vw]',
-                'bg白 shadow-xl border-l border-black/5',
+                'bg-white shadow-xl border-l border-black/5', // ★修正：bg白 → bg-white
                 'transition-transform duration-200',
                 openRight ? 'translate-x-0' : 'translate-x-full',
               ].join(' ')}
@@ -670,7 +688,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
               </button>
               <button
                 onClick={() => setOpenRight(true)}
-                className="rounded-lg border border-black/10 px-3 py-1.5 text-sm shadow-sm bg白 active:scale-[0.99]"
+                className="rounded-lg border border-black/10 px-3 py-1.5 text-sm shadow-sm bg-white active:scale-[0.99]" // ★修正：bg白 → bg-white
               >
                 AIアシスタント
               </button>
