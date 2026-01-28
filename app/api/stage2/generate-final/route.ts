@@ -212,8 +212,17 @@ ${answersText}
 
 /* ===== APIハンドラ ===== */
 export async function POST(req: NextRequest) {
+  const t0 = Date.now();
+  // ★ 修正3：リクエスト受領ログ
+  console.log('[stage2/generate-final] POST ENTER', {
+    at: new Date().toISOString(),
+    method: req.method,
+    contentLength: req.headers.get('content-length'),
+  });
+
   try {
     if (!process.env.OPENAI_API_KEY) {
+      console.error('[stage2/generate-final] OPENAI_API_KEY is missing');
       return NextResponse.json(
         { error: 'OPENAI_API_KEY is missing' },
         { status: 500 }
@@ -221,9 +230,19 @@ export async function POST(req: NextRequest) {
     }
 
     const body = (await req.json().catch(() => ({}))) as GenerateFinalInput;
+    console.log('[stage2/generate-final] input parsed', {
+      issueBlocksCount: body.issueBlocks?.length ?? 0,
+      winPatternsCandidateCount: body.winPatternsCandidate?.length ?? 0,
+      answers12Count: body.answers12?.length ?? 0,
+      selectedWinPatternId: body.selectedWinPatternId,
+    });
 
     const systemPrompt = buildSystemPrompt();
     const userPrompt = buildUserPrompt(body);
+    console.log('[stage2/generate-final] prompts built', {
+      systemLen: systemPrompt.length,
+      userLen: userPrompt.length,
+    });
 
     // OpenAI API呼び出し
     const controller = new AbortController();
@@ -231,8 +250,17 @@ export async function POST(req: NextRequest) {
 
     let raw = '';
     let usedModel = MODEL_PRIMARY;
+    let tOpenAI = 0;
 
     try {
+      // ★ 修正3：OpenAI 呼び出し開始ログ
+      tOpenAI = Date.now();
+      console.log('[stage2/generate-final] BEFORE openai.chat.completions.create (1st attempt)', {
+        model: MODEL_PRIMARY,
+        temperature: 0.85,
+        maxTokens: 3600,
+      });
+
       const completion = await openai.chat.completions.create(
         {
           model: MODEL_PRIMARY,
@@ -251,10 +279,31 @@ export async function POST(req: NextRequest) {
         { signal: controller.signal }
       );
       raw = completion.choices?.[0]?.message?.content?.trim() || '';
+      // ★ 修正3：OpenAI 返却ログ
+      const dur1 = Date.now() - tOpenAI;
+      console.log('[stage2/generate-final] AFTER openai.chat.completions.create (1st attempt)', {
+        durationMs: `${dur1}ms`,
+        rawLen: raw.length,
+        hasContent: !!raw,
+      });
     } catch (e: unknown) {
       // フォールバック
+      const dur1 = tOpenAI ? Date.now() - tOpenAI : undefined;
+      const err1 = e as Error;
+      console.warn(
+        '[stage2/generate-final] 1st OpenAI attempt failed' + (dur1 ? ` (duration: ${dur1}ms)` : ''),
+        err1?.message || e
+      );
+
       usedModel = MODEL_FALLBACK;
       try {
+        // ★ 修正3：フォールバック OpenAI 呼び出し開始ログ
+        tOpenAI = Date.now();
+        console.log('[stage2/generate-final] BEFORE openai.chat.completions.create (2nd attempt - fallback)', {
+          model: MODEL_FALLBACK,
+          reason: '1st attempt failed',
+        });
+
         const completion2 = await openai.chat.completions.create(
           {
             model: MODEL_FALLBACK,
@@ -269,12 +318,30 @@ export async function POST(req: NextRequest) {
           { signal: controller.signal }
         );
         raw = completion2.choices?.[0]?.message?.content?.trim() || '';
+        // ★ 修正3：フォールバック OpenAI 返却ログ
+        const dur2 = Date.now() - tOpenAI;
+        console.log('[stage2/generate-final] AFTER openai.chat.completions.create (2nd attempt - fallback)', {
+          durationMs: `${dur2}ms`,
+          rawLen: raw.length,
+          hasContent: !!raw,
+        });
       } catch (e2: unknown) {
         clearTimeout(timer);
-        const err = e2 as Error;
-        console.error('[stage2/generate-final] OpenAI fallback error:', err?.message || e2);
+        const dur2 = tOpenAI ? Date.now() - tOpenAI : undefined;
+        const err2 = e2 as Error;
+        const totalDurationMs = Date.now() - t0;
+        // ★ 修正3：error 詳細ログ
+        console.error('[stage2/generate-final] OpenAI fallback error (both attempts failed)', {
+          name: err2?.name,
+          message: err2?.message || e2,
+          duration1Ms: dur1,
+          duration2Ms: dur2,
+          totalDurationMs: `${totalDurationMs}ms`,
+          isAbortError: err2?.name === 'AbortError',
+          stack: err2?.stack?.substring(0, 300),
+        });
         return NextResponse.json(
-          { error: err?.message || 'OpenAI API error' },
+          { error: err2?.message || 'OpenAI API error' },
           { status: 500 }
         );
       }
@@ -308,6 +375,16 @@ export async function POST(req: NextRequest) {
       return { title, body };
     });
 
+    // ★ 修正3：レスポンス返却直前ログ
+    const totalDurationMs = Date.now() - t0;
+    console.log('[stage2/generate-final] END - preparing response', {
+      finalStoryCount: finalStory.length,
+      finalStoryLengths: finalStory.map((ch, i) => `Ch${i}: ${ch.body.length}`),
+      usedModel,
+      totalDurationMs: `${totalDurationMs}ms`,
+      at: new Date().toISOString(),
+    });
+
     return NextResponse.json(
       {
         finalStory,
@@ -320,7 +397,15 @@ export async function POST(req: NextRequest) {
 
   } catch (error: unknown) {
     const err = error as Error;
-    console.error('[stage2/generate-final] Server error:', err?.message || error);
+    const totalDurationMs = Date.now() - t0;
+    // ★ 修正3：catch の error 詳細ログ
+    console.error('[stage2/generate-final] FATAL Server error', {
+      name: err?.name,
+      message: err?.message || error,
+      totalDurationMs: `${totalDurationMs}ms`,
+      isAbortError: err?.name === 'AbortError',
+      stack: err?.stack?.substring(0, 500),
+    });
     const status = err?.name === 'AbortError' ? 504 : 500;
     return NextResponse.json(
       { error: err?.message || 'Server error' },
