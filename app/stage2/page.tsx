@@ -1044,6 +1044,7 @@ export default function Stage2Page() {
           employees: employees || '',
           businessContent: businessContent || '',
         }),
+        cache: 'no-store',
       });
 
       if (!response.ok) {
@@ -1370,6 +1371,7 @@ export default function Stage2Page() {
 
                 <div className="flex gap-4 justify-center">
                   <button
+                    type="button"
                     onClick={handleGenerateOT}
                     disabled={generatingOT}
                     className="px-6 py-3 rounded-xl bg-amber-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-amber-700 transition-colors shadow-lg"
@@ -1377,6 +1379,7 @@ export default function Stage2Page() {
                     {generatingOT ? 'AIで提案中...' : 'AIで機会・脅威を提案'}
                   </button>
                   <button
+                    type="button"
                     onClick={handleGenerate}
                     disabled={generating}
                     className="px-8 py-4 rounded-xl bg-blue-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors shadow-lg"
