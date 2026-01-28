@@ -490,6 +490,63 @@ export default function DocumentImportPanel() {
       return String(k ?? '');
     };
 
+    // ★ candidate を FinancePLRow に変換（year 型チェック + キー正規化）
+    const toPLRow = (c: any): FinancePLRow | null => {
+      const y = toYear(c?.year);
+      if (!Number.isFinite(y)) {
+        console.warn('[DocumentImportPanel] PL candidate year invalid', {
+          original: c?.year,
+          parsed: y,
+        });
+        return null;
+      }
+
+      const f = c?.fields ?? {};
+      return {
+        year: y as number,
+        revenue: f.revenue != null ? Number(f.revenue) : undefined,
+        grossProfit: f.grossProfit != null ? Number(f.grossProfit) : undefined,
+        cogs: f.cogs != null ? Number(f.cogs) : undefined,
+        sga: f.sga != null ? Number(f.sga) : undefined,
+        operatingIncome:
+          f.operatingIncome != null
+            ? Number(f.operatingIncome)
+            : f.operatingProfit != null
+              ? Number(f.operatingProfit)
+              : undefined,
+        depreciation: f.depreciation != null ? Number(f.depreciation) : undefined,
+        interest: f.interest != null ? Number(f.interest) : undefined,
+        tax: f.tax != null ? Number(f.tax) : undefined,
+        netIncome: f.netIncome != null ? Number(f.netIncome) : undefined,
+      };
+    };
+
+    // ★ candidate を FinanceBSRow に変換（year 型チェック + キー正規化）
+    const toBSRow = (c: any): FinanceBSRow | null => {
+      const y = toYear(c?.year);
+      if (!Number.isFinite(y)) {
+        console.warn('[DocumentImportPanel] BS candidate year invalid', {
+          original: c?.year,
+          parsed: y,
+        });
+        return null;
+      }
+
+      const f = c?.fields ?? {};
+      return {
+        year: y as number,
+        cash: f.cash != null ? Number(f.cash) : undefined,
+        ar: f.ar != null ? Number(f.ar) : undefined,
+        inventory: f.inventory != null ? Number(f.inventory) : undefined,
+        ap: f.ap != null ? Number(f.ap) : undefined,
+        fixedAssets: f.fixedAssets != null ? Number(f.fixedAssets) : undefined,
+        totalAssets: f.totalAssets != null ? Number(f.totalAssets) : undefined,
+        interestBearingDebt: f.interestBearingDebt != null ? Number(f.interestBearingDebt) : undefined,
+        equity: f.equity != null ? Number(f.equity) : undefined,
+        netAssets: f.netAssets != null ? Number(f.netAssets) : undefined,
+      };
+    };
+
     // ★ DEBUG：kind別カウント（正規化前後）
     const countByRawKind: Record<string, number> = {};
     const countByNormalizedKind: Record<string, number> = {};
@@ -531,28 +588,41 @@ export default function DocumentImportPanel() {
     // PL候補を適用
     const plCandidates = groupedCandidates.companyPL;
     if (plCandidates.length > 0) {
-      const plMap = new Map<number, FinancePLRow>();
-      for (const row of financePL) plMap.set(row.year, { ...row });
+      // ★ candidates を FinancePLRow に変換（year 型強制 + キー正規化）
+      const convertedPL = plCandidates
+        .map((c) => toPLRow(c))
+        .filter((r) => r !== null) as FinancePLRow[];
 
-      for (const c of plCandidates) {
-        const y = toYear((c as any).year);
-        if (!y) continue;
-
-        const existing = plMap.get(y) ?? ({ year: y } as FinancePLRow);
-        for (const [key, val] of Object.entries((c as any).fields ?? {})) {
-          if (val !== undefined && typeof val === 'number') (existing as any)[key] = val;
-        }
-        plMap.set(y, existing);
-        appliedCount++;
-      }
-
-      const newPL = Array.from(plMap.values()).sort((a, b) => a.year - b.year);
-      setFinancePL(newPL);
-      console.log('[DocumentImportPanel] companyPL applied', {
-        candidatesCount: plCandidates.length,
-        appliedRowCount: newPL.length,
-        yearsInNewPL: newPL.map((r) => r.year),
+      console.log('[DocumentImportPanel] PL candidates converted', {
+        originalCount: plCandidates.length,
+        convertedCount: convertedPL.length,
+        filtered: plCandidates.length - convertedPL.length,
       });
+
+      if (convertedPL.length > 0) {
+        const plMap = new Map<number, FinancePLRow>();
+        for (const row of financePL) plMap.set(row.year, { ...row });
+
+        for (const row of convertedPL) {
+          const existing = plMap.get(row.year) ?? { ...row };
+          // 既存行とマージ（新しいデータで上書き）
+          for (const [key, val] of Object.entries(row)) {
+            if (val !== undefined) (existing as any)[key] = val;
+          }
+          plMap.set(row.year, existing);
+          appliedCount++;
+        }
+
+        const newPL = Array.from(plMap.values()).sort((a, b) => a.year - b.year);
+        setFinancePL(newPL);
+
+        console.log('[DocumentImportPanel] companyPL applied', {
+          candidatesCount: plCandidates.length,
+          convertedCount: convertedPL.length,
+          appliedRowCount: newPL.length,
+          yearsInNewPL: newPL.map((r) => r.year),
+        });
+      }
 
       // ★ DEBUG：setFinancePL 直後のスナップショット
       setTimeout(() => {
@@ -569,28 +639,41 @@ export default function DocumentImportPanel() {
     // BS候補を適用
     const bsCandidates = groupedCandidates.companyBS;
     if (bsCandidates.length > 0) {
-      const bsMap = new Map<number, FinanceBSRow>();
-      for (const row of financeBS) bsMap.set(row.year, { ...row });
+      // ★ candidates を FinanceBSRow に変換（year 型強制 + キー正規化）
+      const convertedBS = bsCandidates
+        .map((c) => toBSRow(c))
+        .filter((r) => r !== null) as FinanceBSRow[];
 
-      for (const c of bsCandidates) {
-        const y = toYear((c as any).year);
-        if (!y) continue;
-
-        const existing = bsMap.get(y) ?? ({ year: y } as FinanceBSRow);
-        for (const [key, val] of Object.entries((c as any).fields ?? {})) {
-          if (val !== undefined && typeof val === 'number') (existing as any)[key] = val;
-        }
-        bsMap.set(y, existing);
-        appliedCount++;
-      }
-
-      const newBS = Array.from(bsMap.values()).sort((a, b) => a.year - b.year);
-      setFinanceBS(newBS);
-      console.log('[DocumentImportPanel] companyBS applied', {
-        candidatesCount: bsCandidates.length,
-        appliedRowCount: newBS.length,
-        yearsInNewBS: newBS.map((r) => r.year),
+      console.log('[DocumentImportPanel] BS candidates converted', {
+        originalCount: bsCandidates.length,
+        convertedCount: convertedBS.length,
+        filtered: bsCandidates.length - convertedBS.length,
       });
+
+      if (convertedBS.length > 0) {
+        const bsMap = new Map<number, FinanceBSRow>();
+        for (const row of financeBS) bsMap.set(row.year, { ...row });
+
+        for (const row of convertedBS) {
+          const existing = bsMap.get(row.year) ?? { ...row };
+          // 既存行とマージ（新しいデータで上書き）
+          for (const [key, val] of Object.entries(row)) {
+            if (val !== undefined) (existing as any)[key] = val;
+          }
+          bsMap.set(row.year, existing);
+          appliedCount++;
+        }
+
+        const newBS = Array.from(bsMap.values()).sort((a, b) => a.year - b.year);
+        setFinanceBS(newBS);
+
+        console.log('[DocumentImportPanel] companyBS applied', {
+          candidatesCount: bsCandidates.length,
+          convertedCount: convertedBS.length,
+          appliedRowCount: newBS.length,
+          yearsInNewBS: newBS.map((r) => r.year),
+        });
+      }
 
       // ★ DEBUG：setFinanceBS 直後のスナップショット
       setTimeout(() => {
