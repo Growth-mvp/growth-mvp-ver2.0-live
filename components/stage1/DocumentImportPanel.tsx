@@ -479,9 +479,32 @@ export default function DocumentImportPanel() {
     let appliedCount = 0;
     let appliedSegmentAnything = false;
 
+    // ★ kind 正規化（API側の出力ブレに対応）
+    const normalizeKindSimple = (k: any): string => {
+      const s = String(k ?? '').trim().toLowerCase();
+      if (s === 'company_pl' || s === 'companypl') return 'companyPL';
+      if (s === 'company_bs' || s === 'companybs') return 'companyBS';
+      if (s === 'segment_pl' || s === 'segmentpl' || s === 'segpl') return 'segmentPL';
+      if (s === 'segment_bs' || s === 'segmentbs' || s === 'segbs') return 'segmentBS';
+      if (s === 'pbr') return 'pbr';
+      return String(k ?? '');
+    };
+
+    // ★ DEBUG：kind別カウント（正規化前後）
+    const countByRawKind: Record<string, number> = {};
+    const countByNormalizedKind: Record<string, number> = {};
+    for (const c of candidates) {
+      const raw = String((c as any).kind ?? 'unknown');
+      const norm = normalizeKindSimple((c as any).kind);
+      countByRawKind[raw] = (countByRawKind[raw] ?? 0) + 1;
+      countByNormalizedKind[norm] = (countByNormalizedKind[norm] ?? 0) + 1;
+    }
+
     // ★ DEBUG：適用ボタン押下時の詳細ログ
     console.log('[DocumentImportPanel] handleApply START', {
       totalCandidates: candidates.length,
+      countByRawKind,
+      countByNormalizedKind,
       groupedByKind: {
         companyPL: groupedCandidates.companyPL.length,
         companyBS: groupedCandidates.companyBS.length,
@@ -702,6 +725,30 @@ export default function DocumentImportPanel() {
         businessSegments_len: businessSegments?.length ?? 0,
       },
     });
+
+    // ★ DEBUG：実際のZustand state を確認（setterが反映されたか確認）
+    setTimeout(() => {
+      const actualState = useStrategyStore.getState();
+      const actualFinancePL = actualState.financePL ?? [];
+      const actualFinanceBS = actualState.financeBS ?? [];
+      const actualSegmentPL = actualState.segmentPL ?? {};
+      const actualSegmentBS = actualState.segmentBS ?? {};
+
+      console.log('[DocumentImportPanel] actualStoreState after setters', {
+        financePL_len: actualFinancePL.length,
+        financePL_years: actualFinancePL.map((r: any) => r.year),
+        financeBS_len: actualFinanceBS.length,
+        financeBS_years: actualFinanceBS.map((r: any) => r.year),
+        segmentPL_keys: Object.keys(actualSegmentPL),
+        segmentPL_distribution: Object.fromEntries(
+          Object.entries(actualSegmentPL).map(([k, v]) => [k, (v as any)?.length ?? 0])
+        ),
+        segmentBS_keys: Object.keys(actualSegmentBS),
+        segmentBS_distribution: Object.fromEntries(
+          Object.entries(actualSegmentBS).map(([k, v]) => [k, (v as any)?.length ?? 0])
+        ),
+      });
+    }, 50);
 
     // valueAnalysis を再計算（引数は union に収まる値のみ）
     setTimeout(() => {
