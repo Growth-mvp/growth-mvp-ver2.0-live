@@ -33,6 +33,7 @@ import type {
   Stage2Answer,
   StoryChapter,
   Stage1Benchmarks,
+  CompanyTarget,
 } from '@/types/strategy';
 import type { BusinessPortfolio } from '@/types/portfolio';
 import {
@@ -210,6 +211,9 @@ export type StrategyState = {
   winPatternsCandidate?: WinPatternCandidate[];
   answers12?: Stage2Answer[];
 
+  /* ★ STAGE2：会社の数値目標（North Star Metrics） */
+  companyTargets?: CompanyTarget[];
+
   /* ★ 全社レベルの勝ち筋（受け皿） */
   winPatterns?: WinPattern[];
   winPatternPrimary?: WinPatternId;
@@ -331,6 +335,10 @@ export type StrategyState = {
   setWinPatternsCandidate: (candidates: WinPatternCandidate[]) => void;
   setAnswers12: (answers: Stage2Answer[]) => void;
   updateAnswer12: (id: string, patch: Partial<Stage2Answer>) => void;
+  setCompanyTargets: (targets: CompanyTarget[]) => void;
+  addCompanyTarget: (target: CompanyTarget) => void;
+  updateCompanyTarget: (id: string, patch: Partial<CompanyTarget>) => void;
+  removeCompanyTarget: (id: string) => void;
 
   /* ▼ STAGE4 setter */
   setStage4Plans: (plans: Array<{
@@ -537,6 +545,8 @@ function buildSavePayload(s: StrategyState) {
     winPatterns: s.winPatterns,
     winPatternPrimary: s.winPatternPrimary,
     winPatternSecondary: s.winPatternSecondary,
+
+    companyTargets: s.companyTargets,
 
     stage4Plans: s.stage4Plans,
     executionPlanBaseline: s.executionPlanBaseline,
@@ -810,6 +820,7 @@ const emptyData: StrategyState = {
   storyDraft: undefined,
   winPatternsCandidate: undefined,
   answers12: undefined,
+  companyTargets: undefined,
   winPatterns: undefined,
   winPatternPrimary: undefined,
   winPatternSecondary: undefined,
@@ -860,6 +871,10 @@ const emptyData: StrategyState = {
   setWinPatternsCandidate: () => {},
   setAnswers12: () => {},
   updateAnswer12: () => {},
+  setCompanyTargets: () => {},
+  addCompanyTarget: () => {},
+  updateCompanyTarget: () => {},
+  removeCompanyTarget: () => {},
   setStage4Plans: () => {},
   setExecutionPlanBaseline: () => {},
   recomputeValueAnalysis: () => {},
@@ -1413,6 +1428,47 @@ export const useStrategyStore = create<StrategyState>()(
           const next = [...prev];
           next[idx] = { ...next[idx], ...patch };
           return { ...s, answers12: next, dirty: true };
+        });
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
+      setCompanyTargets: (targets) => {
+        set((s) => ({ ...s, companyTargets: targets, dirty: true }));
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
+      addCompanyTarget: (target) => {
+        set((s) => {
+          const prev = s.companyTargets ?? [];
+          return { ...s, companyTargets: [...prev, target], dirty: true };
+        });
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
+      updateCompanyTarget: (id, patch) => {
+        set((s) => {
+          const prev = s.companyTargets ?? [];
+          const idx = prev.findIndex((t) => t.id === id);
+          if (idx < 0) return s;
+          const next = [...prev];
+          next[idx] = { ...next[idx], ...patch };
+          return { ...s, companyTargets: next, dirty: true };
+        });
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
+      removeCompanyTarget: (id) => {
+        set((s) => {
+          const prev = s.companyTargets ?? [];
+          return { ...s, companyTargets: prev.filter((t) => t.id !== id), dirty: true };
         });
         setTimeout(() => {
           get().saveStage2Snapshot();

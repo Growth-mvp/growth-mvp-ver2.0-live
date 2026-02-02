@@ -11,6 +11,9 @@ import type {
   FinancePLRow,
   FinanceBSRow,
   SegmentBSRow,
+  CompanyTarget,
+  WinPatternCandidate,
+  Stage2Answer,
 } from '@/types/strategy';
 
 /** GROWTH 固定タイトル（章タイトルはUIで固定表示） */
@@ -555,6 +558,110 @@ function normalizeSegmentBSRecord(input: unknown): Record<string, SegmentBSRow[]
 }
 
 /* =====================================================================
+ * STAGE2 正規化（CompanyTarget, WinPatternCandidate, Stage2Answer）
+ * ===================================================================== */
+
+function normalizeCompanyTarget(input: unknown): CompanyTarget | null {
+  if (!input || typeof input !== 'object') return null;
+  const t = input as any;
+
+  const id = String(t.id ?? '');
+  const label = String(t.label ?? '').trim();
+  const unit = String(t.unit ?? '').trim();
+  const rationale = String(t.rationale ?? '').trim();
+  const linkedIssueIds = Array.isArray(t.linkedIssueIds)
+    ? t.linkedIssueIds.map((id: any) => String(id)).filter((id: string) => id)
+    : [];
+
+  // base は必須
+  const base = typeof t.base === 'number' ? t.base : Number(t.base);
+  if (!Number.isFinite(base)) return null;
+
+  // 必須フィールド確認
+  if (!id || !label || !unit || !rationale || linkedIssueIds.length === 0) return null;
+
+  return {
+    id,
+    label,
+    unit,
+    base,
+    low: typeof t.low === 'number' ? t.low : undefined,
+    high: typeof t.high === 'number' ? t.high : undefined,
+    dueYear: typeof t.dueYear === 'number' ? t.dueYear : undefined,
+    priority: [1, 2, 3, 4].includes(t.priority) ? t.priority : 1,
+    linkedIssueIds,
+    rationale,
+  };
+}
+
+function normalizeCompanyTargetsArray(input: unknown): CompanyTarget[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const arr = (input as unknown[])
+    .map((t) => normalizeCompanyTarget(t))
+    .filter((t) => t !== null) as CompanyTarget[];
+  return arr.length > 0 ? arr : undefined;
+}
+
+function normalizeWinPatternCandidate(input: unknown): WinPatternCandidate | null {
+  if (!input || typeof input !== 'object') return null;
+  const w = input as any;
+
+  const id = String(w.id ?? '');
+  const name = String(w.name ?? '').trim();
+  const rationale = String(w.rationale ?? '').trim();
+  const tradeoffs = String(w.tradeoffs ?? '').trim();
+  const valueDrivers = Array.isArray(w.valueDrivers)
+    ? w.valueDrivers.map((v: any) => String(v)).filter((v: string) => v)
+    : [];
+
+  if (!id || !name || !rationale || valueDrivers.length === 0) return null;
+
+  return {
+    id,
+    name,
+    valueDrivers,
+    rationale,
+    tradeoffs,
+    scope: w.scope === 'segment' ? 'segment' : 'company',
+    segmentName: typeof w.segmentName === 'string' ? w.segmentName : undefined,
+  };
+}
+
+function normalizeWinPatternCandidatesArray(input: unknown): WinPatternCandidate[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const arr = (input as unknown[])
+    .map((w) => normalizeWinPatternCandidate(w))
+    .filter((w) => w !== null) as WinPatternCandidate[];
+  return arr.length > 0 ? arr : undefined;
+}
+
+function normalizeStage2Answer(input: unknown): Stage2Answer | null {
+  if (!input || typeof input !== 'object') return null;
+  const a = input as any;
+
+  const id = String(a.id ?? '');
+  const question = String(a.question ?? '').trim();
+  const answer = String(a.answer ?? '').trim();
+
+  if (!id || !question) return null;
+
+  return {
+    id,
+    question,
+    answer,
+    required: Boolean(a.required),
+  };
+}
+
+function normalizeStage2AnswersArray(input: unknown): Stage2Answer[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const arr = (input as unknown[])
+    .map((a) => normalizeStage2Answer(a))
+    .filter((a) => a !== null) as Stage2Answer[];
+  return arr.length > 0 ? arr : undefined;
+}
+
+/* =====================================================================
  * StrategyData 正規化（全体・非破壊）
  * ===================================================================== */
 export function normalizeStrategyData(input: StrategyData | unknown | null): StrategyData {
@@ -685,6 +792,14 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
   const ticker = toStr(src.ticker ?? '');
   const pbrManual = toStr(src.pbrManual ?? '');
 
+  // ★ STAGE2：会社の数値目標（North Star Metrics）
+  const companyTargets = normalizeCompanyTargetsArray(src.companyTargets);
+
+  // ★ STAGE2：ストーリードラフト・勝ち筋候補・12問回答
+  const storyDraft = normalizeChaptersAnyNonDestructive(src.storyDraft);
+  const winPatternsCandidate = normalizeWinPatternCandidatesArray(src.winPatternsCandidate);
+  const answers12 = normalizeStage2AnswersArray(src.answers12);
+
   const out: StrategyData = {
     id: src.id,
     user_id: src.user_id,
@@ -739,6 +854,12 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     ...(isListed !== undefined ? { isListed } : {}),
     ...(ticker ? { ticker } : {}),
     ...(pbrManual ? { pbrManual } : {}),
+
+    // ★ STAGE2：会社の数値目標・ストーリードラフト・勝ち筋候補・12問回答
+    ...(companyTargets !== undefined ? { companyTargets } : {}),
+    ...(storyDraft !== undefined ? { storyDraft } : {}),
+    ...(winPatternsCandidate !== undefined ? { winPatternsCandidate } : {}),
+    ...(answers12 !== undefined ? { answers12 } : {}),
 
     ...(csvFinanceData !== undefined ? { csvFinanceData } : {}),
     ...(financePL !== undefined ? { financePL } : {}),
