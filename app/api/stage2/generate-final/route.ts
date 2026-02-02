@@ -76,6 +76,20 @@ type Stage2Answer = {
   required?: boolean;
 };
 
+/* ===== North Star Metrics ===== */
+type CompanyTarget = {
+  id: string;
+  label: string;
+  unit?: string;
+  base: number;
+  low?: number;
+  high?: number;
+  dueYear?: number;
+  priority?: number; // 1が最優先
+  linkedIssueIds: string[];
+  rationale: string;
+};
+
 function formatAnswers12(answers: Stage2Answer[]): string {
   if (!answers || answers.length === 0) return '（未回答）';
   const answered = answers.filter((a) => a.answer?.trim());
@@ -104,6 +118,12 @@ function buildSystemPrompt(): string {
 - 選択された勝ち筋に整合する語り・事例・トレードオフを織り込む
 - 「やらないこと」宣言は、選んだ勝ち筋のロジックと矛盾させない
 
+【North Star（会社の数値目標）— Final整合性チェック（重要）】
+- 入力にNorth Starがある場合、最終ストーリーは必ずNorth Starに整合させる（矛盾禁止）。
+- 少なくとも1つ、最優先（priorityが最小、未指定は1扱い）の目標について、目標名と数値（base/レンジ/期限）を本文内に具体的に明記する。
+- linkedIssueIds がある目標は、該当するSTAGE1論点への対応（なぜ効くか）を第2章または第4章で必ず言及する。
+- North Star が未入力の場合は「★North Star未入力のため一般化した」と明記し、推測で数値を作らない。
+
 【出力制約（厳守）】
 - 4章構成：なぜ今 / どう戦う / どんな未来 / どう行動する
 - 各章2〜4段落。社員が読んで腹に落ちる語り口で。
@@ -128,6 +148,7 @@ type GenerateFinalInput = {
   winPatternsCandidate?: Array<{ id: string; name: string; valueDrivers?: string[]; rationale?: string }>;
   selectedWinPatternId?: string;
   answers12?: Stage2Answer[];
+  companyTargets?: CompanyTarget[];
   industry?: string;
   segments?: string[];
 };
@@ -142,6 +163,7 @@ function buildUserPrompt(input: GenerateFinalInput): string {
     winPatternsCandidate = [],
     selectedWinPatternId,
     answers12 = [],
+    companyTargets = [],
     industry,
     segments,
   } = input;
@@ -159,6 +181,58 @@ function buildUserPrompt(input: GenerateFinalInput): string {
   const issuesText = issueBlocks.length > 0
     ? issueBlocks.map((ib, i) => `${i + 1}. ${ib.title}${ib.linkedMetrics?.length ? `（${ib.linkedMetrics.join(', ')}）` : ''}`).join('\n')
     : '（論点なし）';
+
+  // Issue title resolution map
+  const issueTitleById = new Map<string, string>();
+  for (const ib of issueBlocks) {
+    const id = (ib as any).id;
+    if (typeof id === 'string' && id) issueTitleById.set(id, ib.title);
+  }
+
+  // North Star Metrics formatting
+  function formatCompanyTargets(): string {
+    if (!companyTargets || companyTargets.length === 0) {
+      return '（★North Star未入力のため一般化した）';
+    }
+
+    // priority小さい順（未指定は1扱い）
+    const sorted = [...companyTargets].sort((a: any, b: any) => {
+      const pa = Number.isFinite(a?.priority) ? Number(a.priority) : 1;
+      const pb = Number.isFinite(b?.priority) ? Number(b.priority) : 1;
+      return pa - pb;
+    });
+
+    const lines: string[] = [];
+    for (const t of sorted.slice(0, 6)) {
+      const label = sanitize(t?.label, 60) || '（目標名未入力）';
+      const unit = sanitize(t?.unit, 20);
+      const base = Number.isFinite(t?.base) ? Number(t.base) : NaN;
+      const low = Number.isFinite(t?.low) ? Number(t.low) : undefined;
+      const high = Number.isFinite(t?.high) ? Number(t.high) : undefined;
+      const dueYear = Number.isFinite(t?.dueYear) ? Number(t.dueYear) : undefined;
+      const pr = Number.isFinite(t?.priority) ? Number(t.priority) : 1;
+
+      const range = (low !== undefined || high !== undefined) ? `（レンジ: ${low ?? '—'}〜${high ?? '—'}）` : '';
+      const due = dueYear ? `（期限: ${dueYear}年度）` : '';
+
+      const linkedIds: string[] = Array.isArray(t?.linkedIssueIds) ? t.linkedIssueIds.filter((x: any) => typeof x === 'string') : [];
+      const linkedTitles = linkedIds
+        .map((issueId: string) => issueTitleById.get(issueId) || `（論点ID: ${issueId}）`)
+        .slice(0, 3);
+
+      const rationale = sanitize(t?.rationale, 200) || '—';
+
+      lines.push(
+        `- [優先度${pr}] ${label}${unit ? `（単位:${unit}）` : ''}: 基準値 ${Number.isFinite(base) ? base : '—'} ${range} ${due}\n` +
+        `  理由: ${rationale}\n` +
+        `  紐付く論点: ${linkedTitles.length ? linkedTitles.join(' / ') : '—'}`
+      );
+    }
+
+    return lines.join('\n');
+  }
+
+  const companyTargetsText = formatCompanyTargets();
 
   // 指標サマリ
   const ms = metricsSummary as Record<string, number | string | undefined>;
@@ -185,6 +259,9 @@ ${issuesText}
 
 【財務指標】
 ${metricsText}
+
+【会社の数値目標（North Star Metrics）】
+${companyTargetsText}
 
 【MVV】
 - Mission: ${sanitize(mvv.mission, 200) || '—'}
@@ -234,6 +311,7 @@ export async function POST(req: NextRequest) {
       issueBlocksCount: body.issueBlocks?.length ?? 0,
       winPatternsCandidateCount: body.winPatternsCandidate?.length ?? 0,
       answers12Count: body.answers12?.length ?? 0,
+      companyTargetsCount: body.companyTargets?.length ?? 0,
       selectedWinPatternId: body.selectedWinPatternId,
     });
 

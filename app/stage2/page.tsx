@@ -1800,6 +1800,7 @@ export default function Stage2Page() {
           // UIでは選択させないが、API整合のため内部で先頭候補を参照（無い場合は null）
           selectedWinPatternId: selectedWinPatternId ?? winPatternsCandidate?.[0]?.id ?? null,
           answers12, // 未回答でもOK（空文字が混ざっていても許容）
+          companyTargets: companyTargetsPage,
           industry,
           segments: segmentNames,
           businessSegments,
@@ -1880,6 +1881,7 @@ export default function Stage2Page() {
     winPatternsCandidate,
     selectedWinPatternId,
     answers12,
+    companyTargetsPage,
     industry,
     businessSegments,
     businessPortfolio,
