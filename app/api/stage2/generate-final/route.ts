@@ -82,6 +82,20 @@ type Stage2Answer = {
   required?: boolean;
 };
 
+/* ===== North Star Metrics ===== */
+type CompanyTarget = {
+  id: string;
+  label: string;
+  unit?: string;
+  base: number;
+  low?: number;
+  high?: number;
+  dueYear?: number;
+  priority?: number; // 1が最優先
+  linkedIssueIds: string[];
+  rationale: string;
+};
+
 function formatAnswers12(answers: Stage2Answer[]): string {
   if (!answers || answers.length === 0) return '（未回答）';
   const answered = answers.filter((a) => a.answer?.trim());
@@ -110,6 +124,12 @@ function buildSystemPrompt(): string {
 - 選択された勝ち筋に整合する語り・事例・トレードオフを織り込む
 - 「やらないこと」宣言は、選んだ勝ち筋のロジックと矛盾させない
 
+【North Star（会社の数値目標）— Final整合性チェック（重要）】
+- 入力にNorth Starがある場合、最終ストーリーは必ずNorth Starに整合させる（矛盾禁止）。
+- 少なくとも1つ、最優先（priorityが最小、未指定は1扱い）の目標について、目標名と数値（base/レンジ/期限）を本文内に具体的に明記する。
+- linkedIssueIds がある目標は、該当するSTAGE1論点への対応（なぜ効くか）を第2章または第4章で必ず言及する。
+- North Star が未入力の場合は「★North Star未入力のため一般化した」と明記し、推測で数値を作らない。
+
 【出力制約（厳守）】
 - 4章構成：なぜ今 / どう戦う / どんな未来 / どう行動する
 - 各章3〜5段落、700〜1200文字目安。社員が読んで腹に落ちる語り口で。
@@ -137,6 +157,7 @@ type GenerateFinalInput = {
   winPatternsCandidate?: Array<{ id: string; name: string; valueDrivers?: string[]; rationale?: string }>;
   selectedWinPatternId?: string;
   answers12?: Stage2Answer[];
+  companyTargets?: CompanyTarget[];
   industry?: string;
   segments?: string[];
 };
@@ -151,6 +172,7 @@ function buildUserPrompt(input: GenerateFinalInput): string {
     winPatternsCandidate = [],
     selectedWinPatternId,
     answers12 = [],
+    companyTargets = [],
     industry,
     segments,
   } = input;
@@ -236,6 +258,7 @@ function buildUserPrompt(input: GenerateFinalInput): string {
   }
 
   const companyTargetsText = formatCompanyTargets();
+
   // 指標サマリ
   const ms = metricsSummary as Record<string, number | string | undefined>;
   const metricsText =
@@ -265,6 +288,9 @@ ${issuesText}
 
 【財務指標】
 ${metricsText}
+
+【会社の数値目標（North Star Metrics）】
+${companyTargetsText}
 
 【MVV】
 - Mission: ${sanitize(mvv.mission, 200) || '—'}
@@ -466,6 +492,7 @@ export async function POST(req: NextRequest) {
       issueBlocksCount: body.issueBlocks?.length ?? 0,
       winPatternsCandidateCount: body.winPatternsCandidate?.length ?? 0,
       answers12Count: body.answers12?.length ?? 0,
+      companyTargetsCount: body.companyTargets?.length ?? 0,
       selectedWinPatternId: body.selectedWinPatternId,
     });
 
