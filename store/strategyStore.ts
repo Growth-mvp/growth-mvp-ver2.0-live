@@ -820,7 +820,7 @@ const emptyData: StrategyState = {
   storyDraft: undefined,
   winPatternsCandidate: undefined,
   answers12: undefined,
-  companyTargets: undefined,
+  companyTargets: [],
   winPatterns: undefined,
   winPatternPrimary: undefined,
   winPatternSecondary: undefined,

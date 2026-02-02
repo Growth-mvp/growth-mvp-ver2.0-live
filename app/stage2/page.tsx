@@ -12,7 +12,13 @@ import {
   saveStage2SnapshotToLocalStorage,
 } from '@/utils/stageSnapshot';
 import { getFullStrategyDataByCompany, saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
-import type { IssueBlock, MetricsSummary, StoryChapter, WinPatternCandidate, Stage2State, Stage2Answer } from '@/types/strategy';
+import type { IssueBlock, MetricsSummary, StoryChapter, WinPatternCandidate, Stage2State, Stage2Answer, CompanyTarget } from '@/types/strategy';
+
+/* ===================================================
+ * 定数（selector fallback 用・参照固定）
+ * =================================================== */
+const EMPTY_COMPANY_TARGETS: CompanyTarget[] = [];
+const EMPTY_BUSINESS_SEGMENTS: any[] = [];
 
 /* ===================================================
  * 12問テンプレート（固定）
@@ -837,7 +843,9 @@ function CompanyTargetCard({
  * 会社の数値目標セクション全体
  */
 function CompanyTargetSection() {
-  const companyTargets = useStrategyStore((s) => s.companyTargets ?? []);
+  const companyTargetsRaw = useStrategyStore((s) => s.companyTargets);
+  const companyTargets = companyTargetsRaw ?? EMPTY_COMPANY_TARGETS;
+
   const addCompanyTarget = useStrategyStore((s) => s.addCompanyTarget);
   const updateCompanyTarget = useStrategyStore((s) => s.updateCompanyTarget);
   const removeCompanyTarget = useStrategyStore((s) => s.removeCompanyTarget);
@@ -1062,7 +1070,11 @@ export default function Stage2Page() {
   const revenue = useStrategyStore((s) => s.revenue ?? '');
   const employees = useStrategyStore((s) => s.employees ?? '');
   const businessContent = useStrategyStore((s) => s.businessContent ?? '');
-  const businessSegments = useStrategyStore((s) => s.businessSegments ?? []); // ★ STAGE1で定義されたセグメント情報
+
+  // businessSegments selector fallback fix（参照安定化）
+  const businessSegmentsRaw = useStrategyStore((s) => s.businessSegments);
+  const businessSegments = businessSegmentsRaw ?? EMPTY_BUSINESS_SEGMENTS; // ★ STAGE1で定義されたセグメント情報
+
   const businessPortfolio = useStrategyStore((s) => (s as any).businessPortfolio ?? null); // ★ 現在の事業ポートフォリオ（型揺れ許容）
   const companyId = useUserStore((s) => s.companyId);
   const userId = useUserStore((s) => s.user?.id);
@@ -1080,8 +1092,9 @@ export default function Stage2Page() {
   const addSwotOpportunity = useStrategyStore((s) => s.addSwotOpportunity);
   const addSwotThreat = useStrategyStore((s) => s.addSwotThreat);
 
-  // CompanyTargets store連携
-  const companyTargets = useStrategyStore((s) => s.companyTargets ?? []);
+  // CompanyTargets store連携（selector fallback fix・参照安定化）
+  const companyTargetsRaw = useStrategyStore((s) => s.companyTargets);
+  const companyTargetsPage = companyTargetsRaw ?? EMPTY_COMPANY_TARGETS;
 
   // Local UI state
   const [loading, setLoading] = useState(true);
@@ -1899,15 +1912,15 @@ export default function Stage2Page() {
   // CompanyTargets バリデーション
   const companyTargetsValid = useMemo(() => {
     // 未入力でも許容（将来的には必須化可能）
-    if (!companyTargets || companyTargets.length === 0) return true;
+    if (!companyTargetsPage || companyTargetsPage.length === 0) return true;
 
     // 各目標が有効か確認
-    return companyTargets.every((t: any) =>
+    return companyTargetsPage.every((t: any) =>
       Number.isFinite(t.base) &&
       (t.linkedIssueIds?.length ?? 0) >= 1 &&
       (t.rationale?.trim()?.length ?? 0) > 0
     );
-  }, [companyTargets]);
+  }, [companyTargetsPage]);
 
   const canOpenDraft = issueBlocks.length > 0; // STAGE1論点は常に見せる
   const hasDraft = storyDraft.length > 0;
