@@ -791,8 +791,15 @@ export default function Stage2Page() {
   const setWinPatternsCandidate = useStrategyStore((s) => (s as any).setWinPatternsCandidate as any);
 
   const finalStory = useStrategyStore((s) => s.finalStory ?? EMPTY_STORY_DRAFT);
+
+  // finalStory 3状態 setter（北星・最終ストーリー編集用）
+  const setFinalStoryDraft = useStrategyStore((s) => (s as any).setFinalStoryDraft);
+  const setFinalStoryEdited = useStrategyStore((s) => (s as any).setFinalStoryEdited);
+  const commitFinalStory = useStrategyStore((s) => (s as any).commitFinalStory);
+
+  // 互換性維持
   const setStoreFinalStory = useStrategyStore((s) => s.setFinalStory);
-  const setLocalFinalStory = setStoreFinalStory; // 互換性維持
+  const setLocalFinalStory = setStoreFinalStory;
 
   /* ★ TASK A-1: answers12 を統一（line 772-773 と重複定義を廃止） */
   // answers12 は line 773 の setAnswers12 を使用
@@ -800,6 +807,14 @@ export default function Stage2Page() {
   // const answers12 = useStrategyStore((s) => (s as any).answers12 ?? EMPTY_ANSWERS12);
   // const setLocalAnswers12 = useStrategyStore((s) => (s as any).setAnswers12 as any);
   // 代わりに line 772 の storeAnswers12 を answers12 として使用する（下記で名前変更）
+
+  // STAGE2：最終ストーリー3段階（読み取り+setter）
+  const finalStoryDraftRaw = useStrategyStore((s) => s.finalStoryDraft);
+  const finalStoryEditedRaw = useStrategyStore((s) => s.finalStoryEdited);
+  const finalStoryFinalRaw = useStrategyStore((s) => s.finalStoryFinal);
+  const setFinalStoryDraft = useStrategyStore((s) => s.setFinalStoryDraft);
+  const setFinalStoryEdited = useStrategyStore((s) => s.setFinalStoryEdited);
+  const commitFinalStory = useStrategyStore((s) => s.commitFinalStory);
 
   // SWOT suggestions store連携（Hooks Rule: top-level で呼ぶ）
   const swotSuggestions = useStrategyStore((s) => s.swotSuggestions);
@@ -823,11 +838,26 @@ export default function Stage2Page() {
 
   // Final
   const [selectedWinPatternId, setSelectedWinPatternId] = useState<string | null>(null); // UIでは選択させない（内部参照用）
+  const [editingStory, setEditingStory] = useState<StoryChapter[]>([]);
   const [generatingFinal, setGeneratingFinal] = useState(false);
   const [generateFinalError, setGenerateFinalError] = useState<string | null>(null);
 
+  // ★ STAGE2 Final Story：表示用（確定版 > 編集版 > 下書き版）
+  const displayedFinalStory = finalStoryFinalRaw ?? finalStoryEditedRaw ?? finalStoryDraftRaw ?? [];
+
+  // 12 answers local
+  const [answers12, setLocalAnswers12] = useState<Stage2Answer[]>(() =>
+    TEMPLATE12.map((q) => ({ id: q.id, question: q.question, answer: '', required: q.required }))
+  );
   // Active tab
   const [activeTab, setActiveTab] = useState<TabId>('input');
+
+  // ★ editingStory の同期（タブ表示時＆store更新時）
+  useEffect(() => {
+    if (activeTab === 'final' && displayedFinalStory.length > 0) {
+      setEditingStory(displayedFinalStory);
+    }
+  }, [activeTab, displayedFinalStory]);
 
   // 初期復元が完了したか（復元前に local->store が走って store を空で上書きするのを防ぐ）
   const [stage2Ready, setStage2Ready] = useState(false);
@@ -1029,7 +1059,22 @@ export default function Stage2Page() {
       console.log(
         `[audit][restore:done] decisionId=${decision.decisionId} sourceUsed=${decision.sourceUsed} strategyId=${decision.strategyId}`,
       );
+      lastSyncedAnswersHashRef.current = hashAnswers12(a12);
     }
+
+    // finalStory (backward compatibility - old STAGE3/4 finalStory)
+    const fs = st.finalStory ?? [];
+    if (Array.isArray(fs) && fs.length > 0) {
+      setStoreFinalStory(fs);
+      if (process.env.NODE_ENV === 'development') {
+        console.log(
+          '[Stage2] snapshot.finalStory lengths:',
+          fs.map((ch: any, i: number) => `Ch${i}: ${(ch?.body || '').length}`)
+        );
+      }
+    }
+
+    // STAGE2 new finalStory fields restoration happens via store hydration
 
     setStage2Ready(true);
   }, [setStoreFinalStory, companyId]);
@@ -1062,7 +1107,7 @@ export default function Stage2Page() {
         storyDraft,
         winPatternsCandidate,
         answers12,
-        finalStory,
+        finalStory: displayedFinalStory,
       };
 
       saveStage2SnapshotToLocalStorage(stage2State, companyId ?? undefined);
@@ -1073,7 +1118,7 @@ export default function Stage2Page() {
           answered: answers12?.filter((a: Stage2Answer) => a.answer?.trim()).length ?? 0,
           hasDraft: storyDraft?.length ?? 0,
           hasWin: winPatternsCandidate?.length ?? 0,
-          hasFinal: finalStory?.length ?? 0,
+          hasFinal: displayedFinalStory?.length ?? 0,
         });
       }
     }, 300);
@@ -1094,7 +1139,7 @@ export default function Stage2Page() {
     answers12,
     storyDraft,
     winPatternsCandidate,
-    finalStory,
+    displayedFinalStory,
   ]);
 
   // ★ Development環境での fetch フック（限定版：/api/stage2/ は素通し）
@@ -1653,8 +1698,8 @@ export default function Stage2Page() {
       const data = await response.json();
       const newFinalStory: StoryChapter[] = Array.isArray(data.finalStory) ? data.finalStory : [];
 
-      /* ★ TASK 16: store setter で finalStory を設定 */
-      setStoreFinalStory(newFinalStory);
+      // ★ STAGE2 最終ストーリー：draft に設定（edited は保持）
+      setFinalStoryDraft(newFinalStory);
 
       if (process.env.NODE_ENV === 'development') {
         console.log('[Stage2] Generated finalStory set to store:', {
@@ -1673,7 +1718,7 @@ export default function Stage2Page() {
         storyDraft,
         winPatternsCandidate,
         answers12,
-        finalStory: newFinalStory,
+        finalStory: newFinalStory, // ★ 後方互換性のため保持
       };
       saveStage2SnapshotToLocalStorage(stage2State, companyId ?? undefined);
     } catch (e: any) {
@@ -1714,7 +1759,7 @@ export default function Stage2Page() {
     businessSegments,
     businessPortfolio,
     companyId,
-    setStoreFinalStory,
+    setFinalStoryDraft,
   ]);
 
   // Guard
@@ -1743,7 +1788,7 @@ export default function Stage2Page() {
   const hasDraft = storyDraft.length > 0;
   const canOpenWin = hasDraft; // たたき台生成後に進める
   const hasWinReady = hasDraft; // Draft生成済みなら最終生成が可能
-  const hasFinal = finalStory.length > 0;
+  const hasFinal = displayedFinalStory.length > 0;
 
   // ★ TASK 10-3: UI表示直前に field_check ログ（DEV限定）
   if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
@@ -1961,21 +2006,92 @@ export default function Stage2Page() {
             {/* 最終タグ：最終ストーリー */}
             {activeTab === 'final' && (
               <div className="space-y-6">
-                {finalStory.length > 0 ? (
+                {displayedFinalStory.length > 0 ? (
                   <>
-                    <FinalStoryPreview finalStory={finalStory} />
+                    {/* ★ 確定済みバッジ */}
+                    {finalStoryFinalRaw && (
+                      <div className="inline-block bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-700 rounded-lg px-4 py-2">
+                        <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">✓ 確定済み</p>
+                      </div>
+                    )}
 
-                    <div className="flex justify-center">
+                    {/* ★ 4章の編集UI */}
+                    <div className="space-y-6">
+                      {editingStory.map((chapter, chapterIndex) => (
+                        <div key={chapterIndex} className="border border-gray-200 dark:border-gray-700 rounded-lg p-6 bg-white dark:bg-gray-800">
+                          {/* 章タイトル */}
+                          <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-4">{chapter.title}</h3>
+
+                          {/* Textarea */}
+                          <textarea
+                            value={editingStory[chapterIndex]?.body ?? ''}
+                            onChange={(e) => {
+                              const updated = [...editingStory];
+                              if (updated[chapterIndex]) {
+                                updated[chapterIndex].body = e.target.value;
+                              }
+                              setEditingStory(updated);
+                            }}
+                            className="w-full h-48 p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            placeholder={`${chapter.title}の本文を入力...`}
+                          />
+
+                          {/* 文字数カウンタ */}
+                          <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                            {(editingStory[chapterIndex]?.body ?? '').length} 文字
+                            <span className="ml-2 text-gray-400">（推奨: 700-1200 文字）</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* ★ 3つのボタン */}
+                    <div className="flex gap-3 justify-center pt-4">
+                      {/* 保存（下書き保存） */}
+                      <button
+                        onClick={() => {
+                          setFinalStoryEdited(editingStory);
+                        }}
+                        className="px-6 py-3 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors shadow-md"
+                      >
+                        保存
+                      </button>
+
+                      {/* 確定（Final） */}
+                      <button
+                        onClick={() => {
+                          setFinalStoryEdited(editingStory);
+                          setTimeout(() => commitFinalStory(), 100);
+                        }}
+                        className="px-6 py-3 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors shadow-md"
+                      >
+                        確定
+                      </button>
+
+                      {/* 破棄（編集を戻す） */}
+                      <button
+                        onClick={() => {
+                          // edited をクリアして draft に戻す
+                          setEditingStory(finalStoryFinalRaw ?? finalStoryDraftRaw ?? []);
+                        }}
+                        className="px-6 py-3 rounded-lg bg-gray-400 text-white text-sm font-medium hover:bg-gray-500 transition-colors shadow-md"
+                      >
+                        破棄
+                      </button>
+                    </div>
+
+                    {/* 再生成ボタン */}
+                    <div className="flex justify-center pt-6 border-t border-gray-200 dark:border-gray-700">
                       <button
                         onClick={handleGenerateFinal}
                         disabled={!hasDraft || generatingFinal}
-                        className="px-8 py-4 rounded-xl bg-emerald-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-emerald-700 transition-colors shadow-lg"
+                        className="px-8 py-4 rounded-xl bg-slate-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors shadow-lg"
                       >
                         {generatingFinal ? '生成中...' : '最終ストーリーを再生成'}
                       </button>
                     </div>
 
-                    <p className="text-sm text-gray-500 text-center">※ 12の質問は未回答でも再生成できます（回答があるほど、内容は具体化されます）</p>
+                    <p className="text-xs text-gray-500 text-center">※ 再生成すると下書きが更新され、編集版は保持されます</p>
                   </>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50/50 dark:bg-gray-800/50 p-8 text-center">
