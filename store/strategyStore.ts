@@ -212,6 +212,14 @@ export type StrategyState = {
   winPatternsCandidate: WinPatternCandidate[]; // ★ 修正：常に配列
   answers12: Stage2Answer[]; // ★ 修正：常に配列
 
+  /* ★ STAGE2：最終ストーリー（3段階） */
+  finalStoryDraft?: StoryChapter[];
+  finalStoryEdited?: StoryChapter[];
+  finalStoryFinal?: StoryChapter[];
+
+  /* ★ STAGE2：会社の数値目標（North Star Metrics） */
+  companyTargets?: CompanyTarget[];
+
   /* ★ 全社レベルの勝ち筋（受け皿） */
   winPatterns?: WinPattern[];
   winPatternPrimary?: WinPatternId;
@@ -339,6 +347,11 @@ export type StrategyState = {
   setWinPatternsCandidate: (candidates: WinPatternCandidate[]) => void;
   setAnswers12: (answers: Stage2Answer[]) => void;
   updateAnswer12: (id: string, patch: Partial<Stage2Answer>) => void;
+
+  /* ▼ STAGE2 最終ストーリー setter */
+  setFinalStoryDraft: (chapters: StoryChapter[]) => void;
+  setFinalStoryEdited: (chapters: StoryChapter[]) => void;
+  commitFinalStory: () => void;
 
   /* ▼ STAGE4 setter */
   setStage4Plans: (plans: Array<{
@@ -822,6 +835,10 @@ const emptyData: StrategyState = {
   storyDraft: [], // ★ 修正：undefined から [] に統一（infinite loop 防止）
   winPatternsCandidate: [], // ★ 修正：undefined から [] に統一
   answers12: [], // ★ 修正：undefined から [] に統一
+  finalStoryDraft: undefined,
+  finalStoryEdited: undefined,
+  finalStoryFinal: undefined,
+  companyTargets: [],
   winPatterns: undefined,
   winPatternPrimary: undefined,
   winPatternSecondary: undefined,
@@ -878,6 +895,13 @@ const emptyData: StrategyState = {
   setWinPatternsCandidate: () => {},
   setAnswers12: () => {},
   updateAnswer12: () => {},
+  setCompanyTargets: () => {},
+  addCompanyTarget: () => {},
+  updateCompanyTarget: () => {},
+  removeCompanyTarget: () => {},
+  setFinalStoryDraft: () => {},
+  setFinalStoryEdited: () => {},
+  commitFinalStory: () => {},
   setStage4Plans: () => {},
   setExecutionPlanBaseline: () => {},
   recomputeValueAnalysis: () => {},
@@ -1482,6 +1506,70 @@ export const useStrategyStore = create<StrategyState>()(
           next[idx] = { ...next[idx], ...patch };
           return { ...s, answers12: next, dirty: true };
         });
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
+      setCompanyTargets: (targets) => {
+        set((s) => ({ ...s, companyTargets: targets, dirty: true }));
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
+      addCompanyTarget: (target) => {
+        set((s) => {
+          const prev = s.companyTargets ?? [];
+          return { ...s, companyTargets: [...prev, target], dirty: true };
+        });
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
+      updateCompanyTarget: (id, patch) => {
+        set((s) => {
+          const prev = s.companyTargets ?? [];
+          const idx = prev.findIndex((t) => t.id === id);
+          if (idx < 0) return s;
+          const next = [...prev];
+          next[idx] = { ...next[idx], ...patch };
+          return { ...s, companyTargets: next, dirty: true };
+        });
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
+      removeCompanyTarget: (id) => {
+        set((s) => {
+          const prev = s.companyTargets ?? [];
+          return { ...s, companyTargets: prev.filter((t) => t.id !== id), dirty: true };
+        });
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
+      setFinalStoryDraft: (chapters) => {
+        set((s) => ({ ...s, finalStoryDraft: chapters, dirty: true }));
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
+      setFinalStoryEdited: (chapters) => {
+        set((s) => ({ ...s, finalStoryEdited: chapters, dirty: true }));
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
+      commitFinalStory: () => {
+        const s = get();
+        const toCommit = s.finalStoryEdited ?? s.finalStoryDraft ?? [];
+        set((state) => ({ ...state, finalStoryFinal: toCommit, dirty: true }));
         setTimeout(() => {
           get().saveStage2Snapshot();
         }, 0);
