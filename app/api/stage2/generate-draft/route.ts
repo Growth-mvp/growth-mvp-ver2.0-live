@@ -100,10 +100,26 @@ const SWOTSuggestionsSchema = z
   })
   .optional();
 
+const CompanyTargetSchema = z
+  .object({
+    id: z.string(),
+    label: z.string(),
+    unit: z.string(),
+    base: z.number(),
+    low: z.number().optional(),
+    high: z.number().optional(),
+    dueYear: z.number().optional(),
+    priority: z.number().optional(),
+    linkedIssueIds: z.array(z.string()).optional(),
+    rationale: z.string().optional(),
+  })
+  .passthrough();
+
 /**
  * ★重要：生成されない主因対策
  * - issueBlocks/mvv/swot を optional + default で受ける
  * - STAGE1未完（論点ゼロ）でも生成可能に（プロンプトで未入力明記）
+ * - companyTargets も optional + default で受ける（North Star未入力でも生成可能に）
  */
 const InputSchema = z.object({
   issueBlocks: z.array(IssueBlockSchema).optional().default([]),
@@ -112,6 +128,7 @@ const InputSchema = z.object({
   mvv: MVVSchema.optional().default({}),
   swot: SWOTSchema.optional().default({}),
   swotSuggestions: SWOTSuggestionsSchema, // AI提案のO/T候補（参考）
+  companyTargets: z.array(CompanyTargetSchema).optional().default([]), // ★ North Star（会社の数値目標）
   industry: z.string().optional(),
   segments: z.array(z.string()).optional(),
   businessSegments: z.array(BusinessSegmentDetailSchema).optional().default([]),
@@ -442,10 +459,16 @@ STAGE1の論点と指標を根拠に、ドライで論理的なたたき台ス�
 【最重要：事業セグメント前提（厳守）】
 - 入力に「事業セグメント前提」が与えられた場合、それを必ず本文に反映する
 - 次の条件を必ず満たす：
-  1) 第1章または第3章の冒頭に「当社の事業と顧客」という小見出しを作る（未入力なら“未入力”と明記）
+  1) 第1章または第3章の冒頭に「当社の事業と顧客」という小見出しを作る（未入力なら"未入力"と明記）
   2) 各セグメント名を本文中に必ず1回以上登場させる
-  3) 主要顧客（keyCustomers）を“具体語”として本文に含める（一般論禁止）
+  3) 主要顧客（keyCustomers）を"具体語"として本文に含める（一般論禁止）
 - 事業ポートフォリオが与えられた場合、戦略案（第2章）と未来像（第3章）に矛盾がないよう反映する
+
+【最重要：North Star Metrics（会社の数値目標）（厳守）】
+- 入力に「会社の数値目標」が与えられた場合、その目標値（ラベル・基準値・単位）を本文に最低1つ以上含める
+- 各North Star目標に紐付された論点（linkedIssueIds）がある場合、その論点を第2章（戦略）または第4章（行動）で「この論点が達成に必須」という文脈で引用する
+- North Star目標が複数ある場合、最優先度のものを本文で明確に言及する
+- North Star目標が空の場合は「★North Star未入力のため、一般化した」と第1章の冒頭に明記する
 
 【最重要：型（厳守）】
 - storyDraft[i].body は必ず「文字列」で返す（配列やオブジェクトは禁止）
@@ -650,6 +673,23 @@ function compactPayload(input: z.infer<typeof InputSchema>) {
     value: clip(String(mvv.value ?? ''), 100),
   };
 
+  // ★ companyTargets 軽量化（最大6件）
+  const companyTargets = Array.isArray(input.companyTargets)
+    ? input.companyTargets
+        .slice(0, 6)
+        .map((t: any) => ({
+          label: clip(String(t?.label ?? ''), 60),
+          unit: clip(String(t?.unit ?? ''), 30),
+          base: typeof t?.base === 'number' ? t.base : undefined,
+          low: typeof t?.low === 'number' ? t.low : undefined,
+          high: typeof t?.high === 'number' ? t.high : undefined,
+          dueYear: typeof t?.dueYear === 'number' ? t.dueYear : undefined,
+          linkedIssueIds: Array.isArray(t?.linkedIssueIds) ? t.linkedIssueIds.slice(0, 3) : [],
+          rationale: clip(String(t?.rationale ?? ''), 150),
+        }))
+        .filter((t: any) => t.label && Number.isFinite(t.base))
+    : [];
+
   return {
     issueBlocks,
     swot: swotCompact,
@@ -657,6 +697,7 @@ function compactPayload(input: z.infer<typeof InputSchema>) {
     businessSegments,
     ceoIntent,
     mvv: mvvCompact,
+    companyTargets,
   };
 }
 
@@ -681,6 +722,7 @@ function buildUserPrompt(
   const ceoIntent = compact.ceoIntent;
   const businessSegments = compact.businessSegments;
   const mvv = { ...(mvvOrig ?? {}), ...(compact.mvv ?? {}) };
+  const companyTargets = compact.companyTargets ?? [];
 
   const swotCompact = {
     strength: compact.swot.S.join(' / '),
@@ -736,6 +778,48 @@ function buildUserPrompt(
 - 提案機会: ${swotSuggestions.opportunity?.slice(0, 3).join(' / ') || 'なし'}
 - 提案脅威: ${swotSuggestions.threat?.slice(0, 3).join(' / ') || 'なし'}`
       : '';
+
+  // ★North Star Metricsブロック
+  const northStarBlock =
+    companyTargets && companyTargets.length > 0
+      ? `
+【会社の数値目標（North Star Metrics）】
+${companyTargets
+  .map((target) => {
+    // linkedIssueIds を issueBlocks のタイトルに解決
+    const linkedIssueTitles = target.linkedIssueIds
+      .map((issueId: string) => {
+        // issueId は IssueBlock.title として保存されている
+        const matchedIssue = issueBlocks.find((ib) => ib.title === issueId);
+        return matchedIssue ? matchedIssue.title : issueId;
+      })
+      .filter(Boolean);
+
+    // 範囲表記（low/highがあれば）
+    const rangeText = target.low !== undefined && target.high !== undefined
+      ? `（${target.low}〜${target.high}）`
+      : target.low !== undefined
+      ? `（最低: ${target.low}）`
+      : target.high !== undefined
+      ? `（最大: ${target.high}）`
+      : '';
+
+    // 年度表記
+    const dueYearText = target.dueYear ? `【到達年度: ${target.dueYear}年】` : '';
+
+    // 紐付論点
+    const linkedIssuesText = linkedIssueTitles.length > 0
+      ? `【紐付論点】${linkedIssueTitles.join(' / ')}`
+      : '【紐付論点】未入力';
+
+    return `
+- ${target.label}: ${target.base}${target.unit}${rangeText}
+  ${dueYearText}
+  ${linkedIssuesText}
+  ${target.rationale}`.trim();
+  })
+  .join('\n')}`
+      : '【会社の数値目標（North Star Metrics）】（未入力）';
 
   const mustCeo = compact.ceoIntent ? [compact.ceoIntent] : [];
   const mustMission = compact.mvv.mission ? [compact.mvv.mission] : [];
@@ -801,6 +885,8 @@ ${mvv.thought ? `- 経営者の思い: ${sanitize(mvv.thought, 500)}` : ''}
 - 弱み: ${sanitize(swotCompact.weakness, 300) || '（未入力）'}
 - 機会: ${sanitize(swotCompact.opportunity, 300) || '（未入力）'}
 - 脅威: ${sanitize(swotCompact.threat, 300) || '（未入力）'}${swotSuggestionsBlock}
+
+${northStarBlock}
 
 ${industry ? `【業種】${industry}` : ''}
 
