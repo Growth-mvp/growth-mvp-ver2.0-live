@@ -584,6 +584,317 @@ function SWOTSection() {
 }
 
 /* ===================================================
+ * 会社の数値目標（North Star）セクション
+ * =================================================== */
+
+/**
+ * 単一目標カード（編集可能）
+ */
+function CompanyTargetCard({
+  target,
+  stageOneIssues,
+  onUpdate,
+  onDelete,
+}: {
+  target: any; // CompanyTarget
+  stageOneIssues: IssueBlock[];
+  onUpdate: (id: string, patch: any) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [showIssueSelect, setShowIssueSelect] = useState(false);
+
+  const linkedIssueTitles = stageOneIssues
+    .filter((issue) => target.linkedIssueIds?.includes(issue.title))
+    .map((issue) => issue.title);
+
+  const handleToggleIssue = (issueTitle: string) => {
+    const current = target.linkedIssueIds ?? [];
+    if (current.includes(issueTitle)) {
+      // 削除
+      onUpdate(target.id, { linkedIssueIds: current.filter((id: string) => id !== issueTitle) });
+    } else {
+      // 追加（最大3個）
+      if (current.length < 3) {
+        onUpdate(target.id, { linkedIssueIds: [...current, issueTitle] });
+      }
+    }
+  };
+
+  const handleRemoveIssue = (issueTitle: string) => {
+    const current = target.linkedIssueIds ?? [];
+    onUpdate(target.id, { linkedIssueIds: current.filter((id: string) => id !== issueTitle) });
+  };
+
+  // バリデーション
+  const isValid =
+    Number.isFinite(target.base) &&
+    (target.linkedIssueIds?.length ?? 0) >= 1 &&
+    (target.rationale?.trim()?.length ?? 0) > 0;
+
+  return (
+    <div className={`rounded-2xl border ${isValid ? 'border-black/10' : 'border-red-300 dark:border-red-700'} bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-4`}>
+      <div className="flex justify-between items-start mb-4">
+        <div className="flex-1">
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            {/* label */}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                目標名（例：売上）
+              </label>
+              <input
+                type="text"
+                value={target.label ?? ''}
+                onChange={(e) => onUpdate(target.id, { label: e.target.value })}
+                placeholder="売上、営業利益率、ROIC..."
+                className="w-full rounded-lg border border-black/10 bg-white/70 px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+              />
+            </div>
+
+            {/* unit */}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                単位（例：億円）
+              </label>
+              <input
+                type="text"
+                value={target.unit ?? ''}
+                onChange={(e) => onUpdate(target.id, { unit: e.target.value })}
+                placeholder="億円、%、回..."
+                className="w-full rounded-lg border border-black/10 bg-white/70 px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+              />
+            </div>
+
+            {/* base - 必須 */}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                基準値 <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                value={target.base ?? ''}
+                onChange={(e) => onUpdate(target.id, { base: e.target.value === '' ? undefined : parseFloat(e.target.value) })}
+                placeholder="必須"
+                className="w-full rounded-lg border border-black/10 bg-white/70 px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+              />
+            </div>
+
+            {/* dueYear */}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                目標年度（任意）
+              </label>
+              <input
+                type="number"
+                value={target.dueYear ?? ''}
+                onChange={(e) => onUpdate(target.id, { dueYear: e.target.value === '' ? undefined : parseInt(e.target.value, 10) })}
+                placeholder="2025, 2026..."
+                className="w-full rounded-lg border border-black/10 bg-white/70 px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+              />
+            </div>
+
+            {/* low */}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                低位（任意）
+              </label>
+              <input
+                type="number"
+                value={target.low ?? ''}
+                onChange={(e) => onUpdate(target.id, { low: e.target.value === '' ? undefined : parseFloat(e.target.value) })}
+                placeholder="低位想定"
+                className="w-full rounded-lg border border-black/10 bg-white/70 px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+              />
+            </div>
+
+            {/* high */}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                高位（任意）
+              </label>
+              <input
+                type="number"
+                value={target.high ?? ''}
+                onChange={(e) => onUpdate(target.id, { high: e.target.value === '' ? undefined : parseFloat(e.target.value) })}
+                placeholder="高位想定"
+                className="w-full rounded-lg border border-black/10 bg-white/70 px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+              />
+            </div>
+
+            {/* priority */}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                優先度
+              </label>
+              <select
+                value={target.priority ?? 1}
+                onChange={(e) => onUpdate(target.id, { priority: parseInt(e.target.value, 10) })}
+                className="w-full rounded-lg border border-black/10 bg-white/70 px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-black/10"
+              >
+                <option value={1}>1（最高）</option>
+                <option value={2}>2</option>
+                <option value={3}>3</option>
+                <option value={4}>4（最低）</option>
+              </select>
+            </div>
+          </div>
+
+          {/* rationale - 必須 */}
+          <div className="mb-3">
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+              理由・根拠 <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={target.rationale ?? ''}
+              onChange={(e) => onUpdate(target.id, { rationale: e.target.value })}
+              placeholder="例：現在80億円から20%成長のため"
+              className="w-full rounded-lg border border-black/10 bg-white/70 px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+            />
+          </div>
+
+          {/* linkedIssueIds - 必須：1-3個 */}
+          <div className="mb-3">
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+              紐付く論点 <span className="text-red-500">*</span>（1〜3個）
+            </label>
+
+            {/* 選択済み論点チップ */}
+            {linkedIssueTitles.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {linkedIssueTitles.map((title) => (
+                  <div key={title} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900 rounded-lg text-xs text-blue-700 dark:text-blue-300">
+                    <span>{title}</span>
+                    <button
+                      onClick={() => handleRemoveIssue(title)}
+                      className="hover:text-red-700 dark:hover:text-red-400 font-bold"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* チェックボックス */}
+            {stageOneIssues.length > 0 ? (
+              <>
+                <button
+                  onClick={() => setShowIssueSelect(!showIssueSelect)}
+                  className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  {showIssueSelect ? '閉じる' : '論点を選択'}
+                </button>
+
+                {showIssueSelect && (
+                  <div className="mt-2 max-h-[200px] overflow-auto border border-black/10 rounded-lg p-2 bg-white/50 dark:bg-white/5 space-y-2">
+                    {stageOneIssues.map((issue) => (
+                      <label key={issue.title} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={linkedIssueTitles.includes(issue.title)}
+                          onChange={() => handleToggleIssue(issue.title)}
+                          disabled={(target.linkedIssueIds?.length ?? 0) >= 3 && !linkedIssueTitles.includes(issue.title)}
+                          className="w-4 h-4"
+                        />
+                        <span className="text-gray-700 dark:text-gray-300">{issue.title}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-amber-600 dark:text-amber-400">STAGE1で論点を作成してください。</p>
+            )}
+
+            {(target.linkedIssueIds?.length ?? 0) === 0 && (
+              <p className="text-xs text-red-500 mt-1">※ 最低1つの論点を選択してください</p>
+            )}
+          </div>
+        </div>
+
+        {/* 削除ボタン */}
+        <button
+          onClick={() => onDelete(target.id)}
+          className="ml-3 px-3 py-2 rounded-lg bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/40 text-sm font-medium transition-colors whitespace-nowrap"
+        >
+          削除
+        </button>
+      </div>
+
+      {/* バリデーション警告 */}
+      {!isValid && (
+        <div className="text-xs text-red-500 dark:text-red-400 mt-2">
+          {!Number.isFinite(target.base) && <div>※ 基準値を入力してください</div>}
+          {(target.linkedIssueIds?.length ?? 0) === 0 && <div>※ 論点を最低1つ選択してください</div>}
+          {(target.rationale?.trim()?.length ?? 0) === 0 && <div>※ 理由・根拠を入力してください</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 会社の数値目標セクション全体
+ */
+function CompanyTargetSection() {
+  const companyTargets = useStrategyStore((s) => s.companyTargets ?? []);
+  const addCompanyTarget = useStrategyStore((s) => s.addCompanyTarget);
+  const updateCompanyTarget = useStrategyStore((s) => s.updateCompanyTarget);
+  const removeCompanyTarget = useStrategyStore((s) => s.removeCompanyTarget);
+
+  // STAGE1論点取得（フォールバック付き）
+  const stateSnapshot = useStrategyStore.getState() as any;
+  const stage1Issues =
+    stateSnapshot.stage1Issues ?? stateSnapshot.issueBlocks ?? stateSnapshot.issues ?? [];
+
+  // 目標追加
+  const handleAdd = () => {
+    addCompanyTarget({
+      id: crypto.randomUUID(),
+      label: '',
+      unit: '',
+      base: 0,
+      low: undefined,
+      high: undefined,
+      dueYear: undefined,
+      priority: 1,
+      linkedIssueIds: [],
+      rationale: '',
+    });
+  };
+
+  return (
+    <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">会社の数値目標（North Star）</h3>
+        <button
+          onClick={handleAdd}
+          className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
+        >
+          + 目標を追加
+        </button>
+      </div>
+
+      {companyTargets.length === 0 ? (
+        <p className="text-sm text-gray-500 dark:text-gray-400">目標を追加してください。</p>
+      ) : (
+        <div className="space-y-3">
+          {companyTargets.map((target) => (
+            <CompanyTargetCard
+              key={target.id}
+              target={target}
+              stageOneIssues={stage1Issues}
+              onUpdate={updateCompanyTarget}
+              onDelete={removeCompanyTarget}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ===================================================
  * たたき台（Draft）プレビュー：全文＋スクロール
  * =================================================== */
 function DraftStoryPanel({ storyDraft }: { storyDraft: StoryChapter[] }) {
@@ -768,6 +1079,9 @@ export default function Stage2Page() {
   const swotSuggestions = useStrategyStore((s) => s.swotSuggestions);
   const addSwotOpportunity = useStrategyStore((s) => s.addSwotOpportunity);
   const addSwotThreat = useStrategyStore((s) => s.addSwotThreat);
+
+  // CompanyTargets store連携
+  const companyTargets = useStrategyStore((s) => s.companyTargets ?? []);
 
   // Local UI state
   const [loading, setLoading] = useState(true);
@@ -1582,6 +1896,19 @@ export default function Stage2Page() {
     );
   }
 
+  // CompanyTargets バリデーション
+  const companyTargetsValid = useMemo(() => {
+    // 未入力でも許容（将来的には必須化可能）
+    if (!companyTargets || companyTargets.length === 0) return true;
+
+    // 各目標が有効か確認
+    return companyTargets.every((t: any) =>
+      Number.isFinite(t.base) &&
+      (t.linkedIssueIds?.length ?? 0) >= 1 &&
+      (t.rationale?.trim()?.length ?? 0) > 0
+    );
+  }, [companyTargets]);
+
   const canOpenDraft = issueBlocks.length > 0; // STAGE1論点は常に見せる
   const hasDraft = storyDraft.length > 0;
   const canOpenWin = hasDraft; // たたき台生成後に進める
@@ -1653,6 +1980,8 @@ export default function Stage2Page() {
                   <MVVSection />
                 </div>
 
+                <CompanyTargetSection />
+
                 <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
                   <SWOTSection />
                   <OTSuggestionsPanel suggestions={swotSuggestions} onAddOpportunity={addSwotOpportunity} onAddThreat={addSwotThreat} />
@@ -1675,13 +2004,14 @@ export default function Stage2Page() {
                         at: new Date().toISOString(),
                         disabled: (e.currentTarget as HTMLButtonElement)?.disabled,
                         generating: generating,
+                        companyTargetsValid,
                         shiftKey: e.shiftKey,
                       });
                       e.preventDefault();
                       e.stopPropagation();
                       void handleGenerate(e);
                     }}
-                    disabled={generating}
+                    disabled={generating || !companyTargetsValid}
                     className="px-8 py-4 rounded-xl bg-blue-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors shadow-lg"
                     title="Shift+クリックで API 疎通テスト（PING モード）"
                   >
