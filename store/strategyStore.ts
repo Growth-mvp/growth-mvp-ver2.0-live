@@ -211,6 +211,11 @@ export type StrategyState = {
   winPatternsCandidate?: WinPatternCandidate[];
   answers12?: Stage2Answer[];
 
+  /* ★ STAGE2：最終ストーリー（3段階） */
+  finalStoryDraft?: StoryChapter[];
+  finalStoryEdited?: StoryChapter[];
+  finalStoryFinal?: StoryChapter[];
+
   /* ★ STAGE2：会社の数値目標（North Star Metrics） */
   companyTargets?: CompanyTarget[];
 
@@ -339,6 +344,11 @@ export type StrategyState = {
   addCompanyTarget: (target: CompanyTarget) => void;
   updateCompanyTarget: (id: string, patch: Partial<CompanyTarget>) => void;
   removeCompanyTarget: (id: string) => void;
+
+  /* ▼ STAGE2 最終ストーリー setter */
+  setFinalStoryDraft: (chapters: StoryChapter[]) => void;
+  setFinalStoryEdited: (chapters: StoryChapter[]) => void;
+  commitFinalStory: () => void;
 
   /* ▼ STAGE4 setter */
   setStage4Plans: (plans: Array<{
@@ -820,6 +830,9 @@ const emptyData: StrategyState = {
   storyDraft: undefined,
   winPatternsCandidate: undefined,
   answers12: undefined,
+  finalStoryDraft: undefined,
+  finalStoryEdited: undefined,
+  finalStoryFinal: undefined,
   companyTargets: [],
   winPatterns: undefined,
   winPatternPrimary: undefined,
@@ -875,6 +888,9 @@ const emptyData: StrategyState = {
   addCompanyTarget: () => {},
   updateCompanyTarget: () => {},
   removeCompanyTarget: () => {},
+  setFinalStoryDraft: () => {},
+  setFinalStoryEdited: () => {},
+  commitFinalStory: () => {},
   setStage4Plans: () => {},
   setExecutionPlanBaseline: () => {},
   recomputeValueAnalysis: () => {},
@@ -1470,6 +1486,29 @@ export const useStrategyStore = create<StrategyState>()(
           const prev = s.companyTargets ?? [];
           return { ...s, companyTargets: prev.filter((t) => t.id !== id), dirty: true };
         });
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
+      setFinalStoryDraft: (chapters) => {
+        set((s) => ({ ...s, finalStoryDraft: chapters, dirty: true }));
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
+      setFinalStoryEdited: (chapters) => {
+        set((s) => ({ ...s, finalStoryEdited: chapters, dirty: true }));
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
+      commitFinalStory: () => {
+        const s = get();
+        const toCommit = s.finalStoryEdited ?? s.finalStoryDraft ?? [];
+        set((state) => ({ ...state, finalStoryFinal: toCommit, dirty: true }));
         setTimeout(() => {
           get().saveStage2Snapshot();
         }, 0);

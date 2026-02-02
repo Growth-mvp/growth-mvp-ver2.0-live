@@ -800,6 +800,11 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
   const winPatternsCandidate = normalizeWinPatternCandidatesArray(src.winPatternsCandidate);
   const answers12 = normalizeStage2AnswersArray(src.answers12);
 
+  // ★ STAGE2：最終ストーリー（3段階）
+  const finalStoryDraft = normalizeChaptersAnyNonDestructive(src.finalStoryDraft);
+  const finalStoryEdited = normalizeChaptersAnyNonDestructive(src.finalStoryEdited);
+  const finalStoryFinal = normalizeChaptersAnyNonDestructive(src.finalStoryFinal);
+
   const out: StrategyData = {
     id: src.id,
     user_id: src.user_id,
@@ -855,11 +860,14 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     ...(ticker ? { ticker } : {}),
     ...(pbrManual ? { pbrManual } : {}),
 
-    // ★ STAGE2：会社の数値目標・ストーリードラフト・勝ち筋候補・12問回答
+    // ★ STAGE2：会社の数値目標・ストーリードラフト・勝ち筋候補・12問回答・最終ストーリー
     ...(companyTargets !== undefined ? { companyTargets } : {}),
     ...(storyDraft !== undefined ? { storyDraft } : {}),
     ...(winPatternsCandidate !== undefined ? { winPatternsCandidate } : {}),
     ...(answers12 !== undefined ? { answers12 } : {}),
+    ...(finalStoryDraft !== undefined ? { finalStoryDraft } : {}),
+    ...(finalStoryEdited !== undefined ? { finalStoryEdited } : {}),
+    ...(finalStoryFinal !== undefined ? { finalStoryFinal } : {}),
 
     ...(csvFinanceData !== undefined ? { csvFinanceData } : {}),
     ...(financePL !== undefined ? { financePL } : {}),
