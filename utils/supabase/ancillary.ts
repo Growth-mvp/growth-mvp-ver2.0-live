@@ -42,24 +42,37 @@ function createAdminClient(): SupabaseClient {
 }
 
 /* ---------------------- 共通: companyId 解決（厳格） ---------------------- */
+/**
+ * ★ 修正：membership.company_id を唯一の源泉に
+ *
+ * 旧実装：Cookie → membership の順序（Cookie優先）
+ * 新実装：membership → Cookie の順序（membership優先）
+ */
 async function resolveCompanyIdStrict(userId: string): Promise<string> {
-  // 1) Cookie（会社スコープ切替後はここが最速）
-  try {
-    const c = getCompanyIdFromCookie();
-    if (isValidUUID(c)) return c!;
-  } catch {}
-
-  // 2) membership
+  // 1) Membership から company_id を取得（唯一の源泉）
   const m = await getMembership(userId);
   if (isValidUUID(m?.companyId)) {
+    const membershipCompanyId = m.companyId!;
+
+    // 2) Cookie は「補助用」のみ（古い値の上書きなど）
     try {
-      setCompanyIdCookie(m!.companyId!);
-    } catch {}
-    return m!.companyId!;
+      const c = getCompanyIdFromCookie();
+      if (isValidUUID(c) && c !== membershipCompanyId) {
+        // Cookie が古い値の場合は上書き
+        setCompanyIdCookie(membershipCompanyId);
+      } else if (!c) {
+        // Cookie が無い場合は設定
+        setCompanyIdCookie(membershipCompanyId);
+      }
+    } catch {
+      // Cookie 操作エラーは無視
+    }
+
+    return membershipCompanyId;
   }
 
   // 厳格化: ここまでで解決できなければ失敗
-  throw new Error('companyId を解決できません（Strict）。Cookie または membership を確認してください。');
+  throw new Error('companyId を解決できません（Strict）。Membership を確認してください。');
 }
 
 /* ======================= story_answers2 ======================= */
