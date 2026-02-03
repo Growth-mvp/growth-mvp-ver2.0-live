@@ -880,7 +880,7 @@ export default function Stage2Page() {
     // ★ Use restoreWithAudit for unified restore decision
     const decision = await restoreWithAudit('stage2', companyId, { allowSnapshot: true });
 
-    // ★ TASK 11-2: 強制ログ（hydration deferred を担保）
+    // ★ TASK 11.6: after restore ログを常時1回出す（DEBUG 無し）
     console.log('[Stage2] after restoreWithAudit', {
       decisionId: decision.decisionId,
       sourceUsed: decision.sourceUsed,
@@ -901,26 +901,15 @@ export default function Stage2Page() {
       return;
     }
 
-    // ★ TASK 11-2: DB 採用時に hydratedState を store に反映（パターンA）
+    // ★ TASK 11.6: DB 採用時に hydratedState を即座に store に反映
+    if (decision.sourceUsed === 'db' && decision.hydratedState) {
+      useStrategyStore.getState().hydrateFromFullState?.(decision.hydratedState);
+      setStage2Ready(true);
+      return;
+    }
+
+    // ★ TASK 11-2: DB source (hydratedState なし場合は mark ready のみ)
     if (decision.sourceUsed === 'db') {
-      if (decision.hydratedState) {
-        console.log('[Stage2] hydrating from DB state');
-        const store = useStrategyStore.getState();
-        if (typeof store.hydrateFromFullState === 'function') {
-          store.hydrateFromFullState(decision.hydratedState);
-        } else {
-          // fallback: manual field reflection
-          if (decision.hydratedState.ceoIntent) store.setCeoIntent?.(decision.hydratedState.ceoIntent);
-          if (decision.hydratedState.thought || decision.hydratedState.mission || decision.hydratedState.vision || decision.hydratedState.value) {
-            store.setMVV?.({
-              thought: decision.hydratedState.thought ?? '',
-              mission: decision.hydratedState.mission ?? '',
-              vision: decision.hydratedState.vision ?? '',
-              value: decision.hydratedState.value ?? '',
-            });
-          }
-        }
-      }
       setStage2Ready(true);
       return;
     }

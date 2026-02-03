@@ -195,14 +195,6 @@ export async function restoreWithAudit(
       // ★ TASK 11-2: hydratedState を準備（caller が store に反映できるよう）
       const hydratedState = normalizeStrategyData(dbData);
 
-      // ★ TASK 11-3: field_check ログ（確実な位置で出す）
-      if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
-        console.log('[audit][restore:field_check] DB source', {
-          ceoIntentLen: typeof dbData.ceoIntent === 'string' ? dbData.ceoIntent.length : 0,
-          hydratedCeoIntentLen: typeof hydratedState.ceoIntent === 'string' ? hydratedState.ceoIntent.length : 0,
-        });
-      }
-
       const decision: RestoreDecision = {
         decisionId,
         sourceUsed: 'db',
@@ -222,6 +214,15 @@ export async function restoreWithAudit(
       console.log(
         `[audit][restore:decision] decisionId=${decisionId} sourceUsed=${decision.sourceUsed} reason="${decision.reason}" dbRevision=${decision.revision}`,
       );
+
+      // ★ TASK 11.5: field_check ログを return 直前に置く（DEBUG無し、常時出力）
+      console.log('[audit][restore:field_check]', {
+        decisionId: decision.decisionId,
+        sourceUsed: decision.sourceUsed,
+        ceoIntentLen: hydratedState?.ceoIntent?.length ?? 0,
+        revision: hydratedState?.revision,
+      });
+
       return decision;
     }
 
