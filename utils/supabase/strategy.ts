@@ -108,31 +108,55 @@ async function getActiveUserId(): Promise<string | null> {
   }
 }
 
+/**
+ * ★ 修正：membership.company_id を唯一の源泉に
+ *
+ * 旧実装：Cookie → membership の順序（Cookie優先）
+ * 新実装：membership → Cookie の順序（membership優先）
+ *
+ * override パラメータについて：
+ * - 指定された場合、authorization check 用に使用（※ 202601 以降は使用を推奨しない）
+ * - 常に membership.company_id を信頼し、override と一致するか検証する
+ */
 async function resolveCompanyId(
   userId: string,
   override?: string | null,
 ): Promise<string> {
-  if (override && isValidUUID(override)) {
-    try {
-      setCompanyIdCookie(override);
-    } catch {}
-    return override;
+  // 1. Membership から company_id を取得（唯一の源泉）
+  const membership = await getMembership(userId);
+  const membershipCompanyId = membership?.companyId;
+
+  if (!isValidUUID(membershipCompanyId)) {
+    throw new Error(
+      'User has no company membership. Cannot resolve companyId.',
+    );
   }
+
+  // 2. override が指定された場合、membership と一致するか検証
+  if (override && isValidUUID(override)) {
+    if (override !== membershipCompanyId) {
+      // 不一致の場合は error を返す（テナント分離境界）
+      throw new Error(
+        `Unauthorized: company_id mismatch. Expected ${membershipCompanyId}, got ${override}`,
+      );
+    }
+  }
+
+  // 3. Cookie は「補助用」のみ（一致確認、古い値の上書きなど）
   try {
     const byCookie = getCompanyIdFromCookie();
-    if (isValidUUID(byCookie)) return byCookie!;
-  } catch {}
-  const membership = await getMembership(userId);
-  const cid = membership?.companyId;
-  if (isValidUUID(cid)) {
-    try {
-      setCompanyIdCookie(cid!);
-    } catch {}
-    return cid!;
+    if (isValidUUID(byCookie) && byCookie !== membershipCompanyId) {
+      // Cookie が古い値の場合は上書き
+      setCompanyIdCookie(membershipCompanyId);
+    } else if (!byCookie) {
+      // Cookie が無い場合は設定
+      setCompanyIdCookie(membershipCompanyId);
+    }
+  } catch {
+    // Cookie 操作エラーは無視（ブラウザ以外の環境など）
   }
-  throw new Error(
-    'companyIdを解決できません。Cookieまたはmembershipを確認してください。',
-  );
+
+  return membershipCompanyId;
 }
 
 /* ============================================================
