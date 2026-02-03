@@ -1945,6 +1945,16 @@ export const useStrategyStore = create<StrategyState>()(
                   payload_has_stage1Issues: 'stage1Issues' in payload,
                   payload_keys: Object.keys(payload).slice(0, 10),
                 });
+
+                // ★ TASK 13-2: ceoIntent diagnostics
+                const ceoIntentLen = typeof (payload as any).ceoIntent === 'string' ? (payload as any).ceoIntent.length : 0;
+                const ceoIntentHead = typeof (payload as any).ceoIntent === 'string' ? (payload as any).ceoIntent.slice(0, 30) : '';
+                console.log('[strategyStore] saveStrategyData ceoIntent check:', {
+                  state_ceoIntent_len: typeof state.ceoIntent === 'string' ? state.ceoIntent.length : 0,
+                  payload_ceoIntent_len: ceoIntentLen,
+                  payload_ceoIntent_head: ceoIntentHead,
+                  payload_has_ceoIntent: 'ceoIntent' in payload,
+                });
               }
 
               if (isEffectivelyEmpty(payload)) {
