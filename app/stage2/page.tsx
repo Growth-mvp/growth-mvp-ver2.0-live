@@ -15,6 +15,7 @@ import {
 } from '@/utils/stageSnapshot';
 import { getFullStrategyDataByCompany, saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
 import { saveWithAudit } from '@/utils/persist/saveWithAudit';
+import { restoreWithAudit } from '@/utils/persist/restoreWithAudit';
 import type { IssueBlock, MetricsSummary, StoryChapter, WinPatternCandidate, Stage2State, Stage2Answer } from '@/types/strategy';
 
 /* ===================================================
@@ -874,113 +875,122 @@ export default function Stage2Page() {
     }
   }, [storeIssues, storeValueAnalysis, companyId, setStage1Issues]);
 
-  // Stage2 snapshot restore
-  const restoreStage2Snapshot = useCallback(() => {
-    const snapshot = loadStage2SnapshotFromLocalStorage();
-    if (!snapshot || !snapshot.state) {
+  // Stage2 restore via restoreWithAudit
+  const restoreStage2Snapshot = useCallback(async () => {
+    // ★ Use restoreWithAudit for unified restore decision
+    const decision = await restoreWithAudit('stage2', companyId, { allowSnapshot: true });
+
+    console.log(
+      `[Stage2] restore decision: sourceUsed=${decision.sourceUsed} reason=${decision.reason}`,
+    );
+
+    // ★ If companyId not ready, defer (do NOT set stage2Ready)
+    if (decision.sourceUsed === 'none' && decision.reason === 'companyId_not_ready') {
+      console.log('[Stage2] restore deferred: companyId not ready');
+      return;
+    }
+
+    // ★ If snapshot was cleared due to mismatch, mark ready and return
+    if (decision.sourceUsed === 'none' && decision.didClearSnapshot) {
+      console.log('[Stage2] snapshot cleared due to mismatch');
       setStage2Ready(true);
       return;
     }
 
-    // ★ Check 1: companyId not ready → defer restore
-    if (!companyId) {
-      console.log('[Stage2] snapshot check skipped (companyId not ready)');
-      return; // DO NOT set stage2Ready, allow retry when companyId is available
-    }
-
-    // ★ Check 2: companyId mismatch → clear snapshot and skip restore
-    if (snapshot.companyId && snapshot.companyId !== companyId) {
-      console.log('[Stage2] snapshot ignored (company mismatch):', {
-        snapshotCompanyId: snapshot.companyId,
-        effectiveCompanyId: companyId,
-      });
-      clearStage2Snapshot();
+    // ★ If DB has data, store will be hydrated separately (DB priority)
+    if (decision.sourceUsed === 'db') {
+      console.log('[Stage2] using DB source, hydration deferred to caller');
       setStage2Ready(true);
       return;
     }
 
-    // ★ Check 3: MVV already exists in store → skip snapshot restore (DB priority)
-    const store = useStrategyStore.getState();
-    const hasMVVInStore = !!(store.thought || store.mission || store.vision || store.value);
-    if (hasMVVInStore) {
-      console.log('[Stage2] snapshot ignored (DB/store has MVV)');
+    // ★ If store already has data, no restore needed
+    if (decision.sourceUsed === 'store') {
+      console.log('[Stage2] using existing store data');
       setStage2Ready(true);
       return;
     }
 
-    const st = snapshot.state;
+    // ★ If snapshot is to be used, hydrate from it
+    if (decision.sourceUsed === 'snapshot' && decision.snapshotData?.state) {
+      const st = decision.snapshotData.state;
+      console.log('[Stage2] restoring from snapshot...');
 
-    // ✅ ceoIntent 復元（snapshot → store）
-    if (typeof (st as any).ceoIntent === 'string') {
-      useStrategyStore.getState().setCeoIntent((st as any).ceoIntent);
-    }
-
-    // ✅ MVV 復元（snapshot → store）
-    if (st.mvv) {
-      useStrategyStore.getState().setMVV({
-        thought: st.mvv.thought ?? '',
-        mission: st.mvv.mission ?? '',
-        vision: st.mvv.vision ?? '',
-        value: st.mvv.value ?? '',
-      });
-    }
-
-    // ✅ SWOT 復元（snapshot → store）
-    if (st.swot) {
-      useStrategyStore.getState().setSWOT({
-        strength: st.swot.strength ?? '',
-        weakness: st.swot.weakness ?? '',
-        opportunity: st.swot.opportunity ?? '',
-        threat: st.swot.threat ?? '',
-      });
-    }
-
-    // storyDraft
-    const sd = st.storyDraft ?? [];
-    if (Array.isArray(sd) && sd.length > 0) {
-      setStoryDraft(sd);
-      if (process.env.NODE_ENV === 'development') {
-        console.log(
-          '[Stage2] snapshot.storyDraft lengths:',
-          sd.map((ch: any, i: number) => `Ch${i}: ${(ch?.body || '').length}`)
-        );
+      // ✅ ceoIntent 復元（snapshot → store）
+      if (typeof (st as any).ceoIntent === 'string') {
+        useStrategyStore.getState().setCeoIntent((st as any).ceoIntent);
       }
-    }
 
-    // winPatternsCandidate
-    const wp = st.winPatternsCandidate ?? [];
-    if (Array.isArray(wp) && wp.length > 0) {
-      setWinPatternsCandidate(wp);
-      // UIでは選択不要だが、API整合のため内部では先頭を自動参照
-      if (wp[0]?.id) setSelectedWinPatternId(wp[0].id);
-    }
+      // ✅ MVV 復元（snapshot → store）
+      if (st.mvv) {
+        useStrategyStore.getState().setMVV({
+          thought: st.mvv.thought ?? '',
+          mission: st.mvv.mission ?? '',
+          vision: st.mvv.vision ?? '',
+          value: st.mvv.value ?? '',
+        });
+      }
 
-    // answers12（localのみ復元。store同期は stage2Ready 後の debounce で1回だけ行う）
-    const a12 = st.answers12 ?? [];
-    if (Array.isArray(a12) && a12.length > 0) {
-      setLocalAnswers12((prev) =>
-        prev.map((a) => {
-          const fromSnapshot = a12.find((s: any) => s.id === a.id);
-          return fromSnapshot ? { ...a, answer: fromSnapshot.answer ?? '' } : a;
-        })
+      // ✅ SWOT 復元（snapshot → store）
+      if (st.swot) {
+        useStrategyStore.getState().setSWOT({
+          strength: st.swot.strength ?? '',
+          weakness: st.swot.weakness ?? '',
+          opportunity: st.swot.opportunity ?? '',
+          threat: st.swot.threat ?? '',
+        });
+      }
+
+      // storyDraft
+      const sd = st.storyDraft ?? [];
+      if (Array.isArray(sd) && sd.length > 0) {
+        setStoryDraft(sd);
+        if (process.env.NODE_ENV === 'development') {
+          console.log(
+            '[Stage2] snapshot.storyDraft lengths:',
+            sd.map((ch: any, i: number) => `Ch${i}: ${(ch?.body || '').length}`)
+          );
+        }
+      }
+
+      // winPatternsCandidate
+      const wp = st.winPatternsCandidate ?? [];
+      if (Array.isArray(wp) && wp.length > 0) {
+        setWinPatternsCandidate(wp);
+        // UIでは選択不要だが、API整合のため内部では先頭を自動参照
+        if (wp[0]?.id) setSelectedWinPatternId(wp[0].id);
+      }
+
+      // answers12（localのみ復元。store同期は stage2Ready 後の debounce で1回だけ行う）
+      const a12 = st.answers12 ?? [];
+      if (Array.isArray(a12) && a12.length > 0) {
+        setLocalAnswers12((prev) =>
+          prev.map((a) => {
+            const fromSnapshot = a12.find((s: any) => s.id === a.id);
+            return fromSnapshot ? { ...a, answer: fromSnapshot.answer ?? '' } : a;
+          })
+        );
+        lastSyncedAnswersHashRef.current = hashAnswers12(a12);
+      }
+
+      // finalStory
+      const fs = st.finalStory ?? [];
+      if (Array.isArray(fs) && fs.length > 0) {
+        setLocalFinalStory(fs);
+        setStoreFinalStory(fs);
+        if (process.env.NODE_ENV === 'development') {
+          console.log(
+            '[Stage2] snapshot.finalStory lengths:',
+            fs.map((ch: any, i: number) => `Ch${i}: ${(ch?.body || '').length}`)
+          );
+        }
+      }
+
+      console.log(
+        `[audit][restore:done] sourceUsed=snapshot strategyId=${decision.strategyId}`,
       );
-      lastSyncedAnswersHashRef.current = hashAnswers12(a12);
     }
 
-    // finalStory
-    const fs = st.finalStory ?? [];
-    if (Array.isArray(fs) && fs.length > 0) {
-      setLocalFinalStory(fs);
-      setStoreFinalStory(fs);
-      if (process.env.NODE_ENV === 'development') {
-        console.log(
-          '[Stage2] snapshot.finalStory lengths:',
-          fs.map((ch: any, i: number) => `Ch${i}: ${(ch?.body || '').length}`)
-        );
-      }
-    }
-
-    console.log('[Stage2] snapshot restored successfully');
     setStage2Ready(true);
   }, [setStoreFinalStory, companyId]);
 
@@ -989,7 +999,11 @@ export default function Stage2Page() {
     if (hydrated && !didInitRef.current) {
       didInitRef.current = true;
       loadStage1Data();
-      restoreStage2Snapshot();
+      // restoreStage2Snapshot is now async, call it but don't block
+      restoreStage2Snapshot().catch((err) => {
+        console.error('[Stage2] restore error:', err);
+        setStage2Ready(true); // fallback: mark ready even on error
+      });
     }
   }, [hydrated, loadStage1Data, restoreStage2Snapshot]);
 
