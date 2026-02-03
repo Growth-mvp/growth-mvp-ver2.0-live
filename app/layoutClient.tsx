@@ -30,7 +30,8 @@ const AUTH_PREFIXES = [
   '/auth/welcome',
   '/404',
 ];
-const isAuthPath = (p?: string | null) => !!p && AUTH_PREFIXES.some((x) => p.startsWith(x));
+const isAuthPath = (p?: string | null) =>
+  !!p && AUTH_PREFIXES.some((x) => p.startsWith(x));
 const isAdminPath = (p?: string | null) => !!p && p.startsWith('/admin');
 
 /* ================================
@@ -62,7 +63,12 @@ function exposeError(e: any) {
 
 /** 会社所属を安全に読むためのセレクタ */
 function selectCompanyId(state: any): string | undefined {
-  return state?.membership?.companyId ?? state?.companyId ?? state?.user?.companyId ?? undefined;
+  return (
+    state?.membership?.companyId ??
+    state?.companyId ??
+    state?.user?.companyId ??
+    undefined
+  );
 }
 
 /* ===========================================================
@@ -93,8 +99,6 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   const [checking, setChecking] = useState(true);
   const [bootstrapped, setBootstrapped] = useState(false);
   const [hydrated, setHydrated] = useState(false);
-
-  // ★ 追加：membership読み込みがタイムアウトしたか（「ready扱い」にしないためのフラグ）
   const [bootstrapTimedOut, setBootstrapTimedOut] = useState(false);
 
   const initInFlight = useRef(false);
@@ -105,10 +109,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   const routedRef = useRef(false);
   const bootstrapTimer = useRef<number | null>(null);
 
-  // 会社ごとの refetch 実行済み
   const refetchRanForCompany = useRef<string | null>(null);
-
-  // 現在の access token
   const accessTokenRef = useRef<string | null>(null);
 
   /* ================================
@@ -173,8 +174,6 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 
   /* ================================
    * 6秒フェイルセーフ
-   * - 修正：bootstrapped=true にしない（ready扱いが事故の元）
-   * - 代わりに timeout フラグだけ立てる
    * ============================== */
   useEffect(() => {
     if (!user?.id || bootstrapped) return;
@@ -184,7 +183,6 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       if (!cleaned.current && !bootstrapped) {
         console.warn('[bootstrap] membership timeout (NO force ready)');
         setBootstrapTimedOut(true);
-        // setBootstrapped(true); // ★禁止：これがルーティング/リフェッチの暴発原因
       }
     }, 6000);
 
@@ -229,7 +227,6 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
             setBootstrapped(false);
             setBootstrapTimedOut(false);
           }
-          // ★ ログアウト時は company_id Cookie もクリア
           try {
             clearCompanyIdCookie();
           } catch {}
@@ -241,11 +238,13 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         }
 
         accessTokenRef.current = session.access_token ?? null;
-        const uid = session.user.id;
-        const email = session.user.email ?? '';
         if (!cleaned.current) {
-          setUser({ id: uid, email, name: '', role: 'member' });
-          // membership 再ロード局面
+          setUser({
+            id: session.user.id,
+            email: session.user.email ?? '',
+            name: '',
+            role: 'member',
+          });
           setBootstrapped(false);
           setBootstrapTimedOut(false);
         }
@@ -256,55 +255,22 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 
     bootstrapSession();
 
-    // onAuthStateChange で token を維持
-    const { data: authListener } = supabase.auth.onAuthStateChange((_evt, sess) => {
-      if (signal.aborted) return;
-
-      if (!sess?.user) {
-        accessTokenRef.current = null;
-        if (!cleaned.current) {
-          setUser(null);
-          setRole(null);
-          setMembership({ companyId: undefined, departmentId: undefined });
-          setStrategyId(null);
-          setBootstrapped(false);
-          setBootstrapTimedOut(false);
-        }
-        // ★ ログアウト時は company_id Cookie もクリア
-        try {
-          clearCompanyIdCookie();
-        } catch {}
-        if (!isAuthPath(pathname) && !routedRef.current) {
-          routedRef.current = true;
-          router.replace('/login');
-        }
-        return;
-      }
-
-      accessTokenRef.current = sess.access_token ?? null;
-      if (!cleaned.current) {
-        setUser({ id: sess.user.id, email: sess.user.email ?? '', name: '', role: 'member' });
-        // membership を読み直す
-        setBootstrapped(false);
-        setBootstrapTimedOut(false);
-      }
-    });
-
     return () => {
       cleaned.current = true;
       ac.abort();
-      authListener?.subscription?.unsubscribe?.();
       initInFlight.current = false;
     };
   }, [pathname, router, setMembership, setRole, setStrategyId, setUser]);
 
   /* ================================
-   * 2) membership 読み込み + Cookie 同期（company_id 統一化の要）
+   * 2) membership 読み込み + Cookie 同期（★唯一の修正箇所）
    * ============================== */
   useEffect(() => {
     if (!user?.id) return;
     if (memInFlight.current) return;
     memInFlight.current = true;
+
+    let resolved = false; // ★ 追加：成功判定
 
     const ac = new AbortController();
     const { signal } = ac;
@@ -323,13 +289,14 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 
         if (error) {
           if (status && status !== 406) {
-            console.warn('[init] company_members error:', exposeError(error), { status });
+            console.warn('[init] company_members error:', exposeError(error), {
+              status,
+            });
           }
           if (!cleaned.current) {
             setMembership({ companyId: undefined, departmentId: undefined });
             setRole('member');
           }
-          // ★ 所属が取れない場合は Cookie を無理に触らない（/auth/welcome で作成）
           return;
         }
 
@@ -349,8 +316,8 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           setRole((data.role as 'admin' | 'manager' | 'member') ?? 'member');
         }
 
-        // ★ Cookie同期：membership が優先。差分があれば上書き
         if (cidNorm) {
+          resolved = true; // ★ 成功
           const cookieCid = getCompanyIdFromCookie();
           if (cookieCid !== cidNorm) {
             try {
@@ -360,8 +327,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         }
       } finally {
         memInFlight.current = false;
-        if (!cleaned.current) {
-          // ★ 修正：membership 読込が「本当に完了」したときだけ ready にする
+        if (resolved && !cleaned.current) {
           setBootstrapTimedOut(false);
           setBootstrapped(true);
         }
@@ -374,7 +340,6 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       memInFlight.current = false;
     };
   }, [user?.id, setMembership, setRole]);
-
   /* ================================
    * 2.3) companyId → StrategyStore scope反映（早期）
    * ============================== */
