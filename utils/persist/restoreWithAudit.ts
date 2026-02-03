@@ -9,8 +9,14 @@ import type { StrategyData } from '@/types/strategy';
 
 /**
  * 復元決定の詳細情報
+ *
+ * ★ TASK 5-1: decisionId を導入し、決定の一意性を保証
+ * - decisionId: 復元決定の unique identifier（UUID）
+ * - sourceUsed: decision と done で一致（絶対に上書きしない）
+ * - decision が確定した後、それ以上評価を変えない
  */
 export type RestoreDecision = {
+  decisionId: string; // UUID: start/decision/done で統一
   sourceUsed: 'db' | 'store' | 'snapshot' | 'none';
   reason: string;
   strategyId?: string;
@@ -19,24 +25,31 @@ export type RestoreDecision = {
   didClearSnapshot: boolean;
   snapshotData?: any;
   dbData?: any;
+  // 診断用（ログに出す）
+  hasDbData?: boolean;
+  hasStoreData?: boolean;
+  hasSnapshot?: boolean;
+  snapshotCompanyId?: string;
+  effectiveCompanyId?: string;
 };
 
 /**
- * 復元監査ログの統一インターフェース
+ * 復元監査ログの統一インターフェース（TASK 5 強化版）
  *
  * 責務：
  * - 「DB → store → snapshot」の復元優先順位を統一
- * - 採用ソースと理由を必ずログ出しする
+ * - decision を1回だけ行い、sourceUsed を上書きしない（decisionId で追跡）
+ * -採用ソースと理由を必ずログ出しする
  * - companyId 未確定時は snapshot 判定/clear をしない（STAGE2 パターンを全体化）
  * - snapshot.companyId !== effectiveCompanyId なら snapshot を clear（ただし理由ログ必須）
  * - DB に確定データがある場合は原則 snapshot 不使用
  * - 復元後、store の revision/strategyId が DB と一致するように同期
  *
- * 監査ログ：
- * - [audit][restore:start] { stage, effectiveCompanyId, ... }
- * - [audit][restore:decision] { sourceUsed, reason }
- * - [audit][restore:done] { strategyId, revision, didClearSnapshot }
- * - [audit][restore:fail] { error }
+ * 監査ログ（TASK 5）：
+ * - [audit][restore:start] { decisionId, stage, effectiveCompanyId, ... }
+ * - [audit][restore:decision] { decisionId, sourceUsed, reason, hasDbData, hasStoreData, ... }
+ * - [audit][restore:done] { decisionId, sourceUsed, strategyId, revision, didClearSnapshot }
+ * - [audit][restore:fail] { decisionId, error }
  */
 export async function restoreWithAudit(
   stage: 'stage1' | 'stage2' | 'cascade' | 'execution' | 'stage6',
@@ -45,9 +58,10 @@ export async function restoreWithAudit(
 ): Promise<RestoreDecision> {
   const startTime = Date.now();
   const allowSnapshot = options?.allowSnapshot !== false;
+  const decisionId = generateUUID(); // ★ TASK 5-1: decisionId を一意に生成
 
   console.log(
-    `[audit][restore:start] stage=${stage} effectiveCompanyId=${effectiveCompanyId}`,
+    `[audit][restore:start] decisionId=${decisionId} stage=${stage} effectiveCompanyId=${effectiveCompanyId}`,
     {
       timestamp: new Date().toISOString(),
       allowSnapshot,
@@ -57,43 +71,55 @@ export async function restoreWithAudit(
   try {
     // ★ Check 1: companyId が未確定 → snapshot 判定と clear をしない
     if (!effectiveCompanyId) {
-      console.log(
-        `[audit][restore:decision] sourceUsed=none reason="companyId_not_ready"`,
-      );
-      return {
+      const decision: RestoreDecision = {
+        decisionId,
         sourceUsed: 'none',
         reason: 'companyId_not_ready',
         didHydrateStore: false,
         didClearSnapshot: false,
+        effectiveCompanyId,
       };
+      console.log(
+        `[audit][restore:decision] decisionId=${decisionId} sourceUsed=${decision.sourceUsed} reason="${decision.reason}"`,
+      );
+      return decision;
     }
 
     const store = useStrategyStore.getState();
     let snapshotData: any = null;
     let dbData: any = null;
+    let hasDbData = false;
+    let hasSnapshot = false;
+    let snapshotCompanyId: string | undefined;
 
     // ★ Snapshot ロード試行（存在確認のみ）
     if (allowSnapshot && stage === 'stage2') {
       snapshotData = loadStage2SnapshotFromLocalStorage();
+      hasSnapshot = !!snapshotData;
+      snapshotCompanyId = snapshotData?.companyId;
       // stage1, cascade, execution, stage6 は後で追加可能
     }
 
     // ★ Check 2: snapshot.companyId !== effectiveCompanyId → clear＆skip
     if (snapshotData && snapshotData.companyId && snapshotData.companyId !== effectiveCompanyId) {
-      console.warn(
-        `[audit][restore:decision] sourceUsed=none reason="snapshot_company_mismatch" snapshotCompanyId=${snapshotData.companyId} effectiveCompanyId=${effectiveCompanyId}`,
-      );
       if (stage === 'stage2') {
         clearStage2Snapshot();
-        console.log(`[audit][restore:decision] didClearSnapshot=true reason="mismatch"`);
       }
-      return {
+      const decision: RestoreDecision = {
+        decisionId,
         sourceUsed: 'none',
         reason: 'snapshot_company_mismatch',
         didHydrateStore: false,
         didClearSnapshot: true,
         snapshotData,
+        hasSnapshot,
+        snapshotCompanyId,
+        effectiveCompanyId,
       };
+      console.log(
+        `[audit][restore:decision] decisionId=${decisionId} sourceUsed=${decision.sourceUsed} reason="${decision.reason}" didClearSnapshot=true snapshotCompanyId=${snapshotCompanyId}`,
+      );
+      return decision;
     }
 
     // ★ DB から最新データを取得
@@ -102,11 +128,10 @@ export async function restoreWithAudit(
     );
 
     if (dbError) {
-      console.warn(
-        `[audit][restore:decision] sourceUsed=snapshot reason="db_error" error="${dbError?.message || 'unknown'}"`,
-      );
+      // DB 取得失敗時の fallback
       if (snapshotData && stage === 'stage2') {
-        return {
+        const decision: RestoreDecision = {
+          decisionId,
           sourceUsed: 'snapshot',
           reason: 'db_error_fallback_to_snapshot',
           strategyId: snapshotData.state?.id,
@@ -114,24 +139,41 @@ export async function restoreWithAudit(
           didHydrateStore: false,
           didClearSnapshot: false,
           snapshotData,
+          hasDbData: false,
+          hasStoreData: false,
+          hasSnapshot: true,
+          effectiveCompanyId,
         };
+        console.log(
+          `[audit][restore:decision] decisionId=${decisionId} sourceUsed=${decision.sourceUsed} reason="${decision.reason}"`,
+        );
+        return decision;
       }
-      return {
+      const decision: RestoreDecision = {
+        decisionId,
         sourceUsed: 'store',
         reason: 'db_error_use_store',
         strategyId: store.id,
         revision: store.revision,
         didHydrateStore: false,
         didClearSnapshot: false,
+        hasDbData: false,
+        hasStoreData: true,
+        hasSnapshot: false,
+        effectiveCompanyId,
       };
+      console.log(
+        `[audit][restore:decision] decisionId=${decisionId} sourceUsed=${decision.sourceUsed} reason="${decision.reason}"`,
+      );
+      return decision;
     }
 
     dbData = dbDataResult;
+    hasDbData = !!dbData;
 
     // ★ Check 3: DB に確定データがある → DB 優先、snapshot 不使用
-    const hasDataInDB = !!dbData && typeof dbData === 'object';
     const hasMVVInDB =
-      hasDataInDB && (dbData.thought || dbData.mission || dbData.vision || dbData.value);
+      hasDbData && (dbData.thought || dbData.mission || dbData.vision || dbData.value);
     const hasMVVInStore = !!(
       store.thought ||
       store.mission ||
@@ -140,10 +182,8 @@ export async function restoreWithAudit(
     );
 
     if (hasMVVInDB) {
-      console.log(
-        `[audit][restore:decision] sourceUsed=db reason="db_has_mvv" dbRevision=${dbData.revision} strategyId=${dbData.id}`,
-      );
-      return {
+      const decision: RestoreDecision = {
+        decisionId,
         sourceUsed: 'db',
         reason: 'db_has_mvv',
         strategyId: dbData.id,
@@ -151,30 +191,44 @@ export async function restoreWithAudit(
         didHydrateStore: false, // DB から hydrate する処理は呼び出し側で行う
         didClearSnapshot: false,
         dbData,
+        hasDbData: true,
+        hasStoreData: hasMVVInStore,
+        hasSnapshot,
+        snapshotCompanyId,
+        effectiveCompanyId,
       };
+      console.log(
+        `[audit][restore:decision] decisionId=${decisionId} sourceUsed=${decision.sourceUsed} reason="${decision.reason}" dbRevision=${decision.revision}`,
+      );
+      return decision;
     }
 
     // ★ DB にデータがないが store に data がある → store 優先
     if (hasMVVInStore) {
-      console.log(
-        `[audit][restore:decision] sourceUsed=store reason="store_has_mvv" strategyId=${store.id} revision=${store.revision}`,
-      );
-      return {
+      const decision: RestoreDecision = {
+        decisionId,
         sourceUsed: 'store',
         reason: 'store_has_mvv',
         strategyId: store.id,
         revision: store.revision,
         didHydrateStore: false,
         didClearSnapshot: false,
+        hasDbData: false,
+        hasStoreData: true,
+        hasSnapshot,
+        snapshotCompanyId,
+        effectiveCompanyId,
       };
+      console.log(
+        `[audit][restore:decision] decisionId=${decisionId} sourceUsed=${decision.sourceUsed} reason="${decision.reason}"`,
+      );
+      return decision;
     }
 
     // ★ DB にも store にもデータがない → snapshot を使用（companyId checked OK）
     if (snapshotData && stage === 'stage2') {
-      console.log(
-        `[audit][restore:decision] sourceUsed=snapshot reason="db_and_store_empty_fallback"`,
-      );
-      return {
+      const decision: RestoreDecision = {
+        decisionId,
         sourceUsed: 'snapshot',
         reason: 'db_and_store_empty_fallback',
         strategyId: snapshotData.state?.id,
@@ -182,31 +236,58 @@ export async function restoreWithAudit(
         didHydrateStore: true, // snapshot から store を hydrate する
         didClearSnapshot: false,
         snapshotData,
+        hasDbData: false,
+        hasStoreData: false,
+        hasSnapshot: true,
+        snapshotCompanyId,
+        effectiveCompanyId,
       };
+      console.log(
+        `[audit][restore:decision] decisionId=${decisionId} sourceUsed=${decision.sourceUsed} reason="${decision.reason}"`,
+      );
+      return decision;
     }
 
     // ★ すべてが空 → none
-    console.log(`[audit][restore:decision] sourceUsed=none reason="all_empty"`);
-    return {
+    const decision: RestoreDecision = {
+      decisionId,
       sourceUsed: 'none',
       reason: 'all_empty',
       didHydrateStore: false,
       didClearSnapshot: false,
+      hasDbData: false,
+      hasStoreData: false,
+      hasSnapshot: false,
+      effectiveCompanyId,
     };
+    console.log(
+      `[audit][restore:decision] decisionId=${decisionId} sourceUsed=${decision.sourceUsed} reason="${decision.reason}"`,
+    );
+    return decision;
   } catch (err) {
     const duration = Date.now() - startTime;
     const errorMsg = err instanceof Error ? err.message : String(err);
     console.error(
-      `[audit][restore:fail] stage=${stage} duration=${duration}ms error="${errorMsg}"`,
+      `[audit][restore:fail] decisionId=${decisionId} stage=${stage} duration=${duration}ms error="${errorMsg}"`,
       {
         error: err,
       },
     );
     return {
+      decisionId,
       sourceUsed: 'none',
       reason: `exception: ${errorMsg}`,
       didHydrateStore: false,
       didClearSnapshot: false,
+      effectiveCompanyId,
     };
   }
+}
+
+/**
+ * 簡易的な UUID 生成（TASK 5-1 用）
+ * 本番では uuid パッケージを使うことを推奨
+ */
+function generateUUID(): string {
+  return `restore_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }

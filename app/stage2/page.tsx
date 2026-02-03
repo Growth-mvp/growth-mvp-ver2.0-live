@@ -987,7 +987,7 @@ export default function Stage2Page() {
       }
 
       console.log(
-        `[audit][restore:done] sourceUsed=snapshot strategyId=${decision.strategyId}`,
+        `[audit][restore:done] decisionId=${decision.decisionId} sourceUsed=${decision.sourceUsed} strategyId=${decision.strategyId}`,
       );
     }
 
