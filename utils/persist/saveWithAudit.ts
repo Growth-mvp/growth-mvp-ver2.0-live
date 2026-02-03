@@ -16,11 +16,20 @@ export type WriteResult = {
  * 保存前後のログを記録して観測性を向上させる。
  * DB保存自体は既存の saveStrategyData に委譲。
  *
+ * 監査ログは [audit][save] として以下を記録：
+ * - effectiveCompanyId: 実際に保存対象の企業ID
+ * - strategyId: 保存対象の strategy_id
+ * - revision (before/after): リビジョン遷移
+ * - payloadSize: JSON文字列長
+ * - caller: 呼び出し元の識別子（e.g., "stage2:handleGenerate"）
+ * - result: 'success' | 'fail'、失敗時はエラー内容
+ *
  * @param payload - 保存するStrategyDataオブジェクト
  * @param userId - ユーザーID（省略時は自動取得される）
  * @param companyIdOverride - 企業IDオーバーライド
  * @param revision - リビジョン番号
  * @param opts - オプション（mode: 'upsert' | 'updateOnly'）
+ * @param caller - 呼び出し元の識別子（e.g., "store:saveStrategyData", "stage2:save", "autoSave:tick"）
  * @returns 保存結果（data と error）
  */
 export async function saveWithAudit(
@@ -29,13 +38,27 @@ export async function saveWithAudit(
   companyIdOverride?: string | null,
   revision?: number,
   opts?: { mode?: 'upsert' | 'updateOnly' },
+  caller?: string,
 ): Promise<WriteResult> {
   const startTime = Date.now();
+  const callerLabel = caller ?? 'unknown';
+  let payloadSize = 0;
 
-  console.log('[saveWithAudit] 💾 Save operation started', {
+  try {
+    payloadSize = JSON.stringify(payload).length;
+  } catch {
+    payloadSize = -1; // stringify失敗
+  }
+
+  // revision(before)
+  const revisionBefore = revision ?? payload?.revision;
+
+  console.log(`[audit][save:start] caller=${callerLabel}`, {
     userId,
-    companyId: companyIdOverride,
-    revision,
+    effectiveCompanyId: companyIdOverride ?? payload?.company_id,
+    strategyId: payload?.id,
+    revisionBefore,
+    payloadSize,
     mode: opts?.mode ?? 'upsert',
     timestamp: new Date().toISOString(),
   });
@@ -50,27 +73,45 @@ export async function saveWithAudit(
     );
 
     const duration = Date.now() - startTime;
+    const revisionAfter = result.data?.revision;
 
     if (result.error) {
-      console.warn('[saveWithAudit] ⚠️ Save operation failed', {
-        duration,
-        error: result.error,
-      });
+      console.warn(
+        `[audit][save:fail] caller=${callerLabel} duration=${duration}ms`,
+        {
+          effectiveCompanyId: companyIdOverride ?? payload?.company_id,
+          strategyId: payload?.id,
+          revisionBefore,
+          error: result.error,
+        },
+      );
     } else {
-      console.log('[saveWithAudit] ✅ Save operation completed', {
-        duration,
-        hasData: !!result.data,
-        revision: result.data?.revision,
-      });
+      console.log(
+        `[audit][save:done] caller=${callerLabel} duration=${duration}ms`,
+        {
+          effectiveCompanyId: companyIdOverride ?? payload?.company_id,
+          strategyId: result.data?.id,
+          revisionBefore,
+          revisionAfter,
+          result: 'success',
+        },
+      );
     }
 
     return result;
   } catch (err) {
     const duration = Date.now() - startTime;
-    console.error('[saveWithAudit] ❌ Save operation threw exception', {
-      duration,
-      error: err,
-    });
+    const errorMsg =
+      err instanceof Error ? err.message : String(err);
+    console.error(
+      `[audit][save:exception] caller=${callerLabel} duration=${duration}ms error="${errorMsg}"`,
+      {
+        effectiveCompanyId: companyIdOverride ?? payload?.company_id,
+        strategyId: payload?.id,
+        revisionBefore,
+        error: err,
+      },
+    );
     return {
       data: null,
       error:

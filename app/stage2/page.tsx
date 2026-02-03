@@ -14,6 +14,7 @@ import {
   clearStage2Snapshot,
 } from '@/utils/stageSnapshot';
 import { getFullStrategyDataByCompany, saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
+import { saveWithAudit } from '@/utils/persist/saveWithAudit';
 import type { IssueBlock, MetricsSummary, StoryChapter, WinPatternCandidate, Stage2State, Stage2Answer } from '@/types/strategy';
 
 /* ===================================================
@@ -1434,10 +1435,13 @@ export default function Stage2Page() {
               payloadKeyCount: Object.keys(savePayload).length,
             });
 
-            const saveResult = await saveStrategyDataApi(
+            const saveResult = await saveWithAudit(
               savePayload,
               userId,
-              companyId
+              companyId,
+              undefined,
+              {},
+              'stage2:handleGenerate'
             );
 
             if (saveResult.error === null) {

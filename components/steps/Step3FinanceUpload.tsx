@@ -7,6 +7,7 @@ import StepLayout from '@/components/StepLayout';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { saveStrategyData } from '@/utils/supabase/strategy';
+import { saveWithAudit } from '@/utils/persist/saveWithAudit';
 import { buildFinanceSummary } from '@/utils/financeSummary';
 import {
   ResponsiveContainer,
@@ -299,10 +300,13 @@ export default function Step3FinanceUpload() {
     if (!userId || !companyId || !canPersist) return;
     try {
       const state = useStrategyStore.getState() as any;
-      await saveStrategyData(
+      await saveWithAudit(
         { ...state, csvFinanceData: rows, financeSummary: summary },
         userId,
         companyId,
+        undefined,
+        {},
+        'step3Finance:uploadCSV',
       );
       setMessage('財務データ＋サマリーを保存しました');
     } catch (e) {
@@ -346,7 +350,7 @@ export default function Step3FinanceUpload() {
     if (!userId || !companyId || !canPersist) return;
     try {
       const state = useStrategyStore.getState() as any;
-      await saveStrategyData({ ...state, financeActual: rows }, userId, companyId);
+      await saveWithAudit({ ...state, financeActual: rows }, userId, companyId, undefined, {}, 'step3Finance:uploadActual');
       setMessage('実績（手入力）を保存しました');
     } catch (e) {
       console.error(e);
@@ -361,7 +365,7 @@ export default function Step3FinanceUpload() {
     if (!userId || !companyId || !canPersist) return;
     try {
       const state = useStrategyStore.getState() as any;
-      await saveStrategyData({ ...state, financePlan: rows }, userId, companyId);
+      await saveWithAudit({ ...state, financePlan: rows }, userId, companyId, undefined, {}, 'step3Finance:uploadPlan');
       setMessage('計画値を保存しました');
     } catch (e) {
       console.error(e);

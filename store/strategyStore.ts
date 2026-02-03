@@ -11,6 +11,7 @@ import {
   saveStoryAnswers2,
   saveFinalStory,
 } from '@/utils/supabase/strategy';
+import { saveWithAudit } from '@/utils/persist/saveWithAudit';
 import { safeGetSession } from '@/utils/supabase/client';
 import { useUserStore } from './userStore';
 import { computeValueAnalysis, computeValueAnalysisBundle } from '@/utils/valueAnalysis';
@@ -1953,13 +1954,13 @@ export const useStrategyStore = create<StrategyState>()(
 
               const res = await (async () => {
                 try {
-                  return await (saveStrategyDataApi as any)(payload, userId, companyId, state.revision, { mode: 'upsert' });
+                  return await saveWithAudit(payload, userId, companyId, state.revision, { mode: 'upsert' }, `store:saveStrategyData:${reason}`);
                 } catch (e) {
-                  console.warn('[strategyStore] saveStrategyData thrown, fallback legacy call:', e);
+                  console.warn('[strategyStore] saveWithAudit thrown, fallback legacy call:', e);
                   try {
-                    return await (saveStrategyDataApi as any)(payload, userId, companyId);
+                    return await saveWithAudit(payload, userId, companyId, undefined, {}, `store:saveStrategyData:${reason}:fallback`);
                   } catch (e2) {
-                    console.error('[strategyStore] saveStrategyData legacy call failed:', e2);
+                    console.error('[strategyStore] saveWithAudit legacy call failed:', e2);
                     return { error: e2 };
                   }
                 }

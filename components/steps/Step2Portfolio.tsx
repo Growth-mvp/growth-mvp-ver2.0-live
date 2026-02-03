@@ -13,6 +13,7 @@ import type {
 } from '@/types/portfolio';
 import { classifyStage, createDefaultPortfolio } from '@/types/portfolio';
 import { saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
+import { saveWithAudit } from '@/utils/persist/saveWithAudit';
 
 /* ============ ユーティリティ ============ */
 function toNumberOrUndefined(v: string | number | null | undefined): number | undefined {
@@ -98,7 +99,7 @@ export default function Step2Portfolio(_props: Props) {
   const persistNow = useCallback(async () => {
     const state = useStrategyStore.getState() as any;
     const payload = typeof state.buildPayload === 'function' ? state.buildPayload() : state;
-    await saveStrategyDataApi(payload, userId!, companyId!);
+    await saveWithAudit(payload, userId!, companyId!, undefined, {}, 'step2Portfolio:save');
   }, [userId, companyId]);
 
   const scheduleSave = useCallback(() => {

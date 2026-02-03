@@ -9,6 +9,7 @@ import StepLayout from '@/components/StepLayout';
 import { getIndustryLabel } from '@/utils/industryTemplates';
 import FinanceSummaryPanel from '@/components/finance/FinanceSummaryPanel';
 import { saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
+import { saveWithAudit } from '@/utils/persist/saveWithAudit';
 import type { WinPattern } from '@/types/strategy';
 
 /* =========================================================
@@ -361,7 +362,7 @@ export default function Step5Confirm() {
             answers2,
             winPatterns: finalWinPatterns ?? current.winPatterns, // 既存があれば維持
           };
-          await saveStrategyDataApi({ ...current, ...patch }, userId!, companyId!);
+          await saveWithAudit({ ...current, ...patch }, userId!, companyId!, undefined, {}, 'step5Confirm:finalize');
         } catch (e) {
           console.warn(
             'saveStrategyData failed (draft story & winPatterns persisted only to session/store):',

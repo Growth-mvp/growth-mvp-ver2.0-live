@@ -7,6 +7,7 @@ import { useUserStore } from '@/store/userStore';
 import StepLayout from '@/components/StepLayout';
 import { getIndustryLabel } from '@/utils/industryTemplates';
 import { saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
+import { saveWithAudit } from '@/utils/persist/saveWithAudit';
 
 /* =========================
  * 共通ユーティリティ
@@ -312,7 +313,7 @@ export default function Step2SWOT() {
       setSaveError(null);
       try {
         const state = useStrategyStore.getState() as any;
-        await saveStrategyDataApi(state, userId!, companyId!);
+        await saveWithAudit(state, userId!, companyId!, undefined, {}, 'step2SWOT:save');
       } catch (e: any) {
         dirtyRef.current = true;
         setSaveError(e?.message || '保存に失敗しました');
