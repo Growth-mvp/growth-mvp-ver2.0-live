@@ -160,10 +160,17 @@ export function saveStage2SnapshotToLocalStorage(
     };
 
     localStorage.setItem(STAGE2_SNAPSHOT_KEY, JSON.stringify(snapshot));
+
+    // ★ TASK 13-4: Log ceoIntent in snapshot
+    const ceoIntentLen = typeof state.ceoIntent === 'string' ? state.ceoIntent.length : 0;
+    const ceoIntentHead = typeof state.ceoIntent === 'string' ? state.ceoIntent.slice(0, 30) : '';
+
     console.log('[stageSnapshot] Stage2 snapshot saved:', {
       hasMVV: !!state.mvv.mission,
       hasSWOT: !!state.swot.strength,
       winPatternsCandidateCount: state.winPatternsCandidate?.length ?? 0,
+      ceoIntentLen,
+      ceoIntentHead,
     });
     return true;
   } catch (e) {
@@ -196,8 +203,14 @@ export function loadStage2SnapshotFromLocalStorage(): Stage2Snapshot | null {
       return null;
     }
 
+    // ★ TASK 13-4: Log ceoIntent from snapshot
+    const ceoIntentLen = typeof parsed.state.ceoIntent === 'string' ? parsed.state.ceoIntent.length : 0;
+    const ceoIntentHead = typeof parsed.state.ceoIntent === 'string' ? parsed.state.ceoIntent.slice(0, 30) : '';
+
     console.log('[stageSnapshot] Stage2 snapshot loaded:', {
       savedAt: parsed.savedAt,
+      ceoIntentLen,
+      ceoIntentHead,
     });
 
     return parsed;
