@@ -1763,7 +1763,16 @@ export const useStrategyStore = create<StrategyState>()(
       setMVV: (patch) => set((s) => ({ ...s, ...patch, dirty: true })),
       setSWOT: (patch) => set((s) => ({ ...s, ...patch, dirty: true })),
 
-      setCeoIntent: (text: string) => set((s) => ({ ...s, ceoIntent: text.trim(), dirty: true })),
+      setCeoIntent: (text: string) => {
+        const trimmed = text.trim();
+        if (DEBUG) {
+          console.log('[strategyStore] setCeoIntent called', {
+            len: trimmed.length,
+            head: trimmed.slice(0, 30),
+          });
+        }
+        set((s) => ({ ...s, ceoIntent: trimmed, dirty: true }));
+      },
 
       setSwotSuggestions: (suggestions) =>
         set((s) => ({ ...s, swotSuggestions: suggestions, dirty: true })),
