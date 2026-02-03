@@ -3,6 +3,7 @@
 
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { createClient } from '@supabase/supabase-js';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import {
@@ -807,6 +808,9 @@ export default function Stage2Page() {
   const lastSyncedAnswersHashRef = useRef<string>('');
   const didInitRef = useRef(false);
 
+  // 診断用 fetch（DEV限定で1回だけ）
+  const diagInitRef = useRef(false);
+
   // Stage1 data fallback loader
   const loadStage1Data = useCallback(async () => {
     setLoading(true);
@@ -1048,6 +1052,41 @@ export default function Stage2Page() {
     };
 
     console.log('[Stage2][fetch-hook] installed (limited scope: stage2 bypass)');
+  }, []);
+
+  // ★ 診断用 fetch（DEV限定で1回だけ）
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_DEBUG_DIAG !== '1') return;
+    if (diagInitRef.current) return;
+    diagInitRef.current = true;
+
+    (async () => {
+      try {
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+        const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+        if (!supabaseUrl || !supabaseAnonKey) {
+          console.log('[diag] missing env vars');
+          return;
+        }
+
+        const supabase = createClient(supabaseUrl, supabaseAnonKey);
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token;
+
+        if (token) {
+          const r = await fetch('/api/diag/whoami', {
+            headers: { Authorization: `Bearer ${token}` },
+            cache: 'no-store',
+          });
+          console.log('[diag][whoami]', await r.json());
+        } else {
+          console.log('[diag] no session token');
+        }
+      } catch (e) {
+        console.error('[diag] error:', e);
+      }
+    })();
   }, []);
 
   // storeAnswers12 -> local sync（サーバから復元/他画面更新時）
