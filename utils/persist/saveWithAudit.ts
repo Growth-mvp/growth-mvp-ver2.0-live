@@ -105,7 +105,7 @@ export async function saveWithAudit(
       payload,
       userId,
       companyIdOverride,
-      revision,
+      revisionBefore, // ★ここ
       opts,
     );
 
