@@ -279,6 +279,7 @@ export type StrategyState = {
   setHydrating: (b: boolean) => void;
   setServerSnapshotHash: (hash?: string) => void;
 
+  setRevision: (rev?: number) => void;
   setStrategyId: (id: string | null) => void;
   setCompanyScope: (id: string | null) => void;
 
@@ -844,6 +845,7 @@ const emptyData: StrategyState = {
   setHydrated: () => {},
   setHydrating: () => {},
   setServerSnapshotHash: () => {},
+  setRevision: () => {},
   setStrategyId: () => {},
   setCompanyScope: () => {},
   setStory: () => {},
@@ -1218,6 +1220,7 @@ export const useStrategyStore = create<StrategyState>()(
       setHydrating: (b) => set((s) => ({ ...s, boot: { ...s.boot, isHydrating: b } })),
       setServerSnapshotHash: (hash) => set({ lastServerSnapshot: hash }),
 
+      setRevision: (rev) => set({ revision: rev }),
       setStrategyId: (id) => set({ strategyId: id }),
 
       /* ▼破壊的リセット禁止：即消さず、仮スコープでハイドレート開始 */

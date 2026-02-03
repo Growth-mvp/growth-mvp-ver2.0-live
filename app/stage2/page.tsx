@@ -1445,6 +1445,14 @@ export default function Stage2Page() {
                 revision: saveResult.data?.revision,
                 strategyId: saveResult.data?.strategyId,
               });
+
+              // ★ Sync revision/strategyId to store to prevent REVISION_CONFLICT
+              if (saveResult.data?.revision !== undefined) {
+                useStrategyStore.getState().setRevision(saveResult.data.revision);
+              }
+              if (saveResult.data?.strategyId) {
+                useStrategyStore.getState().setStrategyId(saveResult.data.strategyId);
+              }
             } else {
               console.error('[Stage2] ❌ DB save FAILED:', {
                 status: (saveResult.error as any)?.status,
