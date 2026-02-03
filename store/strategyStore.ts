@@ -34,6 +34,7 @@ import type {
   Stage2Answer,
   StoryChapter,
   Stage1Benchmarks,
+  StrategyData,
 } from '@/types/strategy';
 import type { BusinessPortfolio } from '@/types/portfolio';
 import {
