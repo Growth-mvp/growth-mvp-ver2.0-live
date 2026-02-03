@@ -3,11 +3,15 @@
  *
  * 目的:
  * - Supabase保存が不安定な場合でも、STAGE2デモを成立させる
- * - localStorageを「3段フォールバック」の2段目として使用
+ * - localStorageを「復旧用」に限定し、テナント混入を防ぐ
  *
  * キー:
- * - "growth.stage1.snapshot" : Stage1Snapshot
- * - "growth.stage2.snapshot" : Stage2Snapshot
+ * - "growth.stage1.snapshot:<companyId>" : Stage1Snapshot
+ * - "growth.stage2.snapshot:<companyId>" : Stage2Snapshot
+ *
+ * 旧キー（互換/掃除対象）:
+ * - "growth.stage1.snapshot"
+ * - "growth.stage2.snapshot"
  */
 
 import type {
@@ -24,37 +28,35 @@ import type {
 } from '@/types/strategy';
 
 /* ===== 定数 ===== */
-const STAGE1_SNAPSHOT_KEY = 'growth.stage1.snapshot';
-const STAGE2_SNAPSHOT_KEY = 'growth.stage2.snapshot';
+const STAGE1_SNAPSHOT_KEY_LEGACY = 'growth.stage1.snapshot';
+const STAGE2_SNAPSHOT_KEY_LEGACY = 'growth.stage2.snapshot';
+
+function stage1Key(companyId?: string) {
+  return companyId ? `growth.stage1.snapshot:${companyId}` : STAGE1_SNAPSHOT_KEY_LEGACY;
+}
+function stage2Key(companyId?: string) {
+  return companyId ? `growth.stage2.snapshot:${companyId}` : STAGE2_SNAPSHOT_KEY_LEGACY;
+}
+
+/** 旧キー掃除（安全に） */
+function cleanupLegacyKeys(kind: 'stage1' | 'stage2') {
+  if (typeof window === 'undefined') return;
+  try {
+    if (kind === 'stage1') localStorage.removeItem(STAGE1_SNAPSHOT_KEY_LEGACY);
+    if (kind === 'stage2') localStorage.removeItem(STAGE2_SNAPSHOT_KEY_LEGACY);
+  } catch {}
+}
 
 /* ===== ユーティリティ ===== */
-
-/**
- * ValueAnalysis から MetricsSummary を生成
- * - MetricsSummary = ValueAnalysis のエイリアスなので、そのまま返す
- * - undefined の場合は空オブジェクトを返す
- */
 export function valueAnalysisToMetricsSummary(
   va: ValueAnalysis | undefined,
-  _overallNote?: string // 互換用（使用しない）
+  _overallNote?: string
 ): MetricsSummary {
-  if (!va) {
-    return {};
-  }
-  // MetricsSummary = ValueAnalysis なので、そのまま返す
+  if (!va) return {};
   return { ...va };
 }
 
 /* ===== STAGE1 Snapshot I/O ===== */
-
-/**
- * STAGE1スナップショットをlocalStorageに保存
- *
- * @param issueBlocks 論点ブロック
- * @param valueAnalysis ValueAnalysis（MetricsSummaryに変換）
- * @param companyName 会社名（任意）
- * @param companyId 会社ID（任意）
- */
 export function saveStage1SnapshotToLocalStorage(
   issueBlocks: IssueBlock[],
   valueAnalysis: ValueAnalysis | undefined,
@@ -63,6 +65,11 @@ export function saveStage1SnapshotToLocalStorage(
 ): boolean {
   if (typeof window === 'undefined') {
     console.warn('[stageSnapshot] saveStage1Snapshot: window is undefined (SSR)');
+    return false;
+  }
+  if (!companyId) {
+    // テナント混入防止：companyIdなし保存は禁止（必要なら呼び出し側で渡す）
+    console.warn('[stageSnapshot] saveStage1Snapshot skipped: companyId is required');
     return false;
   }
 
@@ -75,10 +82,12 @@ export function saveStage1SnapshotToLocalStorage(
       companyId,
     };
 
-    localStorage.setItem(STAGE1_SNAPSHOT_KEY, JSON.stringify(snapshot));
+    localStorage.setItem(stage1Key(companyId), JSON.stringify(snapshot));
+    cleanupLegacyKeys('stage1');
     console.log('[stageSnapshot] Stage1 snapshot saved:', {
+      key: stage1Key(companyId),
       issueBlocksCount: snapshot.issueBlocks.length,
-      hasSummary: !!snapshot.metricsSummary.roic,
+      hasSummary: !!(snapshot.metricsSummary as any)?.roic,
     });
     return true;
   } catch (e) {
@@ -87,37 +96,38 @@ export function saveStage1SnapshotToLocalStorage(
   }
 }
 
-/**
- * STAGE1スナップショットをlocalStorageから読み込み
- *
- * @returns Stage1Snapshot | null
- */
-export function loadStage1SnapshotFromLocalStorage(): Stage1Snapshot | null {
+export function loadStage1SnapshotFromLocalStorage(companyId?: string): Stage1Snapshot | null {
   if (typeof window === 'undefined') {
     console.warn('[stageSnapshot] loadStage1Snapshot: window is undefined (SSR)');
     return null;
   }
+  if (!companyId) return null;
 
   try {
-    const raw = localStorage.getItem(STAGE1_SNAPSHOT_KEY);
+    const raw = localStorage.getItem(stage1Key(companyId));
     if (!raw) {
       console.log('[stageSnapshot] Stage1 snapshot not found');
       return null;
     }
-
     const parsed = JSON.parse(raw) as Stage1Snapshot;
 
-    // バリデーション
     if (!parsed.savedAt || !Array.isArray(parsed.issueBlocks)) {
       console.warn('[stageSnapshot] Stage1 snapshot invalid format');
       return null;
     }
+    if (parsed.companyId && parsed.companyId !== companyId) {
+      console.warn('[stageSnapshot] Stage1 snapshot companyId mismatch; ignored', {
+        expected: companyId,
+        got: parsed.companyId,
+      });
+      return null;
+    }
 
     console.log('[stageSnapshot] Stage1 snapshot loaded:', {
+      key: stage1Key(companyId),
       savedAt: parsed.savedAt,
       issueBlocksCount: parsed.issueBlocks.length,
     });
-
     return parsed;
   } catch (e) {
     console.error('[stageSnapshot] loadStage1Snapshot failed:', e);
@@ -125,30 +135,26 @@ export function loadStage1SnapshotFromLocalStorage(): Stage1Snapshot | null {
   }
 }
 
-/**
- * STAGE1スナップショットをクリア
- */
-export function clearStage1Snapshot(): void {
+export function clearStage1Snapshot(companyId?: string): void {
   if (typeof window === 'undefined') return;
+  if (!companyId) return;
   try {
-    localStorage.removeItem(STAGE1_SNAPSHOT_KEY);
-    console.log('[stageSnapshot] Stage1 snapshot cleared');
+    localStorage.removeItem(stage1Key(companyId));
+    cleanupLegacyKeys('stage1');
+    console.log('[stageSnapshot] Stage1 snapshot cleared', { key: stage1Key(companyId) });
   } catch (e) {
     console.error('[stageSnapshot] clearStage1Snapshot failed:', e);
   }
 }
 
 /* ===== STAGE2 Snapshot I/O ===== */
-
-/**
- * STAGE2スナップショットをlocalStorageに保存
- */
-export function saveStage2SnapshotToLocalStorage(
-  state: Stage2State,
-  companyId?: string
-): boolean {
+export function saveStage2SnapshotToLocalStorage(state: Stage2State, companyId?: string): boolean {
   if (typeof window === 'undefined') {
     console.warn('[stageSnapshot] saveStage2Snapshot: window is undefined (SSR)');
+    return false;
+  }
+  if (!companyId) {
+    console.warn('[stageSnapshot] saveStage2Snapshot skipped: companyId is required');
     return false;
   }
 
@@ -159,8 +165,10 @@ export function saveStage2SnapshotToLocalStorage(
       companyId,
     };
 
-    localStorage.setItem(STAGE2_SNAPSHOT_KEY, JSON.stringify(snapshot));
+    localStorage.setItem(stage2Key(companyId), JSON.stringify(snapshot));
+    cleanupLegacyKeys('stage2');
     console.log('[stageSnapshot] Stage2 snapshot saved:', {
+      key: stage2Key(companyId),
       hasMVV: !!state.mvv.mission,
       hasSWOT: !!state.swot.strength,
       winPatternsCandidateCount: state.winPatternsCandidate?.length ?? 0,
@@ -172,17 +180,15 @@ export function saveStage2SnapshotToLocalStorage(
   }
 }
 
-/**
- * STAGE2スナップショットをlocalStorageから読み込み
- */
-export function loadStage2SnapshotFromLocalStorage(): Stage2Snapshot | null {
+export function loadStage2SnapshotFromLocalStorage(companyId?: string): Stage2Snapshot | null {
   if (typeof window === 'undefined') {
     console.warn('[stageSnapshot] loadStage2Snapshot: window is undefined (SSR)');
     return null;
   }
+  if (!companyId) return null;
 
   try {
-    const raw = localStorage.getItem(STAGE2_SNAPSHOT_KEY);
+    const raw = localStorage.getItem(stage2Key(companyId));
     if (!raw) {
       console.log('[stageSnapshot] Stage2 snapshot not found');
       return null;
@@ -190,13 +196,20 @@ export function loadStage2SnapshotFromLocalStorage(): Stage2Snapshot | null {
 
     const parsed = JSON.parse(raw) as Stage2Snapshot;
 
-    // バリデーション
     if (!parsed.savedAt || !parsed.state) {
       console.warn('[stageSnapshot] Stage2 snapshot invalid format');
       return null;
     }
+    if (parsed.companyId && parsed.companyId !== companyId) {
+      console.warn('[stageSnapshot] Stage2 snapshot companyId mismatch; ignored', {
+        expected: companyId,
+        got: parsed.companyId,
+      });
+      return null;
+    }
 
     console.log('[stageSnapshot] Stage2 snapshot loaded:', {
+      key: stage2Key(companyId),
       savedAt: parsed.savedAt,
     });
 
@@ -207,41 +220,30 @@ export function loadStage2SnapshotFromLocalStorage(): Stage2Snapshot | null {
   }
 }
 
-/**
- * STAGE2スナップショットをクリア
- */
-export function clearStage2Snapshot(): void {
+export function clearStage2Snapshot(companyId?: string): void {
   if (typeof window === 'undefined') return;
+  if (!companyId) return;
   try {
-    localStorage.removeItem(STAGE2_SNAPSHOT_KEY);
-    console.log('[stageSnapshot] Stage2 snapshot cleared');
+    localStorage.removeItem(stage2Key(companyId));
+    cleanupLegacyKeys('stage2');
+    console.log('[stageSnapshot] Stage2 snapshot cleared', { key: stage2Key(companyId) });
   } catch (e) {
     console.error('[stageSnapshot] clearStage2Snapshot failed:', e);
   }
 }
 
 /* ===== 3段フォールバック用ヘルパー ===== */
-
-/**
- * STAGE1データを3段フォールバックで取得
- * 1) Zustand store（引数で渡す）
- * 2) localStorage snapshot
- * 3) Supabase（呼び出し側で行う）
- *
- * @param storeData store から取得したデータ（あれば）
- * @returns { issueBlocks, metricsSummary, source }
- */
 export function getStage1DataWithFallback(
   storeData?: {
     stage1Issues?: IssueBlock[];
     valueAnalysis?: ValueAnalysis;
-  }
+  },
+  companyId?: string
 ): {
   issueBlocks: IssueBlock[];
   metricsSummary: MetricsSummary;
   source: 'store' | 'localStorage' | 'none';
 } {
-  // 1) Store から取得
   if (storeData?.stage1Issues && storeData.stage1Issues.length > 0) {
     return {
       issueBlocks: storeData.stage1Issues,
@@ -250,8 +252,7 @@ export function getStage1DataWithFallback(
     };
   }
 
-  // 2) localStorage から取得
-  const snapshot = loadStage1SnapshotFromLocalStorage();
+  const snapshot = companyId ? loadStage1SnapshotFromLocalStorage(companyId) : null;
   if (snapshot && snapshot.issueBlocks.length > 0) {
     return {
       issueBlocks: snapshot.issueBlocks,
@@ -260,7 +261,6 @@ export function getStage1DataWithFallback(
     };
   }
 
-  // 3) なし（呼び出し側で Supabase を試行）
   return {
     issueBlocks: [],
     metricsSummary: {},
@@ -270,7 +270,6 @@ export function getStage1DataWithFallback(
 
 /**
  * ストアの状態から Stage2State を構築
- * - ストアの既存キー（story, answers2, finalStory）を Stage2State に変換
  */
 export function buildStage2StateFromStore(storeData: {
   thought?: string;
@@ -286,20 +285,17 @@ export function buildStage2StateFromStore(storeData: {
   answers2?: ChapterAnswers[];
   winPatterns?: any[];
 }): Stage2State {
-  // storyDraft: StoryChapter[] 形式に変換（既存 story から）
   const storyDraft: StoryChapter[] | undefined = storeData.story?.length
     ? storeData.story.map((ch) => ({ title: ch.title, body: ch.body }))
     : undefined;
 
-  // answers12: ChapterAnswers から Stage2Answer[] に変換
-  // 簡易版：各章の steps を展開して Stage2Answer に変換
   const answers12: Stage2Answer[] | undefined = storeData.answers2?.length
     ? storeData.answers2.flatMap((ch) =>
         (ch.steps || []).map((step, idx) => ({
           id: `ch${ch.chapterIndex}-step${step.stepNumber ?? idx}`,
           question: step.question,
           answer: step.answer,
-          required: step.stepNumber <= 4, // 骨格4問を必須とする例
+          required: (step.stepNumber ?? idx + 1) <= 4,
         }))
       )
     : undefined;
