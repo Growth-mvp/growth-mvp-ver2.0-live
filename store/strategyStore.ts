@@ -1227,12 +1227,20 @@ export const useStrategyStore = create<StrategyState>()(
       setRevision: (rev) => set({ revision: rev }),
       setStrategyId: (id) => set({ strategyId: id }),
 
-      hydrateFromFullState: (fullState) =>
+      hydrateFromFullState: (fullState) => {
+        // ★ Type guard for businessPortfolio to avoid unsafe spread
+        const guardedBusinessPortfolio =
+          fullState.businessPortfolio && typeof fullState.businessPortfolio === 'object'
+            ? (fullState.businessPortfolio as BusinessPortfolio)
+            : undefined;
+
         set((s) => ({
           ...s,
           ...fullState,
+          businessPortfolio: guardedBusinessPortfolio,
           hydrated: true,
-        })),
+        }));
+      },
 
       /* ▼破壊的リセット禁止：即消さず、仮スコープでハイドレート開始 */
       setCompanyScope: (id) =>
