@@ -45,24 +45,37 @@ export async function GET() {
 const authz = h.get('authorization') || '';
 const bearer = authz.toLowerCase().startsWith('bearer ') ? authz.slice(7) : null;
 
+  // Bearer トークン必須（誤診防止）
+  if (!bearer) {
+    return NextResponse.json<WhoamiResponse>(
+      {
+        ok: false,
+        audit: {
+          authUserId: null,
+          membershipCompanyId: null,
+          cookieCompanyId: null,
+          effectiveCompanyId: null,
+        },
+        notes: ['missing authorization bearer token'],
+      },
+      { status: 401 }
+    );
+  }
+
 // cookieのcompany_id（補助）
 const cookieStore = await cookies();
 const cookieCompanyId = cookieStore.get('company_id')?.value ?? null;
 
-  // サーバ側でユーザーを特定（Bearerが無い場合はnullのまま）
+  // サーバ側でユーザーを特定
   let authUserId: string | null = null;
 
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
-  if (bearer) {
-    const { data, error } = await admin.auth.getUser(bearer);
-    if (error) {
-      notes.push(`auth.getUser failed: ${error.message}`);
-    } else {
-      authUserId = data.user?.id ?? null;
-    }
+  const { data, error } = await admin.auth.getUser(bearer);
+  if (error) {
+    notes.push(`auth.getUser failed: ${error.message}`);
   } else {
-    notes.push('no authorization bearer token');
+    authUserId = data.user?.id ?? null;
   }
 
   // membership.company_id を引く（service roleで引くが、user_idで絞る）
