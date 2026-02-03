@@ -1706,6 +1706,16 @@ export default function Stage2Page() {
   const hasWinReady = hasDraft; // Draft生成済みなら最終生成が可能
   const hasFinal = finalStory.length > 0;
 
+  // ★ TASK 10-3: UI表示直前に field_check ログ（DEV限定）
+  if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+    console.log('[Stage2][ui_check]', {
+      ceoIntentLen: ceoIntent?.length ?? 0,
+      ceoIntentPreview: ceoIntent?.substring(0, 40) ?? 'empty',
+      storyDraftLen: storyDraft?.length ?? 0,
+      storyDraftChapters: storyDraft?.map((ch, i) => `Ch${i}:${ch?.body?.length ?? 0}chars`) ?? [],
+    });
+  }
+
   return (
     <main className="min-h-screen bg-gradient-to-b from-white to-slate-50/60 dark:from-zinc-950 dark:to-zinc-900">
       {/* Header */}
