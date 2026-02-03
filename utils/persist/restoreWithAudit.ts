@@ -2,6 +2,7 @@ import { useStrategyStore } from '@/store/strategyStore';
 import {
   loadStage1SnapshotFromLocalStorage,
   loadStage2SnapshotFromLocalStorage,
+  clearStage1Snapshot,
   clearStage2Snapshot,
 } from '@/utils/stageSnapshot';
 import { getFullStrategyDataByCompany } from '@/utils/supabase/strategy';
@@ -97,13 +98,19 @@ export async function restoreWithAudit(
       snapshotData = loadStage2SnapshotFromLocalStorage();
       hasSnapshot = !!snapshotData;
       snapshotCompanyId = snapshotData?.companyId;
-      // stage1, cascade, execution, stage6 は後で追加可能
+    } else if (allowSnapshot && stage === 'stage1') {
+      snapshotData = loadStage1SnapshotFromLocalStorage();
+      hasSnapshot = !!snapshotData;
+      snapshotCompanyId = snapshotData?.companyId;
+      // cascade, execution, stage6 は後で追加可能
     }
 
     // ★ Check 2: snapshot.companyId !== effectiveCompanyId → clear＆skip
     if (snapshotData && snapshotData.companyId && snapshotData.companyId !== effectiveCompanyId) {
       if (stage === 'stage2') {
         clearStage2Snapshot();
+      } else if (stage === 'stage1') {
+        clearStage1Snapshot();
       }
       const decision: RestoreDecision = {
         decisionId,

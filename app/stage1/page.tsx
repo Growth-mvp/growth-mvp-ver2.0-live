@@ -3,6 +3,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
+import { useUserStore } from '@/store/userStore';
+import { restoreWithAudit } from '@/utils/persist/restoreWithAudit';
 
 import CompanyScopePanel from '@/components/stage1/CompanyScopePanel';
 import BusinessSegmentsPanel from '@/components/stage1/BusinessSegmentsPanel';
@@ -92,6 +94,10 @@ export default function Stage1Page() {
   // 開発用：ダミーデータ投入（存在する場合のみ）
   const loadStage1DummyData = useStrategyStore((s) => (s as any).loadStage1DummyData as (() => void) | undefined);
   const [dummyLoaded, setDummyLoaded] = useState(false);
+
+  // ===== 復元関連（TASK 6: STAGE1 統合） =====
+  const companyId = useUserStore((s) => (s as any).companyId as string | undefined);
+  const didRestoreRef = useRef(false);
 
   // UI State
   const [saveState, setSaveState] = useState<SaveState>('idle');
@@ -243,6 +249,93 @@ export default function Stage1Page() {
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
     };
   }, [snapshotKey, saveFn, doSave, strategyId, revision]);
+
+  // ===== 復元初期化（TASK 6: STAGE1 統合） =====
+  const restoreStage1Snapshot = useCallback(
+    async (decision: any) => {
+      if (decision.sourceUsed === 'snapshot' && decision.snapshotData?.state) {
+        const st = decision.snapshotData.state;
+        const store = useStrategyStore.getState();
+
+        // Hydrate key stage1 fields from snapshot
+        if (st.companyName && !store.companyName) {
+          (store as any).setCompanyName?.(st.companyName);
+        }
+        if (st.industry && !store.industry) {
+          (store as any).setIndustry?.(st.industry);
+        }
+        if (st.businessSegments && Array.isArray(st.businessSegments)) {
+          (store as any).setBusinessSegments?.(st.businessSegments);
+        }
+        if (st.financePL && Array.isArray(st.financePL)) {
+          (store as any).setFinancePL?.(st.financePL);
+        }
+        if (st.financeBS && Array.isArray(st.financeBS)) {
+          (store as any).setFinanceBS?.(st.financeBS);
+        }
+        if (st.segmentPL && typeof st.segmentPL === 'object') {
+          (store as any).setSegmentPL?.(st.segmentPL);
+        }
+        if (st.segmentBS && typeof st.segmentBS === 'object') {
+          (store as any).setSegmentBS?.(st.segmentBS);
+        }
+        if (st.stage1Issues && Array.isArray(st.stage1Issues)) {
+          (store as any).setStage1Issues?.(st.stage1Issues);
+        }
+        if (st.financeSummary && Array.isArray(st.financeSummary)) {
+          (store as any).setFinanceSummary?.(st.financeSummary);
+        }
+
+        console.log(
+          `[audit][restore:done] decisionId=${decision.decisionId} sourceUsed=snapshot stage=stage1 strategyId=${st.id}`,
+        );
+      } else if (decision.sourceUsed === 'db' || decision.sourceUsed === 'store') {
+        console.log(
+          `[audit][restore:done] decisionId=${decision.decisionId} sourceUsed=${decision.sourceUsed} stage=stage1 strategyId=${decision.strategyId}`,
+        );
+      } else {
+        console.log(
+          `[audit][restore:done] decisionId=${decision.decisionId} sourceUsed=${decision.sourceUsed} stage=stage1`,
+        );
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (didRestoreRef.current) return;
+    if (!companyId) {
+      console.log('[stage1/restore] deferring: companyId not ready');
+      return;
+    }
+
+    didRestoreRef.current = true;
+
+    (async () => {
+      try {
+        const decision = await restoreWithAudit('stage1', companyId, { allowSnapshot: true });
+        console.log('[stage1/restore] decision received', {
+          decisionId: decision.decisionId,
+          sourceUsed: decision.sourceUsed,
+          reason: decision.reason,
+        });
+
+        // Sync revision/strategyId from decision to store if needed
+        const store = useStrategyStore.getState();
+        if (decision.strategyId && decision.strategyId !== (store as any).id) {
+          (store as any).setStrategyId?.(decision.strategyId);
+        }
+        if (decision.revision != null && decision.revision !== (store as any).revision) {
+          (store as any).setRevision?.(decision.revision);
+        }
+
+        // Restore snapshot hydration if applicable
+        await restoreStage1Snapshot(decision);
+      } catch (err) {
+        console.error('[stage1/restore] error', err);
+      }
+    })();
+  }, [companyId, restoreStage1Snapshot]);
 
   const handleLoadDummy = useCallback(() => {
     if (!loadStage1DummyData) return;
