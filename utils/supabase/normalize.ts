@@ -706,6 +706,7 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     updated_at: src.updated_at,
     updated_by: src.updated_by,
     strategyId: src.strategyId ?? src.strategy_id,
+    revision: src.revision,
     userId: src.userId,
     companyId: src.companyId,
     createdAt: src.createdAt,

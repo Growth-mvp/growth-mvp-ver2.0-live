@@ -282,6 +282,7 @@ export type StrategyState = {
 
   setRevision: (rev?: number) => void;
   setStrategyId: (id: string | null) => void;
+  hydrateFromFullState: (fullState: Partial<StrategyData> & { revision?: number }) => void;
   setCompanyScope: (id: string | null) => void;
 
   setStory: (chs: ChapterStory[]) => void;
@@ -848,6 +849,7 @@ const emptyData: StrategyState = {
   setServerSnapshotHash: () => {},
   setRevision: () => {},
   setStrategyId: () => {},
+  hydrateFromFullState: () => {},
   setCompanyScope: () => {},
   setStory: () => {},
   setFinalStory: () => {},
@@ -1223,6 +1225,13 @@ export const useStrategyStore = create<StrategyState>()(
 
       setRevision: (rev) => set({ revision: rev }),
       setStrategyId: (id) => set({ strategyId: id }),
+
+      hydrateFromFullState: (fullState) =>
+        set((s) => ({
+          ...s,
+          ...fullState,
+          hydrated: true,
+        })),
 
       /* ▼破壊的リセット禁止：即消さず、仮スコープでハイドレート開始 */
       setCompanyScope: (id) =>

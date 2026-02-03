@@ -193,7 +193,14 @@ export async function restoreWithAudit(
 
     if (hasMVVInDB) {
       // ★ TASK 11-2: hydratedState を準備（caller が store に反映できるよう）
-      const hydratedState = normalizeStrategyData(dbData);
+      let hydratedState = normalizeStrategyData(dbData);
+
+      // ★ TASK 12-1: revision/strategyId を必ず入れる（normalizeで落ちた場合の補填）
+      hydratedState = {
+        ...hydratedState,
+        revision: dbData.revision ?? hydratedState.revision,
+        strategyId: dbData.id ?? hydratedState.strategyId,
+      };
 
       const decision: RestoreDecision = {
         decisionId,
