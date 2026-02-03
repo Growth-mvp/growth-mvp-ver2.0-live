@@ -3,7 +3,7 @@
 
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@supabase/supabase-js';
+import { safeGetSession } from '@/utils/supabase/client';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import {
@@ -11,6 +11,7 @@ import {
   loadStage1SnapshotFromLocalStorage,
   loadStage2SnapshotFromLocalStorage,
   saveStage2SnapshotToLocalStorage,
+  clearStage2Snapshot,
 } from '@/utils/stageSnapshot';
 import { getFullStrategyDataByCompany, saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
 import type { IssueBlock, MetricsSummary, StoryChapter, WinPatternCandidate, Stage2State, Stage2Answer } from '@/types/strategy';
@@ -880,6 +881,32 @@ export default function Stage2Page() {
       return;
     }
 
+    // ★ Check 1: companyId not ready → defer restore
+    if (!companyId) {
+      console.log('[Stage2] snapshot check skipped (companyId not ready)');
+      return; // DO NOT set stage2Ready, allow retry when companyId is available
+    }
+
+    // ★ Check 2: companyId mismatch → clear snapshot and skip restore
+    if (snapshot.companyId && snapshot.companyId !== companyId) {
+      console.log('[Stage2] snapshot ignored (company mismatch):', {
+        snapshotCompanyId: snapshot.companyId,
+        effectiveCompanyId: companyId,
+      });
+      clearStage2Snapshot();
+      setStage2Ready(true);
+      return;
+    }
+
+    // ★ Check 3: MVV already exists in store → skip snapshot restore (DB priority)
+    const store = useStrategyStore.getState();
+    const hasMVVInStore = !!(store.thought || store.mission || store.vision || store.value);
+    if (hasMVVInStore) {
+      console.log('[Stage2] snapshot ignored (DB/store has MVV)');
+      setStage2Ready(true);
+      return;
+    }
+
     const st = snapshot.state;
 
     // ✅ ceoIntent 復元（snapshot → store）
@@ -952,8 +979,9 @@ export default function Stage2Page() {
       }
     }
 
+    console.log('[Stage2] snapshot restored successfully');
     setStage2Ready(true);
-  }, [setStoreFinalStory]);
+  }, [setStoreFinalStory, companyId]);
 
   // 初回だけロード＆復元（複数回走ってスナップショット保存が暴発するのを防ぐ）
   useEffect(() => {
@@ -1062,27 +1090,23 @@ export default function Stage2Page() {
 
     (async () => {
       try {
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-        const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-        if (!supabaseUrl || !supabaseAnonKey) {
-          console.log('[diag] missing env vars');
+        const { ok, data } = await safeGetSession();
+        if (!ok) {
+          console.log('[diag] safeGetSession failed');
           return;
         }
 
-        const supabase = createClient(supabaseUrl, supabaseAnonKey);
-        const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token;
-
-        if (token) {
-          const r = await fetch('/api/diag/whoami', {
-            headers: { Authorization: `Bearer ${token}` },
-            cache: 'no-store',
-          });
-          console.log('[diag][whoami]', await r.json());
-        } else {
+        if (!token) {
           console.log('[diag] no session token');
+          return;
         }
+
+        const r = await fetch('/api/diag/whoami', {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
+        });
+        console.log('[diag][whoami]', await r.json());
       } catch (e) {
         console.error('[diag] error:', e);
       }
@@ -1398,16 +1422,42 @@ export default function Stage2Page() {
         if (userId && companyId) {
           try {
             const storeState = useStrategyStore.getState() as any;
-            await saveStrategyDataApi(
-              {
-                ...storeState,
-                story: newStoryDraft,
-              },
+            const savePayload = {
+              ...storeState,
+              story: newStoryDraft,
+            };
+
+            console.log('[Stage2] DB save attempt:', {
+              userId,
+              companyId,
+              hasMVV: !!(savePayload.mission || savePayload.vision),
+              payloadKeyCount: Object.keys(savePayload).length,
+            });
+
+            const saveResult = await saveStrategyDataApi(
+              savePayload,
               userId,
               companyId
             );
+
+            if (saveResult.error === null) {
+              console.log('[Stage2] ✅ DB save SUCCESS:', {
+                revision: saveResult.data?.revision,
+                strategyId: saveResult.data?.strategyId,
+              });
+            } else {
+              console.error('[Stage2] ❌ DB save FAILED:', {
+                status: (saveResult.error as any)?.status,
+                code: (saveResult.error as any)?.code,
+                message: (saveResult.error as any)?.message,
+                hint: (saveResult.error as any)?.hint,
+              });
+              setSaveWarning(
+                `DB保存に失敗しましたが、ローカル snapshot に保存済みです。エラー: ${(saveResult.error as any)?.message || '不明なエラー'}`
+              );
+            }
           } catch (saveError) {
-            console.warn('[Stage2] Supabase save failed:', saveError);
+            console.error('[Stage2] ❌ DB save EXCEPTION:', saveError);
             setSaveWarning('サーバー保存に失敗しましたが、ローカルに保存済みです');
           }
         }
