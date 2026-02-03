@@ -6,6 +6,7 @@ import {
   clearStage2Snapshot,
 } from '@/utils/stageSnapshot';
 import { getFullStrategyDataByCompany } from '@/utils/supabase/strategy';
+import { normalizeStrategyData } from '@/utils/supabase/normalize';  // ★ TASK 11-2
 import type { StrategyData } from '@/types/strategy';
 
 /**
@@ -26,6 +27,8 @@ export type RestoreDecision = {
   didClearSnapshot: boolean;
   snapshotData?: any;
   dbData?: any;
+  // ★ TASK 11-2: caller が hydrate できるよう hydratedState を返す
+  hydratedState?: any; // 通常化済みの StrategyData（DB採用時）
   // 診断用（ログに出す）
   hasDbData?: boolean;
   hasStoreData?: boolean;
@@ -189,6 +192,17 @@ export async function restoreWithAudit(
     );
 
     if (hasMVVInDB) {
+      // ★ TASK 11-2: hydratedState を準備（caller が store に反映できるよう）
+      const hydratedState = normalizeStrategyData(dbData);
+
+      // ★ TASK 11-3: field_check ログ（確実な位置で出す）
+      if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+        console.log('[audit][restore:field_check] DB source', {
+          ceoIntentLen: typeof dbData.ceoIntent === 'string' ? dbData.ceoIntent.length : 0,
+          hydratedCeoIntentLen: typeof hydratedState.ceoIntent === 'string' ? hydratedState.ceoIntent.length : 0,
+        });
+      }
+
       const decision: RestoreDecision = {
         decisionId,
         sourceUsed: 'db',
@@ -198,6 +212,7 @@ export async function restoreWithAudit(
         didHydrateStore: false, // DB から hydrate する処理は呼び出し側で行う
         didClearSnapshot: false,
         dbData,
+        hydratedState,  // ★ TASK 11-2: caller に hydrate 可能な状態を返す
         hasDbData: true,
         hasStoreData: hasMVVInStore,
         hasSnapshot,
@@ -212,6 +227,9 @@ export async function restoreWithAudit(
 
     // ★ DB にデータがないが store に data がある → store 優先
     if (hasMVVInStore) {
+      // ★ TASK 11-2: hydratedState を準備（caller が一貫性確認できるよう）
+      const hydratedState = normalizeStrategyData(store as any);
+
       const decision: RestoreDecision = {
         decisionId,
         sourceUsed: 'store',
@@ -220,6 +238,7 @@ export async function restoreWithAudit(
         revision: store.revision,
         didHydrateStore: false,
         didClearSnapshot: false,
+        hydratedState,  // ★ TASK 11-2: store 側も正規化済み状態を返す
         hasDbData: false,
         hasStoreData: true,
         hasSnapshot,

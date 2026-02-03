@@ -880,9 +880,13 @@ export default function Stage2Page() {
     // ★ Use restoreWithAudit for unified restore decision
     const decision = await restoreWithAudit('stage2', companyId, { allowSnapshot: true });
 
-    console.log(
-      `[Stage2] restore decision: sourceUsed=${decision.sourceUsed} reason=${decision.reason}`,
-    );
+    // ★ TASK 11-2: 強制ログ（hydration deferred を担保）
+    console.log('[Stage2] after restoreWithAudit', {
+      decisionId: decision.decisionId,
+      sourceUsed: decision.sourceUsed,
+      reason: decision.reason,
+      hasHydratedState: !!decision.hydratedState,
+    });
 
     // ★ If companyId not ready, defer (do NOT set stage2Ready)
     if (decision.sourceUsed === 'none' && decision.reason === 'companyId_not_ready') {
@@ -897,9 +901,26 @@ export default function Stage2Page() {
       return;
     }
 
-    // ★ If DB has data, store will be hydrated separately (DB priority)
+    // ★ TASK 11-2: DB 採用時に hydratedState を store に反映（パターンA）
     if (decision.sourceUsed === 'db') {
-      console.log('[Stage2] using DB source, hydration deferred to caller');
+      if (decision.hydratedState) {
+        console.log('[Stage2] hydrating from DB state');
+        const store = useStrategyStore.getState();
+        if (typeof store.hydrateFromFullState === 'function') {
+          store.hydrateFromFullState(decision.hydratedState);
+        } else {
+          // fallback: manual field reflection
+          if (decision.hydratedState.ceoIntent) store.setCeoIntent?.(decision.hydratedState.ceoIntent);
+          if (decision.hydratedState.thought || decision.hydratedState.mission || decision.hydratedState.vision || decision.hydratedState.value) {
+            store.setMVV?.({
+              thought: decision.hydratedState.thought ?? '',
+              mission: decision.hydratedState.mission ?? '',
+              vision: decision.hydratedState.vision ?? '',
+              value: decision.hydratedState.value ?? '',
+            });
+          }
+        }
+      }
       setStage2Ready(true);
       return;
     }
@@ -994,9 +1015,11 @@ export default function Stage2Page() {
     setStage2Ready(true);
   }, [setStoreFinalStory, companyId]);
 
+  // ★ TASK 11-1: restore useEffect を membership 不依存に
   // 初回だけロード＆復元（複数回走ってスナップショット保存が暴発するのを防ぐ）
+  // NOTE: membership が未確定でも restore は続行（companyId さえあれば OK）
   useEffect(() => {
-    if (hydrated && !didInitRef.current) {
+    if (companyId && !didInitRef.current) {
       didInitRef.current = true;
       loadStage1Data();
       // restoreStage2Snapshot is now async, call it but don't block
@@ -1005,7 +1028,7 @@ export default function Stage2Page() {
         setStage2Ready(true); // fallback: mark ready even on error
       });
     }
-  }, [hydrated, loadStage1Data, restoreStage2Snapshot]);
+  }, [companyId, loadStage1Data, restoreStage2Snapshot]);
 
   // ✅ Stage2 入力の自動スナップショット保存（debounce）
   // - 生成ボタンを押さなくても localStorage に残す
