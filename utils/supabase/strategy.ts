@@ -13,6 +13,12 @@ import type { StrategyData } from '@/types/strategy';
 const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
 
 /* ============================================================
+ * Helper functions for ceoIntent tracing (TASK 13-1)
+ * ========================================================== */
+const headStr = (s: any) => (typeof s === 'string' ? s.slice(0, 30) : '');
+const lenStr = (s: any) => (typeof s === 'string' ? s.length : 0);
+
+/* ============================================================
  * テーブル名
  * ========================================================== */
 const T_STRATEGY = 'strategy_data';
@@ -864,6 +870,12 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
     keys: Object.keys(payload || {}).slice(0, 80),
   });
 
+  // ★ TASK 13-1: Checkpoint 1 - ceoIntent in incoming payload
+  if (DEBUG) console.log('[SAVE payload ceoIntent]', {
+    len: lenStr((payload as any).ceoIntent),
+    head: headStr((payload as any).ceoIntent),
+  });
+
   try {
     if (!userId) {
       return {
@@ -951,6 +963,12 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       segmentPL_detail: Object.entries((mergedState as any).segmentPL || {}).map(([k, v]: any) => ({ key: k, rowCount: Array.isArray(v) ? v.length : 0 })),
     });
 
+    // ★ TASK 13-1: Checkpoint 2 - ceoIntent after deepMerge
+    if (DEBUG) console.log('[SAVE merged ceoIntent]', {
+      len: lenStr((mergedState as any).ceoIntent),
+      head: headStr((mergedState as any).ceoIntent),
+    });
+
     // ★ departments だけは「payload 側を常に真実」として上書きする
     if (Array.isArray((payload as any).departments)) {
       const incomingDeps = ensureArray((payload as any).departments);
@@ -967,6 +985,12 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
     }
 
     const baseRow = buildDbRowFromState(mergedState);
+
+    // ★ TASK 13-1: Checkpoint 3 - ceo_intent in baseRow after buildDbRowFromState
+    if (DEBUG) console.log('[SAVE baseRow ceo_intent]', {
+      len: lenStr((baseRow as any).ceo_intent),
+      head: headStr((baseRow as any).ceo_intent),
+    });
 
     const hasRevision: boolean =
       !!existingRow && Object.prototype.hasOwnProperty.call(existingRow, 'revision');
@@ -1017,6 +1041,12 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         segmentBS_keys_in_csv: Object.keys((updatePayload.csv_finance_data as any)?.segmentBS || {}).length,
       });
 
+      // ★ TASK 13-1: Checkpoint 4 - ceo_intent in updatePayload (most critical)
+      if (DEBUG) console.log('[SAVE updatePayload ceo_intent]', {
+        len: lenStr((updatePayload as any).ceo_intent),
+        head: headStr((updatePayload as any).ceo_intent),
+      });
+
       // ★ 楽観ロック：revision カラムがある場合
       //   - expectedRev は「引数で渡された revision」優先、無ければ currentRev
       //   - revision の更新（+1）は DBトリガに任せる（payloadに入れない）
@@ -1060,6 +1090,12 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
           segmentBS_keys: Object.keys((returnedCsv as any).segmentBS || {}).length,
           segmentPL_keys: Object.keys((returnedCsv as any).segmentPL || {}).length,
           hqAdjustmentPL_len: Array.isArray((returnedCsv as any).hqAdjustmentPL) ? (returnedCsv as any).hqAdjustmentPL.length : null,
+        });
+
+        // ★ TASK 13-1: Checkpoint 5 - ceo_intent in returned data from UPDATE
+        if (DEBUG) console.log('[SAVE returned ceo_intent]', {
+          len: lenStr((upd.data as any).ceo_intent),
+          head: headStr((upd.data as any).ceo_intent),
         });
       }
 
