@@ -431,6 +431,9 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
     }
   }
 
+  // ★ TASK 9-2: ceoIntent 復元を優先化（snake_case を最優先）
+  out.ceoIntent = safeRow?.ceo_intent ?? out.ceoIntent ?? '';
+
   out.story = ensureArray(out.story);
   out.storyDraft = ensureArray(out.storyDraft);  // ★ 追加：storyDraft を復元
   out.finalStory = ensureArray(out.finalStory);
@@ -754,6 +757,16 @@ export async function getFullStrategyDataByCompany(
     if (DEBUG) console.log('[LOAD raw financial data] financePL_len:' + rawFinancePLLen + ' financeBS_len:' + rawFinanceBSLen + ' segmentPL_keys:' + rawSegmentPLKeys + ' segmentBS_keys:' + rawSegmentBSKeys);
 
     const state = buildStateFromDbRow(rowData);
+
+    // ★ TASK 9-4: 復元直後の監査ログ（DEV限定）
+    if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+      console.log('[audit][restore:field_check]', {
+        ceoIntentLen: typeof (state as any).ceoIntent === 'string' ? (state as any).ceoIntent.length : 0,
+        ceoIntentPreview: typeof (state as any).ceoIntent === 'string' ? (state as any).ceoIntent.substring(0, 50) : 'N/A',
+        storyDraftLen: Array.isArray((state as any).storyDraft) ? (state as any).storyDraft.length : 0,
+        hasDbCeoIntent: typeof rowData?.ceo_intent === 'string' ? rowData.ceo_intent.length : 0,
+      });
+    }
 
     // ★念押し：id/company_id/updated_at を state に注入（normalizeで落ちる事故を防ぐ）
     (state as any).strategyId = rowData?.id;

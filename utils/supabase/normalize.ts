@@ -676,7 +676,9 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
   const mission = toStr(src.mission ?? '');
   const vision = toStr(src.vision ?? '');
   const value = toStr(src.value ?? '');
-  const ceoIntent = toStr(src.ceoIntent ?? src.ceo_intent ?? '');  // ★ 追加：経営者の思いを処理
+  // ★ TASK 9-3: ceoIntent の上書き防止（値があれば保持、なければ undefined）
+  const ceoIntentSrc = src.ceoIntent ?? src.ceo_intent;
+  const ceoIntent = typeof ceoIntentSrc === 'string' ? ceoIntentSrc.trim() : undefined;
 
   const strength = toStr(src.strength ?? '');
   const weakness = toStr(src.weakness ?? '');
@@ -721,14 +723,14 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     mission,
     vision,
     value,
-    ceoIntent,  // ★ 追加：経営者の思いを出力オブジェクトに含める
+    ...(ceoIntent ? { ceoIntent } : {}),  // ★ TASK 9-3: 値がある場合のみ含める（空上書き防止）
     strength,
     weakness,
     opportunity,
     threat,
 
     story,
-    storyDraft,  // ★ 追加：たたき台ストーリーを出力オブジェクトに含める
+    ...(storyDraft && storyDraft.length > 0 ? { storyDraft } : {}),  // ★ TASK 9-3: 値がある場合のみ含める
     finalStory,
 
     strategySummary: src.strategySummary,
