@@ -334,6 +334,7 @@ const FIELD_MAP: Record<string, string> = {
   opportunity: 'opportunity',
   threat: 'threat',
   ceoIntent: 'ceo_intent',
+  storyDraft: 'story_draft',  // ★ 追加：たたき台ストーリーを保存対象に
   swotSuggestions: 'swot_suggestions',
   mission: 'mission',
   vision: 'vision',
@@ -397,6 +398,7 @@ function buildDbRowFromState(state: StrategyData) {
     let v = (state as any)[camel];
     v = parseJson(v);
     if (snake === 'story') v = ensureArray(v);
+    if (snake === 'story_draft') v = ensureArray(v);  // ★ 追加：storyDraft は配列
     if (snake === 'final_story') v = ensureArray(v);
     if (snake === 'departments') v = ensureArray(v);
     if (snake === 'simulation_results') v = ensureArray(v);
@@ -430,6 +432,7 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   }
 
   out.story = ensureArray(out.story);
+  out.storyDraft = ensureArray(out.storyDraft);  // ★ 追加：storyDraft を復元
   out.finalStory = ensureArray(out.finalStory);
   out.departments = ensureArray(out.departments);
   out.simulationResults = ensureArray(out.simulationResults);

@@ -71,6 +71,19 @@ export async function saveWithAudit(
   // revision(before)
   const revisionBefore = revision ?? payload?.revision;
 
+  // ★ 含有チェックログ（DEV限定）
+  const hasFounderMind = typeof (payload as any)?.ceoIntent === 'string' && (payload as any).ceoIntent.trim() !== '';
+  const hasDraftStory = Array.isArray((payload as any)?.storyDraft) && (payload as any).storyDraft.length > 0;
+
+  if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+    console.log('[audit][save:payload_diagnosis] hasFounderMind/hasDraftStory', {
+      hasFounderMind,
+      hasDraftStory,
+      ceoIntent_len: typeof (payload as any)?.ceoIntent === 'string' ? (payload as any).ceoIntent.length : 0,
+      storyDraft_len: Array.isArray((payload as any)?.storyDraft) ? (payload as any).storyDraft.length : 0,
+    });
+  }
+
   console.log(
     `[audit][save:start] caller=${callerLabel}${restoreDecisionId ? ` relatedRestoreDecisionId=${restoreDecisionId}` : ''}`,
     {
@@ -81,6 +94,8 @@ export async function saveWithAudit(
       payloadSize,
       mode: opts?.mode ?? 'upsert',
       trigger: trigger ?? 'unknown',
+      hasFounderMind,
+      hasDraftStory,
       timestamp: new Date().toISOString(),
     },
   );

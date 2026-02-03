@@ -1420,6 +1420,9 @@ export default function Stage2Page() {
         setWinPatternsCandidate(newWinPatterns);
         setSelectedWinPatternId(newWinPatterns?.[0]?.id ?? null);
 
+        // ★ 追加：store にも storyDraft を保存
+        useStrategyStore.getState().setStoryDraft?.(newStoryDraft);
+
         // Auto navigate to Draft tab
         setActiveTab('draft');
 
@@ -1439,7 +1442,7 @@ export default function Stage2Page() {
             const storeState = useStrategyStore.getState() as any;
             const savePayload = {
               ...storeState,
-              story: newStoryDraft,
+              storyDraft: newStoryDraft,  // ★ 修正：story ではなく storyDraft として保存
             };
 
             console.log('[Stage2] DB save attempt:', {

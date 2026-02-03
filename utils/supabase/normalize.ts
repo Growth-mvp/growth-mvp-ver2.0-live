@@ -561,10 +561,20 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
   const src: any = { ...(input ?? {}) };
 
   // story 系は配列のまま
-  const storyIn = src.story ?? src.story_draft ?? src.story_final ?? undefined;
+  const storyIn = src.story ?? src.story_final ?? undefined;
   const story =
     normalizeChaptersAnyNonDestructive(storyIn) ??
     (Array.isArray(src.story) ? src.story : []);
+
+  // ★ 追加：storyDraft（たたき台）は独立して処理
+  const storyDraftIn = src.storyDraft ?? src.story_draft ?? undefined;
+  const storyDraft =
+    normalizeChaptersAnyNonDestructive(storyDraftIn) ??
+    (Array.isArray(src.storyDraft)
+      ? src.storyDraft
+      : Array.isArray(src.story_draft)
+      ? src.story_draft
+      : undefined);
 
   const finalStoryIn = src.finalStory ?? src.final_story ?? undefined;
   const finalStory =
@@ -666,6 +676,7 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
   const mission = toStr(src.mission ?? '');
   const vision = toStr(src.vision ?? '');
   const value = toStr(src.value ?? '');
+  const ceoIntent = toStr(src.ceoIntent ?? src.ceo_intent ?? '');  // ★ 追加：経営者の思いを処理
 
   const strength = toStr(src.strength ?? '');
   const weakness = toStr(src.weakness ?? '');
@@ -710,12 +721,14 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     mission,
     vision,
     value,
+    ceoIntent,  // ★ 追加：経営者の思いを出力オブジェクトに含める
     strength,
     weakness,
     opportunity,
     threat,
 
     story,
+    storyDraft,  // ★ 追加：たたき台ストーリーを出力オブジェクトに含める
     finalStory,
 
     strategySummary: src.strategySummary,
