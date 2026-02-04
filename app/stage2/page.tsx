@@ -979,8 +979,9 @@ export default function Stage2Page() {
       // answers12（localのみ復元。store同期は stage2Ready 後の debounce で1回だけ行う）
       const a12 = st.answers12 ?? [];
       if (Array.isArray(a12) && a12.length > 0) {
-        setLocalAnswers12((prev) =>
-          prev.map((a) => {
+        /* ★ TASK 17: TS7006 - 型注釈を追加（prev, a） */
+        setLocalAnswers12((prev: Stage2Answer[]) =>
+          prev.map((a: Stage2Answer) => {
             const fromSnapshot = a12.find((s: any) => s.id === a.id);
             return fromSnapshot ? { ...a, answer: fromSnapshot.answer ?? '' } : a;
           })
@@ -1042,9 +1043,10 @@ export default function Stage2Page() {
 
       saveStage2SnapshotToLocalStorage(stage2State, companyId ?? undefined);
       if (process.env.NODE_ENV === 'development') {
+        /* ★ TASK 17: TS7006 - 型注釈を追加（a） */
         console.log('[Stage2] autosave snapshot', {
           ceoIntentLen: ceoIntent?.length ?? 0,
-          answered: answers12?.filter((a) => a.answer?.trim()).length ?? 0,
+          answered: answers12?.filter((a: Stage2Answer) => a.answer?.trim()).length ?? 0,
           hasDraft: storyDraft?.length ?? 0,
           hasWin: winPatternsCandidate?.length ?? 0,
           hasFinal: finalStory?.length ?? 0,
@@ -1162,9 +1164,10 @@ export default function Stage2Page() {
     if (!storeHash && localHash) return;
 
     if (storeAnswers12 && storeAnswers12.length > 0) {
-      setLocalAnswers12((prev) =>
-        prev.map((a) => {
-          const fromStore = storeAnswers12.find((s) => s.id === a.id);
+      /* ★ TASK 17: TS7006 - 型注釈を追加（prev, a, s） */
+      setLocalAnswers12((prev: Stage2Answer[]) =>
+        prev.map((a: Stage2Answer) => {
+          const fromStore = storeAnswers12.find((s: Stage2Answer) => s.id === a.id);
           return fromStore ? { ...a, answer: fromStore.answer ?? '' } : a;
         })
       );
@@ -1205,8 +1208,9 @@ export default function Stage2Page() {
   // ★ 修正：state updater 内からのsetState呼び出しを廃止
   // 代わりに、この関数はローカル状態のみ更新し、
   // 上記の useEffect で自動的にストアに同期されます
+  /* ★ TASK 17: TS7006 - 型注釈を追加（prev, a） */
   const handleUpdateAnswer = useCallback((id: string, answer: string) => {
-    setLocalAnswers12((prev) => prev.map((a) => (a.id === id ? { ...a, answer } : a)));
+    setLocalAnswers12((prev: Stage2Answer[]) => prev.map((a: Stage2Answer) => (a.id === id ? { ...a, answer } : a)));
   }, []);
 
   // O/T generation
