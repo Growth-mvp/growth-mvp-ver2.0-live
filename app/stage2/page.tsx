@@ -641,8 +641,11 @@ function Questions12Section({
 }) {
   const [selectedId, setSelectedId] = useState<string>(TEMPLATE12[0].id);
 
+  /* ★ TASK A-5: answers12 の配列ガード（万一でも .find() で落ちない） */
+  const safeAnswers12 = Array.isArray(answers12) ? answers12 : [];
+
   const selectedQ = TEMPLATE12.find((q) => q.id === selectedId) || TEMPLATE12[0];
-  const currentAnswer = answers12.find((a) => a.id === selectedId)?.answer ?? '';
+  const currentAnswer = safeAnswers12.find((a) => a.id === selectedId)?.answer ?? '';
 
   const groupedQuestions = useMemo(() => {
     return TEMPLATE12.reduce<Record<number, typeof TEMPLATE12>>((acc, q) => {
@@ -652,7 +655,7 @@ function Questions12Section({
     }, {});
   }, []);
 
-  const answeredTotal = answers12.filter((a) => a.answer?.trim()).length;
+  const answeredTotal = safeAnswers12.filter((a) => a.answer?.trim()).length;
 
   return (
     <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
@@ -674,7 +677,7 @@ function Questions12Section({
                 </div>
 
                 {questions.map((q, idx) => {
-                  const isAnswered = !!answers12.find((a) => a.id === q.id && a.answer?.trim());
+                  const isAnswered = !!safeAnswers12.find((a) => a.id === q.id && a.answer?.trim());
                   const isSelected = selectedId === q.id;
 
                   return (
@@ -768,9 +771,14 @@ export default function Stage2Page() {
   const userId = useUserStore((s) => s.user?.id);
   const hydrated = useStrategyStore((s) => s.hydrated);
 
-  // answers12 store連携
-  const storeAnswers12 = useStrategyStore((s) => s.answers12);
-  const setAnswers12 = useStrategyStore((s) => s.setAnswers12);
+  /* ★ TASK A-1: answers12 をArrayガード付きで統一 */
+  const answers12 = useStrategyStore((s) => {
+    const v = (s as any).answers12;
+    return Array.isArray(v) ? v : [];
+  });
+  const setAnswers12 = useStrategyStore(
+    (s) => (s as any).setAnswers12 as (a: Stage2Answer[]) => void
+  );
 
   // finalStory store連携
   /* ★ TASK 16: Store 一本化（local state 廃止） */
@@ -786,8 +794,12 @@ export default function Stage2Page() {
   const setStoreFinalStory = useStrategyStore((s) => s.setFinalStory);
   const setLocalFinalStory = setStoreFinalStory; // 互換性維持
 
-  const answers12 = useStrategyStore((s) => (s as any).answers12 ?? EMPTY_ANSWERS12);
-  const setLocalAnswers12 = useStrategyStore((s) => (s as any).setAnswers12 as any);
+  /* ★ TASK A-1: answers12 を統一（line 772-773 と重複定義を廃止） */
+  // answers12 は line 773 の setAnswers12 を使用
+  // 重複定義を廃止（下記は削除したもの）
+  // const answers12 = useStrategyStore((s) => (s as any).answers12 ?? EMPTY_ANSWERS12);
+  // const setLocalAnswers12 = useStrategyStore((s) => (s as any).setAnswers12 as any);
+  // 代わりに line 772 の storeAnswers12 を answers12 として使用する（下記で名前変更）
 
   // SWOT suggestions store連携（Hooks Rule: top-level で呼ぶ）
   const swotSuggestions = useStrategyStore((s) => s.swotSuggestions);
@@ -984,17 +996,21 @@ export default function Stage2Page() {
         if (wp[0]?.id) setSelectedWinPatternId(wp[0].id);
       }
 
-      // answers12（localのみ復元。store同期は stage2Ready 後の debounce で1回だけ行う）
+      /* ★ TASK A-4: answers12 を store 直更新に統一（配列生成して setAnswers12） */
       const a12 = st.answers12 ?? [];
       if (Array.isArray(a12) && a12.length > 0) {
-        /* ★ TASK 17: TS7006 - 型注釈を追加（prev, a） */
-        setLocalAnswers12((prev: Stage2Answer[]) =>
-          prev.map((a: Stage2Answer) => {
-            const fromSnapshot = a12.find((s: any) => s.id === a.id);
-            return fromSnapshot ? { ...a, answer: fromSnapshot.answer ?? '' } : a;
-          })
-        );
-        lastSyncedAnswersHashRef.current = hashAnswers12(a12);
+        const base =
+          Array.isArray(answers12) && answers12.length > 0
+            ? answers12
+            : TEMPLATE12.map((q) => ({ id: q.id, answer: '' } as Stage2Answer));
+
+        const next = base.map((a) => {
+          const hit = a12.find((s: any) => s?.id === a.id);
+          return hit ? { ...a, answer: hit.answer ?? '' } : a;
+        });
+
+        setAnswers12(next);
+        lastSyncedAnswersHashRef.current = hashAnswers12(next);
       }
 
       // finalStory
@@ -1155,71 +1171,20 @@ export default function Stage2Page() {
     })();
   }, []);
 
-  // storeAnswers12 -> local sync（サーバから復元/他画面更新時）
-  useEffect(() => {
-    if (!stage2Ready) return;
-
-    const storeHash = hashAnswers12(storeAnswers12);
-    const localHash = hashAnswers12(answers12);
-
-    // 既に一致しているなら何もしない（同期ループ防止）
-    if (storeHash && storeHash === localHash) {
-      lastSyncedAnswersHashRef.current = storeHash;
-      return;
-    }
-
-    // storeが空で localに値があるなら localを優先（ここでは何もしない）
-    if (!storeHash && localHash) return;
-
-    if (storeAnswers12 && storeAnswers12.length > 0) {
-      /* ★ TASK 17: TS7006 - 型注釈を追加（prev, a, s） */
-      setLocalAnswers12((prev: Stage2Answer[]) =>
-        prev.map((a: Stage2Answer) => {
-          const fromStore = storeAnswers12.find((s: Stage2Answer) => s.id === a.id);
-          return fromStore ? { ...a, answer: fromStore.answer ?? '' } : a;
-        })
-      );
-      lastSyncedAnswersHashRef.current = storeHash;
-    }
-  }, [stage2Ready, storeAnswers12, answers12]);
-
-  // local answers12 -> store sync（debounce + 同一スキップ）
-  useEffect(() => {
-    if (!stage2Ready) return;
-
-    const localHash = hashAnswers12(answers12);
-    const storeHash = hashAnswers12(storeAnswers12);
-
-    // 既に一致しているなら同期不要
-    if (localHash === storeHash) {
-      lastSyncedAnswersHashRef.current = localHash;
-      return;
-    }
-
-    // 直近で同じ内容を同期済みなら不要（ループ抑止）
-    if (localHash && localHash === lastSyncedAnswersHashRef.current) return;
-
-    const timer = window.setTimeout(() => {
-      const nowStoreHash = hashAnswers12(useStrategyStore.getState().answers12);
-      if (localHash === nowStoreHash) {
-        lastSyncedAnswersHashRef.current = localHash;
-        return;
-      }
-
-      setAnswers12(answers12);
-      lastSyncedAnswersHashRef.current = localHash;
-    }, 300);
-
-    return () => window.clearTimeout(timer);
-  }, [stage2Ready, answers12, storeAnswers12, setAnswers12]);
-
-  // ★ 修正：state updater 内からのsetState呼び出しを廃止
-  // 代わりに、この関数はローカル状態のみ更新し、
-  // 上記の useEffect で自動的にストアに同期されます
-  /* ★ TASK 17: TS7006 - 型注釈を追加（prev, a） */
-  const handleUpdateAnswer = useCallback((id: string, answer: string) => {
-    setLocalAnswers12((prev: Stage2Answer[]) => prev.map((a: Stage2Answer) => (a.id === id ? { ...a, answer } : a)));
-  }, []);
+  /* ★ TASK A-2: local ↔ store 同期 useEffect を削除（answers12 は store 唯一の正に統一） */
+  // 削除されたもの：
+  // 1. storeAnswers12 -> local sync useEffect（line 1167-1193）
+  // 2. local answers12 -> store sync useEffect（line 1196-1223）
+  // 理由：答えは store に一本化し、local state では持たないため
+  /* ★ TASK A-3: handleUpdateAnswer を store 直更新に修正（関数 updater 廃止） */
+  const handleUpdateAnswer = useCallback(
+    (id: string, answer: string) => {
+      const base = Array.isArray(answers12) ? answers12 : [];
+      const next = base.map((a) => (a.id === id ? { ...a, answer } : a));
+      setAnswers12(next);
+    },
+    [answers12, setAnswers12]
+  );
 
   // O/T generation
   const handleGenerateOT = useCallback(async () => {
