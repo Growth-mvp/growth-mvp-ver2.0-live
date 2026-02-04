@@ -358,6 +358,14 @@ const FIELD_MAP: Record<string, string> = {
   pbrManual: 'pbr_manual',  // ★ 修正：PBR手入力を追加
   story: 'story',
   finalStory: 'final_story',
+  /* ★ TASK 15-B: STAGE2 フィールドを FIELD_MAP に追加（復元漏れ防止） */
+  answers2: 'answers2',
+  answers12: 'answers12',
+  winPatternsCandidate: 'win_patterns_candidate',
+  winPatterns: 'win_patterns',
+  winPatternPrimary: 'win_pattern_primary',
+  winPatternSecondary: 'win_pattern_secondary',
+  /* その他 */
   strategySummary: 'strategy_summary',
   editableCascade: 'editable_cascade',
   businessPortfolio: 'business_portfolio',
@@ -409,6 +417,11 @@ function buildDbRowFromState(state: StrategyData) {
     if (snake === 'departments') v = ensureArray(v);
     if (snake === 'simulation_results') v = ensureArray(v);
     if (snake === 'stage1_issues') v = ensureArray(v);  // ★ 修正：stage1_issues は配列
+    /* ★ TASK 15-B: STAGE2 フィールドを配列として処理 */
+    if (snake === 'answers2') v = ensureArray(v);
+    if (snake === 'answers12') v = ensureArray(v);
+    if (snake === 'win_patterns_candidate') v = ensureArray(v);
+    if (snake === 'win_patterns') v = ensureArray(v);
     // ★ 修正：csv_finance_data はオブジェクト（financeBS/segmentPL/segmentBS を格納）
     if (snake === 'csv_finance_data') {
       // オブジェクトのまま保持（配列に変換しない）
@@ -448,6 +461,11 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   out.stage1Issues = ensureArray(out.stage1Issues);  // ★ 修正：stage1Issues を復元
   out.financePL = ensureArray(out.financePL);
   out.businessSegments = ensureArray(out.businessSegments);
+  /* ★ TASK 15-B: STAGE2 フィールドを確実に復元 */
+  out.answers2 = ensureArray(out.answers2);
+  out.answers12 = ensureArray(out.answers12);
+  out.winPatternsCandidate = ensureArray(out.winPatternsCandidate);
+  out.winPatterns = ensureArray(out.winPatterns);
   out.financeSummary = toUiFinanceSummary(out.financeSummary);
   out.businessPortfolio = toUiBusinessPortfolio(out.businessPortfolio);
 
@@ -478,7 +496,29 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const csvFdSegmentPLKeys = Object.keys(csvFinanceData.segmentPL || {}).length;
   const csvFdSegmentBSKeys = Object.keys(csvFinanceData.segmentBS || {}).length;
   const financePLLen = Array.isArray(out.financePL) ? out.financePL.length : 0;
-  if (DEBUG) console.log('[buildStateFromDbRow] raw_復元 issueBlocks:' + issueBlocksLen + ' csvFd:' + csvFdExists + ' financeBS:' + csvFdFinanceBSLen + ' segmentPL:' + csvFdSegmentPLKeys + ' segmentBS:' + csvFdSegmentBSKeys + ' financePL:' + financePLLen);
+  /* ★ TASK 15-C: STAGE2 フィールドのログを追加 */
+  const ceoIntentLen = typeof out.ceoIntent === 'string' ? out.ceoIntent.length : 0;
+  const storyDraftLen = Array.isArray(out.storyDraft) ? out.storyDraft.length : 0;
+  const answers2Len = Array.isArray(out.answers2) ? out.answers2.length : 0;
+  const answers12Len = Array.isArray(out.answers12) ? out.answers12.length : 0;
+  const winPatternsCandidateLen = Array.isArray(out.winPatternsCandidate) ? out.winPatternsCandidate.length : 0;
+  const winPatternsLen = Array.isArray(out.winPatterns) ? out.winPatterns.length : 0;
+  if (DEBUG) console.log('[buildStateFromDbRow] raw_復元', {
+    /* STAGE1 */
+    issueBlocks_len: issueBlocksLen,
+    csvFd_exists: csvFdExists,
+    financeBS_len: csvFdFinanceBSLen,
+    segmentPL_keys: csvFdSegmentPLKeys,
+    segmentBS_keys: csvFdSegmentBSKeys,
+    financePL_len: financePLLen,
+    /* STAGE2 */
+    ceoIntent_len: ceoIntentLen,
+    storyDraft_len: storyDraftLen,
+    answers2_len: answers2Len,
+    answers12_len: answers12Len,
+    winPatternsCandidate_len: winPatternsCandidateLen,
+    winPatterns_len: winPatternsLen,
+  });
 
   out.financeBS = ensureArray(csvFinanceData.financeBS);
   out.segmentPL = csvFinanceData.segmentPL; // Record<string, FinancePLRow[]>

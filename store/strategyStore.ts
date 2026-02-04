@@ -2241,18 +2241,31 @@ export const useStrategyStore = create<StrategyState>()(
             }
           }
 
-          const patch = normalizeFromDbRow(dbRow);
+          /* ★ TASK 15-A: フル置換（normalizeFromDbRow の二重変換廃止）
+             dbRow は getFullStrategyDataByCompany から返ってきた buildStateFromDbRow 済みの state
+             → STAGE2 フィールド損失を防ぐため、normalizeFromDbRow を呼ばずに直接使用 */
+          const patch = dbRow as Partial<StrategyState>;
 
           if (DEBUG) {
-            console.log('[strategyStore refetch] 📦 normalized patch', {
+            /* ★ TASK 15-C: STAGE2 フィールド確認ログを追加 */
+            console.log('[strategyStore refetch] 📦 full state from DB', {
+              /* STAGE1 */
               financeBS_len: Array.isArray((patch as any).financeBS) ? (patch as any).financeBS.length : 0,
               segmentBS_keys: Object.keys((patch as any).segmentBS || {}).length,
               segmentPL_keys: Object.keys((patch as any).segmentPL || {}).length,
               csvFinanceData_exists: !!(patch as any).csvFinanceData,
               financePL_len: Array.isArray((patch as any).financePL) ? (patch as any).financePL.length : 0,
               stage1Issues_len: Array.isArray((patch as any).stage1Issues) ? (patch as any).stage1Issues.length : 0,
-              stage1Issues_titles: Array.isArray((patch as any).stage1Issues) ? (patch as any).stage1Issues.map((i: any) => i.title) : [],
-              patch_has_stage1Issues: 'stage1Issues' in patch,
+              /* STAGE2 */
+              story_len: Array.isArray((patch as any).story) ? (patch as any).story.length : 0,
+              finalStory_len: Array.isArray((patch as any).finalStory) ? (patch as any).finalStory.length : 0,
+              storyDraft_len: Array.isArray((patch as any).storyDraft) ? (patch as any).storyDraft.length : 0,
+              answers2_len: Array.isArray((patch as any).answers2) ? (patch as any).answers2.length : 0,
+              answers12_len: Array.isArray((patch as any).answers12) ? (patch as any).answers12.length : 0,
+              winPatterns_len: Array.isArray((patch as any).winPatterns) ? (patch as any).winPatterns.length : 0,
+              winPatternsCandidate_len: Array.isArray((patch as any).winPatternsCandidate) ? (patch as any).winPatternsCandidate.length : 0,
+              ceoIntent_len: typeof (patch as any).ceoIntent === 'string' ? (patch as any).ceoIntent.length : 0,
+              swotSuggestions_exists: !!(patch as any).swotSuggestions,
             });
           }
 
@@ -2286,6 +2299,18 @@ export const useStrategyStore = create<StrategyState>()(
             get().setHydrated(rev);
             /* ★ TASK 14: restore 完了フラグを設定（DB restore 完了） */
             set({ restoreReady: true, isRestoring: false });
+
+            /* ★ TASK 15-C: restore 完了後の state を監査ログ出力（STAGE2 反映確認） */
+            if (DEBUG || process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+              const finalState = get();
+              console.log('[audit][restore:stage2_check] wasDirty=true branch', {
+                ceoIntent_len: typeof finalState.ceoIntent === 'string' ? finalState.ceoIntent.length : 0,
+                storyDraft_len: Array.isArray(finalState.storyDraft) ? finalState.storyDraft.length : 0,
+                answers12_len: Array.isArray((finalState as any).answers12) ? (finalState as any).answers12.length : 0,
+                winPatternsCandidate_len: Array.isArray((finalState as any).winPatternsCandidate) ? (finalState as any).winPatternsCandidate.length : 0,
+                finalStory_len: Array.isArray(finalState.finalStory) ? finalState.finalStory.length : 0,
+              });
+            }
           } else {
             set((s) => {
               const base = s as StrategyState;
@@ -2333,6 +2358,18 @@ export const useStrategyStore = create<StrategyState>()(
             });
 
             get().setHydrated(rev, hash);
+
+            /* ★ TASK 15-C: restore 完了後の state を監査ログ出力（STAGE2 反映確認） */
+            if (DEBUG || process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+              const finalState = get();
+              console.log('[audit][restore:stage2_check] wasDirty=false branch', {
+                ceoIntent_len: typeof finalState.ceoIntent === 'string' ? finalState.ceoIntent.length : 0,
+                storyDraft_len: Array.isArray(finalState.storyDraft) ? finalState.storyDraft.length : 0,
+                answers12_len: Array.isArray((finalState as any).answers12) ? (finalState as any).answers12.length : 0,
+                winPatternsCandidate_len: Array.isArray((finalState as any).winPatternsCandidate) ? (finalState as any).winPatternsCandidate.length : 0,
+                finalStory_len: Array.isArray(finalState.finalStory) ? finalState.finalStory.length : 0,
+              });
+            }
 
             setTimeout(() => {
               get().recomputeValueAnalysis('refetchFromServer');
