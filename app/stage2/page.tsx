@@ -120,6 +120,13 @@ const TEMPLATE12: { id: string; question: string; reason: string; chapter: numbe
 const CHAPTER_LABELS = ['第1章：なぜ今', '第2章：どう戦う', '第3章：どんな未来像', '第4章：どう行動する'];
 
 /* ===================================================
+ * 安定した空配列参照（Zustand selector でのメモ化バイパス防止）
+ * =================================================== */
+const EMPTY_STORY_DRAFT = Object.freeze([]) as unknown as StoryChapter[];
+const EMPTY_WIN_PATTERNS = Object.freeze([]) as unknown as WinPatternCandidate[];
+const EMPTY_ANSWERS12 = Object.freeze([]) as unknown as Stage2Answer[];
+
+/* ===================================================
  * answers12 同一判定（無限同期ループ防止）
  * =================================================== */
 function hashAnswers12(a: Stage2Answer[] | undefined | null): string {
@@ -768,17 +775,18 @@ export default function Stage2Page() {
   // finalStory store連携
   /* ★ TASK 16: Store 一本化（local state 廃止） */
   // STAGE2 値を store から取得
-  const storyDraft = useStrategyStore((s) => s.storyDraft ?? []);
+  // ★ 修正：安定参照を使用してZustandメモ化バイパス防止
+  const storyDraft = useStrategyStore((s) => s.storyDraft ?? EMPTY_STORY_DRAFT);
   const setStoryDraft = useStrategyStore((s) => s.setStoryDraft);
 
-  const winPatternsCandidate = useStrategyStore((s) => (s as any).winPatternsCandidate ?? []);
+  const winPatternsCandidate = useStrategyStore((s) => (s as any).winPatternsCandidate ?? EMPTY_WIN_PATTERNS);
   const setWinPatternsCandidate = useStrategyStore((s) => (s as any).setWinPatternsCandidate as any);
 
-  const finalStory = useStrategyStore((s) => s.finalStory ?? []);
+  const finalStory = useStrategyStore((s) => s.finalStory ?? EMPTY_STORY_DRAFT);
   const setStoreFinalStory = useStrategyStore((s) => s.setFinalStory);
   const setLocalFinalStory = setStoreFinalStory; // 互換性維持
 
-  const answers12 = useStrategyStore((s) => (s as any).answers12 ?? []);
+  const answers12 = useStrategyStore((s) => (s as any).answers12 ?? EMPTY_ANSWERS12);
   const setLocalAnswers12 = useStrategyStore((s) => (s as any).setAnswers12 as any);
 
   // SWOT suggestions store連携（Hooks Rule: top-level で呼ぶ）

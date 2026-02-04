@@ -208,9 +208,9 @@ export type StrategyState = {
   departments: Department[];
 
   /* ★ STAGE2：たたき台・12問 */
-  storyDraft?: StoryChapter[];
-  winPatternsCandidate?: WinPatternCandidate[];
-  answers12?: Stage2Answer[];
+  storyDraft: StoryChapter[]; // ★ 修正：常に配列（undefined ではなく [] で統一）
+  winPatternsCandidate: WinPatternCandidate[]; // ★ 修正：常に配列
+  answers12: Stage2Answer[]; // ★ 修正：常に配列
 
   /* ★ 全社レベルの勝ち筋（受け皿） */
   winPatterns?: WinPattern[];
@@ -819,9 +819,9 @@ const emptyData: StrategyState = {
   finalStory: [],
   answers2: [],
   departments: [],
-  storyDraft: undefined,
-  winPatternsCandidate: undefined,
-  answers12: undefined,
+  storyDraft: [], // ★ 修正：undefined から [] に統一（infinite loop 防止）
+  winPatternsCandidate: [], // ★ 修正：undefined から [] に統一
+  answers12: [], // ★ 修正：undefined から [] に統一
   winPatterns: undefined,
   winPatternPrimary: undefined,
   winPatternSecondary: undefined,
@@ -1117,23 +1117,23 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     };
   })();
 
-  // ★ STAGE2 フィールド復元
+  // ★ STAGE2 フィールド復元（常に配列に統一）
   const ceoIntent = raw.ceoIntent ?? raw.ceo_intent ?? '';
 
   const storyDraft =
     Array.isArray(raw.storyDraft) ? raw.storyDraft :
     Array.isArray(raw.story_draft) ? raw.story_draft :
-    undefined;
+    [];
 
   const winPatternsCandidate =
     Array.isArray(raw.winPatternsCandidate) ? raw.winPatternsCandidate :
     Array.isArray(raw.win_patterns_candidate) ? raw.win_patterns_candidate :
-    undefined;
+    [];
 
   const answers12 =
     Array.isArray(raw.answers12) ? raw.answers12 :
     Array.isArray(raw.answers_12) ? raw.answers_12 :
-    undefined;
+    [];
 
   const patch: any = {
     strategyId,
