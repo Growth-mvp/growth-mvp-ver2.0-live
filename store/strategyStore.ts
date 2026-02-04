@@ -542,6 +542,10 @@ function buildSavePayload(s: StrategyState) {
     threat: s.threat,
     swotSuggestions: s.swotSuggestions,
 
+    storyDraft: s.storyDraft,
+    winPatternsCandidate: s.winPatternsCandidate,
+    answers12: s.answers12,
+
     winPatterns: s.winPatterns,
     winPatternPrimary: s.winPatternPrimary,
     winPatternSecondary: s.winPatternSecondary,
@@ -1113,6 +1117,24 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     };
   })();
 
+  // ★ STAGE2 フィールド復元
+  const ceoIntent = raw.ceoIntent ?? raw.ceo_intent ?? '';
+
+  const storyDraft =
+    Array.isArray(raw.storyDraft) ? raw.storyDraft :
+    Array.isArray(raw.story_draft) ? raw.story_draft :
+    undefined;
+
+  const winPatternsCandidate =
+    Array.isArray(raw.winPatternsCandidate) ? raw.winPatternsCandidate :
+    Array.isArray(raw.win_patterns_candidate) ? raw.win_patterns_candidate :
+    undefined;
+
+  const answers12 =
+    Array.isArray(raw.answers12) ? raw.answers12 :
+    Array.isArray(raw.answers_12) ? raw.answers_12 :
+    undefined;
+
   const patch: any = {
     strategyId,
     revision,
@@ -1154,15 +1176,18 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     mission,
     vision,
     value,
+    ceoIntent,
     strength,
     weakness,
     opportunity,
     threat,
 
     story,
+    storyDraft,
     finalStory,
 
     answers2,
+    answers12,
     departments,
 
     csvFinanceData,
@@ -1170,6 +1195,7 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     businessPortfolio,
     simulationResult,
 
+    winPatternsCandidate,
     winPatterns,
     winPatternPrimary,
     winPatternSecondary,
@@ -2527,7 +2553,9 @@ export const useStrategyStore = create<StrategyState>()(
         story: s.story,
         finalStory: s.finalStory,
         ceoIntent: s.ceoIntent, // ✅ 追加：経営者の思いを persist 対象に含める
+        storyDraft: s.storyDraft, // ✅ 追加：STAGE2 ドラフトストーリーを persist 対象に
         answers2: s.answers2,
+        answers12: (s as any).answers12, // ✅ 追加：STAGE2 12問回答を persist 対象に
         departments: s.departments,
 
         csvFinanceData: s.csvFinanceData,
@@ -2581,6 +2609,7 @@ export const useStrategyStore = create<StrategyState>()(
         opportunity: s.opportunity,
         threat: s.threat,
 
+        winPatternsCandidate: (s as any).winPatternsCandidate, // ✅ 追加：STAGE2 勝ち筋候補を persist 対象に
         winPatterns: s.winPatterns,
         winPatternPrimary: s.winPatternPrimary,
         winPatternSecondary: s.winPatternSecondary,
