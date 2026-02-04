@@ -1329,10 +1329,10 @@ export type Stage2DraftOutput = {
 export type Stage2Answer = {
   /** 質問ID */
   id: string;
-  /** 質問文 */
-  question: string;
-  /** 回答 */
-  answer: string;
+  /** 質問文（TEMPLATE12 が source of truth） */
+  question?: string;
+  /** 回答（未入力を許容） */
+  answer?: string;
   /** 必須かどうか（骨格4問など） */
   required?: boolean;
 };
