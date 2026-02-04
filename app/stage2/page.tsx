@@ -1176,15 +1176,45 @@ export default function Stage2Page() {
   // 1. storeAnswers12 -> local sync useEffect（line 1167-1193）
   // 2. local answers12 -> store sync useEffect（line 1196-1223）
   // 理由：答えは store に一本化し、local state では持たないため
-  /* ★ TASK A-3: handleUpdateAnswer を store 直更新に修正（関数 updater 廃止） */
+  /* ★ TASK A-3 修正版: handleUpdateAnswer を upsert に変更（空配列からも入力可能に） */
   const handleUpdateAnswer = useCallback(
     (id: string, answer: string) => {
+      // ★ TASK D: Debug log for input tracking
+      console.log('[Stage2] answers12 change', { id, valueLen: answer.length });
+
       const base = Array.isArray(answers12) ? answers12 : [];
-      const next = base.map((a) => (a.id === id ? { ...a, answer } : a));
-      setAnswers12(next);
+      const idx = base.findIndex((x) => x.id === id);
+
+      if (idx >= 0) {
+        // 既存があれば更新
+        const next = base.slice();
+        next[idx] = { ...next[idx], answer };
+        setAnswers12(next);
+      } else {
+        // 無ければ追加（空配列からでも入力可能に）← ★ 根本修正
+        const selectedQ = TEMPLATE12.find((q) => q.id === id);
+        setAnswers12([...base, { id, question: selectedQ?.question, answer }]);
+      }
     },
     [answers12, setAnswers12]
   );
+
+  /* ★ 修正：stage2Ready 後に 12問の"器"を初期化（upsert と組み合わせて安定性UP）*/
+  useEffect(() => {
+    if (!stage2Ready) return;
+
+    // 既に何か入っているなら何もしない
+    const cur = useStrategyStore.getState().answers12;
+    if (Array.isArray(cur) && cur.length > 0) return;
+
+    // 12問の器を作る（question も TEMPLATE12 から拾う）
+    const seeded: Stage2Answer[] = TEMPLATE12.map((q) => ({
+      id: q.id,
+      question: q.question,
+      answer: '',
+    }));
+    useStrategyStore.getState().setAnswers12(seeded);
+  }, [stage2Ready]);
 
   // O/T generation
   const handleGenerateOT = useCallback(async () => {
@@ -1895,11 +1925,12 @@ export default function Stage2Page() {
               <div className="space-y-6">
                 <WinPatternList candidates={winPatternsCandidate} />
 
-                <Questions12Section answers12={answers12} onUpdateAnswer={handleUpdateAnswer} disabled={!hasDraft} />
+                {/* ★ 修正：12問フォームは常に入力可能に（Draft 無くても入力可）*/}
+                <Questions12Section answers12={answers12} onUpdateAnswer={handleUpdateAnswer} disabled={false} />
 
                 {!hasDraft && (
                   <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4 text-sm text-amber-700 dark:text-amber-400">
-                    先に「入力」タブでたたき台を生成してください（勝ち筋候補・ストーリーが揃うと議論が進みます）。
+                    たたき台（DRAFT）を生成すると、最終ストーリーの精度が上がります（12問は先に入力してOKです）。
                   </div>
                 )}
 
