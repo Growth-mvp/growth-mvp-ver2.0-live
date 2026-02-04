@@ -1457,7 +1457,16 @@ export const useStrategyStore = create<StrategyState>()(
         }, 0);
       },
 
+      /* ★ 修正：setAnswers12 を堅牢化（配列ガード + 関数updater禁止） */
       setAnswers12: (answers) => {
+        if (!Array.isArray(answers)) {
+          console.warn('[strategyStore][setAnswers12] received non-array, treating as empty', answers);
+          // 配列でなければ空配列に矯正（関数 updater などが混入した場合の保険）
+          set((s) => ({ ...s, answers12: [], dirty: true }));
+          return;
+        }
+        // ★ TASK D: Debug log for dirty flag tracking
+        console.log('[strategyStore] setAnswers12', { len: answers.length, dirtyAfter: true });
         set((s) => ({ ...s, answers12: answers, dirty: true }));
         setTimeout(() => {
           get().saveStage2Snapshot();
@@ -2001,9 +2010,10 @@ export const useStrategyStore = create<StrategyState>()(
             return { ok: false, skipped: true, reason: 'missing_ids' };
           }
 
-          // ★ force: true のときは dirty をスキップ（手動保存は常に走る）
-          if (!force && !state0.dirty) {
-            if (DEBUG) console.log('[strategyStore] saveStrategyData: dirty=false, skip (not forced)');
+          // ★ force: true または manual のときは dirty をスキップ（手動保存は常に走る）
+          const isManual = reason === 'manual';
+          if (!force && !isManual && !state0.dirty) {
+            if (DEBUG) console.log('[strategyStore] saveStrategyData: dirty=false, skip (not forced, not manual)');
             return { ok: false, skipped: true, reason: 'dirty_false' };
           }
 
@@ -2039,6 +2049,15 @@ export const useStrategyStore = create<StrategyState>()(
                   payload_ceoIntent_head: ceoIntentHead,
                   payload_has_ceoIntent: 'ceoIntent' in payload,
                 });
+
+                // ★ STEP 0: answers12 diagnostics
+                const answers12_len = Array.isArray((payload as any).answers12) ? (payload as any).answers12.length : 'not_array';
+                console.log('[strategyStore] saveStrategyData answers12 check', {
+                  state_answers12_len: Array.isArray(state.answers12) ? state.answers12.length : 'not_array',
+                  payload_answers12_len: answers12_len,
+                  payload_has_answers12: 'answers12' in (payload as any),
+                  payload_answers12_first: answers12_len !== 'not_array' && (payload as any).answers12.length > 0 ? (payload as any).answers12[0] : null,
+                });
               }
 
               if (isEffectivelyEmpty(payload)) {
@@ -2047,12 +2066,25 @@ export const useStrategyStore = create<StrategyState>()(
                 return { ok: false, skipped: true, reason: 'payload_empty' };
               }
 
+              // ★ TASK B: Diagnostic log for answers12 in hash material
+              if (DEBUG) console.log('[hash:material] answers12', {
+                has: 'answers12' in (payload as any),
+                len: Array.isArray((payload as any).answers12) ? (payload as any).answers12.length : 'not_array',
+                first: Array.isArray((payload as any).answers12) ? (payload as any).answers12[0] : null,
+              });
+
               const currentHash = stableHash(payload);
 
-              if (!force && state.__lastSavedHash && state.__lastSavedHash === currentHash) {
-                if (DEBUG) console.log('[strategyStore] saveStrategyData: same hash, skip');
+              // ★ TASK A: manual saves bypass same hash skip（手動保存は常にDBに書く）
+              if (!force && !isManual && state.__lastSavedHash && state.__lastSavedHash === currentHash) {
+                if (DEBUG) console.log('[strategyStore] saveStrategyData: same hash, skip (not forced, not manual)');
                 set({ dirty: false });
                 return { ok: false, skipped: true, reason: 'same_hash' };
+              }
+
+              // manual のときは同一hashでも続行ログ
+              if (isManual && state.__lastSavedHash && state.__lastSavedHash === currentHash) {
+                if (DEBUG) console.log('[strategyStore] saveStrategyData: same hash BUT manual => continue (forced write)');
               }
 
               const res = await (async () => {
