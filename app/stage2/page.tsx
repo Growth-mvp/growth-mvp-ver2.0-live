@@ -766,7 +766,20 @@ export default function Stage2Page() {
   const setAnswers12 = useStrategyStore((s) => s.setAnswers12);
 
   // finalStory store連携
+  /* ★ TASK 16: Store 一本化（local state 廃止） */
+  // STAGE2 値を store から取得
+  const storyDraft = useStrategyStore((s) => s.storyDraft ?? []);
+  const setStoryDraft = useStrategyStore((s) => s.setStoryDraft);
+
+  const winPatternsCandidate = useStrategyStore((s) => (s as any).winPatternsCandidate ?? []);
+  const setWinPatternsCandidate = useStrategyStore((s) => (s as any).setWinPatternsCandidate as any);
+
+  const finalStory = useStrategyStore((s) => s.finalStory ?? []);
   const setStoreFinalStory = useStrategyStore((s) => s.setFinalStory);
+  const setLocalFinalStory = setStoreFinalStory; // 互換性維持
+
+  const answers12 = useStrategyStore((s) => (s as any).answers12 ?? []);
+  const setLocalAnswers12 = useStrategyStore((s) => (s as any).setAnswers12 as any);
 
   // SWOT suggestions store連携（Hooks Rule: top-level で呼ぶ）
   const swotSuggestions = useStrategyStore((s) => s.swotSuggestions);
@@ -781,9 +794,7 @@ export default function Stage2Page() {
   const [collapsed, setCollapsed] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Draft & candidates
-  const [storyDraft, setStoryDraft] = useState<StoryChapter[]>([]);
-  const [winPatternsCandidate, setWinPatternsCandidate] = useState<WinPatternCandidate[]>([]);
+  // Generating flags
   const [generating, setGenerating] = useState(false);
   const [generatingOT, setGeneratingOT] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
@@ -792,14 +803,8 @@ export default function Stage2Page() {
 
   // Final
   const [selectedWinPatternId, setSelectedWinPatternId] = useState<string | null>(null); // UIでは選択させない（内部参照用）
-  const [finalStory, setLocalFinalStory] = useState<StoryChapter[]>([]);
   const [generatingFinal, setGeneratingFinal] = useState(false);
   const [generateFinalError, setGenerateFinalError] = useState<string | null>(null);
-
-  // 12 answers local
-  const [answers12, setLocalAnswers12] = useState<Stage2Answer[]>(() =>
-    TEMPLATE12.map((q) => ({ id: q.id, question: q.question, answer: '', required: q.required }))
-  );
 
   // Active tab
   const [activeTab, setActiveTab] = useState<TabId>('input');
@@ -1428,12 +1433,18 @@ export default function Stage2Page() {
           console.log('[Stage2] API response winPatternsCandidate count:', newWinPatterns.length);
         }
 
+        /* ★ TASK 16: store setter を呼び出し（local state ではなく store に保存） */
         setStoryDraft(newStoryDraft);
         setWinPatternsCandidate(newWinPatterns);
         setSelectedWinPatternId(newWinPatterns?.[0]?.id ?? null);
 
-        // ★ 追加：store にも storyDraft を保存
-        useStrategyStore.getState().setStoryDraft?.(newStoryDraft);
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[Stage2] Generated data set to store:', {
+            storyDraft_len: newStoryDraft.length,
+            winPatterns_len: newWinPatterns.length,
+            source: 'store setter',
+          });
+        }
 
         // Auto navigate to Draft tab
         setActiveTab('draft');
@@ -1634,8 +1645,15 @@ export default function Stage2Page() {
       const data = await response.json();
       const newFinalStory: StoryChapter[] = Array.isArray(data.finalStory) ? data.finalStory : [];
 
-      setLocalFinalStory(newFinalStory);
+      /* ★ TASK 16: store setter で finalStory を設定 */
       setStoreFinalStory(newFinalStory);
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Stage2] Generated finalStory set to store:', {
+          finalStory_len: newFinalStory.length,
+          source: 'store setter',
+        });
+      }
 
       // Auto navigate to Final tab
       setActiveTab('final');
