@@ -246,6 +246,10 @@ export type StrategyState = {
 
   boot: BootState;
 
+  /* ★ TASK 14: restore state フラグ（リロード時データ消失を防止） */
+  restoreReady: boolean; // DB restore 完了フラグ
+  isRestoring: boolean; // DB restore 中フラグ
+
   /** サーバ楽観ロック用 */
   revision?: number;
 
@@ -829,6 +833,10 @@ const emptyData: StrategyState = {
   dirty: false,
   boot: { isHydrating: false, isHydrated: false },
 
+  /* ★ TASK 14: restore state フラグ初期値 */
+  restoreReady: false,
+  isRestoring: false,
+
   revision: undefined,
   lastServerSnapshot: undefined,
   serverShadow: undefined,
@@ -1251,6 +1259,9 @@ export const useStrategyStore = create<StrategyState>()(
           __isFetchingFromServer: true,
           _loadingRefetch: false,
           __lastServerError: undefined,
+          /* ★ TASK 14: restore フラグをリセット（新会社スコープでリフェッチ開始） */
+          restoreReady: false,
+          isRestoring: true,
         })),
 
       setStory: (chs) => {
@@ -1912,8 +1923,37 @@ export const useStrategyStore = create<StrategyState>()(
             return { ok: false, skipped: true, reason: 'fetching_or_hydrating' };
           }
 
+          /* ★ TASK 14-4: canSave ゲート（リロード直後の保存を禁止） */
+          const canSave = state0.hydrated && state0.restoreReady && !state0.isRestoring;
+          if (!force && !canSave) {
+            if (DEBUG) {
+              console.log('[strategyStore] saveStrategyData: canSave=false, skip (not forced)', {
+                hydrated: state0.hydrated,
+                restoreReady: state0.restoreReady,
+                isRestoring: state0.isRestoring,
+              });
+            }
+            return { ok: false, skipped: true, reason: 'restore_not_ready' };
+          }
+
           const userId = useUserStore.getState().user?.id;
           const companyId = state0.companyId || state0.pendingCompanyId || useUserStore.getState().companyId;
+
+          /* ★ TASK 14-6: 監査ログを記録（常に出力） */
+          console.log('[audit][saveStrategyData] called', {
+            reason,
+            force,
+            userId: userId?.substring(0, 8),
+            companyId: companyId?.substring(0, 8),
+            revision: state0.revision,
+            dirty: state0.dirty,
+            canSave,
+            hydrated: state0.hydrated,
+            restoreReady: state0.restoreReady,
+            isRestoring: state0.isRestoring,
+            hydrating: state0.boot?.isHydrating,
+            fetching: state0.__isFetchingFromServer,
+          });
 
           if (DEBUG) {
             console.log('[strategyStore] saveStrategyData() start', {
@@ -2049,6 +2089,19 @@ export const useStrategyStore = create<StrategyState>()(
                     ? get().revision
                     : undefined;
 
+              /* ★ TASK 14-6: 成功時の監査ログ（payload サイズ情報を記録） */
+              console.log('[audit][saveStrategyData] success', {
+                reason,
+                revision: nextRev,
+                payload_size: Object.keys(payload).length,
+                departments_len: Array.isArray((payload as any).departments) ? (payload as any).departments.length : 0,
+                story_len: Array.isArray((payload as any).story) ? (payload as any).story.length : 0,
+                finalStory_len: Array.isArray((payload as any).finalStory) ? (payload as any).finalStory.length : 0,
+                answers2_len: Array.isArray((payload as any).answers2) ? (payload as any).answers2.length : 0,
+                stage1Issues_len: Array.isArray((payload as any).stage1Issues) ? (payload as any).stage1Issues.length : 0,
+                winPatterns_len: Array.isArray((payload as any).winPatterns) ? (payload as any).winPatterns.length : 0,
+              });
+
               if (DEBUG) console.log('[strategyStore] saveStrategyData success', { reason, revision: nextRev, updatedAt });
 
               return { ok: true, revision: nextRev, updatedAt };
@@ -2073,13 +2126,17 @@ export const useStrategyStore = create<StrategyState>()(
             boot: { ...s.boot, isHydrating: true, isHydrated: false },
             __isFetchingFromServer: false,
             loaded: false,
+            /* ★ TASK 14: restore フラグをクリア（認証失敗は回復不可） */
+            isRestoring: false,
+            restoreReady: false,
           }));
           scheduleRefetchRetry(1500);
           throw new Error('会社IDまたは認証情報が見つかりません');
         }
 
         if (get()._loadingRefetch) return;
-        set({ _loadingRefetch: true, __isFetchingFromServer: true });
+        /* ★ TASK 14: restore フラグを開始（DB restore 中を示す） */
+        set({ _loadingRefetch: true, __isFetchingFromServer: true, isRestoring: true });
         set((s) => ({ ...s, boot: { ...s.boot, isHydrating: true } }));
 
         try {
@@ -2152,6 +2209,9 @@ export const useStrategyStore = create<StrategyState>()(
               __isFetchingFromServer: false,
               loaded: false,
               __lastServerError: isTransientError ? undefined : error,
+              /* ★ TASK 14: restore フラグをクリア（エラーは回復待ち） */
+              isRestoring: false,
+              restoreReady: false,
             }));
 
             if (isTransientError) scheduleRefetchRetry(2000);
@@ -2224,6 +2284,8 @@ export const useStrategyStore = create<StrategyState>()(
 
             set({ loaded: true });
             get().setHydrated(rev);
+            /* ★ TASK 14: restore 完了フラグを設定（DB restore 完了） */
+            set({ restoreReady: true, isRestoring: false });
           } else {
             set((s) => {
               const base = s as StrategyState;
@@ -2265,6 +2327,9 @@ export const useStrategyStore = create<StrategyState>()(
               loaded: true,
               __lastSavedHash: hash,
               dirty: false,
+              /* ★ TASK 14: restore 完了フラグを設定（DB restore 完了） */
+              restoreReady: true,
+              isRestoring: false,
             });
 
             get().setHydrated(rev, hash);
@@ -2274,7 +2339,8 @@ export const useStrategyStore = create<StrategyState>()(
             }, 0);
           }
         } finally {
-          set({ _loadingRefetch: false, __isFetchingFromServer: false });
+          /* ★ TASK 14: 万が一例外が出た場合でも isRestoring をリセット */
+          set({ _loadingRefetch: false, __isFetchingFromServer: false, isRestoring: false });
         }
       },
 
@@ -2413,8 +2479,9 @@ export const useStrategyStore = create<StrategyState>()(
       },
     }),
     {
-      name: 'strategy-store',
-      version: 36,
+      /* ★ TASK 14-3: persist ストレージキーをバージョンアップ（v4 → v5）旧 localStorage を無視 */
+      name: 'strategy-store-v5',
+      version: 37,
       partialize: (s) => ({
         companyId: s.companyId,
         strategyId: s.strategyId,
@@ -2495,10 +2562,17 @@ export const useStrategyStore = create<StrategyState>()(
         loaded: false,
         dirty: false,
         __isFetchingFromServer: false,
+        /* ★ TASK 14: restore フラグをリセット（migrate 時は復旧待ち） */
+        restoreReady: false,
+        isRestoring: true,
       }),
       storage: createJSONStorage(() => localStorage),
       onRehydrateStorage: () => (_state, error) => {
         if (error) console.warn('rehydration error:', error);
+        /* ★ TASK 14: persist rehydrate 完了を通知（hydrated=true） */
+        if (!error) {
+          useStrategyStore.getState().setHydrated(true);
+        }
       },
     }
   )
