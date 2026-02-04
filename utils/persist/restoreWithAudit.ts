@@ -230,6 +230,16 @@ export async function restoreWithAudit(
         revision: hydratedState?.revision,
       });
 
+      // ★ TASK 4: answers12 restore confirmation log
+      const answers12Len = Array.isArray(hydratedState?.answers12) ? hydratedState.answers12.length : 0;
+      if (answers12Len > 0) {
+        console.log('[audit][restore] TASK 4 answers12 confirmed', {
+          sourceUsed: decision.sourceUsed,
+          answers12Len,
+          first: (hydratedState?.answers12 as any)?.[0] ?? null,
+        });
+      }
+
       return decision;
     }
 
