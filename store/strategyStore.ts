@@ -2315,6 +2315,9 @@ export const useStrategyStore = create<StrategyState>()(
                 // DB に無い値は既存の persist 値を保持
                 stage1Benchmarks: (minimal as any).stage1Benchmarks ?? (base as any).stage1Benchmarks,
                 stage1Issues: (minimal as any).stage1Issues ?? (base as any).stage1Issues,
+                /* ★ TASK 3: STAGE2 フィールドを保護（空配列での上書き防止） */
+                answers12: (minimal as any).answers12 ?? (base as any).answers12,
+                winPatternsCandidate: (minimal as any).winPatternsCandidate ?? (base as any).winPatternsCandidate,
               };
             });
 
@@ -2360,6 +2363,9 @@ export const useStrategyStore = create<StrategyState>()(
                 // DB に無い値は既存の persist 値を保持
                 stage1Benchmarks: (patch as any).stage1Benchmarks ?? (base as any).stage1Benchmarks,
                 stage1Issues: (patch as any).stage1Issues ?? (base as any).stage1Issues,
+                /* ★ TASK 3: STAGE2 フィールドを保護（空配列での上書き防止） */
+                answers12: (patch as any).answers12 ?? (base as any).answers12,
+                winPatternsCandidate: (patch as any).winPatternsCandidate ?? (base as any).winPatternsCandidate,
               };
 
               merged.departments = nextDepartments;
