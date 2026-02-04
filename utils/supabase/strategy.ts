@@ -499,6 +499,14 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
     });
   }
 
+  // ★ TASK 3: answers12 diagnostic on restore from DB (cross-session)
+  if (DEBUG) console.log('[buildStateFromDbRow] answers12', {
+    row_has: 'answers12' in safeRow,
+    row_len: Array.isArray((safeRow as any).answers12) ? (safeRow as any).answers12.length : 'missing',
+    state_len: Array.isArray(out.answers12) ? out.answers12.length : 'missing',
+    first: Array.isArray(out.answers12) && out.answers12.length > 0 ? out.answers12[0] : null,
+  });
+
   // ★ 修正：csv_finance_data から financeBS/segmentPL/segmentBS/hqAdjustmentPL/BS を復元
   // DB には finance_bs/segment_bs/segment_pl 列がないため、csv_finance_data に格納されている
   // ★ 多重ネスト {"0":{"0":{...}}} を展開する
@@ -800,6 +808,13 @@ export async function getFullStrategyDataByCompany(
         answers_12_len: answers_12Len,
       });
     }
+
+    // ★ TASK 1: answers12 load diagnostic（ログイン直後に answers12 が取れているか確定）
+    if (DEBUG) console.log('[StrategyData][load] row.answers12 check', {
+      has: 'answers12' in (rowData as any),
+      len: Array.isArray((rowData as any).answers12) ? (rowData as any).answers12.length : 'not_array',
+      first: Array.isArray((rowData as any).answers12) ? (rowData as any).answers12[0] : null,
+    });
 
     // 分離テーブルの最新値
     const [ansRes, finRes] = await Promise.allSettled([
@@ -1105,6 +1120,14 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       };
       delete updatePayload.created_at;
 
+      // ★ TASK 1: Remove win_patterns fields to prevent PGRST204 error
+      // These fields don't exist in the DB table strategy_data
+      // Removing them proactively prevents UPDATE failure that blocks answers12 save
+      delete (updatePayload as any).win_patterns;
+      delete (updatePayload as any).win_patterns_candidate;
+      delete (updatePayload as any).winPatterns;
+      delete (updatePayload as any).winPatternsCandidate;
+
       if (DEBUG) console.log('[SAVE update payload]', {
         finance_pl_len: Array.isArray((updatePayload.finance_pl as any))
           ? (updatePayload.finance_pl as any).length
@@ -1122,6 +1145,21 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       if (DEBUG) console.log('[SAVE updatePayload ceo_intent]', {
         len: lenStr((updatePayload as any).ceo_intent),
         head: headStr((updatePayload as any).ceo_intent),
+      });
+
+      // ★ TASK 1: answers12 diagnostic in updatePayload (cross-session restore)
+      if (DEBUG) console.log('[SAVE updatePayload answers12]', {
+        has: 'answers12' in updatePayload,
+        len: Array.isArray((updatePayload as any).answers12) ? (updatePayload as any).answers12.length : 'not_array',
+        first: Array.isArray((updatePayload as any).answers12) ? (updatePayload as any).answers12[0] : null,
+      });
+
+      // ★ TASK 3: Confirmation log that win_patterns are excluded (PGRST204 prevention verified)
+      if (DEBUG) console.log('[SAVE updatePayload exclude] win_patterns removed', {
+        has_win_patterns: 'win_patterns' in updatePayload,
+        has_win_patterns_candidate: 'win_patterns_candidate' in updatePayload,
+        has_winPatterns: 'winPatterns' in updatePayload,
+        has_winPatternsCandidate: 'winPatternsCandidate' in updatePayload,
       });
 
       // ★ 楽観ロック：revision カラムがある場合
@@ -1231,6 +1269,13 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         if (DEBUG) console.log('[SAVE returned ceo_intent]', {
           len: lenStr((upd.data as any).ceo_intent),
           head: headStr((upd.data as any).ceo_intent),
+        });
+
+        // ★ TASK 1: answers12 diagnostic in returned UPDATE data
+        if (DEBUG) console.log('[SAVE returned answers12]', {
+          has: 'answers12' in (upd.data as any),
+          len: Array.isArray((upd.data as any)?.answers12) ? (upd.data as any).answers12.length : 'not_array',
+          first: Array.isArray((upd.data as any)?.answers12) ? (upd.data as any).answers12[0] : null,
         });
       }
 
