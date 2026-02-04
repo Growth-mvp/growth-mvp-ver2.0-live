@@ -779,6 +779,28 @@ export async function getFullStrategyDataByCompany(
 
     const rowData = baseRes.data ?? {};
 
+    /* ★ TASK 2: DB行のSTAGE2列存在確認ログ */
+    if (DEBUG) {
+      const hasRawStoryDraft = Object.prototype.hasOwnProperty.call(rowData, 'story_draft');
+      const hasRawWinPatternsCandidate = Object.prototype.hasOwnProperty.call(rowData, 'win_patterns_candidate');
+      const hasRawAnswers12 = Object.prototype.hasOwnProperty.call(rowData, 'answers12');
+      const hasRawAnswers_12 = Object.prototype.hasOwnProperty.call(rowData, 'answers_12');
+      const storyDraftLen = Array.isArray(rowData.story_draft) ? rowData.story_draft.length : 0;
+      const winPatternsCandidateLen = Array.isArray(rowData.win_patterns_candidate) ? rowData.win_patterns_candidate.length : 0;
+      const answers12Len = Array.isArray(rowData.answers12) ? rowData.answers12.length : 0;
+      const answers_12Len = Array.isArray(rowData.answers_12) ? rowData.answers_12.length : 0;
+      console.log('[stage2][db_raw_check]', {
+        has_raw_story_draft: hasRawStoryDraft,
+        has_raw_win_patterns_candidate: hasRawWinPatternsCandidate,
+        has_raw_answers12: hasRawAnswers12,
+        has_raw_answers_12: hasRawAnswers_12,
+        story_draft_len: storyDraftLen,
+        win_patterns_candidate_len: winPatternsCandidateLen,
+        answers12_len: answers12Len,
+        answers_12_len: answers_12Len,
+      });
+    }
+
     // 分離テーブルの最新値
     const [ansRes, finRes] = await Promise.allSettled([
       supabase
