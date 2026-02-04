@@ -19,6 +19,21 @@ const headStr = (s: any) => (typeof s === 'string' ? s.slice(0, 30) : '');
 const lenStr = (s: any) => (typeof s === 'string' ? s.length : 0);
 
 /* ============================================================
+ * PGRST204 フォールバック（列が未作成環境対応）
+ * ========================================================== */
+function extractColumnFromPGRST204(errorMsg: string): string | null {
+  // "column 'answers12' does not exist" or similar patterns
+  const match = errorMsg.match(/column\s+['"'`]?([a-z_0-9]+)['"'`]?\s+(?:does not exist|not found)/i);
+  return match ? match[1] : null;
+}
+
+function isPGRST204Error(error: any): boolean {
+  if (!error) return false;
+  const msg = String(error?.message || error?.details || error?.error || error || '').toLowerCase();
+  return msg.includes('pgrst204') || msg.includes('column') && msg.includes('does not exist');
+}
+
+/* ============================================================
  * テーブル名
  * ========================================================== */
 const T_STRATEGY = 'strategy_data';
@@ -1108,11 +1123,69 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       const upd = await updateQuery.select('*').maybeSingle();
 
       if (upd.error) {
-        console.error(
-          '[StrategyData] ❌ update failed:',
-          extractErrorVerbose(upd.error),
-        );
-        return { data: null, error: extractErrorVerbose(upd.error) };
+        // ★ PGRST204 フォールバック：列が未作成の場合は除外して再試行（保険）
+        if (isPGRST204Error(upd.error)) {
+          const missingCol = extractColumnFromPGRST204(String(upd.error?.message || upd.error?.details || ''));
+          if (missingCol) {
+            console.warn(
+              `[StrategyData] ⚠ PGRST204: Column "${missingCol}" not found. Retrying without it.`,
+            );
+
+            // 問題のある列を payload から除外
+            const retryPayload = { ...updatePayload };
+            delete (retryPayload as any)[missingCol];
+
+            // 1回だけ再試行
+            let retryQuery = supabase
+              .from(T_STRATEGY)
+              .update(retryPayload)
+              .eq('company_id', cleanCompanyId);
+
+            if (hasRevision && typeof expectedRev === 'number') {
+              retryQuery = retryQuery.eq('revision', expectedRev);
+            }
+
+            const retryUpd = await retryQuery.select('*').maybeSingle();
+
+            if (retryUpd.error) {
+              console.error(
+                '[StrategyData] ❌ update retry failed (after removing',
+                missingCol,
+                '):',
+                extractErrorVerbose(retryUpd.error),
+              );
+              return { data: null, error: extractErrorVerbose(retryUpd.error) };
+            }
+
+            if (retryUpd.data) {
+              console.warn(
+                `[StrategyData] ✅ Save succeeded without column: ${missingCol}. DB may not have this column yet.`,
+              );
+              // retryUpd.data で続行（upd を retryUpd に置き換える）
+              Object.assign(upd, retryUpd);
+            } else {
+              return {
+                data: null,
+                error: {
+                  code: 'REVISION_CONFLICT',
+                  message: 'Data was modified by another session. Please refresh and try again.',
+                },
+              };
+            }
+          } else {
+            console.error(
+              '[StrategyData] ❌ update failed (PGRST204 but could not extract column):',
+              extractErrorVerbose(upd.error),
+            );
+            return { data: null, error: extractErrorVerbose(upd.error) };
+          }
+        } else {
+          console.error(
+            '[StrategyData] ❌ update failed:',
+            extractErrorVerbose(upd.error),
+          );
+          return { data: null, error: extractErrorVerbose(upd.error) };
+        }
       }
 
       // ★ 修正：Supabase UPDATE 戻り値の csv_finance_data と finance_pl 確認
@@ -1254,7 +1327,54 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       .single();
 
     if (ins.error) {
-      return { data: null, error: extractErrorVerbose(ins.error) };
+      // ★ PGRST204 フォールバック：列が未作成の場合は除外して再試行（保険）
+      if (isPGRST204Error(ins.error)) {
+        const missingCol = extractColumnFromPGRST204(String(ins.error?.message || ins.error?.details || ''));
+        if (missingCol) {
+          console.warn(
+            `[StrategyData] ⚠ PGRST204: Column "${missingCol}" not found. Retrying INSERT without it.`,
+          );
+
+          // 問題のある列を payload から除外
+          const retryPayload = { ...insertPayload };
+          delete (retryPayload as any)[missingCol];
+
+          // 1回だけ再試行
+          const retryIns = await supabase
+            .from(T_STRATEGY)
+            .insert(retryPayload)
+            .select('*')
+            .single();
+
+          if (retryIns.error) {
+            console.error(
+              '[StrategyData] ❌ insert retry failed (after removing',
+              missingCol,
+              '):',
+              extractErrorVerbose(retryIns.error),
+            );
+            return { data: null, error: extractErrorVerbose(retryIns.error) };
+          }
+
+          if (retryIns.data) {
+            console.warn(
+              `[StrategyData] ✅ Insert succeeded without column: ${missingCol}. DB may not have this column yet.`,
+            );
+            // retryIns.data で続行（ins を retryIns に置き換える）
+            Object.assign(ins, retryIns);
+          } else {
+            return { data: null, error: { message: 'INSERT failed: no data returned' } };
+          }
+        } else {
+          console.error(
+            '[StrategyData] ❌ insert failed (PGRST204 but could not extract column):',
+            extractErrorVerbose(ins.error),
+          );
+          return { data: null, error: extractErrorVerbose(ins.error) };
+        }
+      } else {
+        return { data: null, error: extractErrorVerbose(ins.error) };
+      }
     }
 
     // ★ 修正：Supabase INSERT 戻り値の csv_finance_data と finance_pl 確認
