@@ -593,6 +593,11 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
       : undefined;
   const answers2: ChapterAnswers[] = answers2Top ?? (answers2FromStory ?? []);
 
+  // ★ TASK 3: answers12 の保持（normalize で落ちないようにする）
+  const answers12 = Array.isArray(src.answers12) ? src.answers12 : undefined;
+  const winPatternsCandidate = Array.isArray(src.winPatternsCandidate) ? src.winPatternsCandidate : undefined;
+  const winPatterns = Array.isArray(src.winPatterns) ? src.winPatterns : undefined;
+
   // 部門
   const departmentsNorm = normalizeDepartmentsAny(src.departments);
   const departments =
@@ -742,6 +747,9 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     answers: Array.isArray(src.answers) ? src.answers : undefined,
 
     answers2,
+    ...(answers12 !== undefined ? { answers12 } : {}),  // ★ TASK 3: answers12 を出力に含める
+    ...(winPatternsCandidate !== undefined ? { winPatternsCandidate } : {}),
+    ...(winPatterns !== undefined ? { winPatterns } : {}),
     departments,
     stage1Issues,  // ★ 修正：stage1Issues を出力オブジェクトに含める
     stage1Benchmarks,  // ★ 修正：stage1Benchmarks を出力オブジェクトに含める
