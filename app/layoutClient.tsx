@@ -103,7 +103,10 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   const lastProvisionForCompany = useRef<string | null>(null);
   const cleaned = useRef(false);
   const routedRef = useRef(false);
-  const bootstrapTimer = useRef<number | null>(null);
+
+  // ★ TASK A: membership retry & abort tracking
+  const memRetryCount = useRef(0);
+  const memAbortController = useRef<AbortController | null>(null);
 
   // 会社ごとの refetch 実行済み
   const refetchRanForCompany = useRef<string | null>(null);
@@ -170,31 +173,6 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
     setOpenLeft(false);
     setOpenRight(false);
   }, [pathname]);
-
-  /* ================================
-   * 6秒フェイルセーフ
-   * - 修正：bootstrapped=true にしない（ready扱いが事故の元）
-   * - 代わりに timeout フラグだけ立てる
-   * ============================== */
-  useEffect(() => {
-    if (!user?.id || bootstrapped) return;
-    if (bootstrapTimer.current != null) return;
-
-    bootstrapTimer.current = window.setTimeout(() => {
-      if (!cleaned.current && !bootstrapped) {
-        console.warn('[bootstrap] membership timeout (NO force ready)');
-        setBootstrapTimedOut(true);
-        // setBootstrapped(true); // ★禁止：これがルーティング/リフェッチの暴発原因
-      }
-    }, 6000);
-
-    return () => {
-      if (bootstrapTimer.current != null) {
-        clearTimeout(bootstrapTimer.current);
-        bootstrapTimer.current = null;
-      }
-    };
-  }, [user?.id, bootstrapped]);
 
   /* ================================
    * 1) セッション初期確認 + access_token 取得
@@ -306,10 +284,27 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
     if (memInFlight.current) return;
     memInFlight.current = true;
 
-    const ac = new AbortController();
-    const { signal } = ac;
+    const RETRY_DELAYS = [500, 1000, 2000]; // Exponential backoff in ms
+    const MAX_RETRIES = 3;
+    const HARD_TIMEOUT = 6000; // 6 seconds per attempt
 
-    const loadMembership = async () => {
+    const attemptLoadMembership = async (): Promise<void> => {
+      const attempt = memRetryCount.current + 1;
+      console.log(`[membership] attempt ${attempt}/${MAX_RETRIES} start`, { userId: user.id });
+
+      // Create new AbortController for this attempt
+      const ac = new AbortController();
+      memAbortController.current = ac;
+      const { signal } = ac;
+
+      // Hard timeout - abort the request after HARD_TIMEOUT ms
+      const timeoutId = setTimeout(() => {
+        if (!signal.aborted) {
+          console.warn(`[membership] attempt ${attempt} timeout at ${HARD_TIMEOUT}ms - aborting`);
+          ac.abort();
+        }
+      }, HARD_TIMEOUT);
+
       try {
         const { data, error, status } = await supabase
           .from('company_members')
@@ -317,32 +312,63 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           .eq('user_id', user.id)
           .order('created_at', { ascending: false })
           .limit(1)
+          .abortSignal(signal)
           .maybeSingle();
 
-        if (signal.aborted) return;
+        clearTimeout(timeoutId);
 
+        // Check if aborted
+        if (signal.aborted) {
+          console.log(`[membership] attempt ${attempt} aborted - checking retry`);
+          throw new DOMException('The operation was aborted', 'AbortError');
+        }
+
+        // Handle error response
         if (error) {
           if (status && status !== 406) {
-            console.warn('[init] company_members error:', exposeError(error), { status });
+            console.warn(`[membership] attempt ${attempt} error:`, {
+              message: error.message,
+              status,
+              code: error.code,
+            });
           }
-          if (!cleaned.current) {
-            setMembership({ companyId: undefined, departmentId: undefined });
-            setRole('member');
+
+          // Non-retryable: 401, 403 only
+          if (status && [401, 403].includes(status)) {
+            console.log(`[membership] attempt ${attempt} non-retryable status ${status} - stopping`);
+            if (!cleaned.current) {
+              setMembership({ companyId: undefined, departmentId: undefined });
+              setRole('member');
+              setBootstrapTimedOut(false);
+              setBootstrapped(true); // Success path (no membership)
+            }
+            return;
           }
-          // ★ 所属が取れない場合は Cookie を無理に触らない（/auth/welcome で作成）
-          return;
+
+          // Retryable error - throw to trigger retry
+          throw error;
         }
 
+        // Success: No membership found
         if (!data) {
+          console.log(`[membership] attempt ${attempt} ok - no membership found`);
           if (!cleaned.current) {
             setMembership({ companyId: undefined, departmentId: undefined });
             setRole('member');
+            setBootstrapTimedOut(false);
+            setBootstrapped(true);
           }
           return;
         }
 
+        // Success: Membership found
         const cid = (data.company_id ?? '') as string | undefined;
         const cidNorm = cid && isValidUUID(cid) ? cid : undefined;
+
+        console.log(`[membership] attempt ${attempt} ok - membership found`, {
+          companyId: cidNorm,
+          role: data.role,
+        });
 
         if (!cleaned.current) {
           setMembership({ companyId: cidNorm, departmentId: undefined });
@@ -355,22 +381,73 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           if (cookieCid !== cidNorm) {
             try {
               setCompanyIdCookie(cidNorm);
-            } catch {}
+              console.log(`[membership] cookie synced to ${cidNorm}`);
+            } catch (e) {
+              console.warn('[membership] cookie sync failed:', e);
+            }
           }
         }
-      } finally {
-        memInFlight.current = false;
+
+        // ★ Success - mark as bootstrapped
         if (!cleaned.current) {
-          // ★ 修正：membership 読込が「本当に完了」したときだけ ready にする
           setBootstrapTimedOut(false);
           setBootstrapped(true);
+        }
+
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+
+        // Check if this was an abort
+        const isAbort = err?.name === 'AbortError' || signal.aborted;
+
+        if (isAbort) {
+          console.log(`[membership] attempt ${attempt} aborted`);
+        } else {
+          console.warn(`[membership] attempt ${attempt} error:`, {
+            name: err?.name,
+            message: err?.message,
+            code: err?.code,
+          });
+        }
+
+        // Determine if we should retry
+        memRetryCount.current++;
+
+        if (memRetryCount.current < MAX_RETRIES) {
+          const delay = RETRY_DELAYS[memRetryCount.current - 1];
+          console.log(`[membership] retry wait ${delay}ms before attempt ${memRetryCount.current + 1}`);
+
+          await new Promise((resolve) => setTimeout(resolve, delay));
+
+          // Check if still valid to retry
+          if (!cleaned.current && user?.id) {
+            return attemptLoadMembership(); // Recursive retry
+          }
+        } else {
+          // Final failure after all retries
+          console.error(`[membership] final fail after ${MAX_RETRIES} attempts`);
+          if (!cleaned.current) {
+            setMembership({ companyId: undefined, departmentId: undefined });
+            setRole('member');
+            setBootstrapped(false); // ★ CRITICAL: Don't mark as bootstrapped
+            setBootstrapTimedOut(true); // Show timeout message
+          }
         }
       }
     };
 
-    loadMembership();
+    // Start the first attempt
+    attemptLoadMembership().finally(() => {
+      memInFlight.current = false;
+      memAbortController.current = null;
+    });
+
+    // Cleanup function
     return () => {
-      ac.abort();
+      if (memAbortController.current) {
+        memAbortController.current.abort();
+        memAbortController.current = null;
+      }
       memInFlight.current = false;
     };
   }, [user?.id, setMembership, setRole]);
