@@ -284,6 +284,7 @@ export function getStage1DataWithFallback(
 /**
  * ストアの状態から Stage2State を構築
  * - ストアの既存キー（story, answers2, finalStory）を Stage2State に変換
+ * - 新フィールド（finalStoryDraft/Edited/Final、companyTargets）もサポート
  */
 export function buildStage2StateFromStore(storeData: {
   thought?: string;
@@ -294,10 +295,18 @@ export function buildStage2StateFromStore(storeData: {
   weakness?: string;
   opportunity?: string;
   threat?: string;
+  ceoIntent?: string;
   story?: ChapterStory[];
   finalStory?: ChapterStory[];
+  finalStoryDraft?: ChapterStory[];
+  finalStoryEdited?: ChapterStory[];
+  finalStoryFinal?: ChapterStory[];
   answers2?: ChapterAnswers[];
   winPatterns?: any[];
+  winPatternsCandidate?: any[];
+  companyTargets?: any[];
+  keyMessages?: string[];
+  actionCommitments?: string[];
 }): Stage2State {
   // storyDraft: StoryChapter[] 形式に変換（既存 story から）
   const storyDraft: StoryChapter[] | undefined = storeData.story?.length
@@ -318,6 +327,7 @@ export function buildStage2StateFromStore(storeData: {
     : undefined;
 
   return {
+    ceoIntent: storeData.ceoIntent,
     mvv: {
       thought: storeData.thought,
       mission: storeData.mission,
@@ -331,7 +341,14 @@ export function buildStage2StateFromStore(storeData: {
       threat: storeData.threat,
     },
     storyDraft,
+    winPatternsCandidate: storeData.winPatternsCandidate,
     answers12,
     finalStory: storeData.finalStory,
+    finalStoryDraft: storeData.finalStoryDraft,
+    finalStoryEdited: storeData.finalStoryEdited,
+    finalStoryFinal: storeData.finalStoryFinal,
+    companyTargets: storeData.companyTargets,
+    keyMessages: storeData.keyMessages,
+    actionCommitments: storeData.actionCommitments,
   };
 }
