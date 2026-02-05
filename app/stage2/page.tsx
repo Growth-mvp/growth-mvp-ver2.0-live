@@ -178,9 +178,9 @@ function StepperTabs({ activeTab, onChange, canOpenDraft, hasDraft, canOpenWin, 
     warning?: boolean;
   }[] = [
     { id: 'input', label: '入力', enabled: true, completed: false },
-    { id: 'draft', label: 'DRAFT', enabled: canOpenDraft, completed: hasDraft },
-    { id: 'win', label: '勝ち筋', enabled: canOpenWin, completed: hasWinReady },
-    { id: 'final', label: '最終', enabled: hasFinal, completed: hasFinal },
+    { id: 'draft', label: 'たたき台', enabled: canOpenDraft, completed: hasDraft },
+    { id: 'win', label: '深掘り', enabled: canOpenWin, completed: hasWinReady },
+    { id: 'final', label: '最終確定', enabled: hasFinal, completed: hasFinal },
   ];
 
   return (
@@ -540,6 +540,376 @@ function OTSuggestionsPanel({
 }
 
 /* ===================================================
+ * ★ North Star (companyTargets) セクション
+ * =================================================== */
+interface CompanyTargetsSectionProps {
+  companyTargets: any[];
+  issueBlocks: any[];
+}
+
+function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: CompanyTargetsSectionProps) {
+  const [isAddingNew, setIsAddingNew] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formData, setFormData] = useState({
+    label: '',
+    unit: '',
+    base: '',
+    low: '',
+    high: '',
+    dueYear: '',
+    priority: 1,
+    rationale: '',
+    linkedIssueIds: [] as string[],
+  });
+
+  // ★ 修正：store から直接読み取り（props に依存しない＝親の再レンダーで入力値が消えない）
+  const companyTargets = useStrategyStore((s) => (s as any).companyTargets ?? []);
+  const addCompanyTarget = useStrategyStore((s) => (s as any).addCompanyTarget);
+  const updateCompanyTarget = useStrategyStore((s) => (s as any).updateCompanyTarget);
+  const removeCompanyTarget = useStrategyStore((s) => (s as any).removeCompanyTarget);
+
+  const handleAdd = () => {
+    if (!formData.label.trim() || !formData.base) {
+      alert('label と base は必須です');
+      return;
+    }
+
+    // ★ UUID生成：crypto.randomUUID() で安全にID生成（重複なし保証）
+    const newId = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `target_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    const newTarget = {
+      id: newId,
+      label: formData.label,
+      unit: formData.unit || '',
+      base: Number(formData.base) || 0,
+      low: formData.low ? Number(formData.low) : undefined,
+      high: formData.high ? Number(formData.high) : undefined,
+      dueYear: formData.dueYear ? Number(formData.dueYear) : undefined,
+      priority: formData.priority || 1,
+      rationale: formData.rationale || '',
+      linkedIssueIds: formData.linkedIssueIds,
+    };
+
+    addCompanyTarget?.(newTarget);
+    // ★ 診断：store に入ったか確定
+    if (process.env.NODE_ENV === 'development') {
+      setTimeout(() => {
+        const state = (useStrategyStore.getState() as any);
+        console.log('[diag][ct] after add', {
+          len: Array.isArray(state.companyTargets) ? state.companyTargets.length : null,
+          lastId: state.companyTargets?.[state.companyTargets.length - 1]?.id,
+        });
+      }, 0);
+    }
+    resetForm();
+  };
+
+  const handleUpdate = () => {
+    if (!formData.label.trim() || !formData.base || !editingId) return;
+
+    updateCompanyTarget?.(editingId, {
+      label: formData.label,
+      unit: formData.unit || '',
+      base: Number(formData.base) || 0,
+      low: formData.low ? Number(formData.low) : undefined,
+      high: formData.high ? Number(formData.high) : undefined,
+      dueYear: formData.dueYear ? Number(formData.dueYear) : undefined,
+      priority: formData.priority || 1,
+      rationale: formData.rationale || '',
+      linkedIssueIds: formData.linkedIssueIds,
+    });
+    // ★ 診断：store に反映されたか確定
+    if (process.env.NODE_ENV === 'development') {
+      setTimeout(() => {
+        const state = (useStrategyStore.getState() as any);
+        const updated = state.companyTargets?.find((t: any) => t.id === editingId);
+        console.log('[diag][ct] after update', {
+          len: Array.isArray(state.companyTargets) ? state.companyTargets.length : null,
+          updatedLabel: updated?.label,
+        });
+      }, 0);
+    }
+    resetForm();
+  };
+
+  const resetForm = () => {
+    setFormData({
+      label: '',
+      unit: '',
+      base: '',
+      low: '',
+      high: '',
+      dueYear: '',
+      priority: 1,
+      rationale: '',
+      linkedIssueIds: [],
+    });
+    setIsAddingNew(false);
+    setEditingId(null);
+  };
+
+  const handleEdit = (ct: any) => {
+    setFormData({
+      label: ct.label || '',
+      unit: ct.unit || '',
+      base: String(ct.base ?? ''),
+      low: ct.low !== undefined ? String(ct.low) : '',
+      high: ct.high !== undefined ? String(ct.high) : '',
+      dueYear: ct.dueYear !== undefined ? String(ct.dueYear) : '',
+      priority: ct.priority || 1,
+      rationale: ct.rationale || '',
+      linkedIssueIds: ct.linkedIssueIds || [],
+    });
+    setEditingId(ct.id);
+    setIsAddingNew(false);
+  };
+
+  const handleDelete = (id: string) => {
+    removeCompanyTarget?.(id);
+    // ★ 診断：削除後に store が反映されたか確定
+    if (process.env.NODE_ENV === 'development') {
+      setTimeout(() => {
+        const state = (useStrategyStore.getState() as any);
+        console.log('[diag][ct] after delete', {
+          len: Array.isArray(state.companyTargets) ? state.companyTargets.length : null,
+        });
+      }, 0);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-900/20 p-6">
+      <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">🌟 North Star（目標メトリクス）</h3>
+
+      {/* 既存目標表示 */}
+      <div className="space-y-3 max-h-[500px] overflow-auto mb-6">
+        {companyTargets.length === 0 && !isAddingNew && !editingId && (
+          <p className="text-sm text-gray-600 dark:text-gray-400">目標メトリクスはまだ設定されていません</p>
+        )}
+
+        {companyTargets.map((ct: any, idx: number) => {
+          // ★ key 安全化
+          const ctId = ct?.id && typeof ct.id === 'string' ? ct.id : `ct-${idx}-${ct?.label ?? 'no-label'}`;
+          return (
+          <div key={ctId} className="p-3 bg-white/60 dark:bg-white/5 rounded-lg border border-purple-200 dark:border-purple-700">
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <div className="font-medium text-gray-800 dark:text-gray-100">{ct.label}</div>
+                <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                  {ct.unit && `単位: ${ct.unit}`}
+                  {ct.dueYear && ` | 目標年: ${ct.dueYear}`}
+                  {ct.priority && ` | 優先度: ${ct.priority}`}
+                </div>
+                <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                  基準: {ct.base}
+                  {ct.low !== undefined && ` | 低: ${ct.low}`}
+                  {ct.high !== undefined && ` | 高: ${ct.high}`}
+                </div>
+                {ct.rationale && (
+                  <div className="text-xs text-purple-700 dark:text-purple-300 mt-2 p-2 bg-purple-100/30 dark:bg-purple-800/30 rounded">
+                    {ct.rationale}
+                  </div>
+                )}
+                {ct.linkedIssueIds?.length > 0 && (
+                  <div className="text-xs text-blue-600 dark:text-blue-400 mt-2">
+                    関連論点: {ct.linkedIssueIds.length}件
+                  </div>
+                )}
+              </div>
+              <div className="ml-2 flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => handleEdit(ct)}
+                  className="px-2 py-1 text-xs rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50"
+                >
+                  編集
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDelete(ct.id)}
+                  className="px-2 py-1 text-xs rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50"
+                >
+                  削除
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+        })}
+      </div>
+
+      {/* 追加/編集フォーム */}
+      {(isAddingNew || editingId) && (
+        <div className="border-t border-purple-200 dark:border-purple-700 pt-6 mb-6">
+          <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-4">
+            {editingId ? '編集' : '新規追加'}
+          </h4>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                ラベル <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={formData.label}
+                onChange={(e) => setFormData({ ...formData, label: e.target.value })}
+                className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5"
+                placeholder="e.g., 売上"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">単位</label>
+              <input
+                type="text"
+                value={formData.unit}
+                onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+                className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5"
+                placeholder="e.g., 百万円"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                基準値 <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                value={formData.base}
+                onChange={(e) => setFormData({ ...formData, base: e.target.value })}
+                className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">目標年</label>
+              <input
+                type="number"
+                value={formData.dueYear}
+                onChange={(e) => setFormData({ ...formData, dueYear: e.target.value })}
+                className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">低位</label>
+              <input
+                type="number"
+                value={formData.low}
+                onChange={(e) => setFormData({ ...formData, low: e.target.value })}
+                className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">高位</label>
+              <input
+                type="number"
+                value={formData.high}
+                onChange={(e) => setFormData({ ...formData, high: e.target.value })}
+                className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">優先度 (1-4)</label>
+              <select
+                value={formData.priority}
+                onChange={(e) => setFormData({ ...formData, priority: Number(e.target.value) })}
+                className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5"
+              >
+                <option value={1}>1 (低)</option>
+                <option value={2}>2</option>
+                <option value={3}>3</option>
+                <option value={4}>4 (高)</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="mb-4">
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-400">根拠・説明</label>
+            <textarea
+              value={formData.rationale}
+              onChange={(e) => setFormData({ ...formData, rationale: e.target.value })}
+              className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5 min-h-[80px] resize-y"
+              placeholder="このメトリクスを選んだ理由"
+            />
+          </div>
+
+          <div className="mb-4">
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-400">関連論点（複数選択可）</label>
+            <div className="grid grid-cols-2 gap-2 mt-2 max-h-[150px] overflow-auto bg-white/30 dark:bg-white/5 p-3 rounded-lg">
+              {issueBlocks.map((issue: any, idx: number) => {
+                // ★ key 安全化：issue.id が undefined か不安定な場合のフォールバック
+                const rawId = issue?.id;
+                const issueId =
+                  typeof rawId === 'string' && rawId.trim().length > 0
+                    ? rawId
+                    : `issue-${idx}-${(issue?.title ?? 'no-title').replace(/\s+/g, '-')}`;
+
+                return (
+                  <label key={issueId} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={formData.linkedIssueIds.includes(issueId)}
+                      onChange={(e) => {
+                        // ★ 修正：functional setState でループを防止
+                        const checked = e.target.checked;
+                        setFormData((prev) => ({
+                          ...prev,
+                          linkedIssueIds: checked
+                            ? Array.from(new Set([...prev.linkedIssueIds, issueId]))
+                            : prev.linkedIssueIds.filter((x) => x !== issueId),
+                        }));
+                      }}
+                      className="rounded"
+                    />
+                    <span className="text-gray-700 dark:text-gray-300 truncate">
+                      {issue?.title || `（無題の論点 ${idx}）`}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex gap-2 justify-end">
+            <button
+              type="button"
+              onClick={resetForm}
+              className="px-4 py-2 text-sm rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600"
+            >
+              キャンセル
+            </button>
+            <button
+              type="button"
+              onClick={editingId ? handleUpdate : handleAdd}
+              className="px-4 py-2 text-sm rounded-lg bg-purple-600 text-white hover:bg-purple-700"
+            >
+              {editingId ? '更新' : '追加'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 追加ボタン */}
+      {!isAddingNew && !editingId && (
+        <button
+          type="button"
+          onClick={() => setIsAddingNew(true)}
+          className="w-full px-4 py-2 text-sm rounded-lg border border-dashed border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-400 hover:bg-purple-50/50 dark:hover:bg-purple-900/10 transition-colors"
+        >
+          + 新規メトリクスを追加
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ===================================================
  * SWOTセクション
  * =================================================== */
 function SWOTSection() {
@@ -790,9 +1160,19 @@ export default function Stage2Page() {
   const winPatternsCandidate = useStrategyStore((s) => (s as any).winPatternsCandidate ?? EMPTY_WIN_PATTERNS);
   const setWinPatternsCandidate = useStrategyStore((s) => (s as any).setWinPatternsCandidate as any);
 
+  const companyTargets = useStrategyStore((s) => (s as any).companyTargets ?? []);
+  const setCompanyTargets = useStrategyStore((s) => (s as any).setCompanyTargets as any);
+
   const finalStory = useStrategyStore((s) => s.finalStory ?? EMPTY_STORY_DRAFT);
+
+  // finalStory 3状態 setter（北星・最終ストーリー編集用）
+  const setFinalStoryDraft = useStrategyStore((s) => (s as any).setFinalStoryDraft);
+  const setFinalStoryEdited = useStrategyStore((s) => (s as any).setFinalStoryEdited);
+  const commitFinalStory = useStrategyStore((s) => (s as any).commitFinalStory);
+
+  // 互換性維持
   const setStoreFinalStory = useStrategyStore((s) => s.setFinalStory);
-  const setLocalFinalStory = setStoreFinalStory; // 互換性維持
+  const setLocalFinalStory = setStoreFinalStory;
 
   /* ★ TASK A-1: answers12 を統一（line 772-773 と重複定義を廃止） */
   // answers12 は line 773 の setAnswers12 を使用
@@ -800,6 +1180,12 @@ export default function Stage2Page() {
   // const answers12 = useStrategyStore((s) => (s as any).answers12 ?? EMPTY_ANSWERS12);
   // const setLocalAnswers12 = useStrategyStore((s) => (s as any).setAnswers12 as any);
   // 代わりに line 772 の storeAnswers12 を answers12 として使用する（下記で名前変更）
+
+  // STAGE2：最終ストーリー3段階（読み取り+setter）
+  const finalStoryDraftRaw = useStrategyStore((s) => s.finalStoryDraft);
+  const finalStoryEditedRaw = useStrategyStore((s) => s.finalStoryEdited);
+  const finalStoryFinalRaw = useStrategyStore((s) => s.finalStoryFinal);
+  // setFinalStoryDraft, setFinalStoryEdited, commitFinalStory は上記 796-798行で定義済み
 
   // SWOT suggestions store連携（Hooks Rule: top-level で呼ぶ）
   const swotSuggestions = useStrategyStore((s) => s.swotSuggestions);
@@ -823,11 +1209,22 @@ export default function Stage2Page() {
 
   // Final
   const [selectedWinPatternId, setSelectedWinPatternId] = useState<string | null>(null); // UIでは選択させない（内部参照用）
+  const [editingStory, setEditingStory] = useState<StoryChapter[]>([]);
   const [generatingFinal, setGeneratingFinal] = useState(false);
   const [generateFinalError, setGenerateFinalError] = useState<string | null>(null);
 
+  // ★ STAGE2 Final Story：表示用（確定版 > 編集版 > 下書き版）
+  const displayedFinalStory = finalStoryFinalRaw ?? finalStoryEditedRaw ?? finalStoryDraftRaw ?? [];
+
   // Active tab
   const [activeTab, setActiveTab] = useState<TabId>('input');
+
+  // ★ editingStory の同期（タブ表示時＆store更新時）
+  useEffect(() => {
+    if (activeTab === 'final' && displayedFinalStory.length > 0) {
+      setEditingStory(displayedFinalStory);
+    }
+  }, [activeTab, displayedFinalStory]);
 
   // 初期復元が完了したか（復元前に local->store が走って store を空で上書きするのを防ぐ）
   const [stage2Ready, setStage2Ready] = useState(false);
@@ -928,7 +1325,56 @@ export default function Stage2Page() {
 
     // ★ TASK 11.6: DB 採用時に hydratedState を即座に store に反映
     if (decision.sourceUsed === 'db' && decision.hydratedState) {
-      useStrategyStore.getState().hydrateFromFullState?.(decision.hydratedState);
+      // ★ STEP 3: Pre-hydration diagnostic log
+      console.log('[diag][store:pre_hydrate] NEW FIELDS INCOMING', {
+        companyTargets_len: Array.isArray((decision.hydratedState as any).companyTargets) ? (decision.hydratedState as any).companyTargets.length : 0,
+        finalStoryDraft_len: Array.isArray((decision.hydratedState as any).finalStoryDraft) ? (decision.hydratedState as any).finalStoryDraft.length : 0,
+        finalStoryEdited_len: Array.isArray((decision.hydratedState as any).finalStoryEdited) ? (decision.hydratedState as any).finalStoryEdited.length : 0,
+        finalStoryFinal_len: Array.isArray((decision.hydratedState as any).finalStoryFinal) ? (decision.hydratedState as any).finalStoryFinal.length : 0,
+      });
+
+      // ★ STEP 4: Empty-overwrite guard for DB restore
+      // Prevent empty arrays from overwriting existing store values
+      const guardedHydratedState = { ...decision.hydratedState };
+      const storeState = useStrategyStore.getState();
+
+      // Only restore if array has length > 0, otherwise keep existing store value
+      if (Array.isArray((guardedHydratedState as any).companyTargets) && (guardedHydratedState as any).companyTargets.length === 0 && Array.isArray((storeState as any).companyTargets) && (storeState as any).companyTargets.length > 0) {
+        delete (guardedHydratedState as any).companyTargets;
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[diag][guard] Blocked empty companyTargets from overwriting store');
+        }
+      }
+      if (Array.isArray((guardedHydratedState as any).finalStoryDraft) && (guardedHydratedState as any).finalStoryDraft.length === 0 && Array.isArray((storeState as any).finalStoryDraft) && (storeState as any).finalStoryDraft.length > 0) {
+        delete (guardedHydratedState as any).finalStoryDraft;
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[diag][guard] Blocked empty finalStoryDraft from overwriting store');
+        }
+      }
+      if (Array.isArray((guardedHydratedState as any).finalStoryEdited) && (guardedHydratedState as any).finalStoryEdited.length === 0 && Array.isArray((storeState as any).finalStoryEdited) && (storeState as any).finalStoryEdited.length > 0) {
+        delete (guardedHydratedState as any).finalStoryEdited;
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[diag][guard] Blocked empty finalStoryEdited from overwriting store');
+        }
+      }
+      if (Array.isArray((guardedHydratedState as any).finalStoryFinal) && (guardedHydratedState as any).finalStoryFinal.length === 0 && Array.isArray((storeState as any).finalStoryFinal) && (storeState as any).finalStoryFinal.length > 0) {
+        delete (guardedHydratedState as any).finalStoryFinal;
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[diag][guard] Blocked empty finalStoryFinal from overwriting store');
+        }
+      }
+
+      useStrategyStore.getState().hydrateFromFullState?.(guardedHydratedState);
+
+      // ★ STEP 3: Post-hydration diagnostic log
+      const storeStateAfterHydrate = useStrategyStore.getState();
+      console.log('[diag][store:post_hydrate] NEW FIELDS IN STORE', {
+        companyTargets_len: Array.isArray((storeStateAfterHydrate as any).companyTargets) ? (storeStateAfterHydrate as any).companyTargets.length : 0,
+        finalStoryDraft_len: Array.isArray((storeStateAfterHydrate as any).finalStoryDraft) ? (storeStateAfterHydrate as any).finalStoryDraft.length : 0,
+        finalStoryEdited_len: Array.isArray((storeStateAfterHydrate as any).finalStoryEdited) ? (storeStateAfterHydrate as any).finalStoryEdited.length : 0,
+        finalStoryFinal_len: Array.isArray((storeStateAfterHydrate as any).finalStoryFinal) ? (storeStateAfterHydrate as any).finalStoryFinal.length : 0,
+      });
+
       setStage2Ready(true);
       return;
     }
@@ -953,12 +1399,12 @@ export default function Stage2Page() {
 
       // ✅ ceoIntent 復元（snapshot → store）
       if (typeof (st as any).ceoIntent === 'string') {
-        useStrategyStore.getState().setCeoIntent((st as any).ceoIntent);
+        useStrategyStore.getState().setCeoIntent?.((st as any).ceoIntent);
       }
 
       // ✅ MVV 復元（snapshot → store）
       if (st.mvv) {
-        useStrategyStore.getState().setMVV({
+        useStrategyStore.getState().setMVV?.({
           thought: st.mvv.thought ?? '',
           mission: st.mvv.mission ?? '',
           vision: st.mvv.vision ?? '',
@@ -968,7 +1414,7 @@ export default function Stage2Page() {
 
       // ✅ SWOT 復元（snapshot → store）
       if (st.swot) {
-        useStrategyStore.getState().setSWOT({
+        useStrategyStore.getState().setSWOT?.({
           strength: st.swot.strength ?? '',
           weakness: st.swot.weakness ?? '',
           opportunity: st.swot.opportunity ?? '',
@@ -1026,13 +1472,80 @@ export default function Stage2Page() {
         }
       }
 
+      // ✅ finalStoryDraft 復元（3段階編集用）（空上書き防止）
+      const fsd = st.finalStoryDraft ?? [];
+      if (Array.isArray(fsd) && fsd.length > 0) {
+        setFinalStoryDraft(fsd);
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[Stage2] snapshot.finalStoryDraft restored:', fsd.length);
+        }
+      } else if (fsd.length === 0) {
+        // 空配列が返ってきた場合、既存の store 値を保持（上書きしない）
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[Stage2] finalStoryDraft is empty in snapshot, keeping existing store value');
+        }
+      }
+
+      // ✅ finalStoryEdited 復元（3段階編集用）（空上書き防止）
+      const fse = st.finalStoryEdited ?? [];
+      if (Array.isArray(fse) && fse.length > 0) {
+        setFinalStoryEdited(fse);
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[Stage2] snapshot.finalStoryEdited restored:', fse.length);
+        }
+      } else if (fse.length === 0) {
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[Stage2] finalStoryEdited is empty in snapshot, keeping existing store value');
+        }
+      }
+
+      // ✅ finalStoryFinal 復元（3段階編集用）（空上書き防止）
+      const fsf = st.finalStoryFinal ?? [];
+      if (Array.isArray(fsf) && fsf.length > 0) {
+        commitFinalStory(fsf);
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[Stage2] snapshot.finalStoryFinal restored:', fsf.length);
+        }
+      } else if (fsf.length === 0) {
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[Stage2] finalStoryFinal is empty in snapshot, keeping existing store value');
+        }
+      }
+
+      // ✅ companyTargets 復元（North Star メトリクス）（空上書き防止）
+      const ct = st.companyTargets ?? [];
+      if (Array.isArray(ct) && ct.length > 0) {
+        setCompanyTargets(ct);
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[Stage2] snapshot.companyTargets restored:', ct.length);
+        }
+      } else if (ct.length === 0) {
+        // 空配列が返ってきた場合、既存の store 値を保持（上書きしない）
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[Stage2] companyTargets is empty in snapshot, keeping existing store value');
+        }
+      }
+
       console.log(
         `[audit][restore:done] decisionId=${decision.decisionId} sourceUsed=${decision.sourceUsed} strategyId=${decision.strategyId}`,
       );
+      lastSyncedAnswersHashRef.current = hashAnswers12(a12);
+    }
+
+    // ★ 診断ログ：restore後のstore状態
+    if (process.env.NODE_ENV === 'development') {
+      const storeState = useStrategyStore.getState();
+      console.log('[Stage2] after restore - store state:', {
+        companyTargetsCount: Array.isArray((storeState as any).companyTargets) ? (storeState as any).companyTargets.length : 'missing',
+        finalStoryDraftCount: Array.isArray((storeState as any).finalStoryDraft) ? (storeState as any).finalStoryDraft.length : 'missing',
+        finalStoryEditedCount: Array.isArray((storeState as any).finalStoryEdited) ? (storeState as any).finalStoryEdited.length : 'missing',
+        finalStoryFinalCount: Array.isArray((storeState as any).finalStoryFinal) ? (storeState as any).finalStoryFinal.length : 'missing',
+        mvvMission: (storeState as any).mission?.slice(0, 30) ?? 'empty',
+      });
     }
 
     setStage2Ready(true);
-  }, [setStoreFinalStory, companyId]);
+  }, [setStoreFinalStory, setCompanyTargets, companyId]);
 
   // ★ TASK 11-1: restore useEffect を membership 不依存に
   // 初回だけロード＆復元（複数回走ってスナップショット保存が暴発するのを防ぐ）
@@ -1062,7 +1575,11 @@ export default function Stage2Page() {
         storyDraft,
         winPatternsCandidate,
         answers12,
-        finalStory,
+        finalStory: displayedFinalStory,
+        finalStoryDraft: finalStoryDraftRaw,
+        finalStoryEdited: finalStoryEditedRaw,
+        finalStoryFinal: finalStoryFinalRaw,
+        companyTargets,
       };
 
       saveStage2SnapshotToLocalStorage(stage2State, companyId ?? undefined);
@@ -1073,7 +1590,11 @@ export default function Stage2Page() {
           answered: answers12?.filter((a: Stage2Answer) => a.answer?.trim()).length ?? 0,
           hasDraft: storyDraft?.length ?? 0,
           hasWin: winPatternsCandidate?.length ?? 0,
-          hasFinal: finalStory?.length ?? 0,
+          hasFinal: displayedFinalStory?.length ?? 0,
+          companyTargetsCount: companyTargets?.length ?? 0,
+          finalStoryDraftCount: finalStoryDraftRaw?.length ?? 0,
+          finalStoryEditedCount: finalStoryEditedRaw?.length ?? 0,
+          finalStoryFinalCount: finalStoryFinalRaw?.length ?? 0,
         });
       }
     }, 300);
@@ -1094,7 +1615,11 @@ export default function Stage2Page() {
     answers12,
     storyDraft,
     winPatternsCandidate,
-    finalStory,
+    displayedFinalStory,
+    finalStoryDraftRaw,
+    finalStoryEditedRaw,
+    finalStoryFinalRaw,
+    companyTargets,
   ]);
 
   // ★ Development環境での fetch フック（限定版：/api/stage2/ は素通し）
@@ -1204,8 +1729,7 @@ export default function Stage2Page() {
     if (!stage2Ready) return;
 
     // 既に何か入っているなら何もしない
-    const cur = useStrategyStore.getState().answers12;
-    if (Array.isArray(cur) && cur.length > 0) return;
+    if (Array.isArray(answers12) && answers12.length > 0) return;
 
     // 12問の器を作る（question も TEMPLATE12 から拾う）
     const seeded: Stage2Answer[] = TEMPLATE12.map((q) => ({
@@ -1213,8 +1737,8 @@ export default function Stage2Page() {
       question: q.question,
       answer: '',
     }));
-    useStrategyStore.getState().setAnswers12(seeded);
-  }, [stage2Ready]);
+    setAnswers12(seeded);
+  }, [stage2Ready, setAnswers12]);
 
   // O/T generation
   const handleGenerateOT = useCallback(async () => {
@@ -1480,6 +2004,11 @@ export default function Stage2Page() {
               companyId,
               hasMVV: !!(savePayload.mission || savePayload.vision),
               payloadKeyCount: Object.keys(savePayload).length,
+              // ★ 診断：新フィールドが payload に入ってるか
+              companyTargetsInPayload: Array.isArray((savePayload as any).companyTargets) ? (savePayload as any).companyTargets.length : 'missing',
+              finalStoryDraftInPayload: Array.isArray((savePayload as any).finalStoryDraft) ? (savePayload as any).finalStoryDraft.length : 'missing',
+              finalStoryEditedInPayload: Array.isArray((savePayload as any).finalStoryEdited) ? (savePayload as any).finalStoryEdited.length : 'missing',
+              finalStoryFinalInPayload: Array.isArray((savePayload as any).finalStoryFinal) ? (savePayload as any).finalStoryFinal.length : 'missing',
             });
 
             const saveResult = await saveWithAudit(
@@ -1621,6 +2150,7 @@ export default function Stage2Page() {
           // UIでは選択させないが、API整合のため内部で先頭候補を参照（無い場合は null）
           selectedWinPatternId: selectedWinPatternId ?? winPatternsCandidate?.[0]?.id ?? null,
           answers12, // 未回答でもOK（空文字が混ざっていても許容）
+          companyTargets,
           industry,
           segments: segmentNames,
           businessSegments,
@@ -1652,8 +2182,19 @@ export default function Stage2Page() {
       const data = await response.json();
       const newFinalStory: StoryChapter[] = Array.isArray(data.finalStory) ? data.finalStory : [];
 
-      /* ★ TASK 16: store setter で finalStory を設定 */
-      setStoreFinalStory(newFinalStory);
+      // ★ STAGE2 最終ストーリー：draft に設定（edited は保持）
+      setFinalStoryDraft(newFinalStory);
+
+      // ★ 診断：store に入ったか確定
+      if (process.env.NODE_ENV === 'development') {
+        setTimeout(() => {
+          const storeState = (useStrategyStore.getState() as any);
+          console.log('[diag][final] after setFinalStoryDraft', {
+            len: Array.isArray(storeState.finalStoryDraft) ? storeState.finalStoryDraft.length : null,
+            source: 'store',
+          });
+        }, 0);
+      }
 
       if (process.env.NODE_ENV === 'development') {
         console.log('[Stage2] Generated finalStory set to store:', {
@@ -1672,7 +2213,7 @@ export default function Stage2Page() {
         storyDraft,
         winPatternsCandidate,
         answers12,
-        finalStory: newFinalStory,
+        finalStory: newFinalStory, // ★ 後方互換性のため保持
       };
       saveStage2SnapshotToLocalStorage(stage2State, companyId ?? undefined);
     } catch (e: any) {
@@ -1708,11 +2249,12 @@ export default function Stage2Page() {
     winPatternsCandidate,
     selectedWinPatternId,
     answers12,
+    companyTargets,
     industry,
     businessSegments,
     businessPortfolio,
     companyId,
-    setStoreFinalStory,
+    setFinalStoryDraft,
   ]);
 
   // Guard
@@ -1741,7 +2283,7 @@ export default function Stage2Page() {
   const hasDraft = storyDraft.length > 0;
   const canOpenWin = hasDraft; // たたき台生成後に進める
   const hasWinReady = hasDraft; // Draft生成済みなら最終生成が可能
-  const hasFinal = finalStory.length > 0;
+  const hasFinal = displayedFinalStory.length > 0;
 
   // ★ TASK 10-3: UI表示直前に field_check ログ（DEV限定）
   if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
@@ -1817,6 +2359,12 @@ export default function Stage2Page() {
                 <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
                   <MVVSection />
                 </div>
+
+                {/* ★ North Star Targets（目標メトリクス）セクション - MVV と SWOT の間に配置 */}
+                <CompanyTargetsSection
+                  companyTargets={companyTargets}
+                  issueBlocks={issueBlocks}
+                />
 
                 <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
                   <SWOTSection />
@@ -1923,16 +2471,9 @@ export default function Stage2Page() {
             {/* 勝ち筋タグ：勝ち筋一覧（選択不要）＋12の質問→最終生成 */}
             {activeTab === 'win' && (
               <div className="space-y-6">
-                <WinPatternList candidates={winPatternsCandidate} />
+                <DraftStoryPanel storyDraft={storyDraft} />
 
-                {/* ★ 修正：12問フォームは常に入力可能に（Draft 無くても入力可）*/}
                 <Questions12Section answers12={answers12} onUpdateAnswer={handleUpdateAnswer} disabled={false} />
-
-                {!hasDraft && (
-                  <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4 text-sm text-amber-700 dark:text-amber-400">
-                    たたき台（DRAFT）を生成すると、最終ストーリーの精度が上がります（12問は先に入力してOKです）。
-                  </div>
-                )}
 
                 <div className="flex justify-center">
                   <button
@@ -1959,21 +2500,92 @@ export default function Stage2Page() {
             {/* 最終タグ：最終ストーリー */}
             {activeTab === 'final' && (
               <div className="space-y-6">
-                {finalStory.length > 0 ? (
+                {displayedFinalStory.length > 0 ? (
                   <>
-                    <FinalStoryPreview finalStory={finalStory} />
+                    {/* ★ 確定済みバッジ */}
+                    {finalStoryFinalRaw && (
+                      <div className="inline-block bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-700 rounded-lg px-4 py-2">
+                        <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">✓ 確定済み</p>
+                      </div>
+                    )}
 
-                    <div className="flex justify-center">
+                    {/* ★ 4章の編集UI */}
+                    <div className="space-y-6">
+                      {editingStory.map((chapter, chapterIndex) => (
+                        <div key={chapterIndex} className="border border-gray-200 dark:border-gray-700 rounded-lg p-6 bg-white dark:bg-gray-800">
+                          {/* 章タイトル */}
+                          <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-4">{chapter.title}</h3>
+
+                          {/* Textarea */}
+                          <textarea
+                            value={editingStory[chapterIndex]?.body ?? ''}
+                            onChange={(e) => {
+                              const updated = [...editingStory];
+                              if (updated[chapterIndex]) {
+                                updated[chapterIndex].body = e.target.value;
+                              }
+                              setEditingStory(updated);
+                            }}
+                            className="w-full h-48 p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            placeholder={`${chapter.title}の本文を入力...`}
+                          />
+
+                          {/* 文字数カウンタ */}
+                          <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                            {(editingStory[chapterIndex]?.body ?? '').length} 文字
+                            <span className="ml-2 text-gray-400">（推奨: 700-1200 文字）</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* ★ 3つのボタン */}
+                    <div className="flex gap-3 justify-center pt-4">
+                      {/* 保存（下書き保存） */}
+                      <button
+                        onClick={() => {
+                          setFinalStoryEdited(editingStory);
+                        }}
+                        className="px-6 py-3 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors shadow-md"
+                      >
+                        保存
+                      </button>
+
+                      {/* 確定（Final） */}
+                      <button
+                        onClick={() => {
+                          setFinalStoryEdited(editingStory);
+                          setTimeout(() => commitFinalStory(), 100);
+                        }}
+                        className="px-6 py-3 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors shadow-md"
+                      >
+                        確定
+                      </button>
+
+                      {/* 破棄（編集を戻す） */}
+                      <button
+                        onClick={() => {
+                          // edited をクリアして draft に戻す
+                          setEditingStory(finalStoryFinalRaw ?? finalStoryDraftRaw ?? []);
+                        }}
+                        className="px-6 py-3 rounded-lg bg-gray-400 text-white text-sm font-medium hover:bg-gray-500 transition-colors shadow-md"
+                      >
+                        破棄
+                      </button>
+                    </div>
+
+                    {/* 再生成ボタン */}
+                    <div className="flex justify-center pt-6 border-t border-gray-200 dark:border-gray-700">
                       <button
                         onClick={handleGenerateFinal}
                         disabled={!hasDraft || generatingFinal}
-                        className="px-8 py-4 rounded-xl bg-emerald-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-emerald-700 transition-colors shadow-lg"
+                        className="px-8 py-4 rounded-xl bg-slate-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors shadow-lg"
                       >
                         {generatingFinal ? '生成中...' : '最終ストーリーを再生成'}
                       </button>
                     </div>
 
-                    <p className="text-sm text-gray-500 text-center">※ 12の質問は未回答でも再生成できます（回答があるほど、内容は具体化されます）</p>
+                    <p className="text-xs text-gray-500 text-center">※ 再生成すると下書きが更新され、編集版は保持されます</p>
                   </>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50/50 dark:bg-gray-800/50 p-8 text-center">

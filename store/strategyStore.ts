@@ -35,6 +35,7 @@ import type {
   StoryChapter,
   Stage1Benchmarks,
   StrategyData,
+  CompanyTarget,
 } from '@/types/strategy';
 import type { BusinessPortfolio } from '@/types/portfolio';
 import {
@@ -212,6 +213,14 @@ export type StrategyState = {
   winPatternsCandidate: WinPatternCandidate[]; // ★ 修正：常に配列
   answers12: Stage2Answer[]; // ★ 修正：常に配列
 
+  /* ★ STAGE2：最終ストーリー（3段階） */
+  finalStoryDraft?: StoryChapter[];
+  finalStoryEdited?: StoryChapter[];
+  finalStoryFinal?: StoryChapter[];
+
+  /* ★ STAGE2：会社の数値目標（North Star Metrics） */
+  companyTargets?: CompanyTarget[];
+
   /* ★ 全社レベルの勝ち筋（受け皿） */
   winPatterns?: WinPattern[];
   winPatternPrimary?: WinPatternId;
@@ -339,6 +348,17 @@ export type StrategyState = {
   setWinPatternsCandidate: (candidates: WinPatternCandidate[]) => void;
   setAnswers12: (answers: Stage2Answer[]) => void;
   updateAnswer12: (id: string, patch: Partial<Stage2Answer>) => void;
+
+  /* ▼ STAGE2 数値目標（North Star） setter */
+  setCompanyTargets: (targets: CompanyTarget[]) => void;
+  addCompanyTarget: (target: CompanyTarget) => void;
+  updateCompanyTarget: (id: string, patch: Partial<CompanyTarget>) => void;
+  removeCompanyTarget: (id: string) => void;
+
+  /* ▼ STAGE2 最終ストーリー setter */
+  setFinalStoryDraft: (chapters: StoryChapter[]) => void;
+  setFinalStoryEdited: (chapters: StoryChapter[]) => void;
+  commitFinalStory: () => void;
 
   /* ▼ STAGE4 setter */
   setStage4Plans: (plans: Array<{
@@ -545,6 +565,12 @@ function buildSavePayload(s: StrategyState) {
     storyDraft: s.storyDraft,
     winPatternsCandidate: s.winPatternsCandidate,
     answers12: s.answers12,
+
+    // ★ 追加：companyTargets / finalStory 3-state（北星・最終ストーリー編集用）
+    companyTargets: (s as any).companyTargets,
+    finalStoryDraft: (s as any).finalStoryDraft,
+    finalStoryEdited: (s as any).finalStoryEdited,
+    finalStoryFinal: (s as any).finalStoryFinal,
 
     winPatterns: s.winPatterns,
     winPatternPrimary: s.winPatternPrimary,
@@ -822,6 +848,10 @@ const emptyData: StrategyState = {
   storyDraft: [], // ★ 修正：undefined から [] に統一（infinite loop 防止）
   winPatternsCandidate: [], // ★ 修正：undefined から [] に統一
   answers12: [], // ★ 修正：undefined から [] に統一
+  finalStoryDraft: undefined,
+  finalStoryEdited: undefined,
+  finalStoryFinal: undefined,
+  companyTargets: [],
   winPatterns: undefined,
   winPatternPrimary: undefined,
   winPatternSecondary: undefined,
@@ -878,6 +908,13 @@ const emptyData: StrategyState = {
   setWinPatternsCandidate: () => {},
   setAnswers12: () => {},
   updateAnswer12: () => {},
+  setCompanyTargets: () => {},
+  addCompanyTarget: () => {},
+  updateCompanyTarget: () => {},
+  removeCompanyTarget: () => {},
+  setFinalStoryDraft: () => {},
+  setFinalStoryEdited: () => {},
+  commitFinalStory: () => {},
   setStage4Plans: () => {},
   setExecutionPlanBaseline: () => {},
   recomputeValueAnalysis: () => {},
@@ -1487,6 +1524,70 @@ export const useStrategyStore = create<StrategyState>()(
         }, 0);
       },
 
+      setCompanyTargets: (targets: CompanyTarget[]) => {
+        set((s) => ({ ...s, companyTargets: targets, dirty: true }));
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
+      addCompanyTarget: (target: CompanyTarget) => {
+        set((s) => {
+          const prev = s.companyTargets ?? [];
+          return { ...s, companyTargets: [...prev, target], dirty: true };
+        });
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
+      updateCompanyTarget: (id: string, patch: Partial<CompanyTarget>) => {
+        set((s) => {
+          const prev = s.companyTargets ?? [];
+          const idx = prev.findIndex((t) => t.id === id);
+          if (idx < 0) return s;
+          const next = [...prev];
+          next[idx] = { ...next[idx], ...patch };
+          return { ...s, companyTargets: next, dirty: true };
+        });
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
+      removeCompanyTarget: (id: string) => {
+        set((s) => {
+          const prev = s.companyTargets ?? [];
+          return { ...s, companyTargets: prev.filter((t) => t.id !== id), dirty: true };
+        });
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
+      setFinalStoryDraft: (chapters: StoryChapter[]) => {
+        set((s) => ({ ...s, finalStoryDraft: chapters, dirty: true }));
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
+      setFinalStoryEdited: (chapters: StoryChapter[]) => {
+        set((s) => ({ ...s, finalStoryEdited: chapters, dirty: true }));
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
+      commitFinalStory: () => {
+        const s = get();
+        const toCommit = s.finalStoryEdited ?? s.finalStoryDraft ?? [];
+        set((state) => ({ ...state, finalStoryFinal: toCommit, dirty: true }));
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
       /* ▼ STAGE4 setter */
       setStage4Plans: (plans) => {
         set((s) => ({ ...s, stage4Plans: plans, dirty: true }));
@@ -2058,6 +2159,18 @@ export const useStrategyStore = create<StrategyState>()(
                   payload_has_answers12: 'answers12' in (payload as any),
                   payload_answers12_first: answers12_len !== 'not_array' && (payload as any).answers12.length > 0 ? (payload as any).answers12[0] : null,
                 });
+
+                // ★ 診断：companyTargets / finalStory* が payload に入ってるか
+                console.log('[diag][store:before_save]', {
+                  companyTargetsLen: Array.isArray((state as any).companyTargets) ? (state as any).companyTargets.length : null,
+                  payload_companyTargetsLen: Array.isArray((payload as any).companyTargets) ? (payload as any).companyTargets.length : null,
+                  finalStoryDraftLen: Array.isArray((state as any).finalStoryDraft) ? (state as any).finalStoryDraft.length : null,
+                  payload_finalStoryDraftLen: Array.isArray((payload as any).finalStoryDraft) ? (payload as any).finalStoryDraft.length : null,
+                  finalStoryEditedLen: Array.isArray((state as any).finalStoryEdited) ? (state as any).finalStoryEdited.length : null,
+                  payload_finalStoryEditedLen: Array.isArray((payload as any).finalStoryEdited) ? (payload as any).finalStoryEdited.length : null,
+                  finalStoryFinalLen: Array.isArray((state as any).finalStoryFinal) ? (state as any).finalStoryFinal.length : null,
+                  payload_finalStoryFinalLen: Array.isArray((payload as any).finalStoryFinal) ? (payload as any).finalStoryFinal.length : null,
+                });
               }
 
               if (isEffectivelyEmpty(payload)) {
@@ -2590,6 +2703,9 @@ export const useStrategyStore = create<StrategyState>()(
 
         story: s.story,
         finalStory: s.finalStory,
+        finalStoryDraft: (s as any).finalStoryDraft, // ✅ 追加：最終ストーリー ドラフト版（3段階編集用）
+        finalStoryEdited: (s as any).finalStoryEdited, // ✅ 追加：最終ストーリー 編集版（3段階編集用）
+        finalStoryFinal: (s as any).finalStoryFinal, // ✅ 追加：最終ストーリー 確定版（3段階編集用）
         ceoIntent: s.ceoIntent, // ✅ 追加：経営者の思いを persist 対象に含める
         storyDraft: s.storyDraft, // ✅ 追加：STAGE2 ドラフトストーリーを persist 対象に
         answers2: s.answers2,
@@ -2648,6 +2764,7 @@ export const useStrategyStore = create<StrategyState>()(
         threat: s.threat,
 
         winPatternsCandidate: (s as any).winPatternsCandidate, // ✅ 追加：STAGE2 勝ち筋候補を persist 対象に
+        companyTargets: (s as any).companyTargets, // ✅ 追加：North Star メトリクスを persist 対象に
         winPatterns: s.winPatterns,
         winPatternPrimary: s.winPatternPrimary,
         winPatternSecondary: s.winPatternSecondary,
@@ -2671,11 +2788,11 @@ export const useStrategyStore = create<StrategyState>()(
         isRestoring: true,
       }),
       storage: createJSONStorage(() => localStorage),
-      onRehydrateStorage: () => (_state, error) => {
+      onRehydrateStorage: () => (state, error) => {
         if (error) console.warn('rehydration error:', error);
         /* ★ TASK 14: persist rehydrate 完了を通知（hydrated=true） */
         if (!error) {
-          useStrategyStore.getState().setHydrated(true);
+          state?.setHydrated(true);
         }
       },
     }

@@ -21,7 +21,7 @@ export type RestoreDecision = {
   decisionId: string; // UUID: start/decision/done で統一
   sourceUsed: 'db' | 'store' | 'snapshot' | 'none';
   reason: string;
-  strategyId?: string;
+  strategyId?: string | null;
   revision?: number;
   didHydrateStore: boolean;
   didClearSnapshot: boolean;
@@ -34,7 +34,7 @@ export type RestoreDecision = {
   hasStoreData?: boolean;
   hasSnapshot?: boolean;
   snapshotCompanyId?: string;
-  effectiveCompanyId?: string;
+  effectiveCompanyId?: string | null;
 };
 
 /**
@@ -163,7 +163,7 @@ export async function restoreWithAudit(
         decisionId,
         sourceUsed: 'store',
         reason: 'db_error_use_store',
-        strategyId: store.id,
+        strategyId: store.strategyId,
         revision: store.revision,
         didHydrateStore: false,
         didClearSnapshot: false,
@@ -226,17 +226,17 @@ export async function restoreWithAudit(
       console.log('[audit][restore:field_check]', {
         decisionId: decision.decisionId,
         sourceUsed: decision.sourceUsed,
-        ceoIntentLen: hydratedState?.ceoIntent?.length ?? 0,
+        ceoIntentLen: (hydratedState as any)?.ceoIntent?.length ?? 0,
         revision: hydratedState?.revision,
       });
 
       // ★ TASK 4: answers12 restore confirmation log
-      const answers12Len = Array.isArray(hydratedState?.answers12) ? hydratedState.answers12.length : 0;
+      const answers12Len = Array.isArray((hydratedState as any)?.answers12) ? (hydratedState as any).answers12.length : 0;
       if (answers12Len > 0) {
         console.log('[audit][restore] TASK 4 answers12 confirmed', {
           sourceUsed: decision.sourceUsed,
           answers12Len,
-          first: (hydratedState?.answers12 as any)?.[0] ?? null,
+          first: (hydratedState as any)?.answers12?.[0] ?? null,
         });
       }
 
@@ -252,7 +252,7 @@ export async function restoreWithAudit(
         decisionId,
         sourceUsed: 'store',
         reason: 'store_has_mvv',
-        strategyId: store.id,
+        strategyId: store.strategyId,
         revision: store.revision,
         didHydrateStore: false,
         didClearSnapshot: false,

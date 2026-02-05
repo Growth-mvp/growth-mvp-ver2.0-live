@@ -373,6 +373,9 @@ const FIELD_MAP: Record<string, string> = {
   pbrManual: 'pbr_manual',  // ★ 修正：PBR手入力を追加
   story: 'story',
   finalStory: 'final_story',
+  finalStoryDraft: 'final_story_draft',  // ★ 追加：最終ストーリー ドラフト版（3段階編集用）
+  finalStoryEdited: 'final_story_edited',  // ★ 追加：最終ストーリー 編集版（3段階編集用）
+  finalStoryFinal: 'final_story_final',  // ★ 追加：最終ストーリー 確定版（3段階編集用）
   /* ★ TASK 15-B: STAGE2 フィールドを FIELD_MAP に追加（復元漏れ防止） */
   answers2: 'answers2',
   answers12: 'answers12',
@@ -380,6 +383,7 @@ const FIELD_MAP: Record<string, string> = {
   winPatterns: 'win_patterns',
   winPatternPrimary: 'win_pattern_primary',
   winPatternSecondary: 'win_pattern_secondary',
+  companyTargets: 'company_targets',  // ★ 追加：North Star メトリクス
   /* その他 */
   strategySummary: 'strategy_summary',
   editableCascade: 'editable_cascade',
@@ -429,6 +433,9 @@ function buildDbRowFromState(state: StrategyData) {
     if (snake === 'story') v = ensureArray(v);
     if (snake === 'story_draft') v = ensureArray(v);  // ★ 追加：storyDraft は配列
     if (snake === 'final_story') v = ensureArray(v);
+    if (snake === 'final_story_draft') v = ensureArray(v);  // ★ 追加：finalStoryDraft は配列
+    if (snake === 'final_story_edited') v = ensureArray(v);  // ★ 追加：finalStoryEdited は配列
+    if (snake === 'final_story_final') v = ensureArray(v);  // ★ 追加：finalStoryFinal は配列
     if (snake === 'departments') v = ensureArray(v);
     if (snake === 'simulation_results') v = ensureArray(v);
     if (snake === 'stage1_issues') v = ensureArray(v);  // ★ 修正：stage1_issues は配列
@@ -437,6 +444,7 @@ function buildDbRowFromState(state: StrategyData) {
     if (snake === 'answers12') v = ensureArray(v);
     if (snake === 'win_patterns_candidate') v = ensureArray(v);
     if (snake === 'win_patterns') v = ensureArray(v);
+    if (snake === 'company_targets') v = ensureArray(v);  // ★ 追加：companyTargets は配列
     // ★ 修正：csv_finance_data はオブジェクト（financeBS/segmentPL/segmentBS を格納）
     if (snake === 'csv_finance_data') {
       // オブジェクトのまま保持（配列に変換しない）
@@ -471,6 +479,9 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   out.story = ensureArray(out.story);
   out.storyDraft = ensureArray(out.storyDraft);  // ★ 追加：storyDraft を復元
   out.finalStory = ensureArray(out.finalStory);
+  out.finalStoryDraft = ensureArray(out.finalStoryDraft);  // ★ 追加：finalStoryDraft を復元
+  out.finalStoryEdited = ensureArray(out.finalStoryEdited);  // ★ 追加：finalStoryEdited を復元
+  out.finalStoryFinal = ensureArray(out.finalStoryFinal);  // ★ 追加：finalStoryFinal を復元
   out.departments = ensureArray(out.departments);
   out.simulationResults = ensureArray(out.simulationResults);
   out.stage1Issues = ensureArray(out.stage1Issues);  // ★ 修正：stage1Issues を復元
@@ -481,6 +492,7 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   out.answers12 = ensureArray(out.answers12);
   out.winPatternsCandidate = ensureArray(out.winPatternsCandidate);
   out.winPatterns = ensureArray(out.winPatterns);
+  out.companyTargets = ensureArray(out.companyTargets);  // ★ 追加：companyTargets を復元
   out.financeSummary = toUiFinanceSummary(out.financeSummary);
   out.businessPortfolio = toUiBusinessPortfolio(out.businessPortfolio);
 
@@ -526,6 +538,10 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const answers12Len = Array.isArray(out.answers12) ? out.answers12.length : 0;
   const winPatternsCandidateLen = Array.isArray(out.winPatternsCandidate) ? out.winPatternsCandidate.length : 0;
   const winPatternsLen = Array.isArray(out.winPatterns) ? out.winPatterns.length : 0;
+  const companyTargetsLen = Array.isArray(out.companyTargets) ? out.companyTargets.length : 0;
+  const finalStoryDraftLen = Array.isArray(out.finalStoryDraft) ? out.finalStoryDraft.length : 0;
+  const finalStoryEditedLen = Array.isArray(out.finalStoryEdited) ? out.finalStoryEdited.length : 0;
+  const finalStoryFinalLen = Array.isArray(out.finalStoryFinal) ? out.finalStoryFinal.length : 0;
   if (DEBUG) console.log('[buildStateFromDbRow] raw_復元', {
     /* STAGE1 */
     issueBlocks_len: issueBlocksLen,
@@ -541,6 +557,10 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
     answers12_len: answers12Len,
     winPatternsCandidate_len: winPatternsCandidateLen,
     winPatterns_len: winPatternsLen,
+    companyTargets_len: companyTargetsLen,
+    finalStoryDraft_len: finalStoryDraftLen,
+    finalStoryEdited_len: finalStoryEditedLen,
+    finalStoryFinal_len: finalStoryFinalLen,
   });
 
   out.financeBS = ensureArray(csvFinanceData.financeBS);
@@ -647,6 +667,58 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
 
   if (restoredCsvFd || restoredSegmentPL || restoredSegmentBS) {
     if (DEBUG) console.log('[buildStateFromDbRow] restored csvFd:' + restoredCsvFd + ' segmentPL:' + restoredSegmentPL + ' segmentBS:' + restoredSegmentBS);
+  }
+
+  // ★ STEP 1: New fields post-normalize check and forced restoration
+  // Store raw values before normalize for comparison
+  const rawCompanyTargets = out.companyTargets;
+  const rawFinalStoryDraft = out.finalStoryDraft;
+  const rawFinalStoryEdited = out.finalStoryEdited;
+  const rawFinalStoryFinal = out.finalStoryFinal;
+
+  // Post-normalize diagnostics
+  const normCompanyTargetsLen = Array.isArray((normalized as any).companyTargets) ? (normalized as any).companyTargets.length : 0;
+  const normFinalStoryDraftLen = Array.isArray((normalized as any).finalStoryDraft) ? (normalized as any).finalStoryDraft.length : 0;
+  const normFinalStoryEditedLen = Array.isArray((normalized as any).finalStoryEdited) ? (normalized as any).finalStoryEdited.length : 0;
+  const normFinalStoryFinalLen = Array.isArray((normalized as any).finalStoryFinal) ? (normalized as any).finalStoryFinal.length : 0;
+
+  if (DEBUG) console.log('[diag][buildState:post_norm] NEW FIELDS AFTER NORMALIZE', {
+    companyTargets_len: normCompanyTargetsLen,
+    finalStoryDraft_len: normFinalStoryDraftLen,
+    finalStoryEdited_len: normFinalStoryEditedLen,
+    finalStoryFinal_len: normFinalStoryFinalLen,
+  });
+
+  // Forced restoration: if normalize dropped them, restore from raw
+  let restoredCompanyTargets = false;
+  let restoredFinalStoryDraft = false;
+  let restoredFinalStoryEdited = false;
+  let restoredFinalStoryFinal = false;
+
+  if (Array.isArray(rawCompanyTargets) && rawCompanyTargets.length > 0 && (!Array.isArray((normalized as any).companyTargets) || (normalized as any).companyTargets.length === 0)) {
+    (normalized as any).companyTargets = rawCompanyTargets;
+    restoredCompanyTargets = true;
+  }
+  if (Array.isArray(rawFinalStoryDraft) && rawFinalStoryDraft.length > 0 && (!Array.isArray((normalized as any).finalStoryDraft) || (normalized as any).finalStoryDraft.length === 0)) {
+    (normalized as any).finalStoryDraft = rawFinalStoryDraft;
+    restoredFinalStoryDraft = true;
+  }
+  if (Array.isArray(rawFinalStoryEdited) && rawFinalStoryEdited.length > 0 && (!Array.isArray((normalized as any).finalStoryEdited) || (normalized as any).finalStoryEdited.length === 0)) {
+    (normalized as any).finalStoryEdited = rawFinalStoryEdited;
+    restoredFinalStoryEdited = true;
+  }
+  if (Array.isArray(rawFinalStoryFinal) && rawFinalStoryFinal.length > 0 && (!Array.isArray((normalized as any).finalStoryFinal) || (normalized as any).finalStoryFinal.length === 0)) {
+    (normalized as any).finalStoryFinal = rawFinalStoryFinal;
+    restoredFinalStoryFinal = true;
+  }
+
+  if (restoredCompanyTargets || restoredFinalStoryDraft || restoredFinalStoryEdited || restoredFinalStoryFinal) {
+    if (DEBUG) console.log('[diag][buildState:forced_restore] NEW FIELDS FORCED RESTORED', {
+      companyTargets: restoredCompanyTargets,
+      finalStoryDraft: restoredFinalStoryDraft,
+      finalStoryEdited: restoredFinalStoryEdited,
+      finalStoryFinal: restoredFinalStoryFinal,
+    });
   }
 
   // ==========================================================
@@ -816,6 +888,28 @@ export async function getFullStrategyDataByCompany(
       first: Array.isArray((rowData as any).answers12) ? (rowData as any).answers12[0] : null,
     });
 
+    // ★ STEP 0: New fields raw DB row check (company_targets, finalStory*)
+    if (DEBUG) {
+      const hasCompanyTargets = Object.prototype.hasOwnProperty.call(rowData, 'company_targets');
+      const hasFinalStoryDraft = Object.prototype.hasOwnProperty.call(rowData, 'final_story_draft');
+      const hasFinalStoryEdited = Object.prototype.hasOwnProperty.call(rowData, 'final_story_edited');
+      const hasFinalStoryFinal = Object.prototype.hasOwnProperty.call(rowData, 'final_story_final');
+      const companyTargetsLen = Array.isArray(rowData.company_targets) ? rowData.company_targets.length : null;
+      const finalStoryDraftLen = Array.isArray(rowData.final_story_draft) ? rowData.final_story_draft.length : null;
+      const finalStoryEditedLen = Array.isArray(rowData.final_story_edited) ? rowData.final_story_edited.length : null;
+      const finalStoryFinalLen = Array.isArray(rowData.final_story_final) ? rowData.final_story_final.length : null;
+      console.log('[diag][load:db_raw] NEW FIELDS CHECK', {
+        has_company_targets: hasCompanyTargets,
+        company_targets_len: companyTargetsLen,
+        has_final_story_draft: hasFinalStoryDraft,
+        final_story_draft_len: finalStoryDraftLen,
+        has_final_story_edited: hasFinalStoryEdited,
+        final_story_edited_len: finalStoryEditedLen,
+        has_final_story_final: hasFinalStoryFinal,
+        final_story_final_len: finalStoryFinalLen,
+      });
+    }
+
     // 分離テーブルの最新値
     const [ansRes, finRes] = await Promise.allSettled([
       supabase
@@ -979,6 +1073,50 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
     const now = new Date().toISOString();
     const companyId = await resolveCompanyId(userId, companyIdOverride ?? null);
     const cleanCompanyId = companyId.trim();
+
+    // ===== SAVE GUARD: Prevent data corruption from undefined/wrong company scope =====
+
+    // PRIMARY GUARD: Block if company scope not ready (membership loading, undefined, invalid)
+    if (!cleanCompanyId || !isValidUUID(cleanCompanyId)) {
+      console.warn('[saveStrategyData] SAVE_BLOCKED - company scope not ready', {
+        cleanCompanyId: cleanCompanyId || '(empty)',
+        userId,
+        hasOverride: !!companyIdOverride,
+        reason: 'Company scope not established - likely during membership loading',
+        timestamp: now,
+      });
+
+      // Return gracefully - no hard error that could break auto-save UI
+      return {
+        data: null,
+        error: null, // Soft block: no error object, just skip save silently
+      };
+    }
+
+    // SECONDARY GUARD: Validate payload doesn't have mismatched company_id (safety net)
+    const payloadCompanyId = (payload as any)?.company_id;
+    if (payloadCompanyId && typeof payloadCompanyId === 'string' && payloadCompanyId.trim() !== '') {
+      const payloadCidNorm = payloadCompanyId.trim();
+
+      // Check if payload company_id differs from resolved scope
+      if (payloadCidNorm !== cleanCompanyId) {
+        console.warn('[saveStrategyData] SAVE_BLOCKED - company ID mismatch detected', {
+          payloadCompanyId: payloadCidNorm,
+          resolvedCompanyId: cleanCompanyId,
+          userId,
+          hasOverride: !!companyIdOverride,
+          reason: 'Payload contains stale/wrong company_id',
+          timestamp: now,
+        });
+
+        // Return gracefully - no hard error
+        return {
+          data: null,
+          error: null, // Soft block: prevents retry storms and toast loops
+        };
+      }
+    }
+    // ===== End Save Guard =====
 
     // ★ 会社ストーリー用 answers2 のみ抽出
     const storyAnswersBundle = ensureArray((payload as any)?.answers2).filter(
@@ -1162,6 +1300,19 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         has_winPatternsCandidate: 'winPatternsCandidate' in updatePayload,
       });
 
+      // ★ 診断：companyTargets / finalStory* が updatePayload に入ってるか
+      if (DEBUG) console.log('[diag][db:updatePayload]', {
+        has_company_targets: Object.prototype.hasOwnProperty.call(updatePayload, 'company_targets'),
+        company_targets_type: typeof (updatePayload as any).company_targets,
+        company_targets_len: Array.isArray((updatePayload as any).company_targets) ? (updatePayload as any).company_targets.length : null,
+        has_final_story_draft: Object.prototype.hasOwnProperty.call(updatePayload, 'final_story_draft'),
+        final_story_draft_len: Array.isArray((updatePayload as any).final_story_draft) ? (updatePayload as any).final_story_draft.length : null,
+        has_final_story_edited: Object.prototype.hasOwnProperty.call(updatePayload, 'final_story_edited'),
+        final_story_edited_len: Array.isArray((updatePayload as any).final_story_edited) ? (updatePayload as any).final_story_edited.length : null,
+        has_final_story_final: Object.prototype.hasOwnProperty.call(updatePayload, 'final_story_final'),
+        final_story_final_len: Array.isArray((updatePayload as any).final_story_final) ? (updatePayload as any).final_story_final.length : null,
+      });
+
       // ★ 楽観ロック：revision カラムがある場合
       //   - expectedRev は「引数で渡された revision」優先、無ければ currentRev
       //   - revision の更新（+1）は DBトリガに任せる（payloadに入れない）
@@ -1276,6 +1427,14 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
           has: 'answers12' in (upd.data as any),
           len: Array.isArray((upd.data as any)?.answers12) ? (upd.data as any).answers12.length : 'not_array',
           first: Array.isArray((upd.data as any)?.answers12) ? (upd.data as any).answers12[0] : null,
+        });
+
+        // ★ 診断：返却row に companyTargets / finalStory* が乗ってるか
+        if (DEBUG) console.log('[diag][db:return_row]', {
+          company_targets_len: Array.isArray((upd.data as any)?.company_targets) ? (upd.data as any).company_targets.length : null,
+          final_story_draft_len: Array.isArray((upd.data as any)?.final_story_draft) ? (upd.data as any).final_story_draft.length : null,
+          final_story_edited_len: Array.isArray((upd.data as any)?.final_story_edited) ? (upd.data as any).final_story_edited.length : null,
+          final_story_final_len: Array.isArray((upd.data as any)?.final_story_final) ? (upd.data as any).final_story_final.length : null,
         });
       }
 

@@ -846,6 +846,47 @@ export type IssueBlock = {
 };
 
 /* =========================================================
+ * STAGE2 会社の数値目標（North Star Metrics）
+ * ========================================================= */
+
+/**
+ * CompanyTarget: 会社全体の数値目標（North Star Metrics）
+ * - STAGE2で定義され、STAGE3・STAGE4に影響
+ * - STAGE1の論点（IssueBlock）と紐付け（1〜3件）
+ */
+export type CompanyTarget = {
+  /** 目標ID（uuid or nanoid） */
+  id: string;
+
+  /** 目標名（例：売上、営業利益率、ROIC） */
+  label: string;
+
+  /** 単位（例：億円、%、回） */
+  unit: string;
+
+  /** 目標期限（年度、任意） */
+  dueYear?: number;
+
+  /** 低位想定値（任意） */
+  low?: number;
+
+  /** 基準想定値（必須） */
+  base: number;
+
+  /** 高位想定値（任意） */
+  high?: number;
+
+  /** 優先度（1=最高, 4=最低、デフォルト1） */
+  priority?: 1 | 2 | 3 | 4;
+
+  /** 紐付く論点ID群（IssueBlock.title を key として1〜3件） */
+  linkedIssueIds: string[];
+
+  /** 理由（1行、必須） */
+  rationale: string;
+};
+
+/* =========================================================
  * STAGE1 外部ベンチマーク（任意入力）
  * ========================================================= */
 
@@ -1375,8 +1416,16 @@ export type Stage2State = {
   winPatternsCandidate?: WinPatternCandidate[];
   /** 12問回答（任意） */
   answers12?: Stage2Answer[];
-  /** 最終ストーリー（任意） */
+  /** 最終ストーリー（任意、旧：互換） */
   finalStory?: StoryChapter[];
+  /** 最終ストーリー：ドラフト版（3段階編集用） */
+  finalStoryDraft?: StoryChapter[];
+  /** 最終ストーリー：編集版（3段階編集用） */
+  finalStoryEdited?: StoryChapter[];
+  /** 最終ストーリー：確定版（3段階編集用） */
+  finalStoryFinal?: StoryChapter[];
+  /** North Star メトリクス */
+  companyTargets?: CompanyTarget[];
   /** 要点（任意） */
   keyMessages?: string[];
   /** 行動宣言（任意） */
