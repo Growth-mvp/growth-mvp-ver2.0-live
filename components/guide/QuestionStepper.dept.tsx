@@ -143,6 +143,16 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     [answers, step, question]
   );
 
+  // ★ 安定キー化：参照が変わっても JSON文字列が同じなら effect 再実行を避ける
+  const projectsKey = useMemo(() => JSON.stringify(projects ?? []), [projects]);
+  const okrsKey = useMemo(() => JSON.stringify(okrs ?? []), [okrs]);
+  const expectationsKey = useMemo(() => JSON.stringify(expectations ?? []), [expectations]);
+  const focusThemesKey = useMemo(() => JSON.stringify(focusThemes ?? []), [focusThemes]);
+  const answersKey = useMemo(
+    () => JSON.stringify((answers ?? []).map(a => ({ n: a.stepNumber, a: a.answer ?? '' }))),
+    [answers]
+  );
+
   /* =========================================
    * props → state 同期
    * ========================================= */
@@ -215,13 +225,13 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
 
     // 6問すべて回答済みなら、それ以上は問いを生成しない
     if (isCompletedAll6) {
-      setShouldFetchQuestion(false);
+      // ★ ここで setState しない（deps が揺れた時に無限ループになるので何もしない）
       return;
     }
 
     // ボタンを押していないならAPIは呼ばない（手動トリガ）
     if (!shouldFetchQuestion) {
-      setLoading(false);
+      // ★重要：ここで setState すると deps が揺れた時に無限ループになるので何もしない
       return;
     }
 
@@ -231,7 +241,8 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     abortRef.current = controller;
 
     (async () => {
-      setLoading(true);
+      // shouldFetchQuestion が true の時だけ true にする（不要な更新を避ける）
+      setLoading((prev) => (prev ? prev : true));
       setErrorMsg('');
       inFlightRef.current = true;
       try {
@@ -286,19 +297,18 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       controller.abort();
       inFlightRef.current = false;
     };
-    // 依存
+    // 依存配列：参照依存ではなく「安定キー依存」に（effect 再実行を最小化）
   }, [
     step,
     departmentName,
     mission,
-    projects,
-    okrs,
     industry,
     direction,
-    JSON.stringify(expectations),
-    JSON.stringify(focusThemes),
-    answersSoFarPayload.length,
-    answers,
+    projectsKey,
+    okrsKey,
+    expectationsKey,
+    focusThemesKey,
+    answersKey,
     canEdit,
     shouldFetchQuestion,
     isCompletedAll6,
