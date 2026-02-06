@@ -36,6 +36,7 @@ import { useAutoSave } from '@/hooks/useAutoSave';
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
 import { getStage2ValueDriverKPIs, getStage2TargetRanges, getStage2WinPatterns } from '@/utils/stage2Selectors';
+import { formatMillion, safeRatio, formatPct } from '@/utils/unit';
 
 import type {
   Department as BaseDepartment,
@@ -47,6 +48,7 @@ import type {
   HumanInvestmentCategory,
   HumanInvestmentHorizon,
   SkillRequirements,
+  StrategyData,
 } from '@/types/strategy';
 
 const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
@@ -191,6 +193,453 @@ const escapeHtml = (s: string) =>
   String(s ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]!));
 
 const nl2brSafe = (s?: string) => (s ? escapeHtml(s).replace(/\r?\n/g, '<br>') : '');
+
+/* ==========================================
+   4章 + P/L グラフ用ユーティリティ
+========================================== */
+const formatYenCompact = (n?: number | null) => {
+  if (typeof n !== 'number' || !isFinite(n)) return '-';
+  const abs = Math.abs(n);
+  if (abs >= 1_0000_0000) return `${(n / 1_0000_0000).toFixed(1)}億`;
+  if (abs >= 1_0000) return `${(n / 1_0000).toFixed(1)}万`;
+  return `${Math.round(n)}`;
+};
+
+/* ==========================================
+   KPI橋渡し用データ計算（現状 vs 目標）
+========================================== */
+
+type KPIBridgeData = {
+  revenue: { current: number | null; target: number | null };
+  operatingProfit: { current: number | null; target: number | null };
+};
+
+function computeKpiBridgeDataLocal({
+  financePL,
+  csvFinanceData,
+  financeSummary,
+  targetRanges,
+  companyTargets,
+}: {
+  financePL?: any;
+  csvFinanceData?: any;
+  financeSummary?: any;
+  targetRanges?: any;
+  companyTargets?: any[];
+}): KPIBridgeData {
+  // 数値変換ヘルパ
+  const safeNum = (v: any): number | null => {
+    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+    const n = Number(String(v ?? '').replace(/,/g, ''));
+    return Number.isFinite(n) ? n : null;
+  };
+
+  // キー揺れ対応
+  const pick = (row: any, keys: string[]): any => {
+    for (const k of keys) {
+      const v = row?.[k];
+      if (v !== undefined && v !== null && v !== '') return v;
+    }
+    return null;
+  };
+
+  // 現状値：最新年の row を1つ選ぶ
+  let currentRevenue: number | null = null;
+  let currentOpProfit: number | null = null;
+
+  const getLatestRow = (arr: any[]): any => {
+    if (!Array.isArray(arr) || arr.length === 0) return null;
+    // 最後の要素を「最新」と仮定
+    return arr[arr.length - 1];
+  };
+
+  // 1) financePL 最優先
+  let latestRow = getLatestRow(Array.isArray(financePL) ? financePL : []);
+  if (latestRow) {
+    currentRevenue = safeNum(pick(latestRow, ['revenue', '売上', 'sales', 'salesRevenue', 'sales_revenue']));
+    currentOpProfit = safeNum(
+      pick(latestRow, [
+        'opProfit',
+        'operatingProfit',
+        'operating_profit',
+        'operatingIncome',
+        'operating_income',
+        '営業利益',
+        'op',
+      ])
+    );
+  }
+
+  // 2) financeSummary フォールバック
+  if (currentRevenue === null) {
+    latestRow = getLatestRow(Array.isArray(financeSummary) ? financeSummary : []);
+    if (latestRow) {
+      currentRevenue = safeNum(pick(latestRow, ['revenue', '売上', 'sales', 'salesRevenue', 'sales_revenue']));
+      currentOpProfit = safeNum(
+        pick(latestRow, [
+          'opProfit',
+          'operatingProfit',
+          'operating_profit',
+          'operatingIncome',
+          'operating_income',
+          '営業利益',
+          'op',
+        ])
+      );
+    }
+  }
+
+  // 3) csvFinanceData フォールバック
+  if (currentRevenue === null) {
+    latestRow = getLatestRow(Array.isArray(csvFinanceData) ? csvFinanceData : []);
+    if (latestRow) {
+      currentRevenue = safeNum(pick(latestRow, ['revenue', '売上', 'sales', 'salesRevenue', 'sales_revenue']));
+      currentOpProfit = safeNum(
+        pick(latestRow, [
+          'opProfit',
+          'operatingProfit',
+          'operating_profit',
+          'operatingIncome',
+          'operating_income',
+          '営業利益',
+          'op',
+        ])
+      );
+    }
+  }
+
+  // 目標値：targetRanges から、またはフォールバック companyTargets から
+  let targetRevenue: number | null = null;
+  let targetOpProfit: number | null = null;
+
+  // 優先順位1: targetRanges.high から
+  if (targetRanges?.high) {
+    targetRevenue = safeNum(pick(targetRanges.high, ['revenue', '売上', 'sales', 'salesRevenue', 'sales_revenue']));
+    targetOpProfit = safeNum(
+      pick(targetRanges.high, [
+        'opProfit',
+        'operatingProfit',
+        'operating_profit',
+        'operatingIncome',
+        'operating_income',
+        '営業利益',
+        'op',
+      ])
+    );
+  }
+
+  // 優先順位2: companyTargets から（label マッチで抽出、STAGE2と同じ方式）
+  if ((targetRevenue === null || targetOpProfit === null) && Array.isArray(companyTargets) && companyTargets.length > 0) {
+    for (const target of companyTargets) {
+      const lbl = (target.label ?? '').toLowerCase();
+
+      // 売上マッチ
+      if (targetRevenue === null) {
+        const isRevenueLabel = ['売上', 'revenue', 'sales', '営業収益'].some(k => lbl.includes(k.toLowerCase()));
+        if (isRevenueLabel) {
+          const valNum = safeNum(pick(target, ['value', 'amount', 'target', 'high', 'base', 'low']));
+          if (valNum !== null) {
+            targetRevenue = valNum;
+          }
+        }
+      }
+
+      // 営業利益マッチ
+      if (targetOpProfit === null) {
+        const isOpLabel = ['営業利益', 'operating profit', 'op', 'opprofit'].some(k => lbl.includes(k.toLowerCase()));
+        if (isOpLabel) {
+          const valNum = safeNum(pick(target, ['value', 'amount', 'target', 'high', 'base', 'low']));
+          if (valNum !== null) {
+            targetOpProfit = valNum;
+          }
+        }
+      }
+
+      if (targetRevenue !== null && targetOpProfit !== null) break;
+    }
+  }
+
+  console.log('[computeKpiBridgeDataLocal]', {
+    currentRevenue,
+    currentOpProfit,
+    targetRevenue,
+    targetOpProfit,
+  });
+
+  return {
+    revenue: { current: currentRevenue, target: targetRevenue },
+    operatingProfit: { current: currentOpProfit, target: targetOpProfit },
+  };
+}
+
+/* ==========================================
+   PositiveOnlyBarCard: 売上用（正の値のみ）
+========================================== */
+function PositiveOnlyBarCard({
+  title,
+  current,
+  target,
+}: {
+  title: string;
+  current: number | null;
+  target: number | null;
+}) {
+  const safeMax = Math.max(current ?? 0, target ?? 0, 1);
+  const currentHeightPct = current !== null ? (current / safeMax) * 100 : 0;
+  const targetHeightPct = target !== null ? (target / safeMax) * 100 : 0;
+  const achievementRate = safeRatio(current, target);
+  const delta = current !== null && target !== null ? target - current : null;
+
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-white/5 backdrop-blur-sm p-5">
+      {/* タイトル + 単位 */}
+      <div className="flex items-center justify-between mb-4">
+        <h5 className="text-sm font-semibold text-gray-800 dark:text-gray-200">{title}</h5>
+        <span className="text-xs text-gray-500 dark:text-gray-400">百万円</span>
+      </div>
+
+      {/* 棒グラフ（高さ h-48 = 192px で % が成立） */}
+      <div className="relative h-48 flex items-end justify-center gap-6 mb-4">
+        {/* 現状 */}
+        <div className="flex flex-col items-center gap-2 h-full">
+          <div className="flex-1 flex items-end justify-center">
+            <div
+              className="bg-slate-600 dark:bg-slate-400 rounded-t transition-all shadow-md"
+              style={{
+                width: '22px',
+                height: `${Math.max(currentHeightPct, 2)}%`,
+              }}
+            />
+          </div>
+          {current !== null && (
+            <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 text-center whitespace-nowrap">
+              {formatMillion(current)}
+            </div>
+          )}
+          <div className="text-xs text-gray-500 dark:text-gray-500">現状</div>
+        </div>
+
+        {/* 目標 */}
+        <div className="flex flex-col items-center gap-2 h-full">
+          <div className="flex-1 flex items-end justify-center">
+            <div
+              className="bg-blue-500 dark:bg-blue-400 rounded-t transition-all shadow-md"
+              style={{
+                width: '22px',
+                height: `${Math.max(targetHeightPct, 2)}%`,
+              }}
+            />
+          </div>
+          {target !== null && (
+            <div className="text-xs font-semibold text-blue-700 dark:text-blue-300 text-center whitespace-nowrap">
+              {formatMillion(target)}
+            </div>
+          )}
+          <div className="text-xs text-gray-500 dark:text-gray-500">目標</div>
+        </div>
+      </div>
+
+      {/* 下段：差分・達成率 */}
+      <div className="border-t border-gray-200 dark:border-gray-700 pt-3 flex justify-between text-xs text-gray-600 dark:text-gray-400">
+        <span>
+          差分: {delta !== null ? formatMillion(delta) : '—'}
+        </span>
+        <span>
+          達成率: {achievementRate !== null ? formatPct(achievementRate) : '—'}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* ==========================================
+   DivergingBarCard: 営業利益用（負の値対応、0ライン中心）
+========================================== */
+function DivergingBarCard({
+  title,
+  current,
+  target,
+}: {
+  title: string;
+  current: number | null;
+  target: number | null;
+}) {
+  const absMax = Math.max(Math.abs(current ?? 0), Math.abs(target ?? 0), 1);
+  const currentHeightPct = current !== null ? Math.abs(current) / absMax * 100 : 0;
+  const targetHeightPct = target !== null ? Math.abs(target) / absMax * 100 : 0;
+  const achievementRate = target !== null && target > 0 ? safeRatio(current, target) : null;
+  const delta = current !== null && target !== null ? target - current : null;
+
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-white/5 backdrop-blur-sm p-5">
+      {/* タイトル */}
+      <div className="flex items-center justify-between mb-4">
+        <h5 className="text-sm font-semibold text-gray-800 dark:text-gray-200">{title}</h5>
+        <span className="text-xs text-gray-500 dark:text-gray-400">百万円</span>
+      </div>
+
+      {/* 0ライン中心の棒グラフ */}
+      <div className="relative h-48 flex justify-center gap-8 mb-4">
+        {/* 0ライン */}
+        <div
+          className="absolute left-0 right-0 h-px bg-gray-400 dark:bg-gray-600"
+          style={{ top: '50%' }}
+        />
+
+        {/* 現状 */}
+        <div className="relative w-12 flex flex-col items-center">
+          {/* + 側（上側50%） */}
+          {current !== null && current > 0 && (
+            <div
+              className="absolute bottom-1/2 left-1/2 -translate-x-1/2 flex flex-col items-center justify-end"
+              style={{ height: '50%' }}
+            >
+              <div
+                className="bg-emerald-600 dark:bg-emerald-400 rounded-t transition-all shadow-md"
+                style={{
+                  width: '22px',
+                  height: `${Math.max(currentHeightPct, 2)}%`,
+                }}
+              />
+              <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 mt-1 text-center whitespace-nowrap">
+                {formatMillion(current)}
+              </div>
+            </div>
+          )}
+
+          {/* - 側（下側50%） */}
+          {current !== null && current < 0 && (
+            <div
+              className="absolute top-1/2 left-1/2 -translate-x-1/2 flex flex-col items-center justify-start"
+              style={{ height: '50%' }}
+            >
+              <div
+                className="bg-red-500 dark:bg-red-400 rounded-b transition-all shadow-md"
+                style={{
+                  width: '22px',
+                  height: `${Math.max(currentHeightPct, 2)}%`,
+                }}
+              />
+              <div className="text-xs font-semibold text-red-700 dark:text-red-300 mt-1 text-center whitespace-nowrap">
+                {formatMillion(current)}
+              </div>
+            </div>
+          )}
+
+          <div className="absolute -bottom-6 text-xs text-gray-500 dark:text-gray-500 whitespace-nowrap">
+            現状
+          </div>
+        </div>
+
+        {/* 目標 */}
+        <div className="relative w-12 flex flex-col items-center">
+          {/* + 側（上側50%） */}
+          {target !== null && target > 0 && (
+            <div
+              className="absolute bottom-1/2 left-1/2 -translate-x-1/2 flex flex-col items-center justify-end"
+              style={{ height: '50%' }}
+            >
+              <div
+                className="bg-blue-600 dark:bg-blue-400 rounded-t transition-all shadow-md"
+                style={{
+                  width: '22px',
+                  height: `${Math.max(targetHeightPct, 2)}%`,
+                }}
+              />
+              <div className="text-xs font-semibold text-blue-700 dark:text-blue-300 mt-1 text-center whitespace-nowrap">
+                {formatMillion(target)}
+              </div>
+            </div>
+          )}
+
+          {/* - 側（下側50%） */}
+          {target !== null && target < 0 && (
+            <div
+              className="absolute top-1/2 left-1/2 -translate-x-1/2 flex flex-col items-center justify-start"
+              style={{ height: '50%' }}
+            >
+              <div
+                className="bg-orange-500 dark:bg-orange-400 rounded-b transition-all shadow-md"
+                style={{
+                  width: '22px',
+                  height: `${Math.max(targetHeightPct, 2)}%`,
+                }}
+              />
+              <div className="text-xs font-semibold text-orange-700 dark:text-orange-300 mt-1 text-center whitespace-nowrap">
+                {formatMillion(target)}
+              </div>
+            </div>
+          )}
+
+          <div className="absolute -bottom-6 text-xs text-gray-500 dark:text-gray-500 whitespace-nowrap">
+            目標
+          </div>
+        </div>
+      </div>
+
+      {/* 下段：差分・達成率 */}
+      <div className="border-t border-gray-200 dark:border-gray-700 pt-3 flex justify-between text-xs text-gray-600 dark:text-gray-400">
+        <span>
+          差分: {delta !== null ? formatMillion(delta) : '—'}
+        </span>
+        <span>
+          達成率: {achievementRate !== null ? formatPct(achievementRate) : '—'}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* ==========================================
+   4章 + KPI 2点比較コンポーネント
+========================================== */
+const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
+  chapters,
+  revenue,
+  operatingProfit,
+}: {
+  chapters: { title: string; body: string }[];
+  revenue: { current: number | null; target: number | null };
+  operatingProfit: { current: number | null; target: number | null };
+}) {
+  console.log('[StoryWithKPIComparison:render]', {
+    chapters_len: chapters?.length ?? 0,
+    revenue,
+    operatingProfit,
+  });
+
+  return (
+    <section className="mb-8">
+      {/* 4章 */}
+      {chapters.length ? (
+        <div className="grid md:grid-cols-2 gap-4">
+          {chapters.slice(0, 4).map((ch: { title: string; body: string }, i: number) => (
+            <div key={i} className="p-4 border rounded-2xl bg-white/60 backdrop-blur-sm">
+              <h3 className="font-semibold">{ch.title}</h3>
+              <div
+                dangerouslySetInnerHTML={{ __html: nl2brSafe(ch.body) }}
+                className="text-sm text-zinc-700 mt-1"
+              />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="p-4 bg-yellow-50 text-yellow-800 text-sm rounded-xl border border-yellow-200">
+          経営ストーリーが未設定です。先に STAGE 2 で「最終ストーリー」を作成してください。
+        </div>
+      )}
+
+      {/* KPI 2点比較（2カード） */}
+      <div className="mt-5">
+        <div className="grid md:grid-cols-2 gap-4">
+          <PositiveOnlyBarCard title="売上" current={revenue.current} target={revenue.target} />
+          <DivergingBarCard title="営業利益" current={operatingProfit.current} target={operatingProfit.target} />
+        </div>
+      </div>
+    </section>
+  );
+});
+
 
 const safeJsonFromText = <T = any>(raw: string): T | null => {
   if (!raw) return null;
@@ -722,19 +1171,47 @@ const VisualCard = memo(function VisualCard({ d }: { d: Department }) {
    メイン
 ========================= */
 export default function CascadePage() {
-  const s = useStrategyStore() as any;
+  // ★ 1フィールド = 1購読に分割（shallow 不要）
+  const scopeCompanyId = useStrategyStore((st: any) => st.companyId);
+  const hydrated = useStrategyStore((st: any) => st.hydrated);
+  const setCompanyScope = useStrategyStore((st: any) => st.setCompanyScope);
+  const refetchFromServer = useStrategyStore((st: any) => st.refetchFromServer);
+  const setHydrated = useStrategyStore((st: any) => st.setHydrated);
+  const boot = useStrategyStore((st: any) => st.boot);
+  const saveNow = useStrategyStore((st: any) => st.saveStrategyData);
+  const lastServerSnapshot = useStrategyStore((st: any) => st.lastServerSnapshot);
+  const setDepartmentsInStore = useStrategyStore((st: any) => st.setDepartments);
 
-  const {
-    companyId: scopeCompanyId,
-    hydrated,
-    setCompanyScope,
-    refetchFromServer,
-    setHydrated,
-    boot,
-    saveStrategyData: saveNow,
-    lastServerSnapshot,
-    setDepartments: setDepartmentsInStore,
-  } = useStrategyStore();
+  const financePL = useStrategyStore((st: any) => st.financePL);
+  const csvFinanceData = useStrategyStore((st: any) => st.csvFinanceData);
+  const financeSummary = useStrategyStore((st: any) => st.financeSummary);
+
+  const storyDraft = useStrategyStore((st: any) => st.storyDraft);
+  const finalStoryDraft = useStrategyStore((st: any) => st.finalStoryDraft);
+  const finalStoryEdited = useStrategyStore((st: any) => st.finalStoryEdited);
+  const finalStoryFinal = useStrategyStore((st: any) => st.finalStoryFinal);
+
+  const strategyStory = useStrategyStore((st: any) => st.strategyStory);
+  const story = useStrategyStore((st: any) => st.story);
+  const finalStory = useStrategyStore((st: any) => st.finalStory);
+  const departments = useStrategyStore((st: any) => st.departments);
+
+  const industry = useStrategyStore((st: any) => st.industry);
+  const company = useStrategyStore((st: any) => st.company);
+  const businessSegments = useStrategyStore((st: any) => st.businessSegments);
+  const strategySummary = useStrategyStore((st: any) => st.strategySummary);
+
+  const thought = useStrategyStore((st: any) => st.thought);
+  const vision = useStrategyStore((st: any) => st.vision);
+  const mission = useStrategyStore((st: any) => st.mission);
+  const revenue = useStrategyStore((st: any) => st.revenue);
+  const employees = useStrategyStore((st: any) => st.employees);
+  const value = useStrategyStore((st: any) => st.value);
+  const strength = useStrategyStore((st: any) => st.strength);
+  const weakness = useStrategyStore((st: any) => st.weakness);
+  const opportunity = useStrategyStore((st: any) => st.opportunity);
+  const threat = useStrategyStore((st: any) => st.threat);
+  const businessPortfolio = useStrategyStore((st: any) => st.businessPortfolio);
 
   const access = useAccess();
 
@@ -762,17 +1239,38 @@ export default function CascadePage() {
   }, [access]);
 
   const accessCompanyId: string | undefined = useMemo(
-    () => ((access as any)?.companyId ?? (s?.companyId as string | undefined)),
+    () => ((access as any)?.companyId ?? (scopeCompanyId as string | undefined)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [(access as any)?.companyId, s?.companyId],
+    [(access as any)?.companyId, scopeCompanyId],
   );
 
-  const industry: string = (s?.industry as string) || (s?.company?.industry as string) || '';
+  const industryFinal: string = (industry as string) || (company?.industry as string) || '';
+
   // ★STAGE2構造化データ取得（セレクタ経由で一本化）
-  const valueDriverKPIs = getStage2ValueDriverKPIs(s);
-  const targetRanges = getStage2TargetRanges(s);
-  const { primary: winPatternPrimary, secondary: winPatternSecondary } = getStage2WinPatterns(s);
-  const businessSegments = (s?.businessSegments as any[]) ?? [];
+  // Use getState() to avoid circular dependency on the memoized values
+  const valueDriverKPIs = useMemo(
+    () => getStage2ValueDriverKPIs(useStrategyStore.getState() as StrategyData),
+    []
+  );
+  const targetRanges = useMemo(
+    () => getStage2TargetRanges(useStrategyStore.getState() as StrategyData),
+    []
+  );
+  const companyTargets = useMemo(
+    () => (useStrategyStore.getState() as any).companyTargets || [],
+    []
+  );
+
+  /* ===== KPI橋渡しデータ（現状 vs 目標） ===== */
+  const kpiBridgeData = useMemo(
+    () => computeKpiBridgeDataLocal({ financePL, csvFinanceData, financeSummary, targetRanges, companyTargets }),
+    [financePL, csvFinanceData, financeSummary, targetRanges, companyTargets],
+  );
+
+  const { primary: winPatternPrimary, secondary: winPatternSecondary } = useMemo(
+    () => getStage2WinPatterns(useStrategyStore.getState() as StrategyData),
+    []
+  );
 
   /* ---- 初回ログだけ ---- */
   useEffect(() => {
@@ -877,9 +1375,6 @@ export default function CascadePage() {
     return () => clearInterval(id);
   }, [boot?.isHydrating, hydrated, accessCompanyId, scopeCompanyId, setHydrated]);
 
-  /* ===== departments（store を唯一のソースに） ===== */
-  const departments = useStrategyStore((st) => ((st.departments as Department[] | undefined) ?? []) as Department[]);
-
   /* ===== STAGE1事業部名→初期部門展開（One-time import）===== */
   const hasInitializedFromStage1Ref = useRef(false);
   useEffect(() => {
@@ -914,11 +1409,30 @@ export default function CascadePage() {
   const isHydrating = (Boolean(boot?.isHydrating) && !hydrated) || mismatch || !hydrated;
 
   const rawStory = useMemo(() => {
-    if (isNonEmptyStoryPayload(s?.finalStory)) return s.finalStory;
-    if (isNonEmptyStoryPayload(s?.story)) return s.story;
-    if (isNonEmptyStoryPayload(s?.strategyStory)) return s.strategyStory;
-    return '';
-  }, [s?.finalStory, s?.story, s?.strategyStory]);
+  // ★ STAGE2の“確定版/編集版/ドラフト” を最優先
+  if (isNonEmptyStoryPayload(finalStoryFinal)) return finalStoryFinal;
+  if (isNonEmptyStoryPayload(finalStoryEdited)) return finalStoryEdited;
+  if (isNonEmptyStoryPayload(finalStoryDraft)) return finalStoryDraft;
+
+  // 互換：旧フィールド
+  if (isNonEmptyStoryPayload(finalStory)) return finalStory;
+  if (isNonEmptyStoryPayload(story)) return story;
+  if (isNonEmptyStoryPayload(strategyStory)) return strategyStory;
+
+  // 互換：ドラフト
+  if (isNonEmptyStoryPayload(storyDraft)) return storyDraft;
+
+  return '';
+}, [
+  finalStoryFinal,
+  finalStoryEdited,
+  finalStoryDraft,
+  finalStory,
+  story,
+  strategyStory,
+  storyDraft,
+]);
+
 
   const { text: storyText, chapters: storyChapters } = useMemo(() => getStory(rawStory), [rawStory]);
 
@@ -1162,7 +1676,8 @@ export default function CascadePage() {
     if (!story) return;
     if (!canEditDept()) return setNotice('⚠️ 編集権限がありません');
 
-    const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
+    const s = useStrategyStore.getState() as any;
+    const current = (s.departments as Department[] | undefined) ?? [];
     const dept = current[index];
     if (!dept) return;
 
@@ -1300,7 +1815,7 @@ export default function CascadePage() {
     if (!departments.length) return <div className="text-zinc-600">部門がまだ登録されていません。</div>;
     return (
       <div className="grid md:grid-cols-2 gap-6">
-        {departments.map((d, i) => (
+        {departments.map((d: Department, i: number) => (
           <VisualCard key={`v-${d.name}-${i}`} d={d} />
         ))}
       </div>
@@ -1308,9 +1823,9 @@ export default function CascadePage() {
   }, [departments]);
 
   /* map内 hooks 回避のためのメモ */
-  const answersMemo: DeptAnswerStep[][] = useMemo(() => departments.map((d) => toDeptAnswers(d.answers2?.[0]?.steps)), [departments]);
+  const answersMemo: DeptAnswerStep[][] = useMemo(() => departments.map((d: Department) => toDeptAnswers(d.answers2?.[0]?.steps)), [departments]);
   const projectsMemo: string[][] = useMemo(
-    () => departments.map((d) => ((d.projects as Project[] | undefined) ?? []).map((p) => p.title)),
+    () => departments.map((d: Department) => ((d.projects as Project[] | undefined) ?? []).map((p) => p.title)),
     [departments],
   );
 
@@ -1339,22 +1854,11 @@ export default function CascadePage() {
       )}
 
       {!isHydrating && (
-        <section className="mb-8">
-          {storyChapters.length ? (
-            <div className="grid md:grid-cols-2 gap-4">
-              {storyChapters.map((ch, i) => (
-                <div key={i} className="p-4 border rounded-2xl bg-white/60 backdrop-blur-sm">
-                  <h3 className="font-semibold">{ch.title}</h3>
-                  <div dangerouslySetInnerHTML={{ __html: nl2brSafe(ch.body) }} className="text-sm text-zinc-700 mt-1" />
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="p-4 bg-yellow-50 text-yellow-800 text-sm rounded-xl border border-yellow-200">
-              経営ストーリーが未設定です。先に STAGE 2 で「経営ストーリー」を作成してください。
-            </div>
-          )}
-        </section>
+        <StoryWithKPIComparison
+          chapters={storyChapters}
+          revenue={kpiBridgeData.revenue}
+          operatingProfit={kpiBridgeData.operatingProfit}
+        />
       )}
 
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
@@ -1472,7 +1976,7 @@ export default function CascadePage() {
         <section>{VisualView}</section>
       ) : (
         <section className="space-y-6">
-          {departments.map((dept, index) => {
+          {departments.map((dept: Department, index: number) => {
             const editableDept = canEditDept();
             const L = loading[index] ?? {};
             const inlineDraft = (inlineEdit[index] ?? dept.strategy ?? dept.mission ?? '').toString();
