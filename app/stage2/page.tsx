@@ -4,6 +4,7 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { safeGetSession } from '@/utils/supabase/client';
+import { formatMillion, safeNumber, toMillionYen, inferScaleToMillion, safeRatio, formatPct } from '@/utils/unit';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import {
@@ -17,6 +18,11 @@ import { getFullStrategyDataByCompany, saveStrategyData as saveStrategyDataApi }
 import { saveWithAudit } from '@/utils/persist/saveWithAudit';
 import { restoreWithAudit } from '@/utils/persist/restoreWithAudit';
 import type { IssueBlock, MetricsSummary, StoryChapter, WinPatternCandidate, Stage2State, Stage2Answer } from '@/types/strategy';
+
+/* ===================================================
+ * ★ Zustand selector 参照安定化：無限ループ防止
+ * =================================================== */
+const EMPTY_ARR: any[] = [];
 
 /* ===================================================
  * 12問テンプレート（固定）
@@ -300,6 +306,305 @@ function FinalStoryPreview({ finalStory }: { finalStory: StoryChapter[] }) {
 }
 
 /* ===================================================
+ * 現状→目標 KPIブリッジ（Apple風UI）
+ * ★ TASK A: 売上・営業利益の現状→目標を可視化（百万円表示）
+ * =================================================== */
+type KPIBridgeData = {
+  current: number | null;
+  target: number | null;
+};
+
+interface CurrentToTargetPanelProps {
+  revenue: KPIBridgeData;
+  operatingProfit: KPIBridgeData;
+}
+
+// ★ TASK A-1: 単位変換（兆円/円/百万円を自動判定）
+// 入力値の大きさに応じて、百万円スケールに統一する純関数
+function toMillion(v: number | null | undefined): number | null {
+  if (v == null || !Number.isFinite(v)) return null;
+  const a = Math.abs(v);
+
+  // 兆円っぽい（0.0xx, 0.x, 数十まで）→ x * 1_000_000
+  if (a > 0 && a < 100) return v * 1_000_000;
+
+  // 円っぽい（百万を超える生値） → x / 1_000_000
+  if (a >= 1_000_000) return v / 1_000_000;
+
+  // 百万円っぽい → そのまま
+  return v;
+}
+
+// fmtMillion は utils/unit.ts の formatMillion に統一
+function fmtMillion(yen: number | null | undefined): string {
+  return formatMillion(yen, 0);
+}
+
+// ★ fmtDelta - 値は既に百万円スケール（toMillionYen で統一済み）
+function fmtDelta(current: number | null | undefined, target: number | null | undefined): { delta: string; rate: string } {
+  if (current === null || current === undefined || target === null || target === undefined) {
+    return { delta: '—', rate: '—' };
+  }
+  const d = target - current;
+  // ★ 値は既に百万円スケールなので、そのまま四捨五入して表示
+  const deltaStr = d >= 0 ? `+${Math.round(d).toLocaleString('ja-JP')}` : `${Math.round(d).toLocaleString('ja-JP')}`;
+  if (current === 0) {
+    return { delta: deltaStr, rate: '—' };
+  }
+  const rate = ((d / current) * 100).toFixed(1);
+  return { delta: deltaStr, rate: `${rate}%` };
+}
+
+/**
+ * PositiveOnlyBarCard - 売上用（常に正の値）
+ * 2本の太い縦棒（現状/目標）を表示
+ */
+function PositiveOnlyBarCard({
+  title,
+  current,
+  target,
+}: {
+  title: string;
+  current: number | null;
+  target: number | null;
+}) {
+  // ★ 高さ計算（相対値）
+  const safeMax = Math.max(current ?? 0, target ?? 0, 1);
+  const currentHeightPct = current !== null ? (current / safeMax) * 100 : 0;
+  const targetHeightPct = target !== null ? (target / safeMax) * 100 : 0;
+
+  // ★ 達成率計算（utils/unit.ts の safeRatio を使用）
+  const achievementRate = safeRatio(current, target);
+
+  // ★ 差分計算
+  const delta = current !== null && target !== null ? target - current : null;
+
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-white/5 backdrop-blur-sm p-5">
+      {/* タイトル */}
+      <div className="flex items-center justify-between mb-4">
+        <h5 className="text-sm font-semibold text-gray-800 dark:text-gray-200">{title}</h5>
+        <span className="text-xs text-gray-500 dark:text-gray-400">百万円</span>
+      </div>
+
+      {/* 棒グラフ（太い縦棒） - 親に固定高さを付与して % が成立するようにする */}
+      <div className="relative h-48 flex items-end justify-center gap-6 mb-4">
+        {/* 現状 */}
+        <div className="flex flex-col items-center gap-2 h-full">
+          <div className="flex-1 flex items-end justify-center">
+            <div
+              className="bg-slate-600 dark:bg-slate-400 rounded-t transition-all shadow-md"
+              style={{
+                width: '22px',
+                height: `${Math.max(currentHeightPct, 2)}%`,
+              }}
+            />
+          </div>
+          {current !== null && (
+            <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 text-center whitespace-nowrap">
+              {formatMillion(current)}
+            </div>
+          )}
+          <div className="text-xs text-gray-500 dark:text-gray-500">現状</div>
+        </div>
+
+        {/* 目標 */}
+        <div className="flex flex-col items-center gap-2 h-full">
+          <div className="flex-1 flex items-end justify-center">
+            <div
+              className="bg-blue-500 dark:bg-blue-400 rounded-t transition-all shadow-md"
+              style={{
+                width: '22px',
+                height: `${Math.max(targetHeightPct, 2)}%`,
+              }}
+            />
+          </div>
+          {target !== null && (
+            <div className="text-xs font-semibold text-blue-700 dark:text-blue-300 text-center whitespace-nowrap">
+              {formatMillion(target)}
+            </div>
+          )}
+          <div className="text-xs text-gray-500 dark:text-gray-500">目標</div>
+        </div>
+      </div>
+
+      {/* 下段：差分・達成率 */}
+      <div className="border-t border-gray-200 dark:border-gray-700 pt-3 flex justify-between text-xs text-gray-600 dark:text-gray-400">
+        <span>
+          差分: {delta !== null ? formatMillion(delta) : '—'}
+        </span>
+        <span>
+          達成率: {achievementRate !== null ? formatPct(achievementRate) : '—'}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * DivergingBarCard - 営業利益用（正負両対応、0ライン表示）
+ * 0ラインを中心に、上下に棒が伸びる
+ */
+function DivergingBarCard({
+  title,
+  current,
+  target,
+}: {
+  title: string;
+  current: number | null;
+  target: number | null;
+}) {
+  // ★ 高さ計算（0ラインを基準）
+  const absMax = Math.max(Math.abs(current ?? 0), Math.abs(target ?? 0), 1);
+  const currentHeightPct = current !== null ? Math.abs(current) / absMax * 100 : 0;
+  const targetHeightPct = target !== null ? Math.abs(target) / absMax * 100 : 0;
+
+  // ★ 達成率（targetが正の場合のみ計算）
+  const achievementRate = target !== null && target > 0 ? safeRatio(current, target) : null;
+
+  // ★ 差分計算
+  const delta = current !== null && target !== null ? target - current : null;
+
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-white/5 backdrop-blur-sm p-5">
+      {/* タイトル */}
+      <div className="flex items-center justify-between mb-4">
+        <h5 className="text-sm font-semibold text-gray-800 dark:text-gray-200">{title}</h5>
+        <span className="text-xs text-gray-500 dark:text-gray-400">百万円</span>
+      </div>
+
+      {/* 0ラインを含む棒グラフ（上下 50% の "確定高さ" を用意して % を成立させる） */}
+      <div className="relative h-48 flex justify-center gap-8 mb-4">
+        {/* 0ライン */}
+        <div
+          className="absolute left-0 right-0 h-px bg-gray-400 dark:bg-gray-600"
+          style={{ top: '50%' }}
+        />
+
+        {/* 現状 */}
+        <div className="relative w-12 flex flex-col items-center">
+          {/* +（上側 50%） */}
+          {current !== null && current > 0 && (
+            <div
+              className="absolute bottom-1/2 left-1/2 -translate-x-1/2 flex flex-col items-center justify-end"
+              style={{ height: '50%' }}
+            >
+              <div
+                className="bg-emerald-600 dark:bg-emerald-400 rounded-t transition-all shadow-md"
+                style={{
+                  width: '22px',
+                  height: `${Math.max(currentHeightPct, 2)}%`,
+                }}
+              />
+              <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 mt-1 text-center whitespace-nowrap">
+                {formatMillion(current)}
+              </div>
+            </div>
+          )}
+
+          {/* -（下側 50%） */}
+          {current !== null && current < 0 && (
+            <div
+              className="absolute top-1/2 left-1/2 -translate-x-1/2 flex flex-col items-center justify-start"
+              style={{ height: '50%' }}
+            >
+              <div
+                className="bg-red-500 dark:bg-red-400 rounded-b transition-all shadow-md"
+                style={{
+                  width: '22px',
+                  height: `${Math.max(currentHeightPct, 2)}%`,
+                }}
+              />
+              <div className="text-xs font-semibold text-red-700 dark:text-red-300 mt-1 text-center whitespace-nowrap">
+                {formatMillion(current)}
+              </div>
+            </div>
+          )}
+
+          <div className="absolute -bottom-6 text-xs text-gray-500 dark:text-gray-500 whitespace-nowrap">
+            現状
+          </div>
+        </div>
+
+        {/* 目標 */}
+        <div className="relative w-12 flex flex-col items-center">
+          {/* +（上側 50%） */}
+          {target !== null && target > 0 && (
+            <div
+              className="absolute bottom-1/2 left-1/2 -translate-x-1/2 flex flex-col items-center justify-end"
+              style={{ height: '50%' }}
+            >
+              <div
+                className="bg-emerald-500 dark:bg-emerald-400 rounded-t transition-all shadow-md"
+                style={{
+                  width: '22px',
+                  height: `${Math.max(targetHeightPct, 2)}%`,
+                }}
+              />
+              <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 mt-1 text-center whitespace-nowrap">
+                {formatMillion(target)}
+              </div>
+            </div>
+          )}
+
+          {/* -（下側 50%） */}
+          {target !== null && target < 0 && (
+            <div
+              className="absolute top-1/2 left-1/2 -translate-x-1/2 flex flex-col items-center justify-start"
+              style={{ height: '50%' }}
+            >
+              <div
+                className="bg-red-500 dark:bg-red-400 rounded-b transition-all shadow-md"
+                style={{
+                  width: '22px',
+                  height: `${Math.max(targetHeightPct, 2)}%`,
+                }}
+              />
+              <div className="text-xs font-semibold text-red-700 dark:text-red-300 mt-1 text-center whitespace-nowrap">
+                {formatMillion(target)}
+              </div>
+            </div>
+          )}
+
+          <div className="absolute -bottom-6 text-xs text-gray-500 dark:text-gray-500 whitespace-nowrap">
+            目標
+          </div>
+        </div>
+      </div>
+
+      <div className="h-6" />
+
+      {/* 下段：差分・達成率 */}
+      <div className="border-t border-gray-200 dark:border-gray-700 pt-3 flex justify-between text-xs text-gray-600 dark:text-gray-400">
+        <span>
+          差分: {delta !== null ? formatMillion(delta) : '—'}
+        </span>
+        <span>
+          達成率: {achievementRate !== null ? formatPct(achievementRate) : '—'}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * CurrentToTargetPanel - 新 UI版（太い縦棒）
+ */
+function CurrentToTargetPanel({ revenue, operatingProfit }: CurrentToTargetPanelProps) {
+  return (
+    <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white/40 dark:bg-white/5 backdrop-blur-sm p-6">
+      <h4 className="text-base font-semibold text-gray-800 dark:text-gray-200 mb-6">現状 → 目標</h4>
+
+      {/* 売上と営業利益を2カラムで並べる */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <PositiveOnlyBarCard title="売上" current={revenue.current} target={revenue.target} />
+        <DivergingBarCard title="営業利益" current={operatingProfit.current} target={operatingProfit.target} />
+      </div>
+    </div>
+  );
+}
+
+/* ===================================================
  * GlassCard（再利用）
  * =================================================== */
 function GlassCard({
@@ -563,7 +868,8 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
   });
 
   // ★ 修正：store から直接読み取り（props に依存しない＝親の再レンダーで入力値が消えない）
-  const companyTargets = useStrategyStore((s) => (s as any).companyTargets ?? []);
+  // ★ 参照安定化：EMPTY_ARR を使って無限ループ防止
+  const companyTargets = useStrategyStore((s) => (s as any).companyTargets || EMPTY_ARR);
   const addCompanyTarget = useStrategyStore((s) => (s as any).addCompanyTarget);
   const updateCompanyTarget = useStrategyStore((s) => (s as any).updateCompanyTarget);
   const removeCompanyTarget = useStrategyStore((s) => (s as any).removeCompanyTarget);
@@ -1142,9 +1448,10 @@ export default function Stage2Page() {
   const hydrated = useStrategyStore((s) => s.hydrated);
 
   /* ★ TASK A-1: answers12 をArrayガード付きで統一 */
+  // ★ 参照安定化：EMPTY_ARR を使って無限ループ防止
   const answers12 = useStrategyStore((s) => {
     const v = (s as any).answers12;
-    return Array.isArray(v) ? v : [];
+    return Array.isArray(v) ? v : EMPTY_ARR;
   });
   const setAnswers12 = useStrategyStore(
     (s) => (s as any).setAnswers12 as (a: Stage2Answer[]) => void
@@ -1160,8 +1467,14 @@ export default function Stage2Page() {
   const winPatternsCandidate = useStrategyStore((s) => (s as any).winPatternsCandidate ?? EMPTY_WIN_PATTERNS);
   const setWinPatternsCandidate = useStrategyStore((s) => (s as any).setWinPatternsCandidate as any);
 
-  const companyTargets = useStrategyStore((s) => (s as any).companyTargets ?? []);
+  // ★ 参照安定化：EMPTY_ARR を使って無限ループ防止
+  const companyTargets = useStrategyStore((s) => (s as any).companyTargets || EMPTY_ARR);
   const setCompanyTargets = useStrategyStore((s) => (s as any).setCompanyTargets as any);
+
+  // ★ TASK A: 現状値取得（多段フォールバック：metricsSummary → financeSummary → financePL）
+  // ★ 参照安定化：EMPTY_ARR を使って無限ループ防止
+  const financePL = useStrategyStore((s) => s.financePL || EMPTY_ARR);
+  const financeSummary = useStrategyStore((s) => (s as any).financeSummary || EMPTY_ARR);
 
   const finalStory = useStrategyStore((s) => s.finalStory ?? EMPTY_STORY_DRAFT);
 
@@ -1213,18 +1526,248 @@ export default function Stage2Page() {
   const [generatingFinal, setGeneratingFinal] = useState(false);
   const [generateFinalError, setGenerateFinalError] = useState<string | null>(null);
 
-  // ★ STAGE2 Final Story：表示用（確定版 > 編集版 > 下書き版）
-  const displayedFinalStory = finalStoryFinalRaw ?? finalStoryEditedRaw ?? finalStoryDraftRaw ?? [];
+  // ★ TASK A: 現状→目標 KPI ブリッジデータを計算（安全な単位推定＆多段フォールバック）
+  const kpiBridgeData = useMemo(() => {
+    const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
+
+    if (DEBUG) {
+      // Step 1: ソースの生データを出力（診断用）
+      const financePLSample =
+        Array.isArray(financePL) && financePL.length > 0
+          ? {
+              len: financePL.length,
+              latestYear: financePL.reduce((max: any, r: any) => (r.year > max ? r.year : max), 0),
+              keys: Object.keys(financePL[0] || {}),
+              revenue: (financePL[0] as any)?.revenue,
+              sales: (financePL[0] as any)?.sales,
+              operatingIncome: (financePL[0] as any)?.operatingIncome,
+              op: (financePL[0] as any)?.op,
+              営業利益: (financePL[0] as any)?.営業利益,
+            }
+          : { len: 0 };
+
+      const financeSummarySample =
+        Array.isArray(financeSummary) && financeSummary.length > 0
+          ? {
+              len: financeSummary.length,
+              latestYear: financeSummary.reduce((max: any, r: any) => (r.year > max.year ? r.year : max.year), 0),
+              keys: Object.keys(financeSummary[0] || {}),
+              revenue: (financeSummary[0] as any)?.revenue,
+              operating_income: (financeSummary[0] as any)?.operating_income,
+            }
+          : { len: 0 };
+
+      const metricsSummarySample = metricsSummary
+        ? {
+            exists: true,
+            keys: Object.keys(metricsSummary),
+            revenue: (metricsSummary as any)?.revenue,
+            sales: (metricsSummary as any)?.sales,
+            operatingIncome: (metricsSummary as any)?.operatingIncome,
+            op: (metricsSummary as any)?.op,
+          }
+        : { exists: false };
+
+      const targetsSample =
+        Array.isArray(companyTargets) && companyTargets.length > 0
+          ? {
+              len: companyTargets.length,
+              labels: companyTargets.map((t: any) => t.label),
+              firstTarget: companyTargets[0],
+            }
+          : { len: 0 };
+
+      console.log('[diag][kpi][sources]', {
+        financePL: financePLSample,
+        financeSummary: financeSummarySample,
+        metricsSummary: metricsSummarySample,
+        companyTargets: targetsSample,
+      });
+    }
+
+    // ★ 多段フォールバック：metricsSummary → financeSummary → financePL
+    let currentRevenue: number | null = null;
+    let currentOperatingProfit: number | null = null;
+    let revenueSource = '';
+    let opSource = '';
+
+    // 1) metricsSummary（STAGE1 最新の指標）
+    if (metricsSummary && typeof metricsSummary === 'object') {
+      const ms = metricsSummary as Record<string, any>;
+      const revVal = ms.revenue ?? ms.sales ?? (ms as any).売上;
+      const opVal = ms.operatingIncome ?? ms.op ?? (ms as any).営業利益;
+
+      const rev = safeNumber(revVal);
+      const op = safeNumber(opVal);
+
+      if (rev !== null) {
+        currentRevenue = toMillionYen(rev, 'unknown');
+        revenueSource = 'metricsSummary';
+        if (DEBUG) console.log('[KPI] metricsSummary revenue:', { raw: rev, converted: currentRevenue, scale: inferScaleToMillion(rev) });
+      }
+
+      if (op !== null) {
+        currentOperatingProfit = toMillionYen(op, 'unknown');
+        opSource = 'metricsSummary';
+        if (DEBUG) console.log('[KPI] metricsSummary op:', { raw: op, converted: currentOperatingProfit, scale: inferScaleToMillion(op) });
+      }
+    }
+
+    // 2) financeSummary（ビジネスユニット別集計）- 最新年度の合計
+    if (!currentRevenue && Array.isArray(financeSummary) && financeSummary.length > 0) {
+      const latest = financeSummary.reduce((max: any, row: any) => (row.year > max.year ? row : max));
+      const revVal = latest.revenue;
+      const rev = safeNumber(revVal);
+      if (rev !== null) {
+        currentRevenue = toMillionYen(rev, 'unknown');
+        revenueSource = 'financeSummary';
+        if (DEBUG) console.log('[KPI] financeSummary revenue:', { raw: rev, converted: currentRevenue, scale: inferScaleToMillion(rev) });
+      }
+    }
+
+    // 3) financePL（年度別PL）- 最新年度
+    if ((!currentRevenue || !currentOperatingProfit) && Array.isArray(financePL) && financePL.length > 0) {
+      const latestRow = financePL.reduce((max: any, row: any) => (row.year > max.year ? row : max));
+
+      if (!currentRevenue) {
+        const revVal = latestRow.revenue ?? (latestRow as any).sales;
+        const rev = safeNumber(revVal);
+        if (rev !== null) {
+          currentRevenue = toMillionYen(rev, 'unknown');
+          revenueSource = 'financePL';
+          if (DEBUG) console.log('[KPI] financePL revenue:', { raw: rev, converted: currentRevenue, scale: inferScaleToMillion(rev) });
+        }
+      }
+
+      if (!currentOperatingProfit) {
+        const opVal = latestRow.operatingIncome ?? (latestRow as any).op ?? (latestRow as any).営業利益;
+        const op = safeNumber(opVal);
+        if (op !== null) {
+          currentOperatingProfit = toMillionYen(op, 'unknown');
+          opSource = 'financePL';
+          if (DEBUG) console.log('[KPI] financePL op:', { raw: op, converted: currentOperatingProfit, scale: inferScaleToMillion(op) });
+        }
+      }
+    }
+
+    // ★ 目標：companyTargets から label マッチで抽出（キーゆれ吸収: value/amount/target/high/base/low）
+    let targetRevenue: number | null = null;
+    let targetOperatingProfit: number | null = null;
+    let targetRevenueLabel = '';
+    let targetOpLabel = '';
+
+    if (Array.isArray(companyTargets) && companyTargets.length > 0) {
+      for (const target of companyTargets) {
+        const label = (target.label ?? '').trim().toLowerCase();
+
+        // 売上パターン
+        if (!targetRevenue && (label.includes('売上') || label.includes('revenue') || label.includes('sales') || label.includes('top line'))) {
+          // value, amount, target, high, base, low のいずれかを探す
+          const val = (target as any).value ?? (target as any).amount ?? (target as any).target ?? target.high ?? target.base ?? target.low;
+          const valNum = safeNumber(val);
+          if (valNum !== null) {
+            targetRevenue = toMillionYen(valNum, 'unknown');
+            targetRevenueLabel = target.label ?? '';
+            if (DEBUG) console.log('[KPI] companyTargets revenue:', { label: target.label, raw: valNum, converted: targetRevenue, scale: inferScaleToMillion(valNum) });
+          }
+        }
+
+        // 営業利益パターン
+        if (
+          !targetOperatingProfit &&
+          (label.includes('営業利益') || label.includes('operating profit') || label.includes('op') || label.includes('operating income'))
+        ) {
+          const val = (target as any).value ?? (target as any).amount ?? (target as any).target ?? target.high ?? target.base ?? target.low;
+          const valNum = safeNumber(val);
+          if (valNum !== null) {
+            targetOperatingProfit = toMillionYen(valNum, 'unknown');
+            targetOpLabel = target.label ?? '';
+            if (DEBUG) console.log('[KPI] companyTargets op:', { label: target.label, raw: valNum, converted: targetOperatingProfit, scale: inferScaleToMillion(valNum) });
+          }
+        }
+      }
+    }
+
+    if (DEBUG) {
+      console.log('[diag][kpi][computed]', {
+        currentRevenue,
+        currentOperatingProfit,
+        revenueSource,
+        opSource,
+        targetRevenue,
+        targetOperatingProfit,
+        targetRevenueLabel,
+        targetOpLabel,
+        currentRevenue_isZero: currentRevenue === 0,
+        currentOperatingProfit_isZero: currentOperatingProfit === 0,
+        targetRevenue_isZero: targetRevenue === 0,
+        targetOperatingProfit_isZero: targetOperatingProfit === 0,
+      });
+    }
+
+    // ★ TASK A-1: 表示用に百万円フォーマット（ここは既にtoMillionYenで単位統一済み）
+    return {
+      revenue: {
+        current: currentRevenue,
+        target: targetRevenue,
+      },
+      operatingProfit: {
+        current: currentOperatingProfit,
+        target: targetOperatingProfit,
+      },
+    };
+  }, [financePL, financeSummary, metricsSummary, companyTargets]);
+
+  // ★ TASK A-2: Final タブの表示モード（auto / draft / edited / final）
+  const [storyViewMode, setStoryViewMode] = useState<'auto' | 'draft' | 'edited' | 'final'>('auto');
+
+  // 表示対象の章を決定する関数
+  const pickStory = (): StoryChapter[] => {
+    if (storyViewMode === 'draft') return finalStoryDraftRaw || EMPTY_ARR;
+    if (storyViewMode === 'edited') return finalStoryEditedRaw || EMPTY_ARR;
+    if (storyViewMode === 'final') return finalStoryFinalRaw || EMPTY_ARR;
+
+    // auto：従来通り final > edited > draft の優先順
+    if (finalStoryFinalRaw && finalStoryFinalRaw.length > 0) return finalStoryFinalRaw;
+    if (finalStoryEditedRaw && finalStoryEditedRaw.length > 0) return finalStoryEditedRaw;
+    if (finalStoryDraftRaw && finalStoryDraftRaw.length > 0) return finalStoryDraftRaw;
+    return EMPTY_ARR;
+  };
+
+  const displayingStory = pickStory();
 
   // Active tab
   const [activeTab, setActiveTab] = useState<TabId>('input');
 
   // ★ editingStory の同期（タブ表示時＆store更新時）
   useEffect(() => {
-    if (activeTab === 'final' && displayedFinalStory.length > 0) {
-      setEditingStory(displayedFinalStory);
+    if (activeTab === 'final' && displayingStory.length > 0) {
+      setEditingStory(displayingStory);
     }
-  }, [activeTab, displayedFinalStory]);
+  }, [activeTab, displayingStory]);
+
+  // ★ Step 2: Final タブ表示版を診断ログ
+  useEffect(() => {
+    if (activeTab === 'final' && process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+      const usingVersion = finalStoryFinalRaw && finalStoryFinalRaw.length > 0
+        ? 'final'
+        : finalStoryEditedRaw && finalStoryEditedRaw.length > 0
+          ? 'edited'
+          : finalStoryDraftRaw && finalStoryDraftRaw.length > 0
+            ? 'draft'
+            : 'none';
+      console.log('[diag][story][versions]', {
+        draftLen: finalStoryDraftRaw?.length ?? 0,
+        editedLen: finalStoryEditedRaw?.length ?? 0,
+        finalLen: finalStoryFinalRaw?.length ?? 0,
+        displayingVersion: usingVersion,
+        titles:
+          displayingStory.length > 0
+            ? displayingStory.map((ch) => ch.title)
+            : [],
+      });
+    }
+  }, [activeTab, finalStoryFinalRaw, finalStoryEditedRaw, finalStoryDraftRaw, displayingStory]);
 
   // 初期復元が完了したか（復元前に local->store が走って store を空で上書きするのを防ぐ）
   const [stage2Ready, setStage2Ready] = useState(false);
@@ -1575,7 +2118,7 @@ export default function Stage2Page() {
         storyDraft,
         winPatternsCandidate,
         answers12,
-        finalStory: displayedFinalStory,
+        finalStory: displayingStory,
         finalStoryDraft: finalStoryDraftRaw,
         finalStoryEdited: finalStoryEditedRaw,
         finalStoryFinal: finalStoryFinalRaw,
@@ -1590,7 +2133,7 @@ export default function Stage2Page() {
           answered: answers12?.filter((a: Stage2Answer) => a.answer?.trim()).length ?? 0,
           hasDraft: storyDraft?.length ?? 0,
           hasWin: winPatternsCandidate?.length ?? 0,
-          hasFinal: displayedFinalStory?.length ?? 0,
+          hasFinal: displayingStory?.length ?? 0,
           companyTargetsCount: companyTargets?.length ?? 0,
           finalStoryDraftCount: finalStoryDraftRaw?.length ?? 0,
           finalStoryEditedCount: finalStoryEditedRaw?.length ?? 0,
@@ -1615,7 +2158,7 @@ export default function Stage2Page() {
     answers12,
     storyDraft,
     winPatternsCandidate,
-    displayedFinalStory,
+    displayingStory,
     finalStoryDraftRaw,
     finalStoryEditedRaw,
     finalStoryFinalRaw,
@@ -2107,6 +2650,16 @@ export default function Stage2Page() {
   const handleGenerateFinal = useCallback(async () => {
     if (generatingFinal) return;
 
+    // ★ Step 3: 再生成クリック直前の state
+    if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+      console.log('[diag][regenerate][before]', {
+        draftLen: finalStoryDraftRaw?.length ?? 0,
+        editedLen: finalStoryEditedRaw?.length ?? 0,
+        finalLen: finalStoryFinalRaw?.length ?? 0,
+        generatingFinal,
+      });
+    }
+
     setGeneratingFinal(true);
     setGenerateFinalError(null);
 
@@ -2182,25 +2735,41 @@ export default function Stage2Page() {
       const data = await response.json();
       const newFinalStory: StoryChapter[] = Array.isArray(data.finalStory) ? data.finalStory : [];
 
+      // ★ Step 3: APIレスポンス内容ログ
+      if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+        console.log('[diag][regenerate][api-response]', {
+          chaptersLen: newFinalStory.length,
+          chapters: newFinalStory.map((ch) => ({
+            title: ch.title,
+            bodyStart: ch.body.slice(0, 80) + '...',
+            bodyLen: ch.body.length,
+          })),
+        });
+      }
+
       // ★ STAGE2 最終ストーリー：draft に設定（edited は保持）
       setFinalStoryDraft(newFinalStory);
 
-      // ★ 診断：store に入ったか確定
-      if (process.env.NODE_ENV === 'development') {
+      // ★ TASK A-2: 再生成成功直後は draft を表示
+      setStoryViewMode('draft');
+
+      // ★ Step 3: setter 実行直後のログ（即時と setTimeout(0)）
+      if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+        // 即時
+        console.log('[diag][regenerate][after-setter-sync]', {
+          draftLenAfter: finalStoryDraftRaw?.length ?? 0,
+          editedLen: finalStoryEditedRaw?.length ?? 0,
+          finalLen: finalStoryFinalRaw?.length ?? 0,
+        });
+        // 非同期（reaction 待ち）
         setTimeout(() => {
           const storeState = (useStrategyStore.getState() as any);
-          console.log('[diag][final] after setFinalStoryDraft', {
-            len: Array.isArray(storeState.finalStoryDraft) ? storeState.finalStoryDraft.length : null,
-            source: 'store',
+          console.log('[diag][regenerate][after-setter-async]', {
+            storeDraftLen: Array.isArray(storeState.finalStoryDraft) ? storeState.finalStoryDraft.length : null,
+            storeEditedLen: Array.isArray(storeState.finalStoryEdited) ? storeState.finalStoryEdited.length : null,
+            storeFinalLen: Array.isArray(storeState.finalStoryFinal) ? storeState.finalStoryFinal.length : null,
           });
         }, 0);
-      }
-
-      if (process.env.NODE_ENV === 'development') {
-        console.log('[Stage2] Generated finalStory set to store:', {
-          finalStory_len: newFinalStory.length,
-          source: 'store setter',
-        });
       }
 
       // Auto navigate to Final tab
@@ -2283,7 +2852,7 @@ export default function Stage2Page() {
   const hasDraft = storyDraft.length > 0;
   const canOpenWin = hasDraft; // たたき台生成後に進める
   const hasWinReady = hasDraft; // Draft生成済みなら最終生成が可能
-  const hasFinal = displayedFinalStory.length > 0;
+  const hasFinal = displayingStory.length > 0;
 
   // ★ TASK 10-3: UI表示直前に field_check ログ（DEV限定）
   if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
@@ -2500,7 +3069,7 @@ export default function Stage2Page() {
             {/* 最終タグ：最終ストーリー */}
             {activeTab === 'final' && (
               <div className="space-y-6">
-                {displayedFinalStory.length > 0 ? (
+                {displayingStory.length > 0 ? (
                   <>
                     {/* ★ 確定済みバッジ */}
                     {finalStoryFinalRaw && (
@@ -2539,12 +3108,25 @@ export default function Stage2Page() {
                       ))}
                     </div>
 
+                    {/* ★ TASK A: 現状→目標 KPI ブリッジ */}
+                    <CurrentToTargetPanel revenue={kpiBridgeData.revenue} operatingProfit={kpiBridgeData.operatingProfit} />
+
                     {/* ★ 3つのボタン */}
                     <div className="flex gap-3 justify-center pt-4">
                       {/* 保存（下書き保存） */}
                       <button
                         onClick={() => {
+                          // ★ Step 4: 保存ボタンの動作をログ
+                          if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+                            console.log('[diag][button][save]', {
+                              editingStoryLen: editingStory.length,
+                              beforeEditedLen: finalStoryEditedRaw?.length ?? 0,
+                              action: 'setFinalStoryEdited',
+                            });
+                          }
                           setFinalStoryEdited(editingStory);
+                          // ★ TASK A-2: 保存後は edited 版を表示
+                          setStoryViewMode('edited');
                         }}
                         className="px-6 py-3 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors shadow-md"
                       >
@@ -2554,8 +3136,22 @@ export default function Stage2Page() {
                       {/* 確定（Final） */}
                       <button
                         onClick={() => {
+                          // ★ Step 4: 確定ボタンの動作をログ
+                          if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+                            console.log('[diag][button][commit]', {
+                              editingStoryLen: editingStory.length,
+                              beforeDraftLen: finalStoryDraftRaw?.length ?? 0,
+                              beforeEditedLen: finalStoryEditedRaw?.length ?? 0,
+                              beforeFinalLen: finalStoryFinalRaw?.length ?? 0,
+                              action: 'setFinalStoryEdited + commitFinalStory',
+                            });
+                          }
                           setFinalStoryEdited(editingStory);
-                          setTimeout(() => commitFinalStory(), 100);
+                          setTimeout(() => {
+                            commitFinalStory();
+                            // ★ TASK A-2: 確定後は final 版を表示
+                            setStoryViewMode('final');
+                          }, 100);
                         }}
                         className="px-6 py-3 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors shadow-md"
                       >
@@ -2565,8 +3161,19 @@ export default function Stage2Page() {
                       {/* 破棄（編集を戻す） */}
                       <button
                         onClick={() => {
+                          // ★ Step 4: 破棄ボタンの動作をログ
+                          if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+                            console.log('[diag][button][discard]', {
+                              usingVersion: finalStoryFinalRaw?.length ? 'final' : finalStoryDraftRaw?.length ? 'draft' : 'none',
+                              beforeEditingLen: editingStory.length,
+                              afterEditingLen: (finalStoryFinalRaw ?? finalStoryDraftRaw ?? []).length,
+                              action: 'setEditingStory (reset to draft/final)',
+                            });
+                          }
                           // edited をクリアして draft に戻す
                           setEditingStory(finalStoryFinalRaw ?? finalStoryDraftRaw ?? []);
+                          // ★ TASK A-2: 破棄時は自動選択に戻す（final > edited > draft）
+                          setStoryViewMode('auto');
                         }}
                         className="px-6 py-3 rounded-lg bg-gray-400 text-white text-sm font-medium hover:bg-gray-500 transition-colors shadow-md"
                       >
