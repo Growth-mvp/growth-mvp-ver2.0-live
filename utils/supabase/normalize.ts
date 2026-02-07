@@ -331,6 +331,7 @@ function normalizeDepartment(d: AnyDepartment): Department {
   const mission = typeof obj.mission === 'string' ? obj.mission : '';
   const strategy = typeof obj.strategy === 'string' ? obj.strategy : undefined;
   const missionDraft = typeof obj.missionDraft === 'string' ? obj.missionDraft : undefined;
+  const missionDescription = typeof obj.missionDescription === 'string' ? obj.missionDescription : undefined;
   const discussionNotes = typeof obj.discussionNotes === 'string' ? obj.discussionNotes : undefined;
 
   const questions = Array.isArray(obj.questions)
@@ -363,6 +364,24 @@ function normalizeDepartment(d: AnyDepartment): Department {
   const projectsRaw = Array.isArray(obj.projects) ? obj.projects : [];
   const projects = projectsRaw.map(normalizeProject);
 
+  // ★ lanes 正規化（existing/new の projects を normalizeProject を通す）
+  const lanes =
+    obj.lanes && typeof obj.lanes === 'object'
+      ? {
+          existing:
+            obj.lanes.existing && typeof obj.lanes.existing === 'object' && Array.isArray(obj.lanes.existing.projects)
+              ? { projects: obj.lanes.existing.projects.map(normalizeProject) }
+              : undefined,
+          new:
+            obj.lanes.new && typeof obj.lanes.new === 'object' && Array.isArray(obj.lanes.new.projects)
+              ? { projects: obj.lanes.new.projects.map(normalizeProject) }
+              : undefined,
+        }
+      : undefined;
+
+  // ★ segmentName 正規化
+  const segmentName = typeof obj.segmentName === 'string' ? obj.segmentName : undefined;
+
   base.id = id;
   base.name = name;
   base.mission = mission;
@@ -370,9 +389,12 @@ function normalizeDepartment(d: AnyDepartment): Department {
   base.finalized = finalized;
   if (strategy !== undefined) base.strategy = strategy;
   if (missionDraft !== undefined) base.missionDraft = missionDraft;
+  if (missionDescription !== undefined) base.missionDescription = missionDescription;
   if (discussionNotes !== undefined) base.discussionNotes = discussionNotes;
   if (questions && questions.length) base.questions = questions;
   if (answers2 && answers2.length) base.answers2 = answers2;
+  if (lanes && (lanes.existing || lanes.new)) base.lanes = lanes;
+  if (segmentName !== undefined) base.segmentName = segmentName;
 
   return base as Department;
 }
