@@ -593,6 +593,12 @@ export type Project = {
 
   /** ★STAGE4 実行計画：人的投資計画（採用・委託・配置・システム等） */
   executionHumanInvestments?: ExecutionHumanInvestment[];
+
+  /** ★STAGE3 カスケード：AI生成管理用メタデータ（再生成の安全マージ用） */
+  generatedBy?: 'ai' | 'user';
+  generatedSlot?: 1 | 2 | 3; // AI枠番号（既存2＋新規1の中のスロット）
+  generatedGroup?: string; // 'cascade_v1' で識別
+  generatedAt?: string; // ISO datetime（生成日時）
 };
 
 /* =========================================================
@@ -951,6 +957,7 @@ export type Department = {
   id?: number | string;
   name: string;
   mission: string;
+  missionDescription?: string; // ★STAGE3：部門ミッションの内容説明
   strategy?: string;
   missionDraft?: string;
   discussionNotes?: string;
