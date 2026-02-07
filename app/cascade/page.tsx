@@ -127,6 +127,7 @@ type ApiLane = {
 type ApiDeptDraft = {
   name?: string;
   missionDraft?: string;
+  missionDescription?: string; // ★ P1/P0拡張：部門ミッション説明
 
   // 旧形式
   projects?: ApiProjectDraft[];
@@ -1624,6 +1625,44 @@ export default function CascadePage() {
   };
 
   /* =========================
+     ApiProjectDraft → Project 型変換（TS2322対応）
+  ========================= */
+  /**
+   * ApiProjectDraft を Project に変換
+   * - title は必須文字列に（undefined は補完）
+   */
+  const toProjectFromDraft = (d: ApiProjectDraft): Project => {
+    const title = (d.title ?? '').trim() || '（未設定プロジェクト）';
+    return {
+      title,
+      reason: d.reason,
+      hypothesis: d.hypothesis,
+      okrs: [],
+    } as Project;
+  };
+
+  /**
+   * ApiDeptDraft.lanes → Department.lanes（Project[]に変換）
+   */
+  const toLanesProjects = (lanes?: ApiDeptDraft['lanes']): Department['lanes'] | undefined => {
+    if (!lanes) return undefined;
+
+    const out: Department['lanes'] = {};
+
+    const ex = lanes.existing?.projects;
+    if (Array.isArray(ex) && ex.length > 0) {
+      out.existing = { projects: ex.map(toProjectFromDraft) };
+    }
+
+    const nw = lanes.new?.projects;
+    if (Array.isArray(nw) && nw.length > 0) {
+      out.new = { projects: nw.map(toProjectFromDraft) };
+    }
+
+    return Object.keys(out).length > 0 ? out : undefined;
+  };
+
+  /* =========================
      この部門だけ：/api/generate-cascade を使ったたたき台生成（2レーン対応）
      ※この機能は「削除対象ではない」ため維持
   ========================= */
@@ -1678,6 +1717,8 @@ export default function CascadePage() {
         csvFinanceData: s?.csvFinanceData ?? [],
         financeSummary: s?.financeSummary,
         businessPortfolio: s?.businessPortfolio,
+        // ★P3拡張：businessSegments を送信（segmentName マッピング用）
+        businessSegments: s?.businessSegments ?? [],
         // ★STAGE2構造化データを追加
         winPatternPrimary,
         winPatternSecondary,
@@ -1737,17 +1778,29 @@ export default function CascadePage() {
         const existingProjects = (d.projects as Project[] | undefined) ?? [];
         const patch: Partial<Department> = {};
 
-        // ミッション
+        // ★ missionDraft + missionDescription の保存
         const missionDraft = (rd.missionDraft ?? '').trim();
+        const missionDescription = (rd.missionDescription ?? '').trim();
+
         if (missionDraft && (!jsonEq(missionDraft, d.mission) || !jsonEq(missionDraft, d.strategy) || !jsonEq(missionDraft, d.missionDraft))) {
           patch.mission = missionDraft;
           patch.strategy = missionDraft;
           patch.missionDraft = missionDraft;
         }
 
+        if (missionDescription && !jsonEq(missionDescription, d.missionDescription)) {
+          patch.missionDescription = missionDescription;
+        }
+
         // プロジェクト + OKR（旧＋2レーン統合）
         const mergedProjects = applyDeptDraftToProjects(existingProjects, rd);
         if (!jsonEq(mergedProjects, existingProjects)) patch.projects = mergedProjects;
+
+        // ★ lanes（2レーン構造）を保存（型変換付き）
+        const newLanes = toLanesProjects(rd?.lanes);
+        if (newLanes && !jsonEq(newLanes, d.lanes)) {
+          patch.lanes = newLanes;
+        }
 
         if (rd.needsCollab) (patch as any).needsCollab = rd.needsCollab;
         if (rd.stopList) (patch as any).stopList = rd.stopList;
