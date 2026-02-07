@@ -986,6 +986,15 @@ export type Department = {
 
   /** ★STAGE3拡張：部門の由来（'stage1' = STAGE1事業部から生成、'manual' = 手動追加） */
   source?: 'stage1' | 'manual';
+
+  /** ★STAGE3拡張：2レーン構造（既存進化/新規探索の永続化） */
+  lanes?: {
+    existing?: { projects: Project[] };
+    new?: { projects: Project[] };
+  };
+
+  /** ★STAGE3拡張：STAGE1事業セグメントへの紐づけ */
+  segmentName?: string;
 };
 
 /* =========================================================
