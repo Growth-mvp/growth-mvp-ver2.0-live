@@ -12,7 +12,7 @@ import { z } from 'zod';
  * スキーマ（AI応答の検証用：後方互換＋2レーン拡張）
  * ======================= */
 
-// プロジェクト：仮説＋レバー×時間軸＋STAGE3拡張
+// プロジェクト：仮説＋レバー×時間軸＋STAGE3拡張＋AI管理メタ
 const ProjectSchema = z.object({
   title: z.string().min(1).catch(''),
   reason: z.string().default(''),
@@ -45,34 +45,27 @@ const ProjectSchema = z.object({
     )
     .optional()
     .default([]),
-});
 
-// OKR（新規探索レーンだけ expectedImpactYen / probability を付与できる）
-const OKRSpec = z.object({
-  objective: z.string().default(''),
-  keyResults: z.array(z.string()).default([]),
-  owner: z.string().optional().default(''),
-
-  expectedImpactYen: z.number().optional(),
-  probability: z.number().optional(),
+  // ★AI生成管理用メタデータ
+  generatedBy: z.enum(['ai', 'user']).optional(),
+  generatedSlot: z.number().int().min(1).max(3).optional(),
+  generatedGroup: z.string().optional(),
+  generatedAt: z.string().optional(),
 });
 
 // レーン（existing / new）
 const LaneSchema = z.object({
   projects: z.array(ProjectSchema).default([]),
-  okrDraft: z.array(OKRSpec).default([]),
 });
 
-// 部門：後方互換（projects/okrDraft）＋拡張（lanes）
+// 部門：後方互換（projects）＋拡張（lanes）
 const DepartmentSchema = z.object({
   name: z.string().min(1).catch(''),
   missionDraft: z.string().default(''),
+  missionDescription: z.string().optional().default(''),
 
   // 旧：部門配下のフラットな projects（既存進化レーン扱い）
   projects: z.array(ProjectSchema).default([]),
-
-  // 旧：部門OKR案（既存進化レーン扱い）
-  okrDraft: z.array(OKRSpec).optional().default([]),
 
   // 新：2レーン
   lanes: z
@@ -455,248 +448,7 @@ function normalizeProjects(raw: any): NormProject[] {
     });
 }
 
-function normalizeOkrs(
-  raw: any,
-): Array<{
-  objective: string;
-  keyResults: string[];
-  owner: string;
-  expectedImpactYen?: number;
-  probability?: number;
-}> {
-  const list = Array.isArray(raw) ? raw : [];
-  return list
-    .map((o: any) => {
-      const objective = typeof o?.objective === 'string' ? o.objective.trim() : '';
-      const keyResults = Array.isArray(o?.keyResults)
-        ? o.keyResults
-            .map((k: any) => String(k ?? '').trim())
-            .filter(Boolean)
-            .slice(0, 4)
-        : [];
-      const owner = typeof o?.owner === 'string' ? o.owner.trim() : '';
-
-      const yen =
-        toNum(o?.expectedImpactYen) ??
-        toNum(o?.expectedImpactJPY) ??
-        toNum(o?.expectedImpact) ??
-        toNum(o?.impactYen) ??
-        toNum(o?.impact) ??
-        null;
-
-      const prob = normalizeProbability(o?.probability ?? o?.successProbability ?? o?.successRate);
-
-      const base: any = { objective, keyResults, owner };
-      if (yen != null) base.expectedImpactYen = yen;
-      if (typeof prob === 'number') base.probability = prob;
-
-      return base;
-    })
-    .filter((o: any) => o.objective || (o.keyResults?.length ?? 0) > 0);
-}
-
-/* =========================
- * 戦略OKR化：禁止ワード/数値目的の除去・KR層の最低保証
- * ======================= */
-
-const OBJECTIVE_FORBIDDEN = [
-  /売上/i,
-  /利益率/i,
-  /利益/i,
-  /成長/i,
-  /前年比/i,
-  /シェア/i,
-  /%|％/,
-  /ポイント/,
-  /\+\s*\d+/,
-  /\d+\s*(百万円|万円|億|千万円|千円)/,
-];
-
-function hasForbiddenObjective(text: string): boolean {
-  const s = String(text || '').trim();
-  if (!s) return true;
-  return OBJECTIVE_FORBIDDEN.some((re) => re.test(s));
-}
-
-function coerceStrategicObjective(params: {
-  currentObjective: string;
-  missionDraft: string;
-  deptName: string;
-  projects: Array<{ title: string; hypothesis?: string }>;
-  answersText: string;
-  lane: 'existing' | 'new';
-}): string {
-  const { missionDraft, deptName, projects, answersText, lane } = params;
-
-  const baseHint =
-    sanitizeText(missionDraft || '', 120) ||
-    (projects?.[0]?.title ? sanitizeText(projects[0].title, 120) : '') ||
-    `${deptName}の役割を再定義し、勝ち筋の実装を進める`;
-
-  const a = String(answersText || '');
-  const keyword =
-    /価格|単価|値決め|付加価値|プレミアム|差別化/.test(a)
-      ? '価格決定権と高付加価値案件の比率'
-      : /解約|継続|LTV|アップセル|クロスセル/.test(a)
-        ? '継続率/LTVを押し上げる顧客体験と提案構造'
-        : /設計|仕様|PoC|共同|開発/.test(a)
-          ? '上流・設計段階から入り込む共創型の商談構造'
-          : /チャネル|パートナー|代理店/.test(a)
-            ? 'チャネル戦略と獲得効率の構造'
-            : '案件の質と勝てる型（再現性）の構造';
-
-  if (lane === 'new') {
-    return `${baseHint}を起点に、将来スケールする勝ち筋仮説を検証し、成立条件を明確化する`;
-  }
-  return `${baseHint}を起点に、${keyword}を変えることで勝ち筋を実装する`;
-}
-
-function ensureKrLayerPrefix(k: string, prefix: '[構造]' | '[検証]' | '[結果]') {
-  const s = String(k || '').trim();
-  if (!s) return '';
-  if (/^\[(構造|検証|結果)\]/.test(s)) return s;
-  return `${prefix} ${s}`;
-}
-
-function coerceStrategicKrs(params: { krs: string[]; lane: 'existing' | 'new'; yearHint?: string }): string[] {
-  const { lane, yearHint } = params;
-  const raw = Array.isArray(params.krs) ? params.krs.filter(Boolean) : [];
-  const tagged = raw.map((s) => String(s).trim()).filter(Boolean);
-
-  const isResult = (s: string) =>
-    /(売上|利益|利益率|粗利|営業利益|成長|前年比|%|％|ポイント|\d+\s*(百万円|万円|億|千万円|千円))/i.test(s);
-
-  const structureCandidates = tagged.filter((s) => /^\[構造\]/.test(s));
-  const validationCandidates = tagged.filter((s) => /^\[検証\]/.test(s));
-  const resultCandidates = tagged
-    .filter((s) => /^\[結果\]/.test(s) || isResult(s))
-    .map((s) => (s.startsWith('[結果]') ? s : ensureKrLayerPrefix(s, '[結果]')));
-
-  const rest = tagged.filter((s) => !/^\[(構造|検証|結果)\]/.test(s) && !isResult(s));
-  const year = yearHint ? String(yearHint) : 'YYYY年度';
-
-  const structureDefaultsExisting = [
-    `[構造] 高付加価値（価格交渉が少ない）案件比率を40%に引き上げ／${year}`,
-    `[構造] 設計・仕様段階から入る商談比率を50%にする／${year}`,
-  ];
-  const validationDefaultsExisting = [`[検証] 重点セグメントで勝てる提案型（再現性）を2つ確立し、月次で運用／${year}`];
-  const resultDefaultsExisting = [`[結果] 主要KPI（売上・利益率など）を合意した目標に到達／${year}`];
-
-  const structureDefaultsNew = [`[構造] 想定ターゲットの一次ニーズを満たす提供形（MVP/PoC）を2パターン作る／YYYY-MMまで`];
-  const validationDefaultsNew = [
-    `[検証] PoC顧客3社で有効性を検証し、継続意思（有料化/導入前提）を2社で獲得／YYYY-MMまで`,
-    `[検証] スケール条件（誰に・何を・いくらで・どう売るか）を1枚に整理し合意／YYYY-MMまで`,
-  ];
-  const resultDefaultsNew = [`[結果] 期待インパクト（円）×成功確率の前提を更新し、次フェーズ移行判定を行う／YYYY-MMまで`];
-
-  const structure =
-    structureCandidates.length > 0 ? structureCandidates : rest.slice(0, 2).map((s) => ensureKrLayerPrefix(s, '[構造]'));
-
-  const validation =
-    validationCandidates.length > 0
-      ? validationCandidates
-      : rest.slice(structure.length, structure.length + 2).map((s) => ensureKrLayerPrefix(s, '[検証]'));
-
-  const result = resultCandidates.length > 0 ? resultCandidates.slice(0, 1) : [];
-
-  let out: string[] = [];
-  if (lane === 'new') {
-    out = [
-      ...(structure.length ? structure : structureDefaultsNew),
-      ...(validation.length ? validation : validationDefaultsNew),
-      ...(result.length ? result : resultDefaultsNew),
-    ];
-  } else {
-    out = [
-      ...(structure.length ? structure : structureDefaultsExisting),
-      ...(validation.length ? validation : validationDefaultsExisting),
-      ...(result.length ? result : resultDefaultsExisting),
-    ];
-  }
-
-  return out
-    .map((s) => String(s || '').trim())
-    .filter(Boolean)
-    .slice(0, 4);
-}
-
-function ensureFallbackOkrsStrategic(params: {
-  missionDraft: string;
-  deptName: string;
-  projects: any[];
-  lane: 'existing' | 'new';
-  answersText: string;
-}): any[] {
-  const { missionDraft, deptName, projects, lane, answersText } = params;
-
-  const objective = coerceStrategicObjective({
-    currentObjective: '',
-    missionDraft,
-    deptName,
-    projects: Array.isArray(projects) ? projects : [],
-    answersText,
-    lane,
-  });
-
-  const keyResults = lane === 'new' ? coerceStrategicKrs({ krs: [], lane: 'new' }) : coerceStrategicKrs({ krs: [], lane: 'existing', yearHint: 'YYYY年度' });
-
-  const base: any = { objective, keyResults, owner: '' };
-
-  if (lane === 'new') {
-    base.expectedImpactYen = 0;
-    base.probability = 0.2;
-  }
-
-  return [base];
-}
-
-function coerceStrategicOkrs(params: {
-  okrs: Array<{
-    objective: string;
-    keyResults: string[];
-    owner: string;
-    expectedImpactYen?: number;
-    probability?: number;
-  }>;
-  lane: 'existing' | 'new';
-  missionDraft: string;
-  deptName: string;
-  projects: Array<{ title: string; hypothesis?: string }>;
-  answersText: string;
-}): Array<any> {
-  const { okrs, lane, missionDraft, deptName, projects, answersText } = params;
-  const list = Array.isArray(okrs) ? okrs : [];
-
-  const coerced = list.map((o) => {
-    const currentObjective = String(o?.objective || '').trim();
-    const objective = hasForbiddenObjective(currentObjective)
-      ? coerceStrategicObjective({ currentObjective, missionDraft, deptName, projects, answersText, lane })
-      : currentObjective;
-
-    const keyResults = coerceStrategicKrs({
-      krs: Array.isArray(o?.keyResults) ? o.keyResults : [],
-      lane,
-      yearHint: 'YYYY年度',
-    });
-
-    const owner = typeof o?.owner === 'string' ? o.owner.trim() : '';
-
-    const base: any = { ...o, objective, keyResults, owner };
-
-    if (lane === 'new') {
-      base.expectedImpactYen = typeof base.expectedImpactYen === 'number' ? base.expectedImpactYen : 0;
-      base.probability = typeof base.probability === 'number' ? base.probability : 0.2;
-    }
-
-    return base;
-  });
-
-  if (!coerced.length) {
-    return ensureFallbackOkrsStrategic({ missionDraft, deptName, projects, lane, answersText });
-  }
-
-  return coerced;
-}
+/* ★STAGE3軽量化：OKR生成関数削除（API側で OKR 生成しない） */
 
 /* =========================
  * ハンドラ
@@ -792,6 +544,41 @@ export async function POST(req: NextRequest) {
           .map((a) => `  - Q${a.stepNumber}${a.label ? `（${a.label}）` : ''}: ${sanitizeText(a?.answer || '', 220)}`)
           .join('\n');
 
+        // ★ 部門別財務サマリー（部門名に一致する行を抽出）
+        const deptFinanceSummaryText = (() => {
+          if (!financeSummary) return '（財務データなし）';
+          const summaryList = Array.isArray(financeSummary) ? financeSummary : [];
+          const deptMatches = summaryList.filter((row: any) => {
+            const businessUnit = String(row?.business_unit || row?.unitName || '').toLowerCase();
+            const deptNameLower = name.toLowerCase();
+            return businessUnit.includes(deptNameLower) || deptNameLower.includes(businessUnit);
+          });
+          if (deptMatches.length > 0) {
+            return deptMatches
+              .slice(0, 2)
+              .map((row: any) => {
+                const revenue = typeof row.revenue === 'number' ? `${Math.round(row.revenue / 100) / 10}M円` : row.revenue || 'N/A';
+                return `${row.business_unit || row.unitName || ''}: 売上 ${revenue}, 利益率 ${row.profitMargin || 'N/A'}`;
+              })
+              .join(' / ');
+          }
+          return '（部門別財務不明）';
+        })();
+
+        // ★ 部門別ポートフォリオ位置（businessPortfolio から該当ユニットを抽出）
+        const deptPortfolioText = (() => {
+          if (!businessPortfolio?.units) return '（ポートフォリオ未設定）';
+          const matchedUnits = (businessPortfolio.units as any[]).filter((u: any) => {
+            const unitName = String(u?.name || '').toLowerCase();
+            const deptNameLower = name.toLowerCase();
+            return unitName.includes(deptNameLower) || deptNameLower.includes(unitName);
+          });
+          if (matchedUnits.length > 0) {
+            return matchedUnits.map((u: any) => `${u.name}: ${u.position || 'N/A'}`).join(' / ');
+          }
+          return '（ポートフォリオ内の位置不明）';
+        })();
+
         // ★projects seed を string[]/object[] 混在から正規化
         const projSeedList = normalizeProjectSeeds(d?.projects);
         const projSeed = projSeedList.map((p) => `  - ${sanitizeText(p, 100)}`).join('\n');
@@ -813,6 +600,8 @@ export async function POST(req: NextRequest) {
 ${exps.map((e) => `    - ${sanitizeText(e, 120)}`).join('\n') || '    - （未設定）'}
   focusThemes:
 ${focuses.map((f) => `    - ${sanitizeText(f, 120)}`).join('\n') || '    - （未設定）'}
+  ★部門別財務: ${deptFinanceSummaryText}
+  ★部門別ポートフォリオ: ${deptPortfolioText}
   answers (1..6): ※この6回答は必ず提案に反映し、矛盾は禁止
 ${ansLines || '  - （未回答）'}
   seeds.projects:
@@ -826,19 +615,26 @@ ${okrSeed || '  - （なし）'}
     const prompt = `
 あなたは世界最高の経営戦略コンサルタントです。以下の情報をもとに、部門ごとの提案を「既存進化（Existing）」「新規探索（New）」の2レーンで返してください。
 
-【最重要（戦略OKRの定義）】
-- Objective は「構造変化／役割の再定義／勝ち筋の実装」を表す1文のみ。売上・利益・利益率・成長率・前年比・%・ポイント・金額などの“数字目的”をObjectiveに書くことを禁止。
-- KeyResults は必ず層を分けて3〜4本：
-  1) [構造] 案件の質・価格決定権・ターゲット/セグメント・商談プロセスなど“構造の変化”を測る
-  2) [検証] 仮説が効いている兆候・再現性・勝てる型の確立など“検証/学習”を測る
-  3) [結果] 財務/成果（売上・利益率など）は“最大1本のみ”許可（既存進化に限り強め、新規探索では控えめ）
-- 「売上/利益率/顧客数」だけでKRを埋めるのは禁止。少なくとも1本は [構造] を必須。
-- 6つの回答（answers 1..6）に反する提案は禁止（特に Q4:犠牲/やめる、Q6:撤退/停止）。
+【★最重要：プロジェクト数と命名規則（STAGE3軽量化版）】
+- 各部門の提案は「プロジェクト」のみで構成される（OKRは生成しない）。
+- プロジェクト数：合計3個（既存進化 2個 + 新規探索 1個）を厳密に守ること。
+- ★★★全部門で異なるプロジェクト案を出すこと（部門AのプロジェクトAが部門Bにも出現することは厳禁）。
+- ★★★各部門の【部門別財務】【部門別ポートフォリオ】【主な顧客層】【意思決定権】を参照し、その部門固有の課題と機会に基づいてプロジェクトを立案すること。
+- タイトル prefix（名詞句の前に付ける）：
+  - 既存進化 #1: "[AI#1] " を付ける（例："[AI#1] 高付加価値案件の構造変化"）
+  - 既存進化 #2: "[AI#2] " を付ける（例："[AI#2] 商談設計力の強化"）
+  - 新規探索 #1: "[AI#3] " を付ける（例："[AI#3] 次世代サービス仮説検証"）
+- これらの prefix は内部管理用で、提案内容には影響しない。
+- ★対象部門の事業領域から外れる提案は禁止。既存事業と離れすぎた提案や、部門の守備範囲外の分野への展開は避けること。
+
+【部門ミッション記述ルール】
+- missionDraft: 1〜2文で、部門の戦略的ミッション（構造変化/役割の再定義を含める）
+- missionDescription: 2〜4文で、missionDraft の背景・理由・狙いを説明。部門の事業概要、主要顧客層、部門別財務（売上規模・利益率など）に必ず言及すること。
 
 【レーン定義】
-- 既存進化（Existing）：短期〜中期（今年〜3年）でPLに効く改善/強化（主にACQ/ARPU/CHURN/COST/EFFICIENCY）。
-- 新規探索（New）：将来成長の仮説検証（主にFUTURE、ただしACQ/ARPUでも可）。探索は“成功確率”が前提。
-- 新規探索（New）のOKRには必ず expectedImpactYen（円）と probability（0..1）を含める。
+- 既存進化（Existing）：短期〜中期（今年〜3年）でPLに効く改善/強化（主にACQ/ARPU/CHURN/COST/EFFICIENCY）。2個のプロジェクト。
+- 新規探索（New）：将来成長の仮説検証（主にFUTURE、ただしACQ/ARPUでも可）。1個のプロジェクト。
+- 6つの回答（answers 1..6）に反する提案は禁止（特に Q4:犠牲/やめる、Q6:撤退/停止）。
 
 【業界背景・成功パターン】
 ${industryContext || '（該当テンプレートなし）'}
@@ -924,16 +720,20 @@ ${
     {
       "name": "部門名（入力に存在するもののみ）",
       "missionDraft": "この部門の戦略ミッション案（1〜2文。構造変化/役割も含める）",
+      "missionDescription": "missionDraft の背景・理由・狙い（2〜4文。部門の事業概要/主要顧客/部門別財務に言及すること）",
       "lanes": {
         "existing": {
           "projects": [
             {
-              "title": "既存進化：プロジェクト名（名詞句）",
+              "title": "[AI#1] 高付加価値案件の構造変化",
               "reason": "目的（1文）",
               "hypothesis": "仮説（1〜2文）",
               "mainLever": "ACQ",
               "horizon": "short",
               "kind": "growth",
+              "generatedBy": "ai",
+              "generatedSlot": 1,
+              "generatedGroup": "cascade_v1",
               "valueDriverLinks": ["kpi_id_1", "kpi_id_2"],
               "skillRequirements": {
                 "roleSkills": ["営業", "マーケター"],
@@ -943,51 +743,50 @@ ${
                 { "category": "TRAINING_OJT", "title": "営業研修プログラム", "detail": "提案力向上のための実践研修" },
                 { "category": "TOOLS_PROCESS", "title": "CRM導入", "detail": "顧客データの一元管理" }
               ]
-            }
-          ],
-          "okrDraft": [
+            },
             {
-              "objective": "構造変化/勝ち筋の実装（数字禁止）",
-              "keyResults": [
-                "[構造] 〜（数値＋期間）",
-                "[検証] 〜（数値＋期間）",
-                "[結果] 〜（数値＋期間）"
-              ],
-              "owner": "主要責任者ロール（任意）"
+              "title": "[AI#2] 商談設計力の強化",
+              "reason": "目的（1文）",
+              "hypothesis": "仮説（1〜2文）",
+              "mainLever": "ACQ",
+              "horizon": "mid",
+              "kind": "growth",
+              "generatedBy": "ai",
+              "generatedSlot": 2,
+              "generatedGroup": "cascade_v1",
+              "valueDriverLinks": ["kpi_id_1"],
+              "skillRequirements": {
+                "roleSkills": ["営業"],
+                "executionSkills": ["設計力", "PM"]
+              },
+              "humanInvestments": [
+                { "category": "TRAINING_OJT", "title": "商談設計研修", "detail": "顧客課題の深掘りと提案構造化の実践" },
+                { "category": "TOOLS_PROCESS", "title": "提案テンプレート構築", "detail": "再現性のある提案パターン整備" }
+              ]
             }
           ]
         },
         "new": {
           "projects": [
             {
-              "title": "新規探索：プロジェクト名（名詞句）",
+              "title": "[AI#3] 次世代サービス仮説検証",
               "reason": "目的（1文）",
               "hypothesis": "仮説（1〜2文）",
               "mainLever": "FUTURE",
               "horizon": "mid",
               "kind": "future",
+              "generatedBy": "ai",
+              "generatedSlot": 3,
+              "generatedGroup": "cascade_v1",
               "valueDriverLinks": ["kpi_id_1"],
               "skillRequirements": {
-                "roleSkills": ["エンジニア"],
+                "roleSkills": ["エンジニア", "プロダクトマネジャー"],
                 "executionSkills": ["PM", "設計力", "検証力"]
               },
               "humanInvestments": [
-                { "category": "HIRING", "title": "プロダクトマネジャー採用" },
-                { "category": "EXTERNAL", "title": "MVP開発パートナー契約" }
+                { "category": "HIRING", "title": "プロダクトマネジャー採用", "detail": "新規事業開発のリード" },
+                { "category": "EXTERNAL", "title": "MVP開発パートナー契約", "detail": "プロトタイプ迅速開発" }
               ]
-            }
-          ],
-          "okrDraft": [
-            {
-              "objective": "仮説検証と成立条件の明確化（数字禁止）",
-              "keyResults": [
-                "[構造] 〜（数値＋期間）",
-                "[検証] 〜（数値＋期間）",
-                "[結果] 〜（数値＋期間）"
-              ],
-              "owner": "主要責任者ロール（任意）",
-              "expectedImpactYen": 50000000,
-              "probability": 0.2
             }
           ]
         }
@@ -1001,15 +800,17 @@ ${
 }
 
 制約：
-- lanes.existing / lanes.new は両方を必ず出す（空は禁止）。
-- 各レーンで projects は2〜3本、okrDraft は1〜2セットを必ず出す。
-- lanes.new.okrDraft の各要素に expectedImpactYen（円）と probability（0〜1）を必ず含める。
-- keyResults は3〜4個。「[構造]」「[検証]」「[結果]」のいずれかで始める。
+- missionDraft と missionDescription は必ず両方を含めること（空・null 禁止）。
+- lanes.existing は必ず2個のプロジェクトを出す（OK: 2個、NG: 1個・3個以上）。
+- lanes.new は必ず1個のプロジェクトを出す（OK: 1個、NG: 0個・2個以上）。
+- 各プロジェクトのタイトルは必ず "[AI#1]"〜"[AI#3]" の prefix で始まること。
+- 各プロジェクトに generatedBy="ai"、generatedSlot (1/2/3)、generatedGroup="cascade_v1" を必ず含める。
 - financeSummary / businessPortfolio とかけ離れた非現実（売上10倍等）は避ける。
 - ★全プロジェクトに valueDriverLinks、skillRequirements、humanInvestments を必ず含める（空は不可）。
 - valueDriverLinks は valueDriverKPIs の id から選ぶこと（自由記述禁止）。
 - humanInvestments は最低2カテゴリを含めること。
 - ★★重要：全プロジェクトで skillRequirements.executionSkills や humanInvestments が同一になることは絶対に禁止。各プロジェクトのアーキタイプ（品質/自動化/営業/新規/ITデータ/組織など）を推定し、それぞれに適したスキルと施策を割り当てること。
+- ★対象部門の既存事業と大きく異なる领域（全く無関係な新規事業など）を提案しないこと。
 `.trim();
 
     /* =========================
@@ -1227,52 +1028,33 @@ ${
                 .map((a) => `Q${a.stepNumber}${a.label ? `(${a.label})` : ''}: ${String(a.answer || '')}`)
                 .join('\n');
 
-              // existing lane
-              const existingProjects = normalizeProjects(lanesRaw?.existing?.projects ?? d?.projects);
-              const existingOkrsRaw = normalizeOkrs(lanesRaw?.existing?.okrDraft ?? d?.okrDraft);
-              const existingOkrs = coerceStrategicOkrs({
-                okrs: existingOkrsRaw,
-                lane: 'existing',
-                missionDraft,
-                deptName: name,
-                projects: existingProjects,
-                answersText,
-              });
+              // ★STAGE3軽量化：OKR生成を削除、プロジェクトのみ返す
+              // existing lane (2プロジェクト)
+              const existingProjects = normalizeProjects(lanesRaw?.existing?.projects ?? d?.projects).slice(0, 2);
 
-              // new lane
-              const newProjects = normalizeProjects(lanesRaw?.new?.projects ?? []);
-              const newOkrsRaw = normalizeOkrs(lanesRaw?.new?.okrDraft ?? []);
-              let newOkrs = coerceStrategicOkrs({
-                okrs: newOkrsRaw,
-                lane: 'new',
-                missionDraft,
-                deptName: name,
-                projects: newProjects,
-                answersText,
-              });
+              // new lane (1プロジェクト)
+              const newProjects = normalizeProjects(lanesRaw?.new?.projects ?? []).slice(0, 1);
 
-              if (!newOkrs.length) {
-                newOkrs = ensureFallbackOkrsStrategic({
-                  missionDraft,
-                  deptName: name,
-                  projects: newProjects,
-                  lane: 'new',
-                  answersText,
-                });
-              } else {
-                newOkrs = newOkrs.map((o: any) => {
-                  const yen = typeof o.expectedImpactYen === 'number' ? o.expectedImpactYen : 0;
-                  const prob = typeof o.probability === 'number' ? o.probability : 0.2;
-                  return { ...o, expectedImpactYen: yen, probability: prob };
-                });
-              }
+              // フォールバック：プロジェクトが不足する場合
+              const safeExistingProjects = existingProjects.length >= 2
+                ? existingProjects
+                : [
+                    ...(existingProjects ?? []),
+                    {
+                      title: '[AI#2] 既存進化プロジェクト',
+                      reason: '既存事業からPLに効く改善',
+                      hypothesis: '既存顧客基盤から生まれる改善提案を構造化し実装する。',
+                      mainLever: 'ARPU',
+                      horizon: 'short',
+                      kind: 'growth',
+                    } as NormProject,
+                  ].slice(0, 2);
 
-              const safeExistingProjects = existingProjects.length ? existingProjects : normalizeProjects(d?.projects);
-              const safeNewProjects = newProjects.length
+              const safeNewProjects = newProjects.length >= 1
                 ? newProjects
                 : [
                     {
-                      title: '新規探索：仮説検証プロジェクト',
+                      title: '[AI#3] 新規探索プロジェクト',
                       reason: '将来成長の可能性を検証する',
                       hypothesis: '特定の顧客課題に対し小さく提供すれば、反応が得られ、スケールの条件が見えるはず。',
                       mainLever: 'FUTURE',
@@ -1281,27 +1063,34 @@ ${
                     } as NormProject,
                   ];
 
-              const legacyProjects = [...safeExistingProjects, ...safeNewProjects];
-              const legacyOkrs = [...existingOkrs, ...newOkrs];
+              const allProjects = [...safeExistingProjects, ...safeNewProjects];
+
+              // ★ missionDescription のフォールバック（API から空の場合は簡易生成）
+              let missionDescription = typeof d?.missionDescription === 'string' ? d.missionDescription.trim() : '';
+              if (!missionDescription && missionDraft) {
+                // 最低限の説明をロジックで生成
+                const focusThemesText = (d?.focusThemes ?? []).slice(0, 2).join('、') || '事業成長';
+                const directionText = d?.direction ? `（${d.direction}）` : '';
+                missionDescription = `${missionDraft}を実現するために、${focusThemesText}に注力します${directionText}。`;
+              }
 
               return {
                 name,
                 missionDraft,
+                missionDescription,
 
                 lanes: {
                   existing: {
                     projects: safeExistingProjects,
-                    okrDraft: existingOkrs,
                   },
                   new: {
                     projects: safeNewProjects,
-                    okrDraft: newOkrs,
                   },
                 },
 
-                // 後方互換（戦略化済みを結合して返す）
-                projects: legacyProjects,
-                okrDraft: legacyOkrs,
+                // ★ API安全策：lanes が返せるなら projects は空（重複防止）
+                // 後方互換は x-cascade-shape ヘッダで判定して UI側が切り分ける
+                projects: [],
 
                 needsCollab: trimList(d?.needsCollab, 6),
                 stopList: trimList(d?.stopList, 6),
