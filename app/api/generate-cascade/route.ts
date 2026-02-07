@@ -167,6 +167,9 @@ const ReqSchema = z
     financeSummary: z.any().optional(),
     businessPortfolio: z.any().optional(),
 
+    // ★STAGE1 businessSegments（P3拡張：segmentName マッピング用、配列堅牢化）
+    businessSegments: z.array(z.any()).optional().default([]),
+
     // ★STAGE2構造化データ
     winPatternPrimary: z.string().optional(),
     winPatternSecondary: z.string().optional(),
@@ -490,6 +493,7 @@ export async function POST(req: NextRequest) {
       csvFinanceData,
       financeSummary,
       businessPortfolio,
+      businessSegments: allBusinessSegments,
       winPatternPrimary,
       winPatternSecondary,
       valueDriverKPIs,
@@ -530,9 +534,32 @@ export async function POST(req: NextRequest) {
     const industryLine = industryLabel ? `${industryLabel}${industry ? `（${industry}）` : ''}` : industry ?? '（不明）';
     const industryContext = (industry && (industryTemplates as any)?.[industry]) || '';
 
+    // ★ csvFinanceData から segmentPL / segmentBS を抽出（P3拡張：segmentName マッピング用）
+    const segmentPL = (csvFinanceData as any)?.segmentPL ?? {};
+    const segmentBS = (csvFinanceData as any)?.segmentBS ?? {};
+
+    // ★ allBusinessSegments 実データ確認ログ（診断用）
+    if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+      const names = Array.isArray(allBusinessSegments)
+        ? allBusinessSegments.map((s: any) => s?.name).filter(Boolean).slice(0, 10)
+        : [];
+      console.log('[cascade][segdebug] allBusinessSegments.len=', Array.isArray(allBusinessSegments) ? allBusinessSegments.length : -1);
+      console.log('[cascade][segdebug] allBusinessSegments.names(sample)=', names);
+    }
+
+    // ★ セグメント名の正規化（ホワイトスペース除去、小文字化、サフィックス除去）
+    const normalizeName = (s: string) =>
+      (s ?? '')
+        .toLowerCase()
+        .replace(/\s+/g, '')
+        .replace(/[・･]/g, '・')
+        .replace(/(事業部|本部|部門|部)$/g, '')
+        .trim();
+
     const deptBlocks = departments
       .map((d) => {
         const name = pickName(d);
+        const segmentName = typeof (d as any)?.segmentName === 'string' ? (d as any).segmentName : name;
         const answers = (d?.answers || []) as Array<{ stepNumber: number; label?: string; answer?: string }>;
         const dir = d?.direction || '';
         const exps = trimList(d?.expectations, 4);
@@ -544,25 +571,74 @@ export async function POST(req: NextRequest) {
           .map((a) => `  - Q${a.stepNumber}${a.label ? `（${a.label}）` : ''}: ${sanitizeText(a?.answer || '', 220)}`)
           .join('\n');
 
-        // ★ 部門別財務サマリー（部門名に一致する行を抽出）
-        const deptFinanceSummaryText = (() => {
-          if (!financeSummary) return '（財務データなし）';
-          const summaryList = Array.isArray(financeSummary) ? financeSummary : [];
-          const deptMatches = summaryList.filter((row: any) => {
-            const businessUnit = String(row?.business_unit || row?.unitName || '').toLowerCase();
-            const deptNameLower = name.toLowerCase();
-            return businessUnit.includes(deptNameLower) || deptNameLower.includes(businessUnit);
-          });
-          if (deptMatches.length > 0) {
-            return deptMatches
-              .slice(0, 2)
-              .map((row: any) => {
-                const revenue = typeof row.revenue === 'number' ? `${Math.round(row.revenue / 100) / 10}M円` : row.revenue || 'N/A';
-                return `${row.business_unit || row.unitName || ''}: 売上 ${revenue}, 利益率 ${row.profitMargin || 'N/A'}`;
-              })
-              .join(' / ');
+        // ★ allBusinessSegments から該当セグメントを検索（正規化マッチング）
+        const segKey = (segmentName ?? name ?? '').trim();
+        const keyN = normalizeName(segKey);
+
+        // ★ 段階的マッチング：完全一致 → 部分一致（複数は除外） → not_found
+        let seg: any = undefined;
+        if (Array.isArray(allBusinessSegments)) {
+          // 1) 完全一致
+          seg = allBusinessSegments.find((s: any) => normalizeName(s?.name ?? '') === keyN);
+
+          // 2) 部分一致（複数ヒットは誤マッチ防止で除外）
+          if (!seg && keyN.length >= 4) {
+            const hits = allBusinessSegments.filter((s: any) => normalizeName(s?.name ?? '').includes(keyN));
+            seg = hits.length === 1 ? hits[0] : undefined;
           }
-          return '（部門別財務不明）';
+        }
+
+        // ★ セグメント情報を抽出（P3拡張：prompt注入用）
+        const segOverview = seg?.overview ?? '';
+        const segCustomers = seg?.mainCustomers ?? seg?.customers ?? '';
+        const segPLData = seg?.pl ?? seg?.segmentPL ?? null;
+        const segBSData = seg?.bs ?? seg?.segmentBS ?? null;
+
+        // ★ 部門別財務サマリー（seg優先、csvFinanceData は補助）
+        const deptFinanceSummaryText = (() => {
+          const parts: string[] = [];
+
+          // 1) seg から抽出（優先）
+          if (segPLData && typeof segPLData === 'object') {
+            const plData = Array.isArray(segPLData) ? segPLData : [segPLData];
+            for (const row of plData.slice(-2)) {
+              if (!row) continue;
+              const year = row?.year ? `(${row.year})` : '';
+              const revenue = typeof row?.revenue === 'number' ? `売上${Math.round(row.revenue / 100) / 10}M円` : '';
+              const operatingIncome = typeof row?.operatingIncome === 'number' ? `営業利益${Math.round(row.operatingIncome / 100) / 10}M円` : '';
+              const items = [year, revenue, operatingIncome].filter(Boolean).join(' ');
+              if (items) parts.push(items);
+            }
+          }
+
+          // 2) csvFinanceData.segmentPL から抽出（補助）
+          if (!seg && segmentPL && segmentPL[segKey]) {
+            const segRows = Array.isArray(segmentPL[segKey]) ? segmentPL[segKey].slice(-2) : [];
+            for (const row of segRows) {
+              const year = row?.year ? `(${row.year})` : '';
+              const revenue = typeof row?.revenue === 'number' ? `売上${Math.round(row.revenue / 100) / 10}M円` : '';
+              const operatingIncome = typeof row?.operatingIncome === 'number' ? `営業利益${Math.round(row.operatingIncome / 100) / 10}M円` : '';
+              const items = [year, revenue, operatingIncome].filter(Boolean).join(' ');
+              if (items) parts.push(items);
+            }
+          }
+
+          // 3) financeSummary から部門マッチで抽出（最終補助）
+          if (financeSummary && parts.length === 0) {
+            const summaryList = Array.isArray(financeSummary) ? financeSummary : [];
+            const deptMatches = summaryList.filter((row: any) => {
+              const businessUnit = String(row?.business_unit || row?.unitName || '').toLowerCase();
+              return businessUnit.includes(name.toLowerCase()) || name.toLowerCase().includes(businessUnit);
+            });
+            for (const row of deptMatches.slice(0, 1)) {
+              const revenue = typeof row.revenue === 'number' ? `${Math.round(row.revenue / 100) / 10}M円` : row.revenue || '';
+              const margin = row.profitMargin ? `利益率${row.profitMargin}` : '';
+              const item = [revenue, margin].filter(Boolean).join(', ');
+              if (item) parts.push(item);
+            }
+          }
+
+          return parts.length > 0 ? parts.join(' / ') : '（部門別財務不明）';
         })();
 
         // ★ 部門別ポートフォリオ位置（businessPortfolio から該当ユニットを抽出）
@@ -593,6 +669,27 @@ export async function POST(req: NextRequest) {
           })
           .join('\n');
 
+        // ★ [SEGMENT] ブロック生成（P3拡張：prompt注入）
+        const segBlock = seg
+          ? `\n\n[SEGMENT]\n- name: ${seg?.name ?? 'N/A'}\n- overview: ${sanitizeText(segOverview, 400)}\n- customers: ${sanitizeText(segCustomers, 300)}\n- PL: ${JSON.stringify(segPLData).slice(0, 600)}\n- BS: ${JSON.stringify(segBSData).slice(0, 600)}`
+          : `\n\n[SEGMENT]\n- not_found: true\n- key: ${segKey}`;
+
+        // ★ デバッグログ
+        if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+          console.log('[cascade][segmap]', name, 'segmentName=', segmentName, 'found=', !!seg, 'key=', segKey);
+        }
+
+        // ★ 部門別ユニークネスルール（全部門同一PJ防止の物理的制約）
+        const deptName = name;
+        const uniquenessRule = `
+
+[UNIQUENESS_CONSTRAINT]
+- 生成するプロジェクト案は「他部門と同一/酷似」禁止
+- existing lane の各プロジェクト title は必ず "${deptName}：" で始める（例："${deptName}：既存顧客のLTV改善"）
+- new lane の各プロジェクト title も必ず "${deptName}：" で始める（例："${deptName}：新規用途開拓の検証"）
+- hypothesis と reason には、必ず [SEGMENT] の要素（overview/customers/PL/BS のどれか）を最低1つ"引用"して根拠にする
+- 禁止：汎用テンプレ（DX推進/業務効率化/新規開拓 だけの抽象表現）で終わらせること`;
+
         return `
 [部門] ${name}
   direction: ${sanitizeText(dir || '', 140) || '（未設定）'}
@@ -607,7 +704,7 @@ ${ansLines || '  - （未回答）'}
   seeds.projects:
 ${projSeed || '  - （なし）'}
   seeds.okr:
-${okrSeed || '  - （なし）'}
+${okrSeed || '  - （なし）'}${segBlock}${uniquenessRule}
 `.trim();
       })
       .join('\n\n');
@@ -844,6 +941,429 @@ ${
     const normalized = (safe.success ? safe.data : parsed) as z.infer<typeof ResponseSchema>;
 
     /* =========================
+     * ★重複検知→1回再生成機能（プロダクト品質の最終兵器）
+     * ======================= */
+
+    // ★ TASK 2: [AI#] prefix 除去ヘルパー
+    const stripAiPrefix = (title: string) => {
+      return (title ?? '').replace(/^\s*\[ai#\d+\]\s*/i, '').trim();
+    };
+
+    // P0: Prefix強制用関数
+    const ensurePrefix = (deptName: string, title: string) => {
+      // ★ TASK 2: stripAiPrefix を先に適用
+      const stripped = stripAiPrefix(title);
+      const t = stripped.trim();
+      if (!t) return `${deptName}：（未設定プロジェクト）`;
+      return /^[^：:]+[：:]/.test(t) ? t : `${deptName}：${t}`;
+    };
+
+    // P1: baseTitle抽出（部門名prefixを剥がして正規化）
+    const baseTitle = (deptName: string, title: string) => {
+      const t = (title ?? '').trim();
+      const dn = (deptName ?? '').trim();
+      // "部門名：" を剥がす（: / ： 両対応）
+      const re = dn ? new RegExp(`^${dn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[：:]\\s*`) : null;
+      const stripped = re ? t.replace(re, '') : t;
+      // ★ TASK D: [AI#1]等のprefix を剥がす
+      const stripped2 = stripped.replace(/^\[ai#\d+\]\s*/i, '');
+      return stripped2
+        .toLowerCase()
+        .replace(/\s+/g, '')
+        .replace(/[：:]/g, ':')
+        .trim();
+    };
+
+    // テンプレ三種の神器（ロジック的に同一になりやすい）
+    const GENERIC_BASE_TITLES = [
+      '既存顧客のltv改善',
+      '商談設計力の強化',
+      '次世代サービス仮説検証',
+    ];
+
+    const isGeneric = (bt: string) => GENERIC_BASE_TITLES.some(g => bt.includes(g));
+
+    const collectAllTitles = (depts: any[]) => {
+      const titleMap = new Map<string, { deptNames: string[]; baseTitles: string[] }>();
+
+      for (const dept of depts) {
+        const deptName = dept?.name ?? '';
+        const allProjects = [
+          ...(dept?.lanes?.existing?.projects ?? []),
+          ...(dept?.lanes?.new?.projects ?? []),
+          ...(dept?.projects ?? []),
+        ];
+
+        for (const proj of allProjects) {
+          const title = proj?.title ?? '';
+          const bt = baseTitle(deptName, title);
+          if (bt) {
+            if (!titleMap.has(bt)) {
+              titleMap.set(bt, { deptNames: [], baseTitles: [] });
+            }
+            const entry = titleMap.get(bt)!;
+            if (!entry.deptNames.includes(deptName)) {
+              entry.deptNames.push(deptName);
+            }
+            entry.baseTitles.push(title);
+          }
+        }
+      }
+
+      return titleMap;
+    };
+
+    const findDuplicateDepts = (depts: any[]) => {
+      const titleMap = collectAllTitles(depts);
+      const duplicateDepts = new Set<string>();
+      const genericDepts = new Set<string>();
+
+      for (const [bt, { deptNames }] of titleMap) {
+        // 複数部門で同じ baseTitle が使われている
+        if (new Set(deptNames).size > 1) {
+          deptNames.forEach(d => duplicateDepts.add(d));
+        }
+        // テンプレ判定
+        if (isGeneric(bt)) {
+          deptNames.forEach(d => genericDepts.add(d));
+        }
+      }
+
+      // 重複 or generic のどちらかに当たれば 2nd-pass 対象
+      return new Set([...duplicateDepts, ...genericDepts]);
+    };
+
+    const duplicateDeptNames = findDuplicateDepts(Array.isArray(normalized?.departments) ? normalized.departments : []);
+
+    /* =========================
+     * ★ TASK 1-3: 他セグメント語彙の検知と拒否
+     * ======================= */
+
+    const splitTokens = (s: string) =>
+      (s ?? '')
+        .replace(/\s+/g, ' ')
+        .split(/[ 、,，。．/・\-\n\r\t]+/g)
+        .map(t => t.trim())
+        .filter(Boolean);
+
+    const STOP_WORDS = new Set([
+      '顧客', '市場', 'メーカー', '事業', '部品', '製品', '提供', '拡大', '強化', '改善', '向上', '開発', '推進',
+      '最適化', '効率化', 'プロジェクト', 'サービス', '顧客層', '主要', '新規', '既存',
+    ]);
+
+    // ★ TASK 1-A: セグメント名分解ヘルパー（例：自動車精密部品 → [自動車, 精密, 部品, 自動車精密, ...])
+    const splitSegmentNameTokens = (name: string): string[] => {
+      const base = (name ?? '')
+        .trim()
+        .replace(/(事業部|本部|部門|部)$/g, '') // サフィックス除去
+        .trim();
+
+      if (!base) return [];
+
+      const tokens: string[] = [base]; // セグメント名全体を含める
+
+      // 簡易分割：・ や空白で分割
+      const parts = base.split(/[・\s]+/).filter(Boolean);
+      tokens.push(...parts);
+
+      // 部分語生成（2～4文字の連続部分）
+      const subTokens: string[] = [];
+      for (let i = 0; i < base.length; i++) {
+        for (let len = 2; len <= 4 && i + len <= base.length; len++) {
+          const sub = base.substring(i, i + len);
+          // 日本語を含むもののみ
+          if (/[一-龠ぁ-んァ-ヶ]/.test(sub)) {
+            subTokens.push(sub);
+          }
+        }
+      }
+      tokens.push(...subTokens);
+
+      // 重複除去＆上限20
+      return Array.from(new Set(tokens.filter(Boolean))).slice(0, 20);
+    };
+
+    const pickKeywords = (text: string) => {
+      const raw = splitTokens(text);
+      const out: string[] = [];
+
+      for (const t of raw) {
+        if (t.length < 2 || t.length > 12) continue;
+        if (STOP_WORDS.has(t)) continue;
+        // 記号だらけは除外、日本語を含むもののみ
+        if (!/[一-龠ぁ-んァ-ヶ]/.test(t)) continue;
+        out.push(t);
+      }
+      return Array.from(new Set(out));
+    };
+
+    const normalizeLoose = (s: string) =>
+      (s ?? '')
+        .toLowerCase()
+        .replace(/\s+/g, '')
+        .replace(/[・･]/g, '・')
+        .replace(/(事業部|本部|部門|部)$/g, '')
+        .trim();
+
+    const containsAny = (blob: string, tokens: string[]): string | null => {
+      const b = normalizeLoose(blob);
+      for (const tok of tokens) {
+        const t = normalizeLoose(tok);
+        if (!t) continue;
+        if (b.includes(t)) return tok;
+      }
+      return null;
+    };
+
+    const buildForbiddenTokens = (businessSegments: any[], allowedSegName: string): string[] => {
+      const allowN = normalizeLoose(allowedSegName);
+      const tokens: string[] = [];
+
+      for (const s of businessSegments ?? []) {
+        const name = (s?.name ?? '').trim();
+        if (normalizeLoose(name) === allowN) continue;
+
+        // ★ TASK 1-B: セグメント名自体と分解語彙を追加
+        tokens.push(name);
+        tokens.push(...splitSegmentNameTokens(name));
+
+        // overview と customers から語彙抽出
+        const ov = (s?.overview ?? '').trim();
+        const cust = (s?.mainCustomers ?? s?.customers ?? '').trim();
+        tokens.push(...pickKeywords(ov));
+        tokens.push(...pickKeywords(cust));
+      }
+
+      // 重複除去 & 上限（増えすぎ防止）
+      const result = Array.from(new Set(tokens.filter(Boolean))).slice(0, 60);
+
+      // ★ デバッグログ：トークン数確認
+      if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+        console.log(`[cascade][segGuard] allowed="${allowedSegName}" forbiddenTokens.len=${result.length}`);
+      }
+
+      return result;
+    };
+
+    // ★ 重複部門がある場合は2nd passを実行
+    if (duplicateDeptNames.size > 0) {
+      console.log(`[cascade][dup] 重複検知: ${Array.from(duplicateDeptNames).join(', ')}`);
+
+      const titleMap = collectAllTitles(Array.isArray(normalized?.departments) ? normalized.departments : []);
+      const bannedTitlesList: string[] = [];
+
+      for (const [bt, { deptNames }] of titleMap) {
+        // 複数部門で同じ baseTitle か generic の場合
+        if (new Set(deptNames).size > 1 || isGeneric(bt)) {
+          bannedTitlesList.push(bt);
+        }
+      }
+
+      // 重複部門ごとに2nd pass
+      for (const dupDeptName of duplicateDeptNames) {
+        const deptIndex = (normalized?.departments ?? []).findIndex(d => d?.name === dupDeptName);
+        if (deptIndex < 0) continue;
+
+        const dept = normalized.departments[deptIndex];
+        const deptInput = departments.find(d => {
+          const n = pickName(d);
+          return n === dupDeptName;
+        });
+
+        if (!deptInput) continue;
+
+        // ★ SEGMENT_GUARD: request-level allBusinessSegments を使用
+        const segPool = Array.isArray(allBusinessSegments) ? (allBusinessSegments as any[]) : [];
+
+        // allowedSegmentName を必ず埋める（空禁止）
+        const allowedSegmentName =
+          (typeof (deptInput as any)?.segmentName === 'string' && (deptInput as any).segmentName.trim()) ||
+          dupDeptName; // 最終フォールバック：部門名
+
+        const forbiddenSegmentNames = segPool
+          .map((s: any) => (s?.name ?? '').trim())
+          .filter((n: string) => n && normalizeLoose(n) !== normalizeLoose(allowedSegmentName));
+
+        // ★ TASK 1: forbiddenTokens を他セグメント語彙から構築（segPool ベース）
+        const forbiddenTokens = buildForbiddenTokens(segPool, allowedSegmentName);
+
+        // 2nd pass用プロンプト作成（元のdeptBlocks生成ロジックを再利用）
+        const secondPassDeptBlock = (() => {
+          const name = dupDeptName;
+          const answers = (deptInput?.answers || []) as Array<{ stepNumber: number; answer?: string; label?: string }>;
+          const answersText = (answers || [])
+            .sort((a, b) => (a?.stepNumber || 0) - (b?.stepNumber || 0))
+            .slice(0, 6)
+            .map((a) => `Q${a.stepNumber}${a.label ? `(${a.label})` : ''}: ${String(a.answer || '')}`)
+            .join('\n');
+
+          const focusThemesArr = ((deptInput?.focusThemes || []) as any[]);
+          const constraintsArr = ((deptInput?.constraints || []) as any[]);
+          const focusThemes = focusThemesArr.slice(0, 3).join('、');
+          const constraints = constraintsArr.slice(0, 2).join('、');
+
+          let segBlock = '';
+          if (Array.isArray(segPool) && segPool.length > 0) {
+            const segmentInfo = segPool
+              .slice(0, 5)
+              .map((s: any) => {
+                const segName = (s?.name ?? '').trim();
+                const segOverview = (s?.overview ?? '').trim().slice(0, 200);
+                const segPL = (s as any)?.segmentPL;
+                const plStr = segPL
+                  ? ` / PL: ${segPL?.revenue ?? 0}円(売上), ${segPL?.COGS ?? 0}円(原価), ${segPL?.operatingProfit ?? 0}円(営利)`
+                  : '';
+                return `- ${segName}${plStr}${segOverview ? ` / ${segOverview}` : ''}`;
+              })
+              .join('\n');
+
+            segBlock = `\n[SEGMENT]\n${segmentInfo}`;
+          }
+
+          const deptName = name;
+          const uniquenessRule = `
+[UNIQUENESS_CONSTRAINT - 2ND PASS]
+- ★前回生成したタイトルと異なるプロジェクト案を生成する（必須）
+- 禁止タイトル: ${bannedTitlesList.map(t => `"${t}"`).join(', ')}
+- 新しいプロジェクト案は、別の"顧客層"、"価値提案"、"KPI" の組み合わせを使用すること
+- ★[SEGMENT]から固有名詞を2つ抽出してtitleに含めること（例："自動車OEM"、"医療機器メーカー"、"建機アフター市場"など）
+- existing lane の各プロジェクト title は必ず "${deptName}：" で始まり、[SEGMENT] から抽出した顧客層・対象市場を含める
+- new lane の各プロジェクト title も必ず "${deptName}：" で始まり、[SEGMENT] から抽出した顧客層・対象市場を含める
+- hypothesis と reason には、必ず [SEGMENT] の要素（customers / overview）を最低1つ引用して根拠にする
+
+[SEGMENT_GUARD - セグメント汚染防止]
+- ★ このセグメント専用：${allowedSegmentName || '（指定なし）'}
+- ★ 禁止セグメント：${forbiddenSegmentNames.length > 0 ? forbiddenSegmentNames.map(s => `"${s}"`).join(', ') : '（なし）'}
+- ★ 禁止語彙（他セグメントから）：${forbiddenTokens.slice(0, 20).map(t => `"${t}"`).join(', ')}
+- [SEGMENT]語彙以外を使用禁止（他セグメント名や語彙は絶対に含めるな）
+- title / hypothesis / reason のどこにも、禁止セグメント名・禁止語彙を含めたら失格
+- 必ず allowed セグメント（${allowedSegmentName || '（指定なし）'}）の語彙のみを使用すること`;
+
+          return `
+[部門] ${name}
+
+[質問への回答]
+${answersText}
+
+[既存事業の焦点]
+${focusThemes}
+
+[制約条件]
+${constraints}
+${segBlock}
+${uniquenessRule}
+`.trim();
+        })();
+
+        const secondPassPrompt = `以下の ${dupDeptName} 部門について、前回とは異なるプロジェクト案を生成してください。
+
+${secondPassDeptBlock}
+
+# 出力形式（前回と同じ）
+{
+  "departments": [
+    {
+      "name": "${dupDeptName}",
+      "missionDraft": "...",
+      "missionDescription": "...",
+      "lanes": {
+        "existing": {
+          "projects": [
+            { "title": "...", "hypothesis": "...", "reason": "...", ... },
+            { "title": "...", "hypothesis": "...", "reason": "...", ... }
+          ]
+        },
+        "new": {
+          "projects": [
+            { "title": "...", "hypothesis": "...", "reason": "...", ... }
+          ]
+        }
+      },
+      ...
+    }
+  ]
+}`.trim();
+
+        // ★ TASK 2: 2nd-pass結果の検証関数（語彙混入検知）
+        const validateSecondPassWithTokens = (
+          deptName: string,
+          allowedSegName: string,
+          segs: any[],
+          secondDept: any,
+          bannedSegmentNames?: string[]
+        ): { valid: boolean; hitToken?: string } => {
+          const tokens = buildForbiddenTokens(segs, allowedSegName);
+
+          // ★ TASK 1-C: tokens が弱くても forbiddenSegmentNames との合算で検知対象を確保
+          // tokens < 5 でも reject しない。最低でも「他セグメント名」が入るため混入検知は成立
+          let checkTokens = tokens;
+          if ((!tokens || tokens.length < 5) && bannedSegmentNames && bannedSegmentNames.length > 0) {
+            checkTokens = Array.from(new Set([...tokens, ...bannedSegmentNames]));
+            console.log(
+              `[cascade][dup] tokens_weak但し回避可能: dept="${deptName}" tokens.len=${tokens?.length ?? 0} segs=${bannedSegmentNames?.length ?? 0}`
+            );
+          }
+
+          const allProjects = [
+            ...(secondDept?.lanes?.existing?.projects ?? []),
+            ...(secondDept?.lanes?.new?.projects ?? []),
+            ...(secondDept?.projects ?? []),
+          ];
+
+          for (const proj of allProjects) {
+            const blob = `${proj?.title ?? ''} ${proj?.reason ?? ''} ${proj?.hypothesis ?? ''}`;
+            const hit = containsAny(blob, checkTokens);
+            if (hit) {
+              console.log(`[cascade][dup][rejected] cross-segment token="${hit}" dept="${deptName}"`);
+              return { valid: false, hitToken: hit };
+            }
+          }
+
+          console.log(`[cascade][dup][accepted] dept="${deptName}"`);
+          return { valid: true };
+        };
+
+        // 2nd pass LLM呼び出し
+        try {
+          const secondCompletion = await openai.chat.completions.create({
+            model: process.env.OPENAI_MODEL ?? 'gpt-4o',
+            response_format: { type: 'json_object' },
+            temperature: 0.35,
+            max_tokens: 1500,
+            messages: [
+              { role: 'system', content: '必ずJSONのみを返し、日本語で。前後の説明は禁止。' },
+              { role: 'user', content: secondPassPrompt },
+            ],
+          });
+
+          const secondRawContent = secondCompletion.choices?.[0]?.message?.content || '';
+          const secondParsed = extractJsonObject(secondRawContent);
+
+          if (secondParsed && Array.isArray(secondParsed?.departments) && secondParsed.departments.length > 0) {
+            const secondDept = secondParsed.departments[0];
+
+            // ★ TASK 2: 語彙混入検知検証（bannedSegmentNames 与えてトークン不足時も対応）
+            const validation = validateSecondPassWithTokens(dupDeptName, allowedSegmentName, segPool, secondDept, forbiddenSegmentNames);
+
+            if (validation.valid) {
+              // 2nd passの結果で置き換え
+              if (secondDept?.lanes?.existing || secondDept?.lanes?.new) {
+                normalized.departments[deptIndex].lanes = secondDept.lanes;
+              }
+              if (secondDept?.missionDescription) {
+                normalized.departments[deptIndex].missionDescription = secondDept.missionDescription;
+              }
+            }
+            // reject時は何もしない（1st pass結果を維持）
+          }
+        } catch (err: any) {
+          console.warn(`[cascade][dup] 2nd pass失敗 (${dupDeptName}):`, err?.message);
+          // 失敗時は1st passの結果をそのまま使用
+        }
+      }
+    }
+
+    /* =========================
      * ★STAGE3フィールドの補完（fallback）
      * ======================= */
 
@@ -1035,13 +1555,13 @@ ${
               // new lane (1プロジェクト)
               const newProjects = normalizeProjects(lanesRaw?.new?.projects ?? []).slice(0, 1);
 
-              // フォールバック：プロジェクトが不足する場合
+              // ★ フォールバック：プロジェクトが不足する場合（部門名を含めて固定タイトルを避ける）
               const safeExistingProjects = existingProjects.length >= 2
                 ? existingProjects
                 : [
                     ...(existingProjects ?? []),
                     {
-                      title: '[AI#2] 既存進化プロジェクト',
+                      title: `[AI#2] ${name}の既存進化・収益性改善`,
                       reason: '既存事業からPLに効く改善',
                       hypothesis: '既存顧客基盤から生まれる改善提案を構造化し実装する。',
                       mainLever: 'ARPU',
@@ -1054,7 +1574,7 @@ ${
                 ? newProjects
                 : [
                     {
-                      title: '[AI#3] 新規探索プロジェクト',
+                      title: `[AI#3] ${name}の新規探索・新サービス検証`,
                       reason: '将来成長の可能性を検証する',
                       hypothesis: '特定の顧客課題に対し小さく提供すれば、反応が得られ、スケールの条件が見えるはず。',
                       mainLever: 'FUTURE',
@@ -1074,6 +1594,11 @@ ${
                 missionDescription = `${missionDraft}を実現するために、${focusThemesText}に注力します${directionText}。`;
               }
 
+              // ★ P0: 全プロジェクトに部門名prefix強制
+              const applyPrefix = (p: any) => ({ ...p, title: ensurePrefix(name, p?.title ?? '') });
+              const prefixedExistingProjects = safeExistingProjects.map(applyPrefix);
+              const prefixedNewProjects = safeNewProjects.map(applyPrefix);
+
               return {
                 name,
                 missionDraft,
@@ -1081,10 +1606,10 @@ ${
 
                 lanes: {
                   existing: {
-                    projects: safeExistingProjects,
+                    projects: prefixedExistingProjects,
                   },
                   new: {
-                    projects: safeNewProjects,
+                    projects: prefixedNewProjects,
                   },
                 },
 
