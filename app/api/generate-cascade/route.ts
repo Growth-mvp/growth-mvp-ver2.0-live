@@ -1228,7 +1228,12 @@ ${
       return true;
     };
 
-    // 各departmentの各projectをチェック＋再生成
+    // ★ TASK 5: 2nd-pass 実行条件制限用の追跡用Set（grounding/conflict/risk issues）
+    const groundingFailedDepts = new Set<string>();
+    const conflictFailedDepts = new Set<string>();
+    const highRiskDepts = new Set<string>();
+
+    // ★ groundingCheckAndRetry 関数定義（groundingFailedDepts 参照のため上記Set定義後）
     const groundingCheckAndRetry = async (depts: any[]): Promise<void> => {
       const failedProjects: Array<{
         deptIndex: number;
@@ -1373,13 +1378,19 @@ ${JSON.stringify(failed.project, null, 2)}
                 // 再生成でもNGなら fallback（既存結果を採用）
                 const failReason = !isProjectGrounded(retryProject) ? 'grounding_ng' : 'required_fields_missing';
                 console.warn(`[cascade][grounding][fail] dept=${deptName} slot=${slot} reason="${failReason}" (再生成でも条件未充足、既存結果を採用)`);
+                // ★ TASK 5: grounding failed として記録
+                groundingFailedDepts.add(deptName);
               }
             } else {
               // JSON解析失敗なら fallback
               console.warn(`[cascade][grounding][fail] dept=${deptName} slot=${slot} reason="retry_json_parse_error"`);
+              // ★ TASK 5: grounding failed として記録
+              groundingFailedDepts.add(deptName);
             }
           } catch (err) {
             console.warn(`[cascade][grounding][fail] dept=${deptName} slot=${slot} reason="retry_error" error=${err instanceof Error ? err.message : String(err)}`);
+            // ★ TASK 5: grounding failed として記録
+            groundingFailedDepts.add(deptName);
           }
         }
       }
@@ -1850,9 +1861,28 @@ ${anchorsText || '（利用可能なanchorsなし）'}
       return result;
     };
 
-    // ★ 重複部門がある場合は2nd passを実行
-    if (duplicateDeptNames.size > 0) {
-      console.log(`[cascade][dup] 重複検知: ${Array.from(duplicateDeptNames).join(', ')}`);
+    // ★ TASK 4: SEGMENT_GUARD soft penalty フィルタリング
+    const filterForbiddenTokens = (tokens: string[]): string[] => {
+      // STOP_WORDS（テンプレ語）を除外
+      const filtered1 = tokens.filter((tok: string) => !STOP_WORDS_TASK3.has(tok.toLowerCase()));
+      // 3文字未満を除外
+      const filtered2 = filtered1.filter((tok: string) => tok.length >= 3);
+      // 数字のみ を除外
+      const filtered3 = filtered2.filter((tok: string) => !/^\d+$/.test(tok));
+      // 記号のみ を除外（日本語/英数字を含まないもの）
+      const filtered4 = filtered3.filter((tok: string) => /[一-龠ぁ-んァ-ヶa-zA-Z0-9]/.test(tok));
+      return filtered4;
+    };
+
+    // ★ TASK 5: 2nd-pass 実行条件を限定（重複 OR grounding failed OR conflict failed OR high risk）
+    const needsSecondPass = duplicateDeptNames.size > 0 || groundingFailedDepts.size > 0 || conflictFailedDepts.size > 0 || highRiskDepts.size > 0;
+    if (needsSecondPass) {
+      const reasons: string[] = [];
+      if (duplicateDeptNames.size > 0) reasons.push(`duplicates: ${Array.from(duplicateDeptNames).join(',')}`);
+      if (groundingFailedDepts.size > 0) reasons.push(`grounding-failed: ${Array.from(groundingFailedDepts).join(',')}`);
+      if (conflictFailedDepts.size > 0) reasons.push(`conflict-failed: ${Array.from(conflictFailedDepts).join(',')}`);
+      if (highRiskDepts.size > 0) reasons.push(`high-risk: ${Array.from(highRiskDepts).join(',')}`);
+      console.log(`[cascade][2ndpass] 発火条件: ${reasons.join(' / ')}`);
 
       const titleMap = collectAllTitles(Array.isArray(normalized?.departments) ? normalized.departments : []);
       const bannedTitlesList: string[] = [];
@@ -1996,8 +2026,10 @@ ${secondPassDeptBlock}
           segs: any[],
           secondDept: any,
           bannedSegmentNames?: string[]
-        ): { valid: boolean; hitToken?: string } => {
-          const tokens = buildForbiddenTokens(segs, allowedSegName);
+        ): { valid: boolean; riskScore?: number; hitTokens?: string[] } => {
+          const rawTokens = buildForbiddenTokens(segs, allowedSegName);
+          // ★ TASK 4: soft penalty フィルタリング（STOP_WORDS/3文字未満/数字のみ/記号のみ除外）
+          const tokens = filterForbiddenTokens(rawTokens);
 
           // ★ TASK 1-C: tokens が弱くても forbiddenSegmentNames との合算で検知対象を確保
           // tokens < 5 でも reject しない。最低でも「他セグメント名」が入るため混入検知は成立
@@ -2015,17 +2047,29 @@ ${secondPassDeptBlock}
             ...(secondDept?.projects ?? []),
           ];
 
+          // ★ TASK 4: soft penalty ロジック（hit = riskScore++）
+          let riskScore = 0;
+          const hitTokens: string[] = [];
+          const RISK_THRESHOLD = 2;
+
           for (const proj of allProjects) {
             const blob = `${proj?.title ?? ''} ${proj?.reason ?? ''} ${proj?.hypothesis ?? ''}`;
             const hit = containsAny(blob, checkTokens);
             if (hit) {
-              console.log(`[cascade][dup][rejected] cross-segment token="${hit}" dept="${deptName}"`);
-              return { valid: false, hitToken: hit };
+              riskScore++;
+              hitTokens.push(hit);
+              console.log(`[cascade][guard][risk] token="${hit}" riskScore=${riskScore} dept="${deptName}"`);
             }
           }
 
-          console.log(`[cascade][dup][accepted] dept="${deptName}"`);
-          return { valid: true };
+          // riskScore が閾値以上なら valid=false
+          if (riskScore >= RISK_THRESHOLD) {
+            console.log(`[cascade][dup][rejected] dept="${deptName}" riskScore=${riskScore} >= RISK_THRESHOLD`);
+            return { valid: false, riskScore, hitTokens };
+          }
+
+          console.log(`[cascade][dup][accepted] dept="${deptName}" riskScore=${riskScore}`);
+          return { valid: true, riskScore };
         };
 
         // 2nd pass LLM呼び出し
