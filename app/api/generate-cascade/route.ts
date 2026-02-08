@@ -424,9 +424,12 @@ function summarizeBusinessPortfolio(bp: any, limitUnits = 8): string {
 
 /** FactPack の基本単位：引用可能な短テキスト片 */
 type FactAnchor = {
-  id: string;  // 例："fact-seg-1", "fact-cust-2", "fact-fin-3"
-  text: string; // 引用対象のテキスト（50～120文字程度）
-  source?: 'overview' | 'customers' | 'finance'; // 由来
+  id: string;
+  // 例："fact-seg-1", "fact-cust-2", "fact-fin-3"
+  text: string;
+  // 引用対象のテキスト（50～120文字程度）
+  source?: 'overview' | 'customers' | 'finance';
+  // 由来
 };
 
 /** 部門ごとの事実パック */
@@ -502,13 +505,18 @@ function buildDeptFactPack(
     }
   }
 
-  // ★ customers から 2～3個
-  const customersRaw = (seg?.mainCustomers ?? seg?.keyCustomers ?? seg?.customers ?? '').trim();
+  // ★ customers から 2～3個（string | string[] 両対応）
+  const customersVal = seg?.mainCustomers ?? seg?.keyCustomers ?? seg?.customers;
   const customersList: string[] = [];
 
-  if (customersRaw) {
-    // "トヨタ、日産" → ["トヨタ", "日産"]
-    const parts = customersRaw.split(/[、,，]/g).map((s: string) => s.trim()).filter(Boolean);
+  if (customersVal) {
+    // customersVal が string[] または string の両方に対応
+    const parts: string[] = Array.isArray(customersVal)
+      ? customersVal.map((c: any) => String(c ?? '').trim()).filter(Boolean)
+      : String(customersVal ?? '')
+          .split(/[、,，]/g)
+          .map((s: string) => s.trim())
+          .filter(Boolean);
     customersList.push(...parts);
 
     for (let i = 0; i < Math.min(2, parts.length); i++) {
@@ -527,10 +535,13 @@ function buildDeptFactPack(
   if (seg) {
     const segPL = seg?.pl ?? seg?.segmentPL;
     const segBS = seg?.bs ?? seg?.segmentBS;
+    let latestYear: string | number | undefined;
 
     if (Array.isArray(segPL) && segPL.length >= 2) {
       const latest = segPL[segPL.length - 1];
       const prev = segPL[segPL.length - 2];
+
+      latestYear = latest?.year ?? latest?.period;
 
       const latestRev = toNum(latest?.revenue ?? latest?.sales);
       const prevRev = toNum(prev?.revenue ?? prev?.sales);
@@ -539,7 +550,8 @@ function buildDeptFactPack(
       if (latestRev != null && prevRev != null) {
         const change = ((latestRev - prevRev) / prevRev) * 100;
         const sign = change >= 0 ? '成長' : '低迷';
-        const hint = `売上は${Math.abs(change).toFixed(1)}%${sign}（最新年${latestRev}百万円）`;
+        const yearStr = latestYear ? `${latestYear}年` : '';
+        const hint = `売上は${Math.abs(change).toFixed(1)}%${sign}（${yearStr}${latestRev}百万円）`;
         financeHints.push(hint);
         anchors.push({
           id: `fact-fin-${++anchorCount}`,
@@ -550,13 +562,45 @@ function buildDeptFactPack(
 
       if (latestMargin != null && latestRev != null && latestRev !== 0) {
         const margin = (latestMargin / latestRev) * 100;
-        const hint = `営業利益率は約${margin.toFixed(1)}%`;
+        const yearStr = latestYear ? `${latestYear}年` : '';
+        const hint = `営業利益率は約${margin.toFixed(1)}%（${yearStr}）`;
         financeHints.push(hint);
         anchors.push({
           id: `fact-fin-${++anchorCount}`,
           text: hint,
           source: 'finance',
         });
+      }
+
+      // ★ BS 由来の anchor を1つ追加（在庫/売掛金/設備のいずれか）
+      if (Array.isArray(segBS) && segBS.length > 0) {
+        const latestBS = segBS[segBS.length - 1];
+        let bsHint: string | undefined;
+
+        // 優先順：在庫 → 売掛金 → 設備
+        const inventory = toNum(latestBS?.inventory ?? latestBS?.currentAssets?.inventory);
+        const receivables = toNum(latestBS?.receivables ?? latestBS?.currentAssets?.receivables ?? latestBS?.accountsReceivable);
+        const fixedAssets = toNum(latestBS?.fixedAssets ?? latestBS?.propertyPlantEquipment);
+
+        if (inventory != null) {
+          bsHint = `在庫は${inventory}百万円`;
+        } else if (receivables != null) {
+          bsHint = `売掛金は${receivables}百万円`;
+        } else if (fixedAssets != null) {
+          bsHint = `固定資産は${fixedAssets}百万円`;
+        }
+
+        if (bsHint && financeHints.length < 4) {
+          // 既に4個以上ある場合は追加しない
+          const yearStr = latestYear ? `${latestYear}年` : '';
+          const fullHint = yearStr ? `${bsHint}（${yearStr}）` : bsHint;
+          financeHints.push(fullHint);
+          anchors.push({
+            id: `fact-fin-${++anchorCount}`,
+            text: fullHint,
+            source: 'finance',
+          });
+        }
       }
     }
   }
