@@ -818,6 +818,20 @@ function ensureOkrs(project: any, laneType?: 'existing' | 'new', deptName?: stri
     `sourceDetail="${project._krSourceDetail}" finalLen=${finalKrLen}`
   );
 
+  // ★ TASK 2-1: end-to-end メタ証明ログ（ensureKeyResults 戻り直後）
+  const okr0 = project.okrs?.[0];
+  console.log('[cascade][kpi][meta]', {
+    dept: deptName ?? 'unknown',
+    project: projectTitle,
+    krSource: (project as any)._krSource ?? (okr0 as any)?._krSource,
+    reason: (project as any)._krReason ?? (okr0 as any)?._krReason,
+    sourceDetail: (project as any)._krSourceDetail ?? (okr0 as any)?._krSourceDetail,
+    rawType: (okr0 as any)?._rawType,
+    rawLen: (okr0 as any)?._rawLen,
+    ai_called: (okr0 as any)?._aiCalled,
+    finalLen: Array.isArray((okr0 as any)?.keyResults) ? (okr0 as any).keyResults.length : null,
+  });
+
   return project;
 }
 
@@ -3481,6 +3495,22 @@ ${secondPassDeptBlock}
         console.log('[generate-cascade][proof][final] ex0.okrs[0].keyResults[0].label=', ex0.okrs[0].keyResults[0].label);
       }
     }
+
+    // ★ TASK 2-2: レスポンス直前メタ証明（project レベル vs okr0 レベル）
+    const ex0_okr0 = (ex0 as any)?.okrs?.[0];
+    console.log('[generate-cascade][meta-proof]', {
+      dept: result?.departments?.[0]?.name ?? 'unknown',
+      p0: {
+        title: ex0?.title,
+        proj_krSource: (ex0 as any)?._krSource,
+        okr0_krSource: (ex0_okr0 as any)?._krSource,
+        proj_detail: (ex0 as any)?._krSourceDetail,
+        okr0_detail: (ex0_okr0 as any)?._krSourceDetail,
+        okr0_rawType: (ex0_okr0 as any)?._rawType,
+        okr0_rawLen: (ex0_okr0 as any)?._rawLen,
+        okr0_aiCalled: (ex0_okr0 as any)?._aiCalled,
+      },
+    });
 
     return new NextResponse(JSON.stringify(result), {
       headers: {
