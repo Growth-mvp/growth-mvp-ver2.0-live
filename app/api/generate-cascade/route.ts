@@ -1500,18 +1500,12 @@ ${JSON.stringify(failed.project, null, 2)}
 `.trim();
 
           try {
-            const retryCompletion = await openai.chat.completions.create({
-              model: process.env.OPENAI_MODEL ?? 'gpt-4o',
-              response_format: { type: 'json_object' },
-              temperature: 0.2, // ★修正4: 0.4 → 0.2 for stability
-              max_tokens: 1000, // ★修正4: 1200 → 1000 for faster response
-              messages: [
-                { role: 'system', content: '修正プロジェクト案の JSON のみを返してください。日本語で。' },
-                { role: 'user', content: retryPrompt },
-              ],
-            });
-
-            const retryRaw = retryCompletion.choices?.[0]?.message?.content || '';
+            // ★修正3: OpenAI リトライ機能を使用（fetch failed/UND_ERR_SOCKET 対策）
+            const retryRaw = await callOpenAIJsonWithRetry(
+              retryPrompt,
+              '修正プロジェクト案の JSON のみを返してください。日本語で。',
+              `grounding-retry-dept=${deptName}`
+            );
             const retryParsed = extractJsonObject(retryRaw);
 
             if (retryParsed) {
@@ -1746,18 +1740,12 @@ ${anchorsText || '（利用可能なanchorsなし）'}
 `.trim();
 
         try {
-          const retryCompletion = await openai.chat.completions.create({
-            model: process.env.OPENAI_MODEL ?? 'gpt-4o',
-            response_format: { type: 'json_object' },
-            temperature: 0.2, // ★修正4: 0.45 → 0.2 for stability
-            max_tokens: 1000, // ★修正4: 1200 → 1000 for faster response
-            messages: [
-              { role: 'system', content: '修正プロジェクト案の JSON のみを返してください。日本語で。' },
-              { role: 'user', content: retryPrompt },
-            ],
-          });
-
-          const retryRaw = retryCompletion.choices?.[0]?.message?.content || '';
+          // ★修正3: OpenAI リトライ機能を使用（fetch failed/UND_ERR_SOCKET 対策）
+          const retryRaw = await callOpenAIJsonWithRetry(
+            retryPrompt,
+            '修正プロジェクト案の JSON のみを返してください。日本語で。',
+            `conflict-retry-dept=${conflict.deptBName}`
+          );
           const retryParsed = extractJsonObject(retryRaw);
 
           if (retryParsed) {
@@ -1953,6 +1941,68 @@ ${anchorsText || '（利用可能なanchorsなし）'}
         .replace(/[・･]/g, '・')
         .replace(/(事業部|本部|部門|部)$/g, '')
         .trim();
+
+    // ★新規: SEGMENT_GUARD 用正規化（allowed name チェック）
+    const normalizeForGuard = (s: string): string =>
+      (s ?? '')
+        .toLowerCase()
+        .replace(/\s+/g, '')           // スペース除去
+        .replace(/[　\s]/g, '')         // 全角スペース除去
+        .replace(/[・・\-\/_]/g, '')    // 記号除去（・ / - など）
+        .replace(/(事業部|本部|部門|部)$/g, '') // サフィックス除去
+        .trim();
+
+    // ★新規: OpenAI JSON呼び出し（リトライ機能付き）
+    const callOpenAIJsonWithRetry = async (
+      prompt: string,
+      systemMessage: string,
+      retryKey?: string,
+      temperature?: number,
+      maxTokens?: number
+    ): Promise<string> => {
+      const MAX_RETRIES = 2; // 2回リトライ = 最大3回試行
+      const BACKOFFS = [300, 600]; // ms
+      const temp = temperature ?? 0.2;
+      const tokens = maxTokens ?? 1000;
+
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          const completion = await openai.chat.completions.create({
+            model: process.env.OPENAI_MODEL ?? 'gpt-4o',
+            response_format: { type: 'json_object' },
+            temperature: temp,
+            max_tokens: tokens,
+            messages: [
+              { role: 'system', content: systemMessage },
+              { role: 'user', content: prompt },
+            ],
+          });
+
+          return completion.choices?.[0]?.message?.content ?? '';
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          const isNetworkError =
+            errMsg.includes('fetch failed') ||
+            errMsg.includes('UND_ERR_SOCKET') ||
+            errMsg.includes('SocketError') ||
+            errMsg.includes('socket');
+
+          if (isNetworkError && attempt < MAX_RETRIES) {
+            const backoffMs = BACKOFFS[attempt];
+            console.warn(
+              `[cascade][openai][retry] ${retryKey ?? 'call'} attempt=${attempt + 1} backoff=${backoffMs}ms error="${errMsg.slice(0, 80)}"`
+            );
+            await new Promise(resolve => setTimeout(resolve, backoffMs));
+            continue;
+          }
+
+          // リトライ不可またはリトライ回数超過
+          throw err;
+        }
+      }
+
+      throw new Error('callOpenAIJsonWithRetry: max retries exceeded');
+    };
 
     // ★ TASK 3: 類似度計算用の title 正規化
     const normalizeTitleForSim = (title: string): string => {
@@ -2182,15 +2232,21 @@ ${secondPassDeptBlock}
         ): { valid: boolean; riskScore?: number; hitTokens?: string[] } => {
           const rawTokens = buildForbiddenTokens(segs, allowedSegName);
           // ★ TASK 4: soft penalty フィルタリング（STOP_WORDS/3文字未満/数字のみ/記号のみ除外）
-          const tokens = filterForbiddenTokens(rawTokens);
+          const forbiddenFiltered = filterForbiddenTokens(rawTokens);
+
+          // ★修正1: allowed name に含まれるトークンを除外
+          const allowedNorm = normalizeForGuard(allowedSegName);
+          const forbiddenUniq = Array.from(new Set(forbiddenFiltered)).filter(
+            (t: string) => !allowedNorm.includes(normalizeForGuard(t))
+          );
 
           // ★ TASK 1-C: tokens が弱くても forbiddenSegmentNames との合算で検知対象を確保
           // tokens < 5 でも reject しない。最低でも「他セグメント名」が入るため混入検知は成立
-          let checkTokens = tokens;
-          if ((!tokens || tokens.length < 5) && bannedSegmentNames && bannedSegmentNames.length > 0) {
-            checkTokens = Array.from(new Set([...tokens, ...bannedSegmentNames]));
+          let checkTokens = forbiddenUniq;
+          if ((!forbiddenUniq || forbiddenUniq.length < 5) && bannedSegmentNames && bannedSegmentNames.length > 0) {
+            checkTokens = Array.from(new Set([...forbiddenUniq, ...bannedSegmentNames]));
             console.log(
-              `[cascade][dup] tokens_weak但し回避可能: dept="${deptName}" tokens.len=${tokens?.length ?? 0} segs=${bannedSegmentNames?.length ?? 0}`
+              `[cascade][dup] tokens_weak但し回避可能: dept="${deptName}" tokens.len=${forbiddenUniq?.length ?? 0} segs=${bannedSegmentNames?.length ?? 0}`
             );
           }
 
@@ -2200,19 +2256,24 @@ ${secondPassDeptBlock}
             ...(secondDept?.projects ?? []),
           ];
 
-          // ★ TASK 4: soft penalty ロジック（hit = riskScore++）
-          let riskScore = 0;
-          const hitTokens: string[] = [];
+          // ★修正2: TASK 4 soft penalty ロジック（ユニーク違反トークン数 = riskScore）
+          const hits = new Set<string>(); // ユニーク化用Set
           const RISK_THRESHOLD = 2;
 
           for (const proj of allProjects) {
             const blob = `${proj?.title ?? ''} ${proj?.reason ?? ''} ${proj?.hypothesis ?? ''}`;
             const hit = containsAny(blob, checkTokens);
             if (hit) {
-              riskScore++;
-              hitTokens.push(hit);
-              console.log(`[cascade][guard][risk] token="${hit}" riskScore=${riskScore} dept="${deptName}"`);
+              hits.add(hit); // 同じトークンは1点のみ
             }
+          }
+
+          const riskScore = hits.size; // ユニークなトークン数
+          const hitTokens = Array.from(hits);
+
+          // ★デバッグログ：ユニークなトークンのみ出力
+          for (const t of hits) {
+            console.log(`[cascade][guard][risk] token="${t}" riskScore=${riskScore} dept="${deptName}"`);
           }
 
           // riskScore が閾値以上なら valid=false
@@ -2227,18 +2288,14 @@ ${secondPassDeptBlock}
 
         // 2nd pass LLM呼び出し
         try {
-          const secondCompletion = await openai.chat.completions.create({
-            model: process.env.OPENAI_MODEL ?? 'gpt-4o',
-            response_format: { type: 'json_object' },
-            temperature: 0.35,
-            max_tokens: 1500,
-            messages: [
-              { role: 'system', content: '必ずJSONのみを返し、日本語で。前後の説明は禁止。' },
-              { role: 'user', content: secondPassPrompt },
-            ],
-          });
-
-          const secondRawContent = secondCompletion.choices?.[0]?.message?.content || '';
+          // ★修正3: OpenAI リトライ機能を使用（fetch failed/UND_ERR_SOCKET 対策）
+          const secondRawContent = await callOpenAIJsonWithRetry(
+            secondPassPrompt,
+            '必ずJSONのみを返し、日本語で。前後の説明は禁止。',
+            `2ndpass-dept=${dupDeptName}`,
+            0.35, // temperature for 2nd pass
+            1500  // maxTokens for 2nd pass
+          );
           const secondParsed = extractJsonObject(secondRawContent);
 
           if (secondParsed && Array.isArray(secondParsed?.departments) && secondParsed.departments.length > 0) {
