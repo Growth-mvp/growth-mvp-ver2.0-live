@@ -689,7 +689,7 @@ function buildDeptFactPack(
       anchors.push({
         id: `fact-constraint-${anchors.length - 6}`,
         text: constraintHints[anchors.length - 6] || '経営課題への対応が重要です',
-        source: 'constraint',
+        source: 'finance', // constraint も finance カテゴリで扱う
       });
     }
   }
@@ -1423,7 +1423,6 @@ ${JSON.stringify(failed.project, null, 2)}
                 { role: 'system', content: '修正プロジェクト案の JSON のみを返してください。日本語で。' },
                 { role: 'user', content: retryPrompt },
               ],
-              timeout: 30000, // ★修正4: 30秒のtimeout
             });
 
             const retryRaw = retryCompletion.choices?.[0]?.message?.content || '';
@@ -1670,7 +1669,6 @@ ${anchorsText || '（利用可能なanchorsなし）'}
               { role: 'system', content: '修正プロジェクト案の JSON のみを返してください。日本語で。' },
               { role: 'user', content: retryPrompt },
             ],
-            timeout: 30000, // ★修正4: 30秒のtimeout
           });
 
           const retryRaw = retryCompletion.choices?.[0]?.message?.content || '';
