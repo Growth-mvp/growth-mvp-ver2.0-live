@@ -1,6 +1,14 @@
 // /app/api/_shared/utils.ts
 export function toTextStory(story: unknown): string {
   try {
+    // ★TASK 3: 複数の形式に対応
+
+    // 1) string 形式
+    if (typeof story === 'string') {
+      return story;
+    }
+
+    // 2) Array 形式（ChapterStory[] または StoryChapter[]）
     if (Array.isArray(story)) {
       const parts = (story as any[])
         .map((c: any, i: number) => {
@@ -14,10 +22,46 @@ export function toTextStory(story: unknown): string {
           return `【第${i + 1}章】${title}\n${body}`;
         })
         .filter(Boolean) as string[];
-      return parts.join('\n\n');
+      const result = parts.join('\n\n');
+      return result.length > 0 ? result : '';
     }
-  } catch {}
-  return typeof story === 'string' ? story : '';
+
+    // 3) object形式で .text プロパティ
+    if (story && typeof story === 'object' && 'text' in story) {
+      const txt = (story as any).text;
+      if (typeof txt === 'string') return txt;
+    }
+
+    // 4) object形式で .chapters プロパティ
+    if (story && typeof story === 'object' && 'chapters' in story) {
+      const chapters = (story as any).chapters;
+      if (Array.isArray(chapters)) {
+        const parts = chapters
+          .map((c: any, i: number) => {
+            const title = typeof c?.title === 'string' ? c.title.trim() : (c?.title ? String(c.title) : '');
+            const body = typeof c?.body === 'string' ? c.body : (c?.body ? String(c.body) : '');
+            if (!title && !body) return null;
+            return `【第${i + 1}章】${title}\n${body}`;
+          })
+          .filter(Boolean) as string[];
+        const result = parts.join('\n\n');
+        return result.length > 0 ? result : '';
+      }
+    }
+
+    // 5) ネストされた .finalStory や .final_story プロパティ
+    if (story && typeof story === 'object') {
+      const nested = (story as any).finalStory ?? (story as any).final_story ?? (story as any).storyDraft;
+      if (nested) {
+        return toTextStory(nested); // 再帰的に処理
+      }
+    }
+
+  } catch (e) {
+    console.warn('[toTextStory] unexpected error:', e);
+  }
+
+  return '';
 }
 
 /**

@@ -1692,6 +1692,8 @@ export default function CascadePage() {
         opportunity: s?.opportunity ?? '',
         threat: s?.threat ?? '',
         story: rawStory,
+        // ★TASK 1: finalStory をpayloadに追加
+        finalStory: s?.finalStory ?? undefined,
         strategySummary: s?.strategySummary ?? '',
         departments: [
           {
@@ -1725,6 +1727,9 @@ export default function CascadePage() {
         valueDriverKPIs,
         targetRanges,
       };
+
+      // ★TASK 1: 送信前にfinalStoryが含まれているか確認
+      console.log('[Cascade][req] finalStory keys=', Object.keys(payload.finalStory ?? {}), 'len=', JSON.stringify(payload.finalStory ?? '').length);
 
       const res = await fetch('/api/generate-cascade', {
         method: 'POST',

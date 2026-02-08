@@ -166,6 +166,8 @@ const ReqSchema = z
     opportunity: z.string().optional(),
     threat: z.string().optional(),
     story: z.any().optional(),
+    // ★新規: STAGE2 final story（最終経営戦略）を注入
+    finalStory: z.any().optional(),
     strategySummary: z.string().optional(),
     departments: z.array(DeptInputSchema).optional().default([]),
 
@@ -778,6 +780,7 @@ export async function POST(req: NextRequest) {
       opportunity,
       threat,
       story,
+      finalStory, // ★新規: STAGE2 final story
       strategySummary,
       departments,
       csvFinanceData,
@@ -797,7 +800,17 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // ★TASK 2: request に finalStory が到達しているか確認（parse直後）
+    console.log('[cascade][req] hasFinalStory=', !!finalStory, 'type=', typeof finalStory, 'jsonLen=', JSON.stringify(finalStory || '').length);
+
     const storyText = toTextStory(story);
+    // ★新規: STAGE2 final story を text 化
+    const finalStoryText = toTextStory(finalStory);
+
+    // ★デバッグログ: final story が注入されたことを確認
+    const finalStoryLen = typeof finalStoryText === 'string' ? finalStoryText.length : 0;
+    console.log(`[cascade][story] storyText.len=${typeof storyText === 'string' ? storyText.length : 0} finalStoryText.len=${finalStoryLen}`);
+
     const hasValidInput =
       (typeof strategySummary === 'string' && strategySummary.trim().length > 0) ||
       (typeof storyText === 'string' && storyText.trim().length > 0);
@@ -1078,6 +1091,9 @@ ${financeCsvText}
 ${sanitizeText(storyText || '', 800) || '（ストーリー未入力）'}
 要約: ${summary}
 
+【STAGE2 最終ストーリー（Final Story）】
+${sanitizeText(finalStoryText || '', 1000) || '（最終ストーリー未入力）'}
+
 【部門文脈（Ver4準拠）】
 ${deptBlocks}
 
@@ -1091,8 +1107,10 @@ ${
 【STAGE2 勝ち筋パターン】
 主要: ${winPatternPrimary ?? '（未設定）'} / 副次: ${winPatternSecondary ?? '（未設定）'}
 
-【プロジェクト設計ルール（仮説ベース＋2軸）】
+【プロジェクト設計ルール（仮説ベース＋2軸＋Final Story整合）】
 - projects は「仮説ベースのプロジェクト」として設計する。
+- ★【STAGE2最終ストーリー】の経営戦略方針を反映したプロジェクト案に編成すること。
+- 各プロジェクトの reason/hypothesis には【STAGE2最終ストーリー】のキーコンセプト/価値軸との連携を明示すること。
 - 各プロジェクトは以下の2軸を必ず持つ：
   - mainLever（何に効かせるか）:
     - 'ACQ'          : 新規顧客数・案件数
@@ -1110,7 +1128,14 @@ ${
     - 'cost'       : コスト削減中心
     - 'efficiency' : 業務効率化中心
     - 'future'     : 将来の種・仕組み・新規事業
-- hypothesis は「もし誰に対して/どの業務に対して◯◯を行えば、行動や体験がこう変わり、その結果 mainLever の指標がこう改善するはず」という形で1〜2文。
+- reason は「このプロジェクトを実施する理由」（1文）。【STAGE2最終ストーリー】と整合する根拠を引用で明示すること。
+- hypothesis は「もし誰に対して/どの業務に対して◯◯を行えば、行動や体験がこう変わり、その結果 mainLever の指標がこう改善するはず」という形で1〜2文。【STAGE2最終ストーリー】のキーコンセプト/価値軸と連携させること。引用で根拠を示すこと。
+
+【★Final Story整合（全プロジェクト・ミッション必須）】
+- missionDraft/missionDescription、全projects の reason/hypothesis は【STAGE2最終ストーリー】の経営戦略方針と整合していなければ不合格。
+- 各プロジェクトの実施根拠が【STAGE2最終ストーリー】に明示されている価値軸・キーコンセプト・経営ドメインの何を実装するのかを reason で述べること。
+- hypothesis には、そのプロジェクトが実行される際に【STAGE2最終ストーリー】で定義された成功条件/価値指標がどう改善するのかを接続させること。
+- 3部門のプロジェクト群全体が、統一された経営戦略ストーリーの「異なる実装アプローチ」として見える設計にすること。
 
 【★STAGE3拡張フィールド（必須）】
 各プロジェクトに以下を必ず含めること：
@@ -1133,8 +1158,8 @@ ${
   "departments": [
     {
       "name": "部門名（入力に存在するもののみ）",
-      "missionDraft": "この部門の戦略ミッション案（1〜2文。構造変化/役割も含める）",
-      "missionDescription": "missionDraft の背景・理由・狙い（2〜4文。部門の事業概要/主要顧客/部門別財務に言及すること）",
+      "missionDraft": "この部門の戦略ミッション案（1〜2文。構造変化/役割も含める）★【STAGE2 最終ストーリー】と整合性を持たせること",
+      "missionDescription": "missionDraft の背景・理由・狙い（2〜4文。部門の事業概要/主要顧客/部門別財務/【STAGE2最終ストーリー】に言及すること）",
       "lanes": {
         "existing": {
           "projects": [
