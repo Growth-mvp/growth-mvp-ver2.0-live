@@ -9,6 +9,11 @@ import { toTextStory, extractJsonObject, sanitizeText } from '@/app/api/_shared/
 import { z } from 'zod';
 
 /* =========================
+ * グローバル定数
+ * ========================= */
+const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
+
+/* =========================
  * スキーマ（AI応答の検証用：後方互換＋2レーン拡張）
  * ======================= */
 
@@ -414,6 +419,179 @@ function summarizeBusinessPortfolio(bp: any, limitUnits = 8): string {
 }
 
 /* =========================
+ * FactPack 機構（TASK 1: 引用可能な固有事実セット）
+ * ======================= */
+
+/** FactPack の基本単位：引用可能な短テキスト片 */
+type FactAnchor = {
+  id: string;  // 例："fact-seg-1", "fact-cust-2", "fact-fin-3"
+  text: string; // 引用対象のテキスト（50～120文字程度）
+  source?: 'overview' | 'customers' | 'finance'; // 由来
+};
+
+/** 部門ごとの事実パック */
+type DeptFactPack = {
+  segmentName: string; // マッチしたセグメント名（未マッチの場合は部門名）
+  anchors: FactAnchor[]; // 8～12個の引用可能な事実
+  customers: string[]; // 主要顧客（2～3個）
+  overview: string; // セグメント事業概要（短い）
+  financeHints: string[]; // 財務の傾向・変化を示唆するテキスト（3～5個）
+};
+
+/**
+ * 部門ごとの FactPack を生成（引用ベース生成用）
+ * - segment 特定（既存の正規化マッチングを流用）
+ * - anchors を overview, customers, finance から抽出
+ */
+function buildDeptFactPack(
+  deptName: string,
+  businessSegments: any[],
+  csvFinanceData: any,
+  financeSummary: any,
+  businessPortfolio: any
+): DeptFactPack {
+  const normalizeName = (s: string) =>
+    (s ?? '')
+      .toLowerCase()
+      .replace(/\s+/g, '')
+      .replace(/[・･]/g, '・')
+      .replace(/(事業部|本部|部門|部)$/g, '')
+      .trim();
+
+  // ★ segment マッチング（既存ロジックを流用）
+  const keyN = normalizeName(deptName);
+  let seg: any = undefined;
+
+  if (Array.isArray(businessSegments)) {
+    // 完全一致
+    seg = businessSegments.find((s: any) => normalizeName(s?.name ?? '') === keyN);
+    // 部分一致
+    if (!seg && keyN.length >= 4) {
+      const hits = businessSegments.filter((s: any) => normalizeName(s?.name ?? '').includes(keyN));
+      seg = hits.length === 1 ? hits[0] : undefined;
+    }
+  }
+
+  const segmentName = seg?.name ?? deptName;
+  const anchors: FactAnchor[] = [];
+  let anchorCount = 0;
+
+  // ★ overview から 2～4個の anchors
+  const overview = (seg?.overview ?? seg?.summary ?? '').trim();
+  if (overview) {
+    // 全体を1つ
+    if (overview.length <= 120) {
+      anchors.push({
+        id: `fact-seg-${++anchorCount}`,
+        text: overview,
+        source: 'overview',
+      });
+    } else {
+      // 文で分割
+      const sentences = overview.split(/[。．]/g).filter((s: string) => s.trim().length > 0);
+      for (let i = 0; i < Math.min(2, sentences.length); i++) {
+        const sent = sentences[i].trim();
+        if (sent) {
+          anchors.push({
+            id: `fact-seg-${++anchorCount}`,
+            text: sent,
+            source: 'overview',
+          });
+        }
+      }
+    }
+  }
+
+  // ★ customers から 2～3個
+  const customersRaw = (seg?.mainCustomers ?? seg?.keyCustomers ?? seg?.customers ?? '').trim();
+  const customersList: string[] = [];
+
+  if (customersRaw) {
+    // "トヨタ、日産" → ["トヨタ", "日産"]
+    const parts = customersRaw.split(/[、,，]/g).map((s: string) => s.trim()).filter(Boolean);
+    customersList.push(...parts);
+
+    for (let i = 0; i < Math.min(2, parts.length); i++) {
+      const cust = parts[i];
+      anchors.push({
+        id: `fact-cust-${++anchorCount}`,
+        text: `主要顧客：${cust}`,
+        source: 'customers',
+      });
+    }
+  }
+
+  // ★ finance から 3～5個（segment 別 PL/BS または segment の nested pl/bs）
+  const financeHints: string[] = [];
+
+  if (seg) {
+    const segPL = seg?.pl ?? seg?.segmentPL;
+    const segBS = seg?.bs ?? seg?.segmentBS;
+
+    if (Array.isArray(segPL) && segPL.length >= 2) {
+      const latest = segPL[segPL.length - 1];
+      const prev = segPL[segPL.length - 2];
+
+      const latestRev = toNum(latest?.revenue ?? latest?.sales);
+      const prevRev = toNum(prev?.revenue ?? prev?.sales);
+      const latestMargin = toNum(latest?.operatingIncome ?? latest?.operatingProfit);
+
+      if (latestRev != null && prevRev != null) {
+        const change = ((latestRev - prevRev) / prevRev) * 100;
+        const sign = change >= 0 ? '成長' : '低迷';
+        const hint = `売上は${Math.abs(change).toFixed(1)}%${sign}（最新年${latestRev}百万円）`;
+        financeHints.push(hint);
+        anchors.push({
+          id: `fact-fin-${++anchorCount}`,
+          text: hint,
+          source: 'finance',
+        });
+      }
+
+      if (latestMargin != null && latestRev != null && latestRev !== 0) {
+        const margin = (latestMargin / latestRev) * 100;
+        const hint = `営業利益率は約${margin.toFixed(1)}%`;
+        financeHints.push(hint);
+        anchors.push({
+          id: `fact-fin-${++anchorCount}`,
+          text: hint,
+          source: 'finance',
+        });
+      }
+    }
+  }
+
+  // ★ fallback: csvFinanceData.segmentPL から該当セグメントを検索
+  if (financeHints.length === 0 && csvFinanceData) {
+    const segPL = csvFinanceData?.segmentPL;
+    if (segPL && typeof segPL === 'object') {
+      const rows = Array.isArray(segPL[segmentName]) ? segPL[segmentName] : null;
+      if (rows && rows.length >= 2) {
+        const latest = rows[rows.length - 1];
+        const latestRev = toNum(latest?.revenue ?? latest?.sales);
+        if (latestRev != null) {
+          const hint = `セグメント売上（最新）${latestRev}百万円`;
+          financeHints.push(hint);
+          anchors.push({
+            id: `fact-fin-${++anchorCount}`,
+            text: hint,
+            source: 'finance',
+          });
+        }
+      }
+    }
+  }
+
+  return {
+    segmentName,
+    anchors: anchors.slice(0, 12), // 最大12個に制限
+    customers: customersList.slice(0, 3),
+    overview: overview.slice(0, 200),
+    financeHints: financeHints.slice(0, 5),
+  };
+}
+
+/* =========================
  * 応答の正規化（2レーン対応＋後方互換）
  * ======================= */
 type NormProject = {
@@ -556,6 +734,18 @@ export async function POST(req: NextRequest) {
         .replace(/(事業部|本部|部門|部)$/g, '')
         .trim();
 
+    // ★ FactPack 生成（TASK 1: 部門ごとの引用可能な事実セット）
+    const factPackByDept = new Map<string, DeptFactPack>();
+    for (const d of departments) {
+      const name = pickName(d);
+      if (!name) continue;
+      const factPack = buildDeptFactPack(name, allBusinessSegments, csvFinanceData, financeSummary, businessPortfolio);
+      factPackByDept.set(name, factPack);
+      if (DEBUG) {
+        console.log(`[cascade][factpack] ${name}: ${factPack.anchors.length}anchors, ${factPack.customers.length}customers`);
+      }
+    }
+
     const deptBlocks = departments
       .map((d) => {
         const name = pickName(d);
@@ -669,14 +859,30 @@ export async function POST(req: NextRequest) {
           })
           .join('\n');
 
-        // ★ [SEGMENT] ブロック生成（P3拡張：prompt注入）
-        const segBlock = seg
-          ? `\n\n[SEGMENT]\n- name: ${seg?.name ?? 'N/A'}\n- overview: ${sanitizeText(segOverview, 400)}\n- customers: ${sanitizeText(segCustomers, 300)}\n- PL: ${JSON.stringify(segPLData).slice(0, 600)}\n- BS: ${JSON.stringify(segBSData).slice(0, 600)}`
-          : `\n\n[SEGMENT]\n- not_found: true\n- key: ${segKey}`;
+        // ★ TASK 2: FACTPACK ブロック生成（anchors付き、引用ベース）
+        const factPack = factPackByDept.get(name);
+        const factPackBlock = (() => {
+          if (!factPack || factPack.anchors.length === 0) {
+            return `\n\n[FACTPACK]\n- segment: ${segKey}\n- anchors: （利用可能な事実なし）`;
+          }
+
+          const anchorLines = factPack.anchors
+            .map((a) => `  - ${a.id}: "${sanitizeText(a.text, 100)}"`)
+            .join('\n');
+
+          const customerLines = factPack.customers.length > 0
+            ? `\n- customers: ${factPack.customers.map((c) => `"${c}"`).join(', ')}`
+            : '';
+
+          return `\n\n[FACTPACK]\n- segment: ${factPack.segmentName}${customerLines}\n- anchors (必ず2つ以上を reason/hypothesis で引用すること):\n${anchorLines}`;
+        })();
 
         // ★ デバッグログ
         if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
           console.log('[cascade][segmap]', name, 'segmentName=', segmentName, 'found=', !!seg, 'key=', segKey);
+          if (factPack) {
+            console.log('[cascade][factpack]', name, `anchors=${factPack.anchors.length}`);
+          }
         }
 
         // ★ 部門別ユニークネスルール（全部門同一PJ防止の物理的制約）
@@ -704,7 +910,7 @@ ${ansLines || '  - （未回答）'}
   seeds.projects:
 ${projSeed || '  - （なし）'}
   seeds.okr:
-${okrSeed || '  - （なし）'}${segBlock}${uniquenessRule}
+${okrSeed || '  - （なし）'}${factPackBlock}${uniquenessRule}
 `.trim();
       })
       .join('\n\n');
@@ -717,11 +923,10 @@ ${okrSeed || '  - （なし）'}${segBlock}${uniquenessRule}
 - プロジェクト数：合計3個（既存進化 2個 + 新規探索 1個）を厳密に守ること。
 - ★★★全部門で異なるプロジェクト案を出すこと（部門AのプロジェクトAが部門Bにも出現することは厳禁）。
 - ★★★各部門の【部門別財務】【部門別ポートフォリオ】【主な顧客層】【意思決定権】を参照し、その部門固有の課題と機会に基づいてプロジェクトを立案すること。
-- タイトル prefix（名詞句の前に付ける）：
-  - 既存進化 #1: "[AI#1] " を付ける（例："[AI#1] 高付加価値案件の構造変化"）
-  - 既存進化 #2: "[AI#2] " を付ける（例："[AI#2] 商談設計力の強化"）
-  - 新規探索 #1: "[AI#3] " を付ける（例："[AI#3] 次世代サービス仮説検証"）
-- これらの prefix は内部管理用で、提案内容には影響しない。
+- ★TASK 2 引用ベース生成（FACTPACK から必ず根拠を引く）：
+  - 各プロジェクトの title は必ず [FACTPACK] の customers または overview から固有名詞を1つ以上含むこと（例：「自動車OEMの〜」「トヨタ向けの〜」）
+  - reason と hypothesis には、[FACTPACK] の anchors ID を「」括弧で最低2つ以上引用すること（例：「『主要顧客：トヨタ』（fact-cust-1）」）
+  - citations フィールドに、引用した anchor ID を列挙すること（例：["fact-cust-1", "fact-fin-2"]）
 - ★対象部門の事業領域から外れる提案は禁止。既存事業と離れすぎた提案や、部門の守備範囲外の分野への展開は避けること。
 
 【部門ミッション記述ルール】
@@ -822,15 +1027,16 @@ ${
         "existing": {
           "projects": [
             {
-              "title": "[AI#1] 高付加価値案件の構造変化",
-              "reason": "目的（1文）",
-              "hypothesis": "仮説（1〜2文）",
+              "title": "高付加価値案件の構造変化",
+              "reason": "目的（1文、引用あり）",
+              "hypothesis": "仮説（1〜2文、引用あり）",
               "mainLever": "ACQ",
               "horizon": "short",
               "kind": "growth",
               "generatedBy": "ai",
               "generatedSlot": 1,
               "generatedGroup": "cascade_v1",
+              "citations": ["fact-cust-1", "fact-fin-2"],
               "valueDriverLinks": ["kpi_id_1", "kpi_id_2"],
               "skillRequirements": {
                 "roleSkills": ["営業", "マーケター"],
@@ -842,15 +1048,16 @@ ${
               ]
             },
             {
-              "title": "[AI#2] 商談設計力の強化",
-              "reason": "目的（1文）",
-              "hypothesis": "仮説（1〜2文）",
+              "title": "商談設計力の強化",
+              "reason": "目的（1文、引用あり）",
+              "hypothesis": "仮説（1〜2文、引用あり）",
               "mainLever": "ACQ",
               "horizon": "mid",
               "kind": "growth",
               "generatedBy": "ai",
               "generatedSlot": 2,
               "generatedGroup": "cascade_v1",
+              "citations": ["fact-cust-1"],
               "valueDriverLinks": ["kpi_id_1"],
               "skillRequirements": {
                 "roleSkills": ["営業"],
@@ -866,15 +1073,16 @@ ${
         "new": {
           "projects": [
             {
-              "title": "[AI#3] 次世代サービス仮説検証",
-              "reason": "目的（1文）",
-              "hypothesis": "仮説（1〜2文）",
+              "title": "次世代サービス仮説検証",
+              "reason": "目的（1文、引用あり）",
+              "hypothesis": "仮説（1〜2文、引用あり）",
               "mainLever": "FUTURE",
               "horizon": "mid",
               "kind": "future",
               "generatedBy": "ai",
               "generatedSlot": 3,
               "generatedGroup": "cascade_v1",
+              "citations": ["fact-cust-1", "fact-fin-2"],
               "valueDriverLinks": ["kpi_id_1"],
               "skillRequirements": {
                 "roleSkills": ["エンジニア", "プロダクトマネジャー"],
@@ -900,10 +1108,13 @@ ${
 - missionDraft と missionDescription は必ず両方を含めること（空・null 禁止）。
 - lanes.existing は必ず2個のプロジェクトを出す（OK: 2個、NG: 1個・3個以上）。
 - lanes.new は必ず1個のプロジェクトを出す（OK: 1個、NG: 0個・2個以上）。
-- 各プロジェクトのタイトルは必ず "[AI#1]"〜"[AI#3]" の prefix で始まること。
+- ★TASK 2 引用必須：
+  - 各プロジェクトに citations フィールドを必ず含める（最低2個の anchor ID）。
+  - reason と hypothesis に「」で括られた anchor 引用を最低2つ含めること。
+  - 引用しない場合は生成失敗（再生成対象）。
 - 各プロジェクトに generatedBy="ai"、generatedSlot (1/2/3)、generatedGroup="cascade_v1" を必ず含める。
 - financeSummary / businessPortfolio とかけ離れた非現実（売上10倍等）は避ける。
-- ★全プロジェクトに valueDriverLinks、skillRequirements、humanInvestments を必ず含める（空は不可）。
+- ★全プロジェクトに valueDriverLinks、skillRequirements、humanInvestments、citations を必ず含める（空は不可）。
 - valueDriverLinks は valueDriverKPIs の id から選ぶこと（自由記述禁止）。
 - humanInvestments は最低2カテゴリを含めること。
 - ★★重要：全プロジェクトで skillRequirements.executionSkills や humanInvestments が同一になることは絶対に禁止。各プロジェクトのアーキタイプ（品質/自動化/営業/新規/ITデータ/組織など）を推定し、それぞれに適したスキルと施策を割り当てること。
@@ -943,6 +1154,57 @@ ${
     /* =========================
      * ★重複検知→1回再生成機能（プロダクト品質の最終兵器）
      * ======================= */
+
+    // ★ TASK 3: 横断類似度チェック＆再生成
+    const detectAndFixSimilarProjects = (depts: any[]): void => {
+      const titleSimilarities: { dept1: string; dept2: string; proj1Title: string; proj2Title: string; similarity: number }[] = [];
+
+      // 全部門の全プロジェクトペアで類似度計算
+      for (let i = 0; i < depts.length; i++) {
+        for (let j = i + 1; j < depts.length; j++) {
+          const dept1 = depts[i];
+          const dept2 = depts[j];
+
+          const projects1 = [
+            ...(dept1?.lanes?.existing?.projects ?? []),
+            ...(dept1?.lanes?.new?.projects ?? []),
+          ];
+          const projects2 = [
+            ...(dept2?.lanes?.existing?.projects ?? []),
+            ...(dept2?.lanes?.new?.projects ?? []),
+          ];
+
+          for (const p1 of projects1) {
+            for (const p2 of projects2) {
+              const t1 = normalizeTitleForSim(p1?.title ?? '');
+              const t2 = normalizeTitleForSim(p2?.title ?? '');
+              const sim = jaccard(t1, t2);
+
+              if (sim >= 0.65) {
+                titleSimilarities.push({
+                  dept1: dept1?.name ?? '',
+                  dept2: dept2?.name ?? '',
+                  proj1Title: p1?.title ?? '',
+                  proj2Title: p2?.title ?? '',
+                  similarity: sim,
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // 衝突がある場合はログ出力（再生成は 2nd-pass で対応）
+      if (titleSimilarities.length > 0) {
+        console.log(`[cascade][sim-check] 衝突検知: ${titleSimilarities.length}件`);
+        for (const { dept1, dept2, similarity } of titleSimilarities) {
+          console.log(`  - ${dept1} <-> ${dept2}: ${(similarity * 100).toFixed(1)}%`);
+        }
+      }
+    };
+
+    // 類似度チェック実行
+    detectAndFixSimilarProjects(Array.isArray(normalized?.departments) ? normalized.departments : []);
 
     // ★ TASK 2: [AI#] prefix 除去ヘルパー
     const stripAiPrefix = (title: string) => {
@@ -1039,12 +1301,12 @@ ${
      * ★ TASK 1-3: 他セグメント語彙の検知と拒否
      * ======================= */
 
-    const splitTokens = (s: string) =>
+    const splitTokens = (s: string): string[] =>
       (s ?? '')
         .replace(/\s+/g, ' ')
         .split(/[ 、,，。．/・\-\n\r\t]+/g)
-        .map(t => t.trim())
-        .filter(Boolean);
+        .map((t: string) => t.trim())
+        .filter(Boolean) as string[];
 
     const STOP_WORDS = new Set([
       '顧客', '市場', 'メーカー', '事業', '部品', '製品', '提供', '拡大', '強化', '改善', '向上', '開発', '推進',
@@ -1105,6 +1367,26 @@ ${
         .replace(/(事業部|本部|部門|部)$/g, '')
         .trim();
 
+    // ★ TASK 3: 類似度計算用の title 正規化
+    const normalizeTitleForSim = (title: string): string => {
+      return (title ?? '')
+        .toLowerCase()
+        .replace(/\[ai#\d+\]\s*/i, '') // [AI#1] を除去
+        .replace(/^[^：:]+[：:]\s*/, '') // 部門名prefix を除去
+        .replace(/[【】「」（）『』\[\]()・：:—\-\s]/g, '') // 記号を除去
+        .trim();
+    };
+
+    // ★ TASK 3: Jaccard 距離（セット類似度）
+    const jaccard = (s1: string, s2: string): number => {
+      const set1 = new Set((s1 ?? '').split(''));
+      const set2 = new Set((s2 ?? '').split(''));
+      const intersection = new Set([...set1].filter((x: string) => set2.has(x)));
+      const union = new Set([...set1, ...set2]);
+      if (union.size === 0) return 1; // 両方空
+      return intersection.size / union.size;
+    };
+
     const containsAny = (blob: string, tokens: string[]): string | null => {
       const b = normalizeLoose(blob);
       for (const tok of tokens) {
@@ -1119,7 +1401,7 @@ ${
       const allowN = normalizeLoose(allowedSegName);
       const tokens: string[] = [];
 
-      for (const s of businessSegments ?? []) {
+      for (const s of (businessSegments ?? []) as any[]) {
         const name = (s?.name ?? '').trim();
         if (normalizeLoose(name) === allowN) continue;
 
@@ -1129,7 +1411,7 @@ ${
 
         // overview と customers から語彙抽出
         const ov = (s?.overview ?? '').trim();
-        const cust = (s?.mainCustomers ?? s?.customers ?? '').trim();
+        const cust = (s?.mainCustomers ?? (s?.customers ?? '')).trim();
         tokens.push(...pickKeywords(ov));
         tokens.push(...pickKeywords(cust));
       }
@@ -1594,15 +1876,23 @@ ${secondPassDeptBlock}
                 missionDescription = `${missionDraft}を実現するために、${focusThemesText}に注力します${directionText}。`;
               }
 
-              // ★ P0: 全プロジェクトに部門名prefix強制
-              const applyPrefix = (p: any) => ({ ...p, title: ensurePrefix(name, p?.title ?? '') });
-              const prefixedExistingProjects = safeExistingProjects.map(applyPrefix);
-              const prefixedNewProjects = safeNewProjects.map(applyPrefix);
+              // ★ TASK 6: [AI#] prefix を完全除去（返却前処理）
+              const stripAllAiPrefixes = (proj: any) => {
+                const stripped = stripAiPrefix(proj?.title ?? '');
+                return { ...proj, title: ensurePrefix(name, stripped) };
+              };
+
+              const cleanedMissionDraft = stripAiPrefix(missionDraft);
+              const cleanedMissionDescription = stripAiPrefix(missionDescription);
+
+              // ★ P0: 全プロジェクトに部門名prefix強制（[AI#]除去後）
+              const prefixedExistingProjects = safeExistingProjects.map(stripAllAiPrefixes);
+              const prefixedNewProjects = safeNewProjects.map(stripAllAiPrefixes);
 
               return {
                 name,
-                missionDraft,
-                missionDescription,
+                missionDraft: cleanedMissionDraft,
+                missionDescription: cleanedMissionDescription,
 
                 lanes: {
                   existing: {
