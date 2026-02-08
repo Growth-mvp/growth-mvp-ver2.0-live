@@ -399,28 +399,29 @@ ${isRetry ? `
 1. JSONのみ返す（説明・前後の言葉は絶対禁止）
 2. keyResultsは必ず3本、空配列は禁止
 3. 3本のうち最低1本はドメイン固有（品質/納期/工程/歩留まり/不良率/試験合格率/リードタイム/稼働率/トレーサビリティ など）
-4. 各KRは 単位を含める（例："成功率 (%)", "納期短縮 (日)", "不良率低減 (ppm)" など）
-5. 禁止セット は絶対に使用禁止：「生産性向上」「NPS」「プロセス改善スコア」「顧客満足度」「従業員満足度」「エンゲージメント」
+4. ★★★ label形式は必ず 「${projectTitle}：{KPI名}（{unit}）」に統一する
+5. 各KRの unit は単位のみ（例："ppm", "日", "%" など）
+6. 禁止セット は絶対に使用禁止：「生産性向上」「NPS」「プロセス改善スコア」「顧客満足度」「従業員満足度」「エンゲージメント」
 
 【返却フォーマット】
 {
   "keyResults": [
-    { "label": "KPI名（単位付き）", "unit": "単位" },
-    { "label": "KPI名（単位付き）", "unit": "単位" },
-    { "label": "KPI名（単位付き）", "unit": "単位" }
+    { "label": "${projectTitle}：{KPI名}（{unit}）", "unit": "単位コード" },
+    { "label": "${projectTitle}：{KPI名}（{unit}）", "unit": "単位コード" },
+    { "label": "${projectTitle}：{KPI名}（{unit}）", "unit": "単位コード" }
   ]
 }
 
 【例】
 {
   "keyResults": [
-    { "label": "不良率低減 (100ppm以下)", "unit": "ppm" },
-    { "label": "納期短縮 (30日以内)", "unit": "日" },
-    { "label": "歩留まり改善 (98.5%以上)", "unit": "%" }
+    { "label": "${projectTitle}：不良率低減（100ppm以下）", "unit": "ppm" },
+    { "label": "${projectTitle}：納期短縮（30日以内）", "unit": "日" },
+    { "label": "${projectTitle}：歩留まり改善（98.5%以上）", "unit": "%" }
   ]
 }
 
-JSON以外は返さないこと。
+★重要★ label に必ずプロジェクト名を含めること。JSON以外は返さないこと。
 `.trim();
 
   try {
@@ -516,6 +517,12 @@ async function ensureKeyResults(
 
   // Step 4: AI採用（LLMから返ってきたデータ）
   if (normalized.length > 0) {
+    // ★ ログ: label の先頭30文字を出して形式確認（直接LLM返却の場合）
+    const labels = normalized.map((kr: any) => (kr.label ?? '').substring(0, 30)).join(' | ');
+    console.log(
+      `[cascade][kpi][llm-label-check] dept="${deptName ?? 'unknown'}" project="${projectTitle}" rawType="${rawType}" labels="${labels}"`
+    );
+
     return {
       ...okr,
       keyResults: normalized,
@@ -566,6 +573,12 @@ async function ensureKeyResults(
       unit: kr.unit ?? null,
       due: null,
     }));
+
+    // ★ ログ: label の先頭30文字を出して形式確認
+    const labels = aiKrs.map((kr: any) => (kr.label ?? '').substring(0, 30)).join(' | ');
+    console.log(
+      `[cascade][kpi][ai-label-check] dept="${deptName ?? 'unknown'}" project="${projectTitle}" labels="${labels}"`
+    );
 
     return {
       ...okr,
