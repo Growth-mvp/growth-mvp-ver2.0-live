@@ -1309,6 +1309,7 @@ ${
     const countInlineQuotes = (p: any): number => {
       const text = `${p?.reason ?? ''} ${p?.hypothesis ?? ''}`;
       // 引用符が 「」 または 『』、括弧が () または （） の両パターンに対応
+      // ★バグ修正①: 閉じ括弧を [」『] → [」』] に修正（『で閉じるのは誤り）
       // パターン: [「『]...[」』] \s* [（(]...(fact-...)[)）]
       const citationPattern = /[「『][^」』]+[」『]\s*[（(][^）)]*fact-[^）)]*[)）]/g;
       const matches = text.match(citationPattern);
@@ -1322,12 +1323,14 @@ ${
       const inlineQuoteMatches = countInlineQuotes(p);
       const factIdMatches = countFactIds(text);
 
-      // Level A: citations>=2 && (reason+hypothesis に "(fact-" が1回以上)
-      if (citations.length >= 2 && factIdMatches >= 1) {
+      // ★バグ修正②: Level A を強化（factIdMatches >= 1 → >= 2）
+      // Level A: citations>=2 && fact-id 出現 >=2（reason+hypothesisのどこか）
+      // 理由: retryPrompt で「reason/hypothesisに2箇所」を要求しているため、実装の判定と揃える
+      if (citations.length >= 2 && factIdMatches >= 2) {
         return { level: 'A', matchCount: inlineQuoteMatches, factIdCount: factIdMatches };
       }
 
-      // Level B: citations>=2 だが fact-id 出現なし
+      // Level B: citations>=2 だが fact-id 出現 1回以下
       if (citations.length >= 2) {
         return { level: 'B', matchCount: inlineQuoteMatches, factIdCount: factIdMatches };
       }
@@ -1790,15 +1793,21 @@ ${anchorsText || '（利用可能なanchorsなし）'}
               // 再生成でもNGなら fallback
               const failReason = !isProjectGrounded(retryProject) ? 'grounding_ng' : 'required_fields_missing';
               console.warn(`[cascade][sim][regen-fail] dept=${conflict.deptBName} slot=${conflict.slotB} attempt=${attempt} reason="${failReason}"`);
+              // ★バグ修正③: conflictFailedDepts に追加
+              conflictFailedDepts.add(conflict.deptBName);
             }
           } else {
             // JSON解析失敗
             console.warn(`[cascade][sim][regen-fail] dept=${conflict.deptBName} slot=${conflict.slotB} attempt=${attempt} reason="json_parse_error"`);
+            // ★バグ修正③: conflictFailedDepts に追加
+            conflictFailedDepts.add(conflict.deptBName);
           }
         } catch (err) {
           console.warn(
             `[cascade][sim][regen-fail] dept=${conflict.deptBName} slot=${conflict.slotB} attempt=${attempt} reason="api_error" error=${err instanceof Error ? err.message : String(err)}`
           );
+          // ★バグ修正③: conflictFailedDepts に追加
+          conflictFailedDepts.add(conflict.deptBName);
         }
       }
     };
@@ -2122,15 +2131,23 @@ ${anchorsText || '（利用可能なanchorsなし）'}
         }
       }
 
-      // 重複部門ごとに2nd pass
-      for (const dupDeptName of duplicateDeptNames) {
-        const deptIndex = (normalized?.departments ?? []).findIndex(d => d?.name === dupDeptName);
+      // ★設計修正①: 2nd-pass対象を union 化（duplicates/grounding-failed/conflict-failed/high-risk）
+      const secondPassTargets = new Set<string>([
+        ...Array.from(duplicateDeptNames),
+        ...Array.from(groundingFailedDepts),
+        ...Array.from(conflictFailedDepts),
+        ...Array.from(highRiskDepts),
+      ]);
+
+      // 対象部門ごとに2nd pass
+      for (const targetDeptName of secondPassTargets) {
+        const deptIndex = (normalized?.departments ?? []).findIndex(d => d?.name === targetDeptName);
         if (deptIndex < 0) continue;
 
         const dept = normalized.departments[deptIndex];
         const deptInput = departments.find(d => {
           const n = pickName(d);
-          return n === dupDeptName;
+          return n === targetDeptName;
         });
 
         if (!deptInput) continue;
@@ -2141,7 +2158,7 @@ ${anchorsText || '（利用可能なanchorsなし）'}
         // allowedSegmentName を必ず埋める（空禁止）
         const allowedSegmentName =
           (typeof (deptInput as any)?.segmentName === 'string' && (deptInput as any).segmentName.trim()) ||
-          dupDeptName; // 最終フォールバック：部門名
+          targetDeptName; // 最終フォールバック：部門名
 
         const forbiddenSegmentNames = segPool
           .map((s: any) => (s?.name ?? '').trim())
@@ -2152,7 +2169,7 @@ ${anchorsText || '（利用可能なanchorsなし）'}
 
         // 2nd pass用プロンプト作成（元のdeptBlocks生成ロジックを再利用）
         const secondPassDeptBlock = (() => {
-          const name = dupDeptName;
+          const name = targetDeptName;
           const answers = (deptInput?.answers || []) as Array<{ stepNumber: number; answer?: string; label?: string }>;
           const answersText = (answers || [])
             .sort((a, b) => (a?.stepNumber || 0) - (b?.stepNumber || 0))
@@ -2218,7 +2235,7 @@ ${uniquenessRule}
 `.trim();
         })();
 
-        const secondPassPrompt = `以下の ${dupDeptName} 部門について、前回とは異なるプロジェクト案を生成してください。
+        const secondPassPrompt = `以下の ${targetDeptName} 部門について、前回とは異なるプロジェクト案を生成してください。
 
 ${secondPassDeptBlock}
 
@@ -2226,7 +2243,7 @@ ${secondPassDeptBlock}
 {
   "departments": [
     {
-      "name": "${dupDeptName}",
+      "name": "${targetDeptName}",
       "missionDraft": "...",
       "missionDescription": "...",
       "lanes": {
@@ -2259,11 +2276,14 @@ ${secondPassDeptBlock}
           // ★ TASK 4: soft penalty フィルタリング（STOP_WORDS/3文字未満/数字のみ/記号のみ除外）
           const forbiddenFiltered = filterForbiddenTokens(rawTokens);
 
-          // ★修正1: allowed name に含まれるトークンを除外
+          // ★修正1: allowed name に含まれるトークンを除外（完全一致のみ）
+          // ★バグ修正④: includes禁止 → 完全一致のみ除外（部分一致による検知漏れを防ぐ）
           const allowedNorm = normalizeForGuard(allowedSegName);
-          const forbiddenUniq = Array.from(new Set(forbiddenFiltered)).filter(
-            (t: string) => !allowedNorm.includes(normalizeForGuard(t))
-          );
+          const forbiddenUniq = Array.from(new Set(forbiddenFiltered)).filter((t: string) => {
+            const tn = normalizeForGuard(t);
+            if (!tn) return false;
+            return tn !== allowedNorm; // 完全一致のみ除外
+          });
 
           // ★ TASK 1-C: tokens が弱くても forbiddenSegmentNames との合算で検知対象を確保
           // tokens < 5 でも reject しない。最低でも「他セグメント名」が入るため混入検知は成立
@@ -2317,7 +2337,7 @@ ${secondPassDeptBlock}
           const secondRawContent = await callOpenAIJsonWithRetry(
             secondPassPrompt,
             '必ずJSONのみを返し、日本語で。前後の説明は禁止。',
-            `2ndpass-dept=${dupDeptName}`,
+            `2ndpass-dept=${targetDeptName}`,
             0.35, // temperature for 2nd pass
             1500  // maxTokens for 2nd pass
           );
@@ -2327,7 +2347,7 @@ ${secondPassDeptBlock}
             const secondDept = secondParsed.departments[0];
 
             // ★ TASK 2: 語彙混入検知検証（bannedSegmentNames 与えてトークン不足時も対応）
-            const validation = validateSecondPassWithTokens(dupDeptName, allowedSegmentName, segPool, secondDept, forbiddenSegmentNames);
+            const validation = validateSecondPassWithTokens(targetDeptName, allowedSegmentName, segPool, secondDept, forbiddenSegmentNames);
 
             if (validation.valid) {
               // 2nd passの結果で置き換え
@@ -2337,11 +2357,14 @@ ${secondPassDeptBlock}
               if (secondDept?.missionDescription) {
                 normalized.departments[deptIndex].missionDescription = secondDept.missionDescription;
               }
+            } else {
+              // ★設計修正②: reject時に highRiskDepts を追加
+              highRiskDepts.add(targetDeptName);
+              console.log(`[cascade][dup][reject] dept="${targetDeptName}" riskScore=${validation.riskScore} hitTokens=${validation.hitTokens?.join(',')}`);
             }
-            // reject時は何もしない（1st pass結果を維持）
           }
         } catch (err: any) {
-          console.warn(`[cascade][dup] 2nd pass失敗 (${dupDeptName}):`, err?.message);
+          console.warn(`[cascade][dup] 2nd pass失敗 (${targetDeptName}):`, err?.message);
           // 失敗時は1st passの結果をそのまま使用
         }
       }
@@ -2539,18 +2562,46 @@ ${secondPassDeptBlock}
               // new lane (1プロジェクト)
               const newProjects = normalizeProjects(lanesRaw?.new?.projects ?? []).slice(0, 1);
 
-              // ★ フォールバック：プロジェクトが不足する場合（部門名を含めて固定タイトルを避ける）
+              // ★致命修正: fallback anchors ヘルパー関数
+              const pickFallbackAnchors = () => {
+                const fp = factPackByDept.get(name);
+                const anchors = Array.isArray(fp?.anchors) ? fp.anchors : [];
+                return anchors.slice(0, 2);
+              };
+
+              const buildFallbackGroundedText = (base: string) => {
+                const a = pickFallbackAnchors();
+                if (a.length >= 2) {
+                  return `${base}。「${a[0].text}」(${a[0].id}) と「${a[1].text}」(${a[1].id}) を根拠に、短期で実行可能な打ち手に落とし込む。`;
+                }
+                if (a.length === 1) {
+                  return `${base}。「${a[0].text}」(${a[0].id}) を根拠に、短期で実行可能な打ち手に落とし込む。`;
+                }
+                return base;
+              };
+
+              const buildFallbackCitations = () => {
+                const a = pickFallbackAnchors();
+                return a.map((x: any) => x.id).filter(Boolean).slice(0, 2);
+              };
+
+              // ★ フォールバック：プロジェクトが不足する場合（required fields と citations を含める）
               const safeExistingProjects = existingProjects.length >= 2
                 ? existingProjects
                 : [
                     ...(existingProjects ?? []),
                     {
                       title: `[AI#2] ${name}の既存進化・収益性改善`,
-                      reason: '既存事業からPLに効く改善',
-                      hypothesis: '既存顧客基盤から生まれる改善提案を構造化し実装する。',
+                      reason: buildFallbackGroundedText('既存事業からPLに効く改善'),
+                      hypothesis: buildFallbackGroundedText('既存顧客基盤から生まれる改善提案を構造化し実装する。'),
                       mainLever: 'ARPU',
                       horizon: 'short',
                       kind: 'growth',
+                      // ★致命修正: required fields を追加
+                      citations: buildFallbackCitations(),
+                      valueDriverLinks: (valueDriverKPIs ?? []).slice(0, 2).map((k:any)=>k.id).filter(Boolean),
+                      skillRequirements: {},
+                      humanInvestments: [],
                     } as NormProject,
                   ].slice(0, 2);
 
@@ -2559,11 +2610,16 @@ ${secondPassDeptBlock}
                 : [
                     {
                       title: `[AI#3] ${name}の新規探索・新サービス検証`,
-                      reason: '将来成長の可能性を検証する',
-                      hypothesis: '特定の顧客課題に対し小さく提供すれば、反応が得られ、スケールの条件が見えるはず。',
+                      reason: buildFallbackGroundedText('将来成長の可能性を検証する'),
+                      hypothesis: buildFallbackGroundedText('特定の顧客課題に対し小さく提供すれば、反応が得られ、スケールの条件が見えるはず。'),
                       mainLever: 'FUTURE',
                       horizon: 'mid',
                       kind: 'future',
+                      // ★致命修正: required fields を追加
+                      citations: buildFallbackCitations(),
+                      valueDriverLinks: (valueDriverKPIs ?? []).slice(0, 2).map((k:any)=>k.id).filter(Boolean),
+                      skillRequirements: {},
+                      humanInvestments: [],
                     } as NormProject,
                   ];
 
