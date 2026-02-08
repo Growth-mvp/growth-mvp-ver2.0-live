@@ -194,6 +194,37 @@ const escapeHtml = (s: string) =>
 const nl2brSafe = (s?: string) => (s ? escapeHtml(s).replace(/\r?\n/g, '<br>') : '');
 
 /* ==========================================
+   KPI ラベル抽出ユーティリティ
+========================================== */
+type KRLike =
+  | string
+  | { label?: string | null; name?: string | null; title?: string | null }
+  | null
+  | undefined;
+
+function toKrLabel(kr: KRLike): string | null {
+  if (!kr) return null;
+  if (typeof kr === 'string') return kr.trim() || null;
+  const v = (kr.label ?? kr.name ?? kr.title ?? '').toString().trim();
+  return v || null;
+}
+
+function getProjectKpiLabels(p: any): string[] {
+  const okr0 = p?.okrs?.[0];
+  const raw =
+    okr0?.keyResults ??
+    okr0?.key_results ??
+    okr0?.krs ??
+    p?.keyResults ??
+    p?.kpis ??
+    p?.metrics ??
+    null;
+
+  if (!Array.isArray(raw)) return [];
+  return raw.map(toKrLabel).filter(Boolean) as string[];
+}
+
+/* ==========================================
    4章 + P/L グラフ用ユーティリティ
 ========================================== */
 const formatYenCompact = (n?: number | null) => {
@@ -1082,7 +1113,7 @@ const VisualCard = memo(function VisualCard({ d }: { d: Department }) {
           <ul className="space-y-3">
             {projects.map((p, i) => {
               const okr = p.okrs?.[0] as StoreOKR | undefined;
-              const krs = okr?.keyResults?.filter(Boolean) ?? [];
+              const krs = getProjectKpiLabels(p);
 
               // ★ UI表示用：[AI#N] prefix を削除（内部的には title に保持）
               const displayTitle = (p.title ?? '').replace(/^\[AI#\d+\]\s*/i, '') || '無題のプロジェクト';
@@ -2295,7 +2326,20 @@ export default function CascadePage() {
                       {deptProjects.map((p, pi) => {
                         const primaryOKR = (p.okrs?.[0] as StoreOKR | undefined) ?? undefined;
                         const primaryObjective = primaryOKR?.objective ?? '';
-                        const krs = ((primaryOKR?.keyResults ?? []) as any[]).filter((kr) => typeof kr === 'string') as string[];
+                        const krs = getProjectKpiLabels(p);
+
+                        // ★ TASK C: 原因特定ログ
+                        if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
+                          const okr0 = p?.okrs?.[0];
+                          console.log('[ui][kpi-check]', {
+                            title: p?.title,
+                            okr0_keys: okr0 ? Object.keys(okr0) : null,
+                            raw_keyResults_type: typeof okr0?.keyResults,
+                            raw_keyResults_isArray: Array.isArray(okr0?.keyResults),
+                            extractedLen: krs.length,
+                            extracted0: krs[0],
+                          });
+                        }
 
                         // ★ UI表示用：[AI#N] prefix を削除して表示（内部的には title に保持）
                         const displayTitle = (p.title ?? '').replace(/^\[AI#\d+\]\s*/i, '');
