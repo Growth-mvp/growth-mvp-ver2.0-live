@@ -274,6 +274,104 @@ function normalizeProbability(v: any): number | undefined {
 }
 
 /**
+ * ★ STAGE3: 部門の6問回答を取り出す（保存先の優先探索）
+ * - answers6 → answers12 → answers2 → answerSteps → questionAnswers の順で探索
+ * - 見つかったら配列を返す；なければ []
+ */
+function pickDeptAnswers6(dept: any): any[] {
+  const cands =
+    (dept as any)?.answers6 ??
+    (dept as any)?.answers12 ??
+    (dept as any)?.answers2 ??
+    (dept as any)?.answerSteps ??
+    (dept as any)?.questionAnswers ??
+    null;
+  return Array.isArray(cands) ? cands : [];
+}
+
+/**
+ * ★ STAGE3: 部門の6問回答を整形（prompt注入用）
+ * - stepNumber でソート、最大6件まで取得
+ * - 空や不正な要素は .filter で除外
+ */
+function formatDept6Answers(answers: any[]): string {
+  if (!Array.isArray(answers) || answers.length === 0) return '(なし)';
+  const rows = answers
+    .filter((a) => a && typeof a === 'object')
+    .slice()
+    .sort((a, b) => Number(a?.stepNumber || 0) - Number(b?.stepNumber || 0))
+    .slice(0, 6)
+    .map((a) => {
+      const n = a?.stepNumber ?? '?';
+      const label = (a?.label ?? '').toString().trim();
+      const ans = (a?.answer ?? '').toString().trim();
+      return `- Step${n}${label ? `（${label}）` : ''}: ${ans || '(未回答)'}`;
+    });
+  return rows.length ? rows.join('\n') : '(なし)';
+}
+
+/**
+ * ★ STAGE3: Step 1-6 がすべて揃っているか判定
+ */
+function hasAnsweredSteps6(answers: any[]): boolean {
+  if (!Array.isArray(answers)) return false;
+  const steps = new Set(
+    answers
+      .map((a) => Number(a?.stepNumber))
+      .filter((n) => Number.isFinite(n) && n >= 1 && n <= 6),
+  );
+  return steps.size >= 6;
+}
+
+/**
+ * ★ STAGE3: TASK 2 - 6問回答のキーワードが生成結果に反映されているかをスコアリング
+ * @param deptAnswers6 - 部門の6問回答配列
+ * @param generatedText - 生成されたテキスト（mission + projects + okrs）
+ * @returns {topTokens, coveragePct, hitTokens}
+ */
+function scoreDept6Impact(deptAnswers6: any[], generatedText: string): {
+  topTokens: string[];
+  coveragePct: number;
+  hitTokens: string[];
+} {
+  if (!Array.isArray(deptAnswers6) || deptAnswers6.length === 0 || !generatedText) {
+    return { topTokens: [], coveragePct: 0, hitTokens: [] };
+  }
+
+  // 6問回答からテキスト抽出
+  const answersText = deptAnswers6
+    .map((a) => String(a?.answer || ''))
+    .join(' ');
+
+  // 簡易トークン抽出（カタカナ、漢字2文字以上、英数字）
+  const tokenPattern = /[ァ-ヴー]{2,}|[一-龯々]{2,10}|[A-Za-z0-9]{2,}/g;
+  const tokens = (answersText.match(tokenPattern) || [])
+    .filter((t) => t.length >= 2 && t.length <= 15)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
+
+  // 頻度カウント
+  const freq = new Map<string, number>();
+  for (const token of tokens) {
+    freq.set(token, (freq.get(token) || 0) + 1);
+  }
+
+  // 上位10個を取得
+  const topTokens = Array.from(freq.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([token]) => token);
+
+  // 生成結果に含まれるトークン
+  const hitTokens = topTokens.filter((token) => generatedText.includes(token));
+
+  // カバレッジ率
+  const coveragePct = topTokens.length > 0 ? Math.round((hitTokens.length / topTokens.length) * 100) : 0;
+
+  return { topTokens, coveragePct, hitTokens };
+}
+
+/**
  * ★ TASK KR-1: keyResults の別名を吸収して正規化
  * - kpis/metrics/measures/values の別名に対応
  * - 各要素をオブジェクト形式に統一（label, current, target, unit, due）
@@ -601,23 +699,54 @@ async function generateKeyResultsByLLM(
     laneType?: 'existing' | 'new';
     projectType?: ProjectType;
     attempt?: number;
+    // ★ STAGE3: TASK 4-1 新規パラメータ
+    missionDraft?: string;
+    projectDescription?: string;  // reason + hypothesis
+    dept6AnswersBlock?: string;
   }
 ): Promise<GenKRResult> {
-  const { deptName, projectTitle, mainLever, kind, objective, laneType = 'existing', projectType = 'default', attempt = 1 } = params;
+  const { deptName, projectTitle, mainLever, kind, objective, laneType = 'existing', projectType = 'default', attempt = 1, missionDraft, projectDescription, dept6AnswersBlock } = params;
 
   // プロンプト生成
   const isRetry = attempt >= 2;
   const strictnessLevel = isRetry ? '厳格' : '標準';
   const typeSpecificContent = generateTypeSpecificPrompt(projectType, projectTitle, isRetry);
 
+  // ★ STAGE3: TASK 4-2 - projectType に応じた品質/生産性KPI候補の生成
+  const qualityProductivityExamples = (() => {
+    switch (projectType) {
+      case 'sales_process':
+        return '見積作成時間、提案件数、商談化率、リードタイム、営業工数';
+      case 'dx':
+        return '自動化率、データ入力工数、処理時間、システムエラー率、データ精度';
+      case 'new_market':
+        return 'PoC完了数、仮説検証リードタイム、検証継続率、パイロット顧客数';
+      case 'quality':
+        return '不良率、再工数、手戻り率、稼働率、歩留まり';
+      case 'inventory_system':
+        return '納期遵守率、在庫回転数、リードタイム、配送精度';
+      case 'customer_research':
+        return 'リサーチ完了数、分析精度、顧客満足度、レポート品質';
+      case 'r_and_d':
+        return '試作完了数、開発リードタイム、実験成功率、知識共有度';
+      default:
+        return '業務効率、作業時間、精度、完了率、工数削減';
+    }
+  })();
+
   const prompt = `
 部門: ${deptName}
+部門ミッション: ${missionDraft || '未定'}
 プロジェクト: ${projectTitle}
+プロジェクト説明: ${projectDescription || '未定'}
 プロジェクト種別: ${projectType}
 レバー: ${mainLever || '未定'}
 種別: ${kind || '未定'}
 目標: ${objective || '未定'}
 ${laneType === 'new' ? '※ 新規探索レーン：新規市場/新規顧客の検証に適したKRを' : '※ 既存進化レーン：既存事業の改善に適したKRを'}
+
+【部門の6問回答（プロジェクト背景）】
+${dept6AnswersBlock || '（6問回答なし）'}
 
 ${isRetry ? `
 【${strictnessLevel}モード: 前回失敗のため、さらに厳格に要件を確認します】
@@ -625,15 +754,22 @@ ${isRetry ? `
 
 ${typeSpecificContent}
 
+【★ KPI の3カテゴリ制約（必須）】
+以下の3カテゴリから、それぞれ1本ずつ選択すること（合計3本）：
+
+1. **主要成果KPI**: プロジェクトの直接成果（売上、粗利、受注率、リードタイム、案件数など）
+2. **品質/生産性KPI**: 業務品質や効率（${qualityProductivityExamples}）
+3. **顧客価値KPI**: 顧客体験や満足度（納期遵守率、クレーム数、NPS、再購買率、案件継続率など）
+
 以下の要件で、このプロジェクトの KPI（Key Result）を3本だけ生成してください：
 
 【必須要件】
 1. JSONのみ返す（説明・前後の言葉は絶対禁止）
-2. keyResultsは必ず3本、空配列は禁止
-3. 上記の【推奨KPI候補】から3本を選択。3本は異なる指標である必要があります
-4. ★★★ label形式は必ず 「${projectTitle}：{KPI名}（{unit}）」に統一する
-5. 各KRの unit は単位のみ（例："ppm", "日", "%" など）
-6. 【禁止パターン】に記載の言葉は絶対に使用禁止
+2. keyResultsは必ず3本、各カテゴリから1本ずつ
+3. ★★★ label形式は必ず 「${projectTitle}：{KPI名}（{unit}）」に統一する
+4. 各KRの unit は単位のみ（例："ppm", "日", "%" など）
+5. 上記の【部門の6問回答】と整合性を保つこと
+6. プロジェクト種別（${projectType}）に適した指標を選択すること
 
 【返却フォーマット】
 {
@@ -2212,6 +2348,33 @@ export async function POST(req: NextRequest) {
 - hypothesis と reason には、必ず [SEGMENT] の要素（overview/customers/PL/BS のどれか）を最低1つ"引用"して根拠にする
 - 禁止：汎用テンプレ（DX推進/業務効率化/新規開拓 だけの抽象表現）で終わらせること`;
 
+        // ★ STAGE3: A) 部門ごとの6問ブロック生成 + ログ
+        const deptAnswers6 = pickDeptAnswers6(d);
+        const dept6AnswersBlock = formatDept6Answers(deptAnswers6);
+        const dept6Answered = hasAnsweredSteps6(deptAnswers6);
+
+        // ★ STAGE3: C) 証明ログ（6問注入チェック）
+        console.log('[cascade][dept6]', {
+          dept: name,
+          answersLen: Array.isArray(deptAnswers6) ? deptAnswers6.length : null,
+          answered6: dept6Answered,
+          preview: dept6AnswersBlock.slice(0, 120),
+        });
+
+        // ★ STAGE3: TASK 3 - 6問完成時の生成ルール強制（部門ごと）
+        const dept6ConstraintsBlock = dept6Answered
+          ? `
+
+【★ STAGE3: 6問完成部門への追加制約】
+- Step1（役まわり）を mission に必ず反映すること（役割を示す語句を含める）
+- Step2（既存貢献）から最低1本を「既存進化」プロジェクトに含めること
+- Step3（未来への挑戦）から最低1本を「新規探索」プロジェクトに含めること
+- Step4（犠牲）に該当する内容を、プロジェクトの risks / constraints として明記すること
+- Step5（協力）を、プロジェクトの dependencies（協力部門・前提）として明記すること
+- Step6（撤退）を、scope 除外または非対象として明記すること
+`
+          : '';
+
         return `
 [部門] ${name}
   direction: ${sanitizeText(dir || '', 140) || '（未設定）'}
@@ -2223,6 +2386,8 @@ ${focuses.map((f) => `    - ${sanitizeText(f, 120)}`).join('\n') || '    - （�
   ★部門別ポートフォリオ: ${deptPortfolioText}
   answers (1..6): ※この6回答は必ず提案に反映し、矛盾は禁止
 ${ansLines || '  - （未回答）'}
+  ★ STAGE3: 6問の回答（部門戦略ガイド）: ${dept6Answered ? '（6/6完成）' : '（不足あり）'}
+${dept6AnswersBlock.split('\n').map((line) => `    ${line}`).join('\n')}${dept6ConstraintsBlock}
   seeds.projects:
 ${projSeed || '  - （なし）'}
   seeds.okr:
@@ -2495,6 +2660,20 @@ ${
 - ★★重要：全プロジェクトで skillRequirements.executionSkills や humanInvestments が同一になることは絶対に禁止。各プロジェクトのアーキタイプ（品質/自動化/営業/新規/ITデータ/組織など）を推定し、それぞれに適したスキルと施策を割り当てること。
 - ★対象部門の既存事業と大きく異なる领域（全く無関係な新規事業など）を提案しないこと。
 `.trim();
+
+    // ★ STAGE3: TASK 1-2 - LLM呼び出し直前の注入証明ログ
+    if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
+      const injected = prompt.includes('★ STAGE3: 6問の回答');
+      const deptBlocksInPrompt = (prompt.match(/\[部門\]/g) || []).length;
+      console.log('[cascade][dept6][inject-proof]', {
+        deptCount: departments.length,
+        deptBlocksInPrompt,
+        promptLen: prompt.length,
+        injected,
+        head: prompt.slice(0, 120),
+        tail: prompt.slice(-160),
+      });
+    }
 
     /* =========================
      * OpenAI 呼び出し（JSON強制）
@@ -3932,6 +4111,41 @@ ${secondPassDeptBlock}
             kr0: p?.okrs?.[0]?.keyResults?.[0],
             kr1: p?.okrs?.[0]?.keyResults?.[1],
           })) ?? [],
+        });
+      }
+    }
+
+    // ★ STAGE3: TASK 2 - 反映度スコアリング（デバッグログ）
+    if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1' && Array.isArray(result?.departments)) {
+      for (const d of result.departments) {
+        const deptName = pickName(d);
+        const deptInput = deptInputByName.get(deptName);
+        const deptAnswers6 = pickDeptAnswers6(deptInput);
+
+        // ★修正: okrs も含める
+        const allOkrs = [
+          ...(d?.lanes?.existing?.projects || []).flatMap((p: any) =>
+            (p.okrs || []).map((okr: any) => `${okr.objective || ''} ${(okr.keyResults || []).join(' ')}`)
+          ),
+          ...(d?.lanes?.new?.projects || []).flatMap((p: any) =>
+            (p.okrs || []).map((okr: any) => `${okr.objective || ''} ${(okr.keyResults || []).join(' ')}`)
+          ),
+        ];
+
+        const generatedText = [
+          d?.missionDraft || '',
+          d?.missionDescription || '',
+          ...(d?.lanes?.existing?.projects || []).map((p: any) => `${p.title} ${p.reason || ''} ${p.hypothesis || ''}`),
+          ...(d?.lanes?.new?.projects || []).map((p: any) => `${p.title} ${p.reason || ''} ${p.hypothesis || ''}`),
+          ...allOkrs,
+        ].join(' ');
+
+        const { topTokens, coveragePct, hitTokens } = scoreDept6Impact(deptAnswers6, generatedText);
+        console.log('[cascade][dept6][impact]', {
+          dept: deptName,
+          topTokens: topTokens.slice(0, 10),
+          coveragePct,
+          hitTokens,
         });
       }
     }
