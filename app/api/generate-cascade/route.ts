@@ -26,6 +26,9 @@ const ProjectSchema = z.object({
   horizon: z.enum(['short', 'mid', 'long']).optional(),
   kind: z.enum(['growth', 'cost', 'efficiency', 'future']).optional(),
 
+  // ★TASK 2-1: FACTPACK引用の記録（fact-seg-*, fact-cust-*, fact-fin-* ID を列挙）
+  citations: z.array(z.string()).optional().default([]),
+
   // ★STAGE3拡張：価値指標への紐づけ
   valueDriverLinks: z.array(z.string()).optional().default([]),
 
