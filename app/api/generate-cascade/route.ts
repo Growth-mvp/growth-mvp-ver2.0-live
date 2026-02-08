@@ -1311,7 +1311,7 @@ ${
       // 引用符が 「」 または 『』、括弧が () または （） の両パターンに対応
       // ★バグ修正①: 閉じ括弧を [」『] → [」』] に修正（『で閉じるのは誤り）
       // パターン: [「『]...[」』] \s* [（(]...(fact-...)[)）]
-      const citationPattern = /[「『][^」』]+[」『]\s*[（(][^）)]*fact-[^）)]*[)）]/g;
+      const citationPattern = /[「『][^」』]+[」』]\s*[（(][^）)]*fact-[^）)]*[)）]/g;
       const matches = text.match(citationPattern);
       return matches?.length ?? 0;
     };
