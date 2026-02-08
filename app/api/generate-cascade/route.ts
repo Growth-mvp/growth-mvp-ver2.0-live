@@ -54,6 +54,31 @@ const ProjectSchema = z.object({
     .optional()
     .default([]),
 
+  // ★ TASK 2 / TASK 1: 各プロジェクトは必ず okrs を持つ（最低1件必須）
+  okrs: z
+    .array(
+      z.object({
+        objective: z.string().min(1, 'objective は必須').optional().default(''),
+        keyResults: z
+          .array(z.string().min(1, 'KR label は必須'))
+          .min(3, 'keyResults は最低3個必須')
+          .max(5, 'keyResults は最大5個')
+          .optional()
+          .default([]),
+        owner: z.string().optional(),
+        expectedImpactYen: z.number().optional(),
+        probability: z.number().optional(),
+      }),
+    )
+    .min(1, 'okrs は最低1件必須')
+    .optional()
+    .default([
+      {
+        objective: 'デフォルト目標',
+        keyResults: ['指標1', '指標2', '指標3'],
+      },
+    ]),
+
   // ★AI生成管理用メタデータ
   generatedBy: z.enum(['ai', 'user']).optional(),
   generatedSlot: z.number().int().min(1).max(3).optional(),
@@ -249,7 +274,665 @@ function normalizeProbability(v: any): number | undefined {
 }
 
 /**
- * csvFinanceData から「表示用に抜粋できる“行配列”」を抽出する。
+ * ★ TASK KR-1: keyResults の別名を吸収して正規化
+ * - kpis/metrics/measures/values の別名に対応
+ * - 各要素をオブジェクト形式に統一（label, current, target, unit, due）
+ */
+/**
+ * ★ TASK A: KR正規化関数（汎用版）
+ * 入力形式を広く受け取り、常に標準OKR形式に統一
+ *
+ * 入力例：
+ * - string[]
+ * - [{label:string}, {title:string}]
+ * - {keyResults: [...]}
+ * - そのまま配列
+ */
+function normalizeKeyResults(raw: any): {
+  normalized: Array<{label:string; current:null; target:null; unit:null; due:null}>;
+  rawType: string;
+  rawLen: number;
+} {
+  // Step 1: 入力形式を判定 & 配列を抽出
+  let arr: any[] = [];
+  let rawType = 'unknown';
+  let rawLen = 0;
+
+  if (!raw) {
+    // null/undefined → 空
+    rawType = 'null';
+    rawLen = 0;
+  } else if (Array.isArray(raw)) {
+    // raw 自体が配列 → そのまま使用
+    arr = raw;
+    rawType = 'array<string|object>';
+    rawLen = raw.length;
+  } else if (typeof raw === 'object') {
+    // オブジェクト → フィールドから配列を抽出
+    const candidate =
+      Array.isArray(raw?.keyResults) ? { arr: raw.keyResults, type: 'object.keyResults' } :
+      Array.isArray(raw?.krs) ? { arr: raw.krs, type: 'object.krs' } :
+      Array.isArray(raw?.key_results) ? { arr: raw.key_results, type: 'object.key_results' } :
+      Array.isArray(raw?.kpis) ? { arr: raw.kpis, type: 'object.kpis' } :
+      Array.isArray(raw?.metrics) ? { arr: raw.metrics, type: 'object.metrics' } :
+      Array.isArray(raw?.measures) ? { arr: raw.measures, type: 'object.measures' } :
+      Array.isArray(raw?.values) ? { arr: raw.values, type: 'object.values' } :
+      Array.isArray(raw?.outcomes) ? { arr: raw.outcomes, type: 'object.outcomes' } :
+      null;
+
+    if (candidate) {
+      arr = candidate.arr;
+      rawType = candidate.type;
+      rawLen = arr.length;
+    } else {
+      rawType = 'object<no-array-fields>';
+      rawLen = 0;
+    }
+  }
+
+  // Step 2: 配列の各要素を正規化
+  const normalized = arr
+    .map((x: any) => {
+      // 文字列の場合、label にする
+      if (typeof x === 'string') {
+        return { label: x.trim(), current: null, target: null, unit: null, due: null };
+      }
+      // オブジェクトの場合、フィールド別名に対応して正規化
+      const label = (x?.label ?? x?.title ?? x?.name ?? x?.metric ?? x?.kpi ?? x?.measure ?? x?.outcome ?? '').toString().trim();
+      if (!label) return null; // label なしは skip
+
+      return {
+        label,
+        current: x?.current ?? x?.baseline ?? x?.from ?? null,
+        target: x?.target ?? x?.goal ?? x?.to ?? x?.destination ?? null,
+        unit: x?.unit ?? x?.uom ?? x?.metric_unit ?? null,
+        due: x?.due ?? x?.deadline ?? x?.dueDate ?? null,
+      };
+    })
+    .filter((x: any): x is {label:string; current:null; target:null; unit:null; due:null} => x !== null);
+
+  return { normalized, rawType, rawLen };
+}
+
+/**
+ * ★ TASK B: ensureKeyResults を修正
+ * - 入力 raw の有無を正確に判定（ai_called）
+ * - raw があっても形式が微妙な場合は ai_invalid_shape
+ * - 常にメタ情報を返す（AI採用時も）
+ */
+function ensureKeyResults(
+  okr: any,
+  projectTitle: string,
+  deptName?: string,
+  laneType?: 'existing' | 'new'
+): any {
+  // Step 1: raw candidates を広く拾う
+  const rawKrs =
+    okr?.keyResults ??
+    okr?.krs ??
+    okr?.key_results ??
+    okr?.metrics ??
+    null;
+
+  // Step 2: 正規化（rawType/rawLen も取得）
+  const { normalized, rawType, rawLen } = normalizeKeyResults(rawKrs);
+
+  // Step 3: ai_called の判定（rawが「存在」したか）
+  const ai_called = rawKrs != null && rawLen > 0;
+
+  // Step 4: AI採用
+  if (normalized.length > 0) {
+    return {
+      ...okr,
+      keyResults: normalized,
+      _aiCalled: ai_called,
+      _krSource: 'AI',
+      _krReason: 'llm_returned',
+      _krSourceDetail: 'ai:gpt',
+      _rawType: rawType,
+      _rawLen: rawLen,
+    };
+  }
+
+  // Step 5: テンプレ注入（rawが空 or 形が無効）
+  const isRawEmpty =
+    rawKrs == null ||
+    (Array.isArray(rawKrs) && rawKrs.length === 0) ||
+    (typeof rawKrs === 'string' && rawKrs.trim() === '');
+
+  const reason_detail = isRawEmpty ? 'ai_empty' : 'ai_invalid_shape';
+
+  const result = deriveKrsByContext(projectTitle, deptName, laneType);
+  const fallbackKrs = result.krs;
+  const sourceDetail = result.sourceDetail;
+
+  return {
+    ...okr,
+    keyResults: fallbackKrs.map((label: string) => ({
+      label,
+      current: null,
+      target: null,
+      unit: null,
+      due: null,
+    })),
+    _aiCalled: ai_called,
+    _krSource: 'TEMPLATE',
+    _krReason: reason_detail,
+    _krSourceDetail: sourceDetail,
+    _rawType: rawType,
+    _rawLen: rawLen,
+  };
+}
+
+
+/**
+ * ★ TASK 4-2: プロジェクトコンテキストに応じた KR を生成（複数バリエーション対応）
+ * - LLM が返さない / 補完が必要な場合、プロジェクトタイトル/ミッション/レーン種別から妥当な KR を生成
+ * - 固定3本ではなく、タイトルに応じて異なる KR セットを返す
+ * - variant パラメータで複数の候補セットを切り替え可能（重複時に差し替え用）
+ * - すべてのプロジェクトで KR が差別化される
+ */
+function deriveKrsByContext(
+  projectTitle: string,
+  deptMission?: string,
+  laneType?: 'existing' | 'new',
+  projectTags?: string[],
+  variant: 0 | 1 | 2 = 0  // ★ variant: 0=第一候補, 1=第二候補, 2=第三候補
+): { krs: string[]; sourceDetail: string } {
+  const title = String(projectTitle).toLowerCase();
+  const tags = (projectTags ?? []).map((t) => String(t).toLowerCase());
+  let sourceDetail = 'template:default';
+
+  // タイトルに含まれるキーワードをチェック
+  const hasKeyword = (keywords: string[]) =>
+    keywords.some((kw) => title.includes(kw) || tags.some((t) => t.includes(kw)));
+
+  // ★ 分岐ルール 1: 品質 / 不良 / クレーム / 保証 / 検査 / 監査
+  if (hasKeyword(['品質', '不良', 'クレーム', '保証', '検査', '監査', '信頼性'])) {
+    if (variant === 0) {
+      return {
+        krs: [
+          `${projectTitle}：不良率低減（ppm）`,
+          `${projectTitle}：クレーム件数削減（件/月）`,
+          `${projectTitle}：審査/監査合格率（%）`,
+        ],
+        sourceDetail: 'template:quality_v0',
+      };
+    } else if (variant === 1) {
+      return {
+        krs: [
+          `${projectTitle}：検査工数削減（h/ロット）`,
+          `${projectTitle}：再加工率低減（%）`,
+          `${projectTitle}：初回良品率（%）`,
+        ],
+        sourceDetail: 'template:quality_v1',
+      };
+    } else {
+      return {
+        krs: [
+          `${projectTitle}：工程内流出率低減（ppm）`,
+          `${projectTitle}：保証費削減（%）`,
+          `${projectTitle}：返品率低減（%）`,
+        ],
+        sourceDetail: 'template:quality_v2',
+      };
+    }
+  }
+
+  // ★ 分岐ルール 2: 受注 / 見積 / 営業 / 案件 / 納期 / リードタイム
+  if (hasKeyword(['受注', '見積', '営業', '案件', '納期', 'リード', 'lead time'])) {
+    if (variant === 0) {
+      return {
+        krs: [
+          `${projectTitle}：見積リードタイム短縮（営業日）`,
+          `${projectTitle}：受注率改善（%）`,
+          `${projectTitle}：納期遵守率（%）`,
+        ],
+        sourceDetail: 'template:sales_v0',
+      };
+    } else if (variant === 1) {
+      return {
+        krs: [
+          `${projectTitle}：仕掛け期間削減（日）`,
+          `${projectTitle}：提案件数増加（件/月）`,
+          `${projectTitle}：受注規模拡大（平均金額）`,
+        ],
+        sourceDetail: 'template:sales_v1',
+      };
+    } else {
+      return {
+        krs: [
+          `${projectTitle}：見積回答時間短縮（時間）`,
+          `${projectTitle}：商談成功率（%）`,
+          `${projectTitle}：販売テコ比改善（%）`,
+        ],
+        sourceDetail: 'template:sales_v2',
+      };
+    }
+  }
+
+  // ★ 分岐ルール 3: コスト / 原価 / 工数 / 効率 / 自動化 / 省力
+  if (hasKeyword(['コスト', '原価', '工数', '効率', '自動化', '省力', 'automation'])) {
+    if (variant === 0) {
+      return {
+        krs: [
+          `${projectTitle}：単位原価削減（%）`,
+          `${projectTitle}：作業工数削減（h/月）`,
+          `${projectTitle}：段取り時間短縮（分）`,
+        ],
+        sourceDetail: 'template:cost_v0',
+      };
+    } else if (variant === 1) {
+      return {
+        krs: [
+          `${projectTitle}：歩留改善（%）`,
+          `${projectTitle}：材料ロス削減（%）`,
+          `${projectTitle}：稼働率向上（%pt）`,
+        ],
+        sourceDetail: 'template:cost_v1',
+      };
+    } else {
+      return {
+        krs: [
+          `${projectTitle}：加工時間短縮（分/個）`,
+          `${projectTitle}：人件費削減（%）`,
+          `${projectTitle}：設備稼働率（%）`,
+        ],
+        sourceDetail: 'template:cost_v2',
+      };
+    }
+  }
+
+  // ★ 分岐ルール 4: 新規 / 開発 / 軽量 / 耐久 / 設計
+  if (hasKeyword(['新規', '開発', '軽量', '耐久', '設計', 'design', 'development'])) {
+    if (variant === 0) {
+      return {
+        krs: [
+          `${projectTitle}：試作回数削減（回）`,
+          `${projectTitle}：試験合格率（%）`,
+          `${projectTitle}：開発リードタイム短縮（月）`,
+        ],
+        sourceDetail: 'template:newbiz_v0',
+      };
+    } else if (variant === 1) {
+      return {
+        krs: [
+          `${projectTitle}：量産時期達成率（%）`,
+          `${projectTitle}：目標仕様達成率（%）`,
+          `${projectTitle}：原価低減達成率（%）`,
+        ],
+        sourceDetail: 'template:newbiz_v1',
+      };
+    } else {
+      return {
+        krs: [
+          `${projectTitle}：設計段階での課題検出数（件）`,
+          `${projectTitle}：手戻り削減（%）`,
+          `${projectTitle}：部品共通化率（%）`,
+        ],
+        sourceDetail: 'template:newbiz_v2',
+      };
+    }
+  }
+
+  // ★ 分岐ルール 5: 市場 / 開拓 / 仮説 / 検証 / PoC
+  if (hasKeyword(['市場', '開拓', '仮説', '検証', 'poc', 'パイロット', 'prototype', 'validation'])) {
+    if (variant === 0) {
+      return {
+        krs: [
+          `${projectTitle}：商談件数増加（件/月）`,
+          `${projectTitle}：PoC件数（件）`,
+          `${projectTitle}：検証→受注転換率（%）`,
+        ],
+        sourceDetail: 'template:market_v0',
+      };
+    } else if (variant === 1) {
+      return {
+        krs: [
+          `${projectTitle}：顧客ヒアリング数（社）`,
+          `${projectTitle}：見込み案件数（件）`,
+          `${projectTitle}：パイロット参加企業数（社）`,
+        ],
+        sourceDetail: 'template:market_v1',
+      };
+    } else {
+      return {
+        krs: [
+          `${projectTitle}：市場反応度調査（回答率%）`,
+          `${projectTitle}：早期顧客数（社）`,
+          `${projectTitle}：実装案件化率（%）`,
+        ],
+        sourceDetail: 'template:market_v2',
+      };
+    }
+  }
+
+  // ★ 分岐ルール 6: スマート / IoT / データ / DX / AI / 分析
+  if (hasKeyword(['smart', 'iot', 'データ', 'dx', 'ai', '分析', 'analytics', 'digital'])) {
+    if (variant === 0) {
+      return {
+        krs: [
+          `${projectTitle}：データ取得率（%）`,
+          `${projectTitle}：予兆検知精度（感度%）`,
+          `${projectTitle}：稼働率改善（%pt）`,
+        ],
+        sourceDetail: 'template:dx_v0',
+      };
+    } else if (variant === 1) {
+      return {
+        krs: [
+          `${projectTitle}：データ活用範囲（システム数）`,
+          `${projectTitle}：自動化カバー率（%）`,
+          `${projectTitle}：異常検知検出精度（%）`,
+        ],
+        sourceDetail: 'template:dx_v1',
+      };
+    } else {
+      return {
+        krs: [
+          `${projectTitle}：停止時間削減（h/月）`,
+          `${projectTitle}：予測精度（%）`,
+          `${projectTitle}：データ品質スコア（1-10）`,
+        ],
+        sourceDetail: 'template:dx_v2',
+      };
+    }
+  }
+
+  // ★ デフォルト: 汎用 KR（レーン種別で少し調整）
+  if (laneType === 'new') {
+    if (variant === 0) {
+      return {
+        krs: [
+          `${projectTitle}：実現可能性検証度（%）`,
+          `${projectTitle}：学習・獲得知見数（件）`,
+          `${projectTitle}：スケーラビリティスコア（1-10）`,
+        ],
+        sourceDetail: 'template:newlane_v0',
+      };
+    } else if (variant === 1) {
+      return {
+        krs: [
+          `${projectTitle}：実装体制構築度（%）`,
+          `${projectTitle}：リスク認識件数（件）`,
+          `${projectTitle}：プロトタイプ完成度（%）`,
+        ],
+        sourceDetail: 'template:newlane_v1',
+      };
+    } else {
+      return {
+        krs: [
+          `${projectTitle}：市場受容度調査（回答率%）`,
+          `${projectTitle}：提携先候補数（社）`,
+          `${projectTitle}：導入可能性評価スコア（1-10）`,
+        ],
+        sourceDetail: 'template:newlane_v2',
+      };
+    }
+  }
+
+  // laneType === 'existing' または デフォルト
+  if (variant === 0) {
+    return {
+      krs: [
+        `${projectTitle}：生産性向上（%）`,
+        `${projectTitle}：顧客満足度（NPS）`,
+        `${projectTitle}：プロセス改善スコア（1-10）`,
+      ],
+      sourceDetail: 'template:default_v0',
+    };
+  } else if (variant === 1) {
+    return {
+      krs: [
+        `${projectTitle}：売上向上（%）`,
+        `${projectTitle}：リード獲得数（件/月）`,
+        `${projectTitle}：顧客保持率（%）`,
+      ],
+      sourceDetail: 'template:default_v1',
+    };
+  } else {
+    return {
+      krs: [
+        `${projectTitle}：利益率向上（%pt）`,
+        `${projectTitle}：顧客単価向上（%）`,
+        `${projectTitle}：プロセス効率化度（%）`,
+      ],
+      sourceDetail: 'template:default_v2',
+    };
+  }
+}
+
+/**
+ * ★ TASK 2-2: 各プロジェクトに必ず okrs があることを保証（LLMの生成漏れ対策）
+ * - 既に okrs があれば保持
+ * - LLMが objective/keyResults を別名で返していれば拾う
+ * - 両方ない場合も空の okrs を入れる（UI側が「未生成」と判定可能に）
+ * - ★ keyResults が空の場合は最低3件を保証する（deriveKrsByContext で差別化）
+ */
+function ensureOkrs(project: any, laneType?: 'existing' | 'new', deptName?: string): any {
+  if (!project) return project;
+
+  const projectTitle = String(project?.title ?? project?.name ?? 'プロジェクト').trim();
+  const deptLabel = deptName ? `dept="${deptName}"` : '';
+  let fallbackUsed = false;
+
+  // 既に okrs があればそれを使用（ただし keyResults も正規化）
+  if (Array.isArray(project?.okrs) && project.okrs.length > 0) {
+    // ★ 既存の okrs も keyResults を正規化＆保証
+    project.okrs = project.okrs.map((o: any) => {
+      const normalized = ensureKeyResults(o, projectTitle, deptName, laneType);
+      return {
+        ...normalized,
+        objective: String(normalized?.objective ?? normalized?.goal ?? normalized?.outcome ?? projectTitle).trim() || projectTitle,
+        // ★ TASK D: メタデータを明示的に保持
+        _krSource: (normalized as any)?._krSource,
+        _krReason: (normalized as any)?._krReason,
+        _krSourceDetail: (normalized as any)?._krSourceDetail,
+        _rawType: (normalized as any)?._rawType,
+        _rawLen: (normalized as any)?._rawLen,
+        _aiCalled: (normalized as any)?._aiCalled,
+      };
+    });
+    // ★ TASK C: raw と final ログを分離
+    // raw段階：okr.okrs が存在する場合
+    const okrs0 = project.okrs[0];
+    const rawKrLen = (okrs0 as any)?._rawLen ?? 'unknown';
+    const rawKrType = (okrs0 as any)?._rawType ?? 'object.okrs';
+    console.log(
+      `[cascade][kpi][raw] project="${projectTitle}" ${deptLabel} ` +
+      `rawType="${rawKrType}" rawLen=${rawKrLen} ai_called=true`
+    );
+
+    // 生成経路メタ情報
+    project._krSource = (okrs0 as any)?._krSource ?? 'AI';
+    project._krReason = (okrs0 as any)?._krReason ?? 'llm_returned';
+    project._krSourceDetail = (okrs0 as any)?._krSourceDetail ?? 'ai:gpt';
+
+    // final 段階：テンプレ注入後の最終結果
+    const finalKrLen = project.okrs[0]?.keyResults?.length ?? 0;
+    console.log(
+      `[cascade][kpi][final] project="${projectTitle}" ${deptLabel} ` +
+      `krSource="${project._krSource}" reason="${project._krReason}" ` +
+      `sourceDetail="${project._krSourceDetail}" finalLen=${finalKrLen}`
+    );
+
+    return project;
+  }
+
+  // objective / keyResults が別の名前で来ていないか確認
+  const objective =
+    project?.objective ??
+    project?.goal ??
+    project?.outcome ??
+    projectTitle ??
+    '';
+
+  const keyResults =
+    (Array.isArray(project?.keyResults) && project.keyResults.length > 0 ? project.keyResults : null) ||
+    (Array.isArray(project?.kpis) && project.kpis.length > 0 ? project.kpis : null) ||
+    (Array.isArray(project?.metrics) && project.metrics.length > 0 ? project.metrics : null) ||
+    (Array.isArray(project?.measures) && project.measures.length > 0 ? project.measures : null) ||
+    [];
+
+  // 最低限の okrs を作成
+  const okrObj = {
+    objective: String(objective ?? '').trim() || projectTitle,
+    keyResults: keyResults,
+  };
+
+  // ★ keyResults が空なら自動補完（deriveKrsByContext で差別化）
+  fallbackUsed = !Array.isArray(keyResults) || keyResults.length === 0;
+
+  // ★ TASK C: raw 段階のログ（ensureKeyResults 実行前）
+  const rawKrLen_pre = Array.isArray(keyResults) ? keyResults.length : 0;
+  const rawKrType_pre = Array.isArray(keyResults) ? 'array' : typeof keyResults;
+  console.log(
+    `[cascade][kpi][raw] project="${projectTitle}" ${deptLabel} ` +
+    `rawType="${rawKrType_pre}" rawLen=${rawKrLen_pre} ai_called=${rawKrLen_pre > 0}`
+  );
+
+  const okrWithKR = ensureKeyResults(okrObj, projectTitle, deptName, laneType);
+
+  // ★ TASK D: メタデータを保持しながら OKR を設定
+  project.okrs = [{
+    ...okrWithKR,
+    // メタデータを OKR レベルでも明示的に保持
+    _krSource: (okrWithKR as any)?._krSource,
+    _krReason: (okrWithKR as any)?._krReason,
+    _krSourceDetail: (okrWithKR as any)?._krSourceDetail,
+    _rawType: (okrWithKR as any)?._rawType,
+    _rawLen: (okrWithKR as any)?._rawLen,
+    _aiCalled: (okrWithKR as any)?._aiCalled,
+  }];
+
+  // ★ TASK D: メタ情報は ensureKeyResults から取得（常に存在）
+  project._krSource = (okrWithKR as any)?._krSource ?? 'unknown';
+  project._krReason = (okrWithKR as any)?._krReason ?? 'unknown';
+  project._krSourceDetail = (okrWithKR as any)?._krSourceDetail ?? 'unknown';
+
+  // ★ TASK C: final 段階のログ（ensureKeyResults 実行後）
+  const finalKrLen = okrWithKR?.keyResults?.length ?? 0;
+  console.log(
+    `[cascade][kpi][final] project="${projectTitle}" ${deptLabel} ` +
+    `krSource="${project._krSource}" reason="${project._krReason}" ` +
+    `sourceDetail="${project._krSourceDetail}" finalLen=${finalKrLen}`
+  );
+
+  return project;
+}
+
+/**
+ * TASK 2-2: 全部門の全 lane の全プロジェクトに okrs を保証する
+ * - TASK B: deriveKrsByContext で KR を差別化（laneType を渡す）
+ * - TASK C: 同一部門内の KR 重複を抑制する（usedKrSet で微調整）
+ */
+function ensureOkrsForAllDepts(depts: any[]): any[] {
+  if (!Array.isArray(depts)) return depts;
+
+  return depts.map((dept: any) => {
+    if (!dept) return dept;
+
+    // ★ TASK 4-3: 部門単位での usedKrSet で重複を検出＆差し替え
+    const usedKrSet = new Set<string>();
+
+    // ★ ヘルパー: KR のリストから重複を回避した新しいリストを生成
+    const deduplicateAndReplaceKrs = (krs: any[], projectTitle: string, laneType?: 'existing' | 'new'): any[] => {
+      // usedKrSet に対してチェック
+      const uniqueLabels = new Set<string>();
+      const finalKrs: any[] = [];
+
+      for (const kr of krs) {
+        const krLabel = kr.label || String(kr);
+        if (usedKrSet.has(krLabel)) {
+          // 重複！差し替え候補を探す
+          let replaced = false;
+          // variant 1, 2 を試して、被らない KR セットを見つける
+          for (let variant of [1, 2] as const) {
+            const result = deriveKrsByContext(projectTitle, undefined, laneType, undefined, variant);
+            const altKrs = result.krs;
+            for (const altKr of altKrs) {
+              if (!usedKrSet.has(altKr) && !uniqueLabels.has(altKr)) {
+                finalKrs.push({ ...kr, label: altKr });
+                uniqueLabels.add(altKr);
+                usedKrSet.add(altKr);
+                replaced = true;
+                break;
+              }
+            }
+            if (replaced) break;
+          }
+          // 差し替え候補が見つからない場合は suffix 付与（最終手段）
+          if (!replaced) {
+            const shortTitle = projectTitle.substring(0, 8);
+            const suffixKr = `${krLabel} - ${shortTitle}`;
+            finalKrs.push({ ...kr, label: suffixKr });
+            usedKrSet.add(suffixKr);
+            uniqueLabels.add(suffixKr);
+          }
+        } else {
+          finalKrs.push(kr);
+          usedKrSet.add(krLabel);
+          uniqueLabels.add(krLabel);
+        }
+      }
+      return finalKrs;
+    };
+
+    const deptName = dept?.name ?? '';
+
+    // lanes.existing.projects（laneType='existing' を指定）
+    if (Array.isArray(dept?.lanes?.existing?.projects)) {
+      dept.lanes.existing.projects = dept.lanes.existing.projects.map((p: any) => {
+        const processed = ensureOkrs(p, 'existing', deptName);
+        // ★ TASK 4-3: 重複排除＆差し替え
+        if (Array.isArray(processed?.okrs?.[0]?.keyResults)) {
+          processed.okrs[0].keyResults = deduplicateAndReplaceKrs(
+            processed.okrs[0].keyResults,
+            p?.title,
+            'existing'
+          );
+        }
+        return processed;
+      });
+    }
+
+    // lanes.new.projects（laneType='new' を指定）
+    if (Array.isArray(dept?.lanes?.new?.projects)) {
+      dept.lanes.new.projects = dept.lanes.new.projects.map((p: any) => {
+        const processed = ensureOkrs(p, 'new', deptName);
+        // ★ TASK 4-3: 重複排除＆差し替え
+        if (Array.isArray(processed?.okrs?.[0]?.keyResults)) {
+          processed.okrs[0].keyResults = deduplicateAndReplaceKrs(
+            processed.okrs[0].keyResults,
+            p?.title,
+            'new'
+          );
+        }
+        return processed;
+      });
+    }
+
+    // 旧形式: dept.projects（後方互換、laneType なし）
+    if (Array.isArray(dept?.projects)) {
+      dept.projects = dept.projects.map((p: any) => {
+        const processed = ensureOkrs(p, undefined, deptName);
+        // ★ TASK 4-3: 重複排除＆差し替え
+        if (Array.isArray(processed?.okrs?.[0]?.keyResults)) {
+          processed.okrs[0].keyResults = deduplicateAndReplaceKrs(
+            processed.okrs[0].keyResults,
+            p?.title
+          );
+        }
+        return processed;
+      });
+    }
+
+    return dept;
+  });
+}
+
+/**
+ * csvFinanceData から「表示用に抜粋できる"行配列"」を抽出する。
  * - 旧：csvFinanceData が配列（row[]）
  * - 新：csvFinanceData がオブジェクト（{financeBS, segmentPL, segmentBS, 0: {...}} 等）
  */
@@ -1138,7 +1821,54 @@ ${
 - 3部門のプロジェクト群全体が、統一された経営戦略ストーリーの「異なる実装アプローチ」として見える設計にすること。
 
 【★STAGE3拡張フィールド（必須）】
-各プロジェクトに以下を必ず含めること：
+
+【★TASK 1: OKR (Objective & Key Results) は必須】
+- 各プロジェクトは okrs フィールドを必ず含める（省略禁止）
+- okrs は最低1件、最大3件
+- okrs[0].objective は必須（プロジェクトタイトルの実現ターゲット）
+- okrs[0].keyResults は string[] で最低3個、最大5個（ラベルのみ）
+  - keyResults の各要素は「プロジェクト短縮名 + 指標内容」形式
+  - 例: "品質保証強化：不良率低減（ppm）", "受注プロセス：見積LT（営業日）"
+
+【★TASK 1: OKR（KPI）差別化制約】
+- 同一部門内で、別プロジェクトの keyResults をコピペしない（重複禁止）
+- 各 keyResults には プロジェクト固有の名詞を含める：
+  - 工程名（例：「検査」「梱包」「納品」）
+  - 製品/サービス名（例：「中型部品」「カスタマイズ」「新型用」）
+  - 顧客セグメント（例：「OEM向け」「内製化」「自動化」）
+  - 技術領域（例：「IoT」「データ連携」「クラウド」）
+
+【★TASK 4-4: KR（Key Result）は「数値で追える指標」にする】
+- KR は「数値で計測できる先行指標」ONLY（例：納期遵守率、検査工数、見積回答時間、歩留、再加工率、試作完了数、商談数、PoC件数…）
+- 「改善」「強化」「推進」「推奨」など抽象語だけは厳禁（具体的な測定方法が見えない指標は不合格）
+- 各指標に unit を明記（例：%, ppm, 件, 日, 時間, 円, h/月…）
+- 同一部門内で、異なるプロジェクト間での KR 被り検出・回避が必須
+  - 品質改善系、受注強化系、自動化系で、KR セットが明らかに異なる
+  - 「リードタイム」と「リードタイム」はNG。「見積回答時間」と「納期遵守率」に差別化する等
+
+【★TASK D: KPI（OKR）ユニーク制約】
+- 各プロジェクトのKPIは、他プロジェクトと同一にならないようにする（完全一致を避ける）
+- KPIはプロジェクトの施策内容に直結する先行指標を含める（汎用的な一般指標は避ける）
+- 各プロジェクトのOKR：3〜5個。うち最低2つは固有指標（プロジェクト title / hypothesis から具体化した指標）を必ず含める
+- 品質改善系 vs 営業強化系 vs 新規事業系等、プロジェクトアーキタイプが異なれば、KPIセットも明らかに異なる必須（同じ指標セットは物理的に避ける）
+
+【★★CRITICAL: KPI生成の多様性強化（テンプレ化防止）】
+- 絶対禁止：「生産性向上（%）」「顧客満足度（NPS）」「プロセス改善スコア（1-10）」の3本セット（汎用テンプレ）
+- 絶対禁止：各プロジェクトで同一の3本KPI指標セット（部門内の別プロジェクトとの重複）
+- 必須制約1：部門・プロジェクト固有の前提（Stage1の事業部情報）を必ず参照し、汎用的な一般化KPIではなくドメイン固有の指標を使用すること
+  - 例：品質向上系なら「不良率（ppm）」「初回良品率」など製造業固有指標
+  - 例：売上増加系なら「提案件数」「商談化率」など営業固有指標
+  - 例：新規開発系なら「試作完了率」「開発リードタイム」など開発固有指標
+- 必須制約2：3本のうち最低1本は"ドメイン固有指標"を含める（金融ならLTVや解約率、製造なら歩留まり、流通なら在庫回転数など）
+- 必須制約3：3本のKRのうち2本以上は互いに異なるカテゴリに属すること。指標のカテゴリ例：
+  - 品質指標（歩留、不良率、再加工率、初回良品率など）
+  - 納期・リードタイム指標（納期遵守率、見積回答時間、開発期間など）
+  - コスト・効率指標（単位原価、工数、稼働率など）
+  - 顧客・営業指標（受注率、提案件数、NPS、顧客単価など）
+  - 安全・コンプライアンス指標（ヒヤリハット件数、監査合格率など）
+
+0. okrs: OKR[] - 【★必須】 最低1個以上。各要素に objective と keyResults を含める（上記参照）
+
 1. valueDriverLinks: string[] - STAGE2で定義された価値指標（valueDriverKPIs）の id を最低1つ以上含める。複数選択可。valueDriverKPIs が存在する場合、それ以外の値は禁止（自由記述不可）。
 2. skillRequirements: { roleSkills?: string[]; executionSkills?: string[] } - 実行に必要なスキル
    - roleSkills: 職種スキル（例：「営業」「エンジニア」「デザイナー」「マーケター」等）1〜3個
@@ -1987,13 +2717,14 @@ ${anchorsText || '（利用可能なanchorsなし）'}
         .trim();
 
     // ★新規: OpenAI JSON呼び出し（リトライ機能付き）
-    const callOpenAIJsonWithRetry = async (
+    // ★ TASK 0: function 宣言に変更（hoisted）→ TDZ バグ修正
+    async function callOpenAIJsonWithRetry(
       prompt: string,
       systemMessage: string,
       retryKey?: string,
       temperature?: number,
       maxTokens?: number
-    ): Promise<string> => {
+    ): Promise<string> {
       const MAX_RETRIES = 2; // 2回リトライ = 最大3回試行
       const BACKOFFS = [300, 600]; // ms
       const temp = temperature ?? 0.2;
@@ -2036,7 +2767,7 @@ ${anchorsText || '（利用可能なanchorsなし）'}
       }
 
       throw new Error('callOpenAIJsonWithRetry: max retries exceeded');
-    };
+    }
 
     // ★ TASK 3: 類似度計算用の title 正規化
     const normalizeTitleForSim = (title: string): string => {
@@ -2674,6 +3405,82 @@ ${secondPassDeptBlock}
             .filter(Boolean)
         : [],
     };
+
+    // ★ TASK 4-1: 返却直前ログ（LLMのKRが潰れていないか確認）
+    if (Array.isArray(result?.departments)) {
+      for (const dept of result.departments) {
+        if (!dept) continue;
+        console.log('[proof][before_ensure]', {
+          dept: dept.name,
+          existing: dept?.lanes?.existing?.projects?.map((p: any) => ({
+            title: p?.title,
+            okrsLen: p?.okrs?.length ?? 0,
+            kr0: p?.okrs?.[0]?.keyResults?.[0],
+            kr1: p?.okrs?.[0]?.keyResults?.[1],
+          })) ?? [],
+          new: dept?.lanes?.new?.projects?.map((p: any) => ({
+            title: p?.title,
+            okrsLen: p?.okrs?.length ?? 0,
+            kr0: p?.okrs?.[0]?.keyResults?.[0],
+            kr1: p?.okrs?.[0]?.keyResults?.[1],
+          })) ?? [],
+        });
+      }
+    }
+
+    // ★ TASK C: AI keyResults が空のプロジェクトを検出 & ログ出力
+    // 実際の retry は複雑なため、ここではログ出力のみ。ensureKeyResults() がテンプレ補完
+    const emptyKrProjects: {deptName: string; projectTitle: string; lane?: string}[] = [];
+    if (Array.isArray(result?.departments)) {
+      for (const dept of result.departments) {
+        const deptName = dept?.name ?? '';
+        const checkProject = (p: any, lane?: string) => {
+          const krLen = p?.okrs?.[0]?.keyResults?.length ?? 0;
+          if (krLen === 0) {
+            emptyKrProjects.push({deptName, projectTitle: p?.title, lane});
+          }
+        };
+        dept?.lanes?.existing?.projects?.forEach((p: any) => checkProject(p, 'existing'));
+        dept?.lanes?.new?.projects?.forEach((p: any) => checkProject(p, 'new'));
+        dept?.projects?.forEach((p: any) => checkProject(p));
+      }
+
+      // ログ出力：retry 対象となるプロジェクト
+      for (const item of emptyKrProjects) {
+        console.log(
+          `[cascade][kpi][retry] project="${item.projectTitle}" dept="${item.deptName}" ` +
+          `attempt=2 reason=ai_empty`
+        );
+      }
+    }
+
+    // ★ TASK 2-2: 返却前に全プロジェクトに okrs を保証（LLMの漏れ補完）
+    if (Array.isArray(result?.departments)) {
+      result.departments = ensureOkrsForAllDepts(result.departments);
+    }
+
+    // ★ TASK C: サーバ返却直前ログ（final段階：テンプレ注入後の確認）
+    // [proof][final] に改名し、メタ情報も併記
+    const ex0 = result?.departments?.[0]?.lanes?.existing?.projects?.[0] ?? result?.departments?.[0]?.projects?.[0];
+    const ex0_krSource = (ex0 as any)?._krSource ?? '不明';
+    const ex0_krReason = (ex0 as any)?._krReason ?? '情報なし';
+    const ex0_krSourceDetail = (ex0 as any)?._krSourceDetail ?? '情報なし';
+    const ex0_rawType = (ex0 as any)?._rawType ?? '不明';
+    const ex0_rawLen = (ex0 as any)?._rawLen ?? 'N/A';
+
+    console.log('[generate-cascade][proof][final] ★★★ KR PROOF ★★★');
+    console.log('[generate-cascade][proof][final] ex0.title=', ex0?.title);
+    console.log('[generate-cascade][proof][final] ex0.krSource=', ex0_krSource, 'reason=', ex0_krReason);
+    console.log('[generate-cascade][proof][final] ex0.krSourceDetail=', ex0_krSourceDetail);
+    console.log('[generate-cascade][proof][final] ex0.rawType=', ex0_rawType, 'rawLen=', ex0_rawLen);
+    console.log('[generate-cascade][proof][final] ex0.okrsLen=', ex0?.okrs?.length, '個');
+    if (ex0?.okrs?.[0]) {
+      console.log('[generate-cascade][proof][final] ex0.okrs[0].objective=', ex0.okrs[0].objective);
+      console.log('[generate-cascade][proof][final] ex0.okrs[0].keyResultsLen=', ex0.okrs[0].keyResults?.length, '個');
+      if (ex0.okrs[0].keyResults?.[0]) {
+        console.log('[generate-cascade][proof][final] ex0.okrs[0].keyResults[0].label=', ex0.okrs[0].keyResults[0].label);
+      }
+    }
 
     return new NextResponse(JSON.stringify(result), {
       headers: {
