@@ -1272,11 +1272,20 @@ ${
       return Array.isArray(p?.citations) && p.citations.length >= 2;
     };
 
-    // ★新規: inline quotes のマッチ数をカウント
+    // ★新規: fact-id のカウント（全角括弧 （） と半角括弧 () の両方に対応）
+    const countFactIds = (text: string): number => {
+      // [（(] で全角か半角の開き括弧、[）)] で全角か半角の閉じ括弧
+      const factIdPattern = /[（(][^）)]*fact-[^）)]*[)）]/g;
+      const matches = text.match(factIdPattern);
+      return matches?.length ?? 0;
+    };
+
+    // ★修正: inline quotes のマッチ数をカウント（引用符「』と括弧（）の両方に対応）
     const countInlineQuotes = (p: any): number => {
       const text = `${p?.reason ?? ''} ${p?.hypothesis ?? ''}`;
-      // 「text」(fact-id) パターンをマッチ
-      const citationPattern = /「[^」]*」\([^)]*fact-[^)]*\)/g;
+      // 引用符が 「」 または 『』、括弧が () または （） の両パターンに対応
+      // パターン: [「『]...[」』] \s* [（(]...(fact-...)[)）]
+      const citationPattern = /[「『][^」』]+[」『]\s*[（(][^）)]*fact-[^）)]*[)）]/g;
       const matches = text.match(citationPattern);
       return matches?.length ?? 0;
     };
@@ -1286,7 +1295,7 @@ ${
       const citations = Array.isArray(p?.citations) ? p.citations : [];
       const text = `${p?.reason ?? ''} ${p?.hypothesis ?? ''}`;
       const inlineQuoteMatches = countInlineQuotes(p);
-      const factIdMatches = (text.match(/\(fact-[^)]*\)/g) || []).length;
+      const factIdMatches = countFactIds(text);
 
       // Level A: citations>=2 && (reason+hypothesis に "(fact-" が1回以上)
       if (citations.length >= 2 && factIdMatches >= 1) {
