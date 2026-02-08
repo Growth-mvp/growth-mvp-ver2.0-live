@@ -355,17 +355,151 @@ function normalizeKeyResults(raw: any): {
 }
 
 /**
- * ★ TASK B: ensureKeyResults を修正
- * - 入力 raw の有無を正確に判定（ai_called）
- * - raw があっても形式が微妙な場合は ai_invalid_shape
- * - 常にメタ情報を返す（AI採用時も）
+ * ★ TASK 2-3: KR専用生成関数（LLMで必ず3本埋める）
+ * - ドメイン固有な KR を生成（禁止セット除外）
+ * - 返却フォーマットを固定化
+ * - エラーを分類（network/parse/schema）
  */
-function ensureKeyResults(
+type GenKRResult = {
+  keyResults: Array<{ label: string; unit?: string | null }>;
+  errorCode?: 'ai_error_network' | 'ai_error_parse' | 'ai_error_schema';
+};
+
+async function generateKeyResultsByLLM(
+  params: {
+    deptName: string;
+    projectTitle: string;
+    mainLever?: string;
+    kind?: string;
+    objective?: string;
+    laneType?: 'existing' | 'new';
+    attempt?: number;
+  }
+): Promise<GenKRResult> {
+  const { deptName, projectTitle, mainLever, kind, objective, laneType = 'existing', attempt = 1 } = params;
+
+  // プロンプト生成
+  const isRetry = attempt >= 2;
+  const strictnessLevel = isRetry ? '厳格' : '標準';
+  const prompt = `
+部門: ${deptName}
+プロジェクト: ${projectTitle}
+レバー: ${mainLever || '未定'}
+種別: ${kind || '未定'}
+目標: ${objective || '未定'}
+${laneType === 'new' ? '※ 新規探索レーン：新規市場/新規顧客の検証に適したKRを' : '※ 既存進化レーン：既存事業の改善に適したKRを'}
+
+${isRetry ? `
+【${strictnessLevel}モード: 前回失敗のため、さらに厳格に要件を確認します】
+` : ''}
+
+以下の要件で、このプロジェクトの KPI（Key Result）を3本だけ生成してください：
+
+【必須要件】
+1. JSONのみ返す（説明・前後の言葉は絶対禁止）
+2. keyResultsは必ず3本、空配列は禁止
+3. 3本のうち最低1本はドメイン固有（品質/納期/工程/歩留まり/不良率/試験合格率/リードタイム/稼働率/トレーサビリティ など）
+4. 各KRは 単位を含める（例："成功率 (%)", "納期短縮 (日)", "不良率低減 (ppm)" など）
+5. 禁止セット は絶対に使用禁止：「生産性向上」「NPS」「プロセス改善スコア」「顧客満足度」「従業員満足度」「エンゲージメント」
+
+【返却フォーマット】
+{
+  "keyResults": [
+    { "label": "KPI名（単位付き）", "unit": "単位" },
+    { "label": "KPI名（単位付き）", "unit": "単位" },
+    { "label": "KPI名（単位付き）", "unit": "単位" }
+  ]
+}
+
+【例】
+{
+  "keyResults": [
+    { "label": "不良率低減 (100ppm以下)", "unit": "ppm" },
+    { "label": "納期短縮 (30日以内)", "unit": "日" },
+    { "label": "歩留まり改善 (98.5%以上)", "unit": "%" }
+  ]
+}
+
+JSON以外は返さないこと。
+`.trim();
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL ?? 'gpt-4o',
+      response_format: { type: 'json_object' },
+      temperature: 0.3,
+      max_tokens: 500,
+      messages: [
+        {
+          role: 'system',
+          content: `あなたは製造業 B2B の経営戦略コンサルタント。JSON 形式のみで回答する。前後の説明や注記は絶対禁止。`,
+        },
+        { role: 'user', content: prompt },
+      ],
+    });
+
+    const rawContent = completion.choices?.[0]?.message?.content || '';
+    const parsed = extractJsonObject(rawContent);
+
+    if (!parsed) {
+      console.log(
+        `[cascade][kpi][ai-gen-debug] attempt=${attempt} dept="${deptName}" project="${projectTitle}" error=parse_failed`
+      );
+      return { keyResults: [], errorCode: 'ai_error_parse' };
+    }
+
+    const krArray = parsed?.keyResults;
+    if (!Array.isArray(krArray) || krArray.length < 3) {
+      console.log(
+        `[cascade][kpi][ai-gen-debug] attempt=${attempt} dept="${deptName}" project="${projectTitle}" error=schema krCount=${Array.isArray(krArray) ? krArray.length : 0}`
+      );
+      return { keyResults: [], errorCode: 'ai_error_schema' };
+    }
+
+    // スキーマ検証
+    const valid = krArray.slice(0, 3).every((kr: any) => {
+      const label = String(kr?.label ?? '').trim();
+      return label.length > 0;
+    });
+
+    if (!valid) {
+      return { keyResults: [], errorCode: 'ai_error_schema' };
+    }
+
+    const extracted = krArray.slice(0, 3).map((kr: any) => ({
+      label: String(kr.label).trim(),
+      unit: kr.unit ? String(kr.unit).trim() : null,
+    }));
+
+    console.log(
+      `[cascade][kpi][ai-gen-debug] attempt=${attempt} dept="${deptName}" project="${projectTitle}" success krCount=3`
+    );
+    return { keyResults: extracted };
+  } catch (err: any) {
+    const errMsg = err?.message || String(err);
+    const isNetworkErr = errMsg.includes('socket') || errMsg.includes('timeout') || errMsg.includes('connection');
+
+    console.log(
+      `[cascade][kpi][ai-gen-debug] attempt=${attempt} dept="${deptName}" project="${projectTitle}" error=network msg="${isNetworkErr ? 'network_error' : errMsg.slice(0, 50)}"`
+    );
+
+    return { keyResults: [], errorCode: 'ai_error_network' };
+  }
+}
+
+/**
+ * ★ TASK 4: ensureKeyResults を修正（AI→リトライ→テンプレの順）
+ * - AI が返した keyResults を使う
+ * - 空の場合は generateKeyResultsByLLM で AI 生成（最大2回）
+ * - 2回ダメならテンプレートに落ちる
+ * - エラーコードを詳細に分類
+ */
+async function ensureKeyResults(
   okr: any,
   projectTitle: string,
   deptName?: string,
   laneType?: 'existing' | 'new'
-): any {
+): Promise<any> {
   // Step 1: raw candidates を広く拾う
   const rawKrs =
     okr?.keyResults ??
@@ -380,7 +514,7 @@ function ensureKeyResults(
   // Step 3: ai_called の判定（rawが「存在」したか）
   const ai_called = rawKrs != null && rawLen > 0;
 
-  // Step 4: AI採用
+  // Step 4: AI採用（LLMから返ってきたデータ）
   if (normalized.length > 0) {
     return {
       ...okr,
@@ -391,16 +525,69 @@ function ensureKeyResults(
       _krSourceDetail: 'ai:gpt',
       _rawType: rawType,
       _rawLen: rawLen,
+      _aiAttempts: 0,
     };
   }
 
-  // Step 5: テンプレ注入（rawが空 or 形が無効）
-  const isRawEmpty =
-    rawKrs == null ||
-    (Array.isArray(rawKrs) && rawKrs.length === 0) ||
-    (typeof rawKrs === 'string' && rawKrs.trim() === '');
+  // Step 5: rawが空の場合、AI生成を試す（最大2回）
+  let aiGenResult = null;
+  let lastErrorCode: string | undefined = undefined;
+  let aiAttempts = 0;
 
-  const reason_detail = isRawEmpty ? 'ai_empty' : 'ai_invalid_shape';
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    aiAttempts = attempt;
+    const result = await generateKeyResultsByLLM({
+      deptName: deptName ?? '未設定',
+      projectTitle,
+      mainLever: (okr as any)?.mainLever,
+      kind: (okr as any)?.kind,
+      objective: (okr as any)?.objective,
+      laneType,
+      attempt,
+    });
+
+    if (result.keyResults.length === 3) {
+      aiGenResult = result;
+      break;
+    }
+
+    lastErrorCode = result.errorCode;
+    console.log(
+      `[cascade][kpi][retry] dept="${deptName}" project="${projectTitle}" attempt=${attempt} failed errorCode=${result.errorCode}`
+    );
+  }
+
+  // Step 6: AI生成成功
+  if (aiGenResult && aiGenResult.keyResults.length === 3) {
+    const aiKrs = aiGenResult.keyResults.map((kr: any) => ({
+      label: kr.label,
+      current: null,
+      target: null,
+      unit: kr.unit ?? null,
+      due: null,
+    }));
+
+    return {
+      ...okr,
+      keyResults: aiKrs,
+      _aiCalled: true,
+      _krSource: 'AI',
+      _krReason: 'ai_generated_after_retry',
+      _krSourceDetail: 'ai:gpt',
+      _rawType: rawType,
+      _rawLen: rawLen,
+      _aiAttempts: aiAttempts,
+    };
+  }
+
+  // Step 7: AI生成失敗 → テンプレをやむを得ず使用
+  const reason_detail = lastErrorCode
+    ? `ai_failed_after_retry(${lastErrorCode})`
+    : 'ai_empty';
+
+  console.log(
+    `[cascade][kpi][template-fallback] dept="${deptName}" project="${projectTitle}" reason="${reason_detail}"`
+  );
 
   const result = deriveKrsByContext(projectTitle, deptName, laneType);
   const fallbackKrs = result.krs;
@@ -415,12 +602,13 @@ function ensureKeyResults(
       unit: null,
       due: null,
     })),
-    _aiCalled: ai_called,
+    _aiCalled: false,
     _krSource: 'TEMPLATE',
     _krReason: reason_detail,
     _krSourceDetail: sourceDetail,
     _rawType: rawType,
     _rawLen: rawLen,
+    _aiAttempts: aiAttempts,
   };
 }
 
@@ -709,7 +897,7 @@ function deriveKrsByContext(
  * - 両方ない場合も空の okrs を入れる（UI側が「未生成」と判定可能に）
  * - ★ keyResults が空の場合は最低3件を保証する（deriveKrsByContext で差別化）
  */
-function ensureOkrs(project: any, laneType?: 'existing' | 'new', deptName?: string): any {
+async function ensureOkrs(project: any, laneType?: 'existing' | 'new', deptName?: string): Promise<any> {
   if (!project) return project;
 
   const projectTitle = String(project?.title ?? project?.name ?? 'プロジェクト').trim();
@@ -718,21 +906,23 @@ function ensureOkrs(project: any, laneType?: 'existing' | 'new', deptName?: stri
 
   // 既に okrs があればそれを使用（ただし keyResults も正規化）
   if (Array.isArray(project?.okrs) && project.okrs.length > 0) {
-    // ★ 既存の okrs も keyResults を正規化＆保証
-    project.okrs = project.okrs.map((o: any) => {
-      const normalized = ensureKeyResults(o, projectTitle, deptName, laneType);
-      return {
-        ...normalized,
-        objective: String(normalized?.objective ?? normalized?.goal ?? normalized?.outcome ?? projectTitle).trim() || projectTitle,
-        // ★ TASK D: メタデータを明示的に保持
-        _krSource: (normalized as any)?._krSource,
-        _krReason: (normalized as any)?._krReason,
-        _krSourceDetail: (normalized as any)?._krSourceDetail,
-        _rawType: (normalized as any)?._rawType,
-        _rawLen: (normalized as any)?._rawLen,
-        _aiCalled: (normalized as any)?._aiCalled,
-      };
-    });
+    // ★ 既存の okrs も keyResults を正規化＆保証（Promise.all で並列処理）
+    project.okrs = await Promise.all(
+      project.okrs.map(async (o: any) => {
+        const normalized = await ensureKeyResults(o, projectTitle, deptName, laneType);
+        return {
+          ...normalized,
+          objective: String(normalized?.objective ?? normalized?.goal ?? normalized?.outcome ?? projectTitle).trim() || projectTitle,
+          // ★ TASK D: メタデータを明示的に保持
+          _krSource: (normalized as any)?._krSource,
+          _krReason: (normalized as any)?._krReason,
+          _krSourceDetail: (normalized as any)?._krSourceDetail,
+          _rawType: (normalized as any)?._rawType,
+          _rawLen: (normalized as any)?._rawLen,
+          _aiCalled: (normalized as any)?._aiCalled,
+        };
+      })
+    );
     // ★ TASK C: raw と final ログを分離
     // raw段階：okr.okrs が存在する場合
     const okrs0 = project.okrs[0];
@@ -791,7 +981,7 @@ function ensureOkrs(project: any, laneType?: 'existing' | 'new', deptName?: stri
     `rawType="${rawKrType_pre}" rawLen=${rawKrLen_pre} ai_called=${rawKrLen_pre > 0}`
   );
 
-  const okrWithKR = ensureKeyResults(okrObj, projectTitle, deptName, laneType);
+  const okrWithKR = await ensureKeyResults(okrObj, projectTitle, deptName, laneType);
 
   // ★ TASK D: メタデータを保持しながら OKR を設定
   project.okrs = [{
@@ -803,6 +993,7 @@ function ensureOkrs(project: any, laneType?: 'existing' | 'new', deptName?: stri
     _rawType: (okrWithKR as any)?._rawType,
     _rawLen: (okrWithKR as any)?._rawLen,
     _aiCalled: (okrWithKR as any)?._aiCalled,
+    _aiAttempts: (okrWithKR as any)?._aiAttempts,
   }];
 
   // ★ TASK D: メタ情報は ensureKeyResults から取得（常に存在）
@@ -840,109 +1031,117 @@ function ensureOkrs(project: any, laneType?: 'existing' | 'new', deptName?: stri
  * - TASK B: deriveKrsByContext で KR を差別化（laneType を渡す）
  * - TASK C: 同一部門内の KR 重複を抑制する（usedKrSet で微調整）
  */
-function ensureOkrsForAllDepts(depts: any[]): any[] {
+async function ensureOkrsForAllDepts(depts: any[]): Promise<any[]> {
   if (!Array.isArray(depts)) return depts;
 
-  return depts.map((dept: any) => {
-    if (!dept) return dept;
+  return Promise.all(
+    depts.map(async (dept: any) => {
+      if (!dept) return dept;
 
-    // ★ TASK 4-3: 部門単位での usedKrSet で重複を検出＆差し替え
-    const usedKrSet = new Set<string>();
+      // ★ TASK 4-3: 部門単位での usedKrSet で重複を検出＆差し替え
+      const usedKrSet = new Set<string>();
 
-    // ★ ヘルパー: KR のリストから重複を回避した新しいリストを生成
-    const deduplicateAndReplaceKrs = (krs: any[], projectTitle: string, laneType?: 'existing' | 'new'): any[] => {
-      // usedKrSet に対してチェック
-      const uniqueLabels = new Set<string>();
-      const finalKrs: any[] = [];
+      // ★ ヘルパー: KR のリストから重複を回避した新しいリストを生成
+      const deduplicateAndReplaceKrs = (krs: any[], projectTitle: string, laneType?: 'existing' | 'new'): any[] => {
+        // usedKrSet に対してチェック
+        const uniqueLabels = new Set<string>();
+        const finalKrs: any[] = [];
 
-      for (const kr of krs) {
-        const krLabel = kr.label || String(kr);
-        if (usedKrSet.has(krLabel)) {
-          // 重複！差し替え候補を探す
-          let replaced = false;
-          // variant 1, 2 を試して、被らない KR セットを見つける
-          for (let variant of [1, 2] as const) {
-            const result = deriveKrsByContext(projectTitle, undefined, laneType, undefined, variant);
-            const altKrs = result.krs;
-            for (const altKr of altKrs) {
-              if (!usedKrSet.has(altKr) && !uniqueLabels.has(altKr)) {
-                finalKrs.push({ ...kr, label: altKr });
-                uniqueLabels.add(altKr);
-                usedKrSet.add(altKr);
-                replaced = true;
-                break;
+        for (const kr of krs) {
+          const krLabel = kr.label || String(kr);
+          if (usedKrSet.has(krLabel)) {
+            // 重複！差し替え候補を探す
+            let replaced = false;
+            // variant 1, 2 を試して、被らない KR セットを見つける
+            for (let variant of [1, 2] as const) {
+              const result = deriveKrsByContext(projectTitle, undefined, laneType, undefined, variant);
+              const altKrs = result.krs;
+              for (const altKr of altKrs) {
+                if (!usedKrSet.has(altKr) && !uniqueLabels.has(altKr)) {
+                  finalKrs.push({ ...kr, label: altKr });
+                  uniqueLabels.add(altKr);
+                  usedKrSet.add(altKr);
+                  replaced = true;
+                  break;
+                }
               }
+              if (replaced) break;
             }
-            if (replaced) break;
+            // 差し替え候補が見つからない場合は suffix 付与（最終手段）
+            if (!replaced) {
+              const shortTitle = projectTitle.substring(0, 8);
+              const suffixKr = `${krLabel} - ${shortTitle}`;
+              finalKrs.push({ ...kr, label: suffixKr });
+              usedKrSet.add(suffixKr);
+              uniqueLabels.add(suffixKr);
+            }
+          } else {
+            finalKrs.push(kr);
+            usedKrSet.add(krLabel);
+            uniqueLabels.add(krLabel);
           }
-          // 差し替え候補が見つからない場合は suffix 付与（最終手段）
-          if (!replaced) {
-            const shortTitle = projectTitle.substring(0, 8);
-            const suffixKr = `${krLabel} - ${shortTitle}`;
-            finalKrs.push({ ...kr, label: suffixKr });
-            usedKrSet.add(suffixKr);
-            uniqueLabels.add(suffixKr);
-          }
-        } else {
-          finalKrs.push(kr);
-          usedKrSet.add(krLabel);
-          uniqueLabels.add(krLabel);
         }
+        return finalKrs;
+      };
+
+      const deptName = dept?.name ?? '';
+
+      // lanes.existing.projects（laneType='existing' を指定）
+      if (Array.isArray(dept?.lanes?.existing?.projects)) {
+        dept.lanes.existing.projects = await Promise.all(
+          dept.lanes.existing.projects.map(async (p: any) => {
+            const processed = await ensureOkrs(p, 'existing', deptName);
+            // ★ TASK 4-3: 重複排除＆差し替え
+            if (Array.isArray(processed?.okrs?.[0]?.keyResults)) {
+              processed.okrs[0].keyResults = deduplicateAndReplaceKrs(
+                processed.okrs[0].keyResults,
+                p?.title,
+                'existing'
+              );
+            }
+            return processed;
+          })
+        );
       }
-      return finalKrs;
-    };
 
-    const deptName = dept?.name ?? '';
+      // lanes.new.projects（laneType='new' を指定）
+      if (Array.isArray(dept?.lanes?.new?.projects)) {
+        dept.lanes.new.projects = await Promise.all(
+          dept.lanes.new.projects.map(async (p: any) => {
+            const processed = await ensureOkrs(p, 'new', deptName);
+            // ★ TASK 4-3: 重複排除＆差し替え
+            if (Array.isArray(processed?.okrs?.[0]?.keyResults)) {
+              processed.okrs[0].keyResults = deduplicateAndReplaceKrs(
+                processed.okrs[0].keyResults,
+                p?.title,
+                'new'
+              );
+            }
+            return processed;
+          })
+        );
+      }
 
-    // lanes.existing.projects（laneType='existing' を指定）
-    if (Array.isArray(dept?.lanes?.existing?.projects)) {
-      dept.lanes.existing.projects = dept.lanes.existing.projects.map((p: any) => {
-        const processed = ensureOkrs(p, 'existing', deptName);
-        // ★ TASK 4-3: 重複排除＆差し替え
-        if (Array.isArray(processed?.okrs?.[0]?.keyResults)) {
-          processed.okrs[0].keyResults = deduplicateAndReplaceKrs(
-            processed.okrs[0].keyResults,
-            p?.title,
-            'existing'
-          );
-        }
-        return processed;
-      });
-    }
+      // 旧形式: dept.projects（後方互換、laneType なし）
+      if (Array.isArray(dept?.projects)) {
+        dept.projects = await Promise.all(
+          dept.projects.map(async (p: any) => {
+            const processed = await ensureOkrs(p, undefined, deptName);
+            // ★ TASK 4-3: 重複排除＆差し替え
+            if (Array.isArray(processed?.okrs?.[0]?.keyResults)) {
+              processed.okrs[0].keyResults = deduplicateAndReplaceKrs(
+                processed.okrs[0].keyResults,
+                p?.title
+              );
+            }
+            return processed;
+          })
+        );
+      }
 
-    // lanes.new.projects（laneType='new' を指定）
-    if (Array.isArray(dept?.lanes?.new?.projects)) {
-      dept.lanes.new.projects = dept.lanes.new.projects.map((p: any) => {
-        const processed = ensureOkrs(p, 'new', deptName);
-        // ★ TASK 4-3: 重複排除＆差し替え
-        if (Array.isArray(processed?.okrs?.[0]?.keyResults)) {
-          processed.okrs[0].keyResults = deduplicateAndReplaceKrs(
-            processed.okrs[0].keyResults,
-            p?.title,
-            'new'
-          );
-        }
-        return processed;
-      });
-    }
-
-    // 旧形式: dept.projects（後方互換、laneType なし）
-    if (Array.isArray(dept?.projects)) {
-      dept.projects = dept.projects.map((p: any) => {
-        const processed = ensureOkrs(p, undefined, deptName);
-        // ★ TASK 4-3: 重複排除＆差し替え
-        if (Array.isArray(processed?.okrs?.[0]?.keyResults)) {
-          processed.okrs[0].keyResults = deduplicateAndReplaceKrs(
-            processed.okrs[0].keyResults,
-            p?.title
-          );
-        }
-        return processed;
-      });
-    }
-
-    return dept;
-  });
+      return dept;
+    })
+  );
 }
 
 /**
@@ -3468,9 +3667,42 @@ ${secondPassDeptBlock}
       }
     }
 
-    // ★ TASK 2-2: 返却前に全プロジェクトに okrs を保証（LLMの漏れ補完）
+    // ★ TASK 2-2: 返却前に全プロジェクトに okrs を保証（LLMの漏れ補完 + AI再生成）
     if (Array.isArray(result?.departments)) {
-      result.departments = ensureOkrsForAllDepts(result.departments);
+      result.departments = await ensureOkrsForAllDepts(result.departments);
+    }
+
+    // ★ TASK 5: AI成功率ログ（部門ごとに集計）
+    if (Array.isArray(result?.departments)) {
+      for (const dept of result.departments) {
+        if (!dept?.name) continue;
+
+        let totalProjects = 0;
+        let aiProjects = 0;
+        let templateProjects = 0;
+
+        const checkProjects = (projects: any[]) => {
+          if (!Array.isArray(projects)) return;
+          for (const p of projects) {
+            totalProjects++;
+            const krSource = (p as any)?._krSource;
+            if (krSource === 'AI') aiProjects++;
+            else if (krSource === 'TEMPLATE') templateProjects++;
+          }
+        };
+
+        // lanes.existing.projects と lanes.new.projects をチェック
+        checkProjects(dept?.lanes?.existing?.projects);
+        checkProjects(dept?.lanes?.new?.projects);
+        // 旧形式も確認
+        checkProjects(dept?.projects);
+
+        if (totalProjects > 0) {
+          console.log(
+            `[generate-cascade][ai-rate] dept="${dept.name}" total=${totalProjects} ai=${aiProjects} template=${templateProjects} success_rate=${((aiProjects / totalProjects) * 100).toFixed(1)}%`
+          );
+        }
+      }
     }
 
     // ★ TASK C: サーバ返却直前ログ（final段階：テンプレ注入後の確認）
