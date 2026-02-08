@@ -1272,17 +1272,43 @@ ${
       return Array.isArray(p?.citations) && p.citations.length >= 2;
     };
 
-    const hasInlineQuotes = (p: any): boolean => {
-      // ★修正3: 「...」(fact-...) フォーマットで2回以上カウント
+    // ★新規: inline quotes のマッチ数をカウント
+    const countInlineQuotes = (p: any): number => {
       const text = `${p?.reason ?? ''} ${p?.hypothesis ?? ''}`;
       // 「text」(fact-id) パターンをマッチ
       const citationPattern = /「[^」]*」\([^)]*fact-[^)]*\)/g;
       const matches = text.match(citationPattern);
-      return (matches?.length ?? 0) >= 2;
+      return matches?.length ?? 0;
+    };
+
+    // ★新規: 段階的gating（Level A/B/C）
+    const getGroundingLevel = (p: any): { level: 'A' | 'B' | 'C'; matchCount: number; factIdCount: number } => {
+      const citations = Array.isArray(p?.citations) ? p.citations : [];
+      const text = `${p?.reason ?? ''} ${p?.hypothesis ?? ''}`;
+      const inlineQuoteMatches = countInlineQuotes(p);
+      const factIdMatches = (text.match(/\(fact-[^)]*\)/g) || []).length;
+
+      // Level A: citations>=2 && (reason+hypothesis に "(fact-" が1回以上)
+      if (citations.length >= 2 && factIdMatches >= 1) {
+        return { level: 'A', matchCount: inlineQuoteMatches, factIdCount: factIdMatches };
+      }
+
+      // Level B: citations>=2 だが fact-id 出現なし
+      if (citations.length >= 2) {
+        return { level: 'B', matchCount: inlineQuoteMatches, factIdCount: factIdMatches };
+      }
+
+      // Level C: citations<2
+      return { level: 'C', matchCount: inlineQuoteMatches, factIdCount: factIdMatches };
+    };
+
+    const hasInlineQuotes = (p: any): boolean => {
+      return countInlineQuotes(p) >= 2;
     };
 
     const isProjectGrounded = (p: any): boolean => {
-      return hasMinCitations(p) && hasInlineQuotes(p);
+      const groundingLevel = getGroundingLevel(p);
+      return groundingLevel.level === 'A';
     };
 
     // Required fields チェック
@@ -1307,8 +1333,12 @@ ${
         deptName: string;
         laneType: 'existing' | 'new';
         projectIndex: number;
+        slot: number;
         project: any;
-        reason: string;
+        groundingLevel: string;
+        citationCount: number;
+        factIdCount: number;
+        matchCount: number;
       }> = [];
 
       // 失敗したproject特定
@@ -1320,15 +1350,34 @@ ${
         if (dept?.lanes?.existing?.projects) {
           for (let pIdx = 0; pIdx < dept.lanes.existing.projects.length; pIdx++) {
             const proj = dept.lanes.existing.projects[pIdx];
-            if (!isProjectGrounded(proj)) {
-              const failReason = !hasMinCitations(proj) ? 'citations<2' : 'no_quotes';
+            const groundingLevel = getGroundingLevel(proj);
+
+            if (groundingLevel.level !== 'A') {
+              const slot = pIdx + 1;
+              const citationCount = Array.isArray(proj?.citations) ? proj.citations.length : 0;
+
+              // ★デバッグログ: isProjectGrounded が false のとき詳細出力
+              const reasonHead = (proj?.reason ?? '').slice(0, 200);
+              const hypothesisHead = (proj?.hypothesis ?? '').slice(0, 200);
+              console.log(
+                `[cascade][grounding][ng] dept=${deptName} lane=existing slot=${slot} ` +
+                `level=${groundingLevel.level} citations=${citationCount} factIdCount=${groundingLevel.factIdCount} matchCount=${groundingLevel.matchCount}\n` +
+                `  reason[0:200]="${reasonHead}"\n` +
+                `  hypothesis[0:200]="${hypothesisHead}"\n` +
+                `  citations=[${(proj?.citations ?? []).join(', ')}]`
+              );
+
               failedProjects.push({
                 deptIndex: dIdx,
                 deptName,
                 laneType: 'existing',
                 projectIndex: pIdx,
+                slot,
                 project: proj,
-                reason: failReason,
+                groundingLevel: groundingLevel.level,
+                citationCount,
+                factIdCount: groundingLevel.factIdCount,
+                matchCount: groundingLevel.matchCount,
               });
             }
           }
@@ -1338,15 +1387,34 @@ ${
         if (dept?.lanes?.new?.projects) {
           for (let pIdx = 0; pIdx < dept.lanes.new.projects.length; pIdx++) {
             const proj = dept.lanes.new.projects[pIdx];
-            if (!isProjectGrounded(proj)) {
-              const failReason = !hasMinCitations(proj) ? 'citations<2' : 'no_quotes';
+            const groundingLevel = getGroundingLevel(proj);
+
+            if (groundingLevel.level !== 'A') {
+              const slot = 3 + pIdx;
+              const citationCount = Array.isArray(proj?.citations) ? proj.citations.length : 0;
+
+              // ★デバッグログ: isProjectGrounded が false のとき詳細出力
+              const reasonHead = (proj?.reason ?? '').slice(0, 200);
+              const hypothesisHead = (proj?.hypothesis ?? '').slice(0, 200);
+              console.log(
+                `[cascade][grounding][ng] dept=${deptName} lane=new slot=${slot} ` +
+                `level=${groundingLevel.level} citations=${citationCount} factIdCount=${groundingLevel.factIdCount} matchCount=${groundingLevel.matchCount}\n` +
+                `  reason[0:200]="${reasonHead}"\n` +
+                `  hypothesis[0:200]="${hypothesisHead}"\n` +
+                `  citations=[${(proj?.citations ?? []).join(', ')}]`
+              );
+
               failedProjects.push({
                 deptIndex: dIdx,
                 deptName,
                 laneType: 'new',
                 projectIndex: pIdx,
+                slot,
                 project: proj,
-                reason: failReason,
+                groundingLevel: groundingLevel.level,
+                citationCount,
+                factIdCount: groundingLevel.factIdCount,
+                matchCount: groundingLevel.matchCount,
               });
             }
           }
@@ -1358,11 +1426,12 @@ ${
         for (const failed of failedProjects) {
           const dept = depts[failed.deptIndex];
           const deptName = dept?.name ?? '';
+          const slot = failed.slot;
 
-          // slot計算: existing は 1/2、new は 3 + projectIndex
-          const slot = failed.laneType === 'existing' ? failed.projectIndex + 1 : 3 + failed.projectIndex;
-
-          console.log(`[cascade][grounding][retry] dept=${deptName} slot=${slot} reason="${failed.reason}"`);
+          console.log(
+            `[cascade][grounding][retry] dept=${deptName} slot=${slot} level=${failed.groundingLevel} ` +
+            `citations=${failed.citationCount} factIdCount=${failed.factIdCount} matchCount=${failed.matchCount}`
+          );
 
           // FACTPACK anchors を取得
           const factPack = factPackByDept.get(deptName);
@@ -1371,11 +1440,19 @@ ${
             .map((a: any) => `  - ${a.id}: ${a.text}`)
             .join('\n');
 
+          // ★ テンプレ文：2つのanchorを「text」(fact-id)で埋める形式を強制
+          const templateExample = anchorsList.length >= 2
+            ? `例：「${anchorsList[0].text}」(${anchorsList[0].id}) により${anchorsList[0].text.slice(0, 20)}が確認でき、` +
+              `「${anchorsList[1].text}」(${anchorsList[1].id}) の観点から戦略を立案する`
+            : '例：「主要な事実」(fact-...) のサポートのもと、「別の事実」(fact-...) と組み合わせて提案する';
+
           // 再生成prompt
           const retryPrompt = `
-前回のプロジェクト案では、引用ベース生成の要件を満たしていません：
-- citations（引用した anchor ID）が2未満、または
-- reason/hypothesis に「」で括られた引用が不足
+前回のプロジェクト案では、引用ベース生成の要件を満たしていません。
+現在の状況：
+- citations数: ${failed.citationCount}/2 (必須: 2個以上)
+- fact-id出現数: ${failed.factIdCount} (必須: 1回以上)
+- 引用フォーマット数: ${failed.matchCount} (推奨: 2回以上)
 
 以下の部門について、${failed.laneType === 'existing' ? '既存進化レーン' : '新規探索レーン'}のプロジェクト案を修正してください：
 
@@ -1386,8 +1463,8 @@ ${anchorsText || '（利用可能なanchorsなし）'}
 
 【修正必須条件】
 1. citations は最低2個の anchor ID を含むこと（上記リストから選択すること、捏造禁止）
-2. reason と hypothesis に「」で括られた本文引用を最低2箇所含めること
-   （例：「主要顧客：トヨタ」(fact-cust-1) 「営業利益率は約12%」(fact-fin-2)）
+2. reason と hypothesis に 「text」(fact-id) 形式で最低2箇所含めること（必ず括弧内に fact-id を記入）
+   ${templateExample}
 3. 固有名詞（顧客名/製品名/工程）を title に必須で含めること
 4. 他の部門と異なるanchorsを選ぶこと
 
