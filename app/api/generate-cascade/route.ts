@@ -355,6 +355,232 @@ function normalizeKeyResults(raw: any): {
 }
 
 /**
+ * ★ TASK 1: projectType を辞書ベースで分類
+ * - タイトル/部門名からプロジェクトの性質を推測
+ * - LLM 呼び出し前に実行（高速）
+ */
+type ProjectType =
+  | 'sales_process'
+  | 'customer_research'
+  | 'inventory_system'
+  | 'new_market'
+  | 'dx'
+  | 'quality'
+  | 'r_and_d'
+  | 'default';
+
+function classifyProjectType(
+  projectTitle: string,
+  deptName?: string,
+  laneType?: 'existing' | 'new'
+): ProjectType {
+  const titleLower = projectTitle.toLowerCase();
+  const deptLower = (deptName ?? '').toLowerCase();
+  const combined = `${titleLower} ${deptLower}`;
+
+  // 新規市場/新規開拓系
+  if (laneType === 'new' || combined.match(/新規|開拓|ポック|poc|仮説検証|市場検証/)) {
+    return 'new_market';
+  }
+
+  // 受注/営業プロセス系
+  if (
+    combined.match(/受注|見積|提案|営業|案件|リード|営業プロセス|見積プロセス/)
+  ) {
+    return 'sales_process';
+  }
+
+  // 顧客調査/理解系
+  if (
+    combined.match(/ニーズ|調査|ヒアリング|voc|顧客理解|顧客インサイト|ペルソナ|失注|顧客情報/)
+  ) {
+    return 'customer_research';
+  }
+
+  // 在庫/倉庫系
+  if (
+    combined.match(/在庫|倉庫|棚卸|入出庫|erp|mrp|在庫管理|在庫精度/)
+  ) {
+    return 'inventory_system';
+  }
+
+  // DX/デジタル系
+  if (
+    combined.match(/dx|デジタル|自動化|システム導入|業務プロセス|rpa|ツール/)
+  ) {
+    return 'dx';
+  }
+
+  // 品質系
+  if (
+    combined.match(/品質|保証|不良|監査|認証|クレーム|信頼性/)
+  ) {
+    return 'quality';
+  }
+
+  // R&D/開発系
+  if (
+    combined.match(/研究|開発|r&d|r and d|新商品|プロトタイプ|設計/)
+  ) {
+    return 'r_and_d';
+  }
+
+  return 'default';
+}
+
+/**
+ * ★ TASK 3: KRI validation（汎用3点セット排除 + 種別適合性）
+ */
+type ValidationResult = {
+  ok: boolean;
+  reasons: string[];
+};
+
+function validateKRs(
+  projectType: ProjectType,
+  krs: Array<{ label: string; unit?: string | null }>,
+  projectTitle: string
+): ValidationResult {
+  const reasons: string[] = [];
+
+  // チェック1: projectTitle prefix が入っているか
+  const hasPrefix = krs.every((kr) =>
+    (kr.label ?? '').includes(projectTitle)
+  );
+  if (!hasPrefix) {
+    reasons.push('missing_project_prefix');
+  }
+
+  // チェック2: KPI名が被ってないか
+  const kpiNames = krs.map((kr) => {
+    // label から projectTitle を削除して KPI名を抽出
+    let name = (kr.label ?? '').replace(projectTitle, '').replace(/^：/, '').trim();
+    return name;
+  });
+  const uniqueCount = new Set(kpiNames).size;
+  if (uniqueCount < 3) {
+    reasons.push('duplicate_kpi_names');
+  }
+
+  // チェック3: 種別別の禁止セット
+  const allLabelsLower = krs.map((kr) => (kr.label ?? '').toLowerCase()).join(' ');
+
+  if (projectType === 'customer_research') {
+    if (allLabelsLower.match(/不良率|合格率|稼働率/)) {
+      reasons.push('invalid_for_customer_research');
+    }
+  } else if (projectType === 'inventory_system') {
+    if (allLabelsLower.match(/試験合格率|不良率/)) {
+      reasons.push('invalid_for_inventory_system');
+    }
+  }
+
+  return {
+    ok: reasons.length === 0,
+    reasons,
+  };
+}
+
+/**
+ * ★ TASK 2: 種別別 KPI メニュー生成（プロンプト構築）
+ * - projectType に応じて適切な KPI 候補と禁止パターンをプロンプトに埋め込む
+ */
+function generateTypeSpecificPrompt(projectType: ProjectType, projectTitle: string, isRetry: boolean): string {
+  const typeConfig: Record<ProjectType, { candidates: string; forbidden: string }> = {
+    customer_research: {
+      candidates: `
+【推奨KPI候補】
+- ヒアリング実施数（件数/月）
+- ペルソナ検証数（件数/月）
+- 提案反映率（%）
+- VoC抽出件数（件数）
+- ニーズマッチ度（%）`,
+      forbidden: '不良率|合格率|稼働率|納期|生産性|歩留まり|稼働時間',
+    },
+    inventory_system: {
+      candidates: `
+【推奨KPI候補】
+- 在庫精度（%）
+- 欠品率（%）
+- 滞留在庫金額（万円）
+- 棚卸工数（h/月）
+- 入出庫精度（%）`,
+      forbidden: '試験合格率|不良率|ヒアリング|ニーズ|提案反映',
+    },
+    sales_process: {
+      candidates: `
+【推奨KPI候補】
+- 見積リードタイム（日）
+- 受注率（%）
+- 失注率（%）
+- 提案から成約まで期間（日）
+- 案件進捗速度（件数/月）`,
+      forbidden: '在庫|棚卸|稼働率|不良率|試験合格',
+    },
+    new_market: {
+      candidates: `
+【推奨KPI候補】
+- PoC実施数（件数/月）
+- 新規リード数（件数）
+- 商談化率（%）
+- 仮説検証完了数（件数）
+- 市場調査進捗度（スコア）`,
+      forbidden: '既存事業改善|既知顧客|安定供給|製造稼働',
+    },
+    dx: {
+      candidates: `
+【推奨KPI候補】
+- 自動化率（%）
+- 利用率（%）
+- 手作業削減工数（h/月）
+- システム導入期間短縮（日）
+- RPA処理件数（件数/月）`,
+      forbidden: '顧客満足度|ヒアリング|在庫精度|不良率',
+    },
+    quality: {
+      candidates: `
+【推奨KPI候補】
+- 不良率低減（ppm）
+- 納期達成率（%）
+- クレーム件数（件数/月）
+- 品質検査合格率（%）
+- トレーサビリティ完全性（%）`,
+      forbidden: '提案反映|ニーズ|商談化|利用率',
+    },
+    r_and_d: {
+      candidates: `
+【推奨KPI候補】
+- プロトタイプ開発期間短縮（日）
+- 試作試験実施数（件数）
+- 特性改善幅（%）
+- 設計検証完了率（%）
+- 新商品上市準備度（%）`,
+      forbidden: '顧客満足度|稼働率|在庫精度|失注率',
+    },
+    default: {
+      candidates: `
+【推奨KPI候補】
+- 実行進捗度（%）
+- 目標達成度（%）
+- 効果実現度（%）`,
+      forbidden: '',
+    },
+  };
+
+  const config = typeConfig[projectType] || typeConfig.default;
+
+  return `
+${config.candidates}
+
+【禁止パターン】
+【絶対に使用禁止】：${config.forbidden || '生産性向上、NPS、プロセス改善スコア、顧客満足度、従業員満足度、エンゲージメント'}
+
+※ プロジェクト名「${projectTitle}」に合わせて、上記の推奨候補から3本を選び、必要に応じてカスタマイズしてください。
+※ 3本のKPIは異なる視点・指標である必要があります（同じKPIの焼き直しは禁止）
+`;
+}
+
+/**
  * ★ TASK 2-3: KR専用生成関数（LLMで必ず3本埋める）
  * - ドメイン固有な KR を生成（禁止セット除外）
  * - 返却フォーマットを固定化
@@ -373,17 +599,21 @@ async function generateKeyResultsByLLM(
     kind?: string;
     objective?: string;
     laneType?: 'existing' | 'new';
+    projectType?: ProjectType;
     attempt?: number;
   }
 ): Promise<GenKRResult> {
-  const { deptName, projectTitle, mainLever, kind, objective, laneType = 'existing', attempt = 1 } = params;
+  const { deptName, projectTitle, mainLever, kind, objective, laneType = 'existing', projectType = 'default', attempt = 1 } = params;
 
   // プロンプト生成
   const isRetry = attempt >= 2;
   const strictnessLevel = isRetry ? '厳格' : '標準';
+  const typeSpecificContent = generateTypeSpecificPrompt(projectType, projectTitle, isRetry);
+
   const prompt = `
 部門: ${deptName}
 プロジェクト: ${projectTitle}
+プロジェクト種別: ${projectType}
 レバー: ${mainLever || '未定'}
 種別: ${kind || '未定'}
 目標: ${objective || '未定'}
@@ -393,15 +623,17 @@ ${isRetry ? `
 【${strictnessLevel}モード: 前回失敗のため、さらに厳格に要件を確認します】
 ` : ''}
 
+${typeSpecificContent}
+
 以下の要件で、このプロジェクトの KPI（Key Result）を3本だけ生成してください：
 
 【必須要件】
 1. JSONのみ返す（説明・前後の言葉は絶対禁止）
 2. keyResultsは必ず3本、空配列は禁止
-3. 3本のうち最低1本はドメイン固有（品質/納期/工程/歩留まり/不良率/試験合格率/リードタイム/稼働率/トレーサビリティ など）
+3. 上記の【推奨KPI候補】から3本を選択。3本は異なる指標である必要があります
 4. ★★★ label形式は必ず 「${projectTitle}：{KPI名}（{unit}）」に統一する
 5. 各KRの unit は単位のみ（例："ppm", "日", "%" など）
-6. 禁止セット は絶対に使用禁止：「生産性向上」「NPS」「プロセス改善スコア」「顧客満足度」「従業員満足度」「エンゲージメント」
+6. 【禁止パターン】に記載の言葉は絶対に使用禁止
 
 【返却フォーマット】
 {
@@ -536,7 +768,13 @@ async function ensureKeyResults(
     };
   }
 
-  // Step 5: rawが空の場合、AI生成を試す（最大2回）
+  // Step 5: projectType を分類
+  const projectType = classifyProjectType(projectTitle, deptName, laneType);
+  console.log(
+    `[cascade][kpi][classify] dept="${deptName}" project="${projectTitle}" projectType="${projectType}"`
+  );
+
+  // Step 5.5: rawが空の場合、AI生成を試す（最大2回）
   let aiGenResult = null;
   let lastErrorCode: string | undefined = undefined;
   let aiAttempts = 0;
@@ -550,12 +788,62 @@ async function ensureKeyResults(
       kind: (okr as any)?.kind,
       objective: (okr as any)?.objective,
       laneType,
+      projectType,
       attempt,
     });
 
     if (result.keyResults.length === 3) {
-      aiGenResult = result;
-      break;
+      // ★ TASK 4: AI生成が成功したら検証を実施
+      const aiKrs = result.keyResults.map((kr: any) => ({
+        label: kr.label,
+        current: null,
+        target: null,
+        unit: kr.unit ?? null,
+        due: null,
+      }));
+
+      // ログ: label の先頭30文字を出して形式確認
+      const labels = aiKrs.map((kr: any) => (kr.label ?? '').substring(0, 30)).join(' | ');
+      console.log(
+        `[cascade][kpi][ai-label-check] dept="${deptName ?? 'unknown'}" project="${projectTitle}" labels="${labels}"`
+      );
+
+      // KRI検証を実施
+      const validation = validateKRs(projectType, aiKrs, projectTitle);
+      const validationStatus = validation.ok ? 'pass' : 'fail';
+      console.log(
+        `[cascade][kpi][validate] dept="${deptName}" project="${projectTitle}" attempt=${attempt} status="${validationStatus}" reasons="${validation.reasons.join('|')}"`
+      );
+
+      // KPI名抽出ログ（projectTitle接頭辞を削除）
+      const kpiNames = aiKrs.map((kr: any) => {
+        let name = (kr.label ?? '').replace(projectTitle, '').replace(/^：/, '').trim();
+        return name;
+      });
+      console.log(
+        `[cascade][kpi][ai-kpi-name] dept="${deptName}" project="${projectTitle}" names="${kpiNames.join(' | ')}"`
+      );
+
+      if (validation.ok) {
+        // 検証成功
+        aiGenResult = result;
+        break;
+      } else if (attempt < 2) {
+        // 検証失敗 → リトライ可能
+        console.log(
+          `[cascade][kpi][validate-retry] dept="${deptName}" project="${projectTitle}" attempt=${attempt} will_retry=true reasons="${validation.reasons.join('|')}"`
+        );
+        // ループが続くので次のattemptで自動的にリトライされる
+        continue;
+      } else {
+        // 検証失敗 → リトライ不可
+        lastErrorCode = 'ai_error_validation';
+        console.log(
+          `[cascade][kpi][validate-fail] dept="${deptName}" project="${projectTitle}" attempt=${attempt} reasons="${validation.reasons.join('|')}"`
+        );
+        // ループを抜けてテンプレートフォールバックへ
+        break;
+      }
     }
 
     lastErrorCode = result.errorCode;
@@ -564,7 +852,7 @@ async function ensureKeyResults(
     );
   }
 
-  // Step 6: AI生成成功
+  // Step 6: AI生成成功 → 結果を返す
   if (aiGenResult && aiGenResult.keyResults.length === 3) {
     const aiKrs = aiGenResult.keyResults.map((kr: any) => ({
       label: kr.label,
@@ -573,12 +861,6 @@ async function ensureKeyResults(
       unit: kr.unit ?? null,
       due: null,
     }));
-
-    // ★ ログ: label の先頭30文字を出して形式確認
-    const labels = aiKrs.map((kr: any) => (kr.label ?? '').substring(0, 30)).join(' | ');
-    console.log(
-      `[cascade][kpi][ai-label-check] dept="${deptName ?? 'unknown'}" project="${projectTitle}" labels="${labels}"`
-    );
 
     return {
       ...okr,
