@@ -1199,6 +1199,196 @@ ${
     const normalized = (safe.success ? safe.data : parsed) as z.infer<typeof ResponseSchema>;
 
     /* =========================
+     * ★TASK 2-2: Citations Grounding Gate + 1回再生成
+     * ======================= */
+
+    // 検証関数
+    const hasMinCitations = (p: any): boolean => {
+      return Array.isArray(p?.citations) && p.citations.length >= 2;
+    };
+
+    const hasInlineQuotes = (p: any): boolean => {
+      // 「...」が2箇所以上あるかカウント
+      const text = `${p?.reason ?? ''} ${p?.hypothesis ?? ''}`;
+      const matches = text.match(/「[^」]*」/g);
+      return (matches?.length ?? 0) >= 2;
+    };
+
+    const isProjectGrounded = (p: any): boolean => {
+      return hasMinCitations(p) && hasInlineQuotes(p);
+    };
+
+    // Required fields チェック
+    const hasRequiredFields = (p: any): boolean => {
+      if (!p?.title || !p?.reason || !p?.hypothesis) return false;
+      if (!p?.mainLever || !p?.kind || !p?.horizon) return false;
+      if (!Array.isArray(p?.valueDriverLinks) || p.valueDriverLinks.length < 1) return false;
+      if (!p?.skillRequirements) return false;
+      if (!Array.isArray(p?.humanInvestments) || p.humanInvestments.length < 1) return false;
+      return true;
+    };
+
+    // 各departmentの各projectをチェック＋再生成
+    const groundingCheckAndRetry = async (depts: any[]): Promise<void> => {
+      const failedProjects: Array<{
+        deptIndex: number;
+        deptName: string;
+        laneType: 'existing' | 'new';
+        projectIndex: number;
+        project: any;
+        reason: string;
+      }> = [];
+
+      // 失敗したproject特定
+      for (let dIdx = 0; dIdx < depts.length; dIdx++) {
+        const dept = depts[dIdx];
+        const deptName = dept?.name ?? `dept_${dIdx}`;
+
+        // existing lane
+        if (dept?.lanes?.existing?.projects) {
+          for (let pIdx = 0; pIdx < dept.lanes.existing.projects.length; pIdx++) {
+            const proj = dept.lanes.existing.projects[pIdx];
+            if (!isProjectGrounded(proj)) {
+              const failReason = !hasMinCitations(proj) ? 'citations<2' : 'no_quotes';
+              failedProjects.push({
+                deptIndex: dIdx,
+                deptName,
+                laneType: 'existing',
+                projectIndex: pIdx,
+                project: proj,
+                reason: failReason,
+              });
+            }
+          }
+        }
+
+        // new lane
+        if (dept?.lanes?.new?.projects) {
+          for (let pIdx = 0; pIdx < dept.lanes.new.projects.length; pIdx++) {
+            const proj = dept.lanes.new.projects[pIdx];
+            if (!isProjectGrounded(proj)) {
+              const failReason = !hasMinCitations(proj) ? 'citations<2' : 'no_quotes';
+              failedProjects.push({
+                deptIndex: dIdx,
+                deptName,
+                laneType: 'new',
+                projectIndex: pIdx,
+                project: proj,
+                reason: failReason,
+              });
+            }
+          }
+        }
+      }
+
+      // 失敗projectがあれば再生成（最大1回）
+      if (failedProjects.length > 0) {
+        for (const failed of failedProjects) {
+          const dept = depts[failed.deptIndex];
+          const deptName = dept?.name ?? '';
+
+          // slot計算: existing は 1/2、new は 3 + projectIndex
+          const slot = failed.laneType === 'existing' ? failed.projectIndex + 1 : 3 + failed.projectIndex;
+
+          console.log(`[cascade][grounding][retry] dept=${deptName} slot=${slot} reason="${failed.reason}"`);
+
+          // FACTPACK anchors を取得
+          const factPack = factPackByDept.get(deptName);
+          const anchorsList = factPack?.anchors ?? [];
+          const anchorsText = anchorsList
+            .map((a: any) => `  - ${a.id}: ${a.text}`)
+            .join('\n');
+
+          // 再生成prompt
+          const retryPrompt = `
+前回のプロジェクト案では、引用ベース生成の要件を満たしていません：
+- citations（引用した anchor ID）が2未満、または
+- reason/hypothesis に「」で括られた引用が不足
+
+以下の部門について、${failed.laneType === 'existing' ? '既存進化レーン' : '新規探索レーン'}のプロジェクト案を修正してください：
+
+部門: ${deptName}
+
+【このセグメントで利用可能なFACTPACK anchors】
+${anchorsText || '（利用可能なanchorsなし）'}
+
+【修正必須条件】
+1. citations は最低2個の anchor ID を含むこと（上記リストから選択すること、捏造禁止）
+2. reason と hypothesis に「」で括られた本文引用を最低2箇所含めること
+   （例：「主要顧客：トヨタ（fact-cust-1）」「営業利益率は約12%（fact-fin-2）」）
+3. 固有名詞（顧客名/製品名/工程）を title に必須で含めること
+4. 他の部門と異なるanchorsを選ぶこと
+
+前回の出力（参考）：
+${JSON.stringify(failed.project, null, 2)}
+
+修正後のプロジェクト案の JSON のみを返してください：
+
+{
+  "title": "...",
+  "reason": "...",
+  "hypothesis": "...",
+  "mainLever": "ACQ" | "ARPU" | "CHURN" | "COST" | "EFFICIENCY" | "FUTURE",
+  "horizon": "short" | "mid" | "long",
+  "kind": "growth" | "cost" | "efficiency" | "future",
+  "citations": ["fact-...", "fact-..."],
+  "valueDriverLinks": [...],
+  "skillRequirements": {...},
+  "humanInvestments": [...],
+  "generatedBy": "ai",
+  "generatedSlot": ${slot},
+  "generatedGroup": "cascade_v1"
+}
+`.trim();
+
+          try {
+            const retryCompletion = await openai.chat.completions.create({
+              model: process.env.OPENAI_MODEL ?? 'gpt-4o',
+              response_format: { type: 'json_object' },
+              temperature: 0.4,
+              max_tokens: 1200,
+              messages: [
+                { role: 'system', content: '修正プロジェクト案の JSON のみを返してください。日本語で。' },
+                { role: 'user', content: retryPrompt },
+              ],
+            });
+
+            const retryRaw = retryCompletion.choices?.[0]?.message?.content || '';
+            const retryParsed = extractJsonObject(retryRaw);
+
+            if (retryParsed) {
+              const retrySafe = ProjectSchema.safeParse(retryParsed);
+              const retryProject = retrySafe.success ? retrySafe.data : retryParsed;
+
+              // 再検証: grounding + required fields
+              if (isProjectGrounded(retryProject) && hasRequiredFields(retryProject)) {
+                // 成功：差し替え
+                if (failed.laneType === 'existing') {
+                  depts[failed.deptIndex].lanes.existing.projects[failed.projectIndex] = retryProject;
+                } else {
+                  depts[failed.deptIndex].lanes.new.projects[failed.projectIndex] = retryProject;
+                }
+                console.log(`[cascade][grounding][retry-success] dept=${deptName} slot=${slot}`);
+              } else {
+                // 再生成でもNGなら fallback（既存結果を採用）
+                const failReason = !isProjectGrounded(retryProject) ? 'grounding_ng' : 'required_fields_missing';
+                console.warn(`[cascade][grounding][fail] dept=${deptName} slot=${slot} reason="${failReason}" (再生成でも条件未充足、既存結果を採用)`);
+              }
+            } else {
+              // JSON解析失敗なら fallback
+              console.warn(`[cascade][grounding][fail] dept=${deptName} slot=${slot} reason="retry_json_parse_error"`);
+            }
+          } catch (err) {
+            console.warn(`[cascade][grounding][fail] dept=${deptName} slot=${slot} reason="retry_error" error=${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      }
+    };
+
+    // ★TASK 2-2 実行
+    await groundingCheckAndRetry(normalized.departments);
+
+    /* =========================
      * ★重複検知→1回再生成機能（プロダクト品質の最終兵器）
      * ======================= */
 
