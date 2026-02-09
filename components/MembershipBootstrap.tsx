@@ -89,7 +89,7 @@ export default function MembershipBootstrap() {
         const token = sessRes?.session?.access_token;
 
         try {
-          await fetch('/api/companies/provision', {
+          const provRes = await fetch('/api/companies/provision', {
             method: 'POST',
             credentials: 'same-origin',
             headers: {
@@ -98,8 +98,12 @@ export default function MembershipBootstrap() {
             },
             // body: JSON.stringify({ companyName: '初期名' }), // 任意
           });
-        } catch {
+          if (!provRes.ok) {
+            console.warn('[MembershipBootstrap] provision failed with status:', provRes.status);
+          }
+        } catch (err) {
           // ネットワーク失敗 → 後段のリトライに任せる
+          console.warn('[MembershipBootstrap] provision network error:', err instanceof Error ? err.message : String(err));
         }
         if (!alive) return;
 
