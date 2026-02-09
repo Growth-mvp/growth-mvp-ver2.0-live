@@ -37,6 +37,9 @@
   "exclude": [
     "node_modules",
     ".next/**",
-    "archive/**"
+    "archive/**",
+    "_extracted_sections",
+    "_extracted_sections_utf8",
+    "app/api/generate-cascade/reference-implementations"
   ]
 }
