@@ -178,7 +178,65 @@ function ensureObject<T extends object = Record<string, any>>(v: any): T {
   return p && typeof p === 'object' && !Array.isArray(p) ? (p as T) : ({} as T);
 }
 
-/* undefined を深い階層まで除去（“意図しない上書き”抑制） */
+/* ============================================================
+ * TASK A: KPI を string[] に強制変換するヘルパー
+ * DB復元・保存・UI描画で object が入ることを防ぐ
+ * ========================================================== */
+const kpiToString = (x: any): string => {
+  if (typeof x === 'string') return x;
+  if (!x || typeof x !== 'object') return String(x ?? '');
+  // よくある候補を順に拾う
+  if (typeof x.label === 'string') return x.label;
+  if (typeof x.name === 'string') return x.name;
+  if (typeof x.title === 'string') return x.title;
+  if (typeof x.text === 'string') return x.text;
+  // 最後の手段：JSON化（ただし見づらいので極力避ける）
+  try {
+    return JSON.stringify(x);
+  } catch {
+    return String(x);
+  }
+};
+
+const ensureKpiStringArray = (arr: any): string[] => {
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .map(kpiToString)
+    .map((s) => (typeof s === 'string' ? s.trim() : String(s)))
+    .filter((s) => s.length > 0);
+};
+
+/* ★ KeyResult を文字列化（KPI と同じ優先度） */
+const krToString = (x: any): string => {
+  if (typeof x === 'string') return x;
+  if (x == null) return '';
+  if (typeof x === 'object') {
+    const extracted = x.label ?? x.name ?? x.title ?? x.text;
+    if (extracted) return String(extracted);
+    return JSON.stringify(x);
+  }
+  return String(x ?? '');
+};
+
+/* ★ keyResults 配列を string[] に強制 */
+const ensureKrStringArray = (arr: any): string[] => {
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .map(krToString)
+    .map((s) => (typeof s === 'string' ? s.trim() : String(s)))
+    .filter((s) => s.length > 0);
+};
+
+/* ★ OKR 全体を正規化（keyResults を string[] に強制） */
+const ensureOkrsNormalized = (okrs: any): any[] => {
+  if (!Array.isArray(okrs)) return [];
+  return okrs.map((okr: any) => ({
+    ...okr,
+    keyResults: ensureKrStringArray(okr?.keyResults),
+  }));
+};
+
+/* undefined を深い階層まで除去（"意図しない上書き"抑制） */
 function pruneUndefinedDeep<T = any>(input: T): T {
   if (Array.isArray(input)) {
     // @ts-ignore
@@ -463,6 +521,52 @@ function buildDbRowFromState(state: StrategyData) {
   return row;
 }
 
+// ★ TASK A: okrsV2 → okrs/kpis 投影ヘルパー
+const ensureStringArray = (v: any): string[] =>
+  Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
+
+const okrsV2ToOkrs = (okrsV2: any[], fallbackTitle: string) => {
+  const out = ensureArray(okrsV2).map((o: any) => {
+    const objective =
+      (typeof o?.objective === 'string' && o.objective.trim()) ||
+      (typeof o?.title === 'string' && o.title.trim()) ||
+      fallbackTitle;
+
+    const krsRaw = ensureArray(o?.keyResults ?? o?.krs ?? o?.kpi ?? o?.items);
+    const keyResults = krsRaw
+      .map((kr: any) => {
+        if (typeof kr === 'string') return { label: kr };
+        if (typeof kr?.label === 'string') return { label: kr.label };
+        if (typeof kr?.name === 'string') return { label: kr.name };
+        return null;
+      })
+      .filter(Boolean);
+
+    return { ...o, objective, keyResults };
+  });
+
+  return out;
+};
+
+const okrsToKpis = (okrs: any[]) => {
+  const names: string[] = [];
+  for (const o of ensureArray(okrs)) {
+    for (const kr of ensureArray(o?.keyResults)) {
+      const label =
+        typeof kr === 'string'
+          ? kr
+          : typeof kr?.label === 'string'
+          ? kr.label
+          : typeof kr?.name === 'string'
+          ? kr.name
+          : '';
+
+      if (label) names.push(label);
+    }
+  }
+  return names;
+};
+
 function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const safeRow = row ?? {};
   const out: any = {};
@@ -581,6 +685,26 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
     })),
   }));
 
+  // ★ TASK B: DBロード後の cascade 情報チェックログ
+  const cascadeLoadCounts = out.departments.map((d: any) => ({
+    name: d.name,
+    projCount: Array.isArray(d.projects) ? d.projects.length : 0,
+    projOkrCounts: Array.isArray(d.projects)
+      ? d.projects.map((p: any) => ({
+          title: p.title,
+          okrCount: Array.isArray(p.okrs) ? p.okrs.length : 0,
+          kpiCount: Array.isArray(p.kpis) ? p.kpis.length : 0,
+        }))
+      : [],
+  }));
+
+  if (process.env.NEXT_PUBLIC_DEBUG_CASCADE_DUP === '1') {
+    console.log('[cascade][load][counts]', {
+      totalDepts: out.departments.length,
+      depts: cascadeLoadCounts,
+    });
+  }
+
   // ★ normalize 前の departments を保持（okrsV2 が入っている生データ）
   const rawDepartmentsWithOkrsV2 = out.departments;
 
@@ -589,6 +713,20 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const rawSegmentPL = out.segmentPL;
   const rawSegmentBS = out.segmentBS;
 
+  // ★ CASE3 診断：normalize 前の departments 内部の深部を確認
+  const diagDeptDeep = (depts: any[]) =>
+    (Array.isArray(depts) ? depts : []).map((d: any) => ({
+      name: d?.name,
+      projects: (Array.isArray(d?.projects) ? d.projects : []).map((p: any) => ({
+        title: p?.title,
+        okrs: Array.isArray(p?.okrs) ? p.okrs.length : 0,
+        kpis: Array.isArray(p?.kpis) ? p.kpis.length : 0,
+        okrsV2: Array.isArray(p?.okrsV2) ? p.okrsV2.length : 0,
+      })),
+    }));
+  console.log('[diag][dept:raw:deep]', diagDeptDeep(out.departments));
+  console.log('[diag][dept:raw:deep:first]', JSON.stringify(diagDeptDeep(out.departments)?.[0] ?? null));
+
   // ★ DEBUG：normalize 前（プリミティブ値のみ）
   const outCsvFdExists = !!out.csvFinanceData;
   const outSegmentPLKeys = Object.keys(out.segmentPL || {}).length;
@@ -596,6 +734,10 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   if (DEBUG) console.log('[buildStateFromDbRow] norm前 csvFd:' + outCsvFdExists + ' segmentPL:' + outSegmentPLKeys + ' segmentBS:' + outSegmentBSKeys);
 
   const normalized = normalizeStrategyData(out) as StrategyData;
+
+  // ★ CASE3 診断：normalize 後の departments 内部の深部を確認
+  console.log('[diag][dept:norm:deep]', diagDeptDeep((normalized as any).departments));
+  console.log('[diag][dept:norm:deep:first]', JSON.stringify(diagDeptDeep((normalized as any).departments)?.[0] ?? null));
 
   // ★ DEBUG：normalize 後（プリミティブ値のみ）
   const normCsvFdExists = !!(normalized as any).csvFinanceData;
@@ -627,8 +769,26 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
           const existingOkrsV2 = ensureArray((proj as any).okrsV2);
           if (existingOkrsV2.length > 0) return proj; // 既にあれば優先
 
-          // ★ ここで DB からの okrsV2 を復元
-          return { ...proj, okrsV2: rawOkrsV2 };
+          // ★ ここで DB からの okrsV2 を復元 + okrs/kpis も投影して復元
+          const projectedOkrs = okrsV2ToOkrs(
+            rawOkrsV2,
+            proj?.title ?? rawProj?.title ?? ''
+          );
+          const projectedKpis = okrsToKpis(projectedOkrs);
+
+          return {
+            ...proj,
+            okrsV2: rawOkrsV2,
+            // 既にあるなら上書きしない（ユーザー編集を守る）
+            okrs:
+              Array.isArray(proj?.okrs) && proj.okrs.length > 0
+                ? proj.okrs
+                : projectedOkrs,
+            kpis:
+              Array.isArray(proj?.kpis) && proj.kpis.length > 0
+                ? proj.kpis
+                : projectedKpis,
+          };
         });
 
         return { ...dept, projects: mergedProjs };
@@ -643,7 +803,35 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
         ? (normalized as any).departments.length
         : 'no-field',
     );
+
+    // ★ TASK C: ロード後ログを normalized 側で再計測
+    if (process.env.NEXT_PUBLIC_DEBUG_CASCADE_DUP === '1') {
+      const after = ensureArray((normalized as any).departments).map((d: any) => ({
+        name: d.name,
+        projCount: Array.isArray(d.projects) ? d.projects.length : 0,
+        projOkrCounts: Array.isArray(d.projects)
+          ? d.projects.map((p: any) => ({
+              title: p.title,
+              okrCount: Array.isArray(p.okrs) ? p.okrs.length : 0,
+              kpiCount: Array.isArray(p.kpis) ? p.kpis.length : 0,
+              okrsV2Count: Array.isArray(p.okrsV2) ? p.okrsV2.length : 0,
+            }))
+          : [],
+      }));
+
+      console.log('[cascade][load][counts:normalized]', { depts: after });
+    }
   }
+
+  // ★ TASK B: load 時に project.kpis と okrs[].keyResults を string[] に正規化（object が混在していた時の救済）
+  (normalized as any).departments = ensureArray((normalized as any).departments).map((d: any) => ({
+    ...d,
+    projects: ensureArray(d.projects).map((p: any) => ({
+      ...p,
+      kpis: ensureKpiStringArray(p.kpis), // object → string[] に矯正
+      okrs: ensureOkrsNormalized(p.okrs), // okrs[].keyResults も object → string[] に矯正
+    })),
+  }));
 
   // ★ 修正：normalizeStrategyData で消えた csvFinanceData/segmentPL/segmentBS を復元
   // normalize では配列型のみを認識するため、Record型のsegmentPL/segmentBSが失われる
@@ -858,6 +1046,19 @@ export async function getFullStrategyDataByCompany(
     }
 
     const rowData = baseRes.data ?? {};
+
+    // ★ TASK C: DBから取れた rawRow.departments をログ（復元の入口）
+    const rawDep = (rowData as any)?.departments;
+    const rawDepDiag = (Array.isArray(rawDep) ? rawDep : []).map((d: any) => ({
+      name: d?.name,
+      proj: (Array.isArray(d?.projects) ? d.projects : []).map((p: any) => ({
+        title: p?.title,
+        okrs: Array.isArray(p?.okrs) ? p.okrs.length : 0,
+        kpis: Array.isArray(p?.kpis) ? p.kpis.length : 0,
+        okrsV2: Array.isArray(p?.okrsV2) ? p.okrsV2.length : 0,
+      })),
+    }));
+    console.log('[diag][load:db_raw:departments]', rawDepDiag);
 
     /* ★ TASK 2: DB行のSTAGE2列存在確認ログ */
     if (DEBUG) {
@@ -1248,8 +1449,19 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         hqAdjustmentBS: (mergedState as any).hqAdjustmentBS,
       });
 
+      // ★ TASK C: save時に kpis と okrs[].keyResults を string[] に正規化（DBに object が入らないようにする）
+      const normalizedDepartmentsForSave = ensureArray((mergedState as any).departments).map((d: any) => ({
+        ...d,
+        projects: ensureArray(d.projects).map((p: any) => ({
+          ...p,
+          kpis: ensureKpiStringArray(p.kpis), // object → string[] に矯正
+          okrs: ensureOkrsNormalized(p.okrs), // okrs[].keyResults も object → string[] に矯正
+        })),
+      }));
+
       const updatePayload: any = {
         ...baseRow,
+        departments: normalizedDepartmentsForSave, // ★ 正規化済みの departments
         finance_pl: (mergedState as any).financePL,
         csv_finance_data: nextCsv,
         user_id: userId,
@@ -1258,13 +1470,48 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       };
       delete updatePayload.created_at;
 
-      // ★ TASK 1: Remove win_patterns fields to prevent PGRST204 error
+      // ★ TASK B: Cascade duplicate対策 - departments/projects/okrs/kpis が保存されているか確認
+    const cascadeDeptsCounts = Array.isArray((prunedIncoming as any).departments)
+      ? (prunedIncoming as any).departments.map((d: any) => ({
+          name: d.name,
+          projCount: Array.isArray(d.projects) ? d.projects.length : 0,
+          projOkrCounts: Array.isArray(d.projects)
+            ? d.projects.map((p: any) => ({
+                title: p.title,
+                okrCount: Array.isArray(p.okrs) ? p.okrs.length : 0,
+                kpiCount: Array.isArray(p.kpis) ? p.kpis.length : 0,
+              }))
+            : [],
+        }))
+      : [];
+
+    if (process.env.NEXT_PUBLIC_DEBUG_CASCADE_DUP === '1' && cascadeDeptsCounts.length > 0) {
+      console.log('[cascade][save][departments_detail]', {
+        totalDepts: cascadeDeptsCounts.length,
+        depts: cascadeDeptsCounts,
+      });
+    }
+
+    // ★ TASK 1: Remove win_patterns fields to prevent PGRST204 error
       // These fields don't exist in the DB table strategy_data
       // Removing them proactively prevents UPDATE failure that blocks answers12 save
       delete (updatePayload as any).win_patterns;
       delete (updatePayload as any).win_patterns_candidate;
       delete (updatePayload as any).winPatterns;
       delete (updatePayload as any).winPatternsCandidate;
+
+      // ★ TASK B: Supabase updatePayload に departments が そのまま入っているか確認
+      const dep = (updatePayload as any).departments;
+      const depDiag = (Array.isArray(dep) ? dep : []).map((d: any) => ({
+        name: d?.name,
+        proj: (Array.isArray(d?.projects) ? d.projects : []).map((p: any) => ({
+          title: p?.title,
+          okrs: Array.isArray(p?.okrs) ? p.okrs.length : 0,
+          kpis: Array.isArray(p?.kpis) ? p.kpis.length : 0,
+          okrsV2: Array.isArray(p?.okrsV2) ? p.okrsV2.length : 0,
+        })),
+      }));
+      console.log('[diag][db:updatePayload:departments]', depDiag);
 
       if (DEBUG) console.log('[SAVE update payload]', {
         finance_pl_len: Array.isArray((updatePayload.finance_pl as any))
