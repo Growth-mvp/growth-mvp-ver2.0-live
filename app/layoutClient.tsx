@@ -510,10 +510,12 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   /* ================================
    * 2.5) strategyId provision（Bearer 付与 & 未ログイン/無トークン時は実行しない）
    *     + Cookie 同期（プロビジョン側が companyId を返した場合）
+   *     ★ 修正：membership timeout中は呼ばない
    * ============================== */
   useEffect(() => {
     const onAuthScene = isAuthPath(pathname);
     if (!bootstrapped) return;
+    if (bootstrapTimedOut) return; // ★ CRITICAL: membership timeout中は provision を呼ばない
 
     // 会社変更で記録リセット
     if (lastProvisionForCompany.current && lastProvisionForCompany.current !== (companyId ?? null)) {
@@ -596,7 +598,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       ac.abort();
       provisionInFlight.current = false;
     };
-  }, [bootstrapped, companyId, pathname, setStrategyId]);
+  }, [bootstrapped, companyId, pathname, setStrategyId, bootstrapTimedOut]); // ★ bootstrapTimedOut を依存配列に追加
 
   /* ================================
    * 3) ルーティング制御
