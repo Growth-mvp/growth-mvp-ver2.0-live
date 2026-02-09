@@ -225,6 +225,30 @@ function getProjectKpiLabels(p: any): string[] {
 }
 
 /* ==========================================
+   KPI表示用ユーティリティ（object → string 変換）
+========================================== */
+const toDisplayText = (x: any): string => {
+  // 文字列：そのまま返す
+  if (typeof x === 'string') return x;
+
+  // null/undefined：空文字
+  if (x == null) return '';
+
+  // 数値/真偽値：文字列化
+  if (typeof x === 'number' || typeof x === 'boolean') return String(x);
+
+  // オブジェクト：フィールド抽出（label → name → title → text → JSON）
+  if (typeof x === 'object') {
+    const extracted = x.label ?? x.name ?? x.title ?? x.text;
+    if (extracted) return String(extracted);
+    return JSON.stringify(x);
+  }
+
+  // その他：文字列化
+  return String(x ?? '');
+};
+
+/* ==========================================
    4章 + P/L グラフ用ユーティリティ
 ========================================== */
 const formatYenCompact = (n?: number | null) => {
@@ -952,6 +976,74 @@ function sanitizeOkrsForProject(p: Project, okrs: StoreOKR[]): StoreOKR[] {
    - OKRは一切変更しない（手入力扱い）
 ========================= */
 
+// ★修正（Stage3）: 重複検知・防止用ヘルパー
+const DEBUG_DUP = process.env.NEXT_PUBLIC_DEBUG_CASCADE_DUP === '1';
+
+function normTitle(s: string) {
+  return (s ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+// ★ TASK A: OKR/KPI 引き継ぎ用マージ関数
+type AnyProj = any;
+
+const mergeCascadeFields = (incoming: AnyProj, existing?: AnyProj): AnyProj => {
+  if (!existing) return incoming;
+
+  const incomingOkrs = Array.isArray(incoming.okrs) ? incoming.okrs : [];
+  const existingOkrs = Array.isArray(existing.okrs) ? existing.okrs : [];
+
+  const incomingKpis = Array.isArray(incoming.kpis) ? incoming.kpis : [];
+  const existingKpis = Array.isArray(existing.kpis) ? existing.kpis : [];
+
+  const incomingOkrsV2 = Array.isArray(incoming.okrsV2) ? incoming.okrsV2 : [];
+  const existingOkrsV2 = Array.isArray(existing.okrsV2) ? existing.okrsV2 : [];
+
+  // 「incomingが空なら existing を引き継ぐ」方針（ユーザー編集保持）
+  const merged = {
+    ...existing,
+    ...incoming,
+    okrs: incomingOkrs.length > 0 ? incomingOkrs : existingOkrs,
+    kpis: incomingKpis.length > 0 ? incomingKpis : existingKpis,
+    okrsV2: incomingOkrsV2.length > 0 ? incomingOkrsV2 : existingOkrsV2,
+  };
+
+  return merged;
+};
+
+const buildProjectIndexByTitle = (projects: AnyProj[]) => {
+  const map = new Map<string, AnyProj>();
+  for (const p of Array.isArray(projects) ? projects : []) {
+    const key = normTitle(p?.title ?? '');
+    if (!key) continue;
+    if (!map.has(key)) map.set(key, p);
+  }
+  return map;
+};
+
+function dupStats(titles: string[]) {
+  const m = new Map<string, number>();
+  for (const t of titles) {
+    const k = normTitle(t);
+    if (!k) continue;
+    m.set(k, (m.get(k) ?? 0) + 1);
+  }
+  const dups = [...m.entries()].filter(([, c]) => c >= 2);
+  return { total: titles.length, unique: m.size, dups: dups.slice(0, 10) };
+}
+
+function dedupeProjectsByTitle(projects: Project[]): Project[] {
+  const seen = new Set<string>();
+  const out: Project[] = [];
+  for (const p of projects ?? []) {
+    const k = normTitle(p?.title ?? '');
+    if (!k) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(p);
+  }
+  return out;
+}
+
 function normalizeProjectDraft(pd: ApiProjectDraft): Project | null {
   const title = (pd?.title ?? '').trim();
   if (!title) return null;
@@ -970,6 +1062,22 @@ function normalizeProjectDraft(pd: ApiProjectDraft): Project | null {
     horizon: normalizeHorizon(pd?.horizon),
     kind: normalizeKind(pd?.kind),
   } as Project;
+
+  // ★ TASK A: okrsV2/okrs/kpis を API レスポンスから取り込む（生成結果の永続化）
+  const pdOkrsV2 = (pd as any)?.okrsV2;
+  if (Array.isArray(pdOkrsV2) && pdOkrsV2.length > 0) {
+    (p as any).okrsV2 = pdOkrsV2;
+  }
+
+  const pdOkrs = (pd as any)?.okrs;
+  if (Array.isArray(pdOkrs) && pdOkrs.length > 0) {
+    (p as any).okrs = pdOkrs;
+  }
+
+  const pdKpis = (pd as any)?.kpis;
+  if (Array.isArray(pdKpis) && pdKpis.length > 0) {
+    (p as any).kpis = pdKpis;
+  }
 
   // skillRequirements を API レスポンスから取り込む
   const pdSkills = (pd as any)?.skillRequirements;
@@ -1007,65 +1115,94 @@ function mergeProjectInto(projects: Project[], incoming: Project): Project[] {
   return next;
 }
 
-function applyLaneToProjects(base: Project[], lane?: ApiLane): Project[] {
+// ★修正（Stage3）: applyLaneToProjects を pure function化
+// このlaneが生成するプロジェクト配列のみを返す（既存配列への追記禁止）
+function applyLaneToProjects(lane?: ApiLane): Project[] {
   const projectsDraft: ApiProjectDraft[] = Array.isArray(lane?.projects) ? lane!.projects! : [];
 
-  let projects = [...base];
-  if (!projectsDraft.length) return projects;
+  // ★重要：ローカル配列のみで構築（既存の base は参照しない）
+  const laneProjects: Project[] = [];
 
-  // ★事故防止：slot→index マップを使用（参照比較は clone で事故る）
-  const aiSlotIndexMap = new Map<number, number>();
-  projects.forEach((p, idx) => {
-    if (isAiGeneratedProject(p)) {
-      const slot = getAiSlot(p) ?? getAiSlotFromTitle(p.title);
-      if (slot) aiSlotIndexMap.set(slot, idx);
-    }
-  });
-
-  // 新しいAI提案をマージ
   for (let i = 0; i < projectsDraft.length; i++) {
     const pd = projectsDraft[i];
     const normalized = normalizeProjectDraft(pd);
     if (!normalized) continue;
 
-    const slot = (normalized as any).generatedSlot;
-
-    if (slot && aiSlotIndexMap.has(slot)) {
-      // 既存AI枠を更新（参照ではなく index で検索）
-      const existingIdx = aiSlotIndexMap.get(slot)!;
-      if (existingIdx >= 0 && existingIdx < projects.length) {
-        // ★再確認：更新対象が本当にAI枠か検証（念のため）
-        if (isAiGeneratedProject(projects[existingIdx])) {
-          // AI枠を上書き（ユーザー編集が加わっていたら失う可能性があるが、
-          // meta情報が無くなれば promoteToUserProject が次回の編集で実行される）
-          projects[existingIdx] = normalized;
-        }
-      }
-    } else {
-      // 新規AI枠として追加（slot がない、または既存マップに無い）
-      projects.push(normalized);
-    }
+    laneProjects.push(normalized);
   }
 
-  return projects;
+  return laneProjects;
 }
 
+// ★修正（Stage3）: 「置換」ベースに変更
+// 3つのレーン結果を集約してから、一度だけ反映する（重複を防止）
 function applyDeptDraftToProjects(existingProjects: Project[], deptDraft: ApiDeptDraft): Project[] {
-  let projects: Project[] = [...existingProjects];
-
-  // 1) 旧形式：rd.projects（okrDraft は一切変更しない）
-  if (Array.isArray(deptDraft.projects) && deptDraft.projects.length) {
-    const legacyLane: ApiLane = { projects: deptDraft.projects };
-    projects = applyLaneToProjects(projects, legacyLane);
+  const beforeCount = existingProjects.length;
+  if (DEBUG_DUP) {
+    const beforeTitles = (existingProjects ?? []).map(p => p?.title ?? '');
+    console.log('[cascade][dupcheck] beforeApply', {
+      deptName: (deptDraft as any).name,
+      existingCount: beforeCount,
+      beforeStats: dupStats(beforeTitles),
+      titles: beforeTitles.slice(0, 3),
+    });
   }
 
-  // 2) 既存進化レーン
-  projects = applyLaneToProjects(projects, deptDraft?.lanes?.existing);
+  // ★重要：各レーンから生成プロジェクトを集約
+  const lane1Projects = Array.isArray(deptDraft.projects) && deptDraft.projects.length
+    ? applyLaneToProjects({ projects: deptDraft.projects } as ApiLane)
+    : [];
 
-  // 3) 新規探索レーン
-  projects = applyLaneToProjects(projects, deptDraft?.lanes?.new);
+  const lane2Projects = applyLaneToProjects(deptDraft?.lanes?.existing);
+  const lane3Projects = applyLaneToProjects(deptDraft?.lanes?.new);
 
-  return projects;
+  // ★置換：3つのレーン結果を結合して、最終的なプロジェクト配列を作成
+  const nextProjectsRaw = [...lane1Projects, ...lane2Projects, ...lane3Projects];
+
+  // ★保険：重複排除（万が一同じlaneから同名プロジェクトが返されたら）
+  const nextProjects = dedupeProjectsByTitle(nextProjectsRaw);
+
+  // ★ TASK B & C: 既存PJから OKR/KPI を引き継ぐマージ
+  const existingIndex = buildProjectIndexByTitle(existingProjects);
+  const nextProjectsMerged = nextProjects.map((p) => {
+    const key = normTitle(p?.title ?? '');
+    return mergeCascadeFields(p, key ? existingIndex.get(key) : undefined);
+  });
+
+  // ★ 最終的に deduped されたマージ結果を返す
+  const deduped = dedupeProjectsByTitle(nextProjectsMerged);
+
+  // ★ TASK D: 診断ログ（okrs/kpis が維持されているか）
+  if (DEBUG_DUP) {
+    const beforeStats = (existingProjects ?? []).map(p => ({
+      t: p?.title ?? '',
+      okrs: Array.isArray(p?.okrs) ? p.okrs.length : 0,
+      kpis: Array.isArray(p?.kpis) ? p.kpis.length : 0,
+    }));
+    const afterStats = deduped.map(p => ({
+      t: p?.title ?? '',
+      okrs: Array.isArray(p?.okrs) ? p.okrs.length : 0,
+      kpis: Array.isArray(p?.kpis) ? p.kpis.length : 0,
+    }));
+    console.log('[cascade][mergecheck]', {
+      before: beforeStats,
+      after: afterStats,
+    });
+
+    const afterTitles = deduped.map(p => p?.title ?? '');
+    console.log('[cascade][dupcheck] afterApply', {
+      deptName: (deptDraft as any).name,
+      resultCount: deduped.length,
+      afterStats: dupStats(afterTitles),
+      titles: afterTitles.slice(0, 3),
+      increase: deduped.length - beforeCount,
+      lane1: lane1Projects.length,
+      lane2: lane2Projects.length,
+      lane3: lane3Projects.length,
+    });
+  }
+
+  return deduped;
 }
 
 /* =========================
@@ -1135,11 +1272,11 @@ const VisualCard = memo(function VisualCard({ d }: { d: Department }) {
                     </div>
                   )}
 
-                  {okr?.objective && <div className="mt-2 text-xs text-zinc-700">目標：{okr.objective}</div>}
+                  {okr?.objective && <div className="mt-2 text-xs text-zinc-700">目標：{toDisplayText(okr.objective)}</div>}
                   {krs.length > 0 && (
                     <ul className="mt-1 pl-4 space-y-1 list-disc text-xs text-zinc-700">
                       {krs.slice(0, 3).map((kr, idx) => (
-                        <li key={idx}>{String(kr)}</li>
+                        <li key={idx}>{toDisplayText(kr)}</li>
                       ))}
                     </ul>
                   )}
@@ -1363,6 +1500,118 @@ export default function CascadePage() {
     return () => clearInterval(id);
   }, [boot?.isHydrating, hydrated, accessCompanyId, scopeCompanyId, setHydrated]);
 
+  /* ===== TASK 1: UI が何を見ているかの診断ログ ===== */
+  useEffect(() => {
+    if (!hydrated) return;
+
+    const d0 = departments?.[0];
+    const p0 = d0?.projects?.[0];
+
+    console.log('[diag][ui:dept_source]', {
+      depts: Array.isArray(departments) ? departments.length : 'no',
+      d0: d0?.name,
+      p0: p0?.title,
+      p0_okrs: Array.isArray((p0 as any)?.okrs) ? (p0 as any).okrs.length : 0,
+      p0_kpis: Array.isArray((p0 as any)?.kpis) ? (p0 as any).kpis.length : 0,
+      p0_okrsV2: Array.isArray((p0 as any)?.okrsV2) ? (p0 as any).okrsV2.length : 0,
+    });
+  }, [hydrated, departments]);
+
+  /* ===== TASK 2: リロード後に departments から okrs/kpis を復元 ===== */
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!Array.isArray(departments) || departments.length === 0) return;
+
+    // 既に departments に okrs/kpis が入っているか確認
+    let hasOkrsOrKpis = false;
+    for (const d of departments) {
+      for (const p of (d as any).projects ?? []) {
+        if ((Array.isArray(p?.okrs) && p.okrs.length > 0) ||
+            (Array.isArray(p?.kpis) && p.kpis.length > 0) ||
+            (Array.isArray(p?.okrsV2) && p.okrsV2.length > 0)) {
+          hasOkrsOrKpis = true;
+          break;
+        }
+      }
+      if (hasOkrsOrKpis) break;
+    }
+
+    if (!hasOkrsOrKpis) {
+      if (DEBUG) console.log('[cascade] 📝 departments に okrs/kpis/okrsV2 がないので何もしない（生成前）');
+      return;
+    }
+
+    // kpis がない projects に対して okrs から復元
+    const nextDepartments = departments.map((d: any) => {
+      const projects = Array.isArray((d as any).projects) ? (d as any).projects : [];
+
+      const updatedProjects = projects.map((p: any) => {
+        if (Array.isArray(p?.kpis) && p.kpis.length > 0) {
+          // 既に kpis がある
+          return p;
+        }
+
+        // kpis がない場合、okrs から復元
+        if (Array.isArray(p?.okrs) && p.okrs.length > 0) {
+          const extractedKpis = [];
+          for (const okr of p.okrs) {
+            if (Array.isArray(okr?.keyResults)) {
+              for (const kr of okr.keyResults) {
+                const label = typeof kr === 'string' ? kr : (typeof kr?.label === 'string' ? kr.label : '');
+                if (label) extractedKpis.push(label);
+              }
+            }
+          }
+          if (extractedKpis.length > 0) {
+            return { ...p, kpis: extractedKpis };
+          }
+        }
+
+        return p;
+      });
+
+      return { ...d, projects: updatedProjects };
+    });
+
+    // 更新があった場合のみ store に反映
+    const hasChanged = nextDepartments.some((d: any, di: number) => {
+      const origD = departments[di];
+      const origProjs = Array.isArray((origD as any).projects) ? (origD as any).projects : [];
+      const nextProjs = Array.isArray(d.projects) ? d.projects : [];
+      return origProjs.some((p: any, pi: number) => {
+        const nextP = nextProjs[pi];
+        const origKpis = Array.isArray(p?.kpis) ? p.kpis : [];
+        const nextKpis = Array.isArray(nextP?.kpis) ? nextP.kpis : [];
+        return origKpis.length !== nextKpis.length;
+      });
+    });
+
+    if (hasChanged) {
+      console.log('[diag][rehydrate:kpis_from_okrs]', {
+        deptCount: nextDepartments.length,
+        restored: true,
+      });
+      setDepartmentsInStore?.(nextDepartments);
+
+      // ★ TASK 3: diagnostics - kpis/keyResults が全て string[] になっているか確認
+      if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
+        setTimeout(() => {
+          const first = nextDepartments[0];
+          const firstProj = first?.projects?.[0];
+          const firstOkr = firstProj?.okrs?.[0];
+          console.log('[diag][shape] After setDepartments:',{
+            kpiTypes: Array.isArray(firstProj?.kpis)
+              ? firstProj.kpis.slice(0, 3).map((k: any, i: number) => ({ i, type: typeof k, val: k }))
+              : 'not-array',
+            krTypes: Array.isArray(firstOkr?.keyResults)
+              ? firstOkr.keyResults.slice(0, 3).map((kr: any, i: number) => ({ i, type: typeof kr, val: kr }))
+              : 'not-array',
+          });
+        }, 0);
+      }
+    }
+  }, [hydrated, departments, setDepartmentsInStore]);
+
   /* ===== STAGE1事業部名→初期部門展開（One-time import）===== */
   const hasInitializedFromStage1Ref = useRef(false);
   useEffect(() => {
@@ -1389,9 +1638,6 @@ export default function CascadePage() {
     hasInitializedFromStage1Ref.current = true;
     if (DEBUG) console.log('[cascade] STAGE1事業部から初期部門を生成しました:', initialDepts.length);
   }, [hydrated, departments.length, businessSegments, setDepartmentsInStore]);
-
-  // hydrated 後のみオートセーブ対象
-  useAutoSave(hydrated && !boot?.isHydrating ? [accessCompanyId, departments] : []);
 
   const mismatch = !!(accessCompanyId && scopeCompanyId && scopeCompanyId !== accessCompanyId);
   const isHydrating = (Boolean(boot?.isHydrating) && !hydrated) || mismatch || !hydrated;
@@ -1426,6 +1672,20 @@ export default function CascadePage() {
 
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState<Record<number, any>>({});
+  // ★TASK A: 生成中フラグ（保存抑止用）
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  // ★TASK A: 生成中は autosave を抑止（state定義後に移動）
+  useAutoSave(hydrated && !boot?.isHydrating && !isGenerating ? [accessCompanyId, departments] : []);
+
+  /* ===== TASK D: KPI 表示ヘルパー（object → string 変換） ===== */
+  const renderKpi = (k: any): string => {
+    if (typeof k === 'string') return k;
+    if (k && typeof k === 'object') {
+      return k.label ?? k.name ?? k.title ?? k.text ?? JSON.stringify(k);
+    }
+    return String(k ?? '');
+  };
 
   /* ===== レーン表示用の一時キャッシュ（store/DBは変更しない） ===== */
   const laneCacheRef = useRef<Record<string, { existing?: ApiLane; new?: ApiLane }>>({});
@@ -1707,6 +1967,8 @@ export default function CascadePage() {
     const dept = current[index];
     if (!dept) return;
 
+    // ★TASK A: 生成開始フラグをセット（保存抑止開始）
+    setIsGenerating(true);
     setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), deptDraft: true } }));
 
     try {
@@ -1830,7 +2092,19 @@ export default function CascadePage() {
 
         // プロジェクト + OKR（旧＋2レーン統合）
         const mergedProjects = applyDeptDraftToProjects(existingProjects, rd);
-        if (!jsonEq(mergedProjects, existingProjects)) patch.projects = mergedProjects;
+        if (!jsonEq(mergedProjects, existingProjects)) {
+          patch.projects = mergedProjects;
+
+          // ★診断ログ（save時点）
+          if (DEBUG_DUP) {
+            const titles = mergedProjects.map(p => p?.title ?? '');
+            console.log('[cascade][save] payload', {
+              dept: d.name,
+              projectCount: mergedProjects.length,
+              stats: dupStats(titles),
+            });
+          }
+        }
 
         // ★ lanes（2レーン構造）を保存（型変換付き）
         const newLanes = toLanesProjects(rd?.lanes);
@@ -1847,8 +2121,18 @@ export default function CascadePage() {
         return list;
       });
 
+      // ★ TASK C: 生成直後に setDepartments が成功したか確認ログ
+      const afterSetDepts = useStrategyStore.getState().departments as Department[] | undefined;
+      console.log('[diag][after_generate:setDepartments]', afterSetDepts?.[index]?.projects?.map(p => ({
+        title: p.title,
+        okrs: Array.isArray(p.okrs) ? p.okrs.length : 0,
+        kpis: Array.isArray(p.kpis) ? p.kpis.length : 0,
+        okrsV2: Array.isArray((p as any).okrsV2) ? (p as any).okrsV2.length : 0,
+      })));
+
       setNotice(`✅ ${dept.name} のミッション・プロジェクト・KPI案を更新しました`);
 
+      // ★TASK A: 生成完了後に必ず1回保存（保存抑止解除前）
       if (saveNow) {
         try {
           await saveNow();
@@ -1860,6 +2144,8 @@ export default function CascadePage() {
     } catch (e: any) {
       setNotice(`❌ 部門のたたき台生成中にエラーが発生しました：${e?.message ?? '不明なエラー'}`);
     } finally {
+      // ★TASK A: 生成完了（保存抑止解除）
+      setIsGenerating(false);
       setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), deptDraft: false } }));
     }
   };
@@ -2152,7 +2438,7 @@ export default function CascadePage() {
                           key={i}
                           className="inline-block px-2 py-0.5 rounded-full bg-blue-100 border border-blue-200 text-[10px] text-blue-700"
                         >
-                          {kpi?.label || kpi?.id || `指標${i + 1}`}
+                          {toDisplayText(kpi) || `指標${i + 1}`}
                         </span>
                       ))}
                     </div>
@@ -2339,6 +2625,15 @@ export default function CascadePage() {
                             extractedLen: krs.length,
                             extracted0: krs[0],
                           });
+
+                          // ★ KPI形状診断：オブジェクト vs 文字列
+                          if (krs.length > 0) {
+                            console.log('[diag][ui:kpi_shape]', {
+                              title: p?.title,
+                              kpi_count: krs.length,
+                              kpi_types: krs.map((kr, i) => ({ i, type: typeof kr, isObj: typeof kr === 'object', value: kr })).slice(0, 3),
+                            });
+                          }
                         }
 
                         // ★ UI表示用：[AI#N] prefix を削除して表示（内部的には title に保持）
@@ -2412,7 +2707,7 @@ export default function CascadePage() {
                               <div className="text-[11px] text-zinc-500 mb-1">目標（実現したい状態）</div>
                               <input
                                 className="w-full text-xs text-zinc-800 bg-white border border-zinc-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-400"
-                                value={primaryObjective}
+                                value={toDisplayText(primaryObjective)}
                                 placeholder="例）このプロジェクトにより、狙う成果が再現性をもって出る状態を確立する"
                                 readOnly={!editableDept || isHydrating}
                                 onChange={(e) => {
@@ -2498,7 +2793,7 @@ export default function CascadePage() {
                                   <span className="text-[11px] text-zinc-400 whitespace-nowrap">指標{ki + 1}</span>
                                   <input
                                     className="flex-1 text-xs text-zinc-800 bg-white border border-zinc-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-400"
-                                    value={kr}
+                                    value={toDisplayText(kr)}
                                     placeholder="例）成功条件を合意し、実行設計を確定する／主要指標の計測手段を確立する 等"
                                     readOnly={!editableDept || isHydrating}
                                     onChange={(e) => {
@@ -2604,10 +2899,10 @@ export default function CascadePage() {
                                             return list;
                                           });
                                         }}
-                                        title={isLinked ? `「${kpi?.label || kpiId}」との紐づけを解除` : `「${kpi?.label || kpiId}」に効かせる`}
+                                        title={isLinked ? `「${toDisplayText(kpi?.label || kpiId)}」との紐づけを解除` : `「${toDisplayText(kpi?.label || kpiId)}」に効かせる`}
                                       >
                                         {isLinked && '✓ '}
-                                        {kpi?.label || kpiId}
+                                        {toDisplayText(kpi?.label || kpiId)}
                                       </button>
                                     );
                                   })}
