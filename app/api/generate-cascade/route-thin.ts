@@ -1,4 +1,4 @@
-// /app/api/generate-cascade/route.ts (REFACTORED: 4270 → 60 lines)
+// /app/api/generate-cascade/route.ts (THINNED)
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -10,7 +10,6 @@ import { toHttpResponse } from './_lib/errors';
 /**
  * POST handler for cascade generation
  * Thinned version: 4270 lines → ~60 lines
- * All processing logic moved to _lib/ modules
  */
 export async function POST(req: NextRequest) {
   try {
