@@ -92,7 +92,8 @@ export type SimulationResult =
 /* ===== STAGE1: 論点ブロック ===== */
 export type Stage1IssueBlock = IssueBlock;
 
-type BootState = { isHydrating: boolean; isHydrated: boolean };
+// ★ 止血対策：isSaving / isRestoring を追加してautosave競合を防止
+type BootState = { isHydrating: boolean; isHydrated: boolean; isSaving?: boolean; isRestoring?: boolean };
 
 type SafeDepartmentsArg =
   | Department[]
@@ -724,6 +725,9 @@ function normalizeDepartmentsInput(input: any, fallback: Department[]): Departme
       });
       return out as Department;
     });
+
+  // ★ TASK 2: 根治：store に入る瞬間に kpis/keyResults を完全に string[] に強制
+  return sanitizeDepartments(base);
 }
 
 /* ===== 認証軽量チェック ===== */
@@ -865,7 +869,8 @@ const emptyData: StrategyState = {
   hydrated: false,
   loaded: false,
   dirty: false,
-  boot: { isHydrating: false, isHydrated: false },
+  // ★ 止血対策：boot state に isSaving / isRestoring を追加
+  boot: { isHydrating: false, isHydrated: false, isSaving: false, isRestoring: false },
 
   /* ★ TASK 14: restore state フラグ初期値 */
   restoreReady: false,
@@ -1268,6 +1273,65 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
   return patch as Partial<StrategyState>;
 }
 
+/* ===== TASK 2: 根治ヘルパー：全 kpis/keyResults を強制的に string[] に ===== */
+/**
+ * Store に入る瞬間に departments の全 kpis/keyResults を string[] に強制
+ * 呼び出し元が object を混在させていても、ここで完全に文字列化される
+ */
+function sanitizeDepartments(departments: any): Department[] {
+  if (!Array.isArray(departments)) return [];
+
+  return departments.map((dept: any) => ({
+    ...dept,
+    projects: Array.isArray(dept?.projects)
+      ? dept.projects.map((proj: any) => {
+          // kpis を string[] に強制
+          const sanitizedKpis = Array.isArray(proj?.kpis)
+            ? proj.kpis
+                .map((kpi: any) => {
+                  if (typeof kpi === 'string') return kpi;
+                  if (kpi == null) return '';
+                  if (typeof kpi === 'object') {
+                    const extracted = kpi.label ?? kpi.name ?? kpi.title ?? kpi.text;
+                    return extracted ? String(extracted) : JSON.stringify(kpi);
+                  }
+                  return String(kpi);
+                })
+                .map((s: string) => s.trim())
+                .filter((s: string) => s.length > 0)
+            : [];
+
+          // okrs[].keyResults を string[] に強制
+          const sanitizedOkrs = Array.isArray(proj?.okrs)
+            ? proj.okrs.map((okr: any) => ({
+                ...okr,
+                keyResults: Array.isArray(okr?.keyResults)
+                  ? okr.keyResults
+                      .map((kr: any) => {
+                        if (typeof kr === 'string') return kr;
+                        if (kr == null) return '';
+                        if (typeof kr === 'object') {
+                          const extracted = kr.label ?? kr.name ?? kr.title ?? kr.text;
+                          return extracted ? String(extracted) : JSON.stringify(kr);
+                        }
+                        return String(kr);
+                      })
+                      .map((s: string) => s.trim())
+                      .filter((s: string) => s.length > 0)
+                  : [],
+              }))
+            : [];
+
+          return {
+            ...proj,
+            kpis: sanitizedKpis,
+            okrs: sanitizedOkrs,
+          };
+        })
+      : [],
+  }));
+}
+
 /* ===== Zustand Store ===== */
 export const useStrategyStore = create<StrategyState>()(
   persist(
@@ -1305,9 +1369,13 @@ export const useStrategyStore = create<StrategyState>()(
             ? (fullState.businessPortfolio as BusinessPortfolio)
             : undefined;
 
+        // ★ TASK 2: hydrate 時にも departments を完全に sanitize
+        const sanitizedDepts = fullState.departments ? sanitizeDepartments(fullState.departments) : undefined;
+
         set((s) => ({
           ...s,
           ...fullState,
+          departments: sanitizedDepts,
           businessPortfolio: guardedBusinessPortfolio,
           hydrated: true,
         }));
@@ -2118,12 +2186,19 @@ export const useStrategyStore = create<StrategyState>()(
             return { ok: false, skipped: true, reason: 'dirty_false' };
           }
 
+          // ★ 止血対策：boot.isSaving で二重実行を防ぐ
+          if (get().boot?.isSaving) {
+            if (DEBUG) console.log('[strategyStore] saveStrategyData: already saving (boot.isSaving), skip');
+            return { ok: false, skipped: true, reason: 'already_saving_boot' };
+          }
+
           if (state0._loadingSave) {
             if (DEBUG) console.log('[strategyStore] saveStrategyData: already saving, skip (queued)');
             return { ok: false, skipped: true, reason: 'already_saving' };
           }
 
-          set({ _loadingSave: true });
+          // ★ 止血対策：保存開始（autosave 抑止開始）
+          set({ _loadingSave: true, boot: { ...state0.boot, isSaving: true } });
 
           try {
             for (let attempt = 1; attempt <= 2; attempt++) {
@@ -2172,6 +2247,18 @@ export const useStrategyStore = create<StrategyState>()(
                   payload_finalStoryFinalLen: Array.isArray((payload as any).finalStoryFinal) ? (payload as any).finalStoryFinal.length : null,
                 });
               }
+
+              // ★ TASK A: 保存時に departments の okrs/kpis を必ずログ出力
+              const deptDiag = (Array.isArray((payload as any).departments) ? (payload as any).departments : []).map((d: any) => ({
+                name: d?.name,
+                proj: (Array.isArray(d?.projects) ? d.projects : []).map((p: any) => ({
+                  title: p?.title,
+                  okrs: Array.isArray(p?.okrs) ? p.okrs.length : 0,
+                  kpis: Array.isArray(p?.kpis) ? p.kpis.length : 0,
+                  okrsV2: Array.isArray(p?.okrsV2) ? p.okrsV2.length : 0,
+                })),
+              }));
+              console.log('[diag][save:payload:departments]', deptDiag);
 
               if (isEffectivelyEmpty(payload)) {
                 if (DEBUG) console.log('[strategyStore] saveStrategyData: payload effectively empty, clear dirty');
@@ -2249,9 +2336,17 @@ export const useStrategyStore = create<StrategyState>()(
                 (res as any)?.updatedAt ??
                 new Date().toISOString();
 
-              const nextPatch: Partial<StrategyState> = { dirty: false, __lastSavedHash: currentHash };
-              if (Object.keys(minimal).length > 0) Object.assign(nextPatch, minimal);
-              set(nextPatch);
+              // ★ 根治対策：保存返却では「サーバー決定値のみ」を state に反映
+              // 禁止：departments/projects/okrs/kpis/finalStory*/companyTargets/answers12など
+              // 許可：revision/updatedAt/id のみ（autosave再発火を防ぐ）
+              const safePatch: Partial<StrategyState> = {
+                dirty: false,
+                __lastSavedHash: currentHash,
+                revision: typeof (minimal as any).revision === 'number' ? (minimal as any).revision : undefined,
+              };
+              if (updatedAt) (safePatch as any).updatedAt = updatedAt;
+
+              set(safePatch);
 
               const nextRev =
                 typeof (minimal as any).revision === 'number'
@@ -2281,7 +2376,12 @@ export const useStrategyStore = create<StrategyState>()(
             // ループを抜けることは基本ないが保険
             return { ok: false, reason: 'unknown_exit' };
           } finally {
-            set({ _loadingSave: false });
+            // ★ 根治対策：finally で確実に isSaving を戻す（例外時も実行）
+            set((s) => ({
+              ...s,
+              _loadingSave: false,
+              boot: { ...(s.boot ?? {}), isSaving: false }
+            }));
           }
         });
       },
