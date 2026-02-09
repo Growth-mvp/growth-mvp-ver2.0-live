@@ -198,15 +198,30 @@ const nl2brSafe = (s?: string) => (s ? escapeHtml(s).replace(/\r?\n/g, '<br>') :
 ========================================== */
 type KRLike =
   | string
-  | { label?: string | null; name?: string | null; title?: string | null }
+  | { label?: string | null; name?: string | null; title?: string | null; text?: string | null; value?: string | null; description?: string | null }
   | null
   | undefined;
 
+/**
+ * ★ UI 表示側 保険対応：kr が object でも string でも対応
+ */
 function toKrLabel(kr: KRLike): string | null {
   if (!kr) return null;
   if (typeof kr === 'string') return kr.trim() || null;
-  const v = (kr.label ?? kr.name ?? kr.title ?? '').toString().trim();
-  return v || null;
+  // object の場合、複数のフィールド名に対応（UI側で object が残ってても表示できる）
+  const candidates = [
+    (kr as any).text,
+    (kr as any).label,
+    (kr as any).name,
+    (kr as any).title,
+    (kr as any).value,
+    (kr as any).description,
+  ];
+  for (const candidate of candidates) {
+    const v = String(candidate ?? '').trim();
+    if (v) return v;
+  }
+  return null;
 }
 
 function getProjectKpiLabels(p: any): string[] {
@@ -947,6 +962,36 @@ function sanitizeOkrsForProject(p: Project, okrs: StoreOKR[]): StoreOKR[] {
 }
 
 /* =========================
+   KeyResult 正規化ヘルパー
+   - string はそのまま
+   - object は text/label/name/title/value の優先順で抽出
+========================= */
+function toKeyResultText(kr: any): string {
+  if (typeof kr === 'string') return kr.trim();
+  if (!kr || typeof kr !== 'object') return '';
+
+  const candidates = [kr.text, kr.label, kr.name, kr.title, kr.value, kr.description];
+  for (const candidate of candidates) {
+    const text = String(candidate ?? '').trim();
+    if (text) return text;
+  }
+  return '';
+}
+
+/**
+ * OKR.keyResults を string[] に正規化
+ */
+function normalizeOkr(okr: any): any {
+  if (!okr || typeof okr !== 'object') return okr;
+
+  const normalized = { ...okr };
+  if (Array.isArray(okr.keyResults)) {
+    normalized.keyResults = okr.keyResults.map(toKeyResultText).filter(Boolean);
+  }
+  return normalized;
+}
+
+/* =========================
    2レーンのマージ（storeは壊さず projects に統合）
    - タイトル正規化で増殖を止める
    - OKRは一切変更しない（手入力扱い）
@@ -971,6 +1016,12 @@ function normalizeProjectDraft(pd: ApiProjectDraft): Project | null {
     kind: normalizeKind(pd?.kind),
   } as Project;
 
+  // ★ FIX: OKRs を保持しつつ keyResults を string[] に正規化
+  const pdOkrs = (pd as any)?.okrs;
+  if (Array.isArray(pdOkrs)) {
+    (p as any).okrs = pdOkrs.map(normalizeOkr);
+  }
+
   // skillRequirements を API レスポンスから取り込む
   const pdSkills = (pd as any)?.skillRequirements;
   if (pdSkills) (p as any).skillRequirements = pdSkills;
@@ -978,6 +1029,15 @@ function normalizeProjectDraft(pd: ApiProjectDraft): Project | null {
   // humanInvestments を API レスポンスから取り込む
   const pdInvestments = (pd as any)?.humanInvestments;
   if (pdInvestments) (p as any).humanInvestments = pdInvestments;
+
+  // ★ デバッグログ：OKRs が保持されているか確認
+  if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
+    console.log('[fix][normalizeProjectDraft]', {
+      title: p.title,
+      hasOkrs: 'okrs' in p && Array.isArray((p as any).okrs),
+      okrsLen: Array.isArray((p as any).okrs) ? (p as any).okrs.length : 0,
+    });
+  }
 
   return p;
 }
@@ -1269,6 +1329,7 @@ export default function CascadePage() {
   /* ===== 会社スコープ確立（StrictMode耐性）===== */
   const lastAppliedCompanyRef = useRef<string | null>(null);
   useEffect(() => {
+    // ★ CRITICAL: accessCompanyId が確定するまで待つ（undefined なら何もしない）
     if (!accessCompanyId) return;
     if (lastAppliedCompanyRef.current === accessCompanyId && scopeCompanyId === accessCompanyId) return;
 
@@ -1285,7 +1346,11 @@ export default function CascadePage() {
   /* ===== 初期ロード ===== */
   const loadGuardRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!accessCompanyId) return;
+    // ★ CRITICAL: accessCompanyId が確定していなければ待つ
+    if (!accessCompanyId) {
+      if (DEBUG) console.log('[cascade] skipping load: accessCompanyId not ready', { accessCompanyId });
+      return;
+    }
     if (!scopeCompanyId) setCompanyScope(accessCompanyId);
     if (loadGuardRef.current === accessCompanyId && hydrated && scopeCompanyId === accessCompanyId) return;
 
@@ -1848,6 +1913,27 @@ export default function CascadePage() {
       });
 
       setNotice(`✅ ${dept.name} のミッション・プロジェクト・KPI案を更新しました`);
+
+      // ★ デバッグ：saveNow の直前に departments の OKRs を確認
+      if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
+        const currentState = useStrategyStore.getState();
+        const depts = (currentState as any).departments || [];
+        const targetDept = depts[index];
+        if (targetDept) {
+          const projectsToCheck = [...(targetDept.projects || [])];
+          console.log('[fix][before-save]', {
+            dept: targetDept.name,
+            projectCount: projectsToCheck.length,
+            projectsWithOkrs: projectsToCheck.filter((p: any) => Array.isArray(p.okrs)).length,
+            sample: projectsToCheck.slice(0, 1).map((p: any) => ({
+              title: p.title,
+              hasOkrs: Array.isArray(p.okrs),
+              okrsLen: Array.isArray(p.okrs) ? p.okrs.length : 0,
+              kr0: p.okrs?.[0]?.keyResults?.[0],
+            })),
+          });
+        }
+      }
 
       if (saveNow) {
         try {
@@ -2498,7 +2584,7 @@ export default function CascadePage() {
                                   <span className="text-[11px] text-zinc-400 whitespace-nowrap">指標{ki + 1}</span>
                                   <input
                                     className="flex-1 text-xs text-zinc-800 bg-white border border-zinc-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-400"
-                                    value={kr}
+                                    value={toKrLabel(kr) || ''}
                                     placeholder="例）成功条件を合意し、実行設計を確定する／主要指標の計測手段を確立する 等"
                                     readOnly={!editableDept || isHydrating}
                                     onChange={(e) => {
