@@ -252,12 +252,17 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       if (!r.ok && r.status === 400 && /context/i.test(r.raw)) {
         try {
           setBooting(true);
-          await fetch('/api/companies/provision', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${accessToken}` },
-            credentials: 'include',
-          }).catch(() => {});
-          await new Promise((res) => setTimeout(res, 250));
+          // ★ CRITICAL: accessToken がなければ provision を呼ばない（401エラー防止）
+          if (accessToken) {
+            await fetch('/api/companies/provision', {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${accessToken}` },
+              credentials: 'include',
+            }).catch(() => {});
+            await new Promise((res) => setTimeout(res, 250));
+          } else {
+            console.warn('[CEOChatPanel] skipping provision: no accessToken');
+          }
         } finally {
           setBooting(false);
         }
