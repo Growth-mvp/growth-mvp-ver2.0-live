@@ -155,6 +155,25 @@ export async function postprocessLanes(parsed: any, input: any): Promise<any> {
                       skillRequirements: {},
                       humanInvestments: [],
                     } as NormProject,
+                    ...(existingProjects.length === 0 ? [{
+                      title: `[AI#2b] ${name}の既存ユーザー基盤の高度化`,
+                      reason: buildFallbackGroundedText('既存ユーザー層向け機能強化', factPackByDept, name),
+                      hypothesis: buildFallbackGroundedText(
+                        '顧客満足度向上と粘着性強化により、LTV最大化を実現する。',
+                        factPackByDept,
+                        name
+                      ),
+                      mainLever: 'ARPU' as const,
+                      horizon: 'mid' as const,
+                      kind: 'growth' as const,
+                      citations: buildFallbackCitations(factPackByDept, name),
+                      valueDriverLinks: (valueDriverKPIs ?? [])
+                        .slice(0, 2)
+                        .map((k: any) => k.id)
+                        .filter(Boolean),
+                      skillRequirements: {},
+                      humanInvestments: [],
+                    } as NormProject] : []),
                   ].slice(0, 2);
 
             const safeNewProjects =
