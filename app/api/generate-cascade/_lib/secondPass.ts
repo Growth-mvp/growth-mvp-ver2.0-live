@@ -449,10 +449,10 @@ export async function applySecondPass(
 
     // 2nd-pass対象を union 化（duplicates/grounding-failed/conflict-failed/high-risk）
     const secondPassTargets = new Set<string>([
-      ...Array.from(duplicateDeptNames),
-      ...Array.from(groundingFailedDepts),
-      ...Array.from(conflictFailedDepts),
-      ...Array.from(highRiskDepts),
+      ...(duplicateDeptNames as Set<string>),
+      ...(groundingFailedDepts as Set<string>),
+      ...(conflictFailedDepts as Set<string>),
+      ...(highRiskDepts as Set<string>),
     ]);
 
     // 対象部門ごとに2nd pass
