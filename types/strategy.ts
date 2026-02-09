@@ -538,6 +538,9 @@ export type Project = {
   /** 旧OKR（互換） */
   okrs?: OKR[];
 
+  /** OKR/KPIラベル（KPIリスト） */
+  kpis?: string[];
+
   /** 新：構造化OKR（財務/説明責任） */
   okrsV2?: KRStructured[];
 
