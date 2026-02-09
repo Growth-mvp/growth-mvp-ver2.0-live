@@ -1,4 +1,61 @@
 // /app/api/_shared/utils.ts
+import { openai } from '@/lib/openai';
+
+/**
+ * Call OpenAI API with JSON response format and automatic retry on network errors
+ * Retries up to 2 times with exponential backoff on socket/network errors
+ */
+export async function callOpenAIJsonWithRetry(
+  prompt: string,
+  systemMessage: string,
+  retryKey?: string,
+  temperature?: number,
+  maxTokens?: number
+): Promise<string> {
+  const MAX_RETRIES = 2; // 2回リトライ = 最大3回試行
+  const BACKOFFS = [300, 600]; // ms
+  const temp = temperature ?? 0.2;
+  const tokens = maxTokens ?? 1000;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const completion = await openai.chat.completions.create({
+        model: process.env.OPENAI_MODEL ?? 'gpt-4o',
+        response_format: { type: 'json_object' },
+        temperature: temp,
+        max_tokens: tokens,
+        messages: [
+          { role: 'system', content: systemMessage },
+          { role: 'user', content: prompt },
+        ],
+      });
+
+      return completion.choices?.[0]?.message?.content ?? '';
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const isNetworkError =
+        errMsg.includes('fetch failed') ||
+        errMsg.includes('UND_ERR_SOCKET') ||
+        errMsg.includes('SocketError') ||
+        errMsg.includes('socket');
+
+      if (isNetworkError && attempt < MAX_RETRIES) {
+        const backoffMs = BACKOFFS[attempt];
+        console.warn(
+          `[cascade][openai][retry] ${retryKey ?? 'call'} attempt=${attempt + 1} backoff=${backoffMs}ms error="${errMsg.slice(0, 80)}"`
+        );
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+        continue;
+      }
+
+      // リトライ不可またはリトライ回数超過
+      throw err;
+    }
+  }
+
+  throw new Error('callOpenAIJsonWithRetry: max retries exceeded');
+}
+
 export function toTextStory(story: unknown): string {
   try {
     // ★TASK 3: 複数の形式に対応
