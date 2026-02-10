@@ -534,6 +534,12 @@ export default function OKRPage() {
   const [selected, setSelected] = useState<{ deptIdx: number; projIdx: number } | null>(null);
   const [activeTab, setActiveTab] = useState<'objective' | 'kr' | 'plan'>('kr');
 
+  /* Phase1.4: 統合フォームモード（二重表示防止） */
+  const INTEGRATED = true;
+
+  /* 参考OKR表示トグル（デフォルト閉） */
+  const [showCascadeOkr, setShowCascadeOkr] = useState<boolean>(false);
+
   const [addingProjectForDept, setAddingProjectForDept] = useState<number | null>(null);
   const [newProjectTitle, setNewProjectTitle] = useState<string>('');
 
@@ -1141,88 +1147,92 @@ export default function OKRPage() {
                             : 'border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50'
                         }`}
                       >
-                        確定版
+                        財務に反映（採用）
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditingMode('variant')}
-                        disabled={isHydrating}
-                        className={`h-9 rounded-xl px-3 text-[12px] font-semibold ${
-                          editingMode === 'variant'
-                            ? 'bg-black text-white'
-                            : 'border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50'
-                        }`}
-                      >
-                        探索案
-                      </button>
+                      {userRole !== 'member' && (
+                        <button
+                          type="button"
+                          onClick={() => setEditingMode('variant')}
+                          disabled={isHydrating}
+                          className={`h-9 rounded-xl px-3 text-[12px] font-semibold ${
+                            editingMode === 'variant'
+                              ? 'bg-black text-white'
+                              : 'border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50'
+                          }`}
+                        >
+                          別案（比較用）
+                        </button>
+                      )}
                     </div>
                   </div>
 
-                  {/* 探索案コントロール */}
-                  <div className="flex flex-col items-end gap-1">
-                    <div className="flex items-center gap-1">
-                      <span className="text-[11px] text-zinc-600">探索案</span>
-                      <Tooltip text="探索案を選んで編集し、採用（確定版へ反映）できます。探索案は財務には直接反映されません。">
-                        <HelpCircle className="h-4 w-4 text-zinc-500" />
-                      </Tooltip>
+                  {/* 別案コントロール（admin/manager のみ） */}
+                  {userRole !== 'member' && (
+                    <div className="flex flex-col items-end gap-1">
+                      <div className="flex items-center gap-1">
+                        <span className="text-[11px] text-zinc-600">別案</span>
+                        <Tooltip text="別案を選んで編集し、採用（財務反映版へ反映）できます。別案は財務には直接反映されません。">
+                          <HelpCircle className="h-4 w-4 text-zinc-500" />
+                        </Tooltip>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <select
+                          className="h-9 rounded-xl border border-zinc-200 bg-white px-2 text-[13px]"
+                          value={activeVariantId ?? activeVariant?.id ?? ''}
+                          onChange={(e) => {
+                            const id = e.target.value;
+                            if (!id) return;
+                            setActiveVariant(selected.deptIdx, selected.projIdx, id);
+                            setEditingMode('variant');
+                          }}
+                          disabled={isHydrating || !variants.length}
+                        >
+                          {!variants.length ? (
+                            <option value="">別案なし</option>
+                          ) : (
+                            variants.map((v) => (
+                              <option key={v.id} value={v.id}>
+                                {v.title}（{v.status}）
+                              </option>
+                            ))
+                          )}
+                        </select>
+
+                        <button
+                          type="button"
+                          onClick={() => createVariantFromCommitted(selected.deptIdx, selected.projIdx)}
+                          disabled={isHydrating}
+                          className={`h-9 rounded-xl border px-3 text-[12px] font-semibold ${
+                            isHydrating ? 'border-zinc-200 bg-zinc-200 text-zinc-500' : 'border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50'
+                          }`}
+                          title="財務反映版をコピーして別案を作成"
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            <Copy className="h-4 w-4" /> 新規
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setShowDiff((v) => !v)}
+                          disabled={isHydrating || editingMode !== 'variant' || !activeVariant}
+                          className={`h-9 rounded-xl border px-3 text-[12px] font-semibold ${
+                            isHydrating || editingMode !== 'variant' || !activeVariant
+                              ? 'border-zinc-200 bg-zinc-200 text-zinc-500'
+                              : 'border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50'
+                          }`}
+                          title="財務反映版との変更点"
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            <GitCompare className="h-4 w-4" /> 変更点
+                          </span>
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <select
-                        className="h-9 rounded-xl border border-zinc-200 bg-white px-2 text-[13px]"
-                        value={activeVariantId ?? activeVariant?.id ?? ''}
-                        onChange={(e) => {
-                          const id = e.target.value;
-                          if (!id) return;
-                          setActiveVariant(selected.deptIdx, selected.projIdx, id);
-                          setEditingMode('variant');
-                        }}
-                        disabled={isHydrating || !variants.length}
-                      >
-                        {!variants.length ? (
-                          <option value="">探索案なし</option>
-                        ) : (
-                          variants.map((v) => (
-                            <option key={v.id} value={v.id}>
-                              {v.title}（{v.status}）
-                            </option>
-                          ))
-                        )}
-                      </select>
+                  )}
 
-                      <button
-                        type="button"
-                        onClick={() => createVariantFromCommitted(selected.deptIdx, selected.projIdx)}
-                        disabled={isHydrating}
-                        className={`h-9 rounded-xl border px-3 text-[12px] font-semibold ${
-                          isHydrating ? 'border-zinc-200 bg-zinc-200 text-zinc-500' : 'border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50'
-                        }`}
-                        title="確定版をコピーして探索案を作成"
-                      >
-                        <span className="inline-flex items-center gap-1">
-                          <Copy className="h-4 w-4" /> 新規
-                        </span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setShowDiff((v) => !v)}
-                        disabled={isHydrating || editingMode !== 'variant' || !activeVariant}
-                        className={`h-9 rounded-xl border px-3 text-[12px] font-semibold ${
-                          isHydrating || editingMode !== 'variant' || !activeVariant
-                            ? 'border-zinc-200 bg-zinc-200 text-zinc-500'
-                            : 'border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50'
-                        }`}
-                        title="確定版との差分"
-                      >
-                        <span className="inline-flex items-center gap-1">
-                          <GitCompare className="h-4 w-4" /> 差分
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* 探索案の採用/削除 */}
-                  {editingMode === 'variant' && activeVariant && (
+                  {/* 別案の採用/削除（admin/manager のみ） */}
+                  {userRole !== 'member' && editingMode === 'variant' && activeVariant && (
                     <div className="flex flex-col items-end gap-1">
                       <div className="text-[11px] text-zinc-600">操作</div>
                       <div className="flex items-center gap-2">
@@ -1233,7 +1243,7 @@ export default function OKRPage() {
                           className={`h-9 rounded-xl px-3 text-[12px] font-semibold ${
                             isHydrating ? 'bg-zinc-200 text-zinc-500' : 'bg-black text-white hover:opacity-90'
                           }`}
-                          title="探索案を確定版へ反映"
+                          title="別案を財務反映版へ反映"
                         >
                           <span className="inline-flex items-center gap-1">
                             <CheckCircle2 className="h-4 w-4" /> 採用
@@ -1248,7 +1258,7 @@ export default function OKRPage() {
                               ? 'border-zinc-200 bg-zinc-200 text-zinc-500'
                               : 'border-zinc-200 bg-white text-rose-600 hover:bg-rose-50'
                           }`}
-                          title="探索案を削除"
+                          title="別案を削除"
                         >
                           <span className="inline-flex items-center gap-1">
                             <Trash2 className="h-4 w-4" /> 削除
@@ -1261,12 +1271,12 @@ export default function OKRPage() {
               </div>
 
               {/* 探索案メタ（編集） */}
-              {editingMode === 'variant' && activeVariant && (
+              {userRole !== 'member' && editingMode === 'variant' && activeVariant && (
                 <div className="mb-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-col gap-1">
-                      <div className="text-[12px] font-semibold text-zinc-800">探索案のメタ情報</div>
-                      <div className="text-[11px] text-zinc-500">探索案は候補です。採用すると確定版へ反映され、財務に接続されます。</div>
+                      <div className="text-[12px] font-semibold text-zinc-800">別案のメタ情報</div>
+                      <div className="text-[11px] text-zinc-500">別案は候補です。採用すると財務反映版へ反映され、財務に接続されます。</div>
                     </div>
                     <div className="flex items-center gap-2">
                       <select
@@ -1396,58 +1406,90 @@ export default function OKRPage() {
                 </div>
               )}
 
-              {/* タブ切り替え */}
-              <div className="mb-3 flex border-b border-zinc-200 text-[13px]">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('objective')}
-                  className={`mr-4 border-b-2 px-1 pb-2 ${
-                    activeTab === 'objective' ? 'border-zinc-900 font-semibold text-zinc-900' : 'border-transparent text-zinc-500'
-                  }`}
-                >
-                  Objective &amp; 概要
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('kr')}
-                  className={`mr-4 border-b-2 px-1 pb-2 ${
-                    activeTab === 'kr' ? 'border-zinc-900 font-semibold text-zinc-900' : 'border-transparent text-zinc-500'
-                  }`}
-                >
-                  Key Results
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('plan')}
-                  className={`border-b-2 px-1 pb-2 ${
-                    activeTab === 'plan' ? 'border-zinc-900 font-semibold text-zinc-900' : 'border-transparent text-zinc-500'
-                  }`}
-                >
-                  実行計画
-                </button>
+              {/* タブ切り替え（Phase1.4: 統合フォーム化で非表示） */}
+              <div className="hidden">{/* 既存activeTab state用（将来戻す保険） */}
+                <div className="mb-3 flex border-b border-zinc-200 text-[13px]">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('objective')}
+                    className={`mr-4 border-b-2 px-1 pb-2 ${
+                      activeTab === 'objective' ? 'border-zinc-900 font-semibold text-zinc-900' : 'border-transparent text-zinc-500'
+                    }`}
+                  >
+                    Objective &amp; 概要
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('kr')}
+                    className={`mr-4 border-b-2 px-1 pb-2 ${
+                      activeTab === 'kr' ? 'border-zinc-900 font-semibold text-zinc-900' : 'border-transparent text-zinc-500'
+                    }`}
+                  >
+                    成果指標（KPI）
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('plan')}
+                    className={`border-b-2 px-1 pb-2 ${
+                      activeTab === 'plan' ? 'border-zinc-900 font-semibold text-zinc-900' : 'border-transparent text-zinc-500'
+                    }`}
+                  >
+                    実行計画
+                  </button>
 
-                <div className="ml-auto flex items-center gap-2 pb-2 text-[11px] text-zinc-500">
-                  <span className={`rounded-full px-2 py-0.5 font-semibold ${
-                    getPlanStatus() === 'approved' ? 'border border-emerald-300 bg-emerald-50 text-emerald-700' :
-                    getPlanStatus() === 'review' ? 'border border-amber-300 bg-amber-50 text-amber-700' :
-                    'border border-zinc-200 bg-zinc-50 text-zinc-600'
-                  }`}>
-                    {getPlanStatus() === 'approved' ? '✓確定' : getPlanStatus() === 'review' ? '○レビュー中' : '●下書き'}
-                  </span>
-                  {editingMode === 'committed' && (
-                    <span className="rounded-full border border-zinc-200 bg-white px-2 py-0.5">
-                      revision: {Number(selectedProj.okrRevision ?? 0)}
+                  <div className="ml-auto flex items-center gap-2 pb-2 text-[11px] text-zinc-500">
+                    <span className={`rounded-full px-2 py-0.5 font-semibold ${
+                      getPlanStatus() === 'approved' ? 'border border-emerald-300 bg-emerald-50 text-emerald-700' :
+                      getPlanStatus() === 'review' ? 'border border-amber-300 bg-amber-50 text-amber-700' :
+                      'border border-zinc-200 bg-zinc-50 text-zinc-600'
+                    }`}>
+                      {getPlanStatus() === 'approved' ? '✓確定' : getPlanStatus() === 'review' ? '○レビュー中' : '●下書き'}
                     </span>
-                  )}
+                    {editingMode === 'committed' && (
+                      <span className="rounded-full border border-zinc-200 bg-white px-2 py-0.5">
+                        revision: {Number(selectedProj.okrRevision ?? 0)}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
+              {/* Phase1.4: 統合フォーム（目的→KPI→実行計画を1画面に） */}
+              {selectedProj && (
+                <div className="space-y-4">
+                  {/* 完了チェックバー */}
+                  <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
+                    <div className="mb-2 text-[12px] font-semibold text-blue-900">必須項目の完了状況</div>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className={mainOKR?.objective ? 'text-emerald-600 font-semibold' : 'text-amber-600'}>
+                          {mainOKR?.objective ? '✓' : '○'}
+                        </span>
+                        <span className="text-[12px]">目的（Objective）入力済み</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={committedOkrsV2.length > 0 ? 'text-emerald-600 font-semibold' : 'text-amber-600'}>
+                          {committedOkrsV2.length > 0 ? '✓' : '○'}
+                        </span>
+                        <span className="text-[12px]">成果指標（KPI）1件以上</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={((selectedProj.executionHumanInvestments || []).some((inv: any) => Number.isFinite(inv.amount) || Number.isFinite(inv.headcount))) ? 'text-emerald-600 font-semibold' : 'text-amber-600'}>
+                          {((selectedProj.executionHumanInvestments || []).some((inv: any) => Number.isFinite(inv.amount) || Number.isFinite(inv.headcount))) ? '✓' : '○'}
+                        </span>
+                        <span className="text-[12px]">投資（金額or人数）1件以上</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Objectiveタブ（従来通り：project.okrs[0] を編集） */}
-              {activeTab === 'objective' && (
+              {(INTEGRATED || activeTab === 'objective') && (
                 <div className="space-y-4">
                   <div>
                     <div className="mb-1 flex items-center gap-1">
-                      <div className="text-[12px] font-semibold text-zinc-700">Objective（このプロジェクトのゴール）</div>
+                      <div className="text-[12px] font-semibold text-zinc-700">目的（このプロジェクトのゴール）</div>
                       <Tooltip text="ここはプロジェクトの目的（OKRのObjective）です。探索案ではなく、プロジェクト自体のゴールとして扱います。">
                         <HelpCircle className="h-3.5 w-3.5 text-zinc-500" />
                       </Tooltip>
@@ -1498,57 +1540,46 @@ export default function OKRPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-2 text-[12px] text-zinc-600">
-                    <div className="mb-1 font-semibold text-zinc-800">参考：カスケードで生成されたOKR</div>
-                    {selectedOkrs.length === 0 ? (
-                      <p className="text-[12px] text-zinc-500">カスケード側でOKRがまだ生成されていません。</p>
-                    ) : (
-                      selectedOkrs.map((o, oi) => (
-                        <div key={oi} className="mt-1 rounded-xl bg-white px-3 py-2">
-                          <div className="text-[12px] font-semibold text-zinc-800">
-                            Objective：<span className="font-normal text-zinc-900">{o.objective || '（未設定）'}</span>
-                          </div>
-                          {o.owner && <div className="mt-0.5 text-[11px] text-zinc-600">オーナー：{o.owner}</div>}
-                          {Array.isArray(o.keyResults) && o.keyResults.length > 0 && (
-                            <ul className="mt-1 list-disc pl-4 text-[12px] text-zinc-800">
-                              {o.keyResults.map((kr, ki) => (
-                                <li key={ki}>{kr}</li>
-                              ))}
-                            </ul>
-                          )}
+                  {/* 参考OKR（折りたたみ、デフォルト閉） */}
+                  {selectedOkrs.length > 0 && (
+                    <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowCascadeOkr(!showCascadeOkr)}
+                        className="flex w-full items-center gap-2 text-[12px] font-semibold text-zinc-800 hover:text-zinc-900"
+                      >
+                        <span>{showCascadeOkr ? '▼' : '▶'}</span>
+                        <span>参考：カスケードで生成されたOKR</span>
+                        <span className="ml-auto text-[11px] text-zinc-500">（{selectedOkrs.length}件）</span>
+                      </button>
+                      {showCascadeOkr && (
+                        <div className="mt-2 space-y-1 text-[12px] text-zinc-600">
+                          {selectedOkrs.map((o, oi) => (
+                            <div key={oi} className="rounded-xl bg-white p-2">
+                              <div className="font-semibold text-zinc-800">
+                                Objective：<span className="font-normal text-zinc-900">{o.objective || '（未設定）'}</span>
+                              </div>
+                              {o.owner && <div className="mt-0.5 text-[11px] text-zinc-600">オーナー：{o.owner}</div>}
+                              {Array.isArray(o.keyResults) && o.keyResults.length > 0 && (
+                                <ul className="mt-1 list-disc pl-4 text-[11px] text-zinc-700">
+                                  {o.keyResults.map((kr, ki) => (
+                                    <li key={ki}>{kr}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          ))}
                         </div>
-                      ))
-                    )}
-                  </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* KRタブ */}
-              {activeTab === 'kr' && (
+              {(INTEGRATED || activeTab === 'kr') && (
                 <div className="space-y-4">
-                  {selectedOkrs.length > 0 && (
-                    <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-2 text-[13px] text-zinc-700">
-                      <div className="mb-1 flex flex-wrap items-center justify-between gap-1">
-                        <span className="font-semibold text-zinc-900">カスケードで生成されたOKR（参考）</span>
-                        <span className="text-[11px] text-zinc-500">※「OKRからKRたたき台」で、編集対象へ自動変換します</span>
-                      </div>
-                      {selectedOkrs.map((o, oi) => (
-                        <div key={oi} className="mt-1 rounded-xl bg-white px-3 py-2">
-                          <div className="text-[12px] font-semibold text-zinc-800">
-                            Objective：<span className="font-normal text-zinc-900">{o.objective || '（未設定）'}</span>
-                          </div>
-                          {o.owner && <div className="mt-0.5 text-[11px] text-zinc-600">オーナー：{o.owner}</div>}
-                          {Array.isArray(o.keyResults) && o.keyResults.length > 0 && (
-                            <ul className="mt-1 list-disc pl-4 text-[12px] text-zinc-800">
-                              {o.keyResults.map((kr, ki) => (
-                                <li key={ki}>{kr}</li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  {/* 参考：KRタブ内の参考OKRは統合フォーム側で折りたたみ化済み（重複回避） */}
 
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="text-[12px] text-zinc-600">
@@ -1571,22 +1602,24 @@ export default function OKRPage() {
                             : 'border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50'
                         }`}
                       >
-                        OKRからKRたたき台
+                        目標から指標を自動作成
                       </button>
 
-                      <button
-                        onClick={() =>
-                          alert(
-                            'AIで探索案（KRセット）を生成するAPIを次に実装します。現状は「新規（コピー）」で探索案を作り、手で編集してください。',
-                          )
-                        }
-                        disabled={isHydrating}
-                        className={`rounded-full border px-3 py-1.5 text-[13px] font-medium ${
-                          isHydrating ? 'border-zinc-200 bg-zinc-200 text-zinc-500' : 'border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50'
-                        }`}
-                      >
-                        AIで探索案を生成
-                      </button>
+                      {userRole !== 'member' && (
+                        <button
+                          onClick={() =>
+                            alert(
+                              'AIで別案（KRセット）を生成するAPIを次に実装します。現状は「新規（コピー）」で別案を作り、手で編集してください。',
+                            )
+                          }
+                          disabled={isHydrating}
+                          className={`rounded-full border px-3 py-1.5 text-[13px] font-medium ${
+                            isHydrating ? 'border-zinc-200 bg-zinc-200 text-zinc-500' : 'border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50'
+                          }`}
+                        >
+                          AIで別案を生成
+                        </button>
+                      )}
 
                       <button
                         onClick={() =>
@@ -1603,7 +1636,7 @@ export default function OKRPage() {
                         }`}
                       >
                         <span className="inline-flex items-center gap-1">
-                          <Plus className="h-4 w-4" /> 指標（KR）を追加
+                          <Plus className="h-4 w-4" /> 成果指標を追加
                         </span>
                       </button>
                     </div>
@@ -1612,8 +1645,8 @@ export default function OKRPage() {
                   {selectedIsOpen && (
                     <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
                       <div className="mb-2 text-[12px] font-semibold text-zinc-800">
-                        指標（KR）の追加
-                        <span className="ml-1 text-[11px] font-normal text-zinc-500">（まずは「ラベル」「目標値」「track」だけでもOK）</span>
+                        成果指標の追加
+                        <span className="ml-1 text-[11px] font-normal text-zinc-500">（まずは「ラベル」「目標値」「進化/探索」だけでもOK）</span>
                       </div>
 
                       <div className="grid gap-3 md:grid-cols-2">
@@ -1661,8 +1694,8 @@ export default function OKRPage() {
 
                         <div>
                           <div className="mb-1 flex items-center gap-1 text-[11px] text-zinc-600">
-                            track（進化/探索）
-                            <Tooltip text="EVOLVE＝確実に伸ばす/改善する（ラグ指標寄り）。EXPLORE＝仮説検証（リード指標＋検証計画を伴う）。">
+                            進化/探索
+                            <Tooltip text="改善＝確実に伸ばす・改善する。検証＝仮説を試す・学習する（検証計画が必須）。">
                               <HelpCircle className="h-3.5 w-3.5 text-zinc-500" />
                             </Tooltip>
                           </div>
@@ -1672,8 +1705,8 @@ export default function OKRPage() {
                             onChange={(e) => setDraft(selectedAddKey, { track: e.target.value as StrategyTrackUI })}
                             disabled={isHydrating}
                           >
-                            <option value="EVOLVE">EVOLVE（進化/確実）</option>
-                            <option value="EXPLORE">EXPLORE（探索/仮説検証）</option>
+                            <option value="EVOLVE">改善（確実に伸ばす）</option>
+                            <option value="EXPLORE">検証（仮説を試す）</option>
                           </select>
                         </div>
 
@@ -1690,39 +1723,43 @@ export default function OKRPage() {
                             onChange={(e) => setDraft(selectedAddKey, { metricRole: e.target.value as MetricRoleUI })}
                             disabled={isHydrating}
                           >
-                            <option value="LAG">LAG（結果）</option>
-                            <option value="LEAD">LEAD（先行）</option>
-                            <option value="NORTHSTAR">NORTHSTAR（北極星）</option>
-                            <option value="OTHER">OTHER（その他）</option>
+                            <option value="LAG">結果（成約、売上など）</option>
+                            <option value="LEAD">先行（訪問、提案など）</option>
+                            <option value="NORTHSTAR">北極星（全社目標）</option>
+                            <option value="OTHER">その他</option>
                           </select>
                         </div>
 
-                        <div>
-                          <div className="mb-1 text-[11px] text-zinc-600">kind（財務レバー種別）</div>
-                          <input
-                            className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[13px]"
-                            value={String(selectedDraft.kind ?? 'ACQ')}
-                            onChange={(e) => setDraft(selectedAddKey, { kind: e.target.value as any })}
-                            disabled={isHydrating}
-                            placeholder="例：ACQ / ARPU / CHURN / PERSONNEL ..."
-                          />
-                          {helpMode && (
-                            <div className="mt-1 text-[11px] text-zinc-500">
-                              既存の finance bridge に合わせる場合は、既定の kind を使ってください。
+                        {userRole !== 'member' && (
+                          <>
+                            <div>
+                              <div className="mb-1 text-[11px] text-zinc-600">kind（財務レバー種別）</div>
+                              <input
+                                className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[13px]"
+                                value={String(selectedDraft.kind ?? 'ACQ')}
+                                onChange={(e) => setDraft(selectedAddKey, { kind: e.target.value as any })}
+                                disabled={isHydrating}
+                                placeholder="例：ACQ / ARPU / CHURN / PERSONNEL ..."
+                              />
+                              {helpMode && (
+                                <div className="mt-1 text-[11px] text-zinc-500">
+                                  既存の finance bridge に合わせる場合は、既定の kind を使ってください。
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
 
-                        <div>
-                          <div className="mb-1 text-[11px] text-zinc-600">baseKey（母数キー）</div>
-                          <input
-                            className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[13px]"
-                            value={String(selectedDraft.baseKey ?? 'acq')}
-                            onChange={(e) => setDraft(selectedAddKey, { baseKey: e.target.value as any })}
-                            disabled={isHydrating}
-                            placeholder="例：acq / arpu / churn ..."
-                          />
-                        </div>
+                            <div>
+                              <div className="mb-1 text-[11px] text-zinc-600">baseKey（母数キー）</div>
+                              <input
+                                className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[13px]"
+                                value={String(selectedDraft.baseKey ?? 'acq')}
+                                onChange={(e) => setDraft(selectedAddKey, { baseKey: e.target.value as any })}
+                                disabled={isHydrating}
+                                placeholder="例：acq / arpu / churn ..."
+                              />
+                            </div>
+                          </>
+                        )}
 
                         <div>
                           <div className="mb-1 text-[11px] text-zinc-600">オーナー（任意）</div>
@@ -1976,7 +2013,7 @@ export default function OKRPage() {
                                     </div>
 
                                     <div>
-                                      <div className="mb-1 text-[11px] text-zinc-600">track</div>
+                                      <div className="mb-1 text-[11px] text-zinc-600">進化/探索</div>
                                       <select
                                         className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-2 text-[13px]"
                                         value={track}
@@ -1985,13 +2022,13 @@ export default function OKRPage() {
                                         }
                                         disabled={isHydrating || !canEditKr}
                                       >
-                                        <option value="EVOLVE">EVOLVE</option>
-                                        <option value="EXPLORE">EXPLORE</option>
+                                        <option value="EVOLVE">改善</option>
+                                        <option value="EXPLORE">検証</option>
                                       </select>
                                     </div>
 
                                     <div>
-                                      <div className="mb-1 text-[11px] text-zinc-600">指標の役割（metricRole）</div>
+                                      <div className="mb-1 text-[11px] text-zinc-600">指標の役割</div>
                                       <select
                                         className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-2 text-[13px]"
                                         value={mRole}
@@ -2002,15 +2039,15 @@ export default function OKRPage() {
                                         }
                                         disabled={isHydrating || !canEditKr}
                                       >
-                                        <option value="LAG">LAG</option>
-                                        <option value="LEAD">LEAD</option>
-                                        <option value="NORTHSTAR">NORTHSTAR</option>
-                                        <option value="OTHER">OTHER</option>
+                                        <option value="LAG">結果</option>
+                                        <option value="LEAD">先行</option>
+                                        <option value="NORTHSTAR">北極星</option>
+                                        <option value="OTHER">その他</option>
                                       </select>
                                     </div>
 
                                     <div>
-                                      <div className="mb-1 text-[11px] text-zinc-600">owner</div>
+                                      <div className="mb-1 text-[11px] text-zinc-600">オーナー</div>
                                       <input
                                         className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[13px]"
                                         value={String((kr as any).owner ?? '')}
@@ -2022,7 +2059,7 @@ export default function OKRPage() {
                                     </div>
 
                                     <div>
-                                      <div className="mb-1 text-[11px] text-zinc-600">due（YYYY-MM）</div>
+                                      <div className="mb-1 text-[11px] text-zinc-600">期限（YYYY-MM）</div>
                                       <input
                                         className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[13px]"
                                         value={String((kr as any).due ?? '')}
@@ -2033,50 +2070,54 @@ export default function OKRPage() {
                                       />
                                     </div>
 
-                                    <div>
-                                      <div className="mb-1 text-[11px] text-zinc-600">weight（係数）</div>
-                                      <input
-                                        className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[13px]"
-                                        value={String((kr as any).weight ?? 1)}
-                                        onChange={(e) =>
-                                          updateStructuredKR(selected.deptIdx, selected.projIdx, idx, {
-                                            weight: Number(e.target.value),
-                                          } as any)
-                                        }
-                                        disabled={isHydrating || !canEditKr}
-                                      />
-                                    </div>
+                                    {userRole !== 'member' && (
+                                      <>
+                                        <div>
+                                          <div className="mb-1 text-[11px] text-zinc-600">係数</div>
+                                          <input
+                                            className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[13px]"
+                                            value={String((kr as any).weight ?? 1)}
+                                            onChange={(e) =>
+                                              updateStructuredKR(selected.deptIdx, selected.projIdx, idx, {
+                                                weight: Number(e.target.value),
+                                              } as any)
+                                            }
+                                            disabled={isHydrating || !canEditKr}
+                                          />
+                                        </div>
+
+                                        <div>
+                                          <div className="mb-1 text-[11px] text-zinc-600">弾性</div>
+                                          <input
+                                            className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[13px]"
+                                            value={(kr as any).elasticity != null ? String((kr as any).elasticity) : ''}
+                                            onChange={(e) =>
+                                              updateStructuredKR(selected.deptIdx, selected.projIdx, idx, {
+                                                elasticity: e.target.value === '' ? undefined : Number(e.target.value),
+                                              } as any)
+                                            }
+                                            disabled={isHydrating || !canEditKr}
+                                          />
+                                        </div>
+
+                                        <div>
+                                          <div className="mb-1 text-[11px] text-zinc-600">遅行月数</div>
+                                          <input
+                                            className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[13px]"
+                                            value={(kr as any).lagMonths != null ? String((kr as any).lagMonths) : '0'}
+                                            onChange={(e) =>
+                                              updateStructuredKR(selected.deptIdx, selected.projIdx, idx, {
+                                                lagMonths: Number(e.target.value),
+                                              } as any)
+                                            }
+                                            disabled={isHydrating || !canEditKr}
+                                          />
+                                        </div>
+                                      </>
+                                    )}
 
                                     <div>
-                                      <div className="mb-1 text-[11px] text-zinc-600">elasticity（弾性）</div>
-                                      <input
-                                        className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[13px]"
-                                        value={(kr as any).elasticity != null ? String((kr as any).elasticity) : ''}
-                                        onChange={(e) =>
-                                          updateStructuredKR(selected.deptIdx, selected.projIdx, idx, {
-                                            elasticity: e.target.value === '' ? undefined : Number(e.target.value),
-                                          } as any)
-                                        }
-                                        disabled={isHydrating || !canEditKr}
-                                      />
-                                    </div>
-
-                                    <div>
-                                      <div className="mb-1 text-[11px] text-zinc-600">lagMonths</div>
-                                      <input
-                                        className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[13px]"
-                                        value={(kr as any).lagMonths != null ? String((kr as any).lagMonths) : '0'}
-                                        onChange={(e) =>
-                                          updateStructuredKR(selected.deptIdx, selected.projIdx, idx, {
-                                            lagMonths: Number(e.target.value),
-                                          } as any)
-                                        }
-                                        disabled={isHydrating || !canEditKr}
-                                      />
-                                    </div>
-
-                                    <div>
-                                      <div className="mb-1 text-[11px] text-zinc-600">startYm（任意）</div>
+                                      <div className="mb-1 text-[11px] text-zinc-600">開始時期（任意）</div>
                                       <input
                                         className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-[13px]"
                                         value={String((kr as any).startYm ?? '')}
@@ -2088,7 +2129,7 @@ export default function OKRPage() {
                                     </div>
 
                                     <div className="md:col-span-2">
-                                      <div className="mb-1 text-[11px] text-zinc-600">notes</div>
+                                      <div className="mb-1 text-[11px] text-zinc-600">メモ</div>
                                       <textarea
                                         className="min-h-[60px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[13px]"
                                         value={String((kr as any).notes ?? '')}
@@ -2195,8 +2236,37 @@ export default function OKRPage() {
               )}
 
               {/* STAGE4 実行計画タブ */}
-              {activeTab === 'plan' && selectedProj && (
+              {(INTEGRATED || activeTab === 'plan') && selectedProj && (
                 <div className="space-y-4">
+                  {/* 工程（マイルストーン） */}
+                  <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                    <div className="mb-3 flex items-center justify-between">
+                      <div className="text-[12px] font-semibold text-zinc-700">工程（マイルストーン）</div>
+                      {!isApproved() && (
+                        <span className="text-[11px] text-zinc-500">複数行で記入可</span>
+                      )}
+                    </div>
+                    <textarea
+                      className="min-h-[100px] w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[12px]"
+                      placeholder="例：&#10;- Phase 1（1月）：要件定義・設計完了&#10;- Phase 2（2月）：開発・テスト完了&#10;- Phase 3（3月）：運用開始&#10;&#10;※細かいWBSではなく、節目（マイルストーン）でOK"
+                      value={((selectedProj as any)?.planMilestonesText ?? '') as string}
+                      onChange={(e) => {
+                        patchDepartments((prev) => {
+                          const next = [...prev];
+                          const dept = { ...next[selected.deptIdx] };
+                          const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+                          const proj = { ...projs[selected.projIdx] };
+                          (proj as any).planMilestonesText = e.target.value;
+                          projs[selected.projIdx] = proj;
+                          dept.projects = projs;
+                          next[selected.deptIdx] = dept;
+                          return next;
+                        });
+                      }}
+                      disabled={isApproved()}
+                    />
+                  </div>
+
                   {/* planStatus 遷移 + Approved 解除（new revision） */}
                   <div className="rounded-2xl border border-zinc-200 bg-white p-4">
                     <div className="mb-2 text-[12px] font-semibold text-zinc-700">計画ステータス</div>
@@ -2270,6 +2340,176 @@ export default function OKRPage() {
                         ✓ このプロジェクトは確定済みです。編集はロックされています。
                       </div>
                     )}
+                  </div>
+
+                  {/* 投資（人・外注・ツール）セクション */}
+                  <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <div className="text-[12px] font-semibold text-purple-900">投資（人・外注・ツール）</div>
+                        <div className="text-[11px] text-purple-800 mt-1">財務反映のため、金額または人数を最低1件入力してください</div>
+                      </div>
+                      {!isApproved() && (
+                        <button
+                          onClick={() => setAddingHumanInvestment({ deptIdx: selected.deptIdx, projIdx: selected.projIdx })}
+                          className="text-[11px] text-purple-600 hover:underline"
+                        >
+                          + 追加
+                        </button>
+                      )}
+                    </div>
+                    {addingHumanInvestment?.deptIdx === selected.deptIdx && addingHumanInvestment?.projIdx === selected.projIdx && !isApproved() && (
+                      <div className="mb-3 rounded-lg bg-white p-3 space-y-2">
+                        <div className="grid gap-2 md:grid-cols-3">
+                          <select
+                            value={newInvestFormData.type}
+                            onChange={(e) => setNewInvestFormData({ ...newInvestFormData, type: e.target.value as any })}
+                            className="h-9 rounded-lg border border-purple-200 px-2 text-[12px]"
+                          >
+                            <option value="HIRE">採用</option>
+                            <option value="TRAINING">研修</option>
+                            <option value="OUTSOURCE">外部委託</option>
+                            <option value="SYSTEM">システム</option>
+                            <option value="TOOL">ツール</option>
+                            <option value="OTHER">その他</option>
+                          </select>
+                          <input
+                            type="number"
+                            placeholder="金額(¥)"
+                            value={newInvestFormData.amount}
+                            onChange={(e) => setNewInvestFormData({ ...newInvestFormData, amount: e.target.value })}
+                            className="h-9 rounded-lg border border-purple-200 px-3 text-[12px]"
+                          />
+                          <input
+                            type="text"
+                            placeholder="実行時期(YYYY-MM)"
+                            value={newInvestFormData.timingYm}
+                            onChange={(e) => setNewInvestFormData({ ...newInvestFormData, timingYm: e.target.value })}
+                            className="h-9 rounded-lg border border-purple-200 px-3 text-[12px]"
+                          />
+                        </div>
+                        <div className="grid gap-2 md:grid-cols-2">
+                          <input
+                            type="number"
+                            placeholder="人数"
+                            value={newInvestFormData.headcount}
+                            onChange={(e) => setNewInvestFormData({ ...newInvestFormData, headcount: e.target.value })}
+                            className="h-9 rounded-lg border border-purple-200 px-3 text-[12px]"
+                          />
+                          <input
+                            type="text"
+                            placeholder="チーム/部署"
+                            value={newInvestFormData.team}
+                            onChange={(e) => setNewInvestFormData({ ...newInvestFormData, team: e.target.value })}
+                            className="h-9 rounded-lg border border-purple-200 px-3 text-[12px]"
+                          />
+                        </div>
+                        <textarea
+                          placeholder="備考"
+                          value={newInvestFormData.note}
+                          onChange={(e) => setNewInvestFormData({ ...newInvestFormData, note: e.target.value })}
+                          className="rounded-lg border border-purple-200 px-3 py-1.5 text-[12px]"
+                          rows={2}
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              const amount = newInvestFormData.amount ? parseInt(newInvestFormData.amount) : undefined;
+                              const headcount = newInvestFormData.headcount ? parseInt(newInvestFormData.headcount) : undefined;
+                              if (!Number.isFinite(amount) && !Number.isFinite(headcount)) {
+                                alert('金額または人数を入力してください。');
+                                return;
+                              }
+                              patchDepartments((prev) => {
+                                const next = [...prev];
+                                const dept = { ...next[selected.deptIdx] };
+                                const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+                                const proj = { ...projs[selected.projIdx] };
+                                const investments = Array.isArray(proj.executionHumanInvestments) ? [...proj.executionHumanInvestments] : [];
+                                const id = (() => {
+                                  try { return (crypto as any).randomUUID(); } catch { return `invest-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
+                                })();
+                                investments.push({
+                                  id,
+                                  type: newInvestFormData.type,
+                                  amount,
+                                  timingYm: newInvestFormData.timingYm || undefined,
+                                  headcount,
+                                  team: newInvestFormData.team || undefined,
+                                  note: newInvestFormData.note || undefined,
+                                });
+                                proj.executionHumanInvestments = investments;
+                                projs[selected.projIdx] = proj;
+                                dept.projects = projs;
+                                next[selected.deptIdx] = dept;
+                                return next;
+                              });
+                              setNewInvestFormData({
+                                type: 'HIRE',
+                                amount: '',
+                                timingYm: '',
+                                headcount: '',
+                                team: '',
+                                note: '',
+                              });
+                              setAddingHumanInvestment(null);
+                            }}
+                            className="flex-1 rounded-lg bg-purple-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-purple-700"
+                          >
+                            追加
+                          </button>
+                          <button
+                            onClick={() => {
+                              setNewInvestFormData({
+                                type: 'HIRE',
+                                amount: '',
+                                timingYm: '',
+                                headcount: '',
+                                team: '',
+                                note: '',
+                              });
+                              setAddingHumanInvestment(null);
+                            }}
+                            className="rounded-lg bg-zinc-300 px-3 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-400"
+                          >
+                            キャンセル
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    <ul className="space-y-1.5">
+                      {(selectedProj.executionHumanInvestments || []).map((invest, idx) => (
+                        <li key={invest.id} className="flex items-center gap-2 rounded-lg bg-white p-2">
+                          <div className="flex-1 text-[12px]">
+                            <div className="font-semibold">{invest.type}</div>
+                            <div className="text-[10px] text-zinc-600">
+                              {[invest.amount && `¥${invest.amount.toLocaleString()}`, invest.timingYm && `${invest.timingYm}実行`, invest.headcount && `${invest.headcount}人`, invest.team && `${invest.team}`].filter(Boolean).join(' | ')}
+                            </div>
+                            {invest.note && <div className="text-[10px] text-zinc-600 mt-1">{invest.note}</div>}
+                          </div>
+                          {!isApproved() && (
+                            <button
+                              onClick={() => {
+                                patchDepartments((prev) => {
+                                  const next = [...prev];
+                                  const dept = { ...next[selected.deptIdx] };
+                                  const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+                                  const proj = { ...projs[selected.projIdx] };
+                                  proj.executionHumanInvestments = (proj.executionHumanInvestments || []).filter((_, i) => i !== idx);
+                                  projs[selected.projIdx] = proj;
+                                  dept.projects = projs;
+                                  next[selected.deptIdx] = dept;
+                                  return next;
+                                });
+                              }}
+                              className="text-[11px] text-rose-600 hover:text-rose-700"
+                            >
+                              削除
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
 
                   {/* スキルプラン CRUD */}
@@ -2459,173 +2699,6 @@ export default function OKRPage() {
                         </li>
                       ))}
                     </ul>
-
-                    {/* 人的投資計画（ExecutionHumanInvestment） */}
-                    <div className="mt-6 rounded-lg border border-purple-200 bg-purple-50 p-3">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="text-[12px] font-semibold text-purple-900">人的投資計画</div>
-                        {!isApproved() && (
-                          <button
-                            onClick={() => setAddingHumanInvestment({ deptIdx: selected.deptIdx, projIdx: selected.projIdx })}
-                            className="text-[11px] text-purple-600 hover:underline"
-                          >
-                            + 追加
-                          </button>
-                        )}
-                      </div>
-                      {addingHumanInvestment?.deptIdx === selected.deptIdx && addingHumanInvestment?.projIdx === selected.projIdx && !isApproved() && (
-                        <div className="mb-3 rounded-lg bg-white p-3 space-y-2">
-                          <div className="grid gap-2 md:grid-cols-3">
-                            <select
-                              value={newInvestFormData.type}
-                              onChange={(e) => setNewInvestFormData({ ...newInvestFormData, type: e.target.value as any })}
-                              className="h-9 rounded-lg border border-purple-200 px-2 text-[12px]"
-                            >
-                              <option value="HIRE">採用</option>
-                              <option value="TRAINING">研修</option>
-                              <option value="OUTSOURCE">外部委託</option>
-                              <option value="SYSTEM">システム</option>
-                              <option value="TOOL">ツール</option>
-                              <option value="OTHER">その他</option>
-                            </select>
-                            <input
-                              type="number"
-                              placeholder="金額(¥)"
-                              value={newInvestFormData.amount}
-                              onChange={(e) => setNewInvestFormData({ ...newInvestFormData, amount: e.target.value })}
-                              className="h-9 rounded-lg border border-purple-200 px-3 text-[12px]"
-                            />
-                            <input
-                              type="text"
-                              placeholder="実行時期(YYYY-MM)"
-                              value={newInvestFormData.timingYm}
-                              onChange={(e) => setNewInvestFormData({ ...newInvestFormData, timingYm: e.target.value })}
-                              className="h-9 rounded-lg border border-purple-200 px-3 text-[12px]"
-                            />
-                          </div>
-                          <div className="grid gap-2 md:grid-cols-2">
-                            <input
-                              type="number"
-                              placeholder="人数"
-                              value={newInvestFormData.headcount}
-                              onChange={(e) => setNewInvestFormData({ ...newInvestFormData, headcount: e.target.value })}
-                              className="h-9 rounded-lg border border-purple-200 px-3 text-[12px]"
-                            />
-                            <input
-                              type="text"
-                              placeholder="チーム/部署"
-                              value={newInvestFormData.team}
-                              onChange={(e) => setNewInvestFormData({ ...newInvestFormData, team: e.target.value })}
-                              className="h-9 rounded-lg border border-purple-200 px-3 text-[12px]"
-                            />
-                          </div>
-                          <textarea
-                            placeholder="備考"
-                            value={newInvestFormData.note}
-                            onChange={(e) => setNewInvestFormData({ ...newInvestFormData, note: e.target.value })}
-                            className="rounded-lg border border-purple-200 px-3 py-1.5 text-[12px]"
-                            rows={2}
-                          />
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => {
-                                const amount = newInvestFormData.amount ? parseInt(newInvestFormData.amount) : undefined;
-                                const headcount = newInvestFormData.headcount ? parseInt(newInvestFormData.headcount) : undefined;
-                                if (!Number.isFinite(amount) && !Number.isFinite(headcount)) {
-                                  alert('金額または人数を入力してください。');
-                                  return;
-                                }
-                                patchDepartments((prev) => {
-                                  const next = [...prev];
-                                  const dept = { ...next[selected.deptIdx] };
-                                  const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
-                                  const proj = { ...projs[selected.projIdx] };
-                                  const investments = Array.isArray(proj.executionHumanInvestments) ? [...proj.executionHumanInvestments] : [];
-                                  const id = (() => {
-                                    try { return (crypto as any).randomUUID(); } catch { return `invest-${Date.now()}-${Math.random().toString(36).slice(2)}`; }
-                                  })();
-                                  investments.push({
-                                    id,
-                                    type: newInvestFormData.type,
-                                    amount,
-                                    timingYm: newInvestFormData.timingYm || undefined,
-                                    headcount,
-                                    team: newInvestFormData.team || undefined,
-                                    note: newInvestFormData.note || undefined,
-                                  });
-                                  proj.executionHumanInvestments = investments;
-                                  projs[selected.projIdx] = proj;
-                                  dept.projects = projs;
-                                  next[selected.deptIdx] = dept;
-                                  return next;
-                                });
-                                setNewInvestFormData({
-                                  type: 'HIRE',
-                                  amount: '',
-                                  timingYm: '',
-                                  headcount: '',
-                                  team: '',
-                                  note: '',
-                                });
-                                setAddingHumanInvestment(null);
-                              }}
-                              className="flex-1 rounded-lg bg-purple-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-purple-700"
-                            >
-                              追加
-                            </button>
-                            <button
-                              onClick={() => {
-                                setNewInvestFormData({
-                                  type: 'HIRE',
-                                  amount: '',
-                                  timingYm: '',
-                                  headcount: '',
-                                  team: '',
-                                  note: '',
-                                });
-                                setAddingHumanInvestment(null);
-                              }}
-                              className="rounded-lg bg-zinc-300 px-3 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-400"
-                            >
-                              キャンセル
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                      <ul className="space-y-1.5">
-                        {(selectedProj.executionHumanInvestments || []).map((invest, idx) => (
-                          <li key={invest.id} className="flex items-center gap-2 rounded-lg bg-white p-2">
-                            <div className="flex-1 text-[12px]">
-                              <div className="font-semibold">{invest.type}</div>
-                              <div className="text-[10px] text-zinc-600">
-                                {[invest.amount && `¥${invest.amount.toLocaleString()}`, invest.timingYm && `${invest.timingYm}実行`, invest.headcount && `${invest.headcount}人`, invest.team && `${invest.team}`].filter(Boolean).join(' | ')}
-                              </div>
-                              {invest.note && <div className="text-[10px] text-zinc-600 mt-1">{invest.note}</div>}
-                            </div>
-                            {!isApproved() && (
-                              <button
-                                onClick={() => {
-                                  patchDepartments((prev) => {
-                                    const next = [...prev];
-                                    const dept = { ...next[selected.deptIdx] };
-                                    const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
-                                    const proj = { ...projs[selected.projIdx] };
-                                    proj.executionHumanInvestments = (proj.executionHumanInvestments || []).filter((_, i) => i !== idx);
-                                    projs[selected.projIdx] = proj;
-                                    dept.projects = projs;
-                                    next[selected.deptIdx] = dept;
-                                    return next;
-                                  });
-                                }}
-                                className="text-[11px] text-rose-600 hover:text-rose-700"
-                              >
-                                削除
-                              </button>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
                   </div>
 
                   {/* Baseline 差分パネル */}
