@@ -537,6 +537,9 @@ export default function OKRPage() {
   /* Phase1.4: 統合フォームモード（二重表示防止） */
   const INTEGRATED = true;
 
+  /* STAGE4: 3カード統一フォーマット（保存非破壊・旧UI隔離） */
+  const SIMPLE_FORM = true;
+
   /* 参考OKR表示トグル（デフォルト閉） */
   const [showCascadeOkr, setShowCascadeOkr] = useState<boolean>(false);
 
@@ -933,10 +936,513 @@ export default function OKRPage() {
   const canEditKr = !(editingMode === 'variant' && !activeVariant) && !isApproved();
 
   /* ============================================================
-   * Render
+   * renderSimpleForm: 3カード統一フォーマット
    * ========================================================== */
-  return (
-    <main className="min-h-screen bg-zinc-50 px-6 py-8">
+  const renderSimpleForm = () => {
+    if (!selected || !selectedProj || !selectedDept) {
+      return (
+        <main className="min-h-screen bg-zinc-50 px-6 py-8">
+          <header className="mb-8">
+            <h1 className="text-[28px] font-semibold tracking-tight text-zinc-900">
+              STAGE4 実行計画策定（3カード フォーマット）
+            </h1>
+          </header>
+          <div className="flex h-[400px] flex-col items-center justify-center gap-2 text-center">
+            <p className="text-[14px] font-medium text-zinc-700">左の一覧から、編集したいプロジェクトを選んでください。</p>
+          </div>
+          <SaveDock />
+        </main>
+      );
+    }
+
+    return (
+      <main className="min-h-screen bg-zinc-50 px-6 py-8">
+        <header className="mb-8">
+          <h1 className="text-[28px] font-semibold tracking-tight text-zinc-900">
+            STAGE4 実行計画策定（3カード フォーマット）
+          </h1>
+          <p className="text-[13px] text-zinc-600 mt-2">{selectedDept.name} &gt; {selectedProj.title}</p>
+        </header>
+
+        {/* 完了チェックバー */}
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 mb-6">
+          <div className="mb-2 text-[12px] font-semibold text-blue-900">必須項目の完了状況</div>
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <span className={mainOKR?.objective ? 'text-emerald-600 font-semibold' : 'text-amber-600'}>
+                {mainOKR?.objective ? '✓' : '○'}
+              </span>
+              <span className="text-[12px]">目的（Objective）入力済み</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={committedOkrsV2.length > 0 ? 'text-emerald-600 font-semibold' : 'text-amber-600'}>
+                {committedOkrsV2.length > 0 ? '✓' : '○'}
+              </span>
+              <span className="text-[12px]">成果指標（KPI）1件以上</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={((selectedProj.executionHumanInvestments || []).some((inv: any) => Number.isFinite(inv.amount) || Number.isFinite(inv.headcount))) ? 'text-emerald-600 font-semibold' : 'text-amber-600'}>
+                {((selectedProj.executionHumanInvestments || []).some((inv: any) => Number.isFinite(inv.amount) || Number.isFinite(inv.headcount))) ? '✓' : '○'}
+              </span>
+              <span className="text-[12px]">投資（金額or人数）1件以上</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          {/* ========== Card 1: 目的（何のため？） ========== */}
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">目的（何のため？）</h2>
+
+            {/* Objective */}
+            <div className="mb-4 space-y-2">
+              <label className="text-[11px] font-semibold text-zinc-700">目的（必須）</label>
+              <textarea
+                className="min-h-[100px] w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px]"
+                placeholder="例：既存顧客からのアップセルと新規顧客獲得を両立し、売上成長の軸を確立する"
+                value={mainOKR?.objective ?? ''}
+                onChange={(e) => updateProjectOKR(selected.deptIdx, selected.projIdx, { objective: e.target.value })}
+                disabled={isHydrating || isApproved()}
+              />
+            </div>
+
+            {/* Owner */}
+            <div className="mb-4 space-y-2">
+              <label className="text-[11px] font-semibold text-zinc-700">オーナー（任意）</label>
+              <input
+                className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
+                placeholder="氏名や役職など"
+                value={mainOKR?.owner ?? ''}
+                onChange={(e) => updateProjectOKR(selected.deptIdx, selected.projIdx, { owner: e.target.value })}
+                disabled={isHydrating || isApproved()}
+              />
+            </div>
+
+            {/* Due Date */}
+            <div className="mb-4 space-y-2">
+              <label className="text-[11px] font-semibold text-zinc-700">期限（任意 / YYYY-MM）</label>
+              <input
+                className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
+                placeholder="2026-03"
+                value={mainOKR?.due ?? ''}
+                onChange={(e) => updateProjectOKR(selected.deptIdx, selected.projIdx, { due: e.target.value })}
+                disabled={isHydrating || isApproved()}
+              />
+            </div>
+
+            {/* Reference OKR - Collapsible */}
+            {selectedOkrs.length > 0 && (
+              <details className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 p-3">
+                <summary className="cursor-pointer text-[12px] font-semibold text-zinc-700 hover:text-zinc-900">
+                  参考：カスケードで生成されたOKR（{selectedOkrs.length}件）
+                </summary>
+                <div className="mt-3 space-y-2 text-[12px] text-zinc-600">
+                  {selectedOkrs.map((o, oi) => (
+                    <div key={oi} className="rounded-lg bg-white p-2">
+                      <div className="font-semibold text-zinc-800">
+                        Objective：<span className="font-normal">{o.objective || '（未設定）'}</span>
+                      </div>
+                      {o.owner && <div className="mt-1 text-[11px] text-zinc-600">オーナー：{o.owner}</div>}
+                      {Array.isArray(o.keyResults) && o.keyResults.length > 0 && (
+                        <ul className="mt-1 list-disc pl-4 text-[11px] text-zinc-700">
+                          {o.keyResults.map((kr, ki) => (
+                            <li key={ki}>{kr}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+          </div>
+
+          {/* ========== Card 2: 成果指標（KPI） ========== */}
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">成果指標（KPI）</h2>
+
+            {/* Add Button */}
+            <div className="mb-4">
+              <button
+                onClick={() => setOpenAdd((m) => ({ ...m, [selectedAddKey]: !selectedIsOpen }))}
+                disabled={isHydrating || !canEditKr}
+                className="w-full h-9 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[13px] font-semibold text-zinc-800 hover:bg-zinc-50 disabled:bg-zinc-200 disabled:text-zinc-500"
+              >
+                <span className="inline-flex items-center gap-1">
+                  <Plus className="h-4 w-4" /> KPI を追加
+                </span>
+              </button>
+            </div>
+
+            {/* KR List */}
+            <div className="space-y-2">
+              {currentKrList.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-zinc-200 bg-zinc-50 p-3 text-center">
+                  <p className="text-[12px] text-zinc-600">KPIがまだありません</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {currentKrList.map((kr, idx) => {
+                    const label = String((kr as any).label ?? '');
+                    const target = String((kr as any).target ?? '');
+                    const unit = String((kr as any).unit ?? '件');
+                    const due = String((kr as any).due ?? '');
+                    const owner = String((kr as any).owner ?? '');
+
+                    return (
+                      <div key={idx} className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                        <div className="text-[13px] font-semibold text-zinc-800 mb-2">{label || '（無名）'}</div>
+                        <div className="grid grid-cols-2 gap-2 text-[12px] text-zinc-700">
+                          <div><span className="text-zinc-500">目標:</span> {target} {unit}</div>
+                          <div><span className="text-zinc-500">期限:</span> {due || '-'}</div>
+                          {owner && <div className="col-span-2"><span className="text-zinc-500">担当:</span> {owner}</div>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Admin/Manager Details - Collapsible */}
+            {userRole !== 'member' && currentKrList.length > 0 && (
+              <details className="mt-4 rounded-xl border border-dashed border-zinc-200 bg-zinc-50 p-3">
+                <summary className="cursor-pointer text-[11px] font-semibold text-zinc-700 hover:text-zinc-900">
+                  詳細情報（admin/manager のみ）
+                </summary>
+                <div className="mt-3 space-y-2 text-[11px] text-zinc-600">
+                  {currentKrList.map((kr, idx) => {
+                    const label = String((kr as any).label ?? '');
+                    const track = String((kr as any).track ?? 'EVOLVE');
+                    const metricRole = String((kr as any).metricRole ?? 'LAG');
+                    const kind = String((kr as any).kind ?? 'ACQ');
+
+                    return (
+                      <div key={idx} className="rounded-lg bg-white p-2">
+                        <div className="font-semibold text-zinc-800">{label || '（無名）'}</div>
+                        <div className="mt-1 space-y-0.5">
+                          <div>進化/探索: {track === 'EVOLVE' ? '改善' : '検証'}</div>
+                          <div>役割: {metricRole === 'LEAD' ? '先行' : metricRole === 'LAG' ? '結果' : '北極星'}</div>
+                          <div>種別: {kind}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </details>
+            )}
+          </div>
+
+          {/* ========== Card 3: 実行計画（どうやる？） ========== */}
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">実行計画（どうやる？）</h2>
+
+            {/* Milestones */}
+            <div className="mb-4 space-y-2">
+              <label className="text-[11px] font-semibold text-zinc-700">工程（マイルストーン）</label>
+              <textarea
+                className="min-h-[80px] w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px]"
+                placeholder="例：\n1月：基礎調査\n2月：提案書作成\n3月：実装\n4月：テスト・本番"
+                value={(selectedProj as any).planMilestonesText ?? ''}
+                onChange={(e) =>
+                  patchDepartments((prev) => {
+                    if (!selected) return prev;
+                    const next = [...prev];
+                    const dept = { ...next[selected.deptIdx] };
+                    const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+                    projs[selected.projIdx] = { ...(projs[selected.projIdx] as any), planMilestonesText: e.target.value };
+                    dept.projects = projs;
+                    next[selected.deptIdx] = dept;
+                    return next;
+                  })
+                }
+                disabled={isHydrating || isApproved()}
+              />
+            </div>
+
+            {/* Investments Summary */}
+            <div className="mb-4 space-y-2">
+              <label className="text-[11px] font-semibold text-zinc-700">投資（金額 or 人数）</label>
+              <div className="rounded-lg bg-zinc-50 p-3 text-[12px] text-zinc-700">
+                <div>件数: {(selectedProj.executionHumanInvestments || []).length}</div>
+                <div className="mt-1 text-[11px] text-zinc-600">
+                  詳細は右記より編集 →
+                </div>
+              </div>
+            </div>
+
+            {/* Skills Summary */}
+            {(selectedProj.skillPlans || []).length > 0 && (
+              <details className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 p-3">
+                <summary className="cursor-pointer text-[11px] font-semibold text-zinc-700 hover:text-zinc-900">
+                  スキル獲得計画（{(selectedProj.skillPlans || []).length}件）
+                </summary>
+                <div className="mt-3 space-y-2 text-[11px] text-zinc-600">
+                  {(selectedProj.skillPlans || []).map((skill: any, idx: number) => (
+                    <div key={idx} className="rounded-lg bg-white p-2">
+                      <div className="font-semibold text-zinc-800">{skill.skillName || '（無名）'}</div>
+                      {skill.method && <div className="mt-1">方法: {skill.method}</div>}
+                      {skill.cost && <div>コスト: ¥{skill.cost.toLocaleString()}</div>}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+          </div>
+        </div>
+
+        <SaveDock />
+      </main>
+    );
+  };
+
+  /* ============================================================
+   * renderSimpleRight: 右ペイン新UI（3カード＋完了チェック）- section内容のみ
+   * ========================================================== */
+  const renderSimpleRight = () => {
+    if (!selected || !selectedProj || !selectedDept) return null;
+
+    return <>
+
+        {/* 完了チェックバー */}
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 mb-6">
+          <div className="mb-2 text-[12px] font-semibold text-blue-900">必須項目の完了状況</div>
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <span className={mainOKR?.objective ? 'text-emerald-600 font-semibold' : 'text-amber-600'}>
+                {mainOKR?.objective ? '✓' : '○'}
+              </span>
+              <span className="text-[12px]">目的（Objective）入力済み</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={committedOkrsV2.length > 0 ? 'text-emerald-600 font-semibold' : 'text-amber-600'}>
+                {committedOkrsV2.length > 0 ? '✓' : '○'}
+              </span>
+              <span className="text-[12px]">成果指標（KPI）1件以上</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={((selectedProj.executionHumanInvestments || []).some((inv: any) => Number.isFinite(inv.amount) || Number.isFinite(inv.headcount))) ? 'text-emerald-600 font-semibold' : 'text-amber-600'}>
+                {((selectedProj.executionHumanInvestments || []).some((inv: any) => Number.isFinite(inv.amount) || Number.isFinite(inv.headcount))) ? '✓' : '○'}
+              </span>
+              <span className="text-[12px]">投資（金額or人数）1件以上</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          {/* ========== Card 1: 目的（何のため？） ========== */}
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">目的（何のため？）</h2>
+
+            {/* Objective */}
+            <div className="mb-4 space-y-2">
+              <label className="text-[11px] font-semibold text-zinc-700">目的（必須）</label>
+              <textarea
+                className="min-h-[100px] w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px]"
+                placeholder="例：既存顧客からのアップセルと新規顧客獲得を両立し、売上成長の軸を確立する"
+                value={mainOKR?.objective ?? ''}
+                onChange={(e) => updateProjectOKR(selected.deptIdx, selected.projIdx, { objective: e.target.value })}
+                disabled={isHydrating || isApproved()}
+              />
+            </div>
+
+            {/* Owner */}
+            <div className="mb-4 space-y-2">
+              <label className="text-[11px] font-semibold text-zinc-700">オーナー（任意）</label>
+              <input
+                className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
+                placeholder="氏名や役職など"
+                value={mainOKR?.owner ?? ''}
+                onChange={(e) => updateProjectOKR(selected.deptIdx, selected.projIdx, { owner: e.target.value })}
+                disabled={isHydrating || isApproved()}
+              />
+            </div>
+
+            {/* Due Date */}
+            <div className="mb-4 space-y-2">
+              <label className="text-[11px] font-semibold text-zinc-700">期限（任意 / YYYY-MM）</label>
+              <input
+                className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
+                placeholder="2026-03"
+                value={mainOKR?.due ?? ''}
+                onChange={(e) => updateProjectOKR(selected.deptIdx, selected.projIdx, { due: e.target.value })}
+                disabled={isHydrating || isApproved()}
+              />
+            </div>
+
+            {/* Reference OKR - Collapsible */}
+            {selectedOkrs.length > 0 && (
+              <details className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 p-3">
+                <summary className="cursor-pointer text-[12px] font-semibold text-zinc-700 hover:text-zinc-900">
+                  参考：カスケードで生成されたOKR（{selectedOkrs.length}件）
+                </summary>
+                <div className="mt-3 space-y-2 text-[12px] text-zinc-600">
+                  {selectedOkrs.map((o, oi) => (
+                    <div key={oi} className="rounded-lg bg-white p-2">
+                      <div className="font-semibold text-zinc-800">
+                        Objective：<span className="font-normal">{o.objective || '（未設定）'}</span>
+                      </div>
+                      {o.owner && <div className="mt-1 text-[11px] text-zinc-600">オーナー：{o.owner}</div>}
+                      {Array.isArray(o.keyResults) && o.keyResults.length > 0 && (
+                        <ul className="mt-1 list-disc pl-4 text-[11px] text-zinc-700">
+                          {o.keyResults.map((kr, ki) => (
+                            <li key={ki}>{kr}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+          </div>
+
+          {/* ========== Card 2: 成果指標（KPI） ========== */}
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">成果指標（KPI）</h2>
+
+            {/* Add Button */}
+            <div className="mb-4">
+              <button
+                onClick={() => setOpenAdd((m) => ({ ...m, [selectedAddKey]: !selectedIsOpen }))}
+                disabled={isHydrating || !canEditKr}
+                className="w-full h-9 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[13px] font-semibold text-zinc-800 hover:bg-zinc-50 disabled:bg-zinc-200 disabled:text-zinc-500"
+              >
+                <span className="inline-flex items-center gap-1">
+                  <Plus className="h-4 w-4" /> KPI を追加
+                </span>
+              </button>
+            </div>
+
+            {/* KR List */}
+            <div className="space-y-2">
+              {currentKrList.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-zinc-200 bg-zinc-50 p-3 text-center">
+                  <p className="text-[12px] text-zinc-600">KPIがまだありません</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {currentKrList.map((kr, idx) => {
+                    const label = String((kr as any).label ?? '');
+                    const target = String((kr as any).target ?? '');
+                    const unit = String((kr as any).unit ?? '件');
+                    const due = String((kr as any).due ?? '');
+                    const owner = String((kr as any).owner ?? '');
+
+                    if (typeof label !== 'string' || label.startsWith('[object')) {
+                      console.debug(`[KRI Bug Guard] KR ${idx} has invalid label:`, kr);
+                    }
+
+                    return (
+                      <div key={idx} className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                        <div className="text-[13px] font-semibold text-zinc-800 mb-2">{label || '（無名）'}</div>
+                        <div className="grid grid-cols-2 gap-2 text-[12px] text-zinc-700">
+                          <div><span className="text-zinc-500">目標:</span> {target} {unit}</div>
+                          <div><span className="text-zinc-500">期限:</span> {due || '-'}</div>
+                          {owner && <div className="col-span-2"><span className="text-zinc-500">担当:</span> {owner}</div>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Admin/Manager Details - Collapsible */}
+            {userRole !== 'member' && currentKrList.length > 0 && (
+              <details className="mt-4 rounded-xl border border-dashed border-zinc-200 bg-zinc-50 p-3">
+                <summary className="cursor-pointer text-[11px] font-semibold text-zinc-700 hover:text-zinc-900">
+                  詳細情報（admin/manager のみ）
+                </summary>
+                <div className="mt-3 space-y-2 text-[11px] text-zinc-600">
+                  {currentKrList.map((kr, idx) => {
+                    const label = String((kr as any).label ?? '');
+                    const track = String((kr as any).track ?? 'EVOLVE');
+                    const metricRole = String((kr as any).metricRole ?? 'LAG');
+                    const kind = String((kr as any).kind ?? 'ACQ');
+
+                    return (
+                      <div key={idx} className="rounded-lg bg-white p-2">
+                        <div className="font-semibold text-zinc-800">{label || '（無名）'}</div>
+                        <div className="mt-1 space-y-0.5">
+                          <div>進化/探索: {track === 'EVOLVE' ? '改善' : '検証'}</div>
+                          <div>役割: {metricRole === 'LEAD' ? '先行' : metricRole === 'LAG' ? '結果' : '北極星'}</div>
+                          <div>種別: {kind}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </details>
+            )}
+          </div>
+
+          {/* ========== Card 3: 実行計画（どうやる？） ========== */}
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">実行計画（どうやる？）</h2>
+
+            {/* Milestones */}
+            <div className="mb-4 space-y-2">
+              <label className="text-[11px] font-semibold text-zinc-700">工程（マイルストーン）</label>
+              <textarea
+                className="min-h-[80px] w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px]"
+                placeholder="例：\n1月：基礎調査\n2月：提案書作成\n3月：実装\n4月：テスト・本番"
+                value={(selectedProj as any).planMilestonesText ?? ''}
+                onChange={(e) =>
+                  patchDepartments((prev) => {
+                    if (!selected) return prev;
+                    const next = [...prev];
+                    const dept = { ...next[selected.deptIdx] };
+                    const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+                    projs[selected.projIdx] = { ...(projs[selected.projIdx] as any), planMilestonesText: e.target.value };
+                    dept.projects = projs;
+                    next[selected.deptIdx] = dept;
+                    return next;
+                  })
+                }
+                disabled={isHydrating || isApproved()}
+              />
+            </div>
+
+            {/* Investments Summary */}
+            <div className="mb-4 space-y-2">
+              <label className="text-[11px] font-semibold text-zinc-700">投資（金額 or 人数）</label>
+              <div className="rounded-lg bg-zinc-50 p-3 text-[12px] text-zinc-700">
+                <div>件数: {(selectedProj.executionHumanInvestments || []).length}</div>
+                <div className="mt-1 text-[11px] text-zinc-600">
+                  詳細は右記より編集 →
+                </div>
+              </div>
+            </div>
+
+            {/* Skills Summary */}
+            {(selectedProj.skillPlans || []).length > 0 && (
+              <details className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 p-3">
+                <summary className="cursor-pointer text-[11px] font-semibold text-zinc-700 hover:text-zinc-900">
+                  スキル獲得計画（{(selectedProj.skillPlans || []).length}件）
+                </summary>
+                <div className="mt-3 space-y-2 text-[11px] text-zinc-600">
+                  {(selectedProj.skillPlans || []).map((skill: any, idx: number) => (
+                    <div key={idx} className="rounded-lg bg-white p-2">
+                      <div className="font-semibold text-zinc-800">{skill.skillName || '（無名）'}</div>
+                      {skill.method && <div className="mt-1">方法: {skill.method}</div>}
+                      {skill.cost && <div>コスト: ¥{skill.cost.toLocaleString()}</div>}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+          </div>
+        </div>
+    </>;
+  };
+
+  /* ============================================================
+   * renderLegacy: 旧UI（タブシステム・詳細フォーム）
+   * ========================================================== */
+  const renderLegacy = () => {
+    return (
+      <main className="min-h-screen bg-zinc-50 px-6 py-8">
       <header className="mb-8">
         <h1 className="text-[28px] font-semibold tracking-tight text-zinc-900">
           STAGE4 実行計画策定（KPI設定確定）
@@ -1080,11 +1586,16 @@ export default function OKRPage() {
           {!selected || !selectedProj || !selectedDept ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
               <p className="text-[14px] font-medium text-zinc-700">左の一覧から、編集したいプロジェクトを選んでください。</p>
-              <p className="text-[12px] text-zinc-500">プロジェクト単位で Objective と Key Results を設定できます。</p>
+              <p className="text-[12px] text-zinc-500">プロジェクト単位で「目的」と「成果指標（KPI）」を設定できます。</p>
             </div>
           ) : (
-            <>
-              {/* プロジェクトヘッダー */}
+            SIMPLE_FORM ? (
+              <>
+                {renderSimpleRight()}
+              </>
+            ) : (
+              <>
+                {/* プロジェクトヘッダー */}
               <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div className="text-[12px] text-zinc-500">{selectedDept.name || '部門'}</div>
@@ -2805,12 +3316,19 @@ export default function OKRPage() {
                   )}
                 </div>
               )}
-            </>
+              </>
+            )
           )}
         </section>
       </div>
 
       <SaveDock />
     </main>
-  );
+    );
+  };
+
+  /* ============================================================
+   * return: SIMPLE_FORM フラグで表示を切り替え
+   * ========================================================== */
+  return renderLegacy();
 }
