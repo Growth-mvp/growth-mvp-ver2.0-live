@@ -1,0 +1,13 @@
+{
+  "css.validate": true,
+  "scss.validate": true,
+  "less.validate": true,
+
+  "css.lint.unknownAtRules": "ignore",
+  "scss.lint.unknownAtRules": "ignore",
+  "less.lint.unknownAtRules": "ignore",
+
+  "editor.quickSuggestions": {
+    "strings": true
+  }
+}
