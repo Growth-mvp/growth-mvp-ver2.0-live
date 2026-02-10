@@ -1,22 +1,29 @@
-/* globals.css（フル置き換え） */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 /* ================== カスタムプロパティ ================== */
 :root {
-  /* 右側AIドックの“理想幅” */
-  --agent-dock-w: 460px;
+  /* ✅ 既定は 0px（= 余白なし） */
+  --agent-dock-w: 0px;
 
-  /* Appleブルー寄りのアクセント（任意：上書き可） */
+  /* Appleブルー寄りのアクセント（任意） */
   --accent: #0a84ff;
   --accent-ink: #ffffff;
 }
 
-/* 画面幅に応じた調整（必要ならここで可変化） */
-@media (max-width: 1440px) {
+/* ✅ AIドックを“使う画面だけ”右余白を与える（必要なら body に class 付与） */
+.has-agent-dock {
+  --agent-dock-w: 460px;
+}
+
+/* 画面幅が狭い時は余白を落とす */
+@media (max-width: 1024px) {
   :root {
-    --agent-dock-w: 460px;
+    --agent-dock-w: 0px;
+  }
+  .has-agent-dock {
+    --agent-dock-w: 0px;
   }
 }
 
@@ -25,20 +32,10 @@
 .avoid-agent-dock {
   padding-right: var(--agent-dock-w);
 }
-@media (max-width: 1024px) {
-  .avoid-agent-dock {
-    padding-right: 0;
-  }
-}
 
 /* 固定/Stickyなフッター・ヘッダーの right をずらす（重なり解消） */
 .avoid-agent-dock-fixed {
   right: var(--agent-dock-w);
-}
-@media (max-width: 1024px) {
-  .avoid-agent-dock-fixed {
-    right: 0;
-  }
 }
 
 /* ドック内の入力フッターぶん、スクロール末尾に余白を確保したい時に使用 */
@@ -48,6 +45,10 @@
 
 /* ================== Apple風ベース設定 ================== */
 @layer base {
+  html, body {
+    height: 100%;
+  }
+
   body {
     @apply bg-zinc-50 text-zinc-900 font-sans leading-relaxed antialiased;
     font-feature-settings: "liga","kern";
@@ -55,9 +56,9 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  h1 { @apply text-[28px] font-semibold text-zinc-900 tracking-tight mb-4; }
-  h2 { @apply text-[22px] font-medium  text-zinc-800 mb-3; }
-  h3 { @apply text-[18px] font-medium  text-zinc-700 mb-2; }
+  h1 { @apply text-[28px] font-semibold text-zinc-900 tracking-tight; }
+  h2 { @apply text-[22px] font-medium  text-zinc-800; }
+  h3 { @apply text-[18px] font-medium  text-zinc-700; }
   p  { @apply text-[15px] text-zinc-800 leading-7; }
 }
 
@@ -70,9 +71,12 @@
            outline-none transition focus:ring-4 focus:ring-zinc-200 focus:border-zinc-400;
   }
 
-  /* ボタン（共通：丸み＋滑らか） */
-  button {
-    @apply rounded-full font-medium transition duration-200 ease-in-out;
+  /* ✅ ボタンの“全体適用”は崩れやすいので逃げ道を用意
+     - 通常ボタンは丸くしてOK
+     - 特殊なボタンは data-plain を付ければ影響を受けない
+  */
+  button:not([data-plain]) {
+    @apply font-medium transition duration-200 ease-in-out;
   }
   button:disabled {
     @apply opacity-50 cursor-not-allowed;
@@ -81,7 +85,6 @@
   /* カード（ガラス感＋淡い影） */
   .card {
     @apply rounded-2xl border border-zinc-200 bg-white/70 backdrop-blur-sm p-6;
-    /* Tailwindの@applyでは任意shadowを合成できないためCSSで指定 */
     box-shadow: 0 1px 2px rgba(0,0,0,0.04);
   }
 
@@ -93,7 +96,6 @@
 
 /* ================== ユーティリティ追加（微影など） ================== */
 @layer utilities {
-  /* ごく薄い影を汎用クラス化（.card以外でも使える） */
   .shadow-subtle {
     box-shadow: 0 1px 2px rgba(0,0,0,0.04);
   }
