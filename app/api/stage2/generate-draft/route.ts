@@ -8,12 +8,15 @@
 // - normalizeChapterBody：AIが第2章をobject/arrayで返しても固定書式（根拠SWOT含む）に確実に文字列化
 // - Repair(2nd pass)：固定書式とSWOT具体語の追記を最小修正で強制
 
+import 'server-only';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 import { z } from 'zod';
 
 /* ===== OpenAI設定 ===== */
@@ -945,6 +948,17 @@ export async function POST(req: NextRequest) {
   console.log('[stage2/generate-draft] POST ENTER', { at: new Date().toISOString(), host, method, contentLength });
 
   try {
+    // Bearer token authentication and membership validation
+    const admin = getSupabaseAdmin();
+    const userId = await getAuthUserIdFromBearer(admin, req);
+    if (!userId) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
+    const membership = await requireMembership(admin, userId);
+    if (!membership) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+
     let body: any;
     try {
       body = await req.json();
