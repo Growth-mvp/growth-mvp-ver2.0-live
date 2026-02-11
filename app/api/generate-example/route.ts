@@ -1,20 +1,34 @@
 // /app/api/generate-example/route.ts
+import 'server-only';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { openai } from '@/lib/openai';
 import { safeParseJson } from '@/app/api/generate-question/helpers';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 
 type Body = { question?: string; allowNamedExamples?: boolean };
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   const ctype = req.headers.get('content-type') || '';
   if (!ctype.includes('application/json')) {
     return NextResponse.json(
       { error: 'Unsupported Media Type. Use application/json.' },
       { status: 415 }
     );
+  }
+
+  // Bearer token authentication and membership validation
+  const admin = getSupabaseAdmin();
+  const userId = await getAuthUserIdFromBearer(admin, req);
+  if (!userId) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+  const membership = await requireMembership(admin, userId);
+  if (!membership) {
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
 
   let body: Body = {};

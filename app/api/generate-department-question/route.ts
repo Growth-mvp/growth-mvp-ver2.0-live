@@ -1,12 +1,15 @@
 // /app/api/generate-department-question/route.ts
+import 'server-only';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { openai } from '@/lib/openai';
 import { sanitizeText } from '@/app/api/_shared/utils';
 import { getIndustryLabel } from '@/utils/industryTemplates';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 
 /** 1..6 の固定ステップ（Ver4） */
 type StepNumber = 1 | 2 | 3 | 4 | 5 | 6;
@@ -303,7 +306,7 @@ function buildBusinessPortfolioContext(bp?: BusinessPortfolioLike): string[] {
 /* =========================
  * ハンドラ
  * ======================= */
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   const routeHeaders = {
     'Cache-Control': 'no-store',
     'X-GROWTH-Route': 'app/api/generate-department-question',
@@ -312,6 +315,17 @@ export async function POST(req: Request) {
   } as const;
 
   try {
+    // Bearer token authentication and membership validation
+    const admin = getSupabaseAdmin();
+    const userId = await getAuthUserIdFromBearer(admin, req);
+    if (!userId) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401, headers: routeHeaders });
+    }
+    const membership = await requireMembership(admin, userId);
+    if (!membership) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403, headers: routeHeaders });
+    }
+
     const body = (await req.json()) as ReqBody;
     const dept = (body?.departmentName || '').trim();
     if (!dept) {

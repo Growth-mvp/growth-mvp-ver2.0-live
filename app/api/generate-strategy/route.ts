@@ -1,4 +1,5 @@
 // /app/api/generate-strategy/route.ts
+import 'server-only';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -7,6 +8,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { openai } from '@/lib/openai';
 import { z } from 'zod';
 import { sanitizeText, extractJsonObject } from '@/app/api/_shared/utils';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 
 /* =========================
  * 入力スキーマ
@@ -160,6 +163,18 @@ async function askOpenAI(prompt: string) {
  * ======================= */
 export async function POST(req: NextRequest) {
   try {
+    // 0) Bearer トークン認証＆membership確認
+    const admin = getSupabaseAdmin();
+    const userId = await getAuthUserIdFromBearer(admin, req);
+    if (!userId) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
+
+    const membership = await requireMembership(admin, userId);
+    if (!membership) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+
     // 1) 入力の読み込み＆検証
     const bodyRaw = await req.json().catch(() => ({}));
     const bodySafe = BodySchema.safeParse(bodyRaw);

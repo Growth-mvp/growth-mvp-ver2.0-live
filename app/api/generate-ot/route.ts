@@ -1,4 +1,5 @@
 // /app/api/generate-ot/route.ts
+import 'server-only';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -7,6 +8,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { openai } from '@/lib/openai';
 import { z } from 'zod';
 import { getIndustryLabel } from '@/utils/industryTemplates';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 
 /* =========================
  * 型
@@ -214,6 +217,17 @@ async function callOpenAIWithRetry(
  * ======================= */
 export async function POST(req: NextRequest) {
   try {
+    // Bearer token authentication and membership validation
+    const admin = getSupabaseAdmin();
+    const userId = await getAuthUserIdFromBearer(admin, req);
+    if (!userId) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
+    const membership = await requireMembership(admin, userId);
+    if (!membership) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+
     const raw = await req.json().catch(() => ({}));
     const parsed = ReqSchema.safeParse(raw);
     if (!parsed.success) {

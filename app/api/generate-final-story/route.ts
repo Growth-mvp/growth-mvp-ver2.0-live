@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import 'server-only';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -8,6 +9,8 @@ import { openai } from '@/lib/openai';
 import { getIndustryLabel as _getIndustryLabel } from '@/utils/industryTemplates';
 import { saveFinalStory } from '@/utils/supabase';
 import type { ChatCompletionCreateParamsNonStreaming } from 'openai/resources/chat/completions';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 
 /* =========================
  * モデル選択（簡素化）
@@ -700,10 +703,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Bearer token authentication and membership validation
+    const admin = getSupabaseAdmin();
+    const userId = await getAuthUserIdFromBearer(admin, req);
+    if (!userId) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
+    const membership = await requireMembership(admin, userId);
+    if (!membership) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
     const {
-      userId,
       thought,
       mission,
       vision,

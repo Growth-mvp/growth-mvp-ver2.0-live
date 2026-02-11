@@ -1,9 +1,12 @@
 // /app/api/generate-story-draft/route.ts
+import 'server-only';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 
 // ★ 追加：勝ちパターン辞書
 import { topPatterns } from '@/lib/strategyPatterns.top';
@@ -388,6 +391,17 @@ type Mode = 'future' | 'legacy';
 
 export async function POST(req: NextRequest) {
   try {
+    // Bearer token authentication and membership validation
+    const admin = getSupabaseAdmin();
+    const userId = await getAuthUserIdFromBearer(admin, req);
+    if (!userId) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
+    const membership = await requireMembership(admin, userId);
+    if (!membership) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+
     // ---- デバッグ入口 ----
     const url = (req as any).nextUrl ?? new URL(req.url);
     const debug = url.searchParams.get('debug') || '';

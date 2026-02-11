@@ -16,6 +16,7 @@ import {
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { useAccess } from '@/utils/access';
+import { useCapabilities } from '@/hooks/useCapabilities';
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
 import { useAutoSave } from '@/hooks/useAutoSave';
@@ -496,15 +497,14 @@ const [editingMilestoneIdx, setEditingMilestoneIdx] = useState<number | null>(nu
   /* ============================================================
    * STAGE4: planStatus ロジック・permission チェック
    * ========================================================== */
-  const userRole = (access as any)?.role ?? 'member';
+  const capabilities = useCapabilities();
 
   const getPlanStatus = (): string => selectedProj?.planStatus ?? 'draft';
   const isApproved = (): boolean => getPlanStatus() === 'approved';
   const isReview = (): boolean => getPlanStatus() === 'review';
 
   const canTransitionToPlanStatus = (targetStatus: string): boolean => {
-    if (userRole === 'admin') return true;
-    if (userRole === 'manager' && targetStatus === 'review') return true;
+    if (capabilities.canEditStrategy) return true;  // admin or manager
     return false;
   };
 
@@ -1523,7 +1523,7 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
             </div>
 
             {/* Admin/Manager Details - Hidden in SIMPLE_FORM */}
-            {false && userRole !== 'member' && currentKrList.length > 0 && (
+            {false && capabilities.canEditStrategy && currentKrList.length > 0 && (
               <details className="mt-4 rounded-xl border border-dashed border-zinc-200 bg-zinc-50 p-3">
                 <summary className="cursor-pointer text-[11px] font-semibold text-zinc-700 hover:text-zinc-900">
                   詳細情報（admin/manager のみ）
@@ -2305,7 +2305,7 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
    * renderLegacy: 旧UI（タブシステム・詳細フォーム）
    * ========================================================== */
   const renderLegacy = () => {
-    const canEditDept = userRole === 'admin' || userRole === 'manager';
+    const canEditDept = capabilities.canEditStrategy;
 
   return (
   <main className="min-h-screen bg-zinc-50">

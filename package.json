@@ -15,7 +15,9 @@
     "start:3002": "next start -p 3002",
     "lint": "next lint",
     "type-check": "tsc -p tsconfig.json --noEmit",
-    "stage3:smoke": "node scripts/stage3.smoke.mjs"
+    "stage3:smoke": "node scripts/stage3.smoke.mjs",
+    "rbac:check": "bash scripts/rbac-check.sh",
+    "rbac:e2e:min": "bash scripts/rbac-e2e-min.sh"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.14",

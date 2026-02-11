@@ -1,11 +1,14 @@
+import 'server-only';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { openai } from '@/lib/openai';
 import { sanitizeText, toTextStory } from '@/app/api/_shared/utils';
 import { z } from 'zod';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 
 /* ========= 型（既存I/Fを維持） ========= */
 type AnswerStep = { stepNumber: number; question?: string; reason?: string; answer?: string; label?: string };
@@ -300,8 +303,19 @@ function buildHeuristicDepartmentDraft(args: {
 }
 
 /* ========= ハンドラ ========= */
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
+    // Bearer token authentication and membership validation
+    const admin = getSupabaseAdmin();
+    const userId = await getAuthUserIdFromBearer(admin, req);
+    if (!userId) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
+    const membership = await requireMembership(admin, userId);
+    if (!membership) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+
     const raw = await req.json().catch(() => ({}));
     const parsed = ReqSchema.safeParse(raw);
     if (!parsed.success) {

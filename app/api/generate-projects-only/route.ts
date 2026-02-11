@@ -1,4 +1,5 @@
 // /app/api/generate-projects-only/route.ts
+import 'server-only';
 export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -10,6 +11,8 @@ import {
 } from '@/app/api/_shared/utils';
 import { getIndustryLabel } from '@/utils/industryTemplates';
 import { z } from 'zod';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 
 /* =========================
  * 入力スキーマ
@@ -179,6 +182,17 @@ async function callOpenAIWithRetry(
  * ======================= */
 export async function POST(req: NextRequest) {
   try {
+    // Bearer token authentication and membership validation
+    const admin = getSupabaseAdmin();
+    const userId = await getAuthUserIdFromBearer(admin, req);
+    if (!userId) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
+    const membership = await requireMembership(admin, userId);
+    if (!membership) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+
     const rawBody = await req.json().catch(() => ({}));
     const parsed = ReqSchema.safeParse(rawBody);
     if (!parsed.success) {

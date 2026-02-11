@@ -27,19 +27,13 @@ import { retrieveGrowthKnowledge } from '@/lib/rag/retriever';
 import { buildRagContextBlock, buildRagDebugFooter } from '@/lib/rag/prompt';
 import type { StrategyData } from '@/types/strategy';
 
-// --- Service Role（所属検証・フォールバック用 最小ユーティリティ） ---
-import { createClient as createAdminClient, type SupabaseClient } from '@supabase/supabase-js';
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-type AdminClient = SupabaseClient<any, 'public', any>;
-function admin(): AdminClient {
-  return createAdminClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } }) as AdminClient;
-}
-function getBearer(req: Request) {
-  const h = req.headers.get('authorization') || req.headers.get('Authorization') || '';
-  const m = h.match(/^\s*Bearer\s+(.+)\s*$/i);
-  return m?.[1] ?? null;
-}
+// --- Service Role（統一管理） ---
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import {
+  getAuthUserIdFromBearer,
+  requireMembership,
+  assertCompanyScopeByStrategyId,
+} from '@/lib/server/rbacGuard';
 
 /* ========= 型 ========= */
 type Role = 'system' | 'user' | 'assistant';
@@ -186,6 +180,7 @@ async function fetchStrategyContext(args: { companyId: string; strategyId: strin
         'id, created_at, progress_text, rating, rating_comment, advice, help_request, department, user_id, okr_id'
       )
       .eq('user_id', userId)
+      .eq('company_id', companyId)  // ★ company_id でフィルタ（RLS準拠）
       .order('created_at', { ascending: false })
       .limit(200);
     if (plErr) console.warn('[ask-ceo-agent] progress_logs select error:', plErr);
@@ -203,8 +198,8 @@ async function fetchStrategyContext(args: { companyId: string; strategyId: strin
 
   // フルが取れない場合は最小限フォールバック（Service Role）
   if (!strategy || Object.keys(strategy).length === 0) {
-    const a = admin();
-    const { data: srow } = await a.from('strategy_data').select('*').eq('id', strategyId).maybeSingle();
+    const admin = getSupabaseAdmin();
+    const { data: srow } = await admin.from('strategy_data').select('*').eq('id', strategyId).maybeSingle();
     if (!srow) {
       return { strategy: null, answers2: [], finalStory: [], extraBlock: '' };
     }
@@ -235,10 +230,17 @@ async function fetchStrategyContext(args: { companyId: string; strategyId: strin
 /* ========= route ========= */
 export async function POST(req: Request) {
   try {
-    // --- 認証 ---
-    const token = getBearer(req);
-    if (!token) {
+    // --- 認証（rbacGuard で統一） ---
+    const admin = getSupabaseAdmin();
+    const authUserId = await getAuthUserIdFromBearer(admin, req);
+    if (!authUserId) {
       return NextResponse.json({ content: '認証が必要です。', error: 'no bearer' }, { status: 401 });
+    }
+
+    // --- Membership 検証 ---
+    const membership = await requireMembership(admin, authUserId);
+    if (!membership) {
+      return NextResponse.json({ content: 'この企業へのアクセス権がありません。', error: 'no membership' }, { status: 403 });
     }
 
     // --- 入力 ---
@@ -253,35 +255,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ content: 'invalid payload', error: 'invalid payload' }, { status: 400 });
     }
 
-    // --- 本人確認（Service Role） ---
-    const a = admin();
-    const { data: ures } = await a.auth.getUser(token);
-    const authUserId = ures?.user?.id as string | undefined;
-    if (!authUserId) {
-      return NextResponse.json({ content: 'トークンが無効です。', error: 'invalid token' }, { status: 401 });
-    }
+    // --- 本人確認 ---
     if (authUserId !== userId) {
       return NextResponse.json({ content: '権限がありません（ユーザー不一致）。', error: 'user mismatch' }, { status: 403 });
     }
 
-    // --- strategy 所属検証（strategyId → companyId 解決） ---
-    const { data: srow } = await a
-      .from('strategy_data')
-      .select('id, company_id')
-      .eq('id', strategyId)
-      .maybeSingle();
-    if (!srow?.company_id) {
+    // --- Strategy Company Scope 検証（strategyId が membership.companyId に属しているか） ---
+    const companyId = await assertCompanyScopeByStrategyId(admin, membership, strategyId);
+    if (!companyId) {
       return NextResponse.json({ content: '戦略データが見つかりません。', error: 'strategy not found' }, { status: 404 });
-    }
-    const companyId = String(srow.company_id);
-    const { data: mem } = await a
-      .from('company_members')
-      .select('company_id')
-      .eq('user_id', authUserId)
-      .eq('company_id', companyId)
-      .maybeSingle();
-    if (!mem?.company_id) {
-      return NextResponse.json({ content: 'この戦略へのアクセス権がありません。', error: 'no membership' }, { status: 403 });
     }
 
     // --- コンテキスト取得（会社IDに紐づくフル → 最小フォールバック） ---

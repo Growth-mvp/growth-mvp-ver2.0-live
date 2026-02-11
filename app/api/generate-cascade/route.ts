@@ -1,4 +1,5 @@
 // /app/api/generate-cascade/route.ts
+import 'server-only';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -7,6 +8,8 @@ import { openai } from '@/lib/openai';
 import { industryTemplates, getIndustryLabel } from '@/utils/industryTemplates';
 import { toTextStory, extractJsonObject, sanitizeText } from '@/app/api/_shared/utils';
 import { z } from 'zod';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 
 /* =========================
  * グローバル定数
@@ -2077,6 +2080,17 @@ function normalizeProjects(raw: any): NormProject[] {
  * ======================= */
 export async function POST(req: NextRequest) {
   try {
+    // Bearer token authentication and membership validation
+    const admin = getSupabaseAdmin();
+    const userId = await getAuthUserIdFromBearer(admin, req);
+    if (!userId) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
+    const membership = await requireMembership(admin, userId);
+    if (!membership) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+
     const raw = await req.json().catch(() => ({}));
     const parsedReq = ReqSchema.safeParse(raw);
 

@@ -1,9 +1,12 @@
 // /app/api/generate/route.ts
+import 'server-only';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import OpenAI from 'openai';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 import { createHash } from 'crypto';
 
 const ROUTE_TAG = 'app/api/generate';
@@ -56,7 +59,7 @@ function hashKey(k?: string | null) {
 }
 
 /* ========== POST ========== */
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   console.log(`[HIT] ${ROUTE_TAG} POST`);
 
   // 一発特定用：環境変数で意図的に 418 を返す（UIがこのルートを叩いているか即判定）
@@ -65,6 +68,17 @@ export async function POST(req: Request) {
   }
 
   try {
+    // Bearer token authentication and membership validation
+    const admin = getSupabaseAdmin();
+    const userId = await getAuthUserIdFromBearer(admin, req);
+    if (!userId) {
+      return json({ error: 'unauthorized' }, 401);
+    }
+    const membership = await requireMembership(admin, userId);
+    if (!membership) {
+      return json({ error: 'forbidden' }, 403);
+    }
+
     // 1) Body 検証
     let payload: any = null;
     try {
