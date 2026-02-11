@@ -1,13 +1,16 @@
 // /app/api/stage2/generate-final/route.ts
 // STAGE2：最終ストーリー生成API（社員向け熱量を持った語り）
 // - North Star (companyTargets) を本文に確実に反映
-// - “たまに漏れる” を消すため、生成後に要件チェック → 不足があれば 2nd pass（最小修正）で補修
+// - "たまに漏れる" を消すため、生成後に要件チェック → 不足があれば 2nd pass（最小修正）で補修
+import 'server-only';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 
 /* ===== OpenAI設定 ===== */
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
@@ -494,6 +497,17 @@ export async function POST(req: NextRequest) {
     if (!process.env.OPENAI_API_KEY) {
       console.error('[stage2/generate-final] OPENAI_API_KEY is missing');
       return NextResponse.json({ error: 'OPENAI_API_KEY is missing' }, { status: 500 });
+    }
+
+    // Bearer token authentication and membership validation
+    const admin = getSupabaseAdmin();
+    const userId = await getAuthUserIdFromBearer(admin, req);
+    if (!userId) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
+    const membership = await requireMembership(admin, userId);
+    if (!membership) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     }
 
     const body = (await req.json().catch(() => ({}))) as GenerateFinalInput;
