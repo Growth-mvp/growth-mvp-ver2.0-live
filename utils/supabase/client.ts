@@ -28,6 +28,35 @@ declare global {
 }
 
 /* =========================================================
+ * 開発環境限定：fetch フック (Authorization 有無ログ)
+ * ========================================================= */
+function createDebugFetch(): typeof fetch {
+  return async (resource, config) => {
+    const isDev = process.env.NODE_ENV === 'development';
+    let url: string | undefined;
+
+    if (typeof resource === 'string') {
+      url = resource;
+    } else if (resource instanceof URL) {
+      url = resource.href;
+    }
+
+    // /rest/v1/company_members のリクエストだけをログ
+    if (isDev && typeof url === 'string' && url.includes('/rest/v1/company_members')) {
+      const headers = config?.headers as Record<string, string> | undefined;
+      const hasAuth = !!headers?.Authorization;
+      console.log('[fetch-hook] /rest/v1/company_members', {
+        method: config?.method || 'GET',
+        hasAuthorization: hasAuth,
+        authPrefix: hasAuth ? headers?.Authorization?.substring(0, 20) : 'none',
+      });
+    }
+
+    return fetch(resource, config);
+  };
+}
+
+/* =========================================================
  * ブラウザ用クライアント生成（まだ呼ばない）
  * ========================================================= */
 function createBrowserClient(): SupabaseClient {
@@ -45,6 +74,7 @@ function createBrowserClient(): SupabaseClient {
     },
     global: {
       headers: { 'x-growth-app': 'growth-mvp-ver2.0' },
+      fetch: createDebugFetch(),
     },
   });
 }

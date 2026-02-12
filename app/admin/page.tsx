@@ -28,10 +28,14 @@ export default async function AdminPage() {
           return cookieStore.get(name)?.value;
         },
         set(name: string, value: string, options: CookieOptions) {
-          cookieStore.set({ name, value, ...options });
+          // ⚠️ App Router Server Component ではレンダー中に cookie set 不可
+          // Supabase が内部的に cookie を set しようとする場合、
+          // Route Handler にログインして処理を委譲する
+          // ここではダミー（何もしない）にして、エラーを防ぐ
+          // 実際の cookie 設定が必要な場合は、Client Component (AdminCookieSetter) で行う
         },
         remove(name: string, options: CookieOptions) {
-          cookieStore.set({ name, value: '', ...options, maxAge: 0 });
+          // ⚠️ 同上の理由で何もしない
         },
       },
       global: { headers: Object.fromEntries(hdrs) },

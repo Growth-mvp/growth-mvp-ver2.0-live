@@ -54,6 +54,12 @@ const looksMissingDepartmentId = (e: any) => looksMissingColumn(e, 'department_i
 
 export async function POST(req: Request) {
   try {
+    // ⚠️ [DEPRECATED] このエンドポイントは非推奨です。
+    // 新しい `/api/invites/create` を使用してください。
+    // このログが出ている場合は、誰かが旧方式を呼び出している可能性があります。
+    console.error('[DEPRECATED_API] /api/admin/invite が呼ばれています。/api/invites/create に移行してください。');
+    console.error('[DEPRECATED_TRACE] Request origin:', req.headers.get('origin') || 'unknown');
+
     const admin = getSupabaseAdmin();
 
     // 1) 認証チェック（Bearer トークン - rbacGuard統一）
@@ -157,22 +163,29 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, added: true, invited: false, companyId });
     }
 
-    // 6) 新規ユーザー → 招待メール or magic link
+    // 6) [DEPRECATED] 新規ユーザー → 招待メール or magic link
+    // ⚠️ NOTE: この実装は DEPRECATED です。
+    // 新しい /api/invites/create を使用してください。
+    console.warn('[DEPRECATED] Supabase Auth invite を使用しています。/api/invites/create に移行してください。');
+
     const origin = resolveOrigin(req);
     const redirectTo = `${origin}/signup?company=${encodeURIComponent(companyId!)}`;
 
-    // 招待メール
+    // 招待メール（deprecated）
     try {
+      console.error('[DEPRECATED_AUTH_INVITE] inviteUserByEmail を呼び出しています。この呼び出しをトレースしてください。');
       const { error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, { redirectTo } as any);
       if (!inviteErr) {
+        console.warn('[DEPRECATED_AUTH_INVITE] メール送信成功。リンク = /signup?company=...');
         return NextResponse.json({ ok: true, added: false, invited: true, companyId });
       }
     } catch (e) {
-      console.error('inviteUserByEmail failed', e);
+      console.error('[DEPRECATED_AUTH_INVITE] inviteUserByEmail failed', e);
     }
 
-    // magic link（fallback）
+    // magic link（fallback, deprecated）
     try {
+      console.error('[DEPRECATED_AUTH_INVITE] generateLink を呼び出しています。この呼び出しをトレースしてください。');
       const { data: linkRes, error: linkErr } = await admin.auth.admin.generateLink({
         type: 'magiclink',
         email,
@@ -181,6 +194,7 @@ export async function POST(req: Request) {
       if (linkErr || !linkRes?.properties?.action_link) {
         return NextResponse.json({ error: 'generate_link_failed', detail: linkErr?.message }, { status: 500 });
       }
+      console.warn('[DEPRECATED_AUTH_INVITE] magic link 生成成功。リンク = /signup?company=...');
       return NextResponse.json({
         ok: true,
         added: false,
@@ -189,7 +203,7 @@ export async function POST(req: Request) {
         companyId,
       });
     } catch (e: any) {
-      console.error('generateLink failed', e);
+      console.error('[DEPRECATED_AUTH_INVITE] generateLink failed', e);
       return NextResponse.json({ error: 'invite_failed', detail: e?.message }, { status: 500 });
     }
   } catch (e: any) {

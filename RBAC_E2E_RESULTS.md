@@ -408,3 +408,18 @@ Body: ___
 **Template Generated**: 2026-02-11
 **Status**: Ready for E2E Test Execution
 
+### ✅ Test: ask-ceo-agent user mismatch (authUserId !== userId)
+- Request: POST /api/ask-ceo-agent (valid bearer, wrong userId)
+- Expected: 403 + "user mismatch"
+- Actual: 403 {"content":"権限がありません（ユーザー不一致）。","error":"user mismatch"}
+- Result: PASS
+### ✅ Test: ask-ceo-agent without bearer
+- Request: POST /api/ask-ceo-agent (no Authorization header)
+- Expected: 401 + "no bearer"
+- Actual: 401 {"content":"認証が必要です。","error":"no bearer"}
+- Result: PASS
+### ✅ Test: ask-ceo-agent happy path
+- Request: POST /api/ask-ceo-agent (valid bearer, correct userId + strategyId)
+- Expected: 200
+- Actual: 200 (response JSON returned)
+- Result: PASS

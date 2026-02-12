@@ -55,17 +55,23 @@ export default function AdminInvitesPage() {
       const { data: ses } = await supabase.auth.getSession();
       const token = ses?.session?.access_token;
 
-      const res = await fetch('/api/admin/invite', {
+      if (!token) {
+        setNote('セッションが見つかりません。ログインし直してください。');
+        setBusy(false);
+        return;
+      }
+
+      // 新しい /api/invites/create エンドポイントを呼び出す
+      const res = await fetch('/api/invites/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           email: e,
           role,
-          companyId,                          // 会社に即追加
-          departmentId: departmentId || null, // 任意
+          companyId,
         }),
       });
 
@@ -73,39 +79,20 @@ export default function AdminInvitesPage() {
 
       if (!res.ok) {
         const emsg =
-          j?.error ||
-          j?.message ||
-          (res.status === 401
+          j?.error === 'invite_already_exists'
+            ? `${e} はすでに招待されています`
+            : j?.error === 'admin_only'
             ? '権限がありません（ログインし直してください）'
-            : `招待に失敗しました（${res.status}）`);
+            : j?.detail || j?.error || `招待に失敗しました（${res.status}）`;
         setNote(`招待に失敗しました: ${emsg}`);
         return;
       }
 
-      if (j.added === true || j.addedToCompany === true) {
-        setNote('✅ 既存ユーザーを会社に追加しました。');
+      if (j.ok && j.inviteUrl) {
+        setInviteLink(j.inviteUrl);
+        setNote(`✅ 招待リンクを生成しました。メールで共有してください。\n有効期限: ${j.expiresAt}`);
         setEmail('');
         setDepartmentId('');
-        return;
-      }
-
-      if (j.invited === true) {
-        setNote('✉️ 招待メールを送信しました。');
-        setEmail('');
-        setDepartmentId('');
-        if (j.warning) setNote((p: string) => `${p}\n⚠️ ${String(j.warning)}`);
-        return;
-      }
-
-      if (typeof j.inviteLink === 'string' && j.inviteLink.length > 0) {
-        setInviteLink(j.inviteLink);
-        setNote('✂️ メール送信不可のため、サインアップリンクを生成しました。手動で共有してください。');
-        return;
-      }
-
-      if (j.ok) {
-        setNote('処理は完了しました。');
-        if (j.warning) setNote((p: string) => `${p}\n⚠️ ${String(j.warning)}`);
         return;
       }
 
@@ -116,7 +103,7 @@ export default function AdminInvitesPage() {
     } finally {
       setBusy(false);
     }
-  }, [companyId, departmentId, email, role, validEmail]);
+  }, [companyId, email, role, validEmail]);
 
   return (
     <div className="space-y-6">
@@ -200,7 +187,7 @@ export default function AdminInvitesPage() {
       </section>
 
       <p className="text-xs text-gray-500">
-        ※ 既存ユーザーは会社へ即時追加、新規ユーザーは招待メール送信（失敗時はリンク生成）で登録します。
+        ※ 招待リンクを生成し、メールやチャットで共有してください。招待リンクは7日間有効です。
       </p>
     </div>
   );

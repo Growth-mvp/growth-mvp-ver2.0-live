@@ -193,39 +193,50 @@ export default function AdminMembersPage() {
       console.warn('findUserIdByEmailLocal / addMemberByUserId でフォールバックします', e);
     }
 
-    // 2) 新規ユーザー：API 経由で招待
+    // 2) 新規ユーザー：新方式の招待トークン API を使用
     try {
       const { data: ses } = await supabase.auth.getSession();
       const token = ses?.session?.access_token;
-      const res = await fetch('/api/admin/invite', {
+
+      if (!token) {
+        setNote('セッションが見つかりません。ログインし直してください。');
+        return;
+      }
+
+      // 新方式：/api/invites/create を呼び出す
+      const res = await fetch('/api/invites/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           email,
           role: newRole,
-          departmentId: newDept || null,
+          companyId: companyId || undefined,
         }),
       });
+
       const j = await res.json();
+
       if (!res.ok) {
-        setNote(`招待に失敗しました: ${j?.error || 'unknown error'}`);
+        const errorMsg =
+          j?.error === 'invite_already_exists'
+            ? `${email} はすでに招待されています`
+            : j?.error === 'admin_only'
+            ? '権限がありません（管理者のみ招待可能）'
+            : j?.detail || j?.error || 'unknown error';
+        setNote(`招待に失敗しました: ${errorMsg}`);
         return;
       }
-      if (j.added) {
-        setNote('✅ 既存ユーザーを追加しました。');
+
+      if (j.ok && j.inviteUrl) {
+        setInviteLink(j.inviteUrl);
+        setNote(`✅ 招待リンクを生成しました。メールで共有してください。\n有効期限: ${j.expiresAt}`);
         setNewEmail('');
         setNewDept('');
-        await fetchRows();
-      } else if (j.invited) {
-        setNote('✉️ 招待メールを送信しました。相手が参加すると一覧に表示されます。');
-        setNewEmail('');
-        setNewDept('');
-      } else if (j.inviteLink) {
-        setInviteLink(String(j.inviteLink));
-        setNote('✂️ サインアップリンクを生成しました。手動で共有してください。');
+        // 招待リンク生成成功後、メンバーリストを再読み込み（オプション）
+        // await fetchRows();
       } else {
         setNote('処理は完了しました。');
       }
@@ -248,7 +259,6 @@ export default function AdminMembersPage() {
     <div className="p-6 space-y-6">
       <header className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">管理者専用：メンバー管理</h1>
-        {companyId && <InviteChip companyId={companyId} />}
       </header>
 
       {/* 追加/招待フォーム */}
@@ -442,18 +452,3 @@ function RoleSelect({
   );
 }
 
-/** 招待リンク（会社ID固定の手動参加口） */
-function InviteChip({ companyId }: { companyId: string }) {
-  // welcome ページは使わず、/signup に company クエリで合流
-  const url = `/signup?company=${encodeURIComponent(companyId)}`;
-  return (
-    <a
-      href={url}
-      className="no-underline inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-[12px] text-gray-800 shadow-sm hover:bg-gray-50"
-      title="このURLを共有すると、同じ会社のメンバーとして参加できます"
-    >
-      招待リンクを開く
-      <span className="text-gray-400">({companyId.slice(0, 8)}…)</span>
-    </a>
-  );
-}

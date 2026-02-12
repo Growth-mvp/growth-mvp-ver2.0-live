@@ -28,6 +28,7 @@ const AUTH_PREFIXES = [
   '/auth',
   '/auth/callback',
   '/auth/welcome',
+  '/invite', // ← 招待トークン方式の accept フロー（provision 不要）
   '/404',
 ];
 const isAuthPath = (p?: string | null) => !!p && AUTH_PREFIXES.some((x) => p.startsWith(x));
@@ -529,6 +530,14 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    // 認証フロー（/auth, /invite/accept など）では provision を実行しない
+    if (onAuthScene) {
+      if (pathname?.startsWith('/invite/accept')) {
+        console.log('[layout] skip provision (on invite accept page, no provision needed)', pathname);
+      }
+      return;
+    }
+
     const authed = !!useUserStore.getState().user?.id;
     const accessToken = accessTokenRef.current;
 
@@ -536,7 +545,6 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       setStrategyId(null);
       return;
     }
-    if (onAuthScene) return;
     if (!accessToken) return; // ← ★ token が無い間は叩かない（401対策）
     if (provisionInFlight.current) return;
     if (lastProvisionForCompany.current === companyId) return;
