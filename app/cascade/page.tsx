@@ -1455,8 +1455,18 @@ export default function CascadePage() {
         }
         loadGuardRef.current = accessCompanyId;
       } catch (err) {
-        const errObj = err as any;
-        console.error('[cascade] ❌ loadAndHydrate error:', { message: errObj?.message || String(err), code: errObj?.code });
+        console.error('[cascade] ❌ loadAndHydrate error (raw):', err);
+        const anyErr = err as any;
+        console.error('[cascade] ❌ loadAndHydrate error (meta):', {
+          name: anyErr?.name,
+          message: anyErr?.message,
+          code: anyErr?.code,
+          details: anyErr?.details,
+          status: anyErr?.status,
+          stack: anyErr?.stack,
+          meta: anyErr?.meta,
+        });
+
         console.warn('[cascade] hydrated=true を強制設定（エラー時UI表示対応）');
         setHydrated?.(true);
         loadGuardRef.current = accessCompanyId;
