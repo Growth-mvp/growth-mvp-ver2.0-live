@@ -6,6 +6,52 @@ import { useStrategyStore } from '@/store/strategyStore';
 const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
 
 /**
+ * unknown型のエラーを正規化して、実体を必ず取得する
+ */
+function normalizeUnknownError(e: unknown) {
+  const isObj = typeof e === 'object' && e !== null;
+  const anyErr = e as any;
+
+  const ownKeys = isObj ? Object.getOwnPropertyNames(e) : [];
+  const ownEntries =
+    isObj
+      ? Object.fromEntries(ownKeys.map((k) => [k, (anyErr as any)[k]]))
+      : null;
+
+  return {
+    type: typeof e,
+    isError: e instanceof Error,
+    constructor: isObj ? (anyErr?.constructor?.name ?? 'unknown') : null,
+    name: anyErr?.name,
+    message: anyErr?.message ?? (typeof e === 'string' ? e : undefined),
+    stack: anyErr?.stack,
+    code: anyErr?.code,
+    details: anyErr?.details,
+    hint: anyErr?.hint,
+    status: anyErr?.status,
+
+    ownKeys,
+    ownEntries,
+
+    stringified: (() => {
+      try {
+        return JSON.stringify(e);
+      } catch {
+        return '[unstringifiable]';
+      }
+    })(),
+    asString: (() => {
+      try {
+        return String(e);
+      } catch {
+        return '[unstringifiable]';
+      }
+    })(),
+    raw: e,
+  };
+}
+
+/**
  * 初回ロード / 会社スコープ切替時のハイドレーション。
  *
  * 重要方針：
@@ -38,14 +84,18 @@ export async function loadAndHydrate(companyId: string) {
     });
     return useStrategyStore.getState();
   } catch (e) {
-    const errObj = e as any;
-    console.error('[loadAndHydrate] ❌ エラー発生:', {
-      message: errObj?.message || String(e),
-      code: errObj?.code,
-      details: errObj?.details,
-      stack: errObj?.stack?.split('\n')[0],
-    });
-    throw e;
+    const n = normalizeUnknownError(e);
+    console.error('[loadAndHydrate] ❌ エラー発生:', n);
+
+    const msg =
+      n.message ??
+      (n.ownEntries?.message as string | undefined) ??
+      n.asString ??
+      'Unknown error';
+
+    const err = new Error(`[loadAndHydrate] ${msg}`);
+    (err as any).meta = n;
+    throw err;
   } finally {
     // ★ finally 内で getState() を取り直して、最新の store 参照を使う
     const freshStore = useStrategyStore.getState();
