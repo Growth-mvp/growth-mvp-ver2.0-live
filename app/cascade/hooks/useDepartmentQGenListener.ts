@@ -4,6 +4,7 @@
 import { useEffect } from 'react';
 import { on, emit } from '@/utils/actionBus';
 import type { AnswerStep } from '@/components/guide/QuestionStepper';
+import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 
 // 先頭〜型定義付近を差し替え
 
@@ -31,14 +32,10 @@ export function useDepartmentQGenListener(onStep: (payload: Payload, step: Answe
   useEffect(() => {
     const off = on('questions:generate:next', async (payload: Payload) => {
       try {
-        const res = await fetch('/api/generate-department-question', {
+        const json = await authFetchJson<any>('/api/generate-department-question', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(payload),
+          json: payload,
         });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json?.error || 'generate failed');
 
         const step = json?.step as AnswerStep;
         if (!step?.question) throw new Error('invalid step');
@@ -46,7 +43,8 @@ export function useDepartmentQGenListener(onStep: (payload: Payload, step: Answe
         await onStep?.(payload, step);
         emit('questions:generate:done', {});
       } catch (e: any) {
-        emit('questions:generate:error', { message: e?.message });
+        const message = e instanceof AuthFetchError ? e.bodyText || e.message : e?.message ?? 'unknown error';
+        emit('questions:generate:error', { message });
       }
     });
     return () => off?.();
