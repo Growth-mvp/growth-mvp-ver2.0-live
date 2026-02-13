@@ -23,6 +23,7 @@ import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAccess } from '@/utils/access';
 import type { AnswerStep as StrategyAnswerStep } from '@/types/strategy';
+import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 
 /* ===== 型 ===== */
 type ChapterStory = { title: string; body: string };
@@ -1075,10 +1076,9 @@ export default function StoryProcessPage() {
     if (!canEdit) return;
     setLoadingDraft(true);
     try {
-      const res = await fetch('/api/generate-story-draft', {
+      const data = await authFetchJson<any>('/api/generate-story-draft', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        json: {
           thought,
           mission,
           vision,
@@ -1092,16 +1092,8 @@ export default function StoryProcessPage() {
           threat,
           csvFinanceData,
           enhanceEmotion,
-        }),
+        },
       });
-
-      if (!res.ok) {
-        const t = await res.text().catch(() => '');
-        throw new Error(`draft api error (${res.status}) ${t}`);
-      }
-
-      const text = await res.text();
-      const data = safeJsonFromText<any>(text) ?? {};
       const draft: ChapterStory[] = Array.isArray(data?.story)
         ? data.story
         : typeof data?.story === 'string'
@@ -1129,7 +1121,19 @@ export default function StoryProcessPage() {
       persistDebounced(answers2, uniq, finalRawFromStore);
     } catch (e) {
       console.error('draft generate failed', e);
-      alert('参考ストーリーの生成に失敗しました。');
+      if (e instanceof AuthFetchError) {
+        if (e.code === 'AUTH_NO_SESSION') {
+          alert('セッションが切れています。ログインし直してください。');
+        } else if (e.status === 403) {
+          alert('権限がありません。');
+        } else if (e.status === 401) {
+          alert('認証に失敗しました。ログインし直してください。');
+        } else {
+          alert(`参考ストーリーの生成に失敗しました：${e.bodyText || e.message}`);
+        }
+      } else {
+        alert('参考ストーリーの生成に失敗しました。');
+      }
     } finally {
       setLoadingDraft(false);
     }
@@ -1172,11 +1176,10 @@ export default function StoryProcessPage() {
     finalAbortRef.current = new AbortController();
     const signal = finalAbortRef.current.signal;
 
-    const res = await fetch('/api/generate-final-story', {
+    return await authFetchJson<any>('/api/generate-final-story', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       signal,
-      body: JSON.stringify({
+      json: {
         strategyId: store?.strategyId,
         answers2: (answers2 ?? []).map((c) => ({
           chapterIndex: c.chapterIndex,
@@ -1201,11 +1204,8 @@ export default function StoryProcessPage() {
         userId: user?.id,
         budgets: { longform: [1600, 2400] },
         enhanceEmotion,
-      }),
+      },
     });
-    const text = await res.text();
-    if (!res.ok) throw new Error(text || 'final story api failed');
-    return safeJsonFromText<any>(text) ?? {};
   }, [
     answers2,
     csvFinanceData,
