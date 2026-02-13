@@ -37,6 +37,7 @@ import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
 import { getStage2ValueDriverKPIs, getStage2TargetRanges, getStage2WinPatterns } from '@/utils/stage2Selectors';
 import { formatMillion, safeRatio, formatPct } from '@/utils/unit';
+import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 
 import type {
   Department as BaseDepartment,
@@ -2034,18 +2035,31 @@ export default function CascadePage() {
       // ★TASK 1: 送信前にfinalStoryが含まれているか確認
       console.log('[Cascade][req] finalStory keys=', Object.keys(payload.finalStory ?? {}), 'len=', JSON.stringify(payload.finalStory ?? '').length);
 
-      const res = await fetch('/api/generate-cascade', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      let data: ApiCascadeResponse | null = null;
+      try {
+        data = await authFetchJson<ApiCascadeResponse>('/api/generate-cascade', {
+          method: 'POST',
+          json: payload,
+        });
+      } catch (e) {
+        if (e instanceof AuthFetchError) {
+          if (e.code === 'AUTH_NO_SESSION') {
+            setNotice('❌ セッションが取得できませんでした（再ログインしてください）');
+          } else if (e.status === 403) {
+            setNotice('❌ 権限がありません（Admin/Managerのみ利用可）');
+          } else if (e.status === 401) {
+            setNotice('❌ 認証に失敗しました（ログインし直してください）');
+          } else {
+            setNotice(`❌ 部門のたたき台生成に失敗しました：${e.bodyText || e.message}`);
+          }
+        } else {
+          setNotice(`❌ 部門のたたき台生成に失敗しました：${e instanceof Error ? e.message : String(e)}`);
+        }
+        return;
+      }
 
-      const text = await res.text();
-      const data = safeJsonFromText<ApiCascadeResponse>(text);
-
-      if (!res.ok || !data) {
-        setNotice(`❌ 部門のたたき台生成に失敗しました：${(data as any)?.error ?? res.statusText}`);
+      if (!data) {
+        setNotice('❌ 応答データが不正です');
         return;
       }
 
