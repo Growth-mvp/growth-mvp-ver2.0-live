@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { on, emit } from '@/utils/actionBus';
 import type { AnswerStep } from '@/components/guide/QuestionStepper';
+import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 
 type BusPayloadBase = {
   strategyId: string;
@@ -35,16 +36,11 @@ export function useStoryQGenListener(
       abortRef.current = new AbortController();
 
       try {
-        const res = await fetch('/api/generate-question', {
+        const json = await authFetchJson<any>('/api/generate-question', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(payload),
+          json: payload,
           signal: abortRef.current.signal,
         });
-
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(json?.error || `generate failed: ${res.status}`);
 
         const step = json?.step as AnswerStep;
         if (!step || !step.question) throw new Error('invalid step payload');
@@ -56,7 +52,8 @@ export function useStoryQGenListener(
         emit('questions:generate:done', { chapterIndex: payload.chapterIndex });
       } catch (e: any) {
         if (e?.name !== 'AbortError') {
-          emit('questions:generate:error', { message: e?.message ?? 'unknown error' });
+          const message = e instanceof AuthFetchError ? e.bodyText || e.message : e?.message ?? 'unknown error';
+          emit('questions:generate:error', { message });
         }
       } finally {
         inFlight.current = false;
