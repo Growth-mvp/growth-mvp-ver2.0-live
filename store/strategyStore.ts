@@ -2338,13 +2338,22 @@ export const useStrategyStore = create<StrategyState>()(
 
               // ★ 根治対策：保存返却では「サーバー決定値のみ」を state に反映
               // 禁止：departments/projects/okrs/kpis/finalStory*/companyTargets/answers12など
-              // 許可：revision/updatedAt/id のみ（autosave再発火を防ぐ）
+              // 許可：revision/updatedAt/id/strategyId のみ（autosave再発火を防ぐ）
               const safePatch: Partial<StrategyState> = {
                 dirty: false,
                 __lastSavedHash: currentHash,
                 revision: typeof (minimal as any).revision === 'number' ? (minimal as any).revision : undefined,
               };
               if (updatedAt) (safePatch as any).updatedAt = updatedAt;
+
+              // ★ TASK 1: Extract strategyId from saved data if returned
+              const returnedStrategyId = (serverData as any)?.strategyId ?? (serverData as any)?.id ?? (minimal as any)?.strategyId;
+              if (returnedStrategyId && typeof returnedStrategyId === 'string') {
+                (safePatch as any).strategyId = returnedStrategyId;
+                if (DEBUG) console.log('[strategyStore] strategyId set from save result:', {
+                  strategyId: returnedStrategyId.substring(0, 8),
+                });
+              }
 
               set(safePatch);
 

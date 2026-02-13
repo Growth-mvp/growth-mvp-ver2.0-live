@@ -161,13 +161,15 @@ function buildProgressSummary(progressLogs: any[] = []) {
   return lines.join('\n');
 }
 
-/* ========= コンテキスト取得（会社IDを元にフル→最小フォールバック） ========= */
-async function fetchStrategyContext(args: { companyId: string; strategyId: string; userId: string }) {
+/* ========= コンテキスト取得（strategyId優先、なければcompanyId） ========= */
+async function fetchStrategyContext(args: { companyId: string; strategyId?: string; userId: string }) {
   const { companyId, strategyId, userId } = args;
 
+  // ★ TASK 2: strategyId が undefined でも companyId で取得できるようにする
   // 会社単位のフルデータを取得して正規化
   let strategy: StrategyData | null = null;
   try {
+    // companyId で取得（strategyId は参考情報）
     const { data: sRow, error } = await getFullStrategyDataByCompany(companyId);
     if (error) console.warn('[ask-ceo-agent] getFullStrategyDataByCompany error:', error?.message || error);
     strategy = sRow ? (normalizeStrategyData(sRow as Partial<StrategyData>) as StrategyData) : null;
@@ -285,19 +287,60 @@ export async function POST(req: Request) {
 
     // --- Strategy Company Scope 検証（strategyId が membership.companyId に属しているか） ---
     const companyId = await assertCompanyScopeByStrategyId(admin, membership, strategyId);
+
+    // ★ TASK 3: strategyId が undefined の場合ログ出力
+    if (!strategyId) {
+      console.warn('[ask-ceo-agent]', requestId, 'strategyId_undefined', {
+        userId: userId.substring(0, 8),
+        companyId: companyId ? companyId.substring(0, 8) : 'unresolved',
+      });
+    }
+
     if (!companyId) {
-      return NextResponse.json({ content: '戦略データが見つかりません。', error: 'strategy not found' }, { status: 404 });
+      console.error('[ask-ceo-agent]', requestId, 'companyId_not_found', {
+        userId: userId.substring(0, 8),
+        strategyId: strategyId ? strategyId.substring(0, 8) : 'undefined',
+      });
+      return NextResponse.json(
+        { content: '戦略データが見つかりません。', error: 'strategy not found', requestId },
+        { status: 404 }
+      );
     }
 
     // --- コンテキスト取得（会社IDに紐づくフル → 最小フォールバック） ---
+    // ★ TASK 3: デバッグ出力強化（companyId / strategyId / 取得結果）
+    console.log('[ask-ceo-agent]', requestId, 'fetching_strategy_context', {
+      companyId: companyId.substring(0, 8),
+      strategyId: strategyId ? strategyId.substring(0, 8) : 'undefined',
+      userId: userId.substring(0, 8),
+    });
+
     const { strategy, answers2, finalStory, extraBlock } = await fetchStrategyContext({
       companyId,
       strategyId,
       userId,
     });
+
+    // ★ TASK 3: 取得結果のログ
+    console.log('[ask-ceo-agent]', requestId, 'strategy_context_result', {
+      strategy_exists: !!strategy,
+      strategy_keys: strategy ? Object.keys(strategy).slice(0, 10) : null,
+      has_answers2: !!answers2 && Array.isArray(answers2) && answers2.length > 0,
+      has_finalStory: !!finalStory && Array.isArray(finalStory) && finalStory.length > 0,
+      extraBlock_len: extraBlock ? extraBlock.length : 0,
+    });
+
     if (!strategy) {
+      console.error('[ask-ceo-agent]', requestId, 'context_missing', {
+        companyId: companyId.substring(0, 8),
+        strategyId: strategyId ? strategyId.substring(0, 8) : 'undefined',
+      });
       return NextResponse.json(
-        { content: '戦略コンテキストを取得できませんでした。初期化・保存状況をご確認ください。', error: 'context missing' },
+        {
+          content: '戦略コンテキストを取得できませんでした。初期化・保存状況をご確認ください。',
+          error: 'context missing',
+          requestId,
+        },
         { status: 400 }
       );
     }
