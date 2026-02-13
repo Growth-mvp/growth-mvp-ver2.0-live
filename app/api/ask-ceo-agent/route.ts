@@ -2,6 +2,11 @@
 export const runtime = 'nodejs';
 
 import { NextResponse } from 'next/server';
+
+/* ========= requestId 生成 ========= */
+function makeRequestId() {
+  return globalThis.crypto?.randomUUID?.() ?? `req_${Date.now()}`;
+}
 import { openai } from '@/lib/openai';
 import { supabase } from '@/utils/supabase/client';
 import { getFullStrategyDataByCompany } from '@/utils/supabase/strategy';
@@ -229,7 +234,25 @@ async function fetchStrategyContext(args: { companyId: string; strategyId: strin
 
 /* ========= route ========= */
 export async function POST(req: Request) {
+  const requestId = makeRequestId();
+
   try {
+    // --- ENV チェック（最小必須） ---
+    const missingEnv: string[] = [];
+    if (!process.env.OPENAI_API_KEY) missingEnv.push('OPENAI_API_KEY');
+    if (missingEnv.length > 0) {
+      console.error('[ask-ceo-agent]', requestId, 'missing_env', missingEnv);
+      return NextResponse.json(
+        {
+          error: 'missing_env',
+          missing: missingEnv,
+          requestId,
+          content: 'サーバーエラーが発生しました。',
+        },
+        { status: 500 }
+      );
+    }
+
     // --- 認証（rbacGuard で統一） ---
     const admin = getSupabaseAdmin();
     const authUserId = await getAuthUserIdFromBearer(admin, req);
@@ -445,6 +468,7 @@ export async function POST(req: Request) {
     // ★ 後方互換 + optional 拡張フィールド
     const response: any = {
       content,
+      requestId,
       stageUsed: intent.stage,
       confidence: intent.confidence,
       resolvedMode,  // Sprint 4: モード解決結果を返す
@@ -475,7 +499,19 @@ export async function POST(req: Request) {
 
     return NextResponse.json(response);
   } catch (e: any) {
-    console.error('[ask-ceo-agent] failed:', e?.message || e);
-    return NextResponse.json({ content: 'サーバーエラーが発生しました。', error: 'ask-ceo-agent failed' }, { status: 500 });
+    console.error('[ask-ceo-agent]', requestId, 'ERROR', {
+      name: e?.name,
+      message: e?.message,
+      status: e?.status ?? e?.response?.status,
+      stack: e?.stack,
+    });
+    return NextResponse.json(
+      {
+        content: 'サーバーエラーが発生しました。',
+        error: 'ask-ceo-agent failed',
+        requestId,
+      },
+      { status: 500 }
+    );
   }
 }
