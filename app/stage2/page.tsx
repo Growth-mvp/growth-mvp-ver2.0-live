@@ -18,6 +18,7 @@ import { getFullStrategyDataByCompany, saveStrategyData as saveStrategyDataApi }
 import { saveWithAudit } from '@/utils/persist/saveWithAudit';
 import { restoreWithAudit } from '@/utils/persist/restoreWithAudit';
 import type { IssueBlock, MetricsSummary, StoryChapter, WinPatternCandidate, Stage2State, Stage2Answer } from '@/types/strategy';
+import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 
 /* ===================================================
  * ★ Zustand selector 参照安定化：無限ループ防止
@@ -2291,24 +2292,17 @@ export default function Stage2Page() {
     setGenerateOTError(null);
 
     try {
-      const response = await fetch('/api/generate-ot', {
+      const data = await authFetchJson<any>('/api/generate-ot', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        json: {
           industry: industry || '',
           revenue: revenue || '',
           employees: employees || '',
           businessContent: businessContent || '',
-        }),
+        },
         cache: 'no-store',
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `API error: ${response.status}`);
-      }
-
-      const data = await response.json();
       const opportunities = Array.isArray(data.opportunity) ? data.opportunity : [];
       const threats = Array.isArray(data.threat) ? data.threat : [];
 
@@ -2319,7 +2313,19 @@ export default function Stage2Page() {
       });
     } catch (e: any) {
       console.error('[Stage2] Generate O/T error:', e);
-      setGenerateOTError(e?.message || 'O/Tの提案生成に失敗しました');
+      if (e instanceof AuthFetchError) {
+        if (e.code === 'AUTH_NO_SESSION') {
+          setGenerateOTError('セッションが切れています。ログインし直してください。');
+        } else if (e.status === 403) {
+          setGenerateOTError('権限がありません。');
+        } else if (e.status === 401) {
+          setGenerateOTError('認証に失敗しました。ログインし直してください。');
+        } else {
+          setGenerateOTError(e.bodyText || e.message || 'O/Tの提案生成に失敗しました');
+        }
+      } else {
+        setGenerateOTError(e instanceof Error ? e.message : 'O/Tの提案生成に失敗しました');
+      }
     } finally {
       setGeneratingOT(false);
     }
