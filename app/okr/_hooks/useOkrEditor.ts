@@ -95,8 +95,8 @@ export function useOkrEditor(args: {
         if (!projPrev) return prev;
 
         const okrs = ensureArray(projPrev.okrs as OKR[] | undefined);
-        const first = okrs[0] ?? { objective: '', keyResults: [] };
-        okrs[0] = { ...first, ...patch };
+        const first = okrs[0] ?? { id: genId(), objective: '', keyResults: [] };
+        okrs[0] = { ...first, id: first.id ?? genId(), ...patch };
 
         const proj = { ...projPrev, okrs };
         projs[pIdx] = proj;

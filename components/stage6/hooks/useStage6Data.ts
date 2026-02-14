@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { YearlyPL } from '@/utils/financeSimulation';
 import type { BridgeKR } from '@/utils/simulationBridge';
 import type { KRStructured, Department } from '@/types/strategy';
@@ -15,6 +15,7 @@ import { useStrategyStore } from '@/store/strategyStore';
 import { useAccess } from '@/utils/access';
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
+import { loadProgressLogs } from '@/utils/supabase/strategy';
 
 import {
   buildProjectContributions,
@@ -62,6 +63,9 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
   );
 
   const lastAppliedCompanyRef = useRef<string | null>(null);
+  const progressLogsRef = useRef<any[]>([]); // Cache for mutable access
+  const [progressLogs, setProgressLogs] = useState<any[]>([]); // State for re-renders
+
   useEffect(() => {
     if (!accessCompanyId) return;
     if (
@@ -145,6 +149,32 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       cancelled = true;
     };
   }, [accessCompanyId, hydrated, scopeCompanyId, refetchFromServer, setHydrated, setCompanyScope]);
+
+  // ===== Load progress logs for execution weight =====
+  // Use both ref (cache) and state (re-render trigger)
+  useEffect(() => {
+    if (!accessCompanyId) return;
+
+    const loadLogs = async () => {
+      const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+      const { data } = await loadProgressLogs(accessCompanyId, {
+        limit: 1000,
+        fromDate: ninetyDaysAgo,
+      });
+
+      if (data) {
+        progressLogsRef.current = data; // Cache
+        setProgressLogs(data); // Trigger re-render and executionWeight recalc
+        if (DEBUG) {
+          console.log('[STAGE6] ✅ Loaded', data.length, 'progress logs');
+        }
+      }
+    };
+
+    loadLogs().catch((e) => {
+      console.warn('[STAGE6] ⚠️ Failed to load progress logs:', e);
+    });
+  }, [accessCompanyId]);
 
   // ===== Ready gate =====
   const mismatch = !!(accessCompanyId && scopeCompanyId && scopeCompanyId !== accessCompanyId);
@@ -316,8 +346,9 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       mkBaselineTrajectory,
       getEvidenceFromProject,
       getExecutionWeight,
+      progressLogs, // Use state (not ref) to ensure re-render and executionWeight recalc
     });
-  }, [core, financePL, departments, allProjectKeys]);
+  }, [core, financePL, departments, allProjectKeys, progressLogs]);
 
   const northStarRows = useMemo(() => {
     return buildNorthStarRows({

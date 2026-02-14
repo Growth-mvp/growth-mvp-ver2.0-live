@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import ProjectCard from '@/components/execution/ProjectCard';
 import { saveProgressLog } from '@/utils/supabase/strategy';
+import { buildProgressLogMetadata, embedMetadata } from '@/utils/execution/metadata';
 import { supabase } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
 import { X, Stars, Send, Clock, CheckCircle2, BookOpen, Building2 } from 'lucide-react';
@@ -40,9 +41,17 @@ const toStrictProject = (proj: any): ProjectStrict => ({
   okrs: Array.isArray(proj?.okrs) ? proj.okrs.map(toStrictOKR) : [],
 });
 
-// OKRを一意に指す軽量ID（DB主キーではなく“ログ紐づけ用キー”）
-const okrKey = (d: number, p: number, o: number, okr?: any) =>
-  okr && typeof okr.id === 'string' && okr.id.trim() ? okr.id : `okr-${d}-${p}-${o}`;
+// OKRを一意に指す軽量ID（DB主キーではなく"ログ紐づけ用キー"）
+const okrKey = (d: number, p: number, o: number, okr?: any) => {
+  if (okr && typeof okr.id === 'string' && okr.id.trim()) {
+    return okr.id;
+  }
+  // Fallback only - should be rare after Step 1
+  if (process.env.NODE_ENV === 'development') {
+    console.warn('[okrKey] Using index fallback for okr:', { d, p, o });
+  }
+  return `okr-${d}-${p}-${o}`;
+};
 
 /** [object Object] を防ぐ：ストーリーが「章オブジェクト配列」でも「文字列」でも描画できるようにする */
 const normalizeStoryToText = (input: any): string => {
@@ -196,8 +205,10 @@ function ExecPanel(props: {
   objective: string;
   keyResults: string[];
   okrId: string;
+  companyId?: string;
+  krIds?: string[];
 }) {
-  const { open, onClose, userId, deptName, projectTitle, objective, keyResults, okrId } = props;
+  const { open, onClose, userId, deptName, projectTitle, objective, keyResults, okrId, companyId, krIds } = props;
 
   const access = useAccess();
   const canCheckin = !!userId;
@@ -256,10 +267,18 @@ function ExecPanel(props: {
         ? `${progressText.trim()}\n\n--- Help ---\n${helpRequest.trim()}`
         : progressText.trim();
 
+      const metadata = buildProgressLogMetadata({
+        companyId: companyId ?? 'unknown',
+        deptName: deptName ?? '未名',
+        projectTitle: projectTitle ?? '未名',
+        okrId,
+        krIds,
+      });
+
       const { error } = await saveProgressLog({
         userId,
         okrId,
-        content: composed,
+        content: embedMetadata(metadata, composed),
         score: rating || null,
       });
       if (error) throw error;
@@ -297,10 +316,18 @@ function ExecPanel(props: {
     try {
       const fbContent = `[FB]\n${reviewText.trim()}`;
 
+      const metadata = buildProgressLogMetadata({
+        companyId: companyId ?? 'unknown',
+        deptName: deptName ?? '未名',
+        projectTitle: projectTitle ?? '未名',
+        okrId,
+        krIds,
+      });
+
       const { error } = await saveProgressLog({
         userId,
         okrId,
-        content: fbContent,
+        content: embedMetadata(metadata, fbContent),
         score: reviewScore || null,
       });
       if (error) throw error;
@@ -691,6 +718,8 @@ export default function ExecutionPage() {
     objective: string;
     keyResults: string[];
     okrId: string;
+    companyId?: string;
+    krIds?: string[];
   } | null>(null);
 
   // モーダル：ストーリー / 部門
@@ -810,6 +839,8 @@ export default function ExecutionPage() {
                     objective: strictO.objective,
                     keyResults: strictO.keyResults,
                     okrId: okrKey(di, pi, oi, okr),
+                    companyId: scopeCompanyId,
+                    krIds: [],
                   });
                 }}
               />,
@@ -832,6 +863,8 @@ export default function ExecutionPage() {
                   objective: '構造化KRに基づく実行（自動生成）',
                   keyResults: okrsV2.map((k: any) => String(k?.label ?? '')).filter(Boolean),
                   okrId: okrKey(di, pi, 0, { id: undefined }),
+                  companyId: scopeCompanyId,
+                  krIds: okrsV2.map((k: any) => k.id).filter(Boolean),
                 });
               }}
             />,
@@ -1142,6 +1175,8 @@ export default function ExecutionPage() {
         objective={selected?.objective ?? ''}
         keyResults={selected?.keyResults ?? []}
         okrId={selected?.okrId ?? ''}
+        companyId={selected?.companyId ?? ''}
+        krIds={selected?.krIds ?? []}
       />
     </main>
   );

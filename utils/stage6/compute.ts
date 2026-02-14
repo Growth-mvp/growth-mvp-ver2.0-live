@@ -475,6 +475,7 @@ export function buildProjectContributions(args: {
   mkBaselineTrajectory: (state: any) => BaseTrajectory | null;
   getEvidenceFromProject: (proj: any) => any;
   getExecutionWeight: (name: string, logs?: any) => any;
+  progressLogs?: any[];
 }): Array<{
   key: string;
   dept: string;
@@ -496,6 +497,7 @@ export function buildProjectContributions(args: {
     mkBaselineTrajectory,
     getEvidenceFromProject,
     getExecutionWeight,
+    progressLogs,
   } = args;
 
   if (!core.ready) return [];
@@ -597,7 +599,7 @@ export function buildProjectContributions(args: {
       }
 
       // ★ 実行度補正係数を取得
-      const executionWeight = getExecutionWeight(p.proj, undefined);
+      const executionWeight = getExecutionWeight(p.proj, progressLogs);
 
       return {
         key: p.key,

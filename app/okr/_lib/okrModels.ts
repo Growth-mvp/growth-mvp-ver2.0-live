@@ -43,6 +43,7 @@ export type ValidationPlan = {
 
 /** 旧OKR（文字列KR）互換維持 + 戦略メタ */
 export type OKR = {
+  id?: string;
   objective: string;
   keyResults: KR[];
   owner?: string;
@@ -290,7 +291,18 @@ export function ensureKrIds(departments: Department[]): Department[] {
               })
             : p.okrVariants;
 
-          return { ...p, okrsV2: committed, okrVariants: variants };
+          // Repair legacy OKR (project.okrs[0])
+          const okrsFixed = Array.isArray(p.okrs) && p.okrs.length > 0
+            ? p.okrs.map((okr: OKR, idx: number) => {
+                if (idx === 0 && !okr?.id) {
+                  touched = true;
+                  return { ...okr, id: genId() };
+                }
+                return okr;
+              })
+            : p.okrs;
+
+          return { ...p, okrs: okrsFixed, okrsV2: committed, okrVariants: variants };
         })
       : d.projects;
 

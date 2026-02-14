@@ -2169,6 +2169,44 @@ export async function saveProgressLog(
   }
 }
 
+/**
+ * Load progress logs for company scope
+ * Used by STAGE6 for execution weight calculation
+ */
+export async function loadProgressLogs(
+  companyId: string,
+  options?: {
+    limit?: number;
+    fromDate?: string;
+  }
+): Promise<{ data: any[] | null; error: any | null }> {
+  try {
+    let query = supabase
+      .from(T_PROGRESS)
+      .select('*')
+      .eq('company_id', companyId)
+      .order('created_at', { ascending: false });
+
+    if (options?.limit) {
+      query = query.limit(options.limit);
+    }
+
+    if (options?.fromDate) {
+      query = query.gte('created_at', options.fromDate);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      return { data: null, error: extractErrorVerbose(error) };
+    }
+
+    return { data, error: null };
+  } catch (e) {
+    return { data: null, error: extractErrorVerbose(e) };
+  }
+}
+
 /* ============================================================
  * 分離テーブルへの保存API（company_id 一意／手動UPSERT固定）
  * ========================================================== */
