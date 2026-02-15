@@ -42,6 +42,8 @@ export type ProjectContribution = {
 
 /**
  * North Star 比較行（タブ2）
+ *
+ * H-1: breakdown を追加（Top3寄与プロジェクトの詳細）
  */
 export type NorthStarRow = {
   targetId: string;
@@ -55,10 +57,20 @@ export type NorthStarRow = {
   achievementRate?: number; // %
   gap?: number;
   topProjects?: Array<{ proj: string; dept: string; contribution: number }>;
+  // H-1: Phase E breakdown （delta, executionWeight, effectiveDelta）
+  breakdown?: Array<{
+    projectId: string;
+    delta: number;
+    executionWeight: number;
+    contribution: number;
+    effectiveDelta: number;
+  }>;
 };
 
 /**
  * 論点解決度（タブ3）
+ *
+ * I-1: breakdown を追加（Top3寄与プロジェクトと強度係数）
  */
 export type IssueResolution = {
   issueTitle: string;
@@ -67,6 +79,15 @@ export type IssueResolution = {
   linkedTargets: string[]; // North Star label
   resolutionRate?: number; // %
   resolutionStatus: 'unconnected' | 'partial' | 'in_progress' | 'achieved';
+  // I-1: Phase E breakdown （strength, executionWeight, contribution）
+  breakdown?: Array<{
+    projectId: string;
+    strength: 1 | 2 | 3;
+    strengthCoef: number;
+    executionWeight: number;
+    contribution: number;
+    score: number;
+  }>;
 };
 
 /**
