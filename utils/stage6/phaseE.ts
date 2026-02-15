@@ -12,6 +12,7 @@
 
 import type { ProjectTargetImpact, ProjectIssueLink, CompanyTarget } from '@/types/strategy';
 import type { NorthStarRow, IssueResolution } from './types';
+import { normalizeValueToUnit } from './compute';
 
 /**
  * Phase E v1: Forecast 計算
@@ -155,6 +156,8 @@ export function calculateIssueResolutionWithLinks(args: {
 
 /**
  * North Star Rows を Phase E ロジックで再計算
+ *
+ * H-1: breakdown を NorthStarRow に含める
  */
 export function buildNorthStarRowsPhaseE(args: {
   companyTargets: CompanyTarget[];
@@ -177,18 +180,19 @@ export function buildNorthStarRowsPhaseE(args: {
     const achievementRate = target.base > 0 ? (forecast / target.base) * 100 : undefined;
 
     // Top 3 contributors
-    const topProjects = breakdown
-      .sort((a, b) => Math.abs(b.effectiveDelta) - Math.abs(a.effectiveDelta))
-      .slice(0, 3)
-      .map((b) => {
-        // projectId から dept/proj を抽出（key形式: dept::proj::idx）
-        const parts = b.projectId.split('::');
-        return {
-          proj: parts[1] ?? b.projectId,
-          dept: parts[0] ?? '',
-          contribution: b.effectiveDelta,
-        };
-      });
+    const sortedByDelta = breakdown.sort(
+      (a, b) => Math.abs(b.effectiveDelta) - Math.abs(a.effectiveDelta)
+    );
+
+    const topProjects = sortedByDelta.slice(0, 3).map((b) => {
+      // projectId から dept/proj を抽出（key形式: dept::proj::idx）
+      const parts = b.projectId.split('::');
+      return {
+        proj: parts[1] ?? b.projectId,
+        dept: parts[0] ?? '',
+        contribution: b.effectiveDelta,
+      };
+    });
 
     return {
       targetId: target.id,
@@ -202,6 +206,8 @@ export function buildNorthStarRowsPhaseE(args: {
       achievementRate,
       gap,
       topProjects: topProjects.length > 0 ? topProjects : undefined,
+      // H-1: Add breakdown for detailed display
+      breakdown: sortedByDelta.length > 0 ? sortedByDelta : undefined,
     };
   });
 }
@@ -209,6 +215,7 @@ export function buildNorthStarRowsPhaseE(args: {
 /**
  * Issue Resolutions を Phase E ロジックで再計算
  *
+ * I-1: breakdown を IssueResolution に含める
  * 正規化: 全Issueの最大スコアを100とするMax正規化を使用
  */
 export function buildIssueResolutionsPhaseE(args: {
@@ -247,13 +254,18 @@ export function buildIssueResolutionsPhaseE(args: {
     const linkedTargetLabels = linkedTargets.map((t) => t.label);
 
     // Phase E ロジックで解決度を計算
-    const { resolutionRate, resolutionStatus } = calculateIssueResolutionWithLinks({
+    const { resolutionRate, resolutionStatus, breakdown } = calculateIssueResolutionWithLinks({
       issueId: issue.title,
       projectIssueLinks,
       executionWeights,
       contributions,
       normalizationMax: maxScore,
     });
+
+    // I-1: Top3 contributors を取得
+    const topBreakdown = breakdown
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
 
     return {
       issueTitle: issue.title,
@@ -262,6 +274,8 @@ export function buildIssueResolutionsPhaseE(args: {
       linkedTargets: linkedTargetLabels,
       resolutionRate,
       resolutionStatus,
+      // I-1: Add breakdown for Top3 display
+      breakdown: topBreakdown.length > 0 ? topBreakdown : undefined,
     };
   });
 }
