@@ -28,3 +28,10 @@ export {
 } from './compute';
 
 export { getExecutionWeight } from './execution';
+
+export {
+  calculateForecastWithImpacts,
+  calculateIssueResolutionWithLinks,
+  buildNorthStarRowsPhaseE,
+  buildIssueResolutionsPhaseE,
+} from './phaseE';
