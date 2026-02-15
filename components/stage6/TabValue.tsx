@@ -225,6 +225,12 @@ export function TabValue({
                             ))}
                           </div>
                         </div>
+                      ) : (projectIssueLinks && projectIssueLinks.length > 0) ? (
+                        <div className="mt-3 border-t border-slate-200 pt-2">
+                          <div className="text-xs text-slate-500">
+                            注：北星メトリクスの紐付けはST AGE2で定義。解決度はプロジェクト強度から計算しています。
+                          </div>
+                        </div>
                       ) : (
                         <div className="mt-3 border-t border-slate-200 pt-2">
                           <div className="text-xs font-medium text-amber-700">
@@ -309,6 +315,38 @@ export function TabValue({
                       <div className={`mt-1 text-lg font-bold ${resolutionColor}`}>{resolutionLabel}</div>
                     </div>
                   </div>
+
+                  {/* I-1: Top3 Contributors display */}
+                  {resolution.breakdown && resolution.breakdown.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-slate-200">
+                      <div className="text-xs font-semibold text-slate-900 mb-2">
+                        効いているプロジェクト（Top3）
+                      </div>
+                      <div className="space-y-1">
+                        {resolution.breakdown.slice(0, 3).map((item, idx) => {
+                          const parts = item.projectId.split('::');
+                          const deptName = parts[0] ?? '';
+                          const projName = parts[1] ?? item.projectId;
+                          const strengthLabel = item.strength === 1 ? '弱' : item.strength === 2 ? '中' : '強';
+
+                          return (
+                            <div key={idx} className="text-xs text-slate-600">
+                              <span className="font-medium">{deptName}</span>
+                              <span>：</span>
+                              <span>{projName}</span>
+                              {/* I-2: Show strength coefficient */}
+                              <span className="text-slate-500 ml-1">
+                                strength {strengthLabel}({item.strengthCoef}) × weight {(item.executionWeight * 100).toFixed(0)}% = {item.score.toFixed(1)}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="mt-2 text-xs text-slate-500">
+                        弱=0.6 / 中=1.0 / 強=1.3 の係数で計算
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
