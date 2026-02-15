@@ -99,6 +99,51 @@ export function extractMetricFromYearlyPL(
 }
 
 /**
+ * E-1: Unit normalization utility
+ *
+ * yearlyPL から取得した値（通常は 円 単位）を、target.unit に揃える
+ *
+ * サポートする unit:
+ * - "百万円" / "MJPY" → 値 / 1_000_000
+ * - "千円" / "KJPY" → 値 / 1_000
+ * - "円" / "JPY" / "¥" → そのまま
+ * - "%" → そのまま（率は既に%の前提）
+ * - その他 → そのまま
+ */
+export function normalizeValueToUnit(
+  valueInYen: number | undefined,
+  targetUnit: string | undefined
+): number | undefined {
+  if (valueInYen === undefined) return undefined;
+  if (!targetUnit) return valueInYen;
+
+  const unit = String(targetUnit).trim().toLowerCase();
+
+  // 百万円系
+  if (unit.includes('百万') || unit === 'mjpy') {
+    return valueInYen / 1_000_000;
+  }
+
+  // 千円系
+  if (unit.includes('千') || unit === 'kjpy') {
+    return valueInYen / 1_000;
+  }
+
+  // 円系（そのまま）
+  if (unit === '円' || unit === 'jpy' || unit === '¥') {
+    return valueInYen;
+  }
+
+  // パーセント系（そのまま）
+  if (unit === '%') {
+    return valueInYen;
+  }
+
+  // デフォルト：そのまま
+  return valueInYen;
+}
+
+/**
  * 達成率を計算
  */
 export function calculateAchievementRate(
@@ -207,6 +252,8 @@ export function sumYearly(rows: YearlyPL[], key: 'revenue' | 'op_income'): numbe
 
 /**
  * North Star 比較行を生成
+ *
+ * E-1 修正: forecastValue を target.unit に正規化してから計算
  */
 export function buildNorthStarRows(args: {
   companyTargets: any[];
@@ -222,6 +269,7 @@ export function buildNorthStarRows(args: {
   base: number;
   high?: number;
   forecastValue?: number;
+  gap?: number;
   achievementRate?: number;
   topProjects?: Array<{ proj: string; dept: string; contribution: number }>;
 }> {
@@ -232,9 +280,19 @@ export function buildNorthStarRows(args: {
   const forecastYearly = yearlyAll?.[scenarioKey] ?? [];
 
   return companyTargets.map((target) => {
-    const forecast = extractMetricFromYearlyPL(forecastYearly, target.label, target.dueYear);
-    const achievement = calculateAchievementRate(forecast, target.base);
-    const gap = forecast !== undefined && target.base ? forecast - target.base : undefined;
+    // 1. yearlyPL から取得（通常は円単位）
+    const rawForecast = extractMetricFromYearlyPL(forecastYearly, target.label, target.dueYear);
+
+    // 2. target.unit に正規化（重要！）
+    const normalizedForecast = normalizeValueToUnit(rawForecast, target.unit);
+
+    // 3. 正規化後の値で達成率・ギャップを計算
+    const achievement = calculateAchievementRate(normalizedForecast, target.base);
+    const gap =
+      normalizedForecast !== undefined && target.base
+        ? normalizedForecast - target.base
+        : undefined;
+
     const topProjects = getTopContributingProjects(target.label, projectContrib, 3);
 
     return {
@@ -245,7 +303,8 @@ export function buildNorthStarRows(args: {
       low: target.low,
       base: target.base,
       high: target.high,
-      forecastValue: forecast,
+      forecastValue: normalizedForecast,
+      gap,
       achievementRate: achievement,
       topProjects: topProjects.length > 0 ? topProjects : undefined,
     };
