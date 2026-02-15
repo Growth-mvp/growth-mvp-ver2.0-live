@@ -15,6 +15,7 @@ export { mkBaseFigures, mkBaselineTrajectory } from './baseline';
 export {
   fmtJPY,
   compactJPY,
+  normalizeValueToUnit,
   extractMetricFromYearlyPL,
   calculateAchievementRate,
   getTopContributingProjects,
