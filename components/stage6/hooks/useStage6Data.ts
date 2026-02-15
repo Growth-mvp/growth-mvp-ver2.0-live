@@ -26,6 +26,8 @@ import {
   mkBaselineTrajectory,
   getEvidenceFromProject,
   getExecutionWeight,
+  buildNorthStarRowsPhaseE,
+  buildIssueResolutionsPhaseE,
 } from '@/utils/stage6';
 import { calcYearlyFromKrs } from '@/utils/stage6/compute';
 
@@ -49,6 +51,15 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
   const companyTargets = useStrategyStore((s) => (Array.isArray(s.companyTargets) ? s.companyTargets : []));
   const stage1Issues = useStrategyStore((s) => (Array.isArray(s.stage1Issues) ? s.stage1Issues : []));
   const valueAnalysis = useStrategyStore((s) => s.valueAnalysis);
+
+  // === STAGE6 Phase E：プロジェクト→North Star / 論点リンク ===
+  const projectTargetImpacts = useStrategyStore((s) =>
+    Array.isArray(s.projectTargetImpacts) ? s.projectTargetImpacts : []
+  );
+  const projectIssueLinks = useStrategyStore((s) =>
+    Array.isArray(s.projectIssueLinks) ? s.projectIssueLinks : []
+  );
+
   const { companyId: scopeCompanyId, hydrated, setCompanyScope, refetchFromServer, setHydrated } =
     useStrategyStore();
 
@@ -350,22 +361,60 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     });
   }, [core, financePL, departments, allProjectKeys, progressLogs]);
 
-  const northStarRows = useMemo(() => {
-    return buildNorthStarRows({
-      companyTargets,
-      yearlyAll: core.yearlyAll,
-      scenarioKey,
-      projectContrib,
+  // === STAGE6 Phase E：executionWeights Map化 ===
+  const executionWeightsMap = useMemo(() => {
+    const map = new Map<string, { weight: number }>();
+    projectContrib.forEach((contrib) => {
+      if (contrib.executionWeight) {
+        map.set(contrib.key, { weight: contrib.executionWeight.weight });
+      }
     });
-  }, [companyTargets, core.yearlyAll, scenarioKey, projectContrib]);
+    return map;
+  }, [projectContrib]);
+
+  // === STAGE6 Phase E：phase Eが有効かどうか ===
+  const phaseEEnabled = useMemo(
+    () => projectTargetImpacts.length > 0,
+    [projectTargetImpacts]
+  );
+
+  const northStarRows = useMemo(() => {
+    if (phaseEEnabled) {
+      // Phase E ロジックで計算
+      return buildNorthStarRowsPhaseE({
+        companyTargets,
+        projectTargetImpacts,
+        executionWeights: executionWeightsMap,
+      });
+    } else {
+      // 既存ロジック
+      return buildNorthStarRows({
+        companyTargets,
+        yearlyAll: core.yearlyAll,
+        scenarioKey,
+        projectContrib,
+      });
+    }
+  }, [phaseEEnabled, companyTargets, projectTargetImpacts, executionWeightsMap, core.yearlyAll, scenarioKey, projectContrib]);
 
   const issueResolutions = useMemo(() => {
-    return buildIssueResolutions({
-      stage1Issues,
-      companyTargets,
-      northStarRows,
-    });
-  }, [stage1Issues, companyTargets, northStarRows]);
+    if (phaseEEnabled && projectIssueLinks.length > 0) {
+      // Phase E ロジックで計算
+      return buildIssueResolutionsPhaseE({
+        stage1Issues,
+        companyTargets,
+        projectIssueLinks,
+        executionWeights: executionWeightsMap,
+      });
+    } else {
+      // 既存ロジック
+      return buildIssueResolutions({
+        stage1Issues,
+        companyTargets,
+        northStarRows,
+      });
+    }
+  }, [phaseEEnabled, projectIssueLinks, stage1Issues, companyTargets, executionWeightsMap, northStarRows]);
 
   const vaCards = useMemo(() => {
     return buildValueAnalysisCards(valueAnalysis);
