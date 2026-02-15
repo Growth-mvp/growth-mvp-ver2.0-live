@@ -228,7 +228,7 @@ export function TabValue({
                       ) : (projectIssueLinks && projectIssueLinks.length > 0) ? (
                         <div className="mt-3 border-t border-slate-200 pt-2">
                           <div className="text-xs text-slate-500">
-                            注：北星メトリクスの紐付けはST AGE2で定義。解決度はプロジェクト強度から計算しています。
+                            注：北星メトリクスの紐付けはSTAGE2で定義。解決度はプロジェクト強度から計算しています。
                           </div>
                         </div>
                       ) : (
