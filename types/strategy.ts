@@ -896,6 +896,40 @@ export type CompanyTarget = {
 };
 
 /* =========================================================
+ * STAGE6 Phase E: プロジェクト → North Star 指標の影響量（手入力）
+ */
+export type ProjectTargetImpact = {
+  /** プロジェクトキー（dept::proj::idx 形式） */
+  projectId: string;
+
+  /** CompanyTarget.id */
+  targetId: string;
+
+  /** North Star指標への寄与量（単位は target.unit に依存） */
+  delta: number;
+
+  /** 根拠メモ（任意） */
+  notes?: string;
+};
+
+/* =========================================================
+ * STAGE6 Phase E: プロジェクト → 論点（Issue）の紐付けと強度
+ */
+export type ProjectIssueLink = {
+  /** プロジェクトキー（dept::proj::idx 形式） */
+  projectId: string;
+
+  /** IssueBlock.title（論点ID） */
+  issueId: string;
+
+  /** 寄与の強度（1=弱、2=中、3=強） */
+  strength: 1 | 2 | 3;
+
+  /** 根拠メモ（任意） */
+  notes?: string;
+};
+
+/* =========================================================
  * STAGE1 外部ベンチマーク（任意入力）
  * ========================================================= */
 
@@ -1445,6 +1479,13 @@ export type Stage2State = {
   finalStoryFinal?: StoryChapter[];
   /** North Star メトリクス */
   companyTargets?: CompanyTarget[];
+
+  /** === STAGE6 Phase E: プロジェクト→North Star影響量（手入力） === */
+  projectTargetImpacts?: ProjectTargetImpact[];
+
+  /** === STAGE6 Phase E: プロジェクト→論点紐付け（手入力） === */
+  projectIssueLinks?: ProjectIssueLink[];
+
   /** 要点（任意） */
   keyMessages?: string[];
   /** 行動宣言（任意） */
