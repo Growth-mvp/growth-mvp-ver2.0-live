@@ -1,11 +1,12 @@
 // /app/stage6/page.tsx
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 
 import { fmtJPY } from '@/utils/stage6';
 import { useAutoSave } from '@/hooks/useAutoSave';
+import { useStrategyStore } from '@/store/strategyStore';
 
 // ★ Step E3.1：UI components と custom hooks
 import { TabImpact } from '@/components/stage6/TabImpact';
@@ -31,6 +32,63 @@ export default function Stage6Page() {
 
   // ===== Data from consolidated hook =====
   const stage6 = useStage6Data(scenarioKey);
+
+  // ===== Phase E Data from Store =====
+  const projectTargetImpacts = useStrategyStore((s) => s.projectTargetImpacts ?? []);
+  const projectIssueLinks = useStrategyStore((s) => s.projectIssueLinks ?? []);
+  const {
+    addProjectTargetImpact,
+    updateProjectTargetImpact,
+    removeProjectTargetImpact,
+    addProjectIssueLink,
+    updateProjectIssueLink,
+    removeProjectIssueLink,
+  } = useStrategyStore();
+
+  // ===== Phase E Callbacks =====
+  const handleUpdateImpact = useCallback(
+    (projectId: string, targetId: string, delta: number, notes?: string) => {
+      const existing = projectTargetImpacts.find(
+        (imp) => imp.projectId === projectId && imp.targetId === targetId
+      );
+
+      if (existing) {
+        updateProjectTargetImpact(projectId, targetId, { delta, notes });
+      } else {
+        addProjectTargetImpact({ projectId, targetId, delta, notes });
+      }
+    },
+    [projectTargetImpacts, updateProjectTargetImpact, addProjectTargetImpact]
+  );
+
+  const handleRemoveImpact = useCallback(
+    (projectId: string, targetId: string) => {
+      removeProjectTargetImpact(projectId, targetId);
+    },
+    [removeProjectTargetImpact]
+  );
+
+  const handleUpdateLink = useCallback(
+    (projectId: string, issueId: string, strength: 1 | 2 | 3, notes?: string) => {
+      const existing = projectIssueLinks.find(
+        (link) => link.projectId === projectId && link.issueId === issueId
+      );
+
+      if (existing) {
+        updateProjectIssueLink(projectId, issueId, { strength, notes });
+      } else {
+        addProjectIssueLink({ projectId, issueId, strength, notes });
+      }
+    },
+    [projectIssueLinks, updateProjectIssueLink, addProjectIssueLink]
+  );
+
+  const handleRemoveLink = useCallback(
+    (projectId: string, issueId: string) => {
+      removeProjectIssueLink(projectId, issueId);
+    },
+    [removeProjectIssueLink]
+  );
 
   // ===== Project filters for Tab1 =====
   const projectFilters = useProjectFilters({
@@ -155,8 +213,6 @@ export default function Stage6Page() {
         <div className="space-y-6">
           {activeTab === 'impact' && (
             <TabImpact
-              chartData={stage6.chartData}
-              indicatorSeries={stage6.indicatorSeries}
               projectContrib={stage6.projectContrib}
               core={stage6.core}
               deptFilter={projectFilters.deptFilter}
@@ -170,13 +226,27 @@ export default function Stage6Page() {
             />
           )}
 
-          {activeTab === 'northstar' && <TabNorthStar northStarRows={stage6.northStarRows} />}
+          {activeTab === 'northstar' && (
+            <TabNorthStar
+              northStarRows={stage6.northStarRows}
+              chartData={stage6.chartData}
+              projectTargetImpacts={projectTargetImpacts}
+              allProjectKeys={stage6.allProjectKeys}
+              onUpdateImpact={handleUpdateImpact}
+              onRemoveImpact={handleRemoveImpact}
+            />
+          )}
 
           {activeTab === 'valueanalysis' && (
             <TabValue
               vaCards={stage6.vaCards}
               issueResolutions={stage6.issueResolutions}
               companyTargets={stage6.companyTargets}
+              indicatorSeries={stage6.indicatorSeries}
+              projectIssueLinks={projectIssueLinks}
+              allProjectKeys={stage6.allProjectKeys}
+              onUpdateLink={handleUpdateLink}
+              onRemoveLink={handleRemoveLink}
             />
           )}
         </div>
