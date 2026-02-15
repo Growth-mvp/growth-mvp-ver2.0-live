@@ -87,7 +87,7 @@ export default function Home() {
                 text-neutral-600 dark:text-neutral-300
               "
             >
-              戦略策定から浸透・実行、成果創出までを支える経営プラットフォーム
+              戦略策定・浸透実行・成果創出を支える経営プラットフォーム
             </motion.p>
 
             {/* CTA（既存機能維持） */}
