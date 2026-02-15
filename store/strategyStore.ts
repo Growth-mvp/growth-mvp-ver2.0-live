@@ -533,6 +533,35 @@ function isEffectivelyEmpty(payload: any): boolean {
   return isEmpty;
 }
 
+/**
+ * J-1: Sanitize projectTargetImpacts before save
+ * Remove NaN, undefined, or all-zero deltas
+ */
+function sanitizeProjectTargetImpacts(impacts: any): any[] {
+  if (!Array.isArray(impacts)) return [];
+  return impacts.filter((item) => {
+    if (!item || typeof item !== 'object') return false;
+    if (!item.projectId || !item.targetId) return false;
+    if (typeof item.delta !== 'number' || !Number.isFinite(item.delta)) return false;
+    return item.delta !== 0; // Only keep non-zero deltas
+  });
+}
+
+/**
+ * J-1: Sanitize projectIssueLinks before save
+ * Remove invalid strength or missing required fields
+ */
+function sanitizeProjectIssueLinks(links: any): any[] {
+  if (!Array.isArray(links)) return [];
+  return links.filter((item) => {
+    if (!item || typeof item !== 'object') return false;
+    if (!item.projectId || !item.issueId) return false;
+    const strength = item.strength;
+    if (![1, 2, 3].includes(strength)) return false;
+    return true;
+  });
+}
+
 /** 保存用ペイロード組み立て（StrategyData相当） */
 function buildSavePayload(s: StrategyState) {
   const base: any = {
@@ -593,9 +622,9 @@ function buildSavePayload(s: StrategyState) {
     finalStoryEdited: (s as any).finalStoryEdited,
     finalStoryFinal: (s as any).finalStoryFinal,
 
-    // === STAGE6 Phase E データ ===
-    projectTargetImpacts: (s as any).projectTargetImpacts,
-    projectIssueLinks: (s as any).projectIssueLinks,
+    // === STAGE6 Phase E データ (J-1: Sanitize before save) ===
+    projectTargetImpacts: sanitizeProjectTargetImpacts((s as any).projectTargetImpacts),
+    projectIssueLinks: sanitizeProjectIssueLinks((s as any).projectIssueLinks),
 
     winPatterns: s.winPatterns,
     winPatternPrimary: s.winPatternPrimary,
