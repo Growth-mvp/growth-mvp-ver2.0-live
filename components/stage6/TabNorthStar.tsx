@@ -256,6 +256,39 @@ export function TabNorthStar({
                     {expandedRow === row.targetId && (
                       <tr>
                         <td colSpan={11} className="bg-slate-50 p-4">
+                          {/* H-1: Breakdown display */}
+                          {row.breakdown && row.breakdown.length > 0 && (
+                            <div className="mb-4 pb-3 border-b border-slate-200">
+                              <div className="text-xs font-semibold text-slate-900 mb-2">
+                                予測内訳（Top3）
+                              </div>
+                              <div className="space-y-1">
+                                {row.breakdown
+                                  .sort((a, b) => Math.abs(b.effectiveDelta) - Math.abs(a.effectiveDelta))
+                                  .slice(0, 3)
+                                  .map((item) => {
+                                    const parts = item.projectId.split('::');
+                                    const deptName = parts[0] ?? '';
+                                    const projName = parts[1] ?? item.projectId;
+                                    const weight = (item.executionWeight * 100).toFixed(0);
+
+                                    return (
+                                      <div key={item.projectId} className="text-xs text-slate-600">
+                                        <span className="font-medium">{deptName}</span>
+                                        <span>：</span>
+                                        <span>{projName}</span>
+                                        <span className="text-slate-500 ml-1">
+                                          delta {item.delta > 0 ? '+' : ''}{item.delta.toFixed(0)} ×
+                                          weight {weight}% = {item.effectiveDelta > 0 ? '+' : ''}
+                                          {item.effectiveDelta.toFixed(0)}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                              </div>
+                            </div>
+                          )}
+
                           <div className="text-sm font-semibold mb-3 text-slate-900">
                             プロジェクト別の寄与量（delta）を入力
                           </div>
@@ -301,11 +334,29 @@ export function TabNorthStar({
                                         </button>
                                       )}
                                     </div>
-                                    {hasWarning && (
-                                      <div className="text-xs text-amber-600 mt-1">
-                                        ⚠ 入力値が目標値の10倍を超えています。単位を確認してください。
-                                      </div>
-                                    )}
+                                    {/* H-2: Unit-specific warning thresholds */}
+                                    {impact && impact.delta && (() => {
+                                      const unit = String(row.unit).toLowerCase();
+                                      let warningThreshold = row.base * 2; // デフォルト: base * 2
+
+                                      if (unit.includes('百万') || unit === 'mjpy') {
+                                        warningThreshold = row.base * 2;
+                                      } else if (unit.includes('千') || unit === 'kjpy') {
+                                        warningThreshold = row.base * 1.5;
+                                      } else if (unit === '円' || unit === 'jpy') {
+                                        warningThreshold = row.base * 0.5;
+                                      } else if (unit === '%') {
+                                        warningThreshold = Math.min(50, row.base * 1.5);
+                                      }
+
+                                      return (
+                                        Math.abs(impact.delta) > warningThreshold && (
+                                          <div className="text-xs text-amber-600 mt-1">
+                                            ⚠ 入力値が想定範囲を超えています。単位（{row.unit}）を確認してください。
+                                          </div>
+                                        )
+                                      );
+                                    })()}
                                   </div>
                                 </div>
                               );
