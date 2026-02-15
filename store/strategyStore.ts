@@ -36,6 +36,8 @@ import type {
   Stage1Benchmarks,
   StrategyData,
   CompanyTarget,
+  ProjectTargetImpact,
+  ProjectIssueLink,
 } from '@/types/strategy';
 import type { BusinessPortfolio } from '@/types/portfolio';
 import {
@@ -222,6 +224,12 @@ export type StrategyState = {
   /* ★ STAGE2：会社の数値目標（North Star Metrics） */
   companyTargets?: CompanyTarget[];
 
+  /* === STAGE6 Phase E：プロジェクト→North Star影響量（手入力） === */
+  projectTargetImpacts?: ProjectTargetImpact[];
+
+  /* === STAGE6 Phase E：プロジェクト→論点紐付け（手入力） === */
+  projectIssueLinks?: ProjectIssueLink[];
+
   /* ★ 全社レベルの勝ち筋（受け皿） */
   winPatterns?: WinPattern[];
   winPatternPrimary?: WinPatternId;
@@ -355,6 +363,18 @@ export type StrategyState = {
   addCompanyTarget: (target: CompanyTarget) => void;
   updateCompanyTarget: (id: string, patch: Partial<CompanyTarget>) => void;
   removeCompanyTarget: (id: string) => void;
+
+  /* === STAGE6 Phase E：プロジェクト→North Star影響量 === */
+  setProjectTargetImpacts: (impacts: ProjectTargetImpact[]) => void;
+  addProjectTargetImpact: (impact: ProjectTargetImpact) => void;
+  updateProjectTargetImpact: (projectId: string, targetId: string, patch: Partial<ProjectTargetImpact>) => void;
+  removeProjectTargetImpact: (projectId: string, targetId: string) => void;
+
+  /* === STAGE6 Phase E：プロジェクト→論点紐付け === */
+  setProjectIssueLinks: (links: ProjectIssueLink[]) => void;
+  addProjectIssueLink: (link: ProjectIssueLink) => void;
+  updateProjectIssueLink: (projectId: string, issueId: string, patch: Partial<ProjectIssueLink>) => void;
+  removeProjectIssueLink: (projectId: string, issueId: string) => void;
 
   /* ▼ STAGE2 最終ストーリー setter */
   setFinalStoryDraft: (chapters: StoryChapter[]) => void;
@@ -572,6 +592,10 @@ function buildSavePayload(s: StrategyState) {
     finalStoryDraft: (s as any).finalStoryDraft,
     finalStoryEdited: (s as any).finalStoryEdited,
     finalStoryFinal: (s as any).finalStoryFinal,
+
+    // === STAGE6 Phase E データ ===
+    projectTargetImpacts: (s as any).projectTargetImpacts,
+    projectIssueLinks: (s as any).projectIssueLinks,
 
     winPatterns: s.winPatterns,
     winPatternPrimary: s.winPatternPrimary,
@@ -856,6 +880,8 @@ const emptyData: StrategyState = {
   finalStoryEdited: undefined,
   finalStoryFinal: undefined,
   companyTargets: [],
+  projectTargetImpacts: [],
+  projectIssueLinks: [],
   winPatterns: undefined,
   winPatternPrimary: undefined,
   winPatternSecondary: undefined,
@@ -917,6 +943,17 @@ const emptyData: StrategyState = {
   addCompanyTarget: () => {},
   updateCompanyTarget: () => {},
   removeCompanyTarget: () => {},
+
+  // Phase E
+  setProjectTargetImpacts: () => {},
+  addProjectTargetImpact: () => {},
+  updateProjectTargetImpact: () => {},
+  removeProjectTargetImpact: () => {},
+  setProjectIssueLinks: () => {},
+  addProjectIssueLink: () => {},
+  updateProjectIssueLink: () => {},
+  removeProjectIssueLink: () => {},
+
   setFinalStoryDraft: () => {},
   setFinalStoryEdited: () => {},
   commitFinalStory: () => {},
@@ -1159,6 +1196,25 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     };
   })();
 
+  // === STAGE6 Phase E データの正規化 ===
+  const companyTargets = Array.isArray(raw.companyTargets)
+    ? raw.companyTargets
+    : Array.isArray(raw.company_targets)
+      ? raw.company_targets
+      : [];
+
+  const projectTargetImpacts = Array.isArray(raw.projectTargetImpacts)
+    ? raw.projectTargetImpacts
+    : Array.isArray(raw.project_target_impacts)
+      ? raw.project_target_impacts
+      : [];
+
+  const projectIssueLinks = Array.isArray(raw.projectIssueLinks)
+    ? raw.projectIssueLinks
+    : Array.isArray(raw.project_issue_links)
+      ? raw.project_issue_links
+      : [];
+
   // ★ STAGE2 フィールド復元（常に配列に統一）
   const ceoIntent = raw.ceoIntent ?? raw.ceo_intent ?? '';
 
@@ -1243,6 +1299,11 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     winPatternSecondary,
 
     executionPlanBaseline,
+
+    // === STAGE6 Phase E データ ===
+    companyTargets,
+    projectTargetImpacts,
+    projectIssueLinks,
   };
 
   if (DEBUG) {
@@ -1631,6 +1692,74 @@ export const useStrategyStore = create<StrategyState>()(
         setTimeout(() => {
           get().saveStage2Snapshot();
         }, 0);
+      },
+
+      // === STAGE6 Phase E：projectTargetImpacts アクション ===
+      setProjectTargetImpacts: (impacts: ProjectTargetImpact[]) => {
+        set((s) => ({ ...s, projectTargetImpacts: impacts, dirty: true }));
+      },
+
+      addProjectTargetImpact: (impact: ProjectTargetImpact) => {
+        set((s) => {
+          const prev = s.projectTargetImpacts ?? [];
+          return { ...s, projectTargetImpacts: [...prev, impact], dirty: true };
+        });
+      },
+
+      updateProjectTargetImpact: (projectId: string, targetId: string, patch: Partial<ProjectTargetImpact>) => {
+        set((s) => {
+          const prev = s.projectTargetImpacts ?? [];
+          const idx = prev.findIndex((imp) => imp.projectId === projectId && imp.targetId === targetId);
+          if (idx < 0) return s;
+          const next = [...prev];
+          next[idx] = { ...next[idx], ...patch };
+          return { ...s, projectTargetImpacts: next, dirty: true };
+        });
+      },
+
+      removeProjectTargetImpact: (projectId: string, targetId: string) => {
+        set((s) => {
+          const prev = s.projectTargetImpacts ?? [];
+          return {
+            ...s,
+            projectTargetImpacts: prev.filter((imp) => !(imp.projectId === projectId && imp.targetId === targetId)),
+            dirty: true,
+          };
+        });
+      },
+
+      // === STAGE6 Phase E：projectIssueLinks アクション ===
+      setProjectIssueLinks: (links: ProjectIssueLink[]) => {
+        set((s) => ({ ...s, projectIssueLinks: links, dirty: true }));
+      },
+
+      addProjectIssueLink: (link: ProjectIssueLink) => {
+        set((s) => {
+          const prev = s.projectIssueLinks ?? [];
+          return { ...s, projectIssueLinks: [...prev, link], dirty: true };
+        });
+      },
+
+      updateProjectIssueLink: (projectId: string, issueId: string, patch: Partial<ProjectIssueLink>) => {
+        set((s) => {
+          const prev = s.projectIssueLinks ?? [];
+          const idx = prev.findIndex((link) => link.projectId === projectId && link.issueId === issueId);
+          if (idx < 0) return s;
+          const next = [...prev];
+          next[idx] = { ...next[idx], ...patch };
+          return { ...s, projectIssueLinks: next, dirty: true };
+        });
+      },
+
+      removeProjectIssueLink: (projectId: string, issueId: string) => {
+        set((s) => {
+          const prev = s.projectIssueLinks ?? [];
+          return {
+            ...s,
+            projectIssueLinks: prev.filter((link) => !(link.projectId === projectId && link.issueId === issueId)),
+            dirty: true,
+          };
+        });
       },
 
       setFinalStoryDraft: (chapters: StoryChapter[]) => {
