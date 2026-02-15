@@ -28,6 +28,7 @@ import {
   getExecutionWeight,
   buildNorthStarRowsPhaseE,
   buildIssueResolutionsPhaseE,
+  normalizeValueToUnit,
 } from '@/utils/stage6';
 import { calcYearlyFromKrs } from '@/utils/stage6/compute';
 
@@ -372,40 +373,141 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     return map;
   }, [projectContrib]);
 
-  // === STAGE6 Phase E：phase Eが有効かどうか ===
-  const phaseEEnabled = useMemo(
-    () => projectTargetImpacts.length > 0,
-    [projectTargetImpacts]
-  );
+  // === G-1: Debug logging setup ===
+  useEffect(() => {
+    if (DEBUG && companyTargets.length > 0) {
+      const samples = companyTargets.slice(0, 2);
+      console.log('[G-1] CompanyTargets sample:', samples.map(t => ({ id: t.id, label: t.label, unit: t.unit, base: t.base })));
+    }
+  }, [companyTargets]);
 
+  // === E-2: chartData ビルド（売上・営業利益の最終値を取得） ===
+  const chartData = useMemo(() => {
+    const baseline = (Array.isArray(core.baselineYearly) ? core.baselineYearly : []) as YearlyPL[];
+    const all = (Array.isArray(core.yearlyAll?.base) ? core.yearlyAll.base : []) as YearlyPL[];
+    const selected = [] as YearlyPL[];
+
+    const years = Array.from(
+      new Set<number>([...baseline.map((x: YearlyPL) => x.year), ...all.map((x: YearlyPL) => x.year), ...selected.map((x: YearlyPL) => x.year)]),
+    ).sort((a, b) => a - b);
+
+    const mapYearly = (arr: YearlyPL[]) => {
+      const m = new Map<number, YearlyPL>();
+      arr.forEach((x: YearlyPL) => m.set(x.year, x));
+      return m;
+    };
+
+    const mb = mapYearly(baseline);
+    const ma = mapYearly(all);
+    const ms = mapYearly(selected);
+
+    return years.map((year) => ({
+      year,
+      baselineRevenue: mb.get(year)?.revenue ?? 0,
+      allRevenue: ma.get(year)?.revenue ?? 0,
+      selectedRevenue: ms.get(year)?.revenue ?? 0,
+      baselineOp: mb.get(year)?.op_income ?? 0,
+      allOp: ma.get(year)?.op_income ?? 0,
+      selectedOp: ms.get(year)?.op_income ?? 0,
+    }));
+  }, [core.baselineYearly, core.yearlyAll]);
+
+  // === E-3: Hybrid North Star calculation ===
+  // 1. 既存ロジックで全行を計算
+  // 2. 売上/営業利益の行は chartData の終点値と同期
+  // 3. Phase E impact がある行だけ上書き（ハイブリッド）
   const northStarRows = useMemo(() => {
-    if (phaseEEnabled) {
-      // Phase E ロジックで計算
-      return buildNorthStarRowsPhaseE({
+    // Step 1: 既存ロジックで初期計算
+    const baseRows = buildNorthStarRows({
+      companyTargets,
+      yearlyAll: core.yearlyAll,
+      scenarioKey,
+      projectContrib,
+    });
+
+    // Step 2: 売上/営業利益の行は chartData と同期（E-2）
+    const syncedRows = baseRows.map((row) => {
+      const isRevenueLike = row.label.toLowerCase().includes('売上') && !row.label.toLowerCase().includes('成長');
+      const isOpIncomeLike = row.label.toLowerCase().includes('営業利益') && !row.label.toLowerCase().includes('率');
+
+      if (isRevenueLike || isOpIncomeLike) {
+        // chartData の最後の年のデータを取得
+        const lastChartRow = chartData.length > 0 ? chartData[chartData.length - 1] : null;
+        if (lastChartRow) {
+          const chartValue = isRevenueLike ? lastChartRow.allRevenue : lastChartRow.allOp;
+          const normalizedValue = normalizeValueToUnit(chartValue, row.unit);
+
+          if (DEBUG) {
+            console.log(`[E-2] ${row.label}: chartValue=${chartValue}, normalized=${normalizedValue}, unit=${row.unit}`);
+          }
+
+          const newForecast = normalizedValue;
+          const newGap = newForecast !== undefined && row.base ? newForecast - row.base : undefined;
+          const newAchievement =
+            newForecast !== undefined && row.base && row.base !== 0
+              ? (newForecast / row.base) * 100
+              : undefined;
+
+          return {
+            ...row,
+            forecastValue: newForecast,
+            gap: newGap,
+            achievementRate: newAchievement,
+          };
+        }
+      }
+
+      return row;
+    });
+
+    // Step 3: Phase E で上書き（ハイブリッド：impact がある行だけ）
+    if (projectTargetImpacts.length > 0) {
+      const phaseERows = buildNorthStarRowsPhaseE({
         companyTargets,
         projectTargetImpacts,
         executionWeights: executionWeightsMap,
       });
-    } else {
-      // 既存ロジック
-      return buildNorthStarRows({
-        companyTargets,
-        yearlyAll: core.yearlyAll,
-        scenarioKey,
-        projectContrib,
-      });
-    }
-  }, [phaseEEnabled, companyTargets, projectTargetImpacts, executionWeightsMap, core.yearlyAll, scenarioKey, projectContrib]);
 
+      const phaseEMap = new Map(phaseERows.map((r) => [r.targetId, r]));
+
+      const hybridRows = syncedRows.map((row) => {
+        const phaseERow = phaseEMap.get(row.targetId);
+        if (phaseERow) {
+          if (DEBUG) {
+            console.log(`[E-3] ${row.label}: PhaseE上書き (forecast ${row.forecastValue} → ${phaseERow.forecastValue})`);
+          }
+          return phaseERow;
+        }
+        return row;
+      });
+
+      if (DEBUG) {
+        console.log(`[E-3] Hybrid: ${hybridRows.length}行中${phaseERows.length}行がPhaseEで上書き`);
+      }
+
+      return hybridRows;
+    }
+
+    return syncedRows;
+  }, [companyTargets, core.yearlyAll, scenarioKey, projectContrib, chartData, projectTargetImpacts, executionWeightsMap]);
+
+  // === F-1: IssueResolution calculation with hybrid logic ===
+  // If projectIssueLinks exist, use Phase E; otherwise use existing logic
   const issueResolutions = useMemo(() => {
-    if (phaseEEnabled && projectIssueLinks.length > 0) {
+    if (projectIssueLinks.length > 0) {
       // Phase E ロジックで計算
-      return buildIssueResolutionsPhaseE({
+      const phaseEResolutions = buildIssueResolutionsPhaseE({
         stage1Issues,
         companyTargets,
         projectIssueLinks,
         executionWeights: executionWeightsMap,
       });
+
+      if (DEBUG) {
+        console.log(`[F-1] Phase E Issues: ${phaseEResolutions.length}件計算`);
+      }
+
+      return phaseEResolutions;
     } else {
       // 既存ロジック
       return buildIssueResolutions({
@@ -414,7 +516,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         northStarRows,
       });
     }
-  }, [phaseEEnabled, projectIssueLinks, stage1Issues, companyTargets, executionWeightsMap, northStarRows]);
+  }, [projectIssueLinks, stage1Issues, companyTargets, executionWeightsMap, northStarRows]);
 
   const vaCards = useMemo(() => {
     return buildValueAnalysisCards(valueAnalysis);
@@ -478,36 +580,33 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     return { growth, margin };
   }, [core.baselineYearly, core.yearlyAll]);
 
-  // ===== Chart data =====
-  const chartData = useMemo(() => {
-    const baseline = (Array.isArray(core.baselineYearly) ? core.baselineYearly : []) as YearlyPL[];
-    const all = (Array.isArray(core.yearlyAll?.base) ? core.yearlyAll.base : []) as YearlyPL[];
-    const selected = [] as YearlyPL[];
+  // === J-2: Detailed debug logging for calculations ===
+  if (DEBUG && northStarRows.length > 0) {
+    const revenueRows = northStarRows.filter(r => r.label.toLowerCase().includes('売上'));
+    if (revenueRows.length > 0) {
+      const sample = revenueRows[0];
+      console.log('[J-2] unitNormalized:', {
+        label: sample.label,
+        unit: sample.unit,
+        forecastValue: sample.forecastValue,
+        achievementRate: sample.achievementRate,
+      });
+    }
 
-    const years = Array.from(
-      new Set<number>([...baseline.map((x: YearlyPL) => x.year), ...all.map((x: YearlyPL) => x.year), ...selected.map((x: YearlyPL) => x.year)]),
-    ).sort((a, b) => a - b);
-
-    const mapYearly = (arr: YearlyPL[]) => {
-      const m = new Map<number, YearlyPL>();
-      arr.forEach((x: YearlyPL) => m.set(x.year, x));
-      return m;
-    };
-
-    const mb = mapYearly(baseline);
-    const ma = mapYearly(all);
-    const ms = mapYearly(selected);
-
-    return years.map((year) => ({
-      year,
-      baselineRevenue: mb.get(year)?.revenue ?? 0,
-      allRevenue: ma.get(year)?.revenue ?? 0,
-      selectedRevenue: ms.get(year)?.revenue ?? 0,
-      baselineOp: mb.get(year)?.op_income ?? 0,
-      allOp: ma.get(year)?.op_income ?? 0,
-      selectedOp: ms.get(year)?.op_income ?? 0,
-    }));
-  }, [core.baselineYearly, core.yearlyAll]);
+    if (projectTargetImpacts.length > 0) {
+      const affectedIds: string[] = [];
+      northStarRows.forEach(r => {
+        if ((r as any).breakdown && (r as any).breakdown.length > 0) {
+          affectedIds.push(r.targetId);
+        }
+      });
+      console.log('[J-2] phaseEOverwrite:', {
+        totalRows: northStarRows.length,
+        affected: affectedIds.length,
+        affectedIds,
+      });
+    }
+  }
 
   return {
     // Status
