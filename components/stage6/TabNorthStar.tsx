@@ -1,13 +1,38 @@
 'use client';
 
+import React, { useState } from 'react';
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip as ReTooltip,
+  Legend,
+  CartesianGrid,
+} from 'recharts';
 import type { NorthStarRow } from '@/utils/stage6';
-import { fmtJPY } from '@/utils/stage6';
+import type { ProjectTargetImpact } from '@/types/strategy';
+import { fmtJPY, compactJPY } from '@/utils/stage6';
 
 interface TabNorthStarProps {
   northStarRows: NorthStarRow[];
+  chartData?: any[];
+  projectTargetImpacts?: ProjectTargetImpact[];
+  allProjectKeys?: string[];
+  onUpdateImpact?: (projectId: string, targetId: string, delta: number, notes?: string) => void;
+  onRemoveImpact?: (projectId: string, targetId: string) => void;
 }
 
-export function TabNorthStar({ northStarRows }: TabNorthStarProps) {
+export function TabNorthStar({
+  northStarRows,
+  chartData,
+  projectTargetImpacts,
+  allProjectKeys,
+  onUpdateImpact,
+  onRemoveImpact,
+}: TabNorthStarProps) {
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
   if (northStarRows.length === 0) {
     return (
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -26,15 +51,115 @@ export function TabNorthStar({ northStarRows }: TabNorthStarProps) {
   }
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="mb-4">
-        <h2 className="text-lg font-bold text-slate-900">North Star Metrics vs プロジェクト合計予測</h2>
-        <p className="mt-1 text-[12px] text-slate-600">
-          会社目標（North Star）と、プロジェクト実行による達成予測のギャップを可視化します。
-        </p>
-      </div>
+    <>
+      {/* A. Company-wide transition */}
+      {chartData && chartData.length > 0 && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="mb-4">
+            <h2 className="text-lg font-bold text-slate-900">会社全体の推移（売上・営業利益）</h2>
+            <p className="mt-1 text-[12px] text-slate-600">
+              Baseline（影響なし）／全プロジェクト（Approved合算）／選択プロジェクト（複数選択合算）
+            </p>
+          </div>
 
-      <div className="space-y-4">
+          {/* Revenue Chart */}
+          <div className="mb-6">
+            <div className="mb-2 text-sm font-semibold text-slate-800">売上</div>
+            <div className="h-[280px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="year" />
+                  <YAxis tickFormatter={(v) => compactJPY(v)} />
+                  <ReTooltip formatter={(value: any, name: any) => [fmtJPY(Number(value)), name]} />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="baselineRevenue"
+                    name="Baseline"
+                    stroke="#64748b"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="allRevenue"
+                    name="全プロジェクト（Approved合算）"
+                    stroke="#0f172a"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="selectedRevenue"
+                    name="選択プロジェクト（合算）"
+                    stroke="#334155"
+                    strokeWidth={2}
+                    strokeDasharray="6 3"
+                    dot={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Operating Income Chart */}
+          <div>
+            <div className="mb-2 text-sm font-semibold text-slate-800">営業利益</div>
+            <div className="h-[280px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="year" />
+                  <YAxis tickFormatter={(v) => compactJPY(v)} />
+                  <ReTooltip formatter={(value: any, name: any) => [fmtJPY(Number(value)), name]} />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="baselineOp"
+                    name="Baseline"
+                    stroke="#64748b"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="allOp"
+                    name="全プロジェクト（Approved合算）"
+                    stroke="#0f172a"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="selectedOp"
+                    name="選択プロジェクト（合算）"
+                    stroke="#334155"
+                    strokeWidth={2}
+                    strokeDasharray="6 3"
+                    dot={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="mt-3 text-[11px] text-slate-500">
+            注：STAGE1の財務入力とKR/投資の前提に基づく簡易推計です。厳密な予算ではなく「因果の検証」を目的にします。
+          </div>
+        </section>
+      )}
+
+      {/* B. North Star Metrics */}
+      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="mb-4">
+          <h2 className="text-lg font-bold text-slate-900">North Star Metrics vs プロジェクト合計予測</h2>
+          <p className="mt-1 text-[12px] text-slate-600">
+            会社目標（North Star）と、プロジェクト実行による達成予測のギャップを可視化します。
+          </p>
+        </div>
+
+        <div className="space-y-4">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -49,6 +174,7 @@ export function TabNorthStar({ northStarRows }: TabNorthStarProps) {
                 <th className="px-3 py-2 text-right font-semibold text-slate-700">達成率</th>
                 <th className="px-3 py-2 text-right font-semibold text-slate-700">ギャップ</th>
                 <th className="px-3 py-2 text-left font-semibold text-slate-700">★予測内訳（Top3PJ）</th>
+                <th className="px-3 py-2 text-left font-semibold text-slate-700">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -56,73 +182,149 @@ export function TabNorthStar({ northStarRows }: TabNorthStarProps) {
                 const gap = row.forecastValue !== undefined && row.base ? row.forecastValue - row.base : undefined;
 
                 return (
-                  <tr key={row.targetId} className="border-b border-slate-100 hover:bg-slate-50">
-                    <td className="px-3 py-2 font-medium text-slate-900">{row.label}</td>
-                    <td className="px-3 py-2 text-slate-700">{row.unit}</td>
-                    <td className="px-3 py-2 text-right text-slate-700">{row.dueYear ?? '-'}</td>
-                    <td className="px-3 py-2 text-right text-slate-700">
-                      {row.low !== undefined ? (
-                        row.unit.includes('%') ? `${row.low.toFixed(1)}%` : fmtJPY(row.low)
-                      ) : (
-                        '-'
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right font-semibold text-slate-900">
-                      {row.unit.includes('%') ? `${row.base.toFixed(1)}%` : fmtJPY(row.base)}
-                    </td>
-                    <td className="px-3 py-2 text-right text-slate-700">
-                      {row.high !== undefined ? (
-                        row.unit.includes('%') ? `${row.high.toFixed(1)}%` : fmtJPY(row.high)
-                      ) : (
-                        '-'
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right text-slate-700">
-                      {row.forecastValue !== undefined ? (
-                        row.unit.includes('%') ? `${row.forecastValue.toFixed(1)}%` : fmtJPY(row.forecastValue)
-                      ) : (
-                        '-'
-                      )}
-                    </td>
-                    <td
-                      className={`px-3 py-2 text-right font-semibold ${
-                        row.achievementRate !== undefined && row.achievementRate >= 100
-                          ? 'text-green-700'
-                          : 'text-red-700'
-                      }`}
-                    >
-                      {row.achievementRate !== undefined ? `${row.achievementRate.toFixed(1)}%` : '-'}
-                    </td>
-                    <td className="px-3 py-2 text-right text-slate-700">
-                      {gap !== undefined ? (
-                        row.unit.includes('%') ? `${gap.toFixed(1)}%` : fmtJPY(gap)
-                      ) : (
-                        '-'
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-left text-xs max-w-xs">
-                      {row.topProjects && row.topProjects.length > 0 ? (
-                        <div className="space-y-1">
-                          {row.topProjects.map((proj: any, idx: number) => (
-                            <div key={idx} className="text-slate-600">
-                              <span className="font-medium">{proj.dept}</span>
-                              {' / '}
-                              <span>{proj.proj}</span>
-                              <span className="text-slate-500">: {fmtJPY(proj.contribution)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        '-'
-                      )}
-                    </td>
-                  </tr>
+                  <React.Fragment key={row.targetId}>
+                    <tr className="border-b border-slate-100 hover:bg-slate-50">
+                      <td className="px-3 py-2 font-medium text-slate-900">{row.label}</td>
+                      <td className="px-3 py-2 text-slate-700">{row.unit}</td>
+                      <td className="px-3 py-2 text-right text-slate-700">{row.dueYear ?? '-'}</td>
+                      <td className="px-3 py-2 text-right text-slate-700">
+                        {row.low !== undefined ? (
+                          row.unit.includes('%') ? `${row.low.toFixed(1)}%` : fmtJPY(row.low)
+                        ) : (
+                          '-'
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right font-semibold text-slate-900">
+                        {row.unit.includes('%') ? `${row.base.toFixed(1)}%` : fmtJPY(row.base)}
+                      </td>
+                      <td className="px-3 py-2 text-right text-slate-700">
+                        {row.high !== undefined ? (
+                          row.unit.includes('%') ? `${row.high.toFixed(1)}%` : fmtJPY(row.high)
+                        ) : (
+                          '-'
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right text-slate-700">
+                        {row.forecastValue !== undefined ? (
+                          row.unit.includes('%') ? `${row.forecastValue.toFixed(1)}%` : fmtJPY(row.forecastValue)
+                        ) : (
+                          '-'
+                        )}
+                      </td>
+                      <td
+                        className={`px-3 py-2 text-right font-semibold ${
+                          row.achievementRate !== undefined && row.achievementRate >= 100
+                            ? 'text-green-700'
+                            : 'text-red-700'
+                        }`}
+                      >
+                        {row.achievementRate !== undefined ? `${row.achievementRate.toFixed(1)}%` : '-'}
+                      </td>
+                      <td className="px-3 py-2 text-right text-slate-700">
+                        {gap !== undefined ? (
+                          row.unit.includes('%') ? `${gap.toFixed(1)}%` : fmtJPY(gap)
+                        ) : (
+                          '-'
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-left text-xs max-w-xs">
+                        {row.topProjects && row.topProjects.length > 0 ? (
+                          <div className="space-y-1">
+                            {row.topProjects.map((proj: any, idx: number) => (
+                              <div key={idx} className="text-slate-600">
+                                <span className="font-medium">{proj.dept}</span>
+                                {' / '}
+                                <span>{proj.proj}</span>
+                                <span className="text-slate-500">: {fmtJPY(proj.contribution)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          '-'
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-left">
+                        <button
+                          onClick={() => setExpandedRow(expandedRow === row.targetId ? null : row.targetId)}
+                          className="text-xs text-blue-600 hover:underline"
+                        >
+                          {expandedRow === row.targetId ? '閉じる' : '編集'}
+                        </button>
+                      </td>
+                    </tr>
+
+                    {expandedRow === row.targetId && (
+                      <tr>
+                        <td colSpan={11} className="bg-slate-50 p-4">
+                          <div className="text-sm font-semibold mb-3 text-slate-900">
+                            プロジェクト別の寄与量（delta）を入力
+                          </div>
+                          <div className="space-y-2">
+                            {(allProjectKeys ?? []).map((projectKey) => {
+                              const impact = (projectTargetImpacts ?? []).find(
+                                (imp) => imp.projectId === projectKey && imp.targetId === row.targetId
+                              );
+                              const deltaValue = impact?.delta ?? '';
+                              const hasWarning = impact?.delta && Math.abs(impact.delta) > row.base * 10;
+
+                              return (
+                                <div key={projectKey} className="flex items-start gap-4">
+                                  <div className="w-48 text-xs text-slate-700 pt-2">{projectKey}</div>
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="number"
+                                        value={deltaValue}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          if (val === '') {
+                                            if (impact) {
+                                              onRemoveImpact?.(projectKey, row.targetId);
+                                            }
+                                          } else {
+                                            const numVal = parseFloat(val);
+                                            if (!isNaN(numVal)) {
+                                              onUpdateImpact?.(projectKey, row.targetId, numVal);
+                                            }
+                                          }
+                                        }}
+                                        className="w-32 border border-slate-300 px-2 py-1 text-xs rounded"
+                                        placeholder="0"
+                                      />
+                                      <span className="text-xs text-slate-600 w-16">{row.unit}</span>
+                                      {impact && (
+                                        <button
+                                          onClick={() => onRemoveImpact?.(projectKey, row.targetId)}
+                                          className="text-xs text-red-600 hover:underline"
+                                        >
+                                          削除
+                                        </button>
+                                      )}
+                                    </div>
+                                    {hasWarning && (
+                                      <div className="text-xs text-amber-600 mt-1">
+                                        ⚠ 入力値が目標値の10倍を超えています。単位を確認してください。
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div className="mt-3 text-xs text-slate-500">
+                            注：単位は North Star の単位（{row.unit}）に合わせてください。
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 );
               })}
             </tbody>
           </table>
         </div>
       </div>
-    </section>
+      </section>
+    </>
   );
 }
