@@ -56,14 +56,23 @@ export type NorthStarRow = {
   forecastValue?: number;
   achievementRate?: number; // %
   gap?: number;
-  topProjects?: Array<{ proj: string; dept: string; contribution: number }>;
-  // H-1: Phase E breakdown （delta, executionWeight, effectiveDelta）
+  // H-1: Phase E breakdown （delta, executionWeight, effectiveDelta, Top3用）
   breakdown?: Array<{
     projectId: string;
     delta: number;
     executionWeight: number;
     contribution: number;
     effectiveDelta: number;
+  }>;
+  // topProjects: UIが breakdown から Top3 を生成する場合は不要（後方互換のため保持）
+  topProjects?: Array<{
+    projectId: string;
+    proj: string;
+    dept: string;
+    delta: number;
+    executionWeight: number;
+    effectiveDelta: number;
+    contribution: number;
   }>;
 };
 
@@ -79,7 +88,7 @@ export type IssueResolution = {
   linkedTargets: string[]; // North Star label
   resolutionRate?: number; // %
   resolutionStatus: 'unconnected' | 'partial' | 'in_progress' | 'achieved';
-  // I-1: Phase E breakdown （strength, executionWeight, contribution）
+  // I-1: Phase E breakdown （strength, executionWeight, contribution, Top3用）
   breakdown?: Array<{
     projectId: string;
     strength: 1 | 2 | 3;
@@ -87,6 +96,18 @@ export type IssueResolution = {
     executionWeight: number;
     contribution: number;
     score: number;
+  }>;
+  // I-1: topProjects: UIが breakdown から Top3 を生成する場合は不要（後方互換のため保持）
+  topProjects?: Array<{
+    projectId: string;
+    dept: string;
+    proj: string;
+    title: string;
+    strength: 1 | 2 | 3;
+    strengthCoef: number;
+    executionWeight: number;
+    score: number;
+    contribution: number;
   }>;
 };
 
