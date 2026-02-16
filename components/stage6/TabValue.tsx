@@ -214,7 +214,9 @@ export function TabValue({
                           紐付く指標：{resolution.linkedMetrics.join(', ')}
                         </div>
                       )}
+                      {/* I-4: 3-state display logic */}
                       {resolution.linkedTargets.length > 0 ? (
+                        // State 1: 紐付く北星メトリクスがある
                         <div className="mt-3 border-t border-slate-200 pt-2">
                           <div className="text-xs font-medium text-slate-700">✓ 紐付く北星メトリクス：</div>
                           <div className="mt-1 space-y-1">
@@ -225,20 +227,22 @@ export function TabValue({
                             ))}
                           </div>
                         </div>
-                      ) : (projectIssueLinks && projectIssueLinks.length > 0) ? (
+                      ) : projectIssueLinks && projectIssueLinks.some(l => l.issueId === resolution.issueTitle) ? (
+                        // State 2: projectIssueLinks がこのissueに存在（North Star紐付けなし）
                         <div className="mt-3 border-t border-slate-200 pt-2">
                           <div className="text-xs text-slate-500">
                             注：北星メトリクスの紐付けはSTAGE2で定義。解決度はプロジェクト強度から計算しています。
                           </div>
                         </div>
                       ) : (
+                        // State 3: 完全未接続（警告）
                         <div className="mt-3 border-t border-slate-200 pt-2">
                           <div className="text-xs font-medium text-amber-700">
-                            ⚠ 未接続：North Starと紐づけが無いため、解決度が計算できません
+                            ⚠ 未接続：プロジェクト紐付けがまだ設定されていません
                           </div>
                           <div className="mt-2">
                             <div className="text-xs text-slate-600 mb-2">
-                              このIssueを解決するために寄与するNorth Starメトリクスを STAGE2 で定義してください。
+                              このIssueを解決するプロジェクトと強度を設定してください。
                             </div>
                             <div className="text-xs text-slate-500 space-y-1">
                               <div>利用可能なNorth Star例：</div>
@@ -316,37 +320,66 @@ export function TabValue({
                     </div>
                   </div>
 
-                  {/* I-1: Top3 Contributors display */}
-                  {resolution.breakdown && resolution.breakdown.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-slate-200">
-                      <div className="text-xs font-semibold text-slate-900 mb-2">
-                        効いているプロジェクト（Top3）
-                      </div>
-                      <div className="space-y-1">
-                        {resolution.breakdown.slice(0, 3).map((item, idx) => {
-                          const parts = item.projectId.split('::');
-                          const deptName = parts[0] ?? '';
-                          const projName = parts[1] ?? item.projectId;
-                          const strengthLabel = item.strength === 1 ? '弱' : item.strength === 2 ? '中' : '強';
+                  {/* I-1: Top3 Contributors display - breakdown から動的生成 */}
+                  {(() => {
+                    // breakdown から Top3 を生成（score 降順）
+                    const top3Items = resolution.breakdown
+                      ? [...resolution.breakdown]
+                          .sort((a, b) => b.score - a.score)
+                          .slice(0, 3)
+                      : [];
 
-                          return (
-                            <div key={idx} className="text-xs text-slate-600">
-                              <span className="font-medium">{deptName}</span>
-                              <span>：</span>
-                              <span>{projName}</span>
-                              {/* I-2: Show strength coefficient */}
-                              <span className="text-slate-500 ml-1">
-                                strength {strengthLabel}({item.strengthCoef}) × weight {(item.executionWeight * 100).toFixed(0)}% = {item.score.toFixed(1)}
-                              </span>
-                            </div>
-                          );
-                        })}
+                    // fallback: topProjects があれば使用
+                    const displayItems = top3Items.length > 0 ? top3Items : (resolution.topProjects ?? []);
+
+                    return displayItems.length > 0 ? (
+                      <div className="mt-3 pt-3 border-t border-slate-200">
+                        <div className="text-xs font-semibold text-slate-900 mb-2">
+                          効いているプロジェクト（Top3）
+                        </div>
+                        <div className="space-y-1">
+                          {displayItems.map((item: any, idx: number) => {
+                            // projectId から dept/proj を抽出（:: または : を対応）
+                            let deptName = '';
+                            let projName = '';
+
+                            if (item.projectId) {
+                              const parts = item.projectId.includes('::')
+                                ? item.projectId.split('::')
+                                : item.projectId.split(':');
+                              deptName = parts[0] ?? '';
+                              projName = parts[1] ?? item.projectId;
+                            } else if ((item as any).dept && (item as any).proj) {
+                              deptName = (item as any).dept;
+                              projName = (item as any).proj;
+                            }
+
+                            const strengthLabel =
+                              item.strength === 1 ? '弱' : item.strength === 2 ? '中' : '強';
+                            const score = item.score ?? 0;
+                            const strengthCoef = item.strengthCoef ?? 1;
+                            const weight = item.executionWeight ?? 1;
+
+                            return (
+                              <div key={idx} className="text-xs text-slate-600">
+                                <span className="font-medium">{deptName}</span>
+                                <span>：</span>
+                                <span>{projName}</span>
+                                {/* I-2: Show strength coefficient with current calculation */}
+                                <span className="text-slate-500 ml-1">
+                                  強度 {strengthLabel}({strengthCoef.toFixed(1)}) × 実行度 {(weight * 100).toFixed(0)}% =
+                                  {score.toFixed(2)}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="mt-2 text-xs text-slate-500">
+                          強度係数：弱=0.6 / 中=1.0 / 強=1.3
+                        </div>
                       </div>
-                      <div className="mt-2 text-xs text-slate-500">
-                        弱=0.6 / 中=1.0 / 強=1.3 の係数で計算
-                      </div>
-                    </div>
-                  )}
+                    ) : null;
+                  })()}
                 </div>
               );
             })}
