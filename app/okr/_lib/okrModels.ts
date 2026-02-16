@@ -82,8 +82,11 @@ export type Project = {
   /** 新：構造化KR（財務ブリッジ用） */
   okrsV2?: KRStructuredX[];
 
-  /** プロジェクトの役割（財務・UIのタグ） */
-  role?: ProjectRole;
+  /** ★STAGE4拡張：プロジェクトの財務レバー（REVENUE/COST/FUTURE） */
+  role?: 'REVENUE' | 'COST' | 'FUTURE';
+
+  /** ★STAGE4拡張：ロール詳細サブカテゴリ（役割に応じて制約あり） */
+  roleDetail?: 'ACQ' | 'CHURN' | 'ARPU' | 'PERSONNEL' | 'FIXED' | 'VARIABLE';
 
   /** 戦略メタ（任意） */
   track?: StrategyTrack;
