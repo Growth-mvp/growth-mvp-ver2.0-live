@@ -41,11 +41,16 @@ export function toMillionYen(value: any, hint: MoneyUnitHint = 'unknown'): numbe
 }
 
 /**
- * Provide scale candidates for diagnosis only.
+ * Provide scale candidates and auto-converted value for Phase 1 normalization.
+ *
+ * converted: Automatically normalizes to Million Yen based on magnitude:
+ * - if Math.abs(raw) >= 1e6: treat as Yen → divide by 1e6
+ * - if Math.abs(raw) < 1e6: treat as Million Yen → use as-is
+ *
  * Returns possible interpretations to help decide the correct hint.
- * Never apply automatically.
+ * For Phase 1: Use .converted for chart display (ensures Now/Target align).
  */
-export function inferScaleToMillion(value: any): { raw: number; candidates: Record<string, number> } | null {
+export function inferScaleToMillion(value: any): { raw: number; candidates: Record<string, number>; converted: number } | null {
   const n = safeNumber(value);
   if (n === null) return null;
 
@@ -59,11 +64,17 @@ export function inferScaleToMillion(value: any): { raw: number; candidates: Reco
     asTrillionYen_toMillion: (n * 1_000_000_000_000) / 1_000_000, // raw=兆円 → 百万円
     asRatio_toMillion_ifSales1000M: n * 1000, // raw=比率(例0.015)を「売上1000百万円に対する割合」と仮置き（参考）
   };
+
+  // ★ Phase 1: Auto-convert based on magnitude
+  // if abs(raw) >= 1e6: likely Yen → convert to Million Yen
+  // if abs(raw) < 1e6: likely already Million Yen → use as-is
+  const converted = Math.abs(n) >= 1_000_000 ? n / 1_000_000 : n;
+
   if (DEBUG) {
     // eslint-disable-next-line no-console
-    console.log('[unit][inferScaleToMillion]', { raw: n, candidates });
+    console.log('[unit][inferScaleToMillion]', { raw: n, converted, candidates });
   }
-  return { raw: n, candidates };
+  return { raw: n, converted, candidates };
 }
 
 export function formatMillion(value: number | null | undefined, digits = 0): string {
