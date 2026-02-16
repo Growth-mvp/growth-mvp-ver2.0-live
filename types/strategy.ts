@@ -547,6 +547,12 @@ export type Project = {
   /** 役割ごと束ね（任意） */
   roles?: ProjectRole[];
 
+  /** ★STAGE4拡張：プロジェクトの財務レバー（REVENUE/COST/FUTURE） */
+  role?: 'REVENUE' | 'COST' | 'FUTURE';
+
+  /** ★STAGE4拡張：ロールの詳細サブカテゴリ（詳細設定） */
+  roleDetail?: 'ACQ' | 'CHURN' | 'ARPU' | 'PERSONNEL' | 'FIXED' | 'VARIABLE';
+
   /** ★戦略OKR：進化/探索（プロジェクトの基本トラック） */
   track?: StrategyTrack;
 
