@@ -50,12 +50,14 @@ export function useOkrEditor(args: {
   }, []);
 
   /* ============================================================
-   * Project：role
+   * Project：role（財務レバー：REVENUE/COST/FUTURE）
+   * - role 変更時に roleDetail を undefined にリセット（不整合防止）
+   * - role === 'FUTURE' の場合は常に roleDetail は undefined
    * ========================================================== */
   const updateProjectRole = useCallback(
     (dIdx: number, pIdx: number, role: Project['role'] | '') => {
       const k = `${dIdx}:${pIdx}`;
-      const newRole: Project['role'] | undefined = role === '' ? undefined : role;
+      const newRole: Project['role'] | undefined = role === '' ? undefined : (role as Project['role']);
 
       setRoleShadow((prev) => ({ ...prev, [k]: newRole }));
 
@@ -69,7 +71,8 @@ export function useOkrEditor(args: {
         const projPrev = projs[pIdx];
         if (!projPrev) return prev;
 
-        const proj = { ...projPrev, role: newRole };
+        // role 変更時は常に roleDetail を undefined に（不整合回避）
+        const proj = { ...projPrev, role: newRole, roleDetail: undefined };
         projs[pIdx] = proj;
         dept.projects = projs;
         next[dIdx] = dept;
@@ -77,6 +80,67 @@ export function useOkrEditor(args: {
       });
     },
     [patchDepartments, setRoleShadow],
+  );
+
+  /* ============================================================
+   * Project：roleDetail（ロール詳細サブカテゴリ）
+   * - role に応じた制約を実装
+   *   - REVENUE: ACQ, CHURN, ARPU のみ
+   *   - COST: PERSONNEL, FIXED, VARIABLE のみ
+   *   - FUTURE or 未設定: 常に undefined（no-op）
+   * - 不正値は undefined に矯正（例外throwなし）
+   * ========================================================== */
+  const updateProjectRoleDetail = useCallback(
+    (dIdx: number, pIdx: number, roleDetail: Project['roleDetail'] | '') => {
+      patchDepartments((prev) => {
+        const next = [...prev];
+        const deptPrev = next[dIdx];
+        if (!deptPrev) return prev;
+
+        const dept = { ...deptPrev };
+        const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+        const projPrev = projs[pIdx];
+        if (!projPrev) return prev;
+
+        const proj = { ...projPrev };
+        const currentRole = proj.role;
+
+        // role に応じた roleDetail の検証と矯正
+        let newRoleDetail: Project['roleDetail'] | undefined = undefined;
+
+        if (roleDetail === '') {
+          // クリア：undefined にセット
+          newRoleDetail = undefined;
+        } else if (currentRole === 'REVENUE') {
+          // REVENUE: ACQ, CHURN, ARPU のみ許容
+          if (['ACQ', 'CHURN', 'ARPU'].includes(roleDetail)) {
+            newRoleDetail = roleDetail as Project['roleDetail'];
+          } else {
+            newRoleDetail = undefined;
+          }
+        } else if (currentRole === 'COST') {
+          // COST: PERSONNEL, FIXED, VARIABLE のみ許容
+          if (['PERSONNEL', 'FIXED', 'VARIABLE'].includes(roleDetail)) {
+            newRoleDetail = roleDetail as Project['roleDetail'];
+          } else {
+            newRoleDetail = undefined;
+          }
+        } else if (currentRole === 'FUTURE') {
+          // FUTURE: 常に undefined（roleDetail はセット不可）
+          newRoleDetail = undefined;
+        } else {
+          // role 未設定：roleDetail もセット不可
+          newRoleDetail = undefined;
+        }
+
+        proj.roleDetail = newRoleDetail;
+        projs[pIdx] = proj;
+        dept.projects = projs;
+        next[dIdx] = dept;
+        return next;
+      });
+    },
+    [patchDepartments],
   );
 
   /* ============================================================
@@ -674,6 +738,7 @@ export function useOkrEditor(args: {
     patchDepartments,
 
     updateProjectRole,
+    updateProjectRoleDetail,
     updateProjectOKR,
 
     // 追加：戦略メタ更新
