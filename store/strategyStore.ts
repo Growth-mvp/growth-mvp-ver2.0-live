@@ -1909,14 +1909,36 @@ export const useStrategyStore = create<StrategyState>()(
 
       /* STAGE1 財務データ setter */
       setFinancePL: (rows) => {
+        // ★ TASK-A: financePL を yen に統一（Stage1入力は百万円、保存は yen）
+        const yenRows = Array.isArray(rows)
+          ? rows.map((row: any) => {
+              // 数値が 100万未満なら百万円と判定して yen に変換
+              const revenue = row.revenue ?? 0;
+              const operatingIncome = row.operatingIncome ?? 0;
+
+              const revenueYen = revenue > 0 && revenue < 1_000_000 ? revenue * 1_000_000 : revenue;
+              const opIncomeYen = operatingIncome > 0 && operatingIncome < 1_000_000 ? operatingIncome * 1_000_000 : operatingIncome;
+
+              return {
+                ...row,
+                revenue: revenueYen,
+                operatingIncome: opIncomeYen,
+                // 他の財務指標も同様に変換（cogs, sga, etc）
+                cogs: (row.cogs ?? 0) > 0 && (row.cogs ?? 0) < 1_000_000 ? (row.cogs ?? 0) * 1_000_000 : (row.cogs ?? 0),
+                sga: (row.sga ?? 0) > 0 && (row.sga ?? 0) < 1_000_000 ? (row.sga ?? 0) * 1_000_000 : (row.sga ?? 0),
+                grossProfit: (row.grossProfit ?? 0) > 0 && (row.grossProfit ?? 0) < 1_000_000 ? (row.grossProfit ?? 0) * 1_000_000 : (row.grossProfit ?? 0),
+              };
+            })
+          : rows;
+
         // ★ DEBUG：入力ログ（弾き判定用）
         console.log('[strategyStore] setFinancePL input', {
           len: Array.isArray(rows) ? rows.length : 'not-array',
           sample: Array.isArray(rows) && rows.length > 0 ? rows[0] : null,
-          allYears: Array.isArray(rows) ? rows.map((r: any) => ({ year: r.year, yearType: typeof r.year })) : null,
+          sample_after_conversion: Array.isArray(yenRows) && yenRows.length > 0 ? yenRows[0] : null,
         });
 
-        set((s) => ({ ...s, financePL: rows, dirty: true }));
+        set((s) => ({ ...s, financePL: yenRows, dirty: true }));
 
         // ★ DEBUG：set直後の確認
         setTimeout(() => {
