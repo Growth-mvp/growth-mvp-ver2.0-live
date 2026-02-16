@@ -12,17 +12,22 @@
 
 import type { ProjectTargetImpact, ProjectIssueLink, CompanyTarget } from '@/types/strategy';
 import type { NorthStarRow, IssueResolution } from './types';
-import { normalizeValueToUnit } from './compute';
+import { normalizeValueToUnit, canonicalizeUnit } from './compute';
 
 /**
- * Phase E v1: Forecast 計算
+ * Phase E v1: Forecast 計算（★単位正規化対応）
  *
  * forecast = baseline + Σ(delta * executionWeight * contribution)
  *
  * - baseline: v1では0（future拡張で過去実績ベースライン等を追加可能）
- * - delta: projectTargetImpacts.delta（手入力）
+ * - delta: projectTargetImpacts.delta（手入力、target.unit で表現される想定）
  * - executionWeight: STAGE5ログから算出（既存）
  * - contribution: future拡張用（v1では1.0固定）
+ *
+ * ★重要: forecast と targetBase は同じ単位（target.unit）で計算される前提
+ * - delta は既に target.unit で入力されている（UI から）
+ * - targetBase も target.unit で保存されている
+ * - 達成率計算時は両者が同じ単位で比較可能
  */
 export function calculateForecastWithImpacts(args: {
   targetId: string;
@@ -32,44 +37,79 @@ export function calculateForecastWithImpacts(args: {
   executionWeights: Map<string, { weight: number }>;
   contributions?: Map<string, number>; // future拡張用
 }): {
-  forecast: number;
-  gap: number;
+  forecast: number;  // ★yen単位
+  gap: number;       // ★yen単位
+  achievementRate: number | undefined; // ★yen単位で計算
   breakdown: Array<{
     projectId: string;
-    delta: number;
+    delta: number;           // targetUnit
     executionWeight: number;
     contribution: number;
-    effectiveDelta: number;
+    effectiveDelta: number;  // targetUnit
+    effectiveDeltaYen: number; // ★yen単位
   }>;
 } {
-  const { targetId, targetBase, projectTargetImpacts, executionWeights, contributions } = args;
+  const { targetId, targetBase, targetUnit, projectTargetImpacts, executionWeights, contributions } = args;
+
+  // ★ TASK-3 + Phase E 修正: targetUnit を先に正規化
+  const normalizedUnit = canonicalizeUnit(targetUnit);
+  if (!normalizedUnit) {
+    console.warn('[TASK-3][phaseE] Unknown unit in calculateForecast', {
+      targetId,
+      rawUnit: targetUnit,
+    });
+  }
+  const unitForCalc = normalizedUnit || targetUnit;
+
+  // ★Phase E 修正: yen 統一で計算（達成率異常値対策の根本解決）
+  // Step 1: targetBase を yen に正規化
+  const baseYen = normalizeValueToUnit(targetBase, unitForCalc, 'yen') ?? targetBase;
 
   // baseline: v1では0
-  const baseline = 0;
+  const baselineYen = 0;
 
   // 該当 target への影響を集計
   const impacts = projectTargetImpacts.filter((imp) => imp.targetId === targetId);
 
   const breakdown = impacts.map((imp) => {
-    const delta = imp.delta ?? 0;
+    // Step 2: 各 delta を targetUnit から yen へ正規化
+    // ★ TASK-3: deltaFromUnit も正規化
+    const deltaFromUnit = canonicalizeUnit((imp as any).unit ?? unitForCalc);
+    const deltaYen = normalizeValueToUnit(imp.delta ?? 0, deltaFromUnit || unitForCalc, 'yen') ?? (imp.delta ?? 0);
+
+    // Step 3: yen ベースで effectiveDelta を計算
     const executionWeight = executionWeights.get(imp.projectId)?.weight ?? 1.0;
     const contribution = contributions?.get(imp.projectId) ?? 1.0;
-    const effectiveDelta = delta * executionWeight * contribution;
+    const effectiveDeltaYen = deltaYen * executionWeight * contribution;
+
+    // Step 4: 表示用に unitForCalc に戻す（target.unit ベースで表示）
+    const deltaDisplay = imp.delta ?? 0;
+    const effectiveDeltaDisplay = normalizeValueToUnit(effectiveDeltaYen, 'yen', unitForCalc) ?? effectiveDeltaYen;
 
     return {
       projectId: imp.projectId,
-      delta,
+      delta: deltaDisplay,           // ユーザー入力値（targetUnit）
       executionWeight,
       contribution,
-      effectiveDelta,
+      effectiveDelta: effectiveDeltaDisplay,  // 表示用（targetUnit）
+      effectiveDeltaYen,             // 計算用（yen）
     };
   });
 
-  const totalDelta = breakdown.reduce((sum, b) => sum + b.effectiveDelta, 0);
-  const forecast = baseline + totalDelta;
-  const gap = forecast - targetBase;
+  // Step 5: yen ベースで forecast を計算
+  const totalDeltaYen = breakdown.reduce((sum, b) => sum + b.effectiveDeltaYen, 0);
+  const forecastYen = baselineYen + totalDeltaYen;
+  const gapYen = forecastYen - baseYen;
 
-  return { forecast, gap, breakdown };
+  // Step 6: yen ベースで achievementRate を計算（これが重要！）
+  const achievementRate = baseYen > 0 ? (forecastYen / baseYen) * 100 : undefined;
+
+  return {
+    forecast: forecastYen,  // yen単位
+    gap: gapYen,            // yen単位
+    achievementRate,
+    breakdown,
+  };
 }
 
 /**
@@ -158,6 +198,8 @@ export function calculateIssueResolutionWithLinks(args: {
  * North Star Rows を Phase E ロジックで再計算
  *
  * H-1: breakdown を NorthStarRow に含める
+ * ★重要: forecast と targetBase が同じ単位（target.unit）で計算される前提
+ *      projectTargetImpacts.delta は target.unit で入力されている想定
  */
 export function buildNorthStarRowsPhaseE(args: {
   companyTargets: CompanyTarget[];
@@ -168,7 +210,7 @@ export function buildNorthStarRowsPhaseE(args: {
   const { companyTargets, projectTargetImpacts, executionWeights, contributions } = args;
 
   return companyTargets.map((target) => {
-    const { forecast, gap, breakdown } = calculateForecastWithImpacts({
+    const { forecast: forecastYen, gap: gapYen, achievementRate, breakdown } = calculateForecastWithImpacts({
       targetId: target.id,
       targetBase: target.base,
       targetUnit: target.unit,
@@ -177,7 +219,25 @@ export function buildNorthStarRowsPhaseE(args: {
       contributions,
     });
 
-    const achievementRate = target.base > 0 ? (forecast / target.base) * 100 : undefined;
+    // ★Phase E 修正: yen から target.unit に変換（表示用）
+    const forecastDisplay = normalizeValueToUnit(forecastYen, 'yen', target.unit) ?? forecastYen;
+    const gapDisplay = normalizeValueToUnit(gapYen, 'yen', target.unit) ?? gapYen;
+
+    // ★Debug: 単位確認＆計算検証
+    if (process.env.NODE_ENV === 'development' && !!process.env.NEXT_PUBLIC_DEBUG_STAGE6) {
+      const canonUnit = canonicalizeUnit(target.unit);
+      console.log(`[Phase E 最終検証] ${target.label}:`, {
+        rawUnit: target.unit,
+        canonUnit,
+        baseRaw: target.base,
+        baseYen: normalizeValueToUnit(target.base, target.unit, 'yen'),
+        forecastYen,
+        forecastDisplay,
+        gapYen,
+        gapDisplay,
+        achievementRate: achievementRate?.toFixed(2) + '%',
+      });
+    }
 
     // Top 3 contributors
     const sortedByDelta = breakdown.sort(
@@ -186,10 +246,14 @@ export function buildNorthStarRowsPhaseE(args: {
 
     const topProjects = sortedByDelta.slice(0, 3).map((b) => {
       // projectId から dept/proj を抽出（key形式: dept::proj::idx）
-      const parts = b.projectId.split('::');
+      const parts = b.projectId.includes('::') ? b.projectId.split('::') : b.projectId.split(':');
       return {
+        projectId: b.projectId,
         proj: parts[1] ?? b.projectId,
         dept: parts[0] ?? '',
+        delta: b.delta,
+        executionWeight: b.executionWeight,
+        effectiveDelta: b.effectiveDelta,
         contribution: b.effectiveDelta,
       };
     });
@@ -202,9 +266,9 @@ export function buildNorthStarRowsPhaseE(args: {
       low: target.low,
       base: target.base,
       high: target.high,
-      forecastValue: forecast,
-      achievementRate,
-      gap,
+      forecastValue: forecastDisplay,  // ★target.unit で表示
+      achievementRate,                 // ★yen ベースで計算（内部用）
+      gap: gapDisplay,                 // ★target.unit で表示
       topProjects: topProjects.length > 0 ? topProjects : undefined,
       // H-1: Add breakdown for detailed display
       breakdown: sortedByDelta.length > 0 ? sortedByDelta : undefined,
@@ -267,6 +331,23 @@ export function buildIssueResolutionsPhaseE(args: {
       .sort((a, b) => b.score - a.score)
       .slice(0, 3);
 
+    // I-1: topProjects を生成（Tab2 と同形式）
+    const topProjects = topBreakdown.map((b) => {
+      // projectId から dept/proj を抽出（key形式: dept::proj::idx または dept:proj:idx）
+      const parts = b.projectId.includes('::') ? b.projectId.split('::') : b.projectId.split(':');
+      return {
+        projectId: b.projectId,
+        dept: parts[0] ?? '',
+        proj: parts[1] ?? b.projectId,
+        title: `${parts[0] ?? ''}::${parts[1] ?? b.projectId}`,
+        strength: b.strength,
+        strengthCoef: b.strengthCoef,
+        executionWeight: b.executionWeight,
+        score: b.score,
+        contribution: b.score,
+      };
+    });
+
     return {
       issueTitle: issue.title,
       issueDescription: issue.description ?? '',
@@ -276,6 +357,8 @@ export function buildIssueResolutionsPhaseE(args: {
       resolutionStatus,
       // I-1: Add breakdown for Top3 display
       breakdown: topBreakdown.length > 0 ? topBreakdown : undefined,
+      // I-1: Add topProjects for UI consistency
+      topProjects: topProjects.length > 0 ? topProjects : undefined,
     };
   });
 }
