@@ -14,6 +14,7 @@ import {
 import type { NorthStarRow } from '@/utils/stage6';
 import type { ProjectTargetImpact } from '@/types/strategy';
 import { fmtJPY, compactJPY } from '@/utils/stage6';
+import { canonicalizeUnit } from '@/utils/stage6/compute';
 
 interface TabNorthStarProps {
   northStarRows: NorthStarRow[];
@@ -22,6 +23,23 @@ interface TabNorthStarProps {
   allProjectKeys?: string[];
   onUpdateImpact?: (projectId: string, targetId: string, delta: number, notes?: string) => void;
   onRemoveImpact?: (projectId: string, targetId: string) => void;
+}
+
+/**
+ * ★ formatByUnit: unit に応じて ¥ の付け外しを制御
+ * - unit が百万円/million_yen のときは ¥ を付けない（数値だけ）
+ * - unit が yen のときは ¥ を付ける
+ */
+function formatByUnit(value: number | null | undefined, unit: string): string {
+  if (value == null || Number.isNaN(value)) return '—';
+
+  const u = canonicalizeUnit(unit);
+  if (u === 'million_yen') {
+    // ¥ は付けない。数値だけ
+    return value.toLocaleString('ja-JP', { maximumFractionDigits: 0 });
+  }
+  // yen のときだけ ¥ を付ける
+  return '¥' + value.toLocaleString('ja-JP', { maximumFractionDigits: 0 });
 }
 
 export function TabNorthStar({
@@ -189,24 +207,24 @@ export function TabNorthStar({
                       <td className="px-3 py-2 text-right text-slate-700">{row.dueYear ?? '-'}</td>
                       <td className="px-3 py-2 text-right text-slate-700">
                         {row.low !== undefined ? (
-                          row.unit.includes('%') ? `${row.low.toFixed(1)}%` : fmtJPY(row.low)
+                          row.unit.includes('%') ? `${row.low.toFixed(1)}%` : formatByUnit(row.low, row.unit)
                         ) : (
                           '-'
                         )}
                       </td>
                       <td className="px-3 py-2 text-right font-semibold text-slate-900">
-                        {row.unit.includes('%') ? `${row.base.toFixed(1)}%` : fmtJPY(row.base)}
+                        {row.unit.includes('%') ? `${row.base.toFixed(1)}%` : formatByUnit(row.base, row.unit)}
                       </td>
                       <td className="px-3 py-2 text-right text-slate-700">
                         {row.high !== undefined ? (
-                          row.unit.includes('%') ? `${row.high.toFixed(1)}%` : fmtJPY(row.high)
+                          row.unit.includes('%') ? `${row.high.toFixed(1)}%` : formatByUnit(row.high, row.unit)
                         ) : (
                           '-'
                         )}
                       </td>
                       <td className="px-3 py-2 text-right text-slate-700">
                         {row.forecastValue !== undefined ? (
-                          row.unit.includes('%') ? `${row.forecastValue.toFixed(1)}%` : fmtJPY(row.forecastValue)
+                          row.unit.includes('%') ? `${row.forecastValue.toFixed(1)}%` : formatByUnit(row.forecastValue, row.unit)
                         ) : (
                           '-'
                         )}
@@ -222,26 +240,48 @@ export function TabNorthStar({
                       </td>
                       <td className="px-3 py-2 text-right text-slate-700">
                         {gap !== undefined ? (
-                          row.unit.includes('%') ? `${gap.toFixed(1)}%` : fmtJPY(gap)
+                          row.unit.includes('%') ? `${gap.toFixed(1)}%` : formatByUnit(gap, row.unit)
                         ) : (
                           '-'
                         )}
                       </td>
                       <td className="px-3 py-2 text-left text-xs max-w-xs">
-                        {row.topProjects && row.topProjects.length > 0 ? (
-                          <div className="space-y-1">
-                            {row.topProjects.map((proj: any, idx: number) => (
-                              <div key={idx} className="text-slate-600">
-                                <span className="font-medium">{proj.dept}</span>
-                                {' / '}
-                                <span>{proj.proj}</span>
-                                <span className="text-slate-500">: {fmtJPY(proj.contribution)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          '-'
-                        )}
+                        {(() => {
+                          // H-1: breakdown から動的に Top3 を生成（最新の計算結果を常に反映）
+                          const top3 = row.breakdown
+                            ? [...row.breakdown]
+                                .sort((a, b) => Math.abs(b.effectiveDelta) - Math.abs(a.effectiveDelta))
+                                .slice(0, 3)
+                            : [];
+
+                          // fallback: topProjects があれば使用
+                          const displayProjects = top3.length > 0 ? top3 : (row.topProjects ?? []);
+
+                          return displayProjects.length > 0 ? (
+                            <div className="space-y-1">
+                              {displayProjects.map((proj: any, idx: number) => {
+                                // breakdown item から dept/proj を抽出
+                                const parts = proj.projectId?.includes('::')
+                                  ? proj.projectId.split('::')
+                                  : proj.projectId?.split(':') ?? [proj.dept, proj.proj];
+                                const dept = parts[0] ?? proj.dept ?? '';
+                                const projName = parts[1] ?? proj.proj ?? proj.projectId ?? '';
+                                const value = proj.effectiveDelta ?? proj.contribution ?? 0;
+
+                                return (
+                                  <div key={idx} className="text-slate-600">
+                                    <span className="font-medium">{dept}</span>
+                                    {' / '}
+                                    <span>{projName}</span>
+                                    <span className="text-slate-500">: {formatByUnit(value, row.unit)}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            '-'
+                          );
+                        })()}
                       </td>
                       <td className="px-3 py-2 text-left">
                         <button
