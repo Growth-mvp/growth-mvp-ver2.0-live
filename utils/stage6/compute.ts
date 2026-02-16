@@ -99,48 +99,104 @@ export function extractMetricFromYearlyPL(
 }
 
 /**
- * E-1: Unit normalization utility
- *
- * yearlyPL から取得した値（通常は 円 単位）を、target.unit に揃える
- *
- * サポートする unit:
- * - "百万円" / "MJPY" → 値 / 1_000_000
- * - "千円" / "KJPY" → 値 / 1_000
- * - "円" / "JPY" / "¥" → そのまま
- * - "%" → そのまま（率は既に%の前提）
- * - その他 → そのまま
+ * ★Phase E 修正: Unit canonicalization
+ * unit 文字列を統一形式に正規化（百万円 → million_yen など）
  */
-export function normalizeValueToUnit(
-  valueInYen: number | undefined,
-  targetUnit: string | undefined
-): number | undefined {
-  if (valueInYen === undefined) return undefined;
-  if (!targetUnit) return valueInYen;
+export function canonicalizeUnit(unit: unknown): string | undefined {
+  if (!unit) return undefined;
 
-  const unit = String(targetUnit).trim().toLowerCase();
+  const u = String(unit).trim().toLowerCase();
 
   // 百万円系
-  if (unit.includes('百万') || unit === 'mjpy') {
-    return valueInYen / 1_000_000;
+  if (u.includes('百万') || u === 'mjpy' || u === 'million_yen') {
+    return 'million_yen';
   }
 
   // 千円系
-  if (unit.includes('千') || unit === 'kjpy') {
-    return valueInYen / 1_000;
+  if (u.includes('千') || u === 'kjpy' || u === 'thousand_yen') {
+    return 'thousand_yen';
   }
 
-  // 円系（そのまま）
-  if (unit === '円' || unit === 'jpy' || unit === '¥') {
-    return valueInYen;
+  // 円系
+  if (u === '円' || u === 'jpy' || u === '¥' || u === 'yen') {
+    return 'yen';
   }
 
-  // パーセント系（そのまま）
-  if (unit === '%') {
-    return valueInYen;
+  // パーセント系
+  if (u === '%' || u === 'percent') {
+    return 'percent';
   }
 
-  // デフォルト：そのまま
-  return valueInYen;
+  // その他はそのまま
+  return u;
+}
+
+/**
+ * E-1: Unit normalization utility（★拡張版）
+ *
+ * fromUnit から toUnit への値変換
+ * 内部計算用途：yen 統一で計算 → 表示は target.unit に変換
+ *
+ * サポート：
+ * - "百万円" / "MJPY" ← → "千円" / "KJPY" ← → "円" / "JPY" / "¥"
+ * - "%" は変換しない
+ */
+export function normalizeValueToUnit(
+  value: number | undefined,
+  fromUnit: string | undefined,
+  toUnit?: string | undefined
+): number | undefined {
+  if (value === undefined) return undefined;
+
+  // 引数が2個の場合（後方互換）：fromUnit は toUnit、デフォルト fromUnit="yen"
+  if (toUnit === undefined) {
+    // normalizeValueToUnit(valueInYen, targetUnit) → yen から targetUnit へ
+    const canonTo = canonicalizeUnit(fromUnit);
+    if (!canonTo) return value;
+
+    // money 換算
+    if (canonTo === 'million_yen') {
+      return value / 1_000_000;
+    }
+    if (canonTo === 'thousand_yen') {
+      return value / 1_000;
+    }
+    if (canonTo === 'yen' || canonTo === 'percent') {
+      return value;
+    }
+
+    return value;
+  }
+
+  // 引数が3個の場合：fromUnit から toUnit へ
+  const canonFrom = canonicalizeUnit(fromUnit);
+  const canonTo = canonicalizeUnit(toUnit);
+
+  if (!canonFrom || !canonTo) return value;
+  if (canonFrom === canonTo) return value; // 同じ単位ならそのまま
+
+  // money 換算（yen を中間値として経由）
+  // fromUnit -> yen
+  let valueYen = value;
+  if (canonFrom === 'million_yen') {
+    valueYen = value * 1_000_000;
+  } else if (canonFrom === 'thousand_yen') {
+    valueYen = value * 1_000;
+  }
+  // yen のまま（canonFrom === 'yen'）
+
+  // yen -> toUnit
+  if (canonTo === 'million_yen') {
+    return valueYen / 1_000_000;
+  }
+  if (canonTo === 'thousand_yen') {
+    return valueYen / 1_000;
+  }
+  if (canonTo === 'yen' || canonTo === 'percent') {
+    return valueYen;
+  }
+
+  return value;
 }
 
 /**
@@ -271,7 +327,22 @@ export function buildNorthStarRows(args: {
   forecastValue?: number;
   gap?: number;
   achievementRate?: number;
-  topProjects?: Array<{ proj: string; dept: string; contribution: number }>;
+  breakdown?: Array<{
+    projectId: string;
+    delta: number;
+    executionWeight: number;
+    contribution: number;
+    effectiveDelta: number;
+  }>;
+  topProjects?: Array<{
+    projectId: string;
+    proj: string;
+    dept: string;
+    delta: number;
+    executionWeight: number;
+    effectiveDelta: number;
+    contribution: number;
+  }>;
 }> {
   const { companyTargets, yearlyAll, scenarioKey, projectContrib } = args;
 
@@ -280,20 +351,44 @@ export function buildNorthStarRows(args: {
   const forecastYearly = yearlyAll?.[scenarioKey] ?? [];
 
   return companyTargets.map((target) => {
+    // ★ TASK-3: unit を先に正規化（百万円 → million_yen など）
+    const normalizedUnit = canonicalizeUnit(target.unit);
+    if (!normalizedUnit || normalizedUnit === '') {
+      console.warn('[TASK-3] Unknown unit in companyTarget', {
+        targetLabel: target.label,
+        rawUnit: target.unit,
+      });
+      // fallback なし（処理を止める）
+      return {
+        targetId: target.id,
+        label: target.label,
+        unit: target.unit,
+        dueYear: target.dueYear,
+        base: target.base,
+        forecastValue: undefined,
+        gap: undefined,
+        achievementRate: undefined,
+      };
+    }
+
     // 1. yearlyPL から取得（通常は円単位）
     const rawForecast = extractMetricFromYearlyPL(forecastYearly, target.label, target.dueYear);
 
-    // 2. target.unit に正規化（重要！）
-    const normalizedForecast = normalizeValueToUnit(rawForecast, target.unit);
+    // 2. ★Phase E 修正: yen 統一で計算（単位混在対策の根本解決）
+    // rawForecast は yen 単位、rawBase を yen に正規化（normalizedUnit を使用）
+    const baseYen = normalizeValueToUnit(target.base, normalizedUnit, 'yen') ?? target.base;
 
-    // 3. 正規化後の値で達成率・ギャップを計算
-    const achievement = calculateAchievementRate(normalizedForecast, target.base);
-    const gap =
-      normalizedForecast !== undefined && target.base
-        ? normalizedForecast - target.base
-        : undefined;
+    // achievementRate は yen ベースで計算（★重要）
+    const achievement = baseYen > 0 && rawForecast !== undefined ? (rawForecast / baseYen) * 100 : undefined;
+    const gapYen = rawForecast !== undefined && baseYen ? rawForecast - baseYen : undefined;
 
-    const topProjects = getTopContributingProjects(target.label, projectContrib, 3);
+    // 3. 表示用に normalizedUnit に変換（保存されたunitを尊重）
+    const forecastDisplay = normalizeValueToUnit(rawForecast, 'yen', normalizedUnit);
+    const gapDisplay = gapYen !== undefined ? normalizeValueToUnit(gapYen, 'yen', normalizedUnit) : undefined;
+
+    // Note: breakdown は Phase E (phaseE.ts) で詳細に計算されるため、
+    // ここでは topProjects 情報がある場合のみ簡易形式を返す
+    const topContributors = getTopContributingProjects(target.label, projectContrib, 3);
 
     return {
       targetId: target.id,
@@ -303,10 +398,21 @@ export function buildNorthStarRows(args: {
       low: target.low,
       base: target.base,
       high: target.high,
-      forecastValue: normalizedForecast,
-      gap,
-      achievementRate: achievement,
-      topProjects: topProjects.length > 0 ? topProjects : undefined,
+      forecastValue: forecastDisplay,  // ★target.unit で表示
+      gap: gapDisplay,                 // ★target.unit で表示
+      achievementRate: achievement,    // ★yen ベースで計算
+      // topProjects のみ返す（breakdown は Phase E で詳細に計算）
+      topProjects: topContributors.length > 0
+        ? topContributors.map((proj: any) => ({
+            projectId: proj.key || '',
+            proj: proj.proj,
+            dept: proj.dept,
+            delta: 0, // 未計算
+            executionWeight: 1,
+            effectiveDelta: proj.contribution ?? 0,
+            contribution: proj.contribution ?? 0,
+          }))
+        : undefined,
     };
   });
 }
