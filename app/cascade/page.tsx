@@ -36,7 +36,7 @@ import { useAutoSave } from '@/hooks/useAutoSave';
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
 import { getStage2ValueDriverKPIs, getStage2TargetRanges, getStage2WinPatterns } from '@/utils/stage2Selectors';
-import { formatMillion, safeRatio, formatPct } from '@/utils/unit';
+import { formatMillion, safeRatio, formatPct, inferScaleToMillion } from '@/utils/unit';
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 
 import type {
@@ -414,16 +414,26 @@ function computeKpiBridgeDataLocal({
     }
   }
 
+  // ★ Phase 1: Normalize Now/Target values using inferScaleToMillion
+  const chartRevenueNow = inferScaleToMillion(currentRevenue)?.converted ?? currentRevenue;
+  const chartOpNow = inferScaleToMillion(currentOpProfit)?.converted ?? currentOpProfit;
+  const chartRevenueTarget = inferScaleToMillion(targetRevenue)?.converted ?? targetRevenue;
+  const chartOpTarget = inferScaleToMillion(targetOpProfit)?.converted ?? targetOpProfit;
+
   console.log('[computeKpiBridgeDataLocal]', {
     currentRevenue,
     currentOpProfit,
     targetRevenue,
     targetOpProfit,
+    chartRevenueNow,
+    chartOpNow,
+    chartRevenueTarget,
+    chartOpTarget,
   });
 
   return {
-    revenue: { current: currentRevenue, target: targetRevenue },
-    operatingProfit: { current: currentOpProfit, target: targetOpProfit },
+    revenue: { current: chartRevenueNow, target: chartRevenueTarget },
+    operatingProfit: { current: chartOpNow, target: chartOpTarget },
   };
 }
 
