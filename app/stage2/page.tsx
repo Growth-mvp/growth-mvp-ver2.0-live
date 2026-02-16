@@ -1529,7 +1529,7 @@ export default function Stage2Page() {
 
   // ★ TASK A: 現状→目標 KPI ブリッジデータを計算（安全な単位推定＆多段フォールバック）
   const kpiBridgeData = useMemo(() => {
-    const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
+    const DEBUG = true; // Phase 0: Force debug to detect unit mixing
 
     if (DEBUG) {
       // Step 1: ソースの生データを出力（診断用）
@@ -1591,6 +1591,8 @@ export default function Stage2Page() {
     let currentOperatingProfit: number | null = null;
     let revenueSource = '';
     let opSource = '';
+    let revenueRaw: number | null = null;  // 元データ（変換前）
+    let opIncomeRaw: number | null = null; // 元データ（変換前）
 
     // 1) metricsSummary（STAGE1 最新の指標）
     if (metricsSummary && typeof metricsSummary === 'object') {
@@ -1602,15 +1604,15 @@ export default function Stage2Page() {
       const op = safeNumber(opVal);
 
       if (rev !== null) {
+        revenueRaw = rev;
         currentRevenue = toMillionYen(rev, 'unknown');
         revenueSource = 'metricsSummary';
-        if (DEBUG) console.log('[KPI] metricsSummary revenue:', { raw: rev, converted: currentRevenue, scale: inferScaleToMillion(rev) });
       }
 
       if (op !== null) {
+        opIncomeRaw = op;
         currentOperatingProfit = toMillionYen(op, 'unknown');
         opSource = 'metricsSummary';
-        if (DEBUG) console.log('[KPI] metricsSummary op:', { raw: op, converted: currentOperatingProfit, scale: inferScaleToMillion(op) });
       }
     }
 
@@ -1620,9 +1622,9 @@ export default function Stage2Page() {
       const revVal = latest.revenue;
       const rev = safeNumber(revVal);
       if (rev !== null) {
+        revenueRaw = rev;
         currentRevenue = toMillionYen(rev, 'unknown');
         revenueSource = 'financeSummary';
-        if (DEBUG) console.log('[KPI] financeSummary revenue:', { raw: rev, converted: currentRevenue, scale: inferScaleToMillion(rev) });
       }
     }
 
@@ -1634,9 +1636,9 @@ export default function Stage2Page() {
         const revVal = latestRow.revenue ?? (latestRow as any).sales;
         const rev = safeNumber(revVal);
         if (rev !== null) {
+          revenueRaw = rev;
           currentRevenue = toMillionYen(rev, 'unknown');
           revenueSource = 'financePL';
-          if (DEBUG) console.log('[KPI] financePL revenue:', { raw: rev, converted: currentRevenue, scale: inferScaleToMillion(rev) });
         }
       }
 
@@ -1644,12 +1646,20 @@ export default function Stage2Page() {
         const opVal = latestRow.operatingIncome ?? (latestRow as any).op ?? (latestRow as any).営業利益;
         const op = safeNumber(opVal);
         if (op !== null) {
+          opIncomeRaw = op;
           currentOperatingProfit = toMillionYen(op, 'unknown');
           opSource = 'financePL';
-          if (DEBUG) console.log('[KPI] financePL op:', { raw: op, converted: currentOperatingProfit, scale: inferScaleToMillion(op) });
         }
       }
     }
+
+    // ★ Phase 1: Normalize Now values (from financePL) using inferScaleToMillion
+    const nowRevM = inferScaleToMillion(revenueRaw);
+    const nowOpM = inferScaleToMillion(opIncomeRaw);
+
+    // グラフに渡す "Now" は converted を使う（unitLabel=百万円に合わせる）
+    const chartRevenueNow = nowRevM?.converted ?? currentRevenue;
+    const chartOpNow = nowOpM?.converted ?? currentOperatingProfit;
 
     // ★ 目標：companyTargets から label マッチで抽出（キーゆれ吸収: value/amount/target/high/base/low）
     let targetRevenue: number | null = null;
@@ -1690,30 +1700,33 @@ export default function Stage2Page() {
     }
 
     if (DEBUG) {
-      console.log('[diag][kpi][computed]', {
-        currentRevenue,
-        currentOperatingProfit,
-        revenueSource,
-        opSource,
-        targetRevenue,
-        targetOperatingProfit,
-        targetRevenueLabel,
-        targetOpLabel,
-        currentRevenue_isZero: currentRevenue === 0,
-        currentOperatingProfit_isZero: currentOperatingProfit === 0,
-        targetRevenue_isZero: targetRevenue === 0,
-        targetOperatingProfit_isZero: targetOperatingProfit === 0,
-      });
+      // Phase 0: Unit audit logs in specified format
+      console.log(
+        '[stage2][unit-audit] revenueRaw=' + revenueRaw + ' opIncomeRaw=' + opIncomeRaw + ' source=' + revenueSource + '/' + opSource
+      );
+      console.log(
+        '[stage2][unit-audit] chartRevenueNow=' + chartRevenueNow + ' chartRevenueTarget=' + targetRevenue + ' (unitLabel=百万円)'
+      );
+      console.log(
+        '[stage2][unit-audit] chartOpNow=' + chartOpNow + ' chartOpTarget=' + targetOperatingProfit + ' (unitLabel=百万円)'
+      );
+      console.log(
+        '[stage2][unit-audit] absRevenueRaw=' + (revenueRaw !== null ? Math.abs(revenueRaw) : 'null') +
+          ' absOpIncomeRaw=' + (opIncomeRaw !== null ? Math.abs(opIncomeRaw) : 'null')
+      );
+      console.log(
+        '[stage2][unit-audit] typeOfRevenueRaw=' + typeof revenueRaw + ' typeOfOpIncomeRaw=' + typeof opIncomeRaw
+      );
     }
 
-    // ★ TASK A-1: 表示用に百万円フォーマット（ここは既にtoMillionYenで単位統一済み）
+    // ★ TASK A-1: 表示用に百万円フォーマット（Now は Phase1で inferScaleToMillion 済み）
     return {
       revenue: {
-        current: currentRevenue,
+        current: chartRevenueNow,
         target: targetRevenue,
       },
       operatingProfit: {
-        current: currentOperatingProfit,
+        current: chartOpNow,
         target: targetOperatingProfit,
       },
     };
