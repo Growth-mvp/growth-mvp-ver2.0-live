@@ -240,6 +240,13 @@ const ROLE_OPTIONS: Array<{ value: ProjectRole; label: string }> = [
   { value: 'global', label: 'ロール：全社連携（シナジー）' },
 ];
 
+// ★STAGE4拡張：新しい role フィールド（財務レバー）用オプション
+const FINANCIAL_ROLE_OPTIONS: Array<{ value: Project['role']; label: string }> = [
+  { value: 'REVENUE', label: '売上' },
+  { value: 'COST', label: 'コスト' },
+  { value: 'FUTURE', label: '将来投資' },
+];
+
 // 戦略OKR：track / metricRole / validation は okrModels の拡張を前提。
 // ここでは page.tsx 側を「壊れにくい」実装にするため、UIは文字列で扱い any キャストで保存します。
 type StrategyTrackUI = 'EVOLVE' | 'EXPLORE';
@@ -436,6 +443,11 @@ export default function OKRPage() {
    * ========================================================== */
   const [krDetailOpen, setKrDetailOpen] = useState<Record<string, boolean>>({});
   const [helpMode, setHelpMode] = useState<boolean>(false);
+  const [showRoleDetail, setShowRoleDetail] = useState<boolean>(false);
+
+  /* STAGE4: 投資・スキルフォームの初期非表示状態管理 */
+  const [showInvestmentForm, setShowInvestmentForm] = useState<boolean>(false);
+  const [showSkillForm, setShowSkillForm] = useState<boolean>(false);
 
   /* STAGE4: planStatus, skillPlans/humanInvestments CRUD UI */
   const [addingSkillPlan, setAddingSkillPlan] = useState<{ deptIdx: number; projIdx: number } | null>(null);
@@ -659,6 +671,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
   const {
     patchDepartments,
     updateProjectRole,
+    updateProjectRoleDetail,
     updateProjectOKR,
     setActiveVariant,
     createVariantFromCommitted,
@@ -848,6 +861,27 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
     if (finalPatched !== departments) patchDepartments(() => finalPatched);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [departments?.length]);
+
+  /* ============================================================
+   * プロジェクト切替時：ロール詳細パネルの表示/非表示を自動設定
+   * - selectedProj?.roleDetail が存在するなら詳細を開く
+   * - role === 'FUTURE' or role未設定なら強制的に閉じる
+   * ========================================================== */
+  useEffect(() => {
+    if (!selectedProj) {
+      setShowRoleDetail(false);
+      return;
+    }
+
+    // FUTURE または role 未設定の場合は強制的に閉じる
+    if (!selectedProj.role || selectedProj.role === 'FUTURE') {
+      setShowRoleDetail(false);
+      return;
+    }
+
+    // roleDetail が存在するなら開く、そうでなければ閉じる
+    setShowRoleDetail(!!selectedProj.roleDetail);
+  }, [selected?.deptIdx, selected?.projIdx]);
 
   /* -------- 初回自動：カスケードOKR → 構造化KR へ一括変換（committedのみ） -------- */
   useEffect(() => {
@@ -1101,8 +1135,8 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
 
   const getRoleLabel = (role?: Project['role'] | null) => {
     if (!role) return 'ロール未設定';
-    const found = ROLE_OPTIONS.find((r) => r.value === role);
-    return found ? found.label.replace(/^ロール：/, '') : 'ロール未設定';
+    const found = FINANCIAL_ROLE_OPTIONS.find((r) => r.value === role);
+    return found ? found.label : 'ロール未設定';
   };
 
   const kindLabel = (k: KRKind) => {
@@ -1150,9 +1184,6 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
   const canEditKr = !(editingMode === 'variant' && !activeVariant) && !isApproved();
 
   /* ============================================================
-   * renderSimpleForm: 3カード統一フォーマット
-   * ========================================================== */
-/* ============================================================
    * renderSimpleRight: 右ペイン新UI（3カード＋完了チェック）- section内容のみ
    * ========================================================== */
   const renderSimpleRight = () => {
@@ -1201,6 +1232,91 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
                 onChange={(e) => updateProjectOKR(selected.deptIdx, selected.projIdx, { objective: e.target.value })}
                 disabled={isHydrating || isApproved()}
               />
+            </div>
+
+            {/* ★STAGE4拡張：ロール（財務レバー） */}
+            <div className="mb-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-semibold text-zinc-700">ロール（財務レバー）</label>
+                {!selectedProj?.role && (
+                  <span className="rounded-full bg-zinc-100 px-2 py-1 text-[10px] font-semibold text-zinc-600">
+                    ロール未設定
+                  </span>
+                )}
+              </div>
+
+              {/* ロール3択 */}
+              <div className="flex gap-2">
+                {[
+                  { value: 'REVENUE' as const, label: '売上' },
+                  { value: 'COST' as const, label: 'コスト' },
+                  { value: 'FUTURE' as const, label: '将来投資' },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      if (!selected) return;
+                      updateProjectRole(selected.deptIdx, selected.projIdx, selectedProj?.role === opt.value ? '' : opt.value);
+                      setShowRoleDetail(false);
+                    }}
+                    disabled={isHydrating || isApproved()}
+                    className={`flex-1 rounded-lg border-2 px-3 py-2 text-[12px] font-semibold transition-colors ${
+                      selectedProj?.role === opt.value
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                        : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* 詳細設定トグル＆サブカテゴリ（roleがREVENUEまたはCOSTの時のみ） */}
+              {selectedProj?.role && selectedProj.role !== 'FUTURE' && (
+                <div className="mt-3 space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowRoleDetail(!showRoleDetail)}
+                    className="text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                  >
+                    {showRoleDetail ? '▼ 詳細設定' : '▶ 詳細設定'}
+                  </button>
+
+                  {showRoleDetail && (
+                    <div>
+                      <label className="text-[11px] font-semibold text-zinc-700">
+                        {selectedProj.role === 'REVENUE' ? '売上' : 'コスト'}の詳細（任意）
+                      </label>
+                      <select
+                        value={selectedProj?.roleDetail ?? ''}
+                        onChange={(e) => {
+                          if (!selected) return;
+                          updateProjectRoleDetail(selected.deptIdx, selected.projIdx, e.target.value as Project['roleDetail'] | '');
+                        }}
+                        disabled={isHydrating || isApproved()}
+                        className="mt-1 h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
+                      >
+                        <option value="">未選択</option>
+                        {selectedProj.role === 'REVENUE' && (
+                          <>
+                            <option value="ACQ">新規獲得</option>
+                            <option value="CHURN">継続率改善</option>
+                            <option value="ARPU">単価改善</option>
+                          </>
+                        )}
+                        {selectedProj.role === 'COST' && (
+                          <>
+                            <option value="PERSONNEL">人件費</option>
+                            <option value="FIXED">固定費</option>
+                            <option value="VARIABLE">変動費</option>
+                          </>
+                        )}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Owner */}
@@ -1733,13 +1849,43 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
 {/* Investments Summary */}
 
             <div className="mb-4 space-y-2">
-              <label className="text-[11px] font-semibold text-zinc-700">投資（金額 or 人数）</label>
-              <div className="rounded-lg bg-zinc-50 p-3 text-[12px] text-zinc-700 mb-2">
-                <div>件数: {(selectedProj.executionHumanInvestments || []).length}</div>
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-semibold text-zinc-700">投資（金額 or 人数）</label>
+                <div className="text-[11px] text-zinc-500">{(selectedProj.executionHumanInvestments || []).length}件</div>
               </div>
-              {/* Investment Add Form - renderSimpleRight only */}
-              <div className="rounded-xl border border-dashed border-green-200 bg-green-50 p-4">
-                <div className="mb-3 text-[12px] font-semibold text-green-900">投資を追加</div>
+
+              {/* 既存投資の一覧（フォーム表示時も表示） */}
+              {(selectedProj.executionHumanInvestments || []).length > 0 && !showInvestmentForm && (
+                <div className="rounded-lg bg-zinc-50 p-3 text-[12px] text-zinc-700 mb-2">
+                  <div className="space-y-1">
+                    {(selectedProj.executionHumanInvestments || []).map((inv: any, idx: number) => (
+                      <div key={idx} className="text-zinc-600">
+                        {inv.timingYm && `${inv.timingYm}: `}
+                        {inv.amount && `¥${Number(inv.amount).toLocaleString()}`}
+                        {inv.headcount && `${inv.headcount}人`}
+                        {inv.team && ` (${inv.team})`}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* + 投資を追加 ボタン */}
+              {!showInvestmentForm && (
+                <button
+                  type="button"
+                  onClick={() => setShowInvestmentForm(true)}
+                  disabled={isHydrating || isApproved()}
+                  className="w-full rounded-lg border border-dashed border-green-300 bg-green-50 px-3 py-2 text-[12px] font-semibold text-green-700 hover:bg-green-100 disabled:opacity-50"
+                >
+                  + 投資（金額 or 人数）を追加
+                </button>
+              )}
+
+              {/* Investment Add Form - showInvestmentForm 時のみ表示 */}
+              {showInvestmentForm && (
+                <div className="rounded-xl border border-dashed border-green-200 bg-green-50 p-4">
+                  <div className="mb-3 text-[12px] font-semibold text-green-900">投資を追加</div>
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -1829,6 +1975,7 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
                           team: '',
                           note: '',
                         });
+                        setShowInvestmentForm(false);
                       }}
                       disabled={isHydrating}
                       className="flex-1 h-9 rounded-lg bg-green-600 px-3 text-[12px] font-semibold text-white hover:bg-green-700 disabled:opacity-50"
@@ -1855,6 +2002,7 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
                   </div>
                 </div>
               </div>
+              )}
 
 
               {/* Investment List (edit/delete) */}
@@ -2023,14 +2171,27 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
     ))}
   </div>
 )}
+            </div>
 
-            
-  {/* Skills (CRUD) */}
-  <div className="mt-4 space-y-2">
+
+            {/* Skills (CRUD) */}
+            <div className="mt-4 space-y-2">
     <div className="flex items-center justify-between">
       <label className="text-[11px] font-semibold text-zinc-700">必要スキル（任意）</label>
       <div className="text-[11px] text-zinc-500">{(((selectedProj as any).skillPlans || []) as any[]).length}件</div>
     </div>
+
+    {/* + スキルを追加 ボタン（フォーム非表示時のみ） */}
+    {!showSkillForm && (
+      <button
+        type="button"
+        onClick={() => setShowSkillForm(true)}
+        disabled={isHydrating || isApproved()}
+        className="w-full rounded-lg border border-dashed border-emerald-300 bg-emerald-50 px-3 py-2 text-[12px] font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+      >
+        + 必要スキル（任意）を追加
+      </button>
+    )}
 
     {/* List */}
     <div className="space-y-2">
@@ -2108,8 +2269,8 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
       )}
     </div>
 
-    {/* Add/Edit form */}
-    {!isApproved() && (
+    {/* Add/Edit form（showSkillForm 時のみ表示） */}
+    {!isApproved() && showSkillForm && (
       <div className="rounded-xl border border-dashed border-emerald-200 bg-emerald-50 p-4">
         <div className="mb-3 text-[12px] font-semibold text-emerald-900">
           {editingSkillIdx != null ? 'スキルを編集' : 'スキルを追加'}
@@ -2265,6 +2426,7 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
                   note: '',
                 });
                 setEditingSkillIdx(null);
+                setShowSkillForm(false);
               }}
             >
               {editingSkillIdx != null ? '更新' : '追加'}
@@ -2293,7 +2455,6 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
       </div>
     )}
   </div>
-</div>
 
         </div>
         </div>
