@@ -442,6 +442,8 @@ const FIELD_MAP: Record<string, string> = {
   winPatternPrimary: 'win_pattern_primary',
   winPatternSecondary: 'win_pattern_secondary',
   companyTargets: 'company_targets',  // ★ 追加：North Star メトリクス
+  projectTargetImpacts: 'project_target_impacts',  // ★ 追加：STAGE6 Phase E - Target Impact
+  projectIssueLinks: 'project_issue_links',  // ★ 追加：STAGE6 Phase E - Issue Link
   /* その他 */
   strategySummary: 'strategy_summary',
   editableCascade: 'editable_cascade',
@@ -503,6 +505,8 @@ function buildDbRowFromState(state: StrategyData) {
     if (snake === 'win_patterns_candidate') v = ensureArray(v);
     if (snake === 'win_patterns') v = ensureArray(v);
     if (snake === 'company_targets') v = ensureArray(v);  // ★ 追加：companyTargets は配列
+    if (snake === 'project_target_impacts') v = ensureArray(v);  // ★ 追加：projectTargetImpacts は配列
+    if (snake === 'project_issue_links') v = ensureArray(v);  // ★ 追加：projectIssueLinks は配列
     // ★ 修正：csv_finance_data はオブジェクト（financeBS/segmentPL/segmentBS を格納）
     if (snake === 'csv_finance_data') {
       // オブジェクトのまま保持（配列に変換しない）
@@ -590,6 +594,37 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   out.simulationResults = ensureArray(out.simulationResults);
   out.stage1Issues = ensureArray(out.stage1Issues);  // ★ 修正：stage1Issues を復元
   out.financePL = ensureArray(out.financePL);
+
+  // ★ TASK-B: 既存データの救済（百万円で保存されたデータを yen に変換）
+  // 復元時に financePL の revenue < 1M なら百万円と判定して yen に変換
+  out.financePL = (out.financePL as any[]).map((row: any) => {
+    const revenue = row.revenue ?? 0;
+    const operatingIncome = row.operatingIncome ?? 0;
+
+    const revenueYen = revenue > 0 && revenue < 1_000_000 ? revenue * 1_000_000 : revenue;
+    const opIncomeYen = operatingIncome > 0 && operatingIncome < 1_000_000 ? operatingIncome * 1_000_000 : operatingIncome;
+
+    if (revenueYen !== revenue || opIncomeYen !== operatingIncome) {
+      console.log('[buildStateFromDbRow] financePL yen conversion', {
+        year: row.year,
+        revenue_before: revenue,
+        revenue_after: revenueYen,
+        operatingIncome_before: operatingIncome,
+        operatingIncome_after: opIncomeYen,
+      });
+    }
+
+    return {
+      ...row,
+      revenue: revenueYen,
+      operatingIncome: opIncomeYen,
+      // 他の財務指標も同様
+      cogs: (row.cogs ?? 0) > 0 && (row.cogs ?? 0) < 1_000_000 ? (row.cogs ?? 0) * 1_000_000 : (row.cogs ?? 0),
+      sga: (row.sga ?? 0) > 0 && (row.sga ?? 0) < 1_000_000 ? (row.sga ?? 0) * 1_000_000 : (row.sga ?? 0),
+      grossProfit: (row.grossProfit ?? 0) > 0 && (row.grossProfit ?? 0) < 1_000_000 ? (row.grossProfit ?? 0) * 1_000_000 : (row.grossProfit ?? 0),
+    };
+  });
+
   out.businessSegments = ensureArray(out.businessSegments);
   /* ★ TASK 15-B: STAGE2 フィールドを確実に復元 */
   out.answers2 = ensureArray(out.answers2);
@@ -597,6 +632,16 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   out.winPatternsCandidate = ensureArray(out.winPatternsCandidate);
   out.winPatterns = ensureArray(out.winPatterns);
   out.companyTargets = ensureArray(out.companyTargets);  // ★ 追加：companyTargets を復元
+
+  // ★ STAGE6 Phase E: projectTargetImpacts / projectIssueLinks を安全に復元
+  // 要件1: snake_case から読む（FIELD_MAP ループで既に out に設定済み）
+  // 要件2: Array.isArray でガード（ensureArray では不十分なのでここで明示的に）
+  const rawImpacts = out.projectTargetImpacts;
+  out.projectTargetImpacts = Array.isArray(rawImpacts) ? rawImpacts : [];
+
+  const rawLinks = out.projectIssueLinks;
+  out.projectIssueLinks = Array.isArray(rawLinks) ? rawLinks : [];
+
   out.financeSummary = toUiFinanceSummary(out.financeSummary);
   out.businessPortfolio = toUiBusinessPortfolio(out.businessPortfolio);
 
@@ -643,6 +688,8 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const winPatternsCandidateLen = Array.isArray(out.winPatternsCandidate) ? out.winPatternsCandidate.length : 0;
   const winPatternsLen = Array.isArray(out.winPatterns) ? out.winPatterns.length : 0;
   const companyTargetsLen = Array.isArray(out.companyTargets) ? out.companyTargets.length : 0;
+  const projectTargetImpactsLen = Array.isArray(out.projectTargetImpacts) ? out.projectTargetImpacts.length : 0;  // ★ 追加
+  const projectIssueLinksLen = Array.isArray(out.projectIssueLinks) ? out.projectIssueLinks.length : 0;  // ★ 追加
   const finalStoryDraftLen = Array.isArray(out.finalStoryDraft) ? out.finalStoryDraft.length : 0;
   const finalStoryEditedLen = Array.isArray(out.finalStoryEdited) ? out.finalStoryEdited.length : 0;
   const finalStoryFinalLen = Array.isArray(out.finalStoryFinal) ? out.finalStoryFinal.length : 0;
@@ -662,6 +709,9 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
     winPatternsCandidate_len: winPatternsCandidateLen,
     winPatterns_len: winPatternsLen,
     companyTargets_len: companyTargetsLen,
+    /* STAGE6 Phase E */  // ★ 追加
+    projectTargetImpacts_len: projectTargetImpactsLen,  // ★ 追加
+    projectIssueLinks_len: projectIssueLinksLen,  // ★ 追加
     finalStoryDraft_len: finalStoryDraftLen,
     finalStoryEdited_len: finalStoryEditedLen,
     finalStoryFinal_len: finalStoryFinalLen,
@@ -712,6 +762,12 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const rawCsvFinanceData = out.csvFinanceData;
   const rawSegmentPL = out.segmentPL;
   const rawSegmentBS = out.segmentBS;
+
+  // ★ TASK-1/TASK-3 修正：normalize 前に raw を退避（companyTargets / projectTargetImpacts / projectIssueLinks）
+  // これらのフィールドは normalize で落ちる可能性があるため、normalize 後に復元する
+  const rawCompanyTargets = out.companyTargets;
+  const rawProjectTargetImpacts = out.projectTargetImpacts;
+  const rawProjectIssueLinks = out.projectIssueLinks;
 
   // ★ CASE3 診断：normalize 前の departments 内部の深部を確認
   const diagDeptDeep = (depts: any[]) =>
@@ -859,19 +915,23 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
 
   // ★ STEP 1: New fields post-normalize check and forced restoration
   // Store raw values before normalize for comparison
-  const rawCompanyTargets = out.companyTargets;
+  // Note: rawCompanyTargets / rawProjectTargetImpacts / rawProjectIssueLinks は既に L766-770 で定義済み
   const rawFinalStoryDraft = out.finalStoryDraft;
   const rawFinalStoryEdited = out.finalStoryEdited;
   const rawFinalStoryFinal = out.finalStoryFinal;
 
   // Post-normalize diagnostics
   const normCompanyTargetsLen = Array.isArray((normalized as any).companyTargets) ? (normalized as any).companyTargets.length : 0;
+  const normProjectTargetImpactsLen = Array.isArray((normalized as any).projectTargetImpacts) ? (normalized as any).projectTargetImpacts.length : 0;  // ★ 追加
+  const normProjectIssueLinksLen = Array.isArray((normalized as any).projectIssueLinks) ? (normalized as any).projectIssueLinks.length : 0;  // ★ 追加
   const normFinalStoryDraftLen = Array.isArray((normalized as any).finalStoryDraft) ? (normalized as any).finalStoryDraft.length : 0;
   const normFinalStoryEditedLen = Array.isArray((normalized as any).finalStoryEdited) ? (normalized as any).finalStoryEdited.length : 0;
   const normFinalStoryFinalLen = Array.isArray((normalized as any).finalStoryFinal) ? (normalized as any).finalStoryFinal.length : 0;
 
   if (DEBUG) console.log('[diag][buildState:post_norm] NEW FIELDS AFTER NORMALIZE', {
     companyTargets_len: normCompanyTargetsLen,
+    projectTargetImpacts_len: normProjectTargetImpactsLen,  // ★ 追加
+    projectIssueLinks_len: normProjectIssueLinksLen,  // ★ 追加
     finalStoryDraft_len: normFinalStoryDraftLen,
     finalStoryEdited_len: normFinalStoryEditedLen,
     finalStoryFinal_len: normFinalStoryFinalLen,
@@ -879,6 +939,8 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
 
   // Forced restoration: if normalize dropped them, restore from raw
   let restoredCompanyTargets = false;
+  let restoredProjectTargetImpacts = false;  // ★ 追加
+  let restoredProjectIssueLinks = false;  // ★ 追加
   let restoredFinalStoryDraft = false;
   let restoredFinalStoryEdited = false;
   let restoredFinalStoryFinal = false;
@@ -886,6 +948,14 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   if (Array.isArray(rawCompanyTargets) && rawCompanyTargets.length > 0 && (!Array.isArray((normalized as any).companyTargets) || (normalized as any).companyTargets.length === 0)) {
     (normalized as any).companyTargets = rawCompanyTargets;
     restoredCompanyTargets = true;
+  }
+  if (Array.isArray(rawProjectTargetImpacts) && rawProjectTargetImpacts.length > 0 && (!Array.isArray((normalized as any).projectTargetImpacts) || (normalized as any).projectTargetImpacts.length === 0)) {  // ★ 追加
+    (normalized as any).projectTargetImpacts = rawProjectTargetImpacts;
+    restoredProjectTargetImpacts = true;
+  }
+  if (Array.isArray(rawProjectIssueLinks) && rawProjectIssueLinks.length > 0 && (!Array.isArray((normalized as any).projectIssueLinks) || (normalized as any).projectIssueLinks.length === 0)) {  // ★ 追加
+    (normalized as any).projectIssueLinks = rawProjectIssueLinks;
+    restoredProjectIssueLinks = true;
   }
   if (Array.isArray(rawFinalStoryDraft) && rawFinalStoryDraft.length > 0 && (!Array.isArray((normalized as any).finalStoryDraft) || (normalized as any).finalStoryDraft.length === 0)) {
     (normalized as any).finalStoryDraft = rawFinalStoryDraft;
@@ -900,9 +970,11 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
     restoredFinalStoryFinal = true;
   }
 
-  if (restoredCompanyTargets || restoredFinalStoryDraft || restoredFinalStoryEdited || restoredFinalStoryFinal) {
+  if (restoredCompanyTargets || restoredProjectTargetImpacts || restoredProjectIssueLinks || restoredFinalStoryDraft || restoredFinalStoryEdited || restoredFinalStoryFinal) {
     if (DEBUG) console.log('[diag][buildState:forced_restore] NEW FIELDS FORCED RESTORED', {
       companyTargets: restoredCompanyTargets,
+      projectTargetImpacts: restoredProjectTargetImpacts,  // ★ 追加
+      projectIssueLinks: restoredProjectIssueLinks,  // ★ 追加
       finalStoryDraft: restoredFinalStoryDraft,
       finalStoryEdited: restoredFinalStoryEdited,
       finalStoryFinal: restoredFinalStoryFinal,
@@ -1580,6 +1652,41 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       // ★重要：UPDATEの戻り値は必ず「全列」を返す（部分列だと store を壊す）
       const upd = await updateQuery.select('*').maybeSingle();
 
+      // ★ TASK STAGE6: DB保存直後の診断ログ（companyTargets / projectTargetImpacts/Links の確認）
+      if (DEBUG) {
+        if (upd.data) {
+          console.log('[SAVE response] company_targets/project_target_impacts/links in data', {
+            has_company_targets: 'company_targets' in (upd.data as any),  // ★ 追加
+            company_targets_len: Array.isArray((upd.data as any)?.company_targets) ? (upd.data as any).company_targets.length : null,  // ★ 追加
+            has_project_target_impacts: 'project_target_impacts' in (upd.data as any),
+            is_array_impacts: Array.isArray((upd.data as any)?.project_target_impacts),
+            impacts_len: Array.isArray((upd.data as any)?.project_target_impacts) ? (upd.data as any).project_target_impacts.length : null,
+            impacts_sample: Array.isArray((upd.data as any)?.project_target_impacts) && (upd.data as any).project_target_impacts.length > 0 ? (upd.data as any).project_target_impacts[0] : null,
+            has_project_issue_links: 'project_issue_links' in (upd.data as any),
+            is_array_links: Array.isArray((upd.data as any)?.project_issue_links),
+            links_len: Array.isArray((upd.data as any)?.project_issue_links) ? (upd.data as any).project_issue_links.length : null,
+            links_sample: Array.isArray((upd.data as any)?.project_issue_links) && (upd.data as any).project_issue_links.length > 0 ? (upd.data as any).project_issue_links[0] : null,
+          });
+        } else {
+          console.log('[SAVE response] upd.data is null - re-selecting for diagnosis');
+          const reselect = await supabase
+            .from(T_STRATEGY)
+            .select('company_targets,project_target_impacts,project_issue_links')  // ★ company_targets 追加
+            .eq('company_id', cleanCompanyId)
+            .maybeSingle();
+          if (reselect.data) {
+            console.log('[SAVE reselect] company_targets/project_target_impacts/links', {  // ★ コメント更新
+              has_company_targets: 'company_targets' in reselect.data,  // ★ 追加
+              company_targets_len: Array.isArray((reselect.data as any)?.company_targets) ? (reselect.data as any).company_targets.length : null,  // ★ 追加
+              has_impacts: 'project_target_impacts' in reselect.data,
+              impacts_len: Array.isArray((reselect.data as any)?.project_target_impacts) ? (reselect.data as any).project_target_impacts.length : null,
+              has_links: 'project_issue_links' in reselect.data,
+              links_len: Array.isArray((reselect.data as any)?.project_issue_links) ? (reselect.data as any).project_issue_links.length : null,
+            });
+          }
+        }
+      }
+
       if (upd.error) {
         // ★ PGRST204 フォールバック：列が未作成の場合は除外して再試行（保険）
         if (isPGRST204Error(upd.error)) {
@@ -1798,6 +1905,22 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       .insert(insertPayload)
       .select('*')
       .single();
+
+    // ★ TASK STAGE6: DB保存直後の診断ログ（companyTargets / projectTargetImpacts/Links の確認 - INSERT版）
+    if (DEBUG) {
+      if (ins.data) {
+        console.log('[SAVE INSERT response] company_targets/project_target_impacts/links in data', {
+          has_company_targets: 'company_targets' in (ins.data as any),  // ★ 追加
+          company_targets_len: Array.isArray((ins.data as any)?.company_targets) ? (ins.data as any).company_targets.length : null,  // ★ 追加
+          has_project_target_impacts: 'project_target_impacts' in (ins.data as any),
+          is_array_impacts: Array.isArray((ins.data as any)?.project_target_impacts),
+          impacts_len: Array.isArray((ins.data as any)?.project_target_impacts) ? (ins.data as any).project_target_impacts.length : null,
+          has_project_issue_links: 'project_issue_links' in (ins.data as any),
+          is_array_links: Array.isArray((ins.data as any)?.project_issue_links),
+          links_len: Array.isArray((ins.data as any)?.project_issue_links) ? (ins.data as any).project_issue_links.length : null,
+        });
+      }
+    }
 
     if (ins.error) {
       // ★ PGRST204 フォールバック：列が未作成の場合は除外して再試行（保険）
