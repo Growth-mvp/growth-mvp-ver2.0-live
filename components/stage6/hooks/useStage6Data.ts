@@ -34,6 +34,10 @@ import { calcYearlyFromKrs } from '@/utils/stage6/compute';
 
 const DEBUG = process.env.NODE_ENV === 'development' && !!process.env.NEXT_PUBLIC_DEBUG_STAGE6;
 
+// ★ getSnapshot warning 対策：空参照を定数化（毎回新規生成を防止）
+const EMPTY_OBJ: Readonly<Record<string, never>> = Object.freeze({});
+const EMPTY_ARR: ReadonlyArray<never> = Object.freeze([]);
+
 /**
  * useStage6Data
  * Consolidates all data fetching, initialization, and memoization for STAGE6
@@ -43,22 +47,22 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
   // ===== Store selectors =====
   const companyName = useStrategyStore((s) => s.companyName ?? '会社名未設定');
   const departments = useStrategyStore((s) =>
-    Array.isArray(s.departments) ? s.departments : [],
+    Array.isArray(s.departments) ? s.departments : (EMPTY_ARR as any),
   ) as Department[];
-  const financePL = useStrategyStore((s) => (Array.isArray(s.financePL) ? s.financePL : []));
-  const csvFinanceData = useStrategyStore((s) => s.csvFinanceData ?? {});
+  const financePL = useStrategyStore((s) => (Array.isArray(s.financePL) ? s.financePL : (EMPTY_ARR as any)));
+  const csvFinanceData = useStrategyStore((s) => s.csvFinanceData ?? (EMPTY_OBJ as any));
   const revision = useStrategyStore((s) => s.revision);
   const boot = useStrategyStore((s) => s.boot);
-  const companyTargets = useStrategyStore((s) => (Array.isArray(s.companyTargets) ? s.companyTargets : []));
-  const stage1Issues = useStrategyStore((s) => (Array.isArray(s.stage1Issues) ? s.stage1Issues : []));
+  const companyTargets = useStrategyStore((s) => (Array.isArray(s.companyTargets) ? s.companyTargets : (EMPTY_ARR as any)));
+  const stage1Issues = useStrategyStore((s) => (Array.isArray(s.stage1Issues) ? s.stage1Issues : (EMPTY_ARR as any)));
   const valueAnalysis = useStrategyStore((s) => s.valueAnalysis);
 
   // === STAGE6 Phase E：プロジェクト→North Star / 論点リンク ===
   const projectTargetImpacts = useStrategyStore((s) =>
-    Array.isArray(s.projectTargetImpacts) ? s.projectTargetImpacts : []
+    Array.isArray(s.projectTargetImpacts) ? s.projectTargetImpacts : (EMPTY_ARR as any)
   );
   const projectIssueLinks = useStrategyStore((s) =>
-    Array.isArray(s.projectIssueLinks) ? s.projectIssueLinks : []
+    Array.isArray(s.projectIssueLinks) ? s.projectIssueLinks : (EMPTY_ARR as any)
   );
 
   const { companyId: scopeCompanyId, hydrated, setCompanyScope, refetchFromServer, setHydrated } =
@@ -310,6 +314,17 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     const baseTraj = mkBaselineTrajectory({ financePL } as any);
     const baseFigures = mkBaseFigures({ financePL } as any);
 
+    // ★ TASK-2: baseFigures が null（financePLなし）の場合は baseline系列を使わない
+    if (!baseTraj || !baseFigures) {
+      if (DEBUG) {
+        console.warn('[STAGE6] [TASK-2] baseline skipped (baseTraj or baseFigures is null)', {
+          baseTraj_ok: !!baseTraj,
+          baseFigures_ok: !!baseFigures,
+          financePL_len: Array.isArray(financePL) ? financePL.length : 0,
+        });
+      }
+    }
+
     const scenarios = {
       low: { successRate: 0.5, synergyRate: -0.05 },
       base: { successRate: 0.8, synergyRate: 0.0 },
@@ -317,9 +332,39 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     };
 
     // Baseline is with no KRs (empty array)
-    const baselineYearly = baseTraj
+    const baselineYearly = baseTraj && baseFigures
       ? calcYearlyFromKrs({ baseTraj, baseFigures, krs: [], scenario: scenarios.base })
       : ([] as YearlyPL[]);
+
+    // ★ Baseline営業利益を mkBaseFigures.operatingIncome で固定（全年度を2024実績でフラット延長）
+    const baselineOpIncomeYen =
+      typeof baseFigures?.operatingIncome === 'number'
+        ? baseFigures.operatingIncome
+        : undefined;
+
+    const baselineYearlyFixed = baselineOpIncomeYen !== undefined && baselineYearly.length > 0
+      ? baselineYearly.map((row) => ({
+          ...row,
+          // ★ Baseline営業利益は全年度を2024実績で固定（フラット延長）
+          op_income: baselineOpIncomeYen,
+        }))
+      : baselineYearly;
+
+    // ★ 確定ログ
+    if (DEBUG && baselineOpIncomeYen !== undefined) {
+      console.log('[stage6][baseline-opIncome] used=%s source=%s',
+        baselineOpIncomeYen,
+        'baseFigures.operatingIncome'
+      );
+    }
+
+    // ★ 適用確認ログ（全年度置換）
+    if (DEBUG && baselineOpIncomeYen !== undefined && baselineYearlyFixed.length > 0) {
+      console.log('[stage6][baseline-opIncome] applied_all_years firstYear=%s op_income=%s',
+        baselineYearlyFixed[0].year,
+        baselineYearlyFixed[0].op_income
+      );
+    }
 
     const allKrs: BridgeKR[] = [];
     projectKrsMap.forEach((krs) => {
@@ -327,9 +372,9 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     });
 
     const yearlyAll = {
-      low: baseTraj ? calcYearlyFromKrs({ baseTraj, baseFigures, krs: allKrs, scenario: scenarios.low }) : [],
-      base: baseTraj ? calcYearlyFromKrs({ baseTraj, baseFigures, krs: allKrs, scenario: scenarios.base }) : [],
-      high: baseTraj ? calcYearlyFromKrs({ baseTraj, baseFigures, krs: allKrs, scenario: scenarios.high }) : [],
+      low: baseTraj && baseFigures ? calcYearlyFromKrs({ baseTraj, baseFigures, krs: allKrs, scenario: scenarios.low }) : [],
+      base: baseTraj && baseFigures ? calcYearlyFromKrs({ baseTraj, baseFigures, krs: allKrs, scenario: scenarios.base }) : [],
+      high: baseTraj && baseFigures ? calcYearlyFromKrs({ baseTraj, baseFigures, krs: allKrs, scenario: scenarios.high }) : [],
     };
 
     return {
@@ -339,7 +384,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       deptNames: Array.from(deptNameSet).sort(),
       approved,
       projectKrsMap,
-      baselineYearly,
+      baselineYearly: baselineYearlyFixed,
       yearlyAll,
     };
   }, [hydrated, isHydrating, departments, financePL, revision, isReady, companyName, makeProjectKey, normalizeKind, normalizeUnit]);
@@ -401,7 +446,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     const ma = mapYearly(all);
     const ms = mapYearly(selected);
 
-    return years.map((year) => ({
+    const data = years.map((year) => ({
       year,
       baselineRevenue: mb.get(year)?.revenue ?? 0,
       allRevenue: ma.get(year)?.revenue ?? 0,
@@ -410,7 +455,119 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       allOp: ma.get(year)?.op_income ?? 0,
       selectedOp: ms.get(year)?.op_income ?? 0,
     }));
+
+    // ★Debug: グラフ系列が同一か確認
+    if (DEBUG) {
+      const revBaseline = data.map(d => d.baselineRevenue);
+      const revAll = data.map(d => d.allRevenue);
+      const revSelected = data.map(d => d.selectedRevenue);
+      const opBaseline = data.map(d => d.baselineOp);
+      const opAll = data.map(d => d.allOp);
+      const opSelected = data.map(d => d.selectedOp);
+
+      console.log('[E-2 グラフ系列チェック]', {
+        years,
+        revenueBaseline: revBaseline,
+        revenueAll: revAll,
+        revenueSelected: revSelected,
+        allEqualRevenue: JSON.stringify(revAll) === JSON.stringify(revBaseline),
+        selectedEqualRevenue: JSON.stringify(revSelected) === JSON.stringify(revBaseline),
+        opBaseline: opBaseline,
+        opAll: opAll,
+        opSelected: opSelected,
+        allEqualOp: JSON.stringify(opAll) === JSON.stringify(opBaseline),
+        selectedEqualOp: JSON.stringify(opSelected) === JSON.stringify(opBaseline),
+      });
+    }
+
+    return data;
   }, [core.baselineYearly, core.yearlyAll]);
+
+  // ★ TASK-2: Baseline 参照元追跡ログ（デバッグ用）
+  useEffect(() => {
+    if (!DEBUG || !isReady) return;
+
+    const DEBUG_ENABLED = process.env.NEXT_PUBLIC_DEBUG_STAGE6 === '1';
+    if (!DEBUG_ENABLED) return;
+
+    try {
+      // Baseline 候補ソースの収集
+      const baselineSources: Array<{
+        sourceName: string;
+        pickedYear?: number;
+        rawValue?: number;
+        rawUnit?: string;
+        normalizedValue?: number;
+        normalizedUnit?: string;
+      }> = [];
+
+      // Candidate 1: Stage1 financeSummary (deprecated but check anyway)
+      if (financePL && Array.isArray(financePL) && financePL.length > 0) {
+        const latestPL = financePL[financePL.length - 1];
+        baselineSources.push({
+          sourceName: 'Stage1_financePL',
+          pickedYear: latestPL?.year,
+          rawValue: latestPL?.revenue,
+          rawUnit: 'yen（推定）',
+        });
+      }
+
+      // Candidate 2: csvFinanceData
+      if (csvFinanceData && typeof csvFinanceData === 'object') {
+        baselineSources.push({
+          sourceName: 'Stage1_csvFinanceData',
+          rawValue: (csvFinanceData as any)?.financeBS?.length,
+          rawUnit: 'object_key_count',
+        });
+      }
+
+      // Candidate 3: valueAnalysis
+      if (valueAnalysis && typeof valueAnalysis === 'object') {
+        baselineSources.push({
+          sourceName: 'Stage1_valueAnalysis',
+          rawValue: (valueAnalysis as any)?.revenue,
+          rawUnit: 'object_property',
+        });
+      }
+
+      // Candidate 4: companyTargets（North Star メトリクス）
+      if (companyTargets && Array.isArray(companyTargets) && companyTargets.length > 0) {
+        const revenueTarget = companyTargets.find((t) => t.label?.toLowerCase().includes('売上'));
+        baselineSources.push({
+          sourceName: 'Stage2_companyTargets_revenue',
+          pickedYear: revenueTarget?.dueYear,
+          rawValue: revenueTarget?.base,
+          rawUnit: revenueTarget?.unit,
+        });
+      }
+
+      // Candidate 5: core.baselineYearly（実際の計算結果）
+      if (core.baselineYearly && Array.isArray(core.baselineYearly) && core.baselineYearly.length > 0) {
+        const lastBaseline = core.baselineYearly[core.baselineYearly.length - 1];
+        baselineSources.push({
+          sourceName: 'Stage6_baselineYearly_final',
+          pickedYear: lastBaseline?.year,
+          rawValue: lastBaseline?.revenue,
+          rawUnit: 'yen（計算結果）',
+        });
+      }
+
+      console.group('[TASK-2] Baseline 参照元追跡');
+      console.log('Context:', {
+        companyName,
+        scenarioKey,
+        isReady,
+      });
+      console.table(baselineSources);
+      if (core.baselineYearly && core.baselineYearly.length > 0) {
+        const lastBaseline = core.baselineYearly[core.baselineYearly.length - 1];
+        console.log(`✓ 最終採用 Baseline: Stage6_baselineYearly_final (year=${lastBaseline?.year}, revenue=${lastBaseline?.revenue})`);
+      }
+      console.groupEnd();
+    } catch (e) {
+      console.warn('[TASK-2] Baseline追跡ログエラー:', e);
+    }
+  }, [isReady, financePL, csvFinanceData, valueAnalysis, companyTargets, core.baselineYearly, companyName, scenarioKey]);
 
   // === E-3: Hybrid North Star calculation ===
   // 1. 既存ロジックで全行を計算
@@ -441,11 +598,18 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
             console.log(`[E-2] ${row.label}: chartValue=${chartValue}, normalized=${normalizedValue}, unit=${row.unit}`);
           }
 
+          // ★Phase E 修正: yen 統一で計算（単位混在対策）
+          // chartValue と baseNorm の両方を yen に統一
+          const baseYen = normalizeValueToUnit(row.base, row.unit, 'yen') ?? row.base;
+
           const newForecast = normalizedValue;
-          const newGap = newForecast !== undefined && row.base ? newForecast - row.base : undefined;
+          const newGapYen = chartValue !== undefined && baseYen ? chartValue - baseYen : undefined;
+          const newGap = newGapYen !== undefined ? normalizeValueToUnit(newGapYen, 'yen', row.unit) : undefined;
+
+          // achievementRate は yen ベースで計算（★重要）
           const newAchievement =
-            newForecast !== undefined && row.base && row.base !== 0
-              ? (newForecast / row.base) * 100
+            chartValue !== undefined && baseYen && baseYen !== 0
+              ? (chartValue / baseYen) * 100
               : undefined;
 
           return {
@@ -462,11 +626,31 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
 
     // Step 3: Phase E で上書き（ハイブリッド：impact がある行だけ）
     if (projectTargetImpacts.length > 0) {
+      // ★Debug logging for Phase E calculation
+      if (DEBUG) {
+        console.log(`[E-3] Phase E 計算開始: projectTargetImpacts=${projectTargetImpacts.length}件`);
+        const sampleImpacts = projectTargetImpacts.slice(0, 2);
+        sampleImpacts.forEach((imp) => {
+          const target = companyTargets.find((t) => t.id === imp.targetId);
+          console.log(`  Impact: targetId=${imp.targetId}, delta=${imp.delta}, target.base=${target?.base}, target.unit=${target?.unit}`);
+        });
+      }
+
       const phaseERows = buildNorthStarRowsPhaseE({
         companyTargets,
         projectTargetImpacts,
         executionWeights: executionWeightsMap,
       });
+
+      if (DEBUG) {
+        console.log(`[E-3] Phase E 計算完了:`, phaseERows.slice(0, 2).map((r) => ({
+          label: r.label,
+          unit: r.unit,
+          base: r.base,
+          forecastValue: r.forecastValue,
+          achievementRate: r.achievementRate,
+        })));
+      }
 
       const phaseEMap = new Map(phaseERows.map((r) => [r.targetId, r]));
 
@@ -474,7 +658,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         const phaseERow = phaseEMap.get(row.targetId);
         if (phaseERow) {
           if (DEBUG) {
-            console.log(`[E-3] ${row.label}: PhaseE上書き (forecast ${row.forecastValue} → ${phaseERow.forecastValue})`);
+            console.log(`[E-3] ${row.label}: PhaseE上書き (forecast ${row.forecastValue} → ${phaseERow.forecastValue}, achievement ${row.achievementRate}% → ${phaseERow.achievementRate}%)`);
           }
           return phaseERow;
         }
@@ -490,6 +674,187 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
 
     return syncedRows;
   }, [companyTargets, core.yearlyAll, scenarioKey, projectContrib, chartData, projectTargetImpacts, executionWeightsMap]);
+
+  // ★ TASK-3: North Star 単位ズレ追跡ログ - 「原本 vs 加工後」比較（デバッグ用）
+  useEffect(() => {
+    if (!DEBUG || !isReady || northStarRows.length === 0 || !companyTargets || companyTargets.length === 0) return;
+
+    const DEBUG_ENABLED = process.env.NEXT_PUBLIC_DEBUG_STAGE6 === '1';
+    if (!DEBUG_ENABLED) return;
+
+    try {
+      // knownUnit 定義
+      const knownUnits = new Set(['yen', 'million_yen', '円', '百万円', '%', 'percent']);
+
+      // Stage2 原本（companyTargets）から売上・営業利益を取得
+      const stage2Revenue = companyTargets.find((t) => t.label?.toLowerCase().includes('売上') && !t.label?.toLowerCase().includes('成長'));
+      const stage2OpIncome = companyTargets.find((t) => t.label?.toLowerCase().includes('営業利益') && !t.label?.toLowerCase().includes('率'));
+
+      // Stage6 加工後（northStarRows）から売上・営業利益を取得
+      const stage6Revenue = northStarRows.find((r) => r.label.toLowerCase().includes('売上') && !r.label.toLowerCase().includes('成長'));
+      const stage6OpIncome = northStarRows.find((r) => r.label.toLowerCase().includes('営業利益') && !r.label.toLowerCase().includes('率'));
+
+      // 比較テーブル
+      const comparisonData: Array<{
+        metricKey: string;
+        stage2Label?: string;
+        stage2RawValue?: number;
+        stage2RawUnit?: string;
+        stage6Label?: string;
+        stage6RawValue?: number;
+        stage6Unit?: string;
+        stage6ForecastValue?: number;
+        unitChanged?: string;
+        unitFallback?: string;
+      }> = [];
+
+      // 売上の比較
+      comparisonData.push({
+        metricKey: 'revenue',
+        stage2Label: stage2Revenue?.label,
+        stage2RawValue: stage2Revenue?.base,
+        stage2RawUnit: stage2Revenue?.unit,
+        stage6Label: stage6Revenue?.label,
+        stage6RawValue: stage6Revenue?.base,
+        stage6Unit: stage6Revenue?.unit,
+        stage6ForecastValue: stage6Revenue?.forecastValue,
+        unitChanged: stage2Revenue && stage6Revenue && stage2Revenue.unit !== stage6Revenue.unit
+          ? `${stage2Revenue.unit} → ${stage6Revenue.unit}`
+          : undefined,
+        unitFallback: stage6Revenue && !knownUnits.has(String(stage6Revenue.unit))
+          ? `unknown_unit: ${stage6Revenue.unit}`
+          : undefined,
+      });
+
+      // 営業利益の比較
+      comparisonData.push({
+        metricKey: 'opIncome',
+        stage2Label: stage2OpIncome?.label,
+        stage2RawValue: stage2OpIncome?.base,
+        stage2RawUnit: stage2OpIncome?.unit,
+        stage6Label: stage6OpIncome?.label,
+        stage6RawValue: stage6OpIncome?.base,
+        stage6Unit: stage6OpIncome?.unit,
+        stage6ForecastValue: stage6OpIncome?.forecastValue,
+        unitChanged: stage2OpIncome && stage6OpIncome && stage2OpIncome.unit !== stage6OpIncome.unit
+          ? `${stage2OpIncome.unit} → ${stage6OpIncome.unit}`
+          : undefined,
+        unitFallback: stage6OpIncome && !knownUnits.has(String(stage6OpIncome.unit))
+          ? `unknown_unit: ${stage6OpIncome.unit}`
+          : undefined,
+      });
+
+      // ログ出力
+      console.groupCollapsed('[stage6][task3] North Star 原本 vs 加工後 比較');
+      console.log('Context:', {
+        companyName,
+        scenarioKey,
+        stage2Targets_len: companyTargets.length,
+        stage6Rows_len: northStarRows.length,
+      });
+      console.table(comparisonData);
+
+      // Unit fallback 警告
+      const fallbacks = comparisonData.filter((d) => d.unitFallback);
+      if (fallbacks.length > 0) {
+        console.warn('[stage6][task3] ⚠️ Unit fallback detected:');
+        fallbacks.forEach((d) => {
+          console.warn(`  ${d.metricKey}: ${d.unitFallback}`);
+        });
+      }
+
+      // Unit 変化警告
+      const changes = comparisonData.filter((d) => d.unitChanged);
+      if (changes.length > 0) {
+        console.warn('[stage6][task3] ⚠️ Unit changed from Stage2:');
+        changes.forEach((d) => {
+          console.warn(`  ${d.metricKey}: ${d.unitChanged}`);
+        });
+      }
+
+      if (fallbacks.length === 0 && changes.length === 0) {
+        console.log('✓ Unit consistency OK (no changes, no fallbacks)');
+      }
+
+      console.groupEnd();
+    } catch (e) {
+      console.warn('[TASK-3] North Star比較ログエラー:', e);
+    }
+  }, [isReady, northStarRows, companyTargets, companyName, scenarioKey]);
+
+  // === E-4: グラフデータに Phase E の影響を反映（年次系列に delta 配賦） ===
+  // northStarRows から売上/営業利益の forecast を取得し、年次系列に線形配賦
+  const chartDataWithPhaseE = useMemo(() => {
+    // Phase E の影響なければ元の chartData を返す
+    if (projectTargetImpacts.length === 0 || northStarRows.length === 0) {
+      return chartData;
+    }
+
+    // northStarRows から売上/営業利益の行を探す
+    const revRow = northStarRows.find(
+      (r) => r.label.toLowerCase().includes('売上') && !r.label.toLowerCase().includes('成長')
+    );
+    const opRow = northStarRows.find(
+      (r) => r.label.toLowerCase().includes('営業利益') && !r.label.toLowerCase().includes('率')
+    );
+
+    if (!revRow && !opRow) {
+      return chartData; // Phase E で売上/営業利益が更新されていない
+    }
+
+    // ★ yen ベースの delta を計算
+    let revDeltaYen = 0;
+    let opDeltaYen = 0;
+
+    if (revRow && revRow.forecastValue !== undefined && revRow.base !== undefined) {
+      // revRow.forecastValue は target.unit（例：百万円）
+      // revRow.base も同じ unit
+      // delta = forecastValue - base（同じ単位）
+      const revDeltaDisplay = revRow.forecastValue - revRow.base;
+      // yen に変換
+      revDeltaYen = normalizeValueToUnit(revDeltaDisplay, revRow.unit, 'yen') ?? revDeltaDisplay;
+
+      if (DEBUG) {
+        console.log(`[E-4] Revenue delta: forecastValue=${revRow.forecastValue}, base=${revRow.base}, unit=${revRow.unit}, deltaYen=${revDeltaYen}`);
+      }
+    }
+
+    if (opRow && opRow.forecastValue !== undefined && opRow.base !== undefined) {
+      const opDeltaDisplay = opRow.forecastValue - opRow.base;
+      opDeltaYen = normalizeValueToUnit(opDeltaDisplay, opRow.unit, 'yen') ?? opDeltaDisplay;
+
+      if (DEBUG) {
+        console.log(`[E-4] OP delta: forecastValue=${opRow.forecastValue}, base=${opRow.base}, unit=${opRow.unit}, deltaYen=${opDeltaYen}`);
+      }
+    }
+
+    // 年次系列に線形配賦
+    const years = chartData.map((d) => d.year);
+    const startYear = Math.min(...years);
+    const endYear = Math.max(...years);
+    const yearRange = endYear - startYear;
+
+    // ★Debug: delta 配賦状況
+    if (DEBUG) {
+      console.log(`[E-4] 年次配賦ランプ: startYear=${startYear}, endYear=${endYear}, revDeltaYen=${revDeltaYen}, opDeltaYen=${opDeltaYen}`);
+    }
+
+    return chartData.map((row) => {
+      // 線形ランプ: 0 (startYear) → 1 (endYear)
+      const progress = yearRange > 0 ? (row.year - startYear) / yearRange : 1;
+
+      // ★ yen で delta を配賦、その後 百万円 に変換（表示値）
+      const appliedRevDeltaYen = revDeltaYen * progress;
+      const appliedOpDeltaYen = opDeltaYen * progress;
+
+      return {
+        ...row,
+        // all = baseline + delta（線形配賦）
+        allRevenue: (row.baselineRevenue ?? 0) + appliedRevDeltaYen / 1_000_000, // ★yen→百万円
+        allOp: (row.baselineOp ?? 0) + appliedOpDeltaYen / 1_000_000,           // ★yen→百万円
+      };
+    });
+  }, [northStarRows, chartData, projectTargetImpacts]);
 
   // === F-1: IssueResolution calculation with hybrid logic ===
   // If projectIssueLinks exist, use Phase E; otherwise use existing logic
@@ -624,7 +989,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     issueResolutions,
     vaCards,
     indicatorSeries,
-    chartData,
+    chartData: chartDataWithPhaseE,  // ★Phase E の影響を反映したグラフデータ
     // Supporting data
     financePL,
     companyTargets,
