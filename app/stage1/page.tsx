@@ -6,14 +6,13 @@ import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { restoreWithAudit } from '@/utils/persist/restoreWithAudit';
 
-import CompanyScopePanel from '@/components/stage1/CompanyScopePanel';
-import BusinessSegmentsPanel from '@/components/stage1/BusinessSegmentsPanel';
-import DocumentImportPanel from '@/components/stage1/DocumentImportPanel';
-import FinanceInputPanel from '@/components/stage1/FinanceInputPanel';
+import CompanyAndBusinessPanel from '@/components/stage1/CompanyAndBusinessPanel';
+import FinanceDataPanel from '@/components/stage1/FinanceDataPanel';
 import MetricsPanel from '@/components/stage1/MetricsPanel';
 import Stage1BenchmarkPanel from '@/components/stage1/Stage1BenchmarkPanel';
-import IssueBlockPanel from '@/components/stage1/IssueBlockPanel';
-import Stage2Bridge from '@/components/stage1/Stage2Bridge';
+import Stage1ToStage2Panel from '@/components/stage1/Stage1ToStage2Panel';
+import ListingInfoPanel from '@/components/stage1/ListingInfoPanel';
+import WaccPanel from '@/components/stage1/WaccPanel';
 
 type SaveState = 'idle' | 'saving' | 'success' | 'error';
 type TabType = 'input' | 'analysis';
@@ -435,28 +434,32 @@ export default function Stage1Page() {
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-900">
             <div className="font-semibold mb-1">入力画面でやること</div>
             <div className="text-xs leading-relaxed">
-              1. 企業情報の入力
+              1. 企業情報・事業内容の入力
               <br />
-              2. 事業内容の入力
+              2. 会社全体、事業別のBS/PLの入力
               <br />
-              3. 会社全体、事業別のBS/PLの入力
+              3. 上場情報・ベンチマーク・WACC（任意）の入力
             </div>
           </div>
 
-          <SectionCard title="① 企業情報の入力" defaultOpen={false}>
-            <CompanyScopePanel />
+          <SectionCard title="① 企業情報・事業内容" defaultOpen={false}>
+            <CompanyAndBusinessPanel />
           </SectionCard>
 
-          <SectionCard title="② 事業内容の入力" defaultOpen={false}>
-            <BusinessSegmentsPanel />
+          <SectionCard title="② 財務データ（読込・手入力）" defaultOpen={false}>
+            <FinanceDataPanel />
           </SectionCard>
 
-          <SectionCard title="③ 財務データの読込み" defaultOpen={false}>
-            <DocumentImportPanel />
-          </SectionCard>
-
-          <SectionCard title="④ 財務データの手入力" defaultOpen={false}>
-            <FinanceInputPanel />
+          <SectionCard title="③ 上場情報・外部ベンチマーク・WACC（任意）" defaultOpen={false}>
+            <div className="space-y-6">
+              <ListingInfoPanel />
+              <div className="border-t border-gray-200 pt-4">
+                <Stage1BenchmarkPanel />
+              </div>
+              <div className="border-t border-gray-200 pt-4">
+                <WaccPanel />
+              </div>
+            </div>
           </SectionCard>
         </div>
       )}
@@ -469,11 +472,7 @@ export default function Stage1Page() {
             <div className="text-xs leading-relaxed">
               1. 「財務指標」で計算結果を確認
               <br />
-              2. 「外部ベンチマーク」を入力して業界比較
-              <br />
-              3. 「論点整理」で経営課題・機会を抽出
-              <br />
-              4. 「STAGE2へ」で次フェーズへ
+              2. 「論点整理」で経営課題・機会を抽出し、「STAGE2へ」進む
             </div>
           </div>
 
@@ -481,16 +480,8 @@ export default function Stage1Page() {
             <MetricsPanel />
           </SectionCard>
 
-          <SectionCard title="② 外部ベンチマーク（任意）" defaultOpen={false}>
-            <Stage1BenchmarkPanel />
-          </SectionCard>
-
-          <SectionCard title="③ 論点整理（STAGE2への接続点）" defaultOpen={false}>
-            <IssueBlockPanel />
-          </SectionCard>
-
-          <SectionCard title="④ STAGE2へ" defaultOpen={false}>
-            <Stage2Bridge />
+          <SectionCard title="② 論点整理 + STAGE2へ" defaultOpen={false}>
+            <Stage1ToStage2Panel />
           </SectionCard>
         </div>
       )}
