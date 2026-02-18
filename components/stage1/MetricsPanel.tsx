@@ -664,10 +664,6 @@ export default function MetricsPanel() {
 
   const segmentPL = useStrategyStore((s) => ((s as any).segmentPL ?? EMPTY_SEG_PL) as Record<string, FinancePLRow[]>);
 
-  const isListed = useStrategyStore((s) => !!(s as any).isListed);
-  const ticker = useStrategyStore((s) => ((s as any).ticker ?? '') as string);
-  const pbrManual = useStrategyStore((s) => ((s as any).pbrManual ?? '') as string);
-
   const valueAnalysis = useStrategyStore((s) => (s as any).valueAnalysis as ValueAnalysis | undefined);
   const segmentValueAnalysisRaw = useStrategyStore((s) => (s as any).segmentValueAnalysis as Record<string, ValueAnalysis> | undefined);
   const businessSegments = useStrategyStore((s) => (((s as any).businessSegments ?? EMPTY_SEGMENTS) as BusinessSegment[]));
@@ -686,63 +682,10 @@ export default function MetricsPanel() {
     });
   }
 
-  const setProfile = useStrategyStore((s) => (s as any).setProfile as ((p: any) => void) | undefined);
-  const setPbrManual = useStrategyStore((s) => (s as any).setPbrManual as ((v: string) => void) | undefined);
   const recomputeValueAnalysis = useStrategyStore((s) => (s as any).recomputeValueAnalysis as ((src?: any) => void) | undefined);
 
-  const [pbrFetchState, setPbrFetchState] = useState<PbrFetchState>('idle');
-  const [pbrFetchMessage, setPbrFetchMessage] = useState<string>('');
   const [analysisMessage, setAnalysisMessage] = useState<string>('');
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>('idle');
-
-  const handlePbrManualChange = useCallback(
-    (e: ChangeEvent<HTMLInputElement>) => {
-      const v = e.target.value;
-      if (DEBUG) console.log('[MetricsPanel] handlePbrManualChange:', { v, hasPbrManual: !!setPbrManual, hasSetProfile: !!setProfile });
-      if (setPbrManual) setPbrManual(v);
-      if (setProfile) setProfile({ pbrManual: v });
-    },
-    [setProfile, setPbrManual],
-  );
-
-  const handleFetchPbr = useCallback(async () => {
-    if (!ticker) {
-      setPbrFetchMessage('ティッカーを先に入力してください');
-      setPbrFetchState('error');
-      return;
-    }
-
-    setPbrFetchState('loading');
-    setPbrFetchMessage('');
-
-    try {
-      const res = await fetch(`/api/market/pbr?ticker=${encodeURIComponent(ticker)}`);
-      const data = await res.json();
-
-      if (!res.ok) {
-        setPbrFetchMessage(data.error || 'API error');
-        setPbrFetchState('error');
-        return;
-      }
-
-      if (data.pbr === null) {
-        setPbrFetchMessage(data.message || 'データが見つかりません');
-        setPbrFetchState('error');
-        return;
-      }
-
-      const v = String(data.pbr);
-      if (DEBUG) console.log('[MetricsPanel] PBR fetched:', { v, hasPbrManual: !!setPbrManual, hasSetProfile: !!setProfile });
-      if (setPbrManual) setPbrManual(v);
-      if (setProfile) setProfile({ pbrManual: v });
-
-      setPbrFetchMessage(`PBR: ${data.pbr}（${data.isStub ? 'スタブAPI' : '取得成功'}）`);
-      setPbrFetchState('success');
-    } catch {
-      setPbrFetchMessage('通信エラー');
-      setPbrFetchState('error');
-    }
-  }, [ticker, setProfile, setPbrManual]);
 
   const handleRecompute = useCallback(() => {
     if (!recomputeValueAnalysis) {
@@ -901,47 +844,6 @@ export default function MetricsPanel() {
         <button onClick={handleRecompute} className="px-4 py-2 text-sm font-semibold bg-blue-600 text-white rounded hover:bg-blue-700 transition">
           分析を更新
         </button>
-      </div>
-
-      {/* 上場情報 */}
-      <div className="border rounded p-4 mb-6 space-y-3">
-        <div className="font-semibold">上場情報</div>
-        <div className="text-sm text-gray-600">
-          上場企業の場合はティッカー等を記録しておくと、市場データ連携が容易になります（現時点では手入力でも可）。
-        </div>
-
-        <div className="flex flex-wrap gap-4 items-end">
-          <div>
-            <label className="block text-sm font-medium mb-1">上場企業</label>
-            <div className="text-sm">{isListed ? 'Yes' : 'No'}</div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">ティッカー（任意）</label>
-            <div className="text-sm">{ticker || '—'}</div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">PBR（手入力・任意）</label>
-            <div className="flex gap-2 items-center">
-              <input className="border px-3 py-2 w-24" value={pbrManual} onChange={handlePbrManualChange} placeholder="例：1.2" />
-              <button
-                onClick={handleFetchPbr}
-                disabled={pbrFetchState === 'loading' || !ticker}
-                className={`px-3 py-2 text-sm rounded transition ${
-                  pbrFetchState === 'loading' || !ticker ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'
-                }`}
-              >
-                {pbrFetchState === 'loading' ? '取得中...' : 'API取得'}
-              </button>
-            </div>
-
-            {pbrFetchMessage && (
-              <div className={`text-xs mt-1 ${pbrFetchState === 'error' ? 'text-red-500' : 'text-green-600'}`}>{pbrFetchMessage}</div>
-            )}
-            <div className="text-xs text-gray-500 mt-1">単位：倍（例 1.2）</div>
-          </div>
-        </div>
       </div>
 
       {/* 全社合算（年次） */}
