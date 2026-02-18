@@ -421,6 +421,38 @@ export type StrategyState = {
   upsertSegmentBS: (segName: string, rows: SegmentBSRow[]) => void;
   setBusinessSegmentsWithSync: (segments: BusinessSegment[]) => void;
 
+  /* ★ 年度CRUD（全社） */
+  addFinanceYear: (year?: number) => void;
+  renameFinanceYear: (oldYear: number, newYear: number) => boolean; // 重複なら false
+  removeFinanceYear: (year: number) => void;
+  updateFinancePLCell: <K extends keyof FinancePLRow>(
+    year: number,
+    key: K,
+    value: FinancePLRow[K]
+  ) => void;
+  updateFinanceBSCell: <K extends keyof FinanceBSRow>(
+    year: number,
+    key: K,
+    value: FinanceBSRow[K]
+  ) => void;
+
+  /* ★ 年度CRUD（事業部別） */
+  addSegmentFinanceYear: (segmentName: string, year?: number) => void;
+  renameSegmentFinanceYear: (segmentName: string, oldYear: number, newYear: number) => boolean;
+  removeSegmentFinanceYear: (segmentName: string, year: number) => void;
+  updateSegmentPLCell: <K extends keyof FinancePLRow>(
+    segmentName: string,
+    year: number,
+    key: K,
+    value: FinancePLRow[K]
+  ) => void;
+  updateSegmentBSCell: <K extends keyof SegmentBSRow>(
+    segmentName: string,
+    year: number,
+    key: K,
+    value: SegmentBSRow[K]
+  ) => void;
+
   setMVV: (patch: Partial<Pick<StrategyState, 'thought' | 'mission' | 'vision' | 'value' | 'ceoIntent'>>) => void;
   setSWOT: (patch: Partial<Pick<StrategyState, 'strength' | 'weakness' | 'opportunity' | 'threat'>>) => void;
   setCeoIntent: (text: string) => void;
@@ -560,6 +592,112 @@ function sanitizeProjectIssueLinks(links: any): any[] {
     if (![1, 2, 3].includes(strength)) return false;
     return true;
   });
+}
+
+/* ===== 年度管理ユーティリティ ===== */
+
+/** 年度配列をソート（昇順） */
+function sortFinanceYears<T extends { year: number }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => a.year - b.year);
+}
+
+/** 全社PL/BSに年度を追加（最大年+1またはデフォルト） */
+function addYearToFinanceRows<T extends { year: number }>(
+  plRows: T[],
+  bsRows: T[],
+  yearOverride?: number
+): { pl: T[]; bs: T[] } {
+  // yearOverride がなければ、現在の最大年+1、またはデフォルト値（e.g., 今年）
+  let targetYear = yearOverride;
+  if (!targetYear) {
+    const allYears = [...plRows, ...bsRows].map((r) => r.year);
+    const maxYear = allYears.length > 0 ? Math.max(...allYears) : new Date().getFullYear() - 1;
+    targetYear = maxYear + 1;
+  }
+
+  // 重複チェック
+  if (plRows.some((r) => r.year === targetYear) || bsRows.some((r) => r.year === targetYear)) {
+    console.warn('[strategyStore] addYearToFinanceRows: year already exists', { targetYear });
+    return { pl: plRows, bs: bsRows };
+  }
+
+  // 新規行を追加（全てのフィールドは undefined）
+  const newRow: any = { year: targetYear };
+  const newPL = sortFinanceYears([...plRows, newRow]);
+  const newBS = sortFinanceYears([...bsRows, newRow]);
+
+  return { pl: newPL, bs: newBS };
+}
+
+/** 全社PL/BSから年度を削除 */
+function removeYearFromFinanceRows<T extends { year: number }>(
+  plRows: T[],
+  bsRows: T[],
+  year: number
+): { pl: T[]; bs: T[] } {
+  return {
+    pl: plRows.filter((r) => r.year !== year),
+    bs: bsRows.filter((r) => r.year !== year),
+  };
+}
+
+/** 全社PL/BSの年度を変更（重複チェック） */
+function renameYearInFinanceRows<T extends { year: number }>(
+  plRows: T[],
+  bsRows: T[],
+  oldYear: number,
+  newYear: number
+): { pl: T[] | null; bs: T[] | null } {
+  // oldYear と newYear が同じ or newYear が既に存在 → 拒否
+  if (oldYear === newYear ||
+      plRows.some((r) => r.year === newYear) ||
+      bsRows.some((r) => r.year === newYear)) {
+    return { pl: null, bs: null };
+  }
+
+  const newPL = sortFinanceYears(
+    plRows.map((r) => (r.year === oldYear ? { ...r, year: newYear } : r))
+  );
+  const newBS = sortFinanceYears(
+    bsRows.map((r) => (r.year === oldYear ? { ...r, year: newYear } : r))
+  );
+
+  return { pl: newPL, bs: newBS };
+}
+
+/** セグメントの年度配列に行を追加 */
+function addYearToSegmentRows<T extends { year: number }>(rows: T[], yearOverride?: number): T[] {
+  let targetYear = yearOverride;
+  if (!targetYear) {
+    const maxYear = rows.length > 0 ? Math.max(...rows.map((r) => r.year)) : new Date().getFullYear() - 1;
+    targetYear = maxYear + 1;
+  }
+
+  if (rows.some((r) => r.year === targetYear)) {
+    console.warn('[strategyStore] addYearToSegmentRows: year already exists', { targetYear });
+    return rows;
+  }
+
+  const newRow: any = { year: targetYear };
+  return sortFinanceYears([...rows, newRow]);
+}
+
+/** セグメントの年度配列から行を削除 */
+function removeYearFromSegmentRows<T extends { year: number }>(rows: T[], year: number): T[] {
+  return rows.filter((r) => r.year !== year);
+}
+
+/** セグメントの年度配列で年度を変更（重複チェック） */
+function renameYearInSegmentRows<T extends { year: number }>(
+  rows: T[],
+  oldYear: number,
+  newYear: number
+): T[] | null {
+  if (oldYear === newYear || rows.some((r) => r.year === newYear)) {
+    return null;
+  }
+
+  return sortFinanceYears(rows.map((r) => (r.year === oldYear ? { ...r, year: newYear } : r)));
 }
 
 /** 保存用ペイロード組み立て（StrategyData相当） */
@@ -997,6 +1135,20 @@ const emptyData: StrategyState = {
   upsertSegmentPL: () => {},
   upsertSegmentBS: () => {},
   setBusinessSegmentsWithSync: () => {},
+
+  /* ★ 年度CRUD（全社） */
+  addFinanceYear: () => {},
+  renameFinanceYear: () => false,
+  removeFinanceYear: () => {},
+  updateFinancePLCell: () => {},
+  updateFinanceBSCell: () => {},
+
+  /* ★ 年度CRUD（事業部別） */
+  addSegmentFinanceYear: () => {},
+  renameSegmentFinanceYear: () => false,
+  removeSegmentFinanceYear: () => {},
+  updateSegmentPLCell: () => {},
+  updateSegmentBSCell: () => {},
 
   setMVV: () => {},
   setSWOT: () => {},
@@ -2162,6 +2314,182 @@ export const useStrategyStore = create<StrategyState>()(
         }));
 
         setTimeout(() => get().recomputeValueAnalysis('setBusinessSegments'), 0);
+      },
+
+      /* ★ 年度CRUD（全社） */
+      addFinanceYear: (year?: number) => {
+        set((s) => {
+          const { pl, bs } = addYearToFinanceRows(s.financePL ?? [], s.financeBS ?? [], year);
+          return {
+            ...s,
+            financePL: pl,
+            financeBS: bs,
+            dirty: true,
+          };
+        });
+        setTimeout(() => get().recomputeValueAnalysis('setFinancePL'), 0);
+      },
+
+      renameFinanceYear: (oldYear: number, newYear: number) => {
+        const s = get();
+        const { pl, bs } = renameYearInFinanceRows(s.financePL ?? [], s.financeBS ?? [], oldYear, newYear);
+        if (pl === null || bs === null) {
+          console.warn('[strategyStore] renameFinanceYear failed: duplicate year or oldYear not found', { oldYear, newYear });
+          return false;
+        }
+        set((state) => ({
+          ...state,
+          financePL: pl,
+          financeBS: bs,
+          dirty: true,
+        }));
+        setTimeout(() => get().recomputeValueAnalysis('setFinancePL'), 0);
+        return true;
+      },
+
+      removeFinanceYear: (year: number) => {
+        set((s) => {
+          const { pl, bs } = removeYearFromFinanceRows(s.financePL ?? [], s.financeBS ?? [], year);
+          return {
+            ...s,
+            financePL: pl,
+            financeBS: bs,
+            dirty: true,
+          };
+        });
+        setTimeout(() => get().recomputeValueAnalysis('setFinancePL'), 0);
+      },
+
+      updateFinancePLCell: (year, key, value) => {
+        set((s) => {
+          const rows = s.financePL ?? [];
+          const idx = rows.findIndex((r) => r.year === year);
+          if (idx < 0) {
+            console.warn('[strategyStore] updateFinancePLCell: year not found', { year });
+            return s;
+          }
+          const newRows = [...rows];
+          newRows[idx] = { ...newRows[idx], [key]: value };
+          return { ...s, financePL: newRows, dirty: true };
+        });
+        setTimeout(() => get().recomputeValueAnalysis('setFinancePL'), 0);
+      },
+
+      updateFinanceBSCell: (year, key, value) => {
+        set((s) => {
+          const rows = s.financeBS ?? [];
+          const idx = rows.findIndex((r) => r.year === year);
+          if (idx < 0) {
+            console.warn('[strategyStore] updateFinanceBSCell: year not found', { year });
+            return s;
+          }
+          const newRows = [...rows];
+          newRows[idx] = { ...newRows[idx], [key]: value };
+          return { ...s, financeBS: newRows, dirty: true };
+        });
+        setTimeout(() => get().recomputeValueAnalysis('setFinanceBS'), 0);
+      },
+
+      /* ★ 年度CRUD（事業部別） */
+      addSegmentFinanceYear: (segmentName: string, year?: number) => {
+        set((s) => {
+          const segPL = (s.segmentPL ?? {})[segmentName] ?? [];
+          const segBS = (s.segmentBS ?? {})[segmentName] ?? [];
+
+          const newSegPL = addYearToSegmentRows(segPL, year);
+          const newSegBS = addYearToSegmentRows(segBS, year);
+
+          return {
+            ...s,
+            segmentPL: { ...(s.segmentPL ?? {}), [segmentName]: newSegPL },
+            segmentBS: { ...(s.segmentBS ?? {}), [segmentName]: newSegBS },
+            dirty: true,
+          };
+        });
+        setTimeout(() => get().recomputeValueAnalysis('setSegmentPL'), 0);
+      },
+
+      renameSegmentFinanceYear: (segmentName: string, oldYear: number, newYear: number) => {
+        const s = get();
+        const segPL = (s.segmentPL ?? {})[segmentName] ?? [];
+        const segBS = (s.segmentBS ?? {})[segmentName] ?? [];
+
+        const newSegPL = renameYearInSegmentRows(segPL, oldYear, newYear);
+        const newSegBS = renameYearInSegmentRows(segBS, oldYear, newYear);
+
+        if (newSegPL === null || newSegBS === null) {
+          console.warn('[strategyStore] renameSegmentFinanceYear failed: duplicate year or oldYear not found', {
+            segmentName,
+            oldYear,
+            newYear,
+          });
+          return false;
+        }
+
+        set((state) => ({
+          ...state,
+          segmentPL: { ...(state.segmentPL ?? {}), [segmentName]: newSegPL },
+          segmentBS: { ...(state.segmentBS ?? {}), [segmentName]: newSegBS },
+          dirty: true,
+        }));
+        setTimeout(() => get().recomputeValueAnalysis('setSegmentPL'), 0);
+        return true;
+      },
+
+      removeSegmentFinanceYear: (segmentName: string, year: number) => {
+        set((s) => {
+          const segPL = (s.segmentPL ?? {})[segmentName] ?? [];
+          const segBS = (s.segmentBS ?? {})[segmentName] ?? [];
+
+          const newSegPL = removeYearFromSegmentRows(segPL, year);
+          const newSegBS = removeYearFromSegmentRows(segBS, year);
+
+          return {
+            ...s,
+            segmentPL: { ...(s.segmentPL ?? {}), [segmentName]: newSegPL },
+            segmentBS: { ...(s.segmentBS ?? {}), [segmentName]: newSegBS },
+            dirty: true,
+          };
+        });
+        setTimeout(() => get().recomputeValueAnalysis('setSegmentPL'), 0);
+      },
+
+      updateSegmentPLCell: (segmentName: string, year: number, key, value) => {
+        set((s) => {
+          const rows = (s.segmentPL ?? {})[segmentName] ?? [];
+          const idx = rows.findIndex((r) => r.year === year);
+          if (idx < 0) {
+            console.warn('[strategyStore] updateSegmentPLCell: year not found', { segmentName, year });
+            return s;
+          }
+          const newRows = [...rows];
+          newRows[idx] = { ...newRows[idx], [key]: value };
+          return {
+            ...s,
+            segmentPL: { ...(s.segmentPL ?? {}), [segmentName]: newRows },
+            dirty: true,
+          };
+        });
+        setTimeout(() => get().recomputeValueAnalysis('setSegmentPL'), 0);
+      },
+
+      updateSegmentBSCell: (segmentName: string, year: number, key, value) => {
+        set((s) => {
+          const rows = (s.segmentBS ?? {})[segmentName] ?? [];
+          const idx = rows.findIndex((r) => r.year === year);
+          if (idx < 0) {
+            console.warn('[strategyStore] updateSegmentBSCell: year not found', { segmentName, year });
+            return s;
+          }
+          const newRows = [...rows];
+          newRows[idx] = { ...newRows[idx], [key]: value };
+          return {
+            ...s,
+            segmentBS: { ...(s.segmentBS ?? {}), [segmentName]: newRows },
+            dirty: true,
+          };
+        });
+        setTimeout(() => get().recomputeValueAnalysis('setSegmentBS'), 0);
       },
 
       setMVV: (patch) => set((s) => ({ ...s, ...patch, dirty: true })),
