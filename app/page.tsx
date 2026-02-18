@@ -87,7 +87,7 @@ export default function Home() {
                 text-neutral-600 dark:text-neutral-300
               "
             >
-              戦略・行動・成果を回し続ける経営プラットフォーム
+              戦略・行動・成果を組織で動かす経営プラットフォーム
             </motion.p>
 
             {/* CTA（既存機能維持） */}
