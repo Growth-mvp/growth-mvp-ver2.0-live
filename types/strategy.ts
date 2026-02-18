@@ -979,6 +979,10 @@ export type Stage1Benchmarks = {
 
   /** 競合B */
   competitorB?: BenchmarkTarget;
+
+  /** ★ WACC（加重平均資本コスト） */
+  waccManual?: number; // %
+  waccRationale?: string; // 計算根拠・備考
 };
 
 /* =========================================================
