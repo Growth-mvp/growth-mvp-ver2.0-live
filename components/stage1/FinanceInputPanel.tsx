@@ -4,6 +4,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import type { FinancePLRow, FinanceBSRow, SegmentBSRow, BusinessSegment } from '@/types/strategy';
+import { FinanceYearEditorTable } from './FinanceYearEditorTable';
 
 /* =========================================================
  * 安定した空参照（selector で ?? [] / ?? {} を使わないため）
@@ -736,29 +737,8 @@ export default function FinanceInputPanel() {
 
   return (
     <section className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold mb-2">財務データ入力（過去5年）</h2>
-        <p className="text-sm text-gray-600">
-          全社PL/BSを入力すると、企業価値指標（ROIC等）が自動計算されます。
-          事業セグメントを定義している場合は、事業部別データも入力できます。
-        </p>
-      </div>
-
-      <Accordion
-        title="全社PL（損益計算書）"
-        defaultOpen={true}
-        badge={<span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">必須</span>}
-      >
-        <CompanyPLTable years={years} data={financePL} onChange={setFinancePL} />
-      </Accordion>
-
-      <Accordion
-        title="全社BS（貸借対照表）"
-        defaultOpen={true}
-        badge={<span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">必須</span>}
-      >
-        <CompanyBSTable years={years} data={financeBS} onChange={setFinanceBS} />
-      </Accordion>
+      {/* 全社PL/BS は統合エディタで管理 */}
+      <FinanceYearEditorTable />
 
       {displaySegments.length > 0 && (
         <div className="space-y-4">
