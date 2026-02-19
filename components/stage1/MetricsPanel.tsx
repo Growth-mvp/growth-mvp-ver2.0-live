@@ -307,6 +307,48 @@ function MetricCard({ label, value, sub }: { label: string; value: string; sub?:
   );
 }
 
+/* ===============================
+ * Accordion（折りたたみコンポーネント）
+ * =============================== */
+
+function Accordion({
+  title,
+  defaultOpen = false,
+  children,
+  badge,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+  badge?: React.ReactNode;
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  return (
+    <div className="border border-gray-200 rounded-lg overflow-hidden mb-6">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition"
+      >
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-sm">{title}</span>
+          {badge}
+        </div>
+        <svg
+          className={`w-5 h-5 text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {isOpen && <div className="p-4 bg-white">{children}</div>}
+    </div>
+  );
+}
+
 type SegmentTableProps = {
   segments: Record<string, ValueAnalysis>;
   orderedNames: string[];
@@ -665,6 +707,27 @@ export default function MetricsPanel() {
   const segmentPL = useStrategyStore((s) => ((s as any).segmentPL ?? EMPTY_SEG_PL) as Record<string, FinancePLRow[]>);
 
   const valueAnalysis = useStrategyStore((s) => (s as any).valueAnalysis as ValueAnalysis | undefined);
+
+  const waccInputPct = useStrategyStore((s) => {
+    const anyS = s as any;
+    const candidates = [
+      anyS?.stage1Benchmarks?.waccManual,
+      anyS?.stage1Inputs?.waccPct,
+      anyS?.stage1Inputs?.wacc,
+      anyS?.companyTarget?.waccPct,
+      anyS?.companyTarget?.wacc,
+      anyS?.metricsSummary?.waccPct,
+      anyS?.metricsSummary?.wacc,
+      anyS?.waccPct,
+      anyS?.wacc,
+    ];
+    for (const v of candidates) {
+      const n = typeof v === 'string' ? Number(v) : v;
+      if (Number.isFinite(n) && n > 0) return n as number;
+    }
+    return undefined;
+  });
+
   const segmentValueAnalysisRaw = useStrategyStore((s) => (s as any).segmentValueAnalysis as Record<string, ValueAnalysis> | undefined);
   const businessSegments = useStrategyStore((s) => (((s as any).businessSegments ?? EMPTY_SEGMENTS) as BusinessSegment[]));
 
@@ -815,10 +878,13 @@ export default function MetricsPanel() {
   const operatingMarginPctLatest = (valueAnalysis as any)?.operatingMarginPctLatest;
   const debtEquityRatio = (valueAnalysis as any)?.debtEquityRatio;
   const roic = (valueAnalysis as any)?.roic;
+  const waccPct = (valueAnalysis as any)?.waccPct ?? waccInputPct;
+  const roicWaccSpread =
+    typeof roic === 'number' && typeof waccPct === 'number' ? (roic as number) - (waccPct as number) : undefined;
   const roe = (valueAnalysis as any)?.roe;
   const roa = (valueAnalysis as any)?.roa;
   const per = (valueAnalysis as any)?.per;
-  const pbr = (valueAnalysis as any)?.pbr ?? (pbrManual ? toNumber(pbrManual) : undefined);
+  const pbr = (valueAnalysis as any)?.pbr;
 
   return (
     <section>
@@ -846,11 +912,58 @@ export default function MetricsPanel() {
         </button>
       </div>
 
-      {/* 全社合算（年次） */}
+      {/* 企業価値の現在地（最重要指標） */}
+      <div className="border-2 border-blue-500 rounded-lg p-6 mb-6 bg-gradient-to-br from-blue-50 to-white">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="text-lg font-bold text-blue-900">企業価値の現在地</div>
+          <div className="text-xs text-gray-500">（最重要指標）</div>
+        </div>
+        <div className="text-sm text-gray-600 mb-4">
+          企業価値創造の観点から最も重要な4つの指標です。意思決定の基準としてご活用ください。
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <MetricCard
+            label="ROIC"
+            value={fmtPct(roic, 2)}
+            sub="資本効率（投下資本に対する収益性）"
+          />
+          <MetricCard
+            label="WACC（入力）"
+            value={waccPct != null ? fmtPct(waccPct, 2) : '—'}
+            sub="入力タブの資本コスト"
+          />
+          <MetricCard
+            label="価値創造スプレッド（ROIC−WACC）"
+            value={roicWaccSpread != null ? `${roicWaccSpread.toFixed(2)}pt` : '—'}
+            sub="プラスなら価値創造"
+          />
+          <MetricCard
+            label="PBR"
+            value={pbr != null ? fmtNum(toNumber(pbr)) : '—'}
+            sub="単位：倍"
+          />
+        </div>
+        {waccPct == null && (
+          <div className="mt-4 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-3">
+            WACC（資本コスト）が未入力です。「企業価値分析の入力」タブで WACC を設定すると、ROIC−WACC（価値創造/毀損）の判定ができます。
+          </div>
+        )}
+      </div>
+
+      {/* 根拠（トレンド） - 折りたたみ */}
       {companyAgg.length > 0 ? (
-        <div className="border rounded p-4 mb-6">
-          <div className="font-semibold mb-2">全社合算（年次）</div>
-          <div className="text-sm text-gray-600 mb-3">最新年（{latest?.year}年）の状態を表示します。</div>
+        <Accordion
+          title="根拠となる財務トレンドを見る（全社合算・年次）"
+          defaultOpen={false}
+          badge={
+            <span className="text-xs px-2 py-0.5 bg-gray-200 text-gray-700 rounded">
+              {companyAgg.length}年分
+            </span>
+          }
+        >
+          <div className="text-sm text-gray-600 mb-3">
+            最新年（{latest?.year}年）の状態を表示します。
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
             <MetricCard label="売上高（最新年）" value={latest ? fmtJPY(latest.revenue) : '—'} sub="単位：百万円（想定）" />
@@ -896,7 +1009,7 @@ export default function MetricsPanel() {
               売上CAGRが計算できません（売上が正の年次が2年分以上必要です）。
             </div>
           )}
-        </div>
+        </Accordion>
       ) : (
         <div className="bg-gray-50 border border-dashed border-gray-300 rounded-lg p-6 mb-6 text-center">
           <p className="text-gray-500 text-sm">
@@ -905,23 +1018,19 @@ export default function MetricsPanel() {
         </div>
       )}
 
-      {/* 全社 ValueAnalysis */}
+      {/* 全社 ValueAnalysis（その他の指標） */}
       <div className="border rounded p-4 mb-6">
-        <div className="font-semibold mb-2">全社 ValueAnalysis（現在の状態）</div>
-        <div className="text-sm text-gray-600 mb-4">財務データ・BS情報・PBR手入力から自動計算されます。</div>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-          <MetricCard label="営業利益率（最新年）" value={fmtPct(operatingMarginPctLatest)} />
-          <MetricCard label="売上CAGR（期間）" value={revenueCagrDisplay != null ? `${revenueCagrDisplay.toFixed(1)}%` : '—'} sub={`期間: ${spanText}`} />
-          <MetricCard label="D/Eレシオ" value={fmtNum(debtEquityRatio)} />
-          <MetricCard label="ROIC" value={fmtPct(roic, 2)} />
-        </div>
+        <div className="font-semibold mb-2">全社 ValueAnalysis（その他の指標）</div>
+        <div className="text-sm text-gray-600 mb-4">財務データ・BS情報から自動計算される補助的な指標です。</div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <MetricCard label="売上CAGR（期間）" value={revenueCagrDisplay != null ? `${revenueCagrDisplay.toFixed(1)}%` : '—'} sub={`期間: ${spanText}`} />
+          <MetricCard label="D/Eレシオ" value={fmtNum(debtEquityRatio)} />
           <MetricCard label="ROE" value={fmtPct(roe, 2)} />
           <MetricCard label="ROA" value={fmtPct(roa, 2)} />
           <MetricCard label="PER" value={per != null ? fmtNum(toNumber(per)) : '—'} sub="単位：倍" />
-          <MetricCard label="PBR" value={pbr != null ? fmtNum(toNumber(pbr)) : '—'} sub="単位：倍" />
+          <MetricCard label="営業利益（最新年）" value={latest ? fmtJPY(latest.operatingIncome) : '—'} sub="百万円（想定）" />
+          <MetricCard label="売上高（最新年）" value={latest ? fmtJPY(latest.revenue) : '—'} sub="百万円（想定）" />
         </div>
       </div>
 
@@ -959,9 +1068,9 @@ export default function MetricsPanel() {
             <div>financePL_len: {Array.isArray(financePL) ? financePL.length : 0}</div>
             <div>financeBS_len: {Array.isArray(financeBS) ? financeBS.length : 0}</div>
             <div>businessSegments_len: {Array.isArray(businessSegments) ? businessSegments.length : 0}</div>
-            <div>segmentPL_keys: {segmentPL ? Object.keys(segmentPL).length : 0}</div>
-            <div>segmentValueAnalysis_raw_keys: {segmentValueAnalysisRaw ? Object.keys(segmentValueAnalysisRaw).length : 0}</div>
-            <div>segmentValueAnalysis_effective_keys: {segmentValueAnalysis ? Object.keys(segmentValueAnalysis).length : 0}</div>
+            <div>segmentPL_keys: {Object.keys(segmentPL ?? {}).length}</div>
+            <div>segmentValueAnalysis_raw_keys: {Object.keys(segmentValueAnalysisRaw ?? {}).length}</div>
+            <div>segmentValueAnalysis_effective_keys: {Object.keys(segmentValueAnalysis ?? {}).length}</div>
             <div>orderedSegNames: {orderedSegNames.join(', ') || '—'}</div>
           </div>
         )}
