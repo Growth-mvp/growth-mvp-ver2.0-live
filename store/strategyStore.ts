@@ -189,6 +189,9 @@ export type StrategyState = {
   /* STAGE1：論点整理（Issue Block） */
   stage1Issues?: Stage1IssueBlock[];
 
+  /* STAGE1：外部ベンチマーク（任意入力） */
+  stage1Benchmarks?: Stage1Benchmarks;
+
   /* MVV / SWOT */
   thought?: string;
   mission?: string;
@@ -342,6 +345,7 @@ export type StrategyState = {
         | 'valueAnalysis'
         | 'segmentValueAnalysis'
         | 'stage1Issues'
+        | 'stage1Benchmarks'
       >
     >
   ) => void;
