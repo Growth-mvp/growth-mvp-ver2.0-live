@@ -4,7 +4,6 @@
 import { useState, useMemo } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import DocumentImportPanel from './DocumentImportPanel';
-import FinanceInputPanel from './FinanceInputPanel';
 import { FinanceYearEditorTable } from './FinanceYearEditorTable';
 
 type FinanceDataMode = 'import' | 'manual';
@@ -63,9 +62,17 @@ export default function FinanceDataPanel() {
 
         {/* パネルの切り替え */}
         {mode === 'import' && <DocumentImportPanel />}
-        {mode === 'manual' && <FinanceInputPanel />}
 
-        {/* 常に表示：全社財務データテーブル */}
+        {/* 手入力タブ：説明文のみ */}
+        {mode === 'manual' && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+            <p className="text-sm text-blue-800">
+              下の編集テーブルで年度別のPL/BSを直接入力できます。ドラッグして範囲選択、Ctrl+Cでコピー、矢印キーで移動が可能です。
+            </p>
+          </div>
+        )}
+
+        {/* 常に表示：全社財務データテーブル（編集UI一本化） */}
         <div className="mt-6 pt-6 border-t border-gray-200">
           <FinanceYearEditorTable mode="company" />
         </div>
