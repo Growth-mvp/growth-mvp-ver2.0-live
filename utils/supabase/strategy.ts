@@ -290,7 +290,10 @@ function deepMergePreserveNonEmpty(target: any, incoming: any): any {
         out[k] = deepMergePreserveNonEmpty(prev, v);
       }
     } else {
-      out[k] = isEmptyLike(v) ? prev : v;
+      // ★ 修正：空文字列 "" は「意図的な削除」として解釈し、その他の empty-like は既存値を保持
+      // 例：ticker を空文字列で送信した場合、ticker を削除する（DB に保存時）
+      // 一方、配列が [] の場合は既存の配列を保持する（データロス防止）
+      out[k] = isEmptyLike(v) && typeof v !== 'string' ? prev : v;
     }
   }
   return out;
@@ -429,6 +432,7 @@ const FIELD_MAP: Record<string, string> = {
   isListed: 'is_listed',  // ★ 修正：上場フラグを追加
   ticker: 'ticker',  // ★ 修正：証券コードを追加
   pbrManual: 'pbr_manual',  // ★ 修正：PBR手入力を追加
+  stage1Benchmarks: 'stage1_benchmarks',  // ★ 修正：ベンチマーク・WACC を保存対象に追加
   story: 'story',
   finalStory: 'final_story',
   finalStoryDraft: 'final_story_draft',  // ★ 追加：最終ストーリー ドラフト版（3段階編集用）
@@ -499,6 +503,10 @@ function buildDbRowFromState(state: StrategyData) {
     if (snake === 'departments') v = ensureArray(v);
     if (snake === 'simulation_results') v = ensureArray(v);
     if (snake === 'stage1_issues') v = ensureArray(v);  // ★ 修正：stage1_issues は配列
+    if (snake === 'stage1_benchmarks') {
+      // stage1Benchmarks はオブジェクト（benchmarks + WACC を格納）
+      v = (typeof v === 'object' && !Array.isArray(v)) ? v : null;
+    }
     /* ★ TASK 15-B: STAGE2 フィールドを配列として処理 */
     if (snake === 'answers2') v = ensureArray(v);
     if (snake === 'answers12') v = ensureArray(v);
@@ -1596,6 +1604,12 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
           ? (updatePayload.csv_finance_data as any).financeBS.length
           : null,
         segmentBS_keys_in_csv: Object.keys((updatePayload.csv_finance_data as any)?.segmentBS || {}).length,
+        // ★ STAGE1 Tab3 fields - ACTUAL VALUES
+        is_listed: updatePayload.is_listed,
+        ticker: updatePayload.ticker,
+        pbr_manual: updatePayload.pbr_manual,
+        stage1_benchmarks_keys: updatePayload.stage1_benchmarks ? Object.keys(updatePayload.stage1_benchmarks) : [],
+        stage1_benchmarks_waccManual: updatePayload.stage1_benchmarks?.waccManual,
       });
 
       // ★ TASK 13-1: Checkpoint 4 - ceo_intent in updatePayload (most critical)

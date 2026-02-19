@@ -1837,13 +1837,8 @@ export const useStrategyStore = create<StrategyState>()(
           }, 0);
         }
 
-        // ★ 修正：保存処理を追加（ticker, isListed, pbrManual の変更を Supabase に保存）
-        setTimeout(() => {
-          const result = get().saveStage1Snapshot();
-          if (process.env.NEXT_PUBLIC_DEBUG_STAGE1) {
-            console.log('[DEBUG_STAGE1] setProfile snapshot saved:', { result });
-          }
-        }, 0);
+        // ★ 注意：dirty: true は既にセットされたので、UI の自動保存メカニズムが
+        // saveStrategyData() を呼び、ticker/benchmarks/WACC を Supabase に保存する
       },
 
       /* ▼ 互換用ショートカット */
@@ -1900,13 +1895,8 @@ export const useStrategyStore = create<StrategyState>()(
           return newState;
         });
 
-        // ★ 修正：保存処理を追加（ベンチマーク・WACC の変更を Supabase に保存）
-        setTimeout(() => {
-          const result = get().saveStage1Snapshot();
-          if (DEBUG) {
-            console.log('[strategyStore] setStage1Benchmarks snapshot saved:', { result });
-          }
-        }, 0);
+        // ★ 注意：dirty: true は既にセットされたので、UI の自動保存メカニズムが
+        // saveStrategyData() を呼び、benchmarks と WACC を Supabase に保存する
       },
 
       /* ▼ STAGE2 setter */

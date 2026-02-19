@@ -90,6 +90,20 @@ export default function Stage1Page() {
     Array.isArray((s as any).financeSummary) ? (s as any).financeSummary.length : 0
   );
 
+  // ★ 修正：Stage1 上場情報・ベンチマーク・WACC を自動保存の監視対象に追加
+  const isListed = useStrategyStore((s) => (s as any).isListed ?? false);
+  const ticker = useStrategyStore((s) => ((s as any).ticker ?? '') as string);
+  const pbrManual = useStrategyStore((s) => ((s as any).pbrManual ?? '') as string);
+  const stage1BenchmarksKey = useStrategyStore((s) => {
+    const benchmarks = (s as any).stage1Benchmarks;
+    if (!benchmarks || typeof benchmarks !== 'object') return '';
+    // stage1Benchmarks が変更されたことを検知するため、キー数 + waccManual の値で判定
+    return JSON.stringify({
+      keys: Object.keys(benchmarks).sort(),
+      waccManual: benchmarks.waccManual,
+    });
+  });
+
   // 開発用：ダミーデータ投入（存在する場合のみ）
   const loadStage1DummyData = useStrategyStore((s) => (s as any).loadStage1DummyData as (() => void) | undefined);
   const [dummyLoaded, setDummyLoaded] = useState(false);
@@ -147,6 +161,10 @@ export default function Stage1Page() {
       segmentBSDataHash,  // ★ データ値変更を検知
       financeSummaryCount,
       issuesCount,
+      isListed,  // ★ 修正：上場フラグを監視対象に追加
+      ticker,  // ★ 修正：ティッカーシンボルを監視対象に追加
+      pbrManual,  // ★ 修正：PBR手入力を監視対象に追加
+      stage1BenchmarksKey,  // ★ 修正：ベンチマーク・WACC を監視対象に追加
     });
   }, [
     companyName,
@@ -160,6 +178,10 @@ export default function Stage1Page() {
     segmentBSDataHash,
     financeSummaryCount,
     issuesCount,
+    isListed,  // ★ 修正
+    ticker,  // ★ 修正
+    pbrManual,  // ★ 修正
+    stage1BenchmarksKey,  // ★ 修正
   ]);
 
   const doSave = useCallback(
