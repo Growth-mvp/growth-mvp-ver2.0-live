@@ -1895,6 +1895,12 @@ export const useStrategyStore = create<StrategyState>()(
           return newState;
         });
 
+        // ★ WACC変更で ValueAnalysis を再計算
+        setTimeout(() => {
+          get().recomputeValueAnalysis('local');
+
+        }, 0);
+
         // ★ 注意：dirty: true は既にセットされたので、UI の自動保存メカニズムが
         // saveStrategyData() を呼び、benchmarks と WACC を Supabase に保存する
       },
