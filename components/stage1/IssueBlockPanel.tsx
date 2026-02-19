@@ -17,6 +17,7 @@ const METRIC_OPTIONS = [
   { key: 'revenueCAGR', label: '売上成長率' },
   { key: 'debtEquityRatio', label: 'D/Eレシオ' },
   { key: 'roic', label: 'ROIC' },
+  { key: 'wacc', label: 'WACC' },
   { key: 'pbr', label: 'PBR' },
 ] as const;
 
@@ -68,12 +69,17 @@ function getBasisYears(va: ValueAnalysis | undefined): { startYear?: number; lat
 
 function buildIssueDraftCandidatesFromValueAnalysis(
   va: ValueAnalysis | undefined,
+  waccInputPct?: number,
   opt?: {
     includeOpportunity?: boolean;
     maxCandidates?: number;
   }
 ): DraftCandidate[] {
   if (!va) return [];
+
+  const waccPct = ((va as any)?.waccPct ?? waccInputPct) as number | undefined;
+  const roicWaccSpread =
+    typeof (va as any)?.roic === 'number' && typeof waccPct === 'number' ? ((va as any).roic as number) - (waccPct as number) : undefined;
 
   const includeOpportunity = opt?.includeOpportunity ?? true;
   const maxCandidates = opt?.maxCandidates ?? 12;
@@ -194,6 +200,69 @@ function buildIssueDraftCandidatesFromValueAnalysis(
     }
   }
 
+
+  /* ---------------------------
+   * 3) 価値創造（ROIC−WACC）
+   * ------------------------- */
+  if (waccPct == null) {
+    push({
+      category: '資本効率',
+      title: 'WACC（資本コスト）が未入力',
+      description:
+        '入力タブでWACCを設定してください。ROIC−WACC（価値創造スプレッド）により、企業価値を生む状態か（資本コストを上回れているか）を判定します。',
+      linkedMetrics: ['wacc'],
+      scope: 'company',
+    });
+  } else if (!Number.isFinite((va as any).roic)) {
+    // ROICがない場合は、WACCはあるが比較できない
+    push({
+      category: '資本効率',
+      title: 'ROICが算出されていません',
+      description:
+        `WACCは ${fmtPct(waccPct, 2)} ですが、ROICが算出されていません。財務入力・BS情報の不足や分析更新状態を確認してください。` +
+        (latestYear ? `（最新年: ${latestYear}）` : ''),
+      linkedMetrics: ['roic', 'wacc'],
+      scope: 'company',
+    });
+  } else if (typeof roicWaccSpread === 'number') {
+    const r = (va as any).roic as number;
+    const spread = roicWaccSpread;
+
+    if (spread < 0) {
+      push({
+        category: '資本配分',
+        title: '資本コスト未達（価値毀損の可能性）',
+        description:
+          `ROIC ${fmtPct(r, 2)} < WACC ${fmtPct(waccPct, 2)}（差分 ${spread.toFixed(2)}pt）。` +
+          '収益性（利益率）・資本効率（在庫/売掛/設備）・投資配分（撤退/集中）のどこで改善するかを優先論点として整理する必要がある。' +
+          (latestYear ? `（最新年: ${latestYear}）` : ''),
+        linkedMetrics: ['roic', 'wacc'],
+        scope: 'company',
+      });
+    } else if (spread < 0.5) {
+      push({
+        category: '資本効率',
+        title: 'ROICとWACCがほぼ同水準（改善が必要）',
+        description:
+          `ROIC ${fmtPct(r, 2)} / WACC ${fmtPct(waccPct, 2)}（差分 +${spread.toFixed(2)}pt）。` +
+          '小さな改善でも企業価値に効く局面。価格/ミックス、原価・固定費、生産性、運転資本回転のどこを伸ばすかを具体化する論点。' +
+          (latestYear ? `（最新年: ${latestYear}）` : ''),
+        linkedMetrics: ['roic', 'wacc'],
+        scope: 'company',
+      });
+    } else if (includeOpportunity) {
+      push({
+        category: '機会',
+        title: '価値創造状態（再投資余地）',
+        description:
+          `ROIC ${fmtPct(r, 2)} > WACC ${fmtPct(waccPct, 2)}（差分 +${spread.toFixed(2)}pt）。` +
+          '価値創造を維持しながら伸ばせる領域（顧客/製品/チャネル/地域）を特定し、投資基準と資源配分を明確化する論点。' +
+          (latestYear ? `（最新年: ${latestYear}）` : ''),
+        linkedMetrics: ['roic', 'wacc'],
+        scope: 'company',
+      });
+    }
+  }
   /* ---------------------------
    * 4) 財務安全性（D/E）
    * ------------------------- */
@@ -387,6 +456,27 @@ export default function IssueBlockPanel() {
   const setStage1Issues = useStrategyStore((s) => s.setStage1Issues);
 
   const valueAnalysis = useStrategyStore((s) => s.valueAnalysis);
+
+  const waccInputPct = useStrategyStore((s) => {
+    const anyS = s as any;
+    const candidates = [
+      anyS?.stage1Benchmarks?.waccManual,
+      anyS?.stage1Inputs?.waccPct,
+      anyS?.stage1Inputs?.wacc,
+      anyS?.companyTarget?.waccPct,
+      anyS?.companyTarget?.wacc,
+      anyS?.metricsSummary?.waccPct,
+      anyS?.metricsSummary?.wacc,
+      anyS?.waccPct,
+      anyS?.wacc,
+    ];
+    for (const v of candidates) {
+      const n = typeof v === 'string' ? Number(v) : v;
+      if (Number.isFinite(n) && n > 0) return n as number;
+    }
+    return undefined;
+  });
+
   const recomputeValueAnalysis = useStrategyStore((s) => s.recomputeValueAnalysis);
   const benchmarks = useStrategyStore((s) => (s as any).stage1Benchmarks);
   const isListed = useStrategyStore((s) => s.isListed ?? false);
@@ -439,7 +529,7 @@ export default function IssueBlockPanel() {
 
   // ★ 内部候補（最大12件）
   const internalCandidates = useMemo(() => {
-    const candidates = buildIssueDraftCandidatesFromValueAnalysis(valueAnalysis, { includeOpportunity: true, maxCandidates: 12 });
+    const candidates = buildIssueDraftCandidatesFromValueAnalysis(valueAnalysis, waccInputPct, { includeOpportunity: true, maxCandidates: 12 });
 
     // ★ 診断ログ：候補生成時の valueAnalysis 確認
     if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
@@ -641,7 +731,7 @@ export default function IssueBlockPanel() {
 
   return (
     <section>
-      <h2 className="text-xl font-semibold mb-4">論点整理</h2>
+      <h2 className="text-xl font-semibold mb-4">次の一手（論点）</h2>
 
       <p className="text-sm text-gray-600 mb-6">
         財務指標を踏まえ、経営として向き合うべき論点を整理します。解決策や戦略はここでは書かず、
