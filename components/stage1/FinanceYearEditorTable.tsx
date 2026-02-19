@@ -85,6 +85,16 @@ function parseTSV(text: string): string[][] {
   return lines.map((line) => line.split('\t'));
 }
 
+function isCellInSelection(sel: Selection, table: 'pl' | 'bs', r: number, c: number): boolean {
+  if (!sel || sel.table !== table) return false;
+  const r1 = Math.min(sel.start.r, sel.end.r);
+  const r2 = Math.max(sel.start.r, sel.end.r);
+  const c1 = Math.min(sel.start.c, sel.end.c);
+  const c2 = Math.max(sel.start.c, sel.end.c);
+  return r >= r1 && r <= r2 && c >= c1 && c <= c2;
+}
+
+
 /* ===============================
  * PL テーブル
  * =============================== */
@@ -114,6 +124,8 @@ function CompanyPLEditor({
   setFocusedCell,
   activeCell,
   setActiveCell,
+  editingCell,
+  setEditingCell,
   selection,
   setSelection,
   isDraggingRef,
@@ -133,6 +145,8 @@ function CompanyPLEditor({
   setFocusedCell: (cell: { table: 'pl' | 'bs'; year: number; fieldKey: string } | null) => void;
   activeCell: CellPos | null;
   setActiveCell: (cell: CellPos | null) => void;
+  editingCell: CellPos | null;
+  setEditingCell: (cell: CellPos | null) => void;
   selection: Selection;
   setSelection: (sel: Selection) => void;
   isDraggingRef: MutableRefObject<boolean>;
@@ -228,14 +242,20 @@ function CompanyPLEditor({
   return (
     <div className="space-y-3">
       <div className="overflow-x-auto">
-        <table className="min-w-full text-xs border-collapse border border-gray-300">
-          <thead className="bg-gray-100">
+        <table className="min-w-full table-fixed text-xs border border-zinc-200 border-separate border-spacing-0">
+          <colgroup>
+            <col style={{ width: 180 }} />
+            {years.map((y) => (
+              <col key={y} style={{ width: 120 }} />
+            ))}
+          </colgroup>
+          <thead className="bg-zinc-50 sticky top-0 z-20">
             <tr>
-              <th className="px-3 py-2 text-left border-r border-gray-300 sticky left-0 bg-gray-100 z-10 min-w-[180px]">
+              <th className="px-3 py-2 text-left border-r border-zinc-200 sticky left-0 bg-zinc-50 z-10 w-[180px]">
                 項目
               </th>
               {years.map((y) => (
-                <th key={y} className="px-3 py-2 text-center border-r border-gray-300 min-w-[110px]">
+                <th key={y} className="px-3 py-2 text-center border-r border-zinc-200 w-[120px]">
                   {renamingYear === y ? (
                     <div className="flex items-center gap-1 justify-center">
                       <input
@@ -260,21 +280,34 @@ function CompanyPLEditor({
                       </button>
                     </div>
                   ) : (
-                    <button
-                      className="text-xs font-semibold text-gray-800 hover:underline"
-                      onClick={() => {
-                        setRenamingYear(y);
-                        setRenameValue(String(y));
-                      }}
-                      title="クリックして年度名を編集"
-                      type="button"
-                    >
-                      {y}
-                    </button>
+                    <div className="flex items-center justify-center gap-2">
+                      <button
+                        className="text-xs font-semibold text-zinc-900 hover:underline"
+                        onClick={() => {
+                          setRenamingYear(y);
+                          setRenameValue(String(y));
+                        }}
+                        title="クリックして年度名を編集"
+                        type="button"
+                      >
+                        {y}
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex items-center justify-center w-6 h-6 rounded-md border border-zinc-200 text-zinc-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition"
+                        title={`${y}年度を削除`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirm(`${y}年度を削除しますか？`)) onRemoveYear(y);
+                        }}
+                        aria-label={`${y}年度を削除`}
+                      >
+                        ×
+                      </button>
+                    </div>
                   )}
                 </th>
               ))}
-              <th className="px-2 py-2 text-center border-l border-gray-300 min-w-[70px]">操作</th>
             </tr>
           </thead>
 
@@ -282,10 +315,10 @@ function CompanyPLEditor({
             {PL_FIELDS.map((field, fieldIndex) => {
               const isActiveField = focusedCell?.table === 'pl' && focusedCell?.fieldKey === field.key;
               return (
-                <tr key={field.key} className="border-b border-gray-300">
+                <tr key={field.key} className="border-b border-zinc-200">
                   <td
-                    className={`px-3 py-2 sticky left-0 border-r border-gray-300 transition-all ${
-                      isActiveField ? 'bg-blue-100 text-gray-900 font-medium' : 'bg-white text-gray-700'
+                    className={`px-3 py-2 sticky left-0 border-r border-zinc-200 transition-all ${
+                      isActiveField ? 'bg-sky-100/60 text-gray-900 font-medium' : 'bg-white text-zinc-700'
                     }`}
                   >
                     {field.label}
@@ -293,24 +326,34 @@ function CompanyPLEditor({
                   </td>
 
                   {years.map((y, yearIndex) => {
-                    const isActive = activeCell?.table === 'pl' && activeCell.r === fieldIndex && activeCell.c === yearIndex;
+                    const isSelectedCell =
+                      activeCell?.table === 'pl' && activeCell.r === fieldIndex && activeCell.c === yearIndex;
+                    const isEditing =
+                      editingCell?.table === 'pl' && editingCell.r === fieldIndex && editingCell.c === yearIndex;
 
-                    const isSelected =
-                      selection?.table === 'pl' &&
-                      fieldIndex >= Math.min(selection.start.r, selection.end.r) &&
-                      fieldIndex <= Math.max(selection.start.r, selection.end.r) &&
-                      yearIndex >= Math.min(selection.start.c, selection.end.c) &&
-                      yearIndex <= Math.max(selection.start.c, selection.end.c);
+                    const isCrossRow = activeCell?.table === 'pl' && activeCell.r === fieldIndex;
+                    const isCrossCol = activeCell?.table === 'pl' && activeCell.c === yearIndex;
+                    const row = dataMap.get(y);
+                    const numVal = (row as any)?.[field.key] as number | undefined;
+                    const formattedValue = numVal !== undefined && numVal !== null ? formatNum(numVal) : '';
+                    const rawValue = numVal !== undefined && numVal !== null ? String(numVal) : '';
 
-                    const displayValue = getDisplayValue(y, field.key);
 
+                    const isSelected = isCellInSelection(selection, 'pl', fieldIndex, yearIndex);
                     return (
                       <td
                         key={y}
                         onMouseDown={() => {
-                          // Excel的: クリックでセルをアクティブ化（ドラッグ開始も同時に対応）
+                          // Excelモード: クリック=選択（編集は Enter/F2/ダブルクリック）
+                          setEditingCell(null);
                           setFocusedCell({ table: 'pl', year: y, fieldKey: field.key });
                           onMouseDownCell('pl', fieldIndex, yearIndex);
+                        }}
+                        onDoubleClick={() => {
+                          setFocusedCell({ table: 'pl', year: y, fieldKey: field.key });
+                          setActiveCell({ table: 'pl', r: fieldIndex, c: yearIndex });
+                          setSelection({ table: 'pl', start: { table: 'pl', r: fieldIndex, c: yearIndex }, end: { table: 'pl', r: fieldIndex, c: yearIndex } });
+                          setEditingCell({ table: 'pl', r: fieldIndex, c: yearIndex });
                         }}
                         onMouseMove={() => {
                           if (isDraggingRef.current && anchorRef.current) {
@@ -318,36 +361,37 @@ function CompanyPLEditor({
                           }
                         }}
                         onMouseUp={onMouseUpCell}
-                        className={`px-2 py-1 border-r border-gray-300 border-b transition-all h-8 text-xs ${
-                          isActive ? 'bg-white outline outline-2 outline-blue-500' : 'bg-gray-50'
-                        } ${isSelected ? 'bg-blue-100' : ''}`}
+                        className={`px-2 py-1 border-r border-zinc-200 border-b transition-colors h-8 text-xs align-middle overflow-hidden ${
+                          isSelectedCell ? 'bg-white ring-2 ring-sky-500 ring-inset' : 'bg-white'
+                        } ${isSelected ? 'bg-sky-100/60' : ''} ${!isSelected && (isCrossRow || isCrossCol) ? 'bg-sky-50/60' : ''} hover:bg-sky-50/40`}
                       >
-                        {isActive ? (
+                        {isEditing ? (
                           <input
                             type="text"
                             ref={(el) => {
                               if (el) cellInputRefs.set(getCellRefKey('pl', field.key, y), el);
                             }}
-                            className="w-full bg-yellow-50 border-2 border-blue-500 px-1 py-0 text-right text-xs focus:outline-blue-600 cursor-text"
-                            value={draft.key === getCellRefKey('pl', field.key, y) ? draft.value : displayValue}
+                            className="w-full min-w-0 bg-transparent border-0 px-2 py-1 text-right text-xs tabular-nums font-mono outline-none focus:outline-none"
+                            value={draft.key === getCellRefKey('pl', field.key, y) ? draft.value : rawValue}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => e.stopPropagation()}
                             onFocus={() => setFocusedCell({ table: 'pl', year: y, fieldKey: field.key })}
                             onChange={(e) => setDraft((d) => ({ ...d, value: e.target.value }))}
                             onBlur={() => {
-                              // クリックで別セルへ移動した場合も blur が走るので、必ずここで確定
                               commitActiveCell();
+                              setEditingCell(null);
                             }}
                             onKeyDown={(e) => {
                               if (e.key === 'Escape') {
                                 e.preventDefault();
-                                setDraft((d) => ({ ...d, value: displayValue }));
-                                setActiveCell(null);
-                                setActiveCell(null);
-                                setFocusedCell(null);
+                                setDraft((d) => ({ ...d, value: rawValue }));
+                                setEditingCell(null);
                                 return;
                               }
 
                               const commitAndMove = (nextFieldIndex: number, nextYearIndex: number) => {
                                 commitActiveCell();
+                                setEditingCell(null);
                                 if (
                                   nextFieldIndex >= 0 &&
                                   nextFieldIndex < PL_FIELDS.length &&
@@ -359,7 +403,6 @@ function CompanyPLEditor({
                                   setFocusedCell({ table: 'pl', year: nextYear, fieldKey: nextField.key });
                                   setActiveCell({ table: 'pl', r: nextFieldIndex, c: nextYearIndex });
                                 } else {
-                                  setActiveCell(null);
                                   setActiveCell(null);
                                   setFocusedCell(null);
                                 }
@@ -391,13 +434,11 @@ function CompanyPLEditor({
                             placeholder="0"
                           />
                         ) : (
-                          <div className="text-right px-1 py-0.5 w-full text-xs font-tabular-nums">{displayValue}</div>
+                          <div className="text-right px-2 py-1 w-full text-xs tabular-nums font-mono truncate">{formattedValue}</div>
                         )}
                       </td>
                     );
                   })}
-
-                  <td className="px-2 py-1 border-l border-gray-300">{/* 操作はヘッダーで */}</td>
                 </tr>
               );
             })}
@@ -405,26 +446,9 @@ function CompanyPLEditor({
         </table>
       </div>
 
-      {/* 行末の削除ボタン */}
-      <div className="flex gap-1 justify-end">
-        {years.map((y) => (
-          <button
-            key={`del-${y}`}
-            onClick={() => {
-              if (confirm(`${y}年度を削除しますか？`)) onRemoveYear(y);
-            }}
-            className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded hover:bg-red-200"
-            title={`${y}年度を削除`}
-            type="button"
-          >
-            削除
-          </button>
-        ))}
-      </div>
-
       {/* 年度追加ボタン */}
       <div className="flex gap-2">
-        <button onClick={onAddYear} className="text-xs bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700" type="button">
+        <button onClick={onAddYear} className="inline-flex items-center gap-2 text-xs font-semibold bg-sky-600 text-white px-3 py-2 rounded-lg hover:bg-sky-700 shadow-sm" type="button">
           + 年度追加
         </button>
       </div>
@@ -460,6 +484,8 @@ function CompanyBSEditor({
   setFocusedCell,
   activeCell,
   setActiveCell,
+  editingCell,
+  setEditingCell,
   selection,
   setSelection,
   isDraggingRef,
@@ -479,6 +505,8 @@ function CompanyBSEditor({
   setFocusedCell: (cell: { table: 'pl' | 'bs'; year: number; fieldKey: string } | null) => void;
   activeCell: CellPos | null;
   setActiveCell: (cell: CellPos | null) => void;
+  editingCell: CellPos | null;
+  setEditingCell: (cell: CellPos | null) => void;
   selection: Selection;
   setSelection: (sel: Selection) => void;
   isDraggingRef: MutableRefObject<boolean>;
@@ -582,14 +610,20 @@ function CompanyBSEditor({
   return (
     <div className="space-y-3">
       <div className="overflow-x-auto">
-        <table className="min-w-full text-xs border-collapse border border-gray-300">
-          <thead className="bg-gray-100">
+        <table className="min-w-full table-fixed text-xs border border-zinc-200 border-separate border-spacing-0">
+          <colgroup>
+            <col style={{ width: 180 }} />
+            {years.map((y) => (
+              <col key={y} style={{ width: 120 }} />
+            ))}
+          </colgroup>
+          <thead className="bg-zinc-50 sticky top-0 z-20">
             <tr>
-              <th className="px-3 py-2 text-left border-r border-gray-300 sticky left-0 bg-gray-100 z-10 min-w-[180px]">
+              <th className="px-3 py-2 text-left border-r border-zinc-200 sticky left-0 bg-zinc-50 z-10 w-[180px]">
                 項目
               </th>
               {years.map((y) => (
-                <th key={y} className="px-3 py-2 text-center border-r border-gray-300 min-w-[110px]">
+                <th key={y} className="px-3 py-2 text-center border-r border-zinc-200 w-[120px]">
                   {renamingYear === y ? (
                     <div className="flex items-center gap-1 justify-center">
                       <input
@@ -615,21 +649,34 @@ function CompanyBSEditor({
                       </button>
                     </div>
                   ) : (
-                    <button
-                      className="text-xs font-semibold text-gray-800 hover:underline"
-                      onClick={() => {
-                        setRenamingYear(y);
-                        setRenameValue(String(y));
-                      }}
-                      title="クリックして年度名を編集"
-                      type="button"
-                    >
-                      {y}
-                    </button>
+                    <div className="flex items-center justify-center gap-2">
+                      <button
+                        className="text-xs font-semibold text-zinc-900 hover:underline"
+                        onClick={() => {
+                          setRenamingYear(y);
+                          setRenameValue(String(y));
+                        }}
+                        title="クリックして年度名を編集"
+                        type="button"
+                      >
+                        {y}
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex items-center justify-center w-6 h-6 rounded-md border border-zinc-200 text-zinc-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition"
+                        title={`${y}年度を削除`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirm(`${y}年度を削除しますか？`)) onRemoveYear(y);
+                        }}
+                        aria-label={`${y}年度を削除`}
+                      >
+                        ×
+                      </button>
+                    </div>
                   )}
                 </th>
               ))}
-              <th className="px-2 py-2 text-center border-l border-gray-300 min-w-[70px]">操作</th>
             </tr>
           </thead>
 
@@ -637,10 +684,10 @@ function CompanyBSEditor({
             {BS_FIELDS.map((field, fieldIndex) => {
               const isActiveField = focusedCell?.table === 'bs' && focusedCell?.fieldKey === field.key;
               return (
-                <tr key={field.key} className="border-b border-gray-300">
+                <tr key={field.key} className="border-b border-zinc-200">
                   <td
-                    className={`px-3 py-2 sticky left-0 border-r border-gray-300 transition-all ${
-                      isActiveField ? 'bg-blue-100 text-gray-900 font-medium' : 'bg-white text-gray-700'
+                    className={`px-3 py-2 sticky left-0 border-r border-zinc-200 transition-all ${
+                      isActiveField ? 'bg-sky-100/60 text-gray-900 font-medium' : 'bg-white text-zinc-700'
                     }`}
                   >
                     {field.label}
@@ -648,23 +695,35 @@ function CompanyBSEditor({
                   </td>
 
                   {years.map((y, yearIndex) => {
-                    const isActive = activeCell?.table === 'bs' && activeCell.r === fieldIndex && activeCell.c === yearIndex;
+                    const isSelectedCell =
+                      activeCell?.table === 'bs' && activeCell.r === fieldIndex && activeCell.c === yearIndex;
+                    const isEditing =
+                      editingCell?.table === 'bs' && editingCell.r === fieldIndex && editingCell.c === yearIndex;
 
-                    const isSelected =
-                      selection?.table === 'bs' &&
-                      fieldIndex >= Math.min(selection.start.r, selection.end.r) &&
-                      fieldIndex <= Math.max(selection.start.r, selection.end.r) &&
-                      yearIndex >= Math.min(selection.start.c, selection.end.c) &&
-                      yearIndex <= Math.max(selection.start.c, selection.end.c);
+                    const isCrossRow = activeCell?.table === 'bs' && activeCell.r === fieldIndex;
+                    const isCrossCol = activeCell?.table === 'bs' && activeCell.c === yearIndex;
 
-                    const displayValue = getDisplayValue(y, field.key);
+                    const isSelected = isCellInSelection(selection, 'bs', fieldIndex, yearIndex);
+
+
+                    const row = dataMap.get(y);
+                    const numVal = (row as any)?.[field.key] as number | undefined;
+                    const formattedValue = numVal !== undefined && numVal !== null ? formatNum(numVal) : '';
+                    const rawValue = numVal !== undefined && numVal !== null ? String(numVal) : '';
 
                     return (
                       <td
                         key={y}
                         onMouseDown={() => {
+                          setEditingCell(null);
                           setFocusedCell({ table: 'bs', year: y, fieldKey: field.key });
                           onMouseDownCell('bs', fieldIndex, yearIndex);
+                        }}
+                        onDoubleClick={() => {
+                          setFocusedCell({ table: 'bs', year: y, fieldKey: field.key });
+                          setActiveCell({ table: 'bs', r: fieldIndex, c: yearIndex });
+                          setSelection({ table: 'bs', start: { table: 'bs', r: fieldIndex, c: yearIndex }, end: { table: 'bs', r: fieldIndex, c: yearIndex } });
+                          setEditingCell({ table: 'bs', r: fieldIndex, c: yearIndex });
                         }}
                         onMouseMove={() => {
                           if (isDraggingRef.current && anchorRef.current) {
@@ -672,18 +731,20 @@ function CompanyBSEditor({
                           }
                         }}
                         onMouseUp={onMouseUpCell}
-                        className={`px-2 py-1 border-r border-gray-300 border-b transition-all h-8 text-xs ${
-                          isActive ? 'bg-white outline outline-2 outline-blue-500' : 'bg-gray-50'
-                        } ${isSelected ? 'bg-blue-100' : ''}`}
+                        className={`px-2 py-1 border-r border-zinc-200 border-b transition-colors h-8 text-xs align-middle overflow-hidden ${
+                          isSelectedCell ? 'bg-white ring-2 ring-sky-500 ring-inset' : 'bg-white'
+                        } ${isSelected ? 'bg-sky-100/60' : ''} ${!isSelected && (isCrossRow || isCrossCol) ? 'bg-sky-50/60' : ''} hover:bg-sky-50/40`}
                       >
-                        {isActive ? (
+                        {isEditing ? (
                           <input
                             type="text"
                             ref={(el) => {
                               if (el) cellInputRefs.set(getCellRefKey('bs', field.key, y), el);
                             }}
-                            className="w-full bg-yellow-50 border-2 border-blue-500 px-1 py-0 text-right text-xs focus:outline-blue-600 cursor-text"
-                            value={draft.key === getCellRefKey('bs', field.key, y) ? draft.value : displayValue}
+                            className="w-full min-w-0 bg-transparent border-0 px-2 py-1 text-right text-xs tabular-nums font-mono outline-none focus:outline-none"
+                            value={draft.key === getCellRefKey('bs', field.key, y) ? draft.value : rawValue}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => e.stopPropagation()}
                             onFocus={() => setFocusedCell({ table: 'bs', year: y, fieldKey: field.key })}
                             onChange={(e) => setDraft((d) => ({ ...d, value: e.target.value }))}
                             onBlur={() => {
@@ -692,8 +753,8 @@ function CompanyBSEditor({
                             onKeyDown={(e) => {
                               if (e.key === 'Escape') {
                                 e.preventDefault();
-                                setDraft((d) => ({ ...d, value: displayValue }));
-                                setFocusedCell(null);
+                                setDraft((d) => ({ ...d, value: rawValue }));
+                                setEditingCell(null);
                                 return;
                               }
 
@@ -740,54 +801,34 @@ function CompanyBSEditor({
                             placeholder="0"
                           />
                         ) : (
-                          <div className="text-right px-1 py-0.5 w-full text-xs font-tabular-nums">{displayValue}</div>
+                          <div className="text-right px-2 py-1 w-full text-xs tabular-nums font-mono truncate">{formattedValue}</div>
                         )}
                       </td>
                     );
                   })}
-
-                  <td className="px-2 py-1 border-l border-gray-300">{/* 操作はヘッダーで */}</td>
                 </tr>
               );
             })}
 
-            <tr className="border-b border-gray-300 bg-blue-50">
-              <td className="px-3 py-2 text-gray-700 font-medium sticky left-0 bg-blue-50 border-r border-gray-300">
+            <tr className="border-b border-zinc-200 bg-sky-50">
+              <td className="px-3 py-2 text-zinc-700 font-medium sticky left-0 bg-sky-50 border-r border-zinc-200">
                 投下資本（自動計算）
               </td>
               {years.map((y) => (
-                <td key={y} className="px-3 py-2 text-right text-gray-700 border-r border-gray-300">
+                <td key={y} className="px-3 py-2 text-right text-zinc-700 border-r border-zinc-200">
                   {computedIC.get(y) !== undefined ? formatNum(computedIC.get(y)) : '—'}
                 </td>
               ))}
-              <td className="px-2 py-1 border-l border-gray-300">{/* 操作はヘッダーで */}</td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      <p className="text-xs text-gray-500">投下資本 = 売掛金 + 棚卸資産 - 買掛金 + 固定資産</p>
-
-      {/* 行末の削除ボタン */}
-      <div className="flex gap-1 justify-end">
-        {years.map((y) => (
-          <button
-            key={`del-${y}`}
-            onClick={() => {
-              if (confirm(`${y}年度を削除しますか？`)) onRemoveYear(y);
-            }}
-            className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded hover:bg-red-200"
-            title={`${y}年度を削除`}
-            type="button"
-          >
-            削除
-          </button>
-        ))}
-      </div>
+      <p className="text-xs text-zinc-500">投下資本 = 売掛金 + 棚卸資産 - 買掛金 + 固定資産</p>
 
       {/* 年度追加ボタン */}
       <div className="flex gap-2">
-        <button onClick={onAddYear} className="text-xs bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700" type="button">
+        <button onClick={onAddYear} className="inline-flex items-center gap-2 text-xs font-semibold bg-sky-600 text-white px-3 py-2 rounded-lg hover:bg-sky-700 shadow-sm" type="button">
           + 年度追加
         </button>
       </div>
@@ -822,6 +863,9 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
 
   // ★ ドラッグ範囲選択用の state
   const [activeCell, setActiveCell] = useState<CellPos | null>(null);
+
+  // ★ Excelモード: 選択(クリック)と編集(Enter/ダブルクリック)を分離
+  const [editingCell, setEditingCell] = useState<CellPos | null>(null);
   const [selection, setSelection] = useState<Selection>(null);
   const isDraggingRef = useRef(false);
   const anchorRef = useRef<CellPos | null>(null);
@@ -830,28 +874,22 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
   const [history, setHistory] = useState<SnapshotState[]>([]);
   const [future, setFuture] = useState<SnapshotState[]>([]);
 
-  // ★ focusedCell が変わったときに input に focus を当てる
+  // ★ 編集モードに入ったセルへ確実に focus を当てる（Excelモード）
   useEffect(() => {
-    if (!focusedCell) {
-      console.log('[useEffect] focusedCell is null');
-      return;
-    }
+    if (!editingCell || !focusedCell) return;
+    if (editingCell.table !== focusedCell.table) return;
 
     const refKey = getCellRefKey(focusedCell.table, focusedCell.fieldKey, focusedCell.year);
-    console.log('[useEffect] focusedCell changed', { focusedCell, refKey });
     const inputEl = cellInputRefs.get(refKey);
 
-    console.log('[useEffect] inputEl from ref map:', { found: !!inputEl, refKey, mapSize: cellInputRefs.size });
-
     if (inputEl) {
-      // setTimeout で確実に focus（autoFocus 削除後のため、デフォルト動作を待つ）
+      // setTimeout で確実に focus（再描画直後）
       setTimeout(() => {
-        console.log('[useEffect] calling focus and select');
         inputEl.focus();
         inputEl.select();
       }, 0);
     }
-  }, [focusedCell]);
+  }, [editingCell, focusedCell]);
 
   // 全社データ
   const financePL = useStrategyStore((s) => s.financePL ?? []);
@@ -1075,6 +1113,128 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
     [selection, plData, bsData, years]
   );
 
+
+
+  // ★ Excelモード: 選択状態でのキーボード操作（Enter=編集開始、矢印移動、Delete=クリア）
+  const handleKeyDownContainer = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>, tableType: 'pl' | 'bs') => {
+      // まず Ctrl/Cmd+C を処理（範囲コピー）
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
+        // handleCopySelection 内で preventDefault 済み
+        // @ts-ignore
+        return handleCopySelection(e);
+      }
+
+      // 編集中は input 側に任せる
+      if (editingCell && editingCell.table === tableType) return;
+
+      // 対象テーブルの選択セルがない場合は何もしない
+      if (!activeCell || activeCell.table !== tableType) return;
+
+      const FIELDS = tableType === 'pl' ? PL_FIELDS : BS_FIELDS;
+      const maxR = FIELDS.length - 1;
+      const maxC = years.length - 1;
+
+      const setSingleSelection = (next: CellPos) => {
+        setActiveCell(next);
+        setSelection({ table: tableType, start: next, end: next });
+
+        const fieldKey = FIELDS[next.r]?.key;
+        const year = years[next.c];
+        if (fieldKey && year) setFocusedCell({ table: tableType, fieldKey, year });
+      };
+
+      const move = (dr: number, dc: number) => {
+        const nr = Math.max(0, Math.min(maxR, activeCell.r + dr));
+        const nc = Math.max(0, Math.min(maxC, activeCell.c + dc));
+        setSingleSelection({ table: tableType, r: nr, c: nc });
+      };
+
+      // Enter / F2: 編集開始
+      if (e.key === 'Enter' || e.key === 'F2') {
+        e.preventDefault();
+        const fieldKey = FIELDS[activeCell.r]?.key;
+        const year = years[activeCell.c];
+        if (!fieldKey || !year) return;
+        setFocusedCell({ table: tableType, fieldKey, year });
+        setEditingCell(activeCell);
+        return;
+      }
+
+      // 矢印移動（選択のみ）
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        move(-1, 0);
+        return;
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        move(1, 0);
+        return;
+      }
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        move(0, -1);
+        return;
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        move(0, 1);
+        return;
+      }
+
+      // Delete / Backspace: 選択範囲をクリア
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (!selection || selection.table !== tableType) return;
+        e.preventDefault();
+
+        const startR = Math.min(selection.start.r, selection.end.r);
+        const endR = Math.max(selection.start.r, selection.end.r);
+        const startC = Math.min(selection.start.c, selection.end.c);
+        const endC = Math.max(selection.start.c, selection.end.c);
+
+        const currentData = tableType === 'pl' ? plData : bsData;
+        const working = new Map<number, any>();
+        currentData.forEach((row) => working.set(row.year, { ...row }));
+
+        for (let r = startR; r <= endR; r++) {
+          const field = FIELDS[r];
+          if (!field) continue;
+          for (let c = startC; c <= endC; c++) {
+            const year = years[c];
+            if (!year) continue;
+            const row = working.get(year) ?? { year };
+            const nextRow: any = { ...row };
+            delete nextRow[field.key];
+            working.set(year, nextRow);
+          }
+        }
+
+        const newData = Array.from(working.values()).sort((a, b) => a.year - b.year);
+        if (tableType === 'pl') handleSetPL(newData);
+        else handleSetBS(newData);
+
+        saveSnapshot();
+        return;
+      }
+    },
+    [
+      handleCopySelection,
+      editingCell,
+      activeCell,
+      selection,
+      years,
+      plData,
+      bsData,
+      handleSetPL,
+      handleSetBS,
+      saveSnapshot,
+      setFocusedCell,
+      setEditingCell,
+      setActiveCell,
+      setSelection,
+    ]
+  );
   // 初回時に年度が空なら自動追加（最低限の初期化）
   useEffect(() => {
     if (plData.length === 0 && bsData.length === 0) {
@@ -1194,12 +1354,12 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
     <section className="space-y-6">
       <div>
         <h2 className="text-xl font-semibold mb-2">財務データ入力（{title}）</h2>
-        <p className="text-sm text-gray-600">{description}</p>
+        <p className="text-sm text-zinc-600">{description}</p>
       </div>
 
       {/* 初期化メッセージ */}
       {plData.length === 0 && bsData.length === 0 && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-700">
+        <div className="bg-sky-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-700">
           📋 初期表示として直近3年が表示されます。データ入力を開始するには、「年度追加」ボタンをクリックして年度を設定してください。
         </div>
       )}
@@ -1209,7 +1369,7 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
         <button
           onClick={handleUndo}
           disabled={history.length === 0}
-          className="text-sm px-3 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="text-sm px-3 py-2 bg-gray-200 text-zinc-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
           title="戻る (Ctrl+Z)"
         >
           ↶ 戻る
@@ -1217,7 +1377,7 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
         <button
           onClick={handleRedo}
           disabled={future.length === 0}
-          className="text-sm px-3 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="text-sm px-3 py-2 bg-gray-200 text-zinc-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
           title="やり直す (Ctrl+Shift+Z)"
         >
           ↷ やり直す
@@ -1226,16 +1386,21 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
 
       {/* PL */}
       <div
-        className="border rounded-lg overflow-hidden p-4"
+        className="bg-white border border-zinc-200 rounded-xl p-4 shadow-sm"
         onPasteCapture={(e) => handlePasteFromContainer(e, 'pl')}
-        onKeyDown={handleCopySelection}
+        onKeyDown={(e) => handleKeyDownContainer(e, 'pl')}
         tabIndex={0}
       >
         <div className="flex items-start justify-between mb-3">
           <h3 className="text-lg font-semibold">{title} PL（損益計算書）</h3>
-          <div className="bg-amber-50 border border-amber-200 rounded px-3 py-2 text-xs text-amber-800 max-w-xs">
-            💡 セルをクリックしてから <kbd className="font-mono bg-white px-1.5 py-0.5 rounded border">Ctrl+V</kbd> で貼り付けできます
-          </div>
+          <button
+            type="button"
+            className="text-xs text-zinc-600 hover:text-zinc-900 inline-flex items-center gap-2"
+            title="貼り付け: セルを選択して Ctrl+V / 編集: Enter または ダブルクリック / 取消: Ctrl+Z"
+          >
+            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-zinc-100">?</span>
+            <span className="hidden sm:inline">操作ヒント</span>
+          </button>
         </div>
         <CompanyPLEditor
           years={years}
@@ -1248,6 +1413,8 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
           setFocusedCell={setFocusedCell}
           activeCell={activeCell}
           setActiveCell={setActiveCell}
+          editingCell={editingCell}
+          setEditingCell={setEditingCell}
           selection={selection}
           setSelection={setSelection}
           isDraggingRef={isDraggingRef}
@@ -1261,16 +1428,21 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
 
       {/* BS */}
       <div
-        className="border rounded-lg overflow-hidden p-4"
+        className="bg-white border border-zinc-200 rounded-xl p-4 shadow-sm"
         onPasteCapture={(e) => handlePasteFromContainer(e, 'bs')}
-        onKeyDown={handleCopySelection}
+        onKeyDown={(e) => handleKeyDownContainer(e, 'bs')}
         tabIndex={0}
       >
         <div className="flex items-start justify-between mb-3">
           <h3 className="text-lg font-semibold">{title} BS（貸借対照表）</h3>
-          <div className="bg-amber-50 border border-amber-200 rounded px-3 py-2 text-xs text-amber-800 max-w-xs">
-            💡 セルをクリックしてから <kbd className="font-mono bg-white px-1.5 py-0.5 rounded border">Ctrl+V</kbd> で貼り付けできます
-          </div>
+          <button
+            type="button"
+            className="text-xs text-zinc-600 hover:text-zinc-900 inline-flex items-center gap-2"
+            title="貼り付け: セルを選択して Ctrl+V / 編集: Enter または ダブルクリック / 取消: Ctrl+Z"
+          >
+            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-zinc-100">?</span>
+            <span className="hidden sm:inline">操作ヒント</span>
+          </button>
         </div>
         <CompanyBSEditor
           years={years}
@@ -1283,6 +1455,8 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
           setFocusedCell={setFocusedCell}
           activeCell={activeCell}
           setActiveCell={setActiveCell}
+          editingCell={editingCell}
+          setEditingCell={setEditingCell}
           selection={selection}
           setSelection={setSelection}
           isDraggingRef={isDraggingRef}
