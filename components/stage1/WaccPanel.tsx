@@ -1,6 +1,7 @@
 // /components/stage1/WaccPanel.tsx
 'use client';
 
+import type React from 'react';
 import { useCallback } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 
@@ -8,24 +9,27 @@ import { useStrategyStore } from '@/store/strategyStore';
  * WACC（加重平均資本コスト）パネル
  * - waccManual（%）
  * - waccRationale（計算根拠・備考）
+ *
+ * IMPORTANT:
+ * - stage1Benchmarks を共有している前提のため、更新時は必ず既存値を保持して merge する
  */
 export default function WaccPanel() {
   const stage1Benchmarks = useStrategyStore((s) => s.stage1Benchmarks);
+  const setStage1Benchmarks = useStrategyStore((s) => s.setStage1Benchmarks);
+
   const waccManual = stage1Benchmarks?.waccManual;
   const waccRationale = stage1Benchmarks?.waccRationale ?? '';
-
-  const setStage1Benchmarks = useStrategyStore((s) => s.setStage1Benchmarks);
 
   const handleWaccManualChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const v = e.target.value;
       const num = v === '' ? undefined : Number(v);
-      if (setStage1Benchmarks) {
-        setStage1Benchmarks({
-          ...stage1Benchmarks,
-          waccManual: Number.isFinite(num) ? num : undefined,
-        });
-      }
+
+      const base = stage1Benchmarks ?? {};
+      setStage1Benchmarks?.({
+        ...base,
+        waccManual: Number.isFinite(num) ? num : undefined,
+      });
     },
     [stage1Benchmarks, setStage1Benchmarks]
   );
@@ -33,12 +37,12 @@ export default function WaccPanel() {
   const handleWaccRationaleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const v = e.target.value;
-      if (setStage1Benchmarks) {
-        setStage1Benchmarks({
-          ...stage1Benchmarks,
-          waccRationale: v || undefined,
-        });
-      }
+
+      const base = stage1Benchmarks ?? {};
+      setStage1Benchmarks?.({
+        ...base,
+        waccRationale: v ? v : undefined,
+      });
     },
     [stage1Benchmarks, setStage1Benchmarks]
   );
