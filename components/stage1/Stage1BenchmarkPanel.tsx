@@ -37,10 +37,16 @@ function BenchmarkTargetInput({
       if (key.startsWith('metrics.')) {
         const metricKey = key.split('.')[1];
         next.metrics = { ...(next.metrics || {}) };
+
         if (value === '' || value === null) {
           delete (next.metrics as any)[metricKey];
         } else {
           (next.metrics as any)[metricKey] = Number(value);
+        }
+
+        // metrics が空なら消す
+        if (next.metrics && Object.keys(next.metrics).length === 0) {
+          delete (next as any).metrics;
         }
       } else {
         if (value === '' || value === null) {
@@ -61,9 +67,7 @@ function BenchmarkTargetInput({
 
       {/* 期間 */}
       <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1">
-          期間（例：2023年度、TTM）
-        </label>
+        <label className="block text-xs font-medium text-gray-700 mb-1">期間（例：2023年度、TTM）</label>
         <input
           type="text"
           className="border rounded px-2 py-1 w-full text-sm"
@@ -75,9 +79,7 @@ function BenchmarkTargetInput({
 
       {/* ソース・メモ */}
       <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1">
-          ソース・メモ（URL など）
-        </label>
+        <label className="block text-xs font-medium text-gray-700 mb-1">ソース・メモ（URL など）</label>
         <input
           type="text"
           className="border rounded px-2 py-1 w-full text-sm"
@@ -89,9 +91,7 @@ function BenchmarkTargetInput({
 
       {/* 品質 */}
       <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1">
-          データ品質
-        </label>
+        <label className="block text-xs font-medium text-gray-700 mb-1">データ品質</label>
         <select
           className="border rounded px-2 py-1 w-full text-sm"
           value={target?.quality ?? ''}
@@ -178,19 +178,28 @@ export default function Stage1BenchmarkPanel() {
   const handleUpdateTarget = useCallback(
     (key: BenchmarkKey, target: BenchmarkTarget | undefined) => {
       const next: Stage1Benchmarks = { ...(benchmarks || {}) };
+
       if (target === undefined) {
         delete next[key];
       } else {
         next[key] = target;
       }
-      setBenchmarks(Object.keys(next).length > 0 ? next : undefined);
+
+      // ✅ 重要：ベンチ3枠が空でも、WACC が入っているなら undefined で全消ししない
+      const hasAny =
+        !!next.industryMedian ||
+        !!next.competitorA ||
+        !!next.competitorB ||
+        typeof (next as any).waccManual === 'number' ||
+        !!(next as any).waccRationale;
+
+      setBenchmarks(hasAny ? next : undefined);
     },
     [benchmarks, setBenchmarks]
   );
 
   const hasBenchmarks =
-    benchmarks &&
-    (benchmarks.industryMedian || benchmarks.competitorA || benchmarks.competitorB);
+    benchmarks && (benchmarks.industryMedian || benchmarks.competitorA || benchmarks.competitorB);
 
   return (
     <div className="border rounded-lg mb-6">
@@ -199,9 +208,7 @@ export default function Stage1BenchmarkPanel() {
         <div className="flex items-center gap-3">
           <div className="text-lg font-semibold">外部ベンチマーク（任意）</div>
           {hasBenchmarks && (
-            <div className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700">
-              設定済み
-            </div>
+            <div className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700">設定済み</div>
           )}
         </div>
       </div>
