@@ -1,9 +1,35 @@
 // /components/stage1/FinanceYearEditorTable.tsx
 'use client';
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import type { MutableRefObject } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import type { FinancePLRow, FinanceBSRow } from '@/types/strategy';
+
+/* ===============================
+ * 型定義（範囲選択用）
+ * =============================== */
+type CellPos = { table: 'pl' | 'bs'; r: number; c: number }; // r=fieldIndex, c=yearIndex
+type Selection = { table: 'pl' | 'bs'; start: CellPos; end: CellPos } | null;
+
+/* ===============================
+ * Undo/Redo 用スナップショット
+ * =============================== */
+type SnapshotState = {
+  financePL: FinancePLRow[];
+  financeBS: FinanceBSRow[];
+  segmentPL?: Record<string, FinancePLRow[]>;
+  segmentBS?: Record<string, FinanceBSRow[]>;
+};
+
+/* ===============================
+ * グローバル ref マップ（セル focus 用）
+ * =============================== */
+const cellInputRefs = new Map<string, HTMLInputElement>();
+
+function getCellRefKey(table: 'pl' | 'bs', fieldKey: string, year: number): string {
+  return `${table}:${fieldKey}:${year}`;
+}
 
 /* ===============================
  * ユーティリティ
@@ -86,6 +112,16 @@ function CompanyPLEditor({
   onRenameYear,
   focusedCell,
   setFocusedCell,
+  activeCell,
+  setActiveCell,
+  selection,
+  setSelection,
+  isDraggingRef,
+  anchorRef,
+  onMouseDownCell,
+  onMouseEnterCell,
+  onMouseUpCell,
+  onSaveSnapshot,
 }: {
   years: number[];
   data: FinancePLRow[];
@@ -95,9 +131,26 @@ function CompanyPLEditor({
   onRenameYear: (oldYear: number, newYear: number) => boolean;
   focusedCell: { table: 'pl' | 'bs'; year: number; fieldKey: string } | null;
   setFocusedCell: (cell: { table: 'pl' | 'bs'; year: number; fieldKey: string } | null) => void;
+  activeCell: CellPos | null;
+  setActiveCell: (cell: CellPos | null) => void;
+  selection: Selection;
+  setSelection: (sel: Selection) => void;
+  isDraggingRef: MutableRefObject<boolean>;
+  anchorRef: MutableRefObject<CellPos | null>;
+  onMouseDownCell: (table: 'pl' | 'bs', r: number, c: number) => void;
+  onMouseEnterCell: (table: 'pl' | 'bs', r: number, c: number) => void;
+  onMouseUpCell: () => void;
+  onSaveSnapshot: () => void;
 }) {
   const [renamingYear, setRenamingYear] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState('');
+
+  /**
+   * ★ 重要: draft を「セル単位」で保持
+   * - 以前の実装では draftValue がテーブル内で1つだけだったため、
+   *   別セルに移動した時に前セルの入力が残り、"勝手な数値が出る/消える" 事象の原因になっていました。
+   */
+  const [draft, setDraft] = useState<{ key: string; value: string }>({ key: '', value: '' });
 
   const dataMap = useMemo(() => {
     const map = new Map<number, FinancePLRow>();
@@ -105,99 +158,128 @@ function CompanyPLEditor({
     return map;
   }, [data]);
 
-  const handleChange = useCallback(
-    (year: number, field: PLFieldKey, value: string) => {
-      console.debug('[PL] onChange', { year, field, value });
+  const getDisplayValue = useCallback(
+    (year: number, field: PLFieldKey) => {
+      const row = dataMap.get(year);
+      const v = row?.[field];
+      return v !== undefined && v !== null ? String(v) : '';
+    },
+    [dataMap]
+  );
+
+  // focusedCell が変わったら draft を同期（常に「今フォーカスしているセル」の文字列を保持）
+  useEffect(() => {
+    if (!focusedCell || focusedCell.table !== 'pl') {
+      setDraft({ key: '', value: '' });
+      return;
+    }
+    const fieldKey = focusedCell.fieldKey as PLFieldKey;
+    const key = getCellRefKey('pl', fieldKey, focusedCell.year);
+    const value = getDisplayValue(focusedCell.year, fieldKey);
+    setDraft({ key, value });
+  }, [focusedCell?.table, focusedCell?.year, focusedCell?.fieldKey, getDisplayValue]);
+
+  const upsertCellValue = useCallback(
+    (year: number, field: PLFieldKey, raw: string) => {
       const existingRow = dataMap.get(year) ?? { year };
-      const updatedRow: FinancePLRow = { ...existingRow, [field]: toNum(value) };
+      const num = toNum(raw);
+
+      // undefined の時はフィールドを削除（Excel的に「空=クリア」）
+      const nextRow: any = { ...existingRow };
+      if (num === undefined) {
+        delete nextRow[field];
+      } else {
+        nextRow[field] = num;
+      }
+
       const newData = data.filter((r) => r.year !== year);
-      newData.push(updatedRow);
+      newData.push(nextRow as FinancePLRow);
       newData.sort((a, b) => a.year - b.year);
       onDataChange(newData);
     },
     [data, dataMap, onDataChange]
   );
 
-  const handleRenameSubmit = (oldYear: number) => {
-    const newYear = parseInt(renameValue, 10);
-    if (Number.isNaN(newYear)) {
-      alert('有効な数値を入力してください');
-      return;
-    }
-    const success = onRenameYear(oldYear, newYear);
-    if (success) {
-      setRenamingYear(null);
-      setRenameValue('');
-    } else {
-      alert('年度の変更に失敗しました（重複またはエラー）');
-    }
-  };
+  const commitActiveCell = useCallback(() => {
+    if (!focusedCell || focusedCell.table !== 'pl') return;
+    const fieldKey = focusedCell.fieldKey as PLFieldKey;
+    upsertCellValue(focusedCell.year, fieldKey, draft.value);
+    onSaveSnapshot();
+  }, [focusedCell, draft.value, upsertCellValue, onSaveSnapshot]);
+
+  const handleRenameSubmit = useCallback(
+    (oldYear: number) => {
+      const newYear = parseInt(renameValue, 10);
+      if (Number.isNaN(newYear)) {
+        alert('有効な数値を入力してください');
+        return;
+      }
+      const success = onRenameYear(oldYear, newYear);
+      if (success) {
+        setRenamingYear(null);
+        setRenameValue('');
+      } else {
+        alert('年度の変更に失敗しました（重複またはエラー）');
+      }
+    },
+    [renameValue, onRenameYear]
+  );
 
   return (
     <div className="space-y-3">
       <div className="overflow-x-auto">
         <table className="min-w-full text-xs border-collapse border border-gray-300">
-          <thead>
-            <tr className="bg-gray-50">
-              <th className="px-3 py-2 text-left font-semibold text-gray-700 sticky left-0 bg-gray-50 min-w-[120px] border-r border-gray-300">
+          <thead className="bg-gray-100">
+            <tr>
+              <th className="px-3 py-2 text-left border-r border-gray-300 sticky left-0 bg-gray-100 z-10 min-w-[180px]">
                 項目
               </th>
-              {years.map((y) => {
-                const isActiveYear = focusedCell?.table === 'pl' && focusedCell?.year === y;
-                return (
-                  <th
-                    key={y}
-                    className={`px-3 py-2 text-center font-semibold min-w-[100px] border-r border-gray-300 transition-all ${
-                      isActiveYear ? 'bg-blue-200 text-blue-900' : 'bg-gray-50 text-gray-700'
-                    }`}
-                  >
-                    {renamingYear === y ? (
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          className="w-16 px-1 py-0.5 border rounded text-xs"
-                          autoFocus
-                        />
-                        <button
-                          onClick={() => handleRenameSubmit(y)}
-                          className="text-xs bg-green-600 text-white px-1 rounded hover:bg-green-700"
-                        >
-                          ✓
-                        </button>
-                        <button
-                          onClick={() => setRenamingYear(null)}
-                          className="text-xs bg-gray-400 text-white px-1 rounded hover:bg-gray-500"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-between">
-                        <span>{y}年度</span>
-                        <button
-                          onClick={() => {
-                            setRenamingYear(y);
-                            setRenameValue(String(y));
-                          }}
-                          className="text-xs text-gray-500 hover:text-blue-600"
-                          title="編集"
-                        >
-                          ✏️
-                        </button>
-                      </div>
-                    )}
-                  </th>
-                );
-              })}
-              <th className="px-3 py-2 text-center font-semibold text-gray-700 min-w-[80px] border-l border-gray-300">
-                操作
-              </th>
+              {years.map((y) => (
+                <th key={y} className="px-3 py-2 text-center border-r border-gray-300 min-w-[110px]">
+                  {renamingYear === y ? (
+                    <div className="flex items-center gap-1 justify-center">
+                      <input
+                        type="text"
+                        className="w-20 text-xs border rounded px-1 py-0.5"
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleRenameSubmit(y);
+                          if (e.key === 'Escape') {
+                            setRenamingYear(null);
+                            setRenameValue('');
+                          }
+                        }}
+                        autoFocus
+                      />
+                      <button
+                        className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded"
+                        onClick={() => handleRenameSubmit(y)}
+                      >
+                        OK
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      className="text-xs font-semibold text-gray-800 hover:underline"
+                      onClick={() => {
+                        setRenamingYear(y);
+                        setRenameValue(String(y));
+                      }}
+                      title="クリックして年度名を編集"
+                      type="button"
+                    >
+                      {y}
+                    </button>
+                  )}
+                </th>
+              ))}
+              <th className="px-2 py-2 text-center border-l border-gray-300 min-w-[70px]">操作</th>
             </tr>
           </thead>
+
           <tbody>
-            {PL_FIELDS.map((field) => {
+            {PL_FIELDS.map((field, fieldIndex) => {
               const isActiveField = focusedCell?.table === 'pl' && focusedCell?.fieldKey === field.key;
               return (
                 <tr key={field.key} className="border-b border-gray-300">
@@ -209,35 +291,113 @@ function CompanyPLEditor({
                     {field.label}
                     {field.required && <span className="text-red-500 ml-1">*</span>}
                   </td>
-                  {years.map((y) => {
-                    const row = dataMap.get(y);
-                    const val = row?.[field.key];
-                    const isActive =
-                      focusedCell?.table === 'pl' &&
-                      focusedCell?.year === y &&
-                      focusedCell?.fieldKey === field.key;
+
+                  {years.map((y, yearIndex) => {
+                    const isActive = activeCell?.table === 'pl' && activeCell.r === fieldIndex && activeCell.c === yearIndex;
+
+                    const isSelected =
+                      selection?.table === 'pl' &&
+                      fieldIndex >= Math.min(selection.start.r, selection.end.r) &&
+                      fieldIndex <= Math.max(selection.start.r, selection.end.r) &&
+                      yearIndex >= Math.min(selection.start.c, selection.end.c) &&
+                      yearIndex <= Math.max(selection.start.c, selection.end.c);
+
+                    const displayValue = getDisplayValue(y, field.key);
+
                     return (
                       <td
                         key={y}
-                        className={`px-2 py-1 border-r border-gray-300 transition-all ${
-                          isActive ? 'bg-blue-100 outline outline-2 outline-blue-500' : 'bg-white'
-                        }`}
+                        onMouseDown={() => {
+                          // Excel的: クリックでセルをアクティブ化（ドラッグ開始も同時に対応）
+                          setFocusedCell({ table: 'pl', year: y, fieldKey: field.key });
+                          onMouseDownCell('pl', fieldIndex, yearIndex);
+                        }}
+                        onMouseMove={() => {
+                          if (isDraggingRef.current && anchorRef.current) {
+                            onMouseEnterCell('pl', fieldIndex, yearIndex);
+                          }
+                        }}
+                        onMouseUp={onMouseUpCell}
+                        className={`px-2 py-1 border-r border-gray-300 border-b transition-all h-8 text-xs ${
+                          isActive ? 'bg-white outline outline-2 outline-blue-500' : 'bg-gray-50'
+                        } ${isSelected ? 'bg-blue-100' : ''}`}
                       >
-                        <input
-                          type="text"
-                          className="w-full bg-transparent px-0 py-0 text-right text-xs focus:outline-none"
-                          value={val !== undefined ? String(val) : ''}
-                          onChange={(e) => handleChange(y, field.key, e.target.value)}
-                          onFocus={() => setFocusedCell({ table: 'pl', year: y, fieldKey: field.key })}
-                          onBlur={() => setFocusedCell(null)}
-                          placeholder="0"
-                        />
+                        {isActive ? (
+                          <input
+                            type="text"
+                            ref={(el) => {
+                              if (el) cellInputRefs.set(getCellRefKey('pl', field.key, y), el);
+                            }}
+                            className="w-full bg-yellow-50 border-2 border-blue-500 px-1 py-0 text-right text-xs focus:outline-blue-600 cursor-text"
+                            value={draft.key === getCellRefKey('pl', field.key, y) ? draft.value : displayValue}
+                            onFocus={() => setFocusedCell({ table: 'pl', year: y, fieldKey: field.key })}
+                            onChange={(e) => setDraft((d) => ({ ...d, value: e.target.value }))}
+                            onBlur={() => {
+                              // クリックで別セルへ移動した場合も blur が走るので、必ずここで確定
+                              commitActiveCell();
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Escape') {
+                                e.preventDefault();
+                                setDraft((d) => ({ ...d, value: displayValue }));
+                                setActiveCell(null);
+                                setActiveCell(null);
+                                setFocusedCell(null);
+                                return;
+                              }
+
+                              const commitAndMove = (nextFieldIndex: number, nextYearIndex: number) => {
+                                commitActiveCell();
+                                if (
+                                  nextFieldIndex >= 0 &&
+                                  nextFieldIndex < PL_FIELDS.length &&
+                                  nextYearIndex >= 0 &&
+                                  nextYearIndex < years.length
+                                ) {
+                                  const nextField = PL_FIELDS[nextFieldIndex];
+                                  const nextYear = years[nextYearIndex];
+                                  setFocusedCell({ table: 'pl', year: nextYear, fieldKey: nextField.key });
+                                  setActiveCell({ table: 'pl', r: nextFieldIndex, c: nextYearIndex });
+                                } else {
+                                  setActiveCell(null);
+                                  setActiveCell(null);
+                                  setFocusedCell(null);
+                                }
+                              };
+
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                commitAndMove(fieldIndex + 1, yearIndex);
+                                return;
+                              }
+                              if (e.key === 'Tab') {
+                                e.preventDefault();
+                                commitAndMove(fieldIndex, yearIndex + (e.shiftKey ? -1 : 1));
+                                return;
+                              }
+
+                              const keyMap: Record<string, { dr: number; dc: number } | undefined> = {
+                                ArrowUp: { dr: -1, dc: 0 },
+                                ArrowDown: { dr: 1, dc: 0 },
+                                ArrowLeft: { dr: 0, dc: -1 },
+                                ArrowRight: { dr: 0, dc: 1 },
+                              };
+                              const move = keyMap[e.key];
+                              if (move) {
+                                e.preventDefault();
+                                commitAndMove(fieldIndex + move.dr, yearIndex + move.dc);
+                              }
+                            }}
+                            placeholder="0"
+                          />
+                        ) : (
+                          <div className="text-right px-1 py-0.5 w-full text-xs font-tabular-nums">{displayValue}</div>
+                        )}
                       </td>
                     );
                   })}
-                  <td className="px-2 py-1 border-l border-gray-300">
-                    {/* 操作はヘッダーで */}
-                  </td>
+
+                  <td className="px-2 py-1 border-l border-gray-300">{/* 操作はヘッダーで */}</td>
                 </tr>
               );
             })}
@@ -251,12 +411,11 @@ function CompanyPLEditor({
           <button
             key={`del-${y}`}
             onClick={() => {
-              if (confirm(`${y}年度を削除しますか？`)) {
-                onRemoveYear(y);
-              }
+              if (confirm(`${y}年度を削除しますか？`)) onRemoveYear(y);
             }}
             className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded hover:bg-red-200"
             title={`${y}年度を削除`}
+            type="button"
           >
             削除
           </button>
@@ -265,10 +424,7 @@ function CompanyPLEditor({
 
       {/* 年度追加ボタン */}
       <div className="flex gap-2">
-        <button
-          onClick={onAddYear}
-          className="text-xs bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-        >
+        <button onClick={onAddYear} className="text-xs bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700" type="button">
           + 年度追加
         </button>
       </div>
@@ -302,6 +458,16 @@ function CompanyBSEditor({
   onRenameYear,
   focusedCell,
   setFocusedCell,
+  activeCell,
+  setActiveCell,
+  selection,
+  setSelection,
+  isDraggingRef,
+  anchorRef,
+  onMouseDownCell,
+  onMouseEnterCell,
+  onMouseUpCell,
+  onSaveSnapshot,
 }: {
   years: number[];
   data: FinanceBSRow[];
@@ -311,9 +477,21 @@ function CompanyBSEditor({
   onRenameYear: (oldYear: number, newYear: number) => boolean;
   focusedCell: { table: 'pl' | 'bs'; year: number; fieldKey: string } | null;
   setFocusedCell: (cell: { table: 'pl' | 'bs'; year: number; fieldKey: string } | null) => void;
+  activeCell: CellPos | null;
+  setActiveCell: (cell: CellPos | null) => void;
+  selection: Selection;
+  setSelection: (sel: Selection) => void;
+  isDraggingRef: MutableRefObject<boolean>;
+  anchorRef: MutableRefObject<CellPos | null>;
+  onMouseDownCell: (table: 'pl' | 'bs', r: number, c: number) => void;
+  onMouseEnterCell: (table: 'pl' | 'bs', r: number, c: number) => void;
+  onMouseUpCell: () => void;
+  onSaveSnapshot: () => void;
 }) {
   const [renamingYear, setRenamingYear] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState('');
+
+  const [draft, setDraft] = useState<{ key: string; value: string }>({ key: '', value: '' });
 
   const dataMap = useMemo(() => {
     const map = new Map<number, FinanceBSRow>();
@@ -321,114 +499,142 @@ function CompanyBSEditor({
     return map;
   }, [data]);
 
-  const handleChange = useCallback(
-    (year: number, field: BSFieldKey, value: string) => {
-      console.debug('[BS] onChange', { year, field, value });
+  const getDisplayValue = useCallback(
+    (year: number, field: BSFieldKey) => {
+      const row = dataMap.get(year);
+      const v = row?.[field];
+      return v !== undefined && v !== null ? String(v) : '';
+    },
+    [dataMap]
+  );
+
+  useEffect(() => {
+    if (!focusedCell || focusedCell.table !== 'bs') {
+      setDraft({ key: '', value: '' });
+      return;
+    }
+    const fieldKey = focusedCell.fieldKey as BSFieldKey;
+    const key = getCellRefKey('bs', fieldKey, focusedCell.year);
+    const value = getDisplayValue(focusedCell.year, fieldKey);
+    setDraft({ key, value });
+  }, [focusedCell?.table, focusedCell?.year, focusedCell?.fieldKey, getDisplayValue]);
+
+  const upsertCellValue = useCallback(
+    (year: number, field: BSFieldKey, raw: string) => {
       const existingRow = dataMap.get(year) ?? { year };
-      const updatedRow: FinanceBSRow = { ...existingRow, [field]: toNum(value) };
+      const num = toNum(raw);
+
+      const nextRow: any = { ...existingRow };
+      if (num === undefined) {
+        delete nextRow[field];
+      } else {
+        nextRow[field] = num;
+      }
+
       const newData = data.filter((r) => r.year !== year);
-      newData.push(updatedRow);
+      newData.push(nextRow as FinanceBSRow);
       newData.sort((a, b) => a.year - b.year);
       onDataChange(newData);
     },
     [data, dataMap, onDataChange]
   );
 
+  const commitActiveCell = useCallback(() => {
+    if (!focusedCell || focusedCell.table !== 'bs') return;
+    const fieldKey = focusedCell.fieldKey as BSFieldKey;
+    upsertCellValue(focusedCell.year, fieldKey, draft.value);
+    onSaveSnapshot();
+  }, [focusedCell, draft.value, upsertCellValue, onSaveSnapshot]);
+
+  const handleRenameSubmit = useCallback(
+    (oldYear: number) => {
+      const newYear = parseInt(renameValue, 10);
+      if (Number.isNaN(newYear)) {
+        alert('有効な数値を入力してください');
+        return;
+      }
+      const success = onRenameYear(oldYear, newYear);
+      if (success) {
+        setRenamingYear(null);
+        setRenameValue('');
+      } else {
+        alert('年度の変更に失敗しました（重複またはエラー）');
+      }
+    },
+    [renameValue, onRenameYear]
+  );
+
+  // 投下資本（自動計算）
   const computedIC = useMemo(() => {
-    const map = new Map<number, number | undefined>();
+    const map = new Map<number, number>();
     years.forEach((y) => {
       const row = dataMap.get(y);
-      if (!row) return map.set(y, undefined);
-      const ar = row.ar ?? 0;
-      const inventory = row.inventory ?? 0;
-      const ap = row.ap ?? 0;
-      const fixedAssets = row.fixedAssets ?? 0;
-      if (ar || inventory || fixedAssets) map.set(y, ar + inventory - ap + fixedAssets);
-      else map.set(y, undefined);
+      const ar = row?.ar ?? 0;
+      const inv = row?.inventory ?? 0;
+      const ap = row?.ap ?? 0;
+      const fa = row?.fixedAssets ?? 0;
+      const ic = ar + inv - ap + fa;
+      map.set(y, ic);
     });
     return map;
   }, [years, dataMap]);
-
-  const handleRenameSubmit = (oldYear: number) => {
-    const newYear = parseInt(renameValue, 10);
-    if (Number.isNaN(newYear)) {
-      alert('有効な数値を入力してください');
-      return;
-    }
-    const success = onRenameYear(oldYear, newYear);
-    if (success) {
-      setRenamingYear(null);
-      setRenameValue('');
-    } else {
-      alert('年度の変更に失敗しました（重複またはエラー）');
-    }
-  };
 
   return (
     <div className="space-y-3">
       <div className="overflow-x-auto">
         <table className="min-w-full text-xs border-collapse border border-gray-300">
-          <thead>
-            <tr className="bg-gray-50">
-              <th className="px-3 py-2 text-left font-semibold text-gray-700 sticky left-0 bg-gray-50 min-w-[140px] border-r border-gray-300">
+          <thead className="bg-gray-100">
+            <tr>
+              <th className="px-3 py-2 text-left border-r border-gray-300 sticky left-0 bg-gray-100 z-10 min-w-[180px]">
                 項目
               </th>
-              {years.map((y) => {
-                const isActiveYear = focusedCell?.table === 'bs' && focusedCell?.year === y;
-                return (
-                  <th
-                    key={y}
-                    className={`px-3 py-2 text-center font-semibold min-w-[100px] border-r border-gray-300 transition-all ${
-                      isActiveYear ? 'bg-blue-200 text-blue-900' : 'bg-gray-50 text-gray-700'
-                    }`}
-                  >
-                    {renamingYear === y ? (
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          className="w-16 px-1 py-0.5 border rounded text-xs"
-                          autoFocus
-                        />
-                        <button
-                          onClick={() => handleRenameSubmit(y)}
-                          className="text-xs bg-green-600 text-white px-1 rounded hover:bg-green-700"
-                        >
-                          ✓
-                        </button>
-                        <button
-                          onClick={() => setRenamingYear(null)}
-                          className="text-xs bg-gray-400 text-white px-1 rounded hover:bg-gray-500"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-between">
-                        <span>{y}年度</span>
-                        <button
-                          onClick={() => {
-                            setRenamingYear(y);
-                            setRenameValue(String(y));
-                          }}
-                          className="text-xs text-gray-500 hover:text-blue-600"
-                          title="編集"
-                        >
-                          ✏️
-                        </button>
-                      </div>
-                    )}
-                  </th>
-                );
-              })}
-              <th className="px-3 py-2 text-center font-semibold text-gray-700 min-w-[80px] border-l border-gray-300">
-                操作
-              </th>
+              {years.map((y) => (
+                <th key={y} className="px-3 py-2 text-center border-r border-gray-300 min-w-[110px]">
+                  {renamingYear === y ? (
+                    <div className="flex items-center gap-1 justify-center">
+                      <input
+                        type="text"
+                        className="w-20 text-xs border rounded px-1 py-0.5"
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleRenameSubmit(y);
+                          if (e.key === 'Escape') {
+                            setRenamingYear(null);
+                            setRenameValue('');
+                          }
+                        }}
+                        autoFocus
+                      />
+                      <button
+                        className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded"
+                        onClick={() => handleRenameSubmit(y)}
+                        type="button"
+                      >
+                        OK
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      className="text-xs font-semibold text-gray-800 hover:underline"
+                      onClick={() => {
+                        setRenamingYear(y);
+                        setRenameValue(String(y));
+                      }}
+                      title="クリックして年度名を編集"
+                      type="button"
+                    >
+                      {y}
+                    </button>
+                  )}
+                </th>
+              ))}
+              <th className="px-2 py-2 text-center border-l border-gray-300 min-w-[70px]">操作</th>
             </tr>
           </thead>
+
           <tbody>
-            {BS_FIELDS.map((field) => {
+            {BS_FIELDS.map((field, fieldIndex) => {
               const isActiveField = focusedCell?.table === 'bs' && focusedCell?.fieldKey === field.key;
               return (
                 <tr key={field.key} className="border-b border-gray-300">
@@ -440,38 +646,111 @@ function CompanyBSEditor({
                     {field.label}
                     {field.required && <span className="text-red-500 ml-1">*</span>}
                   </td>
-                  {years.map((y) => {
-                    const row = dataMap.get(y);
-                    const val = row?.[field.key];
-                    const isActive =
-                      focusedCell?.table === 'bs' &&
-                      focusedCell?.year === y &&
-                      focusedCell?.fieldKey === field.key;
+
+                  {years.map((y, yearIndex) => {
+                    const isActive = activeCell?.table === 'bs' && activeCell.r === fieldIndex && activeCell.c === yearIndex;
+
+                    const isSelected =
+                      selection?.table === 'bs' &&
+                      fieldIndex >= Math.min(selection.start.r, selection.end.r) &&
+                      fieldIndex <= Math.max(selection.start.r, selection.end.r) &&
+                      yearIndex >= Math.min(selection.start.c, selection.end.c) &&
+                      yearIndex <= Math.max(selection.start.c, selection.end.c);
+
+                    const displayValue = getDisplayValue(y, field.key);
+
                     return (
                       <td
                         key={y}
-                        className={`px-2 py-1 border-r border-gray-300 transition-all ${
-                          isActive ? 'bg-blue-100 outline outline-2 outline-blue-500' : 'bg-white'
-                        }`}
+                        onMouseDown={() => {
+                          setFocusedCell({ table: 'bs', year: y, fieldKey: field.key });
+                          onMouseDownCell('bs', fieldIndex, yearIndex);
+                        }}
+                        onMouseMove={() => {
+                          if (isDraggingRef.current && anchorRef.current) {
+                            onMouseEnterCell('bs', fieldIndex, yearIndex);
+                          }
+                        }}
+                        onMouseUp={onMouseUpCell}
+                        className={`px-2 py-1 border-r border-gray-300 border-b transition-all h-8 text-xs ${
+                          isActive ? 'bg-white outline outline-2 outline-blue-500' : 'bg-gray-50'
+                        } ${isSelected ? 'bg-blue-100' : ''}`}
                       >
-                        <input
-                          type="text"
-                          className="w-full bg-transparent px-0 py-0 text-right text-xs focus:outline-none"
-                          value={val !== undefined ? String(val) : ''}
-                          onChange={(e) => handleChange(y, field.key, e.target.value)}
-                          onFocus={() => setFocusedCell({ table: 'bs', year: y, fieldKey: field.key })}
-                          onBlur={() => setFocusedCell(null)}
-                          placeholder="0"
-                        />
+                        {isActive ? (
+                          <input
+                            type="text"
+                            ref={(el) => {
+                              if (el) cellInputRefs.set(getCellRefKey('bs', field.key, y), el);
+                            }}
+                            className="w-full bg-yellow-50 border-2 border-blue-500 px-1 py-0 text-right text-xs focus:outline-blue-600 cursor-text"
+                            value={draft.key === getCellRefKey('bs', field.key, y) ? draft.value : displayValue}
+                            onFocus={() => setFocusedCell({ table: 'bs', year: y, fieldKey: field.key })}
+                            onChange={(e) => setDraft((d) => ({ ...d, value: e.target.value }))}
+                            onBlur={() => {
+                              commitActiveCell();
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Escape') {
+                                e.preventDefault();
+                                setDraft((d) => ({ ...d, value: displayValue }));
+                                setFocusedCell(null);
+                                return;
+                              }
+
+                              const commitAndMove = (nextFieldIndex: number, nextYearIndex: number) => {
+                                commitActiveCell();
+                                if (
+                                  nextFieldIndex >= 0 &&
+                                  nextFieldIndex < BS_FIELDS.length &&
+                                  nextYearIndex >= 0 &&
+                                  nextYearIndex < years.length
+                                ) {
+                                  const nextField = BS_FIELDS[nextFieldIndex];
+                                  const nextYear = years[nextYearIndex];
+                                  setFocusedCell({ table: 'bs', year: nextYear, fieldKey: nextField.key });
+                                  setActiveCell({ table: 'bs', r: nextFieldIndex, c: nextYearIndex });
+                                } else {
+                                  setFocusedCell(null);
+                                }
+                              };
+
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                commitAndMove(fieldIndex + 1, yearIndex);
+                                return;
+                              }
+                              if (e.key === 'Tab') {
+                                e.preventDefault();
+                                commitAndMove(fieldIndex, yearIndex + (e.shiftKey ? -1 : 1));
+                                return;
+                              }
+
+                              const keyMap: Record<string, { dr: number; dc: number } | undefined> = {
+                                ArrowUp: { dr: -1, dc: 0 },
+                                ArrowDown: { dr: 1, dc: 0 },
+                                ArrowLeft: { dr: 0, dc: -1 },
+                                ArrowRight: { dr: 0, dc: 1 },
+                              };
+                              const move = keyMap[e.key];
+                              if (move) {
+                                e.preventDefault();
+                                commitAndMove(fieldIndex + move.dr, yearIndex + move.dc);
+                              }
+                            }}
+                            placeholder="0"
+                          />
+                        ) : (
+                          <div className="text-right px-1 py-0.5 w-full text-xs font-tabular-nums">{displayValue}</div>
+                        )}
                       </td>
                     );
                   })}
-                  <td className="px-2 py-1 border-l border-gray-300">
-                    {/* 操作はヘッダーで */}
-                  </td>
+
+                  <td className="px-2 py-1 border-l border-gray-300">{/* 操作はヘッダーで */}</td>
                 </tr>
               );
             })}
+
             <tr className="border-b border-gray-300 bg-blue-50">
               <td className="px-3 py-2 text-gray-700 font-medium sticky left-0 bg-blue-50 border-r border-gray-300">
                 投下資本（自動計算）
@@ -481,9 +760,7 @@ function CompanyBSEditor({
                   {computedIC.get(y) !== undefined ? formatNum(computedIC.get(y)) : '—'}
                 </td>
               ))}
-              <td className="px-2 py-1 border-l border-gray-300">
-                {/* 操作はヘッダーで */}
-              </td>
+              <td className="px-2 py-1 border-l border-gray-300">{/* 操作はヘッダーで */}</td>
             </tr>
           </tbody>
         </table>
@@ -497,12 +774,11 @@ function CompanyBSEditor({
           <button
             key={`del-${y}`}
             onClick={() => {
-              if (confirm(`${y}年度を削除しますか？`)) {
-                onRemoveYear(y);
-              }
+              if (confirm(`${y}年度を削除しますか？`)) onRemoveYear(y);
             }}
             className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded hover:bg-red-200"
             title={`${y}年度を削除`}
+            type="button"
           >
             削除
           </button>
@@ -511,10 +787,7 @@ function CompanyBSEditor({
 
       {/* 年度追加ボタン */}
       <div className="flex gap-2">
-        <button
-          onClick={onAddYear}
-          className="text-xs bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-        >
+        <button onClick={onAddYear} className="text-xs bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700" type="button">
           + 年度追加
         </button>
       </div>
@@ -546,6 +819,39 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
     year: number;
     fieldKey: string;
   } | null>(null);
+
+  // ★ ドラッグ範囲選択用の state
+  const [activeCell, setActiveCell] = useState<CellPos | null>(null);
+  const [selection, setSelection] = useState<Selection>(null);
+  const isDraggingRef = useRef(false);
+  const anchorRef = useRef<CellPos | null>(null);
+
+  // ★ Undo/Redo スタック
+  const [history, setHistory] = useState<SnapshotState[]>([]);
+  const [future, setFuture] = useState<SnapshotState[]>([]);
+
+  // ★ focusedCell が変わったときに input に focus を当てる
+  useEffect(() => {
+    if (!focusedCell) {
+      console.log('[useEffect] focusedCell is null');
+      return;
+    }
+
+    const refKey = getCellRefKey(focusedCell.table, focusedCell.fieldKey, focusedCell.year);
+    console.log('[useEffect] focusedCell changed', { focusedCell, refKey });
+    const inputEl = cellInputRefs.get(refKey);
+
+    console.log('[useEffect] inputEl from ref map:', { found: !!inputEl, refKey, mapSize: cellInputRefs.size });
+
+    if (inputEl) {
+      // setTimeout で確実に focus（autoFocus 削除後のため、デフォルト動作を待つ）
+      setTimeout(() => {
+        console.log('[useEffect] calling focus and select');
+        inputEl.focus();
+        inputEl.select();
+      }, 0);
+    }
+  }, [focusedCell]);
 
   // 全社データ
   const financePL = useStrategyStore((s) => s.financePL ?? []);
@@ -612,6 +918,99 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
     }
   };
 
+  // ★ ドラッグ範囲選択ハンドラ
+  const onMouseDownCell = useCallback(
+    (table: 'pl' | 'bs', r: number, c: number) => {
+      const cell: CellPos = { table, r, c };
+      anchorRef.current = cell;
+      setActiveCell(cell);
+      setSelection({ table, start: cell, end: cell });
+      isDraggingRef.current = true;
+    },
+    []
+  );
+
+  const onMouseEnterCell = useCallback(
+    (table: 'pl' | 'bs', r: number, c: number) => {
+      if (!isDraggingRef.current || !anchorRef.current) return;
+      if (anchorRef.current.table !== table) return;
+
+      const cell: CellPos = { table, r, c };
+      setSelection({
+        table,
+        start: anchorRef.current,
+        end: cell,
+      });
+    },
+    []
+  );
+
+  const onMouseUpCell = useCallback(() => {
+    isDraggingRef.current = false;
+  }, []);
+
+  // ★ Undo/Redo ロジック
+  const saveSnapshot = useCallback(() => {
+    // 現在の状態をスナップショットとして保存
+    const snapshot: SnapshotState = {
+      // ★ 参照のままだと履歴が後から書き換わるので、必ずコピーを保存
+      financePL: mode === 'company' ? plData.map((r) => ({ ...r })) : [],
+      financeBS: mode === 'company' ? bsData.map((r) => ({ ...r })) : [],
+      ...(mode === 'segment' && {
+        segmentPL: Object.fromEntries(Object.entries(segmentPL).map(([k, v]) => [k, v.map((r) => ({ ...r }))])),
+        segmentBS: Object.fromEntries(Object.entries(segmentBS).map(([k, v]) => [k, v.map((r) => ({ ...r }))])),
+      }),
+    };
+    setHistory((prev) => [...prev, snapshot]);
+    setFuture([]); // redo スタックをクリア
+  }, [mode, plData, bsData, segmentPL, segmentBS]);
+
+  const handleUndo = useCallback(() => {
+    if (history.length === 0) return;
+
+    // 現在の状態をfutureに
+    const currentSnapshot: SnapshotState = {
+      financePL: plData.map((r) => ({ ...r })),
+      financeBS: bsData.map((r) => ({ ...r })),
+      ...(mode === 'segment' && { segmentPL, segmentBS }),
+    };
+    setFuture((prev) => [...prev, currentSnapshot]);
+
+    // 過去の状態を復元
+    const newHistory = [...history];
+    const previousSnapshot = newHistory.pop()!;
+    setHistory(newHistory);
+
+    // store に反映
+    if (mode === 'company') {
+      if (previousSnapshot.financePL.length > 0) setFinancePL(previousSnapshot.financePL);
+      if (previousSnapshot.financeBS.length > 0) setFinanceBS(previousSnapshot.financeBS);
+    }
+  }, [history, future, mode, plData, bsData, segmentPL, segmentBS, setFinancePL, setFinanceBS]);
+
+  const handleRedo = useCallback(() => {
+    if (future.length === 0) return;
+
+    // 現在の状態をhistoryに
+    const currentSnapshot: SnapshotState = {
+      financePL: plData.map((r) => ({ ...r })),
+      financeBS: bsData.map((r) => ({ ...r })),
+      ...(mode === 'segment' && { segmentPL, segmentBS }),
+    };
+    setHistory((prev) => [...prev, currentSnapshot]);
+
+    // 次の状態に復元
+    const newFuture = [...future];
+    const nextSnapshot = newFuture.pop()!;
+    setFuture(newFuture);
+
+    // store に反映
+    if (mode === 'company') {
+      if (nextSnapshot.financePL.length > 0) setFinancePL(nextSnapshot.financePL);
+      if (nextSnapshot.financeBS.length > 0) setFinanceBS(nextSnapshot.financeBS);
+    }
+  }, [history, future, mode, plData, bsData, segmentPL, segmentBS, setFinancePL, setFinanceBS]);
+
   const years = useMemo(() => {
     const plYears = plData.map((r) => r.year);
     const bsYears = bsData.map((r) => r.year);
@@ -626,6 +1025,56 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
     return sorted;
   }, [plData, bsData]);
 
+  // ★ Ctrl+C で TSV コピー（years の定義後に配置）
+  const handleCopySelection = useCallback(
+    async (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key !== 'c') return;
+      if (!selection) return;
+
+      e.preventDefault();
+
+      const FIELDS = selection.table === 'pl' ? PL_FIELDS : BS_FIELDS;
+      const startR = Math.min(selection.start.r, selection.end.r);
+      const endR = Math.max(selection.start.r, selection.end.r);
+      const startC = Math.min(selection.start.c, selection.end.c);
+      const endC = Math.max(selection.start.c, selection.end.c);
+
+      const currentData = selection.table === 'pl' ? plData : bsData;
+      const dataMap = new Map<number, any>();
+      currentData.forEach((row) => dataMap.set(row.year, row));
+
+      // TSV 生成
+      const rows: string[] = [];
+      for (let r = startR; r <= endR; r++) {
+        const field = FIELDS[r];
+        if (!field) continue;
+        const cols: string[] = [];
+        for (let c = startC; c <= endC; c++) {
+          const year = years[c];
+          if (!year) {
+            cols.push('');
+            continue;
+          }
+          const row = dataMap.get(year);
+          const val = row?.[field.key];
+          cols.push(val !== undefined && val !== null ? String(val) : '');
+        }
+        rows.push(cols.join('\t'));
+      }
+
+      const tsv = rows.join('\n');
+
+      // クリップボードにコピー
+      try {
+        await navigator.clipboard.writeText(tsv);
+        console.log('[handleCopySelection] Copied to clipboard:', { size: tsv.length });
+      } catch (err) {
+        console.error('[handleCopySelection] Copy failed:', err);
+      }
+    },
+    [selection, plData, bsData, years]
+  );
+
   // 初回時に年度が空なら自動追加（最低限の初期化）
   useEffect(() => {
     if (plData.length === 0 && bsData.length === 0) {
@@ -637,6 +1086,23 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
       }
     }
   }, [plData.length, bsData.length, mode, segmentName, addFinanceYear, addSegmentFinanceYear]);
+
+
+  // ★ Ctrl+Z / Ctrl+Shift+Z ショートカット
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      } else if ((e.key === 'z' && e.shiftKey) || e.key === 'y') {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo]);
 
   /**
    * ★ テーブルレベルで paste を拾う（起点セルが確定している場合のみ展開）
@@ -681,12 +1147,18 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
           const targetField = FIELDS[targetFieldIndex];
           const targetYear = years[targetYearIndex];
 
-          const num = sanitizeNumber(cellValue);
-          if (num === undefined) return; // 空はスキップ
+          // 空セルは「クリア」として扱う（Excel貼付けの挙動に合わせる）
+          const isBlank = cellValue === undefined || cellValue === null || String(cellValue).trim() === '';
+          const num = isBlank ? undefined : sanitizeNumber(cellValue);
 
-          // Map に書き込む
+          // Map に書き込む（num===undefined の場合は該当フィールドを削除）
           const existingRow = working.get(targetYear) ?? { year: targetYear };
-          const updatedRow = { ...existingRow, [targetField.key]: num };
+          const updatedRow: any = { ...existingRow };
+          if (num === undefined) {
+            delete updatedRow[targetField.key];
+          } else {
+            updatedRow[targetField.key] = num;
+          }
           working.set(targetYear, updatedRow);
           appliedCount++;
         });
@@ -706,9 +1178,11 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
         } else {
           handleSetBS(newData);
         }
+        // ★ Paste 後に Undo/Redo スナップショット保存
+        saveSnapshot();
       }
     },
-    [focusedCell, years, plData, bsData, handleSetPL, handleSetBS]
+    [focusedCell, years, plData, bsData, handleSetPL, handleSetBS, saveSnapshot]
   );
 
   const title = mode === 'company' ? '全社' : segmentName ? `${segmentName}` : '事業部';
@@ -730,10 +1204,32 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
         </div>
       )}
 
+      {/* Undo/Redo ボタン */}
+      <div className="flex gap-2">
+        <button
+          onClick={handleUndo}
+          disabled={history.length === 0}
+          className="text-sm px-3 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          title="戻る (Ctrl+Z)"
+        >
+          ↶ 戻る
+        </button>
+        <button
+          onClick={handleRedo}
+          disabled={future.length === 0}
+          className="text-sm px-3 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          title="やり直す (Ctrl+Shift+Z)"
+        >
+          ↷ やり直す
+        </button>
+      </div>
+
       {/* PL */}
       <div
         className="border rounded-lg overflow-hidden p-4"
         onPasteCapture={(e) => handlePasteFromContainer(e, 'pl')}
+        onKeyDown={handleCopySelection}
+        tabIndex={0}
       >
         <div className="flex items-start justify-between mb-3">
           <h3 className="text-lg font-semibold">{title} PL（損益計算書）</h3>
@@ -750,6 +1246,16 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
           onRenameYear={handleRenameYear}
           focusedCell={focusedCell}
           setFocusedCell={setFocusedCell}
+          activeCell={activeCell}
+          setActiveCell={setActiveCell}
+          selection={selection}
+          setSelection={setSelection}
+          isDraggingRef={isDraggingRef}
+          anchorRef={anchorRef}
+          onMouseDownCell={onMouseDownCell}
+          onMouseEnterCell={onMouseEnterCell}
+          onMouseUpCell={onMouseUpCell}
+          onSaveSnapshot={saveSnapshot}
         />
       </div>
 
@@ -757,6 +1263,8 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
       <div
         className="border rounded-lg overflow-hidden p-4"
         onPasteCapture={(e) => handlePasteFromContainer(e, 'bs')}
+        onKeyDown={handleCopySelection}
+        tabIndex={0}
       >
         <div className="flex items-start justify-between mb-3">
           <h3 className="text-lg font-semibold">{title} BS（貸借対照表）</h3>
@@ -773,6 +1281,16 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
           onRenameYear={handleRenameYear}
           focusedCell={focusedCell}
           setFocusedCell={setFocusedCell}
+          activeCell={activeCell}
+          setActiveCell={setActiveCell}
+          selection={selection}
+          setSelection={setSelection}
+          isDraggingRef={isDraggingRef}
+          anchorRef={anchorRef}
+          onMouseDownCell={onMouseDownCell}
+          onMouseEnterCell={onMouseEnterCell}
+          onMouseUpCell={onMouseUpCell}
+          onSaveSnapshot={saveSnapshot}
         />
       </div>
     </section>
