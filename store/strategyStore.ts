@@ -1192,6 +1192,20 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
   if (!raw || typeof raw !== 'object') return {};
   const isArray = Array.isArray;
 
+  // ★ DEBUG STAGE1: During normalize/load from DB
+  if (process.env.NEXT_PUBLIC_DEBUG_STAGE1) {
+    console.log('[DEBUG_STAGE1] normalizeFromDbRow LOAD:', {
+      isListed: raw.isListed,
+      ticker: raw.ticker,
+      pbrManual: raw.pbrManual,
+      stage1Benchmarks: raw.stage1Benchmarks ? {
+        keys: Object.keys(raw.stage1Benchmarks),
+        waccManual: raw.stage1Benchmarks.waccManual,
+        waccRationale: raw.stage1Benchmarks.waccRationale ? '(present)' : undefined,
+      } : undefined,
+    });
+  }
+
   const companyName = raw.companyName ?? raw.company_name ?? '';
   const foundationYear = raw.foundationYear ?? raw.foundation_year ?? '';
   const location = raw.location ?? raw.location_text ?? '';
@@ -1631,6 +1645,20 @@ export const useStrategyStore = create<StrategyState>()(
       setStrategyId: (id) => set({ strategyId: id }),
 
       hydrateFromFullState: (fullState) => {
+        // ★ DEBUG STAGE1: During hydrate/normalize load
+        if (process.env.NEXT_PUBLIC_DEBUG_STAGE1) {
+          console.log('[DEBUG_STAGE1] hydrateFromFullState LOAD:', {
+            isListed: fullState.isListed,
+            ticker: fullState.ticker,
+            pbrManual: fullState.pbrManual,
+            stage1Benchmarks: fullState.stage1Benchmarks ? {
+              keys: Object.keys(fullState.stage1Benchmarks),
+              waccManual: fullState.stage1Benchmarks.waccManual,
+              waccRationale: fullState.stage1Benchmarks.waccRationale ? '(present)' : undefined,
+            } : undefined,
+          });
+        }
+
         // ★ Type guard for businessPortfolio to avoid unsafe spread
         const guardedBusinessPortfolio =
           fullState.businessPortfolio && typeof fullState.businessPortfolio === 'object'
@@ -1717,6 +1745,21 @@ export const useStrategyStore = create<StrategyState>()(
         })),
 
       setProfile: (patch) => {
+        // ★ DEBUG STAGE1: Before save payload
+        if (process.env.NEXT_PUBLIC_DEBUG_STAGE1) {
+          const summary = {
+            isListed: (patch as any).isListed,
+            ticker: (patch as any).ticker,
+            pbrManual: (patch as any).pbrManual,
+            stage1Benchmarks: (patch as any).stage1Benchmarks ? {
+              keys: Object.keys((patch as any).stage1Benchmarks),
+              waccManual: (patch as any).stage1Benchmarks.waccManual,
+              waccRationale: (patch as any).stage1Benchmarks.waccRationale,
+            } : undefined,
+          };
+          console.log('[DEBUG_STAGE1] setProfile BEFORE save:', summary);
+        }
+
         // ★ 診断ログ：setProfile に stage1Issues が含まれている場合を検知
         if (DEBUG && 'stage1Issues' in patch) {
           console.log('[strategyStore] setProfile contains stage1Issues:', {
@@ -1766,6 +1809,20 @@ export const useStrategyStore = create<StrategyState>()(
           set((s) => ({ ...s, ...patch, dirty: true }));
         }
 
+        // ★ DEBUG STAGE1: After state update in setProfile
+        if (process.env.NEXT_PUBLIC_DEBUG_STAGE1) {
+          const updated = get();
+          console.log('[DEBUG_STAGE1] setProfile AFTER state update:', {
+            isListed: updated.isListed,
+            ticker: updated.ticker,
+            pbrManual: updated.pbrManual,
+            stage1Benchmarks: updated.stage1Benchmarks ? {
+              keys: Object.keys(updated.stage1Benchmarks),
+              waccManual: updated.stage1Benchmarks.waccManual,
+            } : undefined,
+          });
+        }
+
         const needsRecompute =
           patch.pbrManual !== undefined ||
           patch.financeBS !== undefined ||
@@ -1779,6 +1836,14 @@ export const useStrategyStore = create<StrategyState>()(
             get().recomputeValueAnalysis('setProfile');
           }, 0);
         }
+
+        // ★ 修正：保存処理を追加（ticker, isListed, pbrManual の変更を Supabase に保存）
+        setTimeout(() => {
+          const result = get().saveStage1Snapshot();
+          if (process.env.NEXT_PUBLIC_DEBUG_STAGE1) {
+            console.log('[DEBUG_STAGE1] setProfile snapshot saved:', { result });
+          }
+        }, 0);
       },
 
       /* ▼ 互換用ショートカット */
@@ -1805,6 +1870,16 @@ export const useStrategyStore = create<StrategyState>()(
       },
 
       setStage1Benchmarks: (benchmarks) => {
+        // ★ DEBUG STAGE1: Before save payload
+        if (process.env.NEXT_PUBLIC_DEBUG_STAGE1) {
+          console.log('[DEBUG_STAGE1] setStage1Benchmarks BEFORE save:', {
+            hasBenchmarks: !!benchmarks,
+            benchmarkKeys: benchmarks ? Object.keys(benchmarks) : [],
+            waccManual: benchmarks?.waccManual,
+            waccRationale: benchmarks?.waccRationale ? '(present)' : undefined,
+          });
+        }
+
         if (DEBUG) {
           console.log('[strategyStore] setStage1Benchmarks called:', {
             hasBenchmarks: !!benchmarks,
@@ -1824,6 +1899,14 @@ export const useStrategyStore = create<StrategyState>()(
           }
           return newState;
         });
+
+        // ★ 修正：保存処理を追加（ベンチマーク・WACC の変更を Supabase に保存）
+        setTimeout(() => {
+          const result = get().saveStage1Snapshot();
+          if (DEBUG) {
+            console.log('[strategyStore] setStage1Benchmarks snapshot saved:', { result });
+          }
+        }, 0);
       },
 
       /* ▼ STAGE2 setter */
@@ -2845,6 +2928,21 @@ export const useStrategyStore = create<StrategyState>()(
                   }
                 }
               })();
+
+              // ★ DEBUG STAGE1: After Supabase save returns
+              if (process.env.NEXT_PUBLIC_DEBUG_STAGE1) {
+                console.log('[DEBUG_STAGE1] AFTER Supabase save:', {
+                  success: !!(res && !(res as any).error),
+                  payloadIsListed: (payload as any).isListed,
+                  payloadTicker: (payload as any).ticker,
+                  payloadPbrManual: (payload as any).pbrManual,
+                  payloadStage1Benchmarks: (payload as any).stage1Benchmarks ? {
+                    keys: Object.keys((payload as any).stage1Benchmarks),
+                    waccManual: (payload as any).stage1Benchmarks.waccManual,
+                    waccRationale: (payload as any).stage1Benchmarks.waccRationale ? '(present)' : undefined,
+                  } : undefined,
+                });
+              }
 
               if (!res || (res as any).error) {
                 const err = (res as any)?.error;
