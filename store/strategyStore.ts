@@ -737,6 +737,7 @@ function buildSavePayload(s: StrategyState) {
     segmentValueAnalysis: s.segmentValueAnalysis,
 
     stage1Issues: s.stage1Issues,
+    stage1Benchmarks: (s as any).stage1Benchmarks,
 
     mission: s.mission,
     vision: s.vision,
@@ -820,6 +821,8 @@ function buildSavePayload(s: StrategyState) {
       segmentPL_rowCountsByKey: segmentPLDetails,
       segmentBS_keys: Object.keys(segmentBSDetails),
       segmentBS_rowCountsByKey: segmentBSDetails,
+      stage1Benchmarks: (s as any).stage1Benchmarks ? Object.keys((s as any).stage1Benchmarks) : 'undefined',
+      waccManual: (s as any).stage1Benchmarks?.waccManual,
     });
   }
 
@@ -1025,6 +1028,7 @@ const emptyData: StrategyState = {
   segmentValueAnalysis: undefined,
 
   stage1Issues: [],
+  stage1Benchmarks: undefined,
 
   thought: '',
   mission: '',
@@ -1275,6 +1279,23 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     });
   }
 
+  const stage1Benchmarks =
+    raw.stage1Benchmarks && typeof raw.stage1Benchmarks === 'object'
+      ? raw.stage1Benchmarks
+      : raw.stage1_benchmarks && typeof raw.stage1_benchmarks === 'object'
+        ? raw.stage1_benchmarks
+        : undefined;
+
+  // ★ 診断ログ：stage1Benchmarks 復元状況
+  if (DEBUG && (raw.stage1Benchmarks || raw.stage1_benchmarks)) {
+    console.log('[normalizeFromDbRow] stage1Benchmarks 復元:', {
+      has_raw_stage1Benchmarks: !!raw.stage1Benchmarks,
+      has_raw_stage1_benchmarks: !!raw.stage1_benchmarks,
+      final_benchmarkKeys: stage1Benchmarks ? Object.keys(stage1Benchmarks) : [],
+      waccManual: (stage1Benchmarks as any)?.waccManual,
+    });
+  }
+
   const thought = raw.thought ?? '';
   const mission = raw.mission ?? '';
   const vision = raw.vision ?? '';
@@ -1450,6 +1471,7 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     segmentValueAnalysis,
 
     stage1Issues,
+    stage1Benchmarks,
 
     thought,
     mission,
@@ -1783,10 +1805,21 @@ export const useStrategyStore = create<StrategyState>()(
           console.log('[strategyStore] setStage1Benchmarks called:', {
             hasBenchmarks: !!benchmarks,
             benchmarkKeys: benchmarks ? Object.keys(benchmarks) : [],
+            waccManual: benchmarks?.waccManual,
+            waccRationale: benchmarks?.waccRationale ? benchmarks.waccRationale.substring(0, 50) + '...' : undefined,
           });
         }
 
-        set((s) => ({ ...s, stage1Benchmarks: benchmarks, dirty: true }));
+        set((s) => {
+          const newState = { ...s, stage1Benchmarks: benchmarks, dirty: true };
+          if (DEBUG) {
+            console.log('[strategyStore] setStage1Benchmarks state updated:', {
+              stateHasBenchmarks: !!newState.stage1Benchmarks,
+              isDirty: newState.dirty,
+            });
+          }
+          return newState;
+        });
       },
 
       /* ▼ STAGE2 setter */

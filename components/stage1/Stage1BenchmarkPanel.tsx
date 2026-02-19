@@ -172,7 +172,7 @@ function BenchmarkTargetInput({
 }
 
 export default function Stage1BenchmarkPanel() {
-  const benchmarks = useStrategyStore((s) => ((s as any).stage1Benchmarks as Stage1Benchmarks | undefined));
+  const benchmarks = useStrategyStore((s) => s.stage1Benchmarks);
   const setBenchmarks = useStrategyStore((s) => s.setStage1Benchmarks);
 
   const handleUpdateTarget = useCallback(
