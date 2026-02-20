@@ -162,7 +162,7 @@ function ScrollText({
 /* ===================================================
  * StepperTabs（再編版）
  * =================================================== */
-type TabId = 'input' | 'draft' | 'win' | 'final';
+type TabId = 'input' | 'draft' | 'final';
 
 interface StepperTabsProps {
   activeTab: TabId;
@@ -171,12 +171,10 @@ interface StepperTabsProps {
   // enable/complete 判定用
   canOpenDraft: boolean;
   hasDraft: boolean;
-  canOpenWin: boolean;
-  hasWinReady: boolean; // 修正：必須回答ではなく「最終生成が可能な状態（=Draft生成済み）」を表す
   hasFinal: boolean;
 }
 
-function StepperTabs({ activeTab, onChange, canOpenDraft, hasDraft, canOpenWin, hasWinReady, hasFinal }: StepperTabsProps) {
+function StepperTabs({ activeTab, onChange, canOpenDraft, hasDraft, hasFinal }: StepperTabsProps) {
   const tabs: {
     id: TabId;
     label: string;
@@ -185,8 +183,7 @@ function StepperTabs({ activeTab, onChange, canOpenDraft, hasDraft, canOpenWin, 
     warning?: boolean;
   }[] = [
     { id: 'input', label: '入力', enabled: true, completed: false },
-    { id: 'draft', label: 'たたき台', enabled: canOpenDraft, completed: hasDraft },
-    { id: 'win', label: '深掘り', enabled: canOpenWin, completed: hasWinReady },
+    { id: 'draft', label: '戦略思考', enabled: canOpenDraft, completed: hasDraft },
     { id: 'final', label: '最終確定', enabled: hasFinal, completed: hasFinal },
   ];
 
@@ -1274,7 +1271,7 @@ function SWOTSection() {
 /* ===================================================
  * たたき台（Draft）プレビュー：全文＋スクロール
  * =================================================== */
-function DraftStoryPanel({ storyDraft }: { storyDraft: StoryChapter[] }) {
+function DraftStoryPanel({ storyDraft, issueBlocks }: { storyDraft: StoryChapter[]; issueBlocks: IssueBlock[] }) {
   const has = storyDraft && storyDraft.length > 0;
   if (!has) {
     return (
@@ -1293,6 +1290,28 @@ function DraftStoryPanel({ storyDraft }: { storyDraft: StoryChapter[] }) {
         {storyDraft.map((chapter, i) => (
           <div key={i} className="border-l-2 border-blue-400 pl-3">
             <div className="text-xs font-medium text-blue-600 dark:text-blue-400">{chapter.title}</div>
+
+            {i === 0 && issueBlocks && issueBlocks.length > 0 && (
+              <div className="mt-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white/60 dark:bg-white/5 p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-xs font-semibold text-gray-700 dark:text-gray-300">論点（STAGE1分析より）</div>
+                  <div className="text-[11px] text-gray-500 dark:text-gray-400">最大5件表示</div>
+                </div>
+                <div className="space-y-2">
+                  {issueBlocks.slice(0, 5).map((iss, idx) => (
+                    <div key={(iss as any).id ?? idx} className="rounded-lg border border-gray-100 dark:border-gray-800 bg-white/70 dark:bg-gray-900/20 px-3 py-2">
+                      <div className="text-xs font-medium text-gray-800 dark:text-gray-200">{idx + 1}. {iss.title}</div>
+                      {iss.description && (
+                        <div className="mt-1 text-[12px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words">
+                          {iss.description}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
               <ScrollText maxH="max-h-[280px]">{chapter.body}</ScrollText>
             </div>
@@ -2821,8 +2840,6 @@ export default function Stage2Page() {
 
   const canOpenDraft = issueBlocks.length > 0; // STAGE1論点は常に見せる
   const hasDraft = storyDraft.length > 0;
-  const canOpenWin = hasDraft; // たたき台生成後に進める
-  const hasWinReady = hasDraft; // Draft生成済みなら最終生成が可能
   const hasFinal = displayingStory.length > 0;
 
   // ★ TASK 10-3: UI表示直前に field_check ログ（DEV限定）
@@ -2843,7 +2860,7 @@ export default function Stage2Page() {
           <div>
             <h1 className="text-xl font-bold text-gray-800 dark:text-gray-200">STAGE2：経営戦略ストーリー</h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              入力（MVV・SWOT）→ DRAFT（STAGE1論点＋4章たたき台）→ 勝ち筋（一覧＋12問）→ 最終
+              入力（MVV・SWOT）→ 戦略のたたき台 → １２の質問をもとに議論　→ 最終ストーリーを確定
             </p>
           </div>
           <button
@@ -2882,8 +2899,6 @@ export default function Stage2Page() {
                 onChange={setActiveTab}
                 canOpenDraft={canOpenDraft}
                 hasDraft={hasDraft}
-                canOpenWin={canOpenWin}
-                hasWinReady={hasWinReady}
                 hasFinal={hasFinal}
               />
             </div>
@@ -2959,19 +2974,10 @@ export default function Stage2Page() {
                 )}
               </div>
             )}
-
-            {/* DRAFTタグ：STAGE1論点（3件）＋4章ストーリー */}
+            {/* DRAFTタグ：STAGE1論点（最大5件を第1章に内包）＋4章ストーリー＋深掘り質問（統合） */}
             {activeTab === 'draft' && (
               <div className="space-y-6">
-                <IssueBlockPreview
-                  issueBlocks={issueBlocks}
-                  metricsSummary={metricsSummary}
-                  source={dataSource}
-                  collapsed={collapsed}
-                  onToggle={() => setCollapsed(!collapsed)}
-                />
-
-                <DraftStoryPanel storyDraft={storyDraft} />
+                <DraftStoryPanel storyDraft={storyDraft} issueBlocks={issueBlocks} />
 
                 <div className="flex justify-center">
                   <button
@@ -3000,44 +3006,47 @@ export default function Stage2Page() {
                     {generateError}
                   </div>
                 )}
+
                 {saveWarning && (
                   <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-sm text-amber-700 dark:text-amber-400">
                     {saveWarning}
                   </div>
                 )}
-              </div>
-            )}
 
-            {/* 勝ち筋タグ：勝ち筋一覧（選択不要）＋12の質問→最終生成 */}
-            {activeTab === 'win' && (
-              <div className="space-y-6">
-                <DraftStoryPanel storyDraft={storyDraft} />
+                {/* 深掘り（12問）を Draft タブに統合 */}
+                <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
 
-                <Questions12Section answers12={answers12} onUpdateAnswer={handleUpdateAnswer} disabled={false} />
-
-                <div className="flex justify-center">
-                  <button
-                    onClick={handleGenerateFinal}
-                    disabled={!hasDraft || generatingFinal}
-                    className="px-8 py-4 rounded-xl bg-emerald-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-emerald-700 transition-colors shadow-lg"
-                  >
-                    {generatingFinal ? '生成中...' : '最終ストーリーを生成'}
-                  </button>
-                </div>
-
-                {hasDraft && (
-                  <p className="text-sm text-gray-500 text-center">※ 12の質問は未回答でも生成できます（回答があるほど、内容は具体化されます）</p>
-                )}
-
-                {generateFinalError && (
-                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-700 dark:text-red-400">
-                    {generateFinalError}
+                <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">戦略を磨くための質問（深掘り）</h3>
+                    <span className="text-sm text-gray-500 dark:text-gray-400">※ 未回答でも最終生成できます</span>
                   </div>
-                )}
+
+                  <Questions12Section answers12={answers12} onUpdateAnswer={handleUpdateAnswer} disabled={false} />
+
+                  <div className="mt-6 flex justify-center">
+                    <button
+                      onClick={handleGenerateFinal}
+                      disabled={!hasDraft || generatingFinal}
+                      className="px-8 py-4 rounded-xl bg-emerald-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-emerald-700 transition-colors shadow-lg"
+                    >
+                      {generatingFinal ? '生成中...' : '最終ストーリーを生成'}
+                    </button>
+                  </div>
+
+                  {hasDraft && (
+                    <p className="mt-3 text-sm text-gray-500 text-center">※ 12の質問は未回答でも生成できます（回答があるほど、内容は具体化されます）</p>
+                  )}
+
+                  {generateFinalError && (
+                    <div className="mt-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-700 dark:text-red-400">
+                      {generateFinalError}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
-
-            {/* 最終タグ：最終ストーリー */}
+{/* 最終タグ：最終ストーリー */}
             {activeTab === 'final' && (
               <div className="space-y-6">
                 {displayingStory.length > 0 ? (
