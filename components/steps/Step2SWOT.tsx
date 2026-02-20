@@ -8,6 +8,7 @@ import StepLayout from '@/components/StepLayout';
 import { getIndustryLabel } from '@/utils/industryTemplates';
 import { saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
 import { saveWithAudit } from '@/utils/persist/saveWithAudit';
+import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 
 /* =========================
  * 共通ユーティリティ
@@ -355,21 +356,16 @@ export default function Step2SWOT() {
     setError('');
 
     try {
-      const res = await fetch('/api/generate-ot', {
+      const data = await authFetchJson<any>('/api/generate-ot', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // API には従来どおり英語コードの industry を送る（表示だけ日本語）
-        body: JSON.stringify({
+        signal: controller.signal,
+        json: {
           industry,
           revenue: typeof revenueRaw === 'number' ? revenueRaw : String(revenueRaw ?? ''),
           employees: typeof employeesRaw === 'number' ? employeesRaw : String(employeesRaw ?? ''),
           businessContent,
-        }),
-        signal: controller.signal,
+        },
       });
-      if (!res.ok) throw new Error(`API ${res.status}`);
-
-      const data = await res.json().catch(() => ({} as any));
 
       // 1) 構造化(JSON)優先
       let oppText = arrToText(data?.opportunity);
@@ -401,7 +397,13 @@ export default function Step2SWOT() {
     } catch (err: any) {
       if (err?.name !== 'AbortError') {
         console.error('O/T自動生成エラー:', err);
-        setError('O/Tの取得に失敗しました。時間をおいて再試行してください。');
+        const msg =
+          err instanceof AuthFetchError
+            ? err.status === 401
+              ? 'セッションが切れています。ログインし直してください。'
+              : err.bodyText || err.message
+            : 'O/Tの取得に失敗しました。時間をおいて再試行してください。';
+        setError(msg);
       }
     } finally {
       setLoading(false);

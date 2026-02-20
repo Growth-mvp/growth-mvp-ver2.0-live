@@ -3,6 +3,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAccess } from '@/utils/access';
+import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 
 /* ========= types ========= */
 type Depth = 'board' | 'exec' | 'ops';
@@ -184,19 +185,24 @@ export default function QuestionStepper({
     (async () => {
       setLoading(true); setErrorMsg(''); setHints([]); setExamples([]);
       try {
-        const res = await fetch('/api/generate-question', {
+        const data = await authFetchJson<any>('/api/generate-question', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           signal: ac.signal,
-          body: JSON.stringify({ chapterIndex, stepNumber: step }),
+          json: { chapterIndex, stepNumber: step },
         });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data?.error || 'API error');
         setQuestion(data?.step?.question ?? '');
         setReason(data?.step?.reason ?? '');
         setDepth(data?.step?.depth ?? 'exec');
       } catch (e: any) {
-        if (e?.name !== 'AbortError') setErrorMsg(e?.message || '読み込みエラー');
+        if (e?.name !== 'AbortError') {
+          const msg =
+            e instanceof AuthFetchError
+              ? e.status === 401
+                ? 'セッションが切れています。ログインし直してください。'
+                : e.bodyText || e.message
+              : e?.message || '読み込みエラー';
+          setErrorMsg(msg);
+        }
       } finally {
         if (!ac.signal.aborted) setLoading(false);
       }
@@ -217,16 +223,22 @@ export default function QuestionStepper({
 
     setHints([]); setLoading(true); setErrorMsg('');
     try {
-      const res = await fetch('/api/generate-hint', {
+      const data = await authFetchJson<any>('/api/generate-hint', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         signal: ac.signal,
-        body: JSON.stringify({ question, answer: answerText || previousAnswer }),
+        json: { question, answer: answerText || previousAnswer },
       });
-      const data = await res.json().catch(() => ({}));
       setHints(Array.isArray(data?.hints) ? data.hints : []);
     } catch (e: any) {
-      if (e?.name !== 'AbortError') setErrorMsg(e?.message || 'ヒント取得エラー');
+      if (e?.name !== 'AbortError') {
+        const msg =
+          e instanceof AuthFetchError
+            ? e.status === 401
+              ? 'セッションが切れています。ログインし直してください。'
+              : e.bodyText || e.message
+            : e?.message || 'ヒント取得エラー';
+        setErrorMsg(msg);
+      }
     } finally {
       if (!ac.signal.aborted) setLoading(false);
     }
@@ -240,16 +252,22 @@ export default function QuestionStepper({
 
     setExamples([]); setLoading(true); setErrorMsg('');
     try {
-      const res = await fetch('/api/generate-example', {
+      const data = await authFetchJson<any>('/api/generate-example', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         signal: ac.signal,
-        body: JSON.stringify({ question }),
+        json: { question },
       });
-      const data = await res.json().catch(() => ({}));
       setExamples(Array.isArray(data?.examples) ? data.examples : []);
     } catch (e: any) {
-      if (e?.name !== 'AbortError') setErrorMsg(e?.message || '事例取得エラー');
+      if (e?.name !== 'AbortError') {
+        const msg =
+          e instanceof AuthFetchError
+            ? e.status === 401
+              ? 'セッションが切れています。ログインし直してください。'
+              : e.bodyText || e.message
+            : e?.message || '事例取得エラー';
+        setErrorMsg(msg);
+      }
     } finally {
       if (!ac.signal.aborted) setLoading(false);
     }
