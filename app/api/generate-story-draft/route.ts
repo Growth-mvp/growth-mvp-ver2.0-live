@@ -100,25 +100,54 @@ function extractJsonLoose(raw: string): any | null {
   return null;
 }
 
-
 /**
- * 第1章本文に混入しがちな「論点サマリー（箇条書き）」ブロックを除去する（UI側で論点を別表示するため）
- * - 「論点サマリー:」「論点:」「課題:」などの見出し + 箇条書き2〜6行 を対象
- * - 先頭付近に現れるケースが多いため、文頭からのマッチを中心にする
+ * 第1章本文に混入した「論点サマリー」ブロックを完全に除去する
+ * - 見出し型 + 箇条書き（既存対応）
+ * - 文章型「当社の課題と論点」「論点1/2/3」（新規対応）
+ * - 本文先頭〜1200文字に限定、削除後は空なら元を返す（安全弁）
  */
 function stripRedundantIssueSummary(body: string): string {
-  if (!body) return body;
+  if (!body || body.length < 5) return body;
 
+  // 先頭1200文字を処理対象に（それ以降を退避）
+  const checkLength = Math.min(1200, body.length);
+  const head = body.substring(0, checkLength);
+  const tail = body.substring(checkLength);
+
+  let processed = head;
+
+  // パターン群：複数のバリエーションを順番に除去
   const patterns: RegExp[] = [
-    // 例: 論点サマリー: - ... - ...
-    /^\s*(?:論点サマリー|論点|課題)\s*[:：]\s*\n(?:\s*(?:[-*・]\s+).*(?:\n|$)){2,6}\s*\n?/m,
-    // 例: ▼論点 ・... ・...
-    /^\s*(?:▼\s*)?(?:論点|課題)\s*\n(?:\s*(?:[-*・]\s+).*(?:\n|$)){2,6}\s*\n?/m,
+    // 1. 見出しキーワード + 箇条書き
+    /^\s*(?:当社の課題と論点|論点サマリー|主要論点|論点|課題|現状の論点|現状|サマリー|ポイント)\s*[:：]?\s*[\n]*(?:\s*(?:[-*・]|[0-9]+\.|[①②③④⑤⑥⑦⑧⑨⑩])\s+.+(?:\n|$)){2,10}/m,
+
+    // 2. 「論点1」「課題1」などの構造化列挙パターン
+    // 例：「論点1:」「論点2:」「課題3:」「課題①」など、複数行続く
+    /^(?:\s*(?:論点|課題|ポイント|要点|主要課題)\s*[0-9０-９一二三四五六七八九十①-⑩]+\s*[:：]\s*.+(?:\n|$)){2,6}/m,
+
+    // 3. 「当社の課題と論点」という見出し + 続くテキスト（改行含む、最大10行）
+    /^【?当社の課題と論点】?\s*[\n]*(?:^.*$\n?){0,10}/m,
+
+    // 4. 見出し無し、箇条書きのみ（冒頭から2〜6行連続）
+    /^(?:\s*(?:[-*・]|[0-9]+\.|[①②③④⑤⑥⑦⑧⑨⑩])\s+.+(?:\n|$)){2,6}/m,
   ];
 
-  let out = body;
-  for (const re of patterns) out = out.replace(re, '');
-  return out.trim();
+  for (const pattern of patterns) {
+    const matched = processed.match(pattern);
+    if (matched) {
+      processed = processed.replace(pattern, '');
+    }
+  }
+
+  // 先頭の空白・改行を削除し、後半部分と再結合
+  const trimmed = processed.trim();
+
+  // 削除後に内容が完全に空になった場合は元を返す（安全弁）
+  if (!trimmed && processed.length < checkLength * 0.5) {
+    return body;
+  }
+
+  return tail ? (trimmed ? trimmed + '\n' + tail : tail).trim() : trimmed;
 }
 
 /** 任意のJSONから章配列を抽出・正規化 */
@@ -192,6 +221,29 @@ function buildStoryDigest(body: any): string {
 }
 
 // ★ 追加：勝ちパターン辞書（t系）の要旨を生成
+
+/** STAGE1 論点（IssueBlock等）を短い要約列にしてプロンプトへ */
+function buildIssueDigest(body: any): string {
+  const issues: any[] = Array.isArray(body?.issueBlocks)
+    ? body.issueBlocks
+    : Array.isArray(body?.issues)
+    ? body.issues
+    : Array.isArray(body?.stage1Issues)
+    ? body.stage1Issues
+    : [];
+
+  if (!issues.length) return '';
+
+  return issues
+    .slice(0, 5)
+    .map((it: any, i: number) => {
+      const t = sanitize(it?.title ?? it?.name ?? it?.heading ?? `論点${i + 1}`, 120);
+      const d = sanitize(it?.description ?? it?.body ?? it?.detail ?? it?.summary ?? '', 220);
+      return `${i + 1}. ${t}${d ? `：${d}` : ''}`;
+    })
+    .join('\n');
+}
+
 function buildTopPatternDigest(ids?: string[]) {
   const set = new Set((ids ?? []).map((s) => String(s).toLowerCase().trim()));
   const list = topPatterns
@@ -545,6 +597,9 @@ export async function POST(req: NextRequest) {
     // 既存の story（ドラフト/前回出力など）だけを参照に使う（Q&Aは使わない）
     const storyNote = buildStoryDigest(body);
 
+    // ★ 追加：STAGE1論点（IssueBlock等）の要約（あれば最大5件）
+    const issueDigest = buildIssueDigest(body);
+
     const financialSummary =
       Array.isArray(csvFinanceData) && csvFinanceData.length > 0
         ? `\n\n【参考財務データ（抜粋・元CSVより）】\n${csvFinanceData
@@ -590,16 +645,28 @@ export async function POST(req: NextRequest) {
       '必ず json のオブジェクトだけを返してください（説明文やコードブロックは禁止）。',
       '',
       '【禁止/制限】',
-      '- 深掘りQ&A（ユーザーの問い/答え）は参考ストーリーのインプットに使用しない。',
       '【重要：論点の重複禁止】',
-      '- UI側で論点（STAGE1のIssueBlock）は別表示するため、第1章本文の冒頭に「論点サマリー」「論点:」「課題:」等の箇条書きで論点を再掲しない。',
-      '- 第1章本文は、論点を“織り込んだ自然文”として書く（箇条書きの列挙は禁止）。',
-      '- 箇条書き（bullet）は summary.bullets のみに使ってよい。',
+      '- UI側で論点（STAGE1のIssueBlock）は別表示するため、第1章本文で以下を作らない：',
+      '  * 「当社の課題と論点」「論点サマリー」「主要論点」等の見出し＋列挙（箇条書き含む）',
+      '  * 「論点1:」「論点2:」「課題①」等の番号付き列挙パターン',
+      '  * 「当社の課題と論点は以下の通り：」「主要課題3点は」のような論点列挙の自然文',
+      '- 第1章は、論点を織り込んだ自然文で始める（見出し＋列挙形式は厳禁）。',
       '',
+      '- 深掘りQ&A（ユーザーの問い/答え）は参考ストーリーのインプットに使用しない。',
       '- 具体タスクの指示や会議体の新設を細かく書かない（行動章は「問いと雛形」に留める）。',
       '- 数値（売上/％など）は csvFinanceData / financeSummary / businessPortfolio に存在するもののみ使用可。無ければ定性表現に置換する。',
       '',
       '【各章のゴール】',
+      '【価値ドライバー（第3章・必須）】',
+      '- 第3章には「狙う価値ドライバー」セクションを必ず含める。フォーマット例：',
+      '  【狙う価値ドライバー】',
+      '  ・論点①: <issue title> → <driver：ROIC/粗利率/回転率/単価/数量等>',
+      '  ・論点②: <issue title> → <driver>',
+      '  … （論点の件数分、最大5行）',
+      '- 入力の「STAGE1 論点（最大5件）」に対して、必ず1行ずつ対応させる（5件なら5行）。',
+      '- ドライバーは経営指標・財務指標・オペレーション指標など、具体的で測定可能なものを選ぶ。',
+      '- このセクションのみ「・」で始まる列挙を使ってよい。',
+      '',
       `1) ${goals[0]}`,
       `2) ${goals[1]}`,
       `3) ${goals[2]}`,
@@ -661,6 +728,7 @@ export async function POST(req: NextRequest) {
       financeSummaryDigest, // ★ 全社財務サマリー
       portfolioDigest,      // ★ 事業ポートフォリオ
       financialSummary,     // （既存）元CSVの生テキスト抜粋
+      issueDigest ? `【STAGE1 論点（最大5件）】\n${issueDigest}` : '',
       '',
       '【執筆要件】',
       '- 章の見出し文言は最終的にサーバ側で上書きされるため、内容の質を最優先すること。',
@@ -800,18 +868,18 @@ export async function POST(req: NextRequest) {
     }
 
     // サーバ側で章タイトル/順序を固定（本文はenhancedの中身を使用）
-    // ★ UI側で論点を別表示するため、第1章本文の先頭に混入した論点サマリー（箇条書き）を除去
-    if (enhancedChapters?.[0]?.body) {
-      enhancedChapters[0].body = stripRedundantIssueSummary(enhancedChapters[0].body);
-    }
-
-    const chapters = TITLE_TEMPLATES.map((title, i) => ({
-      title,
-      body: sanitize(
-        enhancedChapters[i]?.body || '（この章は未生成です）',
-        2400,
-      ),
-    }));
+    // ★ 第1章の本文から「論点サマリー」混入を確実に除去
+    const chapters = TITLE_TEMPLATES.map((title, i) => {
+      let body = enhancedChapters[i]?.body || '（この章は未生成です）';
+      // 第1章（i=0）に対してのみ stripRedundantIssueSummary を適用
+      if (i === 0) {
+        body = stripRedundantIssueSummary(body);
+      }
+      return {
+        title,
+        body: sanitize(body, 2400),
+      };
+    });
 
     // summary は色々な形を許容
     let summary: any = undefined;
