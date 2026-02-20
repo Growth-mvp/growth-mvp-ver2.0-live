@@ -100,6 +100,27 @@ function extractJsonLoose(raw: string): any | null {
   return null;
 }
 
+
+/**
+ * 第1章本文に混入しがちな「論点サマリー（箇条書き）」ブロックを除去する（UI側で論点を別表示するため）
+ * - 「論点サマリー:」「論点:」「課題:」などの見出し + 箇条書き2〜6行 を対象
+ * - 先頭付近に現れるケースが多いため、文頭からのマッチを中心にする
+ */
+function stripRedundantIssueSummary(body: string): string {
+  if (!body) return body;
+
+  const patterns: RegExp[] = [
+    // 例: 論点サマリー: - ... - ...
+    /^\s*(?:論点サマリー|論点|課題)\s*[:：]\s*\n(?:\s*(?:[-*・]\s+).*(?:\n|$)){2,6}\s*\n?/m,
+    // 例: ▼論点 ・... ・...
+    /^\s*(?:▼\s*)?(?:論点|課題)\s*\n(?:\s*(?:[-*・]\s+).*(?:\n|$)){2,6}\s*\n?/m,
+  ];
+
+  let out = body;
+  for (const re of patterns) out = out.replace(re, '');
+  return out.trim();
+}
+
 /** 任意のJSONから章配列を抽出・正規化 */
 function coerceChapters(parsed: any): Array<{ title?: string; body?: string }> {
   if (!parsed) return [];
@@ -570,6 +591,11 @@ export async function POST(req: NextRequest) {
       '',
       '【禁止/制限】',
       '- 深掘りQ&A（ユーザーの問い/答え）は参考ストーリーのインプットに使用しない。',
+      '【重要：論点の重複禁止】',
+      '- UI側で論点（STAGE1のIssueBlock）は別表示するため、第1章本文の冒頭に「論点サマリー」「論点:」「課題:」等の箇条書きで論点を再掲しない。',
+      '- 第1章本文は、論点を“織り込んだ自然文”として書く（箇条書きの列挙は禁止）。',
+      '- 箇条書き（bullet）は summary.bullets のみに使ってよい。',
+      '',
       '- 具体タスクの指示や会議体の新設を細かく書かない（行動章は「問いと雛形」に留める）。',
       '- 数値（売上/％など）は csvFinanceData / financeSummary / businessPortfolio に存在するもののみ使用可。無ければ定性表現に置換する。',
       '',
@@ -774,6 +800,11 @@ export async function POST(req: NextRequest) {
     }
 
     // サーバ側で章タイトル/順序を固定（本文はenhancedの中身を使用）
+    // ★ UI側で論点を別表示するため、第1章本文の先頭に混入した論点サマリー（箇条書き）を除去
+    if (enhancedChapters?.[0]?.body) {
+      enhancedChapters[0].body = stripRedundantIssueSummary(enhancedChapters[0].body);
+    }
+
     const chapters = TITLE_TEMPLATES.map((title, i) => ({
       title,
       body: sanitize(
