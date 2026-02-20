@@ -157,7 +157,7 @@ export default function PyramidNavigator() {
             <Link href="/stage1" prefetch className={btnClass} title="企業価値分析">
               <span className="text-[15px] font-semibold text-neutral-900">STAGE1：企業価値分析</span>
             </Link>
-            <Link href="/story-process" prefetch className={btnClass} title="仮説→最終ストーリー">
+            <Link href="/stage2" prefetch className={btnClass} title="仮説→最終ストーリー">
               <span className="text-[15px] font-semibold text-neutral-900">STAGE2：経営戦略策定</span>
             </Link>
           </div>
