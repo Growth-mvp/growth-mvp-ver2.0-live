@@ -1,7 +1,7 @@
 // utils/authFetch.ts
 'use client';
 
-import { supabase } from '@/utils/supabase/client';
+import { safeGetSession } from '@/utils/supabase/client';
 
 export type AuthFetchErrorCode = 'AUTH_NO_SESSION' | 'HTTP_ERROR';
 
@@ -23,13 +23,27 @@ export class AuthFetchError extends Error {
   }
 }
 
-async function getAccessToken(): Promise<string> {
-  const { data: { session }, error } = await supabase.auth.getSession();
-  const token = session?.access_token;
+/**
+ * getAccessToken: safeGetSession の複数パターンの戻り値に対応
+ * - access_token直
+ * - session.access_token
+ * - data.session.access_token
+ *
+ * Bearer 必須 API で使用（失敗時は AuthFetchError を throw）
+ */
+export async function getAccessToken(): Promise<string> {
+  const s: any = await safeGetSession();
 
-  if (!token) {
+  // パターン吸収：access_token直 / session.access_token / data.session.access_token
+  const token =
+    s?.access_token ??
+    s?.session?.access_token ??
+    s?.data?.session?.access_token ??
+    null;
+
+  if (typeof token !== 'string' || token.length === 0) {
     throw new AuthFetchError(
-      `No session token available${error ? `: ${error.message}` : ''}`,
+      'No session token available',
       'AUTH_NO_SESSION'
     );
   }
@@ -44,7 +58,13 @@ export async function authFetch(
   input: RequestInfo | URL,
   init: RequestInit = {}
 ): Promise<Response> {
-  const token = await getAccessToken();
+  let token: string | null = null;
+  try {
+    token = await getAccessToken();
+  } catch (e) {
+    console.error('[authFetch] failed to get access token', { url: String(input) });
+    throw e;
+  }
 
   const headers = new Headers(init.headers || {});
   // 既に Authorization が明示されていれば尊重（上書きしない）

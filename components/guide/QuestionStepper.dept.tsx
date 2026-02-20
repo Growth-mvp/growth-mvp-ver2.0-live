@@ -3,6 +3,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAccess } from '@/utils/access'; // ★ 編集ガード
+import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 
 export type StepNumber = 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -246,12 +247,10 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       setErrorMsg('');
       inFlightRef.current = true;
       try {
-        const res = await fetch('/api/generate-department-question', {
+        const data = await authFetchJson<any>('/api/generate-department-question', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          cache: 'no-store',
           signal: controller.signal,
-          body: JSON.stringify({
+          json: {
             departmentName,
             mission,
             projects,
@@ -263,14 +262,8 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
             focusThemes,
             answersSoFar: answersSoFarPayload,
             afterStepIndex: step - 2, // 現在stepの1つ前（初回は -1）
-          }),
+          },
         });
-
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          const msg = data?.error || `Failed to fetch question (${res.status})`;
-          throw new Error(msg);
-        }
 
         const g = data?.step;
         const q = (g?.question ?? '').trim();
@@ -284,7 +277,13 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
         setShowHint(false);
       } catch (e: any) {
         if (e?.name !== 'AbortError') {
-          setErrorMsg(e?.message || 'エラーが発生しました');
+          const msg =
+            e instanceof AuthFetchError
+              ? e.status === 401
+                ? 'セッションが切れています。ログインし直してください。'
+                : e.bodyText || e.message
+              : e?.message || 'エラーが発生しました';
+          setErrorMsg(msg);
         }
       } finally {
         inFlightRef.current = false;
@@ -416,11 +415,9 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     setGenLoading(true);
     setGenError('');
     try {
-      const res = await fetch('/api/generate-department-draft', {
+      const data = await authFetchJson<any>('/api/generate-department-draft', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        cache: 'no-store',
-        body: JSON.stringify({
+        json: {
           departmentName,
           mission,
           projects,
@@ -434,13 +431,8 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
               question: a.question,
               answer: a.answer,
             })),
-        }),
+        },
       });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.error || `部門ミッション生成に失敗しました（${res.status}）`);
-      }
 
       const nextMission: string | undefined = (data?.mission ?? '').trim() || undefined;
       const nextProjects: string[] | undefined = Array.isArray(data?.projects) ? data.projects : undefined;
@@ -456,7 +448,13 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
         okrs: nextOkrs,
       });
     } catch (e: any) {
-      setGenError(e?.message || '部門ミッション生成でエラーが発生しました');
+      const msg =
+        e instanceof AuthFetchError
+          ? e.status === 401
+            ? 'セッションが切れています。ログインし直してください。'
+            : e.bodyText || e.message
+          : e?.message || '部門ミッション生成でエラーが発生しました';
+      setGenError(msg);
     } finally {
       setGenLoading(false);
     }
