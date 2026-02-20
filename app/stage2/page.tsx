@@ -2179,48 +2179,7 @@ export default function Stage2Page() {
     companyTargets,
   ]);
 
-  // ★ Development環境での fetch フック（限定版：/api/stage2/ は素通し）
-  useEffect(() => {
-    if (process.env.NODE_ENV !== 'development') return;
-
-    const w = window as any;
-    if (w.__stage2FetchHooked) return;
-    w.__stage2FetchHooked = true;
-
-    const origFetch = window.fetch.bind(window);
-
-    // ★ 修正：input/init を関数シグネチャで明示的に宣言
-    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      try {
-        // ★ URL を文字列化（Request オブジェクト対応）
-        const urlStr: string = typeof input === 'string'
-          ? input
-          : (input instanceof Request ? input.url : String(input));
-
-        // ★ /api/stage2/ 配下は必ず素通し（hook を一切適用しない）
-        if (urlStr.includes('/api/stage2/')) {
-          console.log('[Stage2][fetch-hook] BYPASS /api/stage2/', { url: urlStr });
-          return (origFetch as any)(input as any, init as any);
-        }
-
-        const method = init?.method ?? 'GET';
-
-        // ★ 全 fetch を記録（stage2以外のみ）
-        console.log('[Stage2][fetch-hook] called', {
-          url: urlStr,
-          method,
-          at: new Date().toISOString(),
-        });
-      } catch (e) {
-        console.warn('[Stage2][fetch-hook] error in hook:', e);
-      }
-
-      // ★ 必ず return する（どの分岐からでも）
-      return (origFetch as any)(input as any, init as any);
-    };
-
-    console.log('[Stage2][fetch-hook] installed (limited scope: stage2 bypass)');
-  }, []);
+  // ★ 削除：fetch-hook は廃止（authFetchJson に統一）
 
   // ★ 診断用 fetch（DEV限定で1回だけ）
   useEffect(() => {
@@ -2456,7 +2415,7 @@ export default function Stage2Page() {
           console.log('[Stage2] PING MODE ACTIVATED - __ping added to payload');
         }
 
-        // ★ (3) fetch 直前ログ
+        // ★ (3) API 呼び出し（Bearer 自動付与）
         const url = '/api/stage2/generate-draft';
         console.log('[Stage2] BEFORE fetch', {
           url,
@@ -2465,42 +2424,33 @@ export default function Stage2Page() {
           pingMode: isPing,
         });
 
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-          signal: controller.signal,
-          cache: 'no-store',
-        });
+        let data: any;
+        try {
+          data = await authFetchJson<any>(url, {
+            method: 'POST',
+            signal: controller.signal,
+            json: payload,
+          });
 
-        // ★★★ 重要：レスポンスが返った時点で timeout を解除する（本文読取/parse 中に abort されるのを防ぐ）
-        done = true; // ★追加：これ以上 abort させない（race 防止）
-        if (timer) {
-          clearTimeout(timer);
-          timer = null;
+          // ★★★ 重要：レスポンスが返った時点で timeout を解除する（本文読取/parse 中に abort されるのを防ぐ）
+          done = true; // ★追加：これ以上 abort させない（race 防止）
+          if (timer) {
+            clearTimeout(timer);
+            timer = null;
+          }
+
+          // ★ (4) fetch 直後ログ
+          console.log('[Stage2] AFTER fetch', { status: 200, ok: true });
+        } catch (e: any) {
+          // ★ authFetchJson からの エラー（401など）
+          console.error('[Stage2] generate failed:', e?.message || e);
+          done = true;
+          if (timer) {
+            clearTimeout(timer);
+            timer = null;
+          }
+          throw e;
         }
-
-        // ★ レスポンス本文を先に読む（ok チェック前に）
-        const contentType = response.headers.get('content-type') || '';
-        const responseText = await response.text();
-
-        // ★ (4) fetch 直後ログ
-        console.log('[Stage2] AFTER fetch', { status: response.status, ok: response.ok, ct: contentType });
-
-        // ★ res.ok チェック
-        if (!response.ok) {
-          console.error('[Stage2] generate failed body:', responseText.substring(0, 400));
-          throw new Error(`API error: ${response.status} ${response.statusText}`);
-        }
-
-        // ★ Content-Type チェック
-        if (!contentType.includes('application/json')) {
-          console.error('[Stage2] non-json response:', responseText.substring(0, 400));
-          throw new Error(`Unexpected Content-Type: ${contentType}`);
-        }
-
-        // ★ JSON パース
-        const data = JSON.parse(responseText);
 
         // ★ PING モード レスポンス確認
         if (isPing && data.__pong === true) {
@@ -2709,49 +2659,51 @@ export default function Stage2Page() {
             .filter(Boolean)
         : [];
 
-      const response = await fetch('/api/stage2/generate-final', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          issueBlocks,
-          metricsSummary,
-          mvv: { thought, mission, vision, value },
-          swot: { strength, weakness, opportunity, threat },
-          storyDraft,
-          winPatternsCandidate,
-          // UIでは選択させないが、API整合のため内部で先頭候補を参照（無い場合は null）
-          selectedWinPatternId: selectedWinPatternId ?? winPatternsCandidate?.[0]?.id ?? null,
-          answers12, // 未回答でもOK（空文字が混ざっていても許容）
-          companyTargets,
-          industry,
-          segments: segmentNames,
-          businessSegments,
-          businessPortfolio,
-        }),
-        signal: controller.signal,
-        cache: 'no-store',
-      });
+      // ★ API 呼び出し（Bearer 自動付与）
+      let data: any;
+      try {
+        data = await authFetchJson<any>('/api/stage2/generate-final', {
+          method: 'POST',
+          signal: controller.signal,
+          json: {
+            issueBlocks,
+            metricsSummary,
+            mvv: { thought, mission, vision, value },
+            swot: { strength, weakness, opportunity, threat },
+            storyDraft,
+            winPatternsCandidate,
+            // UIでは選択させないが、API整合のため内部で先頭候補を参照（無い場合は null）
+            selectedWinPatternId: selectedWinPatternId ?? winPatternsCandidate?.[0]?.id ?? null,
+            answers12, // 未回答でもOK（空文字が混ざっていても許容）
+            companyTargets,
+            industry,
+            segments: segmentNames,
+            businessSegments,
+            businessPortfolio,
+          },
+        });
 
-      // ★★★ 重要：レスポンスが返ったら timeout を解除（本文 parse 中に abort されるのを防ぐ）
-      done = true; // ★追加：これ以上 abort させない（race 防止）
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
+        // ★★★ 重要：レスポンスが返ったら timeout を解除（本文 parse 中に abort されるのを防ぐ）
+        done = true; // ★追加：これ以上 abort させない（race 防止）
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+      } catch (e: any) {
+        // ★ authFetchJson からのエラー（401など）
+        done = true;
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        const msg =
+          e instanceof AuthFetchError
+            ? e.status === 401
+              ? 'セッションが切れています。ログインし直してください。'
+              : e.bodyText || e.message
+            : e?.message || 'API error';
+        throw new Error(msg);
       }
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => '');
-        const errorData = (() => {
-          try {
-            return JSON.parse(errorText || '{}');
-          } catch {
-            return {};
-          }
-        })();
-        throw new Error(errorData.error || `API error: ${response.status} ${response.statusText}`);
-      }
-
-      const data = await response.json();
       const newFinalStory: StoryChapter[] = Array.isArray(data.finalStory) ? data.finalStory : [];
 
       // ★ Step 3: APIレスポンス内容ログ
