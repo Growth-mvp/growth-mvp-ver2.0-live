@@ -2754,6 +2754,20 @@ export const useStrategyStore = create<StrategyState>()(
           /* ★ TASK 14-4: canSave ゲート（リロード直後の保存を禁止） */
           const canSave = state0.hydrated && state0.restoreReady && !state0.isRestoring;
           if (!force && !canSave) {
+            // ★ CRITICAL: Enhanced logging for unhydrated saves (TASK 2)
+            console.warn('[SAVE_BLOCKED] unhydrated/unrestored state - preventing data loss', {
+              reason: 'restore_not_ready',
+              hydrated: state0.hydrated,
+              restoreReady: state0.restoreReady,
+              isRestoring: state0.isRestoring,
+              revision: state0.revision,
+              hasData: {
+                departments: Array.isArray(state0.departments) ? state0.departments.length : 0,
+                story: Array.isArray(state0.story) ? state0.story.length : 0,
+                mvv: !!state0.mission || !!state0.vision || !!state0.value,
+              },
+              timestamp: new Date().toISOString(),
+            });
             if (DEBUG) {
               console.log('[strategyStore] saveStrategyData: canSave=false, skip (not forced)', {
                 hydrated: state0.hydrated,
@@ -2782,6 +2796,18 @@ export const useStrategyStore = create<StrategyState>()(
             hydrating: state0.boot?.isHydrating,
             fetching: state0.__isFetchingFromServer,
           });
+
+          /* ★ TASK 3: Check revision requirement (TASK 3) */
+          if (!force && (state0.revision === undefined || state0.revision === null)) {
+            console.warn('[SAVE_BLOCKED] missing revision - likely first load incomplete', {
+              reason: 'no_revision',
+              revision: state0.revision,
+              hydrated: state0.hydrated,
+              restoreReady: state0.restoreReady,
+              timestamp: new Date().toISOString(),
+            });
+            return { ok: false, skipped: true, reason: 'no_revision' };
+          }
 
           if (DEBUG) {
             console.log('[strategyStore] saveStrategyData() start', {

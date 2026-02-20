@@ -1547,6 +1547,8 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         user_id: userId,
         company_id: cleanCompanyId,
         updated_at: now,
+        /* ★ TASK 6: Track editor metadata for dual-browser detection */
+        updated_by: userId, // Add editor user ID to track who made the change
       };
       delete updatePayload.created_at;
 
