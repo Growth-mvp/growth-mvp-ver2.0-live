@@ -17,6 +17,7 @@ import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { useAccess } from '@/utils/access';
 import { useCapabilities } from '@/hooks/useCapabilities';
+import SaveStatusIndicator from '@/components/SaveStatusIndicator';
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
 import { useAutoSave } from '@/hooks/useAutoSave';
@@ -125,110 +126,6 @@ function hashSnapshot(obj: any) {
   return (h >>> 0).toString(16);
 }
 
-/* ============================================================
- * 保存ステータス・ドック（日本語UI）
- * ========================================================== */
-function SaveDock() {
-  const { user } = useUserStore();
-  const state = useStrategyStore() as any;
-  const departments = state?.departments ?? [];
-
-  const [hydratedUI, setHydratedUI] = useState(false);
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [online, setOnline] = useState<boolean | null>(null);
-  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
-  const [formattedSavedAt, setFormattedSavedAt] = useState('');
-  const [error, setError] = useState('');
-  const savedHashRef = useRef<string>('');
-
-  useEffect(() => setHydratedUI(true), []);
-  const currentHash = useMemo(() => JSON.stringify(departments), [departments]);
-
-  useEffect(() => {
-    if (!savedHashRef.current) savedHashRef.current = currentHash;
-    setDirty(savedHashRef.current !== currentHash);
-  }, [currentHash]);
-
-  useEffect(() => {
-    setOnline(typeof navigator !== 'undefined' ? navigator.onLine : null);
-    const on = () => setOnline(true);
-    const off = () => setOnline(false);
-    window.addEventListener('online', on);
-    window.addEventListener('offline', off);
-    return () => {
-      window.removeEventListener('online', on);
-      window.removeEventListener('offline', off);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!lastSavedAt) return setFormattedSavedAt('');
-    const fmt = new Intl.DateTimeFormat('ja-JP', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-      timeZone: 'Asia/Tokyo',
-    }).format(lastSavedAt);
-    setFormattedSavedAt(fmt);
-  }, [lastSavedAt]);
-
-  const saveNow = useCallback(async () => {
-    if (!user?.id) return;
-    setSaving(true);
-    setError('');
-    try {
-      useStrategyStore.setState((st: any) => ({ ...st, dirty: true }));
-      await useStrategyStore.getState().saveStrategyData();
-      savedHashRef.current = JSON.stringify((useStrategyStore.getState() as any).departments ?? []);
-      setLastSavedAt(Date.now());
-      setDirty(false);
-    } catch (e: any) {
-      setError('保存に失敗しました。少し時間をおいて再度お試しください。');
-      // eslint-disable-next-line no-console
-      console.warn('SaveDock error:', e);
-    } finally {
-      setSaving(false);
-    }
-  }, [user?.id]);
-
-  if (!hydratedUI)
-    return (
-      <div className="fixed bottom-5 right-5 z-50">
-        <div className="rounded-2xl border border-zinc-200 bg-white/95 px-3 py-2 shadow">
-          <span className="text-xs text-zinc-600">状態を確認しています…</span>
-        </div>
-      </div>
-    );
-
-  const canSave = !saving && online && dirty && !!user?.id;
-
-  return (
-    <div className="fixed bottom-5 right-5 z-50">
-      <div className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white/95 px-3 py-2 shadow">
-        <span
-          className={`inline-flex h-2 w-2 rounded-full ${
-            online ? 'bg-emerald-500' : online === false ? 'bg-amber-500' : 'bg-zinc-300'
-          }`}
-        />
-        <span className="text-xs text-zinc-800">
-          {saving ? '保存中…' : dirty ? '未保存の変更があります' : `保存済み ${formattedSavedAt || ''}`}
-        </span>
-        <button
-          onClick={saveNow}
-          disabled={!canSave}
-          className={`ml-2 h-7 rounded-full px-3 text-xs font-semibold ${
-            canSave ? 'bg-black text-white' : 'cursor-not-allowed bg-zinc-200 text-zinc-500'
-          }`}
-        >
-          今すぐ保存
-        </button>
-      </div>
-      {error && <div className="mt-1 text-[11px] text-rose-600">{error}</div>}
-    </div>
-  );
-}
 
 /* ============================================================
  * メイン
@@ -2473,7 +2370,7 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
     <div className="w-full px-6 py-6">
 
       {/* header */}
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <div className="text-[11px] font-semibold text-zinc-500">STAGE4 / 実行計画（SIMPLE_FORM）</div>
           <h1 className="mt-1 text-[20px] font-bold text-zinc-900">実行計画（現場入力）</h1>
@@ -2481,7 +2378,10 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
             左でプロジェクトを選び、右で「目的・成果指標・投資」を入力します。
           </div>
         </div>
-        <div className="text-right text-[11px] text-zinc-500">{isHydrating ? '読み込み中…' : '準備OK'}</div>
+        <div className="shrink-0 flex flex-col items-end gap-2">
+          <SaveStatusIndicator />
+          <div className="text-right text-[11px] text-zinc-500">{isHydrating ? '読み込み中…' : '準備OK'}</div>
+        </div>
       </div>
 
       {/* main */}
@@ -2589,8 +2489,6 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
         </section>
       </div>
     </div>
-
-    <SaveDock />
   </main>
 );
 
