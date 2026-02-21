@@ -145,6 +145,16 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
   const pickT = useStrategyStore((s: any) => (s as any)?.finalStoryFinal);
   const pickU = useStrategyStore((s: any) => (s as any)?.companyTargets);
 
+  // ---- STAGE2 フィールド（追加分、署名用）----
+  const pickV = useStrategyStore((s: any) => s?.strength);
+  const pickW = useStrategyStore((s: any) => s?.weakness);
+  const pickX = useStrategyStore((s: any) => s?.opportunity);
+  const pickY = useStrategyStore((s: any) => s?.threat);
+  const pickZ = useStrategyStore((s: any) => s?.swotSuggestions);
+  const pickAA = useStrategyStore((s: any) => s?.winPatterns);
+  const pickAB = useStrategyStore((s: any) => s?.winPatternPrimary);
+  const pickAC = useStrategyStore((s: any) => s?.winPatternSecondary);
+
   const companyId = companyIdFromStore ?? companyIdFromUserStore;
 
   /* ============================================
@@ -178,6 +188,15 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
       finalStoryEdited: pickS,
       finalStoryFinal: pickT,
       companyTargets: pickU,
+      // ★ STAGE2 フィールド追加分
+      strength: pickV,
+      weakness: pickW,
+      opportunity: pickX,
+      threat: pickY,
+      swotSuggestions: pickZ,
+      winPatterns: pickAA,
+      winPatternPrimary: pickAB,
+      winPatternSecondary: pickAC,
     };
     return safeStableStringify(pick);
   }, [
@@ -205,6 +224,14 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
     pickS,
     pickT,
     pickU,
+    pickV,
+    pickW,
+    pickX,
+    pickY,
+    pickZ,
+    pickAA,
+    pickAB,
+    pickAC,
   ]);
 
   const depsSignature = useMemo(() => {
