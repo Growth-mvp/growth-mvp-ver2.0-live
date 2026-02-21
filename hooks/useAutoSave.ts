@@ -15,6 +15,11 @@ try {
   // noop
 }
 
+/* ============================================
+ * AutoSave Mode Type
+ * ========================================== */
+type AutoSaveMode = 'legacy' | 'payload';
+
 type Options = {
   enabled?: boolean;
   debounceMs?: number;
@@ -24,6 +29,7 @@ type Options = {
   minIntervalMs?: number;
   isFetchingSelector?: (strategyState: any) => boolean;
   initialDelayMs?: number;
+  mode?: AutoSaveMode;
 };
 
 /* ============================================
@@ -97,6 +103,7 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
     minIntervalMs = 1500,
     isFetchingSelector,
     initialDelayMs = 1000,
+    mode = 'legacy',
   } = options;
 
   // ---- ユーザー情報 ----
@@ -117,6 +124,9 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
       ? !!isFetchingSelector(s)
       : !!s?.__isFetchingFromServer,
   );
+
+  // ---- Version for payload signature ----
+  const storeVersion = useStrategyStore((s: any) => s?.version);
 
   // ---- 保存対象フィールド（署名用）----
   const pickA = useStrategyStore((s: any) => s?.companyName);
@@ -156,6 +166,17 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
   const pickAC = useStrategyStore((s: any) => s?.winPatternSecondary);
 
   const companyId = companyIdFromStore ?? companyIdFromUserStore;
+
+  /* ============================================
+   * Payload Signature（mode='payload'時のみ計算）
+   * ========================================== */
+  const payloadSignature = useMemo(() => {
+    if (mode !== 'payload') return '';
+
+    const store = useStrategyStore.getState();
+    const payload = store.buildPayload?.();
+    return payload ? safeStableStringify(payload) : '';
+  }, [mode, storeVersion]);
 
   /* ============================================
    * 変更シグネチャ
@@ -239,7 +260,12 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
     return safeStableStringify(externalDeps);
   }, [externalDeps]);
 
-  const combinedSignature = internalSignature + '|' + depsSignature;
+  const combinedSignature = useMemo(() => {
+    if (mode === 'payload') {
+      return payloadSignature;
+    }
+    return internalSignature + '|' + depsSignature;
+  }, [mode, payloadSignature, internalSignature, depsSignature]);
 
   // ---- 保存制御 ----
   const savingRef = useRef(false);
@@ -274,6 +300,9 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
       const now = Date.now();
       if (now - lastSavedAtRef.current < minIntervalMs) return;
       if (savingRef.current) return;
+
+      console.log('[AutoSave][mode]', mode);
+      console.log('[AutoSave][signature-length]', combinedSignature.length);
 
       savingRef.current = true;
 
