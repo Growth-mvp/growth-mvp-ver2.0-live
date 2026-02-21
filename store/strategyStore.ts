@@ -1703,12 +1703,12 @@ export const useStrategyStore = create<StrategyState>()(
         })),
 
       setStory: (chs) => {
-        set({ story: [...chs], dirty: true });
+        set((s) => ({ story: [...chs], dirty: true, version: (s.version ?? 0) + 1 }));
       },
 
       // finalStory は 分離API で即時保存（親保証→分離保存）
       setFinalStory: (chs) => {
-        set({ finalStory: [...chs], dirty: true });
+        set((s) => ({ finalStory: [...chs], dirty: true, version: (s.version ?? 0) + 1 }));
 
         (async () => {
           const s = get();
@@ -1918,14 +1918,14 @@ export const useStrategyStore = create<StrategyState>()(
 
       /* ▼ STAGE2 setter */
       setStoryDraft: (draft) => {
-        set((s) => ({ ...s, storyDraft: draft, dirty: true }));
+        set((s) => ({ ...s, storyDraft: draft, dirty: true, version: (s.version ?? 0) + 1 }));
         setTimeout(() => {
           get().saveStage2Snapshot();
         }, 0);
       },
 
       setWinPatternsCandidate: (candidates) => {
-        set((s) => ({ ...s, winPatternsCandidate: candidates, dirty: true }));
+        set((s) => ({ ...s, winPatternsCandidate: candidates, dirty: true, version: (s.version ?? 0) + 1 }));
         setTimeout(() => {
           get().saveStage2Snapshot();
         }, 0);
@@ -1936,12 +1936,10 @@ export const useStrategyStore = create<StrategyState>()(
         if (!Array.isArray(answers)) {
           console.warn('[strategyStore][setAnswers12] received non-array, treating as empty', answers);
           // 配列でなければ空配列に矯正（関数 updater などが混入した場合の保険）
-          set((s) => ({ ...s, answers12: [], dirty: true }));
+          set((s) => ({ ...s, answers12: [], dirty: true, version: (s.version ?? 0) + 1 }));
           return;
         }
-        // ★ TASK D: Debug log for dirty flag tracking
-        console.log('[strategyStore] setAnswers12', { len: answers.length, dirtyAfter: true });
-        set((s) => ({ ...s, answers12: answers, dirty: true }));
+        set((s) => ({ ...s, answers12: answers, dirty: true, version: (s.version ?? 0) + 1 }));
         setTimeout(() => {
           get().saveStage2Snapshot();
         }, 0);
@@ -1954,7 +1952,7 @@ export const useStrategyStore = create<StrategyState>()(
           if (idx < 0) return s;
           const next = [...prev];
           next[idx] = { ...next[idx], ...patch };
-          return { ...s, answers12: next, dirty: true };
+          return { ...s, answers12: next, dirty: true, version: (s.version ?? 0) + 1 };
         });
         setTimeout(() => {
           get().saveStage2Snapshot();
@@ -1962,7 +1960,7 @@ export const useStrategyStore = create<StrategyState>()(
       },
 
       setCompanyTargets: (targets: CompanyTarget[]) => {
-        set((s) => ({ ...s, companyTargets: targets, dirty: true }));
+        set((s) => ({ ...s, companyTargets: targets, dirty: true, version: (s.version ?? 0) + 1 }));
         setTimeout(() => {
           get().saveStage2Snapshot();
         }, 0);
@@ -1971,7 +1969,7 @@ export const useStrategyStore = create<StrategyState>()(
       addCompanyTarget: (target: CompanyTarget) => {
         set((s) => {
           const prev = s.companyTargets ?? [];
-          return { ...s, companyTargets: [...prev, target], dirty: true };
+          return { ...s, companyTargets: [...prev, target], dirty: true, version: (s.version ?? 0) + 1 };
         });
         setTimeout(() => {
           get().saveStage2Snapshot();
@@ -1985,7 +1983,7 @@ export const useStrategyStore = create<StrategyState>()(
           if (idx < 0) return s;
           const next = [...prev];
           next[idx] = { ...next[idx], ...patch };
-          return { ...s, companyTargets: next, dirty: true };
+          return { ...s, companyTargets: next, dirty: true, version: (s.version ?? 0) + 1 };
         });
         setTimeout(() => {
           get().saveStage2Snapshot();
@@ -1995,7 +1993,7 @@ export const useStrategyStore = create<StrategyState>()(
       removeCompanyTarget: (id: string) => {
         set((s) => {
           const prev = s.companyTargets ?? [];
-          return { ...s, companyTargets: prev.filter((t) => t.id !== id), dirty: true };
+          return { ...s, companyTargets: prev.filter((t) => t.id !== id), dirty: true, version: (s.version ?? 0) + 1 };
         });
         setTimeout(() => {
           get().saveStage2Snapshot();
@@ -2004,7 +2002,7 @@ export const useStrategyStore = create<StrategyState>()(
 
       // === STAGE6 Phase E：projectTargetImpacts アクション ===
       setProjectTargetImpacts: (impacts: ProjectTargetImpact[]) => {
-        set((s) => ({ ...s, projectTargetImpacts: impacts, dirty: true }));
+        set((s) => ({ ...s, projectTargetImpacts: impacts, dirty: true, version: (s.version ?? 0) + 1 }));
       },
 
       addProjectTargetImpact: (impact: ProjectTargetImpact) => {
@@ -2038,7 +2036,7 @@ export const useStrategyStore = create<StrategyState>()(
 
       // === STAGE6 Phase E：projectIssueLinks アクション ===
       setProjectIssueLinks: (links: ProjectIssueLink[]) => {
-        set((s) => ({ ...s, projectIssueLinks: links, dirty: true }));
+        set((s) => ({ ...s, projectIssueLinks: links, dirty: true, version: (s.version ?? 0) + 1 }));
       },
 
       addProjectIssueLink: (link: ProjectIssueLink) => {
@@ -2071,14 +2069,14 @@ export const useStrategyStore = create<StrategyState>()(
       },
 
       setFinalStoryDraft: (chapters: StoryChapter[]) => {
-        set((s) => ({ ...s, finalStoryDraft: chapters, dirty: true }));
+        set((s) => ({ ...s, finalStoryDraft: chapters, dirty: true, version: (s.version ?? 0) + 1 }));
         setTimeout(() => {
           get().saveStage2Snapshot();
         }, 0);
       },
 
       setFinalStoryEdited: (chapters: StoryChapter[]) => {
-        set((s) => ({ ...s, finalStoryEdited: chapters, dirty: true }));
+        set((s) => ({ ...s, finalStoryEdited: chapters, dirty: true, version: (s.version ?? 0) + 1 }));
         setTimeout(() => {
           get().saveStage2Snapshot();
         }, 0);
@@ -2087,7 +2085,7 @@ export const useStrategyStore = create<StrategyState>()(
       commitFinalStory: () => {
         const s = get();
         const toCommit = s.finalStoryEdited ?? s.finalStoryDraft ?? [];
-        set((state) => ({ ...state, finalStoryFinal: toCommit, dirty: true }));
+        set((state) => ({ ...state, finalStoryFinal: toCommit, dirty: true, version: (state.version ?? 0) + 1 }));
         setTimeout(() => {
           get().saveStage2Snapshot();
         }, 0);
@@ -2619,8 +2617,14 @@ export const useStrategyStore = create<StrategyState>()(
         setTimeout(() => get().recomputeValueAnalysis('setSegmentBS'), 0);
       },
 
-      setMVV: (patch) => set((s) => ({ ...s, ...patch, dirty: true })),
-      setSWOT: (patch) => set((s) => ({ ...s, ...patch, dirty: true })),
+      setMVV: (patch) =>
+        set((s) => ({
+          ...s,
+          ...patch,
+          dirty: true,
+          version: (s.version ?? 0) + 1,
+        })),
+      setSWOT: (patch) => set((s) => ({ ...s, ...patch, dirty: true, version: (s.version ?? 0) + 1 })),
 
       setCeoIntent: (text: string) => {
         const trimmed = text.trim();
@@ -2630,11 +2634,11 @@ export const useStrategyStore = create<StrategyState>()(
             head: trimmed.slice(0, 30),
           });
         }
-        set((s) => ({ ...s, ceoIntent: trimmed, dirty: true }));
+        set((s) => ({ ...s, ceoIntent: trimmed, dirty: true, version: (s.version ?? 0) + 1 }));
       },
 
       setSwotSuggestions: (suggestions) =>
-        set((s) => ({ ...s, swotSuggestions: suggestions, dirty: true })),
+        set((s) => ({ ...s, swotSuggestions: suggestions, dirty: true, version: (s.version ?? 0) + 1 })),
 
       addSwotOpportunity: (text: string) => {
         const trimmed = text.trim();
