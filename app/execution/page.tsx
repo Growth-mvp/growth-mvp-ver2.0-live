@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
+import SaveStatusIndicator from '@/components/SaveStatusIndicator';
 import ProjectCard from '@/components/execution/ProjectCard';
 import { saveProgressLog } from '@/utils/supabase/strategy';
 import { buildProgressLogMetadata, embedMetadata } from '@/utils/execution/metadata';
@@ -890,12 +891,15 @@ export default function ExecutionPage() {
             <div className="mt-1 text-xs text-gray-500">画面は「名称（要約）」のみ表示。詳細はクリックでモーダル表示。</div>
             {isHydrating && <div className="mt-2 text-sm text-gray-500">サーバーのデータを読み込み中です…</div>}
           </div>
-          {selected ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-800">
-              <CheckCircle2 className="h-3 w-3" />
-              実行支援を表示中
-            </span>
-          ) : null}
+          <div className="flex items-center gap-4">
+            <SaveStatusIndicator />
+            {selected ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-800">
+                <CheckCircle2 className="h-3 w-3" />
+                実行支援を表示中
+              </span>
+            ) : null}
+          </div>
         </div>
       </div>
 
