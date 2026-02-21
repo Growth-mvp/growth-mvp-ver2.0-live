@@ -7,6 +7,7 @@ import { AlertCircle } from 'lucide-react';
 import { fmtJPY } from '@/utils/stage6';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { useStrategyStore } from '@/store/strategyStore';
+import SaveStatusIndicator from '@/components/SaveStatusIndicator';
 
 // ★ Step E3.1：UI components と custom hooks
 import { TabImpact } from '@/components/stage6/TabImpact';
@@ -146,8 +147,10 @@ export default function Stage6Page() {
               <p className="mt-1 text-sm text-slate-600">{stage6.companyName}</p>
             </div>
 
-            {/* Scenario buttons */}
-            <div className="flex gap-2">
+            {/* Scenario buttons + Status */}
+            <div className="flex items-center gap-4">
+              <SaveStatusIndicator />
+              <div className="flex gap-2">
               {(['low', 'base', 'high'] as const).map((scen) => (
                 <button
                   key={scen}
@@ -161,6 +164,7 @@ export default function Stage6Page() {
                   {scen === 'low' ? '悲観' : scen === 'base' ? '基準' : '楽観'}
                 </button>
               ))}
+              </div>
             </div>
           </div>
         </header>
