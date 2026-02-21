@@ -135,6 +135,16 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
     (s: any) => s?.simulationResults ?? s?.simulationResult,
   );
 
+  // ---- STAGE2 フィールド（署名用）----
+  const pickN = useStrategyStore((s: any) => s?.ceoIntent);
+  const pickO = useStrategyStore((s: any) => s?.storyDraft);
+  const pickP = useStrategyStore((s: any) => (s as any)?.answers12);
+  const pickQ = useStrategyStore((s: any) => (s as any)?.winPatternsCandidate);
+  const pickR = useStrategyStore((s: any) => (s as any)?.finalStoryDraft);
+  const pickS = useStrategyStore((s: any) => (s as any)?.finalStoryEdited);
+  const pickT = useStrategyStore((s: any) => (s as any)?.finalStoryFinal);
+  const pickU = useStrategyStore((s: any) => (s as any)?.companyTargets);
+
   const companyId = companyIdFromStore ?? companyIdFromUserStore;
 
   /* ============================================
@@ -159,6 +169,15 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
       financeSummary: pickK,
       businessPortfolio: pickL,
       simulationResults: pickM,
+      // ★ STAGE2 フィールド追加
+      ceoIntent: pickN,
+      storyDraft: pickO,
+      answers12: pickP,
+      winPatternsCandidate: pickQ,
+      finalStoryDraft: pickR,
+      finalStoryEdited: pickS,
+      finalStoryFinal: pickT,
+      companyTargets: pickU,
     };
     return safeStableStringify(pick);
   }, [
@@ -178,6 +197,14 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
     pickK,
     pickL,
     pickM,
+    pickN,
+    pickO,
+    pickP,
+    pickQ,
+    pickR,
+    pickS,
+    pickT,
+    pickU,
   ]);
 
   const depsSignature = useMemo(() => {
