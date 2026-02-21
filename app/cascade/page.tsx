@@ -23,6 +23,7 @@
 import { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useAccess } from '@/utils/access';
+import SaveStatusIndicator from '@/components/SaveStatusIndicator';
 import DepartmentQuestionStepper, {
   type DeptAnswerStep,
   type StepNumber,
@@ -2206,11 +2207,16 @@ export default function CascadePage() {
   /* ===== JSX ===== */
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
-      <header className="mb-8">
-        <h1 className="text-[28px] font-semibold mb-2">STAGE 3：部門戦略（カスケード）</h1>
-        <p className="text-zinc-600 text-sm">
-          経営ストーリーを基に、質問に答えながら各部門の<b>ミッション・プロジェクト案・KPI案（実現したい状態と主要指標）</b>を明確化します。
-        </p>
+      <header className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-[28px] font-semibold mb-2">STAGE 3：部門戦略（カスケード）</h1>
+          <p className="text-zinc-600 text-sm">
+            経営ストーリーを基に、質問に答えながら各部門の<b>ミッション・プロジェクト案・KPI案（実現したい状態と主要指標）</b>を明確化します。
+          </p>
+        </div>
+        <div className="shrink-0">
+          <SaveStatusIndicator />
+        </div>
       </header>
 
       {isHydrating && (
@@ -2416,10 +2422,6 @@ export default function CascadePage() {
                 />
 
                 <div className="flex flex-wrap gap-2 mb-1">
-                  <Button onClick={() => void saveInlineMission(index)} disabled={!editableDept || isHydrating} className="rounded-full h-9 px-4">
-                    <Save className="w-4 h-4 mr-1" /> 保存
-                  </Button>
-
                   <Button
                     variant="outline"
                     onClick={() => handleDeptCascadeDraft(index)}
