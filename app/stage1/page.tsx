@@ -6,6 +6,7 @@ import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { restoreWithAudit } from '@/utils/persist/restoreWithAudit';
 
+import SaveStatusIndicator from '@/components/SaveStatusIndicator';
 import CompanyAndBusinessPanel from '@/components/stage1/CompanyAndBusinessPanel';
 import FinanceDataPanel from '@/components/stage1/FinanceDataPanel';
 import MetricsPanel from '@/components/stage1/MetricsPanel';
@@ -398,17 +399,9 @@ export default function Stage1Page() {
           )}
         </div>
 
-        <div className="shrink-0 flex flex-col items-end gap-2">
+        <div className="shrink-0 flex flex-col items-end gap-3">
+          <SaveStatusIndicator />
           <div className="flex gap-2">
-            <button
-              onClick={() => doSave('manual')}
-              disabled={saveState === 'saving' || !saveFn}
-              className={`px-3 py-2 text-sm rounded transition ${saveBtnClass}`}
-              title={!saveFn ? 'storeに保存関数がありません' : ''}
-            >
-              {saveBtnLabel}
-            </button>
-
             <button
               onClick={handleLoadDummy}
               className={`px-3 py-2 text-sm rounded border transition ${
