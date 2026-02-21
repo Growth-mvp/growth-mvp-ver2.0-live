@@ -2275,6 +2275,7 @@ export default function Stage2Page() {
     requireSession: true,
     debounceMs: 1200,
     minIntervalMs: 1500,
+    mode: 'payload',
   });
 
   // O/T generation
