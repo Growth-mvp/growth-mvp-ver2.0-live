@@ -17,6 +17,7 @@ import {
 import { getFullStrategyDataByCompany, saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
 import { saveWithAudit } from '@/utils/persist/saveWithAudit';
 import { restoreWithAudit } from '@/utils/persist/restoreWithAudit';
+import SaveStatusIndicator from '@/components/SaveStatusIndicator';
 import type { IssueBlock, MetricsSummary, StoryChapter, WinPatternCandidate, Stage2State, Stage2Answer } from '@/types/strategy';
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 
@@ -2863,12 +2864,15 @@ export default function Stage2Page() {
               入力（MVV・SWOT）→ 戦略のたたき台 → １２の質問をもとに議論　→ 最終ストーリーを確定
             </p>
           </div>
-          <button
-            onClick={() => router.push('/stage1')}
-            className="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-          >
-            ← STAGE1に戻る
-          </button>
+          <div className="flex items-center gap-4">
+            <SaveStatusIndicator />
+            <button
+              onClick={() => router.push('/stage1')}
+              className="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+            >
+              ← STAGE1に戻る
+            </button>
+          </div>
         </div>
       </header>
 
