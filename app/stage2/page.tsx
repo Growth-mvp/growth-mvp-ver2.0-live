@@ -1804,9 +1804,6 @@ export default function Stage2Page() {
     }
   }, [activeTab, finalStoryFinalRaw, finalStoryEditedRaw, finalStoryDraftRaw, displayingStory]);
 
-  // 初期復元が完了したか（復元前に local->store が走って store を空で上書きするのを防ぐ）
-  const [stage2Ready, setStage2Ready] = useState(false);
-
   // 同期ループ防止用
   const lastSyncedAnswersHashRef = useRef<string>('');
   const didInitRef = useRef(false);
@@ -1877,6 +1874,12 @@ export default function Stage2Page() {
 
   // Stage2 restore via restoreWithAudit
   const restoreStage2Snapshot = useCallback(async () => {
+    // ★ 診断：restore 開始
+    console.log('[Stage2][diag] restoreStage2Snapshot START', {
+      companyId: companyId?.substring(0, 8),
+      timestamp: new Date().toISOString(),
+    });
+
     // ★ Use restoreWithAudit for unified restore decision
     const decision = await restoreWithAudit('stage2', companyId, { allowSnapshot: true });
 
@@ -1894,10 +1897,9 @@ export default function Stage2Page() {
       return;
     }
 
-    // ★ If snapshot was cleared due to mismatch, mark ready and return
+    // ★ If snapshot was cleared due to mismatch, return
     if (decision.sourceUsed === 'none' && decision.didClearSnapshot) {
       console.log('[Stage2] snapshot cleared due to mismatch');
-      setStage2Ready(true);
       return;
     }
 
@@ -1953,20 +1955,17 @@ export default function Stage2Page() {
         finalStoryFinal_len: Array.isArray((storeStateAfterHydrate as any).finalStoryFinal) ? (storeStateAfterHydrate as any).finalStoryFinal.length : 0,
       });
 
-      setStage2Ready(true);
       return;
     }
 
-    // ★ TASK 11-2: DB source (hydratedState なし場合は mark ready のみ)
+    // ★ TASK 11-2: DB source (hydratedState なし場合は return)
     if (decision.sourceUsed === 'db') {
-      setStage2Ready(true);
       return;
     }
 
     // ★ If store already has data, no restore needed
     if (decision.sourceUsed === 'store') {
       console.log('[Stage2] using existing store data');
-      setStage2Ready(true);
       return;
     }
 
@@ -2121,8 +2120,6 @@ export default function Stage2Page() {
         mvvMission: (storeState as any).mission?.slice(0, 30) ?? 'empty',
       });
     }
-
-    setStage2Ready(true);
   }, [setStoreFinalStory, setCompanyTargets, companyId]);
 
   // ★ TASK 11-1: restore useEffect を membership 不依存に
@@ -2135,7 +2132,6 @@ export default function Stage2Page() {
       // restoreStage2Snapshot is now async, call it but don't block
       restoreStage2Snapshot().catch((err) => {
         console.error('[Stage2] restore error:', err);
-        setStage2Ready(true); // fallback: mark ready even on error
       });
     }
   }, [companyId, loadStage1Data, restoreStage2Snapshot]);
@@ -2143,8 +2139,6 @@ export default function Stage2Page() {
   // ✅ Stage2 入力の自動スナップショット保存（debounce）
   // - 生成ボタンを押さなくても localStorage に残す
   useEffect(() => {
-    if (!stage2Ready) return;
-
     const t = window.setTimeout(() => {
       const stage2State: Stage2State = {
         ceoIntent,
@@ -2179,7 +2173,6 @@ export default function Stage2Page() {
 
     return () => window.clearTimeout(t);
   }, [
-    stage2Ready,
     companyId,
     ceoIntent,
     thought,
@@ -2261,10 +2254,8 @@ export default function Stage2Page() {
     [answers12, setAnswers12]
   );
 
-  /* ★ 修正：stage2Ready 後に 12問の"器"を初期化（upsert と組み合わせて安定性UP）*/
+  /* ★ 修正：12問の"器"を初期化（upsert と組み合わせて安定性UP）*/
   useEffect(() => {
-    if (!stage2Ready) return;
-
     // 既に何か入っているなら何もしない
     if (Array.isArray(answers12) && answers12.length > 0) return;
 
@@ -2275,14 +2266,14 @@ export default function Stage2Page() {
       answer: '',
     }));
     setAnswers12(seeded);
-  }, [stage2Ready, setAnswers12]);
+  }, [answers12, setAnswers12]);
 
   /* ★ 修正：useAutoSave を Stage2 ページに追加（Stage2 入力の自動保存） */
   useAutoSave({
-    enabled: stage2Ready,
-    debounceMs: 1200,
+    enabled: true,
     requireHydrated: true,
     requireSession: true,
+    debounceMs: 1200,
     minIntervalMs: 1500,
   });
 
