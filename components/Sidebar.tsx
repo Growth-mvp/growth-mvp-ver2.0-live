@@ -14,9 +14,6 @@ import {
   Share,
   Activity,
   Settings,
-  Download,
-  RotateCcw,
-  Trash2,
   CheckCircle,
   LogIn,
   UserPlus,
@@ -51,97 +48,9 @@ export default function Sidebar() {
   const [domHydrated, setDomHydrated] = useState(false);
   useEffect(() => setDomHydrated(true), []);
 
-  const [notification, setNotification] = useState<string>('');
-
   const currentUserId: string | undefined = user?.id;
 
   /* ===== アクション ===== */
-  const ensureMembershipOrRedirect = () => {
-    if (!domHydrated || !hydratedUser) {
-      setNotification('⏳ 権限を判定中です…');
-      return false;
-    }
-    if (!user?.id) {
-      setNotification('⚠️ ログインが必要です');
-      router.push('/login');
-      return false;
-    }
-    if (!companyId || !canView()) {
-      setNotification('⚠️ 会社所属が未設定です。サインアップから参加してください。');
-      router.push('/signup');
-      return false;
-    }
-    return true;
-  };
-
-  const handleSave = async () => {
-    if (!ensureMembershipOrRedirect()) return;
-    if (!canEditCompany()) {
-      setNotification('⛔ 権限がありません（保存は管理者のみ）');
-      return;
-    }
-    if (!companyId) {
-      setNotification('⚠️ 会社IDが未確定です。サインアップ/所属設定をご確認ください。');
-      return;
-    }
-
-    try {
-      await useStrategyStore.getState().saveStrategyData();
-      setNotification('✅ サーバーへ保存しました');
-    } catch (e) {
-      console.error('❌ handleSave error:', e);
-      setNotification('❌ 保存に失敗しました');
-    }
-  };
-
-  const handleRefetch = async () => {
-    if (!ensureMembershipOrRedirect()) return;
-    const ok =
-      typeof window !== 'undefined'
-        ? window.confirm('ローカル変更を破棄しサーバー最新版を読み込みます。続行しますか？')
-        : false;
-    if (!ok) return;
-
-    try {
-      await useStrategyStore.getState().refetchFromServer();
-      // もしくは：await refetchViaExport();
-      setNotification('✅ サーバーから最新を取得しました');
-    } catch (e) {
-      console.error('❌ handleRefetch error:', e);
-      setNotification('❌ 取得に失敗しました');
-    }
-  };
-
-  const handleClear = async () => {
-    if (!ensureMembershipOrRedirect()) return;
-    if (!canEditCompany()) {
-      setNotification('⛔ 権限がありません（全削除は管理者のみ）');
-      return;
-    }
-    const ok =
-      typeof window !== 'undefined'
-        ? window.confirm('⚠ Supabase上の戦略データも含め、すべて削除します。よろしいですか？')
-        : false;
-    if (!ok) return;
-
-    try {
-      await useStrategyStore.getState().deleteAllOnServer();
-      // ローカルの永続もリセット（store側でも処理済みだが保険で）
-      try {
-        localStorage.removeItem('strategy-store');
-      } catch {}
-      setNotification('🗑 すべて削除しました');
-    } catch (e) {
-      console.error('❌ handleClear error:', e);
-      setNotification('❌ 削除に失敗しました');
-    }
-  };
-
-  useEffect(() => {
-    if (!notification) return;
-    const tm = setTimeout(() => setNotification(''), 4000);
-    return () => clearTimeout(tm);
-  }, [notification]);
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
   const adminDisabledVisual = !canEditCompany();
@@ -192,7 +101,7 @@ export default function Sidebar() {
 
       {/* コンテンツ */}
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-6 overscroll-contain">
-        <nav className="space-y-1.5" role="navigation" aria-label="メインナビゲーション">
+        <nav className="space-y-[18px]" role="navigation" aria-label="メインナビゲーション">
           <PillLink
             href="/stage1"
             icon={<FileText size={18} strokeWidth={1.5} />}
@@ -231,6 +140,9 @@ export default function Sidebar() {
             active={isActive('/stage6')}
           />
 
+          {/* 管理画面セクション区切り */}
+          <div className="h-px bg-gray-200/50 my-4" />
+
           {/* 管理者 */}
           <PillLink
             href="/admin/members"
@@ -241,25 +153,6 @@ export default function Sidebar() {
           />
         </nav>
 
-        {/* アクション */}
-        <div className="space-y-1.5">
-          <GhostAction onClick={handleSave} icon={<Download size={18} strokeWidth={1.5} />} label="サーバーへ保存" />
-          <GhostAction onClick={handleRefetch} icon={<RotateCcw size={18} strokeWidth={1.5} />} label="サーバーから再取得" />
-          <GhostAction onClick={handleClear} icon={<Trash2 size={18} strokeWidth={1.5} />} label="全削除" tone="destructive" />
-        </div>
-
-        {notification && (
-          <div
-            role="alert"
-            className={`rounded-xl border px-3 py-2 shadow-sm ${ITEM_TEXT_CLASS} ${
-              notification.includes('削除') || notification.includes('❌') || notification.includes('⛔')
-                ? 'border-rose-200 bg-rose-50 text-rose-700'
-                : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-            }`}
-          >
-            {notification}
-          </div>
-        )}
       </div>
 
       {/* フッター */}
@@ -310,33 +203,5 @@ function PillLink({
       <AIcon>{icon}</AIcon>
       <span className="truncate">{label}</span>
     </Link>
-  );
-}
-
-function GhostAction({
-  onClick,
-  icon,
-  label,
-  tone,
-}: {
-  onClick: () => void | Promise<void>;
-  icon: React.ReactNode;
-  label: string;
-  tone?: 'destructive';
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={[
-        'no-underline group flex h-10 w-full items-center gap-2 rounded-xl px-3 transition',
-        ITEM_TEXT_CLASS,
-        'border border-gray-200 bg-white hover:bg-white/90 shadow-sm',
-        'focus:outline-none focus:ring-1 focus:ring-black/10',
-        tone === 'destructive' ? 'text-rose-600' : 'text-gray-800',
-      ].join(' ')}
-    >
-      <AIcon>{icon}</AIcon>
-      <span className="truncate">{label}</span>
-    </button>
   );
 }
