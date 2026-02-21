@@ -7,7 +7,8 @@ import { useUserStore } from '@/store/userStore';
 import { useAccess } from '@/utils/access';
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
-import { Save, RefreshCw, AlertCircle } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
+import SaveStatusIndicator from '@/components/SaveStatusIndicator';
 import { StatusBadge, StatusSelect, type Status } from '@/components/stage4/StatusBadge';
 import { DiffViewer } from '@/components/stage4/DiffViewer';
 import { AlignmentPreview } from '@/components/stage4/AlignmentPreview';
@@ -51,7 +52,6 @@ export default function Stage4Page() {
   const stage4Plans = useStrategyStore((s) => s.stage4Plans);
   const setStage4Plans = useStrategyStore((s) => s.setStage4Plans);
   const saveStrategyData = useStrategyStore((s) => s.saveStrategyData);
-  const refetchFromServer = useStrategyStore((s) => s.refetchFromServer);
   const valueDriverKPIs = useStrategyStore((s) => (s as any).valueDriverKPIs);
   const targetRanges = useStrategyStore((s) => (s as any).targetRanges);
 
@@ -61,7 +61,6 @@ export default function Stage4Page() {
 
   const [selectedDeptId, setSelectedDeptId] = useState<string | null>(null);
   const [localPlans, setLocalPlans] = useState<Stage4Plan[]>([]);
-  const [saving, setSaving] = useState(false);
   const [conflictError, setConflictError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
@@ -102,7 +101,7 @@ export default function Stage4Page() {
         console.warn('[STAGE4] タイムアウト：15秒経過。UIは表示し、エラーとして案内します');
         setIsInitializing(false);
         setInitializedReady(true); // UIは表示して操作可能にする
-        setLoadError('読み込みがタイムアウトしました。右上の「最新取得」または「プロビジョニング再実行」をお試しください。');
+        setLoadError('読み込みがタイムアウトしました。プロビジョニング再実行を試すか、管理画面のデータ管理から最新データを読み込んでください。');
       }, 15000);
 
       try {
@@ -236,46 +235,7 @@ export default function Stage4Page() {
     [setStage4Plans]
   );
 
-  // 保存（楽観ロック対応）
-  const handleSave = async () => {
-    if (!access.canEditCompany()) {
-      alert('保存権限がありません');
-      return;
-    }
 
-    setSaving(true);
-    setConflictError(null);
-
-    try {
-      await saveStrategyData();
-      alert('保存しました');
-    } catch (error) {
-      const err = error as { code?: string; message?: string; currentRevision?: number; expectedRevision?: number };
-      if (err.code === 'REVISION_CONFLICT') {
-        setConflictError(
-          `データが他のセッションで更新されました（期待: ${err.expectedRevision}, 実際: ${err.currentRevision}）。最新データを取得してください。`
-        );
-      } else {
-        alert(`保存に失敗しました: ${err.message || '不明なエラー'}`);
-      }
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // 最新データ取得
-  const handleRefresh = async () => {
-    setConflictError(null);
-    setLoadError(null);
-    try {
-      await refetchFromServer();
-      alert('最新データを取得しました');
-    } catch (error) {
-      const err = error as Error;
-      console.error('[STAGE4] refetch エラー:', err);
-      setLoadError(err.message || '最新データの取得に失敗しました');
-    }
-  };
 
   // provision 再実行
   const handleProvision = async () => {
@@ -371,12 +331,6 @@ export default function Stage4Page() {
               >
                 プロビジョニング再実行
               </button>
-              <button
-                onClick={handleRefresh}
-                className="px-4 py-2 text-sm border border-red-300 text-red-700 rounded-lg hover:bg-red-50"
-              >
-                最新取得
-              </button>
             </div>
           </div>
         </div>
@@ -394,13 +348,6 @@ export default function Stage4Page() {
             STAGE3の部門・プロジェクトが見つかりません。先にSTAGE3を完了してください。
           </div>
           <div className="mt-4 flex gap-3">
-            <button
-              onClick={handleRefresh}
-              className="flex items-center gap-2 px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
-            >
-              <RefreshCw className="w-4 h-4" />
-              最新取得
-            </button>
             <button
               onClick={handleProvision}
               className="flex items-center gap-2 px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
@@ -421,31 +368,21 @@ export default function Stage4Page() {
     <div className="p-8">
       <div className="max-w-6xl mx-auto space-y-6">
         {/* ヘッダー */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">STAGE4: 実行計画策定</h1>
             <p className="text-sm text-gray-600 mt-1">現場が編集して初めてコミットが成立</p>
+            <div className="flex items-center gap-2 mt-2">
+              <p className="text-xs text-gray-500">
+                ※ 変更は自動保存されます
+              </p>
+            </div>
             <p className="text-xs text-gray-500 mt-1">
               debug: loaded={String(loaded)} hydrated={String(hydrated)}
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleRefresh}
-              disabled={saving}
-              className="flex items-center gap-2 px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-            >
-              <RefreshCw className="w-4 h-4" />
-              最新取得
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={saving || !access.canEditCompany()}
-              className="flex items-center gap-2 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-            >
-              <Save className="w-4 h-4" />
-              {saving ? '保存中...' : '保存'}
-            </button>
+          <div className="shrink-0">
+            <SaveStatusIndicator />
           </div>
         </div>
 
@@ -456,12 +393,7 @@ export default function Stage4Page() {
             <div className="flex-1">
               <h3 className="text-sm font-medium text-red-900">保存に失敗しました（REVISION_CONFLICT）</h3>
               <p className="text-sm text-red-800 mt-1">{conflictError}</p>
-              <button
-                onClick={handleRefresh}
-                className="mt-2 px-3 py-1.5 text-xs bg-red-600 text-white rounded hover:bg-red-700"
-              >
-                最新データを取得
-              </button>
+              <p className="text-xs text-red-700 mt-2">管理画面のデータ管理から最新データを読み込んでください。</p>
             </div>
           </div>
         )}
