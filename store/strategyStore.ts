@@ -289,6 +289,13 @@ export type StrategyState = {
   /** 直近サーバ取得エラー */
   __lastServerError?: Error | null;
 
+  /* ===== UI State (session内のみ、永続化しない) ===== */
+  /** 最新保存エラー（GlobalSaveStatusBar用） */
+  saveError?: string | undefined;
+
+  /** 最新保存完了時刻（UNIX timestamp、GlobalSaveStatusBar用） */
+  lastSavedAt?: number | undefined;
+
   /** 章ごとのUIステップ */
   chapterCurrentStep: Record<number, number>;
 
@@ -1084,6 +1091,10 @@ const emptyData: StrategyState = {
   __isFetchingFromServer: false,
   __afterSave: undefined,
   __lastServerError: undefined,
+
+  /* UI state (session内のみ、永続化されない) */
+  saveError: undefined,
+  lastSavedAt: undefined,
 
   chapterCurrentStep: {},
   _loadingRefetch: false,
@@ -2977,11 +2988,13 @@ export const useStrategyStore = create<StrategyState>()(
                     await get().refetchFromServer();
                   } catch (refetchErr) {
                     console.error('[strategyStore] refetch after conflict failed:', refetchErr);
+                    set({ saveError: 'リビジョン競合により保存に失敗しました。再読み込みしてください。' });
                     return { ok: false, reason: 'refetch_failed_after_conflict', error: refetchErr, code: 'REFETCH_FAILED' };
                   }
 
                   if (attempt >= 2) {
                     console.warn('[strategyStore] REVISION_CONFLICT persists after retry. Keeping dirty state.');
+                    set({ saveError: 'リビジョン競合により保存に失敗しました。再試行してください。' });
                     return { ok: false, reason: 'revision_conflict_persist', error: err, code: 'REVISION_CONFLICT' };
                   }
 
@@ -2989,6 +3002,7 @@ export const useStrategyStore = create<StrategyState>()(
                 }
 
                 console.error('[strategyStore] saveStrategyData API error:', err ?? 'unknown error');
+                set({ saveError: `保存に失敗しました: ${(err as any)?.message || '不明なエラー'}` });
                 return { ok: false, reason: 'api_error', error: err, code: errCode };
               }
 
@@ -3008,6 +3022,9 @@ export const useStrategyStore = create<StrategyState>()(
                 dirty: false,
                 __lastSavedHash: currentHash,
                 revision: typeof (minimal as any).revision === 'number' ? (minimal as any).revision : undefined,
+                /* UI state: 保存成功時に更新 */
+                saveError: undefined,
+                lastSavedAt: Date.now(),
               };
               if (updatedAt) (safePatch as any).updatedAt = updatedAt;
 
