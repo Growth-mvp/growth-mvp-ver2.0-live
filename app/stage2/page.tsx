@@ -7,6 +7,7 @@ import { safeGetSession } from '@/utils/supabase/client';
 import { formatMillion, safeNumber, toMillionYen, inferScaleToMillion, safeRatio, formatPct } from '@/utils/unit';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
+import { useAutoSave } from '@/hooks/useAutoSave';
 import {
   getStage1DataWithFallback,
   loadStage1SnapshotFromLocalStorage,
@@ -2275,6 +2276,15 @@ export default function Stage2Page() {
     }));
     setAnswers12(seeded);
   }, [stage2Ready, setAnswers12]);
+
+  /* ★ 修正：useAutoSave を Stage2 ページに追加（Stage2 入力の自動保存） */
+  useAutoSave({
+    enabled: stage2Ready,
+    debounceMs: 1200,
+    requireHydrated: true,
+    requireSession: true,
+    minIntervalMs: 1500,
+  });
 
   // O/T generation
   const handleGenerateOT = useCallback(async () => {
