@@ -711,6 +711,11 @@ function renameYearInSegmentRows<T extends { year: number }>(
   return sortFinanceYears(rows.map((r) => (r.year === oldYear ? { ...r, year: newYear } : r)));
 }
 
+/** ★ 再発防止：版+ダーティの一括適用ヘルパ */
+function bump(s: any) {
+  return { dirty: true, version: (s.version ?? 0) + 1 };
+}
+
 /** 保存用ペイロード組み立て（StrategyData相当） */
 function buildSavePayload(s: StrategyState) {
   const base: any = {
@@ -1815,9 +1820,10 @@ export const useStrategyStore = create<StrategyState>()(
             segmentPL: Object.keys(newSegmentPL).length > 0 ? newSegmentPL : undefined,
             segmentBS: Object.keys(newSegmentBS).length > 0 ? newSegmentBS : undefined,
             dirty: true,
+            version: (s.version ?? 0) + 1,
           }));
         } else {
-          set((s) => ({ ...s, ...patch, dirty: true }));
+          set((s) => ({ ...s, ...patch, dirty: true, version: (s.version ?? 0) + 1 }));
         }
 
         // ★ DEBUG STAGE1: After state update in setProfile
@@ -1896,11 +1902,12 @@ export const useStrategyStore = create<StrategyState>()(
         }
 
         set((s) => {
-          const newState = { ...s, stage1Benchmarks: benchmarks, dirty: true };
+          const newState = { ...s, stage1Benchmarks: benchmarks, dirty: true, version: (s.version ?? 0) + 1 };
           if (DEBUG) {
             console.log('[strategyStore] setStage1Benchmarks state updated:', {
               stateHasBenchmarks: !!newState.stage1Benchmarks,
               isDirty: newState.dirty,
+              version: newState.version,
             });
           }
           return newState;
@@ -2217,14 +2224,24 @@ export const useStrategyStore = create<StrategyState>()(
           sample_after_conversion: Array.isArray(yenRows) && yenRows.length > 0 ? yenRows[0] : null,
         });
 
-        set((s) => ({ ...s, financePL: yenRows, dirty: true, version: (s.version ?? 0) + 1 }));
+        set((s) => {
+          const newVersion = (s.version ?? 0) + 1;
+          console.log('[strategyStore] setFinancePL version bump', {
+            from: s.version,
+            to: newVersion,
+            dirty: true,
+          });
+          return { ...s, financePL: yenRows, dirty: true, version: newVersion };
+        });
 
         // ★ DEBUG：set直後の確認
         setTimeout(() => {
-          const after = get().financePL;
+          const after = get();
           console.log('[strategyStore] setFinancePL accepted', {
-            len: after?.length ?? 0,
-            sample: after?.[0] ?? null,
+            len: after.financePL?.length ?? 0,
+            sample: after.financePL?.[0] ?? null,
+            version: after.version,
+            dirty: after.dirty,
           });
         }, 0);
 
@@ -2253,23 +2270,33 @@ export const useStrategyStore = create<StrategyState>()(
           });
         }
         // ★ 修正：csvFinanceData と同期
-        set((s) => ({
-          ...s,
-          financeBS: rows,
-          csvFinanceData: {
-            ...(s.csvFinanceData || {}),
+        set((s) => {
+          const newVersion = (s.version ?? 0) + 1;
+          console.log('[strategyStore] setFinanceBS version bump', {
+            from: s.version,
+            to: newVersion,
+            dirty: true,
+          });
+          return {
+            ...s,
             financeBS: rows,
-          },
-          dirty: true,
-          version: (s.version ?? 0) + 1,
-        }));
+            csvFinanceData: {
+              ...(s.csvFinanceData || {}),
+              financeBS: rows,
+            },
+            dirty: true,
+            version: newVersion,
+          };
+        });
 
         // ★ DEBUG：set直後の確認
         setTimeout(() => {
-          const after = get().financeBS;
+          const after = get();
           console.log('[strategyStore] setFinanceBS accepted', {
-            len: after?.length ?? 0,
-            sample: after?.[0] ?? null,
+            len: after.financeBS?.length ?? 0,
+            sample: after.financeBS?.[0] ?? null,
+            version: after.version,
+            dirty: after.dirty,
           });
         }, 0);
 
@@ -2289,15 +2316,24 @@ export const useStrategyStore = create<StrategyState>()(
         });
 
         // ★ 修正：csvFinanceData と同期
-        set((s) => ({
-          ...s,
-          segmentPL: data,
-          csvFinanceData: {
-            ...(s.csvFinanceData || {}),
+        set((s) => {
+          const newVersion = (s.version ?? 0) + 1;
+          console.log('[strategyStore] setSegmentPL version bump', {
+            from: s.version,
+            to: newVersion,
+            dirty: true,
+          });
+          return {
+            ...s,
             segmentPL: data,
-          },
-          dirty: true,
-        }));
+            csvFinanceData: {
+              ...(s.csvFinanceData || {}),
+              segmentPL: data,
+            },
+            dirty: true,
+            version: newVersion,
+          };
+        });
 
         // ★ DEBUG：set直後の確認
         setTimeout(() => {
@@ -2328,15 +2364,24 @@ export const useStrategyStore = create<StrategyState>()(
         });
 
         // ★ 修正：csvFinanceData と同期
-        set((s) => ({
-          ...s,
-          segmentBS: data,
-          csvFinanceData: {
-            ...(s.csvFinanceData || {}),
+        set((s) => {
+          const newVersion = (s.version ?? 0) + 1;
+          console.log('[strategyStore] setSegmentBS version bump', {
+            from: s.version,
+            to: newVersion,
+            dirty: true,
+          });
+          return {
+            ...s,
             segmentBS: data,
-          },
-          dirty: true,
-        }));
+            csvFinanceData: {
+              ...(s.csvFinanceData || {}),
+              segmentBS: data,
+            },
+            dirty: true,
+            version: newVersion,
+          };
+        });
 
         // ★ DEBUG：set直後の確認
         setTimeout(() => {
@@ -2498,7 +2543,7 @@ export const useStrategyStore = create<StrategyState>()(
           }
           const newRows = [...rows];
           newRows[idx] = { ...newRows[idx], [key]: value };
-          return { ...s, financePL: newRows, dirty: true };
+          return { ...s, financePL: newRows, dirty: true, version: (s.version ?? 0) + 1 };
         });
         setTimeout(() => get().recomputeValueAnalysis('setFinancePL'), 0);
       },
@@ -2513,7 +2558,7 @@ export const useStrategyStore = create<StrategyState>()(
           }
           const newRows = [...rows];
           newRows[idx] = { ...newRows[idx], [key]: value };
-          return { ...s, financeBS: newRows, dirty: true };
+          return { ...s, financeBS: newRows, dirty: true, version: (s.version ?? 0) + 1 };
         });
         setTimeout(() => get().recomputeValueAnalysis('setFinanceBS'), 0);
       },
@@ -2651,7 +2696,7 @@ export const useStrategyStore = create<StrategyState>()(
           if (!current.includes(trimmed)) {
             current.push(trimmed);
           }
-          return { ...s, opportunity: current.join('\n'), dirty: true };
+          return { ...s, opportunity: current.join('\n'), dirty: true, version: (s.version ?? 0) + 1 };
         });
       },
 
@@ -2663,7 +2708,7 @@ export const useStrategyStore = create<StrategyState>()(
           if (!current.includes(trimmed)) {
             current.push(trimmed);
           }
-          return { ...s, threat: current.join('\n'), dirty: true };
+          return { ...s, threat: current.join('\n'), dirty: true, version: (s.version ?? 0) + 1 };
         });
       },
 
@@ -2676,7 +2721,7 @@ export const useStrategyStore = create<StrategyState>()(
             const idx = current.indexOf(textOrIndex);
             if (idx >= 0) current.splice(idx, 1);
           }
-          return { ...s, opportunity: current.join('\n'), dirty: true };
+          return { ...s, opportunity: current.join('\n'), dirty: true, version: (s.version ?? 0) + 1 };
         });
       },
 
@@ -2689,7 +2734,7 @@ export const useStrategyStore = create<StrategyState>()(
             const idx = current.indexOf(textOrIndex);
             if (idx >= 0) current.splice(idx, 1);
           }
-          return { ...s, threat: current.join('\n'), dirty: true };
+          return { ...s, threat: current.join('\n'), dirty: true, version: (s.version ?? 0) + 1 };
         });
       },
 
