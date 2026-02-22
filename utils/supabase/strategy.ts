@@ -712,9 +712,12 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   out.hqAdjustmentBS = ensureArray(csvFinanceData.hqAdjustmentBS);
 
   // 部門・プロジェクトを一旦「生」の形で整形（okrsV2 を含む）
+  // ★ FIXED: mission/missionDescription を明示的に保持
   out.departments = out.departments.map((d: any) => ({
     ...d,
     name: d?.name ?? '',
+    mission: d?.mission ?? '',
+    missionDescription: d?.missionDescription ?? '',
     projects: ensureArray(d?.projects).map((p: any) => ({
       ...p,
       title: p?.title ?? '',
@@ -782,6 +785,17 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   // ★ CASE3 診断：normalize 後の departments 内部の深部を確認
   console.log('[diag][dept:norm:deep]', diagDeptDeep((normalized as any).departments));
   console.log('[diag][dept:norm:deep:first]', JSON.stringify(diagDeptDeep((normalized as any).departments)?.[0] ?? null));
+
+  // ★ DEBUG LOG D: restore 後の確認（Object.keys + mission/missionDescription）
+  const normDept0 = (normalized as any).departments?.[0];
+  if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
+    console.log('[DEBUG D] restore後 - dept0 keys:', Object.keys(normDept0 ?? {}));
+    console.log('[DEBUG D] restore後のnormalized state:', {
+      dept0_name: normDept0?.name,
+      dept0_mission: normDept0?.mission,
+      dept0_missionDescription: normDept0?.missionDescription,
+    });
+  }
 
   // ★ DEBUG：normalize 後（プリミティブ値のみ）
   const normCsvFdExists = !!(normalized as any).csvFinanceData;
@@ -1565,6 +1579,15 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
 
       // ★ TASK B: Supabase updatePayload に departments が そのまま入っているか確認
       const dep = (updatePayload as any).departments;
+      // ★ DEBUG LOG C: DB updatePayload での確認（Object.keys + mission/missionDescription）
+      const dept0 = Array.isArray(dep) ? dep[0] : null;
+      console.log('[DEBUG C] DB updatePayload - dept0 keys:', Object.keys(dept0 ?? {}));
+      console.log('[DEBUG C] DB updatePayload - dept0:', {
+        name: dept0?.name,
+        mission: dept0?.mission,
+        missionDescription: dept0?.missionDescription,
+      });
+
       const depDiag = (Array.isArray(dep) ? dep : []).map((d: any) => ({
         name: d?.name,
         proj: (Array.isArray(d?.projects) ? d.projects : []).map((p: any) => ({
