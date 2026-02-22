@@ -35,7 +35,7 @@ export function useOkrEditor(args: {
 }) {
   const { editingMode, selectedProj, setEditingMode, setRoleShadow } = args;
 
-  /* -------- 安全更新：常に setState 経由 + dirty=true -------- */
+  /* -------- 安全更新：常に setState 経由 + dirty=true + version++ -------- */
   const patchDepartments = useCallback((mutator: (draft: Department[]) => Department[]) => {
     useStrategyStore.setState((st: any) => {
       const current: Department[] = Array.isArray(st.departments) ? (st.departments as Department[]) : [];
@@ -45,6 +45,7 @@ export function useOkrEditor(args: {
         ...st,
         departments: next,
         dirty: true,
+        version: (st.version ?? 0) + 1,
       };
     });
   }, []);
