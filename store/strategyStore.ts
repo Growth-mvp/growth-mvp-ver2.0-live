@@ -827,6 +827,9 @@ function buildSavePayload(s: StrategyState) {
           }
         : null;
 
+    // ★ DEBUG: missionDescription のペイロード確認
+    const dept0 = Array.isArray(base.departments) ? base.departments[0] : null;
+
     console.log('[buildSavePayload] ★ payload内容確認', {
       businessSegments_len: busSegLen,
       businessSegments_names: Array.isArray(s.businessSegments) ? s.businessSegments.map((b) => b.name) : [],
@@ -839,6 +842,11 @@ function buildSavePayload(s: StrategyState) {
       segmentBS_rowCountsByKey: segmentBSDetails,
       stage1Benchmarks: (s as any).stage1Benchmarks ? Object.keys((s as any).stage1Benchmarks) : 'undefined',
       waccManual: (s as any).stage1Benchmarks?.waccManual,
+      // ★ DEBUG LOG B: save直前のpayload確認
+      dept0_keys: Object.keys(dept0 ?? {}),
+      dept0_name: dept0?.name,
+      dept0_mission: dept0?.mission,
+      dept0_missionDescription: dept0?.missionDescription,
     });
   }
 
