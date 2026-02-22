@@ -243,6 +243,13 @@ export default function StrategyClient() {
     mode: 'payload',
   });
 
+  // ★ useAutoSave マウント確認ログ（useEffect で StrictMode 二重ログを回避）
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+      console.log('[StrategyClient] useAutoSave mounted', { enabled: autosaveEnabled, mode: 'payload' });
+    }
+  }, [autosaveEnabled]);
+
   const stepView = useMemo(() => {
     if (!hydrated) {
       return (
