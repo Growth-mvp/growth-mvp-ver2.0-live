@@ -384,12 +384,12 @@ function normalizeDepartment(d: AnyDepartment): Department {
 
   base.id = id;
   base.name = name;
-  base.mission = mission;
+  base.mission = mission ?? '';  // ★ FIXED: mission を常に保持
+  base.missionDescription = missionDescription ?? '';  // ★ FIXED: missionDescription を常に保持
   base.projects = projects;
   base.finalized = finalized;
   if (strategy !== undefined) base.strategy = strategy;
   if (missionDraft !== undefined) base.missionDraft = missionDraft;
-  if (missionDescription !== undefined) base.missionDescription = missionDescription;
   if (discussionNotes !== undefined) base.discussionNotes = discussionNotes;
   if (questions && questions.length) base.questions = questions;
   if (answers2 && answers2.length) base.answers2 = answers2;
