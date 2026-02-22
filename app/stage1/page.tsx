@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { restoreWithAudit } from '@/utils/persist/restoreWithAudit';
+import { useAutoSave } from '@/hooks/useAutoSave';
 
 import SaveStatusIndicator from '@/components/SaveStatusIndicator';
 import CompanyAndBusinessPanel from '@/components/stage1/CompanyAndBusinessPanel';
@@ -112,6 +113,23 @@ export default function Stage1Page() {
   // ===== 復元関連（TASK 6: STAGE1 統合） =====
   const companyId = useUserStore((s) => (s as any).companyId as string | undefined);
   const didRestoreRef = useRef(false);
+
+  // ★ Stage1 自動保存の有効化
+  useAutoSave({
+    enabled: !!companyId,
+    requireHydrated: true,
+    requireSession: true,
+    debounceMs: 1200,
+    minIntervalMs: 1500,
+    mode: 'payload',
+  });
+
+  // ★ useAutoSave マウント確認ログ（useEffect で StrictMode 二重ログを回避）
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+      console.log('[Stage1Page] useAutoSave mounted', { companyId, mode: 'payload' });
+    }
+  }, []);
 
   // UI State
   const [saveState, setSaveState] = useState<SaveState>('idle');
