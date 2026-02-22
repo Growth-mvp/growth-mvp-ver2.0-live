@@ -284,56 +284,42 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
   const doSave = useCallback(async () => {
     try {
       if (!enabled) {
-        console.log('[AutoSave][SKIP] disabled');
         return;
       }
       if (requireHydrated && !hydrated) {
-        console.log('[AutoSave][SKIP] not hydrated');
         return;
       }
       if (!userId) {
-        console.log('[AutoSave][SKIP] no userId');
         return;
       }
       if (!companyId) {
-        console.log('[AutoSave][SKIP] no companyId');
         return;
       }
       if (forceSkipWhenDeleting && isCompanyDeleting(companyId)) {
-        console.log('[AutoSave][SKIP] company deleting');
         return;
       }
       if (isFetching) {
-        console.log('[AutoSave][SKIP] isFetching');
         return;
       }
 
       if (Date.now() - mountedAtRef.current < initialDelayMs) {
-        console.log('[AutoSave][SKIP] initialDelay', Date.now() - mountedAtRef.current, '<', initialDelayMs);
         return;
       }
 
       if (requireSession) {
         const active = await hasActiveSession();
         if (!active) {
-          console.log('[AutoSave][SKIP] no active session');
           return;
         }
       }
 
       const now = Date.now();
       if (now - lastSavedAtRef.current < minIntervalMs) {
-        console.log('[AutoSave][SKIP] minInterval', now - lastSavedAtRef.current, '<', minIntervalMs);
         return;
       }
       if (savingRef.current) {
-        console.log('[AutoSave][SKIP] already saving');
         return;
       }
-
-      console.log('[AutoSave][mode]', mode);
-      console.log('[AutoSave][signature-length]', combinedSignature.length);
-      console.log('[AutoSave][SAVE] ✅ Starting');
 
       savingRef.current = true;
 
@@ -341,7 +327,6 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
       await storeApi.saveStrategyData();
 
       lastSavedAtRef.current = Date.now();
-      console.log('[AutoSave][SAVE] ✅ Done');
     } catch (e) {
       console.error('[AutoSave][SAVE] ❌ Error:', e);
     } finally {

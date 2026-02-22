@@ -1614,23 +1614,6 @@ export default function CascadePage() {
         restored: true,
       });
       setDepartmentsInStore?.(nextDepartments);
-
-      // ★ TASK 3: diagnostics - kpis/keyResults が全て string[] になっているか確認
-      if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
-        setTimeout(() => {
-          const first = nextDepartments[0];
-          const firstProj = first?.projects?.[0];
-          const firstOkr = firstProj?.okrs?.[0];
-          console.log('[diag][shape] After setDepartments:',{
-            kpiTypes: Array.isArray(firstProj?.kpis)
-              ? firstProj.kpis.slice(0, 3).map((k: any, i: number) => ({ i, type: typeof k, val: k }))
-              : 'not-array',
-            krTypes: Array.isArray(firstOkr?.keyResults)
-              ? firstOkr.keyResults.slice(0, 3).map((kr: any, i: number) => ({ i, type: typeof kr, val: kr }))
-              : 'not-array',
-          });
-        }, 0);
-      }
     }
   }, [hydrated, departments, setDepartmentsInStore]);
 
@@ -1662,7 +1645,7 @@ export default function CascadePage() {
   }, [hydrated, departments.length, businessSegments, setDepartmentsInStore]);
 
   const mismatch = !!(accessCompanyId && scopeCompanyId && scopeCompanyId !== accessCompanyId);
-  const isHydrating = (Boolean(boot?.isHydrating) && !hydrated) || mismatch || !hydrated;
+  const isHydrating = (Boolean(boot?.isHydrating) && !hydrated) || mismatch;
 
   const rawStory = useMemo(() => {
   // ★ STAGE2の“確定版/編集版/ドラフト” を最優先
@@ -1750,10 +1733,11 @@ export default function CascadePage() {
       const d = current[index];
       if (!d) return prev;
 
-      const draft = (inlineEdit[index] ?? d.strategy ?? d.mission ?? '').toString();
-      if ((d.mission ?? '') === draft && (d.strategy ?? '') === draft && (d.missionDraft ?? '') === draft) return prev;
+      // ★ FIXED: mission フィールド統一（strategy/missionDraft は使わない）
+      const draft = (inlineEdit[index] ?? d.mission ?? '').toString();
+      if ((d.mission ?? '') === draft) return prev;
 
-      const updated: Department = { ...d, mission: draft, strategy: draft, missionDraft: draft };
+      const updated: Department = { ...d, mission: draft };
       current[index] = updated;
       changed = true;
       return current;
@@ -1764,16 +1748,7 @@ export default function CascadePage() {
       return;
     }
 
-    setNotice('✅ 保存しました');
-
-    if (saveNow) {
-      try {
-        await saveNow();
-        setNotice('✅ 保存しました（サーバーにも反映済み）');
-      } catch {
-        setNotice('⚠️ ローカル保存は完了しましたが、サーバー保存に失敗しました');
-      }
-    }
+    setNotice('✅ 保存中...');
   };
 
   const requireStoryOrWarn = (): string | null => {
@@ -1837,15 +1812,6 @@ export default function CascadePage() {
     });
 
     setNotice(`🗑 プロジェクト「${targetProject.title || '無題'}」を削除しました`);
-
-    if (saveNow) {
-      try {
-        await saveNow();
-        setNotice(`🗑 プロジェクト「${targetProject.title || '無題'}」を削除しました（サーバーにも反映済み）`);
-      } catch {
-        setNotice(`⚠️ プロジェクト削除をサーバーに保存できませんでした（画面上は削除済み）`);
-      }
-    }
   };
 
   /* ===== プロジェクト追加（手入力／OKR画面で詳細編集も可能） ===== */
@@ -1885,15 +1851,6 @@ export default function CascadePage() {
     });
 
     setNotice(`✅ プロジェクト「${title}」を追加しました`);
-
-    if (saveNow) {
-      try {
-        await saveNow();
-        setNotice(`✅ プロジェクト「${title}」を追加しました（サーバーにも反映済み）`);
-      } catch {
-        setNotice(`⚠️ プロジェクト「${title}」の追加は画面上のみ反映されました（サーバー保存に失敗）`);
-      }
-    }
   };
 
   /* ===== 部門削除 ===== */
@@ -1933,15 +1890,6 @@ export default function CascadePage() {
     }
 
     setNotice(`🗑 ${target.name} を削除しました`);
-
-    if (saveNow) {
-      try {
-        await saveNow();
-        setNotice(`🗑 ${target.name} を削除しました（サーバーにも反映済み）`);
-      } catch {
-        setNotice(`⚠️ ${target.name} の削除をサーバーに保存できませんでした（画面上は削除済み）`);
-      }
-    }
   };
 
   /* =========================
@@ -2118,14 +2066,12 @@ export default function CascadePage() {
         const existingProjects = (d.projects as Project[] | undefined) ?? [];
         const patch: Partial<Department> = {};
 
-        // ★ missionDraft + missionDescription の保存
+        // ★ FIXED: mission / missionDescription 統一（strategy/missionDraft は使わない）
         const missionDraft = (rd.missionDraft ?? '').trim();
         const missionDescription = (rd.missionDescription ?? '').trim();
 
-        if (missionDraft && (!jsonEq(missionDraft, d.mission) || !jsonEq(missionDraft, d.strategy) || !jsonEq(missionDraft, d.missionDraft))) {
+        if (missionDraft && !jsonEq(missionDraft, d.mission)) {
           patch.mission = missionDraft;
-          patch.strategy = missionDraft;
-          patch.missionDraft = missionDraft;
         }
 
         if (missionDescription && !jsonEq(missionDescription, d.missionDescription)) {
@@ -2339,15 +2285,6 @@ export default function CascadePage() {
                 setDeptMission('');
                 setShowForm(false);
                 setNotice(`✅ ${baseName} を追加しました（部門数: ${nextLength}）`);
-
-                if (saveNow) {
-                  try {
-                    await saveNow();
-                    setNotice(`✅ ${baseName} を追加しました（サーバーにも反映済み）`);
-                  } catch {
-                    setNotice(`⚠️ ${baseName} の追加は画面上は反映されていますが、サーバー保存に失敗しました`);
-                  }
-                }
               }}
               className="rounded-full h-9 px-4"
             >
@@ -2366,13 +2303,15 @@ export default function CascadePage() {
           {departments.map((dept: Department, index: number) => {
             const editableDept = canEditDept();
             const L = loading[index] ?? {};
-            const inlineDraft = (inlineEdit[index] ?? dept.strategy ?? dept.mission ?? '').toString();
+            // ★ FIXED: mission フィールド統一（strategy は使わない）
+            const inlineDraft = (inlineEdit[index] ?? dept.mission ?? '').toString();
 
             const answers = answersMemo[index];
             const projTitles = projectsMemo[index];
             const currentStoreSteps = dept.answers2?.[0]?.steps ?? [];
 
-            const deptMissionText = (dept.strategy ?? dept.mission ?? '').trim();
+            // ★ FIXED: mission フィールド統一
+            const deptMissionText = (dept.mission ?? '').trim();
 
             const lane = laneCacheRef.current[dept.name];
             const laneOpen = !!showLaneDetail[dept.name];
@@ -2422,7 +2361,18 @@ export default function CascadePage() {
 
                 <textarea
                   value={inlineDraft}
-                  onChange={(e) => setInlineEdit((p) => ({ ...p, [index]: e.target.value }))}
+                  onChange={(e) => {
+                    // ★ FIXED: inlineEdit に一時保存（UIの即時反応用）
+                    setInlineEdit((p) => ({ ...p, [index]: e.target.value }));
+                    // ★ FIXED: 同時に store に直接書き込み（保存経路統一）
+                    if (!editableDept || isHydrating) return;
+                    pushToStore((prev) => {
+                      const list = [...prev];
+                      const d = list[index];
+                      if (d) d.mission = e.target.value;
+                      return list;
+                    });
+                  }}
                   className="w-full border rounded-xl p-2 mb-2 text-sm"
                   readOnly={!editableDept || isHydrating}
                   placeholder="この部門の役割やミッションのイメージを記入してください（AIたたき台の修正もここで行います）"
@@ -2454,22 +2404,48 @@ export default function CascadePage() {
                   )}
                 </div>
 
-                {/* ★missionDescription の入力欄（最小実装） */}
-                <textarea
-                  value={(dept.missionDescription ?? '')}
-                  onChange={(e) => {
-                    if (!editableDept || isHydrating) return;
-                    pushToStore((prev) => {
-                      const list = [...prev];
-                      const d = list[index];
-                      if (d) d.missionDescription = e.target.value || undefined;
-                      return list;
-                    });
-                  }}
-                  className="w-full border rounded-xl p-2 mb-3 text-sm"
-                  readOnly={!editableDept || isHydrating}
-                  placeholder="（任意）ミッションの内容説明（何を・誰に・どうするか など）"
-                />
+                {/* ★ CRITICAL: deptId ベースで store から最新の department を毎回取得 */}
+                {(() => {
+                  const storeState = useStrategyStore.getState();
+                  const deptFromStore = storeState.departments?.find(
+                    (d: Department) => (dept?.id ? d.id === dept.id : d.name === dept?.name)
+                  );
+                  const currentMissionDesc = deptFromStore?.missionDescription ?? '';
+
+                  return (
+                    <>
+                      {/* missionDescription 入力欄 */}
+                      <textarea
+                        value={currentMissionDesc}
+                        onChange={(e) => {
+                          const v = e.target.value;
+
+                          if (!editableDept || isHydrating) {
+                            return;
+                          }
+
+                          // deptId/name ベースで departments[] から該当部門を見つけて更新
+                          const storeState2 = useStrategyStore.getState();
+                          const idx = storeState2.departments?.findIndex(
+                            (d: Department) => (dept?.id ? d.id === dept.id : d.name === dept?.name)
+                          ) ?? -1;
+
+                          if (idx < 0) {
+                            return;
+                          }
+
+                          const setDepartmentsInStore = useStrategyStore.getState().setDepartments;
+                          setDepartmentsInStore((storeState2.departments as Department[]).map((d, i) =>
+                            i === idx ? { ...d, missionDescription: v } : d
+                          ));
+                        }}
+                        className="w-full border rounded-xl p-2 mb-3 text-sm"
+                        readOnly={!editableDept || isHydrating}
+                        placeholder="入力してみてください"
+                      />
+                    </>
+                  );
+                })()}
 
                 {/* 価値指標（STAGE2）の表示 */}
                 {valueDriverKPIs.length > 0 && (
@@ -2582,10 +2558,9 @@ export default function CascadePage() {
                       if (!d) return prev;
 
                       const patch: Partial<Department> = {};
+                      // ★ FIXED: mission フィールド統一
                       if (mission && !jsonEq(mission, d.mission)) {
                         patch.mission = mission;
-                        patch.strategy = mission;
-                        patch.missionDraft = mission;
                       }
                       if (projects?.length) {
                         const projList: Project[] = projects.map((t) => ({
@@ -2657,29 +2632,7 @@ export default function CascadePage() {
                         const primaryObjective = primaryOKR?.objective ?? '';
                         const krs = getProjectKpiLabels(p);
 
-                        // ★ TASK C: 原因特定ログ
-                        if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
-                          const okr0 = p?.okrs?.[0];
-                          console.log('[ui][kpi-check]', {
-                            title: p?.title,
-                            okr0_keys: okr0 ? Object.keys(okr0) : null,
-                            raw_keyResults_type: typeof okr0?.keyResults,
-                            raw_keyResults_isArray: Array.isArray(okr0?.keyResults),
-                            extractedLen: krs.length,
-                            extracted0: krs[0],
-                          });
-
-                          // ★ KPI形状診断：オブジェクト vs 文字列
-                          if (krs.length > 0) {
-                            console.log('[diag][ui:kpi_shape]', {
-                              title: p?.title,
-                              kpi_count: krs.length,
-                              kpi_types: krs.map((kr, i) => ({ i, type: typeof kr, isObj: typeof kr === 'object', value: kr })).slice(0, 3),
-                            });
-                          }
-                        }
-
-                        // ★ UI表示用：[AI#N] prefix を削除して表示（内部的には title に保持）
+                        // UI表示用：[AI#N] prefix を削除して表示（内部的には title に保持）
                         const displayTitle = (p.title ?? '').replace(/^\[AI#\d+\]\s*/i, '');
 
                         return (
