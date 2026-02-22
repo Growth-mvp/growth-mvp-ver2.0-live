@@ -618,7 +618,14 @@ export default function ExecutionPage() {
     };
   }, [accessCompanyId, hydrated, scopeCompanyId]);
 
-  useAutoSave([scopeCompanyId]);
+  useAutoSave({
+    enabled: true,
+    requireHydrated: true,
+    requireSession: true,
+    debounceMs: 1200,
+    minIntervalMs: 1500,
+    mode: 'payload',
+  });
   const user = useUserStore((s) => s.user);
 
   const cascade: Department[] = useMemo(() => {

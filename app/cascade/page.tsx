@@ -1698,7 +1698,14 @@ export default function CascadePage() {
   const [isGenerating, setIsGenerating] = useState(false);
 
   // ★TASK A: 生成中は autosave を抑止（state定義後に移動）
-  useAutoSave(hydrated && !boot?.isHydrating && !isGenerating ? [accessCompanyId, departments] : []);
+  useAutoSave({
+    enabled: hydrated && !boot?.isHydrating && !isGenerating,
+    requireHydrated: true,
+    requireSession: true,
+    debounceMs: 1200,
+    minIntervalMs: 1500,
+    mode: 'payload',
+  });
 
   /* ===== TASK D: KPI 表示ヘルパー（object → string 変換） ===== */
   const renderKpi = (k: any): string => {

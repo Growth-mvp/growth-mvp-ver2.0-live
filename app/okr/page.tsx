@@ -288,7 +288,14 @@ export default function OKRPage() {
   const mismatch = !!(accessCompanyId && scopeCompanyId && scopeCompanyId !== accessCompanyId);
   const isHydrating = ((Boolean(boot?.isHydrating) && !hydrated) || mismatch || !hydrated) ?? false;
 
-  useAutoSave(!isHydrating ? [accessCompanyId, departments] : []);
+  useAutoSave({
+    enabled: !isHydrating,
+    requireHydrated: true,
+    requireSession: true,
+    debounceMs: 1200,
+    minIntervalMs: 1500,
+    mode: 'payload',
+  });
 
   /* -------- STAGE4 Baseline 作成ガード（hydrate 完了時に1回だけ、companyId単位） -------- */
   const baselineCreatedRef = useRef<boolean>(false);

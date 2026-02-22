@@ -100,7 +100,14 @@ export default function Stage6Page() {
   });
 
   // ===== Auto save =====
-  useAutoSave(!stage6.isHydrating ? [stage6.companyName] : []);
+  useAutoSave({
+    enabled: !stage6.isHydrating,
+    requireHydrated: true,
+    requireSession: true,
+    debounceMs: 1200,
+    minIntervalMs: 1500,
+    mode: 'payload',
+  });
 
   // ===== Loading/error states =====
   if (!stage6.hydrated || stage6.isHydrating) {

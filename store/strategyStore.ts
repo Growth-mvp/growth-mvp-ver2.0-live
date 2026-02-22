@@ -1853,8 +1853,8 @@ export const useStrategyStore = create<StrategyState>()(
       },
 
       /* ▼ 互換用ショートカット */
-      setCompanyName: (name) => set((s) => ({ ...s, companyName: name, dirty: true })),
-      setIndustry: (industry) => set((s) => ({ ...s, industry, dirty: true })),
+      setCompanyName: (name) => set((s) => ({ ...s, companyName: name, dirty: true, version: (s.version ?? 0) + 1 })),
+      setIndustry: (industry) => set((s) => ({ ...s, industry, dirty: true, version: (s.version ?? 0) + 1 })),
       setStage1Issues: (issues) => {
         // ★ 診断ログ：setStage1Issues 呼び出し確認
         if (DEBUG) {
@@ -1864,7 +1864,7 @@ export const useStrategyStore = create<StrategyState>()(
           });
         }
 
-        set((s) => ({ ...s, stage1Issues: issues, dirty: true }));
+        set((s) => ({ ...s, stage1Issues: issues, dirty: true, version: (s.version ?? 0) + 1 }));
 
         // localStorage にも即座に保存（デモ安定）
         setTimeout(() => {
@@ -2008,7 +2008,7 @@ export const useStrategyStore = create<StrategyState>()(
       addProjectTargetImpact: (impact: ProjectTargetImpact) => {
         set((s) => {
           const prev = s.projectTargetImpacts ?? [];
-          return { ...s, projectTargetImpacts: [...prev, impact], dirty: true };
+          return { ...s, projectTargetImpacts: [...prev, impact], dirty: true, version: (s.version ?? 0) + 1 };
         });
       },
 
@@ -2019,7 +2019,7 @@ export const useStrategyStore = create<StrategyState>()(
           if (idx < 0) return s;
           const next = [...prev];
           next[idx] = { ...next[idx], ...patch };
-          return { ...s, projectTargetImpacts: next, dirty: true };
+          return { ...s, projectTargetImpacts: next, dirty: true, version: (s.version ?? 0) + 1 };
         });
       },
 
@@ -2030,6 +2030,7 @@ export const useStrategyStore = create<StrategyState>()(
             ...s,
             projectTargetImpacts: prev.filter((imp) => !(imp.projectId === projectId && imp.targetId === targetId)),
             dirty: true,
+            version: (s.version ?? 0) + 1,
           };
         });
       },
@@ -2042,7 +2043,7 @@ export const useStrategyStore = create<StrategyState>()(
       addProjectIssueLink: (link: ProjectIssueLink) => {
         set((s) => {
           const prev = s.projectIssueLinks ?? [];
-          return { ...s, projectIssueLinks: [...prev, link], dirty: true };
+          return { ...s, projectIssueLinks: [...prev, link], dirty: true, version: (s.version ?? 0) + 1 };
         });
       },
 
@@ -2053,7 +2054,7 @@ export const useStrategyStore = create<StrategyState>()(
           if (idx < 0) return s;
           const next = [...prev];
           next[idx] = { ...next[idx], ...patch };
-          return { ...s, projectIssueLinks: next, dirty: true };
+          return { ...s, projectIssueLinks: next, dirty: true, version: (s.version ?? 0) + 1 };
         });
       },
 
@@ -2064,6 +2065,7 @@ export const useStrategyStore = create<StrategyState>()(
             ...s,
             projectIssueLinks: prev.filter((link) => !(link.projectId === projectId && link.issueId === issueId)),
             dirty: true,
+            version: (s.version ?? 0) + 1,
           };
         });
       },
@@ -2093,11 +2095,11 @@ export const useStrategyStore = create<StrategyState>()(
 
       /* ▼ STAGE4 setter */
       setStage4Plans: (plans) => {
-        set((s) => ({ ...s, stage4Plans: plans, dirty: true }));
+        set((s) => ({ ...s, stage4Plans: plans, dirty: true, version: (s.version ?? 0) + 1 }));
       },
 
       setExecutionPlanBaseline: (baseline) => {
-        set((s) => ({ ...s, executionPlanBaseline: baseline, dirty: true }));
+        set((s) => ({ ...s, executionPlanBaseline: baseline, dirty: true, version: (s.version ?? 0) + 1 }));
       },
 
       /** ValueAnalysis 再計算 */
@@ -2215,7 +2217,7 @@ export const useStrategyStore = create<StrategyState>()(
           sample_after_conversion: Array.isArray(yenRows) && yenRows.length > 0 ? yenRows[0] : null,
         });
 
-        set((s) => ({ ...s, financePL: yenRows, dirty: true }));
+        set((s) => ({ ...s, financePL: yenRows, dirty: true, version: (s.version ?? 0) + 1 }));
 
         // ★ DEBUG：set直後の確認
         setTimeout(() => {
@@ -2259,6 +2261,7 @@ export const useStrategyStore = create<StrategyState>()(
             financeBS: rows,
           },
           dirty: true,
+          version: (s.version ?? 0) + 1,
         }));
 
         // ★ DEBUG：set直後の確認
@@ -2697,6 +2700,7 @@ export const useStrategyStore = create<StrategyState>()(
         set((s) => ({
           departments: normalizeDepartmentsInput(deps, s.departments),
           dirty: true,
+          version: (s.version ?? 0) + 1,
         }));
 
         (async () => {
@@ -2716,7 +2720,7 @@ export const useStrategyStore = create<StrategyState>()(
         set((s) => {
           const prev = Array.isArray(s.departments) ? s.departments : [];
           const next = updater([...prev]);
-          return { departments: normalizeDepartmentsInput(next, prev), dirty: true };
+          return { departments: normalizeDepartmentsInput(next, prev), dirty: true, version: (s.version ?? 0) + 1 };
         });
 
         (async () => {
@@ -2730,10 +2734,10 @@ export const useStrategyStore = create<StrategyState>()(
         })();
       },
 
-      setBusinessPortfolio: (p) => set({ businessPortfolio: { ...p }, dirty: true }),
+      setBusinessPortfolio: (p) => set((s) => ({ ...s, businessPortfolio: { ...p }, dirty: true, version: (s.version ?? 0) + 1 })),
 
       setFinanceSummary: (rows) => {
-        set({ financeSummary: rows, dirty: true });
+        set((s) => ({ ...s, financeSummary: rows, dirty: true, version: (s.version ?? 0) + 1 }));
         setTimeout(() => get().recomputeValueAnalysis('setFinanceSummary'), 0);
       },
 

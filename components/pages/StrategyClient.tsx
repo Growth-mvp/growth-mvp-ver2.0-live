@@ -233,10 +233,15 @@ export default function StrategyClient() {
   const autosaveEnabled =
     hydrated && readyToAutosave && !!companyId && hasMeaningfulData;
 
-  // ✅ useAutoSave は 1引数（deps: any[]）で軽いシグネチャのみ渡す
-  useAutoSave(
-    autosaveEnabled ? [companyId, storySig, answersSig, deptSig] : [],
-  );
+  // ✅ useAutoSave は payload mode で全情報を送信（deps なし、payloadSignature に統一）
+  useAutoSave({
+    enabled: autosaveEnabled,
+    requireHydrated: true,
+    requireSession: true,
+    debounceMs: 1200,
+    minIntervalMs: 1500,
+    mode: 'payload',
+  });
 
   const stepView = useMemo(() => {
     if (!hydrated) {
