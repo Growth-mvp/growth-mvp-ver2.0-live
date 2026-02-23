@@ -274,6 +274,9 @@ export type StrategyState = {
   /** サーバ楽観ロック用 */
   revision?: number;
 
+  /** ローカル更新カウンタ（dirty 検出用） */
+  version?: number;
+
   /** サーバスナップショット（ハッシュ） */
   lastServerSnapshot?: string;
 
