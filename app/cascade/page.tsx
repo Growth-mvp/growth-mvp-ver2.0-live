@@ -421,17 +421,6 @@ function computeKpiBridgeDataLocal({
   const chartRevenueTarget = inferScaleToMillion(targetRevenue)?.converted ?? targetRevenue;
   const chartOpTarget = inferScaleToMillion(targetOpProfit)?.converted ?? targetOpProfit;
 
-  console.log('[computeKpiBridgeDataLocal]', {
-    currentRevenue,
-    currentOpProfit,
-    targetRevenue,
-    targetOpProfit,
-    chartRevenueNow,
-    chartOpNow,
-    chartRevenueTarget,
-    chartOpTarget,
-  });
-
   return {
     revenue: { current: chartRevenueNow, target: chartRevenueTarget },
     operatingProfit: { current: chartOpNow, target: chartOpTarget },
@@ -668,12 +657,6 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
   revenue: { current: number | null; target: number | null };
   operatingProfit: { current: number | null; target: number | null };
 }) {
-  console.log('[StoryWithKPIComparison:render]', {
-    chapters_len: chapters?.length ?? 0,
-    revenue,
-    operatingProfit,
-  });
-
   return (
     <section className="mb-8">
       {/* 4章 */}
@@ -1150,15 +1133,6 @@ function applyLaneToProjects(lane?: ApiLane): Project[] {
 // 3つのレーン結果を集約してから、一度だけ反映する（重複を防止）
 function applyDeptDraftToProjects(existingProjects: Project[], deptDraft: ApiDeptDraft): Project[] {
   const beforeCount = existingProjects.length;
-  if (DEBUG_DUP) {
-    const beforeTitles = (existingProjects ?? []).map(p => p?.title ?? '');
-    console.log('[cascade][dupcheck] beforeApply', {
-      deptName: (deptDraft as any).name,
-      existingCount: beforeCount,
-      beforeStats: dupStats(beforeTitles),
-      titles: beforeTitles.slice(0, 3),
-    });
-  }
 
   // ★重要：各レーンから生成プロジェクトを集約
   const lane1Projects = Array.isArray(deptDraft.projects) && deptDraft.projects.length
@@ -1183,36 +1157,6 @@ function applyDeptDraftToProjects(existingProjects: Project[], deptDraft: ApiDep
 
   // ★ 最終的に deduped されたマージ結果を返す
   const deduped = dedupeProjectsByTitle(nextProjectsMerged);
-
-  // ★ TASK D: 診断ログ（okrs/kpis が維持されているか）
-  if (DEBUG_DUP) {
-    const beforeStats = (existingProjects ?? []).map(p => ({
-      t: p?.title ?? '',
-      okrs: Array.isArray(p?.okrs) ? p.okrs.length : 0,
-      kpis: Array.isArray(p?.kpis) ? p.kpis.length : 0,
-    }));
-    const afterStats = deduped.map(p => ({
-      t: p?.title ?? '',
-      okrs: Array.isArray(p?.okrs) ? p.okrs.length : 0,
-      kpis: Array.isArray(p?.kpis) ? p.kpis.length : 0,
-    }));
-    console.log('[cascade][mergecheck]', {
-      before: beforeStats,
-      after: afterStats,
-    });
-
-    const afterTitles = deduped.map(p => p?.title ?? '');
-    console.log('[cascade][dupcheck] afterApply', {
-      deptName: (deptDraft as any).name,
-      resultCount: deduped.length,
-      afterStats: dupStats(afterTitles),
-      titles: afterTitles.slice(0, 3),
-      increase: deduped.length - beforeCount,
-      lane1: lane1Projects.length,
-      lane2: lane2Projects.length,
-      lane3: lane3Projects.length,
-    });
-  }
 
   return deduped;
 }
@@ -1411,7 +1355,6 @@ export default function CascadePage() {
 
   /* ---- 初回ログだけ ---- */
   useEffect(() => {
-    if (DEBUG) console.log('[cascade] mount', { hydrated, scopeCompanyId, accessCompanyId });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1452,9 +1395,7 @@ export default function CascadePage() {
       const timer = setTimeout(() => !cancelled && setHydrated?.(true), 7000);
       try {
         if (!isDirty) {
-          if (DEBUG) console.log('[cascade] 📥 loadAndHydrate 前', { accessCompanyId, isDirty });
           await loadAndHydrate(accessCompanyId);
-          if (DEBUG) console.log('[cascade] ✅ loadAndHydrate 後');
           try {
             await refetchFromServer?.();
           } catch {
@@ -1462,7 +1403,6 @@ export default function CascadePage() {
           }
           setHydrated?.(true);
         } else {
-          if (DEBUG) console.log('[cascade] ⏭️ isDirty のためスキップ');
           setHydrated?.(true);
         }
         loadGuardRef.current = accessCompanyId;
@@ -1529,14 +1469,6 @@ export default function CascadePage() {
     const d0 = departments?.[0];
     const p0 = d0?.projects?.[0];
 
-    console.log('[diag][ui:dept_source]', {
-      depts: Array.isArray(departments) ? departments.length : 'no',
-      d0: d0?.name,
-      p0: p0?.title,
-      p0_okrs: Array.isArray((p0 as any)?.okrs) ? (p0 as any).okrs.length : 0,
-      p0_kpis: Array.isArray((p0 as any)?.kpis) ? (p0 as any).kpis.length : 0,
-      p0_okrsV2: Array.isArray((p0 as any)?.okrsV2) ? (p0 as any).okrsV2.length : 0,
-    });
   }, [hydrated, departments]);
 
   /* ===== TASK 2: リロード後に departments から okrs/kpis を復元 ===== */
@@ -1559,7 +1491,6 @@ export default function CascadePage() {
     }
 
     if (!hasOkrsOrKpis) {
-      if (DEBUG) console.log('[cascade] 📝 departments に okrs/kpis/okrsV2 がないので何もしない（生成前）');
       return;
     }
 
@@ -1609,10 +1540,6 @@ export default function CascadePage() {
     });
 
     if (hasChanged) {
-      console.log('[diag][rehydrate:kpis_from_okrs]', {
-        deptCount: nextDepartments.length,
-        restored: true,
-      });
       setDepartmentsInStore?.(nextDepartments);
     }
   }, [hydrated, departments, setDepartmentsInStore]);
@@ -1641,7 +1568,6 @@ export default function CascadePage() {
 
     setDepartmentsInStore?.(initialDepts);
     hasInitializedFromStage1Ref.current = true;
-    if (DEBUG) console.log('[cascade] STAGE1事業部から初期部門を生成しました:', initialDepts.length);
   }, [hydrated, departments.length, businessSegments, setDepartmentsInStore]);
 
   const mismatch = !!(accessCompanyId && scopeCompanyId && scopeCompanyId !== accessCompanyId);
@@ -1999,7 +1925,6 @@ export default function CascadePage() {
       };
 
       // ★TASK 1: 送信前にfinalStoryが含まれているか確認
-      console.log('[Cascade][req] finalStory keys=', Object.keys(payload.finalStory ?? {}), 'len=', JSON.stringify(payload.finalStory ?? '').length);
 
       let data: ApiCascadeResponse | null = null;
       try {
@@ -2030,8 +1955,6 @@ export default function CascadePage() {
       }
 
       // ★部門の一致を確認（他部門データ混入防止）
-      console.log(`[Cascade] API応答受信：要求部門="${dept.name}"`,
-        data.departments?.map(d => `"${d.name}"`).join(', '));
 
       const rd: ApiDeptDraft | null | undefined = Array.isArray(data.departments)
         ? data.departments.find(d => d.name === dept.name)
@@ -2043,7 +1966,6 @@ export default function CascadePage() {
         return;
       }
 
-      console.log(`[Cascade] 部門マッチ成功："${dept.name}"`);
 
       // レーンキャッシュ（OKRは一切変更しない）
       if (rd?.lanes?.existing || rd?.lanes?.new) {
@@ -2086,11 +2008,6 @@ export default function CascadePage() {
           // ★診断ログ（save時点）
           if (DEBUG_DUP) {
             const titles = mergedProjects.map(p => p?.title ?? '');
-            console.log('[cascade][save] payload', {
-              dept: d.name,
-              projectCount: mergedProjects.length,
-              stats: dupStats(titles),
-            });
           }
         }
 
@@ -2111,12 +2028,6 @@ export default function CascadePage() {
 
       // ★ TASK C: 生成直後に setDepartments が成功したか確認ログ
       const afterSetDepts = useStrategyStore.getState().departments as Department[] | undefined;
-      console.log('[diag][after_generate:setDepartments]', afterSetDepts?.[index]?.projects?.map(p => ({
-        title: p.title,
-        okrs: Array.isArray(p.okrs) ? p.okrs.length : 0,
-        kpis: Array.isArray(p.kpis) ? p.kpis.length : 0,
-        okrsV2: Array.isArray((p as any).okrsV2) ? (p as any).okrsV2.length : 0,
-      })));
 
       setNotice(`✅ ${dept.name} のミッション・プロジェクト・KPI案を更新しました`);
 
