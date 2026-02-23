@@ -592,15 +592,6 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
     const revenueYen = revenue > 0 && revenue < 1_000_000 ? revenue * 1_000_000 : revenue;
     const opIncomeYen = operatingIncome > 0 && operatingIncome < 1_000_000 ? operatingIncome * 1_000_000 : operatingIncome;
 
-    if (revenueYen !== revenue || opIncomeYen !== operatingIncome) {
-      console.log('[buildStateFromDbRow] financePL yen conversion', {
-        year: row.year,
-        revenue_before: revenue,
-        revenue_after: revenueYen,
-        operatingIncome_before: operatingIncome,
-        operatingIncome_after: opIncomeYen,
-      });
-    }
 
     return {
       ...row,
@@ -771,8 +762,6 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
         okrsV2: Array.isArray(p?.okrsV2) ? p.okrsV2.length : 0,
       })),
     }));
-  console.log('[diag][dept:raw:deep]', diagDeptDeep(out.departments));
-  console.log('[diag][dept:raw:deep:first]', JSON.stringify(diagDeptDeep(out.departments)?.[0] ?? null));
 
   // ★ DEBUG：normalize 前（プリミティブ値のみ）
   const outCsvFdExists = !!out.csvFinanceData;
@@ -783,8 +772,6 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const normalized = normalizeStrategyData(out) as StrategyData;
 
   // ★ CASE3 診断：normalize 後の departments 内部の深部を確認
-  console.log('[diag][dept:norm:deep]', diagDeptDeep((normalized as any).departments));
-  console.log('[diag][dept:norm:deep:first]', JSON.stringify(diagDeptDeep((normalized as any).departments)?.[0] ?? null));
 
   // ★ DEBUG LOG D: restore 後の確認（Object.keys + mission/missionDescription）
   const normDept0 = (normalized as any).departments?.[0];
@@ -877,7 +864,7 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
           : [],
       }));
 
-      console.log('[cascade][load][counts:normalized]', { depts: after });
+      if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') console.log('[cascade][load][counts:normalized]', { depts: after });
     }
   }
 
@@ -1132,7 +1119,6 @@ export async function getFullStrategyDataByCompany(
         okrsV2: Array.isArray(p?.okrsV2) ? p.okrsV2.length : 0,
       })),
     }));
-    console.log('[diag][load:db_raw:departments]', rawDepDiag);
 
     /* ★ TASK 2: DB行のSTAGE2列存在確認ログ */
     if (DEBUG) {
@@ -1144,16 +1130,6 @@ export async function getFullStrategyDataByCompany(
       const winPatternsCandidateLen = Array.isArray(rowData.win_patterns_candidate) ? rowData.win_patterns_candidate.length : 0;
       const answers12Len = Array.isArray(rowData.answers12) ? rowData.answers12.length : 0;
       const answers_12Len = Array.isArray(rowData.answers_12) ? rowData.answers_12.length : 0;
-      console.log('[stage2][db_raw_check]', {
-        has_raw_story_draft: hasRawStoryDraft,
-        has_raw_win_patterns_candidate: hasRawWinPatternsCandidate,
-        has_raw_answers12: hasRawAnswers12,
-        has_raw_answers_12: hasRawAnswers_12,
-        story_draft_len: storyDraftLen,
-        win_patterns_candidate_len: winPatternsCandidateLen,
-        answers12_len: answers12Len,
-        answers_12_len: answers_12Len,
-      });
     }
 
     // ★ TASK 1: answers12 load diagnostic（ログイン直後に answers12 が取れているか確定）
@@ -1173,16 +1149,6 @@ export async function getFullStrategyDataByCompany(
       const finalStoryDraftLen = Array.isArray(rowData.final_story_draft) ? rowData.final_story_draft.length : null;
       const finalStoryEditedLen = Array.isArray(rowData.final_story_edited) ? rowData.final_story_edited.length : null;
       const finalStoryFinalLen = Array.isArray(rowData.final_story_final) ? rowData.final_story_final.length : null;
-      console.log('[diag][load:db_raw] NEW FIELDS CHECK', {
-        has_company_targets: hasCompanyTargets,
-        company_targets_len: companyTargetsLen,
-        has_final_story_draft: hasFinalStoryDraft,
-        final_story_draft_len: finalStoryDraftLen,
-        has_final_story_edited: hasFinalStoryEdited,
-        final_story_edited_len: finalStoryEditedLen,
-        has_final_story_final: hasFinalStoryFinal,
-        final_story_final_len: finalStoryFinalLen,
-      });
     }
 
     // 分離テーブルの最新値
@@ -1227,12 +1193,6 @@ export async function getFullStrategyDataByCompany(
 
     // ★ TASK 9-4: 復元直後の監査ログ（DEV限定）
     if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
-      console.log('[audit][restore:field_check]', {
-        ceoIntentLen: typeof (state as any).ceoIntent === 'string' ? (state as any).ceoIntent.length : 0,
-        ceoIntentPreview: typeof (state as any).ceoIntent === 'string' ? (state as any).ceoIntent.substring(0, 50) : 'N/A',
-        storyDraftLen: Array.isArray((state as any).storyDraft) ? (state as any).storyDraft.length : 0,
-        hasDbCeoIntent: typeof rowData?.ceo_intent === 'string' ? rowData.ceo_intent.length : 0,
-      });
     }
 
     // ★念押し：id/company_id/updated_at を state に注入（normalizeで落ちる事故を防ぐ）
@@ -1563,10 +1523,6 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       : [];
 
     if (process.env.NEXT_PUBLIC_DEBUG_CASCADE_DUP === '1' && cascadeDeptsCounts.length > 0) {
-      console.log('[cascade][save][departments_detail]', {
-        totalDepts: cascadeDeptsCounts.length,
-        depts: cascadeDeptsCounts,
-      });
     }
 
     // ★ TASK 1: Remove win_patterns fields to prevent PGRST204 error
@@ -1581,12 +1537,6 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       const dep = (updatePayload as any).departments;
       // ★ DEBUG LOG C: DB updatePayload での確認（Object.keys + mission/missionDescription）
       const dept0 = Array.isArray(dep) ? dep[0] : null;
-      console.log('[DEBUG C] DB updatePayload - dept0 keys:', Object.keys(dept0 ?? {}));
-      console.log('[DEBUG C] DB updatePayload - dept0:', {
-        name: dept0?.name,
-        mission: dept0?.mission,
-        missionDescription: dept0?.missionDescription,
-      });
 
       const depDiag = (Array.isArray(dep) ? dep : []).map((d: any) => ({
         name: d?.name,
@@ -1597,26 +1547,6 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
           okrsV2: Array.isArray(p?.okrsV2) ? p.okrsV2.length : 0,
         })),
       }));
-      console.log('[diag][db:updatePayload:departments]', depDiag);
-
-      if (DEBUG) console.log('[SAVE update payload]', {
-        finance_pl_len: Array.isArray((updatePayload.finance_pl as any))
-          ? (updatePayload.finance_pl as any).length
-          : null,
-        stage1_issues_len: Array.isArray((updatePayload.stage1_issues as any))
-          ? (updatePayload.stage1_issues as any).length
-          : null,
-        financeBS_in_csv: Array.isArray((updatePayload.csv_finance_data as any)?.financeBS)
-          ? (updatePayload.csv_finance_data as any).financeBS.length
-          : null,
-        segmentBS_keys_in_csv: Object.keys((updatePayload.csv_finance_data as any)?.segmentBS || {}).length,
-        // ★ STAGE1 Tab3 fields - ACTUAL VALUES
-        is_listed: updatePayload.is_listed,
-        ticker: updatePayload.ticker,
-        pbr_manual: updatePayload.pbr_manual,
-        stage1_benchmarks_keys: updatePayload.stage1_benchmarks ? Object.keys(updatePayload.stage1_benchmarks) : [],
-        stage1_benchmarks_waccManual: updatePayload.stage1_benchmarks?.waccManual,
-      });
 
       // ★ TASK 13-1: Checkpoint 4 - ceo_intent in updatePayload (most critical)
       if (DEBUG) console.log('[SAVE updatePayload ceo_intent]', {
@@ -1681,54 +1611,12 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       // ★ CRITICAL TEST: Verify revision increment succeeded
       if (upd.data) {
         const returnedRevision = (upd.data as any)?.revision;
-        console.log('[SAVE] ✅ Revision increment verified', {
-          expectedRev: expectedRev,
-          sentRevision: nextRevision,
-          receivedRevision: returnedRevision,
-          incrementSuccess: returnedRevision === nextRevision,
-          timestamp: new Date().toISOString(),
-        });
         if (returnedRevision !== nextRevision) {
           console.error('[SAVE] ⚠️ REVISION MISMATCH:', {
             sent: nextRevision,
             received: returnedRevision,
             message: 'Application revision increment may have failed',
           });
-        }
-      }
-
-      // ★ TASK STAGE6: DB保存直後の診断ログ（companyTargets / projectTargetImpacts/Links の確認）
-      if (DEBUG) {
-        if (upd.data) {
-          console.log('[SAVE response] company_targets/project_target_impacts/links in data', {
-            has_company_targets: 'company_targets' in (upd.data as any),  // ★ 追加
-            company_targets_len: Array.isArray((upd.data as any)?.company_targets) ? (upd.data as any).company_targets.length : null,  // ★ 追加
-            has_project_target_impacts: 'project_target_impacts' in (upd.data as any),
-            is_array_impacts: Array.isArray((upd.data as any)?.project_target_impacts),
-            impacts_len: Array.isArray((upd.data as any)?.project_target_impacts) ? (upd.data as any).project_target_impacts.length : null,
-            impacts_sample: Array.isArray((upd.data as any)?.project_target_impacts) && (upd.data as any).project_target_impacts.length > 0 ? (upd.data as any).project_target_impacts[0] : null,
-            has_project_issue_links: 'project_issue_links' in (upd.data as any),
-            is_array_links: Array.isArray((upd.data as any)?.project_issue_links),
-            links_len: Array.isArray((upd.data as any)?.project_issue_links) ? (upd.data as any).project_issue_links.length : null,
-            links_sample: Array.isArray((upd.data as any)?.project_issue_links) && (upd.data as any).project_issue_links.length > 0 ? (upd.data as any).project_issue_links[0] : null,
-          });
-        } else {
-          console.log('[SAVE response] upd.data is null - re-selecting for diagnosis');
-          const reselect = await supabase
-            .from(T_STRATEGY)
-            .select('company_targets,project_target_impacts,project_issue_links')  // ★ company_targets 追加
-            .eq('company_id', cleanCompanyId)
-            .maybeSingle();
-          if (reselect.data) {
-            console.log('[SAVE reselect] company_targets/project_target_impacts/links', {  // ★ コメント更新
-              has_company_targets: 'company_targets' in reselect.data,  // ★ 追加
-              company_targets_len: Array.isArray((reselect.data as any)?.company_targets) ? (reselect.data as any).company_targets.length : null,  // ★ 追加
-              has_impacts: 'project_target_impacts' in reselect.data,
-              impacts_len: Array.isArray((reselect.data as any)?.project_target_impacts) ? (reselect.data as any).project_target_impacts.length : null,
-              has_links: 'project_issue_links' in reselect.data,
-              links_len: Array.isArray((reselect.data as any)?.project_issue_links) ? (reselect.data as any).project_issue_links.length : null,
-            });
-          }
         }
       }
 
