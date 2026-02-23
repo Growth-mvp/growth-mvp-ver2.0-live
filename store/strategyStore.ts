@@ -830,7 +830,7 @@ function buildSavePayload(s: StrategyState) {
     // ★ DEBUG: missionDescription のペイロード確認
     const dept0 = Array.isArray(base.departments) ? base.departments[0] : null;
 
-    console.log('[buildSavePayload] ★ payload内容確認', {
+    if (DEBUG) console.log('[buildSavePayload] ★ payload内容確認', {
       businessSegments_len: busSegLen,
       businessSegments_names: Array.isArray(s.businessSegments) ? s.businessSegments.map((b) => b.name) : [],
       financeBS_len: financeBSLen,
@@ -2226,7 +2226,7 @@ export const useStrategyStore = create<StrategyState>()(
           : rows;
 
         // ★ DEBUG：入力ログ（弾き判定用）
-        console.log('[strategyStore] setFinancePL input', {
+        if (DEBUG) console.log('[strategyStore] setFinancePL input', {
           len: Array.isArray(rows) ? rows.length : 'not-array',
           sample: Array.isArray(rows) && rows.length > 0 ? rows[0] : null,
           sample_after_conversion: Array.isArray(yenRows) && yenRows.length > 0 ? yenRows[0] : null,
@@ -2234,7 +2234,7 @@ export const useStrategyStore = create<StrategyState>()(
 
         set((s) => {
           const newVersion = (s.version ?? 0) + 1;
-          console.log('[strategyStore] setFinancePL version bump', {
+          if (DEBUG) console.log('[strategyStore] setFinancePL version bump', {
             from: s.version,
             to: newVersion,
             dirty: true,
@@ -2245,7 +2245,7 @@ export const useStrategyStore = create<StrategyState>()(
         // ★ DEBUG：set直後の確認
         setTimeout(() => {
           const after = get();
-          console.log('[strategyStore] setFinancePL accepted', {
+          if (DEBUG) console.log('[strategyStore] setFinancePL accepted', {
             len: after.financePL?.length ?? 0,
             sample: after.financePL?.[0] ?? null,
             version: after.version,
@@ -2258,7 +2258,7 @@ export const useStrategyStore = create<StrategyState>()(
 
       setFinanceBS: (rows) => {
         // ★ DEBUG：入力ログ（弾き判定用）
-        console.log('[strategyStore] setFinanceBS input', {
+        if (DEBUG) console.log('[strategyStore] setFinanceBS input', {
           len: Array.isArray(rows) ? rows.length : 'not-array',
           sample: Array.isArray(rows) && rows.length > 0 ? rows[0] : null,
           allYears: Array.isArray(rows) ? rows.map((r: any) => ({ year: r.year, yearType: typeof r.year })) : null,
@@ -2280,7 +2280,7 @@ export const useStrategyStore = create<StrategyState>()(
         // ★ 修正：csvFinanceData と同期
         set((s) => {
           const newVersion = (s.version ?? 0) + 1;
-          console.log('[strategyStore] setFinanceBS version bump', {
+          if (DEBUG) console.log('[strategyStore] setFinanceBS version bump', {
             from: s.version,
             to: newVersion,
             dirty: true,
@@ -2300,7 +2300,7 @@ export const useStrategyStore = create<StrategyState>()(
         // ★ DEBUG：set直後の確認
         setTimeout(() => {
           const after = get();
-          console.log('[strategyStore] setFinanceBS accepted', {
+          if (DEBUG) console.log('[strategyStore] setFinanceBS accepted', {
             len: after.financeBS?.length ?? 0,
             sample: after.financeBS?.[0] ?? null,
             version: after.version,
@@ -2317,7 +2317,7 @@ export const useStrategyStore = create<StrategyState>()(
         const distribution = Object.fromEntries(
           keys.map((k) => [k, Array.isArray((data as any)?.[k]) ? (data as any)[k].length : '?'])
         );
-        console.log('[strategyStore] setSegmentPL input', {
+        if (DEBUG) console.log('[strategyStore] setSegmentPL input', {
           keys,
           distribution,
           sample: keys.length > 0 ? { [keys[0]]: (data as any)?.[keys[0]]?.[0] } : null,
@@ -2326,7 +2326,7 @@ export const useStrategyStore = create<StrategyState>()(
         // ★ 修正：csvFinanceData と同期
         set((s) => {
           const newVersion = (s.version ?? 0) + 1;
-          console.log('[strategyStore] setSegmentPL version bump', {
+          if (DEBUG) console.log('[strategyStore] setSegmentPL version bump', {
             from: s.version,
             to: newVersion,
             dirty: true,
@@ -2350,7 +2350,7 @@ export const useStrategyStore = create<StrategyState>()(
           const afterDist = Object.fromEntries(
             afterKeys.map((k) => [k, Array.isArray((after as any)?.[k]) ? (after as any)[k].length : '?'])
           );
-          console.log('[strategyStore] setSegmentPL accepted', {
+          if (DEBUG) console.log('[strategyStore] setSegmentPL accepted', {
             keys: afterKeys,
             distribution: afterDist,
           });
@@ -2365,7 +2365,7 @@ export const useStrategyStore = create<StrategyState>()(
         const distribution = Object.fromEntries(
           keys.map((k) => [k, Array.isArray((data as any)?.[k]) ? (data as any)[k].length : '?'])
         );
-        console.log('[strategyStore] setSegmentBS input', {
+        if (DEBUG) console.log('[strategyStore] setSegmentBS input', {
           keys,
           distribution,
           sample: keys.length > 0 ? { [keys[0]]: (data as any)?.[keys[0]]?.[0] } : null,
@@ -2374,7 +2374,7 @@ export const useStrategyStore = create<StrategyState>()(
         // ★ 修正：csvFinanceData と同期
         set((s) => {
           const newVersion = (s.version ?? 0) + 1;
-          console.log('[strategyStore] setSegmentBS version bump', {
+          if (DEBUG) console.log('[strategyStore] setSegmentBS version bump', {
             from: s.version,
             to: newVersion,
             dirty: true,
@@ -2398,7 +2398,7 @@ export const useStrategyStore = create<StrategyState>()(
           const afterDist = Object.fromEntries(
             afterKeys.map((k) => [k, Array.isArray((after as any)?.[k]) ? (after as any)[k].length : '?'])
           );
-          console.log('[strategyStore] setSegmentBS accepted', {
+          if (DEBUG) console.log('[strategyStore] setSegmentBS accepted', {
             keys: afterKeys,
             distribution: afterDist,
           });
@@ -2980,7 +2980,7 @@ export const useStrategyStore = create<StrategyState>()(
                   okrsV2: Array.isArray(p?.okrsV2) ? p.okrsV2.length : 0,
                 })),
               }));
-              console.log('[diag][save:payload:departments]', deptDiag);
+              if (DEBUG) console.log('[diag][save:payload:departments]', deptDiag);
 
               if (isEffectivelyEmpty(payload)) {
                 if (DEBUG) console.log('[strategyStore] saveStrategyData: payload effectively empty, clear dirty');
