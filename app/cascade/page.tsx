@@ -2162,9 +2162,9 @@ export default function CascadePage() {
     <div className="mx-auto max-w-6xl px-6 py-8">
       <header className="mb-8 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-[28px] font-semibold mb-2">STAGE 3：部門戦略（カスケード）</h1>
+          <h1 className="text-[28px] font-semibold mb-2">STAGE 3：部門戦略策定</h1>
           <p className="text-zinc-600 text-sm">
-            経営ストーリーを基に、質問に答えながら各部門の<b>ミッション・プロジェクト案・KPI案（実現したい状態と主要指標）</b>を明確化します。
+            経営ストーリーを基に、各部門のミッション・プロジェクト案・KPI案を議論し、明確化します。
           </p>
         </div>
         <div className="shrink-0">
