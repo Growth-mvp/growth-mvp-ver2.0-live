@@ -491,7 +491,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       {/* ステップインジケータ（進捗バッジ付き） */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-medium text-gray-700">6つの問い（進捗：{answers.filter(a => a.answer?.trim()).length}/6）</div>
+          <div className="text-sm font-medium text-gray-700">戦略議論のための6つの問い（進捗：{answers.filter(a => a.answer?.trim()).length}/6）</div>
           <div className="flex gap-1 text-xs text-gray-500">
             <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span>回答済</span>
             <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span>現在</span>
