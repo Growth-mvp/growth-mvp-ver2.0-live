@@ -402,7 +402,7 @@ export default function Stage1Page() {
         <div>
           <h1 className="text-2xl font-bold">STAGE1｜企業価値分析</h1>
           <p className="text-sm text-gray-600 mt-2">
-            財務事実から企業価値の現状を整理し、経営戦略の論点を明確にします。
+            財務事実から企業価値の現状を整理し、経営戦略の論点を議論し明確にします。
           </p>
 
           <div className="text-xs text-gray-400 mt-2">
