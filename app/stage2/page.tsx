@@ -185,7 +185,7 @@ function StepperTabs({ activeTab, onChange, canOpenDraft, hasDraft, hasFinal }: 
     warning?: boolean;
   }[] = [
     { id: 'input', label: '入力', enabled: true, completed: false },
-    { id: 'draft', label: '戦略思考', enabled: canOpenDraft, completed: hasDraft },
+    { id: 'draft', label: '戦略議論', enabled: canOpenDraft, completed: hasDraft },
     { id: 'final', label: '最終確定', enabled: hasFinal, completed: hasFinal },
   ];
 
