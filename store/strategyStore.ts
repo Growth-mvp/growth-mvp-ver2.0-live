@@ -230,6 +230,9 @@ export type StrategyState = {
   /* === STAGE6 Phase E：プロジェクト→North Star影響量（手入力） === */
   projectTargetImpacts?: ProjectTargetImpact[];
 
+  /* === STAGE5/6：OKR→進捗インパクトスコア（0-5） === */
+  okrTargetScores?: Record<string, number>; // okrId -> score
+
   /* === STAGE6 Phase E：プロジェクト→論点紐付け（手入力） === */
   projectIssueLinks?: ProjectIssueLink[];
 
@@ -383,6 +386,10 @@ export type StrategyState = {
   addProjectTargetImpact: (impact: ProjectTargetImpact) => void;
   updateProjectTargetImpact: (projectId: string, targetId: string, patch: Partial<ProjectTargetImpact>) => void;
   removeProjectTargetImpact: (projectId: string, targetId: string) => void;
+
+  /* === STAGE5/6：OKR進捗インパクトスコア === */
+  setOKRTargetScore: (okrId: string, score: number) => void;
+  getOKRTargetScore: (okrId: string) => number;
 
   /* === STAGE6 Phase E：プロジェクト→論点紐付け === */
   setProjectIssueLinks: (links: ProjectIssueLink[]) => void;
@@ -782,6 +789,7 @@ function buildSavePayload(s: StrategyState) {
 
     // === STAGE6 Phase E データ (J-1: Sanitize before save) ===
     projectTargetImpacts: sanitizeProjectTargetImpacts((s as any).projectTargetImpacts),
+    okrTargetScores: (s as any).okrTargetScores ?? {},
     projectIssueLinks: sanitizeProjectIssueLinks((s as any).projectIssueLinks),
 
     winPatterns: s.winPatterns,
@@ -1079,6 +1087,7 @@ const emptyData: StrategyState = {
   finalStoryFinal: undefined,
   companyTargets: [],
   projectTargetImpacts: [],
+  okrTargetScores: {},
   projectIssueLinks: [],
   winPatterns: undefined,
   winPatternPrimary: undefined,
@@ -1151,6 +1160,8 @@ const emptyData: StrategyState = {
   addProjectTargetImpact: () => {},
   updateProjectTargetImpact: () => {},
   removeProjectTargetImpact: () => {},
+  setOKRTargetScore: () => {},
+  getOKRTargetScore: () => 0,
   setProjectIssueLinks: () => {},
   addProjectIssueLink: () => {},
   updateProjectIssueLink: () => {},
@@ -1456,6 +1467,12 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
       ? raw.project_target_impacts
       : [];
 
+  const okrTargetScores = typeof raw.okrTargetScores === 'object' && raw.okrTargetScores !== null
+    ? raw.okrTargetScores
+    : typeof raw.okr_target_scores === 'object' && raw.okr_target_scores !== null
+      ? raw.okr_target_scores
+      : {};
+
   const projectIssueLinks = Array.isArray(raw.projectIssueLinks)
     ? raw.projectIssueLinks
     : Array.isArray(raw.project_issue_links)
@@ -1551,6 +1568,7 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     // === STAGE6 Phase E データ ===
     companyTargets,
     projectTargetImpacts,
+    okrTargetScores,
     projectIssueLinks,
   };
 
@@ -2051,6 +2069,23 @@ export const useStrategyStore = create<StrategyState>()(
             version: (s.version ?? 0) + 1,
           };
         });
+      },
+
+      // === STAGE5/6：OKR進捗インパクトスコア アクション ===
+      setOKRTargetScore: (okrId: string, score: number) => {
+        set((s) => {
+          const prev = s.okrTargetScores ?? {};
+          return {
+            ...s,
+            okrTargetScores: { ...prev, [okrId]: score },
+            dirty: true,
+            version: (s.version ?? 0) + 1,
+          };
+        });
+      },
+
+      getOKRTargetScore: (okrId: string) => {
+        return (useStrategyStore.getState().okrTargetScores ?? {})[okrId] ?? 0;
       },
 
       // === STAGE6 Phase E：projectIssueLinks アクション ===
@@ -2960,7 +2995,15 @@ export const useStrategyStore = create<StrategyState>()(
                   payload_answers12_first: answers12_len !== 'not_array' && (payload as any).answers12.length > 0 ? (payload as any).answers12[0] : null,
                 });
 
-                // ★ 診断：companyTargets / finalStory* が payload に入ってるか
+                // ★ 診断：STAGE5 okrTargetScores が payload に入ってるか（新規）
+              console.log('[diag][stage5:okrTargetScores]', {
+                state_okrTargetScores_keys: Object.keys((state as any).okrTargetScores ?? {}).length,
+                state_okrTargetScores_sample: Object.entries((state as any).okrTargetScores ?? {}).slice(0, 3),
+                payload_okrTargetScores_keys: Object.keys((payload as any).okrTargetScores ?? {}).length,
+                payload_okrTargetScores_sample: Object.entries((payload as any).okrTargetScores ?? {}).slice(0, 3),
+              });
+
+              // ★ 診断：companyTargets / finalStory* が payload に入ってるか
                 console.log('[diag][store:before_save]', {
                   companyTargetsLen: Array.isArray((state as any).companyTargets) ? (state as any).companyTargets.length : null,
                   payload_companyTargetsLen: Array.isArray((payload as any).companyTargets) ? (payload as any).companyTargets.length : null,
@@ -3071,6 +3114,14 @@ export const useStrategyStore = create<StrategyState>()(
               }
 
               const serverData = (res as any).data ?? {};
+
+              // ★ 診断：保存成功後、DB から復元した okrTargetScores を確認
+              console.log('[diag][stage5:after_save]', {
+                success: true,
+                serverData_okrTargetScores_keys: Object.keys((serverData as any).okrTargetScores ?? {}).length,
+                serverData_okrTargetScores_sample: Object.entries((serverData as any).okrTargetScores ?? {}).slice(0, 3),
+              });
+
               const minimal = extractServerDecidedPatch(serverData, get() as StrategyState);
 
               const updatedAt =
