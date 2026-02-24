@@ -3123,6 +3123,15 @@ export const useStrategyStore = create<StrategyState>()(
                 winPatterns_len: Array.isArray((payload as any).winPatterns) ? (payload as any).winPatterns.length : 0,
               });
 
+              /* ★ Stage6 検証ログ */
+              if (Array.isArray((payload as any).projectTargetImpacts) || Array.isArray((payload as any).projectIssueLinks)) {
+                console.log('[SAVE] ✅ Revision increment verified', {
+                  revision: nextRev,
+                  projectTargetImpacts_len: Array.isArray((payload as any).projectTargetImpacts) ? (payload as any).projectTargetImpacts.length : 0,
+                  projectIssueLinks_len: Array.isArray((payload as any).projectIssueLinks) ? (payload as any).projectIssueLinks.length : 0,
+                });
+              }
+
               if (DEBUG) console.log('[strategyStore] saveStrategyData success', { reason, revision: nextRev, updatedAt });
 
               return { ok: true, revision: nextRev, updatedAt };

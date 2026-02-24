@@ -284,41 +284,81 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
   const doSave = useCallback(async () => {
     try {
       if (!enabled) {
+        if (mode === 'payload') {
+          console.log('[AutoSave][mode] payload - SKIP: not enabled');
+        }
         return;
       }
       if (requireHydrated && !hydrated) {
+        if (mode === 'payload') {
+          console.log('[AutoSave][mode] payload - SKIP: not hydrated');
+        }
         return;
       }
       if (!userId) {
+        if (mode === 'payload') {
+          console.log('[AutoSave][mode] payload - SKIP: no userId');
+        }
         return;
       }
       if (!companyId) {
+        if (mode === 'payload') {
+          console.log('[AutoSave][mode] payload - SKIP: no companyId');
+        }
         return;
       }
       if (forceSkipWhenDeleting && isCompanyDeleting(companyId)) {
+        if (mode === 'payload') {
+          console.log('[AutoSave][mode] payload - SKIP: company deleting');
+        }
         return;
       }
       if (isFetching) {
+        if (mode === 'payload') {
+          console.log('[AutoSave][mode] payload - SKIP: isFetching');
+        }
         return;
       }
 
       if (Date.now() - mountedAtRef.current < initialDelayMs) {
+        if (mode === 'payload') {
+          console.log('[AutoSave][mode] payload - SKIP: initialDelayMs not elapsed');
+        }
         return;
       }
 
       if (requireSession) {
         const active = await hasActiveSession();
         if (!active) {
+          if (mode === 'payload') {
+            console.log('[AutoSave][mode] payload - SKIP: no active session');
+          }
           return;
         }
       }
 
       const now = Date.now();
       if (now - lastSavedAtRef.current < minIntervalMs) {
+        if (mode === 'payload') {
+          console.log('[AutoSave][mode] payload - SKIP: minIntervalMs not elapsed');
+        }
         return;
       }
       if (savingRef.current) {
+        if (mode === 'payload') {
+          console.log('[AutoSave][mode] payload - SKIP: already saving');
+        }
         return;
+      }
+
+      if (mode === 'payload') {
+        const store = useStrategyStore.getState();
+        const payload = store.buildPayload?.();
+        const sig = payloadSignature;
+        console.log('[AutoSave][mode] payload', {
+          signature_length: sig.length,
+          payload_keys: payload ? Object.keys(payload).length : 0,
+        });
       }
 
       savingRef.current = true;
@@ -343,6 +383,7 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
     requireSession,
     minIntervalMs,
     initialDelayMs,
+    mode,
   ]);
 
   /* ============================================
@@ -357,12 +398,24 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
   }, []);
 
   const trigger = useCallback(() => {
+    if (mode === 'payload') {
+      const store = useStrategyStore.getState();
+      const payload = store.buildPayload?.();
+      const sig = payloadSignature;
+      console.log('[AutoSave][signature-length]', {
+        length: sig.length,
+        mode,
+        payload_keys: payload ? Object.keys(payload).filter(k => k.includes('project')).length : 0,
+        has_projectTargetImpacts: payload ? 'projectTargetImpacts' in payload : false,
+        has_projectIssueLinks: payload ? 'projectIssueLinks' in payload : false,
+      });
+    }
     cancel();
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
       void doSave();
     }, Math.max(0, debounceMs));
-  }, [debounceMs, cancel, doSave]);
+  }, [debounceMs, cancel, doSave, mode, payloadSignature]);
 
   useEffect(() => {
     if (!enabled) return;
