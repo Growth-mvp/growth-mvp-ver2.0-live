@@ -427,6 +427,7 @@ const FIELD_MAP: Record<string, string> = {
   winPatternSecondary: 'win_pattern_secondary',
   companyTargets: 'company_targets',  // ★ 追加：North Star メトリクス
   projectTargetImpacts: 'project_target_impacts',  // ★ 追加：STAGE6 Phase E - Target Impact
+  okrTargetScores: 'okr_target_scores',  // ★ STAGE5: OKR進捗インパクト（JSONB カラム）
   projectIssueLinks: 'project_issue_links',  // ★ 追加：STAGE6 Phase E - Issue Link
   /* その他 */
   strategySummary: 'strategy_summary',
@@ -494,6 +495,10 @@ function buildDbRowFromState(state: StrategyData) {
     if (snake === 'win_patterns') v = ensureArray(v);
     if (snake === 'company_targets') v = ensureArray(v);  // ★ 追加：companyTargets は配列
     if (snake === 'project_target_impacts') v = ensureArray(v);  // ★ 追加：projectTargetImpacts は配列
+    if (snake === 'okr_target_scores') {
+      // ★ STAGE5: okrTargetScores は Record<string, number> オブジェクト
+      v = (typeof v === 'object' && !Array.isArray(v)) ? v : {};
+    }
     if (snake === 'project_issue_links') v = ensureArray(v);  // ★ 追加：projectIssueLinks は配列
     // ★ 修正：csv_finance_data はオブジェクト（financeBS/segmentPL/segmentBS を格納）
     if (snake === 'csv_finance_data') {
@@ -563,6 +568,15 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const safeRow = row ?? {};
   const out: any = {};
 
+  // ★ 診断ログ：DB row に okrTargetScores が入っているか確認
+  if (DEBUG) {
+    console.log('[diag][dbRow check] okrTargetScores:', {
+      hasOkrTargetScores: 'okr_target_scores' in safeRow,
+      hasOkrTargetScoresCamel: 'okrTargetScores' in safeRow,
+      preview: safeRow.okr_target_scores ?? safeRow.okrTargetScores,
+    });
+  }
+
   for (const [camel, snake] of Object.entries(FIELD_MAP)) {
     if (Object.prototype.hasOwnProperty.call(safeRow, snake)) {
       out[camel] = safeRow[snake];
@@ -620,6 +634,18 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
 
   const rawLinks = out.projectIssueLinks;
   out.projectIssueLinks = Array.isArray(rawLinks) ? rawLinks : [];
+
+  // ★ STAGE5/6: okrTargetScores を復元（JSONB カラムから）
+  const rawOkrScores = out.okrTargetScores;
+  out.okrTargetScores = typeof rawOkrScores === 'object' && rawOkrScores !== null ? rawOkrScores : {};
+
+  // ★ 診断ログ：okrTargetScores 復元後
+  if (DEBUG) {
+    console.log('[diag][buildStateFromDbRow] okrTargetScores restored:', {
+      keys: Object.keys(out.okrTargetScores || {}).length,
+      sample: Object.entries(out.okrTargetScores || {}).slice(0, 3),
+    });
+  }
 
   out.financeSummary = toUiFinanceSummary(out.financeSummary);
   out.businessPortfolio = toUiBusinessPortfolio(out.businessPortfolio);
@@ -745,11 +771,12 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const rawSegmentPL = out.segmentPL;
   const rawSegmentBS = out.segmentBS;
 
-  // ★ TASK-1/TASK-3 修正：normalize 前に raw を退避（companyTargets / projectTargetImpacts / projectIssueLinks）
+  // ★ TASK-1/TASK-3 修正：normalize 前に raw を退避（companyTargets / projectTargetImpacts / projectIssueLinks / okrTargetScores）
   // これらのフィールドは normalize で落ちる可能性があるため、normalize 後に復元する
   const rawCompanyTargets = out.companyTargets;
   const rawProjectTargetImpacts = out.projectTargetImpacts;
   const rawProjectIssueLinks = out.projectIssueLinks;
+  const rawOkrTargetScores = out.okrTargetScores;
 
   // ★ CASE3 診断：normalize 前の departments 内部の深部を確認
   const diagDeptDeep = (depts: any[]) =>
@@ -913,6 +940,7 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const normCompanyTargetsLen = Array.isArray((normalized as any).companyTargets) ? (normalized as any).companyTargets.length : 0;
   const normProjectTargetImpactsLen = Array.isArray((normalized as any).projectTargetImpacts) ? (normalized as any).projectTargetImpacts.length : 0;  // ★ 追加
   const normProjectIssueLinksLen = Array.isArray((normalized as any).projectIssueLinks) ? (normalized as any).projectIssueLinks.length : 0;  // ★ 追加
+  const normOkrTargetScoresKeys = Object.keys((normalized as any).okrTargetScores ?? {}).length;  // ★ 追加
   const normFinalStoryDraftLen = Array.isArray((normalized as any).finalStoryDraft) ? (normalized as any).finalStoryDraft.length : 0;
   const normFinalStoryEditedLen = Array.isArray((normalized as any).finalStoryEdited) ? (normalized as any).finalStoryEdited.length : 0;
   const normFinalStoryFinalLen = Array.isArray((normalized as any).finalStoryFinal) ? (normalized as any).finalStoryFinal.length : 0;
@@ -921,6 +949,7 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
     companyTargets_len: normCompanyTargetsLen,
     projectTargetImpacts_len: normProjectTargetImpactsLen,  // ★ 追加
     projectIssueLinks_len: normProjectIssueLinksLen,  // ★ 追加
+    okrTargetScores_keys: normOkrTargetScoresKeys,  // ★ 追加
     finalStoryDraft_len: normFinalStoryDraftLen,
     finalStoryEdited_len: normFinalStoryEditedLen,
     finalStoryFinal_len: normFinalStoryFinalLen,
@@ -930,6 +959,7 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   let restoredCompanyTargets = false;
   let restoredProjectTargetImpacts = false;  // ★ 追加
   let restoredProjectIssueLinks = false;  // ★ 追加
+  let restoredOkrTargetScores = false;  // ★ 追加
   let restoredFinalStoryDraft = false;
   let restoredFinalStoryEdited = false;
   let restoredFinalStoryFinal = false;
@@ -946,6 +976,13 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
     (normalized as any).projectIssueLinks = rawProjectIssueLinks;
     restoredProjectIssueLinks = true;
   }
+  // ★ STAGE5: okrTargetScores は object なので、keys の長さで判定
+  const rawOkrScoresObj = rawOkrTargetScores ?? {};
+  const normOkrScoresObj = (normalized as any).okrTargetScores ?? {};
+  if (Object.keys(rawOkrScoresObj).length > 0 && Object.keys(normOkrScoresObj).length === 0) {
+    (normalized as any).okrTargetScores = rawOkrScoresObj;
+    restoredOkrTargetScores = true;
+  }
   if (Array.isArray(rawFinalStoryDraft) && rawFinalStoryDraft.length > 0 && (!Array.isArray((normalized as any).finalStoryDraft) || (normalized as any).finalStoryDraft.length === 0)) {
     (normalized as any).finalStoryDraft = rawFinalStoryDraft;
     restoredFinalStoryDraft = true;
@@ -959,11 +996,12 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
     restoredFinalStoryFinal = true;
   }
 
-  if (restoredCompanyTargets || restoredProjectTargetImpacts || restoredProjectIssueLinks || restoredFinalStoryDraft || restoredFinalStoryEdited || restoredFinalStoryFinal) {
+  if (restoredCompanyTargets || restoredProjectTargetImpacts || restoredProjectIssueLinks || restoredOkrTargetScores || restoredFinalStoryDraft || restoredFinalStoryEdited || restoredFinalStoryFinal) {
     if (DEBUG) console.log('[diag][buildState:forced_restore] NEW FIELDS FORCED RESTORED', {
       companyTargets: restoredCompanyTargets,
       projectTargetImpacts: restoredProjectTargetImpacts,  // ★ 追加
       projectIssueLinks: restoredProjectIssueLinks,  // ★ 追加
+      okrTargetScores: restoredOkrTargetScores,  // ★ 追加
       finalStoryDraft: restoredFinalStoryDraft,
       finalStoryEdited: restoredFinalStoryEdited,
       finalStoryFinal: restoredFinalStoryFinal,
@@ -1195,6 +1233,16 @@ export async function getFullStrategyDataByCompany(
     if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
     }
 
+    // ★ 診断ログ：okrTargetScores 復元チェーン
+    if (DEBUG) {
+      console.log('[diag][getFullStrategyDataByCompany] okrTargetScores chain:', {
+        inRowData: 'okr_target_scores' in (rowData || {}),
+        inState: 'okrTargetScores' in state,
+        stateKeys: Object.keys((state as any).okrTargetScores || {}).length,
+        stateSample: Object.entries((state as any).okrTargetScores || {}).slice(0, 2),
+      });
+    }
+
     // ★念押し：id/company_id/updated_at を state に注入（normalizeで落ちる事故を防ぐ）
     (state as any).strategyId = rowData?.id;
     (state as any).companyId = rowData?.company_id;
@@ -1288,6 +1336,8 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
     financePL_len: Array.isArray((payload as any).financePL) ? (payload as any).financePL.length : null,
     stage1Issues_len: Array.isArray((payload as any).stage1Issues) ? (payload as any).stage1Issues.length : null,
     csvFinanceData_exists: !!((payload as any).csvFinanceData),
+    projectTargetImpacts_len: Array.isArray((payload as any).projectTargetImpacts) ? (payload as any).projectTargetImpacts.length : null,
+    okrTargetScores_keys: typeof (payload as any).okrTargetScores === 'object' ? Object.keys((payload as any).okrTargetScores || {}).length : null,
     keys: Object.keys(payload || {}).slice(0, 80),
   });
 
@@ -1409,6 +1459,8 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       financePL_len: Array.isArray((prunedIncoming as any).financePL) ? (prunedIncoming as any).financePL.length : null,
       stage1Issues_len: Array.isArray((prunedIncoming as any).stage1Issues) ? (prunedIncoming as any).stage1Issues.length : null,
       csvFinanceData_exists: !!((prunedIncoming as any).csvFinanceData),
+      projectTargetImpacts_len: Array.isArray((prunedIncoming as any).projectTargetImpacts) ? (prunedIncoming as any).projectTargetImpacts.length : null,
+      okrTargetScores_keys: typeof (prunedIncoming as any).okrTargetScores === 'object' ? Object.keys((prunedIncoming as any).okrTargetScores || {}).length : null,
       keys: Object.keys(prunedIncoming || {}).slice(0, 80),
     });
 
@@ -1451,6 +1503,18 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       len: lenStr((baseRow as any).ceo_intent),
       head: headStr((baseRow as any).ceo_intent),
     });
+
+    // ★ 指示A + 指示C：incoming payload と mergedState 両方の okrTargetScores をログ出力
+    // useStrategyStore は排除（strategy.ts は引数のstateだけを使う）
+    if (DEBUG) {
+      const payloadOkrScores = (payload as any).okrTargetScores ?? {};
+      const mergedOkrScores = (mergedState as any).okrTargetScores ?? {};
+      console.log('[diag][payload okrTargetScores keys]', Object.keys(payloadOkrScores));
+      console.log('[diag][payload okrTargetScores sample]', Object.entries(payloadOkrScores).slice(0, 5));
+      console.log('[diag][mergedState okrTargetScores keys]', Object.keys(mergedOkrScores));
+      console.log('[diag][mergedState okrTargetScores sample]', Object.entries(mergedOkrScores).slice(0, 5));
+      console.log('[diag][baseRow okr_target_scores]', (baseRow as any).okr_target_scores ?? 'undefined');
+    }
 
     const hasRevision: boolean =
       !!existingRow && Object.prototype.hasOwnProperty.call(existingRow, 'revision');
@@ -1507,6 +1571,12 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       };
       delete updatePayload.created_at;
 
+      // ★ 指示A：updatePayload に okr_target_scores が含まれているか確認
+      if (DEBUG) {
+        console.log('[diag][updatePayload okr_target_scores]', (updatePayload as any).okr_target_scores ?? 'undefined');
+        console.log('[diag][updatePayload okr_target_scores keys]', typeof (updatePayload as any).okr_target_scores === 'object' ? Object.keys((updatePayload as any).okr_target_scores || {}).length : 'not_object');
+      }
+
       // ★ TASK B: Cascade duplicate対策 - departments/projects/okrs/kpis が保存されているか確認
     const cascadeDeptsCounts = Array.isArray((prunedIncoming as any).departments)
       ? (prunedIncoming as any).departments.map((d: any) => ({
@@ -1532,6 +1602,10 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       delete (updatePayload as any).win_patterns_candidate;
       delete (updatePayload as any).winPatterns;
       delete (updatePayload as any).winPatternsCandidate;
+
+      // ★ STAGE5/6: okrTargetScores は JSONB カラムとして保存
+      // FIELD_MAP に含まれるため updatePayload に自動的に含まれる
+      // 削除処理は不要（okrTargetScores は strategy_data テーブルの okr_target_scores カラムに保存）
 
       // ★ TASK B: Supabase updatePayload に departments が そのまま入っているか確認
       const dep = (updatePayload as any).departments;
@@ -1569,17 +1643,13 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         has_winPatternsCandidate: 'winPatternsCandidate' in updatePayload,
       });
 
-      // ★ 診断：companyTargets / finalStory* が updatePayload に入ってるか
+      // ★ 診断：updatePayload に okrTargetScores が含まれているか（JSONB として保存）
       if (DEBUG) console.log('[diag][db:updatePayload]', {
-        has_company_targets: Object.prototype.hasOwnProperty.call(updatePayload, 'company_targets'),
-        company_targets_type: typeof (updatePayload as any).company_targets,
-        company_targets_len: Array.isArray((updatePayload as any).company_targets) ? (updatePayload as any).company_targets.length : null,
-        has_final_story_draft: Object.prototype.hasOwnProperty.call(updatePayload, 'final_story_draft'),
-        final_story_draft_len: Array.isArray((updatePayload as any).final_story_draft) ? (updatePayload as any).final_story_draft.length : null,
-        has_final_story_edited: Object.prototype.hasOwnProperty.call(updatePayload, 'final_story_edited'),
-        final_story_edited_len: Array.isArray((updatePayload as any).final_story_edited) ? (updatePayload as any).final_story_edited.length : null,
-        has_final_story_final: Object.prototype.hasOwnProperty.call(updatePayload, 'final_story_final'),
-        final_story_final_len: Array.isArray((updatePayload as any).final_story_final) ? (updatePayload as any).final_story_final.length : null,
+        has_okr_target_scores: Object.prototype.hasOwnProperty.call(updatePayload, 'okr_target_scores'),
+        okr_target_scores_type: typeof (updatePayload as any).okr_target_scores,
+        okr_target_scores_sample: typeof (updatePayload as any).okr_target_scores === 'object' ? Object.entries((updatePayload as any).okr_target_scores || {}).slice(0, 3) : null,
+        has_project_target_impacts: Object.prototype.hasOwnProperty.call(updatePayload, 'project_target_impacts'),
+        project_target_impacts_len: Array.isArray((updatePayload as any).project_target_impacts) ? (updatePayload as any).project_target_impacts.length : null,
       });
 
       // ★ 楽観ロック：revision カラムがある場合
@@ -1822,6 +1892,8 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       // revision は DB default に任せる（0 等）
     };
 
+    // ★ STAGE5/6: okrTargetScores は JSONB カラムとして保存（INSERT でも同様）
+
     if (DEBUG) console.log('[SAVE insert payload]', {
       finance_pl_len: Array.isArray((insertPayload.finance_pl as any))
         ? (insertPayload.finance_pl as any).length
@@ -1830,6 +1902,8 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         ? (insertPayload.csv_finance_data as any).financeBS.length
         : null,
       segmentBS_keys_in_csv: Object.keys((insertPayload.csv_finance_data as any)?.segmentBS || {}).length,
+      has_okr_target_scores: Object.prototype.hasOwnProperty.call(insertPayload, 'okr_target_scores'),
+      okr_target_scores_sample: typeof (insertPayload.okr_target_scores) === 'object' ? Object.keys(insertPayload.okr_target_scores || {}).slice(0, 3) : null,
     });
 
     // ★重要：INSERTの戻り値は必ず「全列」を返す（部分列だと store を壊す）
