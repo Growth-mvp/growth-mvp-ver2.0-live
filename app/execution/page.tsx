@@ -10,7 +10,7 @@ import { saveProgressLog } from '@/utils/supabase/strategy';
 import { buildProgressLogMetadata, embedMetadata } from '@/utils/execution/metadata';
 import { supabase } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
-import { X, Stars, Send, Clock, CheckCircle2, BookOpen, Building2 } from 'lucide-react';
+import { X, Send, Clock, CheckCircle2, BookOpen, Building2 } from 'lucide-react';
 import { useAccess } from '@/utils/access';
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
@@ -22,6 +22,34 @@ const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
 type Tone = 'blue' | 'emerald' | 'violet';
 const storyTone: Tone = 'blue';
 const deptTone = (di: number): Tone => (di % 3 === 0 ? 'blue' : di % 3 === 1 ? 'emerald' : 'violet');
+
+// ---- helpers (execution page) ----
+const normalizeKRs = (
+  krs: Array<string | null | undefined> | undefined,
+  objective?: string | null
+): string[] => {
+  if (!Array.isArray(krs)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of krs) {
+    const v = (raw ?? '').toString().trim();
+    if (!v) continue;
+    if (objective && v === (objective ?? '').toString().trim()) continue;
+    const key = v.replace(/\s+/g, ' ');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(v);
+  }
+  return out;
+};
+
+/** Remove internal metadata prefix like "__META__{...}" from stored progress_logs.content */
+const stripMetadata = (content: string): string => {
+  const s = (content ?? '').toString();
+  // If metadata is prepended as first line: "__META__{...}"
+  return s.replace(/^__META__.*(?:\r?\n)?/m, '').trim();
+};
+
 
 const toneToDot = (t: Tone) => (t === 'blue' ? 'bg-blue-500' : t === 'emerald' ? 'bg-emerald-500' : 'bg-violet-500');
 const toneToTint = (t: Tone) => (t === 'blue' ? 'bg-blue-50' : t === 'emerald' ? 'bg-emerald-50' : 'bg-violet-50');
@@ -228,6 +256,12 @@ function ExecPanel(props: {
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [loadingLogs, setLoadingLogs] = useState<boolean>(false);
 
+  // Store から score を取得
+  const getScoreFromStore = () => {
+    const scores = useStrategyStore.getState().okrTargetScores ?? {};
+    return scores[okrId] ?? 0;
+  };
+
   // 履歴ロード（content / score / status 版）
   useEffect(() => {
     const loadLogs = async () => {
@@ -250,6 +284,15 @@ function ExecPanel(props: {
     };
     loadLogs();
   }, [open, userId, okrId]);
+
+  // モーダル open 時に store から score を初期化
+  useEffect(() => {
+    if (!open || !okrId) return;
+    const storedScore = getScoreFromStore();
+    console.log('[STAGE5-modal-open] okrId:', okrId, 'storedScore:', storedScore);
+    setRating(storedScore);
+    setReviewScore(storedScore);
+  }, [open, okrId]);
 
   // 保存（チェックイン）
   const onSaveCheckin = useCallback(async () => {
@@ -276,13 +319,23 @@ function ExecPanel(props: {
         krIds,
       });
 
-      const { error } = await saveProgressLog({
+      console.log('[STAGE5-save-checkin] Before save:', { rating, okrId });
+
+      const { data: saved, error } = await saveProgressLog({
         userId,
         okrId,
         content: embedMetadata(metadata, composed),
         score: rating || null,
       });
       if (error) throw error;
+
+      console.log('[STAGE5-save-checkin] After save:', { rating, savedScore: saved?.score, savedData: saved });
+
+      // 🔥 Store に score を保存
+      useStrategyStore.getState().setOKRTargetScore(okrId, rating);
+      await useStrategyStore.getState().saveStrategyData({ reason: 'manual' });
+
+      console.log('[STAGE5-save-checkin] Store updated:', { okrId, rating, storedScore: getScoreFromStore() });
 
       setNotice('✅ 記録しました');
       const nowIso = new Date().toISOString();
@@ -292,7 +345,7 @@ function ExecPanel(props: {
       ]);
       setProgressText('');
       setHelpRequest('');
-      setRating(0);
+      // FIXED: Do NOT reset rating to 0 - keep the saved score displayed
     } catch (e: any) {
       setNotice('❌ 保存に失敗しました');
       console.warn('save log error', e?.message || e);
@@ -325,13 +378,23 @@ function ExecPanel(props: {
         krIds,
       });
 
-      const { error } = await saveProgressLog({
+      console.log('[STAGE5-save-feedback] Before save:', { reviewScore, okrId });
+
+      const { data: saved, error } = await saveProgressLog({
         userId,
         okrId,
         content: embedMetadata(metadata, fbContent),
         score: reviewScore || null,
       });
       if (error) throw error;
+
+      console.log('[STAGE5-save-feedback] After save:', { reviewScore, savedScore: saved?.score, savedData: saved });
+
+      // 🔥 Store に score を保存
+      useStrategyStore.getState().setOKRTargetScore(okrId, reviewScore);
+      await useStrategyStore.getState().saveStrategyData({ reason: 'manual' });
+
+      console.log('[STAGE5-save-feedback] Store updated:', { okrId, reviewScore, storedScore: getScoreFromStore() });
 
       setNotice('✅ フィードバックを保存しました');
       const nowIso = new Date().toISOString();
@@ -340,7 +403,7 @@ function ExecPanel(props: {
         ...prev,
       ]);
       setReviewText('');
-      setReviewScore(0);
+      // FIXED: Do NOT reset reviewScore to 0 - keep the saved score displayed
     } catch (e: any) {
       setNotice('❌ 保存に失敗しました');
       console.warn('save feedback error', e?.message || e);
@@ -350,18 +413,25 @@ function ExecPanel(props: {
     }
   }, [canFeedback, userId, okrId, reviewText, reviewScore]);
 
-  const StarInput = ({ value, onChange }: { value: number; onChange: (n: number) => void }) => (
-    <div className="flex items-center gap-1">
-      {[1, 2, 3, 4, 5].map((n) => (
-        <button
-          key={n}
-          onClick={() => onChange(n === value ? 0 : n)}
-          className={`rounded p-1 transition-colors ${value >= n ? 'text-amber-500' : 'text-gray-300'} hover:text-amber-600`}
-          type="button"
-        >
-          <Stars className="h-5 w-5" />
-        </button>
-      ))}
+  const ImpactPicker = ({ value, onChange }: { value: number; onChange: (n: number) => void }) => (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="text-xs text-gray-500">進捗インパクト（財務反映）</div>
+      <div className="inline-flex items-center gap-1 rounded-2xl border border-black/10 bg-white p-1 shadow-sm">
+        {[0, 1, 2, 3, 4, 5].map((n) => (
+          <button
+            key={n}
+            onClick={() => onChange(n)}
+            className={`min-w-[34px] rounded-xl px-2 py-1 text-xs font-semibold transition ${
+              n === value ? 'bg-gray-900 text-white' : 'text-gray-800 hover:bg-gray-100'
+            }`}
+            type="button"
+            aria-label={`インパクト ${n}`}
+          >
+            {n}
+          </button>
+        ))}
+      </div>
+      <div className="text-[11px] text-gray-400">※「いいね」ではありません</div>
     </div>
   );
 
@@ -413,11 +483,11 @@ function ExecPanel(props: {
         <section className="rounded-3xl border border-black/10 bg-white/70 p-5 shadow-sm">
           <div className="text-xs font-medium text-gray-600 tracking-wide mb-1">達成目標（O）</div>
           <div className="whitespace-pre-wrap text-[15px]">{objective || '（未設定）'}</div>
-          {keyResults?.length ? (
+          {normalizeKRs(keyResults, objective).length ? (
             <>
               <div className="mt-4 text-xs font-medium text-gray-600 tracking-wide">主要な成果（KR）</div>
               <ul className="mt-2 list-disc pl-5 text-sm text-gray-800 space-y-1">
-                {keyResults.map((k, i) => (
+                {normalizeKRs(keyResults, objective).map((k: string, i: number) => (
                   <li key={i}>{k}</li>
                 ))}
               </ul>
@@ -431,7 +501,7 @@ function ExecPanel(props: {
             <section className="rounded-3xl border border-black/10 bg-white/70 p-5 shadow-sm">
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="text-sm font-semibold tracking-tight">進捗メモ</h3>
-                <StarInput value={rating} onChange={setRating} />
+                <ImpactPicker value={rating} onChange={setRating} />
               </div>
               <textarea
                 className="h-28 w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10"
@@ -470,7 +540,7 @@ function ExecPanel(props: {
             <section className="rounded-3xl border border-black/10 bg-white/70 p-5 shadow-sm">
               <div className="mb-3 flex items-center justify-between">
                 <div className="text-sm font-semibold tracking-tight">フィードバック</div>
-                <StarInput value={reviewScore} onChange={setReviewScore} />
+                <ImpactPicker value={reviewScore} onChange={setReviewScore} />
               </div>
               <textarea
                 className="h-28 w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10"
@@ -508,9 +578,10 @@ function ExecPanel(props: {
             <ul className="divide-y divide-black/5">
               {logs.map((row, i) => {
                 const when = row.created_at ? new Date(row.created_at).toLocaleString() : '';
-                const fb = (row.content || '').startsWith('[FB]');
-                const body = fb ? feedbackBody(row) : (row.content ?? '');
-                const { memo, help } = splitContent(row.content ?? '');
+                const cleanContent = stripMetadata(row.content ?? '');
+                const fb = cleanContent.startsWith('[FB]');
+                const body = fb ? feedbackBody({ ...row, content: cleanContent }) : cleanContent;
+                const { memo, help } = splitContent(cleanContent);
                 const score = typeof row.score === 'number' ? row.score : null;
 
                 return (
@@ -518,10 +589,9 @@ function ExecPanel(props: {
                     <div className="mb-2 flex items-center justify-between">
                       <div className="text-xs text-gray-500">{when}</div>
                       <div className="flex items-center gap-2 text-xs text-gray-700">
-                        {score && score > 0 && (
-                          <span className="inline-flex items-center gap-1">
-                            <Stars className="h-3 w-3 text-amber-600" />
-                            {score}
+                        {score !== null && score > 0 && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5">
+                            インパクト {score}/5
                           </span>
                         )}
                         <span className="rounded-full bg-gray-100 px-2 py-0.5">{fb ? 'FB' : 'メモ'}</span>
@@ -718,6 +788,31 @@ export default function ExecutionPage() {
       };
     });
   }, [cascade]);
+
+  // ===== okrId → impact スコアの map =====
+  const okrTargetScores = useStrategyStore((s: any) => s.okrTargetScores ?? {});
+  const projectImpactMap = useMemo(() => {
+    const map: Record<string, { max: number; count: number }> = {};
+    pyramid.forEach((dept) => {
+      dept.projects.forEach((proj) => {
+        const key = `${proj.di}:${proj.pi}`;
+        let max = 0;
+        let count = 0;
+        (proj.selection.keyResults || []).forEach(() => {
+          // 各プロジェクトの OKR から score を取得
+        });
+        if (proj.selection.okrId) {
+          const score = okrTargetScores[proj.selection.okrId] ?? 0;
+          max = Math.max(max, score);
+          count++;
+          console.log('[STAGE5-impact-map] okrId:', proj.selection.okrId, 'score:', score, 'max:', max);
+        }
+        map[key] = { max, count };
+      });
+    });
+    console.log('[STAGE5-page-init] projectImpactMap:', map);
+    return map;
+  }, [pyramid, okrTargetScores]);
 
   // ===== 選択（実行支援：OKR）=====
   const [selected, setSelected] = useState<{
@@ -1006,19 +1101,11 @@ export default function ExecutionPage() {
                     </div>
                   </div>
                   <div className="inline-flex rounded-full border border-black/10 bg-white px-2 py-1 text-[11px] text-gray-600 shadow-sm">
-                    {storyViewMode?.toUpperCase?.() ?? 'DRAFT'}
+                    
                   </div>
                 </div>
-
-                <div className="mt-4 rounded-2xl bg-white/70 border border-black/5 px-3 py-3">
-                  <div className="text-[11px] text-gray-500 mb-1">要約</div>
-                  <div className="text-sm text-gray-900 leading-relaxed">
-                    {storyText?.trim() ? clampText(storyText.replace(/\s+/g, ' '), 64) : '（ストーリー未生成）'}
-                  </div>
-                </div>
-
-                <div className="mt-3 text-[11px] text-gray-500">
-                  ※ 画面は要約のみ。本文・章構造はモーダルで確認。
+                <div className="mt-4 rounded-2xl border border-black/10 bg-white px-3 py-2 text-[12px] text-gray-700 shadow-sm">
+                  ストーリーを開く
                 </div>
               </button>
 
@@ -1079,11 +1166,22 @@ export default function ExecutionPage() {
                                     <div className="flex items-center justify-between gap-3">
                                       <div className="text-sm font-semibold text-gray-900">{p.title || '（プロジェクト名未設定）'}</div>
                                       <div className="flex items-center gap-2">
-                                        {p.okrCount > 0 && (
-                                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-700">
-                                            OKR
-                                          </span>
-                                        )}
+                                        {(() => {
+                                          const impactData = projectImpactMap[key];
+                                          const score = impactData?.max ?? 0;
+                                          const showBadge = p.okrCount > 0;
+                                          return showBadge ? (
+                                            <>
+                                              <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                                score > 0
+                                                  ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                                  : 'bg-gray-50 text-gray-500'
+                                              }`}>
+                                                {score > 0 ? `インパクト ${score}/5` : '未評価'}
+                                              </span>
+                                            </>
+                                          ) : null;
+                                        })()}
                                         <span className="text-[11px] text-gray-400">クリックで実行支援</span>
                                       </div>
                                     </div>
