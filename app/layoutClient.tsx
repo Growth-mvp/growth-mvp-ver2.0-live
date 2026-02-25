@@ -14,7 +14,7 @@ import {
   isValidUUID,
 } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { CompanyProvider } from '@/context/CompanyContext';
 
 /* ================================
@@ -86,8 +86,8 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   /* ================================
    * Strategy store
    * ============================== */
-  const setStrategyId = useStrategyStore((s) => s.setStrategyId);
-  const setCompanyScope = useStrategyStore((s) => s.setCompanyScope);
+  const setStrategyId = useStrategyStore((s: StrategyState) => s.setStrategyId);
+  const setCompanyScope = useStrategyStore((s: StrategyState) => s.setCompanyScope);
 
   /* ================================ */
   const mainRef = useRef<HTMLDivElement | null>(null);
