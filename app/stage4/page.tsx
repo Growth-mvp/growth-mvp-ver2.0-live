@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { useAccess } from '@/utils/access';
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
@@ -46,14 +46,14 @@ function extractKpiTargets(p: Project): Record<string, number> {
  * ======================= */
 export default function Stage4Page() {
   // Zustand selector で個別購読（副作用最小化）
-  const loaded = useStrategyStore((s) => s.loaded);
-  const hydrated = useStrategyStore((s) => s.hydrated);
-  const departments = useStrategyStore((s) => s.departments);
-  const stage4Plans = useStrategyStore((s) => s.stage4Plans);
-  const setStage4Plans = useStrategyStore((s) => s.setStage4Plans);
-  const saveStrategyData = useStrategyStore((s) => s.saveStrategyData);
-  const valueDriverKPIs = useStrategyStore((s) => (s as any).valueDriverKPIs);
-  const targetRanges = useStrategyStore((s) => (s as any).targetRanges);
+  const loaded = useStrategyStore((s: StrategyState) => s.loaded);
+  const hydrated = useStrategyStore((s: StrategyState) => s.hydrated);
+  const departments = useStrategyStore((s: StrategyState) => s.departments);
+  const stage4Plans = useStrategyStore((s: StrategyState) => s.stage4Plans);
+  const setStage4Plans = useStrategyStore((s: StrategyState) => s.setStage4Plans);
+  const saveStrategyData = useStrategyStore((s: StrategyState) => s.saveStrategyData);
+  const valueDriverKPIs = useStrategyStore((s: StrategyState) => (s as any).valueDriverKPIs);
+  const targetRanges = useStrategyStore((s: StrategyState) => (s as any).targetRanges);
 
   // userStore も selector 化
   const companyId = useUserStore((s) => s.companyId);
@@ -169,7 +169,7 @@ export default function Stage4Page() {
 
   // 選択中の部門
   const selectedDept = useMemo(
-    () => departmentsList.find((d) => (d.id || d.name) === selectedDeptId),
+    () => departmentsList.find((d: Department) => (d.id || d.name) === selectedDeptId),
     [departmentsList, selectedDeptId]
   );
 
@@ -402,7 +402,7 @@ export default function Stage4Page() {
           {/* 左サイドバー：部門一覧 */}
           <div className="col-span-3 space-y-2">
             <h2 className="text-sm font-medium text-gray-700 mb-3">部門一覧</h2>
-            {departmentsList.map((dept) => {
+            {departmentsList.map((dept: Department) => {
               const deptId = String(dept.id || dept.name);
               const plan = localPlans.find((p) => p.departmentId === deptId);
               const isSelected = deptId === selectedDeptId;
