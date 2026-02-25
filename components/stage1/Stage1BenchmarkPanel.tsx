@@ -2,7 +2,7 @@
 'use client';
 
 import { useCallback } from 'react';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import type { BenchmarkQuality, BenchmarkTarget, Stage1Benchmarks } from '@/types/strategy';
 
 type BenchmarkKey = 'industryMedian' | 'competitorA' | 'competitorB';
@@ -172,8 +172,8 @@ function BenchmarkTargetInput({
 }
 
 export default function Stage1BenchmarkPanel() {
-  const benchmarks = useStrategyStore((s) => s.stage1Benchmarks);
-  const setBenchmarks = useStrategyStore((s) => s.setStage1Benchmarks);
+  const benchmarks = useStrategyStore((s: StrategyState) => s.stage1Benchmarks);
+  const setBenchmarks = useStrategyStore((s: StrategyState) => s.setStage1Benchmarks);
 
   const handleUpdateTarget = useCallback(
     (key: BenchmarkKey, target: BenchmarkTarget | undefined) => {
