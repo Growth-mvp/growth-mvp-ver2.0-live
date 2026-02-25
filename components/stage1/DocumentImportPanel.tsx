@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useCallback, useMemo } from 'react';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import type {
   Stage1ImportCandidate,
   Stage1ImportResult,
@@ -246,21 +246,21 @@ function mergeBusinessSegments(existing: any[], addNames: string[]): any[] {
  * ========================================================= */
 export default function DocumentImportPanel() {
   // Store
-  const financePL = useStrategyStore((s) => s.financePL ?? EMPTY_PL_ARR);
-  const financeBS = useStrategyStore((s) => s.financeBS ?? EMPTY_BS_ARR);
-  const segmentPL = useStrategyStore((s) => s.segmentPL ?? EMPTY_SEG_PL);
-  const segmentBS = useStrategyStore((s) => s.segmentBS ?? EMPTY_SEG_BS);
+  const financePL = useStrategyStore((s: StrategyState) => s.financePL ?? EMPTY_PL_ARR);
+  const financeBS = useStrategyStore((s: StrategyState) => s.financeBS ?? EMPTY_BS_ARR);
+  const segmentPL = useStrategyStore((s: StrategyState) => s.segmentPL ?? EMPTY_SEG_PL);
+  const segmentBS = useStrategyStore((s: StrategyState) => s.segmentBS ?? EMPTY_SEG_BS);
 
   // 事業部一覧（ここが更新されないと「事業部別が画面に出ない」）
-  const businessSegments = useStrategyStore((s) => (s as any).businessSegments ?? EMPTY_SEGMENTS);
-  const setBusinessSegments = useStrategyStore((s) => (s as any).setBusinessSegments);
+  const businessSegments = useStrategyStore((s: StrategyState) => (s as any).businessSegments ?? EMPTY_SEGMENTS);
+  const setBusinessSegments = useStrategyStore((s: StrategyState) => (s as any).setBusinessSegments);
 
-  const setFinancePL = useStrategyStore((s) => s.setFinancePL);
-  const setFinanceBS = useStrategyStore((s) => s.setFinanceBS);
-  const setSegmentPL = useStrategyStore((s) => s.setSegmentPL);
-  const setSegmentBS = useStrategyStore((s) => s.setSegmentBS);
-  const setProfile = useStrategyStore((s) => s.setProfile);
-  const recomputeValueAnalysis = useStrategyStore((s) => s.recomputeValueAnalysis);
+  const setFinancePL = useStrategyStore((s: StrategyState) => s.setFinancePL);
+  const setFinanceBS = useStrategyStore((s: StrategyState) => s.setFinanceBS);
+  const setSegmentPL = useStrategyStore((s: StrategyState) => s.setSegmentPL);
+  const setSegmentBS = useStrategyStore((s: StrategyState) => s.setSegmentBS);
+  const setProfile = useStrategyStore((s: StrategyState) => s.setProfile);
+  const recomputeValueAnalysis = useStrategyStore((s: StrategyState) => s.recomputeValueAnalysis);
 
   // UI State
   const [isOpen, setIsOpen] = useState(false);
