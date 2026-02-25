@@ -278,13 +278,14 @@ function normalizeProbability(v: any): number | undefined {
 
 /**
  * ★ STAGE3: 部門の6問回答を取り出す（保存先の優先探索）
- * - answers6 → answers12 → answers2 → answerSteps → questionAnswers の順で探索
+ * - answers6 → answers12 → answers → answers2 → answerSteps → questionAnswers の順で探索
  * - 見つかったら配列を返す；なければ []
  */
 function pickDeptAnswers6(dept: any): any[] {
   const cands =
     (dept as any)?.answers6 ??
     (dept as any)?.answers12 ??
+    (dept as any)?.answers ??
     (dept as any)?.answers2 ??
     (dept as any)?.answerSteps ??
     (dept as any)?.questionAnswers ??
