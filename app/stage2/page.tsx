@@ -5,7 +5,7 @@ import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation';
 import { safeGetSession } from '@/utils/supabase/client';
 import { formatMillion, safeNumber, toMillionYen, inferScaleToMillion, safeRatio, formatPct } from '@/utils/unit';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import {
@@ -714,8 +714,8 @@ function IssueBlockPreview({
  * CEO Intent セクション
  * =================================================== */
 function CEOIntentSection() {
-  const setCeoIntent = useStrategyStore((s) => s.setCeoIntent);
-  const ceoIntent = useStrategyStore((s) => s.ceoIntent ?? '');
+  const setCeoIntent = useStrategyStore((s: StrategyState) => s.setCeoIntent);
+  const ceoIntent = useStrategyStore((s: StrategyState) => s.ceoIntent ?? '');
 
   return (
     <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
@@ -737,10 +737,10 @@ function CEOIntentSection() {
  * MVVセクション
  * =================================================== */
 function MVVSection() {
-  const setMVV = useStrategyStore((s) => s.setMVV);
-  const mission = useStrategyStore((s) => s.mission ?? '');
-  const vision = useStrategyStore((s) => s.vision ?? '');
-  const value = useStrategyStore((s) => s.value ?? '');
+  const setMVV = useStrategyStore((s: StrategyState) => s.setMVV);
+  const mission = useStrategyStore((s: StrategyState) => s.mission ?? '');
+  const vision = useStrategyStore((s: StrategyState) => s.vision ?? '');
+  const value = useStrategyStore((s: StrategyState) => s.value ?? '');
 
   return (
     <div className="space-y-4">
@@ -899,10 +899,10 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
   });
 
   // ★ store から直接読み取り（props に依存しない）
-  const companyTargets = useStrategyStore((s) => (s as any).companyTargets || EMPTY_ARR);
-  const addCompanyTarget = useStrategyStore((s) => (s as any).addCompanyTarget);
-  const updateCompanyTarget = useStrategyStore((s) => (s as any).updateCompanyTarget);
-  const removeCompanyTarget = useStrategyStore((s) => (s as any).removeCompanyTarget);
+  const companyTargets = useStrategyStore((s: StrategyState) => (s as any).companyTargets || EMPTY_ARR);
+  const addCompanyTarget = useStrategyStore((s: StrategyState) => (s as any).addCompanyTarget);
+  const updateCompanyTarget = useStrategyStore((s: StrategyState) => (s as any).updateCompanyTarget);
+  const removeCompanyTarget = useStrategyStore((s: StrategyState) => (s as any).removeCompanyTarget);
 
   const resolvedLabel =
     formData.labelPreset === 'その他' ? formData.labelOther.trim() : formData.labelPreset;
@@ -1230,11 +1230,11 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
  * SWOTセクション
  * =================================================== */
 function SWOTSection() {
-  const setSWOT = useStrategyStore((s) => s.setSWOT);
-  const strength = useStrategyStore((s) => s.strength ?? '');
-  const weakness = useStrategyStore((s) => s.weakness ?? '');
-  const opportunity = useStrategyStore((s) => s.opportunity ?? '');
-  const threat = useStrategyStore((s) => s.threat ?? '');
+  const setSWOT = useStrategyStore((s: StrategyState) => s.setSWOT);
+  const strength = useStrategyStore((s: StrategyState) => s.strength ?? '');
+  const weakness = useStrategyStore((s: StrategyState) => s.weakness ?? '');
+  const opportunity = useStrategyStore((s: StrategyState) => s.opportunity ?? '');
+  const threat = useStrategyStore((s: StrategyState) => s.threat ?? '');
 
   return (
     <div className="space-y-4">
@@ -1453,90 +1453,90 @@ export default function Stage2Page() {
   const router = useRouter();
 
   // Store / User
-  const storeIssues = useStrategyStore((s) => s.stage1Issues);
-  const storeValueAnalysis = useStrategyStore((s) => s.valueAnalysis);
-  const setStage1Issues = useStrategyStore((s) => s.setStage1Issues);
+  const storeIssues = useStrategyStore((s: StrategyState) => s.stage1Issues);
+  const storeValueAnalysis = useStrategyStore((s: StrategyState) => s.valueAnalysis);
+  const setStage1Issues = useStrategyStore((s: StrategyState) => s.setStage1Issues);
 
-  const thought = useStrategyStore((s) => s.thought ?? '');
-  const mission = useStrategyStore((s) => s.mission ?? '');
-  const vision = useStrategyStore((s) => s.vision ?? '');
-  const value = useStrategyStore((s) => s.value ?? '');
+  const thought = useStrategyStore((s: StrategyState) => s.thought ?? '');
+  const mission = useStrategyStore((s: StrategyState) => s.mission ?? '');
+  const vision = useStrategyStore((s: StrategyState) => s.vision ?? '');
+  const value = useStrategyStore((s: StrategyState) => s.value ?? '');
 
   // ★ 追加：Stage2Page内でもceoIntentを参照できるようにする（ReferenceError対策）
-  const ceoIntent = useStrategyStore((s) => s.ceoIntent ?? '');
+  const ceoIntent = useStrategyStore((s: StrategyState) => s.ceoIntent ?? '');
 
-  const strength = useStrategyStore((s) => s.strength ?? '');
-  const weakness = useStrategyStore((s) => s.weakness ?? '');
-  const opportunity = useStrategyStore((s) => s.opportunity ?? '');
-  const threat = useStrategyStore((s) => s.threat ?? '');
+  const strength = useStrategyStore((s: StrategyState) => s.strength ?? '');
+  const weakness = useStrategyStore((s: StrategyState) => s.weakness ?? '');
+  const opportunity = useStrategyStore((s: StrategyState) => s.opportunity ?? '');
+  const threat = useStrategyStore((s: StrategyState) => s.threat ?? '');
 
-  const industry = useStrategyStore((s) => s.industry ?? '');
-  const revenue = useStrategyStore((s) => s.revenue ?? '');
-  const employees = useStrategyStore((s) => s.employees ?? '');
-  const businessContent = useStrategyStore((s) => s.businessContent ?? '');
-  const businessSegments = useStrategyStore((s) => s.businessSegments ?? []); // ★ STAGE1で定義されたセグメント情報
-  const businessPortfolio = useStrategyStore((s) => (s as any).businessPortfolio ?? null); // ★ 現在の事業ポートフォリオ（型揺れ許容）
+  const industry = useStrategyStore((s: StrategyState) => s.industry ?? '');
+  const revenue = useStrategyStore((s: StrategyState) => s.revenue ?? '');
+  const employees = useStrategyStore((s: StrategyState) => s.employees ?? '');
+  const businessContent = useStrategyStore((s: StrategyState) => s.businessContent ?? '');
+  const businessSegments = useStrategyStore((s: StrategyState) => s.businessSegments ?? []); // ★ STAGE1で定義されたセグメント情報
+  const businessPortfolio = useStrategyStore((s: StrategyState) => (s as any).businessPortfolio ?? null); // ★ 現在の事業ポートフォリオ（型揺れ許容）
   const companyId = useUserStore((s) => s.companyId);
   const userId = useUserStore((s) => s.user?.id);
-  const hydrated = useStrategyStore((s) => s.hydrated);
+  const hydrated = useStrategyStore((s: StrategyState) => s.hydrated);
 
   /* ★ TASK A-1: answers12 をArrayガード付きで統一 */
   // ★ 参照安定化：EMPTY_ARR を使って無限ループ防止
-  const answers12 = useStrategyStore((s) => {
+  const answers12 = useStrategyStore((s: StrategyState) => {
     const v = (s as any).answers12;
     return Array.isArray(v) ? v : EMPTY_ARR;
   });
   const setAnswers12 = useStrategyStore(
-    (s) => (s as any).setAnswers12 as (a: Stage2Answer[]) => void
+    (s: StrategyState) => (s as any).setAnswers12 as (a: Stage2Answer[]) => void
   );
 
   // finalStory store連携
   /* ★ TASK 16: Store 一本化（local state 廃止） */
   // STAGE2 値を store から取得
   // ★ 修正：安定参照を使用してZustandメモ化バイパス防止
-  const storyDraft = useStrategyStore((s) => s.storyDraft ?? EMPTY_STORY_DRAFT);
-  const setStoryDraft = useStrategyStore((s) => s.setStoryDraft);
+  const storyDraft = useStrategyStore((s: StrategyState) => s.storyDraft ?? EMPTY_STORY_DRAFT);
+  const setStoryDraft = useStrategyStore((s: StrategyState) => s.setStoryDraft);
 
-  const winPatternsCandidate = useStrategyStore((s) => (s as any).winPatternsCandidate ?? EMPTY_WIN_PATTERNS);
-  const setWinPatternsCandidate = useStrategyStore((s) => (s as any).setWinPatternsCandidate as any);
+  const winPatternsCandidate = useStrategyStore((s: StrategyState) => (s as any).winPatternsCandidate ?? EMPTY_WIN_PATTERNS);
+  const setWinPatternsCandidate = useStrategyStore((s: StrategyState) => (s as any).setWinPatternsCandidate as any);
 
   // ★ 参照安定化：EMPTY_ARR を使って無限ループ防止
-  const companyTargets = useStrategyStore((s) => (s as any).companyTargets || EMPTY_ARR);
-  const setCompanyTargets = useStrategyStore((s) => (s as any).setCompanyTargets as any);
+  const companyTargets = useStrategyStore((s: StrategyState) => (s as any).companyTargets || EMPTY_ARR);
+  const setCompanyTargets = useStrategyStore((s: StrategyState) => (s as any).setCompanyTargets as any);
 
   // ★ TASK A: 現状値取得（多段フォールバック：metricsSummary → financeSummary → financePL）
   // ★ 参照安定化：EMPTY_ARR を使って無限ループ防止
-  const financePL = useStrategyStore((s) => s.financePL || EMPTY_ARR);
-  const financeSummary = useStrategyStore((s) => (s as any).financeSummary || EMPTY_ARR);
+  const financePL = useStrategyStore((s: StrategyState) => s.financePL || EMPTY_ARR);
+  const financeSummary = useStrategyStore((s: StrategyState) => (s as any).financeSummary || EMPTY_ARR);
 
-  const finalStory = useStrategyStore((s) => s.finalStory ?? EMPTY_STORY_DRAFT);
+  const finalStory = useStrategyStore((s: StrategyState) => s.finalStory ?? EMPTY_STORY_DRAFT);
 
   // finalStory 3状態 setter（北星・最終ストーリー編集用）
-  const setFinalStoryDraft = useStrategyStore((s) => (s as any).setFinalStoryDraft);
-  const setFinalStoryEdited = useStrategyStore((s) => (s as any).setFinalStoryEdited);
-  const commitFinalStory = useStrategyStore((s) => (s as any).commitFinalStory);
+  const setFinalStoryDraft = useStrategyStore((s: StrategyState) => (s as any).setFinalStoryDraft);
+  const setFinalStoryEdited = useStrategyStore((s: StrategyState) => (s as any).setFinalStoryEdited);
+  const commitFinalStory = useStrategyStore((s: StrategyState) => (s as any).commitFinalStory);
 
   // 互換性維持
-  const setStoreFinalStory = useStrategyStore((s) => s.setFinalStory);
+  const setStoreFinalStory = useStrategyStore((s: StrategyState) => s.setFinalStory);
   const setLocalFinalStory = setStoreFinalStory;
 
   /* ★ TASK A-1: answers12 を統一（line 772-773 と重複定義を廃止） */
   // answers12 は line 773 の setAnswers12 を使用
   // 重複定義を廃止（下記は削除したもの）
-  // const answers12 = useStrategyStore((s) => (s as any).answers12 ?? EMPTY_ANSWERS12);
-  // const setLocalAnswers12 = useStrategyStore((s) => (s as any).setAnswers12 as any);
+  // const answers12 = useStrategyStore((s: StrategyState) => (s as any).answers12 ?? EMPTY_ANSWERS12);
+  // const setLocalAnswers12 = useStrategyStore((s: StrategyState) => (s as any).setAnswers12 as any);
   // 代わりに line 772 の storeAnswers12 を answers12 として使用する（下記で名前変更）
 
   // STAGE2：最終ストーリー3段階（読み取り+setter）
-  const finalStoryDraftRaw = useStrategyStore((s) => s.finalStoryDraft);
-  const finalStoryEditedRaw = useStrategyStore((s) => s.finalStoryEdited);
-  const finalStoryFinalRaw = useStrategyStore((s) => s.finalStoryFinal);
+  const finalStoryDraftRaw = useStrategyStore((s: StrategyState) => s.finalStoryDraft);
+  const finalStoryEditedRaw = useStrategyStore((s: StrategyState) => s.finalStoryEdited);
+  const finalStoryFinalRaw = useStrategyStore((s: StrategyState) => s.finalStoryFinal);
   // setFinalStoryDraft, setFinalStoryEdited, commitFinalStory は上記 796-798行で定義済み
 
   // SWOT suggestions store連携（Hooks Rule: top-level で呼ぶ）
-  const swotSuggestions = useStrategyStore((s) => s.swotSuggestions);
-  const addSwotOpportunity = useStrategyStore((s) => s.addSwotOpportunity);
-  const addSwotThreat = useStrategyStore((s) => s.addSwotThreat);
+  const swotSuggestions = useStrategyStore((s: StrategyState) => s.swotSuggestions);
+  const addSwotOpportunity = useStrategyStore((s: StrategyState) => s.addSwotOpportunity);
+  const addSwotThreat = useStrategyStore((s: StrategyState) => s.addSwotThreat);
 
   // Local UI state
   const [loading, setLoading] = useState(true);
@@ -2863,7 +2863,7 @@ export default function Stage2Page() {
       ceoIntentLen: ceoIntent?.length ?? 0,
       ceoIntentPreview: ceoIntent?.substring(0, 40) ?? 'empty',
       storyDraftLen: storyDraft?.length ?? 0,
-      storyDraftChapters: storyDraft?.map((ch, i) => `Ch${i}:${ch?.body?.length ?? 0}chars`) ?? [],
+      storyDraftChapters: storyDraft?.map((ch: StoryChapter, i: number) => `Ch${i}:${ch?.body?.length ?? 0}chars`) ?? [],
     });
   }
 
