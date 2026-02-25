@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useCallback, useMemo } from 'react';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import type { FinancePLRow, FinanceBSRow, SegmentBSRow, BusinessSegment } from '@/types/strategy';
 import { FinanceYearEditorTable } from './FinanceYearEditorTable';
 
@@ -634,19 +634,19 @@ function HQAdjustmentDisplay({
  * ========================================================= */
 
 export default function FinanceInputPanel() {
-  const financePL = useStrategyStore((s) => s.financePL ?? EMPTY_PL_ARR);
-  const financeBS = useStrategyStore((s) => s.financeBS ?? EMPTY_BS_ARR);
-  const segmentPL = useStrategyStore((s) => s.segmentPL ?? EMPTY_SEG_PL);
-  const segmentBS = useStrategyStore((s) => s.segmentBS ?? EMPTY_SEG_BS);
-  const businessSegments = useStrategyStore((s) => s.businessSegments ?? EMPTY_SEGMENTS);
+  const financePL = useStrategyStore((s: StrategyState) => s.financePL ?? EMPTY_PL_ARR);
+  const financeBS = useStrategyStore((s: StrategyState) => s.financeBS ?? EMPTY_BS_ARR);
+  const segmentPL = useStrategyStore((s: StrategyState) => s.segmentPL ?? EMPTY_SEG_PL);
+  const segmentBS = useStrategyStore((s: StrategyState) => s.segmentBS ?? EMPTY_SEG_BS);
+  const businessSegments = useStrategyStore((s: StrategyState) => s.businessSegments ?? EMPTY_SEGMENTS);
 
-  const setFinancePL = useStrategyStore((s) => s.setFinancePL);
-  const setFinanceBS = useStrategyStore((s) => s.setFinanceBS);
-  const setSegmentPL = useStrategyStore((s) => s.setSegmentPL);
-  const setSegmentBS = useStrategyStore((s) => s.setSegmentBS);
+  const setFinancePL = useStrategyStore((s: StrategyState) => s.setFinancePL);
+  const setFinanceBS = useStrategyStore((s: StrategyState) => s.setFinanceBS);
+  const setSegmentPL = useStrategyStore((s: StrategyState) => s.setSegmentPL);
+  const setSegmentBS = useStrategyStore((s: StrategyState) => s.setSegmentBS);
 
-  const upsertSegmentPL = useStrategyStore((s) => (s as any).upsertSegmentPL);
-  const upsertSegmentBS = useStrategyStore((s) => (s as any).upsertSegmentBS);
+  const upsertSegmentPL = useStrategyStore((s: StrategyState) => (s as any).upsertSegmentPL);
+  const upsertSegmentBS = useStrategyStore((s: StrategyState) => (s as any).upsertSegmentBS);
 
   const years = useMemo(() => {
     if (financePL.length > 0) {
