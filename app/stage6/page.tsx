@@ -6,7 +6,7 @@ import { AlertCircle } from 'lucide-react';
 
 import { fmtJPY } from '@/utils/stage6';
 import { useAutoSave } from '@/hooks/useAutoSave';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import SaveStatusIndicator from '@/components/SaveStatusIndicator';
 
 // ★ Step E3.1：UI components と custom hooks
@@ -35,8 +35,8 @@ export default function Stage6Page() {
   const stage6 = useStage6Data(scenarioKey);
 
   // ===== Phase E Data from Store =====
-  const projectTargetImpacts = useStrategyStore((s) => s.projectTargetImpacts ?? []);
-  const projectIssueLinks = useStrategyStore((s) => s.projectIssueLinks ?? []);
+  const projectTargetImpacts = useStrategyStore((s: StrategyState) => s.projectTargetImpacts ?? []);
+  const projectIssueLinks = useStrategyStore((s: StrategyState) => s.projectIssueLinks ?? []);
   const {
     addProjectTargetImpact,
     updateProjectTargetImpact,
@@ -50,7 +50,7 @@ export default function Stage6Page() {
   const handleUpdateImpact = useCallback(
     (projectId: string, targetId: string, delta: number, notes?: string) => {
       const existing = projectTargetImpacts.find(
-        (imp) => imp.projectId === projectId && imp.targetId === targetId
+        (imp: any) => imp.projectId === projectId && imp.targetId === targetId
       );
 
       if (existing) {
@@ -72,7 +72,7 @@ export default function Stage6Page() {
   const handleUpdateLink = useCallback(
     (projectId: string, issueId: string, strength: 1 | 2 | 3, notes?: string) => {
       const existing = projectIssueLinks.find(
-        (link) => link.projectId === projectId && link.issueId === issueId
+        (link: any) => link.projectId === projectId && link.issueId === issueId
       );
 
       if (existing) {
