@@ -811,7 +811,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
             const krs = ensureArray(o.keyResults as string[] | undefined);
 
             krs.forEach((krText) => {
-              const label = (krText ?? '').trim();
+              const label = String(krText ?? '').trim();
               if (!label) return;
 
               const already = existing.some((x) => String((x as any).label ?? '').trim() === label);
