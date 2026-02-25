@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import {
   ResponsiveContainer,
   BarChart,
@@ -68,7 +68,7 @@ export default function FinanceSummaryPanel({
   showHeader?: boolean;
 }) {
   // Zustand store から financeSummary を取得（型不定対策）
-  const rawSummary = useStrategyStore((s) => s.financeSummary) as unknown;
+  const rawSummary = useStrategyStore((s: StrategyState) => s.financeSummary) as unknown;
   const summary = normalizeSummary(rawSummary);
 
   const years = useMemo(() => {
