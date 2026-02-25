@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { useAccess } from '@/utils/access';
 import { AlertCircle, RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
@@ -21,8 +21,8 @@ export default function AdminDataManagementPage() {
   const { canEditCompany } = useAccess();
 
   // Store states
-  const isDirty = useStrategyStore((s) => s.dirty);
-  const companyName = useStrategyStore((s) => s.companyName);
+  const isDirty = useStrategyStore((s: StrategyState) => s.dirty);
+  const companyName = useStrategyStore((s: StrategyState) => s.companyName);
   const companyId = useUserStore((s) => s.companyId);
 
   // Local states
