@@ -3,8 +3,8 @@
 
 import type { ChangeEvent } from 'react';
 import { useCallback, useMemo, useState } from 'react';
-import { useStrategyStore } from '@/store/strategyStore';
-import type { Stage1IssueBlock } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
+import type { Stage1IssueBlock, StrategyState } from '@/store/strategyStore';
 import type { ValueAnalysis, Stage1Benchmarks } from '@/types/strategy';
 import { buildExternalIssueCandidates, type SelfMetrics, type ExternalIssueCandidatesResult, type CandidateMode } from '@/utils/stage1/benchmarkIssues';
 
@@ -452,12 +452,12 @@ function filterCandidates(
  * =============================== */
 
 export default function IssueBlockPanel() {
-  const issues = useStrategyStore((s) => (Array.isArray(s.stage1Issues) ? s.stage1Issues : []));
-  const setStage1Issues = useStrategyStore((s) => s.setStage1Issues);
+  const issues = useStrategyStore((s: StrategyState) => (Array.isArray(s.stage1Issues) ? s.stage1Issues : []));
+  const setStage1Issues = useStrategyStore((s: StrategyState) => s.setStage1Issues);
 
-  const valueAnalysis = useStrategyStore((s) => s.valueAnalysis);
+  const valueAnalysis = useStrategyStore((s: StrategyState) => s.valueAnalysis);
 
-  const waccInputPct = useStrategyStore((s) => {
+  const waccInputPct = useStrategyStore((s: StrategyState) => {
     const anyS = s as any;
     const candidates = [
       anyS?.stage1Benchmarks?.waccManual,
@@ -477,9 +477,9 @@ export default function IssueBlockPanel() {
     return undefined;
   });
 
-  const recomputeValueAnalysis = useStrategyStore((s) => s.recomputeValueAnalysis);
-  const benchmarks = useStrategyStore((s) => (s as any).stage1Benchmarks);
-  const isListed = useStrategyStore((s) => s.isListed ?? false);
+  const recomputeValueAnalysis = useStrategyStore((s: StrategyState) => s.recomputeValueAnalysis);
+  const benchmarks = useStrategyStore((s: StrategyState) => (s as any).stage1Benchmarks);
+  const isListed = useStrategyStore((s: StrategyState) => s.isListed ?? false);
 
   const [infoMessage, setInfoMessage] = useState<string>('');
   const [showDrafts, setShowDrafts] = useState<boolean>(true);
