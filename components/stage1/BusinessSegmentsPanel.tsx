@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useCallback, useMemo } from 'react';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import type { BusinessSegment } from '@/types/strategy';
 
 /* ===============================
@@ -30,8 +30,8 @@ function normalizeKeyCustomers(input: string): string[] {
 
 export default function BusinessSegmentsPanel() {
   // 安定した参照を使用（毎回新しい [] を作らない）
-  const businessSegments = useStrategyStore((s) => s.businessSegments ?? EMPTY_SEGMENTS);
-  const setProfile = useStrategyStore((s) => s.setProfile);
+  const businessSegments = useStrategyStore((s: StrategyState) => s.businessSegments ?? EMPTY_SEGMENTS);
+  const setProfile = useStrategyStore((s: StrategyState) => s.setProfile);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
