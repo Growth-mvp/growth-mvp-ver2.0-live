@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useEffect } from 'react';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import StepLayout from '@/components/StepLayout';
 
 /* Glassカード */
@@ -20,12 +20,12 @@ function GlassCard({ title, hint, children }: { title: string; hint?: string; ch
 
 export default function Step4MVV() {
   // ✅ 正式セッターを取得
-  const setMVV = useStrategyStore((s) => s.setMVV);
+  const setMVV = useStrategyStore((s: StrategyState) => s.setMVV);
 
   // ✅ 値は常に文字列で
-  const mission = useStrategyStore((s) => s.mission ?? '');
-  const vision = useStrategyStore((s) => s.vision ?? '');
-  const value = useStrategyStore((s) => s.value ?? '');
+  const mission = useStrategyStore((s: StrategyState) => s.mission ?? '');
+  const vision = useStrategyStore((s: StrategyState) => s.vision ?? '');
+  const value = useStrategyStore((s: StrategyState) => s.value ?? '');
 
   // （任意）AI 提案の自動反映
   const aiSuggestedMVV = useStrategyStore((s: any) => s.aiSuggestedMVV ?? null);
