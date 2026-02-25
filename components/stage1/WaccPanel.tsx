@@ -3,7 +3,7 @@
 
 import type React from 'react';
 import { useCallback } from 'react';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 
 /**
  * WACC（加重平均資本コスト）パネル
@@ -14,8 +14,8 @@ import { useStrategyStore } from '@/store/strategyStore';
  * - stage1Benchmarks を共有している前提のため、更新時は必ず既存値を保持して merge する
  */
 export default function WaccPanel() {
-  const stage1Benchmarks = useStrategyStore((s) => s.stage1Benchmarks);
-  const setStage1Benchmarks = useStrategyStore((s) => s.setStage1Benchmarks);
+  const stage1Benchmarks = useStrategyStore((s: StrategyState) => s.stage1Benchmarks);
+  const setStage1Benchmarks = useStrategyStore((s: StrategyState) => s.setStage1Benchmarks);
 
   const waccManual = stage1Benchmarks?.waccManual;
   const waccRationale = stage1Benchmarks?.waccRationale ?? '';
