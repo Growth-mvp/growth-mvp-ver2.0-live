@@ -2,7 +2,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import DocumentImportPanel from './DocumentImportPanel';
 import { FinanceYearEditorTable } from './FinanceYearEditorTable';
 
@@ -17,7 +17,7 @@ export default function FinanceDataPanel() {
   const [mode, setMode] = useState<FinanceDataMode>('import');
   const [selectedSegmentName, setSelectedSegmentName] = useState<string | null>(null);
 
-  const businessSegments = useStrategyStore((s) => s.businessSegments ?? []);
+  const businessSegments = useStrategyStore((s: StrategyState) => s.businessSegments ?? []);
   const hasSegments = businessSegments.length > 0;
 
   const initialSegment = useMemo(() => {
