@@ -273,29 +273,59 @@ function buildFinanceSummary(csvFinanceData: unknown): FinanceSummary | null {
 }
 
 /* =========================
- * Q&A（直近3件を引用）
+ * Q&A（12問：質問＋回答を引用）
  * =======================*/
 type AnswerStep = { stepNumber: number; question: string; reason: string; answer: string };
 type ChapterAnswers = { chapterIndex: number; chapterTitle: string; steps: AnswerStep[] };
 
-function buildAnswersRich(a2: ChapterAnswers[] = [], take = 3): string {
+function maxStepsForChapter(chapterIndex: number): number {
+  switch (chapterIndex | 0) {
+    case 0:
+      return 2; // 第1章
+    case 1:
+      return 6; // 第2章
+    case 2:
+      return 2; // 第3章
+    case 3:
+      return 2; // 第4章
+    default:
+      return 2;
+  }
+}
+
+/**
+ * 12問（章別ステップ）を「質問＋回答」セットでプロンプトへ渡す。
+ * - 章ごとの最大ステップ数（2/6/2/2）に合わせて抽出
+ * - 回答は短すぎると議論の結論が落ちるため 240 文字まで保持
+ * - 質問文が無い場合も耐える
+ */
+function buildAnswersRich(a2: ChapterAnswers[] = []): string {
   const blocks: string[] = [];
   const by = [...a2]
     .sort((a, b) => (a.chapterIndex ?? 0) - (b.chapterIndex ?? 0))
     .slice(0, 4);
+
   for (const chap of by) {
-    const steps = (chap.steps ?? []).slice(-take);
-    const quotes = steps
-      .map((s) => (s.answer || s.reason || '').trim())
-      .filter(Boolean)
-      .map((t) => `「${sanitize(t, 60)}」`);
-    if (quotes.length)
+    const chapIdx = chap.chapterIndex ?? 0;
+    const maxSteps = maxStepsForChapter(chapIdx);
+    const steps = (chap.steps ?? []).slice(-maxSteps);
+
+    const lines = steps
+      .map((s) => {
+        const q = sanitize(s.question, 140).trim();
+        const a = sanitize((s.answer || s.reason || '').trim(), 240).trim();
+        if (!q && !a) return '';
+        return `  - Q${s.stepNumber ?? ''}${q ? `: ${q}` : ''}\n    A: 「${a || '—'}」`;
+      })
+      .filter(Boolean);
+
+    if (lines.length) {
       blocks.push(
-        `- ${chap.chapterTitle || `第${(chap.chapterIndex ?? 0) + 1}章`} の現場の声: ${quotes.join(
-          ' / ',
-        )}`,
+        `- ${chap.chapterTitle || `第${chapIdx + 1}章`}（議論の要点/12問）:\n${lines.join('\n')}`,
       );
+    }
   }
+
   return blocks.join('\n');
 }
 
@@ -789,7 +819,7 @@ export async function POST(req: NextRequest) {
 - ただし個別事業の詳細な損益計画には入り込みすぎず、「勝ち筋」との整合がわかる粒度で語る。
 
 【自社の勝ち筋（一文）の扱い】
-- ユーザーコンテンツの「現場の声（直近から抽出/引用候補）」は、全12問の回答のエッセンスである。
+- ユーザーコンテンツの「現場の声（12問回答）」は、経営層の議論結果そのものである。
 - これらをもとに、「私たちは◯◯で勝つ」という一文の「自社の勝ち筋」をあなた自身で組み立てること。
 - 第2章「どう戦う」の本文の最初または2段落目以内に、「自社の勝ち筋：〜」という一文を必ず1回だけ明記すること。
 - 以降の段落・他章の内容は、この一文と矛盾しないように、資源配分・やめること・KPI・人の動き方を描くこと。
@@ -810,8 +840,7 @@ export async function POST(req: NextRequest) {
 
     /* ---------- User（素材） ---------- */
     const answersRich = buildAnswersRich(
-      Array.isArray(answers2) ? (answers2 as ChapterAnswers[]) : [],
-      3,
+      Array.isArray(answers2) ? (answers2 as ChapterAnswers[]) : []
     );
 
     const portfolioSummary = (() => {
@@ -847,7 +876,7 @@ export async function POST(req: NextRequest) {
 【fin_json】
 ${JSON.stringify(finMini)}
 
-【現場の声（直近から抽出/引用候補）】
+【現場の声（12問回答：質問＋回答）】
 ${answersRich || '—'}
 
 【出力仕様】上記の制約・形式を厳守。`.trim();
