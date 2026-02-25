@@ -3,8 +3,8 @@
 
 import { useMemo, useCallback, useState } from 'react';
 import type { ChangeEvent } from 'react';
-import { useStrategyStore } from '@/store/strategyStore';
-import type { FinanceSummaryRow } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
+import type { FinanceSummaryRow, StrategyState } from '@/store/strategyStore';
 import type { ValueAnalysis, BusinessSegment, FinancePLRow, FinanceBSRow } from '@/types/strategy';
 
 /* ===============================
@@ -698,17 +698,17 @@ function PortfolioMatrix({
  * =============================== */
 
 export default function MetricsPanel() {
-  const financeSummary = useStrategyStore((s) =>
+  const financeSummary = useStrategyStore((s: StrategyState) =>
     Array.isArray((s as any).financeSummary) ? ((s as any).financeSummary as FinanceSummaryRow[]) : EMPTY_FINANCE_SUMMARY,
   );
-  const financePL = useStrategyStore((s) => (Array.isArray((s as any).financePL) ? ((s as any).financePL as FinancePLRow[]) : EMPTY_PL));
-  const financeBS = useStrategyStore((s) => (Array.isArray((s as any).financeBS) ? ((s as any).financeBS as FinanceBSRow[]) : EMPTY_BS));
+  const financePL = useStrategyStore((s: StrategyState) => (Array.isArray((s as any).financePL) ? ((s as any).financePL as FinancePLRow[]) : EMPTY_PL));
+  const financeBS = useStrategyStore((s: StrategyState) => (Array.isArray((s as any).financeBS) ? ((s as any).financeBS as FinanceBSRow[]) : EMPTY_BS));
 
-  const segmentPL = useStrategyStore((s) => ((s as any).segmentPL ?? EMPTY_SEG_PL) as Record<string, FinancePLRow[]>);
+  const segmentPL = useStrategyStore((s: StrategyState) => ((s as any).segmentPL ?? EMPTY_SEG_PL) as Record<string, FinancePLRow[]>);
 
-  const valueAnalysis = useStrategyStore((s) => (s as any).valueAnalysis as ValueAnalysis | undefined);
+  const valueAnalysis = useStrategyStore((s: StrategyState) => (s as any).valueAnalysis as ValueAnalysis | undefined);
 
-  const waccInputPct = useStrategyStore((s) => {
+  const waccInputPct = useStrategyStore((s: StrategyState) => {
     const anyS = s as any;
     const candidates = [
       anyS?.stage1Benchmarks?.waccManual,
@@ -728,8 +728,8 @@ export default function MetricsPanel() {
     return undefined;
   });
 
-  const segmentValueAnalysisRaw = useStrategyStore((s) => (s as any).segmentValueAnalysis as Record<string, ValueAnalysis> | undefined);
-  const businessSegments = useStrategyStore((s) => (((s as any).businessSegments ?? EMPTY_SEGMENTS) as BusinessSegment[]));
+  const segmentValueAnalysisRaw = useStrategyStore((s: StrategyState) => (s as any).segmentValueAnalysis as Record<string, ValueAnalysis> | undefined);
+  const businessSegments = useStrategyStore((s: StrategyState) => (((s as any).businessSegments ?? EMPTY_SEGMENTS) as BusinessSegment[]));
 
   // ★ 診断ログ：MetricsPanel が参照する valueAnalysis（A-2）
   if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
@@ -745,7 +745,7 @@ export default function MetricsPanel() {
     });
   }
 
-  const recomputeValueAnalysis = useStrategyStore((s) => (s as any).recomputeValueAnalysis as ((src?: any) => void) | undefined);
+  const recomputeValueAnalysis = useStrategyStore((s: StrategyState) => (s as any).recomputeValueAnalysis as ((src?: any) => void) | undefined);
 
   const [analysisMessage, setAnalysisMessage] = useState<string>('');
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>('idle');
