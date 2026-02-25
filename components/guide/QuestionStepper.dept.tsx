@@ -81,7 +81,6 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     initialStep = 1,
     initialAnswers = [],
     onChange,
-    onDraftGenerated,
   } = props;
 
   // ★ 閲覧はOK、編集は会社レベルAdminのみ
@@ -104,12 +103,6 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
   const [errorMsg, setErrorMsg] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // 生成（ドラフト）
-  const [genLoading, setGenLoading] = useState(false);
-  const [genError, setGenError] = useState('');
-  const [missionDraft, setMissionDraft] = useState<string | undefined>(undefined);
-  const [projectsDraft, setProjectsDraft] = useState<string[] | undefined>(undefined);
-  const [okrsDraft, setOkrsDraft] = useState<OKR[] | undefined>(undefined);
 
   // リクエスト多重防止
   const inFlightRef = useRef(false);
@@ -400,65 +393,10 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     setHint(undefined);
     setShowHint(false);
     setErrorMsg('');
-    // 生成結果は一旦リセット（再考のため）
-    setMissionDraft(undefined);
-    setProjectsDraft(undefined);
-    setOkrsDraft(undefined);
-    setGenError('');
     // 次のレンダリングで、このステップの問いを再生成（ボタン押しと同じ扱い）
     setShouldFetchQuestion(true);
   }, [answers, step, canEdit]);
 
-  // ---- 部門ミッション生成 ----（★ 非Adminは実行不可／6問完了後）
-  const handleGenerateDepartmentDraft = useCallback(async () => {
-    if (!isCompletedAll6 || !canEdit) return;
-    setGenLoading(true);
-    setGenError('');
-    try {
-      const data = await authFetchJson<any>('/api/generate-department-draft', {
-        method: 'POST',
-        json: {
-          departmentName,
-          mission,
-          projects,
-          okrs,
-          // 参照用に回答を渡す（6問）
-          answers: answers
-            .sort((a, b) => a.stepNumber - b.stepNumber)
-            .map(a => ({
-              stepNumber: a.stepNumber,
-              label: a.label,
-              question: a.question,
-              answer: a.answer,
-            })),
-        },
-      });
-
-      const nextMission: string | undefined = (data?.mission ?? '').trim() || undefined;
-      const nextProjects: string[] | undefined = Array.isArray(data?.projects) ? data.projects : undefined;
-      const nextOkrs: OKR[] | undefined = Array.isArray(data?.okrs) ? data.okrs : undefined;
-
-      setMissionDraft(nextMission);
-      setProjectsDraft(nextProjects);
-      setOkrsDraft(nextOkrs);
-
-      onDraftGenerated?.({
-        mission: nextMission,
-        projects: nextProjects,
-        okrs: nextOkrs,
-      });
-    } catch (e: any) {
-      const msg =
-        e instanceof AuthFetchError
-          ? e.status === 401
-            ? 'セッションが切れています。ログインし直してください。'
-            : e.bodyText || e.message
-          : e?.message || '部門ミッション生成でエラーが発生しました';
-      setGenError(msg);
-    } finally {
-      setGenLoading(false);
-    }
-  }, [answers, departmentName, mission, projects, okrs, isCompletedAll6, onDraftGenerated, canEdit]);
 
   return (
     <div className="w-full max-w-3xl mx-auto space-y-6">
@@ -652,74 +590,6 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
           ))}
         </div>
       </div>
-
-      {/* === 6問完了後：部門ミッション生成 === */}
-      {isCompletedAll6 && (
-        <div className="rounded-2xl border border-blue-200 bg-blue-50/60">
-          <div className="p-4 border-b border-blue-100 flex items-center justify-between">
-            <div className="text-sm font-medium text-blue-900">部門ミッション生成</div>
-            {genLoading && <div className="text-xs text-blue-700">生成中…</div>}
-          </div>
-          <div className="p-4 space-y-3">
-            <p className="text-sm text-blue-900">
-              6つの回答をもとに、この部門の「ミッション（仮）」「プロジェクト案」「OKR（初期案）」を生成します。
-            </p>
-            {genError && <div className="text-sm text-red-600">{genError}</div>}
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={handleGenerateDepartmentDraft}
-                disabled={genLoading || !canEdit}
-                className={[
-                  'rounded-xl px-4 py-2 text-sm font-medium',
-                  (genLoading || !canEdit) ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700',
-                ].join(' ')}
-                title={canEdit ? '' : '閲覧モード（管理者のみ編集可）'}
-              >
-                部門ミッションを生成
-              </button>
-              <span className="text-xs text-blue-900">生成後は、親画面で保存・編集できます</span>
-            </div>
-
-            {(missionDraft || (projectsDraft?.length ?? 0) > 0 || (okrsDraft?.length ?? 0) > 0) && (
-              <div className="mt-3 space-y-3">
-                {missionDraft && (
-                  <div className="rounded-xl border border-blue-200 bg-white p-3">
-                    <div className="text-xs font-semibold text-blue-900 mb-1">ミッション（仮）</div>
-                    <div className="text-sm whitespace-pre-wrap">{missionDraft}</div>
-                  </div>
-                )}
-                {projectsDraft && projectsDraft.length > 0 && (
-                  <div className="rounded-xl border border-blue-200 bg-white p-3">
-                    <div className="text-xs font-semibold text-blue-900 mb-1">プロジェクト案</div>
-                    <ul className="list-disc pl-5 text-sm space-y-1">
-                      {projectsDraft.map((p, i) => <li key={i}>{p}</li>)}
-                    </ul>
-                  </div>
-                )}
-                {okrsDraft && okrsDraft.length > 0 && (
-                  <div className="rounded-xl border border-blue-200 bg-white p-3">
-                    <div className="text-xs font-semibold text-blue-900 mb-1">OKR（初期案）</div>
-                    <div className="space-y-3">
-                      {okrsDraft.map((o, i) => (
-                        <div key={i} className="text-sm">
-                          {o.objective && <div className="font-medium">達成目標：{o.objective}</div>}
-                          {o.keyResults && o.keyResults.length > 0 && (
-                            <ul className="list-disc pl-5 space-y-1">
-                              {o.keyResults.map((kr, k) => <li key={k}>主要な成果：{kr}</li>)}
-                            </ul>
-                          )}
-                          {o.owner && <div className="text-xs text-gray-600 mt-1">Owner: {o.owner}</div>}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
