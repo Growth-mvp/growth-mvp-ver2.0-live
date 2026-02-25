@@ -845,110 +845,76 @@ function OTSuggestionsPanel({
 }
 
 /* ===================================================
- * ★ North Star (companyTargets) セクション
+ * ★ 業績目標 (companyTargets) セクション
  * =================================================== */
 interface CompanyTargetsSectionProps {
   companyTargets: any[];
   issueBlocks: any[];
 }
 
+const NS_LABEL_PRESETS = [
+  '売上',
+  '営業利益',
+  '粗利',
+  'EBITDA',
+  '営業利益率',
+  'ROIC',
+  'フリーキャッシュフロー',
+  '受注高',
+  '顧客数',
+  '解約率',
+] as const;
+
+const NS_UNIT_PRESETS = [
+  '円',
+  '千円',
+  '百万円',
+  '%',
+  '件',
+  '人',
+  '回',
+] as const;
+
+type PrioritySimple = 'primary' | 'secondary' | 'reference';
+
+function priorityLabel(p?: PrioritySimple) {
+  if (p === 'primary') return '主KPI';
+  if (p === 'secondary') return '副KPI';
+  return '参考';
+}
+
 function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: CompanyTargetsSectionProps) {
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+
   const [formData, setFormData] = useState({
-    label: '',
-    unit: '',
+    labelPreset: '売上',
+    labelOther: '',
+    unit: '百万円',
     base: '',
-    low: '',
-    high: '',
     dueYear: '',
-    priority: 1,
+    prioritySimple: 'primary' as PrioritySimple, // 任意
     rationale: '',
     linkedIssueIds: [] as string[],
   });
 
-  // ★ 修正：store から直接読み取り（props に依存しない＝親の再レンダーで入力値が消えない）
-  // ★ 参照安定化：EMPTY_ARR を使って無限ループ防止
+  // ★ store から直接読み取り（props に依存しない）
   const companyTargets = useStrategyStore((s) => (s as any).companyTargets || EMPTY_ARR);
   const addCompanyTarget = useStrategyStore((s) => (s as any).addCompanyTarget);
   const updateCompanyTarget = useStrategyStore((s) => (s as any).updateCompanyTarget);
   const removeCompanyTarget = useStrategyStore((s) => (s as any).removeCompanyTarget);
 
-  const handleAdd = () => {
-    if (!formData.label.trim() || !formData.base) {
-      alert('label と base は必須です');
-      return;
-    }
-
-    // ★ UUID生成：crypto.randomUUID() で安全にID生成（重複なし保証）
-    const newId = typeof crypto !== 'undefined' && crypto.randomUUID
-      ? crypto.randomUUID()
-      : `target_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    const newTarget = {
-      id: newId,
-      label: formData.label,
-      unit: formData.unit || '',
-      base: Number(formData.base) || 0,
-      low: formData.low ? Number(formData.low) : undefined,
-      high: formData.high ? Number(formData.high) : undefined,
-      dueYear: formData.dueYear ? Number(formData.dueYear) : undefined,
-      priority: formData.priority || 1,
-      rationale: formData.rationale || '',
-      linkedIssueIds: formData.linkedIssueIds,
-    };
-
-    addCompanyTarget?.(newTarget);
-    // ★ 診断：store に入ったか確定
-    if (process.env.NODE_ENV === 'development') {
-      setTimeout(() => {
-        const state = (useStrategyStore.getState() as any);
-        console.log('[diag][ct] after add', {
-          len: Array.isArray(state.companyTargets) ? state.companyTargets.length : null,
-          lastId: state.companyTargets?.[state.companyTargets.length - 1]?.id,
-        });
-      }, 0);
-    }
-    resetForm();
-  };
-
-  const handleUpdate = () => {
-    if (!formData.label.trim() || !formData.base || !editingId) return;
-
-    updateCompanyTarget?.(editingId, {
-      label: formData.label,
-      unit: formData.unit || '',
-      base: Number(formData.base) || 0,
-      low: formData.low ? Number(formData.low) : undefined,
-      high: formData.high ? Number(formData.high) : undefined,
-      dueYear: formData.dueYear ? Number(formData.dueYear) : undefined,
-      priority: formData.priority || 1,
-      rationale: formData.rationale || '',
-      linkedIssueIds: formData.linkedIssueIds,
-    });
-    // ★ 診断：store に反映されたか確定
-    if (process.env.NODE_ENV === 'development') {
-      setTimeout(() => {
-        const state = (useStrategyStore.getState() as any);
-        const updated = state.companyTargets?.find((t: any) => t.id === editingId);
-        console.log('[diag][ct] after update', {
-          len: Array.isArray(state.companyTargets) ? state.companyTargets.length : null,
-          updatedLabel: updated?.label,
-        });
-      }, 0);
-    }
-    resetForm();
-  };
+  const resolvedLabel =
+    formData.labelPreset === 'その他' ? formData.labelOther.trim() : formData.labelPreset;
 
   const resetForm = () => {
     setFormData({
-      label: '',
-      unit: '',
+      labelPreset: '売上',
+      labelOther: '',
+      unit: '百万円',
       base: '',
-      low: '',
-      high: '',
       dueYear: '',
-      priority: 1,
+      prioritySimple: 'primary',
       rationale: '',
       linkedIssueIds: [],
     });
@@ -956,131 +922,203 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
     setEditingId(null);
   };
 
+  const handleAdd = () => {
+    if (!resolvedLabel || !formData.base) {
+      alert('ラベル と 目標値 は必須です');
+      return;
+    }
+
+    const newId =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `target_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // ★ A版：数値本体は base のみ（low/high はUIから除外）
+    const newTarget = {
+      id: newId,
+      label: resolvedLabel,
+      unit: formData.unit || '',
+      base: Number(formData.base) || 0,
+      dueYear: formData.dueYear ? Number(formData.dueYear) : undefined,
+      // 互換：既存 priority:number を壊さないため、prioritySimple を主に使い、priority は表示用にマップ
+      prioritySimple: formData.prioritySimple,
+      priority:
+        formData.prioritySimple === 'primary'
+          ? 4
+          : formData.prioritySimple === 'secondary'
+            ? 3
+            : 2,
+      rationale: formData.rationale || '',
+      linkedIssueIds: formData.linkedIssueIds,
+    };
+
+    addCompanyTarget?.(newTarget);
+    resetForm();
+  };
+
+  const handleUpdate = () => {
+    if (!resolvedLabel || !formData.base || !editingId) return;
+
+    updateCompanyTarget?.(editingId, {
+      label: resolvedLabel,
+      unit: formData.unit || '',
+      base: Number(formData.base) || 0,
+      dueYear: formData.dueYear ? Number(formData.dueYear) : undefined,
+      prioritySimple: formData.prioritySimple,
+      priority:
+        formData.prioritySimple === 'primary'
+          ? 4
+          : formData.prioritySimple === 'secondary'
+            ? 3
+            : 2,
+      rationale: formData.rationale || '',
+      linkedIssueIds: formData.linkedIssueIds,
+    });
+
+    resetForm();
+  };
+
   const handleEdit = (ct: any) => {
+    const presetHit = (NS_LABEL_PRESETS as readonly string[]).includes((ct.label ?? '') as any);
+    const unitHit = (NS_UNIT_PRESETS as readonly string[]).includes((ct.unit ?? '') as any);
+
     setFormData({
-      label: ct.label || '',
-      unit: ct.unit || '',
+      labelPreset: presetHit ? (ct.label ?? '売上') : 'その他',
+      labelOther: presetHit ? '' : String(ct.label ?? ''),
+      unit: unitHit ? (ct.unit ?? '百万円') : '百万円',
       base: String(ct.base ?? ''),
-      low: ct.low !== undefined ? String(ct.low) : '',
-      high: ct.high !== undefined ? String(ct.high) : '',
       dueYear: ct.dueYear !== undefined ? String(ct.dueYear) : '',
-      priority: ct.priority || 1,
+      prioritySimple: (ct.prioritySimple as PrioritySimple) || 'reference',
       rationale: ct.rationale || '',
       linkedIssueIds: ct.linkedIssueIds || [],
     });
+
     setEditingId(ct.id);
     setIsAddingNew(false);
   };
 
   const handleDelete = (id: string) => {
     removeCompanyTarget?.(id);
-    // ★ 診断：削除後に store が反映されたか確定
-    if (process.env.NODE_ENV === 'development') {
-      setTimeout(() => {
-        const state = (useStrategyStore.getState() as any);
-        console.log('[diag][ct] after delete', {
-          len: Array.isArray(state.companyTargets) ? state.companyTargets.length : null,
-        });
-      }, 0);
-    }
   };
 
   return (
     <div className="rounded-2xl border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-900/20 p-6">
-      <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">🌟 North Star（目標メトリクス）</h3>
+      <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">🏁 業績目標</h3>
 
       {/* 既存目標表示 */}
       <div className="space-y-3 max-h-[500px] overflow-auto mb-6">
         {companyTargets.length === 0 && !isAddingNew && !editingId && (
-          <p className="text-sm text-gray-600 dark:text-gray-400">目標メトリクスはまだ設定されていません</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">業績目標はまだ設定されていません</p>
         )}
 
         {companyTargets.map((ct: any, idx: number) => {
-          // ★ key 安全化
           const ctId = ct?.id && typeof ct.id === 'string' ? ct.id : `ct-${idx}-${ct?.label ?? 'no-label'}`;
           return (
-          <div key={ctId} className="p-3 bg-white/60 dark:bg-white/5 rounded-lg border border-purple-200 dark:border-purple-700">
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <div className="font-medium text-gray-800 dark:text-gray-100">{ct.label}</div>
-                <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                  {ct.unit && `単位: ${ct.unit}`}
-                  {ct.dueYear && ` | 目標年: ${ct.dueYear}`}
-                  {ct.priority && ` | 優先度: ${ct.priority}`}
-                </div>
-                <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                  基準: {ct.base}
-                  {ct.low !== undefined && ` | 低: ${ct.low}`}
-                  {ct.high !== undefined && ` | 高: ${ct.high}`}
-                </div>
-                {ct.rationale && (
-                  <div className="text-xs text-purple-700 dark:text-purple-300 mt-2 p-2 bg-purple-100/30 dark:bg-purple-800/30 rounded">
-                    {ct.rationale}
+            <div
+              key={ctId}
+              className="p-3 bg-white/60 dark:bg-white/5 rounded-lg border border-purple-200 dark:border-purple-700"
+            >
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="font-medium text-gray-800 dark:text-gray-100">
+                    {ct.label}
+                    <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-purple-100/70 dark:bg-purple-800/40 text-purple-700 dark:text-purple-200">
+                      {priorityLabel(ct.prioritySimple)}
+                    </span>
                   </div>
-                )}
-                {ct.linkedIssueIds?.length > 0 && (
-                  <div className="text-xs text-blue-600 dark:text-blue-400 mt-2">
-                    関連論点: {ct.linkedIssueIds.length}件
+
+                  <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                    {ct.unit && `単位: ${ct.unit}`}
+                    {ct.dueYear && ` | 目標年: ${ct.dueYear}`}
                   </div>
-                )}
-              </div>
-              <div className="ml-2 flex gap-1">
-                <button
-                  type="button"
-                  onClick={() => handleEdit(ct)}
-                  className="px-2 py-1 text-xs rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50"
-                >
-                  編集
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDelete(ct.id)}
-                  className="px-2 py-1 text-xs rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50"
-                >
-                  削除
-                </button>
+
+                  <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">目標値: {ct.base}</div>
+
+                  {ct.rationale && (
+                    <div className="text-xs text-purple-700 dark:text-purple-300 mt-2 p-2 bg-purple-100/30 dark:bg-purple-800/30 rounded">
+                      {ct.rationale}
+                    </div>
+                  )}
+
+                  {ct.linkedIssueIds?.length > 0 && (
+                    <div className="text-xs text-blue-600 dark:text-blue-400 mt-2">関連論点: {ct.linkedIssueIds.length}件</div>
+                  )}
+                </div>
+
+                <div className="ml-2 flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => handleEdit(ct)}
+                    className="px-2 py-1 text-xs rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50"
+                  >
+                    編集
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(ct.id)}
+                    className="px-2 py-1 text-xs rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50"
+                  >
+                    削除
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        );
+          );
         })}
       </div>
 
       {/* 追加/編集フォーム */}
       {(isAddingNew || editingId) && (
         <div className="border-t border-purple-200 dark:border-purple-700 pt-6 mb-6">
-          <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-4">
-            {editingId ? '編集' : '新規追加'}
-          </h4>
+          <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-4">{editingId ? '編集' : '新規追加'}</h4>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
               <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
                 ラベル <span className="text-red-500">*</span>
               </label>
-              <input
-                type="text"
-                value={formData.label}
-                onChange={(e) => setFormData({ ...formData, label: e.target.value })}
+              <select
+                value={formData.labelPreset}
+                onChange={(e) => setFormData({ ...formData, labelPreset: e.target.value })}
                 className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5"
-                placeholder="e.g., 売上"
-              />
+              >
+                {NS_LABEL_PRESETS.map((x) => (
+                  <option key={x} value={x}>
+                    {x}
+                  </option>
+                ))}
+                <option value="その他">その他（自由入力）</option>
+              </select>
+
+              {formData.labelPreset === 'その他' && (
+                <input
+                  type="text"
+                  value={formData.labelOther}
+                  onChange={(e) => setFormData({ ...formData, labelOther: e.target.value })}
+                  className="w-full mt-2 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5"
+                  placeholder="例）受注残、製造原価率 など"
+                />
+              )}
             </div>
 
             <div>
               <label className="text-xs font-medium text-gray-600 dark:text-gray-400">単位</label>
-              <input
-                type="text"
+              <select
                 value={formData.unit}
                 onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
                 className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5"
-                placeholder="e.g., 百万円"
-              />
+              >
+                {NS_UNIT_PRESETS.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div>
               <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                基準値 <span className="text-red-500">*</span>
+                目標値 <span className="text-red-500">*</span>
               </label>
               <input
                 type="number"
@@ -1101,47 +1139,26 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
             </div>
 
             <div>
-              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">低位</label>
-              <input
-                type="number"
-                value={formData.low}
-                onChange={(e) => setFormData({ ...formData, low: e.target.value })}
-                className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">高位</label>
-              <input
-                type="number"
-                value={formData.high}
-                onChange={(e) => setFormData({ ...formData, high: e.target.value })}
-                className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">優先度 (1-4)</label>
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">重要度（任意）</label>
               <select
-                value={formData.priority}
-                onChange={(e) => setFormData({ ...formData, priority: Number(e.target.value) })}
+                value={formData.prioritySimple}
+                onChange={(e) => setFormData({ ...formData, prioritySimple: e.target.value as PrioritySimple })}
                 className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5"
               >
-                <option value={1}>1 (低)</option>
-                <option value={2}>2</option>
-                <option value={3}>3</option>
-                <option value={4}>4 (高)</option>
+                <option value="primary">主KPI</option>
+                <option value="secondary">副KPI</option>
+                <option value="reference">参考</option>
               </select>
             </div>
           </div>
 
           <div className="mb-4">
-            <label className="text-xs font-medium text-gray-600 dark:text-gray-400">根拠・説明</label>
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-400">根拠・説明（任意）</label>
             <textarea
               value={formData.rationale}
               onChange={(e) => setFormData({ ...formData, rationale: e.target.value })}
               className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5 min-h-[80px] resize-y"
-              placeholder="このメトリクスを選んだ理由"
+              placeholder="この業績目標を設定した理由"
             />
           </div>
 
@@ -1149,7 +1166,6 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
             <label className="text-xs font-medium text-gray-600 dark:text-gray-400">関連論点（複数選択可）</label>
             <div className="grid grid-cols-2 gap-2 mt-2 max-h-[150px] overflow-auto bg-white/30 dark:bg-white/5 p-3 rounded-lg">
               {issueBlocks.map((issue: any, idx: number) => {
-                // ★ key 安全化：issue.id が undefined か不安定な場合のフォールバック
                 const rawId = issue?.id;
                 const issueId =
                   typeof rawId === 'string' && rawId.trim().length > 0
@@ -1162,7 +1178,6 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
                       type="checkbox"
                       checked={formData.linkedIssueIds.includes(issueId)}
                       onChange={(e) => {
-                        // ★ 修正：functional setState でループを防止
                         const checked = e.target.checked;
                         setFormData((prev) => ({
                           ...prev,
@@ -1173,9 +1188,7 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
                       }}
                       className="rounded"
                     />
-                    <span className="text-gray-700 dark:text-gray-300 truncate">
-                      {issue?.title || `（無題の論点 ${idx}）`}
-                    </span>
+                    <span className="text-gray-700 dark:text-gray-300 truncate">{issue?.title || `（無題の論点 ${idx}）`}</span>
                   </label>
                 );
               })}
@@ -1201,7 +1214,6 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
         </div>
       )}
 
-      {/* 追加ボタン */}
       {!isAddingNew && !editingId && (
         <button
           type="button"
@@ -1214,7 +1226,6 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
     </div>
   );
 }
-
 /* ===================================================
  * SWOTセクション
  * =================================================== */
@@ -1663,7 +1674,7 @@ export default function Stage2Page() {
         }
       }
 
-      if (!currentOperatingProfit) {
+      if (currentOperatingProfit == null) {
         const opVal = latestRow.operatingIncome ?? (latestRow as any).op ?? (latestRow as any).営業利益;
         const op = safeNumber(opVal);
         if (op !== null) {
@@ -1682,7 +1693,9 @@ export default function Stage2Page() {
     const chartRevenueNow = nowRevM?.converted ?? currentRevenue;
     const chartOpNow = nowOpM?.converted ?? currentOperatingProfit;
 
-    // ★ 目標：companyTargets から label マッチで抽出（キーゆれ吸収: value/amount/target/high/base/low）
+    // ★ 目標：companyTargets から label マッチで抽出
+    // 重要：業績目標の数値本体は UI/Store 上「base」。
+    //       priority(1-4) や target/value 等の揺れキーは事故源になるため、ここでは一切参照しない。
     let targetRevenue: number | null = null;
     let targetOperatingProfit: number | null = null;
     let targetRevenueLabel = '';
@@ -1693,28 +1706,27 @@ export default function Stage2Page() {
         const label = (target.label ?? '').trim().toLowerCase();
 
         // 売上パターン
-        if (!targetRevenue && (label.includes('売上') || label.includes('revenue') || label.includes('sales') || label.includes('top line'))) {
-          // value, amount, target, high, base, low のいずれかを探す
-          const val = (target as any).value ?? (target as any).amount ?? (target as any).target ?? target.high ?? target.base ?? target.low;
-          const valNum = safeNumber(val);
+        if (targetRevenue == null && (label.includes('売上') || label.includes('revenue') || label.includes('sales') || label.includes('top line'))) {
+          const valNum = safeNumber((target as any).base);
           if (valNum !== null) {
-            targetRevenue = toMillionYen(valNum, 'unknown');
+            const inferred = inferScaleToMillion(valNum);
+            targetRevenue = inferred?.converted ?? toMillionYen(valNum, 'unknown');
             targetRevenueLabel = target.label ?? '';
-            if (DEBUG) console.log('[KPI] companyTargets revenue:', { label: target.label, raw: valNum, converted: targetRevenue, scale: inferScaleToMillion(valNum) });
+            if (DEBUG) console.log('[KPI] companyTargets revenue:', { label: target.label, raw: valNum, converted: targetRevenue, unit: (target as any).unit, scale: inferred });
           }
         }
 
         // 営業利益パターン
         if (
-          !targetOperatingProfit &&
-          (label.includes('営業利益') || label.includes('operating profit') || label.includes('op') || label.includes('operating income'))
+          targetOperatingProfit == null &&
+          (label.includes('営業利益') || label.includes('operating profit') || label === 'op' || label.includes('operating income'))
         ) {
-          const val = (target as any).value ?? (target as any).amount ?? (target as any).target ?? target.high ?? target.base ?? target.low;
-          const valNum = safeNumber(val);
+          const valNum = safeNumber((target as any).base);
           if (valNum !== null) {
-            targetOperatingProfit = toMillionYen(valNum, 'unknown');
+            const inferred = inferScaleToMillion(valNum);
+            targetOperatingProfit = inferred?.converted ?? toMillionYen(valNum, 'unknown');
             targetOpLabel = target.label ?? '';
-            if (DEBUG) console.log('[KPI] companyTargets op:', { label: target.label, raw: valNum, converted: targetOperatingProfit, scale: inferScaleToMillion(valNum) });
+            if (DEBUG) console.log('[KPI] companyTargets op:', { label: target.label, raw: valNum, converted: targetOperatingProfit, unit: (target as any).unit, scale: inferred });
           }
         }
       }
@@ -2089,7 +2101,7 @@ export default function Stage2Page() {
         }
       }
 
-      // ✅ companyTargets 復元（North Star メトリクス）（空上書き防止）
+      // ✅ companyTargets 復元（業績目標メトリクス）（空上書き防止）
       const ct = st.companyTargets ?? [];
       if (Array.isArray(ct) && ct.length > 0) {
         setCompanyTargets(ct);
@@ -2921,7 +2933,7 @@ export default function Stage2Page() {
                   <MVVSection />
                 </div>
 
-                {/* ★ North Star Targets（目標メトリクス）セクション - MVV と SWOT の間に配置 */}
+                {/* ★ 業績目標セクション - MVV と SWOT の間に配置 */}
                 <CompanyTargetsSection
                   companyTargets={companyTargets}
                   issueBlocks={issueBlocks}
