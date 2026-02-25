@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import StepLayout from '@/components/StepLayout';
 import { industryOptions } from '@/utils/industryTemplates';
 
@@ -110,18 +110,18 @@ function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
 /* ---------------------- 本体 ---------------------- */
 
 export default function Step1BasicInfo() {
-  const setProfile = useStrategyStore((s) => s.setProfile);
-  const setMVV = useStrategyStore((s) => s.setMVV);
+  const setProfile = useStrategyStore((s: StrategyState) => s.setProfile);
+  const setMVV = useStrategyStore((s: StrategyState) => s.setMVV);
 
-  const companyName = useStrategyStore((s) => s.companyName ?? '');
-  const foundationYear = useStrategyStore((s) => s.foundationYear ?? '');
-  const location = useStrategyStore((s) => s.location ?? '');
-  const industry = useStrategyStore((s) => s.industry ?? '');
-  const revenue = useStrategyStore((s) => s.revenue ?? '');
-  const employees = useStrategyStore((s) => s.employees ?? '');
-  const businessContent = useStrategyStore((s) => s.businessContent ?? '');
-  const customerSegment = useStrategyStore((s) => s.customerSegment ?? '');
-  const thoughtRaw = useStrategyStore((s) => s.thought ?? '');
+  const companyName = useStrategyStore((s: StrategyState) => s.companyName ?? '');
+  const foundationYear = useStrategyStore((s: StrategyState) => s.foundationYear ?? '');
+  const location = useStrategyStore((s: StrategyState) => s.location ?? '');
+  const industry = useStrategyStore((s: StrategyState) => s.industry ?? '');
+  const revenue = useStrategyStore((s: StrategyState) => s.revenue ?? '');
+  const employees = useStrategyStore((s: StrategyState) => s.employees ?? '');
+  const businessContent = useStrategyStore((s: StrategyState) => s.businessContent ?? '');
+  const customerSegment = useStrategyStore((s: StrategyState) => s.customerSegment ?? '');
+  const thoughtRaw = useStrategyStore((s: StrategyState) => s.thought ?? '');
   const aiSuggestedBasicInfo = useStrategyStore((s: any) => s.aiSuggestedBasicInfo ?? null);
 
   const THOUGHT_MAX = 1000;
