@@ -3,7 +3,7 @@
 
 import type React from 'react';
 import { useCallback } from 'react';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 
 /**
  * 上場情報パネル
@@ -15,10 +15,10 @@ import { useStrategyStore } from '@/store/strategyStore';
  * - 読み書き先を profile に統一（setProfile を使うなら必須）
  */
 export default function ListingInfoPanel() {
-  const isListed = useStrategyStore((s) => s.isListed ?? false);
-  const ticker = useStrategyStore((s) => s.ticker ?? '');
-  const pbrManual = useStrategyStore((s) => s.pbrManual ?? '');
-  const setProfile = useStrategyStore((s) => s.setProfile);
+  const isListed = useStrategyStore((s: StrategyState) => s.isListed ?? false);
+  const ticker = useStrategyStore((s: StrategyState) => s.ticker ?? '');
+  const pbrManual = useStrategyStore((s: StrategyState) => s.pbrManual ?? '');
+  const setProfile = useStrategyStore((s: StrategyState) => s.setProfile);
 
   const handleIsListedChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
