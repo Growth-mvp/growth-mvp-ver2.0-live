@@ -4,7 +4,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { on } from '@/utils/actionBus';
 import { useUserStore } from '@/store/userStore';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import AbstractCoachAvatar from '@/components/AbstractCoachAvatar';
 import { supabase } from '@/utils/supabase/client';
 import { ensureStrategyId } from '@/utils/strategyBootstrap';
@@ -31,7 +31,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   const { user } = useUserStore();
 
   // === Strategy Store ===
-  const strategyId = useStrategyStore((s) => s.strategyId);
+  const strategyId = useStrategyStore((s: StrategyState) => s.strategyId);
   const setStrategyIdRef = useRef(useStrategyStore.getState().setStrategyId);
   useEffect(() => {
     setStrategyIdRef.current = useStrategyStore.getState().setStrategyId;
