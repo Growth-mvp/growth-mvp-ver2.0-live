@@ -3,7 +3,7 @@
 
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import type { MutableRefObject } from 'react';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import type { FinancePLRow, FinanceBSRow } from '@/types/strategy';
 
 /* ===============================
@@ -892,22 +892,22 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
   }, [editingCell, focusedCell]);
 
   // 全社データ
-  const financePL = useStrategyStore((s) => s.financePL ?? []);
-  const financeBS = useStrategyStore((s) => s.financeBS ?? []);
-  const segmentPL = useStrategyStore((s) => s.segmentPL ?? {});
-  const segmentBS = useStrategyStore((s) => s.segmentBS ?? {});
+  const financePL = useStrategyStore((s: StrategyState) => s.financePL ?? []);
+  const financeBS = useStrategyStore((s: StrategyState) => s.financeBS ?? []);
+  const segmentPL = useStrategyStore((s: StrategyState) => s.segmentPL ?? {});
+  const segmentBS = useStrategyStore((s: StrategyState) => s.segmentBS ?? {});
 
   // Actions
-  const addFinanceYear = useStrategyStore((s) => s.addFinanceYear);
-  const renameFinanceYear = useStrategyStore((s) => s.renameFinanceYear);
-  const removeFinanceYear = useStrategyStore((s) => s.removeFinanceYear);
-  const setFinancePL = useStrategyStore((s) => s.setFinancePL);
-  const setFinanceBS = useStrategyStore((s) => s.setFinanceBS);
-  const addSegmentFinanceYear = useStrategyStore((s) => s.addSegmentFinanceYear);
-  const renameSegmentFinanceYear = useStrategyStore((s) => s.renameSegmentFinanceYear);
-  const removeSegmentFinanceYear = useStrategyStore((s) => s.removeSegmentFinanceYear);
-  const upsertSegmentPL = useStrategyStore((s) => s.upsertSegmentPL);
-  const upsertSegmentBS = useStrategyStore((s) => s.upsertSegmentBS);
+  const addFinanceYear = useStrategyStore((s: StrategyState) => s.addFinanceYear);
+  const renameFinanceYear = useStrategyStore((s: StrategyState) => s.renameFinanceYear);
+  const removeFinanceYear = useStrategyStore((s: StrategyState) => s.removeFinanceYear);
+  const setFinancePL = useStrategyStore((s: StrategyState) => s.setFinancePL);
+  const setFinanceBS = useStrategyStore((s: StrategyState) => s.setFinanceBS);
+  const addSegmentFinanceYear = useStrategyStore((s: StrategyState) => s.addSegmentFinanceYear);
+  const renameSegmentFinanceYear = useStrategyStore((s: StrategyState) => s.renameSegmentFinanceYear);
+  const removeSegmentFinanceYear = useStrategyStore((s: StrategyState) => s.removeSegmentFinanceYear);
+  const upsertSegmentPL = useStrategyStore((s: StrategyState) => s.upsertSegmentPL);
+  const upsertSegmentBS = useStrategyStore((s: StrategyState) => s.upsertSegmentBS);
 
   // データの参照/更新先を mode に応じて切り替え
   const plData = mode === 'company' ? financePL : (segmentName ? segmentPL[segmentName] ?? [] : []);
