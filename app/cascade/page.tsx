@@ -393,7 +393,7 @@ function computeKpiBridgeDataLocal({
       if (targetRevenue === null) {
         const isRevenueLabel = ['売上', 'revenue', 'sales', '営業収益'].some(k => lbl.includes(k.toLowerCase()));
         if (isRevenueLabel) {
-          const valNum = safeNum(pick(target, ['value', 'amount', 'target', 'high', 'base', 'low']));
+          const valNum = safeNum(pick(target, ['base']));
           if (valNum !== null) {
             targetRevenue = valNum;
           }
@@ -404,7 +404,7 @@ function computeKpiBridgeDataLocal({
       if (targetOpProfit === null) {
         const isOpLabel = ['営業利益', 'operating profit', 'op', 'opprofit'].some(k => lbl.includes(k.toLowerCase()));
         if (isOpLabel) {
-          const valNum = safeNum(pick(target, ['value', 'amount', 'target', 'high', 'base', 'low']));
+          const valNum = safeNum(pick(target, ['base']));
           if (valNum !== null) {
             targetOpProfit = valNum;
           }
