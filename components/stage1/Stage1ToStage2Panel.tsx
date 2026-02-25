@@ -1,7 +1,7 @@
 // /components/stage1/Stage1ToStage2Panel.tsx
 'use client';
 
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import IssueBlockPanel from './IssueBlockPanel';
 import Stage2Bridge from './Stage2Bridge';
 
@@ -11,7 +11,7 @@ import Stage2Bridge from './Stage2Bridge';
  * - 下部に Stage2Bridge（論点未選択なら disabled）
  */
 export default function Stage1ToStage2Panel() {
-  const stage1Issues = useStrategyStore((s) => s.stage1Issues ?? []);
+  const stage1Issues = useStrategyStore((s: StrategyState) => s.stage1Issues ?? []);
 
   // 論点が未選択の場合、遷移ボタン disabled
   const hasIssues = stage1Issues.length > 0;
