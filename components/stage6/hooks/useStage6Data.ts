@@ -11,7 +11,7 @@ import type {
   IssueResolution,
 } from '@/utils/stage6';
 
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useAccess } from '@/utils/access';
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
@@ -45,23 +45,23 @@ const EMPTY_ARR: ReadonlyArray<never> = Object.freeze([]);
  */
 export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
   // ===== Store selectors =====
-  const companyName = useStrategyStore((s) => s.companyName ?? '会社名未設定');
-  const departments = useStrategyStore((s) =>
+  const companyName = useStrategyStore((s: StrategyState) => s.companyName ?? '会社名未設定');
+  const departments = useStrategyStore((s: StrategyState) =>
     Array.isArray(s.departments) ? s.departments : (EMPTY_ARR as any),
   ) as Department[];
-  const financePL = useStrategyStore((s) => (Array.isArray(s.financePL) ? s.financePL : (EMPTY_ARR as any)));
-  const csvFinanceData = useStrategyStore((s) => s.csvFinanceData ?? (EMPTY_OBJ as any));
-  const revision = useStrategyStore((s) => s.revision);
-  const boot = useStrategyStore((s) => s.boot);
-  const companyTargets = useStrategyStore((s) => (Array.isArray(s.companyTargets) ? s.companyTargets : (EMPTY_ARR as any)));
-  const stage1Issues = useStrategyStore((s) => (Array.isArray(s.stage1Issues) ? s.stage1Issues : (EMPTY_ARR as any)));
-  const valueAnalysis = useStrategyStore((s) => s.valueAnalysis);
+  const financePL = useStrategyStore((s: StrategyState) => (Array.isArray(s.financePL) ? s.financePL : (EMPTY_ARR as any)));
+  const csvFinanceData = useStrategyStore((s: StrategyState) => s.csvFinanceData ?? (EMPTY_OBJ as any));
+  const revision = useStrategyStore((s: StrategyState) => s.revision);
+  const boot = useStrategyStore((s: StrategyState) => s.boot);
+  const companyTargets = useStrategyStore((s: StrategyState) => (Array.isArray(s.companyTargets) ? s.companyTargets : (EMPTY_ARR as any)));
+  const stage1Issues = useStrategyStore((s: StrategyState) => (Array.isArray(s.stage1Issues) ? s.stage1Issues : (EMPTY_ARR as any)));
+  const valueAnalysis = useStrategyStore((s: StrategyState) => s.valueAnalysis);
 
   // === STAGE6 Phase E：プロジェクト→North Star / 論点リンク ===
-  const projectTargetImpacts = useStrategyStore((s) =>
+  const projectTargetImpacts = useStrategyStore((s: StrategyState) =>
     Array.isArray(s.projectTargetImpacts) ? s.projectTargetImpacts : (EMPTY_ARR as any)
   );
-  const projectIssueLinks = useStrategyStore((s) =>
+  const projectIssueLinks = useStrategyStore((s: StrategyState) =>
     Array.isArray(s.projectIssueLinks) ? s.projectIssueLinks : (EMPTY_ARR as any)
   );
 
