@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 
 /**
  * SaveStatusIndicator (Apple Minimal Save Status)
@@ -14,9 +14,9 @@ import { useStrategyStore } from '@/store/strategyStore';
  * No icon, no animation, no fixed positioning, no z-index changes, logic unchanged
  */
 export default function SaveStatusIndicator() {
-  const isSaving = useStrategyStore((s) => s.boot?.isSaving ?? false);
-  const lastSavedAt = useStrategyStore((s) => s.lastSavedAt);
-  const saveError = useStrategyStore((s) => s.saveError);
+  const isSaving = useStrategyStore((s: StrategyState) => s.boot?.isSaving ?? false);
+  const lastSavedAt = useStrategyStore((s: StrategyState) => s.lastSavedAt);
+  const saveError = useStrategyStore((s: StrategyState) => s.saveError);
 
   const [displayTime, setDisplayTime] = useState<string>('');
 
