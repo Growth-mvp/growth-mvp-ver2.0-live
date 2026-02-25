@@ -195,6 +195,35 @@ const escapeHtml = (s: string) =>
 
 const nl2brSafe = (s?: string) => (s ? escapeHtml(s).replace(/\r?\n/g, '<br>') : '');
 
+// 部門名プレフィックスを表示・保存の両方で除去（例：「営業部：◯◯」「営業部 - ◯◯」）
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const stripDeptPrefix = (text: string, deptName: string) => {
+  const t = String(text ?? '');
+  const dn = String(deptName ?? '').trim();
+  if (!dn) return t.trim();
+  const re = new RegExp(`^\\s*${escapeRegExp(dn)}\\s*[：:｜|\-–—]\\s*`);
+  return t.replace(re, '').trim();
+};
+
+const stripDeptPrefixDeep = <T,>(input: T, deptName: string): T => {
+  const walk = (v: unknown): unknown => {
+    if (typeof v === 'string') return stripDeptPrefix(v, deptName);
+    if (Array.isArray(v)) return v.map((x) => walk(x));
+    if (v && typeof v === 'object') {
+      const obj = v as Record<string, unknown>;
+      const out: Record<string, unknown> = {};
+      for (const [k, val] of Object.entries(obj)) {
+        // key 自体が部門名で始まるケースにも対処（稀）
+        const nk = typeof k === 'string' ? stripDeptPrefix(k, deptName) : k;
+        out[nk] = walk(val);
+      }
+      return out;
+    }
+    return v;
+  };
+  return walk(input) as T;
+};
+
 /* ==========================================
    KPI ラベル抽出ユーティリティ
 ========================================== */
@@ -1209,7 +1238,7 @@ const VisualCard = memo(function VisualCard({ d }: { d: Department }) {
               const krs = getProjectKpiLabels(p);
 
               // ★ UI表示用：[AI#N] prefix を削除（内部的には title に保持）
-              const displayTitle = (p.title ?? '').replace(/^\[AI#\d+\]\s*/i, '') || '無題のプロジェクト';
+              const displayTitle = stripDeptPrefix((p.title ?? '').replace(/^\[AI#\d+\]\s*/i, ''), d.name) || '無題のプロジェクト';
 
               return (
                 <li key={i} className="rounded-2xl border bg-white/80 px-3 py-2">
@@ -1228,11 +1257,11 @@ const VisualCard = memo(function VisualCard({ d }: { d: Department }) {
                     </div>
                   )}
 
-                  {okr?.objective && <div className="mt-2 text-xs text-zinc-700">目標：{toDisplayText(okr.objective)}</div>}
+                  {okr?.objective && <div className="mt-2 text-xs text-zinc-700">目標：{toDisplayText(stripDeptPrefix(okr.objective, d.name))}</div>}
                   {krs.length > 0 && (
                     <ul className="mt-1 pl-4 space-y-1 list-disc text-xs text-zinc-700">
                       {krs.slice(0, 3).map((kr, idx) => (
-                        <li key={idx}>{toDisplayText(kr)}</li>
+                        <li key={idx}>{toDisplayText(stripDeptPrefix(kr, d.name))}</li>
                       ))}
                     </ul>
                   )}
@@ -1276,6 +1305,7 @@ export default function CascadePage() {
   const story = useStrategyStore((st: any) => st.story);
   const finalStory = useStrategyStore((st: any) => st.finalStory);
   const departments = useStrategyStore((st: any) => st.departments);
+  const strategyId = useStrategyStore((st: any) => st.strategyId);
 
   const industry = useStrategyStore((st: any) => st.industry);
   const company = useStrategyStore((st: any) => st.company);
@@ -1629,6 +1659,37 @@ export default function CascadePage() {
   const laneCacheRef = useRef<Record<string, { existing?: ApiLane; new?: ApiLane }>>({});
   const [showLaneDetail, setShowLaneDetail] = useState<Record<string, boolean>>({});
 
+// ★ lanes 内訳は store/DB に保存しない（既存方針維持）。ただしUI上はリロードで消えると困るため、
+// sessionStorage に一時退避して復元します（同一ブラウザ/タブ内での再読み込みに耐える）。
+const laneCacheKey = useMemo(
+  () => `cascade_lane_cache:${strategyId ?? accessCompanyId ?? 'na'}`,
+  [strategyId, accessCompanyId],
+);
+
+const persistLaneCache = useCallback(() => {
+  try {
+    if (typeof window === 'undefined') return;
+    sessionStorage.setItem(laneCacheKey, JSON.stringify(laneCacheRef.current ?? {}));
+  } catch {
+    // ignore
+  }
+}, [laneCacheKey]);
+
+useEffect(() => {
+  try {
+    if (typeof window === 'undefined') return;
+    const raw = sessionStorage.getItem(laneCacheKey);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      laneCacheRef.current = parsed;
+    }
+  } catch {
+    // ignore
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [laneCacheKey]);
+
   /* ===== 部門配列更新ヘルパー ===== */
   const pushToStore = useCallback(
     (next: Department[] | ((prev: Department[]) => Department[])) => {
@@ -1811,6 +1872,7 @@ export default function CascadePage() {
       const copy = { ...laneCacheRef.current };
       delete copy[target.name];
       laneCacheRef.current = copy;
+      persistLaneCache();
     } catch {
       // ignore
     }
@@ -1967,18 +2029,24 @@ export default function CascadePage() {
       }
 
 
+      // ★ 表示/保存の両方で「部門名：」プレフィックスを除去（冗長な接頭辞を抑制）
+      const cleanedRd = stripDeptPrefixDeep(rd, dept.name) as ApiDeptDraft;
+
       // レーンキャッシュ（OKRは一切変更しない）
-      if (rd?.lanes?.existing || rd?.lanes?.new) {
-        laneCacheRef.current[dept.name] = { existing: rd.lanes?.existing, new: rd.lanes?.new };
+      if (cleanedRd?.lanes?.existing || cleanedRd?.lanes?.new) {
+        laneCacheRef.current[dept.name] = { existing: cleanedRd.lanes?.existing, new: cleanedRd.lanes?.new };
       } else {
-        if (Array.isArray(rd.projects)) {
+        if (Array.isArray(cleanedRd.projects)) {
           laneCacheRef.current[dept.name] = {
             existing: {
-              projects: Array.isArray(rd.projects) ? rd.projects : [],
+              projects: Array.isArray(cleanedRd.projects) ? cleanedRd.projects : [],
             },
           };
         }
       }
+
+      // ★ lane cache をリロードに耐えるよう sessionStorage へ退避
+      persistLaneCache();
 
       pushToStore((prev) => {
         const list = [...prev];
@@ -1989,8 +2057,8 @@ export default function CascadePage() {
         const patch: Partial<Department> = {};
 
         // ★ FIXED: mission / missionDescription 統一（strategy/missionDraft は使わない）
-        const missionDraft = (rd.missionDraft ?? '').trim();
-        const missionDescription = (rd.missionDescription ?? '').trim();
+        const missionDraft = (cleanedRd.missionDraft ?? '').trim();
+        const missionDescription = (cleanedRd.missionDescription ?? '').trim();
 
         if (missionDraft && !jsonEq(missionDraft, d.mission)) {
           patch.mission = missionDraft;
@@ -2017,9 +2085,9 @@ export default function CascadePage() {
           patch.lanes = newLanes;
         }
 
-        if (rd.needsCollab) (patch as any).needsCollab = rd.needsCollab;
-        if (rd.stopList) (patch as any).stopList = rd.stopList;
-        if (rd.riskNotes) (patch as any).riskNotes = rd.riskNotes;
+        if (cleanedRd.needsCollab) (patch as any).needsCollab = cleanedRd.needsCollab;
+        if (cleanedRd.stopList) (patch as any).stopList = cleanedRd.stopList;
+        if (cleanedRd.riskNotes) (patch as any).riskNotes = cleanedRd.riskNotes;
 
         if (Object.keys(patch).length > 0) list[index] = { ...d, ...patch } as Department;
 
@@ -2064,7 +2132,7 @@ export default function CascadePage() {
   /* map内 hooks 回避のためのメモ */
   const answersMemo: DeptAnswerStep[][] = useMemo(() => departments.map((d: Department) => toDeptAnswers(d.answers2?.[0]?.steps)), [departments]);
   const projectsMemo: string[][] = useMemo(
-    () => departments.map((d: Department) => ((d.projects as Project[] | undefined) ?? []).map((p) => p.title)),
+    () => departments.map((d: Department) => ((d.projects as Project[] | undefined) ?? []).map((p) => stripDeptPrefix(p.title, d.name))),
     [departments],
   );
 
@@ -2230,6 +2298,9 @@ export default function CascadePage() {
             const exCount = lane?.existing?.projects?.length ?? 0;
             const newCount = lane?.new?.projects?.length ?? 0;
 
+            const answeredCount = (answers ?? []).filter((a) => (a?.answer ?? '').toString().trim().length > 0).length;
+            const allQuestionsAnswered = answeredCount >= 6;
+
             // ★STAGE3軽量化：lanes が存在する場合は lanes から、なければ dept.projects を使用（重複防止）
             const deptProjects = (() => {
               if (lane?.existing?.projects?.length || lane?.new?.projects?.length) {
@@ -2249,114 +2320,129 @@ export default function CascadePage() {
 
             return (
               <div key={`e-${dept.name}-${index}`} className="p-6 border rounded-3xl bg-white/70 backdrop-blur-sm shadow-sm">
-                <div className="flex justify-between items-center mb-3">
-                  <h3 className="font-semibold text-zinc-900 flex items-center gap-2">
-                    <Building2 className="w-4 h-4" /> {dept.name}
-                  </h3>
-                  <div className="flex items-center gap-2">
-                    {dept.finalized && <span className="text-xs bg-zinc-900 text-white rounded-full px-2 py-1">確定済み</span>}
-                    {canEditCompany && (
-                      <Button
-                        variant="outline"
-                        className="h-8 px-3 rounded-full border-red-500 text-red-600 hover:bg-red-50 flex items-center gap-1"
-                        disabled={isHydrating}
-                        onClick={() => handleDeleteDepartment(index)}
-                        title="この部門を削除"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        <span className="text-xs">削除</span>
-                      </Button>
-                    )}
-                  </div>
-                </div>
+                
+<div className="mb-4">
+  <div className="flex items-start justify-between gap-3">
+    {/* left: dept name + actions */}
+    <div className="min-w-0">
+      <h3 className="font-semibold text-zinc-900 flex items-center gap-2">
+        <Building2 className="w-4 h-4" /> {dept.name}
+      </h3>
 
-                <textarea
-                  value={inlineDraft}
-                  onChange={(e) => {
-                    // ★ FIXED: inlineEdit に一時保存（UIの即時反応用）
-                    setInlineEdit((p) => ({ ...p, [index]: e.target.value }));
-                    // ★ FIXED: 同時に store に直接書き込み（保存経路統一）
-                    if (!editableDept || isHydrating) return;
-                    pushToStore((prev) => {
-                      const list = [...prev];
-                      const d = list[index];
-                      if (d) d.mission = e.target.value;
-                      return list;
-                    });
-                  }}
-                  className="w-full border rounded-xl p-2 mb-2 text-sm"
-                  readOnly={!editableDept || isHydrating}
-                  placeholder="この部門の役割やミッションのイメージを記入してください（AIたたき台の修正もここで行います）"
-                />
+      {/* ✅ 部門名の直下に「AI生成」＋「生成内訳」 */}
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Button
+          variant="outline"
+          onClick={() => handleDeptCascadeDraft(index)}
+          disabled={!editableDept || !!L.deptDraft || isHydrating}
+          className="rounded-full h-9 px-4"
+          title="この部門のミッション・プロジェクト案・KPI案をAIが提案します（2レーン対応）"
+        >
+          <Sparkles className="w-4 h-4 mr-1" />
+          {L.deptDraft ? 'たたき台を生成中…' : 'AIでこの部門のたたき台（ミッション・プロジェクト・KPI案）'}
+        </Button>
 
-                <div className="flex flex-wrap gap-2 mb-1">
-                  <Button
-                    variant="outline"
-                    onClick={() => handleDeptCascadeDraft(index)}
-                    disabled={!editableDept || !!L.deptDraft || isHydrating}
-                    className="rounded-full h-9 px-4"
-                    title="この部門のミッション・プロジェクト案・KPI案をAIが提案します（2レーン対応）"
-                  >
-                    <Sparkles className="w-4 h-4 mr-1" />
-                    {L.deptDraft ? 'たたき台を生成中…' : 'AIでこの部門のたたき台（ミッション・プロジェクト・KPI案）'}
-                  </Button>
+        {(exCount > 0 || newCount > 0) && (
+          <Button
+            variant="outline"
+            className="rounded-full h-9 px-4"
+            disabled={isHydrating}
+            onClick={() => setShowLaneDetail((p) => ({ ...p, [dept.name]: !p[dept.name] }))}
+            title="AI生成の内訳（既存進化／新規探索）を表示します"
+          >
+            {laneOpen ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />}
+            生成内訳（既存{exCount} / 新規{newCount}）
+          </Button>
+        )}
+      </div>
+    </div>
 
-                  {(exCount > 0 || newCount > 0) && (
-                    <Button
-                      variant="outline"
-                      className="rounded-full h-9 px-4"
-                      disabled={isHydrating}
-                      onClick={() => setShowLaneDetail((p) => ({ ...p, [dept.name]: !p[dept.name] }))}
-                      title="AI生成の内訳（既存進化／新規探索）を表示します"
-                    >
-                      {laneOpen ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />}
-                      生成内訳（既存{exCount} / 新規{newCount}）
-                    </Button>
-                  )}
-                </div>
+    {/* right: status + delete */}
+    <div className="flex items-center gap-2 shrink-0">
+      {dept.finalized && <span className="text-xs bg-zinc-900 text-white rounded-full px-2 py-1">確定済み</span>}
+      {canEditCompany && (
+        <Button
+          variant="outline"
+          className="h-8 px-3 rounded-full border-red-500 text-red-600 hover:bg-red-50 flex items-center gap-1"
+          disabled={isHydrating}
+          onClick={() => handleDeleteDepartment(index)}
+          title="この部門を削除"
+        >
+          <Trash2 className="w-4 h-4" />
+          <span className="text-xs">削除</span>
+        </Button>
+      )}
+    </div>
+  </div>
 
-                {/* ★ CRITICAL: deptId ベースで store から最新の department を毎回取得 */}
-                {(() => {
-                  const storeState = useStrategyStore.getState();
-                  const deptFromStore = storeState.departments?.find(
-                    (d: Department) => (dept?.id ? d.id === dept.id : d.name === dept?.name)
-                  );
-                  const currentMissionDesc = deptFromStore?.missionDescription ?? '';
+  {/* ✅ ミッション */}
+  <div className="mt-4">
+    <div className="text-[11px] font-semibold text-zinc-600 mb-1">ミッション</div>
+    <textarea
+      value={inlineDraft}
+      onChange={(e) => {
+        // ★ FIXED: inlineEdit に一時保存（UIの即時反応用）
+        setInlineEdit((p) => ({ ...p, [index]: e.target.value }));
+        // ★ FIXED: 同時に store に直接書き込み（保存経路統一）
+        if (!editableDept || isHydrating) return;
+        pushToStore((prev) => {
+          const list = [...prev];
+          const d = list[index];
+          if (d) d.mission = e.target.value;
+          return list;
+        });
+      }}
+      className="w-full border rounded-xl p-2 text-sm"
+      readOnly={!editableDept || isHydrating}
+      placeholder="この部門の役割やミッションのイメージを記入してください（AIたたき台の修正もここで行います）"
+    />
+  </div>
 
-                  return (
-                    <>
-                      {/* missionDescription 入力欄 */}
-                      <textarea
-                        value={currentMissionDesc}
-                        onChange={(e) => {
-                          const v = e.target.value;
+  {/* ✅ ミッション説明 */}
+  <div className="mt-3">
+    <div className="text-[11px] font-semibold text-zinc-600 mb-1">ミッション説明</div>
 
-                          if (!editableDept || isHydrating) {
-                            return;
-                          }
+    {/* ★ CRITICAL: deptId ベースで store から最新の department を毎回取得 */}
+    {(() => {
+      const storeState = useStrategyStore.getState();
+      const deptFromStore = storeState.departments?.find(
+        (d: Department) => (dept?.id ? d.id === dept.id : d.name === dept?.name)
+      );
+      const currentMissionDesc = deptFromStore?.missionDescription ?? '';
 
-                          // deptId/name ベースで departments[] から該当部門を見つけて更新
-                          const storeState2 = useStrategyStore.getState();
-                          const idx = storeState2.departments?.findIndex(
-                            (d: Department) => (dept?.id ? d.id === dept.id : d.name === dept?.name)
-                          ) ?? -1;
+      return (
+        <textarea
+          value={currentMissionDesc}
+          onChange={(e) => {
+            const v = e.target.value;
 
-                          if (idx < 0) {
-                            return;
-                          }
+            if (!editableDept || isHydrating) {
+              return;
+            }
 
-                          const setDepartmentsInStore = useStrategyStore.getState().setDepartments;
-                          setDepartmentsInStore((storeState2.departments as Department[]).map((d, i) =>
-                            i === idx ? { ...d, missionDescription: v } : d
-                          ));
-                        }}
-                        className="w-full border rounded-xl p-2 mb-3 text-sm"
-                        readOnly={!editableDept || isHydrating}
-                        placeholder="入力してみてください"
-                      />
-                    </>
-                  );
-                })()}
+            // deptId/name ベースで departments[] から該当部門を見つけて更新
+            const storeState2 = useStrategyStore.getState();
+            const idx = storeState2.departments?.findIndex(
+              (d: Department) => (dept?.id ? d.id === dept.id : d.name === dept?.name)
+            ) ?? -1;
+
+            if (idx < 0) {
+              return;
+            }
+
+            const setDepartmentsInStore = useStrategyStore.getState().setDepartments;
+            setDepartmentsInStore((storeState2.departments as Department[]).map((d, i) =>
+              i === idx ? { ...d, missionDescription: v } : d
+            ));
+          }}
+          className="w-full border rounded-xl p-2 text-sm"
+          readOnly={!editableDept || isHydrating}
+          placeholder="この部門のミッションを、背景・狙い・顧客価値の観点で補足してください"
+        />
+      );
+    })()}
+  </div>
+</div>
 
                 {/* 価値指標（STAGE2）の表示 */}
                 {valueDriverKPIs.length > 0 && (
@@ -2391,7 +2477,7 @@ export default function CascadePage() {
                           <ul className="list-disc pl-5 space-y-1 text-xs text-zinc-700">
                             {(lane?.existing?.projects ?? []).map((p, i) => {
                               // ★ 参考表示でも [AI#N] を除去
-                              const displayTitle = (p?.title ?? '無題').toString().replace(/^\[AI#\d+\]\s*/i, '');
+                              const displayTitle = stripDeptPrefix((p?.title ?? '無題').toString().replace(/^\[AI#\d+\]\s*/i, ''), dept.name);
                               return (
                                 <li key={`ex-${dept.name}-${i}`}>
                                   {displayTitle}
@@ -2415,7 +2501,7 @@ export default function CascadePage() {
                           <ul className="list-disc pl-5 space-y-1 text-xs text-zinc-700">
                             {(lane?.new?.projects ?? []).map((p, i) => {
                               // ★ 参考表示でも [AI#N] を除去
-                              const displayTitle = (p?.title ?? '無題').toString().replace(/^\[AI#\d+\]\s*/i, '');
+                              const displayTitle = stripDeptPrefix((p?.title ?? '無題').toString().replace(/^\[AI#\d+\]\s*/i, ''), dept.name);
                               return (
                                 <li key={`new-${dept.name}-${i}`}>
                                   {displayTitle}
@@ -2460,52 +2546,23 @@ export default function CascadePage() {
                       return list;
                     });
                   }}
-                  onDraftGenerated={({ mission, projects, okrs }) => {
-                    if (isHydrating) return;
-
-                    pushToStore((prev) => {
-                      const list = [...prev];
-                      const d = list[index];
-                      if (!d) return prev;
-
-                      const patch: Partial<Department> = {};
-                      // ★ FIXED: mission フィールド統一
-                      if (mission && !jsonEq(mission, d.mission)) {
-                        patch.mission = mission;
-                      }
-                      if (projects?.length) {
-                        const projList: Project[] = projects.map((t) => ({
-                          title: t,
-                          okrs: [] as StoreOKR[],
-                          skillRequirements: { roleSkills: [], executionSkills: ['PM', '標準化', 'データ活用'] },
-                          humanInvestments: [],
-                        })) as any;
-                        if (!jsonEq(projList, d.projects)) patch.projects = projList;
-                      }
-                      if (okrs?.length) {
-                        const add: Project = {
-                          title: '初期KPI案',
-                          okrs: sanitizeOkrsForProject({ title: '初期KPI案' } as Project, [toStoreOKR(okrs[0])]),
-                          skillRequirements: { roleSkills: [], executionSkills: ['PM', '標準化', 'データ活用'] },
-                          humanInvestments: [],
-                        } as any;
-
-                        const baseProjects: Project[] =
-                          (patch.projects as Project[] | undefined) ?? ((d.projects as Project[] | undefined) ?? []);
-                        const merged: Project[] = [...baseProjects, add];
-
-                        if (!jsonEq(merged, d.projects)) patch.projects = merged;
-                      }
-                      const changed = Object.keys(patch).length > 0;
-                      if (!changed) return prev;
-
-                      list[index] = { ...d, ...patch } as Department;
-                      return list;
-                    });
-
-                    setNotice(`✅ ${dept.name} のたたき台を反映しました`);
-                  }}
                 />
+
+
+{editableDept && allQuestionsAnswered && (
+  <div className="mt-3 flex justify-end">
+    <Button
+      variant="outline"
+      onClick={() => handleDeptCascadeDraft(index)}
+      disabled={!editableDept || !!L.deptDraft || isHydrating}
+      className="rounded-full h-9 px-4"
+      title="6つの回答内容を反映して、ミッション・プロジェクト案・KPI案を再生成します"
+    >
+      <Sparkles className="w-4 h-4 mr-1" />
+      回答を反映して再生成
+    </Button>
+  </div>
+)}
 
                 {deptProjects && deptProjects.length > 0 && (
                   <div className="mt-5 border-t pt-4">
@@ -2544,7 +2601,7 @@ export default function CascadePage() {
                         const krs = getProjectKpiLabels(p);
 
                         // UI表示用：[AI#N] prefix を削除して表示（内部的には title に保持）
-                        const displayTitle = (p.title ?? '').replace(/^\[AI#\d+\]\s*/i, '');
+                        const displayTitle = stripDeptPrefix(((p.title ?? '').replace(/^\[AI#\d+\]\s*/i, '')), dept.name);
 
                         return (
                           <li key={`${dept.name}-proj-${pi}`} className="flex flex-col gap-2 rounded-2xl border px-3 py-2 bg-white/70">
@@ -2614,7 +2671,7 @@ export default function CascadePage() {
                               <div className="text-[11px] text-zinc-500 mb-1">目標（実現したい状態）</div>
                               <input
                                 className="w-full text-xs text-zinc-800 bg-white border border-zinc-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-400"
-                                value={toDisplayText(primaryObjective)}
+                                value={toDisplayText(stripDeptPrefix(primaryObjective, dept.name))}
                                 placeholder="例）このプロジェクトにより、狙う成果が再現性をもって出る状態を確立する"
                                 readOnly={!editableDept || isHydrating}
                                 onChange={(e) => {
@@ -2700,7 +2757,7 @@ export default function CascadePage() {
                                   <span className="text-[11px] text-zinc-400 whitespace-nowrap">指標{ki + 1}</span>
                                   <input
                                     className="flex-1 text-xs text-zinc-800 bg-white border border-zinc-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-400"
-                                    value={toDisplayText(kr)}
+                                    value={toDisplayText(stripDeptPrefix(kr, dept.name))}
                                     placeholder="例）成功条件を合意し、実行設計を確定する／主要指標の計測手段を確立する 等"
                                     readOnly={!editableDept || isHydrating}
                                     onChange={(e) => {
