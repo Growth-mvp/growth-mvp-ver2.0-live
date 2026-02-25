@@ -1094,7 +1094,7 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
     if (selected === null || !selectedProj || !selectedDept) return null;
 
     return (
-    <div>
+      <div>
 
         {/* 完了チェックバー */}
         <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 mb-6">
@@ -1121,7 +1121,7 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1fr_1.25fr]">
+        <div className="grid gap-6 grid-cols-[1.1fr_1.2fr_1.4fr]">
           {/* ========== Card 1: 目的（何のため？） ========== */}
           <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
             <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">目的（何のため？）</h2>
@@ -1748,11 +1748,11 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
       </div>
     </div>
   )}
-</div>
 
-{/* Investments Summary */}
+            </div>
 
-            <div className="mb-4 space-y-2">
+                {/* ========== Investments ========== */}
+                <div className="mb-4 space-y-2">
               <div className="flex items-center justify-between">
                 <label className="text-[11px] font-semibold text-zinc-700">投資（金額 or 人数）</label>
                 <div className="text-[11px] text-zinc-500">{(selectedProj.executionHumanInvestments || []).length}件</div>
@@ -2391,109 +2391,113 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
         </div>
       </div>
 
-      {/* main */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left: project list */}
-        <aside className="lg:col-span-2 rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="text-[13px] font-semibold text-zinc-900">プロジェクト一覧</div>
-            <div className="text-[11px] text-zinc-500">
-              {cascade.reduce((n, d) => n + ensureArray(d.projects).length, 0)}件
+      {/* STAGE4 作業エリア：ここだけ横スクロール */}
+      <div data-debug="okr-scrollwrap" className="overflow-x-auto overscroll-x-contain touch-pan-x pb-2">
+        <div className="min-w-[1520px]">
+          <div className="grid gap-6 grid-cols-[360px_1fr]">
+            {/* Left: project list */}
+            <aside className="w-[360px] rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-[13px] font-semibold text-zinc-900">プロジェクト一覧</div>
+              <div className="text-[11px] text-zinc-500">
+                {cascade.reduce((n, d) => n + ensureArray(d.projects).length, 0)}件
+              </div>
             </div>
-          </div>
 
-          <div className="space-y-4">
-            {cascade.map((dept, di) => {
-              const projs = ensureArray(dept.projects);
-              return (
-                <div key={deptKeyOf(dept)} className="rounded-2xl bg-zinc-50 p-3">
-                  <div className="flex items-center justify-between">
-                    <div className="min-w-0">
-                      <div className="truncate text-[12px] font-semibold text-zinc-900">{dept.name || `部門${di + 1}`}</div>
-                      <div className="text-[10px] text-zinc-500">{projs.length}件</div>
-                    </div>
-
-                    {canEditDept && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAddingProjectForDept((prev) => (prev === di ? null : di));
-                          setNewProjectTitle('');
-                        }}
-                        className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
-                      >
-                        <span className="inline-flex items-center gap-1">
-                          <Plus className="h-3.5 w-3.5" />
-                          追加
-                        </span>
-                      </button>
-                    )}
-                  </div>
-
-                  {addingProjectForDept === di && canEditDept && (
-                    <div className="mt-2 rounded-xl border border-dashed border-zinc-200 bg-white p-2">
-                      <div className="flex gap-2">
-                        <input
-                          className="h-9 flex-1 rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
-                          placeholder="新しいプロジェクト名"
-                          value={newProjectTitle}
-                          onChange={(e) => setNewProjectTitle(e.target.value)}
-                        />
-                        <button
-                          type="button"
-                          className="h-9 rounded-lg bg-zinc-900 px-3 text-[12px] font-semibold text-white disabled:opacity-50"
-                          disabled={!newProjectTitle.trim()}
-                          onClick={() => addProjectToDepartment(di)}
-                        >
-                          追加
-                        </button>
+            <div className="space-y-4">
+              {cascade.map((dept, di) => {
+                const projs = ensureArray(dept.projects);
+                return (
+                  <div key={deptKeyOf(dept)} className="rounded-2xl bg-zinc-50 p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="min-w-0">
+                        <div className="truncate text-[12px] font-semibold text-zinc-900">{dept.name || `部門${di + 1}`}</div>
+                        <div className="text-[10px] text-zinc-500">{projs.length}件</div>
                       </div>
-                    </div>
-                  )}
 
-                  <div className="mt-2 space-y-1">
-                    {projs.map((p, pi) => {
-                      const isSel = selected?.deptIdx === di && selected?.projIdx === pi;
-                      return (
+                      {canEditDept && (
                         <button
-                          key={projKeyOf(p)}
                           type="button"
-                          onClick={() => setSelected({ deptIdx: di, projIdx: pi })}
-                          className={[
-                            'w-full rounded-xl border px-3 py-2 text-left text-[12px] transition',
-                            isSel
-                              ? 'border-zinc-900 bg-zinc-900 text-white'
-                              : 'border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50',
-                          ].join(' ')}
+                          onClick={() => {
+                            setAddingProjectForDept((prev) => (prev === di ? null : di));
+                            setNewProjectTitle('');
+                          }}
+                          className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
                         >
-                          <div className="truncate font-semibold">{(p as any).title || `プロジェクト${pi + 1}`}</div>
-                          <div className={['mt-0.5 text-[10px]', isSel ? 'text-zinc-200' : 'text-zinc-500'].join(' ')}>
-                            役割: {getRoleLabel((p as any).role)} / KPI: {ensureArray((p as any).okrsV2).length}件 / 投資:{' '}
-                            {ensureArray((p as any).executionHumanInvestments).length}件
-                          </div>
+                          <span className="inline-flex items-center gap-1">
+                            <Plus className="h-3.5 w-3.5" />
+                            追加
+                          </span>
                         </button>
-                      );
-                    })}
+                      )}
+                    </div>
 
-                    {projs.length === 0 && <div className="py-2 text-center text-[11px] text-zinc-500">まだプロジェクトがありません</div>}
+                    {addingProjectForDept === di && canEditDept && (
+                      <div className="mt-2 rounded-xl border border-dashed border-zinc-200 bg-white p-2">
+                        <div className="flex gap-2">
+                          <input
+                            className="h-9 flex-1 rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
+                            placeholder="新しいプロジェクト名"
+                            value={newProjectTitle}
+                            onChange={(e) => setNewProjectTitle(e.target.value)}
+                          />
+                          <button
+                            type="button"
+                            className="h-9 rounded-lg bg-zinc-900 px-3 text-[12px] font-semibold text-white disabled:opacity-50"
+                            disabled={!newProjectTitle.trim()}
+                            onClick={() => addProjectToDepartment(di)}
+                          >
+                            追加
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="mt-2 space-y-1">
+                      {projs.map((p, pi) => {
+                        const isSel = selected?.deptIdx === di && selected?.projIdx === pi;
+                        return (
+                          <button
+                            key={projKeyOf(p)}
+                            type="button"
+                            onClick={() => setSelected({ deptIdx: di, projIdx: pi })}
+                            className={[
+                              'w-full rounded-xl border px-3 py-2 text-left text-[12px] transition',
+                              isSel
+                                ? 'border-zinc-900 bg-zinc-900 text-white'
+                                : 'border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50',
+                            ].join(' ')}
+                          >
+                            <div className="truncate font-semibold">{(p as any).title || `プロジェクト${pi + 1}`}</div>
+                            <div className={['mt-0.5 text-[10px]', isSel ? 'text-zinc-200' : 'text-zinc-500'].join(' ')}>
+                              役割: {getRoleLabel((p as any).role)} / KPI: {ensureArray((p as any).okrsV2).length}件 / 投資:{' '}
+                              {ensureArray((p as any).executionHumanInvestments).length}件
+                            </div>
+                          </button>
+                        );
+                      })}
+
+                      {projs.length === 0 && <div className="py-2 text-center text-[11px] text-zinc-500">まだプロジェクトがありません</div>}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
           </div>
-        </aside>
+            </aside>
 
-        {/* Right */}
-        <section className="lg:col-span-10 min-h-[420px]">
-          {!selected || !selectedProj ? (
-            <div className="rounded-3xl border border-dashed border-zinc-300 bg-white p-10 text-center">
-              <div className="text-[14px] font-semibold text-zinc-900">プロジェクトを選択してください</div>
-              <div className="mt-2 text-[12px] text-zinc-600">左の一覧からプロジェクトをクリックすると、入力フォームが開きます。</div>
-            </div>
-          ) : (
-            renderSimpleRight()
-          )}
-        </section>
+            {/* Right: 3カラム（目的/KPI/実行計画） */}
+            <section className="min-h-[420px]">
+              {!selected || !selectedProj ? (
+                <div className="rounded-3xl border border-dashed border-zinc-300 bg-white p-10 text-center">
+                  <div className="text-[14px] font-semibold text-zinc-900">プロジェクトを選択してください</div>
+                  <div className="mt-2 text-[12px] text-zinc-600">左の一覧からプロジェクトをクリックすると、入力フォームが開きます。</div>
+                </div>
+              ) : (
+                renderSimpleRight()
+              )}
+            </section>
+          </div>
+        </div>
       </div>
     </div>
   </main>
