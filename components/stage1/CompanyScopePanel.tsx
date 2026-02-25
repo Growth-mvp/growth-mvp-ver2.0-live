@@ -2,12 +2,12 @@
 'use client';
 
 import { useMemo, useCallback } from 'react';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 
 export default function CompanyScopePanel() {
-  const companyName = useStrategyStore((s) => s.companyName ?? '');
-  const industry = useStrategyStore((s) => s.industry ?? '');
-  const setProfile = useStrategyStore((s) => s.setProfile);
+  const companyName = useStrategyStore((s: StrategyState) => s.companyName ?? '');
+  const industry = useStrategyStore((s: StrategyState) => s.industry ?? '');
+  const setProfile = useStrategyStore((s: StrategyState) => s.setProfile);
 
   const handleCompanyNameChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
