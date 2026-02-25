@@ -17,6 +17,7 @@ import Step5Confirm from '@/components/steps/Step5Confirm';
 import {
   useStrategyStore,
   refetchFromServer as refetchStrategy,
+  type StrategyState,
 } from '@/store/strategyStore';
 import { useAccess } from '@/utils/access';
 import { useUserStore } from '@/store/userStore';
@@ -80,10 +81,10 @@ export default function StrategyClient() {
   const meta = metas[step - 1];
 
   // ✅ 主要領域のみ subscribe（finalStory は autosave 対象から外す）
-  const story = useStrategyStore((s) => s.story);
-  const answers2 = useStrategyStore((s) => s.answers2);
-  const departments = useStrategyStore((s) => s.departments);
-  const setCompanyScope = useStrategyStore((s) => s.setCompanyScope);
+  const story = useStrategyStore((s: StrategyState) => s.story);
+  const answers2 = useStrategyStore((s: StrategyState) => s.answers2);
+  const departments = useStrategyStore((s: StrategyState) => s.departments);
+  const setCompanyScope = useStrategyStore((s: StrategyState) => s.setCompanyScope);
 
   const { canView, canEditCompany } = useAccess();
   const canEdit = canEditCompany();
