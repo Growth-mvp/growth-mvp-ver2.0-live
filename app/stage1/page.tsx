@@ -2,7 +2,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { restoreWithAudit } from '@/utils/persist/restoreWithAudit';
 import { useAutoSave } from '@/hooks/useAutoSave';
@@ -54,49 +54,49 @@ function safeKeysCount(v: unknown): number {
 
 export default function Stage1Page() {
   // ===== 保存導線（store側の名前揺れを許容） =====
-  const saveFn = useStrategyStore((s) =>
+  const saveFn = useStrategyStore((s: StrategyState) =>
     ((s as any).saveToSupabase ||
       (s as any).saveStrategyData ||
       (s as any).saveToServer ||
       (s as any).persistToSupabase) as ((src?: string) => Promise<any>) | undefined
   );
 
-  const strategyId = useStrategyStore((s) => (s as any).strategyId as string | undefined);
-  const revision = useStrategyStore((s) => (s as any).revision as number | undefined);
+  const strategyId = useStrategyStore((s: StrategyState) => (s as any).strategyId as string | undefined);
+  const revision = useStrategyStore((s: StrategyState) => (s as any).revision as number | undefined);
 
   // ===== 変更検知（オブジェクトを返すselectorを作らない） =====
-  const companyName = useStrategyStore((s) => ((s as any).companyName ?? '') as string);
-  const industry = useStrategyStore((s) => ((s as any).industry ?? '') as string);
+  const companyName = useStrategyStore((s: StrategyState) => ((s as any).companyName ?? '') as string);
+  const industry = useStrategyStore((s: StrategyState) => ((s as any).industry ?? '') as string);
 
-  const businessSegmentsCount = useStrategyStore((s) =>
+  const businessSegmentsCount = useStrategyStore((s: StrategyState) =>
     Array.isArray((s as any).businessSegments) ? (s as any).businessSegments.length : 0
   );
 
-  const financePLCount = useStrategyStore((s) =>
+  const financePLCount = useStrategyStore((s: StrategyState) =>
     Array.isArray((s as any).financePL) ? (s as any).financePL.length : 0
   );
-  const financeBSCount = useStrategyStore((s) =>
+  const financeBSCount = useStrategyStore((s: StrategyState) =>
     Array.isArray((s as any).financeBS) ? (s as any).financeBS.length : 0
   );
 
   // segmentPL/segmentBS は object の可能性が高いので「キー数」で差分検知
-  const segmentPLKeysCount = useStrategyStore((s) => safeKeysCount((s as any).segmentPL));
-  const segmentBSKeysCount = useStrategyStore((s) => safeKeysCount((s as any).segmentBS));
+  const segmentPLKeysCount = useStrategyStore((s: StrategyState) => safeKeysCount((s as any).segmentPL));
+  const segmentBSKeysCount = useStrategyStore((s: StrategyState) => safeKeysCount((s as any).segmentBS));
 
-  const issuesCount = useStrategyStore((s) =>
+  const issuesCount = useStrategyStore((s: StrategyState) =>
     Array.isArray((s as any).stage1Issues) ? (s as any).stage1Issues.length : 0
   );
 
   // （必要なら）financeSummaryの有無も差分検知
-  const financeSummaryCount = useStrategyStore((s) =>
+  const financeSummaryCount = useStrategyStore((s: StrategyState) =>
     Array.isArray((s as any).financeSummary) ? (s as any).financeSummary.length : 0
   );
 
   // ★ 修正：Stage1 上場情報・ベンチマーク・WACC を自動保存の監視対象に追加
-  const isListed = useStrategyStore((s) => (s as any).isListed ?? false);
-  const ticker = useStrategyStore((s) => ((s as any).ticker ?? '') as string);
-  const pbrManual = useStrategyStore((s) => ((s as any).pbrManual ?? '') as string);
-  const stage1BenchmarksKey = useStrategyStore((s) => {
+  const isListed = useStrategyStore((s: StrategyState) => (s as any).isListed ?? false);
+  const ticker = useStrategyStore((s: StrategyState) => ((s as any).ticker ?? '') as string);
+  const pbrManual = useStrategyStore((s: StrategyState) => ((s as any).pbrManual ?? '') as string);
+  const stage1BenchmarksKey = useStrategyStore((s: StrategyState) => {
     const benchmarks = (s as any).stage1Benchmarks;
     if (!benchmarks || typeof benchmarks !== 'object') return '';
     // stage1Benchmarks が変更されたことを検知するため、キー数 + waccManual の値で判定
@@ -107,7 +107,7 @@ export default function Stage1Page() {
   });
 
   // 開発用：ダミーデータ投入（存在する場合のみ）
-  const loadStage1DummyData = useStrategyStore((s) => (s as any).loadStage1DummyData as (() => void) | undefined);
+  const loadStage1DummyData = useStrategyStore((s: StrategyState) => (s as any).loadStage1DummyData as (() => void) | undefined);
   const [dummyLoaded, setDummyLoaded] = useState(false);
 
   // ===== 復元関連（TASK 6: STAGE1 統合） =====
@@ -141,7 +141,7 @@ export default function Stage1Page() {
   const lastKeyRef = useRef<string>('');
 
   // ★ segmentPL/segmentBS のデータ値も含める（データ内容変更を検知するため）
-  const segmentPLDataHash = useStrategyStore((s) => {
+  const segmentPLDataHash = useStrategyStore((s: StrategyState) => {
     if (!s.segmentPL || typeof s.segmentPL !== 'object') return '';
     try {
       // 簡易ハッシュ：セグメント数 + 各セグメントの行数
@@ -154,7 +154,7 @@ export default function Stage1Page() {
     }
   });
 
-  const segmentBSDataHash = useStrategyStore((s) => {
+  const segmentBSDataHash = useStrategyStore((s: StrategyState) => {
     if (!s.segmentBS || typeof s.segmentBS !== 'object') return '';
     try {
       const hash = Object.entries((s as any).segmentBS)
