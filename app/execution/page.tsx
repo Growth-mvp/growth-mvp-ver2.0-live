@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { useStrategyStore } from '@/store/strategyStore';
+import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import SaveStatusIndicator from '@/components/SaveStatusIndicator';
 import ProjectCard from '@/components/execution/ProjectCard';
 import { saveProgressLog } from '@/utils/supabase/strategy';
