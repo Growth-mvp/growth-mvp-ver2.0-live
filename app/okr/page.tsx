@@ -1096,32 +1096,9 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
     return (
       <div>
 
-        {/* 完了チェックバー */}
-        <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 mb-6">
-          <div className="mb-2 text-[12px] font-semibold text-blue-900">必須項目の完了状況</div>
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2">
-              <span className={mainOKR?.objective ? 'text-emerald-600 font-semibold' : 'text-amber-600'}>
-                {mainOKR?.objective ? '✓' : '○'}
-              </span>
-              <span className="text-[12px]">目的（Objective）入力済み</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={committedOkrsV2.length > 0 ? 'text-emerald-600 font-semibold' : 'text-amber-600'}>
-                {committedOkrsV2.length > 0 ? '✓' : '○'}
-              </span>
-              <span className="text-[12px]">成果指標（KPI）1件以上</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={((selectedProj.executionHumanInvestments || []).some((inv: any) => Number.isFinite(inv.amount) || Number.isFinite(inv.headcount))) ? 'text-emerald-600 font-semibold' : 'text-amber-600'}>
-                {((selectedProj.executionHumanInvestments || []).some((inv: any) => Number.isFinite(inv.amount) || Number.isFinite(inv.headcount))) ? '✓' : '○'}
-              </span>
-              <span className="text-[12px]">投資（金額or人数）1件以上</span>
-            </div>
-          </div>
-        </div>
+        
 
-        <div className="grid gap-6 grid-cols-[1.1fr_1.2fr_1.4fr]">
+        <div className="grid gap-6 grid-cols-[1.2fr_1.2fr_1.2fr]">
           {/* ========== Card 1: 目的（何のため？） ========== */}
           <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
             <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">目的（何のため？）</h2>
@@ -2393,10 +2370,10 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
 
       {/* STAGE4 作業エリア：ここだけ横スクロール */}
       <div data-debug="okr-scrollwrap" className="overflow-x-auto overscroll-x-contain touch-pan-x pb-2">
-        <div className="min-w-[1520px]">
-          <div className="grid gap-6 grid-cols-[360px_1fr]">
+        <div className="min-w-[1600px]">
+          <div className="grid gap-6 grid-cols-[320px_1fr]">
             {/* Left: project list */}
-            <aside className="w-[360px] rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
+            <aside className="w-[320px] rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
             <div className="mb-3 flex items-center justify-between">
               <div className="text-[13px] font-semibold text-zinc-900">プロジェクト一覧</div>
               <div className="text-[11px] text-zinc-500">
