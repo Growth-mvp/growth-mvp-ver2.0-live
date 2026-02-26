@@ -70,6 +70,11 @@ export function TabNorthStar({
 
   return (
     <>
+      {/* 説明テキスト */}
+      <div className="mb-4 rounded-lg bg-blue-50 p-3 text-sm text-blue-800 border border-blue-200">
+        <strong>💡 自動推定について：</strong> STAGE4の計画を指標へ推定変換し、STAGE5の実行ログで確度補正しています（推定値は調整可能）
+      </div>
+
       {/* A. Company-wide transition */}
       {chartData && chartData.length > 0 && (
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
