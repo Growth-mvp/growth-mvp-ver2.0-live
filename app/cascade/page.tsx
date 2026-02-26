@@ -1918,11 +1918,38 @@ useEffect(() => {
     return Object.keys(out).length > 0 ? out : undefined;
   };
 
-  /* =========================
+  
+  // OKRのkeyResultsが string[] 期待のAPIに対して、Store側が構造化オブジェクトを持っていても送信時に string 化する
+  const krToText = (kr: any): string => {
+    if (typeof kr === 'string') return kr;
+    if (!kr || typeof kr !== 'object') return String(kr ?? '');
+    const cand =
+      (kr as any).text ??
+      (kr as any).title ??
+      (kr as any).label ??
+      (kr as any).name ??
+      (kr as any).kr ??
+      (kr as any).description ??
+      (kr as any).metric ??
+      (kr as any).value;
+    if (typeof cand === 'string') return cand;
+    try {
+      return JSON.stringify(kr);
+    } catch {
+      return String(cand ?? '');
+    }
+  };
+
+  const normalizeKeyResults = (krs: any[]): string[] => {
+    if (!Array.isArray(krs)) return [];
+    return krs.map(krToText).filter((x) => typeof x === 'string' && x.trim().length > 0);
+  };
+
+/* =========================
      この部門だけ：/api/generate-cascade を使ったたたき台生成（2レーン対応）
      ※この機能は「削除対象ではない」ため維持
   ========================= */
-  const handleDeptCascadeDraft = async (index: number) => {
+  const handleDeptCascadeDraft = async (index: number, mode: 'draft' | 'regen' = 'draft') => {
     const story = requireStoryOrWarn();
     if (!story) return;
     if (!canEditDept()) return setNotice('⚠️ 編集権限がありません');
@@ -1934,7 +1961,14 @@ useEffect(() => {
 
     // ★TASK A: 生成開始フラグをセット（保存抑止開始）
     setIsGenerating(true);
-    setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), deptDraft: true } }));
+    setLoading((p) => ({
+      ...p,
+      [index]: {
+        ...(p[index] || {}),
+        deptDraft: mode === 'draft',
+        deptRegen: mode === 'regen',
+      },
+    }));
 
     try {
       const payload: any = {
@@ -1963,7 +1997,7 @@ useEffect(() => {
                 .flatMap((p) => (p.okrs ?? []) as StoreOKR[])
                 .map((o) => ({
                   objective: o.objective ?? '',
-                  keyResults: (o.keyResults ?? []).slice(),
+                  keyResults: normalizeKeyResults(o.keyResults ?? []),
                   owner: o.owner ?? '',
                   expectedImpactYen: typeof o.expectedImpactYen === 'number' ? o.expectedImpactYen : undefined,
                   probability: typeof o.probability === 'number' ? o.probability : undefined,
@@ -2113,7 +2147,14 @@ useEffect(() => {
     } finally {
       // ★TASK A: 生成完了（保存抑止解除）
       setIsGenerating(false);
-      setLoading((p) => ({ ...p, [index]: { ...(p[index] || {}), deptDraft: false } }));
+      setLoading((p) => ({
+        ...p,
+        [index]: {
+          ...(p[index] || {}),
+          deptDraft: false,
+          deptRegen: false,
+        },
+      }));
     }
   };
 
@@ -2190,7 +2231,7 @@ useEffect(() => {
         <div className="flex gap-2 justify-end flex-wrap">
           <Button
             variant="outline"
-            className="rounded-full h-9 px-4"
+            className="rounded-full h-10 px-5 bg-zinc-900 text-white hover:bg-zinc-800 shadow-sm"
             disabled={isHydrating}
             onClick={async () => {
               if (!saveNow) return;
@@ -2208,7 +2249,7 @@ useEffect(() => {
           </Button>
 
           {canEditCompany && (
-            <Button onClick={() => setShowForm((v) => !v)} className="rounded-full h-9 px-4" disabled={isHydrating}>
+            <Button onClick={() => setShowForm((v) => !v)} className="rounded-full h-10 px-5 border border-zinc-300 bg-white hover:bg-zinc-50 shadow-sm" disabled={isHydrating}>
               <PlusCircle className="w-4 h-4 mr-1" />
               {showForm ? '閉じる' : '部門を追加'}
             </Button>
@@ -2333,8 +2374,8 @@ useEffect(() => {
       <div className="mt-2 flex flex-wrap gap-2">
         <Button
           variant="outline"
-          onClick={() => handleDeptCascadeDraft(index)}
-          disabled={!editableDept || !!L.deptDraft || isHydrating}
+          onClick={() => handleDeptCascadeDraft(index, 'draft')}
+          disabled={!editableDept || !!L.deptDraft || !!L.deptRegen || isHydrating}
           className="rounded-full h-9 px-4"
           title="この部門のミッション・プロジェクト案・KPI案をAIが提案します（2レーン対応）"
         >
@@ -2550,28 +2591,23 @@ useEffect(() => {
 
 
 {editableDept && allQuestionsAnswered && (
-  <div className="mt-3 flex justify-end">
+  <div className="mt-3 flex justify-start">
     <Button
       variant="outline"
-      onClick={() => handleDeptCascadeDraft(index)}
-      disabled={!editableDept || !!L.deptDraft || isHydrating}
+      onClick={() => handleDeptCascadeDraft(index, 'regen')}
+      disabled={!editableDept || !!L.deptDraft || !!L.deptRegen || isHydrating}
       className="rounded-full h-9 px-4"
       title="6つの回答内容を反映して、ミッション・プロジェクト案・KPI案を再生成します"
     >
       <Sparkles className="w-4 h-4 mr-1" />
-      回答を反映して再生成
+      {L.deptRegen ? '回答を反映して再生成中…' : '回答を反映して再生成'}
     </Button>
   </div>
 )}
 
                 {deptProjects && deptProjects.length > 0 && (
                   <div className="mt-5 border-t pt-4">
-                    {deptMissionText && (
-                      <div className="mb-3 rounded-2xl border bg-zinc-50 px-3 py-2">
-                        <div className="text-[11px] text-zinc-500 mb-1">この部門のミッション</div>
-                        <div className="text-sm text-zinc-800 whitespace-pre-wrap">{deptMissionText}</div>
-                      </div>
-                    )}
+                    
 
                     <div className="flex items-center justify-between mb-2 gap-2">
                       <h4 className="text-sm font-semibold text-zinc-800">プロジェクト案とKPI案</h4>
