@@ -49,6 +49,11 @@ export function TabValue({
   const [expandedIssue, setExpandedIssue] = useState<string | null>(null);
   return (
     <>
+      {/* 説明テキスト */}
+      <div className="mb-4 rounded-lg bg-blue-50 p-3 text-sm text-blue-800 border border-blue-200">
+        <strong>💡 自動推定について：</strong> 論点とプロジェクトの関連を自動推定し、進捗で解決度を更新します（必要に応じて調整可能）
+      </div>
+
       {/* A. Key performance indicators */}
       {indicatorSeries && (indicatorSeries.growth.length > 0 || indicatorSeries.margin.length > 0) && (
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
