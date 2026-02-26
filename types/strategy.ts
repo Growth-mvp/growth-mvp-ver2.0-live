@@ -916,6 +916,15 @@ export type ProjectTargetImpact = {
 
   /** 根拠メモ（任意） */
   notes?: string;
+
+  /** ★STAGE6拡張：自動推定vs手動入力の識別 */
+  source?: 'auto' | 'manual';
+
+  /** ★STAGE6拡張：手動ロック（上書き禁止） */
+  locked?: boolean;
+
+  /** ★STAGE6拡張：推定の信頼度（0..1） */
+  confidence?: number;
 };
 
 /* =========================================================
@@ -933,6 +942,15 @@ export type ProjectIssueLink = {
 
   /** 根拠メモ（任意） */
   notes?: string;
+
+  /** ★STAGE6拡張：自動推定vs手動入力の識別 */
+  source?: 'auto' | 'manual';
+
+  /** ★STAGE6拡張：手動ロック（上書き禁止） */
+  locked?: boolean;
+
+  /** ★STAGE6拡張：推定の信頼度（0..1） */
+  confidence?: number;
 };
 
 /* =========================================================
