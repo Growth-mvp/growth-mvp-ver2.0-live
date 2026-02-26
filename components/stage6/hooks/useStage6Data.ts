@@ -31,6 +31,12 @@ import {
   normalizeValueToUnit,
 } from '@/utils/stage6';
 import { calcYearlyFromKrs } from '@/utils/stage6/compute';
+import {
+  inferAutoProjectTargetImpacts,
+  mergeImpacts,
+  inferAutoProjectIssueLinks,
+  mergeLinks,
+} from '@/utils/stage6/autoLinking';
 
 const DEBUG = process.env.NODE_ENV === 'development' && !!process.env.NEXT_PUBLIC_DEBUG_STAGE6;
 
@@ -418,6 +424,121 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     return map;
   }, [projectContrib]);
 
+  // === STAGE6 Phase E：AUTO推定（projectTargetImpacts） ===
+  const autoProjectTargetImpacts = useMemo(() => {
+    if (!isReady || allProjectKeys.length === 0 || companyTargets.length === 0) {
+      return [] as any;
+    }
+
+    // ★入力ログ（ゼロ件特定用）
+    if (DEBUG) {
+      const krsEntries = Array.from(core.projectKrsMap.entries()).slice(0, 3).map(([k, v]) => ({
+        key: k,
+        krsLen: v?.length ?? 0,
+        sample: v?.[0] ? { kind: v[0].kind, label: v[0].label } : undefined,
+      }));
+      console.log('[STAGE6-AUTO-TARGET] 入力チェック:', {
+        scenarioKey,
+        companyTargets_len: companyTargets.length,
+        projectKeys_len: allProjectKeys.length,
+        projectKeys_sample: allProjectKeys.slice(0, 3),
+        projectKrsMap_size: core.projectKrsMap.size,
+        executionWeightsMap_size: executionWeightsMap.size,
+        projectKrsMap_samples: krsEntries,
+      });
+    }
+
+    const auto = inferAutoProjectTargetImpacts({
+      companyTargets,
+      projectKeys: allProjectKeys,
+      projectKrsMap: core.projectKrsMap,
+      executionWeightsMap,
+      scenarioKey,
+    });
+
+    if (DEBUG) {
+      console.log(`[STAGE6] AUTO targetImpacts: ${auto.length}件生成`);
+    }
+
+    return auto;
+  }, [isReady, allProjectKeys, companyTargets, core.projectKrsMap, executionWeightsMap, scenarioKey]);
+
+  // === STAGE6 Phase E：effectiveProjectTargetImpacts（manual + auto マージ） ===
+  const effectiveProjectTargetImpacts = useMemo(() => {
+    const manual = Array.isArray(projectTargetImpacts) ? projectTargetImpacts : [];
+    const auto = autoProjectTargetImpacts;
+
+    const effective = mergeImpacts({ manual, auto });
+
+    if (DEBUG) {
+      console.log(`[STAGE6] effectiveProjectTargetImpacts: manual=${manual.length}, auto=${auto.length}, merged=${effective.length}`);
+    }
+
+    return effective;
+  }, [projectTargetImpacts, autoProjectTargetImpacts]);
+
+  // === STAGE6 Phase E：AUTO推定（projectIssueLinks） ===
+  const autoProjectIssueLinks = useMemo(() => {
+    if (!isReady || allProjectKeys.length === 0 || stage1Issues.length === 0) {
+      return [] as any;
+    }
+
+    // ★入力ログ（ゼロ件特定用）
+    if (DEBUG) {
+      const krsEntries = Array.from(core.projectKrsMap.entries()).slice(0, 3).map(([k, v]) => ({
+        key: k,
+        krsLen: v?.length ?? 0,
+        sample: v?.[0] ? { kind: v[0].kind, label: v[0].label } : undefined,
+      }));
+      console.log('[STAGE6-AUTO-ISSUE] 入力チェック:', {
+        stage1Issues_len: stage1Issues.length,
+        stage1Issues_sample: stage1Issues.slice(0, 2).map((i) => i.title),
+        projectKeys_len: allProjectKeys.length,
+        projectKeys_sample: allProjectKeys.slice(0, 3),
+        projectKrsMap_size: core.projectKrsMap.size,
+        progressLogs_len: progressLogs?.length ?? 0,
+        executionWeightsMap_size: executionWeightsMap.size,
+        projectKrsMap_samples: krsEntries,
+      });
+    }
+
+    // projectDeptMap の作成（projectKey → {dept, proj}）
+    const projectDeptMap = new Map<string, { dept: string; proj: string }>();
+    core.approved.forEach((proj) => {
+      projectDeptMap.set(proj.key, { dept: proj.dept, proj: proj.proj });
+    });
+
+    const auto = inferAutoProjectIssueLinks({
+      stage1Issues,
+      companyTargets,
+      projectKeys: allProjectKeys,
+      projectKrsMap: core.projectKrsMap,
+      progressLogs,
+      executionWeightsMap,
+      projectDeptMap,
+    });
+
+    if (DEBUG) {
+      console.log(`[STAGE6] AUTO issueLinks: ${auto.length}件生成`);
+    }
+
+    return auto;
+  }, [isReady, allProjectKeys, stage1Issues, companyTargets, core.projectKrsMap, progressLogs, executionWeightsMap, core.approved]);
+
+  // === STAGE6 Phase E：effectiveProjectIssueLinks（manual + auto マージ） ===
+  const effectiveProjectIssueLinks = useMemo(() => {
+    const manual = Array.isArray(projectIssueLinks) ? projectIssueLinks : [];
+    const auto = autoProjectIssueLinks;
+
+    const effective = mergeLinks({ manual, auto });
+
+    if (DEBUG) {
+      console.log(`[STAGE6] effectiveProjectIssueLinks: manual=${manual.length}, auto=${auto.length}, merged=${effective.length}`);
+    }
+
+    return effective;
+  }, [projectIssueLinks, autoProjectIssueLinks]);
+
   // === G-1: Debug logging setup ===
   useEffect(() => {
     if (DEBUG && companyTargets.length > 0) {
@@ -624,12 +745,21 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       return row;
     });
 
-    // Step 3: Phase E で上書き（ハイブリッド：impact がある行だけ）
-    if (projectTargetImpacts.length > 0) {
+    // Step 3: Phase E で加算（ハイブリッド：impact がある行だけ）
+    // ★修正：ゼロチェック
+    const allZero = effectiveProjectTargetImpacts.every((i) => !i.delta || i.delta === 0);
+    if (allZero && effectiveProjectTargetImpacts.length > 0) {
+      if (DEBUG) {
+        console.log('[E-3] skip PhaseE: all deltas are zero');
+      }
+      return syncedRows;
+    }
+
+    if (effectiveProjectTargetImpacts.length > 0) {
       // ★Debug logging for Phase E calculation
       if (DEBUG) {
-        console.log(`[E-3] Phase E 計算開始: projectTargetImpacts=${projectTargetImpacts.length}件`);
-        const sampleImpacts = projectTargetImpacts.slice(0, 2);
+        console.log(`[E-3] Phase E 計算開始: effectiveProjectTargetImpacts=${effectiveProjectTargetImpacts.length}件`);
+        const sampleImpacts = effectiveProjectTargetImpacts.slice(0, 2);
         sampleImpacts.forEach((imp) => {
           const target = companyTargets.find((t) => t.id === imp.targetId);
           console.log(`  Impact: targetId=${imp.targetId}, delta=${imp.delta}, target.base=${target?.base}, target.unit=${target?.unit}`);
@@ -638,7 +768,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
 
       const phaseERows = buildNorthStarRowsPhaseE({
         companyTargets,
-        projectTargetImpacts,
+        projectTargetImpacts: effectiveProjectTargetImpacts,
         executionWeights: executionWeightsMap,
       });
 
@@ -654,26 +784,48 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
 
       const phaseEMap = new Map(phaseERows.map((r) => [r.targetId, r]));
 
+      // ★修正：置換 → 加算
       const hybridRows = syncedRows.map((row) => {
         const phaseERow = phaseEMap.get(row.targetId);
         if (phaseERow) {
+          // E-2 の delta + Phase E の delta を合算
+          // 同じ base を基準に delta を計算
+          const syncedDelta = (row.forecastValue ?? 0) - (row.base ?? 0);
+          const phaseEDelta = (phaseERow.forecastValue ?? 0) - (phaseERow.base ?? 0);
+          const combinedForecast = (row.base ?? 0) + syncedDelta + phaseEDelta;
+
+          // achievementRate を再計算
+          const baseValue = row.base ?? 0;
+          const newAchievementRate =
+            baseValue > 0 ? (combinedForecast / baseValue) * 100 : undefined;
+
           if (DEBUG) {
-            console.log(`[E-3] ${row.label}: PhaseE上書き (forecast ${row.forecastValue} → ${phaseERow.forecastValue}, achievement ${row.achievementRate}% → ${phaseERow.achievementRate}%)`);
+            console.log(
+              `[E-3] ${row.label}: 加算マージ (base=${row.base}, synced=${row.forecastValue}, phaseE=${phaseERow.forecastValue}, combined=${combinedForecast})`
+            );
           }
-          return phaseERow;
+
+          return {
+            ...row,
+            forecastValue: combinedForecast,
+            achievementRate: newAchievementRate,
+            gap: combinedForecast - (row.base ?? 0),
+          };
         }
         return row;
       });
 
       if (DEBUG) {
-        console.log(`[E-3] Hybrid: ${hybridRows.length}行中${phaseERows.length}行がPhaseEで上書き`);
+        console.log(
+          `[E-3] Hybrid: ${hybridRows.length}行中${phaseERows.length}行を加算マージ`
+        );
       }
 
       return hybridRows;
     }
 
     return syncedRows;
-  }, [companyTargets, core.yearlyAll, scenarioKey, projectContrib, chartData, projectTargetImpacts, executionWeightsMap]);
+  }, [companyTargets, core.yearlyAll, scenarioKey, projectContrib, chartData, effectiveProjectTargetImpacts, executionWeightsMap]);
 
   // ★ TASK-3: North Star 単位ズレ追跡ログ - 「原本 vs 加工後」比較（デバッグ用）
   useEffect(() => {
@@ -786,7 +938,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
   // northStarRows から売上/営業利益の forecast を取得し、年次系列に線形配賦
   const chartDataWithPhaseE = useMemo(() => {
     // Phase E の影響なければ元の chartData を返す
-    if (projectTargetImpacts.length === 0 || northStarRows.length === 0) {
+    if (effectiveProjectTargetImpacts.length === 0 || northStarRows.length === 0) {
       return chartData;
     }
 
@@ -854,22 +1006,22 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         allOp: (row.baselineOp ?? 0) + appliedOpDeltaYen / 1_000_000,           // ★yen→百万円
       };
     });
-  }, [northStarRows, chartData, projectTargetImpacts]);
+  }, [northStarRows, chartData, effectiveProjectTargetImpacts]);
 
   // === F-1: IssueResolution calculation with hybrid logic ===
-  // If projectIssueLinks exist, use Phase E; otherwise use existing logic
+  // If effectiveProjectIssueLinks exist, use Phase E; otherwise use existing logic
   const issueResolutions = useMemo(() => {
-    if (projectIssueLinks.length > 0) {
+    if (effectiveProjectIssueLinks.length > 0) {
       // Phase E ロジックで計算
       const phaseEResolutions = buildIssueResolutionsPhaseE({
         stage1Issues,
         companyTargets,
-        projectIssueLinks,
+        projectIssueLinks: effectiveProjectIssueLinks,
         executionWeights: executionWeightsMap,
       });
 
       if (DEBUG) {
-        console.log(`[F-1] Phase E Issues: ${phaseEResolutions.length}件計算`);
+        console.log(`[F-1] Phase E Issues: ${phaseEResolutions.length}件計算 (effective=${effectiveProjectIssueLinks.length})`);
       }
 
       return phaseEResolutions;
@@ -881,7 +1033,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         northStarRows,
       });
     }
-  }, [projectIssueLinks, stage1Issues, companyTargets, executionWeightsMap, northStarRows]);
+  }, [effectiveProjectIssueLinks, stage1Issues, companyTargets, executionWeightsMap, northStarRows]);
 
   const vaCards = useMemo(() => {
     return buildValueAnalysisCards(valueAnalysis);
