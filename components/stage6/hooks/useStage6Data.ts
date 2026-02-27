@@ -477,6 +477,69 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     return effective;
   }, [projectTargetImpacts, autoProjectTargetImpacts]);
 
+
+  // === STAGE6 安定版：Tab1（プロジェクト寄与）用に、STAGE4入力の projectTargetImpacts をプロジェクト単位へ合算して上書き ===
+  // - TabImpact は deltaRevenueTotal / deltaOpTotal を「円」で表示（fmtJPY）
+  // - projectTargetImpacts.delta は companyTargets.unit（通常: 百万円）なので、必ず「円」に換算してから埋める
+  const projectContribForUI = useMemo(() => {
+    if (!projectContrib || projectContrib.length === 0) return projectContrib;
+
+    const revTarget = companyTargets.find(
+      (t: any) => typeof t?.label === 'string' && t.label.includes('売上') && !t.label.includes('成長'),
+    );
+    const opTarget = companyTargets.find(
+      (t: any) => typeof t?.label === 'string' && t.label.includes('営業利益') && !t.label.includes('率'),
+    );
+
+    const revId: string | undefined = revTarget?.id;
+    const opId: string | undefined = opTarget?.id;
+    const revUnit: string = revTarget?.unit ?? 'yen';
+    const opUnit: string = opTarget?.unit ?? 'yen';
+
+    const revMap = new Map<string, number>();
+    const opMap = new Map<string, number>();
+
+    for (const imp of effectiveProjectTargetImpacts) {
+      const delta = typeof (imp as any).delta === 'number' ? (imp as any).delta : 0;
+      if (!Number.isFinite(delta) || delta === 0) continue;
+
+      if (revId && (imp as any).targetId === revId) {
+        const dy = normalizeValueToUnit(delta, revUnit, 'yen') ?? delta;
+        revMap.set((imp as any).projectId, (revMap.get((imp as any).projectId) ?? 0) + dy);
+      }
+      if (opId && (imp as any).targetId === opId) {
+        const dy = normalizeValueToUnit(delta, opUnit, 'yen') ?? delta;
+        opMap.set((imp as any).projectId, (opMap.get((imp as any).projectId) ?? 0) + dy);
+      }
+    }
+
+    return projectContrib.map((p: any) => {
+      const deltaRevenueTotal = revMap.get(p.key) ?? 0;
+      const deltaOpTotal = opMap.get(p.key) ?? 0;
+
+      // 投資は既存の集計を尊重（0のままでもOK）。ROIは投資がある場合のみ概算。
+      const investTotal = typeof p.investTotal === 'number' ? p.investTotal : 0;
+      const roi =
+        investTotal > 0 ? deltaOpTotal / investTotal : (Number.isFinite(p.roi as any) ? p.roi : undefined);
+
+      const evidence =
+        deltaRevenueTotal !== 0 || deltaOpTotal !== 0
+          ? {
+              source: 'stage4_plan',
+              confidence: 'high',
+              notes: 'STAGE4金額寄与（売上/営業利益）',
+            }
+          : p.evidence;
+
+      return {
+        ...p,
+        deltaRevenueTotal,
+        deltaOpTotal,
+        roi,
+        evidence,
+      };
+    });
+  }, [projectContrib, effectiveProjectTargetImpacts, companyTargets]);
   // === STAGE6 Phase E：AUTO推定（projectIssueLinks） ===
   const autoProjectIssueLinks = useMemo(() => {
     if (!isReady || allProjectKeys.length === 0 || stage1Issues.length === 0) {
@@ -700,7 +763,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       companyTargets,
       yearlyAll: core.yearlyAll,
       scenarioKey,
-      projectContrib,
+    projectContrib: projectContribForUI,
     });
 
     // Step 2: 売上/営業利益の行は chartData と同期（E-2）
@@ -756,69 +819,81 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     }
 
     if (effectiveProjectTargetImpacts.length > 0) {
-      // ★Debug logging for Phase E calculation
-      if (DEBUG) {
-        console.log(`[E-3] Phase E 計算開始: effectiveProjectTargetImpacts=${effectiveProjectTargetImpacts.length}件`);
-        const sampleImpacts = effectiveProjectTargetImpacts.slice(0, 2);
-        sampleImpacts.forEach((imp) => {
-          const target = companyTargets.find((t) => t.id === imp.targetId);
-          console.log(`  Impact: targetId=${imp.targetId}, delta=${imp.delta}, target.base=${target?.base}, target.unit=${target?.unit}`);
-        });
+      // 0) 全 delta が 0 のときは Phase E を適用しない（E-2の推定を壊さない）
+      const allZero = effectiveProjectTargetImpacts.every((i) => !i.delta || i.delta === 0);
+      if (allZero) {
+        if (DEBUG) console.log('[E-3] skip PhaseE: all deltas are zero');
+        return syncedRows;
       }
 
-      const phaseERows = buildNorthStarRowsPhaseE({
-        companyTargets,
-        projectTargetImpacts: effectiveProjectTargetImpacts,
-        executionWeights: executionWeightsMap,
-      });
+      // 1) targetId × projectId で effectiveDelta（= delta × 実行度）を合算
+      const byTarget = new Map<
+        string,
+        { deltaSum: number; breakdown: Array<{ projectId: string; delta: number; executionWeight: number; effectiveDelta: number }> }
+      >();
+
+      for (const imp of effectiveProjectTargetImpacts) {
+        const delta = typeof imp.delta === 'number' ? imp.delta : 0;
+        if (!Number.isFinite(delta) || delta === 0) continue;
+
+        const weight = executionWeightsMap.get(imp.projectId)?.weight ?? 1;
+        const execW = Number.isFinite(weight) ? weight : 1;
+        const effectiveDelta = delta * execW;
+
+        const cur = byTarget.get(imp.targetId) ?? { deltaSum: 0, breakdown: [] };
+        cur.deltaSum += effectiveDelta;
+
+        // breakdown は projectId ごとに集約
+        const existing = cur.breakdown.find((b) => b.projectId === imp.projectId);
+        if (existing) {
+          existing.delta += delta;
+          existing.effectiveDelta += effectiveDelta;
+          existing.executionWeight = execW; // 最新で上書き
+        } else {
+          cur.breakdown.push({
+            projectId: imp.projectId,
+            delta,
+            executionWeight: execW,
+            effectiveDelta,
+          });
+        }
+
+        byTarget.set(imp.targetId, cur);
+      }
 
       if (DEBUG) {
-        console.log(`[E-3] Phase E 計算完了:`, phaseERows.slice(0, 2).map((r) => ({
-          label: r.label,
-          unit: r.unit,
-          base: r.base,
-          forecastValue: r.forecastValue,
-          achievementRate: r.achievementRate,
+        console.log('[E-3] PhaseE deltas (sample):', Array.from(byTarget.entries()).slice(0, 3).map(([tid, v]) => ({
+          targetId: tid,
+          deltaSum: v.deltaSum,
+          breakdownTop: v.breakdown.slice(0, 1),
         })));
       }
 
-      const phaseEMap = new Map(phaseERows.map((r) => [r.targetId, r]));
-
-      // ★修正：置換 → 加算
+      // 2) syncedRows（E-2の予測=現状見込み）に PhaseE delta を「加算」する（絶対値を維持）
       const hybridRows = syncedRows.map((row) => {
-        const phaseERow = phaseEMap.get(row.targetId);
-        if (phaseERow) {
-          // E-2 の delta + Phase E の delta を合算
-          // 同じ base を基準に delta を計算
-          const syncedDelta = (row.forecastValue ?? 0) - (row.base ?? 0);
-          const phaseEDelta = (phaseERow.forecastValue ?? 0) - (phaseERow.base ?? 0);
-          const combinedForecast = (row.base ?? 0) + syncedDelta + phaseEDelta;
+        const hit = byTarget.get(row.targetId);
+        if (!hit) return row;
 
-          // achievementRate を再計算
-          const baseValue = row.base ?? 0;
-          const newAchievementRate =
-            baseValue > 0 ? (combinedForecast / baseValue) * 100 : undefined;
+        const baseValue = typeof row.base === 'number' ? row.base : 0;
+        const syncedForecastAbs = typeof row.forecastValue === 'number' ? row.forecastValue : baseValue;
 
-          if (DEBUG) {
-            console.log(
-              `[E-3] ${row.label}: 加算マージ (base=${row.base}, synced=${row.forecastValue}, phaseE=${phaseERow.forecastValue}, combined=${combinedForecast})`
-            );
-          }
+        const combinedForecastAbs = syncedForecastAbs + hit.deltaSum;
+        const gapAbs = combinedForecastAbs - baseValue;
+        const achievementAbs = baseValue !== 0 ? (combinedForecastAbs / baseValue) * 100 : undefined;
 
-          return {
-            ...row,
-            forecastValue: combinedForecast,
-            achievementRate: newAchievementRate,
-            gap: combinedForecast - (row.base ?? 0),
-          };
-        }
-        return row;
+        return {
+          ...row,
+          forecastValue: combinedForecastAbs,
+          gap: gapAbs,
+          achievementRate: achievementAbs,
+          // E-4（年次配賦）用：プロジェクト寄与のΔ（単位は row.unit）
+          phaseEDelta: hit.deltaSum,
+          breakdown: hit.breakdown,
+        } as any;
       });
 
       if (DEBUG) {
-        console.log(
-          `[E-3] Hybrid: ${hybridRows.length}行中${phaseERows.length}行を加算マージ`
-        );
+        console.log(`[E-3] Hybrid(add): ${hybridRows.length}行中${byTarget.size}行にPhaseE deltaを加算`);
       }
 
       return hybridRows;
@@ -958,25 +1033,26 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     let revDeltaYen = 0;
     let opDeltaYen = 0;
 
-    if (revRow && revRow.forecastValue !== undefined && revRow.base !== undefined) {
-      // revRow.forecastValue は target.unit（例：百万円）
-      // revRow.base も同じ unit
-      // delta = forecastValue - base（同じ単位）
-      const revDeltaDisplay = revRow.forecastValue - revRow.base;
-      // yen に変換
-      revDeltaYen = normalizeValueToUnit(revDeltaDisplay, revRow.unit, 'yen') ?? revDeltaDisplay;
+    if (revRow) {
+      // Phase E の寄与Δ（単位: revRow.unit）。なければ0。
+      const phaseEDeltaDisplay = (revRow as any).phaseEDelta ?? 0;
+      revDeltaYen = normalizeValueToUnit(phaseEDeltaDisplay, revRow.unit, 'yen') ?? phaseEDeltaDisplay;
 
       if (DEBUG) {
-        console.log(`[E-4] Revenue delta: forecastValue=${revRow.forecastValue}, base=${revRow.base}, unit=${revRow.unit}, deltaYen=${revDeltaYen}`);
+        console.log(
+          `[E-4] Revenue phaseEDelta: delta=${phaseEDeltaDisplay}, unit=${revRow.unit}, deltaYen=${revDeltaYen}`
+        );
       }
     }
 
-    if (opRow && opRow.forecastValue !== undefined && opRow.base !== undefined) {
-      const opDeltaDisplay = opRow.forecastValue - opRow.base;
-      opDeltaYen = normalizeValueToUnit(opDeltaDisplay, opRow.unit, 'yen') ?? opDeltaDisplay;
+    if (opRow) {
+      const phaseEDeltaDisplay = (opRow as any).phaseEDelta ?? 0;
+      opDeltaYen = normalizeValueToUnit(phaseEDeltaDisplay, opRow.unit, 'yen') ?? phaseEDeltaDisplay;
 
       if (DEBUG) {
-        console.log(`[E-4] OP delta: forecastValue=${opRow.forecastValue}, base=${opRow.base}, unit=${opRow.unit}, deltaYen=${opDeltaYen}`);
+        console.log(
+          `[E-4] OP phaseEDelta: delta=${phaseEDeltaDisplay}, unit=${opRow.unit}, deltaYen=${opDeltaYen}`
+        );
       }
     }
 
@@ -1002,8 +1078,8 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       return {
         ...row,
         // all = baseline + delta（線形配賦）
-        allRevenue: (row.baselineRevenue ?? 0) + appliedRevDeltaYen / 1_000_000, // ★yen→百万円
-        allOp: (row.baselineOp ?? 0) + appliedOpDeltaYen / 1_000_000,           // ★yen→百万円
+        allRevenue: (row.allRevenue ?? 0) + appliedRevDeltaYen,
+        allOp: (row.allOp ?? 0) + appliedOpDeltaYen,
       };
     });
   }, [northStarRows, chartData, effectiveProjectTargetImpacts]);
@@ -1136,7 +1212,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     core,
     allProjectKeys,
     // Computed data
-    projectContrib,
+    projectContrib: projectContribForUI,
     northStarRows,
     issueResolutions,
     vaCards,
