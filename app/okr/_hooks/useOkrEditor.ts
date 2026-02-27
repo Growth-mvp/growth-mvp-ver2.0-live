@@ -114,14 +114,14 @@ export function useOkrEditor(args: {
           newRoleDetail = undefined;
         } else if (currentRole === 'REVENUE') {
           // REVENUE: ACQ, CHURN, ARPU のみ許容
-          if (['ACQ', 'CHURN', 'ARPU'].includes(roleDetail)) {
+          if (roleDetail && ['ACQ', 'CHURN', 'ARPU'].includes(roleDetail as string)) {
             newRoleDetail = roleDetail as Project['roleDetail'];
           } else {
             newRoleDetail = undefined;
           }
         } else if (currentRole === 'COST') {
           // COST: PERSONNEL, FIXED, VARIABLE のみ許容
-          if (['PERSONNEL', 'FIXED', 'VARIABLE'].includes(roleDetail)) {
+          if (roleDetail && ['PERSONNEL', 'FIXED', 'VARIABLE'].includes(roleDetail as string)) {
             newRoleDetail = roleDetail as Project['roleDetail'];
           } else {
             newRoleDetail = undefined;
@@ -143,6 +143,110 @@ export function useOkrEditor(args: {
     },
     [patchDepartments],
   );
+
+
+  /* ============================================================
+   * Project：財務ゴール（最短ルート：金額寄与を直接入力）
+   * - STAGE6 の projectTargetImpacts（North Star寄与）へ manual/locked で同期する
+   * - targetId は companyTargets の label から固定前提で解決（売上 / 営業利益）
+   * ========================================================== */
+  const updateProjectImpact = useCallback(
+    (
+      dIdx: number,
+      pIdx: number,
+      patch: Partial<
+        Pick<
+          Project,
+          'impactRevenueMJPY' | 'impactOpIncomeMJPY' | 'impactInvestmentMJPY' | 'impactConfidence' | 'impactRationale'
+        >
+      >,
+    ) => {
+      useStrategyStore.setState((st: any) => {
+        const departments: Department[] = Array.isArray(st.departments) ? (st.departments as Department[]) : [];
+        const deptPrev = departments[dIdx];
+        if (!deptPrev) return st;
+
+        const deptName = (deptPrev.name ?? '').trim() || `dept${dIdx + 1}`;
+        const projsPrev: Project[] = Array.isArray(deptPrev.projects) ? (deptPrev.projects as Project[]) : [];
+        const projPrev = projsPrev[pIdx];
+        if (!projPrev) return st;
+
+        const projTitle = ((projPrev.title ?? projPrev.name) ?? '').trim() || `proj${pIdx + 1}`;
+        const projectId = `${deptName}::${projTitle}::${pIdx}`;
+
+        // ---- departments の更新（Projectに金額ゴールを持たせる） ----
+        const nextDepartments = [...departments];
+        const nextDept: Department = { ...deptPrev };
+        const nextProjs = [...projsPrev];
+        const nextProj: Project = { ...projPrev, ...patch };
+        nextProjs[pIdx] = nextProj;
+        nextDept.projects = nextProjs;
+        nextDepartments[dIdx] = nextDept;
+
+        // ---- companyTargets から targetId を解決（固定前提） ----
+        const targets = Array.isArray(st.companyTargets) ? st.companyTargets : [];
+        const norm = (s: any) =>
+          String(s ?? '')
+            .replace(/[\s　]+/g, '')
+            .toLowerCase();
+
+        const revenueTarget = targets.find((t: any) => norm(t?.label).includes('売上') || norm(t?.label).includes('revenue'));
+        const opIncomeTarget = targets.find(
+          (t: any) =>
+            norm(t?.label).includes('営業利益') ||
+            norm(t?.label).includes('営業益') ||
+            norm(t?.label).includes('op') ||
+            norm(t?.label).includes('operatingincome'),
+        );
+
+        const impacts = Array.isArray(st.projectTargetImpacts) ? [...st.projectTargetImpacts] : [];
+
+        const upsertImpact = (targetId: string | undefined, delta: any, notesPrefix: string) => {
+          if (!targetId) return;
+          const v = typeof delta === 'number' ? delta : Number(delta);
+          const has = Number.isFinite(v);
+          const key = `${projectId}::${targetId}`;
+          const idx = impacts.findIndex((x: any) => `${x?.projectId}::${x?.targetId}` === key);
+
+          // 空入力は削除（=連携解除）
+          if (!has) {
+            if (idx >= 0) impacts.splice(idx, 1);
+            return;
+          }
+
+          const notesBase = (patch.impactRationale ?? nextProj.impactRationale ?? '').toString().trim();
+          const notes = notesBase ? `${notesPrefix} ${notesBase}` : `${notesPrefix}`;
+
+          const row: any = {
+            projectId,
+            targetId,
+            delta: v, // 単位は companyTargets の unit（想定：百万円）
+            source: 'manual',
+            locked: true,
+            confidence: typeof patch.impactConfidence === 'number' ? patch.impactConfidence : nextProj.impactConfidence,
+            notes,
+          };
+
+          if (idx >= 0) impacts[idx] = { ...(impacts[idx] as any), ...row };
+          else impacts.push(row);
+        };
+
+        // 売上寄与 / 営業利益寄与（コスト削減も利益寄与として扱う）
+        upsertImpact(revenueTarget?.id, patch.impactRevenueMJPY ?? nextProj.impactRevenueMJPY, '[STAGE4] 売上寄与');
+        upsertImpact(opIncomeTarget?.id, patch.impactOpIncomeMJPY ?? nextProj.impactOpIncomeMJPY, '[STAGE4] 営業利益寄与');
+
+        return {
+          ...st,
+          departments: nextDepartments,
+          projectTargetImpacts: impacts,
+          dirty: true,
+          version: (st.version ?? 0) + 1,
+        };
+      });
+    },
+    [],
+  );
+
 
   /* ============================================================
    * Project：旧OKR（互換）
@@ -741,6 +845,7 @@ export function useOkrEditor(args: {
     updateProjectRole,
     updateProjectRoleDetail,
     updateProjectOKR,
+    updateProjectImpact,
 
     // 追加：戦略メタ更新
     updateProjectStrategicMeta,
