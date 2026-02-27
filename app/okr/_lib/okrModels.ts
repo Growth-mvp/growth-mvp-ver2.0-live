@@ -88,6 +88,13 @@ export type Project = {
   /** ★STAGE4拡張：ロール詳細サブカテゴリ（役割に応じて制約あり） */
   roleDetail?: 'ACQ' | 'CHURN' | 'ARPU' | 'PERSONNEL' | 'FIXED' | 'VARIABLE';
 
+  /** ★STAGE4拡張：財務ゴール（North Star寄与・最短ルート） */
+  impactRevenueMJPY?: number; // 売上寄与（百万円）
+  impactOpIncomeMJPY?: number; // 営業利益寄与（百万円）※コスト削減もここへ
+  impactInvestmentMJPY?: number; // 投資額（百万円）
+  impactConfidence?: number; // 確度（0..1、任意）
+  impactRationale?: string; // 根拠メモ（任意）
+
   /** 戦略メタ（任意） */
   track?: StrategyTrack;
   levers?: GrowthLever[];
