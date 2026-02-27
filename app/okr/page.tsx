@@ -326,6 +326,19 @@ export default function OKRPage() {
   /* -------- 表示/編集ユーティリティ -------- */
   const cascade: Department[] = useMemo(() => (Array.isArray(departments) ? departments : []), [departments]);
 
+  // STAGE6連携用：North Star（companyTargets）
+  const companyTargets: any[] = useStrategyStore((s: any) =>
+    Array.isArray(s?.companyTargets) ? (s.companyTargets as any[]) : [],
+  );
+
+  // 期限（North Star目標年）は固定前提：companyTargets の dueYear の最大値を採用
+  const northStarDueYear: number | undefined = useMemo(() => {
+    const ys = companyTargets
+      .map((t: any) => t?.dueYear)
+      .filter((y: any) => typeof y === 'number' && Number.isFinite(y)) as number[];
+    return ys.length ? Math.max(...ys) : undefined;
+  }, [companyTargets]);
+
   /* ============================================================
    * ロールの“影”を保持してリフェッチ上書きを回避（UI都合なので page に残す）
    * ========================================================== */
@@ -577,6 +590,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
     updateProjectRole,
     updateProjectRoleDetail,
     updateProjectOKR,
+    updateProjectImpact,
     setActiveVariant,
     createVariantFromCommitted,
     deleteVariant,
@@ -1199,6 +1213,182 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
                 </div>
               )}
             </div>
+
+
+            {/* ★STAGE4拡張：財務ゴール（North Star寄与・百万円） */}
+            {selectedProj?.role && (
+              <div className="mb-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-semibold text-zinc-700">金額ゴール（North Star寄与）</label>
+                  <span className="rounded-full bg-zinc-100 px-2 py-1 text-[10px] font-semibold text-zinc-600">
+                    期限：{northStarDueYear ?? '未設定'}
+                  </span>
+                </div>
+
+                {selectedProj.role === 'REVENUE' && (
+                  <div className="grid grid-cols-[1fr_120px] gap-2">
+                    <div className="space-y-1">
+                      <div className="text-[11px] font-semibold text-zinc-700">売上寄与（百万円）</div>
+                      <input
+                        type="number"
+                        step="1"
+                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
+                        placeholder="例：3000"
+                        value={selectedProj.impactRevenueMJPY ?? ''}
+                        onChange={(e) => {
+                          if (!selected) return;
+                          const raw = e.target.value;
+                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
+                            impactRevenueMJPY: raw === '' ? undefined : Number(raw),
+                          });
+                        }}
+                        disabled={isHydrating || isApproved()}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-[11px] font-semibold text-zinc-700">確度（%）</div>
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        max="100"
+                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
+                        placeholder="例：70"
+                        value={
+                          typeof selectedProj.impactConfidence === 'number'
+                            ? Math.round(selectedProj.impactConfidence * 100)
+                            : ''
+                        }
+                        onChange={(e) => {
+                          if (!selected) return;
+                          const raw = e.target.value;
+                          const v = raw === '' ? undefined : Math.max(0, Math.min(100, Number(raw)));
+                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
+                            impactConfidence: typeof v === 'number' ? v / 100 : undefined,
+                          });
+                        }}
+                        disabled={isHydrating || isApproved()}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {selectedProj.role === 'COST' && (
+                  <div className="grid grid-cols-[1fr_120px] gap-2">
+                    <div className="space-y-1">
+                      <div className="text-[11px] font-semibold text-zinc-700">営業利益寄与（百万円）</div>
+                      <input
+                        type="number"
+                        step="1"
+                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
+                        placeholder="例：500（コスト削減なら＋）"
+                        value={selectedProj.impactOpIncomeMJPY ?? ''}
+                        onChange={(e) => {
+                          if (!selected) return;
+                          const raw = e.target.value;
+                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
+                            impactOpIncomeMJPY: raw === '' ? undefined : Number(raw),
+                          });
+                        }}
+                        disabled={isHydrating || isApproved()}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-[11px] font-semibold text-zinc-700">確度（%）</div>
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        max="100"
+                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
+                        placeholder="例：70"
+                        value={
+                          typeof selectedProj.impactConfidence === 'number'
+                            ? Math.round(selectedProj.impactConfidence * 100)
+                            : ''
+                        }
+                        onChange={(e) => {
+                          if (!selected) return;
+                          const raw = e.target.value;
+                          const v = raw === '' ? undefined : Math.max(0, Math.min(100, Number(raw)));
+                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
+                            impactConfidence: typeof v === 'number' ? v / 100 : undefined,
+                          });
+                        }}
+                        disabled={isHydrating || isApproved()}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {selectedProj.role === 'FUTURE' && (
+                  <div className="grid grid-cols-[1fr_120px] gap-2">
+                    <div className="space-y-1">
+                      <div className="text-[11px] font-semibold text-zinc-700">投資（百万円）</div>
+                      <input
+                        type="number"
+                        step="1"
+                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
+                        placeholder="例：2000"
+                        value={selectedProj.impactInvestmentMJPY ?? ''}
+                        onChange={(e) => {
+                          if (!selected) return;
+                          const raw = e.target.value;
+                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
+                            impactInvestmentMJPY: raw === '' ? undefined : Number(raw),
+                          });
+                        }}
+                        disabled={isHydrating || isApproved()}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-[11px] font-semibold text-zinc-700">確度（%）</div>
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        max="100"
+                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
+                        placeholder="例：50"
+                        value={
+                          typeof selectedProj.impactConfidence === 'number'
+                            ? Math.round(selectedProj.impactConfidence * 100)
+                            : ''
+                        }
+                        onChange={(e) => {
+                          if (!selected) return;
+                          const raw = e.target.value;
+                          const v = raw === '' ? undefined : Math.max(0, Math.min(100, Number(raw)));
+                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
+                            impactConfidence: typeof v === 'number' ? v / 100 : undefined,
+                          });
+                        }}
+                        disabled={isHydrating || isApproved()}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <div className="text-[11px] font-semibold text-zinc-700">根拠メモ（任意）</div>
+                  <input
+                    type="text"
+                    className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
+                    placeholder="例：単価×数量の見直し、工数削減、人員再配置など"
+                    value={selectedProj.impactRationale ?? ''}
+                    onChange={(e) => {
+                      if (!selected) return;
+                      updateProjectImpact(selected.deptIdx, selected.projIdx, { impactRationale: e.target.value });
+                    }}
+                    disabled={isHydrating || isApproved()}
+                  />
+                </div>
+
+                <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] text-zinc-700">
+                  入力した金額ゴールは、STAGE6の「North Star vs 予測」「プロジェクト寄与」に<strong>手動寄与（固定）</strong>として反映されます。
+                </div>
+              </div>
+            )}
 
             {/* Owner */}
             <div className="mb-4 space-y-2">
