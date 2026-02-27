@@ -3036,7 +3036,7 @@ export default function Stage2Page() {
 
                 <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">戦略を議論するための深堀質問</h3>
+                    <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">戦略を掘り下げるための議論のテーマ</h3>
                     <span className="text-sm text-gray-500 dark:text-gray-400">※ 未回答でも最終生成できます</span>
                   </div>
 
