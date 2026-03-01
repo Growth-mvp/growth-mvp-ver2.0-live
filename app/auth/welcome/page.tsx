@@ -1,17 +1,12 @@
-// /app/auth/welcome/page.tsx
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+// /app/auth/welcome/page.tsx
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
 
-/**
- * 目的：
- * - ログイン済みだが company_members に行が無いユーザーをここに誘導
- * - 「会社作成（管理者オンボーディング）」or「招待受諾」へ分岐
- * - リロード依存を避け、再チェックと明示的アクションで前に進める
- */
+export const dynamic = 'force-dynamic';
 
 type Role = 'admin' | 'manager' | 'member';
 
@@ -19,7 +14,22 @@ function isValidUUID(v: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 }
 
+/**
+ * ✅ 重要：
+ * - このファイル自体は Client Component（'use client'）
+ * - ただし useSearchParams を使う “内側” を Suspense で包む必要があるため、
+ *   外側ラッパー（Suspense）と内側本体（useSearchParams使用）を同一ファイルに共存させる
+ */
+
 export default function AuthWelcomePage() {
+  return (
+    <Suspense fallback={<div className="mx-auto max-w-xl p-8 text-sm text-gray-600">読み込み中…</div>}>
+      <WelcomeInner />
+    </Suspense>
+  );
+}
+
+function WelcomeInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -193,20 +203,14 @@ export default function AuthWelcomePage() {
       }
 
       const companyId = typeof j.companyId === 'string' && isValidUUID(j.companyId) ? j.companyId : null;
-      const strategyId = typeof j.strategyId === 'string' ? j.strategyId : null;
 
       // store を最小更新（cookieはprovision側のSet-Cookieで付く想定）
       setRole('admin');
       setMembership({ companyId: companyId ?? undefined, departmentId: undefined });
 
-      if (strategyId) {
-        // 任意：strategyStore への反映が必要なら layoutClient が拾うのでここでは必須でない
-      }
-
       setMsg('会社を作成しました。管理者画面へ移動します…');
       setCompanyMissing(false);
 
-      // 管理者画面へ
       router.replace('/admin');
     } catch (e: any) {
       setActionError(e?.message || '会社作成に失敗しました。もう一度お試しください。');
@@ -219,7 +223,6 @@ export default function AuthWelcomePage() {
     return <div className="mx-auto max-w-xl p-8 text-sm text-gray-600">{msg}</div>;
   }
 
-  // 未所属時の案内UI
   if (companyMissing) {
     return (
       <div className="mx-auto max-w-2xl p-8">
@@ -257,7 +260,7 @@ export default function AuthWelcomePage() {
             </button>
 
             <button
-              onClick={handleRecheck}
+              onClick={() => setCheckNonce((x) => x + 1)}
               disabled={actionLoading}
               className={`inline-flex items-center rounded-lg border px-4 py-2 text-sm shadow-sm hover:bg-gray-50 ${
                 actionLoading ? 'opacity-60 cursor-not-allowed' : ''
@@ -290,6 +293,5 @@ export default function AuthWelcomePage() {
     );
   }
 
-  // ここに来ることはほぼ無い（直後に / へ遷移）
   return <div className="mx-auto max-w-xl p-8 text-sm text-gray-600">{msg}</div>;
 }
