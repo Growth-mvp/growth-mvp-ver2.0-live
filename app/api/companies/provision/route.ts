@@ -16,6 +16,8 @@ type AdminClient = SupabaseClient<any, 'public', any>;
 type Body = {
   companyName?: string;
   departmentId?: string | null;
+  // ★追加：明示的に会社作成を許可したいときだけ true（管理者オンボーディング等）
+  allowCreateCompany?: boolean;
 };
 
 /* ============== helpers ============== */
@@ -52,9 +54,6 @@ function pickId(row: any): string | null {
 async function findStrategyByCompany(admin: AdminClient, companyId: string) {
   return admin.from('strategy_data').select('id').eq('company_id', companyId).limit(1).maybeSingle();
 }
-
-// ※ 混線防止のため user_id フォールバック探索は使わない
-// async function findStrategyByUser(admin: AdminClient, userId: string) { ... }
 
 /** profiles.id = userId が無ければ最小行を作る（存在すれば何もしない） */
 async function ensureProfileExists(admin: AdminClient, userId: string) {
@@ -97,11 +96,19 @@ function readDeletionFlag(req: NextRequest): { deleting: boolean; companyId?: st
 }
 
 /**
+ * ★追加：会社作成を許可するか（招待制の安全弁）
+ * - 通常運用（招待制）では false のまま
+ * - 管理者オンボーディングなど “明示的” に create を許可する場合だけ true
+ */
+function isCreateAllowed(req: NextRequest, body: Body) {
+  const mode = (req.headers.get('x-growth-provision-mode') || '').toLowerCase().trim();
+  if (mode === 'create') return true;
+  if (body.allowCreateCompany === true) return true;
+  return false;
+}
+
+/**
  * strategy_data の初期行を“存在しなければ”作成し、strategyId を返す。
- * 重要ポイント：
- *  - 既存は company_id でのみ探索（user_id フォールバックは使わない）
- *  - 挿入は最小5カラムのみ（company_id, user_id, updated_by, created_at, updated_at）
- *  - FK(23503) は profiles を作って 1 回だけ再試行
  */
 async function ensureStrategySeed(
   admin: AdminClient,
@@ -212,6 +219,9 @@ export async function POST(req: NextRequest) {
     } catch {
       // ignore
     }
+
+    const allowCreate = isCreateAllowed(req, body);
+
     const companyName = (body.companyName || '').trim() || makeDefaultCompanyName(userEmail);
     const departmentId = body.departmentId ?? null;
 
@@ -258,9 +268,15 @@ export async function POST(req: NextRequest) {
           [cookie],
         );
       }
+
+      // ★重要：未所属ユーザーでの “会社自動作成” を禁止（招待制）
+      if (!allowCreate) {
+        console.info('[provision] denied: needs_membership', { userId, userEmail });
+        return json(403, { ok: false, code: 'needs_membership', message: 'Join a company via invite first.' });
+      }
     }
 
-    // 4) RPC（あれば優先）
+    // 4) RPC（create許可時のみ）
     const { data: rpcData, error: rpcErr } = await admin.rpc('provision_company', {
       p_user_id: userId!,
       p_company_name: companyName,
@@ -298,7 +314,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 5) フォールバック（手動原子処理）
+    // 5) フォールバック（create許可時のみ）
     const { data: insCompany, error: insErr } = await admin
       .from('companies')
       .insert([{ name: companyName, created_by: userId! }])
@@ -330,7 +346,6 @@ export async function POST(req: NextRequest) {
     }
 
     if (insMember.error) {
-      // ★ 重要：ここで「作った会社を delete でロールバック」しない（CASCADE事故防止）
       console.error('[provision] join_admin_failed (no rollback delete for safety)', {
         userId, companyId, details: insMember.error, rpcError: rpcErr
       });
