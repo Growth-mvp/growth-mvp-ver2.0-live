@@ -61,9 +61,12 @@ function exposeError(e: any) {
   }
 }
 
-/** 会社所属を安全に読むためのセレクタ */
+/**
+ * ★修正：会社所属は membership を唯一の真実にする
+ * - state.companyId / state.user.companyId などの残骸参照は廃止
+ */
 function selectCompanyId(state: any): string | undefined {
-  return state?.membership?.companyId ?? state?.companyId ?? state?.user?.companyId ?? undefined;
+  return state?.membership?.companyId ?? undefined;
 }
 
 /* ===========================================================
@@ -220,6 +223,13 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         }
 
         accessTokenRef.current = session.access_token ?? null;
+
+        // ★追加：ログイン確立時に一旦 company cookie をクリア（前ユーザー残骸対策）
+        //   → membership取得時にのみ setCompanyIdCookie で再同期する
+        try {
+          clearCompanyIdCookie();
+        } catch {}
+
         const uid = session.user.id;
         const email = session.user.email ?? '';
         if (!cleaned.current) {
@@ -261,6 +271,12 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       }
 
       accessTokenRef.current = sess.access_token ?? null;
+
+      // ★追加：ログイン確立/アカウント切替時も cookie を一旦クリア
+      try {
+        clearCompanyIdCookie();
+      } catch {}
+
       if (!cleaned.current) {
         setUser({ id: sess.user.id, email: sess.user.email ?? '', name: '', role: 'member' });
         // membership を読み直す
@@ -343,6 +359,10 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
               setBootstrapTimedOut(false);
               setBootstrapped(true); // Success path (no membership)
             }
+            // ★追加：所属が確定的に無いなら cookie を必ずクリア
+            try {
+              clearCompanyIdCookie();
+            } catch {}
             return;
           }
 
@@ -359,6 +379,10 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
             setBootstrapTimedOut(false);
             setBootstrapped(true);
           }
+          // ★追加：所属が無いなら cookie を必ずクリア（残骸で provision が走るのを防ぐ）
+          try {
+            clearCompanyIdCookie();
+          } catch {}
           return;
         }
 
@@ -387,6 +411,11 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
               console.warn('[membership] cookie sync failed:', e);
             }
           }
+        } else {
+          // company_id が不正なら cookie をクリア
+          try {
+            clearCompanyIdCookie();
+          } catch {}
         }
 
         // ★ Success - mark as bootstrapped
@@ -394,7 +423,6 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           setBootstrapTimedOut(false);
           setBootstrapped(true);
         }
-
       } catch (err: any) {
         clearTimeout(timeoutId);
 
@@ -490,7 +518,6 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 
     requestAnimationFrame(async () => {
       try {
-        // ★ B) ブラウザのログインユーザーID確認（最重要）
         const { data: authData } = await supabase.auth.getUser();
         const actualUserId = authData?.user?.id ?? 'unknown';
         const storeUserId = useUserStore.getState().user?.id ?? 'unknown';
@@ -545,7 +572,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       setStrategyId(null);
       return;
     }
-    if (!accessToken) return; // ← ★ token が無い間は叩かない（401対策）
+    if (!accessToken) return;
     if (provisionInFlight.current) return;
     if (lastProvisionForCompany.current === companyId) return;
 
@@ -555,7 +582,6 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
-        // ✅ 修正：Content-Type/Body を送らずに Bearer のみ
         const res = await fetch('/api/companies/provision', {
           method: 'POST',
           signal,
@@ -573,8 +599,19 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         }
         if (signal.aborted) return;
 
+        // ★重要：needs_membership はここで止血（無限リトライ/残骸cookieを止める）
+        if (!res.ok && (json?.code === 'needs_membership' || json?.error === 'needs_membership')) {
+          console.info('[layout] provision denied: needs_membership -> clear company scope', { status: res.status });
+          try {
+            clearCompanyIdCookie();
+          } catch {}
+          useUserStore.getState().setMembership({ companyId: undefined, departmentId: undefined });
+          setStrategyId(null);
+          lastProvisionForCompany.current = null;
+          return;
+        }
+
         if (res.ok && json?.ok) {
-          // ★ サーバ側が companyId を返した場合も Cookie を同期
           const srvCid: string | undefined = isValidUUID(json?.companyId) ? json.companyId : undefined;
           if (srvCid && getCompanyIdFromCookie() !== srvCid) {
             try {
@@ -608,7 +645,6 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 
   /* ================================
    * 3) ルーティング制御
-   * - 修正：membership timeout中は /auth/welcome へ飛ばさない（暴発抑止）
    * ============================== */
   useEffect(() => {
     if (checking) return;
@@ -624,7 +660,6 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
     }
 
     if (authed && !onAuthScene && bootstrapped && !companyId) {
-      // ★ timeout中は membership 未確定なので飛ばさない（保険）
       if (bootstrapTimedOut) return;
 
       routedRef.current = true;
@@ -659,7 +694,6 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // ★ 追加：membershipが取れずにタイムアウトした場合の表示（勝手にreadyにしない）
   if (!hideSidebar && user?.id && !bootstrapped && bootstrapTimedOut) {
     return (
       <div className="grid min-h-dvh place-items-center text-sm text-gray-500">
@@ -685,7 +719,10 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           </div>
 
           {/* モバイル左ドロワー */}
-          <div className={['lg:hidden fixed inset-0 z-40', openLeft ? 'pointer-events-auto' : 'pointer-events-none'].join(' ')} aria-hidden={!openLeft}>
+          <div
+            className={['lg:hidden fixed inset-0 z-40', openLeft ? 'pointer-events-auto' : 'pointer-events-none'].join(' ')}
+            aria-hidden={!openLeft}
+          >
             <div
               className={['absolute inset-0 bg-black/40 transition-opacity', openLeft ? 'opacity-100' : 'opacity-0'].join(' ')}
               onClick={() => setOpenLeft(false)}
@@ -724,7 +761,10 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           </aside>
 
           {/* モバイル右ドロワー */}
-          <div className={['lg:hidden fixed inset-0 z-40', openRight ? 'pointer-events-auto' : 'pointer-events-none'].join(' ')} aria-hidden={!openRight}>
+          <div
+            className={['lg:hidden fixed inset-0 z-40', openRight ? 'pointer-events-auto' : 'pointer-events-none'].join(' ')}
+            aria-hidden={!openRight}
+          >
             <div
               className={['absolute inset-0 bg-black/40 transition-opacity', openRight ? 'opacity-100' : 'opacity-0'].join(' ')}
               onClick={() => setOpenRight(false)}
@@ -732,7 +772,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
             <div
               className={[
                 'absolute right-0 top-0 h-dvh w-[16rem] max-w-[90vw]',
-                'bg-white shadow-xl border-l border-black/5', // ★修正：bg白 → bg-white
+                'bg-white shadow-xl border-l border-black/5',
                 'transition-transform duration-200',
                 openRight ? 'translate-x-0' : 'translate-x-full',
               ].join(' ')}
@@ -773,7 +813,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
               </button>
               <button
                 onClick={() => setOpenRight(true)}
-                className="rounded-lg border border-black/10 px-3 py-1.5 text-sm shadow-sm bg-white active:scale-[0.99]" // ★修正：bg白 → bg-white
+                className="rounded-lg border border-black/10 px-3 py-1.5 text-sm shadow-sm bg-white active:scale-[0.99]"
               >
                 AIアシスタント
               </button>
