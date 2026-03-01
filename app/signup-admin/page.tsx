@@ -7,16 +7,6 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
 
-/** （必要なら再利用）コールバックURL作成。本番で使う時はSupabase側に登録必須。 */
-function makeCallbackUrl() {
-  if (typeof window !== 'undefined') {
-    return new URL('/auth/callback', window.location.origin).toString();
-  }
-  const base = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, '') || 'http://localhost:3000';
-  return `${base}/auth/callback`;
-}
-
-/** PostgRESTエラーが「列なし(42703)」や does not exist を含むか */
 function looksMissingColumn(err: any, col: string) {
   const code = err?.code || err?.error?.code || '';
   const msg = `${err?.message || err?.error?.message || ''} ${err?.details || ''}`.toLowerCase();
@@ -33,12 +23,12 @@ export default function SignUpAdminPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [companyName, setCompanyName] = useState('');
-  const [departmentName, setDepartmentName] = useState('');
+  const [departmentName, setDepartmentName] = useState(''); // UIとしては残す（後で部門作成導線に使う想定）
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
 
-  /** 会社作成 + admin 参加（Service Role API 経由） */
+  /** 会社作成 + admin 参加（createモードで provision） */
   async function provisionCompany(): Promise<{ ok: boolean; companyId?: string }> {
     try {
       const { data: ses } = await supabase.auth.getSession();
@@ -47,15 +37,23 @@ export default function SignUpAdminPage() {
         setError('セッションが見つかりません。ログイン状態を確認してください。');
         return { ok: false };
       }
+
       const res = await fetch('/api/companies/provision', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          // ★重要：会社作成を許可するモード
+          'x-growth-provision-mode': 'create',
+        },
         body: JSON.stringify({
           companyName: companyName.trim(),
-          departmentName: departmentName.trim() || null,
+          // ★部署はこのAPIでは作らない（uuidのdepartmentId想定のため）
+          allowCreateCompany: true,
         }),
       });
-      const j = await res.json().catch(() => ({}));
+
+      const j = await res.json().catch(() => ({} as any));
       if (!res.ok || !j?.ok) {
         const code = j?.code ?? j?.error ?? 'unknown_error';
         if (code === 'already_in_company') return { ok: true, companyId: j?.companyId };
@@ -71,11 +69,13 @@ export default function SignUpAdminPage() {
     }
   }
 
-  /** company_members を“唯一の真実”として Store 同期（列が無いスキーマに自動フォールバック） */
-  async function syncMembershipToStore() {
+  /** company_members を user_id で絞って Store 同期（列が無いスキーマにフォールバック） */
+  async function syncMembershipToStore(userId: string) {
     const q1 = await supabase
       .from('company_members')
       .select('company_id, role, department_id')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
@@ -89,11 +89,12 @@ export default function SignUpAdminPage() {
       return true;
     }
 
-    // department_id が無いスキーマの場合のフォールバック
     if (q1.error && looksMissingColumn(q1.error, 'department_id')) {
       const q2 = await supabase
         .from('company_members')
         .select('company_id, role')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
@@ -111,21 +112,20 @@ export default function SignUpAdminPage() {
     return false;
   }
 
-  /** セッションがある前提で会社作成→membership同期→/admin へ */
   async function afterSessionEstablished(userId: string, userEmail: string) {
     const provision = await provisionCompany();
     if (!provision.ok) return;
 
-    // User型は role 必須 → 仮で 'member'、後で company_members の値で上書き
+    // 仮で member（membership同期で admin に上書きされる）
     setUser({ id: userId, email: userEmail, name: '', role: 'member' });
 
-    const ok = await syncMembershipToStore();
+    const ok = await syncMembershipToStore(userId);
     if (!ok) setMsg('会社作成は成功しましたが、所属情報の取得に失敗しました。再読み込みしてください。');
 
+    // 任意：departmentName が入っていたら admin 画面で作成する導線を後で追加
     router.replace('/admin');
   }
 
-  /** サインアップ→（必要なら）即サインイン→セッション確立→afterSessionEstablished */
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (loading) return;
@@ -147,17 +147,13 @@ export default function SignUpAdminPage() {
 
     setLoading(true);
     try {
-      // ⚠️ 422（Redirect URL未許可）を避けるため、開発中は emailRedirectTo を渡さない
       const { data, error: signUpErr } = await supabase.auth.signUp({
         email: eaddr,
         password: pass,
-        // 本番でメール確認を使うなら ↓ を有効化し、SupabaseのRedirect URLsに登録する
-        // options: { emailRedirectTo: makeCallbackUrl() },
       });
 
-      // メール確認あり環境（session が付かない）
+      // メール確認あり（sessionなし）→ 即 signIn 試行（開発向け）
       if (!signUpErr && data?.user && !data.session) {
-        // 開発環境でメール確認OFFなら即ログインできる
         const { data: si, error: signInErr } = await supabase.auth.signInWithPassword({
           email: eaddr,
           password: pass,
@@ -166,23 +162,20 @@ export default function SignUpAdminPage() {
           await afterSessionEstablished(si.user.id, eaddr);
           return;
         }
-        // メール確認が必要
         setMsg('確認メールを送信しました。メール内リンクで登録を完了してください。');
         return;
       }
 
-      // メール確認なし環境（即 session 付与）
+      // sessionあり（確認不要）
       if (!signUpErr && data?.session && data.user) {
         await afterSessionEstablished(data.user.id, eaddr);
         return;
       }
 
-      // signUp エラー時：既に登録済み or リダイレクト未許可など
       if (signUpErr) {
         const message = (signUpErr.message || '').toLowerCase();
         const isAlready = signUpErr.status === 422 || message.includes('already registered');
         if (isAlready) {
-          // 既登録ならサインインを試行
           const { data: si, error: signInErr } = await supabase.auth.signInWithPassword({
             email: eaddr,
             password: pass,
@@ -228,7 +221,7 @@ export default function SignUpAdminPage() {
             value={departmentName}
             onChange={(e) => setDepartmentName(e.target.value)}
             className="mt-1 w-full rounded border px-3 py-2"
-            placeholder="例）事業開発部"
+            placeholder="例）事業開発部（※会社作成後に管理画面で作成）"
           />
         </div>
 
