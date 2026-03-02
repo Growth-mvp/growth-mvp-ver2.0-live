@@ -50,6 +50,7 @@ export type UserState = {
   clearUser: () => void;
   setHydrated: (v: boolean) => void;
   setMembershipLoaded: (v: boolean) => void;
+  resetMembershipLoading: () => void;
 
   /* ---------- RBAC helpers ---------- */
   canView: () => boolean;
@@ -151,6 +152,16 @@ export const useUserStore = create<UserState>()(
 
       setHydrated: (v) => set({ hydrated: v }),
       setMembershipLoaded: (v) => set({ membershipLoaded: v }),
+
+      resetMembershipLoading: () => {
+        set({
+          companyId: null,
+          departmentId: null,
+          role: null,
+          membershipLoaded: false,
+          ...deriveRoleFlags(null),
+        });
+      },
 
       /* ---------- RBAC helpers ---------- */
       canView: () => !!get().companyId,
