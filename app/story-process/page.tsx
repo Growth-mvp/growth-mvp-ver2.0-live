@@ -1,5 +1,6 @@
 // /app/story-process/page.tsx
 'use client';
+import StrategyGuard from '@/app/StrategyGuard';
 
 import React, {
   useCallback,
@@ -21,7 +22,6 @@ import {
 } from '@/utils/supabase/strategy';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useAccess } from '@/utils/access';
 import type { AnswerStep as StrategyAnswerStep } from '@/types/strategy';
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 
@@ -347,14 +347,15 @@ function readSessionChapters(
 }
 
 /* ===== ページ ===== */
-export default function StoryProcessPage() {
+function StoryProcessPageContent() {
   // ⬇ Zustand selector
   const user = useUserStore((s) => s.user);
   const companyId = useUserStore((s) => s.companyId);
+  const isAdmin = useUserStore((s) => s.isAdmin);
+  const isManager = useUserStore((s) => s.isManager);
   const store = useStrategyStore() as any;
 
-  const { canView, canEditCompany } = useAccess();
-  const canEdit = canEditCompany();
+  const canEdit = isAdmin || isManager;
 
   /* ----- 初期スクロール補正 ----- */
   useEffect(() => {
@@ -1867,5 +1868,13 @@ function FinalStorySection({
         </div>
       )}
     </section>
+  );
+}
+
+export default function StoryProcessPage() {
+  return (
+    <StrategyGuard mode="edit">
+      <StoryProcessPageContent />
+    </StrategyGuard>
   );
 }
