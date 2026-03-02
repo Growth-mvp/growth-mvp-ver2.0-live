@@ -19,28 +19,6 @@ type MemberRow = MemberListItem & {
   name?: string | null;
 };
 
-/** ✅ ローカル実装：メールアドレスから user_id を取得（public.users を参照） */
-async function findUserIdByEmailLocal(email: string): Promise<string | null> {
-  const e = email.trim().toLowerCase();
-  if (!e) return null;
-  try {
-    const { data, error } = await supabase
-      .from('users') // ※ プロジェクトの公開ユーザテーブル（RLSで読める想定）
-      .select('id')
-      .eq('email', e)
-      .maybeSingle();
-
-    if (error) {
-      console.warn('[findUserIdByEmailLocal] RLS/権限で取得不可の可能性:', error);
-      return null;
-    }
-    return data?.id ?? null;
-  } catch (err) {
-    console.error('[findUserIdByEmailLocal] failed:', err);
-    return null;
-  }
-}
-
 export default function AdminMembersPage() {
   const { user, companyId, membershipLoaded, hydrated } = useUserStore();
   const { isAdmin } = useAccess(); // ★ canAdminCompany → isAdmin に統一
@@ -49,12 +27,6 @@ export default function AdminMembersPage() {
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState<Record<string, boolean>>({});
   const [note, setNote] = useState<string>('');
-
-  // 招待/追加フォーム
-  const [newEmail, setNewEmail] = useState('');
-  const [newRole, setNewRole] = useState<Role>('member');
-  const [newDept, setNewDept] = useState<string>(''); // departmentId 任意
-  const [inviteLink, setInviteLink] = useState<string>('');
 
   const ready = hydrated && membershipLoaded;
 
@@ -166,85 +138,6 @@ export default function AdminMembersPage() {
     }
   };
 
-  const onInviteOrAdd = async () => {
-    setInviteLink('');
-    const email = newEmail.trim().toLowerCase();
-    if (!email) {
-      setNote('メールアドレスを入力してください。');
-      return;
-    }
-    setNote('処理中…');
-
-    // 1) 既存ユーザーなら即追加（ローカル実装に切り替え）
-    try {
-      const uid = await findUserIdByEmailLocal(email);
-      if (uid) {
-        const r = await addMemberByUserId(uid, newRole, newDept || null);
-        if (r.ok) {
-          setNote('✅ 既存ユーザーを追加しました。');
-          setNewEmail('');
-          setNewDept('');
-          await fetchRows();
-          return;
-        }
-        // 失敗しても招待へフォールバック
-      }
-    } catch (e) {
-      console.warn('findUserIdByEmailLocal / addMemberByUserId でフォールバックします', e);
-    }
-
-    // 2) 新規ユーザー：新方式の招待トークン API を使用
-    try {
-      const { data: ses } = await supabase.auth.getSession();
-      const token = ses?.session?.access_token;
-
-      if (!token) {
-        setNote('セッションが見つかりません。ログインし直してください。');
-        return;
-      }
-
-      // 新方式：/api/invites/create を呼び出す
-      const res = await fetch('/api/invites/create', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          email,
-          role: newRole,
-          companyId: companyId || undefined,
-        }),
-      });
-
-      const j = await res.json();
-
-      if (!res.ok) {
-        const errorMsg =
-          j?.error === 'invite_already_exists'
-            ? `${email} はすでに招待されています`
-            : j?.error === 'admin_only'
-            ? '権限がありません（管理者のみ招待可能）'
-            : j?.detail || j?.error || 'unknown error';
-        setNote(`招待に失敗しました: ${errorMsg}`);
-        return;
-      }
-
-      if (j.ok && j.inviteUrl) {
-        setInviteLink(j.inviteUrl);
-        setNote(`✅ 招待リンクを生成しました。メールで共有してください。\n有効期限: ${j.expiresAt}`);
-        setNewEmail('');
-        setNewDept('');
-        // 招待リンク生成成功後、メンバーリストを再読み込み（オプション）
-        // await fetchRows();
-      } else {
-        setNote('処理は完了しました。');
-      }
-    } catch (e) {
-      console.error(e);
-      setNote('招待処理でエラーが発生しました。');
-    }
-  };
 
   if (guardMsg) {
     return (
@@ -261,48 +154,15 @@ export default function AdminMembersPage() {
         <h1 className="text-xl font-semibold">管理者専用：メンバー管理</h1>
       </header>
 
-      {/* 追加/招待フォーム */}
-      <section className="rounded-xl border border-gray-200 bg-white shadow-sm p-4 space-y-3">
-        <h2 className="text-sm font-semibold text-gray-700">メンバー追加 / 招待</h2>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-          <input
-            type="email"
-            placeholder="email@example.com"
-            className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
-            value={newEmail}
-            onChange={(e) => setNewEmail(e.target.value)}
-          />
-          <select
-            className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
-            value={newRole}
-            onChange={(e) => setNewRole(e.target.value as Role)}
-          >
-            <option value="member">member</option>
-            <option value="manager">manager</option>
-            <option value="admin">admin</option>
-          </select>
-          <input
-            type="text"
-            placeholder="departmentId（任意）"
-            className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
-            value={newDept}
-            onChange={(e) => setNewDept(e.target.value)}
-          />
-          <button
-            onClick={onInviteOrAdd}
-            className="rounded-md bg-gray-900 text-white px-4 py-2 text-sm hover:bg-black/90"
-          >
-            追加 / 招待
-          </button>
-        </div>
-        {inviteLink && (
-          <div className="text-xs text-gray-700">
-            招待リンク：{' '}
-            <a className="underline break-all" href={inviteLink} target="_blank" rel="noreferrer">
-              {inviteLink}
-            </a>
-          </div>
-        )}
+      {/* 招待フォームは /admin/invites に統一 */}
+      <section className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+        <p className="text-sm text-blue-900">
+          新規ユーザーを招待する場合は「
+          <a href="/admin/invites" className="font-semibold underline hover:text-blue-700">
+            招待管理ページ
+          </a>
+          」をご利用ください。
+        </p>
       </section>
 
       {note && (
