@@ -6,6 +6,7 @@ import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { restoreWithAudit } from '@/utils/persist/restoreWithAudit';
 import { useAutoSave } from '@/hooks/useAutoSave';
+import StrategyGuard from '@/app/StrategyGuard';
 
 import SaveStatusIndicator from '@/components/SaveStatusIndicator';
 import CompanyAndBusinessPanel from '@/components/stage1/CompanyAndBusinessPanel';
@@ -397,7 +398,8 @@ export default function Stage1Page() {
           : 'bg-blue-600 text-white hover:bg-blue-700';
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-8 space-y-8">
+    <StrategyGuard mode="edit">
+      <div className="max-w-5xl mx-auto px-6 py-8 space-y-8">
       <header className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">STAGE1｜企業価値分析</h1>
@@ -518,6 +520,7 @@ export default function Stage1Page() {
           </SectionCard>
         </div>
       )}
-    </div>
+      </div>
+    </StrategyGuard>
   );
 }
