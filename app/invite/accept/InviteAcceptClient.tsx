@@ -9,7 +9,7 @@ import { useUserStore } from '@/store/userStore';
 export default function InviteAcceptClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { setCompanyId } = useUserStore();
+  const { setCompanyId, resetMembershipLoading } = useUserStore();
 
   // token は searchParams の安定化タイミングがあるので memo で正規化して扱う
   const token = useMemo(() => {
@@ -143,6 +143,7 @@ export default function InviteAcceptClient() {
         // 成功
         const companyId = data?.companyId as string | undefined;
         if (companyId) setCompanyId(companyId);
+        resetMembershipLoading();
 
         setMsg('招待を受け入れました。ホーム画面に遷移します。');
 
@@ -162,7 +163,7 @@ export default function InviteAcceptClient() {
     return () => {
       cancelled = true;
     };
-  }, [token, router, setCompanyId]);
+  }, [token, router, setCompanyId, resetMembershipLoading]);
 
   const handleLogout = async () => {
     try {
