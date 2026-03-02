@@ -1,5 +1,6 @@
 // /app/okr/page.tsx
 'use client';
+import StrategyGuard from '@/app/StrategyGuard';
 
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import type { ReactNode } from 'react';
@@ -194,7 +195,7 @@ function metricBadge(role?: MetricRoleUI) {
   return 'bg-zinc-100 text-zinc-700';
 }
 
-export default function OKRPage() {
+function OKRPageContent() {
   const s = useStrategyStore() as any;
   const {
     companyId: scopeCompanyId,
@@ -2676,4 +2677,12 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
    * return: SIMPLE_FORM フラグで表示を切り替え
    * ========================================================== */
   return renderLegacy();
+}
+
+export default function OKRPage() {
+  return (
+    <StrategyGuard mode="edit">
+      <OKRPageContent />
+    </StrategyGuard>
+  );
 }
