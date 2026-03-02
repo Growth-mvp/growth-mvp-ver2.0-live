@@ -1,4 +1,6 @@
 // /app/admin/members/page.tsx
+// ★ IMPORTANT: Invite form is intentionally removed. Use /admin/invites instead.
+// If you need to add email/role input here, consider if it should go to /admin/invites instead.
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
