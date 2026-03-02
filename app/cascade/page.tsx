@@ -20,6 +20,7 @@
 
 'use client';
 
+import StrategyGuard from '@/app/StrategyGuard';
 import { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useAccess } from '@/utils/access';
@@ -1280,7 +1281,7 @@ const VisualCard = memo(function VisualCard({ d }: { d: Department }) {
 /* =========================
    メイン
 ========================= */
-export default function CascadePage() {
+function CascadePageContent() {
   // ★ 1フィールド = 1購読に分割（shallow 不要）
   const scopeCompanyId = useStrategyStore((st: any) => st.companyId);
   const hydrated = useStrategyStore((st: any) => st.hydrated);
@@ -2928,5 +2929,13 @@ useEffect(() => {
         </section>
       )}
     </div>
+  );
+}
+
+export default function CascadePage() {
+  return (
+    <StrategyGuard mode="edit">
+      <CascadePageContent />
+    </StrategyGuard>
   );
 }
