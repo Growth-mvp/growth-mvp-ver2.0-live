@@ -4,10 +4,10 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
-import { useAccess } from '@/utils/access';
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
 import { AlertCircle } from 'lucide-react';
+import StrategyGuard from '@/app/StrategyGuard';
 import SaveStatusIndicator from '@/components/SaveStatusIndicator';
 import { StatusBadge, StatusSelect, type Status } from '@/components/stage4/StatusBadge';
 import { DiffViewer } from '@/components/stage4/DiffViewer';
@@ -57,7 +57,11 @@ export default function Stage4Page() {
 
   // userStore も selector 化
   const companyId = useUserStore((s) => s.companyId);
-  const access = useAccess();
+  const isAdmin = useUserStore((s) => s.isAdmin);
+  const isManager = useUserStore((s) => s.isManager);
+  const isMember = useUserStore((s) => s.isMember);
+  // ★ STAGE4 は member も編集OK
+  const canEdit = isAdmin || isManager || isMember;
 
   const [selectedDeptId, setSelectedDeptId] = useState<string | null>(null);
   const [localPlans, setLocalPlans] = useState<Stage4Plan[]>([]);
@@ -365,7 +369,8 @@ export default function Stage4Page() {
   }
 
   return (
-    <div className="p-8">
+    <StrategyGuard mode="view">
+      <div className="p-8">
       <div className="max-w-6xl mx-auto space-y-6">
         {/* ヘッダー */}
         <div className="flex items-start justify-between gap-4">
@@ -439,7 +444,7 @@ export default function Stage4Page() {
                     <StatusSelect
                       value={selectedPlan.status}
                       onChange={(newStatus) => updateStatus(selectedPlan.departmentId, newStatus)}
-                      disabled={!access.canEditCompany()}
+                      disabled={!canEdit}
                     />
                   </div>
                 </div>
@@ -461,7 +466,7 @@ export default function Stage4Page() {
                   <ProjectEditor
                     current={selectedPlan.current}
                     onChange={(newCurrent) => updateCurrent(selectedPlan.departmentId, newCurrent)}
-                    disabled={!access.canEditCompany()}
+                    disabled={!canEdit}
                   />
                 </div>
               </>
@@ -469,6 +474,7 @@ export default function Stage4Page() {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </StrategyGuard>
   );
 }
