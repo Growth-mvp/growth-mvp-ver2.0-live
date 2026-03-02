@@ -1,5 +1,6 @@
 // /app/stage2/page.tsx
 'use client';
+import StrategyGuard from '@/app/StrategyGuard';
 
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
@@ -1449,7 +1450,7 @@ function Questions12Section({
 /* ===================================================
  * メイン
  * =================================================== */
-export default function Stage2Page() {
+function Stage2PageContent() {
   const router = useRouter();
 
   // Store / User
@@ -3212,5 +3213,13 @@ export default function Stage2Page() {
         </>
       )}
     </main>
+  );
+}
+
+export default function Stage2Page() {
+  return (
+    <StrategyGuard mode="edit">
+      <Stage2PageContent />
+    </StrategyGuard>
   );
 }
