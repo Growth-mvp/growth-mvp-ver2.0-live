@@ -1,5 +1,6 @@
 // /app/execution/page.tsx
 'use client';
+import StrategyGuard from '@/app/StrategyGuard';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -644,7 +645,7 @@ function clampText(s: string, max = 34) {
 /* =========================
  * ページ本体
  * ======================= */
-export default function ExecutionPage() {
+function ExecutionPageContent() {
   const { departments, editableCascadeResult } = useStrategyStore() as any;
   const { companyId: scopeCompanyId, hydrated, setCompanyScope } = useStrategyStore();
 
@@ -1288,5 +1289,12 @@ export default function ExecutionPage() {
         krIds={selected?.krIds ?? []}
       />
     </main>
+  );
+}
+export default function ExecutionPage() {
+  return (
+    <StrategyGuard mode="view">
+      <ExecutionPageContent />
+    </StrategyGuard>
   );
 }
