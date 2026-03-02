@@ -62,11 +62,10 @@ function exposeError(e: any) {
 }
 
 /**
- * ★修正：会社所属は membership を唯一の真実にする
- * - state.companyId / state.user.companyId などの残骸参照は廃止
+ * ★修正：会社所属は companyId を唯一の真実にする
  */
 function selectCompanyId(state: any): string | undefined {
-  return state?.membership?.companyId ?? undefined;
+  return state?.companyId ?? undefined;
 }
 
 /* ===========================================================
@@ -84,6 +83,8 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   const setUser = useUserStore((s) => s.setUser);
   const setRole = useUserStore((s) => s.setRole);
   const setMembership = useUserStore((s) => s.setMembership);
+  const membershipLoaded = useUserStore((s) => s.membershipLoaded);
+  const setMembershipLoaded = useUserStore((s) => s.setMembershipLoaded);
   const companyId = useUserStore(selectCompanyId);
 
   /* ================================
@@ -107,6 +108,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   const lastProvisionForCompany = useRef<string | null>(null);
   const cleaned = useRef(false);
   const routedRef = useRef(false);
+  const prevUserIdRef = useRef<string | null>(null);
 
   // ★ TASK A: membership retry & abort tracking
   const memRetryCount = useRef(0);
@@ -234,6 +236,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         const email = session.user.email ?? '';
         if (!cleaned.current) {
           setUser({ id: uid, email, name: '', role: 'member' });
+          setMembershipLoaded(false);
           // membership 再ロード局面
           setBootstrapped(false);
           setBootstrapTimedOut(false);
@@ -272,17 +275,23 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 
       accessTokenRef.current = sess.access_token ?? null;
 
-      // ★追加：ログイン確立/アカウント切替時も cookie を一旦クリア
-      try {
-        clearCompanyIdCookie();
-      } catch {}
+      const currentUserId = sess.user.id;
 
-      if (!cleaned.current) {
-        setUser({ id: sess.user.id, email: sess.user.email ?? '', name: '', role: 'member' });
-        // membership を読み直す
-        setBootstrapped(false);
-        setBootstrapTimedOut(false);
+      // ★追加：ユーザーが切り替わった場合のみ membership を reset する
+      if (prevUserIdRef.current && prevUserIdRef.current !== currentUserId) {
+        try {
+          clearCompanyIdCookie();
+        } catch {}
+
+        if (!cleaned.current) {
+          setUser({ id: currentUserId, email: sess.user.email ?? '', name: '', role: 'member' });
+          setMembershipLoaded(false);
+          setBootstrapped(false);
+          setBootstrapTimedOut(false);
+        }
       }
+
+      prevUserIdRef.current = currentUserId;
     });
 
     return () => {
@@ -298,6 +307,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
    * ============================== */
   useEffect(() => {
     if (!user?.id) return;
+    if (membershipLoaded) return;
     if (memInFlight.current) return;
     memInFlight.current = true;
 
@@ -377,6 +387,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
             setMembership({ companyId: undefined, departmentId: undefined });
             setRole('member');
             setBootstrapTimedOut(false);
+            setMembershipLoaded(true);
             setBootstrapped(true);
           }
           // ★追加：所属が無いなら cookie を必ずクリア（残骸で provision が走るのを防ぐ）
@@ -421,6 +432,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         // ★ Success - mark as bootstrapped
         if (!cleaned.current) {
           setBootstrapTimedOut(false);
+          setMembershipLoaded(true);
           setBootstrapped(true);
         }
       } catch (err: any) {
@@ -479,7 +491,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       }
       memInFlight.current = false;
     };
-  }, [user?.id, setMembership, setRole]);
+  }, [user?.id, membershipLoaded, setMembership, setRole, setMembershipLoaded]);
 
   /* ================================
    * 2.3) companyId → StrategyStore scope反映（早期）
