@@ -1,5 +1,6 @@
 // /app/stage6/page.tsx
 'use client';
+import StrategyGuard from '@/app/StrategyGuard';
 
 import { useCallback, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
@@ -26,7 +27,7 @@ import { useStage6Data } from '@/components/stage6/hooks/useStage6Data';
  * - page: UI状態管理とタブ切替のみ
  */
 
-export default function Stage6Page() {
+function Stage6PageContent() {
   // ===== UI State =====
   const [scenarioKey, setScenarioKey] = useState<'low' | 'base' | 'high'>('base');
   const [activeTab, setActiveTab] = useState<'impact' | 'northstar' | 'valueanalysis'>('impact');
@@ -263,5 +264,13 @@ export default function Stage6Page() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function Stage6Page() {
+  return (
+    <StrategyGuard mode="view">
+      <Stage6PageContent />
+    </StrategyGuard>
   );
 }
