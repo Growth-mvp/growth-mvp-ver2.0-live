@@ -10,9 +10,11 @@ const VBW = 1500;
 const VBH = 750;
 
 const TRI = {
-  apex:  { x: 500, y: 90 },
-  left:  { x: 160, y: 660 },
-  right: { x: 840, y: 660 },
+  // ✅ ここを下へ平行移動（+40）
+  apex:  { x: 500, y: 240 },
+  left:  { x: 160, y: 800 },
+  right: { x: 840, y: 800 },
+
   div1Ratio: 0.34,
   div2Ratio: 0.66,
   lineInset: 1,
@@ -55,14 +57,14 @@ const Y_L_MID = ((Y_DIV1     + Y_DIV2) / 2)      + TRI.label.midYOffset;
 const Y_L_BOT = ((Y_DIV2     + TRI.right.y) / 2) + TRI.label.botYOffset;
 
 /* ===== ボタン配置（デザイン準拠） ===== */
-// STAGE1/2 を縦並びで STAGE3/4 と同じ列に合わせ、少し下げる
-const ROW_TOP_Y = 160;  // ← 210 から下げた
-const ROW_MID_Y = 360;  // STAGE3
-const ROW_BOT_Y = 520;  // STAGE4（上げ済み）
-const LEFT_PCT  = 58;   // 全列で統一（STAGE3/4 と同じ列）
+// ✅ 三角形を下げた分、ボタンも少し下げる（+20）
+const ROW_TOP_Y = 290;
+const ROW_MID_Y = 480;
+const ROW_BOT_Y = 630;
+const LEFT_PCT  = 58;
 
 // Apple風：余白/角丸/フォントを少し大きく（押しやすい）
-const btnClass =
+export const btnClass =
   'inline-flex items-center rounded-xl border border-neutral-300 ' +
   'bg-white px-6 py-3 shadow-sm hover:bg-neutral-100 transition-colors ' +
   'focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-2';
@@ -134,18 +136,42 @@ export default function PyramidNavigator() {
             />
 
             {/* ラベル */}
-            <text x={TRI.apex.x} y={Y_L_TOP} textAnchor="middle"
-              fontSize={TRI.label.size} fontWeight={TRI.label.weight}
-              fill="#0f172a" style={{ letterSpacing: `${TRI.label.trackEm}em` }}>TOP</text>
-            <text x={TRI.apex.x} y={Y_L_MID} textAnchor="middle"
-              fontSize={TRI.label.size} fontWeight={TRI.label.weight}
-              fill="#0f172a" style={{ letterSpacing: `${TRI.label.trackEm}em` }}>MIDDLE</text>
-            <text x={TRI.apex.x} y={Y_L_BOT} textAnchor="middle"
-              fontSize={TRI.label.size} fontWeight={TRI.label.weight}
-              fill="#0f172a" style={{ letterSpacing: `${TRI.label.trackEm}em` }}>BOTTOM</text>
+            <text
+              x={TRI.apex.x}
+              y={Y_L_TOP}
+              textAnchor="middle"
+              fontSize={TRI.label.size}
+              fontWeight={TRI.label.weight}
+              fill="#0f172a"
+              style={{ letterSpacing: `${TRI.label.trackEm}em` }}
+            >
+              TOP
+            </text>
+            <text
+              x={TRI.apex.x}
+              y={Y_L_MID}
+              textAnchor="middle"
+              fontSize={TRI.label.size}
+              fontWeight={TRI.label.weight}
+              fill="#0f172a"
+              style={{ letterSpacing: `${TRI.label.trackEm}em` }}
+            >
+              MIDDLE
+            </text>
+            <text
+              x={TRI.apex.x}
+              y={Y_L_BOT}
+              textAnchor="middle"
+              fontSize={TRI.label.size}
+              fontWeight={TRI.label.weight}
+              fill="#0f172a"
+              style={{ letterSpacing: `${TRI.label.trackEm}em` }}
+            >
+              BOTTOM
+            </text>
           </svg>
 
-          {/* 行1：STAGE1 & STAGE2（縦並び／列位置はSTAGE3/4に合わせる） */}
+          {/* 行1：STAGE1 & STAGE2 */}
           <div
             className="absolute flex flex-col gap-3"
             style={{
@@ -192,7 +218,7 @@ export default function PyramidNavigator() {
         </div>
       </div>
 
-      {/* モバイル：縦リスト（従来通り） */}
+      {/* モバイル：縦リスト */}
       <div className="md:hidden mt-6 space-y-3">
         {[
           { href: '/stage1', label: 'STAGE1：企業価値分析' },
