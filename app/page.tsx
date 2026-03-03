@@ -41,7 +41,7 @@ export default function Home() {
 </h1>
 
 <p className="mt-5 text-lg sm:text-xl leading-relaxed text-neutral-600 dark:text-neutral-300">
-  戦略を組織の行動と成果につなぐ経営プラットフォーム
+  戦略を行動と成果につなぐ経営プラットフォーム
 </p>
 
           <div className="mt-8">
