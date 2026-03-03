@@ -1,10 +1,9 @@
-﻿// /components/Sidebar.tsx（修正版・storeアクション連動・/stage6統一・未使用整理）
+﻿// /components/Sidebar.tsx（レスポンシブ修正版：狭い幅は完全に非表示）
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { useStrategyStore /*, refetchFromServer as refetchViaExport*/ } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { useAccess } from '@/utils/access';
 import LogoutButton from './LogoutButton';
@@ -35,31 +34,35 @@ const ITEM_TEXT_CLASS = 'font-normal tracking-[0.01em] leading-6 text-[13.5px]';
 /* ---------------- 本体 ---------------- */
 export default function Sidebar() {
   const pathname = usePathname();
-  const router = useRouter();
 
-  // store
   const userStore = useUserStore();
   const user = userStore.user;
-  const companyId = userStore.companyId;
-  const hydratedUser = userStore.hydrated; // userStore 側のハイドレーション完了フラグ想定
 
-  const { canView, canEditCompany } = useAccess();
+  const { canEditCompany } = useAccess();
 
   const [domHydrated, setDomHydrated] = useState(false);
   useEffect(() => setDomHydrated(true), []);
 
   const currentUserId: string | undefined = user?.id;
 
-  /* ===== アクション ===== */
-
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
   const adminDisabledVisual = !canEditCompany();
 
   return (
     <aside
-      className="fixed top-0 left-0 z-50 h-screen w-64 md:w-72
-      bg-gray-50 border-r border-gray-200 shadow-sm
-      text-gray-800 flex flex-col"
+      className={[
+        // ✅ ここが重要：狭い幅は「完全に消す」
+        // - これで左端に pill が“半分だけ残る”現象が消えます
+        'hidden lg:flex',
+
+        // ✅ lg以上で固定サイドバー
+        'lg:fixed lg:top-0 lg:left-0 lg:z-50 lg:h-screen',
+        'lg:w-64 xl:w-72',
+
+        'bg-gray-50 border-r border-gray-200 shadow-sm',
+        'text-gray-800 flex-col',
+      ].join(' ')}
+      aria-label="サイドバー"
     >
       {/* ロゴ */}
       <div className="shrink-0 border-b border-gray-200 px-4 py-4">
@@ -67,7 +70,7 @@ export default function Sidebar() {
           <img
             src="/growth-logo4.png"
             alt="GROWTH Logo"
-            className="block mx-auto h-[60px] w-auto md:h-[140px] transition-transform hover:scale-[1.02]"
+            className="block mx-auto h-[60px] w-auto xl:h-[140px] transition-transform hover:scale-[1.02]"
           />
         </Link>
       </div>
@@ -132,7 +135,6 @@ export default function Sidebar() {
             label="STAGE 5：実行計画支援"
             active={isActive('/execution')}
           />
-          {/* 重要：/simulation ではなく /stage6 に統一 */}
           <PillLink
             href="/stage6"
             icon={<LineChart size={18} strokeWidth={1.5} />}
@@ -140,10 +142,8 @@ export default function Sidebar() {
             active={isActive('/stage6')}
           />
 
-          {/* 管理画面セクション区切り */}
           <div className="h-px bg-gray-200/50 my-4" />
 
-          {/* 管理者 */}
           <PillLink
             href="/admin/members"
             icon={<Settings size={18} strokeWidth={1.5} />}
@@ -152,7 +152,6 @@ export default function Sidebar() {
             disabled={adminDisabledVisual}
           />
         </nav>
-
       </div>
 
       {/* フッター */}
