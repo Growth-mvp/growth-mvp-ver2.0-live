@@ -30,13 +30,13 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-white">
       {/* ===== Hero ===== */}
-      <section className="container mx-auto px-6 pt-16 pb-10">
+      <section className="container mx-auto px-6 pt-16 pb-10 heroPad">
         <div className="mx-auto max-w-5xl text-center">
           <p className="text-lg sm:text-xl font-semibold tracking-wide text-neutral-700 dark:text-neutral-200">
   戦略を行動に、行動を企業の成長に
 </p>
 
-<h1 className="mt-4 text-6xl font-extrabold tracking-tight sm:text-7xl">
+<h1 className="mt-4 text-6xl font-extrabold tracking-tight sm:text-7xl heroTitle">
   GROWTH
 </h1>
 
@@ -66,7 +66,7 @@ export default function Home() {
           transition={{ duration: 0.6 }}
           className="motion-reduce:transition-none motion-reduce:transform-none"
         >
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-stretch">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-stretch homeGrid">
             {/* LEFT: STRATEGY */}
             <div className="h-full rounded-3xl bg-white p-4 shadow-[0_1px_30px_rgba(0,0,0,0.06)] ring-1 ring-neutral-200/70 dark:bg-neutral-950 dark:ring-neutral-800">
               <div className="mb-3">
@@ -86,7 +86,7 @@ export default function Home() {
                 </div>
                 <div className="text-lg font-semibold text-neutral-900 dark:text-white">戦略実行</div>
               </div>
-              <div className="lg:sticky lg:top-6">
+              <div className="lg:sticky lg:top-6 homeSticky">
                 <ExecutionPanel />
               </div>
             </div>
