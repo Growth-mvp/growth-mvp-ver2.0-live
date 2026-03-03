@@ -4,6 +4,7 @@
 import { useEffect } from 'react';
 import Link from 'next/link';
 import PyramidNavigator from '@/components/home/PyramidNavigator';
+import ExecutionPanel from '@/components/home/ExecutionPanel';
 import { useUserStore } from '@/store/userStore';
 import { motion } from 'framer-motion';
 
@@ -18,105 +19,46 @@ export default function Home() {
   }, [user?.id, user?.role]);
 
   const steps = [
-    { step: 1, title: 'STAGE 1：企業価値分析', description: '財務事実から企業価値の現状を整理', path: '/stage1' },
-    { step: 2, title: 'STAGE 2：経営戦略策定', description: 'たたき台ストーリー→AI質問生成→最終ストーリー', path: '/story-process' },
-    { step: 3, title: 'STAGE 3：部門戦略策定', description: '部門ミッション・プロジェクト生成', path: '/cascade' },
-    { step: 4, title: 'STAGE 4：実行計画策定', description: 'OKRの検討・設定', path: '/okr' },
-    { step: 5, title: 'STAGE 5：実行計画支援', description: '実行状況の可視化、評価アドバイス', path: '/execution' },
+    { step: 1, title: 'STAGE 1：企業価値分析', path: '/stage1' },
+    { step: 2, title: 'STAGE 2：経営戦略策定', path: '/stage2' },
+    { step: 3, title: 'STAGE 3：部門戦略策定', path: '/cascade' },
+    { step: 4, title: 'STAGE 4：実行計画策定', path: '/okr' },
+    { step: 5, title: 'STAGE 5：実行計画支援', path: '/execution' },
+    { step: 6, title: 'STAGE 6：業績シミュレーション', path: '/stage6' },
   ];
 
   return (
-    <main className="min-h-screen bg-white text-neutral-900 antialiased [--accent:#0a0a0a] dark:bg-black dark:text-white">
+    <main className="min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-white">
       {/* ===== Hero ===== */}
-      <section className="relative overflow-hidden">
-        {/* 背景：放射グラデ + ノイズ（データURLで404回避） */}
-        <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
-          <div
-            className="
-              absolute -top-32 left-1/2 h-[120vh] w-[120vh] -translate-x-1/2 rounded-full
-              bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0.08),transparent_60%)]
-              dark:bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,0.12),transparent_60%)]
-            "
-          />
-          <div
-            className="
-              absolute inset-0 opacity-[0.06] mix-blend-multiply
-              [background-image:url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y3w5b8AAAAASUVORK5CYII=')]
-            "
-          />
-        </div>
+      <section className="container mx-auto px-6 pt-16 pb-10">
+        <div className="mx-auto max-w-5xl text-center">
+          <p className="text-lg sm:text-xl font-semibold tracking-wide text-neutral-700 dark:text-neutral-200">
+  戦略を行動に、行動を企業の成長に
+</p>
 
-        <div className="container mx-auto px-6 pt-20 pb-12 md:pt-28 md:pb-20">
-          <div className="mx-auto max-w-5xl text-center">
-            {/* 上：日本語サブヘッド（少しだけサイズを落として上品に） */}
-            <motion.p
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.55, ease: 'easeOut' }}
-              className="
-                font-semibold tracking-tight text-neutral-900 dark:text-neutral-100
-                leading-tight
-                text-[clamp(30px,3.2vw,30px)]
-              "
-            >
-              戦略を行動に、行動を企業価値に
-            </motion.p>
+<h1 className="mt-4 text-6xl font-extrabold tracking-tight sm:text-7xl">
+  GROWTH
+</h1>
 
-            {/* 中央：GROWTH（横余白を確保しつつ存在感） */}
-            <motion.h1
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.7, ease: 'easeOut' }}
-              className="
-                mt-3 font-extrabold tracking-[-0.02em] select-none
-                text-[clamp(120px,10vw,120px)] leading-none
-                text-neutral-900 dark:text-neutral-100
-              "
-            >
-              GROWTH
-            </motion.h1>
+<p className="mt-5 text-lg sm:text-xl leading-relaxed text-neutral-600 dark:text-neutral-300">
+  戦略を組織の行動と成果につなぐ経営プラットフォーム
+</p>
 
-            {/* 下：サブコピー（読みやすさ優先で少し大きく） */}
-            <motion.p
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.15, duration: 0.6 }}
-              className="
-                mt-5 mx-auto max-w-3xl
-                text-[clamp(22px,2.5vw,20px)] leading-relaxed
-                text-neutral-600 dark:text-neutral-300
-              "
+          <div className="mt-8">
+            <Link
+              href="/stage1"
+              className="inline-flex items-center justify-center rounded-full bg-neutral-900 px-8 py-3.5 text-base font-semibold text-white hover:opacity-90 dark:bg-white dark:text-neutral-900"
             >
-              戦略を行動と成果につなぐ経営プラットフォーム
-            </motion.p>
-
-            {/* CTA（既存機能維持） */}
-            <motion.div
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.35, duration: 0.6 }}
-              className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row motion-reduce:transition-none motion-reduce:transform-none"
-            >
-              <Link
-                href="/stage1"
-                className="
-                  inline-flex h-12 items-center justify-center rounded-full
-                  bg-neutral-900 px-7 text-sm font-semibold text-white shadow-sm transition
-                  hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400
-                  dark:bg-white dark:text-black dark:hover:bg-neutral-200
-                "
-                aria-label="さっそく始める"
-              >
-                さっそく始める
-              </Link>
-            </motion.div>
+              さっそく始める
+            </Link>
           </div>
         </div>
       </section>
 
-      {/* ===== Pyramid（デスクトップ主体） ===== */}
-      <section className="container mx-auto px-6 -mt-8 md:-mt-12">
+      {/* ===== Pyramid + Execution（左右対称）===== */}
+      <section className="container mx-auto px-6 pb-14">
         <h2 className="sr-only">GROWTHピラミッドナビゲーション</h2>
+
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -124,8 +66,30 @@ export default function Home() {
           transition={{ duration: 0.6 }}
           className="motion-reduce:transition-none motion-reduce:transform-none"
         >
-          <div className="rounded-3xl bg-white p-4 shadow-[0_1px_30px_rgba(0,0,0,0.06)] ring-1 ring-neutral-200/70 dark:bg-neutral-950 dark:ring-neutral-800">
-            <PyramidNavigator />
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-stretch">
+            {/* LEFT: STRATEGY */}
+            <div className="h-full rounded-3xl bg-white p-4 shadow-[0_1px_30px_rgba(0,0,0,0.06)] ring-1 ring-neutral-200/70 dark:bg-neutral-950 dark:ring-neutral-800">
+              <div className="mb-3">
+                <div className="text-xs font-medium tracking-widest text-neutral-500 dark:text-neutral-400">
+                  STRATEGY
+                </div>
+                <div className="text-lg font-semibold text-neutral-900 dark:text-white">戦略設計</div>
+              </div>
+              <PyramidNavigator />
+            </div>
+
+            {/* RIGHT: EXECUTION */}
+            <div className="h-full rounded-3xl bg-white p-4 shadow-[0_1px_30px_rgba(0,0,0,0.06)] ring-1 ring-neutral-200/70 dark:bg-neutral-950 dark:ring-neutral-800">
+              <div className="mb-3">
+                <div className="text-xs font-medium tracking-widest text-neutral-500 dark:text-neutral-400">
+                  EXECUTION
+                </div>
+                <div className="text-lg font-semibold text-neutral-900 dark:text-white">戦略実行</div>
+              </div>
+              <div className="lg:sticky lg:top-6">
+                <ExecutionPanel />
+              </div>
+            </div>
           </div>
         </motion.div>
       </section>
@@ -138,8 +102,12 @@ export default function Home() {
             <Link key={item.step} href={item.path} aria-label={item.title} className="group">
               <div className="relative rounded-2xl bg-white p-5 shadow-soft ring-1 ring-neutral-200/70 transition duration-200 hover:-translate-y-0.5 hover:shadow-card dark:bg-neutral-950 dark:ring-neutral-800">
                 <div className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-tr from-neutral-50 to-transparent opacity-0 transition-opacity group-hover:opacity-100 dark:from-neutral-900/40" />
-                <h3 className="text-[16px] font-semibold tracking-tight text-neutral-900 dark:text-white">{item.title}</h3>
-                <p className="mt-1.5 text-[14px] leading-relaxed text-neutral-600 dark:text-neutral-300">{item.description}</p>
+                <h3 className="text-[16px] font-semibold tracking-tight text-neutral-900 dark:text-white">
+                  {item.title}
+                </h3>
+                <p className="mt-1.5 text-sm text-neutral-600 dark:text-neutral-300">
+                  {item.step} / 6
+                </p>
               </div>
             </Link>
           ))}
