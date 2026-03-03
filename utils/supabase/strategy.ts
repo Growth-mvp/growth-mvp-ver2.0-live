@@ -2337,6 +2337,30 @@ export async function loadProgressLogs(
   }
 }
 
+/**
+ * Load progress logs for user (userId → companyId 自動解決)
+ * ExecutionPanel 等で使用
+ */
+export async function loadMyProgressLogs(
+  userId: string,
+  options?: {
+    limit?: number;
+    fromDate?: string;
+  },
+  companyIdOverride?: string | null,
+): Promise<{ data: any[] | null; error: any | null }> {
+  try {
+    const companyId = await resolveCompanyId(userId, companyIdOverride ?? null);
+    return await loadProgressLogs(companyId, options);
+  } catch (e) {
+    try {
+      return { data: null, error: extractErrorVerbose(e) };
+    } catch {
+      return { data: null, error: e };
+    }
+  }
+}
+
 /* ============================================================
  * 分離テーブルへの保存API（company_id 一意／手動UPSERT固定）
  * ========================================================== */
