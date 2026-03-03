@@ -14,6 +14,38 @@ import {
 import type { IssueResolution } from '@/utils/stage6';
 import type { ProjectIssueLink } from '@/types/strategy';
 
+type LinkSourceLabel = {
+  label: string;
+  className: string;
+};
+
+function sourceLabel(source?: string, locked?: boolean): LinkSourceLabel {
+  if (locked) {
+    return { label: '固定', className: 'bg-slate-900 text-white' };
+  }
+  if (source === 'manual') {
+    return { label: '手動', className: 'bg-blue-600 text-white' };
+  }
+  if (source === 'auto') {
+    return { label: '推定', className: 'bg-slate-100 text-slate-700' };
+  }
+  return { label: '不明', className: 'bg-slate-100 text-slate-600' };
+}
+
+function strengthLabel(strength?: number) {
+  if (strength === 3) return { label: '強', className: 'bg-green-100 text-green-800' };
+  if (strength === 2) return { label: '中', className: 'bg-blue-100 text-blue-800' };
+  if (strength === 1) return { label: '弱', className: 'bg-amber-100 text-amber-800' };
+  return { label: '-', className: 'bg-slate-100 text-slate-600' };
+}
+
+function shortProjectName(projectId: string) {
+  const parts = projectId.includes('::') ? projectId.split('::') : projectId.split(':');
+  const dept = parts[0] ?? '';
+  const proj = parts[1] ?? projectId;
+  return { dept, proj };
+}
+
 interface TabValueProps {
   vaCards: Array<{
     key: string;
@@ -49,11 +81,6 @@ export function TabValue({
   const [expandedIssue, setExpandedIssue] = useState<string | null>(null);
   return (
     <>
-      {/* 説明テキスト */}
-      <div className="mb-4 rounded-lg bg-blue-50 p-3 text-sm text-blue-800 border border-blue-200">
-        <strong>💡 自動推定について：</strong> 論点とプロジェクトの関連を自動推定し、進捗で解決度を更新します（必要に応じて調整可能）
-      </div>
-
       {/* A. Key performance indicators */}
       {indicatorSeries && (indicatorSeries.growth.length > 0 || indicatorSeries.margin.length > 0) && (
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -193,6 +220,10 @@ export function TabValue({
           <div className="space-y-3">
             <div className="text-sm font-semibold text-slate-900">論点ブロック & 解決度</div>
             {issueResolutions.map((resolution, idx) => {
+              const linksForIssue = (projectIssueLinks ?? []).filter((l) => l.issueId === resolution.issueTitle);
+              const linkByProject = new Map<string, ProjectIssueLink>();
+              for (const l of linksForIssue) linkByProject.set(l.projectId, l);
+
               // Resolution status color coding
               let resolutionColor = 'text-slate-500';
               let resolutionLabel = '未接続';
@@ -269,7 +300,7 @@ export function TabValue({
                           }
                           className="text-xs text-blue-600 hover:underline"
                         >
-                          {expandedIssue === resolution.issueTitle ? '閉じる' : 'プロジェクト紐付け編集'}
+                          {expandedIssue === resolution.issueTitle ? '閉じる' : '根拠／紐付けを確認・編集'}
                         </button>
 
                         {expandedIssue === resolution.issueTitle && (
@@ -280,9 +311,19 @@ export function TabValue({
                                 (l) => l.projectId === projectKey && l.issueId === resolution.issueTitle
                               );
 
+                              const src = sourceLabel((link as any)?.source, (link as any)?.locked);
+                              const st = strengthLabel(link?.strength);
+
                               return (
                                 <div key={projectKey} className="flex items-center gap-3">
-                                  <div className="w-48 text-xs text-slate-700">{projectKey}</div>
+                                  <div className="w-56">
+                                    <div className="text-xs text-slate-700">{projectKey}</div>
+                                    {link?.notes && (
+                                      <div className="mt-0.5 text-[11px] text-slate-500 line-clamp-1">{link.notes}</div>
+                                    )}
+                                  </div>
+                                  <span className={`px-2 py-1 rounded text-[11px] font-medium ${src.className}`}>{src.label}</span>
+                                  <span className={`px-2 py-1 rounded text-[11px] font-medium ${st.className}`}>{st.label}</span>
                                   <div className="flex gap-1">
                                     {[1, 2, 3].map((strength) => (
                                       <button
@@ -325,7 +366,7 @@ export function TabValue({
                     </div>
                   </div>
 
-                  {/* I-1: Top3 Contributors display - breakdown から動的生成 */}
+                  {/* I-1: Top3 Contributors display (根拠の要約) */}
                   {(() => {
                     // breakdown から Top3 を生成（score 降順）
                     const top3Items = resolution.breakdown
@@ -344,43 +385,35 @@ export function TabValue({
                         </div>
                         <div className="space-y-1">
                           {displayItems.map((item: any, idx: number) => {
-                            // projectId から dept/proj を抽出（:: または : を対応）
-                            let deptName = '';
-                            let projName = '';
+                            const pid = item.projectId ?? '';
+                            const { dept: deptName, proj: projName } = pid
+                              ? shortProjectName(pid)
+                              : { dept: (item as any).dept ?? '', proj: (item as any).proj ?? '' };
 
-                            if (item.projectId) {
-                              const parts = item.projectId.includes('::')
-                                ? item.projectId.split('::')
-                                : item.projectId.split(':');
-                              deptName = parts[0] ?? '';
-                              projName = parts[1] ?? item.projectId;
-                            } else if ((item as any).dept && (item as any).proj) {
-                              deptName = (item as any).dept;
-                              projName = (item as any).proj;
-                            }
-
-                            const strengthLabel =
-                              item.strength === 1 ? '弱' : item.strength === 2 ? '中' : '強';
+                            const link = pid ? linkByProject.get(pid) : undefined;
+                            const src = sourceLabel((link as any)?.source, (link as any)?.locked);
+                            const st = strengthLabel(item.strength ?? link?.strength);
                             const score = item.score ?? 0;
                             const strengthCoef = item.strengthCoef ?? 1;
                             const weight = item.executionWeight ?? 1;
 
                             return (
-                              <div key={idx} className="text-xs text-slate-600">
-                                <span className="font-medium">{deptName}</span>
-                                <span>：</span>
-                                <span>{projName}</span>
-                                {/* I-2: Show strength coefficient with current calculation */}
-                                <span className="text-slate-500 ml-1">
-                                  強度 {strengthLabel}({strengthCoef.toFixed(1)}) × 実行度 {(weight * 100).toFixed(0)}% =
-                                  {score.toFixed(2)}
+                              <div key={idx} className="flex flex-wrap items-center gap-2 text-xs">
+                                <span className="font-medium text-slate-900">{deptName}</span>
+                                <span className="text-slate-500">：</span>
+                                <span className="text-slate-700">{projName}</span>
+                                <span className={`px-2 py-0.5 rounded font-medium ${src.className}`}>{src.label}</span>
+                                <span className={`px-2 py-0.5 rounded font-medium ${st.className}`}>強度 {st.label}</span>
+                                <span className="text-slate-500">
+                                  実行度 {(weight * 100).toFixed(0)}%・影響スコア {score.toFixed(2)}
                                 </span>
+                                {link?.notes && <span className="text-slate-500">— {link.notes}</span>}
                               </div>
                             );
                           })}
                         </div>
                         <div className="mt-2 text-xs text-slate-500">
-                          強度係数：弱=0.6 / 中=1.0 / 強=1.3
+                          強度係数（内部計算）：弱=0.6 / 中=1.0 / 強=1.3（必要なら「根拠／紐付けを確認・編集」で調整）
                         </div>
                       </div>
                     ) : null;
