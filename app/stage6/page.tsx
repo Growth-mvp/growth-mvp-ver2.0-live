@@ -5,55 +5,33 @@ import StrategyGuard from '@/app/StrategyGuard';
 import { useCallback, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 
-import { fmtJPY } from '@/utils/stage6';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import SaveStatusIndicator from '@/components/SaveStatusIndicator';
 
-// ★ Step E3.1：UI components と custom hooks
 import { TabImpact } from '@/components/stage6/TabImpact';
 import { TabNorthStar } from '@/components/stage6/TabNorthStar';
-import { TabValue } from '@/components/stage6/TabValue';
+import { TabValueDashboard } from '@/components/stage6/TabValue.dashboard';
 import { useProjectFilters } from '@/components/stage6/hooks/useProjectFilters';
 import { useStage6Data } from '@/components/stage6/hooks/useStage6Data';
 
-/**
- * STAGE6：価値検証・財務シミュレーション（社員向け最小構成）
- *
- * 責務：
- * - useStage6Data: すべてのデータ取得・初期化・計算
- * - useProjectFilters: Tab1フィルタリング・選択管理
- * - TabImpact/TabNorthStar/TabValue: UIレンダリング
- * - page: UI状態管理とタブ切替のみ
- */
-
 function Stage6PageContent() {
-  // ===== UI State =====
   const [scenarioKey, setScenarioKey] = useState<'low' | 'base' | 'high'>('base');
   const [activeTab, setActiveTab] = useState<'impact' | 'northstar' | 'valueanalysis'>('impact');
 
-  // ===== Data from consolidated hook =====
   const stage6 = useStage6Data(scenarioKey);
 
-  // ===== Phase E Data from Store =====
+  // Phase E data from store (tab2 edits)
   const projectTargetImpacts = useStrategyStore((s: StrategyState) => s.projectTargetImpacts ?? []);
-  const projectIssueLinks = useStrategyStore((s: StrategyState) => s.projectIssueLinks ?? []);
   const {
     addProjectTargetImpact,
     updateProjectTargetImpact,
     removeProjectTargetImpact,
-    addProjectIssueLink,
-    updateProjectIssueLink,
-    removeProjectIssueLink,
   } = useStrategyStore();
 
-  // ===== Phase E Callbacks =====
   const handleUpdateImpact = useCallback(
     (projectId: string, targetId: string, delta: number, notes?: string) => {
-      const existing = projectTargetImpacts.find(
-        (imp: any) => imp.projectId === projectId && imp.targetId === targetId
-      );
-
+      const existing = projectTargetImpacts.find((imp: any) => imp.projectId === projectId && imp.targetId === targetId);
       if (existing) {
         updateProjectTargetImpact(projectId, targetId, { delta, notes });
       } else {
@@ -70,37 +48,11 @@ function Stage6PageContent() {
     [removeProjectTargetImpact]
   );
 
-  const handleUpdateLink = useCallback(
-    (projectId: string, issueId: string, strength: 1 | 2 | 3, notes?: string) => {
-      const existing = projectIssueLinks.find(
-        (link: any) => link.projectId === projectId && link.issueId === issueId
-      );
-
-      if (existing) {
-        updateProjectIssueLink(projectId, issueId, { strength, notes });
-      } else {
-        addProjectIssueLink({ projectId, issueId, strength, notes });
-      }
-    },
-    [projectIssueLinks, updateProjectIssueLink, addProjectIssueLink]
-  );
-
-  const handleRemoveLink = useCallback(
-    (projectId: string, issueId: string) => {
-      removeProjectIssueLink(projectId, issueId);
-    },
-    [removeProjectIssueLink]
-  );
-
-  // ===== Project filters for Tab1 =====
   const projectFilters = useProjectFilters({
     core: stage6.core,
-    selectedYearly: {
-      base: stage6.core.yearlyAll?.base ?? [],
-    },
+    selectedYearly: { base: stage6.core.yearlyAll?.base ?? [] },
   });
 
-  // ===== Auto save =====
   useAutoSave({
     enabled: !stage6.isHydrating,
     requireHydrated: true,
@@ -110,7 +62,6 @@ function Stage6PageContent() {
     mode: 'payload',
   });
 
-  // ===== Loading/error states =====
   if (!stage6.hydrated || stage6.isHydrating) {
     return (
       <main className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -132,7 +83,7 @@ function Stage6PageContent() {
               <h2 className="font-semibold text-amber-900">データ準備ができていません</h2>
               <p className="mt-1 text-sm text-amber-800">{stage6.error}</p>
               <p className="mt-2 text-xs text-amber-700">
-                STAGE1で財務データを入力し、STAGE2で部門・プロジェクト情報を設定してください。
+                STAGE1で財務データを入力し、STAGE2で目標（North Star）を設定してください。
               </p>
             </div>
           </div>
@@ -144,40 +95,34 @@ function Stage6PageContent() {
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
       <div className="mx-auto max-w-7xl px-4 pb-12 pt-8 md:px-6 md:pt-10">
-        {/* Header */}
         <header className="mb-6">
-          <p className="text-[11px] uppercase tracking-[0.25em] text-slate-400">
-            STAGE 6 / VALUE VALIDATION
-          </p>
+          <p className="text-[11px] uppercase tracking-[0.25em] text-slate-400">STAGE 6 / VALUE VALIDATION</p>
           <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
               <h1 className="text-3xl font-bold tracking-tight">価値検証（会社の未来とプロジェクト寄与）</h1>
               <p className="mt-1 text-sm text-slate-600">{stage6.companyName}</p>
             </div>
-
-            {/* Scenario buttons + Status */}
             <div className="flex items-center gap-4">
               <SaveStatusIndicator />
               <div className="flex gap-2">
-              {(['low', 'base', 'high'] as const).map((scen) => (
-                <button
-                  key={scen}
-                  onClick={() => setScenarioKey(scen)}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-                    scenarioKey === scen
-                      ? 'bg-slate-900 text-white'
-                      : 'border border-slate-300 text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  {scen === 'low' ? '悲観' : scen === 'base' ? '基準' : '楽観'}
-                </button>
-              ))}
+                {(['low', 'base', 'high'] as const).map((scen) => (
+                  <button
+                    key={scen}
+                    onClick={() => setScenarioKey(scen)}
+                    className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                      scenarioKey === scen
+                        ? 'bg-slate-900 text-white'
+                        : 'border border-slate-300 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {scen === 'low' ? '悲観' : scen === 'base' ? '基準' : '楽観'}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
         </header>
 
-        {/* Error display */}
         {stage6.core.error && (
           <div className="mb-6 flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
             <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-700" />
@@ -185,7 +130,6 @@ function Stage6PageContent() {
           </div>
         )}
 
-        {/* Tab navigation */}
         <div className="mb-6 border-b border-slate-200">
           <div className="flex gap-4">
             <button
@@ -216,12 +160,11 @@ function Stage6PageContent() {
                   : 'border-b-transparent text-slate-600 hover:text-slate-900'
               }`}
             >
-              タブ3：価値分析
+              タブ3：進捗ダッシュボード
             </button>
           </div>
         </div>
 
-        {/* Tab content */}
         <div className="space-y-6">
           {activeTab === 'impact' && (
             <TabImpact
@@ -250,16 +193,7 @@ function Stage6PageContent() {
           )}
 
           {activeTab === 'valueanalysis' && (
-            <TabValue
-              vaCards={stage6.vaCards}
-              issueResolutions={stage6.issueResolutions}
-              companyTargets={stage6.companyTargets}
-              indicatorSeries={stage6.indicatorSeries}
-              projectIssueLinks={projectIssueLinks}
-              allProjectKeys={stage6.allProjectKeys}
-              onUpdateLink={handleUpdateLink}
-              onRemoveLink={handleRemoveLink}
-            />
+            <TabValueDashboard northStarRows={stage6.northStarRows} projectContrib={stage6.projectContrib} />
           )}
         </div>
       </div>
