@@ -28,17 +28,14 @@
 }
 
 /* ================== 右ドック回避ユーティリティ ================== */
-/* コンテンツ領域の右余白を確保（通常のフロー要素に） */
 .avoid-agent-dock {
   padding-right: var(--agent-dock-w);
 }
 
-/* 固定/Stickyなフッター・ヘッダーの right をずらす（重なり解消） */
 .avoid-agent-dock-fixed {
   right: var(--agent-dock-w);
 }
 
-/* ドック内の入力フッターぶん、スクロール末尾に余白を確保したい時に使用 */
 .reserve-agent-input {
   padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 64px);
 }
@@ -47,6 +44,8 @@
 @layer base {
   html, body {
     height: 100%;
+    /* ✅ 横にはみ出すUI（ドロワー等）が見えてしまう問題の対策 */
+    overflow-x: hidden;
   }
 
   body {
@@ -71,10 +70,6 @@
            outline-none transition focus:ring-4 focus:ring-zinc-200 focus:border-zinc-400;
   }
 
-  /* ✅ ボタンの“全体適用”は崩れやすいので逃げ道を用意
-     - 通常ボタンは丸くしてOK
-     - 特殊なボタンは data-plain を付ければ影響を受けない
-  */
   button:not([data-plain]) {
     @apply font-medium transition duration-200 ease-in-out;
   }
@@ -82,26 +77,24 @@
     @apply opacity-50 cursor-not-allowed;
   }
 
-  /* カード（ガラス感＋淡い影） */
   .card {
     @apply rounded-2xl border border-zinc-200 bg-white/70 backdrop-blur-sm p-6;
     box-shadow: 0 1px 2px rgba(0,0,0,0.04);
   }
 
-  /* 区切り線 */
   .divider {
     @apply my-8 border-t border-zinc-200;
   }
 }
 
-/* ================== ユーティリティ追加（微影など） ================== */
+/* ================== ユーティリティ追加 ================== */
 @layer utilities {
   .shadow-subtle {
     box-shadow: 0 1px 2px rgba(0,0,0,0.04);
   }
 }
 
-/* ================== リンク（Appleブルー寄せ） ================== */
+/* ================== リンク ================== */
 a {
   @apply no-underline;
   color: var(--accent);
@@ -114,3 +107,31 @@ a:hover {
 /* ================== 安全余白 ================== */
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0); }
 .safe-top    { padding-top:    env(safe-area-inset-top, 0); }
+
+/* ================== ホームレイアウト（幅で早めに1カラム化） ================== */
+/* ✅ 1280px未満は常に1カラム（“早め”）＋ sticky解除 */
+@media (max-width: 1280px) {
+  .homeGrid {
+    grid-template-columns: 1fr !important;
+  }
+  .homeSticky {
+    position: static !important;
+  }
+}
+
+/* ================== ホームレイアウト（小画面高対応） ================== */
+@media (max-height: 900px) {
+  .homeGrid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .homeSticky {
+    position: static !important;
+  }
+
+  .heroPad {
+    padding-top: 3rem;  /* pt-12 相当 */
+    padding-bottom: 2rem; /* pb-8 相当 */
+  }
+}
+
