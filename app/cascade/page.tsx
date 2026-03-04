@@ -1011,7 +1011,11 @@ function normTitle(s: string) {
 // ★ TASK A: OKR/KPI 引き継ぎ用マージ関数
 type AnyProj = any;
 
-const mergeCascadeFields = (incoming: AnyProj, existing?: AnyProj): AnyProj => {
+const mergeCascadeFields = (
+  incoming: AnyProj,
+  existing?: AnyProj,
+  preserveOkrs: boolean = true
+): AnyProj => {
   if (!existing) return incoming;
 
   const incomingOkrs = Array.isArray(incoming.okrs) ? incoming.okrs : [];
@@ -1023,13 +1027,16 @@ const mergeCascadeFields = (incoming: AnyProj, existing?: AnyProj): AnyProj => {
   const incomingOkrsV2 = Array.isArray(incoming.okrsV2) ? incoming.okrsV2 : [];
   const existingOkrsV2 = Array.isArray(existing.okrsV2) ? existing.okrsV2 : [];
 
-  // 「incomingが空なら existing を引き継ぐ」方針（ユーザー編集保持）
+  // preserveOkrs=true のときだけ「incomingが空なら existing を引き継ぐ」（ユーザー編集保持）
+  // generate-cascade の再生成時は preserveOkrs=false で「置換」を優先（KPI増殖防止）
   const merged = {
     ...existing,
     ...incoming,
-    okrs: incomingOkrs.length > 0 ? incomingOkrs : existingOkrs,
-    kpis: incomingKpis.length > 0 ? incomingKpis : existingKpis,
-    okrsV2: incomingOkrsV2.length > 0 ? incomingOkrsV2 : existingOkrsV2,
+    okrs: preserveOkrs ? (incomingOkrs.length > 0 ? incomingOkrs : existingOkrs) : incomingOkrs,
+    kpis: preserveOkrs ? (incomingKpis.length > 0 ? incomingKpis : existingKpis) : incomingKpis,
+    okrsV2: preserveOkrs
+      ? (incomingOkrsV2.length > 0 ? incomingOkrsV2 : existingOkrsV2)
+      : incomingOkrsV2,
   };
 
   return merged;
@@ -1161,7 +1168,7 @@ function applyLaneToProjects(lane?: ApiLane): Project[] {
 
 // ★修正（Stage3）: 「置換」ベースに変更
 // 3つのレーン結果を集約してから、一度だけ反映する（重複を防止）
-function applyDeptDraftToProjects(existingProjects: Project[], deptDraft: ApiDeptDraft): Project[] {
+function applyDeptDraftToProjects(existingProjects: Project[], deptDraft: ApiDeptDraft, preserveOkrs: boolean = true): Project[] {
   const beforeCount = existingProjects.length;
 
   // ★重要：各レーンから生成プロジェクトを集約
@@ -1182,7 +1189,7 @@ function applyDeptDraftToProjects(existingProjects: Project[], deptDraft: ApiDep
   const existingIndex = buildProjectIndexByTitle(existingProjects);
   const nextProjectsMerged = nextProjects.map((p) => {
     const key = normTitle(p?.title ?? '');
-    return mergeCascadeFields(p, key ? existingIndex.get(key) : undefined);
+    return mergeCascadeFields(p, key ? existingIndex.get(key) : undefined, preserveOkrs);
   });
 
   // ★ 最終的に deduped されたマージ結果を返す
@@ -2104,7 +2111,7 @@ useEffect(() => {
         }
 
         // プロジェクト + OKR（旧＋2レーン統合）
-        const mergedProjects = applyDeptDraftToProjects(existingProjects, rd);
+        const mergedProjects = applyDeptDraftToProjects(existingProjects, cleanedRd, false);
         if (!jsonEq(mergedProjects, existingProjects)) {
           patch.projects = mergedProjects;
 
@@ -2115,7 +2122,7 @@ useEffect(() => {
         }
 
         // ★ lanes（2レーン構造）を保存（型変換付き）
-        const newLanes = toLanesProjects(rd?.lanes);
+        const newLanes = toLanesProjects(cleanedRd?.lanes);
         if (newLanes && !jsonEq(newLanes, d.lanes)) {
           patch.lanes = newLanes;
         }
