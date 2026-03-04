@@ -1,7 +1,7 @@
 'use client';
 
 // /app/auth/welcome/page.tsx
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
@@ -50,8 +50,26 @@ function WelcomeInner() {
   // StrictMode 二重実行抑止（チェック処理のみ）
   const inFlight = useRef(false);
 
-  // 招待token（もしURLに token が付いているなら /invite/accept へ誘導できる）
-  const token = (searchParams?.get('token') || '').trim() || null;
+  // ★ 招待token（URLから取得、またはlocalStorageから復元）
+  const token = useMemo(() => {
+    const urlToken = (searchParams?.get('token') || '').trim();
+    if (urlToken) return urlToken;
+
+    // localStorage から復元
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('pendingInviteToken');
+        if (saved) {
+          console.log('[auth/welcome] Restored token from localStorage');
+          return saved;
+        }
+      } catch (e) {
+        console.warn('[auth/welcome] could not read from localStorage:', e);
+      }
+    }
+
+    return null;
+  }, [searchParams]);
 
   const runCheck = async (signal: AbortSignal) => {
     setActionError('');
@@ -146,6 +164,17 @@ function WelcomeInner() {
     setActionError('');
     setActionLoading(true);
     try {
+      // ★ token が URL にあれば localStorage に保存（ログイン後に復元）
+      const token = (searchParams?.get('token') || '').trim();
+      if (token && typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('pendingInviteToken', token);
+          console.log('[auth/welcome] Saved token to localStorage for post-login');
+        } catch (e) {
+          console.warn('[auth/welcome] could not save token:', e);
+        }
+      }
+
       // セッション残骸対策：一旦グローバルでログアウト
       await supabase.auth.signOut({ scope: 'global' });
     } catch (e) {
