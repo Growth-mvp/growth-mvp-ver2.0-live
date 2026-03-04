@@ -157,6 +157,7 @@ export async function POST(req: Request) {
     const inviteRole = clampRole(invite.role);
 
     // 既存 membership を確認（存在すれば role の昇格判断）
+    // ★ idempotent 対応：既存の membership が在った場合、role は保持（昇格のみ）
     const { data: existing, error: exErr } = await admin
       .from('company_members')
       .select('company_id, user_id, role')
@@ -177,7 +178,17 @@ export async function POST(req: Request) {
     const finalRole: Role =
       existingRole && roleRank[existingRole] >= roleRank[inviteRole] ? existingRole : inviteRole;
 
+    console.log('[invites/accept] membership status:', {
+      userId,
+      companyId: invite.company_id,
+      existing: !!existing,
+      existingRole,
+      inviteRole,
+      finalRole,
+    });
+
     // 9) company_members に upsert（department_id が無い環境にフォールバック）
+    // ★ onConflict: 'company_id,user_id' で重複を許す（idempotent）
     const { error: upsertErr } = await admin.from('company_members').upsert(
       [
         {
@@ -203,19 +214,35 @@ export async function POST(req: Request) {
       );
 
       if (upsertErr2) {
-        console.error('[invites/accept] upsert failed (no department_id):', upsertErr2);
+        console.error('[invites/accept] upsert failed (no department_id):', {
+          error: upsertErr2.message,
+          code: upsertErr2.code,
+          userId,
+          companyId: invite.company_id,
+        });
         return NextResponse.json(
           { error: 'membership_creation_failed', detail: upsertErr2.message },
           { status: 500 }
         );
       }
     } else if (upsertErr) {
-      console.error('[invites/accept] upsert failed:', upsertErr);
+      console.error('[invites/accept] upsert failed:', {
+        error: upsertErr.message,
+        code: upsertErr.code,
+        userId,
+        companyId: invite.company_id,
+      });
       return NextResponse.json(
         { error: 'membership_creation_failed', detail: upsertErr.message },
         { status: 500 }
       );
     }
+
+    console.log('[invites/accept] membership upserted successfully:', {
+      userId,
+      companyId: invite.company_id,
+      finalRole,
+    });
 
     // 10) 招待を "accepted" にマーク（競合回避：accepted_at is null 条件）
     const nowIso = new Date().toISOString();
