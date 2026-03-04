@@ -116,7 +116,7 @@ export default function InviteAcceptClient() {
       if (!session?.access_token) {
         console.error('[invite/accept] No access_token after retries:', {
           userId: session?.user?.id || '(not logged in)',
-          tokenHead: token.slice(0, 8),
+          tokenHead: (token ?? '').slice(0, 8),
           maxRetries,
         });
 
@@ -151,9 +151,10 @@ export default function InviteAcceptClient() {
       setCheckingAuth(false);
       setLoading(true);
 
+      const tokenHead = (token ?? '').slice(0, 8);
+      const currentUserId = session?.user?.id;
+
       try {
-        const tokenHead = token.slice(0, 8);
-        const currentUserId = session?.user?.id;
 
         const res = await fetch('/api/invites/accept', {
           method: 'POST',
@@ -232,6 +233,7 @@ export default function InviteAcceptClient() {
           }
 
           // エラー時は inFlight 解除（リロード等で再試行可能にする）
+          lastProcessedTokenRef.current = null;
           inFlightRef.current = false;
           return;
         }
@@ -264,9 +266,6 @@ export default function InviteAcceptClient() {
           router.replace('/');
         }, 1200);
       } catch (e: any) {
-        const tokenHead = token.slice(0, 8);
-        const currentUserId = session?.user?.id;
-
         console.error('[invite/accept] Exception:', {
           error: e?.message || String(e),
           code: e?.code || 'unknown',
@@ -288,6 +287,7 @@ export default function InviteAcceptClient() {
         setLoading(false);
 
         // 例外時も再試行できるよう解除
+        lastProcessedTokenRef.current = null;
         inFlightRef.current = false;
       }
     })();
