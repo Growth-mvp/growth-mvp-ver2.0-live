@@ -12,7 +12,6 @@ export default function AdminInvitesPage() {
 
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<Role>('member');
-  const [departmentId, setDepartmentId] = useState('');
   const [note, setNote] = useState<string>('');
   const [inviteLink, setInviteLink] = useState<string>('');
   const [busy, setBusy] = useState(false);
@@ -45,10 +44,7 @@ export default function AdminInvitesPage() {
       setNote('メールアドレスの形式が正しくありません。');
       return;
     }
-    if (!companyId) {
-      setNote('会社IDが未設定です。先に会社を作成するか選択してください。');
-      return;
-    }
+    // ✅ 修正D：companyId チェックを削除（サーバで確定する設計のため）
 
     setBusy(true);
     try {
@@ -61,8 +57,8 @@ export default function AdminInvitesPage() {
         return;
       }
 
-      // 新しい /api/invites/create エンドポイントを呼び出す
-      const res = await fetch('/api/invites/create', {
+      // 新しい /api/admin/members/invite エンドポイントを呼び出す（メール送信）
+      const res = await fetch('/api/admin/members/invite', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -71,7 +67,7 @@ export default function AdminInvitesPage() {
         body: JSON.stringify({
           email: e,
           role,
-          companyId,
+          // companyId は server が Bearer token から決定する
         }),
       });
 
@@ -79,20 +75,21 @@ export default function AdminInvitesPage() {
 
       if (!res.ok) {
         const emsg =
-          j?.error === 'invite_already_exists'
-            ? `${e} はすでに招待されています`
-            : j?.error === 'admin_only'
-            ? '権限がありません（ログインし直してください）'
+          j?.error === 'admin_only'
+            ? '権限がありません（管理者としてログインしてください）'
+            : j?.error === 'email_send_failed'
+            ? 'メール送信に失敗しました。メールアドレスをご確認ください。'
             : j?.detail || j?.error || `招待に失敗しました（${res.status}）`;
         setNote(`招待に失敗しました: ${emsg}`);
         return;
       }
 
-      if (j.ok && j.inviteUrl) {
-        setInviteLink(j.inviteUrl);
-        setNote(`✅ 招待リンクを生成しました。メールで共有してください。\n有効期限: ${j.expiresAt}`);
+      if (j.ok) {
+        // メール送信済み - リンク表示は不要
+        setInviteLink('');
+        setNote(`✉️ ${e} に招待メールを送信しました。\n受信者はメール内のリンクからパスワード設定できます。`);
         setEmail('');
-        setDepartmentId('');
+        // ✅ 修正E：departmentId は削除
         return;
       }
 
@@ -103,7 +100,7 @@ export default function AdminInvitesPage() {
     } finally {
       setBusy(false);
     }
-  }, [companyId, email, role, validEmail]);
+  }, [email, role, validEmail]); // ✅ 修正D：companyId 不要（サーバで確定）
 
   return (
     <div className="space-y-6">
@@ -112,9 +109,10 @@ export default function AdminInvitesPage() {
       </header>
 
       <section className="rounded-xl border bg-white p-4 shadow-sm">
-        <h2 className="mb-3 text-sm font-semibold text-gray-700">メール招待 / リンク生成</h2>
+        {/* ✅ 修正E：見出しを「メール招待」に統一 */}
+        <h2 className="mb-3 text-sm font-semibold text-gray-700">メール招待</h2>
 
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
           <input
             type="email"
             placeholder="email@example.com"
@@ -136,23 +134,13 @@ export default function AdminInvitesPage() {
             <option value="admin">admin</option>
           </select>
 
-          <input
-            type="text"
-            placeholder="departmentId（任意）"
-            className="rounded-md border px-3 py-2 text-sm"
-            value={departmentId}
-            onChange={(e) => setDepartmentId(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !busy) onInvite();
-            }}
-          />
-
           <button
             onClick={onInvite}
-            disabled={busy || !validEmail || !companyId}
+            disabled={busy || !validEmail}
             className="rounded-md bg-gray-900 px-4 py-2 text-sm text-white hover:bg-black/90 disabled:opacity-50"
           >
-            {busy ? '送信中…' : '送信 / 生成'}
+            {/* ✅ 修正E：ボタン文言を「招待メール送信」に統一 */}
+            {busy ? '送信中…' : '招待メール送信'}
           </button>
 
           <div className="flex items-center text-xs text-gray-500 md:justify-end">
@@ -187,7 +175,7 @@ export default function AdminInvitesPage() {
       </section>
 
       <p className="text-xs text-gray-500">
-        ※ 招待リンクを生成し、メールやチャットで共有してください。招待リンクは7日間有効です。
+        ※ 招待メールが送信されます。受信者はメール内のリンクからパスワード設定とアカウント作成を行えます。招待は7日間有効です。
       </p>
     </div>
   );
