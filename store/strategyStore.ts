@@ -308,6 +308,10 @@ export type StrategyState = {
   _loadingRefetch?: boolean;
   _loadingSave?: boolean;
 
+  /* ★ pending 再保存機構 */
+  _pendingSave?: boolean;
+  _pendingSaveReason?: string;
+
   /** 直近保存のペイロードハッシュ（無駄保存抑止） */
   __lastSavedHash?: string;
 
@@ -728,12 +732,27 @@ function bump(s: any) {
 
 /** 保存用ペイロード組み立て（StrategyData相当） */
 function buildSavePayload(s: StrategyState) {
+  // okrsV2 サニタイズ（空labelを除外）
+  const sanitizeOkrsV2 = (list: any[]) =>
+    (Array.isArray(list) ? list : []).filter(kr =>
+      typeof kr?.label === 'string' && kr.label.trim() !== ''
+    );
+
+  // departments をサニタイズ
+  const sanitizedDepts = (Array.isArray(s.departments) ? s.departments : []).map((d: any) => ({
+    ...d,
+    projects: (Array.isArray(d.projects) ? d.projects : []).map((p: any) => ({
+      ...p,
+      okrsV2: sanitizeOkrsV2(p.okrsV2),
+    })),
+  }));
+
   const base: any = {
     strategyId: s.strategyId ?? undefined,
     story: s.story,
     finalStory: s.finalStory,
     answers2: s.answers2,
-    departments: s.departments,
+    departments: sanitizedDepts,
 
     companyName: s.companyName,
     foundationYear: s.foundationYear,
@@ -1124,6 +1143,8 @@ const emptyData: StrategyState = {
   chapterCurrentStep: {},
   _loadingRefetch: false,
   _loadingSave: false,
+  _pendingSave: false,
+  _pendingSaveReason: undefined,
 
   __lastSavedHash: undefined,
 
@@ -2947,14 +2968,10 @@ export const useStrategyStore = create<StrategyState>()(
           }
 
           // ★ 止血対策：boot.isSaving で二重実行を防ぐ
-          if (get().boot?.isSaving) {
-            if (DEBUG) console.log('[strategyStore] saveStrategyData: already saving (boot.isSaving), skip');
-            return { ok: false, skipped: true, reason: 'already_saving_boot' };
-          }
-
-          if (state0._loadingSave) {
-            if (DEBUG) console.log('[strategyStore] saveStrategyData: already saving, skip (queued)');
-            return { ok: false, skipped: true, reason: 'already_saving' };
+          if (get().boot?.isSaving || state0._loadingSave) {
+            if (DEBUG) console.log('[strategyStore] saveStrategyData: already saving, set pending', { reason, isSaving: get().boot?.isSaving, isLoading: state0._loadingSave });
+            set({ _pendingSave: true, _pendingSaveReason: reason ?? 'pending' });
+            return { ok: false, skipped: true, reason: 'pending_queued' };
           }
 
           // ★ 止血対策：保存開始（autosave 抑止開始）
@@ -3192,11 +3209,23 @@ export const useStrategyStore = create<StrategyState>()(
             return { ok: false, reason: 'unknown_exit' };
           } finally {
             // ★ 根治対策：finally で確実に isSaving を戻す（例外時も実行）
-            set((s) => ({
-              ...s,
+            const s = get();
+            const shouldRunAgain = !!s._pendingSave;
+
+            set((st) => ({
+              ...st,
               _loadingSave: false,
-              boot: { ...(s.boot ?? {}), isSaving: false }
+              boot: { ...(st.boot ?? {}), isSaving: false },
+              _pendingSave: false,
             }));
+
+            if (shouldRunAgain) {
+              // 非同期で後追い保存（直列化）
+              if (DEBUG) console.log('[strategyStore] pending detected, re-running saveStrategyData', { reason: s._pendingSaveReason });
+              setTimeout(() => {
+                void get().saveStrategyData({ force: true, reason: s._pendingSaveReason ?? 'pending' });
+              }, 0);
+            }
           }
         });
       },
