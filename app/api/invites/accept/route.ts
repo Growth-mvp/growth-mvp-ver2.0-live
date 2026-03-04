@@ -70,26 +70,63 @@ export async function POST(req: Request) {
     const admin = getSupabaseAdmin();
 
     // 1) 認証チェック（ログイン必須 / Bearer）
+    // ★ requireMembership は呼ばない（招待受諾前なので所属不要）
     const userId = await getAuthUserIdFromBearer(admin, req);
     if (!userId) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+      console.error('[invites/accept] unauthorized - no bearer token');
+      return NextResponse.json(
+        {
+          error: 'unauthorized',
+          message: 'Bearer token is required and must be valid',
+          detail: 'No valid authentication found in Authorization header',
+        },
+        { status: 401 }
+      );
     }
 
     // 2) リクエストボディをパース
     let body: Body;
     try {
       body = (await req.json()) as Body;
-    } catch {
-      return NextResponse.json({ error: 'invalid_json' }, { status: 400 });
+    } catch (e: any) {
+      console.error('[invites/accept] invalid json:', e?.message);
+      return NextResponse.json(
+        {
+          error: 'invalid_json',
+          message: 'Request body must be valid JSON',
+          detail: e?.message || 'JSON parse failed',
+        },
+        { status: 400 }
+      );
     }
 
     const token = body.token?.trim() || '';
     if (!token) {
-      return NextResponse.json({ error: 'token_required' }, { status: 400 });
+      console.error('[invites/accept] token missing:', { userId });
+      return NextResponse.json(
+        {
+          error: 'token_required',
+          message: 'Invitation token is required',
+          detail: 'Field "token" must be a non-empty string',
+        },
+        { status: 400 }
+      );
     }
+
     // ざっくり防衛（hex 64文字=32byte想定。違っても弾きたい）
     if (!/^[0-9a-f]{32,256}$/i.test(token)) {
-      return NextResponse.json({ error: 'token_invalid_format' }, { status: 400 });
+      console.error('[invites/accept] token invalid format:', {
+        userId,
+        tokenHead: token.slice(0, 8),
+      });
+      return NextResponse.json(
+        {
+          error: 'token_invalid_format',
+          message: 'Invitation token format is invalid',
+          detail: 'Token must be a hex string (32-256 characters)',
+        },
+        { status: 400 }
+      );
     }
 
     // 3) トークンをハッシュ化して招待を検索
@@ -102,33 +139,69 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (findErr) {
-      console.error('[invites/accept] find failed:', findErr);
+      console.error('[invites/accept] find failed:', {
+        userId,
+        tokenHead: token.slice(0, 8),
+        error: findErr.message,
+        code: findErr.code,
+      });
       return NextResponse.json(
-        { error: 'invite_lookup_failed', detail: findErr.message },
+        {
+          error: 'invite_lookup_failed',
+          message: 'Failed to look up invitation',
+          detail: findErr.message,
+        },
         { status: 500 }
       );
     }
 
     // 4) 招待が見つからない
     if (!invite) {
+      console.error('[invites/accept] invite not found:', {
+        userId,
+        tokenHead: token.slice(0, 8),
+      });
       return NextResponse.json(
-        { error: 'invite_not_found', detail: 'Invalid or expired token' },
+        {
+          error: 'invite_not_found',
+          message: 'Invitation not found',
+          detail: 'The invitation token is invalid, expired, or already used',
+        },
         { status: 404 }
       );
     }
 
     // 5) 期限チェック
     if (new Date(invite.expires_at) < new Date()) {
+      console.error('[invites/accept] invite expired:', {
+        userId,
+        tokenHead: token.slice(0, 8),
+        expiresAt: invite.expires_at,
+      });
       return NextResponse.json(
-        { error: 'invite_expired', detail: 'This invitation has expired' },
+        {
+          error: 'invite_expired',
+          message: 'Invitation has expired',
+          detail: `This invitation expired on ${new Date(invite.expires_at).toISOString()}`,
+        },
         { status: 410 }
       );
     }
 
     // 6) 使用済みチェック
     if (invite.accepted_at) {
+      console.warn('[invites/accept] invite already used:', {
+        userId,
+        tokenHead: token.slice(0, 8),
+        acceptedAt: invite.accepted_at,
+        acceptedBy: invite.accepted_by,
+      });
       return NextResponse.json(
-        { error: 'invite_already_used', detail: 'This invitation has already been accepted' },
+        {
+          error: 'invite_already_used',
+          message: 'Invitation has already been accepted',
+          detail: `This invitation was accepted on ${new Date(invite.accepted_at).toISOString()}`,
+        },
         { status: 410 }
       );
     }
@@ -136,17 +209,35 @@ export async function POST(req: Request) {
     // 7) メール一致チェック（乗っ取り防止）
     const { data: authUser, error: authErr } = await admin.auth.admin.getUserById(userId);
     if (authErr || !authUser?.user) {
-      console.error('[invites/accept] auth user lookup failed:', authErr);
-      return NextResponse.json({ error: 'user_lookup_failed' }, { status: 500 });
+      console.error('[invites/accept] auth user lookup failed:', {
+        userId,
+        tokenHead: token.slice(0, 8),
+        error: authErr?.message,
+      });
+      return NextResponse.json(
+        {
+          error: 'user_lookup_failed',
+          message: 'Failed to verify your account',
+          detail: authErr?.message || 'Could not retrieve user information',
+        },
+        { status: 500 }
+      );
     }
 
     const userEmail = normalizeEmail(authUser.user.email || '');
     const inviteEmail = normalizeEmail(invite.email || '');
 
     if (!userEmail || userEmail !== inviteEmail) {
+      console.error('[invites/accept] email mismatch:', {
+        userId,
+        tokenHead: token.slice(0, 8),
+        userEmail: userEmail || '(no email)',
+        inviteEmail,
+      });
       return NextResponse.json(
         {
           error: 'email_mismatch',
+          message: 'Email address mismatch',
           detail: `This invitation is for ${inviteEmail}, but you are logged in as ${userEmail || '(no email)'}`,
         },
         { status: 403 }
@@ -167,9 +258,19 @@ export async function POST(req: Request) {
 
     if (exErr && exErr.code !== 'PGRST116') {
       // PGRST116: 0 rows は許容（maybeSingleの仕様）
-      console.error('[invites/accept] membership lookup failed:', exErr);
+      console.error('[invites/accept] membership lookup failed:', {
+        userId,
+        tokenHead: token.slice(0, 8),
+        companyId: invite.company_id,
+        error: exErr.message,
+        code: exErr.code,
+      });
       return NextResponse.json(
-        { error: 'membership_lookup_failed', detail: exErr.message },
+        {
+          error: 'membership_lookup_failed',
+          message: 'Failed to check existing membership',
+          detail: exErr.message,
+        },
         { status: 500 }
       );
     }
