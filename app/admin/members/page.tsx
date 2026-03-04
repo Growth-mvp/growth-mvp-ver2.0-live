@@ -6,10 +6,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import {
-  listCompanyMembers,
   updateMemberRole,
   removeMember,
-  addMemberByUserId,
   type MemberListItem,
 } from '@/utils/supabase/membership'; // ✅ 必要なものだけ
 import { useUserStore, type Role } from '@/store/userStore';
@@ -70,10 +68,10 @@ export default function AdminMembersPage() {
       }
 
       const data = await res.json();
-      const members = (data?.members || []) as typeof listCompanyMembers.prototype;
+      const members = (data?.members || []) as MemberListItem[];
       let out: MemberRow[] = members;
 
-      const ids = members.map((m) => m.userId).filter(Boolean) as string[];
+      const ids = members.map((m: MemberListItem) => m.userId).filter(Boolean) as string[];
       if (ids.length > 0) {
         // public.users から email/name を取得（RLS で空でも続行）
         const { data: usersData, error } = await supabase
@@ -86,7 +84,7 @@ export default function AdminMembersPage() {
           usersData.forEach((u: any) => {
             map.set(String(u.id), { email: u.email ?? null, name: u.name ?? null });
           });
-          out = members.map((m) => ({
+          out = members.map((m: MemberListItem) => ({
             ...m,
             email: map.get(m.userId)?.email ?? null,
             name: map.get(m.userId)?.name ?? null,
