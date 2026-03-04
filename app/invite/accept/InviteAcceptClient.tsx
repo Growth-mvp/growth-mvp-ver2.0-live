@@ -95,6 +95,9 @@ export default function InviteAcceptClient() {
       setLoading(true);
 
       try {
+        const tokenHead = token.slice(0, 8);
+        const currentUserId = session?.user?.id;
+
         const res = await fetch('/api/invites/accept', {
           method: 'POST',
           headers: {
@@ -105,15 +108,20 @@ export default function InviteAcceptClient() {
         });
 
         const data = await res.json().catch(() => ({} as any));
+
         console.log('[invite/accept] API response:', {
           status: res.status,
           ok: res.ok,
           error: (data as any)?.error,
+          tokenHead: `${tokenHead}...`,
+          userId: currentUserId,
         });
 
         if (!res.ok) {
           let errorMessage = 'エラーが発生しました';
           let mismatch = false;
+          const errorCode = data?.error || 'unknown_error';
+          const errorDetail = data?.detail || '';
 
           if (data?.error === 'email_mismatch') {
             errorMessage = data?.detail || 'メールアドレスが一致しません';
@@ -128,20 +136,35 @@ export default function InviteAcceptClient() {
             errorMessage = data?.detail || errorMessage;
           }
 
-          console.error('[invite/accept] Error:', data?.error, errorMessage);
+          console.error('[invite/accept] Error details:', {
+            error: errorCode,
+            message: errorMessage,
+            detail: errorDetail,
+            tokenHead: `${tokenHead}...`,
+            userId: currentUserId,
+          });
+
           setError(errorMessage);
           setIsEmailMismatch(mismatch);
           setLoading(false);
 
           // エラー時は inFlight 解除（リロード等で再試行可能にする）
           inFlightRef.current = false;
-          // ただし token は processed 扱いなので、再試行したいなら lastProcessed を外す
-          // → UX上「もう一度試す」ボタンを付けるならそこで外す。現状はページ再訪でOK。
           return;
         }
 
         // 成功
         const companyId = data?.companyId as string | undefined;
+        const tokenHead = token.slice(0, 8);
+        const currentUserId = session?.user?.id;
+
+        console.log('[invite/accept] Success:', {
+          companyId,
+          tokenHead: `${tokenHead}...`,
+          userId: currentUserId,
+          role: data?.role,
+        });
+
         if (companyId) setCompanyId(companyId);
         resetMembershipLoading();
 
@@ -151,7 +174,17 @@ export default function InviteAcceptClient() {
           router.replace('/');
         }, 1200);
       } catch (e: any) {
-        console.error('[invite/accept] fetch error:', e);
+        const tokenHead = token.slice(0, 8);
+        const currentUserId = session?.user?.id;
+
+        console.error('[invite/accept] Exception:', {
+          error: e?.message || String(e),
+          code: e?.code || 'unknown',
+          tokenHead: `${tokenHead}...`,
+          userId: currentUserId,
+          stack: e?.stack,
+        });
+
         setError('招待の受け入れに失敗しました。もう一度お試しください。');
         setLoading(false);
 
