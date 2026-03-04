@@ -145,6 +145,32 @@ const FINANCIAL_ROLE_OPTIONS: Array<{ value: Project['role']; label: string }> =
   { value: 'FUTURE', label: '将来投資' },
 ];
 
+/* ============================================================
+ * ★STAGE4拡張：仮説＆成長レバー（Kind/MainLever/Horizon）の日本語化
+ * STAGE3との整合性を保つ
+ * ========================================================== */
+const KIND_JA: Record<string, string> = {
+  growth: '成長',
+  cost: 'コスト',
+  efficiency: '生産性',
+  future: '未来投資',
+};
+
+const LEVER_JA: Record<string, string> = {
+  ACQ: '獲得（受注・新規）',
+  ARPU: '単価（ARPU）',
+  CHURN: '継続（解約率）',
+  COST: 'コスト',
+  EFFICIENCY: '効率（生産性）',
+  FUTURE: '未来（成功率）',
+};
+
+const HORIZON_JA: Record<string, string> = {
+  short: '短期（〜1年）',
+  mid: '中期（1〜3年）',
+  long: '長期（3年〜）',
+};
+
 // 戦略OKR：track / metricRole / validation は okrModels の拡張を前提。
 // ここでは page.tsx 側を「壊れにくい」実装にするため、UIは文字列で扱い any キャストで保存します。
 type StrategyTrackUI = 'EVOLVE' | 'EXPLORE';
@@ -297,6 +323,27 @@ function OKRPageContent() {
     minIntervalMs: 1500,
     mode: 'payload',
   });
+
+  /* -------- 目的欄の即保存・debounce保存 -------- */
+  const saveNow = useStrategyStore((st: any) => st.saveStrategyData);
+
+  const objectiveSaveTimerRef = useRef<number | null>(null);
+
+  const scheduleObjectiveSave = useCallback(() => {
+    if (!saveNow) return;
+    if (objectiveSaveTimerRef.current) window.clearTimeout(objectiveSaveTimerRef.current);
+    objectiveSaveTimerRef.current = window.setTimeout(async () => {
+      try {
+        await saveNow();
+      } catch {}
+    }, 400); // 400ms推奨
+  }, [saveNow]);
+
+  useEffect(() => {
+    return () => {
+      if (objectiveSaveTimerRef.current) window.clearTimeout(objectiveSaveTimerRef.current);
+    };
+  }, []);
 
   /* -------- STAGE4 Baseline 作成ガード（hydrate 完了時に1回だけ、companyId単位） -------- */
   const baselineCreatedRef = useRef<boolean>(false);
@@ -546,6 +593,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
     });
 
     // select the newly added project (explicit user action only)
+    if (saveNow) void saveNow();
     setSelected({ deptIdx, projIdx: newProjIdx });
     setAddingProjectForDept(null);
     setNewProjectTitle('');
@@ -631,7 +679,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
       const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
       const newProj: Project = {
         title,
-        okrs: [],
+        okrs: [{ objective: '', owner: '', due: '', keyResults: [] as any }],
         okrsV2: [],
         okrVariants: [],
         okrRevision: 0,
@@ -642,12 +690,13 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
       return next;
     });
 
+    if (saveNow) void saveNow();
     setSelected({ deptIdx, projIdx: newProjIdx });
     setAddingProjectForDept(null);
     setNewProjectTitle('');
   };
 
-    
+
 
   /* -------- 選択の安定化（index drift 防止 / 無限ループ対策） -------- */
   useEffect(() => {
@@ -724,7 +773,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           const src = ensureArray(list);
           let localChanged = false;
 
-          const dst = src.map((kr) => {
+          const mapped = src.map((kr) => {
             const before = kr ?? {};
             const after = { ...(before as any) };
 
@@ -732,24 +781,51 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
               after.label = String(after.label);
               localChanged = true;
             }
-            if (typeof after.label === 'string' && after.label.includes('[object Object]')) {
-              after.label = '';
-              localChanged = true;
-            }
-            if (after.label == null) {
-              after.label = '';
-              localChanged = true;
-            }
+const isObjectObject =
+  typeof after.label === 'string' && after.label.includes('[object Object]');
 
-            return localChanged ? after : before;
+if (isObjectObject) {
+  // 破損KR（labelが[object Object]）は空欄にせず削除対象にする
+  localChanged = true;
+  return null as any;
+}
+
+if (after.label == null) {
+  after.label = '';
+  localChanged = true;
+}
+
+return localChanged ? after : before;
           });
+
+          const dst = mapped.filter(Boolean) as any[];
+          if (dst.length !== src.length) localChanged = true;
 
           if (localChanged) changed = true;
           return localChanged ? dst : src;
         };
 
-        const okrsV2Fixed = normalizeList((p as any).okrsV2);
-        let variantsFixed = (p as any).okrVariants;
+const okrsV2Fixed = normalizeList((p as any).okrsV2);
+
+// okrs.keyResults も正規化（label以外が混ざっている/空欄が残る問題を除去）
+const okrsSrc = Array.isArray((p as any).okrs) ? ((p as any).okrs as any[]) : [];
+const okrsFixed = okrsSrc.map((o) => {
+  const krRaw = ensureArray(o?.keyResults);
+  const krLabels = krRaw
+    .map((kr: any) => {
+      if (typeof kr === 'string') return kr.trim();
+      if (kr && typeof kr === 'object' && typeof kr.label === 'string') return kr.label.trim();
+      return '';
+    })
+    .filter(Boolean)
+    .map((label: string) => ({ label }));
+
+  const changedO = krLabels.length !== krRaw.length;
+  return changedO ? { ...o, keyResults: krLabels } : o;
+});
+if (okrsFixed.some((o, i) => o !== okrsSrc[i])) projChanged = true;
+
+let variantsFixed = (p as any).okrVariants;
 
         if (Array.isArray((p as any).okrVariants)) {
           const v2 = (p as any).okrVariants.map((v: any) => {
@@ -767,7 +843,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
 
         if (projChanged) {
           deptChanged = true;
-          return { ...(p as any), okrsV2: okrsV2Fixed, okrVariants: variantsFixed };
+          return { ...(p as any), okrs: okrsFixed, okrsV2: okrsV2Fixed, okrVariants: variantsFixed };
         }
         return p;
       });
@@ -823,19 +899,26 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
 
           okrs.forEach((o) => {
             const ownerHint = o.owner;
-            const krs = ensureArray(o.keyResults as string[] | undefined);
+            const krsRaw = ensureArray(o.keyResults as any[] | undefined);
 
-            krs.forEach((krText) => {
-              const label = String(krText ?? '').trim();
-              if (!label) return;
+krsRaw.forEach((krItem: any) => {
+  let label = '';
+  if (typeof krItem === 'string') {
+    label = krItem.trim();
+  } else if (krItem && typeof krItem === 'object') {
+    const v = (krItem as any).label;
+    if (typeof v === 'string') label = v.trim();
+  }
 
-              const already = existing.some((x) => String((x as any).label ?? '').trim() === label);
-              if (already) return;
+  if (!label) return;
 
-              const kr = buildKRFromText(label, ownerHint);
-              existing.push(kr);
-              projChanged = true;
-            });
+  const already = existing.some((x) => String((x as any).label ?? '').trim() === label);
+  if (already) return;
+
+  const kr = buildKRFromText(label, ownerHint);
+  existing.push(kr);
+  projChanged = true;
+});
           });
 
           if (projChanged) {
@@ -1115,20 +1198,79 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
 
         <div className="grid gap-6 grid-cols-[1.2fr_1.2fr_1.2fr]">
           {/* ========== Card 1: 目的（何のため？） ========== */}
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+          <div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
             <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">目的（何のため？）</h2>
 
             {/* Objective */}
-            <div className="mb-4 space-y-2">
+            <div className="mb-4 space-y-1">
               <label className="text-[11px] font-semibold text-zinc-700">目的（必須）</label>
               <textarea
-                className="min-h-[100px] w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px]"
+                className="min-h-[72px] w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px] leading-5 resize-y"
+                rows={2}
                 placeholder="例：既存顧客からのアップセルと新規顧客獲得を両立し、売上成長の軸を確立する"
                 value={mainOKR?.objective ?? ''}
-                onChange={(e) => updateProjectOKR(selected.deptIdx, selected.projIdx, { objective: e.target.value })}
+                onChange={(e) => {
+                  updateProjectOKR(selected.deptIdx, selected.projIdx, { objective: e.target.value });
+                  scheduleObjectiveSave();
+                }}
+                onBlur={async () => {
+                  if (!saveNow) return;
+                  try {
+                    await saveNow();
+                  } catch {}
+                }}
                 disabled={isHydrating || isApproved()}
               />
             </div>
+
+            {/* ★STAGE4拡張：戦略メモ（仮説＆成長レバー）常時表示 */}
+            {(() => {
+              const hypothesis =
+                typeof (selectedProj as any)?.hypothesis === 'string'
+                  ? (selectedProj as any).hypothesis.trim()
+                  : '';
+              const kind = (selectedProj as any)?.kind as string | undefined;
+              const mainLever = (selectedProj as any)?.mainLever as string | undefined;
+              const horizon = (selectedProj as any)?.horizon as string | undefined;
+
+              const kindLabel = kind ? (KIND_JA[kind] ?? kind) : '';
+              const leverLabel = mainLever ? (LEVER_JA[mainLever] ?? mainLever) : '';
+              const horizonLabel = horizon ? (HORIZON_JA[horizon] ?? horizon) : '';
+
+              return (
+                <div className="mb-4 rounded-md border bg-slate-50 p-3">
+                  <div className="text-xs font-semibold text-slate-600">仮説と成長レバー</div>
+
+                  <div className="mt-2 text-sm text-slate-700 whitespace-pre-wrap">
+                    <span className="font-medium">仮説：</span>{hypothesis || '—'}
+                  </div>
+
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium text-slate-700">成長レバー：</span>
+
+                    {kindLabel && (
+                      <span className="rounded-full border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-700">
+                        {kindLabel}
+                      </span>
+                    )}
+                    {leverLabel && (
+                      <span className="rounded-full border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-700">
+                        {leverLabel}
+                      </span>
+                    )}
+                    {horizonLabel && (
+                      <span className="rounded-full border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-700">
+                        {horizonLabel}
+                      </span>
+                    )}
+
+                    {!kindLabel && !leverLabel && !horizonLabel && (
+                      <span className="text-xs text-slate-500">—</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* ★STAGE4拡張：ロール（財務レバー） */}
             <div className="mb-4 space-y-2">
@@ -2628,7 +2770,10 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
                           <button
                             key={projKeyOf(p)}
                             type="button"
-                            onClick={() => setSelected({ deptIdx: di, projIdx: pi })}
+                            onClick={() => {
+                              if (saveNow) void saveNow();
+                              setSelected({ deptIdx: di, projIdx: pi });
+                            }}
                             className={[
                               'w-full rounded-xl border px-3 py-2 text-left text-[12px] transition',
                               isSel
