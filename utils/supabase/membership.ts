@@ -315,9 +315,17 @@ export async function joinCompany(params: {
 /** 自社メンバー一覧（department_id が無くても動く） */
 export async function listCompanyMembers(): Promise<MemberListItem[]> {
   const myUid = await getCurrentUserId();
-  if (!myUid) return [];
+  if (!myUid) {
+    console.warn('[listCompanyMembers] no user id');
+    return [];
+  }
   const m = await getMembership(myUid);
-  if (!m.companyId) return [];
+  if (!m.companyId) {
+    console.warn('[listCompanyMembers] no company id for user:', myUid);
+    return [];
+  }
+
+  console.log('[listCompanyMembers] querying for company:', m.companyId);
 
   // department_id あり
   const q1 = await supabase
@@ -326,27 +334,34 @@ export async function listCompanyMembers(): Promise<MemberListItem[]> {
     .eq('company_id', m.companyId);
 
   if (!q1.error) {
-    return (q1.data || []).map((r: any) => ({
+    const result = (q1.data || []).map((r: any) => ({
       userId: String(r.user_id),
       role: (normRole(r.role) ?? 'member') as Role,
       departmentId: typeof r?.department_id === 'string' ? r.department_id : null,
     }));
+    console.log('[listCompanyMembers] success:', result.length, 'members');
+    return result;
   }
 
   // department_id なし（フォールバック）
   if (looksMissingDepartmentId(q1)) {
+    console.warn('[listCompanyMembers] department_id column not found, retrying without it');
     const q2 = await supabase.from(T_MEMBERS).select('user_id, role').eq('company_id', m.companyId);
     if (q2.error) {
+      console.error('[listCompanyMembers] fallback query failed:', q2.error);
       debugExtractPostgrest(q2);
       return [];
     }
-    return (q2.data || []).map((r: any) => ({
+    const result = (q2.data || []).map((r: any) => ({
       userId: String(r.user_id),
       role: (normRole(r.role) ?? 'member') as Role,
       departmentId: null,
     }));
+    console.log('[listCompanyMembers] fallback success:', result.length, 'members');
+    return result;
   }
 
+  console.error('[listCompanyMembers] query error:', q1.error);
   debugExtractPostgrest(q1);
   return [];
 }
