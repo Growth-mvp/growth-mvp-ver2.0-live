@@ -7,10 +7,12 @@ import { useUserStore } from '@/store/userStore';
 
 /**
  * ★ Strategy Page Guard
- * - mode='view': Member can view but not edit. Only requires login + company
- * - mode='edit': Only admin/manager can access (members get /403)
- * - Redirects non-authorized users to /403 or /auth/welcome
+ * - Both view & edit modes: require login + company membership
+ * - mode='edit': additionally require admin/manager role (members get /403)
+ * - Redirects non-authorized users to /login, /auth/welcome, or /403
  * - Used by: /stage1-6, /cascade, /okr, /execution, /story-process
+ *
+ * Note: /auth/welcome itself should NOT use this guard to avoid redirect loops
  */
 export default function StrategyGuard({
   children,
@@ -38,6 +40,7 @@ export default function StrategyGuard({
     // Not logged in → /login
     if (!isLoggedIn) {
       console.log('[StrategyGuard] not logged in, redirecting to /login');
+      setChecking(false);
       router.replace('/login');
       return;
     }
@@ -45,9 +48,10 @@ export default function StrategyGuard({
     // Wait for membership verification
     if (!membershipLoaded) return;
 
-    // No company ID (not member of any company) → /auth/welcome
+    // Both view & edit require company membership
     if (!companyId) {
-      console.log('[StrategyGuard] no company assigned, redirecting to /auth/welcome');
+      console.log('[StrategyGuard] no company membership, redirecting to /auth/welcome');
+      setChecking(false);
       router.replace('/auth/welcome');
       return;
     }
@@ -55,6 +59,7 @@ export default function StrategyGuard({
     // For edit mode: require admin or manager
     if (mode === 'edit' && !canEdit) {
       console.warn('[StrategyGuard] user is member (not admin/manager), redirecting to /403');
+      setChecking(false);
       router.replace('/403');
       return;
     }
