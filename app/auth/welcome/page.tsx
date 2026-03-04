@@ -42,6 +42,7 @@ function WelcomeInner() {
   const [companyMissing, setCompanyMissing] = useState<boolean | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string>('');
+  const [onboardingCode, setOnboardingCode] = useState('');
 
   // “再チェック”用
   const [checkNonce, setCheckNonce] = useState(0);
@@ -180,7 +181,7 @@ function WelcomeInner() {
         return;
       }
 
-      // ★重要：provision を “createモード” で実行（未所属でも会社作成を許可）
+      // ★重要：provision を "createモード" で実行（未所属でも会社作成を許可）
       const res = await fetch('/api/companies/provision', {
         method: 'POST',
         headers: {
@@ -190,6 +191,7 @@ function WelcomeInner() {
         },
         body: JSON.stringify({
           allowCreateCompany: true,
+          onboardingCode: onboardingCode.trim(),
         }),
       });
 
@@ -237,12 +239,26 @@ function WelcomeInner() {
           </div>
         )}
 
+        <div className="mb-6 p-4 rounded-lg border border-blue-200 bg-blue-50">
+          <label className="block text-sm font-semibold text-gray-700 mb-2">導入コード</label>
+          <input
+            type="text"
+            value={onboardingCode}
+            onChange={(e) => setOnboardingCode(e.target.value)}
+            placeholder="管理者から提供されたコードを入力してください"
+            className="w-full rounded border px-3 py-2 text-sm"
+          />
+          <p className="text-xs text-gray-600 mt-2">
+            会社を新規作成するには、管理者から提供された導入コードが必要です。
+          </p>
+        </div>
+
         <div className="space-y-3">
           <button
             onClick={handleCreateCompany}
-            disabled={actionLoading}
+            disabled={actionLoading || onboardingCode.trim().length === 0}
             className={`inline-flex items-center rounded-lg border px-4 py-2 text-sm shadow-sm hover:bg-gray-50 ${
-              actionLoading ? 'opacity-60 cursor-not-allowed' : ''
+              actionLoading || onboardingCode.trim().length === 0 ? 'opacity-60 cursor-not-allowed' : ''
             }`}
           >
             ① 新しく会社を作成する（管理者向け）
