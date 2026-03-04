@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useUserStore } from '@/store/userStore';
 
 /**
@@ -12,7 +12,7 @@ import { useUserStore } from '@/store/userStore';
  * - Redirects non-authorized users to /login, /auth/welcome, or /403
  * - Used by: /stage1-6, /cascade, /okr, /execution, /story-process
  *
- * Note: /auth/welcome itself should NOT use this guard to avoid redirect loops
+ * Note: /auth/welcome, /invite/accept, /auth/callback should NOT use this guard to avoid redirect loops
  */
 export default function StrategyGuard({
   children,
@@ -22,6 +22,7 @@ export default function StrategyGuard({
   mode?: 'view' | 'edit';
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const hydrated = useUserStore((s) => s.hydrated);
   const isLoggedIn = useUserStore((s) => !!s.user?.id);
   const membershipLoaded = useUserStore((s) => s.membershipLoaded);
@@ -33,7 +34,20 @@ export default function StrategyGuard({
 
   const canEdit = isAdmin || isManager;
 
+  // ★ Guard 除外パス（招待受諾、callback、welcome）
+  const isExemptPath = pathname?.startsWith('/invite/accept') ||
+                       pathname?.startsWith('/auth/callback') ||
+                       pathname?.startsWith('/auth/welcome');
+
   useEffect(() => {
+    // Guard 除外パスはスキップ
+    if (isExemptPath) {
+      console.log('[StrategyGuard] exempt path, skipping guard:', pathname);
+      setAllowed(true);
+      setChecking(false);
+      return;
+    }
+
     // Wait for store hydration
     if (!hydrated) return;
 
@@ -67,7 +81,7 @@ export default function StrategyGuard({
     // ✅ Allowed
     setAllowed(true);
     setChecking(false);
-  }, [hydrated, isLoggedIn, membershipLoaded, companyId, mode, canEdit, router]);
+  }, [hydrated, isLoggedIn, membershipLoaded, companyId, mode, canEdit, router, isExemptPath, pathname]);
 
   if (checking) {
     return <div className="grid min-h-dvh place-items-center text-sm text-gray-500">読み込み中…</div>;
