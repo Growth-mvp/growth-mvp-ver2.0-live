@@ -11,11 +11,26 @@ export default function InviteAcceptClient() {
   const searchParams = useSearchParams();
   const { setCompanyId, resetMembershipLoading } = useUserStore();
 
-  // token は searchParams の安定化タイミングがあるので memo で正規化して扱う
+  // ★ token は searchParams から取得、なければ localStorage から復元
   const token = useMemo(() => {
     const t = searchParams?.get('token') ?? '';
     const v = t.trim();
-    return v.length > 0 ? v : null;
+    if (v.length > 0) return v;
+
+    // localStorage から復元（ログイン後に戻ってきた場合）
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('pendingInviteToken');
+        if (saved) {
+          console.log('[invite/accept] Restored token from localStorage:', saved.slice(0, 8));
+          return saved;
+        }
+      } catch (e) {
+        console.warn('[invite/accept] could not read from localStorage:', e);
+      }
+    }
+
+    return null;
   }, [searchParams]);
 
   const [loading, setLoading] = useState(false);
@@ -60,36 +75,78 @@ export default function InviteAcceptClient() {
         return;
       }
 
-      // セッションを確認
-      const { data: sessRes, error: sessErr } = await supabase.auth.getSession();
-      if (cancelled) return;
+      // ★ session と access_token をリトライで取得（callback 完了まで待つ）
+      let session = null;
+      let retryCount = 0;
+      const maxRetries = 3;
+      const retryDelays = [200, 300, 500]; // ms
 
-      if (sessErr) {
-        console.error('[invite/accept] getSession error:', sessErr);
-        setError('セッションの確認に失敗しました。');
-        setCheckingAuth(false);
-        return;
+      while (retryCount < maxRetries) {
+        const { data: sessRes, error: sessErr } = await supabase.auth.getSession();
+        if (cancelled) return;
+
+        if (sessErr) {
+          console.warn('[invite/accept] getSession error (retry):', {
+            attempt: retryCount + 1,
+            error: sessErr.message,
+          });
+        } else {
+          session = sessRes?.session;
+        }
+
+        // ✅ access_token があれば成功
+        if (session?.access_token && session?.user?.id) {
+          console.log('[invite/accept] Got access_token:', {
+            userId: session.user.id,
+            hasToken: !!session.access_token,
+            attempt: retryCount + 1,
+          });
+          break;
+        }
+
+        retryCount++;
+        if (retryCount < maxRetries) {
+          const delay = retryDelays[retryCount - 1] || 500;
+          console.log('[invite/accept] Waiting for callback completion, retry in', delay, 'ms');
+          await new Promise((r) => setTimeout(r, delay));
+        }
       }
 
-      const session = sessRes?.session;
+      // 最後の試行後も access_token がない場合
+      if (!session?.access_token) {
+        console.error('[invite/accept] No access_token after retries:', {
+          userId: session?.user?.id || '(not logged in)',
+          tokenHead: token.slice(0, 8),
+          maxRetries,
+        });
 
-      // 未ログインの場合 → ログイン画面へ（redirectTo を保持）
-      if (!session?.access_token || !session?.user?.id) {
-        console.log('[invite/accept] Not logged in. Redirecting to login.');
-        const redirectUrl = encodeURIComponent(
-          typeof window !== 'undefined'
-            ? `${window.location.origin}/invite/accept?token=${encodeURIComponent(token)}`
-            : `/invite/accept?token=${encodeURIComponent(token)}`
+        // token をlocalStorage に一時保存（ログイン後に拾える）
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem('pendingInviteToken', token);
+          } catch (e) {
+            console.warn('[invite/accept] could not save token to localStorage:', e);
+          }
+        }
+
+        setError(
+          '認証情報が確立されていません。もう一度ログインして、招待リンクを開き直してください。'
         );
-        router.replace(`/login?redirectTo=${redirectUrl}`);
+        setCheckingAuth(false);
+
+        // ログイン画面へ（token は localStorage に保存済み）
+        const redirectUrl = encodeURIComponent(`/invite/accept?token=${encodeURIComponent(token)}`);
+        setTimeout(() => {
+          router.replace(`/login?next=${redirectUrl}`);
+        }, 2000);
         return;
       }
 
-      // ここから「この token は処理対象」としてマーク
+      // ★ ここから「この token は処理対象」としてマーク
       lastProcessedTokenRef.current = token;
       inFlightRef.current = true;
 
-      console.log('[invite/accept] Logged in. Attempting to accept invite.');
+      console.log('[invite/accept] Ready to accept invite with valid session.');
 
       setCheckingAuth(false);
       setLoading(true);
@@ -132,13 +189,19 @@ export default function InviteAcceptClient() {
             errorMessage = 'この招待は既に使用されています';
           } else if (data?.error === 'invite_not_found') {
             errorMessage = '招待が見つかりません（無効または削除されている可能性があります）';
+          } else if (data?.error === 'unauthorized') {
+            errorMessage = data?.message || 'ログインが必要です';
+          } else if (data?.error === 'token_required') {
+            errorMessage = '招待トークンが不正です';
           } else {
-            errorMessage = data?.detail || errorMessage;
+            errorMessage = data?.message || data?.detail || errorMessage;
           }
 
-          console.error('[invite/accept] Error details:', {
+          // ★ 詳細ログ：status/message/detail/userId/tokenHead
+          console.error('[invite/accept] HTTP Error:', {
+            status: res.status,
             error: errorCode,
-            message: errorMessage,
+            message: data?.message || '(no message)',
             detail: errorDetail,
             tokenHead: `${tokenHead}...`,
             userId: currentUserId,
@@ -148,6 +211,26 @@ export default function InviteAcceptClient() {
           setIsEmailMismatch(mismatch);
           setLoading(false);
 
+          // ★ 401 の場合はログイン画面へ（token 保持）
+          if (res.status === 401) {
+            console.warn('[invite/accept] Got 401, redirecting to login with token preserved');
+
+            // token を localStorage に保存
+            if (typeof window !== 'undefined') {
+              try {
+                localStorage.setItem('pendingInviteToken', token);
+              } catch (e) {
+                console.warn('[invite/accept] could not save token to localStorage:', e);
+              }
+            }
+
+            // 2秒後に /login へ遷移（UI に error メッセージを見せる）
+            setTimeout(() => {
+              const redirectUrl = encodeURIComponent(`/invite/accept?token=${encodeURIComponent(token)}`);
+              router.replace(`/login?next=${redirectUrl}`);
+            }, 2000);
+          }
+
           // エラー時は inFlight 解除（リロード等で再試行可能にする）
           inFlightRef.current = false;
           return;
@@ -155,8 +238,6 @@ export default function InviteAcceptClient() {
 
         // 成功
         const companyId = data?.companyId as string | undefined;
-        const tokenHead = token.slice(0, 8);
-        const currentUserId = session?.user?.id;
 
         console.log('[invite/accept] Success:', {
           companyId,
@@ -164,6 +245,15 @@ export default function InviteAcceptClient() {
           userId: currentUserId,
           role: data?.role,
         });
+
+        // ★ 成功時に localStorage をクリア
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.removeItem('pendingInviteToken');
+          } catch (e) {
+            console.warn('[invite/accept] could not clear localStorage:', e);
+          }
+        }
 
         if (companyId) setCompanyId(companyId);
         resetMembershipLoading();
@@ -184,6 +274,15 @@ export default function InviteAcceptClient() {
           userId: currentUserId,
           stack: e?.stack,
         });
+
+        // ★ 例外時は token を保存（リトライ用）
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem('pendingInviteToken', token);
+          } catch (storageErr) {
+            console.warn('[invite/accept] could not save token on exception:', storageErr);
+          }
+        }
 
         setError('招待の受け入れに失敗しました。もう一度お試しください。');
         setLoading(false);
