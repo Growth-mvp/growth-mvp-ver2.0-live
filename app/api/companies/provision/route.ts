@@ -18,6 +18,7 @@ type Body = {
   departmentId?: string | null;
   // ★追加：明示的に会社作成を許可したいときだけ true（管理者オンボーディング等）
   allowCreateCompany?: boolean;
+  onboardingCode?: string;
 };
 
 /* ============== helpers ============== */
@@ -221,6 +222,21 @@ export async function POST(req: NextRequest) {
     }
 
     const allowCreate = isCreateAllowed(req, body);
+
+    // ★導入コード検証（createモード時のみ）
+    if (allowCreate) {
+      const required = (process.env.GROWTH_ONBOARDING_CODE || '').trim();
+      const provided =
+        (body?.onboardingCode || '').trim() ||
+        (req.headers.get('x-growth-onboarding-code') || '').trim();
+
+      const hasCode = !!provided;
+      console.info('[provision] create-mode onboarding', { hasCode, requiredSet: !!required });
+
+      if (!required || provided !== required) {
+        return json(403, { ok: false, code: 'create_not_allowed' });
+      }
+    }
 
     const companyName = (body.companyName || '').trim() || makeDefaultCompanyName(userEmail);
     const departmentId = body.departmentId ?? null;
