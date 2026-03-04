@@ -523,26 +523,16 @@ const ensureStringArray = (v: any): string[] =>
   Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
 
 const okrsV2ToOkrs = (okrsV2: any[], fallbackTitle: string) => {
-  const out = ensureArray(okrsV2).map((o: any) => {
-    const objective =
-      (typeof o?.objective === 'string' && o.objective.trim()) ||
-      (typeof o?.title === 'string' && o.title.trim()) ||
-      fallbackTitle;
+  // okrsV2はKR配列（KPI行）なので、1つのOKRにまとめる
+  const krs = ensureArray(okrsV2)
+    .map(x => (typeof x?.label === 'string' ? x.label.trim() : ''))
+    .filter(Boolean)
+    .map(label => ({ label }));
 
-    const krsRaw = ensureArray(o?.keyResults ?? o?.krs ?? o?.kpi ?? o?.items);
-    const keyResults = krsRaw
-      .map((kr: any) => {
-        if (typeof kr === 'string') return { label: kr };
-        if (typeof kr?.label === 'string') return { label: kr.label };
-        if (typeof kr?.name === 'string') return { label: kr.name };
-        return null;
-      })
-      .filter(Boolean);
-
-    return { ...o, objective, keyResults };
-  });
-
-  return out;
+  return [{
+    objective: fallbackTitle,
+    keyResults: krs,
+  }];
 };
 
 const okrsToKpis = (okrs: any[]) => {
@@ -558,7 +548,8 @@ const okrsToKpis = (okrs: any[]) => {
           ? kr.name
           : '';
 
-      if (label) names.push(label);
+      const trimmed = label.trim();
+      if (trimmed) names.push(trimmed);
     }
   }
   return names;
