@@ -60,6 +60,7 @@ export default function Stage4Page() {
   const isAdmin = useUserStore((s) => s.isAdmin);
   const isManager = useUserStore((s) => s.isManager);
   const isMember = useUserStore((s) => s.isMember);
+
   // ★ STAGE4 は member も編集OK
   const canEdit = isAdmin || isManager || isMember;
 
@@ -105,7 +106,9 @@ export default function Stage4Page() {
         console.warn('[STAGE4] タイムアウト：15秒経過。UIは表示し、エラーとして案内します');
         setIsInitializing(false);
         setInitializedReady(true); // UIは表示して操作可能にする
-        setLoadError('読み込みがタイムアウトしました。プロビジョニング再実行を試すか、管理画面のデータ管理から最新データを読み込んでください。');
+        setLoadError(
+          '読み込みがタイムアウトしました。プロビジョニング再実行を試すか、管理画面のデータ管理から最新データを読み込んでください。'
+        );
       }, 15000);
 
       try {
@@ -239,8 +242,6 @@ export default function Stage4Page() {
     [setStage4Plans]
   );
 
-
-
   // provision 再実行
   const handleProvision = async () => {
     setLoadError(null);
@@ -291,8 +292,8 @@ export default function Stage4Page() {
           <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mb-4" />
           <p className="text-sm text-gray-600">STAGE4を読み込んでいます...</p>
           <p className="text-xs text-gray-500 mt-2">
-            isInitializing: {String(isInitializing)} / initializedReady: {String(initializedReady)} / loaded: {String(loaded)} / hydrated:{' '}
-            {String(hydrated)}
+            isInitializing: {String(isInitializing)} / initializedReady: {String(initializedReady)} / loaded:{' '}
+            {String(loaded)} / hydrated: {String(hydrated)}
           </p>
         </div>
       </div>
@@ -371,109 +372,111 @@ export default function Stage4Page() {
   return (
     <StrategyGuard mode="view">
       <div className="p-8">
-      <div className="max-w-6xl mx-auto space-y-6">
-        {/* ヘッダー */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">STAGE4: 実行計画策定</h1>
-            <p className="text-sm text-gray-600 mt-1">現場が編集して初めてコミットが成立</p>
-            <div className="flex items-center gap-2 mt-2">
-              <p className="text-xs text-gray-500">
-                ※ 変更は自動保存されます
+        <div className="max-w-6xl mx-auto space-y-6">
+          {/* ヘッダー */}
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">STAGE4: 実行計画策定</h1>
+              <p className="text-sm text-gray-600 mt-1">現場が編集して初めてコミットが成立</p>
+              <div className="flex items-center gap-2 mt-2">
+                <p className="text-xs text-gray-500">※ 変更は自動保存されます</p>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                debug: loaded={String(loaded)} hydrated={String(hydrated)}
               </p>
             </div>
-            <p className="text-xs text-gray-500 mt-1">
-              debug: loaded={String(loaded)} hydrated={String(hydrated)}
-            </p>
-          </div>
-          <div className="shrink-0">
-            <SaveStatusIndicator />
-          </div>
-        </div>
-
-        {/* 衝突警告 */}
-        {conflictError && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <h3 className="text-sm font-medium text-red-900">保存に失敗しました（REVISION_CONFLICT）</h3>
-              <p className="text-sm text-red-800 mt-1">{conflictError}</p>
-              <p className="text-xs text-red-700 mt-2">管理画面のデータ管理から最新データを読み込んでください。</p>
+            <div className="shrink-0">
+              <SaveStatusIndicator />
             </div>
           </div>
-        )}
 
-        <div className="grid grid-cols-12 gap-6">
-          {/* 左サイドバー：部門一覧 */}
-          <div className="col-span-3 space-y-2">
-            <h2 className="text-sm font-medium text-gray-700 mb-3">部門一覧</h2>
-            {departmentsList.map((dept: Department) => {
-              const deptId = String(dept.id || dept.name);
-              const plan = localPlans.find((p) => p.departmentId === deptId);
-              const isSelected = deptId === selectedDeptId;
-
-              return (
-                <button
-                  key={deptId}
-                  onClick={() => setSelectedDeptId(deptId)}
-                  className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                    isSelected ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200 hover:bg-gray-50'
-                  }`}
-                >
-                  <div className="font-medium text-sm text-gray-900">{dept.name}</div>
-                  <div className="flex items-center gap-2 mt-2">
-                    <StatusBadge status={plan?.status || 'Draft'} />
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* 右メインエリア：選択中の部門 */}
-          <div className="col-span-9 space-y-6">
-            {!selectedPlan ? (
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center text-gray-600">
-                左から部門を選択してください
+          {/* 衝突警告 */}
+          {conflictError && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h3 className="text-sm font-medium text-red-900">保存に失敗しました（REVISION_CONFLICT）</h3>
+                <p className="text-sm text-red-800 mt-1">{conflictError}</p>
+                <p className="text-xs text-red-700 mt-2">管理画面のデータ管理から最新データを読み込んでください。</p>
               </div>
-            ) : (
-              <>
-                {/* ステータス切替 */}
-                <div className="bg-white border border-gray-200 rounded-lg p-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-medium text-gray-700">ステータス</h3>
-                    <StatusSelect
-                      value={selectedPlan.status}
-                      onChange={(newStatus) => updateStatus(selectedPlan.departmentId, newStatus)}
+            </div>
+          )}
+
+          <div className="grid grid-cols-12 gap-6">
+            {/* 左サイドバー：部門一覧 */}
+            <div className="col-span-3 space-y-2">
+              <h2 className="text-sm font-medium text-gray-700 mb-3">部門一覧</h2>
+              {departmentsList.map((dept: Department) => {
+                const deptId = String(dept.id || dept.name);
+                const plan = localPlans.find((p) => p.departmentId === deptId);
+                const isSelected = deptId === selectedDeptId;
+
+                return (
+                  <button
+                    key={deptId}
+                    onClick={() => setSelectedDeptId(deptId)}
+                    className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                      isSelected ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="font-medium text-sm text-gray-900">{dept.name}</div>
+                    <div className="flex items-center gap-2 mt-2">
+                      <StatusBadge status={plan?.status || 'Draft'} />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* 右メインエリア：選択中の部門 */}
+            <div className="col-span-9 space-y-6">
+              {!selectedPlan ? (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center text-gray-600">
+                  左から部門を選択してください
+                </div>
+              ) : (
+                <>
+                  {/* ステータス切替 */}
+                  <div className="bg-white border border-gray-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-medium text-gray-700">ステータス</h3>
+                      <StatusSelect
+                        value={selectedPlan.status}
+                        onChange={(newStatus) => updateStatus(selectedPlan.departmentId, newStatus)}
+                        disabled={!canEdit}
+                      />
+                    </div>
+                  </div>
+
+                  {/* 差分表示 */}
+                  <div className="bg-white border border-gray-200 rounded-lg p-4">
+                    <h3 className="text-sm font-medium text-gray-700 mb-4">差分（STAGE3 → STAGE4編集後）</h3>
+                    <DiffViewer baseline={selectedPlan.baseline} current={selectedPlan.current} />
+                  </div>
+
+                  {/* 整合プレビュー */}
+                  <div className="bg-white border border-gray-200 rounded-lg p-4">
+                    <AlignmentPreview
+                      current={selectedPlan.current}
+                      valueDriverKPIs={valueDriverKPIs}
+                      targetRanges={targetRanges}
+                    />
+                  </div>
+
+                  {/* プロジェクト編集 */}
+                  <div className="bg-white border border-gray-200 rounded-lg p-4">
+                    <h3 className="text-sm font-medium text-gray-700 mb-4">プロジェクト編集</h3>
+                    <ProjectEditor
+                      current={selectedPlan.current}
+                      onChange={(newCurrent) => updateCurrent(selectedPlan.departmentId, newCurrent)}
                       disabled={!canEdit}
                     />
                   </div>
-                </div>
-
-                {/* 差分表示 */}
-                <div className="bg-white border border-gray-200 rounded-lg p-4">
-                  <h3 className="text-sm font-medium text-gray-700 mb-4">差分（STAGE3 → STAGE4編集後）</h3>
-                  <DiffViewer baseline={selectedPlan.baseline} current={selectedPlan.current} />
-                </div>
-
-                {/* 整合プレビュー */}
-                <div className="bg-white border border-gray-200 rounded-lg p-4">
-                  <AlignmentPreview current={selectedPlan.current} valueDriverKPIs={valueDriverKPIs} targetRanges={targetRanges} />
-                </div>
-
-                {/* プロジェクト編集 */}
-                <div className="bg-white border border-gray-200 rounded-lg p-4">
-                  <h3 className="text-sm font-medium text-gray-700 mb-4">プロジェクト編集</h3>
-                  <ProjectEditor
-                    current={selectedPlan.current}
-                    onChange={(newCurrent) => updateCurrent(selectedPlan.departmentId, newCurrent)}
-                    disabled={!canEdit}
-                  />
-                </div>
-              </>
-            )}
+                </>
+              )}
+            </div>
           </div>
         </div>
-      </div>
       </div>
     </StrategyGuard>
   );
