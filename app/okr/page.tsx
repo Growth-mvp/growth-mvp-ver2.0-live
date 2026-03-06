@@ -236,7 +236,7 @@ function OKRPageContent() {
     lastServerSnapshot,
   } = useStrategyStore();
 
-  const departments = useStrategyStore((st) => ((st.departments as Department[] | undefined) ?? []) as Department[]);
+  const departments = useStrategyStore((st: any) => ((st.departments as Department[] | undefined) ?? []) as Department[]);
 
   const access = useAccess();
   const accessCompanyId: string | undefined = useMemo(
@@ -1070,6 +1070,69 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
   if (editingKrId === krId) cancelEditKr();
 };
 
+// Helper: KPI マイルストーン状態バッジを生成
+const getMilestoneStatusBadge = (milestonesCount: number) => {
+  const totalRecommended = 3;
+
+  if (milestonesCount === 0) {
+    return {
+      type: 'warning',
+      showAlert: true,
+      badge: null,
+      alertText: 'STAGE5で推奨進捗を算出するにはマイルストーンを設定してください（最低1件）'
+    };
+  }
+
+  const isComplete = milestonesCount >= totalRecommended;
+  const color = isComplete ? 'green' : 'amber';
+  const bgClass = color === 'green' ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200';
+  const textClass = color === 'green' ? 'text-green-700' : 'text-amber-700';
+
+  return {
+    type: color,
+    showAlert: false,
+    badge: { bgClass, textClass, label: `マイルストーン ${milestonesCount}/${totalRecommended}（推奨）` },
+    alertText: null
+  };
+};
+
+// Helper: プロジェクト内の全マイルストーンを集約・期限順でソート
+const aggregateMilestones = (okrsV2: any[] | undefined) => {
+  if (!Array.isArray(okrsV2)) return [];
+
+  const all: Array<{
+    id: string;
+    title: string;
+    dueYm?: string;
+    krLabel: string;
+    status?: string;
+  }> = [];
+
+  okrsV2.forEach((kr: any, krIndex: number) => {
+    const krLabel = String(kr?.label ?? '（未設定）');
+    if (Array.isArray(kr?.milestones)) {
+      kr.milestones.forEach((m: any, mIndex: number) => {
+        const stableId = (typeof m?.id === 'string' && m.id) ? m.id : `ms_${krIndex}_${mIndex}`;
+        all.push({
+          id: stableId,
+          title: String(m?.title ?? ''),
+          dueYm: m?.dueYm,
+          krLabel,
+          status: m?.status,
+        });
+      });
+    }
+  });
+
+  // 期限順（空は最後）
+  return all.sort((a: typeof all[0], b: typeof all[0]) => {
+    if (!a.dueYm && !b.dueYm) return 0;
+    if (!a.dueYm) return 1;
+    if (!b.dueYm) return -1;
+    return (a.dueYm as string).localeCompare(b.dueYm as string);
+  });
+};
+
 
   const setDraft = (k: string, patch: Partial<Draft>) =>
     setDraftMap((m) => ({
@@ -1476,9 +1539,27 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
 
                   {/* Phase C: Milestones セクション */}
                   <div className={`border-t border-amber-200 pt-3 ${editingMode === 'variant' ? 'opacity-50' : ''}`}>
-                    <div className="text-[11px] font-semibold text-amber-900 mb-2">
-                      マイルストーン（任意）
-                      {editingMode === 'variant' && <span className="ml-1 text-[10px] text-amber-700">確定版でのみ編集可</span>}
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-[11px] font-semibold text-amber-900">
+                        マイルストーン（任意）
+                        {editingMode === 'variant' && <span className="ml-1 text-[10px] text-amber-700">確定版でのみ編集可</span>}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const templates = [
+                            { id: cryptoRandomId(), title: '要件定義', dueYm: undefined },
+                            { id: cryptoRandomId(), title: 'PoC', dueYm: undefined },
+                            { id: cryptoRandomId(), title: '本番展開', dueYm: undefined },
+                          ];
+                          const next = [...(selectedDraft.milestones ?? []), ...templates];
+                          setDraft(selectedAddKey, { milestones: next });
+                        }}
+                        disabled={isHydrating || editingMode === 'variant'}
+                        className="h-7 px-2.5 rounded text-[11px] font-medium bg-green-100 text-green-700 border border-green-300 hover:bg-green-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        テンプレ追加
+                      </button>
                     </div>
                     {selectedDraft.milestones && selectedDraft.milestones.length > 0 ? (
                       <div className="space-y-1 mb-2">
@@ -1756,6 +1837,84 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
               </div>
             )}
           </div>
+
+          {/* マイルストーン件数バッジ */}
+          {(() => {
+            const milestonesCount = Array.isArray((kr as any)?.milestones) ? (kr as any).milestones.length : 0;
+            const badgeInfo = getMilestoneStatusBadge(milestonesCount);
+
+            return (
+              <div className="mt-3">
+                {badgeInfo.showAlert ? (
+                  <div className={`rounded-lg border p-2 bg-red-50 border-red-200 mb-3`}>
+                    <div className="text-[11px] font-medium text-red-800">
+                      ⚠️ {badgeInfo.alertText}
+                    </div>
+                  </div>
+                ) : (
+                  <div className={`inline-flex rounded-full border px-2 py-1 mb-3 ${badgeInfo.badge?.bgClass}`}>
+                    <span className={`text-[11px] font-medium ${badgeInfo.badge?.textClass}`}>
+                      {badgeInfo.badge?.label}
+                    </span>
+                  </div>
+                )}
+
+                {/* マイルストーン一覧＋追加導線 */}
+                {(() => {
+                  const ms = Array.isArray((kr as any)?.milestones) ? (kr as any).milestones : [];
+
+                  if (ms.length === 0) {
+                    return (
+                      <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2">
+                        <span className="text-[11px] text-amber-700">マイルストーン未設定</span>
+                        <button
+                          type="button"
+                          onClick={() => startEditKr(kr as any, rowId)}
+                          disabled={isHydrating || editingMode === 'variant'}
+                          className="text-[11px] px-2 py-1 rounded border border-amber-300 bg-amber-100 text-amber-700 hover:bg-amber-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium whitespace-nowrap"
+                        >
+                          マイルストーンを追加
+                        </button>
+                      </div>
+                    );
+                  }
+
+                  const displayMs = ms.slice(0, 3);
+                  const moreCount = ms.length - 3;
+
+                  return (
+                    <div className="space-y-1">
+                      {displayMs.map((m: any, mIdx: number) => (
+                        <div key={mIdx} className="flex items-center gap-2 text-[11px] text-zinc-700">
+                          <span>•</span>
+                          <span className="flex-1 truncate">{m?.title || '（未設定）'}</span>
+                          {m?.dueYm && <span className="text-zinc-500">({m.dueYm})</span>}
+                          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap ${
+                            m?.status === 'done'
+                              ? 'bg-green-100 text-green-700'
+                              : m?.status === 'doing'
+                              ? 'bg-yellow-100 text-yellow-700'
+                              : 'bg-zinc-100 text-zinc-600'
+                          }`}>
+                            {m?.status === 'done' ? '完了' : m?.status === 'doing' ? '進行中' : 'TODO'}
+                          </span>
+                        </div>
+                      ))}
+                      {moreCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => startEditKr(kr as any, rowId)}
+                          className="text-[11px] text-blue-600 hover:text-blue-700 font-medium"
+                        >
+                          あと {moreCount} 件を表示...
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>
@@ -1792,6 +1951,60 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
                 </div>
               </details>
             )}
+          </div>
+
+          {/* ========== Card 3.5: マイルストーン一覧（期限順） ========== */}
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">マイルストーン一覧（期限順）</h2>
+
+            {(() => {
+              const msList = aggregateMilestones(currentKrList);
+
+              if (msList.length === 0) {
+                return (
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-[12px] text-zinc-600 leading-relaxed">
+                      マイルストーンが未設定です。KPIのマイルストーンを最低1件追加すると、STAGE5で推奨進捗が算出できます。
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-2">
+                  {msList.map((ms) => (
+                    <div key={ms.id} className="rounded-lg border border-zinc-200 bg-white p-3">
+                      <div className="grid grid-cols-4 gap-2 text-[12px]">
+                        <div className="col-span-1">
+                          <div className="text-zinc-500 text-[11px]">期限</div>
+                          <div className="font-semibold text-zinc-800">{ms.dueYm || '—'}</div>
+                        </div>
+                        <div className="col-span-1">
+                          <div className="text-zinc-500 text-[11px]">タイトル</div>
+                          <div className="text-zinc-800 truncate">{ms.title || '（未設定）'}</div>
+                        </div>
+                        <div className="col-span-1">
+                          <div className="text-zinc-500 text-[11px]">KPI名</div>
+                          <div className="text-zinc-700 text-[11px] truncate">{ms.krLabel}</div>
+                        </div>
+                        <div className="col-span-1">
+                          <div className="text-zinc-500 text-[11px]">ステータス</div>
+                          <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                            ms.status === 'done'
+                              ? 'bg-green-100 text-green-700'
+                              : ms.status === 'doing'
+                              ? 'bg-yellow-100 text-yellow-700'
+                              : 'bg-zinc-100 text-zinc-600'
+                          }`}>
+                            {ms.status === 'done' ? '完了' : ms.status === 'doing' ? '進行中' : 'TODO'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
 
           {/* ========== Card 4: 投資（金額 or 人数） ========== */}
