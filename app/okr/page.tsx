@@ -244,7 +244,7 @@ function OKRPageContent() {
     [(access as any)?.companyId, s?.companyId],
   );
 
-  /* -------- 会社スコープ確立（cascade と同じパターン） -------- */
+  {/* -------- 会社スコープ確立（cascade と同じパターン） -------- */}
   const lastAppliedCompanyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!accessCompanyId) return;
@@ -260,7 +260,7 @@ function OKRPageContent() {
     lastAppliedCompanyRef.current = accessCompanyId;
   }, [accessCompanyId, scopeCompanyId, setCompanyScope, setHydrated]);
 
-  /* -------- 初期ロード（Dirty 回避付き） -------- */
+  {/* -------- 初期ロード（Dirty 回避付き） -------- */}
   const loadGuardRef = useRef<string | null>(null);
   useEffect(() => {
     if (!accessCompanyId) return;
@@ -314,7 +314,7 @@ function OKRPageContent() {
     setCompanyScope,
   ]);
 
-  /* -------- 自動保存：cascade と同じ条件でガード -------- */
+  {/* -------- 自動保存：cascade と同じ条件でガード -------- */}
   const mismatch = !!(accessCompanyId && scopeCompanyId && scopeCompanyId !== accessCompanyId);
   const isHydrating = ((Boolean(boot?.isHydrating) && !hydrated) || mismatch || !hydrated) ?? false;
 
@@ -327,7 +327,7 @@ function OKRPageContent() {
     mode: 'payload',
   });
 
-  /* -------- 目的欄の即保存・debounce保存 -------- */
+  {/* -------- 目的欄の即保存・debounce保存 -------- */}
   const saveNow = useStrategyStore((st: any) => st.saveStrategyData);
 
   const objectiveSaveTimerRef = useRef<number | null>(null);
@@ -348,7 +348,7 @@ function OKRPageContent() {
     };
   }, []);
 
-  /* -------- STAGE4 Baseline 作成ガード（hydrate 完了時に1回だけ、companyId単位） -------- */
+  {/* -------- STAGE4 Baseline 作成ガード（hydrate 完了時に1回だけ、companyId単位） -------- */}
   const baselineCreatedRef = useRef<boolean>(false);
   const {
     executionPlanBaseline,
@@ -374,7 +374,7 @@ function OKRPageContent() {
     baselineCreatedRef.current = true;
   }, [hydrated, isHydrating, accessCompanyId, executionPlanBaseline, departments, setExecutionPlanBaseline]);
 
-  /* -------- 表示/編集ユーティリティ -------- */
+  {/* -------- 表示/編集ユーティリティ -------- */}
   const cascade: Department[] = useMemo(() => (Array.isArray(departments) ? departments : []), [departments]);
 
   // STAGE6連携用：North Star（companyTargets）
@@ -413,11 +413,11 @@ function OKRPageContent() {
   const [helpMode, setHelpMode] = useState<boolean>(false);
   const [showRoleDetail, setShowRoleDetail] = useState<boolean>(false);
 
-  /* STAGE4: 投資・スキルフォームの初期非表示状態管理 */
+  {/* STAGE4: 投資・スキルフォームの初期非表示状態管理 */}
   const [showInvestmentForm, setShowInvestmentForm] = useState<boolean>(false);
   const [showSkillForm, setShowSkillForm] = useState<boolean>(false);
 
-  /* STAGE4: planStatus, skillPlans/humanInvestments CRUD UI */
+  {/* STAGE4: planStatus, skillPlans/humanInvestments CRUD UI */}
   const [addingSkillPlan, setAddingSkillPlan] = useState<{ deptIdx: number; projIdx: number } | null>(null);
   const [addingHumanInvestment, setAddingHumanInvestment] = useState<{ deptIdx: number; projIdx: number } | null>(null);
   const [editingSkillIdx, setEditingSkillIdx] = useState<number | null>(null);
@@ -523,13 +523,13 @@ const [editingMilestoneIdx, setEditingMilestoneIdx] = useState<number | null>(nu
   const [selected, setSelected] = useState<{ deptIdx: number; projIdx: number } | null>(null);
   const [activeTab, setActiveTab] = useState<'objective' | 'kr' | 'plan'>('kr');
 
-  /* Phase1.4: 統合フォームモード（二重表示防止） */
+  {/* Phase1.4: 統合フォームモード（二重表示防止） */}
   const INTEGRATED = true;
 
-  /* STAGE4: 3カード統一フォーマット（保存非破壊・旧UI隔離） */
+  {/* STAGE4: 3カード統一フォーマット（保存非破壊・旧UI隔離） */}
   const SIMPLE_FORM = true;
 
-  /* 参考OKR表示トグル（デフォルト閉） */
+  {/* 参考OKR表示トグル（デフォルト閉） */}
   const [showCascadeOkr, setShowCascadeOkr] = useState<boolean>(false);
 
   const [addingProjectForDept, setAddingProjectForDept] = useState<number | null>(null);
@@ -661,7 +661,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
     setRoleShadow: (updater) => setRoleShadow(updater),
   });
 
-  /* -------- プロジェクト追加（page側に残す：UI状態と密結合） -------- */
+  {/* -------- プロジェクト追加（page側に残す：UI状態と密結合） -------- */}
   const confirmAddProject = (deptIdx: number) => {
     const title = newProjectTitle.trim();
     if (!title) {
@@ -701,7 +701,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
 
 
 
-  /* -------- 選択の安定化（index drift 防止 / 無限ループ対策） -------- */
+  {/* -------- 選択の安定化（index drift 防止 / 無限ループ対策） -------- */}
   useEffect(() => {
     // 初期は「未選択」を維持（右パネルに勝手に出さない）
     if (!selected) return;
@@ -746,7 +746,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
     selectedStableRef.current = { deptKey: dk, projKey: pk };
   }, [selectedAddKey]);
 
-  /* -------- 選択プロジェクトが変わったら、mode を安全側（committed）に戻す -------- */
+  {/* -------- 選択プロジェクトが変わったら、mode を安全側（committed）に戻す -------- */}
   useEffect(() => {
     setEditingMode('committed');
   }, [selectedAddKey]);
@@ -757,7 +757,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
     return committedOkrsV2;
   }, [selectedProj, committedOkrsV2]);
 
-    /* -------- 初期補修：KR id 補完 + label 正規化（committed + variants） -------- */
+    {/* -------- 初期補修：KR id 補完 + label 正規化（committed + variants） -------- */}
   useEffect(() => {
     if (!Array.isArray(departments) || departments.length === 0) return;
 
@@ -862,7 +862,7 @@ let variantsFixed = (p as any).okrVariants;
 
   /* ============================================================
    * プロジェクト切替時：ロール詳細パネルの表示/非表示を自動設定
-   * - selectedProj?.roleDetail が存在するなら詳細を開く
+   * - (selectedProj as any)?.roleDetail が存在するなら詳細を開く
    * - role === 'FUTURE' or role未設定なら強制的に閉じる
    * ========================================================== */
   useEffect(() => {
@@ -872,16 +872,16 @@ let variantsFixed = (p as any).okrVariants;
     }
 
     // FUTURE または role 未設定の場合は強制的に閉じる
-    if (!selectedProj.role || selectedProj.role === 'FUTURE') {
+    if (!(selectedProj as any).role || (selectedProj as any).role === 'FUTURE') {
       setShowRoleDetail(false);
       return;
     }
 
     // roleDetail が存在するなら開く、そうでなければ閉じる
-    setShowRoleDetail(!!selectedProj.roleDetail);
+    setShowRoleDetail(!!(selectedProj as any).roleDetail);
   }, [selected?.deptIdx, selected?.projIdx]);
 
-  /* -------- 初回自動：カスケードOKR → 構造化KR へ一括変換（committedのみ） -------- */
+  {/* -------- 初回自動：カスケードOKR → 構造化KR へ一括変換（committedのみ） -------- */}
   useEffect(() => {
     if (!Array.isArray(cascade) || cascade.length === 0) return;
 
@@ -1206,15 +1206,11 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
 
     return (
       <div>
-
-        
-
-        <div className="grid gap-6 grid-cols-[1.2fr_1.2fr_1.2fr]">
+        <div className="grid gap-6 grid-cols-1">
           {/* ========== Card 1: 目的（何のため？） ========== */}
           <div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
             <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">目的（何のため？）</h2>
 
-            {/* Objective */}
             <div className="mb-4 space-y-1">
               <label className="text-[11px] font-semibold text-zinc-700">目的（必須）</label>
               <textarea
@@ -1235,8 +1231,33 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
                 disabled={isHydrating || isApproved()}
               />
             </div>
+{/* Owner */}
+            <div className="mb-4 space-y-2">
+              <label className="text-[11px] font-semibold text-zinc-700">オーナー（任意）</label>
+              <input
+                className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
+                placeholder="氏名や役職など"
+                value={mainOKR?.owner ?? ''}
+                onChange={(e) => updateProjectOKR(selected.deptIdx, selected.projIdx, { owner: e.target.value })}
+                disabled={isHydrating || isApproved()}
+              />
+            </div>
+{/* Due Date */}
+            <div className="mb-4 space-y-2">
+              <label className="text-[11px] font-semibold text-zinc-700">期限（任意 / YYYY-MM）</label>
+              <input
+                className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
+                placeholder="2026-03"
+                value={mainOKR?.due ?? ''}
+                onChange={(e) => updateProjectOKR(selected.deptIdx, selected.projIdx, { due: e.target.value })}
+                disabled={isHydrating || isApproved()}
+              />
+            </div>
+          </div>
 
-            {/* ★STAGE4拡張：戦略メモ（仮説＆成長レバー）常時表示 */}
+          {/* ========== Card 2: 仮説と成長レバー / ロール（財務レバー） ========== */}
+          <div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
+            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">仮説と成長レバー / ロール（財務レバー）</h2>
             {(() => {
               const hypothesis =
                 typeof (selectedProj as any)?.hypothesis === 'string'
@@ -1284,12 +1305,11 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
                 </div>
               );
             })()}
-
             {/* ★STAGE4拡張：ロール（財務レバー） */}
             <div className="mb-4 space-y-2">
               <div className="flex items-center justify-between">
                 <label className="text-[11px] font-semibold text-zinc-700">ロール（財務レバー）</label>
-                {!selectedProj?.role && (
+                {!(selectedProj as any)?.role && (
                   <span className="rounded-full bg-zinc-100 px-2 py-1 text-[10px] font-semibold text-zinc-600">
                     ロール未設定
                   </span>
@@ -1308,12 +1328,12 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
                     type="button"
                     onClick={() => {
                       if (!selected) return;
-                      updateProjectRole(selected.deptIdx, selected.projIdx, selectedProj?.role === opt.value ? '' : opt.value);
+                      updateProjectRole(selected.deptIdx, selected.projIdx, (selectedProj as any)?.role === opt.value ? '' : opt.value);
                       setShowRoleDetail(false);
                     }}
                     disabled={isHydrating || isApproved()}
                     className={`flex-1 rounded-lg border-2 px-3 py-2 text-[12px] font-semibold transition-colors ${
-                      selectedProj?.role === opt.value
+                      (selectedProj as any)?.role === opt.value
                         ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
                         : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300'
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
@@ -1324,7 +1344,7 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
               </div>
 
               {/* 詳細設定トグル＆サブカテゴリ（roleがREVENUEまたはCOSTの時のみ） */}
-              {selectedProj?.role && selectedProj.role !== 'FUTURE' && (
+              {selectedProj?.role && (selectedProj as any).role !== 'FUTURE' && (
                 <div className="mt-3 space-y-2">
                   <button
                     type="button"
@@ -1337,10 +1357,10 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
                   {showRoleDetail && (
                     <div>
                       <label className="text-[11px] font-semibold text-zinc-700">
-                        {selectedProj.role === 'REVENUE' ? '売上' : 'コスト'}の詳細（任意）
+                        {(selectedProj as any).role === 'REVENUE' ? '売上' : 'コスト'}の詳細（任意）
                       </label>
                       <select
-                        value={selectedProj?.roleDetail ?? ''}
+                        value={(selectedProj as any)?.roleDetail ?? ''}
                         onChange={(e) => {
                           if (!selected) return;
                           updateProjectRoleDetail(selected.deptIdx, selected.projIdx, e.target.value as Project['roleDetail'] | '');
@@ -1349,14 +1369,14 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
                         className="mt-1 h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
                       >
                         <option value="">未選択</option>
-                        {selectedProj.role === 'REVENUE' && (
+                        {(selectedProj as any).role === 'REVENUE' && (
                           <>
                             <option value="ACQ">新規獲得</option>
                             <option value="CHURN">継続率改善</option>
                             <option value="ARPU">単価改善</option>
                           </>
                         )}
-                        {selectedProj.role === 'COST' && (
+                        {(selectedProj as any).role === 'COST' && (
                           <>
                             <option value="PERSONNEL">人件費</option>
                             <option value="FIXED">固定費</option>
@@ -1369,235 +1389,10 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
                 </div>
               )}
             </div>
-
-
-            {/* ★STAGE4拡張：財務ゴール（North Star寄与・百万円） */}
-            {selectedProj?.role && (
-              <div className="mb-4 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-semibold text-zinc-700">金額ゴール（North Star寄与）</label>
-                  <span className="rounded-full bg-zinc-100 px-2 py-1 text-[10px] font-semibold text-zinc-600">
-                    期限：{northStarDueYear ?? '未設定'}
-                  </span>
-                </div>
-
-                {selectedProj.role === 'REVENUE' && (
-                  <div className="grid grid-cols-[1fr_120px] gap-2">
-                    <div className="space-y-1">
-                      <div className="text-[11px] font-semibold text-zinc-700">売上寄与（百万円）</div>
-                      <input
-                        type="number"
-                        step="1"
-                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
-                        placeholder="例：3000"
-                        value={selectedProj.impactRevenueMJPY ?? ''}
-                        onChange={(e) => {
-                          if (!selected) return;
-                          const raw = e.target.value;
-                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
-                            impactRevenueMJPY: raw === '' ? undefined : Number(raw),
-                          });
-                        }}
-                        disabled={isHydrating || isApproved()}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-[11px] font-semibold text-zinc-700">確度（%）</div>
-                      <input
-                        type="number"
-                        step="1"
-                        min="0"
-                        max="100"
-                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
-                        placeholder="例：70"
-                        value={
-                          typeof selectedProj.impactConfidence === 'number'
-                            ? Math.round(selectedProj.impactConfidence * 100)
-                            : ''
-                        }
-                        onChange={(e) => {
-                          if (!selected) return;
-                          const raw = e.target.value;
-                          const v = raw === '' ? undefined : Math.max(0, Math.min(100, Number(raw)));
-                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
-                            impactConfidence: typeof v === 'number' ? v / 100 : undefined,
-                          });
-                        }}
-                        disabled={isHydrating || isApproved()}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {selectedProj.role === 'COST' && (
-                  <div className="grid grid-cols-[1fr_120px] gap-2">
-                    <div className="space-y-1">
-                      <div className="text-[11px] font-semibold text-zinc-700">営業利益寄与（百万円）</div>
-                      <input
-                        type="number"
-                        step="1"
-                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
-                        placeholder="例：500（コスト削減なら＋）"
-                        value={selectedProj.impactOpIncomeMJPY ?? ''}
-                        onChange={(e) => {
-                          if (!selected) return;
-                          const raw = e.target.value;
-                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
-                            impactOpIncomeMJPY: raw === '' ? undefined : Number(raw),
-                          });
-                        }}
-                        disabled={isHydrating || isApproved()}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-[11px] font-semibold text-zinc-700">確度（%）</div>
-                      <input
-                        type="number"
-                        step="1"
-                        min="0"
-                        max="100"
-                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
-                        placeholder="例：70"
-                        value={
-                          typeof selectedProj.impactConfidence === 'number'
-                            ? Math.round(selectedProj.impactConfidence * 100)
-                            : ''
-                        }
-                        onChange={(e) => {
-                          if (!selected) return;
-                          const raw = e.target.value;
-                          const v = raw === '' ? undefined : Math.max(0, Math.min(100, Number(raw)));
-                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
-                            impactConfidence: typeof v === 'number' ? v / 100 : undefined,
-                          });
-                        }}
-                        disabled={isHydrating || isApproved()}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {selectedProj.role === 'FUTURE' && (
-                  <div className="grid grid-cols-[1fr_120px] gap-2">
-                    <div className="space-y-1">
-                      <div className="text-[11px] font-semibold text-zinc-700">投資（百万円）</div>
-                      <input
-                        type="number"
-                        step="1"
-                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
-                        placeholder="例：2000"
-                        value={selectedProj.impactInvestmentMJPY ?? ''}
-                        onChange={(e) => {
-                          if (!selected) return;
-                          const raw = e.target.value;
-                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
-                            impactInvestmentMJPY: raw === '' ? undefined : Number(raw),
-                          });
-                        }}
-                        disabled={isHydrating || isApproved()}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-[11px] font-semibold text-zinc-700">確度（%）</div>
-                      <input
-                        type="number"
-                        step="1"
-                        min="0"
-                        max="100"
-                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
-                        placeholder="例：50"
-                        value={
-                          typeof selectedProj.impactConfidence === 'number'
-                            ? Math.round(selectedProj.impactConfidence * 100)
-                            : ''
-                        }
-                        onChange={(e) => {
-                          if (!selected) return;
-                          const raw = e.target.value;
-                          const v = raw === '' ? undefined : Math.max(0, Math.min(100, Number(raw)));
-                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
-                            impactConfidence: typeof v === 'number' ? v / 100 : undefined,
-                          });
-                        }}
-                        disabled={isHydrating || isApproved()}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <div className="space-y-1">
-                  <div className="text-[11px] font-semibold text-zinc-700">根拠メモ（任意）</div>
-                  <input
-                    type="text"
-                    className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
-                    placeholder="例：単価×数量の見直し、工数削減、人員再配置など"
-                    value={selectedProj.impactRationale ?? ''}
-                    onChange={(e) => {
-                      if (!selected) return;
-                      updateProjectImpact(selected.deptIdx, selected.projIdx, { impactRationale: e.target.value });
-                    }}
-                    disabled={isHydrating || isApproved()}
-                  />
-                </div>
-
-                <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] text-zinc-700">
-                  入力した金額ゴールは、STAGE6の「North Star vs 予測」「プロジェクト寄与」に<strong>手動寄与（固定）</strong>として反映されます。
-                </div>
-              </div>
-            )}
-
-            {/* Owner */}
-            <div className="mb-4 space-y-2">
-              <label className="text-[11px] font-semibold text-zinc-700">オーナー（任意）</label>
-              <input
-                className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
-                placeholder="氏名や役職など"
-                value={mainOKR?.owner ?? ''}
-                onChange={(e) => updateProjectOKR(selected.deptIdx, selected.projIdx, { owner: e.target.value })}
-                disabled={isHydrating || isApproved()}
-              />
-            </div>
-
-            {/* Due Date */}
-            <div className="mb-4 space-y-2">
-              <label className="text-[11px] font-semibold text-zinc-700">期限（任意 / YYYY-MM）</label>
-              <input
-                className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
-                placeholder="2026-03"
-                value={mainOKR?.due ?? ''}
-                onChange={(e) => updateProjectOKR(selected.deptIdx, selected.projIdx, { due: e.target.value })}
-                disabled={isHydrating || isApproved()}
-              />
-            </div>
-
-            {/* Reference OKR - Hidden in SIMPLE_FORM */}
-            {false && selectedOkrs.length > 0 && (
-              <details className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 p-3">
-                <summary className="cursor-pointer text-[12px] font-semibold text-zinc-700 hover:text-zinc-900">
-                  参考：カスケードで生成されたOKR（{selectedOkrs.length}件）
-                </summary>
-                <div className="mt-3 space-y-2 text-[12px] text-zinc-600">
-                  {selectedOkrs.map((o, oi) => (
-                    <div key={oi} className="rounded-lg bg-white p-2">
-                      <div className="font-semibold text-zinc-800">
-                        Objective：<span className="font-normal">{o.objective || '（未設定）'}</span>
-                      </div>
-                      {o.owner && <div className="mt-1 text-[11px] text-zinc-600">オーナー：{o.owner}</div>}
-                      {Array.isArray(o.keyResults) && o.keyResults.length > 0 && (
-                        <ul className="mt-1 list-disc pl-4 text-[11px] text-zinc-700">
-                          {o.keyResults.map((kr: any, ki: number) => (
-                            <li key={ki}>{kr}</li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </details>
-            )}
           </div>
 
-          {/* ========== Card 2: 成果指標（KPI） ========== */}
+          {/* ========== Card 3: 成果指標（KPI） ========== */}
+{/* ========== Card 2: 成果指標（KPI） ========== */}
           <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
             <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">成果指標（KPI）</h2>
 
@@ -1999,194 +1794,10 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
             )}
           </div>
 
-          {/* ========== Card 3: 実行計画（どうやる？） ========== */}
+          {/* ========== Card 4: 投資（金額 or 人数） ========== */}
           <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">実行計画（どうやる？）</h2>
-
-            
-{/* Milestones */}
-<div className="mb-4 space-y-2">
-  <div className="flex items-center justify-between">
-    <label className="text-[11px] font-semibold text-zinc-700">プロジェクト共通マイルストーン（任意・0〜2推奨）</label>
-    <div className="text-[11px] text-zinc-500">{(((selectedProj as any).planMilestones || []) as any[]).length}件</div>
-  </div>
-  <div className="text-[10px] text-zinc-500 italic">主要なマイルストーンはKPI内で設定してください</div>
-
-  {/* List */}
-  <div className="space-y-2">
-    {((((selectedProj as any).planMilestones || []) as any[]) as any[]).map((mItem: any, idx: number) => {
-      const title = String(mItem?.title ?? '');
-      const dueYm = String(mItem?.dueYm ?? '');
-      return (
-        <div key={String(mItem?.id ?? idx)} className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="text-[12px] font-semibold text-zinc-900 truncate">{title || '（タスク名未入力）'}</div>
-              <div className="mt-1 text-[11px] text-zinc-600">期限：{dueYm || '—'}</div>
-            </div>
-            {!isApproved() && (
-              <div className="flex shrink-0 items-center gap-2">
-                <button
-                  className="text-[11px] font-semibold text-blue-600 hover:text-blue-700"
-                  onClick={() => {
-                    setEditingMilestoneIdx(idx);
-                    setNewMilestoneFormData({ title, dueYm });
-                  }}
-                >
-                  編集
-                </button>
-                <button
-                  className="text-[11px] font-semibold text-rose-600 hover:text-rose-700"
-                  onClick={() => {
-                    if (!selected) return;
-                    patchDepartments((prev: any) => {
-                      const next = [...prev];
-                      const dept = { ...next[selected.deptIdx] };
-                      const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
-                      const proj = { ...(projs[selected.projIdx] as any) };
-                      const list = Array.isArray(proj.planMilestones) ? [...proj.planMilestones] : [];
-                      list.splice(idx, 1);
-                      proj.planMilestones = list;
-                      projs[selected.projIdx] = proj;
-                      dept.projects = projs;
-                      next[selected.deptIdx] = dept;
-                      return next;
-                    });
-                  }}
-                >
-                  削除
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    })}
-
-    {((((selectedProj as any).planMilestones || []) as any[]) as any[]).length >= 3 && (
-      <div className="rounded-xl border border-dashed border-amber-200 bg-amber-50 p-3 text-[12px] text-amber-800">
-        推奨は0〜2件です。必要に応じて調整してください。
-      </div>
-    )}
-
-    {((((selectedProj as any).planMilestones || []) as any[]) as any[]).length === 0 && (
-      <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-[12px] text-zinc-600">
-        まだ工程がありません。まずは「タスク名」と「期限（YYYY-MM）」を追加してください。
-        {!isApproved() && (
-          <div className="mt-2">
-            <button
-              className="rounded-lg border border-zinc-200 bg-white px-3 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100"
-              onClick={() => {
-                if (!selected) return;
-                patchDepartments((prev: any) => {
-                  const next = [...prev];
-                  const dept = { ...next[selected.deptIdx] };
-                  const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
-                  const proj = { ...(projs[selected.projIdx] as any) };
-                  proj.planMilestones = [
-                    { id: cryptoRandomId(), title: '調査・要件整理', dueYm: '' },
-                    { id: cryptoRandomId(), title: '設計・準備', dueYm: '' },
-                    { id: cryptoRandomId(), title: '実行・展開', dueYm: '' },
-                  ];
-                  projs[selected.projIdx] = proj;
-                  dept.projects = projs;
-                  next[selected.deptIdx] = dept;
-                  return next;
-                });
-              }}
-            >
-              例の3行を入れる
-            </button>
-          </div>
-        )}
-      </div>
-    )}
-  </div>
-
-  {/* Add/Edit form */}
-  {!isApproved() && (
-    <div className="rounded-xl border border-dashed border-zinc-200 bg-white p-3">
-      <div className="mb-2 text-[12px] font-semibold text-zinc-900">
-        {editingMilestoneIdx != null ? 'マイルストーンを編集' : 'マイルストーンを追加'}
-      </div>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <div>
-          <div className="mb-1 text-[11px] font-semibold text-zinc-700">タスク名</div>
-          <input
-            className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
-            placeholder="例：提案書作成、社内説明会、PoC実施"
-            value={newMilestoneFormData.title}
-            onChange={(e) => setNewMilestoneFormData({ ...newMilestoneFormData, title: e.target.value })}
-            disabled={isHydrating}
-          />
-        </div>
-        <div>
-          <div className="mb-1 text-[11px] font-semibold text-zinc-700">期限（YYYY-MM）</div>
-          <input
-            className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
-            placeholder="2026-03"
-            value={newMilestoneFormData.dueYm}
-            onChange={(e) => setNewMilestoneFormData({ ...newMilestoneFormData, dueYm: e.target.value })}
-            disabled={isHydrating}
-          />
-        </div>
-      </div>
-
-      <div className="mt-3 flex items-center gap-2">
-        <button
-          className="rounded-lg bg-emerald-600 px-4 py-2 text-[12px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-          disabled={isHydrating || newMilestoneFormData.title.trim() === ''}
-          onClick={() => {
-            if (!selected) return;
-            const payload = {
-              id: cryptoRandomId(),
-              title: newMilestoneFormData.title.trim(),
-              dueYm: newMilestoneFormData.dueYm.trim(),
-            };
-
-            patchDepartments((prev: any) => {
-              const next = [...prev];
-              const dept = { ...next[selected.deptIdx] };
-              const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
-              const proj = { ...(projs[selected.projIdx] as any) };
-              const list = Array.isArray(proj.planMilestones) ? [...proj.planMilestones] : [];
-
-              if (editingMilestoneIdx != null) {
-                list[editingMilestoneIdx] = { ...list[editingMilestoneIdx], ...payload, id: list[editingMilestoneIdx]?.id ?? payload.id };
-              } else {
-                list.push(payload);
-              }
-
-              proj.planMilestones = list;
-              projs[selected.projIdx] = proj;
-              dept.projects = projs;
-              next[selected.deptIdx] = dept;
-              return next;
-            });
-
-            setNewMilestoneFormData({ title: '', dueYm: '' });
-            setEditingMilestoneIdx(null);
-          }}
-        >
-          {editingMilestoneIdx != null ? '更新' : '追加'}
-        </button>
-
-        <button
-          className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-[12px] font-semibold text-zinc-700 hover:bg-zinc-100"
-          onClick={() => {
-            setNewMilestoneFormData({ title: '', dueYm: '' });
-            setEditingMilestoneIdx(null);
-          }}
-        >
-          クリア
-        </button>
-      </div>
-    </div>
-  )}
-
-            </div>
-
-                {/* ========== Investments ========== */}
+            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">投資（金額 or 人数）</h2>
+{/* ========== Investments ========== */}
                 <div className="mb-4 space-y-2">
               <div className="flex items-center justify-between">
                 <label className="text-[11px] font-semibold text-zinc-700">投資（金額 or 人数）</label>
@@ -2511,9 +2122,12 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
   </div>
 )}
             </div>
+          </div>
 
-
-            {/* Skills (CRUD) */}
+          {/* ========== Card 5: 必要スキル（任意） ========== */}
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">必要スキル（任意）</h2>
+{/* Skills (CRUD) */}
             <div className="mt-4 space-y-2">
     <div className="flex items-center justify-between">
       <label className="text-[11px] font-semibold text-zinc-700">必要スキル（任意）</label>
@@ -2794,13 +2408,376 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
       </div>
     )}
   </div>
+          </div>
 
+          {/* ========== Card 6: 金額ゴール（North Star寄与） ========== */}
+          <div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
+            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">金額ゴール（North Star寄与）</h2>
+            {/* ★STAGE4拡張：財務ゴール（North Star寄与・百万円） */}
+            {(selectedProj as any)?.role && (
+              <div className="mb-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-semibold text-zinc-700">金額ゴール（North Star寄与）</label>
+                  <span className="rounded-full bg-zinc-100 px-2 py-1 text-[10px] font-semibold text-zinc-600">
+                    期限：{northStarDueYear ?? '未設定'}
+                  </span>
+                </div>
+
+                {(selectedProj as any).role === 'REVENUE' && (
+                  <div className="grid grid-cols-[1fr_120px] gap-2">
+                    <div className="space-y-1">
+                      <div className="text-[11px] font-semibold text-zinc-700">売上寄与（百万円）</div>
+                      <input
+                        type="number"
+                        step="1"
+                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
+                        placeholder="例：3000"
+                        value={selectedProj.impactRevenueMJPY ?? ''}
+                        onChange={(e) => {
+                          if (!selected) return;
+                          const raw = e.target.value;
+                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
+                            impactRevenueMJPY: raw === '' ? undefined : Number(raw),
+                          });
+                        }}
+                        disabled={isHydrating || isApproved()}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-[11px] font-semibold text-zinc-700">確度（%）</div>
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        max="100"
+                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
+                        placeholder="例：70"
+                        value={
+                          typeof selectedProj.impactConfidence === 'number'
+                            ? Math.round(selectedProj.impactConfidence * 100)
+                            : ''
+                        }
+                        onChange={(e) => {
+                          if (!selected) return;
+                          const raw = e.target.value;
+                          const v = raw === '' ? undefined : Math.max(0, Math.min(100, Number(raw)));
+                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
+                            impactConfidence: typeof v === 'number' ? v / 100 : undefined,
+                          });
+                        }}
+                        disabled={isHydrating || isApproved()}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {(selectedProj as any).role === 'COST' && (
+                  <div className="grid grid-cols-[1fr_120px] gap-2">
+                    <div className="space-y-1">
+                      <div className="text-[11px] font-semibold text-zinc-700">営業利益寄与（百万円）</div>
+                      <input
+                        type="number"
+                        step="1"
+                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
+                        placeholder="例：500（コスト削減なら＋）"
+                        value={selectedProj.impactOpIncomeMJPY ?? ''}
+                        onChange={(e) => {
+                          if (!selected) return;
+                          const raw = e.target.value;
+                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
+                            impactOpIncomeMJPY: raw === '' ? undefined : Number(raw),
+                          });
+                        }}
+                        disabled={isHydrating || isApproved()}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-[11px] font-semibold text-zinc-700">確度（%）</div>
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        max="100"
+                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
+                        placeholder="例：70"
+                        value={
+                          typeof selectedProj.impactConfidence === 'number'
+                            ? Math.round(selectedProj.impactConfidence * 100)
+                            : ''
+                        }
+                        onChange={(e) => {
+                          if (!selected) return;
+                          const raw = e.target.value;
+                          const v = raw === '' ? undefined : Math.max(0, Math.min(100, Number(raw)));
+                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
+                            impactConfidence: typeof v === 'number' ? v / 100 : undefined,
+                          });
+                        }}
+                        disabled={isHydrating || isApproved()}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {(selectedProj as any).role === 'FUTURE' && (
+                  <div className="grid grid-cols-[1fr_120px] gap-2">
+                    <div className="space-y-1">
+                      <div className="text-[11px] font-semibold text-zinc-700">投資（百万円）</div>
+                      <input
+                        type="number"
+                        step="1"
+                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
+                        placeholder="例：2000"
+                        value={selectedProj.impactInvestmentMJPY ?? ''}
+                        onChange={(e) => {
+                          if (!selected) return;
+                          const raw = e.target.value;
+                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
+                            impactInvestmentMJPY: raw === '' ? undefined : Number(raw),
+                          });
+                        }}
+                        disabled={isHydrating || isApproved()}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-[11px] font-semibold text-zinc-700">確度（%）</div>
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        max="100"
+                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
+                        placeholder="例：50"
+                        value={
+                          typeof selectedProj.impactConfidence === 'number'
+                            ? Math.round(selectedProj.impactConfidence * 100)
+                            : ''
+                        }
+                        onChange={(e) => {
+                          if (!selected) return;
+                          const raw = e.target.value;
+                          const v = raw === '' ? undefined : Math.max(0, Math.min(100, Number(raw)));
+                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
+                            impactConfidence: typeof v === 'number' ? v / 100 : undefined,
+                          });
+                        }}
+                        disabled={isHydrating || isApproved()}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-1 hidden">
+                  <div className="text-[11px] font-semibold text-zinc-700">根拠メモ（任意）</div>
+                  <input
+                    type="text"
+                    className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
+                    placeholder="例：単価×数量の見直し、工数削減、人員再配置など"
+                    value={selectedProj.impactRationale ?? ''}
+                    onChange={(e) => {
+                      if (!selected) return;
+                      updateProjectImpact(selected.deptIdx, selected.projIdx, { impactRationale: e.target.value });
+                    }}
+                    disabled={isHydrating || isApproved()}
+                  />
+                </div>
+
+                <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] text-zinc-700">
+                  入力した金額ゴールは、STAGE6の「North Star vs 予測」「プロジェクト寄与」に<strong>手動寄与（固定）</strong>として反映されます。
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ========== Card 7: プロジェクト共通マイルストーン（任意） ========== */}
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm hidden">
+            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">プロジェクト共通マイルストーン（任意）</h2>
+{/* Milestones */}
+<div className="mb-4 space-y-2">
+  <div className="flex items-center justify-between">
+    <label className="text-[11px] font-semibold text-zinc-700">プロジェクト共通マイルストーン（任意・0〜2推奨）</label>
+    <div className="text-[11px] text-zinc-500">{(((selectedProj as any).planMilestones || []) as any[]).length}件</div>
+  </div>
+  <div className="text-[10px] text-zinc-500 italic">主要なマイルストーンはKPI内で設定してください</div>
+
+  {/* List */}
+  <div className="space-y-2">
+    {((((selectedProj as any).planMilestones || []) as any[]) as any[]).map((mItem: any, idx: number) => {
+      const title = String(mItem?.title ?? '');
+      const dueYm = String(mItem?.dueYm ?? '');
+      return (
+        <div key={String(mItem?.id ?? idx)} className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-[12px] font-semibold text-zinc-900 truncate">{title || '（タスク名未入力）'}</div>
+              <div className="mt-1 text-[11px] text-zinc-600">期限：{dueYm || '—'}</div>
+            </div>
+            {!isApproved() && (
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  className="text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                  onClick={() => {
+                    setEditingMilestoneIdx(idx);
+                    setNewMilestoneFormData({ title, dueYm });
+                  }}
+                >
+                  編集
+                </button>
+                <button
+                  className="text-[11px] font-semibold text-rose-600 hover:text-rose-700"
+                  onClick={() => {
+                    if (!selected) return;
+                    patchDepartments((prev: any) => {
+                      const next = [...prev];
+                      const dept = { ...next[selected.deptIdx] };
+                      const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+                      const proj = { ...(projs[selected.projIdx] as any) };
+                      const list = Array.isArray(proj.planMilestones) ? [...proj.planMilestones] : [];
+                      list.splice(idx, 1);
+                      proj.planMilestones = list;
+                      projs[selected.projIdx] = proj;
+                      dept.projects = projs;
+                      next[selected.deptIdx] = dept;
+                      return next;
+                    });
+                  }}
+                >
+                  削除
+                </button>
+              </div>
+            )}
+          </div>
         </div>
+      );
+    })}
+
+    {((((selectedProj as any).planMilestones || []) as any[]) as any[]).length >= 3 && (
+      <div className="rounded-xl border border-dashed border-amber-200 bg-amber-50 p-3 text-[12px] text-amber-800">
+        推奨は0〜2件です。必要に応じて調整してください。
+      </div>
+    )}
+
+    {((((selectedProj as any).planMilestones || []) as any[]) as any[]).length === 0 && (
+      <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-[12px] text-zinc-600">
+        まだ工程がありません。まずは「タスク名」と「期限（YYYY-MM）」を追加してください。
+        {!isApproved() && (
+          <div className="mt-2">
+            <button
+              className="rounded-lg border border-zinc-200 bg-white px-3 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100"
+              onClick={() => {
+                if (!selected) return;
+                patchDepartments((prev: any) => {
+                  const next = [...prev];
+                  const dept = { ...next[selected.deptIdx] };
+                  const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+                  const proj = { ...(projs[selected.projIdx] as any) };
+                  proj.planMilestones = [
+                    { id: cryptoRandomId(), title: '調査・要件整理', dueYm: '' },
+                    { id: cryptoRandomId(), title: '設計・準備', dueYm: '' },
+                    { id: cryptoRandomId(), title: '実行・展開', dueYm: '' },
+                  ];
+                  projs[selected.projIdx] = proj;
+                  dept.projects = projs;
+                  next[selected.deptIdx] = dept;
+                  return next;
+                });
+              }}
+            >
+              例の3行を入れる
+            </button>
+          </div>
+        )}
+      </div>
+    )}
+  </div>
+
+  {/* Add/Edit form */}
+  {!isApproved() && (
+    <div className="rounded-xl border border-dashed border-zinc-200 bg-white p-3">
+      <div className="mb-2 text-[12px] font-semibold text-zinc-900">
+        {editingMilestoneIdx != null ? 'マイルストーンを編集' : 'マイルストーンを追加'}
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div>
+          <div className="mb-1 text-[11px] font-semibold text-zinc-700">タスク名</div>
+          <input
+            className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
+            placeholder="例：提案書作成、社内説明会、PoC実施"
+            value={newMilestoneFormData.title}
+            onChange={(e) => setNewMilestoneFormData({ ...newMilestoneFormData, title: e.target.value })}
+            disabled={isHydrating}
+          />
+        </div>
+        <div>
+          <div className="mb-1 text-[11px] font-semibold text-zinc-700">期限（YYYY-MM）</div>
+          <input
+            className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
+            placeholder="2026-03"
+            value={newMilestoneFormData.dueYm}
+            onChange={(e) => setNewMilestoneFormData({ ...newMilestoneFormData, dueYm: e.target.value })}
+            disabled={isHydrating}
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          className="rounded-lg bg-emerald-600 px-4 py-2 text-[12px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+          disabled={isHydrating || newMilestoneFormData.title.trim() === ''}
+          onClick={() => {
+            if (!selected) return;
+            const payload = {
+              id: cryptoRandomId(),
+              title: newMilestoneFormData.title.trim(),
+              dueYm: newMilestoneFormData.dueYm.trim(),
+            };
+
+            patchDepartments((prev: any) => {
+              const next = [...prev];
+              const dept = { ...next[selected.deptIdx] };
+              const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+              const proj = { ...(projs[selected.projIdx] as any) };
+              const list = Array.isArray(proj.planMilestones) ? [...proj.planMilestones] : [];
+
+              if (editingMilestoneIdx != null) {
+                list[editingMilestoneIdx] = { ...list[editingMilestoneIdx], ...payload, id: list[editingMilestoneIdx]?.id ?? payload.id };
+              } else {
+                list.push(payload);
+              }
+
+              proj.planMilestones = list;
+              projs[selected.projIdx] = proj;
+              dept.projects = projs;
+              next[selected.deptIdx] = dept;
+              return next;
+            });
+
+            setNewMilestoneFormData({ title: '', dueYm: '' });
+            setEditingMilestoneIdx(null);
+          }}
+        >
+          {editingMilestoneIdx != null ? '更新' : '追加'}
+        </button>
+
+        <button
+          className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-[12px] font-semibold text-zinc-700 hover:bg-zinc-100"
+          onClick={() => {
+            setNewMilestoneFormData({ title: '', dueYm: '' });
+            setEditingMilestoneIdx(null);
+          }}
+        >
+          クリア
+        </button>
+      </div>
+    </div>
+  )}
+
+            </div>
+          </div>
         </div>
       </div>
     );
   };
-
   /* ============================================================
    * renderLegacy: 旧UI（タブシステム・詳細フォーム）
    * ========================================================== */
