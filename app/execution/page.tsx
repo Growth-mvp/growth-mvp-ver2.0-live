@@ -25,25 +25,6 @@ const storyTone: Tone = 'blue';
 const deptTone = (di: number): Tone => (di % 3 === 0 ? 'blue' : di % 3 === 1 ? 'emerald' : 'violet');
 
 // ---- helpers (execution page) ----
-const normalizeKRs = (
-  krs: Array<string | null | undefined> | undefined,
-  objective?: string | null
-): string[] => {
-  if (!Array.isArray(krs)) return [];
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const raw of krs) {
-    const v = (raw ?? '').toString().trim();
-    if (!v) continue;
-    if (objective && v === (objective ?? '').toString().trim()) continue;
-    const key = v.replace(/\s+/g, ' ');
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(v);
-  }
-  return out;
-};
-
 /** Remove internal metadata prefix like "__META__{...}" from stored progress_logs.content */
 const stripMetadata = (content: string): string => {
   const s = (content ?? '').toString();
@@ -416,27 +397,6 @@ function ExecPanel(props: {
     }
   }, [canFeedback, userId, okrId, reviewText, reviewScore]);
 
-  const ImpactPicker = ({ value, onChange }: { value: number; onChange: (n: number) => void }) => (
-    <div className="flex flex-wrap items-center gap-2">
-      <div className="text-xs text-gray-500">進捗インパクト（財務反映）</div>
-      <div className="inline-flex items-center gap-1 rounded-2xl border border-black/10 bg-white p-1 shadow-sm">
-        {[0, 1, 2, 3, 4, 5].map((n) => (
-          <button
-            key={n}
-            onClick={() => onChange(n)}
-            className={`min-w-[34px] rounded-xl px-2 py-1 text-xs font-semibold transition ${
-              n === value ? 'bg-gray-900 text-white' : 'text-gray-800 hover:bg-gray-100'
-            }`}
-            type="button"
-            aria-label={`インパクト ${n}`}
-          >
-            {n}
-          </button>
-        ))}
-      </div>
-      <div className="text-[11px] text-gray-400">※「いいね」ではありません</div>
-    </div>
-  );
 
   const isFeedback = (row: LogRow) => (row.content || '').startsWith('[FB]');
   const feedbackBody = (row: LogRow) => (row.content || '').replace(/^\[FB]\s*\n?/, '').trim();
@@ -455,7 +415,7 @@ function ExecPanel(props: {
     : null;
 
   // variant 判定（activeVariantId が存在すれば variant）
-  const isVariant = stage4Proj?.activeVariantId != null;
+  const isVariant = (stage4Proj as any)?.activeVariantId != null;
 
   // Milestone status 更新ハンドラ（krId と milestoneId で対象を特定）
   const handleMilestoneStatusChange = useCallback(
@@ -554,14 +514,56 @@ function ExecPanel(props: {
     return achieved.toString();
   };
 
+  // Helper: Calculate suggested progress% from milestone statuses (display only)
+  const calcSuggestedProgressPct = (okrsV2: any[] | undefined): number | undefined => {
+    if (!Array.isArray(okrsV2) || okrsV2.length === 0) return undefined;
+
+    let totalScore = 0;
+    let totalMilestones = 0;
+
+    for (const kr of okrsV2) {
+      const milestones = Array.isArray(kr?.milestones) ? kr.milestones : [];
+      if (milestones.length === 0) continue;
+
+      for (const m of milestones) {
+        const status = m?.status ?? 'todo';
+        const score = status === 'done' ? 1 : status === 'doing' ? 0.5 : 0;
+        totalScore += score;
+        totalMilestones += 1;
+      }
+    }
+
+    if (totalMilestones === 0) return undefined;
+    const suggested = Math.round((totalScore / totalMilestones) * 100 * 10) / 10;
+    return suggested;
+  };
+
   // Helper: Sort milestones by status (display only, non-destructive)
   const sortMilestonesByStatus = (milestones: any[]) => {
-    const statusOrder = { 'todo': 0, 'doing': 1, 'done': 2 };
+    const statusOrder: Record<string, number> = { 'todo': 0, 'doing': 1, 'done': 2 };
     return [...milestones].sort((a, b) => {
       const aOrder = statusOrder[a?.status ?? 'todo'] ?? 0;
       const bOrder = statusOrder[b?.status ?? 'todo'] ?? 0;
       return aOrder - bOrder;
     });
+  };
+
+  // Helper: Calculate KPI progress from milestones (done件数/総数、進捗%)
+  const calcKPIProgress = (milestones: any[] | undefined) => {
+    if (!Array.isArray(milestones) || milestones.length === 0) return null;
+
+    let doneCount = 0;
+    let totalScore = 0;
+
+    for (const m of milestones) {
+      const status = m?.status ?? 'todo';
+      if (status === 'done') doneCount += 1;
+      const score = status === 'done' ? 1 : status === 'doing' ? 0.5 : 0;
+      totalScore += score;
+    }
+
+    const progressPct = Math.round((totalScore / milestones.length) * 100 * 10) / 10;
+    return { doneCount, totalCount: milestones.length, progressPct };
   };
 
   return (
@@ -654,6 +656,68 @@ function ExecPanel(props: {
                 </div>
               )}
             </div>
+
+            {/* 推奨進捗% セクション */}
+            {(() => {
+              const suggestedPct = calcSuggestedProgressPct(stage4Proj.okrsV2);
+              const handleAdopt = () => {
+                if (typeof di !== 'number' || typeof pi !== 'number' || isVariant || typeof suggestedPct !== 'number') return;
+
+                // 既に同じ値の場合は何もしない
+                const revenueSame = stage4Proj.impactRevenueProgress === suggestedPct;
+                const opIncomeSame = stage4Proj.impactOpIncomeProgress === suggestedPct;
+                if (revenueSame && opIncomeSame) return;
+
+                updateDepartments((prev) => {
+                  const next = [...prev];
+                  const dept = next[di];
+                  if (!dept) return prev;
+
+                  const deptCopy = { ...dept };
+                  const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+                  const proj = projs[pi];
+                  if (!proj) return prev;
+
+                  const projCopy = { ...proj };
+                  if (!revenueSame) (projCopy as any).impactRevenueProgress = suggestedPct;
+                  if (!opIncomeSame) (projCopy as any).impactOpIncomeProgress = suggestedPct;
+                  projs[pi] = projCopy;
+                  deptCopy.projects = projs;
+                  next[di] = deptCopy;
+                  return next;
+                });
+              };
+
+              return (
+                <div className="rounded-lg bg-white p-3 border border-blue-100 mt-3">
+                  <div className="text-[11px] flex items-center justify-between gap-2">
+                    <span className="text-gray-600">推奨進捗（マイルストーンから算出）</span>
+                    <span className="font-semibold text-gray-900">
+                      {typeof suggestedPct === 'number' ? `${suggestedPct}%` : '—'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleAdopt}
+                    disabled={isVariant || typeof suggestedPct !== 'number'}
+                    className="mt-2 w-full rounded-lg bg-blue-500 px-2 py-1.5 text-xs font-semibold text-white hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
+                    type="button"
+                  >
+                    推奨を採用
+                  </button>
+                  <div className="mt-2 text-[10px] text-gray-500 leading-snug">
+                    推奨値は参考です。最終判断として調整できます。
+                  </div>
+
+                  {typeof suggestedPct !== 'number' && (
+                    <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 p-2">
+                      <div className="text-[10px] text-amber-800 leading-snug">
+                        ※ マイルストーン未設定のため推奨進捗を算出できません（STAGE4で設定）
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </section>
         )}
 
@@ -661,16 +725,6 @@ function ExecPanel(props: {
         <section className="rounded-3xl border border-black/10 bg-white/70 p-5 shadow-sm">
           <div className="text-xs font-medium text-gray-600 tracking-wide mb-1">達成目標（O）</div>
           <div className="whitespace-pre-wrap text-[15px]">{objective || '（未設定）'}</div>
-          {normalizeKRs(keyResults, objective).length ? (
-            <>
-              <div className="mt-4 text-xs font-medium text-gray-600 tracking-wide">主要な成果（KR）</div>
-              <ul className="mt-2 list-disc pl-5 text-sm text-gray-800 space-y-1">
-                {normalizeKRs(keyResults, objective).map((k: string, i: number) => (
-                  <li key={i}>{k}</li>
-                ))}
-              </ul>
-            </>
-          ) : null}
         </section>
 
         {/* STAGE4 確定情報 */}
@@ -683,39 +737,54 @@ function ExecPanel(props: {
               <div className="mb-3">
                 <div className="text-xs font-medium text-gray-700 mb-1">KPI（{stage4Proj.okrsV2.length}件）</div>
                 <div className="space-y-2">
-                  {(stage4Proj.okrsV2 as any[]).map((kr: any, idx: number) => (
-                    <div key={kr?.id ?? idx} className="text-[12px] border-l-2 border-green-300 pl-2">
-                      <div className="font-semibold text-gray-800">{kr?.label ?? '（未設定）'}</div>
-                      <div className="text-gray-600">
-                        {kr?.target ?? '—'} {kr?.unit ?? ''} {kr?.due ? `(期限: ${kr.due})` : ''}
-                      </div>
-                      {Array.isArray(kr?.milestones) && kr.milestones.length > 0 && (
-                        <div className="mt-1 space-y-1 text-gray-500">
-                          {sortMilestonesByStatus(kr.milestones as any[]).map((m: any) => (
-                            <div key={m?.id} className="text-[11px] flex items-center justify-between gap-2">
-                              <span>
-                                • {m?.title ?? '（タイトル未設定）'} {m?.dueYm ? `(${m.dueYm})` : ''}
-                              </span>
-                              <select
-                                value={m?.status ?? 'todo'}
-                                onChange={(e) => {
-                                  if (!kr?.id || !m?.id) return;
-                                  const newStatus = e.target.value as 'todo' | 'doing' | 'done';
-                                  handleMilestoneStatusChange(kr.id, m.id, newStatus);
-                                }}
-                                disabled={isVariant}
-                                className="text-[10px] px-2 py-1 rounded border border-gray-300 bg-white disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                <option value="todo">TODO</option>
-                                <option value="doing">進行中</option>
-                                <option value="done">完了</option>
-                              </select>
-                            </div>
-                          ))}
+                  {(stage4Proj.okrsV2 as any[]).map((kr: any, idx: number) => {
+                    const kpiProgress = calcKPIProgress(kr?.milestones);
+                    return (
+                      <div key={kr?.id ?? idx} className="text-[12px] border-l-2 border-green-300 pl-2">
+                        <div className="font-semibold text-gray-800">{kr?.label ?? '（未設定）'}</div>
+                        <div className="text-gray-600">
+                          {kr?.target ?? '—'} {kr?.unit ?? ''} {kr?.due ? `(期限: ${kr.due})` : ''}
                         </div>
-                      )}
-                    </div>
-                  ))}
+
+                        {/* マイルストーン完了率 */}
+                        {kpiProgress ? (
+                          <div className="mt-1 mb-2 inline-flex rounded-full bg-green-50 px-2 py-1 text-[10px] font-medium text-green-700 border border-green-200">
+                            完了 {kpiProgress.doneCount}/{kpiProgress.totalCount} · {kpiProgress.progressPct}%
+                          </div>
+                        ) : (
+                          <div className="mt-1 mb-2 inline-flex rounded-full bg-gray-100 px-2 py-1 text-[10px] font-medium text-gray-600 border border-gray-200">
+                            マイルストーン未設定
+                          </div>
+                        )}
+
+                        {Array.isArray(kr?.milestones) && kr.milestones.length > 0 && (
+                          <div className="mt-1 space-y-1 text-gray-500">
+                            {sortMilestonesByStatus(kr.milestones as any[]).map((m: any) => (
+                              <div key={m?.id} className="text-[11px] flex items-center justify-between gap-2">
+                                <span>
+                                  • {m?.title ?? '（タイトル未設定）'} {m?.dueYm ? `(${m.dueYm})` : ''}
+                                </span>
+                                <select
+                                  value={m?.status ?? 'todo'}
+                                  onChange={(e) => {
+                                    if (!kr?.id || !m?.id) return;
+                                    const newStatus = e.target.value as 'todo' | 'doing' | 'done';
+                                    handleMilestoneStatusChange(kr.id, m.id, newStatus);
+                                  }}
+                                  disabled={isVariant}
+                                  className="text-[10px] px-2 py-1 rounded border border-gray-300 bg-white disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  <option value="todo">TODO</option>
+                                  <option value="doing">進行中</option>
+                                  <option value="done">完了</option>
+                                </select>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -744,9 +813,8 @@ function ExecPanel(props: {
         {tab === 'checkin' && (
           <>
             <section className="rounded-3xl border border-black/10 bg-white/70 p-5 shadow-sm">
-              <div className="mb-3 flex items-center justify-between">
+              <div className="mb-3">
                 <h3 className="text-sm font-semibold tracking-tight">進捗メモ</h3>
-                <ImpactPicker value={rating} onChange={setRating} />
               </div>
               <textarea
                 className="h-28 w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10"
@@ -783,9 +851,8 @@ function ExecPanel(props: {
         {tab === 'feedback' && (
           <>
             <section className="rounded-3xl border border-black/10 bg-white/70 p-5 shadow-sm">
-              <div className="mb-3 flex items-center justify-between">
+              <div className="mb-3">
                 <div className="text-sm font-semibold tracking-tight">フィードバック</div>
-                <ImpactPicker value={reviewScore} onChange={setReviewScore} />
               </div>
               <textarea
                 className="h-28 w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10"
