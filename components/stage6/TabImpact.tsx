@@ -104,6 +104,9 @@ export function TabImpact({
                 <th className="px-3 py-2 text-right font-semibold text-slate-700">投資合計</th>
                 <th className="px-3 py-2 text-right font-semibold text-slate-700">売上差分（概算）</th>
                 <th className="px-3 py-2 text-right font-semibold text-slate-700">営業利益差分（概算）</th>
+                <th className="px-3 py-2 text-right font-semibold text-slate-700">売上達成（概算）</th>
+                <th className="px-3 py-2 text-right font-semibold text-slate-700">営業利益達成（概算）</th>
+                <th className="px-3 py-2 text-right font-semibold text-slate-700">達成率</th>
                 <th className="px-3 py-2 text-right font-semibold text-slate-700">ROI（概算）</th>
                 <th className="px-3 py-2 text-left font-semibold text-slate-700">★根拠</th>
                 <th className="px-3 py-2 text-left font-semibold text-slate-700">★実行度</th>
@@ -131,8 +134,13 @@ export function TabImpact({
                       <td className="px-3 py-2 text-right text-slate-700">{fmtJPY(p.investTotal)}</td>
                       <td className="px-3 py-2 text-right text-slate-700">{fmtJPY(p.deltaRevenueTotal)}</td>
                       <td className="px-3 py-2 text-right text-slate-700">{fmtJPY(p.deltaOpTotal)}</td>
+                      <td className="px-3 py-2 text-right text-slate-700">{fmtJPY(p.achievedRevenueTotal ?? 0)}</td>
+                      <td className="px-3 py-2 text-right text-slate-700">{fmtJPY(p.achievedOpTotal ?? 0)}</td>
+                      <td className="px-3 py-2 text-right text-slate-700 text-xs">
+                        売上 {p.progressRevenuePct ?? '—'}% / 利益 {p.progressOpPct ?? '—'}%
+                      </td>
                       <td className="px-3 py-2 text-right text-slate-700">
-                        {Number.isFinite(p.roi as any) ? `${((p.roi as number) * 100).toFixed(1)}%` : '-'}
+                        {Number.isFinite(p.roi) ? `${((p.roi as number) * 100).toFixed(1)}%` : '-'}
                       </td>
                       <td className="px-3 py-2 text-left text-xs">
                         <div className="flex items-center gap-1">

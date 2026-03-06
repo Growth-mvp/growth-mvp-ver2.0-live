@@ -513,9 +513,35 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       }
     }
 
+    // Progress Map をビルド（dept::proj::idx → {revPct, opPct}）
+    const progressMap = new Map<string, { revPct?: number; opPct?: number }>();
+    departments?.forEach((d: any) => {
+      const deptName = d?.name ?? d?.departmentName ?? '（未名）';
+      const projects = Array.isArray(d?.projects) ? d.projects : [];
+      projects.forEach((proj: any, pIdx: number) => {
+        const projTitle = proj?.title ?? '（未名）';
+        const projKey = makeProjectKey(deptName, projTitle, pIdx);
+
+        const revRaw = proj?.impactRevenueProgress;
+        const revPct = typeof revRaw === 'number' ? Math.max(0, Math.min(100, revRaw)) : undefined;
+
+        const opRaw = proj?.impactOpIncomeProgress;
+        const opPct = typeof opRaw === 'number' ? Math.max(0, Math.min(100, opRaw)) : undefined;
+
+        progressMap.set(projKey, { revPct, opPct });
+      });
+    });
+
     return projectContrib.map((p: any) => {
       const deltaRevenueTotal = revMap.get(p.key) ?? 0;
       const deltaOpTotal = opMap.get(p.key) ?? 0;
+
+      // Progress から達成寄与を計算
+      const progressData = progressMap.get(p.key);
+      const progressRevenuePct = progressData?.revPct;
+      const progressOpPct = progressData?.opPct;
+      const achievedRevenueTotal = deltaRevenueTotal * ((progressRevenuePct ?? 0) / 100);
+      const achievedOpTotal = deltaOpTotal * ((progressOpPct ?? 0) / 100);
 
       // 投資は既存の集計を尊重（0のままでもOK）。ROIは投資がある場合のみ概算。
       const investTotal = typeof p.investTotal === 'number' ? p.investTotal : 0;
@@ -537,9 +563,13 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         deltaOpTotal,
         roi,
         evidence,
+        progressRevenuePct,
+        progressOpPct,
+        achievedRevenueTotal,
+        achievedOpTotal,
       };
     });
-  }, [projectContrib, effectiveProjectTargetImpacts, companyTargets]);
+  }, [projectContrib, effectiveProjectTargetImpacts, companyTargets, departments, makeProjectKey]);
   // === STAGE6 Phase E：AUTO推定（projectIssueLinks） ===
   const autoProjectIssueLinks = useMemo(() => {
     if (!isReady || allProjectKeys.length === 0 || stage1Issues.length === 0) {

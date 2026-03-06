@@ -38,6 +38,11 @@ export type ProjectContribution = {
     logCount: number;
     notes?: string;
   };
+  // ★ Phase F: NS寄与達成率と達成寄与
+  progressRevenuePct?: number;
+  progressOpPct?: number;
+  achievedRevenueTotal?: number;
+  achievedOpTotal?: number;
 };
 
 /**

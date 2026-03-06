@@ -32,7 +32,9 @@ function topProjectsForMetric(
 ) {
   const items = projectContrib
     .map((p) => {
-      const deltaYen = metricLabel === '売上' ? p.deltaRevenueTotal : p.deltaOpTotal;
+      const deltaYen = metricLabel === '売上'
+        ? (p.achievedRevenueTotal ?? p.deltaRevenueTotal ?? 0)
+        : (p.achievedOpTotal ?? p.deltaOpTotal ?? 0);
       const deltaMJPY = yenToMJPY(deltaYen);
       return {
         key: p.key,
