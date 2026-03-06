@@ -208,6 +208,9 @@ type Draft = {
   vTestMethod?: string;
   vEvidence?: string;
   vNextAction?: string;
+
+  // Phase B-2: マイルストーン（任意）
+  milestones?: Array<{ id: string; title: string; dueYm?: string; owner?: string; status?: string; dod?: string }>;
 };
 
 function krBadge(track?: StrategyTrackUI) {
@@ -977,7 +980,12 @@ const [editingKrDraft, setEditingKrDraft] = useState<{
   unit: Draft['unit'];
   due: string;
   owner: string;
+  milestones?: Array<{ id: string; title: string; dueYm?: string; owner?: string; status?: string; dod?: string }>;
 } | null>(null);
+
+// Phase C: Milestones 追加フォーム用ローカル状態
+const [mTitle, setMTitle] = useState('');
+const [mDue, setMDue] = useState('');
 
 const startEditKr = (kr: any, fallbackId: string) => {
   const id = String(kr?.id ?? fallbackId);
@@ -988,6 +996,7 @@ const startEditKr = (kr: any, fallbackId: string) => {
     unit: (String(kr?.unit ?? '件') as Draft['unit']) ?? '件',
     due: String(kr?.due ?? ''),
     owner: String(kr?.owner ?? ''),
+    milestones: kr?.milestones,
   });
 };
 
@@ -1027,6 +1036,7 @@ const saveEditKr = (dIdx: number, pIdx: number, krId: string) => {
       unit: editingKrDraft.unit,
       due: editingKrDraft.due?.trim() || undefined,
       owner: editingKrDraft.owner?.trim() || undefined,
+      milestones: editingKrDraft.milestones,
     };
 
     proj.okrsV2 = list;
@@ -1127,6 +1137,9 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
       track,
       metricRole,
       validation,
+
+      // Phase C: マイルストーン
+      milestones: draft.milestones,
     } as any);
 
     addStructuredKR(dIdx, pIdx, kr);
@@ -1665,6 +1678,79 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
                       />
                     </div>
                   </div>
+
+                  {/* Phase C: Milestones セクション */}
+                  <div className={`border-t border-amber-200 pt-3 ${editingMode === 'variant' ? 'opacity-50' : ''}`}>
+                    <div className="text-[11px] font-semibold text-amber-900 mb-2">
+                      マイルストーン（任意）
+                      {editingMode === 'variant' && <span className="ml-1 text-[10px] text-amber-700">確定版でのみ編集可</span>}
+                    </div>
+                    {selectedDraft.milestones && selectedDraft.milestones.length > 0 ? (
+                      <div className="space-y-1 mb-2">
+                        {selectedDraft.milestones.map((m) => (
+                          <div key={m.id} className="flex gap-2 items-center rounded border border-amber-200 bg-white p-2">
+                            <div className="flex-1 text-[12px]">
+                              <div className="font-semibold text-zinc-800">{m.title}</div>
+                              {m.dueYm && <div className="text-zinc-600 text-[11px]">{m.dueYm}</div>}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = (selectedDraft.milestones ?? []).filter((x) => x.id !== m.id);
+                                setDraft(selectedAddKey, { milestones: next.length > 0 ? next : undefined });
+                              }}
+                              disabled={isHydrating || editingMode === 'variant'}
+                              className="h-7 text-[11px] px-2 rounded border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50"
+                            >
+                              削除
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="タイトル"
+                        className="flex-1 h-8 rounded border border-amber-200 bg-white px-2 text-[12px]"
+                        value={mTitle}
+                        onChange={(e) => setMTitle(e.target.value)}
+                        disabled={isHydrating || editingMode === 'variant'}
+                      />
+                      <input
+                        type="text"
+                        placeholder="YYYY-MM"
+                        className="w-24 h-8 rounded border border-amber-200 bg-white px-2 text-[12px]"
+                        value={mDue}
+                        onChange={(e) => setMDue(e.target.value)}
+                        disabled={isHydrating || editingMode === 'variant'}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const title = mTitle.trim();
+                          if (!title) {
+                            console.warn('マイルストーンのタイトルを入力してください');
+                            return;
+                          }
+                          const newMilestone = {
+                            id: crypto.randomUUID(),
+                            title,
+                            dueYm: mDue.trim() || undefined,
+                          };
+                          const next = [...(selectedDraft.milestones ?? []), newMilestone];
+                          setDraft(selectedAddKey, { milestones: next });
+                          setMTitle('');
+                          setMDue('');
+                        }}
+                        disabled={isHydrating || editingMode === 'variant'}
+                        className="h-8 px-2 rounded bg-amber-100 text-amber-900 text-[12px] font-semibold hover:bg-amber-200 disabled:opacity-50"
+                      >
+                        追加
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="flex gap-2">
                     <button
                       type="button"
@@ -1776,6 +1862,38 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
                   className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
                 />
               </div>
+            </div>
+
+            {/* Phase B-1: Milestones セクション */}
+            <div className={`border-t border-zinc-200 pt-3 ${editingMode === 'variant' ? 'opacity-50' : ''}`}>
+              <div className="text-[11px] font-semibold text-zinc-700 mb-2">
+                マイルストーン
+                {editingMode === 'variant' && <span className="ml-1 text-[10px] text-zinc-500">（確定版でのみ編集可）</span>}
+              </div>
+              {editingKrDraft.milestones && editingKrDraft.milestones.length > 0 ? (
+                <div className="space-y-2 text-[12px]">
+                  {editingKrDraft.milestones.map((m, idx) => (
+                    <div key={m.id || idx} className="rounded border border-zinc-200 bg-white p-2">
+                      <div className="font-semibold text-zinc-800">{m.title || '（未設定）'}</div>
+                      <div className="mt-1 grid grid-cols-2 gap-2 text-zinc-600">
+                        <div>{m.dueYm ? `期限: ${m.dueYm}` : '期限: -'}</div>
+                        <div>{m.owner ? `担当: ${m.owner}` : '担当: -'}</div>
+                      </div>
+                      <div className="mt-1 flex gap-1">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                          m.status === 'done' ? 'bg-green-100 text-green-700'
+                          : m.status === 'doing' ? 'bg-yellow-100 text-yellow-700'
+                          : 'bg-zinc-100 text-zinc-600'
+                        }`}>
+                          {m.status === 'done' ? '完了' : m.status === 'doing' ? '進行中' : 'TODO'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-[12px] text-zinc-500">マイルストーンがありません</div>
+              )}
             </div>
           </div>
 
@@ -1889,9 +2007,10 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
 {/* Milestones */}
 <div className="mb-4 space-y-2">
   <div className="flex items-center justify-between">
-    <label className="text-[11px] font-semibold text-zinc-700">工程（マイルストーン）</label>
+    <label className="text-[11px] font-semibold text-zinc-700">プロジェクト共通マイルストーン（任意・0〜2推奨）</label>
     <div className="text-[11px] text-zinc-500">{(((selectedProj as any).planMilestones || []) as any[]).length}件</div>
   </div>
+  <div className="text-[10px] text-zinc-500 italic">主要なマイルストーンはKPI内で設定してください</div>
 
   {/* List */}
   <div className="space-y-2">
@@ -1943,6 +2062,12 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
         </div>
       );
     })}
+
+    {((((selectedProj as any).planMilestones || []) as any[]) as any[]).length >= 3 && (
+      <div className="rounded-xl border border-dashed border-amber-200 bg-amber-50 p-3 text-[12px] text-amber-800">
+        推奨は0〜2件です。必要に応じて調整してください。
+      </div>
+    )}
 
     {((((selectedProj as any).planMilestones || []) as any[]) as any[]).length === 0 && (
       <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-[12px] text-zinc-600">
