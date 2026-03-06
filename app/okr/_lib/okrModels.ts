@@ -7,6 +7,7 @@ import type {
   KRScope,
   KRUnit,
   BaseKey,
+  Milestone,
 } from '@/types/strategy';
 
 /* ============================================================
@@ -145,6 +146,9 @@ export type KRStructuredX = KRStructured & {
   validation?: ValidationPlan; // exploreならここが重要
   bridgeToLever?: GrowthLever; // types側にある場合はそのまま使う（再定義しない）
   mode?: 'direct' | 'indirect'; // types側にある場合はそのまま使う
+
+  /** ★Phase A：KR達成への段階的マイルストーン（任意） */
+  milestones?: Milestone[];
 };
 
 /* ============================================================
@@ -211,6 +215,7 @@ export function mkKRStructured(
         | 'validation'
         | 'bridgeToLever'
         | 'mode'
+        | 'milestones'
       >
     >,
 ): KRStructuredX {
@@ -240,6 +245,9 @@ export function mkKRStructured(
     validation: p.validation,
     bridgeToLever: p.bridgeToLever,
     mode: p.mode,
+
+    // Phase A：マイルストーン
+    milestones: p.milestones,
   };
 }
 
