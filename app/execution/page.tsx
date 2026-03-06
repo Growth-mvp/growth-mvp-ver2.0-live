@@ -547,6 +547,23 @@ function ExecPanel(props: {
     [di, pi, isVariant, stage4Proj, updateDepartments]
   );
 
+  // Helper: Calculate achieved value from target and progress (display only)
+  const calcAchieved = (target: number | undefined, progress: number | undefined): string => {
+    if (typeof target !== 'number' || typeof progress !== 'number') return '—';
+    const achieved = Math.round(target * (progress / 100) * 10) / 10;
+    return achieved.toString();
+  };
+
+  // Helper: Sort milestones by status (display only, non-destructive)
+  const sortMilestonesByStatus = (milestones: any[]) => {
+    const statusOrder = { 'todo': 0, 'doing': 1, 'done': 2 };
+    return [...milestones].sort((a, b) => {
+      const aOrder = statusOrder[a?.status ?? 'todo'] ?? 0;
+      const bOrder = statusOrder[b?.status ?? 'todo'] ?? 0;
+      return aOrder - bOrder;
+    });
+  };
+
   return (
     <ModalShell
       open={open}
@@ -581,6 +598,65 @@ function ExecPanel(props: {
       </div>
 
       <div className="space-y-6 p-6">
+        {/* NS 寄与ヘッダカード */}
+        {stage4Proj && (typeof stage4Proj.impactRevenueMJPY === 'number' || typeof stage4Proj.impactOpIncomeMJPY === 'number') && (
+          <section className="rounded-3xl border border-blue-200 bg-blue-50/50 p-5 shadow-sm">
+            <div className="text-xs font-medium text-blue-800 tracking-wide mb-3">North Star 寄与</div>
+
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              {typeof stage4Proj.impactRevenueMJPY === 'number' && (
+                <div className="rounded-lg bg-white p-3 border border-blue-100">
+                  <div className="text-[11px] font-medium text-gray-600 mb-1">売上</div>
+                  <div className="text-xs text-gray-700 mb-2">
+                    <span className="font-semibold">{stage4Proj.impactRevenueMJPY}</span>百万円（目標）
+                  </div>
+                  <div className="text-xs text-gray-700 mb-2">
+                    <span className="font-semibold">{calcAchieved(stage4Proj.impactRevenueMJPY, stage4Proj.impactRevenueProgress)}</span>百万円（達成）
+                  </div>
+                  <div className="text-[11px] flex items-center gap-2">
+                    <span className="text-gray-600">進捗%</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={stage4Proj.impactRevenueProgress ?? ''}
+                      onChange={(e) => handleProgressChange('impactRevenueProgress', e.target.value)}
+                      disabled={isVariant}
+                      className="w-14 px-1 py-0.5 border border-gray-300 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {typeof stage4Proj.impactOpIncomeMJPY === 'number' && (
+                <div className="rounded-lg bg-white p-3 border border-blue-100">
+                  <div className="text-[11px] font-medium text-gray-600 mb-1">営業利益</div>
+                  <div className="text-xs text-gray-700 mb-2">
+                    <span className="font-semibold">{stage4Proj.impactOpIncomeMJPY}</span>百万円（目標）
+                  </div>
+                  <div className="text-xs text-gray-700 mb-2">
+                    <span className="font-semibold">{calcAchieved(stage4Proj.impactOpIncomeMJPY, stage4Proj.impactOpIncomeProgress)}</span>百万円（達成）
+                  </div>
+                  <div className="text-[11px] flex items-center gap-2">
+                    <span className="text-gray-600">進捗%</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={stage4Proj.impactOpIncomeProgress ?? ''}
+                      onChange={(e) => handleProgressChange('impactOpIncomeProgress', e.target.value)}
+                      disabled={isVariant}
+                      className="w-14 px-1 py-0.5 border border-gray-300 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
         {/* OKR概要 */}
         <section className="rounded-3xl border border-black/10 bg-white/70 p-5 shadow-sm">
           <div className="text-xs font-medium text-gray-600 tracking-wide mb-1">達成目標（O）</div>
@@ -602,53 +678,6 @@ function ExecPanel(props: {
           <section className="rounded-3xl border border-green-200 bg-green-50/50 p-5 shadow-sm">
             <div className="text-xs font-medium text-green-800 tracking-wide mb-3">★ STAGE4 確定情報（参考）</div>
 
-            {/* NS 寄与 */}
-            {(typeof stage4Proj.impactRevenueMJPY === 'number' || typeof stage4Proj.impactOpIncomeMJPY === 'number') && (
-              <div className="mb-3">
-                <div className="text-xs font-medium text-gray-700 mb-1">North Star 寄与</div>
-                <div className="grid grid-cols-2 gap-2 text-sm text-gray-800 mb-2">
-                  {typeof stage4Proj.impactRevenueMJPY === 'number' && (
-                    <div>売上: <span className="font-semibold">{stage4Proj.impactRevenueMJPY}百万円</span></div>
-                  )}
-                  {typeof stage4Proj.impactOpIncomeMJPY === 'number' && (
-                    <div>営業利益: <span className="font-semibold">{stage4Proj.impactOpIncomeMJPY}百万円</span></div>
-                  )}
-                </div>
-                <div className="space-y-1">
-                  {typeof stage4Proj.impactRevenueMJPY === 'number' && (
-                    <div className="text-[11px] flex items-center gap-2">
-                      <span className="text-gray-600">売上達成率(%)</span>
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="1"
-                        value={stage4Proj.impactRevenueProgress ?? ''}
-                        onChange={(e) => handleProgressChange('impactRevenueProgress', e.target.value)}
-                        disabled={isVariant}
-                        className="w-14 px-1 py-0.5 border border-gray-300 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                      />
-                    </div>
-                  )}
-                  {typeof stage4Proj.impactOpIncomeMJPY === 'number' && (
-                    <div className="text-[11px] flex items-center gap-2">
-                      <span className="text-gray-600">利益達成率(%)</span>
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="1"
-                        value={stage4Proj.impactOpIncomeProgress ?? ''}
-                        onChange={(e) => handleProgressChange('impactOpIncomeProgress', e.target.value)}
-                        disabled={isVariant}
-                        className="w-14 px-1 py-0.5 border border-gray-300 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
             {/* KPI（okrsV2） */}
             {Array.isArray(stage4Proj.okrsV2) && stage4Proj.okrsV2.length > 0 && (
               <div className="mb-3">
@@ -662,7 +691,7 @@ function ExecPanel(props: {
                       </div>
                       {Array.isArray(kr?.milestones) && kr.milestones.length > 0 && (
                         <div className="mt-1 space-y-1 text-gray-500">
-                          {(kr.milestones as any[]).map((m: any) => (
+                          {sortMilestonesByStatus(kr.milestones as any[]).map((m: any) => (
                             <div key={m?.id} className="text-[11px] flex items-center justify-between gap-2">
                               <span>
                                 • {m?.title ?? '（タイトル未設定）'} {m?.dueYm ? `(${m.dueYm})` : ''}
@@ -691,11 +720,13 @@ function ExecPanel(props: {
               </div>
             )}
 
-            {/* プロジェクト共通マイルストーン */}
+            {/* プロジェクト共通マイルストーン（詳細表示） */}
             {Array.isArray(stage4Proj.planMilestones) && stage4Proj.planMilestones.length > 0 && (
-              <div>
-                <div className="text-xs font-medium text-gray-700 mb-1">プロジェクト共通MS（{stage4Proj.planMilestones.length}件）</div>
-                <div className="space-y-1 text-[12px] text-gray-700">
+              <details className="mb-3 group">
+                <summary className="text-xs font-medium text-gray-700 cursor-pointer hover:text-gray-900">
+                  ▶ プロジェクト共通MS（{stage4Proj.planMilestones.length}件）
+                </summary>
+                <div className="mt-2 space-y-1 text-[12px] text-gray-700 ml-2">
                   {(stage4Proj.planMilestones as any[]).map((m: any) => (
                     <div key={m?.id} className="flex items-center gap-2">
                       <span>•</span>
@@ -704,7 +735,7 @@ function ExecPanel(props: {
                     </div>
                   ))}
                 </div>
-              </div>
+              </details>
             )}
           </section>
         )}
