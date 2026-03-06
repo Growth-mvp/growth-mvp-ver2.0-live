@@ -345,12 +345,52 @@ export type KRUnit =
 export type MetricRole = 'LEADING' | 'LAGGING' | 'LEARNING';
 
 /**
+ * マイルストーン（KR達成への段階的タスク）
+ * - KR単位での進行管理に必要な中間目標
+ * - Stage5で使用予定
+ */
+export type Milestone = {
+  /** マイルストーンID */
+  id: string;
+
+  /** マイルストーンタイトル（例：「顧客ヒアリング完了」） */
+  title: string;
+
+  /** 期限（YYYY-MM形式、任意） */
+  dueYm?: Ym;
+
+  /** 担当者（任意） */
+  owner?: string;
+
+  /** ステータス（任意、Stage5で使用） */
+  status?: 'todo' | 'doing' | 'done';
+
+  /** 完了定義（成功基準、任意） */
+  dod?: string;
+};
+
+/**
  * エビデンス（根拠）：
  * - AIが生成した「もっともらしさ」を、現場の根拠で補強するための入れ物
  */
 export type Evidence = {
   sources?: string[]; // URL/社内資料/ヒアリング等（文字列でOK）
   notes?: string;
+};
+
+/**
+ * プロジェクト共通マイルストーン（STAGE4実行計画用）
+ * - プロジェクト全体の進捗管理に必要な段階的タスク
+ */
+export type ProjectPlanMilestone = {
+  /** マイルストーンID */
+  id: UUID;
+
+  /** マイルストーンタイトル */
+  title: string;
+
+  /** 期限（YYYY-MM形式、任意） */
+  dueYm?: Ym;
 };
 
 /**
@@ -397,12 +437,15 @@ export type KRStructured = {
   validation?: ValidationPlan;
 
   /**
-   * 「セグメント/チャネル/プロダクト」など戦略の“当て先”
+   * 「セグメント/チャネル/プロダクト」など戦略の"当て先"
    * - Projectにもあるが、KR単位で異なるケースを許容
    */
   targetSegment?: string;
   targetChannel?: string;
   targetProduct?: string;
+
+  /** ★Phase A：KR達成への段階的マイルストーン（任意） */
+  milestones?: Milestone[];
 };
 
 /** 役割でOKRを束ねる場合（任意：将来拡張） */
@@ -602,6 +645,30 @@ export type Project = {
 
   /** ★STAGE4 実行計画：人的投資計画（採用・委託・配置・システム等） */
   executionHumanInvestments?: ExecutionHumanInvestment[];
+
+  /** ★STAGE4拡張：北極星への売上寄与（百万円） */
+  impactRevenueMJPY?: number;
+
+  /** ★STAGE4拡張：北極星への営業利益寄与（百万円） */
+  impactOpIncomeMJPY?: number;
+
+  /** ★STAGE4拡張：必要投資額（百万円） */
+  impactInvestmentMJPY?: number;
+
+  /** ★STAGE4拡張：寄与確度（0-1の小数、またはパーセント） */
+  impactConfidence?: number;
+
+  /** ★STAGE4拡張：寄与の根拠・備考 */
+  impactRationale?: string;
+
+  /** ★STAGE5拡張：北極星売上寄与の達成率（%） */
+  impactRevenueProgress?: number;
+
+  /** ★STAGE5拡張：北極星営業利益寄与の達成率（%） */
+  impactOpIncomeProgress?: number;
+
+  /** ★STAGE4拡張：プロジェクト共通マイルストーン（0〜2推奨） */
+  planMilestones?: ProjectPlanMilestone[];
 
   /** ★STAGE3 カスケード：AI生成管理用メタデータ（再生成の安全マージ用） */
   generatedBy?: 'ai' | 'user';

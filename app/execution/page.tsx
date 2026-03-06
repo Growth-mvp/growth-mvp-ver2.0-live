@@ -505,6 +505,48 @@ function ExecPanel(props: {
     [di, pi, isVariant, updateDepartments]
   );
 
+  // Progress 更新ハンドラ（売上/営業利益の達成率）
+  const handleProgressChange = useCallback(
+    (field: 'impactRevenueProgress' | 'impactOpIncomeProgress', value: string) => {
+      if (typeof di !== 'number' || typeof pi !== 'number' || isVariant) return;
+
+      const parsed = parseInt(value, 10);
+      const oldValue = field === 'impactRevenueProgress'
+        ? stage4Proj?.impactRevenueProgress
+        : stage4Proj?.impactOpIncomeProgress;
+
+      let numValue: number | undefined;
+      if (value === '') {
+        numValue = undefined;
+      } else if (isNaN(parsed)) {
+        numValue = oldValue;
+      } else {
+        numValue = Math.max(0, Math.min(100, parsed));
+      }
+
+      if (numValue === oldValue) return; // 変更がなければ何もしない
+
+      updateDepartments((prev) => {
+        const next = [...prev];
+        const dept = next[di];
+        if (!dept) return prev;
+
+        const deptCopy = { ...dept };
+        const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+        const proj = projs[pi];
+        if (!proj) return prev;
+
+        const projCopy = { ...proj };
+        (projCopy as any)[field] = numValue;
+        projs[pi] = projCopy;
+        deptCopy.projects = projs;
+        next[di] = deptCopy;
+        return next;
+      });
+    },
+    [di, pi, isVariant, stage4Proj, updateDepartments]
+  );
+
   return (
     <ModalShell
       open={open}
@@ -564,12 +606,44 @@ function ExecPanel(props: {
             {(typeof stage4Proj.impactRevenueMJPY === 'number' || typeof stage4Proj.impactOpIncomeMJPY === 'number') && (
               <div className="mb-3">
                 <div className="text-xs font-medium text-gray-700 mb-1">North Star 寄与</div>
-                <div className="grid grid-cols-2 gap-2 text-sm text-gray-800">
+                <div className="grid grid-cols-2 gap-2 text-sm text-gray-800 mb-2">
                   {typeof stage4Proj.impactRevenueMJPY === 'number' && (
                     <div>売上: <span className="font-semibold">{stage4Proj.impactRevenueMJPY}百万円</span></div>
                   )}
                   {typeof stage4Proj.impactOpIncomeMJPY === 'number' && (
                     <div>営業利益: <span className="font-semibold">{stage4Proj.impactOpIncomeMJPY}百万円</span></div>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  {typeof stage4Proj.impactRevenueMJPY === 'number' && (
+                    <div className="text-[11px] flex items-center gap-2">
+                      <span className="text-gray-600">売上達成率(%)</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={stage4Proj.impactRevenueProgress ?? ''}
+                        onChange={(e) => handleProgressChange('impactRevenueProgress', e.target.value)}
+                        disabled={isVariant}
+                        className="w-14 px-1 py-0.5 border border-gray-300 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                  )}
+                  {typeof stage4Proj.impactOpIncomeMJPY === 'number' && (
+                    <div className="text-[11px] flex items-center gap-2">
+                      <span className="text-gray-600">利益達成率(%)</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={stage4Proj.impactOpIncomeProgress ?? ''}
+                        onChange={(e) => handleProgressChange('impactOpIncomeProgress', e.target.value)}
+                        disabled={isVariant}
+                        className="w-14 px-1 py-0.5 border border-gray-300 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                      />
+                    </div>
                   )}
                 </div>
               </div>
