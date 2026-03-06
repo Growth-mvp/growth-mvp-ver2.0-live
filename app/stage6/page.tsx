@@ -17,7 +17,7 @@ import { useStage6Data } from '@/components/stage6/hooks/useStage6Data';
 
 function Stage6PageContent() {
   const [scenarioKey, setScenarioKey] = useState<'low' | 'base' | 'high'>('base');
-  const [activeTab, setActiveTab] = useState<'impact' | 'northstar' | 'valueanalysis'>('impact');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'analysis'>('dashboard');
 
   const stage6 = useStage6Data(scenarioKey);
 
@@ -133,55 +133,56 @@ function Stage6PageContent() {
         <div className="mb-6 border-b border-slate-200">
           <div className="flex gap-4">
             <button
-              onClick={() => setActiveTab('impact')}
+              onClick={() => setActiveTab('dashboard')}
               className={`px-4 py-3 text-sm font-medium transition border-b-2 ${
-                activeTab === 'impact'
+                activeTab === 'dashboard'
                   ? 'border-b-slate-900 text-slate-900'
                   : 'border-b-transparent text-slate-600 hover:text-slate-900'
               }`}
             >
-              タブ1：プロジェクト寄与度
+              ダッシュボード
             </button>
             <button
-              onClick={() => setActiveTab('northstar')}
+              onClick={() => setActiveTab('analysis')}
               className={`px-4 py-3 text-sm font-medium transition border-b-2 ${
-                activeTab === 'northstar'
+                activeTab === 'analysis'
                   ? 'border-b-slate-900 text-slate-900'
                   : 'border-b-transparent text-slate-600 hover:text-slate-900'
               }`}
             >
-              タブ2：North Star vs 予測
-            </button>
-            <button
-              onClick={() => setActiveTab('valueanalysis')}
-              className={`px-4 py-3 text-sm font-medium transition border-b-2 ${
-                activeTab === 'valueanalysis'
-                  ? 'border-b-slate-900 text-slate-900'
-                  : 'border-b-transparent text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              タブ3：進捗ダッシュボード
+              詳細分析
             </button>
           </div>
         </div>
 
         <div className="space-y-6">
-          {activeTab === 'impact' && (
-            <TabImpact
-              projectContrib={stage6.projectContrib}
-              core={stage6.core}
-              deptFilter={projectFilters.deptFilter}
-              setDeptFilter={projectFilters.setDeptFilter}
-              selectedProjectKeys={projectFilters.selectedProjectKeys}
-              selectedSet={projectFilters.selectedSet}
-              selectedSummary={projectFilters.selectedSummary}
-              toggleProject={projectFilters.toggleProject}
-              selectAllFiltered={projectFilters.selectAllFiltered}
-              clearAllFiltered={projectFilters.clearAllFiltered}
-            />
+          {activeTab === 'dashboard' && (
+            <>
+              <TabValueDashboard northStarRows={stage6.northStarRows} projectContrib={stage6.projectContrib} companySummary={stage6.companySummary} />
+
+              <details className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <summary className="cursor-pointer text-lg font-bold text-slate-900 hover:text-slate-700">
+                  プロジェクト寄与（計画Δ / 達成寄与 / 達成率）
+                </summary>
+                <div className="mt-4">
+                  <TabImpact
+                    projectContrib={stage6.projectContrib}
+                    core={stage6.core}
+                    deptFilter={projectFilters.deptFilter}
+                    setDeptFilter={projectFilters.setDeptFilter}
+                    selectedProjectKeys={projectFilters.selectedProjectKeys}
+                    selectedSet={projectFilters.selectedSet}
+                    selectedSummary={projectFilters.selectedSummary}
+                    toggleProject={projectFilters.toggleProject}
+                    selectAllFiltered={projectFilters.selectAllFiltered}
+                    clearAllFiltered={projectFilters.clearAllFiltered}
+                  />
+                </div>
+              </details>
+            </>
           )}
 
-          {activeTab === 'northstar' && (
+          {activeTab === 'analysis' && (
             <TabNorthStar
               northStarRows={stage6.northStarRows}
               chartData={stage6.chartData}
@@ -190,10 +191,6 @@ function Stage6PageContent() {
               onUpdateImpact={handleUpdateImpact}
               onRemoveImpact={handleRemoveImpact}
             />
-          )}
-
-          {activeTab === 'valueanalysis' && (
-            <TabValueDashboard northStarRows={stage6.northStarRows} projectContrib={stage6.projectContrib} companySummary={stage6.companySummary} />
           )}
         </div>
       </div>
