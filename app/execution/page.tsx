@@ -237,8 +237,10 @@ function ExecPanel(props: {
   okrId: string;
   companyId?: string;
   krIds?: string[];
+  di?: number;
+  pi?: number;
 }) {
-  const { open, onClose, userId, deptName, projectTitle, objective, keyResults, okrId, companyId, krIds } = props;
+  const { open, onClose, userId, deptName, projectTitle, objective, keyResults, okrId, companyId, krIds, di, pi } = props;
 
   const access = useAccess();
   const canCheckin = !!userId;
@@ -446,6 +448,63 @@ function ExecPanel(props: {
     return { memo: (memoPart || '').trim(), help: (helpPart || '').trim() };
   };
 
+  // Stage4 確定情報を useStrategyStore から取得
+  const { departments, updateDepartments } = useStrategyStore();
+  const stage4Proj = typeof di === 'number' && typeof pi === 'number'
+    ? departments?.[di]?.projects?.[pi]
+    : null;
+
+  // variant 判定（activeVariantId が存在すれば variant）
+  const isVariant = stage4Proj?.activeVariantId != null;
+
+  // Milestone status 更新ハンドラ（krId と milestoneId で対象を特定）
+  const handleMilestoneStatusChange = useCallback(
+    (krId: string, milestoneId: string, newStatus: string) => {
+      if (typeof di !== 'number' || typeof pi !== 'number' || isVariant) return;
+
+      updateDepartments((prev) => {
+        const next = [...prev];
+        const dept = next[di];
+        if (!dept) return prev;
+
+        const deptCopy = { ...dept };
+        const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+        const proj = projs[pi];
+        if (!proj) return prev;
+
+        const projCopy = { ...proj };
+        const okrsV2 = Array.isArray(proj.okrsV2) ? [...(proj.okrsV2 as any[])] : [];
+
+        // krId で対象KRを特定
+        const krIdx = okrsV2.findIndex((kr: any) => kr?.id === krId);
+        if (krIdx < 0) return prev;
+
+        const kr = okrsV2[krIdx];
+        const krCopy = { ...kr };
+        const milestones = Array.isArray(kr.milestones) ? [...kr.milestones] : [];
+
+        // milestoneId で対象Milestoneを特定して status を更新
+        const msIdx = milestones.findIndex((m: any) => m?.id === milestoneId);
+        if (msIdx < 0) return prev;
+
+        const msCopy = { ...milestones[msIdx] };
+        if (msCopy.status === newStatus) return prev; // 変更がなければ何もしない
+
+        msCopy.status = newStatus as any;
+        milestones[msIdx] = msCopy;
+        krCopy.milestones = milestones;
+        okrsV2[krIdx] = krCopy;
+
+        projCopy.okrsV2 = okrsV2;
+        projs[pi] = projCopy;
+        deptCopy.projects = projs;
+        next[di] = deptCopy;
+        return next;
+      });
+    },
+    [di, pi, isVariant, updateDepartments]
+  );
+
   return (
     <ModalShell
       open={open}
@@ -495,6 +554,86 @@ function ExecPanel(props: {
             </>
           ) : null}
         </section>
+
+        {/* STAGE4 確定情報 */}
+        {stage4Proj && (
+          <section className="rounded-3xl border border-green-200 bg-green-50/50 p-5 shadow-sm">
+            <div className="text-xs font-medium text-green-800 tracking-wide mb-3">★ STAGE4 確定情報（参考）</div>
+
+            {/* NS 寄与 */}
+            {(typeof stage4Proj.impactRevenueMJPY === 'number' || typeof stage4Proj.impactOpIncomeMJPY === 'number') && (
+              <div className="mb-3">
+                <div className="text-xs font-medium text-gray-700 mb-1">North Star 寄与</div>
+                <div className="grid grid-cols-2 gap-2 text-sm text-gray-800">
+                  {typeof stage4Proj.impactRevenueMJPY === 'number' && (
+                    <div>売上: <span className="font-semibold">{stage4Proj.impactRevenueMJPY}百万円</span></div>
+                  )}
+                  {typeof stage4Proj.impactOpIncomeMJPY === 'number' && (
+                    <div>営業利益: <span className="font-semibold">{stage4Proj.impactOpIncomeMJPY}百万円</span></div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* KPI（okrsV2） */}
+            {Array.isArray(stage4Proj.okrsV2) && stage4Proj.okrsV2.length > 0 && (
+              <div className="mb-3">
+                <div className="text-xs font-medium text-gray-700 mb-1">KPI（{stage4Proj.okrsV2.length}件）</div>
+                <div className="space-y-2">
+                  {(stage4Proj.okrsV2 as any[]).map((kr: any, idx: number) => (
+                    <div key={kr?.id ?? idx} className="text-[12px] border-l-2 border-green-300 pl-2">
+                      <div className="font-semibold text-gray-800">{kr?.label ?? '（未設定）'}</div>
+                      <div className="text-gray-600">
+                        {kr?.target ?? '—'} {kr?.unit ?? ''} {kr?.due ? `(期限: ${kr.due})` : ''}
+                      </div>
+                      {Array.isArray(kr?.milestones) && kr.milestones.length > 0 && (
+                        <div className="mt-1 space-y-1 text-gray-500">
+                          {(kr.milestones as any[]).map((m: any) => (
+                            <div key={m?.id} className="text-[11px] flex items-center justify-between gap-2">
+                              <span>
+                                • {m?.title ?? '（タイトル未設定）'} {m?.dueYm ? `(${m.dueYm})` : ''}
+                              </span>
+                              <select
+                                value={m?.status ?? 'todo'}
+                                onChange={(e) => {
+                                  if (!kr?.id || !m?.id) return;
+                                  const newStatus = e.target.value as 'todo' | 'doing' | 'done';
+                                  handleMilestoneStatusChange(kr.id, m.id, newStatus);
+                                }}
+                                disabled={isVariant}
+                                className="text-[10px] px-2 py-1 rounded border border-gray-300 bg-white disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                <option value="todo">TODO</option>
+                                <option value="doing">進行中</option>
+                                <option value="done">完了</option>
+                              </select>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* プロジェクト共通マイルストーン */}
+            {Array.isArray(stage4Proj.planMilestones) && stage4Proj.planMilestones.length > 0 && (
+              <div>
+                <div className="text-xs font-medium text-gray-700 mb-1">プロジェクト共通MS（{stage4Proj.planMilestones.length}件）</div>
+                <div className="space-y-1 text-[12px] text-gray-700">
+                  {(stage4Proj.planMilestones as any[]).map((m: any) => (
+                    <div key={m?.id} className="flex items-center gap-2">
+                      <span>•</span>
+                      <span>{m?.title ?? '（未設定）'}</span>
+                      {m?.dueYm && <span className="text-gray-500">({m.dueYm})</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
 
         {/* チェックイン */}
         {tab === 'checkin' && (
@@ -824,6 +963,8 @@ function ExecutionPageContent() {
     okrId: string;
     companyId?: string;
     krIds?: string[];
+    di?: number;
+    pi?: number;
   } | null>(null);
 
   // モーダル：ストーリー / 部門
@@ -1160,7 +1301,7 @@ function ExecutionPageContent() {
                                         setDeptOpen({ open: true, di: p.di });
                                         return;
                                       }
-                                      setSelected(p.selection);
+                                      setSelected({ ...p.selection, di: p.di, pi: p.pi });
                                     }}
                                     className="rounded-2xl border border-black/10 bg-white px-4 py-3 text-left shadow-sm hover:bg-gray-50 hover:shadow-md transition"
                                   >
@@ -1257,7 +1398,7 @@ function ExecutionPageContent() {
                       if (isHydrating) return;
                       if (!p.selection.objective && (p.selection.keyResults?.length ?? 0) === 0) return;
                       setDeptOpen({ open: false, di: null });
-                      setSelected(p.selection);
+                      setSelected({ ...p.selection, di: p.di, pi: p.pi });
                     }}
                     className="rounded-2xl border border-black/10 bg-white hover:bg-gray-50 p-4 text-left shadow-sm transition"
                   >
@@ -1287,6 +1428,8 @@ function ExecutionPageContent() {
         okrId={selected?.okrId ?? ''}
         companyId={selected?.companyId ?? ''}
         krIds={selected?.krIds ?? []}
+        di={selected?.di}
+        pi={selected?.pi}
       />
     </main>
   );
