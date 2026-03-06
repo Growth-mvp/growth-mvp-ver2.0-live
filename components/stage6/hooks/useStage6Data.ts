@@ -570,6 +570,51 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       };
     });
   }, [projectContrib, effectiveProjectTargetImpacts, companyTargets, departments, makeProjectKey]);
+
+  // === F-2: Company summary（会社NS目標 vs 達成寄与合計） ===
+  const companySummary = useMemo(() => {
+    // 1) projectContribForUI から合計を計算
+    const sumTargetRevenueYen = projectContribForUI.reduce((sum, p) => sum + (p.deltaRevenueTotal ?? 0), 0);
+    const sumAchievedRevenueYen = projectContribForUI.reduce((sum, p) => sum + (p.achievedRevenueTotal ?? 0), 0);
+    const sumTargetOpYen = projectContribForUI.reduce((sum, p) => sum + (p.deltaOpTotal ?? 0), 0);
+    const sumAchievedOpYen = projectContribForUI.reduce((sum, p) => sum + (p.achievedOpTotal ?? 0), 0);
+
+    // 2) companyTargets から会社目標を抽出（target優先）
+    const revTarget = companyTargets.find(
+      (t: any) => typeof t?.label === 'string' && t.label.includes('売上') && !t.label.includes('成長'),
+    );
+    const opTarget = companyTargets.find(
+      (t: any) => typeof t?.label === 'string' && t.label.includes('営業利益') && !t.label.includes('率'),
+    );
+
+    const revTargetVal = typeof revTarget?.target === 'number' ? revTarget.target : typeof revTarget?.base === 'number' ? revTarget.base : undefined;
+    const opTargetVal = typeof opTarget?.target === 'number' ? opTarget.target : typeof opTarget?.base === 'number' ? opTarget.base : undefined;
+
+    const companyRevenueTargetYen = typeof revTargetVal === 'number' ? normalizeValueToUnit(revTargetVal, revTarget.unit, 'yen') : undefined;
+    const companyOpTargetYen = typeof opTargetVal === 'number' ? normalizeValueToUnit(opTargetVal, opTarget.unit, 'yen') : undefined;
+
+    // 3) 進捗% を計算（0割回避）
+    const companyRevenueAchvPct =
+      typeof companyRevenueTargetYen === 'number' && companyRevenueTargetYen > 0
+        ? (sumAchievedRevenueYen / companyRevenueTargetYen) * 100
+        : undefined;
+    const companyOpAchvPct =
+      typeof companyOpTargetYen === 'number' && companyOpTargetYen > 0
+        ? (sumAchievedOpYen / companyOpTargetYen) * 100
+        : undefined;
+
+    return {
+      sumTargetRevenueYen,
+      sumAchievedRevenueYen,
+      sumTargetOpYen,
+      sumAchievedOpYen,
+      companyRevenueTargetYen,
+      companyOpTargetYen,
+      companyRevenueAchvPct,
+      companyOpAchvPct,
+    };
+  }, [projectContribForUI, companyTargets]);
+
   // === STAGE6 Phase E：AUTO推定（projectIssueLinks） ===
   const autoProjectIssueLinks = useMemo(() => {
     if (!isReady || allProjectKeys.length === 0 || stage1Issues.length === 0) {
@@ -1248,6 +1293,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     vaCards,
     indicatorSeries,
     chartData: chartDataWithPhaseE,  // ★Phase E の影響を反映したグラフデータ
+    companySummary,  // ★F-2: 会社NS目標 vs 達成寄与合計
     // Supporting data
     financePL,
     companyTargets,

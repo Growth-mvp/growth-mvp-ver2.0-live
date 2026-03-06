@@ -6,6 +6,14 @@ import type { NorthStarRow, ProjectContribution } from '@/utils/stage6';
 type Props = {
   northStarRows: NorthStarRow[];
   projectContrib: ProjectContribution[];
+  companySummary?: {
+    sumAchievedRevenueYen: number;
+    sumAchievedOpYen: number;
+    companyRevenueTargetYen?: number;
+    companyOpTargetYen?: number;
+    companyRevenueAchvPct?: number;
+    companyOpAchvPct?: number;
+  };
 };
 
 function fmtMJPY(x: number | null | undefined) {
@@ -181,7 +189,7 @@ function MetricPanel({
   );
 }
 
-export function TabValueDashboard({ northStarRows, projectContrib }: Props) {
+export function TabValueDashboard({ northStarRows, projectContrib, companySummary }: Props) {
   const revenueRow = useMemo(() => pickRow(northStarRows, '売上'), [northStarRows]);
   const opRow = useMemo(() => pickRow(northStarRows, '営業利益'), [northStarRows]);
 
@@ -242,6 +250,32 @@ export function TabValueDashboard({ northStarRows, projectContrib }: Props) {
 
   return (
     <section className="space-y-6">
+      {/* 0) 会社NS目標 vs 達成寄与合計 */}
+      {companySummary && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-lg font-bold text-slate-900">会社NS目標 vs 達成寄与</h2>
+          <p className="mt-1 text-[12px] text-slate-600">プロジェクト達成率を反映した会社目標達成状況</p>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="rounded-xl border border-slate-200 p-4">
+              <div className="font-bold text-slate-900">売上</div>
+              <div className="mt-2 space-y-1 text-sm text-slate-700">
+                <div>会社目標: {typeof companySummary.companyRevenueTargetYen === 'number' ? fmtMJPY(companySummary.companyRevenueTargetYen / 1_000_000) : '未設定'}</div>
+                <div>達成寄与: {fmtMJPY(companySummary.sumAchievedRevenueYen / 1_000_000)}</div>
+                <div>進捗率: {typeof companySummary.companyRevenueAchvPct === 'number' ? companySummary.companyRevenueAchvPct.toFixed(1) + '%' : '—'}</div>
+              </div>
+            </div>
+            <div className="rounded-xl border border-slate-200 p-4">
+              <div className="font-bold text-slate-900">営業利益</div>
+              <div className="mt-2 space-y-1 text-sm text-slate-700">
+                <div>会社目標: {typeof companySummary.companyOpTargetYen === 'number' ? fmtMJPY(companySummary.companyOpTargetYen / 1_000_000) : '未設定'}</div>
+                <div>達成寄与: {fmtMJPY(companySummary.sumAchievedOpYen / 1_000_000)}</div>
+                <div>進捗率: {typeof companySummary.companyOpAchvPct === 'number' ? companySummary.companyOpAchvPct.toFixed(1) + '%' : '—'}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 1) 結論 */}
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-bold text-slate-900">判断ボード</h2>

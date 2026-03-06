@@ -193,7 +193,7 @@ function Stage6PageContent() {
           )}
 
           {activeTab === 'valueanalysis' && (
-            <TabValueDashboard northStarRows={stage6.northStarRows} projectContrib={stage6.projectContrib} />
+            <TabValueDashboard northStarRows={stage6.northStarRows} projectContrib={stage6.projectContrib} companySummary={stage6.companySummary} />
           )}
         </div>
       </div>
