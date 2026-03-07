@@ -1301,10 +1301,10 @@ function ExecutionPageContent() {
     <main className="min-h-screen bg-gray-50 avoid-agent-dock">
       {/* Header */}
       <div className="bg-white/90 border-b border-black/10 sticky top-0 z-20 backdrop-blur-xl">
-        <div className="px-6 py-4 flex items-center justify-between">
+        <div className="px-4 md:px-6 lg:px-6 py-4 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">STAGE5 実行計画支援</h1>
-            <div className="mt-1 text-xs text-gray-500">画面は「名称（要約）」のみ表示。詳細はクリックでモーダル表示。</div>
+            <div className="mt-2 text-sm text-gray-600">ストーリー＞部門＞プロジェクト の順に表示。各カードをクリックして詳細を確認します。</div>
             {isHydrating && <div className="mt-2 text-sm text-gray-500">サーバーのデータを読み込み中です…</div>}
           </div>
           <div className="flex items-center gap-4">
@@ -1395,23 +1395,23 @@ function ExecutionPageContent() {
           </svg>
 
           {/* Content */}
-          <div className="relative z-10 min-w-[980px] p-8">
-            <div className="flex items-start gap-10">
+          <div className="relative z-10 min-w-0 max-w-6xl mx-auto px-4 md:px-6 lg:px-6 py-6">
+            <div className="flex items-start gap-6">
               {/* Story node */}
               <button
                 ref={storyRef}
                 type="button"
                 onClick={() => setStoryOpen(true)}
-                className={`w-[280px] rounded-3xl border border-black/10 ${toneToTint(storyTone)} px-5 py-5 text-left shadow-sm hover:shadow-md transition`}
+                className={`group w-[280px] rounded-3xl border border-black/10 hover:border-blue-300 ${toneToTint(storyTone)} hover:bg-blue-50 px-5 py-5 text-left shadow-sm hover:shadow-md transition`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <div className="grid h-9 w-9 place-items-center rounded-2xl border border-black/10 bg-white shadow-sm">
-                      <BookOpen className="h-5 w-5 text-gray-800" />
+                      <BookOpen className="h-5 w-5 text-gray-800 group-hover:text-blue-600 transition" />
                     </div>
                     <div>
-                      <div className="text-xs font-semibold text-gray-700 tracking-wide">経営戦略ストーリー</div>
-                      <div className="text-[11px] text-gray-500 mt-0.5">クリックで全文</div>
+                      <div className="text-xs font-semibold text-gray-700 group-hover:text-blue-700 tracking-wide transition">経営戦略ストーリー</div>
+                      <div className="text-xs text-gray-500 group-hover:text-blue-600 mt-0.5 transition">▶ クリックで全文</div>
                     </div>
                   </div>
                   <div className="inline-flex rounded-full border border-black/10 bg-white px-2 py-1 text-[11px] text-gray-600 shadow-sm">
@@ -1424,14 +1424,14 @@ function ExecutionPageContent() {
               </button>
 
               {/* Dept + Projects */}
-              <div className="flex-1 space-y-10 pb-10">
+              <div className="flex-1 space-y-6 pb-6">
                 {pyramid.length ? (
                   pyramid.map((dept) => {
                     const tone = dept.tone;
                     const dot = toneToDot(tone);
 
                     return (
-                      <div key={dept.di} className="flex items-start gap-10">
+                      <div key={dept.di} className="flex items-start gap-6">
                         {/* Dept node */}
                         <button
                           ref={(el) => {
@@ -1439,22 +1439,22 @@ function ExecutionPageContent() {
                           }}
                           type="button"
                           onClick={() => setDeptOpen({ open: true, di: dept.di })}
-                          className={`w-[260px] rounded-3xl border border-black/10 ${toneToTint(tone)} px-5 py-5 text-left shadow-sm hover:shadow-md transition`}
+                          className={`group w-[260px] rounded-3xl border border-black/10 hover:border-emerald-300 ${toneToTint(tone)} hover:bg-emerald-50 px-5 py-5 text-left shadow-sm hover:shadow-md transition`}
                         >
                           <div className="flex items-center gap-2">
                             <span className={`h-2.5 w-2.5 rounded-full ${dot}`} />
-                            <div className="text-sm font-semibold text-gray-900">
+                            <div className="text-sm font-semibold text-gray-900 group-hover:text-emerald-700 transition">
                               {dept.deptName?.trim() ? dept.deptName : '（部門名未設定）'}
                             </div>
                           </div>
-                          <div className="mt-2 text-[11px] text-gray-600">
-                            クリックでミッション/一覧
+                          <div className="mt-2 text-xs text-gray-600 group-hover:text-emerald-600 transition">
+                            ▶ クリックでミッション/一覧
                           </div>
                         </button>
 
                         {/* Projects node list */}
                         <div className="flex-1">
-                          <div className="text-xs font-semibold text-gray-500 tracking-wide mb-3">プロジェクト</div>
+                          <div className="text-xs font-semibold text-gray-600 tracking-wide mb-3">プロジェクト</div>
                           <div className="grid grid-cols-1 gap-3">
                             {dept.projects.length ? (
                               dept.projects.map((p) => {
@@ -1475,28 +1475,28 @@ function ExecutionPageContent() {
                                       }
                                       setSelected({ ...p.selection, di: p.di, pi: p.pi });
                                     }}
-                                    className="rounded-2xl border border-black/10 bg-white px-4 py-3 text-left shadow-sm hover:bg-gray-50 hover:shadow-md transition"
+                                    className="group rounded-2xl border border-black/10 bg-white hover:border-blue-200 hover:bg-blue-50 px-4 py-3 text-left shadow-sm hover:shadow-md transition"
                                   >
-                                    <div className="flex items-center justify-between gap-3">
-                                      <div className="text-sm font-semibold text-gray-900">{p.title || '（プロジェクト名未設定）'}</div>
-                                      <div className="flex items-center gap-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="flex-1">
+                                        <div className="text-sm font-semibold text-gray-900 group-hover:text-blue-700 transition">{p.title || '（プロジェクト名未設定）'}</div>
+                                        <div className="mt-1 text-xs text-gray-500 group-hover:text-blue-600 transition">▶ クリックで詳細表示</div>
+                                      </div>
+                                      <div className="flex items-center gap-2 text-gray-500 group-hover:text-blue-600 transition">
                                         {(() => {
                                           const impactData = projectImpactMap[key];
                                           const score = impactData?.max ?? 0;
                                           const showBadge = p.okrCount > 0;
                                           return showBadge ? (
-                                            <>
-                                              <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                                                score > 0
-                                                  ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                                                  : 'bg-gray-50 text-gray-500'
-                                              }`}>
-                                                {score > 0 ? `インパクト ${score}/5` : '未評価'}
-                                              </span>
-                                            </>
+                                            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold whitespace-nowrap ${
+                                              score > 0
+                                                ? 'bg-blue-100 text-blue-700'
+                                                : 'bg-gray-100 text-gray-600'
+                                            }`}>
+                                              {score > 0 ? `インパクト ${score}/5` : '未評価'}
+                                            </span>
                                           ) : null;
                                         })()}
-                                        <span className="text-[11px] text-gray-400">クリックで実行支援</span>
                                       </div>
                                     </div>
                                   </button>
