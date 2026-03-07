@@ -399,7 +399,7 @@ export default function Stage1Page() {
 
   return (
     <StrategyGuard mode="edit">
-      <div className="max-w-5xl mx-auto px-6 py-8 space-y-8">
+      <div className="max-w-6xl mx-auto px-4 md:px-6 py-6 space-y-6">
       <header className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">STAGE1｜企業価値分析</h1>
