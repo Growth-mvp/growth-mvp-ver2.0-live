@@ -1463,7 +1463,7 @@ function StoryProcessPageContent() {
   /* ===================== Render ===================== */
   if (!canView()) {
     return (
-      <div className="mx-auto max-w-5xl px-4 md:px-0 pt-10">
+      <div className="mx-auto max-w-6xl px-4 md:px-6 lg:px-6 pt-6">
         <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-rose-900">
           閲覧権限がありません。
         </div>
@@ -1472,7 +1472,7 @@ function StoryProcessPageContent() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl w-full min-w-0 space-y-6 px-4 md:px-0 overflow-x-hidden">
+    <div className="mx-auto max-w-6xl w-full min-w-0 space-y-6 px-4 md:px-6 lg:px-6 overflow-x-hidden">
       {/* ヘッダ */}
       <header className="space-y-3">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
