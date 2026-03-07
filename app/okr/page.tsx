@@ -1268,11 +1268,11 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
     if (selected === null || !selectedProj || !selectedDept) return null;
 
     return (
-      <div>
+      <div className="mx-auto max-w-2xl">
         <div className="grid gap-6 grid-cols-1">
           {/* ========== Card 1: 目的（何のため？） ========== */}
-          <div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">目的（何のため？）</h2>
+          <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <h2 className="mb-4 text-[16px] font-semibold text-zinc-900">目的（何のため？）</h2>
 
             <div className="mb-4 space-y-1">
               <label className="text-[11px] font-semibold text-zinc-700">目的（必須）</label>
@@ -1294,33 +1294,37 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                 disabled={isHydrating || isApproved()}
               />
             </div>
-{/* Owner */}
-            <div className="mb-4 space-y-2">
-              <label className="text-[11px] font-semibold text-zinc-700">オーナー（任意）</label>
-              <input
-                className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
-                placeholder="氏名や役職など"
-                value={mainOKR?.owner ?? ''}
-                onChange={(e) => updateProjectOKR(selected.deptIdx, selected.projIdx, { owner: e.target.value })}
-                disabled={isHydrating || isApproved()}
-              />
-            </div>
-{/* Due Date */}
-            <div className="mb-4 space-y-2">
-              <label className="text-[11px] font-semibold text-zinc-700">期限（任意 / YYYY-MM）</label>
-              <input
-                className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
-                placeholder="2026-03"
-                value={mainOKR?.due ?? ''}
-                onChange={(e) => updateProjectOKR(selected.deptIdx, selected.projIdx, { due: e.target.value })}
-                disabled={isHydrating || isApproved()}
-              />
+
+            {/* Owner + Due Date (2-column) */}
+            <div className="grid grid-cols-2 gap-3">
+              {/* Owner */}
+              <div className="space-y-2">
+                <label className="text-[11px] font-semibold text-zinc-700">オーナー（任意）</label>
+                <input
+                  className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
+                  placeholder="氏名や役職など"
+                  value={mainOKR?.owner ?? ''}
+                  onChange={(e) => updateProjectOKR(selected.deptIdx, selected.projIdx, { owner: e.target.value })}
+                  disabled={isHydrating || isApproved()}
+                />
+              </div>
+              {/* Due Date */}
+              <div className="space-y-2">
+                <label className="text-[11px] font-semibold text-zinc-700">期限（YYYY-MM）</label>
+                <input
+                  className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
+                  placeholder="2026-03"
+                  value={mainOKR?.due ?? ''}
+                  onChange={(e) => updateProjectOKR(selected.deptIdx, selected.projIdx, { due: e.target.value })}
+                  disabled={isHydrating || isApproved()}
+                />
+              </div>
             </div>
           </div>
 
           {/* ========== Card 2: 仮説と成長レバー / ロール（財務レバー） ========== */}
-          <div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">仮説と成長レバー / ロール（財務レバー）</h2>
+          <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <h2 className="mb-4 text-[16px] font-semibold text-zinc-900">仮説と成長レバー / ロール（財務レバー）</h2>
             {(() => {
               const hypothesis =
                 typeof (selectedProj as any)?.hypothesis === 'string'
@@ -1455,9 +1459,8 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
           </div>
 
           {/* ========== Card 3: 成果指標（KPI） ========== */}
-{/* ========== Card 2: 成果指標（KPI） ========== */}
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">成果指標（KPI）</h2>
+          <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <h2 className="mb-4 text-[16px] font-semibold text-zinc-900">成果指標（KPI）</h2>
 
             {/* Add Button */}
             <div className="mb-4">
@@ -3016,12 +3019,13 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
         </div>
       </div>
 
-      {/* STAGE4 作業エリア：ここだけ横スクロール */}
-      <div data-debug="okr-scrollwrap" className="overflow-x-auto overscroll-x-contain touch-pan-x pb-2">
-        <div className="min-w-[1600px]">
-          <div className="grid gap-6 grid-cols-[320px_1fr]">
-            {/* Left: project list */}
-            <aside className="w-[320px] rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
+      {/* STAGE4 作業エリア：中央寄せ＆幅最適化 */}
+      <div className="mx-auto max-w-6xl">
+        <div data-debug="okr-scrollwrap" className="overflow-x-auto overscroll-x-contain touch-pan-x pb-2">
+          <div className="min-w-0">
+            <div className="grid gap-4 grid-cols-[280px_1fr]">
+              {/* Left: project list */}
+              <aside className="w-[280px] rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
             <div className="mb-3 flex items-center justify-between">
               <div className="text-[13px] font-semibold text-zinc-900">プロジェクト一覧</div>
               <div className="text-[11px] text-zinc-500">
@@ -3113,17 +3117,18 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
           </div>
             </aside>
 
-            {/* Right: 3カラム（目的/KPI/実行計画） */}
-            <section className="min-h-[420px]">
-              {!selected || !selectedProj ? (
-                <div className="rounded-3xl border border-dashed border-zinc-300 bg-white p-10 text-center">
-                  <div className="text-[14px] font-semibold text-zinc-900">プロジェクトを選択してください</div>
-                  <div className="mt-2 text-[12px] text-zinc-600">左の一覧からプロジェクトをクリックすると、入力フォームが開きます。</div>
-                </div>
-              ) : (
-                renderSimpleRight()
-              )}
-            </section>
+              {/* Right: 3カラム（目的/KPI/実行計画） */}
+              <section className="min-h-[420px]">
+                {!selected || !selectedProj ? (
+                  <div className="rounded-3xl border border-dashed border-zinc-300 bg-white p-10 text-center">
+                    <div className="text-[14px] font-semibold text-zinc-900">プロジェクトを選択してください</div>
+                    <div className="mt-2 text-[12px] text-zinc-600">左の一覧からプロジェクトをクリックすると、入力フォームが開きます。</div>
+                  </div>
+                ) : (
+                  renderSimpleRight()
+                )}
+              </section>
+            </div>
           </div>
         </div>
       </div>
