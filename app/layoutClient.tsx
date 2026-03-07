@@ -165,7 +165,12 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
    * ルート遷移ごとに main をトップへ & ドロワー閉じ
    * ============================== */
   const [openLeft, setOpenLeft] = useState(false);
-  const [openRight, setOpenRight] = useState(false);
+
+  // ★ CEO Panel トグル管理（hydration mismatch 対策）
+  const [mounted, setMounted] = useState(false);
+  const [ceoPanelOpen, setCeoPanelOpen] = useState(false);
+  const [isLargeScreen, setIsLargeScreen] = useState(false);
+
   useEffect(() => {
     const el = mainRef.current;
     if (el) {
@@ -177,8 +182,55 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       });
     }
     setOpenLeft(false);
-    setOpenRight(false);
   }, [pathname]);
+
+  // ★ mounted フラグを立てる（client-side only）
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // ★ localStorage から CEO panel 初期状態を復元 + screen size 監視
+  useEffect(() => {
+    if (!mounted) return;
+
+    // localStorage から前回の状態を読み込み
+    try {
+      const stored = localStorage.getItem('growth_ceo_panel_open');
+      if (stored !== null) {
+        setCeoPanelOpen(JSON.parse(stored));
+      } else {
+        // 初回時: 2xl以上なら初期 open、xl以下は closed
+        setIsLargeScreen(window.innerWidth >= 1536);
+        setCeoPanelOpen(window.innerWidth >= 1536);
+      }
+    } catch {
+      setCeoPanelOpen(false);
+    }
+
+    // screen size 変化を監視（xl ↔ 2xl の遷移対応）
+    const handleResize = () => {
+      const large = window.innerWidth >= 1536;
+      setIsLargeScreen(large);
+    };
+
+    handleResize(); // 初回実行
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [mounted]);
+
+  // ★ CEO panel 状態が変わったら localStorage に保存
+  useEffect(() => {
+    if (mounted) {
+      try {
+        localStorage.setItem('growth_ceo_panel_open', JSON.stringify(ceoPanelOpen));
+      } catch {
+        // localStorage 利用不可の場合は無視
+      }
+    }
+  }, [ceoPanelOpen, mounted]);
+
+  // ★ 右パネルの表示判定
+  const showCeoPanel = mounted && (isLargeScreen || ceoPanelOpen);
 
   /* ================================
    * 1) セッション初期確認 + access_token 取得
@@ -717,10 +769,12 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   return (
     <div
       className={[
-        'relative min-h-dvh overflow-hidden',
+        'relative min-h-dvh overflow-hidden transition-[margin]',
         '[--left-w:0] [--right-w:0]',
-        'lg:[--left-w:16rem] lg:[--right-w:16rem]',
-        'xl:[--left-w:18rem] xl:[--right-w:18rem]',
+        // Sidebar 幅の段階化: lg:w-56 (14rem) → xl:w-64 (16rem) → 2xl:w-72 (18rem)
+        'lg:[--left-w:14rem] lg:[--right-w:16rem]',
+        'xl:[--left-w:16rem] xl:[--right-w:16rem]',
+        '2xl:[--left-w:18rem] 2xl:[--right-w:18rem]',
       ].join(' ')}
     >
       {/* 左サイドバー */}
@@ -753,50 +807,51 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         </>
       )}
 
-      {/* 右AIドック */}
-      {!hideSidebar && (
-        <>
-          <aside
+      {/* 右AIドック（条件付き表示: 2xl自動 / lg-xl はtoggle制御） */}
+      {!hideSidebar && showCeoPanel && (
+        <aside
+          className={[
+            'hidden lg:flex fixed top-0 right-0 z-20 h-dvh',
+            'border-l border-black/5 bg-white/70 backdrop-blur-md supports-[backdrop-filter]:bg-white/60',
+            'shadow-[0_0_24px_rgba(0,0,0,0.04)]',
+            'flex-col box-border overflow-hidden',
+            'w-[var(--right-w)]',
+            'transition-opacity duration-200',
+          ].join(' ')}
+        >
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="ml-auto w-full h-full max-w-[var(--right-w)] [&>*]:w-full [&>*]:max-w-none [&>*]:ml-0">
+              <CEOChatPanel />
+            </div>
+          </div>
+        </aside>
+      )}
+
+      {/* モバイル右ドロワー（lg以下用） */}
+      {!hideSidebar && !isLargeScreen && (
+        <div
+          className={['lg:hidden fixed inset-0 z-40', ceoPanelOpen ? 'pointer-events-auto' : 'pointer-events-none'].join(' ')}
+          aria-hidden={!ceoPanelOpen}
+        >
+          <div
+            className={['absolute inset-0 bg-black/40 transition-opacity', ceoPanelOpen ? 'opacity-100' : 'opacity-0'].join(' ')}
+            onClick={() => setCeoPanelOpen(false)}
+          />
+          <div
             className={[
-              'hidden lg:flex fixed top-0 right-0 z-10 h-dvh',
-              'border-l border-black/5 bg-white/70 backdrop-blur-md supports-[backdrop-filter]:bg-white/60',
-              'shadow-[0_0_24px_rgba(0,0,0,0.04)]',
-              'flex-col box-border overflow-hidden',
-              'w-[var(--right-w)]',
+              'absolute right-0 top-0 h-dvh w-[16rem] max-w-[90vw]',
+              'bg-white shadow-xl border-l border-black/5',
+              'transition-transform duration-200',
+              ceoPanelOpen ? 'translate-x-0' : 'translate-x-full',
             ].join(' ')}
           >
             <div className="min-h-0 flex-1 overflow-y-auto">
-              <div className="ml-auto w-full h-full max-w-[var(--right-w)] [&>*]:w-full [&>*]:max-w-none [&>*]:ml-0">
+              <div className="[&>*]:w-full [&>*]:max-w-none [&>*]:ml-0">
                 <CEOChatPanel />
               </div>
             </div>
-          </aside>
-
-          {/* モバイル右ドロワー */}
-          <div
-            className={['lg:hidden fixed inset-0 z-40', openRight ? 'pointer-events-auto' : 'pointer-events-none'].join(' ')}
-            aria-hidden={!openRight}
-          >
-            <div
-              className={['absolute inset-0 bg-black/40 transition-opacity', openRight ? 'opacity-100' : 'opacity-0'].join(' ')}
-              onClick={() => setOpenRight(false)}
-            />
-            <div
-              className={[
-                'absolute right-0 top-0 h-dvh w-[16rem] max-w-[90vw]',
-                'bg-white shadow-xl border-l border-black/5',
-                'transition-transform duration-200',
-                openRight ? 'translate-x-0' : 'translate-x-full',
-              ].join(' ')}
-            >
-              <div className="min-h-0 flex-1 overflow-y-auto">
-                <div className="[&>*]:w-full [&>*]:max-w-none [&>*]:ml-0">
-                  <CEOChatPanel />
-                </div>
-              </div>
-            </div>
           </div>
-        </>
+        </div>
       )}
 
       {/* メイン */}
@@ -806,12 +861,16 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         className={[
           'absolute inset-0 overflow-y-auto overflow-x-hidden',
           'bg-gradient-to-b from-white to-slate-50/60',
-          'p-3 sm:p-4 md:p-6 lg:p-8 pb-[calc(2rem+env(safe-area-inset-bottom))]',
+          'p-3 sm:p-4 md:p-6 lg:p-6 pb-[calc(2rem+env(safe-area-inset-bottom))]',
           'min-w-0',
         ].join(' ')}
         style={{
           marginLeft: !hideSidebar ? 'var(--left-w)' : undefined,
-          marginRight: !hideSidebar ? 'var(--right-w)' : undefined,
+          // lg-xl (1366px帯): overlay なので marginRight なし（main を圧迫しない）
+          // 2xl (1536px+): 常設 panel なので marginRight を適用
+          marginRight: !hideSidebar && isLargeScreen ? 'var(--right-w)' : undefined,
+          // 2xl で margin-right が変わる時の smooth transition
+          transition: 'margin-right 0.2s ease-in-out',
         }}
       >
         {!hideSidebar && (
@@ -824,13 +883,43 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
                 メニュー
               </button>
               <button
-                onClick={() => setOpenRight(true)}
+                onClick={() => setCeoPanelOpen(true)}
                 className="rounded-lg border border-black/10 px-3 py-1.5 text-sm shadow-sm bg-white active:scale-[0.99]"
               >
                 AIアシスタント
               </button>
             </div>
           </div>
+        )}
+
+        {/* lg-xl 帯での右パネルトグルボタン（2xl では非表示） */}
+        {!hideSidebar && mounted && !isLargeScreen && (
+          <button
+            onClick={() => setCeoPanelOpen(!ceoPanelOpen)}
+            className={[
+              'hidden lg:block 2xl:hidden fixed bottom-6 right-6 z-30',
+              'rounded-full w-12 h-12 flex items-center justify-center',
+              'bg-white border border-black/10 shadow-lg hover:shadow-xl',
+              'transition-all active:scale-95',
+              ceoPanelOpen ? 'bg-blue-50' : 'bg-white',
+            ].join(' ')}
+            aria-label={ceoPanelOpen ? 'パネルを閉じる' : 'AIアシスタントを開く'}
+          >
+            <svg
+              className="w-5 h-5 text-gray-700"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d={ceoPanelOpen ? 'M15 19l-7-7 7-7' : 'M9 5l7 7-7 7'}
+              />
+            </svg>
+          </button>
         )}
 
         {children}
