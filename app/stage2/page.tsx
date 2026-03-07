@@ -2872,7 +2872,7 @@ function Stage2PageContent() {
     <main className="min-h-screen bg-gradient-to-b from-white to-slate-50/60 dark:from-zinc-950 dark:to-zinc-900">
       {/* Header */}
       <header className="sticky top-0 z-10 bg-white/80 dark:bg-zinc-900/80 backdrop-blur border-b border-black/5 dark:border-white/5">
-        <div className="max-w-[1100px] mx-auto px-6 py-3 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 md:px-6 py-4 flex items-center justify-between gap-6">
           <div>
             <h1 className="text-xl font-bold text-gray-800 dark:text-gray-200">STAGE2：経営戦略ストーリー</h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -2901,7 +2901,7 @@ function Stage2PageContent() {
       )}
 
       {error && (
-        <div className="max-w-[1100px] mx-auto px-6 py-4">
+        <div className="max-w-6xl mx-auto px-4 md:px-6 py-4">
           <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 text-red-700 dark:text-red-400">
             {error}
           </div>
@@ -2912,7 +2912,7 @@ function Stage2PageContent() {
         <>
           {/* Sticky StepperTabs */}
           <div className="sticky top-[56px] z-10 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-md border-b border-black/5 dark:border-white/5">
-            <div className="max-w-[1100px] mx-auto px-6 py-4">
+            <div className="max-w-6xl mx-auto px-4 md:px-6 py-4">
               <StepperTabs
                 activeTab={activeTab}
                 onChange={setActiveTab}
@@ -2924,7 +2924,7 @@ function Stage2PageContent() {
           </div>
 
           {/* Tab Content */}
-          <div className="max-w-[1100px] mx-auto px-6 py-6 space-y-6">
+          <div className="max-w-6xl mx-auto px-4 md:px-6 py-6 space-y-6">
             {/* 入力タグ：CEO意図→MVV＋SWOT→たたき台生成 */}
             {activeTab === 'input' && (
               <div className="space-y-6">
