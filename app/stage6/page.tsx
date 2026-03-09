@@ -1,4 +1,3 @@
-// /app/stage6/page.tsx
 'use client';
 import StrategyGuard from '@/app/StrategyGuard';
 
@@ -17,11 +16,10 @@ import { useStage6Data } from '@/components/stage6/hooks/useStage6Data';
 
 function Stage6PageContent() {
   const [scenarioKey, setScenarioKey] = useState<'low' | 'base' | 'high'>('base');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'analysis'>('dashboard');
+  const [showDetails, setShowDetails] = useState(false);
 
   const stage6 = useStage6Data(scenarioKey);
 
-  // Phase E data from store (tab2 edits)
   const projectTargetImpacts = useStrategyStore((s: StrategyState) => s.projectTargetImpacts ?? []);
   const {
     addProjectTargetImpact,
@@ -31,7 +29,9 @@ function Stage6PageContent() {
 
   const handleUpdateImpact = useCallback(
     (projectId: string, targetId: string, delta: number, notes?: string) => {
-      const existing = projectTargetImpacts.find((imp: any) => imp.projectId === projectId && imp.targetId === targetId);
+      const existing = projectTargetImpacts.find(
+        (imp: any) => imp.projectId === projectId && imp.targetId === targetId
+      );
       if (existing) {
         updateProjectTargetImpact(projectId, targetId, { delta, notes });
       } else {
@@ -50,7 +50,9 @@ function Stage6PageContent() {
 
   const projectFilters = useProjectFilters({
     core: stage6.core,
-    selectedYearly: { base: stage6.core.yearlyAll?.base ?? [] },
+    selectedYearly: {
+      base: stage6.core.yearlyAll?.base ?? [],
+    },
   });
 
   useAutoSave({
@@ -83,7 +85,7 @@ function Stage6PageContent() {
               <h2 className="font-semibold text-amber-900">データ準備ができていません</h2>
               <p className="mt-1 text-sm text-amber-800">{stage6.error}</p>
               <p className="mt-2 text-xs text-amber-700">
-                STAGE1で財務データを入力し、STAGE2で目標（North Star）を設定してください。
+                STAGE1で財務データを入力し、STAGE4でプロジェクト計画を設定してください。
               </p>
             </div>
           </div>
@@ -94,12 +96,12 @@ function Stage6PageContent() {
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="mx-auto max-w-7xl px-4 pb-12 pt-8 md:px-6 md:pt-10">
-        <header className="mb-6">
+      <div className="mx-auto max-w-7xl px-4 pb-12 pt-8 md:px-6 md:pt-10 space-y-6">
+        <header>
           <p className="text-[11px] uppercase tracking-[0.25em] text-slate-400">STAGE 6 / VALUE VALIDATION</p>
           <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">価値検証（会社の未来とプロジェクト寄与）</h1>
+              <h1 className="text-3xl font-bold tracking-tight">価値検証（進捗・寄与・次アクション）</h1>
               <p className="mt-1 text-sm text-slate-600">{stage6.companyName}</p>
             </div>
             <div className="flex items-center gap-4">
@@ -124,75 +126,60 @@ function Stage6PageContent() {
         </header>
 
         {stage6.core.error && (
-          <div className="mb-6 flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
+          <div className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
             <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-700" />
             <div className="text-sm text-amber-800">{stage6.core.error}</div>
           </div>
         )}
 
-        <div className="mb-6 border-b border-slate-200">
-          <div className="flex gap-4">
+        <TabValueDashboard
+          northStarRows={stage6.northStarRows}
+          projectContrib={stage6.projectContrib}
+          vaCards={stage6.vaCards}
+        />
+
+        <TabImpact
+          projectContrib={stage6.projectContrib}
+          core={stage6.core}
+          deptFilter={projectFilters.deptFilter}
+          setDeptFilter={projectFilters.setDeptFilter}
+          selectedProjectKeys={projectFilters.selectedProjectKeys}
+          selectedSet={projectFilters.selectedSet}
+          selectedSummary={projectFilters.selectedSummary}
+          toggleProject={projectFilters.toggleProject}
+          selectAllFiltered={projectFilters.selectAllFiltered}
+          clearAllFiltered={projectFilters.clearAllFiltered}
+        />
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">詳細分析（必要な場合のみ）</h2>
+              <p className="mt-1 text-[12px] text-slate-600">
+                North Star への寄与を詳細に調整したい場合だけ開いてください。
+              </p>
+            </div>
             <button
-              onClick={() => setActiveTab('dashboard')}
-              className={`px-4 py-3 text-sm font-medium transition border-b-2 ${
-                activeTab === 'dashboard'
-                  ? 'border-b-slate-900 text-slate-900'
-                  : 'border-b-transparent text-slate-600 hover:text-slate-900'
-              }`}
+              onClick={() => setShowDetails((v) => !v)}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50"
             >
-              ダッシュボード
-            </button>
-            <button
-              onClick={() => setActiveTab('analysis')}
-              className={`px-4 py-3 text-sm font-medium transition border-b-2 ${
-                activeTab === 'analysis'
-                  ? 'border-b-slate-900 text-slate-900'
-                  : 'border-b-transparent text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              詳細分析
+              {showDetails ? '閉じる' : '詳細を開く'}
             </button>
           </div>
-        </div>
 
-        <div className="space-y-6">
-          {activeTab === 'dashboard' && (
-            <>
-              <TabValueDashboard northStarRows={stage6.northStarRows} projectContrib={stage6.projectContrib} companySummary={stage6.companySummary} />
-
-              <details className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                <summary className="cursor-pointer text-lg font-bold text-slate-900 hover:text-slate-700">
-                  プロジェクト寄与（計画Δ / 達成寄与 / 達成率）
-                </summary>
-                <div className="mt-4">
-                  <TabImpact
-                    projectContrib={stage6.projectContrib}
-                    core={stage6.core}
-                    deptFilter={projectFilters.deptFilter}
-                    setDeptFilter={projectFilters.setDeptFilter}
-                    selectedProjectKeys={projectFilters.selectedProjectKeys}
-                    selectedSet={projectFilters.selectedSet}
-                    selectedSummary={projectFilters.selectedSummary}
-                    toggleProject={projectFilters.toggleProject}
-                    selectAllFiltered={projectFilters.selectAllFiltered}
-                    clearAllFiltered={projectFilters.clearAllFiltered}
-                  />
-                </div>
-              </details>
-            </>
+          {showDetails && (
+            <div className="mt-4">
+              <TabNorthStar
+                northStarRows={stage6.northStarRows}
+                chartData={stage6.chartData}
+                projectTargetImpacts={projectTargetImpacts}
+                allProjectKeys={stage6.allProjectKeys}
+                onUpdateImpact={handleUpdateImpact}
+                onRemoveImpact={handleRemoveImpact}
+              />
+            </div>
           )}
-
-          {activeTab === 'analysis' && (
-            <TabNorthStar
-              northStarRows={stage6.northStarRows}
-              chartData={stage6.chartData}
-              projectTargetImpacts={projectTargetImpacts}
-              allProjectKeys={stage6.allProjectKeys}
-              onUpdateImpact={handleUpdateImpact}
-              onRemoveImpact={handleRemoveImpact}
-            />
-          )}
-        </div>
+        </section>
       </div>
     </main>
   );
