@@ -513,35 +513,9 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       }
     }
 
-    // Progress Map をビルド（dept::proj::idx → {revPct, opPct}）
-    const progressMap = new Map<string, { revPct?: number; opPct?: number }>();
-    departments?.forEach((d: any) => {
-      const deptName = d?.name ?? d?.departmentName ?? '（未名）';
-      const projects = Array.isArray(d?.projects) ? d.projects : [];
-      projects.forEach((proj: any, pIdx: number) => {
-        const projTitle = proj?.title ?? '（未名）';
-        const projKey = makeProjectKey(deptName, projTitle, pIdx);
-
-        const revRaw = proj?.impactRevenueProgress;
-        const revPct = typeof revRaw === 'number' ? Math.max(0, Math.min(100, revRaw)) : undefined;
-
-        const opRaw = proj?.impactOpIncomeProgress;
-        const opPct = typeof opRaw === 'number' ? Math.max(0, Math.min(100, opRaw)) : undefined;
-
-        progressMap.set(projKey, { revPct, opPct });
-      });
-    });
-
     return projectContrib.map((p: any) => {
       const deltaRevenueTotal = revMap.get(p.key) ?? 0;
       const deltaOpTotal = opMap.get(p.key) ?? 0;
-
-      // Progress から達成寄与を計算
-      const progressData = progressMap.get(p.key);
-      const progressRevenuePct = progressData?.revPct;
-      const progressOpPct = progressData?.opPct;
-      const achievedRevenueTotal = deltaRevenueTotal * ((progressRevenuePct ?? 0) / 100);
-      const achievedOpTotal = deltaOpTotal * ((progressOpPct ?? 0) / 100);
 
       // 投資は既存の集計を尊重（0のままでもOK）。ROIは投資がある場合のみ概算。
       const investTotal = typeof p.investTotal === 'number' ? p.investTotal : 0;
@@ -563,58 +537,9 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         deltaOpTotal,
         roi,
         evidence,
-        progressRevenuePct,
-        progressOpPct,
-        achievedRevenueTotal,
-        achievedOpTotal,
       };
     });
-  }, [projectContrib, effectiveProjectTargetImpacts, companyTargets, departments, makeProjectKey]);
-
-  // === F-2: Company summary（会社NS目標 vs 達成寄与合計） ===
-  const companySummary = useMemo(() => {
-    // 1) projectContribForUI から合計を計算
-    const sumTargetRevenueYen = projectContribForUI.reduce((sum, p) => sum + (p.deltaRevenueTotal ?? 0), 0);
-    const sumAchievedRevenueYen = projectContribForUI.reduce((sum, p) => sum + (p.achievedRevenueTotal ?? 0), 0);
-    const sumTargetOpYen = projectContribForUI.reduce((sum, p) => sum + (p.deltaOpTotal ?? 0), 0);
-    const sumAchievedOpYen = projectContribForUI.reduce((sum, p) => sum + (p.achievedOpTotal ?? 0), 0);
-
-    // 2) companyTargets から会社目標を抽出（target優先）
-    const revTarget = companyTargets.find(
-      (t: any) => typeof t?.label === 'string' && t.label.includes('売上') && !t.label.includes('成長'),
-    );
-    const opTarget = companyTargets.find(
-      (t: any) => typeof t?.label === 'string' && t.label.includes('営業利益') && !t.label.includes('率'),
-    );
-
-    const revTargetVal = typeof revTarget?.target === 'number' ? revTarget.target : typeof revTarget?.base === 'number' ? revTarget.base : undefined;
-    const opTargetVal = typeof opTarget?.target === 'number' ? opTarget.target : typeof opTarget?.base === 'number' ? opTarget.base : undefined;
-
-    const companyRevenueTargetYen = typeof revTargetVal === 'number' ? normalizeValueToUnit(revTargetVal, revTarget.unit, 'yen') : undefined;
-    const companyOpTargetYen = typeof opTargetVal === 'number' ? normalizeValueToUnit(opTargetVal, opTarget.unit, 'yen') : undefined;
-
-    // 3) 進捗% を計算（0割回避）
-    const companyRevenueAchvPct =
-      typeof companyRevenueTargetYen === 'number' && companyRevenueTargetYen > 0
-        ? (sumAchievedRevenueYen / companyRevenueTargetYen) * 100
-        : undefined;
-    const companyOpAchvPct =
-      typeof companyOpTargetYen === 'number' && companyOpTargetYen > 0
-        ? (sumAchievedOpYen / companyOpTargetYen) * 100
-        : undefined;
-
-    return {
-      sumTargetRevenueYen,
-      sumAchievedRevenueYen,
-      sumTargetOpYen,
-      sumAchievedOpYen,
-      companyRevenueTargetYen,
-      companyOpTargetYen,
-      companyRevenueAchvPct,
-      companyOpAchvPct,
-    };
-  }, [projectContribForUI, companyTargets]);
-
+  }, [projectContrib, effectiveProjectTargetImpacts, companyTargets]);
   // === STAGE6 Phase E：AUTO推定（projectIssueLinks） ===
   const autoProjectIssueLinks = useMemo(() => {
     if (!isReady || allProjectKeys.length === 0 || stage1Issues.length === 0) {
@@ -630,7 +555,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       }));
       console.log('[STAGE6-AUTO-ISSUE] 入力チェック:', {
         stage1Issues_len: stage1Issues.length,
-        stage1Issues_sample: stage1Issues.slice(0, 2).map((i) => i.title),
+        stage1Issues_sample: stage1Issues.slice(0, 2).map((i: any) => i.title),
         projectKeys_len: allProjectKeys.length,
         projectKeys_sample: allProjectKeys.slice(0, 3),
         projectKrsMap_size: core.projectKrsMap.size,
@@ -681,7 +606,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
   useEffect(() => {
     if (DEBUG && companyTargets.length > 0) {
       const samples = companyTargets.slice(0, 2);
-      console.log('[G-1] CompanyTargets sample:', samples.map(t => ({ id: t.id, label: t.label, unit: t.unit, base: t.base })));
+      console.log('[G-1] CompanyTargets sample:', samples.map((t: any) => ({ id: t.id, label: t.label, unit: t.unit, base: t.base })));
     }
   }, [companyTargets]);
 
@@ -989,8 +914,8 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       const knownUnits = new Set(['yen', 'million_yen', '円', '百万円', '%', 'percent']);
 
       // Stage2 原本（companyTargets）から売上・営業利益を取得
-      const stage2Revenue = companyTargets.find((t) => t.label?.toLowerCase().includes('売上') && !t.label?.toLowerCase().includes('成長'));
-      const stage2OpIncome = companyTargets.find((t) => t.label?.toLowerCase().includes('営業利益') && !t.label?.toLowerCase().includes('率'));
+      const stage2Revenue = companyTargets.find((t: any) => t.label?.toLowerCase().includes('売上') && !t.label?.toLowerCase().includes('成長'));
+      const stage2OpIncome = companyTargets.find((t: any) => t.label?.toLowerCase().includes('営業利益') && !t.label?.toLowerCase().includes('率'));
 
       // Stage6 加工後（northStarRows）から売上・営業利益を取得
       const stage6Revenue = northStarRows.find((r) => r.label.toLowerCase().includes('売上') && !r.label.toLowerCase().includes('成長'));
@@ -1293,7 +1218,6 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     vaCards,
     indicatorSeries,
     chartData: chartDataWithPhaseE,  // ★Phase E の影響を反映したグラフデータ
-    companySummary,  // ★F-2: 会社NS目標 vs 達成寄与合計
     // Supporting data
     financePL,
     companyTargets,
