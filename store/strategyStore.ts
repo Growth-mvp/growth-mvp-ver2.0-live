@@ -280,8 +280,8 @@ export type StrategyState = {
   lastSaveAttemptRevision?: number; // Revision we tried to save
   lastConflictInfo?: {
     // Details of last conflict
-    expectedRevision: number;
-    currentRevision: number;
+    expectedRevision: number | undefined;
+    currentRevision: number | undefined;
     occurredAt: number;
     attempt: number;
   };
@@ -333,7 +333,7 @@ export type StrategyState = {
   reset: () => void;
   resetAll: () => void;
 
-  setHydrated: (revOrBool?: boolean | number, hash?: string) => void;
+  setHydrated: (revOrBool?: boolean | number, hash?: string | undefined) => void;
   setHydrating: (b: boolean) => void;
   setServerSnapshotHash: (hash?: string) => void;
 
@@ -1144,6 +1144,7 @@ const emptyData: StrategyState = {
 
   revision: undefined,
   lastServerSnapshot: undefined,
+  lastServerSyncAt: undefined,
   serverShadow: undefined,
 
   __isFetchingFromServer: false,
@@ -1706,11 +1707,11 @@ export const useStrategyStore = create<StrategyState>()(
         set({ ...emptyData });
       },
 
-      setHydrated: (revOrBool = true, hash) =>
+      setHydrated: (revOrBool?: boolean | number, hash?: string) =>
         set((s) => {
-          const isBool = typeof revOrBool === 'boolean';
+          const isBool = revOrBool === undefined || typeof revOrBool === 'boolean';
           return {
-            hydrated: isBool ? (revOrBool as boolean) : true,
+            hydrated: isBool ? (revOrBool !== false ? true : false) : true,
             boot: { isHydrating: false, isHydrated: true },
             revision: isBool ? s.revision : (revOrBool as number),
             lastServerSnapshot: hash ?? s.lastServerSnapshot,
@@ -2119,7 +2120,7 @@ export const useStrategyStore = create<StrategyState>()(
         });
       },
 
-      getOKRTargetScore: (okrId: string) => {
+      getOKRTargetScore: (okrId: string): number => {
         return (useStrategyStore.getState().okrTargetScores ?? {})[okrId] ?? 0;
       },
 
@@ -2275,10 +2276,10 @@ export const useStrategyStore = create<StrategyState>()(
       },
 
       /* STAGE1 財務データ setter */
-      setFinancePL: (rows) => {
+      setFinancePL: (rows: FinancePLRow[]) => {
         // ★ TASK-A: financePL を yen に統一（Stage1入力は百万円、保存は yen）
         const yenRows = Array.isArray(rows)
-          ? rows.map((row: any) => {
+          ? rows.map((row: FinancePLRow) => {
               // 数値が 100万未満なら百万円と判定して yen に変換
               const revenue = row.revenue ?? 0;
               const operatingIncome = row.operatingIncome ?? 0;
@@ -2329,12 +2330,12 @@ export const useStrategyStore = create<StrategyState>()(
         setTimeout(() => get().recomputeValueAnalysis('setFinancePL'), 0);
       },
 
-      setFinanceBS: (rows) => {
+      setFinanceBS: (rows: FinanceBSRow[]) => {
         // ★ DEBUG：入力ログ（弾き判定用）
         if (DEBUG) console.log('[strategyStore] setFinanceBS input', {
           len: Array.isArray(rows) ? rows.length : 'not-array',
           sample: Array.isArray(rows) && rows.length > 0 ? rows[0] : null,
-          allYears: Array.isArray(rows) ? rows.map((r: any) => ({ year: r.year, yearType: typeof r.year })) : null,
+          allYears: Array.isArray(rows) ? rows.map((r: FinanceBSRow) => ({ year: r.year, yearType: typeof r.year })) : null,
         });
 
         if (DEBUG) {
@@ -2384,16 +2385,16 @@ export const useStrategyStore = create<StrategyState>()(
         setTimeout(() => get().recomputeValueAnalysis('setFinanceBS'), 0);
       },
 
-      setSegmentPL: (data) => {
+      setSegmentPL: (data: Record<string, FinancePLRow[]>) => {
         // ★ DEBUG：入力ログ（弾き判定用）
         const keys = Object.keys(data ?? {});
         const distribution = Object.fromEntries(
-          keys.map((k) => [k, Array.isArray((data as any)?.[k]) ? (data as any)[k].length : '?'])
+          keys.map((k: string) => [k, Array.isArray(data[k]) ? data[k].length : '?'])
         );
         if (DEBUG) console.log('[strategyStore] setSegmentPL input', {
           keys,
           distribution,
-          sample: keys.length > 0 ? { [keys[0]]: (data as any)?.[keys[0]]?.[0] } : null,
+          sample: keys.length > 0 ? { [keys[0]]: data[keys[0]]?.[0] } : null,
         });
 
         // ★ 修正：csvFinanceData と同期
@@ -2432,16 +2433,16 @@ export const useStrategyStore = create<StrategyState>()(
         setTimeout(() => get().recomputeValueAnalysis('setSegmentPL'), 0);
       },
 
-      setSegmentBS: (data) => {
+      setSegmentBS: (data: Record<string, SegmentBSRow[]>) => {
         // ★ DEBUG：入力ログ（弾き判定用）
         const keys = Object.keys(data ?? {});
         const distribution = Object.fromEntries(
-          keys.map((k) => [k, Array.isArray((data as any)?.[k]) ? (data as any)[k].length : '?'])
+          keys.map((k: string) => [k, Array.isArray(data[k]) ? data[k].length : '?'])
         );
         if (DEBUG) console.log('[strategyStore] setSegmentBS input', {
           keys,
           distribution,
-          sample: keys.length > 0 ? { [keys[0]]: (data as any)?.[keys[0]]?.[0] } : null,
+          sample: keys.length > 0 ? { [keys[0]]: data[keys[0]]?.[0] } : null,
         });
 
         // ★ 修正：csvFinanceData と同期
@@ -2481,12 +2482,12 @@ export const useStrategyStore = create<StrategyState>()(
       },
 
       /** ★ セグメント単位マージ更新（必ずマージ） */
-      upsertSegmentPL: (segName, rows) => {
+      upsertSegmentPL: (segName: string, rows: FinancePLRow[]) => {
         if (DEBUG) {
           console.log('[strategyStore] upsertSegmentPL', {
             segName,
             rowsLen: Array.isArray(rows) ? rows.length : 0,
-            currentKeys: Object.keys((get().segmentPL || {}) as any),
+            currentKeys: Object.keys((get().segmentPL || {})),
           });
         }
         set((s) => {
@@ -2506,12 +2507,12 @@ export const useStrategyStore = create<StrategyState>()(
         setTimeout(() => get().recomputeValueAnalysis('setSegmentPL'), 0);
       },
 
-      upsertSegmentBS: (segName, rows) => {
+      upsertSegmentBS: (segName: string, rows: SegmentBSRow[]) => {
         if (DEBUG) {
           console.log('[strategyStore] upsertSegmentBS', {
             segName,
             rowsLen: Array.isArray(rows) ? rows.length : 0,
-            currentKeys: Object.keys((get().segmentBS || {}) as any),
+            currentKeys: Object.keys((get().segmentBS || {})),
           });
         }
         set((s) => {
@@ -2531,9 +2532,9 @@ export const useStrategyStore = create<StrategyState>()(
         setTimeout(() => get().recomputeValueAnalysis('setSegmentBS'), 0);
       },
 
-      setBusinessSegmentsWithSync: (segments) => {
+      setBusinessSegmentsWithSync: (segments: BusinessSegment[]) => {
         const currentState = get();
-        const newSegmentNames = new Set(segments.map((seg) => seg.name));
+        const newSegmentNames = new Set(segments.map((seg: BusinessSegment) => seg.name));
 
         let newSegmentPL = currentState.segmentPL ? { ...currentState.segmentPL } : {};
         let newSegmentBS = currentState.segmentBS ? { ...currentState.segmentBS } : {};
@@ -2546,8 +2547,8 @@ export const useStrategyStore = create<StrategyState>()(
         }
 
         for (const segName of newSegmentNames) {
-          if (!(segName in newSegmentPL)) newSegmentPL[segName] = [];
-          if (!(segName in newSegmentBS)) newSegmentBS[segName] = [];
+          if (!(segName in newSegmentPL)) (newSegmentPL as Record<string, FinancePLRow[]>)[segName] = [];
+          if (!(segName in newSegmentBS)) (newSegmentBS as Record<string, SegmentBSRow[]>)[segName] = [];
         }
 
         // ★ 修正：csvFinanceData も同期
@@ -2614,10 +2615,10 @@ export const useStrategyStore = create<StrategyState>()(
         setTimeout(() => get().recomputeValueAnalysis('setFinancePL'), 0);
       },
 
-      updateFinancePLCell: (year, key, value) => {
+      updateFinancePLCell: <K extends keyof FinancePLRow>(year: number, key: K, value: FinancePLRow[K]) => {
         set((s) => {
           const rows = s.financePL ?? [];
-          const idx = rows.findIndex((r) => r.year === year);
+          const idx = rows.findIndex((r: FinancePLRow) => r.year === year);
           if (idx < 0) {
             console.warn('[strategyStore] updateFinancePLCell: year not found', { year });
             return s;
@@ -2629,10 +2630,10 @@ export const useStrategyStore = create<StrategyState>()(
         setTimeout(() => get().recomputeValueAnalysis('setFinancePL'), 0);
       },
 
-      updateFinanceBSCell: (year, key, value) => {
+      updateFinanceBSCell: <K extends keyof FinanceBSRow>(year: number, key: K, value: FinanceBSRow[K]) => {
         set((s) => {
           const rows = s.financeBS ?? [];
-          const idx = rows.findIndex((r) => r.year === year);
+          const idx = rows.findIndex((r: FinanceBSRow) => r.year === year);
           if (idx < 0) {
             console.warn('[strategyStore] updateFinanceBSCell: year not found', { year });
             return s;
@@ -2708,10 +2709,10 @@ export const useStrategyStore = create<StrategyState>()(
         setTimeout(() => get().recomputeValueAnalysis('setSegmentPL'), 0);
       },
 
-      updateSegmentPLCell: (segmentName: string, year: number, key, value) => {
+      updateSegmentPLCell: <K extends keyof FinancePLRow>(segmentName: string, year: number, key: K, value: FinancePLRow[K]) => {
         set((s) => {
           const rows = (s.segmentPL ?? {})[segmentName] ?? [];
-          const idx = rows.findIndex((r) => r.year === year);
+          const idx = rows.findIndex((r: FinancePLRow) => r.year === year);
           if (idx < 0) {
             console.warn('[strategyStore] updateSegmentPLCell: year not found', { segmentName, year });
             return s;
@@ -2727,10 +2728,10 @@ export const useStrategyStore = create<StrategyState>()(
         setTimeout(() => get().recomputeValueAnalysis('setSegmentPL'), 0);
       },
 
-      updateSegmentBSCell: (segmentName: string, year: number, key, value) => {
+      updateSegmentBSCell: <K extends keyof SegmentBSRow>(segmentName: string, year: number, key: K, value: SegmentBSRow[K]) => {
         set((s) => {
           const rows = (s.segmentBS ?? {})[segmentName] ?? [];
-          const idx = rows.findIndex((r) => r.year === year);
+          const idx = rows.findIndex((r: SegmentBSRow) => r.year === year);
           if (idx < 0) {
             console.warn('[strategyStore] updateSegmentBSCell: year not found', { segmentName, year });
             return s;
@@ -2746,14 +2747,14 @@ export const useStrategyStore = create<StrategyState>()(
         setTimeout(() => get().recomputeValueAnalysis('setSegmentBS'), 0);
       },
 
-      setMVV: (patch) =>
+      setMVV: (patch: Partial<Pick<StrategyState, 'thought' | 'mission' | 'vision' | 'value' | 'ceoIntent'>>) =>
         set((s) => ({
           ...s,
           ...patch,
           dirty: true,
           version: (s.version ?? 0) + 1,
         })),
-      setSWOT: (patch) => set((s) => ({ ...s, ...patch, dirty: true, version: (s.version ?? 0) + 1 })),
+      setSWOT: (patch: Partial<Pick<StrategyState, 'strength' | 'weakness' | 'opportunity' | 'threat'>>) => set((s) => ({ ...s, ...patch, dirty: true, version: (s.version ?? 0) + 1 })),
 
       setCeoIntent: (text: string) => {
         const trimmed = text.trim();
@@ -2766,7 +2767,7 @@ export const useStrategyStore = create<StrategyState>()(
         set((s) => ({ ...s, ceoIntent: trimmed, dirty: true, version: (s.version ?? 0) + 1 }));
       },
 
-      setSwotSuggestions: (suggestions) =>
+      setSwotSuggestions: (suggestions?: { opportunity?: string[]; threat?: string[]; generatedAt?: string }) =>
         set((s) => ({ ...s, swotSuggestions: suggestions, dirty: true, version: (s.version ?? 0) + 1 })),
 
       addSwotOpportunity: (text: string) => {
@@ -2793,7 +2794,7 @@ export const useStrategyStore = create<StrategyState>()(
         });
       },
 
-      removeSwotOpportunity: (textOrIndex) => {
+      removeSwotOpportunity: (textOrIndex: string | number) => {
         set((s) => {
           const current = s.opportunity ? s.opportunity.split('\n').filter(Boolean) : [];
           if (typeof textOrIndex === 'number') {
@@ -2806,7 +2807,7 @@ export const useStrategyStore = create<StrategyState>()(
         });
       },
 
-      removeSwotThreat: (textOrIndex) => {
+      removeSwotThreat: (textOrIndex: string | number) => {
         set((s) => {
           const current = s.threat ? s.threat.split('\n').filter(Boolean) : [];
           if (typeof textOrIndex === 'number') {
@@ -2820,7 +2821,7 @@ export const useStrategyStore = create<StrategyState>()(
       },
 
       // ▼ 部門セット後に即座に保存（※ ensureParentExists は呼ばない：二重保存を防ぐ）
-      setDepartments: (deps) => {
+      setDepartments: (deps: SafeDepartmentsArg) => {
         if (DEBUG) console.log('[strategyStore] setDepartments() called', deps);
 
         set((s) => ({
@@ -2840,7 +2841,7 @@ export const useStrategyStore = create<StrategyState>()(
         })();
       },
 
-      updateDepartments: (updater) => {
+      updateDepartments: (updater: (prev: Department[]) => Department[]) => {
         if (DEBUG) console.log('[strategyStore] updateDepartments() called');
 
         set((s) => {
@@ -3195,13 +3196,18 @@ export const useStrategyStore = create<StrategyState>()(
               // ★ 根治対策：保存返却では「サーバー決定値のみ」を state に反映
               // 禁止：departments/projects/okrs/kpis/finalStory*/companyTargets/answers12など
               // 許可：revision/updatedAt/id/strategyId のみ（autosave再発火を防ぐ）
+              const returnedRevision = typeof (minimal as any).revision === 'number' ? (minimal as any).revision : undefined;
+              const nowMs = Date.now();
+
               const safePatch: Partial<StrategyState> = {
                 dirty: false,
                 __lastSavedHash: currentHash,
-                revision: typeof (minimal as any).revision === 'number' ? (minimal as any).revision : undefined,
+                /* ★ DB is source of truth for revision */
+                ...(returnedRevision !== undefined && { revision: returnedRevision }),
                 /* UI state: 保存成功時に更新 */
                 saveError: undefined,
-                lastSavedAt: Date.now(),
+                lastSavedAt: nowMs,
+                lastServerSyncAt: nowMs, // ★ Track when server sync completed
                 // ★ TASK 1: Clear conflict recovery state on success
                 pendingConflictRecovery: false,
                 conflictCooldownUntil: undefined,
@@ -3220,12 +3226,8 @@ export const useStrategyStore = create<StrategyState>()(
 
               set(safePatch);
 
-              const nextRev =
-                typeof (minimal as any).revision === 'number'
-                  ? (minimal as any).revision
-                  : typeof (get().revision) === 'number'
-                    ? get().revision
-                    : undefined;
+              // ★ nextRev: Use returned revision if available, otherwise keep current
+              const nextRev = returnedRevision ?? get().revision;
 
               /* ★ TASK 14-6: 成功時の監査ログ（payload サイズ情報を記録） */
               console.log('[audit][saveStrategyData] success', {
@@ -3465,7 +3467,12 @@ export const useStrategyStore = create<StrategyState>()(
             set({ loaded: true });
             get().setHydrated(rev);
             /* ★ TASK 14: restore 完了フラグを設定（DB restore 完了） */
-            set({ restoreReady: true, isRestoring: false });
+            set({
+              restoreReady: true,
+              isRestoring: false,
+              /* ★ FIX: Enable grace period for wasDirty=true refetch path */
+              lastServerSyncAt: Date.now(),
+            });
 
             /* ★ TASK 15-C: restore 完了後の state を監査ログ出力（STAGE2 反映確認） */
             if (DEBUG || process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
