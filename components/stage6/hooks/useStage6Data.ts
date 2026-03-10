@@ -16,6 +16,7 @@ import { useAccess } from '@/utils/access';
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
 import { loadProgressLogs } from '@/utils/supabase/strategy';
+import { parseMetadata } from '@/utils/execution/metadata';
 
 import {
   buildProjectContributions,
@@ -29,6 +30,8 @@ import {
   buildNorthStarRowsPhaseE,
   buildIssueResolutionsPhaseE,
   normalizeValueToUnit,
+  matchProgressLogToProject,
+  normalizeProjectName,
 } from '@/utils/stage6';
 import { calcYearlyFromKrs } from '@/utils/stage6/compute';
 import {
@@ -313,6 +316,8 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
           proj: projTitle,
           krCount: krs.length,
           investTotal,
+          impactRevenueProgress: typeof p?.impactRevenueProgress === 'number' ? p.impactRevenueProgress : null,
+          impactOpIncomeProgress: typeof p?.impactOpIncomeProgress === 'number' ? p.impactOpIncomeProgress : null,
         });
       });
     });
@@ -372,15 +377,134 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       );
     }
 
+    // === TASK1: progress_logs の実メタデータを詳細出力 ===
+    if (progressLogs && progressLogs.length > 0) {
+      console.group('[TASK1] Progress logs metadata inspection');
+      console.log('Total progress_logs:', progressLogs.length);
+
+      const logsWithMeta = progressLogs.map((log: any) => {
+        const { metadata } = parseMetadata(log.content ?? '');
+        return {
+          id: log.id,
+          score: log.score,
+          status: log.status,
+          metadata,
+        };
+      });
+
+      logsWithMeta.forEach((log: any) => {
+        console.log({
+          logId: log.id,
+          score: log.score,
+          status: log.status,
+          'meta.projectKey': log.metadata?.projectKey,
+          'meta.projectId': log.metadata?.projectId,
+          'meta.deptId': log.metadata?.deptId,
+          'meta.okrId': log.metadata?.okrId,
+        });
+      });
+
+      console.groupEnd();
+    }
+
+    // === TASK2: STAGE6 side approved projects と comparison ===
+    if (approved && approved.length > 0) {
+      console.group('[TASK2] STAGE6 approved projects and key matching');
+      console.log('Total approved projects:', approved.length);
+
+      approved.forEach((p: any) => {
+        const key = p.key; // Format: deptName::projTitle::index
+        const projectTitle = p.proj; // This is the title string
+
+        // Count matching logs using common function
+        const matchCount = progressLogs ? progressLogs.filter((log: any) => {
+          const { metadata } = parseMetadata(log.content ?? '');
+          if (!metadata) return false;
+
+          const result = matchProgressLogToProject({
+            log,
+            metadata,
+            projectTitle,
+            projectKey: key,
+          });
+          return result.matched;
+        }).length : 0;
+
+        console.log({
+          'p.key (STAGE6 format)': key,
+          'p.dept': p.dept,
+          'p.proj (title)': projectTitle,
+          'normalized proj': normalizeProjectName(projectTitle),
+          matchingLogCount: matchCount,
+        });
+      });
+
+      console.groupEnd();
+    }
+
+    // === executeionWeights Map を先に計算（TDZ 回避のため allKrs 前に定義） ===
+    const executionWeightsMap = new Map<string, { weight: number }>();
+    if (progressLogs && approved && approved.length > 0) {
+      // ★ ログ：executionWeights 計算開始
+      console.group('[A] STAGE6 executionWeights calculation');
+      console.log('progressLogs count:', progressLogs.length);
+      console.log('approved projects:', approved.length);
+
+      approved.forEach((p: any) => {
+        const weight = getExecutionWeight(p.proj, progressLogs, {
+          projectKey: p.key,
+          impactRevenueProgress: p.impactRevenueProgress,
+          impactOpIncomeProgress: p.impactOpIncomeProgress,
+        });
+        executionWeightsMap.set(p.key, weight);
+
+        console.log('  Project:', {
+          key: p.key,
+          projTitle: p.proj,
+          projId: p.proj?.id,
+          impactRevenueProgress: p.impactRevenueProgress,
+          impactOpIncomeProgress: p.impactOpIncomeProgress,
+          calculatedWeight: weight.weight,
+          notes: weight.notes,
+        });
+      });
+
+      console.log('executionWeightsMap.size:', executionWeightsMap.size);
+      console.log('executionWeightsMap.keys:', Array.from(executionWeightsMap.keys()));
+      console.groupEnd();
+    }
+
+    // プロジェクトキーを付与した allKrs を生成
     const allKrs: BridgeKR[] = [];
-    projectKrsMap.forEach((krs) => {
-      allKrs.push(...krs);
+    projectKrsMap.forEach((krs, projectKey) => {
+      allKrs.push(
+        ...krs.map((kr) => ({
+          ...kr,
+          projectKey, // executionWeight 参照用
+        }))
+      );
     });
 
+    // ★ ログ：allKrs の projectKey と kind を確認
+    console.group('[A] allKrs with projectKey');
+    console.log('Total KRs:', allKrs.length);
+    allKrs.forEach((kr) => {
+      const weight = executionWeightsMap.has(kr.projectKey!) ? executionWeightsMap.get(kr.projectKey!)?.weight : undefined;
+      console.log({
+        projectKey: kr.projectKey,
+        label: kr.label,
+        kind: kr.kind,
+        target: kr.target,
+        hasWeight: executionWeightsMap.has(kr.projectKey!),
+        weight,
+      });
+    });
+    console.groupEnd();
+
     const yearlyAll = {
-      low: baseTraj && baseFigures ? calcYearlyFromKrs({ baseTraj, baseFigures, krs: allKrs, scenario: scenarios.low }) : [],
-      base: baseTraj && baseFigures ? calcYearlyFromKrs({ baseTraj, baseFigures, krs: allKrs, scenario: scenarios.base }) : [],
-      high: baseTraj && baseFigures ? calcYearlyFromKrs({ baseTraj, baseFigures, krs: allKrs, scenario: scenarios.high }) : [],
+      low: baseTraj && baseFigures ? calcYearlyFromKrs({ baseTraj, baseFigures, krs: allKrs, scenario: scenarios.low, executionWeights: executionWeightsMap }) : [],
+      base: baseTraj && baseFigures ? calcYearlyFromKrs({ baseTraj, baseFigures, krs: allKrs, scenario: scenarios.base, executionWeights: executionWeightsMap }) : [],
+      high: baseTraj && baseFigures ? calcYearlyFromKrs({ baseTraj, baseFigures, krs: allKrs, scenario: scenarios.high, executionWeights: executionWeightsMap }) : [],
     };
 
     return {
@@ -392,8 +516,9 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       projectKrsMap,
       baselineYearly: baselineYearlyFixed,
       yearlyAll,
+      executionWeightsMap, // STAGE5 進捗率から計算した weight マップ
     };
-  }, [hydrated, isHydrating, departments, financePL, revision, isReady, companyName, makeProjectKey, normalizeKind, normalizeUnit]);
+  }, [hydrated, isHydrating, departments, financePL, revision, isReady, companyName, makeProjectKey, normalizeKind, normalizeUnit, progressLogs]);
 
   // ===== Project keys and effective selected keys =====
   const allProjectKeys = useMemo(() => Array.from(core.projectKrsMap.keys()), [core.projectKrsMap]);
@@ -408,21 +533,9 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       mkBaseFigures,
       mkBaselineTrajectory,
       getEvidenceFromProject,
-      getExecutionWeight,
-      progressLogs, // Use state (not ref) to ensure re-render and executionWeight recalc
+      executionWeightsMap: core.executionWeightsMap, // ★ 統一的に core.executionWeightsMap を使用
     });
-  }, [core, financePL, departments, allProjectKeys, progressLogs]);
-
-  // === STAGE6 Phase E：executionWeights Map化 ===
-  const executionWeightsMap = useMemo(() => {
-    const map = new Map<string, { weight: number }>();
-    projectContrib.forEach((contrib) => {
-      if (contrib.executionWeight) {
-        map.set(contrib.key, { weight: contrib.executionWeight.weight });
-      }
-    });
-    return map;
-  }, [projectContrib]);
+  }, [core, financePL, departments, allProjectKeys]);
 
   // === STAGE6 Phase E：AUTO推定（projectTargetImpacts） ===
   const autoProjectTargetImpacts = useMemo(() => {
@@ -443,7 +556,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         projectKeys_len: allProjectKeys.length,
         projectKeys_sample: allProjectKeys.slice(0, 3),
         projectKrsMap_size: core.projectKrsMap.size,
-        executionWeightsMap_size: executionWeightsMap.size,
+        executionWeightsMap_size: core.executionWeightsMap.size,
         projectKrsMap_samples: krsEntries,
       });
     }
@@ -452,7 +565,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       companyTargets,
       projectKeys: allProjectKeys,
       projectKrsMap: core.projectKrsMap,
-      executionWeightsMap,
+      executionWeightsMap: core.executionWeightsMap,
       scenarioKey,
     });
 
@@ -461,7 +574,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     }
 
     return auto;
-  }, [isReady, allProjectKeys, companyTargets, core.projectKrsMap, executionWeightsMap, scenarioKey]);
+  }, [isReady, allProjectKeys, companyTargets, core.projectKrsMap, core.executionWeightsMap, scenarioKey]);
 
   // === STAGE6 Phase E：effectiveProjectTargetImpacts（manual + auto マージ） ===
   const effectiveProjectTargetImpacts = useMemo(() => {
@@ -514,8 +627,8 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     }
 
     return projectContrib.map((p: any) => {
-      const deltaRevenueTotal = revMap.get(p.key) ?? 0;
-      const deltaOpTotal = opMap.get(p.key) ?? 0;
+      const deltaRevenueTotal = p.deltaRevenueTotal;
+      const deltaOpTotal = p.deltaOpTotal;
 
       // 投資は既存の集計を尊重（0のままでもOK）。ROIは投資がある場合のみ概算。
       const investTotal = typeof p.investTotal === 'number' ? p.investTotal : 0;
@@ -560,7 +673,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         projectKeys_sample: allProjectKeys.slice(0, 3),
         projectKrsMap_size: core.projectKrsMap.size,
         progressLogs_len: progressLogs?.length ?? 0,
-        executionWeightsMap_size: executionWeightsMap.size,
+        executionWeightsMap_size: core.executionWeightsMap.size,
         projectKrsMap_samples: krsEntries,
       });
     }
@@ -577,7 +690,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       projectKeys: allProjectKeys,
       projectKrsMap: core.projectKrsMap,
       progressLogs,
-      executionWeightsMap,
+      executionWeightsMap: core.executionWeightsMap,
       projectDeptMap,
     });
 
@@ -586,7 +699,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     }
 
     return auto;
-  }, [isReady, allProjectKeys, stage1Issues, companyTargets, core.projectKrsMap, progressLogs, executionWeightsMap, core.approved]);
+  }, [isReady, allProjectKeys, stage1Issues, companyTargets, core.projectKrsMap, progressLogs, core.executionWeightsMap, core.approved]);
 
   // === STAGE6 Phase E：effectiveProjectIssueLinks（manual + auto マージ） ===
   const effectiveProjectIssueLinks = useMemo(() => {
@@ -836,7 +949,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         const delta = typeof imp.delta === 'number' ? imp.delta : 0;
         if (!Number.isFinite(delta) || delta === 0) continue;
 
-        const weight = executionWeightsMap.get(imp.projectId)?.weight ?? 1;
+        const weight = core.executionWeightsMap.get(imp.projectId)?.weight ?? 1;
         const execW = Number.isFinite(weight) ? weight : 1;
         const effectiveDelta = delta * execW;
 
@@ -900,7 +1013,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     }
 
     return syncedRows;
-  }, [companyTargets, core.yearlyAll, scenarioKey, projectContrib, chartData, effectiveProjectTargetImpacts, executionWeightsMap]);
+  }, [companyTargets, core.yearlyAll, scenarioKey, projectContrib, chartData, effectiveProjectTargetImpacts, core.executionWeightsMap]);
 
   // ★ TASK-3: North Star 単位ズレ追跡ログ - 「原本 vs 加工後」比較（デバッグ用）
   useEffect(() => {
@@ -1093,7 +1206,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         stage1Issues,
         companyTargets,
         projectIssueLinks: effectiveProjectIssueLinks,
-        executionWeights: executionWeightsMap,
+        executionWeights: core.executionWeightsMap,
       });
 
       if (DEBUG) {
@@ -1109,7 +1222,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         northStarRows,
       });
     }
-  }, [effectiveProjectIssueLinks, stage1Issues, companyTargets, executionWeightsMap, northStarRows]);
+  }, [effectiveProjectIssueLinks, stage1Issues, companyTargets, core.executionWeightsMap, northStarRows]);
 
   const vaCards = useMemo(() => {
     return buildValueAnalysisCards(valueAnalysis);
