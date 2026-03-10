@@ -578,13 +578,30 @@ export function calcYearlyFromKrs(args: {
   baseFigures: any;
   krs: BridgeKR[];
   scenario: { successRate: number; synergyRate: number };
+  executionWeights?: Map<string, { weight: number }>; // STAGE5 進捗率から計算した weight
 }): YearlyPL[] {
-  const { baseTraj, baseFigures, krs, scenario } = args;
+  const { baseTraj, baseFigures, krs, scenario, executionWeights } = args;
 
   const scenarioKrs: BridgeKR[] = krs.map((kr) => {
     const unit = normalizeUnit((kr as any).unit);
-    const target =
-      kr.kind === 'SUCCESS_RATE' ? (Number(kr.target) || 0) * scenario.successRate : kr.target;
+    let target = kr.kind === 'SUCCESS_RATE' ? (Number(kr.target) || 0) * scenario.successRate : kr.target;
+    const targetBefore = target;
+
+    // プロジェクト固有の executionWeight を適用
+    if (kr.projectKey && executionWeights?.has(kr.projectKey)) {
+      const weight = executionWeights.get(kr.projectKey)?.weight ?? 1.0;
+      target = target * weight;
+
+      // ★ ログ：weight 適用
+      console.log('[A] Weight applied:', {
+        projectKey: kr.projectKey,
+        krLabel: kr.label,
+        krKind: kr.kind,
+        targetBefore: targetBefore,
+        weight,
+        targetAfter: target,
+      });
+    }
 
     return {
       ...kr,
@@ -639,8 +656,7 @@ export function buildProjectContributions(args: {
   mkBaseFigures: (state: any) => any;
   mkBaselineTrajectory: (state: any) => BaseTrajectory | null;
   getEvidenceFromProject: (proj: any) => any;
-  getExecutionWeight: (name: string, logs?: any) => any;
-  progressLogs?: any[];
+  executionWeightsMap?: Map<string, { weight: number }>; // ★ STAGE5 進捗補正の weight map
 }): Array<{
   key: string;
   dept: string;
@@ -661,8 +677,7 @@ export function buildProjectContributions(args: {
     mkBaseFigures,
     mkBaselineTrajectory,
     getEvidenceFromProject,
-    getExecutionWeight,
-    progressLogs,
+    executionWeightsMap,
   } = args;
 
   if (!core.ready) return [];
@@ -685,12 +700,20 @@ export function buildProjectContributions(args: {
       let deltaOpTotal = 0;
 
       if (krs.length > 0) {
-        // プロジェクトのみONにして計算
+        // プロジェクトキーを付与した KRs を生成
+        const krsWithProjectKey = krs.map((kr) => ({
+          ...kr,
+          projectKey: p.key, // executionWeight 参照用
+        }));
+
+        // ★ executionWeightsMap を使用（progressLogs の再計算ではなく）
+        const executionWeight = executionWeightsMap?.get(p.key);
         const yearly = calcYearlyFromKrs({
           baseTraj,
           baseFigures,
-          krs,
+          krs: krsWithProjectKey,
           scenario: baseScenario,
+          executionWeights: executionWeightsMap,
         });
 
         if (yearly && baseline) {
@@ -698,6 +721,18 @@ export function buildProjectContributions(args: {
           const delta = diffYearly(baseline, yearly);
           deltaRevenueTotal = sumYearly(delta, 'revenue');
           deltaOpTotal = sumYearly(delta, 'op_income');
+
+          // ★ 詳細ログ：weight が金額に反映されたか確認
+          console.log('[STAGE6-weight-to-money]', {
+            projectKey: p.key,
+            executionWeight: executionWeight?.weight ?? 'none',
+            baselineYearlyRevenue: baseline?.[0]?.revenue ?? 0,
+            yearlyRevenue: yearly?.[0]?.revenue ?? 0,
+            baselineYearlyOpIncome: baseline?.[0]?.op_income ?? 0,
+            yearlyOpIncome: yearly?.[0]?.op_income ?? 0,
+            deltaRevenueTotal: deltaRevenueTotal.toFixed(2),
+            deltaOpTotal: deltaOpTotal.toFixed(2),
+          });
         }
 
         // フォールバック：計算値が0でも、KR がある程度は寄与があるはず
@@ -763,8 +798,8 @@ export function buildProjectContributions(args: {
         }
       }
 
-      // ★ 実行度補正係数を取得
-      const executionWeight = getExecutionWeight(p.proj, progressLogs);
+      // ★ 実行度補正係数を取得（executionWeightsMap から）
+      const executionWeight = executionWeightsMap?.get(p.key);
 
       return {
         key: p.key,
