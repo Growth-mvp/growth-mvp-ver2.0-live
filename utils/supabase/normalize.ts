@@ -280,6 +280,17 @@ function normalizeProject(p: AnyProject): Project {
         lagMonths: r?.lagMonths != null ? Number(r.lagMonths) : undefined,
         startYm: typeof r?.startYm === 'string' ? r.startYm : undefined,
         notes: typeof r?.notes === 'string' ? r.notes : undefined,
+        // ★ 修正：milestones を保持（リロード後に消える問題を解決）
+        milestones: Array.isArray(r?.milestones)
+          ? r.milestones.map((m: any) => ({
+              id: String(m?.id ?? ''),
+              title: String(m?.title ?? ''),
+              dueYm: typeof m?.dueYm === 'string' ? m.dueYm : undefined,
+              owner: typeof m?.owner === 'string' ? m.owner : undefined,
+              status: typeof m?.status === 'string' ? (m.status as any) : undefined,
+              dod: typeof m?.dod === 'string' ? m.dod : undefined,
+            }))
+          : undefined,
       }))
     : undefined;
 
@@ -303,6 +314,17 @@ function normalizeProject(p: AnyProject): Project {
               lagMonths: r?.lagMonths != null ? Number(r.lagMonths) : undefined,
               startYm: typeof r?.startYm === 'string' ? r.startYm : undefined,
               notes: typeof r?.notes === 'string' ? r.notes : undefined,
+              // ★ 修正：milestones を保持（リロード後に消える問題を解決）
+              milestones: Array.isArray(r?.milestones)
+                ? r.milestones.map((m: any) => ({
+                    id: String(m?.id ?? ''),
+                    title: String(m?.title ?? ''),
+                    dueYm: typeof m?.dueYm === 'string' ? m.dueYm : undefined,
+                    owner: typeof m?.owner === 'string' ? m.owner : undefined,
+                    status: typeof m?.status === 'string' ? (m.status as any) : undefined,
+                    dod: typeof m?.dod === 'string' ? m.dod : undefined,
+                  }))
+                : undefined,
             }))
           : [],
       }))
