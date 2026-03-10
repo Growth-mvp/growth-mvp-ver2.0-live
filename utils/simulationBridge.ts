@@ -61,6 +61,7 @@ export type BridgeKR = {
   startYm?: Ym;
   due?: string; // 'YYYY-MM' or 'YYYY-MM-DD'
   notes?: string;
+  projectKey?: string; // プロジェクトキー（executionWeight 参照用）
 };
 
 export type BridgeInput = {
@@ -203,7 +204,18 @@ export function buildBridgeDeltas(input: BridgeInput): DeltasByMonth {
 
     switch (kr.kind) {
       case 'REVENUE': {
+        // ★ ログ：REVENUE 適用
+        console.log('[B] REVENUE KR processed:', {
+          krLabel: kr.label,
+          krTarget: kr.target,
+          krWeight: kr.weight,
+          applyMonths: applyMonths.slice(0, 3),
+          deltaBefore: Object.values(deltas.revenue).slice(0, 3).reduce((a, b) => a + b, 0),
+        });
         applyAdd(deltas.revenue, kr.target, applyMonths, kr.weight);
+        console.log('[B] REVENUE after add:', {
+          deltaAfter: Object.values(deltas.revenue).slice(0, 3).reduce((a, b) => a + b, 0),
+        });
         break;
       }
       case 'ACQ': {
