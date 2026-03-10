@@ -327,6 +327,77 @@ function OKRPageContent() {
     mode: 'payload',
   });
 
+  // ★ DIAGNOSIS: Log companyTargets for 金額ゴール matching
+  useEffect(() => {
+    if (!hydrated || isHydrating) return;
+
+    const st = useStrategyStore.getState() as any;
+    const companyTargets = Array.isArray(st.companyTargets) ? st.companyTargets : [];
+
+    console.group('[DIAGNOSIS] CompanyTargets for 金額ゴール');
+    console.log('Status:', {
+      hydrated,
+      companyTargetsCount: companyTargets.length,
+      companyName: st.companyName,
+    });
+
+    if (companyTargets.length === 0) {
+      console.warn('⚠️ No companyTargets found! 金額ゴール linking will fail.');
+    } else {
+      console.table(
+        companyTargets.map((t: any) => ({
+          id: t?.id,
+          label: t?.label,
+          unit: t?.unit,
+          dueYear: t?.dueYear,
+          base: t?.base,
+          'matches 売上': String(t?.label ?? '')
+            .replace(/[\s　]+/g, '')
+            .toLowerCase()
+            .includes('売上'),
+          'matches 営業利益': ['営業利益', '営業益', 'op', 'operatingincome'].some((keyword) =>
+            String(t?.label ?? '')
+              .replace(/[\s　]+/g, '')
+              .toLowerCase()
+              .includes(keyword),
+          ),
+        })),
+      );
+    }
+
+    // Matching check
+    const norm = (s: any) =>
+      String(s ?? '')
+        .replace(/[\s　]+/g, '')
+        .toLowerCase();
+    const revenueTarget = companyTargets.find((t: any) => norm(t?.label).includes('売上') || norm(t?.label).includes('revenue'));
+    const opIncomeTarget = companyTargets.find(
+      (t: any) =>
+        norm(t?.label).includes('営業利益') ||
+        norm(t?.label).includes('営業益') ||
+        norm(t?.label).includes('op') ||
+        norm(t?.label).includes('operatingincome'),
+    );
+
+    console.log('Matching Results:', {
+      revenueTargetFound: !!revenueTarget,
+      revenueTargetId: revenueTarget?.id,
+      revenueTargetLabel: revenueTarget?.label,
+      opIncomeTargetFound: !!opIncomeTarget,
+      opIncomeTargetId: opIncomeTarget?.id,
+      opIncomeTargetLabel: opIncomeTarget?.label,
+    });
+
+    if (!revenueTarget) {
+      console.warn('❌ Revenue target not found! 売上寄与 linking will fail.');
+    }
+    if (!opIncomeTarget) {
+      console.warn('❌ Op income target not found! 営業利益寄与 linking will fail.');
+    }
+
+    console.groupEnd();
+  }, [hydrated, isHydrating]);
+
   {/* -------- 目的欄の即保存・debounce保存 -------- */}
   const saveNow = useStrategyStore((st: any) => st.saveStrategyData);
 
@@ -987,6 +1058,11 @@ const [editingKrDraft, setEditingKrDraft] = useState<{
 const [mTitle, setMTitle] = useState('');
 const [mDue, setMDue] = useState('');
 
+// KPI編集UI 用のマイルストーン追加入力 state
+const [editingMilestoneTitle, setEditingMilestoneTitle] = useState('');
+const [editingMilestoneDueYm, setEditingMilestoneDueYm] = useState('');
+const editingMilestoneTitleInputRef = useRef<HTMLInputElement>(null);
+
 const startEditKr = (kr: any, fallbackId: string) => {
   const id = String(kr?.id ?? fallbackId);
   setEditingKrId(id);
@@ -1003,6 +1079,8 @@ const startEditKr = (kr: any, fallbackId: string) => {
 const cancelEditKr = () => {
   setEditingKrId(null);
   setEditingKrDraft(null);
+  setEditingMilestoneTitle('');
+  setEditingMilestoneDueYm('');
 };
 
 const saveEditKr = (dIdx: number, pIdx: number, krId: string) => {
@@ -1750,7 +1828,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                 {editingMode === 'variant' && <span className="ml-1 text-[10px] text-zinc-500">（確定版でのみ編集可）</span>}
               </div>
               {editingKrDraft.milestones && editingKrDraft.milestones.length > 0 ? (
-                <div className="space-y-2 text-[12px]">
+                <div className="space-y-2 text-[12px] mb-3">
                   {editingKrDraft.milestones.map((m, idx) => (
                     <div key={m.id || idx} className="rounded border border-zinc-200 bg-white p-2">
                       <div className="font-semibold text-zinc-800">{m.title || '（未設定）'}</div>
@@ -1771,8 +1849,58 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   ))}
                 </div>
               ) : (
-                <div className="text-[12px] text-zinc-500">マイルストーンがありません</div>
+                <div className="text-[12px] text-zinc-500 mb-3">マイルストーンがありません</div>
               )}
+
+              {/* 新規マイルストーン追加欄 */}
+              <div className="bg-zinc-50 rounded border border-zinc-200 p-2">
+                <div className="text-[11px] font-semibold text-zinc-700 mb-2">ここでマイルストーンを追加します</div>
+                <div className="flex gap-2">
+                  <input
+                    ref={editingMilestoneTitleInputRef}
+                    type="text"
+                    placeholder="例）要件定義 / PoC / 本番展開"
+                    className="flex-1 h-8 rounded border border-zinc-200 bg-white px-2 text-[12px]"
+                    value={editingMilestoneTitle}
+                    onChange={(e) => setEditingMilestoneTitle(e.target.value)}
+                    disabled={isHydrating || editingMode === 'variant'}
+                  />
+                  <input
+                    type="text"
+                    placeholder="YYYY-MM"
+                    className="w-24 h-8 rounded border border-zinc-200 bg-white px-2 text-[12px]"
+                    value={editingMilestoneDueYm}
+                    onChange={(e) => setEditingMilestoneDueYm(e.target.value)}
+                    disabled={isHydrating || editingMode === 'variant'}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const title = editingMilestoneTitle.trim();
+                      if (!title) {
+                        console.warn('マイルストーンのタイトルを入力してください');
+                        return;
+                      }
+                      const newMilestone = {
+                        id: cryptoRandomId(),
+                        title,
+                        dueYm: editingMilestoneDueYm.trim() || undefined,
+                        status: 'todo',
+                      };
+                      setEditingKrDraft((prev) => ({
+                        ...prev!,
+                        milestones: [...(prev?.milestones ?? []), newMilestone],
+                      }));
+                      setEditingMilestoneTitle('');
+                      setEditingMilestoneDueYm('');
+                    }}
+                    disabled={isHydrating || editingMode === 'variant'}
+                    className="h-8 px-2 rounded bg-zinc-200 text-zinc-700 text-[12px] font-semibold hover:bg-zinc-300 disabled:opacity-50"
+                  >
+                    追加
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1872,7 +2000,10 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                         <span className="text-[11px] text-amber-700">マイルストーン未設定</span>
                         <button
                           type="button"
-                          onClick={() => startEditKr(kr as any, rowId)}
+                          onClick={() => {
+                            startEditKr(kr as any, rowId);
+                            setTimeout(() => editingMilestoneTitleInputRef.current?.focus(), 0);
+                          }}
                           disabled={isHydrating || editingMode === 'variant'}
                           className="text-[11px] px-2 py-1 rounded border border-amber-300 bg-amber-100 text-amber-700 hover:bg-amber-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium whitespace-nowrap"
                         >
@@ -1906,7 +2037,10 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                       {moreCount > 0 && (
                         <button
                           type="button"
-                          onClick={() => startEditKr(kr as any, rowId)}
+                          onClick={() => {
+                            startEditKr(kr as any, rowId);
+                            setTimeout(() => editingMilestoneTitleInputRef.current?.focus(), 0);
+                          }}
                           className="text-[11px] text-blue-600 hover:text-blue-700 font-medium"
                         >
                           あと {moreCount} 件を表示...
