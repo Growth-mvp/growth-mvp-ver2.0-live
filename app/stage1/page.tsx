@@ -107,10 +107,6 @@ export default function Stage1Page() {
     });
   });
 
-  // 開発用：ダミーデータ投入（存在する場合のみ）
-  const loadStage1DummyData = useStrategyStore((s: StrategyState) => (s as any).loadStage1DummyData as (() => void) | undefined);
-  const [dummyLoaded, setDummyLoaded] = useState(false);
-
   // ===== 復元関連（TASK 6: STAGE1 統合） =====
   const companyId = useUserStore((s) => (s as any).companyId as string | undefined);
   const didRestoreRef = useRef(false);
@@ -177,14 +173,14 @@ export default function Stage1Page() {
       financeBSCount,
       segmentPLKeysCount,
       segmentBSKeysCount,
-      segmentPLDataHash,  // ★ データ値変更を検知
-      segmentBSDataHash,  // ★ データ値変更を検知
+      segmentPLDataHash,
+      segmentBSDataHash,
       financeSummaryCount,
       issuesCount,
-      isListed,  // ★ 修正：上場フラグを監視対象に追加
-      ticker,  // ★ 修正：ティッカーシンボルを監視対象に追加
-      pbrManual,  // ★ 修正：PBR手入力を監視対象に追加
-      stage1BenchmarksKey,  // ★ 修正：ベンチマーク・WACC を監視対象に追加
+      isListed,
+      ticker,
+      pbrManual,
+      stage1BenchmarksKey,
     });
   }, [
     companyName,
@@ -198,10 +194,10 @@ export default function Stage1Page() {
     segmentBSDataHash,
     financeSummaryCount,
     issuesCount,
-    isListed,  // ★ 修正
-    ticker,  // ★ 修正
-    pbrManual,  // ★ 修正
-    stage1BenchmarksKey,  // ★ 修正
+    isListed,
+    ticker,
+    pbrManual,
+    stage1BenchmarksKey,
   ]);
 
   const doSave = useCallback(
@@ -223,11 +219,17 @@ export default function Stage1Page() {
       // ★ dirty判定前ログ（デバッグ用）
       if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
         const currentState = useStrategyStore.getState();
-        const busSegLen = Array.isArray((currentState as any).businessSegments) ? (currentState as any).businessSegments.length : 0;
-        const segPLKeys = (currentState as any).segmentPL && typeof (currentState as any).segmentPL === 'object'
-          ? Object.keys((currentState as any).segmentPL).length : 0;
-        const segBSKeys = (currentState as any).segmentBS && typeof (currentState as any).segmentBS === 'object'
-          ? Object.keys((currentState as any).segmentBS).length : 0;
+        const busSegLen = Array.isArray((currentState as any).businessSegments)
+          ? (currentState as any).businessSegments.length
+          : 0;
+        const segPLKeys =
+          (currentState as any).segmentPL && typeof (currentState as any).segmentPL === 'object'
+            ? Object.keys((currentState as any).segmentPL).length
+            : 0;
+        const segBSKeys =
+          (currentState as any).segmentBS && typeof (currentState as any).segmentBS === 'object'
+            ? Object.keys((currentState as any).segmentBS).length
+            : 0;
         const finBSLen = Array.isArray((currentState as any).financeBS) ? (currentState as any).financeBS.length : 0;
         const finPLLen = Array.isArray((currentState as any).financePL) ? (currentState as any).financePL.length : 0;
 
@@ -292,56 +294,51 @@ export default function Stage1Page() {
   }, [snapshotKey, saveFn, doSave, strategyId, revision]);
 
   // ===== 復元初期化（TASK 6: STAGE1 統合） =====
-  const restoreStage1Snapshot = useCallback(
-    async (decision: any) => {
-      if (decision.sourceUsed === 'snapshot' && decision.snapshotData?.state) {
-        const st = decision.snapshotData.state;
-        const store = useStrategyStore.getState();
+  const restoreStage1Snapshot = useCallback(async (decision: any) => {
+    if (decision.sourceUsed === 'snapshot' && decision.snapshotData?.state) {
+      const st = decision.snapshotData.state;
+      const store = useStrategyStore.getState();
 
-        // Hydrate key stage1 fields from snapshot
-        if (st.companyName && !store.companyName) {
-          (store as any).setCompanyName?.(st.companyName);
-        }
-        if (st.industry && !store.industry) {
-          (store as any).setIndustry?.(st.industry);
-        }
-        if (st.businessSegments && Array.isArray(st.businessSegments)) {
-          (store as any).setBusinessSegments?.(st.businessSegments);
-        }
-        if (st.financePL && Array.isArray(st.financePL)) {
-          (store as any).setFinancePL?.(st.financePL);
-        }
-        if (st.financeBS && Array.isArray(st.financeBS)) {
-          (store as any).setFinanceBS?.(st.financeBS);
-        }
-        if (st.segmentPL && typeof st.segmentPL === 'object') {
-          (store as any).setSegmentPL?.(st.segmentPL);
-        }
-        if (st.segmentBS && typeof st.segmentBS === 'object') {
-          (store as any).setSegmentBS?.(st.segmentBS);
-        }
-        if (st.stage1Issues && Array.isArray(st.stage1Issues)) {
-          (store as any).setStage1Issues?.(st.stage1Issues);
-        }
-        if (st.financeSummary && Array.isArray(st.financeSummary)) {
-          (store as any).setFinanceSummary?.(st.financeSummary);
-        }
-
-        console.log(
-          `[audit][restore:done] decisionId=${decision.decisionId} sourceUsed=snapshot stage=stage1 strategyId=${st.id}`,
-        );
-      } else if (decision.sourceUsed === 'db' || decision.sourceUsed === 'store') {
-        console.log(
-          `[audit][restore:done] decisionId=${decision.decisionId} sourceUsed=${decision.sourceUsed} stage=stage1 strategyId=${decision.strategyId}`,
-        );
-      } else {
-        console.log(
-          `[audit][restore:done] decisionId=${decision.decisionId} sourceUsed=${decision.sourceUsed} stage=stage1`,
-        );
+      // Hydrate key stage1 fields from snapshot
+      if (st.companyName && !store.companyName) {
+        (store as any).setCompanyName?.(st.companyName);
       }
-    },
-    [],
-  );
+      if (st.industry && !store.industry) {
+        (store as any).setIndustry?.(st.industry);
+      }
+      if (st.businessSegments && Array.isArray(st.businessSegments)) {
+        (store as any).setBusinessSegments?.(st.businessSegments);
+      }
+      if (st.financePL && Array.isArray(st.financePL)) {
+        (store as any).setFinancePL?.(st.financePL);
+      }
+      if (st.financeBS && Array.isArray(st.financeBS)) {
+        (store as any).setFinanceBS?.(st.financeBS);
+      }
+      if (st.segmentPL && typeof st.segmentPL === 'object') {
+        (store as any).setSegmentPL?.(st.segmentPL);
+      }
+      if (st.segmentBS && typeof st.segmentBS === 'object') {
+        (store as any).setSegmentBS?.(st.segmentBS);
+      }
+      if (st.stage1Issues && Array.isArray(st.stage1Issues)) {
+        (store as any).setStage1Issues?.(st.stage1Issues);
+      }
+      if (st.financeSummary && Array.isArray(st.financeSummary)) {
+        (store as any).setFinanceSummary?.(st.financeSummary);
+      }
+
+      console.log(
+        `[audit][restore:done] decisionId=${decision.decisionId} sourceUsed=snapshot stage=stage1 strategyId=${st.id}`,
+      );
+    } else if (decision.sourceUsed === 'db' || decision.sourceUsed === 'store') {
+      console.log(
+        `[audit][restore:done] decisionId=${decision.decisionId} sourceUsed=${decision.sourceUsed} stage=stage1 strategyId=${decision.strategyId}`,
+      );
+    } else {
+      console.log(`[audit][restore:done] decisionId=${decision.decisionId} sourceUsed=${decision.sourceUsed} stage=stage1`);
+    }
+  }, []);
 
   useEffect(() => {
     if (didRestoreRef.current) return;
@@ -378,13 +375,6 @@ export default function Stage1Page() {
     })();
   }, [companyId, restoreStage1Snapshot]);
 
-  const handleLoadDummy = useCallback(() => {
-    if (!loadStage1DummyData) return;
-    loadStage1DummyData();
-    setDummyLoaded(true);
-    setTimeout(() => setDummyLoaded(false), 2000);
-  }, [loadStage1DummyData]);
-
   const saveBtnLabel =
     saveState === 'saving' ? '保存中…' : saveState === 'success' ? '保存済' : '保存';
 
@@ -400,126 +390,107 @@ export default function Stage1Page() {
   return (
     <StrategyGuard mode="edit">
       <div className="max-w-6xl mx-auto px-4 md:px-6 py-6 space-y-6">
-      <header className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">STAGE1｜企業価値分析</h1>
-          <p className="text-sm text-gray-600 mt-2">
-            財務事実から企業価値の現状を整理し、経営戦略の論点を議論し明確にします。
-          </p>
+        <header className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold">STAGE1｜企業価値分析</h1>
+            <p className="text-sm text-gray-600 mt-2">
+              財務事実から企業価値の現状を整理し、経営戦略の論点を議論し明確にします。
+            </p>
 
-          <div className="text-xs text-gray-400 mt-2">
-            {strategyId ? `strategyId: ${strategyId}` : 'strategyId: —'}
-            {revision != null ? ` / rev: ${revision}` : ''}
-          </div>
-
-          {saveMessage && (
-            <div className={`text-xs mt-2 ${saveState === 'error' ? 'text-red-600' : 'text-green-700'}`}>
-              {saveMessage}
-            </div>
-          )}
-        </div>
-
-        <div className="shrink-0 flex flex-col items-end gap-3">
-          <SaveStatusIndicator />
-          <div className="flex gap-2">
-            <button
-              onClick={handleLoadDummy}
-              className={`px-3 py-2 text-sm rounded border transition ${
-                dummyLoaded
-                  ? 'bg-green-100 border-green-400 text-green-700'
-                  : 'bg-gray-100 border-gray-300 text-gray-600 hover:bg-gray-200'
-              }`}
-              disabled={!loadStage1DummyData}
-              title={!loadStage1DummyData ? 'loadStage1DummyData が store にありません' : ''}
-            >
-              {dummyLoaded ? '✓ 読込完了' : 'ダミーデータ読込'}
-            </button>
-          </div>
-
-          {!saveFn && (
-            <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-              storeに保存関数が見つかりません。strategyStore.ts に saveToSupabase / saveStrategyData 等があるか確認してください。
-            </div>
-          )}
-        </div>
-      </header>
-
-      {/* ========== タブUI ========== */}
-      <div className="border-b">
-        <div className="flex gap-4">
-          {['input', 'analysis'].map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab as TabType)}
-              className={`px-4 py-3 font-semibold text-sm border-b-2 transition ${
-                activeTab === tab
-                  ? 'text-blue-600 border-blue-600'
-                  : 'text-gray-600 border-transparent hover:text-gray-700'
-              }`}
-            >
-              {tab === 'input' ? '入力' : '分析・論点'}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ========== タブ内容：入力 ========== */}
-      {activeTab === 'input' && (
-        <div className="space-y-6">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-900">
-            <div className="font-semibold mb-1">入力画面でやること</div>
-            <div className="text-xs leading-relaxed">
-              1. 企業情報・事業内容の入力
-              <br />
-              2. 会社全体、事業別のBS/PLの入力
-              <br />
-              3. 上場情報・ベンチマーク・WACC（任意）の入力
-            </div>
-          </div>
-
-          <SectionCard title="① 企業情報・事業内容" defaultOpen={false}>
-            <CompanyAndBusinessPanel />
-          </SectionCard>
-
-          <SectionCard title="② 財務データ（読込・手入力）" defaultOpen={false}>
-            <FinanceDataPanel />
-          </SectionCard>
-
-          <SectionCard title="③ 上場情報・外部ベンチマーク・WACC（任意）" defaultOpen={false}>
-            <div className="space-y-6">
-              <ListingInfoPanel />
-              <div className="border-t border-gray-200 pt-4">
-                <Stage1BenchmarkPanel />
+            {saveMessage && (
+              <div className={`text-xs mt-2 ${saveState === 'error' ? 'text-red-600' : 'text-green-700'}`}>
+                {saveMessage}
               </div>
-              <div className="border-t border-gray-200 pt-4">
-                <WaccPanel />
+            )}
+          </div>
+
+          <div className="shrink-0 flex flex-col items-end gap-3">
+            <SaveStatusIndicator />
+            {!saveFn && (
+              <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                storeに保存関数が見つかりません。strategyStore.ts に saveToSupabase / saveStrategyData
+                等があるか確認してください。
+              </div>
+            )}
+          </div>
+        </header>
+
+        {/* ========== タブUI ========== */}
+        <div className="border-b">
+          <div className="flex gap-4">
+            {['input', 'analysis'].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab as TabType)}
+                className={`px-4 py-3 font-semibold text-sm border-b-2 transition ${
+                  activeTab === tab
+                    ? 'text-blue-600 border-blue-600'
+                    : 'text-gray-600 border-transparent hover:text-gray-700'
+                }`}
+              >
+                {tab === 'input' ? '入力' : '分析・論点'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* ========== タブ内容：入力 ========== */}
+        {activeTab === 'input' && (
+          <div className="space-y-6">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-900">
+              <div className="font-semibold mb-1">入力画面でやること</div>
+              <div className="text-xs leading-relaxed">
+                1. 企業情報・事業内容の入力
+                <br />
+                2. 会社全体、事業別のBS/PLの入力
+                <br />
+                3. 上場情報・ベンチマーク・WACC（任意）の入力
               </div>
             </div>
-          </SectionCard>
-        </div>
-      )}
 
-      {/* ========== タブ内容：分析・論点 ========== */}
-      {activeTab === 'analysis' && (
-        <div className="space-y-6">
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-900">
-            <div className="font-semibold mb-1">分析・論点でやること</div>
-            <div className="text-xs leading-relaxed">
-              1. 「財務指標」で計算結果を確認
-              <br />
-              2. 「論点整理」で経営課題・機会を抽出し、「STAGE2へ」進む
-            </div>
+            <SectionCard title="① 企業情報・事業内容" defaultOpen={false}>
+              <CompanyAndBusinessPanel />
+            </SectionCard>
+
+            <SectionCard title="② 財務データ（読込・手入力）" defaultOpen={false}>
+              <FinanceDataPanel />
+            </SectionCard>
+
+            <SectionCard title="③ 上場情報・外部ベンチマーク・WACC（任意）" defaultOpen={false}>
+              <div className="space-y-6">
+                <ListingInfoPanel />
+                <div className="border-t border-gray-200 pt-4">
+                  <Stage1BenchmarkPanel />
+                </div>
+                <div className="border-t border-gray-200 pt-4">
+                  <WaccPanel />
+                </div>
+              </div>
+            </SectionCard>
           </div>
+        )}
 
-          <SectionCard title="① 財務指標" defaultOpen={false}>
-            <MetricsPanel />
-          </SectionCard>
+        {/* ========== タブ内容：分析・論点 ========== */}
+        {activeTab === 'analysis' && (
+          <div className="space-y-6">
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-900">
+              <div className="font-semibold mb-1">分析・論点でやること</div>
+              <div className="text-xs leading-relaxed">
+                1. 「財務指標」で計算結果を確認
+                <br />
+                2. 「論点整理」で経営課題・機会を抽出し、「STAGE2へ」進む
+              </div>
+            </div>
 
-          <SectionCard title="② 論点整理 + STAGE2へ" defaultOpen={false}>
-            <Stage1ToStage2Panel />
-          </SectionCard>
-        </div>
-      )}
+            <SectionCard title="① 財務指標" defaultOpen={false}>
+              <MetricsPanel />
+            </SectionCard>
+
+            <SectionCard title="② 論点整理 + STAGE2へ" defaultOpen={false}>
+              <Stage1ToStage2Panel />
+            </SectionCard>
+          </div>
+        )}
       </div>
     </StrategyGuard>
   );
