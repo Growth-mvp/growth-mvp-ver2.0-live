@@ -1557,8 +1557,7 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         updated_at: now,
         /* ★ TASK 6: Track editor metadata for dual-browser detection */
         updated_by: userId, // Add editor user ID to track who made the change
-        /* ★ CRITICAL FIX: Application-layer revision increment (not DB trigger dependent) */
-        revision: nextRevision, // Increment revision on successful update
+        // ★ CRITICAL: Do NOT include revision in payload. DB trigger bump_strategy_data_revision handles increment exclusively
       };
       delete updatePayload.created_at;
 
@@ -1669,14 +1668,31 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       // ★重要：UPDATEの戻り値は必ず「全列」を返す（部分列だと store を壊す）
       const upd = await updateQuery.select('*').maybeSingle();
 
-      // ★ CRITICAL TEST: Verify revision increment succeeded
+      // ★ CRITICAL TEST: Verify revision integrity (DB is source of truth)
       if (upd.data) {
         const returnedRevision = (upd.data as any)?.revision;
-        if (returnedRevision !== nextRevision) {
-          console.error('[SAVE] ⚠️ REVISION MISMATCH:', {
-            sent: nextRevision,
-            received: returnedRevision,
-            message: 'Application revision increment may have failed',
+
+        // ★ Anomaly detection: only flag if revision rolled back
+        // (DB returning lower revision than what we sent is critical)
+        if (typeof returnedRevision === 'number' && typeof currentRev === 'number') {
+          if (returnedRevision < currentRev) {
+            console.error('[SAVE] ⚠️ REVISION ROLLBACK DETECTED:', {
+              expectedAtLeast: currentRev,
+              received: returnedRevision,
+              message: 'DB revision decreased - data integrity issue!',
+            });
+          } else if (returnedRevision > currentRev) {
+            // ★ Success case: revision incremented by DB trigger
+            if (DEBUG) console.log('[SAVE] ✅ Revision incremented by trigger:', {
+              before: currentRev,
+              after: returnedRevision,
+            });
+          }
+        } else if (returnedRevision === undefined) {
+          // ★ Non-critical: revision field missing (some rows may not have it)
+          if (DEBUG) console.log('[SAVE] ℹ Revision field not returned (may not exist in DB):', {
+            expectedAtLeast: currentRev,
+            returned: returnedRevision,
           });
         }
       }
