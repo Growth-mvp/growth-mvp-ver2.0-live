@@ -309,7 +309,7 @@ function ExecPanel(props: {
         userId,
         okrId,
         content: embedMetadata(metadata, composed),
-        score: rating || null,
+        score: rating ?? null,
       });
       if (error) throw error;
 
@@ -324,7 +324,7 @@ function ExecPanel(props: {
       setNotice('✅ 記録しました');
       const nowIso = new Date().toISOString();
       setLogs((prev) => [
-        { id: 'local-' + nowIso, created_at: nowIso, content: composed, score: rating || null, status: null },
+        { id: 'local-' + nowIso, created_at: nowIso, content: composed, score: rating ?? null, status: null },
         ...prev,
       ]);
       setProgressText('');
@@ -368,7 +368,7 @@ function ExecPanel(props: {
         userId,
         okrId,
         content: embedMetadata(metadata, fbContent),
-        score: reviewScore || null,
+        score: reviewScore ?? null,
       });
       if (error) throw error;
 
@@ -383,7 +383,7 @@ function ExecPanel(props: {
       setNotice('✅ フィードバックを保存しました');
       const nowIso = new Date().toISOString();
       setLogs((prev) => [
-        { id: 'local-' + nowIso, created_at: nowIso, content: fbContent, score: reviewScore || null, status: null },
+        { id: 'local-' + nowIso, created_at: nowIso, content: fbContent, score: reviewScore ?? null, status: null },
         ...prev,
       ]);
       setReviewText('');
