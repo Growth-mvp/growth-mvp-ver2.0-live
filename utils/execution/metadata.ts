@@ -7,6 +7,7 @@ export type ProgressLogMetadata = {
   companyId: string;
   deptId: string;
   projectId: string;
+  projectKey?: string; // ★ 追加：STAGE6 で executionWeight 検索用（deptName::projectTitle 形式）
   okrId: string;
   krIds?: string[];
   timestamp?: string;
@@ -21,11 +22,16 @@ export function buildProgressLogMetadata(args: {
   projectTitle: string;
   okrId: string;
   krIds?: string[];
+  projectKey?: string; // ★ 追加：呼び出し元から明示的に projectKey を受け取ることもできるように
 }): ProgressLogMetadata {
+  // ★ projectKey が明示的に渡されない場合は deptName::projectTitle で構築
+  const projectKey = args.projectKey ?? `${args.deptName}::${args.projectTitle}`;
+
   return {
     companyId: args.companyId,
     deptId: args.deptName,
     projectId: args.projectTitle,
+    projectKey, // ★ 追加：projectKey を保存
     okrId: args.okrId,
     krIds: args.krIds,
     timestamp: new Date().toISOString(),
