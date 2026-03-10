@@ -28,7 +28,7 @@ export {
   buildProjectContributions,
 } from './compute';
 
-export { getExecutionWeight } from './execution';
+export { getExecutionWeight, matchProgressLogToProject, normalizeProjectName } from './execution';
 
 export {
   calculateForecastWithImpacts,
