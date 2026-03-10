@@ -199,10 +199,46 @@ export function useOkrEditor(args: {
             norm(t?.label).includes('operatingincome'),
         );
 
+        // ★ TARGET MATCHING DIAGNOSIS ★
+        // companyTargets と金額ゴール入力値を記録
+        const hasRevenueInput = typeof (patch.impactRevenueMJPY ?? nextProj.impactRevenueMJPY) === 'number';
+        const hasOpIncomeInput = typeof (patch.impactOpIncomeMJPY ?? nextProj.impactOpIncomeMJPY) === 'number';
+        const existingCompanyTargets = targets.map((t: any) => ({
+          id: t?.id,
+          label: t?.label,
+          unit: t?.unit,
+        }));
+
+        // Failure detection: 入力値があるのに target が見つからない
+        if (hasRevenueInput && !revenueTarget) {
+          console.warn('[impact-link] FAILURE: revenue target not found', {
+            projectId,
+            projectKey: `${deptName}::${projTitle}`,
+            inputValue: patch.impactRevenueMJPY ?? nextProj.impactRevenueMJPY,
+            availableTargets: existingCompanyTargets,
+            targetsCount: targets.length,
+            hint: 'Need companyTarget with label containing "売上" or "revenue"',
+          });
+        }
+
+        if (hasOpIncomeInput && !opIncomeTarget) {
+          console.warn('[impact-link] FAILURE: op income target not found', {
+            projectId,
+            projectKey: `${deptName}::${projTitle}`,
+            inputValue: patch.impactOpIncomeMJPY ?? nextProj.impactOpIncomeMJPY,
+            availableTargets: existingCompanyTargets,
+            targetsCount: targets.length,
+            hint: 'Need companyTarget with label containing "営業利益", "営業益", "op", or "operatingincome"',
+          });
+        }
+
         const impacts = Array.isArray(st.projectTargetImpacts) ? [...st.projectTargetImpacts] : [];
 
-        const upsertImpact = (targetId: string | undefined, delta: any, notesPrefix: string) => {
-          if (!targetId) return;
+        const upsertImpact = (targetId: string | undefined, delta: any, notesPrefix: string, targetType: 'revenue' | 'op_income') => {
+          if (!targetId) {
+            // No target found - failure is already logged above
+            return;
+          }
           const v = typeof delta === 'number' ? delta : Number(delta);
           const has = Number.isFinite(v);
           const key = `${projectId}::${targetId}`;
@@ -210,7 +246,15 @@ export function useOkrEditor(args: {
 
           // 空入力は削除（=連携解除）
           if (!has) {
-            if (idx >= 0) impacts.splice(idx, 1);
+            if (idx >= 0) {
+              console.log('[impact-link] Removing impact (empty input)', {
+                projectId,
+                projectKey: `${deptName}::${projTitle}`,
+                targetId,
+                targetType,
+              });
+              impacts.splice(idx, 1);
+            }
             return;
           }
 
@@ -227,13 +271,32 @@ export function useOkrEditor(args: {
             notes,
           };
 
-          if (idx >= 0) impacts[idx] = { ...(impacts[idx] as any), ...row };
-          else impacts.push(row);
+          if (idx >= 0) {
+            impacts[idx] = { ...(impacts[idx] as any), ...row };
+            console.log('[impact-link] SUCCESS: ProjectTargetImpact updated', {
+              projectId,
+              projectKey: `${deptName}::${projTitle}`,
+              targetId,
+              targetType,
+              delta: v,
+              notes,
+            });
+          } else {
+            impacts.push(row);
+            console.log('[impact-link] SUCCESS: ProjectTargetImpact created', {
+              projectId,
+              projectKey: `${deptName}::${projTitle}`,
+              targetId,
+              targetType,
+              delta: v,
+              notes,
+            });
+          }
         };
 
         // 売上寄与 / 営業利益寄与（コスト削減も利益寄与として扱う）
-        upsertImpact(revenueTarget?.id, patch.impactRevenueMJPY ?? nextProj.impactRevenueMJPY, '[STAGE4] 売上寄与');
-        upsertImpact(opIncomeTarget?.id, patch.impactOpIncomeMJPY ?? nextProj.impactOpIncomeMJPY, '[STAGE4] 営業利益寄与');
+        upsertImpact(revenueTarget?.id, patch.impactRevenueMJPY ?? nextProj.impactRevenueMJPY, '[STAGE4] 売上寄与', 'revenue');
+        upsertImpact(opIncomeTarget?.id, patch.impactOpIncomeMJPY ?? nextProj.impactOpIncomeMJPY, '[STAGE4] 営業利益寄与', 'op_income');
 
         return {
           ...st,
