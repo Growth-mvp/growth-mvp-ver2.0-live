@@ -52,7 +52,7 @@ export async function saveWithAudit(
   userId?: string,
   companyIdOverride?: string | null,
   revision?: number,
-  opts?: { mode?: 'upsert' | 'updateOnly' },
+  opts?: { mode?: 'upsert' | 'updateOnly'; retryCount?: number },
   caller?: string,
   restoreDecisionId?: string,
   trigger?: string,
@@ -85,7 +85,7 @@ export async function saveWithAudit(
   }
 
   console.log(
-    `[audit][save:start] caller=${callerLabel}${restoreDecisionId ? ` relatedRestoreDecisionId=${restoreDecisionId}` : ''}`,
+    `[audit][save:start] caller=${callerLabel}${restoreDecisionId ? ` relatedRestoreDecisionId=${restoreDecisionId}` : ''}${opts?.retryCount ? ` retry=${opts.retryCount}` : ''}`,
     {
       userId,
       effectiveCompanyId: companyIdOverride ?? payload?.company_id,
@@ -94,6 +94,7 @@ export async function saveWithAudit(
       payloadSize,
       mode: opts?.mode ?? 'upsert',
       trigger: trigger ?? 'unknown',
+      retryCount: opts?.retryCount ?? 0,
       hasFounderMind,
       hasDraftStory,
       timestamp: new Date().toISOString(),

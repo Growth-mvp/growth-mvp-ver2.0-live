@@ -125,6 +125,12 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
       : !!s?.__isFetchingFromServer,
   );
 
+  // ---- TASK 1 & 3: Conflict recovery state ----
+  const restoreReady = useStrategyStore((s: any) => s?.restoreReady);
+  const lastServerSyncAt = useStrategyStore((s: any) => s?.lastServerSyncAt);
+  const conflictCooldownUntil = useStrategyStore((s: any) => s?.conflictCooldownUntil);
+  const pendingConflictRecovery = useStrategyStore((s: any) => s?.pendingConflictRecovery);
+
   // ---- Version for payload signature ----
   const storeVersion = useStrategyStore((s: any) => s?.version);
 
@@ -320,6 +326,33 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
         return;
       }
 
+      // ★ TASK 1: Check for conflict cooldown
+      if (conflictCooldownUntil && Date.now() < conflictCooldownUntil) {
+        if (mode === 'payload') {
+          console.log('[AutoSave][mode] payload - SKIP: in conflict cooldown period');
+        }
+        return;
+      }
+
+      // ★ TASK 3: Check for post-restore cooldown (2 second grace period)
+      if (restoreReady && lastServerSyncAt) {
+        const timeSinceSync = Date.now() - lastServerSyncAt;
+        if (timeSinceSync < 2000) {
+          if (mode === 'payload') {
+            console.log('[AutoSave][mode] payload - SKIP: post-restore cooldown', { timeSinceSync });
+          }
+          return;
+        }
+      }
+
+      // ★ TASK 1: Block autosave during conflict recovery
+      if (pendingConflictRecovery) {
+        if (mode === 'payload') {
+          console.log('[AutoSave][mode] payload - SKIP: pending conflict recovery');
+        }
+        return;
+      }
+
       if (Date.now() - mountedAtRef.current < initialDelayMs) {
         if (mode === 'payload') {
           console.log('[AutoSave][mode] payload - SKIP: initialDelayMs not elapsed');
@@ -384,6 +417,11 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
     minIntervalMs,
     initialDelayMs,
     mode,
+    // ★ TASK 1 & 3: Conflict recovery dependencies
+    restoreReady,
+    lastServerSyncAt,
+    conflictCooldownUntil,
+    pendingConflictRecovery,
   ]);
 
   /* ============================================

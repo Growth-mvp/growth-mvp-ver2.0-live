@@ -1788,11 +1788,13 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
 
       // ★ 楽観ロック衝突検知：UPDATE結果が0件（data が null）なら衝突
       if (!upd.data) {
-        console.warn(
-          '[StrategyData] ⚠ REVISION_CONFLICT: expected revision',
-          expectedRev,
-          'but data was already updated by another session',
-        );
+        console.warn('[StrategyData] ⚠ REVISION_CONFLICT detected', {
+          userId,
+          companyId: cleanCompanyId,
+          strategyId: payload.id,
+          expectedRevision: expectedRev,
+          message: 'Data was modified by another session',
+        });
 
         // 現在の revision を再取得して返す
         let currentRevisionOnServer: number | undefined;
@@ -1813,6 +1815,7 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
           data: null,
           error: {
             code: 'REVISION_CONFLICT',
+            conflictType: 'revision_conflict',
             message:
               'Data was modified by another session. Please refresh and try again.',
             expectedRevision: expectedRev,

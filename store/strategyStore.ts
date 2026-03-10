@@ -274,6 +274,20 @@ export type StrategyState = {
   restoreReady: boolean; // DB restore 完了フラグ
   isRestoring: boolean; // DB restore 中フラグ
 
+  /* ★ TASK 1: Conflict recovery tracking */
+  lastLocalEditAt?: number; // Timestamp of last local edit
+  pendingConflictRecovery?: boolean; // Currently in conflict recovery flow
+  lastSaveAttemptRevision?: number; // Revision we tried to save
+  lastConflictInfo?: {
+    // Details of last conflict
+    expectedRevision: number;
+    currentRevision: number;
+    occurredAt: number;
+    attempt: number;
+  };
+  conflictCooldownUntil?: number; // Timestamp when conflict cooldown expires
+  lastServerSyncAt?: number; // Track when server sync completed
+
   /** サーバ楽観ロック用 */
   revision?: number;
 
@@ -2978,7 +2992,7 @@ export const useStrategyStore = create<StrategyState>()(
           set({ _loadingSave: true, boot: { ...state0.boot, isSaving: true } });
 
           try {
-            for (let attempt = 1; attempt <= 2; attempt++) {
+            for (let attempt = 1; attempt <= 3; attempt++) {
               const state = get();
               const payload = buildSavePayload(state as StrategyState);
 
@@ -3106,19 +3120,50 @@ export const useStrategyStore = create<StrategyState>()(
                 const errCode = (res as any)?.errorCode || (err as any)?.code;
 
                 if (errCode === 'REVISION_CONFLICT') {
-                  console.warn(`[strategyStore] ⚠ REVISION_CONFLICT (attempt ${attempt}/2). Refetching latest...`);
+                  const conflictInfo = {
+                    expectedRevision: state.revision,
+                    currentRevision: (err as any)?.currentRevision,
+                    occurredAt: Date.now(),
+                    attempt,
+                  };
+
+                  console.warn(
+                    `[strategyStore] ⚠ REVISION_CONFLICT (attempt ${attempt}/3). Preserving local edits and refetching...`,
+                    conflictInfo,
+                  );
+
+                  set({
+                    pendingConflictRecovery: true,
+                    lastConflictInfo: conflictInfo,
+                  });
 
                   try {
+                    // refetchFromServer() will preserve local edits via extractServerDecidedPatch
+                    // because dirty=true (we just attempted a save)
                     await get().refetchFromServer();
                   } catch (refetchErr) {
                     console.error('[strategyStore] refetch after conflict failed:', refetchErr);
-                    set({ saveError: 'リビジョン競合により保存に失敗しました。再読み込みしてください。' });
+                    set({
+                      saveError: 'リビジョン競合が発生しました。あなたの変更は保持されています。画面を再読み込みしてください。',
+                      pendingConflictRecovery: false,
+                    });
                     return { ok: false, reason: 'refetch_failed_after_conflict', error: refetchErr, code: 'REFETCH_FAILED' };
                   }
 
-                  if (attempt >= 2) {
-                    console.warn('[strategyStore] REVISION_CONFLICT persists after retry. Keeping dirty state.');
-                    set({ saveError: 'リビジョン競合により保存に失敗しました。再試行してください。' });
+                  // Exponential backoff: 0ms (1st), 250ms (2nd), 800ms (3rd)
+                  if (attempt === 2) {
+                    await new Promise((resolve) => setTimeout(resolve, 250));
+                  } else if (attempt >= 3) {
+                    await new Promise((resolve) => setTimeout(resolve, 800));
+                  }
+
+                  if (attempt >= 3) {
+                    console.warn('[strategyStore] REVISION_CONFLICT persists after 3 retries. Entering cooldown.');
+                    set({
+                      saveError: '他のユーザーの更新と競合しました。あなたの変更は保持されています。内容を確認して再度保存してください。',
+                      pendingConflictRecovery: false,
+                      conflictCooldownUntil: Date.now() + 3000, // 3 second cooldown
+                    });
                     return { ok: false, reason: 'revision_conflict_persist', error: err, code: 'REVISION_CONFLICT' };
                   }
 
@@ -3157,6 +3202,10 @@ export const useStrategyStore = create<StrategyState>()(
                 /* UI state: 保存成功時に更新 */
                 saveError: undefined,
                 lastSavedAt: Date.now(),
+                // ★ TASK 1: Clear conflict recovery state on success
+                pendingConflictRecovery: false,
+                conflictCooldownUntil: undefined,
+                lastConflictInfo: undefined,
               };
               if (updatedAt) (safePatch as any).updatedAt = updatedAt;
 
@@ -3476,6 +3525,8 @@ export const useStrategyStore = create<StrategyState>()(
               /* ★ TASK 14: restore 完了フラグを設定（DB restore 完了） */
               restoreReady: true,
               isRestoring: false,
+              /* ★ TASK 3: Track when server sync completed for post-restore cooldown */
+              lastServerSyncAt: Date.now(),
             });
 
             get().setHydrated(rev, hash);
