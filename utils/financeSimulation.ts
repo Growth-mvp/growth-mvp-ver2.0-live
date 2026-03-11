@@ -149,6 +149,18 @@ export function simulateMonthlyPL(
     return vals.some((v) => typeof v === 'number' && Math.abs(v) > 1e-9);
   });
 
+  // ★ FIN-DEBUG-0: hasAnyDelta チェック
+  console.group('[FIN-DEBUG-0] simulateMonthlyPL delta check');
+  console.log({
+    hasAnyDelta,
+    acqSum: Object.values(deltas.acq ?? {}).reduce((a, b) => a + b, 0),
+    revenueSum: Object.values(deltas.revenue ?? {}).reduce((a, b) => a + b, 0),
+    firstMonthAcq: deltas.acq?.[months[0]],
+    firstMonthRevenue: deltas.revenue?.[months[0]],
+    monthsCount: months.length,
+  });
+  console.groupEnd();
+
   // 差分ゼロなら base をPL化して返す
   if (!hasAnyDelta) {
     const out: MonthlyPL[] = [];
@@ -194,6 +206,8 @@ export function simulateMonthlyPL(
   const out: MonthlyPL[] = [];
   let deltaQtyPrev = 0;
 
+  let firstDeltaYmProcessed = false; // ★ 最初の月のみログ出力用
+
   for (const ym of months) {
     const baseQty = Math.max(0, nz(base.qtyMonthly[ym]));
     const baseArpu = Math.max(0, nz(base.arpuMonthly[ym]));
@@ -203,7 +217,10 @@ export function simulateMonthlyPL(
     const basePers = Math.max(0, nz(base.personnelCostMonthly[ym]));
 
     // success_rate（売上側レバーに掛ける）
-    const success = resolveSuccessRate(deltas.success_rate?.[ym]);
+    // ★ FIX: deltas.success_rate が 0 or undefined の場合、デフォルト 1.0（100%成功）を使う
+    // プロジェクト固有の SUCCESS_RATE KR がない場合、success_rate は 0 で初期化されているため
+    const dSuccessRate = nz(deltas.success_rate?.[ym]);
+    const success = dSuccessRate === 0 ? 1.0 : resolveSuccessRate(dSuccessRate);
 
     const dAcq = nz(deltas.acq?.[ym]) * success;
     const dArpu = nz(deltas.arpu?.[ym]) * success;
@@ -218,21 +235,80 @@ export function simulateMonthlyPL(
     const dCogsRate = nz(deltas.cogsRate?.[ym]);
     const invest = nz(deltas.invest?.[ym]);
 
+    // ★ FIN-DEBUG-1: ACQ delta が qty に反映されているか（最初の月のみ）
+    if (!firstDeltaYmProcessed) {
+      console.group('[FIN-DEBUG-1] ACQ delta to QTY conversion (First month)');
+      console.log({
+        ym,
+        baseQty,
+        dSuccessRate,
+        success,
+        'deltas.acq?.[ym]': deltas.acq?.[ym],
+        dAcq,
+        'Math.abs(dAcq)': Math.abs(dAcq),
+        '> 1e-9': Math.abs(dAcq) > 1e-9,
+        deltaQtyPrev,
+        qPrev: baseQty + deltaQtyPrev,
+        churnDelta: dChurn - dRet,
+      });
+      firstDeltaYmProcessed = true;
+    }
+
     const churnRate = clamp01(baseChurn + dChurn - dRet);
     const churnDelta = dChurn - dRet;
 
     const prevDeltaQty = deltaQtyPrev;
     const qPrev = baseQty + prevDeltaQty;
 
-    const deltaQtyNext = Math.max(0, prevDeltaQty + dAcq - qPrev * churnDelta);
+    // ★ ACQ UNIT FIX: dAcq は改善率（coefficient 0.0-1.0）として解釈
+    // buildBridgeDeltas から：
+    //   isPct=true の場合 → normalized = target / 100（例: 18.32% → 0.1832）
+    //   isPct=false の場合 → delta = target（絶対値）
+    //
+    // ここでは改善率（0-1 coefficient）として扱う
+    // dAcq > 1 の場合は % 値（例: 18.32）なので /100 してから使う
+    const acqCoefficient = dAcq > 1 ? dAcq / 100 : dAcq;  // 正規化して 0-1 range に
+    const acqDrivenQtyDelta = baseQty * acqCoefficient;
 
+    // ★ 修正A（必須）：ACQ改善は単月flow、carry しない設計へ統一
+    // 従前：deltaQtyNext = prevDeltaQty + acqDrivenQtyDelta - qPrev * churnDelta
+    //      prevDeltaQty にACQが累積し、毎月carry されて売上が指数的に膨張
+    //
+    // 修正後：毎月の delta を独立して計算（flow化）
+    // - ACQ由来の増分は「当月のみ」（carry しない）
+    // - CHURN由来の減分は baseQty に基づいて計算（carry も行わない）
+    // - prevDeltaQty は 0 に統一（全KRが単月 flow として扱われる）
+    const deltaQtyNext = acqDrivenQtyDelta - baseQty * churnDelta;
     const qty = Math.max(0, baseQty + deltaQtyNext);
-    deltaQtyPrev = deltaQtyNext;
+
+    // ★ 修正A: ACQ/CHURN ともに carry しない（完全flow設計）
+    // 毎月を独立した flow として扱う。前月の「超過」は引き継がない。
+    deltaQtyPrev = 0;
 
     const arpu = Math.max(0, baseArpu + dArpu);
 
     // revenue
     let revenueCore = Math.max(0, qty * arpu);
+
+    // ★修正D：ACQ検証ログ（最初の3ヶ月）
+    if (!firstDeltaYmProcessed || months.indexOf(ym) < 3) {
+      console.group(`[STAGE6][acq] Month ${ym}`);
+      console.log({
+        month: ym,
+        baseQty,
+        acqCoefficient,
+        acqDrivenQtyDelta,
+        prevDeltaQty,
+        churnDelta,
+        'baseQty * churnDelta': baseQty * churnDelta,
+        deltaQtyNext,
+        finalQty: qty,
+      });
+      console.log({
+        '説明': '★修正A: ACQ/CHURN ともに carry なし（完全flow設計）。毎月を独立した flow として計算',
+      });
+      console.groupEnd();
+    }
     revenueCore += Math.max(0, dRevenue);
 
     if (applySynergyTo.includes('revenue')) {
