@@ -152,6 +152,9 @@ function FiveMetricCard({
 }
 
 export function TabValueDashboard({ northStarRows, projectContrib, vaCards }: Props) {
+  // ★ 実行確認用ログ
+  console.log('[TABVALUE-NEW-CODE-RUNNING] TabValueDashboard component loaded');
+
   const revenueRow = useMemo(() => pickRow(northStarRows, '売上'), [northStarRows]);
   const opRow = useMemo(() => pickRow(northStarRows, '営業利益'), [northStarRows]);
 
@@ -160,8 +163,8 @@ export function TabValueDashboard({ northStarRows, projectContrib, vaCards }: Pr
     const forecast = revenueRow?.forecastValue ?? 0;
     const needMJPY = Math.max(0, base - forecast);
     const top3 = topProjectsForMetric('売上', projectContrib);
-    const current = forecast - top3.reduce((s, t) => s + t.deltaMJPY, 0);
-    return { base, forecast, current, needMJPY, achievementRate: revenueRow?.achievementRate, top3 };
+    // ★ FIX: current を使わない（データ源が存在しないため）
+    return { base, forecast, needMJPY, achievementRate: revenueRow?.achievementRate, top3 };
   }, [revenueRow, projectContrib]);
 
   const op = useMemo(() => {
@@ -169,8 +172,8 @@ export function TabValueDashboard({ northStarRows, projectContrib, vaCards }: Pr
     const forecast = opRow?.forecastValue ?? 0;
     const needMJPY = Math.max(0, base - forecast);
     const top3 = topProjectsForMetric('営業利益', projectContrib);
-    const current = forecast - top3.reduce((s, t) => s + t.deltaMJPY, 0);
-    return { base, forecast, current, needMJPY, achievementRate: opRow?.achievementRate, top3 };
+    // ★ FIX: current を使わない（データ源が存在しないため）
+    return { base, forecast, needMJPY, achievementRate: opRow?.achievementRate, top3 };
   }, [opRow, projectContrib]);
 
   const hasAnyInvestment = useMemo(
@@ -259,14 +262,12 @@ export function TabValueDashboard({ northStarRows, projectContrib, vaCards }: Pr
             <div key={m.title} className="rounded-xl border border-slate-200 p-4">
               <div className="flex items-center justify-between gap-3">
                 <div className="font-bold text-slate-900">{m.title}</div>
-                <div className="text-sm font-semibold text-slate-700">達成率 {fmtPct(m.achievementRate)}</div>
+                {/* ★ FIX: ラベルを「達成率」→「目標達成見込み」に変更（forecast/target*100の意味を明確化） */}
+                <div className="text-sm font-semibold text-slate-700">目標達成見込み {fmtPct(m.achievementRate)}</div>
               </div>
               <ProgressBar currentPct={m.achievementRate ?? 0} />
-              <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
-                <div className="rounded-lg bg-slate-50 p-3">
-                  <div className="text-[11px] font-semibold text-slate-600">現状</div>
-                  <div className="mt-1 font-bold text-slate-900">{fmtMJPY(m.current)}</div>
-                </div>
+              {/* ★ FIX: 3列から2列に変更。「現状」を削除（データ源なし） */}
+              <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                 <div className="rounded-lg bg-slate-50 p-3">
                   <div className="text-[11px] font-semibold text-slate-600">達成見込み</div>
                   <div className="mt-1 font-bold text-slate-900">{fmtMJPY(m.forecast)}</div>
