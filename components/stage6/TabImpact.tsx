@@ -25,6 +25,15 @@ function fmtPctFromWeight(weight?: number) {
   return `${Math.round((weight as number) * 100)}%`;
 }
 
+// ★ BUG-FIX-2: fmtMJPY は入力がすでに MJPY（百万円）単位のため、1,000,000 で除算してはいけない
+// 例：deltaRevenueTotal = 580 (MJPY単位) → "580 百万円" と表示（1,000,000で除算すると 0 になる）
+function fmtMJPY(value?: number) {
+  if (!Number.isFinite(value as any)) return '-';
+  // ★修正: 入力値は既に MJPY 単位なので、そのまま丸めて表示
+  const millions = Math.round((value as number));
+  return `${millions.toLocaleString()} 百万円`;
+}
+
 function sourceLabel(source?: string) {
   if (source === 'stage4_plan') return 'STAGE4計画';
   if (source === 'manual') return '手入力';
@@ -102,15 +111,37 @@ export function TabImpact({
         </div>
 
         <div className="rounded-xl bg-slate-50 p-4">
-          <div className="text-[11px] font-semibold text-slate-600">売上寄与合計</div>
-          <div className="mt-1 text-xl font-bold text-slate-900">{fmtJPY(selectedSummary.deltaRev)}</div>
+          <div className="text-[11px] font-semibold text-slate-600">売上寄与合計（単年）</div>
+          <div className="mt-1 text-xl font-bold text-slate-900">{fmtMJPY(selectedSummary.deltaRev)}</div>
         </div>
 
         <div className="rounded-xl bg-slate-50 p-4">
-          <div className="text-[11px] font-semibold text-slate-600">営業利益寄与合計</div>
-          <div className="mt-1 text-xl font-bold text-slate-900">{fmtJPY(selectedSummary.deltaOp)}</div>
+          <div className="text-[11px] font-semibold text-slate-600">営業利益寄与合計（単年）</div>
+          <div className="mt-1 text-xl font-bold text-slate-900">{fmtMJPY(selectedSummary.deltaOp)}</div>
         </div>
       </div>
+
+      {/* ★ UNIFIED-SOURCE-SUMMARY: 上段と下段が同じソース（projectContrib 単年値）を使用 */}
+      {(() => {
+        if (selectedProjectKeys.length > 0) {
+          const selectedProjects = projectContrib.filter((p) => selectedProjectKeys.includes(p.key));
+          const summedRevenue = selectedProjects.reduce((s, p) => s + (p.deltaRevenueTotal ?? 0), 0);
+          const summedOp = selectedProjects.reduce((s, p) => s + (p.deltaOpTotal ?? 0), 0);
+          console.log('[UNIFIED-SOURCE-SUMMARY] Summary matches bottom list (both use projectContrib):', {
+            '選択PJ数': selectedProjectKeys.length,
+            '上段_売上寄与合計': selectedSummary.deltaRev,
+            '下段合算_売上寄与': summedRevenue,
+            '上段_営業利益寄与合計': selectedSummary.deltaOp,
+            '下段合算_営業利益寄与': summedOp,
+            '確認': {
+              'deltaRev一致': selectedSummary.deltaRev === summedRevenue ? '✓' : '✗差異有',
+              'deltaOp一致': selectedSummary.deltaOp === summedOp ? '✓' : '✗差異有',
+            },
+            '注': '上段カードと下段一覧が同じデータソース・同じ期間（最終年単年）を使用',
+          });
+        }
+      })()}
+
 
       {/* List */}
       <div className="space-y-3">
@@ -119,6 +150,25 @@ export function TabImpact({
           const execPct = fmtPctFromWeight(p.executionWeight?.weight);
           const evidence = sourceLabel(p.evidence?.source);
           const note = p.evidence?.notes;
+
+          // ★ ISSUE-DEBUG-6: 各行の表示値参照元を確認
+          if (filtered.indexOf(p) < 3) {
+            console.log('[PERIOD-DEBUG-UI] TabImpact row display (First 3):', {
+              projectKey: p.key,
+              projectTitle: p.proj,
+              displayedDeltaRevenue: fmtJPY(p.deltaRevenueTotal),
+              displayedDeltaOp: fmtJPY(p.deltaOpTotal),
+              rawDeltaRevenue: p.deltaRevenueTotal,
+              rawDeltaOp: p.deltaOpTotal,
+              'displayedRevenue / 1M': p.deltaRevenueTotal / 1_000_000,
+              'displayedOp / 1M': p.deltaOpTotal / 1_000_000,
+              'displayedRevenue / 4': p.deltaRevenueTotal / 4,
+              'displayedOp / 4': p.deltaOpTotal / 4,
+              sourceVariable_revenue: 'p.deltaRevenueTotal',
+              sourceVariable_op: 'p.deltaOpTotal',
+              '⚠️注': '複数年累計の可能性。上段との単位比較必須',
+            });
+          }
 
           return (
             <div
@@ -162,16 +212,16 @@ export function TabImpact({
                     {/* Right */}
                     <div className="grid min-w-[260px] grid-cols-2 gap-3 md:min-w-[340px]">
                       <div className="rounded-lg bg-slate-50 p-3">
-                        <div className="text-[11px] font-semibold text-slate-600">売上寄与</div>
+                        <div className="text-[11px] font-semibold text-slate-600">売上寄与（単年）</div>
                         <div className="mt-1 text-base font-bold text-slate-900">
-                          {fmtJPY(p.deltaRevenueTotal)}
+                          {fmtMJPY(p.deltaRevenueTotal)}
                         </div>
                       </div>
 
                       <div className="rounded-lg bg-slate-50 p-3">
-                        <div className="text-[11px] font-semibold text-slate-600">営業利益寄与</div>
+                        <div className="text-[11px] font-semibold text-slate-600">営業利益寄与（単年）</div>
                         <div className="mt-1 text-base font-bold text-slate-900">
-                          {fmtJPY(p.deltaOpTotal)}
+                          {fmtMJPY(p.deltaOpTotal)}
                         </div>
                       </div>
                     </div>
