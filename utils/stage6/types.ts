@@ -12,6 +12,9 @@ export type ApprovedProject = {
   proj: string;
   krCount: number;
   investTotal: number;
+  // ★ STAGE5 進捗率から計算した実行度補正（useStage6Data で設定）
+  impactRevenueProgress?: number | null;
+  impactOpIncomeProgress?: number | null;
 };
 
 /**
@@ -127,4 +130,6 @@ export type Stage6Core = {
   baselineYearly: any[];
   yearlyAll: { low: any[]; base: any[]; high: any[] };
   deptNames: string[];
+  // ★ STAGE5 進捗率から計算した executionWeight マップ（常に存在、空の場合は empty Map）
+  executionWeightsMap: Map<string, { weight: number }>;
 };
