@@ -241,6 +241,8 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         projectKrsMap: new Map<string, BridgeKR[]>(),
         baselineYearly: [] as YearlyPL[],
         yearlyAll: { low: [], base: [], high: [] } as Record<'low' | 'base' | 'high', YearlyPL[]>,
+        // ★ executionWeightsMap は常に Map（undefined ではない）
+        executionWeightsMap: new Map<string, { weight: number }>(),
       };
     }
 
@@ -442,8 +444,10 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       console.groupEnd();
     }
 
-    // === executeionWeights Map を先に計算（TDZ 回避のため allKrs 前に定義） ===
+    // === executionWeights Map を先に計算（TDZ 回避のため allKrs 前に定義）
+    // ★ 常に Map を返す（undefined にしない）
     const executionWeightsMap = new Map<string, { weight: number }>();
+
     if (progressLogs && approved && approved.length > 0) {
       // ★ ログ：executionWeights 計算開始
       console.group('[A] STAGE6 executionWeights calculation');
@@ -591,68 +595,145 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
   }, [projectTargetImpacts, autoProjectTargetImpacts]);
 
 
-  // === STAGE6 安定版：Tab1（プロジェクト寄与）用に、STAGE4入力の projectTargetImpacts をプロジェクト単位へ合算して上書き ===
-  // - TabImpact は deltaRevenueTotal / deltaOpTotal を「円」で表示（fmtJPY）
-  // - projectTargetImpacts.delta は companyTargets.unit（通常: 百万円）なので、必ず「円」に換算してから埋める
+  // === STAGE6 拡張修正：Tab1（プロジェクト寄与）用に正式フィールドを優先 ===
+  // ★新修正：STAGE5 実行度を反映した effective contribution を表示
+  // - 優先順位 1: Project.impactRevenueMJPY * impactRevenueProgress / 100
+  // - 優先順位 2: buildProjectContributions() の raw simulation 値（fallback）
+  // - 根拠：Execution Panel との整合性確保
   const projectContribForUI = useMemo(() => {
     if (!projectContrib || projectContrib.length === 0) return projectContrib;
 
-    const revTarget = companyTargets.find(
-      (t: any) => typeof t?.label === 'string' && t.label.includes('売上') && !t.label.includes('成長'),
-    );
-    const opTarget = companyTargets.find(
-      (t: any) => typeof t?.label === 'string' && t.label.includes('営業利益') && !t.label.includes('率'),
-    );
-
-    const revId: string | undefined = revTarget?.id;
-    const opId: string | undefined = opTarget?.id;
-    const revUnit: string = revTarget?.unit ?? 'yen';
-    const opUnit: string = opTarget?.unit ?? 'yen';
-
-    const revMap = new Map<string, number>();
-    const opMap = new Map<string, number>();
-
-    for (const imp of effectiveProjectTargetImpacts) {
-      const delta = typeof (imp as any).delta === 'number' ? (imp as any).delta : 0;
-      if (!Number.isFinite(delta) || delta === 0) continue;
-
-      if (revId && (imp as any).targetId === revId) {
-        const dy = normalizeValueToUnit(delta, revUnit, 'yen') ?? delta;
-        revMap.set((imp as any).projectId, (revMap.get((imp as any).projectId) ?? 0) + dy);
-      }
-      if (opId && (imp as any).targetId === opId) {
-        const dy = normalizeValueToUnit(delta, opUnit, 'yen') ?? delta;
-        opMap.set((imp as any).projectId, (opMap.get((imp as any).projectId) ?? 0) + dy);
-      }
+    // Project データを dept::proj::idx キーで検索可能な map を構築
+    const projectMap = new Map<string, any>();
+    const projectMapKeys: string[] = [];
+    if (Array.isArray(departments)) {
+      departments.forEach((dept: any) => {
+        const deptName = dept?.name ?? '（未名）';
+        const projects = Array.isArray(dept.projects) ? dept.projects : [];
+        projects.forEach((proj: any, idx: number) => {
+          const key = `${deptName}::${proj.title}::${idx}`;
+          projectMap.set(key, proj);
+          projectMapKeys.push(key);
+        });
+      });
     }
 
-    return projectContrib.map((p: any) => {
-      const deltaRevenueTotal = p.deltaRevenueTotal;
-      const deltaOpTotal = p.deltaOpTotal;
+    // ★ログ：正式フィールド参照の準備確認（キー一覧）
+    if (DEBUG && projectContrib.length > 0) {
+      console.group('[STAGE6][project-source] Data source prioritization');
+      console.log('projectMap size:', projectMap.size);
+      console.log('projectContrib size:', projectContrib.length);
+      console.log('projectMap keys (first 3):', projectMapKeys.slice(0, 3));
+      console.log('projectContrib keys (first 3):', projectContrib.slice(0, 3).map((p: any) => p.key));
+      console.groupEnd();
+    }
 
-      // 投資は既存の集計を尊重（0のままでもOK）。ROIは投資がある場合のみ概算。
+    return projectContrib.map((p: any, idx: number) => {
+      // Project の正式フィールドを検索
+      const projectData = projectMap.get(p.key);
+      const matchedProjectFound = !!projectData;
+
+      const impactRevenueMJPY = projectData?.impactRevenueMJPY;
+      const impactRevenueProgress = projectData?.impactRevenueProgress;
+      const impactOpIncomeMJPY = projectData?.impactOpIncomeMJPY;
+      const impactOpIncomeProgress = projectData?.impactOpIncomeProgress;
+
+      // ★ BUG-FIX-2: Unit Mixing 修正 - projectContribForUI の返却値は常に MJPY に統一
+      // 【単位統一ルール】deltaRevenueTotal / deltaOpTotal は必ず MJPY（百万円）で返す
+      let rawRevenueDeltaYen = p.deltaRevenueTotal;  // 一時変数: 元値（yen 可能性あり）
+      let rawOpDeltaYen = p.deltaOpTotal;            // 一時変数: 元値（yen 可能性あり）
+      let deltaRevenueTotal: number = 0;             // MJPY単位で統一
+      let deltaOpTotal: number = 0;                  // MJPY単位で統一
+      let sourceUsed = 'raw_simulation';
+
+      // ★ revenue / op 条件分岐の詳細追跡
+      const hasRevenueFields = typeof impactRevenueMJPY === 'number' && typeof impactRevenueProgress === 'number';
+      const hasOpFields = typeof impactOpIncomeMJPY === 'number' && typeof impactOpIncomeProgress === 'number';
+
+      if (DEBUG && (idx < 3 || p.proj.toLowerCase().includes('半導体'))) {
+        console.log('[STAGE6][project-fields-check]', {
+          projectTitle: p.proj,
+          projectKey: p.key,
+          matchedProjectFound,
+          'impactRevenueMJPY (MJPY単位)?': impactRevenueMJPY,
+          'impactRevenueProgress (%)?': impactRevenueProgress,
+          'hasRevenueFields?': hasRevenueFields,
+          'impactOpIncomeMJPY (MJPY単位)?': impactOpIncomeMJPY,
+          'impactOpIncomeProgress (%)?': impactOpIncomeProgress,
+          'hasOpFields?': hasOpFields,
+        });
+      }
+
+      // 優先順位 1: 正式フィールド（STAGE4/STAGE5計画値 × 実行度）
+      // ★ Source 1: stage5_progress - そのまま MJPY
+      if (hasRevenueFields) {
+        deltaRevenueTotal = (impactRevenueMJPY * impactRevenueProgress) / 100;  // MJPY
+        sourceUsed = 'stage5_progress';
+      } else {
+        // ★ Source 2: raw_simulation fallback - yen → MJPY に変換
+        deltaRevenueTotal = (typeof rawRevenueDeltaYen === 'number' && Number.isFinite(rawRevenueDeltaYen))
+          ? rawRevenueDeltaYen / 1_000_000  // yen → MJPY
+          : 0;
+      }
+
+      if (hasOpFields) {
+        deltaOpTotal = (impactOpIncomeMJPY * impactOpIncomeProgress) / 100;  // MJPY
+        sourceUsed = sourceUsed === 'stage5_progress' ? 'stage5_progress' : 'stage5_progress_op_only';
+      } else {
+        // ★ Source 2: raw_simulation fallback - yen → MJPY に変換
+        deltaOpTotal = (typeof rawOpDeltaYen === 'number' && Number.isFinite(rawOpDeltaYen))
+          ? rawOpDeltaYen / 1_000_000  // yen → MJPY
+          : 0;
+      }
+
+      // 投資は既存の集計を尊重
       const investTotal = typeof p.investTotal === 'number' ? p.investTotal : 0;
       const roi =
         investTotal > 0 ? deltaOpTotal / investTotal : (Number.isFinite(p.roi as any) ? p.roi : undefined);
 
-      const evidence =
-        deltaRevenueTotal !== 0 || deltaOpTotal !== 0
-          ? {
-              source: 'stage4_plan',
-              confidence: 'high',
-              notes: 'STAGE4金額寄与（売上/営業利益）',
-            }
-          : p.evidence;
+      // ★ 追加ログ：UNIT MIXING チェック - rawValue と normalized value を対比
+      const isHalfConductor = p.proj.toLowerCase().includes('半導体') || p.proj.toLowerCase().includes('product');
+      if (idx < 3 || isHalfConductor) {
+        console.log('[STAGE6][project-unit-normalized]', {
+          projectTitle: p.proj,
+          sourceRevenue: hasRevenueFields ? 'stage5_progress' : 'raw_simulation',
+          sourceOp: hasOpFields ? 'stage5_progress' : 'raw_simulation',
+          rawRevenueDeltaYen: rawRevenueDeltaYen,
+          rawOpDeltaYen: rawOpDeltaYen,
+          effectiveRevenueMJPY: deltaRevenueTotal,
+          effectiveOpMJPY: deltaOpTotal,
+          finalDeltaRevenueTotal: deltaRevenueTotal,
+          finalDeltaOpTotal: deltaOpTotal,
+          finalUnit: 'MJPY',
+          '説明': `raw value は元の単位, final value は常に MJPY に統一済`,
+          '半導体チェック': isHalfConductor ? `【要確認】${deltaRevenueTotal} MJPY (target=580)` : '',
+        });
+      }
+
+      // 根拠情報の更新
+      const evidence = sourceUsed === 'raw_simulation'
+        ? p.evidence ?? {
+            source: 'kr_bridge',
+            confidence: 'medium',
+            notes: 'STAGE6シミュレーション結果',
+          }
+        : {
+            source: 'stage4_plan',
+            confidence: 'high',
+            notes: `STAGE5実行度: ${impactRevenueProgress?.toFixed(0) ?? '?'}%`,
+          };
 
       return {
         ...p,
-        deltaRevenueTotal,
-        deltaOpTotal,
+        // ★ 注意: これらは MJPY（百万円）単位で返される
+        // TabImpact で fmtMJPY を使用して表示すること
+        deltaRevenueTotal,  // ★ MJPY単位の effective delta（正式フィールド優先）
+        deltaOpTotal,        // ★ MJPY単位の effective delta（正式フィールド優先）
         roi,
         evidence,
       };
     });
-  }, [projectContrib, effectiveProjectTargetImpacts, companyTargets]);
+  }, [projectContrib, departments]);
   // === STAGE6 Phase E：AUTO推定（projectIssueLinks） ===
   const autoProjectIssueLinks = useMemo(() => {
     if (!isReady || allProjectKeys.length === 0 || stage1Issues.length === 0) {
@@ -874,70 +955,128 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     // Step 1: 既存ロジックで初期計算
     const baseRows = buildNorthStarRows({
       companyTargets,
-      yearlyAll: core.yearlyAll,
+      yearlyAll: core.yearlyAll,  // ★ raw full forecast（STAGE5実行度未反映）
       scenarioKey,
     projectContrib: projectContribForUI,
     });
 
-    // Step 2: 売上/営業利益の行は chartData と同期（E-2）
+    // ★ 追加ログ：buildNorthStarRows の入力確認
+    if (DEBUG && baseRows.length > 0) {
+      console.group('[E-3] buildNorthStarRows input/output');
+      console.log('Input: core.yearlyAll[base]:', {
+        '説明': 'raw full forecast（全KRの100%効果）',
+        'yearlyAll.base.length': core.yearlyAll?.base?.length ?? 0,
+      });
+      const revRow = baseRows.find(r => r.label.toLowerCase().includes('売上') && !r.label.toLowerCase().includes('成長'));
+      if (revRow) {
+        console.log('Revenue row (raw forecast):', {
+          base: revRow.base,
+          forecastValue: revRow.forecastValue,
+          '説明': 'STAGE5実行度未反映（Project.impactRevenueMJPY ではなく calcYearlyFromKrs 結果）',
+        });
+      }
+      console.groupEnd();
+    }
+
+    // ★ 追加修正：project contribution の合算を計算（effective ベース化用）
+    // ★注意: projectContribForUI の deltaRevenueTotal / deltaOpTotal は常に MJPY に統一済
+    const sumProjectEffectiveRevenue = projectContribForUI.reduce((s, p) => s + (p.deltaRevenueTotal ?? 0), 0);
+    const sumProjectEffectiveOp = projectContribForUI.reduce((s, p) => s + (p.deltaOpTotal ?? 0), 0);
+
+    if (DEBUG) {
+      console.log('[E-3-EFFECTIVE] Project contribution sum (MJPY unified):', {
+        sumProjectEffectiveRevenue_UNIT: 'MJPY',
+        sumProjectEffectiveRevenue,
+        sumProjectEffectiveOp_UNIT: 'MJPY',
+        sumProjectEffectiveOp,
+        projectCount: projectContribForUI.length,
+        '説明': '★統一基準：下段の合算値（MJPY）が上段の company forecast となる',
+      });
+    }
+
+    // Step 2: ★修正：売上/営業利益の行を effective ベース（project 合算）で上書き（E-2）
+    // ★BUG-FIX-1: baselineVal と targetVal を分離（どちらも row.base だった）
     const syncedRows = baseRows.map((row) => {
       const isRevenueLike = row.label.toLowerCase().includes('売上') && !row.label.toLowerCase().includes('成長');
       const isOpIncomeLike = row.label.toLowerCase().includes('営業利益') && !row.label.toLowerCase().includes('率');
 
       if (isRevenueLike || isOpIncomeLike) {
-        // chartData の最後の年のデータを取得
-        const lastChartRow = chartData.length > 0 ? chartData[chartData.length - 1] : null;
-        if (lastChartRow) {
-          const chartValue = isRevenueLike ? lastChartRow.allRevenue : lastChartRow.allOp;
-          const normalizedValue = normalizeValueToUnit(chartValue, row.unit);
+        // ★修正：effective ベースで上書き（STAGE5進捗を反映）
+        // baseline + sum(project.effective) = company forecast (effective)
+        const metricType = isRevenueLike ? 'Revenue' : 'OpIncome';
 
-          if (DEBUG) {
-            console.log(`[E-2] ${row.label}: chartValue=${chartValue}, normalized=${normalizedValue}, unit=${row.unit}`);
-          }
+        // ★修正-1: baseline（現状/見込み）と target（北極星）を分離
+        // - targetVal = row.base（北極星の目標値）
+        // - baselineVal = row.forecastValue（既存予測値、プロジェクト調整前）
+        // NOTE: row.forecastValue は simulationBridge で計算されるベース予測値
+        const targetVal = row.base;  // 北極星のベース値（目標）
+        const baselineVal = row.forecastValue ?? row.base;  // 予測値、または fallback としてターゲット
 
-          // ★Phase E 修正: yen 統一で計算（単位混在対策）
-          // chartValue と baseNorm の両方を yen に統一
-          const baseYen = normalizeValueToUnit(row.base, row.unit, 'yen') ?? row.base;
+        const effectiveDelta = isRevenueLike ? sumProjectEffectiveRevenue : sumProjectEffectiveOp;
 
-          const newForecast = normalizedValue;
-          const newGapYen = chartValue !== undefined && baseYen ? chartValue - baseYen : undefined;
-          const newGap = newGapYen !== undefined ? normalizeValueToUnit(newGapYen, 'yen', row.unit) : undefined;
+        // ★修正-2: Unit Mixing 修正 - projectContrib は常に MJPY 単位
+        // sumProjectEffectiveRevenue / sumProjectEffectiveOp は MJPY （北極星行の単位に応じて変換）
+        // row.unit が MJPY なら、そのまま加算。row.unit が yen なら、MJPY → yen に変換
+        let effectiveDeltaNormalized = effectiveDelta;
+        const sumSourceUnit = 'MJPY';
+        const targetRowUnit = row.unit ?? 'yen';
 
-          // achievementRate は yen ベースで計算（★重要）
-          const newAchievement =
-            chartValue !== undefined && baseYen && baseYen !== 0
-              ? (chartValue / baseYen) * 100
-              : undefined;
-
-          return {
-            ...row,
-            forecastValue: newForecast,
-            gap: newGap,
-            achievementRate: newAchievement,
-          };
+        if (targetRowUnit && targetRowUnit !== 'MJPY' && targetRowUnit !== '百万円') {
+          // row.unit が yen の場合、MJPY を yen に変換
+          effectiveDeltaNormalized = effectiveDelta * 1_000_000;
         }
+
+        const effectiveForecast = baselineVal + effectiveDeltaNormalized;
+        const newForecast = effectiveForecast;  // 既に row.unit で統一
+        const newGap = effectiveDeltaNormalized;
+
+        // achievementRate は target ベースで計算（forecast / target × 100%）
+        const newAchievement =
+          targetVal && targetVal !== 0
+            ? (newForecast / targetVal) * 100
+            : undefined;
+
+        if (DEBUG) {
+          console.log(`[STAGE6][top-debug-${metricType}]`, {
+            baselineValue: baselineVal,
+            baselineUnit: row.unit,
+            targetValue: targetVal,
+            targetUnit: row.unit,
+            sumProjectEffectiveSource: effectiveDelta,
+            sumProjectEffectiveSourceUnit: 'MJPY',
+            unitConversion: `MJPY → ${targetRowUnit}`,
+            conversionFactor: targetRowUnit === 'yen' ? 1_000_000 : 1,
+            effectiveDeltaNormalized: effectiveDeltaNormalized,
+            forecastValue: newForecast,
+            achievementRate: newAchievement,
+            '確認': `baseline=${baselineVal}, delta=${effectiveDeltaNormalized}, forecast=${newForecast}, achievement=${newAchievement}%`,
+          });
+        }
+
+        return {
+          ...row,
+          forecastValue: newForecast,
+          gap: newGap,
+          achievementRate: newAchievement,
+        };
       }
 
       return row;
     });
 
-    // Step 3: Phase E で加算（ハイブリッド：impact がある行だけ）
-    // ★修正：ゼロチェック
+    // Step 3: ★修正B（必須）Phase E は「チャートデータで既に反映」なら northStarRows では追加しない
+    // 判定：effectiveProjectTargetImpacts に値があり、chartDataWithPhaseE で加算されている場合は、
+    // northStarRows では Phase E を「参考情報のみ」として breakdownを付与するが、
+    // forecastValue/gap/achievementRate には含めない（chartDataWithPhaseE と同期するだけ）
+
+    // 全 delta が 0 のときは Phase E を適用しない（E-2の推定を壊さない）
     const allZero = effectiveProjectTargetImpacts.every((i) => !i.delta || i.delta === 0);
-    if (allZero && effectiveProjectTargetImpacts.length > 0) {
-      if (DEBUG) {
-        console.log('[E-3] skip PhaseE: all deltas are zero');
-      }
+    if (allZero) {
+      if (DEBUG) console.log('[E-3] skip PhaseE: all deltas are zero');
       return syncedRows;
     }
 
     if (effectiveProjectTargetImpacts.length > 0) {
-      // 0) 全 delta が 0 のときは Phase E を適用しない（E-2の推定を壊さない）
-      const allZero = effectiveProjectTargetImpacts.every((i) => !i.delta || i.delta === 0);
-      if (allZero) {
-        if (DEBUG) console.log('[E-3] skip PhaseE: all deltas are zero');
-        return syncedRows;
-      }
 
       // 1) targetId × projectId で effectiveDelta（= delta × 実行度）を合算
       const byTarget = new Map<
@@ -982,31 +1121,26 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         })));
       }
 
-      // 2) syncedRows（E-2の予測=現状見込み）に PhaseE delta を「加算」する（絶対値を維持）
+      // 2) ★修正B：northStarRows では Phase E を「加算しない」（chartDataWithPhaseE で既に加算されているため）
+      // 代わりに、breakdownとphaseEDelta は「参考情報」として付与するが、
+      // forecastValue/gap/achievementRate は chartDataWithPhaseE と同期したsyncedRows のまま
       const hybridRows = syncedRows.map((row) => {
         const hit = byTarget.get(row.targetId);
         if (!hit) return row;
 
-        const baseValue = typeof row.base === 'number' ? row.base : 0;
-        const syncedForecastAbs = typeof row.forecastValue === 'number' ? row.forecastValue : baseValue;
-
-        const combinedForecastAbs = syncedForecastAbs + hit.deltaSum;
-        const gapAbs = combinedForecastAbs - baseValue;
-        const achievementAbs = baseValue !== 0 ? (combinedForecastAbs / baseValue) * 100 : undefined;
-
+        // ★修正：forecastValue/gap/achievementRate は既に chartData (E-2) で決定済み
+        // ここでは Phase E の breakdown を「参考情報」として付与するのみ
         return {
           ...row,
-          forecastValue: combinedForecastAbs,
-          gap: gapAbs,
-          achievementRate: achievementAbs,
-          // E-4（年次配賦）用：プロジェクト寄与のΔ（単位は row.unit）
+          // forecastValue, gap, achievementRate はそのまま（chartData同期済み）
+          // E-4（年次配賦）用：プロジェクト寄与のΔ（単位は row.unit）【参考情報】
           phaseEDelta: hit.deltaSum,
           breakdown: hit.breakdown,
         } as any;
       });
 
       if (DEBUG) {
-        console.log(`[E-3] Hybrid(add): ${hybridRows.length}行中${byTarget.size}行にPhaseE deltaを加算`);
+        console.log(`[E-3] Breakdown(reference): ${hybridRows.length}行中${byTarget.size}行にPhaseE情報を参考付与（加算しない）`);
       }
 
       return hybridRows;
@@ -1137,6 +1271,29 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     const opRow = northStarRows.find(
       (r) => r.label.toLowerCase().includes('営業利益') && !r.label.toLowerCase().includes('率')
     );
+
+    // ★修正D：Phase E検証ログ（修正B後：northStarRows は forecastValue を上書きしていないため、参考情報のみ）
+    if (DEBUG && (revRow || opRow)) {
+      console.group('[STAGE6][phaseE] - North Star Rows vs Chart Data');
+      console.log('Note: northStarRows は chartData と同期済み（E-2）、Phase E情報は参考のみ');
+      if (revRow) {
+        console.log('Revenue Row:', {
+          label: revRow.label,
+          forecastValue: revRow.forecastValue,
+          phaseEDelta: (revRow as any).phaseEDelta ?? '無し（参考情報のみ）',
+          unit: revRow.unit,
+        });
+      }
+      if (opRow) {
+        console.log('OpIncome Row:', {
+          label: opRow.label,
+          forecastValue: opRow.forecastValue,
+          phaseEDelta: (opRow as any).phaseEDelta ?? '無し（参考情報のみ）',
+          unit: opRow.unit,
+        });
+      }
+      console.groupEnd();
+    }
 
     if (!revRow && !opRow) {
       return chartData; // Phase E で売上/営業利益が更新されていない
@@ -1312,6 +1469,61 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         affectedIds,
       });
     }
+  }
+
+  // ★ 追加修正：上段と下段の整合性確認ログ（★統一基準確認）
+  if (DEBUG && isReady && northStarRows.length > 0 && projectContribForUI.length > 0) {
+    const revenueRow = northStarRows.find(r => r.label.toLowerCase().includes('売上') && !r.label.toLowerCase().includes('成長'));
+    const opRow = northStarRows.find(r => r.label.toLowerCase().includes('営業利益') && !r.label.toLowerCase().includes('率'));
+
+    const companyRevenueForecast = revenueRow?.forecastValue ?? 0;
+    const companyOpForecast = opRow?.forecastValue ?? 0;
+
+    const sumProjectEffectiveRevenue = projectContribForUI.reduce((s, p) => s + (p.deltaRevenueTotal ?? 0), 0);
+    const sumProjectEffectiveOp = projectContribForUI.reduce((s, p) => s + (p.deltaOpTotal ?? 0), 0);
+
+    // ★修正後：上段は projectContribForUI の合算に基づくため、乖離は最小化される
+    const baselineRevenue = revenueRow?.base ?? 0;
+    const baselineOp = opRow?.base ?? 0;
+    const companyRevenueAchievement = revenueRow?.achievementRate ?? 0;
+    const companyOpAchievement = opRow?.achievementRate ?? 0;
+
+    const gapRevenue = Math.abs(companyRevenueForecast - baselineRevenue - sumProjectEffectiveRevenue);
+    const gapOp = Math.abs(companyOpForecast - baselineOp - sumProjectEffectiveOp);
+
+    // ★症状診断
+    const is100Fixed = companyRevenueAchievement === 100;
+    const hasSemiRevenue = projectContribForUI.some((p: any) => p.proj.toLowerCase().includes('半導体') && p.deltaRevenueTotal > 0);
+
+    console.group('[STAGE6][top-vs-bottom] 上段 company forecast vs 下段 project contribution（★統一基準＋診断）');
+    console.log('Company Level (Top):', {
+      baselineRevenue,
+      forecastRevenue: companyRevenueForecast,
+      companyDeltaRevenue: companyRevenueForecast - baselineRevenue,
+      achievementRateRevenue: companyRevenueAchievement,
+      '⚠️症状①': is100Fixed ? '✗ 100%固定（sumProjectEffective が反映されていない可能性）' : '✓ 可変',
+      baselineOp,
+      forecastOp: companyOpForecast,
+      companyDeltaOp: companyOpForecast - baselineOp,
+      achievementRateOp: companyOpAchievement,
+    });
+    console.log('Project Contributions (Bottom):', {
+      sumProjectEffectiveRevenue,
+      sumProjectEffectiveOp,
+      projectCount: projectContribForUI.length,
+      '⚠️症状②': hasSemiRevenue ? '✓ 半導体案件に revenue ある' : '✗ 半導体案件に revenue なし',
+    });
+    console.log('Reconciliation (★統一基準での検証):', {
+      gapRevenue: gapRevenue < 1 ? '✓整合' : `⚠️乖離 ${gapRevenue.toFixed(0)}`,
+      gapOp: gapOp < 1 ? '✓整合' : `⚠️乖離 ${gapOp.toFixed(0)}`,
+      '説明': '★修正後：上下が同じ effective ベースなので gap はほぼ 0（丸め誤差のみ）',
+    });
+    console.log('Data Source Unification:', {
+      topBasis: 'current effective （project 合算：impactRevenueMJPY × progress）',
+      bottomBasis: 'current effective （impactRevenueMJPY × progress）',
+      '✓統一': 'STAGE6 全体が STAGE5 進捗を反映した「現時点の見込み」',
+    });
+    console.groupEnd();
   }
 
   return {
