@@ -164,6 +164,18 @@ function getApplyMonths(startYm: Ym, endYm: Ym, kr: BridgeKR): Ym[] {
 function applyAdd(bucket: Record<Ym, number>, val: number, applyMonths: Ym[], weight?: number) {
   const w = typeof weight === 'number' ? weight : 1;
   const add = nz(val, 0) * w;
+
+  // ★ BRIDGE-DEBUG-2: applyAdd の入出力
+  if (Math.abs(add) > 1e-9) {
+    console.log('[BRIDGE-DEBUG-2] applyAdd processing:', {
+      val,
+      weight,
+      w,
+      add,
+      applyMonthsCount: applyMonths.length,
+    });
+  }
+
   if (add === 0) return;
   for (const ym of applyMonths) {
     if (bucket[ym] === undefined) continue;
@@ -220,10 +232,33 @@ export function buildBridgeDeltas(input: BridgeInput): DeltasByMonth {
       }
       case 'ACQ': {
         const isPct = isPercentUnit(kr.unit);
-        const delta =
-          isPct && typeof baseVal === 'number'
-            ? baseVal * normalizeByUnit(kr.target, kr.unit)
-            : kr.target;
+        const normalized = normalizeByUnit(kr.target, kr.unit);
+
+        // ★ FIX: ACQ が % の場合は「改善率そのもの」を delta とする
+        // （baseVal * normalized は誤り。baseVal=1000 は revenue/cogs の比率で、ACQ母数ではない）
+        // 改善率 % を financeSimulation に渡し、そこで baseQty に対して適用する
+        const delta = isPct ? normalized : kr.target;
+
+        // ★ BRIDGE-DEBUG-1: ACQ case の詳細
+        console.group('[BRIDGE-DEBUG-1] ACQ KR in buildBridgeDeltas (FIXED)');
+        console.log({
+          krLabel: kr.label,
+          krUnit: kr.unit,
+          krTarget: kr.target,
+          isPct,
+          normalized,
+          baseVal,
+          'baseVal * normalized (old wrong way)': typeof baseVal === 'number' ? baseVal * normalized : 'N/A',
+          delta,
+          krWeight: kr.weight,
+          applyMonthsCount: applyMonths.length,
+          applyMonths: applyMonths.slice(0, 3),
+        });
+        console.log('決定ロジック:', isPct
+          ? `isPct=true → delta = normalized (改善率そのもの) = ${delta}`
+          : `isPct=false → delta = kr.target = ${delta}`);
+        console.groupEnd();
+
         applyAdd(deltas.acq, delta, applyMonths, kr.weight);
         break;
       }
@@ -292,6 +327,18 @@ export function buildBridgeDeltas(input: BridgeInput): DeltasByMonth {
       default:
         break;
     }
+  }
+
+  // ★ BRIDGE-DEBUG-3: deltas の最終状態（最初のプロジェクト対象）
+  const hasAnyAcq = Object.values(deltas.acq).some((v) => Math.abs(v) > 1e-9);
+  if (hasAnyAcq) {
+    console.group('[BRIDGE-DEBUG-3] buildBridgeDeltas final output (has ACQ delta)');
+    console.log('ACQ months sum:', Object.values(deltas.acq).reduce((a, b) => a + b, 0));
+    console.log('Revenue months sum:', Object.values(deltas.revenue).reduce((a, b) => a + b, 0));
+    console.log('ARPU months sum:', Object.values(deltas.arpu).reduce((a, b) => a + b, 0));
+    console.log('First 3 months ACQ:', Object.entries(deltas.acq).slice(0, 3).map(([ym, val]) => ({ ym, acq: val })));
+    console.log('First 3 months Revenue:', Object.entries(deltas.revenue).slice(0, 3).map(([ym, val]) => ({ ym, revenue: val })));
+    console.groupEnd();
   }
 
   return deltas;
