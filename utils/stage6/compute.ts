@@ -378,9 +378,29 @@ export function buildNorthStarRows(args: {
     // rawForecast は yen 単位、rawBase を yen に正規化（normalizedUnit を使用）
     const baseYen = normalizeValueToUnit(target.base, normalizedUnit, 'yen') ?? target.base;
 
-    // achievementRate は yen ベースで計算（★重要）
-    const achievement = baseYen > 0 && rawForecast !== undefined ? (rawForecast / baseYen) * 100 : undefined;
-    const gapYen = rawForecast !== undefined && baseYen ? rawForecast - baseYen : undefined;
+    // ★ GUARD: achievementRate 計算前に値をチェック
+    // - 売上は負でない（forecast < 0 は異常値）
+    // - baseYen > 0（target が意味がある）
+    // - achievementRate が極端値（1000%超）の場合は警告
+    const safeForecast = rawForecast !== undefined && rawForecast < 0 ? 0 : rawForecast;
+    let achievement: number | undefined = undefined;
+
+    if (baseYen > 0 && safeForecast !== undefined) {
+      achievement = (safeForecast / baseYen) * 100;
+
+      // 達成率が異常値の場合は警告
+      if (achievement > 1000) {
+        console.warn('[STAGE6] Abnormal achievementRate detected:', {
+          targetLabel: target.label,
+          baseYen,
+          forecast: safeForecast,
+          achievementRate: achievement,
+          note: 'Achievement rate > 1000% suggests data issue',
+        });
+      }
+    }
+
+    const gapYen = safeForecast !== undefined && baseYen ? safeForecast - baseYen : undefined;
 
     // 3. 表示用に normalizedUnit に変換（保存されたunitを尊重）
     const forecastDisplay = normalizeValueToUnit(rawForecast, 'yen', normalizedUnit);
@@ -610,6 +630,26 @@ export function calcYearlyFromKrs(args: {
     };
   });
 
+  // ★ WEIGHT-DEBUG-1: weight 適用後の scenarioKrs を詳細出力（最初のプロジェクトのみ）
+  // ★ projectKey を確認して最初のプロジェクト対象をフィルタ
+  const firstProjectKey = scenarioKrs.find((kr) => (kr as any).projectKey)?.projectKey;
+  const firstProjectKrs = scenarioKrs.filter((kr) => (kr as any).projectKey === firstProjectKey);
+
+  if (firstProjectKrs.length > 0 && firstProjectKey) {
+    console.group('[WEIGHT-DEBUG-1] scenarioKrs after weight application (First Project)');
+    console.log('First project key:', firstProjectKey);
+    console.log('KRs for first project:');
+    firstProjectKrs.slice(0, 5).forEach((kr, idx) => {
+      console.log(`  KR[${idx}]:`, {
+        kind: kr.kind,
+        label: kr.label,
+        target: kr.target,
+        unit: (kr as any).unit,
+      });
+    });
+    console.groupEnd();
+  }
+
   if (scenario.synergyRate !== 0) {
     // Stable ID based on scenario values (deterministic)
     const stableHash = Math.abs(
@@ -639,9 +679,82 @@ export function calcYearlyFromKrs(args: {
     },
   };
 
+  // ★ WEIGHT-DEBUG-2: buildBridgeDeltas 入力を確認（最初のプロジェクトのみ）
+  if (firstProjectKey && firstProjectKrs.length > 0) {
+    console.group('[WEIGHT-DEBUG-2] buildBridgeDeltas input (First Project)');
+    console.log('First project key:', firstProjectKey);
+    console.log('scenarioKrs count:', scenarioKrs.length);
+    console.log('scenarioKrs for first project:', firstProjectKrs.length);
+    console.log('baseFigures.revenue:', baseFigures?.revenue);
+    console.log('baseFigures.operatingIncome:', baseFigures?.operatingIncome);
+    console.groupEnd();
+  }
+
   const deltas = buildBridgeDeltas(bridgeInput);
+
+  // ★ WEIGHT-DEBUG-3: buildBridgeDeltas 出力を確認（最初のプロジェクトのみ）
+  if (firstProjectKey && firstProjectKrs.length > 0) {
+    console.group('[WEIGHT-DEBUG-3] buildBridgeDeltas output (First Project)');
+    console.log('deltas keys:', Object.keys(deltas));
+    if (deltas.acq) {
+      const acqSample = Array.isArray(deltas.acq) ? (deltas.acq as any[])[0] : deltas.acq;
+      console.log('deltas.acq sample:', acqSample);
+    }
+    if (deltas.arpu) {
+      const arpuSample = Array.isArray(deltas.arpu) ? (deltas.arpu as any[])[0] : deltas.arpu;
+      console.log('deltas.arpu sample:', arpuSample);
+    }
+    if (deltas.revenue) {
+      const revenueSample = Array.isArray(deltas.revenue) ? (deltas.revenue as any[])[0] : deltas.revenue;
+      console.log('deltas.revenue sample:', revenueSample);
+    }
+    // ★ NOTE: op_income は DeltasByMonth には存在しない（monthly PL に含まれる）
+    console.groupEnd();
+  }
+
   const monthly = simulateMonthlyPL(baseTraj, deltas);
-  return aggregateYearly(monthly);
+
+  // ★ WEIGHT-DEBUG-4: simulateMonthlyPL 出力（最初の月と最後の月）（最初のプロジェクトのみ）
+  if (firstProjectKey && firstProjectKrs.length > 0) {
+    console.group('[WEIGHT-DEBUG-4] simulateMonthlyPL output (First Project)');
+    if (monthly && monthly.length > 0) {
+      console.log('Monthly count:', monthly.length);
+      console.log('First month:', {
+        ym: monthly[0].ym,
+        revenue: monthly[0].revenue,
+        op_income: monthly[0].op_income,
+      });
+      console.log('Last month:', {
+        ym: monthly[monthly.length - 1].ym,
+        revenue: monthly[monthly.length - 1].revenue,
+        op_income: monthly[monthly.length - 1].op_income,
+      });
+    }
+    console.groupEnd();
+  }
+
+  const yearly = aggregateYearly(monthly);
+
+  // ★ WEIGHT-DEBUG-5: aggregateYearly 出力（最初のプロジェクトのみ）
+  if (firstProjectKey && firstProjectKrs.length > 0) {
+    console.group('[WEIGHT-DEBUG-5] aggregateYearly output (First Project)');
+    if (yearly && yearly.length > 0) {
+      console.log('Yearly count:', yearly.length);
+      console.log('First year:', {
+        year: yearly[0].year,
+        revenue: yearly[0].revenue,
+        op_income: yearly[0].op_income,
+      });
+      console.log('Last year:', {
+        year: yearly[yearly.length - 1].year,
+        revenue: yearly[yearly.length - 1].revenue,
+        op_income: yearly[yearly.length - 1].op_income,
+      });
+    }
+    console.groupEnd();
+  }
+
+  return yearly;
 }
 
 /**
@@ -656,7 +769,7 @@ export function buildProjectContributions(args: {
   mkBaseFigures: (state: any) => any;
   mkBaselineTrajectory: (state: any) => BaseTrajectory | null;
   getEvidenceFromProject: (proj: any) => any;
-  executionWeightsMap?: Map<string, { weight: number }>; // ★ STAGE5 進捗補正の weight map
+  executionWeightsMap: Map<string, { weight: number }>; // ★ STAGE5 進捗補正の weight map（必ず存在、空の場合は empty Map）
 }): Array<{
   key: string;
   dept: string;
@@ -691,7 +804,30 @@ export function buildProjectContributions(args: {
 
   const effectiveSet = new Set(effectiveSelectedKeys || []);
 
-  return core.approved
+  // ★ PERIOD-DEBUG: deltaRevenueTotal / deltaOpTotal の期間を確認
+  console.group('[PERIOD-DEBUG] buildProjectContributions period');
+  console.log('baseline years:', baseline?.map((b: any) => b.year));
+  console.log('baseline count:', baseline?.length);
+  if (baseline && baseline.length > 0) {
+    const minYear = Math.min(...baseline.map((b: any) => b.year));
+    const maxYear = Math.max(...baseline.map((b: any) => b.year));
+    console.log(`Period: ${minYear}-${maxYear} (${maxYear - minYear + 1} years)`);
+    console.log('Example baseline values:');
+    baseline.slice(0, 2).forEach((b: any) => {
+      console.log(`  Year ${b.year}: revenue=${b.revenue}, op_income=${b.op_income}`);
+    });
+  }
+  console.groupEnd();
+
+  // ★ ISSUE-DEBUG-3: buildProjectContributions の入力パラメータを確認
+  console.group('[ISSUE-DEBUG-3] buildProjectContributions input parameters');
+  console.log('effectiveSelectedKeys count:', effectiveSelectedKeys?.length ?? 0);
+  console.log('core.approved count:', core.approved?.length ?? 0);
+  console.log('baseline first year revenue:', baseline?.[0]?.revenue ?? 'undefined');
+  console.log('baseline first year op_income:', baseline?.[0]?.op_income ?? 'undefined');
+  console.groupEnd();
+
+  const result = core.approved
     .filter((p: any) => effectiveSet.has(p.key))
     .map((p: any) => {
       const krs = core.projectKrsMap.get(p.key) ?? [];
@@ -701,13 +837,14 @@ export function buildProjectContributions(args: {
 
       if (krs.length > 0) {
         // プロジェクトキーを付与した KRs を生成
-        const krsWithProjectKey = krs.map((kr) => ({
+        const krsWithProjectKey = krs.map((kr: BridgeKR) => ({
           ...kr,
           projectKey: p.key, // executionWeight 参照用
         }));
 
         // ★ executionWeightsMap を使用（progressLogs の再計算ではなく）
-        const executionWeight = executionWeightsMap?.get(p.key);
+        // ★ executionWeightsMap は常に Map（undefined ではない）
+        const executionWeight = executionWeightsMap.get(p.key);
         const yearly = calcYearlyFromKrs({
           baseTraj,
           baseFigures,
@@ -716,11 +853,114 @@ export function buildProjectContributions(args: {
           executionWeights: executionWeightsMap,
         });
 
-        if (yearly && baseline) {
-          // 差分を計算（baseline との比較）
-          const delta = diffYearly(baseline, yearly);
-          deltaRevenueTotal = sumYearly(delta, 'revenue');
-          deltaOpTotal = sumYearly(delta, 'op_income');
+        if (yearly) {
+          // ★ FIX: baseline を「KR なし」で計算（全プロジェクト合計ではなく）
+          // 正しい単一プロジェクトの寄与 = (このプロジェクトの KRs反映) - (KR なしベース)
+          const baselineNokr = calcYearlyFromKrs({
+            baseTraj,
+            baseFigures,
+            krs: [],  // ← KR なし（base trajectory + base figures のみ）
+            scenario: baseScenario,
+            executionWeights: executionWeightsMap,
+          });
+
+          if (baselineNokr) {
+            // 差分を計算（このプロジェクトの KRs による寄与）
+            const delta = diffYearly(baselineNokr, yearly);
+            // ★ FIX: 複数年累計ではなく、最終年の単年差分を返す（表示定義の修正）
+            const lastYearDelta = delta[delta.length - 1];
+            const lastYearBaseline = baselineNokr[baselineNokr.length - 1];
+            const lastYearProject = yearly[yearly.length - 1];
+
+            deltaRevenueTotal = Number(lastYearDelta?.revenue ?? 0);
+            deltaOpTotal = Number(lastYearDelta?.op_income ?? 0);
+
+            // ★追加修正：project-only 計算の margin 自動調整
+            // 問題：project KR に cost KR がない場合、revenue は増えるが cost は不変
+            // → margin が欠落し、deltaOpTotal ≈ deltaRevenueTotal になってしまう
+            // 解決：baseline margin を保つように op_income delta を調整
+            if (deltaRevenueTotal > 0 && lastYearBaseline) {
+              const baselineMargin = lastYearBaseline.revenue > 0
+                ? (lastYearBaseline.op_income ?? 0) / (lastYearBaseline.revenue ?? 1)
+                : 0;
+
+              // 期待される op delta（baseline margin を適用）
+              const expectedOpDelta = deltaRevenueTotal * baselineMargin;
+
+              // project-only KRs で cost KR がない場合、op delta は不足している可能性
+              const isMarginMissing = Math.abs(deltaOpTotal - deltaRevenueTotal) < 0.01;
+              if (isMarginMissing && baselineMargin > 0 && baselineMargin < 1) {
+                // 修正：cost の影響を反映（margin ベース）
+                const originalOpDelta = deltaOpTotal;
+                deltaOpTotal = expectedOpDelta;
+
+                // ★追加修正ログ：margin 調整が実施されたことを記録
+                if (core.approved.indexOf(p) < 3) {
+                  console.log('[MARGIN-ADJUSTMENT] project-only margin fix applied:', {
+                    projectKey: p.key,
+                    projectTitle: p.proj,
+                    deltaRevenueTotal,
+                    baselineMargin: baselineMargin.toFixed(3),
+                    originalOpDelta,
+                    expectedOpDelta,
+                    adjustedOpDelta: deltaOpTotal,
+                    '説明': 'cost KR 欠落時に baseline margin を適用',
+                  });
+                }
+              }
+            }
+
+            // ★ WEIGHT-DEBUG-6: baselineNokr vs yearly を詳細比較（最初のプロジェクトのみ）
+            if (core.approved.indexOf(p) === 0) {
+              console.group('[WEIGHT-DEBUG-6] baselineNokr vs yearly comparison (First Project)');
+              console.log({
+                projectKey: p.key,
+                projectTitle: p.proj,
+                krCount: krs.length,
+                executionWeight: executionWeight?.weight ?? 'none',
+                note: '★ FIX: baseline を「KR なし」で計算し、正しい単一プロジェクト寄与を算出',
+              });
+              console.log('BaselineNokr (KR なし) first 3 years:');
+              baselineNokr.slice(0, 3).forEach((b, idx) => {
+                console.log(`  Year ${idx}:`, {
+                  year: b.year,
+                  revenue: b.revenue,
+                  cogs: b.cogs,
+                  sga: b.sga,
+                  op_income: b.op_income,
+                });
+              });
+              console.log('Yearly (このプロジェクトの KRs) first 3 years:');
+              yearly.slice(0, 3).forEach((y, idx) => {
+                console.log(`  Year ${idx}:`, {
+                  year: y.year,
+                  revenue: y.revenue,
+                  cogs: y.cogs,
+                  sga: y.sga,
+                  op_income: y.op_income,
+                });
+              });
+              console.log('Delta (寄与差分) first 3 years:');
+              delta.slice(0, 3).forEach((d, idx) => {
+                console.log(`  Year ${idx}:`, {
+                  year: d.year,
+                  revenue: d.revenue,
+                  cogs: d.cogs,
+                  sga: d.sga,
+                  op_income: d.op_income,
+                });
+              });
+              console.log('Final-Year Delta (単年寄与):', {
+                'finalYearOnly_deltaRevenueTotal': deltaRevenueTotal,
+                'finalYearOnly_deltaOpTotal': deltaOpTotal,
+                'finalYear': delta[delta.length - 1]?.year,
+                'deltaCogs': delta[delta.length - 1]?.cogs,
+                'deltaSga': delta[delta.length - 1]?.sga,
+                'note': 'op_income != revenue なら cost delta が反映されている',
+              });
+              console.groupEnd();
+            }
+          }
 
           // ★ 詳細ログ：weight が金額に反映されたか確認
           console.log('[STAGE6-weight-to-money]', {
@@ -799,7 +1039,21 @@ export function buildProjectContributions(args: {
       }
 
       // ★ 実行度補正係数を取得（executionWeightsMap から）
-      const executionWeight = executionWeightsMap?.get(p.key);
+      // ★ executionWeightsMap は常に Map（undefined ではない）
+      const executionWeight = executionWeightsMap.get(p.key);
+
+      // ★ ISSUE-DEBUG-4: 各プロジェクトの計算結果を出力（最初の3件）
+      if (core.approved.indexOf(p) < 3) {
+        console.log('[ISSUE-DEBUG-4] Project calculation result:', {
+          projectKey: p.key,
+          projectTitle: p.proj,
+          krCount: krs.length,
+          deltaRevenueTotal,
+          deltaOpTotal,
+          roi,
+          hasKrs: krs.length > 0,
+        });
+      }
 
       return {
         key: p.key,
@@ -814,4 +1068,72 @@ export function buildProjectContributions(args: {
         executionWeight,
       };
     });
+
+  // ★ ISSUE-DEBUG-5: buildProjectContributions 最終結果（最初の3件で詳細確認）
+  console.group('[ISSUE-DEBUG-5] buildProjectContributions final output (First 3 projects)');
+  console.log('Total output count:', result.length);
+  console.log('Expected: deltaRevenueTotal !== deltaOpTotal (分離されている)');
+  result.slice(0, 3).forEach((r: any) => {
+    const isOpSameAsRev = Math.abs((r.deltaOpTotal ?? 0) - (r.deltaRevenueTotal ?? 0)) < 0.01;
+    console.log({
+      projectKey: r.key,
+      projectTitle: r.proj,
+      krCount: r.krCount,
+      deltaRevenueTotal: r.deltaRevenueTotal,
+      deltaOpTotal: r.deltaOpTotal,
+      '⚠️差異': r.deltaOpTotal - r.deltaRevenueTotal,
+      '⚠️SAME_AS_REV?': isOpSameAsRev ? '✗異常' : '✓正常',
+    });
+  });
+  console.groupEnd();
+
+  // ★修正D：デバッグログ（会社全体）
+  const baselineLastYear = baseline?.[baseline.length - 1];
+  const sumProjectRevenueDelta = result.reduce((s, r) => s + (r.deltaRevenueTotal ?? 0), 0);
+  const sumProjectOpDelta = result.reduce((s, r) => s + (r.deltaOpTotal ?? 0), 0);
+
+  console.group('[STAGE6][company]');
+  console.log('Baseline (KR無し):', {
+    baselineRevenue: baselineLastYear?.revenue ?? 0,
+    baselineOp: baselineLastYear?.op_income ?? 0,
+  });
+  console.log('Sum of project deltas:', {
+    sumProjectRevenueDelta,
+    sumProjectOpDelta,
+  });
+  console.groupEnd();
+
+  // ★修正D：デバッグログ（プロジェクト別：最初の3件）
+  console.group('[STAGE6][project] - Sample (First 3)');
+  result.slice(0, 3).forEach((p: any) => {
+    console.log({
+      projectKey: p.key,
+      projectTitle: p.proj,
+      krCount: p.krCount,
+      deltaRevenueTotal: p.deltaRevenueTotal,
+      deltaOpTotal: p.deltaOpTotal,
+    });
+  });
+  console.groupEnd();
+
+  // ★修正D：デバッグログ（合計照合）
+  console.group('[STAGE6][reconcile]');
+  console.log('Sum of all project deltas:', {
+    sumProjectRevenueDelta,
+    sumProjectOpDelta,
+    '⚠️差異': sumProjectOpDelta - sumProjectRevenueDelta,
+  });
+  const isRevOpSame = Math.abs(sumProjectOpDelta - sumProjectRevenueDelta) < 0.01;
+  console.log('Reconciliation check:', {
+    '✓期待値': 'sumProjectRevenueDelta !== sumProjectOpDelta',
+    '実態': isRevOpSame ? '✗同値（BUG）' : '✓別値（正常）',
+  });
+  console.log('Gap from baseline forecast:', {
+    gapRevenue: sumProjectRevenueDelta - (baselineLastYear?.revenue ?? 0),
+    gapOp: sumProjectOpDelta - (baselineLastYear?.op_income ?? 0),
+    '説明': 'company forecast 側は分離できている = project side の cost 影響が欠落している可能性',
+  });
+  console.groupEnd();
+
+  return result;
 }
