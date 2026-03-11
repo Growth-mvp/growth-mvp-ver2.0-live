@@ -2,8 +2,6 @@
 
 import { useMemo, useState } from 'react';
 import type { ApprovedProject } from '@/utils/stage6';
-import type { YearlyPL } from '@/utils/financeSimulation';
-import { diffYearly, sumYearly } from '@/utils/stage6';
 
 /**
  * useProjectFilters
@@ -13,10 +11,10 @@ import { diffYearly, sumYearly } from '@/utils/stage6';
  */
 export function useProjectFilters({
   core,
-  selectedYearly,
+  projectContrib,
 }: {
   core: any; // Stage6Core
-  selectedYearly?: { base?: YearlyPL[] };
+  projectContrib?: any[]; // ProjectContribution[]
 }) {
   // ===== State =====
   const [deptFilter, setDeptFilter] = useState<string>('all');
@@ -44,20 +42,31 @@ export function useProjectFilters({
   /** Set of currently selected project keys (for O(1) lookup) */
   const selectedSet = useMemo(() => new Set(selectedProjectKeys), [selectedProjectKeys]);
 
-  /** Summary of selected projects: revenue delta, op income delta, total investment */
+  /** Set of effective selected keys (if empty, default to all projects) */
+  const effectiveSet = useMemo(() => new Set(effectiveSelectedKeys), [effectiveSelectedKeys]);
+
+  /** Summary of selected projects: revenue delta, op income delta, total investment
+   * ★ FIX: Use projectContrib single-year values instead of sumYearly cumulative
+   * ★ FIX: Use effectiveSelectedKeys (not selectedSet) so unselected shows all projects
+   * This ensures selectedSummary uses same source and period as TabImpact rows
+   */
   const selectedSummary = useMemo(() => {
-    const baseline = core.baselineYearly ?? [];
-    const sel = selectedYearly?.base ?? [];
-    const delta = diffYearly(baseline, sel);
-    const deltaRev = sumYearly(delta, 'revenue');
-    const deltaOp = sumYearly(delta, 'op_income');
+    // Sum deltaRevenueTotal and deltaOpTotal from selected projects in projectContrib
+    const projContrib = projectContrib ?? [];
+    const deltaRev = projContrib
+      .filter((p: any) => effectiveSet.has(p.key))
+      .reduce((s: number, p: any) => s + (p.deltaRevenueTotal ?? 0), 0);
+
+    const deltaOp = projContrib
+      .filter((p: any) => effectiveSet.has(p.key))
+      .reduce((s: number, p: any) => s + (p.deltaOpTotal ?? 0), 0);
 
     const invest = core.approved
-      .filter((p: any) => selectedSet.has(p.key))
+      .filter((p: any) => effectiveSet.has(p.key))
       .reduce((s: number, p: any) => s + (p.investTotal ?? 0), 0);
 
     return { deltaRev, deltaOp, invest };
-  }, [core.baselineYearly, selectedYearly, core.approved, selectedSet]);
+  }, [projectContrib, core.approved, effectiveSet]);
 
   // ===== Handlers =====
 
