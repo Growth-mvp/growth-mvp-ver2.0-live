@@ -16,9 +16,7 @@ function Stage6PageContent() {
 
   const projectFilters = useProjectFilters({
     core: stage6.core,
-    selectedYearly: {
-      base: stage6.core.yearlyAll?.base ?? [],
-    },
+    projectContrib: stage6.projectContrib,
   });
 
   useAutoSave({
