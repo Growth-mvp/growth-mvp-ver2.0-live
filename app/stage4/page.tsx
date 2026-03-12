@@ -186,6 +186,29 @@ export default function Stage4Page() {
     [localPlans, selectedDeptId]
   );
 
+  // ★ 修正2: department 構成 hash を計算（STAGE3再生成検知用）
+  // hash に含める項目：id, name, projectIds/titles, KPI count
+  const deptHash = useMemo(() => {
+    if (!selectedDept) return '';
+    const hashObj = {
+      id: selectedDept.id,
+      name: selectedDept.name,
+      projectCount: selectedDept.projects?.length ?? 0,
+      projectTitles: selectedDept.projects?.map((p: Project) => p.title) ?? [],
+      // KPI count（okrsV2 / okrs から count）
+      kpiCount:
+        (selectedDept.projects ?? []).reduce((sum: number, p: any) => {
+          return (
+            sum +
+            ((p.okrsV2?.length ?? 0) + (p.okrs?.length ?? 0)) +
+            (p.kpis?.length ?? 0)
+          );
+        }, 0),
+    };
+    // 簡易 hash（本番なら crypto.subtle.digest を使う）
+    return JSON.stringify(hashObj);
+  }, [selectedDept]);
+
   // baseline初期化（STAGE3データから生成）
   useEffect(() => {
     if (!selectedDept) return;
@@ -193,9 +216,36 @@ export default function Stage4Page() {
     const deptId = String(selectedDept.id || selectedDept.name);
     if (!deptId) return;
 
+    const existingPlan = localPlans.find((p) => p.departmentId === deptId);
+
+    // ★ 修正2: hash が変わった場合は baseline を再初期化（STAGE3再生成検知）
+    if (existingPlan && existingPlan.deptHashAtCreation !== deptHash) {
+      console.log('[diag][stage4:baseline:hash-mismatch]', {
+        deptId,
+        oldHash: existingPlan.deptHashAtCreation,
+        newHash: deptHash,
+        existingEdits: existingPlan.current.projects?.length ?? 0,
+      });
+
+      const newBaseline = createBaselineFromStage3(selectedDept);
+      const updatedPlan: Stage4Plan = {
+        ...existingPlan,
+        baseline: newBaseline,
+        current: JSON.parse(JSON.stringify(newBaseline)), // 編集をリセット
+        deptHashAtCreation: deptHash, // hash を更新
+        updatedAt: new Date().toISOString(),
+      };
+
+      setLocalPlans((prev) => {
+        const next = prev.map((p) => (p.departmentId === deptId ? updatedPlan : p));
+        setStage4Plans(next);
+        return next;
+      });
+      return;
+    }
+
     // すでに plan があるなら何もしない
-    const exists = localPlans.some((p) => p.departmentId === deptId);
-    if (exists) return;
+    if (existingPlan) return;
 
     const baseline = createBaselineFromStage3(selectedDept);
     const newPlan: Stage4Plan = {
@@ -203,6 +253,7 @@ export default function Stage4Page() {
       status: 'Draft',
       baseline,
       current: JSON.parse(JSON.stringify(baseline)), // deep copy
+      deptHashAtCreation: deptHash, // ★ 新規作成時に hash を記録
       updatedAt: new Date().toISOString(),
     };
 
@@ -212,7 +263,7 @@ export default function Stage4Page() {
       setStage4Plans(next);
       return next;
     });
-  }, [selectedDept, localPlans, setStage4Plans]);
+  }, [selectedDept, deptHash, localPlans, setStage4Plans]);
 
   // ステータス変更
   const updateStatus = useCallback(
