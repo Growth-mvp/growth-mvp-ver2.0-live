@@ -886,6 +886,9 @@ function buildSavePayload(s: StrategyState) {
       segmentBS_rowCountsByKey: segmentBSDetails,
       stage1Benchmarks: (s as any).stage1Benchmarks ? Object.keys((s as any).stage1Benchmarks) : 'undefined',
       waccManual: (s as any).stage1Benchmarks?.waccManual,
+      // ★ 修正3: STAGE4データをpayloadで確認
+      stage4Plans_included: base.stage4Plans ? base.stage4Plans.length : 'undefined',
+      executionPlanBaseline_included: base.executionPlanBaseline ? 'exists' : 'undefined',
       // ★ DEBUG LOG B: save直前のpayload確認
       dept0_keys: Object.keys(dept0 ?? {}),
       dept0_name: dept0?.name,
@@ -3511,6 +3514,9 @@ export const useStrategyStore = create<StrategyState>()(
                 /* ★ TASK 3: STAGE2 フィールドを保護（空配列での上書き防止） */
                 answers12: (patch as any).answers12 ?? (base as any).answers12,
                 winPatternsCandidate: (patch as any).winPatternsCandidate ?? (base as any).winPatternsCandidate,
+                // ★ 修正3: STAGE4実行計画フィールドも保護（復元時に削除されないようにする）
+                stage4Plans: (patch as any).stage4Plans ?? (base as any).stage4Plans,
+                executionPlanBaseline: (patch as any).executionPlanBaseline ?? (base as any).executionPlanBaseline,
               };
 
               merged.departments = nextDepartments;
