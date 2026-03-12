@@ -202,6 +202,33 @@ export async function restoreWithAudit(
         strategyId: dbData.id ?? hydratedState.strategyId,
       };
 
+      // ★ 修正3: restore後の orphan stage4Plans 検証（STAGE3再生成後の古い計画を削除）
+      if (hydratedState.stage4Plans && hydratedState.departments) {
+        const validDeptIds = new Set(
+          hydratedState.departments.map((d: any) => d.id || d.name)
+        );
+
+        const beforeCount = hydratedState.stage4Plans.length;
+        hydratedState.stage4Plans = hydratedState.stage4Plans.filter((plan: any) => {
+          if (!validDeptIds.has(plan.departmentId)) {
+            console.warn('[restore:orphan] Removing orphan stage4Plan:', {
+              departmentId: plan.departmentId,
+              validDeptIds: Array.from(validDeptIds),
+            });
+            return false;
+          }
+          return true;
+        });
+
+        if (hydratedState.stage4Plans.length < beforeCount) {
+          console.log('[diag][restore:orphan-removed]', {
+            before: beforeCount,
+            after: hydratedState.stage4Plans.length,
+            removed: beforeCount - hydratedState.stage4Plans.length,
+          });
+        }
+      }
+
       const decision: RestoreDecision = {
         decisionId,
         sourceUsed: 'db',
