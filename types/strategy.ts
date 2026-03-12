@@ -1157,6 +1157,9 @@ export type Stage4Plan = {
 
   /** 編集者（任意） */
   updatedBy?: string;
+
+  /** ★ 修正2: baseline 作成時の department 構成 hash（STAGE3再生成検知用） */
+  deptHashAtCreation?: string;
 };
 
 /**
