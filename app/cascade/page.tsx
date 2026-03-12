@@ -2141,10 +2141,27 @@ useEffect(() => {
 
       setNotice(`✅ ${dept.name} のミッション・プロジェクト・KPI案を更新しました`);
 
+      // ★ 修正1: 再生成直後に stage4Plans を invalidate（古い baseline を破棄）
+      const stateBeforeInvalidate = useStrategyStore.getState();
+      const stage4PlansCountBefore = stateBeforeInvalidate.stage4Plans?.length ?? 0;
+
+      if (stage4PlansCountBefore > 0) {
+        console.log('[diag][stage3:regen:invalidate] stage4Plans をクリア', {
+          beforeCount: stage4PlansCountBefore,
+          dept: dept.name,
+          deptProjects: afterSetDepts?.find((d) => d.name === dept.name)?.projects?.length ?? 0,
+        });
+        stateBeforeInvalidate.setStage4Plans([]);
+      }
+
       // ★TASK A: 生成完了後に必ず1回保存（保存抑止解除前）
       if (saveNow) {
         try {
           await saveNow();
+          console.log('[diag][stage3:regen:saved]', {
+            dept: dept.name,
+            stage4PlansAfterSave: useStrategyStore.getState().stage4Plans?.length ?? 0,
+          });
           setNotice(`✅ ${dept.name} のたたき台を更新し、サーバーにも保存しました`);
         } catch {
           setNotice('⚠️ 画面上の更新は完了しましたが、サーバー保存に失敗しました');
