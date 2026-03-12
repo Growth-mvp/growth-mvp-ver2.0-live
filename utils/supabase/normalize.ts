@@ -711,6 +711,15 @@ function normalizeStage2AnswersArray(input: unknown): Stage2Answer[] | undefined
 export function normalizeStrategyData(input: StrategyData | unknown | null): StrategyData {
   const src: any = { ...(input ?? {}) };
 
+  // ★ 修正0: normalize前ログ（stage4Plans/executionPlanBaseline の有無確認）
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[diag][normalize:in]', {
+      hasStage4Plans: Array.isArray(src.stage4Plans) ? src.stage4Plans.length : 'not-array',
+      hasExecutionBaseline: src.executionPlanBaseline ? 'exists' : 'undefined',
+      revision: src.revision,
+    });
+  }
+
   // story 系は配列のまま
   const storyIn = src.story ?? src.story_final ?? undefined;
   const story =
@@ -909,6 +918,16 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     stage1Issues,  // ★ 修正：stage1Issues を出力オブジェクトに含める
     stage1Benchmarks,  // ★ 修正：stage1Benchmarks を出力オブジェクトに含める
 
+    // ★ 修正0: STAGE4実行計画（DB restore 時に消えないようにする）
+    ...(Array.isArray(src.stage4Plans) && src.stage4Plans.length > 0
+      ? { stage4Plans: src.stage4Plans }
+      : {}),
+
+    // ★ 修正0: STAGE4実行計画baseline（restore 時に消えないようにする）
+    ...(src.executionPlanBaseline && typeof src.executionPlanBaseline === 'object'
+      ? { executionPlanBaseline: src.executionPlanBaseline }
+      : {}),
+
     editableCascadeResult: Array.isArray(src.editableCascadeResult)
       ? src.editableCascadeResult
       : undefined,
@@ -940,6 +959,16 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     notification: typeof src.notification === 'string' ? src.notification : undefined,
     role: src.role,
   };
+
+  // ★ 修正0: normalize後ログ（stage4Plans/executionPlanBaseline が保持されたか確認）
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[diag][normalize:out]', {
+      hasStage4Plans: out.stage4Plans ? out.stage4Plans.length : 'undefined',
+      hasExecutionBaseline: out.executionPlanBaseline ? 'exists' : 'undefined',
+      revision: out.revision,
+      deptCount: out.departments?.length ?? 0,
+    });
+  }
 
   return out;
 }
