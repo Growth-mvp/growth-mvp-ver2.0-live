@@ -1,6 +1,11 @@
 // app/stage4/page.tsx
 'use client';
 
+// ★ 診断: 実行中のファイル確認
+if (typeof window !== 'undefined') {
+  console.log('OKR_REAL_FILE_LOADED', { timestamp: new Date().toISOString() });
+}
+
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
@@ -161,6 +166,41 @@ export default function Stage4Page() {
     }
   }, [stage4Plans]);
 
+  // ★ stage4Plans と departments の整合性チェック（orphan 計画削除）
+  // NOTE: orphan cleanup は restoreWithAudit.ts (lines 205-244) で既に処理されているため、
+  // ここでは localPlans のみ cleanup し、store 反映は stage4Plans useEffect で自動処理
+  useEffect(() => {
+    if (!localPlans || !departments) return;
+
+    const validDeptIds = new Set(
+      departments.map((d: Department) => String(d.id || d.name))
+    );
+
+    const orphanPlans = localPlans.filter(
+      (plan) => !validDeptIds.has(plan.departmentId)
+    );
+
+    if (orphanPlans.length > 0) {
+      // orphan cleanup ログ（毎回出力は避ける）
+      if (Math.random() < 0.3) {
+        console.log('[diag][stage4:orphan-plans:cleanup]', {
+          orphanCount: orphanPlans.length,
+          orphanDeptIds: orphanPlans.map((p) => p.departmentId),
+          validDeptIds: Array.from(validDeptIds),
+        });
+      }
+
+      // ★ FIX: orphan 計画を削除（localPlans のみ、setStage4Plans は呼ばない）
+      // setStage4Plans を呼ぶと autosave -> restore -> departments update -> effect re-trigger
+      // というループが発生するため、localPlans のみ更新
+      const cleanedPlans = localPlans.filter((plan) =>
+        validDeptIds.has(plan.departmentId)
+      );
+      setLocalPlans(cleanedPlans);
+      // setStage4Plans(cleanedPlans);  // ★ 削除：loop 防止
+    }
+  }, [departments, localPlans]);  // ★ FIX: setStage4Plans を dependency から削除
+
   // strategyStore の状態変化を監視（デバッグ用）
   useEffect(() => {
     console.log('[STAGE4] store state:', {
@@ -170,6 +210,39 @@ export default function Stage4Page() {
       companyIdInStore: useStrategyStore.getState().companyId,
     });
   }, [hydrated, loaded, departments]);
+
+  // ★ selection repair: selectedDeptId が orphan になっていないか確認
+  useEffect(() => {
+    if (!departments || departments.length === 0) {
+      if (selectedDeptId !== null) {
+        console.log('[diag][selection:repair]', {
+          issue: 'departments_empty',
+          oldSelectedDeptId: selectedDeptId,
+          action: 'clearing_selection',
+        });
+        setSelectedDeptId(null);
+      }
+      return;
+    }
+
+    const validDeptIds = new Set(
+      departments.map((d: Department) => String(d.id || d.name))
+    );
+
+    if (selectedDeptId && !validDeptIds.has(selectedDeptId)) {
+      console.log('[diag][selection:repair]', {
+        issue: 'orphan_selectedDeptId',
+        oldSelectedDeptId: selectedDeptId,
+        validDeptIds: Array.from(validDeptIds),
+        action: 'selecting_first_valid_dept',
+      });
+      // 最初の有効な部門を選択
+      const firstValidDeptId = String(
+        (departments[0] as Department).id || (departments[0] as Department).name
+      );
+      setSelectedDeptId(firstValidDeptId);
+    }
+  }, [departments, selectedDeptId]);
 
   // 部門リスト
   const departmentsList = useMemo(() => departments || [], [departments]);
@@ -282,10 +355,24 @@ export default function Stage4Page() {
   // current編集
   const updateCurrent = useCallback(
     (deptId: string, newCurrent: Stage4Current) => {
+      // ★ KPI削除時の詳細ログ
+      const totalKpiCount = newCurrent.projects.reduce((sum, p) => sum + Object.keys((p as any).kpiTargets || {}).length, 0);
+      console.log('[diag][stage4:kpi-delete:updateCurrent]', {
+        deptId,
+        projectCount: newCurrent.projects.length,
+        totalKpiCount,
+        projectTitles: newCurrent.projects.map(p => p.title),
+      });
+
       setLocalPlans((prev) => {
         const updated = prev.map((plan) =>
           plan.departmentId === deptId ? { ...plan, current: newCurrent, updatedAt: new Date().toISOString() } : plan
         );
+        console.log('[diag][stage4:kpi-delete:setStage4Plans]', {
+          deptId,
+          updatedPlanCount: updated.length,
+          targetPlan: updated.find(p => p.departmentId === deptId),
+        });
         setStage4Plans(updated);
         return updated;
       });
