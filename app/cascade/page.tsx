@@ -20,6 +20,11 @@
 
 'use client';
 
+// ★ 診断1: 実行中のファイル確認
+if (typeof window !== 'undefined') {
+  console.log('CASCADE_REAL_FILE_LOADED', { timestamp: new Date().toISOString() });
+}
+
 import StrategyGuard from '@/app/StrategyGuard';
 import { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
@@ -178,6 +183,36 @@ const KIND_LABEL: Record<Kind, string> = {
   efficiency: '業務効率',
   future: '将来への投資',
 };
+
+/* =========================
+   安定ID生成（title→id）
+========================= */
+/**
+ * タイトルから安定ID を生成（同じタイトル→同じID）
+ * - title が変わらない限り ID は変わらない
+ * - 削除・キー・復元に使用可能
+ */
+function genIdByTitle(title: string, deptName?: string): string {
+  const normalized = `${deptName || ''}::${title}`.trim().toLowerCase();
+  // 簡易 hash（本番なら crypto.subtle.digest）
+  let hash = 0;
+  for (let i = 0; i < normalized.length; i++) {
+    const char = normalized.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return `proj-${Math.abs(hash).toString(36)}`;
+}
+
+/**
+ * Project の安定ID を解決（既存データ未付与対応）
+ * - project.id があれば使用
+ * - なければ genIdByTitle で生成（title ベース）
+ * - 削除・照合に使用
+ */
+function resolveProjectId(p: Project, deptName?: string): string {
+  return (p as any).id || genIdByTitle(p.title || '', deptName);
+}
 
 const LEVER_VALUES: Lever[] = ['ACQ', 'ARPU', 'CHURN', 'COST', 'EFFICIENCY', 'FUTURE'];
 const HORIZON_VALUES: Horizon[] = ['short', 'mid', 'long'];
@@ -1076,7 +1111,7 @@ function dedupeProjectsByTitle(projects: Project[]): Project[] {
   return out;
 }
 
-function normalizeProjectDraft(pd: ApiProjectDraft): Project | null {
+function normalizeProjectDraft(pd: ApiProjectDraft, deptName?: string): Project | null {
   const title = (pd?.title ?? '').trim();
   if (!title) return null;
 
@@ -1087,13 +1122,17 @@ function normalizeProjectDraft(pd: ApiProjectDraft): Project | null {
         ? pd.description.trim()
         : undefined;
 
+  // ★ 修正1b: project.id を title から安定生成（title変更後も同一project の追跡可能）
+  const projectId = genIdByTitle(title, deptName);
+
   const p: Project = {
     title,
     hypothesis,
     mainLever: normalizeLever(pd?.mainLever),
     horizon: normalizeHorizon(pd?.horizon),
     kind: normalizeKind(pd?.kind),
-  } as Project;
+  } as any as Project & { id?: string };
+  (p as any).id = projectId;
 
   // ★ TASK A: okrsV2/okrs/kpis を API レスポンスから取り込む（生成結果の永続化）
   const pdOkrsV2 = (pd as any)?.okrsV2;
@@ -1149,7 +1188,7 @@ function mergeProjectInto(projects: Project[], incoming: Project): Project[] {
 
 // ★修正（Stage3）: applyLaneToProjects を pure function化
 // このlaneが生成するプロジェクト配列のみを返す（既存配列への追記禁止）
-function applyLaneToProjects(lane?: ApiLane): Project[] {
+function applyLaneToProjects(lane?: ApiLane, deptName?: string): Project[] {
   const projectsDraft: ApiProjectDraft[] = Array.isArray(lane?.projects) ? lane!.projects! : [];
 
   // ★重要：ローカル配列のみで構築（既存の base は参照しない）
@@ -1157,7 +1196,7 @@ function applyLaneToProjects(lane?: ApiLane): Project[] {
 
   for (let i = 0; i < projectsDraft.length; i++) {
     const pd = projectsDraft[i];
-    const normalized = normalizeProjectDraft(pd);
+    const normalized = normalizeProjectDraft(pd, deptName);
     if (!normalized) continue;
 
     laneProjects.push(normalized);
@@ -1168,16 +1207,16 @@ function applyLaneToProjects(lane?: ApiLane): Project[] {
 
 // ★修正（Stage3）: 「置換」ベースに変更
 // 3つのレーン結果を集約してから、一度だけ反映する（重複を防止）
-function applyDeptDraftToProjects(existingProjects: Project[], deptDraft: ApiDeptDraft, preserveOkrs: boolean = true): Project[] {
+function applyDeptDraftToProjects(existingProjects: Project[], deptDraft: ApiDeptDraft, preserveOkrs: boolean = true, deptName?: string): Project[] {
   const beforeCount = existingProjects.length;
 
   // ★重要：各レーンから生成プロジェクトを集約
   const lane1Projects = Array.isArray(deptDraft.projects) && deptDraft.projects.length
-    ? applyLaneToProjects({ projects: deptDraft.projects } as ApiLane)
+    ? applyLaneToProjects({ projects: deptDraft.projects } as ApiLane, deptName)
     : [];
 
-  const lane2Projects = applyLaneToProjects(deptDraft?.lanes?.existing);
-  const lane3Projects = applyLaneToProjects(deptDraft?.lanes?.new);
+  const lane2Projects = applyLaneToProjects(deptDraft?.lanes?.existing, deptName);
+  const lane3Projects = applyLaneToProjects(deptDraft?.lanes?.new, deptName);
 
   // ★置換：3つのレーン結果を結合して、最終的なプロジェクト配列を作成
   const nextProjectsRaw = [...lane1Projects, ...lane2Projects, ...lane3Projects];
@@ -1201,22 +1240,27 @@ function applyDeptDraftToProjects(existingProjects: Project[], deptDraft: ApiDep
 /* =========================
    ビジュアルカード（部門戦略の全体像をシンプル表示）
 ========================= */
-const VisualCard = memo(function VisualCard({ d }: { d: Department }) {
+const VisualCard = memo(
+  function VisualCard({ d }: { d: Department }) {
   const mission = (d.strategy ?? d.mission ?? '').trim();
 
-  // ★ lanes 優先ロジック（ビジュアルビューでも lanes があれば使用）
-  const projects = (() => {
-    const lanes = (d as any).lanes;
-    if (lanes?.existing?.projects?.length || lanes?.new?.projects?.length) {
-      return [
-        ...(lanes.existing?.projects ?? []),
-        ...(lanes.new?.projects ?? []),
-      ] as Project[];
-    }
-    return (d.projects ?? []) as Project[];
-  })();
+  // ★ STEP 1 修正：source of truth を departments[].projects のみに統一
+  // lanes は参考表示に分離（読み取り専用）
+  const projects = (d.projects ?? []) as Project[];
 
   const shortSummary = mission.length > 32 ? mission.slice(0, 32) + '…' : mission;
+
+  // ★ DIAG: render時の render-source 確認（削除後の描画を監視・verbose log削減）
+  if (Math.random() < 0.05) {
+    console.log('[diag][stage3:delete:post-render-check]', {
+      deptName: d.name,
+      dept_projects_count: (d.projects ?? []).length,
+      dept_lanes_existing: (d as any).lanes?.existing?.projects?.length ?? 0,
+      dept_lanes_new: (d as any).lanes?.new?.projects?.length ?? 0,
+      rendered_projects_count: projects.length,
+      projectTitles: projects.map((p) => p.title),
+    });
+  }
 
   return (
     <div className="p-6 rounded-3xl border bg-white/70 backdrop-blur-sm shadow-sm">
@@ -1248,8 +1292,11 @@ const VisualCard = memo(function VisualCard({ d }: { d: Department }) {
               // ★ UI表示用：[AI#N] prefix を削除（内部的には title に保持）
               const displayTitle = stripDeptPrefix((p.title ?? '').replace(/^\[AI#\d+\]\s*/i, ''), d.name) || '無題のプロジェクト';
 
+              // ★ 修正1e: key を project.id に（title変更後も同一project として追跡）
+              const projectKey = resolveProjectId(p, d.name);
+
               return (
-                <li key={i} className="rounded-2xl border bg-white/80 px-3 py-2">
+                <li key={projectKey} className="rounded-2xl border bg-white/80 px-3 py-2">
                   <div className="text-sm font-medium text-zinc-900">• {displayTitle}</div>
 
                   {(p.hypothesis || p.mainLever || p.horizon || p.kind) && (
@@ -1283,7 +1330,14 @@ const VisualCard = memo(function VisualCard({ d }: { d: Department }) {
       )}
     </div>
   );
-});
+  },
+  (prevProps, nextProps) => {
+    // ★ STEP 1 修正：projects の length のみ比較（lanes は参考表示に分離）
+    const prevProjectsLen = prevProps.d.projects?.length ?? 0;
+    const nextProjectsLen = nextProps.d.projects?.length ?? 0;
+    return prevProjectsLen === nextProjectsLen;
+  }
+);
 
 /* =========================
    メイン
@@ -1784,24 +1838,53 @@ useEffect(() => {
   }, [saveNow]);
 
   /* ===== プロジェクト削除 ===== */
-  const handleDeleteProject = async (deptIndex: number, projectIndex: number) => {
+  const handleDeleteProject = async (deptIndex: number, projectId: string) => {
+    // ★ 診断2: 削除ボタンクリック確認
+    console.log('DELETE_CLICKED', { deptIndex, projectId, timestamp: new Date().toISOString() });
+
     const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
     const dept = current[deptIndex];
     if (!dept) return;
     if (!canEditDept()) return setNotice('⚠️ プロジェクト削除の権限がありません');
 
-    const targetProject = (dept.projects as Project[] | undefined)?.[projectIndex];
-    if (!targetProject) return;
+    // ★ 修正: resolveProjectId で既存データ未付与対応（既存プロジェクトも照合可能）
+    const targetProject = (dept.projects as Project[] | undefined)?.find(
+      (p) => resolveProjectId(p, dept.name) === projectId
+    );
+
+    if (!targetProject) {
+      // ★ Silent return 防止：なぜ見つからないのか診断ログ
+      const projectIdsInDept = (dept.projects as Project[] | undefined)?.map(
+        (p) => resolveProjectId(p, dept.name)
+      ) ?? [];
+      console.warn('[diag][stage3:delete:not-found]', {
+        clickedProjectId: projectId,
+        deptName: dept.name,
+        projectIdsInDept,
+      });
+      return setNotice(`⚠️ プロジェクトが見つかりません（ID: ${projectId}）`);
+    }
 
     const ok = window.confirm(`プロジェクト「${targetProject.title || '無題'}」を削除しますか？`);
     if (!ok) return;
+
+    console.log('[diag][stage3:delete:lookup]', {
+      deptName: dept.name,
+      clickedProjectId: projectId,
+      foundProjectTitle: targetProject.title,
+      deptProjectCount: (dept.projects as Project[] | undefined)?.length ?? 0,
+    });
 
     pushToStore((prev) => {
       const list = [...prev];
       const d = list[deptIndex];
       if (!d) return prev;
-      const projects = [...((d.projects as Project[] | undefined) ?? [])];
-      projects.splice(projectIndex, 1);
+
+      // ★ 修正: resolveProjectId で削除（既存データ未付与対応）
+      const projects = (d.projects as Project[] | undefined)?.filter(
+        (p) => resolveProjectId(p, d.name) !== projectId
+      ) ?? [];
+
       list[deptIndex] = { ...d, projects };
       return list;
     });
@@ -1862,6 +1945,15 @@ useEffect(() => {
     const ok = window.confirm(`「${target.name}」を削除しますか？\nこの操作は元に戻せません。`);
     if (!ok) return;
 
+    // ★ DIAG: 削除前の状態
+    console.log('[diag][stage3:delete:before]', {
+      deleteType: 'department',
+      index,
+      deptName: target.name,
+      deptId: target.id,
+      deptCountBefore: current.length,
+    });
+
     pushToStore((prev) => {
       const raw = prev.filter((_, i) => i !== index);
       const next: Department[] = raw.map((d, i) => ({
@@ -1872,6 +1964,15 @@ useEffect(() => {
           chapterTitle: d.name,
         })),
       }));
+
+      // ★ DIAG: 削除直後の状態
+      console.log('[diag][stage3:delete:after]', {
+        deleteType: 'department',
+        deptName: target.name,
+        deptCountAfter: next.length,
+        deptId: target.id,
+      });
+
       return next;
     });
 
@@ -2111,7 +2212,8 @@ useEffect(() => {
         }
 
         // プロジェクト + OKR（旧＋2レーン統合）
-        const mergedProjects = applyDeptDraftToProjects(existingProjects, cleanedRd, false);
+        // ★ 修正1c: deptName を渡してproject.id を生成
+        const mergedProjects = applyDeptDraftToProjects(existingProjects, cleanedRd, false, d.name);
         if (!jsonEq(mergedProjects, existingProjects)) {
           patch.projects = mergedProjects;
 
@@ -2368,21 +2470,8 @@ useEffect(() => {
             const allQuestionsAnswered = answeredCount >= 6;
 
             // ★STAGE3軽量化：lanes が存在する場合は lanes から、なければ dept.projects を使用（重複防止）
-            const deptProjects = (() => {
-              if (lane?.existing?.projects?.length || lane?.new?.projects?.length) {
-                // lanes 優先：既存進化2個 + 新規探索1個（ApiProjectDraft を Project に正規化）
-                const normalized: Project[] = [];
-                if (lane?.existing?.projects) {
-                  normalized.push(...(lane.existing.projects as unknown as Project[]));
-                }
-                if (lane?.new?.projects) {
-                  normalized.push(...(lane.new.projects as unknown as Project[]));
-                }
-                return normalized;
-              }
-              // lanes なし：旧形式の dept.projects を使用
-              return (dept.projects as Project[] | undefined) ?? [];
-            })();
+            // ★ STEP 1修正：source of truth を dept.projects のみに統一（lanes は参考表示に分離）
+            const deptProjects = (dept.projects as Project[] | undefined) ?? [];
 
             return (
               <div key={`e-${dept.name}-${index}`} className="p-6 border rounded-3xl bg-white/70 backdrop-blur-sm shadow-sm">
@@ -2665,7 +2754,7 @@ useEffect(() => {
                         const displayTitle = stripDeptPrefix(((p.title ?? '').replace(/^\[AI#\d+\]\s*/i, '')), dept.name);
 
                         return (
-                          <li key={`${dept.name}-proj-${pi}`} className="flex flex-col gap-2 rounded-2xl border px-3 py-2 bg-white/70">
+                          <li key={resolveProjectId(p, dept.name)} className="flex flex-col gap-2 rounded-2xl border px-3 py-2 bg-white/70">
                             <div className="flex items-start justify-between gap-3">
                               <div className="flex-1">
                                 <div className="flex items-center gap-2">
@@ -2706,7 +2795,7 @@ useEffect(() => {
                                     size="sm"
                                     className="h-7 px-2 rounded-full border-red-500 text-red-600 hover:bg-red-50 text-[11px]"
                                     disabled={!editableDept || isHydrating}
-                                    onClick={() => handleDeleteProject(index, pi)}
+                                    onClick={() => handleDeleteProject(index, resolveProjectId(p, dept.name))}
                                   >
                                     <Trash2 className="w-3 h-3 mr-1" />
                                     削除
