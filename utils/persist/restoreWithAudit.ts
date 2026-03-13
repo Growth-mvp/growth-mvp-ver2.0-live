@@ -227,6 +227,20 @@ export async function restoreWithAudit(
             removed: beforeCount - hydratedState.stage4Plans.length,
           });
         }
+
+        // ★ DIAG: restore後のdepartments/stage4Plans状態を確認
+        console.log('[diag][delete:restore:post]', {
+          sourceUsed: decision.sourceUsed,
+          departmentsCount: hydratedState.departments.length,
+          departmentNames: hydratedState.departments.map((d: any) => d.name),
+          stage4PlansCount: hydratedState.stage4Plans.length,
+          stage4PlanDepts: hydratedState.stage4Plans.map((p: any) => p.departmentId),
+          departmentProjectCounts: hydratedState.departments.map((d: any) => ({
+            name: d.name,
+            projectCount: (d.projects || []).length,
+          })),
+          timestamp: new Date().toISOString(),
+        });
       }
 
       const decision: RestoreDecision = {
