@@ -1,5 +1,11 @@
 // /app/okr/page.tsx
 'use client';
+
+// ★ 診断: 実行中のファイル確認
+if (typeof window !== 'undefined') {
+  console.log('OKR_REAL_FILE_LOADED', { file: 'app/okr/page.tsx', timestamp: new Date().toISOString() });
+}
+
 import StrategyGuard from '@/app/StrategyGuard';
 
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
@@ -421,6 +427,12 @@ function OKRPageContent() {
 
   {/* -------- STAGE4 Baseline 作成ガード（hydrate 完了時に1回だけ、companyId単位） -------- */}
   const baselineCreatedRef = useRef<boolean>(false);
+
+  {/* -------- 初期補修：初回のみ実行フラグ（削除後の KR 再注入防止） -------- */}
+  const initialRepairCompletedRef = useRef<boolean>(false);
+
+  {/* -------- 初回自動変換：初回のみ実行フラグ（deleteKr 後の KR 再注入防止） -------- */}
+  const autoConvertCompletedRef = useRef<boolean>(false);
   const {
     executionPlanBaseline,
     setExecutionPlanBaseline,
@@ -445,9 +457,6 @@ function OKRPageContent() {
     baselineCreatedRef.current = true;
   }, [hydrated, isHydrating, accessCompanyId, executionPlanBaseline, departments, setExecutionPlanBaseline]);
 
-  {/* -------- 表示/編集ユーティリティ -------- */}
-  const cascade: Department[] = useMemo(() => (Array.isArray(departments) ? departments : []), [departments]);
-
   // STAGE6連携用：North Star（companyTargets）
   const companyTargets: any[] = useStrategyStore((s: any) =>
     Array.isArray(s?.companyTargets) ? (s.companyTargets as any[]) : [],
@@ -468,14 +477,15 @@ function OKRPageContent() {
 
   useEffect(() => {
     const next: Record<string, Project['role'] | undefined> = {};
-    cascade.forEach((d, di) =>
+    // ★ 修正: cascade ではなく departments を使う
+    (Array.isArray(departments) ? departments : []).forEach((d, di) =>
       ensureArray(d.projects).forEach((p, pi) => {
         const k = `${di}:${pi}`;
         if (p.role != null) next[k] = p.role;
       }),
     );
     setRoleShadow((prev) => ({ ...next, ...prev }));
-  }, [cascade]);
+  }, [departments]);
 
   /* ============================================================
    * UI state
@@ -680,7 +690,9 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
   const [editingMode, setEditingMode] = useState<EditingMode>('committed');
   const [showDiff, setShowDiff] = useState<boolean>(true);
 
-  const selectedDept = selected ? cascade[selected.deptIdx] : undefined;
+  // ★ 修正: cascade ではなく departments から直接取得
+  // これにより deleteKr の更新が即座に selectedProj に反映される
+  const selectedDept = selected && Array.isArray(departments) ? departments[selected.deptIdx] : undefined;
   const selectedProjects = selectedDept ? ensureArray(selectedDept.projects) : [];
   const selectedProj = selected && selectedDept ? selectedProjects[selected.projIdx] : undefined;
 
@@ -689,10 +701,6 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
   const selectedOkrs = selectedProj ? (ensureArray(selectedProj.okrs as OKR[] | undefined) as OKR[]) : [];
   const mainOKR = selectedOkrs[0];
   const hasCascadeOkrs = selectedOkrs.length > 0;
-
-  const committedOkrsV2: KRStructuredX[] = selectedProj
-    ? (ensureArray(selectedProj.okrsV2 as KRStructuredX[] | undefined) as KRStructuredX[])
-    : [];
 
   const variants: OkrVariant[] = selectedProj ? ensureArray(selectedProj.okrVariants) : [];
   const activeVariantId = selectedProj?.activeVariantId;
@@ -740,7 +748,8 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
       return;
     }
 
-    const baseDept = cascade[deptIdx];
+    // ★ 修正: cascade ではなく departments から取得
+    const baseDept = Array.isArray(departments) ? departments[deptIdx] : undefined;
     const currentProjs = baseDept ? ensureArray(baseDept.projects) : [];
     const newProjIdx = currentProjs.length;
 
@@ -777,13 +786,14 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
     // 初期は「未選択」を維持（右パネルに勝手に出さない）
     if (!selected) return;
 
-    if (!Array.isArray(cascade) || cascade.length === 0) {
+    // ★ 修正: cascade ではなく departments を使う
+    if (!Array.isArray(departments) || departments.length === 0) {
       setSelected(null);
       return;
     }
 
     // ✅ まず「いまの index が有効なら何もしない」
-    const dNow = cascade[selected.deptIdx];
+    const dNow = departments[selected.deptIdx];
     const pNow = dNow ? ensureArray(dNow.projects) : [];
     const nowValid = !!dNow && selected.projIdx >= 0 && selected.projIdx < pNow.length;
     if (nowValid) return;
@@ -791,8 +801,8 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
     // ❗ index が壊れているときだけ stable key で復元を試みる（ここ以外では setSelected しない）
     const stable = selectedStableRef.current;
     if (stable) {
-      for (let di = 0; di < cascade.length; di += 1) {
-        const d = cascade[di];
+      for (let di = 0; di < departments.length; di += 1) {
+        const d = departments[di];
         if (deptKeyOf(d) !== stable.deptKey) continue;
         const projs = ensureArray(d.projects);
         for (let pi = 0; pi < projs.length; pi += 1) {
@@ -806,7 +816,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
 
     // 復元できない場合は未選択に戻す（勝手に別プロジェクトへ飛ばさない）
     setSelected(null);
-  }, [cascade, selected]);
+  }, [departments, selected]);
 
   // 選択が確定したタイミングで stable key を更新
   useEffect(() => {
@@ -822,15 +832,29 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
     setEditingMode('committed');
   }, [selectedAddKey]);
 
-  // SIMPLE_FORM では探索案（variant）を使わない：確定（committed）だけを編集対象にする
-  const currentKrList: KRStructuredX[] = useMemo(() => {
-    if (!selectedProj) return [];
-    return committedOkrsV2;
-  }, [selectedProj, committedOkrsV2]);
+  // ★ 修正: currentKrList を廃止して selectedProj.okrsV2 から直接取得
+  // これにより deleteKr の更新が即座に反映される（不要な useMemo による delay を排除）
+  const renderKrList = selectedProj?.okrsV2 || [];
 
     {/* -------- 初期補修：KR id 補完 + label 正規化（committed + variants） -------- */}
   useEffect(() => {
     if (!Array.isArray(departments) || departments.length === 0) return;
+
+    // ★ 修正: 初回のみ実行（削除後の KR 再注入防止）
+    if (initialRepairCompletedRef.current) {
+      console.log('[diag][okr:initial-repair-useeffect-skip]', {
+        already: 'completed',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    // ★ 診断: 初期補修 useEffect が実行された
+    console.log('[diag][okr:initial-repair-useeffect-start]', {
+      deptCount: departments.length,
+      timestamp: new Date().toISOString(),
+      trigger: 'first initialization',
+    });
 
     // 既存ヘルパ（id補完）＋ label 正規化（[object Object] 根絶）
     const withIds = ensureKrIds(departments as Department[]);
@@ -842,6 +866,13 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
 
       const nextProjs = projs.map((p) => {
         let projChanged = false;
+
+        // ★ 診断: this project's initial state
+        console.log('[diag][okr:normalize-project-start]', {
+          projectTitle: (p as any)?.title,
+          okrsV2Count: Array.isArray((p as any)?.okrsV2) ? (p as any).okrsV2.length : 0,
+          okrsV2Ids: Array.isArray((p as any)?.okrsV2) ? (p as any).okrsV2.map((kr: any) => kr?.id) : [],
+        });
 
         const normalizeList = (list: any[] | undefined) => {
           const src = ensureArray(list);
@@ -876,6 +907,18 @@ return localChanged ? after : before;
           if (dst.length !== src.length) localChanged = true;
 
           if (localChanged) changed = true;
+
+          // ★ 診断: normalizeList processing
+          if (src.length > 0 || dst.length > 0) {
+            console.log('[diag][okr:normalize-list]', {
+              inputCount: src.length,
+              outputCount: dst.length,
+              changed: localChanged,
+              inputIds: src.map((x: any) => x?.id),
+              outputIds: dst.map((x: any) => x?.id),
+            });
+          }
+
           return localChanged ? dst : src;
         };
 
@@ -927,9 +970,29 @@ let variantsFixed = (p as any).okrVariants;
     });
 
     const finalPatched = changed || withIds !== departments ? patched : (departments as Department[]);
-    if (finalPatched !== departments) patchDepartments(() => finalPatched);
+
+    // ★ 診断: 初期補修 useEffect の patchDepartments 実行確認
+    if (finalPatched !== departments) {
+      console.log('[diag][okr:initial-repair-useeffect-patching]', {
+        changed,
+        withIdsChanged: withIds !== departments,
+        willPatch: true,
+        timestamp: new Date().toISOString(),
+      });
+      patchDepartments(() => finalPatched);
+    } else {
+      console.log('[diag][okr:initial-repair-useeffect-no-patch]', {
+        changed,
+        withIdsChanged: withIds !== departments,
+        willPatch: false,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // ★ 修正: 完了フラグを立てる（次回以降は実行されない）
+    initialRepairCompletedRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [departments?.length]);
+  }, [departments]);
 
   /* ============================================================
    * プロジェクト切替時：ロール詳細パネルの表示/非表示を自動設定
@@ -954,7 +1017,22 @@ let variantsFixed = (p as any).okrVariants;
 
   {/* -------- 初回自動：カスケードOKR → 構造化KR へ一括変換（committedのみ） -------- */}
   useEffect(() => {
-    if (!Array.isArray(cascade) || cascade.length === 0) return;
+    // ★ 修正: cascade ではなく departments を使う
+    if (!Array.isArray(departments) || departments.length === 0) return;
+
+    // ★ 修正: 初回のみ実行（deleteKr 後の KR 再注入防止）
+    if (autoConvertCompletedRef.current) {
+      console.log('[diag][okr:auto-convert:skip]', {
+        reason: 'already-completed',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    console.log('[diag][okr:auto-convert:run]', {
+      timestamp: new Date().toISOString(),
+      trigger: 'first initialization',
+    });
 
     patchDepartments((prev: any) => {
       const next = [...prev];
@@ -989,6 +1067,14 @@ krsRaw.forEach((krItem: any) => {
   const already = existing.some((x) => String((x as any).label ?? '').trim() === label);
   if (already) return;
 
+  // ★ 診断: KR 再追加の検出
+  console.log('[diag][okr:auto-convert:reinject]', {
+    projectTitle: (p as any)?.title,
+    krLabel: label,
+    existingCount: existing.length,
+    timestamp: new Date().toISOString(),
+  });
+
   const kr = buildKRFromText(label, ownerHint);
   existing.push(kr);
   projChanged = true;
@@ -1010,7 +1096,13 @@ krsRaw.forEach((krItem: any) => {
 
       return anyChanged ? next : prev;
     });
-  }, [cascade, patchDepartments]);
+
+    // ★ 修正: 完了フラグを立てる（次回以降は実行されない）
+    autoConvertCompletedRef.current = true;
+    console.log('[diag][okr:auto-convert:done]', {
+      timestamp: new Date().toISOString(),
+    });
+  }, [departments, patchDepartments]);
 
   /* ============================================================
    * KR 追加フォーム（pageに残す：UI state）
@@ -1128,6 +1220,9 @@ const saveEditKr = (dIdx: number, pIdx: number, krId: string) => {
 };
 
 const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
+  // ★ 診断: KR削除クリック確認
+  console.log('KR_DELETE_CLICKED', { dIdx, pIdx, krId, timestamp: new Date().toISOString() });
+
   patchDepartments((prev: any) => {
     const next = [...prev];
     const dept = { ...next[dIdx] };
@@ -1135,8 +1230,39 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
     const proj = { ...(projs[pIdx] as any) };
 
     const list: any[] = Array.isArray(proj.okrsV2) ? [...proj.okrsV2] : [];
+
+    // ★ 診断: 削除前の状態
+    console.log('[diag][okr:kr-delete:before]', {
+      dIdx,
+      pIdx,
+      krId,
+      projectTitle: proj.title,
+      krCountBefore: list.length,
+      krIds: list.map((x: any) => x?.id),
+    });
+
     const filtered = list.filter((x) => String(x?.id ?? '') !== krId);
-    if (filtered.length === list.length) return prev;
+
+    if (filtered.length === list.length) {
+      // ★ KR が見つからなかった
+      console.warn('[diag][okr:kr-delete:not-found]', {
+        dIdx,
+        pIdx,
+        krId,
+        availableKrIds: list.map((x: any) => x?.id),
+      });
+      return prev;
+    }
+
+    // ★ 診断: 削除後の状態
+    console.log('[diag][okr:kr-delete:after]', {
+      dIdx,
+      pIdx,
+      krId,
+      projectTitle: proj.title,
+      krCountBefore: list.length,
+      krCountAfter: filtered.length,
+    });
 
     proj.okrsV2 = filtered;
     projs[pIdx] = proj;
@@ -1146,6 +1272,27 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
   });
 
   if (editingKrId === krId) cancelEditKr();
+
+  // ★ 診断: 削除直後に selectedProj 再取得して状態確認
+  setTimeout(() => {
+    const store = useStrategyStore.getState();
+    const depts = store.departments || [];
+    const afterDept = depts[dIdx];
+    const afterProjs = ensureArray(afterDept?.projects);
+    const afterProj = afterProjs[pIdx];
+    const afterKrList = Array.isArray(afterProj?.okrsV2) ? afterProj.okrsV2 : [];
+
+    console.log('[diag][okr:kr-delete:state-after-delete]', {
+      dIdx,
+      pIdx,
+      krId,
+      projectTitle: afterProj?.title,
+      stateKrCount: afterKrList.length,
+      stateKrIds: afterKrList.map((kr: any) => kr?.id),
+      selectedProjTitle: selectedProj?.title,
+      selectedProjOkrsV2Count: Array.isArray(selectedProj?.okrsV2) ? selectedProj.okrsV2.length : 0,
+    });
+  }, 0);
 };
 
 // Helper: KPI マイルストーン状態バッジを生成
@@ -1735,14 +1882,16 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
 
             {/* KR List */}
             <div className="space-y-2">
-              {currentKrList.length === 0 ? (
+              {renderKrList.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-zinc-200 bg-zinc-50 p-3 text-center">
                   <p className="text-[12px] text-zinc-600">KPIがまだありません</p>
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {currentKrList.map((kr, idx) => {
-  const rowId = String((kr as any)?.id ?? `${idx}`);
+                  {renderKrList.map((kr, idx) => {
+  // ★ 修正: key を index から kr.id に（削除後の入れ替わり防止）
+  const rowId = String((kr as any)?.id ?? `kr-${idx}`);
+  const jsxKey = (kr as any)?.id || rowId;
   const isEditing = editingKrId === rowId;
 
   const rawLabel = (kr as any).label;
@@ -1760,7 +1909,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
   }
 
   return (
-    <div key={rowId} className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+    <div key={jsxKey} className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
       {isEditing && editingKrDraft ? (
         <div className="space-y-2">
           <div className="grid grid-cols-1 gap-2">
@@ -2062,13 +2211,13 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
             </div>
 
             {/* Admin/Manager Details - Hidden in SIMPLE_FORM */}
-            {false && capabilities.canEditStrategy && currentKrList.length > 0 && (
+            {false && capabilities.canEditStrategy && renderKrList.length > 0 && (
               <details className="mt-4 rounded-xl border border-dashed border-zinc-200 bg-zinc-50 p-3">
                 <summary className="cursor-pointer text-[11px] font-semibold text-zinc-700 hover:text-zinc-900">
                   詳細情報（admin/manager のみ）
                 </summary>
                 <div className="mt-3 space-y-2 text-[11px] text-zinc-600">
-                  {currentKrList.map((kr, idx) => {
+                  {renderKrList.map((kr, idx) => {
                     const label = String((kr as any).label ?? '');
                     const track = String((kr as any).track ?? 'EVOLVE');
                     const metricRole = String((kr as any).metricRole ?? 'LAG');
@@ -2095,7 +2244,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
             <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">マイルストーン一覧（期限順）</h2>
 
             {(() => {
-              const msList = aggregateMilestones(currentKrList);
+              const msList = aggregateMilestones(renderKrList);
 
               if (msList.length === 0) {
                 return (
@@ -3163,12 +3312,12 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
             <div className="mb-3 flex items-center justify-between">
               <div className="text-[13px] font-semibold text-zinc-900">プロジェクト一覧</div>
               <div className="text-[11px] text-zinc-500">
-                {cascade.reduce((n, d) => n + ensureArray(d.projects).length, 0)}件
+                {(Array.isArray(departments) ? departments : []).reduce((n, d) => n + ensureArray(d.projects).length, 0)}件
               </div>
             </div>
 
             <div className="space-y-4">
-              {cascade.map((dept, di) => {
+              {(Array.isArray(departments) ? departments : []).map((dept, di) => {
                 const projs = ensureArray(dept.projects);
                 return (
                   <div key={deptKeyOf(dept)} className="rounded-2xl bg-zinc-50 p-3">
