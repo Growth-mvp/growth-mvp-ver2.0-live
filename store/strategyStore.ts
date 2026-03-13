@@ -895,6 +895,20 @@ function buildSavePayload(s: StrategyState) {
       dept0_mission: dept0?.mission,
       dept0_missionDescription: dept0?.missionDescription,
     });
+
+    // ★ DIAG: 削除操作が反映されているか確認（10回に1回のみ出力・verbose log削減）
+    if (Math.random() < 0.1) {
+      console.log('[diag][delete:save:payload]', {
+        departmentsCount: sanitizedDepts.length,
+        departmentNames: sanitizedDepts.map((d: any) => d.name),
+        stage4PlansCount: base.stage4Plans ? base.stage4Plans.length : 0,
+        departmentProjectCounts: sanitizedDepts.map((d: any) => ({
+          name: d.name,
+          projectCount: (d.projects || []).length,
+        })),
+        timestamp: new Date().toISOString(),
+      });
+    }
   }
 
   return pruneUndefinedDeep(base);
@@ -2834,6 +2848,17 @@ export const useStrategyStore = create<StrategyState>()(
         }));
 
         (async () => {
+          // ★ race 防止：restore 直後の save を延期（post-restore cooldown 尊重）
+          const state = get();
+          if (state.restoreReady && state.lastServerSyncAt) {
+            const timeSinceSync = Date.now() - state.lastServerSyncAt;
+            if (timeSinceSync < 2100) {
+              const delayMs = Math.max(100, 2100 - timeSinceSync);
+              if (DEBUG) console.log('[strategyStore] setDepartments() delaying save due to post-restore cooldown', { delayMs });
+              await new Promise(r => setTimeout(r, delayMs));
+            }
+          }
+
           if (DEBUG) console.log('[strategyStore] setDepartments() immediate-save start');
           try {
             await get().saveStrategyData({ reason: 'setDepartments' });
@@ -2854,6 +2879,17 @@ export const useStrategyStore = create<StrategyState>()(
         });
 
         (async () => {
+          // ★ race 防止：restore 直後の save を延期（post-restore cooldown 尊重）
+          const state = get();
+          if (state.restoreReady && state.lastServerSyncAt) {
+            const timeSinceSync = Date.now() - state.lastServerSyncAt;
+            if (timeSinceSync < 2100) {
+              const delayMs = Math.max(100, 2100 - timeSinceSync);
+              if (DEBUG) console.log('[strategyStore] updateDepartments() delaying save due to post-restore cooldown', { delayMs });
+              await new Promise(r => setTimeout(r, delayMs));
+            }
+          }
+
           if (DEBUG) console.log('[strategyStore] updateDepartments() immediate-save start');
           try {
             await get().saveStrategyData({ reason: 'updateDepartments' });
