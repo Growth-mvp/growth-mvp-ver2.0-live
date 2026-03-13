@@ -27,6 +27,16 @@ export function ProjectEditor({ current, onChange, disabled }: ProjectEditorProp
       ...current,
       projects: current.projects.map((p, i) => (i === index ? { ...p, ...updates } : p)),
     };
+    // ★ KPI削除時の詳細ログ
+    if ('kpiTargets' in updates) {
+      console.log('[diag][stage4:kpi-delete:updateProject]', {
+        projectIndex: index,
+        projectTitle: current.projects[index]?.title,
+        kpiTargetsBefore: Object.keys(current.projects[index]?.kpiTargets || {}).length,
+        kpiTargetsAfter: Object.keys((updates as any).kpiTargets || {}).length,
+        updateKeys: Object.keys((updates as any).kpiTargets || {}),
+      });
+    }
     onChange(updated);
   };
 
@@ -45,9 +55,55 @@ export function ProjectEditor({ current, onChange, disabled }: ProjectEditorProp
   };
 
   const deleteKpiTarget = (projectIndex: number, key: string) => {
+    // ★ 診断: 関数に到達した確認
+    console.log('[FUNCTION_ENTRY] deleteKpiTarget called', {
+      projectIndex,
+      kpiKey: key,
+      currentProjectCount: current.projects.length,
+      timestamp: new Date().toISOString(),
+    });
+
     const proj = current.projects[projectIndex];
+    if (!proj) {
+      console.warn('[diag][stage4:kpi-delete:not-found:project]', { projectIndex, availableIndexes: current.projects.map((_, i) => i) });
+      return;
+    }
+
     const kpiTargets = { ...(proj.kpiTargets || {}) };
+    const renderKpiKeys = Object.keys(kpiTargets);
+
+    // ★ DIAG: KPI削除前の状態
+    console.log('[diag][stage4:kpi-delete:before]', {
+      projectIndex,
+      projectTitle: proj.title,
+      kpiKey: key,
+      renderKpiKeys,
+      kpiCountBefore: renderKpiKeys.length,
+      isKeyInKpiTargets: key in kpiTargets,
+    });
+
+    if (!(key in kpiTargets)) {
+      // ★ Silent return 防止：key が見つからない
+      console.warn('[diag][stage4:kpi-delete:not-found:key]', {
+        projectIndex,
+        projectTitle: proj.title,
+        requestedKey: key,
+        availableKeys: renderKpiKeys,
+      });
+      return;
+    }
+
     delete kpiTargets[key];
+
+    // ★ DIAG: KPI削除直後の状態
+    console.log('[diag][stage4:kpi-delete:after]', {
+      projectIndex,
+      projectTitle: proj.title,
+      kpiKey: key,
+      kpiCountAfter: Object.keys(kpiTargets).length,
+      kpiTargetsSnapshot: kpiTargets,
+    });
+
     updateProject(projectIndex, { kpiTargets });
   };
 
@@ -155,7 +211,10 @@ export function ProjectEditor({ current, onChange, disabled }: ProjectEditorProp
                           placeholder="目標"
                         />
                         <button
-                          onClick={() => deleteKpiTarget(pIdx, key)}
+                          onClick={() => {
+                            console.log('KPI_DELETE_CLICKED', { projectIndex: pIdx, kpiKey: key, timestamp: new Date().toISOString() });
+                            deleteKpiTarget(pIdx, key);
+                          }}
                           disabled={disabled}
                           className="p-1.5 text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
                         >
