@@ -918,8 +918,8 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     stage1Issues,  // ★ 修正：stage1Issues を出力オブジェクトに含める
     stage1Benchmarks,  // ★ 修正：stage1Benchmarks を出力オブジェクトに含める
 
-    // ★ 修正0: STAGE4実行計画（DB restore 時に消えないようにする）
-    ...(Array.isArray(src.stage4Plans) && src.stage4Plans.length > 0
+    // ★ 修正2: STAGE4実行計画（空配列も保持：未定義扱いで invalidate 再発防止）
+    ...(Array.isArray(src.stage4Plans)
       ? { stage4Plans: src.stage4Plans }
       : {}),
 
