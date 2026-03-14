@@ -62,14 +62,14 @@ function Stage6PageContent() {
     <main className="min-h-screen bg-slate-50 text-slate-900">
       <div className="mx-auto max-w-7xl px-4 pb-12 pt-8 md:px-6 md:pt-10 space-y-6">
         <header>
-          
+
           <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
               <h1 className="text-2xl font-bold">STAGE6｜業績シミュレーション</h1>
               <p className="mt-1 text-sm text-slate-600">
                 会社業績目標に対する進捗、プロジェクト寄与、次アクションを確認します。
               </p>
-              
+
             </div>
             <SaveStatusIndicator />
           </div>
@@ -84,12 +84,12 @@ function Stage6PageContent() {
 
         <TabValueDashboard
           northStarRows={stage6.northStarRows}
-          projectContrib={stage6.projectContrib}
-          vaCards={stage6.vaCards}
+          dashboardSummary={stage6.dashboardSummary}
+          fourMetricCards={stage6.fourMetricCards}
         />
 
         <TabImpact
-          projectContrib={stage6.projectContrib}
+          projectContrib={stage6.projectContrib as any}
           core={stage6.core}
           deptFilter={projectFilters.deptFilter}
           setDeptFilter={projectFilters.setDeptFilter}
@@ -99,6 +99,10 @@ function Stage6PageContent() {
           toggleProject={projectFilters.toggleProject}
           selectAllFiltered={projectFilters.selectAllFiltered}
           clearAllFiltered={projectFilters.clearAllFiltered}
+          revenueGapMJPY={stage6.dashboardSummary?.revenue.gap}
+          opGapMJPY={stage6.dashboardSummary?.op.gap}
+          topRevenueProjects={stage6.dashboardSummary?.topRevenueProjects as any}
+          topOpProjects={stage6.dashboardSummary?.topOpProjects as any}
         />
       </div>
     </main>
