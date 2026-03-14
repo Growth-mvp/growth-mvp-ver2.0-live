@@ -1161,28 +1161,35 @@ function normalizeProjectDraft(pd: ApiProjectDraft, deptName?: string): Project 
   return p;
 }
 
-function mergeProjectInto(projects: Project[], incoming: Project): Project[] {
+// ★ TASK 1: mergeProjectInto に preserveOkrs パラメータを追加
+// 再生成時は preserveOkrs=false を渡して、okrs/okrsV2/kpis を incoming で置換
+function mergeProjectInto(projects: Project[], incoming: Project, preserveOkrs: boolean = true): Project[] {
   const inKey = normalizeTitleKey(incoming.title ?? '');
   if (!inKey) return projects;
 
   const existIdx = projects.findIndex((p) => normalizeTitleKey(p.title ?? '') === inKey);
   if (existIdx < 0) return [...projects, incoming];
 
-  const existing = { ...(projects[existIdx] as Project) };
+  const existing = projects[existIdx] as any;
 
-  const merged: Project = {
-    ...existing,
-    hypothesis: incoming.hypothesis || existing.hypothesis,
-    mainLever: incoming.mainLever || existing.mainLever,
-    horizon: incoming.horizon || existing.horizon,
-    kind: incoming.kind || existing.kind,
+  // ★ TASK 1: Use mergeCascadeFields for okrs/okrsV2/kpis sync
+  // Critical: preserveOkrs=false ensures incoming KPI/OKR replaces existing
+  const merged = mergeCascadeFields(incoming as any, existing, preserveOkrs) as Project;
+
+  // ★ Merge other fields (hypothesis, mainLever, horizon, kind)
+  const mergedWithMetadata: Project = {
+    ...merged,
+    hypothesis: incoming.hypothesis || merged.hypothesis,
+    mainLever: incoming.mainLever || merged.mainLever,
+    horizon: incoming.horizon || merged.horizon,
+    kind: incoming.kind || merged.kind,
   };
 
   // ★STAGE4移管：skillRequirements, humanInvestments は STAGE4で編集
   // cascade では既存データを保持するのみ（補完しない）
 
   const next = [...projects];
-  next[existIdx] = merged;
+  next[existIdx] = mergedWithMetadata;
   return next;
 }
 
@@ -2243,17 +2250,20 @@ useEffect(() => {
 
       setNotice(`✅ ${dept.name} のミッション・プロジェクト・KPI案を更新しました`);
 
-      // ★ 修正1: 再生成直後に stage4Plans を invalidate（古い baseline を破棄）
+      // ★ TASK 5: 再生成直後に stage4Plans と executionPlanBaseline を無効化
       const stateBeforeInvalidate = useStrategyStore.getState();
       const stage4PlansCountBefore = stateBeforeInvalidate.stage4Plans?.length ?? 0;
+      const hasExecutionPlanBaseline = stateBeforeInvalidate.executionPlanBaseline != null;
 
-      if (stage4PlansCountBefore > 0) {
-        console.log('[diag][stage3:regen:invalidate] stage4Plans をクリア', {
-          beforeCount: stage4PlansCountBefore,
+      if (stage4PlansCountBefore > 0 || hasExecutionPlanBaseline) {
+        console.log('[diag][stage3:regen:invalidate] stage4Plans/executionPlanBaseline をクリア', {
+          stage4PlansCountBefore,
+          hasExecutionPlanBaseline,
           dept: dept.name,
           deptProjects: afterSetDepts?.find((d) => d.name === dept.name)?.projects?.length ?? 0,
         });
-        stateBeforeInvalidate.setStage4Plans([]);
+        stateBeforeInvalidate.setStage4Plans?.([]);
+        stateBeforeInvalidate.setExecutionPlanBaseline?.(undefined);
       }
 
       // ★TASK A: 生成完了後に必ず1回保存（保存抑止解除前）
