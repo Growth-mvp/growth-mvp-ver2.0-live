@@ -522,7 +522,7 @@ function buildDbRowFromState(state: StrategyData) {
 const ensureStringArray = (v: any): string[] =>
   Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
 
-const okrsV2ToOkrs = (okrsV2: any[], fallbackTitle: string) => {
+export const okrsV2ToOkrs = (okrsV2: any[], fallbackTitle: string) => {
   // okrsV2はKR配列（KPI行）なので、1つのOKRにまとめる
   const krs = ensureArray(okrsV2)
     .map(x => (typeof x?.label === 'string' ? x.label.trim() : ''))
@@ -535,7 +535,7 @@ const okrsV2ToOkrs = (okrsV2: any[], fallbackTitle: string) => {
   }];
 };
 
-const okrsToKpis = (okrs: any[]) => {
+export const okrsToKpis = (okrs: any[]) => {
   const names: string[] = [];
   for (const o of ensureArray(okrs)) {
     for (const kr of ensureArray(o?.keyResults)) {
@@ -1337,6 +1337,32 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
     len: lenStr((payload as any).ceoIntent),
     head: headStr((payload as any).ceoIntent),
   });
+
+  // ★ TASK 6: Diagnostic log - verify all 3 representations are synced before save
+  if (Array.isArray((payload as any).departments)) {
+    const depts = (payload as any).departments as any[];
+    for (const dept of depts) {
+      const projects = Array.isArray(dept.projects) ? dept.projects : [];
+      for (const proj of projects) {
+        const okrsV2Count = Array.isArray(proj.okrsV2) ? proj.okrsV2.length : 0;
+        const okrsKrCount = Array.isArray(proj.okrs)
+          ? proj.okrs.reduce((n, o) => n + (Array.isArray(o?.keyResults) ? o.keyResults.length : 0), 0)
+          : 0;
+        const kpisCount = Array.isArray(proj.kpis) ? proj.kpis.length : 0;
+
+        // Log every project to detect sync issues
+        console.log('[diag][save:project-repr]', {
+          dept: dept.name,
+          project: proj.title,
+          okrsV2Count,
+          okrsKrCount,
+          kpisCount,
+          // Flag if counts are mismatched (sign of resurrection risk)
+          mismatched: okrsV2Count !== okrsKrCount || okrsV2Count !== kpisCount,
+        });
+      }
+    }
+  }
 
   try {
     if (!userId) {
