@@ -29,6 +29,7 @@ import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import type { KRKind } from '@/types/strategy';
+import { okrsV2ToOkrs, okrsToKpis } from '@/utils/supabase/strategy';
 
 import {
   ensureArray,
@@ -1046,6 +1047,19 @@ let variantsFixed = (p as any).okrVariants;
           const okrs = ensureArray(p.okrs as OKR[] | undefined);
           if (!okrs.length) return p;
 
+          // ★ TASK 4: Critical - if okrsV2 already exists, NEVER rescue
+          // 既存okrsV2がある場合は、旧okrs/kpisからの再注入を完全禁止
+          const hasExistingOkrsV2 = Array.isArray(p.okrsV2) && p.okrsV2.length > 0;
+          if (hasExistingOkrsV2) {
+            console.log('[diag][okr:auto-convert:skip-rescue]', {
+              projectTitle: (p as any)?.title,
+              okrsV2Count: p.okrsV2.length,
+              reason: 'existing-okrsv2-found-rescue-disabled',
+              timestamp: new Date().toISOString(),
+            });
+            return p; // ★ Complete skip - no rescue at all
+          }
+
           const existing: KRStructuredX[] = Array.isArray(p.okrsV2) ? [...(p.okrsV2 as KRStructuredX[])] : [];
           let projChanged = false;
 
@@ -1198,6 +1212,7 @@ const saveEditKr = (dIdx: number, pIdx: number, krId: string) => {
     const ni = list.findIndex((x) => String(x?.id ?? '') === krId);
     if (ni < 0) return prev;
 
+    // Step 1: Update okrsV2
     const before = list[ni] ?? {};
     list[ni] = {
       ...before,
@@ -1208,9 +1223,14 @@ const saveEditKr = (dIdx: number, pIdx: number, krId: string) => {
       owner: editingKrDraft.owner?.trim() || undefined,
       milestones: editingKrDraft.milestones,
     };
-
     proj.okrsV2 = list;
-    projs[pIdx] = proj;
+
+    // Step 2: Sync all 3 representations (okrsV2 → okrs → kpis)
+    // ★ TASK 3: Critical: Must sync BEFORE patchDepartments
+    const projWithSync = syncProjectKrRepresentations(proj);
+
+    // Step 3: Update store
+    projs[pIdx] = projWithSync;
     dept.projects = projs;
     next[dIdx] = dept;
     return next;
@@ -1218,6 +1238,48 @@ const saveEditKr = (dIdx: number, pIdx: number, krId: string) => {
 
   cancelEditKr();
 };
+
+// ★ TASK 2, 3: Helper functions for KR sync
+const normalizeKrLabel = (v: any) => {
+  if (typeof v === 'string') return v.trim();
+  if (v && typeof v === 'object' && typeof v.label === 'string') return v.label.trim();
+  return '';
+};
+
+// ★ TASK 3: Sync all 3 representations (canonical: okrsV2)
+const syncProjectKrRepresentations = (project: any) => {
+  const okrsV2 = Array.isArray(project.okrsV2) ? project.okrsV2 : [];
+  const fallbackTitle = String(project.title ?? '改善テーマ');
+  const okrs = okrsV2ToOkrs(okrsV2, fallbackTitle);
+  const kpis = okrsToKpis(okrs);
+
+  return {
+    ...project,
+    okrsV2,
+    okrs,
+    kpis,
+  };
+};
+
+function removeKrEverywhere(project: any, krId?: string, krLabel?: string) {
+  const labelKey = String(krLabel ?? '').trim();
+  const idKey = String(krId ?? '').trim();
+
+  // Remove from okrsV2
+  const nextOkrsV2 = Array.isArray(project.okrsV2)
+    ? project.okrsV2.filter((kr: any) => {
+        const sameId = idKey && String(kr?.id ?? '').trim() === idKey;
+        const sameLabel = labelKey && normalizeKrLabel(kr) === labelKey;
+        return !(sameId || sameLabel);
+      })
+    : [];
+
+  // ★ TASK 3: After removing from okrsV2, sync all 3 representations
+  return syncProjectKrRepresentations({
+    ...project,
+    okrsV2: nextOkrsV2,
+  });
+}
 
 const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
   // ★ 診断: KR削除クリック確認
@@ -1231,14 +1293,22 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
 
     const list: any[] = Array.isArray(proj.okrsV2) ? [...proj.okrsV2] : [];
 
+    // Find KR to get its label
+    const targetKr = list.find((x) => String(x?.id ?? '') === krId);
+    const krLabel = targetKr ? normalizeKrLabel(targetKr) : '';
+
     // ★ 診断: 削除前の状態
     console.log('[diag][okr:kr-delete:before]', {
       dIdx,
       pIdx,
       krId,
+      krLabel,
       projectTitle: proj.title,
-      krCountBefore: list.length,
-      krIds: list.map((x: any) => x?.id),
+      okrsV2Count: list.length,
+      okrsKrCount: Array.isArray(proj.okrs)
+        ? proj.okrs.reduce((n, o) => n + (Array.isArray(o.keyResults) ? o.keyResults.length : 0), 0)
+        : 0,
+      kpisCount: Array.isArray(proj.kpis) ? proj.kpis.length : 0,
     });
 
     const filtered = list.filter((x) => String(x?.id ?? '') !== krId);
@@ -1254,18 +1324,24 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
       return prev;
     }
 
+    // ★ TASK 2: Use removeKrEverywhere to sync all 3 representations
+    const projWithRemoved = removeKrEverywhere(proj, krId, krLabel);
+
     // ★ 診断: 削除後の状態
     console.log('[diag][okr:kr-delete:after]', {
       dIdx,
       pIdx,
       krId,
+      krLabel,
       projectTitle: proj.title,
-      krCountBefore: list.length,
-      krCountAfter: filtered.length,
+      okrsV2Count: Array.isArray(projWithRemoved.okrsV2) ? projWithRemoved.okrsV2.length : 0,
+      okrsKrCount: Array.isArray(projWithRemoved.okrs)
+        ? projWithRemoved.okrs.reduce((n, o) => n + (Array.isArray(o.keyResults) ? o.keyResults.length : 0), 0)
+        : 0,
+      kpisCount: Array.isArray(projWithRemoved.kpis) ? projWithRemoved.kpis.length : 0,
     });
 
-    proj.okrsV2 = filtered;
-    projs[pIdx] = proj;
+    projs[pIdx] = projWithRemoved;
     dept.projects = projs;
     next[dIdx] = dept;
     return next;
@@ -1287,10 +1363,11 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
       pIdx,
       krId,
       projectTitle: afterProj?.title,
-      stateKrCount: afterKrList.length,
-      stateKrIds: afterKrList.map((kr: any) => kr?.id),
-      selectedProjTitle: selectedProj?.title,
-      selectedProjOkrsV2Count: Array.isArray(selectedProj?.okrsV2) ? selectedProj.okrsV2.length : 0,
+      okrsV2Count: afterKrList.length,
+      okrsKrCount: Array.isArray(afterProj?.okrs)
+        ? afterProj.okrs.reduce((n, o) => n + (Array.isArray(o.keyResults) ? o.keyResults.length : 0), 0)
+        : 0,
+      kpisCount: Array.isArray(afterProj?.kpis) ? afterProj.kpis.length : 0,
     });
   }, 0);
 };
