@@ -3,6 +3,7 @@
 
 import { useCallback } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
+import { okrsV2ToOkrs, okrsToKpis } from '@/utils/supabase/strategy';
 
 import {
   ensureArray,
@@ -716,6 +717,12 @@ export function useOkrEditor(args: {
           const list = Array.isArray(proj.okrsV2) ? [...(proj.okrsV2 as KRStructuredX[])] : [];
           list.push(withDefaults);
           (proj as any).okrsV2 = list;
+
+          // ★ TASK 3: Sync all 3 representations after add (committed mode)
+          const okrs = okrsV2ToOkrs(list, proj.title ?? '改善テーマ');
+          const kpis = okrsToKpis(okrs);
+          (proj as any).okrs = okrs;
+          (proj as any).kpis = kpis;
         } else {
           const vid = proj.activeVariantId;
           if (!vid) return prev;
@@ -739,7 +746,11 @@ export function useOkrEditor(args: {
                     : (withDefaults as any).validation,
               }),
             );
-            return { ...v, okrsV2: list };
+
+            // ★ TASK 3: Sync all 3 representations after add (variant mode)
+            const okrs = okrsV2ToOkrs(list, v.title ?? proj.title ?? '改善テーマ');
+            const kpis = okrsToKpis(okrs);
+            return { ...v, okrsV2: list, okrs, kpis };
           });
 
           (proj as any).okrVariants = variants;
