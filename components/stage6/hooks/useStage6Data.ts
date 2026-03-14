@@ -33,7 +33,7 @@ import {
   matchProgressLogToProject,
   normalizeProjectName,
 } from '@/utils/stage6';
-import { calcYearlyFromKrs } from '@/utils/stage6/compute';
+import { calcYearlyFromKrs, buildStage6FourMetricCards } from '@/utils/stage6/compute';
 import {
   inferAutoProjectTargetImpacts,
   mergeImpacts,
@@ -1456,6 +1456,107 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     }
   }
 
+  // === STAGE6 Step 1: Dashboard Summary & Four Metric Cards ===
+  // Calculate baseline, forecast, target for revenue/op
+  // Gap = target - forecast (NOT baseline - forecast)
+  // ★ A.修正: Forecast = Baseline + sum(projectContrib) に統一
+  const dashboardSummary = useMemo(() => {
+    const baselineYearlyFinal = core.baselineYearly?.[core.baselineYearly.length - 1];
+
+    // Baseline (KR なし、yen単位)
+    const baselineRevenueMJPY = (baselineYearlyFinal?.revenue ?? 0) / 1_000_000;
+    const baselineOpMJPY = (baselineYearlyFinal?.op_income ?? 0) / 1_000_000;
+
+    // ★ Forecast = Baseline + sum(projectContrib.delta) に統一
+    // これにより上段のforecastと下段のprojectContribのソースが統一される
+    const sumProjectRevenueContrib = projectContribForUI.reduce((sum, p) => sum + (p.deltaRevenueTotal ?? 0), 0);
+    const sumProjectOpContrib = projectContribForUI.reduce((sum, p) => sum + (p.deltaOpTotal ?? 0), 0);
+
+    const forecastRevenueMJPY = baselineRevenueMJPY + sumProjectRevenueContrib;
+    const forecastOpMJPY = baselineOpMJPY + sumProjectOpContrib;
+
+    // Target (from northStarRows, already normalized to MJPY)
+    const revenueRow = northStarRows.find(r => r.label.toLowerCase().includes('売上') && !r.label.toLowerCase().includes('成長'));
+    const opRow = northStarRows.find(r => r.label.toLowerCase().includes('営業利益') && !r.label.toLowerCase().includes('率'));
+
+    // Target は row.unit で保存されているが、MJPY に正規化
+    const revenueRowUnit = revenueRow?.unit ?? 'yen';
+    const opRowUnit = opRow?.unit ?? 'yen';
+    const revenueRowUnitNorm = (revenueRowUnit === 'MJPY' || revenueRowUnit === '百万円') ? 'MJPY' : 'yen';
+    const opRowUnitNorm = (opRowUnit === 'MJPY' || opRowUnit === '百万円') ? 'MJPY' : 'yen';
+
+    const targetRevenueMJPY = revenueRowUnitNorm === 'MJPY'
+      ? (revenueRow?.base ?? 0)
+      : ((revenueRow?.base ?? 0) / 1_000_000);
+    const targetOpMJPY = opRowUnitNorm === 'MJPY'
+      ? (opRow?.base ?? 0)
+      : ((opRow?.base ?? 0) / 1_000_000);
+
+    // Gap = target - forecast (key change from base - forecast)
+    // Math.max(0, ...) で負の値を避ける（達成済みの場合は0）
+    const revenueGapMJPY = Math.max(0, targetRevenueMJPY - forecastRevenueMJPY);
+    const opGapMJPY = Math.max(0, targetOpMJPY - forecastOpMJPY);
+
+    // Top projects by revenue and op contribution
+    const topRevenueProjects = projectContribForUI
+      .filter(p => p.deltaRevenueTotal > 0)
+      .sort((a, b) => (b.deltaRevenueTotal ?? 0) - (a.deltaRevenueTotal ?? 0))
+      .slice(0, 3);
+
+    const topOpProjects = projectContribForUI
+      .filter(p => p.deltaOpTotal > 0)
+      .sort((a, b) => (b.deltaOpTotal ?? 0) - (a.deltaOpTotal ?? 0))
+      .slice(0, 3);
+
+    return {
+      revenue: {
+        baseline: baselineRevenueMJPY,
+        forecast: forecastRevenueMJPY,
+        target: targetRevenueMJPY,
+        gap: revenueGapMJPY,
+      },
+      op: {
+        baseline: baselineOpMJPY,
+        forecast: forecastOpMJPY,
+        target: targetOpMJPY,
+        gap: opGapMJPY,
+      },
+      topRevenueProjects,
+      topOpProjects,
+    };
+  }, [northStarRows, core.baselineYearly, projectContribForUI]);
+
+  // === STAGE6 Step 2: Four Metric Cards ===
+  const fourMetricCards = useMemo(() => {
+    const baselineYearlyFinal = core.baselineYearly?.[core.baselineYearly.length - 1];
+    const forecastYearlyFinal = core.yearlyAll?.base?.[core.yearlyAll.base.length - 1];
+
+    // Determine years for CAGR calculation
+    const baselineYear = baselineYearlyFinal?.year;
+    const forecastYear = forecastYearlyFinal?.year;
+    const targetYear = companyTargets?.[0]?.dueYear ?? forecastYear; // fallback to forecast year
+
+    // Estimate investedCapital (baseline equity + debt)
+    // For now, use a simple heuristic: baselineRevenue * 0.3 (30% of revenue as capital)
+    const baselineRevenue = baselineYearlyFinal?.revenue ?? 1_000_000;
+    const estimatedInvestedCapital = baselineRevenue * 0.3;
+
+    return buildStage6FourMetricCards({
+      currentValueAnalysis: valueAnalysis,
+      baselineRevenue: baselineYearlyFinal?.revenue,
+      baselineOp: baselineYearlyFinal?.op_income,
+      baselineYear,
+      forecastRevenue: forecastYearlyFinal?.revenue,
+      forecastOp: forecastYearlyFinal?.op_income,
+      forecastYear,
+      targetRevenue: dashboardSummary.revenue.target * 1_000_000, // MJPY -> yen
+      targetOp: dashboardSummary.op.target * 1_000_000, // MJPY -> yen
+      targetYear,
+      investedCapital: estimatedInvestedCapital,
+      baselineTaxRate: 0.3,
+    });
+  }, [core.baselineYearly, core.yearlyAll, valueAnalysis, companyTargets, dashboardSummary]);
+
   // ★ 追加修正：上段と下段の整合性確認ログ（★統一基準確認＋baseline修正）
   if (DEBUG && isReady && northStarRows.length > 0 && projectContribForUI.length > 0) {
     const revenueRow = northStarRows.find(r => r.label.toLowerCase().includes('売上') && !r.label.toLowerCase().includes('成長'));
@@ -1577,6 +1678,9 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     vaCards,
     indicatorSeries,
     chartData: chartDataWithPhaseE,  // ★Phase E の影響を反映したグラフデータ
+    // STAGE6 Step 1 & 2: Dashboard summary & metric cards
+    dashboardSummary,
+    fourMetricCards,
     // Supporting data
     financePL,
     companyTargets,
