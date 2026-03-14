@@ -575,6 +575,244 @@ export function buildValueAnalysisCards(valueAnalysis: any): Array<{
 }
 
 /* =========================================================
+ * STAGE6 専用：4指標計算ロジック
+ * ======================================================= */
+
+/**
+ * CAGR（年平均成長率）を計算
+ *
+ * 計算式: (end / start)^(1/years) - 1
+ *
+ * @param start 開始時点の値
+ * @param end 終了時点の値
+ * @param years 期間（年数）
+ * @returns CAGR %、またはundefined（計算不可）
+ */
+export function calcCagrPercent(
+  start: number | undefined,
+  end: number | undefined,
+  years: number | undefined
+): number | undefined {
+  if (
+    start === undefined ||
+    end === undefined ||
+    years === undefined ||
+    !Number.isFinite(start) ||
+    !Number.isFinite(end) ||
+    !Number.isFinite(years) ||
+    start <= 0 ||
+    years <= 0
+  ) {
+    return undefined;
+  }
+
+  const cagr = Math.pow(end / start, 1 / years) - 1;
+  return cagr * 100; // %
+}
+
+/**
+ * マージン率（営業利益率）を計算
+ *
+ * 計算式: (op / revenue) * 100
+ *
+ * @param revenue 売上（yen）
+ * @param op 営業利益（yen）
+ * @returns マージン率 %、またはundefined
+ */
+export function calcMarginPercent(
+  revenue: number | undefined,
+  op: number | undefined
+): number | undefined {
+  if (
+    revenue === undefined ||
+    op === undefined ||
+    !Number.isFinite(revenue) ||
+    !Number.isFinite(op) ||
+    revenue === 0
+  ) {
+    return undefined;
+  }
+
+  return (op / revenue) * 100;
+}
+
+/**
+ * ROIC（投下資本利益率）を計算
+ *
+ * 計算式: (NOPAT / investedCapital) * 100
+ * NOPAT = op_income * (1 - taxRate)
+ *
+ * @param op 営業利益（yen）
+ * @param investedCapital 投下資本（yen）
+ * @param taxRate 税率（デフォルト 0.3 = 30%）
+ * @returns ROIC %、またはundefined
+ */
+export function calcRoicPercent(
+  op: number | undefined,
+  investedCapital: number | undefined,
+  taxRate: number = 0.3
+): number | undefined {
+  if (
+    op === undefined ||
+    investedCapital === undefined ||
+    !Number.isFinite(op) ||
+    !Number.isFinite(investedCapital) ||
+    investedCapital === 0
+  ) {
+    return undefined;
+  }
+
+  const nopat = op * (1 - taxRate);
+  return (nopat / investedCapital) * 100;
+}
+
+/**
+ * STAGE6 専用：4指標カードを生成
+ *
+ * 売上CAGR、営業利益率、ROIC、WACC の current / forecast / target を計算
+ * PBR は削除（見込み値の算出ロジックが弱いため）
+ */
+export function buildStage6FourMetricCards(args: {
+  // Current values
+  currentValueAnalysis: any;
+
+  // Baseline (no KRs)
+  baselineRevenue?: number; // yen
+  baselineOp?: number; // yen
+  baselineYear?: number;
+
+  // Forecast (with KRs)
+  forecastRevenue?: number; // yen
+  forecastOp?: number; // yen
+  forecastYear?: number;
+
+  // Target (North Star)
+  targetRevenue?: number; // yen
+  targetOp?: number; // yen
+  targetYear?: number;
+
+  // For ROIC/WACC calculation
+  investedCapital?: number; // yen
+  baselineTaxRate?: number; // e.g., 0.3
+}): Array<{
+  key: string;
+  label: string;
+  current?: number;
+  forecast?: number;
+  target?: number;
+  unit: string;
+}> {
+  const {
+    currentValueAnalysis,
+    baselineRevenue,
+    baselineOp,
+    baselineYear,
+    forecastRevenue,
+    forecastOp,
+    forecastYear,
+    targetRevenue,
+    targetOp,
+    targetYear,
+    investedCapital,
+    baselineTaxRate = 0.3,
+  } = args;
+
+  const cards: Array<{
+    key: string;
+    label: string;
+    current?: number;
+    forecast?: number;
+    target?: number;
+    unit: string;
+  }> = [];
+
+  // ===== 売上CAGR =====
+  const revenueGrowthCurrent = currentValueAnalysis?.revenueGrowthRate;
+
+  // Forecast CAGR: baseline → forecast
+  let revenueGrowthForecast: number | undefined;
+  if (baselineRevenue && forecastRevenue && baselineYear && forecastYear) {
+    const years = forecastYear - baselineYear;
+    revenueGrowthForecast = calcCagrPercent(baselineRevenue, forecastRevenue, years);
+  }
+
+  // ★ B.修正: Target CAGR は売上目標がある場合のみ算出
+  let revenueGrowthTarget: number | undefined;
+  if (targetRevenue && baselineRevenue && baselineYear && targetYear && targetRevenue > baselineRevenue) {
+    const years = targetYear - baselineYear;
+    revenueGrowthTarget = calcCagrPercent(baselineRevenue, targetRevenue, years);
+  }
+
+  cards.push({
+    key: 'revenueGrowthRate',
+    label: '売上CAGR',
+    current: revenueGrowthCurrent,
+    forecast: revenueGrowthForecast,
+    target: revenueGrowthTarget,
+    unit: '%',
+  });
+
+  // ===== 営業利益率 =====
+  const opMarginCurrent = currentValueAnalysis?.operatingMarginRate;
+
+  // Forecast margin
+  const opMarginForecast = calcMarginPercent(forecastRevenue, forecastOp);
+
+  // ★ B.修正: Target margin は売上目標と営業利益目標の両方がある場合のみ算出
+  let opMarginTarget: number | undefined;
+  if (targetRevenue && targetOp && targetRevenue > 0 && targetOp > 0) {
+    opMarginTarget = calcMarginPercent(targetRevenue, targetOp);
+  }
+
+  cards.push({
+    key: 'operatingMarginRate',
+    label: '営業利益率',
+    current: opMarginCurrent,
+    forecast: opMarginForecast,
+    target: opMarginTarget,
+    unit: '%',
+  });
+
+  // ===== ROIC =====
+  const roicCurrent = currentValueAnalysis?.roic;
+
+  // Forecast ROIC
+  const roicForecast = calcRoicPercent(forecastOp, investedCapital, baselineTaxRate);
+
+  // ★ B.修正: Target ROIC は invested capital と営業利益目標が揃う場合のみ算出
+  let roicTarget: number | undefined;
+  if (investedCapital && targetOp && investedCapital > 0 && targetOp > 0) {
+    roicTarget = calcRoicPercent(targetOp, investedCapital, baselineTaxRate);
+  }
+
+  cards.push({
+    key: 'roic',
+    label: 'ROIC',
+    current: roicCurrent,
+    forecast: roicForecast,
+    target: roicTarget,
+    unit: '%',
+  });
+
+  // ===== WACC =====
+  // ★ B.修正: WACC は current のみ表示、forecast/target は原則未設定
+  const waccCurrent = currentValueAnalysis?.wacc;
+
+  cards.push({
+    key: 'wacc',
+    label: 'WACC',
+    current: waccCurrent,
+    forecast: undefined, // 変わらないため未設定
+    target: undefined,   // 変わらないため未設定
+    unit: '%',
+  });
+
+  // ★ PBR は削除（見込み値の算出ロジックが弱く、市場要因が強いため）
+
+  return cards;
+}
+
+/* =========================================================
  * Project Contribution 関連（タブ1用）
  * ======================================================= */
 
