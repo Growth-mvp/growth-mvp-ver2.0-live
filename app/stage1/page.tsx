@@ -394,7 +394,7 @@ export default function Stage1Page() {
           <div>
             <h1 className="text-2xl font-bold">STAGE1｜企業価値分析</h1>
             <p className="text-sm text-gray-600 mt-2">
-              財務事実から企業価値の現状を整理し、経営戦略の論点を議論し明確にします。
+              財務情報から企業価値の現状を整理し、経営戦略の論点を明確にします。
             </p>
 
             {saveMessage && (
@@ -478,7 +478,7 @@ export default function Stage1Page() {
               <div className="text-xs leading-relaxed">
                 1. 「財務指標」で計算結果を確認
                 <br />
-                2. 「論点整理」で経営課題・機会を抽出し、「STAGE2へ」進む
+                2. 「論点整理」で経営課題・機会を議論し、「STAGE2へ」進む
               </div>
             </div>
 
