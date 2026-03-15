@@ -2478,7 +2478,13 @@ function Stage2PageContent() {
           console.log('[Stage2] AFTER fetch', { status: 200, ok: true });
         } catch (e: any) {
           // ★ authFetchJson からの エラー（401など）
-          console.error('[Stage2] generate failed:', e?.message || e);
+          console.error('[Stage2] ★GENERATE FAILED★', {
+            message: e?.message || String(e),
+            details_bodyText: e?.details?.bodyText,
+            details_stage: e?.details?.stage,
+            errorName: e?.name,
+            fullError: e,
+          });
           done = true;
           if (timer) {
             clearTimeout(timer);
