@@ -53,6 +53,36 @@ function safeKeysCount(v: unknown): number {
   return Object.keys(v as Record<string, unknown>).length;
 }
 
+function stableSerialize(value: unknown): string {
+  const seen = new WeakSet();
+
+  const sortValue = (input: unknown): unknown => {
+    if (input === null || input === undefined) return input;
+    if (typeof input !== 'object') return input;
+
+    if (seen.has(input as object)) return '[Circular]';
+    seen.add(input as object);
+
+    if (Array.isArray(input)) {
+      return input.map((item) => sortValue(item));
+    }
+
+    const obj = input as Record<string, unknown>;
+    const sortedKeys = Object.keys(obj).sort();
+    const result: Record<string, unknown> = {};
+    for (const key of sortedKeys) {
+      result[key] = sortValue(obj[key]);
+    }
+    return result;
+  };
+
+  try {
+    return JSON.stringify(sortValue(value)) ?? '';
+  } catch {
+    return '';
+  }
+}
+
 export default function Stage1Page() {
   // ===== 保存導線（store側の名前揺れを許容） =====
   const saveFn = useStrategyStore((s: StrategyState) =>
@@ -73,22 +103,10 @@ export default function Stage1Page() {
     Array.isArray((s as any).businessSegments) ? (s as any).businessSegments.length : 0
   );
 
-  const financePLCount = useStrategyStore((s: StrategyState) =>
-    Array.isArray((s as any).financePL) ? (s as any).financePL.length : 0
-  );
-  const financeBSCount = useStrategyStore((s: StrategyState) =>
-    Array.isArray((s as any).financeBS) ? (s as any).financeBS.length : 0
-  );
-
-  // segmentPL/segmentBS は object の可能性が高いので「キー数」で差分検知
-  const segmentPLKeysCount = useStrategyStore((s: StrategyState) => safeKeysCount((s as any).segmentPL));
-  const segmentBSKeysCount = useStrategyStore((s: StrategyState) => safeKeysCount((s as any).segmentBS));
-
   const issuesCount = useStrategyStore((s: StrategyState) =>
     Array.isArray((s as any).stage1Issues) ? (s as any).stage1Issues.length : 0
   );
 
-  // （必要なら）financeSummaryの有無も差分検知
   const financeSummaryCount = useStrategyStore((s: StrategyState) =>
     Array.isArray((s as any).financeSummary) ? (s as any).financeSummary.length : 0
   );
@@ -100,12 +118,46 @@ export default function Stage1Page() {
   const stage1BenchmarksKey = useStrategyStore((s: StrategyState) => {
     const benchmarks = (s as any).stage1Benchmarks;
     if (!benchmarks || typeof benchmarks !== 'object') return '';
-    // stage1Benchmarks が変更されたことを検知するため、キー数 + waccManual の値で判定
-    return JSON.stringify({
-      keys: Object.keys(benchmarks).sort(),
-      waccManual: benchmarks.waccManual,
-    });
+    return stableSerialize(benchmarks);
   });
+
+  // ★ 追加：PL/BS 本体の「内容」変更を検知
+  const financePLDataHash = useStrategyStore((s: StrategyState) => {
+    try {
+      return stableSerialize((s as any).financePL ?? []);
+    } catch {
+      return '';
+    }
+  });
+
+  const financeBSDataHash = useStrategyStore((s: StrategyState) => {
+    try {
+      return stableSerialize((s as any).financeBS ?? []);
+    } catch {
+      return '';
+    }
+  });
+
+  // ★ 追加：segmentPL/segmentBS も件数ではなく「内容」変更を検知
+  const segmentPLDataHash = useStrategyStore((s: StrategyState) => {
+    try {
+      return stableSerialize((s as any).segmentPL ?? {});
+    } catch {
+      return '';
+    }
+  });
+
+  const segmentBSDataHash = useStrategyStore((s: StrategyState) => {
+    try {
+      return stableSerialize((s as any).segmentBS ?? {});
+    } catch {
+      return '';
+    }
+  });
+
+  // 参考用にキー数も残す（ログ/診断向け）
+  const segmentPLKeysCount = useStrategyStore((s: StrategyState) => safeKeysCount((s as any).segmentPL));
+  const segmentBSKeysCount = useStrategyStore((s: StrategyState) => safeKeysCount((s as any).segmentBS));
 
   // ===== 復元関連（TASK 6: STAGE1 統合） =====
   const companyId = useUserStore((s) => (s as any).companyId as string | undefined);
@@ -126,7 +178,7 @@ export default function Stage1Page() {
     if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
       console.log('[Stage1Page] useAutoSave mounted', { companyId, mode: 'payload' });
     }
-  }, []);
+  }, [companyId]);
 
   // UI State
   const [saveState, setSaveState] = useState<SaveState>('idle');
@@ -137,40 +189,13 @@ export default function Stage1Page() {
   const debounceRef = useRef<number | null>(null);
   const lastKeyRef = useRef<string>('');
 
-  // ★ segmentPL/segmentBS のデータ値も含める（データ内容変更を検知するため）
-  const segmentPLDataHash = useStrategyStore((s: StrategyState) => {
-    if (!s.segmentPL || typeof s.segmentPL !== 'object') return '';
-    try {
-      // 簡易ハッシュ：セグメント数 + 各セグメントの行数
-      const hash = Object.entries((s as any).segmentPL)
-        .map(([k, v]: [string, any]) => `${k}:${Array.isArray(v) ? v.length : 0}`)
-        .join('|');
-      return hash;
-    } catch {
-      return '';
-    }
-  });
-
-  const segmentBSDataHash = useStrategyStore((s: StrategyState) => {
-    if (!s.segmentBS || typeof s.segmentBS !== 'object') return '';
-    try {
-      const hash = Object.entries((s as any).segmentBS)
-        .map(([k, v]: [string, any]) => `${k}:${Array.isArray(v) ? v.length : 0}`)
-        .join('|');
-      return hash;
-    } catch {
-      return '';
-    }
-  });
-
   const snapshotKey = useMemo(() => {
-    // ここは「プリミティブ＋件数＋セグメントデータハッシュ」で生成（安定）
     return JSON.stringify({
       companyName,
       industry,
       businessSegmentsCount,
-      financePLCount,
-      financeBSCount,
+      financePLDataHash,
+      financeBSDataHash,
       segmentPLKeysCount,
       segmentBSKeysCount,
       segmentPLDataHash,
@@ -186,8 +211,8 @@ export default function Stage1Page() {
     companyName,
     industry,
     businessSegmentsCount,
-    financePLCount,
-    financeBSCount,
+    financePLDataHash,
+    financeBSDataHash,
     segmentPLKeysCount,
     segmentBSKeysCount,
     segmentPLDataHash,
@@ -216,7 +241,6 @@ export default function Stage1Page() {
 
       const isManual = reason === 'manual';
 
-      // ★ dirty判定前ログ（デバッグ用）
       if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
         const currentState = useStrategyStore.getState();
         const busSegLen = Array.isArray((currentState as any).businessSegments)
@@ -248,7 +272,6 @@ export default function Stage1Page() {
       console.log('[stage1/save] start', { reason, isManual, strategyId, revision });
 
       try {
-        // ★ manual 保存は force: true で dirty/hydrating をスキップ
         const res = await (saveFn as any)({ reason: `stage1:${reason}`, force: isManual });
         console.log('[stage1/save] success', res);
         setSaveState('success');
@@ -272,7 +295,6 @@ export default function Stage1Page() {
   useEffect(() => {
     if (!saveFn) return;
 
-    // 初回は基準キーをセットしてスキップ
     if (!lastKeyRef.current) {
       lastKeyRef.current = snapshotKey;
       console.log('[stage1/autosave] armed', { strategyId, revision });
@@ -299,7 +321,6 @@ export default function Stage1Page() {
       const st = decision.snapshotData.state;
       const store = useStrategyStore.getState();
 
-      // Hydrate key stage1 fields from snapshot
       if (st.companyName && !store.companyName) {
         (store as any).setCompanyName?.(st.companyName);
       }
@@ -358,7 +379,6 @@ export default function Stage1Page() {
           reason: decision.reason,
         });
 
-        // Sync revision/strategyId from decision to store if needed
         const store = useStrategyStore.getState();
         if (decision.strategyId && decision.strategyId !== (store as any).id) {
           (store as any).setStrategyId?.(decision.strategyId);
@@ -367,7 +387,6 @@ export default function Stage1Page() {
           (store as any).setRevision?.(decision.revision);
         }
 
-        // Restore snapshot hydration if applicable
         await restoreStage1Snapshot(decision);
       } catch (err) {
         console.error('[stage1/restore] error', err);
