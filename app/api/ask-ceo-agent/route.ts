@@ -8,7 +8,6 @@ function makeRequestId() {
   return globalThis.crypto?.randomUUID?.() ?? `req_${Date.now()}`;
 }
 import { openai } from '@/lib/openai';
-import { supabase } from '@/utils/supabase/client';
 import { getFullStrategyDataByCompany } from '@/utils/supabase/strategy';
 import { normalizeStrategyData } from '@/utils/supabase/normalize';
 import agentPrompt from '@/lib/agentPrompt';
@@ -178,10 +177,11 @@ async function fetchStrategyContext(args: { companyId: string; strategyId?: stri
     strategy = null;
   }
 
-  // 進捗ログ（本人の最近分）
+  // 進捗ログ（本人の最近分） - Service Role Admin で取得（RLS回避）
   let progressLogs: any[] = [];
   try {
-    const { data: logs, error: plErr } = await supabase
+    const adminClient = getSupabaseAdmin();
+    const { data: logs, error: plErr } = await adminClient
       .from('progress_logs')
       .select(
         'id, created_at, progress_text, rating, rating_comment, advice, help_request, department, user_id, okr_id'
@@ -190,10 +190,20 @@ async function fetchStrategyContext(args: { companyId: string; strategyId?: stri
       .eq('company_id', companyId)  // ★ company_id でフィルタ（RLS準拠）
       .order('created_at', { ascending: false })
       .limit(200);
-    if (plErr) console.warn('[ask-ceo-agent] progress_logs select error:', plErr);
+    if (plErr) console.warn('[ask-ceo-agent] progress_logs select error:', plErr?.message || plErr);
     progressLogs = safeArray<any>(logs);
+    console.log('[ask-ceo-agent] progress_logs fetched', {
+      userId: userId.substring(0, 8),
+      companyId: companyId.substring(0, 8),
+      count: progressLogs.length,
+    });
   } catch (e: any) {
-    console.warn('[ask-ceo-agent] progress_logs select exception:', e?.message || e);
+    console.error('[ask-ceo-agent] progress_logs select exception:', {
+      errorMessage: e?.message || String(e),
+      errorName: e?.name,
+      userId: userId.substring(0, 8),
+      companyId: companyId.substring(0, 8),
+    });
   }
 
   const departments = safeArray<any>(strategy?.departments ?? (strategy as any)?.editableCascadeResult);
