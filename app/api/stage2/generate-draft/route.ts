@@ -312,30 +312,67 @@ function sanitize(text: any, max = 8000): string {
   return s.replace(/\u0000/g, '').replace(/\s+$/g, '').slice(0, max);
 }
 
-function extractJsonLoose(raw: string): any | null {
-  if (!raw) return null;
+/**
+ * ★診断用：JSON parse を堅牢化
+ * - code fence を除去
+ * - cleaned text を返す
+ */
+function cleanJsonString(raw: string): { cleaned: string; wasCleaned: boolean } {
+  if (!raw) return { cleaned: '', wasCleaned: false };
+
+  let text = raw.trim();
+
+  // code fence 除去
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence?.[1]) {
+    text = fence[1].trim();
+    return { cleaned: text, wasCleaned: true };
+  }
+
+  // markdown backtick 除去
+  if (text.startsWith('`') && text.endsWith('`')) {
+    text = text.slice(1, -1).trim();
+    return { cleaned: text, wasCleaned: true };
+  }
+
+  return { cleaned: text, wasCleaned: false };
+}
+
+function extractJsonLoose(raw: string): { parsed: any | null; diagnostic: any } {
+  const diagnostic: any = { rawLen: raw.length };
+
+  if (!raw) return { parsed: null, diagnostic };
+
+  const { cleaned, wasCleaned } = cleanJsonString(raw);
+  diagnostic.wasCleaned = wasCleaned;
+  diagnostic.cleanedLen = cleaned.length;
+
   const tryParse = (s: string) => {
     try {
       return JSON.parse(s);
-    } catch {
+    } catch (e: any) {
+      diagnostic.parseError = e?.message || String(e);
       return null;
     }
   };
-  const direct = tryParse(raw);
-  if (direct && (typeof direct === 'object' || Array.isArray(direct))) return direct;
 
-  const fence = raw.match(/```json\s*([\s\S]*?)```/i);
-  if (fence?.[1]) {
-    const j = tryParse(fence[1]);
-    if (j && (typeof j === 'object' || Array.isArray(j))) return j;
+  // 直接 parse（cleaned text）
+  const direct = tryParse(cleaned);
+  if (direct && (typeof direct === 'object' || Array.isArray(direct))) {
+    diagnostic.method = 'direct';
+    return { parsed: direct, diagnostic };
   }
 
-  const obj = raw.match(/\{[\s\S]*\}/);
+  // {} を探す
+  const obj = cleaned.match(/\{[\s\S]*\}/);
   if (obj?.[0]) {
+    diagnostic.method = 'braceExtract';
     const j = tryParse(obj[0]);
-    if (j && typeof j === 'object') return j;
+    if (j && typeof j === 'object') return { parsed: j, diagnostic };
   }
-  return null;
+
+  diagnostic.method = 'failed';
+  return { parsed: null, diagnostic };
 }
 
 function generateId(): string {
@@ -905,13 +942,23 @@ function buildRepairSystemPrompt(): string {
 あなたは経営戦略コンサルタント兼エディタです。
 与えられたJSON（storyDraft/winPatternsCandidate）を「最小限の修正」で要件に適合させてください。
 
+【★★★最重要：返却形式（必須）★★★】
+- 出力は VALID JSON のみ（絶対に説明文・markdown・code fence 禁止）
+- 必ず以下の形式で返す（括弧内は例）：
+  {"storyDraft": [...], "winPatternsCandidate": [...]}
+- storyDraft は「4つの章すべて」を配列で返す（差分だけでなく全体）
+- 各章は {"title": "第X章：...", "body": "..."} の形式
+- body は必ず「文字列」（オブジェクト/配列は禁止）
+
 【厳守】
-- 出力はJSONのみ（説明文・コードブロック禁止）
-- 既存の構造（キー/配列数/章タイトル）は維持
+- コードブロック（markdown フェンス）は絶対に使用禁止
+- JSON形式が壊れていないことを確認してから返す
+- 既存の構造（キー名/配列数/章タイトル）は維持
 - 修正対象は主に storyDraft[i].body（文字列のみ）
-- 第2章は固定書式を維持しつつ、指定の具体語を“根拠（SWOT）”として追記（言い換えで誤魔化さない）
+- 第2章は固定書式を維持しつつ、指定の具体語を「根拠（SWOT）」として追記（言い換えで誤魔化さない）
 - 第2章の各ブロックに「根拠（SWOT）：機会(O):.../..｜脅威(T):.../..｜強み(S):...｜弱み(W):...」を必ず含める
 - 文章量は必要最低限の追記に留める（全面書き換え禁止）
+- JSON の特殊文字（ダブルクォート、バックスラッシュなど）は必ずエスケープする
 `.trim();
 }
 
@@ -922,20 +969,27 @@ function buildRepairUserPrompt(
 ): string {
   return `
 【不足している要件（これを満たすよう最小限修正）】
-- ${missing.join('\n- ')}
+${missing.length > 0 ? missing.map((m, i) => `${i + 1}. ${m}`).join('\n') : '（なし）'}
 
-【必須引用フレーズ（言い換え禁止）】
+【必須引用フレーズ（言い換え禁止・正確に本文に含める）】
 - CEO意図: ${must.ceo.length ? must.ceo.join(' / ') : '（未入力）'}
 - Mission: ${must.mission.length ? must.mission.join(' / ') : '（未入力）'}
 - Vision: ${must.vision.length ? must.vision.join(' / ') : '（未入力）'}
 - Value: ${must.value.length ? must.value.join(' / ') : '（未入力）'}
-- S: ${must.s.length ? must.s.join(' / ') : '（未入力）'}
-- W: ${must.w.length ? must.w.join(' / ') : '（未入力）'}
-- O: ${must.o.length ? must.o.slice(0, 6).join(' / ') : '（未入力）'}
-- T: ${must.t.length ? must.t.slice(0, 6).join(' / ') : '（未入力）'}
+- 強み(S): ${must.s.length ? must.s.join(' / ') : '（未入力）'}
+- 弱み(W): ${must.w.length ? must.w.join(' / ') : '（未入力）'}
+- 機会(O): ${must.o.length ? must.o.slice(0, 6).join(' / ') : '（未入力）'}
+- 脅威(T): ${must.t.length ? must.t.slice(0, 6).join(' / ') : '（未入力）'}
 
-【修正対象JSON】
+【修正対象JSON（4章すべてを返してください）】
 ${safeStringify(original)}
+
+【返却チェックリスト】
+- [ ] 返却は VALID JSON のみ（説明文なし）
+- [ ] コードブロック（markdown フェンス）は使わない
+- [ ] storyDraft は4つの章すべてを含む
+- [ ] 各 body は文字列型
+- [ ] 不足要件をすべて満たす内容
 `.trim();
 }
 
@@ -945,26 +999,35 @@ export async function POST(req: NextRequest) {
   const host = req.headers.get('host') || 'unknown';
   const method = req.method;
   const contentLength = req.headers.get('content-length') || '?';
-  console.log('[stage2/generate-draft] POST ENTER', { at: new Date().toISOString(), host, method, contentLength });
+  console.log('[stage2/generate-draft] ★REQUEST RECEIVED★', {
+    at: new Date().toISOString(),
+    host,
+    method,
+    contentLength,
+    openaiKeyExists: !!process.env.OPENAI_API_KEY,
+    openaiModel: process.env.OPENAI_MODEL || process.env.NEXT_PUBLIC_OPENAI_MODEL || 'NOT SET',
+  });
 
   try {
     // Bearer token authentication and membership validation
     const admin = getSupabaseAdmin();
     const userId = await getAuthUserIdFromBearer(admin, req);
     if (!userId) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+      console.error('[stage2/generate-draft] Auth failed: no userId');
+      return NextResponse.json({ ok: false, stage: 'auth', error: 'unauthorized' }, { status: 401 });
     }
     const membership = await requireMembership(admin, userId);
     if (!membership) {
-      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+      console.error('[stage2/generate-draft] Auth failed: no membership');
+      return NextResponse.json({ ok: false, stage: 'auth', error: 'forbidden' }, { status: 403 });
     }
 
     let body: any;
     try {
       body = await req.json();
     } catch (e) {
-      console.error('[stage2/generate-draft] JSON parse error:', e);
-      return NextResponse.json({ error: 'Invalid JSON in request body' }, { status: 400 });
+      console.error('[stage2/generate-draft] JSON parse error (request body):', e);
+      return NextResponse.json({ ok: false, stage: 'request-parse', error: 'Invalid JSON in request body' }, { status: 400 });
     }
 
     if (body.__ping === true || body.__ping === 'true') {
@@ -975,10 +1038,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    console.log('[stage2/generate-draft] apikey check');
+    console.log('[stage2/generate-draft] ★API KEY & MODEL CHECK★');
     if (!process.env.OPENAI_API_KEY) {
-      console.error('[stage2/generate-draft] OPENAI_API_KEY is missing');
-      return NextResponse.json({ error: 'OPENAI_API_KEY is missing' }, { status: 500 });
+      console.error('[stage2/generate-draft] CRITICAL: OPENAI_API_KEY is missing');
+      return NextResponse.json({ ok: false, stage: 'env-check', error: 'OPENAI_API_KEY is missing' }, { status: 500 });
     }
 
     const parseResult = InputSchema.safeParse(body);
@@ -987,27 +1050,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid input', details: parseResult.error.format() }, { status: 400 });
     }
 
-    console.log('[stage2/generate-draft] input validation passed');
+    console.log('[stage2/generate-draft] ★INPUT VALIDATION PASSED★');
     const input = parseResult.data;
 
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[stage2/generate-draft] issueBlocks count:', input.issueBlocks?.length ?? 0);
-      console.log('[stage2/generate-draft] businessSegments count:', input.businessSegments?.length ?? 0);
-      console.log(
-        '[stage2/generate-draft] businessSegments preview:',
-        safeStringify((input.businessSegments ?? []).slice(0, 3))
-      );
-      const pre = buildBusinessSegmentsPreamble(input.businessSegments);
-      console.log('[stage2/generate-draft] businessSegmentsPreamble:', pre ? pre.slice(0, 900) : '(empty)');
-      const port = buildBusinessPortfolioText(input.businessPortfolio);
-      console.log('[stage2/generate-draft] businessPortfolioText:', port ? port.slice(0, 900) : '(empty)');
-      console.log('[stage2/generate-draft] has ceoIntent:', !!input.ceoIntent?.trim());
-      console.log('[stage2/generate-draft] has MVV:', !!input.mvv?.mission || !!input.mvv?.vision || !!input.mvv?.value);
-      console.log(
-        '[stage2/generate-draft] has SWOT:',
-        !!input.swot?.strength || !!input.swot?.weakness || !!input.swot?.opportunity || !!input.swot?.threat
-      );
-    }
+    console.log('[stage2/generate-draft] ★PAYLOAD SUMMARY★', {
+      issueBlocksCount: input.issueBlocks?.length ?? 0,
+      businessSegmentsCount: input.businessSegments?.length ?? 0,
+      hasCeoIntent: !!input.ceoIntent?.trim(),
+      hasMVV: {
+        mission: !!input.mvv?.mission?.trim(),
+        vision: !!input.mvv?.vision?.trim(),
+        value: !!input.mvv?.value?.trim(),
+      },
+      hasSWOT: {
+        strength: !!input.swot?.strength?.trim(),
+        weakness: !!input.swot?.weakness?.trim(),
+        opportunity: !!input.swot?.opportunity?.trim(),
+        threat: !!input.swot?.threat?.trim(),
+      },
+      hasMetricsSummary: !!input.metricsSummary,
+      hasCompanyTargets: (input.companyTargets?.length ?? 0) > 0,
+      hasBusinessPortfolio: !!input.businessPortfolio,
+      hasIndustry: !!input.industry?.trim(),
+      hasSegments: (input.segments?.length ?? 0) > 0,
+    });
 
     // ★生成されない主因の撤去：issueBlocks空でも続行（ただしログで警告）
     if ((input.issueBlocks?.length ?? 0) === 0) {
@@ -1019,26 +1085,32 @@ export async function POST(req: NextRequest) {
 
     const compact = compactPayload(input);
 
-    console.log('[stage2/generate-draft] building prompts');
+    console.log('[stage2/generate-draft] ★BUILDING PROMPTS★');
     const systemPrompt = buildSystemPrompt();
     const userPrompt = buildUserPrompt(input, compact);
-    console.log('[stage2/generate-draft] prompts built', { systemLen: systemPrompt.length, userLen: userPrompt.length });
+    const totalPromptLen = systemPrompt.length + userPrompt.length;
+    console.log('[stage2/generate-draft] ★PROMPTS BUILT★', {
+      systemLen: systemPrompt.length,
+      userLen: userPrompt.length,
+      totalLen: totalPromptLen,
+      systemPreview: systemPrompt.slice(0, 200),
+    });
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 55000);
+    const TIMEOUT_MS = 90000; // ★ 延長：55秒 → 90秒
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
     let raw = '';
     let tOpenAIStart = 0;
 
     try {
-      const timeoutMs = 55000;
       const elapsedMs = Date.now() - t0;
       const systemPromptLen = systemPrompt.length;
       const userPromptLen = userPrompt.length;
 
-      console.log('[stage2/generate-draft] BEFORE openai.chat.completions.create (1st attempt)', {
+      console.log('[stage2/generate-draft] ★BEFORE OPENAI 1ST ATTEMPT★', {
         model,
-        timeoutMs,
+        timeoutMs: TIMEOUT_MS,
         elapsedMs: `${elapsedMs}ms`,
         systemPromptLen,
         userPromptLen,
@@ -1072,23 +1144,27 @@ export async function POST(req: NextRequest) {
 
       raw = completion.choices?.[0]?.message?.content?.trim() || '';
       const dur = Date.now() - tOpenAIStart;
-      console.log('[stage2/generate-draft] AFTER openai.chat.completions.create (1st attempt)', {
+      console.log('[stage2/generate-draft] ★AFTER OPENAI 1ST ATTEMPT SUCCESS★', {
         durationMs: `${dur}ms`,
         rawLen: raw.length,
         hasContent: !!raw,
+        rawPreview: raw.slice(0, 300),
       });
     } catch (e: any) {
       const dur = tOpenAIStart ? Date.now() - tOpenAIStart : undefined;
-      console.warn(
-        '[stage2/generate-draft] 1st OpenAI attempt failed' + (dur !== undefined ? ` (duration: ${dur}ms)` : ''),
-        e?.message || e
-      );
+      console.error('[stage2/generate-draft] ★1ST OPENAI ATTEMPT FAILED★', {
+        duration: dur ? `${dur}ms` : 'unknown',
+        errorName: e?.name,
+        errorMessage: e?.message || String(e),
+        isAbortError: e?.name === 'AbortError',
+        errorCode: e?.code,
+      });
 
       try {
         const elapsedMs = Date.now() - t0;
-        console.log('[stage2/generate-draft] BEFORE openai.chat.completions.create (2nd attempt)', {
+        console.log('[stage2/generate-draft] ★BEFORE OPENAI 2ND ATTEMPT (retry without response_format)★', {
           model,
-          timeoutMs: 55000,
+          timeoutMs: TIMEOUT_MS,
           elapsedMs: `${elapsedMs}ms`,
           reason: 'retry without response_format',
         });
@@ -1109,24 +1185,32 @@ export async function POST(req: NextRequest) {
 
         raw = completion2.choices?.[0]?.message?.content?.trim() || '';
         const tOpenAI2Dur = Date.now() - tOpenAI2;
-        console.log('[stage2/generate-draft] AFTER openai.chat.completions.create (2nd attempt)', {
+        console.log('[stage2/generate-draft] ★AFTER OPENAI 2ND ATTEMPT SUCCESS★', {
           durationMs: `${tOpenAI2Dur}ms`,
           rawLen: raw.length,
           hasContent: !!raw,
+          rawPreview: raw.slice(0, 300),
         });
       } catch (e2: any) {
         const totalDurationMs = Date.now() - t0;
         clearTimeout(timer);
-        console.error('[stage2/generate-draft] OpenAI error (both attempts failed)', {
-          name: e2?.name,
-          message: e2?.message || e2,
+        console.error('[stage2/generate-draft] ★BOTH OPENAI ATTEMPTS FAILED★', {
+          attempt1_error: e?.message || String(e),
+          attempt2_error: e2?.message || String(e2),
+          attempt2_name: e2?.name,
+          attempt2_code: e2?.code,
           totalDurationMs: `${totalDurationMs}ms`,
           isAbortError: e2?.name === 'AbortError',
+          stack: e2?.stack ? e2.stack.substring(0, 500) : 'no stack',
         });
         return NextResponse.json(
           {
+            ok: false,
+            stage: 'openai-failed',
             error: e2?.message || 'OpenAI API error',
             details: {
+              attempt1: e?.message,
+              attempt2: e2?.message,
               attempts: 2,
               totalDurationMs,
               isTimeout: e2?.name === 'AbortError',
@@ -1139,14 +1223,28 @@ export async function POST(req: NextRequest) {
       clearTimeout(timer);
     }
 
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`[stage2/generate-draft] raw length: ${raw.length}`);
-    }
+    console.log('[stage2/generate-draft] ★JSON PARSE START★', { rawLen: raw.length, rawPreview: raw.slice(0, 200) });
 
-    const parsed = extractJsonLoose(raw);
+    const { parsed, diagnostic } = extractJsonLoose(raw);
+    console.log('[stage2/generate-draft] ★JSON PARSE RESULT★', diagnostic);
+
     if (!parsed) {
-      console.error('[stage2/generate-draft] Failed to parse JSON:', raw.slice(0, 500));
-      return NextResponse.json({ error: 'Failed to parse AI response' }, { status: 500 });
+      console.error('[stage2/generate-draft] ★JSON PARSE FAILED★', {
+        diagnostic,
+        rawFirst1000: raw.slice(0, 1000),
+      });
+      return NextResponse.json(
+        {
+          ok: false,
+          stage: 'json-parse-failed',
+          error: 'Failed to parse AI response',
+          details: {
+            diagnostic,
+            rawLen: raw.length,
+          },
+        },
+        { status: 500 }
+      );
     }
 
     let storyDraft = parsed.storyDraft || parsed.story || parsed.chapters || [];
@@ -1210,9 +1308,10 @@ export async function POST(req: NextRequest) {
     let finalStory = normalizedStory;
 
     if (missing.length > 0) {
-      if (process.env.NODE_ENV === 'development') {
-        console.warn('[stage2/generate-draft] coverage missing -> repair:', missing);
-      }
+      console.log('[stage2/generate-draft] ★REPAIR PHASE START★', {
+        missingCount: missing.count,
+        missing: missing.slice(0, 3),
+      });
 
       const repairController = new AbortController();
       const repairTimer = setTimeout(() => repairController.abort(), 35000);
@@ -1223,6 +1322,11 @@ export async function POST(req: NextRequest) {
       };
 
       try {
+        console.log('[stage2/generate-draft] ★BEFORE REPAIR OPENAI CALL★', {
+          payloadSize: safeStringify(repairPayload).length,
+          missingCount: missing.length,
+        });
+
         const completionRepair = await openai.chat.completions.create(
           {
             model,
@@ -1238,7 +1342,18 @@ export async function POST(req: NextRequest) {
         );
 
         const raw2 = completionRepair.choices?.[0]?.message?.content?.trim() || '';
-        const parsed2 = extractJsonLoose(raw2);
+        console.log('[stage2/generate-draft] ★AFTER REPAIR OPENAI CALL★', {
+          raw2Len: raw2.length,
+          raw2Preview: raw2.slice(0, 200),
+        });
+
+        const { parsed: parsed2, diagnostic: diag2 } = extractJsonLoose(raw2);
+        console.log('[stage2/generate-draft] ★REPAIR JSON PARSE RESULT★', {
+          diagnostic: diag2,
+          hasStoryDraft: !!parsed2?.storyDraft,
+          storyDraftIsArray: Array.isArray(parsed2?.storyDraft),
+        });
+
         if (parsed2?.storyDraft && Array.isArray(parsed2.storyDraft)) {
           const repairedStory = CHAPTER_TITLES.map((title, i) => {
             const fallback = '（この章は未生成です）';
@@ -1253,23 +1368,30 @@ export async function POST(req: NextRequest) {
           const missingAfter = computeCoverageIssues(repairedStory, must);
           if (missingAfter.length <= missing.length) {
             finalStory = repairedStory;
-            if (process.env.NODE_ENV === 'development') {
-              console.log('[stage2/generate-draft] repair applied. missingAfter:', missingAfter);
-            }
+            console.log('[stage2/generate-draft] ★REPAIR APPLIED★', {
+              missingBefore: missing.length,
+              missingAfter: missingAfter.length,
+              improvement: missing.length - missingAfter.length,
+            });
           } else {
-            if (process.env.NODE_ENV === 'development') {
-              console.warn('[stage2/generate-draft] repair rejected (worse). missingAfter:', missingAfter);
-            }
+            console.warn('[stage2/generate-draft] ★REPAIR REJECTED (worse)★', {
+              missingBefore: missing.length,
+              missingAfter: missingAfter.length,
+            });
           }
         } else {
-          if (process.env.NODE_ENV === 'development') {
-            console.warn('[stage2/generate-draft] repair parse failed -> keep original');
-          }
+          console.warn('[stage2/generate-draft] ★REPAIR PARSE FAILED → KEEP ORIGINAL★', {
+            diagnostic: diag2,
+            raw2Len: raw2.length,
+            raw2First500: raw2.slice(0, 500),
+          });
         }
       } catch (e: any) {
-        if (process.env.NODE_ENV === 'development') {
-          console.warn('[stage2/generate-draft] repair call failed -> keep original:', e?.message || e);
-        }
+        console.error('[stage2/generate-draft] ★REPAIR CALL FAILED → KEEP ORIGINAL★', {
+          errorMessage: e?.message || String(e),
+          errorName: e?.name,
+          isAbortError: e?.name === 'AbortError',
+        });
       } finally {
         clearTimeout(repairTimer);
       }
@@ -1306,21 +1428,26 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     const status = error?.name === 'AbortError' ? 504 : 500;
     const totalDurationMs = Date.now() - t0;
-    console.error('[stage2/generate-draft] FATAL Server error', {
+    console.error('[stage2/generate-draft] ★★FATAL SERVER ERROR★★', {
       name: error?.name,
-      message: error?.message || error,
+      message: error?.message || String(error),
       status,
       totalDurationMs: `${totalDurationMs}ms`,
       isAbortError: error?.name === 'AbortError',
-      stack: error?.stack?.substring(0, 500),
+      code: error?.code,
+      cause: error?.cause ? String(error.cause) : undefined,
+      stack: error?.stack ? error.stack.substring(0, 800) : 'no stack',
     });
     return NextResponse.json(
       {
+        ok: false,
+        stage: 'fatal-error',
         error: error?.message || 'Server error',
         details: {
           status,
           totalDurationMs,
           isTimeout: error?.name === 'AbortError',
+          errorName: error?.name,
         },
       },
       { status }
