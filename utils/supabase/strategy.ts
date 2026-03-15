@@ -1,10 +1,10 @@
 // /utils/supabase/strategy.ts
 import {
   supabase,
-  isValidUUID,
   getCompanyIdFromCookie,
   setCompanyIdCookie,
 } from './client';
+import { isValidUUID } from '@/lib/utils/isValidUUID';
 import { debugExtractPostgrest } from './errors';
 import { normalizeStrategyData } from './normalize';
 import { getMembership } from './membership';
@@ -1346,7 +1346,7 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       for (const proj of projects) {
         const okrsV2Count = Array.isArray(proj.okrsV2) ? proj.okrsV2.length : 0;
         const okrsKrCount = Array.isArray(proj.okrs)
-          ? proj.okrs.reduce((n, o) => n + (Array.isArray(o?.keyResults) ? o.keyResults.length : 0), 0)
+          ? proj.okrs.reduce((n: number, o: any) => n + (Array.isArray(o?.keyResults) ? o.keyResults.length : 0), 0)
           : 0;
         const kpisCount = Array.isArray(proj.kpis) ? proj.kpis.length : 0;
 
