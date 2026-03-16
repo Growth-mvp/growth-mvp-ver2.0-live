@@ -34,7 +34,15 @@ export function useAccess() {
   const canView = () => isLoggedIn && hasCompany;
   const canEditCompany = () => isAdmin;
   const canEditDepartment = (_?: string | null) => isAdmin || isManager;
-  const canEditProject = (_?: string | null) => canEditDepartment(_);
+
+  // ★Phase 1: Project owner に対応
+  // admin/manager は全編集可、member は自 owner project のみ
+  const canEditProject = (projectOwnerUserId?: string | null, _departmentId?: string | null) =>
+    isAdmin || isManager || (isMember && !!projectOwnerUserId && projectOwnerUserId === userId);
+
+  // Project owner 割り当て権限（admin/manager のみ）
+  const canAssignProjectOwner = (_?: string | null) => isAdmin || isManager;
+
   const canEditOKR = (ownerUserId?: string | null) =>
     isAdmin || isManager || (isMember && !!ownerUserId && ownerUserId === userId);
   const canPostProgressLog = () => isLoggedIn && hasCompany;
@@ -43,7 +51,7 @@ export function useAccess() {
     userId, companyId, role,
     isLoggedIn, isAdmin, isManager, isMember, hasCompany,
     loading,                // ← 重要
-    canView, canEditCompany, canEditDepartment, canEditProject, canEditOKR, canPostProgressLog,
+    canView, canEditCompany, canEditDepartment, canEditProject, canAssignProjectOwner, canEditOKR, canPostProgressLog,
   };
 }
 

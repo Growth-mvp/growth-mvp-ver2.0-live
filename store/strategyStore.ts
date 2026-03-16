@@ -753,6 +753,7 @@ function buildSavePayload(s: StrategyState) {
     );
 
   // departments をサニタイズ
+  // ★ Phase 1: { ...p } で ownerUserId / ownerName を保存ペイロードに含める
   const sanitizedDepts = (Array.isArray(s.departments) ? s.departments : []).map((d: any) => ({
     ...d,
     projects: (Array.isArray(d.projects) ? d.projects : []).map((p: any) => ({
@@ -996,7 +997,7 @@ function normalizeDepartmentsInput(input: any, fallback: Department[]): Departme
       if (!out.name) out.name = d?.title ?? `Department ${di + 1}`;
       const projects = Array.isArray(d?.projects) ? d.projects : [];
       out.projects = projects.map((p: any) => {
-        const po: any = { ...p };
+        const po: any = { ...p }; // ★ Phase 1: { ...p } で ownerUserId / ownerName を保持
         po.title = p?.title ?? p?.name ?? '';
         if (!Array.isArray(po.okrs)) po.okrs = Array.isArray(p?.okrs) ? p.okrs : [];
         if (p?.okrsV2 && !Array.isArray(p.okrsV2)) po.okrsV2 = [];
@@ -1702,6 +1703,7 @@ function sanitizeDepartments(departments: any): Department[] {
               }))
             : [];
 
+          // ★ Phase 1: { ...proj } で ownerUserId / ownerName を保持
           return {
             ...proj,
             kpis: sanitizedKpis,

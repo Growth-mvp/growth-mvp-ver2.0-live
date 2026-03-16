@@ -1305,6 +1305,10 @@ const VisualCard = memo(
               return (
                 <li key={projectKey} className="rounded-2xl border bg-white/80 px-3 py-2">
                   <div className="text-sm font-medium text-zinc-900">• {displayTitle}</div>
+                  {/* ★ Phase 1: Project owner 表示 */}
+                  <div className="text-xs text-zinc-500 mt-1">
+                    プロジェクト責任者：{p.ownerName || '未設定'}
+                  </div>
 
                   {(p.hypothesis || p.mainLever || p.horizon || p.kind) && (
                     <div className="mt-1">
@@ -1928,6 +1932,9 @@ useEffect(() => {
           okrs: [] as StoreOKR[],
           skillRequirements: { roleSkills: [], executionSkills: ['PM', '標準化', 'データ活用'] },
           humanInvestments: [],
+          // ★ Phase 1: Project owner 初期値
+          ownerUserId: null,
+          ownerName: '',
         } as any,
       ];
 

@@ -481,6 +481,7 @@ function buildDbRowFromState(state: StrategyData) {
     if (snake === 'final_story_draft') v = ensureArray(v);  // ★ 追加：finalStoryDraft は配列
     if (snake === 'final_story_edited') v = ensureArray(v);  // ★ 追加：finalStoryEdited は配列
     if (snake === 'final_story_final') v = ensureArray(v);  // ★ 追加：finalStoryFinal は配列
+    // ★ Phase 1: departments（JSONB）は ensureArray で配列化、projects[]内のownerUserId/ownerNameも保存される
     if (snake === 'departments') v = ensureArray(v);
     if (snake === 'simulation_results') v = ensureArray(v);
     if (snake === 'stage1_issues') v = ensureArray(v);  // ★ 修正：stage1_issues は配列
@@ -583,6 +584,7 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   out.finalStoryDraft = ensureArray(out.finalStoryDraft);  // ★ 追加：finalStoryDraft を復元
   out.finalStoryEdited = ensureArray(out.finalStoryEdited);  // ★ 追加：finalStoryEdited を復元
   out.finalStoryFinal = ensureArray(out.finalStoryFinal);  // ★ 追加：finalStoryFinal を復元
+  // ★ Phase 1: departments（JSONB）に projects[]が含まれ、ownerUserId/ownerName も復元される
   out.departments = ensureArray(out.departments);
   out.simulationResults = ensureArray(out.simulationResults);
   out.stage1Issues = ensureArray(out.stage1Issues);  // ★ 修正：stage1Issues を復元

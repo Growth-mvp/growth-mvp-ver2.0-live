@@ -241,6 +241,7 @@ function OKRPageContent() {
     refetchFromServer,
     boot,
     lastServerSnapshot,
+    setDepartments,
   } = useStrategyStore();
 
   const departments = useStrategyStore((st: any) => ((st.departments as Department[] | undefined) ?? []) as Department[]);
@@ -1597,11 +1598,34 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
               />
             </div>
 
-            {/* Owner + Due Date (2-column) */}
-            <div className="grid grid-cols-2 gap-3">
-              {/* Owner */}
+            {/* ★Phase 1: Project Owner + KPI Owner + Due Date */}
+            <div className="grid grid-cols-3 gap-3">
+              {/* Project Owner （プロジェクト責任者） */}
+              {/* ★ Phase 1: ownerName中心、ownerUserId は Phase 2 以降の user picker 連携を想定 */}
               <div className="space-y-2">
-                <label className="text-[11px] font-semibold text-zinc-700">オーナー（任意）</label>
+                <label className="text-[11px] font-semibold text-zinc-700">プロジェクト責任者</label>
+                <input
+                  className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
+                  placeholder="責任者名"
+                  value={(selectedProj as any)?.ownerName ?? ''}
+                  onChange={(e) => {
+                    if (!selected || !departments) return;
+                    const depts = Array.isArray(departments) ? [...departments] : [];
+                    const dept = depts[selected.deptIdx];
+                    if (!dept) return;
+                    const projects = Array.isArray(dept.projects) ? [...dept.projects] : [];
+                    const proj = projects[selected.projIdx];
+                    if (!proj) return;
+                    projects[selected.projIdx] = { ...proj, ownerName: e.target.value };
+                    depts[selected.deptIdx] = { ...dept, projects };
+                    setDepartments?.(depts);
+                  }}
+                  disabled={isHydrating || isApproved()}
+                />
+              </div>
+              {/* KPI Owner/OKR Owner （KPI担当） */}
+              <div className="space-y-2">
+                <label className="text-[11px] font-semibold text-zinc-700">KPI担当（任意）</label>
                 <input
                   className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
                   placeholder="氏名や役職など"

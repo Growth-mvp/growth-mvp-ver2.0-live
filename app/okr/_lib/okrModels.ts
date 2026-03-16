@@ -116,6 +116,12 @@ export type Project = {
   /** ★STAGE4 実行計画：承認者ID */
   approvedBy?: string;
 
+  /** ★Phase 1：プロジェクトオーナー（ユーザーID） */
+  ownerUserId?: string | null;
+
+  /** ★Phase 1：プロジェクトオーナー（表示名） */
+  ownerName?: string | null;
+
   /** ★STAGE4 実行計画：スキルプラン */
   skillPlans?: Array<{ id: string; skillName: string; priority?: number; method?: string; dueYm?: string; hours?: number; cost?: number; owner?: string; note?: string }>;
 
