@@ -279,18 +279,38 @@ function toKrLabel(kr: KRLike): string | null {
 }
 
 function getProjectKpiLabels(p: any): string[] {
-  const okr0 = p?.okrs?.[0];
-  const raw =
-    okr0?.keyResults ??
-    okr0?.key_results ??
-    okr0?.krs ??
-    p?.keyResults ??
-    p?.kpis ??
-    p?.metrics ??
-    null;
+  // ★ 修正：okrsV2を優先（新しいシステムの正本）
+  // okrsV2が存在する場合はそれを使用、なければ okrs[0].keyResults にフォールバック
+  let raw: any[] | null = null;
+
+  // 1. okrsV2 から読む（最新データ）
+  if (Array.isArray(p?.okrsV2) && p.okrsV2.length > 0) {
+    raw = p.okrsV2;
+  }
+  // 2. フォールバック：okrs[0].keyResults から読む
+  else {
+    const okr0 = p?.okrs?.[0];
+    raw =
+      okr0?.keyResults ??
+      okr0?.key_results ??
+      okr0?.krs ??
+      p?.keyResults ??
+      p?.kpis ??
+      p?.metrics ??
+      null;
+  }
 
   if (!Array.isArray(raw)) return [];
-  return raw.map(toKrLabel).filter(Boolean) as string[];
+
+  // ★ 重要：toKrLabel() の結果は null になりうるので、その後の filter を適切に処理
+  // 空のラベルも表示対象にしたい場合は filter を調整
+  const labeled = raw.map((kr, idx) => {
+    const label = toKrLabel(kr);
+    // 空文字列は "(未入力)" と表示
+    return label || `(未入力)`;
+  });
+
+  return labeled.filter(x => x !== null) as string[];
 }
 
 /* ==========================================
@@ -2948,6 +2968,38 @@ useEffect(() => {
                               />
                             </div>
 
+                            {/* ★Phase 1: Project Owner 入力欄 */}
+                            <div className="pl-5 mt-2">
+                              <div className="text-[11px] text-zinc-500 mb-1">プロジェクト責任者</div>
+                              <input
+                                className="w-full text-xs text-zinc-800 bg-white border border-zinc-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-400"
+                                value={p.ownerName ?? ''}
+                                placeholder="責任者名を入力してください"
+                                readOnly={!editableDept || isHydrating}
+                                onChange={(e) => {
+                                  if (!editableDept || isHydrating) return;
+                                  const val = e.target.value;
+                                  pushToStore((prev) => {
+                                    const list = [...prev];
+                                    const d = list[index];
+                                    if (!d) return prev;
+                                    const projects = [...((d.projects as Project[]) ?? [])];
+                                    let proj: Project = { ...(projects[pi] ?? { title: '' }) } as Project;
+
+                                    // ★ 編集開始時にAI枠をユーザー化
+                                    if (isAiGeneratedProject(proj)) {
+                                      proj = promoteToUserProject(proj);
+                                    }
+
+                                    proj.ownerName = val;
+                                    projects[pi] = proj;
+                                    list[index] = { ...d, projects };
+                                    return list;
+                                  });
+                                }}
+                              />
+                            </div>
+
                             <div className="pl-5 mt-3 space-y-2">
                               <div className="flex items-center justify-between gap-2">
                                 <div className="text-[11px] text-zinc-500">KPI（指標）</div>
@@ -2988,8 +3040,12 @@ useEffect(() => {
                                 )}
                               </div>
 
+                              {/* ★ Debug: KPI count */}
                               {krs.length === 0 && (
                                 <p className="text-[11px] text-zinc-400">まだ指標案がありません。必要に応じて「指標を追加」から入力してください。</p>
+                              )}
+                              {krs.length > 0 && (
+                                <p className="text-[10px] text-zinc-500 mb-1">【DEBUG】krs.length={krs.length}, okrsV2.length={p.okrsV2?.length ?? 0}</p>
                               )}
 
                               {krs.map((kr, ki) => (
