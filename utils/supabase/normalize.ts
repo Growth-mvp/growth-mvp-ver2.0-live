@@ -15,6 +15,7 @@ import type {
   WinPatternCandidate,
   Stage2Answer,
 } from '@/types/strategy';
+import { ensureDepartmentId, ensureProjectId } from './stableIdGenerator';
 
 /** GROWTH 固定タイトル（章タイトルはUIで固定表示） */
 const GROWTH_TITLES = [
@@ -234,7 +235,12 @@ function normalizeOKR(input: AnyOKR): OKR {
   return base as OKR;
 }
 
-function normalizeProject(p: AnyProject): Project {
+function normalizeProject(
+  p: AnyProject,
+  strategyId?: string,
+  departmentId?: string,
+  laneType?: 'existing' | 'new',
+): Project {
   const obj = (p || {}) as any;
   const base: any = { ...obj };
 
@@ -336,10 +342,16 @@ function normalizeProject(p: AnyProject): Project {
   if (okrsV2 && okrsV2.length) base.okrsV2 = okrsV2;
   if (roles && roles.length) base.roles = roles;
 
+  // ★ NEW: Ensure project has stable id (if strategyId and departmentId provided)
+  if (strategyId && departmentId && title) {
+    const projWithId = ensureProjectId(strategyId, departmentId, base, laneType || 'existing');
+    base.id = projWithId.id;
+  }
+
   return base as Project;
 }
 
-function normalizeDepartment(d: AnyDepartment): Department {
+function normalizeDepartment(d: AnyDepartment, strategyId?: string): Department {
   const obj = (d || {}) as any;
   const base: any = { ...obj };
 
@@ -384,7 +396,16 @@ function normalizeDepartment(d: AnyDepartment): Department {
 
   const finalized = Boolean(obj.finalized);
   const projectsRaw = Array.isArray(obj.projects) ? obj.projects : [];
-  const projects = projectsRaw.map(normalizeProject);
+
+  // ★ NEW: Ensure department has stable id (if strategyId provided)
+  let deptId = id;
+  if (strategyId && name && !deptId) {
+    const deptWithId = ensureDepartmentId(strategyId, { ...base, name });
+    deptId = deptWithId.id;
+  }
+
+  // ★ NEW: Normalize projects with strategyId and departmentId context
+  const projects = projectsRaw.map((p) => normalizeProject(p, strategyId, deptId, 'existing'));
 
   // ★ lanes 正規化（existing/new の projects を normalizeProject を通す）
   const lanes =
@@ -392,11 +413,11 @@ function normalizeDepartment(d: AnyDepartment): Department {
       ? {
           existing:
             obj.lanes.existing && typeof obj.lanes.existing === 'object' && Array.isArray(obj.lanes.existing.projects)
-              ? { projects: obj.lanes.existing.projects.map(normalizeProject) }
+              ? { projects: obj.lanes.existing.projects.map((p) => normalizeProject(p, strategyId, deptId, 'existing')) }
               : undefined,
           new:
             obj.lanes.new && typeof obj.lanes.new === 'object' && Array.isArray(obj.lanes.new.projects)
-              ? { projects: obj.lanes.new.projects.map(normalizeProject) }
+              ? { projects: obj.lanes.new.projects.map((p) => normalizeProject(p, strategyId, deptId, 'new')) }
               : undefined,
         }
       : undefined;
@@ -404,7 +425,7 @@ function normalizeDepartment(d: AnyDepartment): Department {
   // ★ segmentName 正規化
   const segmentName = typeof obj.segmentName === 'string' ? obj.segmentName : undefined;
 
-  base.id = id;
+  base.id = deptId;
   base.name = name;
   base.mission = mission ?? '';  // ★ FIXED: mission を常に保持
   base.missionDescription = missionDescription ?? '';  // ★ FIXED: missionDescription を常に保持
@@ -421,17 +442,17 @@ function normalizeDepartment(d: AnyDepartment): Department {
   return base as Department;
 }
 
-export function normalizeDepartmentsAny(input: unknown): Department[] | undefined {
+export function normalizeDepartmentsAny(input: unknown, strategyId?: string): Department[] | undefined {
   if (!input) return undefined;
   const src = parseIfJsonString<any>(input);
 
   if (Array.isArray(src)) {
-    const arr = (src as unknown[]).map((v) => normalizeDepartment(v as AnyDepartment));
+    const arr = (src as unknown[]).map((v) => normalizeDepartment(v as AnyDepartment, strategyId));
     return arr.length ? arr : undefined;
   }
   if (src && typeof src === 'object' && Array.isArray((src as any).departments)) {
     const arr = ((src as any).departments as unknown[]).map((v) =>
-      normalizeDepartment(v as AnyDepartment),
+      normalizeDepartment(v as AnyDepartment, strategyId),
     );
     return arr.length ? arr : undefined;
   }
@@ -750,7 +771,8 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
   const winPatterns = Array.isArray(src.winPatterns) ? src.winPatterns : undefined;
 
   // 部門
-  const departmentsNorm = normalizeDepartmentsAny(src.departments);
+  // ★ NEW: Pass strategyId to normalizeDepartmentsAny for stable id generation
+  const departmentsNorm = normalizeDepartmentsAny(src.departments, src.id);
   const departments =
     departmentsNorm ??
     (Array.isArray(src.departments) ? (src.departments as Department[]) : []);
