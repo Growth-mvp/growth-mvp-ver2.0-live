@@ -1307,7 +1307,7 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
       projectTitle: proj.title,
       okrsV2Count: list.length,
       okrsKrCount: Array.isArray(proj.okrs)
-        ? proj.okrs.reduce((n, o) => n + (Array.isArray(o.keyResults) ? o.keyResults.length : 0), 0)
+        ? proj.okrs.reduce((n: number, o: any) => n + (Array.isArray(o.keyResults) ? o.keyResults.length : 0), 0)
         : 0,
       kpisCount: Array.isArray(proj.kpis) ? proj.kpis.length : 0,
     });
