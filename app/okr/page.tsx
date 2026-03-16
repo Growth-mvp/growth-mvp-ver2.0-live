@@ -28,9 +28,12 @@ import SaveStatusIndicator from '@/components/SaveStatusIndicator';
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
 import { useAutoSave } from '@/hooks/useAutoSave';
-import type { KRKind } from '@/types/strategy';
+import type { KRKind, StrategyData } from '@/types/strategy';
 import { okrsV2ToOkrs, okrsToKpis } from '@/utils/supabase/strategy';
+import { okrService } from '@/services/okrService';
+import type { ResolvedOkr, OkrWriteInput } from '@/types/okrs';
 
+import type { Department as DepartmentStrategy } from '@/types/strategy';
 import {
   ensureArray,
   ensureKrIds,
@@ -49,6 +52,60 @@ import {
 } from './_lib/okrModels';
 
 import { useOkrEditor, type EditingMode } from './_hooks/useOkrEditor';
+
+/* ============================================================
+ * 【ARCHITECTURE】STAGE4/5/6 データフロー設計と okrs / okrsV2 の独立性
+ * ============================================================
+ *
+ * 【システム構造】
+ * - STAGE4: OKR 本体管理（DB: okrs テーブル）
+ *   - 責務: 目標・オーナー・期限の保持
+ *   - 表示: app/okr/page.tsx（このファイル）
+ *   - ViewModel: OkrDisplayModel（DB/snapshot 統一型）
+ *
+ * - STAGE5: Objective 掲示板（snapshot: proj.okrs）
+ *   - 責務: STAGE4 OKR の読取専用表示（キャッシュ更新時に同期）
+ *   - 表示: ページの最上部
+ *   - 同期メカニズム: invalidateAndRefetchProjectOkrs() が DB→snapshot 自動同期
+ *
+ * - STAGE6: 財務計画（オプション）（計算入力: proj.okrsV2）
+ *   - 責務: 構造化 KR（BridgeKR）から YearlyPL を計算
+ *   - 入力: proj.okrsV2[]（Project 配下の全 KR）
+ *   - 計算: calcYearlyFromKrs() → YearlyPL
+ *
+ * 【okrs と okrsV2 の独立性】
+ * okrs（STAGE4/5）と okrsV2（STAGE6）は **完全に独立** した構造：
+ *
+ * ❌ 対応していないもの:
+ *   - okrs の各要素と okrsV2 の各要素の間に親子リンク（parentOkrId）が存在しない
+ *   - OKR 削除時に自動削除すべき KR が定義されていない
+ *   - OKR 追加時に自動作成すべき KR テンプレートが定義されていない
+ *
+ * ✅ 設計上の分離:
+ *   - okrs: 戦略立案用（Objective ベース）
+ *   - okrsV2: 財務計画用（KR ベース）
+ *   - 両者は異なる責務のため、それぞれ独立して管理
+ *
+ * 【CRUD 操作と okrsV2】
+ * - Delete: OKR を削除→ DB soft delete（is_deleted=true）→ snapshot 同期
+ *   ❌ okrsV2 への操作は行わない（対応関係が未定義のため）
+ *
+ * - Add: 新規 OKR を追加→ DB insert → snapshot 同期
+ *   ❌ okrsV2 への操作は行わない
+ *
+ * - Reorder: OKR 並び替え → DB sort_order 更新 → snapshot 同期
+ *   ❌ okrsV2 への操作は行わない
+ *
+ * 【今後の拡張（Option 1）】
+ * okrs と okrsV2 を連携させたい場合:
+ *   1. スキーマ: okrs テーブルに parentOkrId カラム追加
+ *   2. 設計: OKR:KR の 1:多 マッピング定義
+ *   3. 実装: Delete/Add/Reorder 時に okrsV2 も同期
+ *   4. 検証: STAGE6 の実装が本当に OKR-KR リンクを必要としているか確認
+ *
+ * ※ 以上の拡張は、実装者が STAGE6 の本当の要件を検証した上で進めること
+ *
+ * ============================================================ */
 
 /* ============================================================
  * 軽量ツールチップ（依存を増やさず同ファイルで実装）
@@ -101,6 +158,24 @@ function Tooltip({
         </div>
       )}
     </div>
+  );
+}
+
+/* ============================================================
+ * ★ STAGE4: OKR Source Badge（DB/Snapshot/Legacy/Error 表示）
+ * ========================================================== */
+function OkrSourceBadge({ source }: { source: 'db' | 'snapshot' | 'legacy' | 'error' }) {
+  const config = {
+    db: { label: 'DB正本', color: 'bg-green-100 text-green-700' },
+    snapshot: { label: 'Snapshot', color: 'bg-yellow-100 text-yellow-700' },
+    legacy: { label: 'Legacy (ID未設定)', color: 'bg-amber-100 text-amber-700' },
+    error: { label: 'DB接続失敗', color: 'bg-red-100 text-red-700' },
+  }[source];
+
+  return (
+    <span className={`px-2 py-1 text-xs font-medium rounded ${config.color}`}>
+      {config.label}
+    </span>
   );
 }
 
@@ -244,7 +319,11 @@ function OKRPageContent() {
     setDepartments,
   } = useStrategyStore();
 
-  const departments = useStrategyStore((st: any) => ((st.departments as Department[] | undefined) ?? []) as Department[]);
+  const departments = useStrategyStore((st: any) => ((st.departments as DepartmentStrategy[] | undefined) ?? [])) as Department[];
+
+  // ★ STAGE4: Resolved OKRs from DB (DB priority + snapshot fallback)
+  const [resolvedOkrsMap, setResolvedOkrsMap] = useState<Record<string, ResolvedOkr[]>>({});
+  const [okrLoadingStatus, setOkrLoadingStatus] = useState<Record<string, 'loading' | 'success' | 'error'>>({});
 
   const access = useAccess();
   const accessCompanyId: string | undefined = useMemo(
@@ -685,6 +764,50 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
     setNewProjectTitle('');
   };
 
+  /* ============================================================
+   * ★STAGE4: OKR 表示用 ViewModel
+   * ========================================================== */
+  /**
+   * OKR 表示統一型
+   * - ResolvedOkr (DB) と OKR (snapshot) の差異を吸収
+   * - source: 由来の追跡（DB vs snapshot）
+   */
+  type OkrDisplayModel = {
+    id: string;
+    source: 'db' | 'snapshot';
+    objective: string;
+    owner: string;
+    due: string;
+    keyResults: string[];
+  };
+
+  /**
+   * OKR | ResolvedOkr → OkrDisplayModel への変換
+   */
+  function toOkrDisplayModel(okr: OKR | ResolvedOkr): OkrDisplayModel {
+    // ResolvedOkr (source フィールドで判定)
+    if ('source' in okr) {
+      const resolvedOkr = okr as ResolvedOkr;
+      return {
+        id: resolvedOkr.id ?? '',
+        source: resolvedOkr.source,
+        objective: resolvedOkr.objective ?? '',
+        owner: resolvedOkr.owner_name ?? '',
+        due: '',  // DB OKR には due フィールドなし
+        keyResults: Array.isArray(resolvedOkr.key_results_json) ? resolvedOkr.key_results_json : [],
+      };
+    }
+    // Snapshot OKR
+    const snapshotOkr = okr as OKR;
+    return {
+      id: String(snapshotOkr.id ?? ''),
+      source: 'snapshot',
+      objective: snapshotOkr.objective ?? '',
+      owner: snapshotOkr.owner ?? '',
+      due: snapshotOkr.due ?? '',
+      keyResults: Array.isArray(snapshotOkr.keyResults) ? snapshotOkr.keyResults : [],
+    };
+  }
 
   /* ============================================================
    * 進化/探索：編集モード
@@ -700,9 +823,19 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
 
   const selectedAddKey = selected && selectedProj ? keyFor(selected.deptIdx, selected.projIdx) : '';
 
-  const selectedOkrs = selectedProj ? (ensureArray(selectedProj.okrs as OKR[] | undefined) as OKR[]) : [];
-  const mainOKR = selectedOkrs[0];
-  const hasCascadeOkrs = selectedOkrs.length > 0;
+  // ★ STAGE4: Resolved OKRs (DB priority + snapshot fallback)
+  const projectKey = selected ? `${selected.deptIdx}:${selected.projIdx}` : '';
+  const resolvedOkrs = resolvedOkrsMap[projectKey] ?? [];
+  const snapshotOkrs = selectedProj ? (ensureArray(selectedProj.okrs as OKR[] | undefined) as OKR[]) : [];
+
+  // Use resolved OKRs if available, otherwise snapshot
+  // ★ Phase 2 確定: projectCacheKey で DB 優先を判定（0件 resolve でも DB優先）
+  const selectedOkrs = projectKey && projectKey in resolvedOkrsMap ? resolvedOkrs : snapshotOkrs;
+
+  // ★ STAGE4: ViewModel 化（表示用に統一）
+  const displayOkrs = selectedOkrs.map(toOkrDisplayModel);
+  const mainOKR = displayOkrs[0];
+  const hasCascadeOkrs = displayOkrs.length > 0;
 
   const variants: OkrVariant[] = selectedProj ? ensureArray(selectedProj.okrVariants) : [];
   const activeVariantId = selectedProj?.activeVariantId;
@@ -741,6 +874,380 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
     setEditingMode,
     setRoleShadow: (updater) => setRoleShadow(updater),
   });
+
+  /* ============================================================
+   * ★ Phase 3A: DB OKR キャッシュの invalidate & refresh
+   * ========================================================== */
+  const invalidateAndRefetchProjectOkrs = useCallback(
+    async (dIdx: number, pIdx: number) => {
+      if (!accessCompanyId) return;
+
+      const cacheKey = keyFor(dIdx, pIdx);
+
+      // Step 1: invalidate（キャッシュ削除）
+      setResolvedOkrsMap((prev) => {
+        const next = { ...prev };
+        delete next[cacheKey];
+        return next;
+      });
+
+      // Step 2: loading 状態に
+      setOkrLoadingStatus((prev) => ({
+        ...prev,
+        [cacheKey]: 'loading',
+      }));
+
+      try {
+        // Step 3: refetch（strategDataを都度取得して refresh）
+        const st = useStrategyStore.getState();
+        const strategyData = (st as any)?.strategiesDataGlobal?.data ?? (st as any)?.data;
+
+        const dept = departments?.[dIdx];
+        const proj = dept?.projects?.[pIdx];
+        const projId = proj ? ((proj as any).id ?? proj.title) : null;
+        if (!proj || !projId) {
+          setOkrLoadingStatus((prev) => ({
+            ...prev,
+            [cacheKey]: 'error',
+          }));
+          console.warn('[invalidateAndRefetchProjectOkrs] Invalid project:', { dIdx, pIdx });
+          return;
+        }
+
+        // resolveProjectsWithOkrs() で再読込
+        const resolved = await okrService.resolveProjectsWithOkrs(
+          projId,
+          dept ? ((dept as any).id ?? dept.name) : undefined,
+          strategyData,
+          accessCompanyId
+        );
+
+        if (resolved?.resolvedOkrs) {
+          // Step 4: キャッシュ更新
+          setResolvedOkrsMap((prev) => ({
+            ...prev,
+            [cacheKey]: resolved.resolvedOkrs,
+          }));
+          setOkrLoadingStatus((prev) => ({
+            ...prev,
+            [cacheKey]: 'success',
+          }));
+
+          // ★ STAGE5対応：snapshot も同時に更新（STAGE5 は proj.okrs を読むため）
+          const snapshotOkrs: OKR[] = resolved.resolvedOkrs.map((resolvedOkr) => ({
+            id: resolvedOkr.id,
+            objective: resolvedOkr.objective ?? '',
+            owner: resolvedOkr.owner_name ?? '',
+            due: '',  // DB には due がないため空
+            keyResults: Array.isArray(resolvedOkr.key_results_json) ? resolvedOkr.key_results_json : [],
+          }));
+
+          // departments の該当 project の okrs を更新
+          const nextDepts = [...departments];
+          const d = nextDepts[dIdx];
+          if (d) {
+            const projects = Array.isArray(d.projects) ? [...d.projects] : [];
+            const p = projects[pIdx];
+            if (p) {
+              projects[pIdx] = { ...p, okrs: snapshotOkrs };
+              nextDepts[dIdx] = { ...d, projects };
+              setDepartments?.(nextDepts as any);
+            }
+          }
+
+          console.debug('[invalidateAndRefetchProjectOkrs] SUCCESS:', { cacheKey, count: resolved.resolvedOkrs.length, snapshotOkrs: snapshotOkrs.length });
+        } else {
+          setOkrLoadingStatus((prev) => ({
+            ...prev,
+            [cacheKey]: 'error',
+          }));
+        }
+      } catch (error) {
+        console.error('[invalidateAndRefetchProjectOkrs] error:', error);
+        setOkrLoadingStatus((prev) => ({
+          ...prev,
+          [cacheKey]: 'error',
+        }));
+      }
+    },
+    [accessCompanyId, departments, setDepartments]
+  );
+
+  /* ============================================================
+   * ★ Phase 3A: updateProjectOKRDb (DB-first)
+   * objective と owner の DB 更新 → キャッシュ refresh
+   * ========================================================== */
+  const updateProjectOKRDb = useCallback(
+    async (dIdx: number, pIdx: number, patch: Partial<{ objective: string; owner: string }>) => {
+      if (!accessCompanyId || !mainOKR) return;
+
+      // ★ source 判定: DB OKR のときだけ DB 更新
+      if (mainOKR.source !== 'db') {
+        alert('このOKRは編集できません。DB から読み込まれたOKRのみ編集可能です。');
+        return;
+      }
+
+      try {
+        // DB 更新用に OkrWriteInput の形で patch を構築
+        const dbPatch: Partial<OkrWriteInput> = {};
+        if ('objective' in patch) {
+          dbPatch.objective = patch.objective;
+        }
+        if ('owner' in patch) {
+          dbPatch.owner_name = patch.owner;
+        }
+
+        // プロジェクト情報を departments から取得
+        const dept = departments?.[dIdx];
+        const proj = dept?.projects?.[pIdx];
+        const projectId = proj ? String((proj as any).id ?? proj.title) : String(mainOKR.id ?? '');
+
+        // ★ okrService.upsertOkr() で DB 更新（id 付き）
+        await okrService.upsertOkr(
+          {
+            id: mainOKR.id,
+            objective: dbPatch.objective ?? mainOKR.objective,
+            owner_name: dbPatch.owner_name ?? mainOKR.owner,
+            strategy_id: '',  // ★ DB update では補足（リポジトリが既存レコードから取得）
+            department_id: dept ? String((dept as any).id ?? dept.name) : '',
+            project_id: projectId,
+          },
+          projectId,
+          accessCompanyId
+        );
+
+        // ★ キャッシュ refresh
+        await invalidateAndRefetchProjectOkrs(dIdx, pIdx);
+      } catch (error) {
+        console.error('[updateProjectOKRDb] error:', error);
+        alert('OKRの更新に失敗しました');
+      }
+    },
+    [mainOKR, accessCompanyId, invalidateAndRefetchProjectOkrs, departments]
+  );
+
+  /* ============================================================
+   * ★ Phase 3A: updateProjectDue (snapshot-only)
+   * due は DB 正本に存在しないため snapshot 専用
+   * ========================================================== */
+  const updateProjectDue = useCallback(
+    (dIdx: number, pIdx: number, due: string) => {
+      patchDepartments((prev) => {
+        const next = [...prev];
+        const dept = next[dIdx];
+        if (!dept) return prev;
+
+        const projects = Array.isArray(dept.projects) ? [...dept.projects] : [];
+        const proj = projects[pIdx];
+        if (!proj) return prev;
+
+        const okrs = ensureArray(proj.okrs as OKR[] | undefined);
+        if (okrs[0]) {
+          okrs[0] = { ...okrs[0], due };
+        }
+
+        projects[pIdx] = { ...proj, okrs };
+        dept.projects = projects;
+        next[dIdx] = dept;
+        return next;
+      });
+    },
+    [patchDepartments]
+  );
+
+  /* ============================================================
+   * ★ Phase 3A.5: objective/owner の local draft state
+   * （onChange で即 DB 更新でなく、onBlur で DB 更新）
+   * ========================================================== */
+  const [objDraft, setObjDraft] = useState<string | null>(null);
+  const [ownerDraft, setOwnerDraft] = useState<string | null>(null);
+  const [isSavingOkr, setIsSavingOkr] = useState(false);
+
+  // 表示値：draft があれば draft、無ければ mainOKR から取得
+  const displayObjective = objDraft !== null ? objDraft : (mainOKR?.objective ?? '');
+  const displayOwner = ownerDraft !== null ? ownerDraft : (mainOKR?.owner ?? '');
+
+  /* ============================================================
+   * ★ Phase 3C: deleteProjectOKR (soft delete)
+   * DB に is_deleted=true をセット → reload 後は merge で除外される
+   * ========================================================== */
+  const deleteProjectOKR = useCallback(
+    async (dIdx: number, pIdx: number) => {
+      if (!accessCompanyId || !mainOKR || !selected) return;
+
+      // ★ source 判定: DB OKR のときだけ削除
+      if (mainOKR.source !== 'db') {
+        alert('このOKRは削除できません。DB から読み込まれたOKRのみ削除可能です。');
+        return;
+      }
+
+      // 確認ダイアログ
+      if (!confirm('このOKRを削除します。よろしいですか？\n（データベースに記録は残ります）')) {
+        return;
+      }
+
+      setIsSavingOkr(true);
+      try {
+        // プロジェクト情報を departments から取得
+        const dept = departments?.[dIdx];
+        const proj = dept?.projects?.[pIdx];
+        const projectId = proj ? String((proj as any).id ?? proj.title) : String(mainOKR.id ?? '');
+
+        // ★ okrService.deleteOkr() で soft delete（DB に is_deleted=true）
+        await okrService.deleteOkr(mainOKR.id, projectId, accessCompanyId);
+
+        // ★ キャッシュ refresh
+        await invalidateAndRefetchProjectOkrs(dIdx, pIdx);
+
+        // ★ STAGE6 okrsV2 への同期: **意図的に実装しない**
+        //
+        // 【理由】ファイル先頭の ARCHITECTURE セクションを参照
+        // - okrs（STAGE4/5） と okrsV2（STAGE6） は完全に独立した構造
+        // - okrs の各要素と okrsV2 の各要素の間に parentOkrId リンクが存在しない
+        // - 対応関係が未定義のため、OKR 削除時に「どの KR を削除するか」が決定不可能
+        // - okrsV2 を無闇に削除すると STAGE6 の計算入力を破壊してしまう
+        //
+        // 【将来の拡張】
+        // もし okrs と okrsV2 を連携させたい場合:
+        //   1. okrs テーブルに parentOkrId カラムを追加（スキーマ変更）
+        //   2. OKR:KR の 1:多 マッピング定義を設計
+        //   3. Delete/Add/Reorder 時に okrsV2 も同期するコード実装
+        //   4. STAGE6 の本当の要件を検証した上で実装を進める
+        //
+        // （参考）2025-03-16 検証済み:
+        // - STAGE6 は proj.okrsV2 を calcYearlyFromKrs() の入力として使用
+        // - okrs から okrsV2 への自動生成メカニズムは存在しない
+        // - 両者は別系統で管理されるべき設計
+
+        console.debug('[deleteProjectOKR] SUCCESS:', { okrId: mainOKR.id, projectId });
+      } catch (error) {
+        console.error('[deleteProjectOKR] error:', error);
+        alert('OKRの削除に失敗しました');
+      } finally {
+        setIsSavingOkr(false);
+      }
+    },
+    [mainOKR, accessCompanyId, selected, invalidateAndRefetchProjectOkrs, departments]
+  );
+
+  /* ============================================================
+   * ★ Phase 3B: addProjectOKR (新OKR追加)
+   * objective を入力して DB に insert → キャッシュ refresh
+   * ========================================================== */
+  const addProjectOKR = useCallback(
+    async (dIdx: number, pIdx: number) => {
+      if (!accessCompanyId || !selected) return;
+
+      // Objective を入力させる（簡易版：prompt 使用）
+      const objInput = prompt('新しいOKRの目的を入力してください:');
+      if (!objInput) {
+        return;  // キャンセルまたは空入力
+      }
+      const objective = objInput.trim();
+      if (!objective) {
+        return;  // 空白のみの場合
+      }
+
+      setIsSavingOkr(true);
+      try {
+        // プロジェクト情報を departments から取得
+        const dept = departments?.[dIdx];
+        const proj = dept?.projects?.[pIdx];
+        const projectId = proj ? String((proj as any).id ?? proj.title) : '';
+        const deptId = dept ? String((dept as any).id ?? dept.name) : '';
+
+        if (!projectId) {
+          alert('プロジェクト情報が取得できません');
+          return;
+        }
+
+        // ★ okrService.upsertOkr() で DB に新規 insert
+        // （id を指定しないと新規作成）
+        await okrService.upsertOkr(
+          {
+            objective,
+            owner_name: '',
+            strategy_id: '',  // リポジトリが補足
+            department_id: deptId,
+            project_id: projectId,
+          },
+          projectId,
+          accessCompanyId
+        );
+
+        // ★ キャッシュ refresh
+        await invalidateAndRefetchProjectOkrs(dIdx, pIdx);
+
+        // ※ okrsV2 への追加は行わない（ファイル先頭の ARCHITECTURE セクション参照）
+        // 理由：okrs と okrsV2 の対応関係が未定義のため、新規 KR をどう作成するか不明
+
+        console.debug('[addProjectOKR] SUCCESS:', { objective, projectId });
+      } catch (error) {
+        console.error('[addProjectOKR] error:', error);
+        alert('OKRの追加に失敗しました');
+      } finally {
+        setIsSavingOkr(false);
+      }
+    },
+    [accessCompanyId, selected, invalidateAndRefetchProjectOkrs, departments]
+  );
+
+  /* ============================================================
+   * ★ Phase 4: reorderProjectOKRs (並び替え)
+   * sort_order を更新して OKR リストの順序を変更
+   * ========================================================== */
+  const reorderProjectOKRs = useCallback(
+    async (dIdx: number, pIdx: number, direction: 'up' | 'down') => {
+      if (!accessCompanyId || !displayOkrs || displayOkrs.length <= 1) return;
+
+      // 現在の mainOKR（displayOkrs[0]）の sort_order を変更
+      // 実装簡略化：DB の displayOkrs 全体を再ソート
+      // （本来は全 OKR の sort_order 一括更新が必要）
+      const currentIdx = 0;  // mainOKR の仮インデックス
+      const newIdx = direction === 'up' ? currentIdx - 1 : currentIdx + 1;
+
+      if (newIdx < 0 || newIdx >= displayOkrs.length) {
+        return;  // 移動不可
+      }
+
+      setIsSavingOkr(true);
+      try {
+        // プロジェクト情報を departments から取得
+        const dept = departments?.[dIdx];
+        const proj = dept?.projects?.[pIdx];
+        const projectId = proj ? String((proj as any).id ?? proj.title) : '';
+
+        if (!projectId) {
+          alert('プロジェクト情報が取得できません');
+          return;
+        }
+
+        // displayOkrs の id リストを並び替え前提で sort_order を更新
+        const orderedIds = displayOkrs.map((o) => o.id);
+        // swap
+        const tmp = orderedIds[currentIdx];
+        orderedIds[currentIdx] = orderedIds[newIdx];
+        orderedIds[newIdx] = tmp;
+
+        // ★ okrService.reorderOkrs() で DB 更新
+        await okrService.reorderOkrs(projectId, orderedIds, accessCompanyId);
+
+        // ★ キャッシュ refresh
+        await invalidateAndRefetchProjectOkrs(dIdx, pIdx);
+
+        // ※ okrsV2 の再ソートは行わない（ファイル先頭の ARCHITECTURE セクション参照）
+        // 理由：okrs と okrsV2 の対応関係が未定義のため、並び替えの影響が不明
+
+        console.debug('[reorderProjectOKRs] SUCCESS:', { direction, projectId });
+      } catch (error) {
+        console.error('[reorderProjectOKRs] error:', error);
+        alert('OKRの並び替えに失敗しました');
+      } finally {
+        setIsSavingOkr(false);
+      }
+    },
+    [accessCompanyId, displayOkrs, invalidateAndRefetchProjectOkrs, departments]
+  );
 
   {/* -------- プロジェクト追加（page側に残す：UI状態と密結合） -------- */}
   const confirmAddProject = (deptIdx: number) => {
@@ -1337,7 +1844,7 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
       projectTitle: proj.title,
       okrsV2Count: Array.isArray(projWithRemoved.okrsV2) ? projWithRemoved.okrsV2.length : 0,
       okrsKrCount: Array.isArray(projWithRemoved.okrs)
-        ? projWithRemoved.okrs.reduce((n, o) => n + (Array.isArray(o.keyResults) ? o.keyResults.length : 0), 0)
+        ? (projWithRemoved.okrs as any).reduce((n: number, o: OKR) => n + (Array.isArray(o.keyResults) ? o.keyResults.length : 0), 0)
         : 0,
       kpisCount: Array.isArray(projWithRemoved.kpis) ? projWithRemoved.kpis.length : 0,
     });
@@ -1366,7 +1873,7 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
       projectTitle: afterProj?.title,
       okrsV2Count: afterKrList.length,
       okrsKrCount: Array.isArray(afterProj?.okrs)
-        ? afterProj.okrs.reduce((n, o) => n + (Array.isArray(o.keyResults) ? o.keyResults.length : 0), 0)
+        ? (afterProj.okrs as any).reduce((n: number, o: OKR) => n + (Array.isArray(o.keyResults) ? o.keyResults.length : 0), 0)
         : 0,
       kpisCount: Array.isArray(afterProj?.kpis) ? afterProj.kpis.length : 0,
     });
@@ -1575,7 +2082,60 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
         <div className="grid gap-6 grid-cols-1">
           {/* ========== Card 1: 目的（何のため？） ========== */}
           <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-[16px] font-semibold text-zinc-900">目的（何のため？）</h2>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-[16px] font-semibold text-zinc-900">目的（何のため？）</h2>
+
+              {/* ★ Phase 3B/3C: Action buttons */}
+              <div className="flex items-center gap-2">
+                {/* Phase 3B: Add OKR button */}
+                <button
+                  type="button"
+                  onClick={() => addProjectOKR(selected!.deptIdx, selected!.projIdx)}
+                  disabled={isHydrating || isApproved() || isSavingOkr}
+                  className="flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Plus size={14} />
+                  追加
+                </button>
+
+                {/* Phase 3C: Delete OKR button */}
+                {mainOKR?.source === 'db' && (
+                  <button
+                    type="button"
+                    onClick={() => deleteProjectOKR(selected!.deptIdx, selected!.projIdx)}
+                    disabled={isHydrating || isApproved() || isSavingOkr}
+                    className="flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-[12px] font-semibold text-red-700 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Trash2 size={14} />
+                    削除
+                  </button>
+                )}
+
+                {/* Phase 4: Reorder buttons (複数 OKR がある場合のみ) */}
+                {displayOkrs.length > 1 && (
+                  <div className="flex items-center gap-1 ml-2 pl-2 border-l border-gray-200">
+                    <button
+                      type="button"
+                      onClick={() => reorderProjectOKRs(selected!.deptIdx, selected!.projIdx, 'up')}
+                      disabled={isHydrating || isApproved() || isSavingOkr}
+                      title="上に移動"
+                      className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-[12px] font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => reorderProjectOKRs(selected!.deptIdx, selected!.projIdx, 'down')}
+                      disabled={isHydrating || isApproved() || isSavingOkr}
+                      title="下に移動"
+                      className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-[12px] font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      ↓
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
 
             <div className="mb-4 space-y-1">
               <label className="text-[11px] font-semibold text-zinc-700">目的（必須）</label>
@@ -1583,18 +2143,34 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                 className="min-h-[72px] w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px] leading-5 resize-y"
                 rows={2}
                 placeholder="例：既存顧客からのアップセルと新規顧客獲得を両立し、売上成長の軸を確立する"
-                value={mainOKR?.objective ?? ''}
+                value={displayObjective}
                 onChange={(e) => {
-                  updateProjectOKR(selected.deptIdx, selected.projIdx, { objective: e.target.value });
-                  scheduleObjectiveSave();
+                  // ★ Phase 3A.5: local draft に保存（onChange では DB 更新しない）
+                  setObjDraft(e.target.value);
                 }}
                 onBlur={async () => {
-                  if (!saveNow) return;
+                  // onBlur で DB 更新を実行
+                  if (objDraft === null || objDraft === mainOKR?.objective || !selected) {
+                    // draft がない、または変更なし → DB 更新スキップ
+                    setObjDraft(null);
+                    if (!saveNow) return;
+                    try {
+                      await saveNow();
+                    } catch {}
+                    return;
+                  }
+
+                  setIsSavingOkr(true);
                   try {
-                    await saveNow();
-                  } catch {}
+                    // ★ Phase 3A: objective を DB 更新
+                    await updateProjectOKRDb(selected.deptIdx, selected.projIdx, { objective: objDraft });
+                    setObjDraft(null);  // draft をクリア
+                    scheduleObjectiveSave();
+                  } finally {
+                    setIsSavingOkr(false);
+                  }
                 }}
-                disabled={isHydrating || isApproved()}
+                disabled={isHydrating || isApproved() || isSavingOkr}
               />
             </div>
 
@@ -1618,7 +2194,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                     if (!proj) return;
                     projects[selected.projIdx] = { ...proj, ownerName: e.target.value };
                     depts[selected.deptIdx] = { ...dept, projects };
-                    setDepartments?.(depts);
+                    setDepartments?.(depts as DepartmentStrategy[]);
                   }}
                   disabled={isHydrating || isApproved()}
                 />
@@ -1629,9 +2205,29 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                 <input
                   className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
                   placeholder="氏名や役職など"
-                  value={mainOKR?.owner ?? ''}
-                  onChange={(e) => updateProjectOKR(selected.deptIdx, selected.projIdx, { owner: e.target.value })}
-                  disabled={isHydrating || isApproved()}
+                  value={displayOwner}
+                  onChange={(e) => {
+                    // ★ Phase 3A.5: local draft に保存（onChange では DB 更新しない）
+                    setOwnerDraft(e.target.value);
+                  }}
+                  onBlur={async () => {
+                    // onBlur で DB 更新を実行
+                    if (ownerDraft === null || ownerDraft === mainOKR?.owner || !selected) {
+                      // draft がない、または変更なし → DB 更新スキップ
+                      setOwnerDraft(null);
+                      return;
+                    }
+
+                    setIsSavingOkr(true);
+                    try {
+                      // ★ Phase 3A: owner を DB 更新
+                      await updateProjectOKRDb(selected.deptIdx, selected.projIdx, { owner: ownerDraft });
+                      setOwnerDraft(null);  // draft をクリア
+                    } finally {
+                      setIsSavingOkr(false);
+                    }
+                  }}
+                  disabled={isHydrating || isApproved() || isSavingOkr}
                 />
               </div>
               {/* Due Date */}
@@ -1641,7 +2237,10 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
                   placeholder="2026-03"
                   value={mainOKR?.due ?? ''}
-                  onChange={(e) => updateProjectOKR(selected.deptIdx, selected.projIdx, { due: e.target.value })}
+                  onChange={(e) => {
+                    // ★ Phase 3A: due は DB 正本に存在しないため snapshot 専用
+                    updateProjectDue(selected.deptIdx, selected.projIdx, e.target.value);
+                  }}
                   disabled={isHydrating || isApproved()}
                 />
               </div>
