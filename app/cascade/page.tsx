@@ -45,6 +45,8 @@ import { loadAndHydrate } from '@/utils/loader';
 import { getStage2ValueDriverKPIs, getStage2TargetRanges, getStage2WinPatterns } from '@/utils/stage2Selectors';
 import { formatMillion, safeRatio, formatPct, inferScaleToMillion } from '@/utils/unit';
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
+import { okrsV2ToOkrs, okrsToKpis } from '@/utils/supabase/strategy';
+import { mkKRStructured } from '@/app/okr/_lib/okrModels';
 
 import type {
   Department as BaseDepartment,
@@ -1248,7 +1250,7 @@ function applyDeptDraftToProjects(existingProjects: Project[], deptDraft: ApiDep
    ビジュアルカード（部門戦略の全体像をシンプル表示）
 ========================= */
 const VisualCard = memo(
-  function VisualCard({ d }: { d: Department }) {
+  function VisualCard({ d, deptIndex, onProjectUpdate }: { d: Department; deptIndex: number; onProjectUpdate?: (deptIndex: number, projIndex: number, ownerName: string) => void }) {
   const mission = (d.strategy ?? d.mission ?? '').trim();
 
   // ★ STEP 1 修正：source of truth を departments[].projects のみに統一
@@ -1305,9 +1307,18 @@ const VisualCard = memo(
               return (
                 <li key={projectKey} className="rounded-2xl border bg-white/80 px-3 py-2">
                   <div className="text-sm font-medium text-zinc-900">• {displayTitle}</div>
-                  {/* ★ Phase 1: Project owner 表示 */}
-                  <div className="text-xs text-zinc-500 mt-1">
-                    プロジェクト責任者：{p.ownerName || '未設定'}
+                  {/* ★ Phase 1: Project owner 編集欄 */}
+                  <div className="mt-2 mb-2">
+                    <label className="text-[11px] font-semibold text-zinc-700 block mb-1">プロジェクト責任者</label>
+                    <input
+                      type="text"
+                      className="w-full h-8 rounded-lg border border-zinc-200 bg-zinc-50 px-2 text-[12px]"
+                      placeholder="責任者名"
+                      value={p.ownerName ?? ''}
+                      onChange={(e) => {
+                        onProjectUpdate?.(deptIndex, i, e.target.value);
+                      }}
+                    />
                   </div>
 
                   {(p.hypothesis || p.mainLever || p.horizon || p.kind) && (
@@ -1344,11 +1355,57 @@ const VisualCard = memo(
   },
   (prevProps, nextProps) => {
     // ★ STEP 1 修正：projects の length のみ比較（lanes は参考表示に分離）
+    // ★ Phase 1: deptIndex も比較
     const prevProjectsLen = prevProps.d.projects?.length ?? 0;
     const nextProjectsLen = nextProps.d.projects?.length ?? 0;
-    return prevProjectsLen === nextProjectsLen;
+    return prevProjectsLen === nextProjectsLen && prevProps.deptIndex === nextProps.deptIndex;
   }
 );
+
+/* =========================
+   KPI同期ヘルパー
+========================= */
+/**
+ * okrsV2を正本として、okrs と kpis を再生成・同期
+ * STAGE3で okrsV2を編集した後、このヘルパーで全表現を統一
+ * ★ 重要：okrs[0].owner を保持（KPI担当者が lose されないように）
+ */
+const syncProjectKrRepresentations = (project: any) => {
+  const okrsV2 = Array.isArray(project.okrsV2) ? project.okrsV2 : [];
+  const fallbackTitle = String(project.title ?? '改善テーマ');
+  const okrs = okrsV2ToOkrs(okrsV2, fallbackTitle);
+  const kpis = okrsToKpis(okrs);
+
+  // ★ Bug #3対応：okrs[0].owner を保持（保存/ロード時に失われないように）
+  const existingOwner = (project?.okrs as any)?.[0]?.owner;
+  if (okrs[0] && existingOwner) {
+    (okrs[0] as any).owner = existingOwner;
+  }
+
+  return {
+    ...project,
+    okrsV2,
+    okrs,
+    kpis,
+  };
+};
+
+/**
+ * KR文字列をminimalなKRStructured に変換
+ * @param label KR表示テキスト
+ * @param owner オプション：KR担当者を指定
+ */
+const stringToKRStructured = (label: string, owner?: string) => {
+  return mkKRStructured({
+    label: label.trim(),
+    kind: 'SUCCESS_RATE' as any,
+    target: 0,
+    unit: '%' as any,
+    scope: 'project' as any,
+    baseKey: 'success_rate' as any,
+    ...(owner ? { owner } : {}),
+  });
+};
 
 /* =========================
    メイン
@@ -1771,6 +1828,23 @@ useEffect(() => {
       if (!jsonEq(prev, resolved)) setDepartmentsInStore?.(resolved);
     },
     [setDepartmentsInStore],
+  );
+
+  // ★ Phase 1: Project owner 更新 callback
+  const handleProjectOwnerChange = useCallback(
+    (deptIndex: number, projIndex: number, ownerName: string) => {
+      pushToStore((prev) => {
+        const list = [...prev];
+        const dept = list[deptIndex];
+        if (!dept) return prev;
+        const projects = Array.isArray(dept.projects) ? [...dept.projects] : [];
+        if (!projects[projIndex]) return prev;
+        projects[projIndex] = { ...projects[projIndex], ownerName };
+        list[deptIndex] = { ...dept, projects };
+        return list;
+      });
+    },
+    [pushToStore],
   );
 
   const [activeTab, setActiveTab] = useState<'edit' | 'visual'>('edit');
@@ -2270,7 +2344,8 @@ useEffect(() => {
           deptProjects: afterSetDepts?.find((d) => d.name === dept.name)?.projects?.length ?? 0,
         });
         stateBeforeInvalidate.setStage4Plans?.([]);
-        stateBeforeInvalidate.setExecutionPlanBaseline?.(undefined);
+        // ★ executionPlanBaseline をリセット（空オブジェクト）
+        stateBeforeInvalidate.setExecutionPlanBaseline?.({});
       }
 
       // ★TASK A: 生成完了後に必ず1回保存（保存抑止解除前）
@@ -2308,11 +2383,11 @@ useEffect(() => {
     return (
       <div className="grid md:grid-cols-2 gap-6">
         {departments.map((d: Department, i: number) => (
-          <VisualCard key={`v-${d.name}-${i}`} d={d} />
+          <VisualCard key={`v-${d.name}-${i}`} d={d} deptIndex={i} onProjectUpdate={handleProjectOwnerChange} />
         ))}
       </div>
     );
-  }, [departments]);
+  }, [departments, handleProjectOwnerChange]);
 
   /* map内 hooks 回避のためのメモ */
   const answersMemo: DeptAnswerStep[][] = useMemo(() => departments.map((d: Department) => toDeptAnswers(d.answers2?.[0]?.steps)), [departments]);
@@ -2896,12 +2971,10 @@ useEffect(() => {
                                           proj = promoteToUserProject(proj);
                                         }
 
-                                        const okrs: StoreOKR[] = [...(((proj.okrs ?? []) as StoreOKR[]) ?? [])];
-                                        if (!okrs[0]) okrs[0] = { objective: '', keyResults: [], owner: undefined };
-                                        const nextKrs = [...(okrs[0].keyResults ?? [])];
-                                        nextKrs.push('');
-                                        okrs[0] = { ...okrs[0], keyResults: nextKrs };
-                                        proj.okrs = okrs;
+                                        // ★ 修正：okrsV2を正本に（keyResults直接編集を廃止）
+                                        const okrsV2: any[] = Array.isArray(proj.okrsV2) ? [...proj.okrsV2] : [];
+                                        okrsV2.push(stringToKRStructured(''));
+                                        proj = syncProjectKrRepresentations({ ...proj, okrsV2 });
 
                                         projects[pi] = proj;
                                         list[index] = { ...d, projects };
@@ -2942,12 +3015,15 @@ useEffect(() => {
                                           proj = promoteToUserProject(proj);
                                         }
 
-                                        const okrs: StoreOKR[] = [...(((proj.okrs ?? []) as StoreOKR[]) ?? [])];
-                                        if (!okrs[0]) okrs[0] = { objective: '', keyResults: [], owner: undefined };
-                                        const nextKrs = [...(okrs[0].keyResults ?? [])];
-                                        nextKrs[ki] = val;
-                                        okrs[0] = { ...okrs[0], keyResults: nextKrs };
-                                        proj.okrs = okrs;
+                                        // ★ 修正：okrsV2を正本に（keyResults直接編集を廃止）
+                                        const okrsV2: any[] = Array.isArray(proj.okrsV2) ? [...proj.okrsV2] : [];
+                                        if (okrsV2[ki]) {
+                                          okrsV2[ki] = { ...okrsV2[ki], label: val };
+                                        } else {
+                                          // KRが未作成の場合は作成
+                                          okrsV2[ki] = stringToKRStructured(val);
+                                        }
+                                        proj = syncProjectKrRepresentations({ ...proj, okrsV2 });
 
                                         projects[pi] = proj;
                                         list[index] = { ...d, projects };
@@ -2975,12 +3051,10 @@ useEffect(() => {
                                             proj = promoteToUserProject(proj);
                                           }
 
-                                          const okrs: StoreOKR[] = [...(((proj.okrs ?? []) as StoreOKR[]) ?? [])];
-                                          if (!okrs[0]) return prev;
-                                          const nextKrs = [...(okrs[0].keyResults ?? [])];
-                                          nextKrs.splice(ki, 1);
-                                          okrs[0] = { ...okrs[0], keyResults: nextKrs };
-                                          proj.okrs = okrs;
+                                          // ★ 修正：okrsV2を正本に（keyResults直接編集を廃止）
+                                          const okrsV2: any[] = Array.isArray(proj.okrsV2) ? [...proj.okrsV2] : [];
+                                          okrsV2.splice(ki, 1);
+                                          proj = syncProjectKrRepresentations({ ...proj, okrsV2 });
 
                                           projects[pi] = proj;
                                           list[index] = { ...d, projects };
