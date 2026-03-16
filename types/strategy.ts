@@ -575,6 +575,7 @@ export type ExecutionHumanInvestment = {
  * ========================================================= */
 
 export type Project = {
+  id?: string | number;      // ★Phase 2A: stable id（okrs テーブル参照用）
   title: string; // ✅ 一貫して title に統一
   reason?: string;
 
