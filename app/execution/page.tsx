@@ -246,6 +246,9 @@ function ExecPanel(props: {
   keyResults: string[];
   okrId: string;
   progressOkrId?: string;
+  strategyId?: string;
+  departmentId?: string;
+  projectId?: string;
   companyId?: string;
   krIds?: string[];
   di?: number;
@@ -261,6 +264,9 @@ function ExecPanel(props: {
     keyResults,
     okrId,
     progressOkrId,
+    strategyId,
+    departmentId,
+    projectId,
     companyId,
     krIds,
     di,
@@ -291,18 +297,96 @@ function ExecPanel(props: {
   };
 
   const progressLogOkrId = progressOkrId?.trim() || '';
+  const [resolvedProgressOkrId, setResolvedProgressOkrId] = useState<string>(progressLogOkrId);
+
+  useEffect(() => {
+    setResolvedProgressOkrId(progressLogOkrId);
+  }, [progressLogOkrId]);
+
+  // DB分離後の okrs.id を遅延解決（既存UIを壊さず保存時だけ実IDを使う）
+  useEffect(() => {
+    let alive = true;
+
+    const resolveDbOkrId = async () => {
+      if (!open || !userId) return;
+
+      const normalizedObjective = String(objective ?? '').trim();
+      const candidates = [
+        progressLogOkrId,
+        okrId,
+      ].map((v) => (typeof v === 'string' ? v.trim() : '')).filter(Boolean);
+
+      // 1) まず現在のIDがそのまま okrs.id か確認
+      for (const candidate of candidates) {
+        const { data, error } = await supabase
+          .from('okrs')
+          .select('id')
+          .eq('id', candidate)
+          .maybeSingle();
+
+        if (!alive) return;
+        if (!error && data?.id) {
+          setResolvedProgressOkrId(data.id);
+          return;
+        }
+      }
+
+      // 2) project_id / department_id / strategy_id / objective から実IDを推定
+      if (!normalizedObjective) return;
+
+      let query = supabase
+        .from('okrs')
+        .select('id, objective, project_id, department_id, strategy_id, sort_order')
+        .eq('objective', normalizedObjective)
+        .limit(5);
+
+      if (projectId) query = query.eq('project_id', projectId);
+      if (departmentId) query = query.eq('department_id', departmentId);
+      if (strategyId) query = query.eq('strategy_id', strategyId);
+
+      const { data, error } = await query.order('sort_order', { ascending: true });
+
+      if (!alive) return;
+      if (!error && Array.isArray(data) && data[0]?.id) {
+        console.log('[STAGE5-resolve-okr-id] resolved from okrs table:', {
+          objective: normalizedObjective,
+          projectId,
+          departmentId,
+          strategyId,
+          resolvedId: data[0].id,
+        });
+        setResolvedProgressOkrId(String(data[0].id));
+      } else if (error) {
+        console.warn('[STAGE5-resolve-okr-id] lookup error', error);
+      } else {
+        console.warn('[STAGE5-resolve-okr-id] not found', {
+          objective: normalizedObjective,
+          projectId,
+          departmentId,
+          strategyId,
+          progressLogOkrId,
+          okrId,
+        });
+      }
+    };
+
+    resolveDbOkrId();
+    return () => {
+      alive = false;
+    };
+  }, [open, userId, objective, progressLogOkrId, okrId, projectId, departmentId, strategyId]);
 
   // 履歴ロード（content / score / status 版）
   useEffect(() => {
     const loadLogs = async () => {
-      if (!open || !userId || !progressLogOkrId) return;
+      if (!open || !userId || !resolvedProgressOkrId) return;
       setLoadingLogs(true);
       try {
         const { data, error } = await supabase
           .from('progress_logs')
           .select('id, created_at, content, score, status')
           .eq('user_id', userId)
-          .eq('okr_id', progressLogOkrId)
+          .eq('okr_id', resolvedProgressOkrId)
           .order('created_at', { ascending: false })
           .limit(50);
 
@@ -313,7 +397,7 @@ function ExecPanel(props: {
       }
     };
     loadLogs();
-  }, [open, userId, progressLogOkrId]);
+  }, [open, userId, resolvedProgressOkrId]);
 
   // モーダル open 時に store から score を初期化
   useEffect(() => {
@@ -334,7 +418,7 @@ function ExecPanel(props: {
       setNotice('⚠️ いずれかを入力してください。');
       return;
     }
-    if (!progressLogOkrId) {
+    if (!resolvedProgressOkrId) {
       setNotice('⚠️ このOKRはDBの実IDと未同期のため、進捗メモを保存できません。');
       return;
     }
@@ -349,15 +433,15 @@ function ExecPanel(props: {
         companyId: companyId ?? 'unknown',
         deptName: deptName ?? '未名',
         projectTitle: projectTitle ?? '未名',
-        okrId: progressLogOkrId,
+        okrId: resolvedProgressOkrId,
         krIds,
       });
 
-      console.log('[STAGE5-save-checkin] Before save:', { rating, okrId, progressLogOkrId });
+      console.log('[STAGE5-save-checkin] Before save:', { rating, okrId, progressLogOkrId, resolvedProgressOkrId });
 
       const { data: saved, error } = await saveProgressLog({
         userId,
-        okrId: progressLogOkrId,
+        okrId: resolvedProgressOkrId,
         content: embedMetadata(metadata, composed),
         score: rating ?? null,
       });
@@ -387,7 +471,7 @@ function ExecPanel(props: {
       setSaving(false);
       setTimeout(() => setNotice(''), 2000);
     }
-  }, [canCheckin, userId, okrId, progressLogOkrId, progressText, rating, helpRequest, companyId, deptName, projectTitle, krIds]);
+  }, [canCheckin, userId, okrId, progressLogOkrId, resolvedProgressOkrId, progressText, rating, helpRequest, companyId, deptName, projectTitle, krIds]);
 
   // 保存（フィードバック）
   const onSaveFeedback = useCallback(async () => {
@@ -399,7 +483,7 @@ function ExecPanel(props: {
       setNotice('⚠️ いずれかを入力してください。');
       return;
     }
-    if (!progressLogOkrId) {
+    if (!resolvedProgressOkrId) {
       setNotice('⚠️ このOKRはDBの実IDと未同期のため、フィードバックを保存できません。');
       return;
     }
@@ -412,15 +496,15 @@ function ExecPanel(props: {
         companyId: companyId ?? 'unknown',
         deptName: deptName ?? '未名',
         projectTitle: projectTitle ?? '未名',
-        okrId: progressLogOkrId,
+        okrId: resolvedProgressOkrId,
         krIds,
       });
 
-      console.log('[STAGE5-save-feedback] Before save:', { reviewScore, okrId, progressLogOkrId });
+      console.log('[STAGE5-save-feedback] Before save:', { reviewScore, okrId, progressLogOkrId, resolvedProgressOkrId });
 
       const { data: saved, error } = await saveProgressLog({
         userId,
-        okrId: progressLogOkrId,
+        okrId: resolvedProgressOkrId,
         content: embedMetadata(metadata, fbContent),
         score: reviewScore ?? null,
       });
@@ -449,7 +533,7 @@ function ExecPanel(props: {
       setSaving(false);
       setTimeout(() => setNotice(''), 2000);
     }
-  }, [canFeedback, userId, okrId, progressLogOkrId, reviewText, reviewScore, companyId, deptName, projectTitle, krIds]);
+  }, [canFeedback, userId, okrId, progressLogOkrId, resolvedProgressOkrId, reviewText, reviewScore, companyId, deptName, projectTitle, krIds]);
 
 
   const isFeedback = (row: LogRow) => (row.content || '').startsWith('[FB]');
@@ -1012,7 +1096,7 @@ function clampText(s: string, max = 34) {
  * ======================= */
 function ExecutionPageContent() {
   const { departments, editableCascadeResult } = useStrategyStore() as any;
-  const { companyId: scopeCompanyId, hydrated, setCompanyScope } = useStrategyStore();
+  const { companyId: scopeCompanyId, strategyId: scopeStrategyId, hydrated, setCompanyScope } = useStrategyStore() as any;
 
   const access = useAccess();
   const accessCompanyId: string | undefined =
@@ -1154,7 +1238,7 @@ function ExecutionPageContent() {
         projects,
       };
     });
-  }, [cascade]);
+  }, [cascade, scopeStrategyId]);
 
   // ===== okrId → impact スコアの map =====
   const okrTargetScores = useStrategyStore((s: any) => s.okrTargetScores ?? {});
@@ -1189,6 +1273,9 @@ function ExecutionPageContent() {
     keyResults: string[];
     okrId: string;
     progressOkrId?: string;
+    strategyId?: string;
+    departmentId?: string;
+    projectId?: string;
     companyId?: string;
     krIds?: string[];
     di?: number;
@@ -1313,6 +1400,9 @@ function ExecutionPageContent() {
                     keyResults: strictO.keyResults,
                     okrId: okrKey(di, pi, oi, okr),
                     progressOkrId: resolveProgressOkrId(okr),
+                    strategyId: scopeStrategyId,
+                    departmentId: typeof dept?.id === 'string' ? dept.id : undefined,
+                    projectId: typeof (proj as any)?.id === 'string' ? (proj as any).id : undefined,
                     companyId: scopeCompanyId,
                     krIds: [],
                   });
@@ -1338,6 +1428,9 @@ function ExecutionPageContent() {
                   keyResults: okrsV2.map((k: any) => String(k?.label ?? '')).filter(Boolean),
                   okrId: okrKey(di, pi, 0, { id: undefined }),
                   progressOkrId: undefined,
+                  strategyId: scopeStrategyId,
+                  departmentId: typeof dept?.id === 'string' ? dept.id : undefined,
+                  projectId: typeof (proj as any)?.id === 'string' ? (proj as any).id : undefined,
                   companyId: scopeCompanyId,
                   krIds: okrsV2.map((k: any) => k.id).filter(Boolean),
                 });
@@ -1353,7 +1446,7 @@ function ExecutionPageContent() {
       });
     });
     return items;
-  }, [cascade, isHydrating]);
+  }, [cascade, isHydrating, scopeStrategyId]);
 
   return (
     <main className="min-h-screen bg-gray-50 avoid-agent-dock">
@@ -1657,6 +1750,9 @@ function ExecutionPageContent() {
         keyResults={selected?.keyResults ?? []}
         okrId={selected?.okrId ?? ''}
         progressOkrId={selected?.progressOkrId}
+        strategyId={selected?.strategyId}
+        departmentId={selected?.departmentId}
+        projectId={selected?.projectId}
         companyId={selected?.companyId ?? ''}
         krIds={selected?.krIds ?? []}
         di={selected?.di}
