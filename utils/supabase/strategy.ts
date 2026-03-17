@@ -2326,7 +2326,7 @@ export async function saveProgressLog(
         error: {
           code: 'OKR_NOT_FOUND',
           message: `progress_logs に保存できません。okrs.id=${okrId} が存在しません。`,
-          details: 'STAGE5 が旧IDまたは画面用IDを渡している可能性があります。',
+          details: `STAGE5 が旧IDまたは画面用IDを渡している可能性があります。 projectId=${projectId ?? 'null'} departmentId=${departmentId ?? 'null'}`,
         },
       };
     }
