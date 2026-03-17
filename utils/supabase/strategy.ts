@@ -2310,6 +2310,27 @@ export async function saveProgressLog(
 
     const companyId = await resolveCompanyId(userId, companyIdOverride);
 
+    const { data: okrRow, error: okrLookupError } = await supabase
+      .from('okrs')
+      .select('id')
+      .eq('id', okrId)
+      .maybeSingle();
+
+    if (okrLookupError) {
+      return { data: null, error: extractErrorVerbose(okrLookupError) };
+    }
+
+    if (!okrRow?.id) {
+      return {
+        data: null,
+        error: {
+          code: 'OKR_NOT_FOUND',
+          message: `progress_logs に保存できません。okrs.id=${okrId} が存在しません。`,
+          details: 'STAGE5 が旧IDまたは画面用IDを渡している可能性があります。',
+        },
+      };
+    }
+
     const row: Record<string, any> = {
       user_id: userId,
       company_id: companyId,
