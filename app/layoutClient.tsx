@@ -771,10 +771,10 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       className={[
         'relative min-h-dvh overflow-hidden transition-[margin]',
         '[--left-w:0] [--right-w:0]',
-        // Sidebar 幅の段階化: lg:w-56 (14rem) → xl:w-64 (16rem) → 2xl:w-72 (18rem)
-        'lg:[--left-w:14rem] lg:[--right-w:16rem]',
-        'xl:[--left-w:16rem] xl:[--right-w:16rem]',
-        '2xl:[--left-w:18rem] 2xl:[--right-w:18rem]',
+        // Sidebar 幅の段階化: lg:w-64 (16rem) → xl:w-72 (18rem) → 2xl:w-80 (20rem)
+        'lg:[--left-w:16rem] lg:[--right-w:16rem]',
+        'xl:[--left-w:18rem] xl:[--right-w:16rem]',
+        '2xl:[--left-w:20rem] 2xl:[--right-w:18rem]',
       ].join(' ')}
     >
       {/* 左サイドバー */}
