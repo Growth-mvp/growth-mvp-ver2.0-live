@@ -169,7 +169,7 @@ echo $SUPABASE_SERVICE_ROLE_KEY
 ```bash
 # 確認
 curl -s https://yuerkbxpivdhaikrnsar.supabase.co/rest/v1/ \
-  -H "apikey: $NEXT_PUBLIC_SUPABASE_ANON_KEY" | jq .
+  -H "apikey: $NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY" | jq .
 ```
 
 ### ❌ `npm run rbac:e2e:min` が失敗
