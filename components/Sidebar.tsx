@@ -1,5 +1,4 @@
-﻿// /components/Sidebar.tsx
-'use client';
+﻿'use client';
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -21,7 +20,6 @@ import {
   X,
 } from 'lucide-react';
 
-/* ---------------- 小物 ---------------- */
 function AIcon({ children }: { children: React.ReactNode }) {
   return (
     <span className="inline-flex h-[18px] w-[18px] items-center justify-center opacity-75">
@@ -42,13 +40,10 @@ export default function Sidebar() {
 
   const [open, setOpen] = useState(false);
 
-  // 画面遷移で自動クローズ（モバイル想定）
   useEffect(() => {
     setOpen(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
-  // ESCで閉じる
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
@@ -64,7 +59,7 @@ export default function Sidebar() {
 
   return (
     <>
-      {/* ===== Mobile: Menu Button (lg未満だけ表示) ===== */}
+      {/* Mobile: Menu Button */}
       <button
         type="button"
         aria-label="メニューを開く"
@@ -75,7 +70,7 @@ export default function Sidebar() {
         メニュー
       </button>
 
-      {/* ===== Mobile: Backdrop ===== */}
+      {/* Mobile: Backdrop */}
       <div
         className={[
           'lg:hidden fixed inset-0 z-[55] bg-black/30 transition-opacity',
@@ -84,21 +79,15 @@ export default function Sidebar() {
         onClick={() => setOpen(false)}
       />
 
-      {/* ===== Sidebar (Desktop fixed / Mobile drawer) ===== */}
+      {/* Sidebar */}
       <aside
         className={[
-          // base
-          'z-[56] bg-gray-50 border-r border-gray-200 shadow-sm text-gray-800 flex flex-col',
-          // sizing
-          'w-64 md:w-72',
-          // desktop
-          'lg:fixed lg:top-0 lg:left-0 lg:h-screen',
-          // mobile drawer
-          'fixed top-0 left-0 h-screen lg:translate-x-0 transition-transform duration-200 ease-out',
+          'z-[56] h-full w-full bg-gray-50 border-r border-gray-200 shadow-sm text-gray-800 flex flex-col',
+          'lg:translate-x-0',
+          'fixed top-0 left-0 h-screen w-[16rem] max-w-[80vw] transition-transform duration-200 ease-out lg:static lg:h-full lg:max-w-none',
           open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
         ].join(' ')}
       >
-        {/* Mobile close button */}
         <div className="lg:hidden shrink-0 flex items-center justify-between border-b border-gray-200 px-4 py-3">
           <div className="text-sm font-semibold tracking-wide text-gray-700">メニュー</div>
           <button
@@ -111,7 +100,6 @@ export default function Sidebar() {
           </button>
         </div>
 
-        {/* ロゴ */}
         <div className="shrink-0 border-b border-gray-200 px-4 py-4">
           <Link href="/" aria-label="トップページへ" className="block no-underline">
             <img
@@ -122,7 +110,6 @@ export default function Sidebar() {
           </Link>
         </div>
 
-        {/* 認証行 */}
         <div className="shrink-0 px-4 py-3 border-b border-gray-200">
           {user ? (
             <div className={`flex items-center justify-between gap-2 text-gray-600 ${ITEM_TEXT_CLASS}`}>
@@ -149,7 +136,6 @@ export default function Sidebar() {
           )}
         </div>
 
-        {/* コンテンツ */}
         <div className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-6 overscroll-contain">
           <nav className="space-y-[18px]" role="navigation" aria-label="メインナビゲーション">
             <PillLink
@@ -201,7 +187,6 @@ export default function Sidebar() {
           </nav>
         </div>
 
-        {/* フッター */}
         <footer className={`shrink-0 border-t border-gray-200 px-4 py-3 text-gray-500 ${ITEM_TEXT_CLASS}`}>
           © 2025 GROWTH Platform
           {currentUserId ? ` · uid:${String(currentUserId).slice(0, 6)}…` : ''}
