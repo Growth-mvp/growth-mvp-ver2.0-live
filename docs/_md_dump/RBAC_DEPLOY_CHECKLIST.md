@@ -210,7 +210,7 @@ ORDER BY column_name;
 # Check .env.local has required variables
 echo "Checking environment variables..."
 [ -n "$NEXT_PUBLIC_SUPABASE_URL" ] && echo "✅ NEXT_PUBLIC_SUPABASE_URL" || echo "❌ MISSING"
-[ -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY" ] && echo "✅ NEXT_PUBLIC_SUPABASE_ANON_KEY" || echo "❌ MISSING"
+[ -n "$NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY" ] && echo "✅ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY" || echo "❌ MISSING"
 [ -n "$SUPABASE_SERVICE_ROLE_KEY" ] && echo "✅ SUPABASE_SERVICE_ROLE_KEY" || echo "❌ MISSING"
 [ -n "$OPENAI_MODEL" ] && echo "✅ OPENAI_MODEL" || echo "❌ MISSING"
 ```
