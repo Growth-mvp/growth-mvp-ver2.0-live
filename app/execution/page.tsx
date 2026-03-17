@@ -64,6 +64,35 @@ const okrKey = (d: number, p: number, o: number, okr?: any) => {
   return `okr-${d}-${p}-${o}`;
 };
 
+const isUuidLike = (v: any): v is string =>
+  typeof v === 'string' &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v.trim());
+
+const pickFirstUuid = (...values: any[]): string | undefined => {
+  for (const v of values) {
+    if (isUuidLike(v)) return v.trim();
+  }
+  return undefined;
+};
+
+/**
+ * progress_logs.okr_id に保存してよい「DBの okrs.id」を推定
+ * UI用 id とは分ける
+ */
+const resolveProgressOkrId = (okr?: any): string | undefined => {
+  if (!okr || typeof okr !== 'object') return undefined;
+
+  return pickFirstUuid(
+    okr?.dbOkrId,
+    okr?.db_okr_id,
+    okr?.okrDbId,
+    okr?.okr_db_id,
+    okr?.okrId,
+    okr?.okr_id,
+    okr?.id,
+  );
+};
+
 /** [object Object] を防ぐ：ストーリーが「章オブジェクト配列」でも「文字列」でも描画できるようにする */
 const normalizeStoryToText = (input: any): string => {
   if (!input) return '';
@@ -216,12 +245,27 @@ function ExecPanel(props: {
   objective: string;
   keyResults: string[];
   okrId: string;
+  progressOkrId?: string;
   companyId?: string;
   krIds?: string[];
   di?: number;
   pi?: number;
 }) {
-  const { open, onClose, userId, deptName, projectTitle, objective, keyResults, okrId, companyId, krIds, di, pi } = props;
+  const {
+    open,
+    onClose,
+    userId,
+    deptName,
+    projectTitle,
+    objective,
+    keyResults,
+    okrId,
+    progressOkrId,
+    companyId,
+    krIds,
+    di,
+    pi,
+  } = props;
 
   const access = useAccess();
   const canCheckin = !!userId;
@@ -246,17 +290,19 @@ function ExecPanel(props: {
     return scores[okrId] ?? 0;
   };
 
+  const progressLogOkrId = progressOkrId?.trim() || '';
+
   // 履歴ロード（content / score / status 版）
   useEffect(() => {
     const loadLogs = async () => {
-      if (!open || !userId || !okrId) return;
+      if (!open || !userId || !progressLogOkrId) return;
       setLoadingLogs(true);
       try {
         const { data, error } = await supabase
           .from('progress_logs')
           .select('id, created_at, content, score, status')
           .eq('user_id', userId)
-          .eq('okr_id', okrId)
+          .eq('okr_id', progressLogOkrId)
           .order('created_at', { ascending: false })
           .limit(50);
 
@@ -267,7 +313,7 @@ function ExecPanel(props: {
       }
     };
     loadLogs();
-  }, [open, userId, okrId]);
+  }, [open, userId, progressLogOkrId]);
 
   // モーダル open 時に store から score を初期化
   useEffect(() => {
@@ -288,6 +334,10 @@ function ExecPanel(props: {
       setNotice('⚠️ いずれかを入力してください。');
       return;
     }
+    if (!progressLogOkrId) {
+      setNotice('⚠️ このOKRはDBの実IDと未同期のため、進捗メモを保存できません。');
+      return;
+    }
     setSaving(true);
     setNotice('');
     try {
@@ -299,15 +349,15 @@ function ExecPanel(props: {
         companyId: companyId ?? 'unknown',
         deptName: deptName ?? '未名',
         projectTitle: projectTitle ?? '未名',
-        okrId,
+        okrId: progressLogOkrId,
         krIds,
       });
 
-      console.log('[STAGE5-save-checkin] Before save:', { rating, okrId });
+      console.log('[STAGE5-save-checkin] Before save:', { rating, okrId, progressLogOkrId });
 
       const { data: saved, error } = await saveProgressLog({
         userId,
-        okrId,
+        okrId: progressLogOkrId,
         content: embedMetadata(metadata, composed),
         score: rating ?? null,
       });
@@ -337,7 +387,7 @@ function ExecPanel(props: {
       setSaving(false);
       setTimeout(() => setNotice(''), 2000);
     }
-  }, [canCheckin, userId, okrId, progressText, rating, helpRequest]);
+  }, [canCheckin, userId, okrId, progressLogOkrId, progressText, rating, helpRequest, companyId, deptName, projectTitle, krIds]);
 
   // 保存（フィードバック）
   const onSaveFeedback = useCallback(async () => {
@@ -349,6 +399,10 @@ function ExecPanel(props: {
       setNotice('⚠️ いずれかを入力してください。');
       return;
     }
+    if (!progressLogOkrId) {
+      setNotice('⚠️ このOKRはDBの実IDと未同期のため、フィードバックを保存できません。');
+      return;
+    }
     setSaving(true);
     setNotice('');
     try {
@@ -358,15 +412,15 @@ function ExecPanel(props: {
         companyId: companyId ?? 'unknown',
         deptName: deptName ?? '未名',
         projectTitle: projectTitle ?? '未名',
-        okrId,
+        okrId: progressLogOkrId,
         krIds,
       });
 
-      console.log('[STAGE5-save-feedback] Before save:', { reviewScore, okrId });
+      console.log('[STAGE5-save-feedback] Before save:', { reviewScore, okrId, progressLogOkrId });
 
       const { data: saved, error } = await saveProgressLog({
         userId,
-        okrId,
+        okrId: progressLogOkrId,
         content: embedMetadata(metadata, fbContent),
         score: reviewScore ?? null,
       });
@@ -395,7 +449,7 @@ function ExecPanel(props: {
       setSaving(false);
       setTimeout(() => setNotice(''), 2000);
     }
-  }, [canFeedback, userId, okrId, reviewText, reviewScore]);
+  }, [canFeedback, userId, okrId, progressLogOkrId, reviewText, reviewScore, companyId, deptName, projectTitle, krIds]);
 
 
   const isFeedback = (row: LogRow) => (row.content || '').startsWith('[FB]');
@@ -1086,6 +1140,7 @@ function ExecutionPageContent() {
             objective,
             keyResults,
             okrId: okrKey(di, pi, oIndex, okr ?? { id: undefined }),
+            progressOkrId: resolveProgressOkrId(okr),
           },
           projForCard: { ...(proj as any), title: strictProj.title },
         };
@@ -1133,6 +1188,7 @@ function ExecutionPageContent() {
     objective: string;
     keyResults: string[];
     okrId: string;
+    progressOkrId?: string;
     companyId?: string;
     krIds?: string[];
     di?: number;
@@ -1256,6 +1312,7 @@ function ExecutionPageContent() {
                     objective: strictO.objective,
                     keyResults: strictO.keyResults,
                     okrId: okrKey(di, pi, oi, okr),
+                    progressOkrId: resolveProgressOkrId(okr),
                     companyId: scopeCompanyId,
                     krIds: [],
                   });
@@ -1280,6 +1337,7 @@ function ExecutionPageContent() {
                   objective: '構造化KRに基づく実行（自動生成）',
                   keyResults: okrsV2.map((k: any) => String(k?.label ?? '')).filter(Boolean),
                   okrId: okrKey(di, pi, 0, { id: undefined }),
+                  progressOkrId: undefined,
                   companyId: scopeCompanyId,
                   krIds: okrsV2.map((k: any) => k.id).filter(Boolean),
                 });
@@ -1598,6 +1656,7 @@ function ExecutionPageContent() {
         objective={selected?.objective ?? ''}
         keyResults={selected?.keyResults ?? []}
         okrId={selected?.okrId ?? ''}
+        progressOkrId={selected?.progressOkrId}
         companyId={selected?.companyId ?? ''}
         krIds={selected?.krIds ?? []}
         di={selected?.di}
