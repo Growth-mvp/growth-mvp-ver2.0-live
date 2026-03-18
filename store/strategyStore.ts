@@ -910,6 +910,19 @@ function buildSavePayload(s: StrategyState) {
         timestamp: new Date().toISOString(),
       });
     }
+
+    // ★ TASK: 監査地点3「saveStrategyData に渡す直前（buildSavePayload返却時）」
+    const { summarizeDepartmentProjects, countTotalProjects } = require('@/utils/supabase/strategy');
+    const auditSummary = summarizeDepartmentProjects(sanitizedDepts);
+    const totalProjects = countTotalProjects(sanitizedDepts);
+    console.log('[diag][departments-projects]', {
+      point: 'before-save',
+      strategyId: s.strategyId,
+      timestamp: new Date().toISOString(),
+      departmentCount: sanitizedDepts.length,
+      totalProjectsCount: totalProjects,
+      departments: auditSummary,
+    });
   }
 
   return pruneUndefinedDeep(base);
@@ -3105,6 +3118,45 @@ export const useStrategyStore = create<StrategyState>()(
                 if (DEBUG) console.log('[strategyStore] saveStrategyData: payload effectively empty, clear dirty');
                 set({ dirty: false });
                 return { ok: false, skipped: true, reason: 'payload_empty' };
+              }
+
+              // ★ CRITICAL GUARD: 保存時の projects 欠落検出（根本原因対策）
+              // 【背景】
+              // - 空の projects で保存される事故を防ぐ
+              // - normalize や shallow overwrite で projects が消えていないか検証
+              // 【実装】
+              // - store の departments projects 件数と payload のそれを比較
+              // - 大きく減少している場合は警告ログを出す
+              const { countTotalProjects } = require('@/utils/supabase/strategy');
+              const stateDeptCount = Array.isArray(state.departments) ? state.departments.length : 0;
+              const stateProjectsCount = countTotalProjects(state.departments ?? []);
+              const payloadDeptCount = Array.isArray((payload as any).departments) ? (payload as any).departments.length : 0;
+              const payloadProjectsCount = countTotalProjects((payload as any).departments ?? []);
+
+              if (stateProjectsCount > 0 && payloadProjectsCount === 0) {
+                console.error('[SAVE_BLOCKED] CRITICAL: projects が消えている（根本原因：shallow overwrite或いは normalize の破壊）', {
+                  reason: 'projects_lost_in_payload',
+                  stateDeptCount,
+                  stateProjectsCount,
+                  payloadDeptCount,
+                  payloadProjectsCount,
+                  timestamp: new Date().toISOString(),
+                });
+                // projects が完全に消えている場合はスキップ（保存させない）
+                return { ok: false, skipped: true, reason: 'projects_lost_in_payload' };
+              }
+
+              // projects が著しく減少している場合も警告（例: 5個 → 0個、10個 → 1個等）
+              if (stateProjectsCount > payloadProjectsCount && payloadProjectsCount < stateProjectsCount * 0.5) {
+                console.warn('[SAVE_WARN] projects が著しく減少している（確認推奨）', {
+                  stateDeptCount,
+                  stateProjectsCount,
+                  payloadDeptCount,
+                  payloadProjectsCount,
+                  reduction_pct: Math.round((1 - payloadProjectsCount / stateProjectsCount) * 100),
+                  reason: 'potential_projects_loss',
+                  timestamp: new Date().toISOString(),
+                });
               }
 
               // ★ TASK B: Diagnostic log for answers12 in hash material
