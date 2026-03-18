@@ -405,7 +405,7 @@ function normalizeDepartment(d: AnyDepartment, strategyId?: string): Department 
   }
 
   // ★ NEW: Normalize projects with strategyId and departmentId context
-  const projects = projectsRaw.map((p) => normalizeProject(p, strategyId, deptId, 'existing'));
+  const projects = projectsRaw.map((p: any) => normalizeProject(p, strategyId, deptId, 'existing'));
 
   // ★ lanes 正規化（existing/new の projects を normalizeProject を通す）
   const lanes =
@@ -413,11 +413,11 @@ function normalizeDepartment(d: AnyDepartment, strategyId?: string): Department 
       ? {
           existing:
             obj.lanes.existing && typeof obj.lanes.existing === 'object' && Array.isArray(obj.lanes.existing.projects)
-              ? { projects: obj.lanes.existing.projects.map((p) => normalizeProject(p, strategyId, deptId, 'existing')) }
+              ? { projects: obj.lanes.existing.projects.map((p: any) => normalizeProject(p, strategyId, deptId, 'existing')) }
               : undefined,
           new:
             obj.lanes.new && typeof obj.lanes.new === 'object' && Array.isArray(obj.lanes.new.projects)
-              ? { projects: obj.lanes.new.projects.map((p) => normalizeProject(p, strategyId, deptId, 'new')) }
+              ? { projects: obj.lanes.new.projects.map((p: any) => normalizeProject(p, strategyId, deptId, 'new')) }
               : undefined,
         }
       : undefined;
@@ -438,6 +438,24 @@ function normalizeDepartment(d: AnyDepartment, strategyId?: string): Department 
   if (answers2 && answers2.length) base.answers2 = answers2;
   if (lanes && (lanes.existing || lanes.new)) base.lanes = lanes;
   if (segmentName !== undefined) base.segmentName = segmentName;
+
+  // ★ CRITICAL GUARD（根本原因対策）: normalize でも projects 保護
+  // 【背景】
+  // - API から projects = [] で来ても lanes に projects がある場合がある
+  // - projects が empty かつ lanes に projects がある場合は lanes から復元する
+  // - これにより「空の projects で保存される」事故を防ぐ
+  const lanesProjects = [];
+  if (lanes?.existing?.projects && Array.isArray(lanes.existing.projects)) {
+    lanesProjects.push(...lanes.existing.projects);
+  }
+  if (lanes?.new?.projects && Array.isArray(lanes.new.projects)) {
+    lanesProjects.push(...lanes.new.projects);
+  }
+
+  // projects が空で lanes に projects がある場合のみ復元
+  if ((!Array.isArray(base.projects) || base.projects.length === 0) && lanesProjects.length > 0) {
+    base.projects = lanesProjects;
+  }
 
   return base as Department;
 }
