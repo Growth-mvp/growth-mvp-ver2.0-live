@@ -3536,11 +3536,81 @@ export const useStrategyStore = create<StrategyState>()(
           const patchRev = typeof patch.revision === 'number' ? patch.revision : undefined;
           const isStale = typeof patchRev === 'number' && typeof curRev === 'number' && patchRev < curRev;
 
+          // ★ TRACE POINT 9: refetch - server response (patch) の departments/projects
+          const patchDepts = Array.isArray((patch as any).departments) ? (patch as any).departments : [];
+          const patchProjCount = patchDepts.reduce((s: number, d: any) => {
+            return s + (Array.isArray(d?.projects) ? d.projects.length : 0);
+          }, 0);
+          const patchSummary = patchDepts.map((d: any, di: number) => ({
+            index: di,
+            name: d?.name,
+            projectCount: Array.isArray(d?.projects) ? d.projects.length : 0,
+            projectTitles: (d?.projects ?? []).map((p: any) => p?.title),
+          }));
+          if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
+            console.log('[TRACE_PROJECTS][refetchFromServer][server-response]', {
+              strategyId: (patch as any)?.strategyId,
+              timestamp: new Date().toISOString(),
+              totalDepartments: patchDepts.length,
+              totalProjects: patchProjCount,
+              departments: patchSummary,
+              wasDirty,
+            });
+          }
+
           if (wasDirty) {
+            // ★ TRACE POINT 10a: extractServerDecidedPatch 前 - base state
+            const baseDepts = Array.isArray((get() as any).departments) ? (get() as any).departments : [];
+            const baseProjCount = baseDepts.reduce((s: number, d: any) => {
+              return s + (Array.isArray(d?.projects) ? d.projects.length : 0);
+            }, 0);
+            if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
+              console.log('[TRACE_PROJECTS][refetchFromServer][before-patch-wasDirty]', {
+                strategyId: (patch as any)?.strategyId,
+                timestamp: new Date().toISOString(),
+                totalDepartments: baseDepts.length,
+                totalProjects: baseProjCount,
+                source: 'local-base',
+              });
+            }
+
             set((s) => {
               const base = s as StrategyState;
+
+              // ★ TRACE POINT 10a-detailed: base state の departments/projects
+              const baseDepts_detailed = Array.isArray((base as any).departments) ? (base as any).departments : [];
+              const baseProjCount_detailed = baseDepts_detailed.reduce((s: number, d: any) => {
+                return s + (Array.isArray(d?.projects) ? d.projects.length : 0);
+              }, 0);
+              if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
+                console.log('[TRACE_PROJECTS][refetchFromServer][set-wasDirty-base-before-merge]', {
+                  strategyId: (patch as any)?.strategyId,
+                  timestamp: new Date().toISOString(),
+                  totalDepartments: baseDepts_detailed.length,
+                  totalProjects: baseProjCount_detailed,
+                });
+              }
+
               const minimal = extractServerDecidedPatch(patch as any, base);
-              return {
+
+              // ★ TRACE POINT 10b: extractServerDecidedPatch 後 - minimal に departments があるか
+              const minimalHasDepts = 'departments' in minimal;
+              const minimalDepts = Array.isArray((minimal as any).departments) ? (minimal as any).departments : [];
+              const minimalProjCount = minimalDepts.reduce((s: number, d: any) => {
+                return s + (Array.isArray(d?.projects) ? d.projects.length : 0);
+              }, 0);
+              if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
+                console.log('[TRACE_PROJECTS][refetchFromServer][after-extractPatch-wasDirty]', {
+                  strategyId: (patch as any)?.strategyId,
+                  timestamp: new Date().toISOString(),
+                  minimalHasDepartments: minimalHasDepts,
+                  totalDepartments: minimalDepts.length,
+                  totalProjects: minimalProjCount,
+                  minimalKeys: Object.keys(minimal).sort(),
+                });
+              }
+
+              const merged = {
                 ...base,
                 ...minimal,
                 companyId: s.pendingCompanyId ?? s.companyId,
@@ -3552,6 +3622,23 @@ export const useStrategyStore = create<StrategyState>()(
                 answers12: (minimal as any).answers12 ?? (base as any).answers12,
                 winPatternsCandidate: (minimal as any).winPatternsCandidate ?? (base as any).winPatternsCandidate,
               };
+
+              // ★ TRACE POINT 10c-detailed: merged state の departments/projects
+              const mergedDepts = Array.isArray((merged as any).departments) ? (merged as any).departments : [];
+              const mergedProjCount = mergedDepts.reduce((s: number, d: any) => {
+                return s + (Array.isArray(d?.projects) ? d.projects.length : 0);
+              }, 0);
+              if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
+                console.log('[TRACE_PROJECTS][refetchFromServer][set-wasDirty-merged]', {
+                  strategyId: (patch as any)?.strategyId,
+                  timestamp: new Date().toISOString(),
+                  totalDepartments: mergedDepts.length,
+                  totalProjects: mergedProjCount,
+                  delta: mergedProjCount - baseProjCount_detailed,
+                });
+              }
+
+              return merged as any;
             });
 
             const after = get();
@@ -3566,6 +3653,22 @@ export const useStrategyStore = create<StrategyState>()(
               /* ★ FIX: Enable grace period for wasDirty=true refetch path */
               lastServerSyncAt: Date.now(),
             });
+
+            // ★ TRACE POINT 11: refetch final state after patch applied (wasDirty=true)
+            if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
+              const finalState = get();
+              const finalDepts = Array.isArray(finalState.departments) ? finalState.departments : [];
+              const finalProjCount = finalDepts.reduce((s: number, d: any) => {
+                return s + (Array.isArray(d?.projects) ? d.projects.length : 0);
+              }, 0);
+              console.log('[TRACE_PROJECTS][refetchFromServer][final-state-wasDirty-true]', {
+                strategyId: finalState.strategyId,
+                timestamp: new Date().toISOString(),
+                totalDepartments: finalDepts.length,
+                totalProjects: finalProjCount,
+                branch: 'wasDirty=true',
+              });
+            }
 
             /* ★ TASK 15-C: restore 完了後の state を監査ログ出力（STAGE2 反映確認） */
             if (DEBUG || process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
@@ -3633,6 +3736,24 @@ export const useStrategyStore = create<StrategyState>()(
             });
 
             get().setHydrated(rev, hash);
+
+            // ★ TRACE POINT 12: refetch final state after patch applied (wasDirty=false)
+            if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
+              const finalState = get();
+              const finalDepts = Array.isArray(finalState.departments) ? finalState.departments : [];
+              const finalProjCount = finalDepts.reduce((s: number, d: any) => {
+                return s + (Array.isArray(d?.projects) ? d.projects.length : 0);
+              }, 0);
+              console.log('[TRACE_PROJECTS][refetchFromServer][final-state-wasDirty-false]', {
+                strategyId: finalState.strategyId,
+                timestamp: new Date().toISOString(),
+                totalDepartments: finalDepts.length,
+                totalProjects: finalProjCount,
+                branch: 'wasDirty=false',
+                isSwitchingCompany,
+                isStale,
+              });
+            }
 
             /* ★ TASK 15-C: restore 完了後の state を監査ログ出力（STAGE2 反映確認） */
             if (DEBUG || process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
