@@ -19,6 +19,48 @@ const headStr = (s: any) => (typeof s === 'string' ? s.slice(0, 30) : '');
 const lenStr = (s: any) => (typeof s === 'string' ? s.length : 0);
 
 /* ============================================================
+ * 診断用ヘルパー関数（TASK: 根本原因調査）
+ * departments[].projects の欠落を追跡する
+ * ========================================================== */
+export function summarizeDepartmentProjects(departments: any[] = []) {
+  return departments.map((d) => ({
+    id: d?.id,
+    name: d?.name,
+    projectCount: Array.isArray(d?.projects) ? d.projects.length : -1,
+    projects: (d?.projects ?? []).map((p: any) => ({
+      id: p?.id,
+      title: p?.title,
+      okrCount: Array.isArray(p?.okrs) ? p.okrs.length : 0,
+    })),
+  }));
+}
+
+export function countTotalProjects(departments: any[] = []) {
+  return departments.reduce((sum, d) => {
+    return sum + (Array.isArray(d?.projects) ? d.projects.length : 0);
+  }, 0);
+}
+
+export function auditDepartmentProjects(
+  departments: any[] = [],
+  point: string,
+  strategyId?: string
+) {
+  const summary = summarizeDepartmentProjects(departments);
+  const totalProjects = countTotalProjects(departments);
+  const deptCount = Array.isArray(departments) ? departments.length : 0;
+
+  console.log('[diag][departments-projects]', {
+    point,
+    strategyId,
+    timestamp: new Date().toISOString(),
+    departmentCount: deptCount,
+    totalProjectsCount: totalProjects,
+    departments: summary,
+  });
+}
+
+/* ============================================================
  * PGRST204 フォールバック（列が未作成環境対応）
  * ========================================================== */
 function extractColumnFromPGRST204(errorMsg: string): string | null {
@@ -569,6 +611,16 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
     });
   }
 
+  // ★ TASK: 監査地点1「Supabase から read した直後」
+  const rawDepts = safeRow?.departments ?? [];
+  if (DEBUG) {
+    auditDepartmentProjects(
+      Array.isArray(rawDepts) ? rawDepts : [],
+      'db-read-raw',
+      safeRow?.id
+    );
+  }
+
   for (const [camel, snake] of Object.entries(FIELD_MAP)) {
     if (Object.prototype.hasOwnProperty.call(safeRow, snake)) {
       out[camel] = safeRow[snake];
@@ -897,6 +949,15 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
       okrs: ensureOkrsNormalized(p.okrs), // okrs[].keyResults も object → string[] に矯正
     })),
   }));
+
+  // ★ TASK: 監査地点2「hydrate / normalize 後に store へ入れる直前」
+  if (DEBUG) {
+    auditDepartmentProjects(
+      ensureArray((normalized as any).departments),
+      'after-normalize-before-store',
+      (normalized as any)?.id
+    );
+  }
 
   // ★ 修正：normalizeStrategyData で消えた csvFinanceData/segmentPL/segmentBS を復元
   // normalize では配列型のみを認識するため、Record型のsegmentPL/segmentBSが失われる
