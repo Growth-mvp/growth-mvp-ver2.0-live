@@ -940,6 +940,25 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
     }
   }
 
+  // ★ TRACE POINT 6: kpis/okrs normalization 前
+  const beforeKpisNorm = ensureArray((normalized as any).departments);
+  const beforeKpisNormSummary = beforeKpisNorm.map((d: any, di: number) => ({
+    index: di,
+    name: d?.name,
+    projectCount: Array.isArray(d?.projects) ? d.projects.length : 0,
+    projectTitles: (d?.projects ?? []).map((p: any) => p?.title),
+  }));
+  const totalProjectsBeforeKpisNorm = beforeKpisNormSummary.reduce((s, d) => s + d.projectCount, 0);
+  if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
+    console.log('[TRACE_PROJECTS][buildStateFromDbRow][before-kpis-norm]', {
+      strategyId: (normalized as any)?.id,
+      timestamp: new Date().toISOString(),
+      totalDepartments: beforeKpisNorm.length,
+      totalProjects: totalProjectsBeforeKpisNorm,
+      departments: beforeKpisNormSummary,
+    });
+  }
+
   // ★ TASK B: load 時に project.kpis と okrs[].keyResults を string[] に正規化（object が混在していた時の救済）
   (normalized as any).departments = ensureArray((normalized as any).departments).map((d: any) => ({
     ...d,
@@ -949,6 +968,26 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
       okrs: ensureOkrsNormalized(p.okrs), // okrs[].keyResults も object → string[] に矯正
     })),
   }));
+
+  // ★ TRACE POINT 7: kpis/okrs normalization 後
+  const afterKpisNorm = ensureArray((normalized as any).departments);
+  const afterKpisNormSummary = afterKpisNorm.map((d: any, di: number) => ({
+    index: di,
+    name: d?.name,
+    projectCount: Array.isArray(d?.projects) ? d.projects.length : 0,
+    projectTitles: (d?.projects ?? []).map((p: any) => p?.title),
+  }));
+  const totalProjectsAfterKpisNorm = afterKpisNormSummary.reduce((s, d) => s + d.projectCount, 0);
+  if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
+    console.log('[TRACE_PROJECTS][buildStateFromDbRow][after-kpis-norm]', {
+      strategyId: (normalized as any)?.id,
+      timestamp: new Date().toISOString(),
+      totalDepartments: afterKpisNorm.length,
+      totalProjects: totalProjectsAfterKpisNorm,
+      dropped: totalProjectsBeforeKpisNorm - totalProjectsAfterKpisNorm,
+      departments: afterKpisNormSummary,
+    });
+  }
 
   // ★ TASK: 監査地点2「hydrate / normalize 後に store へ入れる直前」
   if (DEBUG) {
@@ -1072,6 +1111,25 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   (normalized as any).strategyId = strategyId;
   (normalized as any).companyId = companyId;
   (normalized as any).updatedAt = updatedAt;
+
+  // ★ TRACE POINT 8: buildStateFromDbRow 返却直前
+  const finalDepts = ensureArray((normalized as any).departments);
+  const finalDeptsSummary = finalDepts.map((d: any, di: number) => ({
+    index: di,
+    name: d?.name,
+    projectCount: Array.isArray(d?.projects) ? d.projects.length : 0,
+    projectTitles: (d?.projects ?? []).map((p: any) => p?.title),
+  }));
+  const totalProjectsFinal = finalDeptsSummary.reduce((s, d) => s + d.projectCount, 0);
+  if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
+    console.log('[TRACE_PROJECTS][buildStateFromDbRow][return-value]', {
+      strategyId,
+      timestamp: new Date().toISOString(),
+      totalDepartments: finalDepts.length,
+      totalProjects: totalProjectsFinal,
+      departments: finalDeptsSummary,
+    });
+  }
 
   return { ...(normalized as any), revision };
 }
