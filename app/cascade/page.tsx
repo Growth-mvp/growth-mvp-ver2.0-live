@@ -2245,6 +2245,27 @@ useEffect(() => {
           method: 'POST',
           json: payload,
         });
+
+        // ★ TRACE POINT 13: API response received
+        if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1' && data?.departments) {
+          const apiDepts = Array.isArray(data.departments) ? data.departments : [];
+          const apiProjCount = apiDepts.reduce((s: number, d: any) => {
+            return s + (Array.isArray(d?.projects) ? d.projects.length : 0);
+          }, 0);
+          const apiSummary = apiDepts.map((d: any, di: number) => ({
+            index: di,
+            name: d?.name,
+            projectCount: Array.isArray(d?.projects) ? d.projects.length : 0,
+            projectTitles: (d?.projects ?? []).map((p: any) => p?.title),
+          }));
+          console.log('[TRACE_PROJECTS][cascade][api-response]', {
+            strategyId: useStrategyStore.getState().strategyId,
+            timestamp: new Date().toISOString(),
+            totalDepartments: apiDepts.length,
+            totalProjects: apiProjCount,
+            departments: apiSummary,
+          });
+        }
       } catch (e) {
         if (e instanceof AuthFetchError) {
           if (e.code === 'AUTH_NO_SESSION') {
@@ -2299,6 +2320,20 @@ useEffect(() => {
       // ★ lane cache をリロードに耐えるよう sessionStorage へ退避
       persistLaneCache();
 
+      // ★ TRACE POINT 14: before pushToStore
+      const beforePushDepts = useStrategyStore.getState().departments as Department[] | undefined;
+      const beforePushProjCount = (Array.isArray(beforePushDepts) ? beforePushDepts : []).reduce((s: number, d: any) => {
+        return s + (Array.isArray(d?.projects) ? d.projects.length : 0);
+      }, 0);
+      if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
+        console.log('[TRACE_PROJECTS][cascade][before-pushToStore]', {
+          strategyId: useStrategyStore.getState().strategyId,
+          timestamp: new Date().toISOString(),
+          totalDepartments: Array.isArray(beforePushDepts) ? beforePushDepts.length : 0,
+          totalProjects: beforePushProjCount,
+        });
+      }
+
       pushToStore((prev) => {
         const list = [...prev];
         const d = list[index];
@@ -2346,8 +2381,20 @@ useEffect(() => {
         return list;
       });
 
-      // ★ TASK C: 生成直後に setDepartments が成功したか確認ログ
+      // ★ TRACE POINT 15: after pushToStore
       const afterSetDepts = useStrategyStore.getState().departments as Department[] | undefined;
+      const afterPushProjCount = (Array.isArray(afterSetDepts) ? afterSetDepts : []).reduce((s: number, d: any) => {
+        return s + (Array.isArray(d?.projects) ? d.projects.length : 0);
+      }, 0);
+      if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
+        console.log('[TRACE_PROJECTS][cascade][after-pushToStore]', {
+          strategyId: useStrategyStore.getState().strategyId,
+          timestamp: new Date().toISOString(),
+          totalDepartments: Array.isArray(afterSetDepts) ? afterSetDepts.length : 0,
+          totalProjects: afterPushProjCount,
+          dropped: beforePushProjCount - afterPushProjCount,
+        });
+      }
 
       setNotice(`✅ ${dept.name} のミッション・プロジェクト・KPI案を更新しました`);
 
@@ -2559,6 +2606,27 @@ useEffect(() => {
         <section>{VisualView}</section>
       ) : (
         <section className="space-y-6">
+          {/* ★ TRACE POINT 16: render直前 - departments totalProjects */}
+          {process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1' && (() => {
+            const renderDepts = Array.isArray(departments) ? departments : [];
+            const renderProjCount = renderDepts.reduce((s: number, d: any) => {
+              return s + (Array.isArray(d?.projects) ? d.projects.length : 0);
+            }, 0);
+            const renderSummary = renderDepts.map((d: any, di: number) => ({
+              index: di,
+              name: d?.name,
+              projectCount: Array.isArray(d?.projects) ? d.projects.length : 0,
+              projectTitles: (d?.projects ?? []).map((p: any) => p?.title),
+            }));
+            console.log('[TRACE_PROJECTS][cascade][render-direct-before]', {
+              strategyId,
+              timestamp: new Date().toISOString(),
+              totalDepartments: renderDepts.length,
+              totalProjects: renderProjCount,
+              departments: renderSummary,
+            });
+            return null;
+          })()}
           {departments.map((dept: Department, index: number) => {
             const editableDept = canEditDept();
             const L = loading[index] ?? {};
@@ -2584,6 +2652,18 @@ useEffect(() => {
             // ★STAGE3軽量化：lanes が存在する場合は lanes から、なければ dept.projects を使用（重複防止）
             // ★ STEP 1修正：source of truth を dept.projects のみに統一（lanes は参考表示に分離）
             const deptProjects = (dept.projects as Project[] | undefined) ?? [];
+
+            // ★ TRACE POINT 17: render loop 内 - 各 department card の deptProjects 件数
+            if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
+              console.log('[TRACE_PROJECTS][cascade][render-dept-card]', {
+                strategyId,
+                timestamp: new Date().toISOString(),
+                deptIndex: index,
+                deptName: dept.name,
+                deptProjectCount: deptProjects.length,
+                deptProjectTitles: deptProjects.map((p: any) => p?.title),
+              });
+            }
 
             return (
               <div key={`e-${dept.name}-${index}`} className="p-6 border rounded-3xl bg-white/70 backdrop-blur-sm shadow-sm">
