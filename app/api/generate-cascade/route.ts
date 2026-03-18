@@ -4080,6 +4080,31 @@ ${secondPassDeptBlock}
               const prefixedExistingProjects = safeExistingProjects.map(stripAllAiPrefixes);
               const prefixedNewProjects = safeNewProjects.map(stripAllAiPrefixes);
 
+              // ★ CRITICAL FIX（根本原因修正）: projects に lanes を統合（canonical source を projects に寄せる）
+              // 【背景】
+              // - 旧動作: department.projects = [] を返していた（重複防止のため lanes 分離）
+              // - 問題: 後続処理（save/hydrate）で projects が canonical source として扱われるため、
+              //        空の projects がそのまま DB に保存されていた
+              // - 修正: API返却時点で lanes から flatten したプロジェクト配列を projects に入れる
+              // 【実装】
+              // - mergedProjects = [...existingProjects, ...newProjects] でflat化
+              // - lanes は後方互換のため残す（UI が参考表示で使用可能）
+              // - projectIdベースで dedupe（重複削除）
+              const mergedProjects = [...prefixedExistingProjects, ...prefixedNewProjects];
+
+              // dedupe by project.id or title（安全側）
+              const seenIds = new Set<string>();
+              const seenTitles = new Set<string>();
+              const dedupedProjects = mergedProjects.filter((p: any) => {
+                const id = p?.id ?? p?.title ?? '';
+                const title = p?.title ?? '';
+                if (!id && !title) return false; // id/title両方ないなら除外
+                if (seenIds.has(id) || seenTitles.has(title)) return false;
+                if (id) seenIds.add(id);
+                seenTitles.add(title);
+                return true;
+              });
+
               return {
                 name,
                 missionDraft: cleanedMissionDraft,
@@ -4094,9 +4119,10 @@ ${secondPassDeptBlock}
                   },
                 },
 
-                // ★ API安全策：lanes が返せるなら projects は空（重複防止）
-                // 後方互換は x-cascade-shape ヘッダで判定して UI側が切り分ける
-                projects: [],
+                // ★ CRITICAL FIX: projects に lanes を統合したフラット配列を返す（canonical source）
+                // 旧: projects: [] だったため projects が空のまま DB 保存されていた（根本原因）
+                // 新: lanes から統合したプロジェクト配列を返す（title/okrs/owner等の主要フィールドを保持）
+                projects: dedupedProjects,
 
                 needsCollab: trimList(d?.needsCollab, 6),
                 stopList: trimList(d?.stopList, 6),
