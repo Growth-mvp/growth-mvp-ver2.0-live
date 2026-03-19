@@ -4,7 +4,7 @@
 import { useMemo, useCallback, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
-import type { FinanceSummaryRow, StrategyState } from '@/store/strategyStore';
+import type { FinanceSummaryRow } from '@/store/strategyStore';
 import type { ValueAnalysis, BusinessSegment, FinancePLRow, FinanceBSRow } from '@/types/strategy';
 
 /* ===============================
@@ -451,7 +451,6 @@ function PortfolioMatrix({
     return out;
   }, [names, segmentPL]);
 
-  // ★ 修正：null を返さず、push方式で厳密に PortfolioPoint[] を構築（TSエラー解消）
   const points = useMemo<PortfolioPoint[]>(() => {
     const out: PortfolioPoint[] = [];
 
@@ -484,17 +483,14 @@ function PortfolioMatrix({
     return out;
   }, [names, segmentsVA, latestRevenueBySeg]);
 
-  const xThreshold = useMemo(() => median(points.map((p) => p.growthPct)), [points]);
-  const yThreshold = useMemo(() => median(points.map((p) => p.marginPct)), [points]);
-
   const radiusByName = useMemo(() => {
     const vals = points.map((p) => (Number.isFinite(p.latestRevenue as any) ? Number(p.latestRevenue) : 0)).filter((v) => v > 0);
 
     const min = vals.length ? Math.min(...vals) : 0;
     const max = vals.length ? Math.max(...vals) : 0;
 
-    const rMin = 4;
-    const rMax = 14;
+    const rMin = 8;
+    const rMax = 18;
 
     const scale = (v: number) => {
       if (!Number.isFinite(v) || v <= 0 || max <= 0) return rMin;
@@ -508,71 +504,88 @@ function PortfolioMatrix({
     return out;
   }, [points]);
 
-  const xMinMax = useMemo(() => {
-    const xs = points.map((p) => p.growthPct);
-    if (xs.length === 0) return { min: -10, max: 10 };
-    const min = Math.min(...xs);
-    const max = Math.max(...xs);
-    const pad = Math.max(3, (max - min) * 0.1);
-    return { min: min - pad, max: max + pad };
+  const xRange = useMemo(() => {
+    const xs = points.map((p) => Math.abs(p.growthPct)).filter((v) => Number.isFinite(v));
+    const maxAbs = xs.length ? Math.max(...xs, 0) : 10;
+    const nice = Math.max(6, Math.ceil((maxAbs + 1.5) / 2) * 2);
+    return { min: -nice, max: nice, step: Math.max(2, Math.ceil((nice * 2) / 4 / 2) * 2) };
   }, [points]);
 
-  const yMinMax = useMemo(() => {
-    const ys = points.map((p) => p.marginPct);
-    if (ys.length === 0) return { min: -5, max: 25 };
-    const min = Math.min(...ys);
-    const max = Math.max(...ys);
-    const pad = Math.max(2, (max - min) * 0.1);
-    return { min: min - pad, max: max + pad };
+  const yRange = useMemo(() => {
+    const ys = points.map((p) => Math.abs(p.marginPct)).filter((v) => Number.isFinite(v));
+    const maxAbs = ys.length ? Math.max(...ys, 0) : 20;
+    const nice = Math.max(10, Math.ceil((maxAbs + 2) / 5) * 5);
+    return { min: -nice, max: nice, step: Math.max(5, Math.ceil((nice * 2) / 4 / 5) * 5) };
   }, [points]);
 
   const W = 720;
-  const H = 420;
-  const M = { l: 55, r: 20, t: 20, b: 45 };
+  const H = 430;
+  const M = { l: 64, r: 20, t: 22, b: 56 };
   const plotW = W - M.l - M.r;
   const plotH = H - M.t - M.b;
 
   const xToPx = (x: number) => {
-    const t = (x - xMinMax.min) / (xMinMax.max - xMinMax.min || 1);
+    const t = (x - xRange.min) / (xRange.max - xRange.min || 1);
     return M.l + clamp(t, 0, 1) * plotW;
   };
   const yToPx = (y: number) => {
-    const t = (y - yMinMax.min) / (yMinMax.max - yMinMax.min || 1);
+    const t = (y - yRange.min) / (yRange.max - yRange.min || 1);
     return M.t + (1 - clamp(t, 0, 1)) * plotH;
   };
 
-  const xLine = xThreshold != null ? xToPx(xThreshold) : undefined;
-  const yLine = yThreshold != null ? yToPx(yThreshold) : undefined;
+  const zeroX = xToPx(0);
+  const zeroY = yToPx(0);
+
+  const xTicks = useMemo(() => {
+    const ticks: number[] = [];
+    for (let v = xRange.min; v <= xRange.max; v += xRange.step) ticks.push(v);
+    if (!ticks.includes(0)) ticks.push(0);
+    return ticks.sort((a, b) => a - b);
+  }, [xRange]);
+
+  const yTicks = useMemo(() => {
+    const ticks: number[] = [];
+    for (let v = yRange.min; v <= yRange.max; v += yRange.step) ticks.push(v);
+    if (!ticks.includes(0)) ticks.push(0);
+    return ticks.sort((a, b) => a - b);
+  }, [yRange]);
+
+  const legendPoints = useMemo(() => {
+    return points
+      .slice()
+      .sort((a, b) => {
+        const br = Number(b.latestRevenue ?? 0);
+        const ar = Number(a.latestRevenue ?? 0);
+        if (br !== ar) return br - ar;
+        return a.name.localeCompare(b.name, 'ja');
+      })
+      .map((p, idx) => ({ ...p, index: idx + 1 }));
+  }, [points]);
+
+  const pointIndexByName = useMemo(() => {
+    const out: Record<string, number> = {};
+    for (const p of legendPoints) out[p.name] = p.index;
+    return out;
+  }, [legendPoints]);
 
   const buckets = useMemo(() => {
-    const init = (key: QuadrantKey, desc: string) => ({ key, title: quadrantLabel(key), desc, items: [] as PortfolioPoint[] });
+    const init = (key: QuadrantKey, desc: string) => ({ key, title: quadrantLabel(key), desc, items: [] as (PortfolioPoint & { index: number })[] });
     const b = {
-      FOCUS: init('FOCUS', '最優先で投資・拡大（勝ち筋の中核）'),
-      IMPROVE: init('IMPROVE', '伸びているが収益性が弱い（構造改善・価格/原価/販管費）'),
-      MAINTAIN: init('MAINTAIN', '稼ぐ事業（最適化・キャッシュ創出・守りの投資）'),
-      EXIT: init('EXIT', '縮小/撤退/再定義（選択と集中の対象）'),
+      FOCUS: init('FOCUS', '成長と収益の両面で強い事業。重点投資候補です。'),
+      IMPROVE: init('IMPROVE', '成長はあるが収益性に課題。利益構造の改善余地があります。'),
+      MAINTAIN: init('MAINTAIN', '収益力は高いが成長は弱め。守りながら効率化を図る領域です。'),
+      EXIT: init('EXIT', '成長・収益の両面で再検討が必要な領域です。'),
     };
 
-    if (xThreshold == null || yThreshold == null) return [b.FOCUS, b.MAINTAIN, b.IMPROVE, b.EXIT];
-
-    for (const p of points) {
-      const gHigh = p.growthPct >= xThreshold;
-      const mHigh = p.marginPct >= yThreshold;
+    for (const p of legendPoints) {
+      const gHigh = p.growthPct >= 0;
+      const mHigh = p.marginPct >= 0;
       const key: QuadrantKey = gHigh && mHigh ? 'FOCUS' : gHigh && !mHigh ? 'IMPROVE' : !gHigh && mHigh ? 'MAINTAIN' : 'EXIT';
       b[key].items.push(p);
     }
 
-    const sortFn = (a: PortfolioPoint, c: PortfolioPoint) => {
-      const ar = Number(a.latestRevenue ?? 0);
-      const cr = Number(c.latestRevenue ?? 0);
-      if (cr !== ar) return cr - ar;
-      if (c.growthPct !== a.growthPct) return c.growthPct - a.growthPct;
-      return c.marginPct - a.marginPct;
-    };
-
-    (Object.keys(b) as QuadrantKey[]).forEach((k) => b[k].items.sort(sortFn));
     return [b.FOCUS, b.MAINTAIN, b.IMPROVE, b.EXIT];
-  }, [points, xThreshold, yThreshold]);
+  }, [legendPoints]);
 
   if (points.length === 0) {
     return (
@@ -583,69 +596,76 @@ function PortfolioMatrix({
   }
 
   return (
-    <div className="border rounded p-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+    <div className="border rounded p-4 bg-white">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <div className="font-semibold">事業ポートフォリオ（収益性 × 成長性 × 規模）</div>
           <div className="text-xs text-gray-500 mt-1">
-            X軸：成長性（売上CAGR %） / Y軸：収益性（営業利益率 %） / 点の大きさ：最新年売上（規模）
+            0% を中心に4象限で配置。点の大きさは最新年売上規模、丸内の番号は下の一覧に対応します。
           </div>
-          {xThreshold != null && yThreshold != null && (
-            <div className="text-xs text-gray-500 mt-1">
-              象限境界（中央値）: 成長 {xThreshold.toFixed(1)}% ／ 収益 {yThreshold.toFixed(1)}%
-            </div>
-          )}
         </div>
-        <div className="text-xs text-gray-500">※ 売上規模は事業部PL（最新年売上）を参照（未入力は最小サイズ）</div>
+        <div className="text-xs text-gray-500">※ 事業名は図上に常時出さず、下の一覧で確認</div>
       </div>
 
-      <div className="mt-3">
-        <svg width="100%" viewBox={`0 0 ${W} ${H}`} className="bg-white">
+      <div className="mt-4 rounded border border-gray-200 bg-gray-50/50 p-3">
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} className="bg-white rounded">
           <rect x={M.l} y={M.t} width={plotW} height={plotH} fill="white" stroke="#e5e7eb" />
-          {xLine != null && <line x1={xLine} y1={M.t} x2={xLine} y2={M.t + plotH} stroke="#9ca3af" strokeDasharray="4 4" />}
-          {yLine != null && <line x1={M.l} y1={yLine} x2={M.l + plotW} y2={yLine} stroke="#9ca3af" strokeDasharray="4 4" />}
 
-          <text x={M.l + plotW / 2} y={H - 10} textAnchor="middle" fontSize="12" fill="#6b7280">
-            成長性（売上CAGR %）
-          </text>
-          <text
-            x={15}
-            y={M.t + plotH / 2}
-            textAnchor="middle"
-            fontSize="12"
-            fill="#6b7280"
-            transform={`rotate(-90 15 ${M.t + plotH / 2})`}
-          >
-            収益性（営業利益率 %）
-          </text>
-
-          {Array.from({ length: 5 }).map((_, i) => {
-            const t = i / 4;
-            const xVal = xMinMax.min + (xMinMax.max - xMinMax.min) * t;
-            const yVal = yMinMax.min + (yMinMax.max - yMinMax.min) * t;
-            const xPx = M.l + plotW * t;
-            const yPx = M.t + plotH * (1 - t);
-
+          {xTicks.map((tick) => {
+            const x = xToPx(tick);
+            const isZero = tick === 0;
             return (
-              <g key={i}>
-                <line x1={xPx} y1={M.t + plotH} x2={xPx} y2={M.t + plotH + 6} stroke="#d1d5db" />
-                <text x={xPx} y={M.t + plotH + 18} textAnchor="middle" fontSize="10" fill="#9ca3af">
-                  {xVal.toFixed(0)}
-                </text>
-
-                <line x1={M.l - 6} y1={yPx} x2={M.l} y2={yPx} stroke="#d1d5db" />
-                <text x={M.l - 10} y={yPx + 3} textAnchor="end" fontSize="10" fill="#9ca3af">
-                  {yVal.toFixed(0)}
+              <g key={`x-${tick}`}>
+                <line x1={x} y1={M.t} x2={x} y2={M.t + plotH} stroke={isZero ? '#94a3b8' : '#e5e7eb'} strokeDasharray={isZero ? '6 4' : '3 5'} />
+                <line x1={x} y1={M.t + plotH} x2={x} y2={M.t + plotH + 6} stroke="#cbd5e1" />
+                <text x={x} y={M.t + plotH + 19} textAnchor="middle" fontSize="10" fill={isZero ? '#334155' : '#94a3b8'}>
+                  {tick}%
                 </text>
               </g>
             );
           })}
 
-          {points.map((p) => {
+          {yTicks.map((tick) => {
+            const y = yToPx(tick);
+            const isZero = tick === 0;
+            return (
+              <g key={`y-${tick}`}>
+                <line x1={M.l} y1={y} x2={M.l + plotW} y2={y} stroke={isZero ? '#94a3b8' : '#e5e7eb'} strokeDasharray={isZero ? '6 4' : '3 5'} />
+                <line x1={M.l - 6} y1={y} x2={M.l} y2={y} stroke="#cbd5e1" />
+                <text x={M.l - 10} y={y + 3} textAnchor="end" fontSize="10" fill={isZero ? '#334155' : '#94a3b8'}>
+                  {tick}%
+                </text>
+              </g>
+            );
+          })}
+
+          <text x={M.l + plotW / 2} y={H - 14} textAnchor="middle" fontSize="12" fill="#6b7280">
+            成長性（売上CAGR %）
+          </text>
+          <text
+            x={18}
+            y={M.t + plotH / 2}
+            textAnchor="middle"
+            fontSize="12"
+            fill="#6b7280"
+            transform={`rotate(-90 18 ${M.t + plotH / 2})`}
+          >
+            収益性（営業利益率 %）
+          </text>
+
+          <text x={zeroX + 6} y={zeroY - 8} fontSize="11" fill="#334155" fontWeight="600">
+            0% / 0%
+          </text>
+
+          <text x={M.l + 12} y={M.t + 18} fontSize="11" fill="#64748b">維持</text>
+          <text x={M.l + plotW - 12} y={M.t + 18} textAnchor="end" fontSize="11" fill="#64748b">注力</text>
+          <text x={M.l + 12} y={M.t + plotH - 10} fontSize="11" fill="#64748b">撤退候補</text>
+          <text x={M.l + plotW - 12} y={M.t + plotH - 10} textAnchor="end" fontSize="11" fill="#64748b">改善</text>
+
+          {legendPoints.map((p) => {
             const cx = xToPx(p.growthPct);
             const cy = yToPx(p.marginPct);
-            const r = radiusByName[p.name] ?? 4;
-
+            const r = radiusByName[p.name] ?? 8;
             return (
               <g key={p.name}>
                 <title>
@@ -654,9 +674,9 @@ function PortfolioMatrix({
                   {'\n'}営業利益率: {p.marginPct.toFixed(1)}%
                   {p.latestRevenue != null ? `\n規模(売上): ${fmtJPY(p.latestRevenue)}` : ''}
                 </title>
-                <circle cx={cx} cy={cy} r={r} fill="#111827" opacity={0.85} />
-                <text x={cx + r + 6} y={cy + 4} fontSize="11" fill="#111827">
-                  {p.name}
+                <circle cx={cx} cy={cy} r={r} fill="#111827" opacity={0.9} />
+                <text x={cx} y={cy + 4} textAnchor="middle" fontSize="10" fill="#ffffff" fontWeight="700">
+                  {pointIndexByName[p.name]}
                 </text>
               </g>
             );
@@ -664,28 +684,60 @@ function PortfolioMatrix({
         </svg>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-        {buckets.map((b) => (
-          <div key={b.key} className="border rounded p-3">
-            <div className="font-semibold text-sm">{b.title}</div>
-            <div className="text-xs text-gray-500 mt-1">{b.desc}</div>
+      <div className="mt-4 overflow-x-auto">
+        <table className="min-w-[720px] w-full text-sm border rounded overflow-hidden">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="border px-3 py-2 text-center w-14">No.</th>
+              <th className="border px-3 py-2 text-left">事業名</th>
+              <th className="border px-3 py-2 text-right">成長性</th>
+              <th className="border px-3 py-2 text-right">収益性</th>
+              <th className="border px-3 py-2 text-right">規模</th>
+              <th className="border px-3 py-2 text-left">象限</th>
+            </tr>
+          </thead>
+          <tbody>
+            {legendPoints.map((p) => {
+              const gHigh = p.growthPct >= 0;
+              const mHigh = p.marginPct >= 0;
+              const key: QuadrantKey = gHigh && mHigh ? 'FOCUS' : gHigh && !mHigh ? 'IMPROVE' : !gHigh && mHigh ? 'MAINTAIN' : 'EXIT';
+              return (
+                <tr key={p.name} className="hover:bg-gray-50">
+                  <td className="border px-3 py-2 text-center font-semibold">{p.index}</td>
+                  <td className="border px-3 py-2 font-medium">{p.name}</td>
+                  <td className="border px-3 py-2 text-right">{p.growthPct.toFixed(1)}%</td>
+                  <td className="border px-3 py-2 text-right">{p.marginPct.toFixed(1)}%</td>
+                  <td className="border px-3 py-2 text-right">{p.latestRevenue != null ? fmtJPY(p.latestRevenue) : '—'}</td>
+                  <td className="border px-3 py-2 text-xs text-gray-700">{quadrantLabel(key)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
 
-            {b.items.length === 0 ? (
-              <div className="text-sm text-gray-400 mt-3">該当なし</div>
-            ) : (
-              <div className="mt-3 space-y-2">
-                {b.items.map((p) => (
-                  <div key={p.name} className="flex items-center justify-between gap-3">
-                    <div className="font-medium text-sm">{p.name}</div>
-                    <div className="text-xs text-gray-600 flex gap-3">
-                      <span>成長 {p.growthPct.toFixed(1)}%</span>
-                      <span>収益 {p.marginPct.toFixed(1)}%</span>
-                      <span>規模 {p.latestRevenue != null ? fmtJPY(p.latestRevenue) : '—'}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+        {buckets.map((b) => (
+          <div key={b.key} className="border rounded p-3 bg-white">
+            <div className="flex items-center justify-between gap-3">
+              <div className="font-semibold text-sm">{b.title}</div>
+              <div className="text-xs text-gray-500">{b.items.length}件</div>
+            </div>
+            <div className="text-xs text-gray-500 mt-1">{b.desc}</div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {b.items.length === 0 ? (
+                <span className="text-sm text-gray-400">該当なし</span>
+              ) : (
+                b.items.map((p) => (
+                  <span key={p.name} className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-700">
+                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-gray-800 text-white text-[10px] font-bold">
+                      {p.index}
+                    </span>
+                    <span>{p.name}</span>
+                  </span>
+                ))
+              )}
+            </div>
           </div>
         ))}
       </div>
