@@ -33,7 +33,7 @@ export default function Home() {
       <section className="container mx-auto px-6 pt-16 pb-10 heroPad">
         <div className="mx-auto max-w-5xl text-center">
           <p className="text-lg sm:text-2xl font-semibold tracking-wide text-neutral-700 dark:text-neutral-200">
-  経営を自動運転へ。
+  企業の成長を自動運転へ。
 </p>
 
 <h1 className="mt-6 text-6xl font-extrabold tracking-tight sm:text-7xl heroTitle">
@@ -41,7 +41,7 @@ export default function Home() {
 </h1>
 
 <p className="mt-5 text-lg sm:text-xl leading-relaxed text-neutral-600 dark:text-neutral-300">
-  戦略・実行・成果をつなげて回す経営プラットフォーム
+  戦略・実行・成果をつなぐ経営プラットフォーム
 
 </p>
 
