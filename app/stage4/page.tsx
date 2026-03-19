@@ -162,6 +162,22 @@ export default function Stage4Page() {
   // store から stage4Plans を取得
   useEffect(() => {
     if (stage4Plans) {
+      // ★ restore-source ログ追加（PHASE 1 cleanup 検証用）
+      const plansByDept = new Map<string, number>();
+      for (const plan of stage4Plans) {
+        plansByDept.set(
+          plan.departmentId,
+          (plansByDept.get(plan.departmentId) ?? 0) + 1
+        );
+      }
+
+      console.log('[diag][stage4:restore-source]', {
+        source: 'strategy_data.stage4Plans',
+        totalPlans: stage4Plans.length,
+        departmentCounts: Object.fromEntries(plansByDept),
+        timestamp: new Date().toISOString(),
+      });
+
       setLocalPlans(stage4Plans);
     }
   }, [stage4Plans]);
