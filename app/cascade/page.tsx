@@ -1253,17 +1253,25 @@ function applyDeptDraftToProjects(existingProjects: Project[], deptDraft: ApiDep
   // ★保険：重複排除（万が一同じlaneから同名プロジェクトが返されたら）
   const nextProjects = dedupeProjectsByTitle(nextProjectsRaw);
 
-  // ★ TASK B & C: 既存PJから OKR/KPI を引き継ぐマージ
-  const existingIndex = buildProjectIndexByTitle(existingProjects);
-  const nextProjectsMerged = nextProjects.map((p) => {
-    const key = normTitle(p?.title ?? '');
-    return mergeCascadeFields(p, key ? existingIndex.get(key) : undefined, preserveOkrs);
-  });
+  // ★ 修正：再生成時（preserveOkrs=false）は title ベース merge をしない、from-scratch 置換
+  // 再生成時は old project の owner/reason/role/expectedImpactYen 等を引き継がない
+  if (preserveOkrs) {
+    // ★ 通常編集時：既存PJから OKR/KPI を引き継ぐマージ
+    const existingIndex = buildProjectIndexByTitle(existingProjects);
+    const nextProjectsMerged = nextProjects.map((p) => {
+      const key = normTitle(p?.title ?? '');
+      return mergeCascadeFields(p, key ? existingIndex.get(key) : undefined, preserveOkrs);
+    });
 
-  // ★ 最終的に deduped されたマージ結果を返す
-  const deduped = dedupeProjectsByTitle(nextProjectsMerged);
-
-  return deduped;
+    // ★ 最終的に deduped されたマージ結果を返す
+    const deduped = dedupeProjectsByTitle(nextProjectsMerged);
+    return deduped;
+  } else {
+    // ★ 再生成時（preserveOkrs=false）：from-scratch 置換
+    // incoming project のみを使用、old project のフィールドを引き継がない
+    // normalizeProjectDraft で取り込まれたフィールド（title/hypothesis/mainLever/okrs 等）のみが残る
+    return dedupeProjectsByTitle(nextProjects);
+  }
 }
 
 /* =========================
@@ -2187,6 +2195,15 @@ useEffect(() => {
       },
     }));
 
+    // ★ TRACE POINT 1: Function entry
+    console.log('[diag][stage3:regen:enter]', {
+      index,
+      deptName: dept.name,
+      mode,
+      deptIndex: index,
+      timestamp: new Date().toISOString(),
+    });
+
     try {
       const payload: any = {
         thought: s?.thought ?? '',
@@ -2287,6 +2304,14 @@ useEffect(() => {
         setNotice('❌ 応答データが不正です');
         return;
       }
+
+      // ★ TRACE POINT 2: API success
+      console.log('[diag][stage3:regen:api-success]', {
+        deptName: dept.name,
+        deptIndex: index,
+        apiDepartmentCount: Array.isArray(data.departments) ? data.departments.length : 0,
+        timestamp: new Date().toISOString(),
+      });
 
       // ★部門の一致を確認（他部門データ混入防止）
 
@@ -2398,6 +2423,270 @@ useEffect(() => {
 
       setNotice(`✅ ${dept.name} のミッション・プロジェクト・KPI案を更新しました`);
 
+      // ★ TRACE POINT 3: Before cleanup block - show state before/after pushToStore
+      const beforeProjCount = (beforePushDepts ?? []).reduce((s: number, d: any) =>
+        s + (Array.isArray(d?.projects) ? d.projects.length : 0), 0);
+      const afterProjCount = (afterSetDepts ?? []).reduce((s: number, d: any) =>
+        s + (Array.isArray(d?.projects) ? d.projects.length : 0), 0);
+
+      console.log('[diag][stage3:regen:before-cleanup]', {
+        deptName: dept.name,
+        deptIndex: index,
+        beforeDepartmentCount: Array.isArray(beforePushDepts) ? beforePushDepts.length : 0,
+        afterDepartmentCount: Array.isArray(afterSetDepts) ? afterSetDepts.length : 0,
+        beforeProjectCount: beforeProjCount,
+        afterProjectCount: afterProjCount,
+        projectDelta: afterProjCount - beforeProjCount,
+        timestamp: new Date().toISOString(),
+      });
+
+      // ★ PHASE 1: 再生成直後に旧 project の downstream data を cleanup
+      // （DB cleanup + local state cleanup）
+      try {
+        const deptBeforeRegen = (beforePushDepts ?? [])[index];
+        const deptAfterRegen = afterSetDepts?.find((d) => d.name === dept.name);
+
+        // ★ TRACE POINT 4: Condition check - show before/after regen state
+        console.log('[diag][stage3:regen:condition-check]', {
+          deptName: dept.name,
+          deptIndex: index,
+          hasDeptBeforeRegen: !!deptBeforeRegen,
+          deptBeforeRegenProjectCount: (deptBeforeRegen?.projects ?? []).length,
+          hasDeptAfterRegen: !!deptAfterRegen,
+          deptAfterRegenProjectCount: (deptAfterRegen?.projects ?? []).length,
+          beforeRegenName: deptBeforeRegen?.name,
+          afterRegenName: deptAfterRegen?.name,
+          timestamp: new Date().toISOString(),
+        });
+
+        if (deptBeforeRegen && deptAfterRegen) {
+          // ★ TRACE POINT 5: Entering cleanup block - condition true
+          console.log('[diag][stage3:regen:entering-cleanup]', {
+            deptName: dept.name,
+            deptIndex: index,
+            timestamp: new Date().toISOString(),
+          });
+
+          // old/new project の title set を作成
+          const oldProjects = (deptBeforeRegen.projects ?? []) as Project[];
+          const newProjects = (deptAfterRegen.projects ?? []) as Project[];
+
+          // ★ TRACE POINT 6: Show old/new project counts
+          console.log('[diag][stage3:regen:project-comparison]', {
+            deptName: dept.name,
+            deptIndex: index,
+            oldProjectCount: oldProjects.length,
+            newProjectCount: newProjects.length,
+            oldProjectTitles: oldProjects.map((p) => p?.title ?? ''),
+            newProjectTitles: newProjects.map((p) => p?.title ?? ''),
+            timestamp: new Date().toISOString(),
+          });
+
+          // ★ 修正：「削除された project のみ cleanup」 → 「再生成対象部門の old projects 全件 cleanup」
+          // 根拠：STAGE3で部門再生成した時点で、その部門の old project に紐づく
+          // すべての downstream data（stage4Plans, okrs 等）は自動的に失効するため
+          const allOldProjectIds: string[] = oldProjects
+            .map((p) => resolveProjectId(p, deptBeforeRegen.name))
+            .filter((id) => id);
+
+          // ★ TRACE POINT 7: Show all old project IDs to be cleaned up
+          console.log('[diag][stage3:regen:all-old-project-ids]', {
+            deptName: dept.name,
+            deptIndex: index,
+            allOldProjectIds,
+            allOldProjectCount: allOldProjectIds.length,
+            oldProjectCount: oldProjects.length,
+            newProjectCount: newProjects.length,
+            timestamp: new Date().toISOString(),
+          });
+
+          // cleanup 対象が存在する場合
+          if (allOldProjectIds.length > 0) {
+            console.log('[diag][cascade:regen:cleanup:request]', {
+              dept: dept.name,
+              allOldProjectIds,
+              allOldProjectCount: allOldProjectIds.length,
+              timestamp: new Date().toISOString(),
+            });
+
+            // === Step 1: DB cleanup API call ===
+            try {
+              const cleanupRes = await authFetchJson(
+                '/api/cascade/cleanup-deleted-projects',
+                {
+                  method: 'POST',
+                  json: {
+                    deletedProjectIds: allOldProjectIds,  // ★ 修正：allOldProjectIds を配列で渡す
+                    departmentId: dept.name,
+                  },
+                }
+              );
+
+              if (cleanupRes && (cleanupRes as any).ok) {
+                console.log('[diag][cascade:regen:cleanup:result]', {
+                  dept: dept.name,
+                  allOldProjectIds,
+                  cleaned: (cleanupRes as any).cleaned,
+                  timestamp: new Date().toISOString(),
+                });
+              } else {
+                console.warn('[cascade:cleanup] API failed or no ok flag:', cleanupRes);
+              }
+            } catch (apiErr) {
+              console.warn('[cascade:cleanup] API call error:', apiErr);
+              // non-blocking: 継続 local cleanup
+            }
+
+            // === Step 2: Local state cleanup ===
+            const stateBeforeLocalCleanup = useStrategyStore.getState();
+
+            // 2a. stage4Plans: departmentId + project IDs で filter
+            // ★ 修正：title ベース判定 → ID ベース判定に変更
+            // allOldProjectIds に含まれる project を持つ plan は削除対象
+            const oldStage4Plans = stateBeforeLocalCleanup.stage4Plans ?? [];
+            const newStage4Plans = oldStage4Plans.filter((plan: any) => {
+              if (plan.departmentId !== dept.name) return true; // 他部門は保持
+
+              // baseline/current の projects を ID に変換して確認
+              const planProjectIds = new Set(
+                [
+                  ...(plan.baseline?.projects ?? []),
+                  ...(plan.current?.projects ?? []),
+                ]
+                  .map((p: any) => resolveProjectId(p, dept.name))  // ★ ID 化
+                  .filter(Boolean)
+              );
+
+              // allOldProjectIds に含まれるプロジェクトがあれば削除対象（return false）
+              for (const projId of planProjectIds) {
+                if (allOldProjectIds.includes(projId)) return false;  // ★ 修正：除外判定
+              }
+
+              return true; // 古いプロジェクトがなければ保持
+            });
+
+            if (newStage4Plans.length < oldStage4Plans.length) {
+              stateBeforeLocalCleanup.setStage4Plans?.(newStage4Plans);
+              console.log('[diag][cascade:regen:stage4Plans-filter]', {
+                dept: dept.name,
+                action: 'stage4Plans-filtered',
+                before: oldStage4Plans.length,
+                after: newStage4Plans.length,
+                removed: oldStage4Plans.length - newStage4Plans.length,
+                timestamp: new Date().toISOString(),
+              });
+            }
+
+            // 2b. executionPlanBaseline.snapshot: projects[] を refresh
+            // ★ 修正：title ベース判定 → ID ベース判定に変更
+            // allOldProjectIds に含まれる project を削除する
+            const oldBaseline = stateBeforeLocalCleanup.executionPlanBaseline;
+            if (oldBaseline?.snapshot) {
+              const newSnapshot = oldBaseline.snapshot.map((d: any) => {
+                if (d.name !== dept.name) return d; // 他部門は保持
+
+                // projects を ID でフィルタ（allOldProjectIds に含まれるものを除外）
+                const filteredProjects = (d.projects ?? []).filter((p: any) => {
+                  const projId = resolveProjectId(p, dept.name);  // ★ ID 化
+                  return projId && !allOldProjectIds.includes(projId);  // ★ 修正：除外判定
+                });
+
+                return { ...d, projects: filteredProjects };
+              });
+
+              // 対象部門の projects 件数が実際に減ったかチェック
+              const oldDeptProjects = oldBaseline.snapshot?.find(
+                (d: any) => d.name === dept.name
+              )?.projects ?? [];
+              const newDeptProjects = newSnapshot?.find(
+                (d: any) => d.name === dept.name
+              )?.projects ?? [];
+
+              if (newDeptProjects.length < oldDeptProjects.length) {
+                stateBeforeLocalCleanup.setExecutionPlanBaseline?.({
+                  ...oldBaseline,
+                  snapshot: newSnapshot,
+                });
+                console.log('[diag][cascade:regen:baseline-filter]', {
+                  dept: dept.name,
+                  action: 'executionPlanBaseline-snapshot-refreshed',
+                  before: oldDeptProjects.length,
+                  after: newDeptProjects.length,
+                  removed: oldDeptProjects.length - newDeptProjects.length,
+                  timestamp: new Date().toISOString(),
+                });
+              }
+            }
+
+            // 2c. projectTargetImpacts: projectId filter
+            const oldTargetImpacts = stateBeforeLocalCleanup.projectTargetImpacts ?? [];
+            const newTargetImpacts = oldTargetImpacts.filter(
+              (impact: any) => !allOldProjectIds.includes(impact.projectId)  // ★ 修正：allOldProjectIds
+            );
+
+            if (newTargetImpacts.length < oldTargetImpacts.length) {
+              stateBeforeLocalCleanup.setProjectTargetImpacts?.(newTargetImpacts);
+              console.log('[diag][cascade:regen:cleanup]', {
+                dept: dept.name,
+                action: 'projectTargetImpacts-filtered',
+                before: oldTargetImpacts.length,
+                after: newTargetImpacts.length,
+                removed: oldTargetImpacts.length - newTargetImpacts.length,
+                timestamp: new Date().toISOString(),
+              });
+            }
+
+            // 2d. projectIssueLinks: projectId filter
+            const oldIssueLinks = (stateBeforeLocalCleanup as any).projectIssueLinks ?? [];
+            const newIssueLinks = oldIssueLinks.filter(
+              (link: any) => !allOldProjectIds.includes(link.projectId)  // ★ 修正：allOldProjectIds
+            );
+
+            if (newIssueLinks.length < oldIssueLinks.length) {
+              (stateBeforeLocalCleanup as any).setProjectIssueLinks?.(newIssueLinks);
+              console.log('[diag][cascade:regen:cleanup]', {
+                dept: dept.name,
+                action: 'projectIssueLinks-filtered',
+                before: oldIssueLinks.length,
+                after: newIssueLinks.length,
+                removed: oldIssueLinks.length - newIssueLinks.length,
+                timestamp: new Date().toISOString(),
+              });
+            }
+          } else {
+            // ★ TRACE POINT 8: No old projects
+            console.log('[diag][stage3:regen:no-cleanup-needed]', {
+              deptName: dept.name,
+              deptIndex: index,
+              oldProjectCount: (deptBeforeRegen?.projects ?? []).length,
+              newProjectCount: (deptAfterRegen?.projects ?? []).length,
+              reason: 'allOldProjectIds.length === 0',  // ★ 修正：変数名更新
+              timestamp: new Date().toISOString(),
+            });
+          }
+        } else {
+          // ★ TRACE POINT 9: Condition failed - show why cleanup didn't run
+          console.log('[diag][stage3:regen:cleanup-skipped]', {
+            deptName: dept.name,
+            deptIndex: index,
+            hasDeptBeforeRegen: !!deptBeforeRegen,
+            hasDeptAfterRegen: !!deptAfterRegen,
+            reason: deptBeforeRegen ? 'missing afterRegen' : 'missing beforeRegen',
+            timestamp: new Date().toISOString(),
+          });
+        }
+      } catch (cleanupErr) {
+        console.warn('[cascade:cleanup] exception during cleanup:', cleanupErr);
+        // non-blocking: cleanup error は show notice しない
+      }
+
+      // ★ TRACE POINT 10: Cleanup block complete
+      console.log('[diag][stage3:regen:cleanup-complete]', {
+        deptName: dept.name,
+        deptIndex: index,
+        timestamp: new Date().toISOString(),
+      });
+
       // ★ TASK 5: 再生成直後に stage4Plans と executionPlanBaseline を無効化
       const stateBeforeInvalidate = useStrategyStore.getState();
       const stage4PlansCountBefore = stateBeforeInvalidate.stage4Plans?.length ?? 0;
@@ -2429,8 +2718,23 @@ useEffect(() => {
         }
       }
     } catch (e: any) {
+      // ★ TRACE POINT 10b: Function error
+      console.log('[diag][stage3:regen:error]', {
+        deptName: dept.name,
+        deptIndex: index,
+        error: e?.message ?? String(e),
+        timestamp: new Date().toISOString(),
+      });
       setNotice(`❌ 部門のたたき台生成中にエラーが発生しました：${e?.message ?? '不明なエラー'}`);
     } finally {
+      // ★ TRACE POINT 11: Function complete - finally block
+      console.log('[diag][stage3:regen:finally]', {
+        deptName: dept.name,
+        deptIndex: index,
+        mode,
+        timestamp: new Date().toISOString(),
+      });
+
       // ★TASK A: 生成完了（保存抑止解除）
       setIsGenerating(false);
       setLoading((p) => ({
