@@ -1154,10 +1154,30 @@ function ExecutionPageContent() {
 
     if (base.length === 0) return alt;
 
-    return base.map((d, i) => {
+    const merged = base.map((d, i) => {
       const a = alt[i];
       return { ...d, name: d.name ?? a?.name, mission: d.mission ?? a?.mission, strategy: d.strategy ?? a?.strategy };
     });
+
+    // ★ restore-source ログ追加（PHASE 1 cleanup 検証用）
+    const projsByDept = new Map<string, number>();
+    for (const dept of merged) {
+      const projCount = (dept?.projects ?? []).length;
+      if (projCount > 0) {
+        projsByDept.set(dept.name, projCount);
+      }
+    }
+
+    if (merged.length > 0) {
+      console.log('[diag][stage5:restore-source]', {
+        source: 'strategy_data.departments',
+        totalDepartments: merged.length,
+        projectCounts: Object.fromEntries(projsByDept),
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return merged;
   }, [editableCascadeResult, departments]);
 
   const isHydrating = !hydrated || scopeCompanyId !== accessCompanyId;
