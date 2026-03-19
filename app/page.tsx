@@ -37,11 +37,11 @@ export default function Home() {
 </p>
 
 <h1 className="mt-6 text-6xl font-extrabold tracking-tight sm:text-7xl heroTitle">
-  GROWTH
+  GROWTH/戦略実行SaaS
 </h1>
 
 <p className="mt-5 text-lg sm:text-xl leading-relaxed text-neutral-600 dark:text-neutral-300">
-  戦略・実行・成果をつなぐ経営プラットフォーム
+  戦略を実行に、実行を成果をつなぐ経営プラットフォーム
 
 </p>
 
