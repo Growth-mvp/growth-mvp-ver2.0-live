@@ -2,157 +2,199 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useUserStore } from '@/store/userStore';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useStage6Data } from '@/components/stage6/hooks/useStage6Data';
-import { loadMyProgressLogs } from '@/utils/supabase/strategy';
+import { safeGetSession } from '@/utils/supabase/client';
 
-type ProgressLogRow = {
-  okr_id?: string | null;
-  content?: any;
-  status?: any;
-  score?: number | null;
-  created_at?: string;
+type ExecutionSummary = {
+  totalOkrs: number;
+  checkedOkrs7d: number;
+  uncheckedOkrs7d: number;
+  checkInRate: number | null;
+  staleProjects: Array<{
+    departmentId: string;
+    departmentName: string;
+    projectId: string;
+    projectTitle: string;
+    uncheckedOkrCount: number;
+    lastCheckinAt: string | null;
+  }>;
 };
 
-function formatYen(n: number) {
-  const sign = n < 0 ? '-' : '';
-  const abs = Math.abs(Math.round(n));
-  return `${sign}${abs.toLocaleString('ja-JP')}円`;
+function formatOkuFromYen(n: number) {
+  if (!Number.isFinite(n)) return '—';
+  const oku = n / 100_000_000;
+  return `${oku.toLocaleString('ja-JP', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}億円`;
 }
 
-function isCheckin(log: ProgressLogRow) {
-  if (log == null) return false;
-  if (typeof log.score === 'number') return true;
-  if (log.status != null) return true;
-  if (log.content == null) return false;
-  if (typeof log.content === 'string') return log.content.trim().length > 0;
-  return true;
+function formatOkuFromMJPY(n: number) {
+  if (!Number.isFinite(n)) return '—';
+  const oku = n / 100;
+  return `${oku.toLocaleString('ja-JP', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}億円`;
 }
 
-// ✅ ピラミッドと完全に同じボタンデザイン（class名も同じ内容）
+function formatRate(rate: number | null) {
+  if (rate == null || !Number.isFinite(rate)) return '—';
+  return `${Math.round(rate * 100)}%`;
+}
+
 const stageBtnClass =
   'inline-flex items-center rounded-xl border border-neutral-300 ' +
   'bg-white px-6 py-3 shadow-sm hover:bg-neutral-100 transition-colors ' +
   'focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-2';
 
+function Stage6MetricRow({
+  label,
+  current,
+  forecast,
+  target,
+  achievementRate,
+}: {
+  label: string;
+  current: string;
+  forecast: string;
+  target: string;
+  achievementRate: string;
+}) {
+  return (
+    <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800">
+      <div className="text-xs font-semibold text-neutral-700 dark:text-neutral-200">{label}</div>
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div>
+          <div className="text-[11px] text-neutral-500">現状</div>
+          <div className="mt-1 text-lg font-semibold text-neutral-900 dark:text-white">{current}</div>
+        </div>
+        <div>
+          <div className="text-[11px] text-neutral-500">見込み</div>
+          <div className="mt-1 text-lg font-semibold text-neutral-900 dark:text-white">{forecast}</div>
+        </div>
+        <div>
+          <div className="text-[11px] text-neutral-500">目標</div>
+          <div className="mt-1 text-lg font-semibold text-neutral-900 dark:text-white">{target}</div>
+        </div>
+        <div>
+          <div className="text-[11px] text-neutral-500">達成率</div>
+          <div className="mt-1 text-lg font-semibold text-neutral-900 dark:text-white">{achievementRate}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ExecutionPanel() {
-  const { user } = useUserStore();
   const strategy = useStrategyStore() as any;
+  const s6 = useStage6Data('base') as any;
 
-  const s6 = useStage6Data('base');
-
-  const [logs7d, setLogs7d] = useState<ProgressLogRow[]>([]);
+  const [summary, setSummary] = useState<ExecutionSummary | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const run = async () => {
-      if (!user?.id) return;
       setLoading(true);
+      setError(null);
       try {
-        const fromDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-        const res = await loadMyProgressLogs(user.id, { fromDate, limit: 500 });
-        if (res?.data && Array.isArray(res.data)) setLogs7d(res.data as any);
-        else setLogs7d([]);
+        // session から Bearer token を取得
+        const sessionRes = await safeGetSession();
+        if (!sessionRes.ok || !sessionRes.data.session?.access_token) {
+          setError('認証トークンが取得できません');
+          setSummary(null);
+          return;
+        }
+
+        // 新APIを呼び出し
+        const apiRes = await fetch('/api/stage5/execution-summary', {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${sessionRes.data.session.access_token}`,
+          },
+        });
+
+        if (!apiRes.ok) {
+          const errData = await apiRes.json().catch(() => ({}));
+          setError(errData.error || `API error: ${apiRes.status}`);
+          setSummary(null);
+          return;
+        }
+
+        const data = await apiRes.json();
+        if (data.ok && data.data) {
+          setSummary(data.data);
+        } else {
+          setError(data.error || 'Failed to fetch execution summary');
+          setSummary(null);
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setError(`Failed to fetch data: ${msg}`);
+        setSummary(null);
+        console.error('[ExecutionPanel] error:', e);
       } finally {
         setLoading(false);
       }
     };
     run();
-  }, [user?.id]);
+  }, []);
 
-  const totalOkrs = useMemo(() => {
-    const depts = (strategy?.departments ?? []) as any[];
-    let count = 0;
-    for (const d of depts) {
-      const projs = (d?.projects ?? []) as any[];
-      for (const p of projs) {
-        const okrs = (p?.okrs ?? []) as any[];
-        if (Array.isArray(okrs) && okrs.length > 0) count += okrs.length;
-      }
-    }
-    return count;
-  }, [strategy?.departments]);
+  // 全社集計サマリーから直接取得（API ベース）
+  const totalOkrs = summary?.totalOkrs ?? 0;
+  const checkedOkrs7d = summary?.checkedOkrs7d ?? 0;
+  const uncheckedOkrs7d = summary?.uncheckedOkrs7d ?? 0;
+  const checkInRate = summary?.checkInRate ?? null;
+  const staleProjectsList = summary?.staleProjects ?? [];
 
-  const flatProjects = useMemo(() => {
-    const depts = (strategy?.departments ?? []) as any[];
-    const out: Array<{
-      deptName: string;
-      projectTitle: string;
-      okrIds: string[];
-    }> = [];
-
-    for (const d of depts) {
-      const deptName = String(d?.name ?? d?.departmentName ?? '部門');
-      const projs = (d?.projects ?? []) as any[];
-      for (const p of projs) {
-        const projectTitle = String(p?.title ?? p?.name ?? 'プロジェクト');
-        const okrs = (p?.okrs ?? []) as any[];
-        const okrIds: string[] = [];
-
-        if (Array.isArray(okrs)) {
-          for (const o of okrs) {
-            const id = o?.id ?? o?.okrId ?? o?.okr_id;
-            if (id) okrIds.push(String(id));
-          }
-        }
-
-        if (okrIds.length > 0) out.push({ deptName, projectTitle, okrIds });
-      }
-    }
-    return out;
-  }, [strategy?.departments]);
-
-  const checkinOkrs = useMemo(() => {
-    const set = new Set<string>();
-    for (const l of logs7d) {
-      if (!isCheckin(l)) continue;
-      const id = l.okr_id ?? undefined;
-      if (id) set.add(id);
-    }
-    return set;
-  }, [logs7d]);
-
-  const noCheckinTop3 = useMemo(() => {
-    if (!flatProjects.length) return [];
-    const res: Array<{ deptName: string; projectTitle: string }> = [];
-    for (const pj of flatProjects) {
-      const anyChecked = pj.okrIds.some((id) => checkinOkrs.has(id));
-      if (!anyChecked) res.push({ deptName: pj.deptName, projectTitle: pj.projectTitle });
-      if (res.length >= 3) break;
-    }
-    return res;
-  }, [flatProjects, checkinOkrs]);
-
-  const checkinRate = useMemo(() => {
-    if (!totalOkrs) return null;
-    return checkinOkrs.size / totalOkrs;
-  }, [checkinOkrs.size, totalOkrs]);
-
-  const opSummary = useMemo(() => {
+  const stage6Summary = useMemo(() => {
     const data = (s6?.chartData ?? []) as any[];
+    const dashboardSummary = s6?.dashboardSummary as any;
     if (!Array.isArray(data) || data.length === 0) return null;
-    const last = data[data.length - 1];
-    const baselineOp = Number(last?.baselineOp ?? 0);
-    const selectedOpRaw = Number(last?.selectedOp ?? 0);
-    const allOp = Number(last?.allOp ?? 0);
 
-    const selectedOp = selectedOpRaw !== 0 ? selectedOpRaw : allOp;
+    const last = data[data.length - 1];
+    const currentRevenueYen = Number(last?.baselineRevenue ?? 0);
+    const forecastRevenueYen = Number(last?.allRevenue ?? 0);
+    const currentOpYen = Number(last?.baselineOp ?? 0);
+    const forecastOpYen = Number(last?.allOp ?? 0);
+
+    const targetRevenueMJPY = Number(dashboardSummary?.revenue?.target ?? NaN);
+    const targetOpMJPY = Number(dashboardSummary?.op?.target ?? NaN);
+
+    const targetRevenueYen = Number.isFinite(targetRevenueMJPY) ? targetRevenueMJPY * 1_000_000 : forecastRevenueYen;
+    const targetOpYen = Number.isFinite(targetOpMJPY) ? targetOpMJPY * 1_000_000 : forecastOpYen;
+
+    const revenueAchievementRate = targetRevenueYen > 0 ? forecastRevenueYen / targetRevenueYen : null;
+    const opAchievementRate = targetOpYen > 0 ? forecastOpYen / targetOpYen : null;
+
     return {
-      baselineOp,
-      selectedOp,
-      delta: selectedOp - baselineOp,
       year: last?.year,
+      revenue: {
+        current: formatOkuFromYen(currentRevenueYen),
+        forecast: formatOkuFromYen(forecastRevenueYen),
+        target: Number.isFinite(targetRevenueMJPY)
+          ? formatOkuFromMJPY(targetRevenueMJPY)
+          : formatOkuFromYen(targetRevenueYen),
+        achievementRate: formatRate(revenueAchievementRate),
+      },
+      op: {
+        current: formatOkuFromYen(currentOpYen),
+        forecast: formatOkuFromYen(forecastOpYen),
+        target: Number.isFinite(targetOpMJPY)
+          ? formatOkuFromMJPY(targetOpMJPY)
+          : formatOkuFromYen(targetOpYen),
+        achievementRate: formatRate(opAchievementRate),
+      },
     };
-  }, [s6?.chartData]);
+  }, [s6?.chartData, s6?.dashboardSummary]);
 
   return (
     <div className="space-y-4">
-      {/* STAGE5 */}
       <div className="rounded-2xl bg-neutral-50 p-4 ring-1 ring-neutral-200/60 dark:bg-neutral-900/40 dark:ring-neutral-800">
         <div className="flex items-center gap-3">
           <Link href="/execution" className={stageBtnClass}>
-            {/* ✅ ピラミッドと同じ文字スタイル */}
             <span className="text-[15px] font-semibold text-neutral-900">STAGE5：実行計画支援</span>
           </Link>
           <div className="text-sm font-medium">実行状況（直近7日）</div>
@@ -162,18 +204,32 @@ export default function ExecutionPanel() {
           <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800">
             <div className="text-xs text-neutral-500">チェックイン率</div>
             <div className="mt-1 text-2xl font-semibold">
-              {checkinRate == null ? '—' : `${Math.round(checkinRate * 100)}%`}
+              {checkInRate == null ? '—' : `${Math.round(checkInRate * 100)}%`}
+            </div>
+            <div className="mt-2 text-[11px] leading-5 text-neutral-500">
+              直近7日で、進捗記録が1回以上入ったOKRの割合です。
             </div>
           </div>
           <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800">
             <div className="text-xs text-neutral-500">未チェックイン</div>
             <div className="mt-1 text-2xl font-semibold">
-              {totalOkrs ? Math.max(totalOkrs - checkinOkrs.size, 0) : '—'}
+              {totalOkrs ? uncheckedOkrs7d : '—'}
+            </div>
+            <div className="mt-2 text-[11px] leading-5 text-neutral-500">
+              直近7日で、進捗記録が入っていないOKR数です。
             </div>
           </div>
         </div>
 
-        {/* 未チェックインTop3 */}
+        <div className="mt-3 rounded-xl bg-white p-3 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800">
+          <div className="text-xs font-medium text-neutral-700 dark:text-neutral-200">表示の見方</div>
+          <div className="mt-2 space-y-1 text-[11px] leading-5 text-neutral-500">
+            <div>・チェックイン = 進捗・課題・スコアなどの実行記録が入力された状態</div>
+            <div>・未チェックイン（要対応） = 直近7日で、配下OKRに1件も記録がないプロジェクト</div>
+            <div>・このパネルは全社の直近7日集計を基準にしています。全従業員が同じ数値を見ています。</div>
+          </div>
+        </div>
+
         {totalOkrs ? (
           <div className="mt-4 rounded-xl bg-white p-3 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800">
             <div className="flex items-center justify-between">
@@ -191,18 +247,21 @@ export default function ExecutionPanel() {
             <div className="mt-2 space-y-2">
               {loading ? (
                 <div className="text-xs text-neutral-500">集計中…</div>
-              ) : noCheckinTop3.length === 0 ? (
+              ) : staleProjectsList.length === 0 ? (
                 <div className="text-xs text-neutral-500">今週は未チェックインなし</div>
               ) : (
-                noCheckinTop3.map((x, i) => (
+                staleProjectsList.map((proj) => (
                   <div
-                    key={`${x.deptName}-${x.projectTitle}-${i}`}
+                    key={`${proj.departmentId}-${proj.projectId}`}
                     className="flex items-center justify-between gap-3 rounded-lg bg-neutral-50 px-2 py-2 dark:bg-neutral-900/40"
                   >
                     <div className="min-w-0">
-                      <div className="truncate text-xs text-neutral-500">{x.deptName}</div>
+                      <div className="truncate text-xs text-neutral-500">{proj.departmentName}</div>
                       <div className="truncate text-sm font-medium text-neutral-900 dark:text-white">
-                        {x.projectTitle}
+                        {proj.projectTitle}
+                      </div>
+                      <div className="truncate text-[11px] text-neutral-500">
+                        配下OKR {proj.uncheckedOkrCount} 件 / 直近7日で記録がありません
                       </div>
                     </div>
                     <Link
@@ -219,40 +278,30 @@ export default function ExecutionPanel() {
         ) : null}
       </div>
 
-      {/* STAGE6 */}
       <div className="rounded-2xl bg-neutral-50 p-4 ring-1 ring-neutral-200/60 dark:bg-neutral-900/40 dark:ring-neutral-800">
         <div className="flex items-center gap-3">
           <Link href="/stage6" className={stageBtnClass}>
             <span className="text-[15px] font-semibold text-neutral-900">STAGE6：業績シミュレーション</span>
           </Link>
-          <div className="text-sm font-medium">（要約）</div>
+          <div className="text-sm font-medium">売上・営業利益の要約</div>
         </div>
 
-        <div className="mt-3 space-y-2 text-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-neutral-500">営業利益 Baseline</span>
-            <span className="font-semibold">
-              {opSummary ? formatYen(opSummary.baselineOp) : '—'}
-            </span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-neutral-500">営業利益 Selected</span>
-            <span className="font-semibold">
-              {opSummary ? formatYen(opSummary.selectedOp) : '—'}
-            </span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-neutral-500">差分</span>
-            <span className="font-semibold">
-              {opSummary ? formatYen(opSummary.delta) : '—'}
-            </span>
-          </div>
+        <div className="mt-3 space-y-3">
+          <Stage6MetricRow
+            label="売上"
+            current={stage6Summary?.revenue.current ?? '—'}
+            forecast={stage6Summary?.revenue.forecast ?? '—'}
+            target={stage6Summary?.revenue.target ?? '—'}
+            achievementRate={stage6Summary?.revenue.achievementRate ?? '—'}
+          />
 
-          {opSummary?.year != null && (
-            <div className="pt-2 text-xs text-neutral-500">
-              ※ 最新年（{opSummary.year}）の要約
-            </div>
-          )}
+          <Stage6MetricRow
+            label="営業利益"
+            current={stage6Summary?.op.current ?? '—'}
+            forecast={stage6Summary?.op.forecast ?? '—'}
+            target={stage6Summary?.op.target ?? '—'}
+            achievementRate={stage6Summary?.op.achievementRate ?? '—'}
+          />
         </div>
       </div>
     </div>
