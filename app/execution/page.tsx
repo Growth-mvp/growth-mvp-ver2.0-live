@@ -327,7 +327,14 @@ function ExecPanel(props: {
   const [resolvedProgressOkrId, setResolvedProgressOkrId] = useState<string>(progressLogOkrId);
 
   useEffect(() => {
-    setResolvedProgressOkrId(progressLogOkrId);
+    setResolvedProgressOkrId((prev) => {
+      if (prev === progressLogOkrId) {
+        console.log('[loop-debug][execution][state-skip-same] resolvedProgressOkrId unchanged:', progressLogOkrId);
+        return prev;
+      }
+      console.log('[loop-debug][execution][state-set] resolvedProgressOkrId updated:', progressLogOkrId);
+      return progressLogOkrId;
+    });
   }, [progressLogOkrId]);
 
   // ===== TASK 2: UI混線バグ修正 =====
@@ -373,7 +380,14 @@ function ExecPanel(props: {
 
         if (!alive) return;
         if (!error && data?.id) {
-          setResolvedProgressOkrId(data.id);
+          setResolvedProgressOkrId((prev) => {
+            if (prev === data.id) {
+              console.log('[loop-debug][execution][state-skip-same] resolvedProgressOkrId unchanged (candidate check):', data.id);
+              return prev;
+            }
+            console.log('[loop-debug][execution][state-set] resolvedProgressOkrId updated (candidate check):', data.id);
+            return data.id;
+          });
           return;
         }
       }
@@ -402,7 +416,15 @@ function ExecPanel(props: {
           strategyId,
           resolvedId: data[0].id,
         });
-        setResolvedProgressOkrId(String(data[0].id));
+        setResolvedProgressOkrId((prev) => {
+          const nextId = String(data[0].id);
+          if (prev === nextId) {
+            console.log('[loop-debug][execution][state-skip-same] resolvedProgressOkrId unchanged (table lookup):', nextId);
+            return prev;
+          }
+          console.log('[loop-debug][execution][state-set] resolvedProgressOkrId updated (table lookup):', nextId);
+          return nextId;
+        });
       } else if (error) {
         console.warn('[STAGE5-resolve-okr-id] lookup error', error);
       } else {
@@ -1592,8 +1614,28 @@ function ExecutionPageContent() {
           });
 
           // ===== state 更新（整合確認済みの data + map を同時更新） =====
-          setDbOkrsData(data);
-          setDbOkrMap(map);
+          // ===== 修正: map が実際に変わった場合だけ setState を呼ぶ（無限ループ防止） =====
+          setDbOkrsData((prevData) => {
+            const prevStr = JSON.stringify(prevData?.map((x: any) => ({ id: x.id, objective: x.objective })) ?? []);
+            const nextStr = JSON.stringify(data.map((x: any) => ({ id: x.id, objective: x.objective })));
+            if (prevStr === nextStr) {
+              console.log('[loop-debug][execution][state-skip-same] dbOkrsData unchanged');
+              return prevData;
+            }
+            console.log('[loop-debug][execution][state-set] dbOkrsData updated');
+            return data;
+          });
+
+          setDbOkrMap((prevMap) => {
+            const prevStr = JSON.stringify(Object.entries(prevMap ?? {}).sort());
+            const nextStr = JSON.stringify(Object.entries(map).sort());
+            if (prevStr === nextStr) {
+              console.log('[loop-debug][execution][state-skip-same] dbOkrMap unchanged');
+              return prevMap;
+            }
+            console.log('[loop-debug][execution][state-set] dbOkrMap updated, entries:', Object.keys(map).length);
+            return map;
+          });
         }
       } catch (err) {
         console.error('[STAGE5-load-db-okrs-exception]', err);
@@ -1827,18 +1869,42 @@ function ExecutionPageContent() {
     }
   }, [activityStorageKey]);
 
-  const persistSeenActivity = useCallback((next: Record<string, string>) => {
-    setSeenActivityMap(next);
-    if (typeof window === 'undefined') return;
-    try {
-      window.localStorage.setItem(activityStorageKey, JSON.stringify(next));
-    } catch {}
+  const persistSeenActivity = useCallback((
+    updater: Record<string, string> | ((prev: Record<string, string>) => Record<string, string>)
+  ) => {
+    setSeenActivityMap((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      const prevStr = JSON.stringify(prev);
+      const nextStr = JSON.stringify(next);
+      if (prevStr === nextStr) {
+        console.log('[loop-debug][activity][state-skip-same] seenActivityMap unchanged');
+        return prev;
+      }
+      if (typeof window !== 'undefined') {
+        try {
+          window.localStorage.setItem(activityStorageKey, nextStr);
+        } catch {}
+      }
+      console.log('[loop-debug][activity][state-set] seenActivityMap updated');
+      return next;
+    });
   }, [activityStorageKey]);
 
   const markProjectActivitySeen = useCallback((okrId?: string, at?: string) => {
     if (!okrId || !at) return;
-    persistSeenActivity({ ...seenActivityMap, [okrId]: at });
-  }, [persistSeenActivity, seenActivityMap]);
+    persistSeenActivity((prev) => {
+      const prevAt = prev[okrId];
+      if (prevAt && prevAt >= at) {
+        console.log('[loop-debug][activity][skip-same-key]', { okrId, prevAt, at });
+        return prev;
+      }
+      console.log('[loop-debug][activity][mark-run]', { okrId, at });
+      return { ...prev, [okrId]: at };
+    });
+  }, [persistSeenActivity]);
+
+  // ===== ref to track previous okrIds and prevent infinite loads =====
+  const prevOkrIdsRef = useRef<string[]>([]);
 
   useEffect(() => {
     const okrIds = Array.from(
@@ -1849,8 +1915,27 @@ function ExecutionPageContent() {
       )
     ) as string[];
 
+    // ===== compare with previous okrIds =====
+    const okrIdsStr = JSON.stringify(okrIds.sort());
+    const prevOkrIdsStr = JSON.stringify(prevOkrIdsRef.current.sort());
+
+    if (okrIdsStr === prevOkrIdsStr) {
+      console.log('[loop-debug][execution][state-skip-same] okrIds unchanged, skipping activity load');
+      return;
+    }
+
+    console.log('[loop-debug][execution][state-set] okrIds changed, loading activity');
+    prevOkrIdsRef.current = okrIds;
+
     if (!okrIds.length) {
-      setProjectActivityMap({});
+      setProjectActivityMap((prevMap) => {
+        if (Object.keys(prevMap).length === 0) {
+          console.log('[loop-debug][execution][state-skip-same] projectActivityMap already empty');
+          return prevMap;
+        }
+        console.log('[loop-debug][execution][state-set] projectActivityMap cleared');
+        return {};
+      });
       return;
     }
 
@@ -1884,7 +1969,18 @@ function ExecutionPageContent() {
           count: prev.count + 1,
         };
       });
-      setProjectActivityMap(next);
+
+      // ===== also check if next is the same as current before setState =====
+      setProjectActivityMap((prevMap) => {
+        const prevStr = JSON.stringify(Object.entries(prevMap).sort());
+        const nextStr = JSON.stringify(Object.entries(next).sort());
+        if (prevStr === nextStr) {
+          console.log('[loop-debug][execution][state-skip-same] projectActivityMap unchanged');
+          return prevMap;
+        }
+        console.log('[loop-debug][execution][state-set] projectActivityMap updated');
+        return next;
+      });
     };
 
     loadProjectActivity();
@@ -1939,19 +2035,26 @@ function ExecutionPageContent() {
   const [deptOpen, setDeptOpen] = useState<{ open: boolean; di: number | null }>({ open: false, di: null });
 
 
+  const selectedLatestActivityAt = selected?.progressOkrId
+    ? projectActivityMap[selected.progressOkrId]?.latestAt
+    : undefined;
+
   useEffect(() => {
+    console.log('[loop-debug][activity][effect-enter]', {
+      okrId: selected?.progressOkrId,
+      latestAt: selectedLatestActivityAt,
+    });
     if (!selected?.progressOkrId) return;
-    const latestAt = projectActivityMap[selected.progressOkrId]?.latestAt;
-    if (!latestAt) return;
-    markProjectActivitySeen(selected.progressOkrId, latestAt);
-  }, [selected?.progressOkrId, projectActivityMap, markProjectActivitySeen]);
+    if (!selectedLatestActivityAt) return;
+    markProjectActivitySeen(selected.progressOkrId, selectedLatestActivityAt);
+  }, [selected?.progressOkrId, selectedLatestActivityAt, markProjectActivitySeen]);
 
   const deptModalData = useMemo(() => {
     if (!deptOpen.open || deptOpen.di == null) return null;
     const row = pyramid.find((x) => x.di === deptOpen.di);
     if (!row) return null;
     return row;
-  }, [deptOpen, pyramid]);
+  }, [deptOpen.di, deptOpen.open, pyramid]);
 
   // ===== 線描画（SVG）=====
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -2070,18 +2173,27 @@ function ExecutionPageContent() {
                     strategyId: scopeStrategyId,
                     timestamp: new Date().toISOString(),
                   });
-                  setSelected({
-                    deptName: dept?.name ?? '',
-                    projectTitle: strictProj.title,
-                    objective: strictO.objective,
-                    keyResults: strictO.keyResults,
-                    okrId: okrKey(di, pi, oi, okr),
-                    progressOkrId: resolveProgressOkrId(okr),
-                    strategyId: scopeStrategyId,
-                    departmentId: selectedDeptId,
-                    projectId: selectedProjId,
-                    companyId: scopeCompanyId,
-                    krIds: [],
+                  setSelected((prev) => {
+                    const next = {
+                      deptName: dept?.name ?? '',
+                      projectTitle: strictProj.title,
+                      objective: strictO.objective,
+                      keyResults: strictO.keyResults,
+                      okrId: okrKey(di, pi, oi, okr),
+                      progressOkrId: resolveProgressOkrId(okr),
+                      strategyId: scopeStrategyId,
+                      departmentId: selectedDeptId,
+                      projectId: selectedProjId,
+                      companyId: scopeCompanyId,
+                      krIds: [],
+                    };
+                    // ===== shallow compare to prevent unnecessary state updates =====
+                    if (prev && prev.okrId === next.okrId && prev.progressOkrId === next.progressOkrId) {
+                      console.log('[loop-debug][execution][state-skip-same] selected unchanged:', next.okrId);
+                      return prev;
+                    }
+                    console.log('[loop-debug][execution][state-set] selected updated:', next.okrId);
+                    return next;
                   });
                 }}
               />,
@@ -2116,18 +2228,27 @@ function ExecutionPageContent() {
                   okrsV2Count: okrsV2.length,
                   timestamp: new Date().toISOString(),
                 });
-                setSelected({
-                  deptName: dept?.name ?? '',
-                  projectTitle: strictProj.title,
-                  objective: '構造化KRに基づく実行（自動生成）',
-                  keyResults: okrsV2.map((k: any) => String(k?.label ?? '')).filter(Boolean),
-                  okrId: okrKey(di, pi, 0, { id: undefined }),
-                  progressOkrId: undefined,
-                  strategyId: scopeStrategyId,
-                  departmentId: selectedDeptId,
-                  projectId: selectedProjId,
-                  companyId: scopeCompanyId,
-                  krIds: okrsV2.map((k: any) => k.id).filter(Boolean),
+                setSelected((prev) => {
+                  const next = {
+                    deptName: dept?.name ?? '',
+                    projectTitle: strictProj.title,
+                    objective: '構造化KRに基づく実行（自動生成）',
+                    keyResults: okrsV2.map((k: any) => String(k?.label ?? '')).filter(Boolean),
+                    okrId: okrKey(di, pi, 0, { id: undefined }),
+                    progressOkrId: undefined,
+                    strategyId: scopeStrategyId,
+                    departmentId: selectedDeptId,
+                    projectId: selectedProjId,
+                    companyId: scopeCompanyId,
+                    krIds: okrsV2.map((k: any) => k.id).filter(Boolean),
+                  };
+                  // ===== shallow compare to prevent unnecessary state updates =====
+                  if (prev && prev.okrId === next.okrId && prev.progressOkrId === next.progressOkrId) {
+                    console.log('[loop-debug][execution][state-skip-same] selected unchanged (okrsV2):', next.okrId);
+                    return prev;
+                  }
+                  console.log('[loop-debug][execution][state-set] selected updated (okrsV2):', next.okrId);
+                  return next;
                 });
               }}
             />,
