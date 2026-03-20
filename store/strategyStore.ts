@@ -1792,17 +1792,25 @@ export const useStrategyStore = create<StrategyState>()(
 
       /* ▼破壊的リセット禁止：即消さず、仮スコープでハイドレート開始 */
       setCompanyScope: (id) =>
-        set((s) => ({
-          ...s,
-          pendingCompanyId: id,
-          boot: { isHydrating: true, isHydrated: false },
-          __isFetchingFromServer: true,
-          _loadingRefetch: false,
-          __lastServerError: undefined,
-          /* ★ TASK 14: restore フラグをリセット（新会社スコープでリフェッチ開始） */
-          restoreReady: false,
-          isRestoring: true,
-        })),
+        set((s) => {
+          console.log('[strategyStore][setCompanyScope] __isFetchingFromServer: true に設定', {
+            id,
+            timestamp: new Date().toISOString(),
+            previousId: s.companyId,
+            previousIsFetching: s.__isFetchingFromServer,
+          });
+          return {
+            ...s,
+            pendingCompanyId: id,
+            boot: { isHydrating: true, isHydrated: false },
+            __isFetchingFromServer: true,
+            _loadingRefetch: false,
+            __lastServerError: undefined,
+            /* ★ TASK 14: restore フラグをリセット（新会社スコープでリフェッチ開始） */
+            restoreReady: false,
+            isRestoring: true,
+          };
+        }),
 
       setStory: (chs) => {
         set((s) => ({ story: [...chs], dirty: true, version: (s.version ?? 0) + 1 }));
@@ -3375,11 +3383,17 @@ export const useStrategyStore = create<StrategyState>()(
       },
 
       async refetchFromServer() {
+        const timestamp = new Date().toISOString();
         const s0 = get();
         const companyId = s0.pendingCompanyId || s0.companyId || useUserStore.getState().companyId;
 
         const authed = await isSessionUsable();
         if (!companyId || !authed) {
+          console.log('[strategyStore][refetchFromServer] ❌ auth failure, __isFetchingFromServer: false に設定', {
+            timestamp,
+            hasCompanyId: !!companyId,
+            authed,
+          });
           set((s) => ({
             ...s,
             boot: { ...s.boot, isHydrating: true, isHydrated: false },
@@ -3393,7 +3407,11 @@ export const useStrategyStore = create<StrategyState>()(
           throw new Error('会社IDまたは認証情報が見つかりません');
         }
 
-        if (get()._loadingRefetch) return;
+        if (get()._loadingRefetch) {
+          console.log('[strategyStore][refetchFromServer] already loading, early return', { timestamp });
+          return;
+        }
+        console.log('[strategyStore][refetchFromServer] 🔄 フェッチ開始', { companyId, timestamp });
         /* ★ TASK 14: restore フラグを開始（DB restore 中を示す） */
         set({ _loadingRefetch: true, __isFetchingFromServer: true, isRestoring: true });
         set((s) => ({ ...s, boot: { ...s.boot, isHydrating: true } }));
@@ -3455,11 +3473,12 @@ export const useStrategyStore = create<StrategyState>()(
               errorStatus === 503 ||
               errorStatus === 504;
 
-            console.warn('[strategyStore] refetch error - selective retry', {
+            console.warn('[strategyStore][refetchFromServer] ❌ エラー, __isFetchingFromServer: false に設定', {
               errorCode,
               errorStatus,
               isTransientError,
               message: (error as any)?.message,
+              timestamp,
             });
 
             set((s) => ({
@@ -3773,6 +3792,7 @@ export const useStrategyStore = create<StrategyState>()(
           }
         } finally {
           /* ★ TASK 14: 万が一例外が出た場合でも isRestoring をリセット */
+          console.log('[strategyStore][refetchFromServer] ✅ 完了, __isFetchingFromServer: false に設定', { timestamp });
           set({ _loadingRefetch: false, __isFetchingFromServer: false, isRestoring: false });
         }
       },
