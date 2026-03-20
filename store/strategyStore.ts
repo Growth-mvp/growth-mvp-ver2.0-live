@@ -752,15 +752,51 @@ function buildSavePayload(s: StrategyState) {
       typeof kr?.label === 'string' && kr.label.trim() !== ''
     );
 
-  // departments をサニタイズ
-  // ★ Phase 1: { ...p } で ownerUserId / ownerName を保存ペイロードに含める
-  const sanitizedDepts = (Array.isArray(s.departments) ? s.departments : []).map((d: any) => ({
+  // ★ CRITICAL EMERGENCY FIX: Department ID 暫定復元（STAGE5 保存失敗対策）
+  // departments を保存や store 反映に使う前に、department.id を補完する
+  // 優先順位: d.id > d.departmentId > `dept_${idx}`
+  const normalizedDepts = (Array.isArray(s.departments) ? s.departments : []).map((d: any, dIdx: number) => ({
     ...d,
-    projects: (Array.isArray(d.projects) ? d.projects : []).map((p: any) => ({
+    id: d?.id ?? d?.departmentId ?? `dept_${dIdx}`,
+    projects: (Array.isArray(d?.projects) ? d.projects : []).map((p: any, pIdx: number) => ({
       ...p,
-      okrsV2: sanitizeOkrsV2(p.okrsV2),
+      id: p?.id ?? p?.projectId ?? `proj_${dIdx}_${pIdx}`,
     })),
   }));
+
+  // ★ 診断ログ：ID 補完後の departments 状態確認
+  if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1' || process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+    const deptIdStatus = normalizedDepts.map((d: any, idx: number) => ({
+      index: idx,
+      name: d?.name ?? '[no-name]',
+      deptId_before: (s.departments?.[idx] as any)?.id,
+      deptId_after: d?.id,
+      hasDepartmentIdField: !!(s.departments?.[idx] as any)?.departmentId,
+      projectCount: Array.isArray(d?.projects) ? d.projects.length : 0,
+      projectIds: d?.projects?.map((p: any) => ({ title: p?.title, id: p?.id })) ?? [],
+    }));
+    console.log('[diag][buildSavePayload] department id normalization', {
+      timestamp: new Date().toISOString(),
+      normalizedCount: deptIdStatus.length,
+      departments: deptIdStatus,
+    });
+  }
+
+  // departments をサニタイズ
+  // ★ Phase 1: { ...p } で ownerUserId / ownerName を保存ペイロードに含める
+  // ★ NOTE: normalizedDepts から id を引き継ぐ
+  const sanitizedDepts = normalizedDepts.map((d: any) => {
+    const result: any = {
+      ...d,
+      id: d?.id, // ★ normalized id を使用（必ず値がある）
+      projects: (Array.isArray(d.projects) ? d.projects : []).map((p: any) => ({
+        ...p,
+        id: p?.id, // ★ normalized project id を使用（必ず値がある）
+        okrsV2: sanitizeOkrsV2(p.okrsV2),
+      })),
+    };
+    return result;
+  });
 
   const base: any = {
     strategyId: s.strategyId ?? undefined,
@@ -3058,6 +3094,28 @@ export const useStrategyStore = create<StrategyState>()(
             for (let attempt = 1; attempt <= 3; attempt++) {
               const state = get();
               const payload = buildSavePayload(state as StrategyState);
+
+              // ★ 新しい診断ログ：departments/projects の ID 状態確認
+              if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1' || process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+                const deptIdStatus = (state.departments ?? []).map((d: any, idx: number) => ({
+                  index: idx,
+                  name: d?.name ?? '[no-name]',
+                  hasId: !!d?.id,
+                  rawId: d?.id ?? 'missing',
+                  projectCount: Array.isArray(d?.projects) ? d.projects.length : 0,
+                  projectIds: (d?.projects ?? []).map((p: any) => ({
+                    title: p?.title ?? '[no-title]',
+                    hasId: !!p?.id,
+                    rawId: p?.id ?? 'missing',
+                    okrCount: Array.isArray(p?.okrs) ? p.okrs.length : 0,
+                  })),
+                }));
+                console.log('[diag][savePayload-departments-projects-id-status]', {
+                  timestamp: new Date().toISOString(),
+                  totalDepts: deptIdStatus.length,
+                  departments: deptIdStatus,
+                });
+              }
 
               // ★ 診断ログ：保存ペイロードに stage1Issues が含まれているか確認
               if (DEBUG) {
