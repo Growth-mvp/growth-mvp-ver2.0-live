@@ -289,39 +289,67 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
 
   const doSave = useCallback(async () => {
     try {
+      const timestamp = new Date().toISOString();
+
       if (!enabled) {
         if (mode === 'payload') {
-          console.log('[AutoSave][mode] payload - SKIP: not enabled');
+          console.log('[AutoSave][guard-check] SKIP: not enabled', { timestamp });
         }
         return;
       }
       if (requireHydrated && !hydrated) {
         if (mode === 'payload') {
-          console.log('[AutoSave][mode] payload - SKIP: not hydrated');
+          console.log('[AutoSave][guard-check] SKIP: not hydrated', { hydrated, timestamp });
         }
         return;
       }
       if (!userId) {
         if (mode === 'payload') {
-          console.log('[AutoSave][mode] payload - SKIP: no userId');
+          console.log('[AutoSave][guard-check] SKIP: no userId', { timestamp });
         }
         return;
       }
       if (!companyId) {
         if (mode === 'payload') {
-          console.log('[AutoSave][mode] payload - SKIP: no companyId');
+          console.log('[AutoSave][guard-check] SKIP: no companyId', { timestamp });
         }
         return;
       }
       if (forceSkipWhenDeleting && isCompanyDeleting(companyId)) {
         if (mode === 'payload') {
-          console.log('[AutoSave][mode] payload - SKIP: company deleting');
+          console.log('[AutoSave][guard-check] SKIP: company deleting', { companyId, timestamp });
         }
         return;
       }
+
+      // ★ isFetching チェック（最重要）
       if (isFetching) {
         if (mode === 'payload') {
-          console.log('[AutoSave][mode] payload - SKIP: isFetching');
+          const store = useStrategyStore.getState();
+          const isFetchingSelectorResult = isFetchingSelector ? isFetchingSelector(store) : undefined;
+          const __isFetching = (store as any)?.__isFetchingFromServer;
+          const _loadingRefetch = (store as any)?._loadingRefetch;
+          const isHydrating = (store as any)?.boot?.isHydrating;
+
+          console.log('[AutoSave][guard-check] SKIP: isFetching', {
+            isFetching,
+            isFetchingSelector: !!isFetchingSelector,
+            isFetchingSelectorResult,
+            timestamp,
+          });
+
+          // 詳細な store 状態確認
+          console.log('[AutoSave][isFetching-debug-detailed]', {
+            __isFetchingFromServer: __isFetching,
+            _loadingRefetch,
+            isHydrating,
+            pendingCompanyId: (store as any)?.pendingCompanyId,
+            companyId: (store as any)?.companyId,
+            isRestoring: (store as any)?.isRestoring,
+            restoreReady: (store as any)?.restoreReady,
+            conflictCooldownUntil: conflictCooldownUntil ? new Date(conflictCooldownUntil).toISOString() : null,
+            pendingConflictRecovery,
+          });
         }
         return;
       }
@@ -329,7 +357,7 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
       // ★ TASK 1: Check for conflict cooldown
       if (conflictCooldownUntil && Date.now() < conflictCooldownUntil) {
         if (mode === 'payload') {
-          console.log('[AutoSave][mode] payload - SKIP: in conflict cooldown period');
+          console.log('[AutoSave][guard-check] SKIP: in conflict cooldown period', { conflictCooldownUntil, timestamp });
         }
         return;
       }
@@ -339,7 +367,7 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
         const timeSinceSync = Date.now() - lastServerSyncAt;
         if (timeSinceSync < 2000) {
           if (mode === 'payload') {
-            console.log('[AutoSave][mode] payload - SKIP: post-restore cooldown', { timeSinceSync });
+            console.log('[AutoSave][guard-check] SKIP: post-restore cooldown', { timeSinceSync, timestamp });
           }
           return;
         }
@@ -348,14 +376,18 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
       // ★ TASK 1: Block autosave during conflict recovery
       if (pendingConflictRecovery) {
         if (mode === 'payload') {
-          console.log('[AutoSave][mode] payload - SKIP: pending conflict recovery');
+          console.log('[AutoSave][guard-check] SKIP: pending conflict recovery', { timestamp });
         }
         return;
       }
 
       if (Date.now() - mountedAtRef.current < initialDelayMs) {
         if (mode === 'payload') {
-          console.log('[AutoSave][mode] payload - SKIP: initialDelayMs not elapsed');
+          console.log('[AutoSave][guard-check] SKIP: initialDelayMs not elapsed', {
+            elapsed: Date.now() - mountedAtRef.current,
+            initialDelayMs,
+            timestamp
+          });
         }
         return;
       }
@@ -364,7 +396,7 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
         const active = await hasActiveSession();
         if (!active) {
           if (mode === 'payload') {
-            console.log('[AutoSave][mode] payload - SKIP: no active session');
+            console.log('[AutoSave][guard-check] SKIP: no active session', { timestamp });
           }
           return;
         }
@@ -373,31 +405,38 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
       const now = Date.now();
       if (now - lastSavedAtRef.current < minIntervalMs) {
         if (mode === 'payload') {
-          console.log('[AutoSave][mode] payload - SKIP: minIntervalMs not elapsed');
+          console.log('[AutoSave][guard-check] SKIP: minIntervalMs not elapsed', {
+            elapsed: now - lastSavedAtRef.current,
+            minIntervalMs,
+            timestamp
+          });
         }
         return;
       }
       if (savingRef.current) {
         if (mode === 'payload') {
-          console.log('[AutoSave][mode] payload - SKIP: already saving');
+          console.log('[AutoSave][guard-check] SKIP: already saving', { timestamp });
         }
         return;
       }
 
+      // ★ すべてのガードを通過したので、saveStrategyData 呼び出し直前ログ
       if (mode === 'payload') {
-        const store = useStrategyStore.getState();
-        const payload = store.buildPayload?.();
-        const sig = payloadSignature;
-        console.log('[AutoSave][mode] payload', {
-          signature_length: sig.length,
-          payload_keys: payload ? Object.keys(payload).length : 0,
+        console.log('[AutoSave][before-saveStrategyData] 全ガードを通過', {
+          isFetching,
+          isDirty: true,
+          isHydrating: !hydrated,
+          canSave: true,
+          timestamp,
         });
       }
 
       savingRef.current = true;
 
       const storeApi = useStrategyStore.getState();
+      console.log('[AutoSave][saveStrategyData-enter]', { timestamp });
       await storeApi.saveStrategyData();
+      console.log('[AutoSave][saveStrategyData-done]', { timestamp });
 
       lastSavedAtRef.current = Date.now();
     } catch (e) {
@@ -413,6 +452,7 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
     companyId,
     forceSkipWhenDeleting,
     isFetching,
+    isFetchingSelector,
     requireSession,
     minIntervalMs,
     initialDelayMs,
@@ -460,6 +500,23 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
     trigger();
     return cancel;
   }, [enabled, trigger, cancel, combinedSignature]);
+
+  /* ============================================
+   * isFetching トラッキング（デバッグ用）
+   * ========================================== */
+  const lastIsFetchingRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (lastIsFetchingRef.current !== isFetching) {
+      const timestamp = new Date().toISOString();
+      console.log('[AutoSave][isFetching-change]', {
+        prev: lastIsFetchingRef.current,
+        current: isFetching,
+        reason: isFetching ? 'fetch started' : 'fetch completed',
+        timestamp,
+      });
+      lastIsFetchingRef.current = isFetching;
+    }
+  }, [isFetching]);
 
   /* ============================================
    * ★ FIX: gate解除時に再トリガ
