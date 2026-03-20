@@ -96,9 +96,27 @@ function isValidUUID(uuid: string): boolean {
  * Validate department has id
  */
 function validateDepartmentId(dept: any): string | null {
-  const id = dept?.id;
+  // ★ 複数の ID フィールド候補を確認
+  const idCandidates = {
+    id: dept?.id,
+    departmentId: dept?.departmentId,
+    name: dept?.name ?? '[no-name]',
+  };
+
+  // 優先順位: id > departmentId
+  const id = dept?.id ?? dept?.departmentId;
   if (!id) return null;
   if (typeof id !== 'string' && typeof id !== 'number') return null;
+
+  // ★ ログ（DEBUG 時）
+  if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1' || process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+    console.log('[backfillOkrs][validateDepartmentId] department id validation', {
+      idCandidates,
+      selectedId: String(id),
+      isValid: true,
+    });
+  }
+
   return String(id);
 }
 
@@ -106,9 +124,27 @@ function validateDepartmentId(dept: any): string | null {
  * Validate project has id
  */
 function validateProjectId(proj: any): string | null {
-  const id = proj?.id;
+  // ★ 複数の ID フィールド候補を確認
+  const idCandidates = {
+    id: proj?.id,
+    projectId: proj?.projectId,
+    title: proj?.title ?? '[no-title]',
+  };
+
+  // 優先順位: id > projectId
+  const id = proj?.id ?? proj?.projectId;
   if (!id) return null;
   if (typeof id !== 'string' && typeof id !== 'number') return null;
+
+  // ★ ログ（DEBUG 時）
+  if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1' || process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+    console.log('[backfillOkrs][validateProjectId] project id validation', {
+      idCandidates,
+      selectedId: String(id),
+      isValid: true,
+    });
+  }
+
   return String(id);
 }
 
@@ -161,10 +197,23 @@ export interface BackfillResult {
   insertedOkrs?: BackfillOkrData[];
   skipReport?: Array<{
     strategyId: string;
+    departmentName?: string;
     departmentId?: string | null;
+    rawDepartmentId?: any;
+    projectTitle?: string;
     projectId?: string | null;
+    rawProjectId?: any;
     objective?: string | null;
+    objectiveCandidates?: any[];
     reason: string;
+  }>;
+  strategyProjectInventory?: Array<{
+    departmentName?: string;
+    departmentId?: string | null;
+    projectTitle?: string;
+    projectId?: string | null;
+    okrCount: number;
+    objectiveCandidates?: any[];
   }>;
 }
 
@@ -200,6 +249,7 @@ export async function backfillOkrsFromStrategyData(
     },
     insertedOkrs: [],
     skipReport: [],
+    strategyProjectInventory: [],
   };
 
   try {
@@ -249,12 +299,54 @@ export async function backfillOkrsFromStrategyData(
 
       for (const dept of departments) {
         const departmentId = validateDepartmentId(dept);
+        const departmentName = (dept as any)?.name ?? `[unnamed:${departmentId ?? 'no-id'}]`;
+        const rawDepartmentId = (dept as any)?.id;
+
+        // ★ inventory に記録（全 department/project の一覧）
+        const deptProjects = (dept as any)?.projects || [];
+        for (const proj of deptProjects) {
+          const projectId = validateProjectId(proj);
+          const projectTitle = (proj as any)?.title ?? `[unnamed:${projectId ?? 'no-id'}]`;
+          const rawProjectId = (proj as any)?.id;
+          const projectIdCandidates = {
+            id: (proj as any)?.id,
+            projectId: (proj as any)?.projectId,
+          };
+          const okrs = proj?.okrs || [];
+
+          result.strategyProjectInventory?.push({
+            departmentName,
+            departmentId,
+            projectTitle,
+            projectId,
+            okrCount: okrs.length,
+            objectiveCandidates: okrs.map((o: any) => ({
+              objective: o?.objective ?? '[empty]',
+              owner: o?.owner ?? null,
+              keyResultsCount: Array.isArray(o?.keyResults) ? o.keyResults.length : 0,
+            })),
+          });
+
+          // ★ PROJECT ID CANDIDATES DEBUG LOG
+          if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1' || process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+            console.log('[backfillOkrs][inventory] project id-field candidates', {
+              departmentName,
+              departmentIdCandidates: { id: (dept as any)?.id, departmentId: (dept as any)?.departmentId, name: departmentName },
+              projectTitle,
+              projectIdCandidates,
+              validatedProjectId: projectId,
+              okrCount: okrs.length,
+            });
+          }
+        }
 
         if (!departmentId) {
           result.stats.skipped.noDepartmentId++;
           result.skipReport?.push({
             strategyId,
+            departmentName,
             departmentId: null,
+            rawDepartmentId,
             reason: 'department.id missing or invalid',
           });
           continue;
@@ -263,13 +355,19 @@ export async function backfillOkrsFromStrategyData(
         const projects = dept.projects || [];
         for (const proj of projects) {
           const projectId = validateProjectId(proj);
+          const projectTitle = (proj as any)?.title ?? `[unnamed:${projectId ?? 'no-id'}]`;
+          const rawProjectId = (proj as any)?.id;
 
           if (!projectId) {
             result.stats.skipped.noProjectId++;
             result.skipReport?.push({
               strategyId,
+              departmentName,
               departmentId,
+              rawDepartmentId,
+              projectTitle,
               projectId: null,
+              rawProjectId,
               reason: 'project.id missing or invalid',
             });
             continue;
@@ -284,9 +382,17 @@ export async function backfillOkrsFromStrategyData(
               result.stats.skipped.noObjective++;
               result.skipReport?.push({
                 strategyId,
+                departmentName,
                 departmentId,
+                rawDepartmentId,
+                projectTitle,
                 projectId,
+                rawProjectId,
                 objective: null,
+                objectiveCandidates: okrs.map((o: any) => ({
+                  objective: o?.objective ?? '[empty]',
+                  owner: o?.owner ?? null,
+                })),
                 reason: 'objective missing or invalid',
               });
               continue;
@@ -302,8 +408,12 @@ export async function backfillOkrsFromStrategyData(
                 result.stats.skipped.invalidOwnerUuid++;
                 result.skipReport?.push({
                   strategyId,
+                  departmentName,
                   departmentId,
+                  rawDepartmentId,
+                  projectTitle,
                   projectId,
+                  rawProjectId,
                   objective,
                   reason: `owner_user_id invalid UUID: ${okr.owner}`,
                 });
@@ -391,6 +501,42 @@ export async function backfillOkrsFromStrategyData(
       skipped: result.stats.skipped,
       errors: result.stats.errors.length,
     });
+
+    // ★ 詳細ログ：Strategy Project Inventory
+    if (result.strategyProjectInventory && result.strategyProjectInventory.length > 0) {
+      console.group('[backfillOkrs] 📋 Strategy Project Inventory (全プロジェクト一覧)');
+      result.strategyProjectInventory.forEach((item, idx) => {
+        console.log(`[${idx + 1}] ${item.departmentName} > ${item.projectTitle}`, {
+          departmentId: item.departmentId,
+          projectId: item.projectId,
+          okrCount: item.okrCount,
+          objectiveCandidates: item.objectiveCandidates,
+        });
+      });
+      console.groupEnd();
+    }
+
+    // ★ 詳細ログ：Skip Report（最大10件）
+    if (result.skipReport && result.skipReport.length > 0) {
+      console.group(`[backfillOkrs] ⚠️ Skip Report (${result.skipReport.length} 件、最大10件表示)`);
+      result.skipReport.slice(0, 10).forEach((item, idx) => {
+        console.log(`[除外${idx + 1}]`, {
+          departmentName: item.departmentName,
+          departmentId: item.departmentId,
+          rawDepartmentId: item.rawDepartmentId,
+          projectTitle: item.projectTitle,
+          projectId: item.projectId,
+          rawProjectId: item.rawProjectId,
+          objective: item.objective,
+          objectiveCandidates: item.objectiveCandidates,
+          reason: item.reason,
+        });
+      });
+      if (result.skipReport.length > 10) {
+        console.log(`[... 他 ${result.skipReport.length - 10} 件省略]`);
+      }
+      console.groupEnd();
+    }
 
     return result;
   } catch (err) {
