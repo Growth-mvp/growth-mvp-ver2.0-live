@@ -64,6 +64,21 @@ const okrKey = (d: number, p: number, o: number, okr?: any) => {
   return `okr-${d}-${p}-${o}`;
 };
 
+// ===== TASK 2: Normalize function for consistent map keys =====
+const normalizeObjectiveKey = (s?: string): string =>
+  String(s ?? '')
+    .trim()
+    .replace(/\s+/g, ' ') // multiple spaces → single space
+    .replace(/[　]+/g, ' ') // full-width spaces → single space
+    .toLowerCase();
+
+const normalizeProjectTitleKey = (s?: string): string =>
+  String(s ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[　]+/g, ' ')
+    .toLowerCase();
+
 const isUuidLike = (v: any): v is string =>
   typeof v === 'string' &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v.trim());
@@ -244,6 +259,11 @@ function ExecPanel(props: {
   projectTitle: string;
   objective: string;
   keyResults: string[];
+  // ===== TASK 3: dbOkrId と displayOkrId を追加 =====
+  dbOkrId?: string; // ← DB実 ID（okrs.id UUID）
+  displayOkrId?: string; // ← 表示用ID
+  // ===== TASK 4: map hit フラグ =====
+  mapHit?: boolean; // DB map lookup 成功したか
   okrId: string;
   progressOkrId?: string;
   strategyId?: string;
@@ -253,6 +273,7 @@ function ExecPanel(props: {
   krIds?: string[];
   di?: number;
   pi?: number;
+  onActivitySaved?: (payload: { okrId: string; at: string }) => void;
 }) {
   const {
     open,
@@ -262,6 +283,11 @@ function ExecPanel(props: {
     projectTitle,
     objective,
     keyResults,
+    // ===== TASK 3: dbOkrId と displayOkrId をdestructuring =====
+    dbOkrId,
+    displayOkrId,
+    // ===== TASK 4: mapHit をdestructuring =====
+    mapHit,
     okrId,
     progressOkrId,
     strategyId,
@@ -271,6 +297,7 @@ function ExecPanel(props: {
     krIds,
     di,
     pi,
+    onActivitySaved,
   } = props;
 
   const access = useAccess();
@@ -302,6 +329,26 @@ function ExecPanel(props: {
   useEffect(() => {
     setResolvedProgressOkrId(progressLogOkrId);
   }, [progressLogOkrId]);
+
+  // ===== TASK 2: UI混線バグ修正 =====
+  // OKR切替時にフォーム状態をリセット（別プロジェクトのメモが混線するのを防ぐ）
+  useEffect(() => {
+    console.log('[STAGE5-execpanel-reset] OKR changed, resetting form state:', {
+      okrId,
+      progressOkrId,
+      resolvedProgressOkrId,
+      open,
+      timestamp: new Date().toISOString(),
+    });
+    // Reset all input fields
+    setProgressText('');
+    setHelpRequest('');
+    setReviewText('');
+    setNotice('');
+    setTab('checkin');
+    setLogs([]);
+    // Keep rating/reviewScore as they may be persisted in the store
+  }, [open, resolvedProgressOkrId, okrId, progressOkrId]);
 
   // DB分離後の okrs.id を遅延解決（既存UIを壊さず保存時だけ実IDを使う）
   useEffect(() => {
@@ -410,18 +457,70 @@ function ExecPanel(props: {
 
   // 保存（チェックイン）
   const onSaveCheckin = useCallback(async () => {
-    if (!canCheckin || !userId) {
-      setNotice('⚠️ ログイン中のみ保存できます。');
+    // ===== TASK A: Save 実行直前 - 認証状態ログ =====
+    // IMPORTANT: auth.uid と page userId を並べて出力
+    const { data: authData } = await supabase.auth.getUser();
+    const authUserId = authData?.user?.id ?? null;
+
+    console.log('[STAGE5-save-checkin-auth-check]', {
+      'page.userId': userId,
+      'auth.uid()': authUserId,
+      'match': userId === authUserId,
+      'timestamp': new Date().toISOString(),
+    });
+
+    console.log('[STAGE5-save-checkin-before] Full context:', {
+      selected: { okrId, progressOkrId, resolvedProgressOkrId, departmentId, projectId },
+      user: { userId, authUserId, canCheckin, mismatch: userId !== authUserId },
+      open,
+      progressText: progressText.trim().substring(0, 50),
+      helpRequest: helpRequest.trim().substring(0, 50),
+      rating,
+      timestamp: new Date().toISOString(),
+    });
+
+    // TASK B: 保存可否判定を auth 基準に修正
+    // auth user がなければ保存不可
+    if (!authUserId) {
+      const msg = '❌ セッションが切れています。再ログインしてください。';
+      setNotice(msg);
+      console.warn('[STAGE5-save-checkin-blocked] No auth session');
+      return;
+    }
+
+    // page userId と authUserId が不一致なら保存不可
+    if (userId && userId !== authUserId) {
+      const msg = '❌ 認証状態が不整合です。再ログインしてください。';
+      setNotice(msg);
+      console.warn('[STAGE5-save-checkin-blocked] Auth mismatch:', { userId, authUserId });
+      return;
+    }
+
+    // canCheckin 権限確認
+    if (!canCheckin) {
+      const msg = '⚠️ この操作には権限が必要です。';
+      setNotice(msg);
+      console.warn('[STAGE5-save-checkin-blocked] No permission:', { canCheckin });
       return;
     }
     if (!progressText.trim() && !helpRequest.trim() && !rating) {
       setNotice('⚠️ いずれかを入力してください。');
       return;
     }
-    if (!resolvedProgressOkrId) {
-      setNotice('⚠️ このOKRはDBの実IDと未同期のため、進捗メモを保存できません。');
+    // ===== 修正 2: dbOkrId が無い場合は保存せず return =====
+    if (!dbOkrId) {
+      setNotice('❌ OKRが見つかりません。DB同期を確認してください。');
+      console.warn('[STAGE5-save-checkin-blocked]', {
+        reason: 'dbOkrId is undefined',
+        dbOkrId: dbOkrId ?? '(undefined)',
+        mapHit: mapHit ?? '(undefined)',
+        objective: objective ?? '(undefined)',
+        projectId: projectId ?? '(undefined)',
+        displayOkrId: displayOkrId ?? '(undefined)',
+      });
       return;
     }
+
     setSaving(true);
     setNotice('');
     try {
@@ -429,31 +528,93 @@ function ExecPanel(props: {
         ? `${progressText.trim()}\n\n--- Help ---\n${helpRequest.trim()}`
         : progressText.trim();
 
+      // ===== 修正 1: dbOkrId のみを使う（fallback なし） =====
+      const okrIdForSave = dbOkrId.trim();
+
       const metadata = buildProgressLogMetadata({
         companyId: companyId ?? 'unknown',
         deptName: deptName ?? '未名',
         projectTitle: projectTitle ?? '未名',
-        okrId: resolvedProgressOkrId,
+        okrId: okrIdForSave,
         krIds,
       });
 
-      console.log('[STAGE5-save-checkin] Before save:', { rating, okrId, progressLogOkrId, resolvedProgressOkrId });
+      // ===== TASK 5: dbOkrId 未取得理由を分析 =====
+      let dbOkrIdMissingReason = 'unknown';
+      if (!dbOkrId) {
+        if (!mapHit) {
+          dbOkrIdMissingReason = 'map_key_miss';
+        } else {
+          dbOkrIdMissingReason = 'mapHit_but_undefined';
+        }
+      }
+
+      // ===== TASK 1/6: Save 実行時ログ（詳細版） =====
+      console.log('[STAGE5-save-checkin-payload]', {
+        okrIdForSave, // ← 最優先: dbOkrId または fallback
+        dbOkrId: dbOkrId || 'undefined', // ← DB実 ID（map hit）
+        displayOkrId: okrId, // ← 表示用ID
+        mapHit: !!mapHit, // map lookup 成功したか
+        dbOkrIdMissing: !dbOkrId,
+        dbOkrIdMissingReason,
+        objective,
+        userId,
+        departmentId,
+        projectId,
+        companyId,
+        contentLength: composed.length,
+        rating,
+        timestamp: new Date().toISOString(),
+      });
+
+      // dbOkrId が無い場合は notice と console.error で詳細を出す
+      if (!dbOkrId) {
+        const reason = mapHit ? '（map hit だが値が undefined）' : '（map key miss - DBに OKR が見つかりません）';
+        console.error('[STAGE5-save-checkin-warning]', {
+          reason,
+          mapHit,
+          objective,
+          projectId,
+          departmentId,
+          companyId,
+          dbOkrId,
+        });
+      }
+
+      // ===== TASK 1: userId の型を確定 =====
+      if (!userId) {
+        setNotice('❌ ユーザー情報が不足しています。ページを再読み込みしてください。');
+        return;
+      }
 
       const { data: saved, error } = await saveProgressLog({
-        userId,
-        okrId: resolvedProgressOkrId,
+        userId, // string として確定
+        okrId: okrIdForSave, // 修正: okrIdForSave を使用（優先順）
         content: embedMetadata(metadata, composed),
         score: rating ?? null,
+        departmentId: departmentId ?? undefined,
+        projectId: projectId ?? undefined,
+        companyIdOverride: companyId ?? undefined,
       });
-      if (error) throw error;
 
-      console.log('[STAGE5-save-checkin] After save:', { rating, savedScore: saved?.score, savedData: saved });
+      // ===== TASK 1-A: Save 結果ログ =====
+      if (error) {
+        const msg = `code=${error?.code}, message=${error?.message}, status=${error?.status}`;
+        console.error('[STAGE5-save-checkin-error]', msg);
+        if (error?.details) console.error('[STAGE5-save-checkin-error-details]', error.details);
+        if (error?.hint) console.error('[STAGE5-save-checkin-error-hint]', error.hint);
+        throw error;
+      }
+
+      console.log('[STAGE5-save-checkin-success]', {
+        savedId: saved?.id,
+        savedScore: saved?.score,
+        timestamp: new Date().toISOString(),
+      });
 
       // 🔥 Store に score を保存
       useStrategyStore.getState().setOKRTargetScore(okrId, rating);
       await useStrategyStore.getState().saveStrategyData({ reason: 'manual' });
-
-      console.log('[STAGE5-save-checkin] Store updated:', { okrId, rating, storedScore: getScoreFromStore() });
 
       setNotice('✅ 記録しました');
       const nowIso = new Date().toISOString();
@@ -461,62 +622,192 @@ function ExecPanel(props: {
         { id: 'local-' + nowIso, created_at: nowIso, content: composed, score: rating ?? null, status: null },
         ...prev,
       ]);
+      onActivitySaved?.({ okrId: resolvedProgressOkrId, at: nowIso });
       setProgressText('');
       setHelpRequest('');
       // FIXED: Do NOT reset rating to 0 - keep the saved score displayed
     } catch (e: any) {
-      setNotice('❌ 保存に失敗しました');
-      console.warn('save log error', e?.message || e);
+      // ===== TASK 1-A: エラー詳細ログ =====
+      const errorMsg = `code=${e?.code}, message=${e?.message}, status=${e?.status}`;
+      console.error('[STAGE5-save-checkin-exception]', errorMsg);
+      if (e?.details) console.error('[STAGE5-save-checkin-exception-details]', e.details);
+      if (e?.hint) console.error('[STAGE5-save-checkin-exception-hint]', e.hint);
+
+      // Try to provide a more helpful error message
+      let displayMsg = '❌ 保存に失敗しました';
+      if (e?.code === 'OKR_NOT_FOUND') {
+        displayMsg = '❌ OKRが見つかりません（STAGE4で確認してください）';
+      } else if (e?.code === '42501' || e?.status === 403) {
+        displayMsg = '❌ company所属が確認できません（管理者に連絡）';
+      } else if (e?.message?.includes('companyId')) {
+        displayMsg = '❌ company IDの解決に失敗しました';
+      } else if (e?.message) {
+        displayMsg = `❌ ${e.message.substring(0, 100)}`;
+      }
+      setNotice(displayMsg);
     } finally {
       setSaving(false);
-      setTimeout(() => setNotice(''), 2000);
+      setTimeout(() => setNotice(''), 3000);
     }
-  }, [canCheckin, userId, okrId, progressLogOkrId, resolvedProgressOkrId, progressText, rating, helpRequest, companyId, deptName, projectTitle, krIds]);
+  }, [canCheckin, userId, dbOkrId, okrId, progressLogOkrId, resolvedProgressOkrId, progressText, rating, helpRequest, companyId, deptName, projectTitle, krIds, departmentId, projectId]);
 
   // 保存（フィードバック）
   const onSaveFeedback = useCallback(async () => {
-    if (!canFeedback || !userId) {
-      setNotice('⚠️ 会社管理権限（Admin/Manager）が必要です。');
+    // ===== TASK A: Save 実行直前 - 認証状態ログ =====
+    // IMPORTANT: auth.uid と page userId を並べて出力
+    const { data: authData } = await supabase.auth.getUser();
+    const authUserId = authData?.user?.id ?? null;
+
+    console.log('[STAGE5-save-feedback-auth-check]', {
+      'page.userId': userId,
+      'auth.uid()': authUserId,
+      'match': userId === authUserId,
+      'timestamp': new Date().toISOString(),
+    });
+
+    console.log('[STAGE5-save-feedback-before] Full context:', {
+      selected: { okrId, progressOkrId, resolvedProgressOkrId, departmentId, projectId },
+      user: { userId, authUserId, canFeedback, mismatch: userId !== authUserId },
+      open,
+      reviewText: reviewText.trim().substring(0, 50),
+      reviewScore,
+      timestamp: new Date().toISOString(),
+    });
+
+    // TASK B: 保存可否判定を auth 基準に修正
+    // auth user がなければ保存不可
+    if (!authUserId) {
+      const msg = '❌ セッションが切れています。再ログインしてください。';
+      setNotice(msg);
+      console.warn('[STAGE5-save-feedback-blocked] No auth session');
+      return;
+    }
+
+    // page userId と authUserId が不一致なら保存不可
+    if (userId && userId !== authUserId) {
+      const msg = '❌ 認証状態が不整合です。再ログインしてください。';
+      setNotice(msg);
+      console.warn('[STAGE5-save-feedback-blocked] Auth mismatch:', { userId, authUserId });
+      return;
+    }
+
+    // canFeedback 権限確認
+    if (!canFeedback) {
+      const msg = '⚠️ 会社管理権限（Admin/Manager）が必要です。';
+      setNotice(msg);
+      console.warn('[STAGE5-save-feedback-blocked] No permission:', { canFeedback });
       return;
     }
     if (!reviewText.trim() && !reviewScore) {
       setNotice('⚠️ いずれかを入力してください。');
       return;
     }
-    if (!resolvedProgressOkrId) {
-      setNotice('⚠️ このOKRはDBの実IDと未同期のため、フィードバックを保存できません。');
+    // ===== 修正 2: dbOkrId が無い場合は保存せず return =====
+    if (!dbOkrId) {
+      setNotice('❌ OKRが見つかりません。DB同期を確認してください。');
+      console.error('[STAGE5-save-feedback-blocked]', {
+        reason: 'dbOkrId is undefined',
+        dbOkrId: dbOkrId ?? '(undefined)',
+        mapHit: mapHit ?? '(undefined)',
+        objective: objective ?? '(undefined)',
+        projectId: projectId ?? '(undefined)',
+        displayOkrId: displayOkrId ?? '(undefined)',
+      });
       return;
     }
+
     setSaving(true);
     setNotice('');
     try {
       const fbContent = `[FB]\n${reviewText.trim()}`;
 
+      // ===== 修正 1: dbOkrId のみを使う（fallback なし） =====
+      const okrIdForSave = dbOkrId.trim();
+
       const metadata = buildProgressLogMetadata({
         companyId: companyId ?? 'unknown',
         deptName: deptName ?? '未名',
         projectTitle: projectTitle ?? '未名',
-        okrId: resolvedProgressOkrId,
+        okrId: okrIdForSave,
         krIds,
       });
 
-      console.log('[STAGE5-save-feedback] Before save:', { reviewScore, okrId, progressLogOkrId, resolvedProgressOkrId });
+      // ===== TASK 5: dbOkrId 未取得理由を分析 =====
+      let dbOkrIdMissingReason = 'unknown';
+      if (!dbOkrId) {
+        if (!mapHit) {
+          dbOkrIdMissingReason = 'map_key_miss';
+        } else {
+          dbOkrIdMissingReason = 'mapHit_but_undefined';
+        }
+      }
+
+      // ===== TASK 1/6: Save 実行時ログ（詳細版） =====
+      console.log('[STAGE5-save-feedback-payload]', {
+        okrIdForSave, // ← 最優先: dbOkrId または fallback
+        dbOkrId: dbOkrId || 'undefined', // ← DB実 ID（map hit）
+        displayOkrId: okrId, // ← 表示用ID
+        mapHit: !!mapHit, // map lookup 成功したか
+        dbOkrIdMissing: !dbOkrId,
+        dbOkrIdMissingReason,
+        objective,
+        userId,
+        departmentId,
+        projectId,
+        companyId,
+        contentLength: fbContent.length,
+        reviewScore,
+        timestamp: new Date().toISOString(),
+      });
+
+      // dbOkrId が無い場合は notice と console.error で詳細を出す
+      if (!dbOkrId) {
+        const reason = mapHit ? '（map hit だが値が undefined）' : '（map key miss - DBに OKR が見つかりません）';
+        console.error('[STAGE5-save-feedback-warning]', {
+          reason,
+          mapHit,
+          objective,
+          projectId,
+          departmentId,
+          companyId,
+          dbOkrId,
+        });
+      }
+
+      // ===== TASK 1: userId の型を確定 =====
+      if (!userId) {
+        setNotice('❌ ユーザー情報が不足しています。ページを再読み込みしてください。');
+        return;
+      }
 
       const { data: saved, error } = await saveProgressLog({
-        userId,
-        okrId: resolvedProgressOkrId,
+        userId, // string として確定
+        okrId: okrIdForSave, // 修正: okrIdForSave を使用（優先順）
         content: embedMetadata(metadata, fbContent),
         score: reviewScore ?? null,
+        departmentId: departmentId ?? undefined,
+        projectId: projectId ?? undefined,
+        companyIdOverride: companyId ?? undefined,
       });
-      if (error) throw error;
 
-      console.log('[STAGE5-save-feedback] After save:', { reviewScore, savedScore: saved?.score, savedData: saved });
+      // ===== Save 結果ログ =====
+      if (error) {
+        const msg = `code=${error?.code}, message=${error?.message}, status=${error?.status}`;
+        console.error('[STAGE5-save-feedback-error]', msg);
+        if (error?.details) console.error('[STAGE5-save-feedback-error-details]', error.details);
+        if (error?.hint) console.error('[STAGE5-save-feedback-error-hint]', error.hint);
+        throw error;
+      }
+
+      console.log('[STAGE5-save-feedback-success]', {
+        savedId: saved?.id,
+        savedScore: saved?.score,
+        timestamp: new Date().toISOString(),
+      });
 
       // 🔥 Store に score を保存
       useStrategyStore.getState().setOKRTargetScore(okrId, reviewScore);
       await useStrategyStore.getState().saveStrategyData({ reason: 'manual' });
-
-      console.log('[STAGE5-save-feedback] Store updated:', { okrId, reviewScore, storedScore: getScoreFromStore() });
 
       setNotice('✅ フィードバックを保存しました');
       const nowIso = new Date().toISOString();
@@ -524,16 +815,33 @@ function ExecPanel(props: {
         { id: 'local-' + nowIso, created_at: nowIso, content: fbContent, score: reviewScore ?? null, status: null },
         ...prev,
       ]);
+      onActivitySaved?.({ okrId: resolvedProgressOkrId, at: nowIso });
       setReviewText('');
       // FIXED: Do NOT reset reviewScore to 0 - keep the saved score displayed
     } catch (e: any) {
-      setNotice('❌ 保存に失敗しました');
-      console.warn('save feedback error', e?.message || e);
+      // ===== TASK 1-A: エラー詳細ログ =====
+      const errorMsg = `code=${e?.code}, message=${e?.message}, status=${e?.status}`;
+      console.error('[STAGE5-save-feedback-exception]', errorMsg);
+      if (e?.details) console.error('[STAGE5-save-feedback-exception-details]', e.details);
+      if (e?.hint) console.error('[STAGE5-save-feedback-exception-hint]', e.hint);
+
+      // Try to provide a more helpful error message
+      let displayMsg = '❌ 保存に失敗しました';
+      if (e?.code === 'OKR_NOT_FOUND') {
+        displayMsg = '❌ OKRが見つかりません（STAGE4で確認してください）';
+      } else if (e?.code === '42501' || e?.status === 403) {
+        displayMsg = '❌ company所属が確認できません（管理者に連絡）';
+      } else if (e?.message?.includes('companyId')) {
+        displayMsg = '❌ company IDの解決に失敗しました';
+      } else if (e?.message) {
+        displayMsg = `❌ ${e.message.substring(0, 100)}`;
+      }
+      setNotice(displayMsg);
     } finally {
       setSaving(false);
-      setTimeout(() => setNotice(''), 2000);
+      setTimeout(() => setNotice(''), 3000);
     }
-  }, [canFeedback, userId, okrId, progressLogOkrId, resolvedProgressOkrId, reviewText, reviewScore, companyId, deptName, projectTitle, krIds]);
+  }, [canFeedback, userId, okrId, progressLogOkrId, resolvedProgressOkrId, reviewText, reviewScore, companyId, deptName, projectTitle, krIds, departmentId, projectId]);
 
 
   const isFeedback = (row: LogRow) => (row.content || '').startsWith('[FB]');
@@ -1198,6 +1506,110 @@ function ExecutionPageContent() {
 
   const storyText = useMemo(() => normalizeStoryToText(storyBlocks), [storyBlocks]);
 
+  // ===== 修正: DB実OKR Map を作成（fetch 直後に構築） =====
+  const [dbOkrsData, setDbOkrsData] = useState<any[]>([]);
+  const [dbOkrMap, setDbOkrMap] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let alive = true;
+
+    const loadDbOkrs = async () => {
+      if (!scopeCompanyId || !scopeStrategyId) {
+        setDbOkrsData([]);
+        setDbOkrMap({});
+        return;
+      }
+
+      try {
+        // ===== fetch 実行 =====
+        const { data, error } = await supabase
+          .from('okrs')
+          .select('id, objective, company_id, strategy_id, department_id, project_id')
+          .eq('company_id', scopeCompanyId)
+          .eq('strategy_id', scopeStrategyId);
+
+        if (!alive) return;
+
+        if (error) {
+          console.warn('[STAGE5-load-db-okrs-error]', error);
+          setDbOkrsData([]);
+          setDbOkrMap({});
+        } else if (Array.isArray(data)) {
+          const fetchedCount = data.length;
+
+          // ===== fetch 直後に log =====
+          console.log('[STAGE5-load-db-okrs-success]', {
+            count: fetchedCount,
+            companyId: scopeCompanyId,
+            strategyId: scopeStrategyId,
+          });
+
+          // ===== fetch 直後に map を構築（タイミングズレ防止） =====
+          const map: Record<string, string> = {};
+          data.forEach((okr) => {
+            if (okr?.id && okr?.objective) {
+              const normalizedObjective = normalizeObjectiveKey(okr.objective);
+              const projectId = okr.project_id || 'no-project';
+              const key = `${scopeCompanyId}::${scopeStrategyId}::${projectId}::${normalizedObjective}`;
+              map[key] = okr.id;
+            }
+          });
+
+          const entryCount = Object.keys(map).length;
+
+          // ===== map 構築後に log（修正: sourceArrayLength と entryCount 整合確認） =====
+          console.log('[STAGE5-db-okr-map-built]', {
+            fetchedCount,
+            sourceArrayIsArray: Array.isArray(data),
+            sourceArrayLength: data.length,
+            entryCount,
+            source: 'db_okrs_table',
+            companyId: scopeCompanyId,
+            strategyId: scopeStrategyId,
+            // ===== 修正: allObjectives を一時的に追加（件数8なので許容） =====
+            allObjectives: data.map(okr => ({
+              id: okr.id,
+              objective: okr.objective,
+              project_id: okr.project_id,
+              strategy_id: okr.strategy_id,
+            })),
+            ...(entryCount > 0 && {
+              firstThreeObjectives: data.slice(0, 3).map(o => o.objective),
+              firstThreeIds: data.slice(0, 3).map(o => o.id),
+              sampleMapEntries: Object.entries(map).slice(0, 3).map(([k, v]) => ({
+                mapKey: k,
+                dbOkrId: v,
+              })),
+            }),
+            ...(entryCount === 0 && {
+              reason: 'no valid entries with id+objective',
+              sampleData: data.slice(0, 1).map(okr => ({
+                id: okr.id,
+                objective: okr.objective,
+                projectId: okr.project_id,
+              })),
+            }),
+          });
+
+          // ===== state 更新（整合確認済みの data + map を同時更新） =====
+          setDbOkrsData(data);
+          setDbOkrMap(map);
+        }
+      } catch (err) {
+        console.error('[STAGE5-load-db-okrs-exception]', err);
+        if (alive) {
+          setDbOkrsData([]);
+          setDbOkrMap({});
+        }
+      }
+    };
+
+    loadDbOkrs();
+    return () => {
+      alive = false;
+    };
+  }, [scopeCompanyId, scopeStrategyId]);
+
   // ===== ピラミッド表示用のデータ（部門 -> プロジェクト）=====
   const pyramid = useMemo(() => {
     return cascade.map((dept, di) => {
@@ -1229,6 +1641,35 @@ function ExecutionPageContent() {
 
         if (v2Labels.length) keyResults = [...keyResults, ...v2Labels];
 
+        // ===== TASK 1: List item shape logging =====
+        const resolvedDeptId = dept?.id ?? undefined;
+        const resolvedProjId = proj?.id ?? undefined;
+        if (di === 0 && pi === 0) {
+          console.log('[STAGE5-list-item-shape]', {
+            deptName: dept?.name,
+            deptId: resolvedDeptId,
+            deptIdType: typeof resolvedDeptId,
+            deptIdNull: resolvedDeptId === null,
+            deptIdUndefined: resolvedDeptId === undefined,
+            projectTitle: strictProj.title,
+            projectId: resolvedProjId,
+            projectIdType: typeof resolvedProjId,
+            okrId: okrKey(di, pi, oIndex, okr ?? { id: undefined }),
+            progressOkrId: resolveProgressOkrId(okr),
+            companyId: scopeCompanyId,
+            strategyId: scopeStrategyId,
+            deptRaw: dept,
+            deptKeys: dept ? Object.keys(dept) : [],
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        // ===== TASK 2: departmentId fallback - use cascade index if dept.id is undefined =====
+        // dept.id が無い場合は、cascade のインデックス di を部門 ID として機能させる
+        // または、departments 配列内の位置情報をIDとして使用
+        // TASK 2+3: 型を明示的に string に統一（number は許さない）
+        const finalDeptId: string = resolvedDeptId ? String(resolvedDeptId) : `dept_${di}`;
+
         return {
           di,
           pi,
@@ -1238,14 +1679,97 @@ function ExecutionPageContent() {
           mission: dept?.mission ?? '',
           title: strictProj.title,
           okrCount: okrs.length > 0 ? okrs.length : v2Labels.length > 0 ? 1 : 0,
-          selection: {
-            deptName: dept?.name ?? '',
-            projectTitle: strictProj.title,
-            objective,
-            keyResults,
-            okrId: okrKey(di, pi, oIndex, okr ?? { id: undefined }),
-            progressOkrId: resolveProgressOkrId(okr),
-          },
+          selection: (() => {
+            // ===== TASK 2/3: Normalized key lookup =====
+            let dbOkrId: string | undefined = undefined;
+            let mapHit = false;
+
+            if (objective && scopeCompanyId && scopeStrategyId) {
+              const normalizedObjective = normalizeObjectiveKey(objective);
+              const projectIdForKey = resolvedProjId || 'no-project';
+              const lookupKey = `${scopeCompanyId}::${scopeStrategyId}::${projectIdForKey}::${normalizedObjective}`;
+
+              dbOkrId = dbOkrMap[lookupKey];
+              mapHit = !!dbOkrId;
+
+              // ===== 修正 3 + TASK 1/4: Detailed lookup log with candidates =====
+              if (di === 0 && pi === 0) {
+                let sameObjectiveCandidates: any[] = [];
+                let sameProjectCandidates: any[] = [];
+
+                // mapHit = false の場合、詳細な候補分析
+                if (!mapHit && Array.isArray(dbOkrsData)) {
+                  const normalizedObjFromDb = normalizeObjectiveKey(objective);
+
+                  // 候補1: 同じ objective を持つ DB OKR
+                  sameObjectiveCandidates = dbOkrsData
+                    .filter((okr) => normalizeObjectiveKey(okr.objective) === normalizedObjFromDb)
+                    .slice(0, 5)
+                    .map((okr) => ({
+                      id: okr.id,
+                      objective: okr.objective,
+                      normalizedObjective: normalizeObjectiveKey(okr.objective),
+                      project_id: okr.project_id,
+                      strategy_id: okr.strategy_id,
+                      company_id: okr.company_id,
+                    }));
+
+                  // 候補2: 同じ project_id を持つ DB OKR
+                  sameProjectCandidates = dbOkrsData
+                    .filter((okr) => okr.project_id === projectIdForKey)
+                    .slice(0, 5)
+                    .map((okr) => ({
+                      id: okr.id,
+                      objective: okr.objective,
+                      normalizedObjective: normalizeObjectiveKey(okr.objective),
+                      project_id: okr.project_id,
+                      strategy_id: okr.strategy_id,
+                      company_id: okr.company_id,
+                    }));
+                }
+
+                console.log('[STAGE5-db-okr-map-lookup]', {
+                  objective,
+                  normalizedObjective,
+                  projectTitle: strictProj.title,
+                  projectId: projectIdForKey,
+                  lookupKey,
+                  mapHit,
+                  dbOkrId: dbOkrId || 'not found',
+                  // ===== 修正: mapHit=false のときに候補を分類 =====
+                  ...(sameObjectiveCandidates.length > 0 && {
+                    sameObjectiveCandidates,
+                  }),
+                  ...(sameProjectCandidates.length > 0 && {
+                    sameProjectCandidates,
+                  }),
+                  ...(sameObjectiveCandidates.length === 0 && sameProjectCandidates.length === 0 && !mapHit && {
+                    noCandidatesFound: true,
+                    note: 'DB に該当する objective も project_id も見つかりません',
+                  }),
+                });
+              }
+            }
+
+            return {
+              deptName: dept?.name ?? '',
+              projectTitle: strictProj.title,
+              objective,
+              keyResults,
+              // ===== TASK 4: dbOkrId + mapHit flag =====
+              dbOkrId,
+              mapHit,
+              displayOkrId: okrKey(di, pi, oIndex, okr ?? { id: undefined }),
+              okrId: okrKey(di, pi, oIndex, okr ?? { id: undefined }),
+              progressOkrId: resolveProgressOkrId(okr),
+              // ===== TASK 3: departmentId, projectId, companyId, strategyId を追加 =====
+              // ===== TASK 2: fallback で dept_${di} を使用 =====
+              departmentId: finalDeptId,
+              projectId: resolvedProjId,
+              companyId: scopeCompanyId ?? undefined,
+              strategyId: scopeStrategyId ?? undefined,
+            };
+          })(),
           projForCard: { ...(proj as any), title: strictProj.title },
         };
       });
@@ -1258,7 +1782,7 @@ function ExecutionPageContent() {
         projects,
       };
     });
-  }, [cascade, scopeStrategyId]);
+  }, [cascade, scopeStrategyId, scopeCompanyId, dbOkrMap]);
 
   // ===== okrId → impact スコアの map =====
   const okrTargetScores = useStrategyStore((s: any) => s.okrTargetScores ?? {});
@@ -1285,12 +1809,120 @@ function ExecutionPageContent() {
     return map;
   }, [pyramid, okrTargetScores]);
 
+
+  const activityStorageKey = useMemo(
+    () => `stage5-project-seen:${scopeStrategyId || scopeCompanyId || 'default'}`,
+    [scopeStrategyId, scopeCompanyId]
+  );
+  const [projectActivityMap, setProjectActivityMap] = useState<Record<string, { latestAt?: string; count: number }>>({});
+  const [seenActivityMap, setSeenActivityMap] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem(activityStorageKey);
+      setSeenActivityMap(raw ? JSON.parse(raw) : {});
+    } catch {
+      setSeenActivityMap({});
+    }
+  }, [activityStorageKey]);
+
+  const persistSeenActivity = useCallback((next: Record<string, string>) => {
+    setSeenActivityMap(next);
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(activityStorageKey, JSON.stringify(next));
+    } catch {}
+  }, [activityStorageKey]);
+
+  const markProjectActivitySeen = useCallback((okrId?: string, at?: string) => {
+    if (!okrId || !at) return;
+    persistSeenActivity({ ...seenActivityMap, [okrId]: at });
+  }, [persistSeenActivity, seenActivityMap]);
+
+  useEffect(() => {
+    const okrIds = Array.from(
+      new Set(
+        pyramid
+          .map((dept) => dept.projects.map((proj) => proj.selection.progressOkrId).filter(Boolean))
+          .flat()
+      )
+    ) as string[];
+
+    if (!okrIds.length) {
+      setProjectActivityMap({});
+      return;
+    }
+
+    let alive = true;
+    const loadProjectActivity = async () => {
+      const { data, error } = await supabase
+        .from('progress_logs')
+        .select('okr_id, created_at')
+        .in('okr_id', okrIds)
+        .order('created_at', { ascending: false })
+        .limit(Math.max(okrIds.length * 8, 50));
+
+      if (!alive) return;
+      if (error) {
+        console.warn('[STAGE5-project-activity] load error', error);
+        return;
+      }
+
+      const next: Record<string, { latestAt?: string; count: number }> = {};
+      (data ?? []).forEach((row: any) => {
+        const okrId = String(row?.okr_id ?? '').trim();
+        const createdAt = typeof row?.created_at === 'string' ? row.created_at : undefined;
+        if (!okrId) return;
+        const prev = next[okrId];
+        if (!prev) {
+          next[okrId] = { latestAt: createdAt, count: 1 };
+          return;
+        }
+        next[okrId] = {
+          latestAt: prev.latestAt && createdAt ? (prev.latestAt > createdAt ? prev.latestAt : createdAt) : prev.latestAt ?? createdAt,
+          count: prev.count + 1,
+        };
+      });
+      setProjectActivityMap(next);
+    };
+
+    loadProjectActivity();
+    return () => {
+      alive = false;
+    };
+  }, [pyramid]);
+
+  const projectUpdateMap = useMemo(() => {
+    const map: Record<string, { hasUnread: boolean; latestAt?: string; count: number }> = {};
+    pyramid.forEach((dept) => {
+      dept.projects.forEach((proj) => {
+        const key = `${proj.di}:${proj.pi}`;
+        const progressOkrId = proj.selection.progressOkrId;
+        const activity = progressOkrId ? projectActivityMap[progressOkrId] : undefined;
+        const seenAt = progressOkrId ? seenActivityMap[progressOkrId] : undefined;
+        const latestAt = activity?.latestAt;
+        map[key] = {
+          hasUnread: Boolean(latestAt && (!seenAt || latestAt > seenAt)),
+          latestAt,
+          count: activity?.count ?? 0,
+        };
+      });
+    });
+    return map;
+  }, [pyramid, projectActivityMap, seenActivityMap]);
+
   // ===== 選択（実行支援：OKR）=====
   const [selected, setSelected] = useState<{
     deptName: string;
     projectTitle: string;
     objective: string;
     keyResults: string[];
+    // ===== TASK 3: dbOkrId を selection に追加 =====
+    dbOkrId?: string; // ← DB実 ID（okrs.id UUID）
+    displayOkrId?: string;
+    // ===== TASK 4: map hit フラグ =====
+    mapHit?: boolean; // map lookup 成功したか
     okrId: string;
     progressOkrId?: string;
     strategyId?: string;
@@ -1305,6 +1937,14 @@ function ExecutionPageContent() {
   // モーダル：ストーリー / 部門
   const [storyOpen, setStoryOpen] = useState(false);
   const [deptOpen, setDeptOpen] = useState<{ open: boolean; di: number | null }>({ open: false, di: null });
+
+
+  useEffect(() => {
+    if (!selected?.progressOkrId) return;
+    const latestAt = projectActivityMap[selected.progressOkrId]?.latestAt;
+    if (!latestAt) return;
+    markProjectActivitySeen(selected.progressOkrId, latestAt);
+  }, [selected?.progressOkrId, projectActivityMap, markProjectActivitySeen]);
 
   const deptModalData = useMemo(() => {
     if (!deptOpen.open || deptOpen.di == null) return null;
@@ -1413,6 +2053,23 @@ function ExecutionPageContent() {
                 onClick={() => {
                   if (isHydrating) return;
                   const strictO = toStrictOKR(okr);
+                  // ===== TASK 1: Card click - selected created =====
+                  // ===== TASK 2: fallback for deptId =====
+                  const selectedDeptId = dept?.id ? String(dept.id) : `dept_${di}`;
+                  const selectedProjId = typeof (proj as any)?.id === 'string' ? (proj as any).id : undefined;
+                  console.log('[STAGE5-open-modal-selected-mobile]', {
+                    deptName: dept?.name,
+                    deptId: selectedDeptId,
+                    deptIdType: typeof selectedDeptId,
+                    projectTitle: strictProj.title,
+                    projectId: selectedProjId,
+                    projectIdType: typeof selectedProjId,
+                    okrId: okrKey(di, pi, oi, okr),
+                    progressOkrId: resolveProgressOkrId(okr),
+                    companyId: scopeCompanyId,
+                    strategyId: scopeStrategyId,
+                    timestamp: new Date().toISOString(),
+                  });
                   setSelected({
                     deptName: dept?.name ?? '',
                     projectTitle: strictProj.title,
@@ -1421,8 +2078,8 @@ function ExecutionPageContent() {
                     okrId: okrKey(di, pi, oi, okr),
                     progressOkrId: resolveProgressOkrId(okr),
                     strategyId: scopeStrategyId,
-                    departmentId: typeof dept?.id === 'string' ? dept.id : undefined,
-                    projectId: typeof (proj as any)?.id === 'string' ? (proj as any).id : undefined,
+                    departmentId: selectedDeptId,
+                    projectId: selectedProjId,
                     companyId: scopeCompanyId,
                     krIds: [],
                   });
@@ -1441,6 +2098,24 @@ function ExecutionPageContent() {
               project={projForCard as any}
               onClick={() => {
                 if (isHydrating) return;
+                // ===== TASK 1: Card click okrsV2 - selected created =====
+                // ===== TASK 2: fallback for deptId =====
+                const selectedDeptId = dept?.id ? String(dept.id) : `dept_${di}`;
+                const selectedProjId = typeof (proj as any)?.id === 'string' ? (proj as any).id : undefined;
+                console.log('[STAGE5-open-modal-selected-okrsv2]', {
+                  deptName: dept?.name,
+                  deptId: selectedDeptId,
+                  deptIdType: typeof selectedDeptId,
+                  projectTitle: strictProj.title,
+                  projectId: selectedProjId,
+                  projectIdType: typeof selectedProjId,
+                  okrId: okrKey(di, pi, 0, { id: undefined }),
+                  progressOkrId: undefined,
+                  companyId: scopeCompanyId,
+                  strategyId: scopeStrategyId,
+                  okrsV2Count: okrsV2.length,
+                  timestamp: new Date().toISOString(),
+                });
                 setSelected({
                   deptName: dept?.name ?? '',
                   projectTitle: strictProj.title,
@@ -1449,8 +2124,8 @@ function ExecutionPageContent() {
                   okrId: okrKey(di, pi, 0, { id: undefined }),
                   progressOkrId: undefined,
                   strategyId: scopeStrategyId,
-                  departmentId: typeof dept?.id === 'string' ? dept.id : undefined,
-                  projectId: typeof (proj as any)?.id === 'string' ? (proj as any).id : undefined,
+                  departmentId: selectedDeptId,
+                  projectId: selectedProjId,
                   companyId: scopeCompanyId,
                   krIds: okrsV2.map((k: any) => k.id).filter(Boolean),
                 });
@@ -1573,24 +2248,12 @@ function ExecutionPageContent() {
                 ref={storyRef}
                 type="button"
                 onClick={() => setStoryOpen(true)}
-                className={`group w-[280px] rounded-3xl border border-black/10 hover:border-blue-300 ${toneToTint(storyTone)} hover:bg-blue-50 px-5 py-5 text-left shadow-sm hover:shadow-md transition`}
+                className={`group w-[248px] rounded-3xl border border-black/10 hover:border-blue-300 ${toneToTint(storyTone)} hover:bg-blue-50 px-5 py-5 text-left shadow-sm hover:shadow-md transition`}
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <div className="grid h-9 w-9 place-items-center rounded-2xl border border-black/10 bg-white shadow-sm">
-                      <BookOpen className="h-5 w-5 text-gray-800 group-hover:text-blue-600 transition" />
-                    </div>
-                    <div>
-                      <div className="text-xs font-semibold text-gray-700 group-hover:text-blue-700 tracking-wide transition">経営戦略ストーリー</div>
-                      <div className="text-xs text-gray-500 group-hover:text-blue-600 mt-0.5 transition">▶ クリックで全文</div>
-                    </div>
-                  </div>
-                  <div className="inline-flex rounded-full border border-black/10 bg-white px-2 py-1 text-[11px] text-gray-600 shadow-sm">
-                    
-                  </div>
-                </div>
-                <div className="mt-4 rounded-2xl border border-black/10 bg-white px-3 py-2 text-[12px] text-gray-700 shadow-sm">
-                  ストーリーを開く
+                <div className="space-y-2">
+                  <div className="text-xs font-semibold text-gray-700 group-hover:text-blue-700 tracking-wide transition">経営戦略ストーリー</div>
+                  <div className="text-sm font-semibold text-gray-900 group-hover:text-blue-700 transition">全体方針と勝ち筋を確認</div>
+                  <div className="text-xs text-gray-500 group-hover:text-blue-600 transition">クリックで全文を表示</div>
                 </div>
               </button>
 
@@ -1644,27 +2307,72 @@ function ExecutionPageContent() {
                                         setDeptOpen({ open: true, di: p.di });
                                         return;
                                       }
-                                      setSelected({ ...p.selection, di: p.di, pi: p.pi });
+                                      // ===== TASK 1: Desktop project button - selected from pyramid =====
+                                      console.log('[STAGE5-open-modal-selected-desktop]', {
+                                        deptName: p.selection.deptName,
+                                        deptId: p.selection.departmentId,
+                                        deptIdType: typeof p.selection.departmentId,
+                                        projectTitle: p.selection.projectTitle,
+                                        projectId: p.selection.projectId,
+                                        projectIdType: typeof p.selection.projectId,
+                                        okrId: p.selection.okrId,
+                                        progressOkrId: p.selection.progressOkrId,
+                                        companyId: p.selection.companyId,
+                                        strategyId: p.selection.strategyId,
+                                        di: p.di,
+                                        pi: p.pi,
+                                        timestamp: new Date().toISOString(),
+                                      });
+                                      const sel = { ...p.selection, di: p.di, pi: p.pi };
+                                      setSelected(sel);
+                                      // ===== 修正 4 + TASK 6: selected-built ログ（dbOkrId 未解決を明示） =====
+                                      console.log('[STAGE5-selected-built]', {
+                                        objective: sel.objective,
+                                        projectTitle: sel.projectTitle,
+                                        dbOkrId: sel.dbOkrId || '(undefined)',
+                                        displayOkrId: sel.displayOkrId,
+                                        mapHit: sel.mapHit,
+                                        projectId: sel.projectId,
+                                        departmentId: sel.departmentId,
+                                        companyId: sel.companyId,
+                                        strategyId: sel.strategyId,
+                                      });
+
+                                      // ===== 修正 4: dbOkrId 未解決警告 =====
+                                      if (!sel.dbOkrId) {
+                                        console.warn('[STAGE5-selected-warning-no-dbOkrId]', {
+                                          reason: 'dbOkrId is undefined - map lookup failed',
+                                          objective: sel.objective,
+                                          projectId: sel.projectId,
+                                          mapHit: sel.mapHit,
+                                        });
+                                      }
                                     }}
-                                    className="group rounded-2xl border border-black/10 bg-white hover:border-blue-200 hover:bg-blue-50 px-4 py-3 text-left shadow-sm hover:shadow-md transition"
+                                    className="group w-full max-w-[520px] rounded-2xl border border-black/10 bg-white hover:border-blue-200 hover:bg-blue-50 px-4 py-3 text-left shadow-sm hover:shadow-md transition"
                                   >
-                                    <div className="flex items-center justify-between gap-2">
-                                      <div className="flex-1">
-                                        <div className="text-sm font-semibold text-gray-900 group-hover:text-blue-700 transition">{p.title || '（プロジェクト名未設定）'}</div>
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                          <div className="truncate text-sm font-semibold text-gray-900 group-hover:text-blue-700 transition">{p.title || '（プロジェクト名未設定）'}</div>
+                                          {(() => {
+                                            const updateInfo = projectUpdateMap[key];
+                                            if (!updateInfo?.hasUnread) return null;
+                                            return (
+                                              <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 whitespace-nowrap">
+                                                更新あり
+                                              </span>
+                                            );
+                                          })()}
+                                        </div>
                                         <div className="mt-1 text-xs text-gray-500 group-hover:text-blue-600 transition">▶ クリックで詳細表示</div>
                                       </div>
-                                      <div className="flex items-center gap-2 text-gray-500 group-hover:text-blue-600 transition">
+                                      <div className="flex items-center gap-2 text-gray-500 group-hover:text-blue-600 transition shrink-0">
                                         {(() => {
                                           const impactData = projectImpactMap[key];
                                           const score = impactData?.max ?? 0;
-                                          const showBadge = p.okrCount > 0;
-                                          return showBadge ? (
-                                            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold whitespace-nowrap ${
-                                              score > 0
-                                                ? 'bg-blue-100 text-blue-700'
-                                                : 'bg-gray-100 text-gray-600'
-                                            }`}>
-                                              {score > 0 ? `インパクト ${score}/5` : '未評価'}
+                                          return score > 0 ? (
+                                            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-blue-700">
+                                              インパクト {score}/5
                                             </span>
                                           ) : null;
                                         })()}
@@ -1740,8 +2448,47 @@ function ExecutionPageContent() {
                     onClick={() => {
                       if (isHydrating) return;
                       if (!p.selection.objective && (p.selection.keyResults?.length ?? 0) === 0) return;
+                      // ===== TASK 1: Dept modal project button - selected from pyramid =====
+                      console.log('[STAGE5-open-modal-selected-dept-modal]', {
+                        deptName: p.selection.deptName,
+                        deptId: p.selection.departmentId,
+                        deptIdType: typeof p.selection.departmentId,
+                        projectTitle: p.selection.projectTitle,
+                        projectId: p.selection.projectId,
+                        projectIdType: typeof p.selection.projectId,
+                        okrId: p.selection.okrId,
+                        progressOkrId: p.selection.progressOkrId,
+                        companyId: p.selection.companyId,
+                        strategyId: p.selection.strategyId,
+                        di: p.di,
+                        pi: p.pi,
+                        timestamp: new Date().toISOString(),
+                      });
                       setDeptOpen({ open: false, di: null });
-                      setSelected({ ...p.selection, di: p.di, pi: p.pi });
+                      const sel2 = { ...p.selection, di: p.di, pi: p.pi };
+                      setSelected(sel2);
+                      // ===== 修正 4 + TASK 6: selected-built ログ（dbOkrId 未解決を明示） =====
+                      console.log('[STAGE5-selected-built]', {
+                        objective: sel2.objective,
+                        projectTitle: sel2.projectTitle,
+                        dbOkrId: sel2.dbOkrId || '(undefined)',
+                        displayOkrId: sel2.displayOkrId,
+                        mapHit: sel2.mapHit,
+                        projectId: sel2.projectId,
+                        departmentId: sel2.departmentId,
+                        companyId: sel2.companyId,
+                        strategyId: sel2.strategyId,
+                      });
+
+                      // ===== 修正 4: dbOkrId 未解決警告 =====
+                      if (!sel2.dbOkrId) {
+                        console.warn('[STAGE5-selected-warning-no-dbOkrId]', {
+                          reason: 'dbOkrId is undefined - map lookup failed',
+                          objective: sel2.objective,
+                          projectId: sel2.projectId,
+                          mapHit: sel2.mapHit,
+                        });
+                      }
                     }}
                     className="rounded-2xl border border-black/10 bg-white hover:bg-gray-50 p-4 text-left shadow-sm transition"
                   >
@@ -1768,6 +2515,11 @@ function ExecutionPageContent() {
         projectTitle={selected?.projectTitle ?? ''}
         objective={selected?.objective ?? ''}
         keyResults={selected?.keyResults ?? []}
+        // ===== TASK 3: dbOkrId と displayOkrId を pass =====
+        dbOkrId={selected?.dbOkrId}
+        displayOkrId={selected?.displayOkrId}
+        // ===== TASK 4: mapHit を pass =====
+        mapHit={selected?.mapHit}
         okrId={selected?.okrId ?? ''}
         progressOkrId={selected?.progressOkrId}
         strategyId={selected?.strategyId}
@@ -1777,6 +2529,18 @@ function ExecutionPageContent() {
         krIds={selected?.krIds ?? []}
         di={selected?.di}
         pi={selected?.pi}
+        onActivitySaved={({ okrId, at }) => {
+          setProjectActivityMap((prev) => {
+            const before = prev[okrId];
+            return {
+              ...prev,
+              [okrId]: {
+                latestAt: before?.latestAt && before.latestAt > at ? before.latestAt : at,
+                count: (before?.count ?? 0) + 1,
+              },
+            };
+          });
+        }}
       />
     </main>
   );
