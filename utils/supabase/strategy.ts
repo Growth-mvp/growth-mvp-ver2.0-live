@@ -638,6 +638,29 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   out.finalStoryFinal = ensureArray(out.finalStoryFinal);  // ★ 追加：finalStoryFinal を復元
   // ★ Phase 1: departments（JSONB）に projects[]が含まれ、ownerUserId/ownerName も復元される
   out.departments = ensureArray(out.departments);
+
+  // ★ CRITICAL: department.id が DB から読み込まれているか確認（backfillOkrs のため）
+  if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1' || process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+    const deptIdStatus = out.departments.map((d: any, idx: number) => ({
+      index: idx,
+      name: d?.name ?? '[no-name]',
+      hasId: !!d?.id,
+      rawId: d?.id ?? 'missing',
+      projectCount: Array.isArray(d?.projects) ? d.projects.length : 0,
+      projectIdStatus: (d?.projects ?? []).map((p: any) => ({
+        title: p?.title ?? '[no-title]',
+        hasId: !!p?.id,
+        rawId: p?.id ?? 'missing',
+      })),
+    }));
+    console.log('[diag][buildStateFromDbRow] departments id-status after ensureArray', {
+      timestamp: new Date().toISOString(),
+      source: 'db-read',
+      totalDepts: deptIdStatus.length,
+      departments: deptIdStatus,
+    });
+  }
+
   out.simulationResults = ensureArray(out.simulationResults);
   out.stage1Issues = ensureArray(out.stage1Issues);  // ★ 修正：stage1Issues を復元
   out.financePL = ensureArray(out.financePL);
@@ -2028,15 +2051,16 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         });
       }
 
-      // Step 2: backfillOkrsFromStrategyData を dryRun で実行して同期対象を確認
+      // Step 2: backfillOkrsFromStrategyData を実行して okrs テーブルに同期
+      // ★ EMERGENCY FIX: dryRun: false で本番フロー実行（STAGE5 復旧のため）
       try {
         const { backfillOkrsFromStrategyData } = await import('./backfillOkrs');
         const backfillResult = await backfillOkrsFromStrategyData({
-          dryRun: true,
+          dryRun: false, // ★ 修正：true → false で本番フロー実行
           companyId: cleanCompanyId,
         });
 
-        console.log('[saveStrategyData-okr-sync-diag] backfillOkrs dryRun 結果（UPDATE版）', {
+        console.log('[saveStrategyData-okr-sync-diag] backfillOkrs 実行結果（UPDATE版）', {
           success: backfillResult.success,
           backfilled: backfillResult.stats.backfilled,
           skipped: backfillResult.stats.skipped,
@@ -2061,8 +2085,38 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
             })),
           }),
         });
+
+        // ★ 新規：okrs テーブル再読込ログ（実反映確認用）
+        if (backfillResult.success && backfillResult.stats.backfilled > 0) {
+          try {
+            const { data: okrsCount } = await supabase
+              .from('okrs')
+              .select('*', { count: 'exact' })
+              .eq('company_id', cleanCompanyId);
+
+            const { data: semiconductorOkrs } = await supabase
+              .from('okrs')
+              .select('*')
+              .eq('company_id', cleanCompanyId)
+              .ilike('objective', '%半導体%');
+
+            console.log('[backfillOkrs] DB sync done（UPDATE版）', {
+              insertedCount: backfillResult.stats.backfilled,
+              totalOkrsInDb: okrsCount,
+              semiconductorOkrCount: semiconductorOkrs?.length ?? 0,
+              semiconductorOkrSample: semiconductorOkrs?.slice(0, 3).map((o: any) => ({
+                okrId: o.id,
+                objective: o.objective,
+                projectId: o.project_id,
+                departmentId: o.department_id,
+              })) ?? [],
+            });
+          } catch (err) {
+            console.warn('[backfillOkrs] DB sync verification failed:', err);
+          }
+        }
       } catch (backfillErr) {
-        console.warn('[saveStrategyData-okr-sync-diag] backfillOkrs dryRun failed（UPDATE版）:', backfillErr);
+        console.warn('[saveStrategyData-okr-sync-diag] backfillOkrs failed（UPDATE版）:', backfillErr);
       }
 
       const stateAfter = buildStateFromDbRow(upd.data ?? {});
@@ -2259,15 +2313,16 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       });
     }
 
-    // Step 2: backfillOkrsFromStrategyData を dryRun で実行して同期対象を確認
+    // Step 2: backfillOkrsFromStrategyData を実行して okrs テーブルに同期
+    // ★ EMERGENCY FIX: dryRun: false で本番フロー実行（STAGE5 復旧のため）
     try {
       const { backfillOkrsFromStrategyData } = await import('./backfillOkrs');
       const backfillResult = await backfillOkrsFromStrategyData({
-        dryRun: true,
+        dryRun: false, // ★ 修正：true → false で本番フロー実行
         companyId: cleanCompanyId,
       });
 
-      console.log('[saveStrategyData-okr-sync-diag] backfillOkrs dryRun 結果', {
+      console.log('[saveStrategyData-okr-sync-diag] backfillOkrs 実行結果', {
         success: backfillResult.success,
         backfilled: backfillResult.stats.backfilled,
         skipped: backfillResult.stats.skipped,
@@ -2292,8 +2347,38 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
           })),
         }),
       });
+
+      // ★ 新規：okrs テーブル再読込ログ（実反映確認用）
+      if (backfillResult.success && backfillResult.stats.backfilled > 0) {
+        try {
+          const { data: okrsCount } = await supabase
+            .from('okrs')
+            .select('*', { count: 'exact' })
+            .eq('company_id', cleanCompanyId);
+
+          const { data: semiconductorOkrs } = await supabase
+            .from('okrs')
+            .select('*')
+            .eq('company_id', cleanCompanyId)
+            .ilike('objective', '%半導体%');
+
+          console.log('[backfillOkrs] DB sync done', {
+            insertedCount: backfillResult.stats.backfilled,
+            totalOkrsInDb: okrsCount,
+            semiconductorOkrCount: semiconductorOkrs?.length ?? 0,
+            semiconductorOkrSample: semiconductorOkrs?.slice(0, 3).map((o: any) => ({
+              okrId: o.id,
+              objective: o.objective,
+              projectId: o.project_id,
+              departmentId: o.department_id,
+            })) ?? [],
+          });
+        } catch (err) {
+          console.warn('[backfillOkrs] DB sync verification failed:', err);
+        }
+      }
     } catch (backfillErr) {
-      console.warn('[saveStrategyData-okr-sync-diag] backfillOkrs dryRun failed:', backfillErr);
+      console.warn('[saveStrategyData-okr-sync-diag] backfillOkrs failed:', backfillErr);
     }
 
     const stateAfter = buildStateFromDbRow(ins.data ?? {});
