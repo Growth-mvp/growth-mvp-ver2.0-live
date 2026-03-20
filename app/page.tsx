@@ -38,7 +38,7 @@ export default function Home() {
             transition={{ duration: 0.55 }}
             className="text-[28px] font-semibold leading-[1.2] tracking-[-0.02em] text-neutral-800 sm:text-[38px] lg:text-[52px] dark:text-neutral-100"
           >
-            企業成長を自律自走へ。
+            企業成長を加速する。
           </motion.p>
 
           <motion.h1
@@ -58,7 +58,7 @@ export default function Home() {
             transition={{ duration: 0.7, delay: 0.15 }}
             className="mx-auto mt-5 max-w-2xl text-[15px] leading-7 text-neutral-600 sm:text-[17px] sm:leading-8 dark:text-neutral-300"
           >
-            戦略・実行・成果を組織で動かす経営プラットフォーム
+            戦略・実行・成果をつなぎ、回し続ける経営プラットフォーム
           </motion.p>
 
           <motion.div
