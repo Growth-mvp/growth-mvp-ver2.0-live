@@ -27,58 +27,60 @@ export default function Home() {
     { step: 6, title: 'STAGE 6：業績シミュレーション', path: '/stage6' },
   ];
 
+
   return (
     <main className="min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-white">
       {/* ===== Hero ===== */}
-      <section className="container mx-auto px-6 pt-16 pb-12 sm:pt-18 sm:pb-14 lg:pt-20 lg:pb-16">
-        <div className="mx-auto max-w-5xl text-center">
-          <motion.p
-            initial={{ opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.55 }}
-            className="text-[28px] font-semibold leading-[1.2] tracking-[-0.02em] text-neutral-800 sm:text-[38px] lg:text-[52px] dark:text-neutral-100"
-          >
-            企業成長を加速する。
-          </motion.p>
-
-          <motion.h1
-            initial={{ opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.05 }}
-            className="mt-5 text-6xl font-extrabold tracking-tight sm:text-7xl text-neutral-950 dark:text-white"
-          >
-            GROWTH
-          </motion.h1>
-
-          
-
-          <motion.p
-            initial={{ opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.15 }}
-            className="mx-auto mt-5 max-w-2xl text-[15px] leading-7 text-neutral-600 sm:text-[17px] sm:leading-8 dark:text-neutral-300"
-          >
-            戦略・実行・成果をつなぎ、回し続ける経営プラットフォーム
-          </motion.p>
-
-          <motion.div
-            initial={{ opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.75, delay: 0.2 }}
-            className="mt-8"
-          >
-            <Link
-              href="/stage1"
-              className="inline-flex min-w-[210px] items-center justify-center rounded-full bg-neutral-950 px-8 py-4 text-[15px] font-semibold text-white shadow-[0_10px_30px_rgba(0,0,0,0.12)] transition hover:-translate-y-0.5 hover:opacity-95 dark:bg-white dark:text-neutral-950"
+      <section className="border-b border-neutral-200/60 bg-neutral-50 dark:border-neutral-900 dark:bg-neutral-950">
+        <div className="container mx-auto px-6 pt-10 pb-6 sm:pt-12 sm:pb-8 lg:pt-14 lg:pb-9">
+          <div className="mx-auto max-w-4xl text-center">
+            <motion.h1
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.55 }}
+              className="mx-auto max-w-3xl text-[26px] font-semibold leading-[1.3] tracking-[-0.035em] text-neutral-900 sm:text-[33px] lg:text-[40px] dark:text-neutral-50"
             >
-              さっそく始める
-            </Link>
-          </motion.div>
+              企業成長を、自律自走で加速する。
+            </motion.h1>
+
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.06 }}
+              className="mt-4 text-[21px] font-medium tracking-[0.01em] text-neutral-800 sm:text-[27px] lg:text-[31px] dark:text-neutral-100"
+            >
+              GROWTH ｜ 戦略実行SaaS
+            </motion.div>
+
+            <motion.p
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.68, delay: 0.12 }}
+              className="mx-auto mt-4 max-w-3xl text-[15px] leading-7 text-neutral-600 sm:text-[16px] dark:text-neutral-300"
+            >
+              戦略・実行・成果が途切れず回る経営プラットフォーム
+            </motion.p>
+
+            <motion.div
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.74, delay: 0.18 }}
+              className="mt-7"
+            >
+              <Link
+                href="/stage1"
+                className="inline-flex min-w-[220px] items-center justify-center rounded-full bg-neutral-950 px-8 py-4 text-[15px] font-semibold text-white shadow-[0_14px_36px_rgba(0,0,0,0.14)] transition hover:-translate-y-0.5 hover:opacity-95 dark:bg-white dark:text-neutral-950"
+              >
+                さっそく始める
+              </Link>
+            </motion.div>
+          </div>
         </div>
       </section>
 
       {/* ===== Overview Panels ===== */}
       <section className="container mx-auto px-6 pb-16 lg:pb-20">
+        <div className="h-4 sm:h-5 lg:h-6" />
         <h2 className="sr-only">GROWTHトップ概要</h2>
 
         <motion.div
