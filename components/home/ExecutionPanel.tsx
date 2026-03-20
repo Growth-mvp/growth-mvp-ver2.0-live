@@ -221,14 +221,7 @@ export default function ExecutionPanel() {
           </div>
         </div>
 
-        <div className="mt-3 rounded-xl bg-white p-3 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800">
-          <div className="text-xs font-medium text-neutral-700 dark:text-neutral-200">表示の見方</div>
-          <div className="mt-2 space-y-1 text-[11px] leading-5 text-neutral-500">
-            <div>・チェックイン = 進捗・課題・スコアなどの実行記録が入力された状態</div>
-            <div>・未チェックイン（要対応） = 直近7日で、配下OKRに1件も記録がないプロジェクト</div>
-            <div>・このパネルは全社の直近7日集計を基準にしています。全従業員が同じ数値を見ています。</div>
-          </div>
-        </div>
+       
 
         {totalOkrs ? (
           <div className="mt-4 rounded-xl bg-white p-3 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800">
