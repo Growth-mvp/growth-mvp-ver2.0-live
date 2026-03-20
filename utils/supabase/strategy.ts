@@ -2000,6 +2000,71 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         }
       }
 
+      // ===== 修正: OKR 同期診断ログを追加（UPDATE の場合） =====
+      // Step 1: strategy_data 側の全 project 一覧を記録
+      if (Array.isArray((upd.data as any)?.departments)) {
+        const projectList: any[] = [];
+        const depts = (upd.data as any).departments as any[];
+
+        for (const dept of depts) {
+          const projects = Array.isArray(dept.projects) ? dept.projects : [];
+          for (const proj of projects) {
+            const okrsArray = Array.isArray(proj.okrs) ? proj.okrs : [];
+            const projectList_item = {
+              departmentName: dept.name ?? 'N/A',
+              departmentId: dept.id ?? 'N/A',
+              projectId: proj.id ?? 'N/A',
+              projectTitle: proj.title ?? 'N/A',
+              objectiveCandidates: okrsArray.map((o: any) => o.objective ?? 'N/A'),
+              okrCount: okrsArray.length,
+            };
+            projectList.push(projectList_item);
+          }
+        }
+
+        console.log('[saveStrategyData-okr-sync-diag] strategy_data 側の全 project 一覧（UPDATE版）', {
+          totalProjects: projectList.length,
+          projects: projectList,
+        });
+      }
+
+      // Step 2: backfillOkrsFromStrategyData を dryRun で実行して同期対象を確認
+      try {
+        const { backfillOkrsFromStrategyData } = await import('./backfillOkrs');
+        const backfillResult = await backfillOkrsFromStrategyData({
+          dryRun: true,
+          companyId: cleanCompanyId,
+        });
+
+        console.log('[saveStrategyData-okr-sync-diag] backfillOkrs dryRun 結果（UPDATE版）', {
+          success: backfillResult.success,
+          backfilled: backfillResult.stats.backfilled,
+          skipped: backfillResult.stats.skipped,
+          totalProcessed: backfillResult.stats.totalProcessed,
+          toBeInserted: backfillResult.insertedOkrs?.length ?? 0,
+          // 同期対象の詳細
+          ...(backfillResult.insertedOkrs && backfillResult.insertedOkrs.length > 0 && {
+            syncTargetsSample: backfillResult.insertedOkrs.slice(0, 5).map((okr) => ({
+              projectId: okr.project_id,
+              objective: okr.objective,
+              sourceStage: okr.source_okr_id ? 'strategy_data' : 'migration',
+            })),
+          }),
+          // 除外された OKR の詳細
+          ...(backfillResult.skipReport && backfillResult.skipReport.length > 0 && {
+            excludedCount: backfillResult.skipReport.length,
+            excludedSample: backfillResult.skipReport.slice(0, 5).map((skip) => ({
+              departmentId: skip.departmentId,
+              projectId: skip.projectId,
+              objective: skip.objective,
+              reason: skip.reason,
+            })),
+          }),
+        });
+      } catch (backfillErr) {
+        console.warn('[saveStrategyData-okr-sync-diag] backfillOkrs dryRun failed（UPDATE版）:', backfillErr);
+      }
+
       const stateAfter = buildStateFromDbRow(upd.data ?? {});
       if (DEBUG) console.log(
         '[StrategyData] ✅ strategy_data update ok:',
@@ -2164,6 +2229,71 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
           ares.error,
         );
       }
+    }
+
+    // ===== 修正: OKR 同期診断ログを追加 =====
+    // Step 1: strategy_data 側の全 project 一覧を記録
+    if (Array.isArray((ins.data as any)?.departments)) {
+      const projectList: any[] = [];
+      const depts = (ins.data as any).departments as any[];
+
+      for (const dept of depts) {
+        const projects = Array.isArray(dept.projects) ? dept.projects : [];
+        for (const proj of projects) {
+          const okrsArray = Array.isArray(proj.okrs) ? proj.okrs : [];
+          const projectList_item = {
+            departmentName: dept.name ?? 'N/A',
+            departmentId: dept.id ?? 'N/A',
+            projectId: proj.id ?? 'N/A',
+            projectTitle: proj.title ?? 'N/A',
+            objectiveCandidates: okrsArray.map((o: any) => o.objective ?? 'N/A'),
+            okrCount: okrsArray.length,
+          };
+          projectList.push(projectList_item);
+        }
+      }
+
+      console.log('[saveStrategyData-okr-sync-diag] strategy_data 側の全 project 一覧', {
+        totalProjects: projectList.length,
+        projects: projectList,
+      });
+    }
+
+    // Step 2: backfillOkrsFromStrategyData を dryRun で実行して同期対象を確認
+    try {
+      const { backfillOkrsFromStrategyData } = await import('./backfillOkrs');
+      const backfillResult = await backfillOkrsFromStrategyData({
+        dryRun: true,
+        companyId: cleanCompanyId,
+      });
+
+      console.log('[saveStrategyData-okr-sync-diag] backfillOkrs dryRun 結果', {
+        success: backfillResult.success,
+        backfilled: backfillResult.stats.backfilled,
+        skipped: backfillResult.stats.skipped,
+        totalProcessed: backfillResult.stats.totalProcessed,
+        toBeInserted: backfillResult.insertedOkrs?.length ?? 0,
+        // 同期対象の詳細
+        ...(backfillResult.insertedOkrs && backfillResult.insertedOkrs.length > 0 && {
+          syncTargetsSample: backfillResult.insertedOkrs.slice(0, 5).map((okr) => ({
+            projectId: okr.project_id,
+            objective: okr.objective,
+            sourceStage: okr.source_okr_id ? 'strategy_data' : 'migration',
+          })),
+        }),
+        // 除外された OKR の詳細
+        ...(backfillResult.skipReport && backfillResult.skipReport.length > 0 && {
+          excludedCount: backfillResult.skipReport.length,
+          excludedSample: backfillResult.skipReport.slice(0, 5).map((skip) => ({
+            departmentId: skip.departmentId,
+            projectId: skip.projectId,
+            objective: skip.objective,
+            reason: skip.reason,
+          })),
+        }),
+      });
+    } catch (backfillErr) {
+      console.warn('[saveStrategyData-okr-sync-diag] backfillOkrs dryRun failed:', backfillErr);
     }
 
     const stateAfter = buildStateFromDbRow(ins.data ?? {});
@@ -2427,34 +2557,113 @@ export async function saveProgressLog(
       createdAt,
     } = input;
 
-    const companyId = await resolveCompanyId(userId, companyIdOverride);
-
-    const { data: okrRow, error: okrLookupError } = await supabase
-      .from('okrs')
-      .select('id')
-      .eq('id', okrId)
-      .maybeSingle();
-
-    if (okrLookupError) {
-      return { data: null, error: extractErrorVerbose(okrLookupError) };
+    const authUserId = await getActiveUserId();
+    if (!authUserId) {
+      return { data: null, error: { code: 'NO_AUTH_SESSION', status: 401, message: 'セッションがありません。再ログインしてください。' } };
+    }
+    if (authUserId !== userId) {
+      return { data: null, error: { code: 'AUTH_USER_MISMATCH', status: 401, message: `画面ユーザーとセッションユーザーが一致しません。 page=${userId} auth=${authUserId}` } };
     }
 
-    if (!okrRow?.id) {
+    const companyId = await resolveCompanyId(authUserId, companyIdOverride);
+
+    const { data: membershipRow, error: membershipError } = await supabase
+      .from('company_members')
+      .select('company_id, user_id')
+      .eq('user_id', authUserId)
+      .eq('company_id', companyId)
+      .maybeSingle();
+
+    if (membershipError) {
+      return { data: null, error: { code: 'COMPANY_MEMBERSHIP_QUERY_FAILED', status: 500, message: membershipError.message, details: membershipError.details ?? null } };
+    }
+    if (!membershipRow) {
+      return { data: null, error: { code: 'NO_COMPANY_MEMBERSHIP', status: 403, message: `user ${authUserId} は company ${companyId} に所属していません。RLS チェック失敗。` } };
+    }
+
+    // ===== 修正 5: OKR 検証（page.tsx から dbOkrId が来ている前提）=====
+    // okrId は DB の okrs.id UUID であることを期待
+    // fallback lookup は行わない
+    let okrRow = null;
+
+    if (!okrId) {
+      console.error('[saveProgressLog] okrId is empty - must receive dbOkrId from page.tsx');
       return {
         data: null,
         error: {
           code: 'OKR_NOT_FOUND',
-          message: `progress_logs に保存できません。okrs.id=${okrId} が存在しません。`,
-          details: `STAGE5 が旧IDまたは画面用IDを渡している可能性があります。 projectId=${projectId ?? 'null'} departmentId=${departmentId ?? 'null'}`,
+          message: 'OKR ID が指定されていません',
+          details: {
+            reason: 'okrId is empty - STAGE5 から dbOkrId が渡されなかった',
+            suggestion: '画面で dbOkrId が undefined なら、DB の OKR が見つかっていない可能性があります。',
+          },
         },
       };
     }
 
+    // UUID 形式の検証
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(okrId)) {
+      console.error('[saveProgressLog] okrId is not UUID format', { okrId });
+      return {
+        data: null,
+        error: {
+          code: 'OKR_NOT_FOUND',
+          message: `OKR ID がUUID形式ではありません: ${okrId}`,
+          details: {
+            reason: 'input okrId is not valid UUID',
+            suggestion: 'STAGE5 から有効な dbOkrId（UUID形式）が渡されているか確認してください。',
+          },
+        },
+      };
+    }
+
+    // DB で存在確認
+    const { data: okrData, error: err } = await supabase
+      .from('okrs')
+      .select('id, company_id, project_id, department_id')
+      .eq('id', okrId)
+      .eq('company_id', companyId)
+      .maybeSingle();
+
+    if (err) {
+      console.error('[saveProgressLog] DB query error', { okrId, error: err });
+      return {
+        data: null,
+        error: {
+          code: 'DB_ERROR',
+          message: 'OKR の検証に失敗しました',
+          details: { dbError: err.message },
+        },
+      };
+    }
+
+    if (!okrData?.id) {
+      console.error('[saveProgressLog] OKR not found in DB', { okrId, companyId });
+      return {
+        data: null,
+        error: {
+          code: 'OKR_NOT_FOUND',
+          message: `OKR が見つかりません (ID: ${okrId})`,
+          details: {
+            okrId,
+            companyId,
+            reason: 'okrs table に該当 ID がない',
+            suggestion: 'STAGE5 で表示されている OKR が本当に DB に保存されているか確認してください。',
+          },
+        },
+      };
+    }
+
+    okrRow = okrData;
+    console.log('[saveProgressLog-okr-validation-success]', {
+      okrId: okrRow.id,
+      companyId,
+    });
+
     const row: Record<string, any> = {
-      user_id: userId,
+      user_id: authUserId,
       company_id: companyId,
-      okr_id: okrId,
-      // project_id: projectId, // DBにあれば有効化
+      okr_id: okrRow.id, // ← 修正: 入力値ではなく解決済みIDを使用
       department: departmentId,
       content,
       status,
@@ -2471,6 +2680,7 @@ export async function saveProgressLog(
     if (error) {
       return { data: null, error: extractErrorVerbose(error) };
     }
+    console.log(`[saveProgressLog] authUser=${authUserId} companyId=${companyId} dbOkrId=${okrId} result=success`);
     return { data, error: null };
   } catch (e) {
     return { data: null, error: extractErrorVerbose(e) };
