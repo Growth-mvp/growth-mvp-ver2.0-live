@@ -1,4 +1,4 @@
-// /app/page.tsx（修正版フルコード）
+// /app/page.tsx
 'use client';
 
 import { useEffect } from 'react';
@@ -30,65 +30,102 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-white">
       {/* ===== Hero ===== */}
-      <section className="container mx-auto px-6 pt-16 pb-10 heroPad">
+      <section className="container mx-auto px-6 pt-16 pb-12 sm:pt-18 sm:pb-14 lg:pt-20 lg:pb-16">
         <div className="mx-auto max-w-5xl text-center">
-          <p className="text-lg sm:text-2xl font-semibold tracking-wide text-neutral-700 dark:text-neutral-200">
-  企業の成長を自動運転へ。
-</p>
+          <motion.p
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.55 }}
+            className="text-[28px] font-semibold leading-[1.2] tracking-[-0.02em] text-neutral-800 sm:text-[38px] lg:text-[52px] dark:text-neutral-100"
+          >
+            企業成長を自律自走へ。
+          </motion.p>
 
-<h1 className="mt-6 text-6xl font-extrabold tracking-tight sm:text-7xl heroTitle">
-  GROWTH/戦略実行SaaS
-</h1>
+          <motion.h1
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.05 }}
+            className="mt-5 text-6xl font-extrabold tracking-tight sm:text-7xl text-neutral-950 dark:text-white"
+          >
+            GROWTH
+          </motion.h1>
 
-<p className="mt-5 text-lg sm:text-xl leading-relaxed text-neutral-600 dark:text-neutral-300">
-  戦略を実行に、実行を成果をつなぐ経営プラットフォーム
+          
 
-</p>
+          <motion.p
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, delay: 0.15 }}
+            className="mx-auto mt-5 max-w-2xl text-[15px] leading-7 text-neutral-600 sm:text-[17px] sm:leading-8 dark:text-neutral-300"
+          >
+            戦略・実行・成果を組織で動かす経営プラットフォーム
+          </motion.p>
 
-          <div className="mt-8">
+          <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.75, delay: 0.2 }}
+            className="mt-8"
+          >
             <Link
               href="/stage1"
-              className="inline-flex items-center justify-center rounded-full bg-neutral-900 px-8 py-3.5 text-base font-semibold text-white hover:opacity-90 dark:bg-white dark:text-neutral-900"
+              className="inline-flex min-w-[210px] items-center justify-center rounded-full bg-neutral-950 px-8 py-4 text-[15px] font-semibold text-white shadow-[0_10px_30px_rgba(0,0,0,0.12)] transition hover:-translate-y-0.5 hover:opacity-95 dark:bg-white dark:text-neutral-950"
             >
               さっそく始める
             </Link>
-          </div>
+          </motion.div>
         </div>
       </section>
 
-      {/* ===== Pyramid + Execution（左右対称）===== */}
-      <section className="container mx-auto px-6 pb-14">
-        <h2 className="sr-only">GROWTHピラミッドナビゲーション</h2>
+      {/* ===== Overview Panels ===== */}
+      <section className="container mx-auto px-6 pb-16 lg:pb-20">
+        <h2 className="sr-only">GROWTHトップ概要</h2>
 
         <motion.div
-          initial={{ opacity: 0, y: 12 }}
+          initial={{ opacity: 0, y: 16 }}
           whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, amount: 0.3 }}
+          viewport={{ once: true, amount: 0.2 }}
           transition={{ duration: 0.6 }}
           className="motion-reduce:transition-none motion-reduce:transform-none"
         >
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-stretch homeGrid">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-stretch">
             {/* LEFT: STRATEGY */}
-            <div className="h-full rounded-3xl bg-white p-4 shadow-[0_1px_30px_rgba(0,0,0,0.06)] ring-1 ring-neutral-200/70 dark:bg-neutral-950 dark:ring-neutral-800">
-              <div className="mb-3">
-                <div className="text-xs font-medium tracking-widest text-neutral-500 dark:text-neutral-400">
+            <div className="h-full overflow-hidden rounded-[28px] border border-neutral-200/70 bg-white shadow-[0_1px_30px_rgba(0,0,0,0.06)] dark:border-neutral-800 dark:bg-neutral-950">
+              <div className="border-b border-neutral-200/80 px-6 py-5 dark:border-neutral-800">
+                <div className="text-[11px] font-semibold tracking-[0.18em] text-neutral-500 dark:text-neutral-400">
                   STRATEGY
                 </div>
-                <div className="text-lg font-semibold text-neutral-900 dark:text-white">戦略設計</div>
+                <div className="mt-1 text-[24px] font-bold tracking-[-0.03em] text-neutral-950 dark:text-white">
+                  戦略設計
+                </div>
+                <p className="mt-2 text-sm leading-6 text-neutral-600 dark:text-neutral-300">
+                  企業価値分析から経営戦略、部門戦略、実行計画までを一気通貫で設計します。
+                </p>
               </div>
-              <PyramidNavigator />
+
+              <div className="px-5 py-5">
+                <PyramidNavigator />
+              </div>
             </div>
 
             {/* RIGHT: EXECUTION */}
-            <div className="h-full rounded-3xl bg-white p-4 shadow-[0_1px_30px_rgba(0,0,0,0.06)] ring-1 ring-neutral-200/70 dark:bg-neutral-950 dark:ring-neutral-800">
-              <div className="mb-3">
-                <div className="text-xs font-medium tracking-widest text-neutral-500 dark:text-neutral-400">
+            <div className="h-full overflow-hidden rounded-[28px] border border-neutral-200/70 bg-white shadow-[0_1px_30px_rgba(0,0,0,0.06)] dark:border-neutral-800 dark:bg-neutral-950">
+              <div className="border-b border-neutral-200/80 px-6 py-5 dark:border-neutral-800">
+                <div className="text-[11px] font-semibold tracking-[0.18em] text-neutral-500 dark:text-neutral-400">
                   EXECUTION
                 </div>
-                <div className="text-lg font-semibold text-neutral-900 dark:text-white">戦略実行</div>
+                <div className="mt-1 text-[24px] font-bold tracking-[-0.03em] text-neutral-950 dark:text-white">
+                  戦略実行
+                </div>
+                <p className="mt-2 text-sm leading-6 text-neutral-600 dark:text-neutral-300">
+                  実行状況、チェックイン、進捗、業績インパクトを可視化し、戦略を成果へつなげます。
+                </p>
               </div>
-              <div className="lg:sticky lg:top-6 homeSticky">
-                <ExecutionPanel />
+
+              <div className="px-5 py-5">
+                <div className="lg:sticky lg:top-6">
+                  <ExecutionPanel />
+                </div>
               </div>
             </div>
           </div>
@@ -101,7 +138,7 @@ export default function Home() {
         <div className="grid grid-cols-1 gap-4">
           {steps.map((item) => (
             <Link key={item.step} href={item.path} aria-label={item.title} className="group">
-              <div className="relative rounded-2xl bg-white p-5 shadow-soft ring-1 ring-neutral-200/70 transition duration-200 hover:-translate-y-0.5 hover:shadow-card dark:bg-neutral-950 dark:ring-neutral-800">
+              <div className="relative rounded-2xl border border-neutral-200/70 bg-white p-5 shadow-[0_1px_18px_rgba(0,0,0,0.05)] transition duration-200 hover:-translate-y-0.5 dark:border-neutral-800 dark:bg-neutral-950">
                 <div className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-tr from-neutral-50 to-transparent opacity-0 transition-opacity group-hover:opacity-100 dark:from-neutral-900/40" />
                 <h3 className="text-[16px] font-semibold tracking-tight text-neutral-900 dark:text-white">
                   {item.title}
