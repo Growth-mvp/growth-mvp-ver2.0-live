@@ -321,6 +321,26 @@ function OKRPageContent() {
 
   const departments = useStrategyStore((st: any) => ((st.departments as DepartmentStrategy[] | undefined) ?? [])) as Department[];
 
+  // ★ CRITICAL: Department.id ステータスをログ（backfillOkrs のための診断）
+  useEffect(() => {
+    if (departments.length > 0 && (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1' || process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1')) {
+      const deptIdStatus = departments.map((d: any, idx: number) => ({
+        index: idx,
+        name: d?.name ?? '[no-name]',
+        hasId: !!d?.id,
+        rawId: d?.id ?? 'missing',
+        projectCount: Array.isArray(d?.projects) ? d.projects.length : 0,
+        firstProjectTitle: d?.projects?.[0]?.title ?? '[no-projects]',
+        firstProjectId: d?.projects?.[0]?.id ?? 'missing',
+      }));
+      console.log('[diag][okr-page] departments id-status from store', {
+        timestamp: new Date().toISOString(),
+        totalDepts: deptIdStatus.length,
+        departments: deptIdStatus,
+      });
+    }
+  }, [departments]);
+
   // ★ STAGE4: Resolved OKRs from DB (DB priority + snapshot fallback)
   const [resolvedOkrsMap, setResolvedOkrsMap] = useState<Record<string, ResolvedOkr[]>>({});
   const [okrLoadingStatus, setOkrLoadingStatus] = useState<Record<string, 'loading' | 'success' | 'error'>>({});
