@@ -2052,71 +2052,31 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       }
 
       // Step 2: backfillOkrsFromStrategyData を実行して okrs テーブルに同期
-      // ★ EMERGENCY FIX: dryRun: false で本番フロー実行（STAGE5 復旧のため）
-      try {
-        const { backfillOkrsFromStrategyData } = await import('./backfillOkrs');
-        const backfillResult = await backfillOkrsFromStrategyData({
-          dryRun: false, // ★ 修正：true → false で本番フロー実行
-          companyId: cleanCompanyId,
-        });
+      // TEMP DISABLED:
+      // strategy_data -> okrs の逆流同期は、STAGE4 の DB-first 保存と衝突するため停止。
+      // STAGE4 で DB に保存した OKR が、全体保存時に snapshot から上書きされなくなる。
+      // 将来再導入する場合は「insert-only migration」に限定し、既存 okrs を更新しないこと。
+      // TODO: re-enable only as insert-only migration path
+      //
+      // 診断ログは参考情報として strategy_data 側の OKR リスト構成を記録
+      if (false) {
+        try {
+          const { backfillOkrsFromStrategyData } = await import('./backfillOkrs');
+          const backfillResult = await backfillOkrsFromStrategyData({
+            dryRun: false,
+            companyId: cleanCompanyId,
+          });
 
-        console.log('[saveStrategyData-okr-sync-diag] backfillOkrs 実行結果（UPDATE版）', {
-          success: backfillResult.success,
-          backfilled: backfillResult.stats.backfilled,
-          skipped: backfillResult.stats.skipped,
-          totalProcessed: backfillResult.stats.totalProcessed,
-          toBeInserted: backfillResult.insertedOkrs?.length ?? 0,
-          // 同期対象の詳細
-          ...(backfillResult.insertedOkrs && backfillResult.insertedOkrs.length > 0 && {
-            syncTargetsSample: backfillResult.insertedOkrs.slice(0, 5).map((okr) => ({
-              projectId: okr.project_id,
-              objective: okr.objective,
-              sourceStage: okr.source_okr_id ? 'strategy_data' : 'migration',
-            })),
-          }),
-          // 除外された OKR の詳細
-          ...(backfillResult.skipReport && backfillResult.skipReport.length > 0 && {
-            excludedCount: backfillResult.skipReport.length,
-            excludedSample: backfillResult.skipReport.slice(0, 5).map((skip) => ({
-              departmentId: skip.departmentId,
-              projectId: skip.projectId,
-              objective: skip.objective,
-              reason: skip.reason,
-            })),
-          }),
-        });
-
-        // ★ 新規：okrs テーブル再読込ログ（実反映確認用）
-        if (backfillResult.success && backfillResult.stats.backfilled > 0) {
-          try {
-            const { data: okrsCount } = await supabase
-              .from('okrs')
-              .select('*', { count: 'exact' })
-              .eq('company_id', cleanCompanyId);
-
-            const { data: semiconductorOkrs } = await supabase
-              .from('okrs')
-              .select('*')
-              .eq('company_id', cleanCompanyId)
-              .ilike('objective', '%半導体%');
-
-            console.log('[backfillOkrs] DB sync done（UPDATE版）', {
-              insertedCount: backfillResult.stats.backfilled,
-              totalOkrsInDb: okrsCount,
-              semiconductorOkrCount: semiconductorOkrs?.length ?? 0,
-              semiconductorOkrSample: semiconductorOkrs?.slice(0, 3).map((o: any) => ({
-                okrId: o.id,
-                objective: o.objective,
-                projectId: o.project_id,
-                departmentId: o.department_id,
-              })) ?? [],
-            });
-          } catch (err) {
-            console.warn('[backfillOkrs] DB sync verification failed:', err);
-          }
+          console.log('[saveStrategyData-okr-sync-diag] backfillOkrs 実行結果（UPDATE版・DISABLED）', {
+            success: backfillResult.success,
+            backfilled: backfillResult.stats.backfilled,
+            skipped: backfillResult.stats.skipped,
+            totalProcessed: backfillResult.stats.totalProcessed,
+            toBeInserted: backfillResult.insertedOkrs?.length ?? 0,
+          });
+        } catch (backfillErr) {
+          console.warn('[saveStrategyData-okr-sync-diag] backfillOkrs failed（UPDATE版・DISABLED）:', backfillErr);
         }
-      } catch (backfillErr) {
-        console.warn('[saveStrategyData-okr-sync-diag] backfillOkrs failed（UPDATE版）:', backfillErr);
       }
 
       const stateAfter = buildStateFromDbRow(upd.data ?? {});
@@ -2314,71 +2274,31 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
     }
 
     // Step 2: backfillOkrsFromStrategyData を実行して okrs テーブルに同期
-    // ★ EMERGENCY FIX: dryRun: false で本番フロー実行（STAGE5 復旧のため）
-    try {
-      const { backfillOkrsFromStrategyData } = await import('./backfillOkrs');
-      const backfillResult = await backfillOkrsFromStrategyData({
-        dryRun: false, // ★ 修正：true → false で本番フロー実行
-        companyId: cleanCompanyId,
-      });
+    // TEMP DISABLED:
+    // strategy_data -> okrs の逆流同期は、STAGE4 の DB-first 保存と衝突するため停止。
+    // STAGE4 で DB に保存した OKR が、全体保存時に snapshot から上書きされなくなる。
+    // 将来再導入する場合は「insert-only migration」に限定し、既存 okrs を更新しないこと。
+    // TODO: re-enable only as insert-only migration path
+    //
+    // 診断ログは参考情報として strategy_data 側の OKR リスト構成を記録
+    if (false) {
+      try {
+        const { backfillOkrsFromStrategyData } = await import('./backfillOkrs');
+        const backfillResult = await backfillOkrsFromStrategyData({
+          dryRun: false,
+          companyId: cleanCompanyId,
+        });
 
-      console.log('[saveStrategyData-okr-sync-diag] backfillOkrs 実行結果', {
-        success: backfillResult.success,
-        backfilled: backfillResult.stats.backfilled,
-        skipped: backfillResult.stats.skipped,
-        totalProcessed: backfillResult.stats.totalProcessed,
-        toBeInserted: backfillResult.insertedOkrs?.length ?? 0,
-        // 同期対象の詳細
-        ...(backfillResult.insertedOkrs && backfillResult.insertedOkrs.length > 0 && {
-          syncTargetsSample: backfillResult.insertedOkrs.slice(0, 5).map((okr) => ({
-            projectId: okr.project_id,
-            objective: okr.objective,
-            sourceStage: okr.source_okr_id ? 'strategy_data' : 'migration',
-          })),
-        }),
-        // 除外された OKR の詳細
-        ...(backfillResult.skipReport && backfillResult.skipReport.length > 0 && {
-          excludedCount: backfillResult.skipReport.length,
-          excludedSample: backfillResult.skipReport.slice(0, 5).map((skip) => ({
-            departmentId: skip.departmentId,
-            projectId: skip.projectId,
-            objective: skip.objective,
-            reason: skip.reason,
-          })),
-        }),
-      });
-
-      // ★ 新規：okrs テーブル再読込ログ（実反映確認用）
-      if (backfillResult.success && backfillResult.stats.backfilled > 0) {
-        try {
-          const { data: okrsCount } = await supabase
-            .from('okrs')
-            .select('*', { count: 'exact' })
-            .eq('company_id', cleanCompanyId);
-
-          const { data: semiconductorOkrs } = await supabase
-            .from('okrs')
-            .select('*')
-            .eq('company_id', cleanCompanyId)
-            .ilike('objective', '%半導体%');
-
-          console.log('[backfillOkrs] DB sync done', {
-            insertedCount: backfillResult.stats.backfilled,
-            totalOkrsInDb: okrsCount,
-            semiconductorOkrCount: semiconductorOkrs?.length ?? 0,
-            semiconductorOkrSample: semiconductorOkrs?.slice(0, 3).map((o: any) => ({
-              okrId: o.id,
-              objective: o.objective,
-              projectId: o.project_id,
-              departmentId: o.department_id,
-            })) ?? [],
-          });
-        } catch (err) {
-          console.warn('[backfillOkrs] DB sync verification failed:', err);
-        }
+        console.log('[saveStrategyData-okr-sync-diag] backfillOkrs 実行結果（INSERT版・DISABLED）', {
+          success: backfillResult.success,
+          backfilled: backfillResult.stats.backfilled,
+          skipped: backfillResult.stats.skipped,
+          totalProcessed: backfillResult.stats.totalProcessed,
+          toBeInserted: backfillResult.insertedOkrs?.length ?? 0,
+        });
+      } catch (backfillErr) {
+        console.warn('[saveStrategyData-okr-sync-diag] backfillOkrs failed（INSERT版・DISABLED）:', backfillErr);
       }
-    } catch (backfillErr) {
-      console.warn('[saveStrategyData-okr-sync-diag] backfillOkrs failed:', backfillErr);
     }
 
     const stateAfter = buildStateFromDbRow(ins.data ?? {});
