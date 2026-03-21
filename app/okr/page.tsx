@@ -344,6 +344,8 @@ function OKRPageContent() {
   // ★ STAGE4: Resolved OKRs from DB (DB priority + snapshot fallback)
   const [resolvedOkrsMap, setResolvedOkrsMap] = useState<Record<string, ResolvedOkr[]>>({});
   const [okrLoadingStatus, setOkrLoadingStatus] = useState<Record<string, 'loading' | 'success' | 'error'>>({});
+  const promotingProjectKeysRef = useRef<Set<string>>(new Set());
+  const attemptedPromotionKeysRef = useRef<Set<string>>(new Set());
 
   const access = useAccess();
   const accessCompanyId: string | undefined = useMemo(
@@ -895,12 +897,22 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
     setRoleShadow: (updater) => setRoleShadow(updater),
   });
 
+  const resolveCurrentStrategyId = useCallback((): string => {
+    const st = useStrategyStore.getState() as any;
+    return String(st?.strategyId ?? s?.strategyId ?? '');
+  }, [s?.strategyId]);
+
+  const buildStrategyDataFallback = useCallback((): StrategyData => {
+    const st = useStrategyStore.getState() as any;
+    return ((st?.strategiesDataGlobal?.data ?? st?.data) as StrategyData | undefined) ?? ({ departments: departments as any } as StrategyData);
+  }, [departments]);
+
   /* ============================================================
    * ★ Phase 3A: DB OKR キャッシュの invalidate & refresh
    * ========================================================== */
   const invalidateAndRefetchProjectOkrs = useCallback(
-    async (dIdx: number, pIdx: number) => {
-      if (!accessCompanyId) return;
+    async (dIdx: number, pIdx: number): Promise<ResolvedOkr[] | null> => {
+      if (!accessCompanyId) return null;
 
       const cacheKey = keyFor(dIdx, pIdx);
 
@@ -919,8 +931,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
 
       try {
         // Step 3: refetch（strategDataを都度取得して refresh）
-        const st = useStrategyStore.getState();
-        const strategyData = (st as any)?.strategiesDataGlobal?.data ?? (st as any)?.data;
+        const strategyData = buildStrategyDataFallback();
 
         const dept = departments?.[dIdx];
         const proj = dept?.projects?.[pIdx];
@@ -931,7 +942,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
             [cacheKey]: 'error',
           }));
           console.warn('[invalidateAndRefetchProjectOkrs] Invalid project:', { dIdx, pIdx });
-          return;
+          return null;
         }
 
         // resolveProjectsWithOkrs() で再読込
@@ -954,11 +965,12 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           }));
 
           // ★ STAGE5対応：snapshot も同時に更新（STAGE5 は proj.okrs を読むため）
-          const snapshotOkrs: OKR[] = resolved.resolvedOkrs.map((resolvedOkr) => ({
+          const existingDue = String((proj as any)?.okrs?.[0]?.due ?? '');
+          const snapshotOkrs: OKR[] = resolved.resolvedOkrs.map((resolvedOkr, idx) => ({
             id: resolvedOkr.id,
             objective: resolvedOkr.objective ?? '',
             owner: resolvedOkr.owner_name ?? '',
-            due: '',  // DB には due がないため空
+            due: idx === 0 ? existingDue : '',
             keyResults: Array.isArray(resolvedOkr.key_results_json) ? resolvedOkr.key_results_json : [],
           }));
 
@@ -976,21 +988,83 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           }
 
           console.debug('[invalidateAndRefetchProjectOkrs] SUCCESS:', { cacheKey, count: resolved.resolvedOkrs.length, snapshotOkrs: snapshotOkrs.length });
+          return resolved.resolvedOkrs;
         } else {
           setOkrLoadingStatus((prev) => ({
             ...prev,
             [cacheKey]: 'error',
           }));
         }
+        return null;
       } catch (error) {
         console.error('[invalidateAndRefetchProjectOkrs] error:', error);
         setOkrLoadingStatus((prev) => ({
           ...prev,
           [cacheKey]: 'error',
         }));
+        return null;
       }
     },
-    [accessCompanyId, departments, setDepartments]
+    [accessCompanyId, departments, setDepartments, buildStrategyDataFallback]
+  );
+
+  const ensureMainOkrIsDbBacked = useCallback(
+    async (dIdx: number, pIdx: number): Promise<ResolvedOkr | null> => {
+      if (!accessCompanyId) return null;
+      const cacheKey = keyFor(dIdx, pIdx);
+      const cached = resolvedOkrsMap[cacheKey] ?? [];
+      const existingDb = cached.find((o) => o?.source === 'db') ?? null;
+      if (existingDb) return existingDb;
+
+      if (promotingProjectKeysRef.current.has(cacheKey)) return null;
+
+      const dept = departments?.[dIdx] as any;
+      const proj = dept?.projects?.[pIdx] as any;
+      if (!dept || !proj) return null;
+
+      const snapshotOkrs = Array.isArray(proj.okrs) ? proj.okrs : [];
+      const first = snapshotOkrs[0] as any;
+      const objective = String(first?.objective ?? '').trim();
+      const owner = String(first?.owner ?? '').trim();
+      if (!objective && !owner) {
+        attemptedPromotionKeysRef.current.add(cacheKey);
+        return null;
+      }
+
+      const projectId = String(proj?.id ?? proj?.title ?? '');
+      const departmentId = String(dept?.id ?? dept?.name ?? '');
+      const strategyId = resolveCurrentStrategyId();
+      if (!projectId || !departmentId || !strategyId) {
+        console.warn('[ensureMainOkrIsDbBacked] missing identifiers', { cacheKey, projectId, departmentId, strategyId });
+        attemptedPromotionKeysRef.current.add(cacheKey);
+        return null;
+      }
+
+      promotingProjectKeysRef.current.add(cacheKey);
+      try {
+        await okrService.upsertOkr(
+          {
+            objective,
+            owner_name: owner,
+            strategy_id: strategyId,
+            department_id: departmentId,
+            project_id: projectId,
+          },
+          projectId,
+          accessCompanyId
+        );
+        const latest = await invalidateAndRefetchProjectOkrs(dIdx, pIdx);
+        attemptedPromotionKeysRef.current.add(cacheKey);
+        return (latest ?? []).find((o) => o?.source === 'db') ?? null;
+      } catch (error) {
+        console.error('[ensureMainOkrIsDbBacked] promotion failed', error);
+        attemptedPromotionKeysRef.current.add(cacheKey);
+        return null;
+      } finally {
+        promotingProjectKeysRef.current.delete(cacheKey);
+      }
+    },
+    [accessCompanyId, departments, resolvedOkrsMap, invalidateAndRefetchProjectOkrs, resolveCurrentStrategyId]
   );
 
   /* ============================================================
@@ -1001,49 +1075,47 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
     async (dIdx: number, pIdx: number, patch: Partial<{ objective: string; owner: string }>) => {
       if (!accessCompanyId || !mainOKR) return;
 
-      // ★ source 判定: DB OKR のときだけ DB 更新
-      if (mainOKR.source !== 'db') {
-        alert('このOKRは編集できません。DB から読み込まれたOKRのみ編集可能です。');
-        return;
+      let targetOkr: OkrDisplayModel = mainOKR;
+      if (targetOkr.source !== 'db') {
+        const promoted = await ensureMainOkrIsDbBacked(dIdx, pIdx);
+        if (!promoted) {
+          alert('このOKRの編集準備に失敗しました。画面を再読み込みしてから再度お試しください。');
+          return;
+        }
+        targetOkr = toOkrDisplayModel(promoted);
       }
 
       try {
-        // DB 更新用に OkrWriteInput の形で patch を構築
         const dbPatch: Partial<OkrWriteInput> = {};
-        if ('objective' in patch) {
-          dbPatch.objective = patch.objective;
-        }
-        if ('owner' in patch) {
-          dbPatch.owner_name = patch.owner;
-        }
+        if ('objective' in patch) dbPatch.objective = patch.objective;
+        if ('owner' in patch) dbPatch.owner_name = patch.owner;
 
-        // プロジェクト情報を departments から取得
-        const dept = departments?.[dIdx];
-        const proj = dept?.projects?.[pIdx];
-        const projectId = proj ? String((proj as any).id ?? proj.title) : String(mainOKR.id ?? '');
+        const dept = departments?.[dIdx] as any;
+        const proj = dept?.projects?.[pIdx] as any;
+        const projectId = String(proj?.id ?? proj?.title ?? targetOkr.id ?? '');
+        const strategyId = resolveCurrentStrategyId();
+        const departmentId = String(dept?.id ?? dept?.name ?? '');
 
-        // ★ okrService.upsertOkr() で DB 更新（id 付き）
         await okrService.upsertOkr(
           {
-            id: mainOKR.id,
-            objective: dbPatch.objective ?? mainOKR.objective,
-            owner_name: dbPatch.owner_name ?? mainOKR.owner,
-            strategy_id: '',  // ★ DB update では補足（リポジトリが既存レコードから取得）
-            department_id: dept ? String((dept as any).id ?? dept.name) : '',
+            id: targetOkr.id,
+            objective: dbPatch.objective ?? targetOkr.objective,
+            owner_name: dbPatch.owner_name ?? targetOkr.owner,
+            strategy_id: strategyId,
+            department_id: departmentId,
             project_id: projectId,
           },
           projectId,
           accessCompanyId
         );
 
-        // ★ キャッシュ refresh
         await invalidateAndRefetchProjectOkrs(dIdx, pIdx);
       } catch (error) {
         console.error('[updateProjectOKRDb] error:', error);
         alert('OKRの更新に失敗しました');
       }
     },
-    [mainOKR, accessCompanyId, invalidateAndRefetchProjectOkrs, departments]
+    [mainOKR, accessCompanyId, invalidateAndRefetchProjectOkrs, departments, ensureMainOkrIsDbBacked, resolveCurrentStrategyId]
   );
 
   /* ============================================================
@@ -1086,6 +1158,15 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
   // 表示値：draft があれば draft、無ければ mainOKR から取得
   const displayObjective = objDraft !== null ? objDraft : (mainOKR?.objective ?? '');
   const displayOwner = ownerDraft !== null ? ownerDraft : (mainOKR?.owner ?? '');
+
+  useEffect(() => {
+    if (!selected || !mainOKR) return;
+    if (mainOKR.source === 'db') return;
+    const cacheKey = keyFor(selected.deptIdx, selected.projIdx);
+    if (promotingProjectKeysRef.current.has(cacheKey)) return;
+    if (attemptedPromotionKeysRef.current.has(cacheKey)) return;
+    void ensureMainOkrIsDbBacked(selected.deptIdx, selected.projIdx);
+  }, [selected, mainOKR?.id, mainOKR?.source, ensureMainOkrIsDbBacked]);
 
   /* ============================================================
    * ★ Phase 3C: deleteProjectOKR (soft delete)
@@ -1187,7 +1268,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           {
             objective,
             owner_name: '',
-            strategy_id: '',  // リポジトリが補足
+            strategy_id: resolveCurrentStrategyId(),
             department_id: deptId,
             project_id: projectId,
           },
@@ -2256,7 +2337,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                 <input
                   className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
                   placeholder="2026-03"
-                  value={mainOKR?.due ?? ''}
+                  value={(selectedProj as any)?.okrs?.[0]?.due ?? mainOKR?.due ?? ''}
                   onChange={(e) => {
                     // ★ Phase 3A: due は DB 正本に存在しないため snapshot 専用
                     updateProjectDue(selected.deptIdx, selected.projIdx, e.target.value);
