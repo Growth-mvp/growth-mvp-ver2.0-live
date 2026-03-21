@@ -2982,6 +2982,12 @@ export const useStrategyStore = create<StrategyState>()(
 
       buildPayload: () => buildSavePayload(get() as StrategyState),
 
+      /**
+       * saveStrategyData is not the source-of-truth path for STAGE4 OKR core fields.
+       * STAGE4 core edits (objective, owner, add, delete, reorder) must be persisted
+       * via okrService / okrs table first, then synchronized back to snapshot on demand.
+       * This saveStrategyData is for strategy_data snapshot persistence only.
+       */
       async saveStrategyData(opts) {
         return enqueueSave(async () => {
           const reason = opts?.reason ?? 'manual';
