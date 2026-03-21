@@ -27,7 +27,6 @@
  */
 
 import { okrsRepository } from '@/utils/supabase/okrsRepository';
-import { useStrategyStore } from '@/stores/strategyStore';
 import type {
   OkrRow,
   OkrWriteInput,
@@ -70,7 +69,7 @@ function normalizeProjectId(project: any): string | null {
 export async function resolveProjectsWithOkrs(
   projectId: string | null | undefined,
   departmentId: string | undefined,
-  strategyData: StrategyData,
+  strategyData: StrategyData | null | undefined,
   companyId: string
 ): Promise<ProjectWithResolvedOkrs | null> {
   try {
@@ -80,7 +79,13 @@ export async function resolveProjectsWithOkrs(
       return null;
     }
 
-    // 2. strategy_data から該当プロジェクトを取得
+    // 2. strategy_data が未解決なら安全に終了
+    if (!strategyData || typeof strategyData !== 'object') {
+      console.warn('[okrService.resolveProjectsWithOkrs] strategyData is missing');
+      return null;
+    }
+
+    // 3. strategy_data から該当プロジェクトを取得
     const project = findProjectInStrategyData(strategyData, projectId, departmentId);
     if (!project) {
       console.warn(`[okrService.resolveProjectsWithOkrs] Project not found: ${projectId}`);
@@ -126,16 +131,21 @@ export async function resolveProjectsWithOkrs(
  * - 各 department → project ごとに resolveProjectsWithOkrs() を呼び出し
  */
 export async function resolveAllProjectsWithOkrs(
-  strategyData: StrategyData,
+  strategyData: StrategyData | null | undefined,
   companyId: string
-): Promise<StrategyData> {
+): Promise<StrategyData | null | undefined> {
   try {
+    if (!strategyData || typeof strategyData !== 'object') {
+      console.warn('[okrService.resolveAllProjectsWithOkrs] strategyData is missing');
+      return strategyData;
+    }
+
     // strategy_data のコピーを作成し、departments を再構築
     const resolvedDepts = await Promise.all(
-      (strategyData.departments ?? []).map(async (dept) => ({
+      (Array.isArray(strategyData.departments) ? strategyData.departments : []).map(async (dept: any) => ({
         ...dept,
         projects: await Promise.all(
-          (dept.projects ?? []).map(async (proj) => {
+          (Array.isArray(dept?.projects) ? dept.projects : []).map(async (proj: any) => {
             const resolved = await resolveProjectsWithOkrs(
               proj.id ?? proj.title,
               dept.id ?? dept.name,
@@ -410,22 +420,26 @@ export function mergeOkrSources(dbOkrs: OkrRow[], snapshotOkrs: OKR[]): OkrMerge
  * - resolveProjectsWithOkrs は early return（snapshot-only）
  */
 function findProjectInStrategyData(
-  strategyData: StrategyData,
+  strategyData: StrategyData | null | undefined,
   projectId: string | null | undefined,
   departmentId?: string
 ): any | null {
+  if (!strategyData || typeof strategyData !== 'object') return null;
   if (!projectId) return null;
 
-  const depts = strategyData.departments ?? [];
+  const depts = Array.isArray((strategyData as any).departments)
+    ? (strategyData as any).departments
+    : [];
 
   for (const dept of depts) {
     // departmentId が指定されている場合はフィルタ
-    if (departmentId && dept.id !== departmentId && dept.name !== departmentId) {
+    if (departmentId && dept?.id !== departmentId && dept?.name !== departmentId) {
       continue;
     }
 
     // ★ 重要：常に Project.id で比較（title ベース結びつけは禁止）
-    const proj = dept.projects?.find((p) => {
+    const projects = Array.isArray(dept?.projects) ? dept.projects : [];
+    const proj = projects.find((p: any) => {
       const normalizedId = normalizeProjectId(p);
       return normalizedId === projectId;
     });
