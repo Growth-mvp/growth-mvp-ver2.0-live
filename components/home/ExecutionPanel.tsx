@@ -150,45 +150,42 @@ export default function ExecutionPanel() {
   const staleProjectsList = summary?.staleProjects ?? [];
 
   const stage6Summary = useMemo(() => {
-    const data = (s6?.chartData ?? []) as any[];
     const dashboardSummary = s6?.dashboardSummary as any;
-    if (!Array.isArray(data) || data.length === 0) return null;
+    if (!dashboardSummary) return null;
 
-    const last = data[data.length - 1];
-    const currentRevenueYen = Number(last?.baselineRevenue ?? 0);
-    const forecastRevenueYen = Number(last?.allRevenue ?? 0);
-    const currentOpYen = Number(last?.baselineOp ?? 0);
-    const forecastOpYen = Number(last?.allOp ?? 0);
-
+    const baselineRevenueMJPY = Number(dashboardSummary?.revenue?.baseline ?? NaN);
+    const forecastRevenueMJPY = Number(dashboardSummary?.revenue?.forecast ?? NaN);
     const targetRevenueMJPY = Number(dashboardSummary?.revenue?.target ?? NaN);
+
+    const baselineOpMJPY = Number(dashboardSummary?.op?.baseline ?? NaN);
+    const forecastOpMJPY = Number(dashboardSummary?.op?.forecast ?? NaN);
     const targetOpMJPY = Number(dashboardSummary?.op?.target ?? NaN);
 
-    const targetRevenueYen = Number.isFinite(targetRevenueMJPY) ? targetRevenueMJPY * 1_000_000 : forecastRevenueYen;
-    const targetOpYen = Number.isFinite(targetOpMJPY) ? targetOpMJPY * 1_000_000 : forecastOpYen;
+    const revenueAchievementRate =
+      Number.isFinite(forecastRevenueMJPY) && Number.isFinite(targetRevenueMJPY) && targetRevenueMJPY > 0
+        ? forecastRevenueMJPY / targetRevenueMJPY
+        : null;
 
-    const revenueAchievementRate = targetRevenueYen > 0 ? forecastRevenueYen / targetRevenueYen : null;
-    const opAchievementRate = targetOpYen > 0 ? forecastOpYen / targetOpYen : null;
+    const opAchievementRate =
+      Number.isFinite(forecastOpMJPY) && Number.isFinite(targetOpMJPY) && targetOpMJPY > 0
+        ? forecastOpMJPY / targetOpMJPY
+        : null;
 
     return {
-      year: last?.year,
       revenue: {
-        current: formatOkuFromYen(currentRevenueYen),
-        forecast: formatOkuFromYen(forecastRevenueYen),
-        target: Number.isFinite(targetRevenueMJPY)
-          ? formatOkuFromMJPY(targetRevenueMJPY)
-          : formatOkuFromYen(targetRevenueYen),
+        current: Number.isFinite(baselineRevenueMJPY) ? formatOkuFromMJPY(baselineRevenueMJPY) : '—',
+        forecast: Number.isFinite(forecastRevenueMJPY) ? formatOkuFromMJPY(forecastRevenueMJPY) : '—',
+        target: Number.isFinite(targetRevenueMJPY) ? formatOkuFromMJPY(targetRevenueMJPY) : '—',
         achievementRate: formatRate(revenueAchievementRate),
       },
       op: {
-        current: formatOkuFromYen(currentOpYen),
-        forecast: formatOkuFromYen(forecastOpYen),
-        target: Number.isFinite(targetOpMJPY)
-          ? formatOkuFromMJPY(targetOpMJPY)
-          : formatOkuFromYen(targetOpYen),
+        current: Number.isFinite(baselineOpMJPY) ? formatOkuFromMJPY(baselineOpMJPY) : '—',
+        forecast: Number.isFinite(forecastOpMJPY) ? formatOkuFromMJPY(forecastOpMJPY) : '—',
+        target: Number.isFinite(targetOpMJPY) ? formatOkuFromMJPY(targetOpMJPY) : '—',
         achievementRate: formatRate(opAchievementRate),
       },
     };
-  }, [s6?.chartData, s6?.dashboardSummary]);
+  }, [s6?.dashboardSummary]);
 
   return (
     <div className="space-y-4">
