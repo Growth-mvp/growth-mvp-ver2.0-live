@@ -2185,57 +2185,6 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
           <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-[16px] font-semibold text-zinc-900">目的（何のため？）</h2>
-
-              {/* ★ Phase 3B/3C: Action buttons */}
-              <div className="flex items-center gap-2">
-                {/* Phase 3B: Add OKR button */}
-                <button
-                  type="button"
-                  onClick={() => addProjectOKR(selected!.deptIdx, selected!.projIdx)}
-                  disabled={isHydrating || isApproved() || isSavingOkr}
-                  className="flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Plus size={14} />
-                  追加
-                </button>
-
-                {/* Phase 3C: Delete OKR button */}
-                {mainOKR?.source === 'db' && (
-                  <button
-                    type="button"
-                    onClick={() => deleteProjectOKR(selected!.deptIdx, selected!.projIdx)}
-                    disabled={isHydrating || isApproved() || isSavingOkr}
-                    className="flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-[12px] font-semibold text-red-700 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Trash2 size={14} />
-                    削除
-                  </button>
-                )}
-
-                {/* Phase 4: Reorder buttons (複数 OKR がある場合のみ) */}
-                {displayOkrs.length > 1 && (
-                  <div className="flex items-center gap-1 ml-2 pl-2 border-l border-gray-200">
-                    <button
-                      type="button"
-                      onClick={() => reorderProjectOKRs(selected!.deptIdx, selected!.projIdx, 'up')}
-                      disabled={isHydrating || isApproved() || isSavingOkr}
-                      title="上に移動"
-                      className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-[12px] font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => reorderProjectOKRs(selected!.deptIdx, selected!.projIdx, 'down')}
-                      disabled={isHydrating || isApproved() || isSavingOkr}
-                      title="下に移動"
-                      className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-[12px] font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      ↓
-                    </button>
-                  </div>
-                )}
-              </div>
             </div>
 
             <div className="mb-4 space-y-1">
@@ -2427,8 +2376,8 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                     disabled={isHydrating || isApproved()}
                     className={`flex-1 rounded-lg border-2 px-3 py-2 text-[12px] font-semibold transition-colors ${
                       (selectedProj as any)?.role === opt.value
-                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-                        : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300'
+                        ? 'border-zinc-900 bg-zinc-900 text-white shadow-sm'
+                        : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 hover:border-zinc-300'
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
                     {opt.label}
@@ -2442,7 +2391,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   <button
                     type="button"
                     onClick={() => setShowRoleDetail(!showRoleDetail)}
-                    className="text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                    className="text-[11px] font-semibold text-zinc-500 hover:text-zinc-700"
                   >
                     {showRoleDetail ? '▼ 詳細設定' : '▶ 詳細設定'}
                   </button>
@@ -2503,8 +2452,8 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
 
             {/* KPI Add Form */}
             {selectedIsOpen && (
-              <div className="mb-4 rounded-xl border border-dashed border-amber-200 bg-amber-50 p-4">
-                <div className="mb-3 text-[12px] font-semibold text-amber-900">新しいKPIを追加</div>
+              <div className="mb-4 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4">
+                <div className="mb-3 text-[12px] font-semibold text-zinc-800">新しいKPIを追加</div>
                 <div className="space-y-3">
                   <div>
                     <label className="text-[11px] font-semibold text-zinc-700">KPI名（必須）</label>
@@ -2569,9 +2518,9 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   {/* Phase C: Milestones セクション */}
                   <div className={`border-t border-amber-200 pt-3 ${editingMode === 'variant' ? 'opacity-50' : ''}`}>
                     <div className="flex items-center justify-between mb-2">
-                      <div className="text-[11px] font-semibold text-amber-900">
+                      <div className="text-[11px] font-semibold text-zinc-700">
                         マイルストーン（任意）
-                        {editingMode === 'variant' && <span className="ml-1 text-[10px] text-amber-700">確定版でのみ編集可</span>}
+                        {editingMode === 'variant' && <span className="ml-1 text-[10px] text-zinc-500">確定版でのみ編集可</span>}
                       </div>
                       <button
                         type="button"
@@ -2585,7 +2534,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                           setDraft(selectedAddKey, { milestones: next });
                         }}
                         disabled={isHydrating || editingMode === 'variant'}
-                        className="h-7 px-2.5 rounded text-[11px] font-medium bg-green-100 text-green-700 border border-green-300 hover:bg-green-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="h-7 rounded-lg border border-zinc-200 bg-white px-2.5 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         テンプレ追加
                       </button>
@@ -2593,7 +2542,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                     {selectedDraft.milestones && selectedDraft.milestones.length > 0 ? (
                       <div className="space-y-1 mb-2">
                         {selectedDraft.milestones.map((m) => (
-                          <div key={m.id} className="flex gap-2 items-center rounded border border-amber-200 bg-white p-2">
+                          <div key={m.id} className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white p-2">
                             <div className="flex-1 text-[12px]">
                               <div className="font-semibold text-zinc-800">{m.title}</div>
                               {m.dueYm && <div className="text-zinc-600 text-[11px]">{m.dueYm}</div>}
@@ -2617,7 +2566,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                       <input
                         type="text"
                         placeholder="タイトル"
-                        className="flex-1 h-8 rounded border border-amber-200 bg-white px-2 text-[12px]"
+                        className="h-8 flex-1 rounded-lg border border-zinc-200 bg-white px-2 text-[12px]"
                         value={mTitle}
                         onChange={(e) => setMTitle(e.target.value)}
                         disabled={isHydrating || editingMode === 'variant'}
@@ -2625,7 +2574,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                       <input
                         type="text"
                         placeholder="YYYY-MM"
-                        className="w-24 h-8 rounded border border-amber-200 bg-white px-2 text-[12px]"
+                        className="h-8 w-24 rounded-lg border border-zinc-200 bg-white px-2 text-[12px]"
                         value={mDue}
                         onChange={(e) => setMDue(e.target.value)}
                         disabled={isHydrating || editingMode === 'variant'}
@@ -2649,7 +2598,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                           setMDue('');
                         }}
                         disabled={isHydrating || editingMode === 'variant'}
-                        className="h-8 px-2 rounded bg-amber-100 text-amber-900 text-[12px] font-semibold hover:bg-amber-200 disabled:opacity-50"
+                        className="h-8 rounded-lg border border-zinc-200 bg-white px-2 text-[12px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
                       >
                         追加
                       </button>
@@ -2661,7 +2610,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                       type="button"
                       onClick={() => addStructuredKRFromDraft(selected.deptIdx, selected.projIdx)}
                       disabled={isHydrating}
-                      className="flex-1 h-9 rounded-lg bg-amber-600 px-3 text-[12px] font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                      className="h-9 flex-1 rounded-xl bg-zinc-900 px-3 text-[12px] font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
                     >
                       追加
                     </button>
@@ -2927,7 +2876,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
             return (
               <div className="mt-3">
                 {badgeInfo.showAlert ? (
-                  <div className={`rounded-lg border p-2 bg-red-50 border-red-200 mb-3`}>
+                  <div className={`mb-3 rounded-xl border border-zinc-200 bg-zinc-50 p-2.5`}>
                     <div className="text-[11px] font-medium text-red-800">
                       ⚠️ {badgeInfo.alertText}
                     </div>
@@ -2946,8 +2895,8 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
 
                   if (ms.length === 0) {
                     return (
-                      <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2">
-                        <span className="text-[11px] text-amber-700">マイルストーン未設定</span>
+                      <div className="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-2.5">
+                        <span className="text-[11px] text-zinc-600">マイルストーン未設定</span>
                         <button
                           type="button"
                           onClick={() => {
@@ -2955,7 +2904,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                             setTimeout(() => editingMilestoneTitleInputRef.current?.focus(), 0);
                           }}
                           disabled={isHydrating || editingMode === 'variant'}
-                          className="text-[11px] px-2 py-1 rounded border border-amber-300 bg-amber-100 text-amber-700 hover:bg-amber-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium whitespace-nowrap"
+                          className="whitespace-nowrap rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           マイルストーンを追加
                         </button>
@@ -3126,7 +3075,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   type="button"
                   onClick={() => setShowInvestmentForm(true)}
                   disabled={isHydrating || isApproved()}
-                  className="w-full rounded-lg border border-dashed border-green-300 bg-green-50 px-3 py-2 text-[12px] font-semibold text-green-700 hover:bg-green-100 disabled:opacity-50"
+                  className="w-full rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2 text-[12px] font-semibold text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
                 >
                   + 投資（金額 or 人数）を追加
                 </button>
@@ -3134,8 +3083,8 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
 
               {/* Investment Add Form - showInvestmentForm 時のみ表示 */}
               {showInvestmentForm && (
-                <div className="rounded-xl border border-dashed border-green-200 bg-green-50 p-4">
-                  <div className="mb-3 text-[12px] font-semibold text-green-900">投資を追加</div>
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4">
+                  <div className="mb-3 text-[12px] font-semibold text-zinc-800">投資を追加</div>
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -3228,7 +3177,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                         setShowInvestmentForm(false);
                       }}
                       disabled={isHydrating}
-                      className="flex-1 h-9 rounded-lg bg-green-600 px-3 text-[12px] font-semibold text-white hover:bg-green-700 disabled:opacity-50"
+                      className="h-9 flex-1 rounded-xl bg-zinc-900 px-3 text-[12px] font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
                     >
                       追加
                     </button>
@@ -3440,7 +3389,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
         type="button"
         onClick={() => setShowSkillForm(true)}
         disabled={isHydrating || isApproved()}
-        className="w-full rounded-lg border border-dashed border-emerald-300 bg-emerald-50 px-3 py-2 text-[12px] font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+        className="w-full rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2 text-[12px] font-semibold text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
       >
         + 必要スキル（任意）を追加
       </button>
@@ -3470,7 +3419,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
               {!isApproved() && (
                 <div className="flex shrink-0 items-center gap-2">
                   <button
-                    className="text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                    className="text-[11px] font-semibold text-zinc-500 hover:text-zinc-700"
                     onClick={() => {
                       setEditingSkillIdx(idx);
                       setNewSkillFormData({
@@ -3516,7 +3465,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
       })}
 
       {((((selectedProj as any).skillPlans || []) as any[]) as any[]).length === 0 && (
-        <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-[12px] text-zinc-600">
+        <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 text-[12px] text-zinc-600">
           必須ではありません。必要なスキルがある場合だけ追加してください。
         </div>
       )}
@@ -3524,8 +3473,8 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
 
     {/* Add/Edit form（showSkillForm 時のみ表示） */}
     {!isApproved() && showSkillForm && (
-      <div className="rounded-xl border border-dashed border-emerald-200 bg-emerald-50 p-4">
-        <div className="mb-3 text-[12px] font-semibold text-emerald-900">
+      <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4">
+        <div className="mb-3 text-[12px] font-semibold text-zinc-800">
           {editingSkillIdx != null ? 'スキルを編集' : 'スキルを追加'}
         </div>
 
@@ -3628,7 +3577,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
 
           <div className="flex items-center gap-2">
             <button
-              className="rounded-lg bg-emerald-600 px-4 py-2 text-[12px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+              className="rounded-xl bg-zinc-900 px-4 py-2 text-[12px] font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
               disabled={isHydrating || newSkillFormData.skillName.trim() === ''}
               onClick={() => {
                 if (!selected) return;
@@ -3686,7 +3635,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
             </button>
 
             <button
-              className="rounded-lg border border-emerald-200 bg-white px-4 py-2 text-[12px] font-semibold text-emerald-700 hover:bg-emerald-100"
+              className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-[12px] font-semibold text-zinc-700 hover:bg-zinc-50"
               onClick={() => {
                 setNewSkillFormData({
                   skillName: '',
@@ -3915,7 +3864,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
             {!isApproved() && (
               <div className="flex shrink-0 items-center gap-2">
                 <button
-                  className="text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                  className="text-[11px] font-semibold text-zinc-500 hover:text-zinc-700"
                   onClick={() => {
                     setEditingMilestoneIdx(idx);
                     setNewMilestoneFormData({ title, dueYm });
@@ -3952,13 +3901,13 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
     })}
 
     {((((selectedProj as any).planMilestones || []) as any[]) as any[]).length >= 3 && (
-      <div className="rounded-xl border border-dashed border-amber-200 bg-amber-50 p-3 text-[12px] text-amber-800">
+      <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 text-[12px] text-zinc-600">
         推奨は0〜2件です。必要に応じて調整してください。
       </div>
     )}
 
     {((((selectedProj as any).planMilestones || []) as any[]) as any[]).length === 0 && (
-      <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-[12px] text-zinc-600">
+      <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 text-[12px] text-zinc-600">
         まだ工程がありません。まずは「タスク名」と「期限（YYYY-MM）」を追加してください。
         {!isApproved() && (
           <div className="mt-2">
@@ -4022,7 +3971,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
 
       <div className="mt-3 flex items-center gap-2">
         <button
-          className="rounded-lg bg-emerald-600 px-4 py-2 text-[12px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+          className="rounded-xl bg-zinc-900 px-4 py-2 text-[12px] font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
           disabled={isHydrating || newMilestoneFormData.title.trim() === ''}
           onClick={() => {
             if (!selected) return;
