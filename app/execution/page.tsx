@@ -998,6 +998,50 @@ function ExecPanel(props: {
         next[di] = deptCopy;
         return next;
       });
+
+      // ★修正: progress入力時のみ、debounceをバイパスして明示的にsaveStrategyData を実行
+      // メモリに反映されてから、できるだけ早くDBに永続化する
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+      (async () => {
+        try {
+          const state = useStrategyStore.getState();
+          const proj = state.departments?.[di]?.projects?.[pi];
+
+          console.log('[STAGE5-progress-save-request]', {
+            field,
+            oldValue,
+            newValue: numValue,
+            projectId: proj?.id,
+            departmentId: state.departments?.[di]?.id,
+            impactRevenueProgress: proj?.impactRevenueProgress,
+            impactOpIncomeProgress: proj?.impactOpIncomeProgress,
+            timestamp: new Date().toISOString(),
+          });
+
+          const result = await state.saveStrategyData({ reason: 'progress_change' });
+
+          if (result?.ok) {
+            console.log('[STAGE5-progress-save-success]', {
+              field,
+              newValue: numValue,
+              timestamp: new Date().toISOString(),
+            });
+          } else {
+            console.warn('[STAGE5-progress-save-fail]', {
+              field,
+              newValue: numValue,
+              reason: result?.reason ?? 'unknown',
+              timestamp: new Date().toISOString(),
+            });
+          }
+        } catch (err) {
+          console.error('[STAGE5-progress-save-fail]', {
+            field,
+            error: err instanceof Error ? err.message : String(err),
+            timestamp: new Date().toISOString(),
+          });
+        }
+      })();
     },
     [di, pi, isVariant, stage4Proj, updateDepartments]
   );
