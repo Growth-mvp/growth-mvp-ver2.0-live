@@ -427,6 +427,12 @@ function ExecPanel(props: {
         });
       } else if (error) {
         console.warn('[STAGE5-resolve-okr-id] lookup error', error);
+        // Fallback: use progressLogOkrId or okrId to ensure loadLogs executes
+        const fallbackId = progressLogOkrId || okrId;
+        if (fallbackId?.trim()) {
+          setResolvedProgressOkrId(fallbackId.trim());
+          console.log('[STAGE5-resolve-okr-id-fallback] lookup error, using fallback:', { fallbackId: fallbackId.trim() });
+        }
       } else {
         console.warn('[STAGE5-resolve-okr-id] not found', {
           objective: normalizedObjective,
@@ -436,6 +442,12 @@ function ExecPanel(props: {
           progressLogOkrId,
           okrId,
         });
+        // Fallback: use progressLogOkrId or okrId to ensure loadLogs executes
+        const fallbackId = progressLogOkrId || okrId;
+        if (fallbackId?.trim()) {
+          setResolvedProgressOkrId(fallbackId.trim());
+          console.log('[STAGE5-resolve-okr-id-fallback] lookup not found, using fallback:', { fallbackId: fallbackId.trim() });
+        }
       }
     };
 
