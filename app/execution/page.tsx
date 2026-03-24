@@ -361,6 +361,21 @@ function ExecPanel(props: {
   useEffect(() => {
     let alive = true;
 
+    // ★修正案A: dbOkrId が props で渡されていれば、それを直接使う（保存時と読込時のキー一致）
+    if (dbOkrId && typeof dbOkrId === 'string' && dbOkrId.trim()) {
+      setResolvedProgressOkrId((prev) => {
+        if (prev === dbOkrId) {
+          console.log('[STAGE5-use-dbOkrId-directly] resolvedProgressOkrId unchanged:', dbOkrId);
+          return prev;
+        }
+        console.log('[STAGE5-use-dbOkrId-directly] using dbOkrId from props:', dbOkrId);
+        return dbOkrId.trim();
+      });
+      return () => {
+        alive = false;
+      };
+    }
+
     const resolveDbOkrId = async () => {
       if (!open || !userId) return;
 
@@ -455,7 +470,7 @@ function ExecPanel(props: {
     return () => {
       alive = false;
     };
-  }, [open, userId, objective, progressLogOkrId, okrId, projectId, departmentId, strategyId]);
+  }, [dbOkrId, open, userId, objective, progressLogOkrId, okrId, projectId, departmentId, strategyId]);
 
   // 履歴ロード（content / score / status 版）
   useEffect(() => {
