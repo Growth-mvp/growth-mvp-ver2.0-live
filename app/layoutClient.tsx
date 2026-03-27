@@ -898,27 +898,52 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
             onClick={() => setCeoPanelOpen(!ceoPanelOpen)}
             className={[
               'hidden lg:block 2xl:hidden fixed bottom-6 right-6 z-30',
-              'rounded-full w-12 h-12 flex items-center justify-center',
-              'bg-white border border-black/10 shadow-lg hover:shadow-xl',
-              'transition-all active:scale-95',
-              ceoPanelOpen ? 'bg-blue-50' : 'bg-white',
+              'rounded-xl h-10 px-4 flex items-center justify-center gap-2.5',
+              'text-sm font-medium transition-all duration-200',
+              'active:scale-95 focus:outline-none focus:ring-2 focus:ring-offset-2',
+              ceoPanelOpen
+                ? 'bg-blue-600 text-white shadow-lg hover:bg-blue-700 focus:ring-blue-500'
+                : 'bg-white text-gray-700 border border-gray-200 shadow-md hover:bg-gray-50 hover:shadow-lg hover:border-gray-300 focus:ring-blue-500'
             ].join(' ')}
-            aria-label={ceoPanelOpen ? 'パネルを閉じる' : 'AIアシスタントを開く'}
+            aria-label={ceoPanelOpen ? 'CEOChat を閉じる' : 'CEOChat を開く'}
           >
-            <svg
-              className="w-5 h-5 text-gray-700"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d={ceoPanelOpen ? 'M15 19l-7-7 7-7' : 'M9 5l7 7-7 7'}
-              />
-            </svg>
+            {ceoPanelOpen ? (
+              <>
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2.5}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+                <span>閉じる</span>
+              </>
+            ) : (
+              <>
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M8 12a4 4 0 018 0m0 0a4 4 0 11-8 0m0 0a4 4 0 018 0M3 20h18a2 2 0 002-2V6a2 2 0 00-2-2H3a2 2 0 00-2 2v12a2 2 0 002 2z"
+                  />
+                </svg>
+                <span>CEOChat</span>
+              </>
+            )}
           </button>
         )}
 
