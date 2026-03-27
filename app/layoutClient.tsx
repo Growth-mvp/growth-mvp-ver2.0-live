@@ -902,8 +902,8 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
               'text-sm font-medium transition-all duration-200',
               'active:scale-95 focus:outline-none focus:ring-2 focus:ring-offset-2',
               ceoPanelOpen
-                ? 'bg-blue-600 text-white shadow-lg hover:bg-blue-700 focus:ring-blue-500'
-                : 'bg-white text-gray-700 border border-gray-200 shadow-md hover:bg-gray-50 hover:shadow-lg hover:border-gray-300 focus:ring-blue-500'
+                ? 'bg-gray-700 text-white shadow-lg hover:bg-gray-800 focus:ring-gray-500'
+                : 'bg-white text-gray-700 border border-gray-200 shadow-md hover:bg-gray-50 hover:shadow-lg hover:border-gray-300 focus:ring-gray-500'
             ].join(' ')}
             aria-label={ceoPanelOpen ? 'CEOChat を閉じる' : 'CEOChat を開く'}
           >
@@ -919,7 +919,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    strokeWidth={2.5}
+                    strokeWidth={2}
                     d="M6 18L18 6M6 6l12 12"
                   />
                 </svg>
@@ -937,7 +937,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    strokeWidth={1.5}
+                    strokeWidth={1.25}
                     d="M8 12a4 4 0 018 0m0 0a4 4 0 11-8 0m0 0a4 4 0 018 0M3 20h18a2 2 0 002-2V6a2 2 0 00-2-2H3a2 2 0 00-2 2v12a2 2 0 002 2z"
                   />
                 </svg>
