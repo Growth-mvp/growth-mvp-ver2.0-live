@@ -58,7 +58,7 @@ export default function Home() {
               transition={{ duration: 0.68, delay: 0.12 }}
               className="mx-auto mt-4 max-w-3xl text-[15px] leading-7 text-neutral-600 sm:text-[16px] dark:text-neutral-300"
             >
-              戦略・実行・成果を組織で動かし、回し続ける経営プラットフォーム
+              戦略を実行と成果につなげ、組織で回し続ける経営プラットフォーム
             </motion.p>
 
             <motion.div
