@@ -116,7 +116,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
   const lastNotifiedRef = useRef<DeptAnswerStep[] | null>(null);
   const lastStepNotifiedRef = useRef<StepNumber | null>(null);
 
-  // 直前の回答
+  // 直前の内容
   const previousAnswer = useMemo(() => {
     const prev = answers.find(a => a.stepNumber === (step - 1));
     return prev?.answer || '';
@@ -184,10 +184,10 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
   }, [initialStep]);
 
   /* =========================================
-   * 問いの取得
+   * テーマの取得
    *  - 既にある場合はそれを表示
    *  - ない場合、「shouldFetchQuestion=true」のときだけAPI呼び出し
-   *  - 6問完了後は新規生成しない
+   *  - 6テーマ完了後は新規生成しない
    * ========================================= */
   useEffect(() => {
     const existing = answers.find(a => a.stepNumber === step);
@@ -217,7 +217,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       return;
     }
 
-    // 6問すべて回答済みなら、それ以上は問いを生成しない
+    // 6問すべて入力済みなら、それ以上はテーマを生成しない
     if (isCompletedAll6) {
       // ★ ここで setState しない（deps が揺れた時に無限ループになるので何もしない）
       return;
@@ -377,11 +377,11 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       setStep(s => clampStep(s + 1));
       setAnswerText('');
       setShowHint(false);
-      // 次のステップの問いは、ユーザーが「問いを生成」を押したときだけ取得
+      // 次のステップのテーマは、ユーザーが「テーマを生成」を押したときだけ取得
     }
   }, [canGoNext, isLastStep, handleSaveAnswerLocally]);
 
-  // このステップからやり直す（質問の再生成）
+  // このステップからやり直す（テーマの再生成）
   const onRedoFromHere = useCallback(() => {
     if (!canEdit) return;
     const kept = answers.filter(a => a.stepNumber < step);
@@ -429,11 +429,11 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       {/* ステップインジケータ（進捗バッジ付き） */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-medium text-gray-700">戦略議論のための6つの問い（進捗：{answers.filter(a => a.answer?.trim()).length}/6）</div>
+          <div className="text-sm font-medium text-gray-700">戦略議論のための6つのディスカッションテーマ（進捗：{answers.filter(a => a.answer?.trim()).length}/6）</div>
           <div className="flex gap-1 text-xs text-gray-500">
-            <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span>回答済</span>
+            <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span>入力済</span>
             <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span>現在</span>
-            <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-300"></span>未回答</span>
+            <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-300"></span>未入力</span>
           </div>
         </div>
         <div className="grid grid-cols-6 gap-2">
@@ -453,7 +453,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
                       ? 'border-green-400 bg-green-50 hover:bg-green-100'
                       : 'border-gray-200 bg-white hover:bg-gray-50',
                 ].join(' ')}
-                title={`Q${sn}${done ? '（回答済）' : '（未回答）'}`}
+                title={`Q${sn}${done ? '（入力済）' : '（未入力）'}`}
               >
                 <div className="flex items-center justify-center gap-1">
                   Q{sn}
@@ -469,7 +469,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
         <div className="p-4 border-b border-gray-100 flex items-center justify-between">
           <div className="text-sm font-medium">
-            {label ? `ステップ：${label}` : '次の問い'}
+            {label ? `ステップ：${label}` : '次のテーマ'}
           </div>
           <div className="flex items-center gap-3">
             {hint && (
@@ -494,9 +494,9 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
                       ? 'bg-gray-100 text-gray-400 border-gray-200'
                       : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
                   ].join(' ')}
-                  title={isCompletedAll6 ? '6問すべて回答済みです' : 'このステップの問いを生成します'}
+                  title={isCompletedAll6 ? '6テーマすべて入力済みです' : 'このステップのテーマを生成します'}
                 >
-                  問いを生成
+                  テーマを生成
                 </button>
 
                 {hasQuestionForCurrentStep && (
@@ -510,7 +510,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
                         ? 'bg-gray-100 text-gray-400 border-gray-200'
                         : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
                     ].join(' ')}
-                    title="このステップの問いを再生成します（このステップ以降の回答はリセット）"
+                    title="このステップのテーマを再生成します（このステップ以降の内容はリセット）"
                   >
                     再生成
                   </button>
@@ -530,8 +530,8 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
                 {question
                   ? question
                   : canEdit
-                    ? 'まだ問いは生成されていません。「問いを生成」を押してください。'
-                    : '（閲覧モード：新しい問いの生成は無効です）'}
+                    ? 'まだテーマは生成されていません。「テーマを生成」を押してください。'
+                    : '（閲覧モード：新しいテーマの生成は無効です）'}
               </p>
               {reason && <p className="text-sm text-gray-500">狙い：{reason}</p>}
               {showHint && hint && (
@@ -544,12 +544,12 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
         </div>
       </div>
 
-      {/* 回答欄 */}
+      {/* 内容欄 */}
       <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-700">あなたの回答</label>
+        <label className="text-sm font-medium text-gray-700">ディスカッションの内容</label>
         <textarea
           className="w-full min-h-[140px] rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 p-3 disabled:bg-gray-50"
-          placeholder="考えを具体的に書いてください。数値や期限、役割、連携相手などを明記すると次の問いが鋭くなります。"
+          placeholder="考えを具体的に書いてください。数値や期限、役割、連携相手などを明記すると次のテーマが鋭くなります。"
           value={answerText}
           onChange={(e) => setAnswerText(e.target.value)}
           disabled={!canEdit}
@@ -557,7 +557,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
         />
         <div className="flex items-center justify-between">
           <span className="text-xs text-gray-500">
-            {previousAnswer ? '直前の回答を踏まえて出題されています。' : '最初の問いです。'}
+            {previousAnswer ? '直前の内容を踏まえてテーマ設定されています。' : '最初のテーマです。'}
           </span>
           <button
             type="button"
@@ -569,9 +569,9 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
                 ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
                 : 'bg-blue-600 text-white hover:bg-blue-700',
             ].join(' ')}
-            title={canEdit ? (isLastStep ? '回答を保存して完了にします' : '次の問いへ') : '閲覧モード（管理者のみ編集可）'}
+            title={canEdit ? (isLastStep ? '内容を保存して完了にします' : '次のテーマへ') : '閲覧モード（管理者のみ編集可）'}
           >
-            {isLastStep ? '回答を保存' : '次の問いへ'}
+            {isLastStep ? '内容を保存' : '次のテーマへ'}
           </button>
         </div>
       </div>
