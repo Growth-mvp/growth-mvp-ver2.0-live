@@ -4043,7 +4043,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
           <div className="text-[11px] font-semibold text-zinc-500"></div>
           <h1 className="mt-1 text-[20px] font-bold text-zinc-900">STAGE４　実行計画策定</h1>
           <div className="mt-1 text-[12px] text-zinc-600">
-            左でプロジェクトを選び、右で「目的・成果指標・実行計画」を議論の上、入力設定します。
+            左でプロジェクトを選び、各プロジェクトチーム内で「目的・成果指標・実行計画」を議論の上、入力設定します。
           </div>
         </div>
         <div className="shrink-0 flex flex-col items-end gap-2">
