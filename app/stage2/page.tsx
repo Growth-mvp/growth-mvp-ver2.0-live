@@ -1370,7 +1370,7 @@ function Questions12Section({
   return (
     <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">12の質問</h3>
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">12のディスカッションテーマ</h3>
         <span className="text-sm text-gray-500 dark:text-gray-400">
           入力済み: {answeredTotal}/{TEMPLATE12.length}
         </span>
@@ -3203,7 +3203,7 @@ function Stage2PageContent() {
                   <div className="rounded-2xl border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50/50 dark:bg-gray-800/50 p-8 text-center">
                     <h4 className="text-base font-medium text-gray-600 dark:text-gray-400 mb-2">最終ストーリー（未生成）</h4>
                     <p className="text-sm text-gray-400 dark:text-gray-500">
-                      「勝ち筋」タブで「最終ストーリーを生成」を実行してください（12の質問は未回答でもOKです）
+                      「勝ち筋」タブで「最終ストーリーを生成」を実行してください（12のディスカッションテーマは未回答でもOKです）
                     </p>
                   </div>
                 )}
