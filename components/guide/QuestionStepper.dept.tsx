@@ -578,7 +578,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
 
       {/* 既出Q/Aの簡易ログ */}
       <div className="rounded-2xl border border-gray-200 bg-white">
-        <div className="p-3 border-b border-gray-100 text-sm font-medium">これまでのQ/A（この部門）</div>
+        <div className="p-3 border-b border-gray-100 text-sm font-medium">これまでの議論の内容（この部門）</div>
         <div className="divide-y">
           {answers.length === 0 && <div className="p-3 text-sm text-gray-500">まだありません</div>}
           {answers.map((a) => (
