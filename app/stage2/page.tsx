@@ -2882,7 +2882,7 @@ function Stage2PageContent() {
           <div>
             <h1 className="text-xl font-bold text-gray-800 dark:text-gray-200">STAGE2：経営戦略ストーリー</h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              入力（MVV・SWOT）→ 戦略のたたき台 → １２の質問をもとに議論　→ 最終ストーリーを確定
+              入力（MVV・SWOT）→ 戦略のたたき台 → １２のテーマをもとに議論　→ 最終ストーリーを確定
             </p>
           </div>
           <div className="flex items-center gap-4">
@@ -2999,7 +2999,7 @@ function Stage2PageContent() {
                 )}
               </div>
             )}
-            {/* DRAFTタグ：STAGE1論点（最大5件を第1章に内包）＋4章ストーリー＋深掘り質問（統合） */}
+            {/* DRAFTタグ：STAGE1論点（最大5件を第1章に内包）＋4章ストーリー＋深掘り議論（統合） */}
             {activeTab === 'draft' && (
               <div className="space-y-6">
                 <DraftStoryPanel storyDraft={storyDraft} issueBlocks={issueBlocks} />
@@ -3044,7 +3044,7 @@ function Stage2PageContent() {
                 <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">戦略を掘り下げるための議論のテーマ</h3>
-                    <span className="text-sm text-gray-500 dark:text-gray-400">※ 未回答でも最終生成できます</span>
+                    <span className="text-sm text-gray-500 dark:text-gray-400">※ 未入力でも最終生成できます</span>
                   </div>
 
                   <Questions12Section answers12={answers12} onUpdateAnswer={handleUpdateAnswer} disabled={false} />
@@ -3060,7 +3060,7 @@ function Stage2PageContent() {
                   </div>
 
                   {hasDraft && (
-                    <p className="mt-3 text-sm text-gray-500 text-center">※ 12の質問は未回答でも生成できます（回答があるほど、内容は具体化されます）</p>
+                    <p className="mt-3 text-sm text-gray-500 text-center">※ 12のディスカッションテーマは未入力でも生成できます（入力があるほど、内容は具体化されます）</p>
                   )}
 
                   {generateFinalError && (
