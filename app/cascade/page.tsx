@@ -96,6 +96,12 @@ type Department = BaseDepartment & {
   discussionNotes?: string;
   answers2?: StoreChapterAnswers[];
   finalized?: boolean;
+  generationMeta?: {
+    existingCount?: number;
+    newCount?: number;
+    totalCount?: number;
+    updatedAt?: string;
+  };
 };
 
 /* =========================
@@ -1816,6 +1822,7 @@ function CascadePageContent() {
   /* ===== レーン表示用の一時キャッシュ（store/DBは変更しない） ===== */
   const laneCacheRef = useRef<Record<string, { existing?: ApiLane; new?: ApiLane }>>({});
   const [showLaneDetail, setShowLaneDetail] = useState<Record<string, boolean>>({});
+  const [laneRenderVersion, setLaneRenderVersion] = useState(0);
 
 // ★ lanes 内訳は store/DB に保存しない（既存方針維持）。ただしUI上はリロードで消えると困るため、
 // sessionStorage に一時退避して復元します（同一ブラウザ/タブ内での再読み込みに耐える）。
@@ -1834,6 +1841,54 @@ const persistLaneCache = useCallback(() => {
 }, [laneCacheKey]);
 
 useEffect(() => {
+  const convertDeptLanes = (deptLanes?: Department['lanes']) => {
+    if (!deptLanes) return undefined;
+
+    const existingProjects = Array.isArray(deptLanes.existing?.projects)
+      ? deptLanes.existing!.projects!.map((p: any) => ({
+          title: p?.title ?? '',
+          mainLever: p?.mainLever,
+          horizon: p?.horizon,
+        }))
+      : [];
+
+    const newProjects = Array.isArray(deptLanes.new?.projects)
+      ? deptLanes.new!.projects!.map((p: any) => ({
+          title: p?.title ?? '',
+          mainLever: p?.mainLever,
+          horizon: p?.horizon,
+        }))
+      : [];
+
+    return {
+      existing: existingProjects.length > 0 ? { projects: existingProjects } : undefined,
+      new: newProjects.length > 0 ? { projects: newProjects } : undefined,
+    };
+  };
+
+  let changed = false;
+  const nextCache = { ...laneCacheRef.current };
+
+  for (const dept of departments ?? []) {
+    if (!dept?.name) continue;
+    if (nextCache[dept.name]) continue;
+
+    const fromDept = convertDeptLanes(dept.lanes);
+    const hasAny = !!fromDept?.existing?.projects?.length || !!fromDept?.new?.projects?.length;
+    if (!hasAny) continue;
+
+    nextCache[dept.name] = fromDept!;
+    changed = true;
+  }
+
+  if (changed) {
+    laneCacheRef.current = nextCache;
+    persistLaneCache();
+    setLaneRenderVersion((v) => v + 1);
+  }
+}, [departments, persistLaneCache]);
+
+useEffect(() => {
   try {
     if (typeof window === 'undefined') return;
     const raw = sessionStorage.getItem(laneCacheKey);
@@ -1841,6 +1896,7 @@ useEffect(() => {
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === 'object') {
       laneCacheRef.current = parsed;
+      setLaneRenderVersion((v) => v + 1);
     }
   } catch {
     // ignore
@@ -2143,6 +2199,51 @@ useEffect(() => {
     return Object.keys(out).length > 0 ? out : undefined;
   };
 
+  const deptLanesToApiLanes = (deptLanes?: Department['lanes']) => {
+    if (!deptLanes) return undefined;
+
+    const existingProjects = Array.isArray(deptLanes.existing?.projects)
+      ? deptLanes.existing!.projects!.map((p: any) => ({
+          title: p?.title ?? '',
+          mainLever: p?.mainLever,
+          horizon: p?.horizon,
+        }))
+      : [];
+
+    const newProjects = Array.isArray(deptLanes.new?.projects)
+      ? deptLanes.new!.projects!.map((p: any) => ({
+          title: p?.title ?? '',
+          mainLever: p?.mainLever,
+          horizon: p?.horizon,
+        }))
+      : [];
+
+    return {
+      existing: existingProjects.length > 0 ? { projects: existingProjects } : undefined,
+      new: newProjects.length > 0 ? { projects: newProjects } : undefined,
+    };
+  };
+
+  const getDeptGenerationMeta = (dept: Department, laneCache?: { existing?: ApiLane; new?: ApiLane }) => {
+    const existingCount =
+      dept.generationMeta?.existingCount ??
+      laneCache?.existing?.projects?.length ??
+      dept.lanes?.existing?.projects?.length ??
+      0;
+
+    const newCount =
+      dept.generationMeta?.newCount ??
+      laneCache?.new?.projects?.length ??
+      dept.lanes?.new?.projects?.length ??
+      0;
+
+    return {
+      existingCount,
+      newCount,
+      totalCount: dept.generationMeta?.totalCount ?? existingCount + newCount,
+    };
+  };
+
   
   // OKRのkeyResultsが string[] 期待のAPIに対して、Store側が構造化オブジェクトを持っていても送信時に string 化する
   const krToText = (kr: any): string => {
@@ -2344,6 +2445,7 @@ useEffect(() => {
 
       // ★ lane cache をリロードに耐えるよう sessionStorage へ退避
       persistLaneCache();
+      setLaneRenderVersion((v) => v + 1);
 
       // ★ TRACE POINT 14: before pushToStore
       const beforePushDepts = useStrategyStore.getState().departments as Department[] | undefined;
@@ -2389,6 +2491,20 @@ useEffect(() => {
           if (DEBUG_DUP) {
             const titles = mergedProjects.map(p => p?.title ?? '');
           }
+        }
+
+        const generationMeta = {
+          existingCount:
+            cleanedRd?.lanes?.existing?.projects?.length ??
+            cleanedRd?.lanes?.existing?.projects?.length ??
+            (Array.isArray(cleanedRd.projects) ? cleanedRd.projects.length : 0),
+          newCount: cleanedRd?.lanes?.new?.projects?.length ?? 0,
+          totalCount: mergedProjects.length,
+          updatedAt: new Date().toISOString(),
+        };
+
+        if (!jsonEq(generationMeta, d.generationMeta)) {
+          patch.generationMeta = generationMeta;
         }
 
         // ★ lanes（2レーン構造）を保存（型変換付き）
@@ -2944,11 +3060,13 @@ useEffect(() => {
             // ★ FIXED: mission フィールド統一
             const deptMissionText = (dept.mission ?? '').trim();
 
-            const lane = laneCacheRef.current[dept.name];
+            const lane = laneCacheRef.current[dept.name] ?? deptLanesToApiLanes(dept.lanes);
             const laneOpen = !!showLaneDetail[dept.name];
+            const generationMeta = getDeptGenerationMeta(dept, lane);
 
-            const exCount = lane?.existing?.projects?.length ?? 0;
-            const newCount = lane?.new?.projects?.length ?? 0;
+            const exCount = generationMeta.existingCount;
+            const newCount = generationMeta.newCount;
+            void laneRenderVersion;
 
             const answeredCount = (answers ?? []).filter((a) => (a?.answer ?? '').toString().trim().length > 0).length;
             const allQuestionsAnswered = answeredCount >= 6;
