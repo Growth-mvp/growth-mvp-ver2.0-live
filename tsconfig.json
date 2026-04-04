@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ESNext",
-    "lib": ["DOM", "DOM.Iterable", "ESNext"],
+    "lib": [
+      "DOM",
+      "DOM.Iterable",
+      "ESNext"
+    ],
     "allowJs": true,
     "checkJs": false,
     "skipLibCheck": true,
@@ -15,14 +19,23 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "jsxImportSource": "react",
-    "types": ["react", "react-dom", "node"],
+    "types": [
+      "react",
+      "react-dom",
+      "node"
+    ],
     "incremental": true,
     "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": [
+        "./*"
+      ]
     },
     "plugins": [
-      { "name": "next" }
+      {
+        "name": "next"
+      }
     ]
   },
   "include": [
