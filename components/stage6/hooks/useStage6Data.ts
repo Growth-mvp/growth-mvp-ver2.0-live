@@ -624,6 +624,16 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       const impactOpIncomeMJPY = projectData?.impactOpIncomeMJPY;
       const impactOpIncomeProgress = projectData?.impactOpIncomeProgress;
 
+      // ★ STAGE4で入力した目標額（単なる表示用。寄与額とは別）
+      const targetRevenueMJPY =
+        typeof impactRevenueMJPY === 'number' && Number.isFinite(impactRevenueMJPY)
+          ? impactRevenueMJPY
+          : undefined;
+      const targetOpIncomeMJPY =
+        typeof impactOpIncomeMJPY === 'number' && Number.isFinite(impactOpIncomeMJPY)
+          ? impactOpIncomeMJPY
+          : undefined;
+
       // ★ formal fields の有無を判定
       const hasRevenueFields = typeof impactRevenueMJPY === 'number' && typeof impactRevenueProgress === 'number';
       const hasOpFields = typeof impactOpIncomeMJPY === 'number' && typeof impactOpIncomeProgress === 'number';
@@ -701,6 +711,10 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         proj: p.proj,
         investTotal,
         krCount: p.krCount,
+        // ★ STAGE4入力の目標額
+        targetRevenueMJPY,
+        targetOpIncomeMJPY,
+        // ★ STAGE6計算の寄与額
         deltaRevenueTotal,  // MJPY単位
         deltaOpTotal,        // MJPY単位（formal or margin推定）
         roi,
@@ -1557,6 +1571,88 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     });
   }, [core.baselineYearly, core.yearlyAll, valueAnalysis, companyTargets, dashboardSummary]);
 
+
+  // === STAGE6: Review candidates for STAGE4 feedback ===
+  const reviewCandidates = useMemo(() => {
+    const candidates = projectContribForUI.map((p: any) => {
+      const targetRevenue = Number((p as any).targetRevenueMJPY ?? 0);
+      const targetOp = Number((p as any).targetOpIncomeMJPY ?? 0);
+      const revenueContribution = Number(p.deltaRevenueTotal ?? 0);
+      const opContribution = Number(p.deltaOpTotal ?? 0);
+
+      const hasRevenueTarget = Number.isFinite(targetRevenue) && targetRevenue > 0;
+      const hasOpTarget = Number.isFinite(targetOp) && targetOp > 0;
+
+      const revenueAchievementRate =
+        hasRevenueTarget ? (revenueContribution / targetRevenue) * 100 : null;
+      const opAchievementRate = hasOpTarget ? (opContribution / targetOp) * 100 : null;
+
+      let severity: 'high' | 'medium' | 'low' = 'low';
+      let score = 0;
+      const reasons: string[] = [];
+
+      if (!hasRevenueTarget && !hasOpTarget) {
+        severity = 'high';
+        score += 100;
+        reasons.push('目標額が未入力です');
+      }
+
+      if (hasRevenueTarget && revenueContribution <= 0) {
+        severity = 'high';
+        score += 90;
+        reasons.push('売上目標はあるが売上寄与が0です');
+      } else if (hasRevenueTarget && revenueAchievementRate !== null && revenueAchievementRate < 70) {
+        severity = severity === 'high' ? 'high' : 'medium';
+        score += Math.max(0, 80 - revenueAchievementRate);
+        reasons.push(`売上寄与が目標に対して不足しています（${Math.round(revenueAchievementRate)}%）`);
+      }
+
+      if (hasOpTarget && opContribution <= 0) {
+        severity = 'high';
+        score += 90;
+        reasons.push('営業利益目標はあるが営業利益寄与が0です');
+      } else if (hasOpTarget && opAchievementRate !== null && opAchievementRate < 70) {
+        severity = severity === 'high' ? 'high' : 'medium';
+        score += Math.max(0, 80 - opAchievementRate);
+        reasons.push(`営業利益寄与が目標に対して不足しています（${Math.round(opAchievementRate)}%）`);
+      }
+
+      if (!hasOpTarget && hasRevenueTarget) {
+        severity = severity === 'high' ? 'high' : 'medium';
+        score += 35;
+        reasons.push('営業利益目標が未入力です');
+      }
+
+      if (!hasRevenueTarget && hasOpTarget) {
+        severity = severity === 'high' ? 'high' : 'medium';
+        score += 35;
+        reasons.push('売上目標が未入力です');
+      }
+
+      return {
+        key: p.key,
+        dept: p.dept,
+        proj: p.proj,
+        href: `/okr?dept=${encodeURIComponent(p.dept)}&project=${encodeURIComponent(p.proj)}`,
+        reason: reasons.length > 0 ? reasons[0] : '大きな不足はありませんが確認候補です',
+        severity,
+        score,
+        targetRevenueMJPY: hasRevenueTarget ? targetRevenue : undefined,
+        revenueContributionMJPY: revenueContribution,
+        revenueAchievementRate,
+        targetOpMJPY: hasOpTarget ? targetOp : undefined,
+        opContributionMJPY: opContribution,
+        opAchievementRate,
+      };
+    });
+
+    return candidates
+      .filter((c) => c.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+  }, [projectContribForUI]);
+
+
   // ★ 追加修正：上段と下段の整合性確認ログ（★統一基準確認＋baseline修正）
   if (DEBUG && isReady && northStarRows.length > 0 && projectContribForUI.length > 0) {
     const revenueRow = northStarRows.find(r => r.label.toLowerCase().includes('売上') && !r.label.toLowerCase().includes('成長'));
@@ -1680,11 +1776,11 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     chartData: chartDataWithPhaseE,  // ★Phase E の影響を反映したグラフデータ
     // STAGE6 Step 1 & 2: Dashboard summary & metric cards
     dashboardSummary,
-    fourMetricCards,
     // Supporting data
     financePL,
     companyTargets,
     stage1Issues,
     valueAnalysis,
+    reviewCandidates,
   };
 }
