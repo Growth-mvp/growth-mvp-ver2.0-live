@@ -737,6 +737,9 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
   const selectedStableRef = useRef<{ deptKey: string; projKey: string } | null>(null);
   const deptKeyOf = (d: any) => String(d?.id ?? d?.name ?? '');
   const projKeyOf = (p: any) => String(p?.id ?? p?.title ?? p?.name ?? '');
+  // React render key は重複を避けるため index を必ず含める
+  const deptRenderKey = (d: any, di: number) => `${deptKeyOf(d) || 'dept'}::${di}`;
+  const projRenderKey = (p: any, di: number, pi: number) => `${projKeyOf(p) || 'proj'}::${di}::${pi}`;
 
 
   const startAddProject = (deptIdx: number) => {
@@ -4070,7 +4073,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
               {(Array.isArray(departments) ? departments : []).map((dept, di) => {
                 const projs = ensureArray(dept.projects);
                 return (
-                  <div key={deptKeyOf(dept)} className="rounded-2xl bg-zinc-50 p-3">
+                  <div key={deptRenderKey(dept, di)} className="rounded-2xl bg-zinc-50 p-3">
                     <div className="flex items-center justify-between">
                       <div className="min-w-0">
                         <div className="truncate text-[12px] font-semibold text-zinc-900">{dept.name || `部門${di + 1}`}</div>
@@ -4120,7 +4123,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                         const isSel = selected?.deptIdx === di && selected?.projIdx === pi;
                         return (
                           <button
-                            key={projKeyOf(p)}
+                            key={projRenderKey(p, di, pi)}
                             type="button"
                             onClick={() => {
                               if (saveNow) void saveNow();
