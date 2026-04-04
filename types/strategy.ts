@@ -1134,6 +1134,24 @@ export type Department = {
 
   /** ★STAGE3拡張：STAGE1事業セグメントへの紐づけ */
   segmentName?: string;
+
+  /** ★STAGE3拡張：事業部内の機能横断連携（表示・保存用） */
+  intraDeptCollab?: string[];
+
+  /** ★STAGE3拡張：他事業部・全社機能との連携（表示・保存用） */
+  interDeptCollab?: string[];
+
+  /** ★STAGE3拡張：旧互換の連携配列（内部では事業部内/事業部間連携へ統合） */
+  needsCollab?: string[];
+
+  /** ★STAGE3拡張：やめる/諦める項目 */
+  stopList?: string[];
+
+  /** ★STAGE3拡張：最初の90日アクション */
+  first90Days?: string[];
+
+  /** ★STAGE3拡張：主要リスクと対処 */
+  riskNotes?: string[];
 };
 
 /* =========================================================
