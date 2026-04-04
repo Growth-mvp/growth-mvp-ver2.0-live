@@ -99,9 +99,15 @@ type Department = BaseDepartment & {
   generationMeta?: {
     existingCount?: number;
     newCount?: number;
+    intraCollabCount?: number;
+    interCollabCount?: number;
+    collabCount?: number;
     totalCount?: number;
     updatedAt?: string;
   };
+  intraDeptCollab?: string[];
+  interDeptCollab?: string[];
+  needsCollab?: string[]; // 旧互換
 };
 
 /* =========================
@@ -155,6 +161,8 @@ type ApiDeptDraft = {
   };
 
   // その他
+  intraDeptCollab?: string[];
+  interDeptCollab?: string[];
   needsCollab?: string[];
   stopList?: string[];
   first90Days?: string[];
@@ -2237,10 +2245,26 @@ useEffect(() => {
       dept.lanes?.new?.projects?.length ??
       0;
 
+    const intraCollabCount =
+      dept.generationMeta?.intraCollabCount ??
+      (Array.isArray((dept as any).intraDeptCollab) ? (dept as any).intraDeptCollab.length : 0);
+
+    const interCollabCount =
+      dept.generationMeta?.interCollabCount ??
+      (Array.isArray((dept as any).interDeptCollab) ? (dept as any).interDeptCollab.length : 0);
+
+    const legacyCollabCount = Array.isArray((dept as any).needsCollab) ? (dept as any).needsCollab.length : 0;
+    const collabCount =
+      dept.generationMeta?.collabCount ??
+      (intraCollabCount + interCollabCount > 0 ? intraCollabCount + interCollabCount : legacyCollabCount);
+
     return {
       existingCount,
       newCount,
-      totalCount: dept.generationMeta?.totalCount ?? existingCount + newCount,
+      intraCollabCount,
+      interCollabCount,
+      collabCount,
+      totalCount: dept.generationMeta?.totalCount ?? existingCount + newCount + collabCount,
     };
   };
 
@@ -2493,13 +2517,26 @@ useEffect(() => {
           }
         }
 
+        const intraDeptCollab = Array.isArray((cleanedRd as any)?.intraDeptCollab)
+          ? (cleanedRd as any).intraDeptCollab
+          : Array.isArray(cleanedRd?.needsCollab)
+            ? cleanedRd.needsCollab
+            : [];
+        const interDeptCollab = Array.isArray((cleanedRd as any)?.interDeptCollab)
+          ? (cleanedRd as any).interDeptCollab
+          : [];
+        const mergedLegacyNeedsCollab = [...intraDeptCollab, ...interDeptCollab];
+
         const generationMeta = {
           existingCount:
             cleanedRd?.lanes?.existing?.projects?.length ??
             cleanedRd?.lanes?.existing?.projects?.length ??
             (Array.isArray(cleanedRd.projects) ? cleanedRd.projects.length : 0),
           newCount: cleanedRd?.lanes?.new?.projects?.length ?? 0,
-          totalCount: mergedProjects.length,
+          intraCollabCount: intraDeptCollab.length,
+          interCollabCount: interDeptCollab.length,
+          collabCount: mergedLegacyNeedsCollab.length,
+          totalCount: mergedProjects.length + mergedLegacyNeedsCollab.length,
           updatedAt: new Date().toISOString(),
         };
 
@@ -2513,7 +2550,9 @@ useEffect(() => {
           patch.lanes = newLanes;
         }
 
-        if (cleanedRd.needsCollab) (patch as any).needsCollab = cleanedRd.needsCollab;
+        if (!jsonEq(intraDeptCollab, (d as any).intraDeptCollab ?? [])) (patch as any).intraDeptCollab = intraDeptCollab;
+        if (!jsonEq(interDeptCollab, (d as any).interDeptCollab ?? [])) (patch as any).interDeptCollab = interDeptCollab;
+        if (!jsonEq(mergedLegacyNeedsCollab, (d as any).needsCollab ?? [])) (patch as any).needsCollab = mergedLegacyNeedsCollab;
         if (cleanedRd.stopList) (patch as any).stopList = cleanedRd.stopList;
         if (cleanedRd.riskNotes) (patch as any).riskNotes = cleanedRd.riskNotes;
 
@@ -3066,6 +3105,8 @@ useEffect(() => {
 
             const exCount = generationMeta.existingCount;
             const newCount = generationMeta.newCount;
+            const intraCollabCount = generationMeta.intraCollabCount ?? ((dept as any).intraDeptCollab?.length ?? 0);
+            const interCollabCount = generationMeta.interCollabCount ?? ((dept as any).interDeptCollab?.length ?? 0);
             void laneRenderVersion;
 
             const answeredCount = (answers ?? []).filter((a) => (a?.answer ?? '').toString().trim().length > 0).length;
@@ -3111,16 +3152,16 @@ useEffect(() => {
           {L.deptDraft ? 'たたき台を生成中…' : 'AIでこの部門のたたき台（ミッション・プロジェクト・KPI案）'}
         </Button>
 
-        {(exCount > 0 || newCount > 0) && (
+        {(exCount > 0 || newCount > 0 || intraCollabCount > 0 || interCollabCount > 0) && (
           <Button
             variant="outline"
             className="rounded-full h-9 px-4"
             disabled={isHydrating}
             onClick={() => setShowLaneDetail((p) => ({ ...p, [dept.name]: !p[dept.name] }))}
-            title="AI生成の内訳（既存進化／新規探索）を表示します"
+            title="AI生成の内訳（既存進化／新規探索／事業部内連携／事業部間連携）を表示します"
           >
             {laneOpen ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />}
-            生成内訳（既存{exCount} / 新規{newCount}）
+            生成内訳（既存{exCount} / 新規{newCount}{intraCollabCount > 0 ? ` / 事業部内連携${intraCollabCount}` : ''}{interCollabCount > 0 ? ` / 事業部間連携${interCollabCount}` : ''}）
           </Button>
         )}
       </div>
@@ -3234,10 +3275,10 @@ useEffect(() => {
                   ※「AIでこの部門のたたき台」はミッション、プロジェクト、説明を生成します。生成後は、必要に応じてKPI（指標）を編集してください。
                 </p>
 
-                {laneOpen && (exCount > 0 || newCount > 0) && (
+                {laneOpen && (exCount > 0 || newCount > 0 || intraCollabCount > 0 || interCollabCount > 0) && (
                   <div className="mb-4 rounded-2xl border bg-white/60 p-3">
                     <div className="text-[11px] text-zinc-500 mb-2">
-                      参考：/api/generate-cascade の「既存進化（Existing）」と「新規探索（New）」の内訳（保存データは統合済み）
+                      参考：/api/generate-cascade の「既存進化（Existing）」「新規探索（New）」「事業部内連携」「事業部間連携」の内訳（保存データは統合済み）
                     </div>
                     <div className="grid md:grid-cols-2 gap-3">
                       <div className="rounded-xl border bg-white/70 p-3">
@@ -3282,6 +3323,32 @@ useEffect(() => {
                                 </li>
                               );
                             })}
+                          </ul>
+                        ) : (
+                          <div className="text-xs text-zinc-500">（なし）</div>
+                        )}
+                      </div>
+
+                      <div className="rounded-xl border bg-amber-50/70 p-3">
+                        <div className="text-xs font-semibold text-amber-800 mb-1">事業部内連携</div>
+                        {intraCollabCount > 0 ? (
+                          <ul className="list-disc pl-5 space-y-1 text-xs text-amber-900">
+                            {((dept as any).intraDeptCollab ?? []).map((item: string, i: number) => (
+                              <li key={`intra-${dept.name}-${i}`}>{item}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <div className="text-xs text-zinc-500">（なし）</div>
+                        )}
+                      </div>
+
+                      <div className="rounded-xl border bg-orange-50/70 p-3 md:col-span-2">
+                        <div className="text-xs font-semibold text-orange-800 mb-1">事業部間連携</div>
+                        {interCollabCount > 0 ? (
+                          <ul className="list-disc pl-5 space-y-1 text-xs text-orange-900">
+                            {((dept as any).interDeptCollab ?? []).map((item: string, i: number) => (
+                              <li key={`inter-${dept.name}-${i}`}>{item}</li>
+                            ))}
                           </ul>
                         ) : (
                           <div className="text-xs text-zinc-500">（なし）</div>
@@ -3453,7 +3520,7 @@ useEffect(() => {
                                       proj = promoteToUserProject(proj);
                                     }
 
-                                    const okrs: StoreOKR[] = [...(((proj.okrs ?? []) as StoreOKR[]) ?? [])];
+                                    const okrs: StoreOKR[] = [...((proj.okrs ?? []) as StoreOKR[]) ];
                                     if (!okrs[0]) okrs[0] = { objective: '', keyResults: [], owner: undefined };
 
                                     // ★既存メタ（expectedImpactYen/probability）を落とさない
