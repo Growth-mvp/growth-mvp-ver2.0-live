@@ -112,6 +112,8 @@ const DepartmentSchema = z.object({
     .optional(),
 
   needsCollab: z.array(z.string()).optional().default([]),
+  intraDeptCollab: z.array(z.string()).optional().default([]),
+  interDeptCollab: z.array(z.string()).optional().default([]),
   stopList: z.array(z.string()).optional().default([]),
   first90Days: z.array(z.string()).optional().default([]),
   riskNotes: z.array(z.string()).optional().default([]),
@@ -257,6 +259,70 @@ function trimList(list?: string[], max = 6) {
     .map((s) => String(s || '').trim())
     .filter(Boolean)
     .slice(0, max);
+}
+
+
+function dedupeStrings(list: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of list || []) {
+    const v = String(item || '').trim();
+    const key = v.toLowerCase();
+    if (!v || seen.has(key)) continue;
+    seen.add(key);
+    out.push(v);
+  }
+  return out;
+}
+
+function extractCollabAnswerText(dept: any): string {
+  const answers = pickDeptAnswers6(dept);
+  if (!Array.isArray(answers) || answers.length === 0) return '';
+  const step5 = answers.find((a: any) => Number(a?.stepNumber) === 5);
+  if (step5?.answer) return String(step5.answer).trim();
+  const labeled = answers.find((a: any) => String(a?.label ?? '').includes('協力'));
+  return String(labeled?.answer ?? '').trim();
+}
+
+function looksLikeInterDeptCollab(answerText: string): boolean {
+  const t = String(answerText || '').toLowerCase();
+  if (!t) return false;
+  const keywords = [
+    '他事業部', '別の事業部', '別事業部', '共同開発', '共同', '横断', '他部門',
+    '別部門', '全社', '連携', '協業', '他部署', '複数事業部'
+  ];
+  return keywords.some((kw) => t.includes(kw.toLowerCase()));
+}
+
+function buildInterDeptCollabFallback(deptName: string, dept: any): string[] {
+  const answerText = extractCollabAnswerText(dept);
+  if (!looksLikeInterDeptCollab(answerText)) return [];
+  const cleaned = answerText.replace(/\s+/g, ' ').trim();
+  const title = cleaned.length > 90 ? cleaned.slice(0, 90) + '…' : cleaned;
+  return [`事業部間連携：${deptName} - ${title}`];
+}
+
+function normalizeCollabLists(deptResult: any, deptInput?: any): { intra: string[]; inter: string[]; legacy: string[] } {
+  const intra = trimList(
+    deptResult?.intraDeptCollab ??
+    deptResult?.needsCollab ??
+    [],
+    6
+  );
+
+  let inter = trimList(deptResult?.interDeptCollab ?? [], 6);
+
+  if (inter.length === 0 && deptInput) {
+    inter = buildInterDeptCollabFallback(pickName(deptInput) || pickName(deptResult) || '対象事業部', deptInput);
+  }
+
+  const legacy = dedupeStrings([
+    ...intra,
+    ...inter,
+    ...trimList(deptResult?.needsCollab ?? [], 6),
+  ]);
+
+  return { intra, inter, legacy };
 }
 
 function toNum(v: any): number | null {
@@ -2652,6 +2718,8 @@ ${
         }
       },
       "needsCollab": ["誰と何をする（例：営業×マーケ：高付加価値案件の創出）"],
+      "intraDeptCollab": ["事業部内連携（例：営業×技術：高付加価値案件の創出）"],
+      "interDeptCollab": ["事業部間連携（例：A事業部×B事業部：共同開発テーマの推進）"],
       "stopList": ["やめる/諦める項目（KRには含めない）"],
       "first90Days": ["最初の90日でやること（週/マイルストン粒度）"],
       "riskNotes": ["主要リスクと対処の一言"]
@@ -2674,6 +2742,7 @@ ${
 - humanInvestments は最低2カテゴリを含めること。
 - ★★重要：全プロジェクトで skillRequirements.executionSkills や humanInvestments が同一になることは絶対に禁止。各プロジェクトのアーキタイプ（品質/自動化/営業/新規/ITデータ/組織など）を推定し、それぞれに適したスキルと施策を割り当てること。
 - ★対象部門の既存事業と大きく異なる领域（全く無関係な新規事業など）を提案しないこと。
+- Q5（協力）の回答に他事業部・別事業部・共同開発・横断連携が明示される場合は、interDeptCollab を少なくとも1件返すこと。
 `.trim();
 
     // ★ STAGE3: TASK 1-2 - LLM呼び出し直前の注入証明ログ
@@ -4124,7 +4193,9 @@ ${secondPassDeptBlock}
                 // 新: lanes から統合したプロジェクト配列を返す（title/okrs/owner等の主要フィールドを保持）
                 projects: dedupedProjects,
 
-                needsCollab: trimList(d?.needsCollab, 6),
+                intraDeptCollab: normalizeCollabLists(d, deptInputByName.get(name)).intra,
+                interDeptCollab: normalizeCollabLists(d, deptInputByName.get(name)).inter,
+                needsCollab: normalizeCollabLists(d, deptInputByName.get(name)).legacy,
                 stopList: trimList(d?.stopList, 6),
                 first90Days: trimList(d?.first90Days, 8),
                 riskNotes: trimList(d?.riskNotes, 6),
