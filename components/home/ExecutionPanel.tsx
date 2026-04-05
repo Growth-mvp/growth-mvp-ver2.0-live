@@ -2,9 +2,26 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useStrategyStore } from '@/store/strategyStore';
 import { useStage6Data } from '@/components/stage6/hooks/useStage6Data';
 import { safeGetSession } from '@/utils/supabase/client';
+
+type ProjectUpdateItem = {
+  departmentId: string;
+  departmentName: string;
+  projectId: string;
+  projectTitle: string;
+  okrId: string | null;
+  latestUpdateAt: string;
+  latestUpdateType:
+    | 'progress'
+    | 'comment'
+    | 'rating'
+    | 'advice'
+    | 'request'
+    | 'status'
+    | 'update';
+  latestSummary: string | null;
+};
 
 type ExecutionSummary = {
   totalOkrs: number;
@@ -19,16 +36,8 @@ type ExecutionSummary = {
     uncheckedOkrCount: number;
     lastCheckinAt: string | null;
   }>;
+  recentProjectUpdates: ProjectUpdateItem[];
 };
-
-function formatOkuFromYen(n: number) {
-  if (!Number.isFinite(n)) return '—';
-  const oku = n / 100_000_000;
-  return `${oku.toLocaleString('ja-JP', {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  })}億円`;
-}
 
 function formatOkuFromMJPY(n: number) {
   if (!Number.isFinite(n)) return '—';
@@ -42,6 +51,37 @@ function formatOkuFromMJPY(n: number) {
 function formatRate(rate: number | null) {
   if (rate == null || !Number.isFinite(rate)) return '—';
   return `${Math.round(rate * 100)}%`;
+}
+
+function formatUpdateType(type: ProjectUpdateItem['latestUpdateType']) {
+  switch (type) {
+    case 'progress':
+      return '進捗更新';
+    case 'comment':
+      return 'コメント追加';
+    case 'rating':
+      return '評価更新';
+    case 'advice':
+      return 'アドバイス追加';
+    case 'request':
+      return '協力要請';
+    case 'status':
+      return '状態更新';
+    default:
+      return '更新あり';
+  }
+}
+
+function formatDateTime(iso: string | null | undefined) {
+  if (!iso) return '日時不明';
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return '日時不明';
+  return new Intl.DateTimeFormat('ja-JP', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
 }
 
 const stageBtnClass =
@@ -88,19 +128,30 @@ function Stage6MetricRow({
 }
 
 export default function ExecutionPanel() {
-  const strategy = useStrategyStore() as any;
   const s6 = useStage6Data('base') as any;
 
   const [summary, setSummary] = useState<ExecutionSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dismissedMap, setDismissedMap] = useState<Record<string, true>>({});
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem('home:stage5:dismissed');
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        setDismissedMap(parsed as Record<string, true>);
+      }
+    } catch {}
+  }, []);
 
   useEffect(() => {
     const run = async () => {
       setLoading(true);
       setError(null);
       try {
-        // session から Bearer token を取得
         const sessionRes = await safeGetSession();
         if (!sessionRes.ok || !sessionRes.data.session?.access_token) {
           setError('認証トークンが取得できません');
@@ -108,11 +159,10 @@ export default function ExecutionPanel() {
           return;
         }
 
-        // 新APIを呼び出し
         const apiRes = await fetch('/api/stage5/execution-summary', {
           method: 'GET',
           headers: {
-            'Authorization': `Bearer ${sessionRes.data.session.access_token}`,
+            Authorization: `Bearer ${sessionRes.data.session.access_token}`,
           },
         });
 
@@ -142,12 +192,47 @@ export default function ExecutionPanel() {
     run();
   }, []);
 
-  // 全社集計サマリーから直接取得（API ベース）
-  const totalOkrs = summary?.totalOkrs ?? 0;
-  const checkedOkrs7d = summary?.checkedOkrs7d ?? 0;
-  const uncheckedOkrs7d = summary?.uncheckedOkrs7d ?? 0;
-  const checkInRate = summary?.checkInRate ?? null;
-  const staleProjectsList = summary?.staleProjects ?? [];
+  const recentProjectUpdates = useMemo(() => {
+    const items = summary?.recentProjectUpdates ?? [];
+    const filtered = items.filter((item) => {
+      const key = `${item.departmentId}:${item.projectId}:${item.latestUpdateAt}`;
+      const isDismissed = !!dismissedMap[key];
+      if (isDismissed) {
+        console.log('[ExecutionPanel-dismiss-filter] dismissed:', {
+          projectId: item.projectId,
+          latestUpdateAt: item.latestUpdateAt,
+          key,
+        });
+      }
+      return !isDismissed;
+    });
+
+    console.log('[ExecutionPanel-recentProjectUpdates]', {
+      totalFromAPI: items.length,
+      afterDismissFilter: filtered.length,
+      dismissedMapSize: Object.keys(dismissedMap).length,
+      sampleAPItems: items.slice(0, 2).map(item => ({
+        projectId: item.projectId,
+        latestUpdateAt: item.latestUpdateAt,
+        latestUpdateType: item.latestUpdateType,
+      })),
+    });
+
+    return filtered;
+  }, [summary?.recentProjectUpdates, dismissedMap]);
+
+  const dismissUpdate = (item: ProjectUpdateItem) => {
+    if (typeof window === 'undefined') return;
+    const key = `${item.departmentId}:${item.projectId}:${item.latestUpdateAt}`;
+    setDismissedMap((prev) => {
+      if (prev[key]) return prev;
+      const next = { ...prev, [key]: true as const };
+      try {
+        window.localStorage.setItem('home:stage5:dismissed', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
 
   const stage6Summary = useMemo(() => {
     const dashboardSummary = s6?.dashboardSummary as any;
@@ -194,78 +279,67 @@ export default function ExecutionPanel() {
           <Link href="/execution" className={stageBtnClass}>
             <span className="text-[15px] font-semibold text-neutral-900">STAGE5：実行計画支援</span>
           </Link>
-          <div className="text-sm font-medium">実行状況（直近7日）</div>
+          <div className="text-sm font-medium">最近動きのあったプロジェクト</div>
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800">
-            <div className="text-xs text-neutral-500">チェックイン率</div>
-            <div className="mt-1 text-2xl font-semibold">
-              {checkInRate == null ? '—' : `${Math.round(checkInRate * 100)}%`}
-            </div>
-            <div className="mt-2 text-[11px] leading-5 text-neutral-500">
-              直近7日で、進捗記録が1回以上入ったOKRの割合です。
-            </div>
-          </div>
-          <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800">
-            <div className="text-xs text-neutral-500">未チェックイン</div>
-            <div className="mt-1 text-2xl font-semibold">
-              {totalOkrs ? uncheckedOkrs7d : '—'}
-            </div>
-            <div className="mt-2 text-[11px] leading-5 text-neutral-500">
-              直近7日で、進捗記録が入っていないOKR数です。
-            </div>
-          </div>
-        </div>
-
-       
-
-        {totalOkrs ? (
-          <div className="mt-4 rounded-xl bg-white p-3 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800">
-            <div className="flex items-center justify-between">
-              <div className="text-xs font-medium text-neutral-700 dark:text-neutral-200">
-                未チェックイン（要対応）
+        <div className="mt-3 rounded-xl bg-white p-3 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-medium text-neutral-700 dark:text-neutral-200">直近7日の更新</div>
+              <div className="mt-1 text-[12px] leading-5 text-neutral-500">
+                進捗・コメント・評価・アドバイス・協力要請など、変化があった案件だけを表示します。
               </div>
-              <Link
-                href="/execution"
-                className="text-xs font-medium text-neutral-600 underline-offset-4 hover:underline dark:text-neutral-300"
-              >
-                まとめて見る
-              </Link>
             </div>
-
-            <div className="mt-2 space-y-2">
-              {loading ? (
-                <div className="text-xs text-neutral-500">集計中…</div>
-              ) : staleProjectsList.length === 0 ? (
-                <div className="text-xs text-neutral-500">今週は未チェックインなし</div>
-              ) : (
-                staleProjectsList.map((proj) => (
-                  <div
-                    key={`${proj.departmentId}-${proj.projectId}`}
-                    className="flex items-center justify-between gap-3 rounded-lg bg-neutral-50 px-2 py-2 dark:bg-neutral-900/40"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-xs text-neutral-500">{proj.departmentName}</div>
-                      <div className="truncate text-sm font-medium text-neutral-900 dark:text-white">
-                        {proj.projectTitle}
-                      </div>
-                      <div className="truncate text-[11px] text-neutral-500">
-                        配下OKR {proj.uncheckedOkrCount} 件 / 直近7日で記録がありません
-                      </div>
-                    </div>
-                    <Link
-                      href="/execution"
-                      className="shrink-0 rounded-lg bg-neutral-900 px-3 py-2 text-xs font-semibold text-white hover:opacity-90 dark:bg-white dark:text-neutral-900"
-                    >
-                      チェックイン
-                    </Link>
-                  </div>
-                ))
-              )}
-            </div>
+            <Link
+              href="/execution"
+              className="shrink-0 text-xs font-medium text-neutral-600 underline-offset-4 hover:underline dark:text-neutral-300"
+            >
+              STAGE5を開く
+            </Link>
           </div>
-        ) : null}
+
+          <div className="mt-3 space-y-2">
+            {loading ? (
+              <div className="text-xs text-neutral-500">集計中…</div>
+            ) : error ? (
+              <div className="text-xs text-rose-600">{error}</div>
+            ) : recentProjectUpdates.length === 0 ? (
+              <div className="rounded-lg bg-neutral-50 px-3 py-3 text-xs leading-5 text-neutral-500 dark:bg-neutral-900/40">
+                直近の更新はありません。進捗・コメント・協力要請などの更新があると、ここに表示されます。
+              </div>
+            ) : (
+              recentProjectUpdates.map((item) => (
+                <div
+                  key={`${item.departmentId}-${item.projectId}-${item.latestUpdateAt}`}
+                  className="flex items-center justify-between gap-3 rounded-lg bg-neutral-50 px-3 py-3 dark:bg-neutral-900/40"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-xs text-neutral-500">{item.departmentName}</div>
+                    <div className="truncate text-sm font-medium text-neutral-900 dark:text-white">
+                      {item.projectTitle}
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-neutral-500">
+                      <span className="rounded-full bg-white px-2 py-0.5 ring-1 ring-neutral-200 dark:bg-neutral-950 dark:ring-neutral-800">
+                        {formatUpdateType(item.latestUpdateType)}
+                      </span>
+                      <span>{formatDateTime(item.latestUpdateAt)}</span>
+                    </div>
+                    {item.latestSummary ? (
+                      <div className="mt-1 truncate text-[11px] text-neutral-500">{item.latestSummary}</div>
+                    ) : null}
+                  </div>
+                  <Link
+                    href={item.okrId ? `/execution?okrId=${encodeURIComponent(item.okrId)}&projectId=${encodeURIComponent(item.projectId)}&departmentId=${encodeURIComponent(item.departmentId)}` : '/execution'}
+                    onClick={() => dismissUpdate(item)}
+                    className="shrink-0 rounded-lg bg-neutral-900 px-3 py-2 text-xs font-semibold text-white hover:opacity-90 dark:bg-white dark:text-neutral-900"
+                  >
+                    開く
+                  </Link>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="rounded-2xl bg-neutral-50 p-4 ring-1 ring-neutral-200/60 dark:bg-neutral-900/40 dark:ring-neutral-800">
