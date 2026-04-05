@@ -2668,13 +2668,26 @@ export async function saveProgressLog(
     const row: Record<string, any> = {
       user_id: authUserId,
       company_id: companyId,
-      okr_id: okrRow.id, // ← 修正: 入力値ではなく解決済みIDを使用
-      department: departmentId,
-      content,
+      okr_id: okrRow.id, // ← DB の okrs.id UUID（確定）
+      content, // ← progress_logs.content（route.ts の SELECT と一致）
       status,
       score,
+      // ===== 修正: department カラムは未使用のため削除 =====
+      // reason: route.ts で SELECT されず、okrMetaMap で department は okrs.department_id から取得される
+      // department カラムが存在しない場合、INSERT エラーになるため削除
       ...(createdAt ? { created_at: createdAt } : {}),
     };
+
+    // ===== 診断: INSERT 直前に row の内容を確認 =====
+    console.log('[saveProgressLog-insert-payload]', {
+      rowKeys: Object.keys(row),
+      okrId: okrRow.id,
+      companyId,
+      userId: authUserId,
+      contentLength: String(content).length,
+      hasStatus: row.status != null,
+      hasScore: row.score != null,
+    });
 
     const { data, error } = await supabase
       .from(T_PROGRESS)
@@ -2683,9 +2696,26 @@ export async function saveProgressLog(
       .single();
 
     if (error) {
+      // ===== 診断: INSERT エラーを詳細ログ =====
+      console.error('[saveProgressLog-insert-error-detail]', {
+        errorCode: error?.code,
+        errorMessage: error?.message,
+        errorDetails: error?.details,
+        errorHint: error?.hint,
+        attemptedColumns: Object.keys(row),
+      });
       return { data: null, error: extractErrorVerbose(error) };
     }
+
+    // ===== 診断: INSERT 成功時の返却内容をログ =====
     console.log(`[saveProgressLog] authUser=${authUserId} companyId=${companyId} dbOkrId=${okrId} result=success`);
+    console.log('[saveProgressLog-insert-result]', {
+      savedId: data?.id,
+      savedOkrId: data?.okr_id,
+      savedContentPreview: typeof data?.content === 'string' ? data.content.substring(0, 50) : 'N/A',
+      returnedColumns: data ? Object.keys(data) : [],
+    });
+
     return { data, error: null };
   } catch (e) {
     return { data: null, error: extractErrorVerbose(e) };
