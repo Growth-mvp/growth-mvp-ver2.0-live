@@ -3,6 +3,7 @@
 import StrategyGuard from '@/app/StrategyGuard';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import SaveStatusIndicator from '@/components/SaveStatusIndicator';
@@ -1549,6 +1550,8 @@ function ExecutionPageContent() {
   });
   const user = useUserStore((s) => s.user);
 
+  const searchParams = useSearchParams();
+
   const cascade: Department[] = useMemo(() => {
     const base: Department[] = Array.isArray(departments) ? (departments as Department[]) : [];
     const alt: Department[] = Array.isArray(editableCascadeResult) ? (editableCascadeResult as Department[]) : [];
@@ -2101,10 +2104,96 @@ function ExecutionPageContent() {
     pi?: number;
   } | null>(null);
 
+  const queryOkrId = (searchParams.get('okrId') ?? '').trim();
+  const queryProjectId = (searchParams.get('projectId') ?? '').trim();
+  const queryDepartmentId = (searchParams.get('departmentId') ?? '').trim();
+  const hasAutoOpenQuery = Boolean(queryOkrId || queryProjectId || queryDepartmentId);
+  const autoOpenedRef = useRef<string>('');
+
   // モーダル：ストーリー / 部門
   const [storyOpen, setStoryOpen] = useState(false);
   const [deptOpen, setDeptOpen] = useState<{ open: boolean; di: number | null }>({ open: false, di: null });
 
+
+  useEffect(() => {
+    if (isHydrating) return;
+    if (!hasAutoOpenQuery) return;
+    if (selected) return;
+
+    const queryKey = `${queryOkrId}::${queryProjectId}::${queryDepartmentId}`;
+    if (autoOpenedRef.current === queryKey) return;
+
+    let matched:
+      | ({
+          deptName: string;
+          projectTitle: string;
+          objective: string;
+          keyResults: string[];
+          dbOkrId?: string;
+          displayOkrId?: string;
+          mapHit?: boolean;
+          okrId: string;
+          progressOkrId?: string;
+          strategyId?: string;
+          departmentId?: string;
+          projectId?: string;
+          companyId?: string;
+          krIds?: string[];
+          di?: number;
+          pi?: number;
+        })
+      | null = null;
+
+    for (const dept of pyramid) {
+      for (const proj of dept.projects) {
+        const sel = { ...proj.selection, di: proj.di, pi: proj.pi };
+
+        const okrMatched =
+          !!queryOkrId &&
+          [sel.dbOkrId, sel.progressOkrId, sel.okrId, sel.displayOkrId]
+            .filter(Boolean)
+            .some((v) => String(v).trim() === queryOkrId);
+
+        const projectMatched =
+          !!queryProjectId &&
+          !!sel.projectId &&
+          String(sel.projectId).trim() === queryProjectId;
+
+        const departmentMatched =
+          !!queryDepartmentId &&
+          !!sel.departmentId &&
+          String(sel.departmentId).trim() === queryDepartmentId;
+
+        const shouldOpen =
+          okrMatched ||
+          (!!queryProjectId && !!queryDepartmentId && projectMatched && departmentMatched);
+
+        if (shouldOpen) {
+          matched = sel;
+          break;
+        }
+      }
+      if (matched) break;
+    }
+
+    if (!matched) return;
+
+    setSelected(matched);
+    autoOpenedRef.current = queryKey;
+
+    if (typeof window !== 'undefined') {
+      const nextUrl = `${window.location.pathname}${window.location.hash || ''}`;
+      window.history.replaceState({}, '', nextUrl);
+    }
+  }, [
+    isHydrating,
+    hasAutoOpenQuery,
+    queryOkrId,
+    queryProjectId,
+    queryDepartmentId,
+    pyramid,
+    selected,
+  ]);
 
   const selectedLatestActivityAt = selected?.progressOkrId
     ? projectActivityMap[selected.progressOkrId]?.latestAt
