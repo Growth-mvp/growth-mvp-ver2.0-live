@@ -2175,15 +2175,25 @@ useEffect(() => {
   /**
    * ApiProjectDraft を Project に変換
    * - title は必須文字列に（undefined は補完）
+   * - ★ Approach A: Always assign stable ID via genIdByTitle
+   *   Ensures no ID-less projects reach okr/execution stages
    */
   const toProjectFromDraft = (d: ApiProjectDraft): Project => {
     const title = (d.title ?? '').trim() || '（未設定プロジェクト）';
-    return {
+
+    // ★ Approach A: Respect existing id, generate if missing
+    // - deptName not available in this context, use title-only generation
+    // - Matches genIdByTitle strategy in normalizeProjectDraft (line 1162)
+    const projectId = (d as any).id || genIdByTitle(title, undefined);
+
+    const p: Project = {
       title,
       reason: d.reason,
       hypothesis: d.hypothesis,
       okrs: [],
-    } as Project;
+    } as any as Project & { id?: string };
+    (p as any).id = projectId;
+    return p;
   };
 
   /**
