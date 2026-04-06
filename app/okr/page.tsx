@@ -967,17 +967,23 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
             [cacheKey]: 'success',
           }));
 
-          // ★ STAGE5対応：snapshot も同時に更新（STAGE5 は proj.okrs を読むため）
+          // ★ Approach A: STAGE5対応：snapshot を DB-backed OKR で置換
+          // 全て resolvedOkr.id を使い、snapshot 側の古い id を完全に排除
           const existingDue = String((proj as any)?.okrs?.[0]?.due ?? '');
-          const snapshotOkrs: OKR[] = resolved.resolvedOkrs.map((resolvedOkr, idx) => ({
-            id: resolvedOkr.id,
-            objective: resolvedOkr.objective ?? '',
-            owner: resolvedOkr.owner_name ?? '',
-            due: idx === 0 ? existingDue : '',
-            keyResults: Array.isArray(resolvedOkr.key_results_json) ? resolvedOkr.key_results_json : [],
-          }));
+          const snapshotOkrs: OKR[] = resolved.resolvedOkrs
+            .filter((ok) => ok?.source === 'db')  // ★ DB source のみ
+            .map((resolvedOkr, idx) => ({
+              id: resolvedOkr.id,  // ★ DB id（snapshot id ではなく DB OKR id）
+              objective: resolvedOkr.objective ?? '',
+              owner: resolvedOkr.owner_name ?? '',
+              due: idx === 0 ? existingDue : '',
+              keyResults: Array.isArray(resolvedOkr.key_results_json) ? resolvedOkr.key_results_json : [],
+            }));
 
-          // departments の該当 project の okrs を更新
+          // ★ departments の該当 project の okrs を同期更新
+          // NOTE: setDepartments は非同期だが、resolvedOkrsMap 更新後すぐに STAGE5 が読むため
+          // STAGE5 は proj.okrs より resolvedOkrsMap[projectKey] を優先参照することで
+          // タイミングズレを回避
           const nextDepts = [...departments];
           const d = nextDepts[dIdx];
           if (d) {
@@ -986,6 +992,8 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
             if (p) {
               projects[pIdx] = { ...p, okrs: snapshotOkrs };
               nextDepts[dIdx] = { ...d, projects };
+              // ★ setDepartments は非同期だが、state 反映を待たずに return
+              // STAGE5 は resolvedOkrsMap から DB OKR を取得するため問題なし
               setDepartments?.(nextDepts as any);
             }
           }
@@ -1034,18 +1042,28 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
         return null;
       }
 
-      const projectId = String(proj?.id ?? proj?.title ?? '');
+      // ★ Approach A: proj.id is mandatory (generated in cascade/toProjectFromDraft)
+      // No fallback to proj.title - if missing, it's a data integrity issue
+      const projectId = String(proj?.id ?? '');
       const departmentId = String(dept?.id ?? dept?.name ?? '');
       const strategyId = resolveCurrentStrategyId();
+
       if (!projectId || !departmentId || !strategyId) {
-        console.warn('[ensureMainOkrIsDbBacked] missing identifiers', { cacheKey, projectId, departmentId, strategyId });
+        console.error('[ensureMainOkrIsDbBacked] missing identifiers (proj.id must exist per Approach A)', {
+          cacheKey,
+          projectId,
+          projId: (proj as any)?.id,
+          projTitle: proj?.title,
+          departmentId,
+          strategyId,
+        });
         attemptedPromotionKeysRef.current.add(cacheKey);
         return null;
       }
 
       promotingProjectKeysRef.current.add(cacheKey);
       try {
-        await okrService.upsertOkr(
+        const saved = await okrService.upsertOkr(
           {
             objective,
             owner_name: owner,
@@ -1056,7 +1074,9 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           projectId,
           accessCompanyId
         );
+
         const latest = await invalidateAndRefetchProjectOkrs(dIdx, pIdx);
+
         attemptedPromotionKeysRef.current.add(cacheKey);
         return (latest ?? []).find((o) => o?.source === 'db') ?? null;
       } catch (error) {
@@ -1095,9 +1115,24 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
 
         const dept = departments?.[dIdx] as any;
         const proj = dept?.projects?.[pIdx] as any;
-        const projectId = String(proj?.id ?? proj?.title ?? targetOkr.id ?? '');
+        // ★ Approach A: proj.id is mandatory (generated in cascade/toProjectFromDraft)
+        const projectId = String(proj?.id ?? '');
         const strategyId = resolveCurrentStrategyId();
         const departmentId = String(dept?.id ?? dept?.name ?? '');
+
+        if (!projectId) {
+          console.error('[updateProjectOKRDb] proj.id missing (data integrity issue)', {
+            dIdx,
+            pIdx,
+            projId: (proj as any)?.id,
+            projTitle: proj?.title,
+            targetOkrId: targetOkr?.id,
+          });
+          return;
+        }
+
+        // ★ Conservative: targetOkr は OkrDisplayModel で project_id を持たないため、
+        // 既存の project_id との比較は不可能。proj.id で上書きするのが目的。
 
         await okrService.upsertOkr(
           {
@@ -1254,15 +1289,48 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
 
       setIsSavingOkr(true);
       try {
+        // ★ Target case detection
+        const isTargetCase = objective.includes('自動車OEM');
+        if (isTargetCase) {
+          console.error('[addProjectOKR-TARGET] ENTRY',
+            JSON.stringify({ dIdx, pIdx, objective }, null, 2)
+          );
+        }
+
         // プロジェクト情報を departments から取得
         const dept = departments?.[dIdx];
         const proj = dept?.projects?.[pIdx];
-        const projectId = proj ? String((proj as any).id ?? proj.title) : '';
+        // ★ Approach A: proj.id is mandatory (generated in cascade/toProjectFromDraft)
+        const projectId = proj ? String((proj as any).id ?? '') : '';
         const deptId = dept ? String((dept as any).id ?? dept.name) : '';
 
+        if (isTargetCase) {
+          console.error('[addProjectOKR-TARGET] IDS EXTRACTED',
+            JSON.stringify({ projectId, deptId, projId: (proj as any)?.id, projTitle: proj?.title }, null, 2)
+          );
+        }
+
         if (!projectId) {
+          console.error('[addProjectOKR] proj.id missing (data integrity issue)', {
+            dIdx,
+            pIdx,
+            projExists: !!proj,
+            projId: proj ? (proj as any).id : undefined,
+            projTitle: proj?.title,
+          });
+          if (isTargetCase) {
+            console.error('[addProjectOKR-TARGET] GUARD SKIP (missing projectId)',
+              JSON.stringify({ projectId, deptId }, null, 2)
+            );
+          }
           alert('プロジェクト情報が取得できません');
           return;
+        }
+
+        if (isTargetCase) {
+          console.error('[addProjectOKR-TARGET] BEFORE SAVE',
+            JSON.stringify({ projectId, deptId, strategyId: resolveCurrentStrategyId(), objective }, null, 2)
+          );
         }
 
         // ★ okrService.upsertOkr() で DB に新規 insert
