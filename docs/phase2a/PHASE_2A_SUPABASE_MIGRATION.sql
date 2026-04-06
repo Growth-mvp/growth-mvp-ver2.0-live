@@ -45,8 +45,10 @@ CREATE TABLE IF NOT EXISTS okrs (
   created_by UUID,
   updated_by UUID,
 
-  -- Uniqueness constraint（soft delete 対応）
-  UNIQUE(strategy_id, department_id, project_id, id) WHERE is_deleted = false
+  -- ★ Approach A: Uniqueness constraint（soft delete 対応）
+  -- Ensures one OKR per (strategy, department, project, objective)
+  -- Prevents duplicate DB-backed OKRs from multiple upsert calls
+  UNIQUE(strategy_id, department_id, project_id, objective) WHERE is_deleted = false
 ) PARTITION BY HASH (company_id);
 
 -- コメント
