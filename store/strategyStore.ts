@@ -3674,36 +3674,26 @@ export const useStrategyStore = create<StrategyState>()(
                 });
               }
 
-              const minimal = extractServerDecidedPatch(patch as any, base);
+              // ★ 根本原因①修正：FULL REPLACEMENT に変更
+              // minimal（条件付き）ではなく patch（全フィールド）を使用
+              // 理由：minimal に departments がない場合、base が復帰する問題を根治
 
-              // ★ TRACE POINT 10b: extractServerDecidedPatch 後 - minimal に departments があるか
-              const minimalHasDepts = 'departments' in minimal;
-              const minimalDepts = Array.isArray((minimal as any).departments) ? (minimal as any).departments : [];
-              const minimalProjCount = minimalDepts.reduce((s: number, d: any) => {
-                return s + (Array.isArray(d?.projects) ? d.projects.length : 0);
-              }, 0);
-              if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
-                console.log('[TRACE_PROJECTS][refetchFromServer][after-extractPatch-wasDirty]', {
-                  strategyId: (patch as any)?.strategyId,
-                  timestamp: new Date().toISOString(),
-                  minimalHasDepartments: minimalHasDepts,
-                  totalDepartments: minimalDepts.length,
-                  totalProjects: minimalProjCount,
-                  minimalKeys: Object.keys(minimal).sort(),
-                });
-              }
+              console.log('[audit][refetchFromServer:merge-strategy]', {
+                strategyId: (patch as any)?.strategyId,
+                timestamp: new Date().toISOString(),
+                mergeMode: 'FULL_REPLACEMENT (patch → state)',
+                patchHasDepartments: Array.isArray((patch as any)?.departments),
+                baseDeptCount: Array.isArray((base as any).departments) ? (base as any).departments.length : 0,
+                patchDeptCount: Array.isArray((patch as any)?.departments) ? (patch as any).departments.length : 0,
+              });
 
+              // DB data (patch) が source of truth
+              // base は「補助」として、patch に無いフィールドだけ補う
               const merged = {
-                ...base,
-                ...minimal,
+                ...base,          // ← 補助用（UI一時状態など）
+                ...patch,         // ← DB fresh data で上書き（FULL REPLACEMENT）
                 companyId: s.pendingCompanyId ?? s.companyId,
                 pendingCompanyId: undefined,
-                // DB に無い値は既存の persist 値を保持
-                stage1Benchmarks: (minimal as any).stage1Benchmarks ?? (base as any).stage1Benchmarks,
-                stage1Issues: (minimal as any).stage1Issues ?? (base as any).stage1Issues,
-                /* ★ TASK 3: STAGE2 フィールドを保護（空配列での上書き防止） */
-                answers12: (minimal as any).answers12 ?? (base as any).answers12,
-                winPatternsCandidate: (minimal as any).winPatternsCandidate ?? (base as any).winPatternsCandidate,
               };
 
               // ★ TRACE POINT 10c-detailed: merged state の departments/projects
@@ -3765,37 +3755,26 @@ export const useStrategyStore = create<StrategyState>()(
               });
             }
           } else {
+            // ★ 根本原因①修正：wasDirty=false パスでも FULL REPLACEMENT
+            // DB fresh data (patch) が source of truth
+            // isStale による localDeps 優先は廃止（削除復活の原因）
             set((s) => {
-              const base = s as StrategyState;
-
-              const localDeps = normalizeDepartmentsInput(base.departments, []);
-              const serverDeps = normalizeDepartmentsInput((patch as any).departments, []);
-
-              let nextDepartments: Department[] = serverDeps;
-
-              if (!isSwitchingCompany) {
-                if (isStale) nextDepartments = localDeps;
-              } else {
-                nextDepartments = serverDeps;
-              }
-
               const merged: any = {
-                ...(base as any),
-                ...(patch as any),
+                ...(s as any),   // ← base（補助用）
+                ...(patch as any),  // ← DB fresh data で上書き（FULL REPLACEMENT）
                 companyId: s.pendingCompanyId ?? s.companyId,
                 pendingCompanyId: undefined,
-                // DB に無い値は既存の persist 値を保持
-                stage1Benchmarks: (patch as any).stage1Benchmarks ?? (base as any).stage1Benchmarks,
-                stage1Issues: (patch as any).stage1Issues ?? (base as any).stage1Issues,
-                /* ★ TASK 3: STAGE2 フィールドを保護（空配列での上書き防止） */
-                answers12: (patch as any).answers12 ?? (base as any).answers12,
-                winPatternsCandidate: (patch as any).winPatternsCandidate ?? (base as any).winPatternsCandidate,
-                // ★ 修正3: STAGE4実行計画フィールドも保護（復元時に削除されないようにする）
-                stage4Plans: (patch as any).stage4Plans ?? (base as any).stage4Plans,
-                executionPlanBaseline: (patch as any).executionPlanBaseline ?? (base as any).executionPlanBaseline,
               };
 
-              merged.departments = nextDepartments;
+              console.log('[audit][refetchFromServer:wasDirty=false]', {
+                strategyId: (patch as any)?.strategyId,
+                timestamp: new Date().toISOString(),
+                mergeMode: 'FULL_REPLACEMENT (patch → state)',
+                patchDeptCount: Array.isArray((patch as any)?.departments) ? (patch as any).departments.length : 0,
+                isStale,
+                isSwitchingCompany,
+              });
+
               return merged as StrategyState;
             });
 
