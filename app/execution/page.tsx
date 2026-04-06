@@ -48,10 +48,18 @@ const toStrictOKR = (okr: any): OKRStrict => ({
 });
 
 // okrsV2 を潰さないため、title だけ正規化して残りは元projを活かす
-const toStrictProject = (proj: any): ProjectStrict => ({
-  title: String(proj?.title ?? proj?.name ?? ''),
-  okrs: Array.isArray(proj?.okrs) ? proj.okrs.map(toStrictOKR) : [],
-});
+const toStrictProject = (proj: any): ProjectStrict => {
+  const allOkrs = Array.isArray(proj?.okrs) ? proj.okrs : [];
+  // ★ Approach A: DB-backed OKRs のみを使用（snapshot OKRs を除外）
+  const dbBackedOkrs = allOkrs.filter((o: any) => {
+    return o?.id && String(o.id).length >= 36;
+  });
+  const okrsToUse = dbBackedOkrs.length > 0 ? dbBackedOkrs : allOkrs;
+  return {
+    title: String(proj?.title ?? proj?.name ?? ''),
+    okrs: okrsToUse.map(toStrictOKR),
+  };
+};
 
 // OKRを一意に指す軽量ID（DB主キーではなく"ログ紐づけ用キー"）
 const okrKey = (d: number, p: number, o: number, okr?: any) => {
@@ -487,8 +495,31 @@ function ExecPanel(props: {
           .order('created_at', { ascending: false })
           .limit(50);
 
-        if (error) console.warn('load progress_logs error:', error);
-        if (Array.isArray(data)) setLogs(data as LogRow[]);
+        if (error) {
+          console.warn('[STAGE5-loadLogs] error:', error);
+          return;
+        }
+
+        if (Array.isArray(data)) {
+          // ★ 根本原因②修正：保護ロジック
+          // setLogs で既存の 'local-*' ログを保護
+          // （修正1-2 で 'local-*' は廃止されたが、念のため保護）
+          setLogs((prev) => {
+            const localLogs = prev.filter((l) => l.id.startsWith('local-'));
+            const dbLogs = (data as LogRow[]).filter((d) => !d.id.startsWith('local-'));
+
+            console.log('[STAGE5-loadLogs-sync]', {
+              dbLogsCount: dbLogs.length,
+              localLogsCount: localLogs.length,
+              timestamp: new Date().toISOString(),
+            });
+
+            // DB logs を優先、local logs は補助
+            return [...dbLogs, ...localLogs].sort((a, b) =>
+              new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+            );
+          });
+        }
       } finally {
         setLoadingLogs(false);
       }
@@ -656,9 +687,18 @@ function ExecPanel(props: {
         throw error;
       }
 
+      // ★ 根本原因②修正：saved.id が存在することを確認
+      const savedId = saved?.id;
+      if (!savedId) {
+        throw new Error('[STAGE5-save-checkin] saved.id is missing - progress_logs INSERT may have failed');
+      }
+
+      const savedAt = saved?.created_at ?? new Date().toISOString();
+
       console.log('[STAGE5-save-checkin-success]', {
-        savedId: saved?.id,
+        savedId,  // ← 正規ID（'local-*' ではない）
         savedScore: saved?.score,
+        savedAt,
         timestamp: new Date().toISOString(),
       });
 
@@ -667,12 +707,26 @@ function ExecPanel(props: {
       await useStrategyStore.getState().saveStrategyData({ reason: 'manual' });
 
       setNotice('✅ 記録しました');
-      const nowIso = new Date().toISOString();
-      setLogs((prev) => [
-        { id: 'local-' + nowIso, created_at: nowIso, content: composed, score: rating ?? null, status: null },
-        ...prev,
-      ]);
-      onActivitySaved?.({ okrId: resolvedProgressOkrId, at: nowIso });
+
+      // ★ 根本原因②修正：saved.id（正規ID）を使用
+      // 'local-*' プレフィックスを廃止
+      setLogs((prev) => {
+        // 既存の 'local-*' ログを除去（重複防止）
+        const nonLocalLogs = prev.filter((l) => !l.id.startsWith('local-'));
+
+        return [
+          {
+            id: savedId,  // ← DB から返された正規ID
+            created_at: savedAt,  // ← DB から返された作成時刻
+            content: composed,
+            score: rating ?? null,
+            status: saved?.status ?? null,
+          },
+          ...nonLocalLogs,
+        ];
+      });
+
+      onActivitySaved?.({ okrId: resolvedProgressOkrId, at: savedAt });
       setProgressText('');
       setHelpRequest('');
       // FIXED: Do NOT reset rating to 0 - keep the saved score displayed
@@ -1642,11 +1696,31 @@ function ExecutionPageContent() {
 
           // ===== fetch 直後に map を構築（タイミングズレ防止） =====
           const map: Record<string, string> = {};
-          data.forEach((okr) => {
+          data.forEach((okr: any) => {
             if (okr?.id && okr?.objective) {
               const normalizedObjective = normalizeObjectiveKey(okr.objective);
-              const projectId = okr.project_id || 'no-project';
-              const key = `${scopeCompanyId}::${scopeStrategyId}::${projectId}::${normalizedObjective}`;
+
+              // ★ Approach A: okr.project_id must exist (saved by okr.page with proj.id)
+              // Do not use 'no-project' fallback - skip corrupted entries instead
+              if (!okr.project_id) {
+                console.warn('[STAGE5-dbOkrMap] okr.project_id missing (data corruption)', {
+                  okrId: okr.id,
+                  objective: okr.objective,
+                  strategyId: okr.strategy_id,
+                });
+                return;  // skip this okr from map
+              }
+
+              // Log migration detection for diagnostics
+              if (!okr.project_id.startsWith('proj-')) {
+                console.info('[STAGE5-dbOkrMap] okr using legacy project_id format', {
+                  okrId: okr.id,
+                  projectId: okr.project_id,
+                  format: 'title-based (legacy)',
+                });
+              }
+
+              const key = `${scopeCompanyId}::${scopeStrategyId}::${okr.project_id}::${normalizedObjective}`;
               map[key] = okr.id;
             }
           });
@@ -1732,7 +1806,33 @@ function ExecutionPageContent() {
       const tone = deptTone(di);
       const projects = (dept?.projects ?? []).map((proj: any, pi: number) => {
         const strictProj = toStrictProject(proj);
-        const okrs = Array.isArray(proj?.okrs) ? proj.okrs : [];
+
+        // ★ Approach A: Prioritize DB-backed OKRs (source='db') over snapshot OKRs
+        // DB OKRs have UUID-like id (from DB), snapshot OKRs may have old/stale ids
+        // Filter to include only DB-backed ones (heuristic: id length > 20 chars = likely UUID)
+        const allOkrs = Array.isArray(proj?.okrs) ? proj.okrs : [];
+        const dbBackedOkrs = allOkrs.filter((o: any) => {
+          // UUID-like id: 36 chars (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+          // or sufficiently long hex/UUID format
+          return o?.id && String(o.id).length >= 36;
+        });
+        const okrs = dbBackedOkrs.length > 0 ? dbBackedOkrs : allOkrs;
+
+        // ★ DEBUG: Verify DB OKR selection in useMemo(pyramid)
+        if (di === 0 && pi === 0 && allOkrs.length > 0) {
+          const selectedOkr = okrs[0];
+          console.log('[pyramid-okr-selection]', {
+            projTitle: strictProj.title,
+            projId: proj?.id,
+            totalAllOkrs: allOkrs.length,
+            totalDbBackedOkrs: dbBackedOkrs.length,
+            selectedOkrId: selectedOkr?.id,
+            selectedOkrIdLength: String(selectedOkr?.id).length,
+            selectedOkrSource: selectedOkr?.source,
+            allOkrIds: allOkrs.map((o: any) => ({ id: o?.id, idLength: String(o?.id).length, source: o?.source })),
+          });
+        }
+
         const okrsV2 = Array.isArray((proj as any)?.okrsV2) ? ((proj as any).okrsV2 as any[]) : [];
         const v2Labels = okrsV2.map((k) => String(k?.label ?? '')).filter(Boolean);
 
@@ -1802,13 +1902,44 @@ function ExecutionPageContent() {
 
             if (objective && scopeCompanyId && scopeStrategyId) {
               const normalizedObjective = normalizeObjectiveKey(objective);
-              const projectIdForKey = resolvedProjId || 'no-project';
-              const lookupKey = `${scopeCompanyId}::${scopeStrategyId}::${projectIdForKey}::${normalizedObjective}`;
 
-              dbOkrId = dbOkrMap[lookupKey];
-              mapHit = !!dbOkrId;
+              // ★ Approach A: resolvedProjId should exist (generated in cascade/toProjectFromDraft)
+              // Do not use 'no-project' fallback - explicit fail with logging
+              let lookupKey = '';
+              let projectIdForKey = resolvedProjId || 'undefined (missing proj.id)';
 
-              // ===== 修正 3 + TASK 1/4: Detailed lookup log with candidates =====
+              if (!resolvedProjId) {
+                console.warn('[STAGE5-lookup] proj.id missing (expected from Approach A)', {
+                  di,
+                  pi,
+                  deptName: dept?.name,
+                  projectTitle: strictProj.title,
+                  objective,
+                });
+                dbOkrId = undefined;
+                mapHit = false;
+              } else {
+                lookupKey = `${scopeCompanyId}::${scopeStrategyId}::${resolvedProjId}::${normalizedObjective}`;
+                dbOkrId = dbOkrMap[lookupKey];
+                mapHit = !!dbOkrId;
+              }
+
+              // ★ Approach A: mapHit=false の場合、必要に応じて DEBUG ログ出力
+              if (!mapHit && process.env.NODE_ENV === 'development') {
+                // Fallback detection: proj.id missing or snapshot OKR selected
+                const keysWithProjectId = resolvedProjId ? Object.keys(dbOkrMap).filter((k) => k.includes(`::${resolvedProjId}::`)) : [];
+                if (!resolvedProjId || keysWithProjectId.length === 0) {
+                  if (objective.includes('自動車OEM')) {
+                    console.debug('[STAGE5] mapHit=false (proj.id missing or no DB match)', {
+                      objective,
+                      projectId: resolvedProjId || 'undefined',
+                      matchCount: keysWithProjectId.length,
+                    });
+                  }
+                }
+              }
+
+              // ===== 修正 3 + TASK 1/4: Detailed lookup log with candidates (first OKR only) =====
               if (di === 0 && pi === 0) {
                 let sameObjectiveCandidates: any[] = [];
                 let sameProjectCandidates: any[] = [];
@@ -1818,7 +1949,7 @@ function ExecutionPageContent() {
                   const normalizedObjFromDb = normalizeObjectiveKey(objective);
 
                   // 候補1: 同じ objective を持つ DB OKR
-                  sameObjectiveCandidates = dbOkrsData
+                  sameObjectiveCandidates = (dbOkrsData as any[])
                     .filter((okr) => normalizeObjectiveKey(okr.objective) === normalizedObjFromDb)
                     .slice(0, 5)
                     .map((okr) => ({
@@ -1831,17 +1962,19 @@ function ExecutionPageContent() {
                     }));
 
                   // 候補2: 同じ project_id を持つ DB OKR
-                  sameProjectCandidates = dbOkrsData
-                    .filter((okr) => okr.project_id === projectIdForKey)
-                    .slice(0, 5)
-                    .map((okr) => ({
-                      id: okr.id,
-                      objective: okr.objective,
-                      normalizedObjective: normalizeObjectiveKey(okr.objective),
-                      project_id: okr.project_id,
-                      strategy_id: okr.strategy_id,
-                      company_id: okr.company_id,
-                    }));
+                  if (resolvedProjId) {
+                    sameProjectCandidates = (dbOkrsData as any[])
+                      .filter((okr) => okr.project_id === resolvedProjId)
+                      .slice(0, 5)
+                      .map((okr) => ({
+                        id: okr.id,
+                        objective: okr.objective,
+                        normalizedObjective: normalizeObjectiveKey(okr.objective),
+                        project_id: okr.project_id,
+                        strategy_id: okr.strategy_id,
+                        company_id: okr.company_id,
+                      }));
+                  }
                 }
 
                 console.log('[STAGE5-db-okr-map-lookup]', {
@@ -2302,7 +2435,12 @@ function ExecutionPageContent() {
     cascade.forEach((dept, di) => {
       (dept?.projects ?? []).forEach((proj: any, pi: number) => {
         const strictProj = toStrictProject(proj);
-        const okrs = Array.isArray(proj?.okrs) ? proj.okrs : [];
+        // ★ Approach A: DB-backed OKRs のみを使用（snapshot OKRs を除外）
+        const allOkrs = Array.isArray(proj?.okrs) ? proj.okrs : [];
+        const dbBackedOkrs = allOkrs.filter((o: any) => {
+          return o?.id && String(o.id).length >= 36;
+        });
+        const okrs = dbBackedOkrs.length > 0 ? dbBackedOkrs : allOkrs;
         const okrsV2 = Array.isArray((proj as any)?.okrsV2) ? ((proj as any).okrsV2 as any[]) : [];
         const projForCard = { ...(proj as any), title: strictProj.title };
 
@@ -2320,19 +2458,6 @@ function ExecutionPageContent() {
                   // ===== TASK 2: fallback for deptId =====
                   const selectedDeptId = dept?.id ? String(dept.id) : `dept_${di}`;
                   const selectedProjId = typeof (proj as any)?.id === 'string' ? (proj as any).id : undefined;
-                  console.log('[STAGE5-open-modal-selected-mobile]', {
-                    deptName: dept?.name,
-                    deptId: selectedDeptId,
-                    deptIdType: typeof selectedDeptId,
-                    projectTitle: strictProj.title,
-                    projectId: selectedProjId,
-                    projectIdType: typeof selectedProjId,
-                    okrId: okrKey(di, pi, oi, okr),
-                    progressOkrId: resolveProgressOkrId(okr),
-                    companyId: scopeCompanyId,
-                    strategyId: scopeStrategyId,
-                    timestamp: new Date().toISOString(),
-                  });
                   setSelected((prev) => {
                     const next = {
                       deptName: dept?.name ?? '',
