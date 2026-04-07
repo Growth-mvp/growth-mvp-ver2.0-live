@@ -967,18 +967,50 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
             [cacheKey]: 'success',
           }));
 
-          // ★ Approach A: STAGE5対応：snapshot を DB-backed OKR で置換
-          // 全て resolvedOkr.id を使い、snapshot 側の古い id を完全に排除
+          // ★ 修正（2026-04-06）：DB OKR のみを使用、snapshot は完全排除
+          // 背景：mergeOkrSources() で business key 重複排除を実装したため、
+          // DB OKR は既に business key ごとに1件に絞られているはず
+          // snapshot は DB OKR が存在する場合は排除される
+
           const existingDue = String((proj as any)?.okrs?.[0]?.due ?? '');
-          const snapshotOkrs: OKR[] = resolved.resolvedOkrs
-            .filter((ok) => ok?.source === 'db')  // ★ DB source のみ
-            .map((resolvedOkr, idx) => ({
-              id: resolvedOkr.id,  // ★ DB id（snapshot id ではなく DB OKR id）
-              objective: resolvedOkr.objective ?? '',
-              owner: resolvedOkr.owner_name ?? '',
-              due: idx === 0 ? existingDue : '',
-              keyResults: Array.isArray(resolvedOkr.key_results_json) ? resolvedOkr.key_results_json : [],
-            }));
+
+          // Step 1: DB OKR のみを抽出
+          const dbResolvedOkrs = resolved.resolvedOkrs.filter((ok) => ok?.source === 'db');
+
+          // Step 2: DB OKR のみを snapshot 形式に変換
+          const snapshotOkrs: OKR[] = dbResolvedOkrs.map((resolvedOkr, idx) => ({
+            id: resolvedOkr.id,  // ★ DB id（snapshot id ではなく DB OKR id）
+            objective: resolvedOkr.objective ?? '',
+            owner: resolvedOkr.owner_name ?? '',
+            due: idx === 0 ? existingDue : '',
+            keyResults: Array.isArray(resolvedOkr.key_results_json) ? resolvedOkr.key_results_json : [],
+          }));
+
+          // ★ Step 3: 複数 DB OKR がある場合は警告（mergeOkrSources のバグを検出）
+          if (dbResolvedOkrs.length > 1) {
+            console.warn('[invalidateAndRefetchProjectOkrs] WARNING: multiple DB OKRs found', {
+              cacheKey,
+              count: dbResolvedOkrs.length,
+              okrs: dbResolvedOkrs.map((o) => ({
+                id: o.id,
+                objective: o.objective,
+                updated_at: o.updated_at,
+              })),
+            });
+          }
+
+          // ★ Step 4: snapshot OKR が残っていないことを確認
+          const snapshotResolvedOkrs = resolved.resolvedOkrs.filter((ok) => ok?.source === 'snapshot');
+          if (snapshotResolvedOkrs.length > 0) {
+            console.debug('[invalidateAndRefetchProjectOkrs] snapshot OKRs excluded from result', {
+              cacheKey,
+              snapshotCount: snapshotResolvedOkrs.length,
+              details: snapshotResolvedOkrs.map((o) => ({
+                id: o.id,
+                objective: o.objective,
+              })),
+            });
+          }
 
           // ★ departments の該当 project の okrs を同期更新
           // NOTE: setDepartments は非同期だが、resolvedOkrsMap 更新後すぐに STAGE5 が読むため
@@ -998,7 +1030,20 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
             }
           }
 
-          console.debug('[invalidateAndRefetchProjectOkrs] SUCCESS:', { cacheKey, count: resolved.resolvedOkrs.length, snapshotOkrs: snapshotOkrs.length });
+          // ★ 修正：diagnostic log で DB/snapshot の分離を明確に
+          console.debug('[invalidateAndRefetchProjectOkrs] SUCCESS', {
+            cacheKey,
+            resolvedTotal: resolved.resolvedOkrs.length,
+            dbCount: dbResolvedOkrs.length,
+            snapshotCount: snapshotResolvedOkrs.length,
+            snapshotOkrsLength: snapshotOkrs.length,
+            returnedOkrs: resolved.resolvedOkrs.map((o) => ({
+              id: o.id,
+              source: o.source,
+              objective: o.objective,
+            })),
+          });
+
           return resolved.resolvedOkrs;
         } else {
           setOkrLoadingStatus((prev) => ({
@@ -1042,9 +1087,19 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
         return null;
       }
 
+      // ★ Target case detection - 調査用途のみ
+      const projectId = String(proj?.id ?? '');
+      const isTargetCase =
+        objective?.includes('半導体企業向けデータ分析サービス') ||
+        objective?.includes('半導体企業向けデータ分析サービスの強化') ||
+        projectId?.includes('x45591');
+
+      if (isTargetCase) {
+        console.error('[ensureMainOkrIsDbBacked-TARGET] ENTRY', JSON.stringify({ dIdx, pIdx, objective, projectId }, null, 2));
+      }
+
       // ★ Approach A: proj.id is mandatory (generated in cascade/toProjectFromDraft)
       // No fallback to proj.title - if missing, it's a data integrity issue
-      const projectId = String(proj?.id ?? '');
       const departmentId = String(dept?.id ?? dept?.name ?? '');
       const strategyId = resolveCurrentStrategyId();
 
@@ -1063,6 +1118,10 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
 
       promotingProjectKeysRef.current.add(cacheKey);
       try {
+        if (isTargetCase) {
+          console.error('[ensureMainOkrIsDbBacked-TARGET] BEFORE SAVE', JSON.stringify({ projectId, departmentId, strategyId, objective }, null, 2));
+        }
+
         const saved = await okrService.upsertOkr(
           {
             objective,
@@ -1075,7 +1134,15 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           accessCompanyId
         );
 
+        if (isTargetCase) {
+          console.error('[ensureMainOkrIsDbBacked-TARGET] SAVE RESULT', JSON.stringify({ savedId: saved?.id, savedProjectId: saved?.project_id, savedObjective: saved?.objective, savedSource: saved?.source }, null, 2));
+        }
+
         const latest = await invalidateAndRefetchProjectOkrs(dIdx, pIdx);
+
+        if (isTargetCase) {
+          console.error('[ensureMainOkrIsDbBacked-TARGET] REFETCH RESULT', JSON.stringify({ count: Array.isArray(latest) ? latest.length : 0, resolvedOkrs: Array.isArray(latest) ? latest.map((o: any) => ({ id: o?.id, objective: o?.objective, project_id: o?.project_id, source: o?.source })) : [] }, null, 2));
+        }
 
         attemptedPromotionKeysRef.current.add(cacheKey);
         return (latest ?? []).find((o) => o?.source === 'db') ?? null;
@@ -1098,6 +1165,19 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
     async (dIdx: number, pIdx: number, patch: Partial<{ objective: string; owner: string }>) => {
       if (!accessCompanyId || !mainOKR) return;
 
+      // ★ Target case detection - 調査用途のみ
+      const dept = departments?.[dIdx] as any;
+      const proj = dept?.projects?.[pIdx] as any;
+      const projectId = String(proj?.id ?? '');
+      const isTargetCase =
+        mainOKR?.objective?.includes('半導体企業向けデータ分析サービス') ||
+        mainOKR?.objective?.includes('半導体企業向けデータ分析サービスの強化') ||
+        projectId?.includes('x45591');
+
+      if (isTargetCase) {
+        console.error('[updateProjectOKRDb-TARGET] ENTRY', JSON.stringify({ dIdx, pIdx, mainOKRObjective: mainOKR?.objective, projectId }, null, 2));
+      }
+
       let targetOkr: OkrDisplayModel = mainOKR;
       if (targetOkr.source !== 'db') {
         const promoted = await ensureMainOkrIsDbBacked(dIdx, pIdx);
@@ -1113,10 +1193,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
         if ('objective' in patch) dbPatch.objective = patch.objective;
         if ('owner' in patch) dbPatch.owner_name = patch.owner;
 
-        const dept = departments?.[dIdx] as any;
-        const proj = dept?.projects?.[pIdx] as any;
         // ★ Approach A: proj.id is mandatory (generated in cascade/toProjectFromDraft)
-        const projectId = String(proj?.id ?? '');
         const strategyId = resolveCurrentStrategyId();
         const departmentId = String(dept?.id ?? dept?.name ?? '');
 
@@ -1131,10 +1208,14 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           return;
         }
 
+        if (isTargetCase) {
+          console.error('[updateProjectOKRDb-TARGET] BEFORE SAVE', JSON.stringify({ targetOkrId: targetOkr?.id, projectId, departmentId, strategyId, patchObjective: dbPatch.objective, patchOwner: dbPatch.owner_name }, null, 2));
+        }
+
         // ★ Conservative: targetOkr は OkrDisplayModel で project_id を持たないため、
         // 既存の project_id との比較は不可能。proj.id で上書きするのが目的。
 
-        await okrService.upsertOkr(
+        const updateResult = await okrService.upsertOkr(
           {
             id: targetOkr.id,
             objective: dbPatch.objective ?? targetOkr.objective,
@@ -1147,7 +1228,15 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           accessCompanyId
         );
 
-        await invalidateAndRefetchProjectOkrs(dIdx, pIdx);
+        if (isTargetCase) {
+          console.error('[updateProjectOKRDb-TARGET] SAVE RESULT', JSON.stringify({ savedId: updateResult?.id, savedProjectId: updateResult?.project_id, savedObjective: updateResult?.objective, savedSource: updateResult?.source }, null, 2));
+        }
+
+        const refetchResult = await invalidateAndRefetchProjectOkrs(dIdx, pIdx);
+
+        if (isTargetCase) {
+          console.error('[updateProjectOKRDb-TARGET] REFETCH RESULT', JSON.stringify({ count: Array.isArray(refetchResult) ? refetchResult.length : 0, resolvedOkrs: Array.isArray(refetchResult) ? refetchResult.map((o: any) => ({ id: o?.id, objective: o?.objective, project_id: o?.project_id, source: o?.source })) : [] }, null, 2));
+        }
       } catch (error) {
         console.error('[updateProjectOKRDb] error:', error);
         alert('OKRの更新に失敗しました');
@@ -1289,14 +1378,6 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
 
       setIsSavingOkr(true);
       try {
-        // ★ Target case detection
-        const isTargetCase = objective.includes('自動車OEM');
-        if (isTargetCase) {
-          console.error('[addProjectOKR-TARGET] ENTRY',
-            JSON.stringify({ dIdx, pIdx, objective }, null, 2)
-          );
-        }
-
         // プロジェクト情報を departments から取得
         const dept = departments?.[dIdx];
         const proj = dept?.projects?.[pIdx];
@@ -1304,10 +1385,14 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
         const projectId = proj ? String((proj as any).id ?? '') : '';
         const deptId = dept ? String((dept as any).id ?? dept.name) : '';
 
+        // ★ Target case detection - 調査用途のみ
+        const isTargetCase =
+          objective?.includes('半導体企業向けデータ分析サービス') ||
+          objective?.includes('半導体企業向けデータ分析サービスの強化') ||
+          projectId?.includes('x45591');
+
         if (isTargetCase) {
-          console.error('[addProjectOKR-TARGET] IDS EXTRACTED',
-            JSON.stringify({ projectId, deptId, projId: (proj as any)?.id, projTitle: proj?.title }, null, 2)
-          );
+          console.error('[addProjectOKR-TARGET] ENTRY', JSON.stringify({ dIdx, pIdx, objective, projectId }, null, 2));
         }
 
         if (!projectId) {
@@ -1318,24 +1403,17 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
             projId: proj ? (proj as any).id : undefined,
             projTitle: proj?.title,
           });
-          if (isTargetCase) {
-            console.error('[addProjectOKR-TARGET] GUARD SKIP (missing projectId)',
-              JSON.stringify({ projectId, deptId }, null, 2)
-            );
-          }
           alert('プロジェクト情報が取得できません');
           return;
         }
 
         if (isTargetCase) {
-          console.error('[addProjectOKR-TARGET] BEFORE SAVE',
-            JSON.stringify({ projectId, deptId, strategyId: resolveCurrentStrategyId(), objective }, null, 2)
-          );
+          console.error('[addProjectOKR-TARGET] BEFORE SAVE', JSON.stringify({ projectId, deptId, strategyId: resolveCurrentStrategyId(), objective }, null, 2));
         }
 
         // ★ okrService.upsertOkr() で DB に新規 insert
         // （id を指定しないと新規作成）
-        await okrService.upsertOkr(
+        const saveResult = await okrService.upsertOkr(
           {
             objective,
             owner_name: '',
@@ -1347,8 +1425,18 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           accessCompanyId
         );
 
+        // ★ 診断: SAVE RESULT を出力
+        if (isTargetCase) {
+          console.error('[addProjectOKR-TARGET] SAVE RESULT', JSON.stringify({ savedId: saveResult?.id, savedProjectId: saveResult?.project_id, savedObjective: saveResult?.objective, savedSource: saveResult?.source }, null, 2));
+        }
+
         // ★ キャッシュ refresh
-        await invalidateAndRefetchProjectOkrs(dIdx, pIdx);
+        const refetchResult = await invalidateAndRefetchProjectOkrs(dIdx, pIdx);
+
+        // ★ 診断: REFETCH RESULT を出力
+        if (isTargetCase) {
+          console.error('[addProjectOKR-TARGET] REFETCH RESULT', JSON.stringify({ count: Array.isArray(refetchResult) ? refetchResult.length : 0, resolvedOkrs: Array.isArray(refetchResult) ? refetchResult.map((o: any) => ({ id: o?.id, objective: o?.objective, project_id: o?.project_id, source: o?.source })) : [] }, null, 2));
+        }
 
         // ※ okrsV2 への追加は行わない（ファイル先頭の ARCHITECTURE セクション参照）
         // 理由：okrs と okrsV2 の対応関係が未定義のため、新規 KR をどう作成するか不明
