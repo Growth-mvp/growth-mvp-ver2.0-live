@@ -4072,9 +4072,12 @@ export const useStrategyStore = create<StrategyState>()(
       storage: createJSONStorage(() => localStorage),
       onRehydrateStorage: () => (state, error) => {
         if (error) console.warn('rehydration error:', error);
-        /* ★ TASK 14: persist rehydrate 完了を通知（hydrated=true） */
-        if (!error) {
-          state?.setHydrated(true);
+        // localStorage の rehydrate 完了と、DB restore 完了は別物。
+        // ここで hydrated=true を立てると、古い local state が
+        // server state より先に「利用可能」と判定される事故が起きやすい。
+        // hydrated / restoreReady は refetchFromServer 完了時にのみ確定させる。
+        if (!error && DEBUG) {
+          console.log('[strategyStore] rehydrate complete (waiting for server restore)');
         }
       },
     }
