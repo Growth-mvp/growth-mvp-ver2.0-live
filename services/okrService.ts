@@ -205,7 +205,16 @@ export async function upsertOkr(
     return resolved;
   } catch (error) {
     // ★ エラー時は snapshot を更新しない（failure safety）
-    console.error('[okrService.upsertOkr] error, snapshot unchanged:', error);
+    console.error('[okrService.upsertOkr] error, snapshot unchanged:', {
+      message: (error as any)?.message,
+      code: (error as any)?.code,
+      details: (error as any)?.details,
+      hint: (error as any)?.hint,
+      status: (error as any)?.status,
+      input,
+      projectId,
+      companyId,
+    });
     throw error;
   }
 }
@@ -342,15 +351,22 @@ async function calculateSnapshotShapeForProject(
  * - 念のため再度フィルタして多重保護（safety）
  */
 export function mergeOkrSources(dbOkrs: OkrRow[], snapshotOkrs: OKR[]): OkrMergeResult {
-  // DB OKR マップ（is_deleted = false のみを有効）
-  const dbMap = new Map(
-    dbOkrs
-      .filter((o) => !o.is_deleted) // ★ 多重保護：削除済みは除外
-      .map((o) => [o.id, o])
+  // ★ 修正（2026-04-06）：business key ベースで重複排除
+  // Step 1: DB OKR を business key で重複排除（同じ project_id + objective は1件に）
+  const dedupedDbOkrs = deduplicateDbOkrsByBusinessKey(dbOkrs);
+
+  // Step 2: Snapshot OKR を重複排除
+  const dedupedSnapshotOkrs = deduplicateSnapshotOkrs(snapshotOkrs);
+
+  // DB OKR を business key でマップ化（DB に存在するキーを判定用）
+  const dbBusinessKeySet = new Set(
+    dedupedDbOkrs
+      .filter((o) => !o.is_deleted)
+      .map((o) => createBusinessKeyForOkr(o))
   );
 
   // ★ 有効な DB OKR のみを converted
-  const resolved: ResolvedOkr[] = dbOkrs
+  const resolved: ResolvedOkr[] = dedupedDbOkrs
     .filter((o) => !o.is_deleted)
     .map((o) => ({
       ...o,
@@ -358,11 +374,12 @@ export function mergeOkrSources(dbOkrs: OkrRow[], snapshotOkrs: OKR[]): OkrMerge
     }));
 
   // ★ Snapshot のみの OKR を追加（fallback）
-  // 重要：同じ id が DB 側で soft delete されたら、snapshot から再採用しない
-  snapshotOkrs.forEach((snap) => {
-    // snap.id が undefined または DB に存在しない場合だけ追加
-    if (snap.id && dbMap.has(snap.id)) {
-      // DB に有効な同じ id がある → スキップ（DB 優先）
+  // 重要：DB に同じ business key が存在する場合はスキップ（DB 優先）
+  dedupedSnapshotOkrs.forEach((snap) => {
+    // Snapshot は project_id が詳細でない可能性があるため、id ベースで判定も残す
+    const snapKey = snap.objective || `snap_${snap.id}`;
+    if (dbBusinessKeySet.has(snapKey)) {
+      // DB に同じキーがある → スキップ（DB 優先）
       return;
     }
 
@@ -401,6 +418,69 @@ export function mergeOkrSources(dbOkrs: OkrRow[], snapshotOkrs: OKR[]): OkrMerge
       snapshotOnlyCount: resolved.filter((r) => r.source === 'snapshot').length,
     },
   };
+}
+
+/**
+ * ★ 修正（2026-04-06）：DB OKR を business key で重複排除
+ * 同じ company_id + strategy_id + department_id + project_id + objective の複数行がある場合、1件に収束
+ *
+ * 勝者判定ロジック（優先順位）：
+ * 1. active 行（is_deleted=false）を優先
+ * 2. updated_at が新しいものを優先
+ */
+function deduplicateDbOkrsByBusinessKey(dbOkrs: OkrRow[]): OkrRow[] {
+  const map = new Map<string, OkrRow>();
+
+  for (const okr of dbOkrs) {
+    const key = createBusinessKeyForOkr(okr);
+    const existing = map.get(key);
+
+    if (!existing) {
+      map.set(key, okr);
+      continue;
+    }
+
+    // ★ 勝者判定ロジック
+    let winner = existing;
+
+    // 1. active 行（is_deleted=false）を優先
+    if (okr.is_deleted === false && existing.is_deleted === true) {
+      winner = okr;
+    } else if (okr.is_deleted === existing.is_deleted) {
+      // 2. updated_at が新しいものを優先
+      if (okr.updated_at > existing.updated_at) {
+        winner = okr;
+      }
+    }
+
+    map.set(key, winner);
+  }
+
+  return Array.from(map.values());
+}
+
+/**
+ * ★ 修正（2026-04-06）：Snapshot OKR を重複排除
+ * snapshot 側での重複は稀だが、念のため実装
+ * objective を基準に、最初の1件を保持
+ */
+function deduplicateSnapshotOkrs(snapshotOkrs: OKR[]): OKR[] {
+  const map = new Map<string, OKR>();
+  for (const snap of snapshotOkrs) {
+    const key = snap.objective || `snap_unknown_${snap.id}`;
+    if (!map.has(key)) {
+      map.set(key, snap);
+    }
+  }
+  return Array.from(map.values());
+}
+
+/**
+ * ★ 修正（2026-04-06）：DB OKR の business key を作成
+ * company_id + strategy_id + department_id + project_id + objective
+ */
+function createBusinessKeyForOkr(okr: OkrRow): string {
+  return `${okr.company_id}::${okr.strategy_id}::${okr.department_id}::${okr.project_id}::${okr.objective}`;
 }
 
 /* =========================================================
@@ -464,6 +544,93 @@ function generateOkrId(): string {
 }
 
 /* =========================================================
+ * ★ 修正（2026-04-06）：STAGE5 用 DB-backed OKR 解決関数
+ * ========================================================= */
+
+/**
+ * STAGE5 で保存対象 OKR を business key で一意に解決
+ *
+ * 責務：
+ * - 同じ project_id + objective の DB OKR を1件に特定
+ * - resolvedOkrsMap（mergeOkrSources で1件に絞られている）から検索
+ * - なければ fallback OKRs から search
+ * - 複数ヒット時の勝者判定：is_deleted=false, source='db', updated_at最新 優先
+ *
+ * @param companyId
+ * @param strategyId
+ * @param departmentId
+ * @param projectId
+ * @param objectiveNormalized - 既に正規化済みの objective
+ * @param resolvedOkrsMap - STAGE5 で保持しているキャッシュ
+ * @param fallbackOkrs - proj.okrs など fallback 用データ
+ *
+ * @returns { okrId, source, objective }
+ */
+export function resolveDbBackedOkrForSelection(params: {
+  companyId: string;
+  strategyId: string;
+  departmentId: string;
+  projectId: string;
+  objectiveNormalized: string;
+  resolvedOkrsMap?: Map<string, ResolvedOkr[]>;
+  fallbackOkrs?: Array<ResolvedOkr | OKR>;
+}): {
+  okrId: string | null;
+  source: 'db' | 'snapshot' | 'unresolved';
+  objective: string;
+} {
+  const { companyId, strategyId, departmentId, projectId, objectiveNormalized, resolvedOkrsMap, fallbackOkrs } =
+    params;
+
+  const cacheKey = `${companyId}::${strategyId}::${departmentId}::${projectId}`;
+
+  // Step 1: resolvedOkrsMap から DB OKR を検索（mergeOkrSources で既に1件に絞られている）
+  if (resolvedOkrsMap) {
+    const cachedOkrs = resolvedOkrsMap.get(cacheKey) ?? [];
+    const dbOkr = cachedOkrs.find((o) => {
+      const normalizedCached = String(o.objective ?? '')
+        .trim()
+        .toLowerCase();
+      return o.source === 'db' && normalizedCached === objectiveNormalized;
+    });
+
+    if (dbOkr) {
+      return {
+        okrId: dbOkr.id,
+        source: 'db',
+        objective: dbOkr.objective,
+      };
+    }
+  }
+
+  // Step 2: fallback OKRs から DB source を検索
+  if (fallbackOkrs && fallbackOkrs.length > 0) {
+    const fallbackDbOkr = fallbackOkrs.find((o) => {
+      const source = (o as any).source;
+      const normalized = String(o.objective ?? '')
+        .trim()
+        .toLowerCase();
+      return source === 'db' && normalized === objectiveNormalized;
+    });
+
+    if (fallbackDbOkr) {
+      return {
+        okrId: (fallbackDbOkr as any).id,
+        source: 'db',
+        objective: fallbackDbOkr.objective,
+      };
+    }
+  }
+
+  // Step 3: DB OKR がなければ unresolved
+  return {
+    okrId: null,
+    source: 'unresolved',
+    objective: objectiveNormalized,
+  };
+}
+
+/* =========================================================
  * Export: namespace または個別関数
  * ========================================================= */
 
@@ -474,6 +641,7 @@ export const okrService = {
   deleteOkr,
   reorderOkrs,
   mergeOkrSources,
+  resolveDbBackedOkrForSelection,
 };
 
 export default okrService;
