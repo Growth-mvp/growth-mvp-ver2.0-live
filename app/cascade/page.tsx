@@ -221,6 +221,17 @@ function genIdByTitle(title: string, deptName?: string): string {
 }
 
 /**
+ * 再生成時専用: project id を毎回新規発行する
+ * - STAGE3 再生成後は、同タイトルでも「新しいプロジェクト」として扱う
+ * - STAGE5 の progress_logs 継承を防ぐ
+ */
+function genRegenProjectId(title: string, deptName?: string): string {
+  const base = genIdByTitle(title, deptName);
+  const nonce = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return `${base}-r-${nonce}`;
+}
+
+/**
  * Project の安定ID を解決（既存データ未付与対応）
  * - project.id があれば使用
  * - なければ genIdByTitle で生成（title ベース）
@@ -238,6 +249,74 @@ const normalizeLever = (v: any): Lever | undefined => (LEVER_VALUES.includes(v a
 const normalizeHorizon = (v: any): Horizon | undefined =>
   HORIZON_VALUES.includes(v as Horizon) ? (v as Horizon) : undefined;
 const normalizeKind = (v: any): Kind | undefined => (KIND_VALUES.includes(v as Kind) ? (v as Kind) : undefined);
+
+
+/* =========================
+   再生成時のOKRスナップショット汚染を防ぐ
+   - APIが旧 project の okrs.id / dbOkrId を返しても引き継がない
+   - STAGE5 は DB-backed OKR のみを保存対象にするため、Stage3再生成直後の snapshot OKR は
+     「内容だけ保持し、ID系は全て破棄」する
+========================= */
+const stripOkrsIdentityForRegen = (okrs: any[]): StoreOKR[] => {
+  if (!Array.isArray(okrs)) return [];
+  return okrs
+    .map((raw: any) => {
+      const objective = String(raw?.objective ?? '').trim();
+      const owner = typeof raw?.owner === 'string' ? raw.owner.trim() : undefined;
+      const keyResults = Array.isArray(raw?.keyResults)
+        ? raw.keyResults
+            .map((kr: any) => {
+              if (typeof kr === 'string') return kr.trim();
+              if (kr && typeof kr === 'object') {
+                return String(kr.label ?? kr.name ?? kr.title ?? kr.text ?? '').trim();
+              }
+              return String(kr ?? '').trim();
+            })
+            .filter(Boolean)
+        : [];
+      const expectedImpactYen =
+        typeof raw?.expectedImpactYen === 'number' && Number.isFinite(raw.expectedImpactYen)
+          ? raw.expectedImpactYen
+          : undefined;
+      const probability =
+        typeof raw?.probability === 'number' && Number.isFinite(raw.probability)
+          ? raw.probability
+          : undefined;
+      const title = typeof raw?.title === 'string' ? raw.title.trim() : undefined;
+
+      const cleaned: StoreOKR = {
+        objective,
+        keyResults,
+        owner,
+        ...(typeof expectedImpactYen === 'number' ? { expectedImpactYen } : {}),
+        ...(typeof probability === 'number' ? { probability } : {}),
+        ...(title ? { title } : {}),
+      };
+
+      return cleaned;
+    })
+    .filter((okr) => okr.objective || (okr.keyResults?.length ?? 0) > 0);
+};
+
+const stripProjectExecutionBindingsForRegen = (project: Project): Project => {
+  const cleaned: any = { ...project };
+
+  cleaned.okrs = stripOkrsIdentityForRegen(Array.isArray(cleaned.okrs) ? cleaned.okrs : []);
+
+  // 旧 downstream 由来の結びつきを持ち越さない
+  delete cleaned.dbOkrId;
+  delete cleaned.db_okr_id;
+  delete cleaned.okrDbId;
+  delete cleaned.okr_db_id;
+  delete cleaned.displayOkrId;
+  delete cleaned.progressOkrId;
+  delete cleaned.resolvedDbOkrId;
+  delete cleaned.okr_id;
+  delete cleaned.okrId;
+  delete cleaned.source;
+
+  return cleaned as Project;
+};
 
 /* =========================
    ユーティリティ
@@ -1147,7 +1226,7 @@ function dedupeProjectsByTitle(projects: Project[]): Project[] {
   return out;
 }
 
-function normalizeProjectDraft(pd: ApiProjectDraft, deptName?: string): Project | null {
+function normalizeProjectDraft(pd: ApiProjectDraft, deptName?: string, preserveOkrs: boolean = true): Project | null {
   const title = (pd?.title ?? '').trim();
   if (!title) return null;
 
@@ -1158,8 +1237,9 @@ function normalizeProjectDraft(pd: ApiProjectDraft, deptName?: string): Project 
         ? pd.description.trim()
         : undefined;
 
-  // ★ 修正1b: project.id を title から安定生成（title変更後も同一project の追跡可能）
-  const projectId = genIdByTitle(title, deptName);
+  // ★ 修正: 通常生成は安定ID、再生成は新規IDを発行
+  // preserveOkrs=false は STAGE3 再生成経路を意味する
+  const projectId = preserveOkrs ? genIdByTitle(title, deptName) : genRegenProjectId(title, deptName);
 
   const p: Project = {
     title,
@@ -1178,7 +1258,9 @@ function normalizeProjectDraft(pd: ApiProjectDraft, deptName?: string): Project 
 
   const pdOkrs = (pd as any)?.okrs;
   if (Array.isArray(pdOkrs) && pdOkrs.length > 0) {
-    (p as any).okrs = pdOkrs;
+    // ★ 重要：再生成時に旧 OKR の id / dbOkrId を引き継がない
+    // STAGE5 の progress_logs は DB-backed OKR にのみ紐づくため、snapshot OKR は内容だけ保持する
+    (p as any).okrs = stripOkrsIdentityForRegen(pdOkrs);
   }
 
   const pdKpis = (pd as any)?.kpis;
@@ -1231,7 +1313,7 @@ function mergeProjectInto(projects: Project[], incoming: Project, preserveOkrs: 
 
 // ★修正（Stage3）: applyLaneToProjects を pure function化
 // このlaneが生成するプロジェクト配列のみを返す（既存配列への追記禁止）
-function applyLaneToProjects(lane?: ApiLane, deptName?: string): Project[] {
+function applyLaneToProjects(lane?: ApiLane, deptName?: string, preserveOkrs: boolean = true): Project[] {
   const projectsDraft: ApiProjectDraft[] = Array.isArray(lane?.projects) ? lane!.projects! : [];
 
   // ★重要：ローカル配列のみで構築（既存の base は参照しない）
@@ -1239,7 +1321,7 @@ function applyLaneToProjects(lane?: ApiLane, deptName?: string): Project[] {
 
   for (let i = 0; i < projectsDraft.length; i++) {
     const pd = projectsDraft[i];
-    const normalized = normalizeProjectDraft(pd, deptName);
+    const normalized = normalizeProjectDraft(pd, deptName, preserveOkrs);
     if (!normalized) continue;
 
     laneProjects.push(normalized);
@@ -1255,11 +1337,11 @@ function applyDeptDraftToProjects(existingProjects: Project[], deptDraft: ApiDep
 
   // ★重要：各レーンから生成プロジェクトを集約
   const lane1Projects = Array.isArray(deptDraft.projects) && deptDraft.projects.length
-    ? applyLaneToProjects({ projects: deptDraft.projects } as ApiLane, deptName)
+    ? applyLaneToProjects({ projects: deptDraft.projects } as ApiLane, deptName, preserveOkrs)
     : [];
 
-  const lane2Projects = applyLaneToProjects(deptDraft?.lanes?.existing, deptName);
-  const lane3Projects = applyLaneToProjects(deptDraft?.lanes?.new, deptName);
+  const lane2Projects = applyLaneToProjects(deptDraft?.lanes?.existing, deptName, preserveOkrs);
+  const lane3Projects = applyLaneToProjects(deptDraft?.lanes?.new, deptName, preserveOkrs);
 
   // ★置換：3つのレーン結果を結合して、最終的なプロジェクト配列を作成
   const nextProjectsRaw = [...lane1Projects, ...lane2Projects, ...lane3Projects];
@@ -1282,9 +1364,11 @@ function applyDeptDraftToProjects(existingProjects: Project[], deptDraft: ApiDep
     return deduped;
   } else {
     // ★ 再生成時（preserveOkrs=false）：from-scratch 置換
-    // incoming project のみを使用、old project のフィールドを引き継がない
-    // normalizeProjectDraft で取り込まれたフィールド（title/hypothesis/mainLever/okrs 等）のみが残る
-    return dedupeProjectsByTitle(nextProjects);
+    // incoming project のみを使用し、同タイトルでも新しい project id を持たせる
+    // old project のフィールドを引き継がず、旧 STAGE5 コメント履歴も継承しない
+    // さらに、APIレスポンスに旧 OKR ID が混ざっていても STAGE5 に持ち込まないよう
+    // snapshot OKR の identity を全て除去する
+    return dedupeProjectsByTitle(nextProjects).map((p) => stripProjectExecutionBindingsForRegen(p));
   }
 }
 
@@ -1596,17 +1680,28 @@ function CascadePageContent() {
 
       const timer = setTimeout(() => !cancelled && setHydrated?.(true), 7000);
       try {
-        if (!isDirty) {
-          await loadAndHydrate(accessCompanyId);
-          try {
-            await refetchFromServer?.();
-          } catch {
-            // ignore
-          }
-          setHydrated?.(true);
-        } else {
-          setHydrated?.(true);
+        if (DEBUG) {
+          console.log('[cascade] initial hydrate forcing server refresh', {
+            accessCompanyId,
+            scopeCompanyId,
+            hydrated,
+            isDirty,
+            lastServerSnapshot,
+            currentHash,
+            timestamp: new Date().toISOString(),
+          });
         }
+
+        // 重要:
+        // local persist が dirty に見えても、初期ロードでは必ずサーバー正本を取りに行う。
+        // これにより、古い local snapshot が server state を上書きして見える事故を防ぐ。
+        await loadAndHydrate(accessCompanyId);
+        try {
+          await refetchFromServer?.();
+        } catch {
+          // ignore
+        }
+        setHydrated?.(true);
         loadGuardRef.current = accessCompanyId;
       } catch (err) {
         console.error('[cascade] ❌ loadAndHydrate error (raw):', err);
@@ -2520,6 +2615,18 @@ useEffect(() => {
         const mergedProjects = applyDeptDraftToProjects(existingProjects, cleanedRd, false, d.name);
         if (!jsonEq(mergedProjects, existingProjects)) {
           patch.projects = mergedProjects;
+
+          console.log('[diag][stage3:regen:projects-replaced]', {
+            deptName: d.name,
+            projectCount: mergedProjects.length,
+            projects: mergedProjects.map((p: any) => ({
+              title: p?.title,
+              projectId: (p as any)?.id,
+              okrIds: Array.isArray(p?.okrs) ? p.okrs.map((o: any) => o?.id ?? o?.dbOkrId ?? o?.okrId ?? null) : [],
+              objective: p?.okrs?.[0]?.objective ?? null,
+            })),
+            timestamp: new Date().toISOString(),
+          });
 
           // ★診断ログ（save時点）
           if (DEBUG_DUP) {
