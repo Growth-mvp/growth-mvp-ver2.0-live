@@ -103,9 +103,16 @@ export async function queryById(
 
 /**
  * OKR をアップサート（挿入または更新）
- * - id が無い場合は生成
- * - is_deleted = false で作成
- * - updated_at は自動更新
+ *
+ * ★ 修正（2026-04-06）：DB partial unique index okrs_unique_active_business_key 対応
+ * - id が指定されている場合：id で UPDATE（既存 OKR の内容修正）
+ * - id がない場合：company_id + strategy_id + department_id + project_id + objective で衝突判定
+ *   → 同じ project_id + objective なら UPDATE（新規 INSERT ではなく）
+ *   → is_deleted=true の履歴行と独立（partial index で自動フィルタ）
+ *
+ * 効果：
+ * - 新規重複の発生を防止
+ * - 同じ OKR の再保存で必ず同じ行に収束（UPDATE 相当）
  */
 export async function upsert(
   input: OkrWriteInput,
@@ -113,16 +120,18 @@ export async function upsert(
 ): Promise<OkrRow> {
   assertCompanyId(companyId);
 
-  // ID がない場合は UUID 生成（DB側で gen_random_uuid() も可）
-  const okrId = input.id || crypto.randomUUID?.() || `okr_${Date.now()}`;
+  const nowIso = new Date().toISOString();
+  const normalizedObjective = String(input.objective ?? '').trim();
+  if (!normalizedObjective) {
+    throw new Error('[okrsRepository.upsert] objective is required');
+  }
 
-  const insertData = {
-    id: okrId,
+  const basePayload = {
     company_id: companyId,
     strategy_id: input.strategy_id,
     department_id: input.department_id,
     project_id: input.project_id,
-    objective: input.objective,
+    objective: normalizedObjective,
     key_results_json: input.key_results_json || [],
     owner_user_id: input.owner_user_id || null,
     owner_name: input.owner_name || null,
@@ -132,27 +141,143 @@ export async function upsert(
     source_okr_id: input.source_okr_id || null,
     is_deleted: false,
     meta_json: input.meta_json || {},
-    updated_at: new Date().toISOString(),
+    updated_at: nowIso,
   };
 
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .upsert(insertData, {
-      onConflict: 'id',
-    })
-    .select()
-    .single();
+  try {
+    // 1) id 指定時はその id を最優先で更新
+    if (input.id) {
+      const okrId = String(input.id).trim();
+      const { data, error } = await supabase
+        .from(TABLE_NAME)
+        .update(basePayload)
+        .eq('id', okrId)
+        .eq('company_id', companyId)
+        .eq('is_deleted', false)
+        .select()
+        .maybeSingle();
 
-  if (error) {
-    console.error('[okrsRepository.upsert] error:', error);
+      if (error) {
+        console.error('[okrsRepository.upsert] update-by-id error detail:', {
+          message: (error as any)?.message,
+          code: (error as any)?.code,
+          details: (error as any)?.details,
+          hint: (error as any)?.hint,
+          status: (error as any)?.status,
+          input,
+        });
+        throw error;
+      }
+
+      if (data) return data as OkrRow;
+    }
+
+    // 2) active business key で既存行を検索
+    const { data: existing, error: findError } = await supabase
+      .from(TABLE_NAME)
+      .select('id')
+      .eq('company_id', companyId)
+      .eq('strategy_id', input.strategy_id)
+      .eq('department_id', input.department_id)
+      .eq('project_id', input.project_id)
+      .eq('objective', normalizedObjective)
+      .eq('is_deleted', false)
+      .order('updated_at', { ascending: false, nullsFirst: false })
+      .limit(2);
+
+    if (findError) {
+      console.error('[okrsRepository.upsert] find-existing error detail:', {
+        message: (findError as any)?.message,
+        code: (findError as any)?.code,
+        details: (findError as any)?.details,
+        hint: (findError as any)?.hint,
+        status: (findError as any)?.status,
+        input,
+      });
+      throw findError;
+    }
+
+    if (Array.isArray(existing) && existing.length > 1) {
+      console.warn('[okrsRepository.upsert] multiple active rows detected for business key; updating newest row', {
+        companyId,
+        strategy_id: input.strategy_id,
+        department_id: input.department_id,
+        project_id: input.project_id,
+        objective: normalizedObjective,
+        ids: existing.map((row: any) => row?.id).filter(Boolean),
+      });
+    }
+
+    const existingId = Array.isArray(existing) && existing[0]?.id ? String(existing[0].id) : '';
+    if (existingId) {
+      const { data, error } = await supabase
+        .from(TABLE_NAME)
+        .update(basePayload)
+        .eq('id', existingId)
+        .eq('company_id', companyId)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[okrsRepository.upsert] update-by-business-key error detail:', {
+          message: (error as any)?.message,
+          code: (error as any)?.code,
+          details: (error as any)?.details,
+          hint: (error as any)?.hint,
+          status: (error as any)?.status,
+          input,
+          existingId,
+        });
+        throw error;
+      }
+
+      if (!data) throw new Error('[okrsRepository.upsert] No data returned after update-by-business-key');
+      return data as OkrRow;
+    }
+
+    // 3) 見つからなければ新規 INSERT
+    const insertId = input.id || crypto.randomUUID?.() || `okr_${Date.now()}`;
+    const insertData = {
+      id: insertId,
+      ...basePayload,
+      created_at: nowIso,
+    };
+
+    const { data, error } = await supabase
+      .from(TABLE_NAME)
+      .insert(insertData)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[okrsRepository.upsert] insert error detail:', {
+        message: (error as any)?.message,
+        code: (error as any)?.code,
+        details: (error as any)?.details,
+        hint: (error as any)?.hint,
+        status: (error as any)?.status,
+        input,
+        insertId,
+      });
+      throw error;
+    }
+
+    if (!data) {
+      throw new Error('[okrsRepository.upsert] No data returned after insert');
+    }
+
+    return data as OkrRow;
+  } catch (error) {
+    console.error('[okrsRepository.upsert] error detail:', {
+      message: (error as any)?.message,
+      code: (error as any)?.code,
+      details: (error as any)?.details,
+      hint: (error as any)?.hint,
+      status: (error as any)?.status,
+      input,
+    });
     throw error;
   }
-
-  if (!data) {
-    throw new Error('[okrsRepository.upsert] No data returned after upsert');
-  }
-
-  return data as OkrRow;
 }
 
 /**
