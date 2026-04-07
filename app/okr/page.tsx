@@ -311,6 +311,8 @@ function OKRPageContent() {
   const {
     companyId: scopeCompanyId,
     hydrated,
+    restoreReady,
+    isRestoring,
     setCompanyScope,
     setHydrated,
     refetchFromServer,
@@ -393,7 +395,6 @@ function OKRPageContent() {
 
       try {
         if (!isDirty) {
-          await loadAndHydrate(accessCompanyId);
           try {
             await refetchFromServer?.();
           } catch {
@@ -428,7 +429,7 @@ function OKRPageContent() {
   const isHydrating = ((Boolean(boot?.isHydrating) && !hydrated) || mismatch || !hydrated) ?? false;
 
   useAutoSave({
-    enabled: !isHydrating,
+    enabled: false,
     requireHydrated: true,
     requireSession: true,
     debounceMs: 1200,
@@ -525,6 +526,91 @@ function OKRPageContent() {
   useEffect(() => {
     return () => {
       if (objectiveSaveTimerRef.current) window.clearTimeout(objectiveSaveTimerRef.current);
+    };
+  }, []);
+
+
+  const stage4SnapshotSaveTimerRef = useRef<number | null>(null);
+
+  const persistStage4Snapshot = useCallback(
+    async (
+      mode: 'debounced' | 'immediate' = 'debounced',
+      reason: string = 'stage4_snapshot_fields',
+    ) => {
+      if (!saveNow) return;
+      if (!hydrated) return;
+      if ((boot as any)?.isHydrating) return;
+      if (isRestoring) return;
+      if (restoreReady === false) return;
+
+      const run = async () => {
+        try {
+          await saveNow({ reason, force: true });
+        } catch (e) {
+          console.warn(`[${reason}] save failed`, e);
+        }
+      };
+
+      if (mode === 'immediate') {
+        if (stage4SnapshotSaveTimerRef.current) window.clearTimeout(stage4SnapshotSaveTimerRef.current);
+        await run();
+        return;
+      }
+
+      if (stage4SnapshotSaveTimerRef.current) window.clearTimeout(stage4SnapshotSaveTimerRef.current);
+      stage4SnapshotSaveTimerRef.current = window.setTimeout(() => {
+        void run();
+      }, 700);
+    },
+    [saveNow, hydrated, boot, isRestoring, restoreReady],
+  );
+
+  const queueStage4SnapshotPersist = useCallback(
+    (reason: string = 'stage4_snapshot_fields') => {
+      void persistStage4Snapshot('debounced', reason);
+    },
+    [persistStage4Snapshot],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (stage4SnapshotSaveTimerRef.current) window.clearTimeout(stage4SnapshotSaveTimerRef.current);
+    };
+  }, []);
+
+  const stage4SnapshotWatchTimerRef = useRef<number | null>(null);
+  const stage4SnapshotWatchPrevHashRef = useRef<string>('');
+  const stage4SnapshotWatchArmedRef = useRef<boolean>(false);
+
+  const buildStage4SnapshotWatchValue = useCallback((proj: any) => {
+    if (!proj) return null;
+    return {
+      title: proj?.title ?? '',
+      role: proj?.role ?? null,
+      roleDetail: proj?.roleDetail ?? null,
+      planStatus: proj?.planStatus ?? null,
+      approvedAt: proj?.approvedAt ?? null,
+      approvedBy: proj?.approvedBy ?? null,
+      kpis: Array.isArray(proj?.kpis) ? proj.kpis : [],
+      okrs: ensureArray(proj?.okrs).map((o: any) => ({
+        due: o?.due ?? '',
+        keyResults: Array.isArray(o?.keyResults) ? o.keyResults : [],
+      })),
+      okrsV2: Array.isArray(proj?.okrsV2) ? proj.okrsV2 : [],
+      okrVariants: Array.isArray(proj?.okrVariants) ? proj.okrVariants : [],
+      skillPlans: Array.isArray(proj?.skillPlans) ? proj.skillPlans : [],
+      executionHumanInvestments: Array.isArray(proj?.executionHumanInvestments) ? proj.executionHumanInvestments : [],
+      impactRevenueMJPY: proj?.impactRevenueMJPY ?? null,
+      impactProfitMJPY: proj?.impactProfitMJPY ?? null,
+      impactRevenueProgress: proj?.impactRevenueProgress ?? null,
+      impactProfitProgress: proj?.impactProfitProgress ?? null,
+      targetLinkedRevenueId: proj?.targetLinkedRevenueId ?? null,
+      targetLinkedProfitId: proj?.targetLinkedProfitId ?? null,
+      impactCategory: proj?.impactCategory ?? null,
+      impactConfidence: proj?.impactConfidence ?? null,
+      impactRationale: proj?.impactRationale ?? null,
+      ownerUserId: proj?.ownerUserId ?? null,
+      ownerName: proj?.ownerName ?? null,
     };
   }, []);
 
@@ -848,6 +934,50 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
 
   const selectedAddKey = selected && selectedProj ? keyFor(selected.deptIdx, selected.projIdx) : '';
 
+  const stage4SnapshotWatchHash = useMemo(() => {
+    if (!selectedProj) return '';
+    return hashSnapshot(buildStage4SnapshotWatchValue(selectedProj));
+  }, [selectedProj, buildStage4SnapshotWatchValue]);
+
+  useEffect(() => {
+    if (stage4SnapshotWatchTimerRef.current) {
+      window.clearTimeout(stage4SnapshotWatchTimerRef.current);
+      stage4SnapshotWatchTimerRef.current = null;
+    }
+    stage4SnapshotWatchArmedRef.current = false;
+    if (!selectedProj) {
+      stage4SnapshotWatchPrevHashRef.current = '';
+      return;
+    }
+    stage4SnapshotWatchPrevHashRef.current = stage4SnapshotWatchHash;
+    if (!hydrated || (boot as any)?.isHydrating || isRestoring || restoreReady === false) return;
+    stage4SnapshotWatchTimerRef.current = window.setTimeout(() => {
+      stage4SnapshotWatchArmedRef.current = true;
+    }, 500);
+    return () => {
+      if (stage4SnapshotWatchTimerRef.current) {
+        window.clearTimeout(stage4SnapshotWatchTimerRef.current);
+        stage4SnapshotWatchTimerRef.current = null;
+      }
+    };
+  }, [selectedAddKey, hydrated, boot, isRestoring, restoreReady, selectedProj, stage4SnapshotWatchHash]);
+
+  useEffect(() => {
+    if (!selectedProj) return;
+    if (!hydrated || (boot as any)?.isHydrating || isRestoring || restoreReady === false) return;
+    const nextHash = stage4SnapshotWatchHash;
+    const prevHash = stage4SnapshotWatchPrevHashRef.current;
+    if (!prevHash) {
+      stage4SnapshotWatchPrevHashRef.current = nextHash;
+      return;
+    }
+    if (nextHash === prevHash) return;
+    stage4SnapshotWatchPrevHashRef.current = nextHash;
+    if (!stage4SnapshotWatchArmedRef.current) return;
+    queueStage4SnapshotPersist();
+  }, [stage4SnapshotWatchHash, selectedProj, hydrated, boot, isRestoring, restoreReady, queueStage4SnapshotPersist]);
+
+
   // ★ STAGE4: Resolved OKRs (DB priority + snapshot fallback)
   const projectKey = selected ? `${selected.deptIdx}:${selected.projIdx}` : '';
   const resolvedOkrs = resolvedOkrsMap[projectKey] ?? [];
@@ -899,6 +1029,15 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
     setEditingMode,
     setRoleShadow: (updater) => setRoleShadow(updater),
   });
+
+
+  const updateProjectImpactAndSave = useCallback(
+    (dIdx: number, pIdx: number, patch: Record<string, any>) => {
+      updateProjectImpact(dIdx, pIdx, patch);
+      queueStage4SnapshotPersist();
+    },
+    [updateProjectImpact, queueStage4SnapshotPersist]
+  );
 
   const resolveCurrentStrategyId = useCallback((): string => {
     const st = useStrategyStore.getState() as any;
@@ -1012,23 +1151,10 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
             });
           }
 
-          // ★ departments の該当 project の okrs を同期更新
-          // NOTE: setDepartments は非同期だが、resolvedOkrsMap 更新後すぐに STAGE5 が読むため
-          // STAGE5 は proj.okrs より resolvedOkrsMap[projectKey] を優先参照することで
-          // タイミングズレを回避
-          const nextDepts = [...departments];
-          const d = nextDepts[dIdx];
-          if (d) {
-            const projects = Array.isArray(d.projects) ? [...d.projects] : [];
-            const p = projects[pIdx];
-            if (p) {
-              projects[pIdx] = { ...p, okrs: snapshotOkrs };
-              nextDepts[dIdx] = { ...d, projects };
-              // ★ setDepartments は非同期だが、state 反映を待たずに return
-              // STAGE5 は resolvedOkrsMap から DB OKR を取得するため問題なし
-              setDepartments?.(nextDepts as any);
-            }
-          }
+          // STOPGAP:
+          // DB OKR refetch 後に departments.snapshot を即同期すると、autosave 経由で
+          // strategy_data.departments を再保存し、STAGE3 構造巻き戻りの原因になるため停止。
+          // STAGE4/5 表示は resolvedOkrsMap を正本として扱う。
 
           // ★ 修正：diagnostic log で DB/snapshot の分離を明確に
           console.debug('[invalidateAndRefetchProjectOkrs] SUCCESS', {
@@ -1263,6 +1389,8 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
         const okrs = ensureArray(proj.okrs as OKR[] | undefined);
         if (okrs[0]) {
           okrs[0] = { ...okrs[0], due };
+        } else {
+          okrs[0] = { objective: '', owner: '', due, keyResults: [] as any } as any;
         }
 
         projects[pIdx] = { ...proj, okrs };
@@ -1270,8 +1398,9 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
         next[dIdx] = dept;
         return next;
       });
+      queueStage4SnapshotPersist();
     },
-    [patchDepartments]
+    [patchDepartments, queueStage4SnapshotPersist]
   );
 
   /* ============================================================
@@ -2005,6 +2134,7 @@ const saveEditKr = (dIdx: number, pIdx: number, krId: string) => {
   });
 
   cancelEditKr();
+  queueStage4SnapshotPersist();
 };
 
 // ★ TASK 2, 3: Helper functions for KR sync
@@ -2116,6 +2246,7 @@ const deleteKr = (dIdx: number, pIdx: number, krId: string) => {
   });
 
   if (editingKrId === krId) cancelEditKr();
+  queueStage4SnapshotPersist();
 
   // ★ 診断: 削除直後に selectedProj 再取得して状態確認
   setTimeout(() => {
@@ -2276,6 +2407,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
     } as any);
 
     addStructuredKR(dIdx, pIdx, kr);
+    queueStage4SnapshotPersist();
 
     resetDraft(k);
     setOpenAdd((m: any) => ({ ...m, [k]: false }));
@@ -2394,16 +2526,20 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   placeholder="責任者名"
                   value={(selectedProj as any)?.ownerName ?? ''}
                   onChange={(e) => {
-                    if (!selected || !departments) return;
-                    const depts = Array.isArray(departments) ? [...departments] : [];
-                    const dept = depts[selected.deptIdx];
-                    if (!dept) return;
-                    const projects = Array.isArray(dept.projects) ? [...dept.projects] : [];
-                    const proj = projects[selected.projIdx];
-                    if (!proj) return;
-                    projects[selected.projIdx] = { ...proj, ownerName: e.target.value };
-                    depts[selected.deptIdx] = { ...dept, projects };
-                    setDepartments?.(depts as DepartmentStrategy[]);
+                    if (!selected) return;
+                    const value = e.target.value;
+                    patchDepartments((prev) => {
+                      const next = Array.isArray(prev) ? [...prev] : [];
+                      const dept = next[selected.deptIdx];
+                      if (!dept) return prev;
+                      const projects = Array.isArray(dept.projects) ? [...dept.projects] : [];
+                      const proj = projects[selected.projIdx];
+                      if (!proj) return prev;
+                      projects[selected.projIdx] = { ...proj, ownerName: value };
+                      next[selected.deptIdx] = { ...dept, projects };
+                      return next;
+                    });
+                    queueStage4SnapshotPersist();
                   }}
                   disabled={isHydrating || isApproved()}
                 />
@@ -3334,6 +3470,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                           note: '',
                         });
                         setShowInvestmentForm(false);
+                        queueStage4SnapshotPersist();
                       }}
                       disabled={isHydrating}
                       className="h-9 flex-1 rounded-xl bg-zinc-900 px-3 text-[12px] font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
@@ -3408,6 +3545,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   return next;
                 });
                 setEditingInvestmentIdx(null);
+                queueStage4SnapshotPersist();
               }}
               disabled={isHydrating || isApproved()}
               className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-[11px] text-rose-600 hover:bg-rose-50 disabled:opacity-50"
@@ -3441,6 +3579,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                       next[selected.deptIdx] = dept;
                       return next;
                     });
+                    queueStage4SnapshotPersist();
                   }}
                   disabled={isHydrating || isApproved()}
                 />
@@ -3467,6 +3606,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                       next[selected.deptIdx] = dept;
                       return next;
                     });
+                    queueStage4SnapshotPersist();
                   }}
                   disabled={isHydrating || isApproved()}
                 />
@@ -3493,6 +3633,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                       next[selected.deptIdx] = dept;
                       return next;
                     });
+                    queueStage4SnapshotPersist();
                   }}
                   disabled={isHydrating || isApproved()}
                 />
@@ -3518,6 +3659,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                       next[selected.deptIdx] = dept;
                       return next;
                     });
+                    queueStage4SnapshotPersist();
                   }}
                   disabled={isHydrating || isApproved()}
                 />
@@ -3612,6 +3754,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                         next[selected.deptIdx] = dept;
                         return next;
                       });
+                      queueStage4SnapshotPersist();
                     }}
                   >
                     削除
@@ -3776,6 +3919,8 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   return next;
                 });
 
+                queueStage4SnapshotPersist();
+
                 setNewSkillFormData({
                   skillName: '',
                   method: 'TRAINING',
@@ -3844,7 +3989,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                         onChange={(e) => {
                           if (!selected) return;
                           const raw = e.target.value;
-                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
+                          updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
                             impactRevenueMJPY: raw === '' ? undefined : Number(raw),
                           });
                         }}
@@ -3869,7 +4014,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                           if (!selected) return;
                           const raw = e.target.value;
                           const v = raw === '' ? undefined : Math.max(0, Math.min(100, Number(raw)));
-                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
+                          updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
                             impactConfidence: typeof v === 'number' ? v / 100 : undefined,
                           });
                         }}
@@ -3892,7 +4037,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                         onChange={(e) => {
                           if (!selected) return;
                           const raw = e.target.value;
-                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
+                          updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
                             impactOpIncomeMJPY: raw === '' ? undefined : Number(raw),
                           });
                         }}
@@ -3917,7 +4062,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                           if (!selected) return;
                           const raw = e.target.value;
                           const v = raw === '' ? undefined : Math.max(0, Math.min(100, Number(raw)));
-                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
+                          updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
                             impactConfidence: typeof v === 'number' ? v / 100 : undefined,
                           });
                         }}
@@ -3940,7 +4085,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                         onChange={(e) => {
                           if (!selected) return;
                           const raw = e.target.value;
-                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
+                          updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
                             impactInvestmentMJPY: raw === '' ? undefined : Number(raw),
                           });
                         }}
@@ -3965,7 +4110,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                           if (!selected) return;
                           const raw = e.target.value;
                           const v = raw === '' ? undefined : Math.max(0, Math.min(100, Number(raw)));
-                          updateProjectImpact(selected.deptIdx, selected.projIdx, {
+                          updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
                             impactConfidence: typeof v === 'number' ? v / 100 : undefined,
                           });
                         }}
@@ -3984,7 +4129,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                     value={selectedProj.impactRationale ?? ''}
                     onChange={(e) => {
                       if (!selected) return;
-                      updateProjectImpact(selected.deptIdx, selected.projIdx, { impactRationale: e.target.value });
+                      updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, { impactRationale: e.target.value });
                     }}
                     disabled={isHydrating || isApproved()}
                   />
