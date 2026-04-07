@@ -1913,6 +1913,67 @@ function CascadePageContent() {
     mode: 'payload',
   });
 
+
+  /* ===== STAGE3専用: 未保存判定 / 保存関数の集約 ===== */
+  const currentSnapshot = useMemo(() => makeSaveSnapshot(useStrategyStore.getState()), [
+    strategyId,
+    story,
+    finalStory,
+    departments,
+    thought,
+    mission,
+    vision,
+    value,
+    csvFinanceData,
+    financeSummary,
+    businessPortfolio,
+  ]);
+  const currentSnapshotHash = useMemo(() => hashSnapshot(currentSnapshot), [currentSnapshot]);
+  const hasUnsavedChanges = useMemo(() => {
+    if (!hydrated || boot?.isHydrating) return false;
+    if (!lastServerSnapshot) return false;
+    return lastServerSnapshot !== currentSnapshotHash;
+  }, [hydrated, boot?.isHydrating, lastServerSnapshot, currentSnapshotHash]);
+
+  const hasUnsavedChangesRef = useRef(false);
+  const isGeneratingRef = useRef(false);
+  const isPersistingRef = useRef(false);
+  useEffect(() => {
+    hasUnsavedChangesRef.current = hasUnsavedChanges;
+  }, [hasUnsavedChanges]);
+  useEffect(() => {
+    isGeneratingRef.current = isGenerating;
+  }, [isGenerating]);
+
+  const persistCascadeNow = useCallback(
+    async (reason: string) => {
+      const st = useStrategyStore.getState();
+      if (isPersistingRef.current) return true;
+      if (st.boot?.isHydrating || !st.boot?.isHydrated) return true;
+
+      const snap = makeSaveSnapshot(st);
+      const hash = hashSnapshot(snap);
+      const dirty = !!(st.lastServerSnapshot && st.lastServerSnapshot !== hash);
+      if (!dirty) return true;
+
+      isPersistingRef.current = true;
+      try {
+        const shouldToast = reason === 'manual-save' || reason === 'generation-complete';
+        if (shouldToast) setNotice('💾 保存中です…');
+        await saveNow?.();
+        if (shouldToast) setNotice('✅ 保存しました');
+        return true;
+      } catch (e: any) {
+        console.error('[cascade][persistCascadeNow] failed', { reason, error: e?.message ?? String(e) });
+        setNotice(`❌ 保存に失敗しました：${e?.message ?? '不明なエラー'}`);
+        return false;
+      } finally {
+        isPersistingRef.current = false;
+      }
+    },
+    [saveNow],
+  );
+
   /* ===== TASK D: KPI 表示ヘルパー（object → string 変換） ===== */
   const renderKpi = (k: any): string => {
     if (typeof k === 'string') return k;
@@ -2080,34 +2141,72 @@ useEffect(() => {
     return storyText;
   };
 
-  /* ===== 離脱/非表示時の即時保存 ===== */
+  /* ===== 離脱/非表示/アプリ内遷移の保存ガード ===== */
   useEffect(() => {
     const flush = async () => {
-      const st = useStrategyStore.getState();
-      if (st.boot?.isHydrating || !st.boot?.isHydrated) return;
-      const snap = makeSaveSnapshot(st);
-      const hash = hashSnapshot(snap);
-      if (st.lastServerSnapshot && st.lastServerSnapshot === hash) return;
-      try {
-        await saveNow?.();
-      } catch {
-        // ignore
+      if (isGeneratingRef.current) return;
+      await persistCascadeNow('stage3-visibility-flush');
+    };
+
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isGeneratingRef.current || hasUnsavedChangesRef.current) {
+        e.preventDefault();
+        e.returnValue = '';
+        void flush();
       }
     };
-    const onBeforeUnload = () => void flush();
+
     const onPageHide = () => void flush();
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') void flush();
     };
+
+    const onDocumentClickCapture = (evt: MouseEvent) => {
+      if (evt.defaultPrevented) return;
+      if (evt.button !== 0) return;
+      if (evt.metaKey || evt.ctrlKey || evt.shiftKey || evt.altKey) return;
+      if (isGeneratingRef.current) {
+        evt.preventDefault();
+        evt.stopPropagation();
+        setNotice('⏳ 生成中は画面移動できません。完了後に再度お試しください。');
+        return;
+      }
+      if (!hasUnsavedChangesRef.current) return;
+
+      const target = evt.target as HTMLElement | null;
+      const anchor = target?.closest?.('a[href]') as HTMLAnchorElement | null;
+      if (!anchor) return;
+      const href = anchor.getAttribute('href') ?? '';
+      if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
+      if (anchor.target === '_blank' || anchor.hasAttribute('download')) return;
+
+      const url = new URL(anchor.href, window.location.href);
+      const sameOrigin = url.origin === window.location.origin;
+      if (!sameOrigin) return;
+      if (url.href === window.location.href) return;
+
+      evt.preventDefault();
+      evt.stopPropagation();
+
+      void (async () => {
+        const ok = await persistCascadeNow('stage3-route-leave');
+        if (ok) {
+          window.location.assign(url.href);
+        }
+      })();
+    };
+
     window.addEventListener('beforeunload', onBeforeUnload);
     window.addEventListener('pagehide', onPageHide);
     document.addEventListener('visibilitychange', onVisibility);
+    document.addEventListener('click', onDocumentClickCapture, true);
     return () => {
       window.removeEventListener('beforeunload', onBeforeUnload);
       window.removeEventListener('pagehide', onPageHide);
       document.removeEventListener('visibilitychange', onVisibility);
+      document.removeEventListener('click', onDocumentClickCapture, true);
     };
-  }, [saveNow]);
+  }, [persistCascadeNow]);
 
   /* ===== プロジェクト削除 ===== */
   const handleDeleteProject = async (deptIndex: number, projectId: string) => {
@@ -2979,12 +3078,16 @@ useEffect(() => {
       // ★TASK A: 生成完了後に必ず1回保存（保存抑止解除前）
       if (saveNow) {
         try {
-          await saveNow();
+          const okSaved = await persistCascadeNow('stage3-generate-complete');
           console.log('[diag][stage3:regen:saved]', {
             dept: dept.name,
             stage4PlansAfterSave: useStrategyStore.getState().stage4Plans?.length ?? 0,
           });
-          setNotice(`✅ ${dept.name} のたたき台を更新し、サーバーにも保存しました`);
+          if (okSaved) {
+            setNotice(`✅ ${dept.name} のたたき台を更新し、サーバーにも保存しました`);
+          } else {
+            setNotice('⚠️ 画面上の更新は完了しましたが、サーバー保存に失敗しました');
+          }
         } catch {
           setNotice('⚠️ 画面上の更新は完了しましたが、サーバー保存に失敗しました');
         }
@@ -3099,8 +3202,8 @@ useEffect(() => {
               if (!saveNow) return;
               try {
                 setNotice('💾 保存中です…');
-                await saveNow();
-                setNotice('✅ 全体を保存しました（サーバーにも反映済み）');
+                const ok = await persistCascadeNow('manual-stage3-save');
+                if (ok) setNotice('✅ 全体を保存しました（サーバーにも反映済み）');
               } catch (e: any) {
                 setNotice(`❌ 保存に失敗しました：${e?.message ?? '不明なエラー'}`);
               }
@@ -3177,7 +3280,6 @@ useEffect(() => {
       )}
 
       {notice && <div className="mb-6 text-sm p-3 rounded-xl border bg-emerald-50 text-emerald-800">{notice}</div>}
-
       {activeTab === 'visual' ? (
         <section>{VisualView}</section>
       ) : (
