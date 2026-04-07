@@ -51,6 +51,21 @@ import {
 /* ===== 型定義（ローカル用：旧互換） ===== */
 const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
 
+
+function isStage4OkrRouteRuntime(): boolean {
+  try {
+    if (typeof window === 'undefined') return false;
+    const path = window.location?.pathname ?? '';
+    return path === '/okr' || path.startsWith('/okr/');
+  } catch {
+    return false;
+  }
+}
+
+function shouldBlockStage4DepartmentsImmediateSave(reason: string): boolean {
+  return isStage4OkrRouteRuntime() && (reason === 'setDepartments' || reason === 'updateDepartments');
+}
+
 export type AnswerStep = {
   stepNumber: number;
   question: string;
@@ -2907,6 +2922,10 @@ export const useStrategyStore = create<StrategyState>()(
         }));
 
         (async () => {
+          if (shouldBlockStage4DepartmentsImmediateSave('setDepartments')) {
+            if (DEBUG) console.log('[strategyStore] setDepartments() immediate-save blocked on /okr; page-level Stage4 persistence is source of truth');
+            return;
+          }
           // ★ race 防止：restore 直後の save を延期（post-restore cooldown 尊重）
           const state = get();
           if (state.restoreReady && state.lastServerSyncAt) {
@@ -2938,6 +2957,10 @@ export const useStrategyStore = create<StrategyState>()(
         });
 
         (async () => {
+          if (shouldBlockStage4DepartmentsImmediateSave('updateDepartments')) {
+            if (DEBUG) console.log('[strategyStore] updateDepartments() immediate-save blocked on /okr; page-level Stage4 persistence is source of truth');
+            return;
+          }
           // ★ race 防止：restore 直後の save を延期（post-restore cooldown 尊重）
           const state = get();
           if (state.restoreReady && state.lastServerSyncAt) {
@@ -2993,6 +3016,11 @@ export const useStrategyStore = create<StrategyState>()(
           const reason = opts?.reason ?? 'manual';
           const force = opts?.force ?? false;
           const state0 = get();
+
+          if (shouldBlockStage4DepartmentsImmediateSave(reason)) {
+            if (DEBUG) console.log('[strategyStore] saveStrategyData blocked for Stage4 department immediate-save reason', { reason });
+            return { ok: false, skipped: true, reason: 'stage4_departments_immediate_save_blocked' };
+          }
 
           // ★ force: true のときは hydrating をスキップ（無反応を防ぐ）
           // force: false のときはガード
