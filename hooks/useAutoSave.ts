@@ -175,24 +175,22 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
 
   /* ============================================
    * Payload Signature（mode='payload'時のみ計算）
+   * ★ FIX: useMemo ではなく、trigger() 内で毎回計算する（deps が [mode] だけでは更新されないため）
    * ========================================== */
-  const payloadSignature = useMemo(() => {
-    if (mode !== 'payload') return '';
-
-    const store = useStrategyStore.getState();
-    const payload = store.buildPayload?.();
-    return payload ? safeStableStringify(payload) : '';
-  }, [mode, storeVersion]);
+  // payloadSignature は useMemo ではなく、trigger() 内で毎回計算します
 
   /* ============================================
    * 変更シグネチャ
-   * ★ FIX: hydrated / isFetching / companyId を含める
+   * ★ FIX: 保存対象フィールドのみ（hydrated/isFetching/version は除外）
    * ========================================== */
   const internalSignature = useMemo(() => {
     const pick = {
       companyId,
-      hydrated,
-      isFetching,
+      // ★ 重要：以下はガード条件であって、署名対象ではない
+      // hydrated,
+      // isFetching,
+      // version,
+      // revision,
       companyName: pickA,
       mission: pickB,
       vision: pickC,
@@ -225,11 +223,24 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
       winPatternPrimary: pickAB,
       winPatternSecondary: pickAC,
     };
+
+    // ★ FIX: signature 対象フィールドの snapshot をログ（answers2/departments が入っているか確認）
+    console.log('[autosave:signature-snapshot]', {
+      answers2Len: Array.isArray(pickH) ? pickH.length : 0,
+      departmentsLen: Array.isArray(pickI) ? pickI.length : 0,
+      hasAnswers2: !!pickH,
+      hasDepartments: !!pickI,
+      companyName: !!pickA,
+      mission: !!pickB,
+      timestamp: new Date().toISOString(),
+    });
+
     return safeStableStringify(pick);
   }, [
     companyId,
-    hydrated,
-    isFetching,
+    // ★ hydrated/isFetching は deps から外す（ガード条件であって、署名要因ではない）
+    // hydrated,
+    // isFetching,
     pickA,
     pickB,
     pickC,
@@ -266,35 +277,57 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
     return safeStableStringify(externalDeps);
   }, [externalDeps]);
 
+  // ★ FIX: payloadSignature を毎回計算するため、trigger() 内で signature を計算
+  // combinedSignature は Effect の外での deps 比較用（legacy mode用）
   const combinedSignature = useMemo(() => {
     if (mode === 'payload') {
-      return payloadSignature;
+      // mode='payload' の場合は、trigger() 内で毎回計算するため、ここでは古い値を返す
+      // （実際の signature 比較は trigger() 内で行われる）
+      return '';
     }
     return internalSignature + '|' + depsSignature;
-  }, [mode, payloadSignature, internalSignature, depsSignature]);
+  }, [mode, internalSignature, depsSignature]);
 
   // ---- 保存制御 ----
   const savingRef = useRef(false);
   const lastSavedAtRef = useRef<number>(0);
   const mountedAtRef = useRef<number>(Date.now());
+  const triggerTimeRef = useRef<number | null>(null);  // ★ FIX: trigger 時刻を記録（保存完了時間計測用）
+  const postRestoreFirstSaveDoneRef = useRef<boolean>(false);  // ★ FIX: post-restore 初回保存完了フラグ
 
   /* ============================================
-   * ★ FIX: companyId 切替時のリセット
+   * ★ FIX: companyId 切替時のリセット + restore 状態のトラッキング
    * ========================================== */
   useEffect(() => {
     mountedAtRef.current = Date.now();
     lastSavedAtRef.current = 0;
     savingRef.current = false;
+    postRestoreFirstSaveDoneRef.current = false;  // ★ FIX: restore 時にフラグをリセット
   }, [companyId]);
+
+  // ★ FIX: restoreReady が false → true に変わったときにフラグをリセット
+  useEffect(() => {
+    if (restoreReady) {
+      postRestoreFirstSaveDoneRef.current = false;
+      console.log('[autosave:restore-ready]', {
+        restoreReady,
+        lastServerSyncAt,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }, [restoreReady]);
 
   const doSave = useCallback(async () => {
     try {
       const timestamp = new Date().toISOString();
 
+      // ★ FIX: enabled 条件を詳しくログ出力（未発火の原因特定用）
       if (!enabled) {
-        if (mode === 'payload') {
-          console.log('[AutoSave][guard-check] SKIP: not enabled', { timestamp });
-        }
+        console.log('[autosave:guard-enabled]', {
+          enabled,
+          reason: 'not enabled',
+          timestamp,
+        });
         return;
       }
       if (requireHydrated && !hydrated) {
@@ -362,12 +395,19 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
         return;
       }
 
-      // ★ TASK 3: Check for post-restore cooldown (2 second grace period)
-      if (restoreReady && lastServerSyncAt) {
+      // ★ TASK 3: Check for post-restore cooldown (only for first save after restore)
+      if (restoreReady && lastServerSyncAt && !postRestoreFirstSaveDoneRef.current) {
         const timeSinceSync = Date.now() - lastServerSyncAt;
-        if (timeSinceSync < 2000) {
+        // ★ FIX: 初回 post-restore 保存は 500ms のみ待機（STAGE3 の入力速度に対応）
+        const postRestoreCooldownMs = debounceMs >= 500 ? 500 : debounceMs;
+        if (timeSinceSync < postRestoreCooldownMs) {
           if (mode === 'payload') {
-            console.log('[AutoSave][guard-check] SKIP: post-restore cooldown', { timeSinceSync, timestamp });
+            console.log('[AutoSave][guard-check] SKIP: post-restore cooldown (first-save-only)', {
+              timeSinceSync,
+              postRestoreCooldownMs,
+              firstSaveDone: postRestoreFirstSaveDoneRef.current,
+              timestamp,
+            });
           }
           return;
         }
@@ -436,9 +476,29 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
       const storeApi = useStrategyStore.getState();
       console.log('[AutoSave][saveStrategyData-enter]', { timestamp });
       await storeApi.saveStrategyData();
+      const doneTime = Date.now();
       console.log('[AutoSave][saveStrategyData-done]', { timestamp });
 
-      lastSavedAtRef.current = Date.now();
+      // ★ FIX: post-restore 初回保存が完了したらフラグを設定
+      if (restoreReady && !postRestoreFirstSaveDoneRef.current) {
+        postRestoreFirstSaveDoneRef.current = true;
+        console.log('[autosave:post-restore-first-save-done]', {
+          timestamp,
+          restoreReady,
+        });
+      }
+
+      // ★ FIX: trigger から saveStrategyData 完了までの経過時間をログ
+      if (triggerTimeRef.current) {
+        const elapsedMs = doneTime - triggerTimeRef.current;
+        console.log('[autosave:save-timing]', {
+          triggerToSaveMs: elapsedMs,
+          debounceMs,
+          timestamp,
+        });
+      }
+
+      lastSavedAtRef.current = doneTime;
     } catch (e) {
       console.error('[AutoSave][SAVE] ❌ Error:', e);
     } finally {
@@ -457,6 +517,7 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
     minIntervalMs,
     initialDelayMs,
     mode,
+    debounceMs,  // ★ FIX: post-restore cooldown 計算で使用
     // ★ TASK 1 & 3: Conflict recovery dependencies
     restoreReady,
     lastServerSyncAt,
@@ -475,31 +536,109 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
     }
   }, []);
 
+  // ★ FIX: 毎回 signature を計算・比較して trigger するための ref
+  const lastFingerprintRef = useRef<string | null>(null);
+
   const trigger = useCallback(() => {
+    triggerTimeRef.current = Date.now();
+
+    // ★ FIX: 毎回、現在の fingerprint を計算
+    let currentFingerprint: string;
+    let fingerprintChanged = false;
+
     if (mode === 'payload') {
       const store = useStrategyStore.getState();
       const payload = store.buildPayload?.();
-      const sig = payloadSignature;
-      console.log('[AutoSave][signature-length]', {
-        length: sig.length,
-        mode,
-        payload_keys: payload ? Object.keys(payload).filter(k => k.includes('project')).length : 0,
-        has_projectTargetImpacts: payload ? 'projectTargetImpacts' in payload : false,
-        has_projectIssueLinks: payload ? 'projectIssueLinks' in payload : false,
+      currentFingerprint = payload ? safeStableStringify(payload) : '';
+
+      // ★ FIX: 前回と比較
+      if (lastFingerprintRef.current !== currentFingerprint) {
+        fingerprintChanged = true;
+        console.log('[autosave:fingerprint-changed]', {
+          prevHash: lastFingerprintRef.current ? `len=${lastFingerprintRef.current.length}` : 'null',
+          nextHash: `len=${currentFingerprint.length}`,
+          timestamp: new Date().toISOString(),
+        });
+      }
+      lastFingerprintRef.current = currentFingerprint;
+    } else {
+      currentFingerprint = internalSignature + '|' + depsSignature;
+      if (lastFingerprintRef.current !== currentFingerprint) {
+        fingerprintChanged = true;
+      }
+      lastFingerprintRef.current = currentFingerprint;
+    }
+
+    // ★ FIX: trigger-reason ログに fingerprint-changed を含める
+    console.log('[autosave:trigger-reason]', {
+      timestamp: new Date().toISOString(),
+      mode,
+      fingerprintChanged,
+      enabled,
+      hydrated,
+      isFetching,
+      companyId,
+      debounceMs,
+    });
+
+    if (!fingerprintChanged) {
+      console.log('[autosave:no-trigger]', {
+        reason: 'fingerprint same',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    // ★ FIX: 前の debounce をキャンセル
+    if (timerRef.current) {
+      console.log('[autosave:debounce-cancelled]', {
+        reason: 'new-trigger',
+        timestamp: new Date().toISOString(),
       });
     }
     cancel();
+
+    // ★ FIX: 新しい debounce をスケジュール
+    console.log('[autosave:debounce-scheduled]', {
+      debounceMs,
+      minIntervalMs,
+      timestamp: new Date().toISOString(),
+    });
+
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
+      console.log('[autosave:debounce-fired]', {
+        timestamp: new Date().toISOString(),
+      });
       void doSave();
     }, Math.max(0, debounceMs));
-  }, [debounceMs, cancel, doSave, mode, payloadSignature]);
+  }, [debounceMs, cancel, doSave, mode, internalSignature, depsSignature, enabled, hydrated, isFetching, companyId]);
 
+  // ★ FIX: combinedSignature 変更をトラッキング（legacy mode 用）
+  // mode='payload' の場合は、trigger() 内で毎回 signature を計算・比較するため、
+  // ここでは combinedSignature が更新されるたびに trigger() を呼ぶ（legacy mode 用）
+  const lastCombinedSigRef = useRef<string | null>(null);
   useEffect(() => {
     if (!enabled) return;
+    if (mode === 'payload') {
+      // payload mode では trigger() 内で毎回 signature を計算するため、ここでは何もしない
+      return;
+    }
+
+    if (lastCombinedSigRef.current && lastCombinedSigRef.current !== combinedSignature) {
+      console.log('[AutoSave][signature-changed]', {
+        timestamp: new Date().toISOString(),
+        mode,
+        prevLen: lastCombinedSigRef.current?.length ?? 0,
+        nextLen: combinedSignature.length,
+        diff: Math.abs((combinedSignature.length ?? 0) - (lastCombinedSigRef.current?.length ?? 0)),
+      });
+    }
+    lastCombinedSigRef.current = combinedSignature;
+
     trigger();
     return cancel;
-  }, [enabled, trigger, cancel, combinedSignature]);
+  }, [enabled, trigger, cancel, combinedSignature, mode]);
 
   /* ============================================
    * isFetching トラッキング（デバッグ用）
@@ -517,6 +656,21 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
       lastIsFetchingRef.current = isFetching;
     }
   }, [isFetching]);
+
+  /* ============================================
+   * ★ FIX: payload mode で departments/answers2 変更時に trigger
+   * ========================================== */
+  useEffect(() => {
+    if (!enabled || mode !== 'payload') return;
+
+    console.log('[autosave:payload-deps-change]', {
+      timestamp: new Date().toISOString(),
+      pickH_len: Array.isArray(pickH) ? pickH.length : 0,
+      pickI_len: Array.isArray(pickI) ? pickI.length : 0,
+    });
+
+    trigger();
+  }, [enabled, mode, trigger, pickH, pickI]);
 
   /* ============================================
    * ★ FIX: gate解除時に再トリガ
