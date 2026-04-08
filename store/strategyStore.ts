@@ -66,6 +66,11 @@ function shouldBlockStage4DepartmentsImmediateSave(reason: string): boolean {
   return isStage4OkrRouteRuntime() && (reason === 'setDepartments' || reason === 'updateDepartments');
 }
 
+// ★ FIX: jsonEq を定義（setDepartments / updateDepartments で使用）
+function jsonEq(a: any, b: any): boolean {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
 export type AnswerStep = {
   stepNumber: number;
   question: string;
@@ -3110,8 +3115,12 @@ export const useStrategyStore = create<StrategyState>()(
 
         // ★ 全件同値なら set を呼ばない（state 参照変わらず → saveStrategyData 起動なし）
         if (optimized.every((dept, i) => dept === prev[i])) {
+          console.log('[store:no-op-update-skipped]', {
+            reason: 'setDepartments',
+            allDeptsUnchanged: true,
+          });
           if (DEBUG) console.log('[strategyStore] setDepartments: all depts unchanged, skip set call');
-          return;
+          return;  // ★ 重要：set も async saveStrategyData も実行しない
         }
 
         if (DEBUG) console.log('[strategyStore] setDepartments: departments changed, updating state');
@@ -3121,30 +3130,9 @@ export const useStrategyStore = create<StrategyState>()(
           version: (current.version ?? 0) + 1,
         });
 
-        (async () => {
-          if (shouldBlockStage4DepartmentsImmediateSave('setDepartments')) {
-            if (DEBUG) console.log('[strategyStore] setDepartments() immediate-save blocked on /okr; page-level Stage4 persistence is source of truth');
-            return;
-          }
-          // ★ race 防止：restore 直後の save を延期（post-restore cooldown 尊重）
-          const state = get();
-          if (state.restoreReady && state.lastServerSyncAt) {
-            const timeSinceSync = Date.now() - state.lastServerSyncAt;
-            if (timeSinceSync < 2100) {
-              const delayMs = Math.max(100, 2100 - timeSinceSync);
-              if (DEBUG) console.log('[strategyStore] setDepartments() delaying save due to post-restore cooldown', { delayMs });
-              await new Promise(r => setTimeout(r, delayMs));
-            }
-          }
-
-          if (DEBUG) console.log('[strategyStore] setDepartments() immediate-save start');
-          try {
-            await get().saveStrategyData({ reason: 'setDepartments' });
-            if (DEBUG) console.log('[strategyStore] setDepartments() immediate-save done');
-          } catch (e) {
-            console.warn('[strategyStore] setDepartments immediate save failed:', e);
-          }
-        })();
+        // ★ FIX: immediate-save を削除（STAGE3 通常入力時は autosave のみを正本経路に）
+        // 保存責務は autosave に一任する
+        if (DEBUG) console.log('[strategyStore] setDepartments: dirty marked, autosave will handle save');
       },
 
       updateDepartments: (updater: (prev: Department[]) => Department[]) => {
@@ -3175,8 +3163,12 @@ export const useStrategyStore = create<StrategyState>()(
 
         // ★ 全件同値なら set を呼ばない（state 参照変わらず → saveStrategyData 起動なし）
         if (optimized.every((dept, i) => dept === prev[i])) {
+          console.log('[store:no-op-update-skipped]', {
+            reason: 'updateDepartments',
+            allDeptsUnchanged: true,
+          });
           if (DEBUG) console.log('[strategyStore] updateDepartments: all depts unchanged, skip set call');
-          return;
+          return;  // ★ 重要：set も async saveStrategyData も実行しない
         }
 
         if (DEBUG) console.log('[strategyStore] updateDepartments: departments changed, updating state');
@@ -3186,30 +3178,9 @@ export const useStrategyStore = create<StrategyState>()(
           version: (current.version ?? 0) + 1,
         });
 
-        (async () => {
-          if (shouldBlockStage4DepartmentsImmediateSave('updateDepartments')) {
-            if (DEBUG) console.log('[strategyStore] updateDepartments() immediate-save blocked on /okr; page-level Stage4 persistence is source of truth');
-            return;
-          }
-          // ★ race 防止：restore 直後の save を延期（post-restore cooldown 尊重）
-          const state = get();
-          if (state.restoreReady && state.lastServerSyncAt) {
-            const timeSinceSync = Date.now() - state.lastServerSyncAt;
-            if (timeSinceSync < 2100) {
-              const delayMs = Math.max(100, 2100 - timeSinceSync);
-              if (DEBUG) console.log('[strategyStore] updateDepartments() delaying save due to post-restore cooldown', { delayMs });
-              await new Promise(r => setTimeout(r, delayMs));
-            }
-          }
-
-          if (DEBUG) console.log('[strategyStore] updateDepartments() immediate-save start');
-          try {
-            await get().saveStrategyData({ reason: 'updateDepartments' });
-            if (DEBUG) console.log('[strategyStore] updateDepartments() immediate-save done');
-          } catch (e) {
-            console.warn('[strategyStore] updateDepartments immediate save failed:', e);
-          }
-        })();
+        // ★ FIX: immediate-save を削除（STAGE3 通常入力時は autosave のみを正本経路に）
+        // 保存責務は autosave に一任する
+        if (DEBUG) console.log('[strategyStore] updateDepartments: dirty marked, autosave will handle save');
       },
 
       setBusinessPortfolio: (p) => set((s) => ({ ...s, businessPortfolio: { ...p }, dirty: true, version: (s.version ?? 0) + 1 })),
@@ -3247,6 +3218,30 @@ export const useStrategyStore = create<StrategyState>()(
           const force = opts?.force ?? false;
           const state0 = get();
 
+          // ★ FIX: source ログを記録（保存経路の一本化を確認）
+          let source: 'autosave' | 'manual-save' | 'pending' | 'other' = 'other';
+          if (reason === 'manual' || reason === 'manual-save-button') {
+            source = 'manual-save';
+          } else if (reason === 'pending') {
+            source = 'pending';
+          } else if (!reason || reason === '') {
+            source = 'autosave';  // useAutoSave から呼ばれる場合
+          }
+          console.log('[saveStrategyData:path]', {
+            source,
+            reason,
+            force,
+            timestamp: new Date().toISOString(),
+          });
+
+          // ★ FIX: saveStrategyData 呼び出しスタックを記録
+          console.log('[saveStrategyData:caller-stack]', {
+            reason,
+            force,
+            timestamp: new Date().toISOString(),
+            stack: new Error().stack?.split('\n').slice(0, 6).join('\n'),
+          });
+
           if (shouldBlockStage4DepartmentsImmediateSave(reason)) {
             if (DEBUG) console.log('[strategyStore] saveStrategyData blocked for Stage4 department immediate-save reason', { reason });
             return { ok: false, skipped: true, reason: 'stage4_departments_immediate_save_blocked' };
@@ -3254,8 +3249,24 @@ export const useStrategyStore = create<StrategyState>()(
 
           // ★ force: true のときは hydrating をスキップ（無反応を防ぐ）
           // force: false のときはガード
+          // ★ FIX: skip-flags をログ出力
+          console.log('[saveStrategyData:skip-flags]', {
+            hydrating: state0.boot?.isHydrating,
+            isFetching: state0.__isFetchingFromServer,
+            restoring: state0.isRestoring,
+            hydrated: state0.hydrated,
+            restoreReady: state0.restoreReady,
+            reason,
+            force,
+            willSkip: !force && (state0.__isFetchingFromServer || state0.boot?.isHydrating),
+          });
+
           if (!force && (state0.__isFetchingFromServer || state0.boot?.isHydrating)) {
-            if (DEBUG) console.log('[strategyStore] saveStrategyData: skip while fetching/hydrating (not forced)');
+            console.log('[saveStrategyData:skipped] skip while fetching/hydrating (not forced)', {
+              reason,
+              hydrating: state0.boot?.isHydrating,
+              isFetching: state0.__isFetchingFromServer,
+            });
             return { ok: false, skipped: true, reason: 'fetching_or_hydrating' };
           }
 
