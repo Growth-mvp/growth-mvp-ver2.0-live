@@ -13,7 +13,6 @@ import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
 import { AlertCircle } from 'lucide-react';
 import StrategyGuard from '@/app/StrategyGuard';
-import SaveStatusIndicator from '@/components/SaveStatusIndicator';
 import { StatusBadge, StatusSelect, type Status } from '@/components/stage4/StatusBadge';
 import { DiffViewer } from '@/components/stage4/DiffViewer';
 import { AlignmentPreview } from '@/components/stage4/AlignmentPreview';
