@@ -24,7 +24,6 @@ import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { useAccess } from '@/utils/access';
 import { useCapabilities } from '@/hooks/useCapabilities';
-import SaveStatusIndicator from '@/components/SaveStatusIndicator';
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
 import { useAutoSave } from '@/hooks/useAutoSave';
@@ -4351,7 +4350,6 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
           </div>
         </div>
         <div className="shrink-0 flex flex-col items-end gap-2">
-          <SaveStatusIndicator />
           <div className="text-right text-[11px] text-zinc-500">{isHydrating ? '読み込み中…' : '準備OK'}</div>
         </div>
       </div>
