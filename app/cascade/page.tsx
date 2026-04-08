@@ -1677,6 +1677,8 @@ function CascadePageContent() {
       const currentHash = hashSnapshot(currentSnap);
       const isDirty = !!(lastServerSnapshot && lastServerSnapshot !== currentHash);
 
+      console.log('[hydration:begin]', { accessCompanyId, timestamp: new Date().toISOString() });
+
       const timer = setTimeout(() => !cancelled && setHydrated?.(true), 7000);
       try {
         if (DEBUG) {
@@ -1696,10 +1698,13 @@ function CascadePageContent() {
         // これにより、古い local snapshot が server state を上書きして見える事故を防ぐ。
         await loadAndHydrate(accessCompanyId);
         try {
+          console.log('[fetchStrategy:begin]', { accessCompanyId, timestamp: new Date().toISOString() });
           await refetchFromServer?.();
-        } catch {
-          // ignore
+          console.log('[fetchStrategy:end]', { accessCompanyId, timestamp: new Date().toISOString() });
+        } catch (e) {
+          console.log('[fetchStrategy:error]', { accessCompanyId, error: String(e), timestamp: new Date().toISOString() });
         }
+        console.log('[hydration:end]', { accessCompanyId, timestamp: new Date().toISOString() });
         setHydrated?.(true);
         loadGuardRef.current = accessCompanyId;
       } catch (err) {
@@ -1716,6 +1721,7 @@ function CascadePageContent() {
         });
 
         console.warn('[cascade] hydrated=true を強制設定（エラー時UI表示対応）');
+        console.log('[hydration:end-error]', { accessCompanyId, timestamp: new Date().toISOString() });
         setHydrated?.(true);
         loadGuardRef.current = accessCompanyId;
       } finally {
@@ -1903,12 +1909,13 @@ function CascadePageContent() {
   const [isGenerating, setIsGenerating] = useState(false);
 
   // ★TASK A: 生成中は autosave を抑止（state定義後に移動）
+  // ★ FIX: STAGE3 では debounce/minInterval を短縮（保存遅延を減らす）
   useAutoSave({
     enabled: hydrated && !boot?.isHydrating && !isGenerating,
     requireHydrated: true,
     requireSession: true,
-    debounceMs: 1200,
-    minIntervalMs: 1500,
+    debounceMs: 500,  // ★ STAGE3 最適化：1200ms → 500ms
+    minIntervalMs: 800,  // ★ STAGE3 最適化：1500ms → 800ms
     mode: 'payload',
   });
 
@@ -2947,14 +2954,15 @@ useEffect(() => {
             // === Step 2: Invalidate STAGE4 artifacts via store action ===
             // ★ STEP 3 修正：filtering + full clear を store action に統一
             // 責務明確化：「無効化」は store action の責務
-            if (allOldProjectIds.length > 0) {
-              useStrategyStore
-                .getState()
-                .invalidateStage4ArtifactsAfterCascadeRegeneration?.(
-                  dept.name,
-                  allOldProjectIds
-                );
-            }
+            // ★ FIX: invalidateStage4ArtifactsAfterCascadeRegeneration は store に未定義のため、ここでは呼ばない
+            // if (allOldProjectIds.length > 0) {
+            //   useStrategyStore
+            //     .getState()
+            //     .invalidateStage4ArtifactsAfterCascadeRegeneration?.(
+            //       dept.name,
+            //       allOldProjectIds
+            //     );
+            // }
           } else {
             // ★ TRACE POINT 8: No old projects
             console.log('[diag][stage3:regen:no-cleanup-needed]', {
