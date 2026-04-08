@@ -2282,6 +2282,175 @@ export const useStrategyStore = create<StrategyState>()(
         set((s) => ({ ...s, executionPlanBaseline: baseline, dirty: true, version: (s.version ?? 0) + 1 }));
       },
 
+      /**
+       * ★ STEP 3: Invalidate STAGE4 artifacts after successful STAGE3 regeneration
+       *
+       * Purpose: After STAGE3 cascade regeneration succeeds, clear stale STAGE4 plans
+       * that reference old/deleted projects.
+       *
+       * Flow:
+       * 1. Filter out old projects from stage4Plans and executionPlanBaseline
+       * 2. Filter projectTargetImpacts and projectIssueLinks by projectId
+       * 3. Full clear: stage4Plans=[], executionPlanBaseline={}
+       *
+       * Only called on SUCCESSFUL regeneration (not on failure).
+       */
+      invalidateStage4ArtifactsAfterCascadeRegeneration: (
+        departmentId: string,
+        allOldProjectIds: string[]
+      ) => {
+        const s = get();
+
+        // Helper: Resolve project ID (from cascade pattern)
+        const resolveProjectId = (p: any, deptName?: string): string | undefined => {
+          if (p?.id) return String(p.id);
+          if (!deptName || !p?.title) return undefined;
+          // Generate stable ID from title if no explicit ID
+          const normalized = `${deptName}::${p.title}`.trim().toLowerCase();
+          let hash = 0;
+          for (let i = 0; i < normalized.length; i++) {
+            const char = normalized.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash;
+          }
+          return `proj-${Math.abs(hash).toString(36)}`;
+        };
+
+        // PHASE 1: Filter old projects from STAGE4 artifacts
+        console.log('[strategyStore] invalidateStage4ArtifactsAfterCascadeRegeneration: START', {
+          departmentId,
+          oldProjectIdCount: allOldProjectIds.length,
+          timestamp: new Date().toISOString(),
+        });
+
+        // 1a. Filter stage4Plans
+        const oldStage4Plans = s.stage4Plans ?? [];
+        const newStage4Plans = oldStage4Plans.filter((plan: any) => {
+          if (plan.departmentId !== departmentId) return true; // Keep other depts
+
+          // baseline/current の projects を ID に変換
+          const planProjectIds = new Set(
+            [
+              ...(plan.baseline?.projects ?? []),
+              ...(plan.current?.projects ?? []),
+            ]
+              .map((p: any) => resolveProjectId(p, departmentId))
+              .filter(Boolean)
+          );
+
+          // allOldProjectIds に含まれるプロジェクトがあれば削除対象
+          for (const projId of planProjectIds) {
+            if (allOldProjectIds.includes(projId)) return false;
+          }
+          return true;
+        });
+
+        if (newStage4Plans.length < oldStage4Plans.length) {
+          console.log('[strategyStore] stage4Plans filtered', {
+            before: oldStage4Plans.length,
+            after: newStage4Plans.length,
+            removed: oldStage4Plans.length - newStage4Plans.length,
+          });
+        }
+
+        // 1b. Filter executionPlanBaseline.snapshot
+        const oldBaseline = s.executionPlanBaseline;
+        let newBaseline = oldBaseline;
+        if (oldBaseline?.snapshot) {
+          const newSnapshot = oldBaseline.snapshot.map((d: any) => {
+            if (d.name !== departmentId) return d; // Keep other depts
+
+            // projects を ID でフィルタ
+            const filteredProjects = (d.projects ?? []).filter((p: any) => {
+              const projId = resolveProjectId(p, departmentId);
+              return projId && !allOldProjectIds.includes(projId);
+            });
+
+            return { ...d, projects: filteredProjects };
+          });
+
+          const oldDeptProjects = oldBaseline.snapshot?.find(
+            (d: any) => d.name === departmentId
+          )?.projects ?? [];
+          const newDeptProjects = newSnapshot?.find(
+            (d: any) => d.name === departmentId
+          )?.projects ?? [];
+
+          if (newDeptProjects.length < oldDeptProjects.length) {
+            newBaseline = { ...oldBaseline, snapshot: newSnapshot };
+            console.log('[strategyStore] executionPlanBaseline.snapshot filtered', {
+              before: oldDeptProjects.length,
+              after: newDeptProjects.length,
+              removed: oldDeptProjects.length - newDeptProjects.length,
+            });
+          }
+        }
+
+        // 1c. Filter projectTargetImpacts
+        const oldTargetImpacts = s.projectTargetImpacts ?? [];
+        const newTargetImpacts = oldTargetImpacts.filter(
+          (impact: any) => !allOldProjectIds.includes(impact.projectId)
+        );
+
+        if (newTargetImpacts.length < oldTargetImpacts.length) {
+          console.log('[strategyStore] projectTargetImpacts filtered', {
+            before: oldTargetImpacts.length,
+            after: newTargetImpacts.length,
+            removed: oldTargetImpacts.length - newTargetImpacts.length,
+          });
+        }
+
+        // 1d. Filter projectIssueLinks
+        const oldIssueLinks = (s as any).projectIssueLinks ?? [];
+        const newIssueLinks = oldIssueLinks.filter(
+          (link: any) => !allOldProjectIds.includes(link.projectId)
+        );
+
+        if (newIssueLinks.length < oldIssueLinks.length) {
+          console.log('[strategyStore] projectIssueLinks filtered', {
+            before: oldIssueLinks.length,
+            after: newIssueLinks.length,
+            removed: oldIssueLinks.length - newIssueLinks.length,
+          });
+        }
+
+        // PHASE 2: Full clear of stage4Plans and executionPlanBaseline
+        const stage4PlansCountBefore = s.stage4Plans?.length ?? 0;
+        const hasExecutionPlanBaseline = s.executionPlanBaseline != null;
+
+        if (stage4PlansCountBefore > 0 || hasExecutionPlanBaseline) {
+          console.log('[strategyStore] invalidateStage4ArtifactsAfterCascadeRegeneration: FULL CLEAR', {
+            departmentId,
+            stage4PlansCountBefore,
+            hasExecutionPlanBaseline,
+          });
+
+          set((s) => ({
+            ...s,
+            stage4Plans: [],  // ← Full clear
+            executionPlanBaseline: {},  // ← Full clear
+            projectTargetImpacts: newTargetImpacts,
+            projectIssueLinks: newIssueLinks,
+            dirty: true,
+            version: (s.version ?? 0) + 1,
+          }));
+        } else {
+          // No stage4 data to clear, but still apply filtered targets/issues
+          set((s) => ({
+            ...s,
+            projectTargetImpacts: newTargetImpacts,
+            projectIssueLinks: newIssueLinks,
+            dirty: true,
+            version: (s.version ?? 0) + 1,
+          }));
+        }
+
+        console.log('[strategyStore] invalidateStage4ArtifactsAfterCascadeRegeneration: COMPLETE', {
+          departmentId,
+          timestamp: new Date().toISOString(),
+        });
+      },
+
       /** ValueAnalysis 再計算 */
       recomputeValueAnalysis: (source = 'local') => {
         const s = get();
@@ -3715,11 +3884,20 @@ export const useStrategyStore = create<StrategyState>()(
                 patchDeptCount: Array.isArray((patch as any)?.departments) ? (patch as any).departments.length : 0,
               });
 
-              // DB data (patch) が source of truth
-              // base は「補助」として、patch に無いフィールドだけ補う
+              // ★ STEP2 修正：dirty状態で危険な構造体だけ base 優先
+              // 理由：unsaved changes（削除したdepartment など）を保護
+              // 但し base が無効（undefined/null）なら patch を使う（復旧可能）
               const merged = {
-                ...base,          // ← 補助用（UI一時状態など）
-                ...patch,         // ← DB fresh data で上書き（FULL REPLACEMENT）
+                ...base,
+                ...patch,
+
+                // 危険な構造体だけ base 優先（有効値の時のみ）
+                departments: Array.isArray(base.departments) ? base.departments : patch.departments,
+                stage4Plans: Array.isArray(base.stage4Plans) ? base.stage4Plans : patch.stage4Plans,
+                executionPlanBaseline: base.executionPlanBaseline != null ? base.executionPlanBaseline : patch.executionPlanBaseline,
+                projectTargetImpacts: Array.isArray(base.projectTargetImpacts) ? base.projectTargetImpacts : patch.projectTargetImpacts,
+                projectIssueLinks: Array.isArray(base.projectIssueLinks) ? base.projectIssueLinks : patch.projectIssueLinks,
+
                 companyId: s.pendingCompanyId ?? s.companyId,
                 pendingCompanyId: undefined,
               };
