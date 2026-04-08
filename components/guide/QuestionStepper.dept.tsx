@@ -199,7 +199,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
 
     lastInitialAnswersKeyRef.current = initialAnswersKey;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialAnswersKey];
+  }, [initialAnswersKey]);
 
   // initialStep が変わったら反映（親が明示的にステップ指示する場合）
   useEffect(() => {
