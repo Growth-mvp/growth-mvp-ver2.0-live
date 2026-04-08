@@ -889,20 +889,82 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const revision =
     typeof safeRow?.revision === 'number' ? safeRow.revision : undefined;
 
+  // ===== Matching Helpers (ID/name/title-based, not index-based) =====
+  function matchDepartment(
+    rawDept: any,
+    normalizedDept: any
+  ): boolean {
+    if (!rawDept || !normalizedDept) return false;
+    // ID-first with name fallback (follows cascade pattern)
+    if (rawDept.id && normalizedDept.id) {
+      return rawDept.id === normalizedDept.id;
+    }
+    return rawDept.name === normalizedDept.name;
+  }
+
+  function matchProject(
+    rawProj: any,
+    normalizedProj: any
+  ): boolean {
+    if (!rawProj || !normalizedProj) return false;
+
+    // ID-based matching (strict)
+    if (rawProj.id && normalizedProj.id) {
+      return String(rawProj.id) === String(normalizedProj.id);
+    }
+
+    // Fallback: Title normalization
+    const normTitle = (t: string) =>
+      (t || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+    return normTitle(rawProj.title) === normTitle(normalizedProj.title);
+  }
+
   // ★ normalizeStrategyData の過程で消えてしまった okrsV2 を復元する
-  //    ※ 現状は配列indexで復元（将来的にはIDベース推奨）
+  //    ※ 修正：配列indexではなくname/titleベースで照合（安全優先）
   if (
     Array.isArray(rawDepartmentsWithOkrsV2) &&
     Array.isArray((normalized as any).departments)
   ) {
     const mergedDepartments = (normalized as any).departments.map(
-      (dept: any, di: number) => {
-        const rawDept = rawDepartmentsWithOkrsV2[di] ?? {};
+      (dept: any) => {
+        // ✅ Find matching raw department by ID/name (not by index)
+        const rawDept = rawDepartmentsWithOkrsV2.find((d: any) =>
+          matchDepartment(d, dept)
+        );
+
+        if (!rawDept) {
+          // No match found → keep normalized dept as-is (safe: no data injection)
+          if (process.env.NEXT_PUBLIC_DEBUG_OKRSV2_MERGE === '1') {
+            console.log('[okrsV2-restore] No dept match found:', {
+              normalizedName: dept.name,
+              normalizedId: dept.id,
+            });
+          }
+          return dept;
+        }
+
         const rawProjs = ensureArray(rawDept.projects);
         const normProjs = ensureArray(dept.projects);
 
-        const mergedProjs = normProjs.map((proj: any, pi: number) => {
-          const rawProj = rawProjs[pi] ?? {};
+        const mergedProjs = normProjs.map((proj: any) => {
+          // ✅ Find matching raw project by ID/title (not by index)
+          const rawProj = rawProjs.find((p: any) =>
+            matchProject(p, proj)
+          );
+
+          if (!rawProj) {
+            // No match found → keep normalized proj as-is (safe: no resurrection)
+            if (process.env.NEXT_PUBLIC_DEBUG_OKRSV2_MERGE === '1') {
+              console.log('[okrsV2-restore] No proj match found:', {
+                deptName: dept.name,
+                normalizedTitle: proj.title,
+                normalizedId: proj.id,
+              });
+            }
+            return proj;
+          }
+
           const rawOkrsV2 = ensureArray(rawProj.okrsV2);
           if (rawOkrsV2.length === 0) return proj;
 
@@ -915,6 +977,16 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
             proj?.title ?? rawProj?.title ?? ''
           );
           const projectedKpis = okrsToKpis(projectedOkrs);
+
+          if (process.env.NEXT_PUBLIC_DEBUG_OKRSV2_MERGE === '1') {
+            console.log('[okrsV2-restore] ✅ Merged okrsV2:', {
+              deptName: dept.name,
+              projTitle: proj.title,
+              okrsV2Count: rawOkrsV2.length,
+              matchedById: rawProj.id === proj.id,
+              matchedByTitle: (rawProj.title || '').trim().toLowerCase() === (proj.title || '').trim().toLowerCase(),
+            });
+          }
 
           return {
             ...proj,
