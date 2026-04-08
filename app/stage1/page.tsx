@@ -8,7 +8,6 @@ import { restoreWithAudit } from '@/utils/persist/restoreWithAudit';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import StrategyGuard from '@/app/StrategyGuard';
 
-import SaveStatusIndicator from '@/components/SaveStatusIndicator';
 import CompanyAndBusinessPanel from '@/components/stage1/CompanyAndBusinessPanel';
 import FinanceDataPanel from '@/components/stage1/FinanceDataPanel';
 import MetricsPanel from '@/components/stage1/MetricsPanel';
@@ -424,7 +423,6 @@ export default function Stage1Page() {
           </div>
 
           <div className="shrink-0 flex flex-col items-end gap-3">
-            <SaveStatusIndicator />
             {!saveFn && (
               <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
                 storeに保存関数が見つかりません。strategyStore.ts に saveToSupabase / saveStrategyData
