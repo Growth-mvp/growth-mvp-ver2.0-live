@@ -5,7 +5,6 @@ import StrategyGuard from '@/app/StrategyGuard';
 import { AlertCircle } from 'lucide-react';
 
 import { useAutoSave } from '@/hooks/useAutoSave';
-import SaveStatusIndicator from '@/components/SaveStatusIndicator';
 
 import { TabImpact } from '@/components/stage6/TabImpact';
 import { TabValueDashboard } from '@/components/stage6/TabValue.dashboard';
@@ -193,7 +192,6 @@ function Stage6PageContent() {
                 会社業績目標に対する進捗と、各プロジェクトの寄与状況を確認します。
               </p>
             </div>
-            <SaveStatusIndicator />
           </div>
         </header>
 
