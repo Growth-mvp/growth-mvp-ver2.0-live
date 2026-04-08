@@ -688,12 +688,26 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           setStrategyId(json.strategyId ?? null);
           lastProvisionForCompany.current = json.companyId ?? companyId;
         } else {
-          console.warn('[layout] provision response not ok:', { status: res.status, json });
+          // ★ FIX: 詳細ログ追加
+          console.warn('[layout] provision response not ok:', {
+            status: res.status,
+            statusText: res.statusText,
+            contentType: res.headers.get('content-type'),
+            json_ok: json?.ok,
+            json_code: json?.code,
+            json_message: json?.message,
+            json_details: json?.details,
+            fullJson: json,
+          });
           setStrategyId(null);
         }
       } catch (e) {
         if (!signal.aborted) {
-          console.warn('[layout] provision failed:', exposeError(e));
+          console.warn('[layout] provision failed:', {
+            error: exposeError(e),
+            errorMessage: (e as any)?.message,
+            errorCode: (e as any)?.code,
+          });
           setStrategyId(null);
         }
       } finally {
