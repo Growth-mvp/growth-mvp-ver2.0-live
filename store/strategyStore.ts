@@ -3084,11 +3084,42 @@ export const useStrategyStore = create<StrategyState>()(
       setDepartments: (deps: SafeDepartmentsArg) => {
         if (DEBUG) console.log('[strategyStore] setDepartments() called', deps);
 
-        set((s) => ({
-          departments: normalizeDepartmentsInput(deps, s.departments),
+        const current = get();
+        const normalized = normalizeDepartmentsInput(deps, current.departments);
+        const prev = Array.isArray(current.departments) ? current.departments : [];
+
+        // ★ FIX C: department 単位の差分判定
+        // 変わってない department は prev[i] をそのまま返す（参照保持で無限ループ防止）
+        const optimized = normalized.map((dept, i) => {
+          const prevDept = prev[i];
+          if (prevDept && jsonEq(prevDept, dept)) {
+            // 差分がない → 前の参照をそのまま返す
+            if (DEBUG) console.log('[strategyStore][setDepartments] dept same', {
+              index: i,
+              deptName: dept.name,
+            });
+            return prevDept;
+          }
+          // 差分がある or 新規 → 新しい参照を使う
+          if (DEBUG) console.log('[strategyStore][setDepartments] dept changed', {
+            index: i,
+            deptName: dept.name,
+          });
+          return dept;
+        });
+
+        // ★ 全件同値なら set を呼ばない（state 参照変わらず → saveStrategyData 起動なし）
+        if (optimized.every((dept, i) => dept === prev[i])) {
+          if (DEBUG) console.log('[strategyStore] setDepartments: all depts unchanged, skip set call');
+          return;
+        }
+
+        if (DEBUG) console.log('[strategyStore] setDepartments: departments changed, updating state');
+        set({
+          departments: optimized,
           dirty: true,
-          version: (s.version ?? 0) + 1,
-        }));
+          version: (current.version ?? 0) + 1,
+        });
 
         (async () => {
           if (shouldBlockStage4DepartmentsImmediateSave('setDepartments')) {
@@ -3119,10 +3150,40 @@ export const useStrategyStore = create<StrategyState>()(
       updateDepartments: (updater: (prev: Department[]) => Department[]) => {
         if (DEBUG) console.log('[strategyStore] updateDepartments() called');
 
-        set((s) => {
-          const prev = Array.isArray(s.departments) ? s.departments : [];
-          const next = updater([...prev]);
-          return { departments: normalizeDepartmentsInput(next, prev), dirty: true, version: (s.version ?? 0) + 1 };
+        const current = get();
+        const prev = Array.isArray(current.departments) ? current.departments : [];
+        const next = updater([...prev]);
+        const normalized = normalizeDepartmentsInput(next, prev);
+
+        // ★ FIX C: department単位の差分判定（setDepartments と同じ）
+        // 変わってない department は prev[i] をそのまま返す（参照保持で無限ループ防止）
+        const optimized = normalized.map((dept, i) => {
+          const prevDept = prev[i];
+          if (prevDept && jsonEq(prevDept, dept)) {
+            if (DEBUG) console.log('[strategyStore][updateDepartments] dept same', {
+              index: i,
+              deptName: dept.name,
+            });
+            return prevDept;
+          }
+          if (DEBUG) console.log('[strategyStore][updateDepartments] dept changed', {
+            index: i,
+            deptName: dept.name,
+          });
+          return dept;
+        });
+
+        // ★ 全件同値なら set を呼ばない（state 参照変わらず → saveStrategyData 起動なし）
+        if (optimized.every((dept, i) => dept === prev[i])) {
+          if (DEBUG) console.log('[strategyStore] updateDepartments: all depts unchanged, skip set call');
+          return;
+        }
+
+        if (DEBUG) console.log('[strategyStore] updateDepartments: departments changed, updating state');
+        set({
+          departments: optimized,
+          dirty: true,
+          version: (current.version ?? 0) + 1,
         });
 
         (async () => {
