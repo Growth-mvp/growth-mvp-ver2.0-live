@@ -2068,11 +2068,48 @@ useEffect(() => {
 }, [laneCacheKey]);
 
   /* ===== 部門配列更新ヘルパー ===== */
+  // ★ FIX A: pushToStore で department 単位の差分判定（参照保持）
   const pushToStore = useCallback(
     (next: Department[] | ((prev: Department[]) => Department[])) => {
       const prev = ((useStrategyStore.getState().departments as Department[] | undefined) ?? []) as Department[];
       const resolved = typeof next === 'function' ? (next as (p: Department[]) => Department[])(prev) : next;
-      if (!jsonEq(prev, resolved)) setDepartmentsInStore?.(resolved);
+
+      // ★ 最重要: department単位で差分判定
+      // 変わってない部門は prev[i] をそのまま返す（参照を保持）
+      const optimized = resolved.map((dept, i) => {
+        const prevDept = prev[i];
+        if (prevDept && jsonEq(prevDept, dept)) {
+          // 差分がない → 前の参照をそのまま返す
+          console.log('[cascade:pushToStore:dept-compare]', {
+            index: i,
+            deptName: dept.name,
+            same: true,
+          });
+          return prevDept;
+        }
+        // 差分がある or 新規 → 新しい参照を使う
+        console.log('[cascade:pushToStore:dept-compare]', {
+          index: i,
+          deptName: dept.name,
+          same: false,
+        });
+        return dept;
+      });
+
+      // ★ optimized 配列全体が prev と同じなら setDepartmentsInStore を呼ばない
+      if (!jsonEq(prev, optimized)) {
+        console.log('[cascade:pushToStore:call-setDepartments]', {
+          changed: true,
+          prevLen: prev.length,
+          nextLen: optimized.length,
+        });
+        setDepartmentsInStore?.(optimized);
+      } else {
+        console.log('[cascade:pushToStore:skip-setDepartments]', {
+          changed: false,
+          len: prev.length,
+        });
+      }
     },
     [setDepartmentsInStore],
   );
@@ -3020,6 +3057,46 @@ useEffect(() => {
     [departments],
   );
 
+  // ★ FIX B: トップレベルの useCallback で DepartmentQuestionStepper の onChange を作成
+  // map 内で毎回新しい関数を作らない（参照を安定化）
+  const handleDeptQuestionChange = useCallback((deptIndex: number, answers: DeptAnswerStep[]) => {
+    if (!canEditDept() || isHydrating) return;
+
+    const dept = departments[deptIndex];
+    if (!dept) return;
+
+    const nextSteps = toStoreSteps(answers);
+    const currentStoreSteps = dept.answers2?.[0]?.steps ?? [];
+
+    console.log('[STAGE3-deptQuestion:onChange]', {
+      changed: !jsonEq(nextSteps, currentStoreSteps),
+      deptIndex,
+      deptName: dept.name,
+      nextStepsLen: nextSteps.length,
+    });
+
+    if (jsonEq(nextSteps, currentStoreSteps)) {
+      console.log('[STAGE3-deptQuestion:onChange-skip-same-steps]', {
+        deptIndex,
+        deptName: dept.name,
+      });
+      return;
+    }
+
+    pushToStore((prev) => {
+      const list = [...prev];
+      const d = list[deptIndex];
+      if (!d) return prev;
+
+      const updated: Department = {
+        ...d,
+        answers2: [{ chapterIndex: deptIndex, chapterTitle: d.name, steps: nextSteps }],
+      };
+      list[deptIndex] = updated;
+      return list;
+    });
+  }, [departments, isHydrating, canEditDept, pushToStore]);
+
   /* ===== JSX ===== */
   return (
     <div className="mx-auto max-w-6xl px-4 md:px-6 py-6 space-y-6">
@@ -3459,22 +3536,8 @@ useEffect(() => {
                   okrs={[]}
                   initialStep={1}
                   initialAnswers={answers}
-                  onChange={({ answers }) => {
-                    if (!editableDept || isHydrating) return;
-                    const nextSteps = toStoreSteps(answers);
-                    if (jsonEq(nextSteps, currentStoreSteps)) return;
-
-                    pushToStore((prev) => {
-                      const list = [...prev];
-                      const d = list[index];
-                      if (!d) return prev;
-                      const updated: Department = {
-                        ...d,
-                        answers2: [{ chapterIndex: index, chapterTitle: d.name, steps: nextSteps }],
-                      };
-                      list[index] = updated;
-                      return list;
-                    });
+                  onChange={({ answers: changedAnswers }) => {
+                    handleDeptQuestionChange(index, changedAnswers);
                   }}
                 />
 
