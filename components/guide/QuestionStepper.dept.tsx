@@ -147,15 +147,36 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     [answers]
   );
 
+  // ★ initialAnswers を安定化（props 経由で毎回新しい参照が来るのを防ぐ）
+  const initialAnswersKey = useMemo(
+    () => JSON.stringify((initialAnswers ?? []).map(a => ({ n: a.stepNumber, q: a.question, a: a.answer }))),
+    // 実質的な内容が変わったかだけで判定（参照ではなく値で）
+    [initialAnswers?.length, initialAnswers?.map(a => `${a?.stepNumber}:${a?.question}:${a?.answer}`).join('|')]
+  );
+
   /* =========================================
-   * props → state 同期
+   * props → state 同期（差分発火のみ）
    * ========================================= */
+  const lastInitialAnswersKeyRef = useRef<string | null>(null);
   useEffect(() => {
     const next = (initialAnswers ?? [])
       .filter(a => a && a.stepNumber && a.question != null)
       .sort((a, b) => a.stepNumber - b.stepNumber) as DeptAnswerStep[];
 
+    // ★ 同値判定：lastInitialAnswersKeyRef と比較
+    if (lastInitialAnswersKeyRef.current === initialAnswersKey) {
+      // 内容は変わっていないので何もしない
+      return;
+    }
+
+    // 内容が変わったので state を同期
     if (!answersEqual(answers, next)) {
+      console.log('[STAGE3-stepper:initialAnswers-sync]', {
+        changed: true,
+        deptName: departmentName,
+        answersLen: next?.length,
+        initialAnswersKey,
+      });
       setAnswers(next);
       const exist = next.find(a => a.stepNumber === step);
       if (exist) {
@@ -175,8 +196,10 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
         setShowHint(false);
       }
     }
+
+    lastInitialAnswersKeyRef.current = initialAnswersKey;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(initialAnswers)]);
+  }, [initialAnswersKey];
 
   // initialStep が変わったら反映（親が明示的にステップ指示する場合）
   useEffect(() => {
@@ -307,10 +330,20 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
   ]);
 
   /* =========================================
-   * 親へ進捗通知
+   * 親へ進捗通知（onChange の参照を安定化して無限ループを防止）
    * ========================================= */
+  // ★ FIX: onChange を useCallback でメモ化し、参照が安定するようにする
+  const notifyParent = useCallback((currentAnswers: DeptAnswerStep[], currentStep: StepNumber) => {
+    if (!onChange) return;
+    try {
+      onChange({ answers: currentAnswers, currentStep });
+    } catch (e) {
+      console.error('[STAGE3-stepper] notifyParent error:', e);
+    }
+  }, [onChange]);
+
   useEffect(() => {
-    if (!onChange || !canEdit) return;
+    if (!notifyParent || !canEdit) return;
     if (isFirstMountRef.current) {
       isFirstMountRef.current = false;
       lastNotifiedRef.current = answers;
@@ -318,11 +351,22 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       return;
     }
     const last = lastNotifiedRef.current ?? [];
-    if (answersEqual(last, answers) && lastStepNotifiedRef.current === step) return;
+    if (answersEqual(last, answers) && lastStepNotifiedRef.current === step) {
+      console.log('[STAGE3-stepper:onChange-skip]', {
+        same: true,
+        deptName: departmentName,
+      });
+      return;
+    }
+    console.log('[STAGE3-stepper:onChange]', {
+      changed: true,
+      deptName: departmentName,
+      answersLen: answers?.length,
+    });
     lastNotifiedRef.current = answers;
     lastStepNotifiedRef.current = step;
-    onChange({ answers, currentStep: step });
-  }, [answers, step, onChange, canEdit]);
+    notifyParent(answers, step);
+  }, [answers, step, notifyParent, canEdit, departmentName]);
 
   /* =========================================
    * アンマウント直前にフラッシュ通知（編集可のみ）
