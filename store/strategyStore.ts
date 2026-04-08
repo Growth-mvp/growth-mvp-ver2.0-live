@@ -355,6 +355,7 @@ export type StrategyState = {
 
   setHydrated: (revOrBool?: boolean | number, hash?: string | undefined) => void;
   setHydrating: (b: boolean) => void;
+  setHydratingFlag: (isHydrating: boolean, reason: string) => void;
   setServerSnapshotHash: (hash?: string) => void;
 
   setRevision: (rev?: number) => void;
@@ -1254,6 +1255,7 @@ const emptyData: StrategyState = {
   resetAll: () => {},
   setHydrated: () => {},
   setHydrating: () => {},
+  setHydratingFlag: () => {},
   setServerSnapshotHash: () => {},
   setRevision: () => {},
   setStrategyId: () => {},
@@ -1808,6 +1810,32 @@ export const useStrategyStore = create<StrategyState>()(
         }),
 
       setHydrating: (b) => set((s) => ({ ...s, boot: { ...s.boot, isHydrating: b } })),
+
+      /** ★ CRITICAL: isHydrating フラグ更新専用（isHydrated は維持） */
+      setHydratingFlag: (isHydrating: boolean, reason: string) => {
+        set((s) => {
+          const before = s.boot?.isHydrating;
+          const after = isHydrating;
+          if (before === after) {
+            if (DEBUG) console.log('[flags:set] boot.isHydrating (no change)', { before, after, reason });
+            return s;
+          }
+          console.log('[flags:set] boot.isHydrating', {
+            before,
+            after,
+            reason,
+            isHydrated: s.boot?.isHydrated,
+            timestamp: new Date().toISOString(),
+          });
+          return {
+            boot: {
+              ...s.boot,
+              isHydrating,
+            },
+          };
+        });
+      },
+
       setServerSnapshotHash: (hash) => set({ lastServerSnapshot: hash }),
 
       setRevision: (rev) => set({ revision: rev }),
@@ -2340,7 +2368,7 @@ export const useStrategyStore = create<StrategyState>()(
               ...(plan.current?.projects ?? []),
             ]
               .map((p: any) => resolveProjectId(p, departmentId))
-              .filter(Boolean)
+              .filter((projId): projId is string => typeof projId === 'string' && projId.length > 0)
           );
 
           // allOldProjectIds に含まれるプロジェクトがあれば削除対象
@@ -3249,23 +3277,38 @@ export const useStrategyStore = create<StrategyState>()(
 
           // ★ force: true のときは hydrating をスキップ（無反応を防ぐ）
           // force: false のときはガード
-          // ★ FIX: skip-flags をログ出力
+          // ★ FIX: skip-flags をログ出力 + 詳細な理由
+          const willSkip = !force && (state0.__isFetchingFromServer || state0.boot?.isHydrating);
+          const skipReasons: string[] = [];
+          if (state0.__isFetchingFromServer) skipReasons.push('isFetching=true');
+          if (state0.boot?.isHydrating) skipReasons.push('hydrating=true');
+          if (state0.isRestoring) skipReasons.push('isRestoring=true (但し restoreReady check前)');
+          if (!state0.hydrated) skipReasons.push('hydrated=false (但し restoreReady check前)');
+          if (!state0.restoreReady) skipReasons.push('restoreReady=false (2つ目のguard)');
+
           console.log('[saveStrategyData:skip-flags]', {
-            hydrating: state0.boot?.isHydrating,
+            boot: {
+              isHydrating: state0.boot?.isHydrating,
+              isHydrated: state0.boot?.isHydrated,
+            },
             isFetching: state0.__isFetchingFromServer,
             restoring: state0.isRestoring,
             hydrated: state0.hydrated,
             restoreReady: state0.restoreReady,
             reason,
             force,
-            willSkip: !force && (state0.__isFetchingFromServer || state0.boot?.isHydrating),
+            willSkip,
+            skipReasons,
+            timestamp: new Date().toISOString(),
           });
 
-          if (!force && (state0.__isFetchingFromServer || state0.boot?.isHydrating)) {
-            console.log('[saveStrategyData:skipped] skip while fetching/hydrating (not forced)', {
+          if (willSkip) {
+            console.warn('[saveStrategyData:SKIPPED] skip while fetching/hydrating (not forced)', {
               reason,
               hydrating: state0.boot?.isHydrating,
               isFetching: state0.__isFetchingFromServer,
+              skipReasons,
+              timestamp: new Date().toISOString(),
             });
             return { ok: false, skipped: true, reason: 'fetching_or_hydrating' };
           }
@@ -3722,32 +3765,39 @@ export const useStrategyStore = create<StrategyState>()(
 
         const authed = await isSessionUsable();
         if (!companyId || !authed) {
-          console.log('[strategyStore][refetchFromServer] ❌ auth failure, __isFetchingFromServer: false に設定', {
+          console.warn('[refetchFromServer:auth-failure] ❌ Authentication or companyId check failed', {
             timestamp,
             hasCompanyId: !!companyId,
             authed,
           });
           set((s) => ({
             ...s,
-            boot: { ...s.boot, isHydrating: true, isHydrated: false },
             __isFetchingFromServer: false,
             loaded: false,
-            /* ★ TASK 14: restore フラグをクリア（認証失敗は回復不可） */
             isRestoring: false,
             restoreReady: false,
           }));
+          // ★ isHydrating だけを確実にリセット
+          const authReason: string = !authed ? 'refetchFromServer:auth-failure' : 'refetchFromServer:no-companyId';
+          get().setHydratingFlag(false, authReason);
           scheduleRefetchRetry(1500);
           throw new Error('会社IDまたは認証情報が見つかりません');
         }
 
         if (get()._loadingRefetch) {
-          console.log('[strategyStore][refetchFromServer] already loading, early return', { timestamp });
+          console.log('[refetchFromServer:early-return] already loading, skip', { timestamp });
           return;
         }
-        console.log('[strategyStore][refetchFromServer] 🔄 フェッチ開始', { companyId, timestamp });
+
+        console.log('[refetchFromServer:start] 🔄 Fetch started', {
+          companyId,
+          timestamp,
+          currentHydrating: get().boot?.isHydrating,
+        });
         /* ★ TASK 14: restore フラグを開始（DB restore 中を示す） */
         set({ _loadingRefetch: true, __isFetchingFromServer: true, isRestoring: true });
         set((s) => ({ ...s, boot: { ...s.boot, isHydrating: true } }));
+        if (DEBUG) console.log('[flags:set] boot.isHydrating=true', { timestamp });
 
         try {
           if (DEBUG) {
@@ -3806,7 +3856,7 @@ export const useStrategyStore = create<StrategyState>()(
               errorStatus === 503 ||
               errorStatus === 504;
 
-            console.warn('[strategyStore][refetchFromServer] ❌ エラー, __isFetchingFromServer: false に設定', {
+            console.warn('[refetchFromServer:error] ❌ Data fetch failed', {
               errorCode,
               errorStatus,
               isTransientError,
@@ -3816,14 +3866,15 @@ export const useStrategyStore = create<StrategyState>()(
 
             set((s) => ({
               ...s,
-              boot: { isHydrating: true, isHydrated: false },
               __isFetchingFromServer: false,
               loaded: false,
               __lastServerError: isTransientError ? undefined : error,
-              /* ★ TASK 14: restore フラグをクリア（エラーは回復待ち） */
               isRestoring: false,
               restoreReady: false,
             }));
+            // ★ isHydrating だけを確実にリセット
+            const errorReason = `refetchFromServer:error-${errorCode || 'unknown'}`;
+            get().setHydratingFlag(false, errorReason);
 
             if (isTransientError) scheduleRefetchRetry(2000);
             const errMsg = (error as any)?.message || (error as any)?.code || 'データ取得に失敗しました';
@@ -3848,6 +3899,9 @@ export const useStrategyStore = create<StrategyState>()(
             } catch (e) {
               const err = e instanceof Error ? e : new Error(String(e));
               set(() => ({ __lastServerError: err }));
+              // ★ エラー時に isHydrating をリセット（finally で再度リセットされるが、念のため）
+              const dbRowInitReason: string = 'refetchFromServer:dbrow-init-error';
+              get().setHydratingFlag(false, dbRowInitReason);
               throw err;
             }
           }
@@ -3997,6 +4051,10 @@ export const useStrategyStore = create<StrategyState>()(
 
             set({ loaded: true });
             get().setHydrated(rev);
+            console.log('[refetchFromServer:done] ✅ Fetch and restore complete (wasDirty=true)', {
+              timestamp,
+              revision: rev,
+            });
             /* ★ TASK 14: restore 完了フラグを設定（DB restore 完了） */
             set({
               restoreReady: true,
@@ -4074,6 +4132,10 @@ export const useStrategyStore = create<StrategyState>()(
               /* ★ TASK 3: Track when server sync completed for post-restore cooldown */
               lastServerSyncAt: Date.now(),
             });
+            console.log('[refetchFromServer:done] ✅ Fetch and restore complete (wasDirty=false)', {
+              timestamp,
+              revision: rev,
+            });
 
             get().setHydrated(rev, hash);
 
@@ -4112,9 +4174,15 @@ export const useStrategyStore = create<StrategyState>()(
             }, 0);
           }
         } finally {
-          /* ★ TASK 14: 万が一例外が出た場合でも isRestoring をリセット */
-          console.log('[strategyStore][refetchFromServer] ✅ 完了, __isFetchingFromServer: false に設定', { timestamp });
-          set({ _loadingRefetch: false, __isFetchingFromServer: false, isRestoring: false });
+          /* ★ CRITICAL: 全経路で isHydrating を確実にリセット */
+          console.log('[refetchFromServer:finally] cleanup all flags', { timestamp });
+          set({
+            _loadingRefetch: false,
+            __isFetchingFromServer: false,
+            isRestoring: false,
+          });
+          // ★ isHydrating だけを確実にリセット（isHydrated は維持）
+          get().setHydratingFlag(false, 'refetchFromServer:finally');
         }
       },
 
