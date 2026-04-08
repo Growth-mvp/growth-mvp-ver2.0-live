@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { useUserStore } from '@/store/userStore';
 import { useAccess } from '@/utils/access';
 import LogoutButton from './LogoutButton';
+import GlobalSidebarSaveStatus from './GlobalSidebarSaveStatus';
 import {
   FileText,
   BookOpen,
@@ -186,6 +187,8 @@ export default function Sidebar() {
             />
           </nav>
         </div>
+
+        <GlobalSidebarSaveStatus />
 
         <footer className={`shrink-0 border-t border-gray-200 px-4 py-3 text-gray-500 ${ITEM_TEXT_CLASS}`}>
           © 2025 GROWTH Platform
