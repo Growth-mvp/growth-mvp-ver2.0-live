@@ -146,11 +146,21 @@ async function ensureStrategySeed(
 
   if ((ins as any).error) {
     const code = (ins as any).error.code;
+    console.error('[ensureStrategySeed] insert_error', {
+      userId,
+      companyId,
+      error_code: code,
+      error_message: (ins as any).error?.message ?? String((ins as any).error),
+      error_details: (ins as any).error?.details ?? undefined,
+    });
     if (code === '23505' || code === '409') {
       // 重複：改めて company_id で取得
       const reC = await findStrategyByCompany(admin, companyId);
       const sidC = !reC.error ? pickId(reC.data) : null;
-      if (sidC) return { ok: true, created: false, strategyId: sidC };
+      if (sidC) {
+        console.info('[ensureStrategySeed] duplicate_recovered_by_id', { companyId, strategyId: sidC });
+        return { ok: true, created: false, strategyId: sidC };
+      }
       return { ok: false, error: (ins as any).error };
     }
     return { ok: false, error: (ins as any).error };
@@ -391,7 +401,24 @@ export async function POST(req: NextRequest) {
     }, [cookie]);
 
   } catch (e: any) {
-    console.error('[provision] internal_error', e);
-    return json(500, { ok: false, code: 'internal_error', message: e?.message ?? String(e) });
+    console.error('[provision] internal_error', {
+      message: e?.message ?? String(e),
+      stack: e?.stack ?? undefined,
+      name: e?.name ?? undefined,
+      code: e?.code ?? undefined,
+      status: e?.status ?? undefined,
+      supabase_code: e?.error?.code ?? undefined,
+      supabase_message: e?.error?.message ?? undefined,
+    });
+    return json(500, {
+      ok: false,
+      code: 'internal_error',
+      message: e?.message ?? String(e),
+      details: {
+        error_name: e?.name ?? 'unknown',
+        error_code: e?.code ?? undefined,
+        supabase_code: e?.error?.code ?? undefined,
+      }
+    });
   }
 }
