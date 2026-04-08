@@ -29,7 +29,6 @@ import StrategyGuard from '@/app/StrategyGuard';
 import { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useAccess } from '@/utils/access';
-import SaveStatusIndicator from '@/components/SaveStatusIndicator';
 import DepartmentQuestionStepper, {
   type DeptAnswerStep,
   type StepNumber,
@@ -2908,121 +2907,16 @@ useEffect(() => {
               // non-blocking: 継続 local cleanup
             }
 
-            // === Step 2: Local state cleanup ===
-            const stateBeforeLocalCleanup = useStrategyStore.getState();
-
-            // 2a. stage4Plans: departmentId + project IDs で filter
-            // ★ 修正：title ベース判定 → ID ベース判定に変更
-            // allOldProjectIds に含まれる project を持つ plan は削除対象
-            const oldStage4Plans = stateBeforeLocalCleanup.stage4Plans ?? [];
-            const newStage4Plans = oldStage4Plans.filter((plan: any) => {
-              if (plan.departmentId !== dept.name) return true; // 他部門は保持
-
-              // baseline/current の projects を ID に変換して確認
-              const planProjectIds = new Set(
-                [
-                  ...(plan.baseline?.projects ?? []),
-                  ...(plan.current?.projects ?? []),
-                ]
-                  .map((p: any) => resolveProjectId(p, dept.name))  // ★ ID 化
-                  .filter(Boolean)
-              );
-
-              // allOldProjectIds に含まれるプロジェクトがあれば削除対象（return false）
-              for (const projId of planProjectIds) {
-                if (allOldProjectIds.includes(projId)) return false;  // ★ 修正：除外判定
-              }
-
-              return true; // 古いプロジェクトがなければ保持
-            });
-
-            if (newStage4Plans.length < oldStage4Plans.length) {
-              stateBeforeLocalCleanup.setStage4Plans?.(newStage4Plans);
-              console.log('[diag][cascade:regen:stage4Plans-filter]', {
-                dept: dept.name,
-                action: 'stage4Plans-filtered',
-                before: oldStage4Plans.length,
-                after: newStage4Plans.length,
-                removed: oldStage4Plans.length - newStage4Plans.length,
-                timestamp: new Date().toISOString(),
-              });
-            }
-
-            // 2b. executionPlanBaseline.snapshot: projects[] を refresh
-            // ★ 修正：title ベース判定 → ID ベース判定に変更
-            // allOldProjectIds に含まれる project を削除する
-            const oldBaseline = stateBeforeLocalCleanup.executionPlanBaseline;
-            if (oldBaseline?.snapshot) {
-              const newSnapshot = oldBaseline.snapshot.map((d: any) => {
-                if (d.name !== dept.name) return d; // 他部門は保持
-
-                // projects を ID でフィルタ（allOldProjectIds に含まれるものを除外）
-                const filteredProjects = (d.projects ?? []).filter((p: any) => {
-                  const projId = resolveProjectId(p, dept.name);  // ★ ID 化
-                  return projId && !allOldProjectIds.includes(projId);  // ★ 修正：除外判定
-                });
-
-                return { ...d, projects: filteredProjects };
-              });
-
-              // 対象部門の projects 件数が実際に減ったかチェック
-              const oldDeptProjects = oldBaseline.snapshot?.find(
-                (d: any) => d.name === dept.name
-              )?.projects ?? [];
-              const newDeptProjects = newSnapshot?.find(
-                (d: any) => d.name === dept.name
-              )?.projects ?? [];
-
-              if (newDeptProjects.length < oldDeptProjects.length) {
-                stateBeforeLocalCleanup.setExecutionPlanBaseline?.({
-                  ...oldBaseline,
-                  snapshot: newSnapshot,
-                });
-                console.log('[diag][cascade:regen:baseline-filter]', {
-                  dept: dept.name,
-                  action: 'executionPlanBaseline-snapshot-refreshed',
-                  before: oldDeptProjects.length,
-                  after: newDeptProjects.length,
-                  removed: oldDeptProjects.length - newDeptProjects.length,
-                  timestamp: new Date().toISOString(),
-                });
-              }
-            }
-
-            // 2c. projectTargetImpacts: projectId filter
-            const oldTargetImpacts = stateBeforeLocalCleanup.projectTargetImpacts ?? [];
-            const newTargetImpacts = oldTargetImpacts.filter(
-              (impact: any) => !allOldProjectIds.includes(impact.projectId)  // ★ 修正：allOldProjectIds
-            );
-
-            if (newTargetImpacts.length < oldTargetImpacts.length) {
-              stateBeforeLocalCleanup.setProjectTargetImpacts?.(newTargetImpacts);
-              console.log('[diag][cascade:regen:cleanup]', {
-                dept: dept.name,
-                action: 'projectTargetImpacts-filtered',
-                before: oldTargetImpacts.length,
-                after: newTargetImpacts.length,
-                removed: oldTargetImpacts.length - newTargetImpacts.length,
-                timestamp: new Date().toISOString(),
-              });
-            }
-
-            // 2d. projectIssueLinks: projectId filter
-            const oldIssueLinks = (stateBeforeLocalCleanup as any).projectIssueLinks ?? [];
-            const newIssueLinks = oldIssueLinks.filter(
-              (link: any) => !allOldProjectIds.includes(link.projectId)  // ★ 修正：allOldProjectIds
-            );
-
-            if (newIssueLinks.length < oldIssueLinks.length) {
-              (stateBeforeLocalCleanup as any).setProjectIssueLinks?.(newIssueLinks);
-              console.log('[diag][cascade:regen:cleanup]', {
-                dept: dept.name,
-                action: 'projectIssueLinks-filtered',
-                before: oldIssueLinks.length,
-                after: newIssueLinks.length,
-                removed: oldIssueLinks.length - newIssueLinks.length,
-                timestamp: new Date().toISOString(),
-              });
+            // === Step 2: Invalidate STAGE4 artifacts via store action ===
+            // ★ STEP 3 修正：filtering + full clear を store action に統一
+            // 責務明確化：「無効化」は store action の責務
+            if (allOldProjectIds.length > 0) {
+              useStrategyStore
+                .getState()
+                .invalidateStage4ArtifactsAfterCascadeRegeneration?.(
+                  dept.name,
+                  allOldProjectIds
+                );
             }
           } else {
             // ★ TRACE POINT 8: No old projects
@@ -3051,29 +2945,13 @@ useEffect(() => {
         // non-blocking: cleanup error は show notice しない
       }
 
-      // ★ TRACE POINT 10: Cleanup block complete
-      console.log('[diag][stage3:regen:cleanup-complete]', {
+      // ★ TRACE POINT 10: Invalidation and cleanup complete
+      // (invalidateStage4ArtifactsAfterCascadeRegeneration already called via store action)
+      console.log('[diag][stage3:regen:invalidate-complete]', {
         deptName: dept.name,
         deptIndex: index,
         timestamp: new Date().toISOString(),
       });
-
-      // ★ TASK 5: 再生成直後に stage4Plans と executionPlanBaseline を無効化
-      const stateBeforeInvalidate = useStrategyStore.getState();
-      const stage4PlansCountBefore = stateBeforeInvalidate.stage4Plans?.length ?? 0;
-      const hasExecutionPlanBaseline = stateBeforeInvalidate.executionPlanBaseline != null;
-
-      if (stage4PlansCountBefore > 0 || hasExecutionPlanBaseline) {
-        console.log('[diag][stage3:regen:invalidate] stage4Plans/executionPlanBaseline をクリア', {
-          stage4PlansCountBefore,
-          hasExecutionPlanBaseline,
-          dept: dept.name,
-          deptProjects: afterSetDepts?.find((d) => d.name === dept.name)?.projects?.length ?? 0,
-        });
-        stateBeforeInvalidate.setStage4Plans?.([]);
-        // ★ executionPlanBaseline をリセット（空オブジェクト）
-        stateBeforeInvalidate.setExecutionPlanBaseline?.({});
-      }
 
       // ★TASK A: 生成完了後に必ず1回保存（保存抑止解除前）
       if (saveNow) {
@@ -3151,9 +3029,6 @@ useEffect(() => {
           <p className="text-zinc-600 text-sm">
             経営ストーリーを基に、各部門のミッション・プロジェクト案・KPI案を全体最適を図りながら、部門長・マネージャー層で議論し、明確化します。
           </p>
-        </div>
-        <div className="shrink-0">
-          <SaveStatusIndicator />
         </div>
       </header>
 
