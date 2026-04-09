@@ -49,7 +49,7 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.06 }}
               className="mt-4 text-[21px] font-medium tracking-[0.01em] text-neutral-800 sm:text-[27px] lg:text-[31px] dark:text-neutral-100"
             >
-              GROWTH ｜ 戦略実行SaaS
+              GROWTH ｜ 戦略実行プラットフォーム
             </motion.div>
 
             <motion.p
@@ -58,7 +58,7 @@ export default function Home() {
               transition={{ duration: 0.68, delay: 0.12 }}
               className="mx-auto mt-4 max-w-3xl text-[15px] leading-7 text-neutral-600 sm:text-[16px] dark:text-neutral-300"
             >
-              やるべきことを絞り、全員で取り組む経営プラットフォーム
+              やるべきことを絞り、全員で動く経営の仕組み
             </motion.p>
 
             <motion.div
