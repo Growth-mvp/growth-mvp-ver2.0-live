@@ -170,13 +170,6 @@ export default function Stage4Page() {
         );
       }
 
-      console.log('[diag][stage4:restore-source]', {
-        source: 'strategy_data.stage4Plans',
-        totalPlans: stage4Plans.length,
-        departmentCounts: Object.fromEntries(plansByDept),
-        timestamp: new Date().toISOString(),
-      });
-
       setLocalPlans(stage4Plans);
     }
   }, [stage4Plans]);
@@ -196,15 +189,6 @@ export default function Stage4Page() {
     );
 
     if (orphanPlans.length > 0) {
-      // orphan cleanup ログ（毎回出力は避ける）
-      if (Math.random() < 0.3) {
-        console.log('[diag][stage4:orphan-plans:cleanup]', {
-          orphanCount: orphanPlans.length,
-          orphanDeptIds: orphanPlans.map((p) => p.departmentId),
-          validDeptIds: Array.from(validDeptIds),
-        });
-      }
-
       // ★ FIX: orphan 計画を削除（localPlans のみ、setStage4Plans は呼ばない）
       // setStage4Plans を呼ぶと autosave -> restore -> departments update -> effect re-trigger
       // というループが発生するため、localPlans のみ更新
@@ -230,11 +214,6 @@ export default function Stage4Page() {
   useEffect(() => {
     if (!departments || departments.length === 0) {
       if (selectedDeptId !== null) {
-        console.log('[diag][selection:repair]', {
-          issue: 'departments_empty',
-          oldSelectedDeptId: selectedDeptId,
-          action: 'clearing_selection',
-        });
         setSelectedDeptId(null);
       }
       return;
@@ -245,12 +224,6 @@ export default function Stage4Page() {
     );
 
     if (selectedDeptId && !validDeptIds.has(selectedDeptId)) {
-      console.log('[diag][selection:repair]', {
-        issue: 'orphan_selectedDeptId',
-        oldSelectedDeptId: selectedDeptId,
-        validDeptIds: Array.from(validDeptIds),
-        action: 'selecting_first_valid_dept',
-      });
       // 最初の有効な部門を選択
       const firstValidDeptId = String(
         (departments[0] as Department).id || (departments[0] as Department).name
@@ -308,13 +281,6 @@ export default function Stage4Page() {
 
     // ★ 修正2: hash が変わった場合は baseline を再初期化（STAGE3再生成検知）
     if (existingPlan && existingPlan.deptHashAtCreation !== deptHash) {
-      console.log('[diag][stage4:baseline:hash-mismatch]', {
-        deptId,
-        oldHash: existingPlan.deptHashAtCreation,
-        newHash: deptHash,
-        existingEdits: existingPlan.current.projects?.length ?? 0,
-      });
-
       const newBaseline = createBaselineFromStage3(selectedDept);
       const updatedPlan: Stage4Plan = {
         ...existingPlan,
@@ -370,24 +336,10 @@ export default function Stage4Page() {
   // current編集
   const updateCurrent = useCallback(
     (deptId: string, newCurrent: Stage4Current) => {
-      // ★ KPI削除時の詳細ログ
-      const totalKpiCount = newCurrent.projects.reduce((sum, p) => sum + Object.keys((p as any).kpiTargets || {}).length, 0);
-      console.log('[diag][stage4:kpi-delete:updateCurrent]', {
-        deptId,
-        projectCount: newCurrent.projects.length,
-        totalKpiCount,
-        projectTitles: newCurrent.projects.map(p => p.title),
-      });
-
       setLocalPlans((prev) => {
         const updated = prev.map((plan) =>
           plan.departmentId === deptId ? { ...plan, current: newCurrent, updatedAt: new Date().toISOString() } : plan
         );
-        console.log('[diag][stage4:kpi-delete:setStage4Plans]', {
-          deptId,
-          updatedPlanCount: updated.length,
-          targetPlan: updated.find(p => p.departmentId === deptId),
-        });
         setStage4Plans(updated);
         return updated;
       });
