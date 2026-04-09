@@ -600,9 +600,36 @@ function ExecPanel(props: {
 
       // 🔥 Store に score を保存
       useStrategyStore.getState().setOKRTargetScore(okrId, rating);
-      await useStrategyStore.getState().saveStrategyData({ reason: 'manual' });
 
-      setNotice('✅ 記録しました');
+      // ★ STAGE5 FIX: save 実行前に restore/hydrate 状態を確認
+      // fetch/hydrate guard により save がブロックされるのを防ぐため、
+      // 同期中なら save を延期して useAutoSave に委譲
+      const checkState = useStrategyStore.getState();
+      if (!checkState.restoreReady || checkState.__isFetchingFromServer || checkState.boot?.isHydrating) {
+        setNotice('📡 データ同期中です。少し待ってから再度お試しください。');
+        console.log('[STAGE5-save-checkin-deferred]', {
+          reason: 'restore/hydrate guard triggered',
+          restoreReady: checkState.restoreReady,
+          isFetching: checkState.__isFetchingFromServer,
+          hydrating: checkState.boot?.isHydrating,
+          timestamp: new Date().toISOString(),
+        });
+        setSaving(false);
+        return;
+      }
+
+      // ★ 修正案1：saveStrategyData の返却値を確認
+      const result = await useStrategyStore.getState().saveStrategyData({ reason: 'manual' });
+
+      if (result?.ok) {
+        setNotice('✅ 記録しました');
+      } else {
+        // save が skip された場合は dirty: true のままになる
+        // useAutoSave が later に拾ってくれる
+        setNotice(`⚠️ 同期中のため、もう一度保存を試してください（${result?.reason}）`);
+        setSaving(false);
+        return;
+      }
 
       // ★ 根本原因②修正：saved.id（正規ID）を使用
       // 'local-*' プレフィックスを廃止
@@ -816,9 +843,37 @@ function ExecPanel(props: {
 
       // 🔥 Store に score を保存
       useStrategyStore.getState().setOKRTargetScore(okrId, reviewScore);
-      await useStrategyStore.getState().saveStrategyData({ reason: 'manual' });
 
-      setNotice('✅ フィードバックを保存しました');
+      // ★ STAGE5 FIX: save 実行前に restore/hydrate 状態を確認
+      // fetch/hydrate guard により save がブロックされるのを防ぐため、
+      // 同期中なら save を延期して useAutoSave に委譲
+      const checkState = useStrategyStore.getState();
+      if (!checkState.restoreReady || checkState.__isFetchingFromServer || checkState.boot?.isHydrating) {
+        setNotice('📡 データ同期中です。少し待ってから再度お試しください。');
+        console.log('[STAGE5-save-feedback-deferred]', {
+          reason: 'restore/hydrate guard triggered',
+          restoreReady: checkState.restoreReady,
+          isFetching: checkState.__isFetchingFromServer,
+          hydrating: checkState.boot?.isHydrating,
+          timestamp: new Date().toISOString(),
+        });
+        setSaving(false);
+        return;
+      }
+
+      // ★ 修正案1：saveStrategyData の返却値を確認
+      const result = await useStrategyStore.getState().saveStrategyData({ reason: 'manual' });
+
+      if (result?.ok) {
+        setNotice('✅ フィードバックを保存しました');
+      } else {
+        // save が skip された場合は dirty: true のままになる
+        // useAutoSave が later に拾ってくれる
+        setNotice(`⚠️ 同期中のため、もう一度保存を試してください（${result?.reason}）`);
+        setSaving(false);
+        return;
+      }
+
       const savedId = saved?.id ?? `feedback-${Date.now()}`;
       const savedAt = saved?.created_at ?? new Date().toISOString();
       setLogs((prev) => {
@@ -971,49 +1026,28 @@ function ExecPanel(props: {
         return next;
       });
 
-      // ★修正: progress入力時のみ、debounceをバイパスして明示的にsaveStrategyData を実行
-      // メモリに反映されてから、できるだけ早くDBに永続化する
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises
-      (async () => {
-        try {
-          const state = useStrategyStore.getState();
-          const proj = state.departments?.[di]?.projects?.[pi];
+      // ★ STAGE5 FIX: dirty フラグで useAutoSave に委譲
+      // 理由：
+      // - progress input は複数回走る可能性がある（ユーザーが数値を修正）
+      // - 直接 saveStrategyData を呼ぶと、isFetching/hydrating 中に save が走る可能性
+      // - force:true を使うと master guard を迂回するリスク
+      // - useAutoSave は既に isFetching guard を実装しており、fetch/hydrate 中は自動 skip
+      // → dirty フラグを立てて useAutoSave に委譲するのが最も安全
+      const state = useStrategyStore.getState();
+      const proj = state.departments?.[di]?.projects?.[pi];
 
-          console.log('[STAGE5-progress-save-request]', {
-            field,
-            oldValue,
-            newValue: numValue,
-            projectId: proj?.id,
-            departmentId: state.departments?.[di]?.id,
-            impactRevenueProgress: proj?.impactRevenueProgress,
-            impactOpIncomeProgress: proj?.impactOpIncomeProgress,
-            timestamp: new Date().toISOString(),
-          });
+      console.log('[STAGE5-progress-change]', {
+        field,
+        oldValue,
+        newValue: numValue,
+        projectId: proj?.id,
+        departmentId: state.departments?.[di]?.id,
+        action: 'delegating to useAutoSave via dirty flag',
+        timestamp: new Date().toISOString(),
+      });
 
-          const result = await state.saveStrategyData({ reason: 'progress_change' });
-
-          if (result?.ok) {
-            console.log('[STAGE5-progress-save-success]', {
-              field,
-              newValue: numValue,
-              timestamp: new Date().toISOString(),
-            });
-          } else {
-            console.warn('[STAGE5-progress-save-fail]', {
-              field,
-              newValue: numValue,
-              reason: result?.reason ?? 'unknown',
-              timestamp: new Date().toISOString(),
-            });
-          }
-        } catch (err) {
-          console.error('[STAGE5-progress-save-fail]', {
-            field,
-            error: err instanceof Error ? err.message : String(err),
-            timestamp: new Date().toISOString(),
-          });
-        }
-      })();
+      // ★ dirty フラグを立てる（useAutoSave が isFetching=false を待って自動 save）
+      state.setState({ dirty: true });
     },
     [di, pi, isVariant, stage4Proj, updateDepartments]
   );
@@ -1477,6 +1511,12 @@ function ExecutionPageContent() {
 
   useEffect(() => {
     if (!accessCompanyId) return;
+
+    // ★ 修正案1：同じ company の場合は setCompanyScope を呼ばない（restoreReady リセット防止）
+    if (scopeCompanyId === accessCompanyId) {
+      return;
+    }
+
     if (scopeCompanyId && scopeCompanyId !== accessCompanyId) {
       hardResetForCompanySwitch(accessCompanyId);
     } else {
@@ -1488,7 +1528,10 @@ function ExecutionPageContent() {
     if (!accessCompanyId) return;
     let cancelled = false;
     const run = async () => {
-      if (hydrated && scopeCompanyId === accessCompanyId) return;
+      if (hydrated && scopeCompanyId === accessCompanyId) {
+        return;
+      }
+
       try {
         if (DEBUG) console.log('[execution] 📥 loadAndHydrate 開始', { accessCompanyId });
         await loadAndHydrate(accessCompanyId);
