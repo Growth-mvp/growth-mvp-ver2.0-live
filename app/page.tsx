@@ -56,7 +56,7 @@ export default function Home() {
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.68, delay: 0.12 }}
-              className="mx-auto mt-4 max-w-3xl text-[15px] leading-7 text-neutral-600 sm:text-[16px] dark:text-neutral-300"
+              className="mx-auto mt-4 max-w-3xl text-[16px] leading-7 text-neutral-600 sm:text-[17px] dark:text-neutral-300"
             >
               やるべきことを絞り、全員で動く経営の仕組み
             </motion.p>
