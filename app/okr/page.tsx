@@ -370,7 +370,7 @@ function OKRPageContent() {
     lastAppliedCompanyRef.current = accessCompanyId;
   }, [accessCompanyId, scopeCompanyId, setCompanyScope, setHydrated]);
 
-  {/* -------- 初期ロード（Dirty 回避付き） -------- */}
+  {/* -------- 初期ロード：常に refetchFromServer を実行 -------- */}
   const loadGuardRef = useRef<string | null>(null);
   useEffect(() => {
     if (!accessCompanyId) return;
@@ -393,16 +393,27 @@ function OKRPageContent() {
       }, 7000);
 
       try {
-        if (!isDirty) {
-          try {
-            await refetchFromServer?.();
-          } catch {
-            // ignore
+        // ★ FIX: isDirty に関わらず常に refetchFromServer を実行
+        // 【背景】
+        // - restoreReady フラグは refetchFromServer() 完了時にのみ true に設定される（strategyStore.ts:4060, 4130）
+        // - isDirty=true でスキップすると restoreReady=false のまま
+        // - persistStage4Snapshot (LINE 543) で save guard によりブロック → 「入力できるが保存されない」
+        // 【修正】
+        // - isDirty の条件分岐を削除（8 lines 削除）
+        // - refetchFromServer を常に実行
+        // 【安全性】
+        // - refetchFromServer 内で wasDirty チェック（LINE 3939-3947 strategyStore.ts）により
+        //   local edits は dirty=true 時に extractServerDecidedPatch で保護される
+        // - STAGE3 編集直後 STAGE4 遷移の場合も local state が優先される（merged strategy で）
+        try {
+          await refetchFromServer?.();
+        } catch (err) {
+          // Network error, timeout, etc: local state is preserved, refetch retry scheduled
+          if (isDirty) {
+            console.log('[okr:load-guard] refetchFromServer error with isDirty=true, local state preserved', err);
           }
-          setHydrated?.(true);
-        } else {
-          setHydrated?.(true);
         }
+        setHydrated?.(true);
         loadGuardRef.current = accessCompanyId;
       } finally {
         clearTimeout(timer);
