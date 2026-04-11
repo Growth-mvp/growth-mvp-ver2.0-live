@@ -47,6 +47,24 @@ function SectionCard({
   );
 }
 
+
+function ReadOnlyBlock({
+  readOnly,
+  children,
+}: {
+  readOnly: boolean;
+  children: React.ReactNode;
+}) {
+  if (!readOnly) return <>{children}</>;
+
+  return (
+    <div className="relative">
+      <div className="pointer-events-none select-none opacity-80">{children}</div>
+      <div className="absolute inset-0 rounded-md" aria-hidden="true" />
+    </div>
+  );
+}
+
 function safeKeysCount(v: unknown): number {
   if (!v || typeof v !== 'object') return 0;
   return Object.keys(v as Record<string, unknown>).length;
@@ -469,23 +487,29 @@ export default function Stage1Page() {
             </div>
 
             <SectionCard title="① 企業情報・事業内容" defaultOpen={false}>
-              <CompanyAndBusinessPanel readOnly={!canEdit} disabled={!canEdit} />
+              <ReadOnlyBlock readOnly={!canEdit}>
+                <CompanyAndBusinessPanel readOnly={!canEdit} disabled={!canEdit} />
+              </ReadOnlyBlock>
             </SectionCard>
 
             <SectionCard title="② 財務データ（読込・手入力）" defaultOpen={false}>
-              <FinanceDataPanel readOnly={!canEdit} disabled={!canEdit} />
+              <ReadOnlyBlock readOnly={!canEdit}>
+                <FinanceDataPanel readOnly={!canEdit} disabled={!canEdit} />
+              </ReadOnlyBlock>
             </SectionCard>
 
             <SectionCard title="③ 上場情報・外部ベンチマーク・WACC（任意）" defaultOpen={false}>
-              <div className="space-y-6">
-                <ListingInfoPanel readOnly={!canEdit} disabled={!canEdit} />
-                <div className="border-t border-gray-200 pt-4">
-                  <Stage1BenchmarkPanel readOnly={!canEdit} disabled={!canEdit} />
+              <ReadOnlyBlock readOnly={!canEdit}>
+                <div className="space-y-6">
+                  <ListingInfoPanel disabled={!canEdit} />
+                  <div className="border-t border-gray-200 pt-4">
+                    <Stage1BenchmarkPanel readOnly={!canEdit} disabled={!canEdit} />
+                  </div>
+                  <div className="border-t border-gray-200 pt-4">
+                    <WaccPanel disabled={!canEdit} />
+                  </div>
                 </div>
-                <div className="border-t border-gray-200 pt-4">
-                  <WaccPanel readOnly={!canEdit} disabled={!canEdit} />
-                </div>
-              </div>
+              </ReadOnlyBlock>
             </SectionCard>
           </div>
         )}
@@ -503,11 +527,15 @@ export default function Stage1Page() {
             </div>
 
             <SectionCard title="① 財務指標" defaultOpen={false}>
-              <MetricsPanel readOnly={!canEdit} disabled={!canEdit} />
+              <ReadOnlyBlock readOnly={!canEdit}>
+                <MetricsPanel readOnly={!canEdit} disabled={!canEdit} />
+              </ReadOnlyBlock>
             </SectionCard>
 
             <SectionCard title="② 論点整理 + STAGE2へ" defaultOpen={false}>
-              <Stage1ToStage2Panel readOnly={!canEdit} disabled={!canEdit} />
+              <ReadOnlyBlock readOnly={!canEdit}>
+                <Stage1ToStage2Panel readOnly={!canEdit} disabled={!canEdit} />
+              </ReadOnlyBlock>
             </SectionCard>
           </div>
         )}
