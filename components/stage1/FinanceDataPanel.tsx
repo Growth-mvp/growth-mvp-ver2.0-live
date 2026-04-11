@@ -13,7 +13,7 @@ type FinanceDataMode = 'import' | 'manual';
  * - 「読込み（DocumentImportPanel）」と「手入力（FinanceYearEditorTable）」を切り替え
  * - 全社 PL/BS と事業部別 PL/BS を編集可能
  */
-export default function FinanceDataPanel() {
+export default function FinanceDataPanel({ readOnly, disabled }: { readOnly?: boolean; disabled?: boolean }) {
   const [mode, setMode] = useState<FinanceDataMode>('import');
   const [selectedSegmentName, setSelectedSegmentName] = useState<string | null>(null);
 
@@ -42,8 +42,9 @@ export default function FinanceDataPanel() {
             <button
               type="button"
               onClick={() => setMode('import')}
+              disabled={disabled}
               className={
-                'px-4 py-2 text-sm font-semibold rounded-full transition ' +
+                'px-4 py-2 text-sm font-semibold rounded-full transition disabled:cursor-not-allowed disabled:opacity-50 ' +
                 (mode === 'import'
                   ? 'bg-zinc-900 text-white shadow'
                   : 'text-zinc-700 hover:bg-zinc-100')
@@ -54,8 +55,9 @@ export default function FinanceDataPanel() {
             <button
               type="button"
               onClick={() => setMode('manual')}
+              disabled={disabled}
               className={
-                'px-4 py-2 text-sm font-semibold rounded-full transition ' +
+                'px-4 py-2 text-sm font-semibold rounded-full transition disabled:cursor-not-allowed disabled:opacity-50 ' +
                 (mode === 'manual'
                   ? 'bg-zinc-900 text-white shadow'
                   : 'text-zinc-700 hover:bg-zinc-100')
@@ -68,7 +70,7 @@ export default function FinanceDataPanel() {
 
         {/* パネル */}
         {mode === 'import' ? (
-          <DocumentImportPanel />
+          <DocumentImportPanel disabled={disabled} />
         ) : (
           <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
@@ -82,7 +84,7 @@ export default function FinanceDataPanel() {
         )}
 
         {/* 常に表示：全社財務データ（編集UI一本化） */}
-        <FinanceYearEditorTable mode="company" />
+        <FinanceYearEditorTable mode="company" disabled={disabled} />
       </section>
 
       {/* 事業部別データ入力 */}
@@ -100,7 +102,8 @@ export default function FinanceDataPanel() {
             <select
               value={initialSegment || ''}
               onChange={(e) => setSelectedSegmentName(e.target.value)}
-              className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              disabled={disabled}
+              className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
             >
               {businessSegments.map((seg) => (
                 <option key={seg.id} value={seg.name}>
@@ -110,7 +113,7 @@ export default function FinanceDataPanel() {
             </select>
           </div>
 
-          {initialSegment && <FinanceYearEditorTable mode="segment" segmentName={initialSegment} />}
+          {initialSegment && <FinanceYearEditorTable mode="segment" segmentName={initialSegment} disabled={disabled} />}
         </section>
       )}
     </div>

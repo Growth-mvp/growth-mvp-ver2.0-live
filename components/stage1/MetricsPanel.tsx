@@ -749,7 +749,7 @@ function PortfolioMatrix({
  * メイン
  * =============================== */
 
-export default function MetricsPanel() {
+export default function MetricsPanel({ readOnly, disabled }: { readOnly?: boolean; disabled?: boolean }) {
   const financeSummary = useStrategyStore((s: StrategyState) =>
     Array.isArray((s as any).financeSummary) ? ((s as any).financeSummary as FinanceSummaryRow[]) : EMPTY_FINANCE_SUMMARY,
   );

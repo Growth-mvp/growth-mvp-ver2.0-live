@@ -28,7 +28,7 @@ function normalizeKeyCustomers(input: string): string[] {
     .slice(0, 3);
 }
 
-export default function BusinessSegmentsPanel() {
+export default function BusinessSegmentsPanel({ readOnly, disabled }: { readOnly?: boolean; disabled?: boolean }) {
   // 安定した参照を使用（毎回新しい [] を作らない）
   const businessSegments = useStrategyStore((s: StrategyState) => s.businessSegments ?? EMPTY_SEGMENTS);
   const setProfile = useStrategyStore((s: StrategyState) => s.setProfile);
@@ -37,7 +37,7 @@ export default function BusinessSegmentsPanel() {
   const [editName, setEditName] = useState('');
 
   const handleAdd = useCallback(() => {
-    if (businessSegments.length >= MAX_SEGMENTS) return;
+    if (disabled || businessSegments.length >= MAX_SEGMENTS) return;
     const newSegment: BusinessSegment = {
       id: generateId(),
       name: '',
@@ -45,10 +45,11 @@ export default function BusinessSegmentsPanel() {
     setProfile({ businessSegments: [...businessSegments, newSegment] });
     setEditingId(newSegment.id);
     setEditName('');
-  }, [businessSegments, setProfile]);
+  }, [businessSegments, setProfile, disabled]);
 
   const handleDelete = useCallback(
     (id: string) => {
+      if (disabled) return;
       const next = businessSegments.filter((seg) => seg.id !== id);
       setProfile({ businessSegments: next });
       if (editingId === id) {
@@ -56,16 +57,18 @@ export default function BusinessSegmentsPanel() {
         setEditName('');
       }
     },
-    [businessSegments, setProfile, editingId]
+    [businessSegments, setProfile, editingId, disabled]
   );
 
   const handleStartEdit = useCallback((seg: BusinessSegment) => {
+    if (disabled) return;
     setEditingId(seg.id);
     setEditName(seg.name);
-  }, []);
+  }, [disabled]);
 
   const handleSaveEdit = useCallback(
     (id: string) => {
+      if (disabled) return;
       const next = businessSegments.map((seg) =>
         seg.id === id ? { ...seg, name: editName.trim() } : seg
       );
@@ -73,7 +76,7 @@ export default function BusinessSegmentsPanel() {
       setEditingId(null);
       setEditName('');
     },
-    [businessSegments, editName, setProfile]
+    [businessSegments, editName, setProfile, disabled]
   );
 
   const handleCancelEdit = useCallback(() => {
@@ -98,12 +101,13 @@ export default function BusinessSegmentsPanel() {
    */
   const updateSegment = useCallback(
     (id: string, patch: Partial<BusinessSegment>) => {
+      if (disabled) return;
       const next = businessSegments.map((seg) =>
         seg.id === id ? { ...seg, ...patch } : seg
       );
       setProfile({ businessSegments: next });
     },
-    [businessSegments, setProfile]
+    [businessSegments, setProfile, disabled]
   );
 
   /**
@@ -137,7 +141,8 @@ export default function BusinessSegmentsPanel() {
           </p>
           <button
             onClick={handleAdd}
-            className="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition"
+            disabled={disabled}
+            className="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed"
           >
             + セグメントを追加
           </button>
@@ -170,13 +175,14 @@ export default function BusinessSegmentsPanel() {
                       onChange={(e) => setEditName(e.target.value)}
                       onKeyDown={(e) => handleKeyDown(e, seg.id)}
                       onBlur={() => handleSaveEdit(seg.id)}
+                      disabled={disabled}
                       autoFocus
-                      className="flex-1 border px-2 py-1 text-sm rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="flex-1 border px-2 py-1 text-sm rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                       placeholder="セグメント名（例：製造事業）"
                     />
                   ) : (
                     <div
-                      className="flex-1 cursor-pointer hover:bg-gray-50 px-2 py-1 rounded"
+                      className={`flex-1 ${disabled ? 'cursor-default' : 'cursor-pointer hover:bg-gray-50'} px-2 py-1 rounded`}
                       onClick={() => handleStartEdit(seg)}
                     >
                       {seg.name ? (
@@ -195,7 +201,8 @@ export default function BusinessSegmentsPanel() {
 
                   <button
                     onClick={() => handleDelete(seg.id)}
-                    className="text-gray-400 hover:text-red-500 transition p-1"
+                    disabled={disabled}
+                    className="text-gray-400 hover:text-red-500 transition p-1 disabled:cursor-not-allowed disabled:opacity-50"
                     title="削除"
                   >
                     <svg
@@ -222,7 +229,8 @@ export default function BusinessSegmentsPanel() {
                     type="text"
                     value={seg.summary || ''}
                     onChange={(e) => updateSegment(seg.id, { summary: e.target.value })}
-                    className="w-full border px-2 py-1 text-sm rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    disabled={disabled}
+                    className="w-full border px-2 py-1 text-sm rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                     placeholder="例：中堅製造業向けに設備保全の予兆検知をSaaSで提供"
                   />
                 </div>
@@ -239,7 +247,8 @@ export default function BusinessSegmentsPanel() {
                       const normalized = normalizeKeyCustomers(e.target.value);
                       updateSegment(seg.id, { keyCustomers: normalized });
                     }}
-                    className="w-full border px-2 py-1 text-sm rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    disabled={disabled}
+                    className="w-full border px-2 py-1 text-sm rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                     placeholder="例：中堅製造業, 自治体, 個人ユーザー"
                   />
                   {/* Chip表示 */}
@@ -256,7 +265,8 @@ export default function BusinessSegmentsPanel() {
                               const next = currentKeyCustomers.filter((_, i) => i !== cidx);
                               updateSegment(seg.id, { keyCustomers: next });
                             }}
-                            className="hover:text-blue-900 ml-1"
+                            disabled={disabled}
+                            className="hover:text-blue-900 ml-1 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             ×
                           </button>
@@ -272,7 +282,8 @@ export default function BusinessSegmentsPanel() {
           {businessSegments.length < MAX_SEGMENTS && (
             <button
               onClick={handleAdd}
-              className="w-full py-2 border border-dashed border-gray-300 rounded-lg text-gray-500 text-sm hover:border-blue-400 hover:text-blue-600 transition"
+              disabled={disabled}
+              className="w-full py-2 border border-dashed border-gray-300 rounded-lg text-gray-500 text-sm hover:border-blue-400 hover:text-blue-600 transition disabled:cursor-not-allowed disabled:opacity-50"
             >
               + セグメントを追加
             </button>

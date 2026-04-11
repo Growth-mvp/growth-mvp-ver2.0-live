@@ -14,7 +14,7 @@ import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
  * IMPORTANT:
  * - 読み書き先を profile に統一（setProfile を使うなら必須）
  */
-export default function ListingInfoPanel() {
+export default function ListingInfoPanel({ disabled }: { disabled?: boolean } = {}) {
   const isListed = useStrategyStore((s: StrategyState) => s.isListed ?? false);
   const ticker = useStrategyStore((s: StrategyState) => s.ticker ?? '');
   const pbrManual = useStrategyStore((s: StrategyState) => s.pbrManual ?? '');
@@ -22,6 +22,7 @@ export default function ListingInfoPanel() {
 
   const handleIsListedChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (disabled) return;
       const checked = e.target.checked;
       if (process.env.NEXT_PUBLIC_DEBUG_STAGE1) {
         console.log('[DEBUG_STAGE1][listing:onChange] before', { checked });
@@ -36,11 +37,12 @@ export default function ListingInfoPanel() {
         });
       }
     },
-    [setProfile]
+    [setProfile, disabled]
   );
 
   const handleTickerChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (disabled) return;
       const value = e.target.value;
       if (process.env.NEXT_PUBLIC_DEBUG_STAGE1) {
         console.log('[DEBUG_STAGE1][ticker:onChange] before', { value });
@@ -55,11 +57,12 @@ export default function ListingInfoPanel() {
         });
       }
     },
-    [setProfile]
+    [setProfile, disabled]
   );
 
   const handlePbrManualChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (disabled) return;
       const value = e.target.value;
       if (process.env.NEXT_PUBLIC_DEBUG_STAGE1) {
         console.log('[DEBUG_STAGE1][pbrManual:onChange] before', { value });
@@ -74,7 +77,7 @@ export default function ListingInfoPanel() {
         });
       }
     },
-    [setProfile]
+    [setProfile, disabled]
   );
 
   return (
@@ -83,12 +86,13 @@ export default function ListingInfoPanel() {
 
       {/* 上場フラグ */}
       <div>
-        <label className="flex items-center gap-2 cursor-pointer">
+        <label className={`flex items-center gap-2 ${disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
           <input
             type="checkbox"
             checked={isListed}
             onChange={handleIsListedChange}
-            className="w-4 h-4"
+            disabled={disabled}
+            className="w-4 h-4 disabled:cursor-not-allowed"
           />
           <span className="text-sm font-medium">上場企業</span>
         </label>
@@ -101,8 +105,9 @@ export default function ListingInfoPanel() {
           type="text"
           value={ticker}
           onChange={handleTickerChange}
+          disabled={disabled}
           placeholder="例：7203"
-          className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
         />
         <p className="text-xs text-gray-500 mt-1">
           上場企業の場合、ティッカーシンボルを入力するとPBRを自動取得できます。
@@ -116,8 +121,9 @@ export default function ListingInfoPanel() {
           type="text"
           value={pbrManual}
           onChange={handlePbrManualChange}
+          disabled={disabled}
           placeholder="例：1.2"
-          className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
         />
         <p className="text-xs text-gray-500 mt-1">
           ティッカー自動取得が失敗した場合や、非上場企業の場合は手入力してください。

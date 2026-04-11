@@ -4,23 +4,25 @@
 import { useMemo, useCallback } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 
-export default function CompanyScopePanel() {
+export default function CompanyScopePanel({ readOnly, disabled }: { readOnly?: boolean; disabled?: boolean }) {
   const companyName = useStrategyStore((s: StrategyState) => s.companyName ?? '');
   const industry = useStrategyStore((s: StrategyState) => s.industry ?? '');
   const setProfile = useStrategyStore((s: StrategyState) => s.setProfile);
 
   const handleCompanyNameChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (disabled) return;
       setProfile({ companyName: e.target.value });
     },
-    [setProfile]
+    [setProfile, disabled]
   );
 
   const handleIndustryChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
+      if (disabled) return;
       setProfile({ industry: e.target.value });
     },
-    [setProfile]
+    [setProfile, disabled]
   );
 
   const industryOptions = useMemo(
@@ -49,19 +51,21 @@ export default function CompanyScopePanel() {
         <div>
           <label className="block text-sm font-medium mb-1">会社名</label>
           <input
-            className="border px-3 py-2 w-full"
+            className="border px-3 py-2 w-full disabled:bg-gray-100 disabled:cursor-not-allowed"
             placeholder="例：株式会社センターボード"
             value={companyName}
             onChange={handleCompanyNameChange}
+            disabled={disabled}
           />
         </div>
 
         <div>
           <label className="block text-sm font-medium mb-1">業種</label>
           <select
-            className="border px-3 py-2"
+            className="border px-3 py-2 disabled:bg-gray-100 disabled:cursor-not-allowed"
             value={industry}
             onChange={handleIndustryChange}
+            disabled={disabled}
           >
             {industryOptions.map((o) => (
               <option key={o.value} value={o.value}>

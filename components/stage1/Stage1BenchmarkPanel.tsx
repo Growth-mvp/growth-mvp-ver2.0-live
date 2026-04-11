@@ -24,13 +24,16 @@ function BenchmarkTargetInput({
   label,
   target,
   onChange,
+  disabled,
 }: {
   label: string;
   target: BenchmarkTarget | undefined;
   onChange: (target: BenchmarkTarget | undefined) => void;
+  disabled?: boolean;
 }) {
   const handleChange = useCallback(
     (key: string, value: any) => {
+      if (disabled) return;
       const current = target || {};
       const next: BenchmarkTarget = { ...current };
 
@@ -58,7 +61,7 @@ function BenchmarkTargetInput({
 
       onChange(Object.keys(next).length > 0 ? next : undefined);
     },
-    [target, onChange]
+    [target, onChange, disabled]
   );
 
   return (
@@ -70,10 +73,11 @@ function BenchmarkTargetInput({
         <label className="block text-xs font-medium text-gray-700 mb-1">期間（例：2023年度、TTM）</label>
         <input
           type="text"
-          className="border rounded px-2 py-1 w-full text-sm"
+          className="border rounded px-2 py-1 w-full text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
           placeholder="2023年度"
           value={target?.period ?? ''}
           onChange={(e) => handleChange('period', e.target.value || null)}
+          disabled={disabled}
         />
       </div>
 
@@ -82,10 +86,11 @@ function BenchmarkTargetInput({
         <label className="block text-xs font-medium text-gray-700 mb-1">ソース・メモ（URL など）</label>
         <input
           type="text"
-          className="border rounded px-2 py-1 w-full text-sm"
+          className="border rounded px-2 py-1 w-full text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
           placeholder="https://... または出所メモ"
           value={target?.sourceNote ?? ''}
           onChange={(e) => handleChange('sourceNote', e.target.value || null)}
+          disabled={disabled}
         />
       </div>
 
@@ -93,9 +98,10 @@ function BenchmarkTargetInput({
       <div>
         <label className="block text-xs font-medium text-gray-700 mb-1">データ品質</label>
         <select
-          className="border rounded px-2 py-1 w-full text-sm"
+          className="border rounded px-2 py-1 w-full text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
           value={target?.quality ?? ''}
           onChange={(e) => handleChange('quality', e.target.value || null)}
+          disabled={disabled}
         >
           <option value="">選択してください</option>
           {QUALITY_OPTIONS.map((opt) => (
@@ -114,33 +120,36 @@ function BenchmarkTargetInput({
             <label className="text-xs text-gray-600">成長率 (%)</label>
             <input
               type="number"
-              className="border rounded px-2 py-1 w-full text-sm"
+              className="border rounded px-2 py-1 w-full text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
               placeholder="—"
               value={target?.metrics?.growthPct ?? ''}
               onChange={(e) => handleChange('metrics.growthPct', e.target.value || null)}
               step="0.1"
+              disabled={disabled}
             />
           </div>
           <div>
             <label className="text-xs text-gray-600">営業利益率 (%)</label>
             <input
               type="number"
-              className="border rounded px-2 py-1 w-full text-sm"
+              className="border rounded px-2 py-1 w-full text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
               placeholder="—"
               value={target?.metrics?.opMarginPct ?? ''}
               onChange={(e) => handleChange('metrics.opMarginPct', e.target.value || null)}
               step="0.1"
+              disabled={disabled}
             />
           </div>
           <div>
             <label className="text-xs text-gray-600">ROIC (%)</label>
             <input
               type="number"
-              className="border rounded px-2 py-1 w-full text-sm"
+              className="border rounded px-2 py-1 w-full text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
               placeholder="—"
               value={target?.metrics?.roicPct ?? ''}
               onChange={(e) => handleChange('metrics.roicPct', e.target.value || null)}
               step="0.1"
+              disabled={disabled}
             />
           </div>
           <div>
@@ -171,12 +180,13 @@ function BenchmarkTargetInput({
   );
 }
 
-export default function Stage1BenchmarkPanel() {
+export default function Stage1BenchmarkPanel({ readOnly, disabled }: { readOnly?: boolean; disabled?: boolean }) {
   const benchmarks = useStrategyStore((s: StrategyState) => s.stage1Benchmarks);
   const setBenchmarks = useStrategyStore((s: StrategyState) => s.setStage1Benchmarks);
 
   const handleUpdateTarget = useCallback(
     (key: BenchmarkKey, target: BenchmarkTarget | undefined) => {
+      if (disabled) return;
       const next: Stage1Benchmarks = { ...(benchmarks || {}) };
 
       if (target === undefined) {
@@ -195,7 +205,7 @@ export default function Stage1BenchmarkPanel() {
 
       setBenchmarks(hasAny ? next : undefined);
     },
-    [benchmarks, setBenchmarks]
+    [benchmarks, setBenchmarks, disabled]
   );
 
   const hasBenchmarks =
@@ -226,6 +236,7 @@ export default function Stage1BenchmarkPanel() {
               label={BENCHMARK_LABELS[key]}
               target={benchmarks?.[key]}
               onChange={(target) => handleUpdateTarget(key, target)}
+              disabled={disabled}
             />
           ))}
         </div>

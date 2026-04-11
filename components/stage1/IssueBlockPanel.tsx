@@ -451,7 +451,7 @@ function filterCandidates(
  * コンポーネント
  * =============================== */
 
-export default function IssueBlockPanel() {
+export default function IssueBlockPanel({ disabled }: { disabled?: boolean } = {}) {
   const issues = useStrategyStore((s: StrategyState) => (Array.isArray(s.stage1Issues) ? s.stage1Issues : []));
   const setStage1Issues = useStrategyStore((s: StrategyState) => s.setStage1Issues);
 

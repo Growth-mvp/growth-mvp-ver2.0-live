@@ -10,18 +10,20 @@ import Stage2Bridge from './Stage2Bridge';
  * - IssueBlockPanel で論点選択
  * - 下部に Stage2Bridge（論点未選択なら disabled）
  */
-export default function Stage1ToStage2Panel() {
+export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?: boolean; disabled?: boolean }) {
   const stage1Issues = useStrategyStore((s: StrategyState) => s.stage1Issues ?? []);
 
   // 論点が未選択の場合、遷移ボタン disabled
   const hasIssues = stage1Issues.length > 0;
+  // disabled か問題がなければ Stage2 へ遷移可能
+  const canProceedToStage2 = !disabled && hasIssues;
 
   return (
     <div className="space-y-6">
       {/* 論点整理パネル */}
       <div>
         <h3 className="text-lg font-semibold mb-4">論点整理</h3>
-        <IssueBlockPanel />
+        <IssueBlockPanel disabled={disabled} />
       </div>
 
       {/* 分割線 */}
@@ -30,7 +32,7 @@ export default function Stage1ToStage2Panel() {
         <div>
           <h3 className="text-lg font-semibold mb-4">次のフェーズへ</h3>
           <p className="text-sm text-gray-600 mb-4">
-            {hasIssues ? (
+            {canProceedToStage2 ? (
               <>
                 <span className="text-green-700 font-medium">✓ 論点が {stage1Issues.length} 件選択されています。</span>
                 <br />
@@ -45,7 +47,7 @@ export default function Stage1ToStage2Panel() {
             )}
           </p>
           <div className="opacity-100">
-            <Stage2Bridge disabled={!hasIssues} />
+            <Stage2Bridge disabled={!canProceedToStage2} />
           </div>
         </div>
       </div>
