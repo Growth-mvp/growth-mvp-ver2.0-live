@@ -2677,6 +2677,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                       if (!selected) return;
                       updateProjectRole(selected.deptIdx, selected.projIdx, (selectedProj as any)?.role === opt.value ? '' : opt.value);
                       setShowRoleDetail(false);
+                      queueStage4SnapshotPersist('stage4_role_change');
                     }}
                     disabled={isHydrating || isApproved()}
                     className={`flex-1 rounded-lg border-2 px-3 py-2 text-[12px] font-semibold transition-colors ${
@@ -2711,6 +2712,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                         onChange={(e) => {
                           if (!selected) return;
                           updateProjectRoleDetail(selected.deptIdx, selected.projIdx, e.target.value as Project['roleDetail'] | '');
+                          queueStage4SnapshotPersist('stage4_role_detail_change');
                         }}
                         disabled={isHydrating || isApproved()}
                         className="mt-1 h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
@@ -4492,7 +4494,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
 
 export default function OKRPage() {
   return (
-    <StrategyGuard mode="edit">
+    <StrategyGuard mode="view" showReadOnlyBanner={false}>
       <OKRPageContent />
     </StrategyGuard>
   );
