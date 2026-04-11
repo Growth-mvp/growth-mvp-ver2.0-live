@@ -17,9 +17,11 @@ import { useUserStore } from '@/store/userStore';
 export default function StrategyGuard({
   children,
   mode = 'view',
+  showReadOnlyBanner = true,
 }: {
   children: React.ReactNode;
   mode?: 'view' | 'edit';
+  showReadOnlyBanner?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -108,7 +110,7 @@ export default function StrategyGuard({
 
   return (
     <>
-      {!canEdit && (
+      {showReadOnlyBanner && !canEdit && (
         <div className="sticky top-0 z-50 border-b bg-amber-50 px-4 py-2 text-xs text-amber-800">
           閲覧モード（編集は管理者/マネージャーのみ）
         </div>
