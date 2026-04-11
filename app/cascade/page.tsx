@@ -3308,7 +3308,13 @@ useEffect(() => {
             }
 
             return (
-              <div key={`e-${dept.name}-${index}`} className="p-6 border rounded-3xl bg-white/70 backdrop-blur-sm shadow-sm">
+              <div
+                key={`e-${dept.name}-${index}`}
+                className={[
+                  'p-6 border rounded-3xl bg-white/70 backdrop-blur-sm shadow-sm transition-opacity',
+                  !editableDept || isHydrating ? 'pointer-events-none opacity-80' : '',
+                ].join(' ')}
+              >
                 
 <div className="mb-4">
   <div className="flex items-start justify-between gap-3">
