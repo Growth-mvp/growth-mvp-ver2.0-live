@@ -40,7 +40,7 @@ export default function Home() {
               transition={{ duration: 0.55 }}
               className="mx-auto max-w-3xl text-[26px] font-semibold leading-[1.3] tracking-[-0.035em] text-neutral-900 sm:text-[33px] lg:text-[40px] dark:text-neutral-50"
             >
-            戦略は伝えた。だが、組織は動かない。
+            戦略は伝えた。だが、組織が動かない。
             </motion.h1>
 
             <motion.div
