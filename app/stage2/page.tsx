@@ -161,6 +161,24 @@ function ScrollText({
   return <div className={`${maxH} overflow-auto pr-2 whitespace-pre-wrap break-words leading-relaxed ${className}`}>{children}</div>;
 }
 
+
+function ReadOnlyBlock({
+  readOnly,
+  children,
+}: {
+  readOnly: boolean;
+  children: React.ReactNode;
+}) {
+  if (!readOnly) return <>{children}</>;
+
+  return (
+    <div className="relative">
+      <div className="pointer-events-none opacity-80">{children}</div>
+      <div className="absolute inset-0 rounded-md" aria-hidden="true" />
+    </div>
+  );
+}
+
 /* ===================================================
  * StepperTabs（再編版）
  * =================================================== */
@@ -2931,6 +2949,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           <div className="max-w-6xl mx-auto px-4 md:px-6 py-6 space-y-6">
             {/* 入力タグ：CEO意図→MVV＋SWOT→たたき台生成 */}
             {activeTab === 'input' && (
+              <ReadOnlyBlock readOnly={readOnly}>
               <div className="space-y-6">
                 <CEOIntentSection />
 
@@ -2953,7 +2972,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                   <button
                     type="button"
                     onClick={handleGenerateOT}
-                    disabled={generatingOT}
+                    disabled={disabled || generatingOT}
                     className="px-6 py-3 rounded-xl bg-amber-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-amber-700 transition-colors shadow-lg"
                   >
                     {generatingOT ? 'AIで提案中...' : 'AIで機会・脅威を提案'}
@@ -2972,7 +2991,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                       e.stopPropagation();
                       void handleGenerate(e);
                     }}
-                    disabled={generating}
+                    disabled={disabled || generating}
                     className="px-8 py-4 rounded-xl bg-blue-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors shadow-lg"
                     title="Shift+クリックで API 疎通テスト（PING モード）"
                   >
@@ -2996,9 +3015,11 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                   </div>
                 )}
               </div>
+              </ReadOnlyBlock>
             )}
             {/* DRAFTタグ：STAGE1論点（最大5件を第1章に内包）＋4章ストーリー＋深掘り議論（統合） */}
             {activeTab === 'draft' && (
+              <ReadOnlyBlock readOnly={readOnly}>
               <div className="space-y-6">
                 <DraftStoryPanel storyDraft={storyDraft} issueBlocks={issueBlocks} />
 
@@ -3016,7 +3037,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                       e.stopPropagation();
                       void handleGenerate(e);
                     }}
-                    disabled={generating}
+                    disabled={disabled || generating}
                     className="px-8 py-4 rounded-xl bg-blue-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors shadow-lg"
                     title="Shift+クリックで API 疎通テスト（PING モード）"
                   >
@@ -3045,12 +3066,12 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                     <span className="text-sm text-gray-500 dark:text-gray-400">※ 未入力でも最終生成できます</span>
                   </div>
 
-                  <Questions12Section answers12={answers12} onUpdateAnswer={handleUpdateAnswer} disabled={false} />
+                  <Questions12Section answers12={answers12} onUpdateAnswer={handleUpdateAnswer} disabled={disabled} />
 
                   <div className="mt-6 flex justify-center">
                     <button
                       onClick={handleGenerateFinal}
-                      disabled={!hasDraft || generatingFinal}
+                      disabled={disabled || !hasDraft || generatingFinal}
                       className="px-8 py-4 rounded-xl bg-emerald-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-emerald-700 transition-colors shadow-lg"
                     >
                       {generatingFinal ? '生成中...' : '最終ストーリーを生成'}
@@ -3068,9 +3089,11 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                   )}
                 </div>
               </div>
+              </ReadOnlyBlock>
             )}
 {/* 最終タグ：最終ストーリー */}
             {activeTab === 'final' && (
+              <ReadOnlyBlock readOnly={readOnly}>
               <div className="space-y-6">
                 {displayingStory.length > 0 ? (
                   <>
@@ -3090,6 +3113,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
                           {/* Textarea */}
                           <textarea
+                            readOnly={readOnly}
                             value={editingStory[chapterIndex]?.body ?? ''}
                             onChange={(e) => {
                               const updated = [...editingStory];
@@ -3118,6 +3142,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                     <div className="flex gap-3 justify-center pt-4">
                       {/* 保存（下書き保存） */}
                       <button
+                        disabled={disabled}
                         onClick={() => {
                           // ★ Step 4: 保存ボタンの動作をログ
                           if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
@@ -3138,6 +3163,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
                       {/* 確定（Final） */}
                       <button
+                        disabled={disabled}
                         onClick={() => {
                           // ★ Step 4: 確定ボタンの動作をログ
                           if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
@@ -3163,6 +3189,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
                       {/* 破棄（編集を戻す） */}
                       <button
+                        disabled={disabled}
                         onClick={() => {
                           // ★ Step 4: 破棄ボタンの動作をログ
                           if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
@@ -3187,8 +3214,8 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                     {/* 再生成ボタン */}
                     <div className="flex justify-center pt-6 border-t border-gray-200 dark:border-gray-700">
                       <button
+                        disabled={disabled || !hasDraft || generatingFinal}
                         onClick={handleGenerateFinal}
-                        disabled={!hasDraft || generatingFinal}
                         className="px-8 py-4 rounded-xl bg-slate-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors shadow-lg"
                       >
                         {generatingFinal ? '生成中...' : '最終ストーリーを再生成'}
@@ -3212,6 +3239,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                   </div>
                 )}
               </div>
+              </ReadOnlyBlock>
             )}
           </div>
         </>
