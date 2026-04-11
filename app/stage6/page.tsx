@@ -230,7 +230,7 @@ function Stage6PageContent() {
 
 export default function Stage6Page() {
   return (
-    <StrategyGuard>
+    <StrategyGuard mode="view" showReadOnlyBanner={false}>
       <Stage6PageContent />
     </StrategyGuard>
   );
