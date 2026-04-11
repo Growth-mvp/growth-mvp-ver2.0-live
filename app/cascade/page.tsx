@@ -2191,63 +2191,19 @@ useEffect(() => {
       await persistCascadeNow('stage3-visibility-flush');
     };
 
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isGeneratingRef.current || hasUnsavedChangesRef.current) {
-        e.preventDefault();
-        e.returnValue = '';
-        void flush();
-      }
-    };
-
+    // ★ STAGE3は即時保存が機能しているため、離脱警告は不要
+    // beforeunload と click イベントリスナーを削除
+    // flush は pagehide/visibilitychange で処理
     const onPageHide = () => void flush();
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') void flush();
     };
 
-    const onDocumentClickCapture = (evt: MouseEvent) => {
-      if (evt.defaultPrevented) return;
-      if (evt.button !== 0) return;
-      if (evt.metaKey || evt.ctrlKey || evt.shiftKey || evt.altKey) return;
-      if (isGeneratingRef.current) {
-        evt.preventDefault();
-        evt.stopPropagation();
-        setNotice('⏳ 生成中は画面移動できません。完了後に再度お試しください。');
-        return;
-      }
-      if (!hasUnsavedChangesRef.current) return;
-
-      const target = evt.target as HTMLElement | null;
-      const anchor = target?.closest?.('a[href]') as HTMLAnchorElement | null;
-      if (!anchor) return;
-      const href = anchor.getAttribute('href') ?? '';
-      if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
-      if (anchor.target === '_blank' || anchor.hasAttribute('download')) return;
-
-      const url = new URL(anchor.href, window.location.href);
-      const sameOrigin = url.origin === window.location.origin;
-      if (!sameOrigin) return;
-      if (url.href === window.location.href) return;
-
-      evt.preventDefault();
-      evt.stopPropagation();
-
-      void (async () => {
-        const ok = await persistCascadeNow('stage3-route-leave');
-        if (ok) {
-          window.location.assign(url.href);
-        }
-      })();
-    };
-
-    window.addEventListener('beforeunload', onBeforeUnload);
     window.addEventListener('pagehide', onPageHide);
     document.addEventListener('visibilitychange', onVisibility);
-    document.addEventListener('click', onDocumentClickCapture, true);
     return () => {
-      window.removeEventListener('beforeunload', onBeforeUnload);
       window.removeEventListener('pagehide', onPageHide);
       document.removeEventListener('visibilitychange', onVisibility);
-      document.removeEventListener('click', onDocumentClickCapture, true);
     };
   }, [persistCascadeNow]);
 
