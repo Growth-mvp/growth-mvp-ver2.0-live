@@ -370,18 +370,10 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   };
 
   /** ====== 自動チェックインポーリング ====== */
-  // ★ Sprint 3B': CHECK_TICK_MS ごとに nudgeIfNeeded をポーリング
+  // 現状は自動発話を停止（手動送信のみ有効）
   useEffect(() => {
-    const interval = setInterval(() => {
-      nudgeIfNeeded().catch((e) => {
-        if (process.env.NODE_ENV !== 'production') {
-          console.debug('[polling] nudgeIfNeeded error:', e);
-        }
-      });
-    }, CHECK_TICK_MS);
-
-    return () => clearInterval(interval);
-  }, [nudgeIfNeeded]);
+    return;
+  }, []);
 
   // ====== 見た目 ======
   const rootCls = embedded
