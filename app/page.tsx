@@ -58,7 +58,7 @@ export default function Home() {
               transition={{ duration: 0.68, delay: 0.12 }}
               className="mx-auto mt-4 max-w-3xl text-[16px] leading-7 text-neutral-600 sm:text-[17px] dark:text-neutral-300"
             >
-              戦略をストーリーにし、実行に変え、業績につなぐ仕組み
+              やるべきことを絞り、全員で動き、業績につなぐ仕組み
             </motion.p>
 
             <motion.div
