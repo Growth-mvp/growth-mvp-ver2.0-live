@@ -2312,7 +2312,34 @@ export const useStrategyStore = create<StrategyState>()(
       },
 
       setExecutionPlanBaseline: (baseline) => {
-        set((s) => ({ ...s, executionPlanBaseline: baseline, dirty: true, version: (s.version ?? 0) + 1 }));
+        set((s) => {
+          const prevBaseline = s.executionPlanBaseline;
+
+          // 初回の自動ベースライン作成は UI 初期化扱いにし、未保存表示を立てない。
+          const isInitialAutoBaseline =
+            (prevBaseline == null || prevBaseline.snapshot == null) &&
+            baseline != null &&
+            Array.isArray(baseline.snapshot) &&
+            baseline.snapshot.length > 0;
+
+          // 完全同値なら no-op
+          const sameBaseline = JSON.stringify(prevBaseline ?? null) === JSON.stringify(baseline ?? null);
+          if (sameBaseline) return s;
+
+          if (isInitialAutoBaseline) {
+            return {
+              ...s,
+              executionPlanBaseline: baseline,
+            };
+          }
+
+          return {
+            ...s,
+            executionPlanBaseline: baseline,
+            dirty: true,
+            version: (s.version ?? 0) + 1,
+          };
+        });
       },
 
       /**
