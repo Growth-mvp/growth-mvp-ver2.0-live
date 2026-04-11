@@ -83,9 +83,9 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
     onChange,
   } = props;
 
-  // ★ 閲覧はOK、編集は会社レベルAdminのみ
-  const { canEditCompany } = useAccess();
-  const canEdit = canEditCompany();
+  // ★ 閲覧はOK、編集は部門レベル（Admin/Manager）
+  const { canEditDepartment } = useAccess();
+  const canEdit = canEditDepartment();
 
   const [step, setStep] = useState<StepNumber>(clampStep(initialStep));
   const [answers, setAnswers] = useState<DeptAnswerStep[]>(

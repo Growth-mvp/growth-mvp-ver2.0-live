@@ -67,6 +67,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     }
 
+    // ★ Role チェック: admin のみ許可
+    const role = String(selectedMembership?.role ?? 'member').toLowerCase();
+    if (role !== 'admin') {
+      console.warn('[api/cascade/cleanup] insufficient_role:', { userId, role });
+      return NextResponse.json({ error: 'insufficient_role' }, { status: 403 });
+    }
+
     // === Step 3: Request body パース ===
     const body = await req.json();
     const { deletedProjectIds, departmentId } = body as {

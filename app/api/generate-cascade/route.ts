@@ -9,7 +9,7 @@ import { industryTemplates, getIndustryLabel } from '@/utils/industryTemplates';
 import { toTextStory, extractJsonObject, sanitizeText } from '@/app/api/_shared/utils';
 import { z } from 'zod';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
-import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
+import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
 
 /* =========================
  * グローバル定数
@@ -2156,6 +2156,13 @@ export async function POST(req: NextRequest) {
     const membership = await requireMembership(admin, userId);
     if (!membership) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+
+    // ★ Role チェック: admin / manager のみ許可
+    try {
+      await assertMinRole(membership, 'manager');
+    } catch {
+      return NextResponse.json({ error: 'insufficient_role' }, { status: 403 });
     }
 
     const raw = await req.json().catch(() => ({}));

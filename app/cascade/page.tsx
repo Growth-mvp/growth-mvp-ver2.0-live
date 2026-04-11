@@ -3928,7 +3928,7 @@ useEffect(() => {
 
 export default function CascadePage() {
   return (
-    <StrategyGuard mode="edit">
+    <StrategyGuard mode="view">
       <CascadePageContent />
     </StrategyGuard>
   );

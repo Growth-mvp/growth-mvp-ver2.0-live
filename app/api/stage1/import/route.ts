@@ -16,6 +16,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import type { Stage1ImportResult, Stage1ImportCandidate } from '@/types/strategy';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
 import {
   generateCacheKey,
   getFromCache,
@@ -501,6 +503,33 @@ function buildCandidatesFromCsvFallback(
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+    // ★ 認証 & Role チェック: admin / manager のみ許可
+    const admin = getSupabaseAdmin();
+    const userId = await getAuthUserIdFromBearer(admin, request);
+    if (!userId) {
+      return NextResponse.json<Stage1ImportResult>(
+        { success: false, error: 'unauthorized', candidates: [] },
+        { status: 401 }
+      );
+    }
+
+    const membership = await requireMembership(admin, userId);
+    if (!membership) {
+      return NextResponse.json<Stage1ImportResult>(
+        { success: false, error: 'forbidden', candidates: [] },
+        { status: 403 }
+      );
+    }
+
+    try {
+      await assertMinRole(membership, 'manager');
+    } catch {
+      return NextResponse.json<Stage1ImportResult>(
+        { success: false, error: 'insufficient_role', candidates: [] },
+        { status: 403 }
+      );
+    }
+
     cleanupExpiredCache();
 
     const formData = await request.formData();

@@ -10,7 +10,7 @@ export const maxDuration = 60;
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
-import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
+import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
 
 /* ===== OpenAI設定 ===== */
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
@@ -508,6 +508,13 @@ export async function POST(req: NextRequest) {
     const membership = await requireMembership(admin, userId);
     if (!membership) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+
+    // ★ Role チェック: admin / manager のみ許可
+    try {
+      await assertMinRole(membership, 'manager');
+    } catch {
+      return NextResponse.json({ error: 'insufficient_role' }, { status: 403 });
     }
 
     const body = (await req.json().catch(() => ({}))) as GenerateFinalInput;

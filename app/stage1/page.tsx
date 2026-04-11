@@ -160,6 +160,9 @@ export default function Stage1Page() {
 
   // ===== 復元関連（TASK 6: STAGE1 統合） =====
   const companyId = useUserStore((s) => (s as any).companyId as string | undefined);
+  const isAdmin = useUserStore((s) => s.isAdmin);
+  const isManager = useUserStore((s) => s.isManager);
+  const canEdit = isAdmin || isManager;
   const didRestoreRef = useRef(false);
 
   // ★ Stage1 自動保存の有効化
@@ -406,7 +409,7 @@ export default function Stage1Page() {
           : 'bg-blue-600 text-white hover:bg-blue-700';
 
   return (
-    <StrategyGuard mode="edit">
+    <StrategyGuard mode="view">
       <div className="max-w-6xl mx-auto px-4 md:px-6 py-6 space-y-6">
         <header className="flex items-start justify-between gap-4">
           <div>
@@ -466,21 +469,21 @@ export default function Stage1Page() {
             </div>
 
             <SectionCard title="① 企業情報・事業内容" defaultOpen={false}>
-              <CompanyAndBusinessPanel />
+              <CompanyAndBusinessPanel readOnly={!canEdit} disabled={!canEdit} />
             </SectionCard>
 
             <SectionCard title="② 財務データ（読込・手入力）" defaultOpen={false}>
-              <FinanceDataPanel />
+              <FinanceDataPanel readOnly={!canEdit} disabled={!canEdit} />
             </SectionCard>
 
             <SectionCard title="③ 上場情報・外部ベンチマーク・WACC（任意）" defaultOpen={false}>
               <div className="space-y-6">
-                <ListingInfoPanel />
+                <ListingInfoPanel readOnly={!canEdit} disabled={!canEdit} />
                 <div className="border-t border-gray-200 pt-4">
-                  <Stage1BenchmarkPanel />
+                  <Stage1BenchmarkPanel readOnly={!canEdit} disabled={!canEdit} />
                 </div>
                 <div className="border-t border-gray-200 pt-4">
-                  <WaccPanel />
+                  <WaccPanel readOnly={!canEdit} disabled={!canEdit} />
                 </div>
               </div>
             </SectionCard>
@@ -500,11 +503,11 @@ export default function Stage1Page() {
             </div>
 
             <SectionCard title="① 財務指標" defaultOpen={false}>
-              <MetricsPanel />
+              <MetricsPanel readOnly={!canEdit} disabled={!canEdit} />
             </SectionCard>
 
             <SectionCard title="② 論点整理 + STAGE2へ" defaultOpen={false}>
-              <Stage1ToStage2Panel />
+              <Stage1ToStage2Panel readOnly={!canEdit} disabled={!canEdit} />
             </SectionCard>
           </div>
         )}

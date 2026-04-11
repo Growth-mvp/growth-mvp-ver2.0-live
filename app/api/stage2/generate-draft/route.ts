@@ -16,7 +16,7 @@ export const maxDuration = 60;
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
-import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
+import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
 import { z } from 'zod';
 
 /* ===== OpenAI設定 ===== */
@@ -1020,6 +1020,14 @@ export async function POST(req: NextRequest) {
     if (!membership) {
       console.error('[stage2/generate-draft] Auth failed: no membership');
       return NextResponse.json({ ok: false, stage: 'auth', error: 'forbidden' }, { status: 403 });
+    }
+
+    // ★ Role チェック: admin / manager のみ許可
+    try {
+      await assertMinRole(membership, 'manager');
+    } catch {
+      console.error('[stage2/generate-draft] Auth failed: insufficient_role');
+      return NextResponse.json({ ok: false, stage: 'auth', error: 'insufficient_role' }, { status: 403 });
     }
 
     let body: any;

@@ -9,7 +9,7 @@ import { openai } from '@/lib/openai';
 import { z } from 'zod';
 import { sanitizeText, extractJsonObject } from '@/app/api/_shared/utils';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
-import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
+import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
 
 /* =========================
  * 入力スキーマ
@@ -173,6 +173,16 @@ export async function POST(req: NextRequest) {
     const membership = await requireMembership(admin, userId);
     if (!membership) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+
+    // ★ Role チェック: admin / manager のみ許可
+    try {
+      await assertMinRole(membership, 'manager');
+    } catch {
+      return NextResponse.json(
+        { error: 'insufficient_role' },
+        { status: 403 }
+      );
     }
 
     // 1) 入力の読み込み＆検証

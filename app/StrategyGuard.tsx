@@ -33,6 +33,7 @@ export default function StrategyGuard({
   const [allowed, setAllowed] = useState(false);
 
   const canEdit = isAdmin || isManager;
+  const role = isAdmin ? 'admin' : isManager ? 'manager' : 'member';
 
   // ★ Guard 除外パス（招待受諾、callback、welcome）
   const isExemptPath = pathname?.startsWith('/invite/accept') ||
@@ -40,6 +41,16 @@ export default function StrategyGuard({
                        pathname?.startsWith('/auth/welcome');
 
   useEffect(() => {
+    // ★ 診断ログ
+    console.log('[StrategyGuard]', {
+      pathname,
+      mode,
+      role: isLoggedIn ? role : 'not_logged_in',
+      companyId,
+      membershipLoaded,
+      hydrated,
+    });
+
     // Guard 除外パスはスキップ
     if (isExemptPath) {
       console.log('[StrategyGuard] exempt path, skipping guard:', pathname);
@@ -72,7 +83,11 @@ export default function StrategyGuard({
 
     // For edit mode: require admin or manager
     if (mode === 'edit' && !canEdit) {
-      console.warn('[StrategyGuard] user is member (not admin/manager), redirecting to /403');
+      console.warn('[StrategyGuard] redirecting to /403', {
+        pathname,
+        mode,
+        role,
+      });
       setChecking(false);
       router.replace('/403');
       return;
@@ -81,7 +96,7 @@ export default function StrategyGuard({
     // ✅ Allowed
     setAllowed(true);
     setChecking(false);
-  }, [hydrated, isLoggedIn, membershipLoaded, companyId, mode, canEdit, router, isExemptPath, pathname]);
+  }, [hydrated, isLoggedIn, membershipLoaded, companyId, mode, canEdit, router, isExemptPath, pathname, role]);
 
   if (checking) {
     return <div className="grid min-h-dvh place-items-center text-sm text-gray-500">読み込み中…</div>;

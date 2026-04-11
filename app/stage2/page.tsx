@@ -1449,7 +1449,7 @@ function Questions12Section({
 /* ===================================================
  * メイン
  * =================================================== */
-function Stage2PageContent() {
+function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: boolean; disabled?: boolean } = {}) {
   const router = useRouter();
 
   // Store / User
@@ -3221,9 +3221,13 @@ function Stage2PageContent() {
 }
 
 export default function Stage2Page() {
+  const isAdmin = useUserStore((s) => s.isAdmin);
+  // ★ STAGE2 仕様: edit は Admin のみ、Manager は review のみ
+  const canEdit = isAdmin;
+
   return (
-    <StrategyGuard mode="edit">
-      <Stage2PageContent />
+    <StrategyGuard mode="view">
+      <Stage2PageContent readOnly={!canEdit} disabled={!canEdit} />
     </StrategyGuard>
   );
 }
