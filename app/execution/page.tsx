@@ -1047,7 +1047,7 @@ function ExecPanel(props: {
       });
 
       // ★ dirty フラグを立てる（useAutoSave が isFetching=false を待って自動 save）
-      state.setState({ dirty: true });
+      useStrategyStore.setState({ dirty: true });
     },
     [di, pi, isVariant, stage4Proj, updateDepartments]
   );
@@ -3051,7 +3051,7 @@ function ExecutionPageContent() {
 }
 export default function ExecutionPage() {
   return (
-    <StrategyGuard mode="view">
+    <StrategyGuard mode="view" showReadOnlyBanner={false}>
       <ExecutionPageContent />
     </StrategyGuard>
   );
