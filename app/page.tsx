@@ -31,27 +31,28 @@ export default function Home() {
     <main className="min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-white">
       {/* ===== Hero ===== */}
       <section className="border-b border-neutral-200/60 bg-neutral-50 dark:border-neutral-900 dark:bg-neutral-950">
-        <div className="container mx-auto px-6 pt-12 pb-7 sm:pt-14 sm:pb-9 lg:pt-16 lg:pb-10">
+        <div className="container mx-auto px-6 pt-12 pb-8 sm:pt-14 sm:pb-10 lg:pt-16 lg:pb-12">
           <div className="mx-auto max-w-5xl text-center">
-            <motion.h1
+            <motion.div
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.55 }}
-              className="mx-auto flex max-w-4xl flex-wrap items-baseline justify-center gap-x-3 gap-y-1 text-center text-neutral-900 dark:text-neutral-50"
+              className="mx-auto max-w-4xl"
             >
-              <span className="text-[34px] font-bold leading-none tracking-[-0.05em] sm:text-[42px] lg:text-[52px]">
+              <h1 className="text-[46px] font-bold leading-none tracking-[-0.06em] text-neutral-900 sm:text-[58px] lg:text-[70px] dark:text-neutral-50">
                 GROWTH
-              </span>
-              <span className="text-[24px] font-medium leading-none tracking-[-0.03em] text-neutral-700 sm:text-[30px] lg:text-[38px] dark:text-neutral-200">
-                ｜ 戦略実行プラットフォーム
-              </span>
-            </motion.h1>
+              </h1>
+
+              <p className="mt-3.5 text-[18px] font-normal leading-[1.15] tracking-[-0.025em] text-neutral-600 sm:text-[22px] lg:text-[24px] dark:text-neutral-300">
+                戦略実行プラットフォーム
+              </p>
+            </motion.div>
 
             <motion.p
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.06 }}
-              className="mx-auto mt-6 max-w-4xl text-[16px] font-normal leading-[1.85] tracking-[0.01em] text-neutral-600 sm:text-[18px] lg:text-[21px] dark:text-neutral-300"
+              className="mx-auto mt-8 max-w-3xl text-[16px] font-normal leading-[1.9] tracking-[0.01em] text-neutral-600 sm:text-[18px] lg:text-[16px] dark:text-neutral-300"
             >
               やるべきことを絞り、組織が動き、業績につなぐ経営の仕組み
             </motion.p>
@@ -60,7 +61,7 @@ export default function Home() {
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.74, delay: 0.18 }}
-              className="mt-8"
+              className="mt-10"
             >
               <Link
                 href="/stage1"
