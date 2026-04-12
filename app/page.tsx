@@ -31,31 +31,27 @@ export default function Home() {
     <main className="min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-white">
       {/* ===== Hero ===== */}
       <section className="border-b border-neutral-200/60 bg-neutral-50 dark:border-neutral-900 dark:bg-neutral-950">
-        <div className="container mx-auto px-6 pt-12 pb-8 sm:pt-14 sm:pb-10 lg:pt-16 lg:pb-12">
-          <div className="mx-auto max-w-5xl text-center">
-            <motion.div
+        <div className="container mx-auto px-6 pt-10 pb-6 sm:pt-12 sm:pb-8 lg:pt-14 lg:pb-9">
+          <div className="mx-auto max-w-4xl text-center">
+            <motion.h1
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.55 }}
-              className="mx-auto max-w-4xl"
+              className="mx-auto max-w-3xl text-[26px] font-semibold leading-[1.3] tracking-[-0.035em] text-neutral-900 sm:text-[33px] lg:text-[40px] dark:text-neutral-50"
             >
-              <h1 className="text-[46px] font-bold leading-none tracking-[-0.06em] text-neutral-900 sm:text-[58px] lg:text-[70px] dark:text-neutral-50">
-                GROWTH
-              </h1>
+              やるべきことを絞り、全員で動く仕組み。
+            </motion.h1>
 
-              <p className="mt-3.5 text-[18px] font-normal leading-[1.15] tracking-[-0.025em] text-neutral-600 sm:text-[22px] lg:text-[24px] dark:text-neutral-300">
-                戦略実行プラットフォーム
-              </p>
-            </motion.div>
-
-            <motion.p
+            <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.06 }}
-              className="mx-auto mt-8 max-w-3xl text-[16px] font-normal leading-[1.9] tracking-[0.01em] text-neutral-600 sm:text-[18px] lg:text-[16px] dark:text-neutral-300"
+              className="mt-4 text-[21px] font-medium tracking-[0.01em] text-neutral-800 sm:text-[27px] lg:text-[31px] dark:text-neutral-100"
             >
-              やるべきことを絞り、全員で動く仕組み
-            </motion.p>
+              GROWTH ｜ 戦略実行プラットフォーム
+            </motion.div>
+
+            
 
             <motion.div
               initial={{ opacity: 0, y: 14 }}
