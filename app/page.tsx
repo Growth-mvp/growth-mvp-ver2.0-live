@@ -27,38 +27,40 @@ export default function Home() {
     { step: 6, title: 'STAGE 6：業績シミュレーション', path: '/stage6' },
   ];
 
-
   return (
     <main className="min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-white">
       {/* ===== Hero ===== */}
       <section className="border-b border-neutral-200/60 bg-neutral-50 dark:border-neutral-900 dark:bg-neutral-950">
-        <div className="container mx-auto px-6 pt-10 pb-6 sm:pt-12 sm:pb-8 lg:pt-14 lg:pb-9">
-          <div className="mx-auto max-w-4xl text-center">
+        <div className="container mx-auto px-6 pt-12 pb-7 sm:pt-14 sm:pb-9 lg:pt-16 lg:pb-10">
+          <div className="mx-auto max-w-5xl text-center">
             <motion.h1
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.55 }}
-              className="mx-auto max-w-3xl text-[26px] font-semibold leading-[1.3] tracking-[-0.035em] text-neutral-900 sm:text-[33px] lg:text-[40px] dark:text-neutral-50"
+              className="mx-auto flex max-w-4xl flex-wrap items-baseline justify-center gap-x-3 gap-y-1 text-center text-neutral-900 dark:text-neutral-50"
             >
-            GROWTH ｜ 戦略実行プラットフォーム
+              <span className="text-[34px] font-bold leading-none tracking-[-0.05em] sm:text-[42px] lg:text-[52px]">
+                GROWTH
+              </span>
+              <span className="text-[24px] font-medium leading-none tracking-[-0.03em] text-neutral-700 sm:text-[30px] lg:text-[38px] dark:text-neutral-200">
+                ｜ 戦略実行プラットフォーム
+              </span>
             </motion.h1>
 
-            <motion.div
+            <motion.p
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.06 }}
-              className="mt-4 text-[21px] font-medium tracking-[0.01em] text-neutral-800 sm:text-[27px] lg:text-[31px] dark:text-neutral-100"
+              className="mx-auto mt-5 max-w-4xl text-[18px] font-medium leading-[1.7] tracking-[-0.01em] text-neutral-700 sm:text-[22px] lg:text-[26px] dark:text-neutral-200"
             >
-             やるべきことを絞り 組織が動き 業績につなぐ経営の仕組み
-            </motion.div>
-
-            
+              やるべきことを絞り、組織が動き、業績につなぐ経営の仕組み
+            </motion.p>
 
             <motion.div
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.74, delay: 0.18 }}
-              className="mt-7"
+              className="mt-8"
             >
               <Link
                 href="/stage1"
