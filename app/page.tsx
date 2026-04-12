@@ -40,7 +40,7 @@ export default function Home() {
               transition={{ duration: 0.55 }}
               className="mx-auto max-w-3xl text-[26px] font-semibold leading-[1.3] tracking-[-0.035em] text-neutral-900 sm:text-[33px] lg:text-[40px] dark:text-neutral-50"
             >
-            戦略は伝えた。だが、組織が動かない。
+            GROWTH ｜ 戦略実行プラットフォーム
             </motion.h1>
 
             <motion.div
@@ -49,17 +49,10 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.06 }}
               className="mt-4 text-[21px] font-medium tracking-[0.01em] text-neutral-800 sm:text-[27px] lg:text-[31px] dark:text-neutral-100"
             >
-              GROWTH ｜ 戦略実行プラットフォーム
+             やるべきことを絞り 組織が動き 業績につなぐ経営の仕組み
             </motion.div>
 
-            <motion.p
-              initial={{ opacity: 0, y: 14 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.68, delay: 0.12 }}
-              className="mx-auto mt-4 max-w-3xl text-[16px] leading-7 text-neutral-600 sm:text-[17px] dark:text-neutral-300"
-            >
-              やるべきことを絞り、全員で動き、業績につなぐ仕組み
-            </motion.p>
+            
 
             <motion.div
               initial={{ opacity: 0, y: 14 }}
