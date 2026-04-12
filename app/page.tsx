@@ -54,7 +54,7 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.06 }}
               className="mx-auto mt-8 max-w-3xl text-[16px] font-normal leading-[1.9] tracking-[0.01em] text-neutral-600 sm:text-[18px] lg:text-[16px] dark:text-neutral-300"
             >
-              やるべきことを絞り、組織が動き、業績につなぐ経営の仕組み
+              やるべきことを絞り、全員で動く仕組み
             </motion.p>
 
             <motion.div
