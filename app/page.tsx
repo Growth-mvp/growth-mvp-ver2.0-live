@@ -65,7 +65,7 @@ export default function Home() {
             >
               <Link
                 href="/stage1"
-                className="inline-flex min-w-[220px] items-center justify-center rounded-full bg-neutral-950 px-8 py-4 text-[15px] font-semibold text-white shadow-[0_14px_36px_rgba(0,0,0,0.14)] transition hover:-translate-y-0.5 hover:opacity-95 dark:bg-white dark:text-neutral-950"
+                className="inline-flex min-w-[180px] items-center justify-center rounded-full bg-neutral-950 px-8 py-3 text-[15px] font-semibold text-white shadow-[0_14px_36px_rgba(0,0,0,0.14)] transition hover:-translate-y-0.5 hover:opacity-95 dark:bg-white dark:text-neutral-950"
               >
                 さっそく始める
               </Link>
