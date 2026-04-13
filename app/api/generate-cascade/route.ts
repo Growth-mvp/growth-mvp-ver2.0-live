@@ -1864,6 +1864,32 @@ function buildDeptFactPack(
       .replace(/(事業部|本部|部門|部)$/g, '')
       .trim();
 
+  /**
+   * ★STAGE3専用補助：finance raw 値の単位判定と金額文言生成
+   * csvFinanceData 由来の値は「円」「百万円」が混在しているため、値の大きさで判定
+   * - >= 10,000,000: 「円」と判定 → 百万円へ換算（÷1,000,000）
+   * - 100～9,999,999: 「百万円」と判定（そのまま使用）
+   * - < 100: 不正値 → 金額文言を返さない（増減率のみ残す）
+   */
+  const formatFinanceValue = (value: number | null): { text: string; isValid: boolean } => {
+    if (value == null || !Number.isFinite(value)) {
+      return { text: '', isValid: false };
+    }
+
+    if (value >= 10000000) {
+      // 「円」と判定 → 百万円へ換算
+      const converted = Math.round((value / 1000000) * 10) / 10;
+      return { text: `${converted}百万円`, isValid: true };
+    } else if (value >= 100 && value < 10000000) {
+      // 「百万円」と判定（そのまま）
+      const rounded = Math.round(value * 10) / 10;
+      return { text: `${rounded}百万円`, isValid: true };
+    } else {
+      // < 100 は不正値 → 金額文言を出さない
+      return { text: '', isValid: false };
+    }
+  };
+
   // ★ segment マッチング（既存ロジックを流用）
   const keyN = normalizeName(deptName);
   let seg: any = undefined;
@@ -1954,8 +1980,32 @@ function buildDeptFactPack(
         const change = ((latestRev - prevRev) / prevRev) * 100;
         const sign = change >= 0 ? '成長' : '低迷';
         const yearStr = latestYear ? `${latestYear}年` : '';
-        const hint = `売上は${Math.abs(change).toFixed(1)}%${sign}（${yearStr}${latestRev}百万円）`;
+
+        // ★STAGE3修正：latestRev を単位判定して hint 生成
+        const revFormat = formatFinanceValue(latestRev);
+        let hint: string;
+        if (revFormat.isValid) {
+          hint = `売上は${Math.abs(change).toFixed(1)}%${sign}（${yearStr}${revFormat.text}）`;
+        } else {
+          // 異常値 → 金額文言を落とす（増減率のみ）
+          hint = `売上は${Math.abs(change).toFixed(1)}%${sign}`;
+        }
         financeHints.push(hint);
+
+        // [STAGE3_FACTPACK_GEN] ログ：fact-fin 生成時点での値
+        console.log('[STAGE3_FACTPACK_GEN_SEGPL]', {
+          deptName,
+          anchorId: `fact-fin-${anchorCount + 1}`,
+          source: 'seg.pl (businessSegments)',
+          latestRev_raw: latestRev,
+          latestRev_type: typeof latestRev,
+          formatResult: revFormat,
+          change_pct: change.toFixed(1),
+          yearLabel: latestYear,
+          hint_text: hint,
+          note: revFormat.isValid ? 'corrected' : 'money_removed',
+        });
+
         anchors.push({
           id: `fact-fin-${++anchorCount}`,
           text: hint,
@@ -1985,18 +2035,39 @@ function buildDeptFactPack(
         const receivables = toNum(latestBS?.receivables ?? latestBS?.currentAssets?.receivables ?? latestBS?.accountsReceivable);
         const fixedAssets = toNum(latestBS?.fixedAssets ?? latestBS?.propertyPlantEquipment);
 
+        // ★STAGE3修正：BS 値も単位判定して hint 生成
         if (inventory != null) {
-          bsHint = `在庫は${inventory}百万円`;
+          const invFormat = formatFinanceValue(inventory);
+          bsHint = invFormat.isValid ? `在庫は${invFormat.text}` : undefined;
         } else if (receivables != null) {
-          bsHint = `売掛金は${receivables}百万円`;
+          const recFormat = formatFinanceValue(receivables);
+          bsHint = recFormat.isValid ? `売掛金は${recFormat.text}` : undefined;
         } else if (fixedAssets != null) {
-          bsHint = `固定資産は${fixedAssets}百万円`;
+          const faFormat = formatFinanceValue(fixedAssets);
+          bsHint = faFormat.isValid ? `固定資産は${faFormat.text}` : undefined;
         }
 
         if (bsHint && financeHints.length < 4) {
           // 既に4個以上ある場合は追加しない
           const yearStr = latestYear ? `${latestYear}年` : '';
           const fullHint = yearStr ? `${bsHint}（${yearStr}）` : bsHint;
+
+          // [STAGE3_FACTPACK_GEN_BS] ログ：BS hint 生成時点での値
+          const bsType = inventory != null ? 'inventory' : receivables != null ? 'receivables' : 'fixedAssets';
+          const bsValue = inventory ?? receivables ?? fixedAssets ?? 0;
+          console.log('[STAGE3_FACTPACK_GEN_BS]', {
+            deptName,
+            anchorId: `fact-fin-${anchorCount + 1}`,
+            source: 'seg.bs (businessSegments)',
+            bsType: bsType,
+            bsValue_raw: bsValue,
+            bsValue_type: typeof bsValue,
+            bsValue_isNormal: bsValue < 10000000,
+            yearLabel: latestYear,
+            hint_text: fullHint,
+            note: bsValue > 10000000 ? 'ABNORMAL_VALUE' : 'normal',
+          });
+
           financeHints.push(fullHint);
           anchors.push({
             id: `fact-fin-${++anchorCount}`,
@@ -2022,7 +2093,30 @@ function buildDeptFactPack(
         if (latestRev != null && prevRev != null && anchors.length < 8) {
           const change = ((latestRev - prevRev) / prevRev) * 100;
           const sign = change >= 0 ? '増加' : '減少';
-          const hint = `売上は${Math.abs(change).toFixed(1)}%${sign}（${latestRev}百万円）`;
+
+          // ★STAGE3修正：csvFinanceData 由来の latestRev を単位判定
+          const revFormat = formatFinanceValue(latestRev);
+          let hint: string;
+          if (revFormat.isValid) {
+            hint = `売上は${Math.abs(change).toFixed(1)}%${sign}（${revFormat.text}）`;
+          } else {
+            // 異常値 → 金額文言を落とす
+            hint = `売上は${Math.abs(change).toFixed(1)}%${sign}`;
+          }
+
+          // [STAGE3_FACTPACK_GEN_CSV] ログ：csvFinanceData フォールバック版
+          console.log('[STAGE3_FACTPACK_GEN_CSV]', {
+            deptName,
+            anchorId: `fact-fin-${anchorCount + 1}`,
+            source: 'csvFinanceData.segmentPL',
+            latestRev_raw: latestRev,
+            latestRev_type: typeof latestRev,
+            formatResult: revFormat,
+            change_pct: change.toFixed(1),
+            hint_text: hint,
+            note: revFormat.isValid ? 'corrected' : 'money_removed',
+          });
+
           anchors.push({
             id: `fact-fin-${++anchorCount}`,
             text: hint,
@@ -2215,6 +2309,41 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // [STAGE3_INPUT_DATA] ログ：request に来た allBusinessSegments と csvFinanceData の初期確認
+    {
+      const segSample = Array.isArray(allBusinessSegments)
+        ? allBusinessSegments.slice(0, 2).map((s: any) => ({
+            name: s?.name,
+            haspl: !!s?.pl,
+            hasbs: !!s?.bs,
+            plSample: Array.isArray(s?.pl) ? s.pl.slice(0, 1).map((p: any) => ({
+              year: p?.year,
+              revenue: p?.revenue,
+              revenue_type: typeof p?.revenue,
+            })) : null,
+          }))
+        : [];
+      const csvSegPLKeys = csvFinanceData?.segmentPL ? Object.keys(csvFinanceData.segmentPL).slice(0, 5) : [];
+      const csvSegPLSample = csvFinanceData?.segmentPL && csvSegPLKeys.length > 0
+        ? csvSegPLKeys.map((key: string) => {
+            const rows = csvFinanceData.segmentPL[key];
+            const row = Array.isArray(rows) ? rows[rows.length - 1] : rows;
+            return {
+              segmentName: key,
+              revenue: row?.revenue,
+              revenue_type: typeof row?.revenue,
+            };
+          })
+        : [];
+      console.log('[STAGE3_INPUT_DATA]', {
+        allBusinessSegments_len: Array.isArray(allBusinessSegments) ? allBusinessSegments.length : 0,
+        businessSegments_sample: segSample,
+        csvFinanceData_hasSegmentPL: !!csvFinanceData?.segmentPL,
+        csvSegmentPL_keys: csvSegPLKeys,
+        csvSegmentPL_sample: csvSegPLSample,
+      });
+    }
+
     // ★TASK 2: request に finalStory が到達しているか確認（parse直後）
     console.log('[cascade][req] hasFinalStory=', !!finalStory, 'type=', typeof finalStory, 'jsonLen=', JSON.stringify(finalStory || '').length);
 
@@ -2247,6 +2376,16 @@ export async function POST(req: NextRequest) {
 
     const financeSummaryText = summarizeFinanceSummary(financeSummary);
     const portfolioText = summarizeBusinessPortfolio(businessPortfolio);
+
+    // [STAGE3_FIN_INPUT] ログ：全社レベルの財務概要
+    console.log('[STAGE3_FIN_INPUT_GLOBAL]', {
+      revenue: revenue,
+      revenue_type: typeof revenue,
+      employees: employees,
+      financeSummaryText_len: financeSummaryText.length,
+      financeSummaryText_sample: financeSummaryText.slice(0, 200),
+      portfolioText_sample: portfolioText.slice(0, 200),
+    });
 
     const industryLabel = industry ? getIndustryLabel(industry, { full: true }) : '';
     const industryLine = industryLabel ? `${industryLabel}${industry ? `（${industry}）` : ''}` : industry ?? '（不明）';
@@ -2281,6 +2420,27 @@ export async function POST(req: NextRequest) {
       if (!name) continue;
       const factPack = buildDeptFactPack(name, allBusinessSegments, csvFinanceData, financeSummary, businessPortfolio);
       factPackByDept.set(name, factPack);
+
+      // [STAGE3_FACTPACK_ANCHORS] ログ：生成された anchors の全体確認
+      {
+        const abnormalAnchors = factPack.anchors.filter(a => {
+          const hasAbnormal = /\d{10,}百万円|\d{10,}M円/.test(a.text);
+          return hasAbnormal;
+        });
+        console.log('[STAGE3_FACTPACK_ANCHORS]', {
+          dept: name,
+          totalAnchors: factPack.anchors.length,
+          abnormalCount: abnormalAnchors.length,
+          allAnchors: factPack.anchors.map((a, idx) => ({
+            index: idx,
+            id: a.id,
+            source: a.source,
+            text: a.text,
+            hasAbnormalValue: /\d{10,}百万円|\d{10,}M円/.test(a.text),
+          })),
+        });
+      }
+
       if (DEBUG) {
         console.log(`[cascade][factpack] ${name}: ${factPack.anchors.length}anchors, ${factPack.customers.length}customers`);
       }
@@ -2328,14 +2488,42 @@ export async function POST(req: NextRequest) {
         const deptFinanceSummaryText = (() => {
           const parts: string[] = [];
 
+          // [STAGE3_FIN_INPUT] ログ：部門入力時点での金額値
+          if (segPLData && typeof segPLData === 'object') {
+            const plData = Array.isArray(segPLData) ? segPLData : [segPLData];
+            for (const row of plData.slice(-2)) {
+              if (row?.revenue !== undefined) {
+                console.log('[STAGE3_FIN_INPUT]', {
+                  dept: name,
+                  year: row?.year,
+                  revenue_raw: row?.revenue,
+                  revenue_type: typeof row?.revenue,
+                  operatingIncome_raw: row?.operatingIncome,
+                  operatingIncome_type: typeof row?.operatingIncome,
+                  note: 'segPLData から抽出'
+                });
+              }
+            }
+          }
+
+          // ★ 異常値ガード関数
+          const formatMoneyWithGuard = (value: number, label: string): string => {
+            const converted = Math.round(value / 100) / 10;
+            // STAGE3専用防御：1000万以上は異常値として非表示化（単位混在対応）
+            if (converted > 10000000) {
+              return '';
+            }
+            return `${label}${converted}M円`;
+          };
+
           // 1) seg から抽出（優先）
           if (segPLData && typeof segPLData === 'object') {
             const plData = Array.isArray(segPLData) ? segPLData : [segPLData];
             for (const row of plData.slice(-2)) {
               if (!row) continue;
               const year = row?.year ? `(${row.year})` : '';
-              const revenue = typeof row?.revenue === 'number' ? `売上${Math.round(row.revenue / 100) / 10}M円` : '';
-              const operatingIncome = typeof row?.operatingIncome === 'number' ? `営業利益${Math.round(row.operatingIncome / 100) / 10}M円` : '';
+              const revenue = typeof row?.revenue === 'number' ? formatMoneyWithGuard(row.revenue, '売上') : '';
+              const operatingIncome = typeof row?.operatingIncome === 'number' ? formatMoneyWithGuard(row.operatingIncome, '営業利益') : '';
               const items = [year, revenue, operatingIncome].filter(Boolean).join(' ');
               if (items) parts.push(items);
             }
@@ -2346,8 +2534,8 @@ export async function POST(req: NextRequest) {
             const segRows = Array.isArray(segmentPL[segKey]) ? segmentPL[segKey].slice(-2) : [];
             for (const row of segRows) {
               const year = row?.year ? `(${row.year})` : '';
-              const revenue = typeof row?.revenue === 'number' ? `売上${Math.round(row.revenue / 100) / 10}M円` : '';
-              const operatingIncome = typeof row?.operatingIncome === 'number' ? `営業利益${Math.round(row.operatingIncome / 100) / 10}M円` : '';
+              const revenue = typeof row?.revenue === 'number' ? formatMoneyWithGuard(row.revenue, '売上') : '';
+              const operatingIncome = typeof row?.operatingIncome === 'number' ? formatMoneyWithGuard(row.operatingIncome, '営業利益') : '';
               const items = [year, revenue, operatingIncome].filter(Boolean).join(' ');
               if (items) parts.push(items);
             }
@@ -2361,7 +2549,12 @@ export async function POST(req: NextRequest) {
               return businessUnit.includes(name.toLowerCase()) || name.toLowerCase().includes(businessUnit);
             });
             for (const row of deptMatches.slice(0, 1)) {
-              const revenue = typeof row.revenue === 'number' ? `${Math.round(row.revenue / 100) / 10}M円` : row.revenue || '';
+              const revenue = typeof row.revenue === 'number' ? (() => {
+                const converted = Math.round(row.revenue / 100) / 10;
+                // STAGE3専用防御：1000万以上は異常値として非表示化
+                if (converted > 10000000) return '';
+                return `${converted}M円`;
+              })() : row.revenue || '';
               const margin = row.profitMargin ? `利益率${row.profitMargin}` : '';
               const item = [revenue, margin].filter(Boolean).join(', ');
               if (item) parts.push(item);
@@ -2752,6 +2945,21 @@ ${
 - Q5（協力）の回答に他事業部・別事業部・共同開発・横断連携が明示される場合は、interDeptCollab を少なくとも1件返すこと。
 `.trim();
 
+    // [STAGE3_PROMPT_FACTS] ログ：prompt に埋め込まれた FACTPACK ブロック全体
+    {
+      const factPackBlocks = prompt.match(/\[FACTPACK\][^[]*(?=\[|$)/g) || [];
+      const factFinMatches = prompt.match(/fact-fin-\d+/g) || [];
+      const moneyPatterns = prompt.match(/\d{10,}百万円|\d{10,}M円/g) || [];
+      console.log('[STAGE3_PROMPT_FACTS]', {
+        fact_fin_ids_count: factFinMatches.length,
+        fact_fin_ids: factFinMatches,
+        abnormal_money_patterns_count: moneyPatterns.length,
+        abnormal_money_patterns: moneyPatterns,
+        factPackBlocks_count: factPackBlocks.length,
+        factPackBlocks_sample: factPackBlocks.map(b => b.slice(0, 300)),
+      });
+    }
+
     // ★ STAGE3: TASK 1-2 - LLM呼び出し直前の注入証明ログ
     if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
       const injected = prompt.includes('★ STAGE3: 6問の回答');
@@ -2783,11 +2991,59 @@ ${
     const rawContent = completion.choices?.[0]?.message?.content || '';
     const parsed = extractJsonObject(rawContent);
 
+    // [STAGE3_AI_RAW] ログ：AI生成結果の詳細
+    {
+      const hypothesisMatches = (rawContent.match(/"hypothesis"\s*:\s*"([^"]+)"/g) || []).slice(0, 10);
+      const abnormalInHypothesis = (rawContent.match(/"hypothesis"\s*:\s*"[^"]*\d{10,}百万円[^"]*"/g) || []).length;
+      const factFinInContent = (rawContent.match(/fact-fin-\d+/g) || []).length;
+      console.log('[STAGE3_AI_RAW]', {
+        rawContent_len: rawContent.length,
+        rawContent_sample: rawContent.slice(0, 200),
+        hasParsed: !!parsed,
+        hypothesis_count: hypothesisMatches.length,
+        hypothesis_samples: hypothesisMatches.slice(0, 3),
+        abnormalMoney_inHypothesis_count: abnormalInHypothesis,
+        factFin_in_content: factFinInContent,
+      });
+    }
+
     if (!parsed) {
       return new NextResponse(JSON.stringify({ error: '生成結果のJSON解析に失敗しました。' }), {
         status: 500,
         headers: { 'content-type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
       });
+    }
+
+    // [STAGE3_ABNORMAL_MONEY] ログ：異常値検出の詳細
+    {
+      const abnormalList = [];
+      if (parsed?.departments) {
+        for (const dept of parsed.departments) {
+          const deptName = dept?.name || '不明';
+          for (const proj of [...((dept?.lanes?.existing?.projects) || []), ...((dept?.lanes?.new?.projects) || []), ...(dept?.projects || [])]) {
+            const hypothesis = proj?.hypothesis || '';
+            const reason = proj?.reason || '';
+            const abnormalValues = hypothesis.match(/\d{10,}百万円|\d{10,}M円/) || [];
+            const factIds = hypothesis.match(/\(fact-[^)]+\)/g) || [];
+            if (abnormalValues.length > 0 || factIds.length > 0) {
+              abnormalList.push({
+                dept: deptName,
+                projTitle: proj?.title,
+                hypothesis_full: hypothesis,
+                reason_full: reason,
+                abnormalValues: abnormalValues,
+                factIds: factIds,
+              });
+            }
+          }
+        }
+      }
+      if (abnormalList.length > 0) {
+        console.log('[STAGE3_ABNORMAL_MONEY]', {
+          count: abnormalList.length,
+          details: abnormalList,
+        });
+      }
     }
 
     const safe = ResponseSchema.safeParse(parsed);
