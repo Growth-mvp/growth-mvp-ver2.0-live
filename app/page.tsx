@@ -1,4 +1,3 @@
-// /app/page.tsx
 'use client';
 
 import { useEffect } from 'react';
@@ -32,32 +31,30 @@ export default function Home() {
       {/* ===== Hero ===== */}
       <section className="border-b border-neutral-200/60 bg-neutral-50 dark:border-neutral-900 dark:bg-neutral-950">
         <div className="container mx-auto px-6 pt-10 pb-6 sm:pt-12 sm:pb-8 lg:pt-14 lg:pb-9">
-          <div className="mx-auto max-w-4xl text-center">
+          <div className="mx-auto max-w-5xl text-center">
             <motion.h1
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.55 }}
-              className="mx-auto max-w-3xl text-[26px] font-semibold leading-[1.3] tracking-[-0.035em] text-neutral-900 sm:text-[33px] lg:text-[40px] dark:text-neutral-50"
+              className="mx-auto max-w-5xl whitespace-nowrap text-[26px] font-semibold leading-[1.3] tracking-[-0.035em] text-neutral-900 sm:text-[33px] lg:text-[40px] dark:text-neutral-50"
             >
-              やるべきことを絞り、全員で動く仕組み。
+              やるべきことを絞り、全員で動き、業績につなぐ仕組み。
             </motion.h1>
 
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.06 }}
-              className="mt-4 text-[21px] font-medium tracking-[0.01em] text-neutral-800 sm:text-[27px] lg:text-[31px] dark:text-neutral-100"
+              className="mt-5 text-[21px] font-normal tracking-[0.02em] text-neutral-700 sm:text-[27px] lg:text-[31px] dark:text-neutral-200"
             >
               GROWTH ｜ 戦略実行プラットフォーム
             </motion.div>
-
-            
 
             <motion.div
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.74, delay: 0.18 }}
-              className="mt-10"
+              className="mt-12"
             >
               <Link
                 href="/stage1"
