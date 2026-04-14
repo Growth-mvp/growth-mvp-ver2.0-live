@@ -930,6 +930,21 @@ function ExecPanel(props: {
     return { memo: (memoPart || '').trim(), help: (helpPart || '').trim() };
   };
 
+  const progressHintTemplates = [
+    { key: 'moyamoya', label: 'モヤモヤ', template: '【現状のモヤモヤ】\n' },
+    { key: 'issue', label: '課題', template: '【いま解くべき課題】\n' },
+    { key: 'review', label: '見直し', template: '【見直すべき進め方】\n' },
+  ] as const;
+
+  const insertProgressTemplate = useCallback((template: string) => {
+    setProgressText((prev) => {
+      const current = prev ?? '';
+      if (current.includes(template.trim())) return current;
+      const normalized = current.trimEnd();
+      return normalized ? `${normalized}\n\n${template}` : template;
+    });
+  }, []);
+
   // Stage4 確定情報を useStrategyStore から取得
   const { departments, updateDepartments } = useStrategyStore();
   const stage4Proj = typeof di === 'number' && typeof pi === 'number'
@@ -1358,12 +1373,38 @@ function ExecPanel(props: {
         {tab === 'checkin' && (
           <>
             <section className="rounded-3xl border border-black/10 bg-white/70 p-5 shadow-sm">
-              <div className="mb-3">
-                <h3 className="text-sm font-semibold tracking-tight">進捗メモ</h3>
+              <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold tracking-tight">進捗メモ</h3>
+                  <p className="mt-1 text-xs text-gray-600">
+                    書くヒント：進捗だけでなく、モヤモヤ・いま解くべき課題・見直すべき進め方も残せます。
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {progressHintTemplates.map((hint) => (
+                    <button
+                      key={hint.key}
+                      type="button"
+                      onClick={() => insertProgressTemplate(hint.template)}
+                      className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700 transition hover:border-gray-300 hover:bg-gray-50"
+                    >
+                      {hint.label}
+                    </button>
+                  ))}
+                </div>
               </div>
               <textarea
-                className="h-28 w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10"
-                placeholder="例：KR#1 が 60% 達成。◯◯の承認待ち。"
+                className="h-36 w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10"
+                placeholder="例：KR#1 が 60% 達成。
+
+【現状のモヤモヤ】
+承認待ちが長く、前に進みにくい。
+
+【いま解くべき課題】
+意思決定者への説明材料が不足している。
+
+【見直すべき進め方】
+論点を1枚に絞って確認頻度を上げたい。"
                 value={progressText}
                 onChange={(e) => setProgressText(e.target.value)}
               />
