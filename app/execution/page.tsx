@@ -354,6 +354,9 @@ function ExecPanel(props: {
   const [notice, setNotice] = useState<string>('');
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [loadingLogs, setLoadingLogs] = useState<boolean>(false);
+  const [editingLogId, setEditingLogId] = useState<string | null>(null);
+  const [editingKind, setEditingKind] = useState<'checkin' | 'feedback' | null>(null);
+  const [deletingLogId, setDeletingLogId] = useState<string | null>(null);
 
   // Store から score を取得
   const getScoreFromStore = () => {
@@ -429,6 +432,79 @@ function ExecPanel(props: {
     setRating(storedScore);
     setReviewScore(storedScore);
   }, [open, okrId]);
+
+
+  const cancelEditing = useCallback(() => {
+    setEditingLogId(null);
+    setEditingKind(null);
+    setProgressText('');
+    setHelpRequest('');
+    setReviewText('');
+    setNotice('');
+  }, []);
+
+  const startEditingCheckin = useCallback((row: LogRow) => {
+    const cleanContent = stripMetadata(row.content ?? '');
+    const { memo, help } = splitContent(cleanContent);
+    setTab('checkin');
+    setEditingLogId(String(row.id ?? ''));
+    setEditingKind('checkin');
+    setProgressText(memo);
+    setHelpRequest(help);
+    setRating(typeof row.score === 'number' ? row.score : 0);
+    setNotice('編集中です。保存すると上書きされます。');
+  }, []);
+
+  const startEditingFeedback = useCallback((row: LogRow) => {
+    const cleanContent = stripMetadata(row.content ?? '');
+    setTab('feedback');
+    setEditingLogId(String(row.id ?? ''));
+    setEditingKind('feedback');
+    setReviewText(feedbackBody({ ...row, content: cleanContent }));
+    setReviewScore(typeof row.score === 'number' ? row.score : 0);
+    setNotice('編集中です。保存すると上書きされます。');
+  }, []);
+
+  const onDeleteLog = useCallback(async (row: LogRow) => {
+    const rowId = String(row.id ?? '').trim();
+    if (!rowId || deletingLogId || saving) return;
+
+    const cleanContent = stripMetadata(row.content ?? '');
+    const fb = cleanContent.startsWith('[FB]');
+    if (fb && !canFeedback) {
+      setNotice('⚠️ フィードバックの削除権限がありません。');
+      return;
+    }
+    if (!fb && !canCheckin) {
+      setNotice('⚠️ メモの削除権限がありません。');
+      return;
+    }
+
+    const ok = window.confirm('この履歴を削除しますか？');
+    if (!ok) return;
+
+    setDeletingLogId(rowId);
+    setNotice('');
+    try {
+      let query = supabase.from('progress_logs').delete().eq('id', rowId);
+      if (userId) query = query.eq('user_id', userId);
+      if (resolvedProgressOkrId) query = query.eq('okr_id', resolvedProgressOkrId);
+      const { error } = await query;
+      if (error) throw error;
+
+      setLogs((prev) => prev.filter((log) => String(log.id ?? '') !== rowId));
+      if (editingLogId === rowId) {
+        cancelEditing();
+      }
+      setNotice('🗑️ 履歴を削除しました');
+    } catch (e: any) {
+      console.error('[STAGE5-delete-log-error]', e);
+      setNotice(`❌ ${e?.message ?? '削除に失敗しました'}`);
+    } finally {
+      setDeletingLogId(null);
+      setTimeout(() => setNotice(''), 3000);
+    }
+  }, [canCheckin, canFeedback, userId, resolvedProgressOkrId, deletingLogId, saving, editingLogId, cancelEditing]);
 
   // 保存（チェックイン）
   const onSaveCheckin = useCallback(async () => {
@@ -564,23 +640,47 @@ function ExecPanel(props: {
         return;
       }
 
-      const { data: saved, error } = await saveProgressLog({
-        userId, // string として確定
-        okrId: okrIdForSave, // 修正: okrIdForSave を使用（優先順）
-        content: embedMetadata(metadata, composed),
-        score: rating ?? null,
-        departmentId: departmentId ?? undefined,
-        projectId: projectId ?? undefined,
-        companyIdOverride: companyId ?? undefined,
-      });
+      const payloadContent = embedMetadata(metadata, composed);
+
+      let saved: any = null;
+      let saveError: any = null;
+      if (editingLogId && editingKind === 'checkin') {
+        const { data, error } = await supabase
+          .from('progress_logs')
+          .update({
+            content: payloadContent,
+            score: rating ?? null,
+            department_id: departmentId ?? null,
+            project_id: projectId ?? null,
+          })
+          .eq('id', editingLogId)
+          .eq('user_id', userId)
+          .eq('okr_id', okrIdForSave)
+          .select('id, created_at, content, score, status')
+          .single();
+        saved = data;
+        saveError = error;
+      } else {
+        const { data, error } = await saveProgressLog({
+          userId, // string として確定
+          okrId: okrIdForSave, // 修正: okrIdForSave を使用（優先順）
+          content: payloadContent,
+          score: rating ?? null,
+          departmentId: departmentId ?? undefined,
+          projectId: projectId ?? undefined,
+          companyIdOverride: companyId ?? undefined,
+        });
+        saved = data;
+        saveError = error;
+      }
 
       // ===== TASK 1-A: Save 結果ログ =====
-      if (error) {
-        const msg = `code=${error?.code}, message=${error?.message}, status=${error?.status}`;
+      if (saveError) {
+        const msg = `code=${saveError?.code}, message=${saveError?.message}, status=${saveError?.status}`;
         console.error('[STAGE5-save-checkin-error]', msg);
-        if (error?.details) console.error('[STAGE5-save-checkin-error-details]', error.details);
-        if (error?.hint) console.error('[STAGE5-save-checkin-error-hint]', error.hint);
-        throw error;
+        if (saveError?.details) console.error('[STAGE5-save-checkin-error-details]', saveError.details);
+        if (saveError?.hint) console.error('[STAGE5-save-checkin-error-hint]', saveError.hint);
+        throw saveError;
       }
 
       // ★ 根本原因②修正：saved.id が存在することを確認
@@ -622,7 +722,7 @@ function ExecPanel(props: {
       const result = await useStrategyStore.getState().saveStrategyData({ reason: 'manual' });
 
       if (result?.ok) {
-        setNotice('✅ 記録しました');
+        setNotice(editingLogId && editingKind === 'checkin' ? '✅ メモを更新しました' : '✅ 記録しました');
       } else {
         // save が skip された場合は dirty: true のままになる
         // useAutoSave が later に拾ってくれる
@@ -634,19 +734,21 @@ function ExecPanel(props: {
       // ★ 根本原因②修正：saved.id（正規ID）を使用
       // 'local-*' プレフィックスを廃止
       setLogs((prev) => {
+        const nextRow = {
+          id: savedId,
+          created_at: savedAt,
+          content: composed,
+          score: rating ?? null,
+          status: saved?.status ?? null,
+        };
+
+        if (editingLogId && editingKind === 'checkin') {
+          return prev.map((log) => (String(log.id ?? '') === editingLogId ? { ...log, ...nextRow } : log));
+        }
+
         // 既存の 'local-*' ログを除去（重複防止）
         const nonLocalLogs = prev.filter((l) => !isLocalLogId(l.id));
-
-        return [
-          {
-            id: savedId,  // ← DB から返された正規ID
-            created_at: savedAt,  // ← DB から返された作成時刻
-            content: composed,
-            score: rating ?? null,
-            status: saved?.status ?? null,
-          },
-          ...nonLocalLogs,
-        ];
+        return [nextRow, ...nonLocalLogs];
       });
 
       // ★ 根本修正：parent re-render を防止するため onActivitySaved を呼び出さない
@@ -659,6 +761,8 @@ function ExecPanel(props: {
 
       setProgressText('');
       setHelpRequest('');
+      setEditingLogId(null);
+      setEditingKind(null);
       // FIXED: Do NOT reset rating to 0 - keep the saved score displayed
     } catch (e: any) {
       // ===== TASK 1-A: エラー詳細ログ =====
@@ -683,7 +787,7 @@ function ExecPanel(props: {
       setSaving(false);
       setTimeout(() => setNotice(''), 3000);
     }
-  }, [canCheckin, userId, dbOkrId, resolvedDbOkrId, effectiveDbOkrId, okrId, progressLogOkrId, resolvedProgressOkrId, progressText, rating, helpRequest, companyId, deptName, projectTitle, krIds, departmentId, projectId, mapHit, displayOkrId]);
+  }, [canCheckin, userId, dbOkrId, resolvedDbOkrId, effectiveDbOkrId, okrId, progressLogOkrId, resolvedProgressOkrId, progressText, rating, helpRequest, companyId, deptName, projectTitle, krIds, departmentId, projectId, mapHit, displayOkrId, editingLogId, editingKind]);
 
   // 保存（フィードバック）
   const onSaveFeedback = useCallback(async () => {
@@ -816,23 +920,47 @@ function ExecPanel(props: {
         return;
       }
 
-      const { data: saved, error } = await saveProgressLog({
-        userId, // string として確定
-        okrId: okrIdForSave, // 修正: okrIdForSave を使用（優先順）
-        content: embedMetadata(metadata, fbContent),
-        score: reviewScore ?? null,
-        departmentId: departmentId ?? undefined,
-        projectId: projectId ?? undefined,
-        companyIdOverride: companyId ?? undefined,
-      });
+      const payloadContent = embedMetadata(metadata, fbContent);
+
+      let saved: any = null;
+      let saveError: any = null;
+      if (editingLogId && editingKind === 'feedback') {
+        const { data, error } = await supabase
+          .from('progress_logs')
+          .update({
+            content: payloadContent,
+            score: reviewScore ?? null,
+            department_id: departmentId ?? null,
+            project_id: projectId ?? null,
+          })
+          .eq('id', editingLogId)
+          .eq('user_id', userId)
+          .eq('okr_id', okrIdForSave)
+          .select('id, created_at, content, score, status')
+          .single();
+        saved = data;
+        saveError = error;
+      } else {
+        const { data, error } = await saveProgressLog({
+          userId, // string として確定
+          okrId: okrIdForSave, // 修正: okrIdForSave を使用（優先順）
+          content: payloadContent,
+          score: reviewScore ?? null,
+          departmentId: departmentId ?? undefined,
+          projectId: projectId ?? undefined,
+          companyIdOverride: companyId ?? undefined,
+        });
+        saved = data;
+        saveError = error;
+      }
 
       // ===== Save 結果ログ =====
-      if (error) {
-        const msg = `code=${error?.code}, message=${error?.message}, status=${error?.status}`;
+      if (saveError) {
+        const msg = `code=${saveError?.code}, message=${saveError?.message}, status=${saveError?.status}`;
         console.error('[STAGE5-save-feedback-error]', msg);
-        if (error?.details) console.error('[STAGE5-save-feedback-error-details]', error.details);
-        if (error?.hint) console.error('[STAGE5-save-feedback-error-hint]', error.hint);
-        throw error;
+        if (saveError?.details) console.error('[STAGE5-save-feedback-error-details]', saveError.details);
+        if (saveError?.hint) console.error('[STAGE5-save-feedback-error-hint]', saveError.hint);
+        throw saveError;
       }
 
       console.log('[STAGE5-save-feedback-success]', {
@@ -865,7 +993,7 @@ function ExecPanel(props: {
       const result = await useStrategyStore.getState().saveStrategyData({ reason: 'manual' });
 
       if (result?.ok) {
-        setNotice('✅ フィードバックを保存しました');
+        setNotice(editingLogId && editingKind === 'feedback' ? '✅ フィードバックを更新しました' : '✅ フィードバックを保存しました');
       } else {
         // save が skip された場合は dirty: true のままになる
         // useAutoSave が later に拾ってくれる
@@ -877,11 +1005,12 @@ function ExecPanel(props: {
       const savedId = saved?.id ?? `feedback-${Date.now()}`;
       const savedAt = saved?.created_at ?? new Date().toISOString();
       setLogs((prev) => {
+        const nextRow = { id: savedId, created_at: savedAt, content: fbContent, score: reviewScore ?? null, status: saved?.status ?? null };
+        if (editingLogId && editingKind === 'feedback') {
+          return prev.map((log) => (String(log.id ?? '') === editingLogId ? { ...log, ...nextRow } : log));
+        }
         const nonLocalLogs = prev.filter((l) => !String(l.id ?? '').startsWith('local-'));
-        return [
-          { id: savedId, created_at: savedAt, content: fbContent, score: reviewScore ?? null, status: saved?.status ?? null },
-          ...nonLocalLogs,
-        ];
+        return [nextRow, ...nonLocalLogs];
       });
 
       // ★ 根本修正：モーダル open 中のコメント保存では onActivitySaved を呼び出さない
@@ -893,6 +1022,8 @@ function ExecPanel(props: {
       // onActivitySaved?.({ okrId: resolvedProgressOkrId, at: nowIso });
 
       setReviewText('');
+      setEditingLogId(null);
+      setEditingKind(null);
       // FIXED: Do NOT reset reviewScore to 0 - keep the saved score displayed
     } catch (e: any) {
       // ===== TASK 1-A: エラー詳細ログ =====
@@ -917,7 +1048,7 @@ function ExecPanel(props: {
       setSaving(false);
       setTimeout(() => setNotice(''), 3000);
     }
-  }, [canFeedback, userId, dbOkrId, resolvedDbOkrId, effectiveDbOkrId, okrId, progressLogOkrId, resolvedProgressOkrId, reviewText, reviewScore, companyId, deptName, projectTitle, krIds, departmentId, projectId, mapHit, displayOkrId]);
+  }, [canFeedback, userId, dbOkrId, resolvedDbOkrId, effectiveDbOkrId, okrId, progressLogOkrId, resolvedProgressOkrId, reviewText, reviewScore, companyId, deptName, projectTitle, krIds, departmentId, projectId, mapHit, displayOkrId, editingLogId, editingKind]);
 
 
   const isFeedback = (row: LogRow) => (row.content || '').startsWith('[FB]');
@@ -1374,13 +1505,13 @@ function ExecPanel(props: {
           <>
             <section className="rounded-3xl border border-black/10 bg-white/70 p-5 shadow-sm">
               <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div className="min-w-0">
+                <div className="space-y-2">
                   <h3 className="text-sm font-semibold tracking-tight">進捗・気づきメモ</h3>
-                  <p className="mt-1 whitespace-pre-line text-xs leading-5 text-gray-600">
-                    {`書くヒント：
-進んだことだけでなく、迷い・違和感・止まりそうな点も書いて大丈夫です。`}
+                  <p className="whitespace-pre-line text-xs leading-5 text-gray-600">
+                    {`書くヒント：進んだことだけでなく、
+迷い・違和感・止まりそうな点も書いて大丈夫です。`}
                   </p>
-                  <p className="mt-1 whitespace-pre-line text-[11px] leading-5 text-gray-500">
+                  <p className="whitespace-pre-line text-[11px] leading-5 text-gray-500">
                     {`整理しきれていなくても大丈夫です。
 短いメモでも残してください。`}
                   </p>
@@ -1400,20 +1531,31 @@ function ExecPanel(props: {
               </div>
               <textarea
                 className="h-40 w-full rounded-2xl border border-black/10 bg-white px-3 py-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-black/10"
-                placeholder={`例：少し進んだが、関係者の認識がまだ揃っていない。
-この進め方でよいか、少し迷いがある。
-
-【現状のモヤモヤ】
-承認待ちが長く、前に進みにくい。
-
-【いま解くべき課題】
-意思決定者への説明材料が不足している。
-
-【見直すべき進め方】
-論点を1枚に絞って、確認頻度を上げたい。`}
+                placeholder={
+                  '例：少し進んだが、関係者の認識がまだ揃っていない。\n'
+                  + 'この進め方でよいか、少し迷いがある。\n\n'
+                  + '【現状のモヤモヤ】\n'
+                  + '承認待ちが長く、前に進みにくい。\n\n'
+                  + '【いま解くべき課題】\n'
+                  + '意思決定者への説明材料が不足している。\n\n'
+                  + '【見直すべき進め方】\n'
+                  + '論点を1枚に絞って確認頻度を上げたい。'
+                }
                 value={progressText}
                 onChange={(e) => setProgressText(e.target.value)}
               />
+              {editingLogId && editingKind === 'checkin' && (
+                <div className="mt-4 flex flex-wrap items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2">
+                  <span className="text-xs font-medium text-amber-800">このメモを編集中です</span>
+                  <button
+                    type="button"
+                    onClick={cancelEditing}
+                    className="text-xs font-medium text-amber-700 underline-offset-2 hover:underline"
+                  >
+                    編集をやめる
+                  </button>
+                </div>
+              )}
               <div className="mt-4">
                 <label className="mb-1 block text-xs text-gray-600">支援依頼（任意）</label>
                 <textarea
@@ -1432,7 +1574,7 @@ function ExecPanel(props: {
                 type="button"
               >
                 <Send className="h-4 w-4" />
-                {saving ? '保存中…' : '保存'}
+                {saving ? '保存中…' : editingLogId && editingKind === 'checkin' ? '更新' : '保存'}
               </button>
               {notice && <span className="text-sm text-gray-700">{notice}</span>}
             </section>
@@ -1446,6 +1588,18 @@ function ExecPanel(props: {
               <div className="mb-3">
                 <div className="text-sm font-semibold tracking-tight">フィードバック</div>
               </div>
+              {editingLogId && editingKind === 'feedback' && (
+                <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2">
+                  <span className="text-xs font-medium text-amber-800">このフィードバックを編集中です</span>
+                  <button
+                    type="button"
+                    onClick={cancelEditing}
+                    className="text-xs font-medium text-amber-700 underline-offset-2 hover:underline"
+                  >
+                    編集をやめる
+                  </button>
+                </div>
+              )}
               <textarea
                 className="h-28 w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10"
                 placeholder="例：KR#2 の指標定義を明確化すると計測が安定します。"
@@ -1461,7 +1615,7 @@ function ExecPanel(props: {
                 type="button"
               >
                 <Send className="h-4 w-4" />
-                {saving ? '保存中…' : '保存'}
+                {saving ? '保存中…' : editingLogId && editingKind === 'feedback' ? '更新' : '保存'}
               </button>
               {notice && <span className="text-sm text-gray-700">{notice}</span>}
             </section>
@@ -1490,15 +1644,31 @@ function ExecPanel(props: {
 
                 return (
                   <li key={row.id ?? i} className="px-5 py-4">
-                    <div className="mb-2 flex items-center justify-between">
+                    <div className="mb-2 flex items-center justify-between gap-3">
                       <div className="text-xs text-gray-500">{when}</div>
-                      <div className="flex items-center gap-2 text-xs text-gray-700">
+                      <div className="flex flex-wrap items-center justify-end gap-2 text-xs text-gray-700">
                         {score !== null && score > 0 && (
                           <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5">
                             インパクト {score}/5
                           </span>
                         )}
                         <span className="rounded-full bg-gray-100 px-2 py-0.5">{fb ? 'FB' : 'メモ'}</span>
+                        <button
+                          type="button"
+                          onClick={() => (fb ? startEditingFeedback(row) : startEditingCheckin(row))}
+                          disabled={saving || deletingLogId === String(row.id ?? '')}
+                          className="rounded-full border border-gray-200 bg-white px-2.5 py-0.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          編集
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDeleteLog(row)}
+                          disabled={saving || deletingLogId === String(row.id ?? '')}
+                          className="rounded-full border border-red-200 bg-white px-2.5 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          {deletingLogId === String(row.id ?? '') ? '削除中…' : '削除'}
+                        </button>
                       </div>
                     </div>
                     {fb ? (
