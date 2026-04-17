@@ -7,6 +7,7 @@ if (typeof window !== 'undefined') {
 }
 
 import StrategyGuard from '@/app/StrategyGuard';
+import { useSearchParams } from 'next/navigation';
 
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import type { ReactNode } from 'react';
@@ -353,6 +354,8 @@ function OKRPageContent() {
     () => ((access as any)?.companyId ?? (s?.companyId as string | undefined)) as string | undefined,
     [(access as any)?.companyId, s?.companyId],
   );
+
+  const searchParams = useSearchParams();
 
   {/* -------- 会社スコープ確立（cascade と同じパターン） -------- */}
   const lastAppliedCompanyRef = useRef<string | null>(null);
@@ -802,6 +805,65 @@ const [editingMilestoneIdx, setEditingMilestoneIdx] = useState<number | null>(nu
    * ========================================================== */
   const [selected, setSelected] = useState<{ deptIdx: number; projIdx: number } | null>(null);
   const [activeTab, setActiveTab] = useState<'objective' | 'kr' | 'plan'>('kr');
+
+  const autoSelectedProjectRef = useRef<string>('');
+
+  useEffect(() => {
+    if (!hydrated || isHydrating) return;
+    if (!Array.isArray(departments) || departments.length === 0) return;
+
+    const projectIdParam = String(searchParams?.get('projectId') ?? '').trim();
+    const deptIdParam = String(searchParams?.get('deptId') ?? '').trim();
+    const projectNameParam = String(searchParams?.get('project') ?? '').trim();
+    const deptNameParam = String(searchParams?.get('dept') ?? '').trim();
+
+    if (!projectIdParam && !projectNameParam) return;
+
+    const queryKey = [projectIdParam, deptIdParam, projectNameParam, deptNameParam].join('::');
+    if (autoSelectedProjectRef.current === queryKey) return;
+
+    const norm = (value: unknown) =>
+      String(value ?? '')
+        .replace(/[\s　]+/g, '')
+        .toLowerCase();
+
+    let found: { deptIdx: number; projIdx: number } | null = null;
+
+    for (let deptIdx = 0; deptIdx < departments.length; deptIdx += 1) {
+      const dept = departments[deptIdx] as any;
+      const deptId = String(dept?.id ?? '').trim();
+      const deptName = String(dept?.name ?? dept?.departmentName ?? '').trim();
+
+      if (deptIdParam && deptId && deptId !== deptIdParam) continue;
+      if (!deptIdParam && deptNameParam && norm(deptName) !== norm(deptNameParam)) continue;
+
+      const projects = Array.isArray(dept?.projects) ? dept.projects : [];
+      for (let projIdx = 0; projIdx < projects.length; projIdx += 1) {
+        const proj = projects[projIdx] as any;
+        const projId = String(proj?.id ?? proj?.projectId ?? '').trim();
+        const projTitle = String(proj?.title ?? proj?.name ?? '').trim();
+
+        const matchedById = !!projectIdParam && !!projId && projId === projectIdParam;
+        const matchedByName = !projectIdParam && !!projectNameParam && norm(projTitle) === norm(projectNameParam);
+
+        if (matchedById || matchedByName) {
+          found = { deptIdx, projIdx };
+          break;
+        }
+      }
+
+      if (found) break;
+    }
+
+    if (!found) return;
+
+    const alreadySelected = selected?.deptIdx === found.deptIdx && selected?.projIdx === found.projIdx;
+    autoSelectedProjectRef.current = queryKey;
+
+    if (!alreadySelected) {
+      setSelected(found);
+    }
+  }, [hydrated, isHydrating, departments, searchParams, selected]);
 
   {/* Phase1.4: 統合フォームモード（二重表示防止） */}
   const INTEGRATED = true;
