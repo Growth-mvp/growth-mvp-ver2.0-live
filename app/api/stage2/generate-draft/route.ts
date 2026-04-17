@@ -695,7 +695,7 @@ function compactPayload(input: z.infer<typeof InputSchema>) {
       }
     : null;
 
-  const businessSegments = Array.isArray(input.businessSegments)
+  const  = Array.isArray(input.businessSegments)
     ? input.businessSegments
         .slice(0, 8)
         .map((s: any) => ({
