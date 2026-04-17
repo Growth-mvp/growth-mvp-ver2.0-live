@@ -26,6 +26,7 @@ if (typeof window !== 'undefined') {
 }
 
 import StrategyGuard from '@/app/StrategyGuard';
+import { useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useAccess } from '@/utils/access';
@@ -1581,6 +1582,8 @@ function CascadePageContent() {
 
   const access = useAccess();
 
+  const searchParams = useSearchParams();
+
   /**
    * 重要：useAccess の実装差分に耐えるため
    * - canEditCompany が関数/boolean どちらでも動く
@@ -2139,6 +2142,105 @@ useEffect(() => {
   );
 
   const [activeTab, setActiveTab] = useState<'edit' | 'visual'>('edit');
+  const projectRowRefs = useRef<Record<string, HTMLLIElement | null>>({});
+  const autoFocusedCascadeRef = useRef<string>('');
+  const [focusedProjectKey, setFocusedProjectKey] = useState<string>('');
+
+  useEffect(() => {
+    if (!hydrated || isHydrating) return;
+    if (!Array.isArray(departments) || departments.length === 0) return;
+
+    const projectIdParam = String(searchParams?.get('projectId') ?? '').trim();
+    const deptIdParam = String(searchParams?.get('deptId') ?? '').trim();
+    const projectNameParam = String(searchParams?.get('project') ?? '').trim();
+    const deptNameParam = String(searchParams?.get('dept') ?? '').trim();
+
+    if (!projectIdParam && !projectNameParam) return;
+
+    const queryKey = [projectIdParam, deptIdParam, projectNameParam, deptNameParam].join('::');
+    if (autoFocusedCascadeRef.current === queryKey) return;
+
+    const norm = (value: unknown) =>
+      String(value ?? '')
+        .replace(/[\s　]+/g, '')
+        .toLowerCase();
+
+    let found: { dept: any; project: any } | null = null;
+
+    for (const dept of departments as any[]) {
+      const deptId = String(dept?.id ?? '').trim();
+      const deptName = String(dept?.name ?? dept?.departmentName ?? '').trim();
+
+      if (deptIdParam && deptId && deptId !== deptIdParam) continue;
+      if (!deptIdParam && deptNameParam && norm(deptName) !== norm(deptNameParam)) continue;
+
+      const deptProjects = Array.isArray(dept?.projects) ? dept.projects : [];
+      for (const project of deptProjects) {
+        const resolvedId = String(resolveProjectId(project as any, deptName) ?? '').trim();
+        const projectId = String((project as any)?.id ?? (project as any)?.projectId ?? resolvedId).trim();
+        const projectTitle = String((project as any)?.title ?? '').trim();
+
+        const matchedById = !!projectIdParam && !!projectId && projectId === projectIdParam;
+        const matchedByName = !projectIdParam && !!projectNameParam && norm(projectTitle) === norm(projectNameParam);
+
+        if (matchedById || matchedByName) {
+          found = { dept, project };
+          break;
+        }
+      }
+
+      if (found) break;
+    }
+
+    if (!found) return;
+
+    const deptName = String(found.dept?.name ?? found.dept?.departmentName ?? '');
+    const projectKey = `${deptName}::${resolveProjectId(found.project as any, deptName)}`;
+
+    autoFocusedCascadeRef.current = queryKey;
+    setActiveTab('edit');
+    setFocusedProjectKey(projectKey);
+
+    const clearTimer = window.setTimeout(() => {
+      setFocusedProjectKey((prev) => (prev === projectKey ? '' : prev));
+    }, 4000);
+
+    return () => {
+      window.clearTimeout(clearTimer);
+    };
+  }, [hydrated, isHydrating, departments, searchParams]);
+
+  useEffect(() => {
+    if (activeTab !== 'edit') return;
+    if (!focusedProjectKey) return;
+
+    let cancelled = false;
+    let attempts = 0;
+
+    const tryScroll = () => {
+      if (cancelled) return;
+
+      const el = projectRowRefs.current[focusedProjectKey];
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+
+      attempts += 1;
+      if (attempts < 12) {
+        window.setTimeout(tryScroll, 120);
+      }
+    };
+
+    const rafId = window.requestAnimationFrame(() => {
+      window.setTimeout(tryScroll, 80);
+    });
+
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(rafId);
+    };
+  }, [activeTab, focusedProjectKey, departments]);
   const [showForm, setShowForm] = useState(false);
   const [deptName, setDeptName] = useState('');
   const [deptMission, setDeptMission] = useState('');
@@ -3562,7 +3664,17 @@ useEffect(() => {
                         const displayTitle = stripDeptPrefix(((p.title ?? '').replace(/^\[AI#\d+\]\s*/i, '')), dept.name);
 
                         return (
-                          <li key={resolveProjectId(p, dept.name)} className="flex flex-col gap-2 rounded-2xl border px-3 py-2 bg-white/70">
+                          <li
+                            key={resolveProjectId(p, dept.name)}
+                            ref={(el) => {
+                              projectRowRefs.current[`${dept.name}::${resolveProjectId(p, dept.name)}`] = el;
+                            }}
+                            className={`flex flex-col gap-2 rounded-2xl border px-3 py-2 bg-white/70 transition-shadow ${
+                              focusedProjectKey === `${dept.name}::${resolveProjectId(p, dept.name)}`
+                                ? 'ring-2 ring-amber-300 bg-amber-50/80 shadow-md'
+                                : ''
+                            }`}
+                          >
                             <div className="flex items-start justify-between gap-3">
                               <div className="flex-1">
                                 <div className="flex items-center gap-2">
