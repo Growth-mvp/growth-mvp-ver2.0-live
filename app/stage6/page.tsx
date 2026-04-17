@@ -16,6 +16,8 @@ type ReviewCandidate = {
   dept: string;
   proj: string;
   reason: string;
+  reviewStage?: 'stage3' | 'stage4';
+  reviewReasonType?: string;
   targetRevenueMJPY?: number;
   targetOpMJPY?: number;
   revenueContributionMJPY?: number;
@@ -68,7 +70,7 @@ function ReviewCandidatesSection({ reviewCandidates }: { reviewCandidates?: Revi
 
       <div className="overflow-x-auto">
         <div className="min-w-[860px]">
-          <div className="grid grid-cols-[1.6fr_1.2fr_1.1fr_1.1fr_1.1fr_160px] gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600">
+          <div className="grid grid-cols-[1.6fr_1.2fr_1.1fr_1.1fr_1.1fr_180px] gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600">
             <div>プロジェクト</div>
             <div>見直し理由</div>
             <div className="text-right">売上 目標/寄与</div>
@@ -81,14 +83,21 @@ function ReviewCandidatesSection({ reviewCandidates }: { reviewCandidates?: Revi
             {rows.map((row) => {
               const revenueValue = row.revenueContributionMJPY ?? row.deltaRevenueMJPY;
               const opValue = row.opContributionMJPY ?? row.deltaOpMJPY;
-              const href = row.projectId
-                ? `/okr?projectId=${encodeURIComponent(String(row.projectId))}${row.deptId ? `&deptId=${encodeURIComponent(String(row.deptId))}` : ''}`
-                : `/okr?dept=${encodeURIComponent(row.dept)}&project=${encodeURIComponent(row.proj)}`;
+              const reviewStage = row.reviewStage === 'stage3' ? 'stage3' : 'stage4';
+              const href = reviewStage === 'stage3'
+                ? row.projectId
+                  ? `/cascade?projectId=${encodeURIComponent(String(row.projectId))}${row.deptId ? `&deptId=${encodeURIComponent(String(row.deptId))}` : ''}`
+                  : `/cascade?dept=${encodeURIComponent(row.dept)}&project=${encodeURIComponent(row.proj)}`
+                : row.projectId
+                  ? `/okr?projectId=${encodeURIComponent(String(row.projectId))}${row.deptId ? `&deptId=${encodeURIComponent(String(row.deptId))}` : ''}`
+                  : `/okr?dept=${encodeURIComponent(row.dept)}&project=${encodeURIComponent(row.proj)}`;
+              const buttonLabel = reviewStage === 'stage3' ? 'STAGE3で見直す' : 'STAGE4で見直す';
+              const badgeLabel = reviewStage === 'stage3' ? '戦略見直し' : 'OKR見直し';
 
               return (
                 <div
                   key={row.key}
-                  className="grid grid-cols-[1.6fr_1.2fr_1.1fr_1.1fr_1.1fr_160px] gap-3 rounded-xl border border-slate-200 bg-white px-4 py-4 text-sm text-slate-800"
+                  className="grid grid-cols-[1.6fr_1.2fr_1.1fr_1.1fr_1.1fr_180px] gap-3 rounded-xl border border-slate-200 bg-white px-4 py-4 text-sm text-slate-800"
                 >
                   <div className="min-w-0">
                     <div className="truncate font-semibold text-slate-900">{row.proj}</div>
@@ -116,12 +125,21 @@ function ReviewCandidatesSection({ reviewCandidates }: { reviewCandidates?: Revi
                     <div className="mt-1 text-xs text-slate-500">利益 {fmtPct(row.opAchievementRate)}</div>
                   </div>
 
-                  <div className="flex items-center justify-center">
+                  <div className="flex flex-col items-center justify-center gap-2">
+                    <span
+                      className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                        reviewStage === 'stage3'
+                          ? 'bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-200'
+                          : 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200'
+                      }`}
+                    >
+                      {badgeLabel}
+                    </span>
                     <Link
                       href={href}
                       className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                     >
-                      STAGE4で見直す
+                      {buttonLabel}
                     </Link>
                   </div>
                 </div>
