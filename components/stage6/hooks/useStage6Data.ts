@@ -709,6 +709,8 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         key: p.key,
         dept: p.dept,
         proj: p.proj,
+        deptId: projectData?.departmentId ?? projectData?.deptId ?? undefined,
+        projectId: projectData?.id ?? projectData?.projectId ?? undefined,
         investTotal,
         krCount: p.krCount,
         // ★ STAGE4入力の目標額
@@ -1590,51 +1592,88 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       let severity: 'high' | 'medium' | 'low' = 'low';
       let score = 0;
       const reasons: string[] = [];
+      const stage3Reasons: string[] = [];
+      const stage4Reasons: string[] = [];
 
       if (!hasRevenueTarget && !hasOpTarget) {
         severity = 'high';
         score += 100;
         reasons.push('目標額が未入力です');
+        stage4Reasons.push('目標額が未入力です');
       }
 
       if (hasRevenueTarget && revenueContribution <= 0) {
         severity = 'high';
         score += 90;
         reasons.push('売上目標はあるが売上寄与が0です');
+        stage3Reasons.push('売上目標はあるが売上寄与が0です');
       } else if (hasRevenueTarget && revenueAchievementRate !== null && revenueAchievementRate < 70) {
         severity = severity === 'high' ? 'high' : 'medium';
         score += Math.max(0, 80 - revenueAchievementRate);
         reasons.push(`売上寄与が目標に対して不足しています（${Math.round(revenueAchievementRate)}%）`);
+        if (revenueAchievementRate < 40) {
+          stage3Reasons.push(`売上寄与が目標に対して極めて弱い状態です（${Math.round(revenueAchievementRate)}%）`);
+        } else {
+          stage4Reasons.push(`売上寄与が目標に対して不足しています（${Math.round(revenueAchievementRate)}%）`);
+        }
       }
 
       if (hasOpTarget && opContribution <= 0) {
         severity = 'high';
         score += 90;
         reasons.push('営業利益目標はあるが営業利益寄与が0です');
+        stage3Reasons.push('営業利益目標はあるが営業利益寄与が0です');
       } else if (hasOpTarget && opAchievementRate !== null && opAchievementRate < 70) {
         severity = severity === 'high' ? 'high' : 'medium';
         score += Math.max(0, 80 - opAchievementRate);
         reasons.push(`営業利益寄与が目標に対して不足しています（${Math.round(opAchievementRate)}%）`);
+        if (opAchievementRate < 40) {
+          stage3Reasons.push(`営業利益寄与が目標に対して極めて弱い状態です（${Math.round(opAchievementRate)}%）`);
+        } else {
+          stage4Reasons.push(`営業利益寄与が目標に対して不足しています（${Math.round(opAchievementRate)}%）`);
+        }
       }
 
       if (!hasOpTarget && hasRevenueTarget) {
         severity = severity === 'high' ? 'high' : 'medium';
         score += 35;
         reasons.push('営業利益目標が未入力です');
+        stage4Reasons.push('営業利益目標が未入力です');
       }
 
       if (!hasRevenueTarget && hasOpTarget) {
         severity = severity === 'high' ? 'high' : 'medium';
         score += 35;
         reasons.push('売上目標が未入力です');
+        stage4Reasons.push('売上目標が未入力です');
       }
+
+      const bothTargetsReady = hasRevenueTarget && hasOpTarget;
+      const revenueSeverelyLow =
+        hasRevenueTarget && (revenueContribution <= 0 || (revenueAchievementRate !== null && revenueAchievementRate < 40));
+      const opSeverelyLow =
+        hasOpTarget && (opContribution <= 0 || (opAchievementRate !== null && opAchievementRate < 40));
+
+      const reviewStage: 'stage3' | 'stage4' =
+        bothTargetsReady && (revenueSeverelyLow || opSeverelyLow) ? 'stage3' : 'stage4';
+
+      const reviewReasonType =
+        reviewStage === 'stage3' ? 'low_financial_leverage' : 'okr_or_target_gap';
+
+      const stageReason =
+        reviewStage === 'stage3'
+          ? stage3Reasons[0] ?? reasons[0] ?? '目標は入力済みですが寄与が弱く、プロジェクト自体の見直し候補です'
+          : stage4Reasons[0] ?? reasons[0] ?? '目標・実行設計の見直し候補です';
 
       return {
         key: p.key,
         dept: p.dept,
         proj: p.proj,
-        href: `/okr?dept=${encodeURIComponent(p.dept)}&project=${encodeURIComponent(p.proj)}`,
-        reason: reasons.length > 0 ? reasons[0] : '大きな不足はありませんが確認候補です',
+        deptId: p.deptId,
+        projectId: p.projectId,
+        reviewStage,
+        reviewReasonType,
+        reason: stageReason,
         severity,
         score,
         targetRevenueMJPY: hasRevenueTarget ? targetRevenue : undefined,
