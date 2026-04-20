@@ -38,10 +38,15 @@ import DepartmentQuestionStepper, {
 import { Button } from '@/components/ui/button';
 import { PlusCircle, Save, Sparkles, Building2, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import { toProbability } from '@/types/strategy';
+import { CascadeHeader } from '@/components/stage3/CascadeHeader';
+import { CascadeControlBar } from '@/components/stage3/CascadeControlBar';
+import { DepartmentAddForm } from '@/components/stage3/DepartmentAddForm';
+import { NoticeDisplay } from '@/components/stage3/NoticeDisplay';
 
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
+import { debugLog } from '@/utils/debug';
 import { getStage2ValueDriverKPIs, getStage2TargetRanges, getStage2WinPatterns } from '@/utils/stage2Selectors';
 import { formatMillion, safeRatio, formatPct, inferScaleToMillion } from '@/utils/unit';
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
@@ -167,6 +172,10 @@ type ApiDeptDraft = {
   stopList?: string[];
   first90Days?: string[];
   riskNotes?: string[];
+  reviewSummary?: {
+    correctedItems?: string[];
+    reconsiderationPoints?: string[];
+  };
 };
 
 type ApiCascadeResponse = {
@@ -1922,8 +1931,11 @@ function CascadePageContent() {
     mode: 'payload',
   });
 
-
   /* ===== STAGE3専用: 未保存判定 / 保存関数の集約 ===== */
+  /* ★ STAGE3 修正: Local baseline ベースの dirty 判定 */
+  const cascadeBaselineRef = useRef<string | null>(null);
+  const baselineCreatedRef = useRef<boolean>(false);
+
   const currentSnapshot = useMemo(() => makeSaveSnapshot(useStrategyStore.getState()), [
     strategyId,
     story,
@@ -1938,11 +1950,21 @@ function CascadePageContent() {
     businessPortfolio,
   ]);
   const currentSnapshotHash = useMemo(() => hashSnapshot(currentSnapshot), [currentSnapshot]);
+
+  /* ★ STAGE3 修正: hydrate/restore 完了後に baseline を初期化（1回だけ） */
+  useEffect(() => {
+    if (!hydrated || isHydrating || baselineCreatedRef.current) return;
+    if (!currentSnapshotHash) return;
+
+    cascadeBaselineRef.current = currentSnapshotHash;
+    baselineCreatedRef.current = true;
+  }, [hydrated, isHydrating, currentSnapshotHash]);
+
   const hasUnsavedChanges = useMemo(() => {
-    if (!hydrated || boot?.isHydrating) return false;
-    if (!lastServerSnapshot) return false;
-    return lastServerSnapshot !== currentSnapshotHash;
-  }, [hydrated, boot?.isHydrating, lastServerSnapshot, currentSnapshotHash]);
+    if (!hydrated || isHydrating) return false;
+    if (!cascadeBaselineRef.current) return false;
+    return cascadeBaselineRef.current !== currentSnapshotHash;
+  }, [hydrated, isHydrating, currentSnapshotHash]);
 
   const hasUnsavedChangesRef = useRef(false);
   const isGeneratingRef = useRef(false);
@@ -1971,6 +1993,8 @@ function CascadePageContent() {
         if (shouldToast) setNotice('💾 保存中です…');
         await saveNow?.();
         if (shouldToast) setNotice('✅ 保存しました');
+        /* ★ STAGE3 修正: save 成功後に baseline を現在値で更新 */
+        cascadeBaselineRef.current = hash;
         return true;
       } catch (e: any) {
         console.error('[cascade][persistCascadeNow] failed', { reason, error: e?.message ?? String(e) });
@@ -2245,6 +2269,36 @@ useEffect(() => {
   const [deptName, setDeptName] = useState('');
   const [deptMission, setDeptMission] = useState('');
   const [inlineEdit, setInlineEdit] = useState<Record<number, string>>({});
+
+  /* ===== 部門追加ハンドラー ===== */
+  const handleAddDepartment = async () => {
+    if (!deptName.trim()) return setNotice('⚠️ 部門名を入力してください');
+    const baseName = deptName.trim();
+    const baseMission = deptMission.trim();
+
+    let nextLength = 0;
+    pushToStore((prev) => {
+      const current = [...prev];
+      const newDept: Department = {
+        name: baseName,
+        mission: baseMission,
+        strategy: baseMission,
+        missionDraft: baseMission,
+        discussionNotes: '',
+        projects: [],
+        answers2: [{ chapterIndex: current.length, chapterTitle: baseName, steps: [] }],
+        finalized: false,
+      };
+      current.push(newDept);
+      nextLength = current.length;
+      return current;
+    });
+
+    setDeptName('');
+    setDeptMission('');
+    setShowForm(false);
+    setNotice(`✅ ${baseName} を追加しました（部門数: ${nextLength}）`);
+  };
 
   /* ===== 部門の増減に応じてインライン編集状態をリセット ===== */
   useEffect(() => {
@@ -2685,6 +2739,18 @@ useEffect(() => {
       };
 
       // ★TASK 1: 送信前にfinalStoryが含まれているか確認
+      console.log('[payload:before-send][stage3:cascade]', {
+        businessPortfolio_type: typeof payload.businessPortfolio,
+        businessPortfolio_has_units: Array.isArray(payload.businessPortfolio?.units),
+        businessPortfolio_units_len: Array.isArray(payload.businessPortfolio?.units) ? payload.businessPortfolio.units.length : 0,
+        financeSummary_type: typeof payload.financeSummary,
+        financeSummary_keys: payload.financeSummary ? Object.keys(payload.financeSummary).slice(0, 3) : [],
+        story_len: typeof payload.story === 'string' ? payload.story.length : 0,
+        story_sample: payload.story ? payload.story.slice(0, 100) : 'undefined',
+        finalStory_len: typeof payload.finalStory === 'string' ? payload.finalStory.length : 0,
+        finalStory_sample: payload.finalStory ? payload.finalStory.slice(0, 100) : 'undefined',
+        csvFinanceDataLen: Array.isArray(payload.csvFinanceData) ? payload.csvFinanceData.length : typeof payload.csvFinanceData,
+      });
 
       let data: ApiCascadeResponse | null = null;
       try {
@@ -2755,9 +2821,24 @@ useEffect(() => {
         return;
       }
 
+      /* ★ 診断：APIレスポンス直後の reviewSummary 確認 */
+      console.log('[diag][stage3:reviewSummary:api-response]', {
+        dept: rd?.name,
+        reviewSummary: (rd as any)?.reviewSummary,
+        correctedLen: (rd as any)?.reviewSummary?.correctedItems?.length ?? 0,
+        reconsiderationLen: (rd as any)?.reviewSummary?.reconsiderationPoints?.length ?? 0,
+      });
 
       // ★ 表示/保存の両方で「部門名：」プレフィックスを除去（冗長な接頭辞を抑制）
       const cleanedRd = stripDeptPrefixDeep(rd, dept.name) as ApiDeptDraft;
+
+      /* ★ 診断：stripDeptPrefixDeep 後の reviewSummary 確認 */
+      console.log('[diag][stage3:reviewSummary:cleanedRd]', {
+        dept: cleanedRd?.name,
+        reviewSummary: (cleanedRd as any)?.reviewSummary,
+        correctedLen: (cleanedRd as any)?.reviewSummary?.correctedItems?.length ?? 0,
+        reconsiderationLen: (cleanedRd as any)?.reviewSummary?.reconsiderationPoints?.length ?? 0,
+      });
 
       // レーンキャッシュ（OKRは一切変更しない）
       if (cleanedRd?.lanes?.existing || cleanedRd?.lanes?.new) {
@@ -2872,6 +2953,18 @@ useEffect(() => {
         if (!jsonEq(mergedLegacyNeedsCollab, (d as any).needsCollab ?? [])) (patch as any).needsCollab = mergedLegacyNeedsCollab;
         if (cleanedRd.stopList) (patch as any).stopList = cleanedRd.stopList;
         if (cleanedRd.riskNotes) (patch as any).riskNotes = cleanedRd.riskNotes;
+        if (!jsonEq((cleanedRd as any).reviewSummary, (d as any).reviewSummary)) {
+          (patch as any).reviewSummary = (cleanedRd as any).reviewSummary;
+        }
+
+        /* ★ 診断：patch 作成完了時の reviewSummary 確認 */
+        console.log('[diag][stage3:reviewSummary:patch-before-apply]', {
+          dept: d.name,
+          cleanedReviewSummary: (cleanedRd as any)?.reviewSummary,
+          patchReviewSummary: (patch as any)?.reviewSummary,
+          patchKeys: Object.keys(patch),
+          patchKeysIncludesReviewSummary: Object.keys(patch).includes('reviewSummary'),
+        });
 
         if (Object.keys(patch).length > 0) list[index] = { ...d, ...patch } as Department;
 
@@ -2883,6 +2976,16 @@ useEffect(() => {
       const afterPushProjCount = (Array.isArray(afterSetDepts) ? afterSetDepts : []).reduce((s: number, d: any) => {
         return s + (Array.isArray(d?.projects) ? d.projects.length : 0);
       }, 0);
+
+      /* ★ 診断：store 反映後の reviewSummary 確認 */
+      const afterStoreReviewSummary = afterSetDepts?.find((x: any) => x.name === dept.name)?.reviewSummary;
+      console.log('[diag][stage3:reviewSummary:after-store]', {
+        dept: dept.name,
+        reviewSummary: afterStoreReviewSummary,
+        correctedLen: afterStoreReviewSummary?.correctedItems?.length ?? 0,
+        reconsiderationLen: afterStoreReviewSummary?.reconsiderationPoints?.length ?? 0,
+      });
+
       if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
         console.log('[TRACE_PROJECTS][cascade][after-pushToStore]', {
           strategyId: useStrategyStore.getState().strategyId,
@@ -3166,14 +3269,7 @@ useEffect(() => {
   /* ===== JSX ===== */
   return (
     <div className="mx-auto max-w-6xl px-4 md:px-6 py-6 space-y-6">
-      <header className="mb-8 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-[28px] font-semibold mb-2">STAGE 3：部門戦略策定</h1>
-          <p className="text-zinc-600 text-sm">
-            経営ストーリーを基に、各部門のミッション・プロジェクト案・KPI案を全体最適を図りながら、部門長・マネージャー層で議論し、明確化します。
-          </p>
-        </div>
-      </header>
+      <CascadeHeader />
 
       {isHydrating && (
         <div className="mb-8 rounded-xl border p-4 text-sm text-muted-foreground flex items-center justify-between">
@@ -3197,107 +3293,31 @@ useEffect(() => {
         />
       )}
 
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
-        <div className="inline-flex border rounded-full overflow-hidden">
-          {(['edit', 'visual'] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setActiveTab(t)}
-              className={`px-4 py-2 text-sm ${activeTab === t ? 'bg-zinc-900 text-white' : 'bg-white text-zinc-800'}`}
-              disabled={isHydrating}
-            >
-              {t === 'edit' ? '編集ビュー' : 'ビジュアルビュー'}
-            </button>
-          ))}
-        </div>
+      <CascadeControlBar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        isHydrating={isHydrating}
+        saveNow={saveNow}
+        persistCascadeNow={persistCascadeNow}
+        setNotice={setNotice}
+        canEditCompany={canEditCompany}
+        showForm={showForm}
+        setShowForm={setShowForm}
+      />
 
-        <div className="flex gap-2 justify-end flex-wrap">
-          <Button
-            variant="outline"
-            className="rounded-full h-10 px-5 bg-zinc-900 text-white hover:bg-zinc-800 shadow-sm"
-            disabled={isHydrating}
-            onClick={async () => {
-              if (!saveNow) return;
-              try {
-                setNotice('💾 保存中です…');
-                const ok = await persistCascadeNow('manual-stage3-save');
-                if (ok) setNotice('✅ 全体を保存しました（サーバーにも反映済み）');
-              } catch (e: any) {
-                setNotice(`❌ 保存に失敗しました：${e?.message ?? '不明なエラー'}`);
-              }
-            }}
-          >
-            <Save className="w-4 h-4 mr-1" />
-            全体保存
-          </Button>
+      <DepartmentAddForm
+        showForm={showForm}
+        canEditCompany={canEditCompany}
+        isHydrating={isHydrating}
+        deptName={deptName}
+        setDeptName={setDeptName}
+        deptMission={deptMission}
+        setDeptMission={setDeptMission}
+        setShowForm={setShowForm}
+        onAddDepartment={handleAddDepartment}
+      />
 
-          {canEditCompany && (
-            <Button onClick={() => setShowForm((v) => !v)} className="rounded-full h-10 px-5 border border-zinc-300 bg-white hover:bg-zinc-50 shadow-sm" disabled={isHydrating}>
-              <PlusCircle className="w-4 h-4 mr-1" />
-              {showForm ? '閉じる' : '部門を追加'}
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {showForm && canEditCompany && !isHydrating && (
-        <div className="p-6 border rounded-3xl bg-white/70 mb-8">
-          <div className="grid md:grid-cols-2 gap-4">
-            <input
-              value={deptName}
-              onChange={(e) => setDeptName(e.target.value)}
-              placeholder="部門名（例：営業部、人事部、生産本部など）"
-              className="border rounded-xl px-3 py-2 text-sm"
-            />
-            <input
-              value={deptMission}
-              onChange={(e) => setDeptMission(e.target.value)}
-              placeholder="（任意）ミッションのメモ"
-              className="border rounded-xl px-3 py-2 text-sm"
-            />
-          </div>
-          <div className="mt-4 flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => setShowForm(false)} className="rounded-full h-9 px-4">
-              キャンセル
-            </Button>
-            <Button
-              onClick={async () => {
-                if (!deptName.trim()) return setNotice('⚠️ 部門名を入力してください');
-                const baseName = deptName.trim();
-                const baseMission = deptMission.trim();
-
-                let nextLength = 0;
-                pushToStore((prev) => {
-                  const current = [...prev];
-                  const newDept: Department = {
-                    name: baseName,
-                    mission: baseMission,
-                    strategy: baseMission,
-                    missionDraft: baseMission,
-                    discussionNotes: '',
-                    projects: [],
-                    answers2: [{ chapterIndex: current.length, chapterTitle: baseName, steps: [] }],
-                    finalized: false,
-                  };
-                  current.push(newDept);
-                  nextLength = current.length;
-                  return current;
-                });
-
-                setDeptName('');
-                setDeptMission('');
-                setShowForm(false);
-                setNotice(`✅ ${baseName} を追加しました（部門数: ${nextLength}）`);
-              }}
-              className="rounded-full h-9 px-4"
-            >
-              追加
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {notice && <div className="mb-6 text-sm p-3 rounded-xl border bg-emerald-50 text-emerald-800">{notice}</div>}
+      <NoticeDisplay notice={notice} />
       {activeTab === 'visual' ? (
         <section>{VisualView}</section>
       ) : (
@@ -3314,7 +3334,7 @@ useEffect(() => {
               projectCount: Array.isArray(d?.projects) ? d.projects.length : 0,
               projectTitles: (d?.projects ?? []).map((p: any) => p?.title),
             }));
-            console.log('[TRACE_PROJECTS][cascade][render-direct-before]', {
+            debugLog('[TRACE_PROJECTS][cascade][render-direct-before]', {
               strategyId,
               timestamp: new Date().toISOString(),
               totalDepartments: renderDepts.length,
@@ -3323,6 +3343,21 @@ useEffect(() => {
             });
             return null;
           })()}
+
+          {/* ★ 診断：render時点での全部門 reviewSummary 集計 */}
+          {(() => {
+            const summary = (departments ?? []).map((d: any) => ({
+              dept: d?.name,
+              correctedLen: d?.reviewSummary?.correctedItems?.length ?? 0,
+              reconsiderationLen: d?.reviewSummary?.reconsiderationPoints?.length ?? 0,
+              willDisplay:
+                (d?.reviewSummary?.correctedItems?.length ?? 0) > 0 ||
+                (d?.reviewSummary?.reconsiderationPoints?.length ?? 0) > 0,
+            }));
+            console.log('[diag][stage3:reviewSummary:render-summary-table]', summary);
+            return null;
+          })()}
+
           {departments.map((dept: Department, index: number) => {
             const editableDept = canEditDept();
             const L = loading[index] ?? {};
@@ -3355,7 +3390,7 @@ useEffect(() => {
 
             // ★ TRACE POINT 17: render loop 内 - 各 department card の deptProjects 件数
             if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
-              console.log('[TRACE_PROJECTS][cascade][render-dept-card]', {
+              debugLog('[TRACE_PROJECTS][cascade][render-dept-card]', {
                 strategyId,
                 timestamp: new Date().toISOString(),
                 deptIndex: index,
@@ -3600,6 +3635,47 @@ useEffect(() => {
                     </div>
                   </div>
                 )}
+
+                {/* ★ 診断：render時点での reviewSummary 確認 */}
+                {(() => {
+                  console.log('[diag][stage3:reviewSummary:render]', {
+                    dept: dept.name,
+                    reviewSummary: dept.reviewSummary,
+                    correctedLen: dept.reviewSummary?.correctedItems?.length ?? 0,
+                    reconsiderationLen: dept.reviewSummary?.reconsiderationPoints?.length ?? 0,
+                    willDisplay: (dept.reviewSummary?.correctedItems?.length ?? 0) > 0 || (dept.reviewSummary?.reconsiderationPoints?.length ?? 0) > 0,
+                  });
+                  return null;
+                })()}
+
+                {/* ★ STAGE3拡張：修正済事項と再考ポイントを表示 */}
+                {(dept.reviewSummary?.correctedItems?.length ?? 0) > 0 || (dept.reviewSummary?.reconsiderationPoints?.length ?? 0) > 0 ? (
+                  <div className="mt-4 space-y-3">
+                    {/* 修正済事項 */}
+                    {(dept.reviewSummary?.correctedItems?.length ?? 0) > 0 && (
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                        <div className="text-xs font-semibold text-blue-900 mb-2">修正済事項</div>
+                        <ul className="list-disc pl-5 space-y-1 text-xs text-blue-800">
+                          {dept.reviewSummary?.correctedItems?.map((item: string, i: number) => (
+                            <li key={`corrected-${dept.name}-${i}`}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* 再考ポイント */}
+                    {(dept.reviewSummary?.reconsiderationPoints?.length ?? 0) > 0 && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                        <div className="text-xs font-semibold text-amber-900 mb-2">再考ポイント</div>
+                        <ul className="list-disc pl-5 space-y-1 text-xs text-amber-800">
+                          {dept.reviewSummary?.reconsiderationPoints?.map((item: string, i: number) => (
+                            <li key={`reconsideration-${dept.name}-${i}`}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
 
                 <DepartmentQuestionStepper
                   departmentName={dept.name}
