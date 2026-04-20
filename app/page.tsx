@@ -38,7 +38,7 @@ export default function Home() {
               transition={{ duration: 0.55 }}
               className="mx-auto max-w-5xl whitespace-nowrap text-[26px] font-semibold leading-[1.3] tracking-[-0.035em] text-neutral-900 sm:text-[33px] lg:text-[40px] dark:text-neutral-50"
             >
-              やるべきことを絞り、全員で動き、業績につなぐ仕組み。
+              やるべきことを絞り、組織を動かし、業績につなぐ仕組み。
             </motion.h1>
 
             <motion.div
