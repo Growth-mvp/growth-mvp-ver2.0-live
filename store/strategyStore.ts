@@ -1545,15 +1545,24 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
 
   const rawBP = raw.businessPortfolio ?? raw.business_portfolio;
   let businessPortfolio: BusinessPortfolio | undefined = undefined;
-  if (rawBP && typeof rawBP === 'object') {
-    const valid =
-      Array.isArray(rawBP.units) &&
-      typeof rawBP.threshold?.growthBaseline === 'number' &&
-      typeof rawBP.threshold?.profitBaseline === 'number' &&
-      typeof rawBP.currency === 'string' &&
-      typeof rawBP.periodLabel === 'string' &&
-      typeof rawBP.unitType === 'string';
-    if (valid) businessPortfolio = rawBP as BusinessPortfolio;
+  if (rawBP && typeof rawBP === 'object' && Array.isArray(rawBP.units)) {
+    const growthBaseline =
+      typeof rawBP.threshold?.growthBaseline === 'number' ? rawBP.threshold.growthBaseline : 0;
+    const profitBaseline =
+      typeof rawBP.threshold?.profitBaseline === 'number' ? rawBP.threshold.profitBaseline : 0;
+
+    businessPortfolio = {
+      ...rawBP,
+      units: rawBP.units,
+      threshold: {
+        ...(rawBP.threshold && typeof rawBP.threshold === 'object' ? rawBP.threshold : {}),
+        growthBaseline,
+        profitBaseline,
+      },
+      currency: typeof rawBP.currency === 'string' ? rawBP.currency : 'JPY',
+      periodLabel: typeof rawBP.periodLabel === 'string' ? rawBP.periodLabel : '',
+      unitType: typeof rawBP.unitType === 'string' ? rawBP.unitType : 'department',
+    } as BusinessPortfolio;
   }
 
   const simulationResult = raw.simulationResult ?? raw.simulation_result ?? undefined;
