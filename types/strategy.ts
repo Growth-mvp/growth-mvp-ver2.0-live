@@ -1078,6 +1078,80 @@ export type Stage1Benchmarks = {
 };
 
 /* =========================================================
+ * ★STAGE3拡張：再考ポイント生成のための Signals（上位方針と議論結果の整合判定用）
+ * ========================================================= */
+
+/**
+ * STAGE1 ポートフォリオからの信号
+ * - ビジネスポジション、成長期待、利益優先度など
+ */
+export type PortfolioSignals = {
+  portfolioPosition: 'grow' | 'maintain' | 'improve' | 'withdraw' | 'unknown';
+  growthExpectation: boolean;       // 成長期待あり
+  maintainExpectation: boolean;     // 維持・安定期待あり
+  withdrawRisk: boolean;             // 撤退リスク有り
+  profitPriority: boolean;           // 利益優先
+};
+
+/**
+ * STAGE2 最終戦略ストーリーからの信号
+ * - 部門に期待される役割方向
+ */
+export type StorySignals = {
+  roleEnhancement: boolean;         // 役割強化期待
+  stabilityFocus: boolean;          // 維持・安定収益期待
+  highValueAdded: boolean;          // 高付加価値化期待
+  futureInvestment: boolean;        // 将来投資期待
+  newExploration: boolean;          // 新規探索期待
+  nonRecommended: boolean;          // 非推奨方向の言及
+};
+
+/**
+ * STAGE3 6テーマ議論からの信号
+ * - 部門の議論結果から抽出される方向性
+ */
+export type DiscussionSignals = {
+  growIntent: boolean;              // 成長志向が強い
+  maintainIntent: boolean;          // 維持志向が強い
+  shrinkIntent: boolean;            // 縮小志向あり
+  retreatIntent: boolean;           // 撤退志向あり
+  futurePositive: boolean;          // 未来への肯定的期待
+  futureNegative: boolean;          // 未来への否定的懸念
+  resourceExpandIntent: boolean;    // リソース拡大志向
+  resourceReduceIntent: boolean;    // リソース縮小志向
+  collaborationIntent: boolean;     // 協力前提が強い
+  stopIntent: boolean;              // 停止・撤退対象が多い
+};
+
+/**
+ * STAGE3 再生成結果からの信号
+ * - 最終的に生成された部門プランの構造
+ */
+export type GeneratedSignals = {
+  hasExistingProjects: boolean;     // 既存lane にプロジェクトあり
+  hasNewProjects: boolean;          // 新規lane にプロジェクトあり
+  collaborationTargets: string[];   // 協力相手部門
+  projectThemes: string[];          // プロジェクトの主要テーマ
+  projectLevers: GrowthLever[];     // 使用されているレバー
+  missionDirection: string;         // ミッション方向（推定）
+};
+
+/**
+ * 再考ポイントの重大度分類
+ */
+export type ReconsiderationSeverity = 'info' | 'review' | 'warning' | 'critical';
+
+/**
+ * 再考ポイントの内部表現（severity と カテゴリ付き）
+ * - 内部処理用；最終出力は string[] に変換
+ */
+export type ReconsiderationPointInternal = {
+  message: string;
+  severity: ReconsiderationSeverity;
+  category: 'portfolio' | 'story' | 'discussion' | 'generated' | 'interdept' | 'risk';
+};
+
+/* =========================================================
  * 部門
  * ========================================================= */
 
@@ -1152,6 +1226,13 @@ export type Department = {
 
   /** ★STAGE3拡張：主要リスクと対処 */
   riskNotes?: string[];
+
+  /** ★STAGE3拡張：再生成結果のレビューサマリー（修正済事項と再考ポイント） */
+  // 将来的には { type: 'corrected' | 'reconsideration'; content: string; }[] のような型付きにする余地あり
+  reviewSummary?: {
+    correctedItems?: string[];
+    reconsiderationPoints?: string[];
+  };
 };
 
 /* =========================================================
