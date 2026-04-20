@@ -845,6 +845,8 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const rawProjectTargetImpacts = out.projectTargetImpacts;
   const rawProjectIssueLinks = out.projectIssueLinks;
   const rawOkrTargetScores = out.okrTargetScores;
+  const rawBusinessPortfolio = out.businessPortfolio;
+  const rawFinanceSummary = out.financeSummary;
 
   // ★ CASE3 診断：normalize 前の departments 内部の深部を確認
   const diagDeptDeep = (depts: any[]) =>
@@ -1115,6 +1117,30 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
 
   if (restoredCsvFd || restoredSegmentPL || restoredSegmentBS) {
     if (DEBUG) console.log('[buildStateFromDbRow] restored csvFd:' + restoredCsvFd + ' segmentPL:' + restoredSegmentPL + ' segmentBS:' + restoredSegmentBS);
+  }
+
+  // ★ 修正：normalizeStrategyData で消えた businessPortfolio / financeSummary を復元
+  let restoredBusinessPortfolio = false;
+  let restoredFinanceSummary = false;
+
+  if (rawBusinessPortfolio && !(normalized as any).businessPortfolio) {
+    (normalized as any).businessPortfolio = rawBusinessPortfolio;
+    restoredBusinessPortfolio = true;
+  }
+  if (rawFinanceSummary && !(normalized as any).financeSummary) {
+    (normalized as any).financeSummary = rawFinanceSummary;
+    restoredFinanceSummary = true;
+  }
+
+  if (restoredBusinessPortfolio || restoredFinanceSummary) {
+    if (DEBUG) {
+      console.log(
+        '[buildStateFromDbRow] restored businessPortfolio:' +
+          restoredBusinessPortfolio +
+          ' financeSummary:' +
+          restoredFinanceSummary,
+      );
+    }
   }
 
   // ★ STEP 1: New fields post-normalize check and forced restoration
@@ -1545,6 +1571,10 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
     csvFinanceData_exists: !!((payload as any).csvFinanceData),
     projectTargetImpacts_len: Array.isArray((payload as any).projectTargetImpacts) ? (payload as any).projectTargetImpacts.length : null,
     okrTargetScores_keys: typeof (payload as any).okrTargetScores === 'object' ? Object.keys((payload as any).okrTargetScores || {}).length : null,
+    businessPortfolio_type: typeof (payload as any).businessPortfolio,
+    businessPortfolio_units_len: Array.isArray((payload as any).businessPortfolio?.units) ? (payload as any).businessPortfolio.units.length : 0,
+    financeSummary_type: typeof (payload as any).financeSummary,
+    financeSummary_len: Array.isArray((payload as any).financeSummary) ? (payload as any).financeSummary.length : 0,
     keys: Object.keys(payload || {}).slice(0, 80),
   });
 
