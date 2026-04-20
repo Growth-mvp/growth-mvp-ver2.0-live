@@ -3,7 +3,7 @@
 
 // ★ 診断: 実行中のファイル確認
 if (typeof window !== 'undefined') {
-  console.log('OKR_REAL_FILE_LOADED', { file: 'app/okr/page.tsx', timestamp: new Date().toISOString() });
+  debugLog('OKR_REAL_FILE_LOADED', { file: 'app/okr/page.tsx', timestamp: new Date().toISOString() });
 }
 
 import StrategyGuard from '@/app/StrategyGuard';
@@ -27,11 +27,16 @@ import { useAccess } from '@/utils/access';
 import { useCapabilities } from '@/hooks/useCapabilities';
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
+import { debugLog } from '@/utils/debug';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import type { KRKind, StrategyData } from '@/types/strategy';
 import { okrsV2ToOkrs, okrsToKpis } from '@/utils/supabase/strategy';
 import { okrService } from '@/services/okrService';
 import type { ResolvedOkr, OkrWriteInput } from '@/types/okrs';
+import { OKRHeader } from '@/components/stage4/OKRHeader';
+import { ProjectListHeader } from '@/components/stage4/ProjectListHeader';
+import { ProjectSelectionPrompt } from '@/components/stage4/ProjectSelectionPrompt';
+import { DepartmentListItem } from '@/components/stage4/DepartmentListItem';
 
 import type { Department as DepartmentStrategy } from '@/types/strategy';
 import {
@@ -4416,18 +4421,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
     <div className="w-full px-6 py-6">
 
       {/* header */}
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <div className="text-[11px] font-semibold text-zinc-500"></div>
-          <h1 className="mt-1 text-[20px] font-bold text-zinc-900">STAGE４　実行計画策定</h1>
-          <div className="mt-1 text-[12px] text-zinc-600">
-            左でプロジェクトを選び、各プロジェクトチーム内で「目的・成果指標・実行計画」を議論の上、入力設定します。
-          </div>
-        </div>
-        <div className="shrink-0 flex flex-col items-end gap-2">
-          <div className="text-right text-[11px] text-zinc-500">{isHydrating ? '読み込み中…' : '準備OK'}</div>
-        </div>
-      </div>
+      <OKRHeader isHydrating={isHydrating} />
 
       {/* STAGE4 作業エリア：中央寄せ＆幅最適化 */}
       <div className="mx-auto max-w-6xl">
@@ -4436,12 +4430,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
             <div className="grid gap-4 grid-cols-[280px_1fr]">
               {/* Left: project list */}
               <aside className="w-[280px] rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center justify-between">
-              <div className="text-[13px] font-semibold text-zinc-900">プロジェクト一覧</div>
-              <div className="text-[11px] text-zinc-500">
-                {(Array.isArray(departments) ? departments : []).reduce((n, d) => n + ensureArray(d.projects).length, 0)}件
-              </div>
-            </div>
+            <ProjectListHeader departments={departments} />
 
             <div className="space-y-4">
               {(Array.isArray(departments) ? departments : []).map((dept, di) => {
@@ -4449,10 +4438,10 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                 return (
                   <div key={deptRenderKey(dept, di)} className="rounded-2xl bg-zinc-50 p-3">
                     <div className="flex items-center justify-between">
-                      <div className="min-w-0">
-                        <div className="truncate text-[12px] font-semibold text-zinc-900">{dept.name || `部門${di + 1}`}</div>
-                        <div className="text-[10px] text-zinc-500">{projs.length}件</div>
-                      </div>
+                      <DepartmentListItem
+                        deptName={dept.name || `部門${di + 1}`}
+                        projectCount={projs.length}
+                      />
 
                       {canEditDept && (
                         <button
@@ -4530,10 +4519,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
               {/* Right: 3カラム（目的/KPI/実行計画） */}
               <section className="min-h-[420px]">
                 {!selected || !selectedProj ? (
-                  <div className="rounded-3xl border border-dashed border-zinc-300 bg-white p-10 text-center">
-                    <div className="text-[14px] font-semibold text-zinc-900">プロジェクトを選択してください</div>
-                    <div className="mt-2 text-[12px] text-zinc-600">左の一覧からプロジェクトをクリックすると、入力フォームが開きます。</div>
-                  </div>
+                  <ProjectSelectionPrompt />
                 ) : (
                   renderSimpleRight()
                 )}
