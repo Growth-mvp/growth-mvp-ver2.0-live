@@ -10,6 +10,7 @@ import { toTextStory, extractJsonObject, sanitizeText } from '@/app/api/_shared/
 import { z } from 'zod';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
+import type { PortfolioSignals, StorySignals, DiscussionSignals, GeneratedSignals, ReconsiderationSeverity, ReconsiderationPointInternal } from '@/types/strategy';
 
 /* =========================
  * グローバル定数
@@ -117,6 +118,13 @@ const DepartmentSchema = z.object({
   stopList: z.array(z.string()).optional().default([]),
   first90Days: z.array(z.string()).optional().default([]),
   riskNotes: z.array(z.string()).optional().default([]),
+  /* ★ STAGE3拡張：再生成結果のレビューサマリー */
+  reviewSummary: z
+    .object({
+      correctedItems: z.array(z.string()).optional().default([]),
+      reconsiderationPoints: z.array(z.string()).optional().default([]),
+    })
+    .optional(),
 });
 
 const ResponseSchema = z.object({
@@ -2235,6 +2243,681 @@ function normalizeProjects(raw: any): NormProject[] {
 }
 
 /* ★STAGE3軽量化：OKR生成関数削除（API側で OKR 生成しない） */
+
+/* =========================
+ * ★STAGE3高度化：部門別ポートフォリオから signals を抽出
+ * ======================= */
+
+function extractDeptPortfolioSignals(
+  deptName: string,
+  businessPortfolio?: any
+): {
+  isMaintainExpected: boolean;
+  isProfitPriority: boolean;
+  portfolioText: string;
+} {
+  const result = {
+    isMaintainExpected: false,
+    isProfitPriority: false,
+    portfolioText: '',
+  };
+
+  // ★ ログ：入力値チェック
+  console.log('[diag][extractDeptPortfolioSignals:start]', {
+    deptName,
+    typeof_businessPortfolio: typeof businessPortfolio,
+    has_units: Array.isArray(businessPortfolio?.units),
+    units_length: Array.isArray(businessPortfolio?.units) ? businessPortfolio.units.length : 0,
+  });
+
+  if (!businessPortfolio) {
+    console.log('[diag][extractDeptPortfolioSignals:no-portfolio]', { deptName });
+    return result;
+  }
+
+  // ★ units が配列か確認（完全防御）
+  const units = Array.isArray(businessPortfolio?.units) ? businessPortfolio.units : [];
+
+  if (units.length === 0) {
+    console.log('[diag][extractDeptPortfolioSignals:no-units]', { deptName, unitsLength: 0 });
+    // units がない場合、businessPortfolio 全体を文字列化して処理（古い形式の互換性）
+    const portfolioStr = typeof businessPortfolio === 'string'
+      ? businessPortfolio
+      : JSON.stringify(businessPortfolio ?? {});
+
+    // portfolioStr が文字列であることを確認してから slice
+    if (typeof portfolioStr === 'string') {
+      result.portfolioText = portfolioStr.slice(0, 300);
+    } else {
+      result.portfolioText = '';
+    }
+
+    const portfolioLower = (result.portfolioText || '').toLowerCase();
+    result.isMaintainExpected = /維持|maintain|安定|stable|低成長/.test(portfolioLower);
+    result.isProfitPriority = /利益|profit|margin|収益|高収益/.test(portfolioLower);
+
+    console.log('[diag][extractDeptPortfolioSignals:fallback]', {
+      deptName,
+      portfolioText_len: result.portfolioText.length,
+      result
+    });
+    return result;
+  }
+
+  // ★ units から部門名に合致するユニットを探す（units は配列で安全）
+  const deptNameLower = deptName.toLowerCase();
+  const matchedUnit = units.find((u: any) => {
+    const unitName = String(u?.name || '').toLowerCase();
+    return unitName.includes(deptNameLower) || deptNameLower.includes(unitName);
+  });
+
+  if (matchedUnit) {
+    // ユニット情報からポートフォリオテキストを組み立てる
+    const positionRaw = String(matchedUnit.position || '');
+    const growthRaw = String(matchedUnit.growth || '');
+    const profitabilityRaw = String(matchedUnit.profitability || matchedUnit.margin || '');
+    const scaleRaw = String(matchedUnit.scale || matchedUnit.size || '');
+
+    const position = positionRaw.toLowerCase();
+    const growth = String(matchedUnit.growth || matchedUnit.growthRate || '').toLowerCase();
+    const profitability = profitabilityRaw.toLowerCase();
+    const scale = scaleRaw.toLowerCase();
+
+    // ★ 数値型ポートフォリオ（growthRate / profitMargin）も解釈する
+    const growthRateNum = typeof matchedUnit.growthRate === 'number' ? matchedUnit.growthRate : undefined;
+    const profitMarginNum = typeof matchedUnit.profitMargin === 'number' ? matchedUnit.profitMargin : undefined;
+    const growthBaseline =
+      typeof businessPortfolio?.threshold?.growthBaseline === 'number'
+        ? businessPortfolio.threshold.growthBaseline
+        : 0;
+    const profitBaseline =
+      typeof businessPortfolio?.threshold?.profitBaseline === 'number'
+        ? businessPortfolio.threshold.profitBaseline
+        : 0;
+
+    const isLowGrowthByNumber = typeof growthRateNum === 'number' && growthRateNum <= growthBaseline;
+    const isHighProfitByNumber = typeof profitMarginNum === 'number' && profitMarginNum >= profitBaseline;
+
+    // position が無い場合は数値から portfolioPosition を推定
+    let derivedPosition = positionRaw;
+    if (!derivedPosition && (typeof growthRateNum === 'number' || typeof profitMarginNum === 'number')) {
+      if (isLowGrowthByNumber && isHighProfitByNumber) derivedPosition = '維持（低成長 × 高収益）';
+      else if (!isLowGrowthByNumber && isHighProfitByNumber) derivedPosition = '成長（高成長 × 高収益）';
+      else if (isLowGrowthByNumber && !isHighProfitByNumber) derivedPosition = '改善（低成長 × 低収益）';
+      else if (!isLowGrowthByNumber && !isHighProfitByNumber) derivedPosition = '探索（高成長 × 低収益）';
+    }
+
+    // テキスト化（診断用）
+    const parts = [
+      matchedUnit.name || deptName,
+      derivedPosition && `位置: ${derivedPosition}`,
+      growthRaw && `成長性: ${growthRaw}`,
+      typeof growthRateNum === 'number' ? `成長率: ${growthRateNum}` : '',
+      profitabilityRaw && `収益性: ${profitabilityRaw}`,
+      typeof profitMarginNum === 'number' ? `利益率: ${profitMarginNum}` : '',
+      scaleRaw && `規模: ${scaleRaw}`,
+    ].filter(Boolean);
+
+    result.portfolioText = parts.join(' / ');
+
+    // position から isMaintainExpected を判定
+    result.isMaintainExpected = /維持|maintain|安定|stable|低成長/.test(position) || /維持|maintain|安定|stable|低成長/.test(derivedPosition.toLowerCase());
+
+    // profitability から isProfitPriority を判定
+    result.isProfitPriority = /高収益|利益|profit|margin|high/.test(profitability);
+
+    // fallback: position に「高収益」等が含まれているか確認
+    result.isProfitPriority ||= /高収益|利益|profit|margin/.test(position);
+
+    // ★ 数値型からの補助判定
+    result.isMaintainExpected ||= isLowGrowthByNumber && isHighProfitByNumber;
+    result.isProfitPriority ||= isHighProfitByNumber;
+
+    console.log('[diag][extractDeptPortfolioSignals:matched]', {
+      deptName,
+      matchedUnitName: matchedUnit.name,
+      position,
+      growth,
+      profitability,
+      scale,
+      derivedPosition,
+      growthRateNum,
+      profitMarginNum,
+      growthBaseline,
+      profitBaseline,
+      isLowGrowthByNumber,
+      isHighProfitByNumber,
+      result
+    });
+    return result;
+  }
+
+  // units に合致するユニットがない場合
+  console.log('[diag][extractDeptPortfolioSignals:no-match]', {
+    deptName,
+    unitsCount: units.length,
+    unitNames: units.map((u: any) => u?.name).filter(Boolean),
+  });
+
+  return result;
+}
+
+/* =========================
+ * ★STAGE3高度化：6テーマ議論から signals を抽出（強化版）
+ * ======================= */
+
+function extractDiscussionSignals(answers?: any[]) {
+  const result = {
+    growIntent: false,
+    maintainIntent: false,
+    shrinkIntent: false,
+    retreatIntent: false,
+    futurePositive: false,
+    futureNegative: false,
+    resourceReduceIntent: false,
+    collaborationIntent: false,
+    stopIntent: false,
+  };
+
+  if (!Array.isArray(answers) || answers.length === 0) {
+    return result;
+  }
+
+  // stepNumber ベースで answer を取得
+  const getAnswerByStep = (stepNum: number): string =>
+    String(answers.find((a: any) => Number(a?.stepNumber) === stepNum)?.answer ?? '').toLowerCase();
+
+  /* ==========================================
+   * Step 1: 基本方針
+   * ========================================== */
+  const step1 = getAnswerByStep(1);
+  result.growIntent = /成長|拡大|expand|growth/.test(step1);
+  result.maintainIntent = /維持|継続|安定|maintain/.test(step1);
+
+  // ★Step1 からの撤退意図検出（拡張）
+  const step1RetractKeywords = /撤退|退出|廃止|撤収|終了|中止|見送る|やめる|やめた方がよい|やめた方が会社のため|続けるべきではない|成長は見込めない|成果が見込めない|難しい|厳しい|無理|会社のためにならない/;
+  if (step1RetractKeywords.test(step1)) {
+    result.retreatIntent = true;
+  }
+
+  /* ==========================================
+   * Step 2: 既存貢献
+   * ========================================== */
+  const step2 = getAnswerByStep(2);
+  result.growIntent ||= /成長|拡大|伸ばす|expand/.test(step2);
+  result.maintainIntent ||= /維持|継続|保つ|安定/.test(step2);
+
+  // ★縮小・削減意図（拡張語彙）
+  const step2ShrinkKeywords = /縮小|減らす|減員|削減|社員数を減らす|他事業部に移す|再配置|リソースを移す|投資しない|優先しない|reduce|shrink|cut|downsize/;
+  result.shrinkIntent ||= step2ShrinkKeywords.test(step2);
+
+  /* ==========================================
+   * Step 3: 未来への挑戦
+   * ========================================== */
+  const step3 = getAnswerByStep(3);
+  result.futurePositive ||= /挑戦|新規|探索|投資|期待|可能性|チャンス|opportunity|challenge/.test(step3);
+
+  // ★否定的な未来見通し（拡張）
+  const step3NegativeKeywords = /慎重|見極|困難|難しい|厳しい|無理|懸念|リスク|不確実|不透明|成長は見込めない|成果が見込めない|やめた方がよい|やめた方が会社のため|やめるべき|challenging|difficult|risky/;
+  result.futureNegative ||= step3NegativeKeywords.test(step3);
+
+  /* ==========================================
+   * Step 4: 利益と成長（新規：正式実装）
+   * ========================================== */
+  const step4 = getAnswerByStep(4);
+  if (step4) {
+    // リソース削減の検出
+    const step4ReduceKeywords = /削減|減らす|減らして|減員|人員削減|社員数を減らす|社員数を減らして|他事業部に移す|他の事業部に移す|再配置|リソースを移す|投資しない|優先しない|縮小|reduce|cut|downsize/;
+    if (step4ReduceKeywords.test(step4)) {
+      result.resourceReduceIntent = true;
+    }
+
+    // 成長否定の検出
+    const step4NegativeKeywords = /成長は見込めない|成果が見込めない|やめた方がよい|やめた方が会社のため|難しい|厳しい|無理|リスク|不確実/;
+    if (step4NegativeKeywords.test(step4)) {
+      result.retreatIntent = true;
+    }
+  }
+
+  /* ==========================================
+   * Step 5: 協力・連携
+   * ========================================== */
+  const step5 = getAnswerByStep(5);
+  result.collaborationIntent = /協力|連携|他部門|全社|協調|パートナー|collaboration|partnership/.test(step5);
+
+  /* ==========================================
+   * Step 6: 撤退・停止（拡張語彙）
+   * ========================================== */
+  const step6 = getAnswerByStep(6);
+
+  // 撤退意図の拡張語彙
+  const step6RetractKeywords = /撤退|退出|廃止|終了|中止|見送る|やめる|やめた方がよい|やめた方が会社のため|続けるべきではない|非対象|打ち切り|撤収|成長は見込めない|成果が見込めない|retreat|exit|withdraw|stop|cease/;
+  result.retreatIntent ||= step6RetractKeywords.test(step6);
+
+  // 停止対象
+  const step6StopKeywords = /やめる|停止|非対象|廃止|中止|見送る|やめた方がよい|やめた方が会社のため|成果が見込めない|継続すべきではない|continue.?べきではない|stop|cease|terminate/;
+  result.stopIntent ||= step6StopKeywords.test(step6);
+
+  // リソース削減
+  const step6ReduceKeywords = /人員削減|予算削減|リソース削減|減員|削減|減らす|社員数を減らす|他事業部に移す|再配置|リソースを移す|投資しない|reduce|cut|downsize/;
+  result.resourceReduceIntent ||= step6ReduceKeywords.test(step6);
+
+  return result;
+}
+
+/* =========================
+ * ★STAGE3拡張：部門レビューサマリー生成（高度化版）
+ * ======================= */
+function buildDeptReviewSummary(params: {
+  deptName: string;
+  deptInput?: any;
+  generatedDept?: any;
+  storyText?: string;
+  strategySummary?: string;
+  businessPortfolio?: any;
+  financeSummary?: any;
+  csvFinanceData?: any;
+}): {
+  correctedItems: string[];
+  reconsiderationPoints: string[];
+} {
+  const correctedItems: string[] = [];
+  const reconsiderationPoints: string[] = [];
+
+  const {
+    deptName,
+    deptInput,
+    generatedDept,
+    storyText = '',
+    businessPortfolio,
+  } = params;
+
+  // ★ 開始ログ
+  console.log('[diag][stage3:buildDeptReviewSummary:start]', {
+    deptName,
+    hasGeneratedDept: !!generatedDept,
+    hasInputAnswers: !!deptInput?.answers,
+    businessPortfolio_type: typeof businessPortfolio,
+  });
+
+  if (!generatedDept) {
+    console.log('[diag][stage3:buildDeptReviewSummary:no-dept]', { deptName });
+    return { correctedItems, reconsiderationPoints };
+  }
+
+  // ★SIGNALS 抽出
+  const discussion = extractDiscussionSignals(deptInput?.answers);
+
+  // ★プロジェクト判定
+  const hasExisting = Array.isArray(generatedDept.lanes?.existing?.projects) && generatedDept.lanes.existing.projects.length > 0;
+  const hasNew = Array.isArray(generatedDept.lanes?.new?.projects) && generatedDept.lanes.new.projects.length > 0;
+  const totalProjects = (hasExisting ? generatedDept.lanes.existing.projects.length : 0) + (hasNew ? generatedDept.lanes.new.projects.length : 0);
+
+  // ★部門別ポートフォリオ signals 抽出（修正：businessPortfolio.units から部門別情報を抽出）
+  console.log('[diag][stage3:buildDeptReviewSummary:before-portfolio]', { deptName });
+  const portfolioSignals = extractDeptPortfolioSignals(deptName, businessPortfolio);
+  console.log('[diag][stage3:buildDeptReviewSummary:after-portfolio]', { deptName, portfolioSignals });
+  const { isMaintainExpected, isProfitPriority, portfolioText } = portfolioSignals;
+
+  // ★高度化判定：ポートフォリオ期待 vs 議論結果（最高優先度）
+  const portfolioMismatchPoints: string[] = [];
+
+  if (isMaintainExpected && discussion.resourceReduceIntent && discussion.stopIntent) {
+    portfolioMismatchPoints.push(
+      '高収益事業に対して継続前提を外し、人員削減・撤退判断が同時に示されています。維持方針の根拠を再確認してください。'
+    );
+  }
+
+  if (isMaintainExpected && discussion.retreatIntent) {
+    portfolioMismatchPoints.push(
+      '当部門は事業ポートフォリオ上「維持（低成長 × 高収益）」に位置付けられていますが、6テーマ議論では撤退判断が強く示されています。維持方針との整合を再検討してください。'
+    );
+  }
+
+  if (isProfitPriority && discussion.retreatIntent && !discussion.growIntent) {
+    portfolioMismatchPoints.push(
+      '利益優先事業として位置付けられているにもかかわらず、撤退方向が示されています。事業継続の妥当性を再確認してください。'
+    );
+  }
+
+  // ★portfolio mismatch を最優先で追加
+  reconsiderationPoints.push(...portfolioMismatchPoints);
+
+  // ★議論 vs 再生成結果（次の優先度）
+  if (discussion.retreatIntent && discussion.stopIntent && totalProjects > 0) {
+    reconsiderationPoints.push(
+      '撤退・停止判断が同時に示されているにもかかわらず、プロジェクトが含まれています。実行計画の取捨選別を再確認してください。'
+    );
+  }
+
+  if ((discussion.growIntent || discussion.maintainIntent) && totalProjects === 0) {
+    reconsiderationPoints.push(
+      '成長・維持方針が示されているにもかかわらず、具体的なプロジェクトが含まれていません。実行計画の構築を確認してください。'
+    );
+  }
+
+  if (discussion.collaborationIntent && Array.isArray(generatedDept.interDeptCollab) && generatedDept.interDeptCollab.length === 0) {
+    reconsiderationPoints.push(
+      '6テーマ議論で協力・連携が強く示されているにもかかわらず、具体的な協力相手が明確化されていません。部門間連携を具体化してください。'
+    );
+  }
+
+  // ★リスク・制約（最低優先度）
+  const infoPoints: string[] = [];
+  if (Array.isArray(generatedDept.riskNotes) && generatedDept.riskNotes.length > 0) {
+    infoPoints.push('実行上の主要リスクを確認してください');
+  }
+
+  if (Array.isArray(generatedDept.stopList) && generatedDept.stopList.length > 0) {
+    infoPoints.push('非対象とした事項が実行計画に混入していないか確認してください');
+  }
+
+  // ★より強いメッセージがある場合は generic info を抑制
+  if (reconsiderationPoints.length === 0) {
+    reconsiderationPoints.push(...infoPoints);
+  }
+
+  /* ★診断ログ（修正：部門別ポートフォリオ signals に対応） */
+  console.log('[diag][stage3:buildDeptReviewSummary]', {
+    deptName,
+    portfolioText,  // extractDeptPortfolioSignals() から取得
+    isMaintainExpected,
+    isProfitPriority,
+    portfolioMismatchDetected: portfolioMismatchPoints.length > 0,
+    portfolioMismatchCount: portfolioMismatchPoints.length,
+    discussionSignals: discussion,
+    hasExisting,
+    hasNew,
+    totalProjects,
+    reconsiderationPointsCount: reconsiderationPoints.length,
+    reconsiderationPoints,  // 最終的な内容も出力
+  });
+
+  return {
+    correctedItems: [...new Set(correctedItems)],
+    reconsiderationPoints: [...new Set(reconsiderationPoints)],
+  };
+}
+
+/* =========================
+ * 部門間分析（重複・矛盾・協力）
+ * ======================= */
+
+/**
+ * 複数部門のプロジェクトテーマの重複を検出
+ * （例：2部門が同じレバーで同じターゲットに取り組む可能性）
+ */
+function detectInterDeptProjectOverlaps(
+  allDepts: Array<{
+    name: string;
+    projects?: Array<any>;
+    reviewSummary?: any;
+  }>
+): Array<{
+  severity: ReconsiderationSeverity;
+  deptPair: [string, string];
+  message: string;
+}> {
+  const overlaps: Array<{
+    severity: ReconsiderationSeverity;
+    deptPair: [string, string];
+    message: string;
+  }> = [];
+
+  for (let i = 0; i < allDepts.length; i++) {
+    for (let j = i + 1; j < allDepts.length; j++) {
+      const dept1 = allDepts[i];
+      const dept2 = allDepts[j];
+
+      if (!dept1.name || !dept2.name) continue;
+
+      const projs1 = Array.isArray(dept1.projects) ? dept1.projects : [];
+      const projs2 = Array.isArray(dept2.projects) ? dept2.projects : [];
+
+      // Project title の類似性を検査（レバーや主要テーマの重複）
+      for (const p1 of projs1) {
+        for (const p2 of projs2) {
+          const title1 = String(p1?.title || '').toLowerCase();
+          const title2 = String(p2?.title || '').toLowerCase();
+          const lever1 = String(p1?.mainLever || '').toLowerCase();
+          const lever2 = String(p2?.mainLever || '').toLowerCase();
+
+          // 同じレバーで同じキーワード（顧客、プロダクト、チャネル等）を含む場合
+          if (lever1 === lever2 && lever1 && title1 && title2) {
+            const keywordMatch =
+              /顧客|customer|プロダクト|product|チャネル|channel|ブランド|brand/.test(title1) &&
+              /顧客|customer|プロダクト|product|チャネル|channel|ブランド|brand/.test(title2);
+
+            if (keywordMatch) {
+              overlaps.push({
+                severity: 'review',
+                deptPair: [dept1.name, dept2.name],
+                message: `「${dept1.name}」と「${dept2.name}」が、同じレバー「${lever1}」で類似テーマに取り組む可能性があります。役割分担・リソース効率化を検討してください。`,
+              });
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return overlaps;
+}
+
+/**
+ * 部門間の戦略的矛盾を検出
+ * （例：一方が成長投資、他方が撤退；一方が既存固守、他方が新規探索）
+ */
+function detectInterDeptStrategyContradictions(
+  allDepts: Array<{
+    name: string;
+    reviewSummary?: {
+      reconsiderationPoints?: string[];
+    };
+  }>
+): Array<{
+  severity: ReconsiderationSeverity;
+  deptPair: [string, string];
+  message: string;
+}> {
+  const contradictions: Array<{
+    severity: ReconsiderationSeverity;
+    deptPair: [string, string];
+    message: string;
+  }> = [];
+
+  // 各部門の戦略意図を抽出
+  const strategySignals = allDepts.map((d) => {
+    const points = d.reviewSummary?.reconsiderationPoints || [];
+    const pointsText = points.join(' ');
+
+    return {
+      deptName: d.name,
+      hasRetreatIntent: /撤退|退出|廃止/.test(pointsText),
+      hasShrinkIntent: /縮小|リソース削減|縮小方針/.test(pointsText),
+      hasMaintainIntent: /維持|安定化|現状維持/.test(pointsText),
+      hasGrowthIntent: /成長|拡大|新規投資|スケール/.test(pointsText),
+      hasCollaborationIntent: /協力|連携|パートナーシップ/.test(pointsText),
+      stopIntent: /停止|中止/.test(pointsText),
+    };
+  });
+
+  // 矛盾パターンを検出
+  for (let i = 0; i < strategySignals.length; i++) {
+    for (let j = i + 1; j < strategySignals.length; j++) {
+      const s1 = strategySignals[i];
+      const s2 = strategySignals[j];
+
+      // パターン1: 成長 vs 撤退
+      if ((s1.hasGrowthIntent && s2.hasRetreatIntent) || (s1.hasRetreatIntent && s2.hasGrowthIntent)) {
+        const growthDept = s1.hasGrowthIntent ? s1.deptName : s2.deptName;
+        const retreatDept = s1.hasRetreatIntent ? s1.deptName : s2.deptName;
+
+        contradictions.push({
+          severity: 'warning',
+          deptPair: [growthDept, retreatDept],
+          message: `「${growthDept}」が成長投資を進める一方、「${retreatDept}」が撤退を検討しています。全社的なリソース配分と経営判断の整合性を確認してください。`,
+        });
+      }
+
+      // パターン2: 成長 vs 縮小
+      if ((s1.hasGrowthIntent && s2.hasShrinkIntent) || (s1.hasShrinkIntent && s2.hasGrowthIntent)) {
+        const growthDept = s1.hasGrowthIntent ? s1.deptName : s2.deptName;
+        const shrinkDept = s1.hasShrinkIntent ? s1.deptName : s2.deptName;
+
+        // 既に成長vs撤退が報告されている場合はスキップ
+        const alreadyReported = contradictions.some(
+          (c) =>
+            (c.deptPair.includes(growthDept) && c.deptPair.includes(shrinkDept)) ||
+            (c.deptPair.includes(shrinkDept) && c.deptPair.includes(growthDept))
+        );
+
+        if (!alreadyReported) {
+          contradictions.push({
+            severity: 'review',
+            deptPair: [growthDept, shrinkDept],
+            message: `「${growthDept}」と「${shrinkDept}」で経営方針の温度感に差があります。事業戦略全体での位置付けを確認してください。`,
+          });
+        }
+      }
+    }
+  }
+
+  return contradictions;
+}
+
+/**
+ * 部門間の協力可能性を検出
+ * （例：テーマ・レバー・スキルセットの補完関係）
+ */
+function extractInterDeptCollaborationPotential(
+  allDepts: Array<{
+    name: string;
+    projects?: Array<any>;
+    reviewSummary?: {
+      reconsiderationPoints?: string[];
+    };
+  }>
+): Array<{
+  severity: ReconsiderationSeverity;
+  deptPair: [string, string];
+  message: string;
+}> {
+  const collaborations: Array<{
+    severity: ReconsiderationSeverity;
+    deptPair: [string, string];
+    message: string;
+  }> = [];
+
+  // 部門のスキル・レバー・テーマを抽出
+  const deptCapabilities = allDepts.map((d) => {
+    const projs = Array.isArray(d.projects) ? d.projects : [];
+    const levers = new Set<string>();
+    const themes = new Set<string>();
+    const skills = new Set<string>();
+
+    for (const p of projs) {
+      const lever = String(p?.mainLever || '').toLowerCase();
+      const kind = String(p?.kind || '').toLowerCase();
+      const skillReqs = p?.skillRequirements;
+
+      if (lever) levers.add(lever);
+      if (kind) themes.add(kind);
+      if (skillReqs && typeof skillReqs === 'object') {
+        Object.keys(skillReqs).forEach((k) => skills.add(k.toLowerCase()));
+      }
+    }
+
+    // reconsiderationPoints からの協力シグナル
+    const points = d.reviewSummary?.reconsiderationPoints || [];
+    const hasCollaborationIntent = points.some((p) => /協力|連携|パートナーシップ|共同/.test(String(p)));
+
+    return {
+      deptName: d.name,
+      levers: Array.from(levers),
+      themes: Array.from(themes),
+      skills: Array.from(skills),
+      hasCollaborationIntent,
+    };
+  });
+
+  // 補完的なスキル・レバーの組み合わせを検出
+  for (let i = 0; i < deptCapabilities.length; i++) {
+    for (let j = i + 1; j < deptCapabilities.length; j++) {
+      const cap1 = deptCapabilities[i];
+      const cap2 = deptCapabilities[j];
+
+      // 協力シグナルがある場合は可能性高
+      if (cap1.hasCollaborationIntent || cap2.hasCollaborationIntent) {
+        // 共通のレバーまたはテーマを持つ場合
+        const sharedLevers = cap1.levers.filter((l) => cap2.levers.includes(l));
+        const sharedThemes = cap1.themes.filter((t) => cap2.themes.includes(t));
+
+        if (sharedLevers.length > 0 || sharedThemes.length > 0) {
+          const commonArea = sharedLevers.length > 0 ? `レバー「${sharedLevers[0]}」` : `テーマ「${sharedThemes[0]}」`;
+
+          collaborations.push({
+            severity: 'info',
+            deptPair: [cap1.deptName, cap2.deptName],
+            message: `「${cap1.deptName}」と「${cap2.deptName}」は、${commonArea}で協力可能性があります。相乗効果やスケール効率を検討してください。`,
+          });
+        }
+      }
+
+      // 異なるスキルセットを補完する場合
+      const cap1SkillsSet = new Set(cap1.skills);
+      const cap2SkillsSet = new Set(cap2.skills);
+      const nonOverlappingInCap2 = Array.from(cap2SkillsSet).filter((s) => !cap1SkillsSet.has(s));
+      const nonOverlappingInCap1 = Array.from(cap1SkillsSet).filter((s) => !cap2SkillsSet.has(s));
+
+      if (nonOverlappingInCap1.length > 0 && nonOverlappingInCap2.length > 0) {
+        collaborations.push({
+          severity: 'info',
+          deptPair: [cap1.deptName, cap2.deptName],
+          message: `「${cap1.deptName}」と「${cap2.deptName}」のスキルセットは相補的です。統合プロジェクトで相乗効果を生み出す可能性があります。`,
+        });
+      }
+    }
+  }
+
+  return collaborations;
+}
+
+/**
+ * 全部門の部門間分析を統合実行
+ */
+function buildInterDeptCrossAnalysis(
+  allDepts: Array<any>
+): Array<{
+  severity: ReconsiderationSeverity;
+  category: 'overlap' | 'contradiction' | 'collaboration';
+  deptPair: [string, string];
+  message: string;
+}> {
+  const results: Array<{
+    severity: ReconsiderationSeverity;
+    category: 'overlap' | 'contradiction' | 'collaboration';
+    deptPair: [string, string];
+    message: string;
+  }> = [];
+
+  // 各種分析を実行
+  const overlaps = detectInterDeptProjectOverlaps(allDepts);
+  const contradictions = detectInterDeptStrategyContradictions(allDepts);
+  const collaborations = extractInterDeptCollaborationPotential(allDepts);
+
+  // カテゴリタグを付与して統合
+  overlaps.forEach((o) => results.push({ ...o, category: 'overlap' }));
+  contradictions.forEach((c) => results.push({ ...c, category: 'contradiction' }));
+  collaborations.forEach((col) => results.push({ ...col, category: 'collaboration' }));
+
+  // Severity の重大度順（critical > warning > review > info）でソート
+  const severityOrder = { critical: 0, warning: 1, review: 2, info: 3 };
+  results.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+
+  return results;
+}
 
 /* =========================
  * ハンドラ
@@ -4628,6 +5311,106 @@ ${secondPassDeptBlock}
       },
     });
 
+    /* ★ STAGE3拡張：各部門に reviewSummary を付与 */
+    if (Array.isArray(result?.departments)) {
+      // ★診断ログ：businessPortfolio の実データ構造を確認
+      console.log('[diag][stage3:businessPortfolio:structure]', {
+        type: typeof businessPortfolio,
+        isArray: Array.isArray(businessPortfolio),
+        hasUnits: !!businessPortfolio?.units,
+        unitsCount: Array.isArray(businessPortfolio?.units) ? businessPortfolio.units.length : 0,
+        unitsNames: Array.isArray(businessPortfolio?.units) ? businessPortfolio.units.map((u: any) => u?.name).filter(Boolean) : [],
+        fullStructureSample: JSON.stringify(businessPortfolio).slice(0, 500),
+      });
+
+      for (let deptIdx = 0; deptIdx < result.departments.length; deptIdx++) {
+        const dept = result.departments[deptIdx];
+        if (!dept?.name) continue;
+
+        // 対応する入力情報を取得
+        const deptInput = departments?.[deptIdx];
+
+        const reviewSummary = buildDeptReviewSummary({
+          deptName: dept.name,
+          deptInput,
+          generatedDept: dept,
+          storyText: story ?? '',
+          strategySummary: strategySummary ?? '',
+          businessPortfolio,
+          financeSummary,
+          csvFinanceData,
+        });
+
+        // ★ 返却値のチェック
+        if (!Array.isArray(reviewSummary?.correctedItems) || !Array.isArray(reviewSummary?.reconsiderationPoints)) {
+          console.warn('[warn][stage3:buildDeptReviewSummary:invalid-result]', {
+            deptName: dept.name,
+            correctedItemsType: typeof reviewSummary?.correctedItems,
+            reconsiderationPointsType: typeof reviewSummary?.reconsiderationPoints,
+            correctedItemsIsArray: Array.isArray(reviewSummary?.correctedItems),
+            reconsiderationPointsIsArray: Array.isArray(reviewSummary?.reconsiderationPoints),
+          });
+        }
+
+        // dept に reviewSummary を付与
+        (dept as any).reviewSummary = {
+          correctedItems: Array.isArray(reviewSummary?.correctedItems) ? reviewSummary.correctedItems : [],
+          reconsiderationPoints: Array.isArray(reviewSummary?.reconsiderationPoints) ? reviewSummary.reconsiderationPoints : [],
+        };
+      }
+
+      // ★ 部門間分析：重複・矛盾・協力パターンを検出
+      // null を除外した安全な部門配列を作成
+      const safeDepartments = (result.departments ?? []).filter(
+        (d): d is NonNullable<(typeof result.departments)[number]> => !!d
+      );
+
+      const interDeptInsights = buildInterDeptCrossAnalysis(safeDepartments);
+
+      if (Array.isArray(interDeptInsights) && interDeptInsights.length > 0) {
+        console.log('[diag][stage3:interDeptAnalysis]', {
+          analysisCount: interDeptInsights.length,
+          byCategory: {
+            overlaps: interDeptInsights.filter((i) => i.category === 'overlap').length,
+            contradictions: interDeptInsights.filter((i) => i.category === 'contradiction').length,
+            collaborations: interDeptInsights.filter((i) => i.category === 'collaboration').length,
+          },
+          bySeverity: {
+            critical: interDeptInsights.filter((i) => i.severity === 'critical').length,
+            warning: interDeptInsights.filter((i) => i.severity === 'warning').length,
+            review: interDeptInsights.filter((i) => i.severity === 'review').length,
+            info: interDeptInsights.filter((i) => i.severity === 'info').length,
+          },
+          samples: Array.isArray(interDeptInsights) ? interDeptInsights.slice(0, 3) : [],
+        });
+
+        // 部門ごとに該当する cross-insights を追加（オプション）
+        for (const insight of interDeptInsights) {
+          for (const deptName of insight.deptPair) {
+            const d = safeDepartments.find((x) => (x as any).name === deptName);
+            if (d) {
+              if (!(d as any).reviewSummary) {
+                (d as any).reviewSummary = {
+                  correctedItems: [],
+                  reconsiderationPoints: [],
+                  crossDeptInsights: [],
+                };
+              }
+
+              ((d as any).reviewSummary.crossDeptInsights ??= []).push({
+                severity: insight.severity,
+                category: insight.category,
+                relatedDepts: Array.isArray(insight.deptPair)
+                  ? insight.deptPair.filter((x) => x !== deptName)
+                  : [],
+                message: insight.message,
+              });
+            }
+          }
+        }
+      }
+    }
+
     return new NextResponse(JSON.stringify(result), {
       headers: {
         'content-type': 'application/json; charset=utf-8',
@@ -4636,7 +5419,12 @@ ${secondPassDeptBlock}
       },
     });
   } catch (err: any) {
-    console.error('❌ APIエラー（generate-cascade）:', err?.message || err);
+    console.error('❌ APIエラー（generate-cascade）:', {
+      message: err?.message || err,
+      stack: err?.stack,
+      type: err?.constructor?.name,
+      details: String(err),
+    });
     return new NextResponse(JSON.stringify({ error: 'サーバーエラーが発生しました。' }), {
       status: 500,
       headers: { 'content-type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
