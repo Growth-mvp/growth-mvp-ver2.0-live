@@ -7,6 +7,9 @@ import { useSearchParams } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import ProjectCard from '@/components/execution/ProjectCard';
+import { ExecutionHeader } from '@/components/stage5/ExecutionHeader';
+import { EmptyExecutionMessage } from '@/components/stage5/EmptyExecutionMessage';
+import { EmptyPyramidMessage } from '@/components/stage5/EmptyPyramidMessage';
 import { saveProgressLog } from '@/utils/supabase/strategy';
 import { buildProgressLogMetadata, embedMetadata } from '@/utils/execution/metadata';
 import { supabase } from '@/utils/supabase/client';
@@ -15,6 +18,7 @@ import { X, Send, Clock, CheckCircle2, BookOpen, Building2 } from 'lucide-react'
 import { useAccess } from '@/utils/access';
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
+import { debugLog } from '@/utils/debug';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { okrService } from '@/services/okrService';
 import type { Department, Project as ProjectStrict, OKR as OKRStrict } from '@/types/strategy';
@@ -2911,23 +2915,7 @@ function ExecutionPageContent() {
   return (
     <main className="min-h-screen bg-gray-50 avoid-agent-dock">
       {/* Header */}
-      <div className="bg-white/90 border-b border-black/10 sticky top-0 z-20 backdrop-blur-xl">
-        <div className="px-4 md:px-6 lg:px-6 py-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">STAGE5 実行計画支援</h1>
-            <div className="mt-2 text-sm text-gray-600">ストーリー＞部門＞プロジェクト の順に表示。各カードをクリックして詳細を確認します。</div>
-            {isHydrating && <div className="mt-2 text-sm text-gray-500">サーバーのデータを読み込み中です…</div>}
-          </div>
-          <div className="flex items-center gap-4">
-            {selected ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-800">
-                <CheckCircle2 className="h-3 w-3" />
-                実行支援を表示中
-              </span>
-            ) : null}
-          </div>
-        </div>
-      </div>
+      <ExecutionHeader isHydrating={isHydrating} selected={selected} />
 
       {/* モバイル */}
       <div className="md:hidden -mx-6 px-6 pt-6">
@@ -2939,7 +2927,7 @@ function ExecutionPageContent() {
               </div>
             ))
           ) : (
-            !isHydrating && <div className="text-sm text-gray-600">表示できる実行計画がありません。</div>
+            <EmptyExecutionMessage isHydrating={isHydrating} />
           )}
         </div>
       </div>
@@ -3072,7 +3060,7 @@ function ExecutionPageContent() {
                                         return;
                                       }
                                       // ===== TASK 1: Desktop project button - selected from pyramid =====
-                                      console.log('[STAGE5-open-modal-selected-desktop]', {
+                                      debugLog('[STAGE5-open-modal-selected-desktop]', {
                                         deptName: p.selection.deptName,
                                         deptId: p.selection.departmentId,
                                         deptIdType: typeof p.selection.departmentId,
@@ -3132,7 +3120,7 @@ function ExecutionPageContent() {
                     );
                   })
                 ) : (
-                  !isHydrating && <div className="text-sm text-gray-600">部門がありません。</div>
+                  <EmptyPyramidMessage isHydrating={isHydrating} />
                 )}
               </div>
             </div>
