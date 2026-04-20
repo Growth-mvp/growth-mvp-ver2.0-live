@@ -2584,7 +2584,9 @@ function buildDeptReviewSummary(params: {
   reconsiderationPoints.push(...portfolioMismatchPoints);
 
   // ★議論 vs 再生成結果（次の優先度）
-  if (discussion.retreatIntent && discussion.stopIntent && totalProjects > 0) {
+  // 既にポートフォリオ不整合などの上位方針メッセージが出ている場合は、
+  // generic な撤退警告は重複感が強いため非表示にする。
+  if (portfolioMismatchPoints.length === 0 && discussion.retreatIntent && discussion.stopIntent && totalProjects > 0) {
     reconsiderationPoints.push(
       '撤退・停止判断が同時に示されているにもかかわらず、プロジェクトが含まれています。実行計画の取捨選別を再確認してください。'
     );
