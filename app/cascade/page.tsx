@@ -846,20 +846,62 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
   revenue: { current: number | null; target: number | null };
   operatingProfit: { current: number | null; target: number | null };
 }) {
+  const [openChapterIndexes, setOpenChapterIndexes] = useState<number[]>([]);
+
+  const toggleChapter = useCallback((index: number) => {
+    setOpenChapterIndexes((prev) =>
+      prev.includes(index) ? prev.filter((item) => item !== index) : [...prev, index]
+    );
+  }, []);
+
   return (
     <section className="mb-8">
-      {/* 4章 */}
+      {/* 4章：A案（縦4段アコーディオン） */}
       {chapters.length ? (
-        <div className="grid md:grid-cols-2 gap-4">
-          {chapters.slice(0, 4).map((ch: { title: string; body: string }, i: number) => (
-            <div key={i} className="p-4 border rounded-2xl bg-white/60 backdrop-blur-sm">
-              <h3 className="font-semibold">{ch.title}</h3>
+        <div className="space-y-3">
+          {chapters.slice(0, 4).map((ch: { title: string; body: string }, i: number) => {
+            const isOpen = openChapterIndexes.includes(i);
+            return (
               <div
-                dangerouslySetInnerHTML={{ __html: nl2brSafe(ch.body) }}
-                className="text-sm text-zinc-700 mt-1"
-              />
-            </div>
-          ))}
+                key={i}
+                className="overflow-hidden rounded-2xl border border-zinc-200 bg-white/80 shadow-sm backdrop-blur-sm transition-all"
+              >
+                <button
+                  type="button"
+                  onClick={() => toggleChapter(i)}
+                  className="flex w-full items-start justify-between gap-4 px-5 py-4 text-left hover:bg-zinc-50/80 transition-colors"
+                  aria-expanded={isOpen}
+                  aria-controls={`stage3-story-panel-${i}`}
+                >
+                  <div className="min-w-0">
+                    <h3 className="text-base font-semibold text-zinc-900">
+                      {ch.title}
+                    </h3>
+                    {!isOpen ? (
+                      <p className="mt-2 line-clamp-2 text-sm text-zinc-600">
+                        {ch.body}
+                      </p>
+                    ) : null}
+                  </div>
+                  <span className="mt-1 shrink-0 rounded-full border border-zinc-200 bg-white p-2 text-zinc-600">
+                    {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </span>
+                </button>
+
+                {isOpen ? (
+                  <div
+                    id={`stage3-story-panel-${i}`}
+                    className="border-t border-zinc-200 px-5 py-4"
+                  >
+                    <div
+                      dangerouslySetInnerHTML={{ __html: nl2brSafe(ch.body) }}
+                      className="text-sm leading-7 text-zinc-700"
+                    />
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       ) : (
         <div className="p-4 bg-yellow-50 text-yellow-800 text-sm rounded-xl border border-yellow-200">
@@ -2271,6 +2313,7 @@ useEffect(() => {
   const [inlineEdit, setInlineEdit] = useState<Record<number, string>>({});
   const [openDepartments, setOpenDepartments] = useState<Record<string, boolean>>({});
   const [activeStepByDept, setActiveStepByDept] = useState<Record<string, 'step1' | 'step2' | 'step3' | 'step4' | 'none'>>({});
+  const [removedDepartmentKeys, setRemovedDepartmentKeys] = useState<Record<string, boolean>>({});
 
   /* ===== 部門追加ハンドラー ===== */
   const handleAddDepartment = async () => {
@@ -2299,10 +2342,16 @@ useEffect(() => {
     setDeptName('');
     setDeptMission('');
     setShowForm(false);
+    setRemovedDepartmentKeys((prev) => { const next = { ...prev }; delete next[`name:${baseName}`]; return next; });
     setNotice(`✅ ${baseName} を追加しました（部門数: ${nextLength}）`);
   };
 
   /* ===== 部門の増減に応じてインライン編集状態をリセット ===== */
+  const getDepartmentUiKey = useCallback((dept: Department, fallbackIndex?: number) => {
+    const base = dept.id ? `id:${dept.id}` : `name:${dept.name}`;
+    return fallbackIndex === undefined ? base : `${base}::${fallbackIndex}`;
+  }, []);
+
   useEffect(() => {
     setInlineEdit({});
   }, [departments.length]);
@@ -2463,20 +2512,20 @@ useEffect(() => {
   };
 
   /* ===== 部門削除 ===== */
-  const handleDeleteDepartment = async (index: number) => {
+  const handleDeleteDepartment = async (index: number, dept?: Department) => {
     if (!canEditCompany) {
       setNotice('⚠️ 部門削除は管理者のみ可能です');
       return;
     }
 
     const current = (useStrategyStore.getState().departments as Department[] | undefined) ?? [];
-    const target = current[index];
+    const target = dept ?? current[index];
     if (!target) return;
 
-    const ok = window.confirm(`「${target.name}」を削除しますか？\nこの操作は元に戻せません。`);
+    const ok = window.confirm(`「${target.name}」を削除しますか？
+この操作は元に戻せません。`);
     if (!ok) return;
 
-    // ★ DIAG: 削除前の状態
     console.log('[diag][stage3:delete:before]', {
       deleteType: 'department',
       index,
@@ -2485,29 +2534,51 @@ useEffect(() => {
       deptCountBefore: current.length,
     });
 
-    pushToStore((prev) => {
-      const raw = prev.filter((_, i) => i !== index);
-      const next: Department[] = raw.map((d, i) => ({
-        ...d,
-        answers2: (d.answers2 ?? []).map((ch) => ({
-          ...ch,
-          chapterIndex: i,
-          chapterTitle: d.name,
-        })),
-      }));
+    let removed = false;
+    const raw = current.filter((item, i) => {
+      if (removed) return true;
+      const matchedById = !!target.id && item.id === target.id;
+      const matchedByIndexAndName = i === index && item.name === target.name;
+      if (matchedById || matchedByIndexAndName) {
+        removed = true;
+        return false;
+      }
+      return true;
+    });
+    const next: Department[] = raw.map((d, i) => ({
+      ...d,
+      answers2: (d.answers2 ?? []).map((ch) => ({
+        ...ch,
+        chapterIndex: i,
+        chapterTitle: d.name,
+      })),
+    }));
 
-      // ★ DIAG: 削除直後の状態
-      console.log('[diag][stage3:delete:after]', {
-        deleteType: 'department',
-        deptName: target.name,
-        deptCountAfter: next.length,
-        deptId: target.id,
-      });
-
-      return next;
+    console.log('[diag][stage3:delete:after]', {
+      deleteType: 'department',
+      deptName: target.name,
+      deptCountAfter: next.length,
+      deptId: target.id,
     });
 
-    // レーンキャッシュも掃除
+    setDepartmentsInStore?.(next);
+
+    setOpenDepartments((prev) => {
+      const next = { ...prev };
+      delete next[target.name];
+      return next;
+    });
+    setActiveStepByDept((prev) => {
+      const next = { ...prev };
+      delete next[target.name];
+      return next;
+    });
+    setRemovedDepartmentKeys((prev) => ({
+      ...prev,
+      [getDepartmentUiKey(target, index)]: true,
+      [getDepartmentUiKey(target)]: true,
+    }));
+
     try {
       const copy = { ...laneCacheRef.current };
       delete copy[target.name];
@@ -2517,7 +2588,14 @@ useEffect(() => {
       // ignore
     }
 
-    setNotice(`🗑 ${target.name} を削除しました`);
+    setNotice(`💾 ${target.name} を削除して保存中です…`);
+    await Promise.resolve();
+    const persisted = await persistCascadeNow('department-delete');
+    if (persisted) {
+      setNotice(`🗑 ${target.name} を削除して保存しました`);
+    } else {
+      setNotice(`⚠️ ${target.name} の削除は画面には反映されましたが、保存に失敗しました。全体保存をお試しください。`);
+    }
   };
 
   /* =========================
@@ -3288,11 +3366,16 @@ useEffect(() => {
       )}
 
       {!isHydrating && (
-        <StoryWithKPIComparison
-          chapters={storyChapters}
-          revenue={kpiBridgeData.revenue}
-          operatingProfit={kpiBridgeData.operatingProfit}
-        />
+        <section>
+          <div className="mb-3">
+            <h2 className="text-sm font-semibold tracking-wide text-zinc-900">経営戦略ストーリー</h2>
+          </div>
+          <StoryWithKPIComparison
+            chapters={storyChapters}
+            revenue={kpiBridgeData.revenue}
+            operatingProfit={kpiBridgeData.operatingProfit}
+          />
+        </section>
       )}
 
       <CascadeControlBar
@@ -3361,6 +3444,8 @@ useEffect(() => {
           })()}
 
           {departments.map((dept: Department, index: number) => {
+            const deptUiKey = getDepartmentUiKey(dept, index);
+            if (removedDepartmentKeys[deptUiKey] || removedDepartmentKeys[getDepartmentUiKey(dept)]) return null;
             const editableDept = canEditDept();
             const L = loading[index] ?? {};
             // ★ FIXED: mission フィールド統一（strategy は使わない）
@@ -3449,11 +3534,7 @@ useEffect(() => {
                 {isDeptOpen && (
                 <div className="mt-4">
 <div className="mb-4">
-  <div className="flex items-start justify-between gap-3">
-    <h3 className="font-semibold text-zinc-900 flex items-center gap-2 min-w-0">
-      <Building2 className="w-4 h-4" /> {dept.name}
-    </h3>
-
+  <div className="flex items-start justify-end gap-3">
     <div className="flex items-center gap-2 shrink-0">
       {dept.finalized && <span className="text-xs bg-zinc-900 text-white rounded-full px-2 py-1">確定済み</span>}
       {canEditCompany && (
@@ -3461,7 +3542,7 @@ useEffect(() => {
           variant="outline"
           className="h-8 px-3 rounded-full border-zinc-300 text-zinc-700 hover:bg-zinc-50 flex items-center gap-1"
           disabled={isHydrating}
-          onClick={() => handleDeleteDepartment(index)}
+          onClick={() => handleDeleteDepartment(index, dept)}
           title="この部門を削除"
         >
           <Trash2 className="w-4 h-4" />
@@ -3471,14 +3552,7 @@ useEffect(() => {
     </div>
   </div>
 
-  <div className="mt-2 flex flex-wrap gap-1.5">
-    <span className="inline-flex items-center rounded-full border border-zinc-500 bg-zinc-300 px-2 py-0.5 text-[10px] font-semibold text-zinc-900">STEP1 たたき台</span>
-    <span className="inline-flex items-center rounded-full border border-zinc-400 bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-700">STEP2 議論</span>
-    <span className="inline-flex items-center rounded-full border border-zinc-400 bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-700">STEP3 確認</span>
-    <span className="inline-flex items-center rounded-full border border-zinc-400 bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-700">STEP4 調整</span>
-  </div>
-
-  <div className={`mt-3 mb-2 w-full rounded-2xl border px-4 py-3 shadow-sm ${activeStep === 'step1' ? 'border-zinc-600 bg-zinc-300' : 'border-zinc-400 bg-zinc-200'}`}>
+  <div className={`mt-3 mb-2 w-full rounded-2xl border px-4 py-3 shadow-sm ${activeStep === 'step1' ? 'border-zinc-900 bg-zinc-900 text-white' : 'border-zinc-300 bg-zinc-100 text-zinc-900'}`}>
     <div className="flex items-center justify-between gap-3">
       <button
         type="button"
@@ -3487,19 +3561,19 @@ useEffect(() => {
       >
         <div className="flex items-center justify-between gap-2">
           <div>
-            <div className="text-[11px] font-semibold text-zinc-900">STEP1 たたき台</div>
-            <div className="text-[11px] text-zinc-700 mt-0.5">生成結果をここでまとめて確認します。</div>
+            <div className={`text-[11px] font-semibold ${activeStep === 'step1' ? 'text-white' : 'text-zinc-900'}`}>STEP1 たたき台</div>
+            <div className={`text-[11px] mt-0.5 ${activeStep === 'step1' ? 'text-zinc-200' : 'text-zinc-700'}`}>生成結果をここでまとめて確認します。</div>
           </div>
-          {activeStep === 'step1' ? <ChevronUp className="w-4 h-4 text-zinc-800 shrink-0" /> : <ChevronDown className="w-4 h-4 text-zinc-800 shrink-0" />}
+          {activeStep === 'step1' ? <ChevronUp className="w-4 h-4 text-white shrink-0" /> : <ChevronDown className="w-4 h-4 text-zinc-800 shrink-0" />}
         </div>
       </button>
       <div className="flex items-center gap-2 shrink-0">
-        <span className="rounded-full border border-zinc-400 bg-white px-2 py-0.5 text-[10px] font-medium text-zinc-700">{step1Summary}</span>
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${activeStep === 'step1' ? 'border border-white/25 bg-white/10 text-white' : 'border border-zinc-400 bg-white text-zinc-700'}`}>{step1Summary}</span>
         <Button
           variant="outline"
           onClick={() => handleDeptCascadeDraft(index, 'draft')}
           disabled={!editableDept || !!L.deptDraft || !!L.deptRegen || isHydrating}
-          className="rounded-full h-8 px-3 border-zinc-400 bg-white text-zinc-800 hover:bg-zinc-50"
+          className={`rounded-full h-8 px-3 ${activeStep === 'step1' ? 'border-white/30 bg-white text-zinc-900 hover:bg-zinc-100' : 'border-zinc-400 bg-white text-zinc-800 hover:bg-zinc-50'}` }
           title="この部門のたたき台を生成します"
         >
           <Sparkles className="w-4 h-4 mr-1" />
@@ -3650,13 +3724,13 @@ useEffect(() => {
                 {/* ================================================ */}
                 <button
                   type="button"
-                  className={`mt-5 mb-3 w-full rounded-2xl border px-3 py-3 shadow-sm text-left transition-colors ${activeStep === 'step2' ? 'border-zinc-600 bg-zinc-300' : 'border-zinc-400 bg-zinc-200'}`}
+                  className={`mt-5 mb-3 w-full rounded-2xl border px-3 py-3 shadow-sm text-left transition-colors ${activeStep === 'step2' ? 'border-zinc-900 bg-zinc-900 text-white' : 'border-zinc-300 bg-zinc-100 text-zinc-900'}`}
                   onClick={() => setActiveStepByDept((prev) => ({ ...prev, [dept.name]: activeStep === 'step2' ? 'none' : 'step2' }))}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div>
-                      <div className="text-[11px] font-semibold text-zinc-900">STEP2 戦略議論</div>
-                      <div className="text-[11px] text-zinc-700 mt-0.5">6つのテーマで議論し、回答がそろったら再生成します。</div>
+                      <div className={`text-[11px] font-semibold ${activeStep === 'step2' ? 'text-white' : 'text-zinc-900'}`}>STEP2 戦略議論</div>
+                      <div className={`text-[11px] mt-0.5 ${activeStep === 'step2' ? 'text-zinc-200' : 'text-zinc-700'}`}>6つのテーマで議論し、回答がそろったら再生成します。</div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <span className="rounded-full border border-zinc-300 bg-white px-2 py-0.5 text-[10px] font-medium text-zinc-700">{step2Summary}</span>
@@ -3702,13 +3776,13 @@ useEffect(() => {
                 {/* ================================================ */}
                 <button
                   type="button"
-                  className={`mt-5 mb-3 w-full rounded-2xl border px-3 py-3 shadow-sm text-left transition-colors ${activeStep === 'step3' ? 'border-zinc-600 bg-zinc-300' : 'border-zinc-400 bg-zinc-200'}`}
+                  className={`mt-5 mb-3 w-full rounded-2xl border px-3 py-3 shadow-sm text-left transition-colors ${activeStep === 'step3' ? 'border-zinc-900 bg-zinc-900 text-white' : 'border-zinc-300 bg-zinc-100 text-zinc-900'}`}
                   onClick={() => setActiveStepByDept((prev) => ({ ...prev, [dept.name]: activeStep === 'step3' ? 'none' : 'step3' }))}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div>
-                      <div className="text-[11px] font-semibold text-zinc-900">STEP3 再生成結果の確認</div>
-                      <div className="text-[11px] text-zinc-700 mt-0.5">ミッションや説明、要確認事項を見直して方向性を固めます。</div>
+                      <div className={`text-[11px] font-semibold ${activeStep === 'step3' ? 'text-white' : 'text-zinc-900'}`}>STEP3 再生成結果の確認</div>
+                      <div className={`text-[11px] mt-0.5 ${activeStep === 'step3' ? 'text-zinc-200' : 'text-zinc-700'}`}>ミッションや説明、要確認事項を見直して方向性を固めます。</div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <span className="rounded-full border border-zinc-300 bg-white px-2 py-0.5 text-[10px] font-medium text-zinc-700">{step3Summary}</span>
@@ -3823,13 +3897,13 @@ useEffect(() => {
                 {/* ================================================ */}
                 <button
                   type="button"
-                  className={`mt-5 mb-3 w-full rounded-2xl border px-3 py-3 shadow-sm text-left transition-colors ${activeStep === 'step4' ? 'border-zinc-600 bg-zinc-300' : 'border-zinc-400 bg-zinc-200'}`}
+                  className={`mt-5 mb-3 w-full rounded-2xl border px-3 py-3 shadow-sm text-left transition-colors ${activeStep === 'step4' ? 'border-zinc-900 bg-zinc-900 text-white' : 'border-zinc-300 bg-zinc-100 text-zinc-900'}`}
                   onClick={() => setActiveStepByDept((prev) => ({ ...prev, [dept.name]: activeStep === 'step4' ? 'none' : 'step4' }))}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div>
-                      <div className="text-[11px] font-semibold text-zinc-900">STEP4 プロジェクト案とKPI案</div>
-                      <div className="text-[11px] text-zinc-700 mt-0.5">最後に、実行案としてプロジェクトとKPIを調整します。</div>
+                      <div className={`text-[11px] font-semibold ${activeStep === 'step4' ? 'text-white' : 'text-zinc-900'}`}>STEP4 プロジェクト案とKPI案</div>
+                      <div className={`text-[11px] mt-0.5 ${activeStep === 'step4' ? 'text-zinc-200' : 'text-zinc-700'}`}>最後に、実行案としてプロジェクトとKPIを調整します。</div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <span className="rounded-full border border-zinc-300 bg-white px-2 py-0.5 text-[10px] font-medium text-zinc-700">{step4Summary}</span>
