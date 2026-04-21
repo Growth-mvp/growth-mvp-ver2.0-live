@@ -3177,11 +3177,18 @@ export const useStrategyStore = create<StrategyState>()(
           return dept;
         });
 
-        // ★ 全件同値なら set を呼ばない（state 参照変わらず → saveStrategyData 起動なし）
-        if (optimized.every((dept, i) => dept === prev[i])) {
+        // ★ FIX: 削除時は length が変わるため、件数も必ず比較する
+        // 旧実装は optimized.every(...) だけだったため、
+        // 末尾削除で「先頭N件が同じ参照」の場合に no-op 扱いされていた。
+        const isSameDepartments =
+          optimized.length === prev.length && optimized.every((dept, i) => dept === prev[i]);
+
+        if (isSameDepartments) {
           console.log('[store:no-op-update-skipped]', {
             reason: 'setDepartments',
             allDeptsUnchanged: true,
+            prevLen: prev.length,
+            nextLen: optimized.length,
           });
           if (DEBUG) console.log('[strategyStore] setDepartments: all depts unchanged, skip set call');
           return;  // ★ 重要：set も async saveStrategyData も実行しない
@@ -3225,11 +3232,16 @@ export const useStrategyStore = create<StrategyState>()(
           return dept;
         });
 
-        // ★ 全件同値なら set を呼ばない（state 参照変わらず → saveStrategyData 起動なし）
-        if (optimized.every((dept, i) => dept === prev[i])) {
+        // ★ FIX: 削除時は length が変わるため、件数も必ず比較する
+        const isSameDepartments =
+          optimized.length === prev.length && optimized.every((dept, i) => dept === prev[i]);
+
+        if (isSameDepartments) {
           console.log('[store:no-op-update-skipped]', {
             reason: 'updateDepartments',
             allDeptsUnchanged: true,
+            prevLen: prev.length,
+            nextLen: optimized.length,
           });
           if (DEBUG) console.log('[strategyStore] updateDepartments: all depts unchanged, skip set call');
           return;  // ★ 重要：set も async saveStrategyData も実行しない
