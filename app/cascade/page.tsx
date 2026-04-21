@@ -675,7 +675,7 @@ function PositiveOnlyBarCard({
             />
           </div>
           {target !== null && (
-            <div className="text-xs font-semibold text-blue-700 dark:text-blue-300 text-center whitespace-nowrap">
+            <div className="text-xs font-semibold text-zinc-700 dark:text-blue-300 text-center whitespace-nowrap">
               {formatMillion(target)}
             </div>
           )}
@@ -790,7 +790,7 @@ function DivergingBarCard({
                   height: `${Math.max(targetHeightPct, 2)}%`,
                 }}
               />
-              <div className="text-xs font-semibold text-blue-700 dark:text-blue-300 mt-1 text-center whitespace-nowrap">
+              <div className="text-xs font-semibold text-zinc-700 dark:text-blue-300 mt-1 text-center whitespace-nowrap">
                 {formatMillion(target)}
               </div>
             </div>
@@ -2269,6 +2269,8 @@ useEffect(() => {
   const [deptName, setDeptName] = useState('');
   const [deptMission, setDeptMission] = useState('');
   const [inlineEdit, setInlineEdit] = useState<Record<number, string>>({});
+  const [openDepartments, setOpenDepartments] = useState<Record<string, boolean>>({});
+  const [activeStepByDept, setActiveStepByDept] = useState<Record<string, 'step1' | 'step2' | 'step3' | 'step4' | 'none'>>({});
 
   /* ===== 部門追加ハンドラー ===== */
   const handleAddDepartment = async () => {
@@ -3387,6 +3389,23 @@ useEffect(() => {
             // ★STAGE3軽量化：lanes が存在する場合は lanes から、なければ dept.projects を使用（重複防止）
             // ★ STEP 1修正：source of truth を dept.projects のみに統一（lanes は参考表示に分離）
             const deptProjects = (dept.projects as Project[] | undefined) ?? [];
+            const correctedCount = dept.reviewSummary?.correctedItems?.length ?? 0;
+            const reconsiderationCount = dept.reviewSummary?.reconsiderationPoints?.length ?? 0;
+            const reviewCount = correctedCount + reconsiderationCount;
+            const isDeptOpen = !!openDepartments[dept.name];
+            const inferredMainStep: 'step1' | 'step2' | 'step3' | 'step4' =
+              !deptMissionText && deptProjects.length === 0
+                ? 'step1'
+                : !allQuestionsAnswered
+                  ? 'step2'
+                  : reviewCount > 0 || !!deptMissionText
+                    ? 'step3'
+                    : 'step4';
+            const activeStep: 'step1' | 'step2' | 'step3' | 'step4' | 'none' = activeStepByDept[dept.name] ?? inferredMainStep;
+            const step1Summary = deptMissionText ? 'たたき台あり' : '未生成';
+            const step2Summary = `6テーマ ${answeredCount}/6`;
+            const step3Summary = deptMissionText ? '方向性を確認' : '再生成後に確認';
+            const step4Summary = `プロジェクト ${deptProjects.length}件`;
 
             // ★ TRACE POINT 17: render loop 内 - 各 department card の deptProjects 件数
             if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
@@ -3408,50 +3427,39 @@ useEffect(() => {
                   !editableDept || isHydrating ? 'pointer-events-none opacity-80' : '',
                 ].join(' ')}
               >
-                
+                <button
+                  type="button"
+                  className="w-full flex items-center justify-between text-left"
+                  onClick={() => {
+                    setOpenDepartments((prev) => {
+                      const next = !prev[dept.name];
+                      if (next) {
+                        setActiveStepByDept((current) => ({ ...current, [dept.name]: current[dept.name] ?? inferredMainStep }));
+                      }
+                      return { ...prev, [dept.name]: next };
+                    });
+                  }}
+                >
+                  <div className="flex items-center gap-2 text-zinc-900 font-semibold">
+                    {isDeptOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    <span>{dept.name}</span>
+                  </div>
+                </button>
+
+                {isDeptOpen && (
+                <div className="mt-4">
 <div className="mb-4">
   <div className="flex items-start justify-between gap-3">
-    {/* left: dept name + actions */}
-    <div className="min-w-0">
-      <h3 className="font-semibold text-zinc-900 flex items-center gap-2">
-        <Building2 className="w-4 h-4" /> {dept.name}
-      </h3>
+    <h3 className="font-semibold text-zinc-900 flex items-center gap-2 min-w-0">
+      <Building2 className="w-4 h-4" /> {dept.name}
+    </h3>
 
-      {/* ✅ 部門名の直下に「AI生成」＋「生成内訳」 */}
-      <div className="mt-2 flex flex-wrap gap-2">
-        <Button
-          variant="outline"
-          onClick={() => handleDeptCascadeDraft(index, 'draft')}
-          disabled={!editableDept || !!L.deptDraft || !!L.deptRegen || isHydrating}
-          className="rounded-full h-9 px-4"
-          title="この部門のミッション・プロジェクト案・KPI案をAIが提案します（2レーン対応）"
-        >
-          <Sparkles className="w-4 h-4 mr-1" />
-          {L.deptDraft ? 'たたき台を生成中…' : 'AIでこの部門のたたき台（ミッション・プロジェクト・KPI案）'}
-        </Button>
-
-        {(exCount > 0 || newCount > 0 || intraCollabCount > 0 || interCollabCount > 0) && (
-          <Button
-            variant="outline"
-            className="rounded-full h-9 px-4"
-            disabled={isHydrating}
-            onClick={() => setShowLaneDetail((p) => ({ ...p, [dept.name]: !p[dept.name] }))}
-            title="AI生成の内訳（既存進化／新規探索／事業部内連携／事業部間連携）を表示します"
-          >
-            {laneOpen ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />}
-            生成内訳（既存{exCount} / 新規{newCount}{intraCollabCount > 0 ? ` / 事業部内連携${intraCollabCount}` : ''}{interCollabCount > 0 ? ` / 事業部間連携${interCollabCount}` : ''}）
-          </Button>
-        )}
-      </div>
-    </div>
-
-    {/* right: status + delete */}
     <div className="flex items-center gap-2 shrink-0">
       {dept.finalized && <span className="text-xs bg-zinc-900 text-white rounded-full px-2 py-1">確定済み</span>}
       {canEditCompany && (
         <Button
           variant="outline"
-          className="h-8 px-3 rounded-full border-red-500 text-red-600 hover:bg-red-50 flex items-center gap-1"
+          className="h-8 px-3 rounded-full border-zinc-300 text-zinc-700 hover:bg-zinc-50 flex items-center gap-1"
           disabled={isHydrating}
           onClick={() => handleDeleteDepartment(index)}
           title="この部門を削除"
@@ -3463,8 +3471,255 @@ useEffect(() => {
     </div>
   </div>
 
+  <div className="mt-2 flex flex-wrap gap-1.5">
+    <span className="inline-flex items-center rounded-full border border-zinc-500 bg-zinc-300 px-2 py-0.5 text-[10px] font-semibold text-zinc-900">STEP1 たたき台</span>
+    <span className="inline-flex items-center rounded-full border border-zinc-400 bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-700">STEP2 議論</span>
+    <span className="inline-flex items-center rounded-full border border-zinc-400 bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-700">STEP3 確認</span>
+    <span className="inline-flex items-center rounded-full border border-zinc-400 bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-700">STEP4 調整</span>
+  </div>
+
+  <div className={`mt-3 mb-2 w-full rounded-2xl border px-4 py-3 shadow-sm ${activeStep === 'step1' ? 'border-zinc-600 bg-zinc-300' : 'border-zinc-400 bg-zinc-200'}`}>
+    <div className="flex items-center justify-between gap-3">
+      <button
+        type="button"
+        className="min-w-0 flex-1 text-left"
+        onClick={() => setActiveStepByDept((prev) => ({ ...prev, [dept.name]: activeStep === 'step1' ? 'none' : 'step1' }))}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <div className="text-[11px] font-semibold text-zinc-900">STEP1 たたき台</div>
+            <div className="text-[11px] text-zinc-700 mt-0.5">生成結果をここでまとめて確認します。</div>
+          </div>
+          {activeStep === 'step1' ? <ChevronUp className="w-4 h-4 text-zinc-800 shrink-0" /> : <ChevronDown className="w-4 h-4 text-zinc-800 shrink-0" />}
+        </div>
+      </button>
+      <div className="flex items-center gap-2 shrink-0">
+        <span className="rounded-full border border-zinc-400 bg-white px-2 py-0.5 text-[10px] font-medium text-zinc-700">{step1Summary}</span>
+        <Button
+          variant="outline"
+          onClick={() => handleDeptCascadeDraft(index, 'draft')}
+          disabled={!editableDept || !!L.deptDraft || !!L.deptRegen || isHydrating}
+          className="rounded-full h-8 px-3 border-zinc-400 bg-white text-zinc-800 hover:bg-zinc-50"
+          title="この部門のたたき台を生成します"
+        >
+          <Sparkles className="w-4 h-4 mr-1" />
+          {L.deptDraft ? '生成中…' : 'たたき台を生成'}
+        </Button>
+      </div>
+    </div>
+  </div>
+
+
+
+{/* ================================================ */}
+{/* STEP1 たたき台 */}
+{/* ================================================ */}
+
+                {activeStep === 'step1' && (
+                <>
+                {/* 価値指標（STAGE2）の表示 */}
+                {valueDriverKPIs.length > 0 && (
+                  <div className="mb-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                    <div className="text-[11px] font-semibold text-zinc-700 mb-1">価値指標（STAGE2で設定）</div>
+                    <div className="flex flex-wrap gap-1">
+                      {valueDriverKPIs.map((kpi: any, i: number) => (
+                        <span
+                          key={i}
+                          className="inline-block px-2 py-0.5 rounded-full bg-blue-100 border border-blue-200 text-[10px] text-zinc-700"
+                        >
+                          {toDisplayText(kpi) || `指標${i + 1}`}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <p className="text-xs text-zinc-500 mb-3">
+                  生成内訳と主要案を重複なくまとめて確認できます。
+                </p>
+
+                {(deptMissionText || deptProjects.length > 0) && (
+                  <div className="mb-4 rounded-2xl border border-zinc-300 bg-zinc-50/80 px-4 py-3 shadow-sm">
+                    <div className="flex items-center justify-between gap-2 mb-3">
+                      <div className="text-xs font-semibold text-zinc-800">AIたたき台サマリー</div>
+                      <span className="text-[10px] text-zinc-500">生成結果の概要</span>
+                    </div>
+
+                    {(exCount > 0 || newCount > 0 || intraCollabCount > 0 || interCollabCount > 0) && (
+                      <div className="mb-3 flex flex-wrap gap-1.5">
+                        <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] text-zinc-700">既存 {exCount}</span>
+                        <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] text-zinc-700">新規 {newCount}</span>
+                        {intraCollabCount > 0 && <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] text-zinc-700">事業部内連携 {intraCollabCount}</span>}
+                        {interCollabCount > 0 && <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] text-zinc-700">事業部間連携 {interCollabCount}</span>}
+                      </div>
+                    )}
+
+                    {deptMissionText && (
+                      <div className="mb-3">
+                        <div className="text-[11px] font-semibold text-zinc-600 mb-1">ミッション案</div>
+                        <p className="text-sm text-zinc-800 whitespace-pre-wrap">{deptMissionText}</p>
+                      </div>
+                    )}
+
+                    {((dept as any).missionDescription ?? '').toString().trim() && (
+                      <div className="mb-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                        <div className="text-[11px] font-semibold text-zinc-700 mb-1">概要・仮説</div>
+                        <p className="text-xs text-zinc-700 whitespace-pre-wrap">{((dept as any).missionDescription ?? '').toString().trim()}</p>
+                      </div>
+                    )}
+
+                    {deptProjects.length > 0 && (
+                      <div className="mb-3">
+                        <div className="text-[11px] font-semibold text-zinc-600 mb-2">プロジェクト案・KPI案</div>
+                        <div className="space-y-2">
+                          {deptProjects.slice(0, 3).map((p, i) => {
+                            const displayTitle = stripDeptPrefix(((p.title ?? '').replace(/^\[AI#\d+\]\s*/i, '')), dept.name);
+                            const projectKpis = getProjectKpiLabels(p)
+                              .map((label) => toDisplayText(stripDeptPrefix(label, dept.name)).trim())
+                              .filter(Boolean)
+                              .slice(0, 4);
+                            return (
+                              <div key={`step1-preview-${dept.name}-${resolveProjectId(p, dept.name)}-${i}`} className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                                <div className="text-sm font-medium text-zinc-800">{displayTitle || `プロジェクト${i + 1}`}</div>
+                                {p.hypothesis && <p className="mt-1 text-[11px] text-zinc-600 whitespace-pre-wrap">仮説：{p.hypothesis}</p>}
+                                {projectKpis.length > 0 && (
+                                  <div className="mt-2 flex flex-wrap gap-1.5">
+                                    {projectKpis.map((label, ki) => (
+                                      <span key={`step1-kpi-${dept.name}-${resolveProjectId(p, dept.name)}-${ki}`} className="inline-flex items-center rounded-full border border-zinc-300 bg-zinc-50 px-2 py-0.5 text-[10px] text-zinc-700">
+                                        {label}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {deptProjects.length > 3 && (
+                          <div className="mt-1 text-[11px] text-zinc-500">ほか {deptProjects.length - 3} 件</div>
+                        )}
+                      </div>
+                    )}
+
+                    {(((dept as any).intraDeptCollab ?? []).length > 0 || ((dept as any).interDeptCollab ?? []).length > 0) && (
+                      <div className="mb-3 grid gap-3 md:grid-cols-2">
+                        {((dept as any).intraDeptCollab ?? []).length > 0 && (
+                          <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                            <div className="text-[11px] font-semibold text-zinc-700 mb-1">事業部内連携</div>
+                            <ul className="list-disc pl-4 space-y-1 text-xs text-zinc-700">
+                              {((dept as any).intraDeptCollab ?? []).map((item: string, i: number) => (
+                                <li key={`summary-intra-${dept.name}-${i}`}>{item}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {((dept as any).interDeptCollab ?? []).length > 0 && (
+                          <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                            <div className="text-[11px] font-semibold text-zinc-700 mb-1">事業部間連携</div>
+                            <ul className="list-disc pl-4 space-y-1 text-xs text-zinc-700">
+                              {((dept as any).interDeptCollab ?? []).map((item: string, i: number) => (
+                                <li key={`summary-inter-${dept.name}-${i}`}>{item}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+
+                  </div>
+                )}
+
+                </>
+                )}
+
+                {/* ★ 診断：render時点での reviewSummary 確認 */}
+                {(() => {
+                  console.log('[diag][stage3:reviewSummary:render]', {
+                    dept: dept.name,
+                    reviewSummary: dept.reviewSummary,
+                    correctedLen: dept.reviewSummary?.correctedItems?.length ?? 0,
+                    reconsiderationLen: dept.reviewSummary?.reconsiderationPoints?.length ?? 0,
+                    willDisplay: (dept.reviewSummary?.correctedItems?.length ?? 0) > 0 || (dept.reviewSummary?.reconsiderationPoints?.length ?? 0) > 0,
+                  });
+                  return null;
+                })()}
+
+                {/* ================================================ */}
+                {/* STEP2 戦略議論 */}
+                {/* ================================================ */}
+                <button
+                  type="button"
+                  className={`mt-5 mb-3 w-full rounded-2xl border px-3 py-3 shadow-sm text-left transition-colors ${activeStep === 'step2' ? 'border-zinc-600 bg-zinc-300' : 'border-zinc-400 bg-zinc-200'}`}
+                  onClick={() => setActiveStepByDept((prev) => ({ ...prev, [dept.name]: activeStep === 'step2' ? 'none' : 'step2' }))}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-[11px] font-semibold text-zinc-900">STEP2 戦略議論</div>
+                      <div className="text-[11px] text-zinc-700 mt-0.5">6つのテーマで議論し、回答がそろったら再生成します。</div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="rounded-full border border-zinc-300 bg-white px-2 py-0.5 text-[10px] font-medium text-zinc-700">{step2Summary}</span>
+                      {activeStep === 'step2' ? <ChevronUp className="w-4 h-4 text-zinc-800" /> : <ChevronDown className="w-4 h-4 text-zinc-800" />}
+                    </div>
+                  </div>
+                </button>
+
+                {activeStep === 'step2' && (
+                <div className="mt-3">
+                <DepartmentQuestionStepper
+                  departmentName={dept.name}
+                  mission={dept.strategy ?? dept.mission}
+                  projects={projTitles}
+                  okrs={[]}
+                  initialStep={1}
+                  initialAnswers={answers}
+                  onChange={({ answers: changedAnswers }) => {
+                    handleDeptQuestionChange(index, changedAnswers);
+                  }}
+                />
+
+
+{editableDept && allQuestionsAnswered && (
+  <div className="mt-3 flex justify-start">
+    <Button
+      variant="outline"
+      onClick={() => handleDeptCascadeDraft(index, 'regen')}
+      disabled={!editableDept || !!L.deptDraft || !!L.deptRegen || isHydrating}
+      className="rounded-full h-9 px-4"
+      title="6つの回答内容を反映して、ミッション・プロジェクト案・KPI案を再生成します"
+    >
+      <Sparkles className="w-4 h-4 mr-1" />
+      {L.deptRegen ? '回答を反映して再生成中…' : '回答を反映して再生成'}
+    </Button>
+  </div>
+)}
+                </div>
+                )}
+
+                {/* ================================================ */}
+                {/* STEP3 再生成結果の確認 */}
+                {/* ================================================ */}
+                <button
+                  type="button"
+                  className={`mt-5 mb-3 w-full rounded-2xl border px-3 py-3 shadow-sm text-left transition-colors ${activeStep === 'step3' ? 'border-zinc-600 bg-zinc-300' : 'border-zinc-400 bg-zinc-200'}`}
+                  onClick={() => setActiveStepByDept((prev) => ({ ...prev, [dept.name]: activeStep === 'step3' ? 'none' : 'step3' }))}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-[11px] font-semibold text-zinc-900">STEP3 再生成結果の確認</div>
+                      <div className="text-[11px] text-zinc-700 mt-0.5">ミッションや説明、要確認事項を見直して方向性を固めます。</div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="rounded-full border border-zinc-300 bg-white px-2 py-0.5 text-[10px] font-medium text-zinc-700">{step3Summary}</span>
+                      {activeStep === 'step3' ? <ChevronUp className="w-4 h-4 text-zinc-800" /> : <ChevronDown className="w-4 h-4 text-zinc-800" />}
+                    </div>
+                  </div>
+                </button>
+                {activeStep === 'step3' && (
+                <div className="mt-3">
   {/* ✅ ミッション */}
-  <div className="mt-4">
+  <div className="mt-1">
     <div className="text-[11px] font-semibold text-zinc-600 mb-1">ミッション</div>
     <textarea
       value={inlineDraft}
@@ -3529,183 +3784,61 @@ useEffect(() => {
         />
       );
     })()}
+
+
+  {/* ★ STAGE3拡張：修正済事項と再考ポイントを表示 */}
+  {(dept.reviewSummary?.correctedItems?.length ?? 0) > 0 || (dept.reviewSummary?.reconsiderationPoints?.length ?? 0) > 0 ? (
+    <div className="mt-4 space-y-3">
+      {(dept.reviewSummary?.correctedItems?.length ?? 0) > 0 && (
+        <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-3">
+          <div className="text-xs font-semibold text-zinc-900 mb-2">修正済事項</div>
+          <ul className="list-disc pl-5 space-y-1 text-xs text-zinc-700">
+            {dept.reviewSummary?.correctedItems?.map((item: string, i: number) => (
+              <li key={`corrected-${dept.name}-${i}`}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {(dept.reviewSummary?.reconsiderationPoints?.length ?? 0) > 0 && (
+        <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-3">
+          <div className="text-xs font-semibold text-zinc-900 mb-2">再考ポイント</div>
+          <ul className="list-disc pl-5 space-y-1 text-xs text-zinc-700">
+            {dept.reviewSummary?.reconsiderationPoints?.map((item: string, i: number) => (
+              <li key={`reconsideration-${dept.name}-${i}`}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  ) : null}
   </div>
 </div>
-
-                {/* 価値指標（STAGE2）の表示 */}
-                {valueDriverKPIs.length > 0 && (
-                  <div className="mb-3 rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2">
-                    <div className="text-[11px] font-semibold text-blue-700 mb-1">価値指標（STAGE2で設定）</div>
-                    <div className="flex flex-wrap gap-1">
-                      {valueDriverKPIs.map((kpi: any, i: number) => (
-                        <span
-                          key={i}
-                          className="inline-block px-2 py-0.5 rounded-full bg-blue-100 border border-blue-200 text-[10px] text-blue-700"
-                        >
-                          {toDisplayText(kpi) || `指標${i + 1}`}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
                 )}
 
-                <p className="text-xs text-zinc-500 mb-3">
-                  ※「AIでこの部門のたたき台」はミッション、プロジェクト、説明を生成します。生成後は、必要に応じてKPI（指標）を編集してください。
-                </p>
+                </div>
 
-                {laneOpen && (exCount > 0 || newCount > 0 || intraCollabCount > 0 || interCollabCount > 0) && (
-                  <div className="mb-4 rounded-2xl border bg-white/60 p-3">
-                    <div className="text-[11px] text-zinc-500 mb-2">
-                      参考：/api/generate-cascade の「既存進化（Existing）」「新規探索（New）」「事業部内連携」「事業部間連携」の内訳（保存データは統合済み）
+                {/* ================================================ */}
+                {/* STEP4 プロジェクト案とKPI案 */}
+                {/* ================================================ */}
+                <button
+                  type="button"
+                  className={`mt-5 mb-3 w-full rounded-2xl border px-3 py-3 shadow-sm text-left transition-colors ${activeStep === 'step4' ? 'border-zinc-600 bg-zinc-300' : 'border-zinc-400 bg-zinc-200'}`}
+                  onClick={() => setActiveStepByDept((prev) => ({ ...prev, [dept.name]: activeStep === 'step4' ? 'none' : 'step4' }))}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-[11px] font-semibold text-zinc-900">STEP4 プロジェクト案とKPI案</div>
+                      <div className="text-[11px] text-zinc-700 mt-0.5">最後に、実行案としてプロジェクトとKPIを調整します。</div>
                     </div>
-                    <div className="grid md:grid-cols-2 gap-3">
-                      <div className="rounded-xl border bg-white/70 p-3">
-                        <div className="text-xs font-semibold text-zinc-800 mb-1">既存進化（Existing）</div>
-                        {exCount > 0 ? (
-                          <ul className="list-disc pl-5 space-y-1 text-xs text-zinc-700">
-                            {(lane?.existing?.projects ?? []).map((p, i) => {
-                              // ★ 参考表示でも [AI#N] を除去
-                              const displayTitle = stripDeptPrefix((p?.title ?? '無題').toString().replace(/^\[AI#\d+\]\s*/i, ''), dept.name);
-                              return (
-                                <li key={`ex-${dept.name}-${i}`}>
-                                  {displayTitle}
-                                  {p?.mainLever ? (
-                                    <span className="ml-2 text-[10px] text-zinc-500">
-                                      [{String(p.mainLever)} / {String(p.horizon ?? '-')}]
-                                    </span>
-                                  ) : null}
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        ) : (
-                          <div className="text-xs text-zinc-500">（なし）</div>
-                        )}
-                      </div>
-
-                      <div className="rounded-xl border bg-white/70 p-3">
-                        <div className="text-xs font-semibold text-zinc-800 mb-1">新規探索（New）</div>
-                        {newCount > 0 ? (
-                          <ul className="list-disc pl-5 space-y-1 text-xs text-zinc-700">
-                            {(lane?.new?.projects ?? []).map((p, i) => {
-                              // ★ 参考表示でも [AI#N] を除去
-                              const displayTitle = stripDeptPrefix((p?.title ?? '無題').toString().replace(/^\[AI#\d+\]\s*/i, ''), dept.name);
-                              return (
-                                <li key={`new-${dept.name}-${i}`}>
-                                  {displayTitle}
-                                  {p?.mainLever ? (
-                                    <span className="ml-2 text-[10px] text-zinc-500">
-                                      [{String(p.mainLever)} / {String(p.horizon ?? '-')}]
-                                    </span>
-                                  ) : null}
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        ) : (
-                          <div className="text-xs text-zinc-500">（なし）</div>
-                        )}
-                      </div>
-
-                      <div className="rounded-xl border bg-amber-50/70 p-3">
-                        <div className="text-xs font-semibold text-amber-800 mb-1">事業部内連携</div>
-                        {intraCollabCount > 0 ? (
-                          <ul className="list-disc pl-5 space-y-1 text-xs text-amber-900">
-                            {((dept as any).intraDeptCollab ?? []).map((item: string, i: number) => (
-                              <li key={`intra-${dept.name}-${i}`}>{item}</li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <div className="text-xs text-zinc-500">（なし）</div>
-                        )}
-                      </div>
-
-                      <div className="rounded-xl border bg-orange-50/70 p-3 md:col-span-2">
-                        <div className="text-xs font-semibold text-orange-800 mb-1">事業部間連携</div>
-                        {interCollabCount > 0 ? (
-                          <ul className="list-disc pl-5 space-y-1 text-xs text-orange-900">
-                            {((dept as any).interDeptCollab ?? []).map((item: string, i: number) => (
-                              <li key={`inter-${dept.name}-${i}`}>{item}</li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <div className="text-xs text-zinc-500">（なし）</div>
-                        )}
-                      </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="rounded-full border border-zinc-300 bg-white px-2 py-0.5 text-[10px] font-medium text-zinc-700">{step4Summary}</span>
+                      {activeStep === 'step4' ? <ChevronUp className="w-4 h-4 text-zinc-800" /> : <ChevronDown className="w-4 h-4 text-zinc-800" />}
                     </div>
                   </div>
-                )}
+                </button>
 
-                {/* ★ 診断：render時点での reviewSummary 確認 */}
-                {(() => {
-                  console.log('[diag][stage3:reviewSummary:render]', {
-                    dept: dept.name,
-                    reviewSummary: dept.reviewSummary,
-                    correctedLen: dept.reviewSummary?.correctedItems?.length ?? 0,
-                    reconsiderationLen: dept.reviewSummary?.reconsiderationPoints?.length ?? 0,
-                    willDisplay: (dept.reviewSummary?.correctedItems?.length ?? 0) > 0 || (dept.reviewSummary?.reconsiderationPoints?.length ?? 0) > 0,
-                  });
-                  return null;
-                })()}
-
-                {/* ★ STAGE3拡張：修正済事項と再考ポイントを表示 */}
-                {(dept.reviewSummary?.correctedItems?.length ?? 0) > 0 || (dept.reviewSummary?.reconsiderationPoints?.length ?? 0) > 0 ? (
-                  <div className="mt-4 space-y-3">
-                    {/* 修正済事項 */}
-                    {(dept.reviewSummary?.correctedItems?.length ?? 0) > 0 && (
-                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                        <div className="text-xs font-semibold text-blue-900 mb-2">修正済事項</div>
-                        <ul className="list-disc pl-5 space-y-1 text-xs text-blue-800">
-                          {dept.reviewSummary?.correctedItems?.map((item: string, i: number) => (
-                            <li key={`corrected-${dept.name}-${i}`}>{item}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* 再考ポイント */}
-                    {(dept.reviewSummary?.reconsiderationPoints?.length ?? 0) > 0 && (
-                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                        <div className="text-xs font-semibold text-amber-900 mb-2">再考ポイント</div>
-                        <ul className="list-disc pl-5 space-y-1 text-xs text-amber-800">
-                          {dept.reviewSummary?.reconsiderationPoints?.map((item: string, i: number) => (
-                            <li key={`reconsideration-${dept.name}-${i}`}>{item}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                ) : null}
-
-                <DepartmentQuestionStepper
-                  departmentName={dept.name}
-                  mission={dept.strategy ?? dept.mission}
-                  projects={projTitles}
-                  okrs={[]}
-                  initialStep={1}
-                  initialAnswers={answers}
-                  onChange={({ answers: changedAnswers }) => {
-                    handleDeptQuestionChange(index, changedAnswers);
-                  }}
-                />
-
-
-{editableDept && allQuestionsAnswered && (
-  <div className="mt-3 flex justify-start">
-    <Button
-      variant="outline"
-      onClick={() => handleDeptCascadeDraft(index, 'regen')}
-      disabled={!editableDept || !!L.deptDraft || !!L.deptRegen || isHydrating}
-      className="rounded-full h-9 px-4"
-      title="6つの回答内容を反映して、ミッション・プロジェクト案・KPI案を再生成します"
-    >
-      <Sparkles className="w-4 h-4 mr-1" />
-      {L.deptRegen ? '回答を反映して再生成中…' : '回答を反映して再生成'}
-    </Button>
-  </div>
-)}
-
-                {deptProjects && deptProjects.length > 0 && (
+                {activeStep === 'step4' && deptProjects && deptProjects.length > 0 && (
                   <div className="mt-5 border-t pt-4">
                     
 
@@ -3747,7 +3880,7 @@ useEffect(() => {
                             }}
                             className={`flex flex-col gap-2 rounded-2xl border px-3 py-2 bg-white/70 transition-shadow ${
                               focusedProjectKey === `${dept.name}::${resolveProjectId(p, dept.name)}`
-                                ? 'ring-2 ring-amber-300 bg-amber-50/80 shadow-md'
+                                ? 'ring-2 ring-zinc-300 bg-zinc-50 shadow-md'
                                 : ''
                             }`}
                           >
@@ -4053,7 +4186,7 @@ useEffect(() => {
                                   })}
                                 </div>
                                 {(!p.valueDriverLinks || p.valueDriverLinks.length === 0) && (
-                                  <div className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-1">
+                                  <div className="text-[10px] text-zinc-600 bg-zinc-50 border border-zinc-200 rounded px-2 py-1 mt-1">
                                     ⚠️ 価値指標が未設定です。このプロジェクトがどの価値指標に効くかを選択してください。
                                   </div>
                                 )}
@@ -4066,6 +4199,8 @@ useEffect(() => {
                       })}
                     </ul>
                   </div>
+                )}
+                </div>
                 )}
               </div>
             );
