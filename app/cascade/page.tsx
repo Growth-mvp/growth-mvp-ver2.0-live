@@ -175,6 +175,12 @@ type ApiDeptDraft = {
   reviewSummary?: {
     correctedItems?: string[];
     reconsiderationPoints?: string[];
+    crossDeptInsights?: Array<{
+      severity?: 'critical' | 'warning' | 'review' | 'info';
+      category?: 'overlap' | 'contradiction' | 'collaboration';
+      relatedDepts?: string[];
+      message?: string;
+    }>;
   };
 };
 
@@ -258,6 +264,114 @@ const normalizeLever = (v: any): Lever | undefined => (LEVER_VALUES.includes(v a
 const normalizeHorizon = (v: any): Horizon | undefined =>
   HORIZON_VALUES.includes(v as Horizon) ? (v as Horizon) : undefined;
 const normalizeKind = (v: any): Kind | undefined => (KIND_VALUES.includes(v as Kind) ? (v as Kind) : undefined);
+
+
+type CrossDeptInsight = {
+  severity?: 'critical' | 'warning' | 'review' | 'info';
+  category?: 'overlap' | 'contradiction' | 'collaboration';
+  relatedDepts?: string[];
+  message?: string;
+};
+
+function getCrossDeptInsightsByCategory(dept: any) {
+  const raw = Array.isArray(dept?.reviewSummary?.crossDeptInsights)
+    ? (dept.reviewSummary.crossDeptInsights as CrossDeptInsight[])
+    : [];
+
+  const normalized = raw
+    .map((item) => ({
+      severity: item?.severity,
+      category: item?.category,
+      relatedDepts: Array.isArray(item?.relatedDepts) ? item.relatedDepts.filter(Boolean) : [],
+      message: (item?.message ?? '').toString().trim(),
+    }))
+    .filter((item) => item.message.length > 0);
+
+  const unique = normalized.filter((item, idx, arr) => {
+    const key = `${item.category ?? ''}::${item.relatedDepts.join('|')}::${item.message}`;
+    return idx === arr.findIndex((x) => `${x.category ?? ''}::${x.relatedDepts.join('|')}::${x.message}` === key);
+  });
+
+  return {
+    all: unique,
+    overlaps: unique.filter((item) => item.category === 'overlap'),
+    contradictions: unique.filter((item) => item.category === 'contradiction'),
+    collaborations: unique.filter((item) => item.category === 'collaboration'),
+  };
+}
+
+function renderCrossDeptInsightLabel(item: CrossDeptInsight) {
+  const related = Array.isArray(item.relatedDepts) && item.relatedDepts.length > 0
+    ? `関連部門: ${item.relatedDepts.join(' / ')}`
+    : '';
+
+  switch (item.severity) {
+    case 'critical':
+      return related ? `重要 / ${related}` : '重要';
+    case 'warning':
+      return related ? `注意 / ${related}` : '注意';
+    case 'review':
+      return related ? `要確認 / ${related}` : '要確認';
+    default:
+      return related ? `候補 / ${related}` : '候補';
+  }
+}
+
+
+function splitDeptReconsiderationPoints(points: string[]) {
+  const safePoints = Array.isArray(points) ? points.filter((p) => typeof p === 'string' && p.trim().length > 0) : [];
+
+  const portfolio = safePoints.filter((p) => /ポートフォリオ|維持方針|利益優先事業|高収益事業/.test(p));
+  const remaining = safePoints.filter((p) => !portfolio.includes(p));
+
+  return {
+    portfolio,
+    remaining,
+  };
+}
+
+
+function getUnifiedCollaborationCandidates(dept: any) {
+  const intra = Array.isArray(dept?.intraDeptCollab)
+    ? dept.intraDeptCollab.map((x: any) => String(x ?? '').trim()).filter(Boolean)
+    : [];
+  const inter = Array.isArray(dept?.interDeptCollab)
+    ? dept.interDeptCollab.map((x: any) => String(x ?? '').trim()).filter(Boolean)
+    : [];
+  const legacy = Array.isArray(dept?.needsCollab)
+    ? dept.needsCollab.map((x: any) => String(x ?? '').trim()).filter(Boolean)
+    : [];
+  const cross = getCrossDeptInsightsByCategory(dept).collaborations
+    .map((item) => item?.message?.toString().trim())
+    .filter((x): x is string => !!x);
+
+  const dedupe = (arr: string[]) => arr.filter((item, idx) => idx === arr.findIndex((x) => x === item));
+
+  return {
+    intra,
+    inter,
+    legacy,
+    cross,
+    all: dedupe([...intra, ...inter, ...legacy, ...cross]),
+  };
+}
+
+function renderInsightList(items: Array<{ message?: string; severity?: string; relatedDepts?: string[] }>, keyPrefix: string, emptyText: string) {
+  if (!items.length) {
+    return <p className="text-xs text-zinc-500">{emptyText}</p>;
+  }
+
+  return (
+    <ul className="space-y-2">
+      {items.map((item, i) => (
+        <li key={`${keyPrefix}-${i}`} className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700">
+          <div className="mb-1 text-[10px] font-medium text-zinc-500">{renderCrossDeptInsightLabel(item as CrossDeptInsight)}</div>
+          <div>{item.message}</div>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 
 /* =========================
@@ -3476,7 +3590,8 @@ useEffect(() => {
             const deptProjects = (dept.projects as Project[] | undefined) ?? [];
             const correctedCount = dept.reviewSummary?.correctedItems?.length ?? 0;
             const reconsiderationCount = dept.reviewSummary?.reconsiderationPoints?.length ?? 0;
-            const reviewCount = correctedCount + reconsiderationCount;
+            const crossDeptInsightCount = getCrossDeptInsightsByCategory(dept).all.length;
+            const reviewCount = correctedCount + reconsiderationCount + crossDeptInsightCount;
             const isDeptOpen = !!openDepartments[dept.name];
             const inferredMainStep: 'step1' | 'step2' | 'step3' | 'step4' =
               !deptMissionText && deptProjects.length === 0
@@ -3489,7 +3604,9 @@ useEffect(() => {
             const activeStep: 'step1' | 'step2' | 'step3' | 'step4' | 'none' = activeStepByDept[dept.name] ?? inferredMainStep;
             const step1Summary = deptMissionText ? 'たたき台あり' : '未生成';
             const step2Summary = `6テーマ ${answeredCount}/6`;
-            const step3Summary = deptMissionText ? '方向性を確認' : '再生成後に確認';
+            const step3Summary = reviewCount > 0
+              ? `要確認 ${reviewCount}件`
+              : (deptMissionText ? '方向性を確認' : '再生成後に確認');
             const step4Summary = `プロジェクト ${deptProjects.length}件`;
 
             // ★ TRACE POINT 17: render loop 内 - 各 department card の deptProjects 件数
@@ -3860,32 +3977,119 @@ useEffect(() => {
     })()}
 
 
-  {/* ★ STAGE3拡張：修正済事項と再考ポイントを表示 */}
-  {(dept.reviewSummary?.correctedItems?.length ?? 0) > 0 || (dept.reviewSummary?.reconsiderationPoints?.length ?? 0) > 0 ? (
-    <div className="mt-4 space-y-3">
-      {(dept.reviewSummary?.correctedItems?.length ?? 0) > 0 && (
-        <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-3">
-          <div className="text-xs font-semibold text-zinc-900 mb-2">修正済事項</div>
-          <ul className="list-disc pl-5 space-y-1 text-xs text-zinc-700">
-            {dept.reviewSummary?.correctedItems?.map((item: string, i: number) => (
-              <li key={`corrected-${dept.name}-${i}`}>{item}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+  {/* ★ STAGE3拡張：再考ポイントをカテゴリ別に明示表示 */}
+  {(() => {
+    const correctedItems = Array.isArray(dept.reviewSummary?.correctedItems) ? dept.reviewSummary.correctedItems : [];
+    const reconsiderationPoints = Array.isArray(dept.reviewSummary?.reconsiderationPoints) ? dept.reviewSummary.reconsiderationPoints : [];
+    const crossDept = getCrossDeptInsightsByCategory(dept);
+    const split = splitDeptReconsiderationPoints(reconsiderationPoints);
+    const hasReviewBlock = correctedItems.length > 0 || reconsiderationPoints.length > 0 || crossDept.all.length > 0;
 
-      {(dept.reviewSummary?.reconsiderationPoints?.length ?? 0) > 0 && (
-        <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-3">
-          <div className="text-xs font-semibold text-zinc-900 mb-2">再考ポイント</div>
-          <ul className="list-disc pl-5 space-y-1 text-xs text-zinc-700">
-            {dept.reviewSummary?.reconsiderationPoints?.map((item: string, i: number) => (
-              <li key={`reconsideration-${dept.name}-${i}`}>{item}</li>
-            ))}
-          </ul>
+    if (!hasReviewBlock) return null;
+
+    return (
+      <div className="mt-4 space-y-3">
+        {correctedItems.length > 0 && (
+          <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-3">
+            <div className="text-xs font-semibold text-zinc-900 mb-2">修正済事項</div>
+            <ul className="list-disc pl-5 space-y-1 text-xs text-zinc-700">
+              {correctedItems.map((item: string, i: number) => (
+                <li key={`corrected-${dept.name}-${i}`}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-3 space-y-4">
+          <div>
+            <div className="text-xs font-semibold text-zinc-900">再考ポイント</div>
+            <p className="mt-1 text-[11px] text-zinc-600">事業ポートフォリオとの整合、部門間の重複・矛盾・協力候補を確認できます。</p>
+          </div>
+
+          <div>
+            <div className="text-[11px] font-semibold text-zinc-700 mb-1">事業ポートフォリオとの整合</div>
+            {split.portfolio.length > 0 ? (
+              <ul className="list-disc pl-5 space-y-1 text-xs text-zinc-700">
+                {split.portfolio.map((item: string, i: number) => (
+                  <li key={`portfolio-${dept.name}-${i}`}>{item}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-zinc-500">現時点では大きな不整合は検出されていません。</p>
+            )}
+          </div>
+
+          <div>
+            <div className="text-[11px] font-semibold text-zinc-700 mb-1">重複・矛盾事項</div>
+            {renderInsightList(
+              [...crossDept.overlaps, ...crossDept.contradictions],
+              `cross-overlap-contradiction-${dept.name}`,
+              '現時点で明示的な重複・矛盾事項は検出されていません。'
+            )}
+          </div>
+
+          <div>
+            <div className="text-[11px] font-semibold text-zinc-700 mb-1">協力・連携候補</div>
+            {(() => {
+              const collab = getUnifiedCollaborationCandidates(dept);
+
+              if (collab.all.length === 0) {
+                return <p className="text-xs text-zinc-500">現時点で明示的な協力・連携候補は検出されていません。</p>;
+              }
+
+              return (
+                <div className="space-y-3">
+                  {collab.intra.length > 0 && (
+                    <div>
+                      <div className="mb-1 text-[10px] font-semibold text-zinc-500">事業部内連携</div>
+                      <ul className="list-disc pl-5 space-y-1 text-xs text-zinc-700">
+                        {collab.intra.map((item: string, i: number) => (
+                          <li key={`collab-intra-${dept.name}-${i}`}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {collab.inter.length > 0 && (
+                    <div>
+                      <div className="mb-1 text-[10px] font-semibold text-zinc-500">事業部間連携</div>
+                      <ul className="list-disc pl-5 space-y-1 text-xs text-zinc-700">
+                        {collab.inter.map((item: string, i: number) => (
+                          <li key={`collab-inter-${dept.name}-${i}`}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {collab.cross.length > 0 && (
+                    <div>
+                      <div className="mb-1 text-[10px] font-semibold text-zinc-500">横断分析での追加候補</div>
+                      <ul className="list-disc pl-5 space-y-1 text-xs text-zinc-700">
+                        {collab.cross.map((item, i) => (
+                          <li key={`collab-cross-${dept.name}-${i}`}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+
+          {split.remaining.length > 0 && (
+            <div>
+              <div className="text-[11px] font-semibold text-zinc-700 mb-1">その他の確認事項</div>
+              <ul className="list-disc pl-5 space-y-1 text-xs text-zinc-700">
+                {split.remaining.map((item: string, i: number) => (
+                  <li key={`other-reconsideration-${dept.name}-${i}`}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
-      )}
-    </div>
-  ) : null}
+      </div>
+    );
+  })()}
   </div>
 </div>
                 )}
