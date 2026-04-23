@@ -478,6 +478,28 @@ const stripDeptPrefixDeep = <T,>(input: T, deptName: string): T => {
   return walk(input) as T;
 };
 
+
+const normalizeProjectTitleForCompare = (text: string, deptName: string) =>
+  stripDeptPrefix(String(text ?? '').replace(/^\[AI#\d+\]\s*/i, ''), deptName)
+    .replace(/\s+/g, ' ')
+    .trim();
+
+function getProjectSourceLabel(project: { title?: string }, deptName: string, lane?: { existing?: ApiLane; new?: ApiLane }): string | null {
+  const target = normalizeProjectTitleForCompare(project?.title ?? '', deptName);
+  if (!target) return null;
+
+  const matchInLane = (projects?: Array<{ title?: string }>) =>
+    Array.isArray(projects) &&
+    projects.some((item) => normalizeProjectTitleForCompare(item?.title ?? '', deptName) === target);
+
+  const isExisting = matchInLane(lane?.existing?.projects as Array<{ title?: string }> | undefined);
+  const isNew = matchInLane(lane?.new?.projects as Array<{ title?: string }> | undefined);
+
+  if (isNew && !isExisting) return '新規探索';
+  if (isExisting) return '既存進化';
+  return null;
+}
+
 /* ==========================================
    KPI ラベル抽出ユーティリティ
 ========================================== */
@@ -552,6 +574,18 @@ const toDisplayText = (x: any): string => {
   // その他：文字列化
   return String(x ?? '');
 };
+
+const sanitizeDisplayText = (input?: string) =>
+  String(input ?? '')
+    .replace(/\s*[（(]?\s*(?:fact|seg|fact-seg|fact-cust|fact-prod|fact-mkt|fact-fin)(?:[-_a-z0-9]+)?\s*[）)]*\s*/gi, ' ')
+    .replace(/\s*\[[^\]]*DEBUG[^\]]*\]\s*/gi, ' ')
+    .replace(/\s*【[^】]*DEBUG[^】]*】\s*/gi, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+const toCleanDisplayText = (value: any, deptName = '') =>
+  sanitizeDisplayText(toDisplayText(stripDeptPrefix(String(value ?? ''), deptName)));
+
 
 /* ==========================================
    4章 + P/L グラフ用ユーティリティ
@@ -1625,11 +1659,11 @@ const VisualCard = memo(
                     </div>
                   )}
 
-                  {okr?.objective && <div className="mt-2 text-xs text-zinc-700">目標：{toDisplayText(stripDeptPrefix(okr.objective, d.name))}</div>}
+                  {okr?.objective && <div className="mt-2 text-xs text-zinc-700">目標：{toCleanDisplayText(okr.objective, d.name)}</div>}
                   {krs.length > 0 && (
                     <ul className="mt-1 pl-4 space-y-1 list-disc text-xs text-zinc-700">
                       {krs.slice(0, 3).map((kr, idx) => (
-                        <li key={idx}>{toDisplayText(stripDeptPrefix(kr, d.name))}</li>
+                        <li key={idx}>{toCleanDisplayText(kr, d.name)}</li>
                       ))}
                     </ul>
                   )}
@@ -3726,57 +3760,55 @@ useEffect(() => {
                 )}
 
                 <p className="text-xs text-zinc-500 mb-3">
-                  生成内訳と主要案を重複なくまとめて確認できます。
+                  主要な案をまとめて確認できます。
                 </p>
 
-                {(deptMissionText || deptProjects.length > 0) && (
-                  <div className="mb-4 rounded-2xl border border-zinc-300 bg-zinc-50/80 px-4 py-3 shadow-sm">
-                    <div className="flex items-center justify-between gap-2 mb-3">
-                      <div className="text-xs font-semibold text-zinc-800">AIたたき台サマリー</div>
-                      <span className="text-[10px] text-zinc-500">生成結果の概要</span>
+                {(deptMissionText || deptProjects.length > 0 || getUnifiedCollaborationCandidates(dept).all.length > 0) && (
+                  <div className="mb-5 rounded-3xl border border-zinc-300 bg-white px-5 py-4 shadow-sm">
+                    <div className="mb-4 flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-bold tracking-tight text-zinc-900">AIたたき台サマリー</div>
+                        <p className="mt-1 text-xs leading-5 text-zinc-500">生成されたミッション、プロジェクト案、連携候補をまとめて確認できます。</p>
+                      </div>
+                      <span className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-medium text-zinc-500">生成結果の概要</span>
                     </div>
 
-                    {(exCount > 0 || newCount > 0 || intraCollabCount > 0 || interCollabCount > 0) && (
-                      <div className="mb-3 flex flex-wrap gap-1.5">
-                        <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] text-zinc-700">既存 {exCount}</span>
-                        <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] text-zinc-700">新規 {newCount}</span>
-                        {intraCollabCount > 0 && <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] text-zinc-700">事業部内連携 {intraCollabCount}</span>}
-                        {interCollabCount > 0 && <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] text-zinc-700">事業部間連携 {interCollabCount}</span>}
-                      </div>
-                    )}
-
                     {deptMissionText && (
-                      <div className="mb-3">
-                        <div className="text-[11px] font-semibold text-zinc-600 mb-1">ミッション案</div>
-                        <p className="text-sm text-zinc-800 whitespace-pre-wrap">{deptMissionText}</p>
+                      <div className="mb-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                        <div className="mb-2 text-xs font-bold tracking-tight text-zinc-700">ミッション案</div>
+                        <p className="text-base font-semibold leading-7 text-zinc-900 whitespace-pre-wrap">{deptMissionText}</p>
                       </div>
                     )}
 
                     {((dept as any).missionDescription ?? '').toString().trim() && (
-                      <div className="mb-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                        <div className="text-[11px] font-semibold text-zinc-700 mb-1">概要・仮説</div>
-                        <p className="text-xs text-zinc-700 whitespace-pre-wrap">{((dept as any).missionDescription ?? '').toString().trim()}</p>
+                      <div className="mb-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                        <div className="mb-2 text-xs font-bold tracking-tight text-zinc-700">概要・仮説</div>
+                        <p className="text-sm leading-6 text-zinc-700 whitespace-pre-wrap">{sanitizeDisplayText(((dept as any).missionDescription ?? '').toString().trim())}</p>
                       </div>
                     )}
 
-                    {deptProjects.length > 0 && (
-                      <div className="mb-3">
-                        <div className="text-[11px] font-semibold text-zinc-600 mb-2">プロジェクト案・KPI案</div>
-                        <div className="space-y-2">
+                    {(deptProjects.length > 0 || getUnifiedCollaborationCandidates(dept).all.length > 0) && (
+                      <div className="mb-1">
+                        <div className="mb-3 text-xs font-bold tracking-tight text-zinc-700">プロジェクト案・KPI案</div>
+                        <div className="space-y-3">
                           {deptProjects.slice(0, 3).map((p, i) => {
                             const displayTitle = stripDeptPrefix(((p.title ?? '').replace(/^\[AI#\d+\]\s*/i, '')), dept.name);
+                            const projectSourceLabel = getProjectSourceLabel(p, dept.name, lane);
                             const projectKpis = getProjectKpiLabels(p)
-                              .map((label) => toDisplayText(stripDeptPrefix(label, dept.name)).trim())
+                              .map((label) => toCleanDisplayText(label, dept.name).trim())
                               .filter(Boolean)
                               .slice(0, 4);
                             return (
-                              <div key={`step1-preview-${dept.name}-${resolveProjectId(p, dept.name)}-${i}`} className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                                <div className="text-sm font-medium text-zinc-800">{displayTitle || `プロジェクト${i + 1}`}</div>
-                                {p.hypothesis && <p className="mt-1 text-[11px] text-zinc-600 whitespace-pre-wrap">仮説：{p.hypothesis}</p>}
+                              <div key={`step1-preview-${dept.name}-${resolveProjectId(p, dept.name)}-${i}`} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <div className="text-base font-semibold leading-6 text-zinc-900">{displayTitle || `プロジェクト${i + 1}`}</div>
+                                  {projectSourceLabel && <span className="text-sm font-semibold text-zinc-500">（{projectSourceLabel}）</span>}
+                                </div>
+                                {p.hypothesis && <p className="mt-2 text-sm leading-6 text-zinc-700 whitespace-pre-wrap"><span className="font-semibold text-zinc-800">仮説：</span>{sanitizeDisplayText(p.hypothesis)}</p>}
                                 {projectKpis.length > 0 && (
-                                  <div className="mt-2 flex flex-wrap gap-1.5">
+                                  <div className="mt-3 flex flex-wrap gap-2">
                                     {projectKpis.map((label, ki) => (
-                                      <span key={`step1-kpi-${dept.name}-${resolveProjectId(p, dept.name)}-${ki}`} className="inline-flex items-center rounded-full border border-zinc-300 bg-zinc-50 px-2 py-0.5 text-[10px] text-zinc-700">
+                                      <span key={`step1-kpi-${dept.name}-${resolveProjectId(p, dept.name)}-${ki}`} className="inline-flex items-center rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-700">
                                         {label}
                                       </span>
                                     ))}
@@ -3785,34 +3817,23 @@ useEffect(() => {
                               </div>
                             );
                           })}
+
+                          {getUnifiedCollaborationCandidates(dept).intra.map((item: string, i: number) => (
+                            <div key={`summary-intra-card-${dept.name}-${i}`} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                              <div className="text-base font-semibold leading-6 text-zinc-900">事業部内連携案</div>
+                              <p className="mt-2 text-sm leading-6 text-zinc-700 whitespace-pre-wrap"><span className="font-semibold text-zinc-800">連携内容：</span>{item}</p>
+                            </div>
+                          ))}
+
+                          {getUnifiedCollaborationCandidates(dept).inter.map((item: string, i: number) => (
+                            <div key={`summary-inter-card-${dept.name}-${i}`} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                              <div className="text-base font-semibold leading-6 text-zinc-900">事業部間連携案</div>
+                              <p className="mt-2 text-sm leading-6 text-zinc-700 whitespace-pre-wrap"><span className="font-semibold text-zinc-800">連携内容：</span>{item}</p>
+                            </div>
+                          ))}
                         </div>
                         {deptProjects.length > 3 && (
-                          <div className="mt-1 text-[11px] text-zinc-500">ほか {deptProjects.length - 3} 件</div>
-                        )}
-                      </div>
-                    )}
-
-                    {(((dept as any).intraDeptCollab ?? []).length > 0 || ((dept as any).interDeptCollab ?? []).length > 0) && (
-                      <div className="mb-3 grid gap-3 md:grid-cols-2">
-                        {((dept as any).intraDeptCollab ?? []).length > 0 && (
-                          <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                            <div className="text-[11px] font-semibold text-zinc-700 mb-1">事業部内連携</div>
-                            <ul className="list-disc pl-4 space-y-1 text-xs text-zinc-700">
-                              {((dept as any).intraDeptCollab ?? []).map((item: string, i: number) => (
-                                <li key={`summary-intra-${dept.name}-${i}`}>{item}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                        {((dept as any).interDeptCollab ?? []).length > 0 && (
-                          <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                            <div className="text-[11px] font-semibold text-zinc-700 mb-1">事業部間連携</div>
-                            <ul className="list-disc pl-4 space-y-1 text-xs text-zinc-700">
-                              {((dept as any).interDeptCollab ?? []).map((item: string, i: number) => (
-                                <li key={`summary-inter-${dept.name}-${i}`}>{item}</li>
-                              ))}
-                            </ul>
-                          </div>
+                          <div className="mt-2 text-xs text-zinc-500">ほか {deptProjects.length - 3} 件</div>
                         )}
                       </div>
                     )}
@@ -3911,7 +3932,7 @@ useEffect(() => {
                 <div className="mt-3">
   {/* ✅ ミッション */}
   <div className="mt-1">
-    <div className="text-[11px] font-semibold text-zinc-600 mb-1">ミッション</div>
+    <div className="text-xs font-bold tracking-tight text-zinc-700 mb-1.5">ミッション</div>
     <textarea
       value={inlineDraft}
       onChange={(e) => {
@@ -3926,7 +3947,7 @@ useEffect(() => {
           return list;
         });
       }}
-      className="w-full border rounded-xl p-2 text-sm"
+      className="w-full rounded-2xl border border-zinc-300 p-3 text-sm leading-6"
       readOnly={!editableDept || isHydrating}
       placeholder="この部門の役割やミッションのイメージを記入してください（AIたたき台の修正もここで行います）"
     />
@@ -3934,7 +3955,7 @@ useEffect(() => {
 
   {/* ✅ ミッション説明 */}
   <div className="mt-3">
-    <div className="text-[11px] font-semibold text-zinc-600 mb-1">ミッション説明</div>
+    <div className="text-xs font-bold tracking-tight text-zinc-700 mb-1.5">ミッション説明</div>
 
     {/* ★ CRITICAL: deptId ベースで store から最新の department を毎回取得 */}
     {(() => {
@@ -3969,7 +3990,7 @@ useEffect(() => {
               i === idx ? { ...d, missionDescription: v } : d
             ));
           }}
-          className="w-full border rounded-xl p-2 text-sm"
+          className="w-full rounded-2xl border border-zinc-300 p-3 text-sm leading-6"
           readOnly={!editableDept || isHydrating}
           placeholder="この部門のミッションを、背景・狙い・顧客価値の観点で補足してください"
         />
@@ -3990,9 +4011,9 @@ useEffect(() => {
     return (
       <div className="mt-4 space-y-3">
         {correctedItems.length > 0 && (
-          <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-3">
-            <div className="text-xs font-semibold text-zinc-900 mb-2">修正済事項</div>
-            <ul className="list-disc pl-5 space-y-1 text-xs text-zinc-700">
+          <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4">
+            <div className="text-sm font-bold tracking-tight text-zinc-900 mb-2">修正済事項</div>
+            <ul className="list-disc pl-5 space-y-1.5 text-sm leading-6 text-zinc-700">
               {correctedItems.map((item: string, i: number) => (
                 <li key={`corrected-${dept.name}-${i}`}>{item}</li>
               ))}
@@ -4000,16 +4021,16 @@ useEffect(() => {
           </div>
         )}
 
-        <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-3 space-y-4">
+        <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4 space-y-4">
           <div>
-            <div className="text-xs font-semibold text-zinc-900">再考ポイント</div>
-            <p className="mt-1 text-[11px] text-zinc-600">事業ポートフォリオとの整合、部門間の重複・矛盾・協力候補を確認できます。</p>
+            <div className="text-sm font-bold tracking-tight text-zinc-900">再考ポイント</div>
+            <p className="mt-1 text-sm leading-6 text-zinc-600">事業ポートフォリオとの整合、部門間の重複・矛盾・協力候補を確認できます。</p>
           </div>
 
           <div>
-            <div className="text-[11px] font-semibold text-zinc-700 mb-1">事業ポートフォリオとの整合</div>
+            <div className="text-xs font-bold tracking-tight text-zinc-700 mb-1.5">事業ポートフォリオとの整合</div>
             {split.portfolio.length > 0 ? (
-              <ul className="list-disc pl-5 space-y-1 text-xs text-zinc-700">
+              <ul className="list-disc pl-5 space-y-1.5 text-sm leading-6 text-zinc-700">
                 {split.portfolio.map((item: string, i: number) => (
                   <li key={`portfolio-${dept.name}-${i}`}>{item}</li>
                 ))}
@@ -4020,7 +4041,7 @@ useEffect(() => {
           </div>
 
           <div>
-            <div className="text-[11px] font-semibold text-zinc-700 mb-1">重複・矛盾事項</div>
+            <div className="text-xs font-bold tracking-tight text-zinc-700 mb-1.5">重複・矛盾事項</div>
             {renderInsightList(
               [...crossDept.overlaps, ...crossDept.contradictions],
               `cross-overlap-contradiction-${dept.name}`,
@@ -4029,7 +4050,7 @@ useEffect(() => {
           </div>
 
           <div>
-            <div className="text-[11px] font-semibold text-zinc-700 mb-1">協力・連携候補</div>
+            <div className="text-xs font-bold tracking-tight text-zinc-700 mb-1.5">協力・連携候補</div>
             {(() => {
               const collab = getUnifiedCollaborationCandidates(dept);
 
@@ -4041,8 +4062,8 @@ useEffect(() => {
                 <div className="space-y-3">
                   {collab.intra.length > 0 && (
                     <div>
-                      <div className="mb-1 text-[10px] font-semibold text-zinc-500">事業部内連携</div>
-                      <ul className="list-disc pl-5 space-y-1 text-xs text-zinc-700">
+                      <div className="mb-1.5 text-[11px] font-bold tracking-tight text-zinc-600">事業部内連携</div>
+                      <ul className="list-disc pl-5 space-y-1.5 text-sm leading-6 text-zinc-700">
                         {collab.intra.map((item: string, i: number) => (
                           <li key={`collab-intra-${dept.name}-${i}`}>{item}</li>
                         ))}
@@ -4052,8 +4073,8 @@ useEffect(() => {
 
                   {collab.inter.length > 0 && (
                     <div>
-                      <div className="mb-1 text-[10px] font-semibold text-zinc-500">事業部間連携</div>
-                      <ul className="list-disc pl-5 space-y-1 text-xs text-zinc-700">
+                      <div className="mb-1.5 text-[11px] font-bold tracking-tight text-zinc-600">事業部間連携</div>
+                      <ul className="list-disc pl-5 space-y-1.5 text-sm leading-6 text-zinc-700">
                         {collab.inter.map((item: string, i: number) => (
                           <li key={`collab-inter-${dept.name}-${i}`}>{item}</li>
                         ))}
@@ -4063,8 +4084,8 @@ useEffect(() => {
 
                   {collab.cross.length > 0 && (
                     <div>
-                      <div className="mb-1 text-[10px] font-semibold text-zinc-500">横断分析での追加候補</div>
-                      <ul className="list-disc pl-5 space-y-1 text-xs text-zinc-700">
+                      <div className="mb-1.5 text-[11px] font-bold tracking-tight text-zinc-600">横断分析での追加候補</div>
+                      <ul className="list-disc pl-5 space-y-1.5 text-sm leading-6 text-zinc-700">
                         {collab.cross.map((item, i) => (
                           <li key={`collab-cross-${dept.name}-${i}`}>{item}</li>
                         ))}
@@ -4079,7 +4100,7 @@ useEffect(() => {
           {split.remaining.length > 0 && (
             <div>
               <div className="text-[11px] font-semibold text-zinc-700 mb-1">その他の確認事項</div>
-              <ul className="list-disc pl-5 space-y-1 text-xs text-zinc-700">
+              <ul className="list-disc pl-5 space-y-1.5 text-sm leading-6 text-zinc-700">
                 {split.remaining.map((item: string, i: number) => (
                   <li key={`other-reconsideration-${dept.name}-${i}`}>{item}</li>
                 ))}
@@ -4228,7 +4249,7 @@ useEffect(() => {
                               <div className="text-[11px] text-zinc-500 mb-1">目標（実現したい状態）</div>
                               <input
                                 className="w-full text-xs text-zinc-800 bg-white border border-zinc-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-400"
-                                value={toDisplayText(stripDeptPrefix(primaryObjective, dept.name))}
+                                value={toCleanDisplayText(primaryObjective, dept.name)}
                                 placeholder="例）このプロジェクトにより、狙う成果が再現性をもって出る状態を確立する"
                                 readOnly={!editableDept || isHydrating}
                                 onChange={(e) => {
@@ -4339,16 +4360,13 @@ useEffect(() => {
                               {krs.length === 0 && (
                                 <p className="text-[11px] text-zinc-400">まだ指標案がありません。必要に応じて「指標を追加」から入力してください。</p>
                               )}
-                              {krs.length > 0 && (
-                                <p className="text-[10px] text-zinc-500 mb-1">【DEBUG】krs.length={krs.length}, okrsV2.length={p.okrsV2?.length ?? 0}</p>
-                              )}
 
                               {krs.map((kr, ki) => (
                                 <div key={ki} className="flex items-center gap-2">
                                   <span className="text-[11px] text-zinc-400 whitespace-nowrap">指標{ki + 1}</span>
                                   <input
                                     className="flex-1 text-xs text-zinc-800 bg-white border border-zinc-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-zinc-400"
-                                    value={toDisplayText(stripDeptPrefix(kr, dept.name))}
+                                    value={toCleanDisplayText(kr, dept.name)}
                                     placeholder="例）成功条件を合意し、実行設計を確定する／主要指標の計測手段を確立する 等"
                                     readOnly={!editableDept || isHydrating}
                                     onChange={(e) => {
