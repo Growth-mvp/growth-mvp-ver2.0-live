@@ -443,12 +443,12 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
 
 
   return (
-    <div className="w-full max-w-3xl mx-auto space-y-6">
+    <div className="w-full space-y-6">
       {/* Ver4 summary（任意表示） */}
       {(direction || expectations.length || focusThemes.length) && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50/60">
-          <div className="p-3 border-b border-amber-100 text-sm font-semibold text-amber-900">AIたたき台（方向性）</div>
-          <div className="p-3 space-y-2 text-sm text-amber-900">
+        <div className="rounded-2xl border border-gray-300 bg-white shadow-sm">
+          <div className="p-4 border-b border-gray-200 text-sm font-semibold tracking-[0.02em] text-gray-900">AIたたき台（方向性）</div>
+          <div className="p-4 space-y-3 text-sm leading-6 text-gray-700">
             {direction && <div><span className="font-medium">方向性：</span>{direction}</div>}
             {expectations.length > 0 && (
               <div>
@@ -473,11 +473,11 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       {/* ステップインジケータ（進捗バッジ付き） */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-medium text-gray-700">戦略議論のための6つのディスカッションテーマ（進捗：{answers.filter(a => a.answer?.trim()).length}/6）</div>
-          <div className="flex gap-1 text-xs text-gray-500">
-            <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span>入力済</span>
-            <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span>現在</span>
-            <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-300"></span>未入力</span>
+          <div className="text-sm font-semibold tracking-[0.02em] text-gray-900">戦略議論のための6つのディスカッションテーマ（進捗：{answers.filter(a => a.answer?.trim()).length}/6）</div>
+          <div className="flex gap-2 text-xs text-gray-600">
+            <span className="inline-flex items-center gap-1 rounded-full border border-gray-300 px-2 py-0.5 bg-white">完了</span>
+            <span className="inline-flex items-center gap-1 rounded-full border border-gray-900 px-2 py-0.5 bg-gray-900 text-white">現在</span>
+            <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 px-2 py-0.5 bg-gray-50">未入力</span>
           </div>
         </div>
         <div className="grid grid-cols-6 gap-2">
@@ -490,18 +490,18 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
                 key={sn}
                 onClick={() => setStep(sn)}
                 className={[
-                  'rounded-xl border px-3 py-2 text-xs font-medium transition-all',
+                  'rounded-xl border px-3 py-2 text-xs font-semibold tracking-[0.02em] transition-all',
                   active
-                    ? 'border-blue-500 bg-blue-50 shadow-sm scale-105'
+                    ? 'border-gray-900 bg-gray-900 text-white shadow-sm'
                     : done
-                      ? 'border-green-400 bg-green-50 hover:bg-green-100'
-                      : 'border-gray-200 bg-white hover:bg-gray-50',
+                      ? 'border-gray-500 bg-gray-100 text-gray-900 hover:bg-gray-200'
+                      : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50',
                 ].join(' ')}
                 title={`Q${sn}${done ? '（入力済）' : '（未入力）'}`}
               >
                 <div className="flex items-center justify-center gap-1">
                   Q{sn}
-                  {done && <span className="text-green-600">✓</span>}
+                  {done && <span className={active ? 'text-white' : 'text-gray-700'}>✓</span>}
                 </div>
               </button>
             );
@@ -510,9 +510,9 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       </div>
 
       {/* 質問カード */}
-      <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
-        <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-          <div className="text-sm font-medium">
+      <div className="rounded-2xl border border-gray-300 bg-white shadow-sm">
+        <div className="p-5 border-b border-gray-200 flex items-center justify-between">
+          <div className="text-sm font-semibold tracking-[0.02em] text-gray-900">
             {label ? `ステップ：${label}` : '次のテーマ'}
           </div>
           <div className="flex items-center gap-3">
@@ -520,9 +520,9 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
               <button
                 type="button"
                 onClick={() => setShowHint(v => !v)}
-                className="rounded-lg px-3 py-1.5 text-xs font-medium border bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                className="rounded-lg px-3 py-1.5 text-xs font-semibold border border-gray-300 bg-white text-gray-800 hover:bg-gray-100"
               >
-                💡 ヒントを見る
+                ヒントを見る
               </button>
             )}
 
@@ -533,10 +533,10 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
                   onClick={() => { setShouldFetchQuestion(true); setErrorMsg(''); }}
                   disabled={loading || isCompletedAll6}
                   className={[
-                    'rounded-lg px-3 py-1.5 text-xs font-medium border',
+                    'rounded-lg px-3 py-1.5 text-xs font-semibold border',
                     (loading || isCompletedAll6)
                       ? 'bg-gray-100 text-gray-400 border-gray-200'
-                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
+                      : 'bg-gray-900 text-white border-gray-900 hover:bg-black',
                   ].join(' ')}
                   title={isCompletedAll6 ? '6テーマすべて入力済みです' : 'このステップのテーマを生成します'}
                 >
@@ -565,21 +565,21 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
             {loading && <div className="text-xs text-gray-500">生成中…</div>}
           </div>
         </div>
-        <div className="p-4 space-y-3">
+        <div className="p-5 space-y-4">
           {errorMsg ? (
             <div className="text-sm text-red-600">{errorMsg}</div>
           ) : (
             <>
-              <p className="text-base leading-relaxed">
+              <p className="text-[17px] font-semibold leading-8 text-gray-900">
                 {question
                   ? question
                   : canEdit
                     ? 'まだテーマは生成されていません。「テーマを生成」を押してください。'
                     : '（閲覧モード：新しいテーマの生成は無効です）'}
               </p>
-              {reason && <p className="text-sm text-gray-500">狙い：{reason}</p>}
+              {reason && <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3"><div className="text-xs font-semibold tracking-[0.04em] text-gray-500">狙い</div><p className="mt-1 text-sm leading-7 text-gray-700">{reason}</p></div>}
               {showHint && hint && (
-                <div className="text-sm text-blue-800 bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <div className="text-sm text-gray-800 bg-gray-50 border border-gray-200 rounded-xl p-4 leading-7">
                   {hint}
                 </div>
               )}
@@ -590,9 +590,9 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
 
       {/* 内容欄 */}
       <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-700">ディスカッションの内容</label>
+        <label className="text-sm font-semibold tracking-[0.02em] text-gray-900">ディスカッションの内容</label>
         <textarea
-          className="w-full min-h-[140px] rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 p-3 disabled:bg-gray-50"
+          className="w-full min-h-[160px] rounded-2xl border border-gray-300 bg-white px-4 py-3 text-[15px] leading-7 text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:bg-gray-50"
           placeholder="考えを具体的に書いてください。数値や期限、役割、連携相手などを明記すると次のテーマが鋭くなります。"
           value={answerText}
           onChange={(e) => setAnswerText(e.target.value)}
@@ -600,7 +600,7 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
           title={canEdit ? '' : '閲覧モード（管理者のみ編集可）'}
         />
         <div className="flex items-center justify-between">
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-gray-500 leading-5">
             {previousAnswer ? '直前の内容を踏まえてテーマ設定されています。' : '最初のテーマです。'}
           </span>
           <button
@@ -608,10 +608,10 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
             onClick={onClickNext}
             disabled={!(answerText || '').trim() || loading || !canEdit}
             className={[
-              'rounded-xl px-4 py-2 text-sm font-medium',
+              'rounded-xl px-4 py-2.5 text-sm font-semibold tracking-[0.02em]',
               (!(answerText || '').trim() || loading || !canEdit)
                 ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                : 'bg-blue-600 text-white hover:bg-blue-700',
+                : 'bg-gray-900 text-white hover:bg-black',
             ].join(' ')}
             title={canEdit ? (isLastStep ? '内容を保存して完了にします' : '次のテーマへ') : '閲覧モード（管理者のみ編集可）'}
           >
@@ -621,15 +621,15 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       </div>
 
       {/* 既出Q/Aの簡易ログ */}
-      <div className="rounded-2xl border border-gray-200 bg-white">
-        <div className="p-3 border-b border-gray-100 text-sm font-medium">これまでの議論の内容（この部門）</div>
+      <div className="rounded-2xl border border-gray-300 bg-white">
+        <div className="p-4 border-b border-gray-200 text-sm font-semibold tracking-[0.02em] text-gray-900">これまでの議論の内容（この部門）</div>
         <div className="divide-y">
           {answers.length === 0 && <div className="p-3 text-sm text-gray-500">まだありません</div>}
           {answers.map((a) => (
-            <div key={a.stepNumber} className="p-3 text-sm space-y-1">
-              <div className="text-gray-500">Step {a.stepNumber}{a.label ? `（${a.label}）` : ''}</div>
-              <div className="font-medium">Q: {a.question}</div>
-              <div className="text-gray-700 whitespace-pre-wrap">A: {a.answer || '（未入力）'}</div>
+            <div key={a.stepNumber} className="p-4 text-sm space-y-2">
+              <div className="text-xs font-semibold tracking-[0.04em] text-gray-500">Step {a.stepNumber}{a.label ? `（${a.label}）` : ''}</div>
+              <div className="text-sm font-semibold leading-6 text-gray-900">Q: {a.question}</div>
+              <div className="text-sm leading-7 text-gray-700 whitespace-pre-wrap">A: {a.answer || '（未入力）'}</div>
             </div>
           ))}
         </div>
