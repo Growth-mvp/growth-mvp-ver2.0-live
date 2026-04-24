@@ -3029,6 +3029,17 @@ useEffect(() => {
         return;
       }
 
+      // ★ 調査ログ③：フロント受信直後の missionDescription 確認
+      {
+        if (data?.departments && Array.isArray(data.departments)) {
+          console.log('[STAGE3][client received departments]', data.departments.map((d: any) => ({
+            name: d?.name,
+            missionDraft: d?.missionDraft?.substring(0, 60),
+            missionDescription: d?.missionDescription?.substring(0, 60),
+          })));
+        }
+      }
+
       // ★ TRACE POINT 2: API success
       console.log('[diag][stage3:regen:api-success]', {
         deptName: dept.name,
@@ -3096,6 +3107,15 @@ useEffect(() => {
           timestamp: new Date().toISOString(),
           totalDepartments: Array.isArray(beforePushDepts) ? beforePushDepts.length : 0,
           totalProjects: beforePushProjCount,
+        });
+      }
+
+      // ★ 調査ログ④：保存直前の cleanedRd missionDescription 確認
+      {
+        console.log('[STAGE3][before store] cleanedRd missionDescription', {
+          deptName: cleanedRd?.name,
+          missionDraft: cleanedRd?.missionDraft?.substring(0, 60),
+          missionDescription: cleanedRd?.missionDescription?.substring(0, 60),
         });
       }
 
@@ -3588,6 +3608,17 @@ useEffect(() => {
                 (d?.reviewSummary?.reconsiderationPoints?.length ?? 0) > 0,
             }));
             console.log('[diag][stage3:reviewSummary:render-summary-table]', summary);
+            return null;
+          })()}
+
+          {/* ★ 調査ログ⑤：render時点での全部門 missionDescription */}
+          {(() => {
+            const missionDescSummary = (departments ?? []).map((d: any) => ({
+              dept: d?.name,
+              missionDraft: d?.mission?.substring(0, 60),
+              missionDescription: d?.missionDescription?.substring(0, 60),
+            }));
+            console.log('[STAGE3][render-time] all departments missionDescription', missionDescSummary);
             return null;
           })()}
 
