@@ -3703,6 +3703,17 @@ ${
       });
     }
 
+    // ★ 調査ログ①：API生成直後の missionDescription 確認
+    {
+      if (parsed?.departments && Array.isArray(parsed.departments)) {
+        console.log('[STAGE3][API generated departments]', parsed.departments.map((d: any) => ({
+          name: d?.name,
+          missionDraft: d?.missionDraft?.substring(0, 60),
+          missionDescription: d?.missionDescription?.substring(0, 60),
+        })));
+      }
+    }
+
     // [STAGE3_ABNORMAL_MONEY] ログ：異常値検出の詳細
     {
       const abnormalList = [];
@@ -5156,6 +5167,17 @@ ${secondPassDeptBlock}
             .filter(Boolean)
         : [],
     };
+
+    // ★ 調査ログ②：返却直前の missionDescription 確認（フォールバック処理後）
+    {
+      if (Array.isArray(result?.departments)) {
+        console.log('[STAGE3][API before return]', result.departments.map((d: any) => ({
+          name: d?.name,
+          missionDraft: d?.missionDraft?.substring(0, 60),
+          missionDescription: d?.missionDescription?.substring(0, 60),
+        })));
+      }
+    }
 
     // ★ TASK 4-1: 返却直前ログ（LLMのKRが潰れていないか確認）
     if (Array.isArray(result?.departments)) {
