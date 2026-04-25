@@ -1,4 +1,5 @@
 // /app/api/generate-cascade/route.ts
+// fix9: A案維持。固定補完を抑え、旧形式d.projectsから新規探索・仮説説明を復元
 import 'server-only';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,8 +19,10 @@ import type { PortfolioSignals, StorySignals, DiscussionSignals, GeneratedSignal
 const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
 
 /* =========================
- * スキーマ（AI応答の検証用：後方互換＋2レーン拡張）
+ * スキーマ（AI応答の検証用：後方互換＋4レーン拡張）
  * ======================= */
+
+type CascadeLaneType = 'existing' | 'new' | 'intraCollab' | 'interCollab';
 
 // プロジェクト：仮説＋レバー×時間軸＋STAGE3拡張＋AI管理メタ
 const ProjectSchema = z.object({
@@ -29,6 +32,11 @@ const ProjectSchema = z.object({
   mainLever: z.enum(['ACQ', 'ARPU', 'CHURN', 'COST', 'EFFICIENCY', 'FUTURE']).optional(),
   horizon: z.enum(['short', 'mid', 'long']).optional(),
   kind: z.enum(['growth', 'cost', 'efficiency', 'future']).optional(),
+
+  // ★STAGE3拡張：STEP4の生成分類（既存進化/新規探索/事業部内連携/事業部間連携）
+  sourceType: z.enum(['existing', 'new', 'intraCollab', 'interCollab']).optional(),
+  collaborationType: z.enum(['intraDept', 'interDept']).optional(),
+  partnerDepartment: z.string().optional(),
 
   // ★TASK 2-1: FACTPACK引用の記録（fact-seg-*, fact-cust-*, fact-fin-* ID を列挙）
   citations: z.array(z.string()).optional().default([]),
@@ -85,12 +93,12 @@ const ProjectSchema = z.object({
 
   // ★AI生成管理用メタデータ
   generatedBy: z.enum(['ai', 'user']).optional(),
-  generatedSlot: z.number().int().min(1).max(3).optional(),
+  generatedSlot: z.number().int().min(1).max(5).optional(),
   generatedGroup: z.string().optional(),
   generatedAt: z.string().optional(),
 });
 
-// レーン（existing / new）
+// レーン（existing / new / intraCollab / interCollab）
 const LaneSchema = z.object({
   projects: z.array(ProjectSchema).default([]),
 });
@@ -104,11 +112,13 @@ const DepartmentSchema = z.object({
   // 旧：部門配下のフラットな projects（既存進化レーン扱い）
   projects: z.array(ProjectSchema).default([]),
 
-  // 新：2レーン
+  // 新：4レーン
   lanes: z
     .object({
       existing: LaneSchema.optional(),
       new: LaneSchema.optional(),
+      intraCollab: LaneSchema.optional(),
+      interCollab: LaneSchema.optional(),
     })
     .optional(),
 
@@ -548,7 +558,7 @@ type ProjectType =
 function classifyProjectType(
   projectTitle: string,
   deptName?: string,
-  laneType?: 'existing' | 'new'
+  laneType?: CascadeLaneType
 ): ProjectType {
   const titleLower = projectTitle.toLowerCase();
   const deptLower = (deptName ?? '').toLowerCase();
@@ -774,7 +784,7 @@ async function generateKeyResultsByLLM(
     mainLever?: string;
     kind?: string;
     objective?: string;
-    laneType?: 'existing' | 'new';
+    laneType?: CascadeLaneType;
     projectType?: ProjectType;
     attempt?: number;
     // ★ STAGE3: TASK 4-1 新規パラメータ
@@ -945,7 +955,7 @@ async function ensureKeyResults(
   okr: any,
   projectTitle: string,
   deptName?: string,
-  laneType?: 'existing' | 'new'
+  laneType?: CascadeLaneType
 ): Promise<any> {
   // Step 1: raw candidates を広く拾う
   const rawKrs =
@@ -1132,7 +1142,7 @@ async function ensureKeyResults(
 function deriveKrsByContext(
   projectTitle: string,
   deptMission?: string,
-  laneType?: 'existing' | 'new',
+  laneType?: CascadeLaneType,
   projectTags?: string[],
   variant: 0 | 1 | 2 = 0  // ★ variant: 0=第一候補, 1=第二候補, 2=第三候補
 ): { krs: string[]; sourceDetail: string } {
@@ -1406,7 +1416,7 @@ function deriveKrsByContext(
  * - 両方ない場合も空の okrs を入れる（UI側が「未生成」と判定可能に）
  * - ★ keyResults が空の場合は最低3件を保証する（deriveKrsByContext で差別化）
  */
-async function ensureOkrs(project: any, laneType?: 'existing' | 'new', deptName?: string): Promise<any> {
+async function ensureOkrs(project: any, laneType?: CascadeLaneType, deptName?: string): Promise<any> {
   if (!project) return project;
 
   const projectTitle = String(project?.title ?? project?.name ?? 'プロジェクト').trim();
@@ -1551,7 +1561,7 @@ async function ensureOkrsForAllDepts(depts: any[]): Promise<any[]> {
       const usedKrSet = new Set<string>();
 
       // ★ ヘルパー: KR のリストから重複を回避した新しいリストを生成
-      const deduplicateAndReplaceKrs = (krs: any[], projectTitle: string, laneType?: 'existing' | 'new'): any[] => {
+      const deduplicateAndReplaceKrs = (krs: any[], projectTitle: string, laneType?: CascadeLaneType): any[] => {
         // usedKrSet に対してチェック
         const uniqueLabels = new Set<string>();
         const finalKrs: any[] = [];
@@ -1627,6 +1637,30 @@ async function ensureOkrsForAllDepts(depts: any[]): Promise<any[]> {
               );
             }
             return processed;
+          })
+        );
+      }
+
+      // lanes.intraCollab / lanes.interCollab.projects（STEP1連携候補をSTEP4の連携型プロジェクトへ昇格）
+      for (const laneType of ['intraCollab', 'interCollab'] as const) {
+        const projects = dept?.lanes?.[laneType]?.projects;
+        if (!Array.isArray(projects)) continue;
+
+        dept.lanes[laneType].projects = await Promise.all(
+          projects.map(async (p: any) => {
+            const processed = await ensureOkrs(p, laneType, deptName);
+            if (Array.isArray(processed?.okrs?.[0]?.keyResults)) {
+              processed.okrs[0].keyResults = deduplicateAndReplaceKrs(
+                processed.okrs[0].keyResults,
+                p?.title,
+                laneType
+              );
+            }
+            return {
+              ...processed,
+              sourceType: laneType,
+              collaborationType: laneType === 'intraCollab' ? 'intraDept' : 'interDept',
+            };
           })
         );
       }
@@ -2214,6 +2248,17 @@ type NormProject = {
   mainLever?: 'ACQ' | 'ARPU' | 'CHURN' | 'COST' | 'EFFICIENCY' | 'FUTURE';
   horizon?: 'short' | 'mid' | 'long';
   kind?: 'growth' | 'cost' | 'efficiency' | 'future';
+  sourceType?: CascadeLaneType;
+  collaborationType?: 'intraDept' | 'interDept';
+  partnerDepartment?: string;
+  generatedBy?: 'ai' | 'user';
+  generatedSlot?: number;
+  generatedGroup?: string;
+  citations?: string[];
+  valueDriverLinks?: string[];
+  skillRequirements?: any;
+  humanInvestments?: any[];
+  okrs?: any[];
 };
 
 function normalizeProjects(raw: any): NormProject[] {
@@ -2227,7 +2272,15 @@ function normalizeProjects(raw: any): NormProject[] {
     .map((p: any) => {
       const title = p.title.trim();
       const reason = typeof p?.reason === 'string' ? p.reason.trim() : '';
-      const hypothesis = typeof p?.hypothesis === 'string' ? p.hypothesis.trim() : '';
+      // ★fix9: AIが返した説明文を最大限尊重する。
+      // hypothesis が空でも、AI由来の reason / description / detail があれば仮説説明として復元する。
+      // 固定文の補完はここでは行わない。
+      const hypothesis =
+        (typeof p?.hypothesis === 'string' && p.hypothesis.trim()) ||
+        (typeof p?.description === 'string' && p.description.trim()) ||
+        (typeof p?.detail === 'string' && p.detail.trim()) ||
+        reason ||
+        '';
 
       const mainLeverRaw = typeof p?.mainLever === 'string' ? p.mainLever.trim().toUpperCase() : '';
       const mainLever = allowedLevers.includes(mainLeverRaw as any) ? (mainLeverRaw as NormProject['mainLever']) : undefined;
@@ -2238,7 +2291,29 @@ function normalizeProjects(raw: any): NormProject[] {
       const kindRaw = typeof p?.kind === 'string' ? p.kind.trim().toLowerCase() : '';
       const kind = allowedKinds.includes(kindRaw as any) ? (kindRaw as NormProject['kind']) : undefined;
 
-      return { title, reason, hypothesis, mainLever, horizon, kind };
+      const sourceType = ['existing', 'new', 'intraCollab', 'interCollab'].includes(String(p?.sourceType ?? '')) ? p.sourceType as CascadeLaneType : undefined;
+      const collaborationType = ['intraDept', 'interDept'].includes(String(p?.collaborationType ?? '')) ? p.collaborationType as 'intraDept' | 'interDept' : undefined;
+      const partnerDepartment = typeof p?.partnerDepartment === 'string' ? p.partnerDepartment.trim() : undefined;
+
+      return {
+        title,
+        reason,
+        hypothesis,
+        mainLever,
+        horizon,
+        kind,
+        sourceType,
+        collaborationType,
+        partnerDepartment,
+        generatedBy: p?.generatedBy,
+        generatedSlot: p?.generatedSlot,
+        generatedGroup: p?.generatedGroup,
+        citations: Array.isArray(p?.citations) ? p.citations : undefined,
+        valueDriverLinks: Array.isArray(p?.valueDriverLinks) ? p.valueDriverLinks : undefined,
+        skillRequirements: p?.skillRequirements,
+        humanInvestments: Array.isArray(p?.humanInvestments) ? p.humanInvestments : undefined,
+        okrs: Array.isArray(p?.okrs) ? p.okrs : undefined,
+      };
     });
 }
 
@@ -3600,6 +3675,55 @@ ${
               ]
             }
           ]
+        },
+        "intraCollab": {
+          "projects": [
+            {
+              "title": "事業部内連携プロジェクト名（例：営業×技術による重点顧客課題の共同分析）",
+              "reason": "事業部内の機能連携が必要な理由（引用あり）",
+              "hypothesis": "営業・技術・開発などが役割分担して動けば、顧客価値・提案精度・実行速度が高まるという仮説（引用あり）",
+              "mainLever": "ACQ",
+              "horizon": "short",
+              "kind": "growth",
+              "sourceType": "intraCollab",
+              "collaborationType": "intraDept",
+              "generatedBy": "ai",
+              "generatedSlot": 4,
+              "generatedGroup": "cascade_v1",
+              "citations": ["fact-cust-1", "fact-fin-2"],
+              "valueDriverLinks": ["kpi_id_1"],
+              "skillRequirements": { "roleSkills": ["営業", "技術"], "executionSkills": ["共同ヒアリング", "提案設計"] },
+              "humanInvestments": [
+                { "category": "TOOLS_PROCESS", "title": "共同案件レビュー会", "detail": "営業と技術が重点案件を定例でレビューする" },
+                { "category": "TRAINING_OJT", "title": "技術提案OJT", "detail": "顧客課題を技術仕様に翻訳する実践訓練" }
+              ]
+            }
+          ]
+        },
+        "interCollab": {
+          "projects": [
+            {
+              "title": "事業部間連携プロジェクト名（例：A事業部×B事業部による共同開発テーマの検証）",
+              "reason": "事業部間で連携すべき理由（引用あり）",
+              "hypothesis": "別事業部の顧客・技術・販路を組み合わせれば、単独部門では作れない成長機会を検証できるという仮説（引用あり）",
+              "mainLever": "FUTURE",
+              "horizon": "mid",
+              "kind": "future",
+              "sourceType": "interCollab",
+              "collaborationType": "interDept",
+              "partnerDepartment": "連携先部門名",
+              "generatedBy": "ai",
+              "generatedSlot": 5,
+              "generatedGroup": "cascade_v1",
+              "citations": ["fact-cust-1", "fact-fin-2"],
+              "valueDriverLinks": ["kpi_id_1"],
+              "skillRequirements": { "roleSkills": ["事業開発", "技術"], "executionSkills": ["共同企画", "仮説検証"] },
+              "humanInvestments": [
+                { "category": "ALLOCATION", "title": "共同PJ担当アサイン", "detail": "両事業部から担当者を任命する" },
+                { "category": "EXTERNAL", "title": "共同検証パートナー探索", "detail": "市場検証に必要な外部協力先を探索する" }
+              ]
+            }
+          ]
         }
       },
       "needsCollab": ["誰と何をするかを具体化して記載（例：営業×マーケ：重点顧客の失注案件について、営業が失注理由を整理し、マーケが業界別訴求を再設計して、提案受注率の改善につなげる）"],
@@ -3616,11 +3740,13 @@ ${
 - missionDraft と missionDescription は必ず両方を含めること（空・null 禁止）。
 - lanes.existing は必ず2個のプロジェクトを出す（OK: 2個、NG: 1個・3個以上）。
 - lanes.new は必ず1個のプロジェクトを出す（OK: 1個、NG: 0個・2個以上）。
+- lanes.intraCollab は、事業部内連携が有効な場合は必ず1個の連携型プロジェクトを出す。該当が薄い場合でも候補を1個出し、sourceType="intraCollab"、collaborationType="intraDept" を付ける。
+- lanes.interCollab は、事業部間連携が有効な場合は必ず1個の連携型プロジェクトを出す。該当が薄い場合でも候補を1個出し、sourceType="interCollab"、collaborationType="interDept"、可能なら partnerDepartment を付ける。
 - ★TASK 2 引用必須：
   - 各プロジェクトに citations フィールドを必ず含める（最低2個の anchor ID）。
   - reason と hypothesis に「」で括られた anchor 引用を最低2つ含めること。
   - 引用しない場合は生成失敗（再生成対象）。
-- 各プロジェクトに generatedBy="ai"、generatedSlot (1/2/3)、generatedGroup="cascade_v1" を必ず含める。
+- 各プロジェクトに generatedBy="ai"、generatedSlot (既存進化=1/2、新規探索=3、事業部内連携=4、事業部間連携=5)、generatedGroup="cascade_v1" を必ず含める。
 - financeSummary / businessPortfolio とかけ離れた非現実（売上10倍等）は避ける。
 - ★全プロジェクトに valueDriverLinks、skillRequirements、humanInvestments、citations を必ず含める（空は不可）。
 - valueDriverLinks は valueDriverKPIs の id から選ぶこと（自由記述禁止）。
@@ -3832,7 +3958,7 @@ ${
       const failedProjects: Array<{
         deptIndex: number;
         deptName: string;
-        laneType: 'existing' | 'new';
+        laneType: CascadeLaneType;
         projectIndex: number;
         slot: number;
         project: any;
@@ -4080,12 +4206,12 @@ ${JSON.stringify(failed.project, null, 2)}
       const conflicts: Array<{
         deptAIdx: number;
         deptAName: string;
-        laneTypeA: 'existing' | 'new';
+        laneTypeA: CascadeLaneType;
         slotA: number;
         projA: any;
         deptBIdx: number;
         deptBName: string;
-        laneTypeB: 'existing' | 'new';
+        laneTypeB: CascadeLaneType;
         slotB: number;
         projB: any;
         score: number;
@@ -4100,7 +4226,7 @@ ${JSON.stringify(failed.project, null, 2)}
           const deptBName = deptB?.name ?? '';
 
           // deptA の projects
-          const projectsA: Array<{ laneType: 'existing' | 'new'; slot: number; proj: any }> = [];
+          const projectsA: Array<{ laneType: CascadeLaneType; slot: number; proj: any }> = [];
           if (deptA?.lanes?.existing?.projects) {
             deptA.lanes.existing.projects.forEach((p: any, idx: number) => {
               projectsA.push({ laneType: 'existing', slot: idx + 1, proj: p });
@@ -4113,7 +4239,7 @@ ${JSON.stringify(failed.project, null, 2)}
           }
 
           // deptB の projects
-          const projectsB: Array<{ laneType: 'existing' | 'new'; slot: number; proj: any }> = [];
+          const projectsB: Array<{ laneType: CascadeLaneType; slot: number; proj: any }> = [];
           if (deptB?.lanes?.existing?.projects) {
             deptB.lanes.existing.projects.forEach((p: any, idx: number) => {
               projectsB.push({ laneType: 'existing', slot: idx + 1, proj: p });
@@ -4283,6 +4409,38 @@ ${anchorsText || '（利用可能なanchorsなし）'}
     const stripAiPrefix = (title: string) => {
       return (title ?? '').replace(/^\s*\[ai#\d+\]\s*/i, '').trim();
     };
+
+    // 画面表示用：FACTPACK ID や DEBUG などの内部情報を除去する
+    const stripInternalMarkers = (value: unknown): string => {
+      return String(value ?? '')
+        .replace(/【DEBUG】[^\n。]*[。]?/g, '')
+        .replace(/[（(]\s*fact-(?:seg|cust|fin)-\d+\s*[）)]/gi, '')
+        .replace(/\[\s*fact-(?:seg|cust|fin)-\d+\s*\]/gi, '')
+        .replace(/\s*、\s*を根拠に/g, 'を根拠に')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+
+    const sanitizeOkrsForUi = (okrs: any[]) => {
+      if (!Array.isArray(okrs)) return [];
+      return okrs.map((okr: any) => ({
+        ...okr,
+        objective: stripInternalMarkers(okr?.objective),
+        keyResults: Array.isArray(okr?.keyResults)
+          ? okr.keyResults.map((kr: any) => typeof kr === 'string'
+              ? stripInternalMarkers(kr)
+              : { ...kr, title: stripInternalMarkers(kr?.title), label: stripInternalMarkers(kr?.label), text: stripInternalMarkers(kr?.text) })
+          : [],
+      }));
+    };
+
+    const sanitizeProjectForUi = (proj: any) => ({
+      ...proj,
+      title: stripInternalMarkers(proj?.title),
+      reason: stripInternalMarkers(proj?.reason),
+      hypothesis: stripInternalMarkers(proj?.hypothesis),
+      okrs: sanitizeOkrsForUi(proj?.okrs ?? []),
+    });
 
     // P0: Prefix強制用関数
     const ensurePrefix = (deptName: string, title: string) => {
@@ -5003,10 +5161,55 @@ ${secondPassDeptBlock}
             ? normalized.strategy.summary.trim()
             : summary,
       },
-      departments: Array.isArray(normalized?.departments)
-        ? normalized.departments
-            .map((d: any) => {
-              const name = typeof d?.name === 'string' ? d.name.trim() : '';
+      departments: (() => {
+        // ★ FIX2: LLM/JSONパース結果が departments: [] になった場合でも、
+        // リクエストで指定された部門を起点に最低限のたたき台を返す。
+        // これによりフロント側の「この部門のたたき台が取得できませんでした」を防ぐ。
+        const sourceDepartments =
+          Array.isArray(normalized?.departments) && normalized.departments.length > 0
+            ? normalized.departments
+            : (Array.isArray(departments) ? departments : []).map((inputDept: any) => {
+                const inputName = pickName(inputDept);
+                const inputProjects = Array.isArray(inputDept?.projects)
+                  ? inputDept.projects
+                      .map((x: any, i: number) =>
+                        typeof x === 'string'
+                          ? { title: x, reason: '', hypothesis: '', generatedSlot: i + 1 }
+                          : x
+                      )
+                  : [];
+                return {
+                  name: inputName,
+                  missionDraft: String(inputDept?.missionDraft || inputDept?.direction || `${inputName}の部門ミッション案`).trim(),
+                  missionDescription: '',
+                  projects: inputProjects,
+                  lanes: {},
+                  intraDeptCollab: [],
+                  interDeptCollab: [],
+                  needsCollab: [],
+                  stopList: [],
+                  first90Days: [],
+                  riskNotes: [],
+                };
+              });
+
+        if (Array.isArray(normalized?.departments) && normalized.departments.length === 0) {
+          console.warn('[STAGE3][API fallback departments]', {
+            reason: 'normalized.departments is empty',
+            requestDepartments: (departments || []).map((d: any) => pickName(d)),
+            fallbackCount: sourceDepartments.length,
+          });
+        }
+
+        return sourceDepartments
+            .map((d: any, deptIndex: number) => {
+              // ★ A案追加後の安定化:
+              // LLMが部門名を微妙に言い換えると、従来の exact match で返却対象から落ち、
+              // フロント側で「この部門のたたき台が取得できませんでした」になる。
+              // 返却名は入力部門名を正とし、生成内容だけ d から採用する。
+              const generatedName = typeof d?.name === 'string' ? d.name.trim() : '';
+              const requestedName = pickName(departments?.[deptIndex]) || generatedName;
+              const name = typeof requestedName === 'string' ? requestedName.trim() : '';
               if (!name || !inputNames.has(name)) return null;
 
               const missionDraft = typeof d?.missionDraft === 'string' ? d.missionDraft.trim() : '';
@@ -5021,11 +5224,79 @@ ${secondPassDeptBlock}
                 .join('\n');
 
               // ★STAGE3軽量化：OKR生成を削除、プロジェクトのみ返す
-              // existing lane (2プロジェクト)
-              const existingProjects = normalizeProjects(lanesRaw?.existing?.projects ?? d?.projects).slice(0, 2);
+              // ★fix9: LLMが新形式 lanes ではなく旧形式 d.projects に3件返す場合がある。
+              // その場合、従来品質の title/reason/hypothesis を壊さず、
+              // 先頭2件を既存進化、3件目を新規探索として復元する。
+              const topLevelProjects = normalizeProjects(d?.projects ?? []);
+              const rawExistingLaneProjects = normalizeProjects(lanesRaw?.existing?.projects ?? []);
+              const rawNewLaneProjects = normalizeProjects(lanesRaw?.new?.projects ?? []);
 
-              // new lane (1プロジェクト)
-              const newProjects = normalizeProjects(lanesRaw?.new?.projects ?? []).slice(0, 1);
+              const existingProjects = (
+                rawExistingLaneProjects.length > 0
+                  ? rawExistingLaneProjects
+                  : topLevelProjects.filter((p: any) => p?.sourceType === 'existing').length > 0
+                    ? topLevelProjects.filter((p: any) => p?.sourceType === 'existing')
+                    : topLevelProjects.filter((p: any) => !['new', 'intraCollab', 'interCollab'].includes(String(p?.sourceType ?? ''))).slice(0, 2)
+              ).slice(0, 2);
+
+              const existingTitleSet = new Set(existingProjects.map((p: any) => normalizeName(p?.title ?? '')));
+              const newProjects = (
+                rawNewLaneProjects.length > 0
+                  ? rawNewLaneProjects
+                  : topLevelProjects.filter((p: any) => p?.sourceType === 'new').length > 0
+                    ? topLevelProjects.filter((p: any) => p?.sourceType === 'new')
+                    : topLevelProjects.filter((p: any) => !existingTitleSet.has(normalizeName(p?.title ?? '')) && !['intraCollab', 'interCollab'].includes(String(p?.sourceType ?? ''))).slice(0, 1)
+              ).slice(0, 1);
+
+              // ★STAGE3 A案：STEP1の連携候補を、STEP4の連携型プロジェクト候補にも昇格する
+              const normalizedCollab = normalizeCollabLists(d, deptInputByName.get(name));
+
+              // ★fix3: LLM応答やfallback部門で intraDeptCollab / interDeptCollab が空になっても、
+              // STEP1の「事業部内連携1件 / 事業部間連携1件」と、STEP4の連携型プロジェクトを必ず維持する。
+              // 先生指摘の「STEP1で連携案を出したなら、STEP4にも連携型PJ/KPIを出す」ための安定化。
+              // ★fix5: 「この部門だけ生成」のpayloadでは departments が1件だけになる。
+              // そのため、連携先を departments だけから探すと「他事業部」になり、旧版より品質が落ちる。
+              // businessSegments / businessPortfolio / financeSummary からも事業部名を拾い、具体的な連携先名を維持する。
+              const collectContextDeptNames = (): string[] => {
+                const names: string[] = [];
+                names.push(...onlyDeptNames(Array.isArray(departments) ? departments : []));
+                for (const s of (Array.isArray(allBusinessSegments) ? allBusinessSegments : [])) {
+                  const n = String(s?.name ?? s?.segmentName ?? s?.businessName ?? s?.departmentName ?? '').trim();
+                  if (n) names.push(n);
+                }
+                for (const u of (Array.isArray(businessPortfolio?.units) ? businessPortfolio.units : [])) {
+                  const n = String(u?.name ?? u?.segmentName ?? u?.businessName ?? u?.departmentName ?? '').trim();
+                  if (n) names.push(n);
+                }
+                const financeRows = Array.isArray(financeSummary)
+                  ? financeSummary
+                  : Array.isArray(financeSummary?.rows)
+                    ? financeSummary.rows
+                    : [];
+                for (const r of financeRows) {
+                  const n = String(r?.name ?? r?.segmentName ?? r?.businessName ?? r?.departmentName ?? r?.事業部 ?? r?.事業名 ?? '').trim();
+                  if (n) names.push(n);
+                }
+                return dedupeStrings(names).filter((n) => normalizeName(n) !== normalizeName(name));
+              };
+              const allRequestedDeptNames = collectContextDeptNames();
+              const partnerDeptName = allRequestedDeptNames[0] || '関連事業部';
+              const defaultIntraCollabText = `営業×技術：${name}の重点顧客ニーズを営業が整理し、技術が実現可能性と代替仕様を検討して、提案精度を高める`;
+              const defaultInterCollabText = `${partnerDeptName}：${name}の顧客課題と${partnerDeptName}の技術・販路を組み合わせ、共同提案または共同検証テーマを立ち上げる`;
+              const effectiveIntraCollab = trimList(normalizedCollab.intra, 1).length > 0
+                ? trimList(normalizedCollab.intra, 1)
+                : [defaultIntraCollabText];
+              const effectiveInterCollab = trimList(normalizedCollab.inter, 1).length > 0
+                ? trimList(normalizedCollab.inter, 1)
+                : [defaultInterCollabText];
+              const effectiveLegacyCollab = dedupeStrings([
+                ...effectiveIntraCollab,
+                ...effectiveInterCollab,
+                ...trimList(normalizedCollab.legacy, 6),
+              ]);
+
+              const intraCollabProjectsFromAi = normalizeProjects(lanesRaw?.intraCollab?.projects ?? []).slice(0, 1);
+              const interCollabProjectsFromAi = normalizeProjects(lanesRaw?.interCollab?.projects ?? []).slice(0, 1);
 
               // ★致命修正: fallback anchors ヘルパー関数
               const pickFallbackAnchors = () => {
@@ -5035,14 +5306,9 @@ ${secondPassDeptBlock}
               };
 
               const buildFallbackGroundedText = (base: string) => {
-                const a = pickFallbackAnchors();
-                if (a.length >= 2) {
-                  return `${base}。「${a[0].text}」(${a[0].id}) と「${a[1].text}」(${a[1].id}) を根拠に、短期で実行可能な打ち手に落とし込む。`;
-                }
-                if (a.length === 1) {
-                  return `${base}。「${a[0].text}」(${a[0].id}) を根拠に、短期で実行可能な打ち手に落とし込む。`;
-                }
-                return base;
+                // 画面には fact-seg-* などの内部根拠IDを出さない。
+                // 根拠IDは citations に保持し、説明文はユーザーに読める文章だけにする。
+                return stripInternalMarkers(base);
               };
 
               const buildFallbackCitations = () => {
@@ -5050,45 +5316,87 @@ ${secondPassDeptBlock}
                 return a.map((x: any) => x.id).filter(Boolean).slice(0, 2);
               };
 
-              // ★ フォールバック：プロジェクトが不足する場合（required fields と citations を含める）
-              const safeExistingProjects = existingProjects.length >= 2
-                ? existingProjects
-                : [
-                    ...(existingProjects ?? []),
+              const buildCollabProjectFromText = (
+                text: string,
+                sourceType: 'intraCollab' | 'interCollab',
+                slot: 4 | 5
+              ): NormProject => {
+                const clean = stripInternalMarkers(text);
+                const isInter = sourceType === 'interCollab';
+                const rawTitleBody = clean.includes('：') ? clean.split('：')[0].trim() : clean.slice(0, 38).trim();
+                const genericCollabTitle = /^(営業\s*[×xX]\s*技術|技術\s*[×xX]\s*営業|他事業部|別事業部|関連事業部|共同|連携)$/;
+                const looksLikePartnerOnly = isInter && /事業$|事業部$|部門$/.test(rawTitleBody) && !/共同|検証|開発|提案|推進|削減|強化/.test(rawTitleBody);
+                const intraPairOnly = !isInter && /^[^：:]{1,12}\s*[×xX]\s*[^：:]{1,12}$/.test(rawTitleBody);
+                const title = (!rawTitleBody || genericCollabTitle.test(rawTitleBody))
+                  ? (isInter ? `${partnerDeptName}との共同検証テーマ推進` : '営業×技術による重点顧客課題の共同提案')
+                  : looksLikePartnerOnly
+                    ? `${rawTitleBody}との共同検証テーマ推進`
+                    : intraPairOnly
+                      ? `${rawTitleBody}による重点顧客課題の共同提案`
+                      : rawTitleBody;
+                return {
+                  title,
+                  reason: buildFallbackGroundedText(clean || (isInter ? '他事業部との連携により単独部門では実行しにくいテーマを具体化する。' : '事業部内の機能連携により顧客価値と実行速度を高める。')),
+                  hypothesis: buildFallbackGroundedText(isInter
+                    ? '事業部間で顧客・技術・販路を組み合わせれば、単独部門では作れない成長機会を検証できる。'
+                    : '事業部内で営業・技術・開発などが役割分担すれば、提案精度と実行速度が高まる。'),
+                  mainLever: isInter ? 'FUTURE' : 'ACQ',
+                  horizon: isInter ? 'mid' : 'short',
+                  kind: isInter ? 'future' : 'growth',
+                  sourceType,
+                  collaborationType: isInter ? 'interDept' : 'intraDept',
+                  partnerDepartment: isInter ? (clean.match(/×([^：:]+)/)?.[1]?.trim()) : undefined,
+                  generatedBy: 'ai',
+                  generatedSlot: slot,
+                  generatedGroup: 'cascade_v1',
+                  citations: buildFallbackCitations(),
+                  valueDriverLinks: (valueDriverKPIs ?? []).slice(0, 2).map((k:any)=>k.id).filter(Boolean),
+                  skillRequirements: isInter
+                    ? { roleSkills: ['事業開発', '技術'], executionSkills: ['共同企画', '仮説検証'] }
+                    : { roleSkills: ['営業', '技術'], executionSkills: ['共同ヒアリング', '提案設計'] },
+                  humanInvestments: isInter
+                    ? [
+                        { category: 'ALLOCATION', title: '共同PJ担当アサイン', detail: '両部門から担当者を任命する' },
+                        { category: 'TOOLS_PROCESS', title: '共同検討会の設計', detail: '共同テーマを定例で検討する' },
+                      ]
+                    : [
+                        { category: 'TOOLS_PROCESS', title: '共同案件レビュー会', detail: '部門内の関係者が重点案件を定例でレビューする' },
+                        { category: 'TRAINING_OJT', title: '連携提案OJT', detail: '顧客課題を提案・仕様に翻訳する実践訓練' },
+                      ],
+                  okrs: [
                     {
-                      title: `[AI#2] ${name}の既存進化・収益性改善`,
-                      reason: buildFallbackGroundedText('既存事業からPLに効く改善'),
-                      hypothesis: buildFallbackGroundedText('既存顧客基盤から生まれる改善提案を構造化し実装する。'),
-                      mainLever: 'ARPU',
-                      horizon: 'short',
-                      kind: 'growth',
-                      // ★致命修正: required fields を追加
-                      citations: buildFallbackCitations(),
-                      valueDriverLinks: (valueDriverKPIs ?? []).slice(0, 2).map((k:any)=>k.id).filter(Boolean),
-                      skillRequirements: {},
-                      humanInvestments: [],
-                    } as NormProject,
-                  ].slice(0, 2);
+                      objective: isInter ? '事業部間で共同テーマを具体化し検証する' : '事業部内連携により重点案件の提案精度を高める',
+                      keyResults: isInter
+                        ? ['共同企画テーマ数：3件', '共同検証件数：1件', '共同提案先候補数：5社']
+                        : ['共同ヒアリング件数：月10件', '共同レビュー件数：月4件', '連携提案件数：月5件'],
+                    },
+                  ],
+                };
+              };
 
-              const safeNewProjects = newProjects.length >= 1
-                ? newProjects
-                : [
-                    {
-                      title: `[AI#3] ${name}の新規探索・新サービス検証`,
-                      reason: buildFallbackGroundedText('将来成長の可能性を検証する'),
-                      hypothesis: buildFallbackGroundedText('特定の顧客課題に対し小さく提供すれば、反応が得られ、スケールの条件が見えるはず。'),
-                      mainLever: 'FUTURE',
-                      horizon: 'mid',
-                      kind: 'future',
-                      // ★致命修正: required fields を追加
-                      citations: buildFallbackCitations(),
-                      valueDriverLinks: (valueDriverKPIs ?? []).slice(0, 2).map((k:any)=>k.id).filter(Boolean),
-                      skillRequirements: {},
-                      humanInvestments: [],
-                    } as NormProject,
-                  ];
+              // ★fix8: 既存進化・新規探索は固定補完しない。AI生成結果だけを採用する。
+              const safeExistingProjects = existingProjects.slice(0, 2);
 
-              const allProjects = [...safeExistingProjects, ...safeNewProjects];
+              const safeNewProjects = newProjects.slice(0, 1);
+
+              const safeIntraCollabProjects = intraCollabProjectsFromAi.length >= 1
+                ? intraCollabProjectsFromAi.map((p) => ({
+                    ...p,
+                    sourceType: 'intraCollab' as const,
+                    collaborationType: 'intraDept' as const,
+                    generatedSlot: p.generatedSlot ?? 4,
+                  }))
+                : effectiveIntraCollab.map((text) => buildCollabProjectFromText(text, 'intraCollab', 4));
+
+              const safeInterCollabProjects = interCollabProjectsFromAi.length >= 1
+                ? interCollabProjectsFromAi.map((p) => ({
+                    ...p,
+                    sourceType: 'interCollab' as const,
+                    collaborationType: 'interDept' as const,
+                    generatedSlot: p.generatedSlot ?? 5,
+                  }))
+                : effectiveInterCollab.map((text) => buildCollabProjectFromText(text, 'interCollab', 5));
+
 
               // ★ missionDescription のフォールバック（API から空の場合は簡易生成）
               let missionDescription = typeof d?.missionDescription === 'string' ? d.missionDescription.trim() : '';
@@ -5108,9 +5416,88 @@ ${secondPassDeptBlock}
               const cleanedMissionDraft = stripAiPrefix(missionDraft);
               const cleanedMissionDescription = stripAiPrefix(missionDescription);
 
+              const normalizeCollabProjectTitle = (proj: any, sourceType: 'intraCollab' | 'interCollab') => {
+                const raw = stripInternalMarkers(stripAiPrefix(proj?.title ?? ''));
+                const isInter = sourceType === 'interCollab';
+                const isTooGeneric = !raw || /^(営業\s*[×xX]\s*技術|技術\s*[×xX]\s*営業|他事業部|別事業部|関連事業部|共同|連携)$/i.test(raw);
+                const looksLikePartnerOnly = isInter && /事業$|事業部$|部門$/.test(raw) && !/共同|検証|開発|提案|推進|削減|強化/.test(raw);
+                const intraPairOnly = !isInter && /^[^：:]{1,12}\s*[×xX]\s*[^：:]{1,12}$/.test(raw);
+                const title = isTooGeneric
+                  ? (isInter ? `${partnerDeptName}との共同検証テーマ推進` : '営業×技術による重点顧客課題の共同提案')
+                  : looksLikePartnerOnly
+                    ? `${raw}との共同検証テーマ推進`
+                    : intraPairOnly
+                      ? `${raw}による重点顧客課題の共同提案`
+                      : raw;
+                return { ...proj, title };
+              };
+
+              // ★fix6: A案維持。ただし既存進化/新規探索でも仮説説明が消えないように、
+              // AIが reason/hypothesis を空で返した場合のみ、画面表示用の自然文を補完する。
+              // ここでは内部fact-idを混ぜず、STEP1/STEP4でそのまま読める文にする。
+              const ensureReadableProjectNarrative = (proj: any, sourceType: CascadeLaneType): any => {
+                const rawTitle = stripInternalMarkers(stripAiPrefix(proj?.title ?? '')).trim();
+                const titleBody = rawTitle.startsWith(`${name}：`)
+                  ? rawTitle.slice(`${name}：`.length).trim()
+                  : rawTitle.startsWith(`${name}:`)
+                    ? rawTitle.slice(`${name}:`.length).trim()
+                    : rawTitle;
+                const titleForText = titleBody || 'このプロジェクト';
+                const currentHypothesis = stripInternalMarkers(proj?.hypothesis ?? '').trim();
+                const currentReason = stripInternalMarkers(proj?.reason ?? '').trim();
+
+                let fallbackReason = '';
+                let fallbackHypothesis = '';
+
+                if (sourceType === 'existing') {
+                  fallbackReason = `${name}の既存事業・既存顧客基盤を活かし、${titleForText}を通じて収益性または顧客価値を高めるためです。`;
+                  fallbackHypothesis = `既存顧客や既存業務に対して${titleForText}を重点的に進めれば、提案精度・顧客満足・収益性のいずれかが改善し、短期的な成果につながるはずです。`;
+                } else if (sourceType === 'new') {
+                  fallbackReason = `${name}の将来成長に向けて、${titleForText}の実行可能性と事業化可能性を小さく検証するためです。`;
+                  fallbackHypothesis = `${titleForText}を限定的に検証すれば、市場性・実行条件・投資判断に必要な情報が得られ、次の成長テーマとして進めるべきかを判断できるはずです。`;
+                } else if (sourceType === 'intraCollab') {
+                  fallbackReason = `${name}内の営業・技術・開発などの機能をつなぎ、単独機能では解きにくい顧客課題に対応するためです。`;
+                  fallbackHypothesis = `営業が顧客課題を整理し、技術・開発が実現可能性を検討しながら${titleForText}を進めれば、提案精度と実行速度が高まるはずです。`;
+                } else {
+                  const partner = proj?.partnerDepartment || partnerDeptName || '関連事業部';
+                  fallbackReason = `${name}と${partner}の顧客・技術・販路を組み合わせ、単独部門では作りにくい成長機会を具体化するためです。`;
+                  fallbackHypothesis = `${name}の顧客課題と${partner}の技術・販路を組み合わせて${titleForText}を進めれば、共同提案または共同検証の機会が生まれるはずです。`;
+                }
+
+                return {
+                  ...proj,
+                  reason: currentReason || fallbackReason,
+                  hypothesis: currentHypothesis || currentReason || fallbackHypothesis,
+                };
+              };
+
+              // ★仮説表示の根本修正
+              // 以前の fix8 で既存進化 / 新規探索だけ固定補完を止めたため、
+              // AIが hypothesis / reason を空で返したケースでは、STEP1で通常3プロジェクトの仮説が消えていた。
+              // ここでは「AI由来の reason/hypothesis がある場合は必ず尊重」し、
+              // 空の場合だけ STEP1で読める最小限の説明を補完する。
+              const safeExistingProjectsWithNarrative = safeExistingProjects.map((p) => ensureReadableProjectNarrative(p, 'existing'));
+              const safeNewProjectsWithNarrative = safeNewProjects.map((p) => ensureReadableProjectNarrative(p, 'new'));
+              const safeIntraCollabProjectsWithNarrative = safeIntraCollabProjects.map((p) => ensureReadableProjectNarrative(p, 'intraCollab'));
+              const safeInterCollabProjectsWithNarrative = safeInterCollabProjects.map((p) => ensureReadableProjectNarrative(p, 'interCollab'));
+
               // ★ P0: 全プロジェクトに部門名prefix強制（[AI#]除去後）
-              const prefixedExistingProjects = safeExistingProjects.map(stripAllAiPrefixes);
-              const prefixedNewProjects = safeNewProjects.map(stripAllAiPrefixes);
+              const prefixedExistingProjects = safeExistingProjectsWithNarrative.map((p) => ({ ...sanitizeProjectForUi(stripAllAiPrefixes(p)), sourceType: 'existing' as const }));
+              const prefixedNewProjects = safeNewProjectsWithNarrative.map((p) => ({ ...sanitizeProjectForUi(stripAllAiPrefixes(p)), sourceType: 'new' as const }));
+              const prefixedIntraCollabProjects = safeIntraCollabProjectsWithNarrative.map((p) => ({ ...sanitizeProjectForUi(stripAllAiPrefixes(normalizeCollabProjectTitle(p, 'intraCollab'))), sourceType: 'intraCollab' as const, collaborationType: 'intraDept' as const }));
+              const prefixedInterCollabProjects = safeInterCollabProjectsWithNarrative.map((p) => {
+                const normalized = normalizeCollabProjectTitle(p, 'interCollab');
+                const guessedPartner =
+                  p?.partnerDepartment ||
+                  String(normalized?.title ?? '').match(/^(.+?)(?:との|×|x|X)/)?.[1]?.trim() ||
+                  partnerDeptName;
+                return {
+                  ...sanitizeProjectForUi(stripAllAiPrefixes(normalized)),
+                  sourceType: 'interCollab' as const,
+                  collaborationType: 'interDept' as const,
+                  partnerDepartment: guessedPartner,
+                };
+              });
 
               // ★ CRITICAL FIX（根本原因修正）: projects に lanes を統合（canonical source を projects に寄せる）
               // 【背景】
@@ -5122,7 +5509,7 @@ ${secondPassDeptBlock}
               // - mergedProjects = [...existingProjects, ...newProjects] でflat化
               // - lanes は後方互換のため残す（UI が参考表示で使用可能）
               // - projectIdベースで dedupe（重複削除）
-              const mergedProjects = [...prefixedExistingProjects, ...prefixedNewProjects];
+              const mergedProjects = [...prefixedExistingProjects, ...prefixedNewProjects, ...prefixedIntraCollabProjects, ...prefixedInterCollabProjects];
 
               // dedupe by project.id or title（安全側）
               const seenIds = new Set<string>();
@@ -5139,8 +5526,8 @@ ${secondPassDeptBlock}
 
               return {
                 name,
-                missionDraft: cleanedMissionDraft,
-                missionDescription: cleanedMissionDescription,
+                missionDraft: stripInternalMarkers(cleanedMissionDraft),
+                missionDescription: stripInternalMarkers(cleanedMissionDescription),
 
                 lanes: {
                   existing: {
@@ -5149,6 +5536,12 @@ ${secondPassDeptBlock}
                   new: {
                     projects: prefixedNewProjects,
                   },
+                  intraCollab: {
+                    projects: prefixedIntraCollabProjects,
+                  },
+                  interCollab: {
+                    projects: prefixedInterCollabProjects,
+                  },
                 },
 
                 // ★ CRITICAL FIX: projects に lanes を統合したフラット配列を返す（canonical source）
@@ -5156,16 +5549,17 @@ ${secondPassDeptBlock}
                 // 新: lanes から統合したプロジェクト配列を返す（title/okrs/owner等の主要フィールドを保持）
                 projects: dedupedProjects,
 
-                intraDeptCollab: normalizeCollabLists(d, deptInputByName.get(name)).intra,
-                interDeptCollab: normalizeCollabLists(d, deptInputByName.get(name)).inter,
-                needsCollab: normalizeCollabLists(d, deptInputByName.get(name)).legacy,
+                // ★fix3: STEP1の生成内訳表示にも必ず反映されるよう、有効化済みの連携候補を返す
+                intraDeptCollab: effectiveIntraCollab.map(stripInternalMarkers),
+                interDeptCollab: effectiveInterCollab.map(stripInternalMarkers),
+                needsCollab: effectiveLegacyCollab.map(stripInternalMarkers),
                 stopList: trimList(d?.stopList, 6),
                 first90Days: trimList(d?.first90Days, 8),
                 riskNotes: trimList(d?.riskNotes, 6),
               };
             })
-            .filter(Boolean)
-        : [],
+            .filter(Boolean);
+      })(),
     };
 
     // ★ 調査ログ②：返却直前の missionDescription 確認（フォールバック処理後）
