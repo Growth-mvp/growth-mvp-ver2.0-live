@@ -356,6 +356,62 @@ function getUnifiedCollaborationCandidates(dept: any) {
   };
 }
 
+function inferCollaborationProjectType(project: any): 'intra' | 'inter' | null {
+  const sourceType = String(project?.sourceType ?? '');
+  const collaborationType = String(project?.collaborationType ?? '');
+  const generatedSlot = Number(project?.generatedSlot ?? 0);
+
+  if (sourceType === 'intraCollab' || collaborationType === 'intraDept' || generatedSlot === 4) return 'intra';
+  if (sourceType === 'interCollab' || collaborationType === 'interDept' || generatedSlot === 5) return 'inter';
+
+  // 保存・復元時に sourceType / generatedSlot が落ちた旧データ向けの表示フォールバック。
+  // STEP4では5件目まで表示されているのにSTEP1の連携KPIだけ空になるケースを救済する。
+  const text = `${project?.title ?? ''} ${project?.reason ?? ''} ${project?.hypothesis ?? ''}`;
+  if (/事業部間|他事業部|別事業部|関連事業部|共同検証|共同開発|共同企画|共同提案|との共同|×[^：:]{1,30}事業/.test(text)) {
+    return 'inter';
+  }
+  if (/事業部内|営業\s*[×xX]\s*技術|技術\s*[×xX]\s*営業|共同ヒアリング|共同レビュー|連携提案|重点顧客課題の共同提案/.test(text)) {
+    return 'intra';
+  }
+
+  return null;
+}
+
+function isCollaborationProject(project: any) {
+  return inferCollaborationProjectType(project) !== null;
+}
+
+function getLaneCollaborationProjects(dept: any, type: 'intra' | 'inter') {
+  const laneKey = type === 'intra' ? 'intraCollab' : 'interCollab';
+  const laneProjects = dept?.lanes?.[laneKey]?.projects;
+  return Array.isArray(laneProjects) ? laneProjects : [];
+}
+
+function getCollaborationProjectsByType(dept: any, type: 'intra' | 'inter') {
+  const projects = Array.isArray(dept?.projects) ? dept.projects : [];
+
+  const byMetaOrText = projects.filter((project: any) => inferCollaborationProjectType(project) === type);
+  if (byMetaOrText.length > 0) return byMetaOrText;
+
+  const byLane = getLaneCollaborationProjects(dept, type);
+  if (byLane.length > 0) return byLane;
+
+  // 最終フォールバック：現在の生成順は「既存2 + 新規1 + 事業部内連携1 + 事業部間連携1」。
+  // sourceType等が保存時に落ちても、STEP4で5件表示されている場合は4件目/5件目からKPIを拾う。
+  const fallbackProject = type === 'intra' ? projects[3] : projects[4];
+  return fallbackProject ? [fallbackProject] : [];
+}
+
+function getCollaborationKpiLabels(dept: any, type: 'intra' | 'inter', index: number, deptName: string) {
+  const project = getCollaborationProjectsByType(dept, type)[index];
+  if (!project) return [];
+
+  return getProjectKpiLabels(project)
+    .map((label) => toCleanDisplayText(label, deptName).trim())
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
 function renderInsightList(items: Array<{ message?: string; severity?: string; relatedDepts?: string[] }>, keyPrefix: string, emptyText: string) {
   if (!items.length) {
     return <p className="text-xs text-zinc-500">{emptyText}</p>;
@@ -585,6 +641,26 @@ const sanitizeDisplayText = (input?: string) =>
 
 const toCleanDisplayText = (value: any, deptName = '') =>
   sanitizeDisplayText(toDisplayText(stripDeptPrefix(String(value ?? ''), deptName)));
+
+// STEP1表示用：APIの返却ゆれ（hypothesis / reason / description 等）を吸収して、
+// プロジェクト仮説が空表示にならないようにする。
+const getProjectHypothesisText = (project: any): string => {
+  const candidates = [
+    project?.hypothesis,
+    project?.reason,
+    project?.description,
+    project?.rationale,
+    project?.assumption,
+    project?.summary,
+  ];
+
+  for (const value of candidates) {
+    const text = sanitizeDisplayText(toDisplayText(value));
+    if (text) return text;
+  }
+
+  return '';
+};
 
 
 /* ==========================================
@@ -1430,11 +1506,13 @@ function normalizeProjectDraft(pd: ApiProjectDraft, deptName?: string, preserveO
   if (!title) return null;
 
   const hypothesis =
-    typeof pd?.hypothesis === 'string'
+    typeof pd?.hypothesis === 'string' && pd.hypothesis.trim()
       ? pd.hypothesis.trim()
-      : typeof pd?.description === 'string'
-        ? pd.description.trim()
-        : undefined;
+      : typeof pd?.reason === 'string' && pd.reason.trim()
+        ? pd.reason.trim()
+        : typeof pd?.description === 'string' && pd.description.trim()
+          ? pd.description.trim()
+          : undefined;
 
   // ★ 修正: 通常生成は安定ID、再生成は新規IDを発行
   // preserveOkrs=false は STAGE3 再生成経路を意味する
@@ -1443,6 +1521,8 @@ function normalizeProjectDraft(pd: ApiProjectDraft, deptName?: string, preserveO
   const p: Project = {
     title,
     hypothesis,
+    ...(typeof pd?.reason === 'string' && pd.reason.trim() ? { reason: pd.reason.trim() } : {}),
+    ...(typeof pd?.description === 'string' && pd.description.trim() ? { description: pd.description.trim() } : {}),
     mainLever: normalizeLever(pd?.mainLever),
     horizon: normalizeHorizon(pd?.horizon),
     kind: normalizeKind(pd?.kind),
@@ -1648,7 +1728,7 @@ const VisualCard = memo(
 
                   {(p.hypothesis || p.mainLever || p.horizon || p.kind) && (
                     <div className="mt-1">
-                      {p.hypothesis && <p className="text-[11px] text-zinc-600 whitespace-pre-wrap">仮説：{p.hypothesis}</p>}
+                      {getProjectHypothesisText(p) && <p className="text-[11px] text-zinc-600 whitespace-pre-wrap">仮説：{getProjectHypothesisText(p)}</p>}
                       <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-zinc-500">
                         {p.kind && <span className="px-2 py-0.5 rounded-full bg-zinc-50 border border-zinc-100">{KIND_LABEL[p.kind]}</span>}
                         {p.mainLever && (
@@ -3822,7 +3902,7 @@ useEffect(() => {
                       <div className="mb-1">
                         <div className="mb-3 text-xs font-bold tracking-tight text-zinc-700">プロジェクト案・KPI案</div>
                         <div className="space-y-3">
-                          {deptProjects.slice(0, 3).map((p, i) => {
+                          {deptProjects.filter((p) => !isCollaborationProject(p)).slice(0, 3).map((p, i) => {
                             const displayTitle = stripDeptPrefix(((p.title ?? '').replace(/^\[AI#\d+\]\s*/i, '')), dept.name);
                             const projectSourceLabel = getProjectSourceLabel(p, dept.name, lane);
                             const projectKpis = getProjectKpiLabels(p)
@@ -3835,7 +3915,11 @@ useEffect(() => {
                                   <div className="text-base font-semibold leading-6 text-zinc-900">{displayTitle || `プロジェクト${i + 1}`}</div>
                                   {projectSourceLabel && <span className="text-sm font-semibold text-zinc-500">（{projectSourceLabel}）</span>}
                                 </div>
-                                {p.hypothesis && <p className="mt-2 text-sm leading-6 text-zinc-700 whitespace-pre-wrap"><span className="font-semibold text-zinc-800">仮説：</span>{sanitizeDisplayText(p.hypothesis)}</p>}
+                                {getProjectHypothesisText(p) && (
+                                  <p className="mt-2 text-sm leading-6 text-zinc-700 whitespace-pre-wrap">
+                                    <span className="font-semibold text-zinc-800">仮説：</span>{getProjectHypothesisText(p)}
+                                  </p>
+                                )}
                                 {projectKpis.length > 0 && (
                                   <div className="mt-3 flex flex-wrap gap-2">
                                     {projectKpis.map((label, ki) => (
@@ -3849,22 +3933,47 @@ useEffect(() => {
                             );
                           })}
 
-                          {getUnifiedCollaborationCandidates(dept).intra.map((item: string, i: number) => (
-                            <div key={`summary-intra-card-${dept.name}-${i}`} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-                              <div className="text-base font-semibold leading-6 text-zinc-900">事業部内連携案</div>
-                              <p className="mt-2 text-sm leading-6 text-zinc-700 whitespace-pre-wrap"><span className="font-semibold text-zinc-800">連携内容：</span>{item}</p>
-                            </div>
-                          ))}
+                          {getUnifiedCollaborationCandidates(dept).intra.map((item: string, i: number) => {
+                            const collabKpis = getCollaborationKpiLabels(dept, 'intra', i, dept.name);
+                            return (
+                              <div key={`summary-intra-card-${dept.name}-${i}`} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                                <div className="text-base font-semibold leading-6 text-zinc-900">事業部内連携案</div>
+                                <p className="mt-2 text-sm leading-6 text-zinc-700 whitespace-pre-wrap"><span className="font-semibold text-zinc-800">連携内容：</span>{item}</p>
+                                {collabKpis.length > 0 && (
+                                  <div className="mt-3 flex flex-wrap gap-2">
+                                    {collabKpis.map((label, ki) => (
+                                      <span key={`step1-intra-kpi-${dept.name}-${i}-${ki}`} className="inline-flex items-center rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-700">
+                                        {label}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
 
-                          {getUnifiedCollaborationCandidates(dept).inter.map((item: string, i: number) => (
-                            <div key={`summary-inter-card-${dept.name}-${i}`} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-                              <div className="text-base font-semibold leading-6 text-zinc-900">事業部間連携案</div>
-                              <p className="mt-2 text-sm leading-6 text-zinc-700 whitespace-pre-wrap"><span className="font-semibold text-zinc-800">連携内容：</span>{item}</p>
-                            </div>
-                          ))}
+                          {getUnifiedCollaborationCandidates(dept).inter.map((item: string, i: number) => {
+                            const collabKpis = getCollaborationKpiLabels(dept, 'inter', i, dept.name);
+                            return (
+                              <div key={`summary-inter-card-${dept.name}-${i}`} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                                <div className="text-base font-semibold leading-6 text-zinc-900">事業部間連携案</div>
+                                <p className="mt-2 text-sm leading-6 text-zinc-700 whitespace-pre-wrap"><span className="font-semibold text-zinc-800">連携内容：</span>{item}</p>
+                                {collabKpis.length > 0 && (
+                                  <div className="mt-3 flex flex-wrap gap-2">
+                                    {collabKpis.map((label, ki) => (
+                                      <span key={`step1-inter-kpi-${dept.name}-${i}-${ki}`} className="inline-flex items-center rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-700">
+                                        {label}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
-                        {deptProjects.length > 3 && (
-                          <div className="mt-2 text-xs text-zinc-500">ほか {deptProjects.length - 3} 件</div>
+
+                        {deptProjects.filter((p) => !isCollaborationProject(p)).length > 3 && (
+                          <div className="mt-2 text-xs text-zinc-500">ほか {deptProjects.filter((p) => !isCollaborationProject(p)).length - 3} 件</div>
                         )}
                       </div>
                     )}
@@ -4265,7 +4374,7 @@ useEffect(() => {
 
                             {(p.hypothesis || p.mainLever || p.horizon || p.kind) && (
                               <div className="pl-5 mt-1">
-                                {p.hypothesis && <p className="text-[11px] text-zinc-600 whitespace-pre-wrap">仮説：{p.hypothesis}</p>}
+                                {getProjectHypothesisText(p) && <p className="text-[11px] text-zinc-600 whitespace-pre-wrap">仮説：{getProjectHypothesisText(p)}</p>}
                                 <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-zinc-500">
                                   {p.kind && <span className="px-2 py-0.5 rounded-full bg-zinc-50 border border-zinc-100">{KIND_LABEL[p.kind]}</span>}
                                   {p.mainLever && (
