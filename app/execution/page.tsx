@@ -362,6 +362,18 @@ function ExecPanel(props: {
   const [editingKind, setEditingKind] = useState<'checkin' | 'feedback' | null>(null);
   const [deletingLogId, setDeletingLogId] = useState<string | null>(null);
 
+  // AI相談用のstate
+  const [executionAiLoading, setExecutionAiLoading] = useState(false);
+  const [executionAiError, setExecutionAiError] = useState<string | null>(null);
+  const [executionAiResult, setExecutionAiResult] = useState<{
+    directAnswer?: string;
+    summary: string;
+    issues: string[];
+    nextActions: string[];
+    supportDraft: string;
+    reviewSignal: string;
+  } | null>(null);
+
   // Store から score を取得
   const getScoreFromStore = () => {
     const scores = useStrategyStore.getState().okrTargetScores ?? {};
@@ -437,6 +449,27 @@ function ExecPanel(props: {
     setReviewScore(storedScore);
   }, [open, okrId]);
 
+  // 対象プロジェクト・OKR変更時に入力state・AI stateをクリア
+  useEffect(() => {
+    if (!open) return;
+
+    setProgressText('');
+    setHelpRequest('');
+    setReviewText('');
+    setEditingLogId(null);
+    setEditingKind(null);
+    setNotice('');
+
+    setExecutionAiResult(null);
+    setExecutionAiError(null);
+    setExecutionAiLoading(false);
+  }, [
+    open,
+    resolvedProgressOkrId,
+    okrId,
+    projectId,
+    departmentId,
+  ]);
 
   const cancelEditing = useCallback(() => {
     setEditingLogId(null);
@@ -792,6 +825,133 @@ function ExecPanel(props: {
       setTimeout(() => setNotice(''), 3000);
     }
   }, [canCheckin, userId, dbOkrId, resolvedDbOkrId, effectiveDbOkrId, okrId, progressLogOkrId, resolvedProgressOkrId, progressText, rating, helpRequest, companyId, deptName, projectTitle, krIds, departmentId, projectId, mapHit, displayOkrId, editingLogId, editingKind]);
+
+  // AI相談（実行メモを整理）
+  const handleAssistExecution = useCallback(async () => {
+    if (!progressText.trim()) {
+      setExecutionAiError('実行メモが空です。何か書いてください。');
+      return;
+    }
+
+    setExecutionAiLoading(true);
+    setExecutionAiError(null);
+    setExecutionAiResult(null);
+
+    try {
+      const { data: authData } = await supabase.auth.getUser();
+      const authToken = authData?.user?.id ? authData.user : null;
+
+      if (!authToken) {
+        setExecutionAiError('認証が必要です。再ログインしてください。');
+        return;
+      }
+
+      // 認証情報を取得
+      const session = await supabase.auth.getSession();
+      const accessToken = session.data.session?.access_token;
+
+      if (!accessToken) {
+        setExecutionAiError('セッション情報が見つかりません。');
+        return;
+      }
+
+      const payload = {
+        projectTitle: projectTitle ?? undefined,
+        departmentName: deptName ?? undefined,
+        objective: objective ?? undefined,
+        keyResults: Array.isArray(keyResults) && keyResults.length > 0 ? keyResults : undefined,
+        progress: typeof rating === 'number' && rating > 0 ? rating / 5 : undefined,
+        memo: progressText.trim(),
+        supportRequest: helpRequest.trim() || undefined,
+      };
+
+      const response = await fetch('/api/stage5/assist-execution', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        setExecutionAiError(
+          errorData.message || 'AI整理に失敗しました。メモの保存は通常通り行えます。'
+        );
+        return;
+      }
+
+      const result = await response.json();
+
+      // エラーフィールドがある場合
+      if (result.error) {
+        setExecutionAiError(
+          'AI整理に失敗しました。メモの保存は通常通り行えます。'
+        );
+        return;
+      }
+
+      setExecutionAiResult(result);
+    } catch (e: any) {
+      console.error('[assist-execution-error]', e);
+      setExecutionAiError(
+        'AI整理に失敗しました。メモの保存は通常通り行えます。'
+      );
+    } finally {
+      setExecutionAiLoading(false);
+    }
+  }, [progressText, helpRequest, projectTitle, deptName, objective, keyResults, rating]);
+
+  // AI結果をメモに反映
+  const appendAiResultToMemo = useCallback(() => {
+    if (!executionAiResult) return;
+
+    const aiLines: string[] = [];
+
+    // AIの回答（質問への直接回答）
+    if (executionAiResult.directAnswer) {
+      aiLines.push('【AIの回答】');
+      aiLines.push(executionAiResult.directAnswer);
+      aiLines.push('');
+    }
+
+    // AIの整理
+    aiLines.push('【AIの整理】');
+    aiLines.push('状況の要約：');
+    aiLines.push(executionAiResult.summary);
+    aiLines.push('');
+
+    if (executionAiResult.issues && executionAiResult.issues.length > 0) {
+      aiLines.push('想定される課題：');
+      executionAiResult.issues.forEach((issue) => aiLines.push(`・${issue}`));
+      aiLines.push('');
+    }
+
+    if (executionAiResult.nextActions && executionAiResult.nextActions.length > 0) {
+      aiLines.push('次の一手：');
+      executionAiResult.nextActions.forEach((action) => aiLines.push(`・${action}`));
+      aiLines.push('');
+    }
+
+    aiLines.push('支援依頼のたたき台：');
+    aiLines.push(executionAiResult.supportDraft);
+    aiLines.push('');
+
+    aiLines.push('見直しが必要な可能性：');
+    aiLines.push(executionAiResult.reviewSignal);
+
+    const aiText = aiLines.join('\n').trim();
+
+    setProgressText((prev) => {
+      const current = prev ?? '';
+      return current ? `${current}\n\n${aiText}` : aiText;
+    });
+
+    // AI結果をクリア（ユーザーがメモに反映したので）
+    setExecutionAiResult(null);
+    setExecutionAiError(null);
+  }, [executionAiResult]);
 
   // 保存（フィードバック）
   const onSaveFeedback = useCallback(async () => {
@@ -1510,14 +1670,12 @@ function ExecPanel(props: {
             <section className="rounded-3xl border border-black/10 bg-white/70 p-5 shadow-sm">
               <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                 <div className="space-y-2">
-                  <h3 className="text-sm font-semibold tracking-tight">進捗・気づきメモ</h3>
-                  <p className="whitespace-pre-line text-xs leading-5 text-gray-600">
-                    {`書くヒント：進んだことだけでなく、
-迷い・違和感・止まりそうな点も書いて大丈夫です。`}
+                  <h3 className="text-sm font-semibold tracking-tight">実行メモ・AI相談</h3>
+                  <p className="text-xs leading-5 text-gray-600">
+                    進捗、気づき、違和感、困りごとを自由に書いてください。
                   </p>
-                  <p className="whitespace-pre-line text-[11px] leading-5 text-gray-500">
-                    {`整理しきれていなくても大丈夫です。
-短いメモでも残してください。`}
+                  <p className="text-xs leading-5 text-gray-600">
+                    AIが内容を整理し、次の一手や支援依頼のたたき台を提案します。
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -1536,14 +1694,11 @@ function ExecPanel(props: {
               <textarea
                 className="h-40 w-full rounded-2xl border border-black/10 bg-white px-3 py-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-black/10"
                 placeholder={
-                  '例：少し進んだが、関係者の認識がまだ揃っていない。\n'
-                  + 'この進め方でよいか、少し迷いがある。\n\n'
-                  + '【現状のモヤモヤ】\n'
-                  + '承認待ちが長く、前に進みにくい。\n\n'
-                  + '【いま解くべき課題】\n'
-                  + '意思決定者への説明材料が不足している。\n\n'
-                  + '【見直すべき進め方】\n'
-                  + '論点を1枚に絞って確認頻度を上げたい。'
+                  '・進んだこと\n'
+                  + '・迷っていること\n'
+                  + '・止まりそうな点\n'
+                  + '・他部門に相談したいこと\n'
+                  + '・見直した方がよいと感じていること'
                 }
                 value={progressText}
                 onChange={(e) => setProgressText(e.target.value)}
@@ -1569,7 +1724,123 @@ function ExecPanel(props: {
                   onChange={(e) => setHelpRequest(e.target.value)}
                 />
               </div>
+
+              {/* AIボタン */}
+              <div className="mt-4 flex gap-2">
+                <button
+                  onClick={handleAssistExecution}
+                  disabled={executionAiLoading || !progressText.trim()}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
+                  type="button"
+                >
+                  {executionAiLoading ? (
+                    <>
+                      <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-gray-300 border-t-gray-700" />
+                      整理中…
+                    </>
+                  ) : (
+                    <>
+                      ✨ AIに整理してもらう
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* AIエラーメッセージ */}
+              {executionAiError && (
+                <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-3 py-2">
+                  <p className="text-sm text-red-700">{executionAiError}</p>
+                </div>
+              )}
+
+              {/* AI結果表示 */}
+              {executionAiResult && (
+                <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                  <div className="space-y-3 text-sm text-blue-800">
+                    {/* AIの回答（質問への直接回答） */}
+                    {executionAiResult.directAnswer && (
+                      <div className="rounded-lg border-l-4 border-blue-400 bg-white px-3 py-2">
+                        <p className="font-medium text-blue-900">AIの回答</p>
+                        <p className="mt-1 whitespace-pre-wrap text-xs leading-5">{executionAiResult.directAnswer}</p>
+                      </div>
+                    )}
+
+                    {/* AIの整理 */}
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">AIの整理</p>
+                    </div>
+
+                    {/* 状況の要約 */}
+                    <div>
+                      <p className="font-medium text-blue-900">状況の要約</p>
+                      <p className="mt-1 text-xs leading-5">{executionAiResult.summary}</p>
+                    </div>
+
+                    {/* 想定される課題 */}
+                    {executionAiResult.issues && executionAiResult.issues.length > 0 && (
+                      <div>
+                        <p className="font-medium text-blue-900">想定される課題</p>
+                        <ul className="mt-1 space-y-1">
+                          {executionAiResult.issues.map((issue, i) => (
+                            <li key={i} className="text-xs leading-5">・{issue}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* 次の一手 */}
+                    {executionAiResult.nextActions && executionAiResult.nextActions.length > 0 && (
+                      <div>
+                        <p className="font-medium text-blue-900">次の一手</p>
+                        <ul className="mt-1 space-y-1">
+                          {executionAiResult.nextActions.map((action, i) => (
+                            <li key={i} className="text-xs leading-5">・{action}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* 支援依頼のたたき台 */}
+                    {executionAiResult.supportDraft && (
+                      <div>
+                        <p className="font-medium text-blue-900">支援依頼のたたき台</p>
+                        <p className="mt-1 text-xs leading-5">{executionAiResult.supportDraft}</p>
+                      </div>
+                    )}
+
+                    {/* 見直しシグナル */}
+                    {executionAiResult.reviewSignal && (
+                      <div>
+                        <p className="font-medium text-blue-900">見直しが必要な可能性</p>
+                        <p className="mt-1 text-xs leading-5">{executionAiResult.reviewSignal}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* AI結果をメモに反映するボタン */}
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={appendAiResultToMemo}
+                      className="rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                      type="button"
+                    >
+                      AI整理をメモに反映
+                    </button>
+                    <button
+                      onClick={() => {
+                        setExecutionAiResult(null);
+                        setExecutionAiError(null);
+                      }}
+                      className="rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700"
+                      type="button"
+                    >
+                      ✕ 閉じる
+                    </button>
+                  </div>
+                </div>
+              )}
             </section>
+
             <section className="flex items-center gap-3">
               <button
                 onClick={onSaveCheckin}
@@ -3216,6 +3487,15 @@ function ExecutionPageContent() {
 
       {/* 実行支援：モーダル */}
       <ExecPanel
+        key={
+          selected
+            ? selected.resolvedDbOkrId ??
+              selected.progressOkrId ??
+              selected.okrId ??
+              (selected.projectId ? `${selected.departmentId ?? ''}:${selected.projectId}:${selected.di ?? ''}:${selected.pi ?? ''}` : null) ??
+              'no-selection'
+            : 'no-selection'
+        }
         open={!!selected}
         onClose={() => setSelected(null)}
         userId={user?.id}
