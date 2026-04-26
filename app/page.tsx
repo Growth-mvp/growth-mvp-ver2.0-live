@@ -36,18 +36,18 @@ export default function Home() {
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.55 }}
-              className="mx-auto max-w-5xl whitespace-nowrap text-[26px] font-semibold leading-[1.3] tracking-[-0.035em] text-neutral-900 sm:text-[33px] lg:text-[40px] dark:text-neutral-50"
+              className="mx-auto max-w-5xl whitespace-nowrap text-[26px] font-semibold leading-[1.3] tracking-[-0.035em] text-neutral-900 sm:text-[33px] lg:text-[36px] dark:text-neutral-50"
             >
-              GROWTH ｜ 戦略実行プラットフォーム
+              戦略を絞り、組織を動かし、業績を生み出す仕組み
             </motion.h1>
 
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.06 }}
-              className="mt-5 text-[21px] font-normal tracking-[0.02em] text-neutral-700 sm:text-[27px] lg:text-[31px] dark:text-neutral-200"
+              className="mt-5 text-[21px] font-normal tracking-[0.02em] text-neutral-700 sm:text-[27px] lg:text-[32px] dark:text-neutral-200"
             >
-              戦略を絞り、組織を動かし、業績を生み出す仕組み
+              GROWTH ｜ 戦略実行プラットフォーム
             </motion.div>
 
             <motion.div
