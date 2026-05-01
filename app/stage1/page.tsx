@@ -6,6 +6,8 @@ import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { restoreWithAudit } from '@/utils/persist/restoreWithAudit';
 import { useAutoSave } from '@/hooks/useAutoSave';
+import { useStage1PdfExport } from '@/hooks/useStage1PdfExport';
+import { StagePdfExportButton } from '@/components/export/StagePdfExportButton';
 import StrategyGuard from '@/app/StrategyGuard';
 
 import CompanyAndBusinessPanel from '@/components/stage1/CompanyAndBusinessPanel';
@@ -182,6 +184,9 @@ export default function Stage1Page() {
   const isManager = useUserStore((s) => s.isManager);
   const canEdit = isAdmin || isManager;
   const didRestoreRef = useRef(false);
+
+  // ★ STAGE1 PDF エクスポート
+  const { exportToPdf: stage1ExportToPdf } = useStage1PdfExport();
 
   // ★ Stage1 自動保存の有効化
   useAutoSave({
@@ -444,6 +449,8 @@ export default function Stage1Page() {
           </div>
 
           <div className="shrink-0 flex flex-col items-end gap-3">
+            <StagePdfExportButton exportToPdf={stage1ExportToPdf} />
+
             {!saveFn && (
               <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
                 storeに保存関数が見つかりません。strategyStore.ts に saveToSupabase / saveStrategyData
