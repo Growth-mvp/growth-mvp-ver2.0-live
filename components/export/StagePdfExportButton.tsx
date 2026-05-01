@@ -2,114 +2,87 @@
  * /components/export/StagePdfExportButton.tsx
  *
  * 目的：
- * - STAGE画面で使用するPDFエクスポートボタン
- * - 動的レンダリング対応（SSR回避）
+ * - STAGE1～4 PDF出力ボタンの統一コンポーネント
+ * - 見た目・ラベル・動作を統一
  */
 
 'use client';
 
-import React, { useState, useCallback } from 'react';
-import { Download } from 'lucide-react';
+import React, { useState } from 'react';
 
 interface StagePdfExportButtonProps {
-  stageNumber: 1 | 2 | 3 | 4 | 5 | 6;
-  reportType: string;
-  label?: string;
-  size?: 'sm' | 'md' | 'lg';
-  variant?: 'primary' | 'secondary' | 'ghost';
-  onExport?: () => Promise<void>;
+  /**
+   * PDF出力関数（useStageXPdfExport で提供される exportToPdf）
+   */
+  exportToPdf: () => Promise<void>;
+
+  /**
+   * ボタンを無効化するか（デフォルト: false）
+   */
+  disabled?: boolean;
+
+  /**
+   * クラス名を追加する（カスタマイズ用）
+   */
+  className?: string;
 }
 
-/**
- * STAGE PDF エクスポートボタン
- *
- * 使用例：
- * ```tsx
- * <StagePdfExportButton
- *   stageNumber={3}
- *   reportType="部門戦略レポート"
- *   label="PDF保存"
- *   onExport={async () => {
- *     // PDFダウンロード処理
- *   }}
- * />
- * ```
- */
 export function StagePdfExportButton({
-  stageNumber,
-  reportType,
-  label = 'PDF保存',
-  size = 'md',
-  variant = 'primary',
-  onExport,
+  exportToPdf,
+  disabled = false,
+  className = '',
 }: StagePdfExportButtonProps) {
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const handleExport = useCallback(async () => {
+  const handleClick = async () => {
+    if (isLoading || disabled) return;
+
+    setIsLoading(true);
     try {
-      setIsLoading(true);
-      setError(null);
-
-      if (onExport) {
-        await onExport();
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : '不明なエラーが発生しました';
-      setError(message);
-      console.error('[StagePdfExportButton] Error:', err);
+      await exportToPdf();
+    } catch (error) {
+      console.error('[StagePdfExportButton] PDF export failed:', error);
+      // ユーザーへのエラー通知は画面のtoastなどで行われると想定
     } finally {
       setIsLoading(false);
     }
-  }, [onExport]);
-
-  const sizeClasses = {
-    sm: 'px-3 py-1 text-sm gap-1',
-    md: 'px-4 py-2 text-base gap-2',
-    lg: 'px-6 py-3 text-lg gap-2',
   };
-
-  const variantClasses = {
-    primary:
-      'bg-black text-white hover:bg-gray-800 disabled:bg-gray-400',
-    secondary:
-      'bg-gray-100 text-black hover:bg-gray-200 disabled:bg-gray-300',
-    ghost:
-      'bg-transparent text-gray-700 hover:bg-gray-100 disabled:opacity-50',
-  };
-
-  const iconSize = size === 'sm' ? 16 : size === 'md' ? 20 : 24;
 
   return (
-    <div>
-      <button
-        onClick={handleExport}
-        disabled={isLoading}
-        className={`
-          ${sizeClasses[size]}
-          ${variantClasses[variant]}
-          inline-flex items-center rounded-lg font-medium
-          transition-colors duration-200
-          cursor-pointer
-          ${isLoading ? 'opacity-60 cursor-wait' : ''}
-        `}
-        title={label}
+    <button
+      onClick={handleClick}
+      disabled={isLoading || disabled}
+      className={`
+        inline-flex items-center gap-2
+        px-4 py-2
+        bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:hover:bg-gray-200
+        text-white dark:text-gray-900
+        rounded-lg
+        text-sm font-semibold
+        transition-colors duration-200
+        disabled:opacity-50 disabled:cursor-not-allowed
+        ${className}
+      `}
+      title="STAGE内容をPDF形式で出力します"
+    >
+      {/* ダウンロードアイコン */}
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       >
-        <Download size={iconSize} />
-        {isLoading ? '生成中...' : label}
-      </button>
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline points="7 10 12 15 17 10" />
+        <line x1="12" y1="15" x2="12" y2="3" />
+      </svg>
 
-      {error && (
-        <p
-          style={{
-            marginTop: '0.5rem',
-            fontSize: '0.875rem',
-            color: '#dc2626',
-          }}
-        >
-          {error}
-        </p>
-      )}
-    </div>
+      {/* ラベル */}
+      <span>{isLoading ? '出力中...' : 'PDF出力'}</span>
+    </button>
   );
 }
