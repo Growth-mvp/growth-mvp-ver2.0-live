@@ -9,6 +9,8 @@ import { formatMillion, safeNumber, toMillionYen, inferScaleToMillion, safeRatio
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { useAutoSave } from '@/hooks/useAutoSave';
+import { useStage2PdfExport } from '@/hooks/useStage2PdfExport';
+import { StagePdfExportButton } from '@/components/export/StagePdfExportButton';
 import {
   getStage1DataWithFallback,
   loadStage1SnapshotFromLocalStorage,
@@ -1470,6 +1472,9 @@ function Questions12Section({
 function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: boolean; disabled?: boolean } = {}) {
   const router = useRouter();
 
+  // ★ STAGE2 PDF エクスポート
+  const { exportToPdf: stage2ExportToPdf } = useStage2PdfExport();
+
   // Store / User
   const storeIssues = useStrategyStore((s: StrategyState) => s.stage1Issues);
   const storeValueAnalysis = useStrategyStore((s: StrategyState) => s.valueAnalysis);
@@ -2903,12 +2908,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
             </p>
           </div>
           <div className="flex items-center gap-4">
-            <button
-              onClick={() => router.push('/stage1')}
-              className="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-            >
-              ← STAGE1に戻る
-            </button>
+            <StagePdfExportButton exportToPdf={stage2ExportToPdf} />
           </div>
         </div>
       </header>
