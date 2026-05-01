@@ -2,9 +2,11 @@
  * /utils/export/buildStrategyReportData.ts
  *
  * 目的：
- * - StrategyStore のデータから、レポート出力用のデータを構築
+ * - StrategyStore のデータから、統合レポート用のデータを構築
+ * - STAGE1〜4の要約をすべて取得
  * - 読み取り専用（データの変更は一切しない）
  * - 不足データは graceful に処理（未入力表記）
+ * - 内部情報（fact-seg, fact-cust, DEBUG等）をフィルタリング
  *
  * 使用箇所：
  * - StrategyReportView.tsx で呼び出し
@@ -29,130 +31,215 @@ export interface ReportData {
   reportGeneratedAt: string; // ISO 8601
   reportType: string; // 常に "戦略実行レポート"
 
-  // 経営戦略サマリー
-  mvv: {
-    mission: string;
-    vision: string;
-    value: string;
+  // STAGE1：企業価値分析
+  stage1: {
+    industry: string;
+    revenue: string;
+    employees: string;
+    businessContent: string;
+    businessSegments: Array<{ name: string }>;
+    swot: {
+      strength: string[];
+      weakness: string[];
+      opportunity: string[];
+      threat: string[];
+    };
   };
 
-  mainIssues: string[]; // 主要課題（ボード上で抽出）
-  strategyDirection: string; // 戦略方針
-
-  // ストーリー
-  storyChapters: Array<{
-    index: number;
-    title: string;
-    content: string;
-  }>;
-
-  // 勝ち筋
-  winPatterns: {
-    primary?: string;
-    secondary?: string;
-  };
-
-  // 部門戦略
-  departments: Array<{
-    name: string;
-    mission: string;
-    missionDescription: string; // 再考ポイント等
-    projects: Array<{
+  // STAGE2：経営戦略
+  stage2: {
+    mvv: {
+      mission: string;
+      vision: string;
+      value: string;
+    };
+    ceoThought: string;
+    storyChapters: Array<{
+      index: number;
       title: string;
-      hypothesis: string;
-      kpiTargets: string[];
-      expectedImpactYen?: number;
-      probability?: number;
+      content: string;
     }>;
-  }>;
+    winPatterns: {
+      primary?: string;
+      secondary?: string;
+    };
+  };
 
-  // OKR実行計画
-  okrs: Array<{
-    departmentName: string;
-    objective: string;
-    keyResults: Array<{
-      statement: string;
-      owner?: string;
-      targetValue?: string;
+  // STAGE3：部門戦略
+  stage3: {
+    departments: Array<{
+      name: string;
+      mission: string;
+      missionDescription: string;
+      projects: Array<{
+        title: string;
+        hypothesis: string;
+        kpiTargets: string[];
+        expectedImpactYen?: number;
+        probability?: number;
+      }>;
     }>;
-  }>;
+  };
+
+  // STAGE4：OKR実行計画
+  stage4: {
+    okrs: Array<{
+      departmentName: string;
+      projectName: string;
+      objective: string;
+      keyResults: Array<{
+        statement: string;
+        owner?: string;
+      }>;
+    }>;
+  };
 
   // 実行上の論点
   executionNotes: {
     crossDepartmentalIssues?: string[];
     risks?: string[];
-    cooperationRequests?: string[];
   };
 }
 
 /**
  * StrategyStore から ReportData を構築
  * - ブラウザ側 useStrategyStore.getState() の結果を渡す
+ * - STAGE1〜4の全データを統合
  */
 export function buildStrategyReportData(state: StrategyState): ReportData {
   const now = new Date();
   const reportGeneratedAt = now.toISOString();
-
-  // ===== 基本情報 =====
   const companyName = state.companyName || '（会社名未入力）';
-
-  // ===== MVV =====
-  const mvv = {
-    mission: state.mission || '（ミッション未入力）',
-    vision: state.vision || '（ビジョン未入力）',
-    value: state.value || '（バリュー未入力）',
-  };
-
-  // ===== 主要課題・戦略方針 =====
-  const mainIssues = extractMainIssues(state);
-  const strategyDirection = state.thought || '（戦略方針未入力）';
-
-  // ===== ストーリー（STAGE2） =====
-  const storyChapters = extractStoryChapters(state);
-
-  // ===== 勝ち筋 =====
-  const winPatterns = {
-    primary: (state as any)?.winPatternPrimary || undefined,
-    secondary: (state as any)?.winPatternSecondary || undefined,
-  };
-
-  // ===== 部門戦略 =====
-  const departments = extractDepartments(state);
-
-  // ===== OKR実行計画 =====
-  const okrs = extractOkrs(state);
-
-  // ===== 実行上の論点 =====
-  const executionNotes = extractExecutionNotes(state);
 
   return {
     companyName,
     reportGeneratedAt,
     reportType: '戦略実行レポート',
-    mvv,
-    mainIssues,
-    strategyDirection,
-    storyChapters,
-    winPatterns,
-    departments,
-    okrs,
-    executionNotes,
+
+    // STAGE1：企業価値分析
+    stage1: extractStage1Data(state),
+
+    // STAGE2：経営戦略
+    stage2: extractStage2Data(state),
+
+    // STAGE3：部門戦略
+    stage3: extractStage3Data(state),
+
+    // STAGE4：OKR実行計画
+    stage4: extractStage4Data(state),
+
+    // 実行上の論点
+    executionNotes: extractExecutionNotes(state),
   };
 }
 
 /**
- * 主要課題を抽出（board, thought など）
+ * STAGE1 データを抽出
  */
-function extractMainIssues(state: StrategyState): string[] {
-  // state に board フィールドがあれば利用
-  const board = (state as any)?.board;
-  if (Array.isArray(board) && board.length > 0) {
-    return board
-      .filter((b: any) => b?.content)
-      .map((b: any) => b.content)
-      .slice(0, 5); // 最大5件
+function extractStage1Data(state: StrategyState) {
+  const businessSegments = state.businessSegments || [];
+  const swotArray = (term: string): string[] => {
+    const value = (state as any)?.[term];
+    if (!value) return [];
+    if (Array.isArray(value)) return value.filter((v: any) => v && typeof v === 'string').map(sanitizeText);
+    if (typeof value === 'string') return value.trim() ? [sanitizeText(value)] : [];
+    return [];
+  };
+
+  return {
+    industry: sanitizeText(state.industry || '（未入力）'),
+    revenue: sanitizeText(state.revenue || '（未入力）'),
+    employees: sanitizeText(state.employees || '（未入力）'),
+    businessContent: sanitizeText(state.businessContent || '（未入力）'),
+    businessSegments: businessSegments
+      .filter((seg: any) => seg?.name)
+      .map((seg: any) => ({ name: sanitizeText(seg.name) })),
+    swot: {
+      strength: swotArray('strength'),
+      weakness: swotArray('weakness'),
+      opportunity: swotArray('opportunity'),
+      threat: swotArray('threat'),
+    },
+  };
+}
+
+/**
+ * STAGE2 データを抽出
+ */
+function extractStage2Data(state: StrategyState) {
+  return {
+    mvv: {
+      mission: sanitizeText(state.mission || '（未入力）'),
+      vision: sanitizeText(state.vision || '（未入力）'),
+      value: sanitizeText(state.value || '（未入力）'),
+    },
+    ceoThought: sanitizeText(state.thought || '（未入力）'),
+    storyChapters: extractStoryChapters(state),
+    winPatterns: {
+      primary: sanitizeText((state as any)?.winPatternPrimary || undefined),
+      secondary: sanitizeText((state as any)?.winPatternSecondary || undefined),
+    },
+  };
+}
+
+/**
+ * STAGE3 データを抽出
+ */
+function extractStage3Data(state: StrategyState) {
+  const deptList = state.departments || [];
+  return {
+    departments: deptList.map((dept: Department) => ({
+      name: sanitizeText(dept.name || '（部門名未入力）'),
+      mission: sanitizeText(dept.mission || '（ミッション未入力）'),
+      missionDescription: sanitizeText(extractMissionDescription(dept) || '（説明未入力）'),
+      projects: extractProjects(dept),
+    })),
+  };
+}
+
+/**
+ * STAGE4 データを抽出
+ * ★ 修正：departments[].projects[].okrs から正しく取得
+ */
+function extractStage4Data(state: StrategyState) {
+  const departments = state.departments || [];
+  const okrs: ReportData['stage4']['okrs'] = [];
+
+  for (const dept of departments) {
+    const projects = dept.projects || [];
+    for (const proj of projects) {
+      const projOkrs = (proj as any)?.okrs;
+      if (!Array.isArray(projOkrs)) continue;
+
+      for (const okr of projOkrs) {
+        if (!okr?.objective) continue;
+
+        const keyResults = Array.isArray(okr.keyResults)
+          ? okr.keyResults.map((kr: any) => {
+              const statement =
+                typeof kr === 'string'
+                  ? kr
+                  : typeof kr === 'object'
+                    ? kr?.statement || kr?.label || kr?.title || '（KR未入力）'
+                    : '（KR未入力）';
+              return {
+                statement: sanitizeText(statement),
+                owner: sanitizeText(okr.owner || undefined),
+              };
+            })
+          : [];
+
+        okrs.push({
+          departmentName: sanitizeText(dept.name || '（部門名未入力）'),
+          projectName: sanitizeText(proj.title || '（プロジェクト名未入力）'),
+          objective: sanitizeText(okr.objective),
+          keyResults,
+        });
+      }
+    }
   }
-  return [];
+
+  return { okrs };
 }
 
 /**
@@ -167,8 +254,8 @@ function extractStoryChapters(
     return chapters
       .map((ch: any, idx: number) => ({
         index: idx + 1,
-        title: ch?.title || `第${idx + 1}章`,
-        content: ch?.content || '（未入力）',
+        title: sanitizeText(ch?.title || `第${idx + 1}章`),
+        content: sanitizeText(ch?.content || '（未入力）'),
       }))
       .slice(0, 4); // 最大4章
   }
@@ -178,8 +265,8 @@ function extractStoryChapters(
     return [
       {
         index: 1,
-        title: 'ストーリー',
-        content: state.story,
+        title: '戦略ストーリー',
+        content: sanitizeText(state.story),
       },
     ];
   }
@@ -189,27 +276,13 @@ function extractStoryChapters(
     return [
       {
         index: 1,
-        title: 'ストーリー',
-        content: (state as any).finalStory,
+        title: '戦略ストーリー',
+        content: sanitizeText((state as any).finalStory),
       },
     ];
   }
 
   return [];
-}
-
-/**
- * 部門戦略を抽出
- */
-function extractDepartments(state: StrategyState): ReportData['departments'] {
-  const deptList = state.departments || [];
-  return deptList.map((dept: Department) => ({
-    name: dept.name || '（部門名未入力）',
-    mission: dept.mission || '（ミッション未入力）',
-    missionDescription:
-      extractMissionDescription(dept) || '（説明未入力）',
-    projects: extractProjects(dept),
-  }));
 }
 
 /**
@@ -239,16 +312,17 @@ function extractMissionDescription(dept: Department): string {
  */
 function extractProjects(
   dept: Department,
-): ReportData['departments'][0]['projects'] {
+): ReportData['stage3']['departments'][0]['projects'] {
   const projects = dept.projects || [];
   return projects.map((proj: Project) => ({
-    title: proj.title || '（プロジェクト名未入力）',
-    hypothesis:
+    title: sanitizeText(proj.title || '（プロジェクト名未入力）'),
+    hypothesis: sanitizeText(
       typeof proj.hypothesis === 'string'
         ? proj.hypothesis
         : typeof proj.hypothesis === 'object'
           ? (proj.hypothesis as any)?.statement || '（仮説未入力）'
           : '（仮説未入力）',
+    ),
     kpiTargets: extractKpiTargets(proj),
     expectedImpactYen: (proj as any)?.expectedImpactYen,
     probability: (proj as any)?.probability,
@@ -266,14 +340,18 @@ function extractKpiTargets(proj: Project): string[] {
     const okrs = proj.okrs as OKR[];
     okrs.forEach((okr) => {
       if (okr.objective) {
-        targets.push(okr.objective);
+        targets.push(sanitizeText(okr.objective));
       }
       if (Array.isArray(okr.keyResults)) {
         okr.keyResults.forEach((kr: any) => {
-          if (typeof kr === 'string') {
-            targets.push(kr);
-          } else if (typeof kr === 'object' && kr?.statement) {
-            targets.push(kr.statement);
+          const text =
+            typeof kr === 'string'
+              ? kr
+              : typeof kr === 'object'
+                ? kr?.statement || kr?.label || kr?.title || ''
+                : '';
+          if (text) {
+            targets.push(sanitizeText(text));
           }
         });
       }
@@ -281,59 +359,6 @@ function extractKpiTargets(proj: Project): string[] {
   }
 
   return targets.slice(0, 5); // 最大5件
-}
-
-/**
- * OKR実行計画を抽出（STAGE4）
- */
-function extractOkrs(state: StrategyState): ReportData['okrs'] {
-  const stage4Plans = (state as any)?.stage4Plans;
-  const departments = state.departments || [];
-
-  if (!Array.isArray(stage4Plans) || stage4Plans.length === 0) {
-    return [];
-  }
-
-  const result: ReportData['okrs'] = [];
-
-  for (const plan of stage4Plans) {
-    const departmentName = findDepartmentNameById(
-      plan.departmentId,
-      departments,
-    );
-
-    const keyResults = (plan.keyResults || []).map((kr: any) => ({
-      statement:
-        typeof kr === 'string'
-          ? kr
-          : typeof kr === 'object'
-            ? kr?.statement || kr?.title || '（KR未入力）'
-            : '（KR未入力）',
-      owner: plan.owner || undefined,
-      targetValue: undefined,
-    }));
-
-    result.push({
-      departmentName,
-      objective: plan.objective || '（Objective未入力）',
-      keyResults,
-    });
-  }
-
-  return result;
-}
-
-/**
- * 部門IDから部門名を取得
- */
-function findDepartmentNameById(
-  deptId: string,
-  departments: Department[],
-): string {
-  const dept = departments.find(
-    (d) => (d.id || d.name) === deptId || d.name === deptId,
-  );
-  return dept?.name || '（部門名不明）';
 }
 
 /**
@@ -352,7 +377,8 @@ function extractExecutionNotes(
       const answers = (dept as any).answers2 as ChapterAnswers[];
       for (const ans of answers) {
         if (ans?.content && ans.content.includes('協力')) {
-          crossDeptIssues.push(ans.content.substring(0, 100));
+          const sanitized = sanitizeText(ans.content.substring(0, 100));
+          if (sanitized) crossDeptIssues.push(sanitized);
         }
       }
     }
@@ -361,16 +387,39 @@ function extractExecutionNotes(
     notes.crossDepartmentalIssues = crossDeptIssues.slice(0, 3);
   }
 
-  // risks（strategy フィールドから抽出）
+  // risks（threat フィールドから抽出）
   const risks: string[] = [];
   if (typeof state.threat === 'string' && state.threat.trim()) {
-    risks.push(state.threat);
+    const sanitized = sanitizeText(state.threat);
+    if (sanitized) risks.push(sanitized);
   }
   if (risks.length > 0) {
     notes.risks = risks;
   }
 
   return notes;
+}
+
+/**
+ * テキストをサニタイズ：内部情報（fact-seg, fact-cust, DEBUG等）を除去
+ */
+export function sanitizeText(text: string | undefined | null): string {
+  if (!text) return '';
+
+  let sanitized = String(text)
+    // 内部ID・ファクト情報を除去
+    .replace(/\bfact-seg-\d+\b/gi, '')
+    .replace(/\bfact-cust-\d+\b/gi, '')
+    .replace(/\bfact-\w+\b/gi, '')
+    // DEBUG関連を除去
+    .replace(/\【DEBUG\】/g, '')
+    .replace(/\[DEBUG\]/gi, '')
+    .replace(/DEBUG[:\s]*\S*/gi, '')
+    // 複数の空白を1つに
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return sanitized;
 }
 
 /**
