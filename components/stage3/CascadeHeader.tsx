@@ -1,6 +1,12 @@
 'use client';
 
-export function CascadeHeader() {
+import { StagePdfExportButton } from '@/components/export/StagePdfExportButton';
+
+interface CascadeHeaderProps {
+  exportToPdf?: () => Promise<void>;
+}
+
+export function CascadeHeader({ exportToPdf }: CascadeHeaderProps) {
   return (
     <header className="mb-8 flex items-start justify-between gap-4">
       <div>
@@ -9,6 +15,11 @@ export function CascadeHeader() {
           経営ストーリーを基に、各部門のミッション・プロジェクト案・KPI案を全体最適を図りながら、部門長・マネージャー層で議論し、明確化します。
         </p>
       </div>
+      {exportToPdf && (
+        <div className="shrink-0">
+          <StagePdfExportButton exportToPdf={exportToPdf} />
+        </div>
+      )}
     </header>
   );
 }
