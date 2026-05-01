@@ -2,9 +2,9 @@
  * /components/export/StrategyReportView.tsx
  *
  * 目的：
- * - レポートデータを表示する React コンポーネント
- * - 印刷(window.print())に対応した CSS
- * - Apple風ミニマルデザイン
+ * - GROWTH統合レポートのプレビュー表示
+ * - STAGE1〜4の要約を統合表示
+ * - 白紙ページなし、章立て明確化
  */
 
 'use client';
@@ -26,9 +26,9 @@ export function StrategyReportView({ data }: StrategyReportViewProps) {
           margin: 0 auto;
           background: white;
           color: #333;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-            sans-serif;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
           line-height: 1.6;
+          font-size: 14px;
         }
 
         /* ===== 印刷設定 ===== */
@@ -38,24 +38,17 @@ export function StrategyReportView({ data }: StrategyReportViewProps) {
             margin: 0;
           }
 
-          /* ナビゲーション・ボタンを非表示 */
           .no-print {
             display: none !important;
           }
 
-          /* ページ区切り */
           .page-break {
             page-break-after: always;
           }
 
-          .no-page-break {
-            page-break-inside: avoid;
-          }
-
-          /* A4サイズ */
           @page {
             size: A4;
-            margin: 1cm;
+            margin: 0;
           }
 
           body {
@@ -64,32 +57,43 @@ export function StrategyReportView({ data }: StrategyReportViewProps) {
           }
         }
 
-        /* ===== セクション =====*/
-        .report-section {
-          margin-bottom: 3rem;
-          padding: 2rem;
-          border-radius: 8px;
-          background: #fafafa;
-          page-break-inside: avoid;
-        }
-
-        .report-section.cover {
+        /* ===== 表紙 ===== */
+        .report-cover {
           background: white;
           border-top: 4px solid #000;
           display: flex;
           flex-direction: column;
           justify-content: center;
           align-items: center;
-          min-height: 100vh;
+          min-height: auto;
+          height: 100vh;
           text-align: center;
+          page-break-inside: avoid;
+          page-break-after: always;
+          padding: 2rem;
+          box-sizing: border-box;
+        }
+
+        @media print {
+          .report-cover {
+            height: auto;
+            min-height: auto;
+            page-break-after: always;
+          }
+        }
+
+        /* ===== セクション ===== */
+        .report-section {
+          padding: 2rem;
+          margin-bottom: 2rem;
           page-break-inside: avoid;
         }
 
-        .report-section.title-only {
-          background: white;
-          border: none;
-          padding: 2rem;
-          margin-bottom: 1.5rem;
+        @media print {
+          .report-section {
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+          }
         }
 
         /* ===== 見出し ===== */
@@ -101,7 +105,7 @@ export function StrategyReportView({ data }: StrategyReportViewProps) {
         }
 
         .report-h2 {
-          font-size: 1.8rem;
+          font-size: 1.6rem;
           font-weight: 600;
           margin: 2rem 0 1rem 0;
           padding-bottom: 0.5rem;
@@ -112,7 +116,7 @@ export function StrategyReportView({ data }: StrategyReportViewProps) {
         .report-h3 {
           font-size: 1.2rem;
           font-weight: 600;
-          margin: 1.5rem 0 0.5rem 0;
+          margin: 1.5rem 0 0.75rem 0;
           color: #333;
         }
 
@@ -130,51 +134,14 @@ export function StrategyReportView({ data }: StrategyReportViewProps) {
           color: #555;
         }
 
-        .report-text.large {
+        .report-text-large {
           font-size: 1.1rem;
           color: #333;
         }
 
-        .report-text.muted {
+        .report-muted {
           color: #999;
           font-style: italic;
-        }
-
-        /* ===== グリッド ===== */
-        .report-grid {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 1.5rem;
-          margin: 1rem 0;
-        }
-
-        @media (min-width: 768px) {
-          .report-grid {
-            grid-template-columns: 1fr 1fr;
-          }
-        }
-
-        .report-grid-item {
-          padding: 1rem;
-          border: 1px solid #e0e0e0;
-          border-radius: 6px;
-          background: white;
-          page-break-inside: avoid;
-        }
-
-        .report-grid-item-label {
-          font-size: 0.85rem;
-          font-weight: 600;
-          color: #999;
-          text-transform: uppercase;
-          margin-bottom: 0.5rem;
-        }
-
-        .report-grid-item-value {
-          font-size: 1.1rem;
-          font-weight: 500;
-          color: #333;
-          word-wrap: break-word;
         }
 
         /* ===== リスト ===== */
@@ -188,42 +155,56 @@ export function StrategyReportView({ data }: StrategyReportViewProps) {
           color: #555;
         }
 
-        .report-list li::marker {
-          color: #ccc;
+        /* ===== グリッド ===== */
+        .report-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 1.5rem;
+          margin: 1rem 0;
+        }
+
+        @media (max-width: 768px) {
+          .report-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        .report-grid-item {
+          padding: 1rem;
+          border: 1px solid #e0e0e0;
+          border-radius: 6px;
+          background: white;
+        }
+
+        .report-grid-label {
+          font-size: 0.85rem;
+          font-weight: 600;
+          color: #999;
+          text-transform: uppercase;
+          margin-bottom: 0.5rem;
+        }
+
+        .report-grid-value {
+          font-size: 1.1rem;
+          font-weight: 500;
+          color: #333;
         }
 
         /* ===== カード ===== */
         .report-card {
           padding: 1.5rem;
+          margin: 1rem 0;
           border: 1px solid #e0e0e0;
           border-radius: 6px;
-          background: white;
-          margin: 1rem 0;
+          background: #f9f9f9;
           page-break-inside: avoid;
-        }
-
-        .report-card-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: baseline;
-          margin-bottom: 1rem;
-          flex-wrap: wrap;
-          gap: 1rem;
         }
 
         .report-card-title {
           font-size: 1.1rem;
           font-weight: 600;
           color: #333;
-        }
-
-        .report-card-badge {
-          font-size: 0.75rem;
-          padding: 0.3rem 0.6rem;
-          background: #f0f0f0;
-          border-radius: 4px;
-          color: #666;
-          font-weight: 500;
+          margin-bottom: 0.5rem;
         }
 
         /* ===== テーブル ===== */
@@ -247,182 +228,196 @@ export function StrategyReportView({ data }: StrategyReportViewProps) {
           color: #333;
         }
 
-        .report-table tr:last-child td {
-          border-bottom: none;
-        }
-
-        /* ===== 余白 ===== */
-        .report-spacer {
-          height: 2rem;
-        }
-
-        .report-divider {
-          height: 1px;
-          background: #e0e0e0;
-          margin: 2rem 0;
-        }
-
-        /* ===== 印刷用制御 ===== */
-        @media print {
-          .report-section {
-            padding: 0;
-            margin-bottom: 2rem;
-            background: none;
-            border-radius: 0;
-          }
-
-          .report-card,
-          .report-grid-item {
-            page-break-inside: avoid;
-            border: none;
-            border-bottom: 1px solid #e0e0e0;
-            padding-bottom: 1rem;
-          }
-
-          .report-section.cover {
-            page-break-after: always;
-          }
+        /* ===== Confidential フッター ===== */
+        .report-footer {
+          margin-top: 4rem;
+          padding-top: 2rem;
+          border-top: 1px solid #e0e0e0;
+          text-align: center;
+          color: #999;
+          font-size: 0.85rem;
         }
       `}</style>
 
       {/* ===== 表紙 ===== */}
-      <div className="report-section cover page-break">
+      <div className="report-cover page-break">
         <div>
-          <div
-            style={{
-              fontSize: '0.9rem',
-              color: '#999',
-              marginBottom: '2rem',
-              textTransform: 'uppercase',
-            }}
-          >
+          <div style={{ fontSize: '0.9rem', color: '#999', marginBottom: '2rem', textTransform: 'uppercase' }}>
             GROWTH Strategic Execution Report
           </div>
 
-          <h1 className="report-h1">戦略実行レポート</h1>
+          <h1 className="report-h1">GROWTH 戦略実行レポート</h1>
 
-          <div style={{ fontSize: '1.5rem', fontWeight: '500', margin: '2rem 0' }}>
-            {data.companyName}
-          </div>
+          <div style={{ fontSize: '1.8rem', fontWeight: '500', margin: '3rem 0' }}>{data.companyName}</div>
 
-          <div style={{ color: '#999', marginBottom: '1rem' }}>
-            {formatReportDate(data.reportGeneratedAt)}
-          </div>
+          <div style={{ color: '#999', marginBottom: '2rem' }}>{formatReportDate(data.reportGeneratedAt)}</div>
 
-          <div
-            style={{
-              fontSize: '0.85rem',
-              color: '#ccc',
-              marginTop: '4rem',
-            }}
-          >
-            {data.reportType}
+          <div style={{ fontSize: '0.85rem', color: '#ccc', marginTop: '4rem' }}>
+            Confidential - Generated by GROWTH
           </div>
         </div>
       </div>
 
-      {/* ===== 経営戦略サマリー ===== */}
-      <div className="report-section no-page-break">
-        <h2 className="report-h2">経営戦略サマリー</h2>
+      {/* ===== 1. エグゼクティブサマリー ===== */}
+      <div className="report-section page-break">
+        <h2 className="report-h2">1. エグゼクティブサマリー</h2>
 
         <div className="report-grid">
           <div className="report-grid-item">
-            <div className="report-grid-item-label">ミッション</div>
-            <div className="report-grid-item-value">
-              {data.mvv.mission}
-            </div>
+            <div className="report-grid-label">ミッション</div>
+            <div className="report-grid-value">{data.stage2.mvv.mission}</div>
           </div>
           <div className="report-grid-item">
-            <div className="report-grid-item-label">ビジョン</div>
-            <div className="report-grid-item-value">
-              {data.mvv.vision}
-            </div>
+            <div className="report-grid-label">ビジョン</div>
+            <div className="report-grid-value">{data.stage2.mvv.vision}</div>
           </div>
         </div>
 
-        <div className="report-grid-item">
-          <div className="report-grid-item-label">バリュー（価値観）</div>
-          <div className="report-grid-item-value">
-            {data.mvv.value}
-          </div>
-        </div>
-
-        {data.mainIssues.length > 0 && (
+        {data.stage2.ceoThought && (
           <div style={{ marginTop: '1.5rem' }}>
-            <h3 className="report-h3">主要課題</h3>
+            <h3 className="report-h3">経営者の思い</h3>
+            <p className="report-text-large">{data.stage2.ceoThought}</p>
+          </div>
+        )}
+
+        {data.stage2.winPatterns.primary && (
+          <div style={{ marginTop: '1.5rem' }}>
+            <h3 className="report-h3">勝ち筋（プライマリ）</h3>
+            <p className="report-text-large">{data.stage2.winPatterns.primary}</p>
+          </div>
+        )}
+
+        {data.stage2.winPatterns.secondary && (
+          <div style={{ marginTop: '1rem' }}>
+            <h3 className="report-h3">勝ち筋（セカンダリ）</h3>
+            <p className="report-text-large">{data.stage2.winPatterns.secondary}</p>
+          </div>
+        )}
+      </div>
+
+      {/* ===== 2. STAGE1 企業価値分析 ===== */}
+      <div className="report-section page-break">
+        <h2 className="report-h2">2. STAGE1：企業価値分析</h2>
+
+        <h3 className="report-h3">企業概要</h3>
+        <div className="report-grid">
+          <div className="report-grid-item">
+            <div className="report-grid-label">業界</div>
+            <div className="report-grid-value">{data.stage1.industry}</div>
+          </div>
+          <div className="report-grid-item">
+            <div className="report-grid-label">売上</div>
+            <div className="report-grid-value">{data.stage1.revenue}</div>
+          </div>
+          <div className="report-grid-item">
+            <div className="report-grid-label">従業員数</div>
+            <div className="report-grid-value">{data.stage1.employees}</div>
+          </div>
+          <div className="report-grid-item">
+            <div className="report-grid-label">事業内容</div>
+            <div className="report-grid-value">{data.stage1.businessContent}</div>
+          </div>
+        </div>
+
+        {data.stage1.businessSegments.length > 0 && (
+          <div style={{ marginTop: '1.5rem' }}>
+            <h3 className="report-h3">事業セグメント</h3>
             <ul className="report-list">
-              {data.mainIssues.map((issue, idx) => (
-                <li key={idx}>{issue}</li>
+              {data.stage1.businessSegments.map((seg, idx) => (
+                <li key={idx}>{seg.name}</li>
               ))}
             </ul>
           </div>
         )}
 
-        <div style={{ marginTop: '1.5rem' }}>
-          <h3 className="report-h3">戦略方針</h3>
-          <p className="report-text large">{data.strategyDirection}</p>
-        </div>
+        {(data.stage1.swot.strength.length > 0 ||
+          data.stage1.swot.weakness.length > 0 ||
+          data.stage1.swot.opportunity.length > 0 ||
+          data.stage1.swot.threat.length > 0) && (
+          <div style={{ marginTop: '1.5rem' }}>
+            <h3 className="report-h3">SWOT分析</h3>
+
+            {data.stage1.swot.strength.length > 0 && (
+              <div style={{ marginTop: '1rem' }}>
+                <h4 className="report-h4">強み（Strength）</h4>
+                <ul className="report-list">
+                  {data.stage1.swot.strength.map((item, idx) => (
+                    <li key={idx}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {data.stage1.swot.weakness.length > 0 && (
+              <div style={{ marginTop: '1rem' }}>
+                <h4 className="report-h4">弱み（Weakness）</h4>
+                <ul className="report-list">
+                  {data.stage1.swot.weakness.map((item, idx) => (
+                    <li key={idx}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {data.stage1.swot.opportunity.length > 0 && (
+              <div style={{ marginTop: '1rem' }}>
+                <h4 className="report-h4">機会（Opportunity）</h4>
+                <ul className="report-list">
+                  {data.stage1.swot.opportunity.map((item, idx) => (
+                    <li key={idx}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {data.stage1.swot.threat.length > 0 && (
+              <div style={{ marginTop: '1rem' }}>
+                <h4 className="report-h4">脅威（Threat）</h4>
+                <ul className="report-list">
+                  {data.stage1.swot.threat.map((item, idx) => (
+                    <li key={idx}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* ===== 経営戦略ストーリー ===== */}
-      {data.storyChapters.length > 0 && (
-        <div className="report-section no-page-break page-break">
-          <h2 className="report-h2">経営戦略ストーリー</h2>
+      {/* ===== 3. STAGE2 経営戦略ストーリー ===== */}
+      {data.stage2.storyChapters.length > 0 && (
+        <div className="report-section page-break">
+          <h2 className="report-h2">3. STAGE2：経営戦略ストーリー</h2>
 
-          {data.storyChapters.map((chapter) => (
-            <div key={chapter.index} className="report-card">
-              <h3 className="report-h3">
-                第{chapter.index}章 {chapter.title}
-              </h3>
-              <p className="report-text large">{chapter.content}</p>
-            </div>
-          ))}
+          <h3 className="report-h3">バリュー（価値観）</h3>
+          <p className="report-text-large">{data.stage2.mvv.value}</p>
+
+          <div style={{ marginTop: '2rem' }}>
+            <h3 className="report-h3">戦略ストーリー</h3>
+            {data.stage2.storyChapters.map((chapter) => (
+              <div key={chapter.index} className="report-card">
+                <div className="report-card-title">
+                  第{chapter.index}章 {chapter.title}
+                </div>
+                <p className="report-text">{chapter.content}</p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* ===== 勝ち筋 ===== */}
-      {(data.winPatterns.primary || data.winPatterns.secondary) && (
-        <div className="report-section no-page-break">
-          <h2 className="report-h2">勝ち筋</h2>
+      {/* ===== 4. STAGE3 部門戦略 ===== */}
+      {data.stage3.departments.length > 0 && (
+        <div className="report-section page-break">
+          <h2 className="report-h2">4. STAGE3：部門戦略</h2>
 
-          {data.winPatterns.primary && (
-            <div className="report-card">
-              <div className="report-card-header">
-                <span className="report-card-title">
-                  プライマリ勝ち筋
-                </span>
-                <span className="report-card-badge">Primary</span>
-              </div>
-              <p className="report-text large">{data.winPatterns.primary}</p>
-            </div>
-          )}
-
-          {data.winPatterns.secondary && (
-            <div className="report-card">
-              <div className="report-card-header">
-                <span className="report-card-title">
-                  セカンダリ勝ち筋
-                </span>
-                <span className="report-card-badge">Secondary</span>
-              </div>
-              <p className="report-text large">{data.winPatterns.secondary}</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ===== 部門別戦略 ===== */}
-      {data.departments.length > 0 && (
-        <div className="report-section no-page-break page-break">
-          <h2 className="report-h2">部門別戦略</h2>
-
-          {data.departments.map((dept, idx) => (
-            <div key={idx} className="report-card">
+          {data.stage3.departments.map((dept, deptIdx) => (
+            <div key={deptIdx} className="report-card" style={{ marginBottom: '2rem' }}>
               <h3 className="report-h3">{dept.name}</h3>
 
               <div style={{ marginTop: '1rem' }}>
                 <h4 className="report-h4">ミッション</h4>
-                <p className="report-text large">{dept.mission}</p>
+                <p className="report-text">{dept.mission}</p>
               </div>
 
               {dept.missionDescription && (
@@ -433,59 +428,28 @@ export function StrategyReportView({ data }: StrategyReportViewProps) {
               )}
 
               {dept.projects.length > 0 && (
-                <div style={{ marginTop: '1.5rem' }}>
+                <div style={{ marginTop: '1rem' }}>
                   <h4 className="report-h4">プロジェクト</h4>
-                  {dept.projects.map((proj, pidx) => (
+                  {dept.projects.map((proj, projIdx) => (
                     <div
-                      key={pidx}
+                      key={projIdx}
                       style={{
                         marginTop: '0.75rem',
                         paddingLeft: '1rem',
                         borderLeft: '2px solid #e0e0e0',
                       }}
                     >
-                      <p
-                        style={{
-                          margin: '0 0 0.25rem 0',
-                          fontWeight: '500',
-                          color: '#333',
-                        }}
-                      >
+                      <p style={{ margin: '0 0 0.25rem 0', fontWeight: '500', color: '#333' }}>
                         {proj.title}
                       </p>
                       {proj.hypothesis && (
-                        <p
-                          className="report-text"
-                          style={{ margin: '0.25rem 0' }}
-                        >
+                        <p className="report-text" style={{ margin: '0.25rem 0' }}>
                           <strong>仮説:</strong> {proj.hypothesis}
                         </p>
                       )}
                       {proj.kpiTargets.length > 0 && (
-                        <p
-                          className="report-text"
-                          style={{ margin: '0.25rem 0' }}
-                        >
-                          <strong>KPI:</strong>{' '}
-                          {proj.kpiTargets.join(', ')}
-                        </p>
-                      )}
-                      {proj.expectedImpactYen && (
-                        <p
-                          className="report-text"
-                          style={{ margin: '0.25rem 0', color: '#0066cc' }}
-                        >
-                          <strong>期待インパクト:</strong>{' '}
-                          {(proj.expectedImpactYen / 1000000).toFixed(1)}M円
-                        </p>
-                      )}
-                      {proj.probability && (
-                        <p
-                          className="report-text"
-                          style={{ margin: '0.25rem 0' }}
-                        >
-                          <strong>成功確率:</strong>{' '}
-                          {(proj.probability * 100).toFixed(0)}%
+                        <p className="report-text" style={{ margin: '0.25rem 0' }}>
+                          <strong>KPI:</strong> {proj.kpiTargets.join(', ')}
                         </p>
                       )}
                     </div>
@@ -497,30 +461,29 @@ export function StrategyReportView({ data }: StrategyReportViewProps) {
         </div>
       )}
 
-      {/* ===== OKR実行計画 ===== */}
-      {data.okrs.length > 0 && (
-        <div className="report-section no-page-break page-break">
-          <h2 className="report-h2">OKR実行計画</h2>
+      {/* ===== 5. STAGE4 OKR実行計画 ===== */}
+      {data.stage4.okrs.length > 0 && (
+        <div className="report-section page-break">
+          <h2 className="report-h2">5. STAGE4：OKR実行計画</h2>
 
-          {data.okrs.map((okrGroup, idx) => (
+          {data.stage4.okrs.map((okrItem, idx) => (
             <div key={idx} className="report-card">
-              <div className="report-card-header">
-                <span className="report-card-title">
-                  {okrGroup.departmentName}
-                </span>
-              </div>
+              <h3 className="report-h3">{okrItem.departmentName}</h3>
+              <p style={{ color: '#999', fontSize: '0.9rem', margin: '0 0 0.75rem 0' }}>
+                プロジェクト: {okrItem.projectName}
+              </p>
 
               <div style={{ marginTop: '1rem' }}>
                 <h4 className="report-h4">Objective（目標）</h4>
-                <p className="report-text large">{okrGroup.objective}</p>
+                <p className="report-text-large">{okrItem.objective}</p>
               </div>
 
-              {okrGroup.keyResults.length > 0 && (
+              {okrItem.keyResults.length > 0 && (
                 <div style={{ marginTop: '1rem' }}>
                   <h4 className="report-h4">Key Results（成果指標）</h4>
                   <ul className="report-list">
-                    {okrGroup.keyResults.map((kr, kidx) => (
-                      <li key={kidx}>
+                    {okrItem.keyResults.map((kr, krIdx) => (
+                      <li key={krIdx}>
                         {kr.statement}
                         {kr.owner && (
                           <span style={{ color: '#999', fontSize: '0.9rem' }}>
@@ -538,68 +501,41 @@ export function StrategyReportView({ data }: StrategyReportViewProps) {
         </div>
       )}
 
-      {/* ===== 実行上の論点 ===== */}
-      {(data.executionNotes.crossDepartmentalIssues ||
-        data.executionNotes.risks ||
-        data.executionNotes.cooperationRequests) && (
-        <div className="report-section no-page-break">
-          <h2 className="report-h2">実行上の論点</h2>
+      {/* ===== 6. 実行に向けた確認事項 ===== */}
+      {(data.executionNotes.crossDepartmentalIssues?.length ||
+        data.executionNotes.risks?.length) && (
+        <div className="report-section">
+          <h2 className="report-h2">6. 実行に向けた確認事項</h2>
 
           {data.executionNotes.crossDepartmentalIssues &&
             data.executionNotes.crossDepartmentalIssues.length > 0 && (
               <div style={{ marginBottom: '1.5rem' }}>
                 <h3 className="report-h3">部門横断の確認事項</h3>
                 <ul className="report-list">
-                  {data.executionNotes.crossDepartmentalIssues.map(
-                    (issue, idx) => (
-                      <li key={idx}>{issue}</li>
-                    ),
-                  )}
-                </ul>
-              </div>
-            )}
-
-          {data.executionNotes.risks &&
-            data.executionNotes.risks.length > 0 && (
-              <div style={{ marginBottom: '1.5rem' }}>
-                <h3 className="report-h3">リスク</h3>
-                <ul className="report-list">
-                  {data.executionNotes.risks.map((risk, idx) => (
-                    <li key={idx}>{risk}</li>
+                  {data.executionNotes.crossDepartmentalIssues.map((issue, idx) => (
+                    <li key={idx}>{issue}</li>
                   ))}
                 </ul>
               </div>
             )}
 
-          {data.executionNotes.cooperationRequests &&
-            data.executionNotes.cooperationRequests.length > 0 && (
-              <div>
-                <h3 className="report-h3">協力要請</h3>
-                <ul className="report-list">
-                  {data.executionNotes.cooperationRequests.map(
-                    (req, idx) => (
-                      <li key={idx}>{req}</li>
-                    ),
-                  )}
-                </ul>
-              </div>
-            )}
+          {data.executionNotes.risks && data.executionNotes.risks.length > 0 && (
+            <div>
+              <h3 className="report-h3">リスク</h3>
+              <ul className="report-list">
+                {data.executionNotes.risks.map((risk, idx) => (
+                  <li key={idx}>{risk}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
       {/* ===== フッター ===== */}
-      <div
-        style={{
-          marginTop: '4rem',
-          paddingTop: '2rem',
-          borderTop: '1px solid #e0e0e0',
-          textAlign: 'center',
-          color: '#999',
-          fontSize: '0.85rem',
-        }}
-      >
-        <p>GROWTH by Anthropic</p>
-        <p>{formatReportDate(data.reportGeneratedAt)}</p>
+      <div className="report-footer">
+        <p>© GROWTH Strategic Execution Platform</p>
+        <p>生成日: {formatReportDate(data.reportGeneratedAt)}</p>
       </div>
     </div>
   );
