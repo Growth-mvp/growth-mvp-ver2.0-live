@@ -19,7 +19,8 @@ import {
   type ReportData,
 } from '@/utils/export/buildStrategyReportData';
 import { StrategyReportView } from '@/components/export/StrategyReportView';
-import { ExportPdfButton } from '@/components/export/ExportPdfButton';
+import { StagePdfExportButton } from '@/components/export/StagePdfExportButton';
+import { useFullStrategyPdfExport } from '@/hooks/useFullStrategyPdfExport';
 import StrategyGuard from '@/app/StrategyGuard';
 import { AlertCircle, ArrowLeft } from 'lucide-react';
 
@@ -33,9 +34,10 @@ export default function ReportPreviewPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // ===== Store =====
+  // ===== Store & Hooks =====
   const strategyState = useStrategyStore();
   const companyId = useUserStore((s) => s.companyId);
+  const { exportToPdf: fullStrategyExportToPdf } = useFullStrategyPdfExport();
 
   // ===== Effects =====
 
@@ -78,14 +80,6 @@ export default function ReportPreviewPage() {
 
   const handleBack = () => {
     router.back();
-  };
-
-  const handlePrintStart = () => {
-    console.log('[ReportPreview] print start');
-  };
-
-  const handlePrintEnd = () => {
-    console.log('[ReportPreview] print end');
   };
 
   // ===== Render =====
@@ -146,12 +140,8 @@ export default function ReportPreviewPage() {
           </div>
 
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <ExportPdfButton
-              label="PDF保存"
-              size="md"
-              variant="primary"
-              onBeforePrint={handlePrintStart}
-              onAfterPrint={handlePrintEnd}
+            <StagePdfExportButton
+              exportToPdf={fullStrategyExportToPdf}
             />
           </div>
         </div>
