@@ -17,6 +17,7 @@ import { StatusBadge, StatusSelect, type Status } from '@/components/stage4/Stat
 import { DiffViewer } from '@/components/stage4/DiffViewer';
 import { AlignmentPreview } from '@/components/stage4/AlignmentPreview';
 import { ProjectEditor } from '@/components/stage4/ProjectEditor';
+import SaveStatusIndicator from '@/components/SaveStatusIndicator';
 import type { Stage4Plan, Stage4Baseline, Stage4Current, Department, Project, HumanInvestment } from '@/types/strategy';
 
 /* =========================
