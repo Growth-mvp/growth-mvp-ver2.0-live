@@ -1,10 +1,13 @@
 'use client';
 
+import { StagePdfExportButton } from '@/components/export/StagePdfExportButton';
+
 interface OKRHeaderProps {
   isHydrating: boolean;
+  exportToPdf?: () => Promise<void>;
 }
 
-export function OKRHeader({ isHydrating }: OKRHeaderProps) {
+export function OKRHeader({ isHydrating, exportToPdf }: OKRHeaderProps) {
   return (
     <div className="mb-6 flex items-start justify-between gap-4">
       <div>
@@ -15,6 +18,7 @@ export function OKRHeader({ isHydrating }: OKRHeaderProps) {
         </div>
       </div>
       <div className="shrink-0 flex flex-col items-end gap-2">
+        {exportToPdf && <StagePdfExportButton exportToPdf={exportToPdf} />}
         <div className="text-right text-[11px] text-zinc-500">{isHydrating ? '読み込み中…' : '準備OK'}</div>
       </div>
     </div>
