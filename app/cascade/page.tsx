@@ -44,6 +44,8 @@ import { DepartmentAddForm } from '@/components/stage3/DepartmentAddForm';
 import { NoticeDisplay } from '@/components/stage3/NoticeDisplay';
 
 import { useAutoSave } from '@/hooks/useAutoSave';
+import { useStage3PdfExport } from '@/hooks/useStage3PdfExport';
+import { StagePdfExportButton } from '@/components/export/StagePdfExportButton';
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
 import { debugLog } from '@/utils/debug';
@@ -1920,6 +1922,9 @@ function CascadePageContent() {
     []
   );
 
+  /* ===== PDF Export ===== */
+  const { exportToPdf: stage3ExportToPdf } = useStage3PdfExport();
+
   /* ---- 初回ログだけ ---- */
   useEffect(() => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3637,6 +3642,18 @@ useEffect(() => {
         showForm={showForm}
         setShowForm={setShowForm}
       />
+
+      {/* PDF Export Button */}
+      <div className="flex gap-2">
+        <StagePdfExportButton
+          stageNumber={3}
+          reportType="部門戦略レポート"
+          label="PDF保存"
+          size="md"
+          variant="secondary"
+          onExport={stage3ExportToPdf}
+        />
+      </div>
 
       <DepartmentAddForm
         showForm={showForm}
