@@ -39,7 +39,7 @@ export default function Home() {
               transition={{ duration: 0.55 }}
               className="mx-auto max-w-5xl whitespace-nowrap text-[26px] font-semibold leading-[1.3] tracking-[-0.035em] text-neutral-900 sm:text-[33px] lg:text-[36px] dark:text-neutral-50"
             >
-              戦略を絞り、組織を動かし、業績を変える仕組み
+              やるべきことを絞り、現場を動かし、業績に変える仕組み
             </motion.h1>
 
             <motion.div
