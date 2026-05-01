@@ -38,7 +38,6 @@ import { ProjectListHeader } from '@/components/stage4/ProjectListHeader';
 import { ProjectSelectionPrompt } from '@/components/stage4/ProjectSelectionPrompt';
 import { DepartmentListItem } from '@/components/stage4/DepartmentListItem';
 import { useStage4PdfExport } from '@/hooks/useStage4PdfExport';
-import { StagePdfExportButton } from '@/components/export/StagePdfExportButton';
 
 import type { Department as DepartmentStrategy } from '@/types/strategy';
 import {
@@ -4426,19 +4425,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
     <div className="w-full px-6 py-6">
 
       {/* header */}
-      <OKRHeader isHydrating={isHydrating} />
-
-      {/* PDF Export Button */}
-      <div className="flex gap-2 mt-4">
-        <StagePdfExportButton
-          stageNumber={4}
-          reportType="OKR実行計画書"
-          label="PDF保存"
-          size="md"
-          variant="secondary"
-          onExport={stage4ExportToPdf}
-        />
-      </div>
+      <OKRHeader isHydrating={isHydrating} exportToPdf={stage4ExportToPdf} />
 
       {/* STAGE4 作業エリア：中央寄せ＆幅最適化 */}
       <div className="mx-auto max-w-6xl">
