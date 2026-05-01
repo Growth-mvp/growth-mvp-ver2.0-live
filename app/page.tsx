@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import Link from 'next/link';
 import PyramidNavigator from '@/components/home/PyramidNavigator';
 import ExecutionPanel from '@/components/home/ExecutionPanel';
+import { ExportPdfButton } from '@/components/export/ExportPdfButton';
 import { useUserStore } from '@/store/userStore';
 import { motion } from 'framer-motion';
 
@@ -54,13 +55,19 @@ export default function Home() {
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.74, delay: 0.18 }}
-              className="mt-12"
+              className="mt-12 flex flex-col items-center justify-center gap-4 sm:flex-row"
             >
               <Link
                 href="/stage1"
                 className="inline-flex min-w-[180px] items-center justify-center rounded-full bg-neutral-950 px-8 py-3 text-[15px] font-semibold text-white shadow-[0_14px_36px_rgba(0,0,0,0.14)] transition hover:-translate-y-0.5 hover:opacity-95 dark:bg-white dark:text-neutral-950"
               >
                 さっそく始める
+              </Link>
+              <Link
+                href="/report/preview"
+                className="inline-flex min-w-[180px] items-center justify-center rounded-full border-2 border-neutral-950 px-8 py-2.5 text-[15px] font-semibold text-neutral-950 transition hover:-translate-y-0.5 hover:bg-neutral-50 dark:border-white dark:text-white dark:hover:bg-neutral-950"
+              >
+                レポートを見る
               </Link>
             </motion.div>
           </div>
