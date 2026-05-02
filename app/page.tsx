@@ -32,12 +32,21 @@ export default function Home() {
       {/* ===== Hero ===== */}
       <section className="border-b border-neutral-200/60 bg-neutral-50 dark:border-neutral-900 dark:bg-neutral-950">
         <div className="container mx-auto px-6 pt-10 pb-6 sm:pt-12 sm:pb-8 lg:pt-14 lg:pb-9">
-          <div className="mx-auto max-w-5xl text-center">
+          <div className="mx-auto max-w-6xl text-center">
+            <motion.p
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5 }}
+              className="mx-auto text-[22px] font-medium leading-[1.42] tracking-[0.015em] text-neutral-900 sm:text-[25px] lg:text-[27px] dark:text-neutral-50"
+            >
+              過去の延長では、もう勝てない。
+            </motion.p>
+
             <motion.h1
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.55 }}
-              className="mx-auto max-w-5xl whitespace-nowrap text-[26px] font-semibold leading-[1.3] tracking-[-0.035em] text-neutral-900 sm:text-[33px] lg:text-[36px] dark:text-neutral-50"
+              transition={{ duration: 0.58, delay: 0.06 }}
+              className="mx-auto mt-7 max-w-6xl whitespace-nowrap text-[27px] font-bold leading-[1.3] tracking-[-0.045em] text-neutral-950 sm:text-[34px] lg:text-[36px] dark:text-neutral-50"
             >
               戦略を絞り、組織を動かし、業績を変える仕組み
             </motion.h1>
@@ -45,8 +54,8 @@ export default function Home() {
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.06 }}
-              className="mt-5 text-[21px] font-normal tracking-[0.02em] text-neutral-700 sm:text-[27px] lg:text-[32px] dark:text-neutral-200"
+              transition={{ duration: 0.6, delay: 0.12 }}
+              className="mt-4 text-[17px] font-medium tracking-[0.08em] text-neutral-700 sm:text-[20px] lg:text-[23px] dark:text-neutral-200"
             >
               GROWTH ｜ 戦略実行プラットフォーム
             </motion.div>
@@ -55,7 +64,7 @@ export default function Home() {
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.74, delay: 0.18 }}
-              className="mt-12 flex flex-col items-center justify-center gap-4 sm:flex-row"
+              className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row"
             >
               <Link
                 href="/stage1"
