@@ -31,40 +31,40 @@ export default function Home() {
     <main className="min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-white">
       {/* ===== Hero ===== */}
       <section className="border-b border-neutral-200/60 bg-neutral-50 dark:border-neutral-900 dark:bg-neutral-950">
-        <div className="container mx-auto px-6 pt-10 pb-6 sm:pt-12 sm:pb-8 lg:pt-14 lg:pb-9">
-          <div className="mx-auto max-w-6xl text-center">
-            <motion.p
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-              className="mx-auto text-[22px] font-medium leading-[1.42] tracking-[0.015em] text-neutral-900 sm:text-[25px] lg:text-[27px] dark:text-neutral-50"
-            >
-              過去の延長では、もう勝てない。
-            </motion.p>
-
+        <div className="container mx-auto px-6 pt-14 pb-5 sm:pt-16 sm:pb-6 lg:pt-20 lg:pb-7">
+          <div className="mx-auto max-w-6xl -translate-y-4 text-center sm:-translate-y-5 lg:-translate-y-6">
             <motion.h1
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.58, delay: 0.06 }}
-              className="mx-auto mt-7 max-w-6xl whitespace-nowrap text-[27px] font-bold leading-[1.3] tracking-[-0.045em] text-neutral-950 sm:text-[34px] lg:text-[36px] dark:text-neutral-50"
+              transition={{ duration: 0.58 }}
+              className="mx-auto max-w-6xl whitespace-nowrap text-[clamp(34px,6.8vw,43px)] font-bold leading-[1.08] tracking-[-0.055em] text-neutral-950 dark:text-neutral-50"
             >
-              戦略を絞り、組織を動かし、業績を変える仕組み
+              過去の延長では、もう勝てない。
             </motion.h1>
 
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.12 }}
-              className="mt-4 text-[17px] font-medium tracking-[0.08em] text-neutral-700 sm:text-[20px] lg:text-[23px] dark:text-neutral-200"
+              transition={{ duration: 0.6, delay: 0.08 }}
+              className="mt-7 text-[18px] font-semibold tracking-[0.08em] text-neutral-800 sm:text-[21px] lg:text-[24px] dark:text-neutral-100"
             >
               GROWTH ｜ 戦略実行プラットフォーム
             </motion.div>
+
+            <motion.p
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.14 }}
+              className="mx-auto mt-4 max-w-4xl text-[16px] font-medium leading-[1.8] tracking-[0.05em] text-neutral-500 sm:text-[18px] lg:text-[19px] dark:text-neutral-400"
+            >
+              戦略を絞り、組織を動かし、業績を変える仕組み
+            </motion.p>
 
             <motion.div
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.74, delay: 0.18 }}
-              className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row"
+              className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row"
             >
               <Link
                 href="/stage1"
@@ -84,8 +84,7 @@ export default function Home() {
       </section>
 
       {/* ===== Overview Panels ===== */}
-      <section className="container mx-auto px-6 pb-16 lg:pb-20">
-        <div className="h-4 sm:h-5 lg:h-6" />
+      <section className="container mx-auto px-6 pt-0 pb-14 sm:pt-0 lg:pt-0 lg:pb-16">
         <h2 className="sr-only">GROWTHトップ概要</h2>
 
         <motion.div
@@ -95,43 +94,45 @@ export default function Home() {
           transition={{ duration: 0.6 }}
           className="motion-reduce:transition-none motion-reduce:transform-none"
         >
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-stretch">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-stretch">
             {/* LEFT: STRATEGY */}
-            <div className="h-full overflow-hidden rounded-[28px] border border-neutral-200/70 bg-white shadow-[0_1px_30px_rgba(0,0,0,0.06)] dark:border-neutral-800 dark:bg-neutral-950">
-              <div className="border-b border-neutral-200/80 px-6 py-5 dark:border-neutral-800">
-                <div className="text-[11px] font-semibold tracking-[0.18em] text-neutral-500 dark:text-neutral-400">
-                  STRATEGY
-                </div>
-                <div className="mt-1 text-[24px] font-bold tracking-[-0.03em] text-neutral-950 dark:text-white">
+            <div className="flex h-full flex-col">
+              <div className="mb-1.5 px-1">
+                <h3 className="text-[20px] font-bold tracking-[-0.035em] text-neutral-950 dark:text-white">
                   戦略設計
-                </div>
-                <p className="mt-2 text-sm leading-6 text-neutral-600 dark:text-neutral-300">
-                  企業価値分析から経営戦略、部門戦略、実行計画までを一気通貫で設計します。
-                </p>
+                </h3>
               </div>
 
-              <div className="px-5 py-5">
-                <PyramidNavigator />
+              <div className="h-full overflow-hidden rounded-[26px] border border-neutral-200/70 bg-white shadow-[0_1px_30px_rgba(0,0,0,0.06)] dark:border-neutral-800 dark:bg-neutral-950">
+                <div className="px-5 pt-3 pb-0">
+                  <p className="text-[11.5px] leading-5 text-neutral-500 dark:text-neutral-400">
+                    企業価値分析から実行計画までを一気通貫で設計します。
+                  </p>
+                </div>
+                <div className="px-4 pt-1 pb-3">
+                  <PyramidNavigator />
+                </div>
               </div>
             </div>
 
             {/* RIGHT: EXECUTION */}
-            <div className="h-full overflow-hidden rounded-[28px] border border-neutral-200/70 bg-white shadow-[0_1px_30px_rgba(0,0,0,0.06)] dark:border-neutral-800 dark:bg-neutral-950">
-              <div className="border-b border-neutral-200/80 px-6 py-5 dark:border-neutral-800">
-                <div className="text-[11px] font-semibold tracking-[0.18em] text-neutral-500 dark:text-neutral-400">
-                  EXECUTION
-                </div>
-                <div className="mt-1 text-[24px] font-bold tracking-[-0.03em] text-neutral-950 dark:text-white">
+            <div className="flex h-full flex-col">
+              <div className="mb-1.5 px-1">
+                <h3 className="text-[20px] font-bold tracking-[-0.035em] text-neutral-950 dark:text-white">
                   戦略実行
-                </div>
-                <p className="mt-2 text-sm leading-6 text-neutral-600 dark:text-neutral-300">
-                  実行状況、チェックイン、進捗、業績インパクトを可視化し、戦略を成果へつなげます。
-                </p>
+                </h3>
               </div>
 
-              <div className="px-5 py-5">
-                <div className="lg:sticky lg:top-6">
-                  <ExecutionPanel />
+              <div className="h-full overflow-hidden rounded-[26px] border border-neutral-200/70 bg-white shadow-[0_1px_30px_rgba(0,0,0,0.06)] dark:border-neutral-800 dark:bg-neutral-950">
+                <div className="px-5 pt-3 pb-0">
+                  <p className="text-[11.5px] leading-5 text-neutral-500 dark:text-neutral-400">
+                    進捗と業績インパクトを可視化し、戦略を成果へつなげます。
+                  </p>
+                </div>
+                <div className="px-4 pt-1 pb-3">
+                  <div className="lg:sticky lg:top-6">
+                    <ExecutionPanel />
+                  </div>
                 </div>
               </div>
             </div>
