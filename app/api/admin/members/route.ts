@@ -9,6 +9,8 @@ type MemberItem = {
   userId: string;
   role: Role;
   departmentId: string | null;
+  email?: string | null;
+  name?: string | null;
 };
 
 /**
@@ -71,11 +73,36 @@ export async function GET(req: Request) {
         );
       }
 
-      const items: MemberItem[] = (membersFallback || []).map((m: any) => ({
-        userId: String(m.user_id),
-        role: (m.role as Role) || 'member',
-        departmentId: null,
-      }));
+      // ★ auth.admin.listUsers() で全ユーザーを取得して usersById Map を作成
+      const { data: usersData, error: usersError } = await admin.auth.admin.listUsers();
+
+      if (usersError) {
+        console.error('[api/admin/members] fallback listUsers error', usersError);
+      }
+
+      const usersById = new Map(
+        (usersData?.users ?? []).map((u: any) => [
+          u.id,
+          {
+            email: u.email ?? null,
+            name:
+              (u.user_metadata?.name as string | undefined) ??
+              (u.user_metadata?.full_name as string | undefined) ??
+              null,
+          },
+        ])
+      );
+
+      const items: MemberItem[] = (membersFallback || []).map((m: any) => {
+        const authUser = usersById.get(m.user_id);
+        return {
+          userId: String(m.user_id),
+          role: (m.role as Role) || 'member',
+          departmentId: null,
+          email: authUser?.email ?? null,
+          name: authUser?.name ?? null,
+        };
+      });
 
       const response = NextResponse.json({ ok: true, members: items });
       response.headers.set('Cache-Control', 'no-store');
@@ -83,13 +110,38 @@ export async function GET(req: Request) {
     }
 
     // 4) 成功
-    const items: MemberItem[] = (members || []).map((m: any) => ({
-      userId: String(m.user_id),
-      role: (m.role as Role) || 'member',
-      departmentId: typeof m.department_id === 'string' ? m.department_id : null,
-    }));
+    // ★ auth.admin.listUsers() で全ユーザーを取得して usersById Map を作成
+    const { data: usersData, error: usersError } = await admin.auth.admin.listUsers();
 
-    console.log('[api/admin/members] success, returning', items.length, 'members');
+    if (usersError) {
+      console.error('[api/admin/members] listUsers error', usersError);
+    }
+
+    const usersById = new Map(
+      (usersData?.users ?? []).map((u: any) => [
+        u.id,
+        {
+          email: u.email ?? null,
+          name:
+            (u.user_metadata?.name as string | undefined) ??
+            (u.user_metadata?.full_name as string | undefined) ??
+            null,
+        },
+      ])
+    );
+
+    const items: MemberItem[] = (members || []).map((m: any) => {
+      const authUser = usersById.get(m.user_id);
+      return {
+        userId: String(m.user_id),
+        role: (m.role as Role) || 'member',
+        departmentId: typeof m.department_id === 'string' ? m.department_id : null,
+        email: authUser?.email ?? null,
+        name: authUser?.name ?? null,
+      };
+    });
+
+    console.log('[api/admin/members] success, returning', items.length, 'members', { items });
     const response = NextResponse.json({ ok: true, members: items });
     response.headers.set('Cache-Control', 'no-store');
     return response;
