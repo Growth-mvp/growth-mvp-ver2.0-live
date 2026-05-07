@@ -51,7 +51,7 @@ export default function AdminMembersPage() {
         return;
       }
 
-      // API will determine companyId from Bearer token (server-side, no query param)
+      // ★ API側で email を取得（Service Role で auth.users から）
       const res = await fetch('/api/admin/members', {
         method: 'GET',
         headers: {
@@ -68,31 +68,9 @@ export default function AdminMembersPage() {
       }
 
       const data = await res.json();
-      const members = (data?.members || []) as MemberListItem[];
-      let out: MemberRow[] = members;
-
-      const ids = members.map((m: MemberListItem) => m.userId).filter(Boolean) as string[];
-      if (ids.length > 0) {
-        // public.users から email/name を取得（RLS で空でも続行）
-        const { data: usersData, error } = await supabase
-          .from('users')
-          .select('id,email,name')
-          .in('id', ids);
-
-        if (!error && Array.isArray(usersData) && usersData.length > 0) {
-          const map = new Map<string, { email?: string | null; name?: string | null }>();
-          usersData.forEach((u: any) => {
-            map.set(String(u.id), { email: u.email ?? null, name: u.name ?? null });
-          });
-          out = members.map((m: MemberListItem) => ({
-            ...m,
-            email: map.get(m.userId)?.email ?? null,
-            name: map.get(m.userId)?.name ?? null,
-          }));
-        }
-      }
-
-      setRows(out);
+      // ★ APIレスポンスに email が含まれている（service role で取得済み）
+      const members = (data?.members || []) as MemberRow[];
+      setRows(members);
     } catch (e) {
       console.error('[admin/members] error:', e);
       setNote('メンバー一覧の取得に失敗しました。');
