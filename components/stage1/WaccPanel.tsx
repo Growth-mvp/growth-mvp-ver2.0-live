@@ -4,6 +4,7 @@
 import type React from 'react';
 import { useCallback } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
+import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 
 /**
  * WACC（加重平均資本コスト）パネル
@@ -71,12 +72,13 @@ export default function WaccPanel({ disabled }: { disabled?: boolean } = {}) {
       {/* 計算根拠 */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">計算根拠・備考（任意）</label>
-        <textarea
+        <AutoResizeTextarea
           value={waccRationale}
           onChange={handleWaccRationaleChange}
           disabled={disabled}
           placeholder="例：株式コスト 8.0%（CAPM）、負債コスト 2.5%（税後）、資本構成 60% equity / 40% debt"
-          rows={3}
+          minRows={3}
+          maxRows={6}
           className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
         />
         <p className="text-xs text-gray-500 mt-1">WACC の計算方法や前提条件を記入してください。</p>
