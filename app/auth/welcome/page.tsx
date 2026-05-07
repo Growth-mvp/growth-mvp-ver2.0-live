@@ -234,9 +234,13 @@ function WelcomeInner() {
       }
 
       const companyId = typeof j.companyId === 'string' && isValidUUID(j.companyId) ? j.companyId : null;
+      const provisionedRole = j.role && typeof j.role === 'string' ? j.role : 'admin';
+
+      // ★重要：provision からの role を信頼して反映
+      console.info('[auth/welcome] company created', { companyId, role: provisionedRole, via: j.via });
 
       // store を最小更新（cookieはprovision側のSet-Cookieで付く想定）
-      setRole('admin');
+      setRole(provisionedRole);
       setMembership({ companyId: companyId ?? undefined, departmentId: undefined });
 
       setMsg('会社を作成しました。管理者画面へ移動します…');
