@@ -22,6 +22,7 @@ import { debugLog } from '@/utils/debug';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { okrService } from '@/services/okrService';
 import type { Department, Project as ProjectStrict, OKR as OKRStrict } from '@/types/strategy';
+import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 
 const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
 
@@ -1691,8 +1692,10 @@ function ExecPanel(props: {
                   ))}
                 </div>
               </div>
-              <textarea
-                className="h-40 w-full rounded-2xl border border-black/10 bg-white px-3 py-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-black/10"
+              <AutoResizeTextarea
+                minRows={4}
+                maxRows={14}
+                className="w-full rounded-2xl border border-black/10 bg-white px-3 py-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-black/10"
                 placeholder={
                   '・進んだこと\n'
                   + '・迷っていること\n'
@@ -1717,8 +1720,10 @@ function ExecPanel(props: {
               )}
               <div className="mt-4">
                 <label className="mb-1 block text-xs text-gray-600">支援依頼（任意）</label>
-                <textarea
-                  className="h-20 w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10"
+                <AutoResizeTextarea
+                  minRows={2}
+                  maxRows={6}
+                  className="w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10"
                   placeholder="例：決裁者向け1枚資料のレビューを依頼。"
                   value={helpRequest}
                   onChange={(e) => setHelpRequest(e.target.value)}
@@ -1875,8 +1880,10 @@ function ExecPanel(props: {
                   </button>
                 </div>
               )}
-              <textarea
-                className="h-28 w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10"
+              <AutoResizeTextarea
+                minRows={3}
+                maxRows={8}
+                className="w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10"
                 placeholder="例：KR#2 の指標定義を明確化すると計測が安定します。"
                 value={reviewText}
                 onChange={(e) => setReviewText(e.target.value)}
