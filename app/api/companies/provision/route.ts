@@ -233,7 +233,7 @@ export async function POST(req: NextRequest) {
 
     const allowCreate = isCreateAllowed(req, body);
 
-    // ★導入コード検証（createモード時のみ）
+    // ★導入コード検証（createモード時のみ、かつコード設定時）
     if (allowCreate) {
       const required = (process.env.GROWTH_ONBOARDING_CODE || '').trim();
       const provided =
@@ -243,7 +243,8 @@ export async function POST(req: NextRequest) {
       const hasCode = !!provided;
       console.info('[provision] create-mode onboarding', { hasCode, requiredSet: !!required });
 
-      if (!required || provided !== required) {
+      // ★修正：required が設定されている場合のみコード検証を強制
+      if (required && provided !== required) {
         return json(403, { ok: false, code: 'create_not_allowed' });
       }
     }
@@ -254,22 +255,33 @@ export async function POST(req: NextRequest) {
     // HTTPS 判定（Set-Cookie Secure判定用）
     const isHttps = (req.nextUrl?.protocol || '').toLowerCase() === 'https:';
 
+    // ★重要：profile の存在確認・作成（FK エラー回避）
+    const profileRes = await ensureProfileExists(admin, userId!);
+    if (!(profileRes as any).ok) {
+      console.warn('[provision] profile check failed', { userId, detail: (profileRes as any).detail });
+      // ここで中断せず、以降のロジックで対応（FK エラーで検出される）
+    }
+
     // 3) 既所属チェック（多重作成防止）
     {
       const { data: ex, error: exErr } = await admin
         .from('company_members')
-        .select('company_id')
+        .select('company_id, role')
         .eq('user_id', userId!)
+        .limit(1)
         .maybeSingle();
 
       if (!exErr && ex?.company_id) {
         const cid = String(ex.company_id);
+        const role = String(ex.role ?? 'member');
         const cookie = buildCompanyCookie(cid, isHttps);
+
+        console.info('[provision] already_in_company', { userId, companyId: cid, role });
 
         // 削除フラグ中は seed しない
         if (deleting.deleting && (!deleting.companyId || deleting.companyId === cid)) {
           console.info('[provision] already_in_company (skip seed due to deleting)', { userId, companyId: cid });
-          return json(200, { ok: true, companyId: cid, strategyId: null, note: 'skip_seed_deleting' }, [cookie]);
+          return json(200, { ok: true, companyId: cid, strategyId: null, role, note: 'skip_seed_deleting' }, [cookie]);
         }
 
         const seeded = await ensureStrategySeed(admin, userId!, cid);
@@ -285,6 +297,7 @@ export async function POST(req: NextRequest) {
             ok: true,
             companyId: cid,
             strategyId: (seeded as any).ok ? (seeded as any).strategyId : null,
+            role,
             note: 'already_in_company',
             seedError: (seeded as any).ok ? undefined : {
               code: (seeded as any).error?.code ?? null,
@@ -295,7 +308,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // ★重要：未所属ユーザーでの “会社自動作成” を禁止（招待制）
+      // ★重要：未所属ユーザーでの "会社自動作成" を禁止（招待制）
       if (!allowCreate) {
         console.info('[provision] denied: needs_membership', { userId, userEmail });
         return json(403, { ok: false, code: 'needs_membership', message: 'Join a company via invite first.' });
@@ -303,6 +316,8 @@ export async function POST(req: NextRequest) {
     }
 
     // 4) RPC（create許可時のみ）
+    console.info('[provision] attempting RPC provision_company', { userId, companyName });
+
     const { data: rpcData, error: rpcErr } = await admin.rpc('provision_company', {
       p_user_id: userId!,
       p_company_name: companyName,
@@ -312,35 +327,46 @@ export async function POST(req: NextRequest) {
       const cid = String(rpcData);
       const cookie = buildCompanyCookie(cid, isHttps);
 
+      console.info('[provision] rpc success', { userId, companyId: cid });
+
       if (deleting.deleting && (!deleting.companyId || deleting.companyId === cid)) {
         console.info('[provision] rpc ok (skip seed due to deleting)', { userId, companyId: cid });
-        return json(200, { ok: true, companyId: cid, strategyId: null, via: 'rpc', note: 'skip_seed_deleting' }, [cookie]);
+        return json(200, { ok: true, companyId: cid, strategyId: null, role: 'admin', via: 'rpc', note: 'skip_seed_deleting' }, [cookie]);
       }
 
       const seeded = await ensureStrategySeed(admin, userId!, cid);
       if (!(seeded as any).ok) {
-        console.warn('[provision] seed failed on rpc', { userId, companyId: cid, error: (seeded as any).error });
-      } else {
-        console.info('[provision] seed ok (rpc)', { companyId: cid, strategyId: (seeded as any).strategyId });
+        console.error('[provision] seed failed on rpc', { userId, companyId: cid, error: (seeded as any).error });
+        return json(500, {
+          ok: false,
+          code: 'strategy_seed_failed',
+          companyId: cid,
+          details: (seeded as any).error,
+        }, [cookie]);
       }
+
+      console.info('[provision] seed ok (rpc)', { companyId: cid, strategyId: (seeded as any).strategyId });
 
       return json(
         200,
         {
           ok: true,
           companyId: cid,
-          strategyId: (seeded as any).ok ? (seeded as any).strategyId : null,
+          strategyId: (seeded as any).strategyId,
+          role: 'admin',
           via: 'rpc',
-          seedError: (seeded as any).ok ? undefined : {
-            code: (seeded as any).error?.code ?? null,
-            message: (seeded as any).error?.message ?? String((seeded as any).error ?? ''),
-          },
+          strategySeeded: (seeded as any).created,
+          seedError: undefined,
         },
         [cookie],
       );
     }
 
+    console.warn('[provision] RPC failed, falling back to direct insert', { userId, rpcErr: rpcErr?.message });
+
     // 5) フォールバック（create許可時のみ）
+    console.info('[provision] starting fallback company creation', { userId, companyName });
+
     const { data: insCompany, error: insErr } = await admin
       .from('companies')
       .insert([{ name: companyName, created_by: userId! }])
@@ -354,47 +380,78 @@ export async function POST(req: NextRequest) {
     const companyId = String(insCompany.id);
     const cookie = buildCompanyCookie(companyId, isHttps);
 
-    // upsert（department_id カラム有無にフォールバック）
+    console.info('[provision] company created successfully', { userId, companyId, created_by: userId });
+
+    // ★重要：company_members への admin 登録（INSERT を試す、失敗したら個別エラーハンドリング）
     let insMember = await admin
       .from('company_members')
-      .upsert(
-        [{ company_id: companyId, user_id: userId!, role: 'admin', ...(departmentId !== null ? { department_id: departmentId } : {}) }],
-        { onConflict: 'company_id,user_id', ignoreDuplicates: false }
-      );
+      .insert(
+        [{ company_id: companyId, user_id: userId!, role: 'admin', ...(departmentId !== null ? { department_id: departmentId } : {}) }]
+      )
+      .select('*')
+      .single();
 
     if (insMember.error && looksMissingDepartmentId(insMember)) {
+      console.info('[provision] retrying company_members insert without department_id', { userId, companyId });
       insMember = await admin
         .from('company_members')
-        .upsert(
-          [{ company_id: companyId, user_id: userId!, role: 'admin' }],
-          { onConflict: 'company_id,user_id', ignoreDuplicates: false }
-        );
+        .insert([{ company_id: companyId, user_id: userId!, role: 'admin' }])
+        .select('*')
+        .single();
     }
 
     if (insMember.error) {
-      console.error('[provision] join_admin_failed (no rollback delete for safety)', {
-        userId, companyId, details: insMember.error, rpcError: rpcErr
+      console.error('[provision] company_members_insert_failed', {
+        userId,
+        companyId,
+        error_code: insMember.error?.code,
+        error_message: insMember.error?.message,
+        error_details: insMember.error?.details,
       });
-      return json(500, { ok: false, code: 'join_admin_failed', companyId, details: insMember.error, rpcError: rpcErr }, [cookie]);
+      // ★重要：会社は作られたが membership 失敗 → 部分的成功だが問題あり
+      return json(500, {
+        ok: false,
+        code: 'company_members_insert_failed',
+        companyId,
+        details: insMember.error,
+        rpcError: rpcErr,
+      }, [cookie]);
     }
+
+    console.info('[provision] company_members insert successful', { userId, companyId, role: 'admin' });
 
     // 削除フラグ中は seed しない
     if (deleting.deleting && (!deleting.companyId || deleting.companyId === companyId)) {
       console.info('[provision] fallback ok (skip seed due to deleting)', { userId, companyId });
-      return json(200, { ok: true, companyId, strategyId: null, via: 'fallback', note: 'skip_seed_deleting' }, [cookie]);
+      return json(200, {
+        ok: true,
+        companyId,
+        strategyId: null,
+        role: 'admin',
+        via: 'fallback',
+        note: 'skip_seed_deleting',
+      }, [cookie]);
     }
 
     const seedRes = await ensureStrategySeed(admin, userId!, companyId);
     if (!(seedRes as any).ok) {
-      console.warn('[provision] seed failed on fallback', { userId, companyId, error: (seedRes as any).error });
-      return json(500, { ok: false, code: 'strategy_seed_failed', companyId, details: (seedRes as any).error, rpcError: rpcErr }, [cookie]);
+      console.error('[provision] seed failed on fallback', { userId, companyId, error: (seedRes as any).error });
+      // ★重要：会社と membership は作られたが seed 失敗 → 重要なエラーをレポート
+      return json(500, {
+        ok: false,
+        code: 'strategy_seed_failed',
+        companyId,
+        details: (seedRes as any).error,
+        rpcError: rpcErr,
+      }, [cookie]);
     }
 
-    console.info('[provision] success (fallback)', { companyId, strategyId: (seedRes as any).strategyId });
+    console.info('[provision] success (fallback)', { companyId, strategyId: (seedRes as any).strategyId, role: 'admin' });
     return json(200, {
       ok: true,
       companyId,
       strategyId: (seedRes as any).strategyId,
+      role: 'admin',
       via: 'fallback',
       strategySeeded: (seedRes as any).created,
       seedError: undefined,
