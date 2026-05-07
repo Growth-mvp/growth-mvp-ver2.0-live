@@ -4,6 +4,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAccess } from '@/utils/access'; // ★ 編集ガード
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
+import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 
 export type StepNumber = 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -591,8 +592,10 @@ export default function DepartmentQuestionStepper(props: DeptQuestionStepperProp
       {/* 内容欄 */}
       <div className="space-y-2">
         <label className="text-sm font-semibold tracking-[0.02em] text-gray-900">ディスカッションの内容</label>
-        <textarea
-          className="w-full min-h-[160px] rounded-2xl border border-gray-300 bg-white px-4 py-3 text-[15px] leading-7 text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:bg-gray-50"
+        <AutoResizeTextarea
+          minRows={5}
+          maxRows={24}
+          className="rounded-2xl border-gray-300 bg-white text-[15px] leading-7 text-gray-900 focus:ring-gray-400 disabled:bg-gray-50"
           placeholder="考えを具体的に書いてください。数値や期限、役割、連携相手などを明記すると次のテーマが鋭くなります。"
           value={answerText}
           onChange={(e) => setAnswerText(e.target.value)}
