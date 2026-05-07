@@ -7,6 +7,7 @@ import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import type { Stage1IssueBlock, StrategyState } from '@/store/strategyStore';
 import type { ValueAnalysis, Stage1Benchmarks } from '@/types/strategy';
 import { buildExternalIssueCandidates, type SelfMetrics, type ExternalIssueCandidatesResult, type CandidateMode } from '@/utils/stage1/benchmarkIssues';
+import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 
 /* ===============================
  * 定数
@@ -1060,9 +1061,10 @@ function IssueEditor({
 
       <div>
         <label className="block text-sm font-medium">論点の説明</label>
-        <textarea
+        <AutoResizeTextarea
           className="border px-3 py-2 w-full"
-          rows={3}
+          minRows={3}
+          maxRows={6}
           placeholder="どの指標が、どのような状態にあるため論点と考えるか"
           value={issue.description}
           onChange={(e) => onChange({ description: e.target.value })}
