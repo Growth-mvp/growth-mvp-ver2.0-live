@@ -23,6 +23,7 @@ import { saveWithAudit } from '@/utils/persist/saveWithAudit';
 import { restoreWithAudit } from '@/utils/persist/restoreWithAudit';
 import type { IssueBlock, MetricsSummary, StoryChapter, WinPatternCandidate, Stage2State, Stage2Answer } from '@/types/strategy';
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
+import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 
 /* ===================================================
  * ★ Zustand selector 参照安定化：無限ループ防止
@@ -315,8 +316,8 @@ function FinalStoryPreview({ finalStory }: { finalStory: StoryChapter[] }) {
         {finalStory.map((chapter, i) => (
           <div key={i} className="border-l-2 border-emerald-400 pl-4">
             <h4 className="text-sm font-semibold text-emerald-700 dark:text-emerald-300 mb-1">{chapter.title}</h4>
-            <div className="text-sm text-gray-700 dark:text-gray-300">
-              <ScrollText maxH="max-h-[360px]">{chapter.body}</ScrollText>
+            <div className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words leading-relaxed">
+              {chapter.body}
             </div>
           </div>
         ))}
@@ -742,11 +743,13 @@ function CEOIntentSection() {
       <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">経営者の思い</h3>
 
       <GlassCard title="経営者の思い" hint="原点・譲れない価値観・実現したい未来など、企業の根底にある思いを記入してください">
-        <textarea
+        <AutoResizeTextarea
           value={ceoIntent}
           onChange={(e) => setCeoIntent(e.target.value)}
           placeholder="例：なぜこの会社を続けるのか / 何を実現したいのか / 譲れない価値観…"
-          className="min-h-[120px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+          className="min-h-[120px] w-full rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+          minRows={6}
+          maxRows={32}
         />
       </GlassCard>
     </div>
@@ -767,29 +770,35 @@ function MVVSection() {
       <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">MVV（ミッション・ビジョン・バリュー）</h3>
 
       <GlassCard title="Mission（ミッション）" hint="会社が存在する理由。短く、覚えやすく。">
-        <textarea
+        <AutoResizeTextarea
           value={mission}
           onChange={(e) => setMVV({ mission: e.target.value })}
           placeholder="例：私たちは〇〇で社会の課題を解決します。"
-          className="min-h-[100px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+          className="min-h-[100px] w-full rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+          minRows={4}
+          maxRows={24}
         />
       </GlassCard>
 
       <GlassCard title="Vision（ビジョン）" hint="目指す未来像。5〜10年後に到達したい状態。">
-        <textarea
+        <AutoResizeTextarea
           value={vision}
           onChange={(e) => setMVV({ vision: e.target.value })}
           placeholder="例：〇〇領域で最も信頼される企業になる。"
-          className="min-h-[100px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+          className="min-h-[100px] w-full rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+          minRows={4}
+          maxRows={24}
         />
       </GlassCard>
 
       <GlassCard title="Value（バリュー）" hint="日々の意思決定の拠り所。3〜5語で要点を。">
-        <textarea
+        <AutoResizeTextarea
           value={value}
           onChange={(e) => setMVV({ value: e.target.value })}
           placeholder="例：挑戦／誠実／共創"
-          className="min-h-[100px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+          className="min-h-[100px] w-full rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+          minRows={4}
+          maxRows={24}
         />
       </GlassCard>
     </div>
@@ -1174,11 +1183,13 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
 
           <div className="mb-4">
             <label className="text-xs font-medium text-gray-600 dark:text-gray-400">根拠・説明（任意）</label>
-            <textarea
+            <AutoResizeTextarea
               value={formData.rationale}
               onChange={(e) => setFormData({ ...formData, rationale: e.target.value })}
-              className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5 min-h-[80px] resize-y"
+              className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5"
               placeholder="この業績目標を設定した理由"
+              minRows={3}
+              maxRows={12}
             />
           </div>
 
@@ -1262,38 +1273,46 @@ function SWOTSection() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <GlassCard title="Strength（強み）" accentClass="bg-emerald-400/80" hint="自社の競争優位性">
-          <textarea
-            className="min-h-[120px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+          <AutoResizeTextarea
+            className="min-h-[120px] w-full rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
             value={strength}
             onChange={(e) => setSWOT({ strength: e.target.value })}
             placeholder="例：高度な技術力／顧客との信頼関係"
+            minRows={4}
+            maxRows={30}
           />
         </GlassCard>
 
         <GlassCard title="Weakness（弱み）" accentClass="bg-rose-400/80" hint="改善が必要な領域">
-          <textarea
-            className="min-h-[120px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+          <AutoResizeTextarea
+            className="min-h-[120px] w-full rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
             value={weakness}
             onChange={(e) => setSWOT({ weakness: e.target.value })}
             placeholder="例：人材不足／情報発信の弱さ"
+            minRows={4}
+            maxRows={30}
           />
         </GlassCard>
 
         <GlassCard title="Opportunity（機会）" accentClass="bg-sky-400/80" hint="外部環境の追い風">
-          <textarea
-            className="min-h-[120px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+          <AutoResizeTextarea
+            className="min-h-[120px] w-full rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
             value={opportunity}
             onChange={(e) => setSWOT({ opportunity: e.target.value })}
             placeholder="例：市場拡大／規制緩和"
+            minRows={4}
+            maxRows={30}
           />
         </GlassCard>
 
         <GlassCard title="Threat（脅威）" accentClass="bg-amber-400/80" hint="外部環境のリスク">
-          <textarea
-            className="min-h-[120px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
+          <AutoResizeTextarea
+            className="min-h-[120px] w-full rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
             value={threat}
             onChange={(e) => setSWOT({ threat: e.target.value })}
             placeholder="例：価格競争の激化／景気悪化"
+            minRows={4}
+            maxRows={30}
           />
         </GlassCard>
       </div>
@@ -1345,8 +1364,8 @@ function DraftStoryPanel({ storyDraft, issueBlocks }: { storyDraft: StoryChapter
               </div>
             )}
 
-            <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
-              <ScrollText maxH="max-h-[280px]">{chapter.body}</ScrollText>
+            <div className="mt-1 text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words leading-relaxed">
+              {chapter.body}
             </div>
           </div>
         ))}
@@ -1448,12 +1467,14 @@ function Questions12Section({
             <p className="text-sm text-gray-500 dark:text-gray-400">💡 {selectedQ.reason}</p>
           </div>
 
-          <textarea
+          <AutoResizeTextarea
             value={currentAnswer}
             onChange={(e) => onUpdateAnswer(selectedId, e.target.value)}
             disabled={disabled}
             placeholder="この質問に対するあなたの考えを記入してください（未回答でも最終ストーリーは生成できます）..."
-            className="w-full min-h-[220px] resize-y rounded-xl border border-gray-200 dark:border-gray-700 bg-white/70 dark:bg-white/5 px-4 py-3 text-sm text-gray-800 dark:text-gray-200 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+            className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white/70 dark:bg-white/5 px-4 py-3 text-sm text-gray-800 dark:text-gray-200 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+            minRows={4}
+            maxRows={18}
           />
 
           <div className="flex items-center justify-between text-xs text-gray-500">
@@ -3112,7 +3133,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                           <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-4">{chapter.title}</h3>
 
                           {/* Textarea */}
-                          <textarea
+                          <AutoResizeTextarea
                             readOnly={readOnly}
                             value={editingStory[chapterIndex]?.body ?? ''}
                             onChange={(e) => {
@@ -3122,8 +3143,10 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                               }
                               setEditingStory(updated);
                             }}
-                            className="w-full h-48 p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                             placeholder={`${chapter.title}の本文を入力...`}
+                            minRows={8}
+                            maxRows={36}
                           />
 
                           {/* 文字数カウンタ */}
