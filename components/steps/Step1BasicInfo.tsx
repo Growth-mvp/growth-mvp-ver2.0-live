@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import StepLayout from '@/components/StepLayout';
 import { industryOptions } from '@/utils/industryTemplates';
+import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 
 /* ---------------- 共通UIコンポーネント ---------------- */
 
@@ -197,12 +198,19 @@ export default function Step1BasicInfo() {
               </span>
             }
           >
-            <TextAreaJa
+            <AutoResizeTextarea
               id={`${idPrefix}-thought`}
-              rows={4}
+              minRows={3}
+              maxRows={6}
               value={thoughtLocal}
               onChange={(e) => setThoughtLocal((e.target.value ?? '').slice(0, THOUGHT_MAX))}
               placeholder="例：社員が胸を張れる会社にする。そのために、守りの効率化と攻めの価値創造を同時にやり切る。"
+              lang="ja"
+              autoCapitalize="none"
+              autoCorrect="off"
+              autoComplete="off"
+              className="w-full rounded-xl px-3.5 py-3 bg-white text-neutral-900 placeholder:text-neutral-400 ring-1 ring-neutral-300 focus:ring-2 focus:ring-neutral-900/90 focus:outline-none transition shadow-[0_1px_0_rgba(0,0,0,0.02)]"
+              style={{ imeMode: 'active' as any }}
             />
           </Field>
         </div>
@@ -265,23 +273,37 @@ export default function Step1BasicInfo() {
           </Field>
           <div className="md:col-span-2">
             <Field label="主な事業内容">
-              <TextAreaJa
+              <AutoResizeTextarea
                 id={`${idPrefix}-business`}
-                rows={3}
+                minRows={3}
+                maxRows={6}
                 value={businessContent}
                 onChange={(e) => setProfile({ businessContent: e.target.value })}
                 placeholder="例：自動車部品の設計・製造・販売"
+                lang="ja"
+                autoCapitalize="none"
+                autoCorrect="off"
+                autoComplete="off"
+                className="w-full rounded-xl px-3.5 py-3 bg-white text-neutral-900 placeholder:text-neutral-400 ring-1 ring-neutral-300 focus:ring-2 focus:ring-neutral-900/90 focus:outline-none transition shadow-[0_1px_0_rgba(0,0,0,0.02)]"
+                style={{ imeMode: 'active' as any }}
               />
             </Field>
           </div>
           <div className="md:col-span-2">
             <Field label="主要な顧客層">
-              <TextAreaJa
+              <AutoResizeTextarea
                 id={`${idPrefix}-customer`}
-                rows={3}
+                minRows={3}
+                maxRows={6}
                 value={customerSegment}
                 onChange={(e) => setProfile({ customerSegment: e.target.value })}
                 placeholder="例：国内外の完成車メーカー、部品メーカー"
+                lang="ja"
+                autoCapitalize="none"
+                autoCorrect="off"
+                autoComplete="off"
+                className="w-full rounded-xl px-3.5 py-3 bg-white text-neutral-900 placeholder:text-neutral-400 ring-1 ring-neutral-300 focus:ring-2 focus:ring-neutral-900/90 focus:outline-none transition shadow-[0_1px_0_rgba(0,0,0,0.02)]"
+                style={{ imeMode: 'active' as any }}
               />
             </Field>
           </div>
