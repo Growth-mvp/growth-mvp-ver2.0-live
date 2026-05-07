@@ -1,5 +1,7 @@
 'use client'
 
+import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea'
+
 type Props = {
   inputText: string
   setInputText: (text: string) => void
@@ -11,11 +13,13 @@ export function StrategyInput({ inputText, setInputText, onGenerate, loading }: 
   return (
     <div className="flex flex-col h-full">
       <label className="mb-2 font-semibold">経営戦略の入力</label>
-      <textarea
-        className="flex-grow border border-gray-300 rounded p-2 resize-none"
+      <AutoResizeTextarea
+        className="flex-grow border border-gray-300 rounded p-2"
         value={inputText}
         onChange={e => setInputText(e.target.value)}
         placeholder="ここに経営戦略やSWOT分析を書いてください..."
+        minRows={4}
+        maxRows={12}
       />
       <button
         className="mt-4 bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50"
