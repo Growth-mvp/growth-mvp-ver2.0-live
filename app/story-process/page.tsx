@@ -14,6 +14,7 @@ import QuestionStepper, {
 } from '@/components/guide/QuestionStepper';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
+import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 // ▼ 保存ユーティリティ（final/answers 分離保存に対応）
 import {
   saveStrategyData,
@@ -1820,7 +1821,7 @@ function FinalStorySection({
               <h4 className="mb-2 text-[15px] font-semibold text-zinc-900">
                 {FINAL_TITLES[idx] ?? c.title}
               </h4>
-              <textarea
+              <AutoResizeTextarea
                 value={c.body}
                 onChange={(e) => {
                   const next = [...draftEdit];
@@ -1828,8 +1829,10 @@ function FinalStorySection({
                   setDraftEdit(next);
                 }}
                 placeholder="この章の本文を編集…"
-                className="w-full min-h-[180px] rounded-lg border border-zinc-300 p-3 text-[13px] focus:outline-none focus:ring-2 focus:ring-zinc-400"
+                className="w-full rounded-lg border border-zinc-300 p-3 text-[13px] focus:outline-none focus:ring-2 focus:ring-zinc-400"
                 disabled={!canEdit}
+                minRows={6}
+                maxRows={12}
               />
               <div className="mt-1 text-[11px] text-zinc-600">
                 文字数：{c.body.length}
