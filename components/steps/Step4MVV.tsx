@@ -4,6 +4,7 @@
 import React, { useEffect } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import StepLayout from '@/components/StepLayout';
+import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 
 /* Glassカード */
 function GlassCard({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
@@ -43,30 +44,36 @@ export default function Step4MVV() {
       <div className="space-y-6">
         {/* Mission */}
         <GlassCard title="Mission（ミッション）" hint="会社が存在する理由。短く、覚えやすく。">
-          <textarea
+          <AutoResizeTextarea
             value={mission}
             onChange={(e) => setMVV({ mission: e.target.value })}
             placeholder="例：私たちは〇〇で社会の課題を解決します。"
+            minRows={3}
+            maxRows={6}
             className="min-h-[120px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
           />
         </GlassCard>
 
         {/* Vision */}
         <GlassCard title="Vision（ビジョン）" hint="目指す未来像。5〜10年後に到達したい状態。">
-          <textarea
+          <AutoResizeTextarea
             value={vision}
             onChange={(e) => setMVV({ vision: e.target.value })}
             placeholder="例：〇〇領域で最も信頼される企業になる。"
+            minRows={3}
+            maxRows={6}
             className="min-h-[120px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
           />
         </GlassCard>
 
         {/* Value */}
         <GlassCard title="Value（バリュー）" hint="日々の意思決定の拠り所。3〜5語で要点を。">
-          <textarea
+          <AutoResizeTextarea
             value={value}
             onChange={(e) => setMVV({ value: e.target.value })}
             placeholder="例：挑戦／誠実／共創"
+            minRows={3}
+            maxRows={6}
             className="min-h-[120px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
           />
         </GlassCard>
