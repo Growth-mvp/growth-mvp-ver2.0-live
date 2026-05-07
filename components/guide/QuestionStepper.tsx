@@ -4,6 +4,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAccess } from '@/utils/access';
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
+import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 
 /* ========= types ========= */
 type Depth = 'board' | 'exec' | 'ops';
@@ -447,8 +448,10 @@ export default function QuestionStepper({
       {/* answer area */}
       <div className="space-y-2">
         <label className="text-sm font-medium text-gray-700">あなたの回答</label>
-        <textarea
-          className="w-full min-h-[120px] rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 p-3"
+        <AutoResizeTextarea
+          minRows={3}
+          maxRows={12}
+          className="rounded-xl border-gray-300 focus:ring-blue-500"
           value={answerText}
           onChange={(e) => setAnswerText(e.target.value)}
           readOnly={!editable}
