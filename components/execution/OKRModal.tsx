@@ -15,6 +15,7 @@ import {
 } from '@/utils/supabase/strategy';
 import { useUserStore } from '@/store/userStore';
 import { useStrategyStore } from '@/store/strategyStore';
+import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 
 type Mode = 'comment' | 'rating' | 'advice' | 'request';
 
@@ -240,12 +241,14 @@ export default function OKRModal({
         {/* Pane */}
         {mode === 'comment' && (
           <div>
-            <textarea
+            <AutoResizeTextarea
               ref={textAreaRef}
-              className="h-32 w-full rounded-lg border p-3 text-sm outline-none focus:ring"
+              className="w-full rounded-lg border p-3 text-sm outline-none focus:ring"
               placeholder="今日の進捗・所感・課題を記入（Ctrl+Enterで保存）"
               value={text}
               onChange={(e) => setText(e.target.value)}
+              minRows={3}
+              maxRows={10}
             />
           </div>
         )}
@@ -279,24 +282,28 @@ export default function OKRModal({
                 </button>
               </div>
             </div>
-            <textarea
+            <AutoResizeTextarea
               ref={textAreaRef}
-              className="h-24 w-full rounded-lg border p-3 text-sm outline-none focus:ring"
+              className="w-full rounded-lg border p-3 text-sm outline-none focus:ring"
               placeholder="補足コメント（任意）"
               value={text}
               onChange={(e) => setText(e.target.value)}
+              minRows={2}
+              maxRows={6}
             />
           </div>
         )}
 
         {mode === 'advice' && (
           <div>
-            <textarea
+            <AutoResizeTextarea
               ref={textAreaRef}
-              className="h-28 w-full rounded-lg border p-3 text-sm outline-none focus:ring"
+              className="w-full rounded-lg border p-3 text-sm outline-none focus:ring"
               placeholder="次の一手（やること・やめること・改善案）"
               value={advice}
               onChange={(e) => setAdvice(e.target.value)}
+              minRows={3}
+              maxRows={8}
             />
           </div>
         )}
@@ -309,12 +316,14 @@ export default function OKRModal({
               value={requestTo}
               onChange={(e) => setRequestTo(e.target.value)}
             />
-            <textarea
+            <AutoResizeTextarea
               ref={textAreaRef}
-              className="h-24 w-full rounded-lg border p-3 text-sm outline-none focus:ring"
+              className="w-full rounded-lg border p-3 text-sm outline-none focus:ring"
               placeholder="依頼内容（締切・期待成果・背景）"
               value={requestBody}
               onChange={(e) => setRequestBody(e.target.value)}
+              minRows={2}
+              maxRows={6}
             />
           </div>
         )}
