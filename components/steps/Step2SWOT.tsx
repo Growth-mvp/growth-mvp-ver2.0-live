@@ -9,6 +9,7 @@ import { getIndustryLabel } from '@/utils/industryTemplates';
 import { saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
 import { saveWithAudit } from '@/utils/persist/saveWithAudit';
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
+import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 
 /* =========================
  * 共通ユーティリティ
@@ -471,9 +472,10 @@ export default function Step2SWOT() {
           accentClass="bg-emerald-400/80"
           hint="例：高度な技術力／顧客との信頼関係／ブランド力 など"
         >
-          <textarea
+          <AutoResizeTextarea
             className="min-h[200px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
-            rows={8}
+            minRows={3}
+            maxRows={8}
             value={st?.strength ?? strength}
             onChange={(e) => { setFieldSafe(st, 'strength', e.target.value); markDirty(); }}
             placeholder="箇条書き可（・〜）"
@@ -485,9 +487,10 @@ export default function Step2SWOT() {
           accentClass="bg-rose-400/80"
           hint="例：人材不足／情報発信の弱さ／老朽化した設備 など"
         >
-          <textarea
+          <AutoResizeTextarea
             className="min-h[200px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
-            rows={8}
+            minRows={3}
+            maxRows={8}
             value={st?.weakness ?? weakness}
             onChange={(e) => { setFieldSafe(st, 'weakness', e.target.value); markDirty(); }}
             placeholder="箇条書き可（・〜）"
@@ -499,9 +502,10 @@ export default function Step2SWOT() {
           accentClass="bg-sky-400/80"
           hint="例：市場拡大／規制緩和／技術革新 など"
         >
-          <textarea
+          <AutoResizeTextarea
             className="min-h[200px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
-            rows={8}
+            minRows={3}
+            maxRows={8}
             value={st?.opportunity ?? opportunity}
             onChange={(e) => { setFieldSafe(st, 'opportunity', e.target.value); markDirty(); }}
             placeholder="AI提案を基に加筆・修正してください"
@@ -513,9 +517,10 @@ export default function Step2SWOT() {
           accentClass="bg-amber-400/80"
           hint="例：価格競争の激化／景気悪化／海外勢の参入 など"
         >
-          <textarea
+          <AutoResizeTextarea
             className="min-h[200px] w-full resize-y rounded-xl border border-black/10 bg-white/70 px-3 py-3 text-sm text-gray-800 shadow-inner placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-black/10"
-            rows={8}
+            minRows={3}
+            maxRows={8}
             value={st?.threat ?? threat}
             onChange={(e) => { setFieldSafe(st, 'threat', e.target.value); markDirty(); }}
             placeholder="AI提案を基に加筆・修正してください"
