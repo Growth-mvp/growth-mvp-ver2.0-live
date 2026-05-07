@@ -18,6 +18,8 @@ export type MemberListItem = {
   userId: string;
   role: Role;
   departmentId: string | null;
+  email?: string | null;
+  name?: string | null;
 };
 
 /* ============================== helpers ============================== */
