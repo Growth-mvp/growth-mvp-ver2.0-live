@@ -36,6 +36,7 @@ import DepartmentQuestionStepper, {
   type OKR as DeptOKR,
 } from '@/components/guide/QuestionStepper.dept';
 import { Button } from '@/components/ui/button';
+import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 import { PlusCircle, Save, Sparkles, Building2, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import { toProbability } from '@/types/strategy';
 import { CascadeHeader } from '@/components/stage3/CascadeHeader';
@@ -4077,7 +4078,7 @@ useEffect(() => {
   {/* ✅ ミッション */}
   <div className="mt-1">
     <div className="text-xs font-bold tracking-tight text-zinc-700 mb-1.5">ミッション</div>
-    <textarea
+    <AutoResizeTextarea
       value={inlineDraft}
       onChange={(e) => {
         // ★ FIXED: inlineEdit に一時保存（UIの即時反応用）
@@ -4094,6 +4095,8 @@ useEffect(() => {
       className="w-full rounded-2xl border border-zinc-300 p-3 text-sm leading-6"
       readOnly={!editableDept || isHydrating}
       placeholder="この部門の役割やミッションのイメージを記入してください（AIたたき台の修正もここで行います）"
+      minRows={4}
+      maxRows={18}
     />
   </div>
 
@@ -4110,7 +4113,7 @@ useEffect(() => {
       const currentMissionDesc = deptFromStore?.missionDescription ?? '';
 
       return (
-        <textarea
+        <AutoResizeTextarea
           value={currentMissionDesc}
           onChange={(e) => {
             const v = e.target.value;
@@ -4137,6 +4140,8 @@ useEffect(() => {
           className="w-full rounded-2xl border border-zinc-300 p-3 text-sm leading-6"
           readOnly={!editableDept || isHydrating}
           placeholder="この部門のミッションを、背景・狙い・顧客価値の観点で補足してください"
+          minRows={4}
+          maxRows={18}
         />
       );
     })()}
