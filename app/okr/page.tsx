@@ -38,6 +38,7 @@ import { ProjectListHeader } from '@/components/stage4/ProjectListHeader';
 import { ProjectSelectionPrompt } from '@/components/stage4/ProjectSelectionPrompt';
 import { DepartmentListItem } from '@/components/stage4/DepartmentListItem';
 import { useStage4PdfExport } from '@/hooks/useStage4PdfExport';
+import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 
 import type { Department as DepartmentStrategy } from '@/types/strategy';
 import {
@@ -2561,9 +2562,10 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
 
             <div className="mb-4 space-y-1">
               <label className="text-[11px] font-semibold text-zinc-700">目的（必須）</label>
-              <textarea
-                className="min-h-[72px] w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px] leading-5 resize-y"
-                rows={2}
+              <AutoResizeTextarea
+                className="min-h-[72px] w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px] leading-5"
+                minRows={2}
+                maxRows={8}
                 placeholder="例：既存顧客からのアップセルと新規顧客獲得を両立し、売上成長の軸を確立する"
                 value={displayObjective}
                 onChange={(e) => {
