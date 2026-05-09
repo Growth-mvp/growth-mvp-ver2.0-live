@@ -101,12 +101,12 @@ export default function Sidebar() {
           </button>
         </div>
 
-        <div className="shrink-0 border-b border-gray-200 px-4 py-4">
-          <Link href="/" aria-label="トップページへ" className="block no-underline">
+        <div className="shrink-0 overflow-visible border-b border-gray-200 px-1 py-3">
+          <Link href="/" aria-label="トップページへ" className="flex justify-center no-underline">
             <img
               src="/GROWTH SHIFT.png"
               alt="GROWTH Logo"
-              className="block mx-auto h-[95px] w-auto md:h-[170px] transition-transform hover:scale-[1.02]"
+              className="block h-auto w-[300px] max-w-none object-contain transition-transform hover:scale-[1.02]"
             />
           </Link>
         </div>
