@@ -104,7 +104,7 @@ export default function Sidebar() {
         <div className="shrink-0 border-b border-gray-200 px-4 py-4">
           <Link href="/" aria-label="トップページへ" className="block no-underline">
             <img
-              src="/GROWTH_SHIFT.png"
+              src="/GROWTH SHIFT.png"
               alt="GROWTH Logo"
               className="block mx-auto h-[60px] w-auto md:h-[140px] transition-transform hover:scale-[1.02]"
             />
