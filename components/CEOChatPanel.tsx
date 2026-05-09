@@ -389,7 +389,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
               !userOK ? ('loading' as any) : sending ? ('thinking' as any) : ctxUpdated ? ('responding' as any) : ('idle' as any)
             } />
             <div className="leading-tight">
-              <div className="text-[20px] font-semibold tracking-[-0.01em]">経営者AIエージェント</div>
+              <div className="text-[16px] font-semibold tracking-[-0.01em]">経営者AIエージェント</div>
               <div className="text-[12px] text-zinc-500 mt-0.5">
                 {!userOK ? '準備中…' : sending ? '応答生成中…' : '準備完了'}
               </div>
