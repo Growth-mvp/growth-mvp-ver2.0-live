@@ -34,31 +34,31 @@ export default function Home() {
         <div className="container mx-auto px-6 pt-14 pb-5 sm:pt-16 sm:pb-6 lg:pt-20 lg:pb-7">
           <div className="mx-auto max-w-6xl -translate-y-4 text-center sm:-translate-y-5 lg:-translate-y-6">
             <motion.h1
-              initial={{ opacity: 0, y: 14 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.58 }}
-              className="mx-auto max-w-6xl whitespace-nowrap text-[clamp(34px,6.8vw,43px)] font-bold leading-[1.08] tracking-[-0.055em] text-neutral-950 dark:text-neutral-50"
-            >
-              過去の延長では、もう勝てない。
-            </motion.h1>
+  initial={{ opacity: 0, y: 12 }}
+  animate={{ opacity: 1, y: 0 }}
+  transition={{ duration: 0.6 }}
+  className="text-[28px] font-bold tracking-[-0.04em] text-neutral-950 sm:text-[36px] lg:text-[44px] dark:text-white"
+>
+  過去の延長では、もう勝てない。
+</motion.h1>
 
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.08 }}
-              className="mt-7 text-[18px] font-semibold tracking-[0.08em] text-neutral-800 sm:text-[21px] lg:text-[24px] dark:text-neutral-100"
-            >
-              GROWTH SHIFT ｜ 戦略実行プラットフォーム
-            </motion.div>
+<motion.div
+  initial={{ opacity: 0, y: 12 }}
+  animate={{ opacity: 1, y: 0 }}
+  transition={{ duration: 0.6, delay: 0.08 }}
+  className="mt-4 text-[15px] font-semibold tracking-[0.06em] text-neutral-800 sm:text-[17px] lg:text-[19px] dark:text-neutral-100"
+>
+  GROWTH SHIFT｜戦略実行プラットフォーム
+</motion.div>
 
-            <motion.p
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.14 }}
-              className="mx-auto mt-4 max-w-4xl text-[16px] font-medium leading-[1.8] tracking-[0.05em] text-neutral-500 sm:text-[18px] lg:text-[19px] dark:text-neutral-400"
-            >
-              戦略を絞り、組織を動かし、業績を変える仕組み
-            </motion.p>
+<motion.p
+  initial={{ opacity: 0, y: 12 }}
+  animate={{ opacity: 1, y: 0 }}
+  transition={{ duration: 0.6, delay: 0.16 }}
+  className="mt-3 text-[14px] font-medium leading-relaxed text-neutral-700 sm:text-[15px] lg:text-[16px] dark:text-neutral-300"
+>
+  やるべきことを絞り、組織の行動に変え、業績につなぐ仕組み
+</motion.p>
 
             <motion.div
               initial={{ opacity: 0, y: 14 }}
