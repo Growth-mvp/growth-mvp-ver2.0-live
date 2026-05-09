@@ -48,7 +48,7 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.08 }}
               className="mt-7 text-[18px] font-semibold tracking-[0.08em] text-neutral-800 sm:text-[21px] lg:text-[24px] dark:text-neutral-100"
             >
-              GROWTH ｜ 戦略実行プラットフォーム
+              GROWTH SHIFT ｜ 戦略実行プラットフォーム
             </motion.div>
 
             <motion.p
