@@ -106,7 +106,7 @@ export default function Sidebar() {
             <img
               src="/GROWTH SHIFT.png"
               alt="GROWTH Logo"
-              className="block mx-auto h-[60px] w-auto md:h-[140px] transition-transform hover:scale-[1.02]"
+              className="block mx-auto h-[95px] w-auto md:h-[170px] transition-transform hover:scale-[1.02]"
             />
           </Link>
         </div>
