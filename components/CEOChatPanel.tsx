@@ -390,9 +390,6 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             } />
             <div className="leading-tight">
               <div className="text-[16px] font-semibold tracking-[-0.01em]">経営者AIエージェント</div>
-              <div className="text-[12px] text-zinc-500 mt-0.5">
-                {!userOK ? '準備中…' : sending ? '応答生成中…' : '準備完了'}
-              </div>
             </div>
           </div>
           {ctxUpdated && (
@@ -427,10 +424,10 @@ export default function CEOChatPanel({ embedded = true }: Props) {
         <div className="space-y-2">
           <textarea
             ref={textareaRef}
-            className="w-full resize-none overflow-hidden rounded-lg border p-2 text-[14px] leading-6 outline-none focus:ring"
+            className="w-full min-h-[88px] resize-none overflow-hidden rounded-lg border border-zinc-200 bg-white p-3 text-[14px] leading-6 outline-none focus:ring-2 focus:ring-zinc-300"
             placeholder={
               readyAll
-                ? '質問を入力（Shift+Enterで改行、Enterで送信）'
+                ? '質問を入力してください'
                 : !userOK
                 ? 'ユーザーを読み込み中…'
                 : '準備中…'
@@ -439,12 +436,12 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             onChange={(e) => setInput(e.target.value)}
             onInput={autoResize}
             onKeyDown={onKeyDown}
-            rows={1}
+            rows={3}
             disabled={sending || !userOK}
           />
           <div className="flex items-center justify-between">
-            <span className="text-[11px] text-gray-500">
-              {refreshTick > 0 ? `更新 ${refreshTick}` : readyAll ? '準備OK' : '準備中…'}
+            <span className="text-[11px] text-gray-400">
+              Enterで送信
             </span>
             <div className="flex items-center gap-2">
               <button
@@ -467,16 +464,6 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             </div>
           </div>
 
-          {process.env.NODE_ENV !== 'production' && (
-            <div className="text-[10px] text-gray-500 mt-1 space-x-2">
-              <span>hydrated:{String(storeHydrated)}</span>
-              <span>user:{String(user?.id ? '✓' : '×')}</span>
-              <span>strategyId:{String(strategyId ? '✓' : '×')}</span>
-              <span>id:{(strategyId ?? '').slice(0,8)}</span>
-              <span>booting:{String(booting)}</span>
-              <span>sending:{String(sending)}</span>
-            </div>
-          )}
         </div>
       </div>
     </div>
