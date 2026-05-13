@@ -317,7 +317,7 @@ function FinalStoryPreview({ finalStory }: { finalStory: StoryChapter[] }) {
           <div key={i} className="border-l-2 border-emerald-400 pl-4">
             <h4 className="text-sm font-semibold text-emerald-700 dark:text-emerald-300 mb-1">{chapter.title}</h4>
             <div className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words leading-relaxed">
-              {chapter.body}
+              {stripIssueSummaryFromDisplay(chapter.body)}
             </div>
           </div>
         ))}
@@ -1323,6 +1323,18 @@ function SWOTSection() {
 /* ===================================================
  * たたき台（Draft）プレビュー：全文＋スクロール
  * =================================================== */
+
+function stripIssueSummaryFromDisplay(text: string): string {
+  if (!text) return '';
+  return String(text)
+    .replace(/論点サマリ[ー]?\s*[:：][\s\S]*?(?=\n\s*(?:これら|現在|私たち|当社|我々|第[二三四2-4]章|$))/g, '')
+    .replace(/^\s*(?:論点\s*[（(]STAGE1分析より[）)]|最大5件表示)\s*\n?/gm, '')
+    .replace(/^\s*[-・]?\s*論点\d+[:：].*$/gm, '')
+    .replace(/^\s*\d+\.\s*[^\n]*(?:論点|成長投資|市場評価|価値創造)[^\n]*\n(?:[^\n]*\n){0,3}/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function DraftStoryPanel({ storyDraft, issueBlocks }: { storyDraft: StoryChapter[]; issueBlocks: IssueBlock[] }) {
   const has = storyDraft && storyDraft.length > 0;
   if (!has) {
@@ -1365,7 +1377,7 @@ function DraftStoryPanel({ storyDraft, issueBlocks }: { storyDraft: StoryChapter
             )}
 
             <div className="mt-1 text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words leading-relaxed">
-              {chapter.body}
+              {stripIssueSummaryFromDisplay(chapter.body)}
             </div>
           </div>
         ))}
