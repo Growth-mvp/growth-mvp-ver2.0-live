@@ -48,7 +48,7 @@ export default function Home() {
   transition={{ duration: 0.6, delay: 0.08 }}
   className="mt-4 text-[15px] font-semibold tracking-[0.06em] text-neutral-800 sm:text-[17px] lg:text-[20px] dark:text-neutral-100"
 >
-  GROWTH SHIFT｜戦略実行プラットフォーム
+  GROWTH SHIFT｜AI戦略実行プラットフォーム
 </motion.div>
 
 <motion.p
@@ -57,7 +57,7 @@ export default function Home() {
   transition={{ duration: 0.6, delay: 0.16 }}
   className="mt-3 text-[14px] font-medium leading-relaxed text-neutral-700 sm:text-[15px] lg:text-[16px] dark:text-neutral-300"
 >
-  やるべきことを絞り、組織を動かし、業績につなぐ仕組み
+  やるべきことを絞り、組織を動かし、業績につなぐ変革の仕組み
 </motion.p>
 
             <motion.div
