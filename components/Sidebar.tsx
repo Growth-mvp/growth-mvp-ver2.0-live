@@ -17,6 +17,7 @@ import {
   LogIn,
   UserPlus,
   LineChart,
+  UsersRound,
   Menu,
   X,
 } from 'lucide-react';
@@ -174,6 +175,12 @@ export default function Sidebar() {
               icon={<LineChart size={18} strokeWidth={1.5} />}
               label="STAGE 6：業績シミュレーション"
               active={isActive('/stage6')}
+            />
+            <PillLink
+              href="/org-transformation"
+              icon={<UsersRound size={18} strokeWidth={1.5} />}
+              label="組織変革・すり合わせルーム"
+              active={isActive('/org-transformation')}
             />
 
             <div className="h-px bg-gray-200/50 my-4" />
