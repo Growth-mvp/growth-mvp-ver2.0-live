@@ -19,26 +19,31 @@ export default function OrgTransformationPage() {
               組織変革・すり合わせルーム
             </h1>
           </div>
-          <p className="text-slate-600 max-w-3xl mx-auto leading-relaxed space-y-2">
+          <p className="mx-auto max-w-3xl text-xl font-semibold leading-relaxed text-slate-950">
             <span className="block">
-              部門間の対立や実行上の詰まりは、単なる人間関係の問題ではなく、
+              社員一人ひとりの違和感を、
             </span>
             <span className="block">
-              戦略・優先順位・責任・評価・意思決定に関する
-            </span>
-            <span className="block">
-              「判断基準のずれ」から生じていることがあります。
+              組織の判断基準のずれとして可視化する。
             </span>
           </p>
           <p className="text-slate-600 max-w-3xl mx-auto leading-relaxed space-y-2 pt-2">
             <span className="block">
-              このルームでは、現場で起きている悩みや違和感を入力し、
+              部門間の対立、実行上の詰まり、情報が上がらない構造は、
             </span>
             <span className="block">
-              その背景にある判断基準のずれを整理します。
+              単なる人間関係の問題ではなく、
             </span>
             <span className="block">
-              整理した内容をもとに、関係者間のすり合わせや改善アクションにつなげます。
+              戦略・優先順位・責任・評価・意思決定のずれから生じていることがあります。
+            </span>
+          </p>
+          <p className="text-slate-600 max-w-3xl mx-auto leading-relaxed space-y-2 pt-2">
+            <span className="block">
+              このルームでは、現場で起きている悩みや違和感をAIが整理し、
+            </span>
+            <span className="block">
+              関係者間のすり合わせと改善アクションにつなげます。
             </span>
           </p>
         </header>
@@ -47,12 +52,13 @@ export default function OrgTransformationPage() {
         <section className="space-y-4">
           <div>
             <h2 className="text-2xl font-bold text-slate-950 mb-2">
-              STEP1：表面的な悩み・違和感を入力
+              STEP1：現場の違和感・悩みを入力
             </h2>
             <p className="text-slate-600">
-              まずは、現場で起きている悩みや違和感をそのまま入力してください。
-              多少感情的な表現でも構いません。
-              次のステップで、AIが判断基準のずれとして整理します。
+              まずは、現場で起きている違和感や悩みをそのまま入力してください。
+              部門間の摩擦、実行上の詰まり、情報が上がらない状況など、
+              まだ整理されていない内容でも構いません。
+              AIが、背景にある判断基準のずれとして整理します。
             </p>
           </div>
 
@@ -65,8 +71,7 @@ export default function OrgTransformationPage() {
 会議では合意するのに、実行段階で誰も動かない。
 上司に都合の悪い情報が現場から上がってこない。
 数字達成が優先され、品質・安全・倫理が後回しになっている。
-現場が「言っても無駄」と感じ、問題を抱え込んでいる。
-誰が最終責任を持つのか曖昧なまま、物事が進んでいる。`}
+現場が「言っても無駄」と感じ、問題を抱え込んでいる。`}
               className="w-full border border-slate-300 rounded-xl px-4 py-3
                          text-slate-900 placeholder:text-slate-400
                          focus:outline-none focus:ring-2 focus:ring-slate-400
@@ -125,7 +130,7 @@ export default function OrgTransformationPage() {
               </div>
               <p className="text-slate-600 text-sm leading-relaxed">
                 優先順位・評価基準・リスク認識・責任範囲の違いを可視化します。
-                人や部門を責めるのではなく、判断軸の違いとして整理します。
+                人や部門を責めるのではなく、全社方針と現場判断のずれとして整理します。
               </p>
               <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3">
                 <p className="mb-1 text-xs font-semibold text-slate-500">例：</p>
@@ -142,7 +147,7 @@ export default function OrgTransformationPage() {
               <div>
                 <p className="text-slate-600 text-sm font-medium">STEP4</p>
                 <h3 className="text-xl font-bold text-slate-950">
-                  改善アクションへ反映
+                  共通判断基準と改善アクションへ反映
                 </h3>
               </div>
               <p className="text-slate-600 text-sm leading-relaxed">
@@ -160,11 +165,11 @@ export default function OrgTransformationPage() {
           </div>
         </section>
 
-        {/* ===== 4. AIが整理する観点 ===== */}
+        {/* ===== 4. AIが整理・可視化する観点 ===== */}
         <section className="space-y-6">
           <div>
             <h2 className="text-2xl font-bold text-slate-950 mb-2">
-              AIが整理する観点
+              AIが整理・可視化する観点
             </h2>
             <p className="text-slate-600">
               入力された悩みや違和感を、個人や部門への批判としてではなく、
