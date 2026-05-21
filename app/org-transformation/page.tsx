@@ -151,14 +151,15 @@ export default function OrgTransformationPage() {
                 </h3>
               </div>
               <p className="text-slate-600 text-sm leading-relaxed">
-                共通判断基準、合意事項、改善アクションを整理し、
-                必要に応じてOKR・実行計画・部門間連携に反映します。
+                STAGE1〜4の戦略設計をもとに、会社として優先すべき共通判断基準をAIが提示します。
+                そのうえで、合意事項や改善アクションを整理し、OKR・実行計画・部門間連携へ反映します。
               </p>
               <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3">
                 <p className="mb-1 text-xs font-semibold text-slate-500">例：</p>
                 <p className="text-xs leading-6 text-slate-500">
-                  短期売上・納期・部門目標だけでなく、品質・安全・顧客信頼・全社信用を
-                  共通判断基準に入れ、問題報告を責めるのではなく早期発見として扱うルールを設定します。
+                  STAGE2で「重点顧客との長期的な信頼関係」を重視している場合、
+                  短期売上だけでなく、品質・安全・顧客信頼・全社信用を共通判断基準に入れます。
+                  そのうえで、問題報告を責めるのではなく早期発見として扱うルールを設定します。
                 </p>
               </div>
             </div>
@@ -256,7 +257,7 @@ export default function OrgTransformationPage() {
               </h3>
               <p className="text-slate-600 text-sm leading-relaxed">
                 すり合わせで整理した共通判断基準や合意事項を、
-                具体的な改善アクションに落とし込みます。
+                STAGE1〜4の戦略設計と照らし合わせながら具体的な改善アクションに落とし込みます。
                 必要に応じて、OKR・実行計画・部門間連携へ反映します。
               </p>
             </div>
