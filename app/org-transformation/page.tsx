@@ -77,11 +77,11 @@ export default function OrgTransformationPage() {
           </p>
 
           <h1 className="text-3xl font-bold tracking-tight text-slate-950 md:text-5xl">
-            組織変革・擦り合わせルーム
+            組織変革・すり合わせルーム
           </h1>
 
           <p className="mt-7 max-w-4xl text-2xl font-semibold leading-relaxed text-slate-950 md:text-3xl">
-            人や組織の問題を、認識のズレとして捉え直す。
+            人と組織の問題を、認識のズレをすり合わせることで解決する。
           </p>
 
           <div className="mt-6 max-w-5xl space-y-4 text-base leading-8 text-slate-700 md:text-lg">
@@ -90,7 +90,7 @@ export default function OrgTransformationPage() {
               <br />
               個人や部署を責めるのではなく、方針・戦略、優先順位、役割責任、評価、意思決定などにある{" "}
               <span className="font-semibold text-slate-950">認識のズレ</span>
-              {" "}を見える化し、会社としての判断基準や優先すべきことを擦り合わせ、揃えることです。
+              {" "}を見える化し、会社としての判断基準や優先すべきことをすり合わせ、揃えることです。
             </p>
           </div>
 
