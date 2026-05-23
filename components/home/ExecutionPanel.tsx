@@ -273,7 +273,7 @@ export default function ExecutionPanel() {
   }, [s6?.dashboardSummary]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="rounded-2xl bg-neutral-50 p-4 ring-1 ring-neutral-200/60 dark:bg-neutral-900/40 dark:ring-neutral-800">
         <div className="flex items-center gap-3">
           <Link href="/execution" className={stageBtnClass}>
@@ -366,6 +366,33 @@ export default function ExecutionPanel() {
             target={stage6Summary?.op.target ?? '—'}
             achievementRate={stage6Summary?.op.achievementRate ?? '—'}
           />
+        </div>
+      </div>
+
+      <div className="rounded-2xl bg-neutral-50 p-4 ring-1 ring-neutral-200/60 dark:bg-neutral-900/40 dark:ring-neutral-800">
+        <div className="flex items-center gap-3">
+          <Link href="/org-transformation" className={stageBtnClass}>
+            <span className="text-[15px] font-semibold text-neutral-900">組織変革・すり合わせルーム</span>
+          </Link>
+          <div className="text-sm font-medium">認識ズレ・違和感の要約</div>
+        </div>
+
+        <div className="mt-3 text-xs text-neutral-600 dark:text-neutral-400">
+          現場の違和感や認識のズレを検知し、必要なすり合わせにつなげます。
+        </div>
+
+        <div className="mt-2 rounded-xl bg-white p-2.5 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800">
+          <div className="flex flex-wrap gap-2.5">
+            <div className="rounded-full bg-neutral-100 px-3.5 py-1.5 text-sm text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+              部門間の認識ズレ：増加傾向
+            </div>
+            <div className="rounded-full bg-neutral-100 px-3.5 py-1.5 text-sm text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+              優先順位の違和感：3件登録
+            </div>
+            <div className="rounded-full bg-neutral-100 px-3.5 py-1.5 text-sm text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+              実行計画とのギャップ：要確認
+            </div>
+          </div>
         </div>
       </div>
     </div>
