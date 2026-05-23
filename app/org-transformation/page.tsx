@@ -100,7 +100,7 @@ export default function OrgTransformationPage() {
         <section className="space-y-5">
           <div>
             <h2 className="mb-2 text-2xl font-bold text-slate-950">
-              よくある認識のズレ
+              よくある違和感、もやもや
             </h2>
             
           </div>
