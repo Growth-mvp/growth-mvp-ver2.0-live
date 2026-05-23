@@ -1,269 +1,349 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+
+type ExampleCase = {
+  title: string;
+  situation: string;
+  myRecognition: string;
+  otherHypothesis: string;
+  alignmentQuestion: string;
+};
+
+const exampleCases: ExampleCase[] = [
+  {
+    title: '関連部門が期待通りに動いてくれない',
+    situation:
+      '関連部門へ協力を依頼しているが、対応が遅かったり、期待していた水準まで動いてもらえなかったりする。',
+    myRecognition:
+      'こちらは全社的に重要な取り組みだと考えているため、関連部門にも優先度を上げて協力してほしい。',
+    otherHypothesis:
+      '相手部門は、自部門の通常業務や直近KPIを優先すべきだと考えており、この依頼の重要度が十分に伝わっていない可能性がある。',
+    alignmentQuestion:
+      'この取り組みは会社全体・各部門にとってどの程度優先すべきものなのか。どこまで協力する必要があるのか。',
+  },
+  {
+    title: '経営が現場に無理な指示を出してくる',
+    situation:
+      '経営から新しい方針や指示が出るが、現場の人員・時間・業務量を踏まえると、実行するのが難しいと感じる。',
+    myRecognition:
+      '現場の実態を十分に理解しないまま指示が出ており、このままでは既存業務にも支障が出るのではないかと感じている。',
+    otherHypothesis:
+      '経営側は、会社として今やるべき重要テーマであり、現場にも工夫して実行してほしいと考えている可能性がある。',
+    alignmentQuestion:
+      '経営が実現したいことと、現場が実行できる範囲をどう擦り合わせ、優先順位やリソース配分を見直すべきか。',
+  },
+  {
+    title: '失敗が許されず、挑戦しにくい',
+    situation:
+      '会社としては挑戦や変革が求められているが、実際には失敗すると評価が下がったり責任を問われたりするため、思い切った行動が取りにくい。',
+    myRecognition:
+      '挑戦しろと言われても、失敗したときの責任や評価への影響が大きく、現実的には安全な選択をせざるを得ない。',
+    otherHypothesis:
+      '経営・管理職側は、会社の成長には新しい挑戦が必要であり、現場にも主体的に動いてほしいと考えている可能性がある。',
+    alignmentQuestion:
+      'どこまでの挑戦なら許容されるのか。失敗した場合に何を学び、どのように評価・改善につなげるのか。',
+  },
+];
 
 export default function OrgTransformationPage() {
-  const [problemText, setProblemText] = useState<string>('');
+  const [situationText, setSituationText] = useState<string>('');
+  const [myRecognitionText, setMyRecognitionText] = useState<string>('');
+  const [idealText, setIdealText] = useState<string>('');
+  const [expectationText, setExpectationText] = useState<string>('');
+
+  const canSubmit = useMemo(() => {
+    return [situationText, myRecognitionText, idealText, expectationText].some(
+      (value) => value.trim().length > 0,
+    );
+  }, [situationText, myRecognitionText, idealText, expectationText]);
+
+  const applyExample = (example: ExampleCase) => {
+    setSituationText(example.situation);
+    setMyRecognitionText(example.myRecognition);
+    setIdealText(example.alignmentQuestion);
+    setExpectationText(
+      '相手側の事情や優先順位も確認したうえで、企業としてどう動くべきかを一緒に整理したい。',
+    );
+  };
 
   return (
-    <div className="p-8">
-      <div className="max-w-6xl mx-auto space-y-12">
+    <div className="min-h-screen bg-slate-50 px-6 py-8 md:px-8">
+      <div className="mx-auto max-w-6xl space-y-12">
+        {/* ===== 1. ページヘッダー：白枠カードなし ===== */}
+        <header className="px-1 py-8 md:py-12">
+          <p className="mb-3 text-xs font-semibold tracking-[0.28em] text-slate-500">
+            ORGANIZATION ALIGNMENT ROOM
+          </p>
 
-        {/* ===== 1. ページヘッダー ===== */}
-        <header className="text-center space-y-4 mb-12">
-          <div>
-            <p className="text-slate-600 text-sm tracking-widest mb-2">
-              Organization Transformation
+          <h1 className="text-3xl font-bold tracking-tight text-slate-950 md:text-5xl">
+            組織変革・擦り合わせルーム
+          </h1>
+
+          <p className="mt-7 max-w-4xl text-2xl font-semibold leading-relaxed text-slate-950 md:text-3xl">
+            人や組織の問題を、認識のズレとして捉え直す。
+          </p>
+
+          <div className="mt-6 max-w-5xl space-y-4 text-base leading-8 text-slate-700 md:text-lg">
+            <p>
+              組織変革に必要なのは、個人の意識や組織風土を変えようとすることではありません。
+              <br />
+              個人や部署を責めるのではなく、方針・戦略、優先順位、役割責任、評価、意思決定などにある{" "}
+              <span className="font-semibold text-slate-950">認識のズレ</span>
+              {" "}を見える化し、会社としての判断基準や優先すべきことを擦り合わせ、揃えることです。
             </p>
-            <h1 className="text-4xl font-bold text-slate-950 mb-4">
-              組織変革・すり合わせルーム
-            </h1>
           </div>
-          <p className="mx-auto max-w-3xl text-xl font-semibold leading-relaxed text-slate-950">
-            <span className="block">
-              社員一人ひとりの違和感を、
-            </span>
-            <span className="block">
-              組織の判断基準のずれとして可視化する。
-            </span>
-          </p>
-          <p className="text-slate-600 max-w-3xl mx-auto leading-relaxed space-y-2 pt-2">
-            <span className="block">
-              部門間の対立、実行上の詰まり、情報が上がらない構造は、
-            </span>
-            <span className="block">
-              単なる人間関係の問題ではなく、
-            </span>
-            <span className="block">
-              戦略・優先順位・責任・評価・意思決定のずれから生じていることがあります。
-            </span>
-          </p>
-          <p className="text-slate-600 max-w-3xl mx-auto leading-relaxed space-y-2 pt-2">
-            <span className="block">
-              このルームでは、現場で起きている悩みや違和感をAIが整理し、
-            </span>
-            <span className="block">
-              関係者間のすり合わせと改善アクションにつなげます。
-            </span>
-          </p>
-        </header>
 
-        {/* ===== 2. STEP1：入力セクション ===== */}
-        <section className="space-y-4">
+</header>
+
+        {/* ===== 2. あるある事例 ===== */}
+        <section className="space-y-5">
           <div>
-            <h2 className="text-2xl font-bold text-slate-950 mb-2">
-              STEP1：現場の違和感・悩みを入力
+            <h2 className="mb-2 text-2xl font-bold text-slate-950">
+              よくある認識のズレ
+            </h2>
+            
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            {exampleCases.map((example) => (
+              <article
+                key={example.title}
+                className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+              >
+                <h3 className="text-base font-bold leading-7 text-slate-950">
+                  {example.title}
+                </h3>
+
+                <p className="mt-2 flex-1 text-sm leading-7 text-slate-600">
+                  {example.situation}
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() => applyExample(example)}
+                  className="mt-4 w-full rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
+                >
+                  この事例を入力欄に反映
+                </button>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        {/* ===== 3. STEP1：入力セクション ===== */}
+        <section className="space-y-5">
+          <div>
+            <h2 className="mb-2 text-2xl font-bold text-slate-950">
+              STEP1：もやもやと自分の認識を入力
             </h2>
             <p className="text-slate-600">
-              まずは、現場で起きている違和感や悩みをそのまま入力してください。
-              部門間の摩擦、実行上の詰まり、情報が上がらない状況など、
-              まだ整理されていない内容でも構いません。
-              AIが、背景にある判断基準のずれとして整理します。
+              まずは、現場で起きている違和感をそのまま入力してください。
+              入力者自身の認識は本人が言語化し、AIは相手方の認識を仮説として整理します。
             </p>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
-            <textarea
-              value={problemText}
-              onChange={(e) => setProblemText(e.target.value)}
-              placeholder={`例：
-部門間の仲が悪く、協力よりも牽制が多い。
-会議では合意するのに、実行段階で誰も動かない。
-上司に都合の悪い情報が現場から上がってこない。
-数字達成が優先され、品質・安全・倫理が後回しになっている。
-現場が「言っても無駄」と感じ、問題を抱え込んでいる。`}
-              className="w-full border border-slate-300 rounded-xl px-4 py-3
-                         text-slate-900 placeholder:text-slate-400
-                         focus:outline-none focus:ring-2 focus:ring-slate-400
-                         resize-y"
-              style={{ minHeight: '180px' }}
-            />
-            <div className="mt-4 flex justify-end">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+              <label className="space-y-2">
+                <span className="text-sm font-semibold text-slate-900">
+                  1. どんな場面でもやもやしましたか？
+                </span>
+                <textarea
+                  value={situationText}
+                  onChange={(e) => setSituationText(e.target.value)}
+                  placeholder="例：関連部門へ協力を依頼しているが、対応が遅かったり、期待していた水準まで動いてもらえなかったりする。"
+                  className="min-h-[150px] w-full resize-y rounded-xl border border-slate-300 px-4 py-3 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400"
+                />
+              </label>
+
+              <label className="space-y-2">
+                <span className="text-sm font-semibold text-slate-900">
+                  2. その時、自分はどう受け止めましたか？
+                </span>
+                <textarea
+                  value={myRecognitionText}
+                  onChange={(e) => setMyRecognitionText(e.target.value)}
+                  placeholder="例：全社的に重要な取り組みだと思っているが、相手部門には優先度が十分に伝わっていないように感じた。"
+                  className="min-h-[150px] w-full resize-y rounded-xl border border-slate-300 px-4 py-3 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400"
+                />
+              </label>
+
+              <label className="space-y-2">
+                <span className="text-sm font-semibold text-slate-900">
+                  3. 本来どうあるべきだと思いますか？
+                </span>
+                <textarea
+                  value={idealText}
+                  onChange={(e) => setIdealText(e.target.value)}
+                  placeholder="例：会社として優先すべき取り組みであれば、部門間で優先順位や協力範囲を明確にすべきだと思う。"
+                  className="min-h-[150px] w-full resize-y rounded-xl border border-slate-300 px-4 py-3 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400"
+                />
+              </label>
+
+              <label className="space-y-2">
+                <span className="text-sm font-semibold text-slate-900">
+                  4. 相手に何を期待していましたか？
+                </span>
+                <textarea
+                  value={expectationText}
+                  onChange={(e) => setExpectationText(e.target.value)}
+                  placeholder="例：相手部門の事情も踏まえたうえで、どこまで協力できるのか、どの条件なら進められるのかを話し合ってほしい。"
+                  className="min-h-[150px] w-full resize-y rounded-xl border border-slate-300 px-4 py-3 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400"
+                />
+              </label>
+            </div>
+
+            <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm leading-7 text-slate-600">
+              入力された内容は、個人や部門を責めるためではなく、認識のズレを整理し、
+              擦り合わせるために使います。AIの提示内容は断定ではなく、対話の入口となる仮説です。
+            </div>
+
+            <div className="mt-5 flex justify-end">
               <button
+                type="button"
                 onClick={() => {
-                  // TODO: API接続時に処理を追加
+                  // TODO: API接続時に、STAGE1〜4の戦略データを判断軸として渡す
                 }}
-                disabled={problemText.trim().length === 0}
-                className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-                  problemText.trim().length === 0
-                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                disabled={!canSubmit}
+                className={`rounded-xl px-6 py-3 font-semibold transition-colors ${
+                  !canSubmit
+                    ? 'cursor-not-allowed bg-slate-200 text-slate-400'
                     : 'bg-slate-950 text-white hover:bg-slate-900'
                 }`}
               >
-                判断基準のずれを整理する
+                AIで認識のズレを整理する
               </button>
             </div>
           </div>
         </section>
 
-        {/* ===== 3. STEP2〜4 概要カード ===== */}
+        {/* ===== 4. STEP2〜4 概要カード ===== */}
         <section>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* STEP2カード */}
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-3">
-              <div>
-                <p className="text-slate-600 text-sm font-medium">STEP2</p>
-                <h3 className="text-xl font-bold text-slate-950">
-                  背景を掘り下げる
-                </h3>
-              </div>
-              <p className="text-slate-600 text-sm leading-relaxed">
-                なぜその問題が起きているように見えるのかを整理します。
-                相手部門の役割・評価基準・制約条件を確認します。
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <p className="text-sm font-semibold text-slate-500">STEP2</p>
+              <h3 className="mt-1 text-xl font-bold text-slate-950">
+                相手方の認識仮説を整理
+              </h3>
+              <p className="mt-3 text-sm leading-7 text-slate-600">
+                入力者の認識を起点に、相手方が何を重視していた可能性があるか、
+                どのような前提・制約・優先順位で動いていた可能性があるかを整理します。
               </p>
-              <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3">
-                <p className="mb-1 text-xs font-semibold text-slate-500">例：</p>
-                <p className="text-xs leading-6 text-slate-500">
-                  現場が動かない背景には、現場側が「どうせ意見を出しても変わらない」と感じていたり、
-                  管理職側が「失敗や遅れを報告されると責任を問われる」と考えている可能性があります。
-                </p>
+              <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-4 text-xs leading-6 text-slate-600">
+                例：相手部門は「全社テーマへの非協力」ではなく、既存業務・人員不足・直近KPIを優先せざるを得ないと考えている可能性があります。
               </div>
             </div>
 
-            {/* STEP3カード */}
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-3">
-              <div>
-                <p className="text-slate-600 text-sm font-medium">STEP3</p>
-                <h3 className="text-xl font-bold text-slate-950">
-                  判断基準のずれを特定
-                </h3>
-              </div>
-              <p className="text-slate-600 text-sm leading-relaxed">
-                優先順位・評価基準・リスク認識・責任範囲の違いを可視化します。
-                人や部門を責めるのではなく、全社方針と現場判断のずれとして整理します。
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <p className="text-sm font-semibold text-slate-500">STEP3</p>
+              <h3 className="mt-1 text-xl font-bold text-slate-950">
+                企業としてあるべき認識を提示
+              </h3>
+              <p className="mt-3 text-sm leading-7 text-slate-600">
+                STAGE1〜4で整理したMVV、経営戦略、部門戦略、OKR、重点プロジェクトを判断軸に、
+                個人や部門の都合ではなく企業としてどう捉えるべきかを提示します。
               </p>
-              <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3">
-                <p className="mb-1 text-xs font-semibold text-slate-500">例：</p>
-                <p className="text-xs leading-6 text-slate-500">
-                  経営側は「短期の数字達成」を重視している一方、
-                  現場側は「品質・安全・顧客信頼を守ること」を重視している可能性があります。
-                  このずれが、無理な目標や問題の抱え込みにつながることがあります。
-                </p>
+              <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-4 text-xs leading-6 text-slate-600">
+                例：重点顧客深耕が全社戦略であれば、部門ごとの都合ではなく、顧客価値・優先順位・必要リソースを共通認識にする必要があります。
               </div>
             </div>
 
-            {/* STEP4カード */}
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-3">
-              <div>
-                <p className="text-slate-600 text-sm font-medium">STEP4</p>
-                <h3 className="text-xl font-bold text-slate-950">
-                  共通判断基準と改善アクションへ反映
-                </h3>
-              </div>
-              <p className="text-slate-600 text-sm leading-relaxed">
-                STAGE1〜4の戦略設計をもとに、会社として優先すべき共通判断基準をAIが提示します。
-                そのうえで、合意事項や改善アクションを整理し、OKR・実行計画・部門間連携へ反映します。
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <p className="text-sm font-semibold text-slate-500">STEP4</p>
+              <h3 className="mt-1 text-xl font-bold text-slate-950">
+                擦り合わせアクションへ変換
+              </h3>
+              <p className="mt-3 text-sm leading-7 text-slate-600">
+                認識のズレを、確認すべき問い・合意すべきルール・改善アクションに変換します。
+                必要に応じてOKR、役割分担、情報共有ルール、実行計画へ反映します。
               </p>
-              <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3">
-                <p className="mb-1 text-xs font-semibold text-slate-500">例：</p>
-                <p className="text-xs leading-6 text-slate-500">
-                  STAGE2で「重点顧客との長期的な信頼関係」を重視している場合、
-                  短期売上だけでなく、品質・安全・顧客信頼・全社信用を共通判断基準に入れます。
-                  そのうえで、問題報告を責めるのではなく早期発見として扱うルールを設定します。
-                </p>
+              <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-4 text-xs leading-6 text-slate-600">
+                例：依頼ルール、共有タイミング、優先順位の決め方、判断権限、次回確認日を明確にします。
               </div>
             </div>
           </div>
         </section>
 
-        {/* ===== 4. AIが整理・可視化する観点 ===== */}
-        <section className="space-y-6">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-950 mb-2">
-              AIが整理・可視化する観点
-            </h2>
-            <p className="text-slate-600">
-              入力された悩みや違和感を、個人や部門への批判としてではなく、
-              組織の判断基準のずれとして整理します。
-            </p>
-          </div>
+        
 
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-3">
-                <h4 className="font-medium text-slate-950 flex items-start gap-2">
-                  <span className="text-slate-400">•</span>
-                  <span>どの部門とどの部門で、何の判断基準がずれているか</span>
-                </h4>
-                <h4 className="font-medium text-slate-950 flex items-start gap-2">
-                  <span className="text-slate-400">•</span>
-                  <span>どの責任範囲や最終判断者が曖昧になっているか</span>
-                </h4>
-                <h4 className="font-medium text-slate-950 flex items-start gap-2">
-                  <span className="text-slate-400">•</span>
-                  <span>どの評価基準が全社方針と矛盾しているか</span>
-                </h4>
-              </div>
-              <div className="space-y-3">
-                <h4 className="font-medium text-slate-950 flex items-start gap-2">
-                  <span className="text-slate-400">•</span>
-                  <span>どの意思決定が属人的・非公式になっているか</span>
-                </h4>
-                <h4 className="font-medium text-slate-950 flex items-start gap-2">
-                  <span className="text-slate-400">•</span>
-                  <span>どの上位戦略が現場の行動基準に落ちていないか</span>
-                </h4>
-                <h4 className="font-medium text-slate-950 flex items-start gap-2">
-                  <span className="text-slate-400">•</span>
-                  <span>会社として、どの判断基準を共通化すべきか</span>
-                </h4>
-              </div>
-            </div>
-          </div>
-        </section>
+       {/* ===== 6. このルームでできること ===== */}
+<section className="space-y-5">
+  <div>
+    <h2 className="mb-2 text-2xl font-bold text-slate-950">
+      次のアクション
+    </h2>
+    <p className="text-slate-600">
+      個別の違和感を認識のズレとして整理し、必要なすり合わせの場をつくり、
+      部門戦略や実行計画の見直しにつなげます。
+    </p>
+  </div>
 
-        {/* ===== 5. このルームでできること ===== */}
-        <section className="space-y-6">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-950 mb-2">
-              このルームでできること
-            </h2>
-            <p className="text-slate-600">
-              入力された悩みや違和感をもとに、関係者間のすり合わせ、
-              部門間の関係性の可視化、改善アクションの管理へとつなげます。
-            </p>
-          </div>
+  <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+    <div className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <h3 className="text-lg font-bold text-slate-950">
+        すり合わせの場を依頼
+      </h3>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* すり合わせルーム */}
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-3">
-              <h3 className="text-lg font-bold text-slate-950">
-                すり合わせルーム
-              </h3>
-              <p className="text-slate-600 text-sm leading-relaxed">
-                関係者ごとの優先順位・評価基準・リスク認識を整理し、
-                判断基準のずれを可視化します。
-                人や部門を責めるのではなく、
-                共通判断基準と合意事項をつくるための場です。
-              </p>
-            </div>
+      <p className="mt-3 flex-1 text-sm leading-7 text-slate-600">
+        現場のもやもやを、自分の認識・相手方の認識仮説・企業としてのあるべき認識に整理します。
+        AIが論点を整理したうえで、必要に応じて管理者へすり合わせの場の設定を依頼します。
+      </p>
 
-            {/* 部門間マップ */}
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-3">
-              <h3 className="text-lg font-bold text-slate-950">
-                部門間マップ
-              </h3>
-              <p className="text-slate-600 text-sm leading-relaxed">
-                部門間の摩擦、依存関係、協働可能性を可視化します。
-                どの部門同士で判断基準がずれているのか、
-                どこに調整が必要なのかを把握します。
-              </p>
-            </div>
+      <button
+        type="button"
+        onClick={() => {
+          // TODO: 管理者への依頼機能を実装
+        }}
+        className="mt-5 w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
+      >
+        すり合わせの場を依頼
+      </button>
+    </div>
 
-            {/* 改善アクション管理 */}
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-3">
-              <h3 className="text-lg font-bold text-slate-950">
-                改善アクション管理
-              </h3>
-              <p className="text-slate-600 text-sm leading-relaxed">
-                すり合わせで整理した共通判断基準や合意事項を、
-                STAGE1〜4の戦略設計と照らし合わせながら具体的な改善アクションに落とし込みます。
-                必要に応じて、OKR・実行計画・部門間連携へ反映します。
-              </p>
-            </div>
-          </div>
-        </section>
+    <div className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <h3 className="text-lg font-bold text-slate-950">
+        部門間マップ
+      </h3>
 
+      <p className="mt-3 flex-1 text-sm leading-7 text-slate-600">
+        社内で発生している認識のズレを可視化し、どの戦略・OKR・業務連携に影響しているかを整理します。
+        必要に応じて、STAGE3の部門戦略策定画面での見直しにつなげます。
+      </p>
+
+      <button
+        type="button"
+        onClick={() => {
+          // TODO: STAGE3への遷移処理を実装
+        }}
+        className="mt-5 w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
+      >
+        STAGE３へ
+      </button>
+    </div>
+
+    <div className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <h3 className="text-lg font-bold text-slate-950">
+        改善アクションへ反映
+      </h3>
+
+      <p className="mt-3 flex-1 text-sm leading-7 text-slate-600">
+        すり合わせ結果を、役割分担・情報共有ルール・OKR・実行計画の改善アクションとして整理します。
+        必要に応じて、STAGE4の実行計画に反映します。
+      </p>
+
+      <button
+        type="button"
+        onClick={() => {
+          // TODO: STAGE4への遷移処理を実装
+        }}
+        className="mt-5 w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
+      >
+        STAGE４へ
+      </button>
+    </div>
+  </div>
+</section>
       </div>
     </div>
   );
