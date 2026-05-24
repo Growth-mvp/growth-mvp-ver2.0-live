@@ -81,16 +81,16 @@ export default function OrgTransformationPage() {
           </h1>
 
           <p className="mt-7 max-w-4xl text-2xl font-semibold leading-relaxed text-slate-950 md:text-3xl">
-            人と組織の問題を、認識のズレをすり合わせることで解決する。
+            人と組織の問題を、「認識のズレ」として見える化する。
           </p>
 
           <div className="mt-6 max-w-5xl space-y-4 text-base leading-8 text-slate-700 md:text-lg">
             <p>
-              組織変革に必要なのは、個人の意識や組織風土を変えようとすることではありません。
+              人と組織の問題は、社員の意識や人間関係、風土文化を変えようとするだけでは解決しません。
               <br />
-              個人や部署を責めるのではなく、方針・戦略、優先順位、役割責任、評価、意思決定などにある{" "}
-              <span className="font-semibold text-slate-950">認識のズレ</span>
-              {" "}を見える化し、会社としての判断基準や優先すべきことをすり合わせ、揃えることです。
+              多くの問題の背景には、{" "}
+              <span className="font-semibold text-slate-950">方針・戦略、優先順位、役割責任、評価、意思決定に対する認識のズレ</span>
+              {" "}が潜んでいるからです。<br /><br />当ルームでは、個人が抱える違和感やモヤモヤを起点として「認識のズレ」をAIで構造的に整理。<br />会社が目指す方向性とすり合わせることで、組織全体の判断と行動のスピードを揃えていきます。
             </p>
           </div>
 
