@@ -81,12 +81,12 @@ export default function OrgTransformationPage() {
           </h1>
 
           <p className="mt-7 max-w-4xl text-2xl font-semibold leading-relaxed text-slate-950 md:text-3xl">
-            人と組織の問題を、「認識のズレ」として見える化する。
+            人と組織の問題を、「認識のズレ」から捉え直す。
           </p>
 
           <div className="mt-6 max-w-5xl space-y-4 text-base leading-8 text-slate-700 md:text-lg">
             <p>
-              人と組織の問題は、社員の意識や人間関係、風土文化を変えようとするだけでは解決しません。
+              人と組織の問題は、意識改革やコミュニケーション、風土づくりだけでは解決しません。
               <br />
               多くの問題の背景には、{" "}
               <span className="font-semibold text-slate-950">方針・戦略、優先順位、役割責任、評価、意思決定に対する認識のズレ</span>
