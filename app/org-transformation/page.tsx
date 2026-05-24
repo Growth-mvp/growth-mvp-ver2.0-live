@@ -89,7 +89,7 @@ export default function OrgTransformationPage() {
               人と組織の問題は、意識やコミュニケーション、組織風土を変えるだけでは解決しません。
               <br />
               その背景には、{" "}
-              <span className="font-semibold text-slate-950">方針・戦略、優先順位、役割責任、評価、意思決定に対する認識のズレ</span>
+              <span className="font-semibold text-slate-950">方針・戦略、優先順位、役割責任、評価、意思決定に対する互いの認識のズレ</span>
               {" "}が潜んでいることが多いからです。<br /><br />当ルームでは、個人が抱える違和感やモヤモヤを起点として「認識のズレ」をAIで構造的に整理。<br />会社が目指す方向性を軸に認識をかみ合わせ、組織全体の判断と行動のスピードを揃えていきます。
             </p>
           </div>
