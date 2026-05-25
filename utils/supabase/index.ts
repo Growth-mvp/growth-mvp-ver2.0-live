@@ -16,10 +16,11 @@
 // ========================================================
 // ⚙️ 安全なユーティリティ群（循環しないもののみ）
 // ========================================================
-export * from './errors';       // エラー整形・PostgRESTエラー抽出
-export * from './normalize';    // データ正規化
-export * from './membership';   // メンバー／ロール
-export * from './strategy';     // 戦略データCRUD系
+export * from './errors';            // エラー整形・PostgRESTエラー抽出
+export * from './normalize';         // データ正規化
+export * from './membership';        // メンバー／ロール
+export * from './strategy';          // 戦略データCRUD系
+export * from './org-alignment';     // 組織変革・認識のズレCRUD系
 
 // ========================================================
 // ⚠️ client.ts は leaf 専用。直接再エクスポートするが、
