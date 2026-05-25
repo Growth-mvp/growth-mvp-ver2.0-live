@@ -38,6 +38,9 @@ type OrgMisalignmentType =
   | 'culture_motivation'
   | 'talent_development'
   | 'skill_capability_gap'
+  | 'customer_market_gap'
+  | 'kpi_goal_misalignment'
+  | 'change_resistance'
   | 'unknown';
 
 type IntakeDraft = {
@@ -90,6 +93,12 @@ type QuestionPriority =
   | 'talent_constraint'
   | 'skill_target'
   | 'skill_impact'
+  | 'customer_market_gap_target'
+  | 'customer_market_gap_impact'
+  | 'kpi_goal_target'
+  | 'kpi_goal_ideal'
+  | 'change_resistance_target'
+  | 'change_resistance_reason'
   | 'counterparty'
   | 'ideal'
   | 'expectation'
@@ -420,6 +429,129 @@ const SKILL_CAPABILITY_TERMS = [
   '使いこなせない',
 ];
 
+
+const CUSTOMER_MARKET_GAP_TERMS = [
+  '顧客ニーズ',
+  '顧客が求めている',
+  '顧客の声',
+  '顧客対応',
+  '市場',
+  '市場環境',
+  '競合',
+  '競争環境',
+  'ニーズが変わ',
+  '顧客が変わ',
+  '昔の成功パターン',
+  '顧客より社内',
+  '顧客価値',
+  '現場では顧客',
+  'お客様',
+  'ユーザーのニーズ',
+  '市場の変化',
+  '顧客の変化',
+  '売ろうとしているもの',
+];
+
+const KPI_GOAL_MISALIGNMENT_TERMS = [
+  'KPI',
+  'OKR',
+  '目標',
+  '部門目標',
+  '数値目標',
+  '短期業績',
+  '短期的な業績',
+  '短期数字',
+  '長期戦略',
+  '長期的な目標',
+  '売上件数',
+  '目標設計',
+  '部門KPI',
+  '評価指標',
+  '指標',
+  '全社戦略とつながっていない',
+  '目標がバラバラ',
+  '会社全体の成果につながっていない',
+  '数字ばかり',
+];
+
+const CHANGE_RESISTANCE_TERMS = [
+  '今までのやり方',
+  'これまでのやり方',
+  '前例',
+  '前例がない',
+  '過去の成功体験',
+  '昔のやり方',
+  '変える必要性',
+  '変わろうとしない',
+  '変化が必要',
+  '抵抗',
+  '反対される',
+  '新しいやり方',
+  '従来通り',
+  '慣習',
+  '既存のやり方',
+  '保守的',
+  '変えられない',
+  '変えようとしない',
+];
+
+const CUSTOMER_MARKET_CONCRETE_HINTS = [
+  '顧客',
+  'お客様',
+  'ユーザー',
+  '市場',
+  '競合',
+  'ニーズ',
+  '要望',
+  '問い合わせ',
+  'クレーム',
+  '失注',
+  '提案',
+  '商品',
+  'サービス',
+  '価格',
+  '納期',
+  '品質',
+  '機能',
+  '現場の声',
+];
+
+const KPI_GOAL_CONCRETE_HINTS = [
+  'KPI',
+  'OKR',
+  '売上',
+  '利益',
+  '件数',
+  '受注',
+  '粗利',
+  '訪問件数',
+  '商談数',
+  '成約率',
+  '短期業績',
+  '長期戦略',
+  '部門目標',
+  '評価指標',
+  '目標',
+  '数字',
+];
+
+const CHANGE_RESISTANCE_CONCRETE_HINTS = [
+  '新しいやり方',
+  '改善提案',
+  '業務改善',
+  'システム',
+  'プロセス',
+  '会議',
+  '承認',
+  '提案',
+  '施策',
+  '取り組み',
+  '前例',
+  '従来',
+  '今まで',
+  'これまで',
+];
+
 const PROCESS_CONCRETE_HINTS = [
   '申請',
   '承認',
@@ -504,6 +636,9 @@ const RISK_DETAIL_HINTS = [
 function classifyConcern(text: string): OrgMisalignmentType {
   if (!text) return 'unknown';
 
+  if (containsAny(text, CUSTOMER_MARKET_GAP_TERMS)) return 'customer_market_gap';
+  if (containsAny(text, KPI_GOAL_MISALIGNMENT_TERMS)) return 'kpi_goal_misalignment';
+  if (containsAny(text, CHANGE_RESISTANCE_TERMS)) return 'change_resistance';
   if (containsAny(text, BUSINESS_PROCESS_EFFICIENCY_TERMS)) return 'business_process_efficiency';
   if (containsAny(text, TOOL_OR_PROCESS_TERMS)) return 'tool_or_process_distrust';
   if (containsAny(text, TALENT_DEVELOPMENT_TERMS)) return 'talent_development';
@@ -580,6 +715,18 @@ function wasPriorityAlreadyAsked(priority: QuestionPriority, history: ChatMessag
       return historyIncludesAny(history, ['どの業務や取り組みに対して', 'どのようなスキルや知識']);
     case 'skill_impact':
       return historyIncludesAny(history, ['そのスキル不足によって', 'どのような支障や不安']);
+    case 'customer_market_gap_target':
+      return historyIncludesAny(history, ['顧客や市場のどの変化', '会社の方針や対応がズレ']);
+    case 'customer_market_gap_impact':
+      return historyIncludesAny(history, ['顧客や市場とのズレによって', 'どのような影響']);
+    case 'kpi_goal_target':
+      return historyIncludesAny(history, ['どの目標やKPIについて', 'ズレていると感じ']);
+    case 'kpi_goal_ideal':
+      return historyIncludesAny(history, ['本来、その目標やKPIは', 'どのように設計']);
+    case 'change_resistance_target':
+      return historyIncludesAny(history, ['どのような新しいやり方や変化が', '進みにくくなって']);
+    case 'change_resistance_reason':
+      return historyIncludesAny(history, ['進みにくくしている理由', '前例や過去のやり方']);
     case 'counterparty':
       return historyIncludesAny(history, ['主に誰・どの部門']);
     case 'ideal':
@@ -814,6 +961,51 @@ function assessCompletenessByType(
       break;
     }
 
+    case 'customer_market_gap': {
+      const hasCustomerMarketTarget = containsAny(allText, CUSTOMER_MARKET_CONCRETE_HINTS);
+      const hasCustomerMarketImpact = containsAny(allText, ['失注', '売上', '顧客離れ', 'クレーム', '機会損失', '競争', '対応が遅れ', '選ばれない', '満足度', '提案が合わない']);
+      nextQuestionPriority = firstNotAsked(
+        [
+          !hasCustomerMarketTarget ? 'customer_market_gap_target' : null,
+          !hasCustomerMarketImpact ? 'customer_market_gap_impact' : null,
+          !hasIdeal ? 'ideal' : null,
+          !hasExpectation ? 'expectation' : null,
+        ],
+        history
+      );
+      break;
+    }
+
+    case 'kpi_goal_misalignment': {
+      const hasKpiGoalTarget = containsAny(allText, KPI_GOAL_CONCRETE_HINTS);
+      const hasKpiGoalIdeal = containsAny(allText, ['本来', 'あるべき', 'つながる', '整合', '反映', '長期', '短期', '評価', '優先']);
+      nextQuestionPriority = firstNotAsked(
+        [
+          !hasKpiGoalTarget ? 'kpi_goal_target' : null,
+          !hasKpiGoalIdeal ? 'kpi_goal_ideal' : null,
+          !hasIdeal ? 'ideal' : null,
+          !hasExpectation ? 'expectation' : null,
+        ],
+        history
+      );
+      break;
+    }
+
+    case 'change_resistance': {
+      const hasChangeTarget = containsAny(allText, CHANGE_RESISTANCE_CONCRETE_HINTS);
+      const hasResistanceReason = containsAny(allText, ['前例', '今まで', 'これまで', '過去', '反対', '抵抗', '保守的', '不安', 'リスク', '慣習', '変えられない']);
+      nextQuestionPriority = firstNotAsked(
+        [
+          !hasChangeTarget ? 'change_resistance_target' : null,
+          !hasResistanceReason ? 'change_resistance_reason' : null,
+          !hasIdeal ? 'ideal' : null,
+          !hasExpectation ? 'expectation' : null,
+        ],
+        history
+      );
+      break;
+    }
+
     case 'unknown':
     default: {
       nextQuestionPriority = firstNotAsked(
@@ -853,7 +1045,7 @@ function generateQuestionByType(priority: QuestionPriority): string {
     case 'executive_policy_gap':
       return '経営から求められている方針や指示と、現場で実際に起きていることのどこにズレを感じましたか？';
     case 'executive_policy_constraint':
-      return 'その方針を実行するうえで、現場では何が不足していると感じますか？';
+      return 'その方針を実行しようとすると、現場で求められる短期的な成果や日々の業務とぶつかる場面はありますか？';
     case 'authority_decision_point':
       return 'どのような判断や承認で止まりやすいと感じていますか？';
     case 'authority_expected_scope':
@@ -894,6 +1086,18 @@ function generateQuestionByType(priority: QuestionPriority): string {
       return 'どの業務や取り組みに対して、どのようなスキルや知識が不足していると感じますか？';
     case 'skill_impact':
       return 'そのスキル不足によって、実際にどのような支障や不安が出ていますか？';
+    case 'customer_market_gap_target':
+      return '顧客や市場のどの変化に対して、会社の方針や対応がズレていると感じましたか？';
+    case 'customer_market_gap_impact':
+      return 'その顧客や市場とのズレによって、営業・顧客対応・商品サービスなどにどのような影響が出ていると感じますか？';
+    case 'kpi_goal_target':
+      return 'どの目標やKPIについて、会社の方針や現場の実態とズレていると感じましたか？';
+    case 'kpi_goal_ideal':
+      return '本来、その目標やKPIは、どのような行動や成果につながるように設計されるべきだと思いますか？';
+    case 'change_resistance_target':
+      return 'どのような新しいやり方や変化が、これまでのやり方や前例によって進みにくくなっていると感じましたか？';
+    case 'change_resistance_reason':
+      return 'その変化を進みにくくしている理由は、前例・過去の成功体験・不安・評価などのどこにあると感じますか？';
     case 'counterparty':
       return 'その違和感は、主に誰・どの部門との関係で感じたものですか？';
     case 'ideal':
@@ -953,6 +1157,9 @@ async function extractDraftFromInput(
 - 組織風土・モチベーションへの違和感は、個人のやる気の問題と断定せず、会社が求める行動と、現場が前向きに動きやすい環境・評価・支援とのズレとして扱う。
 - 人材育成への違和感は、誰のどのような成長期待と、育成時間・役割分担・教え方・評価・仕組みとのズレとして扱う。
 - スキル不足への違和感は、個人の能力不足と断定せず、求められる業務水準・戦略実行能力と、教育機会・支援体制・経験とのズレとして扱う。
+- 顧客・市場への違和感は、顧客ニーズ・市場変化と、会社の方針・商品サービス・社内ルール・部門対応とのズレとして扱う。
+- KPI・目標への違和感は、全社戦略・長期方針・顧客価値と、部門KPI・短期数字・評価指標とのズレとして扱う。
+- 変化への抵抗への違和感は、個人を保守的と責めず、前例・過去の成功体験・評価リスク・意思決定ルールが変化を進みにくくしている構造として扱う。
 - チャットにない固有名詞・制度・会社方針を捏造しない。
 - 抽出がないフィールドは省略してよい。
 - JSONのみを返す。`;
@@ -1046,6 +1253,9 @@ async function finalizeDraftForReview(
 - culture_motivation の場合は、社員の意識が低いと断定せず、前向きに動きにくい背景にある評価・支援・心理的安全性・過去経験のズレとして表現する。
 - talent_development の場合は、育成対象・育成責任・育成時間・方法・評価のズレとして表現する。
 - skill_capability_gap の場合は、個人能力の問題と断定せず、求められるスキル水準と教育・支援・経験機会のズレとして表現する。
+- customer_market_gap の場合は、顧客・市場の変化と、会社の方針・商品サービス・社内ルール・部門対応のズレとして表現する。
+- kpi_goal_misalignment の場合は、全社戦略・長期方針・顧客価値と、部門KPI・短期数字・評価指標のズレとして表現する。
+- change_resistance の場合は、前例・過去の成功体験・評価リスク・意思決定ルールが変化を進みにくくしている構造として表現する。
 - JSONのみを返す。`;
 
   const userPrompt = `チャット履歴：
