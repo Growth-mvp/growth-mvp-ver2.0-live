@@ -65,14 +65,6 @@ type OrgAlignmentResult = {
   riskReason: string;
 };
 
-type ExampleCase = {
-  title: string;
-  situation: string;
-  myRecognition: string;
-  otherHypothesis: string;
-  alignmentQuestion: string;
-};
-
 // ===== 選択肢定義 =====
 const counterpartyOptions = [
   { value: 'executive' as const, label: '経営' },
@@ -111,42 +103,6 @@ const processSteps = [
   ['STEP4', '擦り合わせるべきポイントを整理'],
   ['STEP5', 'すり合わせの場を依頼'],
 ] as const;
-
-const exampleCases: ExampleCase[] = [
-  {
-    title: '関連部門が期待通りに動いてくれない',
-    situation:
-      '関連部門へ協力を依頼しているが、対応が遅かったり、期待していた水準まで動いてもらえなかったりする。',
-    myRecognition:
-      'こちらは全社的に重要な取り組みだと考えているため、関連部門にも優先度を上げて協力してほしい。',
-    otherHypothesis:
-      '相手部門は、自部門の通常業務や直近KPIを優先すべきだと考えており、この依頼の重要度が十分に伝わっていない可能性がある。',
-    alignmentQuestion:
-      'この取り組みは会社全体・各部門にとってどの程度優先すべきものなのか。どこまで協力する必要があるのか。',
-  },
-  {
-    title: '経営が現場に無理な指示を出してくる',
-    situation:
-      '経営から新しい方針や指示が出るが、現場の人員・時間・業務量を踏まえると、実行するのが難しいと感じる。',
-    myRecognition:
-      '現場の実態を十分に理解しないまま指示が出ており、このままでは既存業務にも支障が出るのではないかと感じている。',
-    otherHypothesis:
-      '経営側は、会社として今やるべき重要テーマであり、現場にも工夫して実行してほしいと考えている可能性がある。',
-    alignmentQuestion:
-      '経営が実現したいことと、現場が実行できる範囲をどう擦り合わせ、優先順位やリソース配分を見直すべきか。',
-  },
-  {
-    title: '失敗が許されず、挑戦しにくい',
-    situation:
-      '会社としては挑戦や変革が求められているが、実際には失敗すると評価が下がったり責任を問われたりするため、思い切った行動が取りにくい。',
-    myRecognition:
-      '挑戦しろと言われても、失敗したときの責任や評価への影響が大きく、現実的には安全な選択をせざるを得ない。',
-    otherHypothesis:
-      '経営・管理職側は、会社の成長には新しい挑戦が必要であり、現場にも主体的に動いてほしいと考えている可能性がある。',
-    alignmentQuestion:
-      'どこまでの挑戦なら許容されるのか。失敗した場合に何を学び、どのように評価・改善につなげるのか。',
-  },
-];
 
 export default function OrgTransformationPage() {
   // ===== ユーザー情報 =====
@@ -188,18 +144,6 @@ export default function OrgTransformationPage() {
       intakeDraft.expectation_text,
     ].some((value) => (value || '').trim().length > 0);
   }, [intakeDraft, intakeComplete]);
-
-  const applyExample = (example: ExampleCase) => {
-    setIntakeDraft({
-      situation_text: example.situation,
-      my_recognition_text: example.myRecognition,
-      ideal_text: example.alignmentQuestion,
-      expectation_text:
-        '相手側の事情や優先順位も確認したうえで、企業としてどう動くべきかを一緒に整理したい。',
-      counterparty_type: 'unknown',
-    });
-    setIntakeComplete(true);
-  };
 
   // ===== 初回表示時に履歴を取得 =====
   useEffect(() => {
@@ -428,42 +372,7 @@ export default function OrgTransformationPage() {
 
 </header>
 
-        {/* ===== 2. あるある事例 ===== */}
-        <section className="space-y-5">
-          <div>
-            <h2 className="mb-2 text-2xl font-bold text-slate-950">
-              よくある違和感、もやもや
-            </h2>
-            
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            {exampleCases.map((example) => (
-              <article
-                key={example.title}
-                className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-              >
-                <h3 className="text-base font-bold leading-7 text-slate-950">
-                  {example.title}
-                </h3>
-
-                <p className="mt-2 flex-1 text-sm leading-7 text-slate-600">
-                  {example.situation}
-                </p>
-
-                <button
-                  type="button"
-                  onClick={() => applyExample(example)}
-                  className="mt-4 w-full rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
-                >
-                  この事例を入力欄に反映
-                </button>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        {/* ===== 3. STEP1：チャット式入力セクション ===== */}
+        {/* ===== 2. STEP1：チャット式入力セクション ===== */}
         <section className="space-y-5">
           <div>
             <h2 className="mb-2 text-2xl font-bold text-slate-950">
@@ -484,39 +393,6 @@ export default function OrgTransformationPage() {
                   setIntakeComplete(true);
                 }}
               />
-
-              {/* あるある事例 */}
-              <div className="space-y-4">
-                <p className="text-sm font-semibold text-slate-600">
-                  イメージが湧きづらい場合は、事例から始めることもできます。
-                </p>
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                  {exampleCases.map((example) => (
-                    <article
-                      key={example.title}
-                      className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-                    >
-                      <h3 className="text-base font-bold leading-7 text-slate-950">
-                        {example.title}
-                      </h3>
-
-                      <p className="mt-2 flex-1 text-sm leading-7 text-slate-600">
-                        {example.situation}
-                      </p>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          applyExample(example);
-                        }}
-                        className="mt-4 w-full rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
-                      >
-                        この事例から始める
-                      </button>
-                    </article>
-                  ))}
-                </div>
-              </div>
             </>
           ) : (
             <>
@@ -591,7 +467,7 @@ export default function OrgTransformationPage() {
           )}
         </section>
 
-        {/* ===== 4. 生成結果セクション（STEP2～STEP5） ===== */}
+        {/* ===== 3. 生成結果セクション（STEP2～STEP5） ===== */}
         {alignmentResult && (
           <section className="space-y-5">
             <div>
@@ -691,7 +567,7 @@ export default function OrgTransformationPage() {
           </section>
         )}
 
-        {/* ===== 自分のすり合わせ履歴 ===== */}
+        {/* ===== 4. 自分のすり合わせ履歴 ===== */}
         <section className="space-y-5">
           <div>
             <h2 className="mb-2 text-2xl font-bold text-slate-950">
