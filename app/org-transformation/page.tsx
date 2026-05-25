@@ -9,6 +9,8 @@ import {
 } from '@/utils/supabase';
 import { safeGetSession } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
+import OrgAlignmentIntakeChat from '@/components/org-transformation/OrgAlignmentIntakeChat';
+import OrgAlignmentIntakeReviewCard from '@/components/org-transformation/OrgAlignmentIntakeReviewCard';
 
 // ===== 型定義 =====
 type VisibilityMode = 'anonymous' | 'manager_only' | 'named';
@@ -153,12 +155,15 @@ export default function OrgTransformationPage() {
   const currentCompanyId = userStore.companyId ?? null;
 
   // ===== 入力フォームstate =====
-  const [situationText, setSituationText] = useState<string>('');
-  const [myRecognitionText, setMyRecognitionText] = useState<string>('');
-  const [idealText, setIdealText] = useState<string>('');
-  const [expectationText, setExpectationText] = useState<string>('');
-  const [counterpartyType, setCounterpartyType] = useState<CounterpartyType>('unknown');
-  const [counterpartyDetail, setCounterpartyDetail] = useState<string>('');
+  const [intakeDraft, setIntakeDraft] = useState<{
+    situation_text?: string;
+    my_recognition_text?: string;
+    ideal_text?: string;
+    expectation_text?: string;
+    counterparty_type?: CounterpartyType;
+    counterparty_detail?: string;
+  }>({});
+  const [intakeComplete, setIntakeComplete] = useState(false);
   const [visibilityMode, setVisibilityMode] = useState<VisibilityMode>('manager_only');
 
   // ===== 生成・依頼state =====
@@ -175,18 +180,25 @@ export default function OrgTransformationPage() {
   const [expandedCaseId, setExpandedCaseId] = useState<string | null>(null);
 
   const canSubmit = useMemo(() => {
-    return [situationText, myRecognitionText, idealText, expectationText].some(
-      (value) => value.trim().length > 0,
-    );
-  }, [situationText, myRecognitionText, idealText, expectationText]);
+    if (!intakeComplete) return false;
+    return [
+      intakeDraft.situation_text,
+      intakeDraft.my_recognition_text,
+      intakeDraft.ideal_text,
+      intakeDraft.expectation_text,
+    ].some((value) => (value || '').trim().length > 0);
+  }, [intakeDraft, intakeComplete]);
 
   const applyExample = (example: ExampleCase) => {
-    setSituationText(example.situation);
-    setMyRecognitionText(example.myRecognition);
-    setIdealText(example.alignmentQuestion);
-    setExpectationText(
-      '相手側の事情や優先順位も確認したうえで、企業としてどう動くべきかを一緒に整理したい。',
-    );
+    setIntakeDraft({
+      situation_text: example.situation,
+      my_recognition_text: example.myRecognition,
+      ideal_text: example.alignmentQuestion,
+      expectation_text:
+        '相手側の事情や優先順位も確認したうえで、企業としてどう動くべきかを一緒に整理したい。',
+      counterparty_type: 'unknown',
+    });
+    setIntakeComplete(true);
   };
 
   // ===== 初回表示時に履歴を取得 =====
@@ -214,44 +226,6 @@ export default function OrgTransformationPage() {
     loadMyCases();
   }, [currentUserId]);
 
-  // ===== Mock結果生成ヘルパー =====
-  const createMockAlignmentResult = (input: {
-    situationText: string;
-    myRecognitionText: string;
-    idealText: string;
-    expectationText: string;
-    counterpartyType: CounterpartyType;
-    counterpartyDetail: string;
-  }): OrgAlignmentResult => {
-    return {
-      title: '関連部門の優先順位と協力範囲の認識のズレ',
-      inputSummary: `${input.situationText || '違和感'} という状況で、本来のあり方についての考えと相手方の優先順位にズレがある可能性があります。`,
-      issueType: '部門間連携のズレ',
-      participantRecognitionHypothesis:
-        input.counterpartyType !== 'unknown'
-          ? `${counterpartyOptions.find((opt) => opt.value === input.counterpartyType)?.label || '関係当事者'}は、自部門の通常業務や直近KPIを優先すべきだと考えており、この依頼の重要度が十分に伝わっていない可能性があります。${input.counterpartyDetail ? `（${input.counterpartyDetail}）` : ''}`
-          : '関係当事者は、自部門の通常業務や直近KPIを優先すべきだと考えており、この依頼の重要度が十分に伝わっていない可能性があります。',
-      companyRecognitionMode: 'needs_confirmation',
-      companyRecognitionTitle: '会社として確認すべき認識',
-      companyRecognition:
-        '会社として、この取り組みの優先度、関連部門にとっての価値、必要なリソース・協力範囲、意思決定基準を確認する必要があります。部門都合だけではなく、全社的な価値判断や経営方針に照らし合わせることが重要です。',
-      alignmentPoints: [
-        'この取り組みが会社全体にとってどの程度重要であり、優先度をどう判断するか',
-        '関連部門にとって、どのような価値・リスク・工数が伴い、何を得られるのか',
-        '協力範囲の現実的な限界は何か、代替案はあるのか',
-        '優先順位やリソース配分の判断基準は何か、他の施策とのバランスはどう取るのか',
-      ],
-      recommendedNextAction: {
-        title: 'すり合わせの場を依頼',
-        detail:
-          '関連部門と管理者を交えて、取り組みの重要度、協力範囲、優先順位、リソース配分について確認し、認識を一致させる場を設定します。',
-      },
-      riskLevel: 'medium',
-      riskReason:
-        '優先順位や役割分担が曖昧なままだと、部門間の協力が進まず、重要施策の実行が遅れる可能性があります。',
-    };
-  };
-
   // ===== AI生成処理 =====
   const handleGenerateAlignment = async () => {
     if (!canSubmit) return;
@@ -278,12 +252,12 @@ export default function OrgTransformationPage() {
           Authorization: `Bearer ${sessionData.session.access_token}`,
         },
         body: JSON.stringify({
-          situationText,
-          myRecognitionText,
-          idealText,
-          expectationText,
-          counterpartyType,
-          counterpartyDetail,
+          situationText: intakeDraft.situation_text,
+          myRecognitionText: intakeDraft.my_recognition_text,
+          idealText: intakeDraft.ideal_text,
+          expectationText: intakeDraft.expectation_text,
+          counterpartyType: intakeDraft.counterparty_type || 'unknown',
+          counterpartyDetail: intakeDraft.counterparty_detail,
           visibilityMode,
           strategyContext: null,
         }),
@@ -311,12 +285,12 @@ export default function OrgTransformationPage() {
       const saved = await saveOrgAlignmentCase({
         companyId: currentCompanyId,
         userId: currentUserId,
-        situationText,
-        myRecognitionText,
-        idealText,
-        expectationText,
-        counterpartyType,
-        counterpartyDetail,
+        situationText: intakeDraft.situation_text || '',
+        myRecognitionText: intakeDraft.my_recognition_text || '',
+        idealText: intakeDraft.ideal_text || '',
+        expectationText: intakeDraft.expectation_text || '',
+        counterpartyType: intakeDraft.counterparty_type || 'unknown',
+        counterpartyDetail: intakeDraft.counterparty_detail,
         visibilityMode,
         aiResult,
       });
@@ -489,176 +463,132 @@ export default function OrgTransformationPage() {
           </div>
         </section>
 
-        {/* ===== 3. STEP1：入力セクション ===== */}
+        {/* ===== 3. STEP1：チャット式入力セクション ===== */}
         <section className="space-y-5">
           <div>
             <h2 className="mb-2 text-2xl font-bold text-slate-950">
-              STEP1：もやもやと自分の認識を入力
+              STEP1：AIとのヒアリングで違和感を整理
             </h2>
             <p className="text-slate-600">
-              まずは、現場で起きている違和感をそのまま入力してください。
-              入力者自身の認識は本人が言語化し、AIは相手方の認識を仮説として整理します。
+              AIとの対話を通じて、現場の違和感やもやもやを具体的に整理します。
+              最大2回の追加質問を通じて、STEP2以降の生成品質を高めます。
             </p>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-              <label className="space-y-2">
-                <span className="text-sm font-semibold text-slate-900">
-                  1. どんな場面でもやもやしましたか？
-                </span>
-                <textarea
-                  value={situationText}
-                  onChange={(e) => setSituationText(e.target.value)}
-                  placeholder="例：関連部門へ協力を依頼しているが、対応が遅かったり、期待していた水準まで動いてもらえなかったりする。"
-                  className="min-h-[150px] w-full resize-y rounded-xl border border-slate-300 px-4 py-3 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400"
-                />
-              </label>
+          {!intakeComplete ? (
+            <>
+              {/* チャット式ヒアリング */}
+              <OrgAlignmentIntakeChat
+                onComplete={(draft) => {
+                  setIntakeDraft(draft);
+                  setIntakeComplete(true);
+                }}
+              />
 
-              <label className="space-y-2">
-                <span className="text-sm font-semibold text-slate-900">
-                  2. その時、自分はどう受け止めましたか？
-                </span>
-                <textarea
-                  value={myRecognitionText}
-                  onChange={(e) => setMyRecognitionText(e.target.value)}
-                  placeholder="例：全社的に重要な取り組みだと思っているが、相手部門には優先度が十分に伝わっていないように感じた。"
-                  className="min-h-[150px] w-full resize-y rounded-xl border border-slate-300 px-4 py-3 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400"
-                />
-              </label>
-
-              <label className="space-y-2">
-                <span className="text-sm font-semibold text-slate-900">
-                  3. 本来どうあるべきだと思いますか？
-                </span>
-                <textarea
-                  value={idealText}
-                  onChange={(e) => setIdealText(e.target.value)}
-                  placeholder="例：会社として優先すべき取り組みであれば、部門間で優先順位や協力範囲を明確にすべきだと思う。"
-                  className="min-h-[150px] w-full resize-y rounded-xl border border-slate-300 px-4 py-3 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400"
-                />
-              </label>
-
-              <label className="space-y-2">
-                <span className="text-sm font-semibold text-slate-900">
-                  4. 相手に何を期待していましたか？
-                </span>
-                <textarea
-                  value={expectationText}
-                  onChange={(e) => setExpectationText(e.target.value)}
-                  placeholder="例：相手部門の事情も踏まえたうえで、どこまで協力できるのか、どの条件なら進められるのかを話し合ってほしい。"
-                  className="min-h-[150px] w-full resize-y rounded-xl border border-slate-300 px-4 py-3 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400"
-                />
-              </label>
-            </div>
-
-            {/* 相手属性の選択 */}
-            <div className="mt-6 space-y-3">
-              <label className="block space-y-2">
-                <span className="text-sm font-semibold text-slate-900">
-                  5. 関係している相手・部門（任意）
-                </span>
-                <select
-                  value={counterpartyType}
-                  onChange={(e) => setCounterpartyType(e.target.value as CounterpartyType)}
-                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400"
-                >
-                  {counterpartyOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              {counterpartyType !== 'unknown' && counterpartyType !== 'other' && (
-                <div className="text-xs text-slate-500">
-                  選択した相手方を名指しするのではなく、その可能性のある認識として、AIが仮説として整理します。
-                </div>
-              )}
-
-              {counterpartyType === 'other' && (
-                <label className="block space-y-2">
-                  <span className="text-sm font-semibold text-slate-900">
-                    相手方の詳細
-                  </span>
-                  <input
-                    type="text"
-                    value={counterpartyDetail}
-                    onChange={(e) => setCounterpartyDetail(e.target.value)}
-                    placeholder="例：外部パートナー、その他"
-                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400"
-                  />
-                </label>
-              )}
-            </div>
-
-            {/* 6. すり合わせの場を依頼する際の共有範囲 */}
-            <div className="space-y-3 md:col-span-2">
-              <div>
-                <p className="text-sm font-semibold text-slate-900">
-                  6. すり合わせの場を依頼する際の共有範囲
+              {/* あるある事例 */}
+              <div className="space-y-4">
+                <p className="text-sm font-semibold text-slate-600">
+                  イメージが湧きづらい場合は、事例から始めることもできます。
                 </p>
-                <p className="mt-1 text-xs leading-6 text-slate-500">
-                  STEP5で「すり合わせの場を依頼」を選択した場合、どの範囲に共有するかを選択できます。
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                {visibilityOptions.map((option) => {
-                  const isSelected = visibilityMode === option.value;
-
-                  return (
-                    <label
-                      key={option.value}
-                      className={`relative block cursor-pointer rounded-2xl border bg-white p-4 pl-11 transition-colors ${
-                        isSelected
-                          ? 'border-slate-900 ring-1 ring-slate-900'
-                          : 'border-slate-200 hover:bg-slate-50'
-                      }`}
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                  {exampleCases.map((example) => (
+                    <article
+                      key={example.title}
+                      className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
                     >
-                      <input
-                        type="radio"
-                        name="visibilityMode"
-                        value={option.value}
-                        checked={isSelected}
-                        onChange={() => setVisibilityMode(option.value)}
-                        className="absolute left-4 top-5 h-4 w-4 accent-slate-950"
-                      />
+                      <h3 className="text-base font-bold leading-7 text-slate-950">
+                        {example.title}
+                      </h3>
 
-                      <span className="block w-full text-sm font-semibold leading-6 text-slate-950">
-                        {option.label}
-                      </span>
+                      <p className="mt-2 flex-1 text-sm leading-7 text-slate-600">
+                        {example.situation}
+                      </p>
 
-                      <span className="mt-1 block w-full text-xs leading-6 text-slate-500">
-                        {option.description}
-                      </span>
-                    </label>
-                  );
-                })}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          applyExample(example);
+                        }}
+                        className="mt-4 w-full rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
+                      >
+                        この事例から始める
+                      </button>
+                    </article>
+                  ))}
+                </div>
               </div>
-            </div>
+            </>
+          ) : (
+            <>
+              {/* 整理カード確認 */}
+              <OrgAlignmentIntakeReviewCard
+                draft={intakeDraft}
+                onUpdate={(updatedDraft) => setIntakeDraft(updatedDraft)}
+                onProceed={handleGenerateAlignment}
+                isProcessing={isGenerating}
+              />
 
-            <div className="mt-6 rounded-2xl bg-slate-50 p-4 text-sm leading-7 text-slate-600">
-              入力された内容は、個人や部門を責めるためではなく、認識のズレを整理し、
-              擦り合わせるために使います。AIの提示内容は断定ではなく、対話の入口となる仮説です。
-            </div>
+              {/* すり合わせの場を依頼する際の共有範囲 */}
+              <div className="space-y-5">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">
+                    6. すり合わせの場を依頼する際の共有範囲
+                  </p>
+                  <p className="mt-1 text-xs leading-6 text-slate-500">
+                    STEP5で「すり合わせの場を依頼」を選択した場合、どの範囲に共有するかを選択できます。
+                  </p>
+                </div>
 
-            <div className="mt-5 flex justify-end">
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                    {visibilityOptions.map((option) => {
+                      const isSelected = visibilityMode === option.value;
+
+                      return (
+                        <label
+                          key={option.value}
+                          className={`relative block cursor-pointer rounded-2xl border bg-white p-4 pl-11 transition-colors ${
+                            isSelected
+                              ? 'border-slate-900 ring-1 ring-slate-900'
+                              : 'border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="visibilityMode"
+                            value={option.value}
+                            checked={isSelected}
+                            onChange={() => setVisibilityMode(option.value)}
+                            className="absolute left-4 top-5 h-4 w-4 accent-slate-950"
+                          />
+
+                          <span className="block w-full text-sm font-semibold leading-6 text-slate-950">
+                            {option.label}
+                          </span>
+
+                          <span className="mt-1 block w-full text-xs leading-6 text-slate-500">
+                            {option.description}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* 入力内容をリセットするオプション */}
               <button
                 type="button"
-                onClick={handleGenerateAlignment}
-                disabled={!canSubmit || isGenerating}
-                className={`rounded-xl px-6 py-3 font-semibold transition-colors ${
-                  !canSubmit || isGenerating
-                    ? 'cursor-not-allowed bg-slate-200 text-slate-400'
-                    : 'bg-slate-950 text-white hover:bg-slate-900'
-                }`}
+                onClick={() => {
+                  setIntakeDraft({});
+                  setIntakeComplete(false);
+                }}
+                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
               >
-                {isGenerating ? '整理・保存しています...' : 'AIで認識のズレを整理する'}
+                最初からやり直す
               </button>
-            </div>
-          </div>
+            </>
+          )}
         </section>
 
         {/* ===== 4. 生成結果セクション（STEP2～STEP5） ===== */}
