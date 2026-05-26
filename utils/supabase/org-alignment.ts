@@ -139,3 +139,29 @@ export async function getOrgAlignmentCasesByUser(userId: string) {
 
   return data ?? [];
 }
+
+/**
+ * 組織変革ケースを削除する
+ * created_by で本人確認を行い、自分の履歴のみ削除可能
+ */
+export async function deleteOrgAlignmentCase(
+  caseId: string,
+  userId: string,
+) {
+  if (!caseId || !userId) {
+    throw new Error('削除対象またはユーザー情報が不足しています。');
+  }
+
+  const { error } = await supabase
+    .from('org_alignment_cases')
+    .delete()
+    .eq('id', caseId)
+    .eq('created_by', userId);
+
+  if (error) {
+    console.error('[deleteOrgAlignmentCase] failed:', error);
+    throw new Error('すり合わせ履歴の削除に失敗しました。');
+  }
+
+  return true;
+}
