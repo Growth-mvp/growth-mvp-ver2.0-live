@@ -11,59 +11,14 @@ import { safeGetSession } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
 import OrgAlignmentIntakeChat from '@/components/org-transformation/OrgAlignmentIntakeChat';
 import OrgAlignmentIntakeReviewCard from '@/components/org-transformation/OrgAlignmentIntakeReviewCard';
-
-// ===== 型定義 =====
-type VisibilityMode = 'anonymous' | 'manager_only' | 'named';
-
-type CounterpartyType =
-  | 'executive'
-  | 'manager'
-  | 'own_department'
-  | 'other_department'
-  | 'backoffice'
-  | 'field_member'
-  | 'customer'
-  | 'unknown'
-  | 'other';
-
-type OrgAlignmentStatus =
-  | 'draft'
-  | 'generated'
-  | 'alignment_requested'
-  | 'in_alignment'
-  | 'closed';
-
-type OrgAlignmentIssueType =
-  | '部門間連携のズレ'
-  | '経営と現場の認識のズレ'
-  | '戦略と実行計画のズレ'
-  | '実行計画と評価制度のズレ'
-  | '役割責任のズレ'
-  | '優先順位のズレ'
-  | '意思決定基準のズレ'
-  | '情報共有のズレ'
-  | '挑戦と失敗許容のズレ'
-  | 'ツール・施策への不信感'
-  | 'その他';
-
-type CompanyRecognitionMode = 'strategy_based' | 'needs_confirmation';
-
-type OrgAlignmentResult = {
-  title: string;
-  inputSummary: string;
-  issueType: OrgAlignmentIssueType;
-  participantRecognitionHypothesis: string;
-  companyRecognitionMode: CompanyRecognitionMode;
-  companyRecognitionTitle: string;
-  companyRecognition: string;
-  alignmentPoints: string[];
-  recommendedNextAction: {
-    title: string;
-    detail: string;
-  };
-  riskLevel: 'low' | 'medium' | 'high';
-  riskReason: string;
-};
+import {
+  type VisibilityMode,
+  type CounterpartyType,
+  type OrgAlignmentStatus,
+  type OrgAlignmentIssueType,
+  type CompanyRecognitionMode,
+  type OrgAlignmentResult,
+} from '@/types/org-alignment';
 
 // ===== 選択肢定義 =====
 const counterpartyOptions = [
@@ -364,9 +319,9 @@ export default function OrgTransformationPage() {
             <p>
               人と組織の問題は、意識やコミュニケーション、組織風土を変えるだけでは解決しません。
               <br />
-              その背景には、{" "}
-              <span className="font-semibold text-slate-950">方針・戦略、優先順位、役割責任、評価、意思決定に対する互いの認識のズレ</span>
-              {" "}が潜んでいることが多いからです。<br /><br />当ルームでは、個人が抱える違和感やモヤモヤを起点として「認識のズレ」をAIで構造的に整理。<br />会社が目指す方向性を軸に、経営、現場、部門の認識をかみ合わせ、組織全体の判断と行動のスピードを揃えていきます。
+              問題の根底には、{" "}
+              <span className="font-semibold text-slate-950">方針・戦略、優先順位、役割責任、評価、意思決定に対する相互の認識のズレ</span>
+              {" "}があるからです。<br /><br />当ルームでは、個人が抱える違和感やモヤモヤを起点として「認識のズレ」をAIで構造的に整理。<br />会社が目指す方向性を軸に、経営、現場、部門の認識をすり合わせ、組織全体の判断と行動のスピードを揃えていきます。
             </p>
           </div>
 
