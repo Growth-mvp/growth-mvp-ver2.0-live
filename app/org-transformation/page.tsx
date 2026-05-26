@@ -1,16 +1,17 @@
-'use client';
+"use client";
 
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from "react";
 import {
   saveOrgAlignmentCase,
   requestOrgAlignmentCase,
   getOrgAlignmentCasesByUser,
+  deleteOrgAlignmentCase,
   type OrgAlignmentCaseListItem,
-} from '@/utils/supabase';
-import { safeGetSession } from '@/utils/supabase/client';
-import { useUserStore } from '@/store/userStore';
-import OrgAlignmentIntakeChat from '@/components/org-transformation/OrgAlignmentIntakeChat';
-import OrgAlignmentIntakeReviewCard from '@/components/org-transformation/OrgAlignmentIntakeReviewCard';
+} from "@/utils/supabase";
+import { safeGetSession } from "@/utils/supabase/client";
+import { useUserStore } from "@/store/userStore";
+import OrgAlignmentIntakeChat from "@/components/org-transformation/OrgAlignmentIntakeChat";
+import OrgAlignmentIntakeReviewCard from "@/components/org-transformation/OrgAlignmentIntakeReviewCard";
 import {
   type VisibilityMode,
   type CounterpartyType,
@@ -18,45 +19,45 @@ import {
   type OrgAlignmentIssueType,
   type CompanyRecognitionMode,
   type OrgAlignmentResult,
-} from '@/types/org-alignment';
+} from "@/types/org-alignment";
 
 // ===== 選択肢定義 =====
 const counterpartyOptions = [
-  { value: 'executive' as const, label: '経営' },
-  { value: 'manager' as const, label: '上司・管理職' },
-  { value: 'own_department' as const, label: '自部門' },
-  { value: 'other_department' as const, label: '他部門・関連部門' },
-  { value: 'backoffice' as const, label: '管理部門' },
-  { value: 'field_member' as const, label: '現場メンバー' },
-  { value: 'customer' as const, label: '顧客' },
-  { value: 'unknown' as const, label: '特定できない' },
-  { value: 'other' as const, label: 'その他' },
+  { value: "executive" as const, label: "経営" },
+  { value: "manager" as const, label: "上司・管理職" },
+  { value: "own_department" as const, label: "自部門" },
+  { value: "other_department" as const, label: "他部門・関連部門" },
+  { value: "backoffice" as const, label: "管理部門" },
+  { value: "field_member" as const, label: "現場メンバー" },
+  { value: "customer" as const, label: "顧客" },
+  { value: "unknown" as const, label: "特定できない" },
+  { value: "other" as const, label: "その他" },
 ];
 
 const visibilityOptions = [
   {
-    value: 'anonymous' as const,
-    label: '匿名で共有',
-    description: '入力者名を出さずに、認識のズレとして共有します。',
+    value: "anonymous" as const,
+    label: "匿名で共有",
+    description: "入力者名を出さずに、認識のズレとして共有します。",
   },
   {
-    value: 'manager_only' as const,
-    label: '管理者にのみ共有',
-    description: 'すり合わせの場を設定する管理者にだけ入力者を共有します。',
+    value: "manager_only" as const,
+    label: "管理者にのみ共有",
+    description: "すり合わせの場を設定する管理者にだけ入力者を共有します。",
   },
   {
-    value: 'named' as const,
-    label: '名前を出して共有',
-    description: '関係者に入力者名を共有したうえで、すり合わせを依頼します。',
+    value: "named" as const,
+    label: "名前を出して共有",
+    description: "関係者に入力者名を共有したうえで、すり合わせを依頼します。",
   },
 ];
 
 const processSteps = [
-  ['STEP1', '違和感・もやもやを入力'],
-  ['STEP2', '関係当事者の認識仮説を整理'],
-  ['STEP3', '会社として確認すべき認識を整理'],
-  ['STEP4', '擦り合わせるべきポイントを整理'],
-  ['STEP5', 'すり合わせの場を依頼'],
+  ["STEP1", "違和感・もやもやを入力"],
+  ["STEP2", "関係当事者の認識仮説を整理"],
+  ["STEP3", "会社として確認すべき認識を整理"],
+  ["STEP4", "擦り合わせるべきポイントを整理"],
+  ["STEP5", "すり合わせの場を依頼"],
 ] as const;
 
 export default function OrgTransformationPage() {
@@ -75,20 +76,23 @@ export default function OrgTransformationPage() {
     counterparty_detail?: string;
   }>({});
   const [intakeComplete, setIntakeComplete] = useState(false);
-  const [visibilityMode, setVisibilityMode] = useState<VisibilityMode>('manager_only');
+  const [visibilityMode, setVisibilityMode] =
+    useState<VisibilityMode>("manager_only");
 
   // ===== 生成・依頼state =====
   const [isGenerating, setIsGenerating] = useState(false);
-  const [alignmentResult, setAlignmentResult] = useState<OrgAlignmentResult | null>(null);
+  const [alignmentResult, setAlignmentResult] =
+    useState<OrgAlignmentResult | null>(null);
   const [savedCaseId, setSavedCaseId] = useState<string | null>(null);
   const [isRequesting, setIsRequesting] = useState(false);
   const [requestDone, setRequestDone] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState<string>("");
 
   // ===== 履歴一覧state =====
   const [myCases, setMyCases] = useState<OrgAlignmentCaseListItem[]>([]);
   const [isLoadingCases, setIsLoadingCases] = useState(false);
   const [expandedCaseId, setExpandedCaseId] = useState<string | null>(null);
+  const [deletingCaseId, setDeletingCaseId] = useState<string | null>(null);
 
   const canSubmit = useMemo(() => {
     if (!intakeComplete) return false;
@@ -97,7 +101,7 @@ export default function OrgTransformationPage() {
       intakeDraft.my_recognition_text,
       intakeDraft.ideal_text,
       intakeDraft.expectation_text,
-    ].some((value) => (value || '').trim().length > 0);
+    ].some((value) => (value || "").trim().length > 0);
   }, [intakeDraft, intakeComplete]);
 
   // ===== 初回表示時に履歴を取得 =====
@@ -115,7 +119,7 @@ export default function OrgTransformationPage() {
         setErrorMessage(
           error instanceof Error
             ? error.message
-            : '自分のすり合わせ履歴の取得に失敗しました。',
+            : "自分のすり合わせ履歴の取得に失敗しました。",
         );
       } finally {
         setIsLoadingCases(false);
@@ -130,24 +134,30 @@ export default function OrgTransformationPage() {
     if (!canSubmit) return;
 
     setIsGenerating(true);
-    setErrorMessage('');
+    setErrorMessage("");
     setAlignmentResult(null);
 
     try {
       // Get Supabase auth session
-      const { ok: sessionOk, data: sessionData, error: sessionError } = await safeGetSession();
+      const {
+        ok: sessionOk,
+        data: sessionData,
+        error: sessionError,
+      } = await safeGetSession();
 
       if (!sessionOk || !sessionData?.session?.access_token) {
-        setErrorMessage('ログイン情報を確認できません。再ログインしてください。');
+        setErrorMessage(
+          "ログイン情報を確認できません。再ログインしてください。",
+        );
         setIsGenerating(false);
         return;
       }
 
       // OpenAI APIでAI整理を実行
-      const response = await fetch('/api/org-alignment/generate', {
-        method: 'POST',
+      const response = await fetch("/api/org-alignment/generate", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
           Authorization: `Bearer ${sessionData.session.access_token}`,
         },
         body: JSON.stringify({
@@ -155,7 +165,7 @@ export default function OrgTransformationPage() {
           myRecognitionText: intakeDraft.my_recognition_text,
           idealText: intakeDraft.ideal_text,
           expectationText: intakeDraft.expectation_text,
-          counterpartyType: intakeDraft.counterparty_type || 'unknown',
+          counterpartyType: intakeDraft.counterparty_type || "unknown",
           counterpartyDetail: intakeDraft.counterparty_detail,
           visibilityMode,
           strategyContext: null,
@@ -172,23 +182,23 @@ export default function OrgTransformationPage() {
 
       const responseData = await response.json();
       // ★ DEBUG: API レスポンスのデバッグ情報をログ出力
-      console.log('[ORG-ALIGNMENT DEBUG]', responseData.debug);
+      console.log("[ORG-ALIGNMENT DEBUG]", responseData.debug);
 
       const aiResult = responseData.result as OrgAlignmentResult;
 
       if (!aiResult) {
-        throw new Error('AI整理結果が返されません。');
+        throw new Error("AI整理結果が返されません。");
       }
 
       // Supabaseに保存
       const saved = await saveOrgAlignmentCase({
         companyId: currentCompanyId,
         userId: currentUserId,
-        situationText: intakeDraft.situation_text || '',
-        myRecognitionText: intakeDraft.my_recognition_text || '',
-        idealText: intakeDraft.ideal_text || '',
-        expectationText: intakeDraft.expectation_text || '',
-        counterpartyType: intakeDraft.counterparty_type || 'unknown',
+        situationText: intakeDraft.situation_text || "",
+        myRecognitionText: intakeDraft.my_recognition_text || "",
+        idealText: intakeDraft.ideal_text || "",
+        expectationText: intakeDraft.expectation_text || "",
+        counterpartyType: intakeDraft.counterparty_type || "unknown",
         counterpartyDetail: intakeDraft.counterparty_detail,
         visibilityMode,
         aiResult,
@@ -208,7 +218,7 @@ export default function OrgTransformationPage() {
       setErrorMessage(
         error instanceof Error
           ? `認識のズレの整理に失敗しました: ${error.message}`
-          : '認識のズレの整理・保存に失敗しました。時間をおいて再度お試しください。',
+          : "認識のズレの整理・保存に失敗しました。時間をおいて再度お試しください。",
       );
     } finally {
       setIsGenerating(false);
@@ -221,13 +231,13 @@ export default function OrgTransformationPage() {
 
     if (!savedCaseId) {
       setErrorMessage(
-        '保存済みの整理結果が見つかりません。もう一度AI整理を実行してください。',
+        "保存済みの整理結果が見つかりません。もう一度AI整理を実行してください。",
       );
       return;
     }
 
     setIsRequesting(true);
-    setErrorMessage('');
+    setErrorMessage("");
 
     try {
       // TODO: API実装後に以下に差し替え
@@ -257,41 +267,81 @@ export default function OrgTransformationPage() {
     } catch (error) {
       console.error(error);
       setErrorMessage(
-        'すり合わせ依頼に失敗しました。時間をおいて再度お試しください。',
+        "すり合わせ依頼に失敗しました。時間をおいて再度お試しください。",
       );
     } finally {
       setIsRequesting(false);
     }
   };
 
+  // ===== 履歴削除処理 =====
+  const handleDeleteCase = async (caseId: string) => {
+    if (!currentUserId) {
+      setErrorMessage(
+        "ログインユーザー情報を確認できないため、履歴を削除できません。",
+      );
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "このすり合わせ履歴を削除します。削除後は元に戻せません。よろしいですか？",
+    );
+
+    if (!confirmed) return;
+
+    setDeletingCaseId(caseId);
+    setErrorMessage("");
+
+    try {
+      await deleteOrgAlignmentCase(caseId, currentUserId);
+
+      setMyCases((prev) => prev.filter((item) => item.id !== caseId));
+      setExpandedCaseId((prev) => (prev === caseId ? null : prev));
+      if (savedCaseId === caseId) {
+        setSavedCaseId(null);
+        setAlignmentResult(null);
+        setRequestDone(false);
+      }
+    } catch (error) {
+      console.error(error);
+      setErrorMessage(
+        error instanceof Error
+          ? `履歴の削除に失敗しました: ${error.message}`
+          : "履歴の削除に失敗しました。時間をおいて再度お試しください。",
+      );
+    } finally {
+      setDeletingCaseId(null);
+    }
+  };
+
   // ===== Helper関数 =====
   const getStatusLabel = (status: string) => {
     switch (status) {
-      case 'draft':
-        return '下書き';
-      case 'generated':
-        return 'AI整理済み';
-      case 'alignment_requested':
-        return 'すり合わせ依頼済み';
-      case 'in_alignment':
-        return '対応中';
-      case 'closed':
-        return '完了';
+      case "draft":
+        return "下書き";
+      case "generated":
+        return "AI整理済み";
+      case "alignment_requested":
+        return "すり合わせ依頼済み";
+      case "in_alignment":
+        return "対応中";
+      case "closed":
+        return "完了";
       default:
-        return '未設定';
+        return "未設定";
     }
   };
 
   const formatDateTime = (value?: string | null) => {
-    if (!value) return '';
+    if (!value) return "";
 
     try {
-      return new Intl.DateTimeFormat('ja-JP', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
+      return new Intl.DateTimeFormat("ja-JP", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
       }).format(new Date(value));
     } catch {
       return value;
@@ -300,6 +350,26 @@ export default function OrgTransformationPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 px-6 py-8 md:px-8">
+      <style jsx global>{`
+        .org-intake-chat-shell [class*="max-w-"] {
+          max-width: 100% !important;
+        }
+
+        .org-intake-chat-shell button[type="submit"] {
+          width: auto !important;
+          min-width: 132px;
+          align-self: flex-end;
+          padding: 0.625rem 1.25rem !important;
+          border-radius: 0.75rem !important;
+        }
+
+        .org-intake-chat-shell button[type="submit"]:disabled {
+          background-color: #cbd5e1 !important;
+          color: #475569 !important;
+          opacity: 1 !important;
+        }
+      `}</style>
+
       <div className="mx-auto max-w-6xl space-y-12">
         {/* ===== 1. ページヘッダー：白枠カードなし ===== */}
         <header className="px-1 py-8 md:py-12">
@@ -320,12 +390,18 @@ export default function OrgTransformationPage() {
               人と組織の問題は、意識やコミュニケーション、組織風土を変えるだけでは解決しません。
               <br />
               問題の根底には、{" "}
-              <span className="font-semibold text-slate-950">方針・戦略、優先順位、役割責任、評価、意思決定に対する相互の認識のズレ</span>
-              {" "}があるからです。<br /><br />当ルームでは、個人が抱える違和感やモヤモヤを起点として「認識のズレ」をAIで構造的に整理。<br />会社が目指す方向性を軸に、経営、現場、部門の認識をすり合わせ、組織全体の判断と行動のスピードを揃えていきます。
+              <span className="font-semibold text-slate-950">
+                方針・戦略、優先順位、役割責任、評価、意思決定に対する相互の認識のズレ
+              </span>{" "}
+              があるからです。
+              <br />
+              <br />
+              当ルームでは、個人が抱える違和感やモヤモヤを起点として「認識のズレ」をAIで構造的に整理。
+              <br />
+              会社が目指す方向性を軸に、経営、現場、部門の認識をすり合わせ、組織全体の判断と行動のスピードを揃えていきます。
             </p>
           </div>
-
-</header>
+        </header>
 
         {/* ===== 2. STEP1：チャット式入力セクション ===== */}
         <section className="space-y-5">
@@ -342,12 +418,14 @@ export default function OrgTransformationPage() {
           {!intakeComplete ? (
             <>
               {/* チャット式ヒアリング */}
-              <OrgAlignmentIntakeChat
-                onComplete={(draft) => {
-                  setIntakeDraft(draft);
-                  setIntakeComplete(true);
-                }}
-              />
+              <div className="org-intake-chat-shell">
+                <OrgAlignmentIntakeChat
+                  onComplete={(draft) => {
+                    setIntakeDraft(draft);
+                    setIntakeComplete(true);
+                  }}
+                />
+              </div>
             </>
           ) : (
             <>
@@ -380,8 +458,8 @@ export default function OrgTransformationPage() {
                           key={option.value}
                           className={`relative block cursor-pointer rounded-2xl border bg-white p-4 pl-11 transition-colors ${
                             isSelected
-                              ? 'border-slate-900 ring-1 ring-slate-900'
-                              : 'border-slate-200 hover:bg-slate-50'
+                              ? "border-slate-900 ring-1 ring-slate-900"
+                              : "border-slate-200 hover:bg-slate-50"
                           }`}
                         >
                           <input
@@ -470,7 +548,8 @@ export default function OrgTransformationPage() {
                   {alignmentResult.companyRecognition}
                 </p>
 
-                {alignmentResult.companyRecognitionMode === 'needs_confirmation' && (
+                {alignmentResult.companyRecognitionMode ===
+                  "needs_confirmation" && (
                   <div className="mt-4 rounded-xl bg-slate-50 p-4 text-xs leading-6 text-slate-600">
                     現在、会社の戦略・部門方針・OKR・実行計画の情報が十分に連携されていないため、
                     ここでは断定ではなく、会社として確認すべき判断基準として整理しています。
@@ -487,7 +566,10 @@ export default function OrgTransformationPage() {
 
               <ul className="mt-4 space-y-3">
                 {alignmentResult.alignmentPoints.map((point, index) => (
-                  <li key={index} className="flex items-start gap-3 text-sm leading-7 text-slate-700">
+                  <li
+                    key={index}
+                    className="flex items-start gap-3 text-sm leading-7 text-slate-700"
+                  >
                     <span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" />
                     <span>{point}</span>
                   </li>
@@ -510,7 +592,11 @@ export default function OrgTransformationPage() {
                 disabled={isRequesting || requestDone}
                 className="mt-5 w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
               >
-                {requestDone ? 'すり合わせ依頼済み' : isRequesting ? '依頼しています...' : 'すり合わせの場を依頼'}
+                {requestDone
+                  ? "すり合わせ依頼済み"
+                  : isRequesting
+                    ? "依頼しています..."
+                    : "すり合わせの場を依頼"}
               </button>
             </div>
 
@@ -576,7 +662,9 @@ export default function OrgTransformationPage() {
                             </div>
 
                             <h3 className="text-base font-bold text-slate-950">
-                              {result?.title ?? item.situation_text ?? '無題のすり合わせ'}
+                              {result?.title ??
+                                item.situation_text ??
+                                "無題のすり合わせ"}
                             </h3>
 
                             <p className="mt-2 text-sm leading-7 text-slate-600">
@@ -588,15 +676,28 @@ export default function OrgTransformationPage() {
                             </p>
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setExpandedCaseId(isExpanded ? null : item.id)
-                            }
-                            className="shrink-0 rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
-                          >
-                            {isExpanded ? '閉じる' : '詳細を見る'}
-                          </button>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedCaseId(isExpanded ? null : item.id)
+                              }
+                              className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
+                            >
+                              {isExpanded ? "閉じる" : "詳細を見る"}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteCase(item.id)}
+                              disabled={deletingCaseId === item.id}
+                              className="rounded-xl border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:bg-red-50 disabled:text-red-300"
+                            >
+                              {deletingCaseId === item.id
+                                ? "削除中..."
+                                : "削除"}
+                            </button>
+                          </div>
                         </div>
 
                         {isExpanded && result && (
