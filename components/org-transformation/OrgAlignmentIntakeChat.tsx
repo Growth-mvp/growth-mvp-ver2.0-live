@@ -2,13 +2,14 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { safeGetSession } from '@/utils/supabase/client';
+import { type CounterpartyType } from '@/types/org-alignment';
 
 type IntakeDraft = {
   situation_text?: string;
   my_recognition_text?: string;
   ideal_text?: string;
   expectation_text?: string;
-  counterparty_type?: string;
+  counterparty_type?: CounterpartyType;
   counterparty_detail?: string;
 };
 
