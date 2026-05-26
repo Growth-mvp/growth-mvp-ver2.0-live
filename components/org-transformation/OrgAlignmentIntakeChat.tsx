@@ -57,6 +57,7 @@ export default function OrgAlignmentIntakeChat({ onComplete, isLoading: external
     setUserInput('');
 
     // ユーザーメッセージを追加
+    const isFirstUserMessage = messages.filter((msg) => msg.role === 'user').length === 0;
     const newMessages: ChatMessage[] = [...messages, { role: 'user', content: userMessage }];
     setMessages(newMessages);
 
@@ -81,9 +82,9 @@ export default function OrgAlignmentIntakeChat({ onComplete, isLoading: external
         },
         body: JSON.stringify({
           userMessage,
-          conversationHistory: newMessages.slice(0, -1),
-          currentDraft,
-          conversationRound,
+          conversationHistory: isFirstUserMessage ? [] : newMessages.slice(0, -1),
+          currentDraft: isFirstUserMessage ? {} : currentDraft,
+          conversationRound: isFirstUserMessage ? 0 : conversationRound,
         }),
       });
 
