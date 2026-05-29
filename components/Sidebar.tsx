@@ -182,6 +182,12 @@ export default function Sidebar() {
               label="組織変革・すり合わせルーム"
               active={isActive('/org-transformation')}
             />
+            <PillLink
+              href="/org-transformation/shared"
+              icon={<UsersRound size={18} strokeWidth={1.5} />}
+              label="組織変革・全社共有ルーム"
+              active={isActive('/org-transformation/shared')}
+            />
 
             <div className="h-px bg-gray-200/50 my-4" />
 
