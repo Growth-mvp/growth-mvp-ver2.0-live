@@ -54,7 +54,16 @@ export default function Sidebar() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
+  const isActive = (href: string) => {
+    // /org-transformation は /org-transformation/shared の親パスでもあるため、
+    // 前方一致にすると「すり合わせルーム」と「全社共有ルーム」が同時に active になる。
+    // そのため、組織変革トップだけは完全一致で判定する。
+    if (href === '/org-transformation') {
+      return pathname === '/org-transformation';
+    }
+
+    return pathname === href || pathname.startsWith(href + '/');
+  };
   const adminDisabledVisual = !canEditCompany();
 
   const currentUserId: string | undefined = user?.id;
