@@ -370,29 +370,52 @@ export default function ExecutionPanel() {
       </div>
 
       <div className="rounded-2xl bg-neutral-50 p-4 ring-1 ring-neutral-200/60 dark:bg-neutral-900/40 dark:ring-neutral-800">
-        <div className="flex items-center gap-3">
-          <Link href="/org-transformation" className={stageBtnClass}>
-            <span className="text-[15px] font-semibold text-neutral-900">組織変革・すり合わせルーム</span>
-          </Link>
-          <div className="text-sm font-medium">認識ズレ・違和感の要約</div>
-        </div>
-
-        <div className="mt-3 text-xs text-neutral-600 dark:text-neutral-400">
-          現場の違和感や認識のズレを検知し、必要なすり合わせにつなげます。
-        </div>
-
-        <div className="mt-2 rounded-xl bg-white p-2.5 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800">
-          <div className="flex flex-wrap gap-2.5">
-            <div className="rounded-full bg-neutral-100 px-3.5 py-1.5 text-sm text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
-              部門間の認識ズレ：増加傾向
-            </div>
-            <div className="rounded-full bg-neutral-100 px-3.5 py-1.5 text-sm text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
-              優先順位の違和感：3件登録
-            </div>
-            <div className="rounded-full bg-neutral-100 px-3.5 py-1.5 text-sm text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
-              実行計画とのギャップ：要確認
-            </div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <Link href="/org-transformation/shared" className={stageBtnClass}>
+              <span className="text-[15px] font-semibold text-neutral-900">組織変革・全社共有ルーム</span>
+            </Link>
+            <div className="text-sm font-medium">全社論点・STAGE3/4還流状況</div>
           </div>
+          <Link
+            href="/org-transformation/shared"
+            className="shrink-0 text-xs font-medium text-neutral-600 underline-offset-4 hover:underline dark:text-neutral-300"
+          >
+            全社共有を開く
+          </Link>
+        </div>
+
+        <div className="mt-3 text-xs leading-5 text-neutral-600 dark:text-neutral-400">
+          現場の違和感をAIが共通論点に整理し、すり合わせ結果をSTAGE3/4へ還流します。
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[
+            { label: '公開中', value: '5件', note: '全社論点' },
+            { label: 'すり合わせ中', value: '2件', note: '関係者調整' },
+            { label: '方針決定', value: '2件', note: '会社判断済み' },
+            { label: '還流候補', value: '3件', note: 'STAGE3/4' },
+          ].map((item) => (
+            <div
+              key={item.label}
+              className="rounded-xl bg-white px-3 py-2.5 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800"
+            >
+              <div className="text-[11px] font-medium text-neutral-500">{item.label}</div>
+              <div className="mt-1 text-xl font-semibold text-neutral-900 dark:text-white">{item.value}</div>
+              <div className="mt-0.5 text-[10px] text-neutral-500">{item.note}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          {['評価基準のズレ', '顧客価値と短期利益', '部門間責任範囲'].map((topic) => (
+            <span
+              key={topic}
+              className="rounded-full bg-white px-3 py-1 text-[11px] font-medium text-neutral-700 ring-1 ring-neutral-200/70 dark:bg-neutral-950 dark:text-neutral-300 dark:ring-neutral-800"
+            >
+              {topic}
+            </span>
+          ))}
         </div>
       </div>
     </div>
