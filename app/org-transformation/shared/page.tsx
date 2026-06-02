@@ -982,14 +982,14 @@ export default function OrganizationSharedRoomPage() {
             <h1 className="text-4xl font-bold tracking-tight text-slate-950 md:text-5xl">
               組織変革・全社共有ルーム
             </h1>
-            <p className="text-2xl font-bold text-slate-950">現場の声を、会社を前に進める論点へ。</p>
+            <p className="text-2xl font-bold text-slate-950">現場の違和感を、組織変革につなぐ。</p>
           </div>
           <div className="max-w-4xl space-y-4 text-sm leading-8 text-slate-700">
             <p>
-              社員から寄せられた違和感やもやもやを、個人が特定されない形で共通論点に整理し、会社としてのすり合わせ状況・判断・対応方針を共有します。
+              社員から寄せられた違和感やモヤモヤを、個人が特定されない形で共通テーマとして整理し、会社としてのすり合わせ状況、判断、対応方針を共有します。
             </p>
             <p>
-              目的は、誰かを責めることではありません。会社が目指す方向に向けて、判断基準・役割・優先順位のズレを整えることです。
+              目的は、誰かを責めることではありません。会社が目指す方向に向けて、判断基準・役割・優先順位のズレを整え、組織全体の行動につなげることです。
             </p>
           </div>
           <div className="max-w-4xl rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
