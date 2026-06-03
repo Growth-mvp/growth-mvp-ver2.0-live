@@ -1973,13 +1973,6 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
     // ★ TASK 11.6: DB 採用時に hydratedState を即座に store に反映
     if (decision.sourceUsed === 'db' && decision.hydratedState) {
-      // ★ STEP 3: Pre-hydration diagnostic log
-      console.log('[diag][store:pre_hydrate] NEW FIELDS INCOMING', {
-        companyTargets_len: Array.isArray((decision.hydratedState as any).companyTargets) ? (decision.hydratedState as any).companyTargets.length : 0,
-        finalStoryDraft_len: Array.isArray((decision.hydratedState as any).finalStoryDraft) ? (decision.hydratedState as any).finalStoryDraft.length : 0,
-        finalStoryEdited_len: Array.isArray((decision.hydratedState as any).finalStoryEdited) ? (decision.hydratedState as any).finalStoryEdited.length : 0,
-        finalStoryFinal_len: Array.isArray((decision.hydratedState as any).finalStoryFinal) ? (decision.hydratedState as any).finalStoryFinal.length : 0,
-      });
 
       // ★ STEP 4: Empty-overwrite guard for DB restore
       // Prevent empty arrays from overwriting existing store values
@@ -2012,16 +2005,29 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         }
       }
 
-      useStrategyStore.getState().hydrateFromFullState?.(guardedHydratedState);
+      // ★ 修正：swotSuggestions に対しても empty-overwrite guard を追加
+      // swotSuggestions は object で、opportunity/threat配列を持つ
+      // DB に保存されていない場合（undefined/null/空object）は store 値を保持
+      const hasSwotSuggestions = (guardedHydratedState as any).swotSuggestions &&
+        typeof (guardedHydratedState as any).swotSuggestions === 'object' &&
+        !Array.isArray((guardedHydratedState as any).swotSuggestions) &&
+        (Array.isArray((guardedHydratedState as any).swotSuggestions?.opportunity) ||
+         Array.isArray((guardedHydratedState as any).swotSuggestions?.threat));
 
-      // ★ STEP 3: Post-hydration diagnostic log
-      const storeStateAfterHydrate = useStrategyStore.getState();
-      console.log('[diag][store:post_hydrate] NEW FIELDS IN STORE', {
-        companyTargets_len: Array.isArray((storeStateAfterHydrate as any).companyTargets) ? (storeStateAfterHydrate as any).companyTargets.length : 0,
-        finalStoryDraft_len: Array.isArray((storeStateAfterHydrate as any).finalStoryDraft) ? (storeStateAfterHydrate as any).finalStoryDraft.length : 0,
-        finalStoryEdited_len: Array.isArray((storeStateAfterHydrate as any).finalStoryEdited) ? (storeStateAfterHydrate as any).finalStoryEdited.length : 0,
-        finalStoryFinal_len: Array.isArray((storeStateAfterHydrate as any).finalStoryFinal) ? (storeStateAfterHydrate as any).finalStoryFinal.length : 0,
-      });
+      const storeHasSwotSuggestions = (storeState as any).swotSuggestions &&
+        typeof (storeState as any).swotSuggestions === 'object' &&
+        !Array.isArray((storeState as any).swotSuggestions) &&
+        (Array.isArray((storeState as any).swotSuggestions?.opportunity) ||
+         Array.isArray((storeState as any).swotSuggestions?.threat));
+
+      if (!hasSwotSuggestions && storeHasSwotSuggestions) {
+        delete (guardedHydratedState as any).swotSuggestions;
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[diag][guard] Blocked empty swotSuggestions from overwriting store');
+        }
+      }
+
+      useStrategyStore.getState().hydrateFromFullState?.(guardedHydratedState);
 
       return;
     }
