@@ -721,7 +721,30 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   // swotSuggestions is object - restore as-is if present
   if (out.swotSuggestions && typeof out.swotSuggestions === 'object' && !Array.isArray(out.swotSuggestions)) {
     // Already in the right format
+    // ★ 修正：swotSuggestions の詳細を確認（opportunity/threat キーの有無）
+    if (DEBUG) {
+      const oppExists = Array.isArray((out.swotSuggestions as any)?.opportunity);
+      const thrExists = Array.isArray((out.swotSuggestions as any)?.threat);
+      console.log('[buildStateFromDbRow] swotSuggestions 復元詳細', {
+        exists: true,
+        type: typeof out.swotSuggestions,
+        keys: Object.keys(out.swotSuggestions),
+        opportunity_exists: oppExists,
+        opportunity_len: oppExists ? (out.swotSuggestions as any).opportunity.length : 0,
+        threat_exists: thrExists,
+        threat_len: thrExists ? (out.swotSuggestions as any).threat.length : 0,
+        generatedAt: (out.swotSuggestions as any)?.generatedAt,
+      });
+    }
   } else {
+    if (DEBUG) {
+      console.log('[buildStateFromDbRow] swotSuggestions 復元失敗', {
+        exists: !!out.swotSuggestions,
+        type: typeof out.swotSuggestions,
+        isArray: Array.isArray(out.swotSuggestions),
+        value: out.swotSuggestions,
+      });
+    }
     out.swotSuggestions = undefined;
   }
 
@@ -766,6 +789,10 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const finalStoryDraftLen = Array.isArray(out.finalStoryDraft) ? out.finalStoryDraft.length : 0;
   const finalStoryEditedLen = Array.isArray(out.finalStoryEdited) ? out.finalStoryEdited.length : 0;
   const finalStoryFinalLen = Array.isArray(out.finalStoryFinal) ? out.finalStoryFinal.length : 0;
+  // ★ 修正：swotSuggestions のログを追加（リロード時の復元確認用）
+  const swotSuggestionsOpp = Array.isArray(out.swotSuggestions?.opportunity) ? out.swotSuggestions.opportunity.length : 0;
+  const swotSuggestionsThr = Array.isArray(out.swotSuggestions?.threat) ? out.swotSuggestions.threat.length : 0;
+  const swotSuggestionsExists = !!out.swotSuggestions;
   if (DEBUG) console.log('[buildStateFromDbRow] raw_復元', {
     /* STAGE1 */
     issueBlocks_len: issueBlocksLen,
@@ -782,6 +809,10 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
     winPatternsCandidate_len: winPatternsCandidateLen,
     winPatterns_len: winPatternsLen,
     companyTargets_len: companyTargetsLen,
+    // ★ 修正：swotSuggestions のログを追加
+    swotSuggestions_exists: swotSuggestionsExists,
+    swotSuggestions_opp_len: swotSuggestionsOpp,
+    swotSuggestions_thr_len: swotSuggestionsThr,
     /* STAGE6 Phase E */  // ★ 追加
     projectTargetImpacts_len: projectTargetImpactsLen,  // ★ 追加
     projectIssueLinks_len: projectIssueLinksLen,  // ★ 追加
