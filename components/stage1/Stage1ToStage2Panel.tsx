@@ -101,7 +101,7 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
         threshold: bp.threshold,
         units_len: unitsLen,
       },
-      units_detail: unitsLen > 0 ? bp.units?.slice(0, 2).map((u) => ({
+      units_detail: unitsLen > 0 ? bp.units?.slice(0, 2).map((u: BusinessUnit) => ({
         id: u.id,
         name: u.name,
         growthRate: u.growthRate,
@@ -134,7 +134,7 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
         {/* STAGE2へ遷移 */}
         <div>
           <h3 className="text-lg font-semibold mb-4">次のフェーズへ</h3>
-          <p className="text-sm text-gray-600 mb-4">
+          <div className="text-sm text-gray-600 mb-4">
             {canProceedToStage2 ? (
               <>
                 <span className="text-green-700 font-medium">✓ 論点が {stage1Issues.length} 件選択されています。</span>
@@ -153,7 +153,7 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
                 上記で論点を選択してから、下記ボタンを有効にしてください。
               </>
             )}
-          </p>
+          </div>
           <div className="opacity-100">
             <Stage2Bridge disabled={!canProceedToStage2} />
           </div>
