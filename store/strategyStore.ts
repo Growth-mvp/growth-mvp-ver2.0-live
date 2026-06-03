@@ -932,6 +932,10 @@ function buildSavePayload(s: StrategyState) {
     // ★ DEBUG: missionDescription のペイロード確認
     const dept0 = Array.isArray(base.departments) ? base.departments[0] : null;
 
+    // ★ 修正：swotSuggestions をログに追加（保存時の確認用）
+    const swotSuggestionsOpp = Array.isArray(base.swotSuggestions?.opportunity) ? base.swotSuggestions.opportunity.length : 0;
+    const swotSuggestionsThr = Array.isArray(base.swotSuggestions?.threat) ? base.swotSuggestions.threat.length : 0;
+
     if (DEBUG) console.log('[buildSavePayload] ★ payload内容確認', {
       businessSegments_len: busSegLen,
       businessSegments_names: Array.isArray(s.businessSegments) ? s.businessSegments.map((b) => b.name) : [],
@@ -947,6 +951,10 @@ function buildSavePayload(s: StrategyState) {
       // ★ 修正3: STAGE4データをpayloadで確認
       stage4Plans_included: base.stage4Plans ? base.stage4Plans.length : 'undefined',
       executionPlanBaseline_included: base.executionPlanBaseline ? 'exists' : 'undefined',
+      // ★ 修正：swotSuggestions をログに追加
+      swotSuggestions_included: !!base.swotSuggestions,
+      swotSuggestions_opp_len: swotSuggestionsOpp,
+      swotSuggestions_thr_len: swotSuggestionsThr,
       // ★ DEBUG LOG B: save直前のpayload確認
       dept0_keys: Object.keys(dept0 ?? {}),
       dept0_name: dept0?.name,
