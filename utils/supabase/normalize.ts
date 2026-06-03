@@ -907,6 +907,16 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
   const finalStoryEdited = normalizeChaptersAnyNonDestructive(src.finalStoryEdited);
   const finalStoryFinal = normalizeChaptersAnyNonDestructive(src.finalStoryFinal);
 
+  // ★ STAGE2：AI生成の機会と脅威候補（swotSuggestions）
+  // 形式: { opportunity?: string[], threat?: string[], generatedAt?: string }
+  const swotSuggestions = src.swotSuggestions && typeof src.swotSuggestions === 'object' && !Array.isArray(src.swotSuggestions)
+    ? {
+        opportunity: Array.isArray((src.swotSuggestions as any).opportunity) ? (src.swotSuggestions as any).opportunity : undefined,
+        threat: Array.isArray((src.swotSuggestions as any).threat) ? (src.swotSuggestions as any).threat : undefined,
+        generatedAt: typeof (src.swotSuggestions as any).generatedAt === 'string' ? (src.swotSuggestions as any).generatedAt : undefined,
+      }
+    : undefined;
+
   const out: StrategyData = {
     id: src.id,
     user_id: src.user_id,
@@ -978,7 +988,7 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     ...(ticker ? { ticker } : {}),
     ...(pbrManual ? { pbrManual } : {}),
 
-    // ★ STAGE2：会社の数値目標・ストーリードラフト・勝ち筋候補・12問回答・最終ストーリー
+    // ★ STAGE2：会社の数値目標・ストーリードラフト・勝ち筋候補・12問回答・最終ストーリー・SWOT候補
     ...(companyTargets !== undefined ? { companyTargets } : {}),
     ...(storyDraft !== undefined ? { storyDraft } : {}),
     ...(winPatternsCandidate !== undefined ? { winPatternsCandidate } : {}),
@@ -986,6 +996,7 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     ...(finalStoryDraft !== undefined ? { finalStoryDraft } : {}),
     ...(finalStoryEdited !== undefined ? { finalStoryEdited } : {}),
     ...(finalStoryFinal !== undefined ? { finalStoryFinal } : {}),
+    ...(swotSuggestions !== undefined ? { swotSuggestions } : {}),  // ★ 修正：swotSuggestions を出力に含める
 
     ...(csvFinanceData !== undefined ? { csvFinanceData } : {}),
     ...(financePL !== undefined ? { financePL } : {}),
