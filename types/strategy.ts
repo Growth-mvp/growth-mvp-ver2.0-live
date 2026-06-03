@@ -711,6 +711,29 @@ export type ChapterStory = {
 };
 
 /* =========================================================
+ * 事業ユニット（BusinessUnit）及びポートフォリオ（BusinessPortfolio）
+ * ========================================================= */
+
+export type BusinessUnit = {
+  id: string;           // ユニットID
+  name: string;         // ユニット名（セグメント名等）
+  growthRate: number;   // 成長率（%、例：5.0 = 5%）
+  profitMargin: number; // 利益率（%、例：20.0 = 20%）
+  revenueShare: number; // 売上シェア（%、例：30.0 = 30%）
+};
+
+export type BusinessPortfolio = {
+  unitType: string;     // ユニットタイプ（例：'business'）
+  periodLabel: string;  // 期間ラベル（例：'FY2025'）
+  currency: string;     // 通貨（例：'JPY'）
+  threshold: {
+    growthBaseline: number;   // 成長率のベースライン
+    profitBaseline: number;   // 利益率のベースライン
+  };
+  units: BusinessUnit[]; // ビジネスユニットの配列
+};
+
+/* =========================================================
  * 事業セグメント（STAGE1 基本情報で定義）
  * ========================================================= */
 
