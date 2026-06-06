@@ -381,24 +381,22 @@ export default function OrgTransformationPage() {
             組織変革・すり合わせルーム
           </h1>
 
-          <p className="mt-7 max-w-4xl text-2xl font-semibold leading-relaxed text-slate-950 md:text-3xl">
-            人と組織の問題を、「認識のズレ」から捉え直す。
+          <p className="mt-4 max-w-4xl text-2xl font-semibold leading-relaxed text-slate-950 md:text-1xl">
+            組織は、モチベーション、コミュニケーション、カルチャーだけでは変わらない
           </p>
 
           <div className="mt-6 max-w-5xl space-y-4 text-base leading-8 text-slate-700 md:text-lg">
             <p>
-              人と組織の問題は、社員の意識や人間関係、組織風土だけで起きているわけではありません。
+              人と組織の問題の背景には、方針、優先順位、役割責任、評価、意思決定に対する考え方の違いや、意見の対立があります。
               <br />
-              背景には、{" "}
+              本ルームでは、それを人と人の対立ではなく、経営、部門、現場の間で生じる
               <span className="font-semibold text-slate-950">
-                経営、部門、現場の間の、方針、優先順位、役割責任、評価、意思決定に対する「認識のズレ」
+                「認識の違い」
               </span>{" "}
-              が影響しています。
-              <br />
-              <br />
-              当ルームでは、社員一人ひとりが抱える違和感やモヤモヤを起点に、AIがその背景にある「認識のズレ」を構造的に整理します。
-              <br />
-              そして、会社が目指す方向性を軸に、「認識のズレ」をすり合わせ、組織全体の判断と行動のスピードを揃えていきます。
+              として整理します。
+              <br /> <br />
+              AIは、その違いを、会社が目指す方向に照らして整理し、「今、本当に話し合うべきポイントは何か」を明確にします。
+              <br />誰かを責めるのではなく、会社全体の判断と行動を揃えるためのルームです。
             </p>
           </div>
         </header>
