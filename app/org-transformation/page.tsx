@@ -387,7 +387,7 @@ export default function OrgTransformationPage() {
 
           <div className="mt-6 max-w-5xl space-y-4 text-base leading-8 text-slate-700 md:text-lg">
             <p>
-              人と組織の問題の背景には、方針、優先順位、役割責任、評価、意思決定に対する、各個人の考え方の違いや、意見の対立があります。
+              人と組織の問題の背景には、方針、優先順位、役割責任、評価、意思決定に対する考え方の違いや、意見の対立があります。
               <br />
               本ルームでは、それを人と人の対立ではなく、経営、部門、現場、それぞれの立場で生じる
               <span className="font-semibold text-slate-950">
@@ -395,7 +395,7 @@ export default function OrgTransformationPage() {
               </span>{" "}
               として整理します。
               <br /> <br />
-              そしてAIは、その認識の違いを、会社が目指す方向に向けてどうあるべきかを整理し、「今、本当に話し合うべきポイント」を明確にします。
+              そして、AIがその違いを会社の目指す方向に照らして整理し、「今、本当に話し合うべきポイント」を明確にします。
               <br />誰かを責めるのではなく、会社全体の判断基準を揃え、行動を変えていくためのルームです。
             </p>
           </div>
