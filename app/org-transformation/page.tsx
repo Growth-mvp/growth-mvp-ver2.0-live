@@ -387,7 +387,7 @@ export default function OrgTransformationPage() {
 
           <div className="mt-6 max-w-5xl space-y-4 text-base leading-8 text-slate-700 md:text-lg">
             <p>
-              現場で感じる違和感や不満の背景には、単なる人の人の問題だけでなく、方針、優先順位、役割責任、評価、意思決定に対する認識の違いが隠れています。
+              現場で感じる違和感や不満の背景には、人の人の問題だけでなく、方針、優先順位、役割責任、評価、意思決定に対する認識の違いが隠れています。
               GROWTH SHIFTは、それを人と人の対立ではなく、経営、部門、現場、それぞれの立場で生じる<span className="font-semibold text-slate-950">
                 「認識のズレ」
               </span>{" "}として捉え、構造的に整理します。<br />
