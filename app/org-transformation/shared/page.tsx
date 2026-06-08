@@ -982,7 +982,7 @@ export default function OrganizationSharedRoomPage() {
             <h1 className="text-4xl font-bold tracking-tight text-slate-950 md:text-5xl">
               組織変革・全社共有ルーム
             </h1>
-            <p className="text-2xl font-bold text-slate-950">現場の違和感を、組織変革につなぐ。</p>
+            <p className="text-2xl font-bold text-slate-950">現場の違和感を、組織の課題解決につなぐ。</p>
           </div>
           <div className="max-w-4xl space-y-4 text-sm leading-8 text-slate-700">
             <p>
