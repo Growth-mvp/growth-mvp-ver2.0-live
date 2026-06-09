@@ -66,18 +66,25 @@ export async function createSharedTopicFromInsight(
   sourceInsightId?: string,
   publishedBy?: string,
   dashboardSourceCaseCount?: number,
-  totalInsights?: number
+  totalInsights?: number,
+  insightIndex?: number
 ): Promise<OrgAlignmentSharedTopic> {
   // Calculate related_case_count: use insight-specific count if available, otherwise estimate
   let relatedCaseCount = 0;
-  if (typeof insight.relatedCaseCount === 'number') {
+  if (typeof insight.relatedCaseCount === 'number' && insight.relatedCaseCount > 0) {
     relatedCaseCount = insight.relatedCaseCount;
+  } else if (dashboardSourceCaseCount && totalInsights && totalInsights > 0 && typeof insightIndex === 'number') {
+    // Fallback: distribute cases evenly with remainder going to first indices
+    // Example: 7 cases, 3 insights → [3, 2, 2]
+    const base = Math.floor(dashboardSourceCaseCount / totalInsights);
+    const remainder = dashboardSourceCaseCount % totalInsights;
+    relatedCaseCount = base + (insightIndex < remainder ? 1 : 0);
   } else if (dashboardSourceCaseCount && totalInsights && totalInsights > 0) {
-    // Estimate by dividing total cases by number of insights
-    relatedCaseCount = Math.ceil(dashboardSourceCaseCount / totalInsights);
+    // Fallback without index: just use base division
+    relatedCaseCount = Math.floor(dashboardSourceCaseCount / totalInsights);
   } else {
-    // Default to at least 1 if there are cases
-    relatedCaseCount = dashboardSourceCaseCount ? 1 : 0;
+    // Default to 0 if no information available
+    relatedCaseCount = 0;
   }
 
   const { data, error } = await admin

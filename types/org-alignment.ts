@@ -91,6 +91,7 @@ export type OrgAlignmentInsight = {
   affectedDepartments: string[];
   recommendedActions: string[];
   stage3Stage4Relevance: string;
+  relatedCaseCount: number; // この論点に関連する投稿件数（合計が sourceCaseCount と一致）
 
   // === 優先度・重要度情報 ===
   priorityScore?: number; // 0-100のスコア

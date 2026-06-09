@@ -157,7 +157,8 @@ export async function POST(req: NextRequest) {
           `${savedInsight.id}-${i}`,
           userId,
           dashboard.sourceCaseCount,
-          dashboard.insights.length
+          dashboard.insights.length,
+          i  // Pass insight index for proper fallback calculation
         );
         createdTopics.push(topic.id);
       } catch (topicErr: any) {
@@ -202,11 +203,17 @@ function buildSystemPrompt(): string {
    - 推奨するすり合わせ形式
    - 具体的な次アクション（複数、各々に責任者と期限）
    - STAGE3/4への還流候補（戦略データ、OKR化候補など）
+   - この論点に関連する投稿件数（relatedCaseCount）
 4. 優先度スコアは、重要度と緊急度から計算してください
    priorityScore = (importance の点数 × 0.5 + urgency の点数 × 0.5) × 20
    ※ 高=3点、中=2点、低=1点
-5. 部門別の傾向では、部門名・件数・上位の issueType・平均リスクレベルを整理する
-6. 出力は必ず JSON 形式のみ。Markdown や説明文は不要
+5. relatedCaseCount（この論点に関連する投稿件数）を計算するルール：
+   - 各ケースを1つの論点に割り当てる。1つのケースが複数論点にまたがる場合は、最も関連が深い論点に割り当てる
+   - すべての論点の relatedCaseCount の合計は、ケース総数（${cases.length}件）と一致させてください
+   - 3論点あり7件のケースの場合: [3, 2, 2] など、合計が7になるように配分する
+   - relatedCaseCount は整数で、0 以上の値を入れてください
+6. 部門別の傾向では、部門名・件数・上位の issueType・平均リスクレベルを整理する
+7. 出力は必ず JSON 形式のみ。Markdown や説明文は不要
 
 【issueType の分類ガイド】
 以下のいずれかに必ず分類してください。「その他」は極力避けてください：
@@ -232,6 +239,7 @@ function buildSystemPrompt(): string {
       "affectedDepartments": ["部門A", "部門B"],
       "recommendedActions": ["アクション1", "アクション2"],
       "stage3Stage4Relevance": "STAGE3/4への還流候補の説明",
+      "relatedCaseCount": 5,
       "priorityScore": 70,
       "importance": "高",
       "urgency": "中",
