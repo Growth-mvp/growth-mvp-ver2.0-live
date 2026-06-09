@@ -47,7 +47,7 @@ export type OrgAlignmentSharedTopic = {
       dueDate: string;
     }>;
   };
-  visibility: 'company' | 'draft';
+  related_case_count: number;
   published_by?: string;
   published_at?: string;
   created_at: string;
@@ -64,8 +64,22 @@ export async function createSharedTopicFromInsight(
   companyId: string,
   insight: OrgAlignmentInsight,
   sourceInsightId?: string,
-  publishedBy?: string
+  publishedBy?: string,
+  dashboardSourceCaseCount?: number,
+  totalInsights?: number
 ): Promise<OrgAlignmentSharedTopic> {
+  // Calculate related_case_count: use insight-specific count if available, otherwise estimate
+  let relatedCaseCount = 0;
+  if (typeof insight.relatedCaseCount === 'number') {
+    relatedCaseCount = insight.relatedCaseCount;
+  } else if (dashboardSourceCaseCount && totalInsights && totalInsights > 0) {
+    // Estimate by dividing total cases by number of insights
+    relatedCaseCount = Math.ceil(dashboardSourceCaseCount / totalInsights);
+  } else {
+    // Default to at least 1 if there are cases
+    relatedCaseCount = dashboardSourceCaseCount ? 1 : 0;
+  }
+
   const { data, error } = await admin
     .from('org_alignment_shared_topics')
     .insert({
@@ -84,6 +98,7 @@ export async function createSharedTopicFromInsight(
       session_type: insight.sessionType ?? null,
       next_actions: insight.nextActions ?? [],
       strategy_reflection: insight.strategyReflection ?? null,
+      related_case_count: relatedCaseCount,
       published_by: publishedBy || null,
       published_at: new Date().toISOString(),
     })

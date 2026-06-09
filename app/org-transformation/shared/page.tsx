@@ -1020,7 +1020,7 @@ export default function OrganizationSharedRoomPage() {
           category: topic.related_issue_types?.[0] || "組織課題",
           priorityScore: topic.priority_score || 50,
           aiSummary: topic.summary || "",
-          relatedCaseCount: 0, // APIからは不明
+          relatedCaseCount: topic.related_case_count ?? 0,
           impactScope: topic.impact_scope || "全社",
           targetDepartments: topic.affected_departments || [],
           summary: topic.summary || "",

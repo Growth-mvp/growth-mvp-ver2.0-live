@@ -155,7 +155,9 @@ export async function POST(req: NextRequest) {
           companyId,
           dashboard.insights[i],
           `${savedInsight.id}-${i}`,
-          userId
+          userId,
+          dashboard.sourceCaseCount,
+          dashboard.insights.length
         );
         createdTopics.push(topic.id);
       } catch (topicErr: any) {
