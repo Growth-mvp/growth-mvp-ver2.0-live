@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
     const apiKey = cleanApiKey(process.env.OPENAI_API_KEY);
     if (!apiKey) return json({ error: 'OPENAI_API_KEY is not configured' }, 500);
 
-    const systemPrompt = buildSystemPrompt();
+    const systemPrompt = buildSystemPrompt(cases.length);
     const userPrompt = buildUserPrompt(cases, departments);
 
     // ===== 4. OpenAI API 実行 =====
@@ -181,7 +181,7 @@ export async function POST(req: NextRequest) {
 
 // ===== ヘルパー関数 =====
 
-function buildSystemPrompt(): string {
+function buildSystemPrompt(caseCount: number): string {
   return `あなたは、GROWTH SHIFT の組織変革ルームで収集された「認識のズレ」を会社全体の視点で集計・論点化する AI です。
 
 【目的】
@@ -209,7 +209,7 @@ function buildSystemPrompt(): string {
    ※ 高=3点、中=2点、低=1点
 5. relatedCaseCount（この論点に関連する投稿件数）を計算するルール：
    - 各ケースを1つの論点に割り当てる。1つのケースが複数論点にまたがる場合は、最も関連が深い論点に割り当てる
-   - すべての論点の relatedCaseCount の合計は、ケース総数（${cases.length}件）と一致させてください
+   - すべての論点の relatedCaseCount の合計は、ケース総数（${caseCount}件）と一致させてください
    - 3論点あり7件のケースの場合: [3, 2, 2] など、合計が7になるように配分する
    - relatedCaseCount は整数で、0 以上の値を入れてください
 6. 部門別の傾向では、部門名・件数・上位の issueType・平均リスクレベルを整理する
