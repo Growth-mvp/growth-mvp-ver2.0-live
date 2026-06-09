@@ -8,6 +8,7 @@ const items = [
   { href: '/admin/members', label: 'メンバー管理' },
   { href: '/admin/invites', label: '招待' },
   { href: '/admin/data-management', label: 'データ管理' },
+  { href: '/admin/org-insights', label: '組織論点ダッシュボード' },
 ];
 
 export default function AdminNav() {
