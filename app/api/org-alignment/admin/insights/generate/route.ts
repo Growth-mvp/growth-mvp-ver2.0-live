@@ -169,13 +169,22 @@ function buildSystemPrompt(): string {
 【重要ルール】
 1. 個人や部署を責めない。組織構造・仕組み・判断基準のズレとして整理する
 2. 論点は3〜5個にまとめる（多すぎると焦点がぼやける）
-3. 各論点には、以下を明記する：
-   - どの issueType が関連しているか
-   - どの部門に影響があるか
-   - 推奨アクション（具体的で実行可能なもの）
-   - STAGE3/4への還流候補（戦略・KPI・実行計画への反映方法）
-4. 部門別の傾向では、部門名・件数・上位の issueType・平均リスクレベルを整理する
-5. 出力は必ず JSON 形式のみ。Markdown や説明文は不要
+3. 各論点には、以下を詳細に明記する：
+   - 論点のタイトルと詳細説明
+   - 関連する issueType
+   - 影響を受ける部門
+   - 優先度スコア（0-100）、重要度、緊急度
+   - 影響範囲の説明
+   - 現場の認識 vs 会社としての認識とズレの本質
+   - 会社としての判断軸
+   - 推奨するすり合わせ形式
+   - 具体的な次アクション（複数、各々に責任者と期限）
+   - STAGE3/4への還流候補（戦略データ、OKR化候補など）
+4. 優先度スコアは、重要度と緊急度から計算してください
+   priorityScore = (importance の点数 × 0.5 + urgency の点数 × 0.5) × 20
+   ※ 高=3点、中=2点、低=1点
+5. 部門別の傾向では、部門名・件数・上位の issueType・平均リスクレベルを整理する
+6. 出力は必ず JSON 形式のみ。Markdown や説明文は不要
 
 【issueType の分類ガイド】
 以下のいずれかに必ず分類してください。「その他」は極力避けてください：
@@ -200,7 +209,33 @@ function buildSystemPrompt(): string {
       "relatedIssueTypes": ["issueType1", "issueType2"],
       "affectedDepartments": ["部門A", "部門B"],
       "recommendedActions": ["アクション1", "アクション2"],
-      "stage3Stage4Relevance": "STAGE3/4への還流候補の説明"
+      "stage3Stage4Relevance": "STAGE3/4への還流候補の説明",
+      "priorityScore": 70,
+      "importance": "高",
+      "urgency": "中",
+      "impactScope": "論点が影響する範囲の説明",
+      "recognitionGap": {
+        "fieldView": "現場の認識・課題認識",
+        "companyView": "会社としての認識",
+        "gapEssence": "ズレの本質・生じている理由"
+      },
+      "companyAxis": "会社がこの論点をどの軸で考えるべきか",
+      "sessionType": "推奨するすり合わせ形式（例：全社会議、部門別、分科会）",
+      "nextActions": [
+        {
+          "title": "アクション1",
+          "owner": "部門名",
+          "dueDate": "YYYY-MM-DD",
+          "status": "未着手"
+        }
+      ],
+      "strategyReflection": {
+        "stage3Status": "未反映",
+        "stage4Status": "未反映",
+        "relatedDepartments": ["部門A"],
+        "generatedProjects": [],
+        "generatedOkrs": []
+      }
     }
   ],
   "categoryCounts": {

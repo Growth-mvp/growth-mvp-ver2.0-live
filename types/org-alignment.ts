@@ -82,7 +82,7 @@ export type OrgAlignmentDepartmentTrend = {
 };
 
 /**
- * 集計された論点・インサイト
+ * 集計された論点・インサイト（拡張版：管理者向けの詳細情報を含む）
  */
 export type OrgAlignmentInsight = {
   title: string;
@@ -91,6 +91,51 @@ export type OrgAlignmentInsight = {
   affectedDepartments: string[];
   recommendedActions: string[];
   stage3Stage4Relevance: string;
+
+  // === 優先度・重要度情報 ===
+  priorityScore?: number; // 0-100のスコア
+  importance?: '高' | '中' | '低';
+  urgency?: '高' | '中' | '低';
+
+  // === 影響範囲・認識のズレ ===
+  impactScope?: string; // 論点が影響する範囲の説明
+  recognitionGap?: {
+    fieldView: string; // 現場の認識
+    companyView: string; // 会社としての認識
+    gapEssence: string; // ズレの本質
+  };
+
+  // === 会社としての判断軸 ===
+  companyAxis?: string; // 会社がこの論点をどの軸で考えるべきか
+
+  // === すり合わせ ===
+  sessionType?: string; // 推奨するすり合わせ形式（全体会議、部門別会議など）
+
+  // === 次アクション ===
+  nextActions?: Array<{
+    title: string; // アクションタイトル
+    owner: string; // 責任者（部門名）
+    dueDate: string; // 実施予定日
+    status: '未着手' | '対応中' | '完了'; // ステータス
+  }>;
+
+  // === STAGE3/4への還流 ===
+  strategyReflection?: {
+    stage3Status: '未反映' | '反映候補' | '反映済み';
+    stage4Status: '未反映' | 'OKR化候補' | 'OKR化済み';
+    relatedDepartments: string[];
+    generatedProjects: Array<{
+      departmentName: string;
+      projectTitle: string;
+      projectSummary: string;
+    }>;
+    generatedOkrs: Array<{
+      objective: string;
+      keyResults: string[];
+      owner: string;
+      dueDate: string;
+    }>;
+  };
 };
 
 /**

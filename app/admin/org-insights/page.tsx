@@ -17,6 +17,10 @@ import {
   PieChart,
   Pie,
   Cell,
+  LineChart,
+  Line,
+  ScatterChart,
+  Scatter,
 } from 'recharts';
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
@@ -26,6 +30,7 @@ export default function OrgAlignmentAdminInsightsPage() {
   const [generating, setGenerating] = useState(false);
   const [insight, setInsight] = useState<OrgAlignmentInsightRow | null>(null);
   const [error, setError] = useState<string>('');
+  const [expandedInsight, setExpandedInsight] = useState<number | null>(null);
 
   // ===== 初回データ取得 =====
   useEffect(() => {
@@ -94,6 +99,7 @@ export default function OrgAlignmentAdminInsightsPage() {
 
       // 再取得して最新データを表示
       await fetchLatestInsight();
+      setExpandedInsight(null);
     } catch (err: any) {
       console.error('handleGenerate error:', err);
       setError(err.message || 'AI集計の実行に失敗しました。');
@@ -118,6 +124,24 @@ export default function OrgAlignmentAdminInsightsPage() {
       ]
     : [];
 
+  // 優先度ランキング
+  const priorityRanking = insight
+    ? [...insight.insights]
+        .filter((ins) => ins.priorityScore !== undefined)
+        .sort((a, b) => (b.priorityScore ?? 0) - (a.priorityScore ?? 0))
+        .slice(0, 5)
+    : [];
+
+  // STAGE3/4反映候補数
+  const stage3Candidates = insight
+    ? insight.insights.filter((ins) => ins.strategyReflection?.stage3Status === '反映候補')
+        .length
+    : 0;
+  const stage4Candidates = insight
+    ? insight.insights.filter((ins) => ins.strategyReflection?.stage4Status === 'OKR化候補')
+        .length
+    : 0;
+
   return (
     <AdminGuard>
       <div className="min-h-screen bg-slate-50 px-6 py-8">
@@ -128,7 +152,7 @@ export default function OrgAlignmentAdminInsightsPage() {
               組織論点ダッシュボード
             </h1>
             <p className="mt-2 text-slate-600">
-              会社全体の「認識のズレ」を論点化し、STAGE3/4への還流候補を提示します。
+              会社全体の「認識のズレ」を論点化し、意思決定と実行接続をサポートします。
             </p>
           </header>
 
@@ -175,9 +199,43 @@ export default function OrgAlignmentAdminInsightsPage() {
             </div>
           )}
 
-          {/* ===== サマリーカード ===== */}
+          {/* ===== 全体サマリーと主要指標 ===== */}
           {!loading && insight && (
             <>
+              <section className="grid grid-cols-1 gap-6 md:grid-cols-4">
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <p className="text-xs font-semibold text-slate-500">対象投稿件数</p>
+                  <p className="mt-2 text-3xl font-bold text-slate-950">
+                    {insight.source_case_count}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">件</p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <p className="text-xs font-semibold text-slate-500">AI抽出論点数</p>
+                  <p className="mt-2 text-3xl font-bold text-slate-950">
+                    {insight.insights.length}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">個</p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <p className="text-xs font-semibold text-slate-500">STAGE3反映候補</p>
+                  <p className="mt-2 text-3xl font-bold text-slate-950">
+                    {stage3Candidates}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">件</p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <p className="text-xs font-semibold text-slate-500">STAGE4 OKR化候補</p>
+                  <p className="mt-2 text-3xl font-bold text-slate-950">
+                    {stage4Candidates}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">件</p>
+                </div>
+              </section>
+
               <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                 <h2 className="text-xl font-bold text-slate-950">全体サマリー</h2>
                 <p className="mt-3 text-sm leading-7 text-slate-700">{insight.summary}</p>
@@ -203,7 +261,7 @@ export default function OrgAlignmentAdminInsightsPage() {
                   )}
                 </div>
 
-                {/* 優先度別件数 */}
+                {/* リスクレベル別件数 */}
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                   <h3 className="text-lg font-bold text-slate-950">リスクレベル別件数</h3>
                   {priorityChartData.some((d) => d.value > 0) ? (
@@ -232,69 +290,287 @@ export default function OrgAlignmentAdminInsightsPage() {
                 </div>
               </section>
 
-              {/* ===== 論点カード ===== */}
+              {/* ===== 優先度ランキング ===== */}
+              {priorityRanking.length > 0 && (
+                <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <h2 className="text-xl font-bold text-slate-950">優先度ランキング（トップ5）</h2>
+                  <div className="mt-4 space-y-3">
+                    {priorityRanking.map((ins, idx) => (
+                      <div key={idx} className="flex items-center justify-between rounded-lg bg-slate-50 p-4">
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold text-slate-950">{idx + 1}. {ins.title}</p>
+                          <div className="mt-1 flex gap-4">
+                            {ins.priorityScore !== undefined && (
+                              <span className="text-xs text-slate-600">
+                                スコア: {ins.priorityScore}
+                              </span>
+                            )}
+                            {ins.importance && (
+                              <span className="text-xs text-slate-600">
+                                重要度: {ins.importance}
+                              </span>
+                            )}
+                            {ins.urgency && (
+                              <span className="text-xs text-slate-600">
+                                緊急度: {ins.urgency}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="h-8 w-16 rounded-full bg-gradient-to-r from-blue-400 to-blue-600 flex items-center justify-center text-white text-xs font-bold">
+                          {Math.round((ins.priorityScore ?? 0) / 10)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* ===== 論点カード（詳細表示対応） ===== */}
               <section className="space-y-4">
-                <h2 className="text-xl font-bold text-slate-950">論点・インサイト</h2>
+                <h2 className="text-xl font-bold text-slate-950">論点・インサイト（詳細表示）</h2>
                 {insight.insights.length > 0 ? (
                   insight.insights.map((ins, idx) => (
                     <article
                       key={idx}
-                      className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+                      className="rounded-2xl border border-slate-200 bg-white shadow-sm"
                     >
-                      <h3 className="text-lg font-bold text-slate-950">{ins.title}</h3>
-                      <p className="mt-2 text-sm leading-7 text-slate-700">{ins.description}</p>
+                      {/* カードヘッダー */}
+                      <div
+                        onClick={() => setExpandedInsight(expandedInsight === idx ? null : idx)}
+                        className="cursor-pointer p-6"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <h3 className="text-lg font-bold text-slate-950">{ins.title}</h3>
+                            <p className="mt-2 text-sm leading-7 text-slate-700">{ins.description}</p>
 
-                      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                        <div>
-                          <p className="text-xs font-semibold text-slate-500">関連カテゴリー</p>
-                          <div className="mt-1 flex flex-wrap gap-2">
-                            {ins.relatedIssueTypes.map((it) => (
-                              <span
-                                key={it}
-                                className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700"
-                              >
-                                {it}
-                              </span>
-                            ))}
+                            <div className="mt-4 flex flex-wrap gap-3">
+                              {ins.priorityScore !== undefined && (
+                                <div className="rounded-lg bg-blue-50 px-3 py-1">
+                                  <p className="text-xs font-semibold text-blue-700">
+                                    優先度: {ins.priorityScore}
+                                  </p>
+                                </div>
+                              )}
+                              {ins.importance && (
+                                <div className={`rounded-lg px-3 py-1 ${
+                                  ins.importance === '高'
+                                    ? 'bg-red-50'
+                                    : ins.importance === '中'
+                                    ? 'bg-yellow-50'
+                                    : 'bg-green-50'
+                                }`}>
+                                  <p className={`text-xs font-semibold ${
+                                    ins.importance === '高'
+                                      ? 'text-red-700'
+                                      : ins.importance === '中'
+                                      ? 'text-yellow-700'
+                                      : 'text-green-700'
+                                  }`}>
+                                    重要度: {ins.importance}
+                                  </p>
+                                </div>
+                              )}
+                              {ins.urgency && (
+                                <div className={`rounded-lg px-3 py-1 ${
+                                  ins.urgency === '高'
+                                    ? 'bg-red-50'
+                                    : ins.urgency === '中'
+                                    ? 'bg-yellow-50'
+                                    : 'bg-green-50'
+                                }`}>
+                                  <p className={`text-xs font-semibold ${
+                                    ins.urgency === '高'
+                                      ? 'text-red-700'
+                                      : ins.urgency === '中'
+                                      ? 'text-yellow-700'
+                                      : 'text-green-700'
+                                  }`}>
+                                    緊急度: {ins.urgency}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-slate-400 ml-4">
+                            {expandedInsight === idx ? '▼' : '▶'}
                           </div>
                         </div>
+                      </div>
 
-                        <div>
-                          <p className="text-xs font-semibold text-slate-500">影響する部門</p>
-                          <div className="mt-1 flex flex-wrap gap-2">
-                            {ins.affectedDepartments.map((dept) => {
-                              const displayDept = dept === 'unknown' ? '全社横断' : dept;
-                              return (
-                                <span
-                                  key={dept}
-                                  className="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700"
-                                >
-                                  {displayDept}
-                                </span>
-                              );
-                            })}
+                      {/* 展開コンテンツ */}
+                      {expandedInsight === idx && (
+                        <div className="border-t border-slate-200 p-6 space-y-6">
+                          {/* 基本情報 */}
+                          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                            <div>
+                              <p className="text-xs font-semibold text-slate-500">関連カテゴリー</p>
+                              <div className="mt-1 flex flex-wrap gap-2">
+                                {ins.relatedIssueTypes.map((it) => (
+                                  <span
+                                    key={it}
+                                    className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700"
+                                  >
+                                    {it}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div>
+                              <p className="text-xs font-semibold text-slate-500">影響する部門</p>
+                              <div className="mt-1 flex flex-wrap gap-2">
+                                {ins.affectedDepartments.map((dept) => {
+                                  const displayDept = dept === 'unknown' ? '全社横断' : dept;
+                                  return (
+                                    <span
+                                      key={dept}
+                                      className="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700"
+                                    >
+                                      {displayDept}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            </div>
                           </div>
+
+                          {/* 影響範囲 */}
+                          {ins.impactScope && (
+                            <div>
+                              <p className="text-xs font-semibold text-slate-500">影響範囲</p>
+                              <p className="mt-1 text-sm text-slate-700">{ins.impactScope}</p>
+                            </div>
+                          )}
+
+                          {/* 認識のズレ構造 */}
+                          {ins.recognitionGap && (
+                            <div className="rounded-lg bg-slate-50 p-4 space-y-3">
+                              <p className="text-xs font-semibold text-slate-500">認識のズレ構造</p>
+                              <div>
+                                <p className="text-xs font-semibold text-slate-600">現場の認識</p>
+                                <p className="mt-1 text-sm text-slate-700">{ins.recognitionGap.fieldView}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs font-semibold text-slate-600">会社としての認識</p>
+                                <p className="mt-1 text-sm text-slate-700">{ins.recognitionGap.companyView}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs font-semibold text-slate-600">ズレの本質</p>
+                                <p className="mt-1 text-sm text-slate-700">{ins.recognitionGap.gapEssence}</p>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 会社としての判断軸 */}
+                          {ins.companyAxis && (
+                            <div>
+                              <p className="text-xs font-semibold text-slate-500">会社としての判断軸</p>
+                              <p className="mt-1 text-sm text-slate-700">{ins.companyAxis}</p>
+                            </div>
+                          )}
+
+                          {/* すり合わせ形式 */}
+                          {ins.sessionType && (
+                            <div>
+                              <p className="text-xs font-semibold text-slate-500">推奨すり合わせ形式</p>
+                              <p className="mt-1 text-sm text-slate-700">{ins.sessionType}</p>
+                            </div>
+                          )}
+
+                          {/* 推奨アクション */}
+                          <div>
+                            <p className="text-xs font-semibold text-slate-500">推奨アクション</p>
+                            <ul className="mt-2 space-y-1">
+                              {ins.recommendedActions.map((action, i) => (
+                                <li key={i} className="flex items-start gap-2 text-sm text-slate-700">
+                                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" />
+                                  <span>{action}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+
+                          {/* 次アクション（詳細） */}
+                          {ins.nextActions && ins.nextActions.length > 0 && (
+                            <div className="border-t border-slate-200 pt-6">
+                              <p className="text-xs font-semibold text-slate-500">次アクション</p>
+                              <div className="mt-2 space-y-2">
+                                {ins.nextActions.map((action, i) => (
+                                  <div key={i} className="rounded-lg bg-slate-50 p-3 text-xs">
+                                    <p className="font-semibold text-slate-700">{action.title}</p>
+                                    <div className="mt-1 flex gap-4 text-slate-600">
+                                      <span>責任: {action.owner}</span>
+                                      <span>期限: {action.dueDate}</span>
+                                      <span className={`font-semibold ${
+                                        action.status === '完了' ? 'text-green-600' :
+                                        action.status === '対応中' ? 'text-yellow-600' : 'text-slate-600'
+                                      }`}>
+                                        {action.status}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* STAGE3/4反映候補 */}
+                          {ins.strategyReflection && (
+                            <div className="border-t border-slate-200 pt-6 rounded-lg bg-slate-50 p-4 space-y-3">
+                              <p className="text-xs font-semibold text-slate-500">STAGE3/4への還流候補</p>
+                              <div className="grid grid-cols-2 gap-4 text-xs">
+                                <div>
+                                  <p className="font-semibold text-slate-600">STAGE3状態</p>
+                                  <p className="mt-1 text-slate-700">{ins.strategyReflection.stage3Status}</p>
+                                </div>
+                                <div>
+                                  <p className="font-semibold text-slate-600">STAGE4 OKR化状態</p>
+                                  <p className="mt-1 text-slate-700">{ins.strategyReflection.stage4Status}</p>
+                                </div>
+                              </div>
+
+                              {ins.strategyReflection.generatedProjects && ins.strategyReflection.generatedProjects.length > 0 && (
+                                <div>
+                                  <p className="text-xs font-semibold text-slate-600">関連プロジェクト案</p>
+                                  <div className="mt-1 space-y-1">
+                                    {ins.strategyReflection.generatedProjects.map((proj, i) => (
+                                      <div key={i} className="text-xs text-slate-700 pl-2 border-l-2 border-slate-300">
+                                        <p className="font-semibold">{proj.projectTitle} ({proj.departmentName})</p>
+                                        <p>{proj.projectSummary}</p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {ins.strategyReflection.generatedOkrs && ins.strategyReflection.generatedOkrs.length > 0 && (
+                                <div>
+                                  <p className="text-xs font-semibold text-slate-600">関連OKR案</p>
+                                  <div className="mt-1 space-y-2">
+                                    {ins.strategyReflection.generatedOkrs.map((okr, i) => (
+                                      <div key={i} className="text-xs text-slate-700 pl-2 border-l-2 border-blue-300">
+                                        <p className="font-semibold">{okr.objective}</p>
+                                        <p className="text-slate-600 mt-1">責任: {okr.owner}</p>
+                                        <ul className="mt-1 space-y-0.5 list-inside list-disc">
+                                          {okr.keyResults.map((kr, j) => (
+                                            <li key={j} className="text-slate-700">{kr}</li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          <p className="text-xs text-slate-500 border-t border-slate-200 pt-4">
+                            {ins.stage3Stage4Relevance}
+                          </p>
                         </div>
-                      </div>
-
-                      <div className="mt-4">
-                        <p className="text-xs font-semibold text-slate-500">推奨アクション</p>
-                        <ul className="mt-2 space-y-1">
-                          {ins.recommendedActions.map((action, i) => (
-                            <li key={i} className="flex items-start gap-2 text-sm text-slate-700">
-                              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" />
-                              <span>{action}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      <div className="mt-4 rounded-xl bg-slate-50 p-4">
-                        <p className="text-xs font-semibold text-slate-500">STAGE3/4への還流候補</p>
-                        <p className="mt-1 text-sm leading-7 text-slate-700">
-                          {ins.stage3Stage4Relevance}
-                        </p>
-                      </div>
+                      )}
                     </article>
                   ))
                 ) : (
