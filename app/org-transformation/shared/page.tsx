@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { safeGetSession } from "@/utils/supabase/client";
 
 // ===== 型定義 =====
 type TopicStatus = "すり合わせ予定" | "すり合わせ中" | "対応方針決定" | "実行中" | "完了";
@@ -64,7 +65,26 @@ type SharedAlignmentTopic = {
   updatedAt: string;
 };
 
-// ===== 仮データ =====
+// ===== ステータスマッピング =====
+function mapDbStatusToUiStatus(dbStatus: string): TopicStatus {
+  switch (dbStatus) {
+    case 'published':
+    case 'draft':
+      return 'すり合わせ予定';
+    case 'in_alignment':
+      return 'すり合わせ中';
+    case 'action_planned':
+      return '対応方針決定';
+    case 'reflected_to_strategy':
+      return '実行中';
+    case 'closed':
+      return '完了';
+    default:
+      return 'すり合わせ予定';
+  }
+}
+
+// ===== 仮データ（フォールバック用） =====
 const mockTopics: SharedAlignmentTopic[] = [
   {
     id: "topic-001",
@@ -953,25 +973,114 @@ function TopicCard({
 export default function OrganizationSharedRoomPage() {
   const [selectedFilter, setSelectedFilter] = useState<TopicStatus | "すべて">("すべて");
   const [expandedTopicId, setExpandedTopicId] = useState<string | null>(null);
+  const [topics, setTopics] = useState<SharedAlignmentTopic[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>("");
+
+  // ===== データ取得 =====
+  useEffect(() => {
+    fetchTopics();
+  }, []);
+
+  const fetchTopics = async () => {
+    setLoading(true);
+    setError("");
+
+    try {
+      const { ok, data: sessionData } = await safeGetSession();
+      if (!ok || !sessionData?.session?.access_token) {
+        console.log("Not authenticated or session expired, using demo data");
+        setTopics(mockTopics);
+        setLoading(false);
+        return;
+      }
+
+      const res = await fetch("/api/org-alignment/shared/topics", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+      });
+
+      if (!res.ok) {
+        console.warn(`Failed to fetch topics: ${res.status}, using demo data`);
+        setTopics(mockTopics);
+        setLoading(false);
+        return;
+      }
+
+      const resData = await res.json();
+      if (resData.topics && Array.isArray(resData.topics) && resData.topics.length > 0) {
+        // APIから取得したデータを変換して使用
+        const convertedTopics: SharedAlignmentTopic[] = resData.topics.map((topic: any) => ({
+          id: topic.id,
+          title: topic.title,
+          status: mapDbStatusToUiStatus(topic.status),
+          importance: topic.importance || "中",
+          urgency: topic.urgency || "中",
+          category: topic.related_issue_types?.[0] || "組織課題",
+          priorityScore: topic.priority_score || 50,
+          aiSummary: topic.summary || "",
+          relatedCaseCount: 0, // APIからは不明
+          impactScope: topic.impact_scope || "全社",
+          targetDepartments: topic.affected_departments || [],
+          summary: topic.summary || "",
+          background: "", // APIからは取得しないため空
+          recognitionGap: topic.recognition_gap || {
+            fieldView: "",
+            companyView: "",
+            gapEssence: "",
+          },
+          companyAxis: topic.company_axis || "",
+          sessionType: topic.session_type || "",
+          alignmentResult: "", // APIからは取得しないため空
+          changedThings: [], // APIからは取得しないため空
+          unchangedThings: [], // APIからは取得しないため空
+          nextActions: topic.next_actions || [],
+          strategyReflection: topic.strategy_reflection || {
+            stage3Status: "未反映",
+            stage4Status: "未反映",
+            relatedDepartments: [],
+            generatedProjects: [],
+            generatedOkrs: [],
+          },
+          owner: topic.published_by || "",
+          nextReviewDate: topic.published_at?.split("T")[0] || "",
+          updatedAt: topic.updated_at?.split("T")[0] || "",
+        }));
+
+        setTopics(convertedTopics);
+      } else {
+        // データなしの場合はモックデータを使用
+        setTopics(mockTopics);
+      }
+    } catch (err) {
+      console.error("fetchTopics error:", err);
+      setError("データ取得に失敗しました。デモデータを表示しています。");
+      setTopics(mockTopics);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filteredTopics = useMemo(() => {
-    if (selectedFilter === "すべて") return mockTopics;
-    return mockTopics.filter((topic) => topic.status === selectedFilter);
-  }, [selectedFilter]);
+    if (selectedFilter === "すべて") return topics;
+    return topics.filter((topic) => topic.status === selectedFilter);
+  }, [selectedFilter, topics]);
 
   const summaryData = useMemo(() => {
     return {
-      aiTargetVoices: mockTopics.reduce((sum, topic) => sum + topic.relatedCaseCount, 0),
-      topics: mockTopics.length,
-      alignmentTargets: mockTopics.filter((topic) => topic.status !== "完了").length,
+      aiTargetVoices: topics.reduce((sum, topic) => sum + topic.relatedCaseCount, 0),
+      topics: topics.length,
+      alignmentTargets: topics.filter((topic) => topic.status !== "完了").length,
       explanationNeeded: 1,
-      inProgress: mockTopics.filter((topic) => topic.status === "すり合わせ中").length,
-      decided: mockTopics.filter((topic) => topic.status === "対応方針決定").length,
-      executing: mockTopics.filter((topic) => topic.status === "実行中").length,
-      stage3Targets: mockTopics.filter((topic) => topic.strategyReflection.stage3Status !== "未反映").length,
-      stage4Targets: mockTopics.filter((topic) => topic.strategyReflection.stage4Status !== "未反映").length,
+      inProgress: topics.filter((topic) => topic.status === "すり合わせ中").length,
+      decided: topics.filter((topic) => topic.status === "対応方針決定").length,
+      executing: topics.filter((topic) => topic.status === "実行中").length,
+      stage3Targets: topics.filter((topic) => topic.strategyReflection.stage3Status !== "未反映").length,
+      stage4Targets: topics.filter((topic) => topic.strategyReflection.stage4Status !== "未反映").length,
     };
-  }, []);
+  }, [topics]);
 
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-16 text-slate-950 md:px-10 lg:px-16">
@@ -1013,10 +1122,17 @@ export default function OrganizationSharedRoomPage() {
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 lg:w-72">
               <p className="text-xs font-semibold tracking-wide text-slate-500">表示データ</p>
-              <p className="mt-2 font-bold text-slate-950">デモ用AI集計結果</p>
-              <p className="mt-2 text-xs leading-5 text-slate-600">
-                実API接続前の仮データです。将来は投稿データから自動集計します。
+              <p className="mt-2 font-bold text-slate-950">
+                {topics.length === mockTopics.length && JSON.stringify(topics) === JSON.stringify(mockTopics)
+                  ? "デモ用AI集計結果"
+                  : "実運用データ"}
               </p>
+              <p className="mt-2 text-xs leading-5 text-slate-600">
+                {topics.length === mockTopics.length && JSON.stringify(topics) === JSON.stringify(mockTopics)
+                  ? "デモ用仮データです。"
+                  : `投稿データから自動集計した${topics.length}件の論点を表示しています。`}
+              </p>
+              {error && <p className="mt-2 text-xs text-orange-600">{error}</p>}
             </div>
           </div>
 
@@ -1029,11 +1145,11 @@ export default function OrganizationSharedRoomPage() {
         </section>
 
         <section className="grid gap-6 lg:grid-cols-2">
-          <TopicBarChart topics={mockTopics} />
-          <StatusChart topics={mockTopics} />
+          <TopicBarChart topics={topics} />
+          <StatusChart topics={topics} />
         </section>
 
-        <TopicSummaryTable topics={mockTopics} />
+        <TopicSummaryTable topics={topics} />
 
         <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           <MetricCard label="共有中の論点" value={`${summaryData.topics}件`} description="全社に公開されている組織論点" />

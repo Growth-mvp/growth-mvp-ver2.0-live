@@ -31,6 +31,8 @@ export default function OrgAlignmentAdminInsightsPage() {
   const [insight, setInsight] = useState<OrgAlignmentInsightRow | null>(null);
   const [error, setError] = useState<string>('');
   const [expandedInsight, setExpandedInsight] = useState<number | null>(null);
+  const [sharingInsightIndex, setSharingInsightIndex] = useState<number | null>(null);
+  const [sharedDrafts, setSharedDrafts] = useState<{ [key: number]: boolean }>({});
 
   // ===== 初回データ取得 =====
   useEffect(() => {
@@ -105,6 +107,46 @@ export default function OrgAlignmentAdminInsightsPage() {
       setError(err.message || 'AI集計の実行に失敗しました。');
     } finally {
       setGenerating(false);
+    }
+  };
+
+  // ===== 共有用下書き作成 =====
+  const handleCreateSharedDraft = async (insightIndex: number) => {
+    setSharingInsightIndex(insightIndex);
+    setError('');
+
+    try {
+      const { ok, data: sessionData } = await safeGetSession();
+      if (!ok || !sessionData?.session?.access_token) {
+        setError('ログインセッションが無効です。再ログインしてください。');
+        setSharingInsightIndex(null);
+        return;
+      }
+
+      const res = await fetch('/api/org-alignment/admin/shared-topics', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({ insightIndex }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `API error: ${res.status}`);
+      }
+
+      // 下書き作成済みとしてマーク
+      setSharedDrafts((prev) => ({
+        ...prev,
+        [insightIndex]: true,
+      }));
+    } catch (err: any) {
+      console.error('handleCreateSharedDraft error:', err);
+      setError(err.message || '共有用下書きの作成に失敗しました。');
+    } finally {
+      setSharingInsightIndex(null);
     }
   };
 
@@ -569,6 +611,24 @@ export default function OrgAlignmentAdminInsightsPage() {
                           <p className="text-xs text-slate-500 border-t border-slate-200 pt-4">
                             {ins.stage3Stage4Relevance}
                           </p>
+
+                          {/* ===== 共有用下書き作成ボタン ===== */}
+                          <div className="flex gap-3 border-t border-slate-200 pt-4">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCreateSharedDraft(idx);
+                              }}
+                              disabled={sharedDrafts[idx] || sharingInsightIndex === idx}
+                              className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                                sharedDrafts[idx]
+                                  ? 'bg-green-50 text-green-700 ring-1 ring-green-200 cursor-default'
+                                  : 'bg-blue-50 text-blue-700 ring-1 ring-blue-200 hover:bg-blue-100'
+                              } ${sharingInsightIndex === idx ? 'opacity-50' : ''}`}
+                            >
+                              {sharingInsightIndex === idx ? '作成中...' : sharedDrafts[idx] ? '共有下書き作成済み' : '共有用に下書き作成'}
+                            </button>
+                          </div>
                         </div>
                       )}
                     </article>
