@@ -189,11 +189,11 @@ export default function OrgAlignmentAdminInsightsPage() {
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                   <h3 className="text-lg font-bold text-slate-950">カテゴリー別件数</h3>
                   {categoryChartData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={categoryChartData}>
+                    <ResponsiveContainer width="100%" height={Math.max(300, categoryChartData.length * 50)}>
+                      <BarChart data={categoryChartData} layout="vertical">
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="name" angle={-45} textAnchor="end" height={120} />
-                        <YAxis />
+                        <XAxis type="number" />
+                        <YAxis dataKey="name" type="category" width={150} />
                         <Tooltip />
                         <Bar dataKey="count" fill="#0088FE" />
                       </BarChart>
@@ -214,7 +214,7 @@ export default function OrgAlignmentAdminInsightsPage() {
                           cx="50%"
                           cy="50%"
                           labelLine={false}
-                          label={(entry) => `${entry.name}: ${entry.value}`}
+                          label={(entry) => entry.value > 0 ? `${entry.name}: ${entry.value}` : ''}
                           outerRadius={80}
                           fill="#8884d8"
                           dataKey="value"
@@ -262,14 +262,17 @@ export default function OrgAlignmentAdminInsightsPage() {
                         <div>
                           <p className="text-xs font-semibold text-slate-500">影響する部門</p>
                           <div className="mt-1 flex flex-wrap gap-2">
-                            {ins.affectedDepartments.map((dept) => (
-                              <span
-                                key={dept}
-                                className="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700"
-                              >
-                                {dept}
-                              </span>
-                            ))}
+                            {ins.affectedDepartments.map((dept) => {
+                              const displayDept = dept === 'unknown' ? '全社横断' : dept;
+                              return (
+                                <span
+                                  key={dept}
+                                  className="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700"
+                                >
+                                  {displayDept}
+                                </span>
+                              );
+                            })}
                           </div>
                         </div>
                       </div>
