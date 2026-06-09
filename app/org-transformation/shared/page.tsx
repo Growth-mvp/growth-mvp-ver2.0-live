@@ -69,13 +69,12 @@ type SharedAlignmentTopic = {
 function mapDbStatusToUiStatus(dbStatus: string): TopicStatus {
   switch (dbStatus) {
     case 'published':
-    case 'draft':
       return 'すり合わせ予定';
     case 'in_alignment':
       return 'すり合わせ中';
     case 'action_planned':
       return '対応方針決定';
-    case 'reflected_to_strategy':
+    case 'reflected':
       return '実行中';
     case 'closed':
       return '完了';
@@ -1095,10 +1094,12 @@ export default function OrganizationSharedRoomPage() {
           </div>
           <div className="max-w-4xl space-y-4 text-sm leading-8 text-slate-700">
             <p>
-              社員から寄せられた違和感やモヤモヤを、個人が特定されない形で共通テーマとして整理し、会社としてのすり合わせ状況、判断、対応方針を共有します。
+              社員から寄せられた違和感やモヤモヤは、会社として向き合うべき認識のズレとして整理され、原則として全社で共有されます。
+              個人が特定されない形で、判断基準・役割・優先順位のズレを可視化し、組織全体ですり合わせと実行に取り組みます。
             </p>
             <p>
-              目的は、誰かを責めることではありません。会社が目指す方向に向けて、判断基準・役割・優先順位のズレを整え、組織全体の行動につなげることです。
+              目的は、誰かを責めることではありません。会社が目指す方向に向けて、認識のズレを整え、全社の行動につなげることです。
+              管理者は必要に応じて表現の編集や保留、非公開化を行いますが、基本的には「隠すこと」ではなく「会社として扱える論点に整えること」に注力します。
             </p>
           </div>
           <div className="max-w-4xl rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

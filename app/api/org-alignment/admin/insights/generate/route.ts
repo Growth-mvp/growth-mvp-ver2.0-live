@@ -11,6 +11,7 @@ import {
   getOrgAlignmentCasesForInsight,
   saveOrgAlignmentInsight,
 } from '@/utils/supabase/org-alignment-server';
+import { createSharedTopicFromInsight } from '@/utils/supabase/org-alignment-shared-topics-server';
 import { getFullStrategyDataByCompany } from '@/utils/supabase/strategy';
 import type {
   OrgAlignmentInsightDashboard,
@@ -139,15 +140,34 @@ export async function POST(req: NextRequest) {
     };
 
     // ===== 6. DB に保存 =====
-    await saveOrgAlignmentInsight(admin, {
+    const savedInsight = await saveOrgAlignmentInsight(admin, {
       companyId,
       generatedBy: userId,
       dashboard,
     });
 
-    console.log(`[${ROUTE_TAG}] Successfully generated and saved insights for company ${companyId}`);
+    // ===== 7. 各論点を共有トピックとして自動作成 =====
+    const createdTopics = [];
+    for (let i = 0; i < dashboard.insights.length; i++) {
+      try {
+        const topic = await createSharedTopicFromInsight(
+          admin,
+          companyId,
+          dashboard.insights[i],
+          `${savedInsight.id}-${i}`,
+          userId
+        );
+        createdTopics.push(topic.id);
+      } catch (topicErr: any) {
+        console.warn(`[${ROUTE_TAG}] Failed to create shared topic for insight ${i}:`, topicErr.message);
+        // Continue even if individual topic creation fails
+      }
+    }
 
-    return json({ dashboard }, 200);
+    console.log(`[${ROUTE_TAG}] Successfully generated and saved insights for company ${companyId}`);
+    console.log(`[${ROUTE_TAG}] Created ${createdTopics.length} shared topics`);
+
+    return json({ dashboard, createdTopics }, 200);
   } catch (err: any) {
     console.error(`[ERROR] ${ROUTE_TAG}:`, err);
     const message = err?.message || String(err);

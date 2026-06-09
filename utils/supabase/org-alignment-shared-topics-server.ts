@@ -4,7 +4,7 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { OrgAlignmentInsight } from '@/types/org-alignment';
 
-export type SharedTopicStatus = 'draft' | 'published' | 'in_alignment' | 'action_planned' | 'reflected_to_strategy' | 'closed';
+export type SharedTopicStatus = 'published' | 'in_alignment' | 'action_planned' | 'reflected' | 'closed' | 'on_hold' | 'hidden';
 
 export type OrgAlignmentSharedTopic = {
   id: string;
@@ -55,14 +55,16 @@ export type OrgAlignmentSharedTopic = {
 };
 
 /**
- * Create a draft shared topic from an admin insight
- * Maps OrgAlignmentInsight to OrgAlignmentSharedTopic in draft status
+ * Create a shared topic from an admin insight
+ * Maps OrgAlignmentInsight to OrgAlignmentSharedTopic with published status
+ * Called automatically when insights are AI-generated
  */
-export async function createSharedTopicDraft(
+export async function createSharedTopicFromInsight(
   admin: SupabaseClient,
   companyId: string,
   insight: OrgAlignmentInsight,
-  sourceInsightId?: string
+  sourceInsightId?: string,
+  publishedBy?: string
 ): Promise<OrgAlignmentSharedTopic> {
   const { data, error } = await admin
     .from('org_alignment_shared_topics')
@@ -71,7 +73,7 @@ export async function createSharedTopicDraft(
       source_insight_id: sourceInsightId || null,
       title: insight.title,
       summary: insight.description,
-      status: 'draft',
+      status: 'published',
       priority_score: insight.priorityScore ?? null,
       importance: insight.importance ?? null,
       urgency: insight.urgency ?? null,
@@ -82,34 +84,47 @@ export async function createSharedTopicDraft(
       session_type: insight.sessionType ?? null,
       next_actions: insight.nextActions ?? [],
       strategy_reflection: insight.strategyReflection ?? null,
-      visibility: 'draft',
-      published_by: null,
-      published_at: null,
+      published_by: publishedBy || null,
+      published_at: new Date().toISOString(),
     })
     .select()
     .single();
 
   if (error) {
-    throw new Error(`Failed to create shared topic draft: ${error.message}`);
+    throw new Error(`Failed to create shared topic: ${error.message}`);
   }
 
   return data as OrgAlignmentSharedTopic;
 }
 
 /**
+ * Create a shared topic draft from an admin insight (for manual creation)
+ * Legacy function - kept for backward compatibility
+ */
+export async function createSharedTopicDraft(
+  admin: SupabaseClient,
+  companyId: string,
+  insight: OrgAlignmentInsight,
+  sourceInsightId?: string
+): Promise<OrgAlignmentSharedTopic> {
+  return createSharedTopicFromInsight(admin, companyId, insight, sourceInsightId);
+}
+
+/**
  * Get all shared topics for a company visible to members
- * Only returns published topics
+ * Returns public statuses: published, in_alignment, action_planned, reflected, closed
  */
 export async function getPublishedSharedTopics(
   client: SupabaseClient,
   companyId: string
 ): Promise<OrgAlignmentSharedTopic[]> {
+  const publicStatuses = ['published', 'in_alignment', 'action_planned', 'reflected', 'closed'];
+
   const { data, error } = await client
     .from('org_alignment_shared_topics')
     .select('*')
     .eq('company_id', companyId)
-    .eq('status', 'published')
-    .eq('visibility', 'company')
+    .in('status', publicStatuses)
     .order('published_at', { ascending: false });
 
   if (error) {
@@ -201,9 +216,9 @@ export async function updateSharedTopic(
 }
 
 /**
- * Check if a draft already exists for an insight
+ * Check if a shared topic already exists for an insight
  */
-export async function checkExistingDraft(
+export async function checkExistingTopic(
   admin: SupabaseClient,
   companyId: string,
   sourceInsightId: string
@@ -213,16 +228,26 @@ export async function checkExistingDraft(
     .select('*')
     .eq('company_id', companyId)
     .eq('source_insight_id', sourceInsightId)
-    .eq('status', 'draft')
     .single();
 
   if (error) {
     if (error.code === 'PGRST116') {
       return null;
     }
-    console.error('Failed to check existing draft:', error);
+    console.error('Failed to check existing topic:', error);
     return null;
   }
 
   return data as OrgAlignmentSharedTopic;
+}
+
+/**
+ * Check if a draft already exists for an insight (legacy function)
+ */
+export async function checkExistingDraft(
+  admin: SupabaseClient,
+  companyId: string,
+  sourceInsightId: string
+): Promise<OrgAlignmentSharedTopic | null> {
+  return checkExistingTopic(admin, companyId, sourceInsightId);
 }
