@@ -49,3 +49,78 @@ export type OrgAlignmentResult = {
   riskLevel: 'low' | 'medium' | 'high';
   riskReason: string;
 };
+
+// ===== 管理者ダッシュボード用の型定義 =====
+
+/**
+ * カテゴリー別の件数
+ */
+export type OrgAlignmentCategoryCounts = {
+  [issueType: string]: number;
+};
+
+/**
+ * 優先度別の件数
+ */
+export type OrgAlignmentPriorityCounts = {
+  low: number;
+  medium: number;
+  high: number;
+};
+
+/**
+ * 部門別の傾向データ
+ */
+export type OrgAlignmentDepartmentTrend = {
+  departmentName: string;
+  caseCount: number;
+  topIssueTypes: Array<{
+    issueType: string;
+    count: number;
+  }>;
+  avgRiskLevel: 'low' | 'medium' | 'high';
+};
+
+/**
+ * 集計された論点・インサイト
+ */
+export type OrgAlignmentInsight = {
+  title: string;
+  description: string;
+  relatedIssueTypes: string[];
+  affectedDepartments: string[];
+  recommendedActions: string[];
+  stage3Stage4Relevance: string;
+};
+
+/**
+ * AI集計結果全体
+ */
+export type OrgAlignmentInsightDashboard = {
+  companyId: string;
+  summary: string;
+  insights: OrgAlignmentInsight[];
+  categoryCounts: OrgAlignmentCategoryCounts;
+  priorityCounts: OrgAlignmentPriorityCounts;
+  departmentTrends: OrgAlignmentDepartmentTrend[];
+  sourceCaseCount: number;
+  generatedAt: string;
+};
+
+/**
+ * DB保存用の型（org_alignment_insights テーブル）
+ */
+export type OrgAlignmentInsightRow = {
+  id: string;
+  company_id: string;
+  summary: string;
+  insights: OrgAlignmentInsight[];
+  category_counts: OrgAlignmentCategoryCounts;
+  priority_counts: OrgAlignmentPriorityCounts;
+  department_trends: OrgAlignmentDepartmentTrend[];
+  source_case_count: number;
+  generated_by: string;
+  generated_at: string;
+  created_at: string;
+  updated_at: string;
+};
