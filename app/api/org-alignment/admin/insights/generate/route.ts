@@ -128,14 +128,34 @@ export async function POST(req: NextRequest) {
     }
 
     // ===== 5. レスポンス整形 =====
+    let insights = Array.isArray(parsed.insights) ? parsed.insights : [];
+
+    // ===== 5.5 relatedCaseCount の補正 =====
+    // AI が relatedCaseCount を返していない、または合計が sourceCaseCount と一致しない場合は補正
+    const sourceCaseCount = cases.length;
+    const totalRelatedCases = insights.reduce((sum, insight) => sum + (insight.relatedCaseCount || 0), 0);
+
+    if (totalRelatedCases !== sourceCaseCount && insights.length > 0) {
+      console.log(`[${ROUTE_TAG}] RelatedCaseCount mismatch: total=${totalRelatedCases}, expected=${sourceCaseCount}. Applying fallback distribution.`);
+
+      // Fallback: sourceCaseCount を insights に均等配分
+      const base = Math.floor(sourceCaseCount / insights.length);
+      const remainder = sourceCaseCount % insights.length;
+
+      insights = insights.map((insight, index) => ({
+        ...insight,
+        relatedCaseCount: base + (index < remainder ? 1 : 0),
+      }));
+    }
+
     const dashboard: OrgAlignmentInsightDashboard = {
       companyId,
       summary: parsed.summary || '集計結果がありません。',
-      insights: Array.isArray(parsed.insights) ? parsed.insights : [],
+      insights,
       categoryCounts: parsed.categoryCounts || {},
       priorityCounts: parsed.priorityCounts || { low: 0, medium: 0, high: 0 },
       departmentTrends: Array.isArray(parsed.departmentTrends) ? parsed.departmentTrends : [],
-      sourceCaseCount: cases.length,
+      sourceCaseCount,
       generatedAt: new Date().toISOString(),
     };
 
