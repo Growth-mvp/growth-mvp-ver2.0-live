@@ -10,6 +10,8 @@ import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGua
 import {
   getOrgAlignmentCasesForInsight,
   saveOrgAlignmentInsight,
+  generateInsightKey,
+  saveInsightSources,
 } from '@/utils/supabase/org-alignment-server';
 import { createSharedTopicFromInsight } from '@/utils/supabase/org-alignment-shared-topics-server';
 import { getFullStrategyDataByCompany } from '@/utils/supabase/strategy';
@@ -166,6 +168,51 @@ export async function POST(req: NextRequest) {
       dashboard,
     });
 
+    // ===== 6.5 insight_key を生成して、論点と投稿の紐付けを保存 =====
+    // AIレスポンスから各論点に関連するケースインデックスを取得
+    const insightSourceMappings = parsed.insightSourceMappings || [];
+
+    for (let i = 0; i < dashboard.insights.length; i++) {
+      try {
+        const insight = dashboard.insights[i];
+        const insightKey = generateInsightKey(insight, i);
+
+        // AIレスポンスから関連するケースのインデックスを取得
+        const mapping = insightSourceMappings[i];
+        let caseIds: string[] = [];
+
+        if (mapping && Array.isArray(mapping.caseIndices)) {
+          // ケースインデックスから実際のケースIDにマッピング
+          caseIds = mapping.caseIndices
+            .filter((idx: number) => idx >= 0 && idx < cases.length)
+            .map((idx: number) => cases[idx].id);
+        }
+
+        // ケースが関連していない場合はスキップ
+        if (caseIds.length === 0) {
+          console.log(`[${ROUTE_TAG}] No related cases for insight ${i}, skipping source mapping`);
+          continue;
+        }
+
+        // 論点と投稿の関係を保存
+        await saveInsightSources(admin, {
+          insightId: savedInsight.id,
+          insightKey,
+          caseIds,
+        });
+
+        console.log(
+          `[${ROUTE_TAG}] Saved source mapping for insight ${i} (${insightKey}): ${caseIds.length} related cases`
+        );
+      } catch (mappingErr: any) {
+        console.warn(
+          `[${ROUTE_TAG}] Failed to save insight sources for insight ${i}:`,
+          mappingErr.message
+        );
+        // Continue even if individual mapping fails
+      }
+    }
+
     // ===== 7. 各論点を共有トピックとして自動作成 =====
     const createdTopics = [];
     for (let i = 0; i < dashboard.insights.length; i++) {
@@ -233,8 +280,13 @@ function buildSystemPrompt(caseCount: number): string {
    - すべての論点の relatedCaseCount の合計は、ケース総数（${caseCount}件）と一致させてください
    - 3論点あり7件のケースの場合: [3, 2, 2] など、合計が7になるように配分する
    - relatedCaseCount は整数で、0 以上の値を入れてください
-6. 部門別の傾向では、部門名・件数・上位の issueType・平均リスクレベルを整理する
-7. 出力は必ず JSON 形式のみ。Markdown や説明文は不要
+6. insightSourceMappings：各論点に関連するケースのインデックスを指定
+   - insightSourceMappings は、insights と同じ長さの配列にしてください
+   - 各要素の caseIndices には、その論点に関連するケースのインデックスを指定してください（ケース1 = インデックス0、ケース2 = インデックス1など）
+   - 例：insights[0] に [0, 2, 5] が関連している場合、insightSourceMappings[0].caseIndices = [0, 2, 5]
+   - すべての caseIndices の合計は、ケース総数（${caseCount}件）と一致させてください
+7. 部門別の傾向では、部門名・件数・上位の issueType・平均リスクレベルを整理する
+8. 出力は必ず JSON 形式のみ。Markdown や説明文は不要
 
 【issueType の分類ガイド】
 以下のいずれかに必ず分類してください。「その他」は極力避けてください：
@@ -287,6 +339,11 @@ function buildSystemPrompt(caseCount: number): string {
         "generatedProjects": [],
         "generatedOkrs": []
       }
+    }
+  ],
+  "insightSourceMappings": [
+    {
+      "caseIndices": [0, 2, 5]
     }
   ],
   "categoryCounts": {
@@ -345,6 +402,9 @@ ${caseSummaries}
    - 全社的な論点の場合は [ "unknown" ] または複数部門を指定してください
 5. categoryCounts には、分類された issueType ごとの件数を集計してください
 6. affectedDepartments に 「unknown」が含まれている場合、UI 側で「全社横断」と表示されます
+7. insightSourceMappings には、各論点に関連するケースのインデックスを指定してください
+   - 例：最初の論点がケース1・3・5に関連している場合、insightSourceMappings[0].caseIndices = [0, 2, 4]
+   - すべての caseIndices の合計は、ケース総数（${cases.length}件）と一致させてください
 
 上記をもとに、会社全体の論点を整理してください。`;
 }
