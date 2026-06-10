@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react';
 import AdminGuard from '@/app/admin/AdminGuard';
 import { safeGetSession } from '@/utils/supabase/client';
-import type { OrgAlignmentInsightRow } from '@/types/org-alignment';
+import type { OrgAlignmentInsightRow, OrgInsightNextAction } from '@/types/org-alignment';
 import {
   BarChart,
   Bar,
@@ -33,6 +33,15 @@ export default function OrgAlignmentAdminInsightsPage() {
   const [expandedInsight, setExpandedInsight] = useState<number | null>(null);
   const [sharingInsightIndex, setSharingInsightIndex] = useState<number | null>(null);
   const [sharedDrafts, setSharedDrafts] = useState<{ [key: number]: boolean }>({});
+
+  // ===== 次アクション編集用の状態管理 =====
+  const [editingNextActionsIndex, setEditingNextActionsIndex] = useState<number | null>(null);
+  const [editingNextActionsDraft, setEditingNextActionsDraft] = useState<OrgInsightNextAction[] | null>(null);
+  const [savingNextActionsIndex, setSavingNextActionsIndex] = useState<number | null>(null);
+
+  // ===== 告知機能の状態管理 =====
+  const [announcementDrafts, setAnnouncementDrafts] = useState<{ [key: string]: string }>({});
+  const [publishingAnnouncementId, setPublishingAnnouncementId] = useState<string | null>(null);
 
   // ===== 初回データ取得 =====
   useEffect(() => {
@@ -147,6 +156,183 @@ export default function OrgAlignmentAdminInsightsPage() {
       setError(err.message || '共有用下書きの作成に失敗しました。');
     } finally {
       setSharingInsightIndex(null);
+    }
+  };
+
+  // ===== 次アクション編集 =====
+  const handleEditNextActions = (insightIndex: number) => {
+    if (!insight) return;
+    const actions = insight.insights[insightIndex]?.nextActions || [];
+    setEditingNextActionsIndex(insightIndex);
+    setEditingNextActionsDraft([...actions]);
+  };
+
+  const handleCancelEditNextActions = () => {
+    setEditingNextActionsIndex(null);
+    setEditingNextActionsDraft(null);
+  };
+
+  const handleAddNextAction = () => {
+    if (!editingNextActionsDraft) return;
+    const newAction: OrgInsightNextAction = {
+      title: '',
+      owner: '',
+      dueDate: '',
+      status: '未着手',
+    };
+    setEditingNextActionsDraft([...editingNextActionsDraft, newAction]);
+  };
+
+  const handleDeleteNextAction = (actionIndex: number) => {
+    if (!editingNextActionsDraft) return;
+    setEditingNextActionsDraft(
+      editingNextActionsDraft.filter((_, i) => i !== actionIndex)
+    );
+  };
+
+  const handleUpdateNextAction = (
+    actionIndex: number,
+    field: keyof OrgInsightNextAction,
+    value: string
+  ) => {
+    if (!editingNextActionsDraft) return;
+    const updated = [...editingNextActionsDraft];
+    updated[actionIndex] = {
+      ...updated[actionIndex],
+      [field]: value,
+    };
+    setEditingNextActionsDraft(updated);
+  };
+
+  const handleSaveNextActions = async () => {
+    if (
+      editingNextActionsIndex === null ||
+      !editingNextActionsDraft ||
+      !insight
+    ) {
+      return;
+    }
+
+    setSavingNextActionsIndex(editingNextActionsIndex);
+    setError('');
+
+    try {
+      const { ok, data: sessionData } = await safeGetSession();
+      if (!ok || !sessionData?.session?.access_token) {
+        setError('ログインセッションが無効です。再ログインしてください。');
+        setSavingNextActionsIndex(null);
+        return;
+      }
+
+      const res = await fetch(
+        `/api/org-alignment/admin/insights/${insight.id}/actions`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${sessionData.session.access_token}`,
+          },
+          body: JSON.stringify({
+            insightIndex: editingNextActionsIndex,
+            nextActions: editingNextActionsDraft,
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `API error: ${res.status}`);
+      }
+
+      // 画面上のinsightを更新
+      if (insight) {
+        const updatedInsights = insight.insights.map((ins, idx) =>
+          idx === editingNextActionsIndex
+            ? { ...ins, nextActions: editingNextActionsDraft }
+            : ins
+        );
+
+        setInsight({
+          ...insight,
+          insights: updatedInsights,
+        });
+      }
+
+      // 編集モードを終了
+      setEditingNextActionsIndex(null);
+      setEditingNextActionsDraft(null);
+    } catch (err: any) {
+      console.error('handleSaveNextActions error:', err);
+      setError(err.message || '次アクションの保存に失敗しました。');
+    } finally {
+      setSavingNextActionsIndex(null);
+    }
+  };
+
+  // ===== 告知公開 =====
+  const handlePublishAnnouncement = async (insightIndex: number) => {
+    if (!insight || !insight.insights) return;
+
+    const targetInsight = insight.insights[insightIndex];
+    if (!targetInsight) return;
+
+    const stateKey = `${insight.id}-${insightIndex}`;
+    const announcementText = announcementDrafts[stateKey] || '';
+
+    if (!announcementText.trim()) {
+      setError('告知文を入力してください。');
+      return;
+    }
+
+    setPublishingAnnouncementId(stateKey);
+    setError('');
+
+    try {
+      const { ok, data: sessionData } = await safeGetSession();
+      if (!ok || !sessionData?.session?.access_token) {
+        setError('ログインセッションが無効です。再ログインしてください。');
+        setPublishingAnnouncementId(null);
+        return;
+      }
+
+      // sharedTopicId が存在することを確認
+      const sharedTopicId = targetInsight.sharedTopicId;
+      if (!sharedTopicId) {
+        throw new Error('共有トピックID が見つかりません。');
+      }
+
+      const res = await fetch(
+        `/api/org-alignment/admin/shared-topics/${sharedTopicId}/announcement`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${sessionData.session.access_token}`,
+          },
+          body: JSON.stringify({ announcementText }),
+        }
+      );
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `API error: ${res.status}`);
+      }
+
+      // 告知の入力欄をクリア
+      setAnnouncementDrafts((prev) => {
+        const updated = { ...prev };
+        delete updated[stateKey];
+        return updated;
+      });
+
+      // 成功メッセージ表示（簡易版）
+      setError(''); // エラーメッセージをクリア
+      alert('告知を公開しました。');
+    } catch (err: any) {
+      console.error('handlePublishAnnouncement error:', err);
+      setError(err.message || '告知の公開に失敗しました。');
+    } finally {
+      setPublishingAnnouncementId(null);
     }
   };
 
@@ -433,6 +619,15 @@ export default function OrgAlignmentAdminInsightsPage() {
                                   </p>
                                 </div>
                               )}
+
+                              {/* 共有範囲の内訳 */}
+                              {ins.visibilityCounts && (
+                                <div className="rounded-lg bg-slate-100 px-3 py-1">
+                                  <p className="text-xs font-semibold text-slate-700">
+                                    共有範囲: 匿名 {ins.visibilityCounts.anonymous} / 管理者のみ {ins.visibilityCounts.manager_only} / 名前あり {ins.visibilityCounts.named}
+                                  </p>
+                                </div>
+                              )}
                             </div>
                           </div>
                           <div className="text-slate-400 ml-4">
@@ -535,9 +730,132 @@ export default function OrgAlignmentAdminInsightsPage() {
                           </div>
 
                           {/* 次アクション（詳細） */}
-                          {ins.nextActions && ins.nextActions.length > 0 && (
+                          {editingNextActionsIndex === idx && editingNextActionsDraft ? (
+                            // ===== 編集モード =====
                             <div className="border-t border-slate-200 pt-6">
-                              <p className="text-xs font-semibold text-slate-500">次アクション</p>
+                              <div className="mb-4 flex items-center justify-between">
+                                <p className="text-xs font-semibold text-slate-500">次アクション（編集中）</p>
+                              </div>
+
+                              <div className="space-y-3">
+                                {editingNextActionsDraft.map((action, i) => (
+                                  <div key={i} className="rounded-lg border border-slate-300 bg-white p-4 space-y-3">
+                                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                      <div>
+                                        <label className="text-xs font-semibold text-slate-600">アクション名 *</label>
+                                        <input
+                                          type="text"
+                                          value={action.title}
+                                          onChange={(e) => handleUpdateNextAction(i, 'title', e.target.value)}
+                                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                                          placeholder="例：評価補助項目案を作成する"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-xs font-semibold text-slate-600">責任者 *</label>
+                                        <input
+                                          type="text"
+                                          value={action.owner}
+                                          onChange={(e) => handleUpdateNextAction(i, 'owner', e.target.value)}
+                                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                                          placeholder="例：人事部"
+                                        />
+                                      </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                      <div>
+                                        <label className="text-xs font-semibold text-slate-600">期限 *</label>
+                                        <input
+                                          type="date"
+                                          value={action.dueDate}
+                                          onChange={(e) => handleUpdateNextAction(i, 'dueDate', e.target.value)}
+                                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-xs font-semibold text-slate-600">ステータス *</label>
+                                        <select
+                                          value={action.status}
+                                          onChange={(e) => handleUpdateNextAction(i, 'status', e.target.value)}
+                                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                                        >
+                                          <option value="未着手">未着手</option>
+                                          <option value="準備中">準備中</option>
+                                          <option value="実施予定">実施予定</option>
+                                          <option value="実施済み">実施済み</option>
+                                          <option value="反映済み">反映済み</option>
+                                        </select>
+                                      </div>
+                                    </div>
+
+                                    <div>
+                                      <label className="text-xs font-semibold text-slate-600">説明</label>
+                                      <textarea
+                                        value={action.description || ''}
+                                        onChange={(e) => handleUpdateNextAction(i, 'description', e.target.value)}
+                                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                                        placeholder="詳細説明（オプション）"
+                                        rows={2}
+                                      />
+                                    </div>
+
+                                    <div className="flex justify-end">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteNextAction(i)}
+                                        className="rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
+                                      >
+                                        削除
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={handleAddNextAction}
+                                className="mt-4 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                              >
+                                + アクションを追加
+                              </button>
+
+                              <div className="mt-6 flex gap-3">
+                                <button
+                                  type="button"
+                                  onClick={handleSaveNextActions}
+                                  disabled={savingNextActionsIndex === idx}
+                                  className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                                >
+                                  {savingNextActionsIndex === idx ? '保存中...' : '保存'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleCancelEditNextActions}
+                                  disabled={savingNextActionsIndex === idx}
+                                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed"
+                                >
+                                  キャンセル
+                                </button>
+                              </div>
+                            </div>
+                          ) : ins.nextActions && ins.nextActions.length > 0 ? (
+                            // ===== 表示モード =====
+                            <div className="border-t border-slate-200 pt-6">
+                              <div className="mb-3 flex items-center justify-between">
+                                <p className="text-xs font-semibold text-slate-500">次アクション</p>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleEditNextActions(idx);
+                                  }}
+                                  className="rounded-lg bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                                >
+                                  編集
+                                </button>
+                              </div>
                               <div className="mt-2 space-y-2">
                                 {ins.nextActions.map((action, i) => (
                                   <div key={i} className="rounded-lg bg-slate-50 p-3 text-xs">
@@ -550,6 +868,47 @@ export default function OrgAlignmentAdminInsightsPage() {
                                         action.status === '対応中' ? 'text-yellow-600' : 'text-slate-600'
                                       }`}>
                                         {action.status}
+                                      </span>
+                                    </div>
+                                    {action.description && (
+                                      <p className="mt-2 text-slate-600">{action.description}</p>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {/* 関連する投稿 */}
+                          {ins.sourceCases && ins.sourceCases.length > 0 && (
+                            <div className="border-t border-slate-200 pt-6">
+                              <p className="text-xs font-semibold text-slate-500">関連する投稿</p>
+                              <div className="mt-2 space-y-2">
+                                {ins.sourceCases.map((source, i) => (
+                                  <div key={i} className="rounded-lg bg-slate-50 p-3 text-xs">
+                                    <div className="flex items-center justify-between">
+                                      <div>
+                                        <span className={`inline-block rounded px-2 py-1 text-xs font-semibold ${
+                                          source.visibilityMode === 'anonymous'
+                                            ? 'bg-gray-100 text-gray-700'
+                                            : source.visibilityMode === 'manager_only'
+                                            ? 'bg-blue-100 text-blue-700'
+                                            : 'bg-green-100 text-green-700'
+                                        }`}>
+                                          {source.visibilityMode === 'anonymous'
+                                            ? '匿名'
+                                            : source.visibilityMode === 'manager_only'
+                                            ? '管理者のみ'
+                                            : '名前あり'}
+                                        </span>
+                                        {source.userName && (
+                                          <span className="ml-2 text-slate-700">
+                                            {source.userName}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <span className="text-slate-500">
+                                        {new Date(source.createdAt).toLocaleDateString('ja-JP')}
                                       </span>
                                     </div>
                                   </div>
@@ -629,6 +988,44 @@ export default function OrgAlignmentAdminInsightsPage() {
                               {sharingInsightIndex === idx ? '作成中...' : sharedDrafts[idx] ? '共有下書き作成済み' : '共有用に下書き作成'}
                             </button>
                           </div>
+
+                          {/* ===== 全体すり合わせルームへの告知 ===== */}
+                          {insight && insight.insights[idx] && (
+                            <div className="border-t border-slate-200 pt-6">
+                              <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-3">
+                                <div>
+                                  <p className="text-xs font-semibold text-blue-900">全体すり合わせルームへの告知</p>
+                                  <p className="mt-1 text-xs leading-5 text-blue-800">
+                                    ※ anonymous と manager_only の投稿者名・メールアドレスは絶対に含めないでください
+                                  </p>
+                                </div>
+
+                                <textarea
+                                  value={announcementDrafts[`${insight.id}-${idx}`] || ''}
+                                  onChange={(e) => {
+                                    setAnnouncementDrafts({
+                                      ...announcementDrafts,
+                                      [`${insight.id}-${idx}`]: e.target.value,
+                                    });
+                                  }}
+                                  placeholder="全メンバーへの告知文を入力..."
+                                  className="w-full rounded-lg border border-blue-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                  rows={4}
+                                />
+
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handlePublishAnnouncement(idx);
+                                  }}
+                                  disabled={publishingAnnouncementId === `${insight.id}-${idx}`}
+                                  className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
+                                >
+                                  {publishingAnnouncementId === `${insight.id}-${idx}` ? '公開中...' : '告知を公開'}
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </article>
