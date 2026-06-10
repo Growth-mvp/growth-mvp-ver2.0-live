@@ -57,7 +57,7 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.16 }}
               className="mt-2 text-[14px] font-medium leading-relaxed text-neutral-700 sm:text-[15px] lg:text-[16px] dark:text-neutral-300"
             >
-              やるべきことを絞り、組織を動かし、業績につなぐ変革の仕組み
+              KPIを、成長へシフトし、行動を変え、業績につなぐ変革の仕組み。
             </motion.p>
 
             <motion.div
