@@ -24,7 +24,7 @@ function json(res: any, status = 200) {
 /**
  * GET /api/org-alignment/shared/topics
  *
- * 全社共有ルームに表示する公開済み論点を取得する
+ * 全社すり合わせルームに表示する公開済み論点を取得する
  * 権限: 同じ company のメンバーなら可能
  */
 export async function GET(req: NextRequest) {
