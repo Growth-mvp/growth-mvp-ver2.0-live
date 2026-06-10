@@ -1088,7 +1088,7 @@ export default function OrganizationSharedRoomPage() {
           <p className="text-xs font-semibold tracking-[0.35em] text-slate-500">ORGANIZATION SHARED ROOM</p>
           <div className="space-y-4">
             <h1 className="text-4xl font-bold tracking-tight text-slate-950 md:text-5xl">
-              組織変革・全社共有ルーム
+              組織変革・全社すり合わせルーム
             </h1>
             <p className="text-2xl font-bold text-slate-950">現場の違和感を、組織の課題解決につなぐ。</p>
           </div>
@@ -1163,7 +1163,7 @@ export default function OrganizationSharedRoomPage() {
           <div>
             <h2 className="text-2xl font-bold text-slate-950">声が論点になるまで</h2>
             <p className="mt-3 leading-8 text-slate-700">
-              全社共有ルームでは、個別の声をそのまま並べるのではなく、AI集計によって会社として扱うべき共通論点に変換し、すり合わせと結果共有までつなげます。
+              全社すり合わせルームでは、個別の声をそのまま並べるのではなく、AI集計によって会社として扱うべき共通論点に変換し、すり合わせと結果共有までつなげます。
             </p>
           </div>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -1180,7 +1180,7 @@ export default function OrganizationSharedRoomPage() {
           <div>
             <h2 className="text-2xl font-bold text-slate-950">すり合わせの5原則</h2>
             <p className="mt-3 leading-8 text-slate-700">
-              全社共有ルームでは、個人や部門を責めるのではなく、会社が目指す方向に向けて認識のズレを整えることを目的とします。
+              全社すり合わせルームでは、個人や部門を責めるのではなく、会社が目指す方向に向けて認識のズレを整えることを目的とします。
             </p>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
