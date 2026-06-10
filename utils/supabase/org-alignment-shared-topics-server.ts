@@ -67,7 +67,8 @@ export async function createSharedTopicFromInsight(
   publishedBy?: string,
   dashboardSourceCaseCount?: number,
   totalInsights?: number,
-  insightIndex?: number
+  insightIndex?: number,
+  sourceAlignmentInsightId?: string
 ): Promise<OrgAlignmentSharedTopic> {
   // Calculate related_case_count: use insight-specific count if available, otherwise estimate
   let relatedCaseCount = 0;
@@ -92,6 +93,7 @@ export async function createSharedTopicFromInsight(
     .insert({
       company_id: companyId,
       source_insight_id: sourceInsightId || null,
+      source_alignment_insight_id: sourceAlignmentInsightId || null,
       title: insight.title,
       summary: insight.description,
       status: 'published',
@@ -135,6 +137,7 @@ export async function createSharedTopicDraft(
 /**
  * Get all shared topics for a company visible to members
  * Returns public statuses: published, in_alignment, action_planned, reflected, closed
+ * Only returns topics from the latest org_alignment_insights batch to prevent duplicate display
  */
 export async function getPublishedSharedTopics(
   client: SupabaseClient,
@@ -142,10 +145,31 @@ export async function getPublishedSharedTopics(
 ): Promise<OrgAlignmentSharedTopic[]> {
   const publicStatuses = ['published', 'in_alignment', 'action_planned', 'reflected', 'closed'];
 
+  // First, get the latest org_alignment_insights for this company
+  const { data: latestInsight, error: insightError } = await client
+    .from('org_alignment_insights')
+    .select('id')
+    .eq('company_id', companyId)
+    .order('generated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (insightError) {
+    console.error('Failed to fetch latest insight:', insightError);
+    return [];
+  }
+
+  // If no insights exist yet, return empty array
+  if (!latestInsight) {
+    return [];
+  }
+
+  // Get shared topics only from the latest insight batch
   const { data, error } = await client
     .from('org_alignment_shared_topics')
     .select('*')
     .eq('company_id', companyId)
+    .eq('source_alignment_insight_id', latestInsight.id)
     .in('status', publicStatuses)
     .order('published_at', { ascending: false });
 

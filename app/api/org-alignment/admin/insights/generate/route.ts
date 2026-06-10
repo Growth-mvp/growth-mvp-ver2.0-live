@@ -178,7 +178,8 @@ export async function POST(req: NextRequest) {
           userId,
           dashboard.sourceCaseCount,
           dashboard.insights.length,
-          i  // Pass insight index for proper fallback calculation
+          i,  // Pass insight index for proper fallback calculation
+          savedInsight.id  // Pass source_alignment_insight_id directly
         );
         createdTopics.push(topic.id);
       } catch (topicErr: any) {
