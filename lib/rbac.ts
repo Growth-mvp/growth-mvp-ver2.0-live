@@ -67,7 +67,7 @@ export function getCapabilities(role: Role | null): Capabilities {
     'department:edit': false,
     'department:delete': false,
     'progress:write': true,        // Member は進捗ログ入力可
-    'agent:use': true,             // Member は AI エージェント利用可（閲覧・助言）
+    'agent:use': true,             // Member は AIコンサルタント利用可（閲覧・助言）
   };
 
   if (role === 'manager') {
