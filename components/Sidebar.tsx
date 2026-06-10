@@ -56,7 +56,7 @@ export default function Sidebar() {
 
   const isActive = (href: string) => {
     // /org-transformation は /org-transformation/shared の親パスでもあるため、
-    // 前方一致にすると「すり合わせルーム」と「全社共有ルーム」が同時に active になる。
+    // 前方一致にすると「違和感を伝えるルーム」と「全社すり合わせルーム」が同時に active になる。
     // そのため、組織変革トップだけは完全一致で判定する。
     if (href === '/org-transformation') {
       return pathname === '/org-transformation';
@@ -188,13 +188,13 @@ export default function Sidebar() {
             <PillLink
               href="/org-transformation"
               icon={<UsersRound size={18} strokeWidth={1.5} />}
-              label="組織変革・すり合わせルーム"
+              label="組織変革・違和感を伝えるルーム"
               active={isActive('/org-transformation')}
             />
             <PillLink
               href="/org-transformation/shared"
               icon={<UsersRound size={18} strokeWidth={1.5} />}
-              label="組織変革・全社共有ルーム"
+              label="組織変革・全社すり合わせルーム"
               active={isActive('/org-transformation/shared')}
             />
 
