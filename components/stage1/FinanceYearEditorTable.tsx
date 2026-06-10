@@ -264,6 +264,10 @@ function CompanyPLEditor({
                         value={renameValue}
                         onChange={(e) => setRenameValue(e.target.value)}
                         onKeyDown={(e) => {
+                          // Mac/Windows の日本語IME入力中は送信しない
+                          if (e.nativeEvent.isComposing) return;
+                          if ((e.nativeEvent as any).keyCode === 229) return;
+
                           if (e.key === 'Enter') handleRenameSubmit(y);
                           if (e.key === 'Escape') {
                             setRenamingYear(null);
@@ -382,6 +386,10 @@ function CompanyPLEditor({
                               setEditingCell(null);
                             }}
                             onKeyDown={(e) => {
+                              // Mac/Windows の日本語IME入力中は処理しない
+                              if (e.nativeEvent.isComposing) return;
+                              if ((e.nativeEvent as any).keyCode === 229) return;
+
                               if (e.key === 'Escape') {
                                 e.preventDefault();
                                 setDraft((d) => ({ ...d, value: rawValue }));
@@ -632,6 +640,10 @@ function CompanyBSEditor({
                         value={renameValue}
                         onChange={(e) => setRenameValue(e.target.value)}
                         onKeyDown={(e) => {
+                          // Mac/Windows の日本語IME入力中は送信しない
+                          if (e.nativeEvent.isComposing) return;
+                          if ((e.nativeEvent as any).keyCode === 229) return;
+
                           if (e.key === 'Enter') handleRenameSubmit(y);
                           if (e.key === 'Escape') {
                             setRenamingYear(null);
@@ -751,6 +763,10 @@ function CompanyBSEditor({
                               commitActiveCell();
                             }}
                             onKeyDown={(e) => {
+                              // Mac/Windows の日本語IME入力中は処理しない
+                              if (e.nativeEvent.isComposing) return;
+                              if ((e.nativeEvent as any).keyCode === 229) return;
+
                               if (e.key === 'Escape') {
                                 e.preventDefault();
                                 setDraft((d) => ({ ...d, value: rawValue }));
@@ -1152,6 +1168,10 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
 
       // Enter / F2: 編集開始
       if (e.key === 'Enter' || e.key === 'F2') {
+        // Mac/Windows の日本語IME入力中は処理しない
+        if (e.nativeEvent.isComposing) return;
+        if ((e.nativeEvent as any).keyCode === 229) return;
+
         e.preventDefault();
         const fieldKey = FIELDS[activeCell.r]?.key;
         const year = years[activeCell.c];
