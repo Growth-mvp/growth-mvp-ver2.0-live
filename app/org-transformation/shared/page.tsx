@@ -63,6 +63,8 @@ type SharedAlignmentTopic = {
   owner: string;
   nextReviewDate: string;
   updatedAt: string;
+  announcement_text?: string;
+  announcement_updated_at?: string;
 };
 
 // ===== ステータスマッピング =====
@@ -893,6 +895,23 @@ function TopicCard({
       {isExpanded && (
         <div className="border-t border-slate-200 bg-white p-6">
           <div className="space-y-6">
+            {/* 運営からのお知らせ */}
+            {topic.announcement_text && (
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+                <p className="text-xs font-semibold text-blue-900 mb-2">
+                  運営からのお知らせ
+                </p>
+                <p className="text-sm leading-6 text-blue-800">
+                  {topic.announcement_text}
+                </p>
+                {topic.announcement_updated_at && (
+                  <p className="mt-2 text-xs text-blue-600">
+                    更新: {new Date(topic.announcement_updated_at).toLocaleString('ja-JP')}
+                  </p>
+                )}
+              </div>
+            )}
+
             <section>
               <h4 className="font-bold text-slate-950">背景</h4>
               <p className="mt-2 text-sm leading-7 text-slate-700">{topic.background}</p>
