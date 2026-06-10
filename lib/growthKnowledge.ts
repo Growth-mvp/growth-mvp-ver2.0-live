@@ -193,7 +193,7 @@ const KNOWLEDGE_SECTIONS: KnowledgeSection[] = [
 
   {
     id: 'CHAT_AGENT',
-    title: '経営者 AI エージェント (CEOChat)',
+    title: 'AI経営コンサルタント (CEOChat)',
     keywords: ['chat', 'Enter', 'Shift', 'Enter', '診断', '自動', 'チェックイン', '操作'],
     content: `## CEOChat の使い方
 
