@@ -530,7 +530,7 @@ export async function POST(req: NextRequest) {
       expectationText,
     });
 
-    const systemPrompt = `あなたは、GROWTH SHIFTの「組織変革・すり合わせルーム」で、社員の違和感を「認識のズレ」として構造化するAIです。
+    const systemPrompt = `あなたは、GROWTH SHIFTの「組織変革・違和感を伝えるルーム」で、社員の違和感を「認識のズレ」として構造化するAIです。
 
 目的：
 - 個人や部署を責めない。
