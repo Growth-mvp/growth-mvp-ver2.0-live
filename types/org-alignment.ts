@@ -53,6 +53,47 @@ export type OrgAlignmentResult = {
 // ===== 管理者ダッシュボード用の型定義 =====
 
 /**
+ * 共有範囲別の件数
+ */
+export type VisibilityCounts = {
+  anonymous: number;
+  manager_only: number;
+  named: number;
+};
+
+/**
+ * 論点に紐づく投稿者情報（管理画面専用）
+ */
+export type InsightSourceCase = {
+  caseId: string;
+  visibilityMode: VisibilityMode;
+  createdBy: string | null;
+  createdAt: string;
+  userName?: string | null;  // visibility_mode に応じて設定
+  userEmail?: string | null; // visibility_mode に応じて設定
+};
+
+/**
+ * 次アクション（拡張版）
+ */
+export type OrgInsightNextAction = {
+  title: string;
+  owner: string;
+  dueDate: string;
+  status: '未着手' | '準備中' | '実施予定' | '実施済み' | '反映済み';
+  description?: string;
+};
+
+/**
+ * 告知情報
+ */
+export type OrgInsightAnnouncement = {
+  text: string;
+  updatedAt: string;
+  updatedBy: string;
+};
+
+/**
  * カテゴリー別の件数
  */
 export type OrgAlignmentCategoryCounts = {
@@ -93,6 +134,13 @@ export type OrgAlignmentInsight = {
   stage3Stage4Relevance: string;
   relatedCaseCount: number; // この論点に関連する投稿件数（合計が sourceCaseCount と一致）
 
+  // === 論点管理用フィールド ===
+  insightKey?: string;  // 各論点の安定したキー
+  sharedTopicId?: string;  // 対応する org_alignment_shared_topics.id
+  visibilityCounts?: VisibilityCounts;  // 共有範囲別の投稿件数
+  sourceCases?: InsightSourceCase[];  // 関連する投稿情報（管理画面専用）
+  announcement?: OrgInsightAnnouncement;  // 告知情報
+
   // === 優先度・重要度情報 ===
   priorityScore?: number; // 0-100のスコア
   importance?: '高' | '中' | '低';
@@ -113,12 +161,7 @@ export type OrgAlignmentInsight = {
   sessionType?: string; // 推奨するすり合わせ形式（全体会議、部門別会議など）
 
   // === 次アクション ===
-  nextActions?: Array<{
-    title: string; // アクションタイトル
-    owner: string; // 責任者（部門名）
-    dueDate: string; // 実施予定日
-    status: '未着手' | '対応中' | '完了'; // ステータス
-  }>;
+  nextActions?: OrgInsightNextAction[];
 
   // === STAGE3/4への還流 ===
   strategyReflection?: {
