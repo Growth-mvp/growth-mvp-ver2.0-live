@@ -67,7 +67,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   }, []);
 
   const [messages, setMessages] = useState<Msg[]>([
-    { role: 'assistant', content: 'こんにちは。経営者AIエージェントです。' },
+    { role: 'assistant', content: 'こんにちは。AI経営コンサルタントです。' },
   ]);
   const messagesRef = useRef(messages);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
@@ -348,6 +348,10 @@ export default function CEOChatPanel({ embedded = true }: Props) {
 
   // ★ Sprint 3A': Shift+Enter で AI診断送信
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Mac/Windows の日本語IME入力中は送信しない
+    if (e.nativeEvent.isComposing) return;
+    if ((e.nativeEvent as any).keyCode === 229) return;
+
     if (e.key === 'Enter') {
       if (e.shiftKey) {
         // Shift+Enter: AI診断送信（facilitator + insights='stage1'）
@@ -389,7 +393,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
               !userOK ? ('loading' as any) : sending ? ('thinking' as any) : ctxUpdated ? ('responding' as any) : ('idle' as any)
             } />
             <div className="leading-tight">
-              <div className="text-[16px] font-semibold tracking-[-0.01em]">経営者AIエージェント</div>
+              <div className="text-[16px] font-semibold tracking-[-0.01em]">AI経営コンサルタント</div>
             </div>
           </div>
           {ctxUpdated && (
