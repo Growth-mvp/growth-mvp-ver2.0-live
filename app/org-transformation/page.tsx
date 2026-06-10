@@ -378,7 +378,7 @@ export default function OrgTransformationPage() {
           </p>
 
           <h1 className="text-3xl font-bold tracking-tight text-slate-950 md:text-5xl">
-            組織変革・すり合わせルーム
+            組織変革・違和感を伝えるルーム
           </h1>
 
           <p className="mt-4 max-w-4xl text-2xl font-semibold leading-relaxed text-slate-950 md:text-1xl">
@@ -387,7 +387,7 @@ export default function OrgTransformationPage() {
 
           <div className="mt-6 max-w-5xl space-y-4 text-base leading-8 text-slate-700 md:text-lg">
             <p>
-              現場の不満や違和感には、人に対するものだけでなく、その背後に、方針、仕組み、優先順位、役割責任、評価、意思決定への不納得感があります。
+              現場の不満や違和感には、人に関するものだけでなく、その背後に、方針、仕組み、優先順位、役割責任、評価、意思決定への不納得感があります。
               <br /> GROWTH SHIFTは、それを人や組織の対立ではなく、経営、部門、現場、それぞれの立場で生じる<span className="font-semibold text-slate-950">
                 「認識のズレ」
               </span>{" "}として捉え、構造的に整理します。<br />
