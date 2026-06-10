@@ -125,7 +125,12 @@ export default function OrgAlignmentIntakeChat({ onComplete, isLoading: external
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Mac/Windows の日本語IME入力中は送信しない
+    if (e.nativeEvent.isComposing) return;
+    if ((e.nativeEvent as any).keyCode === 229) return;
+
+    // Cmd + Enter / Ctrl + Enter で送信（改行は通常の Enter）
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       handleSendMessage();
     }
@@ -182,7 +187,7 @@ export default function OrgAlignmentIntakeChat({ onComplete, isLoading: external
                 : 'bg-slate-950 text-white hover:bg-slate-900'
             }`}
           >
-            {isLoading || externalLoading ? '処理中...' : '送信 (Shift+Enter で改行)'}
+            {isLoading || externalLoading ? '処理中...' : '送信 (Cmd/Ctrl+Enter で送信)'}
           </button>
         </div>
 
