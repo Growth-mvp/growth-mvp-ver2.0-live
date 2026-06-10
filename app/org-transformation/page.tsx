@@ -10,7 +10,7 @@ import {
 } from "@/utils/supabase";
 import { safeGetSession } from "@/utils/supabase/client";
 import { useUserStore } from "@/store/userStore";
-import OrgAlignmentIntakeChat from "@/components/org-transformation/OrgAlignmentIntakeChat";
+import OrgAlignmentFixedIntakeForm from "@/components/org-transformation/OrgAlignmentFixedIntakeForm";
 import OrgAlignmentIntakeReviewCard from "@/components/org-transformation/OrgAlignmentIntakeReviewCard";
 import {
   type VisibilityMode,
@@ -129,13 +129,21 @@ export default function OrgTransformationPage() {
     loadMyCases();
   }, [currentUserId]);
 
-  // ===== AI生成処理 =====
-  const handleGenerateAlignment = async () => {
-    if (!canSubmit) return;
-
+  // ===== 固定フォーム送信処理（直接 generate を実行） =====
+  const handleFixedIntakeSubmit = async (formData: {
+    situationText: string;
+    myRecognitionText: string;
+    idealText: string;
+    expectationText: string;
+    counterpartyType: CounterpartyType;
+    counterpartyDetail: string;
+    visibilityMode: VisibilityMode;
+  }) => {
     setIsGenerating(true);
     setErrorMessage("");
     setAlignmentResult(null);
+    setIntakeDraft({}); // reset draft
+    setIntakeComplete(false); // reset completion flag
 
     try {
       // Get Supabase auth session
@@ -161,13 +169,13 @@ export default function OrgTransformationPage() {
           Authorization: `Bearer ${sessionData.session.access_token}`,
         },
         body: JSON.stringify({
-          situationText: intakeDraft.situation_text,
-          myRecognitionText: intakeDraft.my_recognition_text,
-          idealText: intakeDraft.ideal_text,
-          expectationText: intakeDraft.expectation_text,
-          counterpartyType: intakeDraft.counterparty_type || "unknown",
-          counterpartyDetail: intakeDraft.counterparty_detail,
-          visibilityMode,
+          situationText: formData.situationText,
+          myRecognitionText: formData.myRecognitionText,
+          idealText: formData.idealText,
+          expectationText: formData.expectationText,
+          counterpartyType: formData.counterpartyType || "unknown",
+          counterpartyDetail: formData.counterpartyDetail,
+          visibilityMode: formData.visibilityMode,
           strategyContext: null,
         }),
       });
@@ -194,19 +202,20 @@ export default function OrgTransformationPage() {
       const saved = await saveOrgAlignmentCase({
         companyId: currentCompanyId,
         userId: currentUserId,
-        situationText: intakeDraft.situation_text || "",
-        myRecognitionText: intakeDraft.my_recognition_text || "",
-        idealText: intakeDraft.ideal_text || "",
-        expectationText: intakeDraft.expectation_text || "",
-        counterpartyType: intakeDraft.counterparty_type || "unknown",
-        counterpartyDetail: intakeDraft.counterparty_detail,
-        visibilityMode,
+        situationText: formData.situationText,
+        myRecognitionText: formData.myRecognitionText,
+        idealText: formData.idealText,
+        expectationText: formData.expectationText,
+        counterpartyType: formData.counterpartyType,
+        counterpartyDetail: formData.counterpartyDetail,
+        visibilityMode: formData.visibilityMode,
         aiResult,
       });
 
       setSavedCaseId(saved.id);
       setAlignmentResult(aiResult);
       setRequestDone(false);
+      setVisibilityMode(formData.visibilityMode); // visibility_mode も更新
 
       // 履歴一覧を再取得
       if (currentUserId) {
@@ -350,25 +359,6 @@ export default function OrgTransformationPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 px-6 py-8 md:px-8">
-      <style jsx global>{`
-        .org-intake-chat-shell [class*="max-w-"] {
-          max-width: 100% !important;
-        }
-
-        .org-intake-chat-shell button[type="submit"] {
-          width: auto !important;
-          min-width: 132px;
-          align-self: flex-end;
-          padding: 0.625rem 1.25rem !important;
-          border-radius: 0.75rem !important;
-        }
-
-        .org-intake-chat-shell button[type="submit"]:disabled {
-          background-color: #cbd5e1 !important;
-          color: #475569 !important;
-          opacity: 1 !important;
-        }
-      `}</style>
 
       <div className="mx-auto max-w-6xl space-y-12">
         {/* ===== 1. ページヘッダー：白枠カードなし ===== */}
@@ -398,101 +388,16 @@ export default function OrgTransformationPage() {
           </div>
         </header>
 
-        {/* ===== 2. STEP1：チャット式入力セクション ===== */}
+        {/* ===== 2. STEP1：固定4問フォームセクション ===== */}
         <section className="space-y-5">
-          <div>
-            <h2 className="mb-2 text-2xl font-bold text-slate-950">
-              STEP1：AIとのヒアリングで違和感を整理
-            </h2>
-            <p className="text-slate-600">
-              AIとの対話を通じて、現場の違和感やもやもやを具体的に整理します。
-              最大2回の追加質問を通じて、STEP2以降の生成品質を高めます。
-            </p>
-          </div>
-
-          {!intakeComplete ? (
+          {!alignmentResult ? (
             <>
-              {/* チャット式ヒアリング */}
-              <div className="org-intake-chat-shell">
-                <OrgAlignmentIntakeChat
-                  onComplete={(draft) => {
-                    setIntakeDraft(draft);
-                    setIntakeComplete(true);
-                  }}
-                />
-              </div>
-            </>
-          ) : (
-            <>
-              {/* 整理カード確認 */}
-              <OrgAlignmentIntakeReviewCard
-                draft={intakeDraft}
-                onUpdate={(updatedDraft) => setIntakeDraft(updatedDraft)}
-                onProceed={handleGenerateAlignment}
-                isProcessing={isGenerating}
+              {/* 固定4問フォーム - 直接 generate に繋ぐ */}
+              <OrgAlignmentFixedIntakeForm
+                onSubmit={handleFixedIntakeSubmit}
               />
-
-              {/* すり合わせの場を依頼する際の共有範囲 */}
-              <div className="space-y-5">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">
-                    6. すり合わせの場を依頼する際の共有範囲
-                  </p>
-                  <p className="mt-1 text-xs leading-6 text-slate-500">
-                    STEP5で「すり合わせの場を依頼」を選択した場合、どの範囲に共有するかを選択できます。
-                  </p>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                    {visibilityOptions.map((option) => {
-                      const isSelected = visibilityMode === option.value;
-
-                      return (
-                        <label
-                          key={option.value}
-                          className={`relative block cursor-pointer rounded-2xl border bg-white p-4 pl-11 transition-colors ${
-                            isSelected
-                              ? "border-slate-900 ring-1 ring-slate-900"
-                              : "border-slate-200 hover:bg-slate-50"
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name="visibilityMode"
-                            value={option.value}
-                            checked={isSelected}
-                            onChange={() => setVisibilityMode(option.value)}
-                            className="absolute left-4 top-5 h-4 w-4 accent-slate-950"
-                          />
-
-                          <span className="block w-full text-sm font-semibold leading-6 text-slate-950">
-                            {option.label}
-                          </span>
-
-                          <span className="mt-1 block w-full text-xs leading-6 text-slate-500">
-                            {option.description}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-
-              {/* 入力内容をリセットするオプション */}
-              <button
-                type="button"
-                onClick={() => {
-                  setIntakeDraft({});
-                  setIntakeComplete(false);
-                }}
-                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
-              >
-                最初からやり直す
-              </button>
             </>
-          )}
+          ) : null}
         </section>
 
         {/* ===== 3. 生成結果セクション（STEP2～STEP5） ===== */}
@@ -600,6 +505,19 @@ export default function OrgTransformationPage() {
                 {errorMessage}
               </div>
             )}
+
+            {/* 最初からやり直すボタン */}
+            <button
+              type="button"
+              onClick={() => {
+                setAlignmentResult(null);
+                setSavedCaseId(null);
+                setRequestDone(false);
+              }}
+              className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
+            >
+              最初からやり直す
+            </button>
           </section>
         )}
 
