@@ -120,6 +120,10 @@ export default function AdminInvitesPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             onKeyDown={(e) => {
+              // Mac/Windows の日本語IME入力中は送信しない
+              if (e.nativeEvent.isComposing) return;
+              if ((e.nativeEvent as any).keyCode === 229) return;
+
               if (e.key === 'Enter' && !busy) onInvite();
             }}
           />
