@@ -133,7 +133,7 @@ export async function POST(req: NextRequest) {
     // ===== 5.5 relatedCaseCount の補正 =====
     // AI が relatedCaseCount を返していない、または合計が sourceCaseCount と一致しない場合は補正
     const sourceCaseCount = cases.length;
-    const totalRelatedCases = insights.reduce((sum, insight) => sum + (insight.relatedCaseCount || 0), 0);
+    const totalRelatedCases = insights.reduce((sum: number, insight: any) => sum + (insight.relatedCaseCount || 0), 0);
 
     if (totalRelatedCases !== sourceCaseCount && insights.length > 0) {
       console.log(`[${ROUTE_TAG}] RelatedCaseCount mismatch: total=${totalRelatedCases}, expected=${sourceCaseCount}. Applying fallback distribution.`);
@@ -142,7 +142,7 @@ export async function POST(req: NextRequest) {
       const base = Math.floor(sourceCaseCount / insights.length);
       const remainder = sourceCaseCount % insights.length;
 
-      insights = insights.map((insight, index) => ({
+      insights = insights.map((insight: any, index: number) => ({
         ...insight,
         relatedCaseCount: base + (index < remainder ? 1 : 0),
       }));
@@ -313,7 +313,7 @@ function buildSystemPrompt(caseCount: number): string {
 
 function buildUserPrompt(cases: any[], departments: any[]): string {
   // ケースデータを匿名化して整形
-  const caseSummaries = cases.map((c, idx) => {
+  const caseSummaries = cases.map((c: any, idx: number) => {
     const aiResult = c.ai_result || {};
     return `
 【ケース${idx + 1}】
@@ -328,7 +328,7 @@ function buildUserPrompt(cases: any[], departments: any[]): string {
   }).join('\n');
 
   const departmentList = departments.length > 0
-    ? departments.map((d) => `- ${d.name || d.departmentName || '名称不明'}`).join('\n')
+    ? departments.map((d: any) => `- ${d.name || d.departmentName || '名称不明'}`).join('\n')
     : '部門情報なし';
 
   return `【会社の部門一覧】
