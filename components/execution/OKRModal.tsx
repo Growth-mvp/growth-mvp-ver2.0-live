@@ -160,6 +160,10 @@ export default function OKRModal({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
+      // Mac/Windows の日本語IME入力中は処理しない
+      if ((e as any).nativeEvent?.isComposing) return;
+      if ((e as any).keyCode === 229) return;
+
       if (e.key === 'Escape' && !saving) onClose();
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'enter') {
         e.preventDefault();
