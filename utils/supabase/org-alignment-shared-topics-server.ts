@@ -50,6 +50,9 @@ export type OrgAlignmentSharedTopic = {
   related_case_count: number;
   published_by?: string;
   published_at?: string;
+  announcement_text?: string;
+  announcement_updated_at?: string;
+  announcement_updated_by?: string;
   created_at: string;
   updated_at: string;
 };
@@ -296,4 +299,95 @@ export async function checkExistingDraft(
   sourceInsightId: string
 ): Promise<OrgAlignmentSharedTopic | null> {
   return checkExistingTopic(admin, companyId, sourceInsightId);
+}
+
+/**
+ * Find or create a shared topic for an insight
+ *
+ * 検索ロジック：
+ * 1. source_insight_id + source_insight_key で検索
+ * 2. 見つからない場合は title + 最新の created_at で検索（暫定対応）
+ * 3. 見つからない場合は新規作成
+ */
+export async function findOrCreateSharedTopic(
+  admin: SupabaseClient,
+  companyId: string,
+  insightId: string,
+  insightKey: string,
+  insight: OrgAlignmentInsight
+): Promise<OrgAlignmentSharedTopic> {
+  // 1. source_insight_id + source_insight_key で検索
+  const { data: existingTopic, error: searchError } = await admin
+    .from('org_alignment_shared_topics')
+    .select('*')
+    .eq('company_id', companyId)
+    .eq('source_insight_id', insightId)
+    .eq('source_insight_key', insightKey)
+    .single();
+
+  if (!searchError && existingTopic) {
+    return existingTopic as OrgAlignmentSharedTopic;
+  }
+
+  // 2. 見つからない場合は title で検索（暫定対応：既存データとの互換性）
+  // NOTE: これは暫定対応です。source_insight_id/key がない既存データを処理するため。
+  // 新しいデータは source_insight_id/key を正しく設定されます。
+  const { data: existingTopicByTitle } = await admin
+    .from('org_alignment_shared_topics')
+    .select('*')
+    .eq('company_id', companyId)
+    .eq('title', insight.title)
+    .in('status', ['published', 'draft'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (existingTopicByTitle) {
+    // 見つかったら source_insight_id/key を更新
+    const { data: updatedTopic } = await admin
+      .from('org_alignment_shared_topics')
+      .update({
+        source_insight_id: insightId,
+        source_insight_key: insightKey,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', (existingTopicByTitle as any).id)
+      .select()
+      .single();
+
+    if (updatedTopic) {
+      return updatedTopic as OrgAlignmentSharedTopic;
+    }
+  }
+
+  // 3. 見つからない場合は新規作成
+  const { data: newTopic, error: insertError } = await admin
+    .from('org_alignment_shared_topics')
+    .insert({
+      company_id: companyId,
+      source_insight_id: insightId,
+      source_insight_key: insightKey,
+      title: insight.title,
+      summary: insight.description,
+      status: 'draft',
+      priority_score: insight.priorityScore ?? null,
+      importance: insight.importance ?? null,
+      urgency: insight.urgency ?? null,
+      impact_scope: insight.impactScope ?? null,
+      affected_departments: insight.affectedDepartments ?? [],
+      recognition_gap: insight.recognitionGap ?? null,
+      company_axis: insight.companyAxis ?? null,
+      session_type: insight.sessionType ?? null,
+      next_actions: insight.nextActions ?? [],
+      strategy_reflection: insight.strategyReflection ?? null,
+      related_case_count: insight.relatedCaseCount ?? 0,
+    })
+    .select()
+    .single();
+
+  if (insertError) {
+    throw new Error(`Failed to create shared topic: ${insertError.message}`);
+  }
+
+  return newTopic as OrgAlignmentSharedTopic;
 }
