@@ -131,6 +131,16 @@ export default function LoginClient() {
                 placeholder="6文字以上"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => {
+                  // Mac/Windows の日本語IME入力中は送信しない
+                  if (e.nativeEvent.isComposing) return;
+                  if ((e.nativeEvent as any).keyCode === 229) return;
+
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    e.currentTarget.form?.requestSubmit();
+                  }
+                }}
                 className="w-full rounded-xl border border-zinc-300 bg-white/90 px-3 py-2 text-[14px] outline-none focus:ring-4 focus:ring-zinc-200"
                 autoComplete="current-password"
                 minLength={6}
