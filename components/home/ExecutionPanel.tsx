@@ -127,6 +127,25 @@ function Stage6MetricRow({
   );
 }
 
+type OrgAlignmentSummary = {
+  sourceCaseCount: number;
+  topicCount: number;
+  counts: {
+    published: number;
+    inAlignment: number;
+    actionPlanned: number;
+    reflected: number;
+    closed: number;
+    strategyReflectionCandidates: number;
+  };
+  topTopics: Array<{
+    id: string;
+    title: string;
+    priorityScore: number;
+  }>;
+  latestGeneratedAt: string | null;
+};
+
 export default function ExecutionPanel() {
   const s6 = useStage6Data('base') as any;
 
@@ -134,6 +153,8 @@ export default function ExecutionPanel() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dismissedMap, setDismissedMap] = useState<Record<string, true>>({});
+  const [orgAlignmentSummary, setOrgAlignmentSummary] = useState<OrgAlignmentSummary | null>(null);
+  const [orgAlignmentError, setOrgAlignmentError] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -187,6 +208,50 @@ export default function ExecutionPanel() {
         console.error('[ExecutionPanel] error:', e);
       } finally {
         setLoading(false);
+      }
+    };
+    run();
+  }, []);
+
+  // Fetch org-alignment summary for organization transformation card
+  useEffect(() => {
+    const run = async () => {
+      setOrgAlignmentError(null);
+      try {
+        const sessionRes = await safeGetSession();
+        if (!sessionRes.ok || !sessionRes.data.session?.access_token) {
+          setOrgAlignmentError('認証トークンが取得できません');
+          setOrgAlignmentSummary(null);
+          return;
+        }
+
+        const apiRes = await fetch('/api/org-alignment/shared/summary', {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${sessionRes.data.session.access_token}`,
+          },
+        });
+
+        if (!apiRes.ok) {
+          const errData = await apiRes.json().catch(() => ({}));
+          setOrgAlignmentError(errData.error || `API error: ${apiRes.status}`);
+          setOrgAlignmentSummary(null);
+          return;
+        }
+
+        const data = await apiRes.json();
+        if (data && data.counts !== undefined) {
+          setOrgAlignmentSummary(data);
+          setOrgAlignmentError(null);
+        } else {
+          setOrgAlignmentError(data?.error || 'Failed to fetch org alignment summary');
+          setOrgAlignmentSummary(null);
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setOrgAlignmentError(`Failed to fetch data: ${msg}`);
+        setOrgAlignmentSummary(null);
+        console.error('[ExecutionPanel-orgAlignment] error:', e);
       }
     };
     run();
@@ -373,7 +438,7 @@ export default function ExecutionPanel() {
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
             <Link href="/org-transformation/shared" className={stageBtnClass}>
-              <span className="text-[15px] font-semibold text-neutral-900">組織変革・全社共有ルーム</span>
+              <span className="text-[15px] font-semibold text-neutral-900">組織変革・全社すり合わせルーム</span>
             </Link>
             <div className="text-sm font-medium">全社論点・STAGE3/4還流状況</div>
           </div>
@@ -389,34 +454,53 @@ export default function ExecutionPanel() {
           現場の違和感をAIが共通論点に整理し、すり合わせ結果をSTAGE3/4へ還流します。
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {[
-            { label: '公開中', value: '5件', note: '全社論点' },
-            { label: 'すり合わせ中', value: '2件', note: '関係者調整' },
-            { label: '方針決定', value: '2件', note: '会社判断済み' },
-            { label: '還流候補', value: '3件', note: 'STAGE3/4' },
-          ].map((item) => (
-            <div
-              key={item.label}
-              className="rounded-xl bg-white px-3 py-2.5 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800"
-            >
-              <div className="text-[11px] font-medium text-neutral-500">{item.label}</div>
-              <div className="mt-1 text-xl font-semibold text-neutral-900 dark:text-white">{item.value}</div>
-              <div className="mt-0.5 text-[10px] text-neutral-500">{item.note}</div>
+        {orgAlignmentError ? (
+          <div className="mt-3 rounded-lg bg-white px-3 py-2 text-xs text-neutral-500 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800">
+            全社共有データを取得できませんでした
+          </div>
+        ) : orgAlignmentSummary ? (
+          <>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[
+                { label: '公開中', value: orgAlignmentSummary.counts.published, note: '全社論点' },
+                { label: 'すり合わせ中', value: orgAlignmentSummary.counts.inAlignment, note: '関係者調整' },
+                { label: '方針決定', value: orgAlignmentSummary.counts.actionPlanned, note: '会社判断済み' },
+                { label: '還流候補', value: orgAlignmentSummary.counts.strategyReflectionCandidates, note: 'STAGE3/4' },
+              ].map((item) => (
+                <div
+                  key={item.label}
+                  className="rounded-xl bg-white px-3 py-2.5 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800"
+                >
+                  <div className="text-[11px] font-medium text-neutral-500">{item.label}</div>
+                  <div className="mt-1 text-xl font-semibold text-neutral-900 dark:text-white">{item.value}件</div>
+                  <div className="mt-0.5 text-[10px] text-neutral-500">{item.note}</div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
 
-        <div className="mt-3 flex flex-wrap gap-2">
-          {['評価基準のズレ', '顧客価値と短期利益', '部門間責任範囲'].map((topic) => (
-            <span
-              key={topic}
-              className="rounded-full bg-white px-3 py-1 text-[11px] font-medium text-neutral-700 ring-1 ring-neutral-200/70 dark:bg-neutral-950 dark:text-neutral-300 dark:ring-neutral-800"
-            >
-              {topic}
-            </span>
-          ))}
-        </div>
+            {orgAlignmentSummary.topTopics.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {orgAlignmentSummary.topTopics.map((topic) => {
+                  // タイトルが長い場合は省略
+                  const displayTitle = topic.title.length > 16 ? topic.title.substring(0, 13) + '...' : topic.title;
+                  return (
+                    <span
+                      key={topic.id}
+                      className="rounded-full bg-white px-3 py-1 text-[11px] font-medium text-neutral-700 ring-1 ring-neutral-200/70 dark:bg-neutral-950 dark:text-neutral-300 dark:ring-neutral-800"
+                      title={topic.title}
+                    >
+                      {displayTitle}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="mt-3 rounded-lg bg-white px-3 py-2 text-xs text-neutral-500 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800">
+            集計中…
+          </div>
+        )}
       </div>
     </div>
   );
