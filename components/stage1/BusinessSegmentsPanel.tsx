@@ -86,6 +86,10 @@ export default function BusinessSegmentsPanel({ readOnly, disabled }: { readOnly
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent, id: string) => {
+      // Mac/Windows の日本語IME入力中は送信しない
+      if (e.nativeEvent.isComposing) return;
+      if ((e.nativeEvent as any).keyCode === 229) return;
+
       if (e.key === 'Enter') {
         e.preventDefault();
         handleSaveEdit(id);
