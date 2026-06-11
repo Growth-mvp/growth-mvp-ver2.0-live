@@ -19,7 +19,7 @@ export function CascadeHeader({ exportToPdf }: CascadeHeaderProps) {
         そのKPIは、会社を成長へシフトさせているか。
       </p>
       <p className="mt-1.5 text-[14px] font-medium text-zinc-500 leading-relaxed">
-        過去を管理するKPIから、未来の成長を動かすKPIへ。
+        数値目標を管理するだけのKPIから、未来の成長を生み出し、動かすKPIへ。
       </p>
     </div>
 
