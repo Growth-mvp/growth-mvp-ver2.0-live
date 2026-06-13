@@ -56,9 +56,14 @@ const btnClass =
 
 const desktopButtons = [
   { href: '/stage1', label: 'STAGE1：企業価値分析', title: '企業価値分析' },
-  { href: '/stage2', label: 'STAGE2：経営戦略策定', title: '経営戦略策定' },
-  { href: '/cascade', label: 'STAGE3：部門戦略策定', title: '部門戦略策定' },
+  { href: '/stage2', label: 'STAGE2：全社戦略', title: '全社戦略' },
+  { href: '/cascade', label: 'STAGE3：事業・部門別戦略', title: '事業・部門別戦略' },
   { href: '/okr', label: 'STAGE4：実行計画策定', title: '実行計画策定' },
+];
+
+// ★STEP9: 出力・レポート系ボタン
+const reportButtons = [
+  { href: '/report/midterm-plan', label: '中計戦略書', title: '中計戦略書' },
 ];
 
 const stageGuide = [
@@ -70,15 +75,15 @@ const stageGuide = [
   },
   {
     stage: 'STAGE2',
-    title: '経営戦略策定',
-    description: '全社の勝ち筋と戦略ストーリーを定め、どの方向へ進むかを明確にします。',
+    title: '全社戦略',
+    description: '中計全体の方向性、重点テーマ、事業・部門へ展開する判断軸を設計します。',
     owner: '主に：経営陣・事業責任者',
   },
   {
     stage: 'STAGE3',
-    title: '部門戦略策定',
-    description: '各部門の役割、ミッション、重点施策を設計し、全社戦略を現場へ展開します。',
-    owner: '主に：部門長・マネージャー',
+    title: '事業・部門別戦略',
+    description: '全社戦略を、各事業・部門が実行できる役割と重点テーマに展開します。',
+    owner: '主に：事業責任者・部門長・マネージャー',
   },
   {
     stage: 'STAGE4',
@@ -203,6 +208,21 @@ export default function PyramidNavigator() {
               </Link>
             ))}
           </div>
+
+          {/* ★STEP9: 出力・レポート */}
+          <div className="absolute left-[60%] bottom-0 flex flex-col gap-3">
+            {reportButtons.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                prefetch
+                className="inline-block rounded-lg border border-blue-300 bg-blue-50/70 px-4 py-2 text-[12px] font-semibold text-blue-700 transition-colors hover:bg-blue-100 hover:border-blue-400"
+                title={item.title}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </div>
         </div>
 
         <div className="mt-2 rounded-2xl border border-neutral-200 bg-neutral-50/70 p-5">
@@ -240,6 +260,21 @@ export default function PyramidNavigator() {
             <span className="text-neutral-400">→</span>
           </Link>
         ))}
+
+        {/* ★STEP9: 出力・レポート */}
+        <div className="border-t border-neutral-200 pt-3 mt-3">
+          <div className="text-[12px] font-semibold tracking-[0.12em] text-neutral-500 mb-3">出力</div>
+          {reportButtons.map((b) => (
+            <Link
+              key={b.href}
+              href={b.href}
+              className="flex items-center justify-between rounded-2xl border border-blue-300 bg-blue-50 px-5 py-3 transition-colors hover:bg-blue-100"
+            >
+              <span className="text-base font-semibold text-blue-700">{b.label}</span>
+              <span className="text-blue-400">→</span>
+            </Link>
+          ))}
+        </div>
 
         <div className="rounded-2xl border border-neutral-200 bg-neutral-50/70 p-4">
           <div className="text-[12px] font-semibold tracking-[0.12em] text-neutral-500">GUIDE</div>
