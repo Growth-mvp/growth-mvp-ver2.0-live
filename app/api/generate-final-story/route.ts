@@ -38,12 +38,12 @@ type WinningPatternKey =
 /* =========================
  * 見出し（固定）
  * =======================*/
-const SIMPLE_HEADS = ['なぜ今', 'どう戦う', 'どんな未来', 'どう行動する'] as const;
+const SIMPLE_HEADS = ['なぜ今', 'どう戦う', 'どんな未来', 'どう実行する'] as const;
 const TITLE_TEMPLATES = [
-  '第1章：なぜ今',
-  '第2章：どう戦う',
-  '第3章：どんな未来',
-  '第4章：どう行動する',
+  '第1章：なぜ今（現状の危機と背景）',
+  '第2章：どう戦う（選択と集中の戦略）',
+  '第3章：どんな未来を実現するか（顧客価値と成果）',
+  '第4章：どう実行に落とすか（部門戦略・KPI・実行管理）',
 ] as const;
 
 /* =========================
@@ -633,6 +633,23 @@ function cleanFinalStoryArtifacts(text: string): string {
   out = out.replace(/全力で舵取りを行います/g, '方向性を明確に示します');
   out = out.replace(/希望だと信じています/g, '次の成長につながります');
   out = out.replace(/営業利益(?:の)?基準値\s*([0-9,，]+)\s*（期限[:：][^)）]+）/g, '営業利益目標');
+  // 経営戦略文書に不要な演説調・鼓舞表現を抑制する。
+  out = out.replace(/皆さん[、，]?/g, '');
+  out = out.replace(/私たち[はも]?/g, '当社は');
+  out = out.replace(/我々[はも]?/g, '当社は');
+  out = out.replace(/一緒に/g, '各部門で');
+  out = out.replace(/未来を切り開(?:く|いていきましょう|いていく)/g, '将来の成長基盤をつくる');
+  out = out.replace(/挑戦し(?:よう|ましょう)/g, '取り組む');
+  out = out.replace(/覚悟を持って/g, '方針を明確にして');
+  out = out.replace(/覚悟ある/g, '明確な');
+  out = out.replace(/全力/g, '重点的');
+  out = out.replace(/邁進(?:していきます|します)?/g, '推進します');
+  out = out.replace(/信念/g, '方針');
+  out = out.replace(/主役になれる/g, '中核を担う');
+  out = out.replace(/誇りとやりがい/g, '成果と納得感');
+  out = out.replace(/この選択肢/g, 'この方針');
+  out = out.replace(/切り開いていきましょう/g, '具体化していく');
+  out = out.replace(/立ち向かわせている/g, '対応を迫っている');
   out = stripPeopleRelatedNoise(out);
   out = out.replace(/[ \t]+\n/g, '\n');
   out = out.replace(/\n{3,}/g, '\n\n').trim();
@@ -657,8 +674,8 @@ async function callOpenAIChat(args: ChatArgs): Promise<string> {
     model,
     temperature,
     max_tokens,
-    presence_penalty = 0.7,
-    frequency_penalty = 0.3,
+    presence_penalty = 0.2,
+    frequency_penalty = 0.2,
     system,
     user,
   } = args;
@@ -894,27 +911,27 @@ function heuristicFinal(
     '資源の再配分：やめることを明確化し、勝ち筋に集中する。',
     ...howBullets.map((b) => `・${b}`),
     'やらないこと：汎用ビルド、カスタム過多、非中核の横展開は抑制。',
-    '──ここに、私たちの「誇り」を賭ける。安易な拡張よりも、本質的な価値で勝つ。',
+    '安易な拡張ではなく、顧客価値と収益性に直結する領域へ資源を集中する。',
   ].join('\n');
 
   const s3 = [
-    '目指す未来は、既存の延長で数字を積み上げるだけの姿ではありません。顧客から、重要な課題を一緒に解く相手として選ばれる会社になることです。',
-    'そのために、強みを伸ばす領域と見直す領域を分け、顧客価値に直結する仕事へ人・時間・投資を集中させます。',
-    '社員にとっても、自分の仕事が会社の勝ち筋とどうつながるかが見える状態を作ります。',
+    '目指す未来は、既存の延長で数字を積み上げるだけの姿ではなく、顧客から重要な課題を解決する専門企業として選ばれる状態である。',
+    'その実現には、強みを伸ばす領域と見直す領域を分け、顧客価値に直結する仕事へ人・時間・投資を集中させる必要がある。',
+    '収益構造としては、成長領域の売上構成を高め、利益率と資本効率を同時に改善することが重要になる。',
   ].join('\n');
 
   const s4 = [
-    `まず今四半期は、顧客価値と業績目標に直結する上位課題を選び、部門ごとにミッション・プロジェクト・KPIへ落とし込みます。`,
-    `やめること：成果に寄与しない個別最適や、目的が曖昧な取り組みを増やすこと。`,
-    `各人の期待行動：自分の仕事がどの勝ち筋に効くのかを確認し、速く試し、学びを次の改善へ反映すること。`,
-    'この最終ストーリーは直接の作業指示ではありません。次のSTAGEで、各部門の具体的な行動計画へ翻訳していきます。',
+    `まずSTAGE3では、顧客価値と業績目標に直結する上位課題を、部門ごとのミッション・重点プロジェクトへ展開する。`,
+    `次にSTAGE4では、各プロジェクトに対してKPI、期限、担当、必要投資を設定し、実行計画として管理可能な単位に分解する。`,
+    `経営会議では、成長領域への資源配分、低収益領域の見直し、顧客価値に直結するKPIの進捗を確認する。`,
+    'この最終ストーリーは、直接の作業指示ではなく、部門戦略・KPI・実行管理へ翻訳するための全社共通の判断基準である。',
   ].join('\n');
 
   let sections = [
     { heading: 'なぜ今', body: s1 },
     { heading: 'どう戦う', body: s2 },
     { heading: 'どんな未来', body: s3 },
-    { heading: 'どう行動する', body: s4 },
+    { heading: 'どう実行する', body: s4 },
   ];
 
   sections = ensureBridges(sections);
@@ -948,13 +965,13 @@ async function enhanceEmotionIfNeeded(
 
   try {
     const system = [
-      'あなたは経営ストーリーのエディターです。構造を壊さずに、新入社員にも分かる平易さ・具体性・経営者の覚悟を整えます。',
+      'あなたは経営ストーリーのエディターです。構造を壊さずに、経営会議資料に耐える平易さ・具体性・構造を整えます。',
       '出力は JSON のみ。{"sections":[{"heading":"なぜ今","body":"..."},...]} の形式で返す。',
     ].join('\n');
 
     const user = [
       '【編集方針】',
-      '- 誇り・覚悟・信念は、必要な場合のみ自然に残す。精神論や大げさな表現にしない。',
+      '- 誇り・覚悟・信念などの情緒表現は削り、経営判断・資源配分・実行設計の表現に置き換える。',
       '- 現場が腹落ちする具体性（顧客・市場・強み・やること/やめること）を強める。比喩は控えめにする。',
       '- 文量は各章2〜4段落、長すぎるときは圧縮。',
       '',
@@ -970,7 +987,7 @@ async function enhanceEmotionIfNeeded(
 
     const base: ChatCompletionCreateParamsNonStreaming = {
       model,
-      temperature: Math.min(0.7, (typeof temperature === 'number' ? temperature : 0.95) + 0.1),
+      temperature: Math.min(0.55, typeof temperature === 'number' ? temperature : 0.45),
       max_tokens: 1200,
       messages: [
         { role: 'system', content: system },
@@ -1050,7 +1067,7 @@ export async function POST(req: NextRequest) {
     const metricsSummary = body.metricsSummary;
     const segments = body.segments;
     const businessSegments = body.businessSegments;
-    const temperature = typeof body.temperature === 'number' ? body.temperature : 0.95;
+    const temperature = typeof body.temperature === 'number' ? body.temperature : 0.45;
     const budgets = body.budgets; // 互換のため残置
     const patterns = body.patterns; // string[] | WinningPatternKey[]
     const portfolio = body.portfolio; // 旧形式 { businesses: [...], focus?: string }
@@ -1086,21 +1103,36 @@ export async function POST(req: NextRequest) {
 
     /* ---------- System ---------- */
     const systemPrompt = `
-あなたは、経営者の考えを「新入社員にも分かる経営方針文」に整える編集者です。
-目的は、演説やスローガンではなく、会社が何を目指し、なぜ変わり、どこで勝とうとしているのかを明確に伝えることです。
+あなたは、経営者の考えを「経営会議資料・中期経営計画資料に掲載できる戦略ストーリー」に整える編集者です。
+目的は、演説やスローガンではなく、会社が何を目指し、なぜ変わり、どこで勝ち、どう部門戦略・KPI・実行管理に落とすのかを明確に伝えることです。
 
 【最優先】
-- シンプルで平易な日本語にする。
-- 第2章は、事業戦略・顧客価値・製品開発・成長投資・資源配分を中心に書く。
+- 経営層・部門長・現場管理職が同じ判断基準を持てる、落ち着いた経営戦略文書にする。
+- 本文は、事実 → 解釈 → 戦略上の意味、の順で書く。
+- 抽象語だけで終わらせず、可能な限り「事業領域」「顧客」「用途」「提供価値」「KPI」「資源配分」のいずれかに接続する。
+- 第1章は危機認識、第2章は戦略選択、第3章は目指す成果、第4章はSTAGE3/4への展開に限定する。
+- 同じ論点を複数章で繰り返さない。
 - 人材、採用、育成、能力開発、社員教育、研修を主要戦略として書かない。入力素材に含まれていても、この最終ストーリーでは使わない。
-- 90日アクションは第2章に入れない。第4章でも、事業・顧客・投資に関する行動だけを短く書く。
-- 精神論にしない。「賭け」「必ず成功」「全力」「一緒に挑もう」「ついて来てください」などの鼓舞表現は使わない。
+- 90日アクションは第2章に入れない。第4章でも単発施策の羅列ではなく、部門戦略・KPI・実行管理への接続を書く。
+- 社員への直接的な呼びかけではなく、組織として何を設計・実行するかを書く。
 
-【章ごとの役割】
-1. なぜ今：外部環境、既存事業の前提変化、財務・市場上の課題を事実ベースで書く。
-2. どう戦う：最初に「自社の勝ち筋：〜」を1回だけ書く。続けて、①成長させる事業領域、②顧客に提供する価値、③製品開発・市場開拓の方向、④投資・資源配分、⑤やめること、を順に書く。
-3. どんな未来：顧客、会社、社会にどのような価値が生まれるかを書く。業績目標があれば自然に接続する。
-4. どう行動する：このストーリーをSTAGE3・STAGE4で部門戦略・プロジェクト・KPIへ落とし込む流れを書く。個人への精神論ではなく、組織として具体化する次工程を書く。
+【禁止する文体・表現】
+- 「私たち」「皆さん」「一緒に」「挑戦しよう」「未来を切り開く」「覚悟を持って」「賭け」「全力」「邁進」「信念」「主役になれる」「誇りとやりがい」などの演説調・鼓舞表現は使わない。
+- 「ハッピーな」「精神集中」「共鳴し合い」「過去のものとして忘れ去られる」などの口語・情緒的表現は使わない。
+- 危機感を煽らない。冷静に、経営判断として書く。
+
+【文体】
+- 外資系戦略コンサルの報告書に近い、簡潔で構造的な日本語にする。
+- 事業環境、顧客価値、競争優位、資源配分、KPI、実行課題との関係を明確にする。
+- 断定しすぎず、実現可能性を示唆する表現にする。
+- 各章は3〜5段落。各段落は長くしすぎない。
+- 数値、事業名、顧客セグメント、競争環境が入力にある場合は、可能な範囲で明示する。
+
+【章ごとの構造】
+1. なぜ今：①外部環境の変化、②自社の既存前提が崩れている点、③財務・市場評価上の課題、④だから見直すべき経営論点を書く。
+2. どう戦う：①勝ち筋を一文で定義、②重点事業・重点市場、③顧客価値・差別化要因、④投資配分、⑤やめること・見直すことを書く。
+3. どんな未来：①顧客からどう選ばれる会社になるか、②収益構造がどう変わるか、③社会・市場に対する提供価値、④業績目標との接続を書く。
+4. どう実行する：①STAGE3で部門戦略に展開する、②STAGE4でKPI・実行計画に落とす、③経営会議で確認する指標・論点、④現場の判断基準として何を変えるかを書く。
 
 【数値・年度の扱い】
 - 業績目標の年度・数値・単位は【業績目標】を最優先する。
@@ -1115,7 +1147,7 @@ JSONのみ。スキーマ：
     {"heading":"なぜ今","body":"..."},
     {"heading":"どう戦う","body":"..."},
     {"heading":"どんな未来","body":"..."},
-    {"heading":"どう行動する","body":"..."}
+    {"heading":"どう実行する","body":"..."}
   ]
 }
 `.trim();
@@ -1207,11 +1239,11 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
         model: MODEL_PRIMARY,
         temperature:
           typeof temperature === 'number' && Number.isFinite(temperature)
-            ? (temperature as number)
-            : 0.95,
+            ? Math.min(temperature as number, 0.55)
+            : 0.45,
         max_tokens: 2300,
-        presence_penalty: 0.7,
-        frequency_penalty: 0.3,
+        presence_penalty: 0.2,
+        frequency_penalty: 0.2,
         system: systemPrompt,
         user: userPrompt,
       });
@@ -1237,7 +1269,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
         sections,
         thought,
         patternsLine,
-        typeof temperature === 'number' ? temperature : 0.95,
+        typeof temperature === 'number' ? Math.min(temperature, 0.55) : 0.45,
         MODEL_PRIMARY,
         doEnhance,
       );
@@ -1303,6 +1335,83 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
       body: sections[i]?.body || '（この章は未生成です）',
     }));
 
+    /* ---------- ★STEP6: 中計設計（midtermStrategy）の第2パス生成 ----------
+     * - 既存の4章ストーリー生成には一切手を入れない（プロンプト・トークン配分とも独立）
+     * - この呼び出しが失敗/タイムアウトしても catch で握り、midtermStrategy なしで
+     *   従来どおりのレスポンスを返す（既存STAGE2生成を壊さない）
+     * - ヒューリスティックフォールバック時はスキップ（素材の信頼度が低いため） */
+    let midtermStrategy: Record<string, unknown> | undefined;
+    if (!usedHeuristic) {
+      try {
+        const midtermSystem = [
+          'あなたは中期経営計画の設計を支援する経営戦略コンサルタントです。',
+          '確定済みの全社戦略ストーリーと入力情報をもとに、中計全体の設計サマリーをJSONのみで返します。',
+          '入力にない数値・固有名詞は作らない。根拠が不足する項目はキーごと省略する（空文字・空配列は出力しない）。',
+          '出力スキーマ（すべて任意キー）：',
+          '{',
+          '  "midtermConcept": "中計の基本コンセプト（1〜2文）",',
+          '  "targetVisionForMidterm": "全社の目指す姿（1〜2文）",',
+          '  "priorityStrategicThemes": ["重点戦略テーマ（2〜4個）"],',
+          '  "growthStrategy": "成長戦略（1〜2文）",',
+          '  "profitImprovementStrategy": "収益改善戦略（1〜2文）",',
+          '  "portfolioPolicy": "事業ポートフォリオ方針（1〜2文）",',
+          '  "companyWideDecisionCriteria": ["全社共通の判断基準（2〜4個）"],',
+          '  "deploymentPrinciplesForUnits": ["事業・部門へ展開する際の基本軸（2〜4個）"],',
+          '  "managementMeetingIssues": ["経営会議で確認すべき論点（2〜4個）"]',
+          '}',
+        ].join('\n');
+
+        const midtermUser = [
+          '【確定済み全社戦略ストーリー】',
+          sanitize(longform, 4000) || '—',
+          '',
+          `【業績目標】\n${companyTargetsText}`,
+          `【事業ポートフォリオ】${portfolioSummary}`,
+          `【勝ちパターン】${patternsLine}`,
+          `【SWOT】S=${sanitize(strength, 300) || '—'}／W=${sanitize(weakness, 300) || '—'}／O=${sanitize(opportunity, 300) || '—'}／T=${sanitize(threat, 300) || '—'}`,
+          `【事業・セグメント】${segmentsText}`,
+          '',
+          '上記と矛盾しない範囲で、スキーマどおりのJSONのみを返してください。',
+        ].join('\n');
+
+        const midtermRaw = await callOpenAIChat({
+          model: MODEL_PRIMARY,
+          temperature: 0.4,
+          max_tokens: 1100,
+          system: midtermSystem,
+          user: midtermUser,
+        });
+
+        const parsedMid = extractJsonLoose<Record<string, any>>(midtermRaw);
+        if (parsedMid && typeof parsedMid === 'object' && !Array.isArray(parsedMid)) {
+          const str = (v: unknown) => (typeof v === 'string' && v.trim() ? sanitize(v, 400) : undefined);
+          const strArr = (v: unknown, max: number) => {
+            const arr = Array.isArray(v)
+              ? v.filter((x) => typeof x === 'string' && x.trim()).slice(0, max).map((x) => sanitize(x, 200))
+              : [];
+            return arr.length > 0 ? arr : undefined;
+          };
+          const candidate = {
+            midtermConcept: str(parsedMid.midtermConcept),
+            targetVisionForMidterm: str(parsedMid.targetVisionForMidterm),
+            priorityStrategicThemes: strArr(parsedMid.priorityStrategicThemes, 4),
+            growthStrategy: str(parsedMid.growthStrategy),
+            profitImprovementStrategy: str(parsedMid.profitImprovementStrategy),
+            portfolioPolicy: str(parsedMid.portfolioPolicy),
+            companyWideDecisionCriteria: strArr(parsedMid.companyWideDecisionCriteria, 4),
+            deploymentPrinciplesForUnits: strArr(parsedMid.deploymentPrinciplesForUnits, 4),
+            managementMeetingIssues: strArr(parsedMid.managementMeetingIssues, 4),
+          };
+          const compact = Object.fromEntries(
+            Object.entries(candidate).filter(([, v]) => v !== undefined),
+          );
+          if (Object.keys(compact).length > 0) midtermStrategy = compact;
+        }
+      } catch (e: any) {
+        console.warn('⚠️ 中計設計（midtermStrategy）の生成をスキップ（続行）:', e?.message || e);
+      }
+    }
+
     // 任意保存（存在すれば実行）
     if (typeof userId === 'string' && userId && typeof saveFinalStory === 'function') {
       try {
@@ -1317,6 +1426,8 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
         finalStory,
         longform,
         sections,
+        // ★STEP6: 中計設計（生成できた場合のみ含める。既存クライアントは未参照でも無害）
+        ...(midtermStrategy ? { midtermStrategy } : {}),
         _debug: {
           model: usedModel,
           patterns: patternsArr,
