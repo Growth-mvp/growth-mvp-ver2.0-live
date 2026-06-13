@@ -27,7 +27,7 @@ export function Stage3ReportView({ data }: Stage3ReportViewProps) {
       {/* ===== 表紙 ===== */}
       <ReportCover
         companyName={data.companyName}
-        stageName="部門戦略レポート"
+        stageName="事業・部門別戦略レポート"
         stageNumber={3}
         generatedDate={data.generatedDate}
       />
