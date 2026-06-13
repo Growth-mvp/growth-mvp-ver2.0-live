@@ -406,10 +406,10 @@ export function StrategyReportView({ data }: StrategyReportViewProps) {
         </div>
       )}
 
-      {/* ===== 4. STAGE3 部門戦略 ===== */}
+      {/* ===== 4. STAGE3 事業・部門別戦略 ===== */}
       {data.stage3.departments.length > 0 && (
         <div className="report-section page-break">
-          <h2 className="report-h2">4. STAGE3：部門戦略</h2>
+          <h2 className="report-h2">4. STAGE3：事業・部門別戦略</h2>
 
           {data.stage3.departments.map((dept, deptIdx) => (
             <div key={deptIdx} className="report-card" style={{ marginBottom: '2rem' }}>
