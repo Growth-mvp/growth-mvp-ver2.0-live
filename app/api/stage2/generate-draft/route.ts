@@ -1317,7 +1317,7 @@ export async function POST(req: NextRequest) {
 
     if (missing.length > 0) {
       console.log('[stage2/generate-draft] ★REPAIR PHASE START★', {
-        missingCount: missing.length,
+        missingCount: missing.count,
         missing: missing.slice(0, 3),
       });
 
