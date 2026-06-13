@@ -3,7 +3,7 @@
 
 import { useState, useCallback, useMemo } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
-import type { BusinessSegment } from '@/types/strategy';
+import type { BusinessSegment, StrategicUnitType } from '@/types/strategy';
 
 /* ===============================
  * 安定した空参照（selector で ?? [] を使わないため）
@@ -27,6 +27,32 @@ function normalizeKeyCustomers(input: string): string[] {
     .filter(Boolean)
     .slice(0, 3);
 }
+
+/** カンマ区切り入力 → 配列（件数制限なし。主要製品・課題・既存KPI用） */
+function parseCommaList(input: string): string[] {
+  return input
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** 数値入力 → number | undefined（空欄・不正値は undefined で未設定に戻す） */
+function parseNumberOrUndefined(input: string): number | undefined {
+  if (input.trim() === '') return undefined;
+  const n = Number(input);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** 種別（StrategicUnitType）の選択肢 */
+const UNIT_TYPE_OPTIONS: { value: StrategicUnitType; label: string }[] = [
+  { value: 'business_unit', label: '事業部' },
+  { value: 'function', label: '機能部門' },
+  { value: 'site', label: '拠点' },
+  { value: 'project', label: '重点プロジェクト' },
+  { value: 'subsidiary', label: '子会社' },
+  { value: 'segment', label: '事業セグメント' },
+  { value: 'other', label: 'その他' },
+];
 
 export default function BusinessSegmentsPanel({ readOnly, disabled }: { readOnly?: boolean; disabled?: boolean }) {
   // 安定した参照を使用（毎回新しい [] を作らない）
@@ -279,6 +305,139 @@ export default function BusinessSegmentsPanel({ readOnly, disabled }: { readOnly
                     </div>
                   )}
                 </div>
+
+                {/* ★事業・部門情報（中計用・任意）：STAGE3「事業・部門別戦略」の前提情報 */}
+                <details className="ml-9 mt-3 border-t border-gray-100 pt-3">
+                  <summary className="text-xs text-gray-600 cursor-pointer select-none hover:text-blue-600">
+                    事業・部門情報（中計用・任意）
+                  </summary>
+
+                  <div className="mt-3 space-y-3">
+                    {/* 種別 */}
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">種別</label>
+                      <select
+                        value={seg.unitType ?? ''}
+                        onChange={(e) =>
+                          updateSegment(seg.id, {
+                            unitType: e.target.value
+                              ? (e.target.value as StrategicUnitType)
+                              : undefined,
+                          })
+                        }
+                        disabled={disabled}
+                        className="border px-2 py-1 text-sm rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                      >
+                        <option value="">未選択</option>
+                        {UNIT_TYPE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* 主要製品・サービス */}
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">
+                        主要製品・サービス（カンマ区切り）
+                      </label>
+                      <input
+                        type="text"
+                        value={(seg.mainProductsServices ?? []).join(', ')}
+                        onChange={(e) =>
+                          updateSegment(seg.id, {
+                            mainProductsServices: parseCommaList(e.target.value),
+                          })
+                        }
+                        disabled={disabled}
+                        className="w-full border px-2 py-1 text-sm rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                        placeholder="例：予兆検知SaaS, 保守サービス"
+                      />
+                    </div>
+
+                    {/* 売上・利益 */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-gray-600 mb-1">売上（百万円）</label>
+                        <input
+                          type="number"
+                          value={seg.revenue ?? ''}
+                          onChange={(e) =>
+                            updateSegment(seg.id, { revenue: parseNumberOrUndefined(e.target.value) })
+                          }
+                          disabled={disabled}
+                          className="w-full border px-2 py-1 text-sm rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                          placeholder="例：1200"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-600 mb-1">利益（百万円）</label>
+                        <input
+                          type="number"
+                          value={seg.profit ?? ''}
+                          onChange={(e) =>
+                            updateSegment(seg.id, { profit: parseNumberOrUndefined(e.target.value) })
+                          }
+                          disabled={disabled}
+                          className="w-full border px-2 py-1 text-sm rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                          placeholder="例：150"
+                        />
+                      </div>
+                    </div>
+
+                    {/* 主な課題 */}
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">
+                        主な課題（カンマ区切り）
+                      </label>
+                      <input
+                        type="text"
+                        value={(seg.currentIssues ?? []).join(', ')}
+                        onChange={(e) =>
+                          updateSegment(seg.id, { currentIssues: parseCommaList(e.target.value) })
+                        }
+                        disabled={disabled}
+                        className="w-full border px-2 py-1 text-sm rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                        placeholder="例：既存顧客の更新率低下, 人材不足"
+                      />
+                    </div>
+
+                    {/* 中計で期待される役割 */}
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">中計で期待される役割</label>
+                      <textarea
+                        value={seg.expectedRoleInMidtermPlan ?? ''}
+                        onChange={(e) =>
+                          updateSegment(seg.id, {
+                            expectedRoleInMidtermPlan: e.target.value || undefined,
+                          })
+                        }
+                        disabled={disabled}
+                        rows={2}
+                        className="w-full border px-2 py-1 text-sm rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                        placeholder="例：成長ドライバーとして売上構成比を30%まで引き上げる"
+                      />
+                    </div>
+
+                    {/* 既存KPI */}
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">
+                        既存KPI（カンマ区切り）
+                      </label>
+                      <input
+                        type="text"
+                        value={(seg.existingKpis ?? []).join(', ')}
+                        onChange={(e) =>
+                          updateSegment(seg.id, { existingKpis: parseCommaList(e.target.value) })
+                        }
+                        disabled={disabled}
+                        className="w-full border px-2 py-1 text-sm rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                        placeholder="例：ARR, 解約率, 受注件数"
+                      />
+                    </div>
+                  </div>
+                </details>
               </div>
             );
           })}
