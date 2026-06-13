@@ -128,6 +128,14 @@ const DepartmentSchema = z.object({
   stopList: z.array(z.string()).optional().default([]),
   first90Days: z.array(z.string()).optional().default([]),
   riskNotes: z.array(z.string()).optional().default([]),
+
+  /* ★STEP5拡張：事業・部門別戦略の観点（すべて optional・default なし）
+   * - default を付けると既存データに空配列/空文字が書き込まれるため、未出力時は undefined のまま通す
+   * - LLM が返さなくても parse は成功する（JSON parse 失敗リスクを増やさない） */
+  currentPosition: z.string().optional(),
+  strategicRole: z.string().optional(),
+  keyIssues: z.array(z.string()).optional(),
+  alignmentRiskPoints: z.array(z.string()).optional(),
   /* ★ STAGE3拡張：再生成結果のレビューサマリー */
   reviewSummary: z
     .object({
@@ -243,6 +251,21 @@ const ReqSchema = z
       .optional()
       .default([]),
     targetRanges: z.any().optional(),
+
+    // ★STEP7: STAGE2中計設計（midtermStrategy）の注入（すべて optional）
+    midtermStrategy: z
+      .object({
+        midtermConcept: z.string().optional(),
+        targetVisionForMidterm: z.string().optional(),
+        priorityStrategicThemes: z.array(z.string()).optional(),
+        growthStrategy: z.string().optional(),
+        profitImprovementStrategy: z.string().optional(),
+        portfolioPolicy: z.string().optional(),
+        companyWideDecisionCriteria: z.array(z.string()).optional(),
+        deploymentPrinciplesForUnits: z.array(z.string()).optional(),
+        managementMeetingIssues: z.array(z.string()).optional(),
+      })
+      .optional(),
   })
   .passthrough();
 
@@ -3060,6 +3083,8 @@ export async function POST(req: NextRequest) {
       winPatternSecondary,
       valueDriverKPIs,
       targetRanges,
+      // ★STEP7: STAGE2中計設計
+      midtermStrategy,
     } = parsedReq.data;
 
     if (!Array.isArray(departments) || departments.length === 0) {
@@ -3321,7 +3346,60 @@ export async function POST(req: NextRequest) {
             }
           }
 
+          // 4) ★STEP5: STAGE1手入力（BusinessSegment.revenue/profit）を最終フォールバックとして使用
+          // 【売上・利益の優先順位ルール】
+          //   1. segmentPL など既存の財務データ（上記 1〜3）があればそれを優先する
+          //   2. 財務データが一切ない場合のみ、STAGE1 で手入力された
+          //      BusinessSegment.revenue / profit（単位：百万円）を補助情報として使う
+          //   3. どちらもなければ「部門別財務不明」として生成する
+          if (parts.length === 0 && seg) {
+            const manualParts: string[] = [];
+            if (typeof seg.revenue === 'number' && Number.isFinite(seg.revenue)) {
+              manualParts.push(`売上${seg.revenue}百万円`);
+            }
+            if (typeof seg.profit === 'number' && Number.isFinite(seg.profit)) {
+              manualParts.push(`利益${seg.profit}百万円`);
+            }
+            if (manualParts.length > 0) {
+              parts.push(`${manualParts.join(' ')}（STAGE1手入力・参考値）`);
+            }
+          }
+
           return parts.length > 0 ? parts.join(' / ') : '（部門別財務不明）';
+        })();
+
+        // ★STEP5: STAGE1中計入力（事業・部門情報）をプロンプトへ注入
+        // - STEP4 で BusinessSegment に追加された optional 項目（既存データには存在しない場合がある）
+        // - 値が存在しない項目は1行も出力しない（既存データでも生成が成功する）
+        const midtermInfoBlock = (() => {
+          if (!seg) return '';
+          const UNIT_TYPE_LABELS: Record<string, string> = {
+            business_unit: '事業部',
+            function: '機能部門',
+            site: '拠点',
+            project: '重点プロジェクト',
+            subsidiary: '子会社',
+            segment: '事業セグメント',
+            other: 'その他',
+          };
+          const lines: string[] = [];
+          if (typeof seg.unitType === 'string' && seg.unitType) {
+            lines.push(`    - 種別: ${UNIT_TYPE_LABELS[seg.unitType] ?? seg.unitType}`);
+          }
+          if (Array.isArray(seg.mainProductsServices) && seg.mainProductsServices.length > 0) {
+            lines.push(`    - 主要製品・サービス: ${seg.mainProductsServices.slice(0, 6).map((v: any) => sanitizeText(String(v), 60)).join('、')}`);
+          }
+          if (Array.isArray(seg.currentIssues) && seg.currentIssues.length > 0) {
+            lines.push(`    - 主な課題: ${seg.currentIssues.slice(0, 6).map((v: any) => sanitizeText(String(v), 80)).join('、')}`);
+          }
+          if (typeof seg.expectedRoleInMidtermPlan === 'string' && seg.expectedRoleInMidtermPlan.trim()) {
+            lines.push(`    - 中計で期待される役割: ${sanitizeText(seg.expectedRoleInMidtermPlan, 200)}`);
+          }
+          if (Array.isArray(seg.existingKpis) && seg.existingKpis.length > 0) {
+            lines.push(`    - 既存KPI: ${seg.existingKpis.slice(0, 8).map((v: any) => sanitizeText(String(v), 60)).join('、')}`);
+          }
+          if (lines.length === 0) return '';
+          return `\n  ★事業・部門情報（STAGE1中計入力）: ※入力された前提情報。currentPosition/strategicRole/keyIssues/okrs に必ず反映すること\n${lines.join('\n')}`;
         })();
 
         // ★ 部門別ポートフォリオ位置（businessPortfolio から該当ユニットを抽出）
@@ -3424,7 +3502,7 @@ ${exps.map((e) => `    - ${sanitizeText(e, 120)}`).join('\n') || '    - （未�
   focusThemes:
 ${focuses.map((f) => `    - ${sanitizeText(f, 120)}`).join('\n') || '    - （未設定）'}
   ★部門別財務: ${deptFinanceSummaryText}
-  ★部門別ポートフォリオ: ${deptPortfolioText}
+  ★部門別ポートフォリオ: ${deptPortfolioText}${midtermInfoBlock}
   answers (1..6): ※この6回答は必ず提案に反映し、矛盾は禁止
 ${ansLines || '  - （未回答）'}
   ★ STAGE3: 6問の回答（部門戦略ガイド）: ${dept6Answered ? '（6/6完成）' : '（不足あり）'}
@@ -3454,6 +3532,19 @@ ${okrSeed || '  - （なし）'}${factPackBlock}${uniquenessRule}
 【部門ミッション記述ルール】
 - missionDraft: 1〜2文で、部門の戦略的ミッション（構造変化/役割の再定義を含める）
 - missionDescription: 2〜4文で、missionDraft の背景・理由・狙いを説明。部門の事業概要、主要顧客層、部門別財務（売上規模・利益率など）に必ず言及すること。
+
+【★事業・部門別戦略の観点（中計対応）】
+各部門について、以下の観点を反映すること。観点と出力フィールドの対応：
+- 現在の位置づけ → currentPosition（1〜2文。★部門別財務/★部門別ポートフォリオ/★事業・部門情報を根拠にする）
+- 中計上の役割 → strategicRole（1〜2文。「中計で期待される役割」が入力されている場合は必ずそれと整合させる）
+- 主要課題 → keyIssues（2〜4個。「主な課題」が入力されている場合は取り込んだうえで、財務・ポートフォリオの観点から補強する）
+- 戦略方向性 → missionDraft / missionDescription（既存ルールどおり）
+- 重点施策 → lanes の projects（既存ルールどおり）
+- KPI案 → 各プロジェクトの okrs（「既存KPI」が入力されている場合は、既存KPIとの関係（継続/置き換え/補完）が分かる指標設計にする）
+- 必要な連携 → intraDeptCollab / interDeptCollab（既存ルールどおり）
+- 実行リスク → riskNotes（既存ルールどおり）
+- 認識のズレが起きやすいポイント → alignmentRiskPoints（1〜3個。経営層の期待と現場の実態がズレやすい点を具体的に書く）
+- ★currentPosition / strategicRole / keyIssues / alignmentRiskPoints は任意フィールド。根拠となる入力情報が不足する場合はフィールドごと省略すること（創作・水増しは禁止。空文字や空配列も出力しない）
 
 【レーン定義】
 - 既存進化（Existing）：短期〜中期（今年〜3年）でPLに効く改善/強化（主にACQ/ARPU/CHURN/COST/EFFICIENCY）。2個のプロジェクト。
@@ -3490,6 +3581,47 @@ ${sanitizeText(storyText || '', 800) || '（ストーリー未入力）'}
 
 【STAGE2 最終ストーリー（Final Story）】
 ${sanitizeText(finalStoryText || '', 1000) || '（最終ストーリー未入力）'}
+
+【★全社戦略・中計設計（STAGE2）】
+${(() => {
+  if (!midtermStrategy || typeof midtermStrategy !== 'object') return '（中計設計未生成）';
+  const lines: string[] = [];
+  if (typeof (midtermStrategy as any).midtermConcept === 'string' && (midtermStrategy as any).midtermConcept?.trim()) {
+    lines.push(`・中計の基本コンセプト: ${sanitizeText((midtermStrategy as any).midtermConcept, 200)}`);
+  }
+  if (typeof (midtermStrategy as any).targetVisionForMidterm === 'string' && (midtermStrategy as any).targetVisionForMidterm?.trim()) {
+    lines.push(`・目指す姿: ${sanitizeText((midtermStrategy as any).targetVisionForMidterm, 200)}`);
+  }
+  if (Array.isArray((midtermStrategy as any).priorityStrategicThemes) && (midtermStrategy as any).priorityStrategicThemes.length > 0) {
+    lines.push(`・重点戦略テーマ: ${((midtermStrategy as any).priorityStrategicThemes as string[]).map((t) => sanitizeText(t, 100)).join('、')}`);
+  }
+  if (typeof (midtermStrategy as any).growthStrategy === 'string' && (midtermStrategy as any).growthStrategy?.trim()) {
+    lines.push(`・成長戦略: ${sanitizeText((midtermStrategy as any).growthStrategy, 200)}`);
+  }
+  if (typeof (midtermStrategy as any).profitImprovementStrategy === 'string' && (midtermStrategy as any).profitImprovementStrategy?.trim()) {
+    lines.push(`・収益改善戦略: ${sanitizeText((midtermStrategy as any).profitImprovementStrategy, 200)}`);
+  }
+  if (typeof (midtermStrategy as any).portfolioPolicy === 'string' && (midtermStrategy as any).portfolioPolicy?.trim()) {
+    lines.push(`・事業ポートフォリオ方針: ${sanitizeText((midtermStrategy as any).portfolioPolicy, 200)}`);
+  }
+  if (Array.isArray((midtermStrategy as any).companyWideDecisionCriteria) && (midtermStrategy as any).companyWideDecisionCriteria.length > 0) {
+    lines.push(`・全社共通の判断基準: ${((midtermStrategy as any).companyWideDecisionCriteria as string[]).map((c) => sanitizeText(c, 100)).join('、')}`);
+  }
+  if (Array.isArray((midtermStrategy as any).deploymentPrinciplesForUnits) && (midtermStrategy as any).deploymentPrinciplesForUnits.length > 0) {
+    lines.push(`・事業・部門へ展開する基本軸: ${((midtermStrategy as any).deploymentPrinciplesForUnits as string[]).map((p) => sanitizeText(p, 100)).join('、')}`);
+  }
+  if (Array.isArray((midtermStrategy as any).managementMeetingIssues) && (midtermStrategy as any).managementMeetingIssues.length > 0) {
+    lines.push(`・経営会議で確認すべき論点: ${((midtermStrategy as any).managementMeetingIssues as string[]).map((i) => sanitizeText(i, 100)).join('、')}`);
+  }
+  if (lines.length === 0) return '（中計設計未生成）';
+  return lines.join('\n');
+})()}
+
+上記の全社戦略・中計設計は、各事業・部門の戦略を生成する際の上位判断軸です。
+
+各事業・部門について、STAGE1の事業・部門情報と、上記の全社戦略・中計設計を照らし合わせて、中計上の役割、重点テーマ、KPI案、連携論点、認識のズレが起きやすいポイントを整理してください。
+
+ただし、根拠が不足する場合は創作せず、該当項目を省略してください。
 
 【部門文脈（Ver4準拠）】
 ${deptBlocks}
@@ -3731,7 +3863,11 @@ ${
       "interDeptCollab": ["事業部間連携を具体化して記載（例：A事業部×B事業部：半導体企業向け新用途について、A事業部が市場要求を整理し、B事業部が既存技術を転用して、共同試作テーマを立ち上げる）"],
       "stopList": ["やめる/諦める項目（KRには含めない）"],
       "first90Days": ["最初の90日でやること（週/マイルストン粒度）"],
-      "riskNotes": ["主要リスクと対処の一言"]
+      "riskNotes": ["主要リスクと対処の一言"],
+      "currentPosition": "この部門の現在の位置づけ（1〜2文・任意。根拠不足なら省略）",
+      "strategicRole": "中期経営計画におけるこの部門の役割（1〜2文・任意。根拠不足なら省略）",
+      "keyIssues": ["主要課題（2〜4個・任意。根拠不足なら省略）"],
+      "alignmentRiskPoints": ["経営と現場で認識のズレが起きやすいポイント（1〜3個・任意。根拠不足なら省略）"]
     }
   ]
 }
@@ -5556,6 +5692,21 @@ ${secondPassDeptBlock}
                 stopList: trimList(d?.stopList, 6),
                 first90Days: trimList(d?.first90Days, 8),
                 riskNotes: trimList(d?.riskNotes, 6),
+
+                // ★STEP5拡張：事業・部門別戦略の観点（LLMが返した場合のみ付与。
+                // 未出力時はキー自体を含めず、既存データ・既存UIへの影響をゼロにする）
+                ...(typeof d?.currentPosition === 'string' && d.currentPosition.trim()
+                  ? { currentPosition: stripInternalMarkers(d.currentPosition.trim()) }
+                  : {}),
+                ...(typeof d?.strategicRole === 'string' && d.strategicRole.trim()
+                  ? { strategicRole: stripInternalMarkers(d.strategicRole.trim()) }
+                  : {}),
+                ...(trimList(d?.keyIssues, 6).length > 0
+                  ? { keyIssues: trimList(d?.keyIssues, 6).map(stripInternalMarkers) }
+                  : {}),
+                ...(trimList(d?.alignmentRiskPoints, 6).length > 0
+                  ? { alignmentRiskPoints: trimList(d?.alignmentRiskPoints, 6).map(stripInternalMarkers) }
+                  : {}),
               };
             })
             .filter(Boolean);
