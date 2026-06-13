@@ -909,13 +909,44 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
 
   // ★ STAGE2：AI生成の機会と脅威候補（swotSuggestions）
   // 形式: { opportunity?: string[], threat?: string[], generatedAt?: string }
-  const swotSuggestions = src.swotSuggestions && typeof src.swotSuggestions === 'object' && !Array.isArray(src.swotSuggestions)
+  const swotSuggestionsSrc = src.swotSuggestions ?? src.swot_suggestions;
+  const swotSuggestions = swotSuggestionsSrc && typeof swotSuggestionsSrc === 'object' && !Array.isArray(swotSuggestionsSrc)
     ? {
-        opportunity: Array.isArray((src.swotSuggestions as any).opportunity) ? (src.swotSuggestions as any).opportunity : undefined,
-        threat: Array.isArray((src.swotSuggestions as any).threat) ? (src.swotSuggestions as any).threat : undefined,
-        generatedAt: typeof (src.swotSuggestions as any).generatedAt === 'string' ? (src.swotSuggestions as any).generatedAt : undefined,
+        opportunity: Array.isArray((swotSuggestionsSrc as any).opportunity) ? (swotSuggestionsSrc as any).opportunity : undefined,
+        threat: Array.isArray((swotSuggestionsSrc as any).threat) ? (swotSuggestionsSrc as any).threat : undefined,
+        generatedAt: typeof (swotSuggestionsSrc as any).generatedAt === 'string' ? (swotSuggestionsSrc as any).generatedAt : undefined,
       }
     : undefined;
+
+  // ★ STAGE2：中計設計（midtermStrategy）の展開
+  // - 保存時は swot_suggestions（JSONB）内に `midtermStrategy` キーとしてパックされている
+  //   （buildDbRowFromState 参照）。localStorage スナップショット等ではトップレベルに存在する
+  // - どちらの形でも拾い、トップレベル out.midtermStrategy へ展開する（normalize で落とさない）
+  const midtermStrategy = (() => {
+    const raw =
+      (src as any).midtermStrategy ??
+      (swotSuggestionsSrc && typeof swotSuggestionsSrc === 'object' && !Array.isArray(swotSuggestionsSrc)
+        ? (swotSuggestionsSrc as any).midtermStrategy
+        : undefined);
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+    const str = (v: any) => (typeof v === 'string' && v.trim() ? v : undefined);
+    const strArr = (v: any) =>
+      Array.isArray(v) && v.filter((x) => typeof x === 'string' && x.trim()).length > 0
+        ? v.filter((x: any) => typeof x === 'string' && x.trim())
+        : undefined;
+    const m = {
+      midtermConcept: str(raw.midtermConcept),
+      targetVisionForMidterm: str(raw.targetVisionForMidterm),
+      priorityStrategicThemes: strArr(raw.priorityStrategicThemes),
+      growthStrategy: str(raw.growthStrategy),
+      profitImprovementStrategy: str(raw.profitImprovementStrategy),
+      portfolioPolicy: str(raw.portfolioPolicy),
+      companyWideDecisionCriteria: strArr(raw.companyWideDecisionCriteria),
+      deploymentPrinciplesForUnits: strArr(raw.deploymentPrinciplesForUnits),
+      managementMeetingIssues: strArr(raw.managementMeetingIssues),
+    };
+    return Object.values(m).some((v) => v !== undefined) ? m : undefined;
+  })();
 
   const out: StrategyData = {
     id: src.id,
@@ -997,6 +1028,7 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     ...(finalStoryEdited !== undefined ? { finalStoryEdited } : {}),
     ...(finalStoryFinal !== undefined ? { finalStoryFinal } : {}),
     ...(swotSuggestions !== undefined ? { swotSuggestions } : {}),  // ★ 修正：swotSuggestions を出力に含める
+    ...(midtermStrategy !== undefined ? { midtermStrategy } : {}),  // ★ STAGE2 中計設計（パック格納から展開）
 
     ...(csvFinanceData !== undefined ? { csvFinanceData } : {}),
     ...(financePL !== undefined ? { financePL } : {}),
