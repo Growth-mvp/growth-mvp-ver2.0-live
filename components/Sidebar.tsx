@@ -158,13 +158,13 @@ export default function Sidebar() {
             <PillLink
               href="/stage2"
               icon={<BookOpen size={18} strokeWidth={1.5} />}
-              label="STAGE 2：経営戦略策定"
+              label="STAGE 2：全社戦略"
               active={isActive('/stage2')}
             />
             <PillLink
               href="/cascade"
               icon={<Share size={18} strokeWidth={1.5} />}
-              label="STAGE 3：部門戦略策定"
+              label="STAGE 3：事業・部門別戦略"
               active={isActive('/cascade')}
             />
             <PillLink
@@ -196,6 +196,16 @@ export default function Sidebar() {
               icon={<UsersRound size={18} strokeWidth={1.5} />}
               label="組織変革・全社すり合わせルーム"
               active={isActive('/org-transformation/shared')}
+            />
+
+            <div className="h-px bg-gray-200/50 my-4" />
+
+            {/* ★STEP9: 出力・レポート */}
+            <PillLink
+              href="/report/midterm-plan"
+              icon={<FileText size={18} strokeWidth={1.5} />}
+              label="中計戦略書"
+              active={isActive('/report/midterm-plan')}
             />
 
             <div className="h-px bg-gray-200/50 my-4" />
