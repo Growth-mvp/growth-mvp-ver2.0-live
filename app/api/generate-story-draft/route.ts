@@ -1,306 +1,95 @@
-// /app/api/generate-story-draft/route.ts
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import 'server-only';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
+import { openai } from '@/lib/openai';
+import { getIndustryLabel as _getIndustryLabel } from '@/utils/industryTemplates';
+import { saveFinalStory } from '@/utils/supabase';
+import type { ChatCompletionCreateParamsNonStreaming } from 'openai/resources/chat/completions';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 
-// ★ 追加：勝ちパターン辞書
-import { topPatterns } from '@/lib/strategyPatterns.top';
-import { mapTopToWin } from '@/lib/strategyPatterns.map';
-import { buildWinPatternsFromIds } from '@/lib/winPatterns';
-import type { WinPattern } from '@/types/strategy';
+/* =========================
+ * モデル選択（簡素化）
+ * =======================*/
+const MODEL_PRIMARY =
+  process.env.OPENAI_MODEL ?? process.env.NEXT_PUBLIC_OPENAI_MODEL ?? 'gpt-4o';
+const MODEL_FALLBACK = 'gpt-4o-mini';
+const SUPPORTS_JSON_MODE = /^gpt-4o($|-)/;
 
-/**
- * 出力は常に { story: {title, body}[] }（最低4章に満たす）
- * 章タイトルは固定テンプレで上書きして順序を安定化。
- */
+/* =========================
+ * 勝ちパターン10選（④連携）
+ * =======================*/
+type WinningPatternKey =
+  | 'priceLeader'
+  | 'categoryKing'
+  | 'nicheDomination'
+  | 'platformPlay'
+  | 'subscriptionMoat'
+  | 'manufacturingKaizen'
+  | 'serviceDelight'
+  | 'dataNetwork'
+  | 'brandTrust'
+  | 'speedOperator';
 
-// ---- OpenAI ----
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-
-// ---- モデルの安全選択（環境変数が変でも既定に落とす）----
-const ALLOW_MODELS = new Set<string>([
-  'gpt-4o-mini',
-  'gpt-4o',
-  'gpt-4o-mini-2024-07-18',
-  'gpt-4o-2024-08-06',
-]);
-function pickSafeModel() {
-  const envModel =
-    process.env.OPENAI_MODEL || process.env.NEXT_PUBLIC_OPENAI_MODEL || '';
-  return ALLOW_MODELS.has(envModel) ? envModel : 'gpt-4o-mini';
-}
-
-// ✅ 見出しテンプレ（固定）
+/* =========================
+ * 見出し（固定）
+ * =======================*/
+const SIMPLE_HEADS = ['なぜ今', 'どう戦う', 'どんな未来', 'どう実行に落とすか'] as const;
 const TITLE_TEMPLATES = [
-  '第1章：なぜ今（現状）',
-  '第2章：どう戦う（戦略）',
-  '第3章：どんな未来像（会社の未来像）',
-  '第4章：どう行動する（行動）',
+  '第1章：なぜ今',
+  '第2章：どう戦う',
+  '第3章：どんな未来',
+  '第4章：どう実行に落とすか',
 ] as const;
 
-// ✅ 各章のゴール（legacy / future で切替）
-const CHAPTER_GOALS_LEGACY = [
-  '現状：財務・市場・事業環境から、なぜ今戦略を見直す必要があるのかを自然文で示す。論点リストはUI側で表示するため本文で再掲しない。',
-  '戦略：成長領域、顧客価値、製品・市場・チャネル、投資・資源配分、見直すことを整理する。90日施策や人材施策を主役にしない。',
-  '未来像：戦略が実現した場合に、顧客・事業・市場評価・企業価値がどう変わるかを具体的に描く。数値は入力値のみ使う。',
-  '行動：最初に検証・設計すべき経営アクションを示す。市場検証、製品ポートフォリオ、投資基準、資本市場への説明を中心にする。',
-] as const;
-
-const CHAPTER_GOALS_FUTURE = [
-  '現状：財務・市場・事業環境から、なぜ今戦略を見直す必要があるのかを自然文で示す。論点リストはUI側で表示するため本文で再掲しない。',
-  '戦略：成長領域、顧客価値、製品・市場・チャネル、投資・資源配分、見直すことを整理する。90日施策や人材施策を主役にしない。',
-  '未来像：戦略が実現した場合に、顧客・事業・市場評価・企業価値がどう変わるかを具体的に描く。数値は入力値のみ使う。',
-  '行動：最初に検証・設計すべき経営アクションを示す。市場検証、製品ポートフォリオ、投資基準、資本市場への説明を中心にする。',
-] as const;
-
-/** 未入力は空文字に。JSON.stringifyは使わない */
-function sanitize(text: any, max = 2400): string {
-  const s =
-    text === null || text === undefined
-      ? ''
-      : typeof text === 'string'
-      ? text
-      : String(text);
+/* =========================
+ * Utils（必要最小限）
+ * =======================*/
+function sanitize(text: unknown, max = 4000): string {
+  const s = text == null ? '' : typeof text === 'string' ? text : String(text);
   return s.replace(/\u0000/g, '').replace(/\s+$/g, '').slice(0, max);
 }
-
-
-/** オブジェクト形式/トップレベル形式の両方から文字列を安全に拾う */
-function pickText(...values: any[]): string {
+function asRecord(v: unknown): Record<string, unknown> {
+  return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+}
+function asText(v: unknown, max = 4000): string {
+  return sanitize(v, max).trim();
+}
+function asArray<T = unknown>(v: unknown): T[] {
+  return Array.isArray(v) ? (v as T[]) : [];
+}
+function pickFirstText(...values: unknown[]): string {
   for (const v of values) {
-    const s = sanitize(v, 2000).trim();
-    if (s) return s;
+    const t = asText(v);
+    if (t) return t;
   }
   return '';
 }
-
-/** たたき台ストーリー用には、人材・鼓舞・不適切表現を入力素材から弱める */
-function removePeopleRelatedNoise(text: string, max = 2400): string {
-  if (!text) return '';
-  let out = sanitize(text, max);
-
-  // センシティブ/不適切な断片は最優先で除去
-  out = out
-    .replace(/生産性\s*の?\s*低い\s*高齢層/g, '')
-    .replace(/高齢層/g, '')
-    .replace(/社員が育っていない/g, '')
-    .replace(/人材挑戦し高めあう文化/g, '')
-    .replace(/あなたたちには無限の可能性があります/g, '')
-    .replace(/ついて来てください/g, '');
-
-  // 人材・採用・育成を含む短い文/箇条書きを、たたき台生成用素材から除去
-  const ng = /(採用|育成|人材|社員教育|能力開発|研修|人員|組織風土|企業文化|社員一人ひとり|自分で決める|速く試す|学びを翌週反映|仲間|全力|賭け|必ず成功|信念|誇り)/;
-  out = out
-    .split(/(?<=[。！？\n])/)
-    .filter((part) => !ng.test(part))
-    .join('')
-    .replace(/（\s*人\s*[・,、/]\s*/g, '（')
-    .replace(/採用\s*[\/・、,]?\s*育成[、,]?/g, '')
-    .replace(/人\s*[・,、/]\s*/g, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-
-  return out;
+function normalizeNewlines(s = ''): string {
+  return s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 }
-
-/** 出力本文に混入した不要語を最終ガードで除去・置換 */
-function cleanDraftStoryBody(text: string): string {
-  if (!text) return text;
-  let out = sanitize(text, 2400);
-
-  // 論点一覧/サマリ混入を除去
-  out = stripRedundantIssueSummary(out);
-  out = out
-    .replace(/論点サマリ[ー]?\s*[:：][\s\S]*?(?=\n\n|これらの論点|私たち|当社|我々|$)/g, '')
-    .replace(/論点（STAGE1分析より）[\s\S]*?(?=\n\n|これらの論点|私たち|当社|我々|$)/g, '')
-    .replace(/最大5件表示\s*/g, '')
-    .replace(/論点ID\s*[:：]?\s*[^\n。]*/g, '');
-
-  // 人材関連・鼓舞表現を抑制
-  const replacements: Array<[RegExp, string]> = [
-    [/採用プロセス(?:の)?見直し/g, '事業上のボトルネックの見直し'],
-    [/採用・育成プログラム(?:の)?強化/g, '事業基盤の強化'],
-    [/育成プログラム(?:の)?強化/g, '事業基盤の強化'],
-    [/技術革新を推進するための人材育成/g, '技術革新を支える製品開発と事業運営の仕組みづくり'],
-    [/人材育成/g, '事業基盤の強化'],
-    [/人材不足/g, '実行上の制約'],
-    [/人材確保/g, '実行体制の確保'],
-    [/人材/g, '体制'],
-    [/育成/g, '強化'],
-    [/社員教育|能力開発|研修/g, '体制整備'],
-    [/賭け/g, '判断'],
-    [/全力で取り組みます/g, '責任を持って進めます'],
-    [/必ず成功(?:へ導いてみせます|します)?/g, '実現可能性を高めます'],
-    [/一緒に(?:この挑戦に)?立ち向かいましょう/g, 'この方向性を共有して進めます'],
-    [/一緒に乗り越えていきましょう/g, '着実に乗り越えていきます'],
-    [/あなたたち/g, '皆さん'],
-  ];
-  for (const [from, to] of replacements) out = out.replace(from, to);
-
-  // センシティブな文を丸ごと除去
-  out = out
-    .split(/(?<=[。！？\n])/)
-    .filter((part) => !/(生産性\s*の?\s*低い\s*高齢層|高齢層|社員が育っていない|無限の可能性)/.test(part))
-    .join('')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-  return out;
-}
-
-function containsPeopleCentering(text: string): boolean {
-  const hits = (text.match(/採用|育成|人材|社員教育|能力開発|研修|人材不足|社員一人ひとり|自分で決める|速く試す|学びを翌週反映/g) || []).length;
-  return hits >= 2;
-}
-
-function defaultStrategyChapter(companyTargetText = ''): string {
-  const target = companyTargetText
-    ? `\n\n目標数値は、この戦略の結果として確認する到達点です。${companyTargetText.replace(/【[^】]+】\n?/g, '')}`
-    : '';
-  return [
-    '私たちの戦い方は、三つの軸で整理できます。第一に、成長が見込める事業領域へ資源を集中し、既存の延長だけに頼らない収益基盤をつくることです。エンバイロメント、デジタルソサエティ、エネルギー＆インダストリーのような領域では、顧客課題の変化を捉え、当社の技術を新しい用途へ広げる必要があります。',
-    '第二に、顧客ニーズを起点に製品・サービスの価値を磨き直すことです。ROICが資本コストを上回っている状態を維持するには、売上を追うだけでなく、どの顧客、どの製品、どのチャネルで価値を生むのかを選び直す必要があります。',
-    '第三に、財務余力を成長投資に振り向ける判断基準を明確にすることです。短期の利益だけでなく、中長期の収益基盤をつくる投資に資源を配分し、同時に優先度の低い取り組みは見直します。PBRなどの市場評価に対しては、単なる説明強化ではなく、成長領域、資本効率、投資基準、収益性の再現性を示すことで改善の道筋をつくります。' + target,
-  ].join('\n\n');
-}
-
-function buildCompanyTargetDigest(targets: any): string {
-  const arr = Array.isArray(targets) ? targets : [];
-  if (!arr.length) return '';
-  const lines = arr.slice(0, 6).map((t: any) => {
-    const label = sanitize(t?.label ?? t?.name ?? t?.metric ?? t?.title ?? '目標', 80);
-    const year = sanitize(t?.dueYear ?? t?.targetYear ?? t?.year ?? t?.deadline ?? '', 40);
-    const unit = sanitize(t?.unit ?? '', 40);
-    const value = t?.target ?? t?.value ?? t?.amount ?? t?.targetValue ?? '';
-    const num = Number(String(value).replace(/,/g, ''));
-    let valueText = sanitize(value, 80);
-    if (Number.isFinite(num) && unit.includes('百万円')) {
-      valueText = `${Math.round(num / 100)}億円`;
-    } else if (Number.isFinite(num) && unit) {
-      valueText = `${valueText}${unit}`;
-    }
-    return `・${year ? `${year}年度 ` : ''}${label}: ${valueText}`;
-  });
-  return `【業績目標（入力値を優先。年度・数値は変更しない）】\n${lines.join('\n')}`;
-}
-
-
-/** STAGE1の選択論点を、本文にコピーされにくい「戦略シグナル」へ圧縮する */
-function buildStrategySignalDigest(body: any): string {
-  const src = Array.isArray(body?.issueBlocks)
-    ? body.issueBlocks
-    : Array.isArray(body?.issues)
-    ? body.issues
-    : Array.isArray(body?.metricsSummary?.issues)
-    ? body.metricsSummary.issues
-    : [];
-  if (!src.length) return '';
-
-  const ng = /(採用|育成|人材|社員教育|能力開発|研修|高齢層|社員一人ひとり|自分で決める|速く試す|学びを翌週反映)/;
-  const lines: string[] = [];
-  for (const it of src.slice(0, 6)) {
-    const title = sanitize(it?.title ?? it?.name ?? it?.label ?? '', 80);
-    const desc = sanitize(it?.description ?? it?.summary ?? it?.body ?? it?.text ?? '', 220);
-    const metric = sanitize(
-      Array.isArray(it?.linkedMetrics)
-        ? it.linkedMetrics.join(' / ')
-        : it?.metric ?? it?.metrics ?? it?.evidence ?? '',
-      120,
-    );
-    const raw = [title, desc, metric].filter(Boolean).join('。');
-    const cleaned = removePeopleRelatedNoise(raw, 260);
-    if (!cleaned || ng.test(cleaned)) continue;
-
-    let hint = '';
-    const lower = cleaned.toLowerCase();
-    if (/pbr|市場評価/.test(lower)) hint = '市場から見た成長性・資本効率への懸念を解消する必要がある';
-    else if (/roic|wacc|価値創造|再投資/.test(lower)) hint = '価値を生んでいる領域を見極め、再投資先を選ぶ必要がある';
-    else if (/d\/e|財務余力|資本政策|投資基準/.test(lower)) hint = '財務余力を活かす投資基準と優先順位を明確にする必要がある';
-    else if (/営業利益率|収益性|利益率/.test(lower)) hint = '高収益の源泉を分解し、他領域でも再現する必要がある';
-    else if (/成長|cagr|売上/.test(lower)) hint = '成長を支える市場・製品・チャネルを見直す必要がある';
-    else hint = cleaned;
-
-    if (!lines.includes(`・${hint}`)) lines.push(`・${hint}`);
+function safeSerialize(v: unknown): unknown {
+  try {
+    return JSON.parse(JSON.stringify(v));
+  } catch {
+    return String(v);
   }
-
-  if (!lines.length) return '';
-  return `【戦略シグナル（本文に一覧として再掲せず、自然文に織り込む）】\n${lines.slice(0, 5).join('\n')}`;
 }
-
-/** 第2章のメモ調フォーマットと90日アクション混入を抑える */
-function cleanStrategyChapter(text: string, targetDigest = ''): string {
-  if (!text) return text;
-  const raw = sanitize(text, 2400);
-  const memoLike = /狙う価値ドライバー|主要戦略|90日アクション|根拠（SWOT）|トレードオフ|^\s*\d+\)\s*/m.test(raw);
-
-  // たたき台として自然文にしたいため、AIが分析メモ形式で返した場合は
-  // 中途半端に整形せず、戦略章の安全版へ差し替える。
-  if (memoLike) {
-    return defaultStrategyChapter(targetDigest);
-  }
-
-  let out = cleanDraftStoryBody(text);
-  out = out
-    .replace(/^\s*\d+\)\s*狙う価値ドライバー[:：].*$/gm, '')
-    .replace(/^\s*主要戦略[:：]\s*/gm, '')
-    .replace(/^\s*[-・]?\s*90日アクション[:：].*$/gm, '')
-    .replace(/^\s*根拠（SWOT）[:：].*$/gm, '')
-    .replace(/^\s*トレードオフ[:：]\s*/gm, '留意点として、')
-    .replace(/短期的なリターンを重視したプロジェクトに資源を集中させる/g, '短期の収益性と中長期の成長可能性を分けて評価し、資源配分の優先順位を明確にする')
-    .replace(/短期的なリターンを重視/g, '短期の収益性と中長期の成長可能性を両立')
-    .replace(/広報戦略を策定し、投資家向けの説明会を実施する/g, '成長領域、資本効率、投資基準、収益性の再現性を説明できる状態にする')
-    .replace(/広報戦略/g, '企業価値向上ストーリー')
-    .replace(/投資家向けの説明会/g, '資本市場への説明')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-
-  // まだメモ形式・90日施策・人材中心が残る場合は安全な戦略章に差し替え
-  if (
-    containsPeopleCentering(out) ||
-    /90日アクション|採用|育成|人材|社員教育|研修|能力開発/.test(out) ||
-    (/狙う価値ドライバー/.test(out) && /主要戦略/.test(out))
-  ) {
-    return defaultStrategyChapter(targetDigest);
-  }
-  return out;
+function safeGetIndustryLabel(code: string, opts?: { full?: boolean }): string {
+  try {
+      if (typeof _getIndustryLabel === 'function') return _getIndustryLabel(code, opts);
+  } catch {}
+  return code || '—';
 }
-
-/** 第4章の行動を、90日アクション中心かつ人材抜きに整える */
-function cleanActionChapter(text: string): string {
-  if (!text) return text;
-  let out = cleanDraftStoryBody(text);
-  out = out
-    .replace(/Value（行動原則）に沿った実行ルールとして、[^。]*?(?:人材|体制)[^。]*。?/g, '')
-    .replace(/Valueに沿った実行ルールとして、[^。]*?(?:人材|体制)[^。]*。?/g, '')
-    .replace(/具体的には、?(?:人材|体制)、製品、経営の3要素[^。]*。?/g, '')
-    .replace(/(?:人材|体制)、製品、経営の3要素を重視[^。]*。?/g, '')
-    .replace(/品格と向上心を持つ.*?(?:重要である|求められる)。?/g, '')
-    .replace(/採用[^。\n]*[。\n]?/g, '')
-    .replace(/育成[^。\n]*[。\n]?/g, '')
-    .replace(/人材[^。\n]*[。\n]?/g, '')
-    .replace(/体制[^。\n]*(?:製品|経営)[^。\n]*[。\n]?/g, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-  if (/採用|育成|人材|社員教育|研修|能力開発|人材、製品、経営|体制、製品、経営/.test(out) || out.length < 80) {
-    out = [
-      '最初の90日では、三つの確認から始めます。第一に、成長市場や新興市場について、顧客課題、競合、価格水準、参入障壁を整理し、どの市場を優先するかを明確にします。',
-      '第二に、既存の製品ポートフォリオを見直し、どの製品・用途・チャネルに資源を寄せるべきかを検討します。第三に、投資基準を整理し、短期収益と中長期成長のどちらを狙う投資なのかを区別して判断できる状態をつくります。',
-      'これらの検討結果をもとに、次の段階で各部門の戦略と実行計画へ落とし込みます。',
-    ].join('\n\n');
-  }
-  return out;
-}
-
-/** ざっくりJSON抽出: json_object / ```json / 最初の {...} / 配列トップレベルにも対応 */
-function extractJsonLoose(raw: string): any | null {
+function extractJsonLoose<T = any>(raw: string): T | null {
   if (!raw) return null;
   const tryParse = (s: string) => {
     try {
-      return JSON.parse(s);
+      return JSON.parse(s) as T;
     } catch {
       return null;
     }
@@ -310,363 +99,979 @@ function extractJsonLoose(raw: string): any | null {
   const fence = raw.match(/```json\s*([\s\S]*?)```/i);
   if (fence?.[1]) {
     const j = tryParse(fence[1]);
-    if (j && (typeof j === 'object' || Array.isArray(j))) return j;
+    if (j) return j;
   }
   const obj = raw.match(/\{[\s\S]*\}/);
   if (obj?.[0]) {
     const j = tryParse(obj[0]);
-    if (j && typeof j === 'object') return j;
+    if (j) return j;
   }
   const arr = raw.match(/\[[\s\S]*\]/);
   if (arr?.[0]) {
     const j = tryParse(arr[0]);
-    if (Array.isArray(j)) return j;
+    if (j) return j;
   }
   return null;
 }
 
-/**
- * 第1章本文に混入した「論点サマリー」ブロックを完全に除去する
- * - 見出し型 + 箇条書き（既存対応）
- * - 文章型「当社の課題と論点」「論点1/2/3」（新規対応）
- * - 本文先頭〜1200文字に限定、削除後は空なら元を返す（安全弁）
- */
-function stripRedundantIssueSummary(body: string): string {
-  if (!body || body.length < 5) return body;
+/** 日本語テキストの余計な半角スペースを整理 */
+function tidyJa(s: string): string {
+  if (!s) return s;
+  let out = s;
+  // 漢字・ひらがな・カタカナ間の半角スペースを除去
+  out = out.replace(
+    /([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}])[ ]+([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}])/gu,
+    '$1$2',
+  );
+  // 記号前後の余計なスペース
+  out = out.replace(/([、。％%！!？?」』）)＞>])[ ]+/gu, '$1');
+  out = out.replace(/[ ]+([、。％%！!？?」』）)＞>])/gu, '$1');
+  // 数字と％を詰める
+  out = out.replace(/(\d)[ ]+％/g, '$1％');
+  // 連続スペース縮約
+  out = out.replace(/[ ]{2,}/g, ' ');
+  return out;
+}
 
-  // 先頭1200文字を処理対象に（それ以降を退避）
-  const checkLength = Math.min(1200, body.length);
-  const head = body.substring(0, checkLength);
-  const tail = body.substring(checkLength);
+/* =========================
+ * 財務ミニ要約（スリム版）
+ * =======================*/
+type FinanceRow = Record<string, unknown>;
+type Trend = 'up' | 'flat' | 'down' | null;
 
-  let processed = head;
+function tryParseJsonLocal<T = any>(text: string): T | null {
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
 
-  // パターン群：複数のバリエーションを順番に除去
-  const patterns: RegExp[] = [
-    // 1. 見出しキーワード + 箇条書き
-    /^\s*(?:当社の課題と論点|論点サマリー|主要論点|論点|課題|現状の論点|現状|サマリー|ポイント)\s*[:：]?\s*[\n]*(?:\s*(?:[-*・]|[0-9]+\.|[①②③④⑤⑥⑦⑧⑨⑩])\s+.+(?:\n|$)){2,10}/m,
+function coerceFinanceArray(src: unknown): FinanceRow[] | undefined {
+  if (Array.isArray(src)) return src as FinanceRow[];
+  if (typeof src !== 'string') return undefined;
+  const j = tryParseJsonLocal(src);
+  if (Array.isArray(j)) return j as FinanceRow[];
+  const lines = src.trim().split(/\r?\n/).filter(Boolean);
+  if (lines.length < 2) return undefined;
+  const headers = lines[0].split(',').map((h) => h.trim()).filter(Boolean);
+  if (!headers.length) return undefined;
+  const rows = lines.slice(1).map((ln) => {
+    const cols = ln.split(',');
+    const obj: Record<string, string> = {};
+    headers.forEach((h, i) => {
+      obj[h] = (cols[i] ?? '').trim();
+    });
+    return obj as FinanceRow;
+  });
+  return rows;
+}
+function toNum(v: unknown): number | null {
+  if (v == null) return null;
+  const s = String(v).replace(/[,\s％%]/g, '');
+  if (!s || s.toLowerCase() === 'nan' || s.toLowerCase() === 'null') return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+function normKey(k: string): string {
+  return k.toLowerCase().replace(/\s+|[_\-（）()]/g, '');
+}
+function pickField(row: FinanceRow, keys: string[]): number | null {
+  const map = new Map<string, string>();
+  for (const kk of Object.keys(row)) map.set(normKey(kk), kk);
+  for (const k of keys) {
+    const found = map.get(normKey(k));
+    if (found) {
+      const n = toNum((row as any)[found]);
+      if (n != null) return n;
+    }
+  }
+  for (const k of keys) {
+    const nk = normKey(k);
+    const maybe = [...map.keys()].find((kk) => kk.startsWith(nk));
+    if (maybe) {
+      const orig = map.get(maybe)!;
+      const n = toNum((row as any)[orig]);
+      if (n != null) return n;
+    }
+  }
+  return null;
+}
+function getYear(row: FinanceRow): number | null {
+  const keys = ['year', '年度', '決算年度', '会計年度', 'fiscalyear', '期'];
+  for (const k of keys) {
+    const m = Object.keys(row).find((kk) => normKey(kk) === normKey(k));
+    if (m) {
+      const val = (row as any)[m];
+      const y = String(val).match(/(20\d{2}|19\d{2})/);
+      if (y) return Number(y[1]);
+      const n = toNum(val);
+      if (n != null) return n;
+    }
+  }
+  for (const v of Object.values(row))
+    if (typeof v === 'string') {
+      const y = v.match(/(20\d{2}|19\d{2})/);
+      if (y) return Number(y[1]);
+    }
+  return null;
+}
+type FinanceSummary = {
+  rowsUsed: number;
+  latestYear?: number;
+  latestSales?: number;
+  latestOpMargin?: number | null;
+  revCagrPct?: number | null;
+  trend?: Trend;
+};
+function buildFinanceSummary(csvFinanceData: unknown): FinanceSummary | null {
+  const arr =
+    coerceFinanceArray(csvFinanceData) ??
+    (Array.isArray(csvFinanceData) ? (csvFinanceData as FinanceRow[]) : undefined);
+  if (!Array.isArray(arr) || arr.length === 0) return null;
 
-    // 2. 「論点1」「課題1」などの構造化列挙パターン
-    // 例：「論点1:」「論点2:」「課題3:」「課題①」など、複数行続く
-    /^(?:\s*(?:論点|課題|ポイント|要点|主要課題)\s*[0-9０-９一二三四五六七八九十①-⑩]+\s*[:：]\s*.+(?:\n|$)){2,6}/m,
+  const normalized = arr
+    .map((r) => {
+      const year = getYear(r);
+      const sales =
+        pickField(r, ['sales', 'revenue', '売上', '売上高', '売上(百万円)', '売上高(百万円)']) ??
+        (pickField(r, ['売上高(万円)', '売上(万円)']) != null
+          ? ((pickField(r, ['売上高(万円)', '売上(万円)']) as number) ?? 0) * 0.1
+          : null);
+      const opProfit = pickField(r, ['operatingprofit', '営業利益', '営業利益(百万円)']);
+      let opMargin = pickField(r, ['operatingmargin', '営業利益率']);
+      if (opMargin == null && opProfit != null && sales != null && sales !== 0) {
+        opMargin = (opProfit / sales) * 100;
+      }
+      return { year, sales, opMargin };
+    })
+    .filter((x) => x.year != null || x.sales != null);
 
-    // 3. 「当社の課題と論点」という見出し + 続くテキスト（改行含む、最大10行）
-    /^【?当社の課題と論点】?\s*[\n]*(?:^.*$\n?){0,10}/m,
+  if (normalized.length === 0) return null;
 
-    // 4. 見出し無し、箇条書きのみ（冒頭から2〜6行連続）
-    /^(?:\s*(?:[-*・]|[0-9]+\.|[①②③④⑤⑥⑦⑧⑨⑩])\s+.+(?:\n|$)){2,6}/m,
-  ];
+  normalized.sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
+  const latest = normalized[0];
 
-  for (const pattern of patterns) {
-    const matched = processed.match(pattern);
-    if (matched) {
-      processed = processed.replace(pattern, '');
+  const revPoints = normalized
+    .filter((r) => r.year != null && r.sales != null)
+    .slice()
+    .sort((a, b) => (a.year as number) - (b.year as number));
+
+  let revCagrPct: number | null = null;
+  if (revPoints.length >= 2) {
+    const first = revPoints[0];
+    const last = revPoints[revPoints.length - 1];
+    const years = (last.year! - first.year!) || 1;
+    if ((first.sales! as number) > 0 && years > 0) {
+      const cagr = Math.pow((last.sales! as number) / (first.sales! as number), 1 / years) - 1;
+      revCagrPct = cagr * 100;
     }
   }
 
-  // 先頭の空白・改行を削除し、後半部分と再結合
-  const trimmed = processed.trim();
-
-  // 削除後に内容が完全に空になった場合は元を返す（安全弁）
-  if (!trimmed && processed.length < checkLength * 0.5) {
-    return body;
+  let trend: Trend = null;
+  if (revPoints.length >= 2) {
+    const diffs = revPoints
+      .slice(1)
+      .map((p, i) => (p.sales! as number) - (revPoints[i].sales! as number));
+    const up = diffs.every((d) => d >= 0);
+    const down = diffs.every((d) => d <= 0);
+    trend = up ? 'up' : down ? 'down' : 'flat';
   }
 
-  return tail ? (trimmed ? trimmed + '\n' + tail : tail).trim() : trimmed;
+  return {
+    rowsUsed: arr.length,
+    latestYear: latest.year ?? undefined,
+    latestSales: latest.sales ?? undefined,
+    latestOpMargin: latest.opMargin ?? null,
+    revCagrPct,
+    trend,
+  };
 }
 
-/** 任意のJSONから章配列を抽出・正規化 */
-function coerceChapters(parsed: any): Array<{ title?: string; body?: string }> {
-  if (!parsed) return [];
-  const candidates: any[] = [];
-  const pushIfArray = (v: any) => {
-    if (Array.isArray(v)) candidates.push(v);
-  };
+/* =========================
+ * Q&A（12問：質問＋回答を引用）
+ * =======================*/
+type AnswerStep = { stepNumber: number; question: string; reason: string; answer: string };
+type ChapterAnswers = { chapterIndex: number; chapterTitle: string; steps: AnswerStep[] };
 
-  if (Array.isArray(parsed)) candidates.push(parsed);
-  if (parsed && typeof parsed === 'object') {
-    pushIfArray(parsed.chapters);
-    pushIfArray(parsed.story);
-    pushIfArray(parsed.stories);
-    pushIfArray(parsed.sections);
-    pushIfArray(parsed.data?.chapters);
-    pushIfArray(parsed.data?.story);
-    pushIfArray(parsed.result?.chapters);
+function maxStepsForChapter(chapterIndex: number): number {
+  switch (chapterIndex | 0) {
+    case 0:
+      return 2; // 第1章
+    case 1:
+      return 6; // 第2章
+    case 2:
+      return 2; // 第3章
+    case 3:
+      return 2; // 第4章
+    default:
+      return 2;
+  }
+}
+
+/**
+ * 12問（章別ステップ）を「質問＋回答」セットでプロンプトへ渡す。
+ * - 章ごとの最大ステップ数（2/6/2/2）に合わせて抽出
+ * - 回答は短すぎると議論の結論が落ちるため 240 文字まで保持
+ * - 質問文が無い場合も耐える
+ */
+function buildAnswersRich(a2: ChapterAnswers[] = []): string {
+  const blocks: string[] = [];
+  const by = [...a2]
+    .sort((a, b) => (a.chapterIndex ?? 0) - (b.chapterIndex ?? 0))
+    .slice(0, 4);
+
+  for (const chap of by) {
+    const chapIdx = chap.chapterIndex ?? 0;
+    const maxSteps = maxStepsForChapter(chapIdx);
+    const steps = (chap.steps ?? []).slice(-maxSteps);
+
+    const lines = steps
+      .map((s) => {
+        const q = sanitize(s.question, 140).trim();
+        const a = sanitize((s.answer || s.reason || '').trim(), 240).trim();
+        if (!q && !a) return '';
+        return `  - Q${s.stepNumber ?? ''}${q ? `: ${q}` : ''}\n    A: 「${a || '—'}」`;
+      })
+      .filter(Boolean);
+
+    if (lines.length) {
+      blocks.push(
+        `- ${chap.chapterTitle || `第${chapIdx + 1}章`}（議論の要点/12問）:\n${lines.join('\n')}`,
+      );
+    }
   }
 
-  const arr = candidates.find((a) => Array.isArray(a)) || [];
-  if (!arr.length) return [];
-
-  const getTitle = (o: any, i: number) =>
-    sanitize(
-      o?.title ??
-        o?.heading ??
-        o?.name ??
-        o?.label ??
-        `Chapter ${i + 1}`,
-      120,
-    );
-
-  const getBody = (o: any) => {
-    const raw =
-      o?.body ??
-      o?.content ??
-      o?.text ??
-      o?.summary ??
-      o?.description ??
-      (typeof o === 'string' ? o : '');
-    return sanitize(raw, 2400);
-  };
-
-  return arr.map((item: any, i: number) => ({
-    title: getTitle(item, i),
-    body: getBody(item),
-  }));
+  return blocks.join('\n');
 }
 
-/** story を短い要約列にしてプロンプトへ（※ Q&Aは使わない） */
-function buildStoryDigest(body: any): string {
-  const storyArr: Array<{ title?: string; body?: string }> = Array.isArray(
-    body?.story,
-  )
-    ? body.story
-    : Array.isArray(body?.context?.story)
-    ? body.context.story
-    : [];
+/* =========================
+ * 事業ポートフォリオ正規化
+ * =======================*/
+type NormalizedBusiness = {
+  name: string;
+  revenueShare?: number;
+  growth?: number;
+  margin?: number;
+};
+type NormalizedPortfolio = {
+  businesses?: NormalizedBusiness[];
+  focus?: string;
+};
 
-  if (!storyArr?.length) return '';
-  return storyArr
-    .slice(0, 4)
-    .map((c: any, i: number) => {
-      const t = sanitize(c?.title ?? `Chapter ${i + 1}`, 80);
-      const b = sanitize(c?.body ?? '', 280);
-      return `- ${t}: ${b}`;
+function normalizePortfolioInput(
+  portfolio: unknown,
+  businessPortfolio: unknown,
+): NormalizedPortfolio | null {
+  // ① 旧形式 { businesses: [...], focus?: string } が来ている場合
+  const p = portfolio as any;
+  if (p && Array.isArray(p.businesses)) {
+    const businesses: NormalizedBusiness[] = (p.businesses as any[]).map((b) => ({
+      name:
+        b?.name ??
+        b?.businessName ??
+        b?.segmentName ??
+        b?.title ??
+        '（名称未設定の事業）',
+      revenueShare:
+        typeof b?.revenueShare === 'number'
+          ? b.revenueShare
+          : typeof b?.salesShare === 'number'
+          ? b.salesShare
+          : typeof b?.share === 'number'
+          ? b.share
+          : undefined,
+      growth:
+        typeof b?.growthRate === 'number'
+          ? b.growthRate
+          : typeof b?.growth === 'number'
+          ? b.growth
+          : undefined,
+      margin:
+        typeof b?.profitMargin === 'number'
+          ? b.profitMargin
+          : typeof b?.margin === 'number'
+          ? b.margin
+          : undefined,
+    }));
+    return { businesses, focus: p?.focus };
+  }
+
+  // ② 新形式 businessPortfolio: BusinessPortfolioItem[] 想定
+  if (Array.isArray(businessPortfolio) && businessPortfolio.length) {
+    const businesses: NormalizedBusiness[] = (businessPortfolio as any[]).map((b) => ({
+      name:
+        b?.name ??
+        b?.businessName ??
+        b?.segmentName ??
+        b?.title ??
+        '（名称未設定の事業）',
+      revenueShare:
+        typeof b?.revenueShare === 'number'
+          ? b.revenueShare
+          : typeof b?.salesShare === 'number'
+          ? b.salesShare
+          : typeof b?.share === 'number'
+          ? b.share
+          : undefined,
+      growth:
+        typeof b?.growthRate === 'number'
+          ? b.growthRate
+          : typeof b?.growth === 'number'
+          ? b.growth
+          : undefined,
+      margin:
+        typeof b?.profitMargin === 'number'
+          ? b.profitMargin
+          : typeof b?.margin === 'number'
+          ? b.margin
+          : undefined,
+    }));
+    return { businesses };
+  }
+
+  return null;
+}
+
+
+/* =========================
+ * STAGE2 入力素材フォーマット（互換対応）
+ * =======================*/
+function parseFiniteNumberLocal(v: unknown): number | null {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  const n = Number(String(v).replace(/[,，\s]/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+function normalizeTargetYear(v: unknown): string {
+  const s = asText(v, 80);
+  if (!s) return '';
+  const m = s.match(/(20\d{2}|19\d{2})/);
+  return m ? `${m[1]}年度` : s;
+}
+
+function formatTargetValueForStory(valueRaw: unknown, unitRaw: unknown): string {
+  const unit = asText(unitRaw, 40);
+  const n = parseFiniteNumberLocal(valueRaw);
+  const raw = asText(valueRaw, 80);
+  if (n == null) return raw ? `${raw}${unit}` : '';
+
+  // STAGE2の業績目標UIは「百万円」を標準単位にしている。
+  // そのまま 90000百万円 と渡すと本文に 90000 と出やすいため、社員向けには億円へ正規化する。
+  if (unit === '百万円' || unit.toLowerCase() === 'million yen') {
+    const oku = n / 100;
+    const okuText = Number.isInteger(oku) ? String(oku) : oku.toFixed(1).replace(/\.0$/, '');
+    return `${okuText}億円`;
+  }
+  if (unit === '万円') {
+    const oku = n / 10000;
+    if (oku >= 1) {
+      const okuText = Number.isInteger(oku) ? String(oku) : oku.toFixed(1).replace(/\.0$/, '');
+      return `${okuText}億円`;
+    }
+  }
+  return `${n}${unit}`;
+}
+
+function formatCompanyTargets(targets: unknown): string {
+  const arr = asArray<Record<string, unknown>>(targets);
+  if (!arr.length) return '—';
+  const lines = arr
+    .map((t, i) => {
+      const name = pickFirstText(t.name, t.title, t.label, t.metricName, t.metric, t.kpi, t.item) || `目標${i + 1}`;
+      // companyTargets UIでは base が「目標値」。targetValue/value等がある場合のみそちらを優先。
+      const valueRaw = t.targetValue ?? t.value ?? t.amount ?? t.target ?? t.goal ?? t.numericValue ?? t.base;
+      const unit = pickFirstText(t.unit, t.unitLabel, t.currency);
+      const year = normalizeTargetYear(t.dueYear ?? t.targetYear ?? t.year ?? t.fiscalYear ?? t.deadline);
+      const note = pickFirstText(t.rationale, t.note, t.memo, t.description, t.reason);
+      const refs = asArray(t.relatedIssueIds ?? t.linkedIssueIds ?? t.issueIds)
+        .map((x) => asText(x, 80))
+        .filter(Boolean)
+        .join(', ');
+      const value = formatTargetValueForStory(valueRaw, unit);
+      const parts = [
+        name,
+        value ? `目標値=${value}` : '',
+        year ? `目標年=${year}` : '',
+        note ? `補足=${note}` : '',
+        refs ? `関連論点=${refs}` : '',
+      ].filter(Boolean);
+      return `- ${parts.join('／')}`;
+    })
+    .filter(Boolean);
+  return lines.length ? lines.join('\n') : '—';
+}
+
+function formatGenericList(title: string, value: unknown, maxChars = 2800): string {
+  const arr = asArray<Record<string, unknown>>(value);
+  if (!arr.length) return `${title}: —`;
+  const lines = arr.slice(0, 12).map((item, i) => {
+    const name = pickFirstText(item.title, item.name, item.label, item.question, item.key) || `${title}${i + 1}`;
+    const desc = pickFirstText(item.description, item.body, item.summary, item.answer, item.value, item.reason, item.content, item.text).slice(0, 500);
+    return `- ${name}${desc ? `：${desc}` : ''}`;
+  });
+  return `${title}:\n${lines.join('\n')}`.slice(0, maxChars);
+}
+
+function formatAnswers12(answers12: unknown): string {
+  const arr = asArray<Record<string, unknown>>(answers12);
+  if (!arr.length) return '—';
+  return arr
+    .slice(0, 20)
+    .map((a, i) => {
+      const q = pickFirstText(a.question, a.title, a.label, a.prompt) || `Q${i + 1}`;
+      const ans = pickFirstText(a.answer, a.value, a.body, a.text, a.response, a.reason).slice(0, 320);
+      const chapter = pickFirstText(a.chapterTitle, a.chapter, a.section, a.category).slice(0, 80);
+      return `- ${chapter ? `${chapter} / ` : ''}${q}\n  A: 「${ans || '—'}」`;
     })
     .join('\n');
 }
 
-// ★ 追加：勝ちパターン辞書（t系）の要旨を生成
-
-function buildTopPatternDigest(ids?: string[]) {
-  const set = new Set((ids ?? []).map((s) => String(s).toLowerCase().trim()));
-  const list = topPatterns
-    .filter(
-      (p) =>
-        set.size === 0 || set.has(String(p.id).toLowerCase()),
-    )
-    .map(
-      (p) =>
-        `#${p.id} ${p.title}：${sanitize(p.summary ?? '', 280)}`,
-    );
-  return list.length
-    ? `【参考：勝ちパターン10選】\n${list.join('\n')}`
-    : '';
+function formatStoryDraft(storyDraft: unknown): string {
+  const arr = asArray<Record<string, unknown>>(storyDraft);
+  if (!arr.length) return asText(storyDraft, 2000) || '—';
+  return arr
+    .slice(0, 4)
+    .map((s, i) => {
+      const title = pickFirstText(s.title, s.heading, s.chapterTitle) || TITLE_TEMPLATES[i] || `章${i + 1}`;
+      const body = pickFirstText(s.body, s.content, s.text, s.summary).slice(0, 700);
+      return `【${title}】\n${body || '—'}`;
+    })
+    .join('\n\n');
 }
 
-/* ============================================================
- * ★ 追加ヘルパー：事業ポートフォリオ＆財務サマリー要約
- * ==========================================================*/
-
-/**
- * businessPortfolio から
- * 「事業名／売上構成比／成長率／利益率／ポジション」を抜き出して要約。
- * 型は厳密に想定せず、よくありそうなプロパティ名をゆるく拾う。
- */
-function buildBusinessPortfolioDigest(portfolio: any): string {
-  if (!Array.isArray(portfolio) || portfolio.length === 0) return '';
-
-  const lines = portfolio.slice(0, 8).map((p: any) => {
-    const name = sanitize(
-      p?.name ??
-        p?.businessName ??
-        p?.segmentName ??
-        p?.title ??
-        '（名称未設定の事業）',
-      80,
-    );
-
-    const share =
-      p?.revenueShare ??
-      p?.salesShare ??
-      p?.share ??
-      p?.ratio ??
-      null;
-    const growth =
-      p?.growthRate ??
-      p?.salesGrowth ??
-      p?.growth ??
-      null;
-    const margin =
-      p?.profitMargin ??
-      p?.margin ??
-      p?.opMargin ??
-      null;
-    const role =
-      p?.positionLabel ??
-      p?.position ??
-      p?.category ??
-      p?.role ??
-      '';
-
-    const metrics: string[] = [];
-    if (share !== null && share !== undefined)
-      metrics.push(`売上構成比 ${share}%`);
-    if (growth !== null && growth !== undefined)
-      metrics.push(`成長率 ${growth}%`);
-    if (margin !== null && margin !== undefined)
-      metrics.push(`利益率 ${margin}%`);
-
-    const parts: string[] = [name];
-    if (metrics.length) parts.push(metrics.join(' / '));
-    if (role) parts.push(`ポジション: ${role}`);
-
-    return '・' + parts.join(' ｜ ');
-  });
-
-  if (!lines.length) return '';
-  return `【事業ポートフォリオ（主要事業の位置づけ）】\n${lines.join('\n')}`;
+function formatSelectedWinPattern(candidates: unknown, selectedId: unknown): string {
+  const arr = asArray<Record<string, unknown>>(candidates);
+  const selected = asText(selectedId, 120);
+  if (!arr.length) return '—';
+  const hit =
+    arr.find((x) => [x.id, x.key, x.patternId, x.value].some((v) => asText(v, 120) === selected)) ??
+    arr.find((x) => x.selected === true || x.isSelected === true) ??
+    arr[0];
+  const name = pickFirstText(hit.title, hit.name, hit.label, hit.patternName) || '選択候補';
+  const desc = pickFirstText(hit.description, hit.summary, hit.reason, hit.body).slice(0, 700);
+  const kpi = asArray(hit.valueDriverKPIs ?? hit.kpis ?? hit.metrics)
+    .map((x) => (typeof x === 'string' ? x : pickFirstText((x as any)?.name, (x as any)?.title, (x as any)?.label)))
+    .filter(Boolean)
+    .join('、');
+  return [`${name}${selected ? `（ID=${selected}）` : ''}`, desc ? `狙い=${desc}` : '', kpi ? `価値指標=${kpi}` : '']
+    .filter(Boolean)
+    .join('\n');
 }
 
-/**
- * financeSummary から「全社の規模感」と「直近数年のざっくりトレンド」を要約。
- * latestYear / latestYearTotal / byYear / trend など、ありそうなプロパティを緩く利用。
- */
-function buildFinanceSummaryDigest(financeSummary: any): string {
-  if (!financeSummary) return '';
-
+function formatUnknownForPrompt(value: unknown, maxChars = 2200): string {
+  if (value == null) return '—';
+  if (typeof value === 'string') return asText(value, maxChars) || '—';
   try {
-    const lines: string[] = [];
-
-    // 最新年度
-    const latestYear =
-      financeSummary.latestYear ??
-      financeSummary.year ??
-      (Array.isArray(financeSummary.years) &&
-        financeSummary.years.length > 0
-        ? financeSummary.years[financeSummary.years.length - 1]?.year
-        : undefined);
-
-    if (latestYear !== undefined) {
-      let latestTotal =
-        financeSummary.latestYearTotal ??
-        financeSummary.totals?.[String(latestYear)] ??
-        undefined;
-
-      if (!latestTotal && Array.isArray(financeSummary.byYear)) {
-        const found = financeSummary.byYear.find(
-          (y: any) => String(y.year) === String(latestYear),
-        );
-        latestTotal = found?.total ?? found;
-      }
-
-      if (latestTotal) {
-        const rev =
-          latestTotal.revenue ??
-          latestTotal.sales ??
-          latestTotal.netSales ??
-          latestTotal.net_revenue;
-        const op =
-          latestTotal.operatingIncome ??
-          latestTotal.opIncome ??
-          latestTotal.operatingProfit;
-        const margin =
-          latestTotal.opMargin ??
-          latestTotal.margin ??
-          latestTotal.operatingMargin;
-
-        const metrics: string[] = [];
-        if (rev !== undefined && rev !== null)
-          metrics.push(`売上高: 約${rev}百万円`);
-        if (op !== undefined && op !== null)
-          metrics.push(`営業利益: 約${op}百万円`);
-        if (margin !== undefined && margin !== null)
-          metrics.push(`営業利益率: 約${margin}%`);
-
-        if (metrics.length) {
-          lines.push(
-            '・最新年度（' +
-              latestYear +
-              '年）: ' +
-              metrics.join(' / '),
-          );
-        }
-      }
-    }
-
-    // 3年分くらいのトレンド
-    const trendSource = Array.isArray(financeSummary.byYear)
-      ? financeSummary.byYear
-      : Array.isArray(financeSummary.trend)
-      ? financeSummary.trend
-      : null;
-
-    if (trendSource && trendSource.length > 0) {
-      const sliced = trendSource.slice(-3); // 直近3年程度
-      sliced.forEach((y: any) => {
-        const year = y.year ?? y.fiscalYear ?? '';
-        const rev =
-          y.revenue ?? y.sales ?? y.netSales ?? undefined;
-        const op =
-          y.operatingIncome ??
-          y.opIncome ??
-          y.operatingProfit ??
-          undefined;
-        const margin =
-          y.opMargin ??
-          y.margin ??
-          y.operatingMargin ??
-          undefined;
-
-        const metrics: string[] = [];
-        if (rev !== undefined && rev !== null)
-          metrics.push(`売上 ${rev}`);
-        if (op !== undefined && op !== null)
-          metrics.push(`営利 ${op}`);
-        if (margin !== undefined && margin !== null)
-          metrics.push(`利益率 ${margin}%`);
-
-        if (year && metrics.length) {
-          lines.push(
-            '・' + year + '年: ' + metrics.join(' / '),
-          );
-        }
-      });
-    }
-
-    // 何も拾えなければ、ざっくりテキスト化
-    if (!lines.length) {
-      if (Array.isArray(financeSummary)) {
-        financeSummary.slice(-3).forEach((row: any) => {
-          lines.push(
-            '・' +
-              sanitize(
-                Object.values(row).join(' / '),
-                200,
-              ),
-          );
-        });
-      } else if (typeof financeSummary === 'object') {
-        lines.push(
-          '・' +
-            sanitize(
-              JSON.stringify(financeSummary),
-              400,
-            ),
-        );
-      }
-    }
-
-    if (!lines.length) return '';
-    return `【財務サマリー（全社の規模感）】\n${lines.join('\n')}`;
+    return JSON.stringify(safeSerialize(value), null, 2).slice(0, maxChars);
   } catch {
-    return '';
+    return asText(value, maxChars) || '—';
   }
 }
 
-type Mode = 'future' | 'legacy';
 
+function stripPeopleRelatedNoise(text: string): string {
+  if (!text) return text;
+  let out = normalizeNewlines(text);
+
+  // 今回の最終ストーリーでは、人材・採用・育成を戦略の中心に見せないため、
+  // 入力素材から該当文を一旦落とす。STAGE3/4で必要に応じて扱う前提。
+  const peopleKeywords = /(採用|育成|人材|人員|人財|能力開発|社員教育|教育訓練|研修|OJT|リスキリング|スキルアップ|能力を最大限|能力向上|優秀な人材|人的資本|社員|従業員|一人ひとり|あなた|あなたたち|皆さん|皆様|一緒|共に|協力|お力添え|力を合わせ|一丸|挑戦|努力|情熱|誇り|充実感|職場環境|意識改革|責任感|自発|主体的|本気|ましょう|ほしい|願い|所存|参ります|取り組んでいきます|取り組みます)/;
+
+  out = out
+    .split(/(?<=[。！？!?\n])/)
+    .filter((sentence) => !peopleKeywords.test(sentence))
+    .join('');
+
+  // 箇条書き行にも残りやすいため、行単位でも除去する。
+  out = out
+    .split('\n')
+    .filter((line) => !peopleKeywords.test(line))
+    .join('\n');
+
+  return out.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+
+function containsEmployeeMessageNoise(text: string): boolean {
+  return /(あなた|あなたたち|皆さん|皆様|社員|従業員|一人ひとり|全員|各人|自分の仕事|期待行動|一緒|共に|協力|お力添え|力を合わせ|一丸|挑戦|努力|情熱|誇り|充実感|職場環境|意識改革|責任感|自発|主体的|本気|歩み|歩ん|ましょう|ほしい|願い|所存|参ります|取り組んでいきます|取り組みます|重要な存在|経営者の覚悟|覚悟|信念|賭け|全力)/.test(text);
+}
+
+function removeEmployeeMessageSentences(text: string): string {
+  if (!text) return text;
+  const ng =
+    /(あなた|あなたたち|皆さん|皆様|社員|従業員|一人ひとり|全員|各人|自分の仕事|期待行動|一緒|共に|協力|お力添え|力を合わせ|一丸|挑戦|努力|情熱|誇り|充実感|職場環境|意識改革|責任感|自発|主体的|本気|歩み|歩ん|ましょう|ほしい|願い|所存|参ります|取り組んでいきます|取り組みます|重要な存在|経営者の覚悟|覚悟|信念|賭け|全力|人材|採用|育成|社員教育|研修|能力開発|組織風土|企業文化|人的資本)/;
+  let out = normalizeNewlines(text)
+    .replace(/私たちの会社/g, '当社')
+    .replace(/私たち/g, '当社')
+    .replace(/我々/g, '当社')
+    .replace(/お客様/g, '顧客')
+    .replace(/論点ID[:：]?\s*issue-[^\n。]*(?:。)?/gi, '')
+    .replace(/論点ID[:：]?\s*[^\n。]*(?:。)?/gi, '')
+    .replace(/ID\s*=\s*[^\s。)）]+/g, '')
+    .replace(/^.*North\s*Star未入力.*$/gim, '')
+    .replace(/^.*ノーススター未入力.*$/gim, '');
+  out = out
+    .split(/(?<=[。！？!?\n])/)
+    .filter((sentence) => !ng.test(sentence))
+    .join('');
+  out = out
+    .split('\n')
+    .filter((line) => !ng.test(line))
+    .join('\n');
+  return out.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function safeDefaultSectionBody(index: number, args?: { companyTargetsText?: string; segmentsText?: string }): string {
+  const targetText = args?.companyTargetsText ? `\n\n${args.companyTargetsText}` : '';
+  if (index === 0) {
+    return [
+      '既存市場の延長だけでは、今後の成長機会を十分に取り切ることは難しくなっている。市場環境の変化、顧客ニーズの変化、既存用途の成熟により、従来の収益構造を前提とした成長モデルには見直しが必要である。',
+      '財務面では、ROIC、WACC、PBR、D/Eレシオなどの指標を踏まえ、価値創造の余地と市場評価のギャップを同時に確認する必要がある。財務余力がある場合でも、それをどの領域へ再投資するかの判断基準が不明確であれば、成長機会を十分に取り込むことはできない。',
+      'したがって、本計画では、既存市場依存を前提とした成長モデルを見直し、成長余地のある市場・顧客・技術領域への資源配分を経営上の主要論点とする。',
+    ].join('\n\n');
+  }
+  if (index === 1) {
+    return [
+      '自社の勝ち筋：成長余地のある市場・顧客・技術領域に経営資源を集中し、既存事業依存からの脱却と収益構造の転換を進める。',
+      '重点領域では、既存技術を新しい用途へ展開し、顧客課題に対して継続的に価値を提供することを重視する。あわせて、低収益・低成長の非重点領域については、継続、縮小、撤退、再設計の判断基準を明確にする。',
+      '財務余力は、短期収益だけではなく、中長期の収益基盤を形成する投資へ配分する。PBRなどの市場評価に対しては、成長領域、資本効率、投資基準、収益性の再現性を示すことで改善の道筋をつくる。',
+      'この方針に基づき、STAGE3では事業別・部門別に重点市場、重点顧客、見直し対象領域を明確化し、STAGE4では投資基準とKPIに落とし込む。',
+    ].join('\n\n');
+  }
+  if (index === 2) {
+    return [
+      '目指す未来は、売上・利益の拡大だけではなく、顧客から選ばれる理由を明確に持つ企業になることである。既存技術を新しい用途や市場へ展開し、顧客課題に対して継続的に価値を提供できる状態をつくる必要がある。',
+      'その結果として、収益構造は既存用途への依存から、成長市場・重点顧客・高付加価値領域を組み合わせた構造へ転換していく。市場評価の改善も、単なる説明ではなく、成長性、資本効率、収益性の再現性が示されることで実現する。' + targetText,
+      '目指す未来は、売上・利益目標だけでなく、顧客から選ばれる理由、競争優位の源泉、成長を測るKPIとして定義する必要がある。',
+    ].join('\n\n');
+  }
+  return [
+    '実行に向けては、まず成長市場や新興市場について、顧客課題、競合、価格水準、参入障壁を整理し、どの市場を優先するかを明確にする。あわせて、既存の製品ポートフォリオを見直し、どの製品・用途・チャネルに資源を寄せるべきかを検討する。',
+    '次に、投資基準を整理し、短期収益と中長期成長のどちらを狙う投資なのかを区別して判断できる状態をつくる。KPIは売上・利益だけでなく、重点顧客、重点用途、収益性、投資回収、資本効率を確認できる形で設計する。',
+    '以上を踏まえ、STAGE3では部門ごとの役割と重点プロジェクトを定義し、STAGE4ではKPI、投資、実行期限を具体化する。STAGE5では進捗を定期的に確認し、戦略と実行のズレを修正する。',
+  ].join('\n\n');
+}
+
+function compactStrategicDraftForPrompt(storyDraft: unknown): string {
+  const raw = formatStoryDraft(storyDraft);
+  if (raw === '—') return raw;
+  return stripPeopleRelatedNoise(raw).slice(0, 2600) || '—';
+}
+
+function cleanFinalStoryArtifacts(text: string): string {
+  if (!text) return text;
+  let out = normalizeNewlines(text);
+  out = out.replace(/^.*North\s*Star未入力.*$/gim, '');
+  out = out.replace(/^.*ノーススター未入力.*$/gim, '');
+  out = out.replace(/【DEBUG】[^\n]*/g, '');
+  out = out.replace(/\[DEBUG\][^\n]*/gi, '');
+  out = out.replace(/debug[:：][^\n]*/gi, '');
+  out = out.replace(/\(?fact-seg-?\d+\)?/gi, '');
+  out = out.replace(/論点ID[:：]?\s*issue-[^\s）)]+/gi, '');
+  out = out.replace(/。。。+/g, '。');
+  out = out.replace(/。{2,}/g, '。');
+  out = out.replace(/！{2,}/g, '！');
+  out = out.replace(/？{2,}/g, '？');
+  out = out.replace(/■\s*社員への直接的な呼びかけ[:：]?\s*/g, '');
+  out = out.replace(/■\s*経営としての意思宣言[:：]?\s*/g, '');
+  out = out.replace(/社員への直接的な呼びかけ[:：]?\s*/g, '');
+  out = out.replace(/経営としての意思宣言[:：]?\s*/g, '');
+  out = out.replace(/となりますんだ/g, 'となります');
+  out = out.replace(/なりますんだ/g, 'なります');
+  out = out.replace(/ですんだ/g, 'です');
+  out = out.replace(/無二無三/g, '一人ひとりの役割を持ち寄る');
+  out = out.replace(/全力投球いたします/g, '必要な資源と支援を集中します');
+  out = out.replace(/必死で取り組み続けます/g, '継続して取り組みます');
+  out = out.replace(/変革運動/g, '変革');
+  out = out.replace(/賭け/g, '選択');
+  out = out.replace(/必ず成功(?:へ導いてみせます|します|できる)?/g, '実現に向けて進みます');
+  out = out.replace(/一緒に(?:この挑戦に)?立ち向か(?:いましょう|おう)/g, '各部門で具体化する');
+  out = out.replace(/一緒について来てください/g, '各部門で具体化する');
+  out = out.replace(/全力で取り組みます/g, '必要な資源を集中します');
+  out = out.replace(/全力で進んでいきましょう/g, '着実に進める');
+  out = out.replace(/全力で舵取りを行います/g, '方向性を明確に示します');
+  out = out.replace(/希望だと信じています/g, '次の成長につながります');
+  out = out.replace(/営業利益(?:の)?基準値\s*([0-9,，]+)\s*（期限[:：][^)）]+）/g, '営業利益目標');
+  out = removeEmployeeMessageSentences(out);
+  out = stripPeopleRelatedNoise(out);
+  out = out.replace(/[ \t]+\n/g, '\n');
+  out = out.replace(/\n{3,}/g, '\n\n').trim();
+  return tidyJa(out);
+}
+
+/* =========================
+ * OpenAI 呼び出し（JSON強制＋フォールバック）
+ * =======================*/
+type ChatArgs = {
+  model: string;
+  temperature: number;
+  max_tokens: number;
+  presence_penalty?: number;
+  frequency_penalty?: number;
+  system: string;
+  user: string;
+};
+
+async function callOpenAIChat(args: ChatArgs): Promise<string> {
+  const {
+    model,
+    temperature,
+    max_tokens,
+    presence_penalty = 0.7,
+    frequency_penalty = 0.3,
+    system,
+    user,
+  } = args;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 58_000);
+
+  const base: ChatCompletionCreateParamsNonStreaming = {
+    model,
+    temperature,
+    max_tokens,
+    presence_penalty,
+    frequency_penalty,
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
+    ...(SUPPORTS_JSON_MODE.test(model)
+      ? { response_format: { type: 'json_object' as const } }
+      : {}),
+  };
+
+  try {
+    const resp = await openai.chat.completions.create(base, {
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    return resp.choices?.[0]?.message?.content?.trim() ?? '';
+  } catch (e: any) {
+    clearTimeout(timer);
+    const status =
+      e?.status ?? e?.response?.status ?? (e?.name === 'AbortError' ? 504 : 500);
+    // 429/5xx → フォールバック（mini）
+    if ((status === 429 || status >= 500) && args.model !== MODEL_FALLBACK) {
+      return await callOpenAIChat({ ...args, model: MODEL_FALLBACK });
+    }
+    throw {
+      status,
+      message: e?.message || 'OpenAI error',
+      type: 'openai_error',
+      raw: safeSerialize(e),
+    };
+  }
+}
+
+/* =========================
+ * 軽い正規化＆ブリッジ補助
+ * =======================*/
+type SectionLike = { heading?: string; body?: string };
+
+function coerceToSimpleHeads(
+  sections: SectionLike[],
+): { heading: string; body: string }[] {
+  const arr = Array.isArray(sections) ? sections : [];
+  const out: { heading: string; body: string }[] = [];
+  for (let i = 0; i < 4; i++) {
+    const src = arr[i] || {};
+    out.push({
+      heading: SIMPLE_HEADS[i],
+      body: sanitize(src.body || '', 4000) || '（この章は未生成です）',
+    });
+  }
+  return out;
+}
+
+const ENABLE_BRIDGES = false; // 将来 true にすれば復活できる
+
+function ensureBridges(
+  sections: { heading: string; body: string }[],
+): { heading: string; body: string }[] {
+  // 章間ブリッジを差し込まないバージョン
+  return sections;
+}
+
+
+function containsPeopleStrategyNoise(text: string): boolean {
+  return /(採用|育成|人材|人員|人財|能力開発|社員教育|教育訓練|研修|OJT|リスキリング|スキルアップ|能力を最大限|能力向上|優秀な人材|人的資本)/.test(text || '');
+}
+
+function buildNoPeopleStrategyChapter(args: {
+  segmentsText?: string;
+  strength?: unknown;
+  opportunity?: unknown;
+  weakness?: unknown;
+  threat?: unknown;
+  companyTargetsText?: string;
+}): string {
+  const segments = asText(args.segmentsText, 500);
+  const areas = segments && segments !== '—' ? segments : '成長が見込める事業領域';
+  const strength = sanitize(args.strength, 180) || '当社が培ってきた技術・顧客基盤';
+  const opportunity = sanitize(args.opportunity, 180);
+  const weakness = sanitize(args.weakness, 180);
+  const threat = sanitize(args.threat, 180);
+  const target = asText(args.companyTargetsText, 500);
+
+  const targetLine = target && target !== '—'
+    ? `この方針は、${target.replace(/\n/g, '、')}という到達点に向けた道筋です。`
+    : 'この方針は、短期の売上拡大だけでなく、中長期の収益基盤をつくるためのものです。';
+
+  return [
+    `自社の勝ち筋：私たちは、${strength}を、${areas}における顧客課題の解決へ広げ、既存事業への依存を下げながら新たな収益基盤をつくります。`,
+    `第一に、成長させる領域を明確にします。${areas}を中心に、脱炭素、デジタル化、エネルギー転換などの変化によって生まれる需要を捉えます。${opportunity ? `特に、${opportunity}という機会を事業成長に結びつけます。` : ''}`,
+    `第二に、顧客に提供する価値を明確にします。単に既存製品を売り続けるのではなく、顧客の用途、品質、コスト、環境対応の課題を起点に、製品開発と市場開拓を進めます。`,
+    `第三に、投資と資源配分の基準を明確にします。財務余力を、将来の成長領域、顧客価値に直結する製品開発、既存依存からの転換に優先して振り向けます。${targetLine}`,
+    `同時に、やめることも決めます。成長領域や顧客価値とのつながりが弱い取り組み、収益性の低い商品、目的が曖昧な投資は見直します。${weakness ? `また、${weakness}という弱みに向き合い、` : ''}${threat ? `${threat}という脅威を前提に、` : ''}資源を勝ち筋に集中させます。`,
+  ].filter(Boolean).join('\n\n');
+}
+
+function normalizeNoPeopleStrategySections(
+  sections: { heading: string; body: string }[],
+  args: {
+    segmentsText?: string;
+    strength?: unknown;
+    opportunity?: unknown;
+    weakness?: unknown;
+    threat?: unknown;
+    companyTargetsText?: string;
+  },
+): { heading: string; body: string }[] {
+  const normalized = SIMPLE_HEADS.map((heading, i) => {
+    const current = sections[i]?.body || '';
+    let body = cleanFinalStoryArtifacts(removeEmployeeMessageSentences(current));
+
+    // 第2章は「自社の勝ち筋」を必須にする。その他の章も、社員向け・演説調が残れば安全版へ差し替える。
+    const shouldReplace =
+      !body ||
+      body.length < 80 ||
+      containsEmployeeMessageNoise(body) ||
+      (i === 1 && (!/自社の勝ち筋/.test(body) || containsPeopleStrategyNoise(body)));
+
+    if (shouldReplace) {
+      body = safeDefaultSectionBody(i, { companyTargetsText: args.companyTargetsText, segmentsText: args.segmentsText });
+    }
+
+    body = cleanFinalStoryArtifacts(removeEmployeeMessageSentences(body));
+    if (containsEmployeeMessageNoise(body) || body.length < 80) {
+      body = safeDefaultSectionBody(i, { companyTargetsText: args.companyTargetsText, segmentsText: args.segmentsText });
+    }
+
+    return { heading, body };
+  });
+
+  return normalized;
+}
+
+/* =========================
+ * 429/5xx 時のヒューリスティック最終ストーリー生成
+ * =======================*/
+function heuristicFinal(
+  args: {
+    industryJp: string;
+    revenue?: unknown;
+    employees?: unknown;
+    mission?: unknown;
+    vision?: unknown;
+    value?: unknown;
+    strength?: unknown;
+    weakness?: unknown;
+    opportunity?: unknown;
+    threat?: unknown;
+    finMini: {
+      year?: number;
+      sales?: number;
+      opm?: number | null;
+      rev_cagr?: number | null;
+      trend?: Trend | null;
+    } | null;
+    patterns: string[];
+    thought?: unknown;
+    portfolio?: {
+      businesses?: Array<{ name: string; revenueShare?: number; margin?: number; growth?: number }>;
+      focus?: string;
+    } | null;
+  },
+) {
+  const {
+    industryJp,
+    revenue,
+    employees,
+    mission,
+    vision,
+    value,
+    strength,
+    weakness,
+    opportunity,
+    threat,
+    finMini,
+    patterns,
+    thought,
+    portfolio,
+  } = args;
+
+  const header = `業種=${industryJp || '—'}／売上=${revenue ? `${revenue}百万円` : '—'}／人数=${employees ? `${employees}人` : '—'}`;
+  const finLine =
+    finMini
+      ? `（財務）最新年度=${finMini.year ?? '—'}／売上=${finMini.sales ?? '—'}／営業利益率=${finMini.opm ?? '—'}％／CAGR=${finMini.rev_cagr == null ? '—' : `${(finMini.rev_cagr as number).toFixed(1)}％`}／トレンド=${finMini.trend ?? '—'}`
+      : '（財務）—';
+
+  const pat = patterns.length ? `【勝ちパターン】${patterns.join(', ')}` : '【勝ちパターン】—';
+
+  const portfolioLine = (() => {
+    const pf = portfolio as any;
+    if (!pf?.businesses?.length) return '';
+    const focus = pf?.focus ? `／注力=${pf.focus}` : '';
+    const list = (pf.businesses as any[])
+      .slice(0, 6)
+      .map((b) => b?.name)
+      .filter(Boolean)
+      .join('・');
+    return `\n【事業ポートフォリオ】${list || '—'}${focus}`;
+  })();
+
+  const s1 = [
+    header,
+    `M=${sanitize(mission, 200) || '—'}／V=${sanitize(vision, 200) || '—'}／Val=${sanitize(value, 200) || '—'}`,
+    `S=${sanitize(strength, 200) || '—'}／W=${sanitize(weakness, 200) || '—'}／O=${sanitize(opportunity, 200) || '—'}／T=${sanitize(threat, 200) || '—'}`,
+    finLine,
+    pat + portfolioLine,
+  ].join('\n');
+
+  const howBullets: string[] = [];
+  if (patterns.includes('subscriptionMoat')) {
+    howBullets.push('サブスク継続価値の明文化（やめない理由）と先回りCS');
+  }
+  if (patterns.includes('platformPlay')) {
+    howBullets.push('主要SaaS/APIとの接続をテンプレ化し、導入→価値発現を短縮');
+  }
+  if (patterns.includes('serviceDelight')) {
+    howBullets.push('顧客の導入・利用・相談の体験を磨き、継続して選ばれる理由を作る');
+  }
+  if (patterns.includes('manufacturingKaizen')) {
+    howBullets.push('内製ツール×標準作業で欠陥と手戻りを継続削減');
+  }
+  if (patterns.includes('dataNetwork')) {
+    howBullets.push('顧客接点と実績データを蓄積し、提案精度と改善速度を高める');
+  }
+  if (howBullets.length === 0) {
+    howBullets.push('重点セグメント集中と、勝ち筋に沿った投資配分の徹底');
+  }
+
+  // ★フォールバック時も第2章冒頭に「自社の勝ち筋：〜」を1行入れる
+  const winningLine =
+    patterns.length > 0
+      ? `自社の勝ち筋：${patterns.join(' / ')}`
+      : '自社の勝ち筋：選んだ勝ちパターンに沿って、資源を集中して勝ち切る';
+
+  const s2 = safeDefaultSectionBody(1);
+
+  const s3 = safeDefaultSectionBody(2);
+
+  const s4 = safeDefaultSectionBody(3);
+
+  let sections = [
+    { heading: 'なぜ今', body: s1 },
+    { heading: 'どう戦う', body: s2 },
+    { heading: 'どんな未来', body: s3 },
+    { heading: 'どう実行に落とすか', body: s4 },
+  ];
+
+  sections = ensureBridges(sections);
+  sections = sections.map((s) => ({ ...s, body: cleanFinalStoryArtifacts(s.body) }));
+
+  const longform = sections
+    .map((s) => `【${s.heading}】\n${sanitize(normalizeNewlines(s.body), 4000)}`)
+    .join('\n\n');
+
+  const bodies = sections.map((s) => s.body);
+  const finalStory = TITLE_TEMPLATES.map((title, i) => ({
+    title,
+    body: bodies[i] || '（この章は未生成です）',
+  }));
+
+  return { finalStory, longform, sections };
+}
+
+/* =========================
+ * 二段階目：感情エディット（任意）
+ * =======================*/
+async function enhanceEmotionIfNeeded(
+  sections: { heading: string; body: string }[],
+  thought: unknown,
+  patternsLine: string,
+  temperature: number,
+  model: string,
+  enable: boolean,
+): Promise<{ heading: string; body: string }[]> {
+  if (!enable) return sections;
+
+  try {
+    const system = [
+      'あなたは中期経営計画本文の編集者です。構造を壊さず、社員向けメッセージや決意表明を削除し、経営戦略資料の文体に整えます。',
+      '出力は JSON のみ。{"sections":[{"heading":"なぜ今","body":"..."},...]} の形式で返す。',
+    ].join('\n');
+
+    const user = [
+      '【編集方針】',
+      '- 誇り・覚悟・信念・挑戦・努力・一緒に等の鼓舞語は残さない。',
+      '- 顧客・市場・強み・やること/やめることを、経営戦略資料として具体化する。比喩や呼びかけは使わない。',
+      '- 文量は各章2〜4段落、長すぎるときは圧縮。',
+      '',
+      `【勝ちパターン】${patternsLine || '—'}`,
+      `【経営者の思い（断片）】${sanitize(thought, 600) || '—'}`,
+      '',
+      '【対象JSON】',
+      JSON.stringify({ sections }).slice(0, 7000),
+      '',
+      '【出力形式（厳守）】',
+      '{"sections":[{"heading":"なぜ今","body":"..."}]} のみ。',
+    ].join('\n');
+
+    const base: ChatCompletionCreateParamsNonStreaming = {
+      model,
+      temperature: Math.min(0.7, (typeof temperature === 'number' ? temperature : 0.95) + 0.1),
+      max_tokens: 1200,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      ...(SUPPORTS_JSON_MODE.test(model)
+        ? { response_format: { type: 'json_object' as const } }
+        : {}),
+    };
+
+    const r = await openai.chat.completions.create(base);
+    const raw = r.choices?.[0]?.message?.content?.trim() || '';
+    const parsed = extractJsonLoose<{ sections?: { heading?: string; body?: string }[] }>(raw);
+    const enhanced = Array.isArray(parsed?.sections) ? parsed!.sections! : null;
+    if (!enhanced || enhanced.length < 4) return sections;
+
+    let fixed = coerceToSimpleHeads(enhanced);
+    fixed = ensureBridges(fixed).map((s) => ({ ...s, body: cleanFinalStoryArtifacts(s.body) }));
+    return fixed;
+  } catch {
+    return sections;
+  }
+}
+
+/* =========================
+ * ルート
+ * =======================*/
 export async function POST(req: NextRequest) {
   try {
+    if (!process.env.OPENAI_API_KEY) {
+      return new NextResponse(
+        JSON.stringify({ error: 'OPENAI_API_KEY is missing' }),
+        {
+          status: 500,
+          headers: { 'content-type': 'application/json; charset=utf-8' },
+        },
+      );
+    }
+
     // Bearer token authentication and membership validation
     const admin = getSupabaseAdmin();
     const userId = await getAuthUserIdFromBearer(admin, req);
@@ -678,449 +1083,422 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     }
 
-    // ---- デバッグ入口 ----
-    const url = (req as any).nextUrl ?? new URL(req.url);
-    const debug = url.searchParams.get('debug') || '';
-    const model = pickSafeModel();
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
-    if (debug === 'stub') {
-      const story = TITLE_TEMPLATES.map((t, i) => ({
-        title: t,
-        body: `stub body ${i + 1}`,
-      }));
-      return NextResponse.json(
-        { ok: true, phase: 'stub', story, _debug: { model } },
-        { headers: { 'Cache-Control': 'no-store' } },
-      );
-    }
-    if (debug === 'ping') {
-      if (!process.env.OPENAI_API_KEY) {
-        return NextResponse.json(
-          { ok: false, model, error: 'NO_API_KEY' },
-          { status: 500 },
-        );
-      }
-      try {
-        const c = await openai.chat.completions.create({
-          model,
-          messages: [{ role: 'user', content: 'pong' }],
-          max_tokens: 5,
-        });
-        return NextResponse.json(
-          {
-            ok: true,
-            model,
-            usage: c.usage,
-            content:
-              c.choices?.[0]?.message?.content || '',
-          },
-          { headers: { 'Cache-Control': 'no-store' } },
-        );
-      } catch (e: any) {
-        return NextResponse.json(
-          { ok: false, model, error: e?.message || String(e) },
-          { status: 500 },
-        );
-      }
-    }
-    if (debug === 'json') {
-      if (!process.env.OPENAI_API_KEY) {
-        return NextResponse.json(
-          { ok: false, model, error: 'NO_API_KEY' },
-          { status: 500 },
-        );
-      }
-      try {
-        const c = await openai.chat.completions.create({
-          model,
-          response_format: { type: 'json_object' },
-          messages: [
-            {
-              role: 'system',
-              content:
-                '日本語で、必ず json のオブジェクト {"chapters":[{"title":"t","body":"b"}]} だけを返す。説明文やコードブロックは禁止。',
-            },
-            { role: 'user', content: 'テストなので1章で良い。' },
-          ],
-          max_tokens: 300,
-        });
-        return NextResponse.json(
-          {
-            ok: true,
-            model,
-            raw:
-              c.choices?.[0]?.message?.content?.slice(
-                0,
-                400,
-              ) || '',
-          },
-          { headers: { 'Cache-Control': 'no-store' } },
-        );
-      } catch (e: any) {
-        return NextResponse.json(
-          { ok: false, model, error: e?.message || String(e) },
-          { status: 500 },
-        );
-      }
-    }
+    const mvv = asRecord(body.mvv);
+    const swot = asRecord(body.swot);
 
-    // ---- 通常処理 ----
-    if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json(
-        { error: 'OPENAI_API_KEY is missing' },
-        { status: 500 },
-      );
-    }
+    // 旧形式（トップレベル）と現行STAGE2画面形式（mvv/swot/companyTargets等）の両方を受け取る。
+    const thought = body.thought ?? mvv.thought;
+    const mission = body.mission ?? mvv.mission;
+    const vision = body.vision ?? mvv.vision;
+    const value = body.value ?? mvv.value;
+    const industry = body.industry;
+    const revenue = body.revenue;
+    const employees = body.employees;
+    const strength = body.strength ?? swot.strength;
+    const weakness = body.weakness ?? swot.weakness;
+    const opportunity = body.opportunity ?? swot.opportunity;
+    const threat = body.threat ?? swot.threat;
+    const csvFinanceData = body.csvFinanceData;
+    const answers2 = body.answers2;
+    const answers12 = body.answers12;
+    const companyTargets = body.companyTargets ?? body.performanceGoals ?? body.targetMetrics ?? body.businessTargets;
+    const northStar = body.northStar ?? body.northStarMetric ?? body.finalGoal;
+    const storyDraft = body.storyDraft;
+    const winPatternsCandidate = body.winPatternsCandidate;
+    const selectedWinPatternId = body.selectedWinPatternId;
+    const issueBlocks = body.issueBlocks;
+    const metricsSummary = body.metricsSummary;
+    const segments = body.segments;
+    const businessSegments = body.businessSegments;
+    const temperature = typeof body.temperature === 'number' ? body.temperature : 0.95;
+    const budgets = body.budgets; // 互換のため残置
+    const patterns = body.patterns; // string[] | WinningPatternKey[]
+    const portfolio = body.portfolio; // 旧形式 { businesses: [...], focus?: string }
+    const businessPortfolio = body.businessPortfolio; // 新形式 BusinessPortfolioItem[]（任意）
+    const enhanceEmotion = body.enhanceEmotion; // true/false（未指定はtrue）
 
-    const body = await req.json();
-
-    const {
-      thought,
-      mission,
-      vision,
-      value,
-      industry,
-      revenue,
-      employees,
-      strength,
-      weakness,
-      opportunity,
-      threat,
-      csvFinanceData,
-      financeSummary,      // ★ 追加：全社財務サマリー（任意）
-      businessPortfolio,   // ★ 追加：事業ポートフォリオ配列（任意）
-      temperature,
-      patternIds,          // ★ t1,t2,... （TopPatternId[] 想定）
-      mode: _mode,         // 'future' | 'legacy'（未指定は future）
-      enhanceEmotion,      // ★ 追加：true/false（未指定はtrue）
-    } = body || {};
-
-    const mode: Mode = _mode === 'legacy' ? 'legacy' : 'future';
-
-    // STAGE1論点および既存storyはUI側/保存側の表示情報であり、
-    // APIプロンプトへ再投入すると『論点サマリ』が本文内に復活するため渡さない。
-
-    const financialSummary =
-      Array.isArray(csvFinanceData) && csvFinanceData.length > 0
-        ? `\n\n【参考財務データ（抜粋・元CSVより）】\n${csvFinanceData
-            .slice(0, 12)
-            .map((row: any) =>
-              sanitize(
-                Object.values(row).join(' / '),
-                200,
-              ),
-            )
-            .join('\n')}${
-            csvFinanceData.length > 12 ? '\n…' : ''
-          }`
-        : '';
-
-    // ★ 新規：財務サマリー＆事業ポートフォリオの要約テキスト
-    const financeSummaryDigest = buildFinanceSummaryDigest(
-      financeSummary,
-    );
-    const portfolioDigest = buildBusinessPortfolioDigest(
-      businessPortfolio,
+    const fin = buildFinanceSummary(csvFinanceData);
+    const industryJp = safeGetIndustryLabel(
+      typeof industry === 'string' ? industry : '',
+      { full: true },
     );
 
-    // ★ 追加：勝ちパターン要旨
-    const patternDigest = buildTopPatternDigest(
-      Array.isArray(patternIds) ? patternIds : undefined,
+    const finMini =
+      fin != null
+        ? {
+            year: fin.latestYear,
+            sales: fin.latestSales,
+            opm: fin.latestOpMargin,
+            rev_cagr: fin.revCagrPct,
+            trend: fin.trend,
+          }
+        : null;
+
+    const patternsArr: string[] = Array.isArray(patterns)
+      ? (patterns as Array<string | WinningPatternKey>).map((p) => String(p))
+      : [];
+    const patternsLine = patternsArr.length ? patternsArr.join(', ') : '—';
+
+    // 旧 portfolio / 新 businessPortfolio を統合して正規化
+    const normalizedPortfolio = normalizePortfolioInput(portfolio, businessPortfolio);
+
+    void budgets; // 未使用（互換のため残置）
+
+    /* ---------- System ---------- */
+    const systemPrompt = `
+あなたは、経営会議資料・中期経営計画資料を作成する戦略コンサルタントです。
+目的は、社員向けメッセージではなく、経営判断を事業別・部門別戦略、KPI、実行管理へ展開するための戦略本文を作ることです。
+
+【最優先】
+- 社長訓示、社員向け挨拶、決意表明、共感を求める最後の一言を書かない。
+- 「あなた」「あなたたち」「皆さん」「皆様」「社員」「従業員」「一人ひとり」「一緒に」「共に」「挑戦」「努力」「誇り」「ましょう」を使わない。
+- 主語は原則として「当社」「本計画」「全社方針」「この戦略」とする。「私たち」「我々」は使わない。
+- 第2章は、事業戦略・顧客価値・製品開発・成長投資・資源配分を中心に書く。
+- 人材、採用、育成、能力開発、社員教育、研修を主要戦略として書かない。入力素材に含まれていても、この最終ストーリーでは使わない。
+- 90日アクションは第2章に入れない。第4章でも、事業・顧客・投資・KPI・実行管理に関する行動だけを書く。
+- 感情的な演説調や口語表現を避ける。鼓舞表現、依頼表現、呼びかけ表現は禁止する。
+
+【文体】
+- 経営層向けの中期経営計画・経営戦略文書として、落ち着いた、説得力ある表現を用いる。
+- 事業環境、顧客価値、競争優位、資源配分、KPI、実行課題との関係を明確にする。
+- 断定しすぎず、実現可能性を示唆する表現にする。
+- 各章では具体的な戦略論点を中心に、数値、事業名、顧客セグメント、競争環境を明示する。
+
+【章ごとの役割】
+1. なぜ今：外部環境、既存事業の前提変化、財務・市場上の課題を事実ベースで書く。章末は資源配分・成長領域の経営論点で締める。
+2. どう戦う：最初に「自社の勝ち筋：〜」を1回だけ書く。続けて、成長させる事業領域、顧客に提供する価値、製品開発・市場開拓の方向、投資・資源配分、やめることを順に書く。章末はSTAGE3/4への接続で締める。
+3. どんな未来：顧客、会社、市場評価、企業価値にどのような変化が生まれるかを書く。業績目標があれば自然に接続する。章末は顧客価値・競争優位・KPIで締める。
+4. どう実行に落とすか：このストーリーをSTAGE3・STAGE4・STAGE5で部門戦略・プロジェクト・KPI・実行管理へ落とし込む流れを書く。個人への精神論ではなく、組織として具体化する次工程を書く。
+
+【数値・年度の扱い】
+- 業績目標の年度・数値・単位は【業績目標】を最優先する。
+- fin_json やたたき台ストーリーの年度が【業績目標】と矛盾する場合は、必ず【業績目標】を正とする。
+- 入力にない数値は作らない。
+- 「入力値」「基準値」「論点ID」などの内部表現は本文に出さない。
+
+【出力】
+JSONのみ。スキーマ：
+{
+  "sections":[
+    {"heading":"なぜ今","body":"..."},
+    {"heading":"どう戦う","body":"..."},
+    {"heading":"どんな未来","body":"..."},
+    {"heading":"どう実行に落とすか","body":"..."}
+  ]
+}
+`.trim();
+
+    /* ---------- User（素材） ---------- */
+    const answersRichFromAnswers2 = buildAnswersRich(
+      Array.isArray(answers2) ? (answers2 as ChapterAnswers[]) : []
     );
-
-    // ✅ systemPrompt：たたき台は「経営判断用の冷静な戦略ドラフト」として生成する
-    const goals =
-      mode === 'future'
-        ? CHAPTER_GOALS_FUTURE
-        : CHAPTER_GOALS_LEGACY;
-
-    const systemPrompt = [
-      'あなたは経営戦略を、社員にも読める平易な日本語へ整理する編集者です。',
-      '目的は、熱い演説を書くことではありません。経営が何を目指し、なぜ変わり、どの事業・顧客価値・投資方針で戦うのかを明確にすることです。',
-      '出力は、STAGE2の「たたき台ストーリー」です。これは最終宣言ではなく、経営判断と議論のための冷静な戦略ドラフトです。',
-      '必ず json のオブジェクトだけを返してください（説明文やコードブロックは禁止）。',
-      '',
-      '【最重要方針】',
-      '- 第1章では、STAGE1論点を箇条書き・番号付き・「論点サマリ」形式で再掲しない。論点は自然文の背景として1〜2文に統合する。',
-      '- 第2章の主役は、事業戦略・顧客価値・製品/市場の方向性・投資/資源配分である。採用・育成・社員行動を戦略の中心にしない。',
-      '- 第2章に「90日アクション」という見出しや箇条書きを作らない。90日で確認することは第4章だけに書く。',
-      '- 第2章では「1)」「狙う価値ドライバー」「主要戦略」「根拠（SWOT）」「トレードオフ」というラベルを絶対に出力しない。出力した場合、その章は不採用になる。',
-      '- 「採用」「育成」「人材」「社員教育」「研修」「能力開発」「社員が育っていない」「生産性の低い高齢層」は使わない。',
-      '- 「誇り」「賭け」「信念」「全力」「必ず成功」「一緒に挑もう」などの鼓舞表現を目的にしない。必要な意思は、選択・集中・投資判断として淡々と表現する。',
-      '- 数値は入力にあるものだけを使い、年度・単位・値を変更しない。実績年度と目標年度を混同しない。百万円の数値は社員向けには億円表記を優先する。',
-      '',
-      '【第2章の必須構造】',
-      '第2章は、原則として次の順に自然文で書く。',
-      '1. どの事業領域を成長の柱にするか',
-      '2. 顧客にどのような価値を提供するか',
-      '3. 製品・市場・チャネルをどう見直すか',
-      '4. 財務余力や投資基準をどう使うか',
-      '5. PBRなど市場評価に対して、広報ではなく事業成長・資本効率・収益性の再現性でどう説明するか',
-      '6. 何を優先し、何を見直すか',
-      '',
-      '【各章の役割】',
-      `1) ${goals[0]}`,
-      `2) ${goals[1]}`,
-      `3) ${goals[2]}`,
-      `4) ${goals[3]}`,
-      '',
-      '【出力フォーマット（厳守）】',
-      '形式: { "chapters": [{"title":"...","body":"..."} ×4] }',
-      '各章は 350〜700 字程度。短くてもよいが、論点の羅列ではなく自然な文章にする。',
-      '第2章は「1) 狙う価値ドライバー」「主要戦略」「90日アクション」「根拠（SWOT）」のようなメモ形式にしない。自然な説明文にする。',
-      'PBR改善は、広報・説明会だけでなく、成長領域、投資基準、資本効率、収益性の再現性を示す戦略として書く。',
-      '投資戦略は短期リターン偏重にしない。短期収益と中長期成長の両立として書く。',
-      patternDigest,
+    const answersRichFromAnswers12 = formatAnswers12(answers12);
+    const answersRich = [
+      answersRichFromAnswers2,
+      answersRichFromAnswers12 !== '—' ? answersRichFromAnswers12 : '',
     ]
       .filter(Boolean)
       .join('\n');
 
-    const mvvObj = body?.mvv && typeof body.mvv === 'object' ? body.mvv : {};
-    const swotObj = body?.swot && typeof body.swot === 'object' ? body.swot : {};
-    const targetDigest = buildCompanyTargetDigest(body?.companyTargets ?? body?.targets ?? body?.performanceGoals);
-    const strategySignalDigest = buildStrategySignalDigest(body);
-
-    const thoughtText = removePeopleRelatedNoise(pickText(thought, body?.ceoIntent, body?.intent), 1000);
-    const missionText = removePeopleRelatedNoise(pickText(mission, mvvObj?.mission), 300);
-    const visionText = removePeopleRelatedNoise(pickText(vision, mvvObj?.vision), 300);
-    const valueText = removePeopleRelatedNoise(pickText(value, mvvObj?.value), 300);
-    const strengthText = removePeopleRelatedNoise(pickText(strength, swotObj?.strength), 400);
-    const weaknessText = removePeopleRelatedNoise(pickText(weakness, swotObj?.weakness), 400);
-    const opportunityText = removePeopleRelatedNoise(pickText(opportunity, swotObj?.opportunity), 400);
-    const threatText = removePeopleRelatedNoise(pickText(threat, swotObj?.threat), 400);
-
-    const userPrompt = [
-      '【経営者の思い（戦略判断に関係する部分のみ）】',
-      thoughtText || '（未入力）',
-      '',
-      '【会社概要】',
-      `- 業種: ${sanitize(industry, 120)}`,
-      `- 売上高: ${sanitize(revenue, 120)} 百万円`,
-      `- 従業員数: ${sanitize(employees, 120)} 人`,
-      '',
-      '【MVV】',
-      `- Mission: ${missionText}`,
-      `- Vision : ${visionText}`,
-      `- Value  : ${valueText}`,
-      '',
-      '【SWOT】',
-      `- 強み: ${strengthText}`,
-      `- 弱み: ${weaknessText}`,
-      `- 機会: ${opportunityText}`,
-      `- 脅威: ${threatText}`,
-      '',
-      strategySignalDigest,
-      targetDigest,
-      financeSummaryDigest,
-      portfolioDigest,
-      financialSummary ? removePeopleRelatedNoise(financialSummary, 1600) : '',
-      '',
-      '【執筆要件】',
-      '- 第1章に「論点サマリ」「論点1」「最大5件表示」などを書かない。',
-      '- 第2章では、事業領域・顧客価値・製品/市場・投資/資源配分・市場評価改善の筋道を中心にする。',
-      '- 第2章は箇条書きや分析メモではなく、3〜4段落の自然文にする。',
-      '- 第4章の90日アクションは、市場検証、製品ポートフォリオ、投資基準、顧客フィードバック、資本市場への説明準備に寄せる。',
-      '- 深掘りQ&Aの内容は参照しないこと。',
+    const companyTargetsText = formatCompanyTargets(companyTargets);
+    const selectedWinPatternText = formatSelectedWinPattern(winPatternsCandidate, selectedWinPatternId);
+    const storyDraftText = compactStrategicDraftForPrompt(storyDraft);
+    const issueBlocksText = stripPeopleRelatedNoise(formatGenericList('STAGE1論点', issueBlocks));
+    const metricsSummaryText = stripPeopleRelatedNoise(formatUnknownForPrompt(metricsSummary, 2200));
+    const segmentsText = [
+      ...asArray(segments).map((x) => asText(x, 80)).filter(Boolean),
+      ...asArray<Record<string, unknown>>(businessSegments).map((x) => pickFirstText(x.name, x.title, x.segmentName)).filter(Boolean),
     ]
-      .filter(Boolean)
-      .join('\n');
+      .slice(0, 12)
+      .join('、') || '—';
 
-    const temp =
-      typeof temperature === 'number' ? temperature : 0.4;
+    const portfolioSummary = (() => {
+      const p = normalizedPortfolio as any;
+      if (!p?.businesses?.length) return '—';
+      const list = (p.businesses as any[])
+        .slice(0, 8)
+        .map((b) => {
+          const name = b?.name ?? '（名称未設定の事業）';
+          const bits: string[] = [];
+          if (typeof b?.revenueShare === 'number')
+            bits.push(`売上比${b.revenueShare}%`);
+          if (typeof b?.growth === 'number')
+            bits.push(`成長${b.growth}%`);
+          if (typeof b?.margin === 'number')
+            bits.push(`利益率${b.margin}%`);
+          return bits.length ? `${name}（${bits.join(' / ')}）` : name;
+        })
+        .filter(Boolean)
+        .join('・');
+      const focus = p?.focus ? `（注力=${p.focus}）` : '';
+      return list ? `${list}${focus}` : '—';
+    })();
 
-    // ---- タイムアウト（ハング対策）----
-    const controller = new AbortController();
-    const timer = setTimeout(
-      () => controller.abort(),
-      45000,
-    );
+    const userPrompt = `
+【会社】業種=${industryJp || (typeof industry === 'string' ? industry : '—')}／売上=${revenue ? `${revenue}百万円` : '—'}／人数=${employees ? `${employees}人` : '—'}
+【MVV】M=${stripPeopleRelatedNoise(sanitize(mission, 300)) || '—'}／V=${stripPeopleRelatedNoise(sanitize(vision, 300)) || '—'}／Val=${stripPeopleRelatedNoise(sanitize(value, 300)) || '—'}
+【North Star】${stripPeopleRelatedNoise(sanitize(northStar, 500)) || '—'}
+【SWOT】S=${stripPeopleRelatedNoise(sanitize(strength, 400)) || '—'}／W=${stripPeopleRelatedNoise(sanitize(weakness, 400)) || '—'}／O=${stripPeopleRelatedNoise(sanitize(opportunity, 400)) || '—'}／T=${stripPeopleRelatedNoise(sanitize(threat, 400)) || '—'}
+【事業・セグメント】${segmentsText}
+【勝ちパターン】${patternsLine}
+【選択された勝ち筋候補】
+${selectedWinPatternText}
+【事業ポートフォリオ】${portfolioSummary}
+【業績目標（最優先。年度・数値・単位を改変禁止）】
+${companyTargetsText}
+【経営者の思い(戦略判断に関係する部分のみ。社員向けメッセージは除外)】
+${stripPeopleRelatedNoise(sanitize(thought, 1000)) || '—'}
+
+【fin_json】
+${JSON.stringify(finMini)}
+
+【metricsSummary】
+${metricsSummaryText}
+
+【STAGE1論点】
+${issueBlocksText}
+
+【たたき台ストーリー（参考。ただし社員向けメッセージ・呼びかけ・決意表明は無視）】
+${stripPeopleRelatedNoise(storyDraftText)}
+
+【現場の声（12問回答：質問＋回答。社員向け表現は除外）】
+${stripPeopleRelatedNoise(answersRich) || '—'}
+
+【追加制約】
+- たたき台ストーリーに「あなた」「皆さん」「社員」「一緒に」「挑戦」「努力」「誇り」等が含まれていても、最終ストーリーには絶対に引き継がない。
+- 各章末尾を社員向けの最後の一言で締めない。
+- 第4章は「行動指針」ではなく、STAGE3/4/5への実行設計として書く。
+
+【出力仕様】上記の制約・形式を厳守。`.trim();
+
+    /* ---------- OpenAI 呼び出し or ヒューリスティック ---------- */
     let raw = '';
+    let usedModel = MODEL_PRIMARY;
+    let usedHeuristic = false;
+
     try {
-      // 1回目: JSON強制
-      const c1 = await openai.chat.completions.create(
-        {
-          model,
-          temperature: temp,
-          response_format: { type: 'json_object' },
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt },
-          ],
-          max_tokens: 1600,
-        },
-        { signal: controller.signal },
-      );
-      raw =
-        c1.choices?.[0]?.message?.content?.trim() || '';
-    } catch (e: any) {
-      // 2回目: JSON強制を外してフォールバック
-      try {
-        const c2 = await openai.chat.completions.create(
-          {
-            model,
-            temperature: temp,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt },
-            ],
-            max_tokens: 1600,
-          },
-          { signal: controller.signal },
-        );
-        raw =
-          c2.choices?.[0]?.message?.content?.trim() ||
-          '';
-      } catch (e2: any) {
-        clearTimeout(timer);
-        console.error(
-          '❌ ストーリー生成API失敗:',
-          e2?.message || e2,
-        );
-        return NextResponse.json(
-          { error: e2?.message || 'OpenAI error' },
-          { status: 500 },
-        );
-      }
-    } finally {
-      clearTimeout(timer);
+      raw = await callOpenAIChat({
+        model: MODEL_PRIMARY,
+        temperature:
+          typeof temperature === 'number' && Number.isFinite(temperature)
+            ? Math.min(0.3, temperature as number)
+            : 0.25,
+        max_tokens: 2300,
+        presence_penalty: 0.1,
+        frequency_penalty: 0.2,
+        system: systemPrompt,
+        user: userPrompt,
+      });
+    } catch (_detail: any) {
+      usedHeuristic = true;
+      usedModel = 'heuristic-fallback';
     }
 
-    // --- ゆるい抽出 → 多形対応で章配列を取り出す ---
-    const parsedLoose = extractJsonLoose(raw);
-    const coerced = coerceChapters(parsedLoose);
+    let finalStory, longform, sections: { heading: string; body: string }[];
 
-    // フォールバック（章が取れない時）
-    if (!coerced.length) {
-      const chapters = TITLE_TEMPLATES.map((title) => ({
+    if (!usedHeuristic && raw) {
+      type GenOut = { sections?: Array<{ heading?: string; body?: string }> };
+      const parsed = extractJsonLoose<GenOut>(raw);
+
+      sections =
+        Array.isArray(parsed?.sections) && parsed!.sections!.length >= 4
+          ? coerceToSimpleHeads(parsed!.sections!)
+          : coerceToSimpleHeads(parsed?.sections || []);
+
+      // 二段階目のエモーショナル補正は、熱量過多・ラベル混入を避けるため既定OFF。
+      const doEnhance = false;
+      sections = await enhanceEmotionIfNeeded(
+        sections,
+        thought,
+        patternsLine,
+        typeof temperature === 'number' ? Math.min(0.3, temperature) : 0.25,
+        MODEL_PRIMARY,
+        doEnhance,
+      );
+
+      sections = ensureBridges(sections);
+      sections = sections.map((s) => ({ ...s, body: cleanFinalStoryArtifacts(s.body) }));
+      sections = normalizeNoPeopleStrategySections(sections, {
+        segmentsText,
+        strength,
+        opportunity,
+        weakness,
+        threat,
+        companyTargetsText,
+      });
+
+      longform = sections
+        .map((s) => `【${s.heading}】\n${sanitize(normalizeNewlines(s.body), 4000)}`)
+        .join('\n\n');
+
+      const bodies = sections.map((s) => s.body);
+      finalStory = TITLE_TEMPLATES.map((title, i) => ({
         title,
-        body: '（この章は未生成です）',
+        body: bodies[i] || '（この章は未生成です）',
       }));
-      return NextResponse.json(
-        {
-          story: chapters,
-          _debug: { model, fallback: true, mode },
-        },
-        { headers: { 'Cache-Control': 'no-store' } },
-      );
+    } else {
+      const h = heuristicFinal({
+        industryJp,
+        revenue,
+        employees,
+        mission,
+        vision,
+        value,
+        strength,
+        weakness,
+        opportunity,
+        threat,
+        finMini,
+        patterns: patternsArr,
+        thought,
+        portfolio: (normalizedPortfolio as any) ?? null,
+      });
+      finalStory = h.finalStory;
+      longform = h.longform;
+      sections = h.sections;
     }
 
-    // ---- ここから「表現補正（二段階目）」 ※デフォルトOFF。必要時のみ明示的に有効化 ----
-    let enhancedChapters = coerced;
-    const doEnhance = enhanceEmotion === true; // 既定は false（熱量過多を避ける）
-    if (doEnhance) {
+    // 最終品質ガード：内部メモ・誤生成・不自然表現を本文から除去
+    sections = sections.map((s) => ({ ...s, body: cleanFinalStoryArtifacts(s.body) }));
+    sections = normalizeNoPeopleStrategySections(sections, {
+      segmentsText,
+      strength,
+      opportunity,
+      weakness,
+      threat,
+      companyTargetsText,
+    });
+    sections = sections.map((s) => ({ ...s, body: cleanFinalStoryArtifacts(s.body) }));
+    longform = sections
+      .map((s) => `【${s.heading}】\n${sanitize(normalizeNewlines(s.body), 4000)}`)
+      .join('\n\n');
+    finalStory = TITLE_TEMPLATES.map((title, i) => ({
+      title,
+      body: sections[i]?.body || '（この章は未生成です）',
+    }));
+
+    /* ---------- ★STEP6: 中計設計（midtermStrategy）の第2パス生成 ----------
+     * - 既存の4章ストーリー生成には一切手を入れない（プロンプト・トークン配分とも独立）
+     * - この呼び出しが失敗/タイムアウトしても catch で握り、midtermStrategy なしで
+     *   従来どおりのレスポンスを返す（既存STAGE2生成を壊さない）
+     * - ヒューリスティックフォールバック時はスキップ（素材の信頼度が低いため） */
+    let midtermStrategy: Record<string, unknown> | undefined;
+    if (!usedHeuristic) {
       try {
-        const enhanceSystem =
-          'あなたは経営戦略ストーリーの編集者です。構造を壊さず、平易で具体的な日本語に整えます。熱量や鼓舞表現を増やしてはいけません。出力はJSONのみ。';
-        const enhanceUser = [
-          '【編集方針】',
-          '- 各章の論理は保ちつつ、語り口を「経営者本人の声」に寄せる。',
-          '- 「誇り」「賭け」「信念」「全力」などの鼓舞語を追加してはいけない。',
-          '- 文体は平易で具体的にする。比喩や演説調は控える。',
-          '- 各章は250〜400字の範囲を目安に整える（超過時は圧縮）。',
-          '',
-          '【対象JSON】',
-          JSON.stringify(
-            { chapters: enhancedChapters },
-            null,
-            2,
-          ).slice(0, 6000), // 安全のため上限
-          '',
-          '【出力形式（厳守）】',
-          '{"chapters":[{"title":"...","body":"..."}]} のみ。',
+        const midtermSystem = [
+          'あなたは中期経営計画の設計を支援する経営戦略コンサルタントです。',
+          '確定済みの全社戦略ストーリーと入力情報をもとに、中計全体の設計サマリーをJSONのみで返します。',
+          '入力にない数値・固有名詞は作らない。根拠が不足する項目はキーごと省略する（空文字・空配列は出力しない）。',
+          '出力スキーマ（すべて任意キー）：',
+          '{',
+          '  "midtermConcept": "中計の基本コンセプト（1〜2文）",',
+          '  "targetVisionForMidterm": "全社の目指す姿（1〜2文）",',
+          '  "priorityStrategicThemes": ["重点戦略テーマ（2〜4個）"],',
+          '  "growthStrategy": "成長戦略（1〜2文）",',
+          '  "profitImprovementStrategy": "収益改善戦略（1〜2文）",',
+          '  "portfolioPolicy": "事業ポートフォリオ方針（1〜2文）",',
+          '  "companyWideDecisionCriteria": ["全社共通の判断基準（2〜4個）"],',
+          '  "deploymentPrinciplesForUnits": ["事業・部門へ展開する際の基本軸（2〜4個）"],',
+          '  "managementMeetingIssues": ["経営会議で確認すべき論点（2〜4個）"]',
+          '}',
         ].join('\n');
 
-        const cEnh =
-          await openai.chat.completions.create({
-            model,
-            temperature: Math.min(0.6, temp + 0.1),
-            response_format: { type: 'json_object' },
-            messages: [
-              { role: 'system', content: enhanceSystem },
-              { role: 'user', content: enhanceUser },
-            ],
-            max_tokens: 900,
-          });
+        const midtermUser = [
+          '【確定済み全社戦略ストーリー】',
+          sanitize(longform, 4000) || '—',
+          '',
+          `【業績目標】\n${companyTargetsText}`,
+          `【事業ポートフォリオ】${portfolioSummary}`,
+          `【勝ちパターン】${patternsLine}`,
+          `【SWOT】S=${sanitize(strength, 300) || '—'}／W=${sanitize(weakness, 300) || '—'}／O=${sanitize(opportunity, 300) || '—'}／T=${sanitize(threat, 300) || '—'}`,
+          `【事業・セグメント】${segmentsText}`,
+          '',
+          '上記と矛盾しない範囲で、スキーマどおりのJSONのみを返してください。',
+        ].join('\n');
 
-        const rawEnh =
-          cEnh.choices?.[0]?.message?.content?.trim() ||
-          '';
-        const parsedEnh = extractJsonLoose(rawEnh);
-        const coercedEnh = coerceChapters(parsedEnh);
-        if (coercedEnh?.length >= 4) {
-          enhancedChapters = coercedEnh;
+        const midtermRaw = await callOpenAIChat({
+          model: MODEL_PRIMARY,
+          temperature: 0.4,
+          max_tokens: 1100,
+          system: midtermSystem,
+          user: midtermUser,
+        });
+
+        const parsedMid = extractJsonLoose<Record<string, any>>(midtermRaw);
+        if (parsedMid && typeof parsedMid === 'object' && !Array.isArray(parsedMid)) {
+          const str = (v: unknown) => (typeof v === 'string' && v.trim() ? sanitize(v, 400) : undefined);
+          const strArr = (v: unknown, max: number) => {
+            const arr = Array.isArray(v)
+              ? v.filter((x) => typeof x === 'string' && x.trim()).slice(0, max).map((x) => sanitize(x, 200))
+              : [];
+            return arr.length > 0 ? arr : undefined;
+          };
+          const candidate = {
+            midtermConcept: str(parsedMid.midtermConcept),
+            targetVisionForMidterm: str(parsedMid.targetVisionForMidterm),
+            priorityStrategicThemes: strArr(parsedMid.priorityStrategicThemes, 4),
+            growthStrategy: str(parsedMid.growthStrategy),
+            profitImprovementStrategy: str(parsedMid.profitImprovementStrategy),
+            portfolioPolicy: str(parsedMid.portfolioPolicy),
+            companyWideDecisionCriteria: strArr(parsedMid.companyWideDecisionCriteria, 4),
+            deploymentPrinciplesForUnits: strArr(parsedMid.deploymentPrinciplesForUnits, 4),
+            managementMeetingIssues: strArr(parsedMid.managementMeetingIssues, 4),
+          };
+          const compact = Object.fromEntries(
+            Object.entries(candidate).filter(([, v]) => v !== undefined),
+          );
+          if (Object.keys(compact).length > 0) midtermStrategy = compact;
         }
-      } catch {
-        // 補正失敗時はそのまま続行（既存挙動維持）
+      } catch (e: any) {
+        console.warn('⚠️ 中計設計（midtermStrategy）の生成をスキップ（続行）:', e?.message || e);
       }
     }
 
-    // サーバ側で章タイトル/順序を固定（本文はenhancedの中身を使用）
-    // ★ 第1章の本文から「論点サマリー」混入を確実に除去
-    const chapters = TITLE_TEMPLATES.map((title, i) => {
-      let body = enhancedChapters[i]?.body || '（この章は未生成です）';
-      body = cleanDraftStoryBody(body);
-
-      // 第2章はメモ形式・90日アクション・人材中心を抑えて、戦略章として整える
-      if (i === 1) {
-        body = cleanStrategyChapter(body, targetDigest);
+    // 任意保存（存在すれば実行）
+    if (typeof userId === 'string' && userId && typeof saveFinalStory === 'function') {
+      try {
+        await saveFinalStory(userId, finalStory as any, {});
+      } catch (e: any) {
+        console.warn('⚠️ final_stories 保存に失敗（続行）:', e?.message || e);
       }
-
-      // 第4章は人材施策ではなく、検証・投資判断・市場説明の行動へ寄せる
-      if (i === 3) {
-        body = cleanActionChapter(body);
-      }
-
-      // 第1章は論点サマリ混入をさらに強めに除去
-      if (i === 0) {
-        body = stripRedundantIssueSummary(body);
-        body = cleanDraftStoryBody(body);
-      }
-
-      return {
-        title,
-        body: sanitize(body, 2400),
-      };
-    });
-
-    // summary はUI側のSTAGE1論点表示と重複しやすいため返さない。
-    const summary: any = undefined;
-
-    // ★ 追加：勝ち筋候補（WinPattern[]）
-    let winPatterns: WinPattern[] | undefined = undefined;
-    try {
-      const topIds = Array.isArray(patternIds)
-        ? (patternIds.filter(
-            (id: any) => typeof id === 'string',
-          ) as string[])
-        : [];
-      const winIds = mapTopToWin(
-        topIds as any, // TopPatternId[] 想定（実際にはUI側で制御）
-      );
-      winPatterns = buildWinPatternsFromIds(winIds);
-    } catch {
-      // 失敗しても全体処理は継続（付加情報なので）
-      winPatterns = undefined;
     }
 
-    return NextResponse.json(
+    return new NextResponse(
+      JSON.stringify({
+        finalStory,
+        longform,
+        sections,
+        // ★STEP6: 中計設計（生成できた場合のみ含める。既存クライアントは未参照でも無害）
+        ...(midtermStrategy ? { midtermStrategy } : {}),
+        _debug: {
+          model: usedModel,
+          patterns: patternsArr,
+          heuristic: usedHeuristic,
+          enhanced: enhanceEmotion === true,
+          hasCompanyTargets: companyTargetsText !== '—',
+          hasNorthStar: Boolean(asText(northStar)),
+        },
+      }),
       {
-        story: chapters,
-        summary,
-        winPatterns, // ★ ここに勝ち筋候補を同梱
-        _debug: { model, mode, enhanced: doEnhance === true },
+        headers: {
+          'cache-control': 'no-store',
+          'content-type': 'application/json; charset=utf-8',
+          'x-fallback-used': String(usedHeuristic),
+        },
+        status: 200,
       },
-      { headers: { 'Cache-Control': 'no-store' } },
     );
   } catch (error: any) {
-    console.error(
-      '❌ ストーリー生成エラー:',
-      error?.message || error,
-    );
-    const status =
-      error?.name === 'AbortError' ? 504 : 500;
-    return NextResponse.json(
-      { error: error?.message || 'Server error' },
-      { status },
+    console.error('❌ 最終ストーリー生成エラー:', error?.message || error);
+    const status = error?.name === 'AbortError' ? 504 : 500;
+    return new NextResponse(
+      JSON.stringify({
+        error: '最終ストーリーの生成に失敗しました',
+        detail: String(error),
+      }),
+      { status, headers: { 'content-type': 'application/json; charset=utf-8' } },
     );
   }
 }
