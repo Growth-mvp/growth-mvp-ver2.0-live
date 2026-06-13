@@ -558,6 +558,24 @@ function buildDbRowFromState(state: StrategyData) {
     }
     row[snake] = v;
   }
+
+  // ★ STAGE2 中計設計（midtermStrategy）のパック保存
+  // - 専用カラムを増やさず（DB migration 不要）、swot_suggestions（JSONB）内の
+  //   `midtermStrategy` キーとして保存する
+  // - 保存ペイロードは常に全状態（buildSavePayload）なので、ここで state から
+  //   毎回パックし直す限り、swotSuggestions の上書きで中計データが消えることはない
+  // - 復元側は normalize.ts が swotSuggestions.midtermStrategy をトップレベルへ展開する
+  {
+    const midterm = (state as any).midtermStrategy;
+    if (midterm && typeof midterm === 'object' && !Array.isArray(midterm) && Object.keys(midterm).length > 0) {
+      const baseSwot =
+        row.swot_suggestions && typeof row.swot_suggestions === 'object' && !Array.isArray(row.swot_suggestions)
+          ? row.swot_suggestions
+          : {};
+      row.swot_suggestions = { ...baseSwot, midtermStrategy: midterm };
+    }
+  }
+
   return row;
 }
 
