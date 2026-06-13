@@ -23,8 +23,8 @@ const KNOWLEDGE_SECTIONS: KnowledgeSection[] = [
 **GROWTH は企業価値分析ツールです。** 経営者が企業価値を把握・向上させるために、以下の一気通貫サイクルを回します：
 
 1. **Stage 1: 企業価値分析** → 財務数値から5つの指標を計算、強化項目を特定
-2. **Stage 2: 経営戦略策定** → 勝ち筋を定義し、AI との12問仮説検証で磨く
-3. **Stage 3: 部門戦略策定** → 全社戦略を部門ミッション・プロジェクト・OKR に展開
+2. **Stage 2: 全社戦略** → 勝ち筋・中計の方向性を定義し、AI との12問仮説検証で磨く
+3. **Stage 3: 事業・部門別戦略** → 全社戦略を各事業・部門のミッション・プロジェクト・OKR に展開
 4. **Stage 4: 実行計画策定** → OKR をマイルストーン・優先順位・リソース計画に落とす
 5. **Stage 5: 実行計画支援** → 進捗追跡・チェックイン・フィードバック・評価
 6. **Stage 6: 業績シミュレーション** → 実行計画が業績（PL等）にどう効くかを試算
@@ -96,7 +96,7 @@ const KNOWLEDGE_SECTIONS: KnowledgeSection[] = [
 
   {
     id: 'STAGE2_FLOW',
-    title: 'Stage 2: 経営戦略策定',
+    title: 'Stage 2: 全社戦略',
     keywords: ['stage2', 'STAGE2', 'ステージ2', 'ストーリー', '勝ち筋', '12問', '仮説', 'QA', 'シナリオ', '戦略', '経営戦略', 'SWOT', 'ビジョン'],
     content: `## Stage 2 経営戦略策定
 
@@ -115,11 +115,11 @@ const KNOWLEDGE_SECTIONS: KnowledgeSection[] = [
 
   {
     id: 'STAGE3_CASCADE',
-    title: 'Stage 3: 部門戦略策定',
-    keywords: ['stage3', 'STAGE3', 'ステージ3', 'カスケード', 'cascade', 'OKR', 'ミッション', 'プロジェクト', '展開', '部門', '戦略'],
-    content: `## Stage 3 部門戦略策定
+    title: 'Stage 3: 事業・部門別戦略',
+    keywords: ['stage3', 'STAGE3', 'ステージ3', 'カスケード', 'cascade', 'OKR', 'ミッション', 'プロジェクト', '展開', '部門', '事業', '戦略'],
+    content: `## Stage 3 事業・部門別戦略
 
-**目的:** 全社戦略（Stage 2）を部門・プロジェクト・OKR に展開
+**目的:** 全社戦略（Stage 2）を各事業・部門の戦略・プロジェクト・OKR に展開
 
 **構造:**
 全社戦略ストーリー → 部門ミッション → プロジェクト → OKR
@@ -142,7 +142,7 @@ const KNOWLEDGE_SECTIONS: KnowledgeSection[] = [
     keywords: ['stage4', 'STAGE4', 'ステージ4', '実行計画', '計画', 'マイルストーン', '担当', '優先順位', 'リソース'],
     content: `## Stage 4 実行計画策定
 
-**目的:** Stage 3 で定めた部門戦略・プロジェクト・OKR を、実行可能な計画に落とす
+**目的:** Stage 3 で定めた事業・部門別戦略・プロジェクト・OKR を、実行可能な計画に落とす
 
 **ステップ:**
 1. **優先順位付け**: プロジェクト・OKR の重要度・緊急度から優先順位を決定
