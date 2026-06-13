@@ -694,6 +694,49 @@ function cleanFinalStoryArtifacts(text: string): string {
 }
 
 /* =========================
+ * 第2章品質保証：禁止表現検出と安全本文差し替え
+ * =======================*/
+function detectProhibitedExpressionsInChapter2(text: string): boolean {
+  if (!text) return false;
+
+  const prohibitedPatterns = [
+    /自社の勝ち筋：/,
+    /^\s*1\.\s*圧倒的な/m,
+    /^\s*2\.\s*特定事業/m,
+    /根拠\s*\(\s*SWOT\s*\)/,
+    /強み\s*\(\s*S\s*\)/,
+    /弱み\s*\(\s*W\s*\)/,
+    /機会\s*\(\s*O\s*\)/,
+    /脅威\s*\(\s*T\s*\)/,
+    /90日アクション/,
+    /トレードオフ/,
+    /関連論点\s*=/,
+    /issue-/,
+    /目標値\s*=/,
+    /目標年\s*=/,
+    /\-\s*売上\s*／/,
+    /\-\s*営業利益\s*／/,
+    /North Star未入力/,
+    /論点ID/,
+  ];
+
+  return prohibitedPatterns.some(pattern => pattern.test(text));
+}
+
+function buildSafeChapter2Body(segments: string, strength: unknown, opportunity: unknown, weakness: unknown, threat: unknown): string {
+  const strengthText = sanitize(strength, 200) || '核となる技術・顧客基盤';
+  const segmentsText = segments && segments !== '—' ? segments : '成長余地のある領域';
+
+  return `当社の勝ち筋は、${strengthText}を起点に、${segmentsText}への提供価値を広げることである。既存事業への依存を下げながら、成長余地のある市場・用途・顧客へ事業の軸足を移していく。
+
+各事業では、成長領域への展開を進める。同時に、収益性改善と資源の最適配分を優先する。財務余力は、将来の収益基盤につながる開発テーマ、市場開拓、顧客価値向上に優先配分する。
+
+成長領域とのつながりが弱い商品、目的が曖昧な投資、収益性の低い活動は見直す。
+
+この方針に基づき、STAGE3では事業別・部門別の重点テーマを定義し、STAGE4では投資基準とKPIに落とし込む。`;
+}
+
+/* =========================
  * OpenAI 呼び出し（JSON強制＋フォールバック）
  * =======================*/
 type ChatArgs = {
@@ -1390,6 +1433,16 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
       companyTargetsText,
     });
     sections = sections.map((s) => ({ ...s, body: cleanFinalStoryArtifacts(s.body) }));
+
+    // ★第2章品質保証：禁止表現が検出された場合は安全な定型本文に差し替える
+    if (sections.length >= 2) {
+      const chapter2 = sections[1];
+      if (chapter2 && detectProhibitedExpressionsInChapter2(chapter2.body)) {
+        const safeBody = buildSafeChapter2Body(segmentsText, strength, opportunity, weakness, threat);
+        sections[1] = { ...chapter2, body: safeBody };
+      }
+    }
+
     longform = sections
       .map((s) => `【${s.heading}】\n${sanitize(normalizeNewlines(s.body), 4000)}`)
       .join('\n\n');
