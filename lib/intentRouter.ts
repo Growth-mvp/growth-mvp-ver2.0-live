@@ -11,7 +11,7 @@ export const MANUAL_HINTS = [
 ];
 
 export const STRATEGY_HINTS = [
-  'MVV','SWOT','ストーリー','部門戦略','OKR','Objective','KR','優先順位',
+  'MVV','SWOT','ストーリー','部門戦略','事業・部門別戦略','OKR','Objective','KR','優先順位',
   '経営','戦略','施策','ロードマップ','組織','部長','意思決定','KPI'
 ];
 
