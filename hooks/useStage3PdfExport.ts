@@ -81,7 +81,7 @@ export function useStage3PdfExport() {
       console.log('[useStage3PdfExport] Starting PDF conversion...');
 
       // ★ 4. PDFダウンロード
-      const fileName = generatePdfFileName(3, '部門戦略レポート');
+      const fileName = generatePdfFileName(3, '事業・部門別戦略レポート');
       await downloadPdfFromElement('stage3-pdf-export', fileName, {
         margin: [10, 10, 10, 10],
         jsPDF: {
