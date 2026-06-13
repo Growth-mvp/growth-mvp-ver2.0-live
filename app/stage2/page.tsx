@@ -24,6 +24,7 @@ import { restoreWithAudit } from '@/utils/persist/restoreWithAudit';
 import type { IssueBlock, MetricsSummary, StoryChapter, WinPatternCandidate, Stage2State, Stage2Answer } from '@/types/strategy';
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
+import { StrategyStoryPreview } from '@/components/stage2/StrategyStoryPreview';
 
 /* ===================================================
  * ★ Zustand selector 参照安定化：無限ループ防止
@@ -327,6 +328,109 @@ function FinalStoryPreview({ finalStory }: { finalStory: StoryChapter[] }) {
 }
 
 /* ===================================================
+ * ★ 経営層向けドキュメント表示（最終ストーリー）
+ * - 4章の構成・本文は一切変更せず、「見せ方」のみ戦略書品質で表示
+ * - 表紙ヘッダー（タイトル・会社名・ステータス）→ 構成（目次）→ 各章本文
+ * - 本文は段落単位で組版（明朝系・字間/行間を文書向けに調整）
+ * =================================================== */
+function ExecutiveStoryDocument({
+  story,
+  finalized,
+}: {
+  story: StoryChapter[];
+  finalized: boolean;
+}) {
+  const companyName = useStrategyStore((s: StrategyState) => (s as any).companyName as string | undefined);
+
+  if (!story || story.length === 0) return null;
+
+  const renderBody = (body: string) => {
+    const cleaned = stripIssueSummaryFromDisplay(body ?? '');
+    const paragraphs = cleaned
+      .split(/\n{2,}/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+    if (paragraphs.length === 0) {
+      return <p className="text-sm text-gray-400 dark:text-gray-500">（本文未入力）</p>;
+    }
+    return paragraphs.map((p, i) => (
+      <p
+        key={i}
+        className="whitespace-pre-wrap break-words text-justify leading-[2.05] tracking-[0.015em] text-[15px] text-gray-800 dark:text-gray-200"
+      >
+        {p}
+      </p>
+    ));
+  };
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm">
+      {/* 表紙ヘッダー */}
+      <div className="border-b border-slate-800 bg-slate-900 px-8 py-10 sm:px-12">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-slate-400">
+          Mid-Term Management Plan
+        </p>
+        <h2 className="mt-3 text-2xl font-semibold tracking-wide text-white sm:text-3xl">
+          全社戦略ストーリー
+        </h2>
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          {companyName && <span className="text-sm font-medium text-slate-300">{companyName}</span>}
+          <span
+            className={[
+              'rounded-full border px-3 py-1 text-[11px] font-semibold',
+              finalized
+                ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-300'
+                : 'border-amber-400/40 bg-amber-500/15 text-amber-300',
+            ].join(' ')}
+          >
+            {finalized ? '確定版' : 'ドラフト（確定前）'}
+          </span>
+        </div>
+      </div>
+
+      {/* 構成（目次） */}
+      <div className="border-b border-gray-200 px-8 py-6 dark:border-gray-700 sm:px-12">
+        <p className="text-[11px] font-semibold tracking-[0.3em] text-gray-400 dark:text-gray-500">構成</p>
+        <div className="mt-3 grid gap-x-10 gap-y-2 sm:grid-cols-2">
+          {story.map((ch, i) => (
+            <div key={i} className="flex items-baseline gap-3">
+              <span className="shrink-0 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                第{i + 1}章
+              </span>
+              <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{ch.title}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 各章本文 */}
+      <div className="space-y-12 px-8 py-10 sm:px-12">
+        {story.map((ch, i) => (
+          <section key={i}>
+            <div className="flex items-center gap-4">
+              <span className="shrink-0 text-xs font-semibold tracking-[0.25em] text-slate-500 dark:text-slate-400">
+                第{i + 1}章
+              </span>
+              <span className="h-px flex-1 bg-gray-200 dark:bg-gray-700" />
+            </div>
+            <h3 className="mt-3 font-serif text-xl font-semibold leading-snug text-gray-900 dark:text-gray-50 sm:text-[22px]">
+              {ch.title}
+            </h3>
+            <div className="mt-5 space-y-5 font-serif">{renderBody(ch.body)}</div>
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ===================================================
+ * ★STEP11: 中計設計パネル削除
+ * - StrategyStoryPreview 内の MidtermDesignBox に統合済み
+ * - 重複表示を回避するため削除
+ * =================================================== */
+
+/* ===================================================
  * 現状→目標 KPIブリッジ（Apple風UI）
  * ★ TASK A: 売上・営業利益の現状→目標を可視化（百万円表示）
  * =================================================== */
@@ -609,19 +713,95 @@ function DivergingBarCard({
 }
 
 /**
- * CurrentToTargetPanel - 新 UI版（太い縦棒）
+ * FinancialTargetGapPanel - 経営層向けの数値目標サマリー
+ * - 戦略書上部で「何をどこまで伸ばすのか」を一目で示す
+ * - 内部値は百万円、画面表示は億円中心
  */
-function CurrentToTargetPanel({ revenue, operatingProfit }: CurrentToTargetPanelProps) {
-  return (
-    <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white/40 dark:bg-white/5 backdrop-blur-sm p-6">
-      <h4 className="text-base font-semibold text-gray-800 dark:text-gray-200 mb-6">現状 → 目標</h4>
+function formatOkuFromMillion(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  const oku = value / 100;
+  return `${Math.round(oku).toLocaleString('ja-JP')}億円`;
+}
 
-      {/* 売上と営業利益を2カラムで並べる */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <PositiveOnlyBarCard title="売上" current={revenue.current} target={revenue.target} />
-        <DivergingBarCard title="営業利益" current={operatingProfit.current} target={operatingProfit.target} />
+function FinancialTargetMetricCard({
+  title,
+  current,
+  target,
+}: {
+  title: string;
+  current: number | null;
+  target: number | null;
+}) {
+  const delta = current != null && target != null ? target - current : null;
+  const achievementRate = target != null && target !== 0 && current != null ? current / target : null;
+  const progressPct = achievementRate != null ? Math.max(0, Math.min(100, achievementRate * 100)) : 0;
+  const deltaIsPositive = delta == null || delta >= 0;
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Target KPI</p>
+          <h5 className="mt-1 text-base font-bold text-slate-950 dark:text-slate-50">{title}</h5>
+        </div>
+        <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+          達成率 {achievementRate != null ? formatPct(achievementRate) : '—'}
+        </div>
+      </div>
+
+      <div className="mt-5 grid grid-cols-2 gap-3">
+        <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/80">
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">現状</p>
+          <p className="mt-1 text-2xl font-bold tracking-tight text-slate-950 dark:text-white">{formatOkuFromMillion(current)}</p>
+          <p className="mt-1 text-[11px] text-slate-400">{current != null ? `${Math.round(current).toLocaleString('ja-JP')}百万円` : '—'}</p>
+        </div>
+        <div className="rounded-xl bg-blue-50 p-4 dark:bg-blue-950/30">
+          <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">目標</p>
+          <p className="mt-1 text-2xl font-bold tracking-tight text-blue-800 dark:text-blue-200">{formatOkuFromMillion(target)}</p>
+          <p className="mt-1 text-[11px] text-blue-500/80">{target != null ? `${Math.round(target).toLocaleString('ja-JP')}百万円` : '—'}</p>
+        </div>
+      </div>
+
+      <div className="mt-5">
+        <div className="mb-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+          <span>現状から目標への進捗</span>
+          <span>{achievementRate != null ? formatPct(achievementRate) : '—'}</span>
+        </div>
+        <div className="h-3 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+          <div
+            className="h-full rounded-full bg-slate-900 transition-all dark:bg-blue-400"
+            style={{ width: `${progressPct}%` }}
+          />
+        </div>
+      </div>
+
+      <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4 text-sm dark:border-slate-800">
+        <span className="font-medium text-slate-500 dark:text-slate-400">必要な上積み</span>
+        <span className={`font-bold ${deltaIsPositive ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600 dark:text-red-300'}`}>
+          {delta != null ? `${delta >= 0 ? '+' : ''}${formatOkuFromMillion(delta)}` : '—'}
+        </span>
       </div>
     </div>
+  );
+}
+
+function CurrentToTargetPanel({ revenue, operatingProfit }: CurrentToTargetPanelProps) {
+  return (
+    <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-950/60 md:p-8">
+      <div className="mb-6 flex flex-col gap-2 border-b border-slate-100 pb-5 dark:border-slate-800">
+        <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-blue-700 dark:text-blue-300">Financial Target</p>
+        <h3 className="text-xl font-bold text-slate-950 dark:text-slate-50">数値目標と達成ギャップ</h3>
+        <p className="max-w-3xl text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+          この戦略により、売上・営業利益の成長目標を実現し、持続的な収益基盤への転換を目指します。
+          現在値と目標値の差分を明確にし、STAGE3以降の部門戦略・KPI設計に接続します。
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <FinancialTargetMetricCard title="売上" current={revenue.current} target={revenue.target} />
+        <FinancialTargetMetricCard title="営業利益" current={operatingProfit.current} target={operatingProfit.target} />
+      </div>
+    </section>
   );
 }
 
@@ -1531,7 +1711,9 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   const employees = useStrategyStore((s: StrategyState) => s.employees ?? '');
   const businessContent = useStrategyStore((s: StrategyState) => s.businessContent ?? '');
   const businessSegments = useStrategyStore((s: StrategyState) => s.businessSegments ?? []); // ★ STAGE1で定義されたセグメント情報
+  const segmentPL = useStrategyStore((s: StrategyState) => (s as any).segmentPL ?? {}); // ★ STAGE1で定義された事業別P/L
   const businessPortfolio = useStrategyStore((s: StrategyState) => (s as any).businessPortfolio ?? null); // ★ 現在の事業ポートフォリオ（型揺れ許容）
+
   const companyId = useUserStore((s) => s.companyId);
   const userId = useUserStore((s) => s.user?.id);
   const hydrated = useStrategyStore((s: StrategyState) => s.hydrated);
@@ -1594,6 +1776,10 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   const addSwotOpportunity = useStrategyStore((s: StrategyState) => s.addSwotOpportunity);
   const addSwotThreat = useStrategyStore((s: StrategyState) => s.addSwotThreat);
 
+  // ★ STEP10: 戦略書プレビュー用データ
+  const companyName = useStrategyStore((s: StrategyState) => (s as any).companyName as string | undefined);
+  const midtermStrategy = useStrategyStore((s: StrategyState) => s.midtermStrategy);
+
   // Local UI state
   const [loading, setLoading] = useState(true);
   const [issueBlocks, setIssueBlocks] = useState<IssueBlock[]>([]);
@@ -1614,6 +1800,8 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   const [editingStory, setEditingStory] = useState<StoryChapter[]>([]);
   const [generatingFinal, setGeneratingFinal] = useState(false);
   const [generateFinalError, setGenerateFinalError] = useState<string | null>(null);
+  // ★ 最終ストーリーの表示モード：デフォルトは経営層向けドキュメント表示。編集はトグルで切替
+  const [storyEditMode, setStoryEditMode] = useState(false);
 
   // ★ TASK A: 現状→目標 KPI ブリッジデータを計算（安全な単位推定＆多段フォールバック）
   const kpiBridgeData = useMemo(() => {
@@ -2721,15 +2909,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   const handleGenerateFinal = useCallback(async () => {
     if (generatingFinal) return;
 
-    // ★ Step 3: 再生成クリック直前の state
-    if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
-      console.log('[diag][regenerate][before]', {
-        draftLen: finalStoryDraftRaw?.length ?? 0,
-        editedLen: finalStoryEditedRaw?.length ?? 0,
-        finalLen: finalStoryFinalRaw?.length ?? 0,
-        generatingFinal,
-      });
-    }
+    console.log('[Stage2] generate final story: start');
 
     setGeneratingFinal(true);
     setGenerateFinalError(null);
@@ -2737,9 +2917,8 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | null = null;
     let didTimeout = false;
-    let done = false; // ★追加：レース防止（レスポンス受領後は abort しない）
+    let done = false;
 
-    // ★追加：abort reason を明示 + done フラグでレース防止
     const abortByTimeout = () => {
       if (done) return;
       didTimeout = true;
@@ -2751,8 +2930,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
     };
 
     try {
-      // ★ 修正2：120秒にタイムアウト（デバッグ用：サーバ側の速度確認）
-      const TIMEOUT_MS = 120_000;
+      const TIMEOUT_MS = 180_000; // 180秒（API maxDuration に合わせ）
       timer = setTimeout(abortByTimeout, TIMEOUT_MS);
 
       const segmentNames = Array.isArray(businessSegments)
@@ -2761,49 +2939,56 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
             .filter(Boolean)
         : [];
 
-      // ★ API 呼び出し（Bearer 自動付与）
+      const payload = {
+        issueBlocks,
+        metricsSummary,
+        mvv: { thought, mission, vision, value },
+        swot: { strength, weakness, opportunity, threat },
+        storyDraft,
+        winPatternsCandidate,
+        selectedWinPatternId: selectedWinPatternId ?? winPatternsCandidate?.[0]?.id ?? null,
+        answers12,
+        companyTargets,
+        industry,
+        segments: segmentNames,
+        businessSegments,
+        businessPortfolio,
+      };
+
+      console.log('[Stage2] generate final story: payload size', JSON.stringify(payload).length);
+      console.time('[Stage2] generate final story duration');
+
       let data: any;
       try {
-        data = await authFetchJson<any>('/api/stage2/generate-final', {
+        const res = await authFetchJson<any>('/api/stage2/generate-final', {
           method: 'POST',
           signal: controller.signal,
-          json: {
-            issueBlocks,
-            metricsSummary,
-            mvv: { thought, mission, vision, value },
-            swot: { strength, weakness, opportunity, threat },
-            storyDraft,
-            winPatternsCandidate,
-            // UIでは選択させないが、API整合のため内部で先頭候補を参照（無い場合は null）
-            selectedWinPatternId: selectedWinPatternId ?? winPatternsCandidate?.[0]?.id ?? null,
-            answers12, // 未回答でもOK（空文字が混ざっていても許容）
-            companyTargets,
-            industry,
-            segments: segmentNames,
-            businessSegments,
-            businessPortfolio,
-          },
+          json: payload,
         });
 
-        // ★★★ 重要：レスポンスが返ったら timeout を解除（本文 parse 中に abort されるのを防ぐ）
-        done = true; // ★追加：これ以上 abort させない（race 防止）
-        if (timer) {
-          clearTimeout(timer);
-          timer = null;
-        }
-      } catch (e: any) {
-        // ★ authFetchJson からのエラー（401など）
+        console.log('[Stage2] generate final story: response received');
+        data = res;
+
         done = true;
         if (timer) {
           clearTimeout(timer);
           timer = null;
         }
-        const msg =
-          e instanceof AuthFetchError
-            ? e.status === 401
-              ? 'セッションが切れています。ログインし直してください。'
-              : e.bodyText || e.message
-            : e?.message || 'API error';
+      } catch (e: any) {
+        done = true;
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        console.error('[Stage2] generate final story: fetch failed', e);
+
+        const msg = didTimeout
+          ? '生成処理がタイムアウトしました。入力データ量が多いか、処理に時間がかかっています。少し時間を置いて再度お試しください。'
+          : e instanceof AuthFetchError
+          ? e.status === 401
+            ? 'セッションが切れています。ログインし直してください。'
+            : e.bodyText || e.message
+          : e?.message || 'API error';
         throw new Error(msg);
       }
       const newFinalStory: StoryChapter[] = Array.isArray(data.finalStory) ? data.finalStory : [];
@@ -2822,6 +3007,17 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
       // ★ STAGE2 最終ストーリー：draft に設定（edited は保持）
       setFinalStoryDraft(newFinalStory);
+
+      // ★中計設計（midtermStrategy）がAPIから返ってきた場合のみ store へ反映
+      if (
+        data?.midtermStrategy &&
+        typeof data.midtermStrategy === 'object' &&
+        !Array.isArray(data.midtermStrategy)
+      ) {
+        try {
+          (useStrategyStore.getState() as any).setMidtermStrategy?.(data.midtermStrategy);
+        } catch {}
+      }
 
       // ★ TASK A-2: 再生成成功直後は draft を表示
       setStoryViewMode('draft');
@@ -2871,8 +3067,9 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         setGenerateFinalError(e?.message || '最終ストーリーの生成に失敗しました');
       }
     } finally {
-      done = true; // ★追加：timeout abort を確実に防ぐ
+      done = true;
       if (timer) clearTimeout(timer);
+      console.timeEnd('[Stage2] generate final story duration');
       setGeneratingFinal(false);
     }
   }, [
@@ -2941,8 +3138,11 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       <header className="sticky top-0 z-10 bg-white/80 dark:bg-zinc-900/80 backdrop-blur border-b border-black/5 dark:border-white/5">
         <div className="max-w-6xl mx-auto px-4 md:px-6 py-4 flex items-center justify-between gap-6">
           <div>
-            <h1 className="text-xl font-bold text-gray-800 dark:text-gray-200">STAGE2：経営戦略ストーリー</h1>
+            <h1 className="text-xl font-bold text-gray-800 dark:text-gray-200">STAGE2：全社戦略</h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
+              中計全体の方向性、重点テーマ、事業・部門へ展開する判断軸を設計します。
+            </p>
+            <p className="text-xs text-gray-400 dark:text-gray-500">
               入力（MVV・SWOT）→ 戦略のたたき台 → １２のテーマをもとに議論　→ 最終ストーリーを確定
             </p>
           </div>
@@ -3136,134 +3336,174 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
               <div className="space-y-6">
                 {displayingStory.length > 0 ? (
                   <>
-                    {/* ★ 確定済みバッジ */}
-                    {finalStoryFinalRaw && (
-                      <div className="inline-block bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-700 rounded-lg px-4 py-2">
-                        <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">✓ 確定済み</p>
+                    {/* ★ ステータスバッジ + 表示モード切替 */}
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      {finalStoryFinalRaw && finalStoryFinalRaw.length > 0 ? (
+                        <div className="inline-block bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-700 rounded-lg px-4 py-2">
+                          <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">✓ 確定済み</p>
+                        </div>
+                      ) : (
+                        <span />
+                      )}
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          onClick={() => setStoryEditMode((v) => !v)}
+                          className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors shadow-sm"
+                        >
+                          {storyEditMode ? 'ドキュメント表示に戻る' : '本文を編集する'}
+                        </button>
+                      )}
+                    </div>
+
+                    {!storyEditMode ? (
+                      <div className="space-y-8">
+                        {/* ★ STEP12: 戦略書プレビュー内で、結論直後に数値目標を表示 */}
+                        <StrategyStoryPreview
+                          story={editingStory.length > 0 ? editingStory : displayingStory}
+                          finalized={!!(finalStoryFinalRaw && finalStoryFinalRaw.length > 0)}
+                          companyName={companyName}
+                          midtermStrategy={midtermStrategy}
+                          financialTargets={kpiBridgeData}
+                          swotSuggestions={swotSuggestions}
+                          swotData={{
+                            strengths: strength ? [strength] : [],
+                            weaknesses: weakness ? [weakness] : [],
+                            opportunities: opportunity ? [opportunity] : [],
+                            threats: threat ? [threat] : [],
+                          }}
+                          businessSegments={businessSegments}
+                          segmentPL={segmentPL}
+                          valueAnalysis={storeValueAnalysis}
+                          businessPortfolio={businessPortfolio}
+                        />
+                      </div>
+                    ) : (
+                      /* ★ 4章の編集UI（従来どおり） */
+                      <div className="space-y-6">
+                        {editingStory.map((chapter, chapterIndex) => (
+                          <div key={chapterIndex} className="border border-gray-200 dark:border-gray-700 rounded-lg p-6 bg-white dark:bg-gray-800">
+                            {/* 章タイトル */}
+                            <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-4">{chapter.title}</h3>
+
+                            {/* Textarea */}
+                            <AutoResizeTextarea
+                              readOnly={readOnly}
+                              value={editingStory[chapterIndex]?.body ?? ''}
+                              onChange={(e) => {
+                                const updated = [...editingStory];
+                                if (updated[chapterIndex]) {
+                                  updated[chapterIndex].body = e.target.value;
+                                }
+                                setEditingStory(updated);
+                              }}
+                              className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              placeholder={`${chapter.title}の本文を入力...`}
+                              minRows={8}
+                              maxRows={36}
+                            />
+
+                            {/* 文字数カウンタ */}
+                            <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                              {(editingStory[chapterIndex]?.body ?? '').length} 文字
+                              <span className="ml-2 text-gray-400">（推奨: 700-1200 文字）</span>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     )}
 
-                    {/* ★ 4章の編集UI */}
-                    <div className="space-y-6">
-                      {editingStory.map((chapter, chapterIndex) => (
-                        <div key={chapterIndex} className="border border-gray-200 dark:border-gray-700 rounded-lg p-6 bg-white dark:bg-gray-800">
-                          {/* 章タイトル */}
-                          <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-4">{chapter.title}</h3>
+                    {/* ★ STEP11: Actions エリア */}
+                    <div className="mt-12 pt-8 border-t border-slate-200">
+                      <h3 className="text-sm font-bold text-slate-700 text-center mb-6 uppercase tracking-wider">
+                        Actions
+                      </h3>
 
-                          {/* Textarea */}
-                          <AutoResizeTextarea
-                            readOnly={readOnly}
-                            value={editingStory[chapterIndex]?.body ?? ''}
-                            onChange={(e) => {
-                              const updated = [...editingStory];
-                              if (updated[chapterIndex]) {
-                                updated[chapterIndex].body = e.target.value;
-                              }
-                              setEditingStory(updated);
-                            }}
-                            className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            placeholder={`${chapter.title}の本文を入力...`}
-                            minRows={8}
-                            maxRows={36}
-                          />
+                      {/* 編集・保存・破棄ボタン */}
+                      <div className="flex gap-3 justify-center mb-6">
+                        {/* 保存（下書き保存）：編集モード時のみ */}
+                        {storyEditMode && (
+                        <button
+                          disabled={disabled}
+                          onClick={() => {
+                            if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+                              console.log('[diag][button][save]', {
+                                editingStoryLen: editingStory.length,
+                                beforeEditedLen: finalStoryEditedRaw?.length ?? 0,
+                                action: 'setFinalStoryEdited',
+                              });
+                            }
+                            setFinalStoryEdited(editingStory);
+                            setStoryViewMode('edited');
+                          }}
+                          className="px-6 py-3 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors shadow-md disabled:opacity-50"
+                        >
+                          保存
+                        </button>
+                        )}
 
-                          {/* 文字数カウンタ */}
-                          <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                            {(editingStory[chapterIndex]?.body ?? '').length} 文字
-                            <span className="ml-2 text-gray-400">（推奨: 700-1200 文字）</span>
-                          </div>
-                        </div>
-                      ))}
+                        {/* 確定（Final） */}
+                        <button
+                          disabled={disabled}
+                          onClick={() => {
+                            if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+                              console.log('[diag][button][commit]', {
+                                editingStoryLen: editingStory.length,
+                                beforeDraftLen: finalStoryDraftRaw?.length ?? 0,
+                                beforeEditedLen: finalStoryEditedRaw?.length ?? 0,
+                                beforeFinalLen: finalStoryFinalRaw?.length ?? 0,
+                                action: 'setFinalStoryEdited + commitFinalStory',
+                              });
+                            }
+                            setFinalStoryEdited(editingStory);
+                            setTimeout(() => {
+                              commitFinalStory();
+                              setStoryViewMode('final');
+                            }, 100);
+                          }}
+                          className="px-6 py-3 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors shadow-md disabled:opacity-50"
+                        >
+                          確定
+                        </button>
+
+                        {/* 破棄（編集を戻す）：編集モード時のみ */}
+                        {storyEditMode && (
+                        <button
+                          disabled={disabled}
+                          onClick={() => {
+                            if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+                              console.log('[diag][button][discard]', {
+                                usingVersion: finalStoryFinalRaw?.length ? 'final' : finalStoryDraftRaw?.length ? 'draft' : 'none',
+                                beforeEditingLen: editingStory.length,
+                                afterEditingLen: (finalStoryFinalRaw ?? finalStoryDraftRaw ?? []).length,
+                                action: 'setEditingStory (reset to draft/final)',
+                              });
+                            }
+                            setEditingStory(finalStoryFinalRaw ?? finalStoryDraftRaw ?? []);
+                            setStoryViewMode('auto');
+                          }}
+                          className="px-6 py-3 rounded-lg bg-slate-400 text-white text-sm font-medium hover:bg-slate-500 transition-colors shadow-md disabled:opacity-50"
+                        >
+                          破棄
+                        </button>
+                        )}
+                      </div>
+
+                      {/* 再生成ボタン */}
+                      <div className="flex justify-center mb-4">
+                        <button
+                          disabled={disabled || !hasDraft || generatingFinal}
+                          onClick={handleGenerateFinal}
+                          className="px-8 py-3 rounded-lg bg-slate-700 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-800 transition-colors shadow-md"
+                        >
+                          {generatingFinal ? '生成中...' : '最終ストーリーを再生成'}
+                        </button>
+                      </div>
+
+                      <p className="text-xs text-slate-500 text-center leading-relaxed">
+                        ※ 再生成すると下書きが更新され、編集版は保持されます
+                      </p>
                     </div>
-
-                    {/* ★ TASK A: 現状→目標 KPI ブリッジ */}
-                    <CurrentToTargetPanel revenue={kpiBridgeData.revenue} operatingProfit={kpiBridgeData.operatingProfit} />
-
-                    {/* ★ 3つのボタン */}
-                    <div className="flex gap-3 justify-center pt-4">
-                      {/* 保存（下書き保存） */}
-                      <button
-                        disabled={disabled}
-                        onClick={() => {
-                          // ★ Step 4: 保存ボタンの動作をログ
-                          if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
-                            console.log('[diag][button][save]', {
-                              editingStoryLen: editingStory.length,
-                              beforeEditedLen: finalStoryEditedRaw?.length ?? 0,
-                              action: 'setFinalStoryEdited',
-                            });
-                          }
-                          setFinalStoryEdited(editingStory);
-                          // ★ TASK A-2: 保存後は edited 版を表示
-                          setStoryViewMode('edited');
-                        }}
-                        className="px-6 py-3 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors shadow-md"
-                      >
-                        保存
-                      </button>
-
-                      {/* 確定（Final） */}
-                      <button
-                        disabled={disabled}
-                        onClick={() => {
-                          // ★ Step 4: 確定ボタンの動作をログ
-                          if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
-                            console.log('[diag][button][commit]', {
-                              editingStoryLen: editingStory.length,
-                              beforeDraftLen: finalStoryDraftRaw?.length ?? 0,
-                              beforeEditedLen: finalStoryEditedRaw?.length ?? 0,
-                              beforeFinalLen: finalStoryFinalRaw?.length ?? 0,
-                              action: 'setFinalStoryEdited + commitFinalStory',
-                            });
-                          }
-                          setFinalStoryEdited(editingStory);
-                          setTimeout(() => {
-                            commitFinalStory();
-                            // ★ TASK A-2: 確定後は final 版を表示
-                            setStoryViewMode('final');
-                          }, 100);
-                        }}
-                        className="px-6 py-3 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors shadow-md"
-                      >
-                        確定
-                      </button>
-
-                      {/* 破棄（編集を戻す） */}
-                      <button
-                        disabled={disabled}
-                        onClick={() => {
-                          // ★ Step 4: 破棄ボタンの動作をログ
-                          if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
-                            console.log('[diag][button][discard]', {
-                              usingVersion: finalStoryFinalRaw?.length ? 'final' : finalStoryDraftRaw?.length ? 'draft' : 'none',
-                              beforeEditingLen: editingStory.length,
-                              afterEditingLen: (finalStoryFinalRaw ?? finalStoryDraftRaw ?? []).length,
-                              action: 'setEditingStory (reset to draft/final)',
-                            });
-                          }
-                          // edited をクリアして draft に戻す
-                          setEditingStory(finalStoryFinalRaw ?? finalStoryDraftRaw ?? []);
-                          // ★ TASK A-2: 破棄時は自動選択に戻す（final > edited > draft）
-                          setStoryViewMode('auto');
-                        }}
-                        className="px-6 py-3 rounded-lg bg-gray-400 text-white text-sm font-medium hover:bg-gray-500 transition-colors shadow-md"
-                      >
-                        破棄
-                      </button>
-                    </div>
-
-                    {/* 再生成ボタン */}
-                    <div className="flex justify-center pt-6 border-t border-gray-200 dark:border-gray-700">
-                      <button
-                        disabled={disabled || !hasDraft || generatingFinal}
-                        onClick={handleGenerateFinal}
-                        className="px-8 py-4 rounded-xl bg-slate-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors shadow-lg"
-                      >
-                        {generatingFinal ? '生成中...' : '最終ストーリーを再生成'}
-                      </button>
-                    </div>
-
-                    <p className="text-xs text-gray-500 text-center">※ 再生成すると下書きが更新され、編集版は保持されます</p>
                   </>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50/50 dark:bg-gray-800/50 p-8 text-center">
@@ -3273,6 +3513,8 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                     </p>
                   </div>
                 )}
+
+                {/* ★中計設計は StrategyStoryPreview 内に統合済（上部の戦略書プレビューで表示）*/}
 
                 {generateFinalError && (
                   <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-700 dark:text-red-400">
