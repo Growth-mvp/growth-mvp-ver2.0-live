@@ -174,6 +174,12 @@ type ApiDeptDraft = {
   stopList?: string[];
   first90Days?: string[];
   riskNotes?: string[];
+
+  // ★STEP5拡張：事業・部門別戦略の観点（API が返した場合のみ存在する optional 項目）
+  currentPosition?: string;
+  strategicRole?: string;
+  keyIssues?: string[];
+  alignmentRiskPoints?: string[];
   reviewSummary?: {
     correctedItems?: string[];
     reconsiderationPoints?: string[];
@@ -3049,6 +3055,8 @@ useEffect(() => {
         winPatternSecondary,
         valueDriverKPIs,
         targetRanges,
+        // ★STEP7: STAGE2中計設計（midtermStrategy）を追加（存在する場合のみ）
+        ...(s?.midtermStrategy ? { midtermStrategy: s.midtermStrategy } : {}),
       };
 
       // ★TASK 1: 送信前にfinalStoryが含まれているか確認
@@ -3286,6 +3294,21 @@ useEffect(() => {
         if (!jsonEq(mergedLegacyNeedsCollab, (d as any).needsCollab ?? [])) (patch as any).needsCollab = mergedLegacyNeedsCollab;
         if (cleanedRd.stopList) (patch as any).stopList = cleanedRd.stopList;
         if (cleanedRd.riskNotes) (patch as any).riskNotes = cleanedRd.riskNotes;
+
+        // ★STEP5拡張：事業・部門別戦略の観点（値がある場合のみ store へ反映。
+        // 未出力時は既存値を上書きしない）
+        if (typeof cleanedRd.currentPosition === 'string' && cleanedRd.currentPosition.trim()) {
+          (patch as any).currentPosition = cleanedRd.currentPosition.trim();
+        }
+        if (typeof cleanedRd.strategicRole === 'string' && cleanedRd.strategicRole.trim()) {
+          (patch as any).strategicRole = cleanedRd.strategicRole.trim();
+        }
+        if (Array.isArray(cleanedRd.keyIssues) && cleanedRd.keyIssues.length > 0) {
+          (patch as any).keyIssues = cleanedRd.keyIssues;
+        }
+        if (Array.isArray(cleanedRd.alignmentRiskPoints) && cleanedRd.alignmentRiskPoints.length > 0) {
+          (patch as any).alignmentRiskPoints = cleanedRd.alignmentRiskPoints;
+        }
         if (!jsonEq((cleanedRd as any).reviewSummary, (d as any).reviewSummary)) {
           (patch as any).reviewSummary = (cleanedRd as any).reviewSummary;
         }
@@ -3819,6 +3842,59 @@ useEffect(() => {
     </div>
   </div>
 
+  {/* ★事業・部門別戦略の要点：部門カード展開時に常時表示（埋もれ防止）。
+      4項目すべて空の場合はプレースホルダーで機能の存在を示す */}
+  {(() => {
+    const currentPosition = ((dept as any).currentPosition ?? '').toString().trim();
+    const strategicRole = ((dept as any).strategicRole ?? '').toString().trim();
+    const keyIssues: string[] = Array.isArray((dept as any).keyIssues) ? (dept as any).keyIssues.filter(Boolean) : [];
+    const alignmentRiskPoints: string[] = Array.isArray((dept as any).alignmentRiskPoints) ? (dept as any).alignmentRiskPoints.filter(Boolean) : [];
+    const hasAny = !!currentPosition || !!strategicRole || keyIssues.length > 0 || alignmentRiskPoints.length > 0;
+    return (
+      <div className="mt-3 mb-2 rounded-2xl border border-indigo-200 bg-indigo-50/60 px-4 py-3">
+        <div className="text-sm font-bold tracking-tight text-indigo-900">事業・部門別戦略の要点</div>
+        {hasAny ? (
+          <div className="mt-2 space-y-2">
+            {currentPosition && (
+              <p className="text-sm leading-6 text-zinc-700 whitespace-pre-wrap">
+                <span className="font-semibold text-zinc-900">現在の位置づけ：</span>{sanitizeDisplayText(currentPosition)}
+              </p>
+            )}
+            {strategicRole && (
+              <p className="text-sm leading-6 text-zinc-700 whitespace-pre-wrap">
+                <span className="font-semibold text-zinc-900">中計上の役割：</span>{sanitizeDisplayText(strategicRole)}
+              </p>
+            )}
+            {keyIssues.length > 0 && (
+              <div className="text-sm leading-6 text-zinc-700">
+                <span className="font-semibold text-zinc-900">主要課題：</span>
+                <ul className="mt-1 list-disc pl-5 space-y-0.5">
+                  {keyIssues.slice(0, 4).map((issue, i) => (
+                    <li key={`key-issue-${dept.name}-${i}`}>{sanitizeDisplayText(String(issue))}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {alignmentRiskPoints.length > 0 && (
+              <div className="text-sm leading-6 text-zinc-700">
+                <span className="font-semibold text-zinc-900">認識のズレが起きやすいポイント：</span>
+                <ul className="mt-1 list-disc pl-5 space-y-0.5">
+                  {alignmentRiskPoints.slice(0, 3).map((point, i) => (
+                    <li key={`alignment-risk-${dept.name}-${i}`}>{sanitizeDisplayText(String(point))}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="mt-2 text-sm leading-6 text-zinc-500">
+            中計上の役割や認識のズレは、STAGE1の事業・部門情報とSTAGE2の全社戦略をもとに生成されます。STEP1の「たたき台を生成」を実行すると表示されます。
+          </p>
+        )}
+      </div>
+    );
+  })()}
+
   <div className={`mt-3 mb-2 w-full rounded-2xl border px-4 py-3 shadow-sm ${activeStep === 'step1' ? 'border-zinc-900 bg-zinc-900 text-white' : 'border-zinc-300 bg-zinc-100 text-zinc-900'}`}>
     <div className="flex items-center justify-between gap-3">
       <button
@@ -3902,6 +3978,7 @@ useEffect(() => {
                         <p className="text-sm leading-6 text-zinc-700 whitespace-pre-wrap">{sanitizeDisplayText(((dept as any).missionDescription ?? '').toString().trim())}</p>
                       </div>
                     )}
+
 
                     {(deptProjects.length > 0 || getUnifiedCollaborationCandidates(dept).all.length > 0) && (
                       <div className="mb-1">
