@@ -17,6 +17,7 @@ import { StatusBadge, StatusSelect, type Status } from '@/components/stage4/Stat
 import { DiffViewer } from '@/components/stage4/DiffViewer';
 import { AlignmentPreview } from '@/components/stage4/AlignmentPreview';
 import { ProjectEditor } from '@/components/stage4/ProjectEditor';
+import { KpiTreePanel } from '@/components/stage4/KpiTreePanel';
 import SaveStatusIndicator from '@/components/SaveStatusIndicator';
 import type { Stage4Plan, Stage4Baseline, Stage4Current, Department, Project, HumanInvestment } from '@/types/strategy';
 
@@ -59,6 +60,8 @@ export default function Stage4Page() {
   const saveStrategyData = useStrategyStore((s: StrategyState) => s.saveStrategyData);
   const valueDriverKPIs = useStrategyStore((s: StrategyState) => (s as any).valueDriverKPIs);
   const targetRanges = useStrategyStore((s: StrategyState) => (s as any).targetRanges);
+  // ★STEP8: KPI体系パネル用に midtermStrategy を取得
+  const midtermStrategy = useStrategyStore((s: StrategyState) => (s as any).midtermStrategy);
 
   // userStore も selector 化
   const companyId = useUserStore((s) => s.companyId);
@@ -507,6 +510,9 @@ export default function Stage4Page() {
               </div>
             </div>
           )}
+
+          {/* ★STEP8: KPI体系ツリーパネル */}
+          <KpiTreePanel departments={departments} midtermStrategy={midtermStrategy} />
 
           <div className="grid grid-cols-12 gap-6">
             {/* 左サイドバー：部門一覧 */}
