@@ -89,6 +89,7 @@ export function detectAutoMode(args: {
     'KPI',
     'OKR',
     '部門戦略',
+    '事業・部門別戦略',
     'ストーリー',
     '論点',
     '示唆',
