@@ -40,9 +40,9 @@ type WinningPatternKey =
  * =======================*/
 const SIMPLE_HEADS = ['なぜ今', 'どう戦う', 'どんな未来', 'どう実行する'] as const;
 const TITLE_TEMPLATES = [
-  '第1章：なぜ今（現状の危機と背景）',
-  '第2章：どう戦う（選択と集中の戦略）',
-  '第3章：どんな未来を実現するか（顧客価値と成果）',
+  '第1章：なぜ今',
+  '第2章：どう戦う',
+  '第3章：どんな未来',
   '第4章：どう実行に落とすか（部門戦略・KPI・実行管理）',
 ] as const;
 
@@ -485,17 +485,13 @@ function formatCompanyTargets(targets: unknown): string {
       const unit = pickFirstText(t.unit, t.unitLabel, t.currency);
       const year = normalizeTargetYear(t.dueYear ?? t.targetYear ?? t.year ?? t.fiscalYear ?? t.deadline);
       const note = pickFirstText(t.rationale, t.note, t.memo, t.description, t.reason);
-      const refs = asArray(t.relatedIssueIds ?? t.linkedIssueIds ?? t.issueIds)
-        .map((x) => asText(x, 80))
-        .filter(Boolean)
-        .join(', ');
+      // 内部ID（issue-...等）は最終本文に混入しやすいため、プロンプトには渡さない。
       const value = formatTargetValueForStory(valueRaw, unit);
       const parts = [
         name,
-        value ? `目標値=${value}` : '',
-        year ? `目標年=${year}` : '',
-        note ? `補足=${note}` : '',
-        refs ? `関連論点=${refs}` : '',
+        value ? `${value}` : '',
+        year ? `${year}` : '',
+        note ? `${note}` : '',
       ].filter(Boolean);
       return `- ${parts.join('／')}`;
     })
@@ -555,7 +551,7 @@ function formatSelectedWinPattern(candidates: unknown, selectedId: unknown): str
     .map((x) => (typeof x === 'string' ? x : pickFirstText((x as any)?.name, (x as any)?.title, (x as any)?.label)))
     .filter(Boolean)
     .join('、');
-  return [`${name}${selected ? `（ID=${selected}）` : ''}`, desc ? `狙い=${desc}` : '', kpi ? `価値指標=${kpi}` : '']
+  return [`${name}`, desc ? `狙い=${desc}` : '', kpi ? `価値指標=${kpi}` : '']
     .filter(Boolean)
     .join('\n');
 }
@@ -594,30 +590,9 @@ function stripPeopleRelatedNoise(text: string): string {
 }
 
 function compactStrategicDraftForPrompt(storyDraft: unknown): string {
-  let raw = formatStoryDraft(storyDraft);
+  const raw = formatStoryDraft(storyDraft);
   if (raw === '—') return raw;
-
-  // たたき台の分析メモ・見出し・内部情報を削除
-  raw = stripPeopleRelatedNoise(raw);
-
-  // 禁止表現を削除
-  raw = raw.replace(/^\s*\d+\)\s*狙う価値ドライバー.*/gim, ''); // 「1) 狙う価値ドライバー」
-  raw = raw.replace(/主要戦略\s*[:：]/gim, '');
-  raw = raw.replace(/90日アクション\s*[:：]/gim, '');
-  raw = raw.replace(/根拠\s*\(\s*SWOT\s*\)\s*[:：]/gim, '');
-  raw = raw.replace(/トレードオフ\s*[:：]/gim, '');
-  raw = raw.replace(/関連論点\s*=\s*[^\n]*/gim, '');
-  raw = raw.replace(/issue-[^\s）)]+/gim, '');
-  raw = raw.replace(/目標値\s*=\s*[^\n]*/gim, '');
-  raw = raw.replace(/目標年\s*=\s*[^\n]*/gim, '');
-  raw = raw.replace(/論点ID\s*[:：]?\s*[^\n]*/gim, '');
-  raw = raw.replace(/強み\s*\(\s*S\s*\)\s*[:：]?/gim, '');
-  raw = raw.replace(/弱み\s*\(\s*W\s*\)\s*[:：]?/gim, '');
-  raw = raw.replace(/機会\s*\(\s*O\s*\)\s*[:：]?/gim, '');
-  raw = raw.replace(/脅威\s*\(\s*T\s*\)\s*[:：]?/gim, '');
-  raw = raw.replace(/North\s*Star未入力/gim, '');
-
-  return raw.slice(0, 2600) || '—';
+  return stripPeopleRelatedNoise(raw).slice(0, 2600) || '—';
 }
 
 function cleanFinalStoryArtifacts(text: string): string {
@@ -630,22 +605,6 @@ function cleanFinalStoryArtifacts(text: string): string {
   out = out.replace(/debug[:：][^\n]*/gi, '');
   out = out.replace(/\(?fact-seg-?\d+\)?/gi, '');
   out = out.replace(/論点ID[:：]?\s*issue-[^\s）)]+/gi, '');
-
-  // たたき台の分析メモ禁止表現をクリーンアップ
-  out = out.replace(/^\s*\d+\)\s*狙う価値ドライバー.*/gim, '');
-  out = out.replace(/主要戦略\s*[:：]\s*\n/gim, '\n');
-  out = out.replace(/90日アクション\s*[:：]\s*\n/gim, '\n');
-  out = out.replace(/根拠\s*\(\s*SWOT\s*\)\s*[:：]\s*[^\n]*/gim, '');
-  out = out.replace(/トレードオフ\s*[:：]\s*[^\n]*/gim, '');
-  out = out.replace(/関連論点\s*=\s*[^\n]*/gim, '');
-  out = out.replace(/issue-[^\s）)]+/gim, '');
-  out = out.replace(/目標値\s*=\s*[^\n]*/gim, '');
-  out = out.replace(/目標年\s*=\s*[^\n]*/gim, '');
-  out = out.replace(/論点ID\s*[:：]?\s*[^\n]*/gim, '');
-  out = out.replace(/強み\s*\(\s*S\s*\)\s*[:：]?/gim, '');
-  out = out.replace(/弱み\s*\(\s*W\s*\)\s*[:：]?/gim, '');
-  out = out.replace(/機会\s*\(\s*O\s*\)\s*[:：]?/gim, '');
-  out = out.replace(/脅威\s*\(\s*T\s*\)\s*[:：]?/gim, '');
   out = out.replace(/。。。+/g, '。');
   out = out.replace(/。{2,}/g, '。');
   out = out.replace(/！{2,}/g, '！');
@@ -670,70 +629,10 @@ function cleanFinalStoryArtifacts(text: string): string {
   out = out.replace(/全力で舵取りを行います/g, '方向性を明確に示します');
   out = out.replace(/希望だと信じています/g, '次の成長につながります');
   out = out.replace(/営業利益(?:の)?基準値\s*([0-9,，]+)\s*（期限[:：][^)）]+）/g, '営業利益目標');
-  // 経営戦略文書に不要な演説調・鼓舞表現を抑制する。
-  out = out.replace(/皆さん[、，]?/g, '');
-  out = out.replace(/私たち[はも]?/g, '当社は');
-  out = out.replace(/我々[はも]?/g, '当社は');
-  out = out.replace(/一緒に/g, '各部門で');
-  out = out.replace(/未来を切り開(?:く|いていきましょう|いていく)/g, '将来の成長基盤をつくる');
-  out = out.replace(/挑戦し(?:よう|ましょう)/g, '取り組む');
-  out = out.replace(/覚悟を持って/g, '方針を明確にして');
-  out = out.replace(/覚悟ある/g, '明確な');
-  out = out.replace(/全力/g, '重点的');
-  out = out.replace(/邁進(?:していきます|します)?/g, '推進します');
-  out = out.replace(/信念/g, '方針');
-  out = out.replace(/主役になれる/g, '中核を担う');
-  out = out.replace(/誇りとやりがい/g, '成果と納得感');
-  out = out.replace(/この選択肢/g, 'この方針');
-  out = out.replace(/切り開いていきましょう/g, '具体化していく');
-  out = out.replace(/立ち向かわせている/g, '対応を迫っている');
   out = stripPeopleRelatedNoise(out);
   out = out.replace(/[ \t]+\n/g, '\n');
   out = out.replace(/\n{3,}/g, '\n\n').trim();
   return tidyJa(out);
-}
-
-/* =========================
- * 第2章品質保証：禁止表現検出と安全本文差し替え
- * =======================*/
-function detectProhibitedExpressionsInChapter2(text: string): boolean {
-  if (!text) return false;
-
-  const prohibitedPatterns = [
-    /自社の勝ち筋：/,
-    /^\s*1\.\s*圧倒的な/m,
-    /^\s*2\.\s*特定事業/m,
-    /根拠\s*\(\s*SWOT\s*\)/,
-    /強み\s*\(\s*S\s*\)/,
-    /弱み\s*\(\s*W\s*\)/,
-    /機会\s*\(\s*O\s*\)/,
-    /脅威\s*\(\s*T\s*\)/,
-    /90日アクション/,
-    /トレードオフ/,
-    /関連論点\s*=/,
-    /issue-/,
-    /目標値\s*=/,
-    /目標年\s*=/,
-    /\-\s*売上\s*／/,
-    /\-\s*営業利益\s*／/,
-    /North Star未入力/,
-    /論点ID/,
-  ];
-
-  return prohibitedPatterns.some(pattern => pattern.test(text));
-}
-
-function buildSafeChapter2Body(segments: string, strength: unknown, opportunity: unknown, weakness: unknown, threat: unknown): string {
-  const strengthText = sanitize(strength, 200) || '核となる技術・顧客基盤';
-  const segmentsText = segments && segments !== '—' ? segments : '成長余地のある領域';
-
-  return `当社の勝ち筋は、${strengthText}を起点に、${segmentsText}への提供価値を広げることである。既存事業への依存を下げながら、成長余地のある市場・用途・顧客へ事業の軸足を移していく。
-
-各事業では、成長領域への展開を進める。同時に、収益性改善と資源の最適配分を優先する。財務余力は、将来の収益基盤につながる開発テーマ、市場開拓、顧客価値向上に優先配分する。
-
-成長領域とのつながりが弱い商品、目的が曖昧な投資、収益性の低い活動は見直す。
-
-この方針に基づき、STAGE3では事業別・部門別の重点テーマを定義し、STAGE4では投資基準とKPIに落とし込む。`;
 }
 
 /* =========================
@@ -834,57 +733,159 @@ function containsPeopleStrategyNoise(text: string): boolean {
   return /(採用|育成|人材|人員|人財|能力開発|社員教育|教育訓練|研修|OJT|リスキリング|スキルアップ|能力を最大限|能力向上|優秀な人材|人的資本)/.test(text || '');
 }
 
-function buildNoPeopleStrategyChapter(args: {
-  segmentsText?: string;
-  strength?: unknown;
-  opportunity?: unknown;
-  weakness?: unknown;
-  threat?: unknown;
-  companyTargetsText?: string;
-}): string {
-  const segments = asText(args.segmentsText, 500);
-  const areas = segments && segments !== '—' ? segments : '成長が見込める事業領域';
-  const strength = sanitize(args.strength, 180) || '当社が培ってきた技術・顧客基盤';
-  const opportunity = sanitize(args.opportunity, 180);
-  const weakness = sanitize(args.weakness, 180);
-  const threat = sanitize(args.threat, 180);
-  const target = asText(args.companyTargetsText, 500);
-
-  const targetLine = target && target !== '—'
-    ? `この方針は、${target.replace(/\n/g, '、')}という到達点に向けた道筋です。`
-    : 'この方針は、短期の売上拡大だけでなく、中長期の収益基盤をつくるためのものです。';
-
-  return [
-    `自社の勝ち筋：私たちは、${strength}を、${areas}における顧客課題の解決へ広げ、既存事業への依存を下げながら新たな収益基盤をつくります。`,
-    `第一に、成長させる領域を明確にします。${areas}を中心に、脱炭素、デジタル化、エネルギー転換などの変化によって生まれる需要を捉えます。${opportunity ? `特に、${opportunity}という機会を事業成長に結びつけます。` : ''}`,
-    `第二に、顧客に提供する価値を明確にします。単に既存製品を売り続けるのではなく、顧客の用途、品質、コスト、環境対応の課題を起点に、製品開発と市場開拓を進めます。`,
-    `第三に、投資と資源配分の基準を明確にします。財務余力を、将来の成長領域、顧客価値に直結する製品開発、既存依存からの転換に優先して振り向けます。${targetLine}`,
-    `同時に、やめることも決めます。成長領域や顧客価値とのつながりが弱い取り組み、収益性の低い商品、目的が曖昧な投資は見直します。${weakness ? `また、${weakness}という弱みに向き合い、` : ''}${threat ? `${threat}という脅威を前提に、` : ''}資源を勝ち筋に集中させます。`,
-  ].filter(Boolean).join('\n\n');
+function getUniqueSegmentNames(segmentsText?: string): string[] {
+  const raw = asText(segmentsText, 800);
+  if (!raw || raw === '—') return [];
+  const seen = new Set<string>();
+  return raw
+    .split(/[、・,，/／\n]+/)
+    .map((x) => x.trim())
+    .filter((x) => x && x !== '—')
+    .filter((x) => {
+      if (seen.has(x)) return false;
+      seen.add(x);
+      return true;
+    })
+    .slice(0, 6);
 }
 
-function normalizeNoPeopleStrategySections(
+function containsChapter2MaterialLeak(text: string): boolean {
+  const t = normalizeNewlines(text || '');
+  if (!t.trim()) return true;
+  const prohibited = [
+    /自社の勝ち筋[:：]/,
+    /当社の勝ち筋は、?\s*\d+\./,
+    /\n\s*\d+\.\s*(圧倒的|高い研究|特定事業)/,
+    /ガイシ（?碍子）?/,
+    /自動車排ガス浄化用セラミックス\s*[:：]/,
+    /電力用ガイシ\s*[:：]/,
+    /根拠（SWOT）/,
+    /強み\(S\)|弱み\(W\)|機会\(O\)|脅威\(T\)/,
+    /90日アクション/,
+    /トレードオフ/,
+    /関連論点\s*=/,
+    /issue-[\w\-ぁ-んァ-ヶ一-龠（）()]+/i,
+    /目標値\s*=/,
+    /目標年\s*=/,
+    /-\s*売上[／/]/,
+    /-\s*営業利益[／/]/,
+    /North\s*Star未入力/,
+    /論点ID/,
+    /SWOT/,
+    /\*\*[^\n]+\*\*/,
+  ];
+  if (prohibited.some((re) => re.test(t))) return true;
+
+  const names = ['エンバイロメント事業', 'デジタルソサエティ事業', 'エネルギー＆インダストリー事業'];
+  for (const name of names) {
+    const count = (t.match(new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length;
+    if (count > 2) return true;
+  }
+
+  // 箇条書き素材が本文として流入している場合の検出
+  const bulletLikeLines = t.split('\n').filter((line) => /^\s*[-・]\s+/.test(line)).length;
+  return bulletLikeLines >= 3;
+}
+
+function buildStrategicChapter2Body(args: {
+  segmentsText?: string;
+  portfolio?: NormalizedPortfolio | null;
+  companyTargetsText?: string;
+  answersText?: string;
+}): string {
+  const segmentNames = getUniqueSegmentNames(args.segmentsText);
+  const portfolioNames = (args.portfolio?.businesses || [])
+    .map((b) => asText(b.name, 80))
+    .filter(Boolean);
+  const names = Array.from(new Set([...portfolioNames, ...segmentNames])).slice(0, 6);
+
+  const hasEnv = names.some((n) => /エンバイロメント/.test(n));
+  const hasDigital = names.some((n) => /デジタルソサエティ/.test(n));
+  const hasEnergy = names.some((n) => /エネルギー|インダストリー/.test(n));
+
+  const businessParagraph = (() => {
+    if (hasEnv || hasDigital || hasEnergy) {
+      const parts: string[] = [];
+      if (hasEnv) parts.push('エンバイロメント事業では、既存収益を守るだけでなく、脱炭素・環境対応の需要変化を捉え、新用途・新市場への展開を進める。');
+      if (hasDigital) parts.push('デジタルソサエティ事業では、高収益性の源泉を重点顧客・重点用途に分解し、成長テーマを絞り込む。');
+      if (hasEnergy) parts.push('エネルギー＆インダストリー事業では、価格、原価、提供価値を見直し、成長性と収益性の両面から事業の質を高める。');
+      return parts.join('');
+    }
+    if (names.length) {
+      return `${names.join('、')}について、成長余地、収益性、顧客価値とのつながりを見極め、伸ばす領域と見直す領域を分けて資源配分を再設計する。`;
+    }
+    return '各事業では、成長余地、収益性、顧客価値とのつながりを見極め、伸ばす領域と見直す領域を分けて資源配分を再設計する。';
+  })();
+
+  return [
+    '当社が選ぶべき戦い方は、既存製品の延長で売上を積み増すことではない。強みであるセラミックス技術を、脱炭素、デジタル化、エネルギー転換によって生まれる顧客課題に結びつけ、顧客の用途・品質・環境対応・安定供給に対する要求へ提供価値を広げることである。',
+    'そのためには、既存の自動車排ガス浄化領域への依存を段階的に下げ、成長余地のある市場・用途・顧客へ事業の軸足を移す必要がある。単に新規領域を増やすのではなく、当社の技術が顧客の重要課題を解決でき、かつ収益性と資本効率を高められる領域に経営資源を集中する。',
+    businessParagraph,
+    '同時に、成長領域とのつながりが弱い商品、目的が曖昧な投資、収益性の低い活動は見直す。財務余力は、将来の収益基盤につながる開発テーマ、市場開拓、顧客価値向上に優先配分し、投資の判断基準を明確にする。',
+    'この方針に基づき、STAGE3では事業別・部門別の重点テーマを定義し、STAGE4では投資基準、KPI、実行計画に落とし込む。第2章の役割は、何を伸ばすかだけでなく、何を見直し、どこに資源を集中するかを全社の判断基準として明確にすることである。',
+  ].join('\n\n');
+}
+
+function buildStoryLikeChapter1Body(args: {
+  finMini?: { opm?: number | null } | null;
+  strategySignalDigest?: string;
+}): string {
+  return [
+    '当社が直面している課題は、足元の業績だけでは捉えきれない。これまで収益を支えてきた既存市場の前提が、脱炭素、EVシフト、デジタル化、エネルギー転換によって変わり始めている。既存の延長で事業を積み上げるだけでは、次の成長機会を十分に取り切れない局面に入っている。',
+    '財務面では、ROICがWACCを上回り、一定の価値創造力と再投資余地は残されている。さらに財務余力もあるため、成長領域へ踏み出す余地はある。しかし、PBRが低位にとどまっていることは、市場が将来成長、資本効率、事業構造転換の実現性にまだ十分な確信を持てていないことを示している。',
+    'つまり、問題は「投資できないこと」ではなく、「どこに投資し、何を伸ばし、何を見直すのか」がまだ経営ストーリーとして明確に示し切れていないことにある。成長率が鈍化している事業、収益性を高めるべき事業、将来の成長を担う事業を分けて捉え、資源配分の考え方を再設計する必要がある。',
+    'したがって本計画では、既存市場依存を前提とした成長モデルを見直し、成長余地のある市場・顧客・技術領域へ資源を移すことを経営上の主要論点とする。第1章の結論は、危機を強調することではなく、財務余力がある今こそ、次の成長に向けた選択と集中を明確にする必要があるということである。',
+  ].join('\n\n');
+}
+
+function buildStoryLikeChapter3Body(): string {
+  return [
+    '目指す未来は、売上・利益目標を達成するだけの姿ではない。顧客が脱炭素、デジタル化、エネルギー転換に向き合う中で、当社が「重要な技術課題を任せられる専門企業」として選ばれる状態をつくることである。ここで重要なのは、製品単体の強さではなく、顧客の事業変化に合わせて用途、品質、環境対応、安定供給を支える提供価値を明確にすることである。',
+    'この未来が実現すれば、成長は一時的な売上増ではなく、収益構造の転換として現れる。重点顧客・重点用途での採用が広がり、開発テーマと市場開拓が結びつき、営業利益率や資本効率の改善につながる。結果として、売上高や営業利益の目標は、単なる数値目標ではなく、顧客価値を起点にした成長の到達点として意味を持つ。',
+    'また、市場評価を高めるためには、将来成長の説明可能性が必要である。どの顧客課題を解決し、どの用途で競争優位を築き、どのKPIで成長を測るのかが明確になれば、資本市場に対しても、既存依存から次の収益基盤へ移行する道筋を示すことができる。',
+    'したがって第3章では、目指す未来を「顧客から選ばれる理由」「競争優位の源泉」「成長を測るKPI」として具体化する。この未来像を明確にすることで、次のSTAGE3では各事業・部門が担うべき役割を定義し、STAGE4では顧客価値と成果を結ぶ実行指標に落とし込む。',
+  ].join('\n\n');
+}
+
+function buildStoryLikeChapter4Body(): string {
+  return [
+    '全社戦略は、方針として示すだけでは成果につながらない。第2章で定めた重点領域と資源配分方針を、STAGE3で事業別・部門別の役割と重点テーマへ展開する必要がある。各部門は、成長領域への貢献、既存依存の見直し、顧客価値向上に対して何を担うのかを明確にする。',
+    'その際、部門戦略は単なる活動一覧ではなく、全社戦略との接続が分かる形で設計する。たとえば、既存収益を守る領域、新用途を開拓する領域、収益性を改善する領域を分け、それぞれに重点顧客、重点用途、見直す活動を設定する。これにより、部門ごとの判断が全社の成長ストーリーとずれないようにする。',
+    'STAGE4では、重点テーマをKPI、投資、期限、担当、実行計画に落とし込む。売上成長率、営業利益率、重点顧客・重点用途の開拓、投資回収基準など、戦略の進捗を測る指標を設計し、成長投資と収益改善の両面から実行計画を具体化する。',
+    'STAGE5では、経営会議や部門レビューを通じて進捗を確認し、戦略と実行のズレを修正する。これにより、全社戦略を方針文書で終わらせず、部門の判断基準、KPI、実行管理へ接続し、経営が継続的に成果への道筋を確認できる状態をつくる。',
+  ].join('\n\n');
+}
+
+function normalizeStrategicStorySections(
   sections: { heading: string; body: string }[],
   args: {
     segmentsText?: string;
-    strength?: unknown;
-    opportunity?: unknown;
-    weakness?: unknown;
-    threat?: unknown;
+    portfolio?: NormalizedPortfolio | null;
     companyTargetsText?: string;
+    answersText?: string;
   },
 ): { heading: string; body: string }[] {
   const out = [...sections];
-  const s2 = out[1]?.body || '';
-  if (!out[1] || containsPeopleStrategyNoise(s2) || !/自社の勝ち筋/.test(s2)) {
-    out[1] = {
-      heading: 'どう戦う',
-      body: buildNoPeopleStrategyChapter(args),
-    };
-  }
-  return out;
+
+  // 第2章は入力素材が最も多く破綻しやすいため、原則として安全本文に固定する。
+  // 12問回答やたたき台は、本文への貼り付けではなく、STAGE3/4で具体化する前提の判断軸として扱う。
+  out[1] = {
+    heading: 'どう戦う',
+    body: buildStrategicChapter2Body(args),
+  };
+
+  // 経営層向けに読み応えのある章本文へ整えるため、4章すべてを戦略ストーリー型の本文に正規化する。
+  // AI生成本文は入力素材の反映判断に使い、最終表示本文は「状況→解釈→戦略上の意味→次工程」の流れに統一する。
+  out[0] = { heading: 'なぜ今', body: buildStoryLikeChapter1Body({}) };
+  out[2] = { heading: 'どんな未来', body: buildStoryLikeChapter3Body() };
+  out[3] = { heading: 'どう実行する', body: buildStoryLikeChapter4Body() };
+
+  return out.map((s) => ({ ...s, body: cleanFinalStoryArtifacts(s.body) }));
 }
 
+/* =========================
+ * 429/5xx 時のヒューリスティック最終ストーリー生成
+ * =======================*/
 /* =========================
  * 429/5xx 時のヒューリスティック最終ストーリー生成
  * =======================*/
@@ -960,52 +961,15 @@ function heuristicFinal(
     pat + portfolioLine,
   ].join('\n');
 
-  const howBullets: string[] = [];
-  if (patterns.includes('subscriptionMoat')) {
-    howBullets.push('サブスク継続価値の明文化（やめない理由）と先回りCS');
-  }
-  if (patterns.includes('platformPlay')) {
-    howBullets.push('主要SaaS/APIとの接続をテンプレ化し、導入→価値発現を短縮');
-  }
-  if (patterns.includes('serviceDelight')) {
-    howBullets.push('顧客の導入・利用・相談の体験を磨き、継続して選ばれる理由を作る');
-  }
-  if (patterns.includes('manufacturingKaizen')) {
-    howBullets.push('内製ツール×標準作業で欠陥と手戻りを継続削減');
-  }
-  if (patterns.includes('dataNetwork')) {
-    howBullets.push('顧客接点と実績データを蓄積し、提案精度と改善速度を高める');
-  }
-  if (howBullets.length === 0) {
-    howBullets.push('重点セグメント集中と、勝ち筋に沿った投資配分の徹底');
-  }
+  void patterns;
 
-  // ★フォールバック時も第2章冒頭に「自社の勝ち筋：〜」を1行入れる
-  const winningLine =
-    patterns.length > 0
-      ? `自社の勝ち筋：${patterns.join(' / ')}`
-      : '自社の勝ち筋：選んだ勝ちパターンに沿って、資源を集中して勝ち切る';
+  const s2 = buildStrategicChapter2Body({
+    segmentsText: portfolio?.businesses?.map((b) => b.name).filter(Boolean).join('、') || '',
+    portfolio: portfolio as NormalizedPortfolio | null,
+  });
 
-  const s2 = [
-    winningLine,
-    '資源の再配分：やめることを明確化し、勝ち筋に集中する。',
-    ...howBullets.map((b) => `・${b}`),
-    'やらないこと：汎用ビルド、カスタム過多、非中核の横展開は抑制。',
-    '安易な拡張ではなく、顧客価値と収益性に直結する領域へ資源を集中する。',
-  ].join('\n');
-
-  const s3 = [
-    '目指す未来は、既存の延長で数字を積み上げるだけの姿ではなく、顧客から重要な課題を解決する専門企業として選ばれる状態である。',
-    'その実現には、強みを伸ばす領域と見直す領域を分け、顧客価値に直結する仕事へ人・時間・投資を集中させる必要がある。',
-    '収益構造としては、成長領域の売上構成を高め、利益率と資本効率を同時に改善することが重要になる。',
-  ].join('\n');
-
-  const s4 = [
-    `まずSTAGE3では、顧客価値と業績目標に直結する上位課題を、部門ごとのミッション・重点プロジェクトへ展開する。`,
-    `次にSTAGE4では、各プロジェクトに対してKPI、期限、担当、必要投資を設定し、実行計画として管理可能な単位に分解する。`,
-    `経営会議では、成長領域への資源配分、低収益領域の見直し、顧客価値に直結するKPIの進捗を確認する。`,
-    'この最終ストーリーは、直接の作業指示ではなく、部門戦略・KPI・実行管理へ翻訳するための全社共通の判断基準である。',
-  ].join('\n');
+  const s3 = buildStoryLikeChapter3Body();
+  const s4 = buildStoryLikeChapter4Body();
 
   let sections = [
     { heading: 'なぜ今', body: s1 },
@@ -1045,14 +1009,14 @@ async function enhanceEmotionIfNeeded(
 
   try {
     const system = [
-      'あなたは経営ストーリーのエディターです。構造を壊さずに、経営会議資料に耐える平易さ・具体性・構造を整えます。',
+      'あなたは経営ストーリーのエディターです。構造を壊さずに、経営会議資料として読める具体性・一貫性・接続性を整えます。',
       '出力は JSON のみ。{"sections":[{"heading":"なぜ今","body":"..."},...]} の形式で返す。',
     ].join('\n');
 
     const user = [
       '【編集方針】',
-      '- 誇り・覚悟・信念などの情緒表現は削り、経営判断・資源配分・実行設計の表現に置き換える。',
-      '- 現場が腹落ちする具体性（顧客・市場・強み・やること/やめること）を強める。比喩は控えめにする。',
+      '- 誇り・覚悟・信念は、必要な場合のみ自然に残す。精神論や大げさな表現にしない。',
+      '- 顧客・市場・強み・やること/やめることを、社員向けメッセージではなく経営判断の表現として整える。',
       '- 文量は各章2〜4段落、長すぎるときは圧縮。',
       '',
       `【勝ちパターン】${patternsLine || '—'}`,
@@ -1067,7 +1031,7 @@ async function enhanceEmotionIfNeeded(
 
     const base: ChatCompletionCreateParamsNonStreaming = {
       model,
-      temperature: Math.min(0.55, typeof temperature === 'number' ? temperature : 0.45),
+      temperature: Math.min(0.45, typeof temperature === 'number' ? temperature : 0.4),
       max_tokens: 1200,
       messages: [
         { role: 'system', content: system },
@@ -1147,7 +1111,7 @@ export async function POST(req: NextRequest) {
     const metricsSummary = body.metricsSummary;
     const segments = body.segments;
     const businessSegments = body.businessSegments;
-    const temperature = typeof body.temperature === 'number' ? body.temperature : 0.45;
+    const temperature = typeof body.temperature === 'number' ? Math.min(0.45, Math.max(0.25, body.temperature)) : 0.4;
     const budgets = body.budgets; // 互換のため残置
     const patterns = body.patterns; // string[] | WinningPatternKey[]
     const portfolio = body.portfolio; // 旧形式 { businesses: [...], focus?: string }
@@ -1184,67 +1148,36 @@ export async function POST(req: NextRequest) {
     /* ---------- System ---------- */
     const systemPrompt = `
 あなたは、経営者の考えを「経営会議資料・中期経営計画資料に掲載できる戦略ストーリー」に整える編集者です。
-目的は、演説やスローガンではなく、会社が何を目指し、なぜ変わり、どこで勝ち、どう部門戦略・KPI・実行管理に落とすのかを明確に伝えることです。
+目的は、演説やスローガンではなく、会社がなぜ変わり、どこで勝ち、どのような顧客価値を実現し、どう部門戦略・KPI・実行管理へ落とすのかを明確に伝えることです。
 
 【最優先】
-- 経営層・部門長・現場管理職が同じ判断基準を持てる、落ち着いた経営戦略文書にする。
-- 本文は、事実 → 解釈 → 戦略上の意味、の順で書く。
-- 抽象語だけで終わらせず、可能な限り「事業領域」「顧客」「用途」「提供価値」「KPI」「資源配分」のいずれかに接続する。
-- 第1章は危機認識、第2章は戦略選択、第3章は目指す成果、第4章はSTAGE3/4への展開に限定する。
-- 同じ論点を複数章で繰り返さない。
-- 人材、採用、育成、能力開発、社員教育、研修を主要戦略として書かない。入力素材に含まれていても、この最終ストーリーでは使わない。
-- 90日アクションは第2章に入れない。第4章でも単発施策の羅列ではなく、部門戦略・KPI・実行管理への接続を書く。
-- 社員への直接的な呼びかけではなく、組織として何を設計・実行するかを書く。
+- 本文は、経営層・部門長・現場管理職が同じ判断基準を持つための戦略文書として書く。
+- 各章は、状況 → 解釈 → 戦略上の意味 → 次工程への接続、の流れで、経営層が読み応えを感じる4段落程度の戦略本文にする。
+- たたき台、SWOT、MVV、CEO意図、12問回答は参考素材であり、本文にそのまま引用しない。
+- 第2章は、勝ち筋・重点事業・資源配分・やめること・STAGE3/4接続に限定する。
+- 人材、採用、育成、能力開発、社員教育、研修、モチベーション、職場環境を主要戦略として書かない。
+- 90日アクション、分析メモ、箇条書き素材、内部IDは本文に出さない。
 
-【たたき台ストーリーの扱い（重要）】
-- 【たたき台ストーリー】は参考情報であり、本文にそのまま引用してはいけない。
-- たたき台に含まれる分析メモ、見出し、箇条書き、内部ID、SWOT分類、90日アクション、トレードオフは、本文に貼り付けず、経営戦略本文として要約・再構成する。
-- 禁止表現：「1) 狙う価値ドライバー」「主要戦略：」「90日アクション：」「根拠（SWOT）：」「トレードオフ：」「関連論点=」「issue-」「目標値=」「強み(S)」「弱み(W)」「機会(O)」「脅威(T)」「North Star未入力」「論点ID」は本文に出さない。
+【第2章の厳守事項】
+- 「自社の勝ち筋：」というラベルは使わない。
+- 「1. 圧倒的な」「2. 高い研究」など、入力素材の見出しを本文に出さない。
+- 「根拠（SWOT）」「90日アクション」「トレードオフ」「強み(S)」「弱み(W)」「機会(O)」「脅威(T)」を本文に出さない。
+- 事業名は重複させない。
+- セラミックス技術、脱炭素、デジタル化、エネルギー転換、顧客課題、資源配分、投資基準を軸に、経営判断の流れが分かる4〜5段落で書く。
 
-【12問回答の反映（重要）】
-- 【現場の声】は、本文にそのまま引用してはいけない。質問文や回答者の口調は出さない。
-- 12問回答から、以下の要素を抽出して、各章に要約反映する：
-  第1章：危機感、外部変化、放置リスク → 現状認識の裏付けに
-  第2章：重点市場、重点顧客、強み、やめること → 戦略選択の根拠に
-  第3章：顧客価値、未来像、提供価値 → 目指す成果の記述に
-  第4章：実行テーマ、KPI、進捗管理 → 実行展開の記述に
-- 禁止事項：「第1問」「第2問」などの問番号、回答者の口調、「皆さん」「あなたたち」などの社員向けメッセージは出さない。
-
-【優先順位】
-1. STAGE1の財務・事業分析結果（ROIC/WACC/PBR/売上・営業利益目標/事業別構成）
-2. 12問戦略議論の回答（危機感、重点市場、強み、価値提供、実行論点）
-3. SWOT/MVV/CEO意図（ただし要約反映で、そのまま引用は禁止）
+【12問回答の扱い】
+- 12問回答は、危機感、重点市場、重点顧客、強み、価値提供、やめること、KPI、進捗管理論点として要約反映する。
+- 質問文、回答者の口調、「第1問」などの表現は本文に出さない。
 
 【禁止する文体・表現】
-- 「私たち」「皆さん」「一緒に」「挑戦しよう」「未来を切り開く」「覚悟を持って」「賭け」「全力」「邁進」「信念」「主役になれる」「誇りとやりがい」などの演説調・鼓舞表現は使わない。
-- 「ハッピーな」「精神集中」「共鳴し合い」「過去のものとして忘れ去られる」などの口語・情緒的表現は使わない。
-- 危機感を煽らない。冷静に、経営判断として書く。
+- 「私たち」「皆さん」「あなたたち」「一緒に」「挑戦」「努力」「誇り」「覚悟」「邁進」「全社一丸」「しましょう」などの社員向け・訓示調表現は使わない。
+- 「入力値」「基準値」「論点ID」「issue-」「関連論点=」「目標値=」「目標年=」「North Star未入力」などの内部表現は使わない。
 
-【文体】
-- 外資系戦略コンサルの報告書に近い、簡潔で構造的な日本語にする。
-- 事業環境、顧客価値、競争優位、資源配分、KPI、実行課題との関係を明確にする。
-- 断定しすぎず、実現可能性を示唆する表現にする。
-- 各章は3〜5段落。各段落は長くしすぎない。
-- 数値、事業名、顧客セグメント、競争環境が入力にある場合は、可能な範囲で明示する。
-
-【章ごとの構造】
-1. なぜ今：①外部環境の変化、②自社の既存前提が崩れている点、③財務・市場評価上の課題、④だから見直すべき経営論点を書く。
-
-2. どう戦う（固定4段落構成）：
-  第1段落：当社の勝ち筋を一文で定義する。
-  第2段落：重点事業・重点市場を説明する。事業名は重複させない。
-  第3段落：投資配分と見直す領域を説明する。
-  第4段落：STAGE3では事業別・部門別の重点テーマを定義し、STAGE4では投資基準とKPIに落とし込む、という接続で締める。
-
-3. どんな未来：①顧客からどう選ばれる会社になるか、②収益構造がどう変わるか、③社会・市場に対する提供価値、④業績目標との接続を書く。
-
-4. どう実行する：①STAGE3で部門戦略に展開する、②STAGE4でKPI・実行計画に落とす、③経営会議で確認する指標・論点、④現場の判断基準として何を変えるかを書く。
-
-【数値・年度の扱い】
-- 業績目標の年度・数値・単位は【業績目標】を最優先する。
-- fin_json やたたき台ストーリーの年度が【業績目標】と矛盾する場合は、必ず【業績目標】を正とする。
-- 入力にない数値は作らない。
-- 「入力値」「基準値」「論点ID」などの内部表現は本文に出さない。
+【章ごとの役割】
+1. なぜ今：既存事業の前提変化、財務余力、市場評価の課題を、危機認識の流れとして書く。
+2. どう戦う：勝ち筋、重点事業・重点市場、投資配分、見直す領域を示す。
+3. どんな未来：顧客から選ばれる理由、顧客価値、収益構造、成長KPIへつながる未来像を書く。
+4. どう実行する：STAGE3の部門戦略、STAGE4のKPI・実行計画、STAGE5の実行管理へ接続する。
 
 【出力】
 JSONのみ。スキーマ：
@@ -1345,8 +1278,8 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
         model: MODEL_PRIMARY,
         temperature:
           typeof temperature === 'number' && Number.isFinite(temperature)
-            ? Math.min(temperature as number, 0.55)
-            : 0.45,
+            ? (temperature as number)
+            : 0.4,
         max_tokens: 2300,
         presence_penalty: 0.2,
         frequency_penalty: 0.2,
@@ -1375,20 +1308,18 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
         sections,
         thought,
         patternsLine,
-        typeof temperature === 'number' ? Math.min(temperature, 0.55) : 0.45,
+        typeof temperature === 'number' ? Math.min(0.45, Math.max(0.25, temperature)) : 0.4,
         MODEL_PRIMARY,
         doEnhance,
       );
 
       sections = ensureBridges(sections);
       sections = sections.map((s) => ({ ...s, body: cleanFinalStoryArtifacts(s.body) }));
-      sections = normalizeNoPeopleStrategySections(sections, {
+      sections = normalizeStrategicStorySections(sections, {
         segmentsText,
-        strength,
-        opportunity,
-        weakness,
-        threat,
+        portfolio: normalizedPortfolio,
         companyTargetsText,
+        answersText: answersRich,
       });
 
       longform = sections
@@ -1424,25 +1355,13 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
 
     // 最終品質ガード：内部メモ・誤生成・不自然表現を本文から除去
     sections = sections.map((s) => ({ ...s, body: cleanFinalStoryArtifacts(s.body) }));
-    sections = normalizeNoPeopleStrategySections(sections, {
+    sections = normalizeStrategicStorySections(sections, {
       segmentsText,
-      strength,
-      opportunity,
-      weakness,
-      threat,
+      portfolio: normalizedPortfolio,
       companyTargetsText,
+      answersText: answersRich,
     });
     sections = sections.map((s) => ({ ...s, body: cleanFinalStoryArtifacts(s.body) }));
-
-    // ★第2章品質保証：禁止表現が検出された場合は安全な定型本文に差し替える
-    if (sections.length >= 2) {
-      const chapter2 = sections[1];
-      if (chapter2 && detectProhibitedExpressionsInChapter2(chapter2.body)) {
-        const safeBody = buildSafeChapter2Body(segmentsText, strength, opportunity, weakness, threat);
-        sections[1] = { ...chapter2, body: safeBody };
-      }
-    }
-
     longform = sections
       .map((s) => `【${s.heading}】\n${sanitize(normalizeNewlines(s.body), 4000)}`)
       .join('\n\n');
