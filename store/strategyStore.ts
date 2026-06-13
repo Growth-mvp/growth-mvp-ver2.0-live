@@ -35,6 +35,7 @@ import type {
   StoryChapter,
   Stage1Benchmarks,
   StrategyData,
+  MidtermStrategy,
   CompanyTarget,
   ProjectTargetImpact,
   ProjectIssueLink,
@@ -247,6 +248,9 @@ export type StrategyState = {
   /* ★ STAGE2：会社の数値目標（North Star Metrics） */
   companyTargets?: CompanyTarget[];
 
+  /* ★ STAGE2：中計設計（全社戦略の中計対応・任意） */
+  midtermStrategy?: MidtermStrategy;
+
   /* === STAGE6 Phase E：プロジェクト→North Star影響量（手入力） === */
   projectTargetImpacts?: ProjectTargetImpact[];
 
@@ -365,6 +369,7 @@ export type StrategyState = {
 
   setStory: (chs: ChapterStory[]) => void;
   setFinalStory: (chs: ChapterStory[]) => void;
+  setMidtermStrategy: (m: MidtermStrategy | undefined) => void;
   setAnswers2: (answers: ChapterAnswers[]) => void;
   setChapterCurrentStep: (chapterIndex: number, step: number) => void;
 
@@ -872,6 +877,9 @@ function buildSavePayload(s: StrategyState) {
     winPatternsCandidate: s.winPatternsCandidate,
     answers12: s.answers12,
 
+    // ★ STAGE2 中計設計（swot_suggestions 内へのパックは buildDbRowFromState が行う）
+    midtermStrategy: s.midtermStrategy,
+
     // ★ 追加：companyTargets / finalStory 3-state（北星・最終ストーリー編集用）
     companyTargets: (s as any).companyTargets,
     finalStoryDraft: (s as any).finalStoryDraft,
@@ -1271,6 +1279,7 @@ const emptyData: StrategyState = {
   setCompanyScope: () => {},
   setStory: () => {},
   setFinalStory: () => {},
+  setMidtermStrategy: () => {},
   setAnswers2: () => {},
   setChapterCurrentStep: () => {},
   setProfile: () => {},
@@ -1915,6 +1924,11 @@ export const useStrategyStore = create<StrategyState>()(
 
       setStory: (chs) => {
         set((s) => ({ story: [...chs], dirty: true, version: (s.version ?? 0) + 1 }));
+      },
+
+      // ★ STAGE2：中計設計（生成成功時のみ呼ばれる。undefined でクリアも可能）
+      setMidtermStrategy: (m) => {
+        set((s) => ({ midtermStrategy: m, dirty: true, version: (s.version ?? 0) + 1 }));
       },
 
       // finalStory は 分離API で即時保存（親保証→分離保存）
