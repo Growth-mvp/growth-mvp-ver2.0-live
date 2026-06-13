@@ -743,6 +743,29 @@ export type BusinessSegment = {
   scope?: string;   // 対象範囲・備考（任意）
   summary?: string; // 事業概要（1文：例）中堅製造業向けに設備保全の予兆検知をSaaSで提供
   keyCustomers?: string[]; // 主要顧客（最大3件）
+
+  /* =========================================================
+   * ★事業・部門別戦略拡張（中計対応・すべて任意）
+   * - STAGE3「事業・部門別戦略」の前提情報を STAGE1 側で保持する
+   * - 既存データには存在しないフィールドのため、すべて optional
+   * - business_segments（JSONB）内に保存。normalize は配列をそのまま
+   *   通すため追加項目は保存・復元で消えない。DB migration 不要
+   * ========================================================= */
+
+  /** 種別（事業部/機能部門/拠点/重点プロジェクト/子会社/事業セグメント） */
+  unitType?: StrategicUnitType;
+  /** 主要製品・サービス */
+  mainProductsServices?: string[];
+  /** 売上（百万円） */
+  revenue?: number;
+  /** 利益（百万円） */
+  profit?: number;
+  /** 主な課題 */
+  currentIssues?: string[];
+  /** 中計で期待される役割 */
+  expectedRoleInMidtermPlan?: string;
+  /** 既存KPI */
+  existingKpis?: string[];
 };
 
 /* =========================================================
@@ -1256,6 +1279,63 @@ export type Department = {
     correctedItems?: string[];
     reconsiderationPoints?: string[];
   };
+
+  /**
+   * ★事業・部門別戦略拡張：戦略単位の種別（任意・後方互換）
+   * - 未設定の既存データは従来どおり「部門」として扱う
+   * - normalize は { ...obj } で未知フィールドを保持するため保存・復元で消えない
+   */
+  unitType?: StrategicUnitType;
+
+  /* ★STEP5拡張：STAGE3生成（generate-cascade）が返す事業・部門別戦略の観点
+   * - すべて optional。既存データ・既存UI・STAGE4以降で未使用でも影響なし
+   * - LLMが根拠不足で省略した場合は undefined のまま */
+
+  /** 現在の位置づけ（1〜2文） */
+  currentPosition?: string;
+  /** 中期経営計画における役割（1〜2文） */
+  strategicRole?: string;
+  /** 主要課題 */
+  keyIssues?: string[];
+  /** 経営と現場で認識のズレが起きやすいポイント */
+  alignmentRiskPoints?: string[];
+};
+
+/* =========================================================
+ * StrategicUnit：事業・部門別戦略の戦略単位（STAGE3拡張）
+ * - Department を StrategicUnit の一種として扱うための抽象型
+ * - 初期実装では型定義のみ。既存の departments 構造・保存形式は変更しない
+ * - 変換は utils/strategicUnit.ts の departmentToStrategicUnit を参照
+ * ========================================================= */
+
+export type StrategicUnitType =
+  | 'business_unit'
+  | 'function'
+  | 'site'
+  | 'project'
+  | 'subsidiary'
+  | 'segment'
+  | 'other';
+
+export type StrategicUnit = {
+  id: string;
+  name: string;
+  type: StrategicUnitType;
+  description?: string;
+  /** 現状の主要課題 */
+  currentIssues?: string[];
+  /** 現在の位置づけ */
+  currentRole?: string;
+  /** 中計上の役割 */
+  strategicRole?: string;
+  /** 戦略方向性・重点施策 */
+  keyStrategies?: string[];
+  /** 必要な横断連携 */
+  requiredCrossFunctionalSupport?: string[];
+  /** KPI案 */
+  kpis?: string[];
+  /** 実行リスク */
+  risks?: string[];
 };
 
 /* =========================================================
@@ -1357,6 +1437,37 @@ export type CsvFinanceData = {
 
   /** その他（後方互換・拡張用） */
   [k: string]: any;
+};
+
+/* =========================================================
+ * MidtermStrategy：STAGE2 全社戦略の中計設計（任意・後方互換）
+ * - STAGE2の最終ストーリー生成時に第2パスで生成される補助情報
+ * - すべて optional。既存データには存在しない
+ * - 保存は専用カラムを増やさず swot_suggestions（JSONB）内に
+ *   `midtermStrategy` キーとしてパックする（DB migration 不要）
+ *   - パック：utils/supabase/strategy.ts buildDbRowFromState
+ *   - 展開：utils/supabase/normalize.ts normalizeStrategyData
+ * ========================================================= */
+
+export type MidtermStrategy = {
+  /** 中計の基本コンセプト */
+  midtermConcept?: string;
+  /** 全社の目指す姿 */
+  targetVisionForMidterm?: string;
+  /** 重点戦略テーマ */
+  priorityStrategicThemes?: string[];
+  /** 成長戦略 */
+  growthStrategy?: string;
+  /** 収益改善戦略 */
+  profitImprovementStrategy?: string;
+  /** 事業ポートフォリオ方針 */
+  portfolioPolicy?: string;
+  /** 全社共通の判断基準 */
+  companyWideDecisionCriteria?: string[];
+  /** 事業・部門へ展開する際の基本軸 */
+  deploymentPrinciplesForUnits?: string[];
+  /** 経営会議で確認すべき論点 */
+  managementMeetingIssues?: string[];
 };
 
 /* =========================================================
@@ -1501,6 +1612,9 @@ export type StrategyData = {
     base?: Record<string, number>;  // 基準シナリオ
     high?: Record<string, number>;  // 高位シナリオ
   };
+
+  /** === STAGE2 中計設計（任意・swot_suggestions 内にパック保存）=== */
+  midtermStrategy?: MidtermStrategy;
 
   /** === 楽観ロック（revision：保存時の衝突検知用） === */
   revision?: number;
