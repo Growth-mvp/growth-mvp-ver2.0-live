@@ -11,7 +11,7 @@ export function CascadeHeader({ exportToPdf }: CascadeHeaderProps) {
     <header className="mb-8 flex items-start justify-between gap-6">
   <div className="max-w-[880px]">
     <h1 className="text-[28px] font-semibold tracking-tight text-zinc-950 mb-3">
-      STAGE 3：部門戦略策定
+      STAGE 3：事業・部門別戦略
     </h1>
 
     <div className="mb-5">
@@ -24,7 +24,9 @@ export function CascadeHeader({ exportToPdf }: CascadeHeaderProps) {
     </div>
 
     <p className="text-[14px] leading-[1.9] text-zinc-600">
-      経営ストーリーを起点に、各部門のミッション、重点プロジェクト、KPIを全体最適の視点で整理します。
+      STAGE2の全社戦略をもとに、各事業・部門が実行できる役割と重点テーマに展開します。
+      <br />
+      経営ストーリーを起点に、各事業・部門のミッション、重点プロジェクト、KPIを全体最適の視点で整理します。
       <br />
       ただ数値目標を割り振るだけのKPIではなく、経営戦略とつながり、会社の成長に向けてシフトできるかを重視します。
       <br />
