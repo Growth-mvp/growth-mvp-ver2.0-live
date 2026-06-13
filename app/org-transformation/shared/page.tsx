@@ -748,7 +748,7 @@ function StrategyReflectionSection({ topic }: { topic: SharedAlignmentTopic }) {
           <p className="text-xs font-semibold tracking-[0.18em] text-slate-500">STAGE REFLECTION</p>
           <h4 className="mt-2 text-lg font-bold text-slate-950">戦略・実行計画への反映</h4>
           <p className="mt-2 text-sm leading-7 text-slate-700">
-            この論点は、すり合わせ結果をもとに、STAGE3の部門戦略・STAGE4の実行計画への反映候補として整理されています。
+            この論点は、すり合わせ結果をもとに、STAGE3の事業・部門別戦略・STAGE4の実行計画への反映候補として整理されています。
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -813,10 +813,10 @@ function StrategyReflectionSection({ topic }: { topic: SharedAlignmentTopic }) {
       <div className="mt-5 flex flex-col gap-3 md:flex-row">
         <button
           type="button"
-          onClick={() => handleDemoAction(`${topic.title}をSTAGE3の部門戦略へ反映します。`)}
+          onClick={() => handleDemoAction(`${topic.title}をSTAGE3の事業・部門別戦略へ反映します。`)}
           className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
         >
-          STAGE3 部門戦略へ反映する
+          STAGE3 事業・部門別戦略へ反映する
         </button>
         <button
           type="button"
@@ -1123,7 +1123,7 @@ export default function OrganizationSharedRoomPage() {
           </div>
           <div className="max-w-4xl rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <p className="text-sm font-semibold leading-7 text-slate-900">
-              見えた組織課題は、共有して終わりではありません。必要に応じてSTAGE3の部門戦略やSTAGE4の実行計画へ還流し、具体的なプロジェクト・OKRとして推進します。
+              見えた組織課題は、共有して終わりではありません。必要に応じてSTAGE3の事業・部門別戦略やSTAGE4の実行計画へ還流し、具体的なプロジェクト・OKRとして推進します。
             </p>
           </div>
         </header>
@@ -1174,7 +1174,7 @@ export default function OrganizationSharedRoomPage() {
         <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           <MetricCard label="共有中の論点" value={`${summaryData.topics}件`} description="全社に公開されている組織論点" />
           <MetricCard label="すり合わせ中" value={`${summaryData.inProgress}件`} description="現在話し合いが進行中" />
-          <MetricCard label="STAGE3反映候補" value={`${summaryData.stage3Targets}件`} description="部門戦略への反映対象" />
+          <MetricCard label="STAGE3反映候補" value={`${summaryData.stage3Targets}件`} description="事業・部門別戦略への反映対象" />
           <MetricCard label="STAGE4 OKR化候補" value={`${summaryData.stage4Targets}件`} description="実行計画・OKR化の対象" />
         </section>
 
