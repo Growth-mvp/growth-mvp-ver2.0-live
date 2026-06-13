@@ -1258,6 +1258,18 @@ function StoryProcessPageContent() {
         FINAL_TITLES,
       );
       setFinalStorySafe(ordered);
+
+      // ★STEP6: 中計設計（midtermStrategy）がAPIから返ってきた場合のみ store へ反映
+      // （返らない場合は既存値を保持。保存は下の persistDebounced → buildSavePayload 経由）
+      if (
+        data?.midtermStrategy &&
+        typeof data.midtermStrategy === 'object' &&
+        !Array.isArray(data.midtermStrategy)
+      ) {
+        try {
+          store?.setMidtermStrategy?.(data.midtermStrategy);
+        } catch {}
+      }
       try {
         if (
           typeof window !== 'undefined' &&
