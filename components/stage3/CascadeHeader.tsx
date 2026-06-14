@@ -18,19 +18,15 @@ export function CascadeHeader({ exportToPdf }: CascadeHeaderProps) {
       <p className="text-[19px] font-bold tracking-tight text-zinc-950 leading-snug">
         そのKPIは、会社を成長へシフトさせているか。
       </p>
-      <p className="mt-1.5 text-[14px] font-medium text-zinc-500 leading-relaxed">
-        数値目標を管理するだけのKPIから、未来の成長を生み出し、動かすKPIへ。
-      </p>
+      
     </div>
 
     <p className="text-[14px] leading-[1.9] text-zinc-600">
-      STAGE2の全社戦略をもとに、各事業・部門が実行できる役割と重点テーマに展開します。
+      STAGE2で定めた全社戦略をもとに、各事業・部門の役割、重点テーマ、KPIを設計します。
       <br />
-      経営ストーリーを起点に、各事業・部門のミッション、重点プロジェクト、KPIを全体最適の視点で整理します。
+       単なる数値目標の割り振りではなく、「自部門は会社の成長にどう貢献するのか」を明確にし、
       <br />
-      ただ数値目標を割り振るだけのKPIではなく、経営戦略とつながり、会社の成長に向けてシフトできるかを重視します。
-      <br />
-      部門長・マネージャー層との対話を通じて、「自部門は経営戦略の実現にどう貢献するのか」を明確化し、成長を生み出すKPIを設計します。
+      経営戦略とつながったミッション、重点プロジェクト、KPIへ具体化します。
     </p>
   </div>
 
