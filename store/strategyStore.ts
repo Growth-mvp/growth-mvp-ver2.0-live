@@ -897,6 +897,9 @@ function buildSavePayload(s: StrategyState) {
 
     stage4Plans: s.stage4Plans,
     executionPlanBaseline: s.executionPlanBaseline,
+
+    // STAGE3 strategy bridge
+    stage3_strategy_bridge: (s as any).stage3_strategy_bridge,
   };
 
   if (typeof s.businessPortfolio !== 'undefined') base.businessPortfolio = s.businessPortfolio;
@@ -944,6 +947,11 @@ function buildSavePayload(s: StrategyState) {
     const swotSuggestionsOpp = Array.isArray(base.swotSuggestions?.opportunity) ? base.swotSuggestions.opportunity.length : 0;
     const swotSuggestionsThr = Array.isArray(base.swotSuggestions?.threat) ? base.swotSuggestions.threat.length : 0;
 
+    // STAGE3 strategy bridge check
+    const stage3BridgeIncluded = !!(base as any).stage3_strategy_bridge;
+    const stage3BridgeKeys = stage3BridgeIncluded ? Object.keys((base as any).stage3_strategy_bridge) : [];
+    const stage3BridgeKeyThemesLen = Array.isArray((base as any).stage3_strategy_bridge?.keyThemes) ? (base as any).stage3_strategy_bridge.keyThemes.length : 0;
+
     if (DEBUG) console.log('[buildSavePayload] ★ payload内容確認', {
       businessSegments_len: busSegLen,
       businessSegments_names: Array.isArray(s.businessSegments) ? s.businessSegments.map((b) => b.name) : [],
@@ -963,6 +971,10 @@ function buildSavePayload(s: StrategyState) {
       swotSuggestions_included: !!base.swotSuggestions,
       swotSuggestions_opp_len: swotSuggestionsOpp,
       swotSuggestions_thr_len: swotSuggestionsThr,
+      // STAGE3 bridge log
+      stage3_strategy_bridge_included: stage3BridgeIncluded,
+      stage3_strategy_bridge_keys: stage3BridgeKeys,
+      stage3_strategy_bridge_keyThemesLen: stage3BridgeKeyThemesLen,
       // ★ DEBUG LOG B: save直前のpayload確認
       dept0_keys: Object.keys(dept0 ?? {}),
       dept0_name: dept0?.name,
@@ -3634,6 +3646,17 @@ export const useStrategyStore = create<StrategyState>()(
                 if (DEBUG) console.log('[strategyStore] saveStrategyData: same hash BUT manual => continue (forced write)');
               }
 
+              // STAGE3 bridge pre-save check
+              console.log('[STAGE3] save payload stage3_strategy_bridge', {
+                hasBridge: !!(payload as any).stage3_strategy_bridge,
+                keyThemesLength: Array.isArray((payload as any).stage3_strategy_bridge?.keyThemes) ? (payload as any).stage3_strategy_bridge.keyThemes.length : 0,
+                departmentIssuesLength: Array.isArray((payload as any).stage3_strategy_bridge?.departmentIssues) ? (payload as any).stage3_strategy_bridge.departmentIssues.length : 0,
+                kpiCriteriaLength: Array.isArray((payload as any).stage3_strategy_bridge?.kpiCriteria) ? (payload as any).stage3_strategy_bridge.kpiCriteria.length : 0,
+                commonBehaviorChangesLength: Array.isArray((payload as any).stage3_strategy_bridge?.commonBehaviorChanges) ? (payload as any).stage3_strategy_bridge.commonBehaviorChanges.length : 0,
+                reason,
+                timestamp: new Date().toISOString(),
+              });
+
               const res = await (async () => {
                 try {
                   return await saveWithAudit(payload, userId, companyId, state.revision, { mode: 'upsert' }, `store:saveStrategyData:${reason}`);
@@ -3724,6 +3747,19 @@ export const useStrategyStore = create<StrategyState>()(
               }
 
               const serverData = (res as any).data ?? {};
+
+              // STAGE3 bridge post-save check
+              if (!!(payload as any).stage3_strategy_bridge) {
+                console.log('[STAGE3] save stage3_strategy_bridge completed', {
+                  payloadBridge_included: true,
+                  payloadBridge_keyThemesLen: Array.isArray((payload as any).stage3_strategy_bridge?.keyThemes) ? (payload as any).stage3_strategy_bridge.keyThemes.length : 0,
+                  serverData_has_bridge: !!(serverData as any).stage3_strategy_bridge,
+                  serverData_bridge_keys: (serverData as any).stage3_strategy_bridge ? Object.keys((serverData as any).stage3_strategy_bridge) : [],
+                  companyId: companyId?.substring(0, 8),
+                  reason,
+                  timestamp: new Date().toISOString(),
+                });
+              }
 
               // ★ 診断：保存成功後、DB から復元した okrTargetScores を確認
               console.log('[diag][stage5:after_save]', {
