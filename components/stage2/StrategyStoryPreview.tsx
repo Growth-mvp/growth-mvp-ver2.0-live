@@ -51,6 +51,7 @@ interface StrategyStoryPreviewProps {
   segmentPL?: Record<string, any[]>;
   valueAnalysis?: any;
   businessPortfolio?: any;
+  mode?: 'screen' | 'pdf'; // ★ 新規：screen=STAGE2画面, pdf=PDFプレビュー用
 }
 
 /**
@@ -340,15 +341,19 @@ function buildStrategicAssumptions(input: {
   return result;
 }
 
-function renderParagraphs(text: string) {
+function renderParagraphs(text: string, variant: 'screen' | 'pdf' = 'screen') {
   const cleaned = stripIssueSummary(text ?? '');
   const paragraphs = cleaned
     .split(/\n{2,}/)
     .map((p) => p.trim())
     .filter(Boolean);
   if (paragraphs.length === 0) return null;
+  const paragraphClass = variant === 'pdf'
+    ? 'whitespace-pre-wrap break-words text-justify text-[11px] leading-[1.65] tracking-[0.001em] text-slate-700'
+    : 'whitespace-pre-wrap break-words text-justify leading-8 tracking-[0.005em] text-slate-700';
+
   return paragraphs.map((p, i) => (
-    <p key={i} className="whitespace-pre-wrap break-words text-justify leading-8 tracking-[0.005em] text-slate-700">
+    <p key={i} className={paragraphClass}>
       {p}
     </p>
   ));
@@ -822,10 +827,10 @@ function FinancialTargetGapPanel({
 
   return (
     <section className="mb-12 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm md:p-8">
-      <div className="mb-6 flex flex-col gap-2 border-b border-slate-100 pb-5">
+      <div className="mb-4 flex flex-col gap-1.5 border-b border-slate-100 pb-4">
         <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-700">Financial Target</p>
         <h3 className="text-xl font-bold text-slate-950">数値目標と達成ギャップ</h3>
-        <p className="max-w-3xl text-sm leading-relaxed text-slate-600">
+        <p className="max-w-3xl text-xs leading-relaxed text-slate-600">
           この戦略により、売上・営業利益の成長目標を実現し、持続的な収益基盤への転換を目指します。
           現在値と目標値の差分を明確にし、STAGE3以降の部門戦略・KPI設計に接続します。
         </p>
@@ -872,10 +877,10 @@ function StrategicAssumptionBlock({
 }) {
   return (
     <section className="mb-12 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm md:p-8">
-      <div className="mb-6 flex flex-col gap-2 border-b border-slate-100 pb-5">
+      <div className="mb-4 flex flex-col gap-1.5 border-b border-slate-100 pb-4">
         <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-700">Strategic Assumptions</p>
         <h3 className="text-xl font-bold text-slate-950">戦略判断の前提</h3>
-        <p className="max-w-3xl text-sm leading-relaxed text-slate-600">
+        <p className="max-w-3xl text-xs leading-relaxed text-slate-600">
           外部環境と内部環境の要点
         </p>
       </div>
@@ -956,7 +961,7 @@ function StoryFlowCards() {
               {ch.id === 'why_change' && '既存市場の延長では、今後の成長機会を取り切れない。'}
               {ch.id === 'where_to_play' && '成長余地のある市場・顧客・技術領域に経営資源を集中する。'}
               {ch.id === 'what_to_win' && '顧客から選ばれる専門企業として、新たな収益基盤を確立する。'}
-              {ch.id === 'how_to_act' && '社員一人ひとりの判断と行動を、全社戦略と成長領域に向けて変えていく。'}
+              {ch.id === 'how_to_execute' && '全社戦略を、部門戦略・KPI・実行管理へ具体化する。'}
             </p>
           </div>
         ))}
@@ -998,7 +1003,7 @@ function MidtermDesignBox({
       <p className="text-[10px] font-bold tracking-[0.18em] text-slate-700 uppercase mb-2">
         Strategic Deployment Axis
       </p>
-      <h3 className="text-2xl font-bold text-slate-950 mb-2">
+      <h3 className="mb-2 text-[22px] font-bold leading-snug text-slate-950">
         中計設計：全社戦略の展開軸
       </h3>
       <p className="text-sm text-slate-700 mb-6">
@@ -1115,18 +1120,191 @@ function MidtermDesignBox({
   );
 }
 
+
 /**
- * 各章の詳細表示（2カラム）
+ * 重点戦略と優先順位（PDF用）
+ * midtermStrategy が薄い場合は、事業ポートフォリオ方向性から補完する。
+ */
+function StrategicThemePanel({
+  midtermStrategy,
+  businessPortfolioDirections,
+}: {
+  midtermStrategy?: MidtermStrategy;
+  businessPortfolioDirections?: BusinessPortfolioDirection[];
+}) {
+  const themes = midtermStrategy?.priorityStrategicThemes?.filter(Boolean) ?? [];
+  const portfolioThemes = (businessPortfolioDirections ?? []).slice(0, 4);
+
+  if (themes.length === 0 && portfolioThemes.length === 0) return null;
+
+  return (
+    <section className="mb-8 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+      <div className="mb-4 flex flex-col gap-1.5 border-b border-slate-100 pb-4">
+        <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-700">
+          Winning Patterns
+        </p>
+        <h3 className="text-lg font-bold text-slate-950">重点戦略と優先順位</h3>
+        <p className="max-w-3xl text-xs leading-relaxed text-slate-600">
+          全社戦略を、STAGE3以降で展開すべき重点テーマとして整理します。
+        </p>
+      </div>
+
+      {themes.length > 0 ? (
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          {themes.slice(0, 4).map((theme, i) => (
+            <div key={i} className="rounded-2xl border border-slate-200 bg-slate-50 p-3" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
+                Strategic Theme {String(i + 1).padStart(2, '0')}
+              </p>
+              <p className="text-sm font-bold leading-relaxed text-slate-900">{theme}</p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          {portfolioThemes.map((pd, i) => (
+            <div key={i} className="rounded-2xl border border-slate-200 bg-slate-50 p-3" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="text-sm font-bold text-slate-950">{pd.segmentName}</p>
+                <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-600">
+                  {portfolioDirectionLabels[pd.category]}
+                </span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-slate-600">{pd.basicDirection}</p>
+              <p className="mt-2 border-t border-slate-200 pt-2 text-[10px] leading-relaxed text-slate-500">
+                STAGE3論点：{pd.stage3Question}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * 各章の詳細表示（2カラム：screen / 1カラム：pdf）
  */
 function ChapterSection({
   chapter,
   index,
   meta,
+  mode,
 }: {
   chapter: StoryChapter;
   index: number;
   meta: (typeof CHAPTER_META)[0];
+  mode?: 'screen' | 'pdf';
 }) {
+  const isPdf = mode === 'pdf';
+  const cleanedTitle = cleanChapterTitle(chapter.title, index + 1);
+  const pdfTitle = index === 3 && cleanedTitle.includes('どう行動する')
+    ? (
+      <>
+        <span className="whitespace-nowrap">第{index + 1}章：どう行動する</span>
+        <span className="ml-1">（社員一人ひとりの役割と決意）</span>
+      </>
+    )
+    : <>第{index + 1}章：{cleanedTitle}</>;
+
+  if (isPdf) {
+    // PDF版：1カラム構成（改ページ対応）
+    return (
+      <div
+        style={{ breakInside: 'auto', pageBreakInside: 'auto' }}
+        className="mb-0 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm"
+      >
+        {/* 章ヘッダー */}
+        <div className="mb-4 border-b border-slate-200 pb-3">
+          <p className="text-xs font-bold tracking-[0.2em] text-slate-700 uppercase mb-2">
+            Chapter {String(index + 1).padStart(2, '0')}
+          </p>
+          <h3 className="text-[20px] font-bold leading-snug text-slate-950 mb-1">
+            {pdfTitle}
+          </h3>
+          <p className="text-sm text-slate-500">
+            {meta.englishLabel} / {meta.japaneseLabel}
+          </p>
+        </div>
+
+        {/* Key Message */}
+        <div className="mb-5 rounded-lg border border-slate-200 border-l-4 border-l-slate-800 bg-slate-50 p-3.5">
+          <p className="text-[10px] font-bold tracking-[0.18em] text-slate-700 uppercase mb-2">
+            Key Message
+          </p>
+          <p className="text-[15px] font-semibold text-slate-900">
+            {meta.defaultKeyMessage}
+          </p>
+        </div>
+
+        {/* 本文 */}
+        <div className="mb-5 space-y-2.5">
+          {renderParagraphs(chapter.body, 'pdf') || (
+            <p className="text-slate-400 italic">本文未入力</p>
+          )}
+        </div>
+
+        {/* 3つのインサイトカード（横並び、ブロック全体でページ分断を防ぐ） */}
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+          {/* 戦略上の示唆 */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+            <p className="text-[9px] font-bold tracking-[0.16em] text-slate-500 uppercase mb-1.5">
+              Strategic Implications
+            </p>
+            <h5 className="text-[11px] font-bold text-slate-900 mb-2">
+              戦略上の示唆
+            </h5>
+            <ul className="space-y-1 text-[10px] text-slate-700">
+              {meta.strategicImplications.map((implication, i) => (
+                <li key={i} className="flex gap-1 leading-snug">
+                  <span className="shrink-0 text-slate-400 mt-0.5">−</span>
+                  <span>{implication}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* 次に接続する論点 */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+            <p className="text-[9px] font-bold tracking-[0.16em] text-slate-500 uppercase mb-1.5">
+              Next Questions
+            </p>
+            <h5 className="text-[11px] font-bold text-slate-900 mb-2">
+              次に接続する論点
+            </h5>
+            <ul className="space-y-1 text-[10px] text-slate-700">
+              {meta.nextQuestions.map((question, i) => (
+                <li key={i} className="flex gap-1 leading-snug">
+                  <span className="shrink-0 text-slate-400 mt-0.5">−</span>
+                  <span>{question}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* STAGE3/4への展開先 */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+            <p className="text-[9px] font-bold tracking-[0.16em] text-slate-500 uppercase mb-1.5">
+              Downstream Design
+            </p>
+            <h5 className="text-[11px] font-bold text-slate-900 mb-2">
+              STAGE3/4への展開先
+            </h5>
+            <ul className="space-y-1 text-[10px] text-slate-700">
+              {meta.downstreamTargets.map((target, i) => (
+                <li key={i} className="flex gap-1 leading-snug">
+                  <span className="shrink-0 text-slate-400 mt-0.5">−</span>
+                  <span>{target}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Screen版：2カラム構成（現在のまま）
   return (
     <div className="mb-12 rounded-[28px] border border-slate-200 bg-white p-8 shadow-sm">
       {/* 章ヘッダー */}
@@ -1135,7 +1313,7 @@ function ChapterSection({
           Chapter {String(index + 1).padStart(2, '0')}
         </p>
         <h3 className="text-2xl font-bold text-slate-950 mb-2">
-          第{index + 1}章：{cleanChapterTitle(chapter.title, index + 1)}
+          {pdfTitle}
         </h3>
         <p className="text-sm text-slate-500">
           {meta.englishLabel} / {meta.japaneseLabel}
@@ -1231,7 +1409,7 @@ function ChapterSection({
 function StageConnectionSection() {
   return (
     <div className="mb-8 rounded-[24px] border border-slate-200 bg-white p-7 shadow-sm">
-      <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-col gap-5">
         <div>
           <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
             Next Step
@@ -1244,11 +1422,11 @@ function StageConnectionSection() {
             画面上では導線に留め、中期経営計画本文の主役は4章ストーリーと全社判断基準に置きます。
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-2 text-xs font-semibold text-slate-600 sm:grid-cols-4 md:min-w-[360px]">
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-center">STAGE3</span>
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-center">STAGE4</span>
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-center">STAGE5</span>
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-center">STAGE6</span>
+        <div className="flex flex-wrap gap-3 text-xs font-semibold text-slate-600">
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-center">STAGE3</span>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-center">STAGE4</span>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-center">STAGE5</span>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-center">STAGE6</span>
         </div>
       </div>
     </div>
@@ -1269,6 +1447,7 @@ export function StrategyStoryPreview({
   businessSegments,
   segmentPL,
   valueAnalysis,
+  mode,
 }: StrategyStoryPreviewProps) {
   if (!story || story.length === 0) return null;
 
@@ -1321,46 +1500,76 @@ export function StrategyStoryPreview({
       </div>
 
       {/* コンテンツ本体 */}
-      <div className="space-y-10 max-w-5xl mx-auto px-4">
-        {/* 1. 結論 */}
-        <ConclusionBox />
+      <div className={mode === 'pdf' ? 'max-w-5xl mx-auto px-4' : 'space-y-10 max-w-5xl mx-auto px-4'}>
+        {mode === 'pdf' ? (
+          <>
+            {/* PDF版：実際のPDF分割を安定させるため、A4相当のページブロックで構成 */}
+            <div style={{ minHeight: 1110, boxSizing: 'border-box', paddingBottom: 24 }}>
+              <ConclusionBox />
+              <StrategicAssumptionBlock assumptions={strategicAssumptions} />
+            </div>
 
-        {/* 2. 数値目標：結論を数値で補強 */}
-        {financialTargets && (
-          <FinancialTargetGapPanel
-            revenue={financialTargets.revenue}
-            operatingProfit={financialTargets.operatingProfit}
-          />
-        )}
+            <div style={{ minHeight: 1110, boxSizing: 'border-box', paddingBottom: 24 }}>
+              <StoryFlowCards />
+              {financialTargets && (
+                <FinancialTargetGapPanel
+                  revenue={financialTargets.revenue}
+                  operatingProfit={financialTargets.operatingProfit}
+                />
+              )}
+              <StrategicThemePanel
+                midtermStrategy={midtermStrategy}
+                businessPortfolioDirections={businessPortfolioDirections}
+              />
+            </div>
 
-        {/* 3. 戦略判断の前提：新規追加 */}
-        <StrategicAssumptionBlock assumptions={strategicAssumptions} />
+            {story.map((chapter, idx) => (
+              <div key={idx} style={{ minHeight: 1110, boxSizing: 'border-box', paddingBottom: 24 }}>
+                <ChapterSection
+                  chapter={chapter}
+                  index={idx}
+                  meta={CHAPTER_META[idx] || CHAPTER_META[0]}
+                  mode={mode}
+                />
+              </div>
+            ))}
 
-        {/* 4. 戦略ストーリーの流れ */}
-        <StoryFlowCards />
-
-        {/* 5. 中計設計 */}
-        <MidtermDesignBox
-          midtermStrategy={midtermStrategy}
-          businessSegments={businessSegments}
-          valueAnalysis={valueAnalysis}
-          businessPortfolioDirections={businessPortfolioDirections}
-        />
-
-        {/* 6. 各章の詳細 */}
-        <div className="space-y-10">
-          {story.map((chapter, idx) => (
-            <ChapterSection
-              key={idx}
-              chapter={chapter}
-              index={idx}
-              meta={CHAPTER_META[idx] || CHAPTER_META[0]}
+            <div style={{ minHeight: 520, boxSizing: 'border-box', paddingBottom: 64 }}>
+              <StageConnectionSection />
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Screen版：現在のまま */}
+            <ConclusionBox />
+            <StrategicAssumptionBlock assumptions={strategicAssumptions} />
+            <StoryFlowCards />
+            <MidtermDesignBox
+              midtermStrategy={midtermStrategy}
+              businessSegments={businessSegments}
+              valueAnalysis={valueAnalysis}
+              businessPortfolioDirections={businessPortfolioDirections}
             />
-          ))}
-        </div>
-
-        {/* 7. STAGE3以降の接続 */}
-        <StageConnectionSection />
+            <div className="space-y-10">
+              {story.map((chapter, idx) => (
+                <ChapterSection
+                  key={idx}
+                  chapter={chapter}
+                  index={idx}
+                  meta={CHAPTER_META[idx] || CHAPTER_META[0]}
+                  mode={mode}
+                />
+              ))}
+            </div>
+            {financialTargets && (
+              <FinancialTargetGapPanel
+                revenue={financialTargets.revenue}
+                operatingProfit={financialTargets.operatingProfit}
+              />
+            )}
+            <StageConnectionSection />
+          </>
+        )}
       </div>
     </div>
   );
