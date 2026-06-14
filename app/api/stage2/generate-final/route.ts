@@ -1084,6 +1084,16 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
+    // STAGE2画面で開いている会社のstrategy_dataへ保存するため、フロントから渡されたcompanyIdを優先する。
+    // membershipから推定すると、複数会社所属時に別会社へ保存される可能性があるためここでは使わない。
+    const requestedCompanyId = pickFirstText(body.companyId, body.company_id, body.tenantId, body.tenant_id);
+    const requestedStrategyDataId = pickFirstText(
+      body.strategyDataId,
+      body.strategy_data_id,
+      body.strategyId,
+      body.strategy_id,
+    );
+
     const mvv = asRecord(body.mvv);
     const swot = asRecord(body.swot);
 
@@ -1447,10 +1457,62 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
       }
     }
 
-    // 任意保存（存在すれば実行）
+    // ★ CRITICAL FIX: リロード復元元である strategy_data.final_story_draft にも必ず保存する。
+    // これが入らないと、生成直後は画面stateに表示されても、リロード時に古い story が復活する。
+    // 保存後に select で再取得し、更新0件・保存失敗をログで検出できるようにする。
+    if (requestedCompanyId || requestedStrategyDataId) {
+      try {
+        const finalStoryDraftPayload = safeSerialize(finalStory);
+        const updatePayload = {
+          final_story_draft: finalStoryDraftPayload,
+          updated_at: new Date().toISOString(),
+        };
+
+        let query = admin
+          .from('strategy_data')
+          .update(updatePayload)
+          .select('id, company_id, final_story_draft, updated_at');
+
+        if (requestedStrategyDataId) {
+          query = query.eq('id', requestedStrategyDataId);
+        } else {
+          query = query.eq('company_id', requestedCompanyId);
+        }
+
+        const { data: savedRows, error: saveDraftError } = await query.limit(1);
+
+        if (saveDraftError) {
+          console.error('[stage2/generate-final] strategy_data.final_story_draft save failed:', {
+            companyId: requestedCompanyId || null,
+            strategyDataId: requestedStrategyDataId || null,
+            error: saveDraftError.message,
+          });
+        } else if (!Array.isArray(savedRows) || savedRows.length === 0) {
+          console.error('[stage2/generate-final] strategy_data.final_story_draft save updated 0 rows:', {
+            companyId: requestedCompanyId || null,
+            strategyDataId: requestedStrategyDataId || null,
+            finalStoryLen: Array.isArray(finalStory) ? finalStory.length : null,
+          });
+        } else {
+          const saved = savedRows[0] as Record<string, unknown>;
+          console.log('[stage2/generate-final] strategy_data.final_story_draft saved:', {
+            strategyDataId: saved.id,
+            companyId: saved.company_id,
+            finalStoryLen: Array.isArray(finalStory) ? finalStory.length : null,
+            savedDraftLen: Array.isArray(saved.final_story_draft) ? saved.final_story_draft.length : null,
+          });
+        }
+      } catch (e: any) {
+        console.error('[stage2/generate-final] strategy_data.final_story_draft save error:', e?.message || e);
+      }
+    } else {
+      console.warn('[stage2/generate-final] strategy_data.final_story_draft save skipped: companyId/strategyDataId missing');
+    }
+
+    // 任意保存（存在すれば実行）: 互換性維持のため final_stories テーブルへの保存も継続
     if (typeof userId === 'string' && userId && typeof saveFinalStory === 'function') {
       try {
-        await saveFinalStory(userId, finalStory as any, {});
+        await saveFinalStory(userId, finalStory as any, { companyId: requestedCompanyId || undefined });
       } catch (e: any) {
         console.warn('⚠️ final_stories 保存に失敗（続行）:', e?.message || e);
       }
