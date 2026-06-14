@@ -31,10 +31,11 @@ export function useStage2PdfExport() {
     );
 
     // ★ 3. 一時的なDOMを作成（stage2-pdf-export）
+    // ★ CRITICAL: PDF生成用DOMは画面外に配置（左側に表示されないよう修正）
     const container = document.createElement('div');
     container.id = 'stage2-pdf-export';
     container.style.position = 'fixed';
-    container.style.left = '0';
+    container.style.left = '-10000px';  // ★ FIXED: 画面外に配置（0 から -10000px に変更）
     container.style.top = '0';
     container.style.width = '794px';
     container.style.minHeight = '1123px';
@@ -42,7 +43,7 @@ export function useStage2PdfExport() {
     container.style.color = '#111111';
     container.style.opacity = '1';
     container.style.visibility = 'visible';
-    container.style.zIndex = '99999';
+    container.style.zIndex = '-1';  // ★ FIXED: 背景レイヤーに配置（99999 から -1 に変更）
     container.style.pointerEvents = 'none';
     container.style.overflow = 'visible';
 
