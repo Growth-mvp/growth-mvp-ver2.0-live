@@ -26,7 +26,7 @@ if (typeof window !== 'undefined') {
 }
 
 import StrategyGuard from '@/app/StrategyGuard';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import { useAccess } from '@/utils/access';
@@ -1073,10 +1073,16 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
   chapters,
   revenue,
   operatingProfit,
+  stage3StrategyBridge,
+  onGenerateStrategyBridge,
+  isGenerating,
 }: {
   chapters: { title: string; body: string }[];
   revenue: { current: number | null; target: number | null };
   operatingProfit: { current: number | null; target: number | null };
+  stage3StrategyBridge?: any;
+  onGenerateStrategyBridge?: () => void;
+  isGenerating?: boolean;
 }) {
   const [openChapterIndexes, setOpenChapterIndexes] = useState<number[]>([]);
 
@@ -1086,60 +1092,126 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
     );
   }, []);
 
+  const scrollToDepartmentDesign = useCallback(() => {
+    const target = document.getElementById('stage3-department-design');
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  const router = useRouter();
+
   return (
     <section className="mb-8">
-      {/* 4章：A案（縦4段アコーディオン） */}
-      {chapters.length ? (
-        <div className="space-y-3">
-          {chapters.slice(0, 4).map((ch: { title: string; body: string }, i: number) => {
-            const isOpen = openChapterIndexes.includes(i);
-            return (
-              <div
-                key={i}
-                className="overflow-hidden rounded-2xl border border-zinc-200 bg-white/80 shadow-sm backdrop-blur-sm transition-all"
-              >
-                <button
-                  type="button"
-                  onClick={() => toggleChapter(i)}
-                  className="flex w-full items-start justify-between gap-4 px-5 py-4 text-left hover:bg-zinc-50/80 transition-colors"
-                  aria-expanded={isOpen}
-                  aria-controls={`stage3-story-panel-${i}`}
-                >
-                  <div className="min-w-0">
-                    <h3 className="text-base font-semibold text-zinc-900">
-                      {ch.title}
-                    </h3>
-                    {!isOpen ? (
-                      <p className="mt-2 line-clamp-2 text-sm text-zinc-600">
-                        {ch.body}
-                      </p>
-                    ) : null}
-                  </div>
-                  <span className="mt-1 shrink-0 rounded-full border border-zinc-200 bg-white p-2 text-zinc-600">
-                    {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                  </span>
-                </button>
+      {stage3StrategyBridge || chapters.length ? (
+        <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white/90 shadow-sm backdrop-blur-sm mb-8">
+          <div className="border-b border-zinc-100 px-6 py-5">
+            <h3 className="text-xl font-bold tracking-tight text-zinc-950">
+              まず、全社戦略の要点を確認する
+            </h3>
+            
+          </div>
 
-                {isOpen ? (
-                  <div
-                    id={`stage3-story-panel-${i}`}
-                    className="border-t border-zinc-200 px-5 py-4"
-                  >
-                    <div
-                      dangerouslySetInnerHTML={{ __html: nl2brSafe(ch.body) }}
-                      className="text-sm leading-7 text-zinc-700"
-                    />
+          <div className="px-6 py-5">
+            {stage3StrategyBridge ? (
+              <>
+                <div className="grid gap-3 md:grid-cols-2 mb-6">
+                  <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3">
+                    <h4 className="text-sm font-bold text-zinc-900">会社として目指す方向</h4>
+                    <ul className="mt-2 space-y-1 text-xs text-zinc-700">
+                      {(stage3StrategyBridge.keyThemes || []).map((item: string, i: number) => (
+                        <li key={i}>• {item}</li>
+                      ))}
+                    </ul>
                   </div>
-                ) : null}
+                  <div className="rounded-lg border border-amber-100 bg-amber-50 px-4 py-3">
+                    <h4 className="text-sm font-bold text-zinc-900">重点的に伸ばす領域</h4>
+                    <ul className="mt-2 space-y-1 text-xs text-zinc-700">
+                      {(stage3StrategyBridge.departmentIssues || []).map((item: string, i: number) => (
+                        <li key={i}>• {item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-3">
+                    <h4 className="text-sm font-bold text-zinc-900">見直すべき事業・活動</h4>
+                    <ul className="mt-2 space-y-1 text-xs text-zinc-700">
+                      {(stage3StrategyBridge.kpiCriteria || []).map((item: string, i: number) => (
+                        <li key={i}>• {item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="rounded-lg border border-purple-100 bg-purple-50 px-4 py-3">
+                    <h4 className="text-sm font-bold text-zinc-900">各部門に求める役割</h4>
+                    <ul className="mt-2 space-y-1 text-xs text-zinc-700">
+                      {(stage3StrategyBridge.commonBehaviorChanges || []).map((item: string, i: number) => (
+                        <li key={i}>• {item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4 mb-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <p className="text-sm leading-6 text-zinc-700">
+                      次に、各部門ごとにたたき台を生成し、自部門が全社戦略にどう貢献するかを具体化します。
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => router.push('/stage2')}
+                        className="inline-flex items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50"
+                      >
+                        全社戦略を詳しく確認する
+                      </button>
+                      <button
+                        type="button"
+                        onClick={scrollToDepartmentDesign}
+                        className="inline-flex shrink-0 items-center justify-center rounded-full bg-zinc-950 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-zinc-800"
+                      >
+                        部門別設計へ進む
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-zinc-200">
+                  <button
+                    type="button"
+                    onClick={onGenerateStrategyBridge}
+                    disabled={isGenerating}
+                    className="inline-flex items-center justify-center rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:opacity-50"
+                  >
+                    {isGenerating ? '生成中...' : '全社戦略サマリーを再生成'}
+                  </button>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    STAGE2の最終ストーリーを更新した場合は、必要に応じて再生成してください。
+                  </p>
+                </div>
+              </>
+            ) : chapters.length ? (
+              <div className="flex flex-col gap-4">
+                <div className="text-center py-8">
+                  <button
+                    type="button"
+                    onClick={onGenerateStrategyBridge}
+                    disabled={isGenerating}
+                    className="inline-flex items-center justify-center rounded-lg bg-zinc-950 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
+                  >
+                    {isGenerating ? '生成中...' : '全社戦略サマリーを生成'}
+                  </button>
+                </div>
+                <div className="flex gap-2 justify-center">
+                  <button
+                    type="button"
+                    onClick={() => router.push('/stage2')}
+                    className="inline-flex items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50"
+                  >
+                    STAGE2で全社戦略を確認・作成する
+                  </button>
+                </div>
               </div>
-            );
-          })}
+            ) : null}
+          </div>
         </div>
-      ) : (
-        <div className="p-4 bg-yellow-50 text-yellow-800 text-sm rounded-xl border border-yellow-200">
-          経営ストーリーが未設定です。先に STAGE 2 で「最終ストーリー」を作成してください。
-        </div>
-      )}
+      ) : null}
 
       {/* KPI 2点比較（2カード） */}
       <div className="mt-5">
@@ -1842,6 +1914,7 @@ function CascadePageContent() {
   const storyDraft = useStrategyStore((st: any) => st.storyDraft);
   const finalStoryDraft = useStrategyStore((st: any) => st.finalStoryDraft);
   const finalStoryEdited = useStrategyStore((st: any) => st.finalStoryEdited);
+  const stage3_strategy_bridge = useStrategyStore((st: any) => st.stage3_strategy_bridge);
   const finalStoryFinal = useStrategyStore((st: any) => st.finalStoryFinal);
 
   const strategyStory = useStrategyStore((st: any) => st.strategyStory);
@@ -2250,6 +2323,7 @@ function CascadePageContent() {
   const hasUnsavedChangesRef = useRef(false);
   const isGeneratingRef = useRef(false);
   const isPersistingRef = useRef(false);
+  const [isGeneratingBridge, setIsGeneratingBridge] = useState(false);
   useEffect(() => {
     hasUnsavedChangesRef.current = hasUnsavedChanges;
   }, [hasUnsavedChanges]);
@@ -2301,6 +2375,49 @@ function CascadePageContent() {
   const laneCacheRef = useRef<Record<string, { existing?: ApiLane; new?: ApiLane }>>({});
   const [showLaneDetail, setShowLaneDetail] = useState<Record<string, boolean>>({});
   const [laneRenderVersion, setLaneRenderVersion] = useState(0);
+
+  // STAGE3 全社戦略サマリー生成
+  const handleGenerateStrategyBridge = useCallback(async () => {
+    const st = useStrategyStore.getState();
+    const finalStoryData = st.finalStoryFinal ?? st.finalStory;
+
+    if (!Array.isArray(finalStoryData) || finalStoryData.length === 0) {
+      setNotice('[ERROR] STAGE2最終ストーリーが未設定です');
+      return;
+    }
+
+    setIsGeneratingBridge(true);
+    try {
+      const result = await authFetchJson('/api/stage3/generate-strategy-bridge', {
+        method: 'POST',
+        body: JSON.stringify({
+          finalStoryFinal: finalStoryData,
+          companyId: accessCompanyId,
+        }),
+      });
+
+      if ((result as any)?.error) {
+        setNotice(`[ERROR] ${(result as any).error}`);
+        return;
+      }
+
+      useStrategyStore.setState((state: any) => ({
+        ...state,
+        stage3_strategy_bridge: result,
+        dirty: true,
+        version: (state.version ?? 0) + 1,
+      }));
+
+      const saveState = useStrategyStore.getState();
+      await saveState.saveStrategyData({ force: true, reason: 'stage3-bridge-generated' });
+      setNotice('[OK] 全社戦略サマリーを生成・保存しました');
+    } catch (e: any) {
+      console.error('[STAGE3] Error:', e?.message);
+      setNotice('[ERROR] 生成に失敗しました');
+    } finally {
+      setIsGeneratingBridge(false);
+    }
+  }, [accessCompanyId, setNotice]);
 
 // ★ lanes 内訳は store/DB に保存しない（既存方針維持）。ただしUI上はリロードで消えると困るため、
 // sessionStorage に一時退避して復元します（同一ブラウザ/タブ内での再読み込みに耐える）。
@@ -3644,12 +3761,15 @@ useEffect(() => {
       {!isHydrating && (
         <section>
           <div className="mb-3">
-            <h2 className="text-sm font-semibold tracking-wide text-zinc-900">経営戦略ストーリー</h2>
+            <h2 className="text-sm font-semibold tracking-wide text-zinc-900"></h2>
           </div>
           <StoryWithKPIComparison
             chapters={storyChapters}
             revenue={kpiBridgeData.revenue}
             operatingProfit={kpiBridgeData.operatingProfit}
+            stage3StrategyBridge={stage3_strategy_bridge}
+            onGenerateStrategyBridge={handleGenerateStrategyBridge}
+            isGenerating={isGeneratingBridge}
           />
         </section>
       )}
