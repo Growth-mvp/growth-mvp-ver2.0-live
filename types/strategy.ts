@@ -1619,6 +1619,15 @@ export type StrategyData = {
   /** === 楽観ロック（revision：保存時の衝突検知用） === */
   revision?: number;
 
+  /** === STAGE3 戦略展開ブリッジ（STAGE2最終ストーリーからAI生成） === */
+  stage3_strategy_bridge?: {
+    keyThemes: string[];
+    departmentIssues: string[];
+    kpiCriteria: string[];
+    commonBehaviorChanges: string[];
+    generatedAt: string;
+  };
+
   /** === STAGE4 実行計画（部門ごとの編集状態・差分・整合チェック） === */
   stage4Plans?: Stage4Plan[];
 
