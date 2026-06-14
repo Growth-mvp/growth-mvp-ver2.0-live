@@ -279,11 +279,13 @@ export function ReportCover({
   stageName,
   stageNumber,
   generatedDate,
+  status,
 }: {
   companyName: string;
   stageName: string;
   stageNumber: number;
   generatedDate: string;
+  status?: string;
 }) {
   return (
     <div className="report-section cover">
@@ -305,8 +307,25 @@ export function ReportCover({
           {companyName}
         </div>
 
-        <div style={{ color: '#999', marginBottom: '1rem' }}>
-          {generatedDate}
+        {status && (
+          <div
+            style={{
+              fontSize: '0.95rem',
+              fontWeight: '600',
+              color: '#00796b',
+              marginBottom: '1rem',
+              padding: '0.5rem 1rem',
+              backgroundColor: '#e0f2f1',
+              display: 'inline-block',
+              borderRadius: '4px',
+            }}
+          >
+            ✓ {status}
+          </div>
+        )}
+
+        <div style={{ color: '#999', marginBottom: '1rem', marginTop: status ? '1rem' : '0' }}>
+          出力日時: {generatedDate}
         </div>
 
         <div
