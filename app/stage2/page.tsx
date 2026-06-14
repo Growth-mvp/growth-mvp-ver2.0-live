@@ -9,8 +9,8 @@ import { formatMillion, safeNumber, toMillionYen, inferScaleToMillion, safeRatio
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { useAutoSave } from '@/hooks/useAutoSave';
-import { useStage2PdfExport } from '@/hooks/useStage2PdfExport';
-import { StagePdfExportButton } from '@/components/export/StagePdfExportButton';
+// PDF出力は /report/stage2-strategy プレビュー画面で行う
+// PDF出力は /report/stage2-strategy プレビュー画面で行う
 import {
   getStage1DataWithFallback,
   loadStage1SnapshotFromLocalStorage,
@@ -1685,8 +1685,10 @@ function Questions12Section({
 function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: boolean; disabled?: boolean } = {}) {
   const router = useRouter();
 
-  // ★ STAGE2 PDF エクスポート
-  const { exportToPdf: stage2ExportToPdf } = useStage2PdfExport();
+  // ★ STAGE2 プレビュー画面への遷移
+  const handleOpenStrategy = () => {
+    router.push('/report/stage2-strategy');
+  };
 
   // Store / User
   const storeIssues = useStrategyStore((s: StrategyState) => s.stage1Issues);
@@ -2953,6 +2955,8 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         segments: segmentNames,
         businessSegments,
         businessPortfolio,
+        // API側で strategy_data.final_story_draft に保存するため、画面で開いている会社IDを明示的に渡す
+        companyId,
       };
 
       console.log('[Stage2] generate final story: payload size', JSON.stringify(payload).length);
@@ -3053,7 +3057,44 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         answers12,
         finalStory: newFinalStory, // ★ 後方互換性のため保持
       };
+      // ★ Stage2State型の後方互換性を保ちつつ、復元用の本命フィールドもlocalStorageに保持
+      (stage2State as any).finalStoryDraft = newFinalStory;
       saveStage2SnapshotToLocalStorage(stage2State, companyId ?? undefined);
+
+      // ★ CRITICAL FIX: 生成直後に DB に保存（finalStoryDraft をリロード後も復元するため）
+      try {
+        console.log('[Stage2][generate-final] DB save start after generation');
+        const storeState = useStrategyStore.getState() as any;
+        const savePayload = {
+          ...storeState,
+          finalStoryDraft: newFinalStory, // 生成されたばかりの最新ストーリーを確実に保存
+        };
+
+        const saveResult = await saveWithAudit(
+          savePayload,
+          userId,
+          companyId ?? undefined,
+          undefined,
+          {},
+          'stage2:generateFinal'
+        );
+
+        if (saveResult.error === null) {
+          console.log('[Stage2][generate-final] ✅ DB save SUCCESS - finalStoryDraft saved', {
+            finalStoryDraftLen: Array.isArray(newFinalStory) ? newFinalStory.length : 0,
+            revision: saveResult.data?.revision,
+          });
+          if (saveResult.data?.revision !== undefined) {
+            useStrategyStore.getState().setRevision(saveResult.data.revision);
+          }
+        } else {
+          console.warn('[Stage2][generate-final] ⚠️ DB save FAILED but generation succeeded', {
+            error: (saveResult.error as any)?.message || saveResult.error,
+          });
+        }
+      } catch (saveErr) {
+        console.error('[Stage2][generate-final] 🚨 DB save error (non-fatal):', saveErr);
+      }
     } catch (e: any) {
       console.error('[Stage2] GenerateFinal error:', e);
 
@@ -3147,7 +3188,13 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
             </p>
           </div>
           <div className="flex items-center gap-4">
-            <StagePdfExportButton exportToPdf={stage2ExportToPdf} />
+            <button
+              onClick={handleOpenStrategy}
+              className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors shadow-md"
+              title="全社戦略書をプレビュー画面で確認・PDF出力できます"
+            >
+              戦略書プレビュー
+            </button>
           </div>
         </div>
       </header>
@@ -3342,6 +3389,10 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                         <div className="inline-block bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-700 rounded-lg px-4 py-2">
                           <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">✓ 確定済み</p>
                         </div>
+                      ) : (finalStoryDraftRaw && finalStoryDraftRaw.length > 0 && !finalStoryFinalRaw?.length) ? (
+                        <div className="inline-block bg-amber-100 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded-lg px-4 py-2">
+                          <p className="text-sm font-medium text-amber-700 dark:text-amber-300">⚠️ 未確定（「確定」ボタンを押してください）</p>
+                        </div>
                       ) : (
                         <span />
                       )}
@@ -3443,28 +3494,70 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                         )}
 
                         {/* 確定（Final） */}
-                        <button
-                          disabled={disabled}
-                          onClick={() => {
-                            if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
-                              console.log('[diag][button][commit]', {
-                                editingStoryLen: editingStory.length,
-                                beforeDraftLen: finalStoryDraftRaw?.length ?? 0,
-                                beforeEditedLen: finalStoryEditedRaw?.length ?? 0,
-                                beforeFinalLen: finalStoryFinalRaw?.length ?? 0,
-                                action: 'setFinalStoryEdited + commitFinalStory',
-                              });
-                            }
-                            setFinalStoryEdited(editingStory);
-                            setTimeout(() => {
-                              commitFinalStory();
-                              setStoryViewMode('final');
+                        <div className="flex flex-col gap-2">
+                          <p className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 px-3 py-2 rounded">
+                            ℹ️ この内容を最終ストーリーとして確定すると、リロード後も保存されます
+                          </p>
+                          <button
+                            disabled={disabled}
+                            onClick={() => {
+                              if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+                                console.log('[diag][button][commit]', {
+                                  editingStoryLen: editingStory.length,
+                                  beforeDraftLen: finalStoryDraftRaw?.length ?? 0,
+                                  beforeEditedLen: finalStoryEditedRaw?.length ?? 0,
+                                  beforeFinalLen: finalStoryFinalRaw?.length ?? 0,
+                                  action: 'setFinalStoryEdited + commitFinalStory + DB save',
+                                });
+                              }
+                              setFinalStoryEdited(editingStory);
+                              setTimeout(() => {
+                                commitFinalStory();
+                                setStoryViewMode('final');
+
+                              // ★ CRITICAL: 確定時に finalStoryFinal を DB に保存（リロード後も確定版が復元されるため）
+                              (async () => {
+                                try {
+                                  console.log('[Stage2][commit] DB save start for finalStoryFinal');
+                                  const storeState = useStrategyStore.getState() as any;
+                                  const savePayload = {
+                                    ...storeState,
+                                    finalStoryFinal: editingStory, // 確定版として保存
+                                  };
+
+                                  const saveResult = await saveWithAudit(
+                                    savePayload,
+                                    undefined,
+                                    companyId ?? undefined,
+                                    undefined,
+                                    {},
+                                    'stage2:commitFinalStory'
+                                  );
+
+                                  if (saveResult.error === null) {
+                                    console.log('[Stage2][commit] ✅ DB save SUCCESS - finalStoryFinal saved', {
+                                      finalStoryFinalLen: Array.isArray(editingStory) ? editingStory.length : 0,
+                                      revision: saveResult.data?.revision,
+                                    });
+                                    if (saveResult.data?.revision !== undefined) {
+                                      useStrategyStore.getState().setRevision(saveResult.data.revision);
+                                    }
+                                  } else {
+                                    console.warn('[Stage2][commit] ⚠️ DB save FAILED', {
+                                      error: (saveResult.error as any)?.message || saveResult.error,
+                                    });
+                                  }
+                                } catch (saveErr) {
+                                  console.error('[Stage2][commit] 🚨 DB save error:', saveErr);
+                                }
+                              })();
                             }, 100);
                           }}
                           className="px-6 py-3 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors shadow-md disabled:opacity-50"
                         >
                           確定
                         </button>
+                        </div>
 
                         {/* 破棄（編集を戻す）：編集モード時のみ */}
                         {storyEditMode && (
