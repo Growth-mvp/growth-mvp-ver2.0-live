@@ -460,6 +460,7 @@ const FIELD_MAP: Record<string, string> = {
   finalStoryDraft: 'final_story_draft',  // ★ 追加：最終ストーリー ドラフト版（3段階編集用）
   finalStoryEdited: 'final_story_edited',  // ★ 追加：最終ストーリー 編集版（3段階編集用）
   finalStoryFinal: 'final_story_final',  // ★ 追加：最終ストーリー 確定版（3段階編集用）
+  stage3_strategy_bridge: 'stage3_strategy_bridge',  // ★ 追加：STAGE3 戦略展開ブリッジ
   /* ★ TASK 15-B: STAGE2 フィールドを FIELD_MAP に追加（復元漏れ防止） */
   answers2: 'answers2',
   answers12: 'answers12',
@@ -554,6 +555,10 @@ function buildDbRowFromState(state: StrategyData) {
     if (snake === 'business_portfolio') v = toDbBusinessPortfolio(v);
     if (snake === 'swot_suggestions') {
       // swotSuggestions は object のまま保持
+      v = (typeof v === 'object' && !Array.isArray(v)) ? v : null;
+    }
+    if (snake === 'stage3_strategy_bridge') {
+      // stage3_strategy_bridge は object のまま保持
       v = (typeof v === 'object' && !Array.isArray(v)) ? v : null;
     }
     row[snake] = v;
