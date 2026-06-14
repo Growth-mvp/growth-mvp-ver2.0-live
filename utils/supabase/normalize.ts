@@ -948,6 +948,26 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     return Object.values(m).some((v) => v !== undefined) ? m : undefined;
   })();
 
+  // ★ STAGE3：戦略展開ブリッジ（stage3_strategy_bridge）の展開
+  // - STAGE2最終ストーリーからAI生成された、部門設計のための前提情報
+  // - トップレベルに保存される（swot_suggestionsのようなパック不要）
+  const stage3StrategyBridge = (() => {
+    const raw = (src as any).stage3_strategy_bridge;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+    const strArr = (v: any) =>
+      Array.isArray(v) && v.filter((x) => typeof x === 'string' && x.trim()).length > 0
+        ? v.filter((x: any) => typeof x === 'string' && x.trim())
+        : undefined;
+    const b = {
+      keyThemes: strArr(raw.keyThemes),
+      departmentIssues: strArr(raw.departmentIssues),
+      kpiCriteria: strArr(raw.kpiCriteria),
+      commonBehaviorChanges: strArr(raw.commonBehaviorChanges),
+      generatedAt: typeof raw.generatedAt === 'string' ? raw.generatedAt : undefined,
+    };
+    return Object.values(b).some((v) => v !== undefined) ? b : undefined;
+  })();
+
   const out: StrategyData = {
     id: src.id,
     user_id: src.user_id,
@@ -1029,6 +1049,7 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     ...(finalStoryFinal !== undefined ? { finalStoryFinal } : {}),
     ...(swotSuggestions !== undefined ? { swotSuggestions } : {}),  // ★ 修正：swotSuggestions を出力に含める
     ...(midtermStrategy !== undefined ? { midtermStrategy } : {}),  // ★ STAGE2 中計設計（パック格納から展開）
+    ...(stage3StrategyBridge !== undefined ? { stage3_strategy_bridge: stage3StrategyBridge } : {}),  // ★ STAGE3 戦略展開ブリッジ
 
     ...(csvFinanceData !== undefined ? { csvFinanceData } : {}),
     ...(financePL !== undefined ? { financePL } : {}),
