@@ -867,22 +867,31 @@ function PositiveOnlyBarCard({
   const delta = current !== null && target !== null ? target - current : null;
 
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-white/5 backdrop-blur-sm p-5">
+    <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-[0_10px_30px_-24px_rgba(15,23,42,0.55)] dark:border-zinc-700 dark:bg-zinc-900">
       {/* タイトル + 単位 */}
-      <div className="flex items-center justify-between mb-4">
-        <h5 className="text-sm font-semibold text-gray-800 dark:text-gray-200">{title}</h5>
-        <span className="text-xs text-gray-500 dark:text-gray-400">百万円</span>
+      <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
+        <div>
+          <h5 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{title}</h5>
+          <p className="mt-0.5 text-[11px] text-zinc-500">現状と目標の比較</p>
+        </div>
+        <span className="rounded-md bg-zinc-100 px-2 py-1 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">百万円</span>
       </div>
 
       {/* 棒グラフ（高さ h-48 = 192px で % が成立） */}
-      <div className="relative h-48 flex items-end justify-center gap-6 mb-4">
+      <div className="relative mx-5 mt-5 h-44 overflow-hidden rounded-xl border border-zinc-100 bg-zinc-50/70 dark:border-zinc-800 dark:bg-zinc-950/40">
+        <div className="pointer-events-none absolute inset-0 flex flex-col justify-between py-4">
+          {[0, 1, 2, 3].map((line) => (
+            <div key={line} className="border-t border-dashed border-zinc-200/80 dark:border-zinc-800" />
+          ))}
+        </div>
+        <div className="relative flex h-full items-end justify-center gap-12 px-8 pb-4 pt-8">
         {/* 現状 */}
-        <div className="flex flex-col items-center gap-2 h-full">
+        <div className="flex h-full w-20 flex-col items-center gap-2">
           <div className="flex-1 flex items-end justify-center">
             <div
-              className="bg-slate-600 dark:bg-slate-400 rounded-t transition-all shadow-md"
+              className="rounded-t-md bg-zinc-600 shadow-[0_8px_18px_-10px_rgba(39,39,42,0.9)] transition-all dark:bg-zinc-400"
               style={{
-                width: '22px',
+                width: '34px',
                 height: `${Math.max(currentHeightPct, 2)}%`,
               }}
             />
@@ -896,12 +905,12 @@ function PositiveOnlyBarCard({
         </div>
 
         {/* 目標 */}
-        <div className="flex flex-col items-center gap-2 h-full">
+        <div className="flex h-full w-20 flex-col items-center gap-2">
           <div className="flex-1 flex items-end justify-center">
             <div
-              className="bg-blue-500 dark:bg-blue-400 rounded-t transition-all shadow-md"
+              className="rounded-t-md bg-blue-600 shadow-[0_8px_18px_-10px_rgba(37,99,235,0.9)] transition-all dark:bg-blue-400"
               style={{
-                width: '22px',
+                width: '34px',
                 height: `${Math.max(targetHeightPct, 2)}%`,
               }}
             />
@@ -913,16 +922,19 @@ function PositiveOnlyBarCard({
           )}
           <div className="text-xs text-gray-500 dark:text-gray-500">目標</div>
         </div>
+        </div>
       </div>
 
       {/* 下段：差分・達成率 */}
-      <div className="border-t border-gray-200 dark:border-gray-700 pt-3 flex justify-between text-xs text-gray-600 dark:text-gray-400">
-        <span>
-          差分: {delta !== null ? formatMillion(delta) : '—'}
-        </span>
-        <span>
-          達成率: {achievementRate !== null ? formatPct(achievementRate) : '—'}
-        </span>
+      <div className="mt-5 grid grid-cols-2 border-t border-zinc-100 dark:border-zinc-800">
+        <div className="px-5 py-3">
+          <div className="text-[10px] font-medium text-zinc-400">目標までの差</div>
+          <div className="mt-0.5 text-sm font-bold text-zinc-800 dark:text-zinc-200">{delta !== null ? formatMillion(delta) : '—'}</div>
+        </div>
+        <div className="border-l border-zinc-100 px-5 py-3 dark:border-zinc-800">
+          <div className="text-[10px] font-medium text-zinc-400">達成率</div>
+          <div className="mt-0.5 text-sm font-bold text-blue-700 dark:text-blue-300">{achievementRate !== null ? formatPct(achievementRate) : '—'}</div>
+        </div>
       </div>
     </div>
   );
@@ -946,24 +958,39 @@ function DivergingBarCard({
   const achievementRate = target !== null && target > 0 ? safeRatio(current, target) : null;
   const delta = current !== null && target !== null ? target - current : null;
 
+  // Both values are positive in the usual case, so use the clearer baseline chart.
+  // The diverging layout below is reserved for data that actually crosses zero.
+  if ((current ?? 0) >= 0 && (target ?? 0) >= 0) {
+    return <PositiveOnlyBarCard title={title} current={current} target={target} />;
+  }
+
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-white/5 backdrop-blur-sm p-5">
+    <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-[0_10px_30px_-24px_rgba(15,23,42,0.55)] dark:border-zinc-700 dark:bg-zinc-900">
       {/* タイトル */}
-      <div className="flex items-center justify-between mb-4">
-        <h5 className="text-sm font-semibold text-gray-800 dark:text-gray-200">{title}</h5>
-        <span className="text-xs text-gray-500 dark:text-gray-400">百万円</span>
+      <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
+        <div>
+          <h5 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{title}</h5>
+          <p className="mt-0.5 text-[11px] text-zinc-500">現状と目標の比較</p>
+        </div>
+        <span className="rounded-md bg-zinc-100 px-2 py-1 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">百万円</span>
       </div>
 
       {/* 0ライン中心の棒グラフ */}
-      <div className="relative h-48 flex justify-center gap-8 mb-4">
+      <div className="relative mx-5 mt-5 h-44 overflow-hidden rounded-xl border border-zinc-100 bg-zinc-50/70 dark:border-zinc-800 dark:bg-zinc-950/40">
+        <div className="pointer-events-none absolute inset-0 flex flex-col justify-between py-4">
+          {[0, 1, 2, 3].map((line) => (
+            <div key={line} className="border-t border-dashed border-zinc-200/80 dark:border-zinc-800" />
+          ))}
+        </div>
+        <div className="relative flex h-full justify-center gap-12">
         {/* 0ライン */}
         <div
-          className="absolute left-0 right-0 h-px bg-gray-400 dark:bg-gray-600"
+          className="absolute left-4 right-4 z-10 h-px bg-zinc-400 dark:bg-zinc-600"
           style={{ top: '50%' }}
         />
 
         {/* 現状 */}
-        <div className="relative w-12 flex flex-col items-center">
+        <div className="relative w-20 flex flex-col items-center">
           {/* + 側（上側50%） */}
           {current !== null && current > 0 && (
             <div
@@ -971,13 +998,13 @@ function DivergingBarCard({
               style={{ height: '50%' }}
             >
               <div
-                className="bg-emerald-600 dark:bg-emerald-400 rounded-t transition-all shadow-md"
+                className="rounded-t-md bg-zinc-600 shadow-[0_8px_18px_-10px_rgba(39,39,42,0.9)] transition-all dark:bg-zinc-400"
                 style={{
-                  width: '22px',
+                  width: '34px',
                   height: `${Math.max(currentHeightPct, 2)}%`,
                 }}
               />
-              <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 mt-1 text-center whitespace-nowrap">
+              <div className="mt-1 whitespace-nowrap text-center text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                 {formatMillion(current)}
               </div>
             </div>
@@ -1008,7 +1035,7 @@ function DivergingBarCard({
         </div>
 
         {/* 目標 */}
-        <div className="relative w-12 flex flex-col items-center">
+        <div className="relative w-20 flex flex-col items-center">
           {/* + 側（上側50%） */}
           {target !== null && target > 0 && (
             <div
@@ -1016,13 +1043,13 @@ function DivergingBarCard({
               style={{ height: '50%' }}
             >
               <div
-                className="bg-blue-600 dark:bg-blue-400 rounded-t transition-all shadow-md"
+                className="rounded-t-md bg-blue-600 shadow-[0_8px_18px_-10px_rgba(37,99,235,0.9)] transition-all dark:bg-blue-400"
                 style={{
-                  width: '22px',
+                  width: '34px',
                   height: `${Math.max(targetHeightPct, 2)}%`,
                 }}
               />
-              <div className="text-xs font-semibold text-zinc-700 dark:text-blue-300 mt-1 text-center whitespace-nowrap">
+              <div className="mt-1 whitespace-nowrap text-center text-xs font-semibold text-blue-700 dark:text-blue-300">
                 {formatMillion(target)}
               </div>
             </div>
@@ -1051,16 +1078,19 @@ function DivergingBarCard({
             目標
           </div>
         </div>
+        </div>
       </div>
 
       {/* 下段：差分・達成率 */}
-      <div className="border-t border-gray-200 dark:border-gray-700 pt-3 flex justify-between text-xs text-gray-600 dark:text-gray-400">
-        <span>
-          差分: {delta !== null ? formatMillion(delta) : '—'}
-        </span>
-        <span>
-          達成率: {achievementRate !== null ? formatPct(achievementRate) : '—'}
-        </span>
+      <div className="mt-5 grid grid-cols-2 border-t border-zinc-100 dark:border-zinc-800">
+        <div className="px-5 py-3">
+          <div className="text-[10px] font-medium text-zinc-400">目標までの差</div>
+          <div className="mt-0.5 text-sm font-bold text-zinc-800 dark:text-zinc-200">{delta !== null ? formatMillion(delta) : '—'}</div>
+        </div>
+        <div className="border-l border-zinc-100 px-5 py-3 dark:border-zinc-800">
+          <div className="text-[10px] font-medium text-zinc-400">達成率</div>
+          <div className="mt-0.5 text-sm font-bold text-blue-700 dark:text-blue-300">{achievementRate !== null ? formatPct(achievementRate) : '—'}</div>
+        </div>
       </div>
     </div>
   );
@@ -1075,6 +1105,7 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
   operatingProfit,
   stage3StrategyBridge,
   onGenerateStrategyBridge,
+  onShowDepartmentDesign,
   isGenerating,
 }: {
   chapters: { title: string; body: string }[];
@@ -1082,6 +1113,7 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
   operatingProfit: { current: number | null; target: number | null };
   stage3StrategyBridge?: any;
   onGenerateStrategyBridge?: () => void;
+  onShowDepartmentDesign?: () => void;
   isGenerating?: boolean;
 }) {
   const [openChapterIndexes, setOpenChapterIndexes] = useState<number[]>([]);
@@ -1092,22 +1124,23 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
     );
   }, []);
 
-  const scrollToDepartmentDesign = useCallback(() => {
-    const target = document.getElementById('stage3-department-design');
-    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, []);
-
   const router = useRouter();
 
   return (
     <section className="mb-8">
       {stage3StrategyBridge || chapters.length ? (
         <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white/90 shadow-sm backdrop-blur-sm mb-8">
-          <div className="border-b border-zinc-100 px-6 py-5">
+          <div className="flex flex-col gap-3 border-b border-zinc-100 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
             <h3 className="text-xl font-bold tracking-tight text-zinc-950">
               まず、全社戦略の要点を確認する
             </h3>
-            
+            <button
+              type="button"
+              onClick={() => router.push('/stage2')}
+              className="inline-flex shrink-0 items-center justify-center self-start rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 sm:self-auto"
+            >
+              全社戦略を詳しく確認する
+            </button>
           </div>
 
           <div className="px-6 py-5">
@@ -1156,14 +1189,7 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
                     <div className="flex gap-2">
                       <button
                         type="button"
-                        onClick={() => router.push('/stage2')}
-                        className="inline-flex items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50"
-                      >
-                        全社戦略を詳しく確認する
-                      </button>
-                      <button
-                        type="button"
-                        onClick={scrollToDepartmentDesign}
+                        onClick={onShowDepartmentDesign}
                         className="inline-flex shrink-0 items-center justify-center rounded-full bg-zinc-950 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-zinc-800"
                       >
                         部門別設計へ進む
@@ -1172,43 +1198,29 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
                   </div>
                 </div>
 
-                <div className="pt-3 border-t border-zinc-200">
-                  <button
-                    type="button"
-                    onClick={onGenerateStrategyBridge}
-                    disabled={isGenerating}
-                    className="inline-flex items-center justify-center rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:opacity-50"
-                  >
-                    {isGenerating ? '生成中...' : '全社戦略サマリーを再生成'}
-                  </button>
-                  <p className="mt-1 text-xs text-zinc-500">
-                    STAGE2の最終ストーリーを更新した場合は、必要に応じて再生成してください。
-                  </p>
-                </div>
+                {/* ★ STAGE2で確定された全社戦略サマリーはここに表示されます */}
+                {chapters.length > 0 && stage3StrategyBridge?.generatedAt && (
+                  <div className="pt-3 border-t border-zinc-200">
+                    <p className="text-xs text-zinc-500">
+                      STAGE2から引き渡し済み：{new Date(stage3StrategyBridge.generatedAt).toLocaleString('ja-JP')}
+                    </p>
+                  </div>
+                )}
               </>
-            ) : chapters.length ? (
-              <div className="flex flex-col gap-4">
-                <div className="text-center py-8">
-                  <button
-                    type="button"
-                    onClick={onGenerateStrategyBridge}
-                    disabled={isGenerating}
-                    className="inline-flex items-center justify-center rounded-lg bg-zinc-950 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
-                  >
-                    {isGenerating ? '生成中...' : '全社戦略サマリーを生成'}
-                  </button>
-                </div>
-                <div className="flex gap-2 justify-center">
-                  <button
-                    type="button"
-                    onClick={() => router.push('/stage2')}
-                    className="inline-flex items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50"
-                  >
-                    STAGE2で全社戦略を確認・作成する
-                  </button>
-                </div>
+            ) : (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-6 text-center">
+                <p className="text-sm text-amber-800 mb-4">
+                  STAGE2で全社戦略を確定すると、ここに部門展開の要点が表示されます。
+                </p>
+                <button
+                  type="button"
+                  onClick={() => router.push('/stage2')}
+                  className="inline-flex items-center justify-center rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+                >
+                  STAGE2で全社戦略を確認する
+                </button>
               </div>
-            ) : null}
+            )}
           </div>
         </div>
       ) : null}
@@ -3426,6 +3438,7 @@ useEffect(() => {
         if (Array.isArray(cleanedRd.alignmentRiskPoints) && cleanedRd.alignmentRiskPoints.length > 0) {
           (patch as any).alignmentRiskPoints = cleanedRd.alignmentRiskPoints;
         }
+
         if (!jsonEq((cleanedRd as any).reviewSummary, (d as any).reviewSummary)) {
           (patch as any).reviewSummary = (cleanedRd as any).reviewSummary;
         }
@@ -3452,6 +3465,7 @@ useEffect(() => {
 
       /* ★ 診断：store 反映後の reviewSummary 確認 */
       const afterStoreReviewSummary = afterSetDepts?.find((x: any) => x.name === dept.name)?.reviewSummary;
+      const afterStoreDept = afterSetDepts?.find((x: any) => x.name === dept.name);
       console.log('[diag][stage3:reviewSummary:after-store]', {
         dept: dept.name,
         reviewSummary: afterStoreReviewSummary,
@@ -3769,6 +3783,17 @@ useEffect(() => {
             operatingProfit={kpiBridgeData.operatingProfit}
             stage3StrategyBridge={stage3_strategy_bridge}
             onGenerateStrategyBridge={handleGenerateStrategyBridge}
+            onShowDepartmentDesign={() => {
+              setActiveTab('edit');
+              window.requestAnimationFrame(() => {
+                window.requestAnimationFrame(() => {
+                  document.getElementById('stage3-department-design')?.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'start',
+                  });
+                });
+              });
+            }}
             isGenerating={isGeneratingBridge}
           />
         </section>
@@ -3802,7 +3827,7 @@ useEffect(() => {
       {activeTab === 'visual' ? (
         <section>{VisualView}</section>
       ) : (
-        <section className="space-y-6">
+        <section id="stage3-department-design" className="scroll-mt-6 space-y-6">
           {/* ★ TRACE POINT 16: render直前 - departments totalProjects */}
           {process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1' && (() => {
             const renderDepts = Array.isArray(departments) ? departments : [];
