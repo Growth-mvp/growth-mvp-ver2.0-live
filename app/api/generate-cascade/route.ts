@@ -3534,17 +3534,26 @@ ${okrSeed || '  - （なし）'}${factPackBlock}${uniquenessRule}
 - missionDescription: 2〜4文で、missionDraft の背景・理由・狙いを説明。部門の事業概要、主要顧客層、部門別財務（売上規模・利益率など）に必ず言及すること。
 
 【★事業・部門別戦略の観点（中計対応）】
+★★★以下の4つのフィールドは【必須】です。毎回必ず生成してください★★★
+
 各部門について、以下の観点を反映すること。観点と出力フィールドの対応：
-- 現在の位置づけ → currentPosition（1〜2文。★部門別財務/★部門別ポートフォリオ/★事業・部門情報を根拠にする）
-- 中計上の役割 → strategicRole（1〜2文。「中計で期待される役割」が入力されている場合は必ずそれと整合させる）
-- 主要課題 → keyIssues（2〜4個。「主な課題」が入力されている場合は取り込んだうえで、財務・ポートフォリオの観点から補強する）
+- 現在の位置づけ → currentPosition（1〜2文。★部門別財務/★部門別ポートフォリオ/★事業・部門情報を根拠にする。【必須】）
+  例：「成長市場での第2のコア事業として位置づけられ、売上は好調だが利益率改善が課題」
+
+- 中計上の役割 → strategicRole（1〜2文。「中計で期待される役割」が入力されている場合は必ずそれと整合させる。【必須】）
+  例：「全社成長の30%を担う重点事業として、市場浸透と隣接市場への拡大を並行して実行」
+
+- 主要課題 → keyIssues（2〜4個。「主な課題」が入力されている場合は取り込んだうえで、財務・ポートフォリオの観点から補強する。【必須】）
+  例：["人材育成のスピードが市場拡大に追いつかない", "既存顧客のロック・オフィス需要の減少への対策", "技術開発投資の最適化"]
+
+- 認識のズレが起きやすいポイント → alignmentRiskPoints（1〜3個。経営層の期待と現場の実態がズレやすい点を具体的に書く。【必須】）
+  例：["本部は短期売上拡大を期待するが、持続可能な成長には中長期の人材育成が不可欠", "既存事業の安定性と新規事業の試行錯誤のバランス"]
+
 - 戦略方向性 → missionDraft / missionDescription（既存ルールどおり）
 - 重点施策 → lanes の projects（既存ルールどおり）
 - KPI案 → 各プロジェクトの okrs（「既存KPI」が入力されている場合は、既存KPIとの関係（継続/置き換え/補完）が分かる指標設計にする）
 - 必要な連携 → intraDeptCollab / interDeptCollab（既存ルールどおり）
 - 実行リスク → riskNotes（既存ルールどおり）
-- 認識のズレが起きやすいポイント → alignmentRiskPoints（1〜3個。経営層の期待と現場の実態がズレやすい点を具体的に書く）
-- ★currentPosition / strategicRole / keyIssues / alignmentRiskPoints は任意フィールド。根拠となる入力情報が不足する場合はフィールドごと省略すること（創作・水増しは禁止。空文字や空配列も出力しない）
 
 【レーン定義】
 - 既存進化（Existing）：短期〜中期（今年〜3年）でPLに効く改善/強化（主にACQ/ARPU/CHURN/COST/EFFICIENCY）。2個のプロジェクト。
@@ -3864,16 +3873,17 @@ ${
       "stopList": ["やめる/諦める項目（KRには含めない）"],
       "first90Days": ["最初の90日でやること（週/マイルストン粒度）"],
       "riskNotes": ["主要リスクと対処の一言"],
-      "currentPosition": "この部門の現在の位置づけ（1〜2文・任意。根拠不足なら省略）",
-      "strategicRole": "中期経営計画におけるこの部門の役割（1〜2文・任意。根拠不足なら省略）",
-      "keyIssues": ["主要課題（2〜4個・任意。根拠不足なら省略）"],
-      "alignmentRiskPoints": ["経営と現場で認識のズレが起きやすいポイント（1〜3個・任意。根拠不足なら省略）"]
+      "currentPosition": "この部門の現在の位置づけ（1〜2文・【必須】）",
+      "strategicRole": "中期経営計画におけるこの部門の役割（1〜2文・【必須】）",
+      "keyIssues": ["主要課題（2〜4個・【必須】）"],
+      "alignmentRiskPoints": ["経営と現場で認識のズレが起きやすいポイント（1〜3個・【必須】）"]
     }
   ]
 }
 
 制約：
 - missionDraft と missionDescription は必ず両方を含めること（空・null 禁止）。
+- currentPosition、strategicRole、keyIssues、alignmentRiskPoints の4フィールドは【必須】。すべての部門について必ず生成し、返すこと。根拠不足を理由に省略することは禁止。
 - lanes.existing は必ず2個のプロジェクトを出す（OK: 2個、NG: 1個・3個以上）。
 - lanes.new は必ず1個のプロジェクトを出す（OK: 1個、NG: 0個・2個以上）。
 - lanes.intraCollab は、事業部内連携が有効な場合は必ず1個の連携型プロジェクトを出す。該当が薄い場合でも候補を1個出し、sourceType="intraCollab"、collaborationType="intraDept" を付ける。
@@ -4012,7 +4022,7 @@ ${
     if (!safe.success) {
       console.warn('generate-cascade: schema validation errors:', safe.error?.issues);
     }
-    const normalized = (safe.success ? safe.data : parsed) as z.infer<typeof ResponseSchema>;
+    let normalized = (safe.success ? safe.data : parsed) as z.infer<typeof ResponseSchema>;
 
     /* =========================
      * ★TASK 2-2: Citations Grounding Gate + 1回再生成
@@ -5713,6 +5723,199 @@ ${secondPassDeptBlock}
       })(),
     };
 
+    /* =========================
+     * ★ CRITICAL: 4つのフィールド（currentPosition/strategicRole/keyIssues/alignmentRiskPoints）チェック＋専用再生成
+     * fallback 処理後、最終バリデーション前に実施
+     * ======================= */
+    {
+      const checkMissingFields = (depts: any[]): { deptIndex: number; deptName: string; missing: string[] }[] => {
+        return depts
+          .map((dept: any, index: number) => {
+            const missing: string[] = [];
+            if (!dept.currentPosition || typeof dept.currentPosition !== 'string' || !dept.currentPosition.trim()) {
+              missing.push('currentPosition');
+            }
+            if (!dept.strategicRole || typeof dept.strategicRole !== 'string' || !dept.strategicRole.trim()) {
+              missing.push('strategicRole');
+            }
+            if (!Array.isArray(dept.keyIssues) || dept.keyIssues.length === 0) {
+              missing.push('keyIssues');
+            }
+            if (!Array.isArray(dept.alignmentRiskPoints) || dept.alignmentRiskPoints.length === 0) {
+              missing.push('alignmentRiskPoints');
+            }
+            return { deptIndex: index, deptName: dept.name, missing };
+          })
+          .filter((item: any) => item.missing.length > 0);
+      };
+
+      const missingFields = checkMissingFields(result.departments);
+
+      if (missingFields.length > 0) {
+        // ★ 専用生成：不足部門だけを対象に、JSON Schema で4項目を必須にして生成
+        for (const missing of missingFields) {
+          const dept = result.departments[missing.deptIndex];
+          if (!dept) continue;
+
+          const deptName = dept.name;
+
+          // 部門データ準備
+          const deptInfo: string[] = [];
+          deptInfo.push(`部門名: ${deptName}`);
+          if (dept.missionDraft) deptInfo.push(`ミッション: ${dept.missionDraft}`);
+          if (dept.missionDescription) deptInfo.push(`ミッション説明: ${dept.missionDescription}`);
+
+          const deptInput = deptInputByName?.get(deptName);
+          if (deptInput) {
+            if (deptInput.direction) deptInfo.push(`方向性（STAGE1）: ${deptInput.direction}`);
+            if (deptInput.expectations && Array.isArray(deptInput.expectations)) {
+              deptInfo.push(`期待（STAGE1）: ${deptInput.expectations.join(', ')}`);
+            }
+          }
+
+          // プロジェクト情報
+          const projList: string[] = [];
+          if (Array.isArray(dept.lanes?.existing?.projects)) {
+            dept.lanes.existing.projects.slice(0, 2).forEach((p: any) => {
+              projList.push(`既存進化: ${p.title || '（未命名）'}`);
+            });
+          }
+          if (Array.isArray(dept.lanes?.new?.projects)) {
+            dept.lanes.new.projects.slice(0, 1).forEach((p: any) => {
+              projList.push(`新規探索: ${p.title || '（未命名）'}`);
+            });
+          }
+          if (projList.length > 0) deptInfo.push(`プロジェクト: ${projList.join('; ')}`);
+
+          // 専用プロンプト
+          const specialPrompt = `【部門別戦略の観点を生成】
+
+対象部門: ${deptName}
+
+【部門情報】
+${deptInfo.join('\n')}
+
+【全社戦略（STAGE2）】
+${sanitizeText(finalStoryText || '（未設定）', 500)}
+
+【要件】
+以下の4つをすべて必須で生成してください：
+
+1. currentPosition（現在の位置づけ）
+   - 1〜2文
+   - STAGE1情報と全社戦略からみた、この部門の現状
+
+2. strategicRole（中計上の役割）
+   - 1〜2文
+   - 全社戦略の実現に向けた、この部門の役割
+
+3. keyIssues（主要課題）
+   - 配列（2〜4個）
+   - その役割を果たすために解決すべき課題
+
+4. alignmentRiskPoints（認識のズレが起きやすいポイント）
+   - 配列（1〜3個）
+   - 経営層と現場で見方が異なる論点`;
+
+          try {
+            // JSON Schema による構造化出力
+            const model = process.env.OPENAI_MODEL ?? 'gpt-4o';
+            const responseFormat = {
+              type: 'json_schema',
+              json_schema: {
+                name: 'strategy_overview',
+                strict: true,
+                schema: {
+                  type: 'object',
+                  properties: {
+                    currentPosition: {
+                      type: 'string',
+                      description: '現在の位置づけ（1〜2文）',
+                    },
+                    strategicRole: {
+                      type: 'string',
+                      description: '中計上の役割（1〜2文）',
+                    },
+                    keyIssues: {
+                      type: 'array',
+                      items: { type: 'string' },
+                      description: '主要課題（2〜4個）',
+                      minItems: 1,
+                    },
+                    alignmentRiskPoints: {
+                      type: 'array',
+                      items: { type: 'string' },
+                      description: '認識のズレが起きやすいポイント（1〜3個）',
+                      minItems: 1,
+                    },
+                  },
+                  required: ['currentPosition', 'strategicRole', 'keyIssues', 'alignmentRiskPoints'],
+                  additionalProperties: false,
+                },
+              },
+            };
+
+            const specialCompletion = await (openai.chat.completions as any).create({
+              model,
+              response_format: responseFormat as any,
+              temperature: 0.3,
+              max_tokens: 800,
+              messages: [
+                { role: 'system', content: 'JSON形式で、指定された4つのフィールドすべてを返す。説明は不要。' },
+                { role: 'user', content: specialPrompt },
+              ],
+            });
+
+            const message = specialCompletion.choices?.[0]?.message;
+
+            // ★ message.parsed が undefined の場合、message.content を JSON.parse する
+            let specialResult: any = (message as any)?.parsed;
+
+            if (!specialResult && typeof (message as any)?.content === 'string') {
+              const content = ((message as any).content as string).trim();
+              if (content) {
+                try {
+                  specialResult = JSON.parse(content);
+                } catch (_parseError) {
+                  // JSON 解析失敗時は specialResult は undefined のまま
+                }
+              }
+            }
+
+            if (
+              specialResult &&
+              specialResult.currentPosition &&
+              typeof specialResult.currentPosition === 'string' &&
+              specialResult.strategicRole &&
+              typeof specialResult.strategicRole === 'string' &&
+              Array.isArray(specialResult.keyIssues) &&
+              specialResult.keyIssues.length > 0 &&
+              Array.isArray(specialResult.alignmentRiskPoints) &&
+              specialResult.alignmentRiskPoints.length > 0
+            ) {
+              // 4項目を既存部門データへ明示的にマージ
+              result.departments[missing.deptIndex] = {
+                ...result.departments[missing.deptIndex],
+                currentPosition: specialResult.currentPosition.trim(),
+                strategicRole: specialResult.strategicRole.trim(),
+                keyIssues: specialResult.keyIssues
+                  .filter((item: any): item is string => typeof item === 'string')
+                  .map((item: string) => item.trim())
+                  .filter(Boolean),
+                alignmentRiskPoints: specialResult.alignmentRiskPoints
+                  .filter((item: any): item is string => typeof item === 'string')
+                  .map((item: string) => item.trim())
+                  .filter(Boolean),
+              };
+            }
+          } catch (_err: any) {
+            // 専用生成失敗時も続行（バリデーションで後で引っかかる）
+          }
+        }
+
+      }
+    }
+
     // ★ 調査ログ②：返却直前の missionDescription 確認（フォールバック処理後）
     {
       if (Array.isArray(result?.departments)) {
@@ -5982,6 +6185,39 @@ ${secondPassDeptBlock}
           }
         }
       }
+    }
+
+    // ★ CRITICAL: 返却前に4つのフィールド（currentPosition/strategicRole/keyIssues/alignmentRiskPoints）の完全性をチェック
+    // これらは全部門について【必須】であり、不足している場合はエラーを返す
+    const missingFieldsPerDept = result.departments.map((dept: any) => {
+      const missing: string[] = [];
+
+      if (!dept.currentPosition || typeof dept.currentPosition !== 'string' || !dept.currentPosition.trim()) {
+        missing.push('currentPosition');
+      }
+      if (!dept.strategicRole || typeof dept.strategicRole !== 'string' || !dept.strategicRole.trim()) {
+        missing.push('strategicRole');
+      }
+      if (!Array.isArray(dept.keyIssues) || dept.keyIssues.length === 0) {
+        missing.push('keyIssues');
+      }
+      if (!Array.isArray(dept.alignmentRiskPoints) || dept.alignmentRiskPoints.length === 0) {
+        missing.push('alignmentRiskPoints');
+      }
+
+      return { deptName: dept.name, missing };
+    }).filter((item: any) => item.missing.length > 0);
+
+    if (missingFieldsPerDept.length > 0) {
+      return new NextResponse(
+        JSON.stringify({
+          error: '事業・部門別戦略の要点を生成できませんでした。もう一度お試しください。',
+        }),
+        {
+          status: 400,
+          headers: { 'content-type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+        }
+      );
     }
 
     return new NextResponse(JSON.stringify(result), {
