@@ -425,6 +425,16 @@ function normalizeDepartment(d: AnyDepartment, strategyId?: string): Department 
   // ★ segmentName 正規化
   const segmentName = typeof obj.segmentName === 'string' ? obj.segmentName : undefined;
 
+  // ★ 事業・部門別戦略の観点（4フィールド）を正規化
+  const currentPosition = typeof obj.currentPosition === 'string' && obj.currentPosition.trim() ? obj.currentPosition.trim() : undefined;
+  const strategicRole = typeof obj.strategicRole === 'string' && obj.strategicRole.trim() ? obj.strategicRole.trim() : undefined;
+  const keyIssues = Array.isArray(obj.keyIssues) && obj.keyIssues.length > 0
+    ? obj.keyIssues.filter((v: any) => typeof v === 'string' && v.trim()).map((v: any) => v.trim())
+    : undefined;
+  const alignmentRiskPoints = Array.isArray(obj.alignmentRiskPoints) && obj.alignmentRiskPoints.length > 0
+    ? obj.alignmentRiskPoints.filter((v: any) => typeof v === 'string' && v.trim()).map((v: any) => v.trim())
+    : undefined;
+
   base.id = deptId;
   base.name = name;
   base.mission = mission ?? '';  // ★ FIXED: mission を常に保持
@@ -438,6 +448,12 @@ function normalizeDepartment(d: AnyDepartment, strategyId?: string): Department 
   if (answers2 && answers2.length) base.answers2 = answers2;
   if (lanes && (lanes.existing || lanes.new)) base.lanes = lanes;
   if (segmentName !== undefined) base.segmentName = segmentName;
+
+  // ★ 事業・部門別戦略の観点4フィールドを保持
+  if (currentPosition !== undefined) base.currentPosition = currentPosition;
+  if (strategicRole !== undefined) base.strategicRole = strategicRole;
+  if (keyIssues !== undefined) base.keyIssues = keyIssues;
+  if (alignmentRiskPoints !== undefined) base.alignmentRiskPoints = alignmentRiskPoints;
 
   // ★ CRITICAL GUARD（根本原因対策）: normalize でも projects 保護
   // 【背景】
