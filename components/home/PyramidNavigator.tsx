@@ -52,7 +52,7 @@ const Y_L_MID = (Y_DIV1 + Y_DIV2) / 2 + TRI.label.midYOffset;
 const Y_L_BOT = (Y_DIV2 + TRI.right.y) / 2 + TRI.label.botYOffset;
 
 const btnClass =
-  'flex h-10 w-[200px] items-center justify-center rounded-lg border border-neutral-300 bg-white px-2 shadow-sm transition-colors hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-2';
+  'flex h-[40px] w-[190px] items-center justify-start rounded-xl border border-neutral-300 bg-white px-4 shadow-sm transition-colors hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-2';
 
 const desktopButtons = [
   { href: '/stage1', label: 'STAGE1：企業価値分析', title: '企業価値分析' },
@@ -60,7 +60,6 @@ const desktopButtons = [
   { href: '/cascade', label: 'STAGE3：事業・部門別戦略', title: '事業・部門別戦略' },
   { href: '/okr', label: 'STAGE4：実行計画策定', title: '実行計画策定' },
 ];
-
 
 const stageGuide = [
   {
@@ -92,18 +91,17 @@ const stageGuide = [
 export default function PyramidNavigator() {
   return (
     <div className="relative mx-auto w-full max-w-6xl">
-      {/* desktop : 2カラム構成（ピラミッド左 + ボタン右） */}
       <div className="hidden lg:block">
-        <div className="grid grid-cols-[1.08fr_0.92fr] gap-6 min-h-[600px]">
-          {/* ピラミッド左側 */}
-          <div className="flex items-center justify-center">
-            <div className="relative h-[680px] w-full max-w-[800px]">
-              <svg
-                viewBox={`0 0 ${VBW} ${VBH}`}
-                className="h-full w-full"
-                preserveAspectRatio="xMidYMid meet"
-                aria-hidden="true"
-              >
+        <div className="relative min-h-[430px]">
+          <div className="absolute left-0 top-0 h-[430px] w-[88%]">
+            <div className="flex h-full items-start justify-center">
+              <div className="relative h-[470px] w-full max-w-[860px]">
+                <svg
+                  viewBox={`0 0 ${VBW} ${VBH}`}
+                  className="absolute inset-0 h-full w-full"
+                  preserveAspectRatio="xMidYMid meet"
+                  aria-hidden="true"
+                >
                   <polygon
                     points={[
                       `${TRI.apex.x},${TRI.apex.y}`,
@@ -191,12 +189,12 @@ export default function PyramidNavigator() {
                 </svg>
               </div>
             </div>
+          </div>
 
-          {/* ボタン右側 */}
-          <div className="flex flex-col items-center justify-center gap-4">
+          <div className="absolute left-[60%] top-1/2 flex -translate-y-1/2 flex-col gap-5">
             {desktopButtons.map((item) => (
               <Link key={item.href} href={item.href} prefetch className={btnClass} title={item.title}>
-                <span className="block text-center text-[11px] font-semibold leading-tight text-neutral-900 whitespace-nowrap">
+                <span className="block w-full whitespace-nowrap text-left text-[12px] font-semibold leading-none text-neutral-900">
                   {item.label}
                 </span>
               </Link>
@@ -204,7 +202,7 @@ export default function PyramidNavigator() {
           </div>
         </div>
 
-        <div className="mt-6 rounded-2xl border border-neutral-200 bg-neutral-50/70 p-5">
+        <div className="mt-2 rounded-2xl border border-neutral-200 bg-neutral-50/70 p-5">
           <div className="text-[12px] font-semibold tracking-[0.12em] text-neutral-500">GUIDE</div>
           <div className="mt-1 text-sm font-semibold text-neutral-900">戦略策定の流れ</div>
           <div className="mt-4 space-y-3">
@@ -227,15 +225,14 @@ export default function PyramidNavigator() {
         </div>
       </div>
 
-      {/* tablet / mobile */}
       <div className="mt-4 space-y-3 lg:hidden">
-        {desktopButtons.map((b) => (
+        {desktopButtons.map((item) => (
           <Link
-            key={b.href}
-            href={b.href}
+            key={item.href}
+            href={item.href}
             className="flex items-center justify-between rounded-2xl border border-neutral-300 bg-white px-5 py-3 shadow-sm transition-colors hover:bg-neutral-100"
           >
-            <span className="text-base font-semibold text-neutral-900">{b.label}</span>
+            <span className="text-base font-semibold text-neutral-900">{item.label}</span>
             <span className="text-neutral-400">→</span>
           </Link>
         ))}
