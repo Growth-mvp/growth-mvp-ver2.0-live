@@ -1805,6 +1805,13 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   // ★ 最終ストーリーの表示モード：デフォルトは経営層向けドキュメント表示。編集はトグルで切替
   const [storyEditMode, setStoryEditMode] = useState(false);
 
+  // ★ STAGE2確定＆STAGE3引き渡し状態
+  const [committingFinalStory, setCommittingFinalStory] = useState(false);
+  const [committingStatus, setCommittingStatus] = useState<string | null>(null);
+  const [commitFinalStoryError, setCommitFinalStoryError] = useState<string | null>(null);
+  const [commitStage3Failed, setCommitStage3Failed] = useState(false);
+  const [commitSuccessful, setCommitSuccessful] = useState(false);
+
   // ★ TASK A: 現状→目標 KPI ブリッジデータを計算（安全な単位推定＆多段フォールバック）
   const kpiBridgeData = useMemo(() => {
     const DEBUG = true; // Phase 0: Force debug to detect unit mixing
@@ -3137,6 +3144,135 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
     setFinalStoryDraft,
   ]);
 
+  /* ★ STAGE2確定＆STAGE3引き渡し処理 */
+  const handleCommitAndBridge = useCallback(async () => {
+    if (committingFinalStory || !editingStory.length) return;
+
+    setCommittingFinalStory(true);
+    setCommittingStatus('全社戦略を保存しています...');
+    setCommitFinalStoryError(null);
+    setCommitStage3Failed(false);
+    setCommitSuccessful(false);
+
+    try {
+      // Step 1: STAGE2の最終ストーリーを確定保存
+      console.log('[Stage2][commit] Starting commit and bridge process', {
+        editingStoryLen: editingStory.length,
+      });
+
+      setFinalStoryEdited(editingStory);
+
+      // DB保存
+      await new Promise<void>((resolve) => {
+        setTimeout(async () => {
+          try {
+            const storeState = useStrategyStore.getState() as any;
+            const savePayload = {
+              ...storeState,
+              finalStoryFinal: editingStory,
+            };
+
+            const saveResult = await saveWithAudit(
+              savePayload,
+              userId ?? undefined,
+              companyId ?? undefined,
+              undefined,
+              {},
+              'stage2:commitFinalStory'
+            );
+
+            if (saveResult.error !== null) {
+              throw new Error(`DB save failed: ${(saveResult.error as any)?.message || 'unknown error'}`);
+            }
+
+            console.log('[Stage2][commit] DB save SUCCESS');
+            if (saveResult.data?.revision !== undefined) {
+              useStrategyStore.getState().setRevision(saveResult.data.revision);
+            }
+
+            // Step 2: commitFinalStory を実行
+            commitFinalStory();
+            setStoryViewMode('final');
+
+            resolve();
+          } catch (err: any) {
+            console.error('[Stage2][commit] DB save error:', err);
+            throw err;
+          }
+        }, 100);
+      });
+
+      // Step 3: STAGE3へ引き渡し（戦略展開ブリッジ生成）
+      setCommittingStatus('STAGE3へ引き渡しています...');
+
+      try {
+        const bridgeResult = await authFetchJson('/api/stage3/generate-strategy-bridge', {
+          method: 'POST',
+          json: {
+            finalStoryFinal: editingStory,
+            companyId,
+          },
+        });
+
+        console.log('[Stage2][bridge] SUCCESS', bridgeResult);
+      } catch (bridgeErr: any) {
+        console.error('[Stage2][bridge] API call failed', bridgeErr?.message);
+        setCommitStage3Failed(true);
+        setCommitFinalStoryError(
+          `STAGE3への引き渡しに失敗しました: ${bridgeErr?.message || 'unknown error'}`
+        );
+        setCommittingStatus(null);
+        return;
+      }
+
+      // Step 4: 成功
+      setCommitSuccessful(true);
+      setCommittingStatus(null);
+      setCommittingFinalStory(false);
+    } catch (err: any) {
+      console.error('[Stage2][commit] Error:', err);
+      setCommitFinalStoryError(err?.message || '処理に失敗しました');
+      setCommittingStatus(null);
+      setCommittingFinalStory(false);
+    }
+  }, [committingFinalStory, editingStory, companyId, setFinalStoryEdited, commitFinalStory]);
+
+  /* ★ STAGE3引き渡し再実行処理 */
+  const handleRetryStage3Bridge = useCallback(async () => {
+    if (committingFinalStory) return;
+
+    setCommittingFinalStory(true);
+    setCommittingStatus('STAGE3への引き渡しを再実行しています...');
+    setCommitFinalStoryError(null);
+
+    try {
+      // finalStoryFinalから最新の確定版を取得
+      const latestFinalStory = finalStoryFinalRaw || editingStory;
+      if (!latestFinalStory.length) {
+        throw new Error('確定版ストーリーが見つかりません');
+      }
+
+      const bridgeResult = await authFetchJson('/api/stage3/generate-strategy-bridge', {
+        method: 'POST',
+        json: {
+          finalStoryFinal: latestFinalStory,
+          companyId,
+        },
+      });
+
+      console.log('[Stage2][bridge-retry] SUCCESS', bridgeResult);
+      setCommitStage3Failed(false);
+      setCommitSuccessful(true);
+      setCommittingStatus(null);
+    } catch (err: any) {
+      console.error('[Stage2][bridge-retry] Error:', err);
+      setCommitFinalStoryError(err?.message || 'STAGE3への引き渡しに失敗しました');
+      setCommittingStatus(null);
+    } finally {
+      setCommittingFinalStory(false);
+    }
+  }, [committingFinalStory, finalStoryFinalRaw, editingStory, companyId]);
+
   // Guard
   if (!loading && issueBlocks.length === 0) {
     return (
@@ -3493,70 +3629,55 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                         </button>
                         )}
 
-                        {/* 確定（Final） */}
+                        {/* 確定＆STAGE3引き渡し */}
                         <div className="flex flex-col gap-2">
-                          <p className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 px-3 py-2 rounded">
-                            ℹ️ この内容を最終ストーリーとして確定すると、リロード後も保存されます
+                          <p className="text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/30 px-3 py-2 rounded">
+                            この内容を全社戦略として確定し、事業・部門別戦略の設計に引き渡します。
                           </p>
+                          {/* 処理ステータスメッセージ */}
+                          {committingFinalStory && (
+                            <div className="text-sm text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 px-3 py-2 rounded">
+                              {committingStatus || '全社戦略を確定・引き渡し中...'}
+                            </div>
+                          )}
+                          {commitFinalStoryError && (
+                            <div className="text-sm text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/30 px-3 py-2 rounded">
+                              {commitFinalStoryError}
+                              {commitStage3Failed && (
+                                <>
+                                  <p className="mt-2 text-xs">全社戦略は確定・保存されましたが、STAGE3への引き渡しに失敗しました。</p>
+                                  <button
+                                    type="button"
+                                    onClick={handleRetryStage3Bridge}
+                                    className="mt-2 px-3 py-1 rounded text-xs bg-red-700 text-white hover:bg-red-800 transition-colors"
+                                  >
+                                    STAGE3への引き渡しを再実行
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
+                          {commitSuccessful && (
+                            <div className="text-sm text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/30 px-3 py-2 rounded">
+                              ✓ 全社戦略を確定し、STAGE3へ引き渡しました。
+                              <div className="mt-3 flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => router.push('/cascade')}
+                                  className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors"
+                                >
+                                  STAGE3で部門別設計へ進む
+                                </button>
+                              </div>
+                            </div>
+                          )}
                           <button
-                            disabled={disabled}
-                            onClick={() => {
-                              if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
-                                console.log('[diag][button][commit]', {
-                                  editingStoryLen: editingStory.length,
-                                  beforeDraftLen: finalStoryDraftRaw?.length ?? 0,
-                                  beforeEditedLen: finalStoryEditedRaw?.length ?? 0,
-                                  beforeFinalLen: finalStoryFinalRaw?.length ?? 0,
-                                  action: 'setFinalStoryEdited + commitFinalStory + DB save',
-                                });
-                              }
-                              setFinalStoryEdited(editingStory);
-                              setTimeout(() => {
-                                commitFinalStory();
-                                setStoryViewMode('final');
-
-                              // ★ CRITICAL: 確定時に finalStoryFinal を DB に保存（リロード後も確定版が復元されるため）
-                              (async () => {
-                                try {
-                                  console.log('[Stage2][commit] DB save start for finalStoryFinal');
-                                  const storeState = useStrategyStore.getState() as any;
-                                  const savePayload = {
-                                    ...storeState,
-                                    finalStoryFinal: editingStory, // 確定版として保存
-                                  };
-
-                                  const saveResult = await saveWithAudit(
-                                    savePayload,
-                                    undefined,
-                                    companyId ?? undefined,
-                                    undefined,
-                                    {},
-                                    'stage2:commitFinalStory'
-                                  );
-
-                                  if (saveResult.error === null) {
-                                    console.log('[Stage2][commit] ✅ DB save SUCCESS - finalStoryFinal saved', {
-                                      finalStoryFinalLen: Array.isArray(editingStory) ? editingStory.length : 0,
-                                      revision: saveResult.data?.revision,
-                                    });
-                                    if (saveResult.data?.revision !== undefined) {
-                                      useStrategyStore.getState().setRevision(saveResult.data.revision);
-                                    }
-                                  } else {
-                                    console.warn('[Stage2][commit] ⚠️ DB save FAILED', {
-                                      error: (saveResult.error as any)?.message || saveResult.error,
-                                    });
-                                  }
-                                } catch (saveErr) {
-                                  console.error('[Stage2][commit] 🚨 DB save error:', saveErr);
-                                }
-                              })();
-                            }, 100);
-                          }}
-                          className="px-6 py-3 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors shadow-md disabled:opacity-50"
-                        >
-                          確定
-                        </button>
+                            disabled={disabled || committingFinalStory || commitSuccessful}
+                            onClick={handleCommitAndBridge}
+                            className="px-6 py-3 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {committingFinalStory ? committingStatus || '処理中...' : commitSuccessful ? '完了' : '全社戦略を確定し、STAGE3へ引き渡す'}
+                          </button>
                         </div>
 
                         {/* 破棄（編集を戻す）：編集モード時のみ */}
