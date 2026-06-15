@@ -202,10 +202,10 @@ export default function Sidebar() {
 
             {/* ★STEP9: 出力・レポート */}
             <PillLink
-              href="/report/midterm-plan"
+              href="/report"
               icon={<FileText size={18} strokeWidth={1.5} />}
-              label="中計戦略書"
-              active={isActive('/report/midterm-plan')}
+              label="レポート"
+              active={pathname === '/report'}
             />
 
             <div className="h-px bg-gray-200/50 my-4" />

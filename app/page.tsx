@@ -73,10 +73,10 @@ export default function Home() {
                 さっそく始める
               </Link>
               <Link
-                href="/report/preview"
+                href="/report"
                 className="inline-flex items-center justify-center rounded-full border-2 border-neutral-950 px-6 py-2 text-[14px] font-semibold text-neutral-950 transition hover:-translate-y-0.5 hover:bg-neutral-50 dark:border-white dark:text-white dark:hover:bg-neutral-950"
               >
-                レポートを見る
+                レポート
               </Link>
             </motion.div>
           </div>
