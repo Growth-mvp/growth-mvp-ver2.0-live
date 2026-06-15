@@ -377,10 +377,10 @@ export default function OrgTransformationPage() {
 
           <div className="mt-6 max-w-5xl space-y-4 text-base leading-8 text-slate-700 md:text-lg">
             <p>
-              社内の不満や違和感には、人と人との関係性だけでなく、その背後に、方針、仕組み、優先順位、役割責任、評価、意思決定への不納得感があります。
-              <br /> GROWTH SHIFTは、それを人や組織の対立ではなく、経営、部門、現場、それぞれの立場で生じる<span className="font-semibold text-slate-950">
+              社内の不満や違和感の背景には、単なる人同士の関係性だけでなく、方針、仕組み、優先順位、役割責任、評価、意思決定への不納得感があります。
+              <br /> GROWTH SHIFTは、それを人や組織の対立構造ではなく、経営、部門、現場、それぞれの立場による見え方や、言葉の定義などの<span className="font-semibold text-slate-950">
                 「認識のズレ」
-              </span>{" "}として捉え、構造的に整理します。<br />
+              </span>{" "}の構造として可視化し、整理します。<br />
               <br /> 
               そして、そのズレをSTAGE1〜3の会社の方向性と照らし合わせることで、「今、会社にとって本当に話し合うべきポイントは何か」を明確にします。
               <br />誰かを責めるのではなく、現場の違和感を組織の課題解決につなげ、会社全体の判断基準と行動を変えていくためのルームです。
