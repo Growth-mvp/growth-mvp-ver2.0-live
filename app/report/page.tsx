@@ -1,7 +1,6 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useCompany } from '@/context/CompanyContext';
 import { FileText, TrendingUp, BookOpen } from 'lucide-react';
 
 interface ReportItem {
@@ -14,15 +13,6 @@ interface ReportItem {
 
 export default function ReportPage() {
   const router = useRouter();
-  const { selectedCompany } = useCompany();
-
-  if (!selectedCompany) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <p className="text-neutral-500">企業を選択してください</p>
-      </div>
-    );
-  }
 
   const reports: ReportItem[] = [
     {
