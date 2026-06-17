@@ -4,6 +4,8 @@
 import { useState, useEffect } from 'react';
 import AdminGuard from '@/app/admin/AdminGuard';
 import { safeGetSession } from '@/utils/supabase/client';
+import { useUserStore } from '@/store/userStore';
+import UnhandledAlignmentRequestsSection from '@/components/org-alignment/UnhandledAlignmentRequestsSection';
 import type { OrgAlignmentInsightRow, OrgInsightNextAction } from '@/types/org-alignment';
 import {
   BarChart,
@@ -26,6 +28,9 @@ import {
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
 
 export default function OrgAlignmentAdminInsightsPage() {
+  const userStore = useUserStore();
+  const companyId = userStore.companyId;
+
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [insight, setInsight] = useState<OrgAlignmentInsightRow | null>(null);
@@ -389,6 +394,11 @@ export default function OrgAlignmentAdminInsightsPage() {
             <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
               {error}
             </div>
+          )}
+
+          {/* ===== 未対応のすり合わせ依頼セクション ===== */}
+          {companyId && (
+            <UnhandledAlignmentRequestsSection companyId={companyId} />
           )}
 
           {/* ===== 再集計ボタン ===== */}
