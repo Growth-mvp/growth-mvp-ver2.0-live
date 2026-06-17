@@ -279,10 +279,16 @@ export default function OrgTransformationPage() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(
+        console.error('[request-alignment] API error:', {
+          status: response.status,
+          errorData,
+          caseId: savedCaseId,
+        });
+        const errorMessage =
+          errorData.detail ||
           errorData.error ||
-            `API error: ${response.status} ${response.statusText}`,
-        );
+          `API error: ${response.status} ${response.statusText}`;
+        throw new Error(errorMessage);
       }
 
       setRequestDone(true);
