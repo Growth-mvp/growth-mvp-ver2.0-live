@@ -97,9 +97,15 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       .single();
 
     if (updateError) {
-      console.error('[admin/requests/[id]] Failed to update request:', updateError);
+      console.error('[admin/requests/[id]] Failed to update request:', {
+        updateError: updateError?.message,
+        updateErrorCode: updateError?.code,
+        updateErrorDetails: updateError?.details,
+        requestId,
+        status,
+      });
       return NextResponse.json(
-        { error: 'failed_to_update_request' },
+        { error: 'failed_to_update_request', detail: updateError?.message },
         { status: 500 }
       );
     }
@@ -107,7 +113,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     console.log('[admin/requests/[id]] Request updated:', {
       requestId,
       status,
-      handledBy: user.id,
+      handledBy: userId,
     });
 
     return NextResponse.json(
@@ -118,9 +124,14 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       { status: 200 }
     );
   } catch (err: any) {
-    console.error('[admin/requests/[id]] Exception:', err);
+    console.error('[admin/requests/[id]] Exception:', {
+      message: err?.message,
+      code: err?.code,
+      details: err?.details,
+      stack: err?.stack,
+    });
     return NextResponse.json(
-      { error: 'internal_server_error' },
+      { error: 'internal_server_error', detail: err?.message },
       { status: 500 }
     );
   }
