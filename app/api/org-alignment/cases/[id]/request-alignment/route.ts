@@ -41,7 +41,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
       visibilityMode,
     });
 
-    // ケースを取得（自社のみ）
+    // ケースを取得
     const { data: caseData, error: caseError } = await admin
       .from('org_alignment_cases')
       .select('id, company_id')
@@ -54,20 +54,36 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     const companyId = (caseData as any).company_id;
+    console.log('[request-alignment] case found:', {
+      caseId,
+      caseCompanyId: companyId,
+      userId,
+    });
 
     // ユーザーがこの会社のメンバーか確認
+    console.log('[request-alignment] membership query:', {
+      companyId,
+      userId,
+    });
+
     const { data: membership, error: memberError } = await admin
       .from('company_members')
-      .select('id')
+      .select('id, company_id, user_id, role')
       .eq('company_id', companyId)
-      .eq('user_id', userId)
-      .single();
+      .eq('user_id', userId);
 
-    if (memberError || !membership) {
+    console.log('[request-alignment] membership result:', {
+      memberError,
+      membership,
+      count: membership ? membership.length : 0,
+    });
+
+    if (memberError || !membership || membership.length === 0) {
       console.error('[request-alignment] Not a member:', {
         userId,
         companyId,
         memberError,
+        membership,
       });
       return NextResponse.json({ error: 'not_a_member' }, { status: 403 });
     }
