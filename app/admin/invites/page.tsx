@@ -25,9 +25,9 @@ export default function AdminInvitesPage() {
     if (!inviteLink) return;
     try {
       await navigator.clipboard.writeText(inviteLink);
-      setNote('📋 招待リンクをコピーしました。');
+      setNote('✅ リンクをコピーしました。');
     } catch {
-      setNote('コピーに失敗しました。リンクを手動で選択してください。');
+      setNote('❌ コピーに失敗しました。リンクを手動で選択してください。');
     }
   }, [inviteLink]);
 
@@ -99,12 +99,13 @@ export default function AdminInvitesPage() {
       if (j.ok) {
         // メール送信成功または招待リンク生成成功
         if (j.inviteLink) {
-          // メール送信失敗したが招待リンク生成できた場合
+          // メール送信失敗したが招待リンク生成できた場合（代替成功）
           setInviteLink(j.inviteLink);
           setNote(
-            `⚠️ ${e} への招待メール送信に失敗しました。\n` +
-            `以下の招待リンクを先方に共有してください。`
+            `招待メールの自動送信には失敗しましたが、招待リンクを作成しました。\n` +
+            `以下のリンクをコピーして、先方にメール等で共有してください。`
           );
+          // メール送信失敗時はメールアドレスをクリアしない（再試行可能）
         } else {
           // メール送信成功
           setInviteLink('');
@@ -173,28 +174,41 @@ export default function AdminInvitesPage() {
           </div>
         </div>
 
-        {!!inviteLink && (
-          <div className="mt-3 flex items-center gap-2 text-xs text-gray-700">
-            <span>招待リンク：</span>
-            <a className="break-all underline" href={inviteLink} target="_blank" rel="noreferrer">
-              {inviteLink}
-            </a>
-            <button onClick={copyLink} className="rounded border px-2 py-1 hover:bg-gray-50" type="button">
-              コピー
-            </button>
-          </div>
-        )}
-
         {!!note && (
           <div
             role="alert"
             className={`mt-3 whitespace-pre-wrap rounded-md border px-3 py-2 text-sm ${
               note.includes('✅') || note.includes('✉️')
                 ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                : 'border-amber-200 bg-amber-50 text-amber-800'
+                : inviteLink
+                ? 'border-amber-200 bg-amber-50 text-amber-800'
+                : 'border-red-200 bg-red-50 text-red-700'
             }`}
           >
             {note}
+          </div>
+        )}
+
+        {!!inviteLink && (
+          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <p className="mb-2 text-xs font-semibold text-amber-900">招待リンク</p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <a
+                className="break-all text-xs font-mono text-blue-600 underline"
+                href={inviteLink}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {inviteLink}
+              </a>
+              <button
+                onClick={copyLink}
+                className="whitespace-nowrap rounded-md bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+                type="button"
+              >
+                リンクをコピー
+              </button>
+            </div>
           </div>
         )}
       </section>
