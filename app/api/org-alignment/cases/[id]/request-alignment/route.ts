@@ -49,8 +49,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
       .single();
 
     if (caseError || !caseData) {
-      console.error('[request-alignment] Case not found:', { caseId, caseError });
-      return NextResponse.json({ error: 'case_not_found' }, { status: 404 });
+      console.error('[request-alignment] Case not found:', {
+        caseId,
+        caseError: caseError?.message,
+        caseErrorCode: caseError?.code,
+      });
+      return NextResponse.json(
+        { error: 'case_not_found', detail: caseError?.message },
+        { status: 404 }
+      );
     }
 
     const companyId = (caseData as any).company_id;
@@ -82,10 +89,23 @@ export async function POST(req: NextRequest, context: RouteContext) {
       console.error('[request-alignment] Not a member:', {
         userId,
         companyId,
-        memberError,
-        membership,
+        memberError: memberError?.message,
+        memberErrorCode: memberError?.code,
+        membershipCount: membership ? membership.length : 0,
+        membership: membership ? membership.slice(0, 1) : null,
       });
-      return NextResponse.json({ error: 'not_a_member' }, { status: 403 });
+      return NextResponse.json(
+        {
+          error: 'not_a_member',
+          detail: 'User is not a member of the case company',
+          debug: {
+            userId,
+            companyId,
+            memberError: memberError?.message,
+          },
+        },
+        { status: 403 }
+      );
     }
 
     // org_alignment_cases の status を 'alignment_requested' に更新
