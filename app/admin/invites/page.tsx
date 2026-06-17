@@ -74,12 +74,24 @@ export default function AdminInvitesPage() {
       const j: any = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        const emsg =
-          j?.error === 'admin_only'
-            ? '権限がありません（管理者としてログインしてください）'
-            : j?.error === 'email_send_failed'
-            ? 'メール送信に失敗しました。メールアドレスをご確認ください。'
-            : j?.detail || j?.error || `招待に失敗しました（${res.status}）`;
+        // ログに詳しい情報を出力（開発時デバッグ用）
+        console.error('[admin/invites] API error:', {
+          status: res.status,
+          error: j?.error,
+          message: j?.message,
+          detail: j?.detail,
+        });
+
+        let emsg = '';
+        if (j?.error === 'admin_only') {
+          emsg = '権限がありません（管理者としてログインしてください）';
+        } else if (j?.error === 'email_send_failed') {
+          emsg = `メール送信に失敗しました：${j?.detail || 'メール設定を確認してください'}`;
+        } else if (j?.error === 'config_error') {
+          emsg = `サーバー設定エラー：${j?.detail || 'サポートにお問い合わせください'}`;
+        } else {
+          emsg = j?.message || j?.detail || j?.error || `招待に失敗しました（${res.status}）`;
+        }
         setNote(`招待に失敗しました: ${emsg}`);
         return;
       }
