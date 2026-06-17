@@ -260,10 +260,10 @@ export default function InviteAcceptClient() {
         if (companyId) setCompanyId(companyId);
         resetMembershipLoading();
 
-        setMsg('招待を受け入れました。ホーム画面に遷移します。');
+        setMsg('招待を受け入れました。パスワード設定画面に遷移します。');
 
         setTimeout(() => {
-          router.replace('/');
+          router.replace('/auth/set-password');
         }, 1200);
       } catch (e: any) {
         console.error('[invite/accept] Exception:', {
