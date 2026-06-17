@@ -43,6 +43,7 @@ import { CascadeHeader } from '@/components/stage3/CascadeHeader';
 import { CascadeControlBar } from '@/components/stage3/CascadeControlBar';
 import { DepartmentAddForm } from '@/components/stage3/DepartmentAddForm';
 import { NoticeDisplay } from '@/components/stage3/NoticeDisplay';
+import { ReflectionCandidatesSection, type ReflectionCandidate } from '@/components/stage3/ReflectionCandidatesSection';
 
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { useStage3PdfExport } from '@/hooks/useStage3PdfExport';
@@ -3753,9 +3754,18 @@ useEffect(() => {
     });
   }, [departments, isHydrating, canEditDept, pushToStore]);
 
+  /* ===== 反映候補セクションのハンドラー ===== */
+  const handleDeleteReflectionCandidate = (candidateId: string) => {
+    setNotice('✅ 反映候補を削除しました');
+  };
+
   /* ===== JSX ===== */
   return (
     <div className="mx-auto max-w-6xl px-4 md:px-6 py-6 space-y-6">
+      <ReflectionCandidatesSection
+        onDelete={handleDeleteReflectionCandidate}
+      />
+
       <CascadeHeader exportToPdf={stage3ExportToPdf} />
 
       {isHydrating && (
