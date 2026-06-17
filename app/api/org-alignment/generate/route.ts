@@ -356,40 +356,64 @@ function buildStrategyContextForPrompt(strategyData: any, payloadStrategyContext
     : [];
 
   return {
+    // STAGE1: 企業価値分析
     mission: truncate(source.mission),
     vision: truncate(source.vision),
     value: truncate(source.value),
     ceoIntent: truncate(source.ceoIntent),
+    // STAGE2: 全社戦略
     story: Array.isArray(source.story)
       ? source.story.slice(0, 2).map((s: any) => truncate(typeof s === 'string' ? s : s?.content || s?.body || s?.title, 700))
       : truncate(source.story),
+    answers2: Array.isArray(source.answers2)
+      ? source.answers2.slice(0, 3).map((a: any) => truncate(typeof a === 'string' ? a : a?.answer || a?.body || a?.content, 500))
+      : null,
+    winPatterns: Array.isArray(source.winPatterns) ? source.winPatterns.slice(0, 5).map((w: any) => truncate(w, 600)) : null,
+    // STAGE3: 事業・部門別戦略
     finalStory: Array.isArray(source.finalStory)
       ? source.finalStory.slice(0, 2).map((s: any) => truncate(typeof s === 'string' ? s : s?.content || s?.body || s?.title, 700))
       : truncate(source.finalStory),
     departments,
-    winPatterns: Array.isArray(source.winPatterns) ? source.winPatterns.slice(0, 5).map((w: any) => truncate(w, 600)) : null,
     companyTargets: truncate(source.companyTargets || source.targets || source.okrs, 900),
+    // その他
     financeSummary: truncate(source.financeSummary, 900),
     businessPortfolio: truncate(source.businessPortfolio, 900),
     executionPlans: Array.isArray(source.executionPlans) ? source.executionPlans.slice(0, 5).map((p: any) => truncate(p, 700)) : null,
   };
 }
 
-function hasUsableStrategyContext(strategyContextForPrompt: any): boolean {
+// STAGE1〜3の戦略情報が使可能か判定
+function hasStage1Or2Or3StrategyContext(strategyContextForPrompt: any): boolean {
   if (!strategyContextForPrompt) return false;
-  return !!(
+  // STAGE1: mission / vision / value / ceoIntent
+  const hasStage1 = !!(
     strategyContextForPrompt.mission ||
     strategyContextForPrompt.vision ||
     strategyContextForPrompt.value ||
-    strategyContextForPrompt.ceoIntent ||
+    strategyContextForPrompt.ceoIntent
+  );
+  // STAGE2: story / answers2 / winPatterns（全社戦略）
+  const hasStage2 = !!(
     strategyContextForPrompt.story ||
-    strategyContextForPrompt.finalStory ||
+    strategyContextForPrompt.answers2 ||
+    strategyContextForPrompt.winPatterns
+  );
+  // STAGE3: departments（部門戦略・ミッション・プロジェクト） / companyTargets（KPI判断基準）
+  // ※ finalStory は全社ストーリーの最終版のため STAGE2由来と考える
+  const hasStage3 = !!(
     (Array.isArray(strategyContextForPrompt.departments) && strategyContextForPrompt.departments.length > 0) ||
-    strategyContextForPrompt.winPatterns ||
-    strategyContextForPrompt.companyTargets ||
+    strategyContextForPrompt.companyTargets
+  );
+  return hasStage1 || hasStage2 || hasStage3;
+}
+
+// すべての利用可能な戦略情報（含むSTAGE4以降）
+function hasUsableStrategyContext(strategyContextForPrompt: any): boolean {
+  if (!strategyContextForPrompt) return false;
+  return (
+    hasStage1Or2Or3StrategyContext(strategyContextForPrompt) ||
     strategyContextForPrompt.financeSummary ||
-    strategyContextForPrompt.businessPortfolio ||
-    strategyContextForPrompt.executionPlans
+    strategyContextForPrompt.businessPortfolio
   );
 }
 
@@ -503,7 +527,8 @@ export async function POST(req: NextRequest) {
     }
 
     const strategyContextForPrompt = buildStrategyContextForPrompt(strategyData, payload.strategyContext);
-    const companyRecognitionMode: CompanyRecognitionMode = hasUsableStrategyContext(strategyContextForPrompt)
+    // STAGE1〜3の情報がある場合のみ strategy_based。executionPlans だけでは needs_confirmation
+    const companyRecognitionMode: CompanyRecognitionMode = hasStage1Or2Or3StrategyContext(strategyContextForPrompt)
       ? 'strategy_based'
       : 'needs_confirmation';
 
@@ -539,14 +564,17 @@ export async function POST(req: NextRequest) {
 - すり合わせの場で実際に確認できる問いに変換する。
 
 重要ルール：
-1. STEP2 participantRecognitionHypothesis は、相手方・制度設計側・経営側・運用側の「あり得る認識仮説」として書く。断定しない。
-2. 相手方が人や部門ではない場合、制度・仕組み・運用側・経営側の前提として整理する。
-3. STEP3 companyRecognition は、会社としての判断基準・優先順位・役割責任・評価・支援・戦略実行に照らして書く。
-4. STEP4 alignmentPoints は、抽象的な改善テーマではなく、すり合わせの場でそのまま確認できる「問い」にする。
-5. alignmentPoints は3〜5個。各項目は具体的な問いにする。
-6. 会社や経営、上司、他部門を一方的に責める表現は禁止。
-7. 入力者に過度に迎合せず、複数の立場の前提を整理する。
-8. 出力は必ずJSONのみ。Markdownや説明文は出さない。
+1. inputSummary は、入力者の違和感・困りごと・納得できていない点を、戦略用語に置き換えすぎず、まず本人にとって分かる言葉で受け止める。
+2. STEP2 participantRecognitionHypothesis は、相手方・制度設計側・経営側・運用側の「あり得る認識仮説」として書く。断定しない。
+3. STEP2では、相手側の行動・発言・判断が会社方針、部門戦略、KPI、重点施策、優先順位に関係している場合に限り、会社方針・戦略情報を判断材料として使う。その場合も「相手は戦略上こうするべき」と断定せず、「その戦略・KPI・優先順位を重視していた可能性がある」と仮説として書く。
+4. 相手方が人や部門ではない場合、制度・仕組み・運用側・経営側の前提として整理する。
+5. STEP3 companyRecognition は、会社としての判断基準・優先順位・役割責任・評価・支援・戦略実行に照らして書く。strategy_based の場合は、原則としてSTAGE1〜3の会社方針・全社戦略・部門方針・重点テーマ・KPI判断基準のいずれかを判断材料にする。
+6. STEP3では、現場の不満を会社都合に従わせる表現にしない。「会社の戦略上こうすべき」ではなく、「この違和感は、会社として何を確認すべきズレか」に翻訳する。
+7. STEP4 alignmentPoints は、抽象的な改善テーマではなく、すり合わせの場でそのまま確認できる「問い」にする。戦略用語を使いすぎず、現場・上司・管理者が会話できる言葉にする。
+8. alignmentPoints は3〜5個。各項目は具体的な問いにする。
+9. 会社や経営、上司、他部門を一方的に責める表現は禁止。
+10. 入力者に過度に迎合せず、複数の立場の前提を整理する。
+11. 出力は必ずJSONのみ。Markdownや説明文は出さない。
 
 ${concernTypeInstruction}
 
@@ -554,7 +582,7 @@ ${concernTypeInstruction}
 companyRecognitionMode は必ず「${companyRecognitionMode}」にしてください。
 companyRecognitionTitle は必ず「${companyRecognitionTitle}」にしてください。
 ${companyRecognitionMode === 'strategy_based'
-  ? 'strategy_based のため、companyRecognition には下記の会社方針・戦略情報に含まれる具体情報を最低1つ以上、自然に反映してください。ただし存在しない情報は捏造しないでください。'
+  ? 'strategy_based のため、下記の会社方針・戦略情報を判断材料として使ってください。ただし、入力者の違和感を無理に戦略用語へ置き換えないでください。participantRecognitionHypothesis では、相手側の行動や発言が会社方針・部門戦略・KPI・重点施策・優先順位と関係する場合のみ、具体情報を自然に反映してください。companyRecognition では、STAGE1〜3の情報を踏まえ、「会社として何を確認すべきか」「どの判断基準・優先順位・役割責任・支援が揃っていない可能性があるか」を書いてください。alignmentPoints では、戦略用語を現場で話せる問いに噛み砕いてください。存在しない情報は捏造しないでください。'
   : 'needs_confirmation のため、会社方針・戦略情報が十分ではない前提で、会社として確認すべき判断基準を示してください。'}
 
 【出力JSONスキーマ】
@@ -612,6 +640,26 @@ ${strategyContextForPrompt ? JSON.stringify(strategyContextForPrompt, null, 2) :
       companyRecognitionTitle,
     };
 
+    // STAGE別availability判定
+    const stage1Available = !!(
+      strategyContextForPrompt?.mission ||
+      strategyContextForPrompt?.vision ||
+      strategyContextForPrompt?.value ||
+      strategyContextForPrompt?.ceoIntent
+    );
+    const stage2Available = !!(
+      strategyContextForPrompt?.story ||
+      strategyContextForPrompt?.answers2 ||
+      strategyContextForPrompt?.winPatterns
+    );
+    // STAGE3: departments（部門戦略）/ companyTargets（KPI判断基準）
+    // finalStory は全社ストーリー最終版のためSTAGE2由来と考える
+    const stage3Available = !!(
+      (Array.isArray(strategyContextForPrompt?.departments) && strategyContextForPrompt.departments.length > 0) ||
+      strategyContextForPrompt?.companyTargets
+    );
+    const executionPlansAvailable = !!strategyContextForPrompt?.executionPlans;
+
     const debug = {
       concernType,
       issueTypeLabel,
@@ -620,6 +668,29 @@ ${strategyContextForPrompt ? JSON.stringify(strategyContextForPrompt, null, 2) :
       strategyFetchMethod,
       strategyFetchError,
       hasUsableStrategyContext: hasUsableStrategyContext(strategyContextForPrompt),
+      stage1Available,
+      stage2Available,
+      stage3Available,
+      executionPlansAvailable,
+      strategyContextFields: strategyContextForPrompt ? {
+        // STAGE1
+        mission: !!strategyContextForPrompt.mission,
+        vision: !!strategyContextForPrompt.vision,
+        value: !!strategyContextForPrompt.value,
+        ceoIntent: !!strategyContextForPrompt.ceoIntent,
+        // STAGE2
+        story: !!strategyContextForPrompt.story,
+        answers2: !!strategyContextForPrompt.answers2,
+        winPatterns: !!strategyContextForPrompt.winPatterns,
+        // STAGE3
+        finalStory: !!strategyContextForPrompt.finalStory,
+        departmentCount: Array.isArray(strategyContextForPrompt.departments) ? strategyContextForPrompt.departments.length : 0,
+        companyTargets: !!strategyContextForPrompt.companyTargets,
+        // その他
+        financeSummary: !!strategyContextForPrompt.financeSummary,
+        businessPortfolio: !!strategyContextForPrompt.businessPortfolio,
+        executionPlans: !!strategyContextForPrompt.executionPlans,
+      } : null,
     };
 
     return json({
