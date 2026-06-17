@@ -104,19 +104,15 @@ export async function POST(req: Request) {
 
     const companyId = membership.company_id;
 
-    // ✅ 修正A：NEXT_PUBLIC_APP_URL チェック（insert前）
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-    if (!appUrl) {
-      console.error('[admin/members/invite] NEXT_PUBLIC_APP_URL not configured');
-      return NextResponse.json(
-        {
-          error: 'config_error',
-          message: 'Server configuration error',
-          detail: 'NEXT_PUBLIC_APP_URL is not configured',
-        },
-        { status: 500 }
-      );
-    }
+    // ✅ 修正A：NEXT_PUBLIC_APP_URL チェック、なければ request.nextUrl.origin から fallback
+    const appUrl =
+      process.env.NEXT_PUBLIC_APP_URL ||
+      new URL(req.url).origin;
+
+    console.log('[admin/members/invite] App URL resolved:', {
+      configured: process.env.NEXT_PUBLIC_APP_URL,
+      resolved: appUrl,
+    });
 
     // 4) Handle duplicate invites
     // Strategy: Invalidate old unused invite and create new one
