@@ -75,7 +75,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const { data: membership, error: memberError } = await admin
       .from('company_members')
-      .select('id, company_id, user_id, role')
+      .select('company_id, user_id, role')
       .eq('company_id', companyId)
       .eq('user_id', userId);
 
@@ -92,7 +92,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
         memberError: memberError?.message,
         memberErrorCode: memberError?.code,
         membershipCount: membership ? membership.length : 0,
-        membership: membership ? membership.slice(0, 1) : null,
       });
       return NextResponse.json(
         {
@@ -102,6 +101,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
             userId,
             companyId,
             memberError: memberError?.message,
+            membershipCount: membership?.length ?? 0,
           },
         },
         { status: 403 }
