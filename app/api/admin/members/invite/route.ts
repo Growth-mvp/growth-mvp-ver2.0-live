@@ -206,56 +206,89 @@ export async function POST(req: Request) {
       redirectTo,
     });
 
+    let inviteLink: string | null = null;
+    let emailSentSuccessfully = false;
+
     if (inviteErr) {
-      console.error('[admin/members/invite] inviteUserByEmail failed:', {
+      console.warn('[admin/members/invite] inviteUserByEmail failed, trying generateLink fallback:', {
         error: inviteErr.message,
         code: inviteErr.code,
-        status: (inviteErr as any)?.status,
         email,
-        redirectTo,
       });
 
-      // Clean up invite record since email failed
-      await admin
-        .from('company_invites')
-        .delete()
-        .eq('token_hash', tokenHash);
-
-      return NextResponse.json(
-        {
-          error: '招待メール送信に失敗しました',
-          detail: inviteErr.message,
-          code: inviteErr.code ?? null,
-          status: (inviteErr as any)?.status ?? null,
+      // 10) Fallback: Generate invite link if email sending failed
+      const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
+        type: 'invite',
+        email,
+        options: {
           redirectTo,
         },
-        { status: 500 }
-      );
+      });
+
+      if (linkError) {
+        console.error('[admin/members/invite] generateLink also failed:', {
+          error: linkError.message,
+          code: linkError.code,
+          email,
+        });
+
+        // Clean up invite record since both inviteUserByEmail and generateLink failed
+        await admin
+          .from('company_invites')
+          .delete()
+          .eq('token_hash', tokenHash);
+
+        return NextResponse.json(
+          {
+            error: '招待の発行に失敗しました',
+            detail: `メール送信失敗: ${inviteErr.message}, リンク生成失敗: ${linkError.message}`,
+            code: inviteErr.code ?? null,
+            status: (inviteErr as any)?.status ?? null,
+          },
+          { status: 500 }
+        );
+      }
+
+      inviteLink = linkData?.properties?.action_link || null;
+      console.log('[admin/members/invite] generateLink succeeded, returning invite link:', {
+        email,
+        inviteLink: inviteLink ? inviteLink.substring(0, 50) + '...' : null,
+      });
+    } else {
+      emailSentSuccessfully = true;
+      console.log('[admin/members/invite] inviteUserByEmail succeeded:', { email });
     }
 
-    console.log('[admin/members/invite] Invite sent successfully:', {
+    console.log('[admin/members/invite] Invite process completed:', {
       email,
       role: inviteRole,
       companyId,
       expiresAt: expiresAt.toISOString(),
-      tokenHead: token.slice(0, 8),
+      emailSent: emailSentSuccessfully,
+      hasInviteLink: !!inviteLink,
     });
 
-    // 10) Return success with Cache-Control: no-store
-    return NextResponse.json(
-      {
-        ok: true,
-        email,
-        role: inviteRole,
-        companyId,
-        expiresAt: expiresAt.toISOString(),
-        message: 'Invitation email sent successfully',
-      },
-      {
-        status: 200,
-        headers: { 'Cache-Control': 'no-store, max-age=0' },
-      }
-    );
+    // 11) Return success with Cache-Control: no-store
+    const responseBody: any = {
+      ok: true,
+      email,
+      role: inviteRole,
+      companyId,
+      expiresAt: expiresAt.toISOString(),
+    };
+
+    if (emailSentSuccessfully) {
+      responseBody.message = 'Invitation email sent successfully';
+    } else if (inviteLink) {
+      responseBody.message = 'メール送信に失敗しましたが、招待リンクを生成しました';
+      responseBody.inviteLink = inviteLink;
+      responseBody.warning = 'メール送信に失敗しました。招待リンクを先方に共有してください。';
+    }
+
+    return NextResponse.json(responseBody, {
+      status: 200,
+      headers: { 'Cache-Control': 'no-store, max-age=0' },
+    });
   } catch (e: any) {
     console.error('[admin/members/invite] failed:', e?.message || e);
     return NextResponse.json(
