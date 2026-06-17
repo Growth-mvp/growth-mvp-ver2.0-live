@@ -39,6 +39,7 @@ import { ProjectSelectionPrompt } from '@/components/stage4/ProjectSelectionProm
 import { DepartmentListItem } from '@/components/stage4/DepartmentListItem';
 import { useStage4PdfExport } from '@/hooks/useStage4PdfExport';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
+import { ReflectionCandidatesSection, type OKRCandidate } from '@/components/stage4/ReflectionCandidatesSection';
 
 import type { Department as DepartmentStrategy } from '@/types/strategy';
 import {
@@ -353,6 +354,7 @@ function OKRPageContent() {
   // ★ STAGE4: Resolved OKRs from DB (DB priority + snapshot fallback)
   const [resolvedOkrsMap, setResolvedOkrsMap] = useState<Record<string, ResolvedOkr[]>>({});
   const [okrLoadingStatus, setOkrLoadingStatus] = useState<Record<string, 'loading' | 'success' | 'error'>>({});
+  const [notice, setNotice] = useState<string>("");
   const promotingProjectKeysRef = useRef<Set<string>>(new Set());
   const attemptedPromotionKeysRef = useRef<Set<string>>(new Set());
 
@@ -4416,6 +4418,12 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
       </div>
     );
   };
+
+  /* ===== 反映候補セクションのハンドラー ===== */
+  const handleDeleteOKRCandidate = (candidateId: string) => {
+    setNotice('✅ 反映候補を削除しました');
+  };
+
   /* ============================================================
    * renderLegacy: 旧UI（タブシステム・詳細フォーム）
    * ========================================================== */
@@ -4425,6 +4433,15 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
   return (
   <main className="min-h-screen bg-zinc-50">
     <div className="w-full px-6 py-6">
+      <ReflectionCandidatesSection
+        onDelete={handleDeleteOKRCandidate}
+      />
+
+      {notice && (
+        <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
+          {notice}
+        </div>
+      )}
 
       {/* header */}
       <OKRHeader isHydrating={isHydrating} exportToPdf={stage4ExportToPdf} />
