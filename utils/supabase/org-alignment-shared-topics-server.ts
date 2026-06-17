@@ -25,6 +25,9 @@ export type OrgAlignmentSharedTopic = {
   };
   company_axis?: string;
   session_type?: string;
+  alignment_result?: string;
+  changed_things?: string[];
+  unchanged_things?: string[];
   next_actions?: Array<{
     title: string;
     owner: string;
@@ -50,6 +53,8 @@ export type OrgAlignmentSharedTopic = {
   related_case_count: number;
   published_by?: string;
   published_at?: string;
+  stage3_reflected_at?: string;
+  stage4_reflected_at?: string;
   announcement_text?: string;
   announcement_updated_at?: string;
   announcement_updated_by?: string;
@@ -299,6 +304,89 @@ export async function checkExistingDraft(
   sourceInsightId: string
 ): Promise<OrgAlignmentSharedTopic | null> {
   return checkExistingTopic(admin, companyId, sourceInsightId);
+}
+
+/**
+ * Update shared topic with user-editable fields
+ * Users can edit: alignment_result, changed_things, unchanged_things, next_actions, strategy_reflection, status, stage3_reflected_at, stage4_reflected_at
+ */
+export async function updateSharedTopicEditable(
+  admin: SupabaseClient,
+  companyId: string,
+  topicId: string,
+  updates: {
+    alignment_result?: string;
+    changed_things?: string[];
+    unchanged_things?: string[];
+    next_actions?: Array<{
+      title: string;
+      owner: string;
+      dueDate: string;
+      status: '未着手' | '対応中' | '完了';
+    }>;
+    strategy_reflection?: {
+      stage3Status: '未反映' | '反映候補' | '反映済み';
+      stage4Status: '未反映' | 'OKR化候補' | 'OKR化済み';
+      relatedDepartments: string[];
+      generatedProjects: Array<{
+        departmentName: string;
+        projectTitle: string;
+        projectSummary: string;
+      }>;
+      generatedOkrs: Array<{
+        objective: string;
+        keyResults: string[];
+        owner: string;
+        dueDate: string;
+      }>;
+    };
+    status?: SharedTopicStatus;
+    stage3_reflected_at?: string;
+    stage4_reflected_at?: string;
+  }
+): Promise<OrgAlignmentSharedTopic> {
+  const updatePayload: any = {
+    updated_at: new Date().toISOString(),
+  };
+
+  if (updates.alignment_result !== undefined) {
+    updatePayload.alignment_result = updates.alignment_result;
+  }
+  if (updates.changed_things !== undefined) {
+    updatePayload.changed_things = updates.changed_things;
+  }
+  if (updates.unchanged_things !== undefined) {
+    updatePayload.unchanged_things = updates.unchanged_things;
+  }
+  if (updates.next_actions !== undefined) {
+    updatePayload.next_actions = updates.next_actions;
+  }
+  if (updates.strategy_reflection !== undefined) {
+    updatePayload.strategy_reflection = updates.strategy_reflection;
+  }
+  if (updates.status !== undefined) {
+    updatePayload.status = updates.status;
+  }
+  if (updates.stage3_reflected_at !== undefined) {
+    updatePayload.stage3_reflected_at = updates.stage3_reflected_at;
+  }
+  if (updates.stage4_reflected_at !== undefined) {
+    updatePayload.stage4_reflected_at = updates.stage4_reflected_at;
+  }
+
+  const { data, error } = await admin
+    .from('org_alignment_shared_topics')
+    .update(updatePayload)
+    .eq('company_id', companyId)
+    .eq('id', topicId)
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to update shared topic: ${error.message}`);
+  }
+
+  return data as OrgAlignmentSharedTopic;
 }
 
 /**
