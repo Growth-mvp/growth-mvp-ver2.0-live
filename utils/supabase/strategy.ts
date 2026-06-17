@@ -469,6 +469,7 @@ const FIELD_MAP: Record<string, string> = {
   winPatternPrimary: 'win_pattern_primary',
   winPatternSecondary: 'win_pattern_secondary',
   companyTargets: 'company_targets',  // ★ 追加：North Star メトリクス
+  executionPlans: 'execution_plans',  // ★ 追加：STAGE5 実行計画
   projectTargetImpacts: 'project_target_impacts',  // ★ 追加：STAGE6 Phase E - Target Impact
   okrTargetScores: 'okr_target_scores',  // ★ STAGE5: OKR進捗インパクト（JSONB カラム）
   projectIssueLinks: 'project_issue_links',  // ★ 追加：STAGE6 Phase E - Issue Link
