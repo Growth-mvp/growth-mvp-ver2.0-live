@@ -163,12 +163,20 @@ export default function LoginClient() {
             </button>
           </form>
 
-          <p className="mt-4 text-center text-[13px] text-zinc-600">
-            アカウントをお持ちでないですか？{' '}
-            <a href="/signup" className="font-medium text-[color:var(--accent)] hover:opacity-90 underline">
-              新規登録はこちら
-            </a>
-          </p>
+          <div className="mt-4 space-y-2">
+            <p className="text-center text-[13px] text-zinc-600">
+              アカウントをお持ちでないですか？{' '}
+              <a href="/signup" className="font-medium text-[color:var(--accent)] hover:opacity-90 underline">
+                新規登録はこちら
+              </a>
+            </p>
+            <p className="text-center text-[13px] text-zinc-600">
+              招待済みでパスワント未設定ですか？{' '}
+              <a href="/auth/resend-set-password" className="font-medium text-[color:var(--accent)] hover:opacity-90 underline">
+                リンク再発行
+              </a>
+            </p>
+          </div>
         </div>
 
         <p className="mt-4 text-center text-[11px] text-zinc-500">
