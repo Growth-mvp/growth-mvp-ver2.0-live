@@ -104,6 +104,17 @@ export async function POST(req: Request) {
 
     const companyId = membership.company_id;
 
+    // 3.5) Check if user already exists in Supabase Auth
+    const { data: existingUser } = await admin.auth.admin.getUserByEmail(email);
+    if (existingUser?.id) {
+      console.warn('[admin/members/invite] User already exists in Supabase Auth:', {
+        email,
+        userId: existingUser.id,
+      });
+      // ユーザーが既に存在する場合は、inviteUserByEmail は失敗する可能性がある
+      // ここで早期に告知することも可能だが、スルーして試行させる
+    }
+
     // ✅ 修正A：NEXT_PUBLIC_APP_URL チェック（insert前）
     const appUrl = process.env.NEXT_PUBLIC_APP_URL;
     if (!appUrl) {
@@ -200,6 +211,12 @@ export async function POST(req: Request) {
 
     // 9) Send Supabase Auth invite email
     // ✅ 修正C：as any を削除（型定義により self-typed）
+    console.log('[admin/members/invite] Sending inviteUserByEmail:', {
+      email,
+      redirectTo,
+      appUrl: process.env.NEXT_PUBLIC_APP_URL,
+    });
+
     const { error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {
       redirectTo,
     });
@@ -207,7 +224,10 @@ export async function POST(req: Request) {
     if (inviteErr) {
       console.error('[admin/members/invite] inviteUserByEmail failed:', {
         error: inviteErr.message,
+        code: inviteErr.code,
+        status: (inviteErr as any)?.status,
         email,
+        redirectTo,
       });
 
       // Clean up invite record since email failed
