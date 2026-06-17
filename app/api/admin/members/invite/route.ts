@@ -104,17 +104,6 @@ export async function POST(req: Request) {
 
     const companyId = membership.company_id;
 
-    // 3.5) Check if user already exists in Supabase Auth
-    const { data: existingUser } = await admin.auth.admin.getUserByEmail(email);
-    if (existingUser?.id) {
-      console.warn('[admin/members/invite] User already exists in Supabase Auth:', {
-        email,
-        userId: existingUser.id,
-      });
-      // ユーザーが既に存在する場合は、inviteUserByEmail は失敗する可能性がある
-      // ここで早期に告知することも可能だが、スルーして試行させる
-    }
-
     // ✅ 修正A：NEXT_PUBLIC_APP_URL チェック（insert前）
     const appUrl = process.env.NEXT_PUBLIC_APP_URL;
     if (!appUrl) {
@@ -238,9 +227,11 @@ export async function POST(req: Request) {
 
       return NextResponse.json(
         {
-          error: 'email_send_failed',
-          message: 'Failed to send invitation email',
+          error: '招待メール送信に失敗しました',
           detail: inviteErr.message,
+          code: inviteErr.code ?? null,
+          status: (inviteErr as any)?.status ?? null,
+          redirectTo,
         },
         { status: 500 }
       );
