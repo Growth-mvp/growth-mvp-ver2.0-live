@@ -249,22 +249,41 @@ export default function OrgTransformationPage() {
     setErrorMessage("");
 
     try {
-      // TODO: API実装後に以下に差し替え
-      // const response = await fetch('/api/org-alignment/request', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({
-      //     caseId: savedCaseId,
-      //     visibilityMode,
-      //   }),
-      // });
+      const {
+        ok: sessionOk,
+        data: sessionData,
+        error: sessionError,
+      } = await safeGetSession();
 
-      // if (!response.ok) {
-      //   throw new Error('すり合わせ依頼に失敗しました。');
-      // }
+      if (!sessionOk || !sessionData?.session?.access_token) {
+        setErrorMessage(
+          "ログイン情報を確認できません。再ログインしてください。",
+        );
+        setIsRequesting(false);
+        return;
+      }
 
-      // Supabaseで依頼状態に更新
-      await requestOrgAlignmentCase(savedCaseId, visibilityMode);
+      const response = await fetch(
+        `/api/org-alignment/cases/${savedCaseId}/request-alignment`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${sessionData.session.access_token}`,
+          },
+          body: JSON.stringify({
+            visibilityMode,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          errorData.error ||
+            `API error: ${response.status} ${response.statusText}`,
+        );
+      }
 
       setRequestDone(true);
 
@@ -276,7 +295,9 @@ export default function OrgTransformationPage() {
     } catch (error) {
       console.error(error);
       setErrorMessage(
-        "すり合わせ依頼に失敗しました。時間をおいて再度お試しください。",
+        error instanceof Error
+          ? `すり合わせ依頼に失敗しました: ${error.message}`
+          : "すり合わせ依頼に失敗しました。時間をおいて再度お試しください。",
       );
     } finally {
       setIsRequesting(false);
