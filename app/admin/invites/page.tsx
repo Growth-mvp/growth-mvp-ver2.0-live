@@ -97,11 +97,20 @@ export default function AdminInvitesPage() {
       }
 
       if (j.ok) {
-        // メール送信済み - リンク表示は不要
-        setInviteLink('');
-        setNote(`✉️ ${e} に招待メールを送信しました。\n受信者はメール内のリンクからパスワード設定できます。`);
-        setEmail('');
-        // ✅ 修正E：departmentId は削除
+        // メール送信成功または招待リンク生成成功
+        if (j.inviteLink) {
+          // メール送信失敗したが招待リンク生成できた場合
+          setInviteLink(j.inviteLink);
+          setNote(
+            `⚠️ ${e} への招待メール送信に失敗しました。\n` +
+            `以下の招待リンクを先方に共有してください。`
+          );
+        } else {
+          // メール送信成功
+          setInviteLink('');
+          setNote(`✉️ ${e} に招待メールを送信しました。\n受信者はメール内のリンクからパスワード設定できます。`);
+          setEmail('');
+        }
         return;
       }
 
