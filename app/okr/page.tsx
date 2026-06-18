@@ -4750,7 +4750,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
 
   return (
   <main className="min-h-screen bg-zinc-50">
-    <div className="w-full px-6 py-6">
+    <div className="mx-auto max-w-6xl px-4 md:px-6 py-6 space-y-6">
       <ReflectionCandidatesSection
         onDelete={handleDeleteOKRCandidate}
       />
