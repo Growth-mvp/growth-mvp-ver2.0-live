@@ -223,7 +223,7 @@ export default function Sidebar() {
         <GlobalSidebarSaveStatus />
 
         <footer className={`shrink-0 border-t border-gray-200 px-4 py-3 text-gray-500 ${ITEM_TEXT_CLASS}`}>
-          © 2025 GROWTH Platform
+          © 2026 GROWTH SHIFT Platform
          
         </footer>
       </aside>
