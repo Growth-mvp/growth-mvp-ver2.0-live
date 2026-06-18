@@ -2361,10 +2361,10 @@ const getMilestoneStatusBadge = (milestonesCount: number) => {
 
   if (milestonesCount === 0) {
     return {
-      type: 'warning',
+      type: 'info',
       showAlert: true,
       badge: null,
-      alertText: 'STAGE5で推奨進捗を算出するにはマイルストーンを設定してください（最低1件）'
+      alertText: 'まず1つだけ、いつまでに何を達成するかを入れると進捗が見やすくなります。'
     };
   }
 
@@ -2555,15 +2555,89 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
 
     return (
       <div className="mx-auto max-w-2xl">
+        {/* ========== なぜこのプロジェクトに取り組むのか（STAGE3由来情報） ========== */}
+        <div className="mb-6 rounded-2xl border border-zinc-300 bg-gradient-to-br from-blue-50 to-indigo-50 p-5">
+          <h2 className="mb-2 text-[14px] font-semibold text-zinc-900">なぜこのプロジェクトに取り組むのか</h2>
+          <p className="mb-4 text-[11px] text-zinc-600">STAGE3で整理した内容をもとに、この実行計画の背景を確認します。</p>
+
+          <div className="space-y-3">
+            {/* プロジェクト名・部門 */}
+            <div className="flex gap-4">
+              <div className="flex-1">
+                <div className="text-[11px] font-semibold text-zinc-600">プロジェクト</div>
+                <div className="mt-1 text-[13px] font-semibold text-zinc-900">{selectedProj.title || '—'}</div>
+              </div>
+              <div className="flex-1">
+                <div className="text-[11px] font-semibold text-zinc-600">部門</div>
+                <div className="mt-1 text-[13px] text-zinc-800">{selectedDept.name || '—'}</div>
+              </div>
+            </div>
+
+            {/* なぜ取り組むか */}
+            {((selectedProj as any)?.hypothesis || (selectedProj as any)?.rationale || (selectedProj as any)?.reason) && (
+              <div>
+                <div className="text-[11px] font-semibold text-zinc-600">なぜ取り組むか</div>
+                <div className="mt-1 text-[12px] text-zinc-700 leading-relaxed">
+                  {(selectedProj as any)?.hypothesis || (selectedProj as any)?.rationale || (selectedProj as any)?.reason || '—'}
+                </div>
+              </div>
+            )}
+
+            {/* 成果につながるポイント */}
+            {((selectedProj as any)?.kind || (selectedProj as any)?.mainLever || (selectedProj as any)?.horizon) && (
+              <div>
+                <div className="text-[11px] font-semibold text-zinc-600">成果につながるポイント</div>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {(selectedProj as any)?.kind && (
+                    <span className="rounded-full border border-zinc-300 bg-white px-2.5 py-0.5 text-[11px] text-zinc-700">
+                      {KIND_JA[(selectedProj as any).kind] || (selectedProj as any).kind}
+                    </span>
+                  )}
+                  {(selectedProj as any)?.mainLever && (
+                    <span className="rounded-full border border-zinc-300 bg-white px-2.5 py-0.5 text-[11px] text-zinc-700">
+                      {LEVER_JA[(selectedProj as any).mainLever] || (selectedProj as any).mainLever}
+                    </span>
+                  )}
+                  {(selectedProj as any)?.horizon && (
+                    <span className="rounded-full border border-zinc-300 bg-white px-2.5 py-0.5 text-[11px] text-zinc-700">
+                      {HORIZON_JA[(selectedProj as any).horizon] || (selectedProj as any).horizon}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 成長KPI件数・どこに効くか */}
+            <div className="flex gap-4 pt-2">
+              <div className="flex-1">
+                <div className="text-[11px] font-semibold text-zinc-600">成長KPI件数</div>
+                <div className="mt-1 text-[13px] font-semibold text-zinc-900">
+                  {Array.isArray(selectedProj.okrsV2) ? selectedProj.okrsV2.length : 0}件
+                </div>
+              </div>
+              <div className="flex-1">
+                <div className="text-[11px] font-semibold text-zinc-600">どこに効くか</div>
+                <div className="mt-1 text-[12px] font-semibold text-zinc-800">
+                  {(selectedProj as any)?.role === 'REVENUE' && '売上を伸ばす'}
+                  {(selectedProj as any)?.role === 'COST' && 'ムダを減らす'}
+                  {(selectedProj as any)?.role === 'FUTURE' && '将来の成長に備える'}
+                  {!(selectedProj as any)?.role && '—'}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div className="grid gap-6 grid-cols-1">
-          {/* ========== Card 1: 目的（何のため？） ========== */}
-          <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-[16px] font-semibold text-zinc-900">目的（何のため？）</h2>
+          {/* ========== Card 1: このプロジェクトで目指すこと ========== */}
+          <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <h2 className="mb-4 text-[16px] font-semibold text-zinc-900">このプロジェクトで目指すこと</h2>
+            <div className="mb-3 text-[12px] text-zinc-600 leading-relaxed">
+              上の背景を踏まえて、このプロジェクトで実現したい状態を確認・修正してください。
             </div>
 
             <div className="mb-4 space-y-1">
-              <label className="text-[11px] font-semibold text-zinc-700">目的（必須）</label>
+              <label className="text-[11px] font-semibold text-zinc-700">目指す状態（必須）</label>
               <AutoResizeTextarea
                 className="min-h-[72px] w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px] leading-5"
                 minRows={2}
@@ -2675,11 +2749,23 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                 />
               </div>
             </div>
+
+            {/* AI生成ボタン */}
+            <div className="mt-6 border-t border-zinc-200 pt-4">
+              <button
+                type="button"
+                onClick={() => alert('次フェーズでSTAGE2・3の情報をもとに自動生成します')}
+                disabled={isHydrating || isApproved()}
+                className="w-full rounded-lg border border-indigo-300 bg-indigo-50 px-4 py-2 text-[12px] font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+              >
+                ✨ AIで実行計画のたたき台を作る
+              </button>
+            </div>
           </div>
 
-          {/* ========== Card 2: 仮説と成長レバー / ロール（財務レバー） ========== */}
-          <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-[16px] font-semibold text-zinc-900">仮説と成長レバー / ロール（財務レバー）</h2>
+          {/* ========== Card 2: 成長につながる変化 ========== */}
+          <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <h2 className="mb-4 text-[16px] font-semibold text-zinc-900">成長につながる変化</h2>
             {(() => {
               const hypothesis =
                 typeof (selectedProj as any)?.hypothesis === 'string'
@@ -2695,14 +2781,15 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
 
               return (
                 <div className="mb-4 rounded-md border bg-slate-50 p-3">
-                  <div className="text-xs font-semibold text-slate-600">仮説と成長レバー</div>
+                  <div className="text-xs font-semibold text-slate-600">この取り組みで変えるポイント</div>
+                  <div className="mt-1 text-[11px] text-slate-500">例：既存顧客への提案内容を変える／重点顧客を絞る／作業のムダを減らす／新しい市場への接点を作る</div>
 
                   <div className="mt-2 text-sm text-slate-700 whitespace-pre-wrap">
                     <span className="font-medium">仮説：</span>{hypothesis || '—'}
                   </div>
 
                   <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-medium text-slate-700">成長レバー：</span>
+                    <span className="text-sm font-medium text-slate-700">成長のポイント：</span>
 
                     {kindLabel && (
                       <span className="rounded-full border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-700">
@@ -2727,23 +2814,16 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                 </div>
               );
             })()}
-            {/* ★STAGE4拡張：ロール（財務レバー） */}
+            {/* ★STAGE4拡張：ロール（財務レバー） - 現場向けに言い換え */}
             <div className="mb-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-[11px] font-semibold text-zinc-700">ロール（財務レバー）</label>
-                {!(selectedProj as any)?.role && (
-                  <span className="rounded-full bg-zinc-100 px-2 py-1 text-[10px] font-semibold text-zinc-600">
-                    ロール未設定
-                  </span>
-                )}
-              </div>
+              <label className="text-[11px] font-semibold text-zinc-700">どこに効く取り組みか</label>
 
               {/* ロール3択 */}
               <div className="flex gap-2">
                 {[
-                  { value: 'REVENUE' as const, label: '売上' },
-                  { value: 'COST' as const, label: 'コスト' },
-                  { value: 'FUTURE' as const, label: '将来投資' },
+                  { value: 'REVENUE' as const, label: '売上を伸ばす' },
+                  { value: 'COST' as const, label: 'ムダを減らす' },
+                  { value: 'FUTURE' as const, label: '将来の成長に備える' },
                 ].map((opt) => (
                   <button
                     key={opt.value}
@@ -2813,11 +2893,240 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                 </div>
               )}
             </div>
+
+            {/* ★ 期待する成果（金額ゴール統合）- AI目安・候補値で補助 */}
+            {(selectedProj as any)?.role && (
+              <div className="mt-4 border-t border-zinc-200 pt-4">
+                <h3 className="mb-2 text-[13px] font-semibold text-zinc-800">期待する成果<span className="text-[11px] font-normal text-zinc-500">（目安でOK）</span></h3>
+                <div className="mb-3 text-[11px] text-zinc-600">STAGE5・STAGE6で進捗や業績への影響を見るため、まずは目安の数値を入れてください。正確でなくても、あとで見直せます。</div>
+
+                {/* AI目安ブロック */}
+                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <div className="mb-2 text-[11px] font-semibold text-amber-900">AIの目安</div>
+                  <div className="text-[11px] text-amber-800 mb-2">この取り組みの内容とKPIから、まずは以下を目安にできます。</div>
+                  {(selectedProj as any).role === 'REVENUE' && (
+                    <div className="text-[11px] text-amber-800">売上への見込み効果：10〜30百万円</div>
+                  )}
+                  {(selectedProj as any).role === 'COST' && (
+                    <div className="text-[11px] text-amber-800">利益への見込み効果：5〜20百万円</div>
+                  )}
+                  {(selectedProj as any).role === 'FUTURE' && (
+                    <div className="text-[11px] text-amber-800">必要な投資：10〜50百万円</div>
+                  )}
+                </div>
+
+                {/* 候補ボタン */}
+                <div className="mb-4">
+                  <div className="mb-2 text-[11px] font-semibold text-zinc-700">候補値を選ぶ</div>
+                  <div className="flex gap-2">
+                    {(selectedProj as any).role === 'REVENUE' && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!selected) return;
+                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
+                              impactRevenueMJPY: 10,
+                            });
+                          }}
+                          disabled={isHydrating || isApproved()}
+                          className="flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                        >
+                          小さめ (10)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!selected) return;
+                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
+                              impactRevenueMJPY: 20,
+                            });
+                          }}
+                          disabled={isHydrating || isApproved()}
+                          className="flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                        >
+                          標準 (20)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!selected) return;
+                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
+                              impactRevenueMJPY: 30,
+                            });
+                          }}
+                          disabled={isHydrating || isApproved()}
+                          className="flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                        >
+                          大きめ (30)
+                        </button>
+                      </>
+                    )}
+                    {(selectedProj as any).role === 'COST' && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!selected) return;
+                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
+                              impactOpIncomeMJPY: 5,
+                            });
+                          }}
+                          disabled={isHydrating || isApproved()}
+                          className="flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                        >
+                          小さめ (5)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!selected) return;
+                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
+                              impactOpIncomeMJPY: 12,
+                            });
+                          }}
+                          disabled={isHydrating || isApproved()}
+                          className="flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                        >
+                          標準 (12)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!selected) return;
+                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
+                              impactOpIncomeMJPY: 20,
+                            });
+                          }}
+                          disabled={isHydrating || isApproved()}
+                          className="flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                        >
+                          大きめ (20)
+                        </button>
+                      </>
+                    )}
+                    {(selectedProj as any).role === 'FUTURE' && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!selected) return;
+                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
+                              impactInvestmentMJPY: 10,
+                            });
+                          }}
+                          disabled={isHydrating || isApproved()}
+                          className="flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                        >
+                          小さめ (10)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!selected) return;
+                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
+                              impactInvestmentMJPY: 30,
+                            });
+                          }}
+                          disabled={isHydrating || isApproved()}
+                          className="flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                        >
+                          標準 (30)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!selected) return;
+                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
+                              impactInvestmentMJPY: 50,
+                            });
+                          }}
+                          disabled={isHydrating || isApproved()}
+                          className="flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                        >
+                          大きめ (50)
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* 手入力欄 */}
+                <div className="mb-3 text-[11px] font-semibold text-zinc-700">または直接入力</div>
+                <div className="space-y-3">
+                  {(selectedProj as any).role === 'REVENUE' && (
+                    <div className="space-y-1">
+                      <div className="text-[11px] font-semibold text-zinc-700">売上への見込み効果（百万円）</div>
+                      <input
+                        type="number"
+                        step="1"
+                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
+                        placeholder="例：3000"
+                        value={selectedProj.impactRevenueMJPY ?? ''}
+                        onChange={(e) => {
+                          if (!selected) return;
+                          const raw = e.target.value;
+                          updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
+                            impactRevenueMJPY: raw === '' ? undefined : Number(raw),
+                          });
+                        }}
+                        disabled={isHydrating || isApproved()}
+                      />
+                    </div>
+                  )}
+
+                  {(selectedProj as any).role === 'COST' && (
+                    <div className="space-y-1">
+                      <div className="text-[11px] font-semibold text-zinc-700">利益への見込み効果（百万円）</div>
+                      <input
+                        type="number"
+                        step="1"
+                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
+                        placeholder="例：500"
+                        value={selectedProj.impactOpIncomeMJPY ?? ''}
+                        onChange={(e) => {
+                          if (!selected) return;
+                          const raw = e.target.value;
+                          updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
+                            impactOpIncomeMJPY: raw === '' ? undefined : Number(raw),
+                          });
+                        }}
+                        disabled={isHydrating || isApproved()}
+                      />
+                    </div>
+                  )}
+
+                  {(selectedProj as any).role === 'FUTURE' && (
+                    <div className="space-y-1">
+                      <div className="text-[11px] font-semibold text-zinc-700">必要な投資（百万円）</div>
+                      <input
+                        type="number"
+                        step="1"
+                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
+                        placeholder="例：2000"
+                        value={selectedProj.impactInvestmentMJPY ?? ''}
+                        onChange={(e) => {
+                          if (!selected) return;
+                          const raw = e.target.value;
+                          updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
+                            impactInvestmentMJPY: raw === '' ? undefined : Number(raw),
+                          });
+                        }}
+                        disabled={isHydrating || isApproved()}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* ========== Card 3: 成果指標（KPI） ========== */}
-          <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-[16px] font-semibold text-zinc-900">成果指標（KPI）</h2>
+          {/* ========== Card 3: 成長KPI ========== */}
+          <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">成長KPI</h2>
+            <div className="mb-3 text-[12px] text-zinc-600 leading-relaxed">
+              この取り組みで成長に向けて動かすKPIを定義してください。既存の管理KPIではなく、新しい行動や市場の拡大につながる指標を追加してください。
+            </div>
 
             {/* Add Button */}
             <div className="mb-4">
@@ -2827,7 +3136,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                 className="w-full h-9 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[13px] font-semibold text-zinc-800 hover:bg-zinc-50 disabled:bg-zinc-200 disabled:text-zinc-500"
               >
                 <span className="inline-flex items-center gap-1">
-                  <Plus className="h-4 w-4" /> KPI を追加
+                  <Plus className="h-4 w-4" /> 成長KPI を追加
                 </span>
               </button>
             </div>
@@ -2835,10 +3144,10 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
             {/* KPI Add Form */}
             {selectedIsOpen && (
               <div className="mb-4 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4">
-                <div className="mb-3 text-[12px] font-semibold text-zinc-800">新しいKPIを追加</div>
+                <div className="mb-3 text-[12px] font-semibold text-zinc-800">成長KPIを追加</div>
                 <div className="space-y-3">
                   <div>
-                    <label className="text-[11px] font-semibold text-zinc-700">KPI名（必須）</label>
+                    <label className="text-[11px] font-semibold text-zinc-700">何を増やす・減らす・良くする？</label>
                     <input
                       type="text"
                       className="mt-1 h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
@@ -2850,7 +3159,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-[11px] font-semibold text-zinc-700">目標値（必須）</label>
+                      <label className="text-[11px] font-semibold text-zinc-700">どこまで変える？</label>
                       <input
                         type="text"
                         className="mt-1 h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
@@ -2874,7 +3183,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-[11px] font-semibold text-zinc-700">期限（YYYY-MM）</label>
+                      <label className="text-[11px] font-semibold text-zinc-700">いつまでに？</label>
                       <input
                         type="text"
                         className="mt-1 h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
@@ -2885,7 +3194,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                       />
                     </div>
                     <div>
-                      <label className="text-[11px] font-semibold text-zinc-700">担当</label>
+                      <label className="text-[11px] font-semibold text-zinc-700">誰が見る？</label>
                       <input
                         type="text"
                         className="mt-1 h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
@@ -2901,7 +3210,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   <div className={`border-t border-amber-200 pt-3 ${editingMode === 'variant' ? 'opacity-50' : ''}`}>
                     <div className="flex items-center justify-between mb-2">
                       <div className="text-[11px] font-semibold text-zinc-700">
-                        マイルストーン（任意）
+                        途中の目安（任意）
                         {editingMode === 'variant' && <span className="ml-1 text-[10px] text-zinc-500">確定版でのみ編集可</span>}
                       </div>
                       <button
@@ -2947,7 +3256,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                     <div className="flex gap-2">
                       <input
                         type="text"
-                        placeholder="タイトル"
+                        placeholder="何を達成する？"
                         className="h-8 flex-1 rounded-lg border border-zinc-200 bg-white px-2 text-[12px]"
                         value={mTitle}
                         onChange={(e) => setMTitle(e.target.value)}
@@ -2955,7 +3264,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                       />
                       <input
                         type="text"
-                        placeholder="YYYY-MM"
+                        placeholder="いつまでに？"
                         className="h-8 w-24 rounded-lg border border-zinc-200 bg-white px-2 text-[12px]"
                         value={mDue}
                         onChange={(e) => setMDue(e.target.value)}
@@ -3046,7 +3355,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
         <div className="space-y-2">
           <div className="grid grid-cols-1 gap-2">
             <div>
-              <div className="text-[11px] font-semibold text-zinc-700 mb-1">名称</div>
+              <div className="text-[11px] font-semibold text-zinc-700 mb-1">何を増やす・減らす・良くする？</div>
               <input
                 value={editingKrDraft.label}
                 onChange={(e) => setEditingKrDraft({ ...editingKrDraft, label: e.target.value })}
@@ -3056,7 +3365,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
 
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <div className="text-[11px] font-semibold text-zinc-700 mb-1">目標値</div>
+                <div className="text-[11px] font-semibold text-zinc-700 mb-1">どこまで変える？</div>
                 <input
                   value={editingKrDraft.target}
                   onChange={(e) => setEditingKrDraft({ ...editingKrDraft, target: e.target.value })}
@@ -3084,7 +3393,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
 
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <div className="text-[11px] font-semibold text-zinc-700 mb-1">期限（YYYY-MM）</div>
+                <div className="text-[11px] font-semibold text-zinc-700 mb-1">いつまでに？</div>
                 <input
                   value={editingKrDraft.due}
                   onChange={(e) => setEditingKrDraft({ ...editingKrDraft, due: e.target.value })}
@@ -3093,7 +3402,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                 />
               </div>
               <div>
-                <div className="text-[11px] font-semibold text-zinc-700 mb-1">担当</div>
+                <div className="text-[11px] font-semibold text-zinc-700 mb-1">誰が見る？</div>
                 <input
                   value={editingKrDraft.owner}
                   onChange={(e) => setEditingKrDraft({ ...editingKrDraft, owner: e.target.value })}
@@ -3105,7 +3414,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
             {/* Phase B-1: Milestones セクション */}
             <div className={`border-t border-zinc-200 pt-3 ${editingMode === 'variant' ? 'opacity-50' : ''}`}>
               <div className="text-[11px] font-semibold text-zinc-700 mb-2">
-                マイルストーン
+                途中の目安
                 {editingMode === 'variant' && <span className="ml-1 text-[10px] text-zinc-500">（確定版でのみ編集可）</span>}
               </div>
               {editingKrDraft.milestones && editingKrDraft.milestones.length > 0 ? (
@@ -3135,7 +3444,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
 
               {/* 新規マイルストーン追加欄 */}
               <div className="bg-zinc-50 rounded border border-zinc-200 p-2">
-                <div className="text-[11px] font-semibold text-zinc-700 mb-2">ここでマイルストーンを追加します</div>
+                <div className="text-[11px] font-semibold text-zinc-700 mb-2">まず1つ、いつまでに何を達成するかを入れます</div>
                 <div className="flex gap-2">
                   <input
                     ref={editingMilestoneTitleInputRef}
@@ -3258,9 +3567,9 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
             return (
               <div className="mt-3">
                 {badgeInfo.showAlert ? (
-                  <div className={`mb-3 rounded-xl border border-zinc-200 bg-zinc-50 p-2.5`}>
-                    <div className="text-[11px] font-medium text-red-800">
-                      ⚠️ {badgeInfo.alertText}
+                  <div className={`mb-3 rounded-xl border border-amber-200 bg-amber-50 p-2.5`}>
+                    <div className="text-[11px] font-medium text-amber-700">
+                      💡 {badgeInfo.alertText}
                     </div>
                   </div>
                 ) : (
@@ -3371,9 +3680,12 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
             )}
           </div>
 
-          {/* ========== Card 3.5: マイルストーン一覧（期限順） ========== */}
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">マイルストーン一覧（期限順）</h2>
+          {/* ========== Card 3.5: 実行ステップ ========== */}
+          <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">実行ステップ</h2>
+            <div className="mb-3 text-[12px] text-zinc-600 leading-relaxed">
+              成長へシフトするために、最初の30日で起こす行動変化を記入してください。1件だけでも構いません。
+            </div>
 
             {(() => {
               const msList = aggregateMilestones(renderKrList);
@@ -3382,7 +3694,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                 return (
                   <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
                     <div className="text-[12px] text-zinc-600 leading-relaxed">
-                      マイルストーンが未設定です。KPIのマイルストーンを最低1件追加すると、STAGE5で推奨進捗が算出できます。
+                      ステップが未設定です。KPIのマイルストーンを1件追加すると、実行ステップが表示されます。
                     </div>
                   </div>
                 );
@@ -3425,11 +3737,16 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
             })()}
           </div>
 
-          {/* ========== Card 4: 投資（金額 or 人数） ========== */}
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">投資（金額 or 人数）</h2>
-{/* ========== Investments ========== */}
-                <div className="mb-4 space-y-2">
+          {/* ========== 詳細設定アコーディオン ========== */}
+          <details className="rounded-2xl border border-zinc-200 bg-white shadow-sm">
+            <summary className="cursor-pointer select-none p-5 text-[16px] font-semibold text-zinc-900 hover:bg-zinc-50">
+              ▶ 成長を実現する条件（任意）
+            </summary>
+
+            {/* ========== Card 4: 投資（金額 or 人数） ========== */}
+            <div className="border-t border-zinc-200 px-5 py-4">
+              <h3 className="mb-3 text-[14px] font-semibold text-zinc-800">投資（金額 or 人数）</h3>
+              <div className="mb-4 space-y-2">
               <div className="flex items-center justify-between">
                 <label className="text-[11px] font-semibold text-zinc-700">投資（金額 or 人数）</label>
                 <div className="text-[11px] text-zinc-500">{(selectedProj.executionHumanInvestments || []).length}件</div>
@@ -3759,11 +4076,11 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
   </div>
 )}
             </div>
-          </div>
+            </div>
 
-          {/* ========== Card 5: 必要スキル（任意） ========== */}
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-            <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">必要スキル（任意）</h2>
+            {/* ========== Card 5: 必要スキル（任意） ========== */}
+            <div className="border-t border-zinc-200 px-5 py-4">
+              <h3 className="mb-3 text-[14px] font-semibold text-zinc-800">必要スキル（任意）</h3>
 {/* Skills (CRUD) */}
             <div className="mt-4 space-y-2">
     <div className="flex items-center justify-between">
@@ -4048,10 +4365,11 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
       </div>
     )}
   </div>
-          </div>
+            </div>
+          </details>
 
-          {/* ========== Card 6: 金額ゴール（North Star寄与） ========== */}
-          <div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
+          {/* ========== Card 6: 金額ゴール（North Star寄与） - Card 2 に統合したため非表示 ========== */}
+          <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm hidden">
             <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">金額ゴール（North Star寄与）</h2>
             {/* ★STAGE4拡張：財務ゴール（North Star寄与・百万円） */}
             {(selectedProj as any)?.role && (
@@ -4230,7 +4548,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
           </div>
 
           {/* ========== Card 7: プロジェクト共通マイルストーン（任意） ========== */}
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm hidden">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm hidden">
             <h2 className="mb-3 text-[16px] font-semibold text-zinc-900">プロジェクト共通マイルストーン（任意）</h2>
 {/* Milestones */}
 <div className="mb-4 space-y-2">
@@ -4452,7 +4770,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
           <div className="min-w-0">
             <div className="grid gap-4 grid-cols-[280px_1fr]">
               {/* Left: project list */}
-              <aside className="w-[280px] rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
+              <aside className="w-[280px] rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
             <ProjectListHeader departments={departments} />
 
             <div className="space-y-4">
