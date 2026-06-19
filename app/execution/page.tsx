@@ -1615,8 +1615,8 @@ function ExecPanel(props: {
 
                         {Array.isArray(kr?.milestones) && kr.milestones.length > 0 && (
                           <div className="mt-1 space-y-1 text-gray-500">
-                            {sortMilestonesByStatus(kr.milestones as any[]).map((m: any) => (
-                              <div key={m?.id} className="text-[11px] flex items-center justify-between gap-2">
+                            {sortMilestonesByStatus(kr.milestones as any[]).map((m: any, idx: number) => (
+                              <div key={m?.id || `milestone-${idx}`} className="text-[11px] flex items-center justify-between gap-2">
                                 <span>
                                   • {m?.title ?? '（タイトル未設定）'} {m?.dueYm ? `(${m.dueYm})` : ''}
                                 </span>
