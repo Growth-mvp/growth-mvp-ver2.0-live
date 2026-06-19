@@ -28,6 +28,7 @@ import { useCapabilities } from '@/hooks/useCapabilities';
 import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
 import { debugLog } from '@/utils/debug';
+import { safeGetSession } from '@/utils/supabase/client';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import type { KRKind, StrategyData } from '@/types/strategy';
 import { okrsV2ToOkrs, okrsToKpis } from '@/utils/supabase/strategy';
@@ -60,6 +61,84 @@ import {
 } from './_lib/okrModels';
 
 import { useOkrEditor, type EditingMode } from './_hooks/useOkrEditor';
+
+type ImpactRole = 'REVENUE' | 'COST' | 'FUTURE';
+type ImpactAssumptions = Record<string, number | undefined>;
+
+const toFiniteNumber = (value: any): number | undefined => {
+  if (value === '' || value == null) return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+};
+
+const roundImpact = (value: number): number => Math.round(value * 10) / 10;
+
+const getImpactResultFromAssumptions = (role: ImpactRole | undefined, assumptions: ImpactAssumptions | undefined) => {
+  const a = assumptions ?? {};
+
+  if (role === 'REVENUE') {
+    const targetCustomers = toFiniteNumber(a.targetCustomers) ?? 0;
+    const conversionRatePct = toFiniteNumber(a.conversionRatePct) ?? 0;
+    const averageDealMJPY = toFiniteNumber(a.averageDealMJPY) ?? 0;
+    const revenueMJPY = roundImpact(targetCustomers * (conversionRatePct / 100) * averageDealMJPY);
+    return {
+      resultKey: 'impactRevenueMJPY',
+      resultLabel: '売上への見込み効果',
+      resultValue: revenueMJPY,
+      formula: `${targetCustomers}社 × ${conversionRatePct}% × ${averageDealMJPY}百万円 = ${revenueMJPY}百万円`,
+    };
+  }
+
+  if (role === 'COST') {
+    const currentCostMJPY = toFiniteNumber(a.currentCostMJPY) ?? 0;
+    const reductionRatePct = toFiniteNumber(a.reductionRatePct) ?? 0;
+    const opIncomeMJPY = roundImpact(currentCostMJPY * (reductionRatePct / 100));
+    return {
+      resultKey: 'impactOpIncomeMJPY',
+      resultLabel: '利益への見込み効果',
+      resultValue: opIncomeMJPY,
+      formula: `${currentCostMJPY}百万円 × ${reductionRatePct}% = ${opIncomeMJPY}百万円`,
+    };
+  }
+
+  if (role === 'FUTURE') {
+    const peopleCount = toFiniteNumber(a.peopleCount) ?? 0;
+    const durationMonths = toFiniteNumber(a.durationMonths) ?? 0;
+    const monthlyCostPerPersonMJPY = toFiniteNumber(a.monthlyCostPerPersonMJPY) ?? 0;
+    const externalCostMJPY = toFiniteNumber(a.externalCostMJPY) ?? 0;
+    const investmentMJPY = roundImpact(peopleCount * durationMonths * monthlyCostPerPersonMJPY + externalCostMJPY);
+    return {
+      resultKey: 'impactInvestmentMJPY',
+      resultLabel: '必要な投資',
+      resultValue: investmentMJPY,
+      formula: `${peopleCount}人 × ${durationMonths}か月 × ${monthlyCostPerPersonMJPY}百万円 + ${externalCostMJPY}百万円 = ${investmentMJPY}百万円`,
+    };
+  }
+
+  return null;
+};
+
+const getImpactPreset = (role: ImpactRole | undefined, size: 'small' | 'standard' | 'large'): ImpactAssumptions => {
+  if (role === 'REVENUE') {
+    if (size === 'small') return { targetCustomers: 10, conversionRatePct: 10, averageDealMJPY: 10 };
+    if (size === 'large') return { targetCustomers: 50, conversionRatePct: 30, averageDealMJPY: 30 };
+    return { targetCustomers: 30, conversionRatePct: 20, averageDealMJPY: 20 };
+  }
+
+  if (role === 'COST') {
+    if (size === 'small') return { currentCostMJPY: 50, reductionRatePct: 10 };
+    if (size === 'large') return { currentCostMJPY: 200, reductionRatePct: 20 };
+    return { currentCostMJPY: 120, reductionRatePct: 10 };
+  }
+
+  if (role === 'FUTURE') {
+    if (size === 'small') return { peopleCount: 2, durationMonths: 3, monthlyCostPerPersonMJPY: 1, externalCostMJPY: 4 };
+    if (size === 'large') return { peopleCount: 5, durationMonths: 6, monthlyCostPerPersonMJPY: 1.2, externalCostMJPY: 14 };
+    return { peopleCount: 3, durationMonths: 6, monthlyCostPerPersonMJPY: 1, externalCostMJPY: 12 };
+  }
+
+  return {};
+};
 
 /* ============================================================
  * 【ARCHITECTURE】STAGE4/5/6 データフロー設計と okrs / okrsV2 の独立性
@@ -626,6 +705,9 @@ function OKRPageContent() {
       skillPlans: Array.isArray(proj?.skillPlans) ? proj.skillPlans : [],
       executionHumanInvestments: Array.isArray(proj?.executionHumanInvestments) ? proj.executionHumanInvestments : [],
       impactRevenueMJPY: proj?.impactRevenueMJPY ?? null,
+      impactOpIncomeMJPY: proj?.impactOpIncomeMJPY ?? null,
+      impactInvestmentMJPY: proj?.impactInvestmentMJPY ?? null,
+      impactAssumptions: proj?.impactAssumptions ?? null,
       impactProfitMJPY: proj?.impactProfitMJPY ?? null,
       impactRevenueProgress: proj?.impactRevenueProgress ?? null,
       impactProfitProgress: proj?.impactProfitProgress ?? null,
@@ -1456,6 +1538,418 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
   );
 
   /* ============================================================
+   * ★ STAGE4: AI生成処理（実行計画たたき台）
+   * ========================================================== */
+  const generateExecutionDraft = useCallback(
+    async (dIdx: number, pIdx: number) => {
+      if (!selected || selected.deptIdx !== dIdx || selected.projIdx !== pIdx) return;
+
+      const dept = departments?.[dIdx];
+      const proj = selectedProj;
+
+      if (!dept || !proj) return;
+
+      setIsGenerating(true);
+      setGenerationError(null);
+
+      try {
+        // プロジェクト情報を収集
+        const projectInfo = {
+          departmentName: typeof dept === 'object' ? (dept as any)?.name || '' : String(dept),
+          projectTitle: proj.title || '',
+          hypothesis: (proj as any)?.hypothesis || '',
+          rationale: (proj as any)?.rationale || '',
+          reason: (proj as any)?.reason || '',
+          kind: (proj as any)?.kind || '',
+          mainLever: (proj as any)?.mainLever || '',
+          horizon: (proj as any)?.horizon || '',
+          role: (proj as any)?.role || 'REVENUE',
+          due: (proj as any)?.okrs?.[0]?.due || '',
+          ownerName: mainOKR?.owner || '',
+          existingOkrs: ensureArray(proj.okrs),
+          existingOkrsV2: ensureArray(proj.okrsV2),
+          existingKpis: Array.isArray((proj as any)?.kpis) ? (proj as any).kpis : [],
+          companyStrategy: (() => {
+            const st = useStrategyStore.getState() as any;
+            const strats = st?.strategiesDataGlobal?.data ?? st?.data;
+            if (strats && typeof strats === 'object' && 'summary' in strats) {
+              return (strats as any).summary;
+            }
+            return '';
+          })(),
+          companyTargets: (() => {
+            const st = useStrategyStore.getState() as any;
+            const strats = st?.strategiesDataGlobal?.data ?? st?.data;
+            if (strats && typeof strats === 'object' && 'targets' in strats) {
+              return ensureArray((strats as any).targets);
+            }
+            return [];
+          })(),
+        };
+
+        // API 呼び出し
+        console.log('[generateExecutionDraft] API call start', { projectTitle: projectInfo.projectTitle });
+
+        // Bearer token を取得
+        let token = '';
+        try {
+          const { data } = await safeGetSession();
+          token = data.session?.access_token || '';
+          console.log('[generateExecutionDraft] Token retrieved:', { hasToken: !!token });
+
+          if (!token) {
+            throw new Error('ログイン情報を確認できませんでした。再ログインしてください。');
+          }
+        } catch (tokenError: any) {
+          console.error('[generateExecutionDraft] Failed to get session', tokenError?.message);
+          throw new Error(`認証エラー: ${tokenError?.message || 'セッション取得失敗'}`);
+        }
+
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        };
+
+        let response;
+        try {
+          response = await fetch('/api/stage4/generate-execution-draft', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(projectInfo),
+          });
+        } catch (fetchError: any) {
+          console.error('[generateExecutionDraft] fetch failed', fetchError);
+          throw new Error(`API接続エラー: ${fetchError?.message || 'Unknown error'}`);
+        }
+
+        if (!response) {
+          console.error('[generateExecutionDraft] response is undefined');
+          throw new Error('APIからの応答が得られませんでした');
+        }
+
+        console.log('[generateExecutionDraft] response received', { status: response.status, ok: response.ok });
+
+        let result;
+        try {
+          result = await response.json();
+        } catch (parseError: any) {
+          console.error('[generateExecutionDraft] JSON parse failed', parseError);
+          throw new Error(`APIレスポンスの解析に失敗しました: ${parseError?.message}`);
+        }
+
+        if (!response.ok) {
+          const errorMsg = result?.error || `API Error (Status ${response.status})`;
+          throw new Error(errorMsg);
+        }
+
+        console.log('[generateExecutionDraft] result parsed', { hasDraft: !!result?.draft });
+
+        const draft = result?.draft;
+
+        if (!draft) {
+          throw new Error('APIからデータが返されませんでした');
+        }
+
+        // 生成結果を画面に反映
+        // ★ ポイント：既存データを無条件に上書きしない。追記・補完の方針
+
+        // 1. objective を DB に保存（既存値がない場合のみ）
+        if (draft.objective && mainOKR && !mainOKR.objective) {
+          await updateProjectOKRDb(dIdx, pIdx, { objective: draft.objective });
+        }
+
+        // 2. role を更新（既存値がない場合のみ）
+        if (draft.role && (!selectedProj || !(selectedProj as any)?.role)) {
+          updateProjectRole(dIdx, pIdx, draft.role);
+        }
+
+        // 3. impact を更新（既存値がない場合のみ補完）
+        // ★ キー修正：revenueMJPY → impactRevenueMJPY など
+        if (draft.impact) {
+          const currentImpact = (selectedProj as any) || {};
+          const impactPatch: Record<string, any> = {};
+          const impactRole = (draft.role || (selectedProj as any)?.role) as ImpactRole | undefined;
+          const assumptions = draft.impact.assumptions as ImpactAssumptions | undefined;
+          const calculatedImpact = getImpactResultFromAssumptions(impactRole, assumptions);
+
+          // 既存値がなければ生成値を使用
+          if (!currentImpact.impactRevenueMJPY && impactRole === 'REVENUE') {
+            impactPatch.impactRevenueMJPY = calculatedImpact?.resultValue ?? draft.impact.revenueMJPY;
+          }
+          if (!currentImpact.impactOpIncomeMJPY && impactRole === 'COST') {
+            impactPatch.impactOpIncomeMJPY = calculatedImpact?.resultValue ?? draft.impact.opIncomeMJPY;
+          }
+          if (!currentImpact.impactInvestmentMJPY && impactRole === 'FUTURE') {
+            impactPatch.impactInvestmentMJPY = calculatedImpact?.resultValue ?? draft.impact.investmentMJPY;
+          }
+          if (!currentImpact.impactRationale && draft.impact.rationale) {
+            impactPatch.impactRationale = draft.impact.rationale;
+          }
+          if (!currentImpact.impactAssumptions && assumptions) {
+            impactPatch.impactAssumptions = assumptions;
+          }
+
+          if (Object.keys(impactPatch).length > 0) {
+            updateProjectImpactAndSave(dIdx, pIdx, impactPatch);
+          }
+        }
+
+        // 4. KPI を更新（既存の okrsV2 と統合）
+        // 既存 KPI がなければ生成値を使用、既存 KPI があれば既存値を優先
+        if (Array.isArray(draft.kpis) && draft.kpis.length > 0) {
+          patchDepartments((prev) => {
+            const next = [...prev];
+            const dept = next[dIdx];
+            if (!dept) return prev;
+
+            const projects = Array.isArray(dept.projects) ? [...dept.projects] : [];
+            const proj = projects[pIdx];
+            if (!proj) return prev;
+
+            const existingOkrsV2 = ensureArray(proj.okrsV2);
+
+            // 既存 KPI が十分ある場合はスキップ（たたき台なので邪魔しない）
+            if (existingOkrsV2.length >= draft.kpis.length) {
+              return prev;
+            }
+
+            // 既存 KPI が不足している場合のみ生成値で補足
+            const updatedOkrsV2 = [
+              ...existingOkrsV2,
+              ...draft.kpis.slice(existingOkrsV2.length).map((kpi: any) => ({
+                label: kpi.label,
+                target: kpi.target,
+                unit: kpi.unit,
+                due: kpi.due,
+                owner: kpi.owner || '',
+                milestones: Array.isArray(kpi.milestones) ? kpi.milestones : [],
+              })),
+            ];
+
+            proj.okrsV2 = updatedOkrsV2;
+            projects[pIdx] = proj;
+            dept.projects = projects;
+            next[dIdx] = dept;
+            return next;
+          });
+        }
+
+        // 生成結果をプレビューに設定
+        setGeneratedDraft(draft);
+        setGenerationSuccess(true);
+        setGenerationError(null);
+
+        // 成功メッセージ（3秒後に消える）
+        setTimeout(() => setGenerationSuccess(false), 3000);
+      } catch (error: any) {
+        console.error('[generateExecutionDraft] Error:', error);
+        const errorMsg = error?.message || '実行計画の生成に失敗しました。もう一度お試しください。';
+        setGenerationError(errorMsg);
+        setGeneratedDraft(null);
+      } finally {
+        setIsGenerating(false);
+      }
+    },
+    [
+      selected,
+      selectedProj,
+      departments,
+      mainOKR,
+      updateProjectOKRDb,
+      updateProjectRole,
+      updateProjectImpactAndSave,
+      patchDepartments,
+    ]
+  );
+
+  /* ============================================================
+   * ★ STAGE4: AI生成結果を画面に反映
+   * ========================================================== */
+  const applyGeneratedDraft = useCallback(
+    async (dIdx: number, pIdx: number, draft: any) => {
+      if (!draft || !selected || selected.deptIdx !== dIdx || selected.projIdx !== pIdx) return;
+
+      try {
+        // 1. objective を DB に保存（既存値がない場合のみ）
+        if (draft.objective && mainOKR && !mainOKR.objective) {
+          await updateProjectOKRDb(dIdx, pIdx, { objective: draft.objective });
+        }
+
+        // 2. role を更新（既存値がない場合のみ）
+        if (draft.role && (!selectedProj || !(selectedProj as any)?.role)) {
+          updateProjectRole(dIdx, pIdx, draft.role);
+        }
+
+        // 3. impact を更新（既存値がない場合のみ補完）
+        // ★ キー修正：revenueMJPY → impactRevenueMJPY など
+        if (draft.impact) {
+          const currentImpact = (selectedProj as any) || {};
+          const impactPatch: Record<string, any> = {};
+          const impactRole = (draft.role || (selectedProj as any)?.role) as ImpactRole | undefined;
+          const assumptions = draft.impact.assumptions as ImpactAssumptions | undefined;
+          const calculatedImpact = getImpactResultFromAssumptions(impactRole, assumptions);
+
+          if (!currentImpact.impactRevenueMJPY && impactRole === 'REVENUE') {
+            impactPatch.impactRevenueMJPY = calculatedImpact?.resultValue ?? draft.impact.revenueMJPY;
+          }
+          if (!currentImpact.impactOpIncomeMJPY && impactRole === 'COST') {
+            impactPatch.impactOpIncomeMJPY = calculatedImpact?.resultValue ?? draft.impact.opIncomeMJPY;
+          }
+          if (!currentImpact.impactInvestmentMJPY && impactRole === 'FUTURE') {
+            impactPatch.impactInvestmentMJPY = calculatedImpact?.resultValue ?? draft.impact.investmentMJPY;
+          }
+          if (!currentImpact.impactRationale && draft.impact.rationale) {
+            impactPatch.impactRationale = draft.impact.rationale;
+          }
+
+          // ★ 計算前提（assumptions）も保存
+          if (draft.impact.assumptions && !currentImpact.impactAssumptions) {
+            impactPatch.impactAssumptions = draft.impact.assumptions;
+          }
+
+          if (Object.keys(impactPatch).length > 0) {
+            updateProjectImpactAndSave(dIdx, pIdx, impactPatch);
+          }
+        }
+
+        // 4. KPI を更新（既存の okrsV2 を AI案で補完）
+        // ★ ポイント：既存 KPI に AI案の target/unit/due/owner/milestones を補完
+        // AI案は追記ではなく、既存 KPI を具体化するために使う
+        let updatedKpisCount = 0;
+        const mergeResults: Array<{ existingLabel: string; draftLabel?: string; updatedFields: string[] }> = [];
+
+        if (Array.isArray(draft.kpis) && draft.kpis.length > 0) {
+          patchDepartments((prev) => {
+            const next = [...prev];
+            const dept = next[dIdx];
+            if (!dept) return prev;
+
+            const projects = Array.isArray(dept.projects) ? [...dept.projects] : [];
+            const proj = projects[pIdx];
+            if (!proj) return prev;
+
+            const existingOkrsV2 = ensureArray(proj.okrsV2);
+            const existingLabels = existingOkrsV2.map((kr) => kr.label);
+            const draftLabels = draft.kpis.map((kpi: any) => kpi.label);
+
+            console.log('[applyGeneratedDraft] before', {
+              existingCount: existingOkrsV2.length,
+              draftKpiCount: draft.kpis?.length,
+              existingLabels,
+              draftLabels,
+              selectedDeptIdx: dIdx,
+              selectedProjIdx: pIdx,
+              projectTitle: proj.title,
+            });
+
+            // 既存 KPI と AI案を index 順でマッチング
+            const updatedOkrsV2 = existingOkrsV2.map((existingKr: any, idx: number) => {
+              const draftKpi = draft.kpis[idx];
+              if (!draftKpi) return existingKr;
+
+              const updatedFields: string[] = [];
+              const updatedKr = { ...existingKr };
+
+              // target が 0 または未設定なら AI案の target を入れる
+              if (!updatedKr.target || updatedKr.target === 0) {
+                if (draftKpi.target) {
+                  updatedKr.target = Number(draftKpi.target);
+                  updatedFields.push('target');
+                }
+              }
+
+              // unit が未設定なら AI案の unit を入れる
+              if (!updatedKr.unit && draftKpi.unit) {
+                updatedKr.unit = draftKpi.unit;
+                updatedFields.push('unit');
+              }
+
+              // due が未設定なら AI案の due を入れる
+              if (!updatedKr.due && draftKpi.due) {
+                updatedKr.due = draftKpi.due;
+                updatedFields.push('due');
+              }
+
+              // owner が未設定なら AI案の owner を入れる
+              if (!updatedKr.owner && draftKpi.owner) {
+                updatedKr.owner = draftKpi.owner;
+                updatedFields.push('owner');
+              }
+
+              // milestones が未設定なら AI案の milestones を入れる
+              if ((!updatedKr.milestones || updatedKr.milestones.length === 0) && Array.isArray(draftKpi.milestones) && draftKpi.milestones.length > 0) {
+                updatedKr.milestones = draftKpi.milestones;
+                updatedFields.push('milestones');
+              }
+
+              if (updatedFields.length > 0) {
+                updatedKpisCount++;
+                mergeResults.push({
+                  existingLabel: existingKr.label,
+                  draftLabel: draftKpi.label,
+                  updatedFields,
+                });
+              }
+
+              return updatedKr;
+            });
+
+            proj.okrsV2 = updatedOkrsV2;
+            projects[pIdx] = proj;
+            dept.projects = projects;
+            next[dIdx] = dept;
+
+            console.log('[applyGeneratedDraft] merge results', {
+              totalMerged: updatedKpisCount,
+              details: mergeResults,
+              finalCount: updatedOkrsV2.length,
+            });
+
+            return next;
+          });
+        }
+
+        // 反映内容をサマリー
+        const summary: string[] = [];
+        if (draft.objective && !mainOKR?.objective) summary.push('目的');
+        if (draft.role && !selectedProj?.role) summary.push('役割');
+        if (draft.impact) {
+          const impactCount = [
+            draft.impact.revenueMJPY !== null,
+            draft.impact.opIncomeMJPY !== null,
+            draft.impact.investmentMJPY !== null,
+          ].filter(Boolean).length;
+          if (impactCount > 0) summary.push(`期待成果(${impactCount}項目)`);
+        }
+        if (updatedKpisCount > 0) summary.push(`既存KPI ${updatedKpisCount}件に目標値・期限・途中目標を反映`);
+
+        setGeneratedDraft(null);
+        queueStage4SnapshotPersist();
+
+        // 成功メッセージ
+        const msg = summary.length > 0
+          ? `AI案を反映しました：${summary.join('、')}`
+          : 'AI案の反映が完了しました。';
+        console.log('[applyGeneratedDraft] success message:', msg);
+        alert(msg);
+      } catch (error: any) {
+        console.error('[applyGeneratedDraft] Error:', error);
+        alert(`AI案の反映に失敗しました: ${error?.message}`);
+      }
+    },
+    [
+      selected,
+      selectedProj,
+      mainOKR,
+      updateProjectOKRDb,
+      updateProjectRole,
+      updateProjectImpactAndSave,
+      patchDepartments,
+      queueStage4SnapshotPersist,
+    ]
+  );
+
+  /* ============================================================
    * ★ Phase 3A: updateProjectDue (snapshot-only)
    * due は DB 正本に存在しないため snapshot 専用
    * ========================================================== */
@@ -1494,10 +1988,44 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
   const [objDraft, setObjDraft] = useState<string | null>(null);
   const [ownerDraft, setOwnerDraft] = useState<string | null>(null);
   const [isSavingOkr, setIsSavingOkr] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
+  const [generatedDraft, setGeneratedDraft] = useState<any>(null);
+  const [generationSuccess, setGenerationSuccess] = useState(false);
+  const [showDirectImpactInput, setShowDirectImpactInput] = useState(false);
 
   // 表示値：draft があれば draft、無ければ mainOKR から取得
   const displayObjective = objDraft !== null ? objDraft : (mainOKR?.objective ?? '');
   const displayOwner = ownerDraft !== null ? ownerDraft : (mainOKR?.owner ?? '');
+
+  const selectedImpactRole = ((selectedProj as any)?.role || undefined) as ImpactRole | undefined;
+  const selectedImpactAssumptions = ((selectedProj as any)?.impactAssumptions || {}) as ImpactAssumptions;
+  const selectedImpactCalculation = useMemo(
+    () => getImpactResultFromAssumptions(selectedImpactRole, selectedImpactAssumptions),
+    [selectedImpactRole, selectedImpactAssumptions],
+  );
+
+  const updateImpactAssumptionsAndSave = useCallback(
+    (assumptionPatch: ImpactAssumptions) => {
+      if (!selected || !selectedImpactRole) return;
+
+      const nextAssumptions = {
+        ...(((selectedProj as any)?.impactAssumptions || {}) as ImpactAssumptions),
+        ...assumptionPatch,
+      };
+      const calculated = getImpactResultFromAssumptions(selectedImpactRole, nextAssumptions);
+      const impactPatch: Record<string, any> = {
+        impactAssumptions: nextAssumptions,
+      };
+
+      if (calculated) {
+        impactPatch[calculated.resultKey] = calculated.resultValue;
+      }
+
+      updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, impactPatch);
+    },
+    [selected, selectedProj, selectedImpactRole, updateProjectImpactAndSave],
+  );
 
   useEffect(() => {
     if (!selected || !mainOKR) return;
@@ -2752,14 +3280,120 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
 
             {/* AI生成ボタン */}
             <div className="mt-6 border-t border-zinc-200 pt-4">
+              {generationError && (
+                <div className="mb-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-[12px] text-red-700">
+                  {generationError}
+                </div>
+              )}
+              {generationSuccess && (
+                <div className="mb-3 rounded-lg bg-green-50 border border-green-200 px-3 py-2 text-[12px] text-green-700">
+                  AIがたたき台を作成しました。内容を確認して、必要に応じて反映してください。
+                </div>
+              )}
               <button
                 type="button"
-                onClick={() => alert('次フェーズでSTAGE2・3の情報をもとに自動生成します')}
-                disabled={isHydrating || isApproved()}
+                onClick={() => {
+                  if (selected) {
+                    void generateExecutionDraft(selected.deptIdx, selected.projIdx);
+                  }
+                }}
+                disabled={isHydrating || isApproved() || isGenerating}
                 className="w-full rounded-lg border border-indigo-300 bg-indigo-50 px-4 py-2 text-[12px] font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
               >
-                ✨ AIで実行計画のたたき台を作る
+                {isGenerating ? '生成中...' : '✨ AIで実行計画のたたき台を作る'}
               </button>
+
+              {/* AI生成結果プレビューパネル */}
+              {generatedDraft && (
+                <div className="mt-4 rounded-lg bg-indigo-50 border border-indigo-200 p-4">
+                  <h3 className="text-[13px] font-semibold text-indigo-900 mb-3">📋 AIが作成したたたき台</h3>
+
+                  {/* 目指す状態 */}
+                  <div className="mb-3 text-[12px]">
+                    <span className="font-medium text-indigo-800">目指す状態：</span>
+                    <p className="text-indigo-700 mt-1">{generatedDraft.objective || '—'}</p>
+                    {!mainOKR?.objective && (
+                      <p className="text-[11px] text-indigo-600 mt-1 italic">💡 既存の目的がないため、このAI案を反映できます。</p>
+                    )}
+                  </div>
+
+                  {/* 役割 */}
+                  {generatedDraft.role && (
+                    <div className="mb-3 text-[12px]">
+                      <span className="font-medium text-indigo-800">役割：</span>
+                      <p className="text-indigo-700 mt-1">{generatedDraft.role}</p>
+                    </div>
+                  )}
+
+                  {/* 期待する成果 */}
+                  {generatedDraft.impact && (
+                    <div className="mb-3 text-[12px]">
+                      <span className="font-medium text-indigo-800">期待する成果：</span>
+                      <div className="text-indigo-700 mt-1 ml-2 text-[11px]">
+                        {generatedDraft.impact.revenueMJPY !== null && (
+                          <p>• 売上増分: {generatedDraft.impact.revenueMJPY}百万円</p>
+                        )}
+                        {generatedDraft.impact.opIncomeMJPY !== null && (
+                          <p>• 営業利益増分: {generatedDraft.impact.opIncomeMJPY}百万円</p>
+                        )}
+                        {generatedDraft.impact.investmentMJPY !== null && (
+                          <p>• 必要投資: {generatedDraft.impact.investmentMJPY}百万円</p>
+                        )}
+                        {generatedDraft.impact.rationale && (
+                          <p className="mt-1 italic">根拠: {generatedDraft.impact.rationale}</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* KPI案 */}
+                  {Array.isArray(generatedDraft.kpis) && generatedDraft.kpis.length > 0 && (
+                    <div className="mb-3 text-[12px]">
+                      <span className="font-medium text-indigo-800">KPI案：</span>
+                      <div className="text-indigo-700 mt-1 ml-2 text-[11px] space-y-2">
+                        {generatedDraft.kpis.map((kpi: any, idx: number) => (
+                          <div key={idx} className="border-l-2 border-indigo-300 pl-2">
+                            <p className="font-medium">{kpi.label}</p>
+                            <p>目標: {kpi.target}{kpi.unit} (期限: {kpi.due})</p>
+                            {kpi.owner && <p>担当: {kpi.owner}</p>}
+                            {Array.isArray(kpi.milestones) && kpi.milestones.length > 0 && (
+                              <p className="text-indigo-600">途中の目安: {kpi.milestones.map((m: any) => `${m.title}(${m.dueYm})`).join(' → ')}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      {(selectedProj as any)?.okrsV2 && Array.isArray((selectedProj as any).okrsV2) && (selectedProj as any).okrsV2.length > 0 && (
+                        <p className="text-[11px] text-indigo-600 mt-2 italic">💡 既存KPIがあるため、AIのKPI案は候補として表示しています。</p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 実行ステップ */}
+                  {Array.isArray(generatedDraft.steps) && generatedDraft.steps.length > 0 && (
+                    <div className="mb-3 text-[12px]">
+                      <span className="font-medium text-indigo-800">実行ステップ：</span>
+                      <div className="text-indigo-700 mt-1 ml-2 text-[11px]">
+                        {generatedDraft.steps.map((step: any, idx: number) => (
+                          <p key={idx}>Step {idx + 1}: {step.title} ({step.dueYm})</p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 反映ボタン */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selected && generatedDraft) {
+                        void applyGeneratedDraft(selected.deptIdx, selected.projIdx, generatedDraft);
+                      }
+                    }}
+                    className="mt-3 w-full rounded-lg bg-indigo-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-indigo-700"
+                  >
+                    このAI案を反映する
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -2894,229 +3528,252 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
               )}
             </div>
 
-            {/* ★ 期待する成果（金額ゴール統合）- AI目安・候補値で補助 */}
+            {/* ★ 期待する成果（金額ゴール統合）- 前提入力 + 自動計算 */}
             {(selectedProj as any)?.role && (
               <div className="mt-4 border-t border-zinc-200 pt-4">
-                <h3 className="mb-2 text-[13px] font-semibold text-zinc-800">期待する成果<span className="text-[11px] font-normal text-zinc-500">（目安でOK）</span></h3>
-                <div className="mb-3 text-[11px] text-zinc-600">STAGE5・STAGE6で進捗や業績への影響を見るため、まずは目安の数値を入れてください。正確でなくても、あとで見直せます。</div>
+                <h3 className="mb-2 text-[13px] font-semibold text-zinc-800">
+                  期待する成果<span className="text-[11px] font-normal text-zinc-500">（AIが置いた目安・修正可）</span>
+                </h3>
+                <div className="mb-3 text-[11px] text-zinc-600">
+                  AIがこの取り組みの内容から計算前提を置いています。違う場合は前提を修正してください。見込み額は自動で変わります。
+                </div>
 
-                {/* AI目安ブロック */}
-                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
-                  <div className="mb-2 text-[11px] font-semibold text-amber-900">AIの目安</div>
-                  <div className="text-[11px] text-amber-800 mb-2">この取り組みの内容とKPIから、まずは以下を目安にできます。</div>
+                <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="text-[11px] font-semibold text-blue-900">AIが置いた前提（修正できます）</div>
+                    <div className="text-[10px] text-blue-700">単位：百万円</div>
+                  </div>
+
+                  <div className="mb-3 grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateImpactAssumptionsAndSave(getImpactPreset(selectedImpactRole, 'small'))}
+                      disabled={isHydrating || isApproved()}
+                      className="rounded-lg border border-blue-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-blue-900 hover:bg-blue-50 disabled:opacity-50"
+                    >
+                      小さめ
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateImpactAssumptionsAndSave(getImpactPreset(selectedImpactRole, 'standard'))}
+                      disabled={isHydrating || isApproved()}
+                      className="rounded-lg border border-blue-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-blue-900 hover:bg-blue-50 disabled:opacity-50"
+                    >
+                      標準
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateImpactAssumptionsAndSave(getImpactPreset(selectedImpactRole, 'large'))}
+                      disabled={isHydrating || isApproved()}
+                      className="rounded-lg border border-blue-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-blue-900 hover:bg-blue-50 disabled:opacity-50"
+                    >
+                      大きめ
+                    </button>
+                  </div>
+
                   {(selectedProj as any).role === 'REVENUE' && (
-                    <div className="text-[11px] text-amber-800">売上への見込み効果：10〜30百万円</div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <label className="space-y-1">
+                        <span className="text-[11px] font-semibold text-zinc-700">対象顧客数（社）</span>
+                        <input
+                          type="number"
+                          step="1"
+                          className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
+                          value={selectedImpactAssumptions.targetCustomers ?? ''}
+                          onChange={(e) => updateImpactAssumptionsAndSave({ targetCustomers: toFiniteNumber(e.target.value) })}
+                          disabled={isHydrating || isApproved()}
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[11px] font-semibold text-zinc-700">想定受注率（%）</span>
+                        <input
+                          type="number"
+                          step="1"
+                          className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
+                          value={selectedImpactAssumptions.conversionRatePct ?? ''}
+                          onChange={(e) => updateImpactAssumptionsAndSave({ conversionRatePct: toFiniteNumber(e.target.value) })}
+                          disabled={isHydrating || isApproved()}
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[11px] font-semibold text-zinc-700">平均単価</span>
+                        <input
+                          type="number"
+                          step="1"
+                          className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
+                          value={selectedImpactAssumptions.averageDealMJPY ?? ''}
+                          onChange={(e) => updateImpactAssumptionsAndSave({ averageDealMJPY: toFiniteNumber(e.target.value) })}
+                          disabled={isHydrating || isApproved()}
+                        />
+                      </label>
+                    </div>
                   )}
+
                   {(selectedProj as any).role === 'COST' && (
-                    <div className="text-[11px] text-amber-800">利益への見込み効果：5〜20百万円</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="space-y-1">
+                        <span className="text-[11px] font-semibold text-zinc-700">現在コスト</span>
+                        <input
+                          type="number"
+                          step="1"
+                          className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
+                          value={selectedImpactAssumptions.currentCostMJPY ?? ''}
+                          onChange={(e) => updateImpactAssumptionsAndSave({ currentCostMJPY: toFiniteNumber(e.target.value) })}
+                          disabled={isHydrating || isApproved()}
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[11px] font-semibold text-zinc-700">削減率（%）</span>
+                        <input
+                          type="number"
+                          step="1"
+                          className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
+                          value={selectedImpactAssumptions.reductionRatePct ?? ''}
+                          onChange={(e) => updateImpactAssumptionsAndSave({ reductionRatePct: toFiniteNumber(e.target.value) })}
+                          disabled={isHydrating || isApproved()}
+                        />
+                      </label>
+                    </div>
                   )}
+
                   {(selectedProj as any).role === 'FUTURE' && (
-                    <div className="text-[11px] text-amber-800">必要な投資：10〜50百万円</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="space-y-1">
+                        <span className="text-[11px] font-semibold text-zinc-700">投入人数（人）</span>
+                        <input
+                          type="number"
+                          step="1"
+                          className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
+                          value={selectedImpactAssumptions.peopleCount ?? ''}
+                          onChange={(e) => updateImpactAssumptionsAndSave({ peopleCount: toFiniteNumber(e.target.value) })}
+                          disabled={isHydrating || isApproved()}
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[11px] font-semibold text-zinc-700">実施月数（月）</span>
+                        <input
+                          type="number"
+                          step="1"
+                          className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
+                          value={selectedImpactAssumptions.durationMonths ?? ''}
+                          onChange={(e) => updateImpactAssumptionsAndSave({ durationMonths: toFiniteNumber(e.target.value) })}
+                          disabled={isHydrating || isApproved()}
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[11px] font-semibold text-zinc-700">1人あたり月額</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
+                          value={selectedImpactAssumptions.monthlyCostPerPersonMJPY ?? ''}
+                          onChange={(e) => updateImpactAssumptionsAndSave({ monthlyCostPerPersonMJPY: toFiniteNumber(e.target.value) })}
+                          disabled={isHydrating || isApproved()}
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[11px] font-semibold text-zinc-700">外部費用</span>
+                        <input
+                          type="number"
+                          step="1"
+                          className="h-9 w-full rounded-lg border border-blue-100 bg-white px-2 text-[13px]"
+                          value={selectedImpactAssumptions.externalCostMJPY ?? ''}
+                          onChange={(e) => updateImpactAssumptionsAndSave({ externalCostMJPY: toFiniteNumber(e.target.value) })}
+                          disabled={isHydrating || isApproved()}
+                        />
+                      </label>
+                    </div>
                   )}
                 </div>
 
-                {/* 候補ボタン */}
-                <div className="mb-4">
-                  <div className="mb-2 text-[11px] font-semibold text-zinc-700">候補値を選ぶ</div>
-                  <div className="flex gap-2">
-                    {(selectedProj as any).role === 'REVENUE' && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!selected) return;
-                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
-                              impactRevenueMJPY: 10,
-                            });
-                          }}
-                          disabled={isHydrating || isApproved()}
-                          className="flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                        >
-                          小さめ (10)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!selected) return;
-                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
-                              impactRevenueMJPY: 20,
-                            });
-                          }}
-                          disabled={isHydrating || isApproved()}
-                          className="flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                        >
-                          標準 (20)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!selected) return;
-                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
-                              impactRevenueMJPY: 30,
-                            });
-                          }}
-                          disabled={isHydrating || isApproved()}
-                          className="flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                        >
-                          大きめ (30)
-                        </button>
-                      </>
-                    )}
-                    {(selectedProj as any).role === 'COST' && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!selected) return;
-                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
-                              impactOpIncomeMJPY: 5,
-                            });
-                          }}
-                          disabled={isHydrating || isApproved()}
-                          className="flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                        >
-                          小さめ (5)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!selected) return;
-                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
-                              impactOpIncomeMJPY: 12,
-                            });
-                          }}
-                          disabled={isHydrating || isApproved()}
-                          className="flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                        >
-                          標準 (12)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!selected) return;
-                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
-                              impactOpIncomeMJPY: 20,
-                            });
-                          }}
-                          disabled={isHydrating || isApproved()}
-                          className="flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                        >
-                          大きめ (20)
-                        </button>
-                      </>
-                    )}
-                    {(selectedProj as any).role === 'FUTURE' && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!selected) return;
-                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
-                              impactInvestmentMJPY: 10,
-                            });
-                          }}
-                          disabled={isHydrating || isApproved()}
-                          className="flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                        >
-                          小さめ (10)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!selected) return;
-                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
-                              impactInvestmentMJPY: 30,
-                            });
-                          }}
-                          disabled={isHydrating || isApproved()}
-                          className="flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                        >
-                          標準 (30)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!selected) return;
-                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
-                              impactInvestmentMJPY: 50,
-                            });
-                          }}
-                          disabled={isHydrating || isApproved()}
-                          className="flex-1 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                        >
-                          大きめ (50)
-                        </button>
-                      </>
-                    )}
+                <div className="mb-3 rounded-lg border border-zinc-200 bg-white p-3">
+                  <div className="text-[11px] font-semibold text-zinc-500">自動計算された見込み</div>
+                  <div className="mt-1 flex items-end justify-between gap-3">
+                    <div className="text-[13px] font-semibold text-zinc-800">{selectedImpactCalculation?.resultLabel ?? '見込み効果'}</div>
+                    <div className="text-[20px] font-bold text-zinc-950">
+                      {selectedImpactCalculation?.resultValue ?? 0}
+                      <span className="ml-1 text-[11px] font-semibold text-zinc-500">百万円</span>
+                    </div>
+                  </div>
+                  <div className="mt-2 rounded-md bg-zinc-50 px-2 py-1.5 text-[11px] text-zinc-600">
+                    計算式：{selectedImpactCalculation?.formula ?? '前提を入力すると自動計算されます'}
                   </div>
                 </div>
 
-                {/* 手入力欄 */}
-                <div className="mb-3 text-[11px] font-semibold text-zinc-700">または直接入力</div>
-                <div className="space-y-3">
-                  {(selectedProj as any).role === 'REVENUE' && (
-                    <div className="space-y-1">
-                      <div className="text-[11px] font-semibold text-zinc-700">売上への見込み効果（百万円）</div>
-                      <input
-                        type="number"
-                        step="1"
-                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
-                        placeholder="例：3000"
-                        value={selectedProj.impactRevenueMJPY ?? ''}
-                        onChange={(e) => {
-                          if (!selected) return;
-                          const raw = e.target.value;
-                          updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
-                            impactRevenueMJPY: raw === '' ? undefined : Number(raw),
-                          });
-                        }}
-                        disabled={isHydrating || isApproved()}
-                      />
-                    </div>
-                  )}
+                <button
+                  type="button"
+                  onClick={() => setShowDirectImpactInput((v) => !v)}
+                  className="text-[11px] font-semibold text-zinc-500 hover:text-zinc-700"
+                >
+                  {showDirectImpactInput ? '▼ 金額を直接修正する' : '▶ 金額を直接修正する'}
+                </button>
 
-                  {(selectedProj as any).role === 'COST' && (
-                    <div className="space-y-1">
-                      <div className="text-[11px] font-semibold text-zinc-700">利益への見込み効果（百万円）</div>
-                      <input
-                        type="number"
-                        step="1"
-                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
-                        placeholder="例：500"
-                        value={selectedProj.impactOpIncomeMJPY ?? ''}
-                        onChange={(e) => {
-                          if (!selected) return;
-                          const raw = e.target.value;
-                          updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
-                            impactOpIncomeMJPY: raw === '' ? undefined : Number(raw),
-                          });
-                        }}
-                        disabled={isHydrating || isApproved()}
-                      />
-                    </div>
-                  )}
+                {showDirectImpactInput && (
+                  <div className="mt-2 space-y-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                    {(selectedProj as any).role === 'REVENUE' && (
+                      <div className="space-y-1">
+                        <div className="text-[11px] font-semibold text-zinc-700">売上への見込み効果（百万円）</div>
+                        <input
+                          type="number"
+                          step="1"
+                          className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
+                          placeholder="例：300"
+                          value={selectedProj.impactRevenueMJPY ?? ''}
+                          onChange={(e) => {
+                            if (!selected) return;
+                            const raw = e.target.value;
+                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
+                              impactRevenueMJPY: raw === '' ? undefined : Number(raw),
+                            });
+                          }}
+                          disabled={isHydrating || isApproved()}
+                        />
+                      </div>
+                    )}
 
-                  {(selectedProj as any).role === 'FUTURE' && (
-                    <div className="space-y-1">
-                      <div className="text-[11px] font-semibold text-zinc-700">必要な投資（百万円）</div>
-                      <input
-                        type="number"
-                        step="1"
-                        className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
-                        placeholder="例：2000"
-                        value={selectedProj.impactInvestmentMJPY ?? ''}
-                        onChange={(e) => {
-                          if (!selected) return;
-                          const raw = e.target.value;
-                          updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
-                            impactInvestmentMJPY: raw === '' ? undefined : Number(raw),
-                          });
-                        }}
-                        disabled={isHydrating || isApproved()}
-                      />
-                    </div>
-                  )}
-                </div>
+                    {(selectedProj as any).role === 'COST' && (
+                      <div className="space-y-1">
+                        <div className="text-[11px] font-semibold text-zinc-700">利益への見込み効果（百万円）</div>
+                        <input
+                          type="number"
+                          step="1"
+                          className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
+                          placeholder="例：50"
+                          value={selectedProj.impactOpIncomeMJPY ?? ''}
+                          onChange={(e) => {
+                            if (!selected) return;
+                            const raw = e.target.value;
+                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
+                              impactOpIncomeMJPY: raw === '' ? undefined : Number(raw),
+                            });
+                          }}
+                          disabled={isHydrating || isApproved()}
+                        />
+                      </div>
+                    )}
+
+                    {(selectedProj as any).role === 'FUTURE' && (
+                      <div className="space-y-1">
+                        <div className="text-[11px] font-semibold text-zinc-700">必要な投資（百万円）</div>
+                        <input
+                          type="number"
+                          step="1"
+                          className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-[13px]"
+                          placeholder="例：30"
+                          value={selectedProj.impactInvestmentMJPY ?? ''}
+                          onChange={(e) => {
+                            if (!selected) return;
+                            const raw = e.target.value;
+                            updateProjectImpactAndSave(selected.deptIdx, selected.projIdx, {
+                              impactInvestmentMJPY: raw === '' ? undefined : Number(raw),
+                            });
+                          }}
+                          disabled={isHydrating || isApproved()}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
