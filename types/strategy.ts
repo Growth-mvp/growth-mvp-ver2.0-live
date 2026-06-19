@@ -668,6 +668,22 @@ export type Project = {
   /** ★STAGE4拡張：寄与の根拠・備考 */
   impactRationale?: string;
 
+  /** ★STAGE4拡張：期待成果の計算前提（AI案反映時に保存） */
+  impactAssumptions?: {
+    // REVENUE の場合
+    targetCustomers?: number;
+    conversionRatePct?: number;
+    averageDealMJPY?: number;
+    // COST の場合
+    currentCostMJPY?: number;
+    reductionRatePct?: number;
+    // FUTURE の場合
+    peopleCount?: number;
+    durationMonths?: number;
+    monthlyCostPerPersonMJPY?: number;
+    externalCostMJPY?: number;
+  };
+
   /** ★STAGE5拡張：北極星売上寄与の達成率（%） */
   impactRevenueProgress?: number;
 
