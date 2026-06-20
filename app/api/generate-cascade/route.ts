@@ -563,6 +563,69 @@ function normalizeKeyResults(raw: any): {
   return { normalized, rawType, rawLen };
 }
 
+
+/**
+ * KPI/KR label の表示・保存用整形。
+ * - 旧生成データに残る「プロジェクト名：KPI名」形式を、保存前にも安全に除去する
+ * - projectTitle と一致する prefix を優先的に削除する
+ * - KPI/KR ラベルとして扱う箇所でのみ利用する前提
+ */
+function stripProjectPrefixFromKpiLabel(label: string, projectTitle?: string): string {
+  const t = String(label ?? '').trim();
+  if (!t) return '';
+
+  const knownPrefix = String(projectTitle ?? '').trim();
+  if (knownPrefix) {
+    for (const sep of ['：', ':']) {
+      const prefix = `${knownPrefix}${sep}`;
+      if (t.startsWith(prefix)) {
+        return t.slice(prefix.length).trim();
+      }
+    }
+  }
+
+  // KPIラベルの旧形式対策。文章全般ではなく、KR/KPI label に限定して使用する。
+  if (t.includes('：')) {
+    return t.split('：').slice(1).join('：').trim();
+  }
+  if (t.includes(':')) {
+    return t.split(':').slice(1).join(':').trim();
+  }
+
+  return t;
+}
+
+function normalizeKpiLabel(label: string, projectTitle?: string): string {
+  return stripProjectPrefixFromKpiLabel(label, projectTitle)
+    .replace(/（\s*%\s*）/g, '（%）')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+const GENERIC_KPI_PATTERNS = [
+  /^売上向上（?%?）?$/,
+  /^利益率向上（?%?）?$/,
+  /^顧客満足度向上（?.*?）?$/,
+  /^活動強化$/,
+  /^提案推進$/,
+  /^目標達成度（?%?）?$/,
+  /^効果実現度（?%?）?$/,
+  /^実行進捗度（?%?）?$/,
+  /^歩留改善（?.*?）?$/,
+  /^材料ロス削減（?.*?）?$/,
+  /^稼働率向上（?.*?）?$/,
+  /^目標仕様達成率（?.*?）?$/,
+  /^原価低減達成率（?.*?）?$/,
+  /^新製品認定率（?.*?）?$/,
+  /^商談会の初回接触数（?.*?）?$/,
+  /^重点案件の仕掛け期間（?.*?）?$/,
+];
+
+function isGenericKpiLabel(label: string): boolean {
+  const t = String(label ?? '').trim();
+  return GENERIC_KPI_PATTERNS.some((pattern) => pattern.test(t));
+}
+
 /**
  * ★ TASK 1: projectType を辞書ベースで分類
  * - タイトル/部門名からプロジェクトの性質を推測
@@ -652,27 +715,32 @@ function validateKRs(
 ): ValidationResult {
   const reasons: string[] = [];
 
-  // チェック1: projectTitle prefix が入っているか
-  const hasPrefix = krs.every((kr) =>
-    (kr.label ?? '').includes(projectTitle)
-  );
-  if (!hasPrefix) {
-    reasons.push('missing_project_prefix');
+  // 旧仕様では projectTitle prefix を要求していたが、現在は「KPI名（単位）」のみを正とする。
+  const hasProjectPrefix = krs.some((kr) => {
+    const label = String(kr.label ?? '').trim();
+    return Boolean(projectTitle) && (
+      label.startsWith(`${projectTitle}：`) ||
+      label.startsWith(`${projectTitle}:`)
+    );
+  });
+  if (hasProjectPrefix) {
+    reasons.push('project_prefix_included');
   }
 
-  // チェック2: KPI名が被ってないか
-  const kpiNames = krs.map((kr) => {
-    // label から projectTitle を削除して KPI名を抽出
-    let name = (kr.label ?? '').replace(projectTitle, '').replace(/^：/, '').trim();
-    return name;
-  });
+  // チェック2: KPI名が被ってないか（prefix除去後で判定）
+  const kpiNames = krs.map((kr) => normalizeKpiLabel(kr.label ?? '', projectTitle));
   const uniqueCount = new Set(kpiNames).size;
   if (uniqueCount < 3) {
     reasons.push('duplicate_kpi_names');
   }
 
-  // チェック3: 種別別の禁止セット
-  const allLabelsLower = krs.map((kr) => (kr.label ?? '').toLowerCase()).join(' ');
+  // チェック3: 汎用KPIだけで終わっていないか
+  if (kpiNames.some(isGenericKpiLabel)) {
+    reasons.push('generic_kpi_label');
+  }
+
+  // チェック4: 種別別の禁止セット
+  const allLabelsLower = kpiNames.map((label) => label.toLowerCase()).join(' ');
 
   if (projectType === 'customer_research') {
     if (allLabelsLower.match(/不良率|合格率|稼働率/)) {
@@ -699,79 +767,79 @@ function generateTypeSpecificPrompt(projectType: ProjectType, projectTitle: stri
     customer_research: {
       candidates: `
 【推奨KPI候補】
-- ヒアリング実施数（件数/月）
-- ペルソナ検証数（件数/月）
-- 提案反映率（%）
-- VoC抽出件数（件数）
-- ニーズマッチ度（%）`,
+- 重点顧客への課題ヒアリング実施件数（件/月）
+- 対象セグメント別の仮説検証完了数（件/月）
+- 顧客要望の提案仕様反映率（%）
+- 重点顧客からの有効VoC抽出件数（件）
+- 重点顧客ニーズとの適合率（%）`,
       forbidden: '不良率|合格率|稼働率|納期|生産性|歩留まり|稼働時間',
     },
     inventory_system: {
       candidates: `
 【推奨KPI候補】
-- 在庫精度（%）
-- 欠品率（%）
-- 滞留在庫金額（万円）
-- 棚卸工数（h/月）
-- 入出庫精度（%）`,
+- 重点部材の在庫差異率（%）
+- 重点部材の欠品率（%）
+- 対象品目の滞留在庫金額（万円）
+- 対象倉庫の棚卸工数（h/月）
+- 対象品目の入出庫精度（%）`,
       forbidden: '試験合格率|不良率|ヒアリング|ニーズ|提案反映',
     },
     sales_process: {
       candidates: `
 【推奨KPI候補】
-- 見積リードタイム（日）
-- 受注率（%）
-- 失注率（%）
-- 提案から成約まで期間（日）
-- 案件進捗速度（件数/月）`,
+- 重点案件の初回提案から見積提出までの期間（日）
+- 重点顧客向け提案の受注率（%）
+- 重点案件の失注理由が特定された案件比率（%）
+- 重点案件の提案から受注判断までの期間（日）
+- 重点案件の月次ステージ進捗件数（件/月）`,
       forbidden: '在庫|棚卸|稼働率|不良率|試験合格',
     },
     new_market: {
       candidates: `
 【推奨KPI候補】
-- PoC実施数（件数/月）
-- 新規リード数（件数）
-- 商談化率（%）
-- 仮説検証完了数（件数）
-- 市場調査進捗度（スコア）`,
+- 新規市場向けPoC開始件数（件/月）
+- 重点市場向け商談会での有効接触件数（件）
+- 対象市場リードの商談化率（%）
+- 新規顧客仮説の検証完了数（件）
+- 対象市場における導入可能性評価スコア（1-10）`,
       forbidden: '既存事業改善|既知顧客|安定供給|製造稼働',
     },
     dx: {
       candidates: `
 【推奨KPI候補】
-- 自動化率（%）
-- 利用率（%）
-- 手作業削減工数（h/月）
-- システム導入期間短縮（日）
-- RPA処理件数（件数/月）`,
+- 対象業務プロセスの自動化率（%）
+- 対象システムの現場利用率（%）
+- 対象業務の手作業削減工数（h/月）
+- 対象拠点へのシステム導入期間短縮（日）
+- 対象業務のRPA処理件数（件/月）`,
       forbidden: '顧客満足度|ヒアリング|在庫精度|不良率',
     },
     quality: {
       candidates: `
 【推奨KPI候補】
-- 不良率低減（ppm）
-- 納期達成率（%）
-- クレーム件数（件数/月）
-- 品質検査合格率（%）
-- トレーサビリティ完全性（%）`,
+- 重点製品ラインの工程内不良率（ppm）
+- 重点顧客向け案件の納期遵守率（%）
+- 重点顧客からの品質クレーム件数（件/月）
+- 重点製品ラインの初回検査合格率（%）
+- 対象工程のトレーサビリティ記録完全率（%）`,
       forbidden: '提案反映|ニーズ|商談化|利用率',
     },
     r_and_d: {
       candidates: `
 【推奨KPI候補】
-- プロトタイプ開発期間短縮（日）
-- 試作試験実施数（件数）
-- 特性改善幅（%）
-- 設計検証完了率（%）
-- 新商品上市準備度（%）`,
+- 重点顧客要求に対する試作開発期間短縮（日）
+- 重点仕様の試作検証実施数（件）
+- 重点顧客要求仕様の性能改善幅（%）
+- 重点仕様の設計検証完了率（%）
+- 対象市場向け新商品の上市準備完了率（%）`,
       forbidden: '顧客満足度|稼働率|在庫精度|失注率',
     },
     default: {
       candidates: `
 【推奨KPI候補】
-- 実行進捗度（%）
-- 目標達成度（%）
-- 効果実現度（%）`,
+- 重点テーマの初回実行マイルストーン達成率（%）
+- 対象顧客・対象市場における重点成果指標の達成率（%）
+- 重点施策による現場行動変化の実行率（%）`,
       forbidden: '',
     },
   };
@@ -833,15 +901,15 @@ async function generateKeyResultsByLLM(
       case 'new_market':
         return 'PoC完了数、仮説検証リードタイム、検証継続率、パイロット顧客数';
       case 'quality':
-        return '不良率、再工数、手戻り率、稼働率、歩留まり';
+        return '重点製品ラインの初回良品率、対象工程の再工数、重点製品ラインの材料ロス率、対象設備の稼働安定率';
       case 'inventory_system':
         return '納期遵守率、在庫回転数、リードタイム、配送精度';
       case 'customer_research':
-        return 'リサーチ完了数、分析精度、顧客満足度、レポート品質';
+        return '重点顧客への課題ヒアリング実施件数、分析対象セグメント数、顧客要望の提案反映率、仮説検証完了数';
       case 'r_and_d':
         return '試作完了数、開発リードタイム、実験成功率、知識共有度';
       default:
-        return '業務効率、作業時間、精度、完了率、工数削減';
+        return '対象業務の処理時間、重点プロセスの完了率、対象工程の精度、対象業務の工数削減';
     }
   })();
 
@@ -877,30 +945,35 @@ ${typeSpecificContent}
 【必須要件】
 1. JSONのみ返す（説明・前後の言葉は絶対禁止）
 2. keyResultsは必ず3本、各カテゴリから1本ずつ
-3. ★★★ label形式は必ず 「${projectTitle}：{KPI名}（{unit}）」に統一する
+3. label形式は「{KPI名}（{unit}）」とする。プロジェクト名やテーマ名は含めない
 4. 各KRの unit は単位のみ（例："ppm", "日", "%" など）
 5. 上記の【部門の6問回答】と整合性を保つこと
 6. プロジェクト種別（${projectType}）に適した指標を選択すること
+7. KPI名は具体的で、成長・行動変化・戦略テーマとのつながりが分かる表現にする
+8. KPI名には可能な限り、対象顧客・対象市場・対象製品・対象プロセスのいずれかを含める
+9. 「売上向上」「利益率向上」「歩留改善」「材料ロス削減」「稼働率向上」「目標仕様達成率」「原価低減達成率」のような一般表現だけで終わらせない
+10. 一般指標を使う場合も、必ず対象を付ける（例：重点製品ラインの初回良品率、重点顧客要求仕様の充足率、新製品量産時の目標原価達成率）
+11. KPI名は「対象」だけでなく、可能な限り「どの行動・どのプロセス・どの転換点を測るのか」が分かる表現にする（例：重点案件の仕掛け期間ではなく、重点案件の初回提案から見積提出までの期間。商談会の初回接触数ではなく、重点市場向け商談会での有効接触件数。）
 
 【返却フォーマット】
 {
   "keyResults": [
-    { "label": "${projectTitle}：{KPI名}（{unit}）", "unit": "単位コード" },
-    { "label": "${projectTitle}：{KPI名}（{unit}）", "unit": "単位コード" },
-    { "label": "${projectTitle}：{KPI名}（{unit}）", "unit": "単位コード" }
+    { "label": "{具体的なKPI名}（{unit}）", "unit": "単位コード" },
+    { "label": "{具体的なKPI名}（{unit}）", "unit": "単位コード" },
+    { "label": "{具体的なKPI名}（{unit}）", "unit": "単位コード" }
   ]
 }
 
 【例】
 {
   "keyResults": [
-    { "label": "${projectTitle}：不良率低減（100ppm以下）", "unit": "ppm" },
-    { "label": "${projectTitle}：納期短縮（30日以内）", "unit": "日" },
-    { "label": "${projectTitle}：歩留まり改善（98.5%以上）", "unit": "%" }
+    { "label": "重点顧客における導入検討案件数（件/月）", "unit": "件/月" },
+    { "label": "EMS提案から商談化までの転換率（%）", "unit": "%" },
+    { "label": "重点顧客へのPoC提案から受注検討への転換率（%）", "unit": "%" }
   ]
 }
 
-★重要★ label に必ずプロジェクト名を含めること。JSON以外は返さないこと。
+★重要★ 汎用的な「売上向上」「利益率向上」「歩留改善」「材料ロス削減」「稼働率向上」「目標仕様達成率」「原価低減達成率」「顧客満足度」だけで終わらせないこと。必ず対象（重点顧客・対象市場・重点製品ライン・対象工程・新規市場・PoC案件など）を含め、さらに『初回提案→見積提出』『PoC→受注検討』『顧客要求→仕様充足』『対象工程→再工数削減』のように、どの行動・プロセス・転換点を測るのかが分かる具体的な指標にすること。JSON以外は返さないこと。
 `.trim();
 
   try {
@@ -947,7 +1020,7 @@ ${typeSpecificContent}
     }
 
     const extracted = krArray.slice(0, 3).map((kr: any) => ({
-      label: String(kr.label).trim(),
+      label: normalizeKpiLabel(String(kr.label).trim(), projectTitle),
       unit: kr.unit ? String(kr.unit).trim() : null,
     }));
 
@@ -996,15 +1069,19 @@ async function ensureKeyResults(
 
   // Step 4: AI採用（LLMから返ってきたデータ）
   if (normalized.length > 0) {
+    const normalizedClean = normalized.map((kr) => ({
+      ...kr,
+      label: normalizeKpiLabel(kr.label, projectTitle),
+    }));
     // ★ ログ: label の先頭30文字を出して形式確認（直接LLM返却の場合）
-    const labels = normalized.map((kr: any) => (kr.label ?? '').substring(0, 30)).join(' | ');
+    const labels = normalizedClean.map((kr: any) => (kr.label ?? '').substring(0, 30)).join(' | ');
     console.log(
       `[cascade][kpi][llm-label-check] dept="${deptName ?? 'unknown'}" project="${projectTitle}" rawType="${rawType}" labels="${labels}"`
     );
 
     return {
       ...okr,
-      keyResults: normalized,
+      keyResults: normalizedClean,
       _aiCalled: ai_called,
       _krSource: 'AI',
       _krReason: 'llm_returned',
@@ -1042,7 +1119,7 @@ async function ensureKeyResults(
     if (result.keyResults.length === 3) {
       // ★ TASK 4: AI生成が成功したら検証を実施
       const aiKrs = result.keyResults.map((kr: any) => ({
-        label: kr.label,
+        label: normalizeKpiLabel(kr.label, projectTitle),
         current: null,
         target: null,
         unit: kr.unit ?? null,
@@ -1064,8 +1141,7 @@ async function ensureKeyResults(
 
       // KPI名抽出ログ（projectTitle接頭辞を削除）
       const kpiNames = aiKrs.map((kr: any) => {
-        let name = (kr.label ?? '').replace(projectTitle, '').replace(/^：/, '').trim();
-        return name;
+        return normalizeKpiLabel(kr.label ?? '', projectTitle);
       });
       console.log(
         `[cascade][kpi][ai-kpi-name] dept="${deptName}" project="${projectTitle}" names="${kpiNames.join(' | ')}"`
@@ -1171,7 +1247,6 @@ function deriveKrsByContext(
 ): { krs: string[]; sourceDetail: string } {
   const title = String(projectTitle).toLowerCase();
   const tags = (projectTags ?? []).map((t) => String(t).toLowerCase());
-  let sourceDetail = 'template:default';
 
   // タイトルに含まれるキーワードをチェック
   const hasKeyword = (keywords: string[]) =>
@@ -1179,257 +1254,81 @@ function deriveKrsByContext(
 
   // ★ 分岐ルール 1: 品質 / 不良 / クレーム / 保証 / 検査 / 監査
   if (hasKeyword(['品質', '不良', 'クレーム', '保証', '検査', '監査', '信頼性'])) {
-    if (variant === 0) {
-      return {
-        krs: [
-          `${projectTitle}：不良率低減（ppm）`,
-          `${projectTitle}：クレーム件数削減（件/月）`,
-          `${projectTitle}：審査/監査合格率（%）`,
-        ],
-        sourceDetail: 'template:quality_v0',
-      };
-    } else if (variant === 1) {
-      return {
-        krs: [
-          `${projectTitle}：検査工数削減（h/ロット）`,
-          `${projectTitle}：再加工率低減（%）`,
-          `${projectTitle}：初回良品率（%）`,
-        ],
-        sourceDetail: 'template:quality_v1',
-      };
-    } else {
-      return {
-        krs: [
-          `${projectTitle}：工程内流出率低減（ppm）`,
-          `${projectTitle}：保証費削減（%）`,
-          `${projectTitle}：返品率低減（%）`,
-        ],
-        sourceDetail: 'template:quality_v2',
-      };
-    }
+    const sets = [
+      ['重点製品ラインの工程内不良率（ppm）', '重点顧客からの品質クレーム件数（件/月）', '対象工程の監査合格率（%）'],
+      ['重点製品ラインの検査工数削減（h/ロット）', '対象工程の再加工率（%）', '重点製品ラインの初回良品率（%）'],
+      ['対象工程の工程内流出率（ppm）', '重点製品の保証費率（%）', '重点顧客向け出荷品の返品率（%）'],
+    ];
+    return { krs: sets[variant], sourceDetail: `template:quality_v${variant}` };
   }
 
   // ★ 分岐ルール 2: 受注 / 見積 / 営業 / 案件 / 納期 / リードタイム
   if (hasKeyword(['受注', '見積', '営業', '案件', '納期', 'リード', 'lead time'])) {
-    if (variant === 0) {
-      return {
-        krs: [
-          `${projectTitle}：見積リードタイム短縮（営業日）`,
-          `${projectTitle}：受注率改善（%）`,
-          `${projectTitle}：納期遵守率（%）`,
-        ],
-        sourceDetail: 'template:sales_v0',
-      };
-    } else if (variant === 1) {
-      return {
-        krs: [
-          `${projectTitle}：仕掛け期間削減（日）`,
-          `${projectTitle}：提案件数増加（件/月）`,
-          `${projectTitle}：受注規模拡大（平均金額）`,
-        ],
-        sourceDetail: 'template:sales_v1',
-      };
-    } else {
-      return {
-        krs: [
-          `${projectTitle}：見積回答時間短縮（時間）`,
-          `${projectTitle}：商談成功率（%）`,
-          `${projectTitle}：販売テコ比改善（%）`,
-        ],
-        sourceDetail: 'template:sales_v2',
-      };
-    }
+    const sets = [
+      ['重点案件の初回提案から見積提出までの期間（営業日）', '重点顧客向け提案の受注率（%）', '重点顧客向け案件の納期遵守率（%）'],
+      ['重点案件の初回提案から受注判断までの期間（日）', '重点顧客への初回提案件数（件/月）', '重点案件の平均想定受注金額（円）'],
+      ['重点案件の見積依頼から一次回答までの時間（時間）', '重点顧客向け提案後の商談化率（%）', '営業人日あたりの有効商談創出数（件）'],
+    ];
+    return { krs: sets[variant], sourceDetail: `template:sales_v${variant}` };
   }
 
   // ★ 分岐ルール 3: コスト / 原価 / 工数 / 効率 / 自動化 / 省力
   if (hasKeyword(['コスト', '原価', '工数', '効率', '自動化', '省力', 'automation'])) {
-    if (variant === 0) {
-      return {
-        krs: [
-          `${projectTitle}：単位原価削減（%）`,
-          `${projectTitle}：作業工数削減（h/月）`,
-          `${projectTitle}：段取り時間短縮（分）`,
-        ],
-        sourceDetail: 'template:cost_v0',
-      };
-    } else if (variant === 1) {
-      return {
-        krs: [
-          `${projectTitle}：歩留改善（%）`,
-          `${projectTitle}：材料ロス削減（%）`,
-          `${projectTitle}：稼働率向上（%pt）`,
-        ],
-        sourceDetail: 'template:cost_v1',
-      };
-    } else {
-      return {
-        krs: [
-          `${projectTitle}：加工時間短縮（分/個）`,
-          `${projectTitle}：人件費削減（%）`,
-          `${projectTitle}：設備稼働率（%）`,
-        ],
-        sourceDetail: 'template:cost_v2',
-      };
-    }
+    const sets = [
+      ['重点製品ラインの量産単位原価削減率（%）', '対象業務の作業工数削減（h/月）', '対象工程の段取り時間短縮（分）'],
+      ['重点製品ラインの初回良品率（%）', '高付加価値製品ラインの材料ロス率（%）', '対象設備の稼働安定率（%pt）'],
+      ['対象工程の1個あたり加工時間短縮（分/個）', '対象業務プロセスの人件費率削減（%）', '重点設備の計画稼働率達成率（%）'],
+    ];
+    return { krs: sets[variant], sourceDetail: `template:cost_v${variant}` };
   }
 
   // ★ 分岐ルール 4: 新規 / 開発 / 軽量 / 耐久 / 設計
   if (hasKeyword(['新規', '開発', '軽量', '耐久', '設計', 'design', 'development'])) {
-    if (variant === 0) {
-      return {
-        krs: [
-          `${projectTitle}：試作回数削減（回）`,
-          `${projectTitle}：試験合格率（%）`,
-          `${projectTitle}：開発リードタイム短縮（月）`,
-        ],
-        sourceDetail: 'template:newbiz_v0',
-      };
-    } else if (variant === 1) {
-      return {
-        krs: [
-          `${projectTitle}：量産時期達成率（%）`,
-          `${projectTitle}：目標仕様達成率（%）`,
-          `${projectTitle}：原価低減達成率（%）`,
-        ],
-        sourceDetail: 'template:newbiz_v1',
-      };
-    } else {
-      return {
-        krs: [
-          `${projectTitle}：設計段階での課題検出数（件）`,
-          `${projectTitle}：手戻り削減（%）`,
-          `${projectTitle}：部品共通化率（%）`,
-        ],
-        sourceDetail: 'template:newbiz_v2',
-      };
-    }
+    const sets = [
+      ['重点仕様の試作検証回数（回）', '重点顧客要求仕様の試験合格率（%）', '新製品開発リードタイム（月）'],
+      ['新製品量産立ち上げマイルストーン達成率（%）', '重点顧客要求仕様の充足率（%）', '新製品量産時の目標原価達成率（%）'],
+      ['設計段階での顧客要求課題検出数（件）', '重点仕様変更による手戻り削減率（%）', '対象部品の共通化率（%）'],
+    ];
+    return { krs: sets[variant], sourceDetail: `template:newbiz_v${variant}` };
   }
 
   // ★ 分岐ルール 5: 市場 / 開拓 / 仮説 / 検証 / PoC
   if (hasKeyword(['市場', '開拓', '仮説', '検証', 'poc', 'パイロット', 'prototype', 'validation'])) {
-    if (variant === 0) {
-      return {
-        krs: [
-          `${projectTitle}：商談件数増加（件/月）`,
-          `${projectTitle}：PoC件数（件）`,
-          `${projectTitle}：検証→受注転換率（%）`,
-        ],
-        sourceDetail: 'template:market_v0',
-      };
-    } else if (variant === 1) {
-      return {
-        krs: [
-          `${projectTitle}：顧客ヒアリング数（社）`,
-          `${projectTitle}：見込み案件数（件）`,
-          `${projectTitle}：パイロット参加企業数（社）`,
-        ],
-        sourceDetail: 'template:market_v1',
-      };
-    } else {
-      return {
-        krs: [
-          `${projectTitle}：市場反応度調査（回答率%）`,
-          `${projectTitle}：早期顧客数（社）`,
-          `${projectTitle}：実装案件化率（%）`,
-        ],
-        sourceDetail: 'template:market_v2',
-      };
-    }
+    const sets = [
+      ['新規市場向け有効商談創出件数（件/月）', '新規市場向けPoC開始件数（件）', 'PoCから受注検討への転換率（%）'],
+      ['重点顧客への課題ヒアリング実施社数（社）', '新規市場の見込み案件数（件）', 'パイロット参加企業数（社）'],
+      ['対象市場への課題ヒアリング有効回答率（%）', '新規市場の早期顧客獲得数（社）', 'PoC案件の実装案件化率（%）'],
+    ];
+    return { krs: sets[variant], sourceDetail: `template:market_v${variant}` };
   }
 
   // ★ 分岐ルール 6: スマート / IoT / データ / DX / AI / 分析
   if (hasKeyword(['smart', 'iot', 'データ', 'dx', 'ai', '分析', 'analytics', 'digital'])) {
-    if (variant === 0) {
-      return {
-        krs: [
-          `${projectTitle}：データ取得率（%）`,
-          `${projectTitle}：予兆検知精度（感度%）`,
-          `${projectTitle}：稼働率改善（%pt）`,
-        ],
-        sourceDetail: 'template:dx_v0',
-      };
-    } else if (variant === 1) {
-      return {
-        krs: [
-          `${projectTitle}：データ活用範囲（システム数）`,
-          `${projectTitle}：自動化カバー率（%）`,
-          `${projectTitle}：異常検知検出精度（%）`,
-        ],
-        sourceDetail: 'template:dx_v1',
-      };
-    } else {
-      return {
-        krs: [
-          `${projectTitle}：停止時間削減（h/月）`,
-          `${projectTitle}：予測精度（%）`,
-          `${projectTitle}：データ品質スコア（1-10）`,
-        ],
-        sourceDetail: 'template:dx_v2',
-      };
-    }
+    const sets = [
+      ['対象設備のデータ取得率（%）', '対象設備の予兆検知精度（%）', '重点設備の稼働安定率（%pt）'],
+      ['対象システムのデータ活用範囲（システム数）', '対象業務プロセスの自動化カバー率（%）', '異常検知モデルの検出精度（%）'],
+      ['対象設備の停止時間削減（h/月）', '需要・稼働予測モデルの予測精度（%）', '対象データの品質スコア（1-10）'],
+    ];
+    return { krs: sets[variant], sourceDetail: `template:dx_v${variant}` };
   }
 
   // ★ デフォルト: 汎用 KR（レーン種別で少し調整）
   if (laneType === 'new') {
-    if (variant === 0) {
-      return {
-        krs: [
-          `${projectTitle}：実現可能性検証度（%）`,
-          `${projectTitle}：学習・獲得知見数（件）`,
-          `${projectTitle}：スケーラビリティスコア（1-10）`,
-        ],
-        sourceDetail: 'template:newlane_v0',
-      };
-    } else if (variant === 1) {
-      return {
-        krs: [
-          `${projectTitle}：実装体制構築度（%）`,
-          `${projectTitle}：リスク認識件数（件）`,
-          `${projectTitle}：プロトタイプ完成度（%）`,
-        ],
-        sourceDetail: 'template:newlane_v1',
-      };
-    } else {
-      return {
-        krs: [
-          `${projectTitle}：市場受容度調査（回答率%）`,
-          `${projectTitle}：提携先候補数（社）`,
-          `${projectTitle}：導入可能性評価スコア（1-10）`,
-        ],
-        sourceDetail: 'template:newlane_v2',
-      };
-    }
+    const sets = [
+      ['新規テーマの事業化仮説検証完了率（%）', '新規テーマからの獲得知見数（件）', '対象市場におけるスケーラビリティ評価スコア（1-10）'],
+      ['新規テーマの実装体制構築度（%）', '新規テーマの主要リスク特定件数（件）', 'PoCプロトタイプ完成度（%）'],
+      ['対象市場の受容度調査回答率（%）', '対象市場における提携先候補企業数（社）', '導入可能性評価スコア（1-10）'],
+    ];
+    return { krs: sets[variant], sourceDetail: `template:newlane_v${variant}` };
   }
 
   // laneType === 'existing' または デフォルト
-  if (variant === 0) {
-    return {
-      krs: [
-        `${projectTitle}：生産性向上（%）`,
-        `${projectTitle}：顧客満足度（NPS）`,
-        `${projectTitle}：プロセス改善スコア（1-10）`,
-      ],
-      sourceDetail: 'template:default_v0',
-    };
-  } else if (variant === 1) {
-    return {
-      krs: [
-        `${projectTitle}：売上向上（%）`,
-        `${projectTitle}：リード獲得数（件/月）`,
-        `${projectTitle}：顧客保持率（%）`,
-      ],
-      sourceDetail: 'template:default_v1',
-    };
-  } else {
-    return {
-      krs: [
-        `${projectTitle}：利益率向上（%pt）`,
-        `${projectTitle}：顧客単価向上（%）`,
-        `${projectTitle}：プロセス効率化度（%）`,
-      ],
-      sourceDetail: 'template:default_v2',
-    };
-  }
+  const sets = [
+    ['重点顧客における導入検討案件数（件/月）', '重点顧客向け有効商談転換率（%）', '既存重点顧客の継続契約率（%）'],
+    ['営業人日あたりの有効商談創出数（件）', '高付加価値提案の平均受注単価（円）', '対象業務プロセスの工数削減率（%）'],
+    ['対象セグメントにおける重点提案案件の営業利益率（%pt）', '高付加価値商談の平均契約額（円）', '重点案件の初回提案から受注判断までの営業人日（営業人日/案件）'],
+  ];
+  return { krs: sets[variant], sourceDetail: `template:default_v${variant}` };
 }
 
 /**
@@ -1590,7 +1489,7 @@ async function ensureOkrsForAllDepts(depts: any[]): Promise<any[]> {
         const finalKrs: any[] = [];
 
         for (const kr of krs) {
-          const krLabel = kr.label || String(kr);
+          const krLabel = normalizeKpiLabel(kr.label || String(kr), projectTitle);
           if (usedKrSet.has(krLabel)) {
             // 重複！差し替え候補を探す
             let replaced = false;
@@ -1599,10 +1498,11 @@ async function ensureOkrsForAllDepts(depts: any[]): Promise<any[]> {
               const result = deriveKrsByContext(projectTitle, undefined, laneType, undefined, variant);
               const altKrs = result.krs;
               for (const altKr of altKrs) {
-                if (!usedKrSet.has(altKr) && !uniqueLabels.has(altKr)) {
-                  finalKrs.push({ ...kr, label: altKr });
-                  uniqueLabels.add(altKr);
-                  usedKrSet.add(altKr);
+                const cleanAltKr = normalizeKpiLabel(altKr, projectTitle);
+                if (!usedKrSet.has(cleanAltKr) && !uniqueLabels.has(cleanAltKr)) {
+                  finalKrs.push({ ...kr, label: cleanAltKr });
+                  uniqueLabels.add(cleanAltKr);
+                  usedKrSet.add(cleanAltKr);
                   replaced = true;
                   break;
                 }
@@ -1618,7 +1518,7 @@ async function ensureOkrsForAllDepts(depts: any[]): Promise<any[]> {
               uniqueLabels.add(suffixKr);
             }
           } else {
-            finalKrs.push(kr);
+            finalKrs.push({ ...kr, label: krLabel });
             usedKrSet.add(krLabel);
             uniqueLabels.add(krLabel);
           }
