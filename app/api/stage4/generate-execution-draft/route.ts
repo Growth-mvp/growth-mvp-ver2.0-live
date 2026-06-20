@@ -28,6 +28,7 @@ interface ExecutionDraftRequest {
   existingOkrsV2?: any[];
   existingOkrs?: any[];
   existingKpis?: any[];
+  sourceKpis?: string[];  // ★ STAGE3由来の固定KPI（AIが変更しない）
   due?: string;
   ownerName?: string;
   companyStrategy?: string;
@@ -83,6 +84,45 @@ async function generateExecutionDraft(
     throw new Error('OPENAI_API_KEY is not configured');
   }
 
+  // 現在年月日を明示的に計算
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const currentDay = now.getDate();
+  const currentYearMonth = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
+  const currentDateStr = `${currentYear}年${currentMonth}月${currentDay}日`;
+
+  // 期限の目安を計算：現在月から3〜6ヶ月後の範囲
+  const kpiDueMonthsFrom = 3;
+  const kpiDueMonthsTo = 6;
+  const stepDueMonthsFrom = 1;
+  const stepDueMonthsTo = 3;
+
+  const getMonthAfter = (months: number): string => {
+    let m = currentMonth + months;
+    let y = currentYear;
+    while (m > 12) {
+      m -= 12;
+      y += 1;
+    }
+    return `${y}-${String(m).padStart(2, '0')}`;
+  };
+
+  const kpiDueLowerBound = getMonthAfter(kpiDueMonthsFrom);
+  const kpiDueUpperBound = getMonthAfter(kpiDueMonthsTo);
+  const stepDueLowerBound = getMonthAfter(stepDueMonthsFrom);
+  const stepDueUpperBound = getMonthAfter(stepDueMonthsTo);
+
+  debugInfo.currentDateStr = currentDateStr;
+  debugInfo.currentYearMonth = currentYearMonth;
+  debugInfo.kpiDueRange = `${kpiDueLowerBound} ～ ${kpiDueUpperBound}`;
+  debugInfo.stepDueRange = `${stepDueLowerBound} ～ ${stepDueUpperBound}`;
+
+  // ★ STAGE3由来の固定KPI をプロンプトに明記（AIが変更しない）
+  const sourceKpisText = Array.isArray(projectInfo.sourceKpis) && projectInfo.sourceKpis.length > 0
+    ? `【STAGE3で確定されたKPI（変更不可）】\n${projectInfo.sourceKpis.map((kpi, idx) => `${idx + 1}. ${kpi}`).join('\n')}\n\n★重要★ 上記のKPI名は絶対に変更・追加・削除しないでください。`
+    : '【STAGE3 KPI】未設定のため、AIで補完してください。';
+
   // プロジェクト情報をプロンプトに組み込む
   const projectContext = `
 【プロジェクト情報】
@@ -97,11 +137,20 @@ async function generateExecutionDraft(
 - オーナー: ${projectInfo.ownerName || '—'}
 - 役割（Revenue/Cost/Future）: ${projectInfo.role || 'REVENUE'}
 
+${sourceKpisText}
+
 ${projectInfo.companyStrategy ? `【全社戦略】\n${projectInfo.companyStrategy}` : ''}
 ${projectInfo.companyTargets && projectInfo.companyTargets.length > 0 ? `【全社目標】\n${projectInfo.companyTargets.map((t: any) => `- ${t.label}: ${t.base}→${t.high || t.base} (${t.unit})`).join('\n')}` : ''}
   `.trim();
 
-  const prompt = `以下のプロジェクト情報と全社戦略をもとに、実行計画のたたき台を生成してください。
+  const prompt = `【重要：現在日時】
+現在日は ${currentDateStr} です。
+本プロンプトで「現在月」「今月」と表記した場合、${currentMonth}月を指します。
+本プロンプトで「現在年月」と表記した場合、${currentYearMonth} を指します。
+
+---
+
+以下のプロジェクト情報と全社戦略をもとに、実行計画のたたき台を生成してください。
 現場社員が白紙から入力しなくてもよいように、具体的で実行可能なKPI・ステップを提案してください。
 
 ${projectContext}
@@ -180,13 +229,43 @@ JSON形式で以下を返してください。
 - 不明な項目はnullを指定
 
 ### kpis
-- 3～5個の具体的なKPIを列挙
-- 各KPIに中間マイルストーン（milestone）を1～2個設定
-- 期限は due から逆算した現実的な日付を設定
+- ★ STAGE3で確定されたKPIがある場合は、そのKPI名をそのまま使用すること
+  - KPI名を変更・追加・削除するなど、勝手に編集しないこと
+  - ★ 非常に重要 ★ STAGE3 KPI の個数に合わせて、「同じ個数」「同じ順番」で生成すること
+    - STAGE3 KPI件数：N件
+    - STAGE4 KPI件数：必ずN件
+    - 1番目のSTAGE3 KPI → 1番目のSTAGE4 KPIに対応させること
+
+- STAGE3 KPIがない場合のみ、新規にKPI名を生成する
+  - KPI名は「テーマ名：指標名」のように冗長にせず、具体的で成長につながる指標にする
+  - NG例: 「半導体企業向け製品強化：売上向上（%）」
+  - OK例: 「重点顧客向け新製品売上比率」、「半導体領域の有効商談数」
+
+- AIが生成してよいのは、各KPIに対する以下のみ：
+  - target: 目標値
+  - unit: 単位
+  - due: 期限（${kpiDueLowerBound} ～ ${kpiDueUpperBound}）
+  - owner: 担当者案
+  - milestones: マイルストーン
+
+- 期限は ${kpiDueLowerBound} ～ ${kpiDueUpperBound} の範囲で設定すること（過去日付は絶対に使用しない）
+  - この範囲は現在（${currentYearMonth}）から3～6ヶ月後の期間
+  - 必ず YYYY-MM 形式で、この範囲内の日付を指定すること
+
+- ★ 絶対に守ること ★
+  - STAGE3 KPIより多く返さない
+  - STAGE3 KPIより少なく返さない
+  - 返す順番を変えない
 
 ### steps
 - 初期段階の実行ステップを3～5個列挙
 - 各ステップは1～3ヶ月単位で実行可能な粒度
+- ステップ名は「誰に対して」「何をするか」を含む具体的な行動に
+  - NG例: 「顧客アンケート実施」「提案内容ブラッシュアップ」
+  - OK例: 「重点顧客10社への課題ヒアリング」「営業・開発合同で顧客別提案方針を確認」
+- 期限は ${stepDueLowerBound} ～ ${stepDueUpperBound} の範囲で設定すること（過去日付は絶対に使用しない）
+  - この範囲は現在（${currentYearMonth}）から1～3ヶ月後の期間
+  - 必ず YYYY-MM 形式で、この範囲内の日付を指定すること
 
 ---
 
