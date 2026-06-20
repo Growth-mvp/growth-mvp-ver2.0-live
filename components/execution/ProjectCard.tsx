@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Project } from '@/types/strategy';
 import { motion } from 'framer-motion';
+import { stripProjectPrefix } from '@/utils/dateFormatter';
 
 interface Props {
   deptName: string;
@@ -37,8 +38,8 @@ export default function ProjectCard({
     '未設定のObjective';
 
   const displayKRs: string[] = okr?.keyResults && Array.isArray(okr.keyResults)
-    ? okr.keyResults.map(k => (typeof k === 'string' ? k : String(k)))
-    : v2Labels;
+    ? okr.keyResults.map(k => stripProjectPrefix(typeof k === 'string' ? k : String(k)))
+    : v2Labels.map(stripProjectPrefix);
 
   // 長すぎるときは3件まで + 残数表示
   const MAX_KR = 3;
