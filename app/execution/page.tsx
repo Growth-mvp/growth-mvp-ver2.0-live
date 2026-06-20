@@ -1247,61 +1247,28 @@ function ExecPanel(props: {
     ? departments?.[di]?.projects?.[pi]
     : null;
 
-  // variant 判定（activeVariantId が存在すれば variant）
-  const isVariant = (stage4Proj as any)?.activeVariantId != null;
+  // 成果見込みの確度（STAGE6反映額の補正に使用）
+  const confidenceOptions = [
+    { value: 'low', label: '低い', coefficient: 0.3 },
+    { value: 'medium', label: 'ふつう', coefficient: 0.6 },
+    { value: 'high', label: '高い', coefficient: 0.9 },
+    { value: 'committed', label: 'ほぼ確定', coefficient: 1.0 },
+  ] as const;
 
-  // Milestone status 更新ハンドラ（krId と milestoneId で対象を特定）
-  const handleMilestoneStatusChange = useCallback(
-    (krId: string, milestoneId: string, newStatus: string) => {
-      if (typeof di !== 'number' || typeof pi !== 'number' || isVariant) return;
+  const getConfidenceCoefficient = (value: any): number => {
+    const found = confidenceOptions.find((option) => option.value === value);
+    return found?.coefficient ?? 0.6;
+  };
 
-      updateDepartments((prev) => {
-        const next = [...prev];
-        const dept = next[di];
-        if (!dept) return prev;
+  const getConfidenceLabel = (value: any): string => {
+    const found = confidenceOptions.find((option) => option.value === value);
+    return found?.label ?? 'ふつう';
+  };
 
-        const deptCopy = { ...dept };
-        const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
-        const proj = projs[pi];
-        if (!proj) return prev;
-
-        const projCopy = { ...proj };
-        const okrsV2 = Array.isArray(proj.okrsV2) ? [...(proj.okrsV2 as any[])] : [];
-
-        // krId で対象KRを特定
-        const krIdx = okrsV2.findIndex((kr: any) => kr?.id === krId);
-        if (krIdx < 0) return prev;
-
-        const kr = okrsV2[krIdx];
-        const krCopy = { ...kr };
-        const milestones = Array.isArray(kr.milestones) ? [...kr.milestones] : [];
-
-        // milestoneId で対象Milestoneを特定して status を更新
-        const msIdx = milestones.findIndex((m: any) => m?.id === milestoneId);
-        if (msIdx < 0) return prev;
-
-        const msCopy = { ...milestones[msIdx] };
-        if (msCopy.status === newStatus) return prev; // 変更がなければ何もしない
-
-        msCopy.status = newStatus as any;
-        milestones[msIdx] = msCopy;
-        krCopy.milestones = milestones;
-        okrsV2[krIdx] = krCopy;
-
-        projCopy.okrsV2 = okrsV2;
-        projs[pi] = projCopy;
-        deptCopy.projects = projs;
-        next[di] = deptCopy;
-        return next;
-      });
-    },
-    [di, pi, isVariant, updateDepartments]
-  );
-
-  // Progress 更新ハンドラ（売上/営業利益の達成率）
+  // 成果見込み率の更新ハンドラ（STAGE6シミュレーションの前提）
   const handleProgressChange = useCallback(
     (field: 'impactRevenueProgress' | 'impactOpIncomeProgress', value: string) => {
-      if (typeof di !== 'number' || typeof pi !== 'number' || isVariant) return;
+      if (typeof di !== 'number' || typeof pi !== 'number') return;
 
       const parsed = parseInt(value, 10);
       const oldValue = field === 'impactRevenueProgress'
@@ -1317,7 +1284,7 @@ function ExecPanel(props: {
         numValue = Math.max(0, Math.min(100, parsed));
       }
 
-      if (numValue === oldValue) return; // 変更がなければ何もしない
+      if (numValue === oldValue) return;
 
       updateDepartments((prev) => {
         const next = [...prev];
@@ -1337,17 +1304,10 @@ function ExecPanel(props: {
         return next;
       });
 
-      // ★ STAGE5 FIX: dirty フラグで useAutoSave に委譲
-      // 理由：
-      // - progress input は複数回走る可能性がある（ユーザーが数値を修正）
-      // - 直接 saveStrategyData を呼ぶと、isFetching/hydrating 中に save が走る可能性
-      // - force:true を使うと master guard を迂回するリスク
-      // - useAutoSave は既に isFetching guard を実装しており、fetch/hydrate 中は自動 skip
-      // → dirty フラグを立てて useAutoSave に委譲するのが最も安全
       const state = useStrategyStore.getState();
       const proj = state.departments?.[di]?.projects?.[pi];
 
-      console.log('[STAGE5-progress-change]', {
+      console.log('[STAGE5-impact-forecast-change]', {
         field,
         oldValue,
         newValue: numValue,
@@ -1357,10 +1317,39 @@ function ExecPanel(props: {
         timestamp: new Date().toISOString(),
       });
 
-      // ★ dirty フラグを立てる（useAutoSave が isFetching=false を待って自動 save）
       useStrategyStore.setState({ dirty: true });
     },
-    [di, pi, isVariant, stage4Proj, updateDepartments]
+    [di, pi, stage4Proj, updateDepartments]
+  );
+
+  // 成果見込みの確度を更新
+  const handleConfidenceChange = useCallback(
+    (field: 'impactRevenueConfidence' | 'impactOpIncomeConfidence', value: string) => {
+      if (typeof di !== 'number' || typeof pi !== 'number') return;
+
+      updateDepartments((prev) => {
+        const next = [...prev];
+        const dept = next[di];
+        if (!dept) return prev;
+
+        const deptCopy = { ...dept };
+        const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
+        const proj = projs[pi];
+        if (!proj) return prev;
+
+        if ((proj as any)[field] === value) return prev;
+
+        const projCopy = { ...proj };
+        (projCopy as any)[field] = value;
+        projs[pi] = projCopy;
+        deptCopy.projects = projs;
+        next[di] = deptCopy;
+        return next;
+      });
+
+      useStrategyStore.setState({ dirty: true });
+    },
+    [di, pi, updateDepartments]
   );
 
   // Helper: Calculate achieved value from target and progress (display only)
@@ -1370,57 +1359,29 @@ function ExecPanel(props: {
     return achieved.toString();
   };
 
-  // Helper: Calculate suggested progress% from milestone statuses (display only)
-  const calcSuggestedProgressPct = (okrsV2: any[] | undefined): number | undefined => {
-    if (!Array.isArray(okrsV2) || okrsV2.length === 0) return undefined;
-
-    let totalScore = 0;
-    let totalMilestones = 0;
-
-    for (const kr of okrsV2) {
-      const milestones = Array.isArray(kr?.milestones) ? kr.milestones : [];
-      if (milestones.length === 0) continue;
-
-      for (const m of milestones) {
-        const status = m?.status ?? 'todo';
-        const score = status === 'done' ? 1 : status === 'doing' ? 0.5 : 0;
-        totalScore += score;
-        totalMilestones += 1;
-      }
-    }
-
-    if (totalMilestones === 0) return undefined;
-    const suggested = Math.round((totalScore / totalMilestones) * 100 * 10) / 10;
-    return suggested;
+  // Helper: STAGE6に反映する見込み額（目標額 × 成果見込み率 × 確度）
+  const calcStage6Projection = (target: number | undefined, progress: number | undefined, confidence: any): string => {
+    if (typeof target !== 'number' || typeof progress !== 'number') return '—';
+    const projection = Math.round(target * (progress / 100) * getConfidenceCoefficient(confidence) * 10) / 10;
+    return projection.toString();
   };
 
-  // Helper: Sort milestones by status (display only, non-destructive)
-  const sortMilestonesByStatus = (milestones: any[]) => {
-    const statusOrder: Record<string, number> = { 'todo': 0, 'doing': 1, 'done': 2 };
-    return [...milestones].sort((a, b) => {
-      const aOrder = statusOrder[a?.status ?? 'todo'] ?? 0;
-      const bOrder = statusOrder[b?.status ?? 'todo'] ?? 0;
-      return aOrder - bOrder;
-    });
-  };
+  const revenueConfidence = (stage4Proj as any)?.impactRevenueConfidence ?? 'medium';
+  const opIncomeConfidence = (stage4Proj as any)?.impactOpIncomeConfidence ?? 'medium';
 
-  // Helper: Calculate KPI progress from milestones (done件数/総数、進捗%)
-  const calcKPIProgress = (milestones: any[] | undefined) => {
-    if (!Array.isArray(milestones) || milestones.length === 0) return null;
+  const projectHypothesis = String(
+    (stage4Proj as any)?.projectHypothesis
+      ?? (stage4Proj as any)?.hypothesis
+      ?? (stage4Proj as any)?.strategicHypothesis
+      ?? (stage4Proj as any)?.expectedOutcome
+      ?? ''
+  ).trim();
 
-    let doneCount = 0;
-    let totalScore = 0;
-
-    for (const m of milestones) {
-      const status = m?.status ?? 'todo';
-      if (status === 'done') doneCount += 1;
-      const score = status === 'done' ? 1 : status === 'doing' ? 0.5 : 0;
-      totalScore += score;
-    }
-
-    const progressPct = Math.round((totalScore / milestones.length) * 100 * 10) / 10;
-    return { doneCount, totalCount: milestones.length, progressPct };
-  };
+  const stage4KpiLabels = Array.isArray((stage4Proj as any)?.okrsV2)
+    ? ((stage4Proj as any).okrsV2 as any[])
+        .map((kr: any) => String(kr?.label ?? kr?.title ?? '').trim())
+        .filter(Boolean)
+    : [];
 
   return (
     <ModalShell
@@ -1431,8 +1392,64 @@ function ExecPanel(props: {
       icon={<CheckCircle2 className="h-5 w-5 text-gray-800" />}
       width="clamp(560px, 60vw, 980px)"
     >
-      {/* Tabs */}
-      <div className="px-6 pt-5">
+      <div className="space-y-6 p-6">
+        {/* プロジェクト概要 */}
+        <section className="rounded-3xl border border-black/10 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <div className="text-xs font-medium text-gray-500 tracking-wide mb-1">プロジェクト概要</div>
+              <h3 className="text-base font-semibold text-gray-900">{projectTitle || '（プロジェクト未設定）'}</h3>
+              <p className="mt-2 text-xs leading-5 text-gray-600">
+                今日の進み具合や困っていることを残します。成果への見込みを更新すると、STAGE6の業績シミュレーションに反映されます。
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              <span className="rounded-full bg-gray-100 px-3 py-1 font-medium text-gray-700">
+                部門：{deptName || '未設定'}
+              </span>
+              <span className="rounded-full bg-gray-100 px-3 py-1 font-medium text-gray-700">
+                目標：{objective ? '設定済み' : '未設定'}
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="rounded-2xl bg-gray-50 p-4">
+              <div className="text-xs font-medium text-gray-600 tracking-wide mb-1">目標</div>
+              <div className="whitespace-pre-wrap text-[15px] leading-6 text-gray-900">{objective || '（未設定）'}</div>
+            </div>
+            <div className="rounded-2xl bg-gray-50 p-4">
+              <div className="text-xs font-medium text-gray-600 tracking-wide mb-1">この取り組みの狙い</div>
+              <div className="whitespace-pre-wrap text-[13px] leading-6 text-gray-800">
+                {projectHypothesis || 'この取り組みを進めることで、設定したKPIと成果への貢献を目指します。'}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 rounded-2xl bg-gray-50 p-4">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div className="text-xs font-medium text-gray-600 tracking-wide">主なKPI</div>
+              {stage4KpiLabels.length > 0 && (
+                <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 border border-gray-200">
+                  {stage4KpiLabels.length}件
+                </span>
+              )}
+            </div>
+            {stage4KpiLabels.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {stage4KpiLabels.slice(0, 6).map((label: string, idx: number) => (
+                  <span key={`${label}-${idx}`} className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-700">
+                    {label}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs leading-5 text-gray-500">KPIは未設定です。必要に応じてSTAGE4で設定してください。</div>
+            )}
+          </div>
+        </section>
+
+        {/* Tabs */}
         <div className="inline-flex rounded-2xl border border-black/10 bg-white p-1 shadow-sm">
           <button
             className={`px-3 py-1.5 text-sm rounded-xl transition ${
@@ -1441,7 +1458,7 @@ function ExecPanel(props: {
             onClick={() => setTab('checkin')}
             type="button"
           >
-            チェックイン
+            進み具合を書く
           </button>
           <button
             className={`px-3 py-1.5 text-sm rounded-xl transition ${
@@ -1453,217 +1470,6 @@ function ExecPanel(props: {
             フィードバック
           </button>
         </div>
-      </div>
-
-      <div className="space-y-6 p-6">
-        {/* NS 寄与ヘッダカード */}
-        {stage4Proj && (typeof stage4Proj.impactRevenueMJPY === 'number' || typeof stage4Proj.impactOpIncomeMJPY === 'number') && (
-          <section className="rounded-3xl border border-blue-200 bg-blue-50/50 p-5 shadow-sm">
-            <div className="text-xs font-medium text-blue-800 tracking-wide mb-3">North Star 寄与</div>
-
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              {typeof stage4Proj.impactRevenueMJPY === 'number' && (
-                <div className="rounded-lg bg-white p-3 border border-blue-100">
-                  <div className="text-[11px] font-medium text-gray-600 mb-1">売上</div>
-                  <div className="text-xs text-gray-700 mb-2">
-                    <span className="font-semibold">{stage4Proj.impactRevenueMJPY}</span>百万円（目標）
-                  </div>
-                  <div className="text-xs text-gray-700 mb-2">
-                    <span className="font-semibold">{calcAchieved(stage4Proj.impactRevenueMJPY, stage4Proj.impactRevenueProgress)}</span>百万円（達成）
-                  </div>
-                  <div className="text-[11px] flex items-center gap-2">
-                    <span className="text-gray-600">進捗%</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="1"
-                      value={stage4Proj.impactRevenueProgress ?? ''}
-                      onChange={(e) => handleProgressChange('impactRevenueProgress', e.target.value)}
-                      disabled={isVariant}
-                      className="w-14 px-1 py-0.5 border border-gray-300 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {typeof stage4Proj.impactOpIncomeMJPY === 'number' && (
-                <div className="rounded-lg bg-white p-3 border border-blue-100">
-                  <div className="text-[11px] font-medium text-gray-600 mb-1">営業利益</div>
-                  <div className="text-xs text-gray-700 mb-2">
-                    <span className="font-semibold">{stage4Proj.impactOpIncomeMJPY}</span>百万円（目標）
-                  </div>
-                  <div className="text-xs text-gray-700 mb-2">
-                    <span className="font-semibold">{calcAchieved(stage4Proj.impactOpIncomeMJPY, stage4Proj.impactOpIncomeProgress)}</span>百万円（達成）
-                  </div>
-                  <div className="text-[11px] flex items-center gap-2">
-                    <span className="text-gray-600">進捗%</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="1"
-                      value={stage4Proj.impactOpIncomeProgress ?? ''}
-                      onChange={(e) => handleProgressChange('impactOpIncomeProgress', e.target.value)}
-                      disabled={isVariant}
-                      className="w-14 px-1 py-0.5 border border-gray-300 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* 推奨進捗% セクション */}
-            {(() => {
-              const suggestedPct = calcSuggestedProgressPct(stage4Proj.okrsV2);
-              const handleAdopt = () => {
-                if (typeof di !== 'number' || typeof pi !== 'number' || isVariant || typeof suggestedPct !== 'number') return;
-
-                // 既に同じ値の場合は何もしない
-                const revenueSame = stage4Proj.impactRevenueProgress === suggestedPct;
-                const opIncomeSame = stage4Proj.impactOpIncomeProgress === suggestedPct;
-                if (revenueSame && opIncomeSame) return;
-
-                updateDepartments((prev) => {
-                  const next = [...prev];
-                  const dept = next[di];
-                  if (!dept) return prev;
-
-                  const deptCopy = { ...dept };
-                  const projs = Array.isArray(dept.projects) ? [...dept.projects] : [];
-                  const proj = projs[pi];
-                  if (!proj) return prev;
-
-                  const projCopy = { ...proj };
-                  if (!revenueSame) (projCopy as any).impactRevenueProgress = suggestedPct;
-                  if (!opIncomeSame) (projCopy as any).impactOpIncomeProgress = suggestedPct;
-                  projs[pi] = projCopy;
-                  deptCopy.projects = projs;
-                  next[di] = deptCopy;
-                  return next;
-                });
-              };
-
-              return (
-                <div className="rounded-lg bg-white p-3 border border-blue-100 mt-3">
-                  <div className="text-[11px] flex items-center justify-between gap-2">
-                    <span className="text-gray-600">推奨進捗（マイルストーンから算出）</span>
-                    <span className="font-semibold text-gray-900">
-                      {typeof suggestedPct === 'number' ? `${suggestedPct}%` : '—'}
-                    </span>
-                  </div>
-                  <button
-                    onClick={handleAdopt}
-                    disabled={isVariant || typeof suggestedPct !== 'number'}
-                    className="mt-2 w-full rounded-lg bg-blue-500 px-2 py-1.5 text-xs font-semibold text-white hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
-                    type="button"
-                  >
-                    推奨を採用
-                  </button>
-                  <div className="mt-2 text-[10px] text-gray-500 leading-snug">
-                    推奨値は参考です。最終判断として調整できます。
-                  </div>
-
-                  {typeof suggestedPct !== 'number' && (
-                    <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 p-2">
-                      <div className="text-[10px] text-amber-800 leading-snug">
-                        ※ マイルストーン未設定のため推奨進捗を算出できません（STAGE4で設定）
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-          </section>
-        )}
-
-        {/* OKR概要 */}
-        <section className="rounded-3xl border border-black/10 bg-white/70 p-5 shadow-sm">
-          <div className="text-xs font-medium text-gray-600 tracking-wide mb-1">達成目標（O）</div>
-          <div className="whitespace-pre-wrap text-[15px]">{objective || '（未設定）'}</div>
-        </section>
-
-        {/* STAGE4 確定情報 */}
-        {stage4Proj && (
-          <section className="rounded-3xl border border-green-200 bg-green-50/50 p-5 shadow-sm">
-            <div className="text-xs font-medium text-green-800 tracking-wide mb-3">★ STAGE4 確定情報（参考）</div>
-
-            {/* KPI（okrsV2） */}
-            {Array.isArray(stage4Proj.okrsV2) && stage4Proj.okrsV2.length > 0 && (
-              <div className="mb-3">
-                <div className="text-xs font-medium text-gray-700 mb-1">KPI（{stage4Proj.okrsV2.length}件）</div>
-                <div className="space-y-2">
-                  {(stage4Proj.okrsV2 as any[]).map((kr: any, idx: number) => {
-                    const kpiProgress = calcKPIProgress(kr?.milestones);
-                    return (
-                      <div key={kr?.id ?? idx} className="text-[12px] border-l-2 border-green-300 pl-2">
-                        <div className="font-semibold text-gray-800">{kr?.label ?? '（未設定）'}</div>
-                        <div className="text-gray-600">
-                          {kr?.target ?? '—'} {kr?.unit ?? ''} {kr?.due ? `(期限: ${kr.due})` : ''}
-                        </div>
-
-                        {/* マイルストーン完了率 */}
-                        {kpiProgress ? (
-                          <div className="mt-1 mb-2 inline-flex rounded-full bg-green-50 px-2 py-1 text-[10px] font-medium text-green-700 border border-green-200">
-                            完了 {kpiProgress.doneCount}/{kpiProgress.totalCount} · {kpiProgress.progressPct}%
-                          </div>
-                        ) : (
-                          <div className="mt-1 mb-2 inline-flex rounded-full bg-gray-100 px-2 py-1 text-[10px] font-medium text-gray-600 border border-gray-200">
-                            マイルストーン未設定
-                          </div>
-                        )}
-
-                        {Array.isArray(kr?.milestones) && kr.milestones.length > 0 && (
-                          <div className="mt-1 space-y-1 text-gray-500">
-                            {sortMilestonesByStatus(kr.milestones as any[]).map((m: any, idx: number) => (
-                              <div key={m?.id || `milestone-${idx}`} className="text-[11px] flex items-center justify-between gap-2">
-                                <span>
-                                  • {m?.title ?? '（タイトル未設定）'} {m?.dueYm ? `(${m.dueYm})` : ''}
-                                </span>
-                                <select
-                                  value={m?.status ?? 'todo'}
-                                  onChange={(e) => {
-                                    if (!kr?.id || !m?.id) return;
-                                    const newStatus = e.target.value as 'todo' | 'doing' | 'done';
-                                    handleMilestoneStatusChange(kr.id, m.id, newStatus);
-                                  }}
-                                  disabled={isVariant}
-                                  className="text-[10px] px-2 py-1 rounded border border-gray-300 bg-white disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                  <option value="todo">TODO</option>
-                                  <option value="doing">進行中</option>
-                                  <option value="done">完了</option>
-                                </select>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* プロジェクト共通マイルストーン（詳細表示） */}
-            {Array.isArray(stage4Proj.planMilestones) && stage4Proj.planMilestones.length > 0 && (
-              <details className="mb-3 group">
-                <summary className="text-xs font-medium text-gray-700 cursor-pointer hover:text-gray-900">
-                  ▶ プロジェクト共通MS（{stage4Proj.planMilestones.length}件）
-                </summary>
-                <div className="mt-2 space-y-1 text-[12px] text-gray-700 ml-2">
-                  {(stage4Proj.planMilestones as any[]).map((m: any) => (
-                    <div key={m?.id} className="flex items-center gap-2">
-                      <span>•</span>
-                      <span>{m?.title ?? '（未設定）'}</span>
-                      {m?.dueYm && <span className="text-gray-500">({m.dueYm})</span>}
-                    </div>
-                  ))}
-                </div>
-              </details>
-            )}
-          </section>
-        )}
 
         {/* チェックイン */}
         {tab === 'checkin' && (
@@ -1671,12 +1477,12 @@ function ExecPanel(props: {
             <section className="rounded-3xl border border-black/10 bg-white/70 p-5 shadow-sm">
               <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                 <div className="space-y-2">
-                  <h3 className="text-sm font-semibold tracking-tight">実行メモ・AI相談</h3>
+                  <h3 className="text-sm font-semibold tracking-tight">今日の進み具合を書く</h3>
                   <p className="text-xs leading-5 text-gray-600">
-                    進捗、気づき、違和感、困りごとを自由に書いてください。
+                    進んだこと、止まっていること、相談したいことを自由に書いてください。
                   </p>
                   <p className="text-xs leading-5 text-gray-600">
-                    AIが内容を整理し、次の一手や支援依頼のたたき台を提案します。
+                    メモを整理して、次にやることや支援依頼のたたき台を作れます。
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -1698,10 +1504,9 @@ function ExecPanel(props: {
                 className="w-full rounded-2xl border border-black/10 bg-white px-3 py-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-black/10"
                 placeholder={
                   '・進んだこと\n'
-                  + '・迷っていること\n'
-                  + '・止まりそうな点\n'
-                  + '・他部門に相談したいこと\n'
-                  + '・見直した方がよいと感じていること'
+                  + '・止まっていること\n'
+                  + '・相談したいこと\n'
+                  + '・次にやること'
                 }
                 value={progressText}
                 onChange={(e) => setProgressText(e.target.value)}
@@ -1745,7 +1550,7 @@ function ExecPanel(props: {
                     </>
                   ) : (
                     <>
-                      ✨ AIに整理してもらう
+                      ✨ メモを整理する
                     </>
                   )}
                 </button>
@@ -1854,7 +1659,7 @@ function ExecPanel(props: {
                 type="button"
               >
                 <Send className="h-4 w-4" />
-                {saving ? '保存中…' : editingLogId && editingKind === 'checkin' ? '更新' : '保存'}
+                {saving ? '保存中…' : editingLogId && editingKind === 'checkin' ? '進み具合を更新' : '進み具合を保存'}
               </button>
               {notice && <span className="text-sm text-gray-700">{notice}</span>}
             </section>
@@ -1884,7 +1689,7 @@ function ExecPanel(props: {
                 minRows={3}
                 maxRows={8}
                 className="w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10"
-                placeholder="例：KR#2 の指標定義を明確化すると計測が安定します。"
+                placeholder="例：見直した方がよい点、確認したいこと、次に活かしたい気づきを書いてください。"
                 value={reviewText}
                 onChange={(e) => setReviewText(e.target.value)}
               />
@@ -1897,11 +1702,129 @@ function ExecPanel(props: {
                 type="button"
               >
                 <Send className="h-4 w-4" />
-                {saving ? '保存中…' : editingLogId && editingKind === 'feedback' ? '更新' : '保存'}
+                {saving ? '保存中…' : editingLogId && editingKind === 'feedback' ? 'フィードバックを更新' : 'フィードバックを保存'}
               </button>
               {notice && <span className="text-sm text-gray-700">{notice}</span>}
             </section>
           </>
+        )}
+
+
+        {/* 成果見込み / STAGE6連携 */}
+        {stage4Proj && (
+          <section className="rounded-3xl border border-blue-100 bg-blue-50/40 p-5 shadow-sm">
+            <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+              <div>
+                <div className="text-xs font-medium text-blue-700 tracking-wide mb-1">成果見込み / STAGE6連携</div>
+                <h3 className="text-sm font-semibold text-blue-950">この実行が、売上・利益にどれくらいつながりそうか</h3>
+                <p className="mt-1 text-xs leading-5 text-blue-800/80">
+                  ここで更新した数字は、STAGE6の業績シミュレーションに反映されます。作業の進み具合ではなく、売上・利益につながる見込みを入力します。
+                </p>
+              </div>
+              <span className="w-fit rounded-full bg-white px-3 py-1 text-xs font-semibold text-blue-700 shadow-sm">
+                STAGE6に反映
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {typeof stage4Proj.impactRevenueMJPY === 'number' && (
+                <div className="rounded-2xl border border-blue-100 bg-white p-4">
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-semibold text-gray-800">売上への見込み</div>
+                      <div className="mt-1 text-xs text-gray-600">目標 {stage4Proj.impactRevenueMJPY}百万円</div>
+                    </div>
+                    <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
+                      STAGE6反映 {calcStage6Projection(stage4Proj.impactRevenueMJPY, stage4Proj.impactRevenueProgress, revenueConfidence)}百万円
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <label className="text-xs text-gray-600">
+                      成果見込み%
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={stage4Proj.impactRevenueProgress ?? ''}
+                        onChange={(e) => handleProgressChange('impactRevenueProgress', e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
+                        placeholder="例：20"
+                      />
+                    </label>
+                    <label className="text-xs text-gray-600">
+                      確度
+                      <select
+                        value={revenueConfidence}
+                        onChange={(e) => handleConfidenceChange('impactRevenueConfidence', e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
+                      >
+                        {confidenceOptions.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <div className="mt-3 rounded-xl bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                    現時点の見込み：{calcAchieved(stage4Proj.impactRevenueMJPY, stage4Proj.impactRevenueProgress)}百万円 / 確度：{getConfidenceLabel(revenueConfidence)}
+                  </div>
+                </div>
+              )}
+
+              {typeof stage4Proj.impactOpIncomeMJPY === 'number' && (
+                <div className="rounded-2xl border border-blue-100 bg-white p-4">
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-semibold text-gray-800">営業利益への見込み</div>
+                      <div className="mt-1 text-xs text-gray-600">目標 {stage4Proj.impactOpIncomeMJPY}百万円</div>
+                    </div>
+                    <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
+                      STAGE6反映 {calcStage6Projection(stage4Proj.impactOpIncomeMJPY, stage4Proj.impactOpIncomeProgress, opIncomeConfidence)}百万円
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <label className="text-xs text-gray-600">
+                      成果見込み%
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={stage4Proj.impactOpIncomeProgress ?? ''}
+                        onChange={(e) => handleProgressChange('impactOpIncomeProgress', e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
+                        placeholder="例：10"
+                      />
+                    </label>
+                    <label className="text-xs text-gray-600">
+                      確度
+                      <select
+                        value={opIncomeConfidence}
+                        onChange={(e) => handleConfidenceChange('impactOpIncomeConfidence', e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
+                      >
+                        {confidenceOptions.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <div className="mt-3 rounded-xl bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                    現時点の見込み：{calcAchieved(stage4Proj.impactOpIncomeMJPY, stage4Proj.impactOpIncomeProgress)}百万円 / 確度：{getConfidenceLabel(opIncomeConfidence)}
+                  </div>
+                </div>
+              )}
+
+              {typeof stage4Proj.impactRevenueMJPY !== 'number' && typeof stage4Proj.impactOpIncomeMJPY !== 'number' && (
+                <div className="rounded-2xl border border-blue-100 bg-white p-4 md:col-span-2">
+                  <div className="text-xs font-semibold text-gray-800">成果見込みは未設定です</div>
+                  <p className="mt-1 text-xs leading-5 text-gray-600">
+                    売上・営業利益への貢献額を設定すると、ここでSTAGE6に反映する見込みを更新できます。
+                  </p>
+                </div>
+              )}
+            </div>
+          </section>
         )}
 
         {/* 履歴 */}
