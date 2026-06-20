@@ -54,6 +54,7 @@ import { getStage2ValueDriverKPIs, getStage2TargetRanges, getStage2WinPatterns }
 import { formatMillion, safeRatio, formatPct, inferScaleToMillion } from '@/utils/unit';
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 import { okrsV2ToOkrs, okrsToKpis } from '@/utils/supabase/strategy';
+import { stripProjectPrefix } from '@/utils/dateFormatter';
 import { mkKRStructured } from '@/app/okr/_lib/okrModels';
 
 import type {
@@ -649,7 +650,7 @@ const sanitizeDisplayText = (input?: string) =>
     .trim();
 
 const toCleanDisplayText = (value: any, deptName = '') =>
-  sanitizeDisplayText(toDisplayText(stripDeptPrefix(String(value ?? ''), deptName)));
+  sanitizeDisplayText(toDisplayText(stripProjectPrefix(stripDeptPrefix(String(value ?? ''), deptName))));
 
 // STEP1表示用：APIの返却ゆれ（hypothesis / reason / description 等）を吸収して、
 // プロジェクト仮説が空表示にならないようにする。
