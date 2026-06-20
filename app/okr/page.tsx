@@ -3399,7 +3399,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
 
           {/* ========== Card 2: 成長につながる変化 ========== */}
           <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-[16px] font-semibold text-zinc-900">成長につながる変化</h2>
+            <h2 className="mb-4 text-[16px] font-semibold text-zinc-900">このプロジェクトによる最終成果</h2>
             {(() => {
               const hypothesis =
                 typeof (selectedProj as any)?.hypothesis === 'string'
@@ -3532,10 +3532,10 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
             {(selectedProj as any)?.role && (
               <div className="mt-4 border-t border-zinc-200 pt-4">
                 <h3 className="mb-2 text-[13px] font-semibold text-zinc-800">
-                  期待する成果<span className="text-[11px] font-normal text-zinc-500">（AIが置いた目安・修正可）</span>
+                  成果見込みと計算根拠<span className="text-[11px] font-normal text-zinc-500">（AIが置いた目安・修正可）</span>
                 </h3>
                 <div className="mb-3 text-[11px] text-zinc-600">
-                  AIがこの取り組みの内容から計算前提を置いています。違う場合は前提を修正してください。見込み額は自動で変わります。
+                  AIが置いた成果見込みです。前提条件を修正すると、見込み数値も変わります。
                 </div>
 
                 <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 p-3">
