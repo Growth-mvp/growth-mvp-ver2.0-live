@@ -32,6 +32,7 @@ import { safeGetSession } from '@/utils/supabase/client';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import type { KRKind, StrategyData } from '@/types/strategy';
 import { okrsV2ToOkrs, okrsToKpis } from '@/utils/supabase/strategy';
+import { formatDeadlineLabel, stripProjectPrefix } from '@/utils/dateFormatter';
 import { okrService } from '@/services/okrService';
 import type { ResolvedOkr, OkrWriteInput } from '@/types/okrs';
 import { OKRHeader } from '@/components/stage4/OKRHeader';
@@ -1553,6 +1554,34 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
       setGenerationError(null);
 
       try {
+        // ★ STAGE3 KPI を抽出（固定KPI、変更・追加・削除させない）
+        // 優先順位：okrs.keyResults > kpis > okrsV2.labels
+        let sourceKpis: string[] = [];
+
+        // 1. OKR keyResults から抽出
+        if (Array.isArray(proj.okrs) && proj.okrs.length > 0) {
+          const okr = proj.okrs[0];
+          if (Array.isArray(okr.keyResults)) {
+            sourceKpis.push(...okr.keyResults.filter((kr: any) => typeof kr === 'string' && kr.trim()));
+          }
+        }
+
+        // 2. kpis から抽出（keyResults がない場合）
+        if (sourceKpis.length === 0 && Array.isArray((proj as any)?.kpis)) {
+          sourceKpis.push(...(proj as any).kpis.filter((k: any) => typeof k === 'string' && k.trim()));
+        }
+
+        // 3. okrsV2.label から抽出（上記がない場合）
+        if (sourceKpis.length === 0 && Array.isArray(proj.okrsV2)) {
+          const v2Labels = proj.okrsV2
+            .filter((kr: any) => kr?.label && typeof kr.label === 'string')
+            .map((kr: any) => kr.label);
+          sourceKpis.push(...v2Labels);
+        }
+
+        // ★ sourceKpisのプレフィックスを削除（STAGE4保存値は整形後にする）
+        sourceKpis = sourceKpis.map(stripProjectPrefix);
+
         // プロジェクト情報を収集
         const projectInfo = {
           departmentName: typeof dept === 'object' ? (dept as any)?.name || '' : String(dept),
@@ -1569,6 +1598,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           existingOkrs: ensureArray(proj.okrs),
           existingOkrsV2: ensureArray(proj.okrsV2),
           existingKpis: Array.isArray((proj as any)?.kpis) ? (proj as any).kpis : [],
+          sourceKpis: sourceKpis,  // ★ STAGE3 固定KPI（AIが変更しない）
           companyStrategy: (() => {
             const st = useStrategyStore.getState() as any;
             const strats = st?.strategiesDataGlobal?.data ?? st?.data;
@@ -1734,8 +1764,8 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           });
         }
 
-        // 生成結果をプレビューに設定
-        setGeneratedDraft(draft);
+        // 生成結果をプレビューに設定（sourceKpis を含める）
+        setGeneratedDraft({ ...draft, sourceKpis });
         setGenerationSuccess(true);
         setGenerationError(null);
 
@@ -1766,7 +1796,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
    * ★ STAGE4: AI生成結果を画面に反映
    * ========================================================== */
   const applyGeneratedDraft = useCallback(
-    async (dIdx: number, pIdx: number, draft: any) => {
+    async (dIdx: number, pIdx: number, draft: any, sourceKpis: string[] = []) => {
       if (!draft || !selected || selected.deptIdx !== dIdx || selected.projIdx !== pIdx) return;
 
       try {
@@ -1842,13 +1872,27 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
               projectTitle: proj.title,
             });
 
-            // 既存 KPI と AI案を index 順でマッチング
-            const updatedOkrsV2 = existingOkrsV2.map((existingKr: any, idx: number) => {
+            // ★ STAGE3 KPIがある場合は sourceKpis を基準に構築
+            // ない場合は既存 KPI と AI案を index 順でマッチング
+            const kpisToProcess = sourceKpis.length > 0 ? sourceKpis : existingOkrsV2.map((kr: any) => kr.label);
+
+            const updatedOkrsV2 = kpisToProcess.map((kpiLabel: string, idx: number) => {
+              const existingKr = existingOkrsV2[idx];
               const draftKpi = draft.kpis[idx];
-              if (!draftKpi) return existingKr;
 
               const updatedFields: string[] = [];
-              const updatedKr = { ...existingKr };
+              // ★ sourceKpis がある場合は新規作成、ない場合は既存を保持
+              const updatedKr: any = sourceKpis.length > 0
+                ? { label: kpiLabel }
+                : existingKr ? { ...existingKr } : { label: kpiLabel };
+
+              // ★ sourceKpis がある場合、ラベルは常にsourceKpiで固定
+              if (sourceKpis.length > 0) {
+                updatedKr.label = sourceKpis[idx];
+                updatedFields.push('label (fixed from STAGE3)');
+              }
+
+              if (!draftKpi) return updatedKr;
 
               // target が 0 または未設定なら AI案の target を入れる
               if (!updatedKr.target || updatedKr.target === 0) {
@@ -3353,11 +3397,11 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                       <div className="text-indigo-700 mt-1 ml-2 text-[11px] space-y-2">
                         {generatedDraft.kpis.map((kpi: any, idx: number) => (
                           <div key={idx} className="border-l-2 border-indigo-300 pl-2">
-                            <p className="font-medium">{kpi.label}</p>
-                            <p>目標: {kpi.target}{kpi.unit} (期限: {kpi.due})</p>
+                            <p className="font-medium">{stripProjectPrefix(kpi.label)}</p>
+                            <p>目標: {kpi.target}{kpi.unit} (期限: {formatDeadlineLabel(kpi.due)})</p>
                             {kpi.owner && <p>担当: {kpi.owner}</p>}
                             {Array.isArray(kpi.milestones) && kpi.milestones.length > 0 && (
-                              <p className="text-indigo-600">途中の目安: {kpi.milestones.map((m: any) => `${m.title}(${m.dueYm})`).join(' → ')}</p>
+                              <p className="text-indigo-600">途中の目安: {kpi.milestones.map((m: any) => `${m.title}(${formatDeadlineLabel(m.dueYm)})`).join(' → ')}</p>
                             )}
                           </div>
                         ))}
@@ -3374,7 +3418,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                       <span className="font-medium text-indigo-800">実行ステップ：</span>
                       <div className="text-indigo-700 mt-1 ml-2 text-[11px]">
                         {generatedDraft.steps.map((step: any, idx: number) => (
-                          <p key={idx}>Step {idx + 1}: {step.title} ({step.dueYm})</p>
+                          <p key={idx}>Step {idx + 1}: {stripProjectPrefix(step.title)} ({formatDeadlineLabel(step.dueYm)})</p>
                         ))}
                       </div>
                     </div>
@@ -3385,7 +3429,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                     type="button"
                     onClick={() => {
                       if (selected && generatedDraft) {
-                        void applyGeneratedDraft(selected.deptIdx, selected.projIdx, generatedDraft);
+                        void applyGeneratedDraft(selected.deptIdx, selected.projIdx, generatedDraft, generatedDraft?.sourceKpis);
                       }
                     }}
                     className="mt-3 w-full rounded-lg bg-indigo-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-indigo-700"
@@ -3893,7 +3937,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                           <div key={m.id} className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white p-2">
                             <div className="flex-1 text-[12px]">
                               <div className="font-semibold text-zinc-800">{m.title}</div>
-                              {m.dueYm && <div className="text-zinc-600 text-[11px]">{m.dueYm}</div>}
+                              {m.dueYm && <div className="text-zinc-600 text-[11px]">{formatDeadlineLabel(m.dueYm)}</div>}
                             </div>
                             <button
                               type="button"
@@ -4080,7 +4124,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                     <div key={m.id || idx} className="rounded border border-zinc-200 bg-white p-2">
                       <div className="font-semibold text-zinc-800">{m.title || '（未設定）'}</div>
                       <div className="mt-1 grid grid-cols-2 gap-2 text-zinc-600">
-                        <div>{m.dueYm ? `期限: ${m.dueYm}` : '期限: -'}</div>
+                        <div>{m.dueYm ? `期限: ${formatDeadlineLabel(m.dueYm)}` : '期限: -'}</div>
                         <div>{m.owner ? `担当: ${m.owner}` : '担当: -'}</div>
                       </div>
                       <div className="mt-1 flex gap-1">
@@ -4269,7 +4313,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                         <div key={mIdx} className="flex items-center gap-2 text-[11px] text-zinc-700">
                           <span>•</span>
                           <span className="flex-1 truncate">{m?.title || '（未設定）'}</span>
-                          {m?.dueYm && <span className="text-zinc-500">({m.dueYm})</span>}
+                          {m?.dueYm && <span className="text-zinc-500">({formatDeadlineLabel(m.dueYm)})</span>}
                           <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap ${
                             m?.status === 'done'
                               ? 'bg-green-100 text-green-700'
@@ -4772,7 +4816,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
               <div className="min-w-0 flex-1">
                 <div className="text-[12px] font-semibold text-zinc-900 truncate">{skillName || '（スキル名未入力）'}</div>
                 <div className="mt-1 text-[11px] text-zinc-600">
-                  {method ? `方法：${method}` : '方法：—'} / {dueYm ? `期限：${dueYm}` : '期限：—'}
+                  {method ? `方法：${method}` : '方法：—'} / {dueYm ? `期限：${formatDeadlineLabel(dueYm)}` : '期限：—'}
                   {priority ? ` / 優先度：${priority}` : ''}
                   {Number.isFinite(cost) ? ` / コスト：¥${Number(cost).toLocaleString()}` : ''}
                 </div>
