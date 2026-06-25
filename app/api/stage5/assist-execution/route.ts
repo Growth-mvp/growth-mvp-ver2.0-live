@@ -3,6 +3,8 @@ export const runtime = 'nodejs';
 
 import { NextResponse } from 'next/server';
 import { openai } from '@/lib/openai';
+import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 
 /* ========= 型定義 ========= */
 type AssistExecutionRequest = {
@@ -197,6 +199,35 @@ export async function POST(req: Request) {
   const requestId = makeRequestId();
 
   try {
+    // --- Bearer 認証チェック ---
+    const admin = getSupabaseAdmin();
+    const userId = await getAuthUserIdFromBearer(admin, req);
+    if (!userId) {
+      console.error('[assist-execution]', requestId, 'unauthorized: no bearer token');
+      return NextResponse.json(
+        {
+          error: 'unauthorized',
+          message: 'Bearer token is required',
+          requestId,
+        },
+        { status: 401 }
+      );
+    }
+
+    // --- Membership 確認（会社スコープ） ---
+    const membership = await requireMembership(admin, userId);
+    if (!membership) {
+      console.error('[assist-execution]', requestId, 'forbidden: user not in any company', userId);
+      return NextResponse.json(
+        {
+          error: 'forbidden',
+          message: 'User is not a member of any company',
+          requestId,
+        },
+        { status: 403 }
+      );
+    }
+
     // --- ENV チェック ---
     if (!process.env.OPENAI_API_KEY) {
       console.error('[assist-execution]', requestId, 'missing_env: OPENAI_API_KEY');
