@@ -39,7 +39,7 @@ export default function Home() {
               transition={{ duration: 0.6 }}
               className="text-[28px] font-bold tracking-[-0.04em] text-neutral-950 sm:text-[36px] lg:text-[44px] dark:text-white"
             >
-              変革を、未達に終わらせない。
+              変革を、未達で終わらせない。
             </motion.h1>
 
             <motion.div
