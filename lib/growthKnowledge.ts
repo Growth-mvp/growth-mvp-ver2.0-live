@@ -26,7 +26,7 @@ const KNOWLEDGE_SECTIONS: KnowledgeSection[] = [
 2. **Stage 2: 全社戦略** → 勝ち筋・中計の方向性を定義し、AI との12問仮説検証で磨く
 3. **Stage 3: 事業・部門別戦略** → 全社戦略を各事業・部門のミッション・プロジェクト・OKR に展開
 4. **Stage 4: 実行計画策定** → OKR をマイルストーン・優先順位・リソース計画に落とす
-5. **Stage 5: 実行計画支援** → 進捗追跡・チェックイン・フィードバック・評価
+5. **Stage 5: 実行支援** → 進捗追跡・チェックイン・フィードバック・評価
 6. **Stage 6: 業績シミュレーション** → 実行計画が業績（PL等）にどう効くかを試算
 
 各 Stage は「入力 → AI分析 → 改善」を繰り返し、企業価値を段階的に高めます。`,
@@ -157,9 +157,9 @@ const KNOWLEDGE_SECTIONS: KnowledgeSection[] = [
 
   {
     id: 'STAGE5_EXEC_SUPPORT',
-    title: 'Stage 5: 実行計画支援',
+    title: 'Stage 5: 実行支援',
     keywords: ['stage5', 'STAGE5', 'ステージ5', '進捗', 'チェックイン', 'コメント', '評価', 'アドバイス', '協力要請', 'フィードバック'],
-    content: `## Stage 5 実行計画支援
+    content: `## Stage 5 実行支援
 
 **目的:** Stage 4 で策定した実行計画を回す。進捗追跡・課題解決・リアルタイム支援
 
