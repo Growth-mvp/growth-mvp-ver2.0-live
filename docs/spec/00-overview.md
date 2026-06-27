@@ -16,7 +16,7 @@ Stage 3 部門カスケード  /cascade    全社戦略 → 部門ミッショ�
    ↓
 Stage 4 実行計画策定    /okr        OKR を実行計画（役割/財務インパクト/承認ステータス/ベースライン）へ
    ↓
-Stage 5 実行計画支援    /execution  進捗ログ・チェックイン・AI 支援
+Stage 5 実行支援    /execution  進捗ログ・チェックイン・AI 支援
    ↓
 Stage 6 業績シミュレーション /stage6  プロジェクト/OKR の業績(PL/ROIC)への寄与をシナリオ試算
 ```
