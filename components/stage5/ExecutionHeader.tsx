@@ -12,7 +12,7 @@ export function ExecutionHeader({ isHydrating, selected }: ExecutionHeaderProps)
     <div className="bg-white/90 border-b border-black/10 sticky top-0 z-20 backdrop-blur-xl">
       <div className="px-4 md:px-6 lg:px-6 py-4 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">STAGE5 実行計画支援</h1>
+          <h1 className="text-2xl font-bold tracking-tight">STAGE5 実行支援</h1>
           <div className="mt-2 text-sm text-gray-600">ストーリー＞部門＞プロジェクト の順に表示。各カードをクリックして詳細を確認します。</div>
           {isHydrating && <div className="mt-2 text-sm text-gray-500">サーバーのデータを読み込み中です…</div>}
         </div>
