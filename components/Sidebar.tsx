@@ -176,7 +176,7 @@ export default function Sidebar() {
             <PillLink
               href="/execution"
               icon={<Activity size={18} strokeWidth={1.5} />}
-              label="STAGE 5：実行計画支援"
+              label="STAGE 5：実行支援"
               active={isActive('/execution')}
             />
             <PillLink
