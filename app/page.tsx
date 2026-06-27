@@ -23,7 +23,7 @@ export default function Home() {
     { step: 2, title: 'STAGE 2：全社戦略', path: '/stage2' },
     { step: 3, title: 'STAGE 3：事業・部門別戦略', path: '/cascade' },
     { step: 4, title: 'STAGE 4：実行計画策定', path: '/okr' },
-    { step: 5, title: 'STAGE 5：実行計画支援', path: '/execution' },
+    { step: 5, title: 'STAGE 5：実行支援', path: '/execution' },
     { step: 6, title: 'STAGE 6：業績シミュレーション', path: '/stage6' },
   ];
 
