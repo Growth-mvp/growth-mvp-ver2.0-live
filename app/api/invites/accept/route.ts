@@ -8,6 +8,7 @@ import { createHash } from 'crypto';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer } from '@/lib/server/rbacGuard';
 import type { Role } from '@/lib/rbac';
+import { logAuditEvent, extractAuditMetadata } from '@/lib/server/auditLog';
 
 type Body = {
   token: string; // 平文のトークン
@@ -370,7 +371,20 @@ export async function POST(req: Request) {
       );
     }
 
-    // 11) 成功
+    // 11) Audit logging
+    const { ip, userAgent } = extractAuditMetadata(req);
+    await logAuditEvent({
+      companyId: invite.company_id,
+      actorUserId: userId,
+      action: 'invite_accepted',
+      targetType: 'invite',
+      targetId: invite.email,
+      after: { email: userEmail, role: finalRole },
+      ip,
+      userAgent,
+    });
+
+    // 12) 成功
     return NextResponse.json({
       ok: true,
       companyId: invite.company_id,

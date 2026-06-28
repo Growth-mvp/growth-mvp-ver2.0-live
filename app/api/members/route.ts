@@ -6,6 +6,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin'; // ★ named import に修正
+import { logAuditEvent, extractAuditMetadata } from '@/lib/server/auditLog';
 
 function bearer(req: Request) {
   const h = req.headers.get('authorization') || req.headers.get('Authorization') || '';
@@ -113,6 +114,18 @@ export async function POST(req: Request) {
 
     if (upErr) throw upErr;
 
+    const { ip, userAgent } = extractAuditMetadata(req);
+    await logAuditEvent({
+      companyId,
+      actorUserId: me.id,
+      action: 'member_added',
+      targetType: 'member',
+      targetId: targetUserId,
+      after: { role },
+      ip,
+      userAgent,
+    });
+
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     console.error('add member failed:', e?.message || e);
@@ -185,6 +198,18 @@ export async function DELETE(req: Request) {
       .eq('user_id', targetUserId);
 
     if (delErr) throw delErr;
+
+    const { ip, userAgent } = extractAuditMetadata(req);
+    await logAuditEvent({
+      companyId,
+      actorUserId: me.id,
+      action: 'member_removed',
+      targetType: 'member',
+      targetId: targetUserId,
+      before: { role: target?.role },
+      ip,
+      userAgent,
+    });
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {

@@ -11,6 +11,7 @@ import {
   pickOneMembershipServer,
 } from '@/lib/server/rbacGuard';
 import type { Role } from '@/lib/rbac';
+import { logAuditEvent, extractAuditMetadata } from '@/lib/server/auditLog';
 
 type Body = {
   email: string;
@@ -167,6 +168,18 @@ export async function POST(req: Request) {
       role: nextRole,
       companyId,
       expiresAt: expiresAt.toISOString(),
+    });
+
+    const { ip, userAgent } = extractAuditMetadata(req);
+    await logAuditEvent({
+      companyId,
+      actorUserId: callerId,
+      action: 'invite_created',
+      targetType: 'invite',
+      targetId: email,
+      after: { email, role: nextRole, expiresAt: expiresAt.toISOString() },
+      ip,
+      userAgent,
     });
 
     return NextResponse.json({
