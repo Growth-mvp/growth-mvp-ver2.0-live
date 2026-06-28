@@ -1,7 +1,9 @@
 // /app/api/recommend-top-patterns/route.ts
 export const runtime = 'nodejs';
 
-import { NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 import { topPatterns, type TopPatternId } from '@/lib/strategyPatterns.top';
 
 /** ========== 型定義（このファイル内に閉じる） ========== */
@@ -175,8 +177,21 @@ function recommendTopPatterns(signals: CompanySignals, k: number = 3): Recommend
 }
 
 /** ========== API ========== */
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
+    // Bearer 認証チェック
+    const admin = getSupabaseAdmin();
+    const userId = await getAuthUserIdFromBearer(admin, req);
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Membership 確認
+    const membership = await requireMembership(admin, userId);
+    if (!membership) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const body = (await req.json().catch(() => ({}))) as { signals?: CompanySignals; k?: number };
     const signals = body?.signals ?? {};
     const k = body?.k ?? 3;
