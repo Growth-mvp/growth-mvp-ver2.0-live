@@ -2,7 +2,9 @@
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 import { clampStepDyn, maxStepsForChapter, TEMPLATE12 } from './helpers';
 
 /** 空や壊れたJSONも {} を返して許容する安全パーサ */
@@ -22,31 +24,48 @@ async function readJsonSafe(req: Request): Promise<any> {
   }
 }
 
-export async function POST(req: Request) {
-  // ここだけ差し替え
-  const { chapterIndex = 0, stepNumber = 1 } = await readJsonSafe(req);
+export async function POST(req: NextRequest) {
+  try {
+    // Bearer 認証チェック
+    const admin = getSupabaseAdmin();
+    const userId = await getAuthUserIdFromBearer(admin, req);
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
-  const ch = Number(chapterIndex) | 0;
-  const max = maxStepsForChapter(ch);
-  const step = clampStepDyn(ch, Number(stepNumber) || 1, 1);
+    // Membership 確認
+    const membership = await requireMembership(admin, userId);
+    if (!membership) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
 
-  const tpl = (TEMPLATE12[ch] ?? [])[step - 1];
-  if (!tpl) {
-    return NextResponse.json({ error: 'No template for chapter/step' }, { status: 400 });
+    // リクエスト解析
+    const { chapterIndex = 0, stepNumber = 1 } = await readJsonSafe(req);
+
+    const ch = Number(chapterIndex) | 0;
+    const max = maxStepsForChapter(ch);
+    const step = clampStepDyn(ch, Number(stepNumber) || 1, 1);
+
+    const tpl = (TEMPLATE12[ch] ?? [])[step - 1];
+    if (!tpl) {
+      return NextResponse.json({ error: 'No template for chapter/step' }, { status: 400 });
+    }
+
+    return NextResponse.json({
+      step: {
+        stepNumber: step,
+        depth: 'exec',
+        question: tpl.question,
+        reason: tpl.reason,
+        answer: '',
+      },
+      meta: {
+        chapterIndex: ch,
+        maxSteps: max,
+        mode: 'pure12',
+      },
+    });
+  } catch (e: any) {
+    return NextResponse.json({ error: 'Server error', detail: e?.message }, { status: 500 });
   }
-
-  return NextResponse.json({
-    step: {
-      stepNumber: step,
-      depth: 'exec', // 表示用。固定でOK（不要なら削除可）
-      question: tpl.question,
-      reason: tpl.reason,
-      answer: '',
-    },
-    meta: {
-      chapterIndex: ch,
-      maxSteps: max,
-      mode: 'pure12',
-    },
-  });
 }
