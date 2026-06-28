@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { openai } from '@/lib/openai';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
-import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
+import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
 
 interface ChapterStory {
   title: string;
@@ -285,6 +285,17 @@ export async function POST(request: NextRequest) {
       });
       return NextResponse.json(
         { error: 'この会社にアクセス権がありません', detail: 'Company not authorized' },
+        { status: 403 }
+      );
+    }
+
+    // ★ manager以上の権限チェック
+    try {
+      await assertMinRole(membership, 'manager');
+    } catch {
+      console.warn('[STAGE3] Insufficient role for this operation');
+      return NextResponse.json(
+        { error: 'この操作に必要な権限がありません', detail: 'Manager role required' },
         { status: 403 }
       );
     }
