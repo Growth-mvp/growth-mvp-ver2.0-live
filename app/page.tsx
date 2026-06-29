@@ -39,7 +39,7 @@ export default function Home() {
               transition={{ duration: 0.6 }}
               className="text-[28px] font-bold tracking-[-0.04em] text-neutral-950 sm:text-[36px] lg:text-[44px] dark:text-white"
             >
-              変革を、未達で終わらせない。
+              経営計画を、未達で終わらせない。
             </motion.h1>
 
             <motion.div
@@ -57,7 +57,7 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.16 }}
               className="mt-2 text-[14px] font-medium leading-relaxed text-neutral-700 sm:text-[15px] lg:text-[16px] dark:text-neutral-300"
             >
-              過去の延長から脱却し、戦略を組織の行動に変え、業績を成長へシフトさせる仕組み。
+              過去の延長から脱却し、戦略を組織の行動に変え、会社を成長へシフトさせる仕組み。
             </motion.p>
 
             <motion.div
