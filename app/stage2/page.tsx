@@ -3155,6 +3155,19 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
     setCommitSuccessful(false);
 
     try {
+      // ★ 修正：prompt.txt指定のデバッグログ
+      const finalStrategy = editingStory.map((ch) => ch.body).join('\n');
+      const strategyStory = editingStory.map((ch) => `${ch.title}\n${ch.body}`).join('\n\n');
+      const storeState = useStrategyStore.getState() as any;
+      const companyTargets = storeState.companyTargets;
+
+      console.log('[stage2 confirm] before save', {
+        finalStrategy: finalStrategy?.substring(0, 100) ?? '',
+        strategyStory: strategyStory?.substring(0, 100) ?? '',
+        companyTargets: Array.isArray(companyTargets) ? companyTargets.length : 0,
+        stage2Confirmed: storeState.stage2Confirmed,
+      });
+
       // Step 1: STAGE2の最終ストーリーを確定保存
       console.log('[Stage2][commit] Starting commit and bridge process', {
         editingStoryLen: editingStory.length,
@@ -3186,6 +3199,16 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
             }
 
             console.log('[Stage2][commit] DB save SUCCESS');
+
+            // ★ 修正：prompt.txt指定の保存完了後ログ
+            console.log('[stage2 confirm] saved strategyData', {
+              id: saveResult.data?.id,
+              revision: saveResult.data?.revision,
+              hasFinalStoryFinal: !!saveResult.data?.finalStoryFinal,
+              finalStoryFinalLen: Array.isArray(saveResult.data?.finalStoryFinal) ? saveResult.data.finalStoryFinal.length : 0,
+              hasStage3Bridge: !!saveResult.data?.stage3_strategy_bridge,
+            });
+
             if (saveResult.data?.revision !== undefined) {
               useStrategyStore.getState().setRevision(saveResult.data.revision);
             }
@@ -3205,8 +3228,9 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       // Step 3: STAGE3へ引き渡し（戦略展開ブリッジ生成）
       setCommittingStatus('STAGE3へ引き渡しています...');
 
+      let bridgeResult;
       try {
-        const bridgeResult = await authFetchJson('/api/stage3/generate-strategy-bridge', {
+        bridgeResult = await authFetchJson('/api/stage3/generate-strategy-bridge', {
           method: 'POST',
           json: {
             finalStoryFinal: editingStory,
@@ -3215,6 +3239,19 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         });
 
         console.log('[Stage2][bridge] SUCCESS', bridgeResult);
+
+        // ★ 修正：API返却値を store に保存（これがSTAGE3で確認される）
+        console.log('[stage2 confirm] saving bridge to store', {
+          keyThemes: bridgeResult?.keyThemes?.length ?? 0,
+          departmentIssues: bridgeResult?.departmentIssues?.length ?? 0,
+          kpiCriteria: bridgeResult?.kpiCriteria?.length ?? 0,
+          commonBehaviorChanges: bridgeResult?.commonBehaviorChanges?.length ?? 0,
+          generatedAt: bridgeResult?.generatedAt,
+        });
+
+        useStrategyStore.setState({
+          stage3_strategy_bridge: bridgeResult,
+        });
       } catch (bridgeErr: any) {
         console.error('[Stage2][bridge] API call failed', bridgeErr?.message);
         setCommitStage3Failed(true);
@@ -3225,10 +3262,54 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         return;
       }
 
-      // Step 4: 成功
+      // Step 4: stage3_strategy_bridge を saveWithAudit で明示的に DB保存
+      setCommittingStatus('データベースに保存しています...');
+
+      try {
+        const storeState = useStrategyStore.getState() as any;
+        const savePayloadWithBridge = {
+          ...storeState,
+          finalStoryFinal: editingStory,
+          stage3_strategy_bridge: bridgeResult,
+        };
+
+        const saveResult = await saveWithAudit(
+          savePayloadWithBridge,
+          userId ?? undefined,
+          companyId ?? undefined,
+          undefined,
+          {},
+          'stage2:commitBridgeAndSave'
+        );
+
+        if (saveResult.error !== null) {
+          throw new Error(`DB save failed: ${(saveResult.error as any)?.message || 'unknown error'}`);
+        }
+
+        console.log('[Stage2][bridge-save] DB save SUCCESS with bridge');
+        if (saveResult.data?.revision !== undefined) {
+          useStrategyStore.getState().setRevision(saveResult.data.revision);
+        }
+      } catch (saveErr: any) {
+        console.error('[Stage2][bridge-save] DB save error:', saveErr);
+        setCommitStage3Failed(true);
+        setCommitFinalStoryError(
+          `ブリッジの保存に失敗しました: ${saveErr?.message || 'unknown error'}`
+        );
+        setCommittingStatus(null);
+        return;
+      }
+
+      // Step 5: 成功 → STAGE3へ遷移
       setCommitSuccessful(true);
       setCommittingStatus(null);
       setCommittingFinalStory(false);
+
+      // ★ 修正：保存完了後にSTAGE3へ遷移（保存完了を確実に待ってから）
+      console.log('[Stage2][commit] SUCCESS - navigating to STAGE3');
+      setTimeout(() => {
+        router.push('/cascade');
+      }, 1000); // 1秒待機（成功メッセージを表示させるため）
     } catch (err: any) {
       console.error('[Stage2][commit] Error:', err);
       setCommitFinalStoryError(err?.message || '処理に失敗しました');
