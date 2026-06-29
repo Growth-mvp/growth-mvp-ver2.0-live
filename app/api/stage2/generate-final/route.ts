@@ -11,6 +11,7 @@ import { saveFinalStory } from '@/utils/supabase';
 import type { ChatCompletionCreateParamsNonStreaming } from 'openai/resources/chat/completions';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
+import { logAuditEvent, extractAuditMetadata } from '@/lib/server/auditLog';
 
 /* =========================
  * モデル選択（簡素化）
@@ -1522,6 +1523,28 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
         await saveFinalStory(userId, finalStory as any, { companyId: requestedCompanyId || undefined });
       } catch (e: any) {
         console.warn('⚠️ final_stories 保存に失敗（続行）:', e?.message || e);
+      }
+    }
+
+    // ★ 監査ログ記録
+    if (typeof requestedCompanyId === 'string' && typeof userId === 'string') {
+      try {
+        await logAuditEvent({
+          companyId: requestedCompanyId,
+          actorUserId: userId,
+          action: 'stage2_generate_final',
+          targetType: 'strategy_data',
+          metadata: {
+            finalStoryCount: Array.isArray(finalStory) ? finalStory.length : 0,
+            hasMidtermStrategy: !!midtermStrategy,
+            model: usedModel,
+            patternCount: patternsArr?.length || 0,
+            enhanceEmotion: enhanceEmotion === true,
+          },
+          ...extractAuditMetadata(req),
+        });
+      } catch (auditErr) {
+        console.warn('[stage2/generate-final] audit log failed (non-blocking):', auditErr);
       }
     }
 
