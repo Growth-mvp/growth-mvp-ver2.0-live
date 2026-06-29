@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, type NextRequest } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
-import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
+import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
 import { clampStepDyn, maxStepsForChapter, TEMPLATE12 } from './helpers';
 
 /** 空や壊れたJSONも {} を返して許容する安全パーサ */
@@ -36,6 +36,13 @@ export async function POST(req: NextRequest) {
     // Membership 確認
     const membership = await requireMembership(admin, userId);
     if (!membership) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    // Role check: only manager+ can use this API
+    try {
+      assertMinRole(membership, 'manager');
+    } catch (e: any) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
