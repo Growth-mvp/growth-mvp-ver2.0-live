@@ -1,7 +1,13 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { isAuthenticated } from '@/lib/authUtils';
 
 export async function POST(req: Request) {
+  // 認証チェック：このAPIは認証済みユーザーのみ使用可能
+  if (!isAuthenticated(req)) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+
   const body = await req.json().catch(() => null);
   const companyId = (body?.companyId || '').toString();
 
