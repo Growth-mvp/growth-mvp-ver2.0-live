@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
+import { logAuditEvent, extractAuditMetadata } from '@/lib/server/auditLog';
 import { z } from 'zod';
 
 /* ===== OpenAI設定 ===== */
@@ -1435,6 +1436,27 @@ export async function POST(req: NextRequest) {
       totalDurationMs: `${totalDurationMs}ms`,
       at: new Date().toISOString(),
     });
+
+    // ★ 監査ログ記録
+    try {
+      await logAuditEvent({
+        companyId: membership.companyId,
+        actorUserId: userId,
+        action: 'stage2_generate_draft',
+        targetType: 'strategy_data',
+        metadata: {
+          storyDraftCount: finalStory.length,
+          winPatternsCount: normalizedWinPatterns.length,
+          issueBlocksCount: input.issueBlocks?.length || 0,
+          hasMVV: !!input.mvv?.mission,
+          hasSWOT: !!(input.swot?.strength || input.swot?.weakness || input.swot?.opportunity || input.swot?.threat),
+          totalDurationMs,
+        },
+        ...extractAuditMetadata(req),
+      });
+    } catch (auditErr) {
+      console.warn('[stage2/generate-draft] audit log failed (non-blocking):', auditErr);
+    }
 
     return NextResponse.json(result, {
       headers: { 'Cache-Control': 'no-store' },
