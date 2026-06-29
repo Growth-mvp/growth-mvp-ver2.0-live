@@ -7,7 +7,7 @@ import { NextResponse, NextRequest } from 'next/server';
 import { openai } from '@/lib/openai';
 import { safeParseJson } from '@/app/api/generate-question/helpers';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
-import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
+import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
 
 type Body = { question?: string; answer?: string };
 
@@ -25,6 +25,13 @@ export async function POST(req: NextRequest) {
   }
   const membership = await requireMembership(admin, userId);
   if (!membership) {
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  }
+
+  // Role check: only manager+ can use this API
+  try {
+    assertMinRole(membership, 'manager');
+  } catch (e: any) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
 
