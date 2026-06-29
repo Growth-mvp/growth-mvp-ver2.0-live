@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { getBrowserSupabase } from '@/utils/supabase/client';
 
 type CookieOptions = {
   path?: string;
@@ -25,9 +26,22 @@ export function AdminCookieSetter({
 
     (async () => {
       try {
+        // Supabase セッションから JWT トークンを取得
+        const supabase = getBrowserSupabase();
+        const { data } = await supabase.auth.getSession();
+        const token = data?.session?.access_token;
+
+        if (!token) {
+          console.warn('[AdminCookieSetter] no auth token, skipping');
+          return;
+        }
+
         const res = await fetch('/api/_session/set-cookie', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: {
+            'content-type': 'application/json',
+            'authorization': `Bearer ${token}`,
+          },
           body: JSON.stringify({ name, value, options }),
         });
 
