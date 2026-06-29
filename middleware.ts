@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
+import { extractSubFromBearerToken } from '@/lib/authUtils';
 
 /**
  * Upstash ベースのレート制限 middleware
@@ -23,7 +24,11 @@ const redis = process.env.UPSTASH_REDIS_REST_URL
 
 // Upstash が未設定の場合のログ
 if (!redis) {
-  console.warn('[middleware] Upstash Redis not configured. Rate limiting disabled.');
+  if (process.env.NODE_ENV === 'production') {
+    console.error('[middleware] CRITICAL: Upstash Redis not configured in production. Rate limiting disabled.');
+  } else {
+    console.warn('[middleware] Upstash Redis not configured. Rate limiting disabled.');
+  }
 }
 
 // レート制限インスタンス（複数のルールを同時に評価）
@@ -75,36 +80,6 @@ const isAIGenerationAPI = (pathname: string) =>
 const isManagementAPI = (pathname: string) =>
   MANAGEMENT_PATHS.some(pattern => pattern.test(pathname));
 
-/**
- * JWT ペイロードから sub (subject) を抽出
- * 署名検証は行わない（API側で実施）
- * デコード失敗や無効な形式の場合は null を返す
- */
-const extractSubFromBearerToken = (token: string): string | null => {
-  try {
-    // Bearer token は通常 3 パートに分かれている: header.payload.signature
-    const parts = token.split('.');
-    if (parts.length !== 3) {
-      return null;
-    }
-
-    // payload をデコード（Base64URL）
-    const payload = parts[1];
-    if (!payload) {
-      return null;
-    }
-
-    // Base64URL をデコード
-    const decoded = Buffer.from(payload, 'base64url').toString('utf-8');
-    const parsed = JSON.parse(decoded);
-
-    // sub claim を取得
-    return typeof parsed.sub === 'string' && parsed.sub.length > 0 ? parsed.sub : null;
-  } catch (error) {
-    // デコード失敗時は null（無効な token 扱い）
-    return null;
-  }
-};
 
 /**
  * Bearer token から認証済みユーザーの sub を取得
