@@ -2085,6 +2085,20 @@ function CascadePageContent() {
           console.log('[fetchStrategy:error]', { accessCompanyId, error: String(e), timestamp: new Date().toISOString() });
         }
         console.log('[hydration:end]', { accessCompanyId, timestamp: new Date().toISOString() });
+
+        // ★ 修正：prompt.txt指定のSTAGE3読み込み時ログ
+        const stateAfterLoad = useStrategyStore.getState() as any;
+        console.log('[stage3 load] strategyData', {
+          stage2Confirmed: stateAfterLoad.stage2Confirmed,
+          finalStrategy: stateAfterLoad.finalStrategy?.substring?.(0, 50) ?? undefined,
+          strategyStory: stateAfterLoad.strategyStory?.substring?.(0, 50) ?? undefined,
+          companyTargets: Array.isArray(stateAfterLoad.companyTargets) ? stateAfterLoad.companyTargets.length : 0,
+          answers2: Array.isArray(stateAfterLoad.answers2) ? stateAfterLoad.answers2.length : 0,
+          hasFinalStoryFinal: !!stateAfterLoad.finalStoryFinal,
+          hasStage3Bridge: !!stateAfterLoad.stage3_strategy_bridge,
+          stage3BridgeGeneratedAt: stateAfterLoad.stage3_strategy_bridge?.generatedAt,
+        });
+
         setHydrated?.(true);
         loadGuardRef.current = accessCompanyId;
       } catch (err) {
