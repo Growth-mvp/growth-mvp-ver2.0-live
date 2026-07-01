@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
-import { extractSubFromBearerToken } from '@/lib/authUtils';
+import { extractSubFromJWTForRateLimit } from '@/lib/authUtils';
 
 /**
  * Upstash ベースのレート制限 middleware
@@ -82,8 +82,9 @@ const isManagementAPI = (pathname: string) =>
 
 
 /**
- * Bearer token から認証済みユーザーの sub を取得
- * 失敗時は null を返す
+ * Rate limit キー用の認証ユーザー識別
+ * ⚠️ このメソッドは署名検証を行いません。rate limit キー生成用のみ
+ * 認証が必要な場面では必ず API 側で署名検証済み関数を使用してください
  */
 const getAuthenticatedUserKey = (req: NextRequest): string | null => {
   const auth = req.headers.get('authorization') || '';
@@ -93,7 +94,7 @@ const getAuthenticatedUserKey = (req: NextRequest): string | null => {
     return null;
   }
 
-  const sub = extractSubFromBearerToken(token);
+  const sub = extractSubFromJWTForRateLimit(token);
   return sub ? `user:${sub}` : null;
 };
 
