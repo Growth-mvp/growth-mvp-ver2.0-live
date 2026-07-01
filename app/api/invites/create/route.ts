@@ -89,47 +89,62 @@ export async function POST(req: Request) {
     const nextRole: Role =
       body.role === 'admin' || body.role === 'manager' ? body.role : 'member';
 
-    // 3) companyId を解決 & admin チェック
-    let companyId = body.companyId || null;
-
-    if (!companyId) {
-      const membership = await pickOneMembershipServer(admin, callerId);
-      if (!membership?.companyId) {
-        return NextResponse.json(
-          { error: 'caller_company_not_found', detail: 'No membership found' },
-          { status: 403 }
-        );
-      }
-      companyId = membership.companyId;
-    } else {
-      // 指定された companyId での membership を確認（adminのみ）
-      const chk = await admin
-        .from('company_members')
-        .select('company_id, role')
-        .eq('company_id', companyId)
-        .eq('user_id', callerId)
-        .maybeSingle();
-
-      if (chk.error || !chk.data?.company_id) {
-        return NextResponse.json(
-          { error: 'admin_only', detail: chk.error?.message },
-          { status: 403 }
-        );
-      }
-
-      if (chk.data.role !== 'admin') {
-        return NextResponse.json({ error: 'admin_only' }, { status: 403 });
-      }
+    // 3) 認証ユーザーのデフォルト membership を取得
+    const defaultMembership = await pickOneMembershipServer(admin, callerId);
+    if (!defaultMembership?.companyId) {
+      return NextResponse.json(
+        { error: 'caller_company_not_found', detail: 'No membership found' },
+        { status: 403 }
+      );
     }
 
-    // 4) トークン生成 & ハッシュ化
+    // 4) companyId を解決 & 所属確認
+    let companyId = body.companyId || defaultMembership.companyId;
+    let membershipRole: Role | null = null;
+
+    // 異なる companyId への招待は禁止
+    if (companyId !== defaultMembership.companyId) {
+      return NextResponse.json(
+        { error: 'admin_only', detail: 'Cannot create invites for different company' },
+        { status: 403 }
+      );
+    }
+
+    // 指定された companyId（またはデフォルト）での membership を確認
+    const chk = await admin
+      .from('company_members')
+      .select('company_id, role')
+      .eq('company_id', companyId)
+      .eq('user_id', callerId)
+      .maybeSingle();
+
+    if (chk.error || !chk.data?.company_id) {
+      return NextResponse.json(
+        { error: 'admin_only', detail: chk.error?.message },
+        { status: 403 }
+      );
+    }
+
+    membershipRole = chk.data.role;
+
+    // 5) 必ず admin チェックを実行
+    if (membershipRole !== 'admin') {
+      return NextResponse.json({ error: 'admin_only' }, { status: 403 });
+    }
+
+    // 6) admin ロール招待は管理者のみ
+    if (nextRole === 'admin' && membershipRole !== 'admin') {
+      return NextResponse.json({ error: 'admin_only' }, { status: 403 });
+    }
+
+    // 7) トークン生成 & ハッシュ化
     const token = generateInviteToken();
     const tokenHash = hashToken(token);
 
-    // 5) 招待の有効期限（7日間）
+    // 8) 招待の有効期限（7日間）
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-    // 6) company_invites テーブルに insert
+    // 9) company_invites テーブルに insert
     const { error: insertErr } = await admin
       .from('company_invites')
       .insert({

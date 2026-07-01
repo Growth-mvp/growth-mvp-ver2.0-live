@@ -4,7 +4,7 @@ import 'server-only';
 export const runtime = 'nodejs';
 
 import { NextResponse } from 'next/server';
-import { isAuthenticated } from '@/lib/authUtils';
+import { getAuthenticatedUserIdWithVerification } from '@/lib/authUtils';
 
 type Body = {
   name: string;
@@ -12,16 +12,22 @@ type Body = {
   options?: {
     path?: string;
     maxAge?: number;
-    httpOnly?: boolean;
-    sameSite?: 'lax' | 'strict' | 'none';
-    secure?: boolean;
   };
 };
 
+const ALLOWED_COOKIE_NAMES = new Set([
+  'company_id',
+  'user_preferences',
+  'session_token',
+  'theme',
+  'language',
+]);
+
 export async function POST(req: Request) {
   try {
-    // 認証チェック：このAPIは認証済みユーザーのみ使用可能
-    if (!isAuthenticated(req)) {
+    // 認証チェック：署名検証済みの方法で user を取得
+    const userId = await getAuthenticatedUserIdWithVerification(req);
+    if (!userId) {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
     }
 
@@ -35,14 +41,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'cookie_name_required' }, { status: 400 });
     }
 
+    // cookie 名がホワイトリストに含まれているか確認
+    if (!ALLOWED_COOKIE_NAMES.has(name)) {
+      return NextResponse.json({ error: 'cookie_name_not_allowed' }, { status: 403 });
+    }
+
     const res = NextResponse.json({ ok: true });
 
+    // httpOnly, secure, sameSite はサーバー側で強制
     res.cookies.set(name, value, {
       path: options.path ?? '/',
       maxAge: options.maxAge,
-      httpOnly: options.httpOnly ?? true,
-      sameSite: options.sameSite ?? 'lax',
-      secure: options.secure ?? process.env.NODE_ENV === 'production',
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
     });
 
     return res;

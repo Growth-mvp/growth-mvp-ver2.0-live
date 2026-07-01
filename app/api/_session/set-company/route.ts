@@ -1,10 +1,12 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
-import { isAuthenticated } from '@/lib/authUtils';
+import { getAuthenticatedUserIdWithVerification } from '@/lib/authUtils';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 
 export async function POST(req: Request) {
-  // 認証チェック：このAPIは認証済みユーザーのみ使用可能
-  if (!isAuthenticated(req)) {
+  // 認証チェック：署名検証済みの方法で user を取得
+  const userId = await getAuthenticatedUserIdWithVerification(req);
+  if (!userId) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
@@ -15,9 +17,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'companyId_required' }, { status: 400 });
   }
 
+  // ユーザーが指定された companyId に実際に所属しているか確認
+  const admin = getSupabaseAdmin();
+  const { data } = await admin
+    .from('company_members')
+    .select('company_id')
+    .eq('company_id', companyId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (!data?.company_id) {
+    return NextResponse.json({ error: 'company_not_found' }, { status: 403 });
+  }
+
   const res = NextResponse.json({ ok: true });
 
-  // 必要に応じて cookie 属性は調整
   res.cookies.set('company_id', companyId, {
     path: '/',
     httpOnly: true,
