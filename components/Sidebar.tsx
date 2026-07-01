@@ -123,43 +123,53 @@ export default function Sidebar() {
           </Link>
         </div>
 
-        <div className="shrink-0 px-4 py-3 border-b border-gray-200">
-          {user ? (
-            <div className="space-y-2">
-              <div className={`flex items-center justify-between gap-2 text-gray-600 ${ITEM_TEXT_CLASS}`}>
-                <span className="truncate max-w-[10rem]">{user.email}</span>
+        {user ? (
+          <div className="shrink-0 px-4 py-4 border-b border-gray-200">
+            {/* Account Section */}
+            <div className="rounded-xl bg-gray-100/70 px-4 py-4 space-y-3">
+              <h2 className="text-xs font-semibold text-gray-700 tracking-wide">アカウント</h2>
+
+              {/* Email Display */}
+              <div className="break-words">
+                <p className={`text-gray-600 ${ITEM_TEXT_CLASS}`}>
+                  {user.email}
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-col gap-2 pt-1">
+                <Link
+                  href="/account/password"
+                  className={`no-underline block rounded-lg px-3 py-2 text-sm font-medium text-center transition-colors ${
+                    isPasswordPage
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-white text-gray-800 border border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  パスワード変更
+                </Link>
                 <LogoutButton />
               </div>
-              <Link
-                href="/account/password"
-                className={`no-underline block rounded-lg px-3 py-2 text-sm transition-colors ${
-                  isPasswordPage
-                    ? 'bg-gray-200 text-gray-900 font-medium'
-                    : 'text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                パスワード変更
-              </Link>
             </div>
-          ) : (
-            <div className="flex items-center justify-center gap-2">
-              <Link
-                href="/login"
-                className="no-underline inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1 text-[12px] text-gray-800 shadow-sm hover:bg-gray-50"
-              >
-                <LogIn size={14} strokeWidth={1.5} />
-                ログイン
-              </Link>
-              <Link
-                href="/signup"
-                className="no-underline inline-flex items-center gap-1 rounded-full bg-gray-900 px-3 py-1 text-[12px] text-white shadow-sm hover:bg-black/90"
-              >
-                <UserPlus size={14} strokeWidth={1.5} />
-                新規登録
-              </Link>
-            </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="shrink-0 px-4 py-3 border-b border-gray-200 flex items-center justify-center gap-2">
+            <Link
+              href="/login"
+              className="no-underline inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1 text-[12px] text-gray-800 shadow-sm hover:bg-gray-50"
+            >
+              <LogIn size={14} strokeWidth={1.5} />
+              ログイン
+            </Link>
+            <Link
+              href="/signup"
+              className="no-underline inline-flex items-center gap-1 rounded-full bg-gray-900 px-3 py-1 text-[12px] text-white shadow-sm hover:bg-black/90"
+            >
+              <UserPlus size={14} strokeWidth={1.5} />
+              新規登録
+            </Link>
+          </div>
+        )}
 
         <div className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-6 overscroll-contain">
           <nav className="space-y-[18px]" role="navigation" aria-label="メインナビゲーション">
