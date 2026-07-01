@@ -68,6 +68,8 @@ export default function Sidebar() {
 
   const currentUserId: string | undefined = user?.id;
 
+  const isPasswordPage = pathname === '/account/password';
+
   return (
     <>
       {/* Mobile: Menu Button */}
@@ -123,9 +125,21 @@ export default function Sidebar() {
 
         <div className="shrink-0 px-4 py-3 border-b border-gray-200">
           {user ? (
-            <div className={`flex items-center justify-between gap-2 text-gray-600 ${ITEM_TEXT_CLASS}`}>
-              <span className="truncate max-w-[10rem]">{user.email}</span>
-              <LogoutButton />
+            <div className="space-y-2">
+              <div className={`flex items-center justify-between gap-2 text-gray-600 ${ITEM_TEXT_CLASS}`}>
+                <span className="truncate max-w-[10rem]">{user.email}</span>
+                <LogoutButton />
+              </div>
+              <Link
+                href="/account/password"
+                className={`no-underline block rounded-lg px-3 py-2 text-sm transition-colors ${
+                  isPasswordPage
+                    ? 'bg-gray-200 text-gray-900 font-medium'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                パスワード変更
+              </Link>
             </div>
           ) : (
             <div className="flex items-center justify-center gap-2">
