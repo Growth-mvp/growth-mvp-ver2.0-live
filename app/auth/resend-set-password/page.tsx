@@ -24,13 +24,19 @@ export default function ResendSetPasswordPage() {
     setLoading(true);
 
     try {
+      const redirectTo = typeof window !== 'undefined' ? window.location.origin : '';
+
       // Supabase の recovery リンク（パスワードリセット）を使用
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${typeof window !== 'undefined' ? window.location.origin : ''}/auth/set-password`,
+        redirectTo: `${redirectTo}/auth/set-password`,
       });
 
       if (resetError) {
-        console.error('[resend-set-password] resetPasswordForEmail error:', resetError);
+        console.error('[resend-set-password] resetPasswordForEmail error:', {
+          message: resetError.message,
+          status: resetError.status,
+          code: (resetError as any).code,
+        });
         setError(`リンク送信に失敗しました: ${resetError.message}`);
         return;
       }
@@ -38,7 +44,11 @@ export default function ResendSetPasswordPage() {
       setMessage(`✅ パスワード設定リンクを ${email} に送信しました。メールをご確認ください。`);
       setEmail('');
     } catch (err: any) {
-      console.error('[resend-set-password] Exception:', err);
+      console.error('[resend-set-password] Exception:', {
+        message: err?.message,
+        status: err?.status,
+        name: err?.name,
+      });
       setError('リンク送信に失敗しました。もう一度お試しください。');
     } finally {
       setLoading(false);
