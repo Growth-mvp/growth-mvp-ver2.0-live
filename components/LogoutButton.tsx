@@ -112,7 +112,7 @@ export default function LogoutButton() {
       type="button"
       onClick={handleLogout}
       disabled={busy}
-      className="w-full rounded-lg px-3 py-2 text-sm font-medium text-center transition-colors bg-red-50 text-red-700 border border-red-300 hover:bg-red-100 disabled:opacity-60 disabled:cursor-not-allowed"
+      className="no-underline inline text-xs text-red-600 hover:text-red-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-normal"
       title={busy ? 'ログアウト中…' : 'ログアウト'}
       aria-busy={busy || undefined}
       aria-disabled={busy || undefined}

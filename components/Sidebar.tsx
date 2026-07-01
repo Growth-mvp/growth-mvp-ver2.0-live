@@ -123,36 +123,7 @@ export default function Sidebar() {
           </Link>
         </div>
 
-        {user ? (
-          <div className="shrink-0 px-4 py-4 border-b border-gray-200">
-            {/* Account Section */}
-            <div className="rounded-xl bg-gray-100/70 px-4 py-4 space-y-3">
-              <h2 className="text-xs font-semibold text-gray-700 tracking-wide">アカウント</h2>
-
-              {/* Email Display */}
-              <div className="break-words">
-                <p className={`text-gray-600 ${ITEM_TEXT_CLASS}`}>
-                  {user.email}
-                </p>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex flex-col gap-2 pt-1">
-                <Link
-                  href="/account/password"
-                  className={`no-underline block rounded-lg px-3 py-2 text-sm font-medium text-center transition-colors ${
-                    isPasswordPage
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-white text-gray-800 border border-gray-300 hover:bg-gray-50'
-                  }`}
-                >
-                  パスワード変更
-                </Link>
-                <LogoutButton />
-              </div>
-            </div>
-          </div>
-        ) : (
+        {!user && (
           <div className="shrink-0 px-4 py-3 border-b border-gray-200 flex items-center justify-center gap-2">
             <Link
               href="/login"
@@ -246,9 +217,29 @@ export default function Sidebar() {
 
         <GlobalSidebarSaveStatus />
 
+        {user && (
+          <div className="shrink-0 border-t border-gray-200 px-4 py-2">
+            <div className="text-xs font-semibold text-gray-500 mb-1">アカウント</div>
+            <div className="text-xs text-slate-500 mb-2 break-words">{user.email}</div>
+            <div className="flex gap-3 text-xs">
+              <Link
+                href="/account/password"
+                className={`no-underline transition-colors ${
+                  isPasswordPage
+                    ? 'text-slate-900 font-medium'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                パスワード変更
+              </Link>
+              <LogoutButton />
+            </div>
+          </div>
+        )}
+
         <footer className={`shrink-0 border-t border-gray-200 px-4 py-3 text-gray-500 ${ITEM_TEXT_CLASS}`}>
           © 2026 GROWTH SHIFT Platform
-         
+
         </footer>
       </aside>
     </>
