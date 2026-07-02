@@ -218,20 +218,20 @@ export default function Sidebar() {
         <GlobalSidebarSaveStatus />
 
         {user && (
-          <div className="shrink-0 border-t border-slate-200/40 px-4 py-3 mt-2">
-            <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-2">アカウント</div>
-            <div className="text-xs text-slate-500 mb-3 truncate">{user.email}</div>
-            <div className="flex gap-4 text-xs">
-              <Link
-                href="/account/password"
-                className={`no-underline transition-colors ${
-                  isPasswordPage
-                    ? 'text-slate-900 font-medium'
-                    : 'text-slate-500 hover:text-slate-900'
-                }`}
-              >
-                パスワード変更
-              </Link>
+          <div className="shrink-0 border-t border-gray-200 px-4 py-4">
+            <div className="text-xs font-semibold text-gray-600 mb-1">アカウント</div>
+            <div className="text-xs text-gray-600 mb-3 truncate">{user.email}</div>
+            <Link
+              href="/account/password"
+              className={`no-underline flex h-9 items-center justify-center rounded-full text-sm font-medium transition ${
+                isPasswordPage
+                  ? 'bg-gray-900 text-white hover:bg-black/90'
+                  : 'bg-white text-gray-800 border border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              アカウント設定
+            </Link>
+            <div className="mt-2">
               <LogoutButton />
             </div>
           </div>
