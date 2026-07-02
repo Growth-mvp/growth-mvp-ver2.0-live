@@ -240,12 +240,14 @@ export default function InviteAcceptClient() {
 
         // 成功
         const companyId = data?.companyId as string | undefined;
+        const needsPasswordSetup = data?.needsPasswordSetup as boolean | undefined;
 
         console.log('[invite/accept] Success:', {
           companyId,
           tokenHead: `${tokenHead}...`,
           userId: currentUserId,
           role: data?.role,
+          needsPasswordSetup,
         });
 
         // ★ 成功時に localStorage をクリア
@@ -260,11 +262,20 @@ export default function InviteAcceptClient() {
         if (companyId) setCompanyId(companyId);
         resetMembershipLoading();
 
-        setMsg('招待を受け入れました。パスワード設定画面に遷移します。');
-
-        setTimeout(() => {
-          router.replace('/auth/set-password');
-        }, 1200);
+        // 既存ユーザーか新規ユーザーかで遷移先を判定
+        if (needsPasswordSetup) {
+          // 新規ユーザー：パスワード設定が必要
+          setMsg('招待を受け入れました。パスワード設定画面に遷移します。');
+          setTimeout(() => {
+            router.replace('/auth/set-password');
+          }, 1200);
+        } else {
+          // 既存ユーザー：パスワード設定済みなので直接ホームへ
+          setMsg('招待を受け入れました。ホームへ遷移します。');
+          setTimeout(() => {
+            router.replace('/');
+          }, 1200);
+        }
       } catch (e: any) {
         console.error('[invite/accept] Exception:', {
           error: e?.message || String(e),

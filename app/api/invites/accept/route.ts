@@ -245,6 +245,46 @@ export async function POST(req: Request) {
       );
     }
 
+    // ★ 既存ユーザーか新規ユーザーかを判定
+    // Supabase では以下の方法で判定：
+    // 1. user.created_at が最近（1時間以内）→ 招待メール経由で新規作成されたユーザーの可能性が高い
+    // 2. identities に email_password パターンがない → パスワード未設定
+    // 3. user_metadata に password_set_at フラグがある → パスワード設定済みの指標
+
+    const userCreatedTime = new Date(authUser.user.created_at).getTime();
+    const oneHourAgo = Date.now() - 60 * 60 * 1000;
+    const isRecentlyCreated = userCreatedTime > oneHourAgo;
+
+    // identities をチェック（パスワード設定済みの確認）
+    const emailIdentities = (authUser.user.identities || []).filter(
+      (id) => id.provider === 'email'
+    );
+    const hasEmailPasswordIdentity = emailIdentities.some(
+      (id) => id.identity_data?.['sign_in_method'] === 'password'
+    );
+
+    // user_metadata に独自フラグがあるか確認
+    const hasPasswordInMetadata = !!authUser.user.user_metadata?.['password_set_at'];
+
+    // パスワード設定済みの判定（どれか1つでも true なら既存ユーザー）
+    const hasPassword = hasEmailPasswordIdentity || hasPasswordInMetadata;
+
+    // 新規か既存かの判定：
+    // - 最近作成 & パスワドなし → 新規招待ユーザー（パスワード設定が必要）
+    // - それ以外 → 既存ユーザー（パスワード設定済み）
+    const needsPasswordSetup = isRecentlyCreated && !hasPassword;
+
+    console.log('[invites/accept] password status check:', {
+      userId,
+      isRecentlyCreated,
+      hasPassword,
+      hasEmailPasswordIdentity,
+      hasPasswordInMetadata,
+      needsPasswordSetup,
+      createdAt: authUser.user.created_at,
+      identitiesCount: (authUser.user.identities || []).length,
+    });
+
     // 8) membership の role は「昇格のみ」許可（既存を勝手に上書きしない）
     const inviteRole = clampRole(invite.role);
 
@@ -390,6 +430,7 @@ export async function POST(req: Request) {
       companyId: invite.company_id,
       role: finalRole,
       email: userEmail,
+      needsPasswordSetup,
     });
   } catch (e: any) {
     console.error('[invites/accept] failed:', e?.message || e);
