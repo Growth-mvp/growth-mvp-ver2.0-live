@@ -234,6 +234,14 @@ export default function LoginClient() {
         <p className="mt-4 text-center text-[11px] text-zinc-500">
           Enter で送信・Shift+Enter で改行に対応しています
         </p>
+
+        <div className="mt-6 flex justify-center gap-4 text-[11px] text-zinc-500">
+          <a href="/terms" className="hover:text-zinc-700 underline">利用規約</a>
+          <span>|</span>
+          <a href="/privacy" className="hover:text-zinc-700 underline">プライバシーポリシー</a>
+          <span>|</span>
+          <a href="/contact" className="hover:text-zinc-700 underline">お問い合わせ</a>
+        </div>
       </div>
     </main>
   );
