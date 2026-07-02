@@ -10,7 +10,7 @@ import { getAuthUserIdFromBearer } from '@/lib/server/rbacGuard';
 import type { Role } from '@/lib/rbac';
 
 // Resend SDK (npm install resend が必要)
-let ResendClient: typeof import('resend').Resend | null = null;
+let ResendClient: any = null;
 try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   ResendClient = require('resend').Resend;
@@ -38,9 +38,10 @@ function normalizeEmail(e: string): string {
 }
 
 export async function POST(req: Request) {
-  try {
-    const admin = getSupabaseAdmin();
+  const admin = getSupabaseAdmin();
+  let tokenHash: string = '';
 
+  try {
     // 1) Authentication check (Bearer token required)
     const callerId = await getAuthUserIdFromBearer(admin, req);
     if (!callerId) {
@@ -158,7 +159,7 @@ export async function POST(req: Request) {
 
     // 5) Generate token and hash
     const token = generateInviteToken();
-    const tokenHash = hashToken(token);
+    tokenHash = hashToken(token);
 
     // 6) Set expiration (7 days)
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -210,8 +211,18 @@ export async function POST(req: Request) {
     let emailSent = false;
     let emailError: string | null = null;
 
+    // ✅ Debug log: Check Resend configuration before sending
+    console.log('[admin/members/invite] Checking Resend configuration:', {
+      resendClientLoaded: !!ResendClient,
+      hasResendApiKey: !!process.env.RESEND_API_KEY,
+      hasEmailFrom: !!process.env.INVITE_EMAIL_FROM,
+      inviteLink: inviteLink.substring(0, 80) + '...',
+      toEmail: email,
+    });
+
     if (ResendClient && process.env.RESEND_API_KEY) {
       try {
+        console.log('[admin/members/invite] Attempting to send email via Resend...');
         const resend = new ResendClient(process.env.RESEND_API_KEY);
 
         const emailFromAddress = process.env.INVITE_EMAIL_FROM || 'GROWTH SHIFT <no-reply@growthshift.jp>';
@@ -232,6 +243,11 @@ ${inviteLink}
           text: emailContent,
         });
 
+        console.log('[admin/members/invite] Resend API response:', {
+          hasError: !!result.error,
+          messageId: result.data?.id,
+        });
+
         if (result.error) {
           console.error('[admin/members/invite] Resend error:', result.error);
           emailError = result.error.message || 'Failed to send email';
@@ -247,7 +263,11 @@ ${inviteLink}
         emailError = err?.message || 'Email sending failed';
       }
     } else {
-      console.warn('[admin/members/invite] Resend not configured, skipping email');
+      console.warn('[admin/members/invite] Resend not configured:', {
+        resendClientLoaded: !!ResendClient,
+        hasResendApiKey: !!process.env.RESEND_API_KEY,
+        reason: !ResendClient ? 'ResendClient not loaded' : 'RESEND_API_KEY not set',
+      });
     }
 
     console.log('[admin/members/invite] Invite process completed:', {
