@@ -22,6 +22,29 @@ export default function LoginClient() {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
 
+  const getLoginErrorMessage = (error: any): string => {
+    if (!error) return 'ログインに失敗しました。もう一度お試しください。';
+
+    const message = (error?.message || '').toLowerCase();
+
+    // Supabase 標準エラーメッセージをマッピング
+    if (message.includes('invalid login credentials') || message.includes('invalid')) {
+      return 'メールアドレスまたはパスワードが正しくありません。';
+    }
+    if (message.includes('email not confirmed')) {
+      return 'このメールアドレスはまだ確認されていません。確認メールをご確認ください。';
+    }
+    if (message.includes('too many requests')) {
+      return 'ログイン試行回数が多すぎます。しばらく後にお試しください。';
+    }
+    if (message.includes('network') || message.includes('fetch') || message.includes('timeout')) {
+      return 'ネットワーク接続を確認してください。';
+    }
+
+    // デフォルト
+    return 'ログインに失敗しました。もう一度お試しください。';
+  };
+
   const handleLogin = async () => {
     setErrorMessage('');
     if (!email || !password) {
@@ -31,7 +54,7 @@ export default function LoginClient() {
     setLoading(true);
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error || !data?.user) throw new Error(error?.message || 'ログインに失敗しました');
+      if (error || !data?.user) throw new Error(error?.message || 'login_failed');
 
       const userId = data.user.id;
       const userEmail = data.user.email ?? '';
@@ -76,7 +99,7 @@ export default function LoginClient() {
       setCompanyId(cid ?? null);
       router.replace('/');
     } catch (e: any) {
-      setErrorMessage('ログイン失敗: ' + (e?.message || '不明なエラー'));
+      setErrorMessage(getLoginErrorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -125,7 +148,12 @@ export default function LoginClient() {
             </div>
 
             <div>
-              <label className="mb-1 block text-[12px] font-medium text-zinc-700">パスワード</label>
+              <div className="mb-1 flex items-center justify-between">
+                <label className="block text-[12px] font-medium text-zinc-700">パスワード</label>
+                <a href="/auth/forgot-password" className="text-[12px] text-zinc-600 hover:text-zinc-900 underline">
+                  お忘れですか？
+                </a>
+              </div>
               <input
                 type="password"
                 placeholder="6文字以上"
