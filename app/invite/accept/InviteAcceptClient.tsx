@@ -51,6 +51,7 @@ export default function InviteAcceptClient() {
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [settingPassword, setSettingPassword] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
+  const [loadTimeoutWarning, setLoadTimeoutWarning] = useState(false);
 
   /**
    * ✅ 招待情報を取得（未ログイン状態でも可能）
@@ -59,6 +60,8 @@ export default function InviteAcceptClient() {
 
   useEffect(() => {
     let cancelled = false;
+    let loadTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+    let warnTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
     (async () => {
       console.log('[invite/accept] Initialize: loading invite info');
@@ -77,12 +80,22 @@ export default function InviteAcceptClient() {
         return;
       }
 
+      // 10秒後に警告を表示するタイマー
+      warnTimeoutTimer = setTimeout(() => {
+        if (!cancelled && checkingAuth) {
+          console.warn('[invite/accept] Load taking longer than 10 seconds');
+          setLoadTimeoutWarning(true);
+        }
+      }, 10000);
+
       try {
         // 招待情報を取得（未ログイン状態でも OK）
         const res = await fetch(`/api/invites/info?token=${encodeURIComponent(token)}`);
         const data = await res.json();
 
         if (cancelled) return;
+
+        if (warnTimeoutTimer) clearTimeout(warnTimeoutTimer);
 
         if (!res.ok) {
           let errorMessage = 'エラーが発生しました';
@@ -161,6 +174,7 @@ export default function InviteAcceptClient() {
           tokenHead: token.slice(0, 8),
         });
 
+        if (warnTimeoutTimer) clearTimeout(warnTimeoutTimer);
         setError('招待情報の読み込みに失敗しました。もう一度お試しください。');
         setCheckingAuth(false);
       }
@@ -168,6 +182,8 @@ export default function InviteAcceptClient() {
 
     return () => {
       cancelled = true;
+      if (loadTimeoutTimer) clearTimeout(loadTimeoutTimer);
+      if (warnTimeoutTimer) clearTimeout(warnTimeoutTimer);
     };
   }, [token]);
 
@@ -271,8 +287,27 @@ export default function InviteAcceptClient() {
   if (checkingAuth) {
     return (
       <main className="mx-auto max-w-md p-6">
-        <div className="flex items-center justify-center py-12">
-          <p className="text-gray-600">招待情報を確認中...</p>
+        <div className="flex flex-col items-center justify-center py-12">
+          <h1 className="mb-4 text-xl font-bold text-gray-800">招待内容を確認しています...</h1>
+
+          {/* スピナー */}
+          <div className="mb-6 flex justify-center">
+            <div className="h-10 w-10 animate-spin rounded-full border-4 border-gray-200 border-t-gray-900"></div>
+          </div>
+
+          <p className="text-sm text-gray-600 text-center">
+            数秒かかる場合があります。この画面を閉じずにお待ちください。
+          </p>
+
+          {/* 10秒以上かかっている場合の警告 */}
+          {loadTimeoutWarning && (
+            <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              <p className="font-semibold">時間がかかっています</p>
+              <p className="mt-1 text-xs">
+                再読み込みせず、しばらくお待ちください。
+              </p>
+            </div>
+          )}
         </div>
       </main>
     );
