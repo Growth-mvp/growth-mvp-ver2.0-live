@@ -246,14 +246,11 @@ export async function POST(req: Request) {
     }
 
     // ★ 既存ユーザーか新規ユーザーかを判定
-    // Supabase では以下の方法で判定：
-    // 1. user.created_at が最近（1時間以内）→ 招待メール経由で新規作成されたユーザーの可能性が高い
-    // 2. identities に email_password パターンがない → パスワード未設定
-    // 3. user_metadata に password_set_at フラグがある → パスワード設定済みの指標
-
-    const userCreatedTime = new Date(authUser.user.created_at).getTime();
-    const oneHourAgo = Date.now() - 60 * 60 * 1000;
-    const isRecentlyCreated = userCreatedTime > oneHourAgo;
+    // 主判定：
+    // 1. identities に email_password パターンがあるか → パスワード設定済み
+    // 2. user_metadata に password_set_at フラグがあるか → パスワード設定済みの指標
+    // 補助情報：
+    // - created_at が1時間以内 → 招待メール経由で新規作成の可能性あり（ログ用）
 
     // identities をチェック（パスワード設定済みの確認）
     const emailIdentities = (authUser.user.identities || []).filter(
@@ -266,22 +263,23 @@ export async function POST(req: Request) {
     // user_metadata に独自フラグがあるか確認
     const hasPasswordInMetadata = !!authUser.user.user_metadata?.['password_set_at'];
 
-    // パスワード設定済みの判定（どれか1つでも true なら既存ユーザー）
+    // ★ 主判定：email_password identity または password_set_at がある → パスワード設定済み
     const hasPassword = hasEmailPasswordIdentity || hasPasswordInMetadata;
+    const needsPasswordSetup = !hasPassword;
 
-    // 新規か既存かの判定：
-    // - 最近作成 & パスワドなし → 新規招待ユーザー（パスワード設定が必要）
-    // - それ以外 → 既存ユーザー（パスワード設定済み）
-    const needsPasswordSetup = isRecentlyCreated && !hasPassword;
+    // 補助情報：created_at の1時間以内判定（ログ用）
+    const userCreatedTime = new Date(authUser.user.created_at).getTime();
+    const oneHourAgo = Date.now() - 60 * 60 * 1000;
+    const isRecentlyCreated = userCreatedTime > oneHourAgo;
 
     console.log('[invites/accept] password status check:', {
       userId,
-      isRecentlyCreated,
       hasPassword,
       hasEmailPasswordIdentity,
       hasPasswordInMetadata,
       needsPasswordSetup,
       createdAt: authUser.user.created_at,
+      isRecentlyCreated,
       identitiesCount: (authUser.user.identities || []).length,
     });
 
