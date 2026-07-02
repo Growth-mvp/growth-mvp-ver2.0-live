@@ -71,7 +71,7 @@ export default function AdminInvitesPage() {
         }),
       });
 
-      const j: any = await res.json().catch(() => ({}));
+      const j = await res.json().catch(() => ({})) as Record<string, unknown>;
 
       if (!res.ok) {
         // ログに詳しい情報を出力（開発時デバッグ用）
@@ -98,13 +98,22 @@ export default function AdminInvitesPage() {
 
       if (j.ok) {
         // 招待リンク生成成功
-        if (j.inviteLink) {
+        if (j.emailSent) {
+          // メール送信成功
+          setInviteLink('');
+          setNote(`✉️ ${e} に招待メールを送信しました。\n受信者はメール内のリンクから登録を完了できます。`);
+          setEmail(''); // 成功時のみクリア
+        } else if (j.inviteLink) {
+          // メール送信失敗またはメール機能未設定
           setInviteLink(j.inviteLink);
+          const warningMsg = j.warning
+            ? `${j.message}\n警告: ${j.warning}`
+            : j.message;
           setNote(
-            `招待リンクを生成しました。\n` +
+            `${warningMsg}\n\n` +
             `以下のリンクをコピーして、メールやチャットで先方に共有してください。`
           );
-          // メールアドレスは保持（同じ人に再度招待する場合に便利）
+          // メールアドレスは保持（再試行の場合に便利）
         } else {
           setInviteLink('');
           setNote('招待リンクの生成に失敗しました。もう一度お試しください。');
@@ -211,7 +220,7 @@ export default function AdminInvitesPage() {
       </section>
 
       <p className="text-xs text-gray-500">
-        ※ 招待メールが送信されます。受信者はメール内のリンクからパスワード設定とアカウント作成を行えます。招待は7日間有効です。
+        ※ Resend が有効な場合は招待メールが自動送信されます。送信に失敗した場合や無効な場合は、上記の招待リンクをコピーして手動で共有してください。受信者はメール内のリンクからパスワード設定とアカウント作成を行えます。招待は7日間有効です。
       </p>
     </div>
   );

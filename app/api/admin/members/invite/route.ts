@@ -9,6 +9,15 @@ import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer } from '@/lib/server/rbacGuard';
 import type { Role } from '@/lib/rbac';
 
+// Resend SDK (npm install resend が必要)
+let ResendClient: typeof import('resend').Resend | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  ResendClient = require('resend').Resend;
+} catch {
+  console.warn('[admin/members/invite] Resend not installed, email sending will be skipped');
+}
+
 type Body = {
   email: string;
   role?: Role;
@@ -188,7 +197,7 @@ export async function POST(req: Request) {
     //   - It sends the standard Supabase email with "Accept the invite" button
     //   - That button goes through Supabase's auth flow, not our custom /invite/accept flow
     //   - Users end up at /auth/welcome without company membership
-    // ✅ Solution: Use our own invite token system only
+    // ✅ Solution: Use our own invite token system + Resend for email
     const inviteLink = `${appUrl}/invite/accept?token=${encodeURIComponent(token)}`;
 
     console.log('[admin/members/invite] Generated custom invite link:', {
@@ -197,30 +206,79 @@ export async function POST(req: Request) {
       inviteLink: inviteLink.substring(0, 80) + '...',
     });
 
-    // Note: Email sending should be handled separately via:
-    // - A separate Supabase Edge Function with Resend/SendGrid
-    // - Or admin manually shares the link
-    // For now, we return the link and let admin choose how to send it
+    // 9) Send invitation email via Resend
+    let emailSent = false;
+    let emailError: string | null = null;
 
-    console.log('[admin/members/invite] Invite link generated successfully:', {
+    if (ResendClient && process.env.RESEND_API_KEY) {
+      try {
+        const resend = new ResendClient(process.env.RESEND_API_KEY);
+
+        const emailFromAddress = process.env.INVITE_EMAIL_FROM || 'GROWTH SHIFT <no-reply@growthshift.jp>';
+
+        const emailContent = `GROWTH SHIFTに招待されました。
+以下のリンクからアカウント設定を完了してください。
+
+招待を承認する：
+${inviteLink}
+
+このリンクは7日間有効です。
+心当たりがない場合は、このメールを破棄してください。`;
+
+        const result = await resend.emails.send({
+          from: emailFromAddress,
+          to: email,
+          subject: 'GROWTH SHIFTへの招待',
+          text: emailContent,
+        });
+
+        if (result.error) {
+          console.error('[admin/members/invite] Resend error:', result.error);
+          emailError = result.error.message || 'Failed to send email';
+        } else {
+          emailSent = true;
+          console.log('[admin/members/invite] Email sent successfully:', {
+            email,
+            messageId: result.data?.id,
+          });
+        }
+      } catch (err: any) {
+        console.error('[admin/members/invite] Email sending exception:', err);
+        emailError = err?.message || 'Email sending failed';
+      }
+    } else {
+      console.warn('[admin/members/invite] Resend not configured, skipping email');
+    }
+
+    console.log('[admin/members/invite] Invite process completed:', {
       email,
       role: inviteRole,
       companyId,
       expiresAt: expiresAt.toISOString(),
       tokenHead: token.slice(0, 8),
+      emailSent,
+      emailError,
     });
 
-    // 9) Return success with the invite link
-    // Admin can copy this link and send it via email, chat, or other means
-    const responseBody = {
+    // 10) Return success with email status and invite link as backup
+    const responseBody: any = {
       ok: true,
       email,
       role: inviteRole,
       companyId,
       expiresAt: expiresAt.toISOString(),
       inviteLink,
-      message: '招待リンクを生成しました。このリンクをメールなどで先方に共有してください。',
+      emailSent,
     };
+
+    if (emailSent) {
+      responseBody.message = `${email} に招待メールを送信しました。`;
+    } else if (emailError) {
+      responseBody.message = `メール送信に失敗しました。以下の招待リンクをコピーして共有してください。`;
+      responseBody.warning = `エラー: ${emailError}`;
+    } else {
+      responseBody.message = '招待リンクを生成しました。このリンクをメールなどで先方に共有してください。';
+    }
 
     return NextResponse.json(responseBody, {
       status: 200,
