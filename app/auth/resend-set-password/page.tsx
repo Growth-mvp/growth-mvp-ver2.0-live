@@ -59,10 +59,10 @@ export default function ResendSetPasswordPage() {
       <div className="mx-auto w-full max-w-md">
         <div className="mb-6 text-center">
           <div className="text-[28px] font-semibold tracking-tight text-zinc-900">
-            パスワード設定リンク再発行
+            招待リンクを再送
           </div>
           <p className="mt-1 text-[13px] text-zinc-500">
-            招待済みでパスワントがまだの方はこちら
+            招待メールのリンクが期限切れの場合
           </p>
         </div>
 

@@ -3,6 +3,7 @@
 
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { Eye, EyeOff } from 'lucide-react';
 import { supabase } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
 import { resolveCompanyId } from '@/utils/company';
@@ -16,9 +17,11 @@ export default function LoginClient() {
   const { setUser, setMembership, setCompanyId } = useUserStore();
 
   const joinCompanyId = (search?.get('company') || '').trim() || null;
+  const redirectTo = (search?.get('redirect_to') || '').trim() || null;
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
 
@@ -97,7 +100,13 @@ export default function LoginClient() {
 
       setMembership({ companyId: cid ?? null, departmentId: departmentId ?? null, role });
       setCompanyId(cid ?? null);
-      router.replace('/');
+
+      // リダイレクト先を決定：パラメータ > メンバーシップ > デフォルト
+      let destination = '/';
+      if (redirectTo && redirectTo.startsWith('/')) {
+        destination = redirectTo;
+      }
+      router.replace(destination);
     } catch (e: any) {
       setErrorMessage(getLoginErrorMessage(e));
     } finally {
@@ -154,26 +163,36 @@ export default function LoginClient() {
                   お忘れですか？
                 </a>
               </div>
-              <input
-                type="password"
-                placeholder="6文字以上"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => {
-                  // Mac/Windows の日本語IME入力中は送信しない
-                  if (e.nativeEvent.isComposing) return;
-                  if ((e.nativeEvent as any).keyCode === 229) return;
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="6文字以上"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyDown={(e) => {
+                    // Mac/Windows の日本語IME入力中は送信しない
+                    if (e.nativeEvent.isComposing) return;
+                    if ((e.nativeEvent as any).keyCode === 229) return;
 
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    e.currentTarget.form?.requestSubmit();
-                  }
-                }}
-                className="w-full rounded-xl border border-zinc-300 bg-white/90 px-3 py-2 text-[14px] outline-none focus:ring-4 focus:ring-zinc-200"
-                autoComplete="current-password"
-                minLength={6}
-                required
-              />
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      e.currentTarget.form?.requestSubmit();
+                    }
+                  }}
+                  className="w-full rounded-xl border border-zinc-300 bg-white/90 px-3 py-2 pr-10 text-[14px] outline-none focus:ring-4 focus:ring-zinc-200"
+                  autoComplete="current-password"
+                  minLength={6}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? 'パスワードを隠す' : 'パスワードを表示'}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-700"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
 
             <button
@@ -193,15 +212,13 @@ export default function LoginClient() {
 
           <div className="mt-4 space-y-2">
             <p className="text-center text-[13px] text-zinc-600">
-              アカウントをお持ちでないですか？{' '}
-              <a href="/signup" className="font-medium text-[color:var(--accent)] hover:opacity-90 underline">
-                新規登録はこちら
-              </a>
+              アカウントをお持ちでない方は、{' '}
+              <span className="text-zinc-500">管理者からの招待メールをご確認ください</span>
             </p>
             <p className="text-center text-[13px] text-zinc-600">
-              招待済みでパスワント未設定ですか？{' '}
+              招待メールのリンクが切れた方は{' '}
               <a href="/auth/resend-set-password" className="font-medium text-[color:var(--accent)] hover:opacity-90 underline">
-                リンク再発行
+                こちら
               </a>
             </p>
           </div>
