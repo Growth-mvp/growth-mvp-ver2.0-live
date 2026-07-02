@@ -143,6 +143,14 @@ function WelcomeInner() {
     const ac = new AbortController();
     const { signal } = ac;
 
+    // 招待トークンがあれば、すぐに /invite/accept へ遷移
+    // これは Supabase の標準メール経由で /auth/welcome に来た場合のリダイレクト
+    if (token) {
+      console.log('[auth/welcome] Token detected, redirecting to /invite/accept');
+      router.replace(`/invite/accept?token=${encodeURIComponent(token)}`);
+      return;
+    }
+
     runCheck(signal).finally(() => {
       if (!signal.aborted) {
         inFlight.current = false;
@@ -154,7 +162,7 @@ function WelcomeInner() {
       inFlight.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [checkNonce]);
+  }, [checkNonce, token, router]);
 
   const handleRecheck = () => {
     setCheckNonce((x) => x + 1);

@@ -183,107 +183,44 @@ export async function POST(req: Request) {
       );
     }
 
-    // 8) Construct redirectTo URL with double encoding
-    // appUrl は既に (3) で確認済み、ここで再度チェックは不要
-    const nextPath = `/invite/accept?token=${encodeURIComponent(token)}`;
-    const redirectTo = `${appUrl}/auth/callback?next=${encodeURIComponent(nextPath)}`;
+    // 8) Generate our custom invite link (GROWTHSHIFT's own invite flow)
+    // ⚠️ Important: We do NOT use Supabase's inviteUserByEmail because:
+    //   - It sends the standard Supabase email with "Accept the invite" button
+    //   - That button goes through Supabase's auth flow, not our custom /invite/accept flow
+    //   - Users end up at /auth/welcome without company membership
+    // ✅ Solution: Use our own invite token system only
+    const inviteLink = `${appUrl}/invite/accept?token=${encodeURIComponent(token)}`;
 
-    console.log('[admin/members/invite] Constructed redirectTo:', {
+    console.log('[admin/members/invite] Generated custom invite link:', {
       email,
       tokenHead: token.slice(0, 8),
-      redirectToHead: redirectTo.slice(0, 80),
+      inviteLink: inviteLink.substring(0, 80) + '...',
     });
 
-    // 9) Send Supabase Auth invite email
-    // ✅ 修正C：as any を削除（型定義により self-typed）
-    console.log('[admin/members/invite] Sending inviteUserByEmail:', {
-      email,
-      redirectTo,
-      appUrl: process.env.NEXT_PUBLIC_APP_URL,
-    });
+    // Note: Email sending should be handled separately via:
+    // - A separate Supabase Edge Function with Resend/SendGrid
+    // - Or admin manually shares the link
+    // For now, we return the link and let admin choose how to send it
 
-    const { error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {
-      redirectTo,
-    });
-
-    let inviteLink: string | null = null;
-    let emailSentSuccessfully = false;
-
-    if (inviteErr) {
-      console.warn('[admin/members/invite] inviteUserByEmail failed, trying generateLink fallback:', {
-        error: inviteErr.message,
-        code: inviteErr.code,
-        email,
-      });
-
-      // 10) Fallback: Generate invite link if email sending failed
-      const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
-        type: 'invite',
-        email,
-        options: {
-          redirectTo,
-        },
-      });
-
-      if (linkError) {
-        console.error('[admin/members/invite] generateLink also failed:', {
-          error: linkError.message,
-          code: linkError.code,
-          email,
-        });
-
-        // Clean up invite record since both inviteUserByEmail and generateLink failed
-        await admin
-          .from('company_invites')
-          .delete()
-          .eq('token_hash', tokenHash);
-
-        return NextResponse.json(
-          {
-            error: '招待の発行に失敗しました',
-            detail: `メール送信失敗: ${inviteErr.message}, リンク生成失敗: ${linkError.message}`,
-            code: inviteErr.code ?? null,
-            status: (inviteErr as any)?.status ?? null,
-          },
-          { status: 500 }
-        );
-      }
-
-      inviteLink = linkData?.properties?.action_link || null;
-      console.log('[admin/members/invite] generateLink succeeded, returning invite link:', {
-        email,
-        inviteLink: inviteLink ? inviteLink.substring(0, 50) + '...' : null,
-      });
-    } else {
-      emailSentSuccessfully = true;
-      console.log('[admin/members/invite] inviteUserByEmail succeeded:', { email });
-    }
-
-    console.log('[admin/members/invite] Invite process completed:', {
+    console.log('[admin/members/invite] Invite link generated successfully:', {
       email,
       role: inviteRole,
       companyId,
       expiresAt: expiresAt.toISOString(),
-      emailSent: emailSentSuccessfully,
-      hasInviteLink: !!inviteLink,
+      tokenHead: token.slice(0, 8),
     });
 
-    // 11) Return success with Cache-Control: no-store
-    const responseBody: any = {
+    // 9) Return success with the invite link
+    // Admin can copy this link and send it via email, chat, or other means
+    const responseBody = {
       ok: true,
       email,
       role: inviteRole,
       companyId,
       expiresAt: expiresAt.toISOString(),
+      inviteLink,
+      message: '招待リンクを生成しました。このリンクをメールなどで先方に共有してください。',
     };
-
-    if (emailSentSuccessfully) {
-      responseBody.message = 'Invitation email sent successfully';
-    } else if (inviteLink) {
-      responseBody.message = 'メール送信に失敗しましたが、招待リンクを生成しました';
-      responseBody.inviteLink = inviteLink;
-      responseBody.warning = 'メール送信に失敗しました。招待リンクを先方に共有してください。';
-    }
 
     return NextResponse.json(responseBody, {
       status: 200,
@@ -291,6 +228,19 @@ export async function POST(req: Request) {
     });
   } catch (e: any) {
     console.error('[admin/members/invite] failed:', e?.message || e);
+    console.error('[admin/members/invite] Error stack:', e?.stack);
+
+    // Try to clean up the created invite record if something goes wrong
+    try {
+      await admin
+        .from('company_invites')
+        .delete()
+        .eq('token_hash', tokenHash)
+        .throwOnError();
+    } catch (cleanupErr: any) {
+      console.warn('[admin/members/invite] Could not clean up failed invite record:', cleanupErr?.message);
+    }
+
     return NextResponse.json(
       {
         error: 'invite_failed',
