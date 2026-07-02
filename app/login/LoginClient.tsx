@@ -123,8 +123,15 @@ export default function LoginClient() {
     <main className="min-h-screen bg-gradient-to-b from-white to-slate-50/60 px-4 py-10">
       <div className="mx-auto w-full max-w-md">
         <div className="mb-6 text-center">
-          <div className="text-[28px] font-semibold tracking-tight text-zinc-900">サインイン</div>
-          <p className="mt-1 text-[13px] text-zinc-500">アカウントにログインしてください</p>
+          <div className="mb-4 flex justify-center">
+            <img
+              src="/GROWTH SHIFT.png"
+              alt="GROWTH SHIFT"
+              className="h-auto w-[180px] object-contain"
+            />
+          </div>
+          <div className="text-[24px] font-semibold tracking-tight text-zinc-900">サインイン</div>
+          <p className="mt-2 text-[13px] text-zinc-500">GROWTH SHIFTにログインしてください</p>
         </div>
 
         {joinCompanyId && (
