@@ -1,3 +1,5 @@
+## ✅ 実装完了（2026-07-03）
+
 空入力ガードの実装は今回は見送ります。
 生成を止める処理は入れないでください。
 
@@ -45,3 +47,61 @@
 - ask-ceo-agent
 
 今回は「止める」のではなく「見える化」だけにしてください。
+
+---
+
+## 実装内容サマリー
+
+### 【新ユーティリティ作成】
+- lib/inputGuardLogger.ts
+  * logInputGuard(): 入力充足度ログ出力関数
+  * checkSuspiciousKeywords(): 疑わしいキーワード検出関数
+  * 環境制御: NODE_ENV==='production' && DEBUG_STAGE_INPUT_GUARD!=='1' → ログ出力なし
+
+### 【5つの生成APIに統合】
+- stage2/generate-draft
+- stage2/generate-final
+- stage3/generate-strategy-bridge
+- org-alignment/generate
+- ask-ceo-agent
+
+各APIでOpenAI呼び出し直前に以下をログ出力：
+
+**ログ項目：**
+```
+{
+  '[input-guard]': true,
+  requestId: string,
+  apiName: string,
+  companyId: string (先頭8文字),
+  strategyId: string (先頭8文字),
+  meaningfulInputScore: number (0-100),
+  dataAvailability: {
+    hasCompanyInfo: boolean,
+    hasStage1Context: boolean,
+    hasStage2Answers: boolean,
+    hasStage2Story: boolean,
+    hasStage3Context: boolean,
+    hasStage4Context: boolean,
+  },
+  promptLength: number,
+  suspiciousKeywords: {
+    autoMotive: boolean,    // 自動車
+    exhaust: boolean,       // 排ガス
+    ceramic: boolean,       // セラミック
+    oem: boolean,           // OEM
+  }
+}
+```
+
+### 【実装の特徴】
+✅ ブロック処理なし（生成は続行）
+✅ 観測ログのみ出力
+✅ 既存の生成挙動に変化なし
+✅ 本文全文はログに出さない（セキュリティ）
+✅ 本番環境では制限可能（DEBUG_STAGE_INPUT_GUARD）
+
+### 【目的】
+- 入力が少ない状態でOpenAIが呼ばれていないかを把握
+- STAGE別データ有無を可視化
+- 上流データからの組み立てがどう機能しているかを分析
