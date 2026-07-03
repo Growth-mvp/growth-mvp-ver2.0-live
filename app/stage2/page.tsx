@@ -2272,23 +2272,32 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       }
 
       // storyDraft
-      const sd = st.storyDraft ?? [];
-      if (Array.isArray(sd) && sd.length > 0) {
-        setStoryDraft(sd);
+      // ★ 修正：snapshot に storyDraft が存在する場合（DB から返ってきた）、その値を採用
+      if ('storyDraft' in st) {
+        const sd = st.storyDraft ?? [];
+        setStoryDraft(Array.isArray(sd) ? sd : []);
         if (process.env.NODE_ENV === 'development') {
-          console.log(
-            '[Stage2] snapshot.storyDraft lengths:',
-            sd.map((ch: any, i: number) => `Ch${i}: ${(ch?.body || '').length}`)
-          );
+          const len = Array.isArray(sd) ? sd.length : 0;
+          console.log('[Stage2] snapshot.storyDraft set (from DB):', len);
+          if (len > 0) {
+            console.log(
+              '[Stage2] snapshot.storyDraft lengths:',
+              sd.map((ch: any, i: number) => `Ch${i}: ${(ch?.body || '').length}`)
+            );
+          }
         }
       }
 
       // winPatternsCandidate
-      const wp = st.winPatternsCandidate ?? [];
-      if (Array.isArray(wp) && wp.length > 0) {
-        setWinPatternsCandidate(wp);
+      // ★ 修正：snapshot に winPatternsCandidate が存在する場合（DB から返ってきた）、その値を採用
+      if ('winPatternsCandidate' in st) {
+        const wp = st.winPatternsCandidate ?? [];
+        setWinPatternsCandidate(Array.isArray(wp) ? wp : []);
         // UIでは選択不要だが、API整合のため内部では先頭を自動参照
-        if (wp[0]?.id) setSelectedWinPatternId(wp[0].id);
+        if (Array.isArray(wp) && wp[0]?.id) setSelectedWinPatternId(wp[0].id);
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[Stage2] snapshot.winPatternsCandidate set (from DB):', Array.isArray(wp) ? wp.length : 0);
+        }
       }
 
       /* ★ TASK A-4: answers12 を store 直更新に統一（配列生成して setAnswers12） */
@@ -2321,57 +2330,43 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         }
       }
 
-      // ✅ finalStoryDraft 復元（3段階編集用）（空上書き防止）
-      const fsd = st.finalStoryDraft ?? [];
-      if (Array.isArray(fsd) && fsd.length > 0) {
-        setFinalStoryDraft(fsd);
+      // ✅ finalStoryDraft 復元（3段階編集用）
+      // ★ 修正：snapshot が明示的に [] を返してきた場合（削除後の空状態）も上書きする
+      if ('finalStoryDraft' in st) {
+        const fsd = st.finalStoryDraft ?? [];
+        setFinalStoryDraft(Array.isArray(fsd) ? fsd : []);
         if (process.env.NODE_ENV === 'development') {
-          console.log('[Stage2] snapshot.finalStoryDraft restored:', fsd.length);
-        }
-      } else if (fsd.length === 0) {
-        // 空配列が返ってきた場合、既存の store 値を保持（上書きしない）
-        if (process.env.NODE_ENV === 'development') {
-          console.log('[Stage2] finalStoryDraft is empty in snapshot, keeping existing store value');
+          console.log('[Stage2] snapshot.finalStoryDraft set (from DB):', Array.isArray(fsd) ? fsd.length : 0);
         }
       }
 
-      // ✅ finalStoryEdited 復元（3段階編集用）（空上書き防止）
-      const fse = st.finalStoryEdited ?? [];
-      if (Array.isArray(fse) && fse.length > 0) {
-        setFinalStoryEdited(fse);
+      // ✅ finalStoryEdited 復元（3段階編集用）
+      // ★ 修正：snapshot が明示的に [] を返してきた場合（削除後の空状態）も上書きする
+      if ('finalStoryEdited' in st) {
+        const fse = st.finalStoryEdited ?? [];
+        setFinalStoryEdited(Array.isArray(fse) ? fse : []);
         if (process.env.NODE_ENV === 'development') {
-          console.log('[Stage2] snapshot.finalStoryEdited restored:', fse.length);
-        }
-      } else if (fse.length === 0) {
-        if (process.env.NODE_ENV === 'development') {
-          console.log('[Stage2] finalStoryEdited is empty in snapshot, keeping existing store value');
+          console.log('[Stage2] snapshot.finalStoryEdited set (from DB):', Array.isArray(fse) ? fse.length : 0);
         }
       }
 
-      // ✅ finalStoryFinal 復元（3段階編集用）（空上書き防止）
-      const fsf = st.finalStoryFinal ?? [];
-      if (Array.isArray(fsf) && fsf.length > 0) {
-        commitFinalStory(fsf);
+      // ✅ finalStoryFinal 復元（3段階編集用）
+      // ★ 修正：snapshot が明示的に [] を返してきた場合（削除後の空状態）も上書きする
+      if ('finalStoryFinal' in st) {
+        const fsf = st.finalStoryFinal ?? [];
+        commitFinalStory(Array.isArray(fsf) ? fsf : []);
         if (process.env.NODE_ENV === 'development') {
-          console.log('[Stage2] snapshot.finalStoryFinal restored:', fsf.length);
-        }
-      } else if (fsf.length === 0) {
-        if (process.env.NODE_ENV === 'development') {
-          console.log('[Stage2] finalStoryFinal is empty in snapshot, keeping existing store value');
+          console.log('[Stage2] snapshot.finalStoryFinal set (from DB):', Array.isArray(fsf) ? fsf.length : 0);
         }
       }
 
-      // ✅ companyTargets 復元（業績目標メトリクス）（空上書き防止）
-      const ct = st.companyTargets ?? [];
-      if (Array.isArray(ct) && ct.length > 0) {
-        setCompanyTargets(ct);
+      // ✅ companyTargets 復元（業績目標メトリクス）
+      // ★ 修正：snapshot が明示的に [] を返してきた場合（削除後の空状態）も上書きする
+      if ('companyTargets' in st) {
+        const ct = st.companyTargets ?? [];
+        setCompanyTargets(Array.isArray(ct) ? ct : []);
         if (process.env.NODE_ENV === 'development') {
-          console.log('[Stage2] snapshot.companyTargets restored:', ct.length);
-        }
-      } else if (ct.length === 0) {
-        // 空配列が返ってきた場合、既存の store 値を保持（上書きしない）
-        if (process.env.NODE_ENV === 'development') {
-          console.log('[Stage2] companyTargets is empty in snapshot, keeping existing store value');
+          console.log('[Stage2] snapshot.companyTargets set (from DB):', Array.isArray(ct) ? ct.length : 0);
         }
       }
 
@@ -3158,83 +3153,18 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
     if (committingFinalStory || !editingStory.length) return;
 
     setCommittingFinalStory(true);
-    setCommittingStatus('全社戦略を保存しています...');
+    setCommittingStatus('全社戦略を確定・保存しています...');
     setCommitFinalStoryError(null);
     setCommitStage3Failed(false);
     setCommitSuccessful(false);
 
     try {
-      // ★ 修正：prompt.txt指定のデバッグログ
-      const finalStrategy = editingStory.map((ch) => ch.body).join('\n');
-      const strategyStory = editingStory.map((ch) => `${ch.title}\n${ch.body}`).join('\n\n');
-      const storeState = useStrategyStore.getState() as any;
-      const companyTargets = storeState.companyTargets;
+      const operationId = `commit_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+      console.log('[Stage2Confirm] start', { operationId, editingStoryLen: editingStory.length });
 
-      console.log('[stage2 confirm] before save', {
-        finalStrategy: finalStrategy?.substring(0, 100) ?? '',
-        strategyStory: strategyStory?.substring(0, 100) ?? '',
-        companyTargets: Array.isArray(companyTargets) ? companyTargets.length : 0,
-        stage2Confirmed: storeState.stage2Confirmed,
-      });
+      const finalStoryToSave = editingStory;
 
-      // Step 1: STAGE2の最終ストーリーを確定保存
-      console.log('[Stage2][commit] Starting commit and bridge process', {
-        editingStoryLen: editingStory.length,
-      });
-
-      setFinalStoryEdited(editingStory);
-
-      // DB保存
-      await new Promise<void>((resolve) => {
-        setTimeout(async () => {
-          try {
-            const storeState = useStrategyStore.getState() as any;
-            const savePayload = {
-              ...storeState,
-              finalStoryFinal: editingStory,
-            };
-
-            const saveResult = await saveWithAudit(
-              savePayload,
-              userId ?? undefined,
-              companyId ?? undefined,
-              undefined,
-              {},
-              'stage2:commitFinalStory'
-            );
-
-            if (saveResult.error !== null) {
-              throw new Error(`DB save failed: ${(saveResult.error as any)?.message || 'unknown error'}`);
-            }
-
-            console.log('[Stage2][commit] DB save SUCCESS');
-
-            // ★ 修正：prompt.txt指定の保存完了後ログ
-            console.log('[stage2 confirm] saved strategyData', {
-              id: saveResult.data?.id,
-              revision: saveResult.data?.revision,
-              hasFinalStoryFinal: !!saveResult.data?.finalStoryFinal,
-              finalStoryFinalLen: Array.isArray(saveResult.data?.finalStoryFinal) ? saveResult.data.finalStoryFinal.length : 0,
-              hasStage3Bridge: !!saveResult.data?.stage3_strategy_bridge,
-            });
-
-            if (saveResult.data?.revision !== undefined) {
-              useStrategyStore.getState().setRevision(saveResult.data.revision);
-            }
-
-            // Step 2: commitFinalStory を実行
-            commitFinalStory();
-            setStoryViewMode('final');
-
-            resolve();
-          } catch (err: any) {
-            console.error('[Stage2][commit] DB save error:', err);
-            throw err;
-          }
-        }, 100);
-      });
-
-      // Step 3: STAGE3へ引き渡し（戦略展開ブリッジ生成）
+      // Step 1: STAGE3へ引き渡し（戦略展開ブリッジ生成）
       setCommittingStatus('STAGE3へ引き渡しています...');
 
       let bridgeResult;
@@ -3242,90 +3172,142 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         bridgeResult = await authFetchJson('/api/stage3/generate-strategy-bridge', {
           method: 'POST',
           json: {
-            finalStoryFinal: editingStory,
+            finalStoryFinal: finalStoryToSave,
             companyId,
           },
         });
 
-        console.log('[Stage2][bridge] SUCCESS', bridgeResult);
-
-        // ★ 修正：API返却値を store に保存（これがSTAGE3で確認される）
-        console.log('[stage2 confirm] saving bridge to store', {
-          keyThemes: bridgeResult?.keyThemes?.length ?? 0,
-          departmentIssues: bridgeResult?.departmentIssues?.length ?? 0,
-          kpiCriteria: bridgeResult?.kpiCriteria?.length ?? 0,
-          commonBehaviorChanges: bridgeResult?.commonBehaviorChanges?.length ?? 0,
-          generatedAt: bridgeResult?.generatedAt,
-        });
-
-        useStrategyStore.setState({
-          stage3_strategy_bridge: bridgeResult,
+        console.log('[Stage2Confirm] bridge generated', {
+          operationId,
+          keyThemesCount: bridgeResult?.keyThemes?.length ?? 0,
         });
       } catch (bridgeErr: any) {
-        console.error('[Stage2][bridge] API call failed', bridgeErr?.message);
-        setCommitStage3Failed(true);
+        console.error('[Stage2Confirm] bridge generation failed', { operationId, error: bridgeErr?.message });
         setCommitFinalStoryError(
           `STAGE3への引き渡しに失敗しました: ${bridgeErr?.message || 'unknown error'}`
         );
         setCommittingStatus(null);
+        setCommittingFinalStory(false);
         return;
       }
 
-      // Step 4: stage3_strategy_bridge を saveWithAudit で明示的に DB保存
+      // ★ 修正：strategyId を必須に
+      const current = useStrategyStore.getState();
+      const strategyDataId = current.strategyId;
+
+      if (!companyId || !strategyDataId) {
+        throw new Error('strategyId / companyId が取得できないため保存できません。');
+      }
+
+      // Step 2: store を更新（dirty=true と version increment を明示）
+      console.log('[Stage2Confirm] store set start', { operationId, strategyDataId });
+      useStrategyStore.setState((s: any) => ({
+        ...s,
+        finalStoryFinal: finalStoryToSave,
+        finalStory: finalStoryToSave,
+        stage3_strategy_bridge: bridgeResult,
+        dirty: true,
+        version: (s.version ?? 0) + 1,
+      }));
+      console.log('[Stage2Confirm] store set done', { operationId });
+
+      // Step 3: store.saveStrategyData 経由で保存（queue / dirty / force 制御を通す）
       setCommittingStatus('データベースに保存しています...');
 
+      // ★ 修正：確定保存中と保存後10秒間は autosave を抑止
+      const MANUAL_SAVE_FLAG_KEY = '__manual_saving_strategy__';
+      const manualSaveFlag = {
+        companyId,
+        operationId,
+        expiresAt: Date.now() + 10000, // 10秒間抑止
+      };
       try {
-        const storeState = useStrategyStore.getState() as any;
-        const savePayloadWithBridge = {
-          ...storeState,
-          finalStoryFinal: editingStory,
-          stage3_strategy_bridge: bridgeResult,
-        };
-
-        const saveResult = await saveWithAudit(
-          savePayloadWithBridge,
-          userId ?? undefined,
-          companyId ?? undefined,
-          undefined,
-          {},
-          'stage2:commitBridgeAndSave'
-        );
-
-        if (saveResult.error !== null) {
-          throw new Error(`DB save failed: ${(saveResult.error as any)?.message || 'unknown error'}`);
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(MANUAL_SAVE_FLAG_KEY, JSON.stringify(manualSaveFlag));
+          console.log('[Stage2Confirm] manual save flag set', { operationId, expiresAt: new Date(manualSaveFlag.expiresAt).toISOString() });
         }
-
-        console.log('[Stage2][bridge-save] DB save SUCCESS with bridge');
-        if (saveResult.data?.revision !== undefined) {
-          useStrategyStore.getState().setRevision(saveResult.data.revision);
-        }
-      } catch (saveErr: any) {
-        console.error('[Stage2][bridge-save] DB save error:', saveErr);
-        setCommitStage3Failed(true);
-        setCommitFinalStoryError(
-          `ブリッジの保存に失敗しました: ${saveErr?.message || 'unknown error'}`
-        );
-        setCommittingStatus(null);
-        return;
+      } catch (e) {
+        console.warn('[Stage2Confirm] failed to set manual save flag:', e);
       }
 
-      // Step 5: 成功 → STAGE3へ遷移
-      setCommitSuccessful(true);
-      setCommittingStatus(null);
-      setCommittingFinalStory(false);
+      try {
+        // store.saveStrategyData に統一（queue / dirty / force 制御を通す）
+        const saveResult = await useStrategyStore.getState().saveStrategyData({
+          force: true,
+          reason: 'stage2:confirmAndBridge',
+        });
 
-      // ★ 修正：保存完了後にSTAGE3へ遷移（保存完了を確実に待ってから）
-      console.log('[Stage2][commit] SUCCESS - navigating to STAGE3');
-      setTimeout(() => {
+        if (!saveResult || saveResult.ok !== true) {
+          console.error('[Stage2Confirm] saveStrategyData failed', {
+            operationId,
+            reason: saveResult?.reason,
+          });
+          throw new Error(`DB save failed: ${saveResult?.reason || 'unknown error'}`);
+        }
+
+        // DB 再SELECT で保存確認（必須）
+        setCommittingStatus('保存を確認しています...');
+
+        const { getBrowserSupabase } = await import('@/utils/supabase/client');
+        const supabase = getBrowserSupabase?.();
+
+        if (!supabase) {
+          throw new Error('Supabase client is not available.');
+        }
+
+        const { data: verifyResult, error: verifyError } = await supabase
+          .from('strategy_data')
+          .select('final_story_final, final_story, stage3_strategy_bridge, updated_at, revision')
+          .eq('company_id', companyId)
+          .eq('id', strategyDataId)
+          .maybeSingle();
+
+        if (verifyError) {
+          console.error('[Stage2Confirm] db verify error', {
+            operationId,
+            error: verifyError.message,
+          });
+          throw new Error(`DB verification failed: ${verifyError.message}`);
+        }
+
+        if (!verifyResult) {
+          console.error('[Stage2Confirm] db verify failed: row not found', { operationId, strategyDataId });
+          throw new Error('DB verification failed: strategy_data row not found.');
+        }
+
+        // ★ 修正：final_story_final と stage3_strategy_bridge の両方を検証
+        if (!Array.isArray(verifyResult.final_story_final) || verifyResult.final_story_final.length === 0) {
+          throw new Error('DB verification failed: final_story_final is empty.');
+        }
+
+        if (!verifyResult.stage3_strategy_bridge) {
+          throw new Error('DB verification failed: stage3_strategy_bridge is empty.');
+        }
+
+        // ★ 修正：commitFinalStory() を削除（不要、すでに setState で final_story_final を設定）
+        setStoryViewMode('final');
+
+        // Step 5: 成功
+        setCommitSuccessful(true);
+        setCommittingStatus(null);
+        console.log('[Stage2Confirm] complete', { operationId });
+
+        // ★ 修正：verify 成功後に STAGE3へ遷移
         router.push('/cascade');
-      }, 1000); // 1秒待機（成功メッセージを表示させるため）
+      } catch (saveErr: any) {
+        console.error('[Stage2Confirm] saveStrategyData error', { operationId, error: saveErr?.message });
+        setCommitFinalStoryError(`保存に失敗しました: ${saveErr?.message || 'unknown error'}`);
+        setCommittingStatus(null);
+        setCommittingFinalStory(false);
+        return;
+      }
     } catch (err: any) {
-      console.error('[Stage2][commit] Error:', err);
+      console.error('[Stage2Confirm] unexpected error', { error: err?.message });
       setCommitFinalStoryError(err?.message || '処理に失敗しました');
       setCommittingStatus(null);
       setCommittingFinalStory(false);
     }
-  }, [committingFinalStory, editingStory, companyId, setFinalStoryEdited, commitFinalStory]);
+  }, [committingFinalStory, editingStory, companyId, strategyId, userId, router]);
 
   /* ★ STAGE3引き渡し再実行処理 */
   const handleRetryStage3Bridge = useCallback(async () => {
