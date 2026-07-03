@@ -1,114 +1,20 @@
-## ✅ 修正完了（2026-07-03）
+追加で1点だけ確認してください。
 
-STAGE2画面で最終ストーリー生成時に以下のエラーが出ていました。
+app/stage2/page.tsx で取得した strategyId が、現在の companyId と一致する strategy_data.id であることを確認してください。
 
-~~ReferenceError: strategyId is not defined~~
+確認項目：
+- useStrategyStore の strategyId は loadAndHydrate 後に現在の companyId の strategy_data.id になっているか
+- 会社切替時に古い strategyId が残らないか
+- handleGenerateFinal 実行直前に companyId と strategyId が両方存在するか
+- 存在しない場合はAPIを呼ばず、画面に「戦略データIDを取得できません。再読み込みしてください」と表示するか
 
-発生箇所：
-app/stage2/page.tsx
-generate final story 実行時
+可能なら handleGenerateFinal の直前に以下のガードを入れてください。
 
-原因：
-前回の修正で API payload に strategyDataId を追加したが、
-payload作成箇所で strategyId という未定義変数を参照している可能性があります。
-
-例：
-strategyDataId: strategyId
-
-修正してください。
-
-確認してほしいこと：
-
-1. app/stage2/page.tsx の最終ストーリー生成処理を確認
-- 「generate final story」
-- 「final story」
-- 「generate-final」
-- 「strategyDataId」
-で検索してください。
-
-2. strategyId の正しい取得元を確認
-useStrategyStore から現在の strategyId を取得しているはずです。
-
-候補：
-- scopeStrategyId
-- currentStrategyId
-- storeState.strategyId
-- useStrategyStore.getState().strategyId
-
-既存コードの命名に合わせてください。
-
-3. payloadでは未定義の strategyId ではなく、実際に存在する値を使ってください。
-
-例：
-
-const storeState = useStrategyStore.getState();
-const strategyDataId = storeState.strategyId;
-
-if (!strategyDataId) {
-  setError('戦略データIDが取得できません。ページを再読み込みしてください。');
+const current = useStrategyStore.getState();
+if (!current.companyId || !current.strategyId) {
+  setError('戦略データIDを取得できません。ページを再読み込みしてください。');
   return;
 }
 
-payloadに追加：
-
-strategyDataId,
-
-またはAPI側の期待名に合わせて：
-
-strategyId: strategyDataId,
-strategyDataId,
-
-4. API側が期待しているキー名も確認してください
-app/api/stage2/generate-final/route.ts で、
-request body から何という名前で受け取っているか確認してください。
-
-- strategyDataId
-- strategyId
-- requestedStrategyDataId
-
-フロントとAPIで名前を一致させてください。
-
-5. 修正後に確認
-- npm run build
-- STAGE2画面で「最終ストーリーを生成」を押して ReferenceError が消えること
-- Network payload に strategyDataId または strategyId が入っていること
-- API側で missing_strategy_data_id にならないこと
-
----
-
-## 修正内容
-
-### 原因特定
-`app/stage2/page.tsx` の `handleGenerateFinal` 関数で payload 作成時に以下が存在していました：
-```typescript
-strategyDataId: strategyId,  // ← strategyId が未定義
-```
-
-### 修正方針
-Stage2PageContent コンポーネント内で strategyId を useStrategyStore から取得：
-
-```typescript
-const strategyId = useStrategyStore((s: StrategyState) => s.strategyId);
-```
-
-### 修正内容
-- **ファイル**: app/stage2/page.tsx
-- **行**: 1722 に追加
-- **変更**: 1行のみ
-
-### フロント・API間の互換性
-API側（stage2/generate-final/route.ts）は複数のキー名を受け入れる：
-```typescript
-const requestedStrategyDataId = pickFirstText(
-  body.strategyDataId,      // ✅ フロント送信
-  body.strategy_data_id,
-  body.strategyId,
-  body.strategy_id,
-);
-```
-
-### 検証済み
-✅ npm run build 成功（エラーなし）
-✅ payload に strategyDataId: strategyId が含まれる
-✅ API側で missing_strategy_data_id にならない
-✅ ReferenceError が解決
+この確認後、STAGE2で実際に最終ストーリー生成を再実行し、
+エラーが出ないことと、意図しない過去データが出ないことを確認してください。

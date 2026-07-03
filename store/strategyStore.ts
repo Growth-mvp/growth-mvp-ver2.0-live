@@ -1919,11 +1919,13 @@ export const useStrategyStore = create<StrategyState>()(
             id,
             timestamp: new Date().toISOString(),
             previousId: s.companyId,
+            previousStrategyId: s.strategyId,
             previousIsFetching: s.__isFetchingFromServer,
           });
           return {
             ...s,
             pendingCompanyId: id,
+            strategyId: undefined, // ★ 会社切替時に古い strategyId をリセット（新会社で新しい strategyId をハイドレート）
             boot: { isHydrating: true, isHydrated: false },
             __isFetchingFromServer: true,
             _loadingRefetch: false,

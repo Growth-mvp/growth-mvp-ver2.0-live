@@ -2919,6 +2919,13 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   const handleGenerateFinal = useCallback(async () => {
     if (generatingFinal) return;
 
+    // ★ ガード：strategyId と companyId が両方存在するか確認
+    const current = useStrategyStore.getState();
+    if (!current.companyId || !current.strategyId) {
+      setGenerateFinalError('戦略データIDを取得できません。ページを再読み込みしてください。');
+      return;
+    }
+
     console.log('[Stage2] generate final story: start');
 
     setGeneratingFinal(true);
