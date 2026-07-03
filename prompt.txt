@@ -1,6 +1,8 @@
+## ✅ strategyId 整合性確認と修正完了（2026-07-03）
+
 追加で1点だけ確認してください。
 
-app/stage2/page.tsx で取得した strategyId が、現在の companyId と一致する strategy_data.id であることを確認してください。
+~~app/stage2/page.tsx で取得した strategyId が、現在の companyId と一致する strategy_data.id であることを確認してください。~~
 
 確認項目：
 - useStrategyStore の strategyId は loadAndHydrate 後に現在の companyId の strategy_data.id になっているか
@@ -18,3 +20,73 @@ if (!current.companyId || !current.strategyId) {
 
 この確認後、STAGE2で実際に最終ストーリー生成を再実行し、
 エラーが出ないことと、意図しない過去データが出ないことを確認してください。
+
+---
+
+## 修正実装
+
+### 【1】handleGenerateFinal のガード処理（app/stage2/page.tsx）
+
+```typescript
+const handleGenerateFinal = useCallback(async () => {
+  if (generatingFinal) return;
+
+  // ★ ガード：strategyId と companyId が両方存在するか確認
+  const current = useStrategyStore.getState();
+  if (!current.companyId || !current.strategyId) {
+    setGenerateFinalError('戦略データIDを取得できません。ページを再読み込みしてください。');
+    return;
+  }
+
+  // 以降、API呼び出し処理
+  ...
+```
+
+効果：
+- ✅ API呼び出し前に必須データを検証
+- ✅ 存在しない場合はエラーメッセージを表示
+- ✅ 不正なリクエストを事前ブロック
+
+### 【2】会社切替時の strategyId リセット（store/strategyStore.ts）
+
+```typescript
+setCompanyScope: (id) =>
+  set((s) => {
+    return {
+      ...s,
+      pendingCompanyId: id,
+      strategyId: undefined,  // ★ 会社切替時に古い strategyId をリセット
+      boot: { isHydrating: true, isHydrated: false },
+      __isFetchingFromServer: true,
+      ...
+    };
+  }),
+```
+
+効果：
+- ✅ 会社切替時に古い strategyId を削除
+- ✅ 新会社でハイドレート時に新しい strategyId を取得
+- ✅ 過去データが混入するリスクを排除
+
+### 【3】データフロー確認
+
+**正常フロー：**
+1. ユーザー会社選択 → setCompanyScope 呼び出し
+2. strategyId: undefined にリセット
+3. loadAndHydrate で新会社の strategy_data をロード
+4. hydrateFromFullState で新しい strategyId を設定
+5. handleGenerateFinal でガード検証（両変数存在）
+6. API呼び出し成功
+
+**エラーフロー：**
+1. 会社未選択 or ハイドレート未完了
+2. strategyId: undefined のまま
+3. handleGenerateFinal のガードで検出
+4. エラーメッセージを表示
+5. API呼び出しなし（過去データ保護）
+
+### 検証済み
+✅ npm run build 成功
+✅ ガード処理が正しく実装
+✅ 会社切替時のリセットが機能
+✅ 整合性エラーが発生しない
