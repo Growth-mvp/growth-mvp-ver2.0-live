@@ -1330,14 +1330,9 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
     const hasStage2Answers = Array.isArray(answers2) && answers2.length > 0;
     const hasStage2Story = !!storyDraft;
 
-    // ★ strategyData から departments を安全に取得
-    const departments = Array.isArray(strategyData?.departments)
-      ? strategyData.departments
-      : Array.isArray((strategyData as any)?.editableCascadeResult)
-        ? (strategyData as any).editableCascadeResult
-        : [];
-    const hasStage3Context = Array.isArray(departments) && departments.length > 0;
-    const hasStage4Context = Array.isArray(portfolioEntries) && portfolioEntries.length > 0;
+    // ★ STAGE2では部門情報は必須ではないため、businessSegments から判定
+    const hasStage3Context = Array.isArray(businessSegments) && businessSegments.length > 0;
+    const hasStage4Context = (normalizedPortfolio?.businesses?.length ?? 0) > 0;
 
     // meaningfulInputScore（0-100）：データ充足度を簡易スコア化
     const inputFlags = [hasCompanyInfo, hasStage1Context, hasStage2Answers, hasStage2Story, hasStage3Context, hasStage4Context];
