@@ -10,6 +10,7 @@ function makeRequestId() {
 import { openai } from '@/lib/openai';
 import { getFullStrategyDataByCompany, getFullStrategyDataByStrategyId } from '@/utils/supabase/strategy';
 import { normalizeStrategyData } from '@/utils/supabase/normalize';
+import { logInputGuard, checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
 import agentPrompt from '@/lib/agentPrompt';
 import { insertAgentLog } from '@/lib/supabase/agentLogs';
 import {
@@ -457,6 +458,38 @@ export async function POST(req: Request) {
     if (output === 'json') {
       openaiReq.response_format = { type: 'json_object' };
     }
+
+    // 【入力充足度ログ】OpenAI呼び出し直前に観測ログを出力
+    const hasCompanyInfo = !!(strategy?.mission || strategy?.vision);
+    const hasStage1Context = !!(strategy?.mission || strategy?.vision || strategy?.ceoIntent);
+    const hasStage2Answers = Array.isArray(answers2) && answers2.length > 0;
+    const hasStage2Story = Array.isArray(finalStory) && finalStory.length > 0;
+    const hasStage3Context = Array.isArray(strategy?.departments) && strategy.departments.length > 0;
+    const hasStage4Context = !!strategy?.executionPlans;
+
+    const inputFlags = [hasCompanyInfo, hasStage1Context, hasStage2Answers, hasStage2Story, hasStage3Context, hasStage4Context];
+    const meaningfulInputScore = Math.round((inputFlags.filter(Boolean).length / inputFlags.length) * 100);
+
+    const systemBaseLen = (systemBase || '').length;
+    const messagesStr = messages.map((m: any) => m.content || '').join(' ');
+    const totalPromptLen = systemBaseLen + messagesStr.length;
+    const suspiciousKeywords = checkSuspiciousKeywords(messagesStr);
+
+    logInputGuard({
+      requestId,
+      apiName: 'ask-ceo-agent',
+      companyId: companyId,
+      strategyId: strategyId,
+      meaningfulInputScore,
+      hasCompanyInfo,
+      hasStage1Context,
+      hasStage2Answers,
+      hasStage2Story,
+      hasStage3Context,
+      hasStage4Context,
+      promptLength: totalPromptLen,
+      suspiciousKeywordFlags: suspiciousKeywords,
+    });
 
     const detailed = await openai.chat.completions.create(openaiReq);
 

@@ -12,6 +12,7 @@ import type { ChatCompletionCreateParamsNonStreaming } from 'openai/resources/ch
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
 import { logAuditEvent, extractAuditMetadata } from '@/lib/server/auditLog';
+import { logInputGuard, checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
 
 /* =========================
  * モデル選択（簡素化）
@@ -1320,6 +1321,37 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
         hasOEM: hasKeyword('OEM'),
       },
       promptLength: userPrompt.length,
+    });
+
+    // 【入力充足度ログ】OpenAI呼び出し直前に観測ログを出力
+    const requestId = req.headers.get('x-request-id') || `req_${Date.now()}`;
+    const hasCompanyInfo = !!(mission || vision || value);
+    const hasStage1Context = !!(northStar || mission);
+    const hasStage2Answers = Array.isArray(answers2) && answers2.length > 0;
+    const hasStage2Story = !!storyDraft;
+    const hasStage3Context = Array.isArray(departments) && departments.length > 0;
+    const hasStage4Context = Array.isArray(portfolioEntries) && portfolioEntries.length > 0;
+
+    // meaningfulInputScore（0-100）：データ充足度を簡易スコア化
+    const inputFlags = [hasCompanyInfo, hasStage1Context, hasStage2Answers, hasStage2Story, hasStage3Context, hasStage4Context];
+    const meaningfulInputScore = Math.round((inputFlags.filter(Boolean).length / inputFlags.length) * 100);
+
+    const suspiciousKeywords = checkSuspiciousKeywords(userPrompt);
+
+    logInputGuard({
+      requestId,
+      apiName: 'stage2/generate-final',
+      companyId: requestedCompanyId,
+      strategyId: requestedStrategyDataId,
+      meaningfulInputScore,
+      hasCompanyInfo,
+      hasStage1Context,
+      hasStage2Answers,
+      hasStage2Story,
+      hasStage3Context,
+      hasStage4Context,
+      promptLength: userPrompt.length,
+      suspiciousKeywordFlags: suspiciousKeywords,
     });
 
     try {

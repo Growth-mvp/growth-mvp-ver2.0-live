@@ -8,6 +8,7 @@ import OpenAI from 'openai';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 import { getFullStrategyDataByCompany, getFullStrategyDataByStrategyId } from '@/utils/supabase/strategy';
+import { logInputGuard, checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
 
 const ROUTE_TAG = 'app/api/org-alignment/generate';
 
@@ -607,6 +608,36 @@ ${companyRecognitionMode === 'strategy_based'
 ${strategyContextForPrompt ? JSON.stringify(strategyContextForPrompt, null, 2) : '利用可能な会社方針・戦略情報はありません。'}
 
 上記をもとに、社員の違和感を「認識のズレ」として整理してください。`;
+
+    // 【入力充足度ログ】OpenAI呼び出し直前に観測ログを出力
+    const requestId = req.headers.get('x-request-id') || `req_${Date.now()}`;
+    const hasCompanyInfo = !!strategyContextForPrompt?.mission;
+    const hasStage1Context = !!(strategyContextForPrompt?.mission || strategyContextForPrompt?.vision);
+    const hasStage2Answers = !!strategyContextForPrompt?.answers2;
+    const hasStage2Story = !!strategyContextForPrompt?.story;
+    const hasStage3Context = !!strategyContextForPrompt?.departments;
+    const hasStage4Context = !!strategyContextForPrompt?.executionPlans;
+
+    const inputFlags = [hasCompanyInfo, hasStage1Context, hasStage2Answers, hasStage2Story, hasStage3Context, hasStage4Context];
+    const meaningfulInputScore = Math.round((inputFlags.filter(Boolean).length / inputFlags.length) * 100);
+
+    const suspiciousKeywords = checkSuspiciousKeywords(prompts);
+
+    logInputGuard({
+      requestId,
+      apiName: 'org-alignment/generate',
+      companyId: membership.companyId,
+      strategyId: strategyId,
+      meaningfulInputScore,
+      hasCompanyInfo,
+      hasStage1Context,
+      hasStage2Answers,
+      hasStage2Story,
+      hasStage3Context,
+      hasStage4Context,
+      promptLength: prompts.length,
+      suspiciousKeywordFlags: suspiciousKeywords,
+    });
 
     const openai = new OpenAI({ apiKey });
     const completion = await openai.chat.completions.create({

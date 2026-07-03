@@ -18,6 +18,7 @@ import OpenAI from 'openai';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
 import { logAuditEvent, extractAuditMetadata } from '@/lib/server/auditLog';
+import { logInputGuard, checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
 import { z } from 'zod';
 
 /* ===== OpenAI設定 ===== */
@@ -1140,6 +1141,36 @@ export async function POST(req: NextRequest) {
           },
           segmentsCount: compact.businessSegments.length,
         },
+      });
+
+      // 【入力充足度ログ】OpenAI呼び出し直前に観測ログを出力
+      const requestId = req.headers.get('x-request-id') || `req_${Date.now()}`;
+      const hasCompanyInfo = !!(compact.mission || compact.vision || compact.value);
+      const hasStage1Context = !!(compact.mission || compact.vision);
+      const hasStage2Answers = compact.issueBlocks.length > 0;
+      const hasStage2Story = false; // stage2-draft では既に完成ストーリーはない
+      const hasStage3Context = compact.businessSegments.length > 0;
+      const hasStage4Context = false; // stage2-draft では执行計画ない
+
+      const inputFlags = [hasCompanyInfo, hasStage1Context, hasStage2Answers, hasStage2Story, hasStage3Context, hasStage4Context];
+      const meaningfulInputScore = Math.round((inputFlags.filter(Boolean).length / inputFlags.length) * 100);
+
+      const suspiciousKeywords = checkSuspiciousKeywords(userPrompt);
+
+      logInputGuard({
+        requestId,
+        apiName: 'stage2/generate-draft',
+        companyId: strategyId,
+        strategyId: strategyId,
+        meaningfulInputScore,
+        hasCompanyInfo,
+        hasStage1Context,
+        hasStage2Answers,
+        hasStage2Story,
+        hasStage3Context,
+        hasStage4Context,
+        promptLength: userPromptLen,
+        suspiciousKeywordFlags: suspiciousKeywords,
       });
 
       tOpenAIStart = Date.now();

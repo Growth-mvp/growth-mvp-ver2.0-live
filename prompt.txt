@@ -1,109 +1,47 @@
-修正ありがとうございます。
-最後に検証をお願いします。
+空入力ガードの実装は今回は見送ります。
+生成を止める処理は入れないでください。
 
-## ✅ 検証完了（2026-07-03）
+代わりに、まずは安全な観測ログだけ追加・確認してください。
 
-すべての検証項目をクリアしました。
+目的：
+- 入力が少ない状態でOpenAIが呼ばれていないかを把握する
+- ただし、STAGE2の12問未入力やSTAGE3の6問未入力でも、上流データがあれば生成できる柔軟性は壊さない
 
-【1. 全体検索】
-以下が生成APIに残っていないか再検索してください。
+対応方針：
+1. insufficient_input による 400 ブロックは実装しない
+2. 既存の生成挙動は変えない
+3. OpenAI呼び出し直前に、入力充足度のdebugログだけ出す
+4. prompt本文や機密情報はログに出さない
 
-- getFullStrategyDataByCompany(
-- .from('strategy_data')
-- .eq('company_id'
-- .limit(1)
-- maybeSingle()
-- strategyContext
-- user_id fallback
-- companyId fallback
+ログ項目：
+- requestId
+- apiName
+- companyId先頭8文字
+- strategyId先頭8文字
+- meaningfulInputScore
+- hasCompanyInfo
+- hasStage1Context
+- hasStage2Answers
+- hasStage2Story
+- hasStage3Context
+- hasStage4Context
+- promptLength
+- suspiciousKeywordFlags
+  - 自動車
+  - 排ガス
+  - セラミック
+  - OEM
 
-対象：
-- app/api/**
-- utils/**
-- lib/**
-- services/**
+重要：
+- このログは本番で過剰に出さない
+- NODE_ENV !== 'production' または DEBUG_STAGE_INPUT_GUARD=1 のときだけ出す
+- 本文全文は絶対にログ出力しない
 
-特に OpenAI を呼ぶAPIで、companyIdだけ取得が残っていないか確認してください。
-
-【2. 新関数の確認】
-getFullStrategyDataByStrategyId(strategyId, companyId) が以下を満たしているか確認してください。
-
-- strategy_data.id = strategyId
-- strategy_data.company_id = companyId
-- story_answers2 も strategyId で取得
-- final_stories も strategyId で取得
-- companyId だけの fallback がない
-- 取得できない場合に null / error を明確に返す
-
-【3. strategyId 未指定テスト】
-以下のAPIで strategyId なしリクエストを投げた場合、OpenAIを呼ばず 400 になることを確認してください。
-
-- /api/ask-ceo-agent
-- /api/org-alignment/generate
-- /api/org-alignment/admin/insights/generate
-- /api/stage2/generate-final
-
-【4. companyId不一致テスト】
-strategyId は存在するが、membership.companyId と strategy_data.company_id が一致しない場合、
-403 または 404 になり、OpenAIを呼ばないことを確認してください。
-
-【5. build確認】
-npm run build が成功することを再確認してください。
-
-【6. 空入力ガードの残課題確認】
-今回の修正は「過去データ・他データ混入」対策です。
-一方で、空入力時にAIが架空の戦略を作る問題は別論点です。
-
-以下のAPIで、入力不足時に OpenAI を呼ばない insufficient_input ガードがあるか確認してください。
-
-- stage2/generate-draft
-- stage2/generate-final
-- stage3系生成API
-- stage4系生成API
-- org-alignment/generate
-- ask-ceo-agent
-
-なければ、次の修正候補として一覧化してください。
-
----
-
-## ✅ 検証結果
-
-### 【1. 全体検索】✅ PASS
-- app/api内にgetFullStrategyDataByCompanyの呼び出しなし
-- companyIdだけの.from('strategy_data')取得なし
-- stage5/execution-summaryはOpenAIを呼ばないため修正不要
-
-### 【2. 新関数の確認】✅ PASS
-getFullStrategyDataByStrategyId要件完全実装：
-- strategy_data.id=strategyIdで取得 ✅
-- strategy_data.company_id=companyIdで取得 ✅
-- story_answers2もstrategyId+companyIdで取得 ✅
-- final_storiesもstrategyId+companyIdで取得 ✅
-- companyIdだけのfallbackなし ✅
-- 取得失敗時にnull/errorを返す ✅
-
-### 【3. strategyId未指定テスト】✅ PASS
-すべてのAPI必須化確認：
-- /api/ask-ceo-agent: 400 ✅
-- /api/org-alignment/generate: 400 ✅
-- /api/org-alignment/admin/insights/generate: 400 ✅
-- /api/stage2/generate-final: 400 ✅
-
-### 【4. companyId不一致テスト】✅ PASS
-- ask-ceo-agent: assertCompanyScopeByStrategyIdで403 ✅
-- org-alignment系: membership.companyId使用 ✅
-- stage2/generate-final: membership.companyId信頼可能 ✅
-
-### 【5. build確認】✅ PASS
-npm run build成功、コンパイルエラーなし
-
-### 【6. 空入力ガード確認】⚠️ 次の修正候補
-insufficient_inputガードなし：
+対象API：
 - stage2/generate-draft
 - stage2/generate-final
 - stage3/generate-strategy-bridge
 - org-alignment/generate
 - ask-ceo-agent
 
-→ 別の修正タスク「空入力時の架空戦略生成防止」として実装推奨
+今回は「止める」のではなく「見える化」だけにしてください。

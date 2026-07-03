@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { openai } from '@/lib/openai';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
+import { logInputGuard, checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
 
 interface ChapterStory {
   title: string;
@@ -330,6 +331,37 @@ export async function POST(request: NextRequest) {
     console.log('[STAGE3] Starting generateStrategyBridge', {
       authorizedCompanyId: membership.companyId,
       storyLength: finalStoryFinal.length,
+    });
+
+    // 【入力充足度ログ】OpenAI呼び出し直前に観測ログを出力
+    const requestId = request.headers.get('x-request-id') || `req_${Date.now()}`;
+    const storyContent = finalStoryFinal?.map((s: any) => s?.body || '').join(' ') || '';
+    const hasCompanyInfo = !!body.finalStoryFinal;
+    const hasStage1Context = !!body.finalStoryFinal;
+    const hasStage2Answers = false;
+    const hasStage2Story = !!body.finalStoryFinal;
+    const hasStage3Context = false;
+    const hasStage4Context = false;
+
+    const inputFlags = [hasCompanyInfo, hasStage1Context, hasStage2Answers, hasStage2Story, hasStage3Context, hasStage4Context];
+    const meaningfulInputScore = Math.round((inputFlags.filter(Boolean).length / inputFlags.length) * 100);
+
+    const suspiciousKeywords = checkSuspiciousKeywords(storyContent);
+
+    logInputGuard({
+      requestId,
+      apiName: 'stage3/generate-strategy-bridge',
+      companyId: membership.companyId,
+      strategyId: bodyCompanyId,
+      meaningfulInputScore,
+      hasCompanyInfo,
+      hasStage1Context,
+      hasStage2Answers,
+      hasStage2Story,
+      hasStage3Context,
+      hasStage4Context,
+      promptLength: storyContent.length,
+      suspiciousKeywordFlags: suspiciousKeywords,
     });
 
     const { bridge, debugInfo } = await generateStrategyBridge(finalStoryFinal);
