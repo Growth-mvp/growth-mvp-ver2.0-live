@@ -2,7 +2,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
@@ -16,6 +16,14 @@ function looksMissingColumn(err: any, col: string) {
 export default function SignUpAdminPage() {
   const router = useRouter();
 
+  // ★本番環境では /signup-admin を許可しない
+  useEffect(() => {
+    const enableSignupAdmin = process.env.NEXT_PUBLIC_ENABLE_SIGNUP_ADMIN === 'true';
+    if (!enableSignupAdmin) {
+      router.replace('/login');
+    }
+  }, [router]);
+
   const setUser = useUserStore((s) => s.setUser);
   const setMembership = useUserStore((s) => s.setMembership);
   const setRole = useUserStore((s) => s.setRole);
@@ -23,7 +31,6 @@ export default function SignUpAdminPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [companyName, setCompanyName] = useState('');
-  const [departmentName, setDepartmentName] = useState(''); // UIとしては残す（後で部門作成導線に使う想定）
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
@@ -48,7 +55,6 @@ export default function SignUpAdminPage() {
         },
         body: JSON.stringify({
           companyName: companyName.trim(),
-          // ★部署はこのAPIでは作らない（uuidのdepartmentId想定のため）
           allowCreateCompany: true,
         }),
       });
@@ -214,16 +220,6 @@ export default function SignUpAdminPage() {
           />
         </div>
 
-        <div>
-          <label className="block text-sm text-gray-600">部署名（任意）</label>
-          <input
-            type="text"
-            value={departmentName}
-            onChange={(e) => setDepartmentName(e.target.value)}
-            className="mt-1 w-full rounded border px-3 py-2"
-            placeholder="例）事業開発部（※会社作成後に管理画面で作成）"
-          />
-        </div>
 
         <div>
           <label className="block text-sm text-gray-600">メールアドレス</label>
