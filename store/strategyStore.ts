@@ -3477,12 +3477,13 @@ export const useStrategyStore = create<StrategyState>()(
           }
 
           // ★ force: true または manual のときは dirty をスキップ（手動保存は常に走る）
-          // ★ 修正：複数の手動保存パターンをサポート
+          // ★ 修正：複数の手動保存パターンをサポート（STAGE2確定・STAGE3→STAGE4遷移前）
           const isManual =
             reason === 'manual' ||
             reason === 'manual-save-button' ||
             reason === 'stage2:confirmAndBridge' ||
-            reason?.startsWith('stage2:');
+            reason?.startsWith('stage2:') ||
+            reason?.startsWith('stage3:');
 
           if (!force && !isManual && !state0.dirty) {
             if (DEBUG) console.log('[strategyStore] saveStrategyData: dirty=false, skip (not forced, not manual)', { reason, isManual });
