@@ -2057,7 +2057,6 @@ function CascadePageContent() {
       const currentHash = hashSnapshot(currentSnap);
       const isDirty = !!(lastServerSnapshot && lastServerSnapshot !== currentHash);
 
-      console.log('[hydration:begin]', { accessCompanyId, timestamp: new Date().toISOString() });
 
       const timer = setTimeout(() => !cancelled && setHydrated?.(true), 7000);
       try {
@@ -2078,26 +2077,10 @@ function CascadePageContent() {
         // これにより、古い local snapshot が server state を上書きして見える事故を防ぐ。
         await loadAndHydrate(accessCompanyId);
         try {
-          console.log('[fetchStrategy:begin]', { accessCompanyId, timestamp: new Date().toISOString() });
           await refetchFromServer?.();
-          console.log('[fetchStrategy:end]', { accessCompanyId, timestamp: new Date().toISOString() });
         } catch (e) {
           console.log('[fetchStrategy:error]', { accessCompanyId, error: String(e), timestamp: new Date().toISOString() });
         }
-        console.log('[hydration:end]', { accessCompanyId, timestamp: new Date().toISOString() });
-
-        // ★ 修正：prompt.txt指定のSTAGE3読み込み時ログ
-        const stateAfterLoad = useStrategyStore.getState() as any;
-        console.log('[stage3 load] strategyData', {
-          stage2Confirmed: stateAfterLoad.stage2Confirmed,
-          finalStrategy: stateAfterLoad.finalStrategy?.substring?.(0, 50) ?? undefined,
-          strategyStory: stateAfterLoad.strategyStory?.substring?.(0, 50) ?? undefined,
-          companyTargets: Array.isArray(stateAfterLoad.companyTargets) ? stateAfterLoad.companyTargets.length : 0,
-          answers2: Array.isArray(stateAfterLoad.answers2) ? stateAfterLoad.answers2.length : 0,
-          hasFinalStoryFinal: !!stateAfterLoad.finalStoryFinal,
-          hasStage3Bridge: !!stateAfterLoad.stage3_strategy_bridge,
-          stage3BridgeGeneratedAt: stateAfterLoad.stage3_strategy_bridge?.generatedAt,
-        });
 
         setHydrated?.(true);
         loadGuardRef.current = accessCompanyId;
@@ -2114,8 +2097,6 @@ function CascadePageContent() {
           meta: anyErr?.meta,
         });
 
-        console.warn('[cascade] hydrated=true を強制設定（エラー時UI表示対応）');
-        console.log('[hydration:end-error]', { accessCompanyId, timestamp: new Date().toISOString() });
         setHydrated?.(true);
         loadGuardRef.current = accessCompanyId;
       } finally {
@@ -2352,6 +2333,7 @@ function CascadePageContent() {
   const isGeneratingRef = useRef(false);
   const isPersistingRef = useRef(false);
   const [isGeneratingBridge, setIsGeneratingBridge] = useState(false);
+  const [isGoingToStage4, setIsGoingToStage4] = useState(false);
   useEffect(() => {
     hasUnsavedChangesRef.current = hasUnsavedChanges;
   }, [hasUnsavedChanges]);
@@ -2389,6 +2371,60 @@ function CascadePageContent() {
     },
     [saveNow],
   );
+
+  // ★ P0-1: STAGE3→STAGE4 transition handler
+  const router = useRouter();
+  const handleGoToStage4 = useCallback(async () => {
+    setIsGoingToStage4(true);
+    try {
+      setNotice('⏳ STAGE3の保存確認中…');
+
+      // Save STAGE3 data
+      const { saveStrategyData } = useStrategyStore.getState();
+      await saveStrategyData?.({
+        force: true,
+        reason: 'stage3:goStage4'
+      });
+
+      // Verify STAGE3 data
+      const currentState = useStrategyStore.getState() as any;
+      const departments = Array.isArray(currentState.departments) ? currentState.departments : [];
+
+      if (departments.length === 0) {
+        throw new Error('部門が見つかりません');
+      }
+
+      // Check if any department has projects with okrs/kpis/okrsV2
+      const hasValidData = departments.some((dept: any) => {
+        const projects = Array.isArray(dept.projects) ? dept.projects : [];
+        if (projects.length === 0) return false;
+
+        return projects.some((proj: any) => {
+          const hasOkrsV2 = Array.isArray(proj.okrsV2) && proj.okrsV2.length > 0;
+          const hasOkrs = Array.isArray(proj.okrs) && proj.okrs.length > 0;
+          const hasKpis = Array.isArray(proj.kpis) && proj.kpis.length > 0;
+          return hasOkrsV2 || hasOkrs || hasKpis;
+        });
+      });
+
+      if (!hasValidData) {
+        throw new Error('部門内にプロジェクト・OKRが見つかりません');
+      }
+
+      setNotice('✅ STAGE3の保存を確認しました。STAGE4に進みます…');
+      setTimeout(() => {
+        router.push('/okr');
+      }, 500);
+    } catch (err: any) {
+      console.error('[cascade:goStage4] verification failed', err, {
+        errorMessage: err?.message,
+        timestamp: new Date().toISOString()
+      });
+      setNotice(`⚠️ STAGE3の保存確認に失敗しました：${err?.message || '不明なエラー'}。再度保存してから進んでください。`);
+    } finally {
+      setIsGoingToStage4(false);
+    }
+  }, [router]);
 
   /* ===== TASK D: KPI 表示ヘルパー（object → string 変換） ===== */
   const renderKpi = (k: any): string => {
@@ -2558,17 +2594,7 @@ useEffect(() => {
 
       // ★ optimized 配列全体が prev と同じなら setDepartmentsInStore を呼ばない
       if (!jsonEq(prev, optimized)) {
-        console.log('[cascade:pushToStore:call-setDepartments]', {
-          changed: true,
-          prevLen: prev.length,
-          nextLen: optimized.length,
-        });
         setDepartmentsInStore?.(optimized);
-      } else {
-        console.log('[cascade:pushToStore:skip-setDepartments]', {
-          changed: false,
-          len: prev.length,
-        });
       }
     },
     [setDepartmentsInStore],
@@ -3834,6 +3860,8 @@ useEffect(() => {
         canEditCompany={canEditCompany}
         showForm={showForm}
         setShowForm={setShowForm}
+        onGoToStage4={handleGoToStage4}
+        isGoingToStage4={isGoingToStage4}
       />
 
       <DepartmentAddForm
