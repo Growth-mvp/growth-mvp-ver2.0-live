@@ -1,107 +1,114 @@
-## ✅ 実装完了（2026-07-03）
+## ✅ 修正完了（2026-07-03）
 
-空入力ガードの実装は今回は見送ります。
-生成を止める処理は入れないでください。
+STAGE2画面で最終ストーリー生成時に以下のエラーが出ていました。
 
-代わりに、まずは安全な観測ログだけ追加・確認してください。
+~~ReferenceError: strategyId is not defined~~
 
-目的：
-- 入力が少ない状態でOpenAIが呼ばれていないかを把握する
-- ただし、STAGE2の12問未入力やSTAGE3の6問未入力でも、上流データがあれば生成できる柔軟性は壊さない
+発生箇所：
+app/stage2/page.tsx
+generate final story 実行時
 
-対応方針：
-1. insufficient_input による 400 ブロックは実装しない
-2. 既存の生成挙動は変えない
-3. OpenAI呼び出し直前に、入力充足度のdebugログだけ出す
-4. prompt本文や機密情報はログに出さない
+原因：
+前回の修正で API payload に strategyDataId を追加したが、
+payload作成箇所で strategyId という未定義変数を参照している可能性があります。
 
-ログ項目：
-- requestId
-- apiName
-- companyId先頭8文字
-- strategyId先頭8文字
-- meaningfulInputScore
-- hasCompanyInfo
-- hasStage1Context
-- hasStage2Answers
-- hasStage2Story
-- hasStage3Context
-- hasStage4Context
-- promptLength
-- suspiciousKeywordFlags
-  - 自動車
-  - 排ガス
-  - セラミック
-  - OEM
+例：
+strategyDataId: strategyId
 
-重要：
-- このログは本番で過剰に出さない
-- NODE_ENV !== 'production' または DEBUG_STAGE_INPUT_GUARD=1 のときだけ出す
-- 本文全文は絶対にログ出力しない
+修正してください。
 
-対象API：
-- stage2/generate-draft
-- stage2/generate-final
-- stage3/generate-strategy-bridge
-- org-alignment/generate
-- ask-ceo-agent
+確認してほしいこと：
 
-今回は「止める」のではなく「見える化」だけにしてください。
+1. app/stage2/page.tsx の最終ストーリー生成処理を確認
+- 「generate final story」
+- 「final story」
+- 「generate-final」
+- 「strategyDataId」
+で検索してください。
+
+2. strategyId の正しい取得元を確認
+useStrategyStore から現在の strategyId を取得しているはずです。
+
+候補：
+- scopeStrategyId
+- currentStrategyId
+- storeState.strategyId
+- useStrategyStore.getState().strategyId
+
+既存コードの命名に合わせてください。
+
+3. payloadでは未定義の strategyId ではなく、実際に存在する値を使ってください。
+
+例：
+
+const storeState = useStrategyStore.getState();
+const strategyDataId = storeState.strategyId;
+
+if (!strategyDataId) {
+  setError('戦略データIDが取得できません。ページを再読み込みしてください。');
+  return;
+}
+
+payloadに追加：
+
+strategyDataId,
+
+またはAPI側の期待名に合わせて：
+
+strategyId: strategyDataId,
+strategyDataId,
+
+4. API側が期待しているキー名も確認してください
+app/api/stage2/generate-final/route.ts で、
+request body から何という名前で受け取っているか確認してください。
+
+- strategyDataId
+- strategyId
+- requestedStrategyDataId
+
+フロントとAPIで名前を一致させてください。
+
+5. 修正後に確認
+- npm run build
+- STAGE2画面で「最終ストーリーを生成」を押して ReferenceError が消えること
+- Network payload に strategyDataId または strategyId が入っていること
+- API側で missing_strategy_data_id にならないこと
 
 ---
 
-## 実装内容サマリー
+## 修正内容
 
-### 【新ユーティリティ作成】
-- lib/inputGuardLogger.ts
-  * logInputGuard(): 入力充足度ログ出力関数
-  * checkSuspiciousKeywords(): 疑わしいキーワード検出関数
-  * 環境制御: NODE_ENV==='production' && DEBUG_STAGE_INPUT_GUARD!=='1' → ログ出力なし
-
-### 【5つの生成APIに統合】
-- stage2/generate-draft
-- stage2/generate-final
-- stage3/generate-strategy-bridge
-- org-alignment/generate
-- ask-ceo-agent
-
-各APIでOpenAI呼び出し直前に以下をログ出力：
-
-**ログ項目：**
-```
-{
-  '[input-guard]': true,
-  requestId: string,
-  apiName: string,
-  companyId: string (先頭8文字),
-  strategyId: string (先頭8文字),
-  meaningfulInputScore: number (0-100),
-  dataAvailability: {
-    hasCompanyInfo: boolean,
-    hasStage1Context: boolean,
-    hasStage2Answers: boolean,
-    hasStage2Story: boolean,
-    hasStage3Context: boolean,
-    hasStage4Context: boolean,
-  },
-  promptLength: number,
-  suspiciousKeywords: {
-    autoMotive: boolean,    // 自動車
-    exhaust: boolean,       // 排ガス
-    ceramic: boolean,       // セラミック
-    oem: boolean,           // OEM
-  }
-}
+### 原因特定
+`app/stage2/page.tsx` の `handleGenerateFinal` 関数で payload 作成時に以下が存在していました：
+```typescript
+strategyDataId: strategyId,  // ← strategyId が未定義
 ```
 
-### 【実装の特徴】
-✅ ブロック処理なし（生成は続行）
-✅ 観測ログのみ出力
-✅ 既存の生成挙動に変化なし
-✅ 本文全文はログに出さない（セキュリティ）
-✅ 本番環境では制限可能（DEBUG_STAGE_INPUT_GUARD）
+### 修正方針
+Stage2PageContent コンポーネント内で strategyId を useStrategyStore から取得：
 
-### 【目的】
-- 入力が少ない状態でOpenAIが呼ばれていないかを把握
-- STAGE別データ有無を可視化
-- 上流データからの組み立てがどう機能しているかを分析
+```typescript
+const strategyId = useStrategyStore((s: StrategyState) => s.strategyId);
+```
+
+### 修正内容
+- **ファイル**: app/stage2/page.tsx
+- **行**: 1722 に追加
+- **変更**: 1行のみ
+
+### フロント・API間の互換性
+API側（stage2/generate-final/route.ts）は複数のキー名を受け入れる：
+```typescript
+const requestedStrategyDataId = pickFirstText(
+  body.strategyDataId,      // ✅ フロント送信
+  body.strategy_data_id,
+  body.strategyId,
+  body.strategy_id,
+);
+```
+
+### 検証済み
+✅ npm run build 成功（エラーなし）
+✅ payload に strategyDataId: strategyId が含まれる
+✅ API側で missing_strategy_data_id にならない
+✅ ReferenceError が解決
