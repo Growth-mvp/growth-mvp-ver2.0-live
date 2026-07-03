@@ -16,6 +16,7 @@ type AdminClient = SupabaseClient<any, 'public', any>;
 type Body = {
   companyName?: string;
   departmentId?: string | null;
+  departmentName?: string | null;
   // ★追加：明示的に会社作成を許可したいときだけ true（管理者オンボーディング等）
   allowCreateCompany?: boolean;
   onboardingCode?: string;
@@ -85,6 +86,60 @@ function looksMissingColumn(errOrResp: any, col: string) {
   return code === '42703' || msg.includes(col.toLowerCase()) || (msg.includes('column') && msg.includes('does not exist'));
 }
 const looksMissingDepartmentId = (e: any) => looksMissingColumn(e, 'department_id');
+
+/** 部署を作成または取得（同名が存在する場合は既存を使う） */
+async function ensureOrCreateDepartment(
+  admin: AdminClient,
+  companyId: string,
+  departmentName: string | null | undefined
+): Promise<{ ok: true; departmentId: string | null } | { ok: false; error: any }> {
+  if (!departmentName || !departmentName.trim()) {
+    return { ok: true, departmentId: null };
+  }
+
+  const name = departmentName.trim();
+  const now = new Date().toISOString();
+
+  // 既存チェック
+  const existing = await admin
+    .from('departments')
+    .select('id')
+    .eq('company_id', companyId)
+    .eq('name', name)
+    .limit(1)
+    .maybeSingle();
+
+  if (!existing.error && existing.data?.id) {
+    console.info('[ensureOrCreateDepartment] existing_department_found', { companyId, departmentId: existing.data.id, name });
+    return { ok: true, departmentId: existing.data.id as string };
+  }
+
+  // 新規作成
+  const insert = await admin
+    .from('departments')
+    .insert([{ company_id: companyId, name, created_at: now, updated_at: now }])
+    .select('id')
+    .single();
+
+  if (insert.error) {
+    console.warn('[ensureOrCreateDepartment] insert_error', { companyId, name, error: insert.error });
+    // テーブルが無い場合などは null で続行（RLSで書き込み不可の場合も同様）
+    if (looksMissingColumn(insert.error, 'departments') || insert.error?.code === '42P01') {
+      console.info('[ensureOrCreateDepartment] departments_table_missing_or_no_permission, continuing', { companyId });
+      return { ok: true, departmentId: null };
+    }
+    return { ok: false, error: insert.error };
+  }
+
+  const deptId = insert.data?.id;
+  if (!deptId) {
+    console.warn('[ensureOrCreateDepartment] inserted_but_id_missing', { companyId, name });
+    return { ok: true, departmentId: null };
+  }
+
+  console.info('[ensureOrCreateDepartment] created', { companyId, departmentId: deptId, name });
+  return { ok: true, departmentId: deptId as string };
+}
 
 /* ============== 削除フラグ検知（Cookie / ヘッダー） ============== */
 const DELETION_FLAG_KEY = '__deleting_company__';
@@ -177,6 +232,13 @@ export async function POST(req: NextRequest) {
     return json(500, { ok: false, code: 'server_not_configured' });
   }
 
+  // ★本番環境では新規会社作成を許可しない（サーバー専用環境変数で制御）
+  const enableSignupAdmin = (process.env.ENABLE_SIGNUP_ADMIN || '').toLowerCase() === 'true';
+  if (!enableSignupAdmin) {
+    console.warn('[provision] administrative signup denied: ENABLE_SIGNUP_ADMIN not enabled');
+    return json(403, { ok: false, code: 'signup_admin_disabled', message: 'Administrative signup is disabled in this environment.' });
+  }
+
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false },
   }) as AdminClient;
@@ -251,6 +313,7 @@ export async function POST(req: NextRequest) {
 
     const companyName = (body.companyName || '').trim() || makeDefaultCompanyName(userEmail);
     const departmentId = body.departmentId ?? null;
+    const departmentName = (body.departmentName || '').trim() || null;
 
     // HTTPS 判定（Set-Cookie Secure判定用）
     const isHttps = (req.nextUrl?.protocol || '').toLowerCase() === 'https:';
@@ -329,6 +392,29 @@ export async function POST(req: NextRequest) {
 
       console.info('[provision] rpc success', { userId, companyId: cid });
 
+      // ★部署を作成または取得（departmentName が指定されている場合）
+      if (departmentName) {
+        const deptRes = await ensureOrCreateDepartment(admin, cid, departmentName);
+        if (!deptRes.ok) {
+          console.warn('[provision] department creation failed (rpc path)', { userId, companyId: cid, error: deptRes.error });
+        } else if (deptRes.departmentId) {
+          // 部署IDが返されたら、company_members に department_id を追加するロジック
+          // 注：RPC経由の場合、company_members は既に作られているので、UPDATE が必要
+          const upd = await admin
+            .from('company_members')
+            .update({ department_id: deptRes.departmentId })
+            .eq('company_id', cid)
+            .eq('user_id', userId!)
+            .select('*')
+            .single();
+          if (upd.error) {
+            console.warn('[provision] department_id update failed (rpc path)', { userId, companyId: cid, error: upd.error });
+          } else {
+            console.info('[provision] department_id updated (rpc path)', { userId, companyId: cid, departmentId: deptRes.departmentId });
+          }
+        }
+      }
+
       if (deleting.deleting && (!deleting.companyId || deleting.companyId === cid)) {
         console.info('[provision] rpc ok (skip seed due to deleting)', { userId, companyId: cid });
         return json(200, { ok: true, companyId: cid, strategyId: null, role: 'admin', via: 'rpc', note: 'skip_seed_deleting' }, [cookie]);
@@ -382,11 +468,23 @@ export async function POST(req: NextRequest) {
 
     console.info('[provision] company created successfully', { userId, companyId, created_by: userId });
 
+    // ★部署を作成または取得（departmentName が指定されている場合）
+    let finalDepartmentId = departmentId;
+    if (departmentName) {
+      const deptRes = await ensureOrCreateDepartment(admin, companyId, departmentName);
+      if (!deptRes.ok) {
+        console.warn('[provision] department creation failed', { userId, companyId, error: deptRes.error });
+        // エラーログを出すが、部署作成失敗では company_members の INSERT は続行
+      } else {
+        finalDepartmentId = deptRes.departmentId;
+      }
+    }
+
     // ★重要：company_members への admin 登録（INSERT を試す、失敗したら個別エラーハンドリング）
     let insMember = await admin
       .from('company_members')
       .insert(
-        [{ company_id: companyId, user_id: userId!, role: 'admin', ...(departmentId !== null ? { department_id: departmentId } : {}) }]
+        [{ company_id: companyId, user_id: userId!, role: 'admin', ...(finalDepartmentId !== null ? { department_id: finalDepartmentId } : {}) }]
       )
       .select('*')
       .single();
