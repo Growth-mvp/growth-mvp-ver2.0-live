@@ -1,7 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { PlusCircle, Save } from 'lucide-react';
+import { PlusCircle, Save, ArrowRight } from 'lucide-react';
 
 interface CascadeControlBarProps {
   activeTab: 'edit' | 'visual';
@@ -13,6 +13,8 @@ interface CascadeControlBarProps {
   canEditCompany: boolean;
   showForm: boolean;
   setShowForm: (value: boolean | ((prev: boolean) => boolean)) => void;
+  onGoToStage4?: () => void;
+  isGoingToStage4?: boolean;
 }
 
 export function CascadeControlBar({
@@ -25,6 +27,8 @@ export function CascadeControlBar({
   canEditCompany,
   showForm,
   setShowForm,
+  onGoToStage4,
+  isGoingToStage4 = false,
 }: CascadeControlBarProps) {
   return (
     <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
@@ -59,6 +63,16 @@ export function CascadeControlBar({
         >
           <Save className="w-4 h-4 mr-1" />
           全体保存
+        </Button>
+
+        <Button
+          className="rounded-full h-10 px-5 bg-blue-600 text-white hover:bg-blue-700 shadow-sm"
+          disabled={isHydrating || isGoingToStage4}
+          onClick={onGoToStage4}
+          title="STAGE3の内容をSTAGE4に引き継ぎます"
+        >
+          <ArrowRight className="w-4 h-4 mr-1" />
+          {isGoingToStage4 ? '検証中…' : 'STAGE4へ進む'}
         </Button>
 
         {canEditCompany && (
