@@ -1092,15 +1092,27 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
-    // STAGE2画面で開いている会社のstrategy_dataへ保存するため、フロントから渡されたcompanyIdを優先する。
-    // membershipから推定すると、複数会社所属時に別会社へ保存される可能性があるためここでは使わない。
-    const requestedCompanyId = pickFirstText(body.companyId, body.company_id, body.tenantId, body.tenant_id);
+    // ★必須化：strategyDataId がない場合は 400 を返す
     const requestedStrategyDataId = pickFirstText(
       body.strategyDataId,
       body.strategy_data_id,
       body.strategyId,
       body.strategy_id,
     );
+
+    if (!requestedStrategyDataId) {
+      return NextResponse.json(
+        {
+          error: 'missing_strategy_data_id',
+          message: 'STAGE2 final story generation requires strategyDataId.',
+        },
+        { status: 400 }
+      );
+    }
+
+    // companyId は membership から信頼できる値を使用
+    // フロント側から送信される companyId は参考のみ
+    const requestedCompanyId = membership.companyId;
 
     const mvv = asRecord(body.mvv);
     const swot = asRecord(body.swot);
@@ -1291,6 +1303,25 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
     let usedModel = MODEL_PRIMARY;
     let usedHeuristic = false;
 
+    // ★ ログ記録（データ混入デバッグ用）
+    const hasKeyword = (keyword: string): boolean => userPrompt.includes(keyword);
+    console.log('[stage2/generate-final] OpenAI call info', {
+      requestId: req.headers.get('x-request-id') || 'unknown',
+      userId: userId?.slice(0, 8),
+      companyId: requestedCompanyId?.slice(0, 8),
+      strategyDataId: requestedStrategyDataId?.slice(0, 8),
+      answers2Count: Array.isArray(answers2) ? answers2.length : 0,
+      hasStoryDraft: !!storyDraft,
+      hasFinanceData: !!fin,
+      keywords: {
+        hasAutocar: hasKeyword('自動車'),
+        hasEmission: hasKeyword('排ガス'),
+        hasCeramic: hasKeyword('セラミック'),
+        hasOEM: hasKeyword('OEM'),
+      },
+      promptLength: userPrompt.length,
+    });
+
     try {
       raw = await callOpenAIChat({
         model: MODEL_PRIMARY,
@@ -1468,7 +1499,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
     // ★ CRITICAL FIX: リロード復元元である strategy_data.final_story_draft にも必ず保存する。
     // これが入らないと、生成直後は画面stateに表示されても、リロード時に古い story が復活する。
     // 保存後に select で再取得し、更新0件・保存失敗をログで検出できるようにする。
-    if (requestedCompanyId || requestedStrategyDataId) {
+    if (requestedCompanyId && requestedStrategyDataId) {
       try {
         const finalStoryDraftPayload = safeSerialize(finalStory);
         const updatePayload = {
@@ -1476,18 +1507,14 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
           updated_at: new Date().toISOString(),
         };
 
-        let query = admin
+        // ★ strategyDataId + companyId の両方で絞る
+        const { data: savedRows, error: saveDraftError } = await admin
           .from('strategy_data')
           .update(updatePayload)
-          .select('id, company_id, final_story_draft, updated_at');
-
-        if (requestedStrategyDataId) {
-          query = query.eq('id', requestedStrategyDataId);
-        } else {
-          query = query.eq('company_id', requestedCompanyId);
-        }
-
-        const { data: savedRows, error: saveDraftError } = await query.limit(1);
+          .eq('id', requestedStrategyDataId)
+          .eq('company_id', requestedCompanyId)
+          .select('id, company_id, final_story_draft, updated_at')
+          .limit(1);
 
         if (saveDraftError) {
           console.error('[stage2/generate-final] strategy_data.final_story_draft save failed:', {

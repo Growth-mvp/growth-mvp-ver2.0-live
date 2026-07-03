@@ -1581,6 +1581,184 @@ export async function getFullStrategyDataByCompany(
 }
 
 /* ============================================================
+ * 取得：strategy_data（strategyId + companyId で直接指定）
+ * getFullStrategyDataByCompany の代わりに使用（データ混在防止）
+ * ========================================================== */
+export async function getFullStrategyDataByStrategyId(
+  strategyId: string,
+  companyId: string,
+): Promise<ReadResult> {
+  if (DEBUG) console.log('[StrategyData] 📥 getFullStrategyDataByStrategyId start:', { strategyId, companyId });
+  try {
+    if (!isValidUUID(strategyId)) {
+      console.error('[StrategyData] ❌ invalid strategyId:', strategyId);
+      return { data: null, error: new Error('invalid strategyId') };
+    }
+    if (!isValidUUID(companyId)) {
+      console.error('[StrategyData] ❌ invalid companyId:', companyId);
+      return { data: null, error: new Error('invalid companyId') };
+    }
+
+    const baseRes = await supabase
+      .from(T_STRATEGY)
+      .select('*')
+      .eq('id', strategyId)
+      .eq('company_id', companyId)
+      .maybeSingle();
+
+    if (DEBUG) console.log('[StrategyData] 📊 query result (baseRes)', {
+      hasData: !!baseRes.data,
+      hasError: !!baseRes.error,
+      errorCode: baseRes.error?.code,
+      errorStatus: (baseRes.error as any)?.status,
+      errorMessage: baseRes.error?.message,
+      rowsCount: baseRes.data ? 1 : 0,
+      data_id: baseRes.data?.id,
+      data_company_id: baseRes.data?.company_id,
+      data_revision: baseRes.data?.revision,
+    });
+
+    if (baseRes.error) {
+      return { data: null, error: extractErrorVerbose(baseRes.error) };
+    }
+    if (!baseRes.data) {
+      return { data: null, error: null };
+    }
+
+    const rowData = baseRes.data ?? {};
+
+    const rawDep = (rowData as any)?.departments;
+    const rawDepDiag = (Array.isArray(rawDep) ? rawDep : []).map((d: any) => ({
+      name: d?.name,
+      proj: (Array.isArray(d?.projects) ? d.projects : []).map((p: any) => ({
+        title: p?.title,
+        okrs: Array.isArray(p?.okrs) ? p.okrs.length : 0,
+        kpis: Array.isArray(p?.kpis) ? p.kpis.length : 0,
+        okrsV2: Array.isArray(p?.okrsV2) ? p.okrsV2.length : 0,
+      })),
+    }));
+
+    if (DEBUG) {
+      const hasRawStoryDraft = Object.prototype.hasOwnProperty.call(rowData, 'story_draft');
+      const hasRawWinPatternsCandidate = Object.prototype.hasOwnProperty.call(rowData, 'win_patterns_candidate');
+      const hasRawAnswers12 = Object.prototype.hasOwnProperty.call(rowData, 'answers12');
+      const hasRawAnswers_12 = Object.prototype.hasOwnProperty.call(rowData, 'answers_12');
+      const storyDraftLen = Array.isArray(rowData.story_draft) ? rowData.story_draft.length : 0;
+      const winPatternsCandidateLen = Array.isArray(rowData.win_patterns_candidate) ? rowData.win_patterns_candidate.length : 0;
+      const answers12Len = Array.isArray(rowData.answers12) ? rowData.answers12.length : 0;
+      const answers_12Len = Array.isArray(rowData.answers_12) ? rowData.answers_12.length : 0;
+    }
+
+    if (DEBUG) console.log('[StrategyData][load] row.answers12 check', {
+      has: 'answers12' in (rowData as any),
+      len: Array.isArray((rowData as any).answers12) ? (rowData as any).answers12.length : 'not_array',
+      first: Array.isArray((rowData as any).answers12) ? (rowData as any).answers12[0] : null,
+    });
+
+    if (DEBUG) {
+      const hasCompanyTargets = Object.prototype.hasOwnProperty.call(rowData, 'company_targets');
+      const hasFinalStoryDraft = Object.prototype.hasOwnProperty.call(rowData, 'final_story_draft');
+      const hasFinalStoryEdited = Object.prototype.hasOwnProperty.call(rowData, 'final_story_edited');
+      const hasFinalStoryFinal = Object.prototype.hasOwnProperty.call(rowData, 'final_story_final');
+      const companyTargetsLen = Array.isArray(rowData.company_targets) ? rowData.company_targets.length : null;
+      const finalStoryDraftLen = Array.isArray(rowData.final_story_draft) ? rowData.final_story_draft.length : null;
+      const finalStoryEditedLen = Array.isArray(rowData.final_story_edited) ? rowData.final_story_edited.length : null;
+      const finalStoryFinalLen = Array.isArray(rowData.final_story_final) ? rowData.final_story_final.length : null;
+    }
+
+    // 分離テーブル取得（strategyId でフィルタ）
+    const [ansRes, finRes] = await Promise.allSettled([
+      supabase
+        .from(T_STORY_ANSWERS)
+        .select('answers2, updated_at')
+        .eq('strategy_id', strategyId)
+        .eq('company_id', companyId)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from(T_FINAL_STORIES)
+        .select('final_story, updated_at')
+        .eq('strategy_id', strategyId)
+        .eq('company_id', companyId)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+
+    const ansRow =
+      ansRes.status === 'fulfilled' && !ansRes.value.error
+        ? ansRes.value.data ?? null
+        : null;
+    const finRow =
+      finRes.status === 'fulfilled' && !finRes.value.error
+        ? finRes.value.data ?? null
+        : null;
+
+    const csvData = rowData?.csv_finance_data ?? {};
+    const financePl = rowData?.finance_pl;
+    const rawFinanceBSLen = Array.isArray((csvData as any).financeBS) ? (csvData as any).financeBS.length : 0;
+    const rawSegmentBSKeys = Object.keys((csvData as any).segmentBS || {}).length;
+    const rawSegmentPLKeys = Object.keys((csvData as any).segmentPL || {}).length;
+    const rawFinancePLLen = Array.isArray((financePl as any)) ? (financePl as any).length : 0;
+    if (DEBUG) console.log('[LOAD raw financial data] financePL_len:' + rawFinancePLLen + ' financeBS_len:' + rawFinanceBSLen + ' segmentPL_keys:' + rawSegmentPLKeys + ' segmentBS_keys:' + rawSegmentBSKeys);
+
+    const state = buildStateFromDbRow(rowData);
+
+    if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+    }
+
+    if (DEBUG) {
+      console.log('[diag][getFullStrategyDataByStrategyId] okrTargetScores chain:', {
+        inRowData: 'okr_target_scores' in (rowData || {}),
+        inState: 'okrTargetScores' in state,
+        stateKeys: Object.keys((state as any).okrTargetScores || {}).length,
+        stateSample: Object.entries((state as any).okrTargetScores || {}).slice(0, 2),
+      });
+    }
+
+    (state as any).strategyId = rowData?.id;
+    (state as any).companyId = rowData?.company_id;
+    (state as any).updatedAt = rowData?.updated_at;
+
+    const latestAnswersArray = ensureArray(ansRow?.answers2);
+    const latestFinal = ensureArray(finRow?.final_story);
+
+    const deptNames = ensureArray(state.departments).map((d: any) =>
+      (d?.name ?? '').trim(),
+    );
+    const { storyAnswers, deptAnswers } = splitAnswers2ByDeptNames(
+      latestAnswersArray,
+      deptNames,
+    );
+
+    const stateAnswers2 = ensureArray((state as any).answers2);
+    (state as any).answers2 = stateAnswers2.length ? stateAnswers2 : storyAnswers;
+
+    if (deptAnswers.length > 0) {
+      state.departments = mergeDeptAnswersIntoDepartments(
+        state.departments ?? [],
+        deptAnswers,
+      );
+    }
+
+    state.finalStory = ensureArray(state.finalStory).length ? state.finalStory : latestFinal;
+
+    const normalizedFinanceBSLen = Array.isArray((state as any).financeBS) ? (state as any).financeBS.length : 0;
+    const normalizedSegmentBSKeys = Object.keys((state as any).segmentBS || {}).length;
+    const normalizedSegmentPLKeys = Object.keys((state as any).segmentPL || {}).length;
+    const normalizedFinancePLLen = Array.isArray((state as any).financePL) ? (state as any).financePL.length : 0;
+    const normalizedIssueBlocksLen = Array.isArray((state as any).stage1Issues) ? (state as any).stage1Issues.length : 0;
+    const normalizedCsvFinanceDataExists = !!(state as any).csvFinanceData;
+    if (DEBUG) console.log('[LOAD normalized] financePL_len:' + normalizedFinancePLLen + ' financeBS_len:' + normalizedFinanceBSLen + ' segmentPL_keys:' + normalizedSegmentPLKeys + ' segmentBS_keys:' + normalizedSegmentBSKeys + ' issueBlocks_len:' + normalizedIssueBlocksLen + ' csvFinanceData_exists:' + normalizedCsvFinanceDataExists);
+
+    return { data: state, error: null };
+  } catch (e) {
+    return { data: null, error: extractErrorVerbose(e) };
+  }
+}
+
+/* ============================================================
  * 保存（空保存抑止＋楽観ロック簡略化＋DB現行とのDeepMerge）
  *
  * ★重要：revision について

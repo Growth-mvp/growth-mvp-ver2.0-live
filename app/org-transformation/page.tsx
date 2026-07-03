@@ -10,6 +10,7 @@ import {
 } from "@/utils/supabase";
 import { safeGetSession } from "@/utils/supabase/client";
 import { useUserStore } from "@/store/userStore";
+import { useStrategyStore } from "@/store/strategyStore";
 import OrgAlignmentFixedIntakeForm from "@/components/org-transformation/OrgAlignmentFixedIntakeForm";
 import OrgAlignmentIntakeReviewCard from "@/components/org-transformation/OrgAlignmentIntakeReviewCard";
 import {
@@ -65,6 +66,10 @@ export default function OrgTransformationPage() {
   const userStore = useUserStore();
   const currentUserId = userStore.user?.id ?? null;
   const currentCompanyId = userStore.companyId ?? null;
+
+  // ===== 戦略情報 =====
+  const strategyStore = useStrategyStore();
+  const currentStrategyId = strategyStore.strategyId ?? null;
 
   // ===== 入力フォームstate =====
   const [intakeDraft, setIntakeDraft] = useState<{
@@ -176,6 +181,7 @@ export default function OrgTransformationPage() {
           counterpartyType: formData.counterpartyType || "unknown",
           counterpartyDetail: formData.counterpartyDetail,
           visibilityMode: formData.visibilityMode,
+          strategyId: currentStrategyId,
           strategyContext: null,
         }),
       });

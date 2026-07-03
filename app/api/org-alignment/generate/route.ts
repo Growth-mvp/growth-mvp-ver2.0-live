@@ -7,7 +7,7 @@ import { NextResponse, NextRequest } from 'next/server';
 import OpenAI from 'openai';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
-import { getFullStrategyDataByCompany } from '@/utils/supabase/strategy';
+import { getFullStrategyDataByCompany, getFullStrategyDataByStrategyId } from '@/utils/supabase/strategy';
 
 const ROUTE_TAG = 'app/api/org-alignment/generate';
 
@@ -59,6 +59,7 @@ type GeneratePayload = {
   counterpartyType?: string;
   counterpartyDetail?: string;
   visibilityMode?: string;
+  strategyId?: string;
   strategyContext?: any;
   concernType?: OrgMisalignmentType | string;
   // snake_case fallback
@@ -482,48 +483,38 @@ export async function POST(req: NextRequest) {
     const counterpartyType = firstText(payload.counterpartyType, payload.counterparty_type, 'unknown');
     const counterpartyDetail = firstText(payload.counterpartyDetail, payload.counterparty_detail);
     const visibilityMode = firstText(payload.visibilityMode, payload.visibility_mode, 'manager_only');
+    const strategyId = payload.strategyId;
 
     if (!situationText || !myRecognitionText || !idealText || !expectationText) {
       return json({ error: '入力フィールドが不足しています。' }, 400);
+    }
+
+    if (!strategyId) {
+      return json({ error: '戦略IDが不足しています。' }, 400);
     }
 
     const apiKey = cleanApiKey(process.env.OPENAI_API_KEY);
     if (!apiKey) return json({ error: 'OPENAI_API_KEY が未設定です。' }, 500);
 
     let strategyData: any = null;
-    let strategyFetchMethod: 'company_id' | 'user_id' | 'payload' | 'not_found' = 'not_found';
+    let strategyFetchMethod: 'strategy_id' | 'not_found' = 'not_found';
     let strategyFetchError: string | null = null;
 
-    if (membership.companyId) {
-      const { data, error } = await getFullStrategyDataByCompany(membership.companyId);
+    // strategyId + companyId で直接取得（データ混在防止）
+    if (strategyId && membership.companyId) {
+      const { data, error } = await getFullStrategyDataByStrategyId(strategyId, membership.companyId);
       if (error) {
         strategyFetchError = error.message ?? String(error);
       } else if (data) {
         strategyData = data;
-        strategyFetchMethod = 'company_id';
+        strategyFetchMethod = 'strategy_id';
       }
     }
 
-    if (!strategyData && membership.userId) {
-      const userStrategyRes = await admin
-        .from('strategy_data')
-        .select('*')
-        .eq('user_id', membership.userId)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (userStrategyRes.error) {
-        strategyFetchError = userStrategyRes.error.message ?? String(userStrategyRes.error);
-      } else if (userStrategyRes.data) {
-        strategyData = userStrategyRes.data;
-        strategyFetchMethod = 'user_id';
-      }
-    }
-
-    if (!strategyData && payload.strategyContext) {
-      strategyData = payload.strategyContext;
-      strategyFetchMethod = 'payload';
+    // strategyData が取得できない場合はエラーを返す
+    if (!strategyData) {
+      const errorMsg = strategyFetchError || '戦略情報を取得できません。';
+      return json({ error: errorMsg, detail: { strategyFetchError } }, 400);
     }
 
     const strategyContextForPrompt = buildStrategyContextForPrompt(strategyData, payload.strategyContext);

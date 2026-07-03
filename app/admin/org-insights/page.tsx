@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import AdminGuard from '@/app/admin/AdminGuard';
 import { safeGetSession } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
+import { useStrategyStore } from '@/store/strategyStore';
 import UnhandledAlignmentRequestsSection from '@/components/org-alignment/UnhandledAlignmentRequestsSection';
 import type { OrgAlignmentInsightRow, OrgInsightNextAction } from '@/types/org-alignment';
 import {
@@ -30,6 +31,9 @@ const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
 export default function OrgAlignmentAdminInsightsPage() {
   const userStore = useUserStore();
   const companyId = userStore.companyId;
+
+  const strategyStore = useStrategyStore();
+  const strategyId = strategyStore.strategyId ?? null;
 
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -106,6 +110,9 @@ export default function OrgAlignmentAdminInsightsPage() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${sessionData.session.access_token}`,
         },
+        body: JSON.stringify({
+          strategyId,
+        }),
       });
 
       if (!res.ok) {

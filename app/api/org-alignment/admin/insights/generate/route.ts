@@ -14,7 +14,7 @@ import {
   saveInsightSources,
 } from '@/utils/supabase/org-alignment-server';
 import { createSharedTopicFromInsight } from '@/utils/supabase/org-alignment-shared-topics-server';
-import { getFullStrategyDataByCompany } from '@/utils/supabase/strategy';
+import { getFullStrategyDataByCompany, getFullStrategyDataByStrategyId } from '@/utils/supabase/strategy';
 import type {
   OrgAlignmentInsightDashboard,
 } from '@/types/org-alignment';
@@ -78,6 +78,19 @@ export async function POST(req: NextRequest) {
 
     const companyId = membership.companyId;
 
+    // リクエストボディから strategyId を取得
+    let payload: { strategyId?: string } = {};
+    try {
+      payload = await req.json();
+    } catch {
+      // body が空でもエラーにしない（互換性のため）
+    }
+
+    const strategyId = payload.strategyId;
+    if (!strategyId) {
+      return json({ error: '戦略IDが不足しています。' }, 400);
+    }
+
     // ===== 1. org_alignment_cases を取得 =====
     const cases = await getOrgAlignmentCasesForInsight(admin, companyId);
 
@@ -95,7 +108,7 @@ export async function POST(req: NextRequest) {
     // ===== 2. strategy_data から部門情報を取得 =====
     let departments: any[] = [];
     try {
-      const { data: strategyData } = await getFullStrategyDataByCompany(companyId);
+      const { data: strategyData } = await getFullStrategyDataByStrategyId(strategyId, companyId);
       if (strategyData?.departments && Array.isArray(strategyData.departments)) {
         departments = strategyData.departments;
       }

@@ -2962,7 +2962,8 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         segments: segmentNames,
         businessSegments,
         businessPortfolio,
-        // API側で strategy_data.final_story_draft に保存するため、画面で開いている会社IDを明示的に渡す
+        // ★ strategyDataId を必須で送信（API側で strategyId + companyId の二重チェックのため）
+        strategyDataId: strategyId,
         companyId,
       };
 

@@ -1,75 +1,51 @@
-確認しました。以下の方針で修正・実装してください。
+確認を進めてください。
 
-## 1．戦略設計エリアを再調整
+特に ask-ceo-agent は利用範囲が広いため、いきなり修正せず、以下を先に確認してください。
 
-重なりと改行は解消しましたが、現在はピラミッドが小さすぎ、STAGEボタンが横に長すぎます。
+1. 呼び出し元の特定
+- ask-ceo-agent を呼んでいるフロント/UI/APIをすべて検索
+- fetch('/api/ask-ceo-agent')
+- /api/ask-ceo-agent
+- ask-ceo-agent
+で検索してください。
 
-### 修正要件
+2. payload確認
+各呼び出し元で以下が送られているか確認してください。
+- userId
+- strategyId
+- companyId
+- messages
+- meta
 
-* ピラミッドを現在の約1.4～1.5倍に拡大する
-* ピラミッドを左側、STAGEボタンを右側に配置する2カラム構成は維持する
-* 左右の領域比率は、ピラミッド約52％、ボタン約48％を目安とする
-* STAGEボタンの横幅は現在より短くし、約190～210pxに統一する
-* 「STAGE3：事業・部門別戦略」が1行で収まる文字サイズに調整する
-* ボタンは右側領域の中央に配置する
-* STAGE1～4の上下間隔を均等にする
-* ピラミッドとボタン列の間に16～24px程度の余白を設ける
-* 「中計戦略書」ボタンは、レポート導線を実装する際に削除するため、今回はこれ以上横幅を広げない
-* 戦略設計エリア内に不自然な大きな空白が生じないよう、全体の高さも調整する
-* 修正後はブラウザ表示で確認する
+特に strategyId が常に送られているか確認してください。
 
-ピラミッドを主役、STAGEボタンを各段階への補助導線として見えるバランスにしてください。
+3. strategyId が送られていない呼び出し元がある場合
+以下を報告してください。
+- ファイル名
+- 画面/機能名
+- なぜ strategyId がないのか
+- useStrategyStore から strategyId を取得できるか
+- access / membership / loader から補完しているのか
 
-## 2．レポート導線を実装
+4. ask-ceo-agent 側の現在処理確認
+- request body で strategyId を必須にしているか
+- strategyId がない場合でも companyId で取得するfallbackがあるか
+- assertCompanyScopeByStrategyId が必ず呼ばれているか
+- その後に getFullStrategyDataByCompany(companyId) で取り直していないか
 
-以下の構成で実装してください。
+5. 修正方針案を出してください
+原則として ask-ceo-agent は以下に変更したいです。
 
-### 新しい共通入口
+- strategyId 必須
+- membership.companyId を会社スコープにする
+- strategy_data は strategyId + membership.companyId で取得
+- getFullStrategyDataByCompany(companyId) は使わない
+- getFullStrategyDataByStrategyId(strategyId, companyId) 新関数を使う
+- companyId だけのfallbackは禁止
 
-新規に`/report`を作成し、「レポート」一覧画面とします。
+6. 互換性確認
+strategyId 必須化で壊れる画面がある場合は、先にフロント側で strategyId を送る修正案を出してください。
+API側で companyId fallback を残す対応は避けてください。
 
-表示する成果物：
-
-1. 中計戦略書
-
-   * STAGE1～4の統合成果物
-   * 遷移先：`/report/midterm-plan`
-
-2. 戦略実行レポート
-
-   * STAGE5～6の進捗・業績をまとめた成果物
-   * 遷移先：`/report/execution-report`
-
-3. 全社戦略書
-
-   * STAGE2で策定した全社戦略の個別成果物
-   * 遷移先：`/report/stage2-strategy`
-
-一覧画面はマーケティング的なランディングページではなく、3つの成果物を簡潔に選べる業務画面にしてください。
-
-### 既存画面の整理
-
-* 現在の`/report/preview`の戦略実行レポートを`/report/execution-report`へ移す
-* トップ上部の「レポートを見る」は、文言を「レポート」に変更し、`/report`へ遷移させる
-* サイドバーの「中計戦略書」は、文言を「レポート」に変更し、`/report`へ遷移させる
-* ピラミッド下の青い「中計戦略書」ボタンは削除する
-
-### URL互換性
-
-既存の個別レポートURLは維持してください。
-
-* `/report/midterm-plan`は中計戦略書を直接表示
-* `/report/stage2-strategy`は全社戦略書を直接表示
-* `/report/execution-report`は戦略実行レポートを直接表示
-
-これらを`/report`へリダイレクトしないでください。
-
-旧URLの`/report/preview`だけは、`/report/execution-report`へリダイレクトしてください。既存ブックマークから従来と同じ戦略実行レポートを開けるようにします。
-
-### 表示上の注意
-
-* 絵文字は使用せず、既存のLucideアイコンを使用する
-* 3つの成果物の違いが一目で分かる説明文を付ける
-* 「STAGE別資料」という曖昧な分類名は使わず、「全社戦略書」と明示する
-* 既存のレポート生成・PDF出力機能を変更しない
-* 実装後、各導線とビルドを確認する
+確認結果を一覧で報告してください。
+その後、ask-ceo-agent を修正してください。

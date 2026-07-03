@@ -8,7 +8,7 @@ function makeRequestId() {
   return globalThis.crypto?.randomUUID?.() ?? `req_${Date.now()}`;
 }
 import { openai } from '@/lib/openai';
-import { getFullStrategyDataByCompany } from '@/utils/supabase/strategy';
+import { getFullStrategyDataByCompany, getFullStrategyDataByStrategyId } from '@/utils/supabase/strategy';
 import { normalizeStrategyData } from '@/utils/supabase/normalize';
 import agentPrompt from '@/lib/agentPrompt';
 import { insertAgentLog } from '@/lib/supabase/agentLogs';
@@ -160,17 +160,15 @@ function buildProgressSummary(progressLogs: any[] = []) {
   return lines.join('\n');
 }
 
-/* ========= コンテキスト取得（strategyId優先、なければcompanyId） ========= */
-async function fetchStrategyContext(args: { companyId: string; strategyId?: string; userId: string }) {
+/* ========= コンテキスト取得（strategyId必須） ========= */
+async function fetchStrategyContext(args: { companyId: string; strategyId: string; userId: string }) {
   const { companyId, strategyId, userId } = args;
 
-  // ★ TASK 2: strategyId が undefined でも companyId で取得できるようにする
-  // 会社単位のフルデータを取得して正規化
+  // strategyId + companyId で直接取得（データ混在防止）
   let strategy: StrategyData | null = null;
   try {
-    // companyId で取得（strategyId は参考情報）
-    const { data: sRow, error } = await getFullStrategyDataByCompany(companyId);
-    if (error) console.warn('[ask-ceo-agent] getFullStrategyDataByCompany error:', error?.message || error);
+    const { data: sRow, error } = await getFullStrategyDataByStrategyId(strategyId, companyId);
+    if (error) console.warn('[ask-ceo-agent] getFullStrategyDataByStrategyId error:', error?.message || error);
     strategy = sRow ? (normalizeStrategyData(sRow as Partial<StrategyData>) as StrategyData) : null;
   } catch (e: any) {
     console.warn('[ask-ceo-agent] strategy load exception:', e?.message || e);
@@ -213,30 +211,9 @@ async function fetchStrategyContext(args: { companyId: string; strategyId?: stri
     `\n\n---\n# OKRサマリ\n${okrSummaryText || '（OKRなし）'}\n` +
     `\n# 直近進捗ログ\n${progressSummaryText}\n---\n`;
 
-  // フルが取れない場合は最小限フォールバック（Service Role）
+  // フルが取れない場合（strategyId が無効または削除されている場合）
   if (!strategy || Object.keys(strategy).length === 0) {
-    const admin = getSupabaseAdmin();
-    const { data: srow } = await admin.from('strategy_data').select('*').eq('id', strategyId).maybeSingle();
-    if (!srow) {
-      return { strategy: null, answers2: [], finalStory: [], extraBlock: '' };
-    }
-    const minimal: StrategyData = {
-      id: String(srow.id),
-      companyId: String(srow.company_id),
-      companyName: (srow.companyName as string) ?? undefined,
-      mission: (srow.mission as string) ?? undefined,
-      vision: (srow.vision as string) ?? undefined,
-      values: (srow.values as string) ?? undefined,
-      departments: Array.isArray((srow as any).departments) ? (srow as any).departments : [],
-    } as any;
-
-    const dept2 = safeArray<any>(minimal.departments);
-    const okrText = buildOKRSummary(dept2);
-    const extraBlockMinimal =
-      `\n\n---\n# OKRサマリ（最小）\n${okrText || '（OKRなし）'}\n` +
-      `\n# 直近進捗ログ\n${progressSummaryText}\n---\n`;
-
-    return { strategy: minimal, answers2: [], finalStory: [], extraBlock: extraBlockMinimal };
+    return { strategy: null, answers2: [], finalStory: [], extraBlock: '' };
   }
 
   const answers2 = safeArray<any>((strategy as any)?.answers2);
