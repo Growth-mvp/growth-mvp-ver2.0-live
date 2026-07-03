@@ -107,29 +107,90 @@ export default function AdminDataManagementPage() {
     }
 
     // Step 2: 最終確認後の削除実行
+    console.log('[AdminDataManagement] confirm modal submitted - proceeding to delete');
     setLoading(true);
     setError(null);
     setSuccess(null);
 
     try {
+      console.log('[AdminDataManagement] ===== DELETE START =====');
+      console.log('[AdminDataManagement] Current store state:', {
+        companyId: useStrategyStore.getState().companyId,
+        finalStoryLength: (useStrategyStore.getState().finalStory ?? []).length,
+        answers2Length: (useStrategyStore.getState().answers2 ?? []).length,
+      });
+
+      console.log('[AdminDataManagement] calling deleteAllOnServer', {
+        companyId: useStrategyStore.getState().companyId,
+      });
       await useStrategyStore.getState().deleteAllOnServer();
-      // ローカルストレージもクリア
+      console.log('[AdminDataManagement] deleteAllOnServer completed');
+
+      // ローカルストレージをクリア（__deleting_company__ は保持）
       try {
+        console.log('[AdminDataManagement] Clearing localStorage...');
+        const DELETION_FLAG_KEY = '__deleting_company__';
+
+        // 具体的なキーを削除
         localStorage.removeItem('strategy-store-v5');
-      } catch {}
+        localStorage.removeItem('stage1-snapshot');
+        localStorage.removeItem('stage2-snapshot');
+        localStorage.removeItem('strategy-persist');
+
+        // その他キャッシュキー（削除フラグは除外）
+        Object.keys(localStorage).forEach((key) => {
+          // ★ 削除フラグは保持（60秒間autosave抑止のため）
+          if (key === DELETION_FLAG_KEY) {
+            console.log('[AdminDataManagement] Skipping deletion flag key', { key });
+            return;
+          }
+
+          if (
+            key.includes('strategy') ||
+            key.includes('stage') ||
+            key.includes('company') ||
+            key.includes('store')
+          ) {
+            localStorage.removeItem(key);
+          }
+        });
+        console.log('[AdminDataManagement] localStorage cleared (deletion flag preserved)');
+        console.log('[AdminDataManagement] Deletion flag current value:', {
+          flag: localStorage.getItem(DELETION_FLAG_KEY) ? 'set' : 'null',
+        });
+      } catch (e) {
+        console.warn('[AdminDataManagement] localStorage cleanup warn:', e);
+      }
+
+      console.log('[AdminDataManagement] Store state after reset:', {
+        companyId: useStrategyStore.getState().companyId,
+        finalStoryLength: (useStrategyStore.getState().finalStory ?? []).length,
+        answers2Length: (useStrategyStore.getState().answers2 ?? []).length,
+      });
 
       setSuccess('すべてのデータを削除しました');
       setShowDeleteConfirm(false);
       setDeleteStep(1);
       setDeleteCompanyNameInput('');
 
-      // 3秒後にトップへリダイレクト
+      // 削除後、ページをリロードしてキャッシュをクリア
+      console.log('[AdminDataManagement] Reloading page...');
       setTimeout(() => {
-        router.push('/');
-      }, 3000);
+        window.location.href = '/';
+      }, 2000);
     } catch (err) {
       const message = err instanceof Error ? err.message : '不明なエラーが発生しました';
-      setError(`削除に失敗しました: ${message}`);
+      console.error('[AdminDataManagement] Delete error:', {
+        message,
+        error: err,
+      });
+      // ★ 修正：エラーメッセージにより詳しい情報を含める
+      let errorDisplay = `削除に失敗しました: ${message}`;
+      if (err instanceof Error && err.message.includes('detail')) {
+        // detail の詳細情報をパース して表示
+        errorDisplay += '\n\n詳細: ' + message;
+      }
+      setError(errorDisplay);
       setDeleteStep(1);
       setDeleteCompanyNameInput('');
     } finally {
@@ -229,6 +290,7 @@ export default function AdminDataManagementPage() {
 
           <button
             onClick={() => {
+              console.log('[AdminDataManagement] delete button clicked', { canManage, companyId });
               setShowDeleteConfirm(true);
               setDeleteStep(1);
               setDeleteCompanyNameInput('');
