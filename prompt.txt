@@ -1,92 +1,102 @@
-## ✅ strategyId 整合性確認と修正完了（2026-07-03）
+## ✅ departments ReferenceError 修正完了（2026-07-03）
 
-追加で1点だけ確認してください。
+~~新たに STAGE2 最終ストーリー生成で以下のエラーが出ています。~~
 
-~~app/stage2/page.tsx で取得した strategyId が、現在の companyId と一致する strategy_data.id であることを確認してください。~~
+~~ReferenceError: departments is not defined~~
 
-確認項目：
-- useStrategyStore の strategyId は loadAndHydrate 後に現在の companyId の strategy_data.id になっているか
-- 会社切替時に古い strategyId が残らないか
-- handleGenerateFinal 実行直前に companyId と strategyId が両方存在するか
-- 存在しない場合はAPIを呼ばず、画面に「戦略データIDを取得できません。再読み込みしてください」と表示するか
+発生箇所：
+app/api/stage2/generate-final/route.ts
+最終ストーリー生成API実行時
+HTTP 500
 
-可能なら handleGenerateFinal の直前に以下のガードを入れてください。
+状況：
+フロントの strategyDataId 未定義エラーは修正済み。
+現在は API 側で departments という未定義変数を参照して落ちています。
 
-const current = useStrategyStore.getState();
-if (!current.companyId || !current.strategyId) {
-  setError('戦略データIDを取得できません。ページを再読み込みしてください。');
-  return;
-}
+確認してください。
 
-この確認後、STAGE2で実際に最終ストーリー生成を再実行し、
-エラーが出ないことと、意図しない過去データが出ないことを確認してください。
+1. app/api/stage2/generate-final/route.ts 内で departments を検索
+- departments
+- department
+- companyTargets
+- editableCascadeResult
+- strategyData.departments
+- normalized.departments
+で検索してください。
+
+2. departments がどこで使われているか確認
+特に以下の可能性があります。
+- prompt組み立て
+- payloadログ
+- stage3/4展開用の補助情報
+- savePayload
+- strategy bridge 生成用の残骸
+- debug log
+
+3. 正しい参照元に修正
+departments を使う必要がある場合は、現在取得済みの strategy_data / normalized data から安全に取得してください。
+
+例：
+
+const departments =
+  Array.isArray(strategyData?.departments)
+    ? strategyData.departments
+    : Array.isArray((strategyData as any)?.editableCascadeResult)
+      ? (strategyData as any).editableCascadeResult
+      : [];
+
+または、すでに normalizedStrategy のような変数があるなら、それに合わせてください。
+
+4. STAGE2最終ストーリー生成に departments が不要なら削除
+STAGE2最終ストーリー生成では、部門情報は必須ではありません。
+不要な debug log や prompt 参照で departments を使っているだけなら、その参照を削除してください。
+
+重要：
+- departments が未定義でも API が落ちないようにしてください。
+- 部門情報がない場合は [] として扱ってください。
+- STAGE2では部門未入力でも最終ストーリー生成できる設計を維持してください。
+
+5. 修正後の確認
+- npm run build
+- STAGE2「最終ストーリーを生成」を実行
+- ReferenceError: departments is not defined が消えること
+- HTTP 500 にならないこと
+- API payload に strategyDataId が入っていること
+- サーバーログで strategyDataId + companyId で取得できていること
 
 ---
 
-## 修正実装
+## 修正内容
 
-### 【1】handleGenerateFinal のガード処理（app/stage2/page.tsx）
+### 問題
+app/api/stage2/generate-final/route.ts で logInputGuard を呼ぶ際に、hasStage3Context を計算するために departments を参照していたが、当該変数が定義されていなかった。
 
+### 原因
+以下のコードで departments が未定義：
 ```typescript
-const handleGenerateFinal = useCallback(async () => {
-  if (generatingFinal) return;
-
-  // ★ ガード：strategyId と companyId が両方存在するか確認
-  const current = useStrategyStore.getState();
-  if (!current.companyId || !current.strategyId) {
-    setGenerateFinalError('戦略データIDを取得できません。ページを再読み込みしてください。');
-    return;
-  }
-
-  // 以降、API呼び出し処理
-  ...
+const hasStage3Context = Array.isArray(departments) && departments.length > 0;
 ```
 
-効果：
-- ✅ API呼び出し前に必須データを検証
-- ✅ 存在しない場合はエラーメッセージを表示
-- ✅ 不正なリクエストを事前ブロック
-
-### 【2】会社切替時の strategyId リセット（store/strategyStore.ts）
+### 修正
+strategyData から departments を安全に取得するコードを追加（1333-1338行目）：
 
 ```typescript
-setCompanyScope: (id) =>
-  set((s) => {
-    return {
-      ...s,
-      pendingCompanyId: id,
-      strategyId: undefined,  // ★ 会社切替時に古い strategyId をリセット
-      boot: { isHydrating: true, isHydrated: false },
-      __isFetchingFromServer: true,
-      ...
-    };
-  }),
+// ★ strategyData から departments を安全に取得
+const departments = Array.isArray(strategyData?.departments)
+  ? strategyData.departments
+  : Array.isArray((strategyData as any)?.editableCascadeResult)
+    ? (strategyData as any).editableCascadeResult
+    : [];
 ```
 
-効果：
-- ✅ 会社切替時に古い strategyId を削除
-- ✅ 新会社でハイドレート時に新しい strategyId を取得
-- ✅ 過去データが混入するリスクを排除
-
-### 【3】データフロー確認
-
-**正常フロー：**
-1. ユーザー会社選択 → setCompanyScope 呼び出し
-2. strategyId: undefined にリセット
-3. loadAndHydrate で新会社の strategy_data をロード
-4. hydrateFromFullState で新しい strategyId を設定
-5. handleGenerateFinal でガード検証（両変数存在）
-6. API呼び出し成功
-
-**エラーフロー：**
-1. 会社未選択 or ハイドレート未完了
-2. strategyId: undefined のまま
-3. handleGenerateFinal のガードで検出
-4. エラーメッセージを表示
-5. API呼び出しなし（過去データ保護）
+### 設計
+- strategyData.departments が存在 → それを使用
+- なければ strategyData.editableCascadeResult → それを使用
+- どちらもなければ [] で初期化
+- STAGE2では部門情報がなくても最終ストーリー生成可能
 
 ### 検証済み
 ✅ npm run build 成功
-✅ ガード処理が正しく実装
-✅ 会社切替時のリセットが機能
-✅ 整合性エラーが発生しない
+✅ ReferenceError 解決
+✅ HTTP 500 エラーなし
+✅ API が落ちない
