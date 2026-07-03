@@ -1231,9 +1231,10 @@ const emptyData: StrategyState = {
   storyDraft: [], // ★ 修正：undefined から [] に統一（infinite loop 防止）
   winPatternsCandidate: [], // ★ 修正：undefined から [] に統一
   answers12: [], // ★ 修正：undefined から [] に統一
-  finalStoryDraft: undefined,
-  finalStoryEdited: undefined,
-  finalStoryFinal: undefined,
+  finalStoryDraft: [], // ★ 修正：undefined から [] に統一（delete時にクリア確認）
+  finalStoryEdited: [], // ★ 修正：undefined から [] に統一（delete時にクリア確認）
+  finalStoryFinal: [], // ★ 修正：undefined から [] に統一（delete時にクリア確認）
+  stage3_strategy_bridge: null, // ★ 修正：削除時にnullクリアするため明示化
   companyTargets: [],
   projectTargetImpacts: [],
   okrTargetScores: {},
@@ -3476,9 +3477,15 @@ export const useStrategyStore = create<StrategyState>()(
           }
 
           // ★ force: true または manual のときは dirty をスキップ（手動保存は常に走る）
-          const isManual = reason === 'manual';
+          // ★ 修正：複数の手動保存パターンをサポート
+          const isManual =
+            reason === 'manual' ||
+            reason === 'manual-save-button' ||
+            reason === 'stage2:confirmAndBridge' ||
+            reason?.startsWith('stage2:');
+
           if (!force && !isManual && !state0.dirty) {
-            if (DEBUG) console.log('[strategyStore] saveStrategyData: dirty=false, skip (not forced, not manual)');
+            if (DEBUG) console.log('[strategyStore] saveStrategyData: dirty=false, skip (not forced, not manual)', { reason, isManual });
             return { ok: false, skipped: true, reason: 'dirty_false' };
           }
 
@@ -4295,39 +4302,184 @@ export const useStrategyStore = create<StrategyState>()(
       },
 
       async deleteAllOnServer() {
+        const operationId = `deleteAll_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+        console.log('[strategyStore.deleteAllOnServer] ===== START =====', { operationId });
+
         const userId = useUserStore.getState().user?.id;
         const companyId = get().companyId || useUserStore.getState().companyId;
+        console.log('[strategyStore.deleteAllOnServer] userId:', userId, 'companyId:', companyId, { operationId });
         if (!userId || !companyId) throw new Error('missing ids');
 
-        if (!(await isSessionUsable())) return;
-
-        const delRes = await (async () => {
-          try {
-            return await (deleteStrategyDataApi as any)(userId, companyId);
-          } catch {
-            return await (deleteStrategyDataApi as any)(userId);
-          }
-        })();
-
-        if ((delRes as any)?.error) throw (delRes as any).error;
-
-        try {
-          await (purgeLegacyTablesApi as any)?.(userId, companyId);
-        } catch (e) {
-          console.warn('[strategyStore] purgeLegacyTables warn:', e);
+        if (!(await isSessionUsable())) {
+          console.warn('[strategyStore.deleteAllOnServer] session not usable', { operationId });
+          return;
         }
 
-        set(() => ({
-          ...emptyData,
-          companyId: companyId,
-          hydrated: true,
-          loaded: true,
-          boot: { isHydrating: false, isHydrated: true },
-          revision: undefined,
-          __isFetchingFromServer: false,
-          __lastSavedHash: undefined,
-          dirty: false,
-        }));
+        // ★ 修正：削除開始時に localStorage に削除フラグを設定（expiresAt 付き）
+        const DELETION_FLAG_KEY = '__deleting_company__';
+        const deletionFlagExpiresAt = Date.now() + 60000; // 60秒後に自動削除
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(
+              DELETION_FLAG_KEY,
+              JSON.stringify({
+                companyId,
+                operationId,
+                expiresAt: deletionFlagExpiresAt,
+              })
+            );
+            console.log('[strategyStore.deleteAllOnServer] Deletion flag set with expiry', {
+              operationId,
+              companyId,
+              expiresAt: new Date(deletionFlagExpiresAt).toISOString(),
+            });
+          }
+        } catch (e) {
+          console.warn('[strategyStore.deleteAllOnServer] Failed to set deletion flag:', e);
+        }
+
+        try {
+          // ★ 修正：Server route API を呼ぶ（RLS 回避、service role 使用）
+          console.log('[strategyStore.deleteAllOnServer] Calling /api/admin/data-management/delete-all...', { operationId });
+
+          // Supabase から access_token を取得
+          let accessToken: string | null = null;
+          try {
+            const { getBrowserSupabase } = await import('@/utils/supabase/client');
+            const supabase = getBrowserSupabase?.();
+            if (supabase) {
+              const { data: { session } } = await supabase.auth.getSession();
+              accessToken = session?.access_token ?? null;
+            }
+          } catch (e) {
+            console.warn('[strategyStore.deleteAllOnServer] Failed to get access token:', e);
+          }
+
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+          };
+          if (accessToken) {
+            headers['Authorization'] = `Bearer ${accessToken}`;
+            console.log('[strategyStore.deleteAllOnServer] Authorization header set', { operationId });
+          } else {
+            console.warn('[strategyStore.deleteAllOnServer] Warning: No access token available', { operationId });
+          }
+
+          const deleteRes = await fetch('/api/admin/data-management/delete-all', {
+            method: 'POST',
+            headers,
+          });
+
+          const deleteResult = await deleteRes.json();
+
+          // API エラーチェック（detail を含める）
+          if (!deleteRes.ok) {
+            const errorMsg = (deleteResult as any)?.error || 'Unknown error';
+            const errorDetail = (deleteResult as any)?.detail;
+            console.error('[strategyStore.deleteAllOnServer] API error details:', {
+              error: errorMsg,
+              detail: errorDetail,
+              operationId,
+            });
+            throw new Error(`Delete failed: ${errorMsg}${errorDetail?.message ? `: ${errorDetail.message}` : ''}`);
+          }
+
+          // API verify 失敗チェック
+          const apiVerifySuccess = (deleteResult as any)?.verifySuccess ?? false;
+          if (!apiVerifySuccess) {
+            const remainingColumns = Object.entries((deleteResult as any)?.afterState || {})
+              .filter(([_, v]) => v !== 0 && v !== false && v !== 'null')
+              .map(([k]) => k);
+            console.error('[strategyStore.deleteAllOnServer] API verification failed - remaining columns:', {
+              operationId,
+              remaining: remainingColumns,
+            });
+            throw new Error('API verification failed: Data not properly deleted');
+          }
+
+          // 削除成功確認
+          const updatedCount = (deleteResult as any)?.updatedCount ?? 0;
+          if (updatedCount === 0) {
+            console.error('[strategyStore.deleteAllOnServer] No rows updated', { operationId });
+            throw new Error('No rows were deleted');
+          }
+
+          // API 成功後に Supabase を再SELECT して最終確認（execution_plan_baseline, stage4_plans, final_story_edited 除外）
+          try {
+            const { getBrowserSupabase } = await import('@/utils/supabase/client');
+            const supabase = getBrowserSupabase?.();
+            if (supabase) {
+              const { data: finalCheck, error: finalError } = await supabase
+                .from('strategy_data')
+                .select('final_story, story_draft, final_story_draft, final_story_final, stage3_strategy_bridge, departments')
+                .eq('company_id', companyId)
+                .maybeSingle();
+
+              if (finalError) {
+                throw finalError;
+              }
+
+              const finalVerifySuccess =
+                (!finalCheck?.final_story || finalCheck.final_story.length === 0) &&
+                (!finalCheck?.story_draft || finalCheck.story_draft.length === 0) &&
+                (!finalCheck?.final_story_draft || finalCheck.final_story_draft.length === 0) &&
+                (!finalCheck?.final_story_final || finalCheck.final_story_final.length === 0) &&
+                !finalCheck?.stage3_strategy_bridge &&
+                (!finalCheck?.departments || finalCheck.departments.length === 0);
+
+              if (!finalVerifySuccess) {
+                const remainingColumns = Object.entries(finalCheck || {})
+                  .filter(([_, v]) => v && (Array.isArray(v) ? v.length > 0 : true))
+                  .map(([k]) => k);
+                console.error('[strategyStore.deleteAllOnServer] Final DB verification failed - remaining columns:', {
+                  operationId,
+                  remaining: remainingColumns,
+                });
+                throw new Error('Final DB verification failed: Data still present after deletion');
+              }
+            }
+          } catch (e) {
+            console.error('[strategyStore.deleteAllOnServer] Final DB verification error:', e, { operationId });
+            throw e;
+          }
+
+          // clearStage2Snapshot helper を使用
+          const { clearStage2Snapshot } = await import('@/utils/stageSnapshot');
+          try {
+            clearStage2Snapshot();
+          } catch (e) {
+            console.warn('[strategyStore.deleteAllOnServer] Failed to clear Stage2 snapshot:', e);
+          }
+
+          set(() => ({
+            ...emptyData,
+            companyId: companyId,
+            hydrated: true,
+            loaded: true,
+            boot: { isHydrating: false, isHydrated: true },
+            revision: undefined,
+            __isFetchingFromServer: false,
+            __lastSavedHash: undefined,
+            dirty: false,
+            finalStoryDraft: [],
+            finalStoryEdited: [],
+            finalStoryFinal: [],
+            stage3_strategy_bridge: null,
+          }));
+        } catch (error) {
+          console.error('[strategyStore.deleteAllOnServer] Error during deletion:', error, { operationId });
+          // ★ エラー時も削除フラグをクリア（autosave を再開）
+          const DELETION_FLAG_KEY = '__deleting_company__';
+          try {
+            if (typeof localStorage !== 'undefined') {
+              localStorage.removeItem(DELETION_FLAG_KEY);
+              console.log('[strategyStore.deleteAllOnServer] Deletion flag cleared due to error', { operationId });
+            }
+          } catch (e) {
+            console.warn('[strategyStore.deleteAllOnServer] Failed to clear deletion flag:', e);
+          }
+          throw error;
+        }
       },
 
       /** STAGE1 ダミーデータ投入（開発用） */
