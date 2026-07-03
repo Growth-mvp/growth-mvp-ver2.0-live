@@ -4,8 +4,6 @@ import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer } from '@/lib/server/rbacGuard';
 
 export async function POST(req: Request) {
-  console.log('[DELETE_ALL_API] ===== START =====');
-
   try {
     const admin = getSupabaseAdmin();
 
@@ -19,8 +17,6 @@ export async function POST(req: Request) {
       );
     }
 
-    console.log('[DELETE_ALL_API] authUserId:', authUserId);
-
     // 2) userId から company_members を取得（admin/owner のみ）
     const { data: membershipData, error: membershipError } = await admin
       .from('company_members')
@@ -31,12 +27,6 @@ export async function POST(req: Request) {
       .limit(1)
       .maybeSingle();
 
-    console.log('[DELETE_ALL_API] membership query result:', {
-      found: !!membershipData,
-      companyId: membershipData?.company_id,
-      role: membershipData?.role,
-    });
-
     if (membershipError || !membershipData) {
       console.error('[DELETE_ALL_API] Membership not found or error:', membershipError?.message);
       return NextResponse.json(
@@ -46,7 +36,6 @@ export async function POST(req: Request) {
     }
 
     const companyId = membershipData.company_id;
-    console.log('[DELETE_ALL_API] Confirmed companyId from membership:', companyId);
 
     // ★ 修正：削除前の詳細状態確認（execution_plan_baseline, stage4_plans, final_story_edited は strategy_data に存在しないため除外）
     const beforeCheck = await admin
@@ -55,52 +44,15 @@ export async function POST(req: Request) {
       .eq('company_id', companyId);
 
     const beforeData = beforeCheck.data?.[0];
-    const beforeState = {
-      final_story: Array.isArray(beforeData?.final_story) ? beforeData.final_story.length : (beforeData?.final_story ? 'non-array' : 'null'),
-      story_draft: Array.isArray(beforeData?.story_draft) ? beforeData.story_draft.length : (beforeData?.story_draft ? 'non-array' : 'null'),
-      final_story_draft: Array.isArray(beforeData?.final_story_draft) ? beforeData.final_story_draft.length : (beforeData?.final_story_draft ? 'non-array' : 'null'),
-      final_story_final: Array.isArray(beforeData?.final_story_final) ? beforeData.final_story_final.length : (beforeData?.final_story_final ? 'non-array' : 'null'),
-      stage3_strategy_bridge: beforeData?.stage3_strategy_bridge ? Object.keys(beforeData.stage3_strategy_bridge).length : 'null',
-      answers2: Array.isArray(beforeData?.answers2) ? beforeData.answers2.length : (beforeData?.answers2 ? 'non-array' : 'null'),
-      answers12: Array.isArray(beforeData?.answers12) ? beforeData.answers12.length : (beforeData?.answers12 ? 'non-array' : 'null'),
-      departments: Array.isArray(beforeData?.departments) ? beforeData.departments.length : (beforeData?.departments ? 'non-array' : 'null'),
-    };
-
-    console.log('[deleteAll] before', { companyId, ...beforeState });
-
-    // 分離テーブルから削除
-    console.log('[DELETE_ALL_API] Deleting from story_answers2...');
-    const delAns = await admin
-      .from('story_answers2')
-      .delete()
-      .eq('company_id', companyId);
-    console.log('[DELETE_ALL_API] story_answers2 deleted:', { error: delAns.error?.code });
-
-    console.log('[DELETE_ALL_API] Deleting from final_stories...');
-    const delFinal = await admin
-      .from('final_stories')
-      .delete()
-      .eq('company_id', companyId);
-    console.log('[DELETE_ALL_API] final_stories deleted:', { error: delFinal.error?.code });
-
-    console.log('[DELETE_ALL_API] Deleting from progress_logs...');
-    const delProg = await admin
-      .from('progress_logs')
-      .delete()
-      .eq('company_id', companyId);
-    console.log('[DELETE_ALL_API] progress_logs deleted:', { error: delProg.error?.code });
-
-    // ★ 修正：削除対象カラム名をログ（execution_plan_baseline, stage4_plans, final_story_edited は strategy_data に存在しないため除外）
+    // ★ 修正：削除対象カラム名（execution_plan_baseline, stage4_plans, final_story_edited は strategy_data に存在しないため除外）
     const updateColumns = [
       'story_draft', 'final_story', 'final_story_draft', 'final_story_final',
       'answers2', 'answers12', 'swot_suggestions', 'win_patterns_candidate', 'stage3_strategy_bridge',
       'editable_cascade_result', 'departments', 'company_targets', 'project_target_impacts',
       'project_issue_links', 'okr_target_scores', 'updated_at'
     ];
-    console.log('[DELETE_ALL_API] Update payload columns:', { columns: updateColumns });
 
     // strategy_data の STAGE2+ カラムを初期化
-    console.log('[DELETE_ALL_API] Updating strategy_data columns...');
     const updatePayload: any = {
       story_draft: [],
       final_story: [],
@@ -227,22 +179,10 @@ export async function POST(req: Request) {
 
     // immediate verification
     const immediateVerification = await verifyData('immediate');
-    console.log('[DELETE_ALL_API] Immediate verification:', immediateVerification);
 
     // 1秒待機してから delayed verification
     await new Promise(r => setTimeout(r, 1000));
     const delayedVerification = await verifyData('delayed');
-    console.log('[DELETE_ALL_API] Delayed verification (after 1000ms):', delayedVerification);
-
-    console.log('[deleteAll] after', {
-      companyId,
-      final_story: immediateVerification.strategy_data.final_story_length,
-      story_draft: immediateVerification.strategy_data.story_draft_length,
-      final_story_draft: immediateVerification.strategy_data.final_story_draft_length,
-      final_story_final: immediateVerification.strategy_data.final_story_final_length,
-      stage3_strategy_bridge: immediateVerification.strategy_data.stage3_strategy_bridge_exists,
-      departments: immediateVerification.strategy_data.departments_length,
-    });
 
     // ★ 修正：before/after の verify 成功判定（execution_plan_baseline, stage4_plans, final_story_edited 除外）
     const isVerifySuccess =
@@ -253,12 +193,102 @@ export async function POST(req: Request) {
       !immediateVerification.strategy_data.stage3_strategy_bridge_exists &&
       immediateVerification.strategy_data.departments_length === 0;
 
-    console.log('[deleteAll] verify ' + (isVerifySuccess ? 'success' : 'failed'), {
-      companyId,
-      beforeState,
-      updateState,
-      afterState: immediateVerification.strategy_data,
-    });
+    // ★ 修正：strategy_data verify 成功後にのみ、分離テーブルを削除
+    // verify 失敗時は分離テーブル削除を実行しない（データ損失防止）
+    if (!isVerifySuccess) {
+      console.error('[DELETE_ALL_API] strategy_data verify failed, aborting separated table deletion', { companyId });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'strategy_data verification failed',
+          operationId: `delete_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+          companyId,
+          beforeState,
+          updateState,
+          afterState: immediateVerification.strategy_data,
+          message: 'Data deletion failed at strategy_data verification step. Separated tables were not deleted.',
+        },
+        { status: 500 }
+      );
+    }
+
+    // ★ 修正：strategy_data verify 成功後、分離テーブルを削除
+    const separatedTableDeletions: any = {};
+
+    // story_answers2 削除
+    const delAns = await admin
+      .from('story_answers2')
+      .delete()
+      .eq('company_id', companyId);
+    separatedTableDeletions.story_answers2 = {
+      deleted_count: delAns.count ?? 0,
+      error: delAns.error ? { message: delAns.error.message, code: delAns.error.code } : null,
+    };
+
+    if (delAns.error) {
+      console.error('[DELETE_ALL_API] story_answers2 deletion failed, aborting', delAns.error);
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'Failed to delete story_answers2',
+          operationId: `delete_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+          companyId,
+          separatedTableDeletions,
+          message: 'Data deletion failed at story_answers2 deletion step.',
+        },
+        { status: 500 }
+      );
+    }
+
+    // final_stories 削除
+    const delFinal = await admin
+      .from('final_stories')
+      .delete()
+      .eq('company_id', companyId);
+    separatedTableDeletions.final_stories = {
+      deleted_count: delFinal.count ?? 0,
+      error: delFinal.error ? { message: delFinal.error.message, code: delFinal.error.code } : null,
+    };
+
+    if (delFinal.error) {
+      console.error('[DELETE_ALL_API] final_stories deletion failed, aborting', delFinal.error);
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'Failed to delete final_stories',
+          operationId: `delete_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+          companyId,
+          separatedTableDeletions,
+          message: 'Data deletion failed at final_stories deletion step.',
+        },
+        { status: 500 }
+      );
+    }
+
+    // progress_logs 削除
+    const delProg = await admin
+      .from('progress_logs')
+      .delete()
+      .eq('company_id', companyId);
+    separatedTableDeletions.progress_logs = {
+      deleted_count: delProg.count ?? 0,
+      error: delProg.error ? { message: delProg.error.message, code: delProg.error.code } : null,
+    };
+
+    if (delProg.error) {
+      console.error('[DELETE_ALL_API] progress_logs deletion failed, aborting', delProg.error);
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'Failed to delete progress_logs',
+          operationId: `delete_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+          companyId,
+          separatedTableDeletions,
+          message: 'Data deletion failed at progress_logs deletion step.',
+        },
+        { status: 500 }
+      );
+    }
 
     // operationId を生成してレスポンスに含める
     const operationId = `delete_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -282,6 +312,7 @@ export async function POST(req: Request) {
         },
         _note: 'execution_plan_baseline, stage4_plans, final_story_edited are frontend-only, not in strategy_data table',
         verifySuccess: isVerifySuccess,
+        separatedTableDeletions,
         verification: {
           immediate: immediateVerification,
           delayed: delayedVerification,
