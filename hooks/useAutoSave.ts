@@ -43,7 +43,31 @@ function isCompanyDeleting(targetCompanyId?: string | null): boolean {
         ? localStorage.getItem(DELETION_FLAG_KEY)
         : null;
     if (!v) return false;
-    return targetCompanyId ? v === targetCompanyId : true;
+
+    // ★ 修正：expiresAt をチェック（JSON パースに失敗した場合は文字列として扱う）
+    let flagData: any = v;
+    try {
+      const parsed = JSON.parse(v);
+      if (parsed && typeof parsed === 'object' && 'expiresAt' in parsed) {
+        flagData = parsed;
+        // 期限切れなら削除フラグをクリア
+        if (parsed.expiresAt && Date.now() > parsed.expiresAt) {
+          localStorage.removeItem(DELETION_FLAG_KEY);
+          return false;
+        }
+      }
+    } catch {
+      // JSON パース失敗 → 古い形式（単なる companyId 文字列）として扱う
+    }
+
+    // companyId チェック
+    if (typeof flagData === 'string') {
+      return targetCompanyId ? flagData === targetCompanyId : true;
+    }
+    if (typeof flagData === 'object' && flagData.companyId) {
+      return targetCompanyId ? flagData.companyId === targetCompanyId : true;
+    }
+    return false;
   } catch {
     return false;
   }
@@ -350,9 +374,51 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
       }
       if (forceSkipWhenDeleting && isCompanyDeleting(companyId)) {
         if (mode === 'payload') {
-          console.log('[AutoSave][guard-check] SKIP: company deleting', { companyId, timestamp });
+          const DELETION_FLAG_KEY = '__deleting_company__';
+          let flagInfo = {};
+          try {
+            const flagStr = typeof localStorage !== 'undefined' ? localStorage.getItem(DELETION_FLAG_KEY) : null;
+            if (flagStr) {
+              const flag = JSON.parse(flagStr);
+              flagInfo = { operationId: flag.operationId, expiresAt: new Date(flag.expiresAt).toISOString() };
+            }
+          } catch (e) {}
+          console.log('[AutoSave][guard-check] SKIP: company deleting (deletion flag active)', { companyId, ...flagInfo, timestamp });
         }
         return;
+      }
+
+      // ★ 修正：確定保存中フラグをチェック
+      const MANUAL_SAVE_FLAG_KEY = '__manual_saving_strategy__';
+      try {
+        const flagStr = typeof localStorage !== 'undefined' ? localStorage.getItem(MANUAL_SAVE_FLAG_KEY) : null;
+        if (flagStr) {
+          try {
+            const flag = JSON.parse(flagStr);
+            if (flag.expiresAt && Date.now() < flag.expiresAt) {
+              if (mode === 'payload') {
+                console.log('[AutoSave][guard-check] SKIP: manual save in progress', {
+                  operationId: flag.operationId,
+                  expiresAt: new Date(flag.expiresAt).toISOString(),
+                  timestamp,
+                });
+              }
+              return;
+            } else {
+              // 期限切れなら削除
+              if (typeof localStorage !== 'undefined') {
+                localStorage.removeItem(MANUAL_SAVE_FLAG_KEY);
+              }
+            }
+          } catch (e) {
+            // JSON パースエラー → フラグ削除
+            if (typeof localStorage !== 'undefined') {
+              localStorage.removeItem(MANUAL_SAVE_FLAG_KEY);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[AutoSave] failed to check manual save flag:', e);
       }
 
       // ★ isFetching チェック（最重要）
