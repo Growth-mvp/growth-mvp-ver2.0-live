@@ -508,6 +508,57 @@ function OKRPageContent() {
             console.log('[okr:load-guard] refetchFromServer error with isDirty=true, local state preserved', err);
           }
         }
+
+        // ★ P0-1: STAGE3→STAGE4 transition verification (stop-gap)
+        if (!cancelled) {
+          try {
+            const { saveStrategyData } = useStrategyStore.getState();
+            await saveStrategyData?.({
+              force: true,
+              reason: 'stage3:goStage4'
+            });
+
+            // Verify STAGE3 data exists in current state
+            const currentState = useStrategyStore.getState() as any;
+            const departments = Array.isArray(currentState.departments) ? currentState.departments : [];
+
+            if (departments.length === 0) {
+              throw new Error('No departments found in STAGE3');
+            }
+
+            // Check if any department has projects with okrs/kpis/okrsV2
+            const hasValidData = departments.some((dept: any) => {
+              const projects = Array.isArray(dept.projects) ? dept.projects : [];
+              if (projects.length === 0) return false;
+
+              return projects.some((proj: any) => {
+                const hasOkrsV2 = Array.isArray(proj.okrsV2) && proj.okrsV2.length > 0;
+                const hasOkrs = Array.isArray(proj.okrs) && proj.okrs.length > 0;
+                const hasKpis = Array.isArray(proj.kpis) && proj.kpis.length > 0;
+                return hasOkrsV2 || hasOkrs || hasKpis;
+              });
+            });
+
+            if (!hasValidData) {
+              throw new Error('No projects with okrs/kpis found in STAGE3');
+            }
+          } catch (err: any) {
+            console.error('[okr:load-guard] STAGE3 verification failed', err, {
+              errorMessage: err?.message,
+              timestamp: new Date().toISOString()
+            });
+            setNotice('⚠️ STAGE3の保存確認に失敗しました。STAGE3に戻って再度保存してください。');
+
+            // Redirect to cascade after delay
+            setTimeout(() => {
+              if (!cancelled) {
+                window.location.href = '/cascade';
+              }
+            }, 2000);
+            return;
+          }
+        }
+
         setHydrated?.(true);
         loadGuardRef.current = accessCompanyId;
       } finally {
@@ -1618,14 +1669,11 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
         };
 
         // API 呼び出し
-        console.log('[generateExecutionDraft] API call start', { projectTitle: projectInfo.projectTitle });
-
         // Bearer token を取得
         let token = '';
         try {
           const { data } = await safeGetSession();
           token = data.session?.access_token || '';
-          console.log('[generateExecutionDraft] Token retrieved:', { hasToken: !!token });
 
           if (!token) {
             throw new Error('ログイン情報を確認できませんでした。再ログインしてください。');
@@ -1657,8 +1705,6 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           throw new Error('APIからの応答が得られませんでした');
         }
 
-        console.log('[generateExecutionDraft] response received', { status: response.status, ok: response.ok });
-
         let result;
         try {
           result = await response.json();
@@ -1671,8 +1717,6 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           const errorMsg = result?.error || `API Error (Status ${response.status})`;
           throw new Error(errorMsg);
         }
-
-        console.log('[generateExecutionDraft] result parsed', { hasDraft: !!result?.draft });
 
         const draft = result?.draft;
 
@@ -1859,18 +1903,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
             if (!proj) return prev;
 
             const existingOkrsV2 = ensureArray(proj.okrsV2);
-            const existingLabels = existingOkrsV2.map((kr) => kr.label);
             const draftLabels = draft.kpis.map((kpi: any) => kpi.label);
-
-            console.log('[applyGeneratedDraft] before', {
-              existingCount: existingOkrsV2.length,
-              draftKpiCount: draft.kpis?.length,
-              existingLabels,
-              draftLabels,
-              selectedDeptIdx: dIdx,
-              selectedProjIdx: pIdx,
-              projectTitle: proj.title,
-            });
 
             // ★ STAGE3 KPIがある場合は sourceKpis を基準に構築
             // ない場合は既存 KPI と AI案を index 順でマッチング
@@ -1943,12 +1976,6 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
             dept.projects = projects;
             next[dIdx] = dept;
 
-            console.log('[applyGeneratedDraft] merge results', {
-              totalMerged: updatedKpisCount,
-              details: mergeResults,
-              finalCount: updatedOkrsV2.length,
-            });
-
             return next;
           });
         }
@@ -1974,7 +2001,6 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
         const msg = summary.length > 0
           ? `AI案を反映しました：${summary.join('、')}`
           : 'AI案の反映が完了しました。';
-        console.log('[applyGeneratedDraft] success message:', msg);
         alert(msg);
       } catch (error: any) {
         console.error('[applyGeneratedDraft] Error:', error);
