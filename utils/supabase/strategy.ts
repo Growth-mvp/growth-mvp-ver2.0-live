@@ -2665,54 +2665,130 @@ export async function deleteStrategyData(
   userId: string,
   companyIdOverride?: string | null,
 ): Promise<WriteResult> {
-  if (DEBUG) console.log(
-    '[StrategyData] 🗑 deleteStrategyData called for',
-    userId,
-    companyIdOverride ?? '(cookie/membership)',
-  );
+  console.log('[deleteStrategyData] ===== START =====', { userId, companyIdOverride });
   try {
     const companyId = await resolveCompanyId(userId, companyIdOverride ?? null);
+    console.log('[deleteStrategyData] Resolved companyId:', companyId);
 
-    // 子テーブルから先に削除
+    // 削除前の状態を確認
+    const beforeCheck = await supabase
+      .from(T_STRATEGY)
+      .select('id, company_id, final_story, answers2')
+      .eq('company_id', companyId);
+    console.log('[deleteStrategyData] Before update:', {
+      count: beforeCheck.data?.length ?? 0,
+      rows: beforeCheck.data?.map(r => ({
+        id: r.id,
+        final_story_exists: !!r.final_story,
+        final_story_length: Array.isArray(r.final_story) ? r.final_story.length : 'not-array',
+        answers2_exists: !!r.answers2,
+        answers2_length: Array.isArray(r.answers2) ? r.answers2.length : 'not-array',
+      })),
+    });
+
+    // 分離テーブルから先に削除
     const delAns = await supabase
       .from(T_STORY_ANSWERS)
       .delete()
       .eq('company_id', companyId);
-    if (delAns.error && delAns.error.code !== 'PGRST116') {
-      console.warn(
-        '[StrategyData] ⚠ story_answers2 delete warn:',
-        extractErrorVerbose(delAns.error),
-      );
-    }
+    console.log('[deleteStrategyData] story_answers2 deleted:', { error: delAns.error?.code });
 
     const delFinal = await supabase
       .from(T_FINAL_STORIES)
       .delete()
       .eq('company_id', companyId);
-    if (delFinal.error && delFinal.error.code !== 'PGRST116') {
-      console.warn(
-        '[StrategyData] ⚠ final_stories delete warn:',
-        extractErrorVerbose(delFinal.error),
-      );
-    }
+    console.log('[deleteStrategyData] final_stories deleted:', { error: delFinal.error?.code });
 
     const delProg = await supabase
       .from(T_PROGRESS)
       .delete()
       .eq('company_id', companyId);
-    if (delProg.error && delProg.error.code !== 'PGRST116') {
-      console.warn(
-        '[StrategyData] ⚠ progress_logs delete warn:',
-        extractErrorVerbose(delProg.error),
-      );
+    console.log('[deleteStrategyData] progress_logs deleted:', { error: delProg.error?.code });
+
+    // STAGE2以降のカラムを初期化（行は削除しない）
+    // ★ 実カラム名のみを使用（snake_case）、STAGE2/3/4 draft系もすべて初期化
+    const updatePayload: any = {
+      // STAGE2: 物語系
+      story_draft: [],
+      final_story: [],
+      final_story_draft: [],
+      final_story_edited: [],
+      final_story_final: [],
+      answers2: [],
+      answers12: [],
+
+      // STAGE2: SWOT & Win Patterns
+      swot_suggestions: null,
+      win_patterns_candidate: [],
+
+      // STAGE2以降: 数値目標・戦略
+      stage3_strategy_bridge: null,
+      editable_cascade_result: [],
+      departments: [],
+      company_targets: [],
+      project_target_impacts: [],
+      project_issue_links: [],
+      okr_target_scores: {},
+
+      updated_at: new Date().toISOString(),
+    };
+
+    console.log('[deleteStrategyData] Updating with payload keys:', Object.keys(updatePayload));
+
+    // .select() で更新結果を確認（重要カラムをすべて取得）
+    const { data: updatedRows, error: updateError } = await supabase
+      .from(T_STRATEGY)
+      .update(updatePayload)
+      .eq('company_id', companyId)
+      .select('id, company_id, final_story, story_draft, final_story_draft, answers2, answers12, swot_suggestions, departments, stage3_strategy_bridge');
+
+    console.log('[deleteStrategyData] Update result:', {
+      error: updateError,
+      updatedCount: updatedRows?.length ?? 0,
+      updatedRows: updatedRows?.map(r => ({
+        id: r.id,
+        company_id: r.company_id,
+        final_story_length: Array.isArray(r.final_story) ? r.final_story.length : 'not-array',
+        final_story_empty: Array.isArray(r.final_story) ? r.final_story.length === 0 : r.final_story == null,
+        story_draft_length: Array.isArray(r.story_draft) ? r.story_draft.length : 'not-array',
+        story_draft_empty: Array.isArray(r.story_draft) ? r.story_draft.length === 0 : r.story_draft == null,
+        final_story_draft_length: Array.isArray(r.final_story_draft) ? r.final_story_draft.length : 'not-array',
+        final_story_draft_empty: Array.isArray(r.final_story_draft) ? r.final_story_draft.length === 0 : r.final_story_draft == null,
+        answers2_length: Array.isArray(r.answers2) ? r.answers2.length : 'not-array',
+        answers2_empty: Array.isArray(r.answers2) ? r.answers2.length === 0 : r.answers2 == null,
+        answers12_length: Array.isArray(r.answers12) ? r.answers12.length : 'not-array',
+        answers12_empty: Array.isArray(r.answers12) ? r.answers12.length === 0 : r.answers12 == null,
+        swot_suggestions: r.swot_suggestions,
+        departments_length: Array.isArray(r.departments) ? r.departments.length : 'not-array',
+        stage3_strategy_bridge: r.stage3_strategy_bridge,
+      })),
+    });
+
+    if (updateError) {
+      console.error('[deleteStrategyData] Update error:', extractErrorVerbose(updateError));
+      return { error: extractErrorVerbose(updateError) };
     }
 
-    const del = await supabase.from(T_STRATEGY).delete().eq('company_id', companyId);
-    if (del.error) return { error: extractErrorVerbose(del.error) };
+    // 削除後の再SELECTで確認
+    const afterCheck = await supabase
+      .from(T_STRATEGY)
+      .select('id, company_id, final_story, answers2')
+      .eq('company_id', companyId);
+    console.log('[deleteStrategyData] After update re-check:', {
+      count: afterCheck.data?.length ?? 0,
+      rows: afterCheck.data?.map(r => ({
+        id: r.id,
+        final_story_exists: !!r.final_story,
+        final_story_length: Array.isArray(r.final_story) ? r.final_story.length : 'not-array',
+        answers2_exists: !!r.answers2,
+        answers2_length: Array.isArray(r.answers2) ? r.answers2.length : 'not-array',
+      })),
+    });
 
-    if (DEBUG) console.log('[StrategyData] ✅ delete success for companyId:', companyId);
+    console.log('[deleteStrategyData] ===== SUCCESS =====');
     return { error: null };
   } catch (error) {
+    console.error('[deleteStrategyData] Exception:', error);
     return { error: extractErrorVerbose(error) };
   }
 }
