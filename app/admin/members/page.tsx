@@ -124,15 +124,40 @@ export default function AdminMembersPage() {
       setNote('⚠️ 最後の管理者は削除できません。');
       return;
     }
-    const ok = confirm('このメンバーを会社から削除します。よろしいですか？');
+    const ok = confirm('このメンバーを会社から削除します。ログインアカウント自体は削除されません。よろしいですか？');
     if (!ok) return;
 
     setWorking((w) => ({ ...w, [targetUserId]: true }));
     setNote('');
     try {
-      const res = await removeMember(targetUserId);
-      if (!res.ok) throw res.error;
-      setRows((prev) => prev.filter((r) => r.userId !== targetUserId));
+      const { data: sesRes } = await supabase.auth.getSession();
+      const token = sesRes?.session?.access_token;
+
+      if (!token) {
+        setNote('セッション確認に失敗しました。ログインし直してください。');
+        return;
+      }
+
+      // ★ APIで削除（Service Roleで実行）
+      const res = await fetch(`/api/admin/members?userId=${encodeURIComponent(targetUserId)}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const errMsg = data?.message || data?.error || 'unknown error';
+        console.error('[admin/members] delete failed:', data);
+        setNote(`削除に失敗しました: ${errMsg}`);
+        return;
+      }
+
+      // 削除成功後、一覧を再取得して確認
+      await fetchRows();
       setNote('🗑 メンバーを削除しました。');
     } catch (e) {
       console.error(e);
