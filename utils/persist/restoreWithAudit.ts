@@ -73,6 +73,51 @@ export async function restoreWithAudit(
   );
 
   try {
+    // ★ 修正：削除フラグが有効な間は restore をスキップ
+    const DELETION_FLAG_KEY = '__deleting_company__';
+    let isDeletionFlagActive = false;
+    try {
+      const flagStr = typeof localStorage !== 'undefined' ? localStorage.getItem(DELETION_FLAG_KEY) : null;
+      if (flagStr) {
+        try {
+          const flag = JSON.parse(flagStr);
+          if (flag.expiresAt && Date.now() < flag.expiresAt) {
+            isDeletionFlagActive = true;
+            console.log(
+              `[audit][restore:skip] decisionId=${decisionId} deletionFlagActive expiresAt=${new Date(flag.expiresAt).toISOString()}`,
+            );
+          } else {
+            // 期限切れなら削除
+            if (typeof localStorage !== 'undefined') {
+              localStorage.removeItem(DELETION_FLAG_KEY);
+            }
+          }
+        } catch (e) {
+          // JSON パースエラー → フラグ削除
+          if (typeof localStorage !== 'undefined') {
+            localStorage.removeItem(DELETION_FLAG_KEY);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[audit][restore] failed to check deletion flag:', e);
+    }
+
+    if (isDeletionFlagActive) {
+      const decision: RestoreDecision = {
+        decisionId,
+        sourceUsed: 'none',
+        reason: 'deletion_in_progress',
+        didHydrateStore: false,
+        didClearSnapshot: false,
+        effectiveCompanyId,
+      };
+      console.log(
+        `[audit][restore:decision] decisionId=${decisionId} sourceUsed=${decision.sourceUsed} reason="${decision.reason}"`,
+      );
+      return decision;
+    }
+
     // ★ Check 1: companyId が未確定 → snapshot 判定と clear をしない
     if (!effectiveCompanyId) {
       const decision: RestoreDecision = {
