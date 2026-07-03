@@ -217,18 +217,6 @@ export default function LoginClient() {
             </button>
           </form>
 
-          <div className="mt-4 space-y-2">
-            <p className="text-center text-[13px] text-zinc-600">
-              アカウントをお持ちでない方は、{' '}
-              <span className="text-zinc-500">管理者からの招待メールをご確認ください</span>
-            </p>
-            <p className="text-center text-[13px] text-zinc-600">
-              招待メールのリンクが切れた方は{' '}
-              <a href="/auth/resend-set-password" className="font-medium text-[color:var(--accent)] hover:opacity-90 underline">
-                こちら
-              </a>
-            </p>
-          </div>
         </div>
 
         <p className="mt-4 text-center text-[11px] text-zinc-500">
