@@ -1329,6 +1329,13 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
     const hasStage1Context = !!(northStar || mission);
     const hasStage2Answers = Array.isArray(answers2) && answers2.length > 0;
     const hasStage2Story = !!storyDraft;
+
+    // ★ strategyData から departments を安全に取得
+    const departments = Array.isArray(strategyData?.departments)
+      ? strategyData.departments
+      : Array.isArray((strategyData as any)?.editableCascadeResult)
+        ? (strategyData as any).editableCascadeResult
+        : [];
     const hasStage3Context = Array.isArray(departments) && departments.length > 0;
     const hasStage4Context = Array.isArray(portfolioEntries) && portfolioEntries.length > 0;
 
