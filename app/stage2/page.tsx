@@ -1719,6 +1719,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   const companyId = useUserStore((s) => s.companyId);
   const userId = useUserStore((s) => s.user?.id);
   const hydrated = useStrategyStore((s: StrategyState) => s.hydrated);
+  const strategyId = useStrategyStore((s: StrategyState) => s.strategyId);
 
   /* ★ TASK A-1: answers12 をArrayガード付きで統一 */
   // ★ 参照安定化：EMPTY_ARR を使って無限ループ防止
