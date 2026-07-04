@@ -1487,6 +1487,36 @@ export type MidtermStrategy = {
 };
 
 /* =========================================================
+ * STAGE2 最終ストーリー補助セクション編集データ（表示上書き用）
+ * ========================================================= */
+
+export type Stage2FinalDocumentEdits = {
+  /** この戦略ストーリーの結論 */
+  conclusion?: string;
+
+  /** 戦略判断の前提 */
+  assumptions?: {
+    external?: string[];
+    internal?: string[];
+    implications?: string[];
+  };
+
+  /** 戦略ストーリーの全体像（4カード） */
+  overview?: {
+    whyChange?: string;
+    whereToPlay?: string;
+    whatToWin?: string;
+    howToExecute?: string;
+  };
+
+  /** 中計設計（編集値） */
+  midtermStrategy?: MidtermStrategy;
+
+  /** 編集タイムスタンプ */
+  editedAt?: string;
+};
+
+/* =========================================================
  * Supabase保存・読み込み用（純粋データ）
  * ========================================================= */
 
@@ -1631,6 +1661,9 @@ export type StrategyData = {
 
   /** === STAGE2 中計設計（任意・swot_suggestions 内にパック保存）=== */
   midtermStrategy?: MidtermStrategy;
+
+  /** === STAGE2 最終ストーリー補助セクション編集データ（表示上書き用）=== */
+  stage2FinalDocumentEdits?: Stage2FinalDocumentEdits;
 
   /** === 楽観ロック（revision：保存時の衝突検知用） === */
   revision?: number;
