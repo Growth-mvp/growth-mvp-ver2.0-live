@@ -1772,6 +1772,10 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   const finalStoryDraftRaw = useStrategyStore((s: StrategyState) => s.finalStoryDraft);
   const finalStoryEditedRaw = useStrategyStore((s: StrategyState) => s.finalStoryEdited);
   const finalStoryFinalRaw = useStrategyStore((s: StrategyState) => s.finalStoryFinal);
+
+  // STAGE2：補助セクション編集データ
+  const stage2FinalDocumentEdits = useStrategyStore((s: StrategyState) => s.stage2FinalDocumentEdits);
+  const setStage2FinalDocumentEdits = useStrategyStore((s: StrategyState) => (s as any).setStage2FinalDocumentEdits);
   // setFinalStoryDraft, setFinalStoryEdited, commitFinalStory は上記 796-798行で定義済み
 
   // SWOT suggestions store連携（Hooks Rule: top-level で呼ぶ）
@@ -1805,6 +1809,18 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   const [generateFinalError, setGenerateFinalError] = useState<string | null>(null);
   // ★ 最終ストーリーの表示モード：デフォルトは経営層向けドキュメント表示。編集はトグルで切替
   const [storyEditMode, setStoryEditMode] = useState(false);
+
+  // ★ STAGE2補助セクション編集中の値（store から初期化、編集中はこちらで管理）
+  const [editingDocumentEdits, setEditingDocumentEdits] = useState<Stage2FinalDocumentEdits | undefined>(
+    stage2FinalDocumentEdits
+  );
+
+  // ★ editingDocumentEdits の同期：store 値が復元されたら editingDocumentEdits も更新
+  useEffect(() => {
+    if (!storyEditMode) {
+      setEditingDocumentEdits(stage2FinalDocumentEdits);
+    }
+  }, [stage2FinalDocumentEdits, storyEditMode]);
 
   // ★ STAGE2確定＆STAGE3引き渡し状態
   const [committingFinalStory, setCommittingFinalStory] = useState(false);
@@ -2804,6 +2820,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
             const savePayload = {
               ...storeState,
               storyDraft: newStoryDraft,  // ★ 修正：story ではなく storyDraft として保存
+              stage2FinalDocumentEdits: editingDocumentEdits,  // ★ 補助セクション編集内容を明示的に含める
             };
 
             console.log('[Stage2] DB save attempt:', {
@@ -3079,6 +3096,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         const savePayload = {
           ...storeState,
           finalStoryDraft: newFinalStory, // 生成されたばかりの最新ストーリーを確実に保存
+          stage2FinalDocumentEdits: editingDocumentEdits,  // ★ 補助セクション編集内容を明示的に含める
         };
 
         const saveResult = await saveWithAudit(
@@ -3167,13 +3185,14 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       // Step 1: STAGE3へ引き渡し（戦略展開ブリッジ生成）
       setCommittingStatus('STAGE3へ引き渡しています...');
 
-      let bridgeResult;
+      let bridgeResult: any;
       try {
         bridgeResult = await authFetchJson('/api/stage3/generate-strategy-bridge', {
           method: 'POST',
           json: {
             finalStoryFinal: finalStoryToSave,
             companyId,
+            stage2FinalDocumentEdits,
           },
         });
 
@@ -3206,6 +3225,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         finalStoryFinal: finalStoryToSave,
         finalStory: finalStoryToSave,
         stage3_strategy_bridge: bridgeResult,
+        stage2FinalDocumentEdits: editingDocumentEdits || undefined,  // ★ 確定時も最新の編集値を保存
         dirty: true,
         version: (s.version ?? 0) + 1,
       }));
@@ -3607,7 +3627,12 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                       {!readOnly && (
                         <button
                           type="button"
-                          onClick={() => setStoryEditMode((v) => !v)}
+                          onClick={() => {
+                            if (!storyEditMode) {
+                              setEditingDocumentEdits(stage2FinalDocumentEdits);
+                            }
+                            setStoryEditMode((v) => !v);
+                          }}
                           className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors shadow-sm"
                         >
                           {storyEditMode ? 'ドキュメント表示に戻る' : '本文を編集する'}
@@ -3615,7 +3640,8 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                       )}
                     </div>
 
-                    {!storyEditMode ? (
+                    {
+                      /* ★ StrategyStoryPreview は表示・編集両モードで表示 */
                       <div className="space-y-8">
                         {/* ★ STEP12: 戦略書プレビュー内で、結論直後に数値目標を表示 */}
                         <StrategyStoryPreview
@@ -3635,9 +3661,16 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                           segmentPL={segmentPL}
                           valueAnalysis={storeValueAnalysis}
                           businessPortfolio={businessPortfolio}
+                          isEditMode={storyEditMode}
+                          stage2FinalDocumentEdits={editingDocumentEdits ?? stage2FinalDocumentEdits}
+                          onDocumentEditsChange={(edits) => {
+                            setEditingDocumentEdits(edits);
+                          }}
                         />
                       </div>
-                    ) : (
+                    }
+
+                    {storyEditMode && (
                       /* ★ 4章の編集UI（従来どおり） */
                       <div className="space-y-6">
                         {editingStory.map((chapter, chapterIndex) => (
@@ -3684,16 +3717,42 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                         {storyEditMode && (
                         <button
                           disabled={disabled}
-                          onClick={() => {
-                            if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
-                              console.log('[diag][button][save]', {
-                                editingStoryLen: editingStory.length,
-                                beforeEditedLen: finalStoryEditedRaw?.length ?? 0,
-                                action: 'setFinalStoryEdited',
-                              });
-                            }
+                          onClick={async () => {
+                            const latestDocumentEdits = editingDocumentEdits;
+
                             setFinalStoryEdited(editingStory);
+                            setStage2FinalDocumentEdits(latestDocumentEdits);
+
+                            const storeState = useStrategyStore.getState() as any;
+
+                            const savePayload = {
+                              ...storeState,
+                              finalStoryEdited: editingStory,
+                              finalStory: editingStory,
+                              stage2FinalDocumentEdits: latestDocumentEdits,
+                            };
+
+                            console.log('[Stage2][docEdits][manual-save-before]', {
+                              latestDocumentEdits,
+                              payloadDocEdits: savePayload.stage2FinalDocumentEdits,
+                            });
+
+                            const saveResult = await saveWithAudit(
+                              savePayload,
+                              userId,
+                              companyId ?? undefined,
+                              undefined,
+                              {},
+                              'stage2:saveFinalDocumentEdits'
+                            );
+
+                            if (saveResult.error) {
+                              console.error('[Stage2][docEdits][manual-save-failed]', saveResult.error);
+                              return;
+                            }
+
                             setStoryViewMode('edited');
+                            setStoryEditMode(false);
                           }}
                           className="px-6 py-3 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors shadow-md disabled:opacity-50"
                         >
