@@ -460,6 +460,7 @@ const FIELD_MAP: Record<string, string> = {
   finalStoryDraft: 'final_story_draft',  // ★ 追加：最終ストーリー ドラフト版（3段階編集用）
   finalStoryEdited: 'final_story_edited',  // ★ 追加：最終ストーリー 編集版（3段階編集用）
   finalStoryFinal: 'final_story_final',  // ★ 追加：最終ストーリー 確定版（3段階編集用）
+  stage2FinalDocumentEdits: 'stage2_final_document_edits',  // ★ 追加：STAGE2 補助セクション編集データ
   stage3_strategy_bridge: 'stage3_strategy_bridge',  // ★ 追加：STAGE3 戦略展開ブリッジ
   /* ★ TASK 15-B: STAGE2 フィールドを FIELD_MAP に追加（復元漏れ防止） */
   answers2: 'answers2',
@@ -922,6 +923,11 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   if (DEBUG) console.log('[buildStateFromDbRow] norm前 csvFd:' + outCsvFdExists + ' segmentPL:' + outSegmentPLKeys + ' segmentBS:' + outSegmentBSKeys);
 
   const normalized = normalizeStrategyData(out) as StrategyData;
+
+  // ★ stage2FinalDocumentEdits が normalize で落ちないか確保
+  if ((out as any).stage2FinalDocumentEdits && !(normalized as any).stage2FinalDocumentEdits) {
+    (normalized as any).stage2FinalDocumentEdits = (out as any).stage2FinalDocumentEdits;
+  }
 
   // ★ CASE3 診断：normalize 後の departments 内部の深部を確認
 
