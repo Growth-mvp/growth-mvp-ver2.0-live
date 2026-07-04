@@ -266,6 +266,9 @@ const ReqSchema = z
         managementMeetingIssues: z.array(z.string()).optional(),
       })
       .optional(),
+
+    // ★STAGE2補助セクション編集（stage2FinalDocumentEdits）の注入
+    stage2FinalDocumentEdits: z.any().optional(),
   })
   .passthrough();
 
@@ -298,6 +301,19 @@ function onlyDeptNames(list: any[]): string[] {
 function trimList(list?: string[], max = 6) {
   return (Array.isArray(list) ? list : [])
     .map((s) => String(s || '').trim())
+    .filter(Boolean)
+    .slice(0, max);
+}
+
+function toStringList(value: unknown, max = 6): string[] {
+  const raw = Array.isArray(value)
+    ? value
+    : typeof value === 'string' && value.trim()
+      ? [value]
+      : [];
+
+  return raw
+    .map((s) => String(s ?? '').trim())
     .filter(Boolean)
     .slice(0, max);
 }
@@ -2985,14 +3001,19 @@ export async function POST(req: NextRequest) {
       targetRanges,
       // ★STEP7: STAGE2中計設計
       midtermStrategy,
+      // ★STAGE2補助セクション編集
+      stage2FinalDocumentEdits,
     } = parsedReq.data;
 
-    if (!Array.isArray(departments) || departments.length === 0) {
-      return new NextResponse(JSON.stringify({ error: '部門情報が未入力です。カスケード生成できません。' }), {
-        status: 400,
-        headers: { 'content-type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
-      });
-    }
+	    if (!Array.isArray(departments) || departments.length === 0) {
+	      return new NextResponse(JSON.stringify({ error: '部門情報が未入力です。カスケード生成できません。' }), {
+	        status: 400,
+	        headers: { 'content-type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+	      });
+	    }
+
+	    const requestedDeptNames = onlyDeptNames(departments);
+	    const hasMultipleRequestedDepartments = requestedDeptNames.length > 1;
 
     // [STAGE3_INPUT_DATA] ログ：request に来た allBusinessSegments と csvFinanceData の初期確認
     {
@@ -3032,9 +3053,16 @@ export async function POST(req: NextRequest) {
     // ★TASK 2: request に finalStory が到達しているか確認（parse直後）
     console.log('[cascade][req] hasFinalStory=', !!finalStory, 'type=', typeof finalStory, 'jsonLen=', JSON.stringify(finalStory || '').length);
 
+    const effectiveFinalStory =
+      finalStory ??
+      stage2FinalDocumentEdits?.finalStory ??
+      stage2FinalDocumentEdits?.story ??
+      stage2FinalDocumentEdits?.finalStoryFinal ??
+      story;
+
     const storyText = toTextStory(story);
-    // ★新規: STAGE2 final story を text 化
-    const finalStoryText = toTextStory(finalStory);
+    // ★新規: STAGE2 final story を text 化（DB編集値を含めて最終版を優先）
+    const finalStoryText = toTextStory(effectiveFinalStory);
 
     // ★デバッグログ: final story が注入されたことを確認
     const finalStoryLen = typeof finalStoryText === 'string' ? finalStoryText.length : 0;
@@ -3042,7 +3070,8 @@ export async function POST(req: NextRequest) {
 
     const hasValidInput =
       (typeof strategySummary === 'string' && strategySummary.trim().length > 0) ||
-      (typeof storyText === 'string' && storyText.trim().length > 0);
+      (typeof storyText === 'string' && storyText.trim().length > 0) ||
+      (typeof finalStoryText === 'string' && finalStoryText.trim().length > 0);
     if (!hasValidInput) {
       return new NextResponse(JSON.stringify({ error: '経営戦略ストーリーと要約の両方が空です。どちらかを入力してください。' }), {
         status: 400,
@@ -3053,7 +3082,7 @@ export async function POST(req: NextRequest) {
     /* =========================
      * プロンプト組み立て（2レーン生成：既存進化 / 新規探索）
      * ======================= */
-    const summary = strategySummary?.trim() || storyText.slice(0, 160) || '（要約なし）';
+    const summary = strategySummary?.trim() || finalStoryText.slice(0, 220) || storyText.slice(0, 160) || '（要約なし）';
 
     // ★csvFinanceData はオブジェクトで来ても落とさない（抜粋行を抽出）
     const previewRows = extractCsvPreviewRows(csvFinanceData);
@@ -3362,8 +3391,8 @@ export async function POST(req: NextRequest) {
 
 [UNIQUENESS_CONSTRAINT]
 - 生成するプロジェクト案は「他部門と同一/酷似」禁止
-- existing lane の各プロジェクト title は必ず "${deptName}：" で始める（例："${deptName}：既存顧客のLTV改善"）
-- new lane の各プロジェクト title も必ず "${deptName}：" で始める（例："${deptName}：新規用途開拓の検証"）
+- existing lane の各プロジェクト title は必ず "${deptName}：" で始め、入力本文に存在する具体的な市場・用途・製品・技術・顧客価値を含める
+- new lane の各プロジェクト title も必ず "${deptName}：" で始め、入力本文に存在する具体的な市場・用途・製品・技術・顧客価値を含める
 - hypothesis と reason には、必ず [SEGMENT] の要素（overview/customers/PL/BS のどれか）を最低1つ"引用"して根拠にする
 - 禁止：汎用テンプレ（DX推進/業務効率化/新規開拓 だけの抽象表現）で終わらせること`;
 
@@ -3416,16 +3445,18 @@ ${okrSeed || '  - （なし）'}${factPackBlock}${uniquenessRule}
       .join('\n\n');
 
     const prompt = `
-あなたは世界最高の経営戦略コンサルタントです。以下の情報をもとに、部門ごとの提案を「既存進化（Existing）」「新規探索（New）」の2レーンで返してください。
+あなたは世界最高の経営戦略コンサルタントです。以下の情報をもとに、部門ごとの提案を「既存進化（Existing）」「新規探索（New）」「事業部内連携（IntraCollab）」${hasMultipleRequestedDepartments ? '「事業部間連携（InterCollab）」' : ''}のレーンで返してください。
 
-【★最重要：プロジェクト数と命名規則（STAGE3軽量化版）】
-- 各部門の提案は「プロジェクト」のみで構成される（OKRは生成しない）。
-- プロジェクト数：合計3個（既存進化 2個 + 新規探索 1個）を厳密に守ること。
+【★最重要：プロジェクト数と命名規則（STAGE3正式版）】
+- 各部門の提案は、複数のプロジェクト + OKR（必須）で構成される。
+- プロジェクト数：各部門で${hasMultipleRequestedDepartments ? '合計5個（既存進化 2個 + 新規探索 1個 + 事業部内連携 1個 + 事業部間連携 1個）' : '合計4個（既存進化 2個 + 新規探索 1個 + 事業部内連携 1個。事業部間連携は0個）'}を厳密に守ること。
 - ★★★全部門で異なるプロジェクト案を出すこと（部門AのプロジェクトAが部門Bにも出現することは厳禁）。
 - ★★★各部門の【部門別財務】【部門別ポートフォリオ】【主な顧客層】【意思決定権】を参照し、その部門固有の課題と機会に基づいてプロジェクトを立案すること。
+- ★★★missionDraft / missionDescription / currentPosition / strategicRole / projects / okrs / alignmentRiskPoints には、【STAGE2最終ストーリー】に実際に登場する市場名、顧客用途、製品・サービス、技術、競争環境、投資方針、判断基準、成功条件などの具体語を必ず反映すること。
+- 既存業務をそのまま言い換えただけの部門ミッションは禁止。必ず「上位戦略のどの変化を、この部門がどう実装するか」を書くこと。
 - ★TASK 2 引用ベース生成（FACTPACK から必ず根拠を引く）：
-  - 各プロジェクトの title は必ず [FACTPACK] の customers または overview から固有名詞を1つ以上含むこと（例：「自動車OEMの〜」「トヨタ向けの〜」）
-  - reason と hypothesis には、[FACTPACK] の anchors ID を「」括弧で最低2つ以上引用すること（例：「『主要顧客：トヨタ』（fact-cust-1）」）
+  - 各プロジェクトの title は必ず [FACTPACK] の customers または overview、または【STAGE2最終ストーリー】に実際に登場する固有名詞を1つ以上含むこと。
+  - reason と hypothesis には、[FACTPACK] の anchors ID を「」括弧で最低2つ以上引用すること。引用文は実際の anchor text だけを使い、例示の市場名・顧客名を創作しないこと。
   - citations フィールドに、引用した anchor ID を列挙すること（例：["fact-cust-1", "fact-fin-2"]）
 - ★対象部門の事業領域から外れる提案は禁止。既存事業と離れすぎた提案や、部門の守備範囲外の分野への展開は避けること。
 
@@ -3444,7 +3475,7 @@ ${okrSeed || '  - （なし）'}${factPackBlock}${uniquenessRule}
   例：「全社成長の30%を担う重点事業として、市場浸透と隣接市場への拡大を並行して実行」
 
 - 主要課題 → keyIssues（2〜4個。「主な課題」が入力されている場合は取り込んだうえで、財務・ポートフォリオの観点から補強する。【必須】）
-  例：["人材育成のスピードが市場拡大に追いつかない", "既存顧客のロック・オフィス需要の減少への対策", "技術開発投資の最適化"]
+  例：["上位戦略が求める変化に対して、必要な人材・技術・投資の準備が追いつかない", "既存事業の安定運営と新規探索への資源配分が曖昧になりやすい", "重点顧客・重点市場を絞り切れず、開発テーマが分散する"]
 
 - 認識のズレが起きやすいポイント → alignmentRiskPoints（1〜3個。経営層の期待と現場の実態がズレやすい点を具体的に書く。【必須】）
   例：["本部は短期売上拡大を期待するが、持続可能な成長には中長期の人材育成が不可欠", "既存事業の安定性と新規事業の試行錯誤のバランス"]
@@ -3456,8 +3487,10 @@ ${okrSeed || '  - （なし）'}${factPackBlock}${uniquenessRule}
 - 実行リスク → riskNotes（既存ルールどおり）
 
 【レーン定義】
-- 既存進化（Existing）：短期〜中期（今年〜3年）でPLに効く改善/強化（主にACQ/ARPU/CHURN/COST/EFFICIENCY）。2個のプロジェクト。
-- 新規探索（New）：将来成長の仮説検証（主にFUTURE、ただしACQ/ARPUでも可）。1個のプロジェクト。
+- 既存深掘/既存進化（Existing）：短期〜中期（今年〜3年）でPLに効く改善/強化。既存顧客・既存製品・既存サービスを、STAGE2最終ストーリーで示された価値軸に沿って高付加価値化する。2個のプロジェクト。
+- 新規探索（New）：将来成長の仮説検証。STAGE2最終ストーリーに登場する成長市場、顧客用途、技術テーマ、事業機会に沿って探索する。1個のプロジェクト。
+- 事業部内連携（IntraCollab）：同一事業部内の営業・開発・製造・品質・管理などをつなぎ、顧客価値・実行速度・収益性を高める。1個のプロジェクト。
+- 事業部間連携（InterCollab）：${hasMultipleRequestedDepartments ? '複数事業部の顧客・技術・販路・機能を組み合わせ、単独部門では実現しにくい成長機会を具体化する。1個のプロジェクト。' : '入力部門が1つだけの場合は生成禁止。lanes.interCollab.projects は空配列、interDeptCollab も空配列にする。架空の第二事業部・関連事業部を作らない。'}
 - 6つの回答（answers 1..6）に反する提案は禁止（特に Q4:犠牲/やめる、Q6:撤退/停止）。
 
 【業界背景・成功パターン】
@@ -3489,7 +3522,7 @@ ${sanitizeText(storyText || '', 800) || '（ストーリー未入力）'}
 要約: ${summary}
 
 【STAGE2 最終ストーリー（Final Story）】
-${sanitizeText(finalStoryText || '', 1000) || '（最終ストーリー未入力）'}
+${sanitizeText(finalStoryText || '', 2600) || '（最終ストーリー未入力）'}
 
 【★全社戦略・中計設計（STAGE2）】
 ${(() => {
@@ -3530,7 +3563,7 @@ ${(() => {
 
 各事業・部門について、STAGE1の事業・部門情報と、上記の全社戦略・中計設計を照らし合わせて、中計上の役割、重点テーマ、KPI案、連携論点、認識のズレが起きやすいポイントを整理してください。
 
-ただし、根拠が不足する場合は創作せず、該当項目を省略してください。
+重要：根拠が不足する場合でも省略せず、「確認が必要な仮説」として記載してください。currentPosition / strategicRole / keyIssues / alignmentRiskPoints / 5類型プロジェクト / OKR・KPI は必ず返してください。
 
 【部門文脈（Ver4準拠）】
 ${deptBlocks}
@@ -3549,6 +3582,11 @@ ${
 - projects は「仮説ベースのプロジェクト」として設計する。
 - ★【STAGE2最終ストーリー】の経営戦略方針を反映したプロジェクト案に編成すること。
 - 各プロジェクトの reason/hypothesis には【STAGE2最終ストーリー】のキーコンセプト/価値軸との連携を明示すること。
+- 【STAGE2最終ストーリー】、[部門文脈]、[FACTPACK] に存在しない市場名・顧客名・用途名・製品名は使わないこと。例示文に含まれる業界名を実データとして採用することは禁止。
+- 入力本文に存在しない業界・顧客・用途を推測で入れることは禁止。入力に存在する場合のみ使用してよい。
+- ★プロジェクト title は必ず【STAGE2最終ストーリー】または[部門文脈]/[FACTPACK]に実在する「市場・用途・製品・技術・顧客価値」の具体語を1つ以上含めること。
+- ★以下のような汎用タイトルは禁止：顧客満足度向上プログラム、新規顧客開拓戦略、デジタルマーケティング強化プロジェクト、DX推進、業務効率化、サービス拡充、売上向上、収益性改善、商談設計力の強化、次世代サービス仮説検証。
+- ★ただし、上記語が【STAGE2最終ストーリー】または[部門文脈]/[FACTPACK]に明示されている場合に限り、その文脈に限定して使用してよい。
 - 各プロジェクトは以下の2軸を必ず持つ：
   - mainLever（何に効かせるか）:
     - 'ACQ'          : 新規顧客数・案件数
@@ -3589,9 +3627,9 @@ ${
 - 同一部門内で、別プロジェクトの keyResults をコピペしない（重複禁止）
 - 各 keyResults には プロジェクト固有の名詞を含める：
   - 工程名（例：「検査」「梱包」「納品」）
-  - 製品/サービス名（例：「中型部品」「カスタマイズ」「新型用」）
-  - 顧客セグメント（例：「OEM向け」「内製化」「自動化」）
-  - 技術領域（例：「IoT」「データ連携」「クラウド」）
+  - 製品/サービス名（入力本文にある具体名）
+  - 顧客セグメント（入力本文にある具体名）
+  - 技術領域（入力本文にある具体名）
 
 【★TASK 4-4: KR（Key Result）は「数値で追える指標」にする】
 - KR は「数値で計測できる先行指標」ONLY（例：納期遵守率、検査工数、見積回答時間、歩留、再加工率、試作完了数、商談数、PoC件数…）
@@ -3615,7 +3653,7 @@ ${
   - 例：売上増加系なら「提案件数」「商談化率」など営業固有指標
   - 例：新規開発系なら「試作完了率」「開発リードタイム」など開発固有指標
 - 必須制約2：3本のうち最低1本は"ドメイン固有指標"を含める（金融ならLTVや解約率、製造なら歩留まり、流通なら在庫回転数など）
-- 必須制約3：3本のKRのうち2本以上は互いに異なるカテゴリに属すること。指標のカテゴリ例：
+- 必須制約3：3本のKRのうち2本以上は互いに異なるカテゴリに属すること。指標カテゴリの例：
   - 品質指標（歩留、不良率、再加工率、初回良品率など）
   - 納期・リードタイム指標（納期遵守率、見積回答時間、開発期間など）
   - コスト・効率指標（単位原価、工数、稼働率など）
@@ -3626,7 +3664,7 @@ ${
 
 1. valueDriverLinks: string[] - STAGE2で定義された価値指標（valueDriverKPIs）の id を最低1つ以上含める。複数選択可。valueDriverKPIs が存在する場合、それ以外の値は禁止（自由記述不可）。
 2. skillRequirements: { roleSkills?: string[]; executionSkills?: string[] } - 実行に必要なスキル
-   - roleSkills: 職種スキル（例：「営業」「エンジニア」「デザイナー」「マーケター」等）1〜3個
+   - roleSkills: 職種スキル（例：「営業」「技術」「開発」「製造」等）1〜3個
    - executionSkills: 実行スキル（例：「PM」「標準化」「データ活用」「改善運用」「設計力」「交渉力」等）必ず1〜3個
    - ★重要：全プロジェクトで同一のスキルセットは厳禁。各プロジェクトごとに、title/hypothesis/mainLever/kind/valueDriverLinks/departmentName/laneを分析し、プロジェクトのアーキタイプ（品質改善型/自動化型/営業強化型/新規事業型/ITデータ型/組織改革型など）を内部で推定してから、そのアーキタイプに最適なスキルを選択すること。
 3. humanInvestments: HumanInvestment[] - 人的投資施策、最低2カテゴリ以上を含める
@@ -3635,7 +3673,7 @@ ${
    - detail: 詳細（任意、1〜2文程度）
    - owner: 担当者（任意）
    - horizon: 実行時期（任意、'0_3M' | '3_6M' | '6_12M' | ''）
-   - ★重要：全プロジェクトで同一の人的投資施策は厳禁。各プロジェクトのアーキタイプに基づき、適切なカテゴリと具体的な施策名を選択すること。例：品質改善型なら「品質管理研修」＋「検証ツール導入」、営業強化型なら「提案力研修」＋「CRM導入」など。
+   - ★重要：全プロジェクトで同一の人的投資施策は厳禁。各プロジェクトのアーキタイプに基づき、入力本文にある事業・技術・顧客文脈に沿った施策名を選択すること。
 
 --- 出力（日本語のJSONのみ、説明禁止） ---
 {
@@ -3649,7 +3687,7 @@ ${
         "existing": {
           "projects": [
             {
-              "title": "高付加価値案件の構造変化",
+              "title": "{STAGE2最終ストーリーの具体語を含む既存深掘プロジェクト名}",
               "reason": "目的（1文、引用あり）",
               "hypothesis": "仮説（1〜2文、引用あり）",
               "mainLever": "ACQ",
@@ -3661,16 +3699,16 @@ ${
               "citations": ["fact-cust-1", "fact-fin-2"],
               "valueDriverLinks": ["kpi_id_1", "kpi_id_2"],
               "skillRequirements": {
-                "roleSkills": ["営業", "マーケター"],
+                "roleSkills": ["営業", "技術"],
                 "executionSkills": ["PM", "データ活用"]
               },
               "humanInvestments": [
-                { "category": "TRAINING_OJT", "title": "営業研修プログラム", "detail": "提案力向上のための実践研修" },
-                { "category": "TOOLS_PROCESS", "title": "CRM導入", "detail": "顧客データの一元管理" }
+                { "category": "TRAINING_OJT", "title": "{入力文脈に基づく育成施策名}", "detail": "{対象技術・用途に即した実践内容}" },
+                { "category": "TOOLS_PROCESS", "title": "{入力文脈に基づく仕組み名}", "detail": "{対象案件・工程に即した運用内容}" }
               ]
             },
             {
-              "title": "商談設計力の強化",
+              "title": "{STAGE2最終ストーリーの具体語を含む既存進化プロジェクト名}",
               "reason": "目的（1文、引用あり）",
               "hypothesis": "仮説（1〜2文、引用あり）",
               "mainLever": "ACQ",
@@ -3686,8 +3724,8 @@ ${
                 "executionSkills": ["設計力", "PM"]
               },
               "humanInvestments": [
-                { "category": "TRAINING_OJT", "title": "商談設計研修", "detail": "顧客課題の深掘りと提案構造化の実践" },
-                { "category": "TOOLS_PROCESS", "title": "提案テンプレート構築", "detail": "再現性のある提案パターン整備" }
+                { "category": "TRAINING_OJT", "title": "{入力文脈に基づく育成施策名}", "detail": "{対象顧客価値に即した実践内容}" },
+                { "category": "TOOLS_PROCESS", "title": "{入力文脈に基づく仕組み名}", "detail": "{対象案件・工程に即した運用内容}" }
               ]
             }
           ]
@@ -3695,7 +3733,7 @@ ${
         "new": {
           "projects": [
             {
-              "title": "次世代サービス仮説検証",
+              "title": "{STAGE2最終ストーリーの具体語を含む新規探索プロジェクト名}",
               "reason": "目的（1文、引用あり）",
               "hypothesis": "仮説（1〜2文、引用あり）",
               "mainLever": "FUTURE",
@@ -3711,8 +3749,8 @@ ${
                 "executionSkills": ["PM", "設計力", "検証力"]
               },
               "humanInvestments": [
-                { "category": "HIRING", "title": "プロダクトマネジャー採用", "detail": "新規事業開発のリード" },
-                { "category": "EXTERNAL", "title": "MVP開発パートナー契約", "detail": "プロトタイプ迅速開発" }
+                { "category": "HIRING", "title": "{入力文脈に基づく人材施策名}", "detail": "{対象市場・用途に即した役割}" },
+                { "category": "EXTERNAL", "title": "{入力文脈に基づく外部連携名}", "detail": "{対象技術・用途に即した検証内容}" }
               ]
             }
           ]
@@ -3720,7 +3758,7 @@ ${
         "intraCollab": {
           "projects": [
             {
-              "title": "事業部内連携プロジェクト名（例：営業×技術による重点顧客課題の共同分析）",
+              "title": "{STAGE2最終ストーリーの具体語を含む事業部内連携プロジェクト名}",
               "reason": "事業部内の機能連携が必要な理由（引用あり）",
               "hypothesis": "営業・技術・開発などが役割分担して動けば、顧客価値・提案精度・実行速度が高まるという仮説（引用あり）",
               "mainLever": "ACQ",
@@ -3744,7 +3782,7 @@ ${
         "interCollab": {
           "projects": [
             {
-              "title": "事業部間連携プロジェクト名（例：A事業部×B事業部による共同開発テーマの検証）",
+              "title": "{STAGE2最終ストーリーの具体語を含む事業部間連携プロジェクト名}",
               "reason": "事業部間で連携すべき理由（引用あり）",
               "hypothesis": "別事業部の顧客・技術・販路を組み合わせれば、単独部門では作れない成長機会を検証できるという仮説（引用あり）",
               "mainLever": "FUTURE",
@@ -3767,9 +3805,9 @@ ${
           ]
         }
       },
-      "needsCollab": ["誰と何をするかを具体化して記載（例：営業×マーケ：重点顧客の失注案件について、営業が失注理由を整理し、マーケが業界別訴求を再設計して、提案受注率の改善につなげる）"],
-      "intraDeptCollab": ["事業部内連携を具体化して記載（例：営業×技術：重点顧客の失注案件について、営業が要望を整理し、技術が代替仕様を検討して、提案改善につなげる）"],
-      "interDeptCollab": ["事業部間連携を具体化して記載（例：A事業部×B事業部：半導体企業向け新用途について、A事業部が市場要求を整理し、B事業部が既存技術を転用して、共同試作テーマを立ち上げる）"],
+      "needsCollab": ["誰と何をするかを具体化して記載（例：営業×技術：入力本文にある重点顧客・用途について、営業が要求を整理し、技術が実現可能性を検討して、提案精度の改善につなげる）"],
+      "intraDeptCollab": ["事業部内連携を具体化して記載（例：営業×技術×製造：入力本文にある重点用途・製品について、営業が顧客要求を整理し、技術・製造が仕様化と量産実現性を検討して、戦略テーマの提案化につなげる）"],
+      "interDeptCollab": ["事業部間連携を具体化して記載（例：A事業部×B事業部：入力情報に含まれる重点市場・顧客用途について、A事業部が市場要求を整理し、B事業部が既存技術や機能を組み合わせて、共同検証テーマを立ち上げる）"],
       "stopList": ["やめる/諦める項目（KRには含めない）"],
       "first90Days": ["最初の90日でやること（週/マイルストン粒度）"],
       "riskNotes": ["主要リスクと対処の一言"],
@@ -3787,7 +3825,7 @@ ${
 - lanes.existing は必ず2個のプロジェクトを出す（OK: 2個、NG: 1個・3個以上）。
 - lanes.new は必ず1個のプロジェクトを出す（OK: 1個、NG: 0個・2個以上）。
 - lanes.intraCollab は、事業部内連携が有効な場合は必ず1個の連携型プロジェクトを出す。該当が薄い場合でも候補を1個出し、sourceType="intraCollab"、collaborationType="intraDept" を付ける。
-- lanes.interCollab は、事業部間連携が有効な場合は必ず1個の連携型プロジェクトを出す。該当が薄い場合でも候補を1個出し、sourceType="interCollab"、collaborationType="interDept"、可能なら partnerDepartment を付ける。
+- lanes.interCollab は、入力部門が2つ以上ある場合のみ1個の連携型プロジェクトを出す。入力部門が1つだけの場合は必ず projects=[] とし、架空の連携先を作らない。現在の入力部門数: ${requestedDeptNames.length}
 - ★TASK 2 引用必須：
   - 各プロジェクトに citations フィールドを必ず含める（最低2個の anchor ID）。
   - reason と hypothesis に「」で括られた anchor 引用を最低2つ含めること。
@@ -3803,7 +3841,7 @@ ${
 - 望ましい形式は「X×Y：対象顧客・案件・テーマについて、Xが〜し、Yが〜して、〜につなげる」。
 - 「顧客ニーズの深掘り」「共同開発テーマの推進」「連携強化」などの抽象語だけで終わる記述は禁止。必ず対象、役割分担、目的を入れること。
 - 各連携候補は実行イメージが湧く具体度にし、短すぎる標語（20字前後）にしないこと。目安は40〜90字程度。
-- Q5（協力）の回答に他事業部・別事業部・共同開発・横断連携が明示される場合は、interDeptCollab を少なくとも1件返すこと。
+- Q5（協力）の回答に他事業部・別事業部・共同開発・横断連携が明示される場合でも、入力部門が1つだけなら interDeptCollab は空配列にする。入力部門が2つ以上ある場合のみ、interDeptCollab を少なくとも1件返すこと。
 `.trim();
 
     // [STAGE3_PROMPT_FACTS] ログ：prompt に埋め込まれた FACTPACK ブロック全体
@@ -3842,7 +3880,7 @@ ${
       model: process.env.OPENAI_MODEL ?? 'gpt-4o',
       response_format: { type: 'json_object' },
       temperature: 0.35,
-      max_tokens: 2200,
+      max_tokens: 5000,
       messages: [
         { role: 'system', content: '必ずJSONのみを返し、日本語で。前後の説明は禁止。' },
         { role: 'user', content: prompt },
@@ -4518,6 +4556,13 @@ ${anchorsText || '（利用可能なanchorsなし）'}
       '既存顧客のltv改善',
       '商談設計力の強化',
       '次世代サービス仮説検証',
+      '顧客満足度向上プログラム',
+      '新規顧客開拓戦略',
+      'デジタルマーケティング強化プロジェクト',
+      '業務効率化',
+      'サービス拡充',
+      '売上向上',
+      '収益性改善',
     ];
 
     const isGeneric = (bt: string) => GENERIC_BASE_TITLES.some(g => bt.includes(g));
@@ -4717,6 +4762,405 @@ ${anchorsText || '（利用可能なanchorsなし）'}
         .trim();
     };
 
+    const STRATEGY_GENERIC_TITLE_PATTERNS = [
+      /顧客.*(満足|サポート).*向上/,
+      /新規.*(顧客|市場).*開拓/,
+      /デジタル.*マーケ/,
+      /製品.*品質.*改善/,
+      /業務.*効率化/,
+      /DX.*推進/i,
+      /サービス.*拡充/,
+      /売上.*向上/,
+      /収益性.*改善/,
+      /商談設計力.*強化/,
+      /次世代サービス.*仮説検証/,
+    ];
+
+    const STRATEGY_TERM_STOP_WORDS = new Set([
+      '現在', '当社', '市場', '顧客', '部品', '製品', '事業', '部門', '戦略', '成長', '投資', '改善',
+      '競争', '環境', '変化', '価値', '必要', '重要', '実現', '強化', '検討', '対応', '全社',
+      '利益', '売上', '課題', '関係', '技術力', '可能', '期待', '社員', '社会', '企業',
+    ]);
+
+    const normalizeStrategyText = (s: string): string =>
+      (s ?? '')
+        .toLowerCase()
+        .replace(/\s+/g, '')
+        .replace(/[　「」『』【】（）()\[\]、。，．・･:：;；/／\\\-ー〜~]/g, '');
+
+    const extractStrategyTerms = (story: string, deptTexts: string[] = []): string[] => {
+      const source = [story, ...deptTexts].filter(Boolean).join('\n');
+      const terms = new Set<string>();
+      const highSignalTerms = new Set<string>();
+
+      const add = (term: string, highSignal = false) => {
+        const clean = String(term ?? '')
+          .trim()
+          .replace(/^[のをがはにへでとや、。，．・･:：;；「」『』【】（）()\[\]\s]+/g, '')
+          .replace(/[のをがはにへでとや、。，．・･:：;；「」『』【】（）()\[\]\s]+$/g, '');
+        if (!clean) return;
+        if (clean.length < 2 || clean.length > 22) return;
+        if (STRATEGY_TERM_STOP_WORDS.has(clean)) return;
+        if (/^[0-9０-９]+$/.test(clean)) return;
+        if (/^(主要顧客|既存顧客|新規顧客|重点顧客|対象市場|新規市場|顧客価値|成長領域|競争環境|高付加価値)$/.test(clean)) return;
+        terms.add(clean);
+        if (highSignal) highSignalTerms.add(clean);
+      };
+
+      for (const m of source.matchAll(/\b[A-Z][A-Z0-9+&./-]{1,}\b/g)) add(m[0], true);
+
+      const suffixes = [
+        '市場', '領域', '用途', '顧客', 'カメラ', 'モジュール', 'ユニット', 'モータ', 'ロボット', 'ドローン',
+        '機器', '部品', '加工', '金型', '技術', '量産', '安全性', '信頼性', '精度', '制御', '設計段階',
+        '自動運転', '資本効率', '投下資本', '主導権', '高付加価値',
+      ];
+
+      const chunks = source
+        .split(/[\n\r\t\s、。，．；;：:（）()\[\]【】「」『』]+|(?:として|における|において|向けの|向けに|向けへ|から|では|には|とは|へと|など|より|まで|は|を|が|に|へ|で|と|や)/g)
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      for (const chunk of chunks) {
+        if (chunk.length < 2 || chunk.length > 24) continue;
+        if (chunk.includes('・') && /[A-Z]{2,}/.test(chunk)) {
+          for (const part of chunk.split('・')) add(part, true);
+        }
+        if (suffixes.some((suffix) => chunk.endsWith(suffix))) add(chunk, true);
+        if (chunk.endsWith('向け')) add(chunk, true);
+        for (const suffix of suffixes) {
+          const suffixPattern = new RegExp(`[一-龠ぁ-んァ-ヶA-Za-z0-9・ー]{2,14}${suffix}`, 'g');
+          for (const m of chunk.matchAll(suffixPattern)) add(m[0], true);
+        }
+      }
+
+      for (const m of source.matchAll(/[一-龠ぁ-んァ-ヶA-Za-z0-9・ー]{2,18}向け/g)) add(m[0], true);
+      for (const m of source.matchAll(/[一-龠ぁ-んァ-ヶA-Za-z0-9・ー]{2,18}から[一-龠ぁ-んァ-ヶA-Za-z0-9・ー]{2,18}へ/g)) add(m[0], true);
+
+      return Array.from(new Set([...highSignalTerms, ...terms]))
+        .sort((a, b) => {
+          const ah = highSignalTerms.has(a) ? 1 : 0;
+          const bh = highSignalTerms.has(b) ? 1 : 0;
+          if (ah !== bh) return bh - ah;
+          return b.length - a.length;
+        })
+        .slice(0, 40);
+    };
+
+    const strategyTerms = extractStrategyTerms(
+      finalStoryText || storyText || '',
+      Array.isArray(departments)
+        ? departments.map((d: any) => [
+            pickName(d),
+            d?.direction,
+            d?.expectations,
+            ...(Array.isArray(d?.focusThemes) ? d.focusThemes : []),
+            ...(Array.isArray(d?.constraints) ? d.constraints : []),
+          ].filter(Boolean).join(' '))
+        : []
+    );
+
+    console.log('[cascade][strategy-grounding][terms]', {
+      count: strategyTerms.length,
+      sample: strategyTerms.slice(0, 20),
+    });
+
+    const projectHasStrategyTerm = (project: any): { ok: boolean; matched?: string } => {
+      if (strategyTerms.length === 0) return { ok: true };
+      const blob = normalizeStrategyText(`${project?.title ?? ''} ${project?.reason ?? ''} ${project?.hypothesis ?? ''}`);
+      for (const term of strategyTerms) {
+        const nt = normalizeStrategyText(term);
+        if (nt && blob.includes(nt)) return { ok: true, matched: term };
+      }
+      return { ok: false };
+    };
+
+    const pickProjectStrategyTerm = (project: any): string => {
+      const blob = `${project?.title ?? ''} ${project?.reason ?? ''} ${project?.hypothesis ?? ''}`;
+      const normalizedBlob = normalizeStrategyText(blob);
+      const matched = strategyTerms.find((term) => {
+        const nt = normalizeStrategyText(term);
+        return nt && normalizedBlob.includes(nt);
+      });
+      if (matched) return matched;
+
+      const titleBody = String(project?.title ?? '')
+        .replace(/^[^：:]+[：:]\s*/, '')
+        .replace(/プロジェクト|強化|開発|推進|検証|戦略|改善|向上/g, '')
+        .trim();
+      const fallback = titleBody
+        .split(/[、。，．・･\s]+/)
+        .map((s) => s.trim())
+        .filter((s) => s.length >= 2 && s.length <= 18 && !STRATEGY_TERM_STOP_WORDS.has(s))[0];
+      return fallback || strategyTerms[0] || '重点テーマ';
+    };
+
+    const isGenericKpiLabel = (label: string, projectTerm: string): boolean => {
+      const text = String(label ?? '');
+      const normalized = normalizeStrategyText(text);
+      const term = normalizeStrategyText(projectTerm);
+      if (term && normalized.includes(term)) return false;
+      return /営業人日|有効商談|高付加価値提案|平均受注単価|対象業務プロセス|重点顧客|重点案件|新規市場|顧客満足|プロセス改善|導入検討案件|商談化率/.test(text);
+    };
+
+    const buildStrategicKpiLabels = (project: any, laneType?: CascadeLaneType | string): string[] => {
+      const term = pickProjectStrategyTerm(project);
+      const title = String(project?.title ?? '');
+      if (laneType === 'intraCollab') {
+        return [
+          `${term}要求の営業・技術共同仕様化件数（件/月）`,
+          `${term}案件の共同レビュー実施件数（件/月）`,
+          `${term}提案から仕様回答までの期間（日）`,
+        ];
+      }
+      if (laneType === 'interCollab') {
+        return [
+          `${term}共同検証テーマ数（件）`,
+          `${term}共同試作・PoC完了件数（件）`,
+          `${term}共同提案先候補数（社）`,
+        ];
+      }
+      if (laneType === 'new' || /新規|探索|医療|ロボット|ドローン|PoC|仮説/.test(title)) {
+        return [
+          `${term}用途仮説の検証完了件数（件）`,
+          `${term}試作・PoC完了件数（件）`,
+          `${term}顧客評価フィードバック取得件数（件）`,
+        ];
+      }
+      if (/品質|信頼|高性能|高精度|量産|ADAS|DMS|車載|光学|モータ|加工|ユニット/.test(title)) {
+        return [
+          `${term}重点案件の設計段階提案件数（件）`,
+          `${term}試作・性能評価の初回適合率（%）`,
+          `${term}量産立ち上げマイルストーン達成率（%）`,
+        ];
+      }
+      return [
+        `${term}重点案件の具体提案件数（件）`,
+        `${term}要求仕様の初回充足率（%）`,
+        `${term}提案から受注判断までの期間（日）`,
+      ];
+    };
+
+    const applyStrategicKpiGrounding = (project: any, laneType?: CascadeLaneType | string): void => {
+      if (!project || !Array.isArray(project.okrs) || project.okrs.length === 0) return;
+      const term = pickProjectStrategyTerm(project);
+      for (const okr of project.okrs) {
+        const rawKrs = Array.isArray(okr?.keyResults) ? okr.keyResults : [];
+        const labels = rawKrs.map((kr: any) => typeof kr === 'string' ? kr : String(kr?.label ?? ''));
+        const shouldReplace =
+          labels.length < 3 ||
+          labels.some((label: string) => isGenericKpiLabel(label, term)) ||
+          labels.every((label: string) => !normalizeStrategyText(label).includes(normalizeStrategyText(term)));
+        if (!shouldReplace) continue;
+
+        okr.keyResults = buildStrategicKpiLabels(project, laneType).map((label) => ({
+          label,
+          current: null,
+          target: null,
+          unit: label.match(/（([^）]+)）/)?.[1] ?? null,
+          due: null,
+        }));
+        (project as any)._krSource = 'STRATEGY_TEMPLATE';
+        (project as any)._krReason = 'strategy_grounded_rewrite';
+        (project as any)._krSourceDetail = `strategy-term:${term}`;
+      }
+    };
+
+    const isGenericStrategyTitle = (title: string): boolean => {
+      const body = String(title ?? '').replace(/^[^：:]+[：:]\s*/, '').trim();
+      if (!body) return true;
+      const hasSpecificTerm = projectHasStrategyTerm({ title: body }).ok;
+      return STRATEGY_GENERIC_TITLE_PATTERNS.some((re) => re.test(body)) && !hasSpecificTerm;
+    };
+
+    const collectLaneProjects = (dept: any): Array<{ laneType: CascadeLaneType; slot: number; index: number; project: any }> => {
+      const out: Array<{ laneType: CascadeLaneType; slot: number; index: number; project: any }> = [];
+      const lanes: Array<{ key: CascadeLaneType; baseSlot: number }> = [
+        { key: 'existing', baseSlot: 1 },
+        { key: 'new', baseSlot: 3 },
+        { key: 'intraCollab', baseSlot: 4 },
+        { key: 'interCollab', baseSlot: 5 },
+      ];
+      for (const lane of lanes) {
+        const arr = dept?.lanes?.[lane.key]?.projects;
+        if (!Array.isArray(arr)) continue;
+        arr.forEach((project: any, index: number) => {
+          out.push({
+            laneType: lane.key,
+            slot: lane.key === 'existing' ? index + 1 : lane.baseSlot + index,
+            index,
+            project,
+          });
+        });
+      }
+      return out;
+    };
+
+    const validateStrategyGrounding = (project: any): { ok: boolean; reasons: string[]; matched?: string } => {
+      const reasons: string[] = [];
+      const title = String(project?.title ?? '');
+      const termMatch = projectHasStrategyTerm(project);
+      if (!termMatch.ok) reasons.push('no_strategy_term');
+      if (isGenericStrategyTitle(title)) reasons.push('generic_title');
+      return { ok: reasons.length === 0, reasons, matched: termMatch.matched };
+    };
+
+    const isCoreStrategyLane = (laneType?: CascadeLaneType | string): boolean =>
+      laneType === 'existing' || laneType === 'new';
+
+    const strategyGroundingCheckAndRetry = async (depts: any[]): Promise<void> => {
+      if (!Array.isArray(depts) || strategyTerms.length === 0) return;
+
+      const failedProjects: Array<{
+        deptIndex: number;
+        deptName: string;
+        laneType: CascadeLaneType;
+        slot: number;
+        index: number;
+        project: any;
+        reasons: string[];
+      }> = [];
+
+      for (let dIdx = 0; dIdx < depts.length; dIdx++) {
+        const dept = depts[dIdx];
+        const deptName = dept?.name ?? `dept_${dIdx}`;
+        for (const item of collectLaneProjects(dept)) {
+          if (!isCoreStrategyLane(item.laneType)) continue;
+          const validation = validateStrategyGrounding(item.project);
+          if (!validation.ok) {
+            failedProjects.push({
+              deptIndex: dIdx,
+              deptName,
+              laneType: item.laneType,
+              slot: item.slot,
+              index: item.index,
+              project: item.project,
+              reasons: validation.reasons,
+            });
+          }
+        }
+      }
+
+      if (failedProjects.length === 0) return;
+
+      console.warn('[cascade][strategy-grounding][ng]', failedProjects.map((p) => ({
+        dept: p.deptName,
+        slot: p.slot,
+        lane: p.laneType,
+        title: p.project?.title,
+        reasons: p.reasons,
+      })));
+
+      const allowedTermsText = strategyTerms.slice(0, 28).map((t) => `- ${t}`).join('\n');
+
+      for (const failed of failedProjects.slice(0, 12)) {
+        const factPack = factPackByDept.get(failed.deptName);
+        const anchorsText = (factPack?.anchors ?? [])
+          .slice(0, 12)
+          .map((a: any) => `- ${a.id}: ${a.text}`)
+          .join('\n');
+        const laneLabel =
+          failed.laneType === 'existing' ? (failed.slot === 1 ? '既存深掘' : '既存進化') :
+          failed.laneType === 'new' ? '新規探索' :
+          failed.laneType === 'intraCollab' ? '事業部内連携' :
+          '事業部間連携';
+
+        const retryPrompt = `
+前回のSTAGE3プロジェクト案は、STAGE2最終ストーリーとの接続が弱い、または汎用タイトルです。
+以下の条件で、この1件だけを再生成してください。
+
+対象部門: ${failed.deptName}
+対象類型: ${laneLabel}
+
+【STAGE2最終ストーリー】
+${sanitizeText(finalStoryText || storyText || '', 2200)}
+
+【必ず使う具体語候補（この中から title に最低1語、reason/hypothesis に合計2語以上）】
+${allowedTermsText || '（具体語候補なし）'}
+
+【FACTPACK anchors】
+${anchorsText || '（利用可能なanchorsなし）'}
+
+【前回の不合格理由】
+${failed.reasons.join(', ')}
+
+【前回案】
+${JSON.stringify(failed.project, null, 2)}
+
+【厳守条件】
+1. title は「${failed.deptName}：」で始め、上記の具体語候補を最低1語含める。
+2. 「顧客サポート向上」「製品品質改善」「新規市場開拓」「デジタルマーケティング」「業務効率化」などの汎用タイトルは禁止。
+3. reason/hypothesis は、STAGE2最終ストーリーのどの変化をこの部門が実装するのかを書く。
+4. citations はFACTPACK anchorsから最低2個。reason/hypothesisにも「text」(fact-id) 形式で引用を入れる。
+5. JSONのみ返す。
+
+{
+  "title": "...",
+  "reason": "...",
+  "hypothesis": "...",
+  "mainLever": "ACQ" | "ARPU" | "CHURN" | "COST" | "EFFICIENCY" | "FUTURE",
+  "horizon": "short" | "mid" | "long",
+  "kind": "growth" | "cost" | "efficiency" | "future",
+  "citations": ["fact-...", "fact-..."],
+  "valueDriverLinks": [...],
+  "skillRequirements": {...},
+  "humanInvestments": [...],
+  "generatedBy": "ai",
+  "generatedSlot": ${failed.slot},
+  "generatedGroup": "cascade_v1"
+}
+`.trim();
+
+        try {
+          const retryRaw = await callOpenAIJsonWithRetry(
+            retryPrompt,
+            '必ずJSONのみを返し、日本語で。前後の説明は禁止。',
+            `strategy-grounding-dept=${failed.deptName}-slot=${failed.slot}`,
+            0.2,
+            1800
+          );
+          const retryParsed = extractJsonObject(retryRaw);
+          if (!retryParsed) {
+            highRiskDepts.add(failed.deptName);
+            continue;
+          }
+
+          const retrySafe = ProjectSchema.safeParse(retryParsed);
+          const retryProject = retrySafe.success ? retrySafe.data : retryParsed;
+          const validation = validateStrategyGrounding(retryProject);
+
+          if (validation.ok && hasRequiredFields(retryProject)) {
+            const laneProjects = depts?.[failed.deptIndex]?.lanes?.[failed.laneType]?.projects;
+            if (Array.isArray(laneProjects)) {
+              laneProjects[failed.index] = retryProject;
+              console.log('[cascade][strategy-grounding][retry-success]', {
+                dept: failed.deptName,
+                slot: failed.slot,
+                matched: validation.matched,
+                title: retryProject?.title,
+              });
+            }
+          } else {
+            highRiskDepts.add(failed.deptName);
+            console.warn('[cascade][strategy-grounding][retry-fail]', {
+              dept: failed.deptName,
+              slot: failed.slot,
+              title: retryProject?.title,
+              reasons: validation.reasons,
+            });
+          }
+        } catch (err) {
+          highRiskDepts.add(failed.deptName);
+          console.warn('[cascade][strategy-grounding][retry-error]', {
+            dept: failed.deptName,
+            slot: failed.slot,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    };
+
+    await strategyGroundingCheckAndRetry(Array.isArray(normalized?.departments) ? normalized.departments : []);
+
     // ★ TASK 3: Jaccard 距離（セット類似度）
     const jaccard = (s1: string, s2: string): number => {
       const set1 = new Set((s1 ?? '').split(''));
@@ -4875,7 +5319,7 @@ ${anchorsText || '（利用可能なanchorsなし）'}
 - ★前回生成したタイトルと異なるプロジェクト案を生成する（必須）
 - 禁止タイトル: ${bannedTitlesList.map(t => `"${t}"`).join(', ')}
 - 新しいプロジェクト案は、別の"顧客層"、"価値提案"、"KPI" の組み合わせを使用すること
-- ★[SEGMENT]から固有名詞を2つ抽出してtitleに含めること（例："自動車OEM"、"医療機器メーカー"、"建機アフター市場"など）
+- ★[SEGMENT]、[質問への回答]、【STAGE2最終ストーリー】に実際に登場する固有名詞だけをtitleに含めること。ここに存在しない市場名・顧客名・用途名は創作しないこと
 - existing lane の各プロジェクト title は必ず "${deptName}：" で始まり、[SEGMENT] から抽出した顧客層・対象市場を含める
 - new lane の各プロジェクト title も必ず "${deptName}：" で始まり、[SEGMENT] から抽出した顧客層・対象市場を含める
 - hypothesis と reason には、必ず [SEGMENT] の要素（customers / overview）を最低1つ引用して根拠にする
@@ -4906,7 +5350,18 @@ ${uniquenessRule}
 
         const secondPassPrompt = `以下の ${targetDeptName} 部門について、前回とは異なるプロジェクト案を生成してください。
 
+【STAGE2最終ストーリー】
+${sanitizeText(finalStoryText || storyText || '', 2200)}
+
+【必ず反映する具体語候補】
+${strategyTerms.slice(0, 28).map((t) => `- ${t}`).join('\n') || '（具体語候補なし）'}
+
 ${secondPassDeptBlock}
+
+【STAGE2接続ルール】
+- project.title は上記の具体語候補、または[SEGMENT]/[質問への回答]に実在する具体語を最低1つ含める。
+- 「顧客サポート向上」「製品品質改善」「新規市場開拓」「デジタルマーケティング」「業務効率化」だけの汎用タイトルは禁止。
+- reason/hypothesis は、STAGE2最終ストーリーのどの変化をこの部門が実装するのかを書く。
 
 # 出力形式（前回と同じ）
 {
@@ -5084,11 +5539,11 @@ ${secondPassDeptBlock}
           ],
         },
         sales: {
-          executionSkills: ['提案力', '交渉力', 'PM'],
+          executionSkills: ['顧客要求整理', '技術提案', 'PM'],
           roleSkills: ['営業', 'セールス'],
           investments: [
-            { category: 'TRAINING_OJT', title: '提案力強化研修', detail: '顧客課題発見と提案スキルの向上', owner: '', horizon: '0_3M' },
-            { category: 'TOOLS_PROCESS', title: 'CRM・SFA導入', detail: '顧客管理と営業活動の可視化ツール', owner: '', horizon: '3_6M' },
+            { category: 'TRAINING_OJT', title: '要求定義OJT', detail: '重点顧客の要求を技術仕様に落とし込む実践訓練', owner: '', horizon: '0_3M' },
+            { category: 'TOOLS_PROCESS', title: '案件レビュー基盤', detail: '重点案件の要求・仕様・採算を横断確認する仕組み', owner: '', horizon: '3_6M' },
           ],
         },
         new_business: {
@@ -5124,11 +5579,11 @@ ${secondPassDeptBlock}
           ],
         },
         marketing: {
-          executionSkills: ['マーケティング分析', 'コンテンツ企画', 'データ活用'],
-          roleSkills: ['マーケター', 'デザイナー'],
+          executionSkills: ['市場要求分析', '顧客価値設計', 'データ活用'],
+          roleSkills: ['事業開発', '営業企画'],
           investments: [
-            { category: 'TOOLS_PROCESS', title: 'MA・広告ツール導入', detail: 'マーケティングオートメーションと効果測定', owner: '', horizon: '3_6M' },
-            { category: 'TRAINING_OJT', title: 'デジタルマーケ研修', detail: 'SEO・広告運用の実践スキル習得', owner: '', horizon: '0_3M' },
+            { category: 'TOOLS_PROCESS', title: '市場仮説検証基盤', detail: '入力本文にある重点市場・用途の要求仮説を検証する仕組み', owner: '', horizon: '3_6M' },
+            { category: 'TRAINING_OJT', title: '顧客価値設計OJT', detail: '重点用途の顧客価値を言語化し、提案仮説に落とし込む訓練', owner: '', horizon: '0_3M' },
           ],
         },
         general: {
@@ -5325,16 +5780,21 @@ ${secondPassDeptBlock}
                 }
                 return dedupeStrings(names).filter((n) => normalizeName(n) !== normalizeName(name));
               };
-              const allRequestedDeptNames = collectContextDeptNames();
-              const partnerDeptName = allRequestedDeptNames[0] || '関連事業部';
-              const defaultIntraCollabText = `営業×技術：${name}の重点顧客ニーズを営業が整理し、技術が実現可能性と代替仕様を検討して、提案精度を高める`;
-              const defaultInterCollabText = `${partnerDeptName}：${name}の顧客課題と${partnerDeptName}の技術・販路を組み合わせ、共同提案または共同検証テーマを立ち上げる`;
-              const effectiveIntraCollab = trimList(normalizedCollab.intra, 1).length > 0
-                ? trimList(normalizedCollab.intra, 1)
-                : [defaultIntraCollabText];
-              const effectiveInterCollab = trimList(normalizedCollab.inter, 1).length > 0
-                ? trimList(normalizedCollab.inter, 1)
-                : [defaultInterCollabText];
+	              const allRequestedDeptNames = collectContextDeptNames();
+	              const partnerDeptName = hasMultipleRequestedDepartments ? (allRequestedDeptNames[0] || '') : '';
+	              const primaryStrategyTerm = strategyTerms.find((t) => /向け|ユニット|モジュール|カメラ|モータ|加工|ロボット|ドローン|自動運転|DMS|ADAS|市場|用途/.test(t)) || strategyTerms[0] || '重点テーマ';
+	              const defaultIntraCollabText = `営業×技術×製造：${primaryStrategyTerm}について、営業が顧客要求を整理し、技術・製造が仕様化と量産実現性を検討して、設計段階からの提案につなげる`;
+	              const defaultInterCollabText = hasMultipleRequestedDepartments && partnerDeptName
+	                ? `${partnerDeptName}：${name}の顧客課題と${partnerDeptName}の技術・販路を組み合わせ、共同提案または共同検証テーマを立ち上げる`
+	                : '';
+	              const effectiveIntraCollab = trimList(normalizedCollab.intra, 1).length > 0
+	                ? trimList(normalizedCollab.intra, 1)
+	                : [defaultIntraCollabText];
+	              const effectiveInterCollab = hasMultipleRequestedDepartments
+	                ? (trimList(normalizedCollab.inter, 1).length > 0
+	                    ? trimList(normalizedCollab.inter, 1)
+	                    : (defaultInterCollabText ? [defaultInterCollabText] : []))
+	                : [];
               const effectiveLegacyCollab = dedupeStrings([
                 ...effectiveIntraCollab,
                 ...effectiveInterCollab,
@@ -5342,7 +5802,9 @@ ${secondPassDeptBlock}
               ]);
 
               const intraCollabProjectsFromAi = normalizeProjects(lanesRaw?.intraCollab?.projects ?? []).slice(0, 1);
-              const interCollabProjectsFromAi = normalizeProjects(lanesRaw?.interCollab?.projects ?? []).slice(0, 1);
+	              const interCollabProjectsFromAi = hasMultipleRequestedDepartments
+	                ? normalizeProjects(lanesRaw?.interCollab?.projects ?? []).slice(0, 1)
+	                : [];
 
               // ★致命修正: fallback anchors ヘルパー関数
               const pickFallbackAnchors = () => {
@@ -5373,19 +5835,22 @@ ${secondPassDeptBlock}
                 const genericCollabTitle = /^(営業\s*[×xX]\s*技術|技術\s*[×xX]\s*営業|他事業部|別事業部|関連事業部|共同|連携)$/;
                 const looksLikePartnerOnly = isInter && /事業$|事業部$|部門$/.test(rawTitleBody) && !/共同|検証|開発|提案|推進|削減|強化/.test(rawTitleBody);
                 const intraPairOnly = !isInter && /^[^：:]{1,12}\s*[×xX]\s*[^：:]{1,12}$/.test(rawTitleBody);
-                const title = (!rawTitleBody || genericCollabTitle.test(rawTitleBody))
-                  ? (isInter ? `${partnerDeptName}との共同検証テーマ推進` : '営業×技術による重点顧客課題の共同提案')
-                  : looksLikePartnerOnly
-                    ? `${rawTitleBody}との共同検証テーマ推進`
-                    : intraPairOnly
-                      ? `${rawTitleBody}による重点顧客課題の共同提案`
-                      : rawTitleBody;
+	                const projectTerm = primaryStrategyTerm;
+	                const title = (!rawTitleBody || genericCollabTitle.test(rawTitleBody))
+	                  ? (isInter ? `${partnerDeptName}との${projectTerm}共同検証` : `営業×技術×製造による${projectTerm}共同提案`)
+	                  : looksLikePartnerOnly
+	                    ? `${rawTitleBody}との${projectTerm}共同検証`
+	                    : intraPairOnly
+	                      ? `${rawTitleBody}による${projectTerm}共同提案`
+	                      : projectHasStrategyTerm({ title: rawTitleBody }).ok
+	                        ? rawTitleBody
+	                        : `${rawTitleBody}：${projectTerm}`;
                 return {
                   title,
-                  reason: buildFallbackGroundedText(clean || (isInter ? '他事業部との連携により単独部門では実行しにくいテーマを具体化する。' : '事業部内の機能連携により顧客価値と実行速度を高める。')),
-                  hypothesis: buildFallbackGroundedText(isInter
-                    ? '事業部間で顧客・技術・販路を組み合わせれば、単独部門では作れない成長機会を検証できる。'
-                    : '事業部内で営業・技術・開発などが役割分担すれば、提案精度と実行速度が高まる。'),
+	                  reason: buildFallbackGroundedText(clean || (isInter ? `${projectTerm}について他事業部との連携により単独部門では実行しにくいテーマを具体化する。` : `${projectTerm}について営業・技術・製造の機能連携により顧客要求の仕様化と提案速度を高める。`)),
+	                  hypothesis: buildFallbackGroundedText(isInter
+	                    ? `${projectTerm}に関して事業部間で顧客・技術・販路を組み合わせれば、単独部門では作れない成長機会を検証できる。`
+	                    : `${projectTerm}に関して営業が顧客要求を整理し、技術・製造が実現可能性を検討すれば、設計段階からの提案精度が高まる。`),
                   mainLever: isInter ? 'FUTURE' : 'ACQ',
                   horizon: isInter ? 'mid' : 'short',
                   kind: isInter ? 'future' : 'growth',
@@ -5396,7 +5861,10 @@ ${secondPassDeptBlock}
                   generatedSlot: slot,
                   generatedGroup: 'cascade_v1',
                   citations: buildFallbackCitations(),
-                  valueDriverLinks: (valueDriverKPIs ?? []).slice(0, 2).map((k:any)=>k.id).filter(Boolean),
+                  valueDriverLinks: (Array.isArray(valueDriverKPIs) ? valueDriverKPIs : [])
+                    .slice(0, 2)
+                    .map((k:any)=>k.id)
+                    .filter(Boolean),
                   skillRequirements: isInter
                     ? { roleSkills: ['事業開発', '技術'], executionSkills: ['共同企画', '仮説検証'] }
                     : { roleSkills: ['営業', '技術'], executionSkills: ['共同ヒアリング', '提案設計'] },
@@ -5411,19 +5879,19 @@ ${secondPassDeptBlock}
                       ],
                   okrs: [
                     {
-                      objective: isInter ? '事業部間で共同テーマを具体化し検証する' : '事業部内連携により重点案件の提案精度を高める',
-                      keyResults: isInter
-                        ? ['共同企画テーマ数：3件', '共同検証件数：1件', '共同提案先候補数：5社']
-                        : ['共同ヒアリング件数：月10件', '共同レビュー件数：月4件', '連携提案件数：月5件'],
+	                      objective: isInter ? `${projectTerm}の共同テーマを具体化し検証する` : `${projectTerm}の顧客要求を部門内連携で仕様化する`,
+	                      keyResults: isInter
+	                        ? [`${projectTerm}共同企画テーマ数（件）`, `${projectTerm}共同検証件数（件）`, `${projectTerm}共同提案先候補数（社）`]
+	                        : [`${projectTerm}顧客要求の共同仕様化件数（件/月）`, `${projectTerm}共同レビュー件数（件/月）`, `${projectTerm}提案から仕様回答までの期間（日）`],
                     },
                   ],
                 };
               };
 
               // ★fix8: 既存進化・新規探索は固定補完しない。AI生成結果だけを採用する。
-              const safeExistingProjects = existingProjects.slice(0, 2);
+              const safeExistingProjects = Array.isArray(existingProjects) ? existingProjects.slice(0, 2) : [];
 
-              const safeNewProjects = newProjects.slice(0, 1);
+              const safeNewProjects = Array.isArray(newProjects) ? newProjects.slice(0, 1) : [];
 
               const safeIntraCollabProjects = intraCollabProjectsFromAi.length >= 1
                 ? intraCollabProjectsFromAi.map((p) => ({
@@ -5434,21 +5902,23 @@ ${secondPassDeptBlock}
                   }))
                 : effectiveIntraCollab.map((text) => buildCollabProjectFromText(text, 'intraCollab', 4));
 
-              const safeInterCollabProjects = interCollabProjectsFromAi.length >= 1
-                ? interCollabProjectsFromAi.map((p) => ({
-                    ...p,
-                    sourceType: 'interCollab' as const,
-                    collaborationType: 'interDept' as const,
-                    generatedSlot: p.generatedSlot ?? 5,
-                  }))
-                : effectiveInterCollab.map((text) => buildCollabProjectFromText(text, 'interCollab', 5));
+	              const safeInterCollabProjects = hasMultipleRequestedDepartments
+	                ? (interCollabProjectsFromAi.length >= 1
+	                    ? interCollabProjectsFromAi.map((p) => ({
+	                        ...p,
+	                        sourceType: 'interCollab' as const,
+	                        collaborationType: 'interDept' as const,
+	                        generatedSlot: p.generatedSlot ?? 5,
+	                      }))
+	                    : effectiveInterCollab.map((text) => buildCollabProjectFromText(text, 'interCollab', 5)))
+	                : [];
 
 
               // ★ missionDescription のフォールバック（API から空の場合は簡易生成）
               let missionDescription = typeof d?.missionDescription === 'string' ? d.missionDescription.trim() : '';
               if (!missionDescription && missionDraft) {
                 // 最低限の説明をロジックで生成
-                const focusThemesText = (d?.focusThemes ?? []).slice(0, 2).join('、') || '事業成長';
+                const focusThemesText = toStringList(d?.focusThemes, 2).join('、') || '事業成長';
                 const directionText = d?.direction ? `（${d.direction}）` : '';
                 missionDescription = `${missionDraft}を実現するために、${focusThemesText}に注力します${directionText}。`;
               }
@@ -5468,13 +5938,16 @@ ${secondPassDeptBlock}
                 const isTooGeneric = !raw || /^(営業\s*[×xX]\s*技術|技術\s*[×xX]\s*営業|他事業部|別事業部|関連事業部|共同|連携)$/i.test(raw);
                 const looksLikePartnerOnly = isInter && /事業$|事業部$|部門$/.test(raw) && !/共同|検証|開発|提案|推進|削減|強化/.test(raw);
                 const intraPairOnly = !isInter && /^[^：:]{1,12}\s*[×xX]\s*[^：:]{1,12}$/.test(raw);
+                const preferredTerm = strategyTerms.find((t) => /向け|ユニット|モジュール|カメラ|モータ|加工|ロボット|ドローン|自動運転|DMS|ADAS|市場|用途/.test(t)) || strategyTerms[0] || '重点テーマ';
                 const title = isTooGeneric
-                  ? (isInter ? `${partnerDeptName}との共同検証テーマ推進` : '営業×技術による重点顧客課題の共同提案')
+                  ? (isInter ? `${partnerDeptName}との${preferredTerm}共同検証` : `営業×技術による${preferredTerm}共同提案`)
                   : looksLikePartnerOnly
-                    ? `${raw}との共同検証テーマ推進`
+                    ? `${raw}との${preferredTerm}共同検証`
                     : intraPairOnly
-                      ? `${raw}による重点顧客課題の共同提案`
-                      : raw;
+                      ? `${raw}による${preferredTerm}共同提案`
+                      : projectHasStrategyTerm({ title: raw }).ok
+                        ? raw
+                        : `${raw}：${preferredTerm}`;
                 return { ...proj, title };
               };
 
@@ -5696,7 +6169,7 @@ ${secondPassDeptBlock}
 ${deptInfo.join('\n')}
 
 【全社戦略（STAGE2）】
-${sanitizeText(finalStoryText || '（未設定）', 500)}
+${sanitizeText(finalStoryText || '（未設定）', 1800)}
 
 【要件】
 以下の4つをすべて必須で生成してください：
@@ -5704,6 +6177,7 @@ ${sanitizeText(finalStoryText || '（未設定）', 500)}
 1. currentPosition（現在の位置づけ）
    - 1〜2文
    - STAGE1情報と全社戦略からみた、この部門の現状
+   - 入力本文にない市場名・顧客名・用途名・製品名は使わない
 
 2. strategicRole（中計上の役割）
    - 1〜2文
@@ -5793,9 +6267,11 @@ ${sanitizeText(finalStoryText || '（未設定）', 500)}
               Array.isArray(specialResult.alignmentRiskPoints) &&
               specialResult.alignmentRiskPoints.length > 0
             ) {
+              const targetDept = result.departments[missing.deptIndex];
+              if (!targetDept) continue;
+
               // 4項目を既存部門データへ明示的にマージ
-              result.departments[missing.deptIndex] = {
-                ...result.departments[missing.deptIndex],
+              Object.assign(targetDept, {
                 currentPosition: specialResult.currentPosition.trim(),
                 strategicRole: specialResult.strategicRole.trim(),
                 keyIssues: specialResult.keyIssues
@@ -5806,7 +6282,7 @@ ${sanitizeText(finalStoryText || '（未設定）', 500)}
                   .filter((item: any): item is string => typeof item === 'string')
                   .map((item: string) => item.trim())
                   .filter(Boolean),
-              };
+              });
             }
           } catch (_err: any) {
             // 専用生成失敗時も続行（バリデーションで後で引っかかる）
@@ -5882,11 +6358,59 @@ ${sanitizeText(finalStoryText || '（未設定）', 500)}
           hitTokens,
         });
       }
-    }
+	    }
+	
+	    const unresolvedStrategyGroundingIssues: Array<{
+	      deptName: string;
+	      lane: string;
+	      slot: number;
+	      title: string;
+	      reasons: string[];
+	    }> = [];
+	    if (Array.isArray(result?.departments)) {
+	      for (const dept of result.departments) {
+	        const deptName = dept?.name ?? '';
+	        for (const item of collectLaneProjects(dept)) {
+	          if (!isCoreStrategyLane(item.laneType)) continue;
+	          const validation = validateStrategyGrounding(item.project);
+	          if (!validation.ok) {
+	            unresolvedStrategyGroundingIssues.push({
+	              deptName,
+	              lane: item.laneType,
+	              slot: item.slot,
+	              title: item.project?.title ?? '',
+	              reasons: validation.reasons,
+	            });
+	          }
+	        }
+	      }
+	    }
 
-    // ★ TASK C: AI keyResults が空のプロジェクトを検出 & ログ出力
-    // 実際の retry は複雑なため、ここではログ出力のみ。ensureKeyResults() がテンプレ補完
-    const emptyKrProjects: {deptName: string; projectTitle: string; lane?: string}[] = [];
+	    const blockingStrategyGroundingIssues = unresolvedStrategyGroundingIssues.filter((issue) =>
+	      issue.reasons.includes('generic_title')
+	    );
+
+	    if (unresolvedStrategyGroundingIssues.length > 0) {
+	      console.warn('[cascade][strategy-grounding][blocked-final]', unresolvedStrategyGroundingIssues);
+	      if (blockingStrategyGroundingIssues.length > 0 && process.env.ALLOW_UNGROUNDED_CASCADE !== '1') {
+	        return new NextResponse(JSON.stringify({
+	          error: 'STAGE2最終ストーリーに接続しない汎用プロジェクト案が残ったため、保存前に生成を停止しました。再生成してください。',
+	          code: 'strategy_grounding_failed',
+	          strategyTerms: strategyTerms.slice(0, 12),
+	          invalidProjects: blockingStrategyGroundingIssues,
+	        }), {
+	          status: 422,
+	          headers: { 'content-type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+	        });
+	      }
+	      (result as any).qualityWarnings = {
+	        strategyGrounding: unresolvedStrategyGroundingIssues,
+	      };
+	    }
+
+	    // ★ TASK C: AI keyResults が空のプロジェクトを検出 & ログ出力
+	    // 実際の retry は複雑なため、ここではログ出力のみ。ensureKeyResults() がテンプレ補完
+	    const emptyKrProjects: {deptName: string; projectTitle: string; lane?: string}[] = [];
     if (Array.isArray(result?.departments)) {
       for (const dept of result.departments) {
         const deptName = dept?.name ?? '';
@@ -5910,12 +6434,28 @@ ${sanitizeText(finalStoryText || '（未設定）', 500)}
       }
     }
 
-    // ★ TASK 2-2: 返却前に全プロジェクトに okrs を保証（LLMの漏れ補完 + AI再生成）
-    if (Array.isArray(result?.departments)) {
-      result.departments = await ensureOkrsForAllDepts(result.departments);
-    }
+	    // ★ TASK 2-2: 返却前に全プロジェクトに okrs を保証（LLMの漏れ補完 + AI再生成）
+	    if (Array.isArray(result?.departments)) {
+	      result.departments = await ensureOkrsForAllDepts(result.departments);
+	    }
 
-    // ★ TASK 5: AI成功率ログ（部門ごとに集計）
+	    // ★ STAGE3品質強化: 汎用KPIをSTAGE2具体語ベースのKPIへ補正
+	    if (Array.isArray(result?.departments)) {
+	      for (const dept of result.departments) {
+	        dept?.lanes?.existing?.projects?.forEach((p: any) => applyStrategicKpiGrounding(p, 'existing'));
+	        dept?.lanes?.new?.projects?.forEach((p: any) => applyStrategicKpiGrounding(p, 'new'));
+	        dept?.lanes?.intraCollab?.projects?.forEach((p: any) => applyStrategicKpiGrounding(p, 'intraCollab'));
+	        dept?.lanes?.interCollab?.projects?.forEach((p: any) => applyStrategicKpiGrounding(p, 'interCollab'));
+	        if (Array.isArray(dept?.projects)) {
+	          for (const p of dept.projects) {
+	            const sourceType = String(p?.sourceType ?? '') as CascadeLaneType;
+	            applyStrategicKpiGrounding(p, sourceType);
+	          }
+	        }
+	      }
+	    }
+
+	    // ★ TASK 5: AI成功率ログ（部門ごとに集計）
     if (Array.isArray(result?.departments)) {
       for (const dept of result.departments) {
         if (!dept?.name) continue;
@@ -5996,7 +6536,7 @@ ${sanitizeText(finalStoryText || '（未設定）', 500)}
         hasUnits: !!businessPortfolio?.units,
         unitsCount: Array.isArray(businessPortfolio?.units) ? businessPortfolio.units.length : 0,
         unitsNames: Array.isArray(businessPortfolio?.units) ? businessPortfolio.units.map((u: any) => u?.name).filter(Boolean) : [],
-        fullStructureSample: JSON.stringify(businessPortfolio).slice(0, 500),
+        fullStructureSample: String(JSON.stringify(businessPortfolio) ?? '').slice(0, 500),
       });
 
       for (let deptIdx = 0; deptIdx < result.departments.length; deptIdx++) {
@@ -6010,7 +6550,7 @@ ${sanitizeText(finalStoryText || '（未設定）', 500)}
           deptName: dept.name,
           deptInput,
           generatedDept: dept,
-          storyText: story ?? '',
+          storyText: finalStoryText || storyText || '',
           strategySummary: strategySummary ?? '',
           businessPortfolio,
           financeSummary,
