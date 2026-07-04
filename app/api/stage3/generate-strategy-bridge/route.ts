@@ -23,8 +23,24 @@ interface Stage3StrategyBridge {
   generatedAt: string;
 }
 
+interface Stage2FinalDocumentEdits {
+  conclusion?: string;
+  assumptions?: {
+    external?: string[];
+    internal?: string[];
+    implications?: string[];
+  };
+  overview?: {
+    whyChange?: string;
+    whereToPlay?: string;
+    whatToWin?: string;
+    howToExecute?: string;
+  };
+}
+
 async function generateStrategyBridge(
-  finalStoryFinal: ChapterStory[]
+  finalStoryFinal: ChapterStory[],
+  stage2FinalDocumentEdits?: Stage2FinalDocumentEdits
 ): Promise<{ bridge: Stage3StrategyBridge; debugInfo: any }> {
   const debugInfo: any = {
     storyLength: finalStoryFinal.length,
@@ -42,11 +58,59 @@ async function generateStrategyBridge(
 
   debugInfo.storyTextLength = storyText.length;
 
-  const prompt = `以下はSTAGE2で策定された全社戦略の最終ストーリーです。
+  // 補助セクション情報がある場合は組み込む
+  let contextText = `【最終ストーリー】
+${storyText}`;
+
+  if (stage2FinalDocumentEdits) {
+    if (stage2FinalDocumentEdits.conclusion) {
+      contextText += `
+
+【この戦略ストーリーの結論】
+${stage2FinalDocumentEdits.conclusion}`;
+    }
+    if (stage2FinalDocumentEdits.assumptions) {
+      const { external, internal, implications } = stage2FinalDocumentEdits.assumptions;
+      contextText += '\n\n【戦略判断の前提】';
+      if (external?.length) {
+        contextText += `\n外部環境：\n${external.map(e => `・${e}`).join('\n')}`;
+      }
+      if (internal?.length) {
+        contextText += `\n内部環境：\n${internal.map(i => `・${i}`).join('\n')}`;
+      }
+      if (implications?.length) {
+        contextText += `\n戦略上の含意：\n${implications.map(i => `・${i}`).join('\n')}`;
+      }
+    }
+    if (stage2FinalDocumentEdits.overview) {
+      const { whyChange, whereToPlay, whatToWin, howToExecute } = stage2FinalDocumentEdits.overview;
+      contextText += '\n\n【戦略ストーリーの全体像】';
+      if (whyChange) contextText += `\n危機認識：${whyChange}`;
+      if (whereToPlay) contextText += `\n戦略選択：${whereToPlay}`;
+      if (whatToWin) contextText += `\n目指す未来：${whatToWin}`;
+      if (howToExecute) contextText += `\n実行設計：${howToExecute}`;
+    }
+    if (stage2FinalDocumentEdits.midtermStrategy) {
+      const mts = stage2FinalDocumentEdits.midtermStrategy;
+      contextText += '\n\n【中計設計：全社戦略の展開軸】';
+      if (mts.midtermConcept) contextText += `\n基本コンセプト：${mts.midtermConcept}`;
+      if (mts.targetVisionForMidterm) contextText += `\n目指す姿：${mts.targetVisionForMidterm}`;
+      if (mts.priorityStrategicThemes?.length) {
+        contextText += `\n重点戦略テーマ：\n${mts.priorityStrategicThemes.map(t => `・${t}`).join('\n')}`;
+      }
+      if (mts.companyWideDecisionCriteria?.length) {
+        contextText += `\n全社共通の判断基準：\n${mts.companyWideDecisionCriteria.map(c => `・${c}`).join('\n')}`;
+      }
+      if (mts.deploymentPrinciplesForUnits?.length) {
+        contextText += `\n部門・社員への展開方針：\n${mts.deploymentPrinciplesForUnits.map(p => `・${p}`).join('\n')}`;
+      }
+    }
+  }
+
+  const prompt = `以下はSTAGE2で策定された全社戦略の最終ストーリーおよび補助セクションです。
 このストーリーをもとに、各事業部門長が自部門戦略・重点プロジェクト・KPIを設計する際の判断材料となる全社戦略サマリーを、以下の4つのブロックに変換してください。
 
-【最終ストーリー】
-${storyText}
+${contextText}
 
 ---
 
@@ -184,7 +248,7 @@ STAGE2の章タイトル（第1章～第4章）は含めず、部門長が実行
     // 最低1個は確保
     for (const key of requiredKeys) {
       if (parsed[key as keyof Stage3StrategyBridge].length === 0) {
-        parsed[key as keyof Stage3StrategyBridge] = [`${key}の情報が生成されませんでした`];
+        (parsed[key as keyof Stage3StrategyBridge] as any) = [`${key}の情報が生成されませんでした`];
       }
     }
 
@@ -251,7 +315,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { finalStoryFinal, companyId: bodyCompanyId } = body;
+    const { finalStoryFinal, companyId: bodyCompanyId, stage2FinalDocumentEdits } = body;
 
     if (!bodyCompanyId) {
       console.warn('[STAGE3] companyId not provided in body');
@@ -364,7 +428,7 @@ export async function POST(request: NextRequest) {
       suspiciousKeywordFlags: suspiciousKeywords,
     });
 
-    const { bridge, debugInfo } = await generateStrategyBridge(finalStoryFinal);
+    const { bridge, debugInfo } = await generateStrategyBridge(finalStoryFinal, stage2FinalDocumentEdits);
 
     console.log('[STAGE3] generateStrategyBridge completed', {
       ...debugInfo,
