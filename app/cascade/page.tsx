@@ -2734,16 +2734,28 @@ useEffect(() => {
     let nextLength = 0;
     pushToStore((prev) => {
       const current = [...prev];
+      // ★ prompt.txt指示：部門追加時に初期値を完全に設定
+      const deptId = `dept_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const newDept: Department = {
+        id: deptId,
         name: baseName,
-        mission: baseMission,
+        mission: baseMission || `${baseName}のミッション`,
+        missionDescription: '',  // ★ STAGE3生成時にAIで補完対象
         strategy: baseMission,
         missionDraft: baseMission,
         discussionNotes: '',
         projects: [],
-        answers2: [{ chapterIndex: current.length, chapterTitle: baseName, steps: [] }],
+        answers2: [
+          // ★ 4章構造（第0章〜第3章）で初期化
+          { chapterIndex: 0, chapterTitle: `${baseName}：なぜ今`, steps: [] },
+          { chapterIndex: 1, chapterTitle: `${baseName}：どう戦う`, steps: [] },
+          { chapterIndex: 2, chapterTitle: `${baseName}：どんな未来`, steps: [] },
+          { chapterIndex: 3, chapterTitle: `${baseName}：どう実行`, steps: [] },
+        ],
         finalized: false,
-      };
+        source: 'manual',  // ★ STAGE3手動追加を記録
+        segmentName: baseName,
+      } as unknown as Department;
       current.push(newDept);
       nextLength = current.length;
       return current;
@@ -3199,7 +3211,8 @@ useEffect(() => {
           {
             name: dept.name,
             missionDraft: dept.mission ?? dept.strategy ?? dept.missionDraft ?? '',
-            projects: ((dept.projects as Project[] | undefined) ?? []).map((p) => p.title),
+            // ★修正：再生成時は既存 projects の title を seed として送らない（過去の誤生成の汚染防止）
+            projects: [],
             okrs:
               ((dept.projects as Project[] | undefined) ?? [])
                 .flatMap((p) => (p.okrs ?? []) as StoreOKR[])
@@ -3228,6 +3241,8 @@ useEffect(() => {
         targetRanges,
         // ★STEP7: STAGE2中計設計（midtermStrategy）を追加（存在する場合のみ）
         ...(s?.midtermStrategy ? { midtermStrategy: s.midtermStrategy } : {}),
+        // ★STAGE2補助セクション編集（stage2FinalDocumentEdits）を追加（存在する場合のみ）
+        ...(s?.stage2FinalDocumentEdits ? { stage2FinalDocumentEdits: s.stage2FinalDocumentEdits } : {}),
       };
 
       // ★TASK 1: 送信前にfinalStoryが含まれているか確認
@@ -3242,6 +3257,9 @@ useEffect(() => {
         finalStory_len: typeof payload.finalStory === 'string' ? payload.finalStory.length : 0,
         finalStory_sample: payload.finalStory ? payload.finalStory.slice(0, 100) : 'undefined',
         csvFinanceDataLen: Array.isArray(payload.csvFinanceData) ? payload.csvFinanceData.length : typeof payload.csvFinanceData,
+        // ★汚染防止確認：departments[].projects が空であること
+        deptProjectsLen: payload.departments?.[0]?.projects?.length ?? 'N/A',
+        stage2FinalDocumentEdits: !!payload.stage2FinalDocumentEdits,
       });
 
       let data: ApiCascadeResponse | null = null;
