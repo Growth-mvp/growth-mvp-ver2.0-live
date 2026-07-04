@@ -36,6 +36,7 @@ import type {
   Stage1Benchmarks,
   StrategyData,
   MidtermStrategy,
+  Stage2FinalDocumentEdits,
   CompanyTarget,
   ProjectTargetImpact,
   ProjectIssueLink,
@@ -251,6 +252,9 @@ export type StrategyState = {
   /* ★ STAGE2：中計設計（全社戦略の中計対応・任意） */
   midtermStrategy?: MidtermStrategy;
 
+  /* ★ STAGE2：最終ストーリー補助セクション編集データ（表示上書き用） */
+  stage2FinalDocumentEdits?: Stage2FinalDocumentEdits;
+
   /* === STAGE6 Phase E：プロジェクト→North Star影響量（手入力） === */
   projectTargetImpacts?: ProjectTargetImpact[];
 
@@ -370,6 +374,7 @@ export type StrategyState = {
   setStory: (chs: ChapterStory[]) => void;
   setFinalStory: (chs: ChapterStory[]) => void;
   setMidtermStrategy: (m: MidtermStrategy | undefined) => void;
+  setStage2FinalDocumentEdits: (edits: Stage2FinalDocumentEdits | undefined) => void;
   setAnswers2: (answers: ChapterAnswers[]) => void;
   setChapterCurrentStep: (chapterIndex: number, step: number) => void;
 
@@ -1053,6 +1058,7 @@ function extractServerDecidedPatch(
   /* ========== STAGE2: ストーリー・戦略候補 ========== */
   if (Array.isArray(resData.storyDraft)) patch.storyDraft = resData.storyDraft;
   if (Array.isArray(resData.finalStory)) patch.finalStory = resData.finalStory;
+  if (resData.stage2FinalDocumentEdits && typeof resData.stage2FinalDocumentEdits === 'object') patch.stage2FinalDocumentEdits = resData.stage2FinalDocumentEdits;
   if (Array.isArray(resData.answers2)) patch.answers2 = resData.answers2;
 
   if (Array.isArray(resData.winPatternsCandidate)) patch.winPatternsCandidate = resData.winPatternsCandidate;
@@ -1236,6 +1242,7 @@ const emptyData: StrategyState = {
   finalStoryFinal: [], // ★ 修正：undefined から [] に統一（delete時にクリア確認）
   stage3_strategy_bridge: null, // ★ 修正：削除時にnullクリアするため明示化
   companyTargets: [],
+  stage2FinalDocumentEdits: undefined,
   projectTargetImpacts: [],
   okrTargetScores: {},
   projectIssueLinks: [],
@@ -1293,6 +1300,7 @@ const emptyData: StrategyState = {
   setStory: () => {},
   setFinalStory: () => {},
   setMidtermStrategy: () => {},
+  setStage2FinalDocumentEdits: () => {},
   setAnswers2: () => {},
   setChapterCurrentStep: () => {},
   setProfile: () => {},
@@ -1519,6 +1527,12 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
   const story = isArray(raw.story) ? raw.story : [];
   const finalStory = isArray(raw.finalStory) ? raw.finalStory : isArray(raw.final_story) ? raw.final_story : [];
 
+  const stage2FinalDocumentEdits = raw.stage2FinalDocumentEdits && typeof raw.stage2FinalDocumentEdits === 'object'
+    ? raw.stage2FinalDocumentEdits
+    : raw.stage2_final_document_edits && typeof raw.stage2_final_document_edits === 'object'
+      ? raw.stage2_final_document_edits
+      : undefined;
+
   const csvFinanceData =
     raw.csvFinanceData && typeof raw.csvFinanceData === 'object'
       ? raw.csvFinanceData
@@ -1712,6 +1726,7 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     story,
     storyDraft,
     finalStory,
+    stage2FinalDocumentEdits,
 
     answers2,
     answers12,
@@ -1944,6 +1959,15 @@ export const useStrategyStore = create<StrategyState>()(
       // ★ STAGE2：中計設計（生成成功時のみ呼ばれる。undefined でクリアも可能）
       setMidtermStrategy: (m) => {
         set((s) => ({ midtermStrategy: m, dirty: true, version: (s.version ?? 0) + 1 }));
+      },
+
+      // ★ STAGE2：最終ストーリー補助セクション編集データ
+      setStage2FinalDocumentEdits: (edits) => {
+        set((s) => ({
+          stage2FinalDocumentEdits: edits ? { ...edits, editedAt: new Date().toISOString() } : undefined,
+          dirty: true,
+          version: (s.version ?? 0) + 1,
+        }));
       },
 
       // finalStory は 分離API で即時保存（親保証→分離保存）
