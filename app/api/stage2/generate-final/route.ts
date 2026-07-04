@@ -2,7 +2,7 @@
 import 'server-only';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { openai } from '@/lib/openai';
@@ -314,7 +314,7 @@ function maxStepsForChapter(chapterIndex: number): number {
 /**
  * 12問（章別ステップ）を「質問＋回答」セットでプロンプトへ渡す。
  * - 章ごとの最大ステップ数（2/6/2/2）に合わせて抽出
- * - 回答は短すぎると議論の結論が落ちるため 240 文字まで保持
+ * - 12問回答は経営層の意思決定材料なので、要点が落ちないよう長めに保持
  * - 質問文が無い場合も耐える
  */
 function buildAnswersRich(a2: ChapterAnswers[] = []): string {
@@ -331,7 +331,7 @@ function buildAnswersRich(a2: ChapterAnswers[] = []): string {
     const lines = steps
       .map((s) => {
         const q = sanitize(s.question, 140).trim();
-        const a = sanitize((s.answer || s.reason || '').trim(), 240).trim();
+        const a = sanitize((s.answer || s.reason || '').trim(), 1200).trim();
         if (!q && !a) return '';
         return `  - Q${s.stepNumber ?? ''}${q ? `: ${q}` : ''}\n    A: 「${a || '—'}」`;
       })
@@ -345,6 +345,60 @@ function buildAnswersRich(a2: ChapterAnswers[] = []): string {
   }
 
   return blocks.join('\n');
+}
+
+/** 12問回答から、業種を固定しない経営意思ダイジェストを抽出する。 */
+function extractStrategicIntentDigest(answers12: unknown): Record<string, unknown> | null {
+  const arr = asArray<Record<string, unknown>>(answers12);
+  if (!arr.length) return null;
+
+  const digest: Record<string, unknown> = {};
+
+  // 危機認識（第0章）
+  const crisis = arr.slice(0, 2).map((a) => asText(a.answer, 300)).filter(Boolean).join('。');
+  if (crisis) digest.coreCrisis = sanitize(crisis, 500);
+
+  // 喪失機会（第0章Q2）
+  const lostOpp = asText(arr[1]?.answer, 500);
+  if (lostOpp) digest.lostOpportunity = sanitize(lostOpp, 500);
+
+  // 市場変化（第1章Q1）
+  const mktShift = asText(arr[2]?.answer, 500);
+  if (mktShift) digest.marketShift = sanitize(mktShift, 500);
+
+  // 価値再定義（第1章Q2）
+  const valRedef = asText(arr[3]?.answer, 500);
+  if (valRedef) digest.companyRedefinition = sanitize(valRedef, 500);
+
+  // 強み再定義（第1章Q3）
+  const strRedef = asText(arr[4]?.answer, 500);
+  if (strRedef) digest.strengthRedefinition = sanitize(strRedef, 500);
+
+  // やめること（第1章Q6）
+  const stopDoing = asText(arr[7]?.answer, 300);
+  if (stopDoing) digest.stopDoing = stopDoing.split(/[、。\n]+/).filter(Boolean).slice(0, 5);
+
+  // 重点市場・重点顧客・重点領域は、固定キーワードで作らず、該当設問の回答本文を素材として渡す。
+  const priorityMarketSource = [arr[2]?.answer, arr[3]?.answer, arr[8]?.answer, arr[9]?.answer]
+    .filter(Boolean)
+    .map((a) => asText(a, 350))
+    .join('。');
+  if (priorityMarketSource) digest.priorityMarketSource = sanitize(priorityMarketSource, 900);
+
+  // 資源配分変化（第1章Q5→Q6）
+  const resShift = [arr[5]?.answer, arr[7]?.answer].filter(Boolean).map((a) => asText(a, 300)).join('。');
+  if (resShift) digest.resourceShift = sanitize(resShift, 500);
+
+  const kpiShift = [arr[9]?.answer, arr[10]?.answer]
+    .filter(Boolean)
+    .map((a) => asText(a, 300))
+    .join('。');
+  if (kpiShift) digest.kpiShift = sanitize(kpiShift, 600);
+
+  const employeeBehavior = asText(arr[11]?.answer, 500);
+  if (employeeBehavior) digest.employeeBehavior = sanitize(employeeBehavior, 600);
+
+  return Object.keys(digest).length > 0 ? digest : null;
 }
 
 /* =========================
@@ -519,7 +573,7 @@ function formatAnswers12(answers12: unknown): string {
     .slice(0, 20)
     .map((a, i) => {
       const q = pickFirstText(a.question, a.title, a.label, a.prompt) || `Q${i + 1}`;
-      const ans = pickFirstText(a.answer, a.value, a.body, a.text, a.response, a.reason).slice(0, 320);
+      const ans = pickFirstText(a.answer, a.value, a.body, a.text, a.response, a.reason).slice(0, 1500);
       const chapter = pickFirstText(a.chapterTitle, a.chapter, a.section, a.category).slice(0, 80);
       return `- ${chapter ? `${chapter} / ` : ''}${q}\n  A: 「${ans || '—'}」`;
     })
@@ -631,10 +685,124 @@ function cleanFinalStoryArtifacts(text: string): string {
   out = out.replace(/全力で舵取りを行います/g, '方向性を明確に示します');
   out = out.replace(/希望だと信じています/g, '次の成長につながります');
   out = out.replace(/営業利益(?:の)?基準値\s*([0-9,，]+)\s*（期限[:：][^)）]+）/g, '営業利益目標');
+  out = out.replace(/最初の?90日間?で(?:着手|実施|行う|進める)べき施策としては、?/g, '実行初期に具体化すべき論点は、');
+  out = out.replace(/90日(?:間)?アクション/g, '初期実行テーマ');
+  out = out.replace(/90日(?:間)?/g, '実行初期');
+  // ★ prompt.txt指示：追加置換ルール
+  out = out.replace(/フィジカルあAI/g, 'フィジカルAI');
+  out = out.replace(/\b我々\b/g, '当社');
+  out = out.replace(/の?夢(?!の市場|を実現)/g, '将来像');
+  out = out.replace(/誇りとやりがい/g, '仕事の意味や顧客価値への接続');
+  out = out.replace(/挑戦を恐れず/g, '重点市場への行動変化');
   out = stripPeopleRelatedNoise(out);
   out = out.replace(/[ \t]+\n/g, '\n');
   out = out.replace(/\n{3,}/g, '\n\n').trim();
   return tidyJa(out);
+}
+
+function evaluateStrategicIntentCoverage(text: string): {
+  covered: number;
+  total: number;
+  missing: string[];
+} {
+  const source = normalizeNewlines(text || '');
+  const checks: Array<{ key: string; patterns: RegExp[] }> = [
+    {
+      key: '危機認識',
+      patterns: [/危機/, /リスク/, /変化/, /失う/, /取り残される/, /競争/],
+    },
+    {
+      key: '失うもの・放置した場合の影響',
+      patterns: [/失う/, /損なう/, /低下/, /機会/, /関係性/, /収益/, /利益/],
+    },
+    {
+      key: '市場・顧客・環境変化',
+      patterns: [/市場/, /顧客/, /環境/, /需要/, /業界/, /変化/],
+    },
+    {
+      key: '自社を選ぶ理由・提供価値',
+      patterns: [/価値/, /選ばれる/, /強み/, /提供/, /顧客価値/, /差別化/],
+    },
+    {
+      key: '重点領域・重点市場・重点顧客',
+      patterns: [/重点/, /成長領域/, /注力/, /集中/, /市場/, /顧客/],
+    },
+    {
+      key: '強みの再定義',
+      patterns: [/再定義/, /強み/, /能力/, /技術/, /資産/, /基盤/],
+    },
+    {
+      key: 'やめること・見直すこと',
+      patterns: [/やめる/, /見直し/, /選別/, /縮小/, /撤退/, /整理/, /低採算/],
+    },
+    {
+      key: '資源配分・評価基準・KPIの変更',
+      patterns: [/資源配分/, /評価基準/, /KPI/, /予算/, /投資/],
+    },
+  ];
+
+  const missing = checks
+    .filter((check) => !check.patterns.some((pattern) => pattern.test(source)))
+    .map((check) => check.key);
+
+  return {
+    covered: checks.length - missing.length,
+    total: checks.length,
+    missing,
+  };
+}
+
+function evaluateExecutiveStoryQuality(sections: { heading: string; body: string }[]): {
+  minBodyLength: number;
+  bodyLengths: number[];
+  tooShortIndexes: number[];
+  genericWeakPhraseCount: number;
+  hasGenericWeaknessRisk: boolean;
+} {
+  const bodyLengths = sections.map((section) => Array.from(section.body || '').length);
+  const joined = sections.map((section) => section.body || '').join('\n');
+  const count = (pattern: RegExp) => (joined.match(pattern) || []).length;
+  const genericWeakPhraseCount = count(/新技術の導入|製品ラインナップの拡充|生産プロセスの最適化|市場調査|競争環境を把握/g);
+
+  return {
+    minBodyLength: Math.min(...bodyLengths),
+    bodyLengths,
+    tooShortIndexes: bodyLengths
+      .map((len, index) => ({ len, index }))
+      .filter((item) => item.len < 700)
+      .map((item) => item.index),
+    genericWeakPhraseCount,
+    hasGenericWeaknessRisk: genericWeakPhraseCount >= 4,
+  };
+}
+
+/** ★ prompt.txt指示：生成後チェック関数 */
+function containsBadTone(text: string): { hasBadTone: boolean; found: string[] } {
+  if (!text) return { hasBadTone: false, found: [] };
+  const badPatterns = [
+    { pattern: /\b我々\b/g, label: '我々' },
+    { pattern: /(?<!\S)夢(?!\S)/g, label: '夢' },
+    { pattern: /誇り/g, label: '誇り' },
+    { pattern: /挑戦/g, label: '挑戦' },
+    { pattern: /全社員が/g, label: '全社員が' },
+  ];
+  const found: string[] = [];
+  for (const { pattern, label } of badPatterns) {
+    if (pattern.test(text)) found.push(label);
+  }
+  return { hasBadTone: found.length > 0, found };
+}
+
+function containsTypo(text: string): { hasTypo: boolean; found: string[] } {
+  if (!text) return { hasTypo: false, found: [] };
+  const typos = [
+    { pattern: /フィジカルあAI/g, label: 'フィジカルあAI' },
+  ];
+  const found: string[] = [];
+  for (const { pattern, label } of typos) {
+    if (pattern.test(text)) found.push(label);
+  }
+  return { hasTypo: found.length > 0, found };
 }
 
 /* =========================
@@ -1040,6 +1208,80 @@ async function enhanceEmotionIfNeeded(
   }
 }
 
+async function repairExecutiveStoryIfNeeded(args: {
+  sections: { heading: string; body: string }[];
+  answersRich: string;
+  model: string;
+  coverage: ReturnType<typeof evaluateStrategicIntentCoverage>;
+  quality: ReturnType<typeof evaluateExecutiveStoryQuality>;
+}): Promise<{ heading: string; body: string }[]> {
+  const shouldRepair =
+    args.quality.tooShortIndexes.length > 0 ||
+    args.quality.hasGenericWeaknessRisk ||
+    args.coverage.missing.length >= 2;
+
+  if (!shouldRepair) return args.sections;
+
+  try {
+    const system = [
+      'あなたは中期経営計画の戦略ストーリーを、役員会議でそのまま議論できる水準に引き上げる経営戦略エディターです。',
+      '出力はJSONのみ。{"sections":[{"heading":"なぜ今","body":"..."},...]} の形式で返す。',
+      '既存の4章構成は維持し、各章を3〜5段落、最低700字、できれば900〜1200字程度の厚みで書き直す。',
+      '特定の業種・市場・技術名を固定で追加しない。入力された12問回答に含まれる固有語だけを使い、その会社固有の戦略に引き上げる。',
+    ].join('\n');
+
+    const user = [
+      '【補正理由】',
+      `- 反映不足: ${args.coverage.missing.join('、') || 'なし'}`,
+      `- 短すぎる章index: ${args.quality.tooShortIndexes.join(', ') || 'なし'}`,
+      `- 一般論に戻るリスク: ${args.quality.hasGenericWeaknessRisk ? 'あり' : 'なし'}`,
+      '',
+      '【必ず強化する観点】',
+      '- 入力された危機認識を、放置した場合に失うものまで具体化する',
+      '- 入力された市場・顧客・環境変化を、次の成長領域や重点顧客として整理する',
+      '- 入力された自社の強みを、次の市場で選ばれる理由として再定義する',
+      '- 入力された「やめること」「見直すこと」を、資源配分の判断基準として明確にする',
+      '- 経営層がスローガンではなく、人・予算・投資・評価基準・KPIをどう変えるかを書く',
+      '- 社員が日々の仕事で何を判断基準にすべきかを、入力回答に沿って具体化する',
+      '',
+      '【禁止】',
+      '- 90日、90日間、90日アクションという表現は禁止',
+      '- 入力にない業種・市場・技術・製品名を追加しない',
+      '- 「新技術導入」「製品ラインナップ拡充」「生産プロセス最適化」「市場調査」だけで章を終わらせない',
+      '- 精神論、訓示調、一般論にしない',
+      '',
+      '【経営意思（12問回答）】',
+      sanitize(args.answersRich, 12000) || '—',
+      '',
+      '【現在の生成結果JSON】',
+      JSON.stringify({ sections: args.sections }).slice(0, 12000),
+      '',
+      '【出力形式】',
+      '{"sections":[{"heading":"なぜ今","body":"..."}]} のみ。',
+    ].join('\n');
+
+    const raw = await callOpenAIChat({
+      model: args.model,
+      temperature: 0.35,
+      max_tokens: 5200,
+      presence_penalty: 0.1,
+      frequency_penalty: 0.1,
+      system,
+      user,
+    });
+    const parsed = extractJsonLoose<{ sections?: { heading?: string; body?: string }[] }>(raw);
+    const repaired = Array.isArray(parsed?.sections) ? parsed!.sections! : null;
+    if (!repaired || repaired.length < 4) return args.sections;
+
+    return coerceToSimpleHeads(repaired).map((section) => ({
+      ...section,
+      body: cleanFinalStoryArtifacts(section.body),
+    }));
+  } catch {
+    return args.sections;
+  }
+}
+
 /* =========================
  * ルート
  * =======================*/
@@ -1165,9 +1407,15 @@ export async function POST(req: NextRequest) {
 
 【最優先】
 - 本文は、経営層・部門長・現場管理職が同じ判断基準を持つための戦略文書として書く。
-- 各章は、状況 → 解釈 → 戦略上の意味 → 次工程への接続、の流れで、経営層が読み応えを感じる4段落程度の戦略本文にする。
-- たたき台、SWOT、MVV、CEO意図、12問回答は参考素材であり、本文にそのまま引用しない。
-- 第2章は、勝ち筋・重点事業・資源配分・やめること・STAGE3/4接続に限定する。
+- 各章は、状況 → 解釈 → 戦略上の意味 → 経営判断 → 次工程への接続、の流れで、経営層が読み応えを感じる3〜5段落の戦略本文にする。
+- 各章の本文は最低700字、できれば900〜1200字程度を目安にする。短い要約、1段落だけの本文、抽象的なスローガンで終わらせない。
+- 各章には、必ず「なぜその判断が必要か」「何を選び、何を見直すか」「部門や社員の判断基準がどう変わるか」を含める。
+- 12問回答は、経営層が何を危機と見て、何を選び、何をやめ、どのように会社を変えたいかを示す最優先の経営意思である。
+- たたき台、SWOT、MVV、CEO意図、財務情報は補助素材である。12問回答と補助素材がずれる場合は、12問回答の危機認識・重点市場・価値提供・資源配分・やめることを優先する。
+- ただし、12問回答の文言をそのまま貼り付けるのではなく、経営会議資料に載せられる戦略本文として再構成する。
+- 第2章は、勝ち筋・重点事業・重点市場・資源配分・やめること・STAGE3/4接続に限定する。
+- 入力にない業種・市場・技術・製品名を追加しない。固有語は12問回答、経営意思ダイジェスト、事業ポートフォリオ、SWOT、業績目標に含まれるものだけを使う。
+- 特定市場への依存、特定技術への転換など、入力にない前提を作らない。
 - 人材、採用、育成、能力開発、社員教育、研修、モチベーション、職場環境を主要戦略として書かない。
 - 90日アクション、分析メモ、箇条書き素材、内部IDは本文に出さない。
 
@@ -1177,20 +1425,46 @@ export async function POST(req: NextRequest) {
 - 「根拠（SWOT）」「90日アクション」「トレードオフ」「強み(S)」「弱み(W)」「機会(O)」「脅威(T)」を本文に出さない。
 - 事業名は重複させない。
 - 入力された強み、顧客課題、重点市場、資源配分、投資基準を軸に、経営判断の流れが分かる4〜5段落で書く。
+- 第2章には、入力された自社の強みを、次の市場で選ばれる理由としてどう再定義するかを必ず入れる。
+- 第2章には、入力された顧客価値に対して、提供価値・商品サービス・営業開発・オペレーションをどう進化させるかを必ず入れる。
 
 【12問回答の扱い】
-- 12問回答は、危機感、重点市場、重点顧客、強み、価値提供、やめること、KPI、進捗管理論点として要約反映する。
+- 12問回答は、危機感、重点市場、重点顧客、強み、価値提供、やめること、資源配分、KPI、進捗管理論点として必ず本文に反映する。
+- 各章のKey Message相当の結論は、12問回答の意味から導く。一般的な中計表現や業界一般論で置き換えない。
+- 重点市場・技術・顧客価値・やめること・経営行動・社員行動に関する固有表現は、抽象化しすぎず残す。
 - 質問文、回答者の口調、「第1問」などの表現は本文に出さない。
 
+【12問から抽出すべき経営意思】
+- 危機の本質は、12問回答に書かれた顧客・業界・競争・技術・社会変化から導く。
+- 失うものは、売上だけでなく、12問回答に書かれた顧客接点、利益率、主導権、人材、ブランド、資本効率、成長機会などから具体化する。
+- 市場変化は、入力された市場・顧客・用途・技術・規制・競争環境に基づいて書く。
+- 重点領域は、入力された重点市場・重点顧客・重点用途・重点商品サービスに限定する。
+- 顧客価値は、入力された「顧客が本当に求める価値」と「自社を選ぶ理由」から再構成する。
+- 自社の強みは、入力された技術、顧客基盤、業務知見、ブランド、データ、オペレーション、組織能力などを、次の市場で選ばれる理由として再定義する。
+- 克服すべき課題は、入力された致命的な課題、壁、抵抗、事業ポートフォリオ上の曖昧さから具体化する。
+- やめることは、入力された低採算案件、将来性の薄い活動、顧客価値につながらない仕事、横並び投資、過去延長のKPIなどから整理する。
+- 経営層が示すべき本気度は、スローガンではなく、重点領域の明示、人・予算・投資・評価基準・KPIの変更として書く。
+- 社員に求める行動変化は、入力された「明日から変えてほしい行動」をもとに具体化する。
+
 【禁止する文体・表現】
-- 「私たち」「皆さん」「あなたたち」「一緒に」「挑戦」「努力」「誇り」「覚悟」「邁進」「全社一丸」「しましょう」などの社員向け・訓示調表現は使わない。
+- 「私たち」「我々」「皆さん」「あなたたち」「一緒に」「挑戦」「努力」「誇り」「覚悟」「邁進」「全社一丸」「夢」「しましょう」などの社員向け・訓示調表現は使わない。
+- 「私たち」「我々」の代わりに「当社」で統一する。
 - 「入力値」「基準値」「論点ID」「issue-」「関連論点=」「目標値=」「目標年=」「North Star未入力」などの内部表現は使わない。
+- 「90日」「90日間」「90日アクション」「最初の90日間」は使わない。
+- 「新技術の導入」「製品ラインナップの拡充」「生産プロセスの最適化」だけで章を終わらせない。これらは必要な場合も、戦略の中心ではなく実行手段として扱う。
+- 精神論や情緒的な締めくくりで章を終わらせない。必ず経営判断、資源配分の変化、実行への接続を書く。
 
 【章ごとの役割】
-1. なぜ今：既存事業の前提変化、財務余力、市場評価の課題を、危機認識の流れとして書く。
-2. どう戦う：勝ち筋、重点事業・重点市場、投資配分、見直す領域を示す。
-3. どんな未来：顧客から選ばれる理由、顧客価値、収益構造、成長KPIへつながる未来像を書く。
-4. どう実行する：STAGE3の部門戦略、STAGE4のKPI・実行計画、STAGE5の実行管理へ接続する。
+1. なぜ今：入力された顧客・業界・競争・技術・社会変化をもとに、現在の延長では何が危ういのかを書く。失うものは売上だけでなく、12問回答に基づく成長機会、顧客関係、利益率、主導権、組織能力などとして明確にする。
+2. どう戦う：入力された自社の強みを、次の市場で選ばれる理由として再定義する。重点領域に経営資源を寄せ、見直す領域を選別する。既存事業を「成長領域・収益改善・技術基盤・選別」などの役割に分け、各分類の意味を明確にする。
+3. どんな未来：入力された顧客価値を起点に、顧客が何を理由に当社を選ぶのかを書く。業績面では、12問回答や業績目標に含まれる利益率、成長領域比率、重点開発案件数、量産移行率、重点顧客比率などの指標に結びつける。入力にない指標は無理に作らない。
+4. どう実行する：STAGE3で事業別・部門別の役割を定義し、STAGE4で投資基準・KPI・実行計画に落とし込み、STAGE5で実行管理サイクルを回すことを書く。経営層は、入力された重点領域を明示し、人・予算・投資・評価基準・KPIを変える。社員には、12問回答に書かれた日々の判断基準を具体化する。経営会議や部門レビューを通じて進捗を継続的に確認し、戦略と実行のズレを修正する仕組みを明記する。
+
+【文章の深さ】
+- 経営者が「この会社のための戦略だ」と感じる具体性を優先する。
+- 各章は、単なる施策列挙ではなく、経営判断の背景、選択の痛み、資源配分の変化、現場行動への影響まで書く。
+- 既存市場を否定するだけでなく、既存事業を「稼ぐ事業」「技術基盤」「選別対象」に分け、未来市場への橋渡しとして扱う。
+- 最終本文は、経営会議でそのまま読み上げられる水準の密度にする。
 
 【出力】
 JSONのみ。スキーマ：
@@ -1205,6 +1479,9 @@ JSONのみ。スキーマ：
 `.trim();
 
     /* ---------- User（素材） ---------- */
+    // ★ prompt.txt指示：strategicIntentDigest を12問回答から抽出（最優先素材として渡す）
+    const strategicIntentDigest = extractStrategicIntentDigest(answers12);
+
     const answersRichFromAnswers2 = buildAnswersRich(
       Array.isArray(answers2) ? (answers2 as ChapterAnswers[]) : []
     );
@@ -1276,7 +1553,10 @@ ${issueBlocksText}
 【たたき台ストーリー】
 ${storyDraftText}
 
-【現場の声（12問回答：質問＋回答）】
+【経営意思ダイジェスト（12問回答から抽出：最優先）】
+${strategicIntentDigest ? JSON.stringify(strategicIntentDigest, null, 2) : '—'}
+
+【経営意思（12問回答：最優先で反映する質問＋回答）】
 ${stripPeopleRelatedNoise(answersRich) || '—'}
 
 【出力仕様】上記の制約・形式を厳守。`.trim();
@@ -1293,6 +1573,8 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
       companyId: requestedCompanyId?.slice(0, 8),
       strategyDataId: requestedStrategyDataId?.slice(0, 8),
       answers2Count: Array.isArray(answers2) ? answers2.length : 0,
+      answers12Count: Array.isArray(answers12) ? answers12.length : 0,
+      answersRichLength: answersRich.length,
       hasStoryDraft: !!storyDraft,
       hasFinanceData: !!fin,
       suspiciousKeywordFlags: checkSuspiciousKeywords(userPrompt),
@@ -1303,7 +1585,9 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
     const requestId = req.headers.get('x-request-id') || `req_${Date.now()}`;
     const hasCompanyInfo = !!(mission || vision || value);
     const hasStage1Context = !!(northStar || mission);
-    const hasStage2Answers = Array.isArray(answers2) && answers2.length > 0;
+    const hasStage2Answers =
+      (Array.isArray(answers2) && answers2.length > 0) ||
+      (Array.isArray(answers12) && answers12.length > 0);
     const hasStage2Story = !!storyDraft;
 
     // ★ STAGE2では部門情報は必須ではないため、businessSegments から判定
@@ -1339,7 +1623,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
           typeof temperature === 'number' && Number.isFinite(temperature)
             ? (temperature as number)
             : 0.4,
-        max_tokens: 2300,
+        max_tokens: 5200,
         presence_penalty: 0.2,
         frequency_penalty: 0.2,
         system: systemPrompt,
@@ -1429,6 +1713,71 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
       body: sections[i]?.body || '（この章は未生成です）',
     }));
 
+    let strategicIntentCoverage = evaluateStrategicIntentCoverage(longform);
+    let executiveStoryQuality = evaluateExecutiveStoryQuality(sections);
+
+    // ★ prompt.txt指示：生成後チェック（bad tone, typo）
+    const badToneCheck = containsBadTone(longform);
+    const typoCheck = containsTypo(longform);
+    if (badToneCheck.hasBadTone || typoCheck.hasTypo) {
+      console.warn('[stage2/generate-final] ⚠️ Quality check failed (bad tone/typo):', {
+        requestId,
+        badTone: badToneCheck.found.length > 0 ? badToneCheck.found : null,
+        typo: typoCheck.found.length > 0 ? typoCheck.found : null,
+      });
+    }
+
+    if (!usedHeuristic) {
+      const repairedSections = await repairExecutiveStoryIfNeeded({
+        sections,
+        answersRich,
+        model: MODEL_PRIMARY,
+        coverage: strategicIntentCoverage,
+        quality: executiveStoryQuality,
+      });
+      if (repairedSections !== sections) {
+        sections = repairedSections.map((s) => ({ ...s, body: cleanFinalStoryArtifacts(s.body) }));
+        sections = normalizeStrategicStorySections(sections, {
+          segmentsText,
+          portfolio: normalizedPortfolio,
+          companyTargetsText,
+          answersText: answersRich,
+        });
+        sections = sections.map((s) => ({ ...s, body: cleanFinalStoryArtifacts(s.body) }));
+        longform = sections
+          .map((s) => `【${s.heading}】\n${sanitize(normalizeNewlines(s.body), 4000)}`)
+          .join('\n\n');
+        finalStory = TITLE_TEMPLATES.map((title, i) => ({
+          title,
+          body: sections[i]?.body || '（この章は未生成です）',
+        }));
+        strategicIntentCoverage = evaluateStrategicIntentCoverage(longform);
+        executiveStoryQuality = evaluateExecutiveStoryQuality(sections);
+      }
+    }
+
+    if (strategicIntentCoverage.missing.length > 0) {
+      console.warn('[stage2/generate-final] strategic intent coverage missing:', {
+        requestId,
+        companyId: requestedCompanyId?.slice(0, 8),
+        strategyDataId: requestedStrategyDataId?.slice(0, 8),
+        covered: strategicIntentCoverage.covered,
+        total: strategicIntentCoverage.total,
+        missing: strategicIntentCoverage.missing,
+      });
+    }
+    if (
+      executiveStoryQuality.tooShortIndexes.length > 0 ||
+      executiveStoryQuality.hasGenericWeaknessRisk
+    ) {
+      console.warn('[stage2/generate-final] executive story quality warning:', {
+        requestId,
+        companyId: requestedCompanyId?.slice(0, 8),
+        strategyDataId: requestedStrategyDataId?.slice(0, 8),
+        ...executiveStoryQuality,
+      });
+    }
+
     /* ---------- ★STEP6: 中計設計（midtermStrategy）の第2パス生成 ----------
      * - 既存の4章ストーリー生成には一切手を入れない（プロンプト・トークン配分とも独立）
      * - この呼び出しが失敗/タイムアウトしても catch で握り、midtermStrategy なしで
@@ -1440,6 +1789,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
         const midtermSystem = [
           'あなたは中期経営計画の設計を支援する経営戦略コンサルタントです。',
           '確定済みの全社戦略ストーリーと入力情報をもとに、中計全体の設計サマリーをJSONのみで返します。',
+          '12問回答は経営層の意思を示す最優先入力です。確定済みストーリーと12問回答に差がある場合は、12問回答の危機認識、重点市場、価値提供、資源配分、やめることを優先して中計設計に反映してください。',
           '入力にない数値・固有名詞は作らない。根拠が不足する項目はキーごと省略する（空文字・空配列は出力しない）。',
           '出力スキーマ（すべて任意キー）：',
           '{',
@@ -1464,6 +1814,9 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
           `【勝ちパターン】${patternsLine}`,
           `【SWOT】S=${sanitize(strength, 300) || '—'}／W=${sanitize(weakness, 300) || '—'}／O=${sanitize(opportunity, 300) || '—'}／T=${sanitize(threat, 300) || '—'}`,
           `【事業・セグメント】${segmentsText}`,
+          '',
+          '【経営意思（12問回答：最優先）】',
+          sanitize(stripPeopleRelatedNoise(answersRich), 6000) || '—',
           '',
           '上記と矛盾しない範囲で、スキーマどおりのJSONのみを返してください。',
         ].join('\n');
@@ -1599,6 +1952,14 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
           enhanced: enhanceEmotion === true,
           hasCompanyTargets: companyTargetsText !== '—',
           hasNorthStar: Boolean(asText(northStar)),
+          answers12Count: Array.isArray(answers12) ? answers12.length : 0,
+          answersRichLength: answersRich.length,
+          strategicIntentCoverage,
+          executiveStoryQuality,
+          // ★ prompt.txt指示：生成後チェック結果
+          badToneCheck,
+          typoCheck,
+          hasStrategicIntentDigest: !!strategicIntentDigest,
         },
       }),
       {
