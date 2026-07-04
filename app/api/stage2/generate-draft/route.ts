@@ -398,7 +398,7 @@ function splitPhrases(s?: string, limit = 6): string[] {
     .trim();
   if (!raw) return [];
   const parts = raw
-    .split(/[\n,、。・/／;；:：]+/g)
+    .split(/[\n,、。;；]+/g)
     .map((x) => x.trim())
     .filter((x) => x.length >= 2);
   const short = parts.map((p) => (p.length > 40 ? p.slice(0, 40) : p));
@@ -431,6 +431,22 @@ function countHits(text: string, candidates: string[]): number {
     if (hay.includes(cc)) n += 1;
   }
   return n;
+}
+
+function extractSwotEvidenceLines(chapterBody: string): string[] {
+  if (!chapterBody) return [];
+  return chapterBody
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.includes('根拠（SWOT）：'))
+    .map((line) =>
+      line
+        .replace(/^[-\s]*/, '')
+        .replace(/^根拠（SWOT）：/, '')
+        .replace(/\s+/g, '')
+        .trim()
+    )
+    .filter(Boolean);
 }
 
 function computeCoverageIssues(
@@ -473,6 +489,13 @@ function computeCoverageIssues(
     missing.push(`第2章に弱み（W）の具体語を1つ以上含める（候補: ${must.w.join(' / ')}）`);
   }
 
+  const swotEvidenceLines = extractSwotEvidenceLines(ch2);
+  if (swotEvidenceLines.length >= 3 && new Set(swotEvidenceLines).size <= 1) {
+    missing.push(
+      `第2章の3ブロックで根拠（SWOT）が同一になっているため、各ブロックの戦略テーマに合わせてS/W/O/Tの重点を変える`
+    );
+  }
+
   const hasBizHeading = ch1.includes('当社の事業と顧客') || ch3.includes('当社の事業と顧客');
   if (!hasBizHeading) {
     missing.push(`第1章または第3章の冒頭に小見出し「当社の事業と顧客」を含める`);
@@ -503,6 +526,9 @@ STAGE1の論点と指標を根拠に、ドライで論理的なたたき台ス�
 - ただし「そのまま引用」ではなく「要約して」本文に織り込む（SWOT/MVVは長いため、核となる1〜2語を抽出）。
 - 特にMissionは落ちやすいので、Missionの固有語を本文に必ず含める（言い換えで誤魔化さない）。
 - SWOTのO/Tは”最低各2件”を第2章で根拠として具体語のまま引用する（一般論は禁止）。
+- SWOTは単に「根拠（SWOT）」行へ列挙するだけで終わらせない。各戦略ブロックで「活かす強み」「取り込む機会」「回避・克服する弱み/脅威」「その結果として選ぶ戦略アクション」の因果を本文に必ず書く。
+- 第2章の3つの戦略ブロックは、同じSWOT根拠の繰り返しを禁止する。各ブロックで主に使うSWOTの組み合わせを変え、戦略テーマの違いが読めるようにする。
+- 例：1) 成長領域への攻め（S×O）、2) 収益性・資本効率の改善（W×T）、3) 事業領域の選択と集中（S/W×O/T）のように、主テーマを分ける。
 
 【最重要：事業セグメント前提（厳守）】
 - 入力に「事業セグメント前提」が与えられた場合、それを必ず本文に反映する
@@ -522,6 +548,8 @@ STAGE1の論点と指標を根拠に、ドライで論理的なたたき台ス�
 - storyDraft[i].body は必ず「文字列」で返す（配列やオブジェクトは禁止）
 - 第2章は自由作文ではなく、必ず以下の固定書式の“文字列”にする（1)〜3) まで）
 - ★第2章の各ブロックに「根拠（SWOT）」行を必ず含める（O/T各2件、S/W各1件の具体語を入れる）
+- ★各ブロックの「主要戦略」には、SWOTから戦略が導かれる因果を含める。単なるSWOTの貼り付けや後付けの根拠メモは禁止。
+- ★3つのブロックで「根拠（SWOT）」行が同じ内容になることは禁止。各ブロックの狙う価値ドライバーに合わせて、主に使う強み・弱み・機会・脅威を変える。
 
 第2章：どう戦う（戦略）
 1) 狙う価値ドライバー：...
@@ -557,6 +585,8 @@ STAGE1の論点と指標を根拠に、ドライで論理的なたたき台ス�
 - 上の固定書式（1)〜3)）で、価値ドライバー別に整理する
 - 主要戦略・90日アクション・トレードオフを必ず含める
 - SWOTのO/Tを最低各2件、S/Wを最低各1件、具体語として“根拠（SWOT）”行に含める
+- 各ブロックは「強み×機会で攻める」「弱み×脅威を回避・克服する」「そのために何を選び、何を捨てるか」が読める文章にする
+- 3つのブロックは同じ根拠の焼き直しにしない。1つ目は成長機会、2つ目は収益性/資本効率、3つ目は選択と集中/リソース配分のように、戦略論点を分けて書く
 
 3) 第3章（未来像）：
 - 戦略が成功した場合の未来像を、顧客価値・収益性・成長・資本効率・組織変化の観点で具体に描写する
@@ -684,10 +714,10 @@ function compactPayload(input: z.infer<typeof InputSchema>) {
       : [];
 
   const swotCompact = {
-    S: compactSwotArray(typeof swot.strength === 'string' ? swot.strength.split(/[\n,、。・/／]/) : []),
-    W: compactSwotArray(typeof swot.weakness === 'string' ? swot.weakness.split(/[\n,、。・/／]/) : []),
-    O: compactSwotArray(typeof swot.opportunity === 'string' ? swot.opportunity.split(/[\n,、。・/／]/) : []),
-    T: compactSwotArray(typeof swot.threat === 'string' ? swot.threat.split(/[\n,、。・/／]/) : []),
+    S: compactSwotArray(typeof swot.strength === 'string' ? swot.strength.split(/[\n,、。;；]/) : []),
+    W: compactSwotArray(typeof swot.weakness === 'string' ? swot.weakness.split(/[\n,、。;；]/) : []),
+    O: compactSwotArray(typeof swot.opportunity === 'string' ? swot.opportunity.split(/[\n,、。;；]/) : []),
+    T: compactSwotArray(typeof swot.threat === 'string' ? swot.threat.split(/[\n,、。;；]/) : []),
   };
 
   const round1 = (v: unknown): number | undefined =>
@@ -901,6 +931,8 @@ ${companyTargets
 - 第2章（戦略）では、SWOT分析の「機会（O）」「脅威（T）」を最低各2件ずつ“具体語のまま”根拠として引用する（一般論禁止）
 - 第2章で強み（S）・弱み（W）から対策を最低1件以上ずつ導出する（具体語を含める）
 - ★第2章は各ブロックに「根拠（SWOT）：機会(O): ... / ...｜脅威(T): ... / ...｜強み(S): ...｜弱み(W): ...」を必ず含める
+- ★第2章の3ブロックで、同じ「根拠（SWOT）」の組み合わせを繰り返さない。各ブロックの主テーマに合わせて、根拠に使うS/W/O/Tの重点を変える
+- ★各ブロックの主要戦略は、SWOTを列挙するだけでなく「だから何を選ぶのか」まで書く
 - 第3章（未来像）には、MVV（特にVision/Mission/Value）のキーワードを最低1つ含める
 - 第4章（90日計画）には、Value（行動原則）に沿った実行ルールを最低1つ組み込む
 - CEO/MVV/SWOTが空の場合は「★未入力のため一般化した」と明記してハルシネを防ぐ
@@ -965,6 +997,8 @@ function buildRepairSystemPrompt(): string {
 - 修正対象は主に storyDraft[i].body（文字列のみ）
 - 第2章は固定書式を維持しつつ、指定の具体語を「根拠（SWOT）」として追記（言い換えで誤魔化さない）
 - 第2章の各ブロックに「根拠（SWOT）：機会(O):.../..｜脅威(T):.../..｜強み(S):...｜弱み(W):...」を必ず含める
+- 第2章の3ブロックで、同じSWOT根拠を機械的に繰り返さない。各ブロックの戦略テーマに合わせて根拠の重点を変える
+- 「根拠（SWOT）」を追加するだけでなく、主要戦略内に「SWOTからその戦略を選ぶ理由」を1文以上入れる
 - 文章量は必要最低限の追記に留める（全面書き換え禁止）
 - JSON の特殊文字（ダブルクォート、バックスラッシュなど）は必ずエスケープする
 `.trim();
@@ -1145,8 +1179,14 @@ export async function POST(req: NextRequest) {
 
       // 【入力充足度ログ】OpenAI呼び出し直前に観測ログを出力
       const requestId = req.headers.get('x-request-id') || `req_${Date.now()}`;
-      const hasCompanyInfo = !!(compact.mission || compact.vision || compact.value);
-      const hasStage1Context = !!(compact.mission || compact.vision);
+      const strategyDataId =
+        typeof body.strategyId === 'string'
+          ? body.strategyId
+          : typeof body.strategyDataId === 'string'
+          ? body.strategyDataId
+          : membership.companyId;
+      const hasCompanyInfo = !!(compact.mvv.mission || compact.mvv.vision || compact.mvv.value);
+      const hasStage1Context = !!(compact.mvv.mission || compact.mvv.vision);
       const hasStage2Answers = compact.issueBlocks.length > 0;
       const hasStage2Story = false; // stage2-draft では既に完成ストーリーはない
       const hasStage3Context = compact.businessSegments.length > 0;
@@ -1160,8 +1200,8 @@ export async function POST(req: NextRequest) {
       logInputGuard({
         requestId,
         apiName: 'stage2/generate-draft',
-        companyId: strategyId,
-        strategyId: strategyId,
+        companyId: membership.companyId,
+        strategyId: strategyDataId,
         meaningfulInputScore,
         hasCompanyInfo,
         hasStage1Context,
@@ -1355,7 +1395,7 @@ export async function POST(req: NextRequest) {
 
     if (missing.length > 0) {
       console.log('[stage2/generate-draft] ★REPAIR PHASE START★', {
-        missingCount: missing.count,
+        missingCount: missing.length,
         missing: missing.slice(0, 3),
       });
 
