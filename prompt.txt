@@ -1,124 +1,73 @@
-ログで原因が特定できました。追加調査ではなく、ここを修正してください。
+ビルドエラーが出ています。まずこれを直してください。
 
-## ログ上の事実
+## エラー
+`store/strategyStore.ts`
 
-保存直前までは成功しています。
+```txt
+Module parse failed: Identifier 'payloadBridge' has already been declared (3298:30)
 
-- `[STAGE3 bridge save payload]`
-  - `hasStrategicCore: true`
-  - `bridgeKeys: Array(7)`
+該当箇所：
 
-- `[STAGE3] save stage3 strategy bridge completed`
-  - `payloadBridge hasStrategicCore: true`
-  - `serverData has bridge: true`
-  - `serverData bridge keys: Array(7)`
+const payloadBridge = payload.stage3_strategy_bridge;
+const serverBridge = serverData.stage3_strategy_bridge;
+const currentStoreState = get();
 
-つまり、
-API生成 → payload作成 → DB保存レスポンスまでは、完全版bridgeが存在しています。
+同じ関数/同じスコープ内で、すでに payloadBridge が宣言されているため、再宣言エラーになっています。
 
-しかし直後に：
+修正方針
+方法A：既存の payloadBridge を再利用する
 
-- `[STAGE3 bridge restore after save]`
-  - `payloadBridge hasStrategicCore: true`
-  - `storeNow hasBridge: true`
-  - `storeNow hasStrategicCore: false`
-  - `storeNow bridge keys: Array(5)`
-
-となっています。
-
-## 結論
-原因は、保存後のstore復元処理です。
-
-`payloadBridge` または `serverData.stage3_strategy_bridge` には完全版bridgeがあるのに、
-保存後にstoreへ戻す時点で、旧形式の `stage3_strategy_bridge` が残る、または上書きされています。
-
-## 修正対象
-ログ上ではおそらく `store/strategyStore.ts` の以下周辺です。
-
-- `[STAGE3 bridge restore after save]` を出している箇所
-- save完了後に `set(...)` / `setState(...)` / normalize結果をstoreへ戻している箇所
-- `serverData` をstoreに反映する処理
-- manual save / autosave 完了後の restore 処理
-
-## 修正方針
-
-保存後にstoreへ戻す `stage3_strategy_bridge` は、必ず完全版を優先してください。
-
-優先順位：
-
-1. `payload.stage3_strategy_bridge` に `strategicCore` があるなら、それをstoreへ戻す
-2. なければ `serverData.stage3_strategy_bridge` に `strategicCore` があるなら、それをstoreへ戻す
-3. どちらにもない場合だけ、既存storeのbridgeを維持
-4. strategicCoreなしの旧形式bridgeで、完全版bridgeを上書きしない
+すでに上で宣言済みなら、下では const payloadBridge = ... を消してください。
 
 例：
 
-```ts
-const payloadBridge = payload?.stage3_strategy_bridge;
-const serverBridge = serverData?.stage3_strategy_bridge;
-const currentBridge = get().stage3_strategy_bridge;
+// 既存の payloadBridge が上で宣言済みなら再宣言しない
+const serverBridge = serverData.stage3_strategy_bridge;
+const currentStoreState = get();
+方法B：変数名を変える
+
+もし別用途なら、変数名を変えてください。
+
+例：
+
+const restorePayloadBridge = payload.stage3_strategy_bridge;
+const restoreServerBridge = serverData.stage3_strategy_bridge;
+const currentStoreState = get();
+
+その後の参照も全部 restorePayloadBridge / restoreServerBridge に合わせてください。
+
+注意
+
+今回の修正では、payloadBridge がすでに保存payload確認ログなどで使われている可能性が高いです。
+同じスコープに追加した復元用コードだけ、以下のように別名にするのが安全です。
+
+const restorePayloadBridge = payload.stage3_strategy_bridge;
+const restoreServerBridge = serverData.stage3_strategy_bridge;
+const currentStoreState = get();
 
 const bridgeToRestore =
-  payloadBridge?.strategicCore
-    ? payloadBridge
-    : serverBridge?.strategicCore
-      ? serverBridge
-      : currentBridge?.strategicCore
-        ? currentBridge
-        : serverBridge ?? payloadBridge ?? currentBridge;
+  restorePayloadBridge?.strategicCore
+    ? restorePayloadBridge
+    : restoreServerBridge?.strategicCore
+      ? restoreServerBridge
+      : currentStoreState.stage3_strategy_bridge?.strategicCore
+        ? currentStoreState.stage3_strategy_bridge
+        : restoreServerBridge ?? restorePayloadBridge ?? currentStoreState.stage3_strategy_bridge;
 
-set((state) => ({
-  ...state,
-  // 他の保存後反映項目
-  stage3_strategy_bridge: bridgeToRestore,
-}));
+ログも以下に変えてください。
 
-または、保存後に別のnormalize済みデータをstoreへ反映しているなら、最後に必ず以下で上書きしてください。
+console.log('[STAGE3] bridge restore after save', {
+  payloadBridge_hasStrategicCore: !!restorePayloadBridge?.strategicCore,
+  serverBridge_hasStrategicCore: !!restoreServerBridge?.strategicCore,
+  storeNow_hasStrategicCore: !!get().stage3_strategy_bridge?.strategicCore,
+});
+修正後
+ビルドエラーが消えること
+STAGE3画面が表示されること
+その後、前回の確認ログで以下になることを確認してください
+[STAGE3] bridge restore after save
+storeNow_hasStrategicCore: true
+storeNow_bridge_keys: Array(7)
 
-if (bridgeToRestore?.strategicCore) {
-  useStrategyStore.setState({
-    stage3_strategy_bridge: bridgeToRestore,
-  });
-}
-絶対に避けること
-
-以下のような旧形式復元をしないでください。
-
-stage3_strategy_bridge: {
-  keyThemes,
-  departmentIssues,
-  kpiCriteria,
-  commonBehaviorChanges,
-  generatedAt,
-}
-
-また、保存後に normalizeFromDbRow(serverData) を使う場合、その結果が旧形式bridgeなら、完全版の payloadBridge を優先してマージしてください。
-
-修正後に確認するログ
-
-修正後、保存後ログがこうなることを確認してください。
-
-[STAGE3 bridge restore after save]
-payloadBridge hasStrategicCore: true
-storeNow hasBridge: true
-storeNow hasStrategicCore: true
-storeNow bridge keys: Array(7)
-
-さらに render でも：
-
-[STAGE3 bridge render] summary source
-hasStrategicCore: true
-concreteDomains: Array(...)
-nonNegotiableThemes: Array(...)
-重要
-
-今回はもうAPIやDB保存ではありません。
-ログ上、serverData bridge keys: Array(7) まで成功しています。
-
-壊れているのはその後の
-保存後store restore処理です。
-そこだけを重点的に直してください。
-
-
-かなり近いです。  
-今のログはむしろ良くて、**「保存後store復元で旧bridgeに戻している」** ところまで見えています。ここを直せば通る可能性が高いです。
+これはロジック以前にコンパイルが止まっています。  
+まず **変数名を `restorePayloadBridge` に変える** のが一番安全です。
