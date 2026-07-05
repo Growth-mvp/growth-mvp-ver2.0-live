@@ -3699,6 +3699,10 @@ export const useStrategyStore = create<StrategyState>()(
                 departmentIssuesLength: Array.isArray((payload as any).stage3_strategy_bridge?.departmentIssues) ? (payload as any).stage3_strategy_bridge.departmentIssues.length : 0,
                 kpiCriteriaLength: Array.isArray((payload as any).stage3_strategy_bridge?.kpiCriteria) ? (payload as any).stage3_strategy_bridge.kpiCriteria.length : 0,
                 commonBehaviorChangesLength: Array.isArray((payload as any).stage3_strategy_bridge?.commonBehaviorChanges) ? (payload as any).stage3_strategy_bridge.commonBehaviorChanges.length : 0,
+                hasStrategicCore: !!(payload as any).stage3_strategy_bridge?.strategicCore,
+                strategicCoreKeys: (payload as any).stage3_strategy_bridge?.strategicCore ? Object.keys((payload as any).stage3_strategy_bridge.strategicCore) : [],
+                hasDepartmentTranslationRules: Array.isArray((payload as any).stage3_strategy_bridge?.departmentTranslationRules),
+                departmentTranslationRulesLength: Array.isArray((payload as any).stage3_strategy_bridge?.departmentTranslationRules) ? (payload as any).stage3_strategy_bridge.departmentTranslationRules.length : 0,
                 reason,
                 timestamp: new Date().toISOString(),
               });
