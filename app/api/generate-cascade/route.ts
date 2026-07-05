@@ -264,8 +264,12 @@ const ReqSchema = z
         companyWideDecisionCriteria: z.array(z.string()).optional(),
         deploymentPrinciplesForUnits: z.array(z.string()).optional(),
         managementMeetingIssues: z.array(z.string()).optional(),
+        strategicCore: z.any().optional(),
       })
       .optional(),
+
+    // ★STAGE2→STAGE3 戦略展開ブリッジ
+    stage3_strategy_bridge: z.any().optional(),
 
     // ★STAGE2補助セクション編集（stage2FinalDocumentEdits）の注入
     stage2FinalDocumentEdits: z.any().optional(),
@@ -285,6 +289,74 @@ const toLinesFromCsv = (csvRows: any[], limit = 5) =>
         .join(', ')}`;
     })
     .join('\n');
+
+function formatStage3StrategyBridgeForPrompt(bridge: any): string {
+  if (!bridge || typeof bridge !== 'object') return '（戦略展開ブリッジ未生成）';
+
+  const lines: string[] = [];
+  const arr = (label: string, values: any, max = 6) => {
+    if (!Array.isArray(values) || values.length === 0) return;
+    lines.push(`${label}:`);
+    for (const v of values.slice(0, max)) {
+      const text = sanitizeText(String(v ?? '').trim(), 180);
+      if (text) lines.push(`・${text}`);
+    }
+  };
+  const text = (label: string, value: any) => {
+    const t = sanitizeText(String(value ?? '').trim(), 260);
+    if (t) lines.push(`${label}: ${t}`);
+  };
+
+  const core = bridge.strategicCore && typeof bridge.strategicCore === 'object' ? bridge.strategicCore : null;
+  if (core) {
+    lines.push('【戦略の芯】');
+    text('転換の軸', core.primaryShift);
+    arr('重点領域', core.concreteDomains, 8);
+    text('顧客価値', core.customerValue);
+    arr('中核能力', core.coreCapabilities, 8);
+    text('資源配分・ポートフォリオ転換', core.portfolioShift);
+    text('行動変化', core.behaviorChange);
+    arr('保持すべきテーマ', core.nonNegotiableThemes, 8);
+  }
+
+  arr('会社として目指す方向', bridge.keyThemes);
+  arr('重点的に伸ばす領域', bridge.departmentIssues);
+  arr('見直すべき事業・活動', bridge.kpiCriteria);
+  arr('各部門に求める役割', bridge.commonBehaviorChanges);
+  arr('部門展開ルール', bridge.departmentTranslationRules);
+
+  return lines.length > 0 ? lines.join('\n') : '（戦略展開ブリッジ未生成）';
+}
+
+function scrubUngroundedStrategyOverviewText(text: string, evidenceText: string): string {
+  let out = String(text ?? '').trim();
+  if (!out) return out;
+
+  const evidence = String(evidenceText ?? '');
+  const hasEvidence = (needle: string) => !!needle && evidence.includes(needle);
+
+  // Prompt example contamination: remove phrases that should never be copied without input evidence.
+  out = out
+    .replace(/全社成長の\s*\d+(?:\.\d+)?\s*%を担う重点事業として[、，]?/g, '全社戦略で定めた重点領域への展開を担う事業として、')
+    .replace(/売上は好調だが[、，]?\s*利益率改善が課題(?:となっています|です)?/g, '部門別の売上・利益率データは追加確認が必要です')
+    .replace(/売上は好調(?:です|となっています)?/g, '部門別の売上データは追加確認が必要です')
+    .replace(/利益率改善が課題(?:となっています|です)?/g, '利益率データは追加確認が必要です')
+    .replace(/本部は短期売上拡大を期待するが[、，]?\s*持続可能な成長には中長期の人材育成が不可欠/g, '経営側の成長期待と、現場側の実行準備・リソース配分の認識がずれやすい')
+    .replace(/市場浸透と隣接市場への拡大を並行して実行(?:しています|する)?/g, '重点市場への展開と隣接領域への展開仮説を具体化する');
+
+  // Numeric assertions in overview fields must be grounded in request evidence.
+  out = out.replace(/\d+(?:\.\d+)?\s*%/g, (m) => {
+    return hasEvidence(m) ? m : '数値根拠は追加確認が必要';
+  });
+
+  return out.replace(/\s+/g, ' ').trim();
+}
+
+function scrubUngroundedStrategyOverviewArray(values: any, evidenceText: string): string[] {
+  return trimList(values, 6)
+    .map((item) => scrubUngroundedStrategyOverviewText(String(item ?? ''), evidenceText))
+    .filter(Boolean);
+}
 
 function pickName(d: any) {
   return (
@@ -3001,6 +3073,7 @@ export async function POST(req: NextRequest) {
       targetRanges,
       // ★STEP7: STAGE2中計設計
       midtermStrategy,
+      stage3_strategy_bridge,
       // ★STAGE2補助セクション編集
       stage2FinalDocumentEdits,
     } = parsedReq.data;
@@ -3067,6 +3140,7 @@ export async function POST(req: NextRequest) {
     // ★デバッグログ: final story が注入されたことを確認
     const finalStoryLen = typeof finalStoryText === 'string' ? finalStoryText.length : 0;
     console.log(`[cascade][story] storyText.len=${typeof storyText === 'string' ? storyText.length : 0} finalStoryText.len=${finalStoryLen}`);
+    const stage3BridgeText = formatStage3StrategyBridgeForPrompt(stage3_strategy_bridge);
 
     const hasValidInput =
       (typeof strategySummary === 'string' && strategySummary.trim().length > 0) ||
@@ -3462,23 +3536,32 @@ ${okrSeed || '  - （なし）'}${factPackBlock}${uniquenessRule}
 
 【部門ミッション記述ルール】
 - missionDraft: 1〜2文で、部門の戦略的ミッション（構造変化/役割の再定義を含める）
-- missionDescription: 2〜4文で、missionDraft の背景・理由・狙いを説明。部門の事業概要、主要顧客層、部門別財務（売上規模・利益率など）に必ず言及すること。
+- missionDescription: 2〜4文で、missionDraft の背景・理由・狙いを説明。部門の事業概要、主要顧客層、部門別財務の入力がある場合はその根拠に言及すること。
+- 部門別売上、利益率、成長率、構成比、全社成長への寄与率などの数値は、入力データに明示されている場合のみ使用すること。
+- 入力に数値根拠がない場合は、「売上は好調」「利益率改善が課題」「全社成長の30%を担う」などの断定表現を使わず、「部門別の売上・利益率データは追加確認が必要」と表現すること。
 
 【★事業・部門別戦略の観点（中計対応）】
 ★★★以下の4つのフィールドは【必須】です。毎回必ず生成してください★★★
 
 各部門について、以下の観点を反映すること。観点と出力フィールドの対応：
 - 現在の位置づけ → currentPosition（1〜2文。★部門別財務/★部門別ポートフォリオ/★事業・部門情報を根拠にする。【必須】）
-  例：「成長市場での第2のコア事業として位置づけられ、売上は好調だが利益率改善が課題」
+  書き方：数値根拠がある場合は部門別財務を踏まえて書く。数値根拠がない場合は、戦略上の位置づけと「部門別の売上・利益率データは追加確認が必要」を明記する。
+  出力例：「この部門は、既存の技術・顧客基盤を活かし、全社戦略で定めた重点領域への展開を担う候補事業である。部門別の売上・利益率データは追加確認が必要である。」
 
 - 中計上の役割 → strategicRole（1〜2文。「中計で期待される役割」が入力されている場合は必ずそれと整合させる。【必須】）
-  例：「全社成長の30%を担う重点事業として、市場浸透と隣接市場への拡大を並行して実行」
+  書き方：寄与率や構成比を入力なしに作らない。全社戦略に対して、この部門が担う役割・変えること・具体化するテーマを書く。
+  出力例：「この部門は、既存事業を全社戦略で定めた高付加価値提案へ転換し、重点市場向けの開発案件・顧客提案・量産移行を具体化する役割を担う。」
 
 - 主要課題 → keyIssues（2〜4個。「主な課題」が入力されている場合は取り込んだうえで、財務・ポートフォリオの観点から補強する。【必須】）
-  例：["上位戦略が求める変化に対して、必要な人材・技術・投資の準備が追いつかない", "既存事業の安定運営と新規探索への資源配分が曖昧になりやすい", "重点顧客・重点市場を絞り切れず、開発テーマが分散する"]
+  書き方：入力にある戦略テーマ、部門情報、顧客用途、既存プロジェクトとの接続で書く。財務・人員・投資の不足を断定する場合は入力根拠が必要。
 
 - 認識のズレが起きやすいポイント → alignmentRiskPoints（1〜3個。経営層の期待と現場の実態がズレやすい点を具体的に書く。【必須】）
-  例：["本部は短期売上拡大を期待するが、持続可能な成長には中長期の人材育成が不可欠", "既存事業の安定性と新規事業の試行錯誤のバランス"]
+  書き方：入力にある全社戦略・部門文脈・実行テーマから、認識がずれやすい論点を書く。例文や一般論を流用しない。
+
+【★根拠なし数値・例文混入の禁止】
+- 「全社成長の30%」「売上は好調」「利益率改善が課題」「本部は短期売上拡大を期待するが、持続可能な成長には中長期の人材育成が不可欠」など、例文由来の表現を出力しない。
+- 部門別売上、利益率、成長率、構成比、全社成長への寄与率、シェア、改善率などの数値は、入力に明示されている場合のみ使う。
+- 入力にない数値や財務状態は推測しない。根拠が不足する場合は「追加確認が必要」と書く。
 
 - 戦略方向性 → missionDraft / missionDescription（既存ルールどおり）
 - 重点施策 → lanes の projects（既存ルールどおり）
@@ -3523,6 +3606,19 @@ ${sanitizeText(storyText || '', 800) || '（ストーリー未入力）'}
 
 【STAGE2 最終ストーリー（Final Story）】
 ${sanitizeText(finalStoryText || '', 2600) || '（最終ストーリー未入力）'}
+
+【★STAGE2→STAGE3 戦略の芯・展開ブリッジ（最優先）】
+${stage3BridgeText}
+
+【★戦略の芯の扱い】
+- 上記に「戦略の芯」がある場合、missionDraft / missionDescription / strategicRole / projects / okrs では、その内容を最優先の上位判断軸として扱うこと。
+- primaryShift は、各部門が「既存の何を、どの方向へ変えるのか」を書くための軸である。部門ミッションに必ず反映すること。
+- concreteDomains / nonNegotiableThemes は、STAGE2で抽出されたこの会社固有の重点領域である。各プロジェクトは、入力された部門の守備範囲と矛盾しない限り、いずれかに接続すること。
+- customerValue は、技術テーマや施策を顧客価値に変換する基準である。reason / hypothesis / KPI に反映すること。
+- portfolioShift は、既存事業の維持・選別・資源移管を判断する基準である。既存進化・新規探索・見直しの配分に反映すること。
+- behaviorChange は、現場に求める行動変化である。KPIは行動変化が測れる先行指標を含めること。
+- 「成長領域」「新市場」「高付加価値」「新技術」などの一般語だけに丸めない。入力に含まれる具体語を保持すること。
+- ただし、入力にない市場名・技術名・製品名・顧客名は絶対に追加しないこと。
 
 【★全社戦略・中計設計（STAGE2）】
 ${(() => {
@@ -3843,6 +3939,16 @@ ${
 - 各連携候補は実行イメージが湧く具体度にし、短すぎる標語（20字前後）にしないこと。目安は40〜90字程度。
 - Q5（協力）の回答に他事業部・別事業部・共同開発・横断連携が明示される場合でも、入力部門が1つだけなら interDeptCollab は空配列にする。入力部門が2つ以上ある場合のみ、interDeptCollab を少なくとも1件返すこと。
 `.trim();
+
+    const overviewEvidenceText = [
+      deptBlocks,
+      finalStoryText,
+      storyText,
+      stage3BridgeText,
+      financeSummaryText,
+      portfolioText,
+      financeCsvText,
+    ].filter(Boolean).join('\n');
 
     // [STAGE3_PROMPT_FACTS] ログ：prompt に埋め込まれた FACTPACK ブロック全体
     {
@@ -6079,16 +6185,16 @@ ${secondPassDeptBlock}
                 // ★STEP5拡張：事業・部門別戦略の観点（LLMが返した場合のみ付与。
                 // 未出力時はキー自体を含めず、既存データ・既存UIへの影響をゼロにする）
                 ...(typeof d?.currentPosition === 'string' && d.currentPosition.trim()
-                  ? { currentPosition: stripInternalMarkers(d.currentPosition.trim()) }
+                  ? { currentPosition: scrubUngroundedStrategyOverviewText(stripInternalMarkers(d.currentPosition.trim()), overviewEvidenceText) }
                   : {}),
                 ...(typeof d?.strategicRole === 'string' && d.strategicRole.trim()
-                  ? { strategicRole: stripInternalMarkers(d.strategicRole.trim()) }
+                  ? { strategicRole: scrubUngroundedStrategyOverviewText(stripInternalMarkers(d.strategicRole.trim()), overviewEvidenceText) }
                   : {}),
                 ...(trimList(d?.keyIssues, 6).length > 0
-                  ? { keyIssues: trimList(d?.keyIssues, 6).map(stripInternalMarkers) }
+                  ? { keyIssues: scrubUngroundedStrategyOverviewArray(trimList(d?.keyIssues, 6).map(stripInternalMarkers), overviewEvidenceText) }
                   : {}),
                 ...(trimList(d?.alignmentRiskPoints, 6).length > 0
-                  ? { alignmentRiskPoints: trimList(d?.alignmentRiskPoints, 6).map(stripInternalMarkers) }
+                  ? { alignmentRiskPoints: scrubUngroundedStrategyOverviewArray(trimList(d?.alignmentRiskPoints, 6).map(stripInternalMarkers), overviewEvidenceText) }
                   : {}),
               };
             })
@@ -6178,10 +6284,13 @@ ${sanitizeText(finalStoryText || '（未設定）', 1800)}
    - 1〜2文
    - STAGE1情報と全社戦略からみた、この部門の現状
    - 入力本文にない市場名・顧客名・用途名・製品名は使わない
+   - 部門別売上、利益率、成長率、構成比などの数値は、部門情報に明示されている場合のみ使う
+   - 数値根拠がない場合は「部門別の売上・利益率データは追加確認が必要」と書く
 
 2. strategicRole（中計上の役割）
    - 1〜2文
    - 全社戦略の実現に向けた、この部門の役割
+   - 「全社成長の30%」など、入力にない寄与率・構成比を作らない
 
 3. keyIssues（主要課題）
    - 配列（2〜4個）
@@ -6189,7 +6298,11 @@ ${sanitizeText(finalStoryText || '（未設定）', 1800)}
 
 4. alignmentRiskPoints（認識のズレが起きやすいポイント）
    - 配列（1〜3個）
-   - 経営層と現場で見方が異なる論点`;
+   - 経営層と現場で見方が異なる論点
+
+【禁止】
+- 「売上は好調」「利益率改善が課題」「全社成長の30%を担う」「本部は短期売上拡大を期待するが、持続可能な成長には中長期の人材育成が不可欠」などの例文由来表現を使わない。
+- 入力にない数値・財務状態・寄与率を推測しない。`;
 
           try {
             // JSON Schema による構造化出力
@@ -6272,15 +6385,15 @@ ${sanitizeText(finalStoryText || '（未設定）', 1800)}
 
               // 4項目を既存部門データへ明示的にマージ
               Object.assign(targetDept, {
-                currentPosition: specialResult.currentPosition.trim(),
-                strategicRole: specialResult.strategicRole.trim(),
+                currentPosition: scrubUngroundedStrategyOverviewText(specialResult.currentPosition.trim(), overviewEvidenceText),
+                strategicRole: scrubUngroundedStrategyOverviewText(specialResult.strategicRole.trim(), overviewEvidenceText),
                 keyIssues: specialResult.keyIssues
                   .filter((item: any): item is string => typeof item === 'string')
-                  .map((item: string) => item.trim())
+                  .map((item: string) => scrubUngroundedStrategyOverviewText(item.trim(), overviewEvidenceText))
                   .filter(Boolean),
                 alignmentRiskPoints: specialResult.alignmentRiskPoints
                   .filter((item: any): item is string => typeof item === 'string')
-                  .map((item: string) => item.trim())
+                  .map((item: string) => scrubUngroundedStrategyOverviewText(item.trim(), overviewEvidenceText))
                   .filter(Boolean),
               });
             }
