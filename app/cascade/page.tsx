@@ -163,10 +163,12 @@ type ApiDeptDraft = {
   // 旧形式
   projects?: ApiProjectDraft[];
 
-  // 新形式（2レーン）
+  // 新形式（4レーン）
   lanes?: {
     existing?: ApiLane;
     new?: ApiLane;
+    intraCollab?: ApiLane;
+    interCollab?: ApiLane;
   };
 
   // その他
@@ -3063,6 +3065,16 @@ useEffect(() => {
     const nw = lanes.new?.projects;
     if (Array.isArray(nw) && nw.length > 0) {
       out.new = { projects: nw.map(toProjectFromDraft) };
+    }
+
+    const intra = lanes.intraCollab?.projects;
+    if (Array.isArray(intra) && intra.length > 0) {
+      (out as any).intraCollab = { projects: intra.map(toProjectFromDraft) };
+    }
+
+    const inter = lanes.interCollab?.projects;
+    if (Array.isArray(inter) && inter.length > 0) {
+      (out as any).interCollab = { projects: inter.map(toProjectFromDraft) };
     }
 
     return Object.keys(out).length > 0 ? out : undefined;
