@@ -2386,6 +2386,14 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
           timestamp: new Date().toISOString(),
         });
 
+        // ★ CRITICAL: Expanded log for detailed verification
+        console.log('[DB verify saved bridge expanded]', {
+          hasBridge: !!returnedBridge,
+          keys: returnedBridge ? Object.keys(returnedBridge) : [],
+          rawBridge: returnedBridge,
+          hasStrategicCore: !!returnedBridge?.strategicCore,
+        });
+
         if (DEBUG) console.log('[SAVE returned UPDATE financial data]', {
           id: (upd.data as any)?.id,
           revision: (upd.data as any)?.revision,

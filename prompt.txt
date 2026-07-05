@@ -1,137 +1,134 @@
-まだ直っていません。今回のログで原因が変わりました。
+まだ直っていません。
 
-## ログから分かること
+ただし、今回のログで重要なのはここです。
 
-保存直後は一時的に成功しています。
-
-- `[STAGE3] bridge post-save restore complete`
-  - `source: 'payload'`
-  - `hasStrategicCore: true`
-- `[STAGE3 bridge render]`
-  - `hasStrategicCore: true`
-
-つまり、保存後に payload から store へ戻す処理は一応成功しています。
-
-しかしリロード後は：
-
-- `[STAGE3 bridge render]`
-  - `hasStrategicCore: false`
-  - `concreteDomains: undefined`
-  - `nonNegotiableThemes: undefined`
-
-さらにその後の保存では：
-
-- `[STAGE3 bridge save payload]`
-  - `hasStrategicCore: false`
-  - `bridgeKeys: Array(5)`
-
-つまり、**DBから読み直した時点で strategicCore が消えています。**
-
-## 結論
-今の問題は store restore ではありません。
-
-本当の原因は、Supabase の `strategy_data.stage3_strategy_bridge` に、完全版bridgeが保存されていないことです。
-
-保存直前のpayloadには strategicCore があるが、実際のDB更新payload、またはDB保存処理のどこかで旧形式 Array(5) に落ちています。
-
-## 修正対象
-以下を重点的に確認・修正してください。
-
-- `utils/supabase/strategy.ts`
-- `saveStrategyData`
-- `buildSavePayload`
-- `extractServerDecidedPatch`
-- `saveWithAudit`
-- Supabase `.update(...)` に渡している最終payload
-- 保存後に返ってくる `serverData.stage3_strategy_bridge`
-
-## 必ずやること
-
-### 1. Supabase update 直前の最終DB payloadをログ出力
-`payload` ではなく、実際に `.update(dbPayload)` に渡しているオブジェクトを確認してください。
-
-```ts
-console.log('[DB update final payload bridge]', {
-  hasBridge: !!dbPayload.stage3_strategy_bridge,
-  keys: dbPayload.stage3_strategy_bridge
-    ? Object.keys(dbPayload.stage3_strategy_bridge)
-    : [],
-  hasStrategicCore: !!dbPayload.stage3_strategy_bridge?.strategicCore,
-  concreteDomains: dbPayload.stage3_strategy_bridge?.strategicCore?.concreteDomains,
-  nonNegotiableThemes: dbPayload.stage3_strategy_bridge?.strategicCore?.nonNegotiableThemes,
-});
-
-期待値：
-
+[DB update final payload bridge]
 hasStrategicCore: true
 keys: Array(7)
-2. stage3_strategy_bridge をDB保存時に絶対に丸めない
 
-以下のような旧形式保存があれば削除してください。
+つまり、Supabase update 直前の payload には complete bridge が入っています。
+
+次に切り分けるべきは以下です。
+
+## 必ず確認すること
+
+`[DB verify saved bridge]` の中身を展開して確認してください。
+
+### パターンA
+`[DB verify saved bridge] hasStrategicCore: false` の場合：
+
+DB update payloadには入っているのに、実DB保存結果から消えています。
+この場合は、`.update(updatePayload)` に渡す直前の payload と、実際に `.select()` で返ってくる `stage3_strategy_bridge` を比較してください。
+
+確認ログ：
+
+```ts
+console.log('[DB verify saved bridge expanded]', {
+  hasBridge: !!saved?.stage3_strategy_bridge,
+  keys: saved?.stage3_strategy_bridge
+    ? Object.keys(saved.stage3_strategy_bridge)
+    : [],
+  rawBridge: saved?.stage3_strategy_bridge,
+  hasStrategicCore: !!saved?.stage3_strategy_bridge?.strategicCore,
+});
+パターンB
+
+[DB verify saved bridge] hasStrategicCore: true の場合：
+
+DBには保存できています。
+その場合、リロード時の fetch / normalize / hydrate で落ちています。
+
+以下を重点修正してください。
+
+fetchStrategy
+normalizeFromDbRow
+buildSavePayload
+buildStateFromDb
+hydrate時の setState
+
+特に、DB rowからstoreへ戻す時に以下のような旧形式再構成をしていないか確認してください。
+
+悪い例：
 
 stage3_strategy_bridge: {
-  keyThemes,
-  departmentIssues,
-  kpiCriteria,
-  commonBehaviorChanges,
-  generatedAt,
+  keyThemes: row.stage3_strategy_bridge?.keyThemes,
+  departmentIssues: row.stage3_strategy_bridge?.departmentIssues,
+  kpiCriteria: row.stage3_strategy_bridge?.kpiCriteria,
+  commonBehaviorChanges: row.stage3_strategy_bridge?.commonBehaviorChanges,
+  generatedAt: row.stage3_strategy_bridge?.generatedAt,
 }
 
-必ず完全版をそのまま保存してください。
+正しくは：
 
-if (payload.stage3_strategy_bridge) {
-  dbPayload.stage3_strategy_bridge = {
-    ...payload.stage3_strategy_bridge,
-    strategicCore: payload.stage3_strategy_bridge.strategicCore,
-    departmentTranslationRules:
-      payload.stage3_strategy_bridge.departmentTranslationRules ?? [],
-  };
+stage3_strategy_bridge: row.stage3_strategy_bridge
+  ? {
+      ...row.stage3_strategy_bridge,
+      strategicCore: row.stage3_strategy_bridge.strategicCore,
+      departmentTranslationRules:
+        row.stage3_strategy_bridge.departmentTranslationRules ?? [],
+    }
+  : undefined
+追加で重要
+
+リロード直後に以下のログが出ています。
+
+[STAGE3 bridge save payload]
+hasStrategicCore: false
+bridgeKeys: Array(5)
+
+これは、リロード後に不完全bridgeをautosave/manual saveして、DBの完全版を上書きしている可能性があります。
+
+したがって、保存ガードを強化してください。
+
+保存ガードの必須条件
+
+DBまたは直前storeに complete bridge が存在する場合、strategicCoreなしの bridge を保存してはいけません。
+
+if (
+  payload.stage3_strategy_bridge &&
+  !payload.stage3_strategy_bridge.strategicCore
+) {
+  const currentBridge = get().stage3_strategy_bridge;
+
+  if (currentBridge?.strategicCore) {
+    console.warn('[STAGE3 bridge save guard] blocked incomplete bridge overwrite');
+    payload.stage3_strategy_bridge = currentBridge;
+  } else {
+    console.warn('[STAGE3 bridge save guard] removing incomplete bridge from payload');
+    delete payload.stage3_strategy_bridge;
+  }
 }
-3. extractServerDecidedPatch が bridge を旧形式に戻していないか確認
 
-前回の説明では、extractServerDecidedPatch 後に minimal patch が旧形式に戻っていたとのことです。
-
-ここで stage3_strategy_bridge を再構成しないでください。
-
-修正方針：
-
-if (patch.stage3_strategy_bridge || payload.stage3_strategy_bridge) {
-  patch.stage3_strategy_bridge =
-    payload.stage3_strategy_bridge?.strategicCore
-      ? payload.stage3_strategy_bridge
-      : patch.stage3_strategy_bridge;
-}
-
-ただし、最終的にDBへ渡す値は必ず strategicCore ありを優先してください。
-
-4. 保存直後にDB再取得して確認
-
-storeにpayloadを戻すだけだと、DB保存失敗を隠してしまいます。
-
-保存後に一度DBから再取得して、実際に保存された値を確認してください。
-
-console.log('[DB verify saved bridge]', {
-  hasStrategicCore: !!freshData?.stage3_strategy_bridge?.strategicCore,
-  keys: freshData?.stage3_strategy_bridge
-    ? Object.keys(freshData.stage3_strategy_bridge)
-    : [],
-});
-
-ここが false なら、保存処理がまだ壊れています。
+重要：
+strategicCore なしの stage3_strategy_bridge をDBに保存しないでください。
+旧形式 Array(5) bridge は、complete bridge を破壊するため危険です。
 
 完了条件
 
-以下が全部 true になるまで完了にしないでください。
+以下を必ずログで確認してください。
 
-API response: hasStrategicCore: true
-save payload: hasStrategicCore: true
-DB update final payload: hasStrategicCore: true
-Supabase保存後のserverData: hasStrategicCore: true
-DB再取得: hasStrategicCore: true
-リロード後hydrate/render: hasStrategicCore: true
+[DB update final payload bridge] hasStrategicCore: true
+[DB verify saved bridge] hasStrategicCore: true
+[STAGE3 bridge hydrate] hasStrategicCore: true
+[STAGE3 bridge render] hasStrategicCore: true
+
+さらにリロード後に、以下のログが出ないこと：
+
+[STAGE3 bridge save payload] hasStrategicCore: false
+
+もし出る場合、その保存はブロックしてください。
+
 重要
 
-今は post-save restore source: payload によって、画面上だけ一時的に直って見えています。
-しかしリロードで消えるので、DBには保存できていません。
+今は DB update final payload までは成功しています。
+次は必ず [DB verify saved bridge] を展開し、
 
-store復元ではなく、DB保存の最終payloadを直してください。
+DB保存で消えているのか
+DB保存後のfetch/hydrateで消えているのか
+リロード後のautosaveが旧形式で上書きしているのか
+
+この3点を切り分けて、該当箇所を修正してください。
+
+
+今の状態では、**旧形式 Array(5) bridge を保存し続ける処理がまだ残っています**。  
+なので「完全版を保存する」だけでなく、**不完全版を保存させないガード**が必要です。

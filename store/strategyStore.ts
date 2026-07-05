@@ -3779,6 +3779,31 @@ export const useStrategyStore = create<StrategyState>()(
                 if (DEBUG) console.log('[strategyStore] saveStrategyData: same hash BUT manual => continue (forced write)');
               }
 
+              // ★ CRITICAL GUARD: Prevent incomplete bridge from overwriting complete bridge
+              // If payload has an incomplete bridge (no strategicCore), and store has a complete one,
+              // replace the payload bridge with the store's complete version.
+              // This prevents autosave from downgrading the bridge.
+              if (
+                (payload as any).stage3_strategy_bridge &&
+                !(payload as any).stage3_strategy_bridge.strategicCore
+              ) {
+                const currentBridge = get().stage3_strategy_bridge;
+
+                if (currentBridge?.strategicCore) {
+                  console.warn('[STAGE3 bridge save guard] blocked incomplete bridge overwrite', {
+                    payloadBridgeKeys: Object.keys((payload as any).stage3_strategy_bridge || {}),
+                    currentBridgeKeys: Object.keys(currentBridge),
+                    reason,
+                  });
+                  (payload as any).stage3_strategy_bridge = currentBridge;
+                } else {
+                  console.warn('[STAGE3 bridge save guard] removing incomplete bridge from payload', {
+                    reason,
+                  });
+                  delete (payload as any).stage3_strategy_bridge;
+                }
+              }
+
               // STAGE3 bridge pre-save check
               console.log('[STAGE3 bridge save payload]', {
                 hasBridge: !!(payload as any).stage3_strategy_bridge,
