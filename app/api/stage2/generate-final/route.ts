@@ -812,6 +812,7 @@ type ChatArgs = {
   model: string;
   temperature: number;
   max_tokens: number;
+  timeoutMs?: number;
   presence_penalty?: number;
   frequency_penalty?: number;
   system: string;
@@ -823,13 +824,14 @@ async function callOpenAIChat(args: ChatArgs): Promise<string> {
     model,
     temperature,
     max_tokens,
+    timeoutMs = 52_000,
     presence_penalty = 0.2,
     frequency_penalty = 0.2,
     system,
     user,
   } = args;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 58_000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   const base: ChatCompletionCreateParamsNonStreaming = {
     model,
@@ -854,11 +856,17 @@ async function callOpenAIChat(args: ChatArgs): Promise<string> {
     return resp.choices?.[0]?.message?.content?.trim() ?? '';
   } catch (e: any) {
     clearTimeout(timer);
+    const isAbort = e?.name === 'AbortError';
     const status =
-      e?.status ?? e?.response?.status ?? (e?.name === 'AbortError' ? 504 : 500);
+      e?.status ?? e?.response?.status ?? (isAbort ? 504 : 500);
     // 429/5xx → フォールバック（mini）
-    if ((status === 429 || status >= 500) && args.model !== MODEL_FALLBACK) {
-      return await callOpenAIChat({ ...args, model: MODEL_FALLBACK });
+    // AbortError は本番 maxDuration を超えやすいため再試行しない。
+    if (!isAbort && (status === 429 || status >= 500) && args.model !== MODEL_FALLBACK) {
+      return await callOpenAIChat({
+        ...args,
+        model: MODEL_FALLBACK,
+        timeoutMs: Math.min(timeoutMs, 24_000),
+      });
     }
     throw {
       status,
@@ -1212,6 +1220,8 @@ async function repairExecutiveStoryIfNeeded(args: {
   sections: { heading: string; body: string }[];
   answersRich: string;
   model: string;
+  timeoutMs?: number;
+  maxTokens?: number;
   coverage: ReturnType<typeof evaluateStrategicIntentCoverage>;
   quality: ReturnType<typeof evaluateExecutiveStoryQuality>;
 }): Promise<{ heading: string; body: string }[]> {
@@ -1263,7 +1273,8 @@ async function repairExecutiveStoryIfNeeded(args: {
     const raw = await callOpenAIChat({
       model: args.model,
       temperature: 0.35,
-      max_tokens: 5200,
+      max_tokens: args.maxTokens ?? 3600,
+      timeoutMs: args.timeoutMs ?? 18_000,
       presence_penalty: 0.1,
       frequency_penalty: 0.1,
       system,
@@ -1286,6 +1297,10 @@ async function repairExecutiveStoryIfNeeded(args: {
  * ルート
  * =======================*/
 export async function POST(req: NextRequest) {
+  const startedAt = Date.now();
+  const elapsedMs = () => Date.now() - startedAt;
+  const hasBudget = (reserveMs: number) => elapsedMs() < 88_000 - reserveMs;
+
   try {
     if (!process.env.OPENAI_API_KEY) {
       return new NextResponse(
@@ -1624,6 +1639,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
             ? (temperature as number)
             : 0.4,
         max_tokens: 5200,
+        timeoutMs: 52_000,
         presence_penalty: 0.2,
         frequency_penalty: 0.2,
         system: systemPrompt,
@@ -1727,11 +1743,13 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
       });
     }
 
-    if (!usedHeuristic) {
+    if (!usedHeuristic && hasBudget(22_000)) {
       const repairedSections = await repairExecutiveStoryIfNeeded({
         sections,
         answersRich,
         model: MODEL_PRIMARY,
+        timeoutMs: 18_000,
+        maxTokens: 3600,
         coverage: strategicIntentCoverage,
         quality: executiveStoryQuality,
       });
@@ -1754,6 +1772,11 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
         strategicIntentCoverage = evaluateStrategicIntentCoverage(longform);
         executiveStoryQuality = evaluateExecutiveStoryQuality(sections);
       }
+    } else if (!usedHeuristic) {
+      console.warn('[stage2/generate-final] repair skipped due to time budget:', {
+        requestId,
+        elapsedMs: elapsedMs(),
+      });
     }
 
     if (strategicIntentCoverage.missing.length > 0) {
@@ -1784,7 +1807,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
      *   従来どおりのレスポンスを返す（既存STAGE2生成を壊さない）
      * - ヒューリスティックフォールバック時はスキップ（素材の信頼度が低いため） */
     let midtermStrategy: Record<string, unknown> | undefined;
-    if (!usedHeuristic) {
+    if (!usedHeuristic && hasBudget(16_000)) {
       try {
         const midtermSystem = [
           'あなたは中期経営計画の設計を支援する経営戦略コンサルタントです。',
@@ -1837,6 +1860,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
           model: MODEL_PRIMARY,
           temperature: 0.4,
           max_tokens: 1100,
+          timeoutMs: 12_000,
           system: midtermSystem,
           user: midtermUser,
         });
@@ -1888,6 +1912,11 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
       } catch (e: any) {
         console.warn('⚠️ 中計設計（midtermStrategy）の生成をスキップ（続行）:', e?.message || e);
       }
+    } else if (!usedHeuristic) {
+      console.warn('[stage2/generate-final] midtermStrategy skipped due to time budget:', {
+        requestId,
+        elapsedMs: elapsedMs(),
+      });
     }
 
     // ★ CRITICAL FIX: リロード復元元である strategy_data.final_story_draft にも必ず保存する。
