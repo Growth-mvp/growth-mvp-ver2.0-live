@@ -1465,6 +1465,23 @@ export type CsvFinanceData = {
  *   - 展開：utils/supabase/normalize.ts normalizeStrategyData
  * ========================================================= */
 
+export type StrategicCore = {
+  /** 既存の何から、どの方向へ転換するのか */
+  primaryShift?: string;
+  /** 入力に出てきた重点市場・用途・顧客領域・技術領域 */
+  concreteDomains?: string[];
+  /** 顧客が選ぶ理由・提供価値 */
+  customerValue?: string;
+  /** 戦略実現の源泉となる強み・能力 */
+  coreCapabilities?: string[];
+  /** 経営資源や事業ポートフォリオをどう移すか */
+  portfolioShift?: string;
+  /** 社員・部門に求める行動変化 */
+  behaviorChange?: string;
+  /** STAGE3以降で一般語に丸めず保持するテーマ */
+  nonNegotiableThemes?: string[];
+};
+
 export type MidtermStrategy = {
   /** 中計の基本コンセプト */
   midtermConcept?: string;
@@ -1484,6 +1501,8 @@ export type MidtermStrategy = {
   deploymentPrinciplesForUnits?: string[];
   /** 経営会議で確認すべき論点 */
   managementMeetingIssues?: string[];
+  /** 12問・SWOT・最終ストーリーから抽出した、この会社固有の戦略の芯 */
+  strategicCore?: StrategicCore;
 };
 
 /* =========================================================
@@ -1674,6 +1693,8 @@ export type StrategyData = {
     departmentIssues: string[];
     kpiCriteria: string[];
     commonBehaviorChanges: string[];
+    strategicCore?: StrategicCore;
+    departmentTranslationRules?: string[];
     generatedAt: string;
   };
 
