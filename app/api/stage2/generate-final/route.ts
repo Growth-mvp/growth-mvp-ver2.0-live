@@ -580,6 +580,124 @@ function formatAnswers12(answers12: unknown): string {
     .join('\n');
 }
 
+function collectAnswerText(answers12: unknown, maxChars = 16000): string {
+  return asArray<Record<string, unknown>>(answers12)
+    .map((a) => pickFirstText(a.answer, a.value, a.body, a.text, a.response, a.reason))
+    .filter(Boolean)
+    .join('\n')
+    .slice(0, maxChars);
+}
+
+function normalizeTermForKey(term: string): string {
+  return normalizeNewlines(term)
+    .replace(/[「」『』"“”'`*_#\[\]（）()【】]/g, '')
+    .replace(/\s+/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+function cleanMustKeepTerm(term: string): string {
+  return tidyJa(
+    normalizeNewlines(term)
+      .replace(/^[\s・\-−、。:：]+/g, '')
+      .replace(/[\s・\-−、。:：]+$/g, '')
+      .replace(/[「」『』"“”*_#\[\]【】]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim(),
+  );
+}
+
+function isGoodMustKeepTerm(term: string): boolean {
+  const t = cleanMustKeepTerm(term);
+  const key = normalizeTermForKey(t);
+  if (!t || key.length < 3 || key.length > 42) return false;
+  if (/^(当社|会社|顧客|市場|事業|技術|製品|部品|品質|コスト|納期|成長領域|新市場|重点市場|強み|価値|課題|KPI|AI)$/i.test(t)) return false;
+  if (/[。！？\n]/.test(t)) return false;
+  if (/^(これ|それ|ため|こと|もの|よう|必要|具体的|以下|次の|特に)$/u.test(t)) return false;
+  return /[A-Za-zＡ-Ｚａ-ｚ0-9０-９ァ-ヶー]/u.test(t) || /・|×|／|\/|向け|時代|ユニット|ソリューション|モジュール|システム|市場|領域|用途|顧客価値/u.test(t);
+}
+
+function addTermCandidate(target: string[], term: string) {
+  const cleaned = cleanMustKeepTerm(term);
+  if (!isGoodMustKeepTerm(cleaned)) return;
+  const key = normalizeTermForKey(cleaned);
+  if (target.some((v) => normalizeTermForKey(v) === key)) return;
+  target.push(cleaned);
+}
+
+/**
+ * 12問回答から、その会社固有の戦略語を汎用的に抽出する。
+ * 特定企業・特定業界の単語は固定しない。引用、強調、頻出する複合語、英字/カタカナ混じりの語を優先する。
+ */
+function extractMustKeepTerms(answers12: unknown, max = 10): string[] {
+  const source = collectAnswerText(answers12);
+  if (!source) return [];
+
+  const terms: string[] = [];
+  const sourceLines = normalizeNewlines(source)
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  // ユーザーが引用符・強調で示した表現は、戦略上のこだわりである可能性が高い。
+  const quotedPatterns = [
+    /「([^」]{3,60})」/g,
+    /『([^』]{3,60})』/g,
+    /\*\*([^*]{3,60})\*\*/g,
+  ];
+  for (const pattern of quotedPatterns) {
+    for (const match of source.matchAll(pattern)) addTermCandidate(terms, match[1]);
+  }
+
+  // 英字・数字・カタカナを含む複合語、用途名、技術名、市場名を拾う。
+  const compoundPatterns = [
+    /[A-Za-z][A-Za-z0-9・\-／\/]*[一-龠ぁ-んァ-ヶーA-Za-z0-9・\-／\/]{1,32}/g,
+    /[ァ-ヶーA-Za-z0-9・\-／\/]{2,30}(?:市場|領域|用途|向け|技術|ユニット|ソリューション|モジュール|システム|機器|部品|基盤)/g,
+    /[一-龠ぁ-んァ-ヶーA-Za-z0-9・\-／\/]{2,30}(?:時代|市場|領域|用途|向け|技術|ユニット|ソリューション|モジュール|システム|基盤)/g,
+    /[一-龠ぁ-んァ-ヶーA-Za-z0-9]{1,20}[・×／\/][一-龠ぁ-んァ-ヶーA-Za-z0-9・×／\/]{1,28}/g,
+  ];
+  for (const pattern of compoundPatterns) {
+    for (const match of source.matchAll(pattern)) addTermCandidate(terms, match[0]);
+  }
+
+  // 「AではなくB」「AからBへ」のB側は、目指す姿・転換先になりやすい。
+  for (const line of sourceLines) {
+    const contrast = line.match(/ではなく、?\s*([^。！？\n]{3,50})/);
+    if (contrast?.[1]) addTermCandidate(terms, contrast[1]);
+    const shift = line.match(/から「?([^」。\n]{3,50})」?\s*へ/);
+    if (shift?.[1]) addTermCandidate(terms, shift[1]);
+  }
+
+  // 似た短語が長語に含まれる場合は長語を優先する。
+  return terms
+    .filter((term, index, arr) => {
+      const key = normalizeTermForKey(term);
+      return !arr.some((other, otherIndex) => otherIndex !== index && normalizeTermForKey(other).includes(key) && normalizeTermForKey(other).length > key.length);
+    })
+    .slice(0, max);
+}
+
+function formatStrategicSpineForPrompt(mustKeepTerms: string[]): string {
+  if (!mustKeepTerms.length) {
+    return [
+      '- 入力回答で強調された市場・用途・技術・顧客価値を、戦略の主語として扱う。',
+      '- 「既存事業から成長領域へ」の一般論で終わらせず、入力回答にある転換先を明確にする。',
+    ].join('\n');
+  }
+
+  const primary = mustKeepTerms.slice(0, 5).join('、');
+  const required = mustKeepTerms.slice(0, 3).join('、');
+  return [
+    `- 戦略の主語候補：${primary}`,
+    `- 必須保持語：${required}`,
+    '- これらは単なる装飾語ではなく、「当社が何者へ転換するのか」「顧客が何を理由に選ぶのか」を定義する材料として使う。',
+    '- 必須保持語のうち少なくとも1つは、結論相当の転換文、第2章の戦略選択、または中計コンセプトのいずれかで、戦略の主語として使う。',
+    '- 第1章または第2章の早い段落で、既存の競争軸から新しい提供価値への転換を明確に書く。',
+    '- 第2章では、重要語を重点市場・用途・技術・顧客価値・資源配分の判断基準に接続する。',
+    '- 第3章では、重要語が実現されたときの顧客からの評価や成果指標に接続する。',
+  ].join('\n');
+}
+
 function formatStoryDraft(storyDraft: unknown): string {
   const arr = asArray<Record<string, unknown>>(storyDraft);
   if (!arr.length) return asText(storyDraft, 2000) || '—';
@@ -693,6 +811,8 @@ function cleanFinalStoryArtifacts(text: string): string {
   out = out.replace(/\b我々\b/g, '当社');
   out = out.replace(/の?夢(?!の市場|を実現)/g, '将来像');
   out = out.replace(/誇りとやりがい/g, '仕事の意味や顧客価値への接続');
+  out = out.replace(/誇りややりがい/g, '仕事の意味や顧客価値への接続');
+  out = out.replace(/仕事への誇りややりがい/g, '仕事の意味や顧客価値への接続');
   out = out.replace(/挑戦を恐れず/g, '重点市場への行動変化');
   out = stripPeopleRelatedNoise(out);
   out = out.replace(/[ \t]+\n/g, '\n');
@@ -700,12 +820,17 @@ function cleanFinalStoryArtifacts(text: string): string {
   return tidyJa(out);
 }
 
-function evaluateStrategicIntentCoverage(text: string): {
+function evaluateStrategicIntentCoverage(text: string, mustKeepTerms: string[] = []): {
   covered: number;
   total: number;
   missing: string[];
+  missingMustKeepTerms: string[];
+  missingSpineTerms: string[];
 } {
   const source = normalizeNewlines(text || '');
+  const sourceKey = normalizeTermForKey(source);
+  const strategicFrontText = source.slice(0, Math.max(1200, Math.floor(source.length * 0.45)));
+  const strategicFrontKey = normalizeTermForKey(strategicFrontText);
   const checks: Array<{ key: string; patterns: RegExp[] }> = [
     {
       key: '危機認識',
@@ -744,11 +869,20 @@ function evaluateStrategicIntentCoverage(text: string): {
   const missing = checks
     .filter((check) => !check.patterns.some((pattern) => pattern.test(source)))
     .map((check) => check.key);
+  const missingMustKeepTerms = mustKeepTerms
+    .filter((term) => !sourceKey.includes(normalizeTermForKey(term)))
+    .slice(0, 8);
+  const missingSpineTerms = mustKeepTerms
+    .slice(0, 3)
+    .filter((term) => !strategicFrontKey.includes(normalizeTermForKey(term)))
+    .slice(0, 3);
 
   return {
     covered: checks.length - missing.length,
     total: checks.length,
     missing,
+    missingMustKeepTerms,
+    missingSpineTerms,
   };
 }
 
@@ -762,7 +896,7 @@ function evaluateExecutiveStoryQuality(sections: { heading: string; body: string
   const bodyLengths = sections.map((section) => Array.from(section.body || '').length);
   const joined = sections.map((section) => section.body || '').join('\n');
   const count = (pattern: RegExp) => (joined.match(pattern) || []).length;
-  const genericWeakPhraseCount = count(/新技術の導入|製品ラインナップの拡充|生産プロセスの最適化|市場調査|競争環境を把握/g);
+  const genericWeakPhraseCount = count(/新技術の導入|製品ラインナップの拡充|生産プロセスの最適化|市場調査|プロジェクトチームを編成|ターゲット顧客を特定|競争環境を把握/g);
 
   return {
     minBodyLength: Math.min(...bodyLengths),
@@ -772,7 +906,7 @@ function evaluateExecutiveStoryQuality(sections: { heading: string; body: string
       .filter((item) => item.len < 700)
       .map((item) => item.index),
     genericWeakPhraseCount,
-    hasGenericWeaknessRisk: genericWeakPhraseCount >= 4,
+    hasGenericWeaknessRisk: genericWeakPhraseCount >= 2,
   };
 }
 
@@ -783,6 +917,7 @@ function containsBadTone(text: string): { hasBadTone: boolean; found: string[] }
     { pattern: /\b我々\b/g, label: '我々' },
     { pattern: /(?<!\S)夢(?!\S)/g, label: '夢' },
     { pattern: /誇り/g, label: '誇り' },
+    { pattern: /やりがい/g, label: 'やりがい' },
     { pattern: /挑戦/g, label: '挑戦' },
     { pattern: /全社員が/g, label: '全社員が' },
   ];
@@ -1224,11 +1359,14 @@ async function repairExecutiveStoryIfNeeded(args: {
   maxTokens?: number;
   coverage: ReturnType<typeof evaluateStrategicIntentCoverage>;
   quality: ReturnType<typeof evaluateExecutiveStoryQuality>;
+  mustKeepTerms?: string[];
 }): Promise<{ heading: string; body: string }[]> {
   const shouldRepair =
     args.quality.tooShortIndexes.length > 0 ||
     args.quality.hasGenericWeaknessRisk ||
-    args.coverage.missing.length >= 2;
+    args.coverage.missing.length >= 2 ||
+    args.coverage.missingMustKeepTerms.length > 0 ||
+    args.coverage.missingSpineTerms.length > 0;
 
   if (!shouldRepair) return args.sections;
 
@@ -1243,6 +1381,8 @@ async function repairExecutiveStoryIfNeeded(args: {
     const user = [
       '【補正理由】',
       `- 反映不足: ${args.coverage.missing.join('、') || 'なし'}`,
+      `- 重要語の欠落: ${args.coverage.missingMustKeepTerms.join('、') || 'なし'}`,
+      `- 戦略前半で弱い重要語: ${args.coverage.missingSpineTerms.join('、') || 'なし'}`,
       `- 短すぎる章index: ${args.quality.tooShortIndexes.join(', ') || 'なし'}`,
       `- 一般論に戻るリスク: ${args.quality.hasGenericWeaknessRisk ? 'あり' : 'なし'}`,
       '',
@@ -1253,11 +1393,20 @@ async function repairExecutiveStoryIfNeeded(args: {
       '- 入力された「やめること」「見直すこと」を、資源配分の判断基準として明確にする',
       '- 経営層がスローガンではなく、人・予算・投資・評価基準・KPIをどう変えるかを書く',
       '- 社員が日々の仕事で何を判断基準にすべきかを、入力回答に沿って具体化する',
+      '- 重要語は企業固有の経営意思として扱い、同義の一般語へ丸めすぎない',
+      '- 重要語を、単なる装飾語ではなく「何者へ転換するのか」を示す戦略の主語として使う',
+      '- 上位の重要語は、結論相当の転換文または第2章の戦略選択で必ず使う',
+      '',
+      '【重要語（入力から自動抽出。本文内で自然に保持する）】',
+      (args.mustKeepTerms ?? []).length ? (args.mustKeepTerms ?? []).map((term) => `- ${term}`).join('\n') : '—',
+      '',
+      '【戦略の背骨（重要語をどう使うか）】',
+      formatStrategicSpineForPrompt(args.mustKeepTerms ?? []),
       '',
       '【禁止】',
       '- 90日、90日間、90日アクションという表現は禁止',
       '- 入力にない業種・市場・技術・製品名を追加しない',
-      '- 「新技術導入」「製品ラインナップ拡充」「生産プロセス最適化」「市場調査」だけで章を終わらせない',
+      '- 「新技術導入」「製品ラインナップ拡充」「生産プロセス最適化」「市場調査」「プロジェクトチームを編成」「ターゲット顧客を特定」を中心に書かない',
       '- 精神論、訓示調、一般論にしない',
       '',
       '【経営意思（12問回答）】',
@@ -1447,6 +1596,10 @@ export async function POST(req: NextRequest) {
 - 12問回答は、危機感、重点市場、重点顧客、強み、価値提供、やめること、資源配分、KPI、進捗管理論点として必ず本文に反映する。
 - 各章のKey Message相当の結論は、12問回答の意味から導く。一般的な中計表現や業界一般論で置き換えない。
 - 重点市場・技術・顧客価値・やめること・経営行動・社員行動に関する固有表現は、抽象化しすぎず残す。
+- 入力から抽出された重要語は、特定企業向けの固定語ではなく、そのユーザーが強調した経営意思である。本文内で自然に保持し、一般語へ丸めすぎない。
+- 重要語を無理に連呼しない。ただし上位の重要語は、結論相当の転換文または第2章の戦略選択で必ず使う。
+- 重要語は単に本文中に登場させるだけでは不十分である。重要語を使って「既存の何から、どの顧客価値・市場・用途・技術領域へ転換するのか」を明確にする。
+- 第1章または第2章の早い段落で、入力回答に基づく転換の一文を必ず書く。例示ではなく、当該企業の戦略の主語として書く。
 - 質問文、回答者の口調、「第1問」などの表現は本文に出さない。
 
 【12問から抽出すべき経営意思】
@@ -1466,7 +1619,7 @@ export async function POST(req: NextRequest) {
 - 「私たち」「我々」の代わりに「当社」で統一する。
 - 「入力値」「基準値」「論点ID」「issue-」「関連論点=」「目標値=」「目標年=」「North Star未入力」などの内部表現は使わない。
 - 「90日」「90日間」「90日アクション」「最初の90日間」は使わない。
-- 「新技術の導入」「製品ラインナップの拡充」「生産プロセスの最適化」だけで章を終わらせない。これらは必要な場合も、戦略の中心ではなく実行手段として扱う。
+- 「新技術の導入」「製品ラインナップの拡充」「生産プロセスの最適化」「市場調査」「プロジェクトチームを編成」「ターゲット顧客を特定」などの汎用施策を中心に書かない。必要な場合も、戦略の中心ではなく実行手段として短く扱う。
 - 精神論や情緒的な締めくくりで章を終わらせない。必ず経営判断、資源配分の変化、実行への接続を書く。
 
 【章ごとの役割】
@@ -1507,6 +1660,8 @@ JSONのみ。スキーマ：
     ]
       .filter(Boolean)
       .join('\n');
+    const mustKeepTerms = extractMustKeepTerms(answers12);
+    const strategicSpineText = formatStrategicSpineForPrompt(mustKeepTerms);
 
     const companyTargetsText = formatCompanyTargets(companyTargets);
     const selectedWinPatternText = formatSelectedWinPattern(winPatternsCandidate, selectedWinPatternId);
@@ -1571,6 +1726,12 @@ ${storyDraftText}
 【経営意思ダイジェスト（12問回答から抽出：最優先）】
 ${strategicIntentDigest ? JSON.stringify(strategicIntentDigest, null, 2) : '—'}
 
+【重要語（12問回答から自動抽出：一般語に丸めず保持）】
+${mustKeepTerms.length ? mustKeepTerms.map((term) => `- ${term}`).join('\n') : '—'}
+
+【戦略の背骨（重要語をどう使うか）】
+${strategicSpineText}
+
 【経営意思（12問回答：最優先で反映する質問＋回答）】
 ${stripPeopleRelatedNoise(answersRich) || '—'}
 
@@ -1590,6 +1751,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
       answers2Count: Array.isArray(answers2) ? answers2.length : 0,
       answers12Count: Array.isArray(answers12) ? answers12.length : 0,
       answersRichLength: answersRich.length,
+      mustKeepTermsCount: mustKeepTerms.length,
       hasStoryDraft: !!storyDraft,
       hasFinanceData: !!fin,
       suspiciousKeywordFlags: checkSuspiciousKeywords(userPrompt),
@@ -1729,7 +1891,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
       body: sections[i]?.body || '（この章は未生成です）',
     }));
 
-    let strategicIntentCoverage = evaluateStrategicIntentCoverage(longform);
+    let strategicIntentCoverage = evaluateStrategicIntentCoverage(longform, mustKeepTerms);
     let executiveStoryQuality = evaluateExecutiveStoryQuality(sections);
 
     // ★ prompt.txt指示：生成後チェック（bad tone, typo）
@@ -1752,6 +1914,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
         maxTokens: 3600,
         coverage: strategicIntentCoverage,
         quality: executiveStoryQuality,
+        mustKeepTerms,
       });
       if (repairedSections !== sections) {
         sections = repairedSections.map((s) => ({ ...s, body: cleanFinalStoryArtifacts(s.body) }));
@@ -1769,7 +1932,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
           title,
           body: sections[i]?.body || '（この章は未生成です）',
         }));
-        strategicIntentCoverage = evaluateStrategicIntentCoverage(longform);
+        strategicIntentCoverage = evaluateStrategicIntentCoverage(longform, mustKeepTerms);
         executiveStoryQuality = evaluateExecutiveStoryQuality(sections);
       }
     } else if (!usedHeuristic) {
@@ -1779,7 +1942,11 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
       });
     }
 
-    if (strategicIntentCoverage.missing.length > 0) {
+    if (
+      strategicIntentCoverage.missing.length > 0 ||
+      strategicIntentCoverage.missingMustKeepTerms.length > 0 ||
+      strategicIntentCoverage.missingSpineTerms.length > 0
+    ) {
       console.warn('[stage2/generate-final] strategic intent coverage missing:', {
         requestId,
         companyId: requestedCompanyId?.slice(0, 8),
@@ -1787,6 +1954,8 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
         covered: strategicIntentCoverage.covered,
         total: strategicIntentCoverage.total,
         missing: strategicIntentCoverage.missing,
+        missingMustKeepTerms: strategicIntentCoverage.missingMustKeepTerms,
+        missingSpineTerms: strategicIntentCoverage.missingSpineTerms,
       });
     }
     if (
@@ -1837,6 +2006,10 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
           '}',
           'strategicCore は、12問回答・SWOT・確定済みストーリーに実際に含まれる具体語だけで作ること。',
           '「成長領域」「新市場」「高付加価値」などの抽象語だけに丸めず、入力にある市場名・用途名・技術名・顧客価値を保持すること。',
+          '重要語が提示されている場合は、そのユーザーが強調した経営意思として strategicCore.nonNegotiableThemes に自然な形で保持すること。',
+          'midtermConcept と strategicCore.primaryShift では、重要語を使って「既存の何から、どの顧客価値・市場・用途・技術領域へ転換するのか」を1文で明確にすること。',
+          '上位の重要語が提示されている場合、少なくとも1語は midtermConcept または strategicCore.primaryShift に含めること。',
+          'priorityStrategicThemes は「新技術の導入」「生産効率向上」などの汎用施策で終わらせず、入力にある重点市場・用途・顧客価値・中核能力に接続すること。',
           'ただし、入力にない固有市場名・技術名・製品名は絶対に追加しないこと。',
         ].join('\n');
 
@@ -1849,6 +2022,12 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
           `【勝ちパターン】${patternsLine}`,
           `【SWOT】S=${sanitize(strength, 300) || '—'}／W=${sanitize(weakness, 300) || '—'}／O=${sanitize(opportunity, 300) || '—'}／T=${sanitize(threat, 300) || '—'}`,
           `【事業・セグメント】${segmentsText}`,
+          '',
+          '【重要語（12問回答から自動抽出：一般語に丸めず保持）】',
+          mustKeepTerms.length ? mustKeepTerms.map((term) => `- ${term}`).join('\n') : '—',
+          '',
+          '【戦略の背骨（重要語をどう使うか）】',
+          strategicSpineText,
           '',
           '【経営意思（12問回答：最優先）】',
           sanitize(stripPeopleRelatedNoise(answersRich), 6000) || '—',
@@ -1868,6 +2047,17 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
         const parsedMid = extractJsonLoose<Record<string, any>>(midtermRaw);
         if (parsedMid && typeof parsedMid === 'object' && !Array.isArray(parsedMid)) {
           const str = (v: unknown) => (typeof v === 'string' && v.trim() ? sanitize(v, 400) : undefined);
+          const mergeTerms = (base: string[] | undefined, terms: string[], max: number) => {
+            const merged: string[] = [];
+            for (const item of [...(base ?? []), ...terms]) {
+              const cleaned = cleanMustKeepTerm(item);
+              const key = normalizeTermForKey(cleaned);
+              if (!cleaned || merged.some((v) => normalizeTermForKey(v) === key)) continue;
+              merged.push(sanitize(cleaned, 200));
+              if (merged.length >= max) break;
+            }
+            return merged.length > 0 ? merged : undefined;
+          };
           const strArr = (v: unknown, max: number) => {
             const arr = Array.isArray(v)
               ? v.filter((x) => typeof x === 'string' && x.trim()).slice(0, max).map((x) => sanitize(x, 200))
@@ -1884,7 +2074,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
                     coreCapabilities: strArr(parsedMid.strategicCore.coreCapabilities, 8),
                     portfolioShift: str(parsedMid.strategicCore.portfolioShift),
                     behaviorChange: str(parsedMid.strategicCore.behaviorChange),
-                    nonNegotiableThemes: strArr(parsedMid.strategicCore.nonNegotiableThemes, 8),
+                    nonNegotiableThemes: mergeTerms(strArr(parsedMid.strategicCore.nonNegotiableThemes, 8), mustKeepTerms, 8),
                   }).filter(([, v]) => v !== undefined),
                 )
               : undefined;
