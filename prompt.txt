@@ -1,52 +1,51 @@
-まだ直っていません。
+原因が確定しました。DB保存ではありません。
 
-ただし、今回のログで重要なのはここです。
+## ログ上の事実
 
-[DB update final payload bridge]
-hasStrategicCore: true
-keys: Array(7)
-
-つまり、Supabase update 直前の payload には complete bridge が入っています。
-
-次に切り分けるべきは以下です。
-
-## 必ず確認すること
-
-`[DB verify saved bridge]` の中身を展開して確認してください。
-
-### パターンA
-`[DB verify saved bridge] hasStrategicCore: false` の場合：
-
-DB update payloadには入っているのに、実DB保存結果から消えています。
-この場合は、`.update(updatePayload)` に渡す直前の payload と、実際に `.select()` で返ってくる `stage3_strategy_bridge` を比較してください。
-
-確認ログ：
+以下のログで、Supabaseには完全版bridgeが保存されています。
 
 ```ts
-console.log('[DB verify saved bridge expanded]', {
-  hasBridge: !!saved?.stage3_strategy_bridge,
-  keys: saved?.stage3_strategy_bridge
-    ? Object.keys(saved.stage3_strategy_bridge)
-    : [],
-  rawBridge: saved?.stage3_strategy_bridge,
-  hasStrategicCore: !!saved?.stage3_strategy_bridge?.strategicCore,
-});
-パターンB
+[DB verify saved bridge expanded]
+hasStrategicCore: true
+keys: Array(7)
+rawBridge: {
+  keyThemes,
+  departmentIssues,
+  kpiCriteria,
+  commonBehaviorChanges,
+  generatedAt,
+  strategicCore,
+  departmentTranslationRules
+}
 
-[DB verify saved bridge] hasStrategicCore: true の場合：
+つまりDB保存は成功しています。
 
-DBには保存できています。
-その場合、リロード時の fetch / normalize / hydrate で落ちています。
+しかしリロード後の画面では：
 
-以下を重点修正してください。
+[STAGE3 bridge render]
+hasStrategicCore: false
+concreteDomains: undefined
+nonNegotiableThemes: undefined
+
+になっています。
+
+結論
+
+壊れているのはDB保存ではなく、DBから読み込んだ後の変換処理です。
+
+対象は以下です。
 
 fetchStrategy
 normalizeFromDbRow
-buildSavePayload
-buildStateFromDb
+buildStateFromDbRow
+buildStateFromDbRaw
+restoreStrategyData
 hydrate時の setState
+保存後の serverData をstoreへ戻すnormalize処理
+修正方針
 
-特に、DB rowからstoreへ戻す時に以下のような旧形式再構成をしていないか確認してください。
+DB row の stage3_strategy_bridge は絶対に再構成しないでください。
+丸ごとstoreへ入れてください。
 
 悪い例：
 
@@ -58,77 +57,84 @@ stage3_strategy_bridge: {
   generatedAt: row.stage3_strategy_bridge?.generatedAt,
 }
 
-正しくは：
+正しい例：
 
-stage3_strategy_bridge: row.stage3_strategy_bridge
+const dbBridge = row.stage3_strategy_bridge;
+
+stage3_strategy_bridge: dbBridge
   ? {
-      ...row.stage3_strategy_bridge,
-      strategicCore: row.stage3_strategy_bridge.strategicCore,
-      departmentTranslationRules:
-        row.stage3_strategy_bridge.departmentTranslationRules ?? [],
+      ...dbBridge,
+      strategicCore: dbBridge.strategicCore,
+      departmentTranslationRules: dbBridge.departmentTranslationRules ?? [],
     }
   : undefined
-追加で重要
+特に見るべきログ
 
-リロード直後に以下のログが出ています。
+スクショでは、DB保存後に次のようなログも出ています。
 
-[STAGE3 bridge save payload]
-hasStrategicCore: false
-bridgeKeys: Array(5)
+serverData bridge keys: Array(5)
+serverData hasStrategicCore: false
 
-これは、リロード後に不完全bridgeをautosave/manual saveして、DBの完全版を上書きしている可能性があります。
+一方で、DB verifyでは Array(7) です。
 
-したがって、保存ガードを強化してください。
+これは、serverData を作る処理、つまり normalizeFromDbRow や extractServerDecidedPatch が、DB rowから取得した完全版bridgeを旧形式に丸めている可能性が高いです。
 
-保存ガードの必須条件
+必ず修正すること
+1. normalizeFromDbRow で bridge を丸めない
+const stage3Bridge = row.stage3_strategy_bridge;
 
-DBまたは直前storeに complete bridge が存在する場合、strategicCoreなしの bridge を保存してはいけません。
+normalized.stage3_strategy_bridge = stage3Bridge
+  ? {
+      ...stage3Bridge,
+      strategicCore: stage3Bridge.strategicCore,
+      departmentTranslationRules: stage3Bridge.departmentTranslationRules ?? [],
+    }
+  : undefined;
+2. buildStateFromDbRow / buildStateFromDbRaw でも同じ
 
-if (
-  payload.stage3_strategy_bridge &&
-  !payload.stage3_strategy_bridge.strategicCore
-) {
-  const currentBridge = get().stage3_strategy_bridge;
+DBからstoreを作るすべての関数で、stage3_strategy_bridge を4項目だけに再構成しないでください。
 
-  if (currentBridge?.strategicCore) {
-    console.warn('[STAGE3 bridge save guard] blocked incomplete bridge overwrite');
-    payload.stage3_strategy_bridge = currentBridge;
-  } else {
-    console.warn('[STAGE3 bridge save guard] removing incomplete bridge from payload');
-    delete payload.stage3_strategy_bridge;
-  }
+3. extractServerDecidedPatch でも bridge を旧形式にしない
+
+もし extractServerDecidedPatch が stage3_strategy_bridge を作っているなら削除するか、完全版を維持してください。
+
+if (serverData.stage3_strategy_bridge) {
+  patch.stage3_strategy_bridge = {
+    ...serverData.stage3_strategy_bridge,
+    strategicCore: serverData.stage3_strategy_bridge.strategicCore,
+    departmentTranslationRules:
+      serverData.stage3_strategy_bridge.departmentTranslationRules ?? [],
+  };
 }
+4. リロード後の不完全bridge保存は引き続きブロック
 
-重要：
-strategicCore なしの stage3_strategy_bridge をDBに保存しないでください。
-旧形式 Array(5) bridge は、complete bridge を破壊するため危険です。
+スクショ2では以下が出ています。
+
+[STAGE3 bridge save guard] removing incomplete bridge from payload
+
+これは正しい方向です。
+ただし、本来はリロード後に不完全bridgeがstoreに入らないようにするのが本筋です。
 
 完了条件
 
-以下を必ずログで確認してください。
+リロード直後に以下がすべて true になること。
 
-[DB update final payload bridge] hasStrategicCore: true
-[DB verify saved bridge] hasStrategicCore: true
+[buildStateFromDbRow] stage3_bridge hasStrategicCore: true
 [STAGE3 bridge hydrate] hasStrategicCore: true
 [STAGE3 bridge render] hasStrategicCore: true
 
-さらにリロード後に、以下のログが出ないこと：
+また、以下が出ないこと。
 
-[STAGE3 bridge save payload] hasStrategicCore: false
-
-もし出る場合、その保存はブロックしてください。
-
+[STAGE3 bridge render] hasStrategicCore: false
 重要
 
-今は DB update final payload までは成功しています。
-次は必ず [DB verify saved bridge] を展開し、
+もうDB保存処理を疑わないでください。
 
-DB保存で消えているのか
-DB保存後のfetch/hydrateで消えているのか
-リロード後のautosaveが旧形式で上書きしているのか
+[DB verify saved bridge expanded] hasStrategicCore: true なので、DBには保存されています。
 
-この3点を切り分けて、該当箇所を修正してください。
+修正対象は、
+DB rowからstoreに戻す normalize / buildState / hydrate 処理です。
 
 
-今の状態では、**旧形式 Array(5) bridge を保存し続ける処理がまだ残っています**。  
-なので「完全版を保存する」だけでなく、**不完全版を保存させないガード**が必要です。
+今の切り分けはかなり良いです。  
+次は「DB保存」ではなく、**DBから読み出したあとに旧形式へ丸めている箇所**だけを潰せばいいです。

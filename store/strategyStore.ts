@@ -1701,31 +1701,18 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     Array.isArray(raw.answers_12) ? raw.answers_12 :
     [];
 
-  // ★ STAGE3 bridge 復元（strategicCore を含める）
+  // ★ STAGE3 bridge 復元（DBから取得した完全版を丸ごと保持）
+  // 重要：bridge を再構成せず、spread演算子で全プロパティを保持する
   const stage3Bridge = (() => {
-    const rawBridge = raw.stage3_strategy_bridge ?? raw.stage3_bridge;
-    if (!rawBridge || typeof rawBridge !== 'object') return undefined;
+    const dbBridge = raw.stage3_strategy_bridge ?? raw.stage3_bridge;
+    if (!dbBridge || typeof dbBridge !== 'object') return undefined;
 
-    // strategicCore は新しいフィールド、必ず保持する
-    const result: any = {
-      keyThemes: Array.isArray(rawBridge.keyThemes) ? rawBridge.keyThemes : [],
-      departmentIssues: Array.isArray(rawBridge.departmentIssues) ? rawBridge.departmentIssues : [],
-      kpiCriteria: Array.isArray(rawBridge.kpiCriteria) ? rawBridge.kpiCriteria : [],
-      commonBehaviorChanges: Array.isArray(rawBridge.commonBehaviorChanges) ? rawBridge.commonBehaviorChanges : [],
-      generatedAt: typeof rawBridge.generatedAt === 'string' ? rawBridge.generatedAt : new Date().toISOString(),
+    // ★ CRITICAL: Spread entire bridge to preserve all fields including strategicCore
+    return {
+      ...dbBridge,
+      strategicCore: dbBridge.strategicCore,
+      departmentTranslationRules: dbBridge.departmentTranslationRules ?? [],
     };
-
-    // strategicCore がある場合は必ず保持（旧形式への回帰を防ぐ）
-    if (rawBridge.strategicCore && typeof rawBridge.strategicCore === 'object') {
-      result.strategicCore = rawBridge.strategicCore;
-    }
-
-    // departmentTranslationRules も保持
-    if (Array.isArray(rawBridge.departmentTranslationRules)) {
-      result.departmentTranslationRules = rawBridge.departmentTranslationRules;
-    }
-
-    return result;
   })();
 
   const patch: any = {
@@ -1815,6 +1802,13 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
 
   // ★ STAGE3 bridge hydrate ログ
   if (DEBUG || stage3Bridge) {
+    console.log('[buildStateFromDbRow] stage3_bridge hasStrategicCore', {
+      hasStrategicCore: !!stage3Bridge?.strategicCore,
+      keys: stage3Bridge ? Object.keys(stage3Bridge) : [],
+      concreteDomains: stage3Bridge?.strategicCore?.concreteDomains,
+      nonNegotiableThemes: stage3Bridge?.strategicCore?.nonNegotiableThemes,
+    });
+
     console.log('[STAGE3 bridge hydrate] loaded from DB', {
       hasBridge: !!stage3Bridge,
       hasStrategicCore: !!stage3Bridge?.strategicCore,
