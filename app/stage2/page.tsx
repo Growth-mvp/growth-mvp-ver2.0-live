@@ -21,7 +21,7 @@ import {
 import { getFullStrategyDataByCompany, saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
 import { saveWithAudit } from '@/utils/persist/saveWithAudit';
 import { restoreWithAudit } from '@/utils/persist/restoreWithAudit';
-import type { IssueBlock, MetricsSummary, StoryChapter, WinPatternCandidate, Stage2State, Stage2Answer } from '@/types/strategy';
+import type { IssueBlock, MetricsSummary, StoryChapter, WinPatternCandidate, Stage2State, Stage2Answer, Stage2FinalDocumentEdits } from '@/types/strategy';
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 import { StrategyStoryPreview } from '@/components/stage2/StrategyStoryPreview';
@@ -3185,6 +3185,11 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       // Step 1: STAGE3へ引き渡し（戦略展開ブリッジ生成）
       setCommittingStatus('STAGE3へ引き渡しています...');
 
+      const bridgeDocumentEdits =
+        editingDocumentEdits ??
+        stage2FinalDocumentEdits ??
+        (midtermStrategy ? { midtermStrategy } : undefined);
+
       let bridgeResult: any;
       try {
         bridgeResult = await authFetchJson('/api/stage3/generate-strategy-bridge', {
@@ -3192,13 +3197,14 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           json: {
             finalStoryFinal: finalStoryToSave,
             companyId,
-            stage2FinalDocumentEdits,
+            stage2FinalDocumentEdits: bridgeDocumentEdits,
           },
         });
 
         console.log('[Stage2Confirm] bridge generated', {
           operationId,
           keyThemesCount: bridgeResult?.keyThemes?.length ?? 0,
+          hasStrategicCore: !!bridgeResult?.strategicCore,
         });
       } catch (bridgeErr: any) {
         console.error('[Stage2Confirm] bridge generation failed', { operationId, error: bridgeErr?.message });
@@ -3327,7 +3333,17 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       setCommittingStatus(null);
       setCommittingFinalStory(false);
     }
-  }, [committingFinalStory, editingStory, companyId, strategyId, userId, router]);
+  }, [
+    committingFinalStory,
+    editingStory,
+    editingDocumentEdits,
+    stage2FinalDocumentEdits,
+    midtermStrategy,
+    companyId,
+    strategyId,
+    userId,
+    router,
+  ]);
 
   /* ★ STAGE3引き渡し再実行処理 */
   const handleRetryStage3Bridge = useCallback(async () => {
@@ -3344,11 +3360,17 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         throw new Error('確定版ストーリーが見つかりません');
       }
 
+      const bridgeDocumentEdits =
+        editingDocumentEdits ??
+        stage2FinalDocumentEdits ??
+        (midtermStrategy ? { midtermStrategy } : undefined);
+
       const bridgeResult = await authFetchJson('/api/stage3/generate-strategy-bridge', {
         method: 'POST',
         json: {
           finalStoryFinal: latestFinalStory,
           companyId,
+          stage2FinalDocumentEdits: bridgeDocumentEdits,
         },
       });
 
@@ -3363,7 +3385,15 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
     } finally {
       setCommittingFinalStory(false);
     }
-  }, [committingFinalStory, finalStoryFinalRaw, editingStory, companyId]);
+  }, [
+    committingFinalStory,
+    finalStoryFinalRaw,
+    editingStory,
+    editingDocumentEdits,
+    stage2FinalDocumentEdits,
+    midtermStrategy,
+    companyId,
+  ]);
 
   // Guard
   if (!loading && issueBlocks.length === 0) {
