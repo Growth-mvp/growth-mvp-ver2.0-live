@@ -5019,6 +5019,8 @@ ${anchorsText || '（利用可能なanchorsなし）'}
 
       for (const m of source.matchAll(/[一-龠ぁ-んァ-ヶA-Za-z0-9・ー]{2,18}向け/g)) add(m[0], true);
       for (const m of source.matchAll(/[一-龠ぁ-んァ-ヶA-Za-z0-9・ー]{2,18}から[一-龠ぁ-んァ-ヶA-Za-z0-9・ー]{2,18}へ/g)) add(m[0], true);
+      for (const m of source.matchAll(/[一-龠ぁ-んァ-ヶA-Za-z0-9・ー]{1,18}AI[一-龠ぁ-んァ-ヶA-Za-z0-9・ー]{0,12}/g)) add(m[0], true);
+      for (const m of source.matchAll(/AI[一-龠ぁ-んァ-ヶA-Za-z0-9・ー]{1,18}/g)) add(m[0], true);
 
       return Array.from(new Set([...highSignalTerms, ...terms]))
         .sort((a, b) => {
@@ -5031,7 +5033,10 @@ ${anchorsText || '（利用可能なanchorsなし）'}
     };
 
     const strategyTerms = extractStrategyTerms(
-      finalStoryText || storyText || '',
+      [
+        finalStoryText || storyText || '',
+        stage3BridgeText || '',
+      ].filter(Boolean).join('\n'),
       Array.isArray(departments)
         ? departments.map((d: any) => [
             pickName(d),
