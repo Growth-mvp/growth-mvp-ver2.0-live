@@ -431,6 +431,84 @@ function buildInterDeptCollabFallback(deptName: string, dept: any): string[] {
   return [`事業部間連携：${deptName} - ${title}`];
 }
 
+function findDeptAnswerByStep(answers: any[], stepNumber: number): string {
+  if (!Array.isArray(answers)) return '';
+  const direct = answers.find((a: any) => Number(a?.stepNumber) === stepNumber);
+  if (direct?.answer) return String(direct.answer).trim();
+  return '';
+}
+
+function summarizeDeptAnswer(answer: string, max = 120): string {
+  const cleaned = sanitizeText(String(answer ?? '').replace(/\s+/g, ' ').trim(), max);
+  if (!cleaned || cleaned === '(未回答)') return '';
+  return cleaned;
+}
+
+function hasTextOverlap(target: any, source: string): boolean {
+  const targetText = Array.isArray(target) ? target.join(' ') : String(target ?? '');
+  const sourceText = String(source ?? '');
+  if (!targetText.trim() || !sourceText.trim()) return false;
+  const tokens = (sourceText.match(/[ァ-ヴー]{2,}|[一-龯々]{2,10}|[A-Za-z0-9]{2,}/g) || [])
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2 && !['こと', 'ため', 'する', 'ある', 'いる', '必要', '部門', '事業'].includes(t))
+    .slice(0, 8);
+  return tokens.some((token) => targetText.includes(token));
+}
+
+function appendUniqueText(list: any, text: string, max = 6): string[] {
+  const base = trimList(Array.isArray(list) ? list : [], max);
+  const value = String(text ?? '').trim();
+  if (!value) return base;
+  if (hasTextOverlap(base, value)) return base;
+  return dedupeStrings([...base, value]).slice(0, max);
+}
+
+function ensureDept6AnswerReflection(deptResult: any, deptInput: any, hasMultipleRequestedDepartments: boolean): void {
+  const answers = pickDeptAnswers6(deptInput);
+  if (!hasAnsweredSteps6(answers)) return;
+
+  const step1 = summarizeDeptAnswer(findDeptAnswerByStep(answers, 1), 120);
+  const step2 = summarizeDeptAnswer(findDeptAnswerByStep(answers, 2), 120);
+  const step3 = summarizeDeptAnswer(findDeptAnswerByStep(answers, 3), 120);
+  const step4 = summarizeDeptAnswer(findDeptAnswerByStep(answers, 4), 120);
+  const step5 = summarizeDeptAnswer(findDeptAnswerByStep(answers, 5), 120);
+  const step6 = summarizeDeptAnswer(findDeptAnswerByStep(answers, 6), 120);
+
+  if (step1 && !hasTextOverlap(`${deptResult?.missionDraft ?? ''} ${deptResult?.missionDescription ?? ''}`, step1)) {
+    const prefix = String(deptResult?.missionDraft ?? '').trim();
+    deptResult.missionDraft = prefix
+      ? `${prefix} また、${step1}。`
+      : `${pickName(deptInput) || pickName(deptResult) || 'この部門'}は、${step1}。`;
+  }
+
+  if (step2 && !hasTextOverlap(deptResult?.lanes?.existing?.projects?.map((p: any) => `${p?.title ?? ''} ${p?.reason ?? ''} ${p?.hypothesis ?? ''}`), step2)) {
+    deptResult.keyIssues = appendUniqueText(deptResult?.keyIssues, `既存進化テーマは、6問回答で示された「${step2}」との接続を明確にする必要がある。`, 4);
+  }
+
+  if (step3 && !hasTextOverlap(deptResult?.lanes?.new?.projects?.map((p: any) => `${p?.title ?? ''} ${p?.reason ?? ''} ${p?.hypothesis ?? ''}`), step3)) {
+    deptResult.keyIssues = appendUniqueText(deptResult?.keyIssues, `新規探索テーマは、6問回答で示された「${step3}」を将来仮説として具体化する必要がある。`, 4);
+  }
+
+  if (step4) {
+    deptResult.riskNotes = appendUniqueText(deptResult?.riskNotes, `犠牲・制約：${step4}`, 6);
+    deptResult.keyIssues = appendUniqueText(deptResult?.keyIssues, `資源配分上の制約として、${step4}を踏まえる必要がある。`, 4);
+  }
+
+  if (step5) {
+    const collabText = `6問回答に基づく協力論点：${step5}`;
+    if (hasMultipleRequestedDepartments && looksLikeInterDeptCollab(step5)) {
+      deptResult.interDeptCollab = appendUniqueText(deptResult?.interDeptCollab, collabText, 6);
+    } else {
+      deptResult.intraDeptCollab = appendUniqueText(deptResult?.intraDeptCollab, collabText, 6);
+    }
+    deptResult.needsCollab = appendUniqueText(deptResult?.needsCollab, collabText, 6);
+  }
+
+  if (step6) {
+    deptResult.stopList = appendUniqueText(deptResult?.stopList, `非対象・見直し：${step6}`, 6);
+  }
+}
+
 function normalizeCollabLists(deptResult: any, deptInput?: any): { intra: string[]; inter: string[]; legacy: string[] } {
   const intra = trimList(
     deptResult?.intraDeptCollab ??
@@ -3491,9 +3569,9 @@ export async function POST(req: NextRequest) {
 - Step1（役まわり）を mission に必ず反映すること（役割を示す語句を含める）
 - Step2（既存貢献）から最低1本を「既存進化」プロジェクトに含めること
 - Step3（未来への挑戦）から最低1本を「新規探索」プロジェクトに含めること
-- Step4（犠牲）に該当する内容を、プロジェクトの risks / constraints として明記すること
-- Step5（協力）を、プロジェクトの dependencies（協力部門・前提）として明記すること
-- Step6（撤退）を、scope 除外または非対象として明記すること
+- Step4（犠牲）に該当する内容を、部門の riskNotes と keyIssues に明記すること
+- Step5（協力）を、needsCollab / intraDeptCollab / interDeptCollab のいずれかに明記すること
+- Step6（撤退・停止）を、stopList に「非対象・見直し項目」として明記すること
 `
           : '';
 
@@ -5389,7 +5467,7 @@ ${JSON.stringify(failed.project, null, 2)}
         // 2nd pass用プロンプト作成（元のdeptBlocks生成ロジックを再利用）
         const secondPassDeptBlock = (() => {
           const name = targetDeptName;
-          const answers = (deptInput?.answers || []) as Array<{ stepNumber: number; answer?: string; label?: string }>;
+          const answers = pickDeptAnswers6(deptInput) as Array<{ stepNumber: number; answer?: string; label?: string }>;
           const answersText = (answers || [])
             .sort((a, b) => (a?.stepNumber || 0) - (b?.stepNumber || 0))
             .slice(0, 6)
@@ -5823,7 +5901,7 @@ ${secondPassDeptBlock}
               const lanesRaw = d?.lanes;
 
               const deptInput = deptInputByName.get(name);
-              const answers = (deptInput?.answers || []) as Array<{ stepNumber: number; answer?: string; label?: string }>;
+              const answers = pickDeptAnswers6(deptInput) as Array<{ stepNumber: number; answer?: string; label?: string }>;
               const answersText = (answers || [])
                 .sort((a, b) => (a?.stepNumber || 0) - (b?.stepNumber || 0))
                 .slice(0, 6)
@@ -6201,6 +6279,22 @@ ${secondPassDeptBlock}
             .filter(Boolean);
       })(),
     };
+
+    /* =========================
+     * ★ STAGE3: 6問回答の構造反映を保証
+     * - プロンプト注入だけでは Q4/Q5/Q6 が消えるため、実スキーマの出力先へ補完する
+     * - Q4: riskNotes / keyIssues
+     * - Q5: needsCollab / intraDeptCollab / interDeptCollab
+     * - Q6: stopList
+     * ======================= */
+    if (Array.isArray(result.departments)) {
+      for (const dept of result.departments) {
+        const deptName = pickName(dept);
+        const deptInput = deptInputByName.get(deptName);
+        if (!deptInput) continue;
+        ensureDept6AnswerReflection(dept, deptInput, hasMultipleRequestedDepartments);
+      }
+    }
 
     /* =========================
      * ★ CRITICAL: 4つのフィールド（currentPosition/strategicRole/keyIssues/alignmentRiskPoints）チェック＋専用再生成
