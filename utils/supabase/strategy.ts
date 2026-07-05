@@ -709,6 +709,14 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const safeRow = row ?? {};
   const out: any = {};
 
+  // ★ CRITICAL: STAGE3 bridge check - verify it was actually fetched from DB
+  console.log('[buildStateFromDbRow] stage3 bridge raw from DB', {
+    hasColumn: Object.prototype.hasOwnProperty.call(safeRow, 'stage3_strategy_bridge'),
+    hasBridge: !!safeRow.stage3_strategy_bridge,
+    keys: safeRow.stage3_strategy_bridge ? Object.keys(safeRow.stage3_strategy_bridge) : [],
+    hasStrategicCore: !!safeRow.stage3_strategy_bridge?.strategicCore,
+  });
+
   // ★ 診断ログ：DB row に okrTargetScores が入っているか確認
   if (DEBUG) {
     console.log('[diag][dbRow check] okrTargetScores:', {
