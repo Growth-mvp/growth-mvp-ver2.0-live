@@ -1960,6 +1960,13 @@ export const useStrategyStore = create<StrategyState>()(
       setStrategyId: (id) => set({ strategyId: id }),
 
       hydrateFromFullState: (fullState) => {
+        // ★ CRITICAL: Verify stage3_strategy_bridge passed through normalize
+        console.log('[STAGE3 bridge hydrate] entry to hydrateFromFullState', {
+          hasBridge: !!fullState.stage3_strategy_bridge,
+          hasStrategicCore: !!fullState.stage3_strategy_bridge?.strategicCore,
+          keys: fullState.stage3_strategy_bridge ? Object.keys(fullState.stage3_strategy_bridge) : [],
+        });
+
         // ★ DEBUG STAGE1: During hydrate/normalize load
         if (process.env.NEXT_PUBLIC_DEBUG_STAGE1) {
           console.log('[DEBUG_STAGE1] hydrateFromFullState LOAD:', {
@@ -1990,6 +1997,14 @@ export const useStrategyStore = create<StrategyState>()(
           businessPortfolio: guardedBusinessPortfolio,
           hydrated: true,
         }));
+
+        // ★ CRITICAL: Verify bridge made it into store after hydrate
+        const stateAfterHydrate = get();
+        console.log('[STAGE3 bridge hydrate] after setState', {
+          hasBridge: !!stateAfterHydrate.stage3_strategy_bridge,
+          hasStrategicCore: !!stateAfterHydrate.stage3_strategy_bridge?.strategicCore,
+          keys: stateAfterHydrate.stage3_strategy_bridge ? Object.keys(stateAfterHydrate.stage3_strategy_bridge) : [],
+        });
       },
 
       /* ▼破壊的リセット禁止：即消さず、仮スコープでハイドレート開始 */
