@@ -15,11 +15,23 @@ interface ChapterStory {
   body: string;
 }
 
+interface StrategicCore {
+  primaryShift?: string;
+  concreteDomains?: string[];
+  customerValue?: string;
+  coreCapabilities?: string[];
+  portfolioShift?: string;
+  behaviorChange?: string;
+  nonNegotiableThemes?: string[];
+}
+
 interface Stage3StrategyBridge {
   keyThemes: string[];
   departmentIssues: string[];
   kpiCriteria: string[];
   commonBehaviorChanges: string[];
+  strategicCore: StrategicCore;
+  departmentTranslationRules: string[];
   generatedAt: string;
 }
 
@@ -36,6 +48,144 @@ interface Stage2FinalDocumentEdits {
     whatToWin?: string;
     howToExecute?: string;
   };
+  midtermStrategy?: {
+    midtermConcept?: string;
+    targetVisionForMidterm?: string;
+    priorityStrategicThemes?: string[];
+    growthStrategy?: string;
+    profitImprovementStrategy?: string;
+    portfolioPolicy?: string;
+    companyWideDecisionCriteria?: string[];
+    deploymentPrinciplesForUnits?: string[];
+    managementMeetingIssues?: string[];
+    strategicCore?: StrategicCore;
+  };
+}
+
+function createFallbackStrategicCore(
+  parsed: any,
+  stage2FinalDocumentEdits?: Stage2FinalDocumentEdits,
+  finalStoryFinal?: ChapterStory[]
+): StrategicCore {
+  const mts = stage2FinalDocumentEdits?.midtermStrategy;
+
+  // primaryShift：midtermConcept または growthStrategy から作る
+  let primaryShift: string | undefined;
+  if (mts?.midtermConcept) {
+    primaryShift = mts.midtermConcept;
+  } else if (mts?.growthStrategy) {
+    primaryShift = mts.growthStrategy;
+  } else if (parsed.keyThemes?.length > 0) {
+    primaryShift = parsed.keyThemes[0];
+  }
+
+  // concreteDomains：priorityStrategicThemes から具体語を抽出。なければ departmentIssues を使う
+  let concreteDomains: string[] = [];
+  if (mts?.priorityStrategicThemes?.length) {
+    concreteDomains = mts.priorityStrategicThemes.slice(0, 8);
+  } else if (parsed.departmentIssues?.length) {
+    concreteDomains = parsed.departmentIssues.slice(0, 4);
+  }
+
+  // customerValue：targetVisionForMidterm を優先。なければ最終ストーリーから抽出
+  let customerValue: string | undefined;
+  if (mts?.targetVisionForMidterm) {
+    customerValue = mts.targetVisionForMidterm;
+  } else if (finalStoryFinal?.length > 0) {
+    const storyBody = finalStoryFinal[0]?.body || '';
+    const valueMatch = storyBody.match(/(?:顧客価値|選ばれる理由|提供価値)[：:].+?(?=\n|$)/);
+    if (valueMatch) {
+      customerValue = valueMatch[0];
+    }
+  }
+
+  // coreCapabilities：最終ストーリーから技術・能力・強みらしい語を抽出
+  let coreCapabilities: string[] = [];
+  if (stage2FinalDocumentEdits?.assumptions?.internal?.length) {
+    coreCapabilities = stage2FinalDocumentEdits.assumptions.internal.slice(0, 6);
+  } else if (mts?.priorityStrategicThemes?.length) {
+    coreCapabilities = mts.priorityStrategicThemes.slice(0, 6);
+  } else if (parsed.keyThemes?.length) {
+    coreCapabilities = parsed.keyThemes.slice(0, 4);
+  }
+
+  // portfolioShift：portfolioPolicy を優先。なければ kpiCriteria を使う
+  let portfolioShift: string | undefined;
+  if (mts?.portfolioPolicy) {
+    portfolioShift = mts.portfolioPolicy;
+  } else if (parsed.kpiCriteria?.length > 0) {
+    portfolioShift = parsed.kpiCriteria[0];
+  }
+
+  // behaviorChange：deploymentPrinciplesForUnits を優先。なければ commonBehaviorChanges を使う
+  let behaviorChange: string | undefined;
+  if (mts?.deploymentPrinciplesForUnits?.length > 0) {
+    behaviorChange = mts.deploymentPrinciplesForUnits[0];
+  } else if (parsed.commonBehaviorChanges?.length > 0) {
+    behaviorChange = parsed.commonBehaviorChanges[0];
+  }
+
+  // nonNegotiableThemes：priorityStrategicThemes + concreteDomains + keyThemes から重複排除して3～8個
+  const themes = new Set<string>();
+  if (mts?.priorityStrategicThemes) {
+    mts.priorityStrategicThemes.forEach(t => themes.add(t));
+  }
+  concreteDomains.forEach(d => themes.add(d));
+  if (parsed.keyThemes) {
+    parsed.keyThemes.slice(0, 3).forEach((t: string) => themes.add(t));
+  }
+  const nonNegotiableThemes = Array.from(themes).slice(0, 8);
+
+  return {
+    ...(primaryShift ? { primaryShift } : {}),
+    ...(concreteDomains.length > 0 ? { concreteDomains } : {}),
+    ...(customerValue ? { customerValue } : {}),
+    ...(coreCapabilities.length > 0 ? { coreCapabilities } : {}),
+    ...(portfolioShift ? { portfolioShift } : {}),
+    ...(behaviorChange ? { behaviorChange } : {}),
+    ...(nonNegotiableThemes.length > 0 ? { nonNegotiableThemes } : {}),
+  };
+}
+
+function createFallbackDepartmentTranslationRules(
+  parsed: any,
+  strategicCore: StrategicCore
+): string[] {
+  const rules: string[] = [];
+
+  if (strategicCore.primaryShift) {
+    rules.push(`各部門ミッションには ${strategicCore.primaryShift.slice(0, 30)} のうち自部門が担う役割を明記する`);
+  }
+
+  if (strategicCore.concreteDomains?.length) {
+    rules.push(`各プロジェクトは ${strategicCore.concreteDomains[0]} などの重点領域またはコア・テーマのいずれかに接続する`);
+  }
+
+  if (strategicCore.customerValue || strategicCore.portfolioShift || strategicCore.behaviorChange) {
+    const dims = [
+      strategicCore.customerValue ? '顧客価値' : '',
+      strategicCore.portfolioShift ? 'ポートフォリオ転換' : '',
+      strategicCore.behaviorChange ? '行動変化' : ''
+    ].filter(Boolean).join(' / ');
+    if (dims) {
+      rules.push(`KPIは ${dims} の変化を測る指標にする`);
+    }
+  }
+
+  if (strategicCore.nonNegotiableThemes?.length) {
+    rules.push(`全部門が保持すべき ${strategicCore.nonNegotiableThemes[0]} などのテーマは、部門戦略でも具体化する`);
+  }
+
+  if (rules.length < 3) {
+    if (parsed.keyThemes?.length) {
+      rules.push(`各部門の戦略は全社 keyThemes（${parsed.keyThemes[0]}など）に整合させる`);
+    }
+    if (parsed.departmentIssues?.length) {
+      rules.push(`${parsed.departmentIssues[0]}など全社重点領域への貢献を明示する`);
+    }
+  }
+
+  return rules.slice(0, 6);
 }
 
 async function generateStrategyBridge(
@@ -96,34 +246,71 @@ ${stage2FinalDocumentEdits.conclusion}`;
       if (mts.midtermConcept) contextText += `\n基本コンセプト：${mts.midtermConcept}`;
       if (mts.targetVisionForMidterm) contextText += `\n目指す姿：${mts.targetVisionForMidterm}`;
       if (mts.priorityStrategicThemes?.length) {
-        contextText += `\n重点戦略テーマ：\n${mts.priorityStrategicThemes.map(t => `・${t}`).join('\n')}`;
+        contextText += `\n重点戦略テーマ：\n${mts.priorityStrategicThemes.map((t: string) => `・${t}`).join('\n')}`;
       }
+      if (mts.growthStrategy) contextText += `\n成長戦略：${mts.growthStrategy}`;
+      if (mts.profitImprovementStrategy) contextText += `\n収益改善戦略：${mts.profitImprovementStrategy}`;
+      if (mts.portfolioPolicy) contextText += `\n事業ポートフォリオ方針：${mts.portfolioPolicy}`;
       if (mts.companyWideDecisionCriteria?.length) {
-        contextText += `\n全社共通の判断基準：\n${mts.companyWideDecisionCriteria.map(c => `・${c}`).join('\n')}`;
+        contextText += `\n全社共通の判断基準：\n${mts.companyWideDecisionCriteria.map((c: string) => `・${c}`).join('\n')}`;
       }
       if (mts.deploymentPrinciplesForUnits?.length) {
-        contextText += `\n部門・社員への展開方針：\n${mts.deploymentPrinciplesForUnits.map(p => `・${p}`).join('\n')}`;
+        contextText += `\n部門・社員への展開方針：\n${mts.deploymentPrinciplesForUnits.map((p: string) => `・${p}`).join('\n')}`;
+      }
+      if (mts.managementMeetingIssues?.length) {
+        contextText += `\n経営会議で確認すべき論点：\n${mts.managementMeetingIssues.map((i: string) => `・${i}`).join('\n')}`;
+      }
+      if (mts.strategicCore) {
+        const core = mts.strategicCore;
+        contextText += '\n\n【戦略の芯（STAGE3で保持すべき固有テーマ）】';
+        if (core.primaryShift) contextText += `\n転換の軸：${core.primaryShift}`;
+        if (core.concreteDomains?.length) contextText += `\n重点領域：${core.concreteDomains.map((d) => `・${d}`).join('\n')}`;
+        if (core.customerValue) contextText += `\n顧客価値：${core.customerValue}`;
+        if (core.coreCapabilities?.length) contextText += `\n中核能力：${core.coreCapabilities.map((c) => `・${c}`).join('\n')}`;
+        if (core.portfolioShift) contextText += `\n資源配分・ポートフォリオ転換：${core.portfolioShift}`;
+        if (core.behaviorChange) contextText += `\n行動変化：${core.behaviorChange}`;
+        if (core.nonNegotiableThemes?.length) contextText += `\n保持すべきテーマ：${core.nonNegotiableThemes.map((t) => `・${t}`).join('\n')}`;
       }
     }
   }
 
   const prompt = `以下はSTAGE2で策定された全社戦略の最終ストーリーおよび補助セクションです。
-このストーリーをもとに、各事業部門長が自部門戦略・重点プロジェクト・KPIを設計する際の判断材料となる全社戦略サマリーを、以下の4つのブロックに変換してください。
+このストーリーをもとに、各事業部門長が自部門戦略・重点プロジェクト・KPIを設計する際の判断材料となる全社戦略サマリーを、6つのキーで変換してください。
 
 ${contextText}
 
 ---
 
-## 出力形式
+## 出力形式（必須・重要）
 
-JSON形式で以下を返してください。各項目は箇条書き3～4個、1項目40～60文字程度。
+JSON形式で以下を返してください。
+【重要】keyThemes / departmentIssues / kpiCriteria / commonBehaviorChanges だけを返すのは禁止です。
+【必須】JSONには必ず6つのキーをすべて含めてください：
+  1. keyThemes
+  2. departmentIssues
+  3. kpiCriteria
+  4. commonBehaviorChanges
+  5. strategicCore
+  6. departmentTranslationRules
+
+各項目は箇条書き3～4個、1項目40～60文字程度。
 STAGE2の章タイトル（第1章～第4章）は含めず、部門長が実行判断に使える具体的な表現で書いてください。
 
 {
   "keyThemes": ["会社として目指す方向1", "方向2", ...],
   "departmentIssues": ["重点的に伸ばす領域1", "領域2", ...],
   "kpiCriteria": ["見直すべき事業・活動1", "活動2", ...],
-  "commonBehaviorChanges": ["各部門に求める役割1", "役割2", ...]
+  "commonBehaviorChanges": ["各部門に求める役割1", "役割2", ...],
+  "strategicCore": {
+    "primaryShift": "既存の何から、どの方向へ転換するのか",
+    "concreteDomains": ["入力に出てきた重点市場・用途・顧客領域・技術領域"],
+    "customerValue": "顧客が選ぶ理由・提供価値",
+    "coreCapabilities": ["戦略実現の源泉となる強み・能力"],
+    "portfolioShift": "経営資源や事業ポートフォリオをどう移すか",
+    "behaviorChange": "社員・部門に求める行動変化",
+    "nonNegotiableThemes": ["STAGE3以降で一般語に丸めず保持するテーマ"]
+  },
+  "departmentTranslationRules": ["部門戦略へ展開するときの必須ルール1", "ルール2", ...]
 }
 
 ---
@@ -166,9 +353,38 @@ STAGE2の章タイトル（第1章～第4章）は含めず、部門長が実行
 - 部門最適ではなく全社最適を基準に経営資源の配分・転換判断をする
 - 他部門との協業機会を主体的に探索し相乗効果を追求する
 
+### strategicCore（戦略の芯・必須）
+STAGE2の12問回答・最終ストーリー・補助セクション（特に中計設計）から、この会社固有の戦略の芯を抽出する。
+【必須】「成長領域」「新市場」「高付加価値」「新技術」などの一般語だけに丸めず、入力に含まれる重点市場・用途・技術・顧客価値・やめることを保持すること。
+【禁止】入力にない市場名・技術名・製品名・顧客名は絶対に追加しないこと。企業固有ワードは必ず入力から引用すること。
+
+primaryShift：midtermConcept または growthStrategy から作る。存在しない場合は keyThemes から作る。
+concreteDomains：priorityStrategicThemes から具体語を抽出。なければ departmentIssues を使う。
+customerValue：targetVisionForMidterm を優先。なければ最終ストーリーから「顧客価値」「選ばれる理由」に近い文を使う。
+coreCapabilities：最終ストーリーから技術・能力・強みらしい語を抽出。
+portfolioShift：portfolioPolicy を優先。なければ kpiCriteria を使う。
+behaviorChange：deploymentPrinciplesForUnits を優先。なければ commonBehaviorChanges を使う。
+nonNegotiableThemes：priorityStrategicThemes + concreteDomains + keyThemes から重複排除して3～8個。
+
+### departmentTranslationRules（部門展開ルール・必須）
+STAGE3で部門ミッション・重点プロジェクト・KPIを作る際に守るべき必須ルール。
+【必須】3～6個のルールを含めること。以下は例だが、入力の内容に応じて作成すること：
+- 各部門ミッションには strategicCore.primaryShift のうち自部門が担う役割を明記する
+- 各プロジェクトは strategicCore.concreteDomains または nonNegotiableThemes のいずれかに接続する
+- KPIは customerValue / portfolioShift / behaviorChange の変化を測る指標にする
+- 部門間での重複を避け、strategicCore.primaryShift を分割配置する
+
 ---
 
-厳密には JSON のみを出力してください。説明やコメントは不要です。`;
+【最終確認】JSONに以下がすべて含まれているか確認してから出力してください：
+- keyThemes（配列）
+- departmentIssues（配列）
+- kpiCriteria（配列）
+- commonBehaviorChanges（配列）
+- strategicCore（オブジェクト・必須）
+- departmentTranslationRules（配列・必須）
+
+JSON のみを出力してください。説明やコメントは不要です。`;
 
   console.log('[STAGE3] OpenAI API call start', { model: 'gpt-4o', promptLength: prompt.length });
 
@@ -228,28 +444,97 @@ STAGE2の章タイトル（第1章～第4章）は含めず、部門長が実行
         .filter(Boolean)
         .slice(0, 5); // 最大5個まで
     };
+    const toLongStringArray = (v: any, max = 8): string[] => {
+      if (!Array.isArray(v)) return [];
+      return v
+        .map((x) => String(x ?? '').trim())
+        .filter(Boolean)
+        .slice(0, max);
+    };
+    const toString = (v: any, max = 500): string | undefined => {
+      const s = String(v ?? '').trim();
+      return s ? s.slice(0, max) : undefined;
+    };
+    const rawCore = raw.strategicCore && typeof raw.strategicCore === 'object' && !Array.isArray(raw.strategicCore)
+      ? raw.strategicCore
+      : undefined;
+    const aiStrategicCore = rawCore
+      ? Object.fromEntries(
+          Object.entries({
+            primaryShift: toString(rawCore.primaryShift),
+            concreteDomains: toLongStringArray(rawCore.concreteDomains),
+            customerValue: toString(rawCore.customerValue),
+            coreCapabilities: toLongStringArray(rawCore.coreCapabilities),
+            portfolioShift: toString(rawCore.portfolioShift),
+            behaviorChange: toString(rawCore.behaviorChange),
+            nonNegotiableThemes: toLongStringArray(rawCore.nonNegotiableThemes),
+          }).filter(([, v]) => Array.isArray(v) ? v.length > 0 : v !== undefined),
+        ) as StrategicCore
+      : undefined;
 
-    parsed = {
+    const baseParsed = {
       keyThemes: toStringArray(raw.keyThemes),
       departmentIssues: toStringArray(raw.departmentIssues),
       kpiCriteria: toStringArray(raw.kpiCriteria),
       commonBehaviorChanges: toStringArray(raw.commonBehaviorChanges),
+    };
+
+    // strategicCore: AI結果を優先、なければfallbackを作成
+    let strategicCoreSource: 'ai' | 'fallback' = 'fallback';
+    let finalStrategicCore: StrategicCore;
+    if (aiStrategicCore && Object.keys(aiStrategicCore).length > 0) {
+      finalStrategicCore = aiStrategicCore;
+      strategicCoreSource = 'ai';
+    } else {
+      finalStrategicCore = createFallbackStrategicCore(baseParsed, stage2FinalDocumentEdits, finalStoryFinal);
+    }
+
+    // departmentTranslationRules: AI結果を優先、なければfallbackを作成
+    let departmentTranslationRulesSource: 'ai' | 'fallback' = 'fallback';
+    let finalDepartmentTranslationRules = toLongStringArray(raw.departmentTranslationRules, 6);
+    if (finalDepartmentTranslationRules.length > 0) {
+      departmentTranslationRulesSource = 'ai';
+    } else {
+      finalDepartmentTranslationRules = createFallbackDepartmentTranslationRules(baseParsed, finalStrategicCore);
+    }
+
+    parsed = {
+      ...baseParsed,
+      strategicCore: finalStrategicCore,
+      departmentTranslationRules: finalDepartmentTranslationRules,
       generatedAt: new Date().toISOString(),
     };
+
+    // デバッグ情報に追加
+    debugInfo.strategicCoreSource = strategicCoreSource;
+    debugInfo.departmentTranslationRulesSource = departmentTranslationRulesSource;
 
     // バリデーション
     const requiredKeys = ['keyThemes', 'departmentIssues', 'kpiCriteria', 'commonBehaviorChanges'];
     for (const key of requiredKeys) {
-      if (!Array.isArray(parsed[key as keyof Stage3StrategyBridge])) {
+      if (!Array.isArray((parsed as any)[key])) {
         throw new Error(`${key} is not an array`);
       }
     }
 
+    // strategicCore と departmentTranslationRules は必須
+    if (!parsed.strategicCore || typeof parsed.strategicCore !== 'object') {
+      throw new Error('strategicCore must be an object');
+    }
+    if (!Array.isArray(parsed.departmentTranslationRules)) {
+      throw new Error('departmentTranslationRules must be an array');
+    }
+
     // 最低1個は確保
     for (const key of requiredKeys) {
-      if (parsed[key as keyof Stage3StrategyBridge].length === 0) {
-        (parsed[key as keyof Stage3StrategyBridge] as any) = [`${key}の情報が生成されませんでした`];
+      if ((parsed as any)[key].length === 0) {
+        (parsed as any)[key] = [`${key}の情報が生成されませんでした`];
       }
+    }
+
+    // departmentTranslationRules は最低1個は確保
+    if (parsed.departmentTranslationRules.length === 0) {
+      parsed.departmentTranslationRules = ['部門戦略展開時のルール情報が生成されませんでした'];
     }
 
     debugInfo.validationSuccess = true;
@@ -258,6 +543,10 @@ STAGE2の章タイトル（第1章～第4章）は含めず、部門長が実行
       departmentIssuesCount: parsed.departmentIssues.length,
       kpiCriteriaCount: parsed.kpiCriteria.length,
       commonBehaviorChangesCount: parsed.commonBehaviorChanges.length,
+      hasStrategicCore: !!parsed.strategicCore,
+      strategicCoreSource: debugInfo.strategicCoreSource,
+      departmentTranslationRulesCount: parsed.departmentTranslationRules.length,
+      departmentTranslationRulesSource: debugInfo.departmentTranslationRulesSource,
     });
   } catch (e: any) {
     console.error('[STAGE3] JSON parse/validation error:', e?.message);
