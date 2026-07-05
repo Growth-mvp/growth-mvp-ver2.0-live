@@ -1801,8 +1801,20 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
           '  "portfolioPolicy": "事業ポートフォリオ方針（1〜2文）",',
           '  "companyWideDecisionCriteria": ["全社共通の判断基準（2〜4個）"],',
           '  "deploymentPrinciplesForUnits": ["事業・部門へ展開する際の基本軸（2〜4個）"],',
-          '  "managementMeetingIssues": ["経営会議で確認すべき論点（2〜4個）"]',
+          '  "managementMeetingIssues": ["経営会議で確認すべき論点（2〜4個）"],',
+          '  "strategicCore": {',
+          '    "primaryShift": "既存の何から、どの方向へ転換するのか（1文）",',
+          '    "concreteDomains": ["入力に出てきた重点市場・用途・顧客領域・技術領域（3〜8個）"],',
+          '    "customerValue": "顧客が選ぶ理由・提供価値（1文）",',
+          '    "coreCapabilities": ["戦略実現の源泉となる強み・能力（3〜8個）"],',
+          '    "portfolioShift": "経営資源や事業ポートフォリオをどう移すか（1文）",',
+          '    "behaviorChange": "社員・部門に求める行動変化（1文）",',
+          '    "nonNegotiableThemes": ["STAGE3以降で一般語に丸めず保持するテーマ（3〜8個）"]',
+          '  }',
           '}',
+          'strategicCore は、12問回答・SWOT・確定済みストーリーに実際に含まれる具体語だけで作ること。',
+          '「成長領域」「新市場」「高付加価値」などの抽象語だけに丸めず、入力にある市場名・用途名・技術名・顧客価値を保持すること。',
+          'ただし、入力にない固有市場名・技術名・製品名は絶対に追加しないこと。',
         ].join('\n');
 
         const midtermUser = [
@@ -1838,6 +1850,21 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
               : [];
             return arr.length > 0 ? arr : undefined;
           };
+          const strategicCoreCandidate =
+            parsedMid.strategicCore && typeof parsedMid.strategicCore === 'object' && !Array.isArray(parsedMid.strategicCore)
+              ? Object.fromEntries(
+                  Object.entries({
+                    primaryShift: str(parsedMid.strategicCore.primaryShift),
+                    concreteDomains: strArr(parsedMid.strategicCore.concreteDomains, 8),
+                    customerValue: str(parsedMid.strategicCore.customerValue),
+                    coreCapabilities: strArr(parsedMid.strategicCore.coreCapabilities, 8),
+                    portfolioShift: str(parsedMid.strategicCore.portfolioShift),
+                    behaviorChange: str(parsedMid.strategicCore.behaviorChange),
+                    nonNegotiableThemes: strArr(parsedMid.strategicCore.nonNegotiableThemes, 8),
+                  }).filter(([, v]) => v !== undefined),
+                )
+              : undefined;
+
           const candidate = {
             midtermConcept: str(parsedMid.midtermConcept),
             targetVisionForMidterm: str(parsedMid.targetVisionForMidterm),
@@ -1848,6 +1875,10 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
             companyWideDecisionCriteria: strArr(parsedMid.companyWideDecisionCriteria, 4),
             deploymentPrinciplesForUnits: strArr(parsedMid.deploymentPrinciplesForUnits, 4),
             managementMeetingIssues: strArr(parsedMid.managementMeetingIssues, 4),
+            strategicCore:
+              strategicCoreCandidate && Object.keys(strategicCoreCandidate).length > 0
+                ? strategicCoreCandidate
+                : undefined,
           };
           const compact = Object.fromEntries(
             Object.entries(candidate).filter(([, v]) => v !== undefined),
