@@ -2207,6 +2207,18 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         })),
       }));
 
+      // ★ CRITICAL: STAGE3 bridge check before final DB update
+      console.log('[DB update final payload bridge]', {
+        hasBridge: !!updatePayload.stage3_strategy_bridge,
+        keys: updatePayload.stage3_strategy_bridge
+          ? Object.keys(updatePayload.stage3_strategy_bridge)
+          : [],
+        hasStrategicCore: !!updatePayload.stage3_strategy_bridge?.strategicCore,
+        concreteDomains: updatePayload.stage3_strategy_bridge?.strategicCore?.concreteDomains,
+        nonNegotiableThemes: updatePayload.stage3_strategy_bridge?.strategicCore?.nonNegotiableThemes,
+        timestamp: new Date().toISOString(),
+      });
+
       // ★ TASK 13-1: Checkpoint 4 - ceo_intent in updatePayload (most critical)
       if (DEBUG) console.log('[SAVE updatePayload ceo_intent]', {
         len: lenStr((updatePayload as any).ceo_intent),
@@ -2363,6 +2375,17 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         const returnedCsv = (upd.data as any)?.csv_finance_data ?? {};
         const returnedFinancePl = (upd.data as any)?.finance_pl ?? [];
         const returnedStage1Issues = (upd.data as any)?.stage1_issues ?? [];
+        const returnedBridge = (upd.data as any)?.stage3_strategy_bridge;
+
+        // ★ CRITICAL: Verify STAGE3 bridge was saved correctly
+        console.log('[DB verify saved bridge]', {
+          hasStrategicCore: !!returnedBridge?.strategicCore,
+          keys: returnedBridge ? Object.keys(returnedBridge) : [],
+          concreteDomains: returnedBridge?.strategicCore?.concreteDomains,
+          nonNegotiableThemes: returnedBridge?.strategicCore?.nonNegotiableThemes,
+          timestamp: new Date().toISOString(),
+        });
+
         if (DEBUG) console.log('[SAVE returned UPDATE financial data]', {
           id: (upd.data as any)?.id,
           revision: (upd.data as any)?.revision,

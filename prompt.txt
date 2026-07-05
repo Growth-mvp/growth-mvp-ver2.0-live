@@ -1,73 +1,137 @@
-ビルドエラーが出ています。まずこれを直してください。
+まだ直っていません。今回のログで原因が変わりました。
 
-## エラー
-`store/strategyStore.ts`
+## ログから分かること
 
-```txt
-Module parse failed: Identifier 'payloadBridge' has already been declared (3298:30)
+保存直後は一時的に成功しています。
 
-該当箇所：
+- `[STAGE3] bridge post-save restore complete`
+  - `source: 'payload'`
+  - `hasStrategicCore: true`
+- `[STAGE3 bridge render]`
+  - `hasStrategicCore: true`
 
-const payloadBridge = payload.stage3_strategy_bridge;
-const serverBridge = serverData.stage3_strategy_bridge;
-const currentStoreState = get();
+つまり、保存後に payload から store へ戻す処理は一応成功しています。
 
-同じ関数/同じスコープ内で、すでに payloadBridge が宣言されているため、再宣言エラーになっています。
+しかしリロード後は：
 
-修正方針
-方法A：既存の payloadBridge を再利用する
+- `[STAGE3 bridge render]`
+  - `hasStrategicCore: false`
+  - `concreteDomains: undefined`
+  - `nonNegotiableThemes: undefined`
 
-すでに上で宣言済みなら、下では const payloadBridge = ... を消してください。
+さらにその後の保存では：
 
-例：
+- `[STAGE3 bridge save payload]`
+  - `hasStrategicCore: false`
+  - `bridgeKeys: Array(5)`
 
-// 既存の payloadBridge が上で宣言済みなら再宣言しない
-const serverBridge = serverData.stage3_strategy_bridge;
-const currentStoreState = get();
-方法B：変数名を変える
+つまり、**DBから読み直した時点で strategicCore が消えています。**
 
-もし別用途なら、変数名を変えてください。
+## 結論
+今の問題は store restore ではありません。
 
-例：
+本当の原因は、Supabase の `strategy_data.stage3_strategy_bridge` に、完全版bridgeが保存されていないことです。
 
-const restorePayloadBridge = payload.stage3_strategy_bridge;
-const restoreServerBridge = serverData.stage3_strategy_bridge;
-const currentStoreState = get();
+保存直前のpayloadには strategicCore があるが、実際のDB更新payload、またはDB保存処理のどこかで旧形式 Array(5) に落ちています。
 
-その後の参照も全部 restorePayloadBridge / restoreServerBridge に合わせてください。
+## 修正対象
+以下を重点的に確認・修正してください。
 
-注意
+- `utils/supabase/strategy.ts`
+- `saveStrategyData`
+- `buildSavePayload`
+- `extractServerDecidedPatch`
+- `saveWithAudit`
+- Supabase `.update(...)` に渡している最終payload
+- 保存後に返ってくる `serverData.stage3_strategy_bridge`
 
-今回の修正では、payloadBridge がすでに保存payload確認ログなどで使われている可能性が高いです。
-同じスコープに追加した復元用コードだけ、以下のように別名にするのが安全です。
+## 必ずやること
 
-const restorePayloadBridge = payload.stage3_strategy_bridge;
-const restoreServerBridge = serverData.stage3_strategy_bridge;
-const currentStoreState = get();
+### 1. Supabase update 直前の最終DB payloadをログ出力
+`payload` ではなく、実際に `.update(dbPayload)` に渡しているオブジェクトを確認してください。
 
-const bridgeToRestore =
-  restorePayloadBridge?.strategicCore
-    ? restorePayloadBridge
-    : restoreServerBridge?.strategicCore
-      ? restoreServerBridge
-      : currentStoreState.stage3_strategy_bridge?.strategicCore
-        ? currentStoreState.stage3_strategy_bridge
-        : restoreServerBridge ?? restorePayloadBridge ?? currentStoreState.stage3_strategy_bridge;
-
-ログも以下に変えてください。
-
-console.log('[STAGE3] bridge restore after save', {
-  payloadBridge_hasStrategicCore: !!restorePayloadBridge?.strategicCore,
-  serverBridge_hasStrategicCore: !!restoreServerBridge?.strategicCore,
-  storeNow_hasStrategicCore: !!get().stage3_strategy_bridge?.strategicCore,
+```ts
+console.log('[DB update final payload bridge]', {
+  hasBridge: !!dbPayload.stage3_strategy_bridge,
+  keys: dbPayload.stage3_strategy_bridge
+    ? Object.keys(dbPayload.stage3_strategy_bridge)
+    : [],
+  hasStrategicCore: !!dbPayload.stage3_strategy_bridge?.strategicCore,
+  concreteDomains: dbPayload.stage3_strategy_bridge?.strategicCore?.concreteDomains,
+  nonNegotiableThemes: dbPayload.stage3_strategy_bridge?.strategicCore?.nonNegotiableThemes,
 });
-修正後
-ビルドエラーが消えること
-STAGE3画面が表示されること
-その後、前回の確認ログで以下になることを確認してください
-[STAGE3] bridge restore after save
-storeNow_hasStrategicCore: true
-storeNow_bridge_keys: Array(7)
 
-これはロジック以前にコンパイルが止まっています。  
-まず **変数名を `restorePayloadBridge` に変える** のが一番安全です。
+期待値：
+
+hasStrategicCore: true
+keys: Array(7)
+2. stage3_strategy_bridge をDB保存時に絶対に丸めない
+
+以下のような旧形式保存があれば削除してください。
+
+stage3_strategy_bridge: {
+  keyThemes,
+  departmentIssues,
+  kpiCriteria,
+  commonBehaviorChanges,
+  generatedAt,
+}
+
+必ず完全版をそのまま保存してください。
+
+if (payload.stage3_strategy_bridge) {
+  dbPayload.stage3_strategy_bridge = {
+    ...payload.stage3_strategy_bridge,
+    strategicCore: payload.stage3_strategy_bridge.strategicCore,
+    departmentTranslationRules:
+      payload.stage3_strategy_bridge.departmentTranslationRules ?? [],
+  };
+}
+3. extractServerDecidedPatch が bridge を旧形式に戻していないか確認
+
+前回の説明では、extractServerDecidedPatch 後に minimal patch が旧形式に戻っていたとのことです。
+
+ここで stage3_strategy_bridge を再構成しないでください。
+
+修正方針：
+
+if (patch.stage3_strategy_bridge || payload.stage3_strategy_bridge) {
+  patch.stage3_strategy_bridge =
+    payload.stage3_strategy_bridge?.strategicCore
+      ? payload.stage3_strategy_bridge
+      : patch.stage3_strategy_bridge;
+}
+
+ただし、最終的にDBへ渡す値は必ず strategicCore ありを優先してください。
+
+4. 保存直後にDB再取得して確認
+
+storeにpayloadを戻すだけだと、DB保存失敗を隠してしまいます。
+
+保存後に一度DBから再取得して、実際に保存された値を確認してください。
+
+console.log('[DB verify saved bridge]', {
+  hasStrategicCore: !!freshData?.stage3_strategy_bridge?.strategicCore,
+  keys: freshData?.stage3_strategy_bridge
+    ? Object.keys(freshData.stage3_strategy_bridge)
+    : [],
+});
+
+ここが false なら、保存処理がまだ壊れています。
+
+完了条件
+
+以下が全部 true になるまで完了にしないでください。
+
+API response: hasStrategicCore: true
+save payload: hasStrategicCore: true
+DB update final payload: hasStrategicCore: true
+Supabase保存後のserverData: hasStrategicCore: true
+DB再取得: hasStrategicCore: true
+リロード後hydrate/render: hasStrategicCore: true
+重要
+
+今は post-save restore source: payload によって、画面上だけ一時的に直って見えています。
+しかしリロードで消えるので、DBには保存できていません。
+
+store復元ではなく、DB保存の最終payloadを直してください。
