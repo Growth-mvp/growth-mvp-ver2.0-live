@@ -3951,14 +3951,48 @@ export const useStrategyStore = create<StrategyState>()(
                 set(minimal);
               }
 
+              // ★ CRITICAL: 保存後に完全版bridge を復元（payloadまたはserverDataから）
+              // ログではserverData bridge keys: Array(7)なので、完全版がDBに保存されている
+              // だがminimal で処理された後、旧形式に戻るケースがあるため、必ず完全版で上書き
+              const payloadBridge = (payload as any).stage3_strategy_bridge;
+              const serverBridge = (serverData as any).stage3_strategy_bridge;
+              const currentStoreState = get();
+              const currentStoreBridge = currentStoreState.stage3_strategy_bridge;
+
+              let bridgeToRestore = null;
+              if (payloadBridge?.strategicCore) {
+                bridgeToRestore = payloadBridge;
+              } else if (serverBridge?.strategicCore) {
+                bridgeToRestore = serverBridge;
+              } else if (currentStoreBridge?.strategicCore) {
+                bridgeToRestore = currentStoreBridge;
+              } else if (serverBridge) {
+                bridgeToRestore = serverBridge;
+              } else if (payloadBridge) {
+                bridgeToRestore = payloadBridge;
+              }
+
+              if (bridgeToRestore?.strategicCore) {
+                set({ stage3_strategy_bridge: bridgeToRestore });
+                if (DEBUG) {
+                  console.log('[STAGE3 bridge post-save restore] complete version restored', {
+                    source: payloadBridge?.strategicCore ? 'payload' : serverBridge?.strategicCore ? 'server' : 'current',
+                    hasStrategicCore: !!bridgeToRestore.strategicCore,
+                    keys: Object.keys(bridgeToRestore),
+                  });
+                }
+              }
+
               // ★ STAGE3 bridge post-patch check
               const storeAfterPatch = get();
               if (!!(payload as any).stage3_strategy_bridge) {
                 console.log('[STAGE3] bridge restore after save', {
                   payloadBridge_hasStrategicCore: !!(payload as any).stage3_strategy_bridge?.strategicCore,
+                  serverBridge_hasStrategicCore: !!(serverBridge)?.strategicCore,
                   storeNow_hasBridge: !!(storeAfterPatch as any).stage3_strategy_bridge,
                   storeNow_hasStrategicCore: !!(storeAfterPatch as any).stage3_strategy_bridge?.strategicCore,
                   storeNow_bridge_keys: (storeAfterPatch as any).stage3_strategy_bridge ? Object.keys((storeAfterPatch as any).stage3_strategy_bridge) : [],
+                  restoredFrom: bridgeToRestore?.strategicCore ? 'complete_version' : 'minimal_patch',
                   timestamp: new Date().toISOString(),
                 });
               }
