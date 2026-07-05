@@ -132,6 +132,30 @@ const TEMPLATE12: { id: string; question: string; reason: string; chapter: numbe
 
 const CHAPTER_LABELS = ['第1章：なぜ今', '第2章：どう戦う', '第3章：どんな未来像', '第4章：どう行動する'];
 
+function mergeMidtermStrategyIntoDocumentEdits(
+  edits: Stage2FinalDocumentEdits | undefined | null,
+  midtermStrategy: unknown,
+): Stage2FinalDocumentEdits | undefined {
+  const hasMidterm =
+    !!midtermStrategy &&
+    typeof midtermStrategy === 'object' &&
+    !Array.isArray(midtermStrategy);
+
+  if (!edits && !hasMidterm) return undefined;
+
+  return {
+    ...(edits ?? {}),
+    ...(hasMidterm
+      ? {
+          midtermStrategy: {
+            ...(((edits as any)?.midtermStrategy ?? {}) as Record<string, unknown>),
+            ...(midtermStrategy as Record<string, unknown>),
+          },
+        }
+      : {}),
+  } as Stage2FinalDocumentEdits;
+}
+
 /* ===================================================
  * 安定した空配列参照（Zustand selector でのメモ化バイパス防止）
  * =================================================== */
@@ -2820,7 +2844,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
             const savePayload = {
               ...storeState,
               storyDraft: newStoryDraft,  // ★ 修正：story ではなく storyDraft として保存
-              stage2FinalDocumentEdits: editingDocumentEdits,  // ★ 補助セクション編集内容を明示的に含める
+              stage2FinalDocumentEdits: mergeMidtermStrategyIntoDocumentEdits(editingDocumentEdits, midtermStrategy),  // ★ 補助セクション編集内容を明示的に含める
             };
 
             console.log('[Stage2] DB save attempt:', {
@@ -2959,7 +2983,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
     };
 
     try {
-      const TIMEOUT_MS = 180_000; // 180秒（API maxDuration に合わせ）
+      const TIMEOUT_MS = 180_000; // クライアント側はAPIより長めに待つ（実際の上限はサーバ側で制御）
       timer = setTimeout(abortByTimeout, TIMEOUT_MS);
 
       const segmentNames = Array.isArray(businessSegments)
@@ -3096,7 +3120,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         const savePayload = {
           ...storeState,
           finalStoryDraft: newFinalStory, // 生成されたばかりの最新ストーリーを確実に保存
-          stage2FinalDocumentEdits: editingDocumentEdits,  // ★ 補助セクション編集内容を明示的に含める
+          stage2FinalDocumentEdits: mergeMidtermStrategyIntoDocumentEdits(editingDocumentEdits, midtermStrategy),  // ★ 補助セクション編集内容を明示的に含める
         };
 
         const saveResult = await saveWithAudit(
@@ -3130,7 +3154,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       if (e?.name === 'AbortError' || e?.message?.includes('aborted')) {
         setGenerateFinalError(
           didTimeout
-            ? '最終ストーリーの生成がタイムアウトしました（55秒以上かかりました）。再度実行してください。'
+            ? '最終ストーリーの生成がタイムアウトしました。入力データ量が多いか、処理に時間がかかっています。少し時間を置いて再度実行してください。'
             : '通信が中断されました（abort）。ネットワーク/拡張機能/画面遷移などを確認してください。'
         );
       } else {
@@ -3185,10 +3209,10 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       // Step 1: STAGE3へ引き渡し（戦略展開ブリッジ生成）
       setCommittingStatus('STAGE3へ引き渡しています...');
 
-      const bridgeDocumentEdits =
-        editingDocumentEdits ??
-        stage2FinalDocumentEdits ??
-        (midtermStrategy ? { midtermStrategy } : undefined);
+      const bridgeDocumentEdits = mergeMidtermStrategyIntoDocumentEdits(
+        editingDocumentEdits ?? stage2FinalDocumentEdits,
+        midtermStrategy,
+      );
 
       let bridgeResult: any;
       try {
@@ -3231,7 +3255,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         finalStoryFinal: finalStoryToSave,
         finalStory: finalStoryToSave,
         stage3_strategy_bridge: bridgeResult,
-        stage2FinalDocumentEdits: editingDocumentEdits || undefined,  // ★ 確定時も最新の編集値を保存
+        stage2FinalDocumentEdits: mergeMidtermStrategyIntoDocumentEdits(editingDocumentEdits, midtermStrategy),  // ★ 確定時も最新の編集値を保存
         dirty: true,
         version: (s.version ?? 0) + 1,
       }));
@@ -3360,10 +3384,10 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         throw new Error('確定版ストーリーが見つかりません');
       }
 
-      const bridgeDocumentEdits =
-        editingDocumentEdits ??
-        stage2FinalDocumentEdits ??
-        (midtermStrategy ? { midtermStrategy } : undefined);
+      const bridgeDocumentEdits = mergeMidtermStrategyIntoDocumentEdits(
+        editingDocumentEdits ?? stage2FinalDocumentEdits,
+        midtermStrategy,
+      );
 
       const bridgeResult = await authFetchJson('/api/stage3/generate-strategy-bridge', {
         method: 'POST',
@@ -3751,7 +3775,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                             const latestDocumentEdits = editingDocumentEdits;
 
                             setFinalStoryEdited(editingStory);
-                            setStage2FinalDocumentEdits(latestDocumentEdits);
+                            setStage2FinalDocumentEdits(mergeMidtermStrategyIntoDocumentEdits(latestDocumentEdits, midtermStrategy));
 
                             const storeState = useStrategyStore.getState() as any;
 
@@ -3759,7 +3783,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                               ...storeState,
                               finalStoryEdited: editingStory,
                               finalStory: editingStory,
-                              stage2FinalDocumentEdits: latestDocumentEdits,
+                              stage2FinalDocumentEdits: mergeMidtermStrategyIntoDocumentEdits(latestDocumentEdits, midtermStrategy),
                             };
 
                             console.log('[Stage2][docEdits][manual-save-before]', {
