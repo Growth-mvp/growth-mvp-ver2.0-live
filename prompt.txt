@@ -1,150 +1,123 @@
-まだ直っていません。スクショのログから見ると、問題はhydrateだけではなく、リロード後のautosave/manual saveが `stage3_strategy_bridge` を旧形式で上書きしている可能性が高いです。
+修正後、今度はSTAGE2→STAGE3ブリッジの完全版が生成・反映されなくなっています。
 
-## 観測ログ
-リロード前：
-- `[STAGE3 bridge render] summary source`
-- `hasStrategicCore: true`
-- `concreteDomains: Array(8)`
-- `nonNegotiableThemes: Array(8)`
+## 現象
+STAGE3上段は表示されていますが、consoleでは以下になっています。
 
-リロード後：
 - `[STAGE3 bridge render] summary source`
 - `hasStrategicCore: false`
 - `concreteDomains: undefined`
 - `nonNegotiableThemes: undefined`
 
-さらにログに以下が出ています：
-- `[SAVE] payloadBridge included true`
-- `serverData has bridge: true`
-- `serverData bridge keys: Array(5)`
-- その後 `strategy data update ok`
+つまり、`stage3_strategy_bridge.strategicCore` がstoreに存在していません。
 
-つまり、保存時または保存後の正規化で、`stage3_strategy_bridge` が旧4項目＋generatedAt程度に丸められ、`strategicCore` と `departmentTranslationRules` が落ちている可能性があります。
+画面も旧4項目の簡略表示に戻っています。
+「STAGE3で保持する戦略の芯」も表示されていません。
 
-## 今回の本丸
-`normalizeFromDbRow` だけでなく、以下を全て確認・修正してください。
+## 重要
+前回の修正で、save guardやnormalize処理を入れた結果、
+ブリッジ生成APIの結果がstore/DBに正しく反映されなくなった可能性があります。
 
-1. `saveStrategyData`
-2. `buildSavePayload`
-3. `normalizeBeforeStore`
-4. `normalizeFromDbRow`
-5. autosaveのpayload作成処理
-6. manual saveのpayload作成処理
-7. `stage3_strategy_bridge` を保存後レスポンス `serverData` で store に戻す処理
+## 至急確認してほしいこと
 
-## 修正方針
+### 1. `/api/stage3/generate-strategy-bridge` が実際に呼ばれているか
+Networkまたはconsoleで確認してください。
 
-### 1. save payloadで `stage3_strategy_bridge` を絶対に丸めない
-悪い例：
+確認ログを追加：
 ```ts
-stage3_strategy_bridge: {
-  keyThemes: bridge.keyThemes,
-  departmentIssues: bridge.departmentIssues,
-  kpiCriteria: bridge.kpiCriteria,
-  commonBehaviorChanges: bridge.commonBehaviorChanges,
-  generatedAt: bridge.generatedAt,
+console.log('[STAGE3 bridge generate] request start');
+console.log('[STAGE3 bridge generate] response', {
+  hasBridge: !!bridgeResult,
+  keys: bridgeResult ? Object.keys(bridgeResult) : [],
+  hasStrategicCore: !!bridgeResult?.strategicCore,
+  concreteDomains: bridgeResult?.strategicCore?.concreteDomains,
+  nonNegotiableThemes: bridgeResult?.strategicCore?.nonNegotiableThemes,
+});
+2. APIレスポンスが完全版か確認
+
+期待値：
+
+{
+  keyThemes,
+  departmentIssues,
+  kpiCriteria,
+  commonBehaviorChanges,
+  strategicCore,
+  departmentTranslationRules,
+  generatedAt
 }
 
-良い例：
+もしAPIレスポンスに strategicCore がないなら、app/api/stage3/generate-strategy-bridge/route.ts 側の問題です。
 
-stage3_strategy_bridge: state.stage3_strategy_bridge
-  ? {
-      ...state.stage3_strategy_bridge,
-      strategicCore: state.stage3_strategy_bridge.strategicCore,
-      departmentTranslationRules:
-        state.stage3_strategy_bridge.departmentTranslationRules ?? [],
-    }
-  : null
-2. serverDataをstoreに反映する時も旧形式に戻さない
+もしAPIレスポンスにはあるのに画面に出ないなら、app/cascade/page.tsx または store/strategyStore.ts 側で落ちています。
 
-保存後にSupabaseから返ってきた serverData を store に戻す処理がある場合、そこでも strategicCore を落とさないでください。
+3. 生成結果をstoreに反映する処理を確認
 
-特にこのログを確認してください：
+STAGE2→STAGE3遷移時、または「全社戦略サマリーを生成」時に、以下が必ず実行されるようにしてください。
 
-serverData bridge keys: Array(5)
+useStrategyStore.setState({
+  stage3_strategy_bridge: bridgeResult,
+});
 
-期待値は最低でも以下です：
+その直後に確認ログ：
 
-[
-  'keyThemes',
-  'departmentIssues',
-  'kpiCriteria',
-  'commonBehaviorChanges',
-  'strategicCore',
-  'departmentTranslationRules',
-  'generatedAt'
-]
+console.log('[STAGE3 bridge store set]', {
+  hasStrategicCore: !!bridgeResult?.strategicCore,
+  keys: bridgeResult ? Object.keys(bridgeResult) : [],
+});
+4. save guardが新規生成をブロックしていないか確認
 
-もし Array(5) しかないなら、保存payloadかDB返却後のnormalizeで落ちています。
+前回入れた可能性のある以下のようなguardが、新規生成時までブロックしていないか確認してください。
 
-3. autosaveで旧bridgeを保存しない
+悪い例：
 
-リロード直後にautosaveが走り、旧形式bridgeでDBを上書きしている可能性があります。
-
-以下のガードを入れてください。
-
-const existingBridge = get().stage3_strategy_bridge;
-
-if (
-  existingBridge?.strategicCore &&
-  payload.stage3_strategy_bridge &&
-  !payload.stage3_strategy_bridge.strategicCore
-) {
-  console.warn('[STAGE3 bridge save guard] blocked downgrade of strategicCore');
+if (existingBridge?.strategicCore && payload.stage3_strategy_bridge && !payload.stage3_strategy_bridge.strategicCore) {
   payload.stage3_strategy_bridge = existingBridge;
 }
 
-または保存payload作成時に、必ず現在storeの完全版bridgeを優先してください。
+このguard自体は必要ですが、以下を守ってください。
 
-4. DB更新前ログを追加
+新規生成された bridgeResult.strategicCore がある場合は絶対にブロックしない
+payload.stage3_strategy_bridge が完全版ならそのまま保存する
+payload.stage3_strategy_bridge がundefinedの場合に、旧fallback bridgeを勝手に作らない
+strategicCoreなしの旧bridgeで、完全版bridgeを上書きしない
+5. 旧fallback表示を「生成済み」と扱わない
 
-保存直前に必ずこれを出してください。
+現在、stage3_strategy_bridge がない/不完全でも、旧4項目のfallbackで上段が表示されているように見えます。
 
-console.log('[STAGE3 bridge save payload]', {
-  hasBridge: !!payload.stage3_strategy_bridge,
-  keys: payload.stage3_strategy_bridge
-    ? Object.keys(payload.stage3_strategy_bridge)
-    : [],
-  hasStrategicCore: !!payload.stage3_strategy_bridge?.strategicCore,
-  concreteDomains:
-    payload.stage3_strategy_bridge?.strategicCore?.concreteDomains,
-  nonNegotiableThemes:
-    payload.stage3_strategy_bridge?.strategicCore?.nonNegotiableThemes,
+これはデバッグを難しくしています。
+
+一時的に以下のようにしてください。
+
+const hasCompleteBridge = !!stage3_strategy_bridge?.strategicCore;
+
+console.log('[STAGE3 bridge completeness]', {
+  hasBridge: !!stage3_strategy_bridge,
+  hasCompleteBridge,
+  keys: stage3_strategy_bridge ? Object.keys(stage3_strategy_bridge) : [],
 });
 
-保存後レスポンスにも：
+hasCompleteBridge === false の場合は、旧4項目表示に逃がさず、
+「STAGE2からの全社戦略サマリーが未生成です」と分かる状態にしてください。
+少なくとも、旧fallback表示を完全版ブリッジとして扱わないでください。
 
-console.log('[STAGE3 bridge save response]', {
-  hasBridge: !!serverData?.stage3_strategy_bridge,
-  keys: serverData?.stage3_strategy_bridge
-    ? Object.keys(serverData.stage3_strategy_bridge)
-    : [],
-  hasStrategicCore: !!serverData?.stage3_strategy_bridge?.strategicCore,
-});
-5. 絶対に確認すること
+修正のゴール
 
-以下の順番で確認してください。
+以下がすべて成立すること。
 
-STAGE2→STAGE3ブリッジ生成
-hasStrategicCore: true
-DBの stage3_strategy_bridge.strategicCore が存在
-リロード
-リロード直後のautosave/manual saveで、[STAGE3 bridge save payload] hasStrategicCore: true
-保存後レスポンスでも hasStrategicCore: true
-再リロードしても STAGE3で保持する戦略の芯 が消えない
-重要
+ブリッジ生成APIが呼ばれる
+APIレスポンスに strategicCore が含まれる
+storeの stage3_strategy_bridge.strategicCore が true になる
+保存payloadにも strategicCore が含まれる
+Supabaseの stage3_strategy_bridge.strategicCore が保存される
+リロード後も hasStrategicCore: true
+「STAGE3で保持する戦略の芯」が表示される
+注意
 
-今回のログでは、表示側では一度 hasStrategicCore: true になっています。
-その後、リロードまたは保存処理で hasStrategicCore: false になっています。
+今回の問題は、単にリロード復元だけではありません。
+現在は、生成結果が完全版bridgeとしてstore/DBに入っていません。
 
-したがって、原因は単なる表示ロジックではなく、
-保存payload作成、autosave、serverData normalize のどこかで完全版bridgeが旧形式にダウングレードされていることです。
-
-そこを重点的に直してください。
+まず、生成API → store反映 → save payload → DB保存 → hydrate の順にログで追って、どこで strategicCore が消えるか特定してください。
 
 
-今回かなり重要なのは、スクショ右側のこのログです。
-
-`serverData bridge keys: Array(5)`
-
-これ、完全版なら `strategicCore` と `departmentTranslationRules` が入るので、5個では足りません。つまり **保存した瞬間に旧形式へ
+いまの状態は、**「戻る」問題から「完全版bridgeが作られない/反映されない」問題に悪化**しています。  
+なのでClaudeには、いったん **APIレスポンス → store set → save payload** の順番で、`strategicCore` がどこで消えるか追わせるのがよいです。

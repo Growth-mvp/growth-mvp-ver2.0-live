@@ -2518,6 +2518,12 @@ function CascadePageContent() {
 
     setIsGeneratingBridge(true);
     try {
+      console.log('[STAGE3 bridge generate] request start', {
+        hasFinalStory: !!finalStoryData,
+        finalStoryLen: Array.isArray(finalStoryData) ? finalStoryData.length : 0,
+        timestamp: new Date().toISOString(),
+      });
+
       const result = await authFetchJson('/api/stage3/generate-strategy-bridge', {
         method: 'POST',
         body: JSON.stringify({
@@ -2527,10 +2533,25 @@ function CascadePageContent() {
         }),
       });
 
+      console.log('[STAGE3 bridge generate] response received', {
+        hasBridge: !!result,
+        isError: !!(result as any)?.error,
+        hasStrategicCore: !!(result as any)?.strategicCore,
+        keys: result ? Object.keys(result as any) : [],
+        concreteDomains: (result as any)?.strategicCore?.concreteDomains,
+        nonNegotiableThemes: (result as any)?.strategicCore?.nonNegotiableThemes,
+        timestamp: new Date().toISOString(),
+      });
+
       if ((result as any)?.error) {
         setNotice(`[ERROR] ${(result as any).error}`);
         return;
       }
+
+      console.log('[STAGE3 bridge store set] before setState', {
+        resultHasStrategicCore: !!(result as any)?.strategicCore,
+        resultKeys: result ? Object.keys(result as any) : [],
+      });
 
       useStrategyStore.setState((state: any) => ({
         ...state,
@@ -2540,6 +2561,14 @@ function CascadePageContent() {
       }));
 
       const saveState = useStrategyStore.getState();
+      console.log('[STAGE3 bridge store set] after setState', {
+        storeHasStrategicCore: !!saveState.stage3_strategy_bridge?.strategicCore,
+        storeKeys: saveState.stage3_strategy_bridge ? Object.keys(saveState.stage3_strategy_bridge) : [],
+        concreteDomains: saveState.stage3_strategy_bridge?.strategicCore?.concreteDomains || [],
+        nonNegotiableThemes: saveState.stage3_strategy_bridge?.strategicCore?.nonNegotiableThemes || [],
+        hasDepartmentTranslationRules: Array.isArray(saveState.stage3_strategy_bridge?.departmentTranslationRules),
+      });
+
       console.log('[STAGE3] bridge generated before save', {
         hasStrategicCore: !!(result as any)?.strategicCore,
         concreteDomains: (result as any)?.strategicCore?.concreteDomains || [],

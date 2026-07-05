@@ -3601,14 +3601,29 @@ export const useStrategyStore = create<StrategyState>()(
 
               // ★ CRITICAL GUARD: autosave で旧形式 bridge に上書きされるのを防ぐ
               const existingBridge = get().stage3_strategy_bridge;
+              const payloadBridge = payload.stage3_strategy_bridge;
+
+              // Debug guard logic
+              if (DEBUG || existingBridge || payloadBridge) {
+                console.log('[STAGE3 bridge save guard check]', {
+                  existingBridge_hasStrategicCore: !!existingBridge?.strategicCore,
+                  payloadBridge_exists: !!payloadBridge,
+                  payloadBridge_hasStrategicCore: !!payloadBridge?.strategicCore,
+                  shouldGuard: !!(existingBridge?.strategicCore && payloadBridge && !payloadBridge.strategicCore),
+                  reason,
+                  attempt,
+                });
+              }
+
               if (
                 existingBridge?.strategicCore &&
-                payload.stage3_strategy_bridge &&
-                !payload.stage3_strategy_bridge.strategicCore
+                payloadBridge &&
+                !payloadBridge.strategicCore
               ) {
                 console.warn('[STAGE3 bridge save guard] blocked downgrade of strategicCore', {
-                  payloadBridge: payload.stage3_strategy_bridge,
-                  preservingBridge: existingBridge,
+                  existingBridge_keys: Object.keys(existingBridge),
+                  payloadBridge_keys: Object.keys(payloadBridge),
+                  preserving: true,
                 });
                 payload.stage3_strategy_bridge = existingBridge;
               }
@@ -3765,17 +3780,15 @@ export const useStrategyStore = create<StrategyState>()(
               }
 
               // STAGE3 bridge pre-save check
-              console.log('[STAGE3] save payload stage3_strategy_bridge', {
+              console.log('[STAGE3 bridge save payload]', {
                 hasBridge: !!(payload as any).stage3_strategy_bridge,
-                keyThemesLength: Array.isArray((payload as any).stage3_strategy_bridge?.keyThemes) ? (payload as any).stage3_strategy_bridge.keyThemes.length : 0,
-                departmentIssuesLength: Array.isArray((payload as any).stage3_strategy_bridge?.departmentIssues) ? (payload as any).stage3_strategy_bridge.departmentIssues.length : 0,
-                kpiCriteriaLength: Array.isArray((payload as any).stage3_strategy_bridge?.kpiCriteria) ? (payload as any).stage3_strategy_bridge.kpiCriteria.length : 0,
-                commonBehaviorChangesLength: Array.isArray((payload as any).stage3_strategy_bridge?.commonBehaviorChanges) ? (payload as any).stage3_strategy_bridge.commonBehaviorChanges.length : 0,
+                bridgeKeys: (payload as any).stage3_strategy_bridge ? Object.keys((payload as any).stage3_strategy_bridge) : [],
                 hasStrategicCore: !!(payload as any).stage3_strategy_bridge?.strategicCore,
                 strategicCoreKeys: (payload as any).stage3_strategy_bridge?.strategicCore ? Object.keys((payload as any).stage3_strategy_bridge.strategicCore) : [],
-                hasDepartmentTranslationRules: Array.isArray((payload as any).stage3_strategy_bridge?.departmentTranslationRules),
-                departmentTranslationRulesLength: Array.isArray((payload as any).stage3_strategy_bridge?.departmentTranslationRules) ? (payload as any).stage3_strategy_bridge.departmentTranslationRules.length : 0,
+                concreteDomains: (payload as any).stage3_strategy_bridge?.strategicCore?.concreteDomains,
+                nonNegotiableThemes: (payload as any).stage3_strategy_bridge?.strategicCore?.nonNegotiableThemes,
                 reason,
+                attempt,
                 timestamp: new Date().toISOString(),
               });
 
