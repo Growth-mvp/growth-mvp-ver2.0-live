@@ -36,6 +36,7 @@ import type {
   Stage1Benchmarks,
   StrategyData,
   MidtermStrategy,
+  StrategicCore,
   Stage2FinalDocumentEdits,
   CompanyTarget,
   ProjectTargetImpact,
@@ -254,6 +255,17 @@ export type StrategyState = {
 
   /* ★ STAGE2：最終ストーリー補助セクション編集データ（表示上書き用） */
   stage2FinalDocumentEdits?: Stage2FinalDocumentEdits;
+
+  /* ★ STAGE3：STAGE2からの戦略展開ブリッジ */
+  stage3_strategy_bridge?: {
+    keyThemes: string[];
+    departmentIssues: string[];
+    kpiCriteria: string[];
+    commonBehaviorChanges: string[];
+    strategicCore?: StrategicCore;
+    departmentTranslationRules?: string[];
+    generatedAt: string;
+  } | null;
 
   /* === STAGE6 Phase E：プロジェクト→North Star影響量（手入力） === */
   projectTargetImpacts?: ProjectTargetImpact[];
