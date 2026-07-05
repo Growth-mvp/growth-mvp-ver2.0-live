@@ -4258,6 +4258,10 @@ export const useStrategyStore = create<StrategyState>()(
               winPatternsCandidate_len: Array.isArray((patch as any).winPatternsCandidate) ? (patch as any).winPatternsCandidate.length : 0,
               ceoIntent_len: typeof (patch as any).ceoIntent === 'string' ? (patch as any).ceoIntent.length : 0,
               swotSuggestions_exists: !!(patch as any).swotSuggestions,
+              /* STAGE3 */
+              stage3_bridge_exists: !!(patch as any).stage3_strategy_bridge,
+              stage3_bridge_array_len: Array.isArray((patch as any).stage3_strategy_bridge) ? (patch as any).stage3_strategy_bridge.length : 0,
+              stage3_bridge_hasStrategicCore: (patch as any).stage3_strategy_bridge?.strategicCore ? true : false,
             });
           }
 
@@ -4370,6 +4374,17 @@ export const useStrategyStore = create<StrategyState>()(
                 });
               }
 
+              /* ★ STAGE3 bridge check after merge (wasDirty=true) */
+              if (DEBUG) {
+                console.log('[refetchFromServer][wasDirty=true][merged-state] STAGE3 bridge', {
+                  stage3_bridge_exists: !!merged.stage3_strategy_bridge,
+                  stage3_bridge_array_len: Array.isArray(merged.stage3_strategy_bridge) ? merged.stage3_strategy_bridge.length : 0,
+                  stage3_bridge_hasStrategicCore: merged.stage3_strategy_bridge?.strategicCore ? true : false,
+                  patch_had_bridge: !!patch.stage3_strategy_bridge,
+                  base_had_bridge: !!base.stage3_strategy_bridge,
+                });
+              }
+
               return merged as any;
             });
 
@@ -4437,6 +4452,16 @@ export const useStrategyStore = create<StrategyState>()(
                 isStale,
                 isSwitchingCompany,
               });
+
+              /* ★ STAGE3 bridge check after merge (wasDirty=false) */
+              if (DEBUG) {
+                console.log('[refetchFromServer][wasDirty=false][merged-state] STAGE3 bridge', {
+                  stage3_bridge_exists: !!merged.stage3_strategy_bridge,
+                  stage3_bridge_array_len: Array.isArray(merged.stage3_strategy_bridge) ? merged.stage3_strategy_bridge.length : 0,
+                  stage3_bridge_hasStrategicCore: merged.stage3_strategy_bridge?.strategicCore ? true : false,
+                  patch_had_bridge: !!patch.stage3_strategy_bridge,
+                });
+              }
 
               return merged as StrategyState;
             });

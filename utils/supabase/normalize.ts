@@ -967,21 +967,34 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
   // ★ STAGE3：戦略展開ブリッジ（stage3_strategy_bridge）の展開
   // - STAGE2最終ストーリーからAI生成された、部門設計のための前提情報
   // - トップレベルに保存される（swot_suggestionsのようなパック不要）
+  // ★ CRITICAL FIX: 完全なブリッジを保持（strategicCore/departmentTranslationRules を落とさない）
   const stage3StrategyBridge = (() => {
     const raw = (src as any).stage3_strategy_bridge;
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-    const strArr = (v: any) =>
-      Array.isArray(v) && v.filter((x) => typeof x === 'string' && x.trim()).length > 0
-        ? v.filter((x: any) => typeof x === 'string' && x.trim())
-        : undefined;
-    const b = {
-      keyThemes: strArr(raw.keyThemes),
-      departmentIssues: strArr(raw.departmentIssues),
-      kpiCriteria: strArr(raw.kpiCriteria),
-      commonBehaviorChanges: strArr(raw.commonBehaviorChanges),
-      generatedAt: typeof raw.generatedAt === 'string' ? raw.generatedAt : undefined,
+
+    // ★ 修正：spread operator で完全なオブジェクトを保持
+    // strategicCore, departmentTranslationRules, およびその他の未知フィールドを失わない
+    const preserved = {
+      ...raw,
+      strategicCore: raw.strategicCore,
+      departmentTranslationRules: raw.departmentTranslationRules ?? [],
     };
-    return Object.values(b).some((v) => v !== undefined) ? b : undefined;
+
+    if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+      console.log('[normalizeStrategyData] STAGE3 bridge preservation', {
+        hasInput: !!raw,
+        inputKeys: raw ? Object.keys(raw) : [],
+        hasStrategicCore: !!raw?.strategicCore,
+        strategicCoreKeys: raw?.strategicCore ? Object.keys(raw.strategicCore) : [],
+        preserved: {
+          exists: !!preserved,
+          keys: Object.keys(preserved),
+          hasStrategicCore: !!preserved.strategicCore,
+        },
+      });
+    }
+
+    return preserved;
   })();
 
   const out: StrategyData = {
@@ -1087,6 +1100,16 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
       hasExecutionBaseline: out.executionPlanBaseline ? 'exists' : 'undefined',
       revision: out.revision,
       deptCount: out.departments?.length ?? 0,
+    });
+  }
+
+  /* ★ STAGE3 bridge check after normalize output construction */
+  if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+    console.log('[normalizeStrategyData][output] STAGE3 bridge in final out', {
+      stage3_bridge_exists: !!(out as any).stage3_strategy_bridge,
+      stage3_bridge_array_len: Array.isArray((out as any).stage3_strategy_bridge) ? (out as any).stage3_strategy_bridge.length : 0,
+      stage3_bridge_hasStrategicCore: (out as any).stage3_strategy_bridge?.strategicCore ? true : false,
+      stage3_bridge_keys: (out as any).stage3_strategy_bridge ? Object.keys((out as any).stage3_strategy_bridge) : [],
     });
   }
 

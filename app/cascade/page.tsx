@@ -1992,6 +1992,17 @@ function CascadePageContent() {
   const stage3_strategy_bridge = useStrategyStore((st: any) => st.stage3_strategy_bridge);
   const finalStoryFinal = useStrategyStore((st: any) => st.finalStoryFinal);
 
+  /* ★ STAGE3 bridge render-time logging */
+  if (DEBUG && typeof window !== 'undefined') {
+    console.log('[cascade-page][render] stage3_strategy_bridge state', {
+      exists: !!stage3_strategy_bridge,
+      array_len: Array.isArray(stage3_strategy_bridge) ? stage3_strategy_bridge.length : 0,
+      hasStrategicCore: stage3_strategy_bridge?.strategicCore ? true : false,
+      strategicCoreKeys: stage3_strategy_bridge?.strategicCore ? Object.keys(stage3_strategy_bridge.strategicCore) : [],
+      bridgeKeys: stage3_strategy_bridge ? Object.keys(stage3_strategy_bridge) : [],
+    });
+  }
+
   const strategyStory = useStrategyStore((st: any) => st.strategyStory);
   const story = useStrategyStore((st: any) => st.story);
   const finalStory = useStrategyStore((st: any) => st.finalStory);

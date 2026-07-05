@@ -1403,7 +1403,19 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
     });
   }
 
-  return { ...(normalized as any), revision };
+  /* ★ STAGE3 bridge check before return from buildStateFromDbRow */
+  const returnValue = { ...(normalized as any), revision };
+  if (DEBUG) {
+    console.log('[buildStateFromDbRow][final-return] STAGE3 bridge in return value', {
+      stage3_bridge_exists: !!returnValue.stage3_strategy_bridge,
+      stage3_bridge_array_len: Array.isArray(returnValue.stage3_strategy_bridge) ? returnValue.stage3_strategy_bridge.length : 0,
+      stage3_bridge_hasStrategicCore: returnValue.stage3_strategy_bridge?.strategicCore ? true : false,
+      stage3_bridge_keys: returnValue.stage3_strategy_bridge ? Object.keys(returnValue.stage3_strategy_bridge) : [],
+      revision: returnValue.revision,
+    });
+  }
+
+  return returnValue;
 }
 
 /* ============================================================
