@@ -1687,6 +1687,33 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     Array.isArray(raw.answers_12) ? raw.answers_12 :
     [];
 
+  // ★ STAGE3 bridge 復元（strategicCore を含める）
+  const stage3Bridge = (() => {
+    const rawBridge = raw.stage3_strategy_bridge ?? raw.stage3_bridge;
+    if (!rawBridge || typeof rawBridge !== 'object') return undefined;
+
+    // strategicCore は新しいフィールド、必ず保持する
+    const result: any = {
+      keyThemes: Array.isArray(rawBridge.keyThemes) ? rawBridge.keyThemes : [],
+      departmentIssues: Array.isArray(rawBridge.departmentIssues) ? rawBridge.departmentIssues : [],
+      kpiCriteria: Array.isArray(rawBridge.kpiCriteria) ? rawBridge.kpiCriteria : [],
+      commonBehaviorChanges: Array.isArray(rawBridge.commonBehaviorChanges) ? rawBridge.commonBehaviorChanges : [],
+      generatedAt: typeof rawBridge.generatedAt === 'string' ? rawBridge.generatedAt : new Date().toISOString(),
+    };
+
+    // strategicCore がある場合は必ず保持（旧形式への回帰を防ぐ）
+    if (rawBridge.strategicCore && typeof rawBridge.strategicCore === 'object') {
+      result.strategicCore = rawBridge.strategicCore;
+    }
+
+    // departmentTranslationRules も保持
+    if (Array.isArray(rawBridge.departmentTranslationRules)) {
+      result.departmentTranslationRules = rawBridge.departmentTranslationRules;
+    }
+
+    return result;
+  })();
+
   const patch: any = {
     strategyId,
     revision,
@@ -1761,12 +1788,29 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     projectTargetImpacts,
     okrTargetScores,
     projectIssueLinks,
+
+    // === STAGE3 bridge（strategicCore を含める） ===
+    stage3_strategy_bridge: stage3Bridge,
   };
 
   if (DEBUG) {
     const patchFinancePLLen = Array.isArray(patch.financePL) ? patch.financePL.length : 0;
     const patchStage1IssuesLen = Array.isArray(patch.stage1Issues) ? patch.stage1Issues.length : 0;
     console.log('[normalizeFromDbRow] patch生成 financePL_len:' + patchFinancePLLen + ' stage1Issues_len:' + patchStage1IssuesLen);
+  }
+
+  // ★ STAGE3 bridge hydrate ログ
+  if (DEBUG || stage3Bridge) {
+    console.log('[STAGE3 bridge hydrate] loaded from DB', {
+      hasBridge: !!stage3Bridge,
+      hasStrategicCore: !!stage3Bridge?.strategicCore,
+      concreteDomains: stage3Bridge?.strategicCore?.concreteDomains,
+      nonNegotiableThemes: stage3Bridge?.strategicCore?.nonNegotiableThemes,
+      keys: stage3Bridge ? Object.keys(stage3Bridge) : [],
+      keyThemesCount: Array.isArray(stage3Bridge?.keyThemes) ? stage3Bridge.keyThemes.length : 0,
+      departmentIssuesCount: Array.isArray(stage3Bridge?.departmentIssues) ? stage3Bridge.departmentIssues.length : 0,
+      timestamp: new Date().toISOString(),
+    });
   }
 
   let pruned = 0;

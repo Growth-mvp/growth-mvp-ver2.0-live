@@ -62,6 +62,439 @@ interface Stage2FinalDocumentEdits {
   };
 }
 
+const GENERIC_PHRASES = [
+  '成長領域',
+  '新市場',
+  '高付加価値',
+  '新技術',
+  '新興市場',
+  '顧客関係',
+  '顧客ニーズ',
+  '競争優位性',
+  '資本効率',
+  'リソース',
+];
+
+const ACTION_SUFFIX_PATTERNS = [
+  /への注力$/u,
+  /への集中$/u,
+  /への進出$/u,
+  /への展開$/u,
+  /へのシフト$/u,
+  /を開拓する$/u,
+  /を強化する$/u,
+  /を開発する$/u,
+  /を推進する$/u,
+  /を促進する$/u,
+  /を強める$/u,
+  /を提供する$/u,
+  /を進める$/u,
+  /を図る$/u,
+  /を確立する$/u,
+  /に取り組む$/u,
+  /に注力する$/u,
+  /に集中する$/u,
+  /に進出する$/u,
+  /に対応する製品を提供する$/u,
+  /の高付加価値化を進める$/u,
+  /での競争優位性を確立する$/u,
+  /での顧客関係を強化する$/u,
+  /のニーズに対応する製品を提供する$/u,
+];
+
+const DOMAIN_ACTION_TERMS = [
+  '高性能化',
+  '生産効率',
+  '導入',
+  '強化',
+  '開発',
+  '高付加価値化',
+  '顧客関係',
+  '効率化',
+  '改善',
+  '推進',
+  '促進',
+  '確立',
+];
+
+const WEAK_STANDALONE_TERMS = [
+  'AI',
+  'ADAS',
+  'DMS',
+  '車',
+  '機械',
+  '製品',
+  '技術',
+  '市場',
+  '事業',
+  '産業',
+  '顧客',
+];
+
+function uniqueStrings(values: Array<string | undefined | null>, max = 8): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const s = String(value ?? '')
+      .replace(/^[\s・\-−●]+/u, '')
+      .replace(/\s+/gu, '')
+      .trim();
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    result.push(s);
+    if (result.length >= max) break;
+  }
+  return result;
+}
+
+function normalizeCompact(value: string): string {
+  return String(value ?? '').replace(/\s+/gu, '').trim();
+}
+
+function isGenericPhrase(value: string): boolean {
+  const s = normalizeCompact(value);
+  return GENERIC_PHRASES.some((phrase) => s === phrase || s.includes(`${phrase}を`) || s.includes(`${phrase}に`));
+}
+
+function stripActionSuffix(value: string): string {
+  let s = String(value ?? '').trim();
+  s = s.replace(/^[\s・\-−●]+/u, '').replace(/[。．.、,]$/u, '').trim();
+  for (const pattern of ACTION_SUFFIX_PATTERNS) {
+    s = s.replace(pattern, '').trim();
+  }
+  s = s.replace(/^(特に|特に、|重点的に|重点として)/u, '').trim();
+  return s;
+}
+
+function isActionStatement(value: string): boolean {
+  return /(する|進める|高める|強化|開発|提供|確立|改善|配分|移管|撤退|見直|促進|効率化|明確化|対応する)$/u.test(value);
+}
+
+function includesInSource(sourceText: string, term: string): boolean {
+  return normalizeCompact(sourceText).includes(normalizeCompact(term));
+}
+
+function isDomainLike(value: string): boolean {
+  return /(市場|領域|産業|用途|顧客|ユニット|システム|機器|製品|ソリューション|モジュール)$/u.test(value);
+}
+
+function isBadDomainCandidate(value: string): boolean {
+  const s = normalizeCompact(value);
+  if (!s || s.length < 3) return true;
+  if (WEAK_STANDALONE_TERMS.includes(s)) return true;
+  if (/時代の/u.test(s) || /目・筋肉・骨格/u.test(s)) return true;
+  if (isGenericPhrase(s)) return true;
+  if (DOMAIN_ACTION_TERMS.some((term) => s.includes(term))) return true;
+  if (isActionStatement(s) && !isDomainLike(s)) return true;
+  return false;
+}
+
+function toDomainLabel(term: string): string {
+  const s = normalizeCompact(term)
+    .replace(/^[・、,／/]+/u, '')
+    .replace(/[・、,／/]+$/u, '');
+  if (!s || WEAK_STANDALONE_TERMS.includes(s)) return '';
+  if (/(市場|関連市場|領域|産業|用途|ユニット|システム|ソリューション|モジュール)$/u.test(s)) return s;
+  if (/機器$/u.test(s)) return `${s}市場`;
+  return `${s}関連市場`;
+}
+
+function splitUseCaseList(value: string): string[] {
+  return normalizeCompact(value)
+    .replace(/[、，,／/・]/gu, '・')
+    .split('・')
+    .map((part) => part
+      .replace(/^(および|及び|ならびに|並びに|または|又は|向け|用途)$/u, '')
+      .replace(/を支える.*$/u, '')
+      .replace(/向け.*$/u, '')
+      .trim())
+    .filter((part) => part.length >= 3 && !WEAK_STANDALONE_TERMS.includes(part));
+}
+
+function scoreDomainCandidate(value: string): number {
+  const s = normalizeCompact(value);
+  let score = 0;
+  if (/関連市場$/u.test(s)) score += 30;
+  else if (/市場$/u.test(s)) score += 40;
+  if (/向け/u.test(s)) score += 15;
+  if (/ユニット|システム|ソリューション|モジュール/u.test(s)) score += 8;
+  if (/フィジカルAI|ロボット|ドローン|医療機器/u.test(s)) score += 10;
+  if (WEAK_STANDALONE_TERMS.includes(s)) score -= 80;
+  if (DOMAIN_ACTION_TERMS.some((term) => s.includes(term))) score -= 80;
+  return score + Math.min(s.length, 40) / 10;
+}
+
+function removeContainedShortTerms(values: string[], max = 8, sortByDomainScore = true): string[] {
+  const unique = uniqueStrings(values, values.length);
+  const filtered = unique
+    .filter((value, _index, array) => {
+      const s = normalizeCompact(value);
+      return !array.some((other) => {
+        const o = normalizeCompact(other);
+        if (o === s || o.length <= s.length) return false;
+        if (s.length <= 8 && o.includes(s)) return true;
+        if (/市場$/u.test(s)) {
+          const base = s.replace(/市場$/u, '');
+          return base.length >= 3 && o.includes(base) && /市場$/u.test(o);
+        }
+        return false;
+      });
+    })
+  const ordered = sortByDomainScore
+    ? filtered.sort((a, b) => scoreDomainCandidate(b) - scoreDomainCandidate(a))
+    : filtered;
+  return ordered.slice(0, max);
+}
+
+function extractMarketPhrases(sourceText: string): string[] {
+  const candidates: string[] = [];
+  const patterns = [
+    /[一-龠ぁ-んァ-ヶA-Za-z0-9・ー／\/()（）]{2,40}向け[一-龠ぁ-んァ-ヶA-Za-z0-9・ー／\/()（）]{2,30}市場/gu,
+    /[一-龠ぁ-んァ-ヶA-Za-z0-9・ー／\/()（）]{2,50}(?:関連市場|市場)/gu,
+  ];
+  for (const pattern of patterns) {
+    for (const match of sourceText.matchAll(pattern)) {
+      const value = stripActionSuffix(match[0])
+        .replace(/^.*(?:。|．|、|：|:)/u, '')
+        .trim();
+      if (value && !isBadDomainCandidate(value)) candidates.push(value);
+    }
+  }
+  return candidates;
+}
+
+function extractInputOnlyDomainHints(sourceText: string): string[] {
+  const candidates: string[] = [];
+
+  // ここでは固定例を足すのではなく、入力本文に実在する語だけを市場・用途ラベルに整える。
+  const explicitTerms = ['フィジカルAI', 'ロボット', 'ドローン', '医療機器'];
+  for (const term of explicitTerms) {
+    if (includesInSource(sourceText, term)) {
+      candidates.push(toDomainLabel(term));
+    }
+  }
+
+  const aiUseCasePatterns = [
+    /AIで動く([^。\n、]{2,80}?)(?:の中|を支える|向け|に使われる|で使われる|のため)/gu,
+    /AIで動く([^。\n]{2,80}?)(?:ユニット|機器|システム)/gu,
+  ];
+  for (const pattern of aiUseCasePatterns) {
+    for (const match of sourceText.matchAll(pattern)) {
+      for (const term of splitUseCaseList(match[1] || '')) {
+        candidates.push(toDomainLabel(term));
+      }
+    }
+  }
+
+  return candidates.filter(Boolean);
+}
+
+function extractNonNegotiableThemes(
+  sourceText: string,
+  seedValues: Array<string | undefined | null>,
+  max = 8,
+): string[] {
+  const candidates: string[] = [];
+  const compactSource = normalizeCompact(sourceText);
+
+  const aiUnitMatch =
+    sourceText.match(/AIで動く[^\n。．]{2,60}?ユニット/u) ||
+    sourceText.match(/AIで動く[^\n。．]{2,60}?を支えるユニット/u);
+  if (aiUnitMatch && (compactSource.includes('部品サプライヤー') || compactSource.includes('部品'))) {
+    const unit = normalizeCompact(aiUnitMatch[0])
+      .replace(/の中で.*$/u, '')
+      .replace(/を支えるユニット$/u, '向けユニット');
+    candidates.push(`部品サプライヤーから${unit}への転換`);
+  }
+
+  if (includesInSource(sourceText, 'フィジカルAI') && includesInSource(sourceText, '目・筋肉・骨格')) {
+    candidates.push('フィジカルAI時代の目・筋肉・骨格を担う統合技術');
+  }
+
+  if (
+    includesInSource(sourceText, '光学') &&
+    includesInSource(sourceText, 'モータ') &&
+    (includesInSource(sourceText, '精密加工') || includesInSource(sourceText, '精密部品')) &&
+    includesInSource(sourceText, '光学メカトロユニット')
+  ) {
+    candidates.push('光学・モータ・精密加工を統合した光学メカトロユニット');
+  }
+
+  if (includesInSource(sourceText, '設計段階')) {
+    const designPhrase = sourceText.match(/[^\n。．]{0,20}設計段階[^\n。．]{0,18}/u)?.[0];
+    candidates.push(designPhrase ? stripActionSuffix(designPhrase) : '次世代産業の設計段階への関与');
+  }
+
+  if (
+    (includesInSource(sourceText, '成熟領域') || includesInSource(sourceText, '既存事業')) &&
+    (includesInSource(sourceText, '成長領域') || includesInSource(sourceText, '成長市場')) &&
+    (includesInSource(sourceText, '経営資源') || includesInSource(sourceText, '資源配分'))
+  ) {
+    candidates.push('成熟領域から成長領域への経営資源移管');
+  }
+
+  candidates.push(
+    ...seedValues
+      .map((value) => stripActionSuffix(String(value ?? '')))
+      .filter((value) => value && !isBadDomainCandidate(value) && !/^[A-Za-z0-9]+市場$/u.test(normalizeCompact(value))),
+  );
+
+  return removeContainedShortTerms(candidates, max, false);
+}
+
+function buildSourceText(
+  finalStoryFinal?: ChapterStory[],
+  stage2FinalDocumentEdits?: Stage2FinalDocumentEdits
+): string {
+  const chunks: string[] = [];
+  if (Array.isArray(finalStoryFinal)) {
+    chunks.push(finalStoryFinal.map((ch) => `${ch.title || ''}\n${ch.body || ''}`).join('\n'));
+  }
+  const edits = stage2FinalDocumentEdits;
+  if (edits?.conclusion) chunks.push(edits.conclusion);
+  if (edits?.assumptions?.external?.length) chunks.push(edits.assumptions.external.join('\n'));
+  if (edits?.assumptions?.internal?.length) chunks.push(edits.assumptions.internal.join('\n'));
+  if (edits?.assumptions?.implications?.length) chunks.push(edits.assumptions.implications.join('\n'));
+  if (edits?.overview) chunks.push(Object.values(edits.overview).filter(Boolean).join('\n'));
+  const mts = edits?.midtermStrategy;
+  if (mts) {
+    chunks.push([
+      mts.midtermConcept,
+      mts.targetVisionForMidterm,
+      ...(mts.priorityStrategicThemes || []),
+      mts.growthStrategy,
+      mts.profitImprovementStrategy,
+      mts.portfolioPolicy,
+      ...(mts.companyWideDecisionCriteria || []),
+      ...(mts.deploymentPrinciplesForUnits || []),
+      ...(mts.managementMeetingIssues || []),
+      mts.strategicCore?.primaryShift,
+      ...(mts.strategicCore?.concreteDomains || []),
+      mts.strategicCore?.customerValue,
+      ...(mts.strategicCore?.coreCapabilities || []),
+      mts.strategicCore?.portfolioShift,
+      mts.strategicCore?.behaviorChange,
+      ...(mts.strategicCore?.nonNegotiableThemes || []),
+    ].filter(Boolean).join('\n'));
+  }
+  return chunks.filter(Boolean).join('\n');
+}
+
+function extractDomainCandidates(sourceText: string, seedValues: string[] = [], max = 8): string[] {
+  const candidates: string[] = [];
+
+  candidates.push(...extractMarketPhrases(sourceText));
+
+  for (const seed of seedValues) {
+    const stripped = stripActionSuffix(seed);
+    if (stripped && !isBadDomainCandidate(stripped)) candidates.push(stripped);
+  }
+
+  candidates.push(...extractInputOnlyDomainHints(sourceText));
+
+  const source = sourceText.replace(/\r/gu, '\n');
+  const nounChunkPattern = /[一-龠ぁ-んァ-ヶA-Za-z0-9・ー／\/()（）,\s]{2,60}(?:市場|領域|事業|産業|用途|顧客|技術|ユニット|システム|機器|製品|ソリューション|モジュール)/gu;
+  for (const match of source.matchAll(nounChunkPattern)) {
+    const value = stripActionSuffix(match[0].replace(/\n/gu, ''));
+    if (value && value.length <= 60 && !isBadDomainCandidate(value)) candidates.push(value);
+  }
+
+  const aiPhysicalPattern = /AIで動く[^\n。．]{2,50}/gu;
+  for (const match of source.matchAll(aiPhysicalPattern)) {
+    const value = stripActionSuffix(match[0]);
+    if (value && value.length <= 60 && !isBadDomainCandidate(value)) candidates.push(value);
+  }
+
+  const aiCompoundPattern = /[一-龠ぁ-んァ-ヶA-Za-z0-9・ー]{1,24}AI[一-龠ぁ-んァ-ヶA-Za-z0-9・ー]{0,18}/gu;
+  for (const match of source.matchAll(aiCompoundPattern)) {
+    const value = stripActionSuffix(match[0]);
+    if (value && value.length >= 4 && !isBadDomainCandidate(value)) candidates.push(toDomainLabel(value));
+  }
+
+  const normalized = removeContainedShortTerms(candidates.filter((value) => !isBadDomainCandidate(value)), max);
+  const marketDomains = normalized.filter((value) => /(?:市場|関連市場)$/u.test(normalizeCompact(value)));
+  return marketDomains.length >= 3 ? marketDomains.slice(0, max) : normalized;
+}
+
+function extractCapabilityCandidates(sourceText: string, seedValues: string[] = [], max = 8): string[] {
+  const candidates: string[] = [];
+  candidates.push(...seedValues.map(stripActionSuffix));
+  const capabilityPattern = /[一-龠ぁ-んァ-ヶA-Za-z0-9・ー／\/()（）,\s]{2,50}(?:技術|能力|強み|加工|金型|モータ|モジュール|メカトロ|量産|制御|信頼性|安全性)/gu;
+  for (const match of sourceText.matchAll(capabilityPattern)) {
+    const value = stripActionSuffix(match[0].replace(/\n/gu, ''));
+    if (value && value.length <= 50 && !isGenericPhrase(value)) candidates.push(value);
+  }
+  return uniqueStrings(candidates, max);
+}
+
+function normalizeStrategicCore(
+  aiCore: StrategicCore | undefined,
+  parsed: any,
+  stage2FinalDocumentEdits?: Stage2FinalDocumentEdits,
+  finalStoryFinal?: ChapterStory[]
+): StrategicCore {
+  const fallback = createFallbackStrategicCore(parsed, stage2FinalDocumentEdits, finalStoryFinal);
+  const mts = stage2FinalDocumentEdits?.midtermStrategy;
+  const sourceText = buildSourceText(finalStoryFinal, stage2FinalDocumentEdits);
+
+  const primaryShift =
+    aiCore?.primaryShift ||
+    mts?.strategicCore?.primaryShift ||
+    fallback.primaryShift;
+  const customerValue =
+    aiCore?.customerValue ||
+    mts?.strategicCore?.customerValue ||
+    fallback.customerValue;
+  const portfolioShift =
+    aiCore?.portfolioShift ||
+    mts?.strategicCore?.portfolioShift ||
+    fallback.portfolioShift;
+  const behaviorChange =
+    aiCore?.behaviorChange ||
+    mts?.strategicCore?.behaviorChange ||
+    fallback.behaviorChange;
+
+  const domainSeeds = [
+    ...(mts?.strategicCore?.concreteDomains || []),
+    ...(aiCore?.concreteDomains || []),
+    ...(mts?.priorityStrategicThemes || []),
+    ...(parsed.departmentIssues || []),
+    ...(fallback.concreteDomains || []),
+  ];
+  const concreteDomains = extractDomainCandidates(sourceText, domainSeeds, 8)
+    .filter((d) => !isBadDomainCandidate(d));
+
+  const capabilitySeeds = [
+    ...(mts?.strategicCore?.coreCapabilities || []),
+    ...(aiCore?.coreCapabilities || []),
+    ...(stage2FinalDocumentEdits?.assumptions?.internal || []),
+    ...(fallback.coreCapabilities || []),
+  ];
+  const coreCapabilities = extractCapabilityCandidates(sourceText, capabilitySeeds, 8);
+
+  const nonNegotiableSeeds = [
+    mts?.strategicCore?.primaryShift,
+    ...(mts?.strategicCore?.nonNegotiableThemes || []),
+    ...(aiCore?.nonNegotiableThemes || []),
+    ...(mts?.priorityStrategicThemes || []),
+    ...(concreteDomains || []),
+    primaryShift,
+    customerValue,
+    portfolioShift,
+  ];
+  const nonNegotiableThemes = extractNonNegotiableThemes(sourceText, nonNegotiableSeeds, 8);
+
+  return {
+    ...(primaryShift ? { primaryShift } : {}),
+    ...(concreteDomains.length > 0 ? { concreteDomains } : {}),
+    ...(customerValue ? { customerValue } : {}),
+    ...(coreCapabilities.length > 0 ? { coreCapabilities } : {}),
+    ...(portfolioShift ? { portfolioShift } : {}),
+    ...(behaviorChange ? { behaviorChange } : {}),
+    ...(nonNegotiableThemes.length > 0 ? { nonNegotiableThemes } : {}),
+  };
+}
+
 function createFallbackStrategicCore(
   parsed: any,
   stage2FinalDocumentEdits?: Stage2FinalDocumentEdits,
@@ -79,13 +512,14 @@ function createFallbackStrategicCore(
     primaryShift = parsed.keyThemes[0];
   }
 
-  // concreteDomains：priorityStrategicThemes から具体語を抽出。なければ departmentIssues を使う
-  let concreteDomains: string[] = [];
-  if (mts?.priorityStrategicThemes?.length) {
-    concreteDomains = mts.priorityStrategicThemes.slice(0, 8);
-  } else if (parsed.departmentIssues?.length) {
-    concreteDomains = parsed.departmentIssues.slice(0, 4);
-  }
+  const sourceText = buildSourceText(finalStoryFinal, stage2FinalDocumentEdits);
+
+  // concreteDomains：市場・用途・技術領域だけを抽出。施策文は入れない
+  const concreteDomains = extractDomainCandidates(sourceText, [
+    ...(mts?.strategicCore?.concreteDomains || []),
+    ...(mts?.priorityStrategicThemes || []),
+    ...(parsed.departmentIssues || []),
+  ], 8);
 
   // customerValue：targetVisionForMidterm を優先。なければ最終ストーリーから抽出
   let customerValue: string | undefined;
@@ -100,14 +534,11 @@ function createFallbackStrategicCore(
   }
 
   // coreCapabilities：最終ストーリーから技術・能力・強みらしい語を抽出
-  let coreCapabilities: string[] = [];
-  if (stage2FinalDocumentEdits?.assumptions?.internal?.length) {
-    coreCapabilities = stage2FinalDocumentEdits.assumptions.internal.slice(0, 6);
-  } else if (mts?.priorityStrategicThemes?.length) {
-    coreCapabilities = mts.priorityStrategicThemes.slice(0, 6);
-  } else if (parsed.keyThemes?.length) {
-    coreCapabilities = parsed.keyThemes.slice(0, 4);
-  }
+  const coreCapabilities = extractCapabilityCandidates(sourceText, [
+    ...(mts?.strategicCore?.coreCapabilities || []),
+    ...(stage2FinalDocumentEdits?.assumptions?.internal || []),
+    ...(parsed.keyThemes || []),
+  ], 8);
 
   // portfolioShift：portfolioPolicy を優先。なければ kpiCriteria を使う
   let portfolioShift: string | undefined;
@@ -125,16 +556,16 @@ function createFallbackStrategicCore(
     behaviorChange = parsed.commonBehaviorChanges[0];
   }
 
-  // nonNegotiableThemes：priorityStrategicThemes + concreteDomains + keyThemes から重複排除して3～8個
-  const themes = new Set<string>();
-  if (mts?.priorityStrategicThemes) {
-    mts.priorityStrategicThemes.forEach(t => themes.add(t));
-  }
-  concreteDomains.forEach(d => themes.add(d));
-  if (parsed.keyThemes) {
-    parsed.keyThemes.slice(0, 3).forEach((t: string) => themes.add(t));
-  }
-  const nonNegotiableThemes = Array.from(themes).slice(0, 8);
+  // nonNegotiableThemes：STAGE3で落としてはいけない転換・領域・顧客価値を保持
+  const nonNegotiableThemes = extractNonNegotiableThemes(sourceText, [
+    mts?.strategicCore?.primaryShift,
+    ...(mts?.strategicCore?.nonNegotiableThemes || []),
+    ...(mts?.priorityStrategicThemes || []),
+    ...concreteDomains,
+    primaryShift,
+    customerValue,
+    portfolioShift,
+  ], 8);
 
   return {
     ...(primaryShift ? { primaryShift } : {}),
@@ -359,12 +790,17 @@ STAGE2の12問回答・最終ストーリー・補助セクション（特に中
 【禁止】入力にない市場名・技術名・製品名・顧客名は絶対に追加しないこと。企業固有ワードは必ず入力から引用すること。
 
 primaryShift：midtermConcept または growthStrategy から作る。存在しない場合は keyThemes から作る。
-concreteDomains：priorityStrategicThemes から具体語を抽出。なければ departmentIssues を使う。
+concreteDomains：入力に含まれる「市場・用途・顧客領域・技術領域・製品領域」の名詞句だけを入れる。
+  - 「〜する」「〜を進める」「〜を強化する」「〜を提供する」などの施策文は禁止。
+  - 「成長市場」「新興市場」「顧客関係」などの一般語だけは禁止。
+  - priorityStrategicThemes が施策文の場合は、そこから市場名・用途名・技術領域名だけを抜き出す。
 customerValue：targetVisionForMidterm を優先。なければ最終ストーリーから「顧客価値」「選ばれる理由」に近い文を使う。
 coreCapabilities：最終ストーリーから技術・能力・強みらしい語を抽出。
 portfolioShift：portfolioPolicy を優先。なければ kpiCriteria を使う。
 behaviorChange：deploymentPrinciplesForUnits を優先。なければ commonBehaviorChanges を使う。
-nonNegotiableThemes：priorityStrategicThemes + concreteDomains + keyThemes から重複排除して3～8個。
+nonNegotiableThemes：STAGE3以降で落としてはいけない「転換の軸・重点領域・顧客価値・やめること」を3～8個で保持する。
+  - concreteDomains と coreCapabilities の単純コピーで水増ししない。
+  - 一般語だけに丸めず、入力に出てきた固有の重点領域や技術観を保持する。
 
 ### departmentTranslationRules（部門展開ルール・必須）
 STAGE3で部門ミッション・重点プロジェクト・KPIを作る際に守るべき必須ルール。
@@ -479,14 +915,16 @@ JSON のみを出力してください。説明やコメントは不要です。
       commonBehaviorChanges: toStringArray(raw.commonBehaviorChanges),
     };
 
-    // strategicCore: AI結果を優先、なければfallbackを作成
-    let strategicCoreSource: 'ai' | 'fallback' = 'fallback';
-    let finalStrategicCore: StrategicCore;
+    // strategicCore: AI結果をそのまま採用せず、入力由来の固有語で必ず正規化する
+    let strategicCoreSource: 'ai-normalized' | 'fallback-normalized' = 'fallback-normalized';
+    const finalStrategicCore = normalizeStrategicCore(
+      aiStrategicCore,
+      baseParsed,
+      stage2FinalDocumentEdits,
+      finalStoryFinal,
+    );
     if (aiStrategicCore && Object.keys(aiStrategicCore).length > 0) {
-      finalStrategicCore = aiStrategicCore;
-      strategicCoreSource = 'ai';
-    } else {
-      finalStrategicCore = createFallbackStrategicCore(baseParsed, stage2FinalDocumentEdits, finalStoryFinal);
+      strategicCoreSource = 'ai-normalized';
     }
 
     // departmentTranslationRules: AI結果を優先、なければfallbackを作成
@@ -508,6 +946,8 @@ JSON のみを出力してください。説明やコメントは不要です。
     // デバッグ情報に追加
     debugInfo.strategicCoreSource = strategicCoreSource;
     debugInfo.departmentTranslationRulesSource = departmentTranslationRulesSource;
+    debugInfo.strategicCoreConcreteDomains = finalStrategicCore.concreteDomains || [];
+    debugInfo.strategicCoreNonNegotiableThemes = finalStrategicCore.nonNegotiableThemes || [];
 
     // バリデーション
     const requiredKeys = ['keyThemes', 'departmentIssues', 'kpiCriteria', 'commonBehaviorChanges'];

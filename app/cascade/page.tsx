@@ -1122,6 +1122,54 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
 }) {
   const [openChapterIndexes, setOpenChapterIndexes] = useState<number[]>([]);
 
+  const uniqueSummaryItems = useCallback((items: any[], max = 5) => {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const item of items) {
+      const value = String(item ?? '').trim();
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      result.push(value);
+      if (result.length >= max) break;
+    }
+    return result;
+  }, []);
+
+  const strategicCore = stage3StrategyBridge?.strategicCore || {};
+
+  // ★ STAGE3 bridge render ログ
+  if (DEBUG || strategicCore?.primaryShift) {
+    console.log('[STAGE3 bridge render] summary source', {
+      hasStrategicCore: !!stage3StrategyBridge?.strategicCore,
+      concreteDomains: stage3StrategyBridge?.strategicCore?.concreteDomains,
+      nonNegotiableThemes: stage3StrategyBridge?.strategicCore?.nonNegotiableThemes,
+      primaryShift: stage3StrategyBridge?.strategicCore?.primaryShift,
+      portfolioShift: stage3StrategyBridge?.strategicCore?.portfolioShift,
+      behaviorChange: stage3StrategyBridge?.strategicCore?.behaviorChange,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  const directionItems = uniqueSummaryItems([
+    strategicCore.primaryShift,
+    ...(stage3StrategyBridge?.keyThemes || []),
+  ], 5);
+  const growthDomainItems = uniqueSummaryItems([
+    ...(strategicCore.concreteDomains || []),
+    ...(stage3StrategyBridge?.departmentIssues || []),
+  ], 6);
+  const reviewItems = uniqueSummaryItems([
+    strategicCore.portfolioShift,
+    ...(stage3StrategyBridge?.kpiCriteria || []),
+  ], 5);
+  const roleItems = uniqueSummaryItems([
+    strategicCore.behaviorChange,
+    ...(stage3StrategyBridge?.commonBehaviorChanges || []),
+  ], 5);
+  const nonNegotiableItems = uniqueSummaryItems([
+    ...(strategicCore.nonNegotiableThemes || []),
+  ], 6);
+
   const toggleChapter = useCallback((index: number) => {
     setOpenChapterIndexes((prev) =>
       prev.includes(index) ? prev.filter((item) => item !== index) : [...prev, index]
@@ -1154,7 +1202,7 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
                   <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3">
                     <h4 className="text-sm font-bold text-zinc-900">会社として目指す方向</h4>
                     <ul className="mt-2 space-y-1 text-xs text-zinc-700">
-                      {(stage3StrategyBridge.keyThemes || []).map((item: string, i: number) => (
+                      {directionItems.map((item: string, i: number) => (
                         <li key={i}>• {item}</li>
                       ))}
                     </ul>
@@ -1162,7 +1210,7 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
                   <div className="rounded-lg border border-amber-100 bg-amber-50 px-4 py-3">
                     <h4 className="text-sm font-bold text-zinc-900">重点的に伸ばす領域</h4>
                     <ul className="mt-2 space-y-1 text-xs text-zinc-700">
-                      {(stage3StrategyBridge.departmentIssues || []).map((item: string, i: number) => (
+                      {growthDomainItems.map((item: string, i: number) => (
                         <li key={i}>• {item}</li>
                       ))}
                     </ul>
@@ -1170,7 +1218,7 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
                   <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-3">
                     <h4 className="text-sm font-bold text-zinc-900">見直すべき事業・活動</h4>
                     <ul className="mt-2 space-y-1 text-xs text-zinc-700">
-                      {(stage3StrategyBridge.kpiCriteria || []).map((item: string, i: number) => (
+                      {reviewItems.map((item: string, i: number) => (
                         <li key={i}>• {item}</li>
                       ))}
                     </ul>
@@ -1178,12 +1226,23 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
                   <div className="rounded-lg border border-purple-100 bg-purple-50 px-4 py-3">
                     <h4 className="text-sm font-bold text-zinc-900">各部門に求める役割</h4>
                     <ul className="mt-2 space-y-1 text-xs text-zinc-700">
-                      {(stage3StrategyBridge.commonBehaviorChanges || []).map((item: string, i: number) => (
+                      {roleItems.map((item: string, i: number) => (
                         <li key={i}>• {item}</li>
                       ))}
                     </ul>
                   </div>
                 </div>
+
+                {nonNegotiableItems.length > 0 && (
+                  <div className="mb-4 rounded-lg border border-indigo-100 bg-indigo-50 px-4 py-3">
+                    <h4 className="text-sm font-bold text-zinc-900">STAGE3で保持する戦略の芯</h4>
+                    <ul className="mt-2 grid gap-1 text-xs text-zinc-700 md:grid-cols-2">
+                      {nonNegotiableItems.map((item: string, i: number) => (
+                        <li key={i}>• {item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4 mb-4">
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -2446,6 +2505,11 @@ function CascadePageContent() {
   const handleGenerateStrategyBridge = useCallback(async () => {
     const st = useStrategyStore.getState();
     const finalStoryData = st.finalStoryFinal ?? st.finalStory;
+    const bridgeSourceEdits = {
+      ...(st.stage2FinalDocumentEdits || {}),
+      ...(st.midtermStrategy ? { midtermStrategy: st.midtermStrategy } : {}),
+    };
+    const hasBridgeSourceEdits = Object.keys(bridgeSourceEdits).length > 0;
 
     if (!Array.isArray(finalStoryData) || finalStoryData.length === 0) {
       setNotice('[ERROR] STAGE2最終ストーリーが未設定です');
@@ -2459,6 +2523,7 @@ function CascadePageContent() {
         body: JSON.stringify({
           finalStoryFinal: finalStoryData,
           companyId: accessCompanyId,
+          ...(hasBridgeSourceEdits ? { stage2FinalDocumentEdits: bridgeSourceEdits } : {}),
         }),
       });
 
@@ -2475,8 +2540,37 @@ function CascadePageContent() {
       }));
 
       const saveState = useStrategyStore.getState();
-      await saveState.saveStrategyData({ force: true, reason: 'stage3-bridge-generated' });
-      setNotice('[OK] 全社戦略サマリーを生成・保存しました');
+      console.log('[STAGE3] bridge generated before save', {
+        hasStrategicCore: !!(result as any)?.strategicCore,
+        concreteDomains: (result as any)?.strategicCore?.concreteDomains || [],
+        nonNegotiableThemes: (result as any)?.strategicCore?.nonNegotiableThemes || [],
+        hasDepartmentTranslationRules: Array.isArray((result as any)?.departmentTranslationRules),
+      });
+
+      const saveResult = await saveState.saveStrategyData({ force: true, reason: 'stage3-bridge-generated' });
+      const saveSucceeded = !(saveResult as any)?.error && !(saveResult as any)?.skipped;
+
+      // 保存処理が revision / updatedAt だけをstoreへ戻す構造でも、生成直後のbridgeを画面stateに保持する。
+      useStrategyStore.setState((state: any) => ({
+        ...state,
+        stage3_strategy_bridge: {
+          ...(state.stage3_strategy_bridge || {}),
+          ...(result as any),
+        },
+        dirty: saveSucceeded ? false : state.dirty,
+        version: (state.version ?? 0) + 1,
+      }));
+
+      console.log('[STAGE3] bridge save completed', {
+        ok: saveSucceeded,
+        skipped: (saveResult as any)?.skipped,
+        reason: (saveResult as any)?.reason,
+        storeHasStrategicCore: !!useStrategyStore.getState().stage3_strategy_bridge?.strategicCore,
+      });
+      setNotice(saveSucceeded
+        ? '[OK] 全社戦略サマリーを生成・保存しました'
+        : '[WARN] 全社戦略サマリーは生成しましたが、保存確認が未完了です。全体保存を実行してください'
+      );
     } catch (e: any) {
       console.error('[STAGE3] Error:', e?.message);
       setNotice('[ERROR] 生成に失敗しました');

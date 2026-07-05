@@ -1,120 +1,274 @@
-## ✅ strategyData/portfolioEntries 未定義参照修正完了（2026-07-03）
+GROWTH SHIFTの保存・リロード不具合を修正してください。
 
-~~また STAGE2 generate-final API で ReferenceError が出ています。~~
+## 現象
+STAGE3で内容を削除・修正しても、リロードすると以前の内容が戻ってしまう。
+特に、部門やSTAGE3生成結果を削除した後、画面上では消えたように見えるが、リロードすると復活する。
 
-~~エラー：~~
-~~ReferenceError: strategyData is not defined~~
+## 最重要方針
+画面上の状態変更だけで終わらせず、必ずDB保存まで完了させること。
+リロード時に、STAGE1由来の初期部門・古いstage3データ・fallback生成結果で、ユーザーが削除した内容を復活させないこと。
 
-発生箇所：
-app/api/stage2/generate-final/route.ts
-HTTP 500
-最終ストーリー生成時
+## 調査対象ファイル
+- app/cascade/page.tsx
+- store/strategyStore.ts
+- utils/supabase/strategy.ts
+- 必要なら saveWithAudit.ts / fetchStrategy 関連
 
-前回 departments is not defined を修正した際に、
-未定義の strategyData 変数を参照するコードを追加した可能性があります。
+## 修正してほしいこと
+
+### 1. STAGE3の削除・編集時にDB保存されているか確認
+以下の操作で、Zustand storeだけでなくSupabaseのstrategy_dataにも反映されるようにしてください。
+
+- 部門削除
+- STAGE3部門戦略の削除
+- stage3_strategy_bridgeの削除または再生成
+- projects / okrs / kpis の削除
+- 「全削除」系の操作
+
+削除後は `saveWithAudit()` または既存の正式保存処理を必ず await してください。
+
+### 2. リロード時の復元ロジックを修正
+リロード時にDBから取得した値をstoreへhydrateする際、以下を確認してください。
+
+- DBに `departments: []` または `stage3_departments: []` のような空配列が保存されている場合、それを「未設定」と扱わないこと
+- 空配列を無視して、STAGE1の departments から再生成しないこと
+- `undefined/null` と `[]` を明確に区別すること
+- ユーザーが明示的に削除した状態は、リロード後も削除状態を維持すること
+
+悪い例：
+```ts
+const departments = saved.departments?.length ? saved.departments : stage1Departments;
+
+良い例：
+
+const departments = Array.isArray(saved.departments)
+  ? saved.departments
+  : stage1Departments;
+3. fallback生成の発火条件を厳格化
+
+STAGE3画面初期化時に、以下のような処理があれば修正してください。
+
+departmentsが空ならSTAGE1から自動復元
+stage3データが空なら自動生成
+bridgeが空なら古い値やfallbackを表示
+
+ただし、初回利用時だけ必要なfallbackは残してよいです。
+その場合は、以下のような明示フラグで判定してください。
+
+hasHydratedFromDb
+isInitialStage3Setup
+stage3Initialized
+stage3DeletedAt
+stage3ResetVersion
+
+少なくとも「DBに空配列が保存されている状態」ではfallback復元しないでください。
+
+4. 保存後の検証ログを追加
+
+PoC中のため、削除・保存・リロード確認用に最低限のログを追加してください。
 
 例：
-const departments = Array.isArray(strategyData?.departments)
-  ? strategyData.departments
-  : ...
 
-しかし、このスコープに strategyData は存在していません。
+console.log('[STAGE3 delete] before save', { departmentsCount, projectsCount });
+console.log('[STAGE3 delete] save completed');
+console.log('[STAGE3 hydrate] loaded from DB', {
+  hasDepartments: Array.isArray(data.departments),
+  departmentsCount: data.departments?.length,
+  hasStage3Bridge: !!data.stage3_strategy_bridge,
+});
+5. 修正後の確認
 
-対応してください。
+以下を確認してください。
 
-【重要】
-場当たり的に新しい変数名を作らず、generate-final API 内で実際に strategy_data 取得結果として使われている変数名を確認してください。
+STAGE3で部門を削除
+保存処理が完了
+リロード
+削除した部門が復活しない
+Supabaseのstrategy_data上でも削除状態が保存されている
+STAGE1に部門名が残っていても、STAGE3削除済み状態を勝手に復元しない
+注意
 
-確認対象：
-- strategyData
-- strategyRow
-- strategy
-- srow
-- data
-- existingData
-- normalizedStrategy
-- normalized
-- row
+STAGE1の部門情報は「初回STAGE3作成時の元データ」として使うのはOK。
+しかし、一度STAGE3側でユーザーが削除・編集した後は、STAGE3保存データを正としてください。
 
-【修正方針】
-1. app/api/stage2/generate-final/route.ts で strategy_data 取得箇所を確認
-2. 取得した strategy_data の実際の変数名を特定
-3. departments 取得処理は、その実在する変数から参照する
-4. もし departments はログ用途だけなら、参照自体を削除してもよい
-5. STAGE2最終ストーリー生成では departments は必須ではないので、未取得なら [] でよい
 
-例：
+今回の本質はたぶん「空配列を未設定扱いして、STAGE1や古いDB値から復元している」ことです。Claude Codeには、`undefined/null` と `[]` の区別を重点的に見させてください。
+そうではなくてSTAGE2から3へのブリッジの生成結果がスクショの通り戻ってしまうという問題を直させて
 
-const strategySource = 実際に取得済みのstrategy_data変数;
+はい、論点は「部門削除」ではなく、STAGE2→STAGE3ブリッジ生成結果 stage3_strategy_bridge が、リロード後に古い/簡略版の表示へ戻る問題ですね。
 
-const departments = Array.isArray((strategySource as any)?.departments)
-  ? (strategySource as any).departments
-  : Array.isArray((strategySource as any)?.editableCascadeResult)
-    ? (strategySource as any).editableCascadeResult
-    : [];
+Claude Codeには下記を貼ってください。
 
-または logInputGuard 内でしか使っていないなら：
+GROWTH SHIFTのSTAGE2→STAGE3ブリッジ表示・保存・復元不具合を修正してください。
 
-const hasStage3Context =
-  Array.isArray((strategySource as any)?.departments) && (strategySource as any).departments.length > 0;
+## 現象
+STAGE3画面の上段「まず、全社戦略の要点を確認する」の表示が、生成直後とリロード後で変わってしまう。
 
-【必ず確認】
-- TypeScript build だけでなく、実際に /stage2 から「最終ストーリーを生成」を押して確認してください
-- ReferenceError が出ないこと
-- HTTP 500 にならないこと
-- サーバーログで OpenAI 呼び出し直前まで到達すること
+生成直後は、以下のように strategicCore を含む詳細版が表示される：
+- 「STAGE3で保持する戦略の芯」が表示される
+- フィジカルAI、ロボット、ドローン、医療機器、光学メカトロユニットなどが残る
 
-【追加でお願い】
-今回、strategyId / departments / strategyData と ReferenceError が連続しています。
-app/api/stage2/generate-final/route.ts 内で、未定義変数の可能性がある参照を一括で確認してください。
+しかしリロードすると、表示が簡略版に戻ってしまう：
+- 「STAGE3で保持する戦略の芯」ブロックが消える
+- `strategicCore` ではなく、旧来の `keyThemes / departmentIssues / kpiCriteria / commonBehaviorChanges` だけで表示されているように見える
+- 「重点的に伸ばす領域」もADAS/DMS寄りに丸まる
 
-以下で静的確認してください：
-- npm run build
-- npm run lint があれば lint
-- TypeScript が拾わないスコープ内変数も含めて、generate-final API 内の最近追加した変数を目視確認
+## 重要
+これは部門削除の問題ではありません。
+`stage3_strategy_bridge` の生成結果、特に `strategicCore` と `departmentTranslationRules` が、リロード後のhydrate/表示時に正しく使われていない問題です。
 
-もう ReferenceError を1個ずつ潰す形にしないでください。
-generate-final API 全体で未定義参照が残っていないか確認してから報告してください。
+## 関連ファイル
+- app/cascade/page.tsx
+- app/api/stage3/generate-strategy-bridge/route.ts
+- store/strategyStore.ts
+- utils/supabase/strategy.ts
+- 必要なら saveWithAudit / fetchStrategy 関連
 
----
+## 修正してほしいこと
 
-## 修正内容
+### 1. リロード時にDBの `stage3_strategy_bridge.strategicCore` を必ず復元する
+Supabaseの `strategy_data.stage3_strategy_bridge` に以下が保存されている場合：
 
-### 問題（第2ラウンド）
-```
-ReferenceError: strategyData is not defined
-```
+```ts
+stage3_strategy_bridge: {
+  keyThemes,
+  departmentIssues,
+  kpiCriteria,
+  commonBehaviorChanges,
+  strategicCore,
+  departmentTranslationRules,
+  generatedAt
+}
 
-### 原因分析
-1. 前回の departments 修正で以下のコードを追加：
-   ```typescript
-   const departments = Array.isArray(strategyData?.departments)
-     ? strategyData.departments
-     : ...
-   ```
+リロード後のZustand storeにも、strategicCore と departmentTranslationRules を落とさず入れてください。
 
-2. しかし、POST 関数スコープに strategyData が存在しない
-   → ReferenceError: strategyData is not defined
+特に以下を確認：
 
-3. 同時に portfolioEntries も未定義
-   → hasStage4Context で参照していたが定義されていない
+fetchStrategy 側で stage3_strategy_bridge を丸ごと返しているか
+hydrate / setState 側で strategicCore を除外していないか
+型定義が古く、stage3_strategy_bridge を4項目だけに丸めていないか
+JSON.parse/stringify や mapper の途中で unknown fields が消えていないか
+2. STAGE3上段サマリー表示は、リロード後も strategicCore 優先にする
 
-### 修正方法
-不要な参照を削除し、既に定義されている変数から判定に変更：
+app/cascade/page.tsx の「まず、全社戦略の要点を確認する」表示で、以下の優先順位を守ってください。
 
-```typescript
-// ★ STAGE2では部門情報は必須ではないため、businessSegments から判定
-const hasStage3Context = Array.isArray(businessSegments) && businessSegments.length > 0;
-const hasStage4Context = (normalizedPortfolio?.businesses?.length ?? 0) > 0;
-```
+会社として目指す方向：
+stage3_strategy_bridge.strategicCore.primaryShift を最優先
+なければ keyThemes
+重点的に伸ばす領域：
+stage3_strategy_bridge.strategicCore.concreteDomains を最優先
+なければ departmentIssues
+見直すべき事業・活動：
+stage3_strategy_bridge.strategicCore.portfolioShift を最優先
+なければ kpiCriteria
+各部門に求める役割：
+stage3_strategy_bridge.strategicCore.behaviorChange を最優先
+なければ commonBehaviorChanges
+STAGE3で保持する戦略の芯：
+stage3_strategy_bridge.strategicCore.nonNegotiableThemes があれば必ず表示
+リロード後も消えないこと
+3. 古いブリッジ形式へのfallbackで上書きしない
 
-### 設計判断
-- departments 参照を削除（POST 関数に strategyData がないため）
-- businessSegments で hasStage3Context を判定（ユーザー入力からの値）
-- normalizedPortfolio.businesses で hasStage4Context を判定（既に正規化済み）
-- STAGE2では部門情報は必須ではないため、この判定で十分
+以下のような処理があれば修正してください。
 
-### 一括確認結果
-✅ npm run build 成功
-✅ TypeScript エラーなし
-✅ 前回追加した変数（strategyId, strategyData, portfolioEntries）の未定義参照をすべて確認・修正
+悪い例：
+
+const bridge = {
+  keyThemes: data.keyThemes,
+  departmentIssues: data.departmentIssues,
+  kpiCriteria: data.kpiCriteria,
+  commonBehaviorChanges: data.commonBehaviorChanges,
+};
+
+または：
+
+if (!bridge.keyThemes?.length) {
+  bridge = createFallbackBridge(...)
+}
+
+問題：
+
+strategicCore があるのに、旧形式の4項目だけに丸めてしまう
+strategicCore が存在するのにfallback表示へ戻る
+stage3_strategy_bridge 全体ではなく一部だけ保存/復元している
+
+良い例：
+
+const savedBridge = data.stage3_strategy_bridge;
+
+const bridge = savedBridge
+  ? {
+      ...savedBridge,
+      strategicCore: savedBridge.strategicCore,
+      departmentTranslationRules: savedBridge.departmentTranslationRules ?? [],
+    }
+  : undefined;
+4. stage3_strategy_bridge 保存時に strategicCore を含める
+
+STAGE2からSTAGE3へ進む時、またはSTAGE3でブリッジ再生成した時に、DB保存payloadに必ず以下を含めてください。
+
+stage3_strategy_bridge: bridgeResult
+
+この bridgeResult は以下を含む完全版であること：
+
+{
+  keyThemes,
+  departmentIssues,
+  kpiCriteria,
+  commonBehaviorChanges,
+  strategicCore,
+  departmentTranslationRules,
+  generatedAt
+}
+
+保存前ログを追加してください：
+
+console.log('[STAGE3 bridge save] saving bridge', {
+  hasBridge: !!bridgeResult,
+  hasStrategicCore: !!bridgeResult?.strategicCore,
+  concreteDomains: bridgeResult?.strategicCore?.concreteDomains,
+  nonNegotiableThemes: bridgeResult?.strategicCore?.nonNegotiableThemes,
+});
+5. hydrate時のログを追加
+
+リロード時に、DBから取得したブリッジがどうstoreに入ったか確認できるログを追加してください。
+
+console.log('[STAGE3 bridge hydrate] loaded bridge', {
+  hasBridge: !!data.stage3_strategy_bridge,
+  hasStrategicCore: !!data.stage3_strategy_bridge?.strategicCore,
+  concreteDomains: data.stage3_strategy_bridge?.strategicCore?.concreteDomains,
+  nonNegotiableThemes: data.stage3_strategy_bridge?.strategicCore?.nonNegotiableThemes,
+  keys: data.stage3_strategy_bridge ? Object.keys(data.stage3_strategy_bridge) : [],
+});
+
+表示側にも一時的にログを入れてください：
+
+console.log('[STAGE3 bridge render] summary source', {
+  hasStrategicCore: !!stage3_strategy_bridge?.strategicCore,
+  concreteDomains: stage3_strategy_bridge?.strategicCore?.concreteDomains,
+  nonNegotiableThemes: stage3_strategy_bridge?.strategicCore?.nonNegotiableThemes,
+});
+6. 確認手順
+
+以下を必ず確認してください。
+
+STAGE2からSTAGE3へ進む
+STAGE3上段に STAGE3で保持する戦略の芯 が表示される
+Supabaseで stage3_strategy_bridge.strategicCore が保存されている
+ブラウザをリロードする
+リロード後も STAGE3で保持する戦略の芯 が消えない
+concreteDomains が旧表示・簡略表示に戻らない
+strategicCore がある場合は、旧4項目だけの表示に戻らない
+重要な判断
+
+DBに stage3_strategy_bridge.strategicCore が存在するなら、それを正としてください。
+リロード時に keyThemes / departmentIssues / kpiCriteria / commonBehaviorChanges だけで再構成しないでください。
+
+今回の不具合はおそらく以下のどれかです：
+
+保存時は strategicCore を含んでいるが、fetch/hydrateで落ちている
+store型が古く、strategicCoreが保持されていない
+表示側が初回生成時だけstrategicCoreを見て、リロード後は旧4項目表示に戻っている
+fallback bridge生成がリロード時に走り、保存済みbridgeを上書きしている
+
+要するに、Claude Codeには **「保存されている `stage3_strategy_bridge` を丸ごとhydrateし、表示側も常に `strategicC
