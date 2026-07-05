@@ -1,274 +1,150 @@
-GROWTH SHIFTの保存・リロード不具合を修正してください。
+まだ直っていません。スクショのログから見ると、問題はhydrateだけではなく、リロード後のautosave/manual saveが `stage3_strategy_bridge` を旧形式で上書きしている可能性が高いです。
 
-## 現象
-STAGE3で内容を削除・修正しても、リロードすると以前の内容が戻ってしまう。
-特に、部門やSTAGE3生成結果を削除した後、画面上では消えたように見えるが、リロードすると復活する。
+## 観測ログ
+リロード前：
+- `[STAGE3 bridge render] summary source`
+- `hasStrategicCore: true`
+- `concreteDomains: Array(8)`
+- `nonNegotiableThemes: Array(8)`
 
-## 最重要方針
-画面上の状態変更だけで終わらせず、必ずDB保存まで完了させること。
-リロード時に、STAGE1由来の初期部門・古いstage3データ・fallback生成結果で、ユーザーが削除した内容を復活させないこと。
+リロード後：
+- `[STAGE3 bridge render] summary source`
+- `hasStrategicCore: false`
+- `concreteDomains: undefined`
+- `nonNegotiableThemes: undefined`
 
-## 調査対象ファイル
-- app/cascade/page.tsx
-- store/strategyStore.ts
-- utils/supabase/strategy.ts
-- 必要なら saveWithAudit.ts / fetchStrategy 関連
+さらにログに以下が出ています：
+- `[SAVE] payloadBridge included true`
+- `serverData has bridge: true`
+- `serverData bridge keys: Array(5)`
+- その後 `strategy data update ok`
 
-## 修正してほしいこと
+つまり、保存時または保存後の正規化で、`stage3_strategy_bridge` が旧4項目＋generatedAt程度に丸められ、`strategicCore` と `departmentTranslationRules` が落ちている可能性があります。
 
-### 1. STAGE3の削除・編集時にDB保存されているか確認
-以下の操作で、Zustand storeだけでなくSupabaseのstrategy_dataにも反映されるようにしてください。
+## 今回の本丸
+`normalizeFromDbRow` だけでなく、以下を全て確認・修正してください。
 
-- 部門削除
-- STAGE3部門戦略の削除
-- stage3_strategy_bridgeの削除または再生成
-- projects / okrs / kpis の削除
-- 「全削除」系の操作
+1. `saveStrategyData`
+2. `buildSavePayload`
+3. `normalizeBeforeStore`
+4. `normalizeFromDbRow`
+5. autosaveのpayload作成処理
+6. manual saveのpayload作成処理
+7. `stage3_strategy_bridge` を保存後レスポンス `serverData` で store に戻す処理
 
-削除後は `saveWithAudit()` または既存の正式保存処理を必ず await してください。
+## 修正方針
 
-### 2. リロード時の復元ロジックを修正
-リロード時にDBから取得した値をstoreへhydrateする際、以下を確認してください。
-
-- DBに `departments: []` または `stage3_departments: []` のような空配列が保存されている場合、それを「未設定」と扱わないこと
-- 空配列を無視して、STAGE1の departments から再生成しないこと
-- `undefined/null` と `[]` を明確に区別すること
-- ユーザーが明示的に削除した状態は、リロード後も削除状態を維持すること
-
+### 1. save payloadで `stage3_strategy_bridge` を絶対に丸めない
 悪い例：
-```ts
-const departments = saved.departments?.length ? saved.departments : stage1Departments;
-
-良い例：
-
-const departments = Array.isArray(saved.departments)
-  ? saved.departments
-  : stage1Departments;
-3. fallback生成の発火条件を厳格化
-
-STAGE3画面初期化時に、以下のような処理があれば修正してください。
-
-departmentsが空ならSTAGE1から自動復元
-stage3データが空なら自動生成
-bridgeが空なら古い値やfallbackを表示
-
-ただし、初回利用時だけ必要なfallbackは残してよいです。
-その場合は、以下のような明示フラグで判定してください。
-
-hasHydratedFromDb
-isInitialStage3Setup
-stage3Initialized
-stage3DeletedAt
-stage3ResetVersion
-
-少なくとも「DBに空配列が保存されている状態」ではfallback復元しないでください。
-
-4. 保存後の検証ログを追加
-
-PoC中のため、削除・保存・リロード確認用に最低限のログを追加してください。
-
-例：
-
-console.log('[STAGE3 delete] before save', { departmentsCount, projectsCount });
-console.log('[STAGE3 delete] save completed');
-console.log('[STAGE3 hydrate] loaded from DB', {
-  hasDepartments: Array.isArray(data.departments),
-  departmentsCount: data.departments?.length,
-  hasStage3Bridge: !!data.stage3_strategy_bridge,
-});
-5. 修正後の確認
-
-以下を確認してください。
-
-STAGE3で部門を削除
-保存処理が完了
-リロード
-削除した部門が復活しない
-Supabaseのstrategy_data上でも削除状態が保存されている
-STAGE1に部門名が残っていても、STAGE3削除済み状態を勝手に復元しない
-注意
-
-STAGE1の部門情報は「初回STAGE3作成時の元データ」として使うのはOK。
-しかし、一度STAGE3側でユーザーが削除・編集した後は、STAGE3保存データを正としてください。
-
-
-今回の本質はたぶん「空配列を未設定扱いして、STAGE1や古いDB値から復元している」ことです。Claude Codeには、`undefined/null` と `[]` の区別を重点的に見させてください。
-そうではなくてSTAGE2から3へのブリッジの生成結果がスクショの通り戻ってしまうという問題を直させて
-
-はい、論点は「部門削除」ではなく、STAGE2→STAGE3ブリッジ生成結果 stage3_strategy_bridge が、リロード後に古い/簡略版の表示へ戻る問題ですね。
-
-Claude Codeには下記を貼ってください。
-
-GROWTH SHIFTのSTAGE2→STAGE3ブリッジ表示・保存・復元不具合を修正してください。
-
-## 現象
-STAGE3画面の上段「まず、全社戦略の要点を確認する」の表示が、生成直後とリロード後で変わってしまう。
-
-生成直後は、以下のように strategicCore を含む詳細版が表示される：
-- 「STAGE3で保持する戦略の芯」が表示される
-- フィジカルAI、ロボット、ドローン、医療機器、光学メカトロユニットなどが残る
-
-しかしリロードすると、表示が簡略版に戻ってしまう：
-- 「STAGE3で保持する戦略の芯」ブロックが消える
-- `strategicCore` ではなく、旧来の `keyThemes / departmentIssues / kpiCriteria / commonBehaviorChanges` だけで表示されているように見える
-- 「重点的に伸ばす領域」もADAS/DMS寄りに丸まる
-
-## 重要
-これは部門削除の問題ではありません。
-`stage3_strategy_bridge` の生成結果、特に `strategicCore` と `departmentTranslationRules` が、リロード後のhydrate/表示時に正しく使われていない問題です。
-
-## 関連ファイル
-- app/cascade/page.tsx
-- app/api/stage3/generate-strategy-bridge/route.ts
-- store/strategyStore.ts
-- utils/supabase/strategy.ts
-- 必要なら saveWithAudit / fetchStrategy 関連
-
-## 修正してほしいこと
-
-### 1. リロード時にDBの `stage3_strategy_bridge.strategicCore` を必ず復元する
-Supabaseの `strategy_data.stage3_strategy_bridge` に以下が保存されている場合：
-
 ```ts
 stage3_strategy_bridge: {
-  keyThemes,
-  departmentIssues,
-  kpiCriteria,
-  commonBehaviorChanges,
-  strategicCore,
-  departmentTranslationRules,
-  generatedAt
+  keyThemes: bridge.keyThemes,
+  departmentIssues: bridge.departmentIssues,
+  kpiCriteria: bridge.kpiCriteria,
+  commonBehaviorChanges: bridge.commonBehaviorChanges,
+  generatedAt: bridge.generatedAt,
 }
-
-リロード後のZustand storeにも、strategicCore と departmentTranslationRules を落とさず入れてください。
-
-特に以下を確認：
-
-fetchStrategy 側で stage3_strategy_bridge を丸ごと返しているか
-hydrate / setState 側で strategicCore を除外していないか
-型定義が古く、stage3_strategy_bridge を4項目だけに丸めていないか
-JSON.parse/stringify や mapper の途中で unknown fields が消えていないか
-2. STAGE3上段サマリー表示は、リロード後も strategicCore 優先にする
-
-app/cascade/page.tsx の「まず、全社戦略の要点を確認する」表示で、以下の優先順位を守ってください。
-
-会社として目指す方向：
-stage3_strategy_bridge.strategicCore.primaryShift を最優先
-なければ keyThemes
-重点的に伸ばす領域：
-stage3_strategy_bridge.strategicCore.concreteDomains を最優先
-なければ departmentIssues
-見直すべき事業・活動：
-stage3_strategy_bridge.strategicCore.portfolioShift を最優先
-なければ kpiCriteria
-各部門に求める役割：
-stage3_strategy_bridge.strategicCore.behaviorChange を最優先
-なければ commonBehaviorChanges
-STAGE3で保持する戦略の芯：
-stage3_strategy_bridge.strategicCore.nonNegotiableThemes があれば必ず表示
-リロード後も消えないこと
-3. 古いブリッジ形式へのfallbackで上書きしない
-
-以下のような処理があれば修正してください。
-
-悪い例：
-
-const bridge = {
-  keyThemes: data.keyThemes,
-  departmentIssues: data.departmentIssues,
-  kpiCriteria: data.kpiCriteria,
-  commonBehaviorChanges: data.commonBehaviorChanges,
-};
-
-または：
-
-if (!bridge.keyThemes?.length) {
-  bridge = createFallbackBridge(...)
-}
-
-問題：
-
-strategicCore があるのに、旧形式の4項目だけに丸めてしまう
-strategicCore が存在するのにfallback表示へ戻る
-stage3_strategy_bridge 全体ではなく一部だけ保存/復元している
 
 良い例：
 
-const savedBridge = data.stage3_strategy_bridge;
-
-const bridge = savedBridge
+stage3_strategy_bridge: state.stage3_strategy_bridge
   ? {
-      ...savedBridge,
-      strategicCore: savedBridge.strategicCore,
-      departmentTranslationRules: savedBridge.departmentTranslationRules ?? [],
+      ...state.stage3_strategy_bridge,
+      strategicCore: state.stage3_strategy_bridge.strategicCore,
+      departmentTranslationRules:
+        state.stage3_strategy_bridge.departmentTranslationRules ?? [],
     }
-  : undefined;
-4. stage3_strategy_bridge 保存時に strategicCore を含める
+  : null
+2. serverDataをstoreに反映する時も旧形式に戻さない
 
-STAGE2からSTAGE3へ進む時、またはSTAGE3でブリッジ再生成した時に、DB保存payloadに必ず以下を含めてください。
+保存後にSupabaseから返ってきた serverData を store に戻す処理がある場合、そこでも strategicCore を落とさないでください。
 
-stage3_strategy_bridge: bridgeResult
+特にこのログを確認してください：
 
-この bridgeResult は以下を含む完全版であること：
+serverData bridge keys: Array(5)
 
-{
-  keyThemes,
-  departmentIssues,
-  kpiCriteria,
-  commonBehaviorChanges,
-  strategicCore,
-  departmentTranslationRules,
-  generatedAt
+期待値は最低でも以下です：
+
+[
+  'keyThemes',
+  'departmentIssues',
+  'kpiCriteria',
+  'commonBehaviorChanges',
+  'strategicCore',
+  'departmentTranslationRules',
+  'generatedAt'
+]
+
+もし Array(5) しかないなら、保存payloadかDB返却後のnormalizeで落ちています。
+
+3. autosaveで旧bridgeを保存しない
+
+リロード直後にautosaveが走り、旧形式bridgeでDBを上書きしている可能性があります。
+
+以下のガードを入れてください。
+
+const existingBridge = get().stage3_strategy_bridge;
+
+if (
+  existingBridge?.strategicCore &&
+  payload.stage3_strategy_bridge &&
+  !payload.stage3_strategy_bridge.strategicCore
+) {
+  console.warn('[STAGE3 bridge save guard] blocked downgrade of strategicCore');
+  payload.stage3_strategy_bridge = existingBridge;
 }
 
-保存前ログを追加してください：
+または保存payload作成時に、必ず現在storeの完全版bridgeを優先してください。
 
-console.log('[STAGE3 bridge save] saving bridge', {
-  hasBridge: !!bridgeResult,
-  hasStrategicCore: !!bridgeResult?.strategicCore,
-  concreteDomains: bridgeResult?.strategicCore?.concreteDomains,
-  nonNegotiableThemes: bridgeResult?.strategicCore?.nonNegotiableThemes,
-});
-5. hydrate時のログを追加
+4. DB更新前ログを追加
 
-リロード時に、DBから取得したブリッジがどうstoreに入ったか確認できるログを追加してください。
+保存直前に必ずこれを出してください。
 
-console.log('[STAGE3 bridge hydrate] loaded bridge', {
-  hasBridge: !!data.stage3_strategy_bridge,
-  hasStrategicCore: !!data.stage3_strategy_bridge?.strategicCore,
-  concreteDomains: data.stage3_strategy_bridge?.strategicCore?.concreteDomains,
-  nonNegotiableThemes: data.stage3_strategy_bridge?.strategicCore?.nonNegotiableThemes,
-  keys: data.stage3_strategy_bridge ? Object.keys(data.stage3_strategy_bridge) : [],
+console.log('[STAGE3 bridge save payload]', {
+  hasBridge: !!payload.stage3_strategy_bridge,
+  keys: payload.stage3_strategy_bridge
+    ? Object.keys(payload.stage3_strategy_bridge)
+    : [],
+  hasStrategicCore: !!payload.stage3_strategy_bridge?.strategicCore,
+  concreteDomains:
+    payload.stage3_strategy_bridge?.strategicCore?.concreteDomains,
+  nonNegotiableThemes:
+    payload.stage3_strategy_bridge?.strategicCore?.nonNegotiableThemes,
 });
 
-表示側にも一時的にログを入れてください：
+保存後レスポンスにも：
 
-console.log('[STAGE3 bridge render] summary source', {
-  hasStrategicCore: !!stage3_strategy_bridge?.strategicCore,
-  concreteDomains: stage3_strategy_bridge?.strategicCore?.concreteDomains,
-  nonNegotiableThemes: stage3_strategy_bridge?.strategicCore?.nonNegotiableThemes,
+console.log('[STAGE3 bridge save response]', {
+  hasBridge: !!serverData?.stage3_strategy_bridge,
+  keys: serverData?.stage3_strategy_bridge
+    ? Object.keys(serverData.stage3_strategy_bridge)
+    : [],
+  hasStrategicCore: !!serverData?.stage3_strategy_bridge?.strategicCore,
 });
-6. 確認手順
+5. 絶対に確認すること
 
-以下を必ず確認してください。
+以下の順番で確認してください。
 
-STAGE2からSTAGE3へ進む
-STAGE3上段に STAGE3で保持する戦略の芯 が表示される
-Supabaseで stage3_strategy_bridge.strategicCore が保存されている
-ブラウザをリロードする
-リロード後も STAGE3で保持する戦略の芯 が消えない
-concreteDomains が旧表示・簡略表示に戻らない
-strategicCore がある場合は、旧4項目だけの表示に戻らない
-重要な判断
+STAGE2→STAGE3ブリッジ生成
+hasStrategicCore: true
+DBの stage3_strategy_bridge.strategicCore が存在
+リロード
+リロード直後のautosave/manual saveで、[STAGE3 bridge save payload] hasStrategicCore: true
+保存後レスポンスでも hasStrategicCore: true
+再リロードしても STAGE3で保持する戦略の芯 が消えない
+重要
 
-DBに stage3_strategy_bridge.strategicCore が存在するなら、それを正としてください。
-リロード時に keyThemes / departmentIssues / kpiCriteria / commonBehaviorChanges だけで再構成しないでください。
+今回のログでは、表示側では一度 hasStrategicCore: true になっています。
+その後、リロードまたは保存処理で hasStrategicCore: false になっています。
 
-今回の不具合はおそらく以下のどれかです：
+したがって、原因は単なる表示ロジックではなく、
+保存payload作成、autosave、serverData normalize のどこかで完全版bridgeが旧形式にダウングレードされていることです。
 
-保存時は strategicCore を含んでいるが、fetch/hydrateで落ちている
-store型が古く、strategicCoreが保持されていない
-表示側が初回生成時だけstrategicCoreを見て、リロード後は旧4項目表示に戻っている
-fallback bridge生成がリロード時に走り、保存済みbridgeを上書きしている
+そこを重点的に直してください。
 
-要するに、Claude Codeには **「保存されている `stage3_strategy_bridge` を丸ごとhydrateし、表示側も常に `strategicC
+
+今回かなり重要なのは、スクショ右側のこのログです。
+
+`serverData bridge keys: Array(5)`
+
+これ、完全版なら `strategicCore` と `departmentTranslationRules` が入るので、5個では足りません。つまり **保存した瞬間に旧形式へ

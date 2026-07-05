@@ -1076,7 +1076,7 @@ function extractServerDecidedPatch(
   if (Array.isArray(resData.winPatternsCandidate)) patch.winPatternsCandidate = resData.winPatternsCandidate;
   if (Array.isArray(resData.answers12)) patch.answers12 = resData.answers12;
 
-  /* ========== STAGE3: 部門・戦略方針 ========== */
+  /* ========== STAGE3: 部門・戦略方針・ブリッジ ========== */
   if (Array.isArray(resData.departments)) patch.departments = resData.departments;
 
   if (typeof resData.thought === 'string') patch.thought = resData.thought;
@@ -1086,6 +1086,20 @@ function extractServerDecidedPatch(
   if (typeof resData.ceoIntent === 'string') patch.ceoIntent = resData.ceoIntent;
 
   if (resData.swotSuggestions && typeof resData.swotSuggestions === 'object') patch.swotSuggestions = resData.swotSuggestions;
+
+  // ★ CRITICAL: STAGE3 strategy bridge を保存後のレスポンスから復元（strategicCore を含める）
+  if ((resData as any).stage3_strategy_bridge && typeof (resData as any).stage3_strategy_bridge === 'object') {
+    const bridge = (resData as any).stage3_strategy_bridge;
+    (patch as any).stage3_strategy_bridge = {
+      keyThemes: Array.isArray(bridge.keyThemes) ? bridge.keyThemes : [],
+      departmentIssues: Array.isArray(bridge.departmentIssues) ? bridge.departmentIssues : [],
+      kpiCriteria: Array.isArray(bridge.kpiCriteria) ? bridge.kpiCriteria : [],
+      commonBehaviorChanges: Array.isArray(bridge.commonBehaviorChanges) ? bridge.commonBehaviorChanges : [],
+      generatedAt: typeof bridge.generatedAt === 'string' ? bridge.generatedAt : new Date().toISOString(),
+      ...(bridge.strategicCore && { strategicCore: bridge.strategicCore }),
+      ...(Array.isArray(bridge.departmentTranslationRules) && { departmentTranslationRules: bridge.departmentTranslationRules }),
+    };
+  }
 
   return patch;
 }
@@ -3585,6 +3599,20 @@ export const useStrategyStore = create<StrategyState>()(
               const state = get();
               const payload = buildSavePayload(state as StrategyState);
 
+              // ★ CRITICAL GUARD: autosave で旧形式 bridge に上書きされるのを防ぐ
+              const existingBridge = get().stage3_strategy_bridge;
+              if (
+                existingBridge?.strategicCore &&
+                payload.stage3_strategy_bridge &&
+                !payload.stage3_strategy_bridge.strategicCore
+              ) {
+                console.warn('[STAGE3 bridge save guard] blocked downgrade of strategicCore', {
+                  payloadBridge: payload.stage3_strategy_bridge,
+                  preservingBridge: existingBridge,
+                });
+                payload.stage3_strategy_bridge = existingBridge;
+              }
+
               // ★ 新しい診断ログ：departments/projects の ID 状態確認
               if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1' || process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
                 const deptIdStatus = (state.departments ?? []).map((d: any, idx: number) => ({
@@ -3847,8 +3875,10 @@ export const useStrategyStore = create<StrategyState>()(
                 console.log('[STAGE3] save stage3_strategy_bridge completed', {
                   payloadBridge_included: true,
                   payloadBridge_keyThemesLen: Array.isArray((payload as any).stage3_strategy_bridge?.keyThemes) ? (payload as any).stage3_strategy_bridge.keyThemes.length : 0,
+                  payloadBridge_hasStrategicCore: !!(payload as any).stage3_strategy_bridge?.strategicCore,
                   serverData_has_bridge: !!(serverData as any).stage3_strategy_bridge,
                   serverData_bridge_keys: (serverData as any).stage3_strategy_bridge ? Object.keys((serverData as any).stage3_strategy_bridge) : [],
+                  serverData_hasStrategicCore: !!(serverData as any).stage3_strategy_bridge?.strategicCore,
                   companyId: companyId?.substring(0, 8),
                   reason,
                   timestamp: new Date().toISOString(),
@@ -3902,6 +3932,23 @@ export const useStrategyStore = create<StrategyState>()(
               }
 
               set(safePatch);
+
+              // ★ CRITICAL: After safePatch is set, reflect extracted server data（including stage3_strategy_bridge）
+              if (Object.keys(minimal).length > 0) {
+                set(minimal);
+              }
+
+              // ★ STAGE3 bridge post-patch check
+              const storeAfterPatch = get();
+              if (!!(payload as any).stage3_strategy_bridge) {
+                console.log('[STAGE3] bridge restore after save', {
+                  payloadBridge_hasStrategicCore: !!(payload as any).stage3_strategy_bridge?.strategicCore,
+                  storeNow_hasBridge: !!(storeAfterPatch as any).stage3_strategy_bridge,
+                  storeNow_hasStrategicCore: !!(storeAfterPatch as any).stage3_strategy_bridge?.strategicCore,
+                  storeNow_bridge_keys: (storeAfterPatch as any).stage3_strategy_bridge ? Object.keys((storeAfterPatch as any).stage3_strategy_bridge) : [],
+                  timestamp: new Date().toISOString(),
+                });
+              }
 
               // ★ nextRev: Use returned revision if available, otherwise keep current
               const nextRev = returnedRevision ?? get().revision;
