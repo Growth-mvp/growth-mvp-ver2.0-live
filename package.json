@@ -55,6 +55,7 @@
     "@types/d3": "^7.4.3",
     "@types/d3-delaunay": "^6.0.4",
     "@types/d3-scale-chromatic": "^3.1.0",
+    "@types/jest": "^30.0.0",
     "@types/node": "20.19.10",
     "@types/papaparse": "^5.3.16",
     "@types/pdf-parse": "^1.1.5",

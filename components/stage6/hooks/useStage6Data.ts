@@ -359,6 +359,26 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       ? calcYearlyFromKrs({ baseTraj, baseFigures, krs: [], scenario: scenarios.base })
       : ([] as YearlyPL[]);
 
+    // ★ DEBUG: baselineYearly の revenue を確認
+    if (process.env.NODE_ENV === 'development' && baselineYearly.length > 0) {
+      console.group('[STAGE6] baselineYearly revenue check');
+      console.log('baselineYearly length:', baselineYearly.length);
+      const firstYear = baselineYearly[0];
+      const lastYear = baselineYearly[baselineYearly.length - 1];
+      console.log('First year (2025):', {
+        year: firstYear.year,
+        revenue: firstYear.revenue,
+        op_income: firstYear.op_income,
+      });
+      console.log('Last year:', {
+        year: lastYear.year,
+        revenue: lastYear.revenue,
+        op_income: lastYear.op_income,
+      });
+      console.log('All years sample:', baselineYearly.map((y: any) => ({ year: y.year, revenue: y.revenue })));
+      console.groupEnd();
+    }
+
     // ★ Baseline営業利益を mkBaseFigures.operatingIncome で固定（全年度を2024実績でフラット延長）
     const baselineOpIncomeYen =
       typeof baseFigures?.operatingIncome === 'number'
@@ -1553,7 +1573,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       .sort((a, b) => (b.deltaOpTotal ?? 0) - (a.deltaOpTotal ?? 0))
       .slice(0, 3);
 
-    return {
+    const summary = {
       revenue: {
         baseline: baselineRevenueMJPY,
         forecast: forecastRevenueMJPY,
@@ -1569,6 +1589,20 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       topRevenueProjects,
       topOpProjects,
     };
+
+    // ★ DEBUG: dashboardSummary の最終値をログ出力
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[STAGE6-DASHBOARD] final summary:', {
+        revenue_baseline_MJPY: summary.revenue.baseline,
+        revenue_forecast_MJPY: summary.revenue.forecast,
+        revenue_target_MJPY: summary.revenue.target,
+        revenue_gap_MJPY: summary.revenue.gap,
+        op_baseline_MJPY: summary.op.baseline,
+        op_forecast_MJPY: summary.op.forecast,
+      });
+    }
+
+    return summary;
   }, [northStarRows, core.baselineYearly, projectContribForUI]);
 
   // === STAGE6 Step 2: Four Metric Cards ===
