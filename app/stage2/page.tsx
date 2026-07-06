@@ -1539,6 +1539,100 @@ function stripIssueSummaryFromDisplay(text: string): string {
     .trim();
 }
 
+function cleanDraftLine(line: string): string {
+  return String(line || '')
+    .replace(/^\s*[-・]\s*/, '')
+    .replace(/^\s*\d+[.)]\s*/, '')
+    .trim();
+}
+
+function truncateText(text: string, limit = 180): string {
+  const clean = String(text || '').replace(/\s+/g, ' ').trim();
+  return clean.length > limit ? `${clean.slice(0, limit)}...` : clean;
+}
+
+function extractLeadSentence(text: string, fallback = '生成された内容を確認し、必要に応じて編集してください。'): string {
+  const displayText = stripIssueSummaryFromDisplay(text);
+  const explicitLead = displayText.match(/(?:戦略結論|要点|結論)\s*[:：]\s*([\s\S]*?)(?=\s*(?:事業ポートフォリオ判断|論点サマリ|1\)\s*(?:勝ち筋|狙う価値ドライバー)|第[一二三四1-4]章|$))/)?.[1]?.trim();
+  if (explicitLead) return truncateText(explicitLead, 180);
+
+  const clean = displayText
+    .split('\n')
+    .map((line) => cleanDraftLine(line))
+    .find(
+      (line) =>
+        line &&
+        !/^第[一二三四1-4]章/.test(line) &&
+        !/^(事業ポートフォリオ判断|勝ち筋|狙う価値ドライバー|主要戦略|90日アクション|根拠|トレードオフ)\s*[:：]/.test(line),
+    );
+
+  return clean ? truncateText(clean, 180) : fallback;
+}
+
+function extractIssueCards(issueBlocks: IssueBlock[], chapterBody: string): { title: string; description?: string }[] {
+  if (issueBlocks && issueBlocks.length > 0) {
+    return issueBlocks.slice(0, 3).map((iss) => ({
+      title: iss.title || '論点',
+      description: iss.description,
+    }));
+  }
+
+  const lines = String(chapterBody || '')
+    .split('\n')
+    .map((line) => cleanDraftLine(line))
+    .filter((line) => /^論点\d+[:：]/.test(line))
+    .slice(0, 3);
+
+  return lines.map((line) => {
+    const normalized = line.replace(/^論点\d+[:：]\s*/, '');
+    const [title, ...rest] = normalized.split(/[｜|]/);
+    return {
+      title: title.trim(),
+      description: rest.join('｜').trim() || undefined,
+    };
+  });
+}
+
+function extractStrategyBlocks(text: string): {
+  driver: string;
+  decision?: string;
+  strategies: string[];
+  actions: string[];
+  tradeoff?: string;
+  evidence?: string;
+}[] {
+  const body = String(text || '')
+    .replace(/\s+(?=\d+\)\s*(?:勝ち筋|狙う価値ドライバー)\s*[:：])/g, '\n')
+    .replace(/\s+(?=経営判断\s*[:：])/g, '\n')
+    .replace(/\s+(?=主要戦略\s*[:：])/g, '\n')
+    .replace(/\s+(?=90日アクション\s*[:：])/g, '\n')
+    .replace(/\s+(?=根拠(?:キーワード|（SWOT）)\s*[:：])/g, '\n')
+    .replace(/\s+(?=トレードオフ\s*[:：])/g, '\n');
+  const blocks = body
+    .split(/\n(?=\s*\d+\)\s*(?:勝ち筋|狙う価値ドライバー)\s*[:：])/g)
+    .filter((block) => /(?:勝ち筋|狙う価値ドライバー)\s*[:：]/.test(block));
+
+  return blocks.slice(0, 3).map((block) => {
+    const winPattern = block.match(/勝ち筋\s*[:：]\s*(.+)/)?.[1]?.trim();
+    const valueDriver = block.match(/狙う価値ドライバー\s*[:：]\s*(.+)/)?.[1]?.trim();
+    const driver = winPattern || valueDriver || '勝ち筋';
+    const decision = block.match(/経営判断\s*[:：]\s*(.+)/)?.[1]?.trim();
+    const strategyPart = block.match(/主要戦略\s*[:：]\s*([\s\S]*?)(?=\n\s*90日アクション\s*[:：]|\n\s*根拠|トレードオフ|$)/)?.[1] || '';
+    const actionPart = block.match(/90日アクション\s*[:：]\s*([\s\S]*?)(?=\n\s*根拠|トレードオフ|$)/)?.[1] || '';
+    const evidence = block.match(/根拠(?:キーワード|（SWOT）)\s*[:：]\s*(.+)/)?.[1]?.trim();
+    const tradeoff = block.match(/トレードオフ\s*[:：]\s*(.+)/)?.[1]?.trim();
+
+    return {
+      driver,
+      decision: decision ? truncateText(decision, 120) : undefined,
+      strategies: strategyPart.split('\n').map((line) => truncateText(cleanDraftLine(line), 120)).filter(Boolean).slice(0, 2),
+      actions: actionPart.split('\n').map((line) => truncateText(cleanDraftLine(line), 120)).filter(Boolean).slice(0, 2),
+      tradeoff: tradeoff ? truncateText(tradeoff, 120) : undefined,
+      evidence: evidence ? truncateText(evidence, 80) : undefined,
+    };
+  });
+}
+
 function DraftStoryPanel({ storyDraft, issueBlocks }: { storyDraft: StoryChapter[]; issueBlocks: IssueBlock[] }) {
   const has = storyDraft && storyDraft.length > 0;
   if (!has) {
@@ -1550,14 +1644,115 @@ function DraftStoryPanel({ storyDraft, issueBlocks }: { storyDraft: StoryChapter
     );
   }
 
-  return (
-    <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-4">
-      <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-3">4章ストーリー</h4>
+  const chapter0 = storyDraft[0]?.body ?? '';
+  const chapter1 = storyDraft[1]?.body ?? '';
+  const issueCards = extractIssueCards(issueBlocks, chapter0);
+  const strategyBlocks = extractStrategyBlocks(chapter1);
+  const strategicConclusion = extractLeadSentence(
+    chapter1 || chapter0,
+    '財務・事業構造・市場評価の論点を踏まえ、重点テーマを確認してください。',
+  );
 
-      <div className="space-y-3">
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-blue-100 dark:border-blue-900/50 bg-gradient-to-br from-blue-50 to-white dark:from-blue-950/30 dark:to-gray-900/20 shadow-sm p-5">
+        <div className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-2">AIが導いた戦略結論</div>
+        <div className="text-base font-semibold text-gray-900 dark:text-gray-100 leading-relaxed">
+          {strategicConclusion}
+        </div>
+        <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+          まず結論を確認し、必要に応じて論点・勝ち筋・90日アクションを編集してください。
+        </p>
+      </div>
+
+      {issueCards.length > 0 && (
+        <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="font-semibold text-gray-800 dark:text-gray-200">今、経営が判断すべき論点</h4>
+            <div className="text-[11px] text-gray-500 dark:text-gray-400">最大3件</div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {issueCards.map((issue, idx) => (
+              <div key={`${issue.title}-${idx}`} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/30 p-3">
+                <div className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 mb-1">論点 {idx + 1}</div>
+                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-snug">{issue.title}</div>
+                {issue.description && (
+                  <div className="mt-2 text-xs text-gray-600 dark:text-gray-400 leading-relaxed line-clamp-3">
+                    {issue.description}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {strategyBlocks.length > 0 && (
+        <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-4">
+          <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-3">どう戦うか</h4>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            {strategyBlocks.map((block, idx) => (
+              <div key={`${block.driver}-${idx}`} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/30 p-3 max-h-[360px] overflow-auto">
+                <div className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 mb-1">勝ち筋 {idx + 1}</div>
+                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-snug">{block.driver}</div>
+
+                {block.decision && (
+                  <div className="mt-3 rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50/80 dark:bg-amber-950/20 px-3 py-2">
+                    <div className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 mb-1">経営判断</div>
+                    <div className="text-xs text-gray-800 dark:text-gray-200 leading-relaxed">{block.decision}</div>
+                  </div>
+                )}
+
+                {block.strategies.length > 0 && (
+                  <div className="mt-3">
+                    <div className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1">主要戦略</div>
+                    <ul className="space-y-1">
+                      {block.strategies.map((item, itemIdx) => (
+                        <li key={itemIdx} className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed">・{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {block.actions.length > 0 && (
+                  <div className="mt-3 rounded-lg bg-blue-50/70 dark:bg-blue-950/20 px-3 py-2">
+                    <div className="text-[11px] font-semibold text-blue-700 dark:text-blue-300 mb-1">90日アクション</div>
+                    <ul className="space-y-1">
+                      {block.actions.map((item, itemIdx) => (
+                        <li key={itemIdx} className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed">・{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {block.tradeoff && (
+                  <div className="mt-3 text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
+                    <span className="font-semibold">トレードオフ：</span>{block.tradeoff}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-4">
+        <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-3">4章ストーリー詳細</h4>
+        <div className="space-y-4">
         {storyDraft.map((chapter, i) => (
-          <div key={i} className="border-l-2 border-blue-400 pl-3">
-            <div className="text-xs font-medium text-blue-600 dark:text-blue-400">{chapter.title}</div>
+          <details key={i} className="group rounded-xl border border-gray-200 dark:border-gray-700 bg-white/75 dark:bg-gray-900/25 p-3" open={i === 0}>
+            <summary className="cursor-pointer list-none">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold text-blue-600 dark:text-blue-400">{chapter.title}</div>
+                  <div className="mt-1 text-sm font-medium text-gray-900 dark:text-gray-100 leading-snug">
+                    {extractLeadSentence(chapter.body)}
+                  </div>
+                </div>
+                <span className="shrink-0 rounded-full border border-gray-200 dark:border-gray-700 px-2 py-1 text-[11px] text-gray-500 dark:text-gray-400 group-open:hidden">開く</span>
+                <span className="shrink-0 rounded-full border border-gray-200 dark:border-gray-700 px-2 py-1 text-[11px] text-gray-500 dark:text-gray-400 hidden group-open:inline">閉じる</span>
+              </div>
+            </summary>
 
             {i === 0 && issueBlocks && issueBlocks.length > 0 && (
               <div className="mt-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white/60 dark:bg-white/5 p-3">
@@ -1580,11 +1775,12 @@ function DraftStoryPanel({ storyDraft, issueBlocks }: { storyDraft: StoryChapter
               </div>
             )}
 
-            <div className="mt-1 text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words leading-relaxed">
+            <div className="mt-3 max-h-[360px] overflow-auto pr-2 text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words leading-relaxed">
               {stripIssueSummaryFromDisplay(chapter.body)}
             </div>
-          </div>
+          </details>
         ))}
+        </div>
       </div>
     </div>
   );
