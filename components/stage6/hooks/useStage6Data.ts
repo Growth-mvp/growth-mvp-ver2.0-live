@@ -359,26 +359,6 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       ? calcYearlyFromKrs({ baseTraj, baseFigures, krs: [], scenario: scenarios.base })
       : ([] as YearlyPL[]);
 
-    // ★ DEBUG: baselineYearly の revenue を確認
-    if (process.env.NODE_ENV === 'development' && baselineYearly.length > 0) {
-      console.group('[STAGE6] baselineYearly revenue check');
-      console.log('baselineYearly length:', baselineYearly.length);
-      const firstYear = baselineYearly[0];
-      const lastYear = baselineYearly[baselineYearly.length - 1];
-      console.log('First year (2025):', {
-        year: firstYear.year,
-        revenue: firstYear.revenue,
-        op_income: firstYear.op_income,
-      });
-      console.log('Last year:', {
-        year: lastYear.year,
-        revenue: lastYear.revenue,
-        op_income: lastYear.op_income,
-      });
-      console.log('All years sample:', baselineYearly.map((y: any) => ({ year: y.year, revenue: y.revenue })));
-      console.groupEnd();
-    }
-
     // ★ Baseline営業利益を mkBaseFigures.operatingIncome で固定（全年度を2024実績でフラット延長）
     const baselineOpIncomeYen =
       typeof baseFigures?.operatingIncome === 'number'
@@ -1507,26 +1487,22 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
   // Gap = target - forecast (NOT baseline - forecast)
   // ★ A.修正: Forecast = Baseline + sum(projectContrib) に統一
   const dashboardSummary = useMemo(() => {
-    const baselineYearlyFinal = core.baselineYearly?.[core.baselineYearly.length - 1];
+    // ★ FIX: baselineYearlyではなく、mkBaseFiguresから直接取得
+    // mkBaseFiguresで extractRevenue() により正しく 32295000000 が取得されている
+    // baselineYearlyは月次計算（qty*arpu）で再計算されるため、revenue が0になる可能性がある
+    const baseFiguresRevenueMJPY = (baseFigures?.revenue ?? 0) / 1_000_000;
+    const baseFiguresOpMJPY = (baseFigures?.operatingIncome ?? 0) / 1_000_000;
 
-    // ★ DEBUG: baselineYearly の値を確認
+    // Baseline = mkBaseFiguresから直接取得
+    const baselineRevenueMJPY = baseFiguresRevenueMJPY;
+    const baselineOpMJPY = baseFiguresOpMJPY;
+
+    // ★ DEBUG: baseline values確認
     if (process.env.NODE_ENV === 'development') {
-      console.log('[STAGE6-DASHBOARD] baselineYearly:', {
-        length: core.baselineYearly?.length,
-        lastRow: baselineYearlyFinal,
-      });
-    }
-
-    // Baseline (KR なし、yen単位)
-    const baselineRevenueMJPY = (baselineYearlyFinal?.revenue ?? 0) / 1_000_000;
-    const baselineOpMJPY = (baselineYearlyFinal?.op_income ?? 0) / 1_000_000;
-
-    // ★ DEBUG: baselineRevenue が0か確認
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[STAGE6-DASHBOARD] baseline values:', {
-        baselineYearlyFinal_revenue: baselineYearlyFinal?.revenue,
+      console.log('[STAGE6-DASHBOARD] baseline values (from mkBaseFigures):', {
+        baseFigures_revenue: baseFigures?.revenue,
         baselineRevenueMJPY,
-        baselineYearlyFinal_op_income: baselineYearlyFinal?.op_income,
+        baseFigures_operatingIncome: baseFigures?.operatingIncome,
         baselineOpMJPY,
       });
     }
@@ -1573,7 +1549,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       .sort((a, b) => (b.deltaOpTotal ?? 0) - (a.deltaOpTotal ?? 0))
       .slice(0, 3);
 
-    const summary = {
+    return {
       revenue: {
         baseline: baselineRevenueMJPY,
         forecast: forecastRevenueMJPY,
@@ -1589,20 +1565,6 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       topRevenueProjects,
       topOpProjects,
     };
-
-    // ★ DEBUG: dashboardSummary の最終値をログ出力
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[STAGE6-DASHBOARD] final summary:', {
-        revenue_baseline_MJPY: summary.revenue.baseline,
-        revenue_forecast_MJPY: summary.revenue.forecast,
-        revenue_target_MJPY: summary.revenue.target,
-        revenue_gap_MJPY: summary.revenue.gap,
-        op_baseline_MJPY: summary.op.baseline,
-        op_forecast_MJPY: summary.op.forecast,
-      });
-    }
-
-    return summary;
   }, [northStarRows, core.baselineYearly, projectContribForUI]);
 
   // === STAGE6 Step 2: Four Metric Cards ===
