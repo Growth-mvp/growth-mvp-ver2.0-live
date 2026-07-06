@@ -20,6 +20,7 @@
     "jsx": "preserve",
     "jsxImportSource": "react",
     "types": [
+      "jest",
       "react",
       "react-dom",
       "node"
