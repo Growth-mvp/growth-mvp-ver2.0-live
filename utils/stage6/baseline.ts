@@ -49,11 +49,27 @@ function extractRevenue(pl: any): number | undefined {
     '売上高_円',
   ];
 
+  // ★ DEBUG: PLの全キーを確認（最初のみ）
+  const DEBUG = process.env.NODE_ENV === 'development';
+  if (DEBUG && pl && typeof pl === 'object') {
+    const allKeys = Object.keys(pl);
+    const foundCandidates = candidates.filter(k => k in pl);
+    const foundValues = candidates
+      .filter(k => k in pl)
+      .map(k => ({ key: k, value: pl[k], type: typeof pl[k] }));
+
+    console.group('[extractRevenue-DEBUG] PL structure analysis');
+    console.log('All keys in PL:', allKeys);
+    console.log('Candidates found:', foundCandidates);
+    console.log('Candidate values:', foundValues);
+    console.groupEnd();
+  }
+
   // ★ Phase 1: 正の値のあるキーを探す（最優先）
   for (const key of candidates) {
     const val = pl?.[key];
     if (typeof val === 'number' && Number.isFinite(val) && val > 0) {
-      if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEBUG_STAGE6) {
+      if (DEBUG) {
         console.log('[extractRevenue] found positive value: key=%s value=%s', key, val);
       }
       return val;
@@ -64,7 +80,7 @@ function extractRevenue(pl: any): number | undefined {
   for (const key of candidates) {
     const val = pl?.[key];
     if (typeof val === 'number' && Number.isFinite(val)) {
-      if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEBUG_STAGE6) {
+      if (DEBUG) {
         console.log('[extractRevenue] found zero/fallback value: key=%s value=%s', key, val);
       }
       return val;
@@ -72,6 +88,9 @@ function extractRevenue(pl: any): number | undefined {
   }
 
   // ★ Phase 3: 何も見つからない
+  if (DEBUG) {
+    console.log('[extractRevenue] no value found in candidates', { plKeys: Object.keys(pl ?? {}) });
+  }
   return undefined;
 }
 
@@ -235,7 +254,28 @@ export function mkBaselineTrajectory(strategyState: any): BaseTrajectory | null 
 
   const months = ymRange(startYm, endYm);
   // ★ financePL は yen 永続と仮定（unit 推定なし）
-  const revenue = extractRevenue(baselinePL) ?? 1;
+  const revenue = extractRevenue(baselinePL);
+
+  // ★ DEBUG: revenue が抽出できているか確認
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[mkBaselineTrajectory] revenue extracted:', {
+      revenue,
+      cogs: baselinePL.cogs,
+      hasRevenue: typeof revenue === 'number',
+    });
+  }
+
+  // ★ BUG-FIX: revenue が undefined または 0 の場合の処理
+  // 0 の場合は無視して 1 にせず、undefined として処理
+  if (!revenue || !Number.isFinite(revenue) || revenue <= 0) {
+    console.warn('[STAGE6] mkBaselineTrajectory: revenue is invalid (0 or undefined):', {
+      revenue,
+      baselinePLYear: baselinePL.year,
+      baselinePLKeys: Object.keys(baselinePL),
+    });
+    return null;
+  }
+
   const monthlyQty = Math.max(1000, revenue / (baselinePL.cogs ?? 1));
   const monthlyArpu = Math.max(50000, revenue / monthlyQty);
 
