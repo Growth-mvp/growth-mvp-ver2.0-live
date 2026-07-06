@@ -1487,25 +1487,15 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
   // Gap = target - forecast (NOT baseline - forecast)
   // ★ A.修正: Forecast = Baseline + sum(projectContrib) に統一
   const dashboardSummary = useMemo(() => {
-    // ★ FIX: baselineYearlyではなく、mkBaseFiguresから直接取得
+    // ★ FIX: baselineYearlyではなく、最終年度の実績から直接取得
     // mkBaseFiguresで extractRevenue() により正しく 32295000000 が取得されている
     // baselineYearlyは月次計算（qty*arpu）で再計算されるため、revenue が0になる可能性がある
-    const baseFiguresRevenueMJPY = (baseFigures?.revenue ?? 0) / 1_000_000;
-    const baseFiguresOpMJPY = (baseFigures?.operatingIncome ?? 0) / 1_000_000;
+    const baselineYearlyFinal = core.baselineYearly?.[core.baselineYearly.length - 1];
 
-    // Baseline = mkBaseFiguresから直接取得
-    const baselineRevenueMJPY = baseFiguresRevenueMJPY;
-    const baselineOpMJPY = baseFiguresOpMJPY;
-
-    // ★ DEBUG: baseline values確認
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[STAGE6-DASHBOARD] baseline values (from mkBaseFigures):', {
-        baseFigures_revenue: baseFigures?.revenue,
-        baselineRevenueMJPY,
-        baseFigures_operatingIncome: baseFigures?.operatingIncome,
-        baselineOpMJPY,
-      });
-    }
+    // Baseline = 最終年度の実績値を使用（千円単位→百万円）
+    // ★ 但しcalcYearlyFromKrs の revenue が正確でない場合は mkBaseFigures を使用すること
+    const baselineRevenueMJPY = (baselineYearlyFinal?.revenue ?? 0) / 1_000_000;
+    const baselineOpMJPY = (baselineYearlyFinal?.op_income ?? 0) / 1_000_000;
 
     // ★ Forecast = Baseline + sum(projectContrib.delta) に統一
     // これにより上段のforecastと下段のprojectContribのソースが統一される
