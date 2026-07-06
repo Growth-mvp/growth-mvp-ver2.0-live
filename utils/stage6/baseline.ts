@@ -131,11 +131,15 @@ export function mkBaseFigures(strategyState: any): (BaseFigures & { operatingInc
     opIncomeYen = (revenue ?? 0) - (cogs ?? 0) - (basePL?.sga ?? 0);
   }
 
-  if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEBUG_STAGE6) {
-    console.log('[STAGE6] mkBaseFigures picked year=%s revenue=%s opIncome=%s', basePL.year, revenue, opIncomeYen);
+  // ★ DEBUG: mkBaseFigures の全処理をログ出力
+  if (process.env.NODE_ENV === 'development') {
+    console.group('[STAGE6 baseline debug] mkBaseFigures');
+    console.log('latestRow:', basePL);
+    console.log('extractRevenue result:', revenue);
+    console.log('extractOperatingIncome result:', opIncomeYen);
   }
 
-  return {
+  const result = {
     revenue: revenue,
     acq: Math.max(1000, (revenue ?? 1) / (cogs ?? 1)),
     arpu: Math.max(
@@ -153,6 +157,13 @@ export function mkBaseFigures(strategyState: any): (BaseFigures & { operatingInc
     // ★ TASK: 営業利益を保存（baselineYearly の計算で使用）
     operatingIncome: opIncomeYen,
   };
+
+  if (process.env.NODE_ENV === 'development') {
+    console.log('mkBaseFigures result:', result);
+    console.groupEnd();
+  }
+
+  return result;
 }
 
 /**

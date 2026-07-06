@@ -1,1 +1,62 @@
-normalization/hydrate側が原因
+まだSTAGE6の売上現状が0百万円のままです。
+営業利益は3,047百万円で正しく表示されています。
+
+前回 `extractRevenue()` を修正したとのことですが、画面に反映されていないため、次は「表示直前の値がどこで0になっているか」を追跡してください。
+
+やること：
+
+1. `extractRevenue()` の戻り値を確認
+`utils/stage6/baseline.ts` の `mkBaseFigures()` 内で一時ログを出してください。
+
+確認したい内容：
+- 最新PL行
+- extractRevenue(latestRow)
+- extractOperatingIncome(latestRow)
+- mkBaseFigures の戻り値
+
+例：
+console.log('[STAGE6 baseline debug]', {
+  latestRow,
+  revenue: extractRevenue(latestRow),
+  operatingIncome: extractOperatingIncome(latestRow),
+  result,
+});
+
+2. `useStage6Data.ts` で、表示カードに渡す直前の値を確認
+以下をログ出力してください。
+- baseFigures
+- baselineTrajectory
+- summary / dashboard / cards に渡している売上current
+- revenue.current
+- revenue.actual
+- currentRevenue
+- salesCurrent
+など、STAGE6表示に使っている売上系の変数
+
+3. 重要：`extractRevenue()` が正しい値を返しているのに画面が0なら、表示用データ生成側で0に上書きされています。
+特に以下を探してください。
+- `revenue: 0`
+- `actualRevenue: 0`
+- `currentRevenue: 0`
+- `salesActual: 0`
+- `baseSales: 0`
+- `|| 0`
+- `?? 0`
+- `Math.max(..., 0)`
+- `northStarRows` 由来の売上値で上書きしている箇所
+
+4. 営業利益は正しいので、営業利益と同じ経路で売上も表示するように修正してください。
+売上だけ別ルート、別変数、別fallbackを使っている場合は、そこが原因です。
+
+5. `northStarRows` や `companyTargets` から売上を作っている場合、目標値用の売上と実績値用の売上を混同していないか確認してください。
+今回の売上現状は `financePL` の2025年実績から取るべきです。
+`companyTargets` は目標値 50,000百万円の取得だけに使ってください。
+
+6. 修正後、一時ログは削除してください。
+
+期待結果：
+- 売上 現状：32,295百万円
+- 売上 見込み：32,295百万円
+- 売上 目標：50,000百万円
+- 売上不足：17,705百万円
+- 営業利益 現状：3,047百万円のまま

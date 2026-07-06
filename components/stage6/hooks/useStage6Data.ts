@@ -329,6 +329,14 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     const baseTraj = mkBaselineTrajectory({ financePL } as any);
     const baseFigures = mkBaseFigures({ financePL } as any);
 
+    // ★ DEBUG: baseFigures の revenue/operatingIncome を確認
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[STAGE6-DATA] mkBaseFigures returned:', {
+        revenue: baseFigures?.revenue,
+        operatingIncome: baseFigures?.operatingIncome,
+      });
+    }
+
     // ★ TASK-2: baseFigures が null（financePLなし）の場合は baseline系列を使わない
     if (!baseTraj || !baseFigures) {
       if (DEBUG) {
@@ -1481,9 +1489,27 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
   const dashboardSummary = useMemo(() => {
     const baselineYearlyFinal = core.baselineYearly?.[core.baselineYearly.length - 1];
 
+    // ★ DEBUG: baselineYearly の値を確認
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[STAGE6-DASHBOARD] baselineYearly:', {
+        length: core.baselineYearly?.length,
+        lastRow: baselineYearlyFinal,
+      });
+    }
+
     // Baseline (KR なし、yen単位)
     const baselineRevenueMJPY = (baselineYearlyFinal?.revenue ?? 0) / 1_000_000;
     const baselineOpMJPY = (baselineYearlyFinal?.op_income ?? 0) / 1_000_000;
+
+    // ★ DEBUG: baselineRevenue が0か確認
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[STAGE6-DASHBOARD] baseline values:', {
+        baselineYearlyFinal_revenue: baselineYearlyFinal?.revenue,
+        baselineRevenueMJPY,
+        baselineYearlyFinal_op_income: baselineYearlyFinal?.op_income,
+        baselineOpMJPY,
+      });
+    }
 
     // ★ Forecast = Baseline + sum(projectContrib.delta) に統一
     // これにより上段のforecastと下段のprojectContribのソースが統一される

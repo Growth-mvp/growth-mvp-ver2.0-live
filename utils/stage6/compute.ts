@@ -50,6 +50,45 @@ export function compactJPY(n: number) {
 }
 
 /**
+ * ★ Helper: ラベルから売上の判定
+ * 複数のラベルバリアントに対応
+ */
+export function isRevenueLabel(label: string): boolean {
+  if (!label) return false;
+  const lower = label.toLowerCase();
+  const jpLower = label.toLowerCase();
+
+  return (
+    jpLower.includes('売上') ||
+    jpLower.includes('sales') ||
+    jpLower.includes('revenue') ||
+    jpLower.includes('営業収益') ||
+    lower.includes('sales_revenue') ||
+    lower.includes('salesrevenue')
+  ) && !jpLower.includes('成長');
+}
+
+/**
+ * ★ Helper: ラベルから営業利益の判定
+ * 複数のラベルバリアントに対応
+ */
+export function isOperatingIncomeLabel(label: string): boolean {
+  if (!label) return false;
+  const lower = label.toLowerCase();
+  const jpLower = label.toLowerCase();
+
+  return (
+    jpLower.includes('営業利益') ||
+    lower.includes('operating') ||
+    lower.includes('opprofit') ||
+    lower.includes('op_profit') ||
+    lower.includes('operatingprofit') ||
+    lower.includes('operatingincome') ||
+    lower.includes('op ')
+  ) && !jpLower.includes('率') && !jpLower.includes('rate') && !jpLower.includes('%');
+}
+
+/**
  * CompanyTarget ラベルから YearlyPL の値を抽出
  * ラベルのキーワードベースで該当する指標を返す
  */
@@ -65,26 +104,24 @@ export function extractMetricFromYearlyPL(
   const row = yearly.find((y) => y.year === targetYear);
   if (!row) return undefined;
 
-  const lowerLabel = label.toLowerCase();
-
-  // 売上系
-  if (lowerLabel.includes('売上') && !lowerLabel.includes('成長')) {
+  // 売上系（複数ラベルバリアント対応）
+  if (isRevenueLabel(label)) {
     return row.revenue;
   }
 
   // 営業利益率
-  if (lowerLabel.includes('営業利益率') || lowerLabel.includes('利益率')) {
+  if (label.toLowerCase().includes('営業利益率') || label.toLowerCase().includes('利益率')) {
     if ((row.revenue ?? 0) === 0) return undefined;
     return ((row.op_income ?? 0) / (row.revenue ?? 0)) * 100;
   }
 
-  // 営業利益
-  if (lowerLabel.includes('営業利益')) {
+  // 営業利益（複数ラベルバリアント対応）
+  if (isOperatingIncomeLabel(label)) {
     return row.op_income;
   }
 
   // 成長率（CAGR）：簡易版（末尾2年の成長率）
-  if (lowerLabel.includes('成長率') || lowerLabel.includes('cagr')) {
+  if (label.toLowerCase().includes('成長率') || label.toLowerCase().includes('cagr')) {
     if (yearly.length < 2) return undefined;
     const first = yearly[0];
     const last = yearly[yearly.length - 1];
@@ -299,7 +336,7 @@ export function diffYearly(a: YearlyPL[], b: YearlyPL[]): YearlyPL[] {
  * Yearly 合計を計算
  */
 export function sumYearly(rows: YearlyPL[], key: 'revenue' | 'op_income'): number {
-  return rows.reduce((s, r) => s + (Number((r as any)[key]) || 0), 0);
+  return rows.reduce((s: number, r: YearlyPL) => s + (Number((r as any)[key]) || 0), 0);
 }
 
 /* =========================================================
@@ -489,7 +526,7 @@ export function buildIssueResolutions(args: {
         .filter((a) => a !== undefined) as number[];
 
       if (achievements.length > 0) {
-        resolutionRate = achievements.reduce((s, a) => s + a, 0) / achievements.length;
+        resolutionRate = achievements.reduce((s: number, a: number) => s + a, 0) / achievements.length;
 
         // status を決定（resolutionRate に基づく）
         if (resolutionRate >= 100) {
@@ -1327,8 +1364,8 @@ export function buildProjectContributions(args: {
 
   // ★修正D：デバッグログ（会社全体）
   const baselineLastYear = baseline?.[baseline.length - 1];
-  const sumProjectRevenueDelta = result.reduce((s, r) => s + (r.deltaRevenueTotal ?? 0), 0);
-  const sumProjectOpDelta = result.reduce((s, r) => s + (r.deltaOpTotal ?? 0), 0);
+  const sumProjectRevenueDelta = result.reduce((s: number, r: any) => s + (r.deltaRevenueTotal ?? 0), 0);
+  const sumProjectOpDelta = result.reduce((s: number, r: any) => s + (r.deltaOpTotal ?? 0), 0);
 
   console.group('[STAGE6][company]');
   console.log('Baseline (KR無し):', {

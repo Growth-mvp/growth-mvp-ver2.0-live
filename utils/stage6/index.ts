@@ -17,6 +17,8 @@ export {
   compactJPY,
   normalizeValueToUnit,
   extractMetricFromYearlyPL,
+  isRevenueLabel,
+  isOperatingIncomeLabel,
   calculateAchievementRate,
   getTopContributingProjects,
   getEvidenceFromProject,
