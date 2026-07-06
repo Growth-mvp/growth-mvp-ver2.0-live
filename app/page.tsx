@@ -57,7 +57,7 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.16 }}
               className="mt-2 text-[14px] font-medium leading-relaxed text-neutral-700 sm:text-[15px] lg:text-[16px] dark:text-neutral-300"
             >
-              全社戦略・事業戦略・実行計画を全体最適でつなぎ、日々の業務を会社の成長に直結させる仕組み。
+              経営戦略・部門戦略・実行計画を全体最適でつなぎ、日々の業務を企業の成長に直結させる仕組み。
             </motion.p>
 
             <motion.div
