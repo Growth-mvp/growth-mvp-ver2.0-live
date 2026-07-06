@@ -528,6 +528,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       deptNames: Array.from(deptNameSet).sort(),
       approved,
       projectKrsMap,
+      baseFigures, // ★ 売上現状値用：mkBaseFigures の結果
       baselineYearly: baselineYearlyFixed,
       yearlyAll,
       executionWeightsMap, // STAGE5 進捗率から計算した weight マップ
@@ -1487,15 +1488,15 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
   // Gap = target - forecast (NOT baseline - forecast)
   // ★ A.修正: Forecast = Baseline + sum(projectContrib) に統一
   const dashboardSummary = useMemo(() => {
-    // ★ FIX: baselineYearlyではなく、最終年度の実績から直接取得
-    // mkBaseFiguresで extractRevenue() により正しく 32295000000 が取得されている
-    // baselineYearlyは月次計算（qty*arpu）で再計算されるため、revenue が0になる可能性がある
-    const baselineYearlyFinal = core.baselineYearly?.[core.baselineYearly.length - 1];
+    // ★ FIX: 売上現状値は mkBaseFigures（extractRevenue の結果）を使用
+    // baselineYearly は月次シミュレーション結果で、revenue が0になるケースがある
+    // 現状値は実績データ（mkBaseFigures）から取得すべき
+    const baseRevenueMJPY = (core.baseFigures?.revenue ?? 0) / 1_000_000;
+    const baseOperatingIncomeMJPY = (core.baseFigures?.operatingIncome ?? 0) / 1_000_000;
 
-    // Baseline = 最終年度の実績値を使用（千円単位→百万円）
-    // ★ 但しcalcYearlyFromKrs の revenue が正確でない場合は mkBaseFigures を使用すること
-    const baselineRevenueMJPY = (baselineYearlyFinal?.revenue ?? 0) / 1_000_000;
-    const baselineOpMJPY = (baselineYearlyFinal?.op_income ?? 0) / 1_000_000;
+    // Baseline = mkBaseFigures から直接取得
+    const baselineRevenueMJPY = baseRevenueMJPY;
+    const baselineOpMJPY = baseOperatingIncomeMJPY;
 
     // ★ Forecast = Baseline + sum(projectContrib.delta) に統一
     // これにより上段のforecastと下段のprojectContribのソースが統一される
@@ -1555,7 +1556,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       topRevenueProjects,
       topOpProjects,
     };
-  }, [northStarRows, core.baselineYearly, projectContribForUI]);
+  }, [northStarRows, core, projectContribForUI]);
 
   // === STAGE6 Step 2: Four Metric Cards ===
   const fourMetricCards = useMemo(() => {
