@@ -29,12 +29,69 @@ function ymRange(startYm: Ym, endYm: Ym): Ym[] {
 }
 
 /**
+ * ★ Helper: 複数の可能なキー名から数値を抽出（キー名揺れ対応）
+ * ★重要：0値を先に拾わない。すべての候補を見て、正の値があるものを優先
+ */
+function extractRevenue(pl: any): number | undefined {
+  // 候補キーのリスト（優先順）
+  const candidates = [
+    'revenue',
+    'sales',
+    'salesRevenue',
+    'sales_revenue',
+    'netSales',
+    'net_sales',
+    '売上',
+    '売上高',
+    '売上高 *',
+    '売上高（円）',
+    '売上高(円)',
+    '売上高_円',
+  ];
+
+  // ★ Phase 1: 正の値のあるキーを探す（最優先）
+  for (const key of candidates) {
+    const val = pl?.[key];
+    if (typeof val === 'number' && Number.isFinite(val) && val > 0) {
+      if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEBUG_STAGE6) {
+        console.log('[extractRevenue] found positive value: key=%s value=%s', key, val);
+      }
+      return val;
+    }
+  }
+
+  // ★ Phase 2: 0 を含む有効な数値を探す（fallback）
+  for (const key of candidates) {
+    const val = pl?.[key];
+    if (typeof val === 'number' && Number.isFinite(val)) {
+      if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEBUG_STAGE6) {
+        console.log('[extractRevenue] found zero/fallback value: key=%s value=%s', key, val);
+      }
+      return val;
+    }
+  }
+
+  // ★ Phase 3: 何も見つからない
+  return undefined;
+}
+
+function extractOperatingIncome(pl: any): number | undefined {
+  if (typeof pl?.operatingIncome === 'number') return pl.operatingIncome;
+  if (typeof pl?.operatingProfit === 'number') return pl.operatingProfit;
+  if (typeof pl?.operating_profit === 'number') return pl.operating_profit;
+  if (typeof pl?.opProfit === 'number') return pl.opProfit;
+  if (typeof pl?.op === 'number') return pl.op;
+  if (typeof pl?.['営業利益'] === 'number') return pl['営業利益'];
+  return undefined;
+}
+
+/**
  * BaseFigures を financePL から生成
- * 最新年度のPLを使って、デフォルト値・推定値をセット
+ * 最新実績年のPLを使って、デフォルト値・推定値をセット
  *
- * ★ TASK-C: BaseFigures も baseline と同じ年（2024優先）を使う
+ * ★ 修正: 売上または営業利益の有効値を持つ最大年度を採用
  * - financePL が無い場合は null を返す（fallback 金額を禁止）
- * ★ 営業利益は Stage1実績を最優先（負値 -38円を尊重）
+ * ★ 営業利益は Stage1実績を最優先（複数キー名対応）
  */
 export function mkBaseFigures(strategyState: any): (BaseFigures & { operatingIncome?: number }) | null {
   const pls = Array.isArray(strategyState?.financePL) ? strategyState.financePL : [];
@@ -43,40 +100,53 @@ export function mkBaseFigures(strategyState: any): (BaseFigures & { operatingInc
     return null;
   }
 
-  // ★ TASK-C: baseline と同じ優先度で年を選ぶ（2024優先）
+  // ★ 修正: 売上 or 営業利益の有効値を持つ最大年度を選ぶ
   const currentYear = new Date().getFullYear();
-  let basePL = pls.find((pl: any) => pl.year === 2024);
+  const validPLs = pls.filter((pl: any) => {
+    const rev = extractRevenue(pl);
+    const op = extractOperatingIncome(pl);
+    return (typeof rev === 'number' || typeof op === 'number') && pl.year <= currentYear;
+  });
 
-  if (!basePL) {
-    const resultYears = pls.filter((pl: any) => pl.year <= currentYear).sort((a: any, b: any) => b.year - a.year);
-    basePL = resultYears[0] ?? null;
-  }
-
-  if (!basePL) {
-    console.warn('[STAGE6] No actual year found in financePL for baseFigures');
+  if (validPLs.length === 0) {
+    console.warn('[STAGE6] No valid PL row found (revenue/operatingIncome missing) for baseFigures');
     return null;
   }
 
-  // ★ 営業利益は Stage1実績を最優先（-38円を尊重）
-  const opIncomeYen =
-    typeof basePL?.operatingIncome === 'number'
-      ? basePL.operatingIncome
-      : ((basePL?.revenue ?? 0) - (basePL?.cogs ?? 0) - (basePL?.sga ?? 0));
+  // 最大年度を選ぶ
+  const basePL = validPLs.reduce((acc: any, cur: any) => cur.year > acc.year ? cur : acc);
 
-  const latestPL = basePL;
+  if (!basePL) {
+    console.warn('[STAGE6] Failed to select basePL');
+    return null;
+  }
+
+  const revenue = extractRevenue(basePL) ?? 0;
+  const cogs = basePL?.cogs ?? 0;
+
+  // ★ 営業利益は Stage1実績を最優先（-38円を尊重）複数キー名対応
+  let opIncomeYen = extractOperatingIncome(basePL);
+  if (typeof opIncomeYen !== 'number') {
+    // 明示的な営業利益フィールドが無ければ計算で補填
+    opIncomeYen = (revenue ?? 0) - (cogs ?? 0) - (basePL?.sga ?? 0);
+  }
+
+  if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEBUG_STAGE6) {
+    console.log('[STAGE6] mkBaseFigures picked year=%s revenue=%s opIncome=%s', basePL.year, revenue, opIncomeYen);
+  }
 
   return {
-    revenue: latestPL.revenue ?? 0,
-    acq: Math.max(1000, (latestPL.revenue ?? 1) / (latestPL.cogs ?? 1)),
+    revenue: revenue,
+    acq: Math.max(1000, (revenue ?? 1) / (cogs ?? 1)),
     arpu: Math.max(
       50000,
-      (latestPL.revenue ?? 1) /
-        Math.max(1000, (latestPL.revenue ?? 1) / (latestPL.cogs ?? 1)),
+      (revenue ?? 1) /
+        Math.max(1000, (revenue ?? 1) / (cogs ?? 1)),
     ),
     churn: 0.02,
-    fixed_cost: (latestPL.sga ?? 0) / 12,
-    variable_cost: (latestPL.cogs ?? 0) / 12,
-    personnel_cost: (latestPL.sga ?? 0) / 2 / 12,
+    fixed_cost: (basePL.sga ?? 0) / 12,
+    variable_cost: cogs / 12,
+    personnel_cost: (basePL.sga ?? 0) / 2 / 12,
     invest: 0,
     success_rate: 0.8,
     synergy: 0,
@@ -89,9 +159,9 @@ export function mkBaseFigures(strategyState: any): (BaseFigures & { operatingInc
  * BaseTrajectory を financePL から生成
  * 3年間の月次予測値をセット
  *
- * ★ TASK-C: Baseline年は Stage1実績年（2024優先）に固定
+ * ★ 修正: 売上または営業利益の有効値を持つ最大年度を採用
  * - financePL.revenue は yen 永続と仮定（unit 推定なし）
- * - 計画年（2025+）は使わない
+ * - 計画年（未来年）も含めて、実績年の最大値を採用
  */
 export function mkBaselineTrajectory(strategyState: any): BaseTrajectory | null {
   const pls = Array.isArray(strategyState?.financePL) ? strategyState.financePL : [];
@@ -100,20 +170,24 @@ export function mkBaselineTrajectory(strategyState: any): BaseTrajectory | null 
     return null;
   }
 
-  // ★ TASK-C: baseline年を決定（2024優先、無ければ実績年の最大）
+  // ★ 修正: 売上 or 営業利益の有効値を持つ最大年度を選ぶ
   const currentYear = new Date().getFullYear();
+  const validPLs = pls.filter((pl: any) => {
+    const rev = extractRevenue(pl);
+    const op = extractOperatingIncome(pl);
+    return (typeof rev === 'number' || typeof op === 'number') && pl.year <= currentYear;
+  });
 
-  // 第一優先: 2024年（Stage1実績）
-  let baselinePL = pls.find((pl: any) => pl.year === 2024);
-
-  // 第二優先: year <= currentYear の最大値（実績年に限定）
-  if (!baselinePL) {
-    const resultYears = pls.filter((pl: any) => pl.year <= currentYear).sort((a: any, b: any) => b.year - a.year);
-    baselinePL = resultYears[0] ?? null;
+  if (validPLs.length === 0) {
+    console.warn('[STAGE6] No valid PL row found (revenue/operatingIncome missing)');
+    return null;
   }
 
+  // 最大年度を選ぶ
+  const baselinePL = validPLs.reduce((acc: any, cur: any) => cur.year > acc.year ? cur : acc);
+
   if (!baselinePL) {
-    console.warn('[STAGE6] No actual year found in financePL (all years > currentYear or empty)');
+    console.warn('[STAGE6] Failed to select baselinePL');
     return null;
   }
 
@@ -123,20 +197,21 @@ export function mkBaselineTrajectory(strategyState: any): BaseTrajectory | null 
     return null;
   }
 
-  // ★ 営業利益は Stage1実績を最優先（-38円を尊重）
+  // ★ 営業利益は Stage1実績を最優先（複数キー名対応）
   const pickedYear = baselinePL.year;
-  const opIncomeYen =
-    typeof baselinePL?.operatingIncome === 'number'
-      ? baselinePL.operatingIncome
-      : ((baselinePL?.revenue ?? 0) - (baselinePL?.cogs ?? 0) - (baselinePL?.sga ?? 0));
+  let opIncomeYen = extractOperatingIncome(baselinePL);
+  if (typeof opIncomeYen !== 'number') {
+    opIncomeYen = ((extractRevenue(baselinePL) ?? 0) - (baselinePL?.cogs ?? 0) - (baselinePL?.sga ?? 0));
+  }
 
   // ★ ログ: 採用した baseline 年を出力（DEBUG時のみ）
   const DEBUG_BASELINE = process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEBUG_STAGE6;
   if (DEBUG_BASELINE) {
+    const revenue = extractRevenue(baselinePL);
     console.log('[baseline] pickedYear=%s rev=%s opIncome(raw)=%s opIncome(used)=%s cogs=%s sga=%s',
       pickedYear,
-      baselinePL?.revenue,
-      baselinePL?.operatingIncome,
+      revenue,
+      extractOperatingIncome(baselinePL),
       opIncomeYen,
       baselinePL?.cogs,
       baselinePL?.sga
@@ -149,8 +224,9 @@ export function mkBaselineTrajectory(strategyState: any): BaseTrajectory | null 
 
   const months = ymRange(startYm, endYm);
   // ★ financePL は yen 永続と仮定（unit 推定なし）
-  const monthlyQty = Math.max(1000, (baselinePL.revenue ?? 1) / (baselinePL.cogs ?? 1));
-  const monthlyArpu = Math.max(50000, (baselinePL.revenue ?? 1) / monthlyQty);
+  const revenue = extractRevenue(baselinePL) ?? 1;
+  const monthlyQty = Math.max(1000, revenue / (baselinePL.cogs ?? 1));
+  const monthlyArpu = Math.max(50000, revenue / monthlyQty);
 
   const result: BaseTrajectory = {
     startYm,

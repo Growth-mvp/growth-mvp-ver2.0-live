@@ -32,6 +32,8 @@ import {
   normalizeValueToUnit,
   matchProgressLogToProject,
   normalizeProjectName,
+  isRevenueLabel,
+  isOperatingIncomeLabel,
 } from '@/utils/stage6';
 import { calcYearlyFromKrs, buildStage6FourMetricCards } from '@/utils/stage6/compute';
 import {
@@ -960,7 +962,8 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         '説明': 'raw full forecast（全KRの100%効果）',
         'yearlyAll.base.length': core.yearlyAll?.base?.length ?? 0,
       });
-      const revRow = baseRows.find(r => r.label.toLowerCase().includes('売上') && !r.label.toLowerCase().includes('成長'));
+      // ★修正: 複数のラベルバリアントに対応
+      const revRow = baseRows.find(r => isRevenueLabel(r.label));
       if (revRow) {
         console.log('Revenue row (raw forecast):', {
           base: revRow.base,
@@ -990,8 +993,9 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     // Step 2: ★修正 FIX-FINAL：売上/営業利益の行を effective ベース（project 合算）で上書き（E-2）
     // ★BUG-FIX：baseline（KRなし見込み）と target（北極星）を正確に分離
     const syncedRows = baseRows.map((row) => {
-      const isRevenueLike = row.label.toLowerCase().includes('売上') && !row.label.toLowerCase().includes('成長');
-      const isOpIncomeLike = row.label.toLowerCase().includes('営業利益') && !row.label.toLowerCase().includes('率');
+      // ★修正: 複数のラベルバリアントに対応
+      const isRevenueLike = isRevenueLabel(row.label);
+      const isOpIncomeLike = isOperatingIncomeLabel(row.label);
 
       if (isRevenueLike || isOpIncomeLike) {
         // ★修正 FIX-FINAL：Unit Normalization 追加修正
@@ -1162,12 +1166,13 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       const knownUnits = new Set(['yen', 'million_yen', '円', '百万円', '%', 'percent']);
 
       // Stage2 原本（companyTargets）から売上・営業利益を取得
-      const stage2Revenue = companyTargets.find((t: any) => t.label?.toLowerCase().includes('売上') && !t.label?.toLowerCase().includes('成長'));
-      const stage2OpIncome = companyTargets.find((t: any) => t.label?.toLowerCase().includes('営業利益') && !t.label?.toLowerCase().includes('率'));
+      // ★修正: 複数のラベルバリアントに対応
+      const stage2Revenue = companyTargets.find((t: any) => isRevenueLabel(t.label));
+      const stage2OpIncome = companyTargets.find((t: any) => isOperatingIncomeLabel(t.label));
 
       // Stage6 加工後（northStarRows）から売上・営業利益を取得
-      const stage6Revenue = northStarRows.find((r) => r.label.toLowerCase().includes('売上') && !r.label.toLowerCase().includes('成長'));
-      const stage6OpIncome = northStarRows.find((r) => r.label.toLowerCase().includes('営業利益') && !r.label.toLowerCase().includes('率'));
+      const stage6Revenue = northStarRows.find((r) => isRevenueLabel(r.label));
+      const stage6OpIncome = northStarRows.find((r) => isOperatingIncomeLabel(r.label));
 
       // 比較テーブル
       const comparisonData: Array<{
@@ -1266,12 +1271,9 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     }
 
     // northStarRows から売上/営業利益の行を探す
-    const revRow = northStarRows.find(
-      (r) => r.label.toLowerCase().includes('売上') && !r.label.toLowerCase().includes('成長')
-    );
-    const opRow = northStarRows.find(
-      (r) => r.label.toLowerCase().includes('営業利益') && !r.label.toLowerCase().includes('率')
-    );
+    // ★修正: 複数のラベルバリアントに対応
+    const revRow = northStarRows.find((r) => isRevenueLabel(r.label));
+    const opRow = northStarRows.find((r) => isOperatingIncomeLabel(r.label));
 
     // ★修正D：Phase E検証ログ（修正B後：northStarRows は forecastValue を上書きしていないため、参考情報のみ）
     if (DEBUG && (revRow || opRow)) {
@@ -1492,8 +1494,9 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     const forecastOpMJPY = baselineOpMJPY + sumProjectOpContrib;
 
     // Target (from northStarRows, already normalized to MJPY)
-    const revenueRow = northStarRows.find(r => r.label.toLowerCase().includes('売上') && !r.label.toLowerCase().includes('成長'));
-    const opRow = northStarRows.find(r => r.label.toLowerCase().includes('営業利益') && !r.label.toLowerCase().includes('率'));
+    // ★修正: 複数のラベルバリアントに対応
+    const revenueRow = northStarRows.find(r => isRevenueLabel(r.label));
+    const opRow = northStarRows.find(r => isOperatingIncomeLabel(r.label));
 
     // Target は row.unit で保存されているが、MJPY に正規化
     const revenueRowUnit = revenueRow?.unit ?? 'yen';
