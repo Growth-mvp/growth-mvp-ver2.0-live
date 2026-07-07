@@ -28,7 +28,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'email is required' }, { status: 400 });
     }
 
-    console.log('[link-invited-user] Linking company membership:', { userId, email });
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[link-invited-user] Linking company membership:', { userId, email });
+    }
 
     // company_invites テーブルから招待レコードを探す
     const { data: inviteRecord, error: inviteErr } = await admin
@@ -49,7 +51,9 @@ export async function POST(req: NextRequest) {
     }
 
     if (!inviteRecord?.company_id) {
-      console.warn('[link-invited-user] No valid invite found for email:', email);
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[link-invited-user] No valid invite found for email:', email);
+      }
       // 招待レコードがなくても処理を続行する（既に参加している可能性）
       return NextResponse.json({ ok: true, message: 'No invite record found' }, { status: 200 });
     }
@@ -96,12 +100,14 @@ export async function POST(req: NextRequest) {
       // accepted_at 更新失敗でも continue（company_members は更新済み）
     }
 
-    console.log('[link-invited-user] Successfully linked user:', {
-      userId,
-      companyId,
-      email,
-      role,
-    });
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[link-invited-user] Successfully linked user:', {
+        userId,
+        companyId,
+        email,
+        role,
+      });
+    }
 
     return NextResponse.json(
       { ok: true, companyId, role },
