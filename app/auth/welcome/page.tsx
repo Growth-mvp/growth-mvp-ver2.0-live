@@ -39,6 +39,8 @@ function WelcomeInner() {
 
   const [msg, setMsg] = useState('ログイン状態を確認しています…');
   const [loading, setLoading] = useState(true);
+  const [actionError, setActionError] = useState('');
+  const [companyMissing, setCompanyMissing] = useState(false);
 
   // StrictMode 二重実行抑止（チェック処理のみ）
   const inFlight = useRef(false);
