@@ -237,7 +237,7 @@ export default function UnhandledAlignmentRequestsSection({
                           {statusLabels[request.status]?.label || request.status}
                         </span>
                         <span className="text-xs font-semibold text-slate-500">
-                          {visibilityLabel[request.case.visibilityMode] ||
+                          {visibilityLabel[request.case.visibilityMode || ''] ||
                             request.case.visibilityMode}
                         </span>
                       </div>
@@ -354,7 +354,7 @@ export default function UnhandledAlignmentRequestsSection({
                       </p>
                       <p>
                         <span className="font-semibold">共有範囲:</span>{' '}
-                        {visibilityLabel[request.case.visibilityMode] ||
+                        {visibilityLabel[request.case.visibilityMode || ''] ||
                           request.case.visibilityMode}
                       </p>
                       <p>
