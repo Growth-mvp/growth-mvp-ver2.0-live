@@ -74,7 +74,7 @@ export default function SetPasswordPage() {
       const userId = sessionData?.session?.user?.id;
       const userEmail = sessionData?.session?.user?.email || email;
 
-      if (userId && userEmail) {
+      if (userId && userEmail && sessionData?.session?.access_token) {
         try {
           const linkRes = await fetch('/api/auth/link-invited-user', {
             method: 'POST',
