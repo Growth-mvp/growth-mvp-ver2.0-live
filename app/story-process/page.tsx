@@ -357,6 +357,7 @@ function StoryProcessPageContent() {
   const store = useStrategyStore() as any;
 
   const canEdit = isAdmin || isManager;
+  const canView = () => isAdmin || isManager;
 
   /* ----- 初期スクロール補正 ----- */
   useEffect(() => {
