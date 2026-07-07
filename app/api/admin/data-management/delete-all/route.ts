@@ -44,6 +44,19 @@ export async function POST(req: Request) {
       .eq('company_id', companyId);
 
     const beforeData = beforeCheck.data?.[0];
+
+    // ★ 修正：削除前の状態スナップショット
+    const beforeState = {
+      final_story: Array.isArray(beforeData?.final_story) ? beforeData.final_story.length : (beforeData?.final_story ? 'non-array' : 'null'),
+      story_draft: Array.isArray(beforeData?.story_draft) ? beforeData.story_draft.length : (beforeData?.story_draft ? 'non-array' : 'null'),
+      final_story_draft: Array.isArray(beforeData?.final_story_draft) ? beforeData.final_story_draft.length : (beforeData?.final_story_draft ? 'non-array' : 'null'),
+      final_story_final: Array.isArray(beforeData?.final_story_final) ? beforeData.final_story_final.length : (beforeData?.final_story_final ? 'non-array' : 'null'),
+      stage3_strategy_bridge: beforeData?.stage3_strategy_bridge ? 'not-null' : 'null',
+      answers2: Array.isArray(beforeData?.answers2) ? beforeData.answers2.length : (beforeData?.answers2 ? 'non-array' : 'null'),
+      answers12: Array.isArray(beforeData?.answers12) ? beforeData.answers12.length : (beforeData?.answers12 ? 'non-array' : 'null'),
+      departments: Array.isArray(beforeData?.departments) ? beforeData.departments.length : (beforeData?.departments ? 'non-array' : 'null'),
+    };
+
     // ★ 修正：削除対象カラム名（execution_plan_baseline, stage4_plans, final_story_edited は strategy_data に存在しないため除外）
     const updateColumns = [
       'story_draft', 'final_story', 'final_story_draft', 'final_story_final',
