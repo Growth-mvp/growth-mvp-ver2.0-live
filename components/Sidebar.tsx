@@ -20,6 +20,7 @@ import {
   UsersRound,
   Menu,
   X,
+  Coffee,
 } from 'lucide-react';
 
 function AIcon({ children }: { children: React.ReactNode }) {
@@ -145,6 +146,13 @@ export default function Sidebar() {
         <div className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-6 overscroll-contain">
           <nav className="space-y-[18px]" role="navigation" aria-label="メインナビゲーション">
             <PillLink
+              href="/stage0"
+              icon={<Coffee size={18} strokeWidth={1.5} />}
+              label="STAGE 0：会議前の一息"
+              active={isActive('/stage0')}
+              variant="warm"
+            />
+            <PillLink
               href="/stage1"
               icon={<FileText size={18} strokeWidth={1.5} />}
               label="STAGE 1：企業価値分析"
@@ -252,13 +260,16 @@ function PillLink({
   label,
   active,
   disabled,
+  variant = 'default',
 }: {
   href: string;
   icon: React.ReactNode;
   label: string;
   active: boolean;
   disabled?: boolean;
+  variant?: 'default' | 'warm';
 }) {
+  const isWarm = variant === 'warm';
   return (
     <Link
       href={href}
@@ -272,9 +283,14 @@ function PillLink({
         'no-underline group flex h-10 items-center gap-2 rounded-full px-3 transition',
         ITEM_TEXT_CLASS,
         active
-          ? 'bg-gray-900 text-white shadow hover:bg-black/90'
+          ? isWarm
+            ? 'bg-orange-500 text-white shadow hover:bg-orange-600'
+            : 'bg-gray-900 text-white shadow hover:bg-black/90'
+          : isWarm
+          ? 'bg-orange-50 text-orange-700 hover:bg-orange-100 shadow-sm border border-orange-200'
           : 'bg-white text-gray-800 hover:bg-white/90 shadow-sm border border-gray-200',
-        'focus:outline-none focus:ring-1 focus:ring-black/10',
+        'focus:outline-none focus:ring-1',
+        isWarm ? 'focus:ring-orange-300' : 'focus:ring-black/10',
         disabled ? 'opacity-60 pointer-events-auto cursor-not-allowed' : '',
       ].join(' ')}
       aria-label={label}
