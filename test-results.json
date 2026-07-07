@@ -1,0 +1,70 @@
+{
+  "timestamp": "2026-07-07T13:16:25.145Z",
+  "results": [
+    {
+      "url": "http://localhost:3004/",
+      "pageTitle": "home",
+      "statusCode": 200,
+      "title": "GROWTH - 戦略実行プラットフォーム",
+      "whiteScreen": false,
+      "consoleErrors": 0,
+      "hasHeadings": false,
+      "buttonCount": 3,
+      "linkCount": 4,
+      "reloadOk": true,
+      "pageCrashed": false
+    },
+    {
+      "url": "http://localhost:3004/stage1",
+      "pageTitle": "stage1",
+      "statusCode": 200,
+      "title": "GROWTH - 戦略実行プラットフォーム",
+      "whiteScreen": false,
+      "consoleErrors": 0,
+      "hasHeadings": false,
+      "buttonCount": 3,
+      "linkCount": 4,
+      "reloadOk": true,
+      "pageCrashed": false
+    },
+    {
+      "url": "http://localhost:3004/stage2",
+      "pageTitle": "stage2",
+      "statusCode": 200,
+      "title": "GROWTH - 戦略実行プラットフォーム",
+      "whiteScreen": false,
+      "consoleErrors": 0,
+      "hasHeadings": false,
+      "buttonCount": 3,
+      "linkCount": 4,
+      "reloadOk": true,
+      "pageCrashed": false
+    },
+    {
+      "url": "http://localhost:3004/cascade",
+      "pageTitle": "cascade",
+      "statusCode": 200,
+      "title": "GROWTH - 戦略実行プラットフォーム",
+      "whiteScreen": false,
+      "consoleErrors": 0,
+      "hasHeadings": false,
+      "buttonCount": 3,
+      "linkCount": 4,
+      "reloadOk": true,
+      "pageCrashed": false
+    },
+    {
+      "url": "http://localhost:3004/okr",
+      "pageTitle": "okr",
+      "statusCode": 200,
+      "title": "GROWTH - 戦略実行プラットフォーム",
+      "whiteScreen": false,
+      "consoleErrors": 0,
+      "hasHeadings": false,
+      "buttonCount": 3,
+      "linkCount": 4,
+      "reloadOk": true,
+      "pageCrashed": false
+    }
+  ]
+}
