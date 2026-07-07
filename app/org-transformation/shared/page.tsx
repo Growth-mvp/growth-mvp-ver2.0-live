@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect, type ReactNode } from "react";
 import { safeGetSession } from "@/utils/supabase/client";
 
 // ===== 型定義 =====
-type TopicStatus = "すり合わせ予定" | "すり合わせ中" | "対応方針決定" | "実行中" | "完了";
+type TopicStatus = "すり合わせ予定" | "すり合わせ中" | "対応方針決定";
 type Level = "高" | "中" | "低";
 type ActionStatus = "未着手" | "対応中" | "完了";
 type Stage3Status = "未反映" | "反映候補" | "STAGE3確認済み";
@@ -82,25 +82,21 @@ type SharedAlignmentTopic = {
   announcement_updated_at?: string;
 };
 
-// ===== ステータスマッピング =====
+// ===== ステータスマッピング（3状態に簡素化） =====
 function mapDbStatusToUiStatus(dbStatus: string): TopicStatus {
-  switch (dbStatus) {
-    case 'published':
-      return 'すり合わせ予定';
-    case 'in_alignment':
-      return 'すり合わせ中';
-    case 'action_planned':
-      return '対応方針決定';
-    case 'reflected':
-      return '実行中';
-    case 'closed':
-      return '完了';
-    default:
-      return 'すり合わせ予定';
+  // DB値は既存のまま、UI表示だけ3状態に統合
+  if (['draft', 'published', 'open'].includes(dbStatus)) {
+    return 'すり合わせ予定';
+  } else if (dbStatus === 'in_alignment') {
+    return 'すり合わせ中';
+  } else if (['action_planned', 'reflected', 'closed', 'resolved'].includes(dbStatus)) {
+    return '対応方針決定';
   }
+  return 'すり合わせ予定';
 }
 
 function mapUiStatusToDbStatus(uiStatus: TopicStatus): string {
+  // UI表示から DB値へのマッピング（既存DB値を保持）
   switch (uiStatus) {
     case "すり合わせ予定":
       return "published";
@@ -108,463 +104,16 @@ function mapUiStatusToDbStatus(uiStatus: TopicStatus): string {
       return "in_alignment";
     case "対応方針決定":
       return "action_planned";
-    case "実行中":
-      return "reflected";
-    case "完了":
-      return "closed";
     default:
       return "published";
   }
 }
-
-// ===== 仮データ（フォールバック用） =====
-const mockTopics: SharedAlignmentTopic[] = [
-  {
-    id: "topic-001",
-    title: "評価基準と現場貢献のズレ",
-    status: "対応方針決定",
-    importance: "高",
-    urgency: "中",
-    category: "評価・顧客価値",
-    priorityScore: 86,
-    aiSummary:
-      "評価に関する不満の中でも、短期売上以外の顧客価値行動が評価されにくいという声が多く、全社的な制度改善論点として集約されています。",
-    relatedCaseCount: 38,
-    impactScope: "全社",
-    targetDepartments: ["営業", "CS", "人事"],
-    summary:
-      "複数部門から、短期売上以外の貢献が評価されにくいという声が出ています。",
-    background:
-      "現場では、顧客との長期的な関係構築、トラブルを未然に防ぐ対応、部門間の調整などに時間を使っている一方で、評価面談では売上数値が中心になっていると感じている社員が多い状況です。",
-    recognitionGap: {
-      fieldView:
-        "現場は、顧客継続・改善提案・部門連携も重要な貢献だと認識している。",
-      companyView:
-        "会社は、今期の売上責任を重要な評価軸として重視している。",
-      gapEssence:
-        "短期成果と中長期貢献を、評価基準の中でどう扱うかが曖昧になっている。",
-    },
-    companyAxis:
-      "売上責任を維持しながら、顧客価値・改善提案・部門連携も会社の成長に必要な貢献として扱う。",
-    sessionType: "制度改善会議",
-    alignmentResult:
-      "今期は売上責任を重視する方針を維持します。一方で、顧客継続・改善提案・部門連携も評価補助項目として明文化する方針となりました。",
-    changedThings: [
-      "評価面談で確認する補助項目を整理する",
-      "顧客継続・改善提案・部門連携を評価補助項目に含める",
-      "管理職向けに評価観点を説明する",
-    ],
-    unchangedThings: [
-      "今期の売上責任は引き続き主要な評価軸とする",
-      "最終評価は部門成果と個人成果の両面から判断する",
-    ],
-    nextActions: [
-      {
-        title: "評価補助項目案を作成する",
-        owner: "人事部",
-        dueDate: "2026-06-15",
-        status: "対応中",
-      },
-      {
-        title: "管理職向け説明会を実施する",
-        owner: "人事部・営業本部",
-        dueDate: "2026-06-30",
-        status: "未着手",
-      },
-    ],
-    strategyReflection: {
-      stage3Status: "反映候補",
-      stage4Status: "実行計画への反映候補",
-      stage3Confirmed: false,
-      stage4Confirmed: false,
-      relatedDepartments: ["人事", "営業", "CS"],
-      generatedProjects: [
-        {
-          departmentName: "人事",
-          projectTitle: "顧客価値行動を反映した評価補助項目の設計",
-          projectSummary:
-            "短期売上だけでなく、顧客継続・改善提案・部門連携を評価補助項目として明文化する。",
-        },
-        {
-          departmentName: "営業",
-          projectTitle: "短期売上と顧客継続を両立する営業行動基準の整備",
-          projectSummary:
-            "売上責任を維持しながら、顧客継続や改善提案につながる行動を営業活動基準に反映する。",
-        },
-        {
-          departmentName: "CS",
-          projectTitle: "顧客継続・改善提案の貢献可視化",
-          projectSummary:
-            "CS部門の顧客継続・改善提案・部門連携の貢献を可視化し、評価補助項目へ接続する。",
-        },
-      ],
-      generatedOkrs: [
-        {
-          objective:
-            "顧客価値につながる現場貢献が正しく評価される状態をつくる",
-          keyResults: [
-            "評価補助項目案を6月末までに作成する",
-            "管理職向け説明会を対象者100%に実施する",
-            "評価面談で補助項目を試行導入する部門を3部門選定する",
-          ],
-          owner: "人事部・営業本部・CS責任者",
-          dueDate: "2026-09-30",
-        },
-      ],
-    },
-    owner: "人事部・営業本部",
-    nextReviewDate: "2026-06-30",
-    updatedAt: "2026-05-29",
-  },
-  {
-    id: "topic-002",
-    title: "顧客価値と短期利益の優先順位のズレ",
-    status: "すり合わせ中",
-    importance: "高",
-    urgency: "高",
-    category: "顧客価値・収益性",
-    priorityScore: 91,
-    aiSummary:
-      "短期利益を重視する会社方針と、顧客価値を守りたい現場感覚のズレが複数部門で確認されています。",
-    relatedCaseCount: 24,
-    impactScope: "複数部門",
-    targetDepartments: ["営業", "CS", "財務", "経営"],
-    summary:
-      "現場では、会社が目先の利益を優先し、お客様を大事にしていないのではないかという不安が出ています。",
-    background:
-      "短期利益を重視する方針が現場に伝わる一方で、なぜ今それが必要なのか、顧客価値をどう守るのかが十分に説明されていませんでした。",
-    recognitionGap: {
-      fieldView:
-        "現場は、短期利益の追求によって顧客価値が損なわれているのではないかと感じている。",
-      companyView:
-        "経営は、収益性を改善しなければ将来投資やサービス品質の維持が難しいと認識している。",
-      gapEssence:
-        "短期利益改善と顧客価値維持をどう両立するかの判断基準が共有されていない。",
-    },
-    companyAxis:
-      "収益性改善と顧客価値維持を対立させず、継続率・解約率・顧客満足を見ながら両立を図る。",
-    sessionType: "経営説明・対話会",
-    alignmentResult:
-      "現在、経営・財務・営業・CSで、利益率改善と顧客価値維持を両立する判断基準を整理しています。",
-    changedThings: [
-      "利益改善施策の判断時に顧客影響を確認する",
-      "解約率・継続率・顧客満足度をあわせて確認する",
-    ],
-    unchangedThings: ["収益性改善は今期の重要方針として継続する"],
-    nextActions: [
-      {
-        title: "利益率改善と顧客価値維持の判断基準を整理する",
-        owner: "経営・財務",
-        dueDate: "2026-06-20",
-        status: "対応中",
-      },
-      {
-        title: "全社員向けに方針説明を行う",
-        owner: "経営",
-        dueDate: "2026-07-05",
-        status: "未着手",
-      },
-    ],
-    strategyReflection: {
-      stage3Status: "反映候補",
-      stage4Status: "実行計画への反映候補",
-      stage3Confirmed: false,
-      stage4Confirmed: false,
-      relatedDepartments: ["経営", "財務", "営業", "CS"],
-      generatedProjects: [
-        {
-          departmentName: "経営",
-          projectTitle: "収益性改善と顧客価値維持の判断基準整備",
-          projectSummary:
-            "利益率改善施策を進める際に、顧客価値・継続率・解約率を同時に確認する判断基準を整備する。",
-        },
-        {
-          departmentName: "営業",
-          projectTitle: "顧客価値を損なわない収益改善提案プロセスの整備",
-          projectSummary:
-            "値引き・価格改定・契約条件変更などの場面で、顧客影響を確認しながら収益性を改善する。",
-        },
-      ],
-      generatedOkrs: [
-        {
-          objective:
-            "収益性改善と顧客価値維持を両立する判断基準を全社で共有する",
-          keyResults: [
-            "利益改善施策の顧客影響チェック項目を6月末までに作成する",
-            "主要顧客の解約率・継続率・満足度を月次で確認する",
-            "全社員向け方針説明会を7月上旬までに実施する",
-          ],
-          owner: "経営・財務・営業責任者",
-          dueDate: "2026-09-30",
-        },
-      ],
-    },
-    owner: "経営・財務",
-    nextReviewDate: "2026-07-05",
-    updatedAt: "2026-05-29",
-  },
-  {
-    id: "topic-003",
-    title: "部門間の責任範囲のズレ",
-    status: "実行中",
-    importance: "中",
-    urgency: "高",
-    category: "部門間連携・責任範囲",
-    priorityScore: 78,
-    aiSummary:
-      "営業・開発・CS間で、顧客要望への対応基準や責任範囲が曖昧になっている声が集約されています。",
-    relatedCaseCount: 19,
-    impactScope: "部門横断",
-    targetDepartments: ["営業", "開発", "CS"],
-    summary:
-      "営業・開発・CSの間で、顧客要望への対応責任が曖昧になっています。",
-    background:
-      "受注前の判断、仕様変更の可否、納品後のサポート範囲が明確に整理されておらず、一部の部署にしわ寄せが来ているという声が出ています。",
-    recognitionGap: {
-      fieldView:
-        "各部門は、自部門だけでは判断できない対応を抱え込んでいると感じている。",
-      companyView:
-        "会社としては、顧客要望に柔軟に対応しつつ、収益性と開発負荷も管理したいと考えている。",
-      gapEssence:
-        "顧客要望を受ける基準、断る基準、追加費用を求める基準が部門間で揃っていない。",
-    },
-    companyAxis:
-      "顧客対応力を維持しながら、受注前判断・仕様変更・サポート範囲の基準を明確にする。",
-    sessionType: "部門横断すり合わせ",
-    alignmentResult:
-      "顧客要望を『標準対応できるもの』『個別見積・個別判断が必要なもの』『現時点では対応しないもの』に分けて判断する方針となりました。",
-    changedThings: [
-      "受注前チェックリストを作成する",
-      "営業・開発・CSで確認すべき項目を共通化する",
-    ],
-    unchangedThings: [
-      "重要顧客への柔軟対応は継続する",
-      "ただし個別対応の判断基準を明確にする",
-    ],
-    nextActions: [
-      {
-        title: "受注前チェックリストを作成する",
-        owner: "営業企画",
-        dueDate: "2026-06-10",
-        status: "対応中",
-      },
-      {
-        title: "開発・CSと試験運用を開始する",
-        owner: "営業企画・開発・CS",
-        dueDate: "2026-06-25",
-        status: "未着手",
-      },
-    ],
-    strategyReflection: {
-      stage3Status: "STAGE3確認済み",
-      stage4Status: "実行計画への反映候補",
-      stage3Confirmed: true,
-      stage4Confirmed: false,
-      relatedDepartments: ["営業", "開発", "CS"],
-      generatedProjects: [
-        {
-          departmentName: "営業企画",
-          projectTitle: "受注前チェックリストの整備",
-          projectSummary:
-            "顧客要望の受注前確認項目を標準化し、営業・開発・CSの判断基準を揃える。",
-        },
-        {
-          departmentName: "開発",
-          projectTitle: "仕様変更判断基準の明文化",
-          projectSummary:
-            "標準対応・個別見積・対応対象外の判断基準を整理し、現場で迷わない運用にする。",
-        },
-      ],
-      generatedOkrs: [
-        {
-          objective:
-            "営業・開発・CSが共通基準で顧客要望を判断できる状態をつくる",
-          keyResults: [
-            "受注前チェックリストを6月10日までに作成する",
-            "営業・開発・CSで試験運用する案件を10件選定する",
-            "顧客要望対応の差し戻し件数を20%削減する",
-          ],
-          owner: "営業企画・開発・CS責任者",
-          dueDate: "2026-09-30",
-        },
-      ],
-    },
-    owner: "営業企画",
-    nextReviewDate: "2026-06-25",
-    updatedAt: "2026-05-28",
-  },
-  {
-    id: "topic-004",
-    title: "新施策の目的理解のズレ",
-    status: "すり合わせ予定",
-    importance: "中",
-    urgency: "中",
-    category: "新施策・DX・目的理解",
-    priorityScore: 69,
-    aiSummary:
-      "新施策の目的や期待効果が現場に十分伝わっておらず、追加業務として受け止められている声が集約されています。",
-    relatedCaseCount: 15,
-    impactScope: "全社",
-    targetDepartments: ["経営企画", "管理職", "現場"],
-    summary:
-      "新しい施策やDX施策について、現場から『なぜやるのか分からない』『業務が増えるだけに感じる』という声が出ています。",
-    background:
-      "会社としては業務効率化と顧客対応品質の向上を目的にしていますが、現場には追加作業として受け止められており、施策の目的と現場の実感にズレがあります。",
-    recognitionGap: {
-      fieldView:
-        "現場は、新施策を業務負荷の増加として受け止めている。",
-      companyView:
-        "会社は、将来の業務効率化や顧客品質向上のために必要な施策だと考えている。",
-      gapEssence:
-        "新施策によって何を減らし、何を改善するのかが十分に説明されていない。",
-    },
-    companyAxis:
-      "施策の目的、期待効果、現場負荷、やめる業務をセットで説明する。",
-    sessionType: "部門内すり合わせ",
-    alignmentResult:
-      "今後の新施策については、開始前に目的・期待効果・現場の負荷・やめる業務をセットで説明する方針とします。",
-    changedThings: [
-      "新施策開始前の説明項目を標準化する",
-      "やめる業務・減らす業務を明示する",
-    ],
-    unchangedThings: ["業務効率化と顧客対応品質向上のためのDX施策は継続する"],
-    nextActions: [
-      {
-        title: "新施策説明テンプレートを作成する",
-        owner: "経営企画",
-        dueDate: "2026-06-18",
-        status: "未着手",
-      },
-    ],
-    strategyReflection: {
-      stage3Status: "反映候補",
-      stage4Status: "未反映",
-      relatedDepartments: ["経営企画", "管理職", "現場部門"],
-      generatedProjects: [
-        {
-          departmentName: "経営企画",
-          projectTitle: "新施策説明テンプレートの整備",
-          projectSummary:
-            "施策開始前に目的・期待効果・現場負荷・やめる業務を明示する標準テンプレートを作成する。",
-        },
-      ],
-      generatedOkrs: [
-        {
-          objective:
-            "新施策の目的と現場負荷が事前に共有される状態をつくる",
-          keyResults: [
-            "新施策説明テンプレートを6月18日までに作成する",
-            "新規施策の説明資料で『やめる業務』を100%明記する",
-            "施策開始前アンケートで目的理解度80%以上を達成する",
-          ],
-          owner: "経営企画",
-          dueDate: "2026-09-30",
-        },
-      ],
-    },
-    owner: "経営企画",
-    nextReviewDate: "2026-06-18",
-    updatedAt: "2026-05-27",
-  },
-  {
-    id: "topic-005",
-    title: "業務量と人員配置のズレ",
-    status: "すり合わせ予定",
-    importance: "高",
-    urgency: "高",
-    category: "業務量・人員配置",
-    priorityScore: 88,
-    aiSummary:
-      "業務量増加と人員配置のズレに関する声が複数部門から出ており、離職・品質低下リスクの観点から優先度が高い論点として整理されています。",
-    relatedCaseCount: 31,
-    impactScope: "複数部門",
-    targetDepartments: ["現場部門", "人事", "部門長"],
-    summary:
-      "一部の部署で業務量が増え続けており、今の人数では品質を維持できないという声が出ています。",
-    background:
-      "売上拡大や新施策の増加に伴い、現場の業務量が増えている一方で、人員配置や業務の優先順位見直しが追いついていません。",
-    recognitionGap: {
-      fieldView:
-        "現場は、現在の業務量では品質低下や離職につながると感じている。",
-      companyView:
-        "会社は、限られた人員の中で成長施策を進める必要があると考えている。",
-      gapEssence:
-        "増やす業務、やめる業務、任せる業務、自動化する業務の整理が追いついていない。",
-    },
-    companyAxis:
-      "成長施策を進めながら、業務棚卸し・優先順位見直し・人員配置の調整を行う。",
-    sessionType: "制度改善会議",
-    alignmentResult:
-      "まずは業務量の実態を確認し、継続すべき業務・やめる業務・自動化できる業務を整理する方針となりました。",
-    changedThings: [
-      "各部門で業務棚卸しを実施する",
-      "高負荷部署を優先して人員配置と業務優先順位を見直す",
-    ],
-    unchangedThings: [
-      "成長施策そのものは継続する",
-      "ただし現場負荷を見ながら進め方を調整する",
-    ],
-    nextActions: [
-      {
-        title: "各部門で業務棚卸しを実施する",
-        owner: "各部門長",
-        dueDate: "2026-06-20",
-        status: "未着手",
-      },
-      {
-        title: "高負荷部署の対応方針を検討する",
-        owner: "人事・部門長",
-        dueDate: "2026-06-30",
-        status: "未着手",
-      },
-    ],
-    strategyReflection: {
-      stage3Status: "反映候補",
-      stage4Status: "実行計画への反映候補",
-      stage3Confirmed: false,
-      stage4Confirmed: false,
-      relatedDepartments: ["現場部門", "人事", "部門長"],
-      generatedProjects: [
-        {
-          departmentName: "人事",
-          projectTitle: "高負荷部署の業務棚卸しと人員配置見直し",
-          projectSummary:
-            "業務量の実態を確認し、継続すべき業務・やめる業務・自動化できる業務を整理する。",
-        },
-        {
-          departmentName: "現場部門",
-          projectTitle: "業務優先順位の再設計",
-          projectSummary:
-            "成長施策を進めるために、現場業務の優先順位と削減対象を明確化する。",
-        },
-      ],
-      generatedOkrs: [
-        {
-          objective:
-            "成長施策を進めながら現場負荷を適正化する",
-          keyResults: [
-            "全対象部門で業務棚卸しを6月20日までに実施する",
-            "高負荷部署の対応方針を6月末までに決定する",
-            "自動化・廃止候補業務を10件以上特定する",
-          ],
-          owner: "人事・各部門長",
-          dueDate: "2026-09-30",
-        },
-      ],
-    },
-    owner: "人事・部門長",
-    nextReviewDate: "2026-06-30",
-    updatedAt: "2026-05-27",
-  },
-];
 
 const filters: (TopicStatus | "すべて")[] = [
   "すべて",
   "すり合わせ予定",
   "すり合わせ中",
   "対応方針決定",
-  "実行中",
-  "完了",
 ];
 
 // ===== ヘルパー関数 =====
@@ -776,67 +325,91 @@ function StatusChart({ topics }: { topics: SharedAlignmentTopic[] }) {
   );
 }
 
+function getStageDisplayName(status: string): string {
+  switch (status) {
+    case "反映候補":
+      return "候補";
+    case "STAGE3確認済み":
+    case "STAGE4確認済み":
+      return "済み";
+    default:
+      return status;
+  }
+}
+
 function TopicSummaryTable({ topics }: { topics: SharedAlignmentTopic[] }) {
   return (
-    <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+    <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-100 p-6">
         <p className="text-xs font-semibold tracking-[0.22em] text-slate-500">TOPIC DASHBOARD</p>
         <h3 className="mt-2 text-xl font-bold text-slate-950">全社論点ダッシュボード</h3>
         <p className="mt-2 text-sm leading-6 text-slate-600">
-          AIが集約した論点を、件数・影響範囲・緊急性・重要度・状態で一覧化します。
+          AIが集約した論点を、件数・影響範囲・対象部門・状態で一覧化します。
         </p>
       </div>
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-100 text-sm">
-          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="px-5 py-3">論点</th>
-              <th className="px-5 py-3">件数</th>
-              <th className="px-5 py-3">影響範囲</th>
-              <th className="px-5 py-3">緊急性</th>
-              <th className="px-5 py-3">重要度</th>
-              <th className="px-5 py-3">対象部門</th>
-              <th className="px-5 py-3">状態</th>
-              <th className="px-5 py-3">STAGE3</th>
-              <th className="px-5 py-3">STAGE4</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 bg-white">
-            {topics.map((topic) => (
-              <tr key={topic.id} className="align-top">
-                <td className="max-w-xs px-5 py-4 font-semibold text-slate-950">{topic.title}</td>
-                <td className="px-5 py-4 font-bold text-slate-950">{topic.relatedCaseCount}</td>
-                <td className="px-5 py-4 text-slate-700">{topic.impactScope}</td>
-                <td className="px-5 py-4">
-                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${getLevelColor(topic.urgency)}`}>
-                    {topic.urgency}
-                  </span>
-                </td>
-                <td className="px-5 py-4">
-                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${getLevelColor(topic.importance)}`}>
-                    {topic.importance}
-                  </span>
-                </td>
-                <td className="px-5 py-4 text-slate-700">{topic.targetDepartments.join("・")}</td>
-                <td className="px-5 py-4">
-                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${getStatusColor(topic.status)}`}>
-                    {topic.status}
-                  </span>
-                </td>
-                <td className="px-5 py-4">
-                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${getStatusColor(topic.strategyReflection.stage3Status)}`}>
-                    {topic.strategyReflection.stage3Status}
-                  </span>
-                </td>
-                <td className="px-5 py-4">
-                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${getStatusColor(topic.strategyReflection.stage4Status)}`}>
-                    {topic.strategyReflection.stage4Status}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="grid grid-cols-1 gap-3 p-6 md:grid-cols-2 lg:grid-cols-2">
+        {topics.map((topic) => (
+          <div key={topic.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4 hover:bg-slate-100 transition">
+            <div className="space-y-3">
+              {/* 論点名 */}
+              <div>
+                <h4 className="font-bold text-slate-950 line-clamp-2">{topic.title}</h4>
+              </div>
+
+              {/* 基本情報グリッド */}
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-lg bg-white p-2">
+                  <div className="text-[11px] font-medium text-slate-500">関連する声</div>
+                  <div className="mt-0.5 font-bold text-slate-900">{topic.relatedCaseCount}件</div>
+                </div>
+                <div className="rounded-lg bg-white p-2">
+                  <div className="text-[11px] font-medium text-slate-500">影響範囲</div>
+                  <div className="mt-0.5 font-semibold text-slate-900">{topic.impactScope}</div>
+                </div>
+              </div>
+
+              {/* 対象部門 */}
+              <div className="rounded-lg bg-white p-2">
+                <div className="text-[11px] font-medium text-slate-500">対象部門</div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {topic.targetDepartments.map((dept) => (
+                    <span key={dept} className="rounded-full bg-slate-200 px-2 py-1 text-[11px] font-medium text-slate-800">
+                      {dept}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* ステータス */}
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div className="rounded-lg bg-white p-2">
+                  <div className="text-[11px] font-medium text-slate-500">状態</div>
+                  <div className="mt-0.5">
+                    <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${getStatusColor(topic.status)}`}>
+                      {topic.status}
+                    </span>
+                  </div>
+                </div>
+                <div className="rounded-lg bg-white p-2">
+                  <div className="text-[11px] font-medium text-slate-500">STAGE3</div>
+                  <div className="mt-0.5">
+                    <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${getStatusColor(topic.strategyReflection.stage3Status)}`}>
+                      {getStageDisplayName(topic.strategyReflection.stage3Status)}
+                    </span>
+                  </div>
+                </div>
+                <div className="rounded-lg bg-white p-2">
+                  <div className="text-[11px] font-medium text-slate-500">STAGE4</div>
+                  <div className="mt-0.5">
+                    <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${getStatusColor(topic.strategyReflection.stage4Status)}`}>
+                      {getStageDisplayName(topic.strategyReflection.stage4Status)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -1380,6 +953,7 @@ function TopicCard({
   onCreateStage3Candidate,
   onCreateStage4Candidate,
   onResetReflection,
+  isAdmin = false,
 }: {
   topic: SharedAlignmentTopic;
   onExpandClick: () => void;
@@ -1388,6 +962,7 @@ function TopicCard({
   onCreateStage3Candidate: (topic: SharedAlignmentTopic) => void;
   onCreateStage4Candidate: (topic: SharedAlignmentTopic) => void;
   onResetReflection: (topicId: string) => void;
+  isAdmin?: boolean;
 }) {
   const updateTopic = (patch: TopicEditablePatch) => onUpdateTopic(topic.id, patch);
 
@@ -1489,43 +1064,53 @@ function TopicCard({
               <p className="mt-2 text-sm leading-7 text-slate-700">{topic.companyAxis}</p>
             </section>
 
-            <EditableTextSection
-              title="すり合わせ結果"
-              value={topic.alignmentResult}
-              placeholder="例：営業部門は経営からの支援が不足していると感じていたが、経営側は現場課題を十分に把握できていなかった。今後は月次で課題を共有し、支援方針を明確にすることで合意した。"
-              onSave={(alignmentResult) => updateTopic({ alignmentResult, status: alignmentResult ? "対応方針決定" : topic.status })}
-              onClear={() => updateTopic({ alignmentResult: "" })}
-            />
+            {isAdmin && (
+              <>
+                <EditableTextSection
+                  title="すり合わせ結果"
+                  value={topic.alignmentResult}
+                  placeholder="例：営業部門は経営からの支援が不足していると感じていたが、経営側は現場課題を十分に把握できていなかった。今後は月次で課題を共有し、支援方針を明確にすることで合意した。"
+                  onSave={(alignmentResult) => updateTopic({ alignmentResult, status: alignmentResult ? "対応方針決定" : topic.status })}
+                  onClear={() => updateTopic({ alignmentResult: "" })}
+                />
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <EditableListSection
-                title="変えること"
-                items={topic.changedThings}
-                placeholder={"例：\n営業部門から経営への月次フィードバックの場を設ける\n重点案件・失注要因・現場課題を経営会議で共有する"}
-                onSave={(changedThings) => updateTopic({ changedThings })}
-                onClear={() => updateTopic({ changedThings: [] })}
-              />
-              <EditableListSection
-                title="変えないこと"
-                items={topic.unchangedThings}
-                placeholder={"例：\n営業部門が自律的に案件管理・顧客対応を行う責任は維持する\n経営がすべての案件に個別介入する運用にはしない"}
-                onSave={(unchangedThings) => updateTopic({ unchangedThings })}
-                onClear={() => updateTopic({ unchangedThings: [] })}
-              />
-            </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <EditableListSection
+                    title="変えること"
+                    items={topic.changedThings}
+                    placeholder={"例：\n営業部門から経営への月次フィードバックの場を設ける\n重点案件・失注要因・現場課題を経営会議で共有する"}
+                    onSave={(changedThings) => updateTopic({ changedThings })}
+                    onClear={() => updateTopic({ changedThings: [] })}
+                  />
+                  <EditableListSection
+                    title="変えないこと"
+                    items={topic.unchangedThings}
+                    placeholder={"例：\n営業部門が自律的に案件管理・顧客対応を行う責任は維持する\n経営がすべての案件に個別介入する運用にはしない"}
+                    onSave={(unchangedThings) => updateTopic({ unchangedThings })}
+                    onClear={() => updateTopic({ unchangedThings: [] })}
+                  />
+                </div>
 
-            <NextActionsSection
-              actions={topic.nextActions}
-              onSave={(nextActions) => updateTopic({ nextActions, status: nextActions.length > 0 ? "実行中" : topic.status })}
-              onClear={() => updateTopic({ nextActions: [] })}
-            />
+                <NextActionsSection
+                  actions={topic.nextActions}
+                  onSave={(nextActions) => updateTopic({ nextActions, status: nextActions.length > 0 ? "実行中" : topic.status })}
+                  onClear={() => updateTopic({ nextActions: [] })}
+                />
 
-            <StrategyReflectionSection
-              topic={topic}
-              onCreateStage3Candidate={() => onCreateStage3Candidate(topic)}
-              onCreateStage4Candidate={() => onCreateStage4Candidate(topic)}
-              onResetReflection={onResetReflection}
-            />
+                <StrategyReflectionSection
+                  topic={topic}
+                  onCreateStage3Candidate={() => onCreateStage3Candidate(topic)}
+                  onCreateStage4Candidate={() => onCreateStage4Candidate(topic)}
+                  onResetReflection={onResetReflection}
+                />
+              </>
+            )}
+
+            {!isAdmin && (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm text-slate-700">詳細は管理者のみ編集・確認できます。</p>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1540,11 +1125,42 @@ export default function OrganizationSharedRoomPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>("");
   const [saveNotice, setSaveNotice] = useState<string>("");
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showHowToModal, setShowHowToModal] = useState(false);
 
   // ===== データ取得 =====
   useEffect(() => {
     fetchTopics();
+    checkAdminRole();
   }, []);
+
+  const checkAdminRole = async () => {
+    try {
+      const { ok, data: sessionData } = await safeGetSession();
+      if (!ok || !sessionData?.session?.access_token) {
+        setIsAdmin(false);
+        return;
+      }
+
+      const res = await fetch("/api/auth/me", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+      });
+
+      if (!res.ok) {
+        setIsAdmin(false);
+        return;
+      }
+
+      const data = await res.json();
+      setIsAdmin(data.user?.role === "admin" || data.user?.memberships?.[0]?.role === "admin");
+    } catch (err) {
+      console.error("checkAdminRole error:", err);
+      setIsAdmin(false);
+    }
+  };
 
   const fetchTopics = async () => {
     setLoading(true);
@@ -1553,8 +1169,8 @@ export default function OrganizationSharedRoomPage() {
     try {
       const { ok, data: sessionData } = await safeGetSession();
       if (!ok || !sessionData?.session?.access_token) {
-        console.log("Not authenticated or session expired, using demo data");
-        setTopics(mockTopics);
+        setError("ログインしてください。");
+        setTopics([]);
         setLoading(false);
         return;
       }
@@ -1567,8 +1183,8 @@ export default function OrganizationSharedRoomPage() {
       });
 
       if (!res.ok) {
-        console.warn(`Failed to fetch topics: ${res.status}, using demo data`);
-        setTopics(mockTopics);
+        setError("全社論点を取得できませんでした。時間をおいて再度お試しください。");
+        setTopics([]);
         setLoading(false);
         return;
       }
@@ -1619,13 +1235,13 @@ export default function OrganizationSharedRoomPage() {
 
         setTopics(convertedTopics);
       } else {
-        // データなしの場合はモックデータを使用
-        setTopics(mockTopics);
+        // データなしの場合
+        setTopics([]);
       }
     } catch (err) {
       console.error("fetchTopics error:", err);
-      setError("データ取得に失敗しました。デモデータを表示しています。");
-      setTopics(mockTopics);
+      setError("全社論点を取得できませんでした。時間をおいて再度お試しください。");
+      setTopics([]);
     } finally {
       setLoading(false);
     }
@@ -1869,11 +1485,10 @@ export default function OrganizationSharedRoomPage() {
     return {
       aiTargetVoices: topics.reduce((sum, topic) => sum + topic.relatedCaseCount, 0),
       topics: topics.length,
-      alignmentTargets: topics.filter((topic) => topic.status !== "完了").length,
+      alignmentTargets: topics.filter((topic) => topic.status !== "対応方針決定").length,
       explanationNeeded: 1,
       inProgress: topics.filter((topic) => topic.status === "すり合わせ中").length,
       decided: topics.filter((topic) => topic.status === "対応方針決定").length,
-      executing: topics.filter((topic) => topic.status === "実行中").length,
       stage3Targets: topics.filter((topic) => topic.strategyReflection.stage3Status !== "未反映").length,
       stage4Targets: topics.filter((topic) => topic.strategyReflection.stage4Status !== "未反映").length,
     };
@@ -1921,17 +1536,22 @@ export default function OrganizationSharedRoomPage() {
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 lg:w-72">
               <p className="text-xs font-semibold tracking-wide text-slate-500">表示データ</p>
-              <p className="mt-2 font-bold text-slate-950">
-                {topics.length === mockTopics.length && JSON.stringify(topics) === JSON.stringify(mockTopics)
-                  ? "デモ用AI集計結果"
-                  : "実運用データ"}
-              </p>
-              <p className="mt-2 text-xs leading-5 text-slate-600">
-                {topics.length === mockTopics.length && JSON.stringify(topics) === JSON.stringify(mockTopics)
-                  ? "デモ用仮データです。"
-                  : `投稿データから自動集計した${topics.length}件の論点を表示しています。`}
-              </p>
-              {error && <p className="mt-2 text-xs text-orange-600">{error}</p>}
+              {error ? (
+                <>
+                  <p className="mt-2 font-bold text-slate-950">データ取得エラー</p>
+                  <p className="mt-2 text-xs leading-5 text-orange-600">{error}</p>
+                </>
+              ) : topics.length === 0 ? (
+                <>
+                  <p className="mt-2 font-bold text-slate-950">公開中の論点なし</p>
+                  <p className="mt-2 text-xs leading-5 text-slate-600">現在、公開されている全社論点はありません。</p>
+                </>
+              ) : (
+                <>
+                  <p className="mt-2 font-bold text-slate-950">実運用データ</p>
+                  <p className="mt-2 text-xs leading-5 text-slate-600">投稿データから自動集計した{topics.length}件の論点を表示しています。</p>
+                </>
+              )}
             </div>
           </div>
 
@@ -1958,44 +1578,20 @@ export default function OrganizationSharedRoomPage() {
         </section>
 
         <section className="space-y-5">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-950">声が論点になるまで</h2>
-            <p className="mt-3 leading-8 text-slate-700">
-              全社すり合わせルームでは、個別の声をそのまま並べるのではなく、AI集計によって会社として扱うべき共通論点に変換し、すり合わせと結果共有までつなげます。
-            </p>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            <ProcessStep number={1} title="社員が違和感を入力" description="日々のもやもやや違和感を、個人が特定されない形で蓄積します。" />
-            <ProcessStep number={2} title="AIが認識のズレを整理" description="感情や不満を、判断基準・役割・優先順位のズレとして構造化します。" />
-            <ProcessStep number={3} title="共通論点へ集約" description="類似する声を束ね、会社として扱うべき論点に変換します。" />
-            <ProcessStep number={4} title="優先順位を判定" description="件数、影響範囲、緊急性、顧客影響、離職リスクなどで整理します。" />
-            <ProcessStep number={5} title="関係者ですり合わせ" description="論点に応じて、個別・部門内・部門横断・経営対話の場を設定します。" />
-            <ProcessStep number={6} title="結果を全社共有" description="会社としての判断、変えること、変えないこと、次の対応を共有します。" />
-          </div>
-        </section>
-
-        <section className="space-y-5">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-950">すり合わせの5原則</h2>
-            <p className="mt-3 leading-8 text-slate-700">
-              全社すり合わせルームでは、個人や部門を責めるのではなく、会社が目指す方向に向けて認識のズレを整えることを目的とします。
-            </p>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <PrincipleCard number={1} title="人や組織を悪者にしない" description="個人や部門を責めず、判断基準・役割・優先順位のズレとして扱う。" />
-            <PrincipleCard number={2} title="認識のズレをすり合わせる" description="それぞれの立場で見えている事実、前提、期待値を確認する。" />
-            <PrincipleCard number={3} title="会社の目指す方向性に沿う結論にする" description="最終判断は、会社の戦略・顧客価値・業績改善・組織のあるべき姿に照らして行う。" />
-            <PrincipleCard number={4} title="変えること・変えないことを明確にする" description="改善すること、説明すること、今は変えないことを分ける。" />
-            <PrincipleCard number={5} title="結果を共有し、次の行動につなげる" description="会社としての判断、次アクション、担当、期限を残す。" />
-          </div>
-        </section>
-
-        <section className="space-y-5">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-950">全社論点一覧</h2>
-            <p className="mt-2 text-slate-600">
-              社員から寄せられた違和感のAI集計結果と、会社としてのすり合わせ状況を確認できます。
-            </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-950">全社論点一覧</h2>
+              <p className="mt-2 text-slate-600">
+                社員から寄せられた違和感のAI集計結果と、会社としてのすり合わせ状況を確認できます。
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowHowToModal(true)}
+              className="shrink-0 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
+            >
+              このルームの使い方
+            </button>
           </div>
 
           <div className="flex flex-wrap gap-3">
@@ -2037,6 +1633,7 @@ export default function OrganizationSharedRoomPage() {
                   onCreateStage3Candidate={handleCreateStage3Candidate}
                   onCreateStage4Candidate={handleCreateStage4Candidate}
                   onResetReflection={handleResetReflection}
+                  isAdmin={isAdmin}
                 />
               ))
             )}
@@ -2057,6 +1654,96 @@ export default function OrganizationSharedRoomPage() {
           </div>
         </section>
       </div>
+
+      {/* このルームの使い方 モーダル */}
+      {showHowToModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[90vh] max-w-2xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+            <div className="space-y-6 p-8">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-slate-950">このルームの使い方</h2>
+                <button
+                  onClick={() => setShowHowToModal(false)}
+                  className="text-slate-500 hover:text-slate-700"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-950">声が論点になるまで</h3>
+                  <p className="mt-2 leading-7 text-slate-700">
+                    全社すり合わせルームでは、個別の声をそのまま並べるのではなく、AI集計によって会社として扱うべき共通論点に変換し、すり合わせと結果共有までつなげます。
+                  </p>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    <div className="rounded-lg bg-slate-50 p-3">
+                      <div className="text-sm font-semibold text-slate-900">1. 社員が違和感を入力</div>
+                      <p className="mt-1 text-xs text-slate-600">日々のもやもやや違和感を、個人が特定されない形で蓄積します。</p>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 p-3">
+                      <div className="text-sm font-semibold text-slate-900">2. AIが認識のズレを整理</div>
+                      <p className="mt-1 text-xs text-slate-600">感情や不満を、判断基準・役割・優先順位のズレとして構造化します。</p>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 p-3">
+                      <div className="text-sm font-semibold text-slate-900">3. 共通論点へ集約</div>
+                      <p className="mt-1 text-xs text-slate-600">類似する声を束ね、会社として扱うべき論点に変換します。</p>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 p-3">
+                      <div className="text-sm font-semibold text-slate-900">4. 優先順位を判定</div>
+                      <p className="mt-1 text-xs text-slate-600">件数、影響範囲、緊急性、顧客影響、離職リスクなどで整理します。</p>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 p-3">
+                      <div className="text-sm font-semibold text-slate-900">5. 関係者ですり合わせ</div>
+                      <p className="mt-1 text-xs text-slate-600">論点に応じて、個別・部門内・部門横断・経営対話の場を設定します。</p>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 p-3">
+                      <div className="text-sm font-semibold text-slate-900">6. 結果を全社共有</div>
+                      <p className="mt-1 text-xs text-slate-600">会社としての判断、変えること、変えないこと、次の対応を共有します。</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-200 pt-6">
+                  <h3 className="text-lg font-bold text-slate-950">すり合わせの5原則</h3>
+                  <p className="mt-2 leading-7 text-slate-700">
+                    全社すり合わせルームでは、個人や部門を責めるのではなく、会社が目指す方向に向けて認識のズレを整えることを目的とします。
+                  </p>
+                  <div className="mt-4 space-y-3">
+                    <div className="rounded-lg bg-blue-50 p-3">
+                      <div className="text-sm font-semibold text-blue-900">1. 人や組織を悪者にしない</div>
+                      <p className="mt-1 text-xs text-blue-700">個人や部門を責めず、判断基準・役割・優先順位のズレとして扱う。</p>
+                    </div>
+                    <div className="rounded-lg bg-blue-50 p-3">
+                      <div className="text-sm font-semibold text-blue-900">2. 認識のズレをすり合わせる</div>
+                      <p className="mt-1 text-xs text-blue-700">それぞれの立場で見えている事実、前提、期待値を確認する。</p>
+                    </div>
+                    <div className="rounded-lg bg-blue-50 p-3">
+                      <div className="text-sm font-semibold text-blue-900">3. 会社の目指す方向性に沿う結論にする</div>
+                      <p className="mt-1 text-xs text-blue-700">最終判断は、会社の戦略・顧客価値・業績改善・組織のあるべき姿に照らして行う。</p>
+                    </div>
+                    <div className="rounded-lg bg-blue-50 p-3">
+                      <div className="text-sm font-semibold text-blue-900">4. 変えること・変えないことを明確にする</div>
+                      <p className="mt-1 text-xs text-blue-700">改善すること、説明すること、今は変えないことを分ける。</p>
+                    </div>
+                    <div className="rounded-lg bg-blue-50 p-3">
+                      <div className="text-sm font-semibold text-blue-900">5. 結果を共有し、次の行動につなげる</div>
+                      <p className="mt-1 text-xs text-blue-700">会社としての判断、次アクション、担当、期限を残す。</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowHowToModal(false)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
