@@ -39,7 +39,7 @@ export default function ParticipantInput({ participants, onAdd, onRemove, onStar
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="例：まさひろ（下の名前・ひらがな推奨）"
+            placeholder="下の名前をひらがなで入力してください（例：たろう）"
             className="flex-1 px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-orange-400 focus:border-transparent outline-none"
           />
           <button
@@ -77,7 +77,7 @@ export default function ParticipantInput({ participants, onAdd, onRemove, onStar
       {/* 推奨案内 */}
       {participants.length === 1 && (
         <p className="text-sm text-orange-600 bg-orange-50 rounded-lg px-4 py-3">
-          💡 2人以上の参加をおすすめします
+          2人以上の参加をおすすめします
         </p>
       )}
 
@@ -92,7 +92,7 @@ export default function ParticipantInput({ participants, onAdd, onRemove, onStar
             : 'bg-gray-300 text-gray-500 cursor-not-allowed opacity-60',
         ].join(' ')}
       >
-        🎯 開始する
+        はじめる
       </button>
     </div>
   );
