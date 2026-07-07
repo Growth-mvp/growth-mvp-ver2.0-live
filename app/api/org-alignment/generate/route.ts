@@ -621,7 +621,7 @@ ${strategyContextForPrompt ? JSON.stringify(strategyContextForPrompt, null, 2) :
     const inputFlags = [hasCompanyInfo, hasStage1Context, hasStage2Answers, hasStage2Story, hasStage3Context, hasStage4Context];
     const meaningfulInputScore = Math.round((inputFlags.filter(Boolean).length / inputFlags.length) * 100);
 
-    const suspiciousKeywords = checkSuspiciousKeywords(prompts);
+    const suspiciousKeywords = checkSuspiciousKeywords(userPrompt);
 
     logInputGuard({
       requestId,
@@ -635,7 +635,7 @@ ${strategyContextForPrompt ? JSON.stringify(strategyContextForPrompt, null, 2) :
       hasStage2Story,
       hasStage3Context,
       hasStage4Context,
-      promptLength: prompts.length,
+      promptLength: userPrompt.length,
       suspiciousKeywordFlags: suspiciousKeywords,
     });
 
