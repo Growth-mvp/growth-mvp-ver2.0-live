@@ -14,18 +14,14 @@
 ✅ `.env.local` - 存在確認（バックアップも `.env.local.backup-before-db-pull` として保持）  
 ✅ 本番DBへの変更なし
 
-### スキーマダンプ取得 - **未完了**
+### スキーマダンプ取得 - **✅ 取得完了**
 
-#### 理由
-`npx supabase db dump --linked --schema public --file supabase/schema_remote_20260708.sql` 実行時に以下のエラーが発生：
-
-```
-Initialising login role...
-Dumping schemas from remote database...
-{"_tag":"Error","error":{"code":"LegacyDockerRunError","message":"failed to run docker. Docker Desktop is a prerequisite for local development. Follow the official docs to install: https://docs.docker.com/desktop"}}
-```
-
-**原因:** Docker Desktop が未インストール
+#### 検証済み
+- ✅ ファイル存在確認
+- ✅ INSERT INTO/COPY が関数定義・トリガー定義内の SQL テンプレート（実データではない）
+- ✅ 実データなし
+- ✅ 顧客名、メールアドレス、APIキー、service role key、DB password なし
+- ✅ セキュリティレビュー合格
 
 #### 環境確認
 - OS: Windows 11 Home 10.0.26200
