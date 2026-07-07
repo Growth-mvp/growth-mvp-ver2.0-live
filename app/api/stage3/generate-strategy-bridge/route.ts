@@ -525,7 +525,7 @@ function createFallbackStrategicCore(
   let customerValue: string | undefined;
   if (mts?.targetVisionForMidterm) {
     customerValue = mts.targetVisionForMidterm;
-  } else if (finalStoryFinal?.length > 0) {
+  } else if (finalStoryFinal && finalStoryFinal.length > 0) {
     const storyBody = finalStoryFinal[0]?.body || '';
     const valueMatch = storyBody.match(/(?:顧客価値|選ばれる理由|提供価値)[：:].+?(?=\n|$)/);
     if (valueMatch) {
@@ -550,7 +550,7 @@ function createFallbackStrategicCore(
 
   // behaviorChange：deploymentPrinciplesForUnits を優先。なければ commonBehaviorChanges を使う
   let behaviorChange: string | undefined;
-  if (mts?.deploymentPrinciplesForUnits?.length > 0) {
+  if (mts && mts.deploymentPrinciplesForUnits && mts.deploymentPrinciplesForUnits.length > 0) {
     behaviorChange = mts.deploymentPrinciplesForUnits[0];
   } else if (parsed.commonBehaviorChanges?.length > 0) {
     behaviorChange = parsed.commonBehaviorChanges[0];
