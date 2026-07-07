@@ -148,7 +148,7 @@ export default function Sidebar() {
             <PillLink
               href="/stage0"
               icon={<Coffee size={18} strokeWidth={1.5} />}
-              label="STAGE 0：会議前のひと息"
+              label="STAGE 0：アイスブレイク"
               active={isActive('/stage0')}
             />
             <PillLink
