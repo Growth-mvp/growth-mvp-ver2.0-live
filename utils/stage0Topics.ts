@@ -1,4 +1,4 @@
-// STAGE0: 会議前のひと息 - トピックリスト
+// STAGE0: アイスブレイク - トピックリスト
 
 export interface Topic {
   id: string;
