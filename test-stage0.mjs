@@ -9,7 +9,7 @@ try {
   console.log('Final URL:', page.url());
   
   const content = await page.content();
-  if (content.includes('会議前の一息')) {
+  if (content.includes('アイスブレイク')) {
     console.log('✅ STAGE0 component content found!');
   }
   if (content.includes('stage0')) {
