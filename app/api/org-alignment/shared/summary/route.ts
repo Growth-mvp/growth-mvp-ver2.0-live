@@ -76,7 +76,7 @@ export async function GET(req: NextRequest) {
     // ===== 2. 最新のインサイトに紐づく shared_topics を全件取得 =====
     const { data: sharedTopics, error: topicsError } = await admin
       .from('org_alignment_shared_topics')
-      .select('id, title, status, priority_score, strategy_reflection')
+      .select('id, title, status, priority_score, strategy_reflection, announcement_text, announcement_updated_at, related_case_count')
       .eq('company_id', companyId)
       .eq('source_alignment_insight_id', latestInsight.id)
       .in('status', ['published', 'in_alignment', 'action_planned', 'reflected', 'closed']);
@@ -133,16 +133,28 @@ export async function GET(req: NextRequest) {
       }
     });
 
-    // ===== 4. Priority score が高い順に最大3件を取得 =====
-    const topTopics = topics
-      .filter((topic: any) => typeof topic.priority_score === 'number')
-      .sort((a: any, b: any) => (b.priority_score || 0) - (a.priority_score || 0))
-      .slice(0, 3)
-      .map((topic: any) => ({
-        id: topic.id,
-        title: topic.title,
-        priorityScore: topic.priority_score,
-      }));
+    // ===== 4. Priority score が高い順に最大1件を取得（announcement_text 優先） =====
+    // announcement_text があるトピックを最優先
+    const topicsWithAnnouncement = topics.filter((t: any) => t.announcement_text);
+    const primaryTopic = topicsWithAnnouncement.length > 0
+      ? topicsWithAnnouncement[0]
+      : topics
+          .filter((topic: any) => typeof topic.priority_score === 'number')
+          .sort((a: any, b: any) => (b.priority_score || 0) - (a.priority_score || 0))[0];
+
+    const topTopics = primaryTopic
+      ? [
+          {
+            id: primaryTopic.id,
+            title: primaryTopic.title,
+            priorityScore: primaryTopic.priority_score,
+            status: primaryTopic.status,
+            announcementText: primaryTopic.announcement_text || null,
+            announcementUpdatedAt: primaryTopic.announcement_updated_at || null,
+            relatedCaseCount: primaryTopic.related_case_count || 0,
+          },
+        ]
+      : [];
 
     console.log(`[${ROUTE_TAG}] Summary for company ${companyId}:`, {
       sourceCaseCount: latestInsight.source_case_count,
