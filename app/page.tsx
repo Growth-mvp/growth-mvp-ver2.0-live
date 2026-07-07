@@ -57,7 +57,7 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.16 }}
               className="mt-2 text-[14px] font-medium leading-relaxed text-neutral-700 sm:text-[15px] lg:text-[16px] dark:text-neutral-300"
             >
-              経営・部門・現場を全体最適でつなぎ、成長する企業へと変わる仕組み。
+              経営・部門・現場を全体最適でつなぎ、会社を成長へシフトさせる仕組み。
             </motion.p>
 
             <motion.div
