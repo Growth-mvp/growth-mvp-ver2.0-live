@@ -10,9 +10,9 @@ import type {
   ProjectTargetImpact,
   ProjectIssueLink,
   CompanyTarget,
-  BridgeKR,
 } from '@/types/strategy';
 import type { IssueBlock } from '@/types/strategy';
+import type { BridgeKR } from '@/utils/simulationBridge';
 import { normalizeValueToUnit } from './compute';
 
 /**
