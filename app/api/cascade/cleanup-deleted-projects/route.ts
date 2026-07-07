@@ -99,13 +99,14 @@ export async function POST(req: Request) {
     });
 
     // === Step 4a: okrs soft_delete ===
-    const { error: okrError, count: okrCount } = await admin
+    const updateResult = await admin
       .from('okrs')
       .update({ is_deleted: true, updated_at: new Date().toISOString() })
       .eq('company_id', companyId)
       .in('project_id', deletedProjectIds)
-      .eq('is_deleted', false)
-      .select('id', { count: 'exact' });
+      .eq('is_deleted', false);
+    const okrError = updateResult.error;
+    const okrCount = updateResult.count;
 
     if (okrError) {
       console.error('[api/cascade/cleanup] okrs soft_delete failed:', okrError);
@@ -165,12 +166,13 @@ export async function POST(req: Request) {
 
         // soft_delete
         if (idsToDelete.length > 0) {
-          const { error: delError, count: delCount } = await admin
+          const delResult = await admin
             .from('progress_logs')
             .update({ is_deleted: true, updated_at: new Date().toISOString() })
             .in('id', idsToDelete)
-            .eq('is_deleted', false)
-            .select('id', { count: 'exact' });
+            .eq('is_deleted', false);
+          const delError = delResult.error;
+          const delCount = delResult.count;
 
           if (delError) {
             console.warn('[api/cascade/cleanup] progress_logs soft_delete failed:', delError);
