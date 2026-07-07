@@ -142,6 +142,10 @@ type OrgAlignmentSummary = {
     id: string;
     title: string;
     priorityScore: number;
+    status: string;
+    announcementText: string | null;
+    announcementUpdatedAt: string | null;
+    relatedCaseCount: number;
   }>;
   latestGeneratedAt: string | null;
 };
@@ -460,39 +464,53 @@ export default function ExecutionPanel() {
           </div>
         ) : orgAlignmentSummary ? (
           <>
-            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {[
-                { label: '公開中', value: orgAlignmentSummary.counts.published, note: '全社論点' },
-                { label: 'すり合わせ中', value: orgAlignmentSummary.counts.inAlignment, note: '関係者調整' },
-                { label: '方針決定', value: orgAlignmentSummary.counts.actionPlanned, note: '会社判断済み' },
-                { label: '還流候補', value: orgAlignmentSummary.counts.strategyReflectionCandidates, note: 'STAGE3/4' },
-              ].map((item) => (
-                <div
-                  key={item.label}
-                  className="rounded-xl bg-white px-3 py-2.5 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800"
-                >
-                  <div className="text-[11px] font-medium text-neutral-500">{item.label}</div>
-                  <div className="mt-1 text-xl font-semibold text-neutral-900 dark:text-white">{item.value}件</div>
-                  <div className="mt-0.5 text-[10px] text-neutral-500">{item.note}</div>
+            {orgAlignmentSummary.topTopics.length > 0 ? (
+              <>
+                {/* 主要論点の表示 */}
+                <div className="mt-3 rounded-xl bg-white p-4 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800">
+                  <div className="text-sm font-medium text-neutral-600 dark:text-neutral-400">会社として確認中の論点</div>
+                  <div className="mt-2">
+                    <div className="text-base font-semibold text-neutral-900 dark:text-white">
+                      {orgAlignmentSummary.topTopics[0].title}
+                    </div>
+                    {orgAlignmentSummary.topTopics[0].announcementText && (
+                      <div className="mt-3 rounded-lg bg-blue-50 p-3 dark:bg-blue-950/40">
+                        <p className="text-xs font-semibold text-blue-900 dark:text-blue-200">運営からのお知らせ</p>
+                        <p className="mt-1 text-xs leading-5 text-blue-800 dark:text-blue-100">
+                          {orgAlignmentSummary.topTopics[0].announcementText}
+                        </p>
+                      </div>
+                    )}
+                    <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-neutral-600 dark:text-neutral-400">
+                      <span className="font-medium">
+                        現在：
+                        {orgAlignmentSummary.topTopics[0].status === 'published'
+                          ? '未対応'
+                          : orgAlignmentSummary.topTopics[0].status === 'in_alignment'
+                          ? 'すり合わせ中'
+                          : '対応済み'}
+                      </span>
+                      <span>関連する声：{orgAlignmentSummary.topTopics[0].relatedCaseCount}件</span>
+                    </div>
+                  </div>
                 </div>
-              ))}
-            </div>
+              </>
+            ) : (
+              <div className="mt-3 rounded-lg bg-white px-4 py-3 text-xs text-neutral-600 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:text-neutral-400 dark:ring-neutral-800">
+                現在共有中の全社論点はありません
+              </div>
+            )}
 
-            {orgAlignmentSummary.topTopics.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {orgAlignmentSummary.topTopics.map((topic) => {
-                  // タイトルが長い場合は省略
-                  const displayTitle = topic.title.length > 16 ? topic.title.substring(0, 13) + '...' : topic.title;
-                  return (
-                    <span
-                      key={topic.id}
-                      className="rounded-full bg-white px-3 py-1 text-[11px] font-medium text-neutral-700 ring-1 ring-neutral-200/70 dark:bg-neutral-950 dark:text-neutral-300 dark:ring-neutral-800"
-                      title={topic.title}
-                    >
-                      {displayTitle}
-                    </span>
-                  );
-                })}
+            {/* 補助的な件数情報 */}
+            {orgAlignmentSummary.topicCount > 0 && (
+              <div className="mt-3 text-xs text-neutral-600 dark:text-neutral-400">
+                <span className="font-medium text-neutral-700 dark:text-neutral-300">
+                  全社: {orgAlignmentSummary.counts.published}件
+                </span>
+                <span className="mx-1">·</span>
+                <span>すり合わせ中: {orgAlignmentSummary.counts.inAlignment}件</span>
+                <span className="mx-1">·</span>
+                <span>方針決定済み: {orgAlignmentSummary.counts.actionPlanned}件</span>
               </div>
             )}
           </>
