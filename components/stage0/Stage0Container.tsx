@@ -17,7 +17,7 @@ export default function Stage0Container() {
             ☕ STAGE 0: 会議前の一息
           </h1>
           <p className="text-lg text-orange-700 mb-4">
-            このルームでの発言は記録・保存されません。リラックスして、話してください。
+            ここでは記録を残さず、気軽に話す時間にしましょう。
           </p>
           
         </div>
