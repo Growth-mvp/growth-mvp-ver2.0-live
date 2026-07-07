@@ -14,7 +14,7 @@ export default function Stage0Container() {
         {/* ヘッダー */}
         <div className="text-center mb-12">
           <h1 className="text-3xl sm:text-4xl font-bold text-orange-900 mb-2">
-            ☕ STAGE 0: 会議前のひと息
+            ☕ STAGE 0: アイスブレイク
           </h1>
           <p className="text-lg text-orange-700 mb-4">
             ここでは記録を残さず、気軽に話す時間にしましょう。
