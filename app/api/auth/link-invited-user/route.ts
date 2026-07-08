@@ -154,7 +154,7 @@ export async function POST(req: NextRequest) {
       { ok: true, companyId, role },
       { status: 200 }
     );
-  } catch (err: Record<string, any>) {
+  } catch (err: unknown) {
     console.error('[link-invited-user] Exception:', err);
     return NextResponse.json(
       { error: 'Internal server error' },
