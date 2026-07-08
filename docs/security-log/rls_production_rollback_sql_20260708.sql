@@ -23,7 +23,7 @@ DROP POLICY IF EXISTS "reflection_candidates_admin_delete" ON "public"."org_alig
 
 -- org_alignment_insight_sources policies
 DROP POLICY IF EXISTS "insight_sources_member_read" ON "public"."org_alignment_insight_sources";
-DROP POLICY IF EXISTS "insight_sources_admin_write" ON "public"."org_alignment_insight_sources";
+DROP POLICY IF EXISTS "insight_sources_admin_insert" ON "public"."org_alignment_insight_sources";
 DROP POLICY IF EXISTS "insight_sources_admin_update" ON "public"."org_alignment_insight_sources";
 DROP POLICY IF EXISTS "insight_sources_admin_delete" ON "public"."org_alignment_insight_sources";
 

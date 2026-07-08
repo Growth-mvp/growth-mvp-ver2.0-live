@@ -84,7 +84,7 @@ CREATE POLICY "reflection_candidates_admin_delete" ON "public"."org_alignment_st
 -- ==========================================
 
 DROP POLICY IF EXISTS "insight_sources_member_read" ON "public"."org_alignment_insight_sources";
-DROP POLICY IF EXISTS "insight_sources_admin_write" ON "public"."org_alignment_insight_sources";
+DROP POLICY IF EXISTS "insight_sources_admin_insert" ON "public"."org_alignment_insight_sources";
 DROP POLICY IF EXISTS "insight_sources_admin_update" ON "public"."org_alignment_insight_sources";
 DROP POLICY IF EXISTS "insight_sources_admin_delete" ON "public"."org_alignment_insight_sources";
 
@@ -105,7 +105,7 @@ CREATE POLICY "insight_sources_member_read" ON "public"."org_alignment_insight_s
     )
   );
 
-CREATE POLICY "insight_sources_admin_write" ON "public"."org_alignment_insight_sources"
+CREATE POLICY "insight_sources_admin_insert" ON "public"."org_alignment_insight_sources"
   FOR INSERT
   TO "authenticated"
   WITH CHECK (

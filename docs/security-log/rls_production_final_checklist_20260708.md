@@ -109,7 +109,7 @@ tablename | policyname | ...
   - [ ] reflection_candidates_admin_delete
 - [ ] org_alignment_insight_sources: 4 個（追加：4つの個別ポリシー）
   - [ ] insight_sources_member_read (read-only)
-  - [ ] insight_sources_admin_write (admin write)
+  - [ ] insight_sources_admin_insert (admin write)
   - [ ] insight_sources_admin_update (admin write)
   - [ ] insight_sources_admin_delete (admin write)
 - [ ] agent_logs: 2 個
@@ -233,25 +233,27 @@ Query executed successfully
 
 ### 適用実行
 
-**実行日時**: 202X-XX-XX XX:XX JST  
-**実行者**: ________________  
-**確認者**: ________________  
+**実行日時**: 2026-07-08 22:XX JST  
+**実行者**: 石原さん  
+**確認者**: DevOps  
 
 **実行結果**:
-- [ ] ✅ 成功（すべてのチェック項目クリア）
+- [✅] ✅ 成功（すべてのチェック項目クリア）
 - [ ] ❌ ロールバック実行（理由：_________________）
 
 ### 成功時の最終判定
 
 以下すべてがクリアされた場合、**本番適用完了**と宣言：
 
-- [ ] SQL 実行が成功（エラーなし）
-- [ ] ポリシー 12 個が正しく作成された
-- [ ] RLS 有効状態が確認できた
-- [ ] API シナリオ 5 つすべてが期待結果
-- [ ] UI テストで画面が正常表示
+- [✅] SQL 実行が成功（エラーなし）
+- [✅] ポリシー 12 個が正しく作成された（policy確認SQLで確認済み）
+- [✅] RLS 有効状態が確認できた（4テーブル rls_enabled = true 確認済み）
+- [✅] API シナリオ 5 つすべてが期待結果
+- [✅] UI テストで画面が正常表示
 
 **本番適用判定**: ✅ **成功** / ❌ **ロールバック** / ⏳ **再試行予定**
+
+**確定日時**: 2026-07-08 22:XX JST
 
 ### ロールバック時の記録
 
@@ -302,6 +304,20 @@ Query executed successfully
 | admin dashboard | OK / NG | OK / NG | ✅ / ⚠️ |
 
 **最終判定**: ✅ **本番安定** / ⚠️ **要監視** / ❌ **問題発生**
+
+---
+
+## 本番適用完了
+
+**適用状態**: ✅ **完了**
+
+**確認項目**:
+- [✅] policy確認SQL: 12個のポリシー作成を確認
+- [✅] RLS確認SQL: 対象4テーブル（org_alignment_insights, org_alignment_stage_reflection_candidates, org_alignment_insight_sources, agent_logs）すべてで rls_enabled = true を確認
+- [ ] ロールバック: 未実行（適用成功のため）
+
+**本番適用完了日時**: 2026-07-08  
+**ステータス**: ✅ **本番環境に適用済み**
 
 ---
 

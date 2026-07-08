@@ -53,7 +53,7 @@ ORDER BY tablename, policyname;
 --   - reflection_candidates_admin_delete
 -- org_alignment_insight_sources: 4 policies
 --   - insight_sources_member_read
---   - insight_sources_admin_write
+--   - insight_sources_admin_insert
 --   - insight_sources_admin_update
 --   - insight_sources_admin_delete
 -- agent_logs: 2 policies
