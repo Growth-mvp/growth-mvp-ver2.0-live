@@ -1,24 +1,17 @@
-いまの PowerShell コマンドは malformed syntax になっているので実行しないでください。
+tsconfig.json の TypeScript 6.0 deprecation 警告について確認してください。
 
-Windows PowerShell 互換で、以下を個別に実行してください。
+- 今回のPoCセキュリティ対応とは無関係であることを記録
+- build 成功済みなので、PoC前ブロッカーにはしない
+- もし最小修正で済むなら compilerOptions に "ignoreDeprecations": "6.0" を追加
+- ただし他の tsconfig 設定は変更しない
+- 変更した場合は npm run build を再実行
 
-cd "C:\dev\growth-mvp-ver2.0"
-npm run type-check
+docs/poc/customer-guide.md の外部AI利用範囲を確認してください。
 
-次に、type-check の結果を確認してください。
-もし既存エラーのみで今回修正ファイルに関係ない場合は、エラー全文ではなく以下だけ報告してください。
+本番アプリが顧客入力データを送信する外部AIだけを記載してください。
+Claude Codeを開発補助に使っているだけで、本番アプリからAnthropic APIへ顧客データを送信しない場合、Anthropic Claude の記載は削除してください。
 
-- エラー件数
-- エラー発生ファイル
-- 今回修正ファイルに関係するか
-- build 実行可否
+表現例：
+「AI生成機能では、入力内容の一部が外部AI APIに送信される場合があります。送信対象・用途・保存方針はPoC説明時に個別に説明します。」
 
-type-check が通る、または既存エラーで今回修正と無関係と確認できた場合のみ、次を実行してください。
-
-npm run build
-npm run lint
-npm audit --omit=dev
-
-注意：
-- .env.local、secret、token、API key は表示しない
-- エラー出力にsecretらしき値が含まれる場合はマスクして報告
+修正後、git diff で secret が含まれないことを確認してください。
