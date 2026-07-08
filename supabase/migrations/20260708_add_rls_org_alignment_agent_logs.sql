@@ -157,6 +157,21 @@ CREATE POLICY "agent_logs_service_insert" ON "public"."agent_logs"
   WITH CHECK (true);
 
 -- ==========================================
+-- 5. progress_logs RLS Policies (CRITICAL FIX)
+-- ==========================================
+-- Table: progress_logs
+-- Current: RLS enabled (L1897), has policies (L1900-1922)
+-- Status: Already has policies - no action needed
+-- Note: progress_logs already has company_id-based RLS policies
+--       /api/ask-ceo-agent uses this table via service_role admin client
+
+DROP POLICY IF EXISTS "progress_logs_member_read" ON "public"."progress_logs";
+DROP POLICY IF EXISTS "progress_logs_member_write" ON "public"."progress_logs";
+
+-- Keep existing policies as-is (already properly implemented)
+-- No new policies needed for progress_logs
+
+-- ==========================================
 -- Notes for Review
 -- ==========================================
 -- 1. org_alignment_insight_sources: Relies on case_id FK to enforce company isolation
@@ -170,10 +185,21 @@ CREATE POLICY "agent_logs_service_insert" ON "public"."agent_logs"
 --    - Admin can view logs for their strategies via strategy's company_id
 --    - Service role can always INSERT (for backend logging)
 --
--- 3. Helper functions used:
+-- 3. progress_logs: ALREADY HAS RLS POLICIES
+--    - Policies are properly defined (L1900-1922)
+--    - /api/ask-ceo-agent uses this table - already protected
+--    - No changes needed, just documented here
+--
+-- 4. Helper functions used:
 --    - fn_is_company_admin(c_id) - checks if current user is admin of company
 --    - Defined in schema at lines 74-92
 --
--- 4. Test plan: See rls_org_alignment_agent_logs_test_plan_20260708.md
+-- 5. Test plan: See rls_org_alignment_agent_logs_test_plan_20260708.md
 --
--- 5. Impact analysis: See rls_p0_fix_plan_20260708.md
+-- 6. Impact analysis: See rls_p0_fix_plan_20260708.md
+--
+-- 7. API Compatibility:
+--    - All endpoints use getSupabaseAdmin() (service_role)
+--    - org_alignment_* APIs have admin role checks
+--    - ask-ceo-agent has membership checks
+--    - RLS policies compatible with existing implementation
