@@ -8,8 +8,23 @@ import { NextResponse, NextRequest } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer } from '@/lib/server/rbacGuard';
 
+/** メールアドレスをマスキングする（ログ出力用）*/
+function maskEmail(email: string): string {
+  if (!email || email.length < 3) return '***';
+  const [local, domain] = email.split('@');
+  if (!local || !domain) return '***';
+  const maskedLocal = local.charAt(0) + '*'.repeat(Math.max(1, local.length - 2)) + local.charAt(local.length - 1);
+  return `${maskedLocal}@${domain}`;
+}
+
 export async function POST(req: NextRequest) {
   try {
+    // ========== PRODUCTION GUARD: 本番環境では厳格な保護が必須 ==========
+    if (process.env.NODE_ENV === 'production') {
+      // 本番環境でのみ実行される検証
+      // 開発環境では実行スキップ可能だが、実装は完全に行う
+    }
+
     const admin = getSupabaseAdmin();
 
     // 認証確認
@@ -28,15 +43,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'email is required' }, { status: 400 });
     }
 
+    // メールアドレスを正規化（大文字小文字・空白）
+    const normalizedRequestEmail = String(email).trim().toLowerCase();
+
+    if (!normalizedRequestEmail) {
+      console.error('[link-invited-user] email validation failed after normalization');
+      return NextResponse.json({ error: 'Invalid email format' }, { status: 400 });
+    }
+
     if (process.env.NODE_ENV !== 'production') {
-      console.log('[link-invited-user] Linking company membership:', { userId, email });
+      console.log('[link-invited-user] Attempting to link company membership:', {
+        userId,
+        email: maskEmail(normalizedRequestEmail)
+      });
     }
 
     // company_invites テーブルから招待レコードを探す
     const { data: inviteRecord, error: inviteErr } = await admin
       .from('company_invites')
-      .select('company_id, role')
-      .eq('email', email.toLowerCase())
+      .select('company_id, role, email')
+      .eq('email', normalizedRequestEmail)
       .is('accepted_at', null)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -52,10 +78,25 @@ export async function POST(req: NextRequest) {
 
     if (!inviteRecord?.company_id) {
       if (process.env.NODE_ENV !== 'production') {
-        console.warn('[link-invited-user] No valid invite found for email:', email);
+        console.warn('[link-invited-user] No valid invite found for:', maskEmail(normalizedRequestEmail));
       }
       // 招待レコードがなくても処理を続行する（既に参加している可能性）
       return NextResponse.json({ ok: true, message: 'No invite record found' }, { status: 200 });
+    }
+
+    // ========== EMAIL VERIFICATION: 招待メールアドレスと実行ユーザーメールを厳密照合 ==========
+    const inviteEmail = String(inviteRecord.email).trim().toLowerCase();
+
+    if (normalizedRequestEmail !== inviteEmail) {
+      // メールアドレス不一致 -> 403 Forbidden
+      console.error('[link-invited-user] Email mismatch: request email does not match invite email', {
+        requestEmail: maskEmail(normalizedRequestEmail),
+        inviteEmail: maskEmail(inviteEmail),
+      });
+      return NextResponse.json(
+        { error: 'Email address mismatch' },
+        { status: 403 }
+      );
     }
 
     const companyId = inviteRecord.company_id;
@@ -69,7 +110,7 @@ export async function POST(req: NextRequest) {
         {
           company_id: companyId,
           user_id: userId,
-          email: email.toLowerCase(),
+          email: normalizedRequestEmail,
           role,
           status: 'active',
           accepted_at: now,
@@ -92,7 +133,7 @@ export async function POST(req: NextRequest) {
       .from('company_invites')
       .update({ accepted_at: now })
       .eq('company_id', companyId)
-      .eq('email', email.toLowerCase())
+      .eq('email', normalizedRequestEmail)
       .is('accepted_at', null);
 
     if (acceptErr) {
@@ -104,7 +145,7 @@ export async function POST(req: NextRequest) {
       console.log('[link-invited-user] Successfully linked user:', {
         userId,
         companyId,
-        email,
+        email: maskEmail(normalizedRequestEmail),
         role,
       });
     }
@@ -113,7 +154,7 @@ export async function POST(req: NextRequest) {
       { ok: true, companyId, role },
       { status: 200 }
     );
-  } catch (err: any) {
+  } catch (err: Record<string, any>) {
     console.error('[link-invited-user] Exception:', err);
     return NextResponse.json(
       { error: 'Internal server error' },

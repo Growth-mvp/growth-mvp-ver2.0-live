@@ -1,14 +1,61 @@
-push前の最終確認をしてください。
+フェーズ2：PoC前必須5項目を実装してください。
 
-確認項目：
-1. git status が clean であること
-2. git log --oneline --decorate -8 で、push対象コミットを確認
-3. .env.local や secret が含まれていないことを確認
-4. 直近コミットに含まれるファイル一覧を確認
-5. 問題なければ git push origin main を実行
+厳守：
+- 本番DBにSQL実行しない
+- Supabase policy変更、db push、migration repair禁止
+- npm audit fix --force禁止
+- .env.local、secret、token、API keyを表示しない
 
-禁止：
-- git reset --hard
-- force push
-- secret表示
-- .env.local のコミット
+優先順：
+
+1. A-08/C-05/K-04: link-invited-user 修正
+- productionでは原則無効化、または明示的な管理者認証＋許可条件がある場合のみ実行
+- NODE_ENV !== 'production' だけでなく、production時に誤実行できないガードを完成
+- 招待メールアドレスとリンク対象ユーザーのメールアドレスを厳密照合
+- 大文字小文字・前後空白は normalize して比較
+- 不一致時は 403
+- 成功/失敗ログにメールアドレスをそのまま出さない。必要なら maskEmail() を使用
+- テスト観点：一致=成功、不一致=403、未認証=401/403、本番ガード有効
+
+2. M-02: PoC企業説明資料・署名取得
+- docs/security-log または docs/poc 配下に作成
+- 内容：
+  - 限定PoCの位置づけ
+  - 取り扱うデータ範囲
+  - 保存される情報
+  - AI利用の範囲
+  - 未対応/制約事項
+  - インシデント時の連絡・初動
+  - 顧客確認欄/署名欄
+- 技術的に過剰な表現ではなく、顧客に説明できる平易な文面にする
+
+3. B-04/H-02: logout時 localStorage 完全削除
+- logout処理で、GROWTH SHIFT関連のlocalStorage/sessionStorageを削除
+- Supabase signOut 後だけでなく、失敗時も可能な範囲でローカル状態をクリア
+- 他サービスのキーを無差別削除しない
+- strategy/company/stage/org-alignment/admin系の残存キーを洗い出す
+
+4. E-07: delete-all API audit logging + beforeState 修正
+- 実行前に beforeState を取得して audit log に保存
+- companyId、userId、対象件数、実行理由、結果を記録
+- メール・本文・戦略本文など機密本文はログにそのまま出さない
+- 失敗時も audit log または server log に安全な形で記録
+- admin/membership/companyId検証は維持・強化
+
+5. npm audit残存整理
+- --forceなし
+- 残存脆弱性について：
+  - package名
+  - severity
+  - exploit条件
+  - PoC影響
+  - 今回対応可否
+  - PoC前Go判断への影響
+  を docs/security-log に追記
+
+完了条件：
+- npm run lint / typecheck / build を実行
+- npm audit 実行
+- 108項目チェックリストの該当項目を再判定
+- 最終レポートに「PoC前必須5項目が完了したか」を明記
+- git diff を確認し、secretや本番値が含まれていないことを確認

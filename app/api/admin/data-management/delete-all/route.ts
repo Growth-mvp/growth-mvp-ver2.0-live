@@ -3,6 +3,87 @@ import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer } from '@/lib/server/rbacGuard';
 
+// メールアドレスをマスキングする（ログ出力用）
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function maskEmail(email: string): string {
+  if (!email || email.length < 3) return '***';
+  const [local, domain] = email.split('@');
+  if (!local || !domain) return '***';
+  const maskedLocal = local.charAt(0) + '*'.repeat(Math.max(1, local.length - 2)) + local.charAt(local.length - 1);
+  return `${maskedLocal}@${domain}`;
+}
+
+/**
+ * audit_log テーブルに記録
+ * - companyId, userId, 対象件数, 実行理由, 結果を記録
+ * - 機密本文（メール・本文・戦略本文等）はログに出さない
+ */
+async function recordAuditLog(
+  admin: Record<string, any>,
+  companyId: string,
+  userId: string,
+  action: string,
+  details: {
+    beforeState?: Record<string, any>;
+    afterState?: Record<string, any>;
+    deletedCount?: number;
+    status: 'success' | 'failure';
+    reason?: string;
+    error?: string;
+  }
+) {
+  try {
+    // 機密情報をマスキング・除外
+    const safeDetails: Record<string, any> = {
+      status: details.status,
+      deletedCount: details.deletedCount ?? 0,
+      reason: details.reason,
+      error: details.error ? 'Error occurred (details masked)' : undefined,
+    };
+
+    // beforeState/afterState から機密項目を除外
+    if (details.beforeState) {
+      safeDetails.beforeState = {
+        final_story_count: details.beforeState.final_story,
+        story_draft_count: details.beforeState.story_draft,
+        final_story_draft_count: details.beforeState.final_story_draft,
+        final_story_final_count: details.beforeState.final_story_final,
+        stage3_strategy_bridge_exists: details.beforeState.stage3_strategy_bridge,
+        departments_count: details.beforeState.departments,
+      };
+    }
+
+    if (details.afterState) {
+      safeDetails.afterState = {
+        final_story_count: details.afterState.final_story,
+        story_draft_count: details.afterState.story_draft,
+        final_story_draft_count: details.afterState.final_story_draft,
+        final_story_final_count: details.afterState.final_story_final,
+        stage3_strategy_bridge_exists: details.afterState.stage3_strategy_bridge,
+        departments_count: details.afterState.departments,
+      };
+    }
+
+    // audit_log テーブルに記録（テーブルが存在する場合）
+    try {
+      await admin
+        .from('audit_log')
+        .insert({
+          company_id: companyId,
+          user_id: userId,
+          action,
+          details: safeDetails,
+          created_at: new Date().toISOString(),
+        });
+    } catch (auditErr) {
+      // audit_log テーブルが無い場合は、ここでは掛けずにサーバーログに委譲
+      console.warn('[DELETE_ALL_API] audit_log table not available or insert failed (ignored)', auditErr);
+    }
+  } catch (e) {
+    console.warn('[DELETE_ALL_API] recordAuditLog failed (ignored):', e);
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const admin = getSupabaseAdmin();
@@ -66,7 +147,7 @@ export async function POST(req: Request) {
     ];
 
     // strategy_data の STAGE2+ カラムを初期化
-    const updatePayload: any = {
+    const updatePayload: Record<string, any> = {
       story_draft: [],
       final_story: [],
       final_story_draft: [],
@@ -97,10 +178,17 @@ export async function POST(req: Request) {
       console.error('[DELETE_ALL_API] Update error details:', {
         message: updateError.message,
         code: updateError.code,
-        details: (updateError as any).details,
-        hint: (updateError as any).hint,
-        status: (updateError as any).status,
+        details: (updateError as Record<string, any>).details,
+        hint: (updateError as Record<string, any>).hint,
+        status: (updateError as Record<string, any>).status,
         columns: updateColumns,
+      });
+
+      // ★ 修正：失敗時もaudit logに記録
+      await recordAuditLog(admin, companyId, authUserId, 'data:delete-all', {
+        beforeState,
+        status: 'failure',
+        error: updateError.message,
       });
 
       return NextResponse.json(
@@ -109,9 +197,9 @@ export async function POST(req: Request) {
           detail: {
             message: updateError.message,
             code: updateError.code,
-            details: (updateError as any).details,
-            hint: (updateError as any).hint,
-            status: (updateError as any).status,
+            details: (updateError as Record<string, any>).details,
+            hint: (updateError as Record<string, any>).hint,
+            status: (updateError as Record<string, any>).status,
           },
           operationId: `delete_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
         },
@@ -306,6 +394,23 @@ export async function POST(req: Request) {
     // operationId を生成してレスポンスに含める
     const operationId = `delete_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
+    // ★ 修正：成功時もaudit logに記録
+    const afterState = {
+      final_story: immediateVerification.strategy_data.final_story_length,
+      story_draft: immediateVerification.strategy_data.story_draft_length,
+      final_story_draft: immediateVerification.strategy_data.final_story_draft_length,
+      final_story_final: immediateVerification.strategy_data.final_story_final_length,
+      stage3_strategy_bridge: immediateVerification.strategy_data.stage3_strategy_bridge_exists,
+      departments: immediateVerification.strategy_data.departments_length,
+    };
+
+    await recordAuditLog(admin, companyId, authUserId, 'data:delete-all', {
+      beforeState,
+      afterState,
+      deletedCount: updatedRows?.length ?? 0,
+      status: 'success',
+    });
+
     return NextResponse.json(
       {
         ok: true,
@@ -315,14 +420,7 @@ export async function POST(req: Request) {
         message: 'All data deleted successfully',
         beforeState,
         updateState,
-        afterState: {
-          final_story: immediateVerification.strategy_data.final_story_length,
-          story_draft: immediateVerification.strategy_data.story_draft_length,
-          final_story_draft: immediateVerification.strategy_data.final_story_draft_length,
-          final_story_final: immediateVerification.strategy_data.final_story_final_length,
-          stage3_strategy_bridge: immediateVerification.strategy_data.stage3_strategy_bridge_exists,
-          departments: immediateVerification.strategy_data.departments_length,
-        },
+        afterState,
         _note: 'execution_plan_baseline, stage4_plans, final_story_edited are frontend-only, not in strategy_data table',
         verifySuccess: isVerifySuccess,
         separatedTableDeletions,

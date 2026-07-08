@@ -10,6 +10,46 @@ import { useStrategyStore } from '@/store/strategyStore';
 
 /* ---------------- helpers ---------------- */
 
+/**
+ * GROWTH SHIFT関連の localStorage/sessionStorage キーをすべて削除
+ * 対象: strategy-store, company-context, stage-*, org-alignment-*, admin-* など
+ */
+function purgeGrowthShiftLocalStorage() {
+  try {
+    if (typeof window === 'undefined') return;
+
+    // 削除対象のプレフィックス・キー一覧
+    const targetPatterns = [
+      /^strategy-store/i,
+      /^company-context/i,
+      /^stage-/i,
+      /^org-alignment/i,
+      /^admin-/i,
+      /^growth-/i,
+      /^growth::/i,
+      /^department-/i,
+      /^okr-/i,
+      /^project-/i,
+    ];
+
+    // localStorage のクリア
+    const localKeys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i) || '');
+    localKeys.forEach((k) => {
+      if (targetPatterns.some((pattern) => pattern.test(k))) {
+        localStorage.removeItem(k);
+      }
+    });
+
+    // sessionStorage のクリア
+    const sessionKeys = Array.from({ length: sessionStorage.length }, (_, i) => sessionStorage.key(i) || '');
+    sessionKeys.forEach((k) => {
+      if (targetPatterns.some((pattern) => pattern.test(k))) {
+        sessionStorage.removeItem(k);
+      }
+    });
+  } catch {}
+}
+
 function purgeSupabaseLocalStorage() {
   try {
     if (typeof window === 'undefined') return;
@@ -57,10 +97,11 @@ export default function LogoutButton() {
 
   const hardCleanup = () => {
     try {
+      // GROWTH SHIFT関連のすべてのキーを削除
+      purgeGrowthShiftLocalStorage();
       purgeSupabaseLocalStorage();
       clearDisplayCookies?.();
       purgeCustomCookies();
-      localStorage.removeItem('strategy-store');
     } catch {}
     try {
       clearUser?.();

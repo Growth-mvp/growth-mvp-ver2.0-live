@@ -1,0 +1,281 @@
+{
+  "audit_date": "2026-07-08",
+  "baseline_date": "2026-07-03",
+  "audit_type": "re-assessment",
+  "changes_summary": {
+    "ng_to_ok": 0,
+    "ng_to_conditional": 1,
+    "conditional_to_ok": 0,
+    "ng_count_reduction": 4,
+    "remaining_ng": 17,
+    "remaining_conditional": 31,
+    "p0_initial": 10,
+    "p0_remaining": 2,
+    "p0_improved": 2
+  },
+  "score": {
+    "previous_ok": 15,
+    "current_ok": 15,
+    "previous_ng": 21,
+    "current_ng": 17,
+    "previous_conditional": 28,
+    "current_conditional": 31,
+    "improvement_rate": 0.19
+  },
+  "poc_decision": "conditional-no-go",
+  "poc_decision_reason": "P0脆弱性2件残存（org_alignment, agent_logs RLS未適用）だが、migration準備完了。本番適用前に実施可能",
+  "focus_10_items": [
+    {
+      "id": "C-05",
+      "title": "ロール昇格経路限定",
+      "baseline_status": "NG",
+      "current_status": "NG",
+      "baseline_reason": "/api/auth/link-invited-user による unauthorized ロール昇格経路",
+      "current_reason": "同上（修正確認待機）",
+      "evidence": "app/api/auth/link-invited-user/route.ts: body.email と auth user email の照合不実装。任意の未受諾invite role で membership upsert可能",
+      "poc_critical": true,
+      "severity": "high",
+      "remaining_work": "email パラメータ必須化と本人メール照合を実装。招待メール検証バイパス（C-05/A-08関連）の根本解決"
+    },
+    {
+      "id": "C-10",
+      "title": "認可被覆のCIゲート",
+      "baseline_status": "NG",
+      "current_status": "NG",
+      "baseline_reason": "CI実装なし。ガード漏れの自動検知機能がない",
+      "current_reason": "同上",
+      "evidence": ".github/workflows/ 不在。guardPolicyを grep検出するCIが未実装",
+      "poc_critical": true,
+      "severity": "high",
+      "remaining_work": "CI/CD pipeline に認可ガード被覆チェック追加。exception 4本（provision, invites/complete, members inline, set-cookie）を理由つき許可リスト化"
+    },
+    {
+      "id": "D-02",
+      "title": "RLSポリシー文書化・検証",
+      "baseline_status": "NG",
+      "current_status": "conditional",
+      "baseline_reason": "RLSポリシーがリポジトリに無く、実DB確認未実施",
+      "current_reason": "migration 20260708 で新規4テーブルのポリシーSQL作成完了。本番未適用だが準備完了",
+      "evidence": "supabase/migrations/20260708_add_rls_org_alignment_agent_logs.sql: org_alignment_insights (2ポリシー) + org_alignment_stage_reflection_candidates (4ポリシー) + org_alignment_insight_sources (1ポリシー) + agent_logs (2ポリシー)。テスト計画 rls_org_alignment_agent_logs_test_plan_20260708.md 準備完了",
+      "poc_critical": true,
+      "severity": "critical",
+      "remaining_work": "migration 20260708 を本番環境に適用（計画メンテナンス時）。ステージング環境でテスト計画全シナリオ実行"
+    },
+    {
+      "id": "D-03",
+      "title": "クロステナントREAD拒否",
+      "baseline_status": "未実施",
+      "current_status": "未実施",
+      "baseline_reason": "動的テスト未実施",
+      "current_reason": "同上。ただし D-02 RLS migration 適用後、テスト計画1-1,1-2 で実施予定",
+      "evidence": "テスト計画シナリオ1-1,1-2 に A社→B社 SELECT/INSERT/UPDATE/DELETE拒否の実測手順を記載済み。rbac-e2e-min.sh 流用可能",
+      "poc_critical": true,
+      "severity": "critical",
+      "remaining_work": "RLS migration本番適用後、ステージング環境で SELECT 0 rows の確認。リアルタイム token での実測"
+    },
+    {
+      "id": "D-04",
+      "title": "クロステナントWRITE拒否",
+      "baseline_status": "未実施",
+      "current_status": "未実施",
+      "baseline_reason": "動的テスト未実施",
+      "current_reason": "同上。ただし D-02 RLS migration 適用後、テスト計画1-3～2-2 で実施予定",
+      "evidence": "テスト計画シナリオ1-3, 2-1, 2-2 に UPDATE/INSERT/DELETE拒否の実測手順を記載済み",
+      "poc_critical": true,
+      "severity": "critical",
+      "remaining_work": "RLS migration本番適用後、ステージング環境で拒否確認。全操作（INSERT/UPDATE/DELETE）で 0 rows updated を確認"
+    },
+    {
+      "id": "D-11",
+      "title": "コアスキーマのmigration正本化",
+      "baseline_status": "NG",
+      "current_status": "conditional",
+      "baseline_reason": "companies, strategy_data等のコア6テーブルの create table migration がリポジトリに0件",
+      "current_reason": "新規RLS migration作成済み（20260708）。ただし既存テーブルのcreate table migration は未作成（既存Supabase環境への手動作成のため）",
+      "evidence": "supabase/migrations/ に create table migration 0件を確認。一方、RLS policy migration は 20260708 で正本化されている。既存テーブル schema_remote_20260708.sql で confirm",
+      "poc_critical": true,
+      "severity": "high",
+      "remaining_work": "既存スキーマ（companies, strategy_data, okrs等）の create table migration を作成。PoC後のスキーマ再構築時の一貫性を保証"
+    },
+    {
+      "id": "E-03",
+      "title": "レート制限fail-open防止",
+      "baseline_status": "NG",
+      "current_status": "conditional",
+      "baseline_reason": "Upstash env 未設定時に『Rate limiting disabled』で fail-open。実機 429 未確認",
+      "current_reason": "middleware.ts に @upstash/ratelimit 実装は確認済み。ただし env未設定時の fail-safe check が定かでない",
+      "evidence": "middleware.ts の rate limit 実装あり（AI/管理系制限）。デプロイ時のenv check ツール未確認。本番では Vercel edge middleware で保護",
+      "poc_critical": false,
+      "severity": "high",
+      "remaining_work": "Upstash env設定状態の確認。デプロイ時に未設定を検知して build fail する CI check 追加（環境変数validation）"
+    },
+    {
+      "id": "E-07",
+      "title": "delete-all API 3層防御確認",
+      "baseline_status": "conditional",
+      "current_status": "conditional",
+      "baseline_reason": "admin認証・company_id制限あり。ただし再認証・確認手順・監査ログ欠落",
+      "current_reason": "2026-07-08確認で新規 /admin/data-management/delete-all が存在。admin認証✅ company_id制限✅。監査ログ logAuditEvent 呼び出し確認。ただし beforeState 未定義参照による必発500エラー（レスポンス構築部で削除後crash）",
+      "evidence": "app/api/admin/data-management/delete-all/route.ts: Bearer認証(L11)✅ role check(L21-36)✅ company_id scope(L38)✅ logAuditEvent(L189)✅。ただし L206/303で beforeState未定義参照により削除後500エラー。リトライ誘発の恐れ",
+      "poc_critical": false,
+      "severity": "high",
+      "remaining_work": "beforeState 変数定義の追加。削除前snapshot取得→削除後の差分検証→ログ記録の順序確保。レート制限（24h/1回）の実装"
+    },
+    {
+      "id": "K-04",
+      "title": "本番ログのマスキング実装",
+      "baseline_status": "NG",
+      "current_status": "conditional",
+      "baseline_reason": "大量の console.log、NODE_ENV ゲートなし。strategyStore 158行、app/api 437行の無条件ログ",
+      "current_reason": "link-invited-user のメール本番ログを NODE_ENV ガード修正（2026-07-08完了）。ただし Stage2/3/cascade の詳細ログ（rawPreview, STAGE3_AI_RAW 等）は未対応",
+      "evidence": "app/api/auth/link-invited-user/route.ts: L31, L52, L99-104 の console.log に NODE_ENV チェック追加確認済み。一方 app/api/generate-cascade/route.ts (L4082-4090: STAGE3_AI_RAW), app/api/stage2/generate-final/route.ts (rawPreview), stage3/generate-strategy-bridge/route.ts (AI生成JSON直出力) は未対応",
+      "poc_critical": false,
+      "severity": "medium",
+      "remaining_work": "Stage生成系の全console.log に NODE_ENV !== 'production' ガード追加。サンプル内容ではなくハッシュ値・長さのみログ出力に変更"
+    },
+    {
+      "id": "L-01",
+      "title": "npm audit脆弱性",
+      "baseline_status": "NG",
+      "current_status": "conditional",
+      "baseline_reason": "critical 2 / high 23（計42件）。修正なし状態",
+      "current_reason": "P0 再評価で html2pdf/jspdf は非依存（誤検）。実際の critical は存在せず。高リスクは xlsx (HIGH, 修正不可) と Vercel関連メジャー版アップグレード必要の脆弱性。npm audit fix (patch) で3パッケージ更新済み（Next.js関連）",
+      "evidence": "npm audit --json: 42件中、npm audit fix で3パッケージ更新完了。xlsx HIGH (Prototype Pollution+ReDoS, No fix available) を確認。html2pdf/jspdf はpackage.json依存なし（誤指摘）。breaking change (undici, path-to-regexp) は --force で対応必須",
+      "poc_critical": false,
+      "severity": "high",
+      "remaining_work": "xlsx → exceljs 代替検討（PoC中の代替実装）。breaking change パッケージ（--force必要）の検証・段階実装"
+    },
+    {
+      "id": "M-02",
+      "title": "PoC企業説明資料",
+      "baseline_status": "NG",
+      "current_status": "NG",
+      "baseline_reason": "説明資料・合意プロセス未整備",
+      "current_reason": "同上",
+      "evidence": "docs に説明資料なし。PoC参加企業との合意ドキュメント未作成",
+      "poc_critical": true,
+      "severity": "high",
+      "remaining_work": "データ保存場所（Supabaseリージョン）・外部送信（OpenAI）・バックアップ・削除ポリシー・既知の制約（同時編集限界等）を説明資料化。PoC企業との合意書に署名"
+    }
+  ],
+  "critical_findings": [
+    {
+      "priority": "P0",
+      "id": "D-02/D-03/D-04",
+      "title": "RLSポリシー本番未適用",
+      "status": "準備完了・本番未適用",
+      "risk": "テナント越境アクセスの物理的防御層が未構築",
+      "migration": "supabase/migrations/20260708_add_rls_org_alignment_agent_logs.sql（準備完了）",
+      "test_plan": "docs/security-log/rls_org_alignment_agent_logs_test_plan_20260708.md（準備完了）",
+      "required_action": "本番環境へ migration 適用（計画メンテナンス時）",
+      "timeline": "PoC開始前、最短3~5営業日"
+    },
+    {
+      "priority": "P0",
+      "id": "C-05",
+      "title": "ロール昇格の裏口（link-invited-user）",
+      "status": "NG継続",
+      "risk": "email パラメータのオプション化により、メール検証バイパス→admin ロール横取り可能",
+      "evidence": "app/api/auth/link-invited-user/route.ts: email 照合が未実装",
+      "required_action": "email パラメータ必須化、auth user email との一致検証",
+      "timeline": "PoC開始前・即座"
+    },
+    {
+      "priority": "P0→P1降格",
+      "id": "L-01",
+      "title": "npm脆弱性（CRITICAL誤検）",
+      "status": "再評価完了・対応方針決定",
+      "initial_error": "html2pdf.js, jspdf を CRITICAL と指摘（実は非依存）",
+      "actual_risk": "xlsx HIGH (修正不可)、Vercel関連メジャー版アップグレード",
+      "required_action": "xlsx → exceljs 代替検討。breaking change の段階実装",
+      "timeline": "PoC中の並行対応"
+    },
+    {
+      "priority": "P1",
+      "id": "K-04",
+      "title": "本番ログの機密情報漏洩（部分改善）",
+      "status": "改善中（link-invited-user 完了、Stage生成系未対応）",
+      "risk": "AI生成戦略、プロンプト内容、ユーザーメールが本番ログに記録される",
+      "evidence": "app/api/auth/link-invited-user/route.ts: NODE_ENV ガード追加済み。app/api/generate-cascade/route.ts: STAGE3_AI_RAW 等未対応",
+      "required_action": "全 console.log に NODE_ENV チェック追加。内容ではなくハッシュ値のみログ",
+      "timeline": "PoC開始前"
+    }
+  ],
+  "audit_comparison": {
+    "baseline_period": "2026-06-22～2026-07-03",
+    "reassessment_date": "2026-07-08",
+    "days_elapsed": 5,
+    "improvements": [
+      {
+        "category": "コード修正",
+        "item": "P0#8 メール本番ログ",
+        "action": "NODE_ENV ガード追加",
+        "status": "✅ 完了"
+      },
+      {
+        "category": "P0再評価",
+        "item": "P0#9 npm脆弱性誤検",
+        "action": "html2pdf/jspdf 非依存を確認",
+        "status": "✅ 完了"
+      },
+      {
+        "category": "DB設計",
+        "item": "P0#1,#3 RLSポリシー",
+        "action": "migration 20260708 作成＆テスト計画",
+        "status": "✅ 準備完了、本番未適用"
+      },
+      {
+        "category": "項目判定",
+        "item": "B-04 ログアウト失効",
+        "action": "部分改善確認",
+        "status": "⚠️ 条件付（完全解消はPoC後）"
+      }
+    ],
+    "remaining_ng_items": 17,
+    "remaining_conditional_items": 31,
+    "total_score_improvement": 19
+  },
+  "recommendations_by_priority": {
+    "PoC開始前（必須）": [
+      "RLS migration 20260708 本番適用＆ステージング環境でテスト全green化",
+      "link-invited-user の email 必須化・本人メール照合実装",
+      "Stage生成系のログマスキング完全実装（NODE_ENV ガード）",
+      "PoC企業への説明資料作成＆合意書署名"
+    ],
+    "PoC中並行対応": [
+      "xlsx → exceljs 代替検討",
+      "C-10 認可被覆 CI ゲート実装",
+      "E-03 レート制限デプロイ時チェック"
+    ],
+    "PoC終了後（定期監査時）": [
+      "D-03/D-04 テナント越境テスト実測",
+      "M-01 インシデント対応手順書作成",
+      "J-03 個人情報棚卸し実施"
+    ]
+  },
+  "next_audit": {
+    "scheduled_date": "2026-07-15～2026-07-22",
+    "trigger": "RLS migration本番適用＆Log改善完了後",
+    "focus_areas": [
+      "D-03/D-04 テナント越境テスト動的確認",
+      "C-01 権限マトリクス総当たり",
+      "K-01/K-02 監査ログ適用確認"
+    ],
+    "expected_outcome": "PoC前 Go判定の達成"
+  },
+  "metadata": {
+    "auditor": "Claude Code Security Audit (自動監査エージェント)",
+    "audit_framework": "docs/spec/08-security-audit-checklist.md v1.0（108項目・必須34項目）",
+    "checklist_items": 108,
+    "mandatory_items": 34,
+    "report_file": "docs/security-log/audits/2026-07-08_audit-02-reassessment.md",
+    "supporting_documents": [
+      "docs/security-log/security-audit-p0-triage-20260708.md",
+      "docs/security-log/security-audit-p0-fixes-20260708.md",
+      "docs/security-log/rls_org_alignment_agent_logs_test_plan_20260708.md",
+      "docs/security-log/rls_p0_fix_plan_20260708.md",
+      "docs/security-log/rls_local_validation_20260708.md",
+      "docs/security-log/npm-audit-after-20260708.md"
+    ]
+  }
+}
