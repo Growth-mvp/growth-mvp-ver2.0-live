@@ -1,46 +1,14 @@
-GitHub上にある知人作成の監査ドキュメント一式を、ローカルに取り込みたいです。
+push前の最終確認をしてください。
 
-対象になりそうな変更：
-- docs/spec/00-07 の更新
-- docs/spec/08-security-audit-checklist.md の追加
-- docs/spec/09-non-functional-requirements.md の更新
-- docs/security-log/review-01/ への旧レビュー資料移動
-- docs/security-log/audits/2026-07-03_audit-01.md の追加
-- docs/security-log/README.md の追加または更新
-
-現在こちら側でも以下のような監査関連ファイルを作成済みです：
-- Supabase schema dump
-- RLS本番適用関連ドキュメント
-- npm auditレポート
-- security-audit-report-20260708.md
-- security-audit-p0-triage-20260708.md
-- RLS production SQL/checklist類
-
-やってほしいこと：
-1. git status を確認
-2. 現在のブランチ名を確認
-3. ローカルに未コミット変更がないか確認
-4. git log --oneline --decorate -5 で現在位置を確認
-5. git fetch origin を実行
-6. git status と git log --oneline --decorate --all -10 を確認
-7. GitHub側に未取得コミットがあるか確認
-8. 取り込み前に、衝突しそうなファイルを一覧化
-   - docs/spec/
-   - docs/security-log/
-   - supabase/
-9. 未コミット変更がなければ git pull または git merge origin/main を実行
-10. conflict が出た場合は勝手に解決せず、衝突ファイルと内容を報告
-11. 取り込み後、以下がローカルに存在するか確認
-   - docs/spec/08-security-audit-checklist.md
-   - docs/spec/09-non-functional-requirements.md
-   - docs/security-log/audits/2026-07-03_audit-01.md
-   - docs/security-log/review-01/
-   - docs/security-log/README.md
+確認項目：
+1. git status が clean であること
+2. git log --oneline --decorate -8 で、push対象コミットを確認
+3. .env.local や secret が含まれていないことを確認
+4. 直近コミットに含まれるファイル一覧を確認
+5. 問題なければ git push origin main を実行
 
 禁止：
-- git reset --hard は実行しない
-- git checkout -- で変更を捨てない
-- 未コミット変更を勝手に削除しない
-- conflict を勝手に雑に解決しない
-- .env.local を触らない
-- secretを表示しない
+- git reset --hard
+- force push
+- secret表示
+- .env.local のコミット
