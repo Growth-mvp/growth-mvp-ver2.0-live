@@ -22,7 +22,10 @@ DROP POLICY IF EXISTS "reflection_candidates_admin_update" ON "public"."org_alig
 DROP POLICY IF EXISTS "reflection_candidates_admin_delete" ON "public"."org_alignment_stage_reflection_candidates";
 
 -- org_alignment_insight_sources policies
-DROP POLICY IF EXISTS "insight_sources_via_cases" ON "public"."org_alignment_insight_sources";
+DROP POLICY IF EXISTS "insight_sources_member_read" ON "public"."org_alignment_insight_sources";
+DROP POLICY IF EXISTS "insight_sources_admin_write" ON "public"."org_alignment_insight_sources";
+DROP POLICY IF EXISTS "insight_sources_admin_update" ON "public"."org_alignment_insight_sources";
+DROP POLICY IF EXISTS "insight_sources_admin_delete" ON "public"."org_alignment_insight_sources";
 
 -- agent_logs policies
 DROP POLICY IF EXISTS "agent_logs_admin_select" ON "public"."agent_logs";
@@ -43,6 +46,6 @@ COMMIT;
 --   'agent_logs'
 -- );
 --
--- Expected result: 0 (all policies removed)
+-- Expected result: 0 (all 12 policies removed)
 -- Tables remain RLS-enabled with no policies defined
 -- Pre-migration state restored

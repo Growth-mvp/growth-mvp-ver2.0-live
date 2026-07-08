@@ -18,7 +18,8 @@ WHERE tablename IN (
   'agent_logs'
 );
 
--- Expected result: 9 policies created
+-- Expected result: 12 policies created
+-- (2 + 4 + 4 + 2 = 12)
 
 
 -- ==========================================
@@ -50,8 +51,11 @@ ORDER BY tablename, policyname;
 --   - reflection_candidates_admin_write
 --   - reflection_candidates_admin_update
 --   - reflection_candidates_admin_delete
--- org_alignment_insight_sources: 1 policy
---   - insight_sources_via_cases
+-- org_alignment_insight_sources: 4 policies
+--   - insight_sources_member_read
+--   - insight_sources_admin_write
+--   - insight_sources_admin_update
+--   - insight_sources_admin_delete
 -- agent_logs: 2 policies
 --   - agent_logs_admin_select
 --   - agent_logs_service_role_insert

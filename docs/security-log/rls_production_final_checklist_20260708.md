@@ -19,8 +19,9 @@
 
 - [ ] `rls_production_execute_sql_20260708.sql` を 2 回確認
   - [ ] BEGIN; ... COMMIT; で囲まれている
-  - [ ] DROP POLICY IF EXISTS が全 9 個の既存ポリシー削除対象
-  - [ ] CREATE POLICY が全 9 個の新規ポリシー作成対象
+  - [ ] DROP POLICY IF EXISTS が全 12 個のポリシー削除対象
+  - [ ] CREATE POLICY が全 12 個のポリシー作成対象
+  - [ ] org_alignment_insight_sources に FOR SELECT (read) + admin 専用 (write) policies
   - [ ] コメント（説明文）が最小限
 - [ ] `rls_production_verify_sql_20260708.sql` を確認
   - [ ] ポリシー作成数カウント（期待値：9）
@@ -30,7 +31,7 @@
 - [ ] `rls_production_rollback_sql_20260708.sql` を確認
   - [ ] DROP POLICY のみ（テーブル削除なし）
   - [ ] RLS disable なし
-  - [ ] 全 9 個の DROP POLICY IF EXISTS
+  - [ ] 全 12 個の DROP POLICY IF EXISTS
 
 ### 環境確認
 
@@ -90,9 +91,9 @@ Query executed successfully
 #### 1. Total policy count
 ```
 total_policy_count
-       9
+       12
 ```
-- [ ] 結果が 9 であることを確認
+- [ ] 結果が 12 であることを確認
 
 #### 2. Policies by table
 ```
@@ -106,11 +107,14 @@ tablename | policyname | ...
   - [ ] reflection_candidates_admin_write
   - [ ] reflection_candidates_admin_update
   - [ ] reflection_candidates_admin_delete
-- [ ] org_alignment_insight_sources: 1 個
-  - [ ] insight_sources_via_cases
+- [ ] org_alignment_insight_sources: 4 個（追加：4つの個別ポリシー）
+  - [ ] insight_sources_member_read (read-only)
+  - [ ] insight_sources_admin_write (admin write)
+  - [ ] insight_sources_admin_update (admin write)
+  - [ ] insight_sources_admin_delete (admin write)
 - [ ] agent_logs: 2 個
   - [ ] agent_logs_admin_select
-  - [ ] agent_logs_service_insert
+  - [ ] agent_logs_service_role_insert
 
 #### 3. RLS enabled on target tables
 ```
@@ -218,9 +222,9 @@ Query executed successfully
   ```sql
   SELECT COUNT(*) as policy_count
   FROM pg_policies
-  WHERE tablename IN ('org_alignment_insights', 'agent_logs', ...);
+  WHERE tablename IN ('org_alignment_insights', 'org_alignment_stage_reflection_candidates', 'org_alignment_insight_sources', 'agent_logs');
   ```
-- [ ] 結果：0（すべてのポリシーが削除された）
+- [ ] 結果：0（すべての 12 ポリシーが削除された）
 - [ ] API テストで 200 OK が返されることを確認
 
 ---
@@ -242,7 +246,7 @@ Query executed successfully
 以下すべてがクリアされた場合、**本番適用完了**と宣言：
 
 - [ ] SQL 実行が成功（エラーなし）
-- [ ] ポリシー 9 個が正しく作成された
+- [ ] ポリシー 12 個が正しく作成された
 - [ ] RLS 有効状態が確認できた
 - [ ] API シナリオ 5 つすべてが期待結果
 - [ ] UI テストで画面が正常表示

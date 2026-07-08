@@ -40,6 +40,8 @@ CREATE POLICY "insights_member_read" ON "public"."org_alignment_insights"
 
 DROP POLICY IF EXISTS "reflection_candidates_member_read" ON "public"."org_alignment_stage_reflection_candidates";
 DROP POLICY IF EXISTS "reflection_candidates_admin_write" ON "public"."org_alignment_stage_reflection_candidates";
+DROP POLICY IF EXISTS "reflection_candidates_admin_update" ON "public"."org_alignment_stage_reflection_candidates";
+DROP POLICY IF EXISTS "reflection_candidates_admin_delete" ON "public"."org_alignment_stage_reflection_candidates";
 
 CREATE POLICY "reflection_candidates_member_read" ON "public"."org_alignment_stage_reflection_candidates"
   FOR SELECT
@@ -81,9 +83,13 @@ CREATE POLICY "reflection_candidates_admin_delete" ON "public"."org_alignment_st
 -- 3. org_alignment_insight_sources RLS Policies
 -- ==========================================
 
-DROP POLICY IF EXISTS "insight_sources_via_cases" ON "public"."org_alignment_insight_sources";
+DROP POLICY IF EXISTS "insight_sources_member_read" ON "public"."org_alignment_insight_sources";
+DROP POLICY IF EXISTS "insight_sources_admin_write" ON "public"."org_alignment_insight_sources";
+DROP POLICY IF EXISTS "insight_sources_admin_update" ON "public"."org_alignment_insight_sources";
+DROP POLICY IF EXISTS "insight_sources_admin_delete" ON "public"."org_alignment_insight_sources";
 
-CREATE POLICY "insight_sources_via_cases" ON "public"."org_alignment_insight_sources"
+CREATE POLICY "insight_sources_member_read" ON "public"."org_alignment_insight_sources"
+  FOR SELECT
   TO "authenticated"
   USING (
     EXISTS (
@@ -97,18 +103,49 @@ CREATE POLICY "insight_sources_via_cases" ON "public"."org_alignment_insight_sou
             AND "m"."user_id" = "auth"."uid"()
         )
     )
+  );
+
+CREATE POLICY "insight_sources_admin_write" ON "public"."org_alignment_insight_sources"
+  FOR INSERT
+  TO "authenticated"
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM "public"."org_alignment_cases" "c"
+      WHERE "c"."id" = "public"."org_alignment_insight_sources"."case_id"
+        AND "public"."fn_is_company_admin"("c"."company_id") = true
+    )
+  );
+
+CREATE POLICY "insight_sources_admin_update" ON "public"."org_alignment_insight_sources"
+  FOR UPDATE
+  TO "authenticated"
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM "public"."org_alignment_cases" "c"
+      WHERE "c"."id" = "public"."org_alignment_insight_sources"."case_id"
+        AND "public"."fn_is_company_admin"("c"."company_id") = true
+    )
   )
   WITH CHECK (
     EXISTS (
       SELECT 1
       FROM "public"."org_alignment_cases" "c"
       WHERE "c"."id" = "public"."org_alignment_insight_sources"."case_id"
-        AND EXISTS (
-          SELECT 1
-          FROM "public"."company_members" "m"
-          WHERE "m"."company_id" = "c"."company_id"
-            AND "m"."user_id" = "auth"."uid"()
-        )
+        AND "public"."fn_is_company_admin"("c"."company_id") = true
+    )
+  );
+
+CREATE POLICY "insight_sources_admin_delete" ON "public"."org_alignment_insight_sources"
+  FOR DELETE
+  TO "authenticated"
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM "public"."org_alignment_cases" "c"
+      WHERE "c"."id" = "public"."org_alignment_insight_sources"."case_id"
+        AND "public"."fn_is_company_admin"("c"."company_id") = true
     )
   );
 
