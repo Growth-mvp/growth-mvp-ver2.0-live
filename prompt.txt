@@ -1,75 +1,46 @@
-外部監査担当者はいない前提で、Claude Code と ChatGPT でセキュリティP0解消を進めます。
+GitHub上にある知人作成の監査ドキュメント一式を、ローカルに取り込みたいです。
 
-次フェーズとして、RLS migration案のローカル検証を実施してください。
+対象になりそうな変更：
+- docs/spec/00-07 の更新
+- docs/spec/08-security-audit-checklist.md の追加
+- docs/spec/09-non-functional-requirements.md の更新
+- docs/security-log/review-01/ への旧レビュー資料移動
+- docs/security-log/audits/2026-07-03_audit-01.md の追加
+- docs/security-log/README.md の追加または更新
 
-対象：
-- supabase/migrations/20260708_add_rls_org_alignment_agent_logs.sql
-- supabase/schema_remote_20260708.sql
-- docs/security-log/rls_org_alignment_agent_logs_test_plan_20260708.md
-- docs/security-log/rls_p0_fix_plan_20260708.md
-
-目的：
-- org_alignment 系テーブルと agent_logs のRLS修正案が、構文上・設計上・アプリ影響上問題ないか確認する
-- 本番適用前に、壊れる可能性をできる限り潰す
-- まだ本番DBには適用しない
+現在こちら側でも以下のような監査関連ファイルを作成済みです：
+- Supabase schema dump
+- RLS本番適用関連ドキュメント
+- npm auditレポート
+- security-audit-report-20260708.md
+- security-audit-p0-triage-20260708.md
+- RLS production SQL/checklist類
 
 やってほしいこと：
-
-1. まず現在のgit状態を確認
-   - git status
-   - 未コミット変更がある場合は内容を確認
-   - .env.local やsecretが含まれていないことを確認
-
-2. RLS migration SQLの再点検
-   - 参照テーブル・カラムが schema_remote_20260708.sql に存在するか
-   - company_id によるテナント分離が成立しているか
-   - agent_logs のRLSが admin / service_role 前提として妥当か
-   - memberがagent_logsを直接読めない設計になっているか
-   - WITH CHECK がINSERT/UPDATEに不足していないか
-
-3. ローカル検証方法を選定
-   - Supabase local が使えるなら `npx supabase start` を検討
-   - 既存migration履歴やファイル名不整合で難しい場合は、無理に進めず理由を記録
-   - 本番DBへの `db push` は絶対に実行しない
-
-4. 可能であればローカルDBで検証
-   - schema_remote_20260708.sql をローカルDBに反映
-   - RLS migration SQLを適用
-   - テスト計画の主要シナリオを実行
-   - A社memberがB社データを読めないこと
-   - memberがagent_logsを読めないこと
-   - adminが同一company_id範囲で読めること
-   - INSERT/UPDATEのWITH CHECKが効くこと
-
-5. ローカル検証が難しい場合
-   - 何が原因で難しいかを明記
-   - 代替として、SQL静的検証・アプリ側API影響確認を実施
-   - 本番適用前チェックリストを強化
-
-6. アプリ影響確認
-   - org_alignment 系テーブルを使うAPI・画面を洗い出す
-   - agent_logs を使うAPI・画面を洗い出す
-   - RLS適用後に service role が必要な処理、authenticated clientでよい処理を整理
-   - RLS適用で壊れる可能性があるAPIを列挙
-
-7. 結果レポート作成
-   - docs/security-log/rls_local_validation_20260708.md を作成
-   - 以下を記録
-     - 検証できたこと
-     - 検証できなかったこと
-     - 残リスク
-     - 本番適用可否の判断
-     - 本番適用前に必要なバックアップ・ロールバック手順
+1. git status を確認
+2. 現在のブランチ名を確認
+3. ローカルに未コミット変更がないか確認
+4. git log --oneline --decorate -5 で現在位置を確認
+5. git fetch origin を実行
+6. git status と git log --oneline --decorate --all -10 を確認
+7. GitHub側に未取得コミットがあるか確認
+8. 取り込み前に、衝突しそうなファイルを一覧化
+   - docs/spec/
+   - docs/security-log/
+   - supabase/
+9. 未コミット変更がなければ git pull または git merge origin/main を実行
+10. conflict が出た場合は勝手に解決せず、衝突ファイルと内容を報告
+11. 取り込み後、以下がローカルに存在するか確認
+   - docs/spec/08-security-audit-checklist.md
+   - docs/spec/09-non-functional-requirements.md
+   - docs/security-log/audits/2026-07-03_audit-01.md
+   - docs/security-log/review-01/
+   - docs/security-log/README.md
 
 禁止：
-- supabase db push
-- supabase migration repair
-- 本番DBへのSQL実行
-- 本番DBのpolicy変更
-- .env.local の表示
-- secret / API key / DB password の表示
-- 実データの出力
-
-重要：
-このフェーズでは本番適用しない。
-ローカル検証・影響確認・適用判断レポートまで。
+- git reset --hard は実行しない
+- git checkout -- で変更を捨てない
+- 未コミット変更を勝手に削除しない
+- conflict を勝手に雑に解決しない
+- .env.local を触らない
+- secretを表示しない
