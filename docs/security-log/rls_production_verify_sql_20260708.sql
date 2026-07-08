@@ -54,7 +54,7 @@ ORDER BY tablename, policyname;
 --   - insight_sources_via_cases
 -- agent_logs: 2 policies
 --   - agent_logs_admin_select
---   - agent_logs_service_insert
+--   - agent_logs_service_role_insert
 
 
 -- ==========================================

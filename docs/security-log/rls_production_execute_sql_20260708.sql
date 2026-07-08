@@ -131,16 +131,9 @@ CREATE POLICY "agent_logs_admin_select" ON "public"."agent_logs"
     )
   );
 
-CREATE POLICY "agent_logs_service_insert" ON "public"."agent_logs"
+CREATE POLICY "agent_logs_service_role_insert" ON "public"."agent_logs"
   FOR INSERT
   TO "service_role"
   WITH CHECK (true);
-
--- ==========================================
--- 5. progress_logs cleanup (already has policies)
--- ==========================================
-
-DROP POLICY IF EXISTS "progress_logs_member_read" ON "public"."progress_logs";
-DROP POLICY IF EXISTS "progress_logs_member_write" ON "public"."progress_logs";
 
 COMMIT;

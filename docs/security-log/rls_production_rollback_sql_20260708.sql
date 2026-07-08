@@ -26,15 +26,7 @@ DROP POLICY IF EXISTS "insight_sources_via_cases" ON "public"."org_alignment_ins
 
 -- agent_logs policies
 DROP POLICY IF EXISTS "agent_logs_admin_select" ON "public"."agent_logs";
-DROP POLICY IF EXISTS "agent_logs_service_insert" ON "public"."agent_logs";
-
--- ==========================================
--- Note on progress_logs
--- ==========================================
--- progress_logs already has its own RLS policies (pre-existing)
--- Do NOT drop progress_logs policies - they were not created by this migration
--- The apply SQL contains DROP IF EXISTS for progress_logs policies but creates nothing
--- This is safe because those policies should remain in place
+DROP POLICY IF EXISTS "agent_logs_service_role_insert" ON "public"."agent_logs";
 
 COMMIT;
 
