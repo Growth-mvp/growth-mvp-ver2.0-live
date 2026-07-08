@@ -1,10 +1,14 @@
 # 06. AI・エージェント仕様
 
+本書は、CEOChat エージェント（`ask-ceo-agent`）の処理パイプライン・intent ルーティング・軽量 RAG・ファシリテータプロトコル・各生成 API の内部実装を記述する。
+
+- **関連**: 生成 API の一覧と認証・認可分類は [07]、AI/LLM の監査項目は [08] F カテゴリを参照。
+
 ## 1. OpenAI クライアント
 
 - `lib/openai.ts` … `export const openai`（`OPENAI_API_KEY` 必須、未設定なら起動時 throw）。
-- `lib/openaiClient.ts` … `generateCascadeFromStrategy(strategy)` など個別生成関数。モデルは `gpt-4o` 系を使用。
-- AI 呼び出しは `agent_logs`（`lib/supabase/agentLogs.ts` `insertAgentLog`）に記録。
+- `lib/openaiClient.ts` … `generateCascadeFromStrategy(strategy)` など個別生成関数。モデルは主に `gpt-4o` / `gpt-4o-mini` 系を使用。
+- AI 呼び出しは一部で `agent_logs`（`lib/supabase/agentLogs.ts` `insertAgentLog`）に記録。会話ログはクライアントからの insert 経路を含むため、保持方針・偽造耐性・読み取り分離は監査対象（[08] D-09・K-05）。
 - API ルートは原則 `runtime = 'nodejs'`、生成系は `dynamic = 'force-dynamic'`。
 
 ## 2. CEOChat / ask-ceo-agent（`POST /api/ask-ceo-agent`）
@@ -33,11 +37,13 @@
 | ヒント・例示・助言 | `/api/generate-hint`, `/api/generate-example`, `/api/generate-advice` |
 | 戦略ストーリー | `/api/generate-story-draft`, `/api/generate-story-draft-v2`, `/api/generate-final-story`, `/api/generate-strategy` |
 | 勝ち筋パターン推薦 | `/api/recommend-top-patterns`, `/api/recommend-exec-patterns` |
-| カスケード生成 | `/api/generate-cascade`, `/api/generate-department-draft`, `/api/generate-department-summary` |
+| カスケード生成 | `/api/generate-cascade`, `/api/generate-department-draft` |
 | OT/OKR | `/api/generate-ot`, `/api/okr-from-exec` |
 | Stage 別パイプライン | `/api/stage2/generate-draft`, `/api/stage2/generate-final`, `/api/stage3/generate-strategy-bridge`, `/api/stage4/generate-execution-draft`, `/api/stage5/assist-execution`, `/api/stage5/execution-summary` |
 | インサイト/組織変革 | `/api/generate-insight`, `/api/org-alignment/generate`, `/api/org-alignment/admin/insights/generate` |
 | 汎用 | `/api/generate` |
+
+> Deprecated: `/api/generate-department-summary` と `/api/knowledge` は後方互換用に route が残るが、現行実装では GET/POST とも 410 Gone を返す。
 
 ## 4. 共有ユーティリティ（`app/api/_shared/utils.ts`）
 
@@ -55,3 +61,12 @@
 
 - intent / mode 判定はヒューリスティック + LLM の二段で、LLM パース失敗時は `generic`（信頼度 0.4）にフォールバックする（沈黙失敗を避けるためログを残す）。
 - RAG はあくまで **保存済み戦略データ + docs の知識**を入力に使う設計で、「自動学習で精度向上」する仕組みではない（`docs/_md_dump/stage5.md` の但し書きと整合）。
+
+---
+
+## 変更履歴
+
+| 日付 | 変更内容 | 変更者 |
+|---|---|---|
+| 2026-06-22 | 初版（基準コミット `f7b9c03`） | 仕様書作成（Claude Code） |
+| 2026-07-06 | 表記統一（目的宣言・関連文書・監査参照の [08] 項目 ID 化・変更履歴の追加） | ドキュメント整備（Claude Code） |

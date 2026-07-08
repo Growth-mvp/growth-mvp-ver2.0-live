@@ -1,5 +1,9 @@
 # 01. アーキテクチャ
 
+本書は、技術スタック・ディレクトリ構成・レイヤ責務・状態管理（`strategyStore`）・データフロー（保存/復元）・同時利用時の整合性を記述する。
+
+- **関連**: データモデルの詳細は [02]、認証・RBAC は [03]、非機能面（同時編集の恒久対応等）は [09] を参照。
+
 ## 1. 技術スタック（`package.json` より）
 
 | 領域 | 採用技術 |
@@ -26,7 +30,7 @@
 
 ```
 app/                 App Router。ページ（各ステージ）と API（app/api/）
-  api/               59 本の Route Handler（AI 生成・管理・認証・組織変革 など）
+  api/               Route Handler 61 本（2026-07 時点。AI 生成・管理・認証・組織変革 など。一覧は [07]）
   stage1/ stage2/    Stage 1/2 ページ
   cascade/           Stage 3（部門カスケード）本体
   okr/               Stage 4（実行計画）本体
@@ -46,7 +50,7 @@ types/               ドメイン型（strategy, okrs, portfolio, financeSummary
 utils/               永続化・正規化・計算（supabase/, persist/, valueAnalysis ほか）
 hooks/               React フック（useAutoSave, useAuthGuard, useCapabilities, PDF export 系）
 context/             CompanyContext
-store/ + supabase/   DB マイグレーション（supabase/migrations/）
+supabase/            DB マイグレーション（supabase/migrations/）
 ```
 
 ## 3. レイヤ構成と責務
@@ -98,7 +102,7 @@ function enqueueSave<T>(fn) { /* __saveChain に連結し、保存を直列実�
 ### 4.4 自動保存
 
 - `hooks/useAutoSave.ts` が編集をトリガに保存導線を呼ぶ。
-- `utils/persist/saveWithAudit.ts` 経由で監査ログ付き保存を行う。
+- `utils/persist/saveWithAudit.ts` 経由で監査ログ付き保存を行う。永続監査ログは `audit_logs` テーブルと `lib/server/auditLog.ts` も併用されるが、対象操作の網羅と本番 DB 適用状況は監査対象。
 - 保存状態は `SaveStatusIndicator` / `GlobalSidebarSaveStatus` で可視化。
 
 ### 4.5 複数ユーザーの同時利用とコンテキスト共有
@@ -110,7 +114,7 @@ function enqueueSave<T>(fn) { /* __saveChain に連結し、保存を直列実�
   - `ask-ceo-agent` はコンテキストを**毎回リクエストの `messages` ＋会社の `strategy_data`/進捗から構築**し、`agent_logs` は**書込専用**（アプリ内に `select` 箇所なし）。→ 他ユーザーのチャットが混ざる/見える経路はない。
   - 共有されるのは「下敷きの会社 `strategy_data`」のみ（設計どおり。会社単位スコープ）。
 - **編集できるロールは限定される（設計意図）**: `strategy:edit` は **admin / manager のみ**（member は不可）、`department:edit` は **manager は自部門のみ**（[03] §3.2）。→ 同時編集"者"の人数は役割で絞られる。
-  - ただしこの制限は **UI 判定 + RLS の二段のみで、サーバ API では強制されない**（書込はクライアント直書きのため。[08] F-8）。member の編集不可は RLS のロール条件に依存。
+  - ただしこの制限は **UI 判定 + RLS の二段のみで、サーバ API では強制されない**（書込はクライアント直書きのため。[02] §1.1 ★、監査項目は [08] D-05）。member の編集不可は RLS のロール条件に依存する。リポジトリには `20260628_fix_strategy_data_rls_role_control.sql` が存在するが、Stage4 との整合理由で PoC 適用はリスク受容扱いになっており、実環境での適用有無は監査で確認する。
 - **共有ドキュメント `strategy_data` の同時編集**:
   - 1 会社 1 行。保存は**常に全状態（全文書）を書込**（`buildSavePayload`）。
   - 競合制御は **同一ブラウザ内 = `enqueueSave` 直列化／ユーザー間 = `revision` 楽観ロック＋競合回復（`refetchFromServer`）**。
@@ -141,3 +145,12 @@ OKR は別途 okrService.resolveProjectsWithOkrs() で okrs テーブル優先�
 - **デバッグフラグ**: `NEXT_PUBLIC_DEBUG_HYDRATE`, `NEXT_PUBLIC_DEBUG_CASCADE` 等の env で詳細ログを切り替え。
 - **後方互換**: 型追加は optional 基本、`ExtensibleString` で列挙の拡張を許容、`pruneUndefinedDeep` で保存前に空値を除去。
 - **ID 補完**: department/project の `id` 欠落時に `dept_${idx}` / `proj_${i}_${j}` を暫定付与（Stage5 保存失敗の緊急対策）。
+
+---
+
+## 変更履歴
+
+| 日付 | 変更内容 | 変更者 |
+|---|---|---|
+| 2026-06-22 | 初版（基準コミット `f7b9c03`。以後 §4.5 同時利用の整理等を追記） | 仕様書作成（Claude Code） |
+| 2026-07-06 | 表記統一（目的宣言・関連文書・時点付き数値・旧08 参照の [08] 項目 ID への更新・変更履歴の追加） | ドキュメント整備（Claude Code） |

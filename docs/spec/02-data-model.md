@@ -1,9 +1,13 @@
 # 02. データモデル
 
+本書は、Supabase テーブル・中核 JSONB ブロブ `strategy_data`・ドメイン型（`types/`）・OKR の正本化（`okrs` テーブル）を記述する。
+
+- **関連**: RLS・テナント分離の監査項目は [08] D カテゴリ、コアスキーマ正本化の要件は [09] MG-01 を参照。
+
 ## 1. Supabase テーブル一覧
 
 コード（`.from('...')`）で参照されるテーブルを以下に整理する。
-コア 6 テーブル（`companies` / `company_members` / `profiles` / `strategy_data` / `okrs` / `progress_logs`）の **定義 SQL はリポジトリの `supabase/migrations/` に含まれていない**ため、列構成は **コード参照からの【推定】**を含む。組織変革（org_alignment）系・招待系はマイグレーション SQL が存在し確定。
+コア 6 テーブル（`companies` / `company_members` / `profiles` / `strategy_data` / `okrs` / `progress_logs`）の **create table 定義 SQL はリポジトリの `supabase/migrations/` に含まれていない**ため、列構成は **コード参照からの【推定】**を含む。組織変革（org_alignment）系・招待系・監査ログはマイグレーション SQL が存在する。
 
 | テーブル | 役割 | 定義の所在 |
 |---|---|---|
@@ -21,6 +25,7 @@
 | `org_alignment_requests` | すり合わせ依頼 | `20260617_create_org_alignment_requests.sql` |
 | `org_alignment_stage_reflection_candidates` | ステージ反映候補 | `20260617_*.sql` |
 | `agent_logs` | AI エージェント呼び出しログ | 【推定】（`lib/supabase/agentLogs.ts`） |
+| `audit_logs` | 重要操作の永続監査ログ | `20260628_create_audit_logs_table.sql` |
 
 ### 1.1 コアテーブルの既知列（コード／マイグレーション由来）
 
@@ -32,16 +37,29 @@
 | `companies` | `id`(uuid)、会社名等 | 【未確認】 |
 | `company_members` | `company_id`(uuid)・`user_id`(uuid)・`role`(text: admin/manager/member)・`department_id`(text/uuid, null可)・`status`・`created_at` | 【未確認】 |
 | `profiles` | `id`(uuid, = auth.users.id)、プロフィール属性 | 【未確認】 |
-| `strategy_data` | `id`(uuid)・`company_id`(uuid)・`user_id`(uuid)・`updated_by`(uuid)・`revision`(int, 楽観ロック)・`created_at`/`updated_at`・`departments`(jsonb)・`story`/`final_story`/`answers2`/`answers12`(jsonb)・`csv_finance_data`(jsonb)・`swot_suggestions`(jsonb)・`business_portfolio`(jsonb)・`finance_summary`(jsonb)・`simulation_result`(jsonb)・`stage1_issues`(jsonb)・`stage1_benchmarks`(jsonb) ほか | 【未確認】★ |
+| `strategy_data` | `id`(uuid)・`company_id`(uuid)・`user_id`(uuid)・`updated_by`(uuid)・`revision`(int, 楽観ロック)・`created_at`/`updated_at`・`departments`(jsonb)・`story`/`final_story`/`answers2`/`answers12`(jsonb)・`csv_finance_data`(jsonb)・`swot_suggestions`(jsonb)・`business_portfolio`(jsonb)・`finance_summary`(jsonb)・`simulation_result`(jsonb)・`stage1_issues`(jsonb)・`stage1_benchmarks`(jsonb) ほか。RLS role 制御 migration は存在するが適用状況は環境依存 | 【未確認】★ |
 | `okrs` | `id`(uuid)・`company_id`・`strategy_id`・`department_id`(text)・`project_id`(text)・`objective`・`key_results_json`(jsonb)・`status`・`owner_user_id`・`owner_name`・`sort_order`・`source_okr_id`・`source_stage`・`meta_json`(jsonb)・`is_deleted`・`created_at`/`updated_at` | 【未確認】★ |
 | `progress_logs` | `user_id`・`okr_id`(または `db_okr_id`)・`strategy_id`・`company_id`・`department`・`project`・`rating`・`progress_text`・`rating_comment`・`advice`・`help_request`・`created_at` | 【未確認】★ |
 | `company_invites` | `id`・`company_id`(fk companies)・`email`・`role`(check admin/manager/member)・`token_hash`(unique)・`expires_at`・`accepted_at`・`accepted_by`(fk auth.users)・`created_by`(fk auth.users)・`created_at`。`(company_id,email) where accepted_at is null` 単一制約 | **有効**（migration） |
 | `agent_logs` | `user_id`・`strategy_id`・`step`(int)・`role`(user/assistant)・`content`(text) | 【未確認】 |
+| `audit_logs` | `id`・`company_id`・`actor_user_id`・`action`・`target_type`・`target_id`・`metadata`(jsonb)・`created_at`。一般ユーザーは INSERT 不可、admin の SELECT 可、UPDATE/DELETE は不可の policy | **有効**（migration。ただし DB 適用と操作網羅は監査対象） |
 | `org_alignment_*` | 各 migration 参照（`05-org-alignment.md`） | **有効**（migration） |
 
-★ = **クライアント（ブラウザ）から anon キーで直接アクセスされるため、RLS の正しさがテナント分離の生命線**（[08] F-8）。
+★ = **クライアント（ブラウザ）から anon キーで直接アクセスされるため、RLS の正しさがテナント分離の生命線**（監査項目は [08] D カテゴリ。経緯は `docs/security-log/` 第 1 回レビューの F-8）。
 
-> **#1 課題（最優先）**: 上記を正本化するため、**コアスキーマ定義書＋ migration 化**（列型・制約・索引・RLS ポリシー・必須/任意・削除方針を含む）を行う。実スキーマの introspect が前提。
+### 1.2 リポジトリ内マイグレーションの現状
+
+`supabase/migrations/` には 15 本の migration SQL がある（2026-07 時点。監査時は `ls supabase/migrations/*.sql | wc -l` で再算出する）。主な内訳:
+
+- 招待: `20260212130000_create_company_invites.sql`
+- `strategy_data` 追加列: `stage1_benchmarks`, `swot_suggestions`
+- 組織変革: `org_alignment_insights`, `org_alignment_shared_topics`, `org_alignment_requests`, `org_alignment_stage_reflection_candidates` と関連拡張
+- 監査: `20260628_create_audit_logs_table.sql`
+- RLS role 制御: `20260628_fix_strategy_data_rls_role_control.sql`
+
+一方、コア 6 テーブルの初期 `create table` migration は存在しない。環境再現性・RLS 実効状態・手動変更との差分は `supabase db dump` / `information_schema` / `pg_policies` で確認する。
+
+> **#1 課題（最優先）**: 上記を正本化するため、**コアスキーマ定義書＋ migration 化**（列型・制約・索引・RLS ポリシー・必須/任意・削除方針を含む）を行う。実スキーマの introspect が前提（監査項目は [08] D-11、要件は [09] MG-01）。
 
 ## 2. `strategy_data`（中核ブロブ）
 
@@ -138,3 +156,12 @@ meta_json (jsonb)     is_deleted            created_at / updated_at
 Stage 5 のチェックイン履歴。`okrId` 単位で `progressText` / `rating` / `ratingComment` / `advice` / `helpRequest` を蓄積。CEOChat のコンテキストや Stage 6 の見立て材料にも使われる。
 
 > Stage 5 周辺は OKR ID 解決（`db_okr_id` / stable ID）に関する既知の調整履歴が `docs/investigation/` および `docs/reports/STAGE5_*` に多数存在する。実装変更時は併読のこと。
+
+---
+
+## 変更履歴
+
+| 日付 | 変更内容 | 変更者 |
+|---|---|---|
+| 2026-06-22 | 初版（基準コミット `f7b9c03`。以後 audit_logs・RLS role 制御 migration の追記あり） | 仕様書作成（Claude Code） |
+| 2026-07-06 | 表記統一（目的宣言・関連文書・時点付き数値・旧08 参照の [08] 項目 ID への更新・変更履歴の追加） | ドキュメント整備（Claude Code） |

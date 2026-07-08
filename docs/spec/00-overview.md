@@ -1,5 +1,9 @@
 # 00. プロダクト全体像
 
+本書は、GROWTH プロダクトの全体像（6 ステージ＋並行機能・中核データ概念・ロール・AI の関与・設計上の重要前提）を俯瞰する導入ドキュメントである。各論は [01]〜[07] に委譲する。
+
+- **関連**: [01-architecture](./01-architecture.md) / [02-data-model](./02-data-model.md) / [03-auth-rbac](./03-auth-rbac.md) / [04-stages](./04-stages.md) / [05-org-alignment](./05-org-alignment.md) / [06-ai-and-agent](./06-ai-and-agent.md) / [07-api-reference](./07-api-reference.md)
+
 ## 1. 目的
 
 GROWTH は、企業価値の把握・向上を「分析 → 戦略 → 実行 → 検証」の一連のサイクルとして運用するための統合プラットフォームである。
@@ -16,7 +20,7 @@ Stage 3 部門カスケード  /cascade    全社戦略 → 部門ミッショ�
    ↓
 Stage 4 実行計画策定    /okr        OKR を実行計画（役割/財務インパクト/承認ステータス/ベースライン）へ
    ↓
-Stage 5 実行支援    /execution  進捗ログ・チェックイン・AI 支援
+Stage 5 実行支援        /execution  進捗ログ・チェックイン・AI 支援
    ↓
 Stage 6 業績シミュレーション /stage6  プロジェクト/OKR の業績(PL/ROIC)への寄与をシナリオ試算
 ```
@@ -61,7 +65,7 @@ Stage 6 業績シミュレーション /stage6  プロジェクト/OKR の業績
 各ステージで OpenAI による生成・診断を行う（[06-ai-and-agent.md](./06-ai-and-agent.md)）。
 
 - **CEOChat / ask-ceo-agent**: 戦略コンテキスト（`strategy_data` + 進捗 + OKR）を読み込み、advisor / facilitator として応答。intent ルーティング・軽量 RAG・ファシリテータプロトコルを備える。
-- **各ステージの生成 API**: 質問生成・たたき台生成・戦略ブリッジ・実行ドラフト・要約・インサイト集計 など 59 本の API ルート。
+- **各ステージの生成 API**: 質問生成・たたき台生成・戦略ブリッジ・実行ドラフト・要約・インサイト集計など。API Route Handler は 61 本（2026-07 時点。最新の本数と一覧は [07] 参照）。
 
 ## 6. 設計上の重要な前提
 
@@ -69,3 +73,12 @@ Stage 6 業績シミュレーション /stage6  プロジェクト/OKR の業績
 2. **保存の直列化と楽観ロック** … 保存は `enqueueSave` で直列化、`revision` で楽観ロックし競合回復フローを持つ（[01-architecture.md](./01-architecture.md)）。
 3. **OKR の二重ソース** … 正本は `okrs` テーブル、`strategy_data` 内 OKR はスナップショット。読込時に DB 優先でマージする（`services/okrService.ts`）。
 4. **後方互換最優先** … 型は基本 optional 追加、JSONB 互換を壊さない方針（`types/strategy.ts` 冒頭コメント参照）。
+
+---
+
+## 変更履歴
+
+| 日付 | 変更内容 | 変更者 |
+|---|---|---|
+| 2026-06-22 | 初版（基準コミット `f7b9c03`） | 仕様書作成（Claude Code） |
+| 2026-07-06 | 表記統一（目的宣言・関連文書・時点付き数値・変更履歴の追加） | ドキュメント整備（Claude Code） |

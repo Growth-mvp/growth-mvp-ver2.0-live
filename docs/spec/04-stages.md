@@ -1,5 +1,9 @@
 # 04. ステージ別機能仕様（Stage 1〜6）
 
+本書は、Stage 1〜6 とレポート出力の機能仕様を記述する。各ステージは **目的 → 入力 → 処理 → 画面コンポーネント → 出力 → 関連 API** の順で統一して記載する。
+
+- **関連**: データの格納先は [02]、編集権限は [03] §3、API の認証・認可分類は [07] §1、AI 生成の内部実装は [06] を参照。
+
 > ルートとステージ番号の対応（`components/Sidebar.tsx`）:
 > Stage1=`/stage1`, Stage2=`/stage2`, **Stage3=`/cascade`**, **Stage4=`/okr`**, Stage5=`/execution`, Stage6=`/stage6`。
 > `/stage3` は `/cascade` への互換リダイレクト。`/stage4` は旧実装が残置（後述）。`/strategy`・`/story-process`・`/review` も関連する補助/レガシー導線。
@@ -19,9 +23,6 @@
 - 上場情報（`isListed` / `ticker` / `pbrManual`）
 - 外部ベンチマーク（任意）: `stage1Benchmarks`
 
-### 画面コンポーネント（`components/stage1/`）
-`CompanyAndBusinessPanel` / `CompanyScopePanel` / `BusinessSegmentsPanel` / `FinanceInputPanel` / `FinanceDataPanel` / `FinanceYearEditorTable` / `ListingInfoPanel` / `WaccPanel` / `MetricsPanel` / `IssueBlockPanel` / `Stage1BenchmarkPanel` / `DocumentImportPanel` / `Stage1ToStage2Panel` / `Stage2Bridge`。
-
 ### 処理
 - 財務データから 5 指標を計算: `utils/valueAnalysis.ts` の `computeValueAnalysis` / `computeValueAnalysisBundle`。結果は `valueAnalysis`（全社）・`segmentValueAnalysis`（事業部別）。
   - **ROIC** = 営業利益 × (1 − 実効税率) / (純資産 + 有利子負債)
@@ -34,11 +35,16 @@
 - ドキュメント取込: `POST /api/stage1/import`（PDF/CSV → 財務抽出。`pdf-parse` / `papaparse`）。
 - ダミーデータ投入（開発用）: `loadStage1DummyData()`、スナップショット保存: `saveStage1Snapshot()`（localStorage）。
 
+### 画面コンポーネント（`components/stage1/`）
+`CompanyAndBusinessPanel` / `CompanyScopePanel` / `BusinessSegmentsPanel` / `FinanceInputPanel` / `FinanceDataPanel` / `FinanceYearEditorTable` / `ListingInfoPanel` / `WaccPanel` / `MetricsPanel` / `IssueBlockPanel` / `Stage1BenchmarkPanel` / `DocumentImportPanel` / `Stage1ToStage2Panel` / `Stage2Bridge`。
+
 ### 出力
 - 5 指標の計算結果と改善領域の示唆 → Stage 2 へ接続（`Stage1ToStage2Panel` / `Stage2Bridge`）。
 
 ### 関連 API
-`/api/stage1/import`, `/api/market/pbr`（上場企業の PBR 取得）, `/api/knowledge`。
+`/api/stage1/import`, `/api/market/pbr`（上場企業の PBR 取得）。
+
+> `/api/knowledge` は現行実装では後方互換用に残る deprecated API で、GET/POST とも 410 Gone を返す。ナレッジは `lib/growthKnowledge.ts` と `lib/rag/` 側で扱う。
 
 ---
 
@@ -77,14 +83,15 @@ Stage 1 の論点を踏まえ、全社の「勝ち筋」を言語化し、AI と
 ### 目的
 確定した全社戦略を **部門 → プロジェクト → OKR** に展開し、全社〜現場の一貫性をつくる。
 
-### 入力単位
+### 入力（カスケードの 3 単位）
 1. **部門**（`Department`）: `name` / `mission`（担当する戦略要素）/ 勝ち筋・レバー
 2. **プロジェクト**（`Project`）: 部門ミッションを実現する活動のまとまり（目安 2〜4 本）
 3. **OKR**: `objective`（定性ゴール）＋ `keyResults[]`（定量基準 3〜5）＋ `owner`
 
 ### 処理
-- 全社戦略 → カスケード生成: `POST /api/generate-cascade`（`lib/openaiClient.ts` `generateCascateFromStrategy` 系。ルート構造 JSON を生成）。
-- 部門質問の生成（バックグラウンド）: `app/cascade/hooks/useDepartmentQGenListener.ts` + `/api/generate-department-question`。部門ミッション/サマリ/たたき台: `/api/generate-department-summary`, `/api/generate-department-draft`。
+- 全社戦略 → カスケード生成: `POST /api/generate-cascade`（`lib/openaiClient.ts` `generateCascadeFromStrategy` 系。ルート構造 JSON を生成）。
+- 部門質問の生成（バックグラウンド）: `app/cascade/hooks/useDepartmentQGenListener.ts` + `/api/generate-department-question`。部門ミッション/たたき台: `/api/generate-department-draft`。
+- `/api/generate-department-summary` は `/api/generate-cascade` へ統合済みの deprecated API で、GET/POST とも 410 Gone を返す。
 - 整合性チェック: CEOChat（advisor/facilitator）で「この部門ミッション/OKR は Stage2 勝ち筋のどこに効くか」を確認。
 - **OKR の保存は `okrs` テーブルへ正本化**（[02-data-model.md](./02-data-model.md) §4）。`strategy_data.departments` 内はスナップショット。
 - 戦略ブリッジ: `POST /api/stage3/generate-strategy-bridge` → `strategy_data.stage3_strategy_bridge`。
@@ -94,6 +101,9 @@ Stage 1 の論点を踏まえ、全社の「勝ち筋」を言語化し、AI と
 
 ### 出力
 部門別の戦略カスケード（全社戦略 → 部門ミッション → プロジェクト → OKR）。Stage 4/5/6 に接続。
+
+### 関連 API
+`/api/generate-cascade`, `/api/generate-department-draft`, `/api/generate-department-question`, `/api/stage3/generate-strategy-bridge`, `/api/cascade/cleanup-deleted-projects`。
 
 ### スモークテスト
 `npm run stage3:smoke`（`scripts/stage3.smoke.mjs`）。
@@ -126,6 +136,9 @@ Stage 3 の OKR/プロジェクトを「誰が・いつまでに・何を・ど�
 ### 出力
 タイムライン/担当/予算/財務インパクト/承認ステータスが揃った実行計画 → Stage 5/6。
 
+### 関連 API
+`/api/stage4/generate-execution-draft`, `/api/okr-from-exec`, `/api/recommend-exec-patterns`。
+
 ### ルートに関する注意
 - 現行ナビは **`/okr`** が Stage 4 本体。
 - `app/stage4/page.tsx` にも Stage 4 相当の実装（`Stage4Plan`/`DiffViewer` 等）が残っており、**並存している**。新規導線は `/okr` を使用する。
@@ -143,12 +156,15 @@ Stage 3 の OKR/プロジェクトを「誰が・いつまでに・何を・ど�
 
 ### 処理
 - 進捗ログを `progress_logs` に書込（`okrId` 単位）。OKR ID 解決は stable ID（`db_okr_id`）に依存。
-- AI 支援: `POST /api/stage5/assist-execution`（要点要約・リスク言語化・次アクション提案・上位戦略整合チェック）、`POST /api/stage5/execution-summary`。
+- AI 支援: `POST /api/stage5/assist-execution`（要点要約・リスク言語化・次アクション提案・上位戦略整合チェック）、`GET /api/stage5/execution-summary`。
 - ホーム/ピラミッド連携: `components/home/ExecutionPanel.tsx` / `PyramidNavigator.tsx`、`components/stage5/`（`ExecutionHeader` / `EmptyExecutionMessage` / `EmptyPyramidMessage`）、`components/execution/ProjectCard.tsx`。
 
 ### 出力
 - 進捗ログ履歴／実行の見える化／月次・四半期のレビュー材料。
 - Stage 6 の見立て材料・CEOChat のコンテキストに供給。
+
+### 関連 API
+`/api/stage5/assist-execution`, `/api/stage5/execution-summary`。
 
 > Stage 5 の OKR ID 解決は調整履歴が多い（`docs/reports/STAGE5_*`, `docs/investigation/STAGE5_*`）。実装変更時は併読。
 
@@ -174,6 +190,9 @@ Stage 3 の OKR/プロジェクトを「誰が・いつまでに・何を・ど�
 ### 出力
 - 3 シナリオの業績見通し（売上・利益・ROIC 等）、重要前提の影響度、計画の妥当性の論点。
 
+### 関連 API
+なし（シミュレーションはクライアント側で計算し、結果は `simulationResult` として保存）。
+
 ---
 
 ## レポート（`/report`）
@@ -184,3 +203,12 @@ Stage 3 の OKR/プロジェクトを「誰が・いつまでに・何を・ど�
 - PDF ボタン: `ExportPdfButton` / `StagePdfExportButton`。フック: `hooks/useStage{1,2,3,4}PdfExport.ts` / `useFullStrategyPdfExport.ts`。
 - レポートページ: `/report`, `/report/stage2-strategy`, `/report/midterm-plan`, `/report/execution-report`。
 - 実装は `jspdf` / `html2pdf.js` / `html2canvas` / `xlsx`。
+
+---
+
+## 変更履歴
+
+| 日付 | 変更内容 | 変更者 |
+|---|---|---|
+| 2026-06-22 | 初版（基準コミット `f7b9c03`） | 仕様書作成（Claude Code） |
+| 2026-07-06 | 表記統一（目的宣言・小見出し順序の統一「目的→入力→処理→画面→出力→関連 API」・Stage 3〜6 への関連 API 追記・変更履歴の追加） | ドキュメント整備（Claude Code） |

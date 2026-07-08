@@ -1,10 +1,14 @@
 # 05. 組織変革ルーム（Org Alignment）
 
-6 ステージと並行する機能。現場の「違和感」を AI 対話で言語化・分類し（個人ルーム）、会社全体で集計・共有・すり合わせ・戦略還流まで行う（全社ルーム）。
+本書は、6 ステージと並行する組織変革機能の仕様を記述する。現場の「違和感」を AI 対話で言語化・分類し（個人ルーム）、会社全体で集計・共有・すり合わせ・戦略還流まで行う（全社ルーム）。
 
-- 個人ルーム: `/org-transformation`
-- 全社すり合わせルーム: `/org-transformation/shared`
-- 管理者インサイト: `/admin/org-insights`
+- **関連**: テーブル定義の migration は [02] §1、匿名性（`VisibilityMode`）の監査項目は [08] J-01・J-02 を参照。
+
+| 画面 | ルート |
+|---|---|
+| 個人ルーム | `/org-transformation` |
+| 全社すり合わせルーム | `/org-transformation/shared` |
+| 管理者インサイト | `/admin/org-insights` |
 
 ## 1. ドメイン概念（`types/org-alignment.ts`）
 
@@ -36,7 +40,7 @@
 
 会社全体の集計・共有トピック・反映候補を扱う（メンバーも閲覧可能な `visibility: 'company'`）。
 
-- 共有トピック一覧/詳細: `GET /api/org-alignment/shared/topics`, `/topics/[id]`。
+- 共有トピック一覧: `GET /api/org-alignment/shared/topics`。トピック更新: `PATCH /api/org-alignment/shared/topics/[id]`。
 - 集計サマリ: `GET /api/org-alignment/shared/summary`。
 - Stage 反映候補: `/api/org-alignment/shared/reflection-candidates`, `/topics/[id]/reflection-candidates`, `/topics/reset-reflection`。
 - 未対応のすり合わせ依頼表示: `components/org-alignment/UnhandledAlignmentRequestsSection.tsx`。
@@ -54,7 +58,7 @@
 ### インサイト生成（`org_alignment_insights`）
 - `POST /api/org-alignment/admin/insights/generate` … 会社のケース群を集計し AI でインサイト生成。
   - 保存: `summary` / `insights`(jsonb) / `category_counts` / `priority_counts`{low,medium,high} / `department_trends` / `source_case_count` / `generated_by` / `generated_at`。
-- `GET /api/org-alignment/admin/insights`, `/insights/[id]/actions`。
+- `GET /api/org-alignment/admin/insights`, `PATCH /api/org-alignment/admin/insights/[id]/actions`。
 - ソースケース: `org_alignment_insight_sources`。
 
 ### `OrgAlignmentInsight`（集計論点）の主フィールド
@@ -68,3 +72,12 @@
 
 共有トピック/インサイトには `strategy_reflection`（stage3Status / stage4Status / relatedDepartments / generatedProjects / generatedOkrs）があり、論点を Stage 3 の部門・プロジェクトや Stage 4 の OKR に反映する候補として扱う。
 反映候補は `org_alignment_stage_reflection_candidates` で管理し、Stage 3/4 画面の `ReflectionCandidatesSection` が利用する。
+
+---
+
+## 変更履歴
+
+| 日付 | 変更内容 | 変更者 |
+|---|---|---|
+| 2026-06-22 | 初版（基準コミット `f7b9c03`） | 仕様書作成（Claude Code） |
+| 2026-07-06 | 表記統一（目的宣言・関連文書・ルート表・変更履歴の追加） | ドキュメント整備（Claude Code） |
