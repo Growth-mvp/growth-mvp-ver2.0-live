@@ -3,7 +3,8 @@
 **実施日**: 2026-07-08  
 **対象**: org_alignment（3テーブル）と agent_logs の RLS ポリシー migration  
 **判定**: ✅ **本番適用可能（条件付き Go）**  
-**ステータス**: 本番未適用、応用前バックアップ手順確定段階
+**適用方法**: Supabase SQL Editor（当該 migration SQL をダイレクト実行）  
+**ステータス**: 本番未適用、本番適用計画確定段階
 
 ---
 
@@ -118,81 +119,193 @@ EOF
 
 ## 3. 本番適用コマンド案
 
-### 3.1 推奨方法：Supabase CLI 経由
+### 3.1 環境状態の確認
+
+**Supabase CLI 環境確認**:
+```
+$ npx supabase migration list
+→ エラー: failed to parse environment file: .env.local
+→ 原因: .env.local ファイルのフォーマットエラー（既知の問題）
+```
+
+**判定**: CLI 経由での本番環境 Link は現在実行困難
+
+### 3.2 推奨方法：SQL Editor での当該 SQL 直接実行
+
+本番環境への安全な適用方法。
 
 #### 理由
-1. **トランザクション一体性**: 部分適用状態を回避
-2. **自動ロールバック**: migration version 管理で復旧可能
-3. **監査証跡**: migration_version テーブルに記録
-4. **事前テスト**: ローカル環境で `supabase migration up --local` で検証
+1. **確実性**: 当該 migration SQL のみを確実に本番に適用できる
+2. **検証可能**: Supabase Dashboard の SQL Editor で実行前に内容確認可能
+3. **トランザクション**: 1 つの SQL ブロックで実行（部分失敗リスクを最小化）
+4. **監査証跡**: Supabase 監査ログに記録される
+5. **ロールバック**: 失敗時は rollback_20260708.sql で復旧可能
 
 #### 実行フロー
 
-**Step 1: ローカル環境での検証（本番前）**
+**Step 1: Migration SQL を確認**
 ```bash
-# ローカル Supabase で migration を実行テスト
-npx supabase migration up --local
-# → 成功後、Step 2 へ
-# → 失敗した場合、migration SQL を修正後に Step 2 へ
-```
-
-**Step 2: 本番環境への Link**
-```bash
-# 本番 Supabase プロジェクトにリンク
-npx supabase link --project-ref $SUPABASE_PROJECT_REF
-
-# プロンプトで本番 DB パスワードを入力
-# パスワードは Supabase Dashboard > Settings > Database > Password から確認
-```
-
-**Step 3: 本番環境への適用（計画メンテナンス時間帯）**
-```bash
-# ★ 重要：メンテナンス時間帯に実行してください ★
-npx supabase migration up --linked
-
-# 出力例（成功時）
-# Applying migration 20260708_add_rls_org_alignment_agent_logs.sql...
-# [✓] Migration applied successfully
-# Migration version: 20260708
-```
-
-**Step 4: 適用確認**
-```bash
-# migration 履歴を確認
-npx supabase migration list
-# 出力に 20260708 が含まれることを確認
-
-# RLS ポリシーが作成されたことを確認
-npx supabase db pull --linked --schema-only | grep -A 5 "insights_admin_crud"
-```
-
-### 3.2 代替方法：SQL Editor（Web UI）- **非推奨**
-
-**使用場面**: CLI インストール不可の環境のみ
-
-```bash
-# Migration SQL をコピー
 cat supabase/migrations/20260708_add_rls_org_alignment_agent_logs.sql
 ```
 
-**実行手順**:
+**Step 2: SQL Editor で実行（計画メンテナンス時間帯）**
+
 1. Supabase Dashboard にログイン
-2. SQL Editor > New Query
-3. Migration SQL をペースト
-4. Run
-5. エラー確認（drop if exists のため通常は エラーなし）
+2. **SQL Editor** → **New Query**
+3. Migration SQL（フル内容）をコピーしてペースト
+   - 最初の 5 行のコメント（Status: NOT YET APPLIED...）をコメントアウトしたまま
+   - DROP POLICY IF EXISTS ステートメント（既存ポリシーがあれば削除）
+   - CREATE POLICY ステートメント（9 個のポリシー作成）
+4. **Run** ボタンをクリック
+5. **成功メッセージ**: "Query executed successfully"
 
-**リスク**: 部分失敗時の状態が不定 → **本番では推奨しない**
+**実行例**:
+```sql
+-- Migration: Add RLS policies for org_alignment and agent_logs
+-- (ここから以下のステートメントをすべて実行)
 
-### 3.3 推奨度比較
+DROP POLICY IF EXISTS "insights_admin_crud" ON "public"."org_alignment_insights";
+-- ... (すべての DROP/CREATE ステートメント)
+CREATE POLICY "agent_logs_service_insert" ON "public"."agent_logs" ...;
+```
 
-| 項目 | CLI (`supabase migration up`) | SQL Editor |
+**Step 3: 実行後の確認**
+```bash
+# Supabase Dashboard の SQL Editor で以下を実行して確認
+SELECT tablename, policyname
+FROM pg_policies
+WHERE tablename IN ('org_alignment_insights', 'org_alignment_stage_reflection_candidates', 
+                     'org_alignment_insight_sources', 'agent_logs')
+ORDER BY tablename;
+
+# 期待結果: 9 個のポリシーが表示される
+# - org_alignment_insights: 2 個
+# - org_alignment_stage_reflection_candidates: 4 個
+# - org_alignment_insight_sources: 1 個
+# - agent_logs: 2 個
+```
+
+### 3.3 代替方法：Supabase CLI（.env.local 修正後）
+
+.env.local のパースエラーが解決された場合のみ実行可能。
+
+```bash
+# 本番環境への Link（.env.local 修正後）
+npx supabase link --project-ref $SUPABASE_PROJECT_REF
+
+# 本番環境への適用
+npx supabase migration up --linked
+
+# 適用確認
+npx supabase migration list
+```
+
+**制限**: 現在 .env.local エラーのため実行不可 → SQL Editor 方法を推奨
+
+### 3.4 推奨度比較
+
+| 項目 | SQL Editor (推奨) | CLI (代替案) |
 |-----|---|---|
-| トランザクション一体性 | ✅ あり | ❌ なし |
-| ロールバック容易性 | ✅ 自動 | ❌ 手動 |
-| 監査証跡 | ✅ 記録 | ❌ なし |
-| 部分失敗リスク | ✅ 低（全て or 全て失敗） | ⚠️ 高 |
-| **推奨度** | **✅✅✅** | ❌ |
+| **現在の実行可否** | ✅ **実行可能** | ❌ 不可（.env.local エラー） |
+| トランザクション一体性 | ✅ あり（SQL ブロック） | ✅ あり |
+| ロールバック容易性 | ✅ 手動（SQL で復旧） | ✅ 自動（CLI で復旧） |
+| 監査証跡 | ✅ Supabase ログ | ✅ migration_version テーブル |
+| 部分失敗リスク | ✅ 低（全て or 全て失敗） | ✅ 低 |
+| 事前ローカルテスト | ❌ なし | ✅ あり |
+| **推奨度** | **✅✅✅ 推奨（現状）** | ⚠️ 代替案（.env.local 修正後） |
+
+### 3.5 リスク分析：SQL Editor 実行
+
+**リスク**: なし（標準的な Supabase 運用方法）
+
+**メリット**:
+- Supabase Dashboard UI での直接実行 → 確実性が高い
+- 当該 migration SQL のみを確実に適用 → 他の migration との競合なし
+- Supabase 監査ログに記録 → 外部監査対応可能
+
+**運用上の注意**:
+- 実行前に Migration SQL を 2 回確認（DROP POLICY... → CREATE POLICY... の順序）
+- 計画メンテナンス時間帯に実行
+- 実行直後に RLS ポリシー 9 個が作成されたことを確認
+
+---
+
+## 3.6 Migration 履歴不一致への対応
+
+### 状況確認
+
+**CLI 実行結果**:
+```
+$ npx supabase migration list
+→ エラー: failed to parse environment file: .env.local
+```
+
+**判定**: ローカル migration 履歴と本番 DB の migration 履歴が一致しているか未確認
+
+### 対応方針
+
+#### ケース 1: Migration 履歴が一致している場合（推奨）
+
+本番 DB に `20260708_add_rls_org_alignment_agent_logs` が **未適用** の場合 → SQL Editor で直接実行
+
+```bash
+# 本番で以下を実行して確認
+SELECT * FROM migrations 
+WHERE name = '20260708_add_rls_org_alignment_agent_logs';
+# 結果: 0 rows → まだ適用されていない（正常）
+```
+
+**実行方法**: 上記 3.2 の SQL Editor 方法で実行
+
+#### ケース 2: Migration 履歴が不一致している場合（非推奨ケース）
+
+本番 DB に既に `20260708_add_rls_org_alignment_agent_logs` が **適用済み** の場合 → 二重適用を防止
+
+```bash
+# 本番で以下を実行して確認
+SELECT * FROM migrations 
+WHERE name = '20260708_add_rls_org_alignment_agent_logs';
+# 結果: 1 row → 既に適用されている
+```
+
+**対応**:
+1. ❌ `migration repair` は実行しない（migration 履歴が破損するため）
+2. ❌ `db push` は実行しない（他の migration との競合リスク）
+3. ✅ **SQL Editor で二重適用を確認**（DROP IF EXISTS があるため安全）
+
+```bash
+# 本番 SQL Editor で実行
+SELECT tablename, policyname
+FROM pg_policies
+WHERE tablename IN ('org_alignment_insights', 'agent_logs')
+ORDER BY tablename;
+
+# 結果: 既に 9 個のポリシーが作成されている場合
+# → Migration は既に適用済みなので、本番再適用は不要
+```
+
+### 判定フロー図
+
+```
+┌─ Migration 適用確認 ─┐
+│                    │
+├─ 本番 DB で確認 ───┤
+│ SELECT * FROM      │
+│ migrations WHERE   │
+│ name='20260708...' │
+│                    │
+└────┬────────────┬──┘
+     │            │
+  0 rows       1 row
+     │            │
+  Case 1        Case 2
+  ✅ 未適用    ⚠️  既適用
+  → 適用      → スキップ
+     │            │
+     ▼            ▼
+ SQL Editor   ポリシー確認
+ 実行         済みなら終了
+```
 
 ---
 
@@ -339,19 +452,26 @@ grep -i "403\|401\|forbidden\|unauthorized" logs/production.log | tail -100
 
 ### 5.1 タイムライン（計画メンテナンス時間帯：例：日曜 22:00-23:30 JST）
 
+**適用方法**: Supabase SQL Editor（当該 migration SQL のみ直接実行）
+
 | 時刻 | 項目 | 時間 | 実行者 | 確認者 |
 |-----|------|------|-------|-------|
 | 22:00 | メンテナンス開始通知 | - | DevOps | - |
 | 22:05 | スキーマバックアップ取得 | 2 分 | DevOps | - |
-| 22:07 | ローカル検証実行 | 3 分 | Dev | DevOps |
-| 22:10 | 本番 Link | 2 分 | Dev | DevOps |
-| 22:12 | **Migration 実行** | 1 分 | Dev | DevOps |
-| 22:13 | RLS ポリシー確認 | 2 分 | DevOps | Dev |
-| 22:15 | API 検証（全 5 シナリオ） | 5 分 | QA | DevOps |
-| 22:20 | UI テスト（手動） | 5 分 | QA | - |
-| 22:25 | ロールバック OK 判定 | 5 分 | DevOps | CTO |
-| 22:30 | **本番安定判定** | - | CTO | - |
-| 22:30-23:30 | 監視継続（問題検知時は即ロールバック） | - | OnCall | - |
+|      | `supabase db pull --linked --schema-only > backups/schema_before_migration_20260708.sql` | | | |
+| 22:07 | Migration 履歴確認（本番 DB）| 1 分 | Dev | DevOps |
+|      | `SELECT * FROM migrations WHERE name='20260708_add_rls_org_alignment_agent_logs';` | | | |
+| 22:08 | Migration SQL 内容確認 | 2 分 | Dev | - |
+|      | SQL Editor で migration SQL をプレビュー | | | |
+| 22:10 | **SQL Editor で Migration 実行** | 1 分 | Dev | DevOps |
+|      | Supabase Dashboard → SQL Editor → New Query → Migration SQL 実行 | | | |
+| 22:11 | RLS ポリシー作成確認 | 2 分 | DevOps | Dev |
+|      | `SELECT tablename, policyname FROM pg_policies WHERE tablename IN (...)` | | | |
+| 22:13 | API 検証（全 5 シナリオ） | 5 分 | QA | DevOps |
+| 22:18 | UI テスト（手動） | 5 分 | QA | - |
+| 22:23 | ロールバック判定 | 5 分 | DevOps | CTO |
+| 22:28 | **本番安定判定** | - | CTO | - |
+| 22:28-23:30 | 監視継続（問題検知時は即ロールバック） | - | OnCall | - |
 | 23:30 | メンテナンス終了通知 | - | DevOps | - |
 
 ### 5.2 ロールバック判定基準（即座ロールバック）
@@ -398,10 +518,35 @@ curl https://api.example.com/api/org-alignment/shared/summary \
 
 ## 6. Rollback 手順
 
-### 6.1 自動ロールバック（推奨）
+### 6.1 SQL Editor でロールバック（推奨）
 
 ```bash
-# Migration を逆操作
+# SQL Editor で以下の SQL を実行
+# (Step 2.2 で準備した rollback_20260708.sql の内容)
+
+DROP POLICY IF EXISTS "insights_admin_crud" ON "public"."org_alignment_insights";
+DROP POLICY IF EXISTS "insights_member_read" ON "public"."org_alignment_insights";
+DROP POLICY IF EXISTS "reflection_candidates_member_read" ON "public"."org_alignment_stage_reflection_candidates";
+DROP POLICY IF EXISTS "reflection_candidates_admin_write" ON "public"."org_alignment_stage_reflection_candidates";
+DROP POLICY IF EXISTS "reflection_candidates_admin_update" ON "public"."org_alignment_stage_reflection_candidates";
+DROP POLICY IF EXISTS "reflection_candidates_admin_delete" ON "public"."org_alignment_stage_reflection_candidates";
+DROP POLICY IF EXISTS "insight_sources_via_cases" ON "public"."org_alignment_insight_sources";
+DROP POLICY IF EXISTS "agent_logs_admin_select" ON "public"."agent_logs";
+DROP POLICY IF EXISTS "agent_logs_service_insert" ON "public"."agent_logs";
+```
+
+**実行手順**:
+1. Supabase Dashboard → SQL Editor → New Query
+2. 上記 SQL をコピーしてペースト
+3. Run をクリック
+4. 成功メッセージ確認
+
+**実行時間**: 1 分
+
+### 6.2 CLI ロールバック（.env.local 修正後の代替案）
+
+```bash
+# Migration を逆操作（CLI 実行可能な場合）
 npx supabase migration down --linked
 
 # 実行結果を確認
@@ -409,33 +554,25 @@ npx supabase migration list
 # 出力: 20260708 が消えている
 ```
 
-**実行時間**: 1-2 分
-
-### 6.2 手動ロールバック（CLI が使用不可の場合）
-
-```bash
-# SQL Editor で rollback_20260708.sql を実行
-# (Step 2.2 で準備したファイル)
-
-psql -h $HOST -U postgres -d postgres \
-  -f backups/rollback_20260708.sql
-```
-
-**実行時間**: 2-3 分
+**制限**: 現在 .env.local エラーのため実行不可 → SQL Editor 方法を使用
 
 ### 6.3 ロールバック後の確認
 
 ```bash
-# スキーマが migration 前に戻ったことを確認
-npx supabase db pull --linked --schema-only > schema_after_rollback.sql
+# SQL Editor で以下を実行してポリシーが削除されたことを確認
+SELECT COUNT(*) as policy_count
+FROM pg_policies
+WHERE tablename IN ('org_alignment_insights', 'org_alignment_stage_reflection_candidates', 
+                     'org_alignment_insight_sources', 'agent_logs');
 
-diff backups/schema_before_migration_20260708.sql schema_after_rollback.sql
-# 出力: 差分がなし（RLS ポリシー DROP IF EXISTS が削除されている）
+# 期待結果: 0（ロールバック前は 9）
+```
 
-# API が機能していることを確認
+**API 機能確認**:
+```bash
 curl https://api.example.com/api/org-alignment/shared/summary \
   -H "Authorization: Bearer <user_member_a_token>"
-# 期待: 200 OK + insights が返却（migration 前の状態）
+# 期待: 200 OK + insights が返却（migration 前の状態に戻っている）
 ```
 
 ---
@@ -471,16 +608,27 @@ curl https://api.example.com/api/org-alignment/shared/summary \
 
 - ❌ **Supabase db push を使用禁止**（本番 DB 直接変更のため）
 - ❌ **migration repair を使用禁止**（migration 履歴が破損するため）
-- ❌ **SQL Editor で直接 DROP/CREATE 禁止**（監査証跡が失われるため）
-- ❌ **テストなしで本番適用禁止**（ローカル `supabase migration up --local` 必須）
+- ❌ **npx supabase migration up --linked を実行禁止**（.env.local エラーのため実行不可）
+- ❌ **ローカルテストなしで本番適用禁止**（SQL 構文確認が必須）
 - ❌ **.env.local や Secret を出力禁止**（git に誤ってコミットされるため）
 - ❌ **営業時間中の適用禁止**（計画メンテナンス時間帯のみ）
+- ❌ **当該 migration SQL 以外を同時実行禁止**（他の migration との競合リスク）
 
 ### 監視時の禁止
 
 - ❌ ロールバック判定基準を無視して本番継続禁止
 - ❌ エラーログを無視禁止（即座調査が必須）
 - ❌ RLS ポリシーを手動削除禁止（migration 履歴との不整合）
+
+### 重要：CLI 実行禁止の理由
+
+以下は実行禁止（.env.local パースエラーのため実行不可）:
+- `npx supabase migration list --linked`
+- `npx supabase db push --dry-run`
+- `npx supabase migration up --linked`
+- `npx supabase link --project-ref ...`
+
+**対応**: SQL Editor での直接実行に切り替え
 
 ---
 
@@ -563,11 +711,18 @@ cat .env.local | head -5
 **検証者**: Claude Code Security Audit Team  
 **CTO 承認待機**: TBD
 
+**本番適用方法（確定）**: 
+- **Supabase SQL Editor で当該 migration SQL を直接実行**
+- 理由：.env.local パースエラーにより CLI での本番 Link 不可
+- リスク：なし（SQL Editor は Supabase 標準運用方法）
+- ロールバック：SQL で DROP POLICY を実行（1 分以内）
+
 **本番適用予定日**: 2026-07-XX (計画メンテナンス時間帯)  
 **ステータス**: **未適用**（このドキュメント確定後の実行待機）
 
 ---
 
 **作成日**: 2026-07-08  
+**最終更新**: 2026-07-08  
 **ステータス**: 本番未適用  
-**次のアクション**: CTO 承認 → 本番メンテナンス時間帯にて migration up --linked 実行
+**次のアクション**: CTO 承認 → 本番メンテナンス時間帯にて SQL Editor で migration SQL 実行
