@@ -645,9 +645,9 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
           ? impactOpIncomeMJPY
           : undefined;
 
-      // ★ formal fields の有無を判定
+      // ★ formal fields の有無を判定（修正：営業利益見込み基盤で判定）
       const hasRevenueFields = typeof impactRevenueMJPY === 'number' && typeof impactRevenueProgress === 'number';
-      const hasOpFields = typeof impactOpIncomeMJPY === 'number' && typeof impactOpIncomeProgress === 'number';
+      const hasOpIncomeBase = typeof impactOpIncomeMJPY === 'number';
 
       // ★ Revenue の effective delta
       const deltaRevenueTotal = hasRevenueFields ? (impactRevenueMJPY * impactRevenueProgress) / 100 : 0;
@@ -656,12 +656,18 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       let deltaOpTotal = 0;
       let opSourceUsed = 'unset';
 
-      if (hasOpFields) {
-        // ケース 1: op formal field あり
-        deltaOpTotal = (impactOpIncomeMJPY * impactOpIncomeProgress) / 100;
+      // 営業利益進捗率がない場合は 100% とみなす
+      const normalizedOpIncomeProgress =
+        typeof impactOpIncomeProgress === 'number'
+          ? impactOpIncomeProgress
+          : 100;
+
+      if (hasOpIncomeBase) {
+        // ケース 1: op基盤あり（impactOpIncomeMJPY が number）
+        deltaOpTotal = (impactOpIncomeMJPY * normalizedOpIncomeProgress) / 100;
         opSourceUsed = 'stage5_progress';
       } else if (hasRevenueFields && deltaRevenueTotal > 0 && baselineMargin > 0) {
-        // ケース 2: op formal field なし、revenue あり → baselineMargin で推定
+        // ケース 2: op基盤なし、revenue あり → baselineMargin で推定
         deltaOpTotal = deltaRevenueTotal * baselineMargin;
         opSourceUsed = 'estimated_from_margin';
 
@@ -682,11 +688,12 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         }
       }
 
-      // ★ FIX-FINAL: source mixing 検出
-      const isMixedSource = hasRevenueFields !== hasOpFields && opSourceUsed !== 'estimated_from_margin';
+      // ★ FIX-FINAL: source mixing 検出（修正：基盤の有無で判定）
+      const isMixedSource = hasRevenueFields !== hasOpIncomeBase && opSourceUsed !== 'estimated_from_margin';
 
       // Source の統一確認
       const revenueSourceUsed = hasRevenueFields ? 'stage5_progress' : 'unset';
+      const opIncomeSourceUsed = hasOpIncomeBase ? 'stage5_progress' : 'unset';
 
       // 投資額（buildProjectContributions から引き継ぎ）
       const investTotal = p.investTotal ?? 0;
@@ -697,22 +704,26 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         console.log('[STAGE6][project-source-final]', {
           projectTitle: p.proj,
           hasImpactRevenue: hasRevenueFields,
-          hasImpactOp: hasOpFields,
+          hasImpactOp: hasOpIncomeBase,
+          impactOpIncomeProgress,
+          normalizedOpIncomeProgress,
           revenueSourceUsed,
-          opSourceUsed,
+          opSourceUsed: opIncomeSourceUsed,
           displayRevenue: deltaRevenueTotal,
           displayOp: deltaOpTotal,
           isMixedSource,
-          '警告': isMixedSource ? `⚠️ source mixing detected: revenue=${revenueSourceUsed}, op=${opSourceUsed}` : '✓ 統一',
+          '警告': isMixedSource ? `⚠️ source mixing detected: revenue=${revenueSourceUsed}, op=${opIncomeSourceUsed}` : '✓ 統一',
         });
       }
 
-      // ★ 根拠情報
+      // ★ 根拠情報（修正：営業利益基盤で判定）
       const evidence = {
-        source: hasRevenueFields ? 'stage5_progress' : 'unset',
-        confidence: hasRevenueFields ? 'high' : 'none',
-        notes: hasRevenueFields
-          ? `STAGE5実行度: ${impactRevenueProgress?.toFixed(0) ?? '?'}%` + (opSourceUsed === 'estimated_from_margin' ? ' (op は margin推定)' : '')
+        source: hasRevenueFields || hasOpIncomeBase ? 'stage5_progress' : 'unset',
+        confidence: hasRevenueFields || hasOpIncomeBase ? 'high' : 'none',
+        notes: hasRevenueFields || hasOpIncomeBase
+          ? (hasRevenueFields ? `STAGE5実行度: 売上${impactRevenueProgress?.toFixed(0) ?? '?'}%` : '') +
+            (hasOpIncomeBase ? ` 営業利益${normalizedOpIncomeProgress?.toFixed(0) ?? '?'}%` : '') +
+            (opSourceUsed === 'estimated_from_margin' ? ' (追加op は margin推定)' : '')
           : 'Formal field未設定',
       };
 
