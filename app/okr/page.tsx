@@ -29,6 +29,7 @@ import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
 import { debugLog } from '@/utils/debug';
 import { safeGetSession } from '@/utils/supabase/client';
+import { toNumber } from '@/utils/valueAnalysis';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import type { KRKind, StrategyData } from '@/types/strategy';
 import { okrsV2ToOkrs, okrsToKpis } from '@/utils/supabase/strategy';
@@ -1738,7 +1739,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
         }
 
         // 3. impact を更新（既存値がない場合のみ補完）
-        // ★ キー修正：revenueMJPY → impactRevenueMJPY など
+        // ★ 修正：売上と営業利益の優先順位を分離して設定
         if (draft.impact) {
           const currentImpact = (selectedProj as any) || {};
           const impactPatch: Record<string, any> = {};
@@ -1746,13 +1747,35 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           const assumptions = draft.impact.assumptions as ImpactAssumptions | undefined;
           const calculatedImpact = getImpactResultFromAssumptions(impactRole, assumptions);
 
-          // 既存値がなければ生成値を使用
+          // 売上寄与（impactRevenueMJPY）は REVENUE 役割のみ
           if (!currentImpact.impactRevenueMJPY && impactRole === 'REVENUE') {
             impactPatch.impactRevenueMJPY = calculatedImpact?.resultValue ?? draft.impact.revenueMJPY;
           }
-          if (!currentImpact.impactOpIncomeMJPY && impactRole === 'COST') {
-            impactPatch.impactOpIncomeMJPY = calculatedImpact?.resultValue ?? draft.impact.opIncomeMJPY;
+
+          // 営業利益寄与（impactOpIncomeMJPY）は全役割で設定（既存値がない場合のみ）
+          if (!currentImpact.impactOpIncomeMJPY) {
+            // ★ 優先順位：draft.opIncomeMJPY > 推定値 > undefined
+            const revenueImpactMJPY =
+              toNumber(currentImpact.impactRevenueMJPY) ??
+              toNumber(impactPatch.impactRevenueMJPY) ??
+              toNumber(draft.impact?.revenueMJPY);
+
+            const draftOpIncomeMJPY = toNumber(draft.impact?.opIncomeMJPY);
+
+            // フォールバック営業利益率（10%）
+            const estimatedOperatingMargin = 0.1;
+
+            const estimatedOpIncomeMJPY =
+              draftOpIncomeMJPY ??
+              (typeof revenueImpactMJPY === 'number'
+                ? Math.round(revenueImpactMJPY * estimatedOperatingMargin)
+                : undefined);
+
+            if (typeof estimatedOpIncomeMJPY === 'number') {
+              impactPatch.impactOpIncomeMJPY = estimatedOpIncomeMJPY;
+            }
           }
+
           if (!currentImpact.impactInvestmentMJPY && impactRole === 'FUTURE') {
             impactPatch.impactInvestmentMJPY = calculatedImpact?.resultValue ?? draft.impact.investmentMJPY;
           }
@@ -1855,7 +1878,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
         }
 
         // 3. impact を更新（既存値がない場合のみ補完）
-        // ★ キー修正：revenueMJPY → impactRevenueMJPY など
+        // ★ 修正：売上と営業利益の優先順位を分離して設定
         if (draft.impact) {
           const currentImpact = (selectedProj as any) || {};
           const impactPatch: Record<string, any> = {};
@@ -1863,12 +1886,35 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           const assumptions = draft.impact.assumptions as ImpactAssumptions | undefined;
           const calculatedImpact = getImpactResultFromAssumptions(impactRole, assumptions);
 
+          // 売上寄与（impactRevenueMJPY）は REVENUE 役割のみ
           if (!currentImpact.impactRevenueMJPY && impactRole === 'REVENUE') {
             impactPatch.impactRevenueMJPY = calculatedImpact?.resultValue ?? draft.impact.revenueMJPY;
           }
-          if (!currentImpact.impactOpIncomeMJPY && impactRole === 'COST') {
-            impactPatch.impactOpIncomeMJPY = calculatedImpact?.resultValue ?? draft.impact.opIncomeMJPY;
+
+          // 営業利益寄与（impactOpIncomeMJPY）は全役割で設定（既存値がない場合のみ）
+          if (!currentImpact.impactOpIncomeMJPY) {
+            // ★ 優先順位：draft.opIncomeMJPY > 推定値 > undefined
+            const revenueImpactMJPY =
+              toNumber(currentImpact.impactRevenueMJPY) ??
+              toNumber(impactPatch.impactRevenueMJPY) ??
+              toNumber(draft.impact?.revenueMJPY);
+
+            const draftOpIncomeMJPY = toNumber(draft.impact?.opIncomeMJPY);
+
+            // フォールバック営業利益率（10%）
+            const estimatedOperatingMargin = 0.1;
+
+            const estimatedOpIncomeMJPY =
+              draftOpIncomeMJPY ??
+              (typeof revenueImpactMJPY === 'number'
+                ? Math.round(revenueImpactMJPY * estimatedOperatingMargin)
+                : undefined);
+
+            if (typeof estimatedOpIncomeMJPY === 'number') {
+              impactPatch.impactOpIncomeMJPY = estimatedOpIncomeMJPY;
+            }
           }
+
           if (!currentImpact.impactInvestmentMJPY && impactRole === 'FUTURE') {
             impactPatch.impactInvestmentMJPY = calculatedImpact?.resultValue ?? draft.impact.investmentMJPY;
           }
