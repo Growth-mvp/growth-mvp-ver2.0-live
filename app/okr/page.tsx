@@ -4059,7 +4059,10 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                   {renderKrList.map((kr, idx) => {
   // ★ 修正: key を index から kr.id に（削除後の入れ替わり防止）
   const rowId = String((kr as any)?.id ?? `kr-${idx}`);
-  const jsxKey = (kr as any)?.id || rowId;
+  const jsxKey =
+    (kr as any)?.id ||
+    (kr as any)?.sourceKpiId ||
+    `right-${selected.deptIdx}-${selected.projIdx}-${idx}`;
   const isEditing = editingKrId === rowId;
 
   const rawLabel = (kr as any).label;
