@@ -57,7 +57,8 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.16 }}
               className="mt-2 text-[14px] font-medium leading-relaxed text-neutral-700 sm:text-[15px] lg:text-[16px] dark:text-neutral-300"
             >
-              戦略の策定・浸透・実行を全体最適でつなぎ、企業を成長へシフトさせる仕組み。
+              戦略の策定・浸透・実行を一気通貫でつなぎ、企業成長にシフトする仕組み。
+
             </motion.p>
 
             <motion.div
