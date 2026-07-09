@@ -11,7 +11,7 @@ import type { FinanceSummaryRow } from '@/store/strategyStore';
  * ユーティリティ
  * =============================== */
 
-function toNumber(v: unknown): number {
+export function toNumber(v: unknown): number {
   const n = typeof v === 'number' ? v : Number(String(v ?? '').replace(/,/g, ''));
   return Number.isFinite(n) ? n : 0;
 }

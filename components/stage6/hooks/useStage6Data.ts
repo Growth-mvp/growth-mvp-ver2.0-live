@@ -17,6 +17,7 @@ import { hardResetForCompanySwitch } from '@/utils/resetAll';
 import { loadAndHydrate } from '@/utils/loader';
 import { loadProgressLogs } from '@/utils/supabase/strategy';
 import { parseMetadata } from '@/utils/execution/metadata';
+import { toNumber } from '@/utils/valueAnalysis';
 
 import {
   buildProjectContributions,
@@ -650,10 +651,17 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     const result = core.approved.map((p: any) => {
       const projectData = projectMap.get(p.key);
 
-      // ★ formal fields のみを参照
+      // ★ formal fields のみを参照（別名フォールバック対応）
       const impactRevenueMJPY = projectData?.impactRevenueMJPY;
       const impactRevenueProgress = projectData?.impactRevenueProgress;
-      const impactOpIncomeMJPY = projectData?.impactOpIncomeMJPY;
+      // ★ 修正：営業利益フィールドに別名フォールバックを追加
+      const impactOpIncomeMJPY =
+        toNumber(projectData?.impactOpIncomeMJPY) ??
+        toNumber(projectData?.impactOperatingProfitMJPY) ??
+        toNumber(projectData?.operatingProfitImpactMJPY) ??
+        toNumber(projectData?.profitImpactMJPY) ??
+        toNumber(projectData?.expectedOperatingProfitMJPY) ??
+        toNumber(projectData?.impactProfitMJPY);
       const impactOpIncomeProgress = projectData?.impactOpIncomeProgress;
 
       // ★ DEBUG: 実際の抽出値をログ
