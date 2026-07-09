@@ -611,6 +611,27 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         projects.forEach((proj: any, idx: number) => {
           const key = `${deptName}::${proj.title}::${idx}`;
           projectMap.set(key, proj);
+
+          // ★ DEBUG: 各プロジェクトの impactOp* フィールド確認
+          if (DEBUG) {
+            console.log('[useStage6Data-project-raw]', {
+              deptName,
+              projectTitle: proj.title,
+              projectId: proj.id,
+              keys: Object.keys(proj).filter(k => k.includes('impact') || k.includes('profit') || k.includes('Progress')),
+              impactRevenueMJPY: proj.impactRevenueMJPY,
+              impactRevenueProgress: proj.impactRevenueProgress,
+              impactOpIncomeMJPY: proj.impactOpIncomeMJPY,
+              impactOpIncomeProgress: proj.impactOpIncomeProgress,
+              // 別名フィールドを確認
+              impactOperatingProfitMJPY: proj.impactOperatingProfitMJPY,
+              operatingProfitImpactMJPY: proj.operatingProfitImpactMJPY,
+              profitImpactMJPY: proj.profitImpactMJPY,
+              expectedOperatingProfitMJPY: proj.expectedOperatingProfitMJPY,
+              impactProfitMJPY: proj.impactProfitMJPY,
+              operatingProfitMJPY: proj.operatingProfitMJPY,
+            });
+          }
         });
       });
     }
@@ -634,6 +655,24 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       const impactRevenueProgress = projectData?.impactRevenueProgress;
       const impactOpIncomeMJPY = projectData?.impactOpIncomeMJPY;
       const impactOpIncomeProgress = projectData?.impactOpIncomeProgress;
+
+      // ★ DEBUG: 実際の抽出値をログ
+      if (DEBUG && projectData) {
+        console.log('[stage6 project impact debug]', {
+          name: projectData.title,
+          keys: Object.keys(projectData),
+          impactRevenueMJPY,
+          revenueProgress: impactRevenueProgress,
+          impactOpIncomeMJPY,
+          impactOpIncomeProgress,
+          types: {
+            impactRevenueMJPY: typeof impactRevenueMJPY,
+            impactRevenueProgress: typeof impactRevenueProgress,
+            impactOpIncomeMJPY: typeof impactOpIncomeMJPY,
+            impactOpIncomeProgress: typeof impactOpIncomeProgress,
+          },
+        });
+      }
 
       // ★ STAGE4で入力した目標額（単なる表示用。寄与額とは別）
       const targetRevenueMJPY =
