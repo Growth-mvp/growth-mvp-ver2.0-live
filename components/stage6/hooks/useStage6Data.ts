@@ -713,10 +713,12 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         // ケース 1: op基盤あり（impactOpIncomeMJPY が number）
         deltaOpTotal = (impactOpIncomeMJPY * normalizedOpIncomeProgress) / 100;
         opSourceUsed = 'stage5_progress';
-      } else if (hasRevenueFields && deltaRevenueTotal > 0 && baselineMargin > 0) {
-        // ケース 2: op基盤なし、revenue あり → baselineMargin で推定
-        deltaOpTotal = deltaRevenueTotal * baselineMargin;
-        opSourceUsed = 'estimated_from_margin';
+      } else if (hasRevenueFields && deltaRevenueTotal > 0) {
+        // ケース 2: op基盤なし、revenue あり → プロジェクト別補完（10%）で推定
+        // （既存保存済みプロジェクト向け補完）
+        const estimatedOperatingMargin = 0.1;
+        deltaOpTotal = Math.round(deltaRevenueTotal * estimatedOperatingMargin);
+        opSourceUsed = 'estimated_from_project_revenue';
 
         // ★ ログ：[STAGE6][op-fallback]
         if (DEBUG) {
@@ -725,22 +727,35 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
             effectiveRevenueDelta: deltaRevenueTotal,
             impactOpIncomeMJPY,
             impactOpIncomeProgress,
-            companyBaselineRevenueMJPY,
-            companyBaselineOpMJPY,
-            baselineMargin: baselineMargin.toFixed(4),
+            estimatedOperatingMargin: estimatedOperatingMargin.toFixed(2),
             effectiveOpDelta: deltaOpTotal,
             sourceUsed: opSourceUsed,
-            '説明': `op未設定 → revenue ${deltaRevenueTotal}M × margin ${(baselineMargin * 100).toFixed(1)}% = ${deltaOpTotal.toFixed(1)}M`,
+            '説明': `op未設定 → revenue ${deltaRevenueTotal}M × 10% = ${deltaOpTotal.toFixed(1)}M（既存データ補完）`,
+          });
+        }
+      } else if (deltaRevenueTotal > 0 && baselineMargin > 0) {
+        // ケース 3: op基盤もrevenue基盤もない → baselineMargin で推定（会社全体の営業利益率）
+        deltaOpTotal = deltaRevenueTotal * baselineMargin;
+        opSourceUsed = 'estimated_from_margin';
+
+        if (DEBUG) {
+          console.log('[STAGE6][op-fallback-margin]', {
+            projectTitle: p.proj,
+            effectiveRevenueDelta: deltaRevenueTotal,
+            companyBaselineMargin: baselineMargin.toFixed(4),
+            effectiveOpDelta: deltaOpTotal,
+            sourceUsed: opSourceUsed,
+            '説明': `op/revenue未設定 → revenue ${deltaRevenueTotal}M × margin ${(baselineMargin * 100).toFixed(1)}% = ${deltaOpTotal.toFixed(1)}M（会社全体率）`,
           });
         }
       }
 
       // ★ FIX-FINAL: source mixing 検出（修正：基盤の有無で判定）
-      const isMixedSource = hasRevenueFields !== hasOpIncomeBase && opSourceUsed !== 'estimated_from_margin';
+      const isMixedSource = hasRevenueFields !== hasOpIncomeBase && opSourceUsed !== 'estimated_from_project_revenue' && opSourceUsed !== 'estimated_from_margin';
 
       // Source の統一確認
       const revenueSourceUsed = hasRevenueFields ? 'stage5_progress' : 'unset';
-      const opIncomeSourceUsed = hasOpIncomeBase ? 'stage5_progress' : 'unset';
+      const opIncomeSourceUsed = opSourceUsed;
 
       // 投資額（buildProjectContributions から引き継ぎ）
       const investTotal = p.investTotal ?? 0;
