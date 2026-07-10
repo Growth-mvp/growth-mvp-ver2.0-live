@@ -486,9 +486,51 @@ function normalizePortfolioInput(
     return { businesses };
   }
 
+
   return null;
 }
 
+/**
+ * 事業ポートフォリオを「個別事業の羅列」ではなく、成長シフトの統合価値として扱うためのガイド。
+ * 特定企業の固定ロジックにはせず、入力されたセグメント名・事業名から役割を推定する。
+ */
+function buildPortfolioIntegrationGuide(args: {
+  portfolio?: NormalizedPortfolio | null;
+  segmentsText?: string;
+  businessSegments?: unknown;
+  mustKeepTerms?: string[];
+}): string {
+  const portfolioNames = (args.portfolio?.businesses || [])
+    .map((b) => asText(b.name, 80))
+    .filter(Boolean);
+  const segmentNamesFromText = getUniqueSegmentNames(args.segmentsText);
+  const segmentNamesFromObjects = asArray<Record<string, unknown>>(args.businessSegments)
+    .map((x) => pickFirstText(x.name, x.title, x.segmentName, x.businessName))
+    .filter(Boolean);
+  const names = Array.from(new Set([...portfolioNames, ...segmentNamesFromText, ...segmentNamesFromObjects])).slice(0, 8);
+  const hasManySegments = names.length >= 4;
+  const joined = names.join('、');
+
+  const importantTerms = (args.mustKeepTerms || []).slice(0, 5).join('、') || '入力された重点市場・用途・技術・顧客価値';
+
+  if (!names.length) {
+    return [
+      '- 事業セグメントが未入力の場合も、既存事業の個別改善ではなく、入力回答にある市場・用途・技術・顧客価値を束ねた成長シフト仮説として書く。',
+      '- 第2章では「どの強みを組み合わせ、どの顧客価値へ変えるのか」を必ず明示する。',
+    ].join('\n');
+  }
+
+  const base = [
+    `- 入力された事業・セグメント：${joined}`,
+    '- これらを単独事業の羅列で終わらせない。各事業の役割を分けたうえで、成長市場に向けた統合価値として再構成する。',
+    '- 第2章では、少なくとも1段落で「複数事業を組み合わせて顧客価値を高める戦い方」を書く。',
+    '- 4事業以上ある場合、3分類に無理に押し込まず、「成長牽引軸」「収益改善軸」「基盤技術軸」「高付加価値化軸」「ソリューション化軸」などの補助軸を使い、全事業名を落とさない。',
+    '- 部品・システム・加工・装置系の事業は、単なる縮小対象にせず、他事業を支える基盤技術・高付加価値化・ソリューション化の役割を検討する。',
+    `- 重点市場・用途・技術・顧客価値は、${importantTerms} を中心に、入力にある語だけで具体化する。`,
+  ];
+
+  return base.join('\n');
+}
 
 /* =========================
  * STAGE2 入力素材フォーマット（互換対応）
@@ -1111,20 +1153,25 @@ function buildStrategicChapter2Body(args: {
     .map((b) => asText(b.name, 80))
     .filter(Boolean);
   const names = Array.from(new Set([...portfolioNames, ...segmentNames])).slice(0, 6);
+  const guide = buildPortfolioIntegrationGuide({
+    portfolio: args.portfolio,
+    segmentsText: args.segmentsText,
+    mustKeepTerms: extractMustKeepTerms(args.answersText || ''),
+  });
 
-  const businessParagraph = (() => {
-    if (names.length) {
-      return `${names.join('、')}について、市場性、収益性、顧客価値とのつながりを見極め、伸ばす領域と見直す領域を分けて資源配分を再設計する。`;
-    }
-    return '各事業では、市場性、収益性、顧客価値とのつながりを見極め、伸ばす領域と見直す領域を分けて資源配分を再設計する。';
-  })();
+  const hasNames = names.length > 0;
+  const namesText = hasNames ? names.join('、') : '各事業';
+  const roleText = hasNames
+    ? `${namesText}を、成長牽引、収益改善、基盤技術、高付加価値化、選別対象のいずれかに位置づける。`
+    : '各事業を、成長牽引、収益改善、基盤技術、高付加価値化、選別対象のいずれかに位置づける。';
 
   return [
-    '当社が選ぶべき戦い方は、既存の延長で売上を積み増すことではない。入力された強みと顧客課題を結びつけ、顧客が評価する用途、品質、提供体制、継続的な支援価値を明確にすることである。',
-    'そのためには、現時点で収益を支えている領域と、今後伸ばすべき領域を分けて捉える必要がある。単に新規領域を増やすのではなく、当社の強みが顧客の重要課題を解決でき、かつ収益性と資本効率を高められる領域に経営資源を集中する。',
-    businessParagraph,
-    '同時に、成長領域とのつながりが弱い商品、目的が曖昧な投資、収益性の低い活動は見直す。財務余力は、将来の収益基盤につながる開発テーマ、市場開拓、顧客価値向上に優先配分し、投資の判断基準を明確にする。',
-    'この方針に基づき、STAGE3では事業別・部門別の重点テーマを定義し、STAGE4では投資基準、KPI、実行計画に落とし込む。第2章の役割は、何を伸ばすかだけでなく、何を見直し、どこに資源を集中するかを全社の判断基準として明確にすることである。',
+    '当社が選ぶべき戦い方は、既存事業を個別に改善し続けることではない。入力された強みを束ね、顧客が次に必要とする用途・機能・提供価値へ組み替えることで、成長市場に入り込む理由をつくることである。',
+    `${roleText}ただし、分類そのものが目的ではない。各事業に分散している技術、顧客接点、開発・生産能力を組み合わせ、単品提供から統合価値の提供へ移すことが戦略の中心になる。`,
+    '成長領域には、重点顧客、開発テーマ、投資配分、投資回収KPIを明確にして資源を寄せる。一方で、成長領域との接続が弱い商品、目的が曖昧な投資、収益性の低い活動は見直す。財務余力は、将来の収益基盤につながる用途開発、市場開拓、顧客価値向上に優先配分する。',
+    'この戦い方では、既存の売上構成や部門別実績だけで判断しない。どの事業がどの成長市場で顧客価値を生み、どの技術を組み合わせれば競争条件を変えられるかを判断基準にする。これにより、既存事業を守る計画ではなく、成長シフトを実現する計画に変える。',
+    `事業統合の前提は次の通りである。${guide.replace(/\n-/g, ' ').replace(/^-\s*/, '')}`,
+    'この方針に基づき、STAGE3では事業別・部門別の役割を定義し、STAGE4では重点顧客、開発テーマ、投資基準、KPI、撤退基準に落とし込む。第2章の役割は、何を伸ばすかだけでなく、何を組み合わせ、何を見直し、どこに資源を集中するかを全社の判断基準として明確にすることである。',
   ].join('\n\n');
 }
 
@@ -1360,6 +1407,7 @@ async function repairExecutiveStoryIfNeeded(args: {
   coverage: ReturnType<typeof evaluateStrategicIntentCoverage>;
   quality: ReturnType<typeof evaluateExecutiveStoryQuality>;
   mustKeepTerms?: string[];
+  portfolioIntegrationGuide?: string;
 }): Promise<{ heading: string; body: string }[]> {
   const shouldRepair =
     args.quality.tooShortIndexes.length > 0 ||
@@ -1392,10 +1440,15 @@ async function repairExecutiveStoryIfNeeded(args: {
       '- 入力された自社の強みを、次の市場で選ばれる理由として再定義する',
       '- 入力された「やめること」「見直すこと」を、資源配分の判断基準として明確にする',
       '- 経営層がスローガンではなく、人・予算・投資・評価基準・KPIをどう変えるかを書く',
-      '- 社員が日々の仕事で何を判断基準にすべきかを、入力回答に沿って具体化する',
+      '- 部門・現場が日々の業務で何を判断基準にすべきかを、入力回答に沿って具体化する',
       '- 重要語は企業固有の経営意思として扱い、同義の一般語へ丸めすぎない',
       '- 重要語を、単なる装飾語ではなく「何者へ転換するのか」を示す戦略の主語として使う',
+      '- 複数事業がある場合、事業別方針の羅列ではなく、事業間の組み合わせによって生まれる統合価値を第2章・第3章に入れる',
+      '- 第4章は意識改革ではなく、STAGE3/4/5へ接続する重点顧客、開発テーマ、投資回収KPI、撤退基準、経営会議で見る指標として書く',
       '- 上位の重要語は、結論相当の転換文または第2章の戦略選択で必ず使う',
+      '',
+      '【事業統合・成長シフト仮説】',
+      args.portfolioIntegrationGuide || '—',
       '',
       '【重要語（入力から自動抽出。本文内で自然に保持する）】',
       (args.mustKeepTerms ?? []).length ? (args.mustKeepTerms ?? []).map((term) => `- ${term}`).join('\n') : '—',
@@ -1578,6 +1631,9 @@ export async function POST(req: NextRequest) {
 - たたき台、SWOT、MVV、CEO意図、財務情報は補助素材である。12問回答と補助素材がずれる場合は、12問回答の危機認識・重点市場・価値提供・資源配分・やめることを優先する。
 - ただし、12問回答の文言をそのまま貼り付けるのではなく、経営会議資料に載せられる戦略本文として再構成する。
 - 第2章は、勝ち筋・重点事業・重点市場・資源配分・やめること・STAGE3/4接続に限定する。
+- 最終ストーリーの芯は、個別事業の方針整理ではなく、既存事業に分散する強みをどの成長市場・顧客価値へ統合するかである。
+- 事業ポートフォリオが複数ある場合、各事業を単独で並べるだけで終わらせず、事業間の組み合わせによって生まれる統合価値を必ず書く。
+- 「改善力がない」「実行力がない」と断定しない。入力上、実行管理・改善力がある企業では、課題を「成長市場への事業化・統合価値化・資源配分の不足」として表現する。
 - 入力にない業種・市場・技術・製品名を追加しない。固有語は12問回答、経営意思ダイジェスト、事業ポートフォリオ、SWOT、業績目標に含まれるものだけを使う。
 - 特定市場への依存、特定技術への転換など、入力にない前提を作らない。
 - 人材、採用、育成、能力開発、社員教育、研修、モチベーション、職場環境を主要戦略として書かない。
@@ -1591,6 +1647,13 @@ export async function POST(req: NextRequest) {
 - 入力された強み、顧客課題、重点市場、資源配分、投資基準を軸に、経営判断の流れが分かる4〜5段落で書く。
 - 第2章には、入力された自社の強みを、次の市場で選ばれる理由としてどう再定義するかを必ず入れる。
 - 第2章には、入力された顧客価値に対して、提供価値・商品サービス・営業開発・オペレーションをどう進化させるかを必ず入れる。
+
+【成長シフト型ストーリーの厳守事項】
+- 最終ストーリーは「事業別方針の整理」ではなく、「どの既存能力を束ね、どの成長市場・顧客価値へ転換するか」を示す成長シフト仮説として書く。
+- 第1章では、赤字危機だけでなく、売上成長の停滞、主力事業依存、成長テーマの事業化不足、次世代顧客の設計初期段階に入り込めないリスクを扱う。
+- 第2章では、複数事業を別々に改善するのではなく、入力された各事業・技術・顧客接点の強みを組み合わせて提供価値を高める方向を必ず書く。
+- 第3章では「顧客から選ばれる専門企業」などの一般表現で終わらせず、入力された顧客・用途の現場で、どの課題を任される企業になるのかを書く。
+- 第4章では、意識改革や本気度の表明ではなく、STAGE3/4/5に接続する重点顧客、開発テーマ、投資回収KPI、撤退基準、経営会議で見る指標を書けるようにする。
 
 【12問回答の扱い】
 - 12問回答は、危機感、重点市場、重点顧客、強み、価値提供、やめること、資源配分、KPI、進捗管理論点として必ず本文に反映する。
@@ -1621,6 +1684,7 @@ export async function POST(req: NextRequest) {
 - 「90日」「90日間」「90日アクション」「最初の90日間」は使わない。
 - 「新技術の導入」「製品ラインナップの拡充」「生産プロセスの最適化」「市場調査」「プロジェクトチームを編成」「ターゲット顧客を特定」などの汎用施策を中心に書かない。必要な場合も、戦略の中心ではなく実行手段として短く扱う。
 - 精神論や情緒的な締めくくりで章を終わらせない。必ず経営判断、資源配分の変化、実行への接続を書く。
+- 「顧客から選ばれる専門企業」「持続可能な成長を実現する」「高品質かつ競争力のある製品」「社員に本気度を示す」「意識改革を進める」は、具体的な市場・顧客・技術・KPI・提供価値が伴わない限り使わない。
 
 【章ごとの役割】
 1. なぜ今：入力された顧客・業界・競争・技術・社会変化をもとに、現在の延長では何が危ういのかを書く。失うものは売上だけでなく、12問回答に基づく成長機会、顧客関係、利益率、主導権、組織能力などとして明確にする。
@@ -1697,6 +1761,13 @@ JSONのみ。スキーマ：
       return list ? `${list}${focus}` : '—';
     })();
 
+    const portfolioIntegrationGuide = buildPortfolioIntegrationGuide({
+      portfolio: normalizedPortfolio,
+      segmentsText,
+      businessSegments,
+      mustKeepTerms,
+    });
+
     const userPrompt = `
 【会社】業種=${industryJp || (typeof industry === 'string' ? industry : '—')}／売上=${revenue ? `${revenue}百万円` : '—'}／人数=${employees ? `${employees}人` : '—'}
 【MVV】M=${sanitize(mission, 300) || '—'}／V=${sanitize(vision, 300) || '—'}／Val=${sanitize(value, 300) || '—'}
@@ -1707,6 +1778,8 @@ JSONのみ。スキーマ：
 【選択された勝ち筋候補】
 ${selectedWinPatternText}
 【事業ポートフォリオ】${portfolioSummary}
+【事業統合・成長シフト仮説】
+${portfolioIntegrationGuide}
 【業績目標（最優先。年度・数値・単位を改変禁止）】
 ${companyTargetsText}
 【経営者の思い(断片)】${sanitize(thought, 1000) || '—'}
@@ -1752,6 +1825,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
       answers12Count: Array.isArray(answers12) ? answers12.length : 0,
       answersRichLength: answersRich.length,
       mustKeepTermsCount: mustKeepTerms.length,
+      portfolioIntegrationGuideLength: portfolioIntegrationGuide.length,
       hasStoryDraft: !!storyDraft,
       hasFinanceData: !!fin,
       suspiciousKeywordFlags: checkSuspiciousKeywords(userPrompt),
@@ -1915,6 +1989,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
         coverage: strategicIntentCoverage,
         quality: executiveStoryQuality,
         mustKeepTerms,
+        portfolioIntegrationGuide,
       });
       if (repairedSections !== sections) {
         sections = repairedSections.map((s) => ({ ...s, body: cleanFinalStoryArtifacts(s.body) }));
@@ -2010,6 +2085,8 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
           'midtermConcept と strategicCore.primaryShift では、重要語を使って「既存の何から、どの顧客価値・市場・用途・技術領域へ転換するのか」を1文で明確にすること。',
           '上位の重要語が提示されている場合、少なくとも1語は midtermConcept または strategicCore.primaryShift に含めること。',
           'priorityStrategicThemes は「新技術の導入」「生産効率向上」などの汎用施策で終わらせず、入力にある重点市場・用途・顧客価値・中核能力に接続すること。',
+          '事業ポートフォリオが複数ある場合、事業別方針を並べるだけでなく、各事業の技術・顧客接点・開発/生産能力をどう組み合わせて統合価値を作るかを portfolioPolicy または strategicCore.portfolioShift に必ず含めること。',
+          '第4章へ接続する中計設計では、意識改革ではなく、重点顧客、開発テーマ、投資回収KPI、撤退基準、経営会議で見る指標へ落とし込める表現にすること。',
           'ただし、入力にない固有市場名・技術名・製品名は絶対に追加しないこと。',
         ].join('\n');
 
@@ -2019,6 +2096,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
           '',
           `【業績目標】\n${companyTargetsText}`,
           `【事業ポートフォリオ】${portfolioSummary}`,
+          `【事業統合・成長シフト仮説】\n${portfolioIntegrationGuide}`,
           `【勝ちパターン】${patternsLine}`,
           `【SWOT】S=${sanitize(strength, 300) || '—'}／W=${sanitize(weakness, 300) || '—'}／O=${sanitize(opportunity, 300) || '—'}／T=${sanitize(threat, 300) || '—'}`,
           `【事業・セグメント】${segmentsText}`,
