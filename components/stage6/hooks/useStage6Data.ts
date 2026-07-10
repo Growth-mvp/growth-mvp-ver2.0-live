@@ -638,13 +638,36 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     }
 
     // ★ baselineMargin を先に計算（op 推定に使用）
-    // baselineMargin = company baseline op / company baseline revenue
+    // ★ 修正：baselineYearly と baseFigures の両方から営業利益率を補完
     const baselineYearlyFinal = core.baselineYearly?.[core.baselineYearly.length - 1];
-    const companyBaselineRevenueMJPY = (baselineYearlyFinal?.revenue ?? 0) / 1_000_000;
-    const companyBaselineOpMJPY = (baselineYearlyFinal?.op_income ?? 0) / 1_000_000;
-    const baselineMargin = companyBaselineRevenueMJPY > 0
-      ? companyBaselineOpMJPY / companyBaselineRevenueMJPY
-      : 0;
+    const yearlyRevenueMJPY = (baselineYearlyFinal?.revenue ?? 0) / 1_000_000;
+    const yearlyOpMJPY = (baselineYearlyFinal?.op_income ?? 0) / 1_000_000;
+
+    const baseFiguresRevenueMJPY = (core.baseFigures?.revenue ?? 0) / 1_000_000;
+    const baseFiguresOpMJPY = (core.baseFigures?.operatingIncome ?? 0) / 1_000_000;
+
+    const marginFromYearly = yearlyRevenueMJPY > 0 && yearlyOpMJPY > 0
+      ? yearlyOpMJPY / yearlyRevenueMJPY
+      : undefined;
+
+    const marginFromBaseFigures = baseFiguresRevenueMJPY > 0 && baseFiguresOpMJPY > 0
+      ? baseFiguresOpMJPY / baseFiguresRevenueMJPY
+      : undefined;
+
+    const baselineMargin = marginFromYearly ?? marginFromBaseFigures ?? 0;
+
+    // ★ DEBUG: baselineMargin 計算確認用ログ
+    if (DEBUG) {
+      console.log('[STAGE6][baseline-margin-debug]', {
+        yearlyRevenueMJPY,
+        yearlyOpMJPY,
+        baseFiguresRevenueMJPY,
+        baseFiguresOpMJPY,
+        marginFromYearly: marginFromYearly?.toFixed(4),
+        marginFromBaseFigures: marginFromBaseFigures?.toFixed(4),
+        baselineMargin: baselineMargin.toFixed(4),
+      });
+    }
 
     // core.approved から各プロジェクトを反復
     // ★重要: buildProjectContributions の結果（raw_simulation）を使わない
@@ -687,8 +710,11 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         typeof impactRevenueMJPY === 'number' && Number.isFinite(impactRevenueMJPY)
           ? impactRevenueMJPY
           : undefined;
+      // ★ 修正：REVENUEプロジェクトでは targetOpIncomeMJPY を表示しない
+      // （既存データに残っている旧値を表示してしまうため）
+      const isRevenueRole = projectData?.role === 'REVENUE';
       const targetOpIncomeMJPY =
-        typeof impactOpIncomeMJPY === 'number' && Number.isFinite(impactOpIncomeMJPY)
+        !isRevenueRole && typeof impactOpIncomeMJPY === 'number' && Number.isFinite(impactOpIncomeMJPY)
           ? impactOpIncomeMJPY
           : undefined;
 
