@@ -708,41 +708,14 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
       const hasOpIncomeProgress = typeof impactOpIncomeProgress === 'number';
 
       if (hasOpIncomeBase && hasOpIncomeProgress) {
-        // ケース 1: op基盤あり＆進捗率あり（impactOpIncomeMJPY × impactOpIncomeProgress）
+        // ケース 1: 営業利益の明示入力あり（impactOpIncomeMJPY × impactOpIncomeProgress）
         deltaOpTotal = (impactOpIncomeMJPY * impactOpIncomeProgress) / 100;
-        opSourceUsed = 'stage5_progress';
-      } else if (hasOpIncomeBase && !hasOpIncomeProgress) {
-        // ケース 1-B: op基盤ありだが進捗率なし → 営業利益寄与額は 0（未入力扱い）
-        deltaOpTotal = 0;
-        opSourceUsed = 'unset_progress';
-
-        if (DEBUG) {
-          console.log('[STAGE6][op-no-progress]', {
-            projectTitle: p.proj,
-            impactOpIncomeMJPY,
-            impactOpIncomeProgress,
-            effectiveOpDelta: 0,
-            '説明': `営業利益見込みあるが進捗率未入力 → 営業利益寄与額は0`,
-          });
-        }
-      } else if (hasRevenueFields && deltaRevenueTotal > 0) {
-        // ケース 2: op基盤なし、revenue あり → プロジェクト別補完（10%）で推定「目標値」のみ
-        // ただし、営業利益寄与額は、進捗率があってこそ反映（補完値は目標値としてのみ表示）
-        // この場合、営業利益寄与額は 0（進捗率なし）
-        deltaOpTotal = 0;
-        opSourceUsed = 'unset_progress';
-
-        if (DEBUG) {
-          console.log('[STAGE6][op-fallback]', {
-            projectTitle: p.proj,
-            effectiveRevenueDelta: deltaRevenueTotal,
-            '説明': `op未設定（推定値は目標額としてのみ表示） → 営業利益寄与額は0（進捗率未入力）`,
-          });
-        }
+        opSourceUsed = 'stage5_op_progress';
       } else if (deltaRevenueTotal > 0 && baselineMargin > 0) {
-        // ケース 3: op基盤もrevenue基盤もない → baselineMargin で推定（会社全体の営業利益率）
+        // ケース 2: 売上寄与があれば、baselineMargin で営業利益を推定（従来の正常ロジック）
+        // 営業利益の明示入力がなくても、売上寄与から自然に営業利益が推定される
         deltaOpTotal = deltaRevenueTotal * baselineMargin;
-        opSourceUsed = 'estimated_from_margin';
+        opSourceUsed = 'estimated_from_revenue_margin';
 
         if (DEBUG) {
           console.log('[STAGE6][op-fallback-margin]', {
@@ -756,8 +729,8 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         }
       }
 
-      // ★ FIX-FINAL: source mixing 検出（修正：基盤の有無で判定）
-      const isMixedSource = hasRevenueFields !== hasOpIncomeBase && opSourceUsed !== 'estimated_from_project_revenue' && opSourceUsed !== 'estimated_from_margin';
+      // ★ FIX-FINAL: source mixing 検出（修正：ソース別判定）
+      const isMixedSource = hasRevenueFields !== hasOpIncomeBase && opSourceUsed !== 'estimated_from_revenue_margin';
 
       // Source の統一確認
       const revenueSourceUsed = hasRevenueFields ? 'stage5_progress' : 'unset';
@@ -784,15 +757,17 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         });
       }
 
-      // ★ 根拠情報（修正：営業利益基盤で判定）
+      // ★ 根拠情報（修正：ソース別判定）
       const evidence = {
         source: hasRevenueFields || (hasOpIncomeBase && hasOpIncomeProgress) ? 'stage5_progress' : 'unset',
         confidence: hasRevenueFields || (hasOpIncomeBase && hasOpIncomeProgress) ? 'high' : 'none',
-        notes: hasRevenueFields || hasOpIncomeBase
-          ? (hasRevenueFields ? `STAGE5実行度: 売上${impactRevenueProgress?.toFixed(0) ?? '?'}%` : '') +
-            (hasOpIncomeBase && hasOpIncomeProgress ? ` 営業利益${impactOpIncomeProgress?.toFixed(0) ?? '?'}%` : hasOpIncomeBase ? ' 営業利益見込みあり(進捗未入力)' : '') +
-            (opSourceUsed === 'estimated_from_margin' ? ' (追加op は margin推定)' : '')
-          : 'Formal field未設定',
+        notes: hasRevenueFields
+          ? (hasOpIncomeBase && hasOpIncomeProgress
+              ? `STAGE5実行度: 売上${impactRevenueProgress?.toFixed(0) ?? '?'}%, 営業利益${impactOpIncomeProgress?.toFixed(0) ?? '?'}%`
+              : `STAGE5実行度: 売上${impactRevenueProgress?.toFixed(0) ?? '?'}% (営業利益はmargin推定)`)
+          : hasOpIncomeBase && hasOpIncomeProgress
+            ? `営業利益${impactOpIncomeProgress?.toFixed(0) ?? '?'}%`
+            : 'Formal field未設定',
       };
 
       return {
