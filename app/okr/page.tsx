@@ -2065,7 +2065,6 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
    * （onChange で即 DB 更新でなく、onBlur で DB 更新）
    * ========================================================== */
   const [objDraft, setObjDraft] = useState<string | null>(null);
-  const [ownerDraft, setOwnerDraft] = useState<string | null>(null);
   const [isSavingOkr, setIsSavingOkr] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
@@ -2075,7 +2074,6 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
 
   // 表示値：draft があれば draft、無ければ mainOKR から取得
   const displayObjective = objDraft !== null ? objDraft : (mainOKR?.objective ?? '');
-  const displayOwner = ownerDraft !== null ? ownerDraft : (mainOKR?.owner ?? '');
 
   const selectedImpactRole = ((selectedProj as any)?.role || undefined) as ImpactRole | undefined;
   const selectedImpactAssumptions = ((selectedProj as any)?.impactAssumptions || {}) as ImpactAssumptions;
@@ -3281,8 +3279,8 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
               />
             </div>
 
-            {/* ★Phase 1: Project Owner + KPI Owner + Due Date */}
-            <div className="grid grid-cols-3 gap-3">
+            {/* ★Phase 1: Project Owner + Due Date */}
+            <div className="grid grid-cols-2 gap-3">
               {/* Project Owner （プロジェクト責任者） */}
               {/* ★ Phase 1: ownerName中心、ownerUserId は Phase 2 以降の user picker 連携を想定 */}
               <div className="space-y-2">
@@ -3308,37 +3306,6 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                     queueStage4SnapshotPersist();
                   }}
                   disabled={isHydrating || isApproved()}
-                />
-              </div>
-              {/* KPI Owner/OKR Owner （KPI担当） */}
-              <div className="space-y-2">
-                <label className="text-[11px] font-semibold text-zinc-700">KPI担当（任意）</label>
-                <input
-                  className="h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-[13px]"
-                  placeholder="氏名や役職など"
-                  value={displayOwner}
-                  onChange={(e) => {
-                    // ★ Phase 3A.5: local draft に保存（onChange では DB 更新しない）
-                    setOwnerDraft(e.target.value);
-                  }}
-                  onBlur={async () => {
-                    // onBlur で DB 更新を実行
-                    if (ownerDraft === null || ownerDraft === mainOKR?.owner || !selected) {
-                      // draft がない、または変更なし → DB 更新スキップ
-                      setOwnerDraft(null);
-                      return;
-                    }
-
-                    setIsSavingOkr(true);
-                    try {
-                      // ★ Phase 3A: owner を DB 更新
-                      await updateProjectOKRDb(selected.deptIdx, selected.projIdx, { owner: ownerDraft });
-                      setOwnerDraft(null);  // draft をクリア
-                    } finally {
-                      setIsSavingOkr(false);
-                    }
-                  }}
-                  disabled={isHydrating || isApproved() || isSavingOkr}
                 />
               </div>
               {/* Due Date */}
