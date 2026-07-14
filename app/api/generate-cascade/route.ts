@@ -2296,31 +2296,21 @@ function buildDeptFactPack(
     }
   }
 
-  // ★ fallback 4: constraint anchors（入力データが不足している場合の最終手段）
-  if (anchors.length < 8) {
-    const constraintHints = [
-      '経営課題の多層性を考慮する必要があります',
-      'デジタルトランスフォーメーションは継続的課題です',
-      '人材確保と育成は常に優先度が高い',
-      '顧客ニーズへの迅速な対応が求められます',
-      'サプライチェーンの最適化が進行中です',
-      '市場変化への適応力強化が重要です',
-      'コスト効率化と品質向上の両立が課題',
-      'グローバル展開の加速を計画中です',
-    ];
-
-    while (anchors.length < 8 && constraintHints.length > 0) {
-      anchors.push({
-        id: `fact-constraint-${anchors.length - 6}`,
-        text: constraintHints[anchors.length - 6] || '経営課題への対応が重要です',
-        source: 'finance', // constraint も finance カテゴリで扱う
-      });
-    }
+  // 入力に存在しない一般論を「事実」として水増ししない。
+  // anchors が0〜1件でも、その実在件数に合わせて後段の引用必須数を動的に調整する。
+  if (anchors.length < 2) {
+    console.warn('[cascade][factpack-quality]', {
+      deptName,
+      segmentName,
+      actualAnchorCount: anchors.length,
+      requiredCitationCount: Math.min(2, anchors.length),
+      note: 'insufficient_real_anchors_no_generic_fallback',
+    });
   }
 
   return {
     segmentName,
-    anchors: anchors.slice(0, 12), // 最大12個に制限、最小8個保証
+    anchors: anchors.slice(0, 12), // 最大12個。実データ由来の事実だけを返す
     customers: customersList.slice(0, 3),
     overview: overview.slice(0, 200),
     financeHints: financeHints.slice(0, 5),
@@ -3514,19 +3504,21 @@ export async function POST(req: NextRequest) {
         // ★ TASK 2: FACTPACK ブロック生成（anchors付き、引用ベース）
         const factPack = factPackByDept.get(name);
         const factPackBlock = (() => {
-          if (!factPack || factPack.anchors.length === 0) {
-            return `\n\n[FACTPACK]\n- segment: ${segKey}\n- anchors: （利用可能な事実なし）`;
-          }
-
-          const anchorLines = factPack.anchors
+          const anchors = factPack?.anchors ?? [];
+          const requiredCitationCount = Math.min(2, anchors.length);
+          const anchorLines = anchors
             .map((a) => `  - ${a.id}: "${sanitizeText(a.text, 100)}"`)
             .join('\n');
 
-          const customerLines = factPack.customers.length > 0
-            ? `\n- customers: ${factPack.customers.map((c) => `"${c}"`).join(', ')}`
+          const customerLines = (factPack?.customers?.length ?? 0) > 0
+            ? `\n- customers: ${(factPack?.customers ?? []).map((c) => `"${c}"`).join(', ')}`
             : '';
 
-          return `\n\n[FACTPACK]\n- segment: ${factPack.segmentName}${customerLines}\n- anchors (必ず2つ以上を reason/hypothesis で引用すること):\n${anchorLines}`;
+          const citationRule = requiredCitationCount === 0
+            ? '- citation rule: 利用可能なanchorがないため citations=[] とし、fact-idを創作しない。STAGE2最終ストーリーと6問回答を根拠に記述すること。'
+            : `- citation rule: citations は上記anchorから必ず${requiredCitationCount}個。reason/hypothesisにも同じ${requiredCitationCount}個を引用すること。`;
+
+          return `\n\n[FACTPACK]\n- segment: ${factPack?.segmentName ?? segKey}${customerLines}\n- requiredCitationCount: ${requiredCitationCount}\n${citationRule}\n- anchors:\n${anchorLines || '  - （利用可能な事実なし）'}`;
         })();
 
         // ★ デバッグログ
@@ -3608,8 +3600,8 @@ ${okrSeed || '  - （なし）'}${factPackBlock}${uniquenessRule}
 - 既存業務をそのまま言い換えただけの部門ミッションは禁止。必ず「上位戦略のどの変化を、この部門がどう実装するか」を書くこと。
 - ★TASK 2 引用ベース生成（FACTPACK から必ず根拠を引く）：
   - 各プロジェクトの title は必ず [FACTPACK] の customers または overview、または【STAGE2最終ストーリー】に実際に登場する固有名詞を1つ以上含むこと。
-  - reason と hypothesis には、[FACTPACK] の anchors ID を「」括弧で最低2つ以上引用すること。引用文は実際の anchor text だけを使い、例示の市場名・顧客名を創作しないこと。
-  - citations フィールドに、引用した anchor ID を列挙すること（例：["fact-cust-1", "fact-fin-2"]）
+  - reason と hypothesis の引用数は、各部門[FACTPACK]の requiredCitationCount に従うこと。引用文は実際の anchor text だけを使い、例示の市場名・顧客名を創作しないこと。
+  - citations フィールドには、当該部門のFACTPACKに実在するanchor IDだけを列挙すること。requiredCitationCount=0の場合は citations=[] とし、fact-idを創作しないこと。
 - ★対象部門の事業領域から外れる提案は禁止。既存事業と離れすぎた提案や、部門の守備範囲外の分野への展開は避けること。
 
 【部門ミッション記述ルール】
@@ -4000,13 +3992,14 @@ ${
 - lanes.new は必ず1個のプロジェクトを出す（OK: 1個、NG: 0個・2個以上）。
 - lanes.intraCollab は、事業部内連携が有効な場合は必ず1個の連携型プロジェクトを出す。該当が薄い場合でも候補を1個出し、sourceType="intraCollab"、collaborationType="intraDept" を付ける。
 - lanes.interCollab は、入力部門が2つ以上ある場合のみ1個の連携型プロジェクトを出す。入力部門が1つだけの場合は必ず projects=[] とし、架空の連携先を作らない。現在の入力部門数: ${requestedDeptNames.length}
-- ★TASK 2 引用必須：
-  - 各プロジェクトに citations フィールドを必ず含める（最低2個の anchor ID）。
-  - reason と hypothesis に「」で括られた anchor 引用を最低2つ含めること。
-  - 引用しない場合は生成失敗（再生成対象）。
+- ★TASK 2 引用ルール：
+  - 各プロジェクトに citations フィールドを必ず含める。
+  - 引用数は、各部門[FACTPACK]の requiredCitationCount（0〜2）と一致させること。
+  - citations は当該部門のanchorsに実在するIDだけを使う。requiredCitationCount=0の場合は citations=[] とし、reason/hypothesisにfact-idを記載しない。
+  - requiredCitationCountが1以上の場合、reason と hypothesis に「anchor本文」(fact-id) 形式で必要数を引用すること。
 - 各プロジェクトに generatedBy="ai"、generatedSlot (既存進化=1/2、新規探索=3、事業部内連携=4、事業部間連携=5)、generatedGroup="cascade_v1" を必ず含める。
 - financeSummary / businessPortfolio とかけ離れた非現実（売上10倍等）は避ける。
-- ★全プロジェクトに valueDriverLinks、skillRequirements、humanInvestments、citations を必ず含める（空は不可）。
+- ★全プロジェクトに valueDriverLinks、skillRequirements、humanInvestments、citations を必ず含める。citationsのみ requiredCitationCount=0 の場合は空配列を許可する。
 - valueDriverLinks は valueDriverKPIs の id から選ぶこと（自由記述禁止）。
 - humanInvestments は最低2カテゴリを含めること。
 - ★★重要：全プロジェクトで skillRequirements.executionSkills や humanInvestments が同一になることは絶対に禁止。各プロジェクトのアーキタイプ（品質/自動化/営業/新規/ITデータ/組織など）を推定し、それぞれに適したスキルと施策を割り当てること。
@@ -4150,61 +4143,103 @@ ${
      * ★TASK 2-2: Citations Grounding Gate + 1回再生成
      * ======================= */
 
-    // 検証関数
-    const hasMinCitations = (p: any): boolean => {
-      return Array.isArray(p?.citations) && p.citations.length >= 2;
+    // 部門ごとの実在anchor数に応じて、引用必須数を0〜2件で動的に決める。
+    const getValidAnchorIds = (deptName: string): Set<string> => {
+      const anchors = factPackByDept.get(deptName)?.anchors ?? [];
+      return new Set(
+        anchors
+          .map((a: any) => String(a?.id ?? '').trim())
+          .filter(Boolean),
+      );
     };
 
-    // ★新規: fact-id のカウント（全角括弧 （） と半角括弧 () の両方に対応）
-    const countFactIds = (text: string): number => {
-      // [（(] で全角か半角の開き括弧、[）)] で全角か半角の閉じ括弧
-      const factIdPattern = /[（(][^）)]*fact-[^）)]*[)）]/g;
-      const matches = text.match(factIdPattern);
-      return matches?.length ?? 0;
-    };
+    const getRequiredCitationCount = (deptName: string): number =>
+      Math.min(2, getValidAnchorIds(deptName).size);
 
-    // ★修正: inline quotes のマッチ数をカウント（引用符「』と括弧（）の両方に対応）
+    const extractFactIds = (text: string): string[] =>
+      Array.from(String(text ?? '').matchAll(/fact-[a-z0-9_-]+/gi))
+        .map((m) => m[0])
+        .filter(Boolean);
+
+    // 引用フォーマット数（診断ログ用）
     const countInlineQuotes = (p: any): number => {
       const text = `${p?.reason ?? ''} ${p?.hypothesis ?? ''}`;
-      // 引用符が 「」 または 『』、括弧が () または （） の両パターンに対応
-      // ★バグ修正①: 閉じ括弧を [」『] → [」』] に修正（『で閉じるのは誤り）
-      // パターン: [「『]...[」』] \s* [（(]...(fact-...)[)）]
       const citationPattern = /[「『][^」』]+[」』]\s*[（(][^）)]*fact-[^）)]*[)）]/g;
-      const matches = text.match(citationPattern);
-      return matches?.length ?? 0;
+      return text.match(citationPattern)?.length ?? 0;
     };
 
-    // ★新規: 段階的gating（Level A/B/C）
-    const getGroundingLevel = (p: any): { level: 'A' | 'B' | 'C'; matchCount: number; factIdCount: number } => {
-      const citations = Array.isArray(p?.citations) ? p.citations : [];
+    type GroundingLevel = {
+      level: 'A' | 'B' | 'C';
+      matchCount: number;
+      factIdCount: number;
+      requiredCitationCount: number;
+      validCitationCount: number;
+      invalidCitationCount: number;
+    };
+
+    const getGroundingLevel = (p: any, deptName: string): GroundingLevel => {
+      const validAnchorIds = getValidAnchorIds(deptName);
+      const requiredCitationCount = Math.min(2, validAnchorIds.size);
+      const citations = Array.isArray(p?.citations)
+        ? Array.from(new Set(p.citations.map((id: any) => String(id ?? '').trim()).filter(Boolean)))
+        : [];
+      const validCitations = citations.filter((id: string) => validAnchorIds.has(id));
+      const invalidCitationCount = citations.length - validCitations.length;
       const text = `${p?.reason ?? ''} ${p?.hypothesis ?? ''}`;
+      const validFactIdsInText = Array.from(
+        new Set(extractFactIds(text).filter((id) => validAnchorIds.has(id))),
+      );
       const inlineQuoteMatches = countInlineQuotes(p);
-      const factIdMatches = countFactIds(text);
 
-      // ★バグ修正②: Level A を強化（factIdMatches >= 1 → >= 2）
-      // Level A: citations>=2 && fact-id 出現 >=2（reason+hypothesisのどこか）
-      // 理由: retryPrompt で「reason/hypothesisに2箇所」を要求しているため、実装の判定と揃える
-      if (citations.length >= 2 && factIdMatches >= 2) {
-        return { level: 'A', matchCount: inlineQuoteMatches, factIdCount: factIdMatches };
+      // 実在anchorがない場合は、引用を捏造させずSTAGE2/6問回答で接地させる。
+      if (requiredCitationCount === 0) {
+        return {
+          level: 'A',
+          matchCount: inlineQuoteMatches,
+          factIdCount: 0,
+          requiredCitationCount,
+          validCitationCount: 0,
+          invalidCitationCount,
+        };
       }
 
-      // Level B: citations>=2 だが fact-id 出現 1回以下
-      if (citations.length >= 2) {
-        return { level: 'B', matchCount: inlineQuoteMatches, factIdCount: factIdMatches };
+      if (
+        validCitations.length >= requiredCitationCount &&
+        validFactIdsInText.length >= requiredCitationCount
+      ) {
+        return {
+          level: 'A',
+          matchCount: inlineQuoteMatches,
+          factIdCount: validFactIdsInText.length,
+          requiredCitationCount,
+          validCitationCount: validCitations.length,
+          invalidCitationCount,
+        };
       }
 
-      // Level C: citations<2
-      return { level: 'C', matchCount: inlineQuoteMatches, factIdCount: factIdMatches };
+      if (validCitations.length >= requiredCitationCount) {
+        return {
+          level: 'B',
+          matchCount: inlineQuoteMatches,
+          factIdCount: validFactIdsInText.length,
+          requiredCitationCount,
+          validCitationCount: validCitations.length,
+          invalidCitationCount,
+        };
+      }
+
+      return {
+        level: 'C',
+        matchCount: inlineQuoteMatches,
+        factIdCount: validFactIdsInText.length,
+        requiredCitationCount,
+        validCitationCount: validCitations.length,
+        invalidCitationCount,
+      };
     };
 
-    const hasInlineQuotes = (p: any): boolean => {
-      return countInlineQuotes(p) >= 2;
-    };
-
-    const isProjectGrounded = (p: any): boolean => {
-      const groundingLevel = getGroundingLevel(p);
-      return groundingLevel.level === 'A';
-    };
+    const isProjectGrounded = (p: any, deptName: string): boolean =>
+      getGroundingLevel(p, deptName).level === 'A';
 
     // Required fields チェック
     const hasRequiredFields = (p: any): boolean => {
@@ -4234,6 +4269,7 @@ ${
         citationCount: number;
         factIdCount: number;
         matchCount: number;
+        requiredCitationCount: number;
       }> = [];
 
       // 失敗したproject特定
@@ -4245,7 +4281,7 @@ ${
         if (dept?.lanes?.existing?.projects) {
           for (let pIdx = 0; pIdx < dept.lanes.existing.projects.length; pIdx++) {
             const proj = dept.lanes.existing.projects[pIdx];
-            const groundingLevel = getGroundingLevel(proj);
+            const groundingLevel = getGroundingLevel(proj, deptName);
 
             if (groundingLevel.level !== 'A') {
               const slot = pIdx + 1;
@@ -4273,6 +4309,7 @@ ${
                 citationCount,
                 factIdCount: groundingLevel.factIdCount,
                 matchCount: groundingLevel.matchCount,
+                requiredCitationCount: groundingLevel.requiredCitationCount,
               });
             }
           }
@@ -4282,7 +4319,7 @@ ${
         if (dept?.lanes?.new?.projects) {
           for (let pIdx = 0; pIdx < dept.lanes.new.projects.length; pIdx++) {
             const proj = dept.lanes.new.projects[pIdx];
-            const groundingLevel = getGroundingLevel(proj);
+            const groundingLevel = getGroundingLevel(proj, deptName);
 
             if (groundingLevel.level !== 'A') {
               const slot = 3 + pIdx;
@@ -4310,6 +4347,7 @@ ${
                 citationCount,
                 factIdCount: groundingLevel.factIdCount,
                 matchCount: groundingLevel.matchCount,
+                requiredCitationCount: groundingLevel.requiredCitationCount,
               });
             }
           }
@@ -4336,18 +4374,20 @@ ${
             .join('\n');
 
           // ★ テンプレ文：2つのanchorを「text」(fact-id)で埋める形式を強制
-          const templateExample = anchorsList.length >= 2
+          const templateExample = failed.requiredCitationCount >= 2
             ? `例：「${anchorsList[0].text}」(${anchorsList[0].id}) により${anchorsList[0].text.slice(0, 20)}が確認でき、` +
               `「${anchorsList[1].text}」(${anchorsList[1].id}) の観点から戦略を立案する`
-            : '例：「主要な事実」(fact-...) のサポートのもと、「別の事実」(fact-...) と組み合わせて提案する';
+            : failed.requiredCitationCount === 1
+              ? `例：「${anchorsList[0].text}」(${anchorsList[0].id}) を根拠に戦略を立案する`
+              : '利用可能なanchorがないため、fact-idを創作せずSTAGE2最終ストーリーと6問回答を根拠にする';
 
           // 再生成prompt
           const retryPrompt = `
 前回のプロジェクト案では、引用ベース生成の要件を満たしていません。
 現在の状況：
-- citations数: ${failed.citationCount}/2 (必須: 2個以上)
-- fact-id出現数: ${failed.factIdCount} (必須: 1回以上)
-- 引用フォーマット数: ${failed.matchCount} (推奨: 2回以上)
+- citations数: ${failed.citationCount}/${failed.requiredCitationCount} (必須数は実在anchor数に応じて決定)
+- 有効fact-id出現数: ${failed.factIdCount}/${failed.requiredCitationCount}
+- 引用フォーマット数: ${failed.matchCount}
 
 以下の部門について、${failed.laneType === 'existing' ? '既存進化レーン' : '新規探索レーン'}のプロジェクト案を修正してください：
 
@@ -4357,8 +4397,8 @@ ${
 ${anchorsText || '（利用可能なanchorsなし）'}
 
 【修正必須条件】
-1. citations は最低2個の anchor ID を含むこと（上記リストから選択すること、捏造禁止）
-2. reason と hypothesis に 「text」(fact-id) 形式で最低2箇所含めること（必ず括弧内に fact-id を記入）
+1. citations は上記リストから実在するIDをちょうど${failed.requiredCitationCount}個含めること（捏造禁止）
+2. reason と hypothesis に 「text」(fact-id) 形式で合計${failed.requiredCitationCount}箇所含めること
    ${templateExample}
 3. 固有名詞（顧客名/製品名/工程）を title に必須で含めること
 4. 他の部門と異なるanchorsを選ぶこと
@@ -4375,7 +4415,7 @@ ${JSON.stringify(failed.project, null, 2)}
   "mainLever": "ACQ" | "ARPU" | "CHURN" | "COST" | "EFFICIENCY" | "FUTURE",
   "horizon": "short" | "mid" | "long",
   "kind": "growth" | "cost" | "efficiency" | "future",
-  "citations": ["fact-...", "fact-..."],
+  "citations": ${failed.requiredCitationCount === 0 ? '[]' : failed.requiredCitationCount === 1 ? '["fact-..."]' : '["fact-...", "fact-..."]'},
   "valueDriverLinks": [...],
   "skillRequirements": {...},
   "humanInvestments": [...],
@@ -4399,7 +4439,7 @@ ${JSON.stringify(failed.project, null, 2)}
               const retryProject = retrySafe.success ? retrySafe.data : retryParsed;
 
               // 再検証: grounding + required fields
-              if (isProjectGrounded(retryProject) && hasRequiredFields(retryProject)) {
+              if (isProjectGrounded(retryProject, deptName) && hasRequiredFields(retryProject)) {
                 // 成功：差し替え
                 if (failed.laneType === 'existing') {
                   depts[failed.deptIndex].lanes.existing.projects[failed.projectIndex] = retryProject;
@@ -4409,7 +4449,7 @@ ${JSON.stringify(failed.project, null, 2)}
                 console.log(`[cascade][grounding][retry-success] dept=${deptName} slot=${slot}`);
               } else {
                 // 再生成でもNGなら fallback（既存結果を採用）
-                const failReason = !isProjectGrounded(retryProject) ? 'grounding_ng' : 'required_fields_missing';
+                const failReason = !isProjectGrounded(retryProject, deptName) ? 'grounding_ng' : 'required_fields_missing';
                 console.warn(`[cascade][grounding][fail] dept=${deptName} slot=${slot} reason="${failReason}" (再生成でも条件未充足、既存結果を採用)`);
                 // ★ TASK 5: grounding failed として記録
                 groundingFailedDepts.add(deptName);
@@ -4584,6 +4624,7 @@ ${JSON.stringify(failed.project, null, 2)}
         const factPack = factPackByDept.get(conflict.deptBName);
         const anchorsList = factPack?.anchors ?? [];
         const anchorsText = anchorsList.map((a: any) => `  - ${a.id}: ${a.text}`).join('\n');
+        const requiredCitationCount = Math.min(2, anchorsList.length);
 
         const retryPrompt = `
 部門間で同じ内容のプロジェクト案が出現しました：
@@ -4600,7 +4641,7 @@ ${JSON.stringify(failed.project, null, 2)}
 2. 衝突相手と異なる固有名詞を使うこと
 3. 衝突相手と異なるanchors を引用すること
 4. mainLever を変える（可能であれば）
-5. citations >= 2 & 「」引用 >= 2（「text」(fact-id) 形式で2回以上） & required fields（title/reason/hypothesis/mainLever/kind/horizon/valueDriverLinks>=1/skillRequirements/humanInvestments>=1）は必須
+5. citations と「text」(fact-id) 引用は、利用可能なanchor数に応じて${requiredCitationCount}件必須。実在しないIDは禁止。required fields（title/reason/hypothesis/mainLever/kind/horizon/valueDriverLinks>=1/skillRequirements/humanInvestments>=1）も必須
 
 【このセグメントで利用可能なFACTPACK anchors】
 ${anchorsText || '（利用可能なanchorsなし）'}
@@ -4615,7 +4656,7 @@ ${anchorsText || '（利用可能なanchorsなし）'}
   "mainLever": "ACQ" | "ARPU" | "CHURN" | "COST" | "EFFICIENCY" | "FUTURE",
   "horizon": "short" | "mid" | "long",
   "kind": "growth" | "cost" | "efficiency" | "future",
-  "citations": ["fact-...", "fact-..."],
+  "citations": ${requiredCitationCount === 0 ? '[]' : requiredCitationCount === 1 ? '["fact-..."]' : '["fact-...", "fact-..."]'},
   "valueDriverLinks": [...],
   "skillRequirements": {...},
   "humanInvestments": [...],
@@ -4639,7 +4680,7 @@ ${anchorsText || '（利用可能なanchorsなし）'}
             const retryProject = retrySafe.success ? retrySafe.data : retryParsed;
 
             // 再検証: grounding + required fields
-            if (isProjectGrounded(retryProject) && hasRequiredFields(retryProject)) {
+            if (isProjectGrounded(retryProject, conflict.deptBName) && hasRequiredFields(retryProject)) {
               // 成功：差し替え
               if (conflict.laneTypeB === 'existing') {
                 depts[conflict.deptBIdx].lanes.existing.projects[conflict.slotB - 1] = retryProject;
@@ -4649,7 +4690,7 @@ ${anchorsText || '（利用可能なanchorsなし）'}
               console.log(`[cascade][sim][regen-success] dept=${conflict.deptBName} slot=${conflict.slotB} attempt=${attempt}`);
             } else {
               // 再生成でもNGなら fallback
-              const failReason = !isProjectGrounded(retryProject) ? 'grounding_ng' : 'required_fields_missing';
+              const failReason = !isProjectGrounded(retryProject, conflict.deptBName) ? 'grounding_ng' : 'required_fields_missing';
               console.warn(`[cascade][sim][regen-fail] dept=${conflict.deptBName} slot=${conflict.slotB} attempt=${attempt} reason="${failReason}"`);
               // ★バグ修正③: conflictFailedDepts に追加
               conflictFailedDepts.add(conflict.deptBName);
@@ -4678,13 +4719,18 @@ ${anchorsText || '（利用可能なanchorsなし）'}
       return (title ?? '').replace(/^\s*\[ai#\d+\]\s*/i, '').trim();
     };
 
-    // 画面表示用：FACTPACK ID や DEBUG などの内部情報を除去する
+    // 画面表示用：FACTPACK ID、DEBUG、旧版の汎用constraint文を除去する。
+    // fact-constraint--3 のような負数IDや、将来追加されるfact-*も包括的に対象にする。
     const stripInternalMarkers = (value: unknown): string => {
       return String(value ?? '')
         .replace(/【DEBUG】[^\n。]*[。]?/g, '')
-        .replace(/[（(]\s*fact-(?:seg|cust|fin)-\d+\s*[）)]/gi, '')
-        .replace(/\[\s*fact-(?:seg|cust|fin)-\d+\s*\]/gi, '')
+        .replace(/[「『]?(?:経営課題への対応が重要です|経営課題の多層性を考慮する必要があります|デジタルトランスフォーメーションは継続的課題です|人材確保と育成は常に優先度が高い|顧客ニーズへの迅速な対応が求められます|サプライチェーンの最適化が進行中です|市場変化への適応力強化が重要です|コスト効率化と品質向上の両立が課題|グローバル展開の加速を計画中です)[」』]?/g, '')
+        .replace(/[（(]\s*fact-[a-z0-9_-]+\s*[）)]/gi, '')
+        .replace(/\[\s*fact-[a-z0-9_-]+\s*\]/gi, '')
+        .replace(/(^|[。．]\s*)\s*を?(?:考慮し|踏まえ)[、，]\s*/g, '$1')
+        .replace(/([」』])\s+を根拠に/g, '$1を根拠に')
         .replace(/\s*、\s*を根拠に/g, 'を根拠に')
+        .replace(/^[、，。．\s]+/g, '')
         .replace(/\s+/g, ' ')
         .trim();
     };
@@ -4702,13 +4748,27 @@ ${anchorsText || '（利用可能なanchorsなし）'}
       }));
     };
 
-    const sanitizeProjectForUi = (proj: any) => ({
-      ...proj,
-      title: stripInternalMarkers(proj?.title),
-      reason: stripInternalMarkers(proj?.reason),
-      hypothesis: stripInternalMarkers(proj?.hypothesis),
-      okrs: sanitizeOkrsForUi(proj?.okrs ?? []),
-    });
+    const sanitizeProjectForUi = (proj: any, deptName: string) => {
+      const validAnchorIds = getValidAnchorIds(deptName);
+      const citations = Array.isArray(proj?.citations)
+        ? Array.from(
+            new Set(
+              proj.citations
+                .map((id: any) => String(id ?? '').trim())
+                .filter((id: string) => validAnchorIds.has(id)),
+            ),
+          )
+        : [];
+
+      return {
+        ...proj,
+        citations,
+        title: stripInternalMarkers(proj?.title),
+        reason: stripInternalMarkers(proj?.reason),
+        hypothesis: stripInternalMarkers(proj?.hypothesis),
+        okrs: sanitizeOkrsForUi(proj?.okrs ?? []),
+      };
+    };
 
     // P0: Prefix強制用関数
     const ensurePrefix = (deptName: string, title: string) => {
@@ -5243,10 +5303,11 @@ ${anchorsText || '（利用可能なanchorsなし）'}
 
       for (const failed of failedProjects.slice(0, 12)) {
         const factPack = factPackByDept.get(failed.deptName);
-        const anchorsText = (factPack?.anchors ?? [])
-          .slice(0, 12)
+        const strategyRetryAnchors = (factPack?.anchors ?? []).slice(0, 12);
+        const anchorsText = strategyRetryAnchors
           .map((a: any) => `- ${a.id}: ${a.text}`)
           .join('\n');
+        const requiredCitationCount = Math.min(2, strategyRetryAnchors.length);
         const laneLabel =
           failed.laneType === 'existing' ? (failed.slot === 1 ? '既存深掘' : '既存進化') :
           failed.laneType === 'new' ? '新規探索' :
@@ -5279,7 +5340,7 @@ ${JSON.stringify(failed.project, null, 2)}
 1. title は「${failed.deptName}：」で始め、上記の具体語候補を最低1語含める。
 2. 「顧客サポート向上」「製品品質改善」「新規市場開拓」「デジタルマーケティング」「業務効率化」などの汎用タイトルは禁止。
 3. reason/hypothesis は、STAGE2最終ストーリーのどの変化をこの部門が実装するのかを書く。
-4. citations はFACTPACK anchorsから最低2個。reason/hypothesisにも「text」(fact-id) 形式で引用を入れる。
+4. citations はFACTPACK anchorsから${requiredCitationCount}個。reason/hypothesisにも同じ件数だけ「text」(fact-id) 形式で引用を入れる。anchorが0件なら citations=[] とし、fact-idを創作しない。
 5. JSONのみ返す。
 
 {
@@ -5289,7 +5350,7 @@ ${JSON.stringify(failed.project, null, 2)}
   "mainLever": "ACQ" | "ARPU" | "CHURN" | "COST" | "EFFICIENCY" | "FUTURE",
   "horizon": "short" | "mid" | "long",
   "kind": "growth" | "cost" | "efficiency" | "future",
-  "citations": ["fact-...", "fact-..."],
+  "citations": ${requiredCitationCount === 0 ? '[]' : requiredCitationCount === 1 ? '["fact-..."]' : '["fact-...", "fact-..."]'},
   "valueDriverLinks": [...],
   "skillRequirements": {...},
   "humanInvestments": [...],
@@ -6190,9 +6251,9 @@ ${secondPassDeptBlock}
               const safeInterCollabProjectsWithNarrative = safeInterCollabProjects.map((p) => ensureReadableProjectNarrative(p, 'interCollab'));
 
               // ★ P0: 全プロジェクトに部門名prefix強制（[AI#]除去後）
-              const prefixedExistingProjects = safeExistingProjectsWithNarrative.map((p) => ({ ...sanitizeProjectForUi(stripAllAiPrefixes(p)), sourceType: 'existing' as const }));
-              const prefixedNewProjects = safeNewProjectsWithNarrative.map((p) => ({ ...sanitizeProjectForUi(stripAllAiPrefixes(p)), sourceType: 'new' as const }));
-              const prefixedIntraCollabProjects = safeIntraCollabProjectsWithNarrative.map((p) => ({ ...sanitizeProjectForUi(stripAllAiPrefixes(normalizeCollabProjectTitle(p, 'intraCollab'))), sourceType: 'intraCollab' as const, collaborationType: 'intraDept' as const }));
+              const prefixedExistingProjects = safeExistingProjectsWithNarrative.map((p) => ({ ...sanitizeProjectForUi(stripAllAiPrefixes(p), name), sourceType: 'existing' as const }));
+              const prefixedNewProjects = safeNewProjectsWithNarrative.map((p) => ({ ...sanitizeProjectForUi(stripAllAiPrefixes(p), name), sourceType: 'new' as const }));
+              const prefixedIntraCollabProjects = safeIntraCollabProjectsWithNarrative.map((p) => ({ ...sanitizeProjectForUi(stripAllAiPrefixes(normalizeCollabProjectTitle(p, 'intraCollab')), name), sourceType: 'intraCollab' as const, collaborationType: 'intraDept' as const }));
               const prefixedInterCollabProjects = safeInterCollabProjectsWithNarrative.map((p) => {
                 const normalized = normalizeCollabProjectTitle(p, 'interCollab');
                 const guessedPartner =
@@ -6200,7 +6261,7 @@ ${secondPassDeptBlock}
                   String(normalized?.title ?? '').match(/^(.+?)(?:との|×|x|X)/)?.[1]?.trim() ||
                   partnerDeptName;
                 return {
-                  ...sanitizeProjectForUi(stripAllAiPrefixes(normalized)),
+                  ...sanitizeProjectForUi(stripAllAiPrefixes(normalized), name),
                   sourceType: 'interCollab' as const,
                   collaborationType: 'interDept' as const,
                   partnerDepartment: guessedPartner,
