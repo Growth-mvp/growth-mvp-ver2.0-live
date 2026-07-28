@@ -55,7 +55,7 @@ const TEMPLATE12: { id: string; question: string; reason: string; chapter: numbe
   // 章1（どう戦う）- 6問
   {
     id: 'ch1-q1',
-    question: '次の時代、私たちの事業を取り巻く市場や環境はどのような変化や世界が待っているでしょうか？',
+    question: '5年後、どんな商品やサービスが人々の生活を支え、また社会や経済を支えているでしょうか？',
     reason: '前提をバックキャスト思考で考えることで、フォアキャスト思考から抜け出せます。',
     chapter: 1,
     required: false,
