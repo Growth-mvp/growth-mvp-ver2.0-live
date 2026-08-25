@@ -1123,11 +1123,11 @@ function MidtermDesignBox({
   // 統一した表示値：DB保存値 > 元データ
   const effectiveMidtermStrategy = stage2FinalDocumentEdits?.midtermStrategy ?? midtermStrategy;
 
+  if (!effectiveMidtermStrategy) return null;
+
   // 編集値と表示値を統一
   const editableMidtermStrategy = effectiveMidtermStrategy;
   const displayMidtermStrategy = effectiveMidtermStrategy;
-
-  if (!effectiveMidtermStrategy) return null;
 
   const hasAny = Object.values(effectiveMidtermStrategy).some((v) =>
     Array.isArray(v) ? v.length > 0 : typeof v === 'string' && v.trim()
@@ -1696,7 +1696,7 @@ export function StrategyStoryPreview({
             <h1 className="mb-2 text-4xl font-bold tracking-tight text-slate-950">
               全社戦略
             </h1>
-            <p className="text-sm font-medium text-slate-600">経営戦略ストーリー</p>
+            <p className="text-lg font-medium text-slate-800">社員に伝えたい「経営の意図」</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             {companyName && (
@@ -1771,7 +1771,15 @@ export function StrategyStoryPreview({
               }}
             />
             <StrategicAssumptionBlock
-              assumptions={stage2FinalDocumentEdits?.assumptions || strategicAssumptions}
+              assumptions={
+                stage2FinalDocumentEdits?.assumptions
+                  ? {
+                      external: stage2FinalDocumentEdits.assumptions.external ?? [],
+                      internal: stage2FinalDocumentEdits.assumptions.internal ?? [],
+                      implications: stage2FinalDocumentEdits.assumptions.implications ?? [],
+                    }
+                  : strategicAssumptions
+              }
               isEditMode={isEditMode}
               onAssumptionsChange={(assumptions) => {
                 onDocumentEditsChange?.({
