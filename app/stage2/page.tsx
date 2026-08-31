@@ -3383,6 +3383,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
       // Clear finalized versions via setter so new generation is displayed
       const store = useStrategyStore.getState();
+      (store as any).setFinalStoryEdited([]);
       (store as any).setFinalStoryFinal([]);
       (store as any).setFinalStory([]);
 
