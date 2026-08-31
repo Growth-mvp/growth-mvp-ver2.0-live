@@ -15,14 +15,22 @@ export default function PrivacyPage() {
           <div className="prose prose-sm max-w-none text-zinc-700 space-y-6">
 
             <section>
-              <h2 className="text-[18px] font-semibold text-zinc-900 mb-3">1. ポリシーの適用範囲</h2>
+              <h2 className="text-[18px] font-semibold text-zinc-900 mb-3">1. 事業者情報</h2>
+              <p className="text-zinc-600">
+                <strong>事業者：</strong>株式会社センターボード<br/>
+                ※ 所在地・代表者情報は<Link href="/contact" className="text-[color:var(--accent)] hover:opacity-90 underline">お問い合わせ</Link>ください。
+              </p>
+            </section>
+
+            <section>
+              <h2 className="text-[18px] font-semibold text-zinc-900 mb-3">2. ポリシーの適用範囲</h2>
               <p className="text-zinc-600 leading-relaxed">
                 本ポリシーは、株式会社センターボードが提供する GROWTH SHIFT（以下「本サービス」）における個人情報および利用企業の情報の取扱いについて定めるものです。本サービスの利用にあたり、利用企業およびそのユーザーは本ポリシーに同意するものとします。
               </p>
             </section>
 
             <section>
-              <h2 className="text-[18px] font-semibold text-zinc-900 mb-3">2. 収集する情報</h2>
+              <h2 className="text-[18px] font-semibold text-zinc-900 mb-3">3. 収集する情報</h2>
               <p className="text-zinc-600 font-semibold mb-2">本サービス利用時に以下の情報を収集・保存します：</p>
               <ul className="space-y-2 text-zinc-600">
                 <li className="flex gap-3">
@@ -49,7 +57,7 @@ export default function PrivacyPage() {
             </section>
 
             <section>
-              <h2 className="text-[18px] font-semibold text-zinc-900 mb-3">3. 情報の利用目的</h2>
+              <h2 className="text-[18px] font-semibold text-zinc-900 mb-3">4. 情報の利用目的</h2>
               <ul className="space-y-2 text-zinc-600">
                 <li className="flex gap-3">
                   <span className="flex-shrink-0">•</span>
@@ -79,15 +87,15 @@ export default function PrivacyPage() {
             </section>
 
             <section>
-              <h2 className="text-[18px] font-semibold text-zinc-900 mb-3">4. 個人情報入力に関する注意</h2>
+              <h2 className="text-[18px] font-semibold text-zinc-900 mb-3">5. 個人情報入力に関する注意</h2>
               <p className="text-zinc-600 leading-relaxed">
                 本サービスは、企業向けの PoC ツールです。利用企業の事業情報や財務データの入力を想定していますが、<strong>従業員の個人情報（氏名、住所、連絡先等）の入力は避けてください。</strong>誤って入力された場合、該当情報に対して適切なセキュリティ保護が適用される場合があります。
               </p>
             </section>
 
             <section>
-              <h2 className="text-[18px] font-semibold text-zinc-900 mb-3">5. 第三者サービスの利用</h2>
-              <p className="text-zinc-600 mb-3">本サービスは、以下の第三者サービスと連携しています：</p>
+              <h2 className="text-[18px] font-semibold text-zinc-900 mb-3">6. 外部サービス事業者への情報処理委託</h2>
+              <p className="text-zinc-600 mb-3">本サービスの提供に必要な範囲で、以下の外部サービス事業者に情報の処理を委託しています。これらの事業者は、本サービスの提供目的でのみ情報を取扱います：</p>
               <ul className="space-y-2 text-zinc-600 text-[13px]">
                 <li className="flex gap-3">
                   <span className="flex-shrink-0">•</span>
@@ -95,7 +103,7 @@ export default function PrivacyPage() {
                 </li>
                 <li className="flex gap-3">
                   <span className="flex-shrink-0">•</span>
-                  <span><strong>OpenAI API：</strong>AI 生成処理。入力内容が API に送信され、生成結果が返される。ログは OpenAI の ポリシーに従い保存・削除。</span>
+                  <span><strong>OpenAI API：</strong>AI 生成処理。入力内容が OpenAI に送信され、生成結果が返されます。OpenAI では、ご指定がない限りデータをモデル学習に使用しません（OpenAI の設定に基づく）。詳細は OpenAI のプライバシーポリシーをご参照ください。</span>
                 </li>
                 <li className="flex gap-3">
                   <span className="flex-shrink-0">•</span>
@@ -116,54 +124,55 @@ export default function PrivacyPage() {
             </section>
 
             <section>
-              <h2 className="text-[18px] font-semibold text-zinc-900 mb-3">6. 安全管理措置</h2>
+              <h2 className="text-[18px] font-semibold text-zinc-900 mb-3">7. 安全管理措置</h2>
+              <p className="text-zinc-600 mb-3">本サービスでは、情報の保護のため以下の技術的・組織的な対策を実施しています：</p>
               <ul className="space-y-2 text-zinc-600">
                 <li className="flex gap-3">
                   <span className="flex-shrink-0">•</span>
-                  <span>SSL/TLS 暗号化通信によるデータ保護</span>
+                  <span>通信の SSL/TLS 暗号化</span>
                 </li>
                 <li className="flex gap-3">
                   <span className="flex-shrink-0">•</span>
-                  <span>Supabase が提供するデータベース暗号化</span>
+                  <span>ユーザー認証・認可によるアクセス制御</span>
                 </li>
                 <li className="flex gap-3">
                   <span className="flex-shrink-0">•</span>
-                  <span>アクセス認証・認可による不正利用防止</span>
-                </li>
-                <li className="flex gap-3">
-                  <span className="flex-shrink-0">•</span>
-                  <span>Vercel による DDoS 対策・不正アクセス検知</span>
+                  <span>利用サービス事業者が提供するセキュリティ機能の活用</span>
                 </li>
               </ul>
             </section>
 
             <section>
-              <h2 className="text-[18px] font-semibold text-zinc-900 mb-3">7. 情報の保存・削除</h2>
+              <h2 className="text-[18px] font-semibold text-zinc-900 mb-3">8. 情報の保存・削除</h2>
               <ul className="space-y-2 text-zinc-600">
                 <li className="flex gap-3">
                   <span className="flex-shrink-0">•</span>
-                  <span><strong>保存期間：</strong>本サービス利用中および PoC 終了後、PoC 契約に基づく保管期間</span>
+                  <span><strong>保存期間：</strong>本サービス利用中および PoC 終了後、PoC 契約に基づく保管期間内</span>
                 </li>
                 <li className="flex gap-3">
                   <span className="flex-shrink-0">•</span>
-                  <span><strong>削除要望：</strong>本サービス終了時またはご要望の場合、弊社に通知いただければ、PoC 個別契約に基づき情報を削除します。ただし、法的保存義務がある場合は除きます。</span>
+                  <span><strong>削除要望：</strong>本サービス終了時またはご要望の場合、弊社に通知いただければ、PoC 個別契約に基づき当社のシステムから情報を削除します。ただし、法的保存義務がある場合は除きます。</span>
                 </li>
                 <li className="flex gap-3">
                   <span className="flex-shrink-0">•</span>
-                  <span><strong>AI 学習利用：</strong>PoC 改善目的での生成ログ分析は行われる場合がありますが、機密情報の無制限な利用は行いません。</span>
+                  <span><strong>外部サービス側の保持：</strong>OpenAI 等の外部サービス事業者が保持するデータの削除については、各事業者のポリシーに従います。詳細は各サービスのプライバシーポリシーをご参照ください。</span>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex-shrink-0">•</span>
+                  <span><strong>PoC 改善利用：</strong>PoC 改善目的での生成ログ分析は行う場合がありますが、利用企業の機密情報の無制限な利用・第三者提供は行いません。具体的な改善利用については、個別合意で定めます。</span>
                 </li>
               </ul>
             </section>
 
             <section>
-              <h2 className="text-[18px] font-semibold text-zinc-900 mb-3">8. お問い合わせ窓口</h2>
+              <h2 className="text-[18px] font-semibold text-zinc-900 mb-3">9. お問い合わせ窓口</h2>
               <p className="text-zinc-600">
                 個人情報・プライバシーに関するご質問・ご懸念は、<Link href="/contact" className="text-[color:var(--accent)] hover:opacity-90 underline">お問い合わせフォーム</Link>までお願いいたします。
               </p>
             </section>
 
             <section>
-              <h2 className="text-[18px] font-semibold text-zinc-900 mb-3">9. ポリシーの変更</h2>
+              <h2 className="text-[18px] font-semibold text-zinc-900 mb-3">10. ポリシーの変更</h2>
               <p className="text-zinc-600 leading-relaxed">
                 本ポリシーは、法令変更またはサービス改善に伴い、予告なく変更される場合があります。重要な変更の場合は、利用企業にご通知いたします。
               </p>
