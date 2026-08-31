@@ -2104,15 +2104,6 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
 
     const baseRow = buildDbRowFromState(mergedState);
 
-    // ★ TRACE A: baseRow の final_story_draft を確認
-    try {
-      const { calculateStoryFingerprint, fingerprintToString } = await import('@/utils/diagnostics/storyFingerprint');
-      const fpBase_finalStoryDraft = calculateStoryFingerprint(baseRow.final_story_draft);
-      console.log('[TRACE] BASEROW_CHECK final_story_draft:', fingerprintToString(fpBase_finalStoryDraft, ''));
-    } catch (e) {
-      console.warn('[TRACE] BASEROW_CHECK failed:', e);
-    }
-
     // ★ TASK 13-1: Checkpoint 3 - ceo_intent in baseRow after buildDbRowFromState
     if (DEBUG) console.log('[SAVE baseRow ceo_intent]', {
       len: lenStr((baseRow as any).ceo_intent),
@@ -2185,41 +2176,6 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       };
       delete updatePayload.created_at;
 
-      // ★ TRACE A: Spread後のupdatePayloadで上書きされていないか確認
-      try {
-        const { calculateStoryFingerprint, fingerprintToString } = await import('@/utils/diagnostics/storyFingerprint');
-        const fpPayload_finalStoryDraft = calculateStoryFingerprint(updatePayload.final_story_draft);
-        console.log('[TRACE] UPDATEPAYLOAD_AFTER_SPREAD final_story_draft:', fingerprintToString(fpPayload_finalStoryDraft, ''));
-        console.log('[TRACE] SPREAD_ORDER_CHECK', {
-          baseRow_had_fsd: !!baseRow.final_story_draft,
-          updatePayload_has_fsd: !!updatePayload.final_story_draft,
-          baseRow_fsd_hash: baseRow.final_story_draft ? 'has-value' : 'null',
-        });
-      } catch (e) {
-        console.warn('[TRACE] UPDATEPAYLOAD_AFTER_SPREAD failed:', e);
-      }
-
-      // ★ TRACE: Normalized payload直後のfingerprintを記録
-      try {
-        const { calculateStoryFingerprint, fingerprintToString } = await import('@/utils/diagnostics/storyFingerprint');
-        const fpNorm_finalStory = calculateStoryFingerprint(updatePayload.final_story);
-        const fpNorm_finalStoryDraft = calculateStoryFingerprint(updatePayload.final_story_draft);
-        const fpNorm_storyDraft = calculateStoryFingerprint(updatePayload.story_draft);
-        const fpNorm_story = calculateStoryFingerprint(updatePayload.story);
-
-        console.log('[TRACE] NORMALIZED_PAYLOAD fields:', {
-          final_story_exists: !!updatePayload.final_story,
-          final_story_draft_exists: !!updatePayload.final_story_draft,
-          story_draft_exists: !!updatePayload.story_draft,
-          story_exists: !!updatePayload.story,
-        });
-        console.log(`[TRACE] NORMALIZED_PAYLOAD ${fingerprintToString(fpNorm_finalStory, 'final_story')}`);
-        console.log(`[TRACE] NORMALIZED_PAYLOAD ${fingerprintToString(fpNorm_finalStoryDraft, 'final_story_draft')}`);
-        console.log(`[TRACE] NORMALIZED_PAYLOAD ${fingerprintToString(fpNorm_storyDraft, 'story_draft')}`);
-        console.log(`[TRACE] NORMALIZED_PAYLOAD ${fingerprintToString(fpNorm_story, 'story')}`);
-      } catch (traceErr) {
-        console.warn('[TRACE] Failed to log normalized payload:', traceErr);
-      }
 
       // ★ 指示A：updatePayload に okr_target_scores が含まれているか確認
       if (DEBUG) {
@@ -2324,21 +2280,6 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         expectedRev = typeof revision === 'number' ? revision : currentRev;
       }
 
-      // ★ TRACE B: Supabase UPDATE 直前
-      try {
-        const { calculateStoryFingerprint, fingerprintToString } = await import('@/utils/diagnostics/storyFingerprint');
-        const fpUpdate_finalStoryDraft = calculateStoryFingerprint(updatePayload.final_story_draft);
-        console.log('[TRACE] PRE_SUPABASE_UPDATE final_story_draft:', fingerprintToString(fpUpdate_finalStoryDraft, ''));
-        console.log('[TRACE] PRE_SUPABASE_UPDATE payload keys:', {
-          has_final_story_draft: 'final_story_draft' in updatePayload,
-          has_final_story: 'final_story' in updatePayload,
-          timestamp: new Date().toISOString(),
-          strategyDataId: cleanCompanyId,
-        });
-      } catch (e) {
-        console.warn('[TRACE] PRE_SUPABASE_UPDATE failed:', e);
-      }
-
       let updateQuery = supabase
         .from(T_STRATEGY)
         .update(updatePayload)
@@ -2361,29 +2302,6 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
 
       // ★重要：UPDATEの戻り値は必ず「全列」を返す（部分列だと store を壊す）
       const upd = await updateQuery.select('*').maybeSingle();
-
-      // ★ TRACE B: Supabase UPDATE直後の結果を確認
-      try {
-        const { calculateStoryFingerprint, fingerprintToString } = await import('@/utils/diagnostics/storyFingerprint');
-        if (upd.data) {
-          const fpResult_finalStoryDraft = calculateStoryFingerprint(upd.data.final_story_draft);
-          console.log('[TRACE] POST_SUPABASE_UPDATE final_story_draft:', fingerprintToString(fpResult_finalStoryDraft, ''));
-          console.log('[TRACE] POST_SUPABASE_UPDATE comparison', {
-            sent_hash: 'calculating...',
-            received_hash: 'from-upd.data',
-            strategyDataId: (upd.data as any).id || cleanCompanyId,
-            error: upd.error ? 'YES' : 'NO',
-            timestamp: new Date().toISOString(),
-          });
-        } else if (upd.error) {
-          console.log('[TRACE] POST_SUPABASE_UPDATE error:', {
-            error: upd.error,
-            timestamp: new Date().toISOString(),
-          });
-        }
-      } catch (e) {
-        console.warn('[TRACE] POST_SUPABASE_UPDATE logging failed:', e);
-      }
 
       // ★ CRITICAL TEST: Verify revision integrity (DB is source of truth)
       if (upd.data) {
