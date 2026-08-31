@@ -568,7 +568,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       try {
         if (fileType === 'csv') {
           const text = buffer.toString('utf-8');
-          const table = parseCSV(text);
+          let table: ExtractedTable;
+          try {
+            table = parseCSV(text);
+          } catch (err) {
+            const errorMsg = err instanceof Error ? err.message : String(err);
+            // Check if this is a validation error we defined
+            if (errorMsg.includes('exceeds maximum') || errorMsg.includes('row limit')) {
+              throw new Error(`CSV validation error: ${errorMsg}`);
+            } else {
+              // Unexpected error - use generic message
+              throw new Error('Failed to parse CSV file');
+            }
+          }
 
           // 標準解析（既存）
           candidates = buildCandidatesFromTable(table);
@@ -596,7 +608,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             }
           }
         } else if (fileType === 'excel') {
-          const tables = parseExcel(buffer);
+          let tables: ExtractedTable[] = [];
+          try {
+            tables = parseExcel(buffer);
+          } catch (err) {
+            const errorMsg = err instanceof Error ? err.message : String(err);
+            // Check if this is a validation error we defined (contains specific limits)
+            if (
+              errorMsg.includes('exceeds maximum') ||
+              errorMsg.includes('sheet limit') ||
+              errorMsg.includes('row limit') ||
+              errorMsg.includes('column limit')
+            ) {
+              throw new Error(`Excel validation error: ${errorMsg}`);
+            } else {
+              // Unexpected error - use generic message
+              throw new Error('Failed to parse Excel file');
+            }
+          }
 
           // ★ DEBUG：Excelシート抽出確認
           if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {

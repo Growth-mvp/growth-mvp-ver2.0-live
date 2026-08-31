@@ -21,13 +21,26 @@ export type ExtractedTable = {
   sourceRef: string;
 };
 
+// Defense in Depth: Input validation constants
+const MAX_ROWS_PER_SHEET = 50000;
+const MAX_COLUMNS_PER_SHEET = 300;
+
 /**
  * CSV文字列からテーブルを抽出
  */
 export function parseCSV(csvText: string): ExtractedTable {
   const result = Papa.parse<string[]>(csvText, {
     skipEmptyLines: true,
+    preview: MAX_ROWS_PER_SHEET + 1,
   });
+
+  // Hard limit: Reject if CSV exceeds row limit
+  if (result.data.length > MAX_ROWS_PER_SHEET) {
+    throw new Error(
+      `CSV file exceeds maximum row limit of ${MAX_ROWS_PER_SHEET} rows. ` +
+      `Detected ${result.data.length} rows.`
+    );
+  }
 
   if (!result.data || result.data.length === 0) {
     return { headers: [], rows: [], sourceRef: 'CSV' };
@@ -61,12 +74,47 @@ export function parseCSV(csvText: string): ExtractedTable {
  * Excel バッファからテーブルを抽出（全シート）
  */
 export function parseExcel(buffer: Buffer): ExtractedTable[] {
-  const workbook = XLSX.read(buffer, { type: 'buffer' });
+  // Defense in Depth: Parse with row limit to protect memory
+  // sheetRows restricts parsing but preserves !fullref to detect overflow
+  const workbook = XLSX.read(buffer, { type: 'buffer', sheetRows: MAX_ROWS_PER_SHEET + 1 });
   const tables: ExtractedTable[] = [];
+
+  // Hard limit: Check sheet count (downstream resource protection)
+  if (workbook.SheetNames.length > 50) {
+    throw new Error(
+      `Excel file exceeds maximum sheet limit of 50 sheets. ` +
+      `Detected ${workbook.SheetNames.length} sheets.`
+    );
+  }
 
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
     if (!sheet) continue;
+
+    // Defense in Depth: Validate row and column dimensions before parsing
+    // Use !fullref (original range before sheetRows) to detect if file exceeds limits
+    const fullRef = (sheet['!fullref'] as string) || (sheet['!ref'] as string);
+    if (fullRef) {
+      const range = XLSX.utils.decode_range(fullRef);
+      const totalRows = range.e.r + 1;
+      const totalCols = range.e.c + 1;
+
+      // Hard limit: Row count
+      if (totalRows > MAX_ROWS_PER_SHEET) {
+        throw new Error(
+          `Sheet "${sheetName}" exceeds maximum row limit of ${MAX_ROWS_PER_SHEET} rows. ` +
+          `Detected ${totalRows} rows.`
+        );
+      }
+
+      // Hard limit: Column count
+      if (totalCols > MAX_COLUMNS_PER_SHEET) {
+        throw new Error(
+          `Sheet "${sheetName}" exceeds maximum column limit of ${MAX_COLUMNS_PER_SHEET} columns. ` +
+          `Detected ${totalCols} columns.`
+        );
+      }
+    }
 
     // シートを JSON に変換（ヘッダー行あり）
     const jsonData = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, {
