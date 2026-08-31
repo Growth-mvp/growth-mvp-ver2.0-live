@@ -1619,8 +1619,6 @@ async function ensureOkrs(project: any, laneType?: CascadeLaneType, deptName?: s
   // ★ TASK 2-1: end-to-end メタ証明ログ（ensureKeyResults 戻り直後）
   const okr0 = project.okrs?.[0];
   console.log('[cascade][kpi][meta]', {
-    dept: deptName ?? 'unknown',
-    project: projectTitle,
     krSource: (project as any)._krSource ?? (okr0 as any)?._krSource,
     reason: (project as any)._krReason ?? (okr0 as any)?._krReason,
     sourceDetail: (project as any)._krSourceDetail ?? (okr0 as any)?._krSourceDetail,
@@ -2425,7 +2423,7 @@ function extractDeptPortfolioSignals(
   });
 
   if (!businessPortfolio) {
-    console.log('[diag][extractDeptPortfolioSignals:no-portfolio]', { deptName });
+    console.log('[diag][extractDeptPortfolioSignals:no-portfolio]');
     return result;
   }
 
@@ -2433,7 +2431,7 @@ function extractDeptPortfolioSignals(
   const units = Array.isArray(businessPortfolio?.units) ? businessPortfolio.units : [];
 
   if (units.length === 0) {
-    console.log('[diag][extractDeptPortfolioSignals:no-units]', { deptName, unitsLength: 0 });
+    console.log('[diag][extractDeptPortfolioSignals:no-units]', { unitsLength: 0 });
     // units がない場合、businessPortfolio 全体を文字列化して処理（古い形式の互換性）
     const portfolioStr = typeof businessPortfolio === 'string'
       ? businessPortfolio
@@ -2695,7 +2693,7 @@ function buildDeptReviewSummary(params: {
   });
 
   if (!generatedDept) {
-    console.log('[diag][stage3:buildDeptReviewSummary:no-dept]', { deptName });
+    console.log('[diag][stage3:buildDeptReviewSummary:no-dept]');
     return { correctedItems, reconsiderationPoints };
   }
 
@@ -2708,9 +2706,9 @@ function buildDeptReviewSummary(params: {
   const totalProjects = (hasExisting ? generatedDept.lanes.existing.projects.length : 0) + (hasNew ? generatedDept.lanes.new.projects.length : 0);
 
   // ★部門別ポートフォリオ signals 抽出（修正：businessPortfolio.units から部門別情報を抽出）
-  console.log('[diag][stage3:buildDeptReviewSummary:before-portfolio]', { deptName });
+  console.log('[diag][stage3:buildDeptReviewSummary:before-portfolio]');
   const portfolioSignals = extractDeptPortfolioSignals(deptName, businessPortfolio);
-  console.log('[diag][stage3:buildDeptReviewSummary:after-portfolio]', { deptName, portfolioSignals });
+  console.log('[diag][stage3:buildDeptReviewSummary:after-portfolio]', { portfolioSignalsCount: portfolioSignals?.length ?? 0 });
   const { isMaintainExpected, isProfitPriority, portfolioText } = portfolioSignals;
 
   // ★高度化判定：ポートフォリオ期待 vs 議論結果（最高優先度）
@@ -4074,10 +4072,8 @@ ${
       const factFinInContent = (rawContent.match(/fact-fin-\d+/g) || []).length;
       console.log('[STAGE3_AI_RAW]', {
         rawContent_len: rawContent.length,
-        rawContent_sample: rawContent.slice(0, 200),
         hasParsed: !!parsed,
         hypothesis_count: hypothesisMatches.length,
-        hypothesis_samples: hypothesisMatches.slice(0, 3),
         abnormalMoney_inHypothesis_count: abnormalInHypothesis,
         factFin_in_content: factFinInContent,
       });
@@ -4093,11 +4089,9 @@ ${
     // ★ 調査ログ①：API生成直後の missionDescription 確認
     {
       if (parsed?.departments && Array.isArray(parsed.departments)) {
-        console.log('[STAGE3][API generated departments]', parsed.departments.map((d: any) => ({
-          name: d?.name,
-          missionDraft: d?.missionDraft?.substring(0, 60),
-          missionDescription: d?.missionDescription?.substring(0, 60),
-        })));
+        console.log('[STAGE3][API generated departments]', {
+          count: parsed.departments.length,
+        });
       }
     }
 
@@ -6568,11 +6562,9 @@ ${sanitizeText(finalStoryText || '（未設定）', 1800)}
     // ★ 調査ログ②：返却直前の missionDescription 確認（フォールバック処理後）
     {
       if (Array.isArray(result?.departments)) {
-        console.log('[STAGE3][API before return]', result.departments.map((d: any) => ({
-          name: d?.name,
-          missionDraft: d?.missionDraft?.substring(0, 60),
-          missionDescription: d?.missionDescription?.substring(0, 60),
-        })));
+        console.log('[STAGE3][API before return]', {
+          count: result.departments.length,
+        });
       }
     }
 

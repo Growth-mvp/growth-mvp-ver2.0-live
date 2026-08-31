@@ -2202,7 +2202,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
             const inferred = inferScaleToMillion(valNum);
             targetRevenue = inferred?.converted ?? toMillionYen(valNum, 'unknown');
             targetRevenueLabel = target.label ?? '';
-            if (DEBUG) console.log('[KPI] companyTargets revenue:', { label: target.label, raw: valNum, converted: targetRevenue, unit: (target as any).unit, scale: inferred });
+            if (DEBUG) console.log('[KPI] companyTargets revenue:', { raw: valNum, converted: targetRevenue, unit: (target as any).unit, scale: inferred });
           }
         }
 
@@ -2216,7 +2216,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
             const inferred = inferScaleToMillion(valNum);
             targetOperatingProfit = inferred?.converted ?? toMillionYen(valNum, 'unknown');
             targetOpLabel = target.label ?? '';
-            if (DEBUG) console.log('[KPI] companyTargets op:', { label: target.label, raw: valNum, converted: targetOperatingProfit, unit: (target as any).unit, scale: inferred });
+            if (DEBUG) console.log('[KPI] companyTargets op:', { raw: valNum, converted: targetOperatingProfit, unit: (target as any).unit, scale: inferred });
           }
         }
       }

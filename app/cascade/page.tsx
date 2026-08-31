@@ -3455,11 +3455,9 @@ useEffect(() => {
       // ★ 調査ログ③：フロント受信直後の missionDescription 確認
       {
         if (data?.departments && Array.isArray(data.departments)) {
-          console.log('[STAGE3][client received departments]', data.departments.map((d: any) => ({
-            name: d?.name,
-            missionDraft: d?.missionDraft?.substring(0, 60),
-            missionDescription: d?.missionDescription?.substring(0, 60),
-          })));
+          console.log('[STAGE3][client received departments]', {
+            count: data.departments.length,
+          });
         }
       }
 
@@ -3535,11 +3533,7 @@ useEffect(() => {
 
       // ★ 調査ログ④：保存直前の cleanedRd missionDescription 確認
       {
-        console.log('[STAGE3][before store] cleanedRd missionDescription', {
-          deptName: cleanedRd?.name,
-          missionDraft: cleanedRd?.missionDraft?.substring(0, 60),
-          missionDescription: cleanedRd?.missionDescription?.substring(0, 60),
-        });
+        console.log('[STAGE3][before store] cleanedRd saved');
       }
 
       pushToStore((prev) => {
@@ -4078,12 +4072,9 @@ useEffect(() => {
 
           {/* ★ 調査ログ⑤：render時点での全部門 missionDescription */}
           {(() => {
-            const missionDescSummary = (departments ?? []).map((d: any) => ({
-              dept: d?.name,
-              missionDraft: d?.mission?.substring(0, 60),
-              missionDescription: d?.missionDescription?.substring(0, 60),
-            }));
-            console.log('[STAGE3][render-time] all departments missionDescription', missionDescSummary);
+            console.log('[STAGE3][render-time] all departments loaded', {
+              count: departments?.length ?? 0,
+            });
             return null;
           })()}
 
