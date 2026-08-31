@@ -1141,11 +1141,6 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
   if (DEBUG || strategicCore?.primaryShift) {
     console.log('[STAGE3 bridge render] summary source', {
       hasStrategicCore: !!stage3StrategyBridge?.strategicCore,
-      concreteDomains: stage3StrategyBridge?.strategicCore?.concreteDomains,
-      nonNegotiableThemes: stage3StrategyBridge?.strategicCore?.nonNegotiableThemes,
-      primaryShift: stage3StrategyBridge?.strategicCore?.primaryShift,
-      portfolioShift: stage3StrategyBridge?.strategicCore?.portfolioShift,
-      behaviorChange: stage3StrategyBridge?.strategicCore?.behaviorChange,
       timestamp: new Date().toISOString(),
     });
   }

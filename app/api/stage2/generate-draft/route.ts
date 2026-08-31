@@ -1374,7 +1374,6 @@ export async function POST(req: NextRequest) {
         durationMs: `${dur}ms`,
         rawLen: raw.length,
         hasContent: !!raw,
-        rawPreview: raw.slice(0, 300),
       });
     } catch (e: any) {
       const dur = tOpenAIStart ? Date.now() - tOpenAIStart : undefined;
@@ -1427,7 +1426,6 @@ export async function POST(req: NextRequest) {
           durationMs: `${tOpenAI2Dur}ms`,
           rawLen: raw.length,
           hasContent: !!raw,
-          rawPreview: raw.slice(0, 300),
         });
       } catch (e2: any) {
         const totalDurationMs = Date.now() - t0;
@@ -1461,7 +1459,7 @@ export async function POST(req: NextRequest) {
       clearTimeout(timer);
     }
 
-    console.log('[stage2/generate-draft] ★JSON PARSE START★', { rawLen: raw.length, rawPreview: raw.slice(0, 200) });
+    console.log('[stage2/generate-draft] ★JSON PARSE START★', { rawLen: raw.length });
 
     const { parsed, diagnostic } = extractJsonLoose(raw);
     console.log('[stage2/generate-draft] ★JSON PARSE RESULT★', diagnostic);
@@ -1469,7 +1467,6 @@ export async function POST(req: NextRequest) {
     if (!parsed) {
       console.error('[stage2/generate-draft] ★JSON PARSE FAILED★', {
         diagnostic,
-        rawFirst1000: raw.slice(0, 1000),
       });
       return NextResponse.json(
         {

@@ -1907,10 +1907,6 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
       // ★ 診断：Luna raw response の確認
       console.log('[stage2-final] ★LUNA RAW RESPONSE DIAGNOSTIC★', {
         rawLength: raw?.length ?? 0,
-        rawFirst200: raw?.slice(0, 200) ?? 'null',
-        rawSample: {
-          ch0_start: raw?.includes('"heading"') ? '(JSON形式)' : raw?.slice(0, 100) ?? 'empty',
-        },
       });
     } catch (_detail: any) {
       // ★ 診断：なぜ heuristic fallback に落ちたか
@@ -1958,14 +1954,14 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
       );
 
       console.log('[stage2-final] ★AFTER ENHANCE EMOTION★', {
-        section0_body_start: sections?.[0]?.body?.slice(0, 150) ?? 'null',
+        sectionsCount: sections?.length ?? 0,
       });
 
       sections = ensureBridges(sections);
       sections = sections.map((s) => ({ ...s, body: cleanFinalStoryArtifacts(s.body) }));
 
       console.log('[stage2-final] ★BEFORE NORMALIZE STRATEGIC★', {
-        section0_body_start: sections?.[0]?.body?.slice(0, 150) ?? 'null',
+        sectionsCount: sections?.length ?? 0,
       });
 
       sections = normalizeStrategicStorySections(sections, {
@@ -1976,7 +1972,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
       });
 
       console.log('[stage2-final] ★AFTER NORMALIZE STRATEGIC★', {
-        section0_body_start: sections?.[0]?.body?.slice(0, 150) ?? 'null',
+        sectionsCount: sections?.length ?? 0,
       });
 
       longform = sections
@@ -2015,7 +2011,6 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
       sections = h.sections;
       console.log('[stage2-final] ★HEURISTIC FINAL OUTPUT★', {
         finalStoryCount: finalStory?.length ?? 0,
-        story0_body_start: finalStory?.[0]?.body?.slice(0, 150) ?? 'null',
       });
     }
 
@@ -2337,9 +2332,6 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
     console.log('[stage2-final] ★FINAL STORY BEFORE RESPONSE★', {
       count: Array.isArray(finalStory) ? finalStory.length : 0,
       story0_title: finalStory?.[0]?.title ?? 'null',
-      story0_body_start: finalStory?.[0]?.body?.slice(0, 200) ?? 'null',
-      story0_has_keyword_M: finalStory?.[0]?.body?.includes('M=') ?? false,
-      story0_has_keyword_業種: finalStory?.[0]?.body?.includes('業種=') ?? false,
     });
 
     return new NextResponse(
