@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import OpenAI from 'openai';
-import { AI_MODELS, getTemperatureParam } from '@/lib/modelConfig';
+import { getOpenAIModelParamsForProcess } from '@/lib/modelConfig';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 import { getFullStrategyDataByCompany, getFullStrategyDataByStrategyId } from '@/utils/supabase/strategy';
@@ -640,15 +640,15 @@ ${strategyContextForPrompt ? JSON.stringify(strategyContextForPrompt, null, 2) :
       suspiciousKeywordFlags: suspiciousKeywords,
     });
 
-    const model = AI_MODELS.reasoning;
+    const alignParams = getOpenAIModelParamsForProcess('orgAlignmentGenerate', {
+      temperature: 0.25,
+    });
     if (process.env.NODE_ENV === 'development' || process.env.DEBUG_AI_MODELS === '1') {
-      console.log(`[AI] org-alignment-recognition → ${model}`);
+      console.log(`[AI] org-alignment-recognition → ${alignParams.model}`);
     }
     const openai = new OpenAI({ apiKey });
     const completion = await openai.chat.completions.create({
-      model,
-      ...getTemperatureParam(model, 0.25),
-      response_format: { type: 'json_object' },
+      ...alignParams,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },

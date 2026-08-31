@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { openai } from '@/lib/openai';
-import { AI_MODELS, getTemperatureParam } from '@/lib/modelConfig';
+import { getOpenAIModelParamsForProcess } from '@/lib/modelConfig';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
 import { logInputGuard, checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
@@ -823,17 +823,17 @@ STAGE3で部門ミッション・重点プロジェクト・KPIを作る際に�
 
 JSON のみを出力してください。説明やコメントは不要です。`;
 
-  const model = AI_MODELS.reasoning;
-  if (process.env.NODE_ENV === 'development' || process.env.DEBUG_AI_MODELS === '1') {
-    console.log(`[AI] stage3-strategy-bridge → ${model}`);
-  }
-  console.log('[STAGE3] OpenAI API call start', { model, promptLength: prompt.length });
-
   let response;
   try {
+    const bridgeParams = getOpenAIModelParamsForProcess('stage3Bridge', {
+      temperature: 0.7,
+    });
+    if (process.env.NODE_ENV === 'development' || process.env.DEBUG_AI_MODELS === '1') {
+      console.log(`[AI] stage3-strategy-bridge → ${bridgeParams.model}`);
+    }
+    console.log('[STAGE3] OpenAI API call start', { model: bridgeParams.model, promptLength: prompt.length });
     response = await openai.chat.completions.create({
-      model,
-      ...getTemperatureParam(model, 0.7),
+      ...bridgeParams,
       messages: [
         {
           role: 'user',

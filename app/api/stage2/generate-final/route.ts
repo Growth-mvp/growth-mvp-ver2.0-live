@@ -16,7 +16,7 @@ import { logInputGuard, checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
 /* =========================
  * モデル設定
  * =======================*/
-import { AI_MODELS, getTokenLimitParam, getTemperatureParam, getPenaltyParams } from '@/lib/modelConfig';
+import { AI_MODELS, getOpenAIModelParamsForProcess, getTokenLimitParam, getTemperatureParam, getPenaltyParams, MODEL_CONFIGURATIONS } from '@/lib/modelConfig';
 
 const SUPPORTS_JSON_MODE = /^(gpt-4o|gpt-5\.6-luna)($|-)/;
 
@@ -993,6 +993,7 @@ type ChatArgs = {
   system: string;
   user: string;
   allowFallback?: boolean;
+  processKey?: keyof typeof MODEL_CONFIGURATIONS;
 };
 
 async function callOpenAIChat(args: ChatArgs): Promise<string> {
@@ -1006,24 +1007,44 @@ async function callOpenAIChat(args: ChatArgs): Promise<string> {
     system,
     user,
     allowFallback = false,
+    processKey,
   } = args;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  const base: ChatCompletionCreateParamsNonStreaming = {
-    model,
-    ...getTemperatureParam(model, temperature),
-    ...getTokenLimitParam(model, max_tokens),
-    ...getPenaltyParams(model, presence_penalty, frequency_penalty),
-    messages: [
-      { role: 'system', content: system },
-      { role: 'user', content: user },
-    ],
-    ...(SUPPORTS_JSON_MODE.test(model)
-      ? { response_format: { type: 'json_object' as const } }
-      : {}),
-    ...(model.startsWith('gpt-5.6') ? { reasoning_effort: 'low' } : {}),
-  };
+  let base: ChatCompletionCreateParamsNonStreaming;
+
+  if (processKey) {
+    // processKey が指定されている場合は getOpenAIModelParamsForProcess() を使用
+    const modelParams = getOpenAIModelParamsForProcess(processKey, {
+      temperature,
+      presencePenalty: presence_penalty,
+      frequencyPenalty: frequency_penalty,
+    });
+    base = {
+      ...modelParams,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+    };
+  } else {
+    // 既存ロジック（互換性のため）
+    base = {
+      model,
+      ...getTemperatureParam(model, temperature),
+      ...getTokenLimitParam(model, max_tokens),
+      ...getPenaltyParams(model, presence_penalty, frequency_penalty),
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      ...(SUPPORTS_JSON_MODE.test(model)
+        ? { response_format: { type: 'json_object' as const } }
+        : {}),
+      ...(model.startsWith('gpt-5.6') ? { reasoning_effort: 'low' } : {}),
+    };
+  }
 
   try {
     const resp = await openai.chat.completions.create(base, {
@@ -1350,6 +1371,7 @@ async function enhanceEmotionIfNeeded(
   temperature: number,
   model: string,
   enable: boolean,
+  processKey?: 'stage2Emotion',
 ): Promise<{ heading: string; body: string }[]> {
   if (!enable) return sections;
 
@@ -1375,18 +1397,31 @@ async function enhanceEmotionIfNeeded(
       '{"sections":[{"heading":"なぜ今","body":"..."}]} のみ。',
     ].join('\n');
 
-    const base: ChatCompletionCreateParamsNonStreaming = {
-      model,
-      temperature: Math.min(0.45, typeof temperature === 'number' ? temperature : 0.4),
-      max_tokens: 1200,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-      ...(SUPPORTS_JSON_MODE.test(model)
-        ? { response_format: { type: 'json_object' as const } }
-        : {}),
-    };
+    let base: ChatCompletionCreateParamsNonStreaming;
+    if (processKey === 'stage2Emotion') {
+      const emotionParams = getOpenAIModelParamsForProcess('stage2Emotion');
+      base = {
+        ...emotionParams,
+        temperature: Math.min(0.45, typeof temperature === 'number' ? temperature : 0.4),
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+      };
+    } else {
+      base = {
+        model,
+        temperature: Math.min(0.45, typeof temperature === 'number' ? temperature : 0.4),
+        max_tokens: 1200,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        ...(SUPPORTS_JSON_MODE.test(model)
+          ? { response_format: { type: 'json_object' as const } }
+          : {}),
+      };
+    }
 
     const r = await openai.chat.completions.create(base);
     const raw = r.choices?.[0]?.message?.content?.trim() || '';
@@ -1412,6 +1447,7 @@ async function repairExecutiveStoryIfNeeded(args: {
   quality: ReturnType<typeof evaluateExecutiveStoryQuality>;
   mustKeepTerms?: string[];
   portfolioIntegrationGuide?: string;
+  processKey?: 'stage2FinalRepair';
 }): Promise<{ heading: string; body: string }[]> {
   const shouldRepair =
     args.quality.tooShortIndexes.length > 0 ||
@@ -1485,6 +1521,7 @@ async function repairExecutiveStoryIfNeeded(args: {
       frequency_penalty: 0.1,
       system,
       user,
+      processKey: args.processKey,
     });
     const parsed = extractJsonLoose<{ sections?: { heading?: string; body?: string }[] }>(raw);
     const repaired = Array.isArray(parsed?.sections) ? parsed!.sections! : null;
@@ -1903,6 +1940,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
         frequency_penalty: 0.2,
         system: systemPrompt,
         user: userPrompt,
+        processKey: 'stage2Final',
       });
 
       // ★ 診断：Luna raw response の確認
@@ -1952,6 +1990,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
         typeof temperature === 'number' ? Math.min(0.45, Math.max(0.25, temperature)) : 0.4,
         AI_MODELS.lightweight,
         doEnhance,
+        'stage2Emotion',
       );
 
       console.log('[stage2-final] ★AFTER ENHANCE EMOTION★', {
@@ -2060,6 +2099,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
         quality: executiveStoryQuality,
         mustKeepTerms,
         portfolioIntegrationGuide,
+        processKey: 'stage2FinalRepair',
       });
       if (repairedSections !== sections) {
         sections = repairedSections.map((s) => ({ ...s, body: cleanFinalStoryArtifacts(s.body) }));
@@ -2193,6 +2233,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
           timeoutMs: 12_000,
           system: midtermSystem,
           user: midtermUser,
+          processKey: 'stage2Midterm',
         });
 
         const parsedMid = extractJsonLoose<Record<string, any>>(midtermRaw);

@@ -1,95 +1,150 @@
 // lib/modelConfig.ts
-// OpenAI モデル設定: reasoning (戦略判断) と lightweight (軽量処理) の役割分担
+import modelSpec from '@/config/models.json';
 
+// 型定義
+export type ProcessModelRole = 'reasoning' | 'lightweight';
+export type ProcessKey = keyof typeof modelSpec.process_configs;
+
+interface ProcessConfig {
+  modelRole: ProcessModelRole;
+  maxCompletionTokens: number;
+  jsonMode: boolean;
+}
+
+// AI_MODELS: config/models.json から直接読み込み（環境変数 override なし）
 export const AI_MODELS = {
-  // reasoning: 戦略判断・因果推論など重要な処理 (gpt-5.6-luna)
-  // 用途: STAGE2の最終戦略生成・リペア・中計設計、STAGE3の展開推論、組織変革の認識分析など
-  reasoning: process.env.OPENAI_REASONING_MODEL || 'gpt-5.6-luna',
-
-  // lightweight: 軽量な生成・整理・分類 (gpt-4o-mini)
-  // 用途: 感情エディット、文章整形、JSON生成、分類など
-  lightweight: process.env.OPENAI_LIGHTWEIGHT_MODEL || 'gpt-4o-mini',
-
-  // legacy: 既存ロジックで使用中のモデル（当面は gpt-4o）
-  // 用途: STAGE4以降など、まだ振り分け対象外の処理
-  legacy: process.env.OPENAI_LEGACY_MODEL || 'gpt-4o',
-
-  // standard: 互換性用（lightweight と同じ）
-  standard: process.env.OPENAI_STANDARD_MODEL || 'gpt-4o-mini',
+  reasoning: modelSpec.ai_models.reasoning,
+  lightweight: modelSpec.ai_models.lightweight,
+  legacy: 'gpt-4o',
+  standard: 'gpt-4o-mini',
 } as const;
 
-// モデル使用ログ (開発環境用)
-export function logModelUsage(processName: string, modelType: 'standard' | 'reasoning') {
-  const model = modelType === 'standard' ? AI_MODELS.standard : AI_MODELS.reasoning;
-  if (process.env.NODE_ENV === 'development' || process.env.DEBUG_AI_MODELS === '1') {
-    console.log(`[AI] ${processName} → ${modelType} (${model})`);
-  }
+export const MODEL_CONFIGURATIONS = modelSpec.process_configs as const;
+
+// OpenAI API パラメータの型定義
+interface OpenAIModelParams {
+  model: string;
+  max_completion_tokens?: number;
+  max_tokens?: number;
+  reasoning_effort?: 'low';
+  temperature?: number;
+  presence_penalty?: number;
+  frequency_penalty?: number;
+  response_format?: { type: 'json_object' };
 }
 
-// モデル名の取得 (プロセス名とともにログ出力)
-export function getModel(modelType: 'standard' | 'reasoning', processName?: string) {
-  const model = modelType === 'standard' ? AI_MODELS.standard : AI_MODELS.reasoning;
-  if (processName) {
-    logModelUsage(processName, modelType);
+/**
+ * 処理に応じた OpenAI API パラメータを生成
+ * Luna (gpt-5.6-*) の場合は自動的に reasoning_effort を追加
+ * Temperature と penalties は Luna では自動的に除外
+ * JSON mode は config で定義された値に従う
+ */
+export function getOpenAIModelParamsForProcess(
+  processKey: ProcessKey,
+  options: {
+    temperature?: number;
+    presencePenalty?: number;
+    frequencyPenalty?: number;
+  } = {}
+): OpenAIModelParams {
+  const config = MODEL_CONFIGURATIONS[processKey];
+  if (!config) {
+    throw new Error(`Unknown process: ${processKey}`);
   }
-  return model;
+
+  const model = config.modelRole === 'reasoning' ? AI_MODELS.reasoning : AI_MODELS.lightweight;
+  const isLuna = model.startsWith('gpt-5.6');
+
+  const params: OpenAIModelParams = {
+    model,
+  };
+
+  // Token limit
+  if (isLuna) {
+    params.max_completion_tokens = config.maxCompletionTokens;
+  } else {
+    params.max_tokens = config.maxCompletionTokens;
+  }
+
+  // Luna の場合は reasoning_effort を追加
+  if (isLuna) {
+    params.reasoning_effort = 'low';
+  }
+
+  // Temperature を追加（Luna では送らない）
+  if (options.temperature !== undefined && !isLuna) {
+    params.temperature = options.temperature;
+  }
+
+  // Penalties を追加（Luna では送らない）
+  if (!isLuna) {
+    if (options.presencePenalty !== undefined) {
+      params.presence_penalty = options.presencePenalty;
+    }
+    if (options.frequencyPenalty !== undefined) {
+      params.frequency_penalty = options.frequencyPenalty;
+    }
+  }
+
+  // JSON mode（config で定義された値を使用）
+  if (config.jsonMode) {
+    params.response_format = { type: 'json_object' };
+  }
+
+  return params;
 }
 
-// GPT-5.6 Luna では max_tokens ではなく max_completion_tokens を使用
-export function getTokenLimitParam(model: string, value: number) {
-  if (model.startsWith('gpt-5.6')) {
-    return { max_completion_tokens: value };
-  }
-  return { max_tokens: value };
-}
-
-// GPT-5.6 Luna では temperature をサポートしていないため、パラメータを省略
-export function getTemperatureParam(model: string, value: number) {
+// 互換性用の既存関数（既存コード用）
+export function getTemperatureParam(
+  model: string,
+  value: number
+): { temperature?: number } {
   if (model.startsWith('gpt-5.6')) {
     return {};
   }
   return { temperature: value };
 }
 
-// GPT-5.6 Luna では presence_penalty / frequency_penalty をサポートしていないため、パラメータを省略
 export function getPenaltyParams(
   model: string,
   presencePenalty?: number,
   frequencyPenalty?: number
-) {
+): Record<string, number> {
   if (model.startsWith('gpt-5.6')) {
     return {};
   }
-  return {
-    ...(presencePenalty !== undefined ? { presence_penalty: presencePenalty } : {}),
-    ...(frequencyPenalty !== undefined ? { frequency_penalty: frequencyPenalty } : {}),
-  };
+  const params: Record<string, number> = {};
+  if (presencePenalty !== undefined) {
+    params.presence_penalty = presencePenalty;
+  }
+  if (frequencyPenalty !== undefined) {
+    params.frequency_penalty = frequencyPenalty;
+  }
+  return params;
 }
 
-// STAGE2 モデル構成の回帰防止チェック（ビルド時に実行）
-export function validateStage2ModelConfig() {
-  const errors: string[] = [];
-
-  // 期待値の確認
-  const expectations = {
-    reasoning: 'gpt-5.6-luna',
-    lightweight: 'gpt-4o-mini',
-  };
-
-  // reasoning が gpt-5.6-luna か確認
-  if (!AI_MODELS.reasoning.includes('gpt-5.6')) {
-    errors.push(`❌ AI_MODELS.reasoning must be gpt-5.6-luna, but got: ${AI_MODELS.reasoning}`);
+export function getTokenLimitParam(
+  model: string,
+  value: number
+): { max_completion_tokens?: number; max_tokens?: number } {
+  if (model.startsWith('gpt-5.6')) {
+    return { max_completion_tokens: value };
   }
+  return { max_tokens: value };
+}
 
-  // lightweight が gpt-4o-mini か確認
-  if (!AI_MODELS.lightweight.includes('gpt-4o-mini')) {
-    errors.push(`❌ AI_MODELS.lightweight must be gpt-4o-mini, but got: ${AI_MODELS.lightweight}`);
+// ログ出力（既存コード用）
+export function logModelUsage(processName: string, modelType: 'standard' | 'reasoning') {
+  const model = modelType === 'standard' ? AI_MODELS.lightweight : AI_MODELS.reasoning;
+  if (process.env.NODE_ENV === 'development' || process.env.DEBUG_AI_MODELS === '1') {
+    console.log(`[AI] ${processName} → ${modelType} (${model})`);
   }
+}
 
-  // エラーがあればスローしない（ビルド失敗にしない）が、コンソールに出力
-  if (errors.length > 0 && process.env.NODE_ENV !== 'production') {
-    console.error('[STAGE2 Model Config] Potential regression detected:\n', errors.join('\n'));
+export function getModel(modelType: 'standard' | 'reasoning', processName?: string) {
+  const model = modelType === 'standard' ? AI_MODELS.lightweight : AI_MODELS.reasoning;
+  if (processName) {
+    logModelUsage(processName, modelType);
   }
-
-  return { isValid: errors.length === 0, errors };
+  return model;
 }

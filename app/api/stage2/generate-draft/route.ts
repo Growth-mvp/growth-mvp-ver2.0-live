@@ -15,7 +15,7 @@ export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
-import { AI_MODELS, getTokenLimitParam, getTemperatureParam } from '@/lib/modelConfig';
+import { getOpenAIModelParamsForProcess } from '@/lib/modelConfig';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
 import { logAuditEvent, extractAuditMetadata } from '@/lib/server/auditLog';
@@ -1260,12 +1260,6 @@ export async function POST(req: NextRequest) {
       console.warn('[stage2/generate-draft] issueBlocks is empty -> proceed with generalized draft');
     }
 
-    const model = AI_MODELS.reasoning;
-    if (process.env.NODE_ENV === 'development' || process.env.DEBUG_AI_MODELS === '1') {
-      console.log(`[AI] stage2-draft → ${model}`);
-    }
-    console.log('[stage2/generate-draft] model:', model);
-
     const compact = compactPayload(input);
 
     console.log('[stage2/generate-draft] ★BUILDING PROMPTS★');
@@ -1292,7 +1286,6 @@ export async function POST(req: NextRequest) {
       const userPromptLen = userPrompt.length;
 
       console.log('[stage2/generate-draft] ★BEFORE OPENAI 1ST ATTEMPT★', {
-        model,
         timeoutMs: TIMEOUT_MS,
         elapsedMs: `${elapsedMs}ms`,
         systemPromptLen,
@@ -1342,17 +1335,19 @@ export async function POST(req: NextRequest) {
       });
 
       tOpenAIStart = Date.now();
+      const draftParams = getOpenAIModelParamsForProcess('stage2Draft', {
+        temperature: 0.25,
+      });
+      if (process.env.NODE_ENV === 'development' || process.env.DEBUG_AI_MODELS === '1') {
+        console.log(`[AI] stage2-draft → ${draftParams.model}`);
+      }
       const completion = await openai.chat.completions.create(
         {
-          model,
-          ...getTemperatureParam(model, 0.25),
-          response_format: { type: 'json_object' },
+          ...draftParams,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
           ],
-          ...getTokenLimitParam(model, 8000),
-          ...(model.startsWith('gpt-5.6') ? { reasoning_effort: 'low' } : {}),
         },
         { signal: controller.signal }
       );
@@ -1388,23 +1383,22 @@ export async function POST(req: NextRequest) {
       try {
         const elapsedMs = Date.now() - t0;
         console.log('[stage2/generate-draft] ★BEFORE OPENAI 2ND ATTEMPT (retry without response_format)★', {
-          model,
           timeoutMs: TIMEOUT_MS,
           elapsedMs: `${elapsedMs}ms`,
           reason: 'retry without response_format',
         });
 
         const tOpenAI2 = Date.now();
+        const retryParams = getOpenAIModelParamsForProcess('stage2Draft', {
+          temperature: 0.25,
+        });
         const completion2 = await openai.chat.completions.create(
           {
-            model,
-            ...getTemperatureParam(model, 0.25),
+            ...retryParams,
             messages: [
               { role: 'system', content: systemPrompt },
               { role: 'user', content: userPrompt },
             ],
-            ...getTokenLimitParam(model, 8000),
-            ...(model.startsWith('gpt-5.6') ? { reasoning_effort: 'low' } : {}),
           },
           { signal: controller.signal }
         );
@@ -1544,7 +1538,7 @@ export async function POST(req: NextRequest) {
 
     if (missing.length > 0) {
       if (process.env.NODE_ENV === 'development' || process.env.DEBUG_AI_MODELS === '1') {
-        console.log(`[AI] stage2-draft-repair → ${model}`);
+        console.log(`[AI] stage2-draft-repair → gpt-5.6-luna`);
       }
       console.log('[stage2/generate-draft] ★REPAIR PHASE START★', {
         missingCount: missing.length,
@@ -1565,17 +1559,16 @@ export async function POST(req: NextRequest) {
           missingCount: missing.length,
         });
 
+        const repairParams = getOpenAIModelParamsForProcess('stage2DraftRepair', {
+          temperature: 0.0,
+        });
         const completionRepair = await openai.chat.completions.create(
           {
-            model,
-            ...getTemperatureParam(model, 0.0),
-            response_format: { type: 'json_object' },
+            ...repairParams,
             messages: [
               { role: 'system', content: buildRepairSystemPrompt() },
               { role: 'user', content: buildRepairUserPrompt(repairPayload, missing, must) },
             ],
-            ...getTokenLimitParam(model, 4000),
-            ...(model.startsWith('gpt-5.6') ? { reasoning_effort: 'low' } : {}),
           },
           { signal: repairController.signal }
         );

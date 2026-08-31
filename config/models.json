@@ -1,0 +1,48 @@
+{
+  "ai_models": {
+    "reasoning": "gpt-5.6-luna",
+    "lightweight": "gpt-4o-mini"
+  },
+  "process_configs": {
+    "stage2Draft": {
+      "modelRole": "reasoning",
+      "maxCompletionTokens": 8000,
+      "jsonMode": true
+    },
+    "stage2DraftRepair": {
+      "modelRole": "reasoning",
+      "maxCompletionTokens": 4000,
+      "jsonMode": true
+    },
+    "stage2Final": {
+      "modelRole": "reasoning",
+      "maxCompletionTokens": 5200,
+      "jsonMode": true
+    },
+    "stage2FinalRepair": {
+      "modelRole": "reasoning",
+      "maxCompletionTokens": 3600,
+      "jsonMode": false
+    },
+    "stage2Midterm": {
+      "modelRole": "reasoning",
+      "maxCompletionTokens": 1100,
+      "jsonMode": true
+    },
+    "stage2Emotion": {
+      "modelRole": "lightweight",
+      "maxCompletionTokens": 1200,
+      "jsonMode": false
+    },
+    "stage3Bridge": {
+      "modelRole": "reasoning",
+      "maxCompletionTokens": 6000,
+      "jsonMode": true
+    },
+    "orgAlignmentGenerate": {
+      "modelRole": "reasoning",
+      "maxCompletionTokens": 2500,
+      "jsonMode": true
+    }
+  }
+}
