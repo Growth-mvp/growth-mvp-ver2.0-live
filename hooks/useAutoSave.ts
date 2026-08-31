@@ -388,6 +388,39 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
         return;
       }
 
+      // ★ FIX: Check if generation save is in progress (block autosave during critical period)
+      const GENERATION_SAVE_FLAG_KEY = '__generation_save_in_progress__';
+      try {
+        const flagStr = typeof localStorage !== 'undefined' ? localStorage.getItem(GENERATION_SAVE_FLAG_KEY) : null;
+        if (flagStr) {
+          try {
+            const flag = JSON.parse(flagStr);
+            if (flag.expiresAt && Date.now() < flag.expiresAt) {
+              if (mode === 'payload') {
+                console.log('[AutoSave][guard-check] SKIP: generation save in progress', {
+                  operationId: flag.operationId,
+                  expiresAt: new Date(flag.expiresAt).toISOString(),
+                  timestamp,
+                });
+              }
+              return;
+            } else {
+              // 期限切れなら削除
+              if (typeof localStorage !== 'undefined') {
+                localStorage.removeItem(GENERATION_SAVE_FLAG_KEY);
+              }
+            }
+          } catch (e) {
+            // JSON パースエラー → フラグ削除
+            if (typeof localStorage !== 'undefined') {
+              localStorage.removeItem(GENERATION_SAVE_FLAG_KEY);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[AutoSave] failed to check generation save flag:', e);
+      }
+
       // ★ 修正：確定保存中フラグをチェック
       const MANUAL_SAVE_FLAG_KEY = '__manual_saving_strategy__';
       try {

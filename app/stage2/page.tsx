@@ -2393,6 +2393,18 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       hasHydratedState: !!decision.hydratedState,
     });
 
+    // ★ DIAG: Check what's in the decision state
+    console.log('[diag][restore:decision-content]', {
+      sourceUsed: decision.sourceUsed,
+      hydratedStateFinalStoryDraftLen: decision.hydratedState && Array.isArray((decision.hydratedState as any).finalStoryDraft)
+        ? (decision.hydratedState as any).finalStoryDraft.length
+        : 'missing',
+      dbDataFinalStoryDraftLen: decision.dbData && Array.isArray((decision.dbData as any).finalStoryDraft)
+        ? (decision.dbData as any).finalStoryDraft.length
+        : 'missing',
+      timestamp: new Date().toISOString(),
+    });
+
     // ★ If companyId not ready, defer (do NOT set stage2Ready)
     if (decision.sourceUsed === 'none' && decision.reason === 'companyId_not_ready') {
       console.log('[Stage2] restore deferred: companyId not ready');
@@ -2413,6 +2425,17 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       const guardedHydratedState = { ...decision.hydratedState };
       const storeState = useStrategyStore.getState();
 
+      // ★ DIAG: Log what's in guardedHydratedState before guard logic
+      console.log('[diag][hydrate:pre-guard]', {
+        guardedHasCompanyTargets: !!((guardedHydratedState as any).companyTargets),
+        guardedHasFinalStoryDraft: !!((guardedHydratedState as any).finalStoryDraft),
+        guardedHasFinalStoryEdited: !!((guardedHydratedState as any).finalStoryEdited),
+        guardedHasFinalStoryFinal: !!((guardedHydratedState as any).finalStoryFinal),
+        guardedFinalStoryDraftLen: Array.isArray((guardedHydratedState as any).finalStoryDraft) ? (guardedHydratedState as any).finalStoryDraft.length : 'N/A',
+        storeFinalStoryDraftLen: Array.isArray((storeState as any).finalStoryDraft) ? (storeState as any).finalStoryDraft.length : 'N/A',
+        timestamp: new Date().toISOString(),
+      });
+
       // Only restore if array has length > 0, otherwise keep existing store value
       if (Array.isArray((guardedHydratedState as any).companyTargets) && (guardedHydratedState as any).companyTargets.length === 0 && Array.isArray((storeState as any).companyTargets) && (storeState as any).companyTargets.length > 0) {
         delete (guardedHydratedState as any).companyTargets;
@@ -2422,21 +2445,15 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       }
       if (Array.isArray((guardedHydratedState as any).finalStoryDraft) && (guardedHydratedState as any).finalStoryDraft.length === 0 && Array.isArray((storeState as any).finalStoryDraft) && (storeState as any).finalStoryDraft.length > 0) {
         delete (guardedHydratedState as any).finalStoryDraft;
-        if (process.env.NODE_ENV === 'development') {
-          console.log('[diag][guard] Blocked empty finalStoryDraft from overwriting store');
-        }
+        console.log('[diag][guard] Blocked empty finalStoryDraft from overwriting store');
       }
       if (Array.isArray((guardedHydratedState as any).finalStoryEdited) && (guardedHydratedState as any).finalStoryEdited.length === 0 && Array.isArray((storeState as any).finalStoryEdited) && (storeState as any).finalStoryEdited.length > 0) {
         delete (guardedHydratedState as any).finalStoryEdited;
-        if (process.env.NODE_ENV === 'development') {
-          console.log('[diag][guard] Blocked empty finalStoryEdited from overwriting store');
-        }
+        console.log('[diag][guard] Blocked empty finalStoryEdited from overwriting store');
       }
       if (Array.isArray((guardedHydratedState as any).finalStoryFinal) && (guardedHydratedState as any).finalStoryFinal.length === 0 && Array.isArray((storeState as any).finalStoryFinal) && (storeState as any).finalStoryFinal.length > 0) {
         delete (guardedHydratedState as any).finalStoryFinal;
-        if (process.env.NODE_ENV === 'development') {
-          console.log('[diag][guard] Blocked empty finalStoryFinal from overwriting store');
-        }
+        console.log('[diag][guard] Blocked empty finalStoryFinal from overwriting store');
       }
 
       // ★ 修正：swotSuggestions に対しても empty-overwrite guard を追加
@@ -2461,7 +2478,25 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         }
       }
 
+      // ★ DIAG: Log final state before hydration
+      console.log('[diag][hydrate:pre-hydration]', {
+        finalGuardedFinalStoryDraftLen: Array.isArray((guardedHydratedState as any).finalStoryDraft) ? (guardedHydratedState as any).finalStoryDraft.length : 'missing',
+        finalGuardedFinalStoryEditedLen: Array.isArray((guardedHydratedState as any).finalStoryEdited) ? (guardedHydratedState as any).finalStoryEdited.length : 'missing',
+        timestamp: new Date().toISOString(),
+      });
+
       useStrategyStore.getState().hydrateFromFullState?.(guardedHydratedState);
+
+      // ★ DIAG: Verify hydration was successful by checking store after hydration
+      setTimeout(() => {
+        const afterHydrationState = useStrategyStore.getState() as any;
+        console.log('[diag][hydrate:post-hydration]', {
+          storeFinalStoryDraftLen: Array.isArray(afterHydrationState.finalStoryDraft) ? afterHydrationState.finalStoryDraft.length : 'missing',
+          storeFinalStoryEditedLen: Array.isArray(afterHydrationState.finalStoryEdited) ? afterHydrationState.finalStoryEdited.length : 'missing',
+          storeFinalStoryFinalLen: Array.isArray(afterHydrationState.finalStoryFinal) ? afterHydrationState.finalStoryFinal.length : 'missing',
+          timestamp: new Date().toISOString(),
+        });
+      }, 0);
 
       return;
     }
@@ -3315,13 +3350,42 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
       // ★ CRITICAL FIX: 生成直後に DB に保存（finalStoryDraft をリロード後も復元するため）
       try {
+        // ★ FIX: Set a flag to block autosave during post-generation save
+        const GENERATION_SAVE_FLAG_KEY = '__generation_save_in_progress__';
+        const flagExpires = Date.now() + 15000; // 15 second timeout for post-generation save
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(GENERATION_SAVE_FLAG_KEY, JSON.stringify({
+              expiresAt: flagExpires,
+              operationId: `gen_${Date.now()}`,
+            }));
+          }
+        } catch (e) {
+          console.warn('[Stage2] Failed to set generation save flag:', e);
+        }
+
         console.log('[Stage2][generate-final] DB save start after generation');
         const storeState = useStrategyStore.getState() as any;
+
+        // ★ DIAG: verify finalStoryDraft is in store before saving
+        console.log('[diag][generate-final:pre-save] Store state check', {
+          storeFinalStoryDraftLen: Array.isArray(storeState.finalStoryDraft) ? storeState.finalStoryDraft.length : 'missing',
+          newFinalStoryLen: Array.isArray(newFinalStory) ? newFinalStory.length : 0,
+          timestamp: new Date().toISOString(),
+        });
+
         const savePayload = {
           ...storeState,
           finalStoryDraft: newFinalStory, // 生成されたばかりの最新ストーリーを確実に保存
           stage2FinalDocumentEdits: mergeMidtermStrategyIntoDocumentEdits(editingDocumentEdits, midtermStrategy),  // ★ 補助セクション編集内容を明示的に含める
         };
+
+        // ★ DIAG: verify payload contains finalStoryDraft
+        console.log('[diag][generate-final:payload] Payload check before save', {
+          payloadHasFinalStoryDraft: Array.isArray((savePayload as any).finalStoryDraft),
+          payloadFinalStoryDraftLen: Array.isArray((savePayload as any).finalStoryDraft) ? (savePayload as any).finalStoryDraft.length : 0,
+          timestamp: new Date().toISOString(),
+        });
 
         const saveResult = await saveWithAudit(
           savePayload,
@@ -3337,6 +3401,16 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
             finalStoryDraftLen: Array.isArray(newFinalStory) ? newFinalStory.length : 0,
             revision: saveResult.data?.revision,
           });
+
+          // ★ DIAG: verify data was persisted (check returned data)
+          if (saveResult.data) {
+            console.log('[diag][generate-final:post-save] DB response check', {
+              dbResponseHasFinalStoryDraft: Array.isArray((saveResult.data as any).finalStoryDraft),
+              dbResponseFinalStoryDraftLen: Array.isArray((saveResult.data as any).finalStoryDraft) ? (saveResult.data as any).finalStoryDraft.length : 0,
+              timestamp: new Date().toISOString(),
+            });
+          }
+
           if (saveResult.data?.revision !== undefined) {
             useStrategyStore.getState().setRevision(saveResult.data.revision);
           }
@@ -3345,8 +3419,23 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
             error: (saveResult.error as any)?.message || saveResult.error,
           });
         }
+
+        // ★ FIX: Clear the generation save flag after completion
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.removeItem(GENERATION_SAVE_FLAG_KEY);
+          }
+        } catch (e) {
+          console.warn('[Stage2] Failed to clear generation save flag:', e);
+        }
       } catch (saveErr) {
         console.error('[Stage2][generate-final] 🚨 DB save error (non-fatal):', saveErr);
+        // ★ FIX: Still clear the flag even on error
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.removeItem('__generation_save_in_progress__');
+          }
+        } catch (e) {}
       }
     } catch (e: any) {
       console.error('[Stage2] GenerateFinal error:', e);

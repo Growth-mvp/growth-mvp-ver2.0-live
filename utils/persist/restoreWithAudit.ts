@@ -318,6 +318,17 @@ export async function restoreWithAudit(
         revision: hydratedState?.revision,
       });
 
+      // ★ DIAG: STAGE2 Final Story fields restoration check
+      console.log('[diag][restore:stage2-final-stories]', {
+        decisionId: decision.decisionId,
+        sourceUsed: decision.sourceUsed,
+        finalStoryDraftLen: Array.isArray((hydratedState as any)?.finalStoryDraft) ? (hydratedState as any).finalStoryDraft.length : 'missing',
+        finalStoryEditedLen: Array.isArray((hydratedState as any)?.finalStoryEdited) ? (hydratedState as any).finalStoryEdited.length : 'missing',
+        finalStoryFinalLen: Array.isArray((hydratedState as any)?.finalStoryFinal) ? (hydratedState as any).finalStoryFinal.length : 'missing',
+        dbDataFinalStoryDraftLen: Array.isArray((dbData as any)?.finalStoryDraft) ? (dbData as any).finalStoryDraft.length : 'missing',
+        timestamp: new Date().toISOString(),
+      });
+
       // ★ TASK 4: answers12 restore confirmation log
       const answers12Len = Array.isArray((hydratedState as any)?.answers12) ? (hydratedState as any).answers12.length : 0;
       if (answers12Len > 0) {

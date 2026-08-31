@@ -923,6 +923,19 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
   const finalStoryEdited = normalizeChaptersAnyNonDestructive(src.finalStoryEdited);
   const finalStoryFinal = normalizeChaptersAnyNonDestructive(src.finalStoryFinal);
 
+  // ★ DIAG: Track what happened during normalization
+  if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+    console.log('[diag][normalize:stage2-final-stories]', {
+      srcFinalStoryDraftLen: Array.isArray(src.finalStoryDraft) ? src.finalStoryDraft.length : typeof src.finalStoryDraft,
+      srcFinalStoryEditedLen: Array.isArray(src.finalStoryEdited) ? src.finalStoryEdited.length : typeof src.finalStoryEdited,
+      srcFinalStoryFinalLen: Array.isArray(src.finalStoryFinal) ? src.finalStoryFinal.length : typeof src.finalStoryFinal,
+      normalizedFinalStoryDraftLen: Array.isArray(finalStoryDraft) ? finalStoryDraft.length : finalStoryDraft,
+      normalizedFinalStoryEditedLen: Array.isArray(finalStoryEdited) ? finalStoryEdited.length : finalStoryEdited,
+      normalizedFinalStoryFinalLen: Array.isArray(finalStoryFinal) ? finalStoryFinal.length : finalStoryFinal,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
   // ★ STAGE2：AI生成の機会と脅威候補（swotSuggestions）
   // 形式: { opportunity?: string[], threat?: string[], generatedAt?: string }
   const swotSuggestionsSrc = src.swotSuggestions ?? src.swot_suggestions;
