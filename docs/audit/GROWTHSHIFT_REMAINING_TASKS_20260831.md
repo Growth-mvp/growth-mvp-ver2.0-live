@@ -34,15 +34,16 @@
 
 | 項目 | 内容 |
 |-----|------|
-| **優先度** | P0 - 実環境検証待ち |
+| **優先度** | P0 - 本番確認待ち |
 | **対象機能** | レート制限 (10回/分・50回/日) |
-| **対象ファイル** | `middleware.ts` (修正済み), `app/api/stage5/assist-execution/route.ts` |
-| **現状** | コード実装完了、本番環境での到達未検証 |
-| **未完成・未確認の内容** | Vercel 本番での middleware 到達、429 HTTP レスポンス実際の返却 |
-| **必要な修正 / 実装** | 本番相当環境でのテスト実行 |
-| **完了条件** | Vercel 本番で `/api/stage5/assist-execution` が Rate limit に到達し、429 返却を確認 |
-| **検証方法** | 本番相当環境での load test (10req/min 以上で 429 確認) |
-| **状態** | ⏳ 実機確認待ち |
+| **対象ファイル** | `middleware.ts`, `app/api/stage5/assist-execution/route.ts` |
+| **現状** | ✅ middleware 実装確認完了（Upstash Redis 環境変数設定は本番のみ） |
+| **実装内容** | AI生成系: 10/分+50/日 / 管理系: 10-20/時 / 未認証: 30/分（IP）/ fail-open: Redis不可時は通す |
+| **ローカル確認** | ✅ middleware skip 動作（Redis未設定時） |
+| **本番確認待ち** | HTTP 429 返却、RateLimit ヘッダー、Upstash Redis 実使用 |
+| **完了条件** | Vercel 本番で 10回/分超過で 429 返却、RateLimit ヘッダー確認 |
+| **検証方法** | 本番環境で load test (11req/min 以上)、Upstash ダッシュボードで Redis キー確認 |
+| **状態** | ⏳ 本番確認待ち |
 
 ---
 
@@ -50,15 +51,15 @@
 
 | 項目 | 内容 |
 |-----|------|
-| **優先度** | P0 - 実環境検証待ち |
+| **優先度** | P0 - 本番確認待ち |
 | **対象機能** | レート制限における IP ベースの制限識別 |
-| **対象ファイル** | `middleware.ts` |
-| **現状** | ヘッダーベース実装（x-forwarded-for, x-real-ip, cf-connecting-ip）、Vercel 本番での動作未確認 |
-| **未完成・未確認の内容** | Vercel 本番環境での正しい IP 取得、Proxy ヘッダーの信頼性 |
-| **必要な修正 / 実装** | 本番環境での IP 検出テスト |
-| **完了条件** | Vercel 本番で複数クライアント IP の正確な識別と制限を確認 |
-| **検証方法** | Vercel Functions ログで IP 値確認、異なるネットワークからのアクセステスト |
-| **状態** | ⏳ 実機確認待ち |
+| **対象ファイル** | `middleware.ts` (line 101-108) |
+| **現状** | ✅ ヘッダー優先順位実装完了（x-forwarded-for > x-real-ip > cf-connecting-ip → 0.0.0.0） |
+| **ローカル確認** | ✅ コンマ区切り IP マルチ処理（最初の1つを抽出）、フォールバック動作 |
+| **本番確認待ち** | 各ヘッダーの実値（ローカルではヘッダー不在）、複数IP の分離制限 |
+| **完了条件** | Vercel 本番で複数 IP からのリクエストが異なる rate limit キーで分離 |
+| **検証方法** | マスク済みログ：IP.split('.').slice(0,2).join('.')+'.**.**' / 複数IP テスト / RateLimit キー分離確認 |
+| **状態** | ⏳ 本番確認待ち |
 
 ---
 
@@ -66,15 +67,17 @@
 
 | 項目 | 内容 |
 |-----|------|
-| **優先度** | P0 - 実環境検証待ち |
+| **優先度** | P0 - 本番確認待ち |
 | **対象機能** | org_alignment_insights, agent_logs の RLS ポリシー |
 | **対象ファイル** | `supabase/migrations/20260708_add_rls_org_alignment_agent_logs.sql` |
-| **現状** | Migration ファイル存在、実 Supabase DB への適用状況不明 |
-| **未完成・未確認の内容** | Migration が実 DB に適用されているか、ポリシーが実際に機能しているか |
-| **必要な修正 / 実装** | Supabase DB 確認・migration 適用状況チェック |
-| **完了条件** | org_alignment_insights のポリシーが実 DB で有効、クロステナント拒否テスト成功 |
-| **検証方法** | Supabase dashboard での policy 確認、クロステナント拒否テスト |
-| **状態** | ⏳ 実機確認待ち |
+| **現状** | ✅ Migration ファイル存在・RLS ポリシー完全定義 / ✅ API層 company scope 制御実装（requireMembership） |
+| **実装内容** | org_alignment_insights (admin CRUD+member read) / agent_logs (admin select+service_role insert) / company_id FK による隔離 |
+| **ローカル確認** | ✅ Migration ファイル構文検証 / ✅ API層 requireMembership 確認 |
+| **本番確認待ち** | Supabase dashboard での policy 実装確認、クロステナント拒否テスト、Service Role 経由での制限確認 |
+| **完了条件** | Company A ユーザーが Company B データをSELECT/INSERT/UPDATE/DELETE できないこと（RLS拒否） |
+| **検証方法** | Supabase Staging DB で SELECT テスト、Service Role 経由 API でも company scope 強制確認 |
+| **状態** | ⏳ 本番確認待ち（実装は完了） |
+| **参考資料** | `docs/audit/RATE_LIMIT_IP_RLS_VALIDATION.md`
 
 ---
 
