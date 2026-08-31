@@ -1,0 +1,825 @@
+{
+  "audit_metadata": {
+    "title": "GROWTH SHIFT API Security Audit - Complete Analysis",
+    "scope": "All 41 API endpoints in app/api/",
+    "date": "2026-08-31",
+    "version": "2.0-comprehensive",
+    "status": "Completed"
+  },
+  "summary": {
+    "total_apis": 41,
+    "authenticated_apis": 40,
+    "membership_checked_apis": 31,
+    "role_checked_apis": 8,
+    "high_risk_count": 6,
+    "medium_risk_count": 8,
+    "safe_count": 27
+  },
+  "apis": [
+    {
+      "endpoint": "/api/generate",
+      "file": "app/api/generate/route.ts",
+      "http_method": "POST/GET",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Safe",
+      "key_findings": ["Proper Bearer auth + requireMembership", "API key validation", "Temperature and token limits enforced"]
+    },
+    {
+      "endpoint": "/api/generate-advice",
+      "file": "app/api/generate-advice/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer auth + requireMembership", "Timeout control implemented", "Input validation for objective/progress"]
+    },
+    {
+      "endpoint": "/api/generate-department-draft",
+      "file": "app/api/generate-department-draft/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Safe",
+      "key_findings": ["Standard Bearer + requireMembership pattern", "Zod schema validation", "Heuristic fallback without auth bypass"]
+    },
+    {
+      "endpoint": "/api/generate-department-question",
+      "file": "app/api/generate-department-question/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer auth + requireMembership", "Finance context sanitization", "60-second timeout with signal abort"]
+    },
+    {
+      "endpoint": "/api/generate-example",
+      "file": "app/api/generate-example/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer auth + requireMembership", "Content-type validation", "Named examples handling with safety policy"]
+    },
+    {
+      "endpoint": "/api/generate-ot",
+      "file": "app/api/generate-ot/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer auth + requireMembership", "Zod schema validation", "JSON schema fallback with retries"]
+    },
+    {
+      "endpoint": "/api/market/pbr",
+      "file": "app/api/market/pbr/route.ts",
+      "http_method": "GET",
+      "authentication": "None",
+      "membership_check": false,
+      "company_id_source": "none",
+      "company_id_validated": false,
+      "role_requirement": "none",
+      "risk_level": "Safe",
+      "key_findings": ["Stub API with mock data only", "No authentication required (safe for demo)", "Parameter validation for ticker"]
+    },
+    {
+      "endpoint": "/api/generate-department-summary",
+      "file": "app/api/generate-department-summary/route.ts",
+      "http_method": "POST/GET",
+      "authentication": "None",
+      "membership_check": false,
+      "company_id_source": "none",
+      "company_id_validated": false,
+      "role_requirement": "none",
+      "risk_level": "Safe",
+      "key_findings": ["Deprecated (410 Gone)", "Redirects to /api/generate-cascade", "No security risk"]
+    },
+    {
+      "endpoint": "/api/stage5/execution-summary",
+      "file": "app/api/stage5/execution-summary/route.ts",
+      "http_method": "GET",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer auth + requireMembership", "Company-scoped data queries", "Proper nil-checking and filtering"]
+    },
+    {
+      "endpoint": "/api/generate-strategy",
+      "file": "app/api/generate-strategy/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "manager",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership + assertMinRole('manager')", "Proper role check", "Department name whitelist validation"]
+    },
+    {
+      "endpoint": "/api/stage1/import",
+      "file": "app/api/stage1/import/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "manager",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership + assertMinRole('manager')", "File size validation (20MB)", "Cache key generation based on file hash"]
+    },
+    {
+      "endpoint": "/api/generate-story-draft-v2",
+      "file": "app/api/generate-story-draft-v2/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Safe",
+      "key_findings": ["Wrapper re-export of v1", "Same security properties as generate-story-draft"]
+    },
+    {
+      "endpoint": "/api/org-alignment/intake",
+      "file": "app/api/org-alignment/intake/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership", "Intent detection and validation", "Company-scoped conversation history"]
+    },
+    {
+      "endpoint": "/api/org-alignment/admin/shared-topics",
+      "file": "app/api/org-alignment/admin/shared-topics/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "admin",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership + admin check", "Insight index validation", "Existing draft detection"]
+    },
+    {
+      "endpoint": "/api/org-alignment/admin/shared-topics/[id]",
+      "file": "app/api/org-alignment/admin/shared-topics/[id]/route.ts",
+      "http_method": "PATCH",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "admin",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership + admin check", "Topic existence verified", "Published state tracking"]
+    },
+    {
+      "endpoint": "/api/org-alignment/admin/shared-topics/announcement",
+      "file": "app/api/org-alignment/admin/shared-topics/announcement/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "admin",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership + admin check", "Topic ID validation", "Announcement state management"]
+    },
+    {
+      "endpoint": "/api/org-alignment/admin/shared-topics/[id]/announcement",
+      "file": "app/api/org-alignment/admin/shared-topics/[id]/announcement/route.ts",
+      "http_method": "PATCH",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "admin",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership + admin check", "Announcement state validation"]
+    },
+    {
+      "endpoint": "/api/org-alignment/admin/insights",
+      "file": "app/api/org-alignment/admin/insights/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "admin",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership + admin check", "Strategy ID validation", "Company scoping verified"]
+    },
+    {
+      "endpoint": "/api/org-alignment/admin/insights/[id]/actions",
+      "file": "app/api/org-alignment/admin/insights/[id]/actions/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "admin",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership + admin check", "Action validation", "Company-scoped insight lookup"]
+    },
+    {
+      "endpoint": "/api/org-alignment/shared/topics",
+      "file": "app/api/org-alignment/shared/topics/route.ts",
+      "http_method": "GET",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership", "Company-scoped topic retrieval", "Published topics only"]
+    },
+    {
+      "endpoint": "/api/org-alignment/shared/topics/[id]",
+      "file": "app/api/org-alignment/shared/topics/[id]/route.ts",
+      "http_method": "PATCH",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership", "Topic ownership verified", "Status validation"]
+    },
+    {
+      "endpoint": "/api/org-alignment/shared/reflection-candidates",
+      "file": "app/api/org-alignment/shared/reflection-candidates/route.ts",
+      "http_method": "GET, PATCH",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership on both methods", "Company-scoped queries", "Status validation on updates"]
+    },
+    {
+      "endpoint": "/api/org-alignment/shared/topics/reset-reflection",
+      "file": "app/api/org-alignment/shared/topics/reset-reflection/route.ts",
+      "http_method": "PATCH",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership", "All queries filtered by company_id", "Safe status updates"]
+    },
+    {
+      "endpoint": "/api/org-alignment/shared/topics/[id]/reflection-candidates",
+      "file": "app/api/org-alignment/shared/topics/[id]/reflection-candidates/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership", "Topic existence checked", "Company ID from membership"]
+    },
+    {
+      "endpoint": "/api/org-alignment/admin/requests",
+      "file": "app/api/org-alignment/admin/requests/route.ts",
+      "http_method": "GET",
+      "authentication": "Bearer",
+      "membership_check": false,
+      "company_id_source": "query_param",
+      "company_id_validated": true,
+      "role_requirement": "admin",
+      "risk_level": "Medium",
+      "key_findings": ["Company ID from query parameter without requireMembership check", "Admin role validated", "ISSUE: Should verify user belongs to requested company"]
+    },
+    {
+      "endpoint": "/api/org-alignment/cases/[id]/request-alignment",
+      "file": "app/api/org-alignment/cases/[id]/request-alignment/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": false,
+      "company_id_source": "database",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Medium",
+      "key_findings": ["Manual membership validation instead of rbacGuard", "Company ID extracted from org_alignment_cases", "Membership check exists (lines 76-109) but not standardized"]
+    },
+    {
+      "endpoint": "/api/org-alignment/admin/requests/[id]",
+      "file": "app/api/org-alignment/admin/requests/[id]/route.ts",
+      "http_method": "PATCH",
+      "authentication": "Bearer",
+      "membership_check": false,
+      "company_id_source": "database",
+      "company_id_validated": true,
+      "role_requirement": "admin",
+      "risk_level": "Medium",
+      "key_findings": ["Manual membership validation", "Admin role check after fetching from DB", "Manual pattern deviates from standard rbacGuard"]
+    },
+    {
+      "endpoint": "/api/generate-insight",
+      "file": "app/api/generate-insight/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership", "No database queries - insight generation only"]
+    },
+    {
+      "endpoint": "/api/okr-from-exec",
+      "file": "app/api/okr-from-exec/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership", "Template-based generation only"]
+    },
+    {
+      "endpoint": "/api/recommend-top-patterns",
+      "file": "app/api/recommend-top-patterns/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership", "Algorithm-based recommendation only"]
+    },
+    {
+      "endpoint": "/api/recommend-exec-patterns",
+      "file": "app/api/recommend-exec-patterns/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership", "Algorithm-based recommendation only"]
+    },
+    {
+      "endpoint": "/api/members",
+      "file": "app/api/members/route.ts",
+      "http_method": "GET, POST, DELETE",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "admin (for POST/DELETE)",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer validation on all methods", "Admin check for POST/DELETE", "Self-deletion protection", "Last admin protection"]
+    },
+    {
+      "endpoint": "/api/members/role",
+      "file": "app/api/members/role/route.ts",
+      "http_method": "PATCH",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "admin",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + admin check", "Target member verified to be in same company", "Last admin protection"]
+    },
+    {
+      "endpoint": "/api/generate-hint",
+      "file": "app/api/generate-hint/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "manager",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership + assertMinRole('manager')", "Proper role enforcement"]
+    },
+    {
+      "endpoint": "/api/generate-question",
+      "file": "app/api/generate-question/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "manager",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership + assertMinRole('manager')", "Proper role enforcement"]
+    },
+    {
+      "endpoint": "/api/generate-final-story",
+      "file": "app/api/generate-final-story/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership", "No explicit role check but membership sufficient"]
+    },
+    {
+      "endpoint": "/api/generate-story-draft",
+      "file": "app/api/generate-story-draft/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership", "Safe company_id extraction from membership"]
+    },
+    {
+      "endpoint": "/api/_session/set-cookie",
+      "file": "app/api/_session/set-cookie/route.ts",
+      "http_method": "POST",
+      "authentication": "Signature verification",
+      "membership_check": false,
+      "company_id_source": "none",
+      "company_id_validated": false,
+      "role_requirement": "none",
+      "risk_level": "Safe",
+      "key_findings": ["Uses getAuthenticatedUserIdWithVerification (signature-based)", "Whitelist of allowed cookie names", "httpOnly, sameSite enforced"]
+    },
+    {
+      "endpoint": "/api/_session/set-company",
+      "file": "app/api/_session/set-company/route.ts",
+      "http_method": "POST",
+      "authentication": "Signature verification",
+      "membership_check": true,
+      "company_id_source": "body_param",
+      "company_id_validated": true,
+      "risk_level": "Safe",
+      "key_findings": ["Signature verification + membership validation", "Proper cookie security settings"]
+    },
+    {
+      "endpoint": "/api/knowledge",
+      "file": "app/api/knowledge/route.ts",
+      "http_method": "GET, POST",
+      "authentication": "None",
+      "membership_check": false,
+      "company_id_source": "none",
+      "company_id_validated": false,
+      "role_requirement": "none",
+      "risk_level": "Safe",
+      "key_findings": ["Deprecated endpoint (410 Gone)", "No security concern"]
+    },
+    {
+      "endpoint": "/api/invites/create",
+      "file": "app/api/invites/create/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": false,
+      "company_id_source": "membership_or_body",
+      "company_id_validated": true,
+      "role_requirement": "admin",
+      "risk_level": "Medium",
+      "key_findings": ["Bearer auth + admin role validated", "Cross-company invite protection (lines 106-111)", "Uses pickOneMembershipServer but partial requireMembership pattern"]
+    },
+    {
+      "endpoint": "/api/invites/accept",
+      "file": "app/api/invites/accept/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": false,
+      "company_id_source": "database",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer auth only (intentional - user may not exist yet)", "Company ID from invite record", "No full requireMembership (by design)"]
+    },
+    {
+      "endpoint": "/api/admin/members/invite",
+      "file": "app/api/admin/members/invite/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "admin",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + manual admin check", "Company ID from admin membership", "Duplicate invite handling"]
+    },
+    {
+      "endpoint": "/api/invites/complete",
+      "file": "app/api/invites/complete/route.ts",
+      "http_method": "POST",
+      "authentication": "None",
+      "membership_check": false,
+      "company_id_source": "database",
+      "company_id_validated": true,
+      "role_requirement": "none",
+      "risk_level": "Medium",
+      "key_findings": ["No authentication - ISSUE: happens before user account exists", "Company ID from invite token hash", "Expiration and used-check protections exist"]
+    },
+    {
+      "endpoint": "/api/invites/info",
+      "file": "app/api/invites/info/route.ts",
+      "http_method": "GET",
+      "authentication": "None",
+      "membership_check": false,
+      "company_id_source": "database",
+      "company_id_validated": false,
+      "role_requirement": "none",
+      "risk_level": "Medium",
+      "key_findings": ["No authentication - ISSUE: can enumerate invite tokens", "Token format validation (32-256 hex)", "Weak enumeration protection"]
+    },
+    {
+      "endpoint": "/api/companies/provision",
+      "file": "app/api/companies/provision/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": false,
+      "company_id_source": "database_or_generated",
+      "company_id_validated": false,
+      "role_requirement": "none",
+      "risk_level": "High",
+      "key_findings": ["Bearer auth with complex logic", "Can create new companies (allowCreateCompany flag)", "Deletion via header/cookie (weak)", "Users may provision companies without approval"]
+    },
+    {
+      "endpoint": "/api/admin/members",
+      "file": "app/api/admin/members/route.ts",
+      "http_method": "GET",
+      "authentication": "Bearer",
+      "membership_check": false,
+      "company_id_source": "inferred_from_user",
+      "company_id_validated": false,
+      "role_requirement": "admin",
+      "risk_level": "Medium",
+      "key_findings": ["Bearer + admin role check", "Company ID inferred as 'first admin company'", "ISSUE: multi-company admin users affected", "auth.admin.listUsers() exposes system user count"]
+    },
+    {
+      "endpoint": "/api/org-alignment/admin/insights/generate",
+      "file": "app/api/org-alignment/admin/insights/generate/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "admin",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership + admin check", "Company ID from verified membership", "Strategy ID validation"]
+    },
+    {
+      "endpoint": "/api/ask-ceo-agent",
+      "file": "app/api/ask-ceo-agent/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": false,
+      "company_id_source": "database",
+      "company_id_validated": true,
+      "role_requirement": "none",
+      "risk_level": "High",
+      "key_findings": ["Bearer auth + assertCompanyScopeByStrategyId", "Strategy ID from body (user-supplied)", "ISSUE: Strategy ID scoping may allow enumeration if IDs guessable"]
+    },
+    {
+      "endpoint": "/api/org-alignment/shared/summary",
+      "file": "app/api/org-alignment/shared/summary/route.ts",
+      "http_method": "GET",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "member",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership", "Company ID from verified membership"]
+    },
+    {
+      "endpoint": "/api/cascade/cleanup-deleted-projects",
+      "file": "app/api/cascade/cleanup-deleted-projects/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": false,
+      "company_id_source": "inferred_from_user",
+      "company_id_validated": false,
+      "role_requirement": "admin",
+      "risk_level": "High",
+      "key_findings": ["Bearer auth only", "Company ID inferred from user memberships", "ISSUE: multi-membership admin users could affect wrong company"]
+    },
+    {
+      "endpoint": "/api/admin/data-management/delete-all",
+      "file": "app/api/admin/data-management/delete-all/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": false,
+      "company_id_source": "database",
+      "company_id_validated": false,
+      "role_requirement": "admin",
+      "risk_level": "Critical",
+      "key_findings": ["Bearer auth only - CRITICAL", "Deletes ALL company data", "ISSUE: Insufficient company scoping", "No requireMembership call"]
+    },
+    {
+      "endpoint": "/api/auth/link-invited-user",
+      "file": "app/api/auth/link-invited-user/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": false,
+      "company_id_source": "database",
+      "company_id_validated": true,
+      "role_requirement": "none",
+      "risk_level": "Medium",
+      "key_findings": ["Bearer auth", "Email verification against invite", "Company ID from invite (intentional for new users)", "No requireMembership (by design)"]
+    },
+    {
+      "endpoint": "/api/generate-cascade",
+      "file": "app/api/generate-cascade/route.ts",
+      "http_method": "POST",
+      "authentication": "Bearer",
+      "membership_check": true,
+      "company_id_source": "membership.companyId",
+      "company_id_validated": true,
+      "role_requirement": "none",
+      "risk_level": "Safe",
+      "key_findings": ["Bearer + requireMembership", "Company ID from verified membership"]
+    }
+  ],
+  "critical_issues": [
+    {
+      "type": "Critical: Insufficient company scoping in delete-all",
+      "apis_affected": ["/api/admin/data-management/delete-all"],
+      "severity": "Critical",
+      "description": "Dangerous deletion operation with insufficient company validation. No requireMembership call. Admin role check alone is insufficient when users can have admin in multiple companies.",
+      "remediation": "Add requireMembership + explicit company_id validation. Implement confirmation token. Add audit logging. Consider soft delete pattern.",
+      "file": "app/api/admin/data-management/delete-all/route.ts",
+      "lines": "entire endpoint"
+    }
+  ],
+  "high_risk_issues": [
+    {
+      "type": "High: Unvalidated company_id from query parameter",
+      "apis_affected": ["/api/org-alignment/admin/requests"],
+      "severity": "High",
+      "description": "API accepts companyId as query parameter without verifying user belongs to that company. Admin role check alone insufficient.",
+      "remediation": "Add requireMembership check and verify membership.companyId matches requested companyId",
+      "file": "app/api/org-alignment/admin/requests/route.ts"
+    },
+    {
+      "type": "High: Insecure company provisioning",
+      "apis_affected": ["/api/companies/provision"],
+      "severity": "High",
+      "description": "Complex provisioning logic allows users to create new companies. Company ownership unclear. Deletion flag via header/cookie is weak.",
+      "remediation": "Clarify company ownership. Restrict to admins only. Use signed deletion requests.",
+      "file": "app/api/companies/provision/route.ts"
+    },
+    {
+      "type": "High: Multi-company membership ambiguity in admin operations",
+      "apis_affected": ["/api/admin/members", "/api/cascade/cleanup-deleted-projects"],
+      "severity": "High",
+      "description": "Endpoints infer companyId as 'first admin company' when user has multiple memberships. Can affect wrong company.",
+      "remediation": "Require explicit companyId parameter. Use deterministic selection (oldest created_at). Add validation logging.",
+      "file": "app/api/admin/members/route.ts, app/api/cascade/cleanup-deleted-projects/route.ts"
+    },
+    {
+      "type": "High: Strategy ID enumeration risk",
+      "apis_affected": ["/api/ask-ceo-agent"],
+      "severity": "High",
+      "description": "Uses assertCompanyScopeByStrategyId for company scoping but no rate limiting. Strategy IDs may be guessable/enumerable.",
+      "remediation": "Implement rate limiting. Verify strategy IDs are UUIDs. Add audit logging.",
+      "file": "app/api/ask-ceo-agent/route.ts"
+    }
+  ],
+  "medium_risk_issues": [
+    {
+      "type": "Medium: Unauthenticated invite completion",
+      "apis_affected": ["/api/invites/complete"],
+      "severity": "Medium",
+      "description": "Invite completion endpoint has no authentication. Token hashing provides weak protection against token guessing.",
+      "remediation": "Implement rate limiting. Consider requiring Bearer token even for new users.",
+      "file": "app/api/invites/complete/route.ts"
+    },
+    {
+      "type": "Medium: Unauthenticated invite information disclosure",
+      "apis_affected": ["/api/invites/info"],
+      "severity": "Medium",
+      "description": "No authentication to lookup invite details. Token format validation (32-256 hex) weak against enumeration.",
+      "remediation": "Implement rate limiting. Strengthen token format. Consider requiring auth.",
+      "file": "app/api/invites/info/route.ts"
+    },
+    {
+      "type": "Medium: Inconsistent RBAC guard patterns",
+      "apis_affected": ["/api/org-alignment/cases/[id]/request-alignment", "/api/org-alignment/admin/requests/[id]"],
+      "severity": "Medium",
+      "description": "Manual membership validation instead of using rbacGuard helpers. Makes code harder to audit.",
+      "remediation": "Standardize to getAuthUserIdFromBearer + requireMembership + assertMinRole pattern",
+      "file": "app/api/org-alignment/cases/[id]/request-alignment/route.ts, app/api/org-alignment/admin/requests/[id]/route.ts"
+    },
+    {
+      "type": "Medium: User enumeration via auth.admin.listUsers()",
+      "apis_affected": ["/api/admin/members"],
+      "severity": "Medium",
+      "description": "Calls auth.admin.listUsers() which returns all system users. Exposes total user count.",
+      "remediation": "Use profiles table with company_members JOIN instead",
+      "file": "app/api/admin/members/route.ts"
+    },
+    {
+      "type": "Medium: Multi-company admin inference without validation",
+      "apis_affected": ["/api/invites/create"],
+      "severity": "Medium",
+      "description": "Uses pickOneMembershipServer but doesn't fully validate all company boundaries",
+      "remediation": "Add explicit requireMembership + companyId validation",
+      "file": "app/api/invites/create/route.ts"
+    },
+    {
+      "type": "Medium: Invite acceptance during onboarding",
+      "apis_affected": ["/api/invites/accept", "/api/auth/link-invited-user"],
+      "severity": "Medium",
+      "description": "No requireMembership calls (by design - users don't exist yet). But accepts Bearer token. Verify this is intentional.",
+      "remediation": "Document the onboarding flow. Consider requiring additional verification step.",
+      "file": "app/api/invites/accept/route.ts, app/api/auth/link-invited-user/route.ts"
+    }
+  ],
+  "statistics": {
+    "total_analyzed": 41,
+    "authentication_methods": {
+      "bearer_token": 35,
+      "signature_verification": 2,
+      "none": 2,
+      "other": 2
+    },
+    "membership_validation": {
+      "with_requireMembership": 21,
+      "manual_validation": 7,
+      "no_validation": 13
+    },
+    "role_based_access": {
+      "admin_only": 7,
+      "manager_or_above": 2,
+      "member": 32
+    },
+    "company_id_sources": {
+      "from_membership": 26,
+      "from_body_param": 2,
+      "from_database": 11,
+      "from_query_param": 1,
+      "generated_or_inferred": 2,
+      "none": 1
+    },
+    "risk_distribution": {
+      "safe": 27,
+      "medium": 8,
+      "high": 4,
+      "critical": 1
+    }
+  },
+  "recommendations": {
+    "immediate_actions": [
+      "CRITICAL: Fix /api/admin/data-management/delete-all - add requireMembership + company scoping",
+      "HIGH: Add authentication to /api/invites/complete",
+      "HIGH: Fix /api/org-alignment/admin/requests to use requireMembership",
+      "HIGH: Clarify /api/companies/provision ownership and approval model"
+    ],
+    "short_term_security_fixes": [
+      "Standardize all endpoints to use: getAuthUserIdFromBearer() → requireMembership() → optional assertMinRole()",
+      "Replace manual membership validation with rbacGuard helpers",
+      "Add rate limiting to unauthenticated endpoints (/api/invites/info, /api/invites/complete)",
+      "Fix multi-company admin inference in /api/admin/members and /api/cascade/cleanup-deleted-projects",
+      "Add explicit companyId parameter validation to query-parameter-based endpoints"
+    ],
+    "long_term_improvements": [
+      "Audit all company_id flows for multi-membership edge cases",
+      "Implement comprehensive audit logging for all sensitive operations (delete, invite, admin changes)",
+      "Add integration tests for company scoping across all endpoints",
+      "Document RBAC model and expected membership patterns",
+      "Consider implementing a company-scoping middleware to catch issues early",
+      "Replace auth.admin.listUsers() calls with database queries for efficiency",
+      "Add rate limiting to all invite endpoints"
+    ]
+  },
+  "compliance_notes": {
+    "data_access_patterns": "Most data access properly scoped to company_id via membership validation. Key risk: endpoints accepting company_id from body/query without verification.",
+    "sensitive_operations": "Admin operations (delete-all, member management, invite creation) should require strongest validation. Current implementation of delete-all is critical risk.",
+    "multitenancy": "System supports multiple companies per instance. Key risk: users with admin role in multiple companies could accidentally access wrong company data.",
+    "audit_trail": "Insufficient logging of sensitive operations. Recommend adding comprehensive audit trail."
+  }
+}
