@@ -3375,8 +3375,15 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         fingerprint: fp1Generated,
       });
 
-      // ★ STAGE2 最終ストーリー：draft に設定（edited は保持）
+      // ★ STAGE2 最終ストーリー：draft に設定
+      // ★ CRITICAL FIX: Also clear old finalized versions (finalStoryFinal/finalStory)
+      // If they remain, UI's usingVersion logic would display stale finalized version
+      // instead of the new generation in draft
       setFinalStoryDraft(newFinalStory);
+
+      // Clear finalized versions so new generation is displayed
+      (useStrategyStore.getState() as any).finalStoryFinal = [];
+      (useStrategyStore.getState() as any).finalStory = [];
 
       // ★中計設計（midtermStrategy）がAPIから返ってきた場合のみ store へ反映
       if (
