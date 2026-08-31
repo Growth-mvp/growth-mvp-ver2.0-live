@@ -7,7 +7,6 @@ export const maxDuration = 90;
 import { NextRequest, NextResponse } from 'next/server';
 import { openai } from '@/lib/openai';
 import { getIndustryLabel as _getIndustryLabel } from '@/utils/industryTemplates';
-import { saveFinalStory } from '@/utils/supabase';
 import type { ChatCompletionCreateParamsNonStreaming } from 'openai/resources/chat/completions';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
@@ -15,12 +14,11 @@ import { logAuditEvent, extractAuditMetadata } from '@/lib/server/auditLog';
 import { logInputGuard, checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
 
 /* =========================
- * モデル選択（簡素化）
+ * モデル設定
  * =======================*/
-const MODEL_PRIMARY =
-  process.env.OPENAI_MODEL ?? process.env.NEXT_PUBLIC_OPENAI_MODEL ?? 'gpt-4o';
-const MODEL_FALLBACK = 'gpt-4o-mini';
-const SUPPORTS_JSON_MODE = /^gpt-4o($|-)/;
+import { AI_MODELS, getTokenLimitParam, getTemperatureParam, getPenaltyParams } from '@/lib/modelConfig';
+
+const SUPPORTS_JSON_MODE = /^(gpt-4o|gpt-5\.6-luna)($|-)/;
 
 /* =========================
  * 勝ちパターン10選（④連携）
@@ -983,7 +981,7 @@ function containsTypo(text: string): { hasTypo: boolean; found: string[] } {
 }
 
 /* =========================
- * OpenAI 呼び出し（JSON強制＋フォールバック）
+ * OpenAI 呼び出し（JSON強制＋条件付きフォールバック）
  * =======================*/
 type ChatArgs = {
   model: string;
@@ -994,6 +992,7 @@ type ChatArgs = {
   frequency_penalty?: number;
   system: string;
   user: string;
+  allowFallback?: boolean;
 };
 
 async function callOpenAIChat(args: ChatArgs): Promise<string> {
@@ -1006,16 +1005,16 @@ async function callOpenAIChat(args: ChatArgs): Promise<string> {
     frequency_penalty = 0.2,
     system,
     user,
+    allowFallback = false,
   } = args;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   const base: ChatCompletionCreateParamsNonStreaming = {
     model,
-    temperature,
-    max_tokens,
-    presence_penalty,
-    frequency_penalty,
+    ...getTemperatureParam(model, temperature),
+    ...getTokenLimitParam(model, max_tokens),
+    ...getPenaltyParams(model, presence_penalty, frequency_penalty),
     messages: [
       { role: 'system', content: system },
       { role: 'user', content: user },
@@ -1036,14 +1035,18 @@ async function callOpenAIChat(args: ChatArgs): Promise<string> {
     const isAbort = e?.name === 'AbortError';
     const status =
       e?.status ?? e?.response?.status ?? (isAbort ? 504 : 500);
-    // 429/5xx → フォールバック（mini）
+    // 429/5xx かつ allowFallback === true の場合のみfallback
     // AbortError は本番 maxDuration を超えやすいため再試行しない。
-    if (!isAbort && (status === 429 || status >= 500) && args.model !== MODEL_FALLBACK) {
-      return await callOpenAIChat({
-        ...args,
-        model: MODEL_FALLBACK,
-        timeoutMs: Math.min(timeoutMs, 24_000),
-      });
+    if (!isAbort && (status === 429 || status >= 500) && allowFallback) {
+      const fallbackModel = AI_MODELS.lightweight;
+      if (model !== fallbackModel) {
+        return await callOpenAIChat({
+          ...args,
+          model: fallbackModel,
+          allowFallback: false,
+          timeoutMs: Math.min(timeoutMs, 24_000),
+        });
+      }
     }
     throw {
       status,
@@ -1514,27 +1517,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Bearer token authentication and membership validation
+    // Bearer token authentication
     const admin = getSupabaseAdmin();
     const userId = await getAuthUserIdFromBearer(admin, req);
     if (!userId) {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
     }
-    const membership = await requireMembership(admin, userId);
-    if (!membership) {
-      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
-    }
-
-    // ★ manager以上の権限チェック
-    try {
-      await assertMinRole(membership, 'manager');
-    } catch {
-      return NextResponse.json({ error: 'insufficient_role' }, { status: 403 });
-    }
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
-    // ★必須化：strategyDataId がない場合は 400 を返す
+    // ★ strategyDataId を取得・必須チェック
     const requestedStrategyDataId = pickFirstText(
       body.strategyDataId,
       body.strategy_data_id,
@@ -1552,9 +1544,36 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // companyId は membership から信頼できる値を使用
-    // フロント側から送信される companyId は参考のみ
-    const requestedCompanyId = membership.companyId;
+    // ★ strategy_data.company_id を取得
+    const { data: strategyRecord, error: strategyError } = await admin
+      .from('strategy_data')
+      .select('company_id')
+      .eq('id', requestedStrategyDataId)
+      .maybeSingle();
+
+    if (strategyError || !strategyRecord || !strategyRecord.company_id) {
+      return NextResponse.json(
+        { error: 'strategy_data_not_found', message: 'strategyDataId does not exist' },
+        { status: 404 }
+      );
+    }
+
+    const strategyCompanyId = strategyRecord.company_id;
+
+    // ★ strategyCompanyId を明示指定して membership を検証
+    const membership = await requireMembership(admin, userId, strategyCompanyId);
+    if (!membership) {
+      return NextResponse.json({ error: 'not_a_member', message: 'User is not a member of this company' }, { status: 403 });
+    }
+
+    // ★ Role チェック: manager 以上のみ許可
+    try {
+      await assertMinRole(membership, 'manager');
+    } catch {
+      return NextResponse.json({ error: 'insufficient_role' }, { status: 403 });
+    }
+
+    const requestedCompanyId = strategyCompanyId;
 
     const mvv = asRecord(body.mvv);
     const swot = asRecord(body.swot);
@@ -1812,7 +1831,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
 
     /* ---------- OpenAI 呼び出し or ヒューリスティック ---------- */
     let raw = '';
-    let usedModel = MODEL_PRIMARY;
+    let usedModel = AI_MODELS.reasoning;
     let usedHeuristic = false;
 
     // ★ ログ記録（データ混入デバッグ用）
@@ -1868,8 +1887,11 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
     });
 
     try {
+      if (process.env.NODE_ENV === 'development' || process.env.DEBUG_AI_MODELS === '1') {
+        console.log(`[AI] stage2-final-strategy → ${AI_MODELS.reasoning}`);
+      }
       raw = await callOpenAIChat({
-        model: MODEL_PRIMARY,
+        model: AI_MODELS.reasoning,
         temperature:
           typeof temperature === 'number' && Number.isFinite(temperature)
             ? (temperature as number)
@@ -1881,7 +1903,23 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
         system: systemPrompt,
         user: userPrompt,
       });
+
+      // ★ 診断：Luna raw response の確認
+      console.log('[stage2-final] ★LUNA RAW RESPONSE DIAGNOSTIC★', {
+        rawLength: raw?.length ?? 0,
+        rawFirst200: raw?.slice(0, 200) ?? 'null',
+        rawSample: {
+          ch0_start: raw?.includes('"heading"') ? '(JSON形式)' : raw?.slice(0, 100) ?? 'empty',
+        },
+      });
     } catch (_detail: any) {
+      // ★ 診断：なぜ heuristic fallback に落ちたか
+      console.error('[stage2-final] ★OPENAI CALL FAILED - FALLBACK TO HEURISTIC★', {
+        errorName: _detail?.name,
+        errorMessage: _detail?.message || String(_detail),
+        errorStatus: _detail?.status,
+        errorCode: _detail?.code,
+      });
       usedHeuristic = true;
       usedModel = 'heuristic-fallback';
     }
@@ -1892,6 +1930,14 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
       type GenOut = { sections?: Array<{ heading?: string; body?: string }> };
       const parsed = extractJsonLoose<GenOut>(raw);
 
+      // ★ 診断：parse後の sections を確認
+      console.log('[stage2-final] ★PARSED SECTIONS DIAGNOSTIC★', {
+        hasSections: Array.isArray(parsed?.sections),
+        sectionsCount: Array.isArray(parsed?.sections) ? parsed.sections.length : 0,
+        section0_heading: parsed?.sections?.[0]?.heading?.slice(0, 50) ?? 'null',
+        section0_bodyStart: parsed?.sections?.[0]?.body?.slice(0, 150) ?? 'null',
+      });
+
       sections =
         Array.isArray(parsed?.sections) && parsed!.sections!.length >= 4
           ? coerceToSimpleHeads(parsed!.sections!)
@@ -1899,22 +1945,38 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
 
       // 二段階目のエモーショナル補正は、熱量過多・ラベル混入を避けるため既定OFF。
       const doEnhance = enhanceEmotion === true;
+      if (doEnhance && (process.env.NODE_ENV === 'development' || process.env.DEBUG_AI_MODELS === '1')) {
+        console.log(`[AI] stage2-emotion-edit → ${AI_MODELS.lightweight}`);
+      }
       sections = await enhanceEmotionIfNeeded(
         sections,
         thought,
         patternsLine,
         typeof temperature === 'number' ? Math.min(0.45, Math.max(0.25, temperature)) : 0.4,
-        MODEL_PRIMARY,
+        AI_MODELS.lightweight,
         doEnhance,
       );
 
+      console.log('[stage2-final] ★AFTER ENHANCE EMOTION★', {
+        section0_body_start: sections?.[0]?.body?.slice(0, 150) ?? 'null',
+      });
+
       sections = ensureBridges(sections);
       sections = sections.map((s) => ({ ...s, body: cleanFinalStoryArtifacts(s.body) }));
+
+      console.log('[stage2-final] ★BEFORE NORMALIZE STRATEGIC★', {
+        section0_body_start: sections?.[0]?.body?.slice(0, 150) ?? 'null',
+      });
+
       sections = normalizeStrategicStorySections(sections, {
         segmentsText,
         portfolio: normalizedPortfolio,
         companyTargetsText,
         answersText: answersRich,
+      });
+
+      console.log('[stage2-final] ★AFTER NORMALIZE STRATEGIC★', {
+        section0_body_start: sections?.[0]?.body?.slice(0, 150) ?? 'null',
       });
 
       longform = sections
@@ -1927,6 +1989,11 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
         body: bodies[i] || '（この章は未生成です）',
       }));
     } else {
+      console.log('[stage2-final] ★USING HEURISTIC FINAL (NO OPENAI)★', {
+        usedHeuristic,
+        rawLength: raw?.length ?? 0,
+        reason: usedHeuristic ? 'openai-error' : 'raw-empty',
+      });
       const h = heuristicFinal({
         industryJp,
         revenue,
@@ -1946,6 +2013,10 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
       finalStory = h.finalStory;
       longform = h.longform;
       sections = h.sections;
+      console.log('[stage2-final] ★HEURISTIC FINAL OUTPUT★', {
+        finalStoryCount: finalStory?.length ?? 0,
+        story0_body_start: finalStory?.[0]?.body?.slice(0, 150) ?? 'null',
+      });
     }
 
     // 最終品質ガード：内部メモ・誤生成・不自然表現を本文から除去
@@ -1980,10 +2051,13 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
     }
 
     if (!usedHeuristic && hasBudget(22_000)) {
+      if (process.env.NODE_ENV === 'development' || process.env.DEBUG_AI_MODELS === '1') {
+        console.log(`[AI] stage2-repair → ${AI_MODELS.reasoning}`);
+      }
       const repairedSections = await repairExecutiveStoryIfNeeded({
         sections,
         answersRich,
-        model: MODEL_PRIMARY,
+        model: AI_MODELS.reasoning,
         timeoutMs: 18_000,
         maxTokens: 3600,
         coverage: strategicIntentCoverage,
@@ -2113,8 +2187,11 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
           '上記と矛盾しない範囲で、スキーマどおりのJSONのみを返してください。',
         ].join('\n');
 
+        if (process.env.NODE_ENV === 'development' || process.env.DEBUG_AI_MODELS === '1') {
+          console.log(`[AI] stage2-midterm-design → ${AI_MODELS.reasoning}`);
+        }
         const midtermRaw = await callOpenAIChat({
-          model: MODEL_PRIMARY,
+          model: AI_MODELS.reasoning,
           temperature: 0.4,
           max_tokens: 1100,
           timeoutMs: 12_000,
@@ -2204,8 +2281,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
           .update(updatePayload)
           .eq('id', requestedStrategyDataId)
           .eq('company_id', requestedCompanyId)
-          .select('id, company_id, final_story_draft, updated_at')
-          .limit(1);
+          .select('id, company_id, final_story_draft, updated_at');
 
         if (saveDraftError) {
           console.error('[stage2/generate-final] strategy_data.final_story_draft save failed:', {
@@ -2235,15 +2311,6 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
       console.warn('[stage2/generate-final] strategy_data.final_story_draft save skipped: companyId/strategyDataId missing');
     }
 
-    // 任意保存（存在すれば実行）: 互換性維持のため final_stories テーブルへの保存も継続
-    if (typeof userId === 'string' && userId && typeof saveFinalStory === 'function') {
-      try {
-        await saveFinalStory(userId, finalStory as any, { companyId: requestedCompanyId || undefined });
-      } catch (e: any) {
-        console.warn('⚠️ final_stories 保存に失敗（続行）:', e?.message || e);
-      }
-    }
-
     // ★ 監査ログ記録
     if (typeof requestedCompanyId === 'string' && typeof userId === 'string') {
       try {
@@ -2265,6 +2332,15 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
         console.warn('[stage2/generate-final] audit log failed (non-blocking):', auditErr);
       }
     }
+
+    // ★ 診断：API response直前の finalStory を確認
+    console.log('[stage2-final] ★FINAL STORY BEFORE RESPONSE★', {
+      count: Array.isArray(finalStory) ? finalStory.length : 0,
+      story0_title: finalStory?.[0]?.title ?? 'null',
+      story0_body_start: finalStory?.[0]?.body?.slice(0, 200) ?? 'null',
+      story0_has_keyword_M: finalStory?.[0]?.body?.includes('M=') ?? false,
+      story0_has_keyword_業種: finalStory?.[0]?.body?.includes('業種=') ?? false,
+    });
 
     return new NextResponse(
       JSON.stringify({

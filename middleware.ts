@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Ratelimit } from '@upstash/ratelimit';
+import { Ratelimit, type Duration } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { extractSubFromJWTForRateLimit } from '@/lib/authUtils';
 
@@ -32,7 +32,7 @@ if (!redis) {
 }
 
 // レート制限インスタンス（複数のルールを同時に評価）
-const createRateLimiter = (name: string, limit: number, window: string) =>
+const createRateLimiter = (name: string, limit: number, window: Duration) =>
   redis
     ? new Ratelimit({
         redis,
@@ -103,7 +103,6 @@ const getClientIP = (req: NextRequest): string => {
     req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
     req.headers.get('x-real-ip') ||
     req.headers.get('cf-connecting-ip') ||
-    req.ip ||
     '0.0.0.0'
   );
 };
@@ -231,6 +230,7 @@ export const config = {
     // AI生成系 API
     '/api/generate-:path*',
     '/api/stage:path*/generate-:path*',
+    '/api/stage5/assist-execution',
     '/api/recommend-:path*',
     '/api/okr-from-exec',
     '/api/ask-ceo-agent',

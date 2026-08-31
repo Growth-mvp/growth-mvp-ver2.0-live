@@ -305,7 +305,7 @@ ORDER BY ordinal_position;
 
 ## 詳細なテスト方法
 
-詳細なテスト手順は `ADMIN_ACCOUNT_CREATION_FIX.md` を参照してください。
+詳細なテスト手順は `../diagnostics/ADMIN_ACCOUNT_CREATION_FIX.md` を参照してください。
 
 ### クイックチェックリスト
 
@@ -335,6 +335,6 @@ git checkout HEAD^ -- app/auth/welcome/page.tsx
 
 ## 関連ドキュメント
 
-- `ADMIN_ACCOUNT_CREATION_FIX.md` - 詳細なテスト手順とトラブルシューティング
+- `../diagnostics/ADMIN_ACCOUNT_CREATION_FIX.md` - 詳細なテスト手順とトラブルシューティング
 - `/app/api/companies/provision/route.ts` - 修正されたエンドポイント
 - `/app/auth/welcome/page.tsx` - 修正されたウェルカムページ

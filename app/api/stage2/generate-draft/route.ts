@@ -15,6 +15,7 @@ export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import { AI_MODELS, getTokenLimitParam, getTemperatureParam } from '@/lib/modelConfig';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
 import { logAuditEvent, extractAuditMetadata } from '@/lib/server/auditLog';
@@ -23,18 +24,6 @@ import { z } from 'zod';
 
 /* ===== OpenAI設定 ===== */
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-
-const ALLOW_MODELS = new Set<string>([
-  'gpt-4o-mini',
-  'gpt-4o',
-  'gpt-4o-mini-2024-07-18',
-  'gpt-4o-2024-08-06',
-]);
-
-function pickSafeModel(): string {
-  const envModel = process.env.OPENAI_MODEL || process.env.NEXT_PUBLIC_OPENAI_MODEL || '';
-  return ALLOW_MODELS.has(envModel) ? envModel : 'gpt-4o-mini';
-}
 
 /* ===== 入力バリデーション ===== */
 const IssueBlockSchema = z.object({
@@ -1168,19 +1157,6 @@ export async function POST(req: NextRequest) {
       console.error('[stage2/generate-draft] Auth failed: no userId');
       return NextResponse.json({ ok: false, stage: 'auth', error: 'unauthorized' }, { status: 401 });
     }
-    const membership = await requireMembership(admin, userId);
-    if (!membership) {
-      console.error('[stage2/generate-draft] Auth failed: no membership');
-      return NextResponse.json({ ok: false, stage: 'auth', error: 'forbidden' }, { status: 403 });
-    }
-
-    // ★ Role チェック: admin / manager のみ許可
-    try {
-      await assertMinRole(membership, 'manager');
-    } catch {
-      console.error('[stage2/generate-draft] Auth failed: insufficient_role');
-      return NextResponse.json({ ok: false, stage: 'auth', error: 'insufficient_role' }, { status: 403 });
-    }
 
     let body: any;
     try {
@@ -1190,12 +1166,56 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, stage: 'request-parse', error: 'Invalid JSON in request body' }, { status: 400 });
     }
 
+    // ★ PING モード判定（最初に、認証のみで許可）
     if (body.__ping === true || body.__ping === 'true') {
       console.log('[stage2/generate-draft] PING MODE - immediate pong response');
+      const pingMembership = await requireMembership(admin, userId);
+      if (!pingMembership) {
+        return NextResponse.json({ __pong: false, error: 'unauthorized' }, { status: 401 });
+      }
       return NextResponse.json(
         { __pong: true, timestamp: new Date().toISOString(), message: 'API is alive' },
         { status: 200 }
       );
+    }
+
+    // ★ 通常生成フロー：strategyDataId を取得・必須チェック
+    const requestedStrategyDataId = [
+      body.strategyDataId,
+      body.strategy_data_id,
+      body.strategyId,
+      body.strategy_id,
+    ].find((id) => typeof id === 'string' && id.trim());
+
+    if (!requestedStrategyDataId) {
+      return NextResponse.json({ ok: false, error: 'strategyDataId is required' }, { status: 400 });
+    }
+
+    // strategy_data.company_id を取得
+    const { data: strategyRecord, error: strategyError } = await admin
+      .from('strategy_data')
+      .select('company_id')
+      .eq('id', requestedStrategyDataId)
+      .maybeSingle();
+
+    if (strategyError || !strategyRecord || !strategyRecord.company_id) {
+      return NextResponse.json({ ok: false, error: 'strategyDataId not found or invalid' }, { status: 404 });
+    }
+
+    const strategyCompanyId = strategyRecord.company_id;
+
+    // ★ strategyCompanyId を明示指定して membership を検証
+    const membershipForStrategy = await requireMembership(admin, userId, strategyCompanyId);
+    if (!membershipForStrategy) {
+      return NextResponse.json({ ok: false, error: 'not a member of this company' }, { status: 403 });
+    }
+
+    // ★ Role チェック: manager 以上のみ許可
+    try {
+      await assertMinRole(membershipForStrategy, 'manager');
+    } catch {
+      console.error('[stage2/generate-draft] Auth failed: insufficient_role');
+      return NextResponse.json({ ok: false, stage: 'auth', error: 'insufficient_role' }, { status: 403 });
     }
 
     console.log('[stage2/generate-draft] ★API KEY & MODEL CHECK★');
@@ -1240,7 +1260,10 @@ export async function POST(req: NextRequest) {
       console.warn('[stage2/generate-draft] issueBlocks is empty -> proceed with generalized draft');
     }
 
-    const model = pickSafeModel();
+    const model = AI_MODELS.reasoning;
+    if (process.env.NODE_ENV === 'development' || process.env.DEBUG_AI_MODELS === '1') {
+      console.log(`[AI] stage2-draft → ${model}`);
+    }
     console.log('[stage2/generate-draft] model:', model);
 
     const compact = compactPayload(input);
@@ -1289,12 +1312,7 @@ export async function POST(req: NextRequest) {
 
       // 【入力充足度ログ】OpenAI呼び出し直前に観測ログを出力
       const requestId = req.headers.get('x-request-id') || `req_${Date.now()}`;
-      const strategyDataId =
-        typeof body.strategyId === 'string'
-          ? body.strategyId
-          : typeof body.strategyDataId === 'string'
-          ? body.strategyDataId
-          : membership.companyId;
+      const strategyDataId = requestedStrategyDataId;
       const hasCompanyInfo = !!(compact.mvv.mission || compact.mvv.vision || compact.mvv.value);
       const hasStage1Context = !!(compact.mvv.mission || compact.mvv.vision);
       const hasStage2Answers = compact.issueBlocks.length > 0;
@@ -1310,7 +1328,7 @@ export async function POST(req: NextRequest) {
       logInputGuard({
         requestId,
         apiName: 'stage2/generate-draft',
-        companyId: membership.companyId,
+        companyId: strategyCompanyId,
         strategyId: strategyDataId,
         meaningfulInputScore,
         hasCompanyInfo,
@@ -1327,19 +1345,31 @@ export async function POST(req: NextRequest) {
       const completion = await openai.chat.completions.create(
         {
           model,
-          temperature: 0.25,
+          ...getTemperatureParam(model, 0.25),
           response_format: { type: 'json_object' },
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
           ],
-          max_tokens: 2600,
+          ...getTokenLimitParam(model, 8000),
+          ...(model.startsWith('gpt-5.6') ? { reasoning_effort: 'low' } : {}),
         },
         { signal: controller.signal }
       );
 
       raw = completion.choices?.[0]?.message?.content?.trim() || '';
       const dur = Date.now() - tOpenAIStart;
+
+      const choice = completion.choices?.[0];
+      console.log('[stage2/generate-draft] ★OPENAI RESPONSE DIAGNOSTIC★', {
+        finishReason: choice?.finish_reason,
+        hasContent: Boolean(choice?.message?.content),
+        contentLength: choice?.message?.content?.length ?? 0,
+        promptTokens: completion.usage?.prompt_tokens,
+        completionTokens: completion.usage?.completion_tokens,
+        totalTokens: completion.usage?.total_tokens,
+      });
+
       console.log('[stage2/generate-draft] ★AFTER OPENAI 1ST ATTEMPT SUCCESS★', {
         durationMs: `${dur}ms`,
         rawLen: raw.length,
@@ -1369,18 +1399,30 @@ export async function POST(req: NextRequest) {
         const completion2 = await openai.chat.completions.create(
           {
             model,
-            temperature: 0.25,
+            ...getTemperatureParam(model, 0.25),
             messages: [
               { role: 'system', content: systemPrompt },
               { role: 'user', content: userPrompt },
             ],
-            max_tokens: 2600,
+            ...getTokenLimitParam(model, 8000),
+            ...(model.startsWith('gpt-5.6') ? { reasoning_effort: 'low' } : {}),
           },
           { signal: controller.signal }
         );
 
         raw = completion2.choices?.[0]?.message?.content?.trim() || '';
         const tOpenAI2Dur = Date.now() - tOpenAI2;
+
+        const choice2 = completion2.choices?.[0];
+        console.log('[stage2/generate-draft] ★OPENAI RESPONSE DIAGNOSTIC (2ND ATTEMPT)★', {
+          finishReason: choice2?.finish_reason,
+          hasContent: Boolean(choice2?.message?.content),
+          contentLength: choice2?.message?.content?.length ?? 0,
+          promptTokens: completion2.usage?.prompt_tokens,
+          completionTokens: completion2.usage?.completion_tokens,
+          totalTokens: completion2.usage?.total_tokens,
+        });
+
         console.log('[stage2/generate-draft] ★AFTER OPENAI 2ND ATTEMPT SUCCESS★', {
           durationMs: `${tOpenAI2Dur}ms`,
           rawLen: raw.length,
@@ -1504,6 +1546,9 @@ export async function POST(req: NextRequest) {
     let finalStory = normalizedStory;
 
     if (missing.length > 0) {
+      if (process.env.NODE_ENV === 'development' || process.env.DEBUG_AI_MODELS === '1') {
+        console.log(`[AI] stage2-draft-repair → ${model}`);
+      }
       console.log('[stage2/generate-draft] ★REPAIR PHASE START★', {
         missingCount: missing.length,
         missing: missing.slice(0, 3),
@@ -1526,13 +1571,14 @@ export async function POST(req: NextRequest) {
         const completionRepair = await openai.chat.completions.create(
           {
             model,
-            temperature: 0.0,
+            ...getTemperatureParam(model, 0.0),
             response_format: { type: 'json_object' },
             messages: [
               { role: 'system', content: buildRepairSystemPrompt() },
               { role: 'user', content: buildRepairUserPrompt(repairPayload, missing, must) },
             ],
-            max_tokens: 1600,
+            ...getTokenLimitParam(model, 4000),
+            ...(model.startsWith('gpt-5.6') ? { reasoning_effort: 'low' } : {}),
           },
           { signal: repairController.signal }
         );
@@ -1621,7 +1667,7 @@ export async function POST(req: NextRequest) {
     // ★ 監査ログ記録
     try {
       await logAuditEvent({
-        companyId: membership.companyId,
+        companyId: strategyCompanyId,
         actorUserId: userId,
         action: 'stage2_generate_draft',
         targetType: 'strategy_data',

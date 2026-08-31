@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import OpenAI from 'openai';
+import { AI_MODELS, getTemperatureParam } from '@/lib/modelConfig';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 import { getFullStrategyDataByCompany, getFullStrategyDataByStrategyId } from '@/utils/supabase/strategy';
@@ -639,10 +640,14 @@ ${strategyContextForPrompt ? JSON.stringify(strategyContextForPrompt, null, 2) :
       suspiciousKeywordFlags: suspiciousKeywords,
     });
 
+    const model = AI_MODELS.reasoning;
+    if (process.env.NODE_ENV === 'development' || process.env.DEBUG_AI_MODELS === '1') {
+      console.log(`[AI] org-alignment-recognition → ${model}`);
+    }
     const openai = new OpenAI({ apiKey });
     const completion = await openai.chat.completions.create({
-      model: process.env.OPENAI_MODEL || 'gpt-4o',
-      temperature: 0.25,
+      model,
+      ...getTemperatureParam(model, 0.25),
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: systemPrompt },
@@ -653,6 +658,12 @@ ${strategyContextForPrompt ? JSON.stringify(strategyContextForPrompt, null, 2) :
     const content = completion.choices?.[0]?.message?.content ?? '';
     const parsed = safeJsonParse(content);
     let result = ensureResultShape(parsed, fallback);
+
+    // AI出力が不完全で fallback による補完が必要かチェック
+    const aiContentEmpty = !content || !parsed;
+    if (aiContentEmpty && (process.env.NODE_ENV === 'development' || process.env.DEBUG_AI_MODELS === '1')) {
+      console.log('[AI] org-alignment-recognition → heuristic-fallback');
+    }
 
     // サーバー側で重要フィールドを固定し、AIの分類ブレを防ぐ
     result = {

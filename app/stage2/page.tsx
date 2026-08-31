@@ -2921,6 +2921,9 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           );
         }
 
+        // ★ 現在編集中の strategy_data.id を取得
+        const strategyId = useStrategyStore.getState().strategyId;
+
         const payload: any = {
           issueBlocks,
           metricsSummary,
@@ -2932,6 +2935,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           segments: segmentNames,
           businessSegments,
           businessPortfolio,
+          strategyDataId: strategyId,
         };
 
         // ★ Shift キー押下時は PING モード

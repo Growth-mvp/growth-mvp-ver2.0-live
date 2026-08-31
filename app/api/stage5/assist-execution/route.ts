@@ -3,6 +3,7 @@ export const runtime = 'nodejs';
 
 import { NextResponse } from 'next/server';
 import { openai } from '@/lib/openai';
+import { AI_MODELS } from '@/lib/modelConfig';
 import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 
@@ -278,8 +279,12 @@ export async function POST(req: Request) {
     const systemPrompt = buildAssistSystemPrompt();
     const userPrompt = buildAssistUserPrompt(body);
 
+    const model = AI_MODELS.lightweight;
+    if (process.env.NODE_ENV === 'development' || process.env.DEBUG_AI_MODELS === '1') {
+      console.log(`[AI] stage5-execution-assist → ${model}`);
+    }
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model,
       temperature: 0.3,
       response_format: { type: 'json_object' },
       messages: [
