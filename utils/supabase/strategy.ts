@@ -2344,6 +2344,13 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         .update(updatePayload)
         .eq('company_id', cleanCompanyId);
 
+      // ★ CRITICAL FIX: Add explicit id filter to prevent updating wrong row
+      // If multiple strategy_data rows exist for same company_id,
+      // we must specify which row to update via primary key
+      if ((mergedState as any).id) {
+        updateQuery = updateQuery.eq('id', (mergedState as any).id);
+      }
+
       // ★ CRITICAL: Optimistic locking maintained
       // The .eq('revision', expectedRev) ensures conflict detection
       // If another session changed the revision, UPDATE affects 0 rows
