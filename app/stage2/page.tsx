@@ -2285,7 +2285,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
   // ★ Step 2: Final タブ表示版を診断ログ
   useEffect(() => {
-    if (activeTab === 'final' && process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+    if (activeTab === 'final') {
       const usingVersion = finalStoryFinalRaw && finalStoryFinalRaw.length > 0
         ? 'final'
         : finalStoryEditedRaw && finalStoryEditedRaw.length > 0
@@ -2293,16 +2293,39 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           : finalStoryDraftRaw && finalStoryDraftRaw.length > 0
             ? 'draft'
             : 'none';
-      console.log('[diag][story][versions]', {
-        draftLen: finalStoryDraftRaw?.length ?? 0,
-        editedLen: finalStoryEditedRaw?.length ?? 0,
-        finalLen: finalStoryFinalRaw?.length ?? 0,
-        displayingVersion: usingVersion,
-        titles:
-          displayingStory.length > 0
-            ? displayingStory.map((ch) => ch.title)
-            : [],
-      });
+
+      // ★ TRACE 5: UIが実際に参照しているfieldをfingerprintで記録
+      if (typeof window !== 'undefined') {
+        import('@/utils/diagnostics/storyFingerprint').then(({ calculateStoryFingerprint, fingerprintToString }) => {
+          const fp5_draft = calculateStoryFingerprint(finalStoryDraftRaw);
+          const fp5_edited = calculateStoryFingerprint(finalStoryEditedRaw);
+          const fp5_final = calculateStoryFingerprint(finalStoryFinalRaw);
+          const fp5_displaying = calculateStoryFingerprint(displayingStory);
+
+          console.log('[TRACE] UI_SOURCE_OF_TRUTH', {
+            usingVersion,
+            displayingLen: displayingStory.length,
+            timestamp: new Date().toISOString(),
+          });
+          console.log(`[TRACE] UI_RENDERING ${fingerprintToString(fp5_draft, 'draft')}`);
+          console.log(`[TRACE] UI_RENDERING ${fingerprintToString(fp5_edited, 'edited')}`);
+          console.log(`[TRACE] UI_RENDERING ${fingerprintToString(fp5_final, 'final')}`);
+          console.log(`[TRACE] UI_RENDERING ${fingerprintToString(fp5_displaying, 'displayingStory')}`);
+        });
+      }
+
+      if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
+        console.log('[diag][story][versions]', {
+          draftLen: finalStoryDraftRaw?.length ?? 0,
+          editedLen: finalStoryEditedRaw?.length ?? 0,
+          finalLen: finalStoryFinalRaw?.length ?? 0,
+          displayingVersion: usingVersion,
+          titles:
+            displayingStory.length > 0
+              ? displayingStory.map((ch) => ch.title)
+              : [],
+        });
+      }
     }
   }, [activeTab, finalStoryFinalRaw, finalStoryEditedRaw, finalStoryDraftRaw, displayingStory]);
 
@@ -2392,6 +2415,29 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       reason: decision.reason,
       hasHydratedState: !!decision.hydratedState,
     });
+
+    // ★ TRACE 3: Reload直後のDB取得値をfingerprintで確認
+    if (decision.sourceUsed === 'db' && decision.dbData) {
+      const { calculateStoryFingerprint, fingerprintToString } = await import('@/utils/diagnostics/storyFingerprint');
+
+      console.log('[TRACE] RELOAD_DB_CHECK fields:', {
+        finalStory_exists: !!decision.dbData.finalStory,
+        finalStoryDraft_exists: !!(decision.dbData as any).finalStoryDraft,
+        storyDraft_exists: !!decision.dbData.storyDraft,
+        story_exists: !!decision.dbData.story,
+        timestamp: new Date().toISOString(),
+      });
+
+      const fp3_finalStory = calculateStoryFingerprint((decision.dbData as any).finalStory);
+      const fp3_finalStoryDraft = calculateStoryFingerprint((decision.dbData as any).finalStoryDraft);
+      const fp3_storyDraft = calculateStoryFingerprint(decision.dbData.storyDraft);
+      const fp3_story = calculateStoryFingerprint(decision.dbData.story);
+
+      console.log(`[TRACE] RELOAD_DB_FETCHED ${fingerprintToString(fp3_finalStory, 'finalStory')}`);
+      console.log(`[TRACE] RELOAD_DB_FETCHED ${fingerprintToString(fp3_finalStoryDraft, 'finalStoryDraft')}`);
+      console.log(`[TRACE] RELOAD_DB_FETCHED ${fingerprintToString(fp3_storyDraft, 'storyDraft')}`);
+      console.log(`[TRACE] RELOAD_DB_FETCHED ${fingerprintToString(fp3_story, 'story')}`);
+    }
 
     // ★ DIAG: Check what's in the decision state
     console.log('[diag][restore:decision-content]', {
@@ -2487,9 +2533,32 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
       useStrategyStore.getState().hydrateFromFullState?.(guardedHydratedState);
 
-      // ★ DIAG: Verify hydration was successful by checking store after hydration
-      setTimeout(() => {
+      // ★ TRACE 4: Hydrate後のstore状態をfingerprintで確認
+      setTimeout(async () => {
         const afterHydrationState = useStrategyStore.getState() as any;
+        const { calculateStoryFingerprint, fingerprintToString } = await import('@/utils/diagnostics/storyFingerprint');
+
+        console.log('[TRACE] HYDRATE_COMPLETE fields:', {
+          finalStoryDraft_exists: !!afterHydrationState.finalStoryDraft,
+          finalStoryEdited_exists: !!afterHydrationState.finalStoryEdited,
+          finalStoryFinal_exists: !!afterHydrationState.finalStoryFinal,
+          finalStory_exists: !!afterHydrationState.finalStory,
+          storyDraft_exists: !!afterHydrationState.storyDraft,
+          timestamp: new Date().toISOString(),
+        });
+
+        const fp4_finalStoryDraft = calculateStoryFingerprint(afterHydrationState.finalStoryDraft);
+        const fp4_finalStoryEdited = calculateStoryFingerprint(afterHydrationState.finalStoryEdited);
+        const fp4_finalStoryFinal = calculateStoryFingerprint(afterHydrationState.finalStoryFinal);
+        const fp4_finalStory = calculateStoryFingerprint(afterHydrationState.finalStory);
+        const fp4_storyDraft = calculateStoryFingerprint(afterHydrationState.storyDraft);
+
+        console.log(`[TRACE] STORE_AFTER_HYDRATE ${fingerprintToString(fp4_finalStoryDraft, 'finalStoryDraft')}`);
+        console.log(`[TRACE] STORE_AFTER_HYDRATE ${fingerprintToString(fp4_finalStoryEdited, 'finalStoryEdited')}`);
+        console.log(`[TRACE] STORE_AFTER_HYDRATE ${fingerprintToString(fp4_finalStoryFinal, 'finalStoryFinal')}`);
+        console.log(`[TRACE] STORE_AFTER_HYDRATE ${fingerprintToString(fp4_finalStory, 'finalStory')}`);
+        console.log(`[TRACE] STORE_AFTER_HYDRATE ${fingerprintToString(fp4_storyDraft, 'storyDraft')}`);
+
         console.log('[diag][hydrate:post-hydration]', {
           storeFinalStoryDraftLen: Array.isArray(afterHydrationState.finalStoryDraft) ? afterHydrationState.finalStoryDraft.length : 'missing',
           storeFinalStoryEditedLen: Array.isArray(afterHydrationState.finalStoryEdited) ? afterHydrationState.finalStoryEdited.length : 'missing',
@@ -3296,6 +3365,16 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         });
       }
 
+      // ★ TRACE 1: 生成直後の最新Finalをfingerprintで記録
+      const { calculateStoryFingerprint, fingerprintToString } = await import('@/utils/diagnostics/storyFingerprint');
+      const fp1Generated = calculateStoryFingerprint(newFinalStory);
+      console.log(`[TRACE] FINAL_GENERATED ${fingerprintToString(fp1Generated, '')}`);
+      console.log('[TRACE:DETAIL] generation-point', {
+        source: 'api-response',
+        timestamp: new Date().toISOString(),
+        fingerprint: fp1Generated,
+      });
+
       // ★ STAGE2 最終ストーリー：draft に設定（edited は保持）
       setFinalStoryDraft(newFinalStory);
 
@@ -3418,6 +3497,45 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           console.warn('[Stage2][generate-final] ⚠️ DB save FAILED but generation succeeded', {
             error: (saveResult.error as any)?.message || saveResult.error,
           });
+        }
+
+        // ★ TRACE 2: Post-generation save直後にDBをre-SELECTして確認
+        try {
+          if (saveResult.error === null && strategyId && companyId) {
+            const { getFullStrategyDataByCompany } = await import('@/utils/supabase/strategy');
+            const { data: dbCheckData, error: dbCheckError } = await getFullStrategyDataByCompany(companyId);
+
+            if (!dbCheckError && dbCheckData) {
+              const { calculateStoryFingerprint, fingerprintToString } = await import('@/utils/diagnostics/storyFingerprint');
+
+              console.log('[TRACE] POST_SAVE_DB_CHECK fields:', {
+                finalStory_exists: !!dbCheckData.finalStory,
+                finalStoryDraft_exists: !!(dbCheckData as any).finalStoryDraft,
+                storyDraft_exists: !!dbCheckData.storyDraft,
+                story_exists: !!dbCheckData.story,
+                timestamp: new Date().toISOString(),
+              });
+
+              // 各fieldのfingerprintを記録
+              const fp2_finalStory = calculateStoryFingerprint((dbCheckData as any).finalStory);
+              const fp2_finalStoryDraft = calculateStoryFingerprint((dbCheckData as any).finalStoryDraft);
+              const fp2_storyDraft = calculateStoryFingerprint(dbCheckData.storyDraft);
+              const fp2_story = calculateStoryFingerprint(dbCheckData.story);
+
+              console.log(`[TRACE] DB_SAVED_CONTENT ${fingerprintToString(fp2_finalStory, 'finalStory')}`);
+              console.log(`[TRACE] DB_SAVED_CONTENT ${fingerprintToString(fp2_finalStoryDraft, 'finalStoryDraft')}`);
+              console.log(`[TRACE] DB_SAVED_CONTENT ${fingerprintToString(fp2_storyDraft, 'storyDraft')}`);
+              console.log(`[TRACE] DB_SAVED_CONTENT ${fingerprintToString(fp2_story, 'story')}`);
+              console.log('[TRACE:COMPARE] generation-vs-db', {
+                generatedMatches_finalStory: fp1Generated.fullHash === fp2_finalStory.fullHash,
+                generatedMatches_finalStoryDraft: fp1Generated.fullHash === fp2_finalStoryDraft.fullHash,
+                generatedMatches_storyDraft: fp1Generated.fullHash === fp2_storyDraft.fullHash,
+                generatedMatches_story: fp1Generated.fullHash === fp2_story.fullHash,
+              });
+            }
+          }
+        } catch (dbCheckErr) {
+          console.warn('[TRACE] DB re-SELECT failed:', dbCheckErr);
         }
 
         // ★ FIX: Clear the generation save flag after completion
