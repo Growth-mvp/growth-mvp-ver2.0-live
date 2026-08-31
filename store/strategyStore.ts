@@ -461,6 +461,7 @@ export type StrategyState = {
   /* ▼ STAGE2 最終ストーリー setter */
   setFinalStoryDraft: (chapters: StoryChapter[]) => void;
   setFinalStoryEdited: (chapters: StoryChapter[]) => void;
+  setFinalStoryFinal: (chapters: StoryChapter[]) => void;
   commitFinalStory: () => void;
 
   /* ▼ STAGE4 setter */
@@ -1358,6 +1359,7 @@ const emptyData: StrategyState = {
 
   setFinalStoryDraft: () => {},
   setFinalStoryEdited: () => {},
+  setFinalStoryFinal: () => {},
   commitFinalStory: () => {},
   setStage4Plans: () => {},
   setExecutionPlanBaseline: () => {},
@@ -2444,6 +2446,11 @@ export const useStrategyStore = create<StrategyState>()(
         setTimeout(() => {
           get().saveStage2Snapshot();
         }, 0);
+      },
+
+      // ★ MINIMAL: Clear finalStoryFinal when new generation overwrites draft
+      setFinalStoryFinal: (chapters: StoryChapter[]) => {
+        set((s) => ({ ...s, finalStoryFinal: chapters, dirty: true, version: (s.version ?? 0) + 1 }));
       },
 
       commitFinalStory: () => {

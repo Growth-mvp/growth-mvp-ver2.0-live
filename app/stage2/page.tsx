@@ -3381,9 +3381,10 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       // instead of the new generation in draft
       setFinalStoryDraft(newFinalStory);
 
-      // Clear finalized versions so new generation is displayed
-      (useStrategyStore.getState() as any).finalStoryFinal = [];
-      (useStrategyStore.getState() as any).finalStory = [];
+      // Clear finalized versions via setter so new generation is displayed
+      const store = useStrategyStore.getState();
+      (store as any).setFinalStoryFinal([]);
+      (store as any).setFinalStory([]);
 
       // ★中計設計（midtermStrategy）がAPIから返ってきた場合のみ store へ反映
       if (
