@@ -2,6 +2,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Eye, EyeOff } from 'lucide-react';
 import { supabase } from '@/utils/supabase/client';
@@ -224,11 +225,11 @@ export default function LoginClient() {
         </p>
 
         <div className="mt-6 flex justify-center gap-4 text-[11px] text-zinc-500">
-          <a href="/terms" className="hover:text-zinc-700 underline">利用規約</a>
+          <Link href="/terms" className="hover:text-zinc-700 underline">利用規約</Link>
           <span>|</span>
-          <a href="/privacy" className="hover:text-zinc-700 underline">プライバシーポリシー</a>
+          <Link href="/privacy" className="hover:text-zinc-700 underline">プライバシーポリシー</Link>
           <span>|</span>
-          <a href="/contact" className="hover:text-zinc-700 underline">お問い合わせ</a>
+          <Link href="/contact" className="hover:text-zinc-700 underline">お問い合わせ</Link>
         </div>
       </div>
     </main>

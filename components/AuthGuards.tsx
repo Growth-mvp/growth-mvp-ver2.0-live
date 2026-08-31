@@ -24,6 +24,14 @@ export default function AuthGuards() {
       // セッション取得（safe wrapper）
       const { ok } = await safeGetSession(supabase);
       if (!ok && mounted) {
+        // PUBLIC ページ（未認証でアクセス可能）は スキップ
+        if (typeof location !== 'undefined') {
+          const path = location.pathname || '';
+          const isPublicPage = /^\/(login|signup|welcome|terms|privacy|contact)/.test(path);
+          if (isPublicPage) {
+            return;
+          }
+        }
         // セッションが壊れている／取得不可 → ローカルクリーン＆ログインへ
         await signOutLocalAndRedirect('/login');
       }
@@ -66,7 +74,7 @@ export default function AuthGuards() {
         // 既に /login 等なら何もしない
         if (typeof location !== 'undefined') {
           const path = location.pathname || '';
-          const isAuthPage = /^\/(login|signup|welcome)/.test(path);
+          const isAuthPage = /^\/(login|signup|welcome|terms|privacy|contact)/.test(path);
           if (!isAuthPage) {
             // 軽い遅延で画面遷移（UI反映の猶予）
             setTimeout(() => {
