@@ -16,12 +16,15 @@ export default function PrivacyPage() {
 
             <section>
               <h2 className="text-[18px] font-semibold text-zinc-900 mb-3">1. 事業者情報</h2>
-              <p className="text-zinc-600 space-y-1">
+              <div className="text-zinc-600 space-y-1">
                 <div><strong>事業者：</strong>株式会社センターボード</div>
                 <div><strong>代表者：</strong>石原正博</div>
                 <div><strong>所在地：</strong>〒150-0002 東京都渋谷区渋谷3-5-16 渋谷3丁目スクエアビル2F</div>
-                <div><strong>問い合わせ：</strong><a href="mailto:support@centerboard.co.jp" className="text-[color:var(--accent)] hover:opacity-90 underline">support@centerboard.co.jp</a></div>
-              </p>
+                <div>
+                  <strong>問い合わせ：</strong>
+                  <a href="mailto:support@centerboard.co.jp" className="text-[color:var(--accent)] hover:opacity-90 underline">support@centerboard.co.jp</a>
+                </div>
+              </div>
             </section>
 
             <section>
