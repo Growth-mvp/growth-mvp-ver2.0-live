@@ -16,9 +16,11 @@ export default function PrivacyPage() {
 
             <section>
               <h2 className="text-[18px] font-semibold text-zinc-900 mb-3">1. 事業者情報</h2>
-              <p className="text-zinc-600">
-                <strong>事業者：</strong>株式会社センターボード<br/>
-                ※ 所在地・代表者情報は<Link href="/contact" className="text-[color:var(--accent)] hover:opacity-90 underline">お問い合わせ</Link>ください。
+              <p className="text-zinc-600 space-y-1">
+                <div><strong>事業者：</strong>株式会社センターボード</div>
+                <div><strong>代表者：</strong>石原正博</div>
+                <div><strong>所在地：</strong>〒150-0002 東京都渋谷区渋谷3-5-16 渋谷3丁目スクエアビル2F</div>
+                <div><strong>問い合わせ：</strong><a href="mailto:support@centerboard.co.jp" className="text-[color:var(--accent)] hover:opacity-90 underline">support@centerboard.co.jp</a></div>
               </p>
             </section>
 
@@ -151,15 +153,19 @@ export default function PrivacyPage() {
                 </li>
                 <li className="flex gap-3">
                   <span className="flex-shrink-0">•</span>
-                  <span><strong>削除要望：</strong>本サービス終了時またはご要望の場合、弊社に通知いただければ、PoC 個別契約に基づき当社のシステムから情報を削除します。ただし、法的保存義務がある場合は除きます。</span>
+                  <span><strong>削除要望：</strong>本サービス終了時またはご要望の場合、弊社に通知いただければ、PoC 個別契約に基づき当社が管理するデータについて必要な削除対応を行います。ただし、法的保存義務がある場合は除きます。</span>
                 </li>
                 <li className="flex gap-3">
                   <span className="flex-shrink-0">•</span>
-                  <span><strong>外部サービス側の保持：</strong>OpenAI 等の外部サービス事業者が保持するデータの削除については、各事業者のポリシーに従います。詳細は各サービスのプライバシーポリシーをご参照ください。</span>
+                  <span><strong>外部サービス事業者におけるデータ：</strong>Supabase、OpenAI、Vercel、Resend、Upstash 等の外部サービス事業者におけるデータの保持・削除については、各事業者の契約条件・保持方針等に従います。詳細は各サービスのプライバシーポリシーをご参照ください。</span>
                 </li>
                 <li className="flex gap-3">
                   <span className="flex-shrink-0">•</span>
-                  <span><strong>PoC 改善利用：</strong>PoC 改善目的での生成ログ分析は行う場合がありますが、利用企業の機密情報の無制限な利用・第三者提供は行いません。具体的な改善利用については、個別合意で定めます。</span>
+                  <span><strong>OpenAI による保持：</strong>OpenAI API への入力・出力については、デフォルトではモデル学習に使用されません。ただし、API サービス提供・不正利用防止等のため一定期間保持される場合があります。詳細は OpenAI のプライバシーポリシーをご参照ください。</span>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex-shrink-0">•</span>
+                  <span><strong>PoC 改善利用：</strong>PoC 改善目的での生成ログ分析（当社で実施）は、OpenAI でのモデル学習とは別です。当社での改善分析は、利用企業の機密情報の無制限な利用・第三者提供を行いません。具体的な改善利用については、個別合意で定めます。</span>
                 </li>
               </ul>
             </section>
