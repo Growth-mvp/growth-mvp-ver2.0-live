@@ -1022,6 +1022,7 @@ async function callOpenAIChat(args: ChatArgs): Promise<string> {
     ...(SUPPORTS_JSON_MODE.test(model)
       ? { response_format: { type: 'json_object' as const } }
       : {}),
+    ...(model.startsWith('gpt-5.6') ? { reasoning_effort: 'low' } : {}),
   };
 
   try {
