@@ -3459,6 +3459,31 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           stage2FinalDocumentEdits: mergeMidtermStrategyIntoDocumentEdits(editingDocumentEdits, midtermStrategy),  // ★ 補助セクション編集内容を明示的に含める
         };
 
+        // ★ TRACE: saveWithAudit直前のpayloadをfingerprintで記録
+        const { calculateStoryFingerprint, fingerprintToString } = await import('@/utils/diagnostics/storyFingerprint');
+        const fpPayload_finalStory = calculateStoryFingerprint((savePayload as any).finalStory);
+        const fpPayload_finalStoryDraft = calculateStoryFingerprint((savePayload as any).finalStoryDraft);
+        const fpPayload_storyDraft = calculateStoryFingerprint((savePayload as any).storyDraft);
+        const fpPayload_story = calculateStoryFingerprint((savePayload as any).story);
+
+        console.log('[TRACE] PRE_SAVE_PAYLOAD fields:', {
+          finalStory_exists: !!((savePayload as any).finalStory),
+          finalStoryDraft_exists: !!((savePayload as any).finalStoryDraft),
+          storyDraft_exists: !!((savePayload as any).storyDraft),
+          story_exists: !!((savePayload as any).story),
+        });
+        console.log(`[TRACE] PRE_SAVE_PAYLOAD ${fingerprintToString(fpPayload_finalStory, 'finalStory')}`);
+        console.log(`[TRACE] PRE_SAVE_PAYLOAD ${fingerprintToString(fpPayload_finalStoryDraft, 'finalStoryDraft')}`);
+        console.log(`[TRACE] PRE_SAVE_PAYLOAD ${fingerprintToString(fpPayload_storyDraft, 'storyDraft')}`);
+        console.log(`[TRACE] PRE_SAVE_PAYLOAD ${fingerprintToString(fpPayload_story, 'story')}`);
+
+        console.log('[TRACE:COMPARE] GENERATED_vs_PRE_SAVE', {
+          matchesVia_finalStory: fp1Generated.fullHash === fpPayload_finalStory.fullHash,
+          matchesVia_finalStoryDraft: fp1Generated.fullHash === fpPayload_finalStoryDraft.fullHash,
+          matchesVia_storyDraft: fp1Generated.fullHash === fpPayload_storyDraft.fullHash,
+          matchesVia_story: fp1Generated.fullHash === fpPayload_story.fullHash,
+        });
+
         // ★ DIAG: verify payload contains finalStoryDraft
         console.log('[diag][generate-final:payload] Payload check before save', {
           payloadHasFinalStoryDraft: Array.isArray((savePayload as any).finalStoryDraft),

@@ -2176,6 +2176,28 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       };
       delete updatePayload.created_at;
 
+      // ★ TRACE: Normalized payload直後のfingerprintを記録
+      try {
+        const { calculateStoryFingerprint, fingerprintToString } = await import('@/utils/diagnostics/storyFingerprint');
+        const fpNorm_finalStory = calculateStoryFingerprint(updatePayload.final_story);
+        const fpNorm_finalStoryDraft = calculateStoryFingerprint(updatePayload.final_story_draft);
+        const fpNorm_storyDraft = calculateStoryFingerprint(updatePayload.story_draft);
+        const fpNorm_story = calculateStoryFingerprint(updatePayload.story);
+
+        console.log('[TRACE] NORMALIZED_PAYLOAD fields:', {
+          final_story_exists: !!updatePayload.final_story,
+          final_story_draft_exists: !!updatePayload.final_story_draft,
+          story_draft_exists: !!updatePayload.story_draft,
+          story_exists: !!updatePayload.story,
+        });
+        console.log(`[TRACE] NORMALIZED_PAYLOAD ${fingerprintToString(fpNorm_finalStory, 'final_story')}`);
+        console.log(`[TRACE] NORMALIZED_PAYLOAD ${fingerprintToString(fpNorm_finalStoryDraft, 'final_story_draft')}`);
+        console.log(`[TRACE] NORMALIZED_PAYLOAD ${fingerprintToString(fpNorm_storyDraft, 'story_draft')}`);
+        console.log(`[TRACE] NORMALIZED_PAYLOAD ${fingerprintToString(fpNorm_story, 'story')}`);
+      } catch (traceErr) {
+        console.warn('[TRACE] Failed to log normalized payload:', traceErr);
+      }
+
       // ★ 指示A：updatePayload に okr_target_scores が含まれているか確認
       if (DEBUG) {
         console.log('[diag][updatePayload okr_target_scores]', (updatePayload as any).okr_target_scores ?? 'undefined');
