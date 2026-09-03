@@ -1926,6 +1926,9 @@ export const useStrategyStore = create<StrategyState>()(
             revision: isBool ? s.revision : (revOrBool as number),
             lastServerSnapshot: hash ?? s.lastServerSnapshot,
             __isFetchingFromServer: false,
+            // ★ FIX: Ensure dirty is reset after restore completes
+            // Without this, if dirty=true exists for any reason, autosave fires unnecessarily
+            dirty: false,
           };
         }),
 
