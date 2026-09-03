@@ -4827,17 +4827,20 @@ export const useStrategyStore = create<StrategyState>()(
     {
       /* ★ TASK 14-3: persist ストレージキーをバージョンアップ（v4 → v5）旧 localStorage を無視 */
       name: 'strategy-store-v5',
-      version: 37,
+      version: 38, // ★ Bumped to clear old STAGE2 Final Story fields from localStorage
       partialize: (s) => ({
         companyId: s.companyId,
         strategyId: s.strategyId,
         pendingCompanyId: s.pendingCompanyId,
 
         story: s.story,
-        finalStory: s.finalStory,
-        finalStoryDraft: (s as any).finalStoryDraft, // ✅ 追加：最終ストーリー ドラフト版（3段階編集用）
-        finalStoryEdited: (s as any).finalStoryEdited, // ✅ 追加：最終ストーリー 編集版（3段階編集用）
-        finalStoryFinal: (s as any).finalStoryFinal, // ✅ 追加：最終ストーリー 確定版（3段階編集用）
+        // ★ FIX: EXCLUDE all STAGE2 Final Story fields from persist
+        // All story versions (Draft/Edited/Final/canonical) are DB-generated
+        // DB is the single source of truth - don't persist old values
+        // finalStory: s.finalStory, // ← EXCLUDED
+        // finalStoryDraft: (s as any).finalStoryDraft, // ← EXCLUDED (was Draft, now excluded too)
+        // finalStoryEdited: (s as any).finalStoryEdited, // ← EXCLUDED
+        // finalStoryFinal: (s as any).finalStoryFinal, // ← EXCLUDED
         ceoIntent: s.ceoIntent, // ✅ 追加：経営者の思いを persist 対象に含める
         storyDraft: s.storyDraft, // ✅ 追加：STAGE2 ドラフトストーリーを persist 対象に
         answers2: s.answers2,
@@ -4907,18 +4910,30 @@ export const useStrategyStore = create<StrategyState>()(
         revision: s.revision,
         __lastSavedHash: s.__lastSavedHash,
       }),
-      migrate: (persisted) => ({
-        ...emptyData,
-        ...(persisted ?? {}),
-        boot: { isHydrating: true, isHydrated: false },
-        hydrated: false,
-        loaded: false,
-        dirty: false,
-        __isFetchingFromServer: false,
-        /* ★ TASK 14: restore フラグをリセット（migrate 時は復旧待ち） */
-        restoreReady: false,
-        isRestoring: true,
-      }),
+      migrate: (persisted) => {
+        const migrated = {
+          ...emptyData,
+          ...(persisted ?? {}),
+          boot: { isHydrating: true, isHydrated: false },
+          hydrated: false,
+          loaded: false,
+          dirty: false,
+          __isFetchingFromServer: false,
+          /* ★ TASK 14: restore フラグをリセット（migrate 時は復旧待ち） */
+          restoreReady: false,
+          isRestoring: true,
+        };
+
+        // ★ FIX (v38): Clear all STAGE2 Final Story fields from old localStorage
+        // These must come from DB restore, not persisted old values
+        // Prevents autosave race condition where old client state overrides DB data
+        (migrated as any).finalStory = undefined;
+        (migrated as any).finalStoryDraft = undefined;
+        (migrated as any).finalStoryEdited = undefined;
+        (migrated as any).finalStoryFinal = undefined;
+
+        return migrated;
+      },
       storage: createJSONStorage(() => localStorage),
       onRehydrateStorage: () => (state, error) => {
         if (error) console.warn('rehydration error:', error);
