@@ -3394,13 +3394,6 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           stage2FinalDocumentEdits: mergeMidtermStrategyIntoDocumentEdits(editingDocumentEdits, midtermStrategy),  // ★ 補助セクション編集内容を明示的に含める
         };
 
-        // ★ DIAG: Checkpoint 1 - savePayload contents before Supabase UPDATE
-        console.log('[DIAG:CP1] savePayload array lengths', {
-          finalStoryDraft_len: Array.isArray((savePayload as any).finalStoryDraft) ? (savePayload as any).finalStoryDraft.length : 'not_array',
-          finalStoryEdited_len: Array.isArray((savePayload as any).finalStoryEdited) ? (savePayload as any).finalStoryEdited.length : 'not_array',
-          finalStoryFinal_len: Array.isArray((savePayload as any).finalStoryFinal) ? (savePayload as any).finalStoryFinal.length : 'not_array',
-        });
-
         const saveResult = await saveWithAudit(
           savePayload,
           userId,
