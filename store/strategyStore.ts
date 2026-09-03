@@ -4830,7 +4830,7 @@ export const useStrategyStore = create<StrategyState>()(
     {
       /* ★ TASK 14-3: persist ストレージキーをバージョンアップ（v4 → v5）旧 localStorage を無視 */
       name: 'strategy-store-v5',
-      version: 38, // ★ Bumped to clear old STAGE2 Final Story fields from localStorage
+      version: 39, // ★ Bumped to clear old STAGE2 Final Story + STAGE6 simulation fields from localStorage
       partialize: (s) => ({
         companyId: s.companyId,
         strategyId: s.strategyId,
@@ -4853,7 +4853,8 @@ export const useStrategyStore = create<StrategyState>()(
         csvFinanceData: s.csvFinanceData,
         financeSummary: s.financeSummary,
         businessPortfolio: s.businessPortfolio,
-        simulationResult: s.simulationResult,
+        // ★ FIX (v39): EXCLUDE simulationResult - generated data, DB is source of truth
+        // simulationResult: s.simulationResult, // ← EXCLUDED
 
         chapterCurrentStep: s.chapterCurrentStep,
 
@@ -4934,6 +4935,10 @@ export const useStrategyStore = create<StrategyState>()(
         (migrated as any).finalStoryDraft = undefined;
         (migrated as any).finalStoryEdited = undefined;
         (migrated as any).finalStoryFinal = undefined;
+
+        // ★ FIX (v39): Clear STAGE6 simulation result from old localStorage
+        // Generated data - DB is source of truth for financial simulations
+        (migrated as any).simulationResult = undefined;
 
         return migrated;
       },
