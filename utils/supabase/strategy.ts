@@ -2176,6 +2176,13 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       };
       delete updatePayload.created_at;
 
+      // ★ DIAG: Checkpoint 2 - updatePayload contents before Supabase UPDATE
+      console.log('[DIAG:CP2] updatePayload array lengths', {
+        final_story_draft_len: Array.isArray((updatePayload as any).final_story_draft) ? (updatePayload as any).final_story_draft.length : 'not_array',
+        final_story_edited_len: Array.isArray((updatePayload as any).final_story_edited) ? (updatePayload as any).final_story_edited.length : 'not_array',
+        final_story_final_len: Array.isArray((updatePayload as any).final_story_final) ? (updatePayload as any).final_story_final.length : 'not_array',
+      });
+
 
       // ★ 指示A：updatePayload に okr_target_scores が含まれているか確認
       if (DEBUG) {
@@ -2302,6 +2309,13 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
 
       // ★重要：UPDATEの戻り値は必ず「全列」を返す（部分列だと store を壊す）
       const upd = await updateQuery.select('*').maybeSingle();
+
+      // ★ DIAG: Checkpoint 3 - DB returned values after UPDATE
+      console.log('[DIAG:CP3] DB response after UPDATE', {
+        final_story_draft_len: Array.isArray((upd.data as any)?.final_story_draft) ? (upd.data as any).final_story_draft.length : 'not_array',
+        final_story_edited_len: Array.isArray((upd.data as any)?.final_story_edited) ? (upd.data as any).final_story_edited.length : 'not_array',
+        final_story_final_len: Array.isArray((upd.data as any)?.final_story_final) ? (upd.data as any).final_story_final.length : 'not_array',
+      });
 
       // ★ CRITICAL TEST: Verify revision integrity (DB is source of truth)
       if (upd.data) {
