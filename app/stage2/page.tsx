@@ -336,7 +336,7 @@ function FinalStoryPreview({ finalStory }: { finalStory: StoryChapter[] }) {
 
   return (
     <div className="rounded-2xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/20 p-6">
-      <h3 className="text-lg font-semibold text-emerald-800 dark:text-emerald-200 mb-4">最終ストーリー</h3>
+      <h3 className="text-lg font-semibold text-emerald-800 dark:text-emerald-200 mb-4">社員に伝えたい「経営の意図」</h3>
       <div className="space-y-4">
         {finalStory.map((chapter, i) => (
           <div key={i} className="border-l-2 border-emerald-400 pl-4">
@@ -352,7 +352,7 @@ function FinalStoryPreview({ finalStory }: { finalStory: StoryChapter[] }) {
 }
 
 /* ===================================================
- * ★ 経営層向けドキュメント表示（最終ストーリー）
+ * ★ 経営層向けドキュメント表示（社員に伝えたい「経営の意図」）
  * - 4章の構成・本文は一切変更せず、「見せ方」のみ戦略書品質で表示
  * - 表紙ヘッダー（タイトル・会社名・ステータス）→ 構成（目次）→ 各章本文
  * - 本文は段落単位で組版（明朝系・字間/行間を文書向けに調整）
@@ -1883,7 +1883,7 @@ function Questions12Section({
             value={currentAnswer}
             onChange={(e) => onUpdateAnswer(selectedId, e.target.value)}
             disabled={disabled}
-            placeholder="この質問に対するあなたの考えを記入してください（未回答でも最終ストーリーは生成できます）..."
+            placeholder="この質問に対するあなたの考えを記入してください（未回答でも経営の意図は生成できます）..."
             className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white/70 dark:bg-white/5 px-4 py-3 text-sm text-gray-800 dark:text-gray-200 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
             minRows={4}
             maxRows={18}
@@ -3451,11 +3451,11 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       if (e?.name === 'AbortError' || e?.message?.includes('aborted')) {
         setGenerateFinalError(
           didTimeout
-            ? '最終ストーリーの生成がタイムアウトしました。入力データ量が多いか、処理に時間がかかっています。少し時間を置いて再度実行してください。'
+            ? '経営の意図の生成がタイムアウトしました。入力データ量が多いか、処理に時間がかかっています。少し時間を置いて再度実行してください。'
             : '通信が中断されました（abort）。ネットワーク/拡張機能/画面遷移などを確認してください。'
         );
       } else {
-        setGenerateFinalError(e?.message || '最終ストーリーの生成に失敗しました');
+        setGenerateFinalError(e?.message || '経営の意図の生成に失敗しました');
       }
     } finally {
       done = true;
@@ -3763,7 +3763,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
               中計全体の方向性、重点テーマ、事業・部門へ展開する判断軸を設計します。
             </p>
             <p className="text-xs text-gray-400 dark:text-gray-500">
-              入力（MVV・SWOT）→ 戦略のたたき台 → １２のテーマをもとに議論　→ 最終ストーリーを確定
+              入力（MVV・SWOT）→ 戦略のたたき台 → １２のテーマをもとに議論　→ 経営の意図を確定
             </p>
           </div>
           <div className="flex items-center gap-4">
@@ -3939,7 +3939,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                       disabled={disabled || !hasDraft || generatingFinal}
                       className="px-8 py-4 rounded-xl bg-emerald-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-emerald-700 transition-colors shadow-lg"
                     >
-                      {generatingFinal ? '生成中...' : '最終ストーリーを生成'}
+                      {generatingFinal ? '生成中...' : '経営の意図を生成'}
                     </button>
                   </div>
 
@@ -4192,7 +4192,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                           onClick={handleGenerateFinal}
                           className="px-8 py-3 rounded-lg bg-slate-700 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-800 transition-colors shadow-md"
                         >
-                          {generatingFinal ? '生成中...' : '最終ストーリーを再生成'}
+                          {generatingFinal ? '生成中...' : '経営の意図を再生成'}
                         </button>
                       </div>
 
@@ -4203,9 +4203,9 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                   </>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50/50 dark:bg-gray-800/50 p-8 text-center">
-                    <h4 className="text-base font-medium text-gray-600 dark:text-gray-400 mb-2">最終ストーリー（未生成）</h4>
+                    <h4 className="text-base font-medium text-gray-600 dark:text-gray-400 mb-2">社員に伝えたい「経営の意図」（未生成）</h4>
                     <p className="text-sm text-gray-400 dark:text-gray-500">
-                      「勝ち筋」タブで「最終ストーリーを生成」を実行してください（12のディスカッションテーマは未回答でもOKです）
+                      「勝ち筋」タブで「経営の意図を生成」を実行してください（12のディスカッションテーマは未回答でもOKです）
                     </p>
                   </div>
                 )}

@@ -1,63 +1,91 @@
-ルート直下の Markdown ドキュメントが増えてきたので、実装作業に入る前に `docs` 配下へ整理してください。
+STAGE2の調査結果を踏まえて実装に進んでください。
 
-方針：
+ただし以下を修正します。
 
-### 1. 以下のフォルダーを使用
+1. UI表現
 
-* `docs/audit/`
-* `docs/diagnostics/`
-* `docs/reports/`
+「最終ストーリー」から変更する正式なユーザー向け名称は
 
-### 2. 移動候補
+社員に伝えたい「経営の意図」
 
-`docs/audit/`
+です。
 
-* AUDIT_RECHECK_20260731.md
-* AUDIT_RECHECK_CORRECTED_20260731.md
-* AUDIT_REPORT_20260731.md
-* CLASSIFICATION_POC_FINDINGS.md
-* GROWTHSHIFT_CURRENT_STATE_AUDIT_20260831.md
-* GROWTHSHIFT_SECURITY_REVALIDATION_20260831.md
-* INVESTIGATION_REPORT_20260729.md
+「全社戦略」には変更しないでください。
 
-`docs/diagnostics/`
+app/stage2/page.tsxを中心に、ユーザーから見える
 
-* ADMIN_ACCOUNT_CREATION_FIX.md
-* STAGE4_DIRTY_FLAG_DIAGNOSIS.md
+見出し
+ボタン
+説明文
+placeholder
+error message
 
-`docs/reports/`
+をこの考え方に統一してください。
 
-* CHANGES_SUMMARY.md
-* TEST_REPORT.md
+一方で、
 
-`README.md` はルートに残してください。
+finalStory
+finalStoryDraft
+finalStoryEdited
+finalStoryFinal
+DB column
+API field
+FinalStoryPreview等の内部component名
 
-### 3. 移動前に必ず確認
+は今回は変更しないでください。
+保存互換性を優先します。
 
-各ファイル名・パスが以下から参照されていないか検索してください。
+2. Evaluator Loop
 
-* source code
-* scripts
-* package.json
-* prompt.txt
-* README.md
-* 他の Markdown
-* テストコード
+現在の
 
-参照がある場合は、移動後の新しいパスへ更新してください。
+生成 → 評価 → AI修正 → 再評価
 
-### 4. 移動方法
+を拡張し、
 
-可能なら `git mv` を使用して、Git履歴上も移動として追跡できるようにしてください。
+最大2回までrepairできるEvaluator Loop
 
-### 5. 今回は対象外
+にしてください。
 
-* README.md
-* package.json / JSON
-* source code
-* prompt.txt
-* 設定ファイル
-  は移動しないでください。
+ただし「score > 80になるまで」という単純な自己採点ループにはしないでください。
 
-移動前に「どのファイルをどこへ移すか」と「参照箇所の有無」を一覧で提示してください。
-まだ移動は実行しないでください。
+再修正条件は、既存の
+
+evaluateStrategicIntentCoverage()
+evaluateExecutiveStoryQuality()
+
+の結果に未解消の重要issueが残っている場合としてください。
+
+重要issueがなくなったら即終了。
+最大repair回数に到達したら、その時点の最良結果を採用してください。
+
+各roundでは全文を書き直すのではなく、評価で問題になった箇所だけを修正する方針を維持してください。
+
+また、
+
+入力されていない事実を追加しない
+一般論を増やさない
+修正によって既存の良い具体性を失わない
+無限loopを起こさない
+API費用を過度に増やさない
+
+を守ってください。
+
+3. ceoIntent
+
+今回はまだ実装しないでください。
+
+まず現在の12問回答のどこから経営者の意思・意図を抽出しているのか確認し、
+ceoIntentを追加すると情報が強化されるのか、単なる重複になるのかだけ報告してください。
+
+実装順
+UI表現統一
+Evaluator Loop
+Build / TypeScript
+実際のSTAGE2生成テスト
+
+大規模リファクタリングは不要です。
+
+STAGE2の目的は、文章として美しい「戦略ストーリー」を作ることではありません。
+経営の意図・背景・優先順位・判断基準を社員が理解し、その後のSTAGE3の部門戦略、STAGE4のKPI、現場の判断・行動につなげられる状態をつくることを最優先してください。
+Evaluatorも文章表現の巧拙ではなく、この目的を満たしているかを評価してください。

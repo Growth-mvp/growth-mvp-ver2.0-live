@@ -2085,9 +2085,20 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
       });
     }
 
-    if (!usedHeuristic && hasBudget(22_000)) {
+    // ★ Evaluator Loop: 最大2回までrepair対応
+    const MAX_REPAIR_ROUNDS = 2;
+    const hasSignificantIssues = (cov: ReturnType<typeof evaluateStrategicIntentCoverage>, qual: ReturnType<typeof evaluateExecutiveStoryQuality>) =>
+      cov.missing.length >= 2 ||
+      cov.missingMustKeepTerms.length > 0 ||
+      cov.missingSpineTerms.length > 0 ||
+      qual.tooShortIndexes.length > 0 ||
+      qual.hasGenericWeaknessRisk;
+
+    let repairRound = 0;
+    while (repairRound < MAX_REPAIR_ROUNDS && !usedHeuristic && hasBudget(18_000) && hasSignificantIssues(strategicIntentCoverage, executiveStoryQuality)) {
+      repairRound++;
       if (process.env.NODE_ENV === 'development' || process.env.DEBUG_AI_MODELS === '1') {
-        console.log(`[AI] stage2-repair → ${AI_MODELS.reasoning}`);
+        console.log(`[AI] stage2-repair round ${repairRound}/${MAX_REPAIR_ROUNDS} → ${AI_MODELS.reasoning}`);
       }
       const repairedSections = await repairExecutiveStoryIfNeeded({
         sections,
@@ -2119,10 +2130,21 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
         }));
         strategicIntentCoverage = evaluateStrategicIntentCoverage(longform, mustKeepTerms);
         executiveStoryQuality = evaluateExecutiveStoryQuality(sections);
+      } else {
+        break;
       }
-    } else if (!usedHeuristic) {
-      console.warn('[stage2/generate-final] repair skipped due to time budget:', {
+    }
+    if (!usedHeuristic && repairRound >= MAX_REPAIR_ROUNDS && hasSignificantIssues(strategicIntentCoverage, executiveStoryQuality)) {
+      console.warn('[stage2/generate-final] max repair rounds reached with remaining issues:', {
         requestId,
+        rounds: repairRound,
+        coverage: strategicIntentCoverage,
+        quality: executiveStoryQuality,
+      });
+    } else if (!usedHeuristic && !hasBudget(18_000)) {
+      console.warn('[stage2/generate-final] repair loop stopped due to time/token budget:', {
+        requestId,
+        rounds: repairRound,
         elapsedMs: elapsedMs(),
       });
     }
