@@ -934,28 +934,12 @@ function TopicCard({
           </div>
 
           <p className="text-sm leading-7 text-slate-700">{topic.summary}</p>
-        </div>
 
-        {/* ズレの要点（3色カード） */}
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
-            <p className="font-semibold text-blue-900 text-xs">現場の認識</p>
-            <p className="mt-2 text-sm leading-5 text-blue-800 line-clamp-3">{topic.recognitionGap.fieldView}</p>
+          {/* ズレの本質：1行程度 */}
+          <div className="mt-2 rounded-lg bg-blue-50 border border-blue-200 p-2">
+            <p className="text-xs font-semibold text-blue-900">ズレの本質</p>
+            <p className="mt-1 text-sm leading-6 text-blue-800 line-clamp-2">{topic.recognitionGap.gapEssence}</p>
           </div>
-          <div className="rounded-lg border border-orange-200 bg-orange-50 p-3">
-            <p className="font-semibold text-orange-900 text-xs">会社側の認識</p>
-            <p className="mt-2 text-sm leading-5 text-orange-800 line-clamp-3">{topic.recognitionGap.companyView}</p>
-          </div>
-          <div className="rounded-lg border border-green-200 bg-green-50 p-3">
-            <p className="font-semibold text-green-900 text-xs">ズレの本質</p>
-            <p className="mt-2 text-sm leading-5 text-green-800 line-clamp-3">{topic.recognitionGap.gapEssence}</p>
-          </div>
-        </div>
-
-        {/* 会社としての判断軸（強調カード） */}
-        <div className="mt-4 rounded-lg border border-green-300 bg-green-50 p-4">
-          <p className="text-xs font-semibold text-green-900 uppercase">会社としての判断軸</p>
-          <p className="mt-2 text-sm leading-7 text-green-800">{topic.companyAxis}</p>
         </div>
 
         <button
@@ -973,7 +957,7 @@ function TopicCard({
             {/* ① 論点の概要 */}
             <section>
               <h5 className="font-bold text-slate-950 text-base">論点の概要</h5>
-              <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-3 text-xs">
+              <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-4 text-xs">
                 <div className="rounded-lg bg-slate-50 p-3">
                   <p className="font-medium text-slate-500">分類</p>
                   <p className="mt-1 font-semibold text-slate-900">{topic.category}</p>
@@ -986,12 +970,17 @@ function TopicCard({
                   <p className="font-medium text-slate-500">影響範囲</p>
                   <p className="mt-1 font-semibold text-slate-900">{topic.impactScope}</p>
                 </div>
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="font-medium text-slate-500">対象部門</p>
+                  <p className="mt-1 font-semibold text-slate-900">{topic.targetDepartments.join("・")}</p>
+                </div>
               </div>
             </section>
 
-            {/* ② 認識のズレ */}
+            {/* ② 認識のズレ：何がズレていたのか */}
             <section>
-              <h5 className="font-bold text-slate-950 text-base">認識のズレ</h5>
+              <h5 className="font-bold text-slate-950 text-base">② 認識のズレ</h5>
+              <p className="mt-1 text-xs text-slate-500">現場と会社の見方の違い</p>
               <div className="mt-3 grid gap-3 md:grid-cols-3">
                 <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
                   <p className="font-semibold text-blue-900">現場の認識</p>
@@ -1008,26 +997,28 @@ function TopicCard({
               </div>
             </section>
 
-            {/* ③ 会社としての判断軸 */}
+            {/* ③ 会社としての判断軸：会社の判断基準 */}
             <section className="rounded-xl border border-green-300 bg-green-50 p-5">
-              <h5 className="font-bold text-green-950 text-base">会社としての判断軸</h5>
+              <h5 className="font-bold text-green-950 text-base">③ 会社としての判断軸</h5>
+              <p className="mt-1 text-xs text-green-700">会社が優先することと、その理由</p>
               <p className="mt-3 text-sm leading-8 text-green-800">{topic.companyAxis}</p>
             </section>
 
-            {/* ④ 背景 */}
+            {/* ④ 背景：背景情報 */}
             {topic.background && (
               <section>
-                <h5 className="font-bold text-slate-950 text-base">背景</h5>
+                <h5 className="font-bold text-slate-950 text-base">④ 背景</h5>
                 <p className="mt-3 text-sm leading-7 text-slate-700">{topic.background}</p>
               </section>
             )}
 
             {isAdmin && (
               <>
-                {/* ⑤ すり合わせ結果・対応状況 */}
+                {/* ⑤ すり合わせ結果・結論：何が決まったのか */}
                 <section>
-                  <h5 className="font-bold text-slate-950 text-base">⑤ すり合わせ結果・対応状況</h5>
-                  <div className="mt-3 space-y-4">
+                  <h5 className="font-bold text-slate-950 text-base">⑤ すり合わせ結果・結論</h5>
+                  <p className="mt-1 text-xs text-slate-500">この論点についての会社としての結論</p>
+                  <div className="mt-3">
                     <EditableTextSection
                       title="すり合わせ結果"
                       value={topic.alignmentResult}
@@ -1035,24 +1026,36 @@ function TopicCard({
                       onSave={(alignmentResult) => updateTopic({ alignmentResult, status: alignmentResult ? "対応方針決定" : topic.status })}
                       onClear={() => updateTopic({ alignmentResult: "" })}
                     />
+                  </div>
+                </section>
 
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <EditableListSection
-                        title="変えること"
-                        items={topic.changedThings}
-                        placeholder={"例：\n営業部門から経営への月次フィードバックの場を設ける\n重点案件・失注要因・現場課題を経営会議で共有する"}
-                        onSave={(changedThings) => updateTopic({ changedThings })}
-                        onClear={() => updateTopic({ changedThings: [] })}
-                      />
-                      <EditableListSection
-                        title="変えないこと"
-                        items={topic.unchangedThings}
-                        placeholder={"例：\n営業部門が自律的に案件管理・顧客対応を行う責任は維持する\n経営がすべての案件に個別介入する運用にはしない"}
-                        onSave={(unchangedThings) => updateTopic({ unchangedThings })}
-                        onClear={() => updateTopic({ unchangedThings: [] })}
-                      />
-                    </div>
+                {/* ⑥ 変えること / 変えないこと：対応の範囲と保つこと */}
+                <section>
+                  <h5 className="font-bold text-slate-950 text-base">⑥ 変えること / 変えないこと</h5>
+                  <p className="mt-1 text-xs text-slate-500">対応内容と維持する方針</p>
+                  <div className="mt-3 grid gap-4 md:grid-cols-2">
+                    <EditableListSection
+                      title="変えること"
+                      items={topic.changedThings}
+                      placeholder={"例：\n営業部門から経営への月次フィードバックの場を設ける\n重点案件・失注要因・現場課題を経営会議で共有する"}
+                      onSave={(changedThings) => updateTopic({ changedThings })}
+                      onClear={() => updateTopic({ changedThings: [] })}
+                    />
+                    <EditableListSection
+                      title="変えないこと"
+                      items={topic.unchangedThings}
+                      placeholder={"例：\n営業部門が自律的に案件管理・顧客対応を行う責任は維持する\n経営がすべての案件に個別介入する運用にはしない"}
+                      onSave={(unchangedThings) => updateTopic({ unchangedThings })}
+                      onClear={() => updateTopic({ unchangedThings: [] })}
+                    />
+                  </div>
+                </section>
 
+                {/* ⑦ 次アクション：次に何をするのか */}
+                <section>
+                  <h5 className="font-bold text-slate-950 text-base">⑦ 次アクション</h5>
+                  <p className="mt-1 text-xs text-slate-500">決まった対応を実行するための具体的な次のステップ</p>
+                  <div className="mt-3">
                     <NextActionsSection
                       actions={topic.nextActions}
                       onSave={(nextActions) => updateTopic({ nextActions, status: nextActions.length > 0 ? "実行中" : topic.status })}
@@ -1061,23 +1064,26 @@ function TopicCard({
                   </div>
                 </section>
 
-                {/* ⑥ STAGE3 / STAGE4への反映 */}
+                {/* ⑧ STAGE3 / STAGE4への反映：戦略・実行計画への連携 */}
                 <section>
-                  <h5 className="font-bold text-slate-950 text-base">⑥ STAGE3 / STAGE4への反映</h5>
-                  <StrategyReflectionSection
-                    topic={topic}
-                    onCreateStage3Candidate={() => onCreateStage3Candidate(topic)}
-                    onCreateStage4Candidate={() => onCreateStage4Candidate(topic)}
-                    onResetReflection={onResetReflection}
-                  />
+                  <h5 className="font-bold text-slate-950 text-base">⑧ STAGE3 / STAGE4への反映</h5>
+                  <p className="mt-1 text-xs text-slate-500">この論点の結論をどう戦略・実行計画に反映させるか</p>
+                  <div className="mt-3">
+                    <StrategyReflectionSection
+                      topic={topic}
+                      onCreateStage3Candidate={() => onCreateStage3Candidate(topic)}
+                      onCreateStage4Candidate={() => onCreateStage4Candidate(topic)}
+                      onResetReflection={onResetReflection}
+                    />
+                  </div>
                 </section>
               </>
             )}
 
-            {/* ⑦ 運営からのお知らせ */}
+            {/* ⑨ 運営からのお知らせ：補足情報 */}
             {topic.announcement_text && (
               <section>
-                <h5 className="font-bold text-slate-950 text-base">⑦ 運営からのお知らせ</h5>
+                <h5 className="font-bold text-slate-950 text-base">⑨ 運営からのお知らせ</h5>
                 <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-4">
                   <p className="text-sm leading-6 text-blue-800">{topic.announcement_text}</p>
                   {topic.announcement_updated_at && (
