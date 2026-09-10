@@ -891,148 +891,205 @@ function TopicCard({
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="p-6">
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusColor(topic.status)}`}>{topic.status}</span>
-          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getLevelColor(topic.importance)}`}>重要度：{topic.importance}</span>
-          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getLevelColor(topic.urgency)}`}>緊急度：{topic.urgency}</span>
-          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getPriorityColor(topic.priorityScore)}`}>優先度：{topic.priorityScore}</span>
-          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusColor(topic.strategyReflection.stage3Status)}`}>STAGE3：{topic.strategyReflection.stage3Status}</span>
-          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusColor(topic.strategyReflection.stage4Status)}`}>STAGE4：{topic.strategyReflection.stage4Status}</span>
+        {/* ヘッダー：タイトル + 分類・重要度 */}
+        <div className="space-y-4">
+          <h3 className="text-xl font-bold text-slate-950">{topic.title}</h3>
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">{topic.category}</span>
+            {topic.importance && (
+              <span className={`rounded-full px-3 py-1 text-xs font-medium ${topic.importance === '高' ? 'bg-red-100 text-red-700' : topic.importance === '中' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-700'}`}>
+                重要度：{topic.importance}
+              </span>
+            )}
+          </div>
+
+          {/* 現在地 */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs font-semibold text-slate-500 uppercase">現在地</p>
+            <div className="mt-2 flex items-center gap-2">
+              <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusColor(topic.status)}`}>
+                {topic.status}
+              </span>
+              <span className="text-xs text-slate-600">関連する声：<strong>{topic.relatedCaseCount}件</strong></span>
+            </div>
+          </div>
+
+          {/* 下流への反映状況 */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs font-semibold text-slate-500 uppercase">下流への反映状況</p>
+            <div className="mt-2 grid gap-2 md:grid-cols-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-slate-600">STAGE3：</span>
+                <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${getStatusColor(topic.strategyReflection.stage3Status)}`}>
+                  {getStageDisplayName(topic.strategyReflection.stage3Status)}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-slate-600">STAGE4：</span>
+                <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${getStatusColor(topic.strategyReflection.stage4Status)}`}>
+                  {getStageDisplayName(topic.strategyReflection.stage4Status)}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <p className="text-sm leading-7 text-slate-700">{topic.summary}</p>
         </div>
 
-        <h3 className="text-lg font-bold text-slate-950">{topic.title}</h3>
-        <p className="mt-3 text-sm leading-7 text-slate-700">{topic.summary}</p>
-
-        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">AI集計結果</span>
-            <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">{topic.category}</span>
-            <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">関連する声：{topic.relatedCaseCount}件</span>
-            <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">推奨：{topic.sessionType}</span>
+        {/* ズレの要点（3色カード） */}
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+            <p className="font-semibold text-blue-900 text-xs">現場の認識</p>
+            <p className="mt-2 text-sm leading-5 text-blue-800 line-clamp-3">{topic.recognitionGap.fieldView}</p>
           </div>
-          <p className="mt-3 text-xs leading-6 text-slate-600">{topic.aiSummary}</p>
+          <div className="rounded-lg border border-orange-200 bg-orange-50 p-3">
+            <p className="font-semibold text-orange-900 text-xs">会社側の認識</p>
+            <p className="mt-2 text-sm leading-5 text-orange-800 line-clamp-3">{topic.recognitionGap.companyView}</p>
+          </div>
+          <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+            <p className="font-semibold text-green-900 text-xs">ズレの本質</p>
+            <p className="mt-2 text-sm leading-5 text-green-800 line-clamp-3">{topic.recognitionGap.gapEssence}</p>
+          </div>
         </div>
 
-        <div className="mt-5 grid gap-3 text-sm md:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-xl bg-slate-50 p-3">
-            <p className="text-xs font-semibold text-slate-500">影響範囲</p>
-            <p className="mt-1 font-bold text-slate-900">{topic.impactScope}</p>
-          </div>
-          <div className="rounded-xl bg-slate-50 p-3">
-            <p className="text-xs font-semibold text-slate-500">対象部門</p>
-            <p className="mt-1 font-bold text-slate-900">{topic.targetDepartments.join("・")}</p>
-          </div>
-          <div className="rounded-xl bg-slate-50 p-3">
-            <p className="text-xs font-semibold text-slate-500">次回確認日</p>
-            <p className="mt-1 font-bold text-slate-900">{topic.nextReviewDate}</p>
-          </div>
-          <div className="rounded-xl bg-slate-50 p-3">
-            <p className="text-xs font-semibold text-slate-500">更新日</p>
-            <p className="mt-1 font-bold text-slate-900">{topic.updatedAt}</p>
-          </div>
+        {/* 会社としての判断軸（強調カード） */}
+        <div className="mt-4 rounded-lg border border-green-300 bg-green-50 p-4">
+          <p className="text-xs font-semibold text-green-900 uppercase">会社としての判断軸</p>
+          <p className="mt-2 text-sm leading-7 text-green-800">{topic.companyAxis}</p>
         </div>
 
         <button
           type="button"
           onClick={onExpandClick}
-          className="mt-5 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
+          className="mt-6 w-full rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
         >
-          {isExpanded ? "詳細を閉じる" : "詳細を見る"}
+          {isExpanded ? "詳細を閉じる ▲" : "詳細を見る ▼"}
         </button>
       </div>
 
       {isExpanded && (
         <div className="border-t border-slate-200 bg-white p-6">
           <div className="space-y-6">
-            {/* 運営からのお知らせ */}
-            {topic.announcement_text && (
-              <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
-                <p className="text-xs font-semibold text-blue-900 mb-2">
-                  運営からのお知らせ
-                </p>
-                <p className="text-sm leading-6 text-blue-800">
-                  {topic.announcement_text}
-                </p>
-                {topic.announcement_updated_at && (
-                  <p className="mt-2 text-xs text-blue-600">
-                    更新: {new Date(topic.announcement_updated_at).toLocaleString('ja-JP')}
-                  </p>
-                )}
+            {/* ① 論点の概要 */}
+            <section>
+              <h5 className="font-bold text-slate-950 text-base">論点の概要</h5>
+              <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-3 text-xs">
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="font-medium text-slate-500">分類</p>
+                  <p className="mt-1 font-semibold text-slate-900">{topic.category}</p>
+                </div>
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="font-medium text-slate-500">関連件数</p>
+                  <p className="mt-1 font-semibold text-slate-900">{topic.relatedCaseCount}件</p>
+                </div>
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="font-medium text-slate-500">影響範囲</p>
+                  <p className="mt-1 font-semibold text-slate-900">{topic.impactScope}</p>
+                </div>
               </div>
-            )}
+            </section>
 
+            {/* ② 認識のズレ */}
+            <section>
+              <h5 className="font-bold text-slate-950 text-base">認識のズレ</h5>
+              <div className="mt-3 grid gap-3 md:grid-cols-3">
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                  <p className="font-semibold text-blue-900">現場の認識</p>
+                  <p className="mt-3 text-sm leading-7 text-blue-800">{topic.recognitionGap.fieldView}</p>
+                </div>
+                <div className="rounded-lg border border-orange-200 bg-orange-50 p-4">
+                  <p className="font-semibold text-orange-900">会社側の認識</p>
+                  <p className="mt-3 text-sm leading-7 text-orange-800">{topic.recognitionGap.companyView}</p>
+                </div>
+                <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+                  <p className="font-semibold text-green-900">ズレの本質</p>
+                  <p className="mt-3 text-sm leading-7 text-green-800">{topic.recognitionGap.gapEssence}</p>
+                </div>
+              </div>
+            </section>
+
+            {/* ③ 会社としての判断軸 */}
+            <section className="rounded-xl border border-green-300 bg-green-50 p-5">
+              <h5 className="font-bold text-green-950 text-base">会社としての判断軸</h5>
+              <p className="mt-3 text-sm leading-8 text-green-800">{topic.companyAxis}</p>
+            </section>
+
+            {/* ④ 背景 */}
             {topic.background && (
               <section>
-                <h4 className="font-bold text-slate-950">背景</h4>
-                <p className="mt-2 text-sm leading-7 text-slate-700">{topic.background}</p>
+                <h5 className="font-bold text-slate-950 text-base">背景</h5>
+                <p className="mt-3 text-sm leading-7 text-slate-700">{topic.background}</p>
               </section>
             )}
 
-            <section className="grid gap-4 md:grid-cols-3">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold text-slate-500">現場の認識</p>
-                <p className="mt-2 text-sm leading-7 text-slate-700">{topic.recognitionGap.fieldView}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold text-slate-500">会社側の認識</p>
-                <p className="mt-2 text-sm leading-7 text-slate-700">{topic.recognitionGap.companyView}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold text-slate-500">ズレの本質</p>
-                <p className="mt-2 text-sm leading-7 text-slate-700">{topic.recognitionGap.gapEssence}</p>
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-slate-200 bg-white p-4">
-              <h4 className="font-bold text-slate-950">会社としての判断軸</h4>
-              <p className="mt-2 text-sm leading-7 text-slate-700">{topic.companyAxis}</p>
-            </section>
-
             {isAdmin && (
               <>
-                <EditableTextSection
-                  title="すり合わせ結果"
-                  value={topic.alignmentResult}
-                  placeholder="例：営業部門は経営からの支援が不足していると感じていたが、経営側は現場課題を十分に把握できていなかった。今後は月次で課題を共有し、支援方針を明確にすることで合意した。"
-                  onSave={(alignmentResult) => updateTopic({ alignmentResult, status: alignmentResult ? "対応方針決定" : topic.status })}
-                  onClear={() => updateTopic({ alignmentResult: "" })}
-                />
+                {/* ⑤ すり合わせ結果・対応状況 */}
+                <section>
+                  <h5 className="font-bold text-slate-950 text-base">⑤ すり合わせ結果・対応状況</h5>
+                  <div className="mt-3 space-y-4">
+                    <EditableTextSection
+                      title="すり合わせ結果"
+                      value={topic.alignmentResult}
+                      placeholder="例：営業部門は経営からの支援が不足していると感じていたが、経営側は現場課題を十分に把握できていなかった。今後は月次で課題を共有し、支援方針を明確にすることで合意した。"
+                      onSave={(alignmentResult) => updateTopic({ alignmentResult, status: alignmentResult ? "対応方針決定" : topic.status })}
+                      onClear={() => updateTopic({ alignmentResult: "" })}
+                    />
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  <EditableListSection
-                    title="変えること"
-                    items={topic.changedThings}
-                    placeholder={"例：\n営業部門から経営への月次フィードバックの場を設ける\n重点案件・失注要因・現場課題を経営会議で共有する"}
-                    onSave={(changedThings) => updateTopic({ changedThings })}
-                    onClear={() => updateTopic({ changedThings: [] })}
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <EditableListSection
+                        title="変えること"
+                        items={topic.changedThings}
+                        placeholder={"例：\n営業部門から経営への月次フィードバックの場を設ける\n重点案件・失注要因・現場課題を経営会議で共有する"}
+                        onSave={(changedThings) => updateTopic({ changedThings })}
+                        onClear={() => updateTopic({ changedThings: [] })}
+                      />
+                      <EditableListSection
+                        title="変えないこと"
+                        items={topic.unchangedThings}
+                        placeholder={"例：\n営業部門が自律的に案件管理・顧客対応を行う責任は維持する\n経営がすべての案件に個別介入する運用にはしない"}
+                        onSave={(unchangedThings) => updateTopic({ unchangedThings })}
+                        onClear={() => updateTopic({ unchangedThings: [] })}
+                      />
+                    </div>
+
+                    <NextActionsSection
+                      actions={topic.nextActions}
+                      onSave={(nextActions) => updateTopic({ nextActions, status: nextActions.length > 0 ? "実行中" : topic.status })}
+                      onClear={() => updateTopic({ nextActions: [] })}
+                    />
+                  </div>
+                </section>
+
+                {/* ⑥ STAGE3 / STAGE4への反映 */}
+                <section>
+                  <h5 className="font-bold text-slate-950 text-base">⑥ STAGE3 / STAGE4への反映</h5>
+                  <StrategyReflectionSection
+                    topic={topic}
+                    onCreateStage3Candidate={() => onCreateStage3Candidate(topic)}
+                    onCreateStage4Candidate={() => onCreateStage4Candidate(topic)}
+                    onResetReflection={onResetReflection}
                   />
-                  <EditableListSection
-                    title="変えないこと"
-                    items={topic.unchangedThings}
-                    placeholder={"例：\n営業部門が自律的に案件管理・顧客対応を行う責任は維持する\n経営がすべての案件に個別介入する運用にはしない"}
-                    onSave={(unchangedThings) => updateTopic({ unchangedThings })}
-                    onClear={() => updateTopic({ unchangedThings: [] })}
-                  />
-                </div>
-
-                <NextActionsSection
-                  actions={topic.nextActions}
-                  onSave={(nextActions) => updateTopic({ nextActions, status: nextActions.length > 0 ? "実行中" : topic.status })}
-                  onClear={() => updateTopic({ nextActions: [] })}
-                />
-
-                <StrategyReflectionSection
-                  topic={topic}
-                  onCreateStage3Candidate={() => onCreateStage3Candidate(topic)}
-                  onCreateStage4Candidate={() => onCreateStage4Candidate(topic)}
-                  onResetReflection={onResetReflection}
-                />
+                </section>
               </>
             )}
 
+            {/* ⑦ 運営からのお知らせ */}
+            {topic.announcement_text && (
+              <section>
+                <h5 className="font-bold text-slate-950 text-base">⑦ 運営からのお知らせ</h5>
+                <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-4">
+                  <p className="text-sm leading-6 text-blue-800">{topic.announcement_text}</p>
+                  {topic.announcement_updated_at && (
+                    <p className="mt-2 text-xs text-blue-600">更新：{new Date(topic.announcement_updated_at).toLocaleString('ja-JP')}</p>
+                  )}
+                </div>
+              </section>
+            )}
+
             {!isAdmin && (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-sm text-slate-700">詳細は管理者のみ編集・確認できます。</p>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-center">
+                <p className="text-sm text-slate-700">詳細の編集・確認は管理者のみです</p>
               </div>
             )}
           </div>
