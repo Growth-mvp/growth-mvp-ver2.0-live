@@ -1877,6 +1877,18 @@ ${mustKeepTerms.length ? mustKeepTerms.map((term) => `- ${term}`).join('\n') : '
 【戦略の背骨（重要語をどう使うか）】
 ${strategicSpineText}
 
+【経営者の原点・譲れない価値観・実現したい未来（ceoIntent）】
+${ceoIntent ? sanitize(ceoIntent, 2000) : '—'}
+${ceoIntent ? `
+使用方針：
+- 12問回答を主構造とする（戦略の具体的事実のSource of Truth）
+- ceoIntentは「なぜこの戦略か」「譲れない価値観」「実現したい未来」を深める補足情報
+- ceoIntentの内容をそのまま繰り返さない
+- 12問回答と同じ内容は重複させない
+- ceoIntentから市場・数値・KPI等の新しい事実を作らない
+- 原点・価値観はceoIntentを優先、具体的な戦略事実は12問回答を優先
+- 「なぜ今」「どんな未来」「社員に何を求めるか」など、意味のある箇所にだけ反映` : ''}
+
 【経営意思（12問回答：最優先で反映する質問＋回答）】
 ${stripPeopleRelatedNoise(answersRich) || '—'}
 
@@ -2102,12 +2114,21 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
 
     // ★ Evaluator Loop: 最大2回までrepair対応
     const MAX_REPAIR_ROUNDS = 2;
+    const isCeoIntentReflected = (text: string, intent: string): boolean => {
+      if (!intent) return true;
+      const intentKey = normalizeTermForKey(intent);
+      const textKey = normalizeTermForKey(text);
+      const coverageThreshold = Math.min(0.5, intent.length / 500);
+      const matches = (text.match(/原点|価値観|信念|実現したい|願|思想|心情/g) || []).length;
+      return textKey.includes(intentKey.slice(0, 20)) || matches >= 2 || coverageThreshold <= 0.3;
+    };
     const hasSignificantIssues = (cov: ReturnType<typeof evaluateStrategicIntentCoverage>, qual: ReturnType<typeof evaluateExecutiveStoryQuality>) =>
       cov.missing.length >= 2 ||
       cov.missingMustKeepTerms.length > 0 ||
       cov.missingSpineTerms.length > 0 ||
       qual.tooShortIndexes.length > 0 ||
-      qual.hasGenericWeaknessRisk;
+      qual.hasGenericWeaknessRisk ||
+      (ceoIntent && !isCeoIntentReflected(longform, ceoIntent));
 
     let repairRound = 0;
     while (repairRound < MAX_REPAIR_ROUNDS && !usedHeuristic && hasBudget(18_000) && hasSignificantIssues(strategicIntentCoverage, executiveStoryQuality)) {

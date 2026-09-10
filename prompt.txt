@@ -1,49 +1,31 @@
-STAGE2生成テストの前に、ceoIntent を generate-final に限定的に統合してください。
+生成テストの前に1点確認・修正してください。
 
-ceoIntent は単なる補足資料ではなく、経営者本人の意思・原点・譲れない価値観・実現したい未来を示す上位の意図情報として扱います。
+現在の実装報告では、ceoIntent が repairExecutiveStoryIfNeeded() のrepair promptには入っていますが、初回のgenerate-final生成promptに入っているか不明です。
 
-ただし、12問回答との役割を明確に分けてください。
+ceoIntent はrepair時だけではなく、初回生成から必ず利用してください。
 
-12問回答
+役割は以下です。
 
-市場
-顧客
-自社の強み
-資源配分
-やめること
-KPI
-行動変化
+12問回答：戦略の構造・具体的事実のSource of Truth
+ceoIntent：経営者の原点・譲れない価値観・実現したい未来のSource of Truth
 
-など、戦略の構造・具体性・事実のSource of Truth。
+初回生成promptでも、
 
-ceoIntent
-
-なぜこの会社を変えたいのか
-原点
-譲れない価値観
-経営者として実現したい未来
-社員に最も伝えたい考え
-
-という「経営の意思」のSource of Truth。
-
-generate-final に ceoIntent を渡し、12問から生成した extractStrategicIntentDigest を主構造としつつ、最終ストーリーに経営者の意思を反映してください。
-
-ただし以下を守ってください。
-
-ceoIntentの内容をそのまま繰り返さない
-12問回答と同じ内容なら重複して書かない
+12問を主構造とする
+ceoIntentは意味・背景・価値観を深める
+重複させない
 ceoIntentから市場・数値・KPI等の新しい事実を作らない
-ceoIntentと12問の具体的戦略事実が矛盾する場合は、具体的事実について12問を優先
-原点・価値観・譲れない意思についてはceoIntentを優先
-全章に機械的にceoIntentを入れない
-特に「なぜ今」「何を目指すか」「社員に何を求めるか」など、意味のある箇所にだけ反映
+原点・価値観はceoIntentを優先
 
-Evaluatorでも、文章の美しさだけでなく、
+を明示してください。
 
-「経営者の意思が、戦略の具体性を壊さずに社員に伝わる状態になっているか」
-
+また、repair時だけでなくEvaluator側でも、必要なら
+「ceoIntentの重要な意思が最終出力に反映されているか」
 を確認してください。
 
-大規模な型変更やDB変更は不要です。既存の ceoIntent store fieldを利用し、generate-finalへの入力とprompt/evaluatorの最小修正だけにしてください。
+ただしceoIntentが未入力なら、その評価条件はスキップしてください。
 
-修正後にBuild / TypeScriptを確認し、その後実際のSTAGE2生成テストを行います。
+大規模修正は不要です。
+初回生成promptへの追加と、必要最小限のEvaluator確認だけ実施してください。
+
+Build / TypeScript後に実生成テストへ進んでください。
