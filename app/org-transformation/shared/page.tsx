@@ -1023,9 +1023,16 @@ function TopicCard({
                       title="すり合わせ結果"
                       value={topic.alignmentResult}
                       placeholder="例：営業部門は経営からの支援が不足していると感じていたが、経営側は現場課題を十分に把握できていなかった。今後は月次で課題を共有し、支援方針を明確にすることで合意した。"
-                      onSave={(alignmentResult) => updateTopic({ alignmentResult, status: alignmentResult ? "対応方針決定" : topic.status })}
+                      onSave={(alignmentResult) => updateTopic({ alignmentResult })}
                       onClear={() => updateTopic({ alignmentResult: "" })}
                     />
+                    <button
+                      type="button"
+                      onClick={() => updateTopic({ status: "対応方針決定" })}
+                      className="mt-3 rounded-lg bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 w-full"
+                    >
+                      対応方針を確定する
+                    </button>
                   </div>
                 </section>
 

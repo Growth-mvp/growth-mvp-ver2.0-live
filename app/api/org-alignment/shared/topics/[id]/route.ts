@@ -41,6 +41,11 @@ export async function PATCH(
     const membership = await requireMembership(admin, userId);
     if (!membership) return json({ error: 'forbidden' }, 403);
 
+    // alignment_result 等の編集は admin のみ
+    if (membership.role !== 'admin') {
+      return json({ error: 'Admin role required to edit alignment results' }, 403);
+    }
+
     const companyId = membership.companyId;
     const topicId = params.id;
 
