@@ -337,84 +337,6 @@ function getStageDisplayName(status: string): string {
   }
 }
 
-function TopicSummaryTable({ topics }: { topics: SharedAlignmentTopic[] }) {
-  return (
-    <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-100 p-6">
-        <p className="text-xs font-semibold tracking-[0.22em] text-slate-500">TOPIC DASHBOARD</p>
-        <h3 className="mt-2 text-xl font-bold text-slate-950">全社論点ダッシュボード</h3>
-        <p className="mt-2 text-sm leading-6 text-slate-600">
-          AIが集約した論点を、件数・影響範囲・対象部門・状態で一覧化します。
-        </p>
-      </div>
-      <div className="grid grid-cols-1 gap-3 p-6 md:grid-cols-2 lg:grid-cols-2">
-        {topics.map((topic) => (
-          <div key={topic.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4 hover:bg-slate-100 transition">
-            <div className="space-y-3">
-              {/* 論点名 */}
-              <div>
-                <h4 className="font-bold text-slate-950 line-clamp-2">{topic.title}</h4>
-              </div>
-
-              {/* 基本情報グリッド */}
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="rounded-lg bg-white p-2">
-                  <div className="text-[11px] font-medium text-slate-500">関連する声</div>
-                  <div className="mt-0.5 font-bold text-slate-900">{topic.relatedCaseCount}件</div>
-                </div>
-                <div className="rounded-lg bg-white p-2">
-                  <div className="text-[11px] font-medium text-slate-500">影響範囲</div>
-                  <div className="mt-0.5 font-semibold text-slate-900">{topic.impactScope}</div>
-                </div>
-              </div>
-
-              {/* 対象部門 */}
-              <div className="rounded-lg bg-white p-2">
-                <div className="text-[11px] font-medium text-slate-500">対象部門</div>
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {topic.targetDepartments.map((dept) => (
-                    <span key={dept} className="rounded-full bg-slate-200 px-2 py-1 text-[11px] font-medium text-slate-800">
-                      {dept}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              {/* ステータス */}
-              <div className="grid grid-cols-3 gap-2 text-xs">
-                <div className="rounded-lg bg-white p-2">
-                  <div className="text-[11px] font-medium text-slate-500">状態</div>
-                  <div className="mt-0.5">
-                    <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${getStatusColor(topic.status)}`}>
-                      {topic.status}
-                    </span>
-                  </div>
-                </div>
-                <div className="rounded-lg bg-white p-2">
-                  <div className="text-[11px] font-medium text-slate-500">STAGE3</div>
-                  <div className="mt-0.5">
-                    <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${getStatusColor(topic.strategyReflection.stage3Status)}`}>
-                      {getStageDisplayName(topic.strategyReflection.stage3Status)}
-                    </span>
-                  </div>
-                </div>
-                <div className="rounded-lg bg-white p-2">
-                  <div className="text-[11px] font-medium text-slate-500">STAGE4</div>
-                  <div className="mt-0.5">
-                    <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${getStatusColor(topic.strategyReflection.stage4Status)}`}>
-                      {getStageDisplayName(topic.strategyReflection.stage4Status)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function EmptyState({ children }: { children: ReactNode }) {
   return <p className="mt-2 text-sm leading-7 text-slate-400">{children}</p>;
 }
@@ -1039,10 +961,12 @@ function TopicCard({
               </div>
             )}
 
-            <section>
-              <h4 className="font-bold text-slate-950">背景</h4>
-              <p className="mt-2 text-sm leading-7 text-slate-700">{topic.background}</p>
-            </section>
+            {topic.background && (
+              <section>
+                <h4 className="font-bold text-slate-950">背景</h4>
+                <p className="mt-2 text-sm leading-7 text-slate-700">{topic.background}</p>
+              </section>
+            )}
 
             <section className="grid gap-4 md:grid-cols-3">
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -1568,13 +1492,11 @@ export default function OrganizationSharedRoomPage() {
           <StatusChart topics={topics} />
         </section>
 
-        <TopicSummaryTable topics={topics} />
-
         <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <MetricCard label="共有中の論点" value={`${summaryData.topics}件`} description="全社に公開されている組織論点" />
+          <MetricCard label="共有された論点" value={`${summaryData.topics}件`} description="全社に公開されている組織論点" />
           <MetricCard label="すり合わせ中" value={`${summaryData.inProgress}件`} description="現在話し合いが進行中" />
           <MetricCard label="STAGE3反映候補" value={`${summaryData.stage3Targets}件`} description="事業・部門別戦略への反映対象" />
-          <MetricCard label="STAGE4実行計画への反映候補" value={`${summaryData.stage4Targets}件`} description="実行計画への反映対象" />
+          <MetricCard label="STAGE4反映候補" value={`${summaryData.stage4Targets}件`} description="実行計画への反映対象" />
         </section>
 
         <section className="space-y-5">
