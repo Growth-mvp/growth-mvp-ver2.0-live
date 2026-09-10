@@ -2510,7 +2510,9 @@ function CascadePageContent() {
   // STAGE3 全社戦略サマリー生成
   const handleGenerateStrategyBridge = useCallback(async () => {
     const st = useStrategyStore.getState();
-    const finalStoryData = st.finalStoryFinal ?? st.finalStory;
+    // ★ Source of Truth: finalStoryFinal のみ（確定版）
+    // finalStoryEdited/finalStoryDraft は生成のソースとして使用しない
+    const finalStoryData = st.finalStoryFinal;
     const bridgeSourceEdits = {
       ...(st.stage2FinalDocumentEdits || {}),
       ...(st.midtermStrategy ? { midtermStrategy: st.midtermStrategy } : {}),
@@ -2518,7 +2520,7 @@ function CascadePageContent() {
     const hasBridgeSourceEdits = Object.keys(bridgeSourceEdits).length > 0;
 
     if (!Array.isArray(finalStoryData) || finalStoryData.length === 0) {
-      setNotice('[ERROR] STAGE2最終ストーリーが未設定です');
+      setNotice('[ERROR] STAGE2で「社員に伝えたい『経営の意図』」を確定してください');
       return;
     }
 

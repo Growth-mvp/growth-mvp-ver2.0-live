@@ -1,31 +1,49 @@
-生成テストの前に1点確認・修正してください。
+調査結果は概ね問題ありませんが、1点だけ仕様を修正します。
 
-現在の実装報告では、ceoIntent が repairExecutiveStoryIfNeeded() のrepair promptには入っていますが、初回のgenerate-final生成promptに入っているか不明です。
+STAGE3のSource of Truthは、
 
-ceoIntent はrepair時だけではなく、初回生成から必ず利用してください。
+finalStoryFinal のみ
 
-役割は以下です。
+としてください。
 
-12問回答：戦略の構造・具体的事実のSource of Truth
-ceoIntent：経営者の原点・譲れない価値観・実現したい未来のSource of Truth
+今回決めた正式フローは、
 
-初回生成promptでも、
+AI生成
+→ 経営層が編集
+→ 経営として確定
+→ 確定版をSTAGE3へ展開
 
-12問を主構造とする
-ceoIntentは意味・背景・価値観を深める
-重複させない
-ceoIntentから市場・数値・KPI等の新しい事実を作らない
-原点・価値観はceoIntentを優先
+です。
 
-を明示してください。
+したがってSTAGE3で、
 
-また、repair時だけでなくEvaluator側でも、必要なら
-「ceoIntentの重要な意思が最終出力に反映されているか」
+finalStoryEdited
+finalStoryDraft
+
+を通常のfallbackとして戦略生成・Strategy BridgeのSourceとして利用しないでください。
+
+finalStoryFinal が存在しない場合は、
+
+「STAGE2で『経営の意図』を確定してください」
+
+と案内し、STAGE3の戦略生成を実行できない状態にしてください。
+
+ただし、
+
+DB field名変更
+大規模リファクタリング
+既存データ削除
+
+は不要です。
+
+既存の互換fallbackが表示専用など別目的で必要なら、それが戦略生成のSourceにならないよう分離してください。
+
+修正後、
+
+Finalあり → STAGE3正常
+Finalなし・Editedあり → STAGE3生成不可
+Finalなし・Draftあり → STAGE3生成不可
+
 を確認してください。
 
-ただしceoIntentが未入力なら、その評価条件はスキップしてください。
-
-大規模修正は不要です。
-初回生成promptへの追加と、必要最小限のEvaluator確認だけ実施してください。
-
-Build / TypeScript後に実生成テストへ進んでください。
+Build / TypeScript成功後、このSTAGE2→3接続を完了扱いにします。
