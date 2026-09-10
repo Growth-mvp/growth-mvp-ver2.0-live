@@ -3246,6 +3246,8 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         segments: segmentNames,
         businessSegments,
         businessPortfolio,
+        // ★ ceoIntent：経営者の意思・原点・譲れない価値観（最終ストーリーに反映）
+        ceoIntent,
         // ★ strategyDataId を必須で送信（API側で strategyId + companyId の二重チェックのため）
         strategyDataId: strategyId,
         companyId,

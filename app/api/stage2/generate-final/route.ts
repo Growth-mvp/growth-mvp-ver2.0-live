@@ -1447,6 +1447,7 @@ async function repairExecutiveStoryIfNeeded(args: {
   quality: ReturnType<typeof evaluateExecutiveStoryQuality>;
   mustKeepTerms?: string[];
   portfolioIntegrationGuide?: string;
+  ceoIntent?: string;
   processKey?: 'stage2FinalRepair';
 }): Promise<{ heading: string; body: string }[]> {
   const shouldRepair =
@@ -1505,6 +1506,19 @@ async function repairExecutiveStoryIfNeeded(args: {
       '【経営意思（12問回答）】',
       sanitize(args.answersRich, 12000) || '—',
       '',
+      ...(args.ceoIntent ? [
+        '【経営者の原点・譲れない価値観・実現したい未来】',
+        'これは12問回答を補完する「なぜこの戦略を採るのか」「譲れない経営の価値観」「実現したい未来」を示す情報です。',
+        '以下の内容をそのまま繰り返さず、12問回答と融合させ、戦略の奥行きを深める箇所に反映してください：',
+        sanitize(args.ceoIntent, 2000),
+        '',
+        '反映方針：',
+        '- 原点・価値観は戦略の「なぜ」を深める（特に第1章・第3章）',
+        '- 12問から抽出した具体的戦略事実と矛盾しない範囲で反映',
+        '- 「なぜ今」「何を実現するか」「社員に何を求めるか」など、意味のある箇所にだけ入れる',
+        '- 経営者の言葉をそのまま使わず、戦略的メッセージへ編集',
+        '',
+      ] : []),
       '【現在の生成結果JSON】',
       JSON.stringify({ sections: args.sections }).slice(0, 12000),
       '',
@@ -1646,6 +1660,7 @@ export async function POST(req: NextRequest) {
     const portfolio = body.portfolio; // 旧形式 { businesses: [...], focus?: string }
     const businessPortfolio = body.businessPortfolio; // 新形式 BusinessPortfolioItem[]（任意）
     const enhanceEmotion = body.enhanceEmotion; // true/false（未指定はtrue）
+    const ceoIntent = asText(body.ceoIntent, 2000); // 経営者の意思・原点・譲れない価値観
 
     const fin = buildFinanceSummary(csvFinanceData);
     const industryJp = safeGetIndustryLabel(
@@ -2110,6 +2125,7 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
         quality: executiveStoryQuality,
         mustKeepTerms,
         portfolioIntegrationGuide,
+        ceoIntent,
         processKey: 'stage2FinalRepair',
       });
       if (repairedSections !== sections) {
