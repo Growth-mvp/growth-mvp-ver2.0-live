@@ -1075,7 +1075,9 @@ function extractServerDecidedPatch(
   if (Array.isArray(resData.answers2)) patch.answers2 = resData.answers2;
 
   if (Array.isArray(resData.winPatternsCandidate)) patch.winPatternsCandidate = resData.winPatternsCandidate;
-  if (Array.isArray(resData.answers12)) patch.answers12 = resData.answers12;
+
+  /* ★ Version 1: answers12は保存後のレスポンスから反映しない（deepDiveロストを防止） */
+  // if (Array.isArray(resData.answers12)) patch.answers12 = resData.answers12;
 
   /* ========== STAGE3: 部門・戦略方針・ブリッジ ========== */
   if (Array.isArray(resData.departments)) patch.departments = resData.departments;
