@@ -132,6 +132,16 @@ const TEMPLATE12: { id: string; question: string; reason: string; chapter: numbe
 
 const CHAPTER_LABELS = ['第1章：なぜ今', '第2章：どう戦う', '第3章：どんな未来像', '第4章：どう行動する'];
 
+/* ===================================================
+ * AI掘り下げ対象の4問（Version 1）
+ * =================================================== */
+const DEEP_DIVE_TARGET_IDS = new Set([
+  'ch0-q1', // 危機認識
+  'ch1-q1', // 5年後の市場
+  'ch1-q2', // 顧客価値
+  'ch1-q6', // やめること
+]);
+
 function mergeMidtermStrategyIntoDocumentEdits(
   edits: Stage2FinalDocumentEdits | undefined | null,
   midtermStrategy: unknown,
@@ -1794,18 +1804,224 @@ function Questions12Section({
   answers12,
   onUpdateAnswer,
   disabled,
+  companyName,
+  industry,
+  businessContent,
+  customerSegment,
+  strategyDataId,
 }: {
   answers12: Stage2Answer[];
   onUpdateAnswer: (id: string, answer: string) => void;
   disabled?: boolean;
+  companyName?: string;
+  industry?: string;
+  businessContent?: string;
+  customerSegment?: string;
+  strategyDataId?: string | null;
 }) {
   const [selectedId, setSelectedId] = useState<string>(TEMPLATE12[0].id);
+
+  // ★ 新規：深掘り関連のローカルstate
+  const [deepDiveLoading, setDeepDiveLoading] = useState(false);
+  const [deepDiveError, setDeepDiveError] = useState<string | null>(null);
 
   /* ★ TASK A-5: answers12 の配列ガード（万一でも .find() で落ちない） */
   const safeAnswers12 = Array.isArray(answers12) ? answers12 : [];
 
   const selectedQ = TEMPLATE12.find((q) => q.id === selectedId) || TEMPLATE12[0];
   const currentAnswer = safeAnswers12.find((a) => a.id === selectedId)?.answer ?? '';
+
+  // ★ 新規：深掘り情報取得
+  const currentDeepDive = safeAnswers12.find((a) => a.id === selectedId)?.deepDive ?? null;
+
+  // ★ 新規：strategyStore の updateAnswer12 を利用
+  const updateAnswer12 = useStrategyStore((s: StrategyState) => (s as any).updateAnswer12 as (id: string, patch: Partial<Stage2Answer>) => void);
+
+  // ★ 新規：AI深掘り生成ハンドラー
+  const handleGenerateDeepDive = async () => {
+    setDeepDiveLoading(true);
+    setDeepDiveError(null);
+
+    try {
+      if (!strategyDataId) {
+        setDeepDiveError('戦略IDが取得できません');
+        return;
+      }
+
+      // ★ 軽量answers12データを構築（deepDive内部を除外、サイズ制限）
+      const lightweightAnswers12 = safeAnswers12.map((a) => ({
+        id: a.id,
+        question: a.question?.substring(0, 80),
+        answer: a.answer?.substring(0, 200),
+      }));
+
+      const result = await authFetchJson<{
+        question: string;
+        rationale?: string;
+      }>('/api/stage2/deep-dive', {
+        method: 'POST',
+        json: {
+          questionId: selectedId,
+          originalQuestion: selectedQ.question,
+          originalAnswer: currentAnswer,
+          strategyDataId,
+          companyName,
+          industry,
+          businessContent,
+          customerSegment,
+          answers12: lightweightAnswers12,
+        },
+      });
+
+      if (!result) {
+        setDeepDiveError('AI生成に失敗しました');
+        return;
+      }
+
+      updateAnswer12(selectedId, {
+        deepDive: {
+          question: result.question,
+          rationale: result.rationale,
+          generatedAt: new Date().toISOString(),
+          sourceAnswerSnapshot: currentAnswer,
+        },
+      });
+
+      setDeepDiveError(null);
+    } catch (err: any) {
+      console.error('[Questions12Section] deepDive generation failed:', err);
+      setDeepDiveError(
+        err instanceof Error ? err.message : 'エラーが発生しました'
+      );
+    } finally {
+      setDeepDiveLoading(false);
+    }
+  };
+
+  // ★ 新規：深掘り回答の保存ハンドラー
+  const handleUpdateDeepDiveAnswer = (answer: string) => {
+    if (!currentDeepDive) return;
+
+    updateAnswer12(selectedId, {
+      deepDive: {
+        ...currentDeepDive,
+        answer,
+      },
+    });
+  };
+
+  // ★ Version 1.1: deepDive状態判定ヘルパー
+  const getDeepDiveState = (deepDive?: Stage2DeepDive): 'unanswered' | 'answered_unreflected' | 'reflected' | 'none' => {
+    if (!deepDive) return 'none';
+    if (!deepDive.question) return 'none';
+    if (!deepDive.answer?.trim()) return 'unanswered';
+    if (deepDive.appliedAnswer?.trim() === deepDive.answer.trim()) return 'reflected';
+    return 'answered_unreflected';
+  };
+
+  // ★ Version 1.1: 全回答の未反映件数を計算
+  const countUnreflectedDeepDives = (): number => {
+    return safeAnswers12.filter(
+      (a) => a.deepDive?.answer?.trim() && a.deepDive.appliedAnswer?.trim() !== a.deepDive.answer.trim()
+    ).length;
+  };
+
+  const deepDiveState = getDeepDiveState(currentDeepDive);
+  const unreflectedCount = countUnreflectedDeepDives();
+
+  // ★ Version 1.1: 元回答が変更されたかチェック
+  const isSourceAnswerChanged =
+    currentDeepDive?.sourceAnswerSnapshot &&
+    currentDeepDive.sourceAnswerSnapshot !== currentAnswer &&
+    deepDiveState !== 'reflected';
+
+  // ★ Version 1.1: 元回答へ反映するハンドラー
+  const handleApplyDeepDiveToAnswer = () => {
+    if (!currentDeepDive?.answer?.trim()) return;
+
+    const blockHeader = '\n\n【AI深掘りで追加した考え】\n';
+    const blockContent = currentDeepDive.answer.trim();
+    const newBlock = blockHeader + blockContent;
+
+    // 既存のappliedBlockを削除（二重追加防止）
+    let baseAnswer = currentAnswer;
+    if (currentDeepDive.appliedBlock && baseAnswer.includes(currentDeepDive.appliedBlock)) {
+      baseAnswer = baseAnswer.replace(currentDeepDive.appliedBlock, '');
+    }
+
+    const mergedAnswer = baseAnswer + newBlock;
+
+    updateAnswer12(selectedId, {
+      answer: mergedAnswer,
+      deepDive: {
+        ...currentDeepDive,
+        appliedAnswer: currentDeepDive.answer.trim(),
+        appliedAt: new Date().toISOString(),
+        appliedBlock: newBlock,
+        sourceAnswerSnapshot: mergedAnswer,
+      },
+    });
+  };
+
+  // ★ Version 1.1: 別の問いを出す
+  const handleReGenerateDeepDive = async () => {
+    setDeepDiveLoading(true);
+    setDeepDiveError(null);
+
+    try {
+      if (!strategyDataId) {
+        setDeepDiveError('戦略IDが取得できません');
+        return;
+      }
+
+      const lightweightAnswers12 = safeAnswers12.map((a) => ({
+        id: a.id,
+        question: a.question?.substring(0, 80),
+        answer: a.answer?.substring(0, 200),
+      }));
+
+      const result = await authFetchJson<{
+        question: string;
+        rationale?: string;
+      }>('/api/stage2/deep-dive', {
+        method: 'POST',
+        json: {
+          questionId: selectedId,
+          originalQuestion: selectedQ.question,
+          originalAnswer: currentAnswer,
+          strategyDataId,
+          companyName,
+          industry,
+          businessContent,
+          customerSegment,
+          answers12: lightweightAnswers12,
+        },
+      });
+
+      if (!result) {
+        setDeepDiveError('AI生成に失敗しました');
+        return;
+      }
+
+      updateAnswer12(selectedId, {
+        deepDive: {
+          question: result.question,
+          rationale: result.rationale,
+          generatedAt: new Date().toISOString(),
+          sourceAnswerSnapshot: currentAnswer,
+        },
+      });
+
+      setDeepDiveError(null);
+    } catch (err: any) {
+      console.error('[Questions12Section] deepDive re-generation failed:', err);
+      setDeepDiveError(
+        err instanceof Error ? err.message : 'エラーが発生しました'
+      );
+    } finally {
+      setDeepDiveLoading(false);
+    }
+  };
 
   const groupedQuestions = useMemo(() => {
     return TEMPLATE12.reduce<Record<number, typeof TEMPLATE12>>((acc, q) => {
@@ -1826,6 +2042,13 @@ function Questions12Section({
         </span>
       </div>
 
+      {/* ★ Version 1.1: 未反映件数表示 */}
+      {unreflectedCount > 0 && (
+        <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg text-sm text-amber-700 dark:text-amber-400">
+          AI深掘り：{unreflectedCount}件の回答が元の回答に未反映です
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* 左: 質問リスト */}
         <div className="lg:col-span-4 space-y-3">
@@ -1837,8 +2060,10 @@ function Questions12Section({
                 </div>
 
                 {questions.map((q, idx) => {
-                  const isAnswered = !!safeAnswers12.find((a) => a.id === q.id && a.answer?.trim());
+                  const answer = safeAnswers12.find((a) => a.id === q.id);
+                  const isAnswered = !!answer?.answer?.trim();
                   const isSelected = selectedId === q.id;
+                  const ddState = getDeepDiveState(answer?.deepDive);
 
                   return (
                     <button
@@ -1860,6 +2085,23 @@ function Questions12Section({
                         </span>
 
                         <span className="flex-1 text-gray-700 dark:text-gray-300 break-words">{q.question}</span>
+
+                        {/* ★ Version 1.1: deepDive状態badge */}
+                        {ddState === 'unanswered' && (
+                          <span className="text-xs px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 whitespace-nowrap">
+                            AI問い
+                          </span>
+                        )}
+                        {ddState === 'answered_unreflected' && (
+                          <span className="text-xs px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 whitespace-nowrap">
+                            AI未反映
+                          </span>
+                        )}
+                        {ddState === 'reflected' && (
+                          <span className="text-xs px-2 py-0.5 rounded bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 whitespace-nowrap">
+                            AI反映済
+                          </span>
+                        )}
                       </div>
                     </button>
                   );
@@ -1893,6 +2135,121 @@ function Questions12Section({
             <span>{currentAnswer.length} 文字</span>
             {currentAnswer.trim() && <span className="text-green-600 dark:text-green-400">✓ 入力済み</span>}
           </div>
+
+          {/* ★ 新規：深掘りボタン（対象4問のみ、一度きり生成） */}
+          {DEEP_DIVE_TARGET_IDS.has(selectedId) &&
+            currentAnswer.trim() &&
+            !disabled &&
+            !currentDeepDive && (
+            <button
+              onClick={handleGenerateDeepDive}
+              disabled={deepDiveLoading}
+              className="w-full px-4 py-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg text-sm font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {deepDiveLoading ? '生成中...' : 'AIともう一段掘り下げる'}
+            </button>
+          )}
+
+          {deepDiveError && (
+            <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-400">
+              {deepDiveError}
+            </div>
+          )}
+
+          {/* ★ Version 1.1：深掘りカード */}
+          {currentDeepDive && (
+            <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-4 space-y-4">
+              {/* タイトル */}
+              <div className="text-xs font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wide">
+                AIが見つけた重要論点
+              </div>
+
+              {/* 1. 追加質問（最も目立たせる） */}
+              <div className="bg-white dark:bg-white/5 rounded-lg p-3 border border-blue-300 dark:border-blue-600">
+                <p className="text-base font-medium text-gray-800 dark:text-gray-100">
+                  {currentDeepDive.question}
+                </p>
+              </div>
+
+              {/* 2. なぜこの問いを考えるか（補足情報） */}
+              {currentDeepDive.rationale && (
+                <div className="text-xs text-gray-600 dark:text-gray-400 italic">
+                  💡 {currentDeepDive.rationale}
+                </div>
+              )}
+
+              {/* 元の回答が変更されたことの警告 */}
+              {isSourceAnswerChanged && (
+                <div className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 p-2 rounded border border-amber-200 dark:border-amber-800">
+                  元の回答が変更されています。AIの問いは変更前の回答をもとに生成されています。
+                </div>
+              )}
+
+              {/* 3. 回答入力欄 */}
+              <AutoResizeTextarea
+                value={currentDeepDive.answer ?? ''}
+                onChange={(e) => handleUpdateDeepDiveAnswer(e.target.value)}
+                disabled={disabled}
+                placeholder="この追加質問に対するあなたの考えを記入してください..."
+                className="w-full rounded-lg border border-blue-300 dark:border-blue-600 bg-white dark:bg-white/5 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                minRows={3}
+                maxRows={10}
+              />
+
+              {/* 4. 状態表示と文字数 */}
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-500 dark:text-gray-400">
+                  {currentDeepDive.answer ? `${currentDeepDive.answer.length} 文字` : '未回答'}
+                </span>
+                {deepDiveState === 'unanswered' && (
+                  <span className="text-gray-500 dark:text-gray-400">未回答</span>
+                )}
+                {deepDiveState === 'answered_unreflected' && (
+                  <span className="text-amber-700 dark:text-amber-400 font-medium">
+                    回答済み・元の回答には未反映
+                  </span>
+                )}
+                {deepDiveState === 'reflected' && (
+                  <span className="text-green-700 dark:text-green-400 font-medium">
+                    ✓ 元の回答に反映済み
+                  </span>
+                )}
+              </div>
+
+              {/* 5. ボタン */}
+              <div className="flex gap-2 pt-2">
+                {/* 反映ボタン */}
+                {deepDiveState === 'answered_unreflected' && (
+                  <button
+                    onClick={handleApplyDeepDiveToAnswer}
+                    disabled={disabled}
+                    className="flex-1 px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white font-medium rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    元の回答に反映する
+                  </button>
+                )}
+                {deepDiveState === 'reflected' && (
+                  <button
+                    disabled={true}
+                    className="flex-1 px-4 py-2 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 font-medium rounded-lg cursor-not-allowed"
+                  >
+                    ✓ 元の回答に反映済み
+                  </button>
+                )}
+
+                {/* 別の問いボタン（回答がない場合のみ） */}
+                {deepDiveState === 'unanswered' && (
+                  <button
+                    onClick={handleReGenerateDeepDive}
+                    disabled={deepDiveLoading || disabled}
+                    className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    別の問いを出す
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1935,6 +2292,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   const businessSegments = useStrategyStore((s: StrategyState) => s.businessSegments ?? []); // ★ STAGE1で定義されたセグメント情報
   const segmentPL = useStrategyStore((s: StrategyState) => (s as any).segmentPL ?? {}); // ★ STAGE1で定義された事業別P/L
   const businessPortfolio = useStrategyStore((s: StrategyState) => (s as any).businessPortfolio ?? null); // ★ 現在の事業ポートフォリオ（型揺れ許容）
+  const customerSegment = useStrategyStore((s: StrategyState) => s.customerSegment ?? ''); // ★ 顧客セグメント（deep-dive用）
 
   const companyId = useUserStore((s) => s.companyId);
   const userId = useUserStore((s) => s.user?.id);
@@ -2586,7 +2944,13 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
         const next = base.map((a) => {
           const hit = a12.find((s: any) => s?.id === a.id);
-          return hit ? { ...a, answer: hit.answer ?? '' } : a;
+          return hit
+            ? {
+                ...a,
+                answer: hit.answer ?? '',
+                deepDive: hit.deepDive,
+              }
+            : a;
         });
 
         setAnswers12(next);
@@ -3200,6 +3564,20 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
     if (!current.companyId || !current.strategyId) {
       setGenerateFinalError('戦略データIDを取得できません。ページを再読み込みしてください。');
       return;
+    }
+
+    // ★ Version 1.1: 未反映deepDive確認
+    const unreflected = current.answers12?.filter(
+      (a) => a.deepDive?.answer?.trim() && a.deepDive.appliedAnswer?.trim() !== a.deepDive.answer.trim()
+    ) ?? [];
+
+    if (unreflected.length > 0) {
+      const confirmed = window.confirm(
+        `AI深掘りの回答が${unreflected.length}件、元の回答にまだ反映されていません。\n未反映のまま『経営の意図』を生成しますか？`
+      );
+      if (!confirmed) {
+        return;
+      }
     }
 
     console.log('[Stage2] generate final story: start');
@@ -3933,7 +4311,16 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                     <span className="text-sm text-gray-500 dark:text-gray-400">※ 未入力でも最終生成できます</span>
                   </div>
 
-                  <Questions12Section answers12={answers12} onUpdateAnswer={handleUpdateAnswer} disabled={disabled} />
+                  <Questions12Section
+                    answers12={answers12}
+                    onUpdateAnswer={handleUpdateAnswer}
+                    disabled={disabled}
+                    companyName={companyName}
+                    industry={industry}
+                    businessContent={businessContent}
+                    customerSegment={customerSegment}
+                    strategyDataId={strategyId}
+                  />
 
                   <div className="mt-6 flex justify-center">
                     <button
