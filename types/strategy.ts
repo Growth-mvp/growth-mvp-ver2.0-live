@@ -1837,8 +1837,35 @@ export type Stage2DraftOutput = {
 };
 
 /**
+ * Stage2DeepDive: AI掘り下げ機能（Version 1.1）
+ * - 既存12問に対し、任意で1段階の追加質問を提示
+ * - Stage2Answerのoptionalサブオブジェクトとして保持
+ * - Version 1.1: 反映状態の追跡
+ */
+export type Stage2DeepDive = {
+  /** AI生成の追加質問 */
+  question: string;
+  /** なぜこの問いを考えるべきか（AIの視点） */
+  rationale?: string;
+  /** ユーザーの追加回答（未入力を許容） */
+  answer?: string;
+  /** 生成日時 */
+  generatedAt?: string;
+
+  /** Version 1.1: AI質問を生成した時点の元回答スナップショット */
+  sourceAnswerSnapshot?: string;
+  /** Version 1.1: 最後に元回答へ反映したdeepDive.answer */
+  appliedAnswer?: string;
+  /** Version 1.1: 最後に反映した日時 */
+  appliedAt?: string;
+  /** Version 1.1: Stage2Answer.answerへ実際に追加したテキストブロック（二重追加防止用） */
+  appliedBlock?: string;
+};
+
+/**
  * Stage2Answer: 12問（入力2）の回答型
  * - 第2フェーズで使用
+ * - ★Version 1: deepDive フィールドを optional で追加（後方互換性維持）
  */
 export type Stage2Answer = {
   /** 質問ID */
@@ -1849,6 +1876,8 @@ export type Stage2Answer = {
   answer?: string;
   /** 必須かどうか（骨格4問など） */
   required?: boolean;
+  /** AI掘り下げ（Version 1: optional） */
+  deepDive?: Stage2DeepDive;
 };
 
 /**
