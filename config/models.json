@@ -24,6 +24,11 @@
       "maxCompletionTokens": 3600,
       "jsonMode": false
     },
+    "stage2DeepDive": {
+      "modelRole": "reasoning",
+      "maxCompletionTokens": 3000,
+      "jsonMode": true
+    },
     "stage2Midterm": {
       "modelRole": "reasoning",
       "maxCompletionTokens": 1100,
