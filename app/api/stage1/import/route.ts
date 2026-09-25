@@ -24,7 +24,7 @@ import {
   saveToCache,
   cleanupExpiredCache,
 } from '@/utils/stage1/importers/cache';
-import { parseCSV, parseExcel, detectFileType } from '@/utils/stage1/importers/excelCsvImporter';
+import { parseCSV, parseExcel, detectFileType, type ExtractedTable } from '@/utils/stage1/importers/excelCsvImporter';
 import { parsePdf, isPdfBuffer } from '@/utils/stage1/importers/pdfImporter';
 import {
   buildCandidatesFromTable,
@@ -697,10 +697,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json(result);
   } catch (err) {
-    console.error('[stage1/import] Error:', err);
-    const message = err instanceof Error ? err.message : 'Unknown error';
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    const errorStack = err instanceof Error ? err.stack : undefined;
+
+    console.error('[stage1/import] Fatal Error', {
+      message: errorMessage,
+      stack: errorStack,
+      type: err instanceof Error ? err.constructor.name : typeof err,
+      timestamp: new Date().toISOString(),
+    });
+
+    // ★重要：必ずJSONで返す（Next.jsのHTML 500ページを避ける）
     return NextResponse.json<Stage1ImportResult>(
-      { success: false, error: `サーバーエラー: ${message}`, candidates: [] },
+      {
+        success: false,
+        error: 'ファイル解析に失敗しました',
+        candidates: [],
+        previewText: process.env.NODE_ENV === 'development' ? errorMessage : undefined,
+      },
       { status: 500 }
     );
   }
