@@ -505,8 +505,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     // ★ 認証 & Role チェック: admin / manager のみ許可
     const admin = getSupabaseAdmin();
+
+    // ★ DEBUG：認証周辺の詳細ログ
+    const authHeader = request.headers.get('authorization') || '';
+    const cookies = request.headers.get('cookie') || '';
+    console.log('[stage1/import] Auth debug', {
+      hasAuthHeader: !!authHeader,
+      authHeaderPrefix: authHeader.substring(0, 20),
+      hasCookies: !!cookies,
+      cookieCount: cookies.split(';').filter(c => c.trim()).length,
+      timestamp: new Date().toISOString(),
+    });
+
     const userId = await getAuthUserIdFromBearer(admin, request);
+    console.log('[stage1/import] Auth result', {
+      userId: userId || 'null',
+      timestamp: new Date().toISOString(),
+    });
+
     if (!userId) {
+      console.warn('[stage1/import] Unauthorized: userId is null/empty');
       return NextResponse.json<Stage1ImportResult>(
         { success: false, error: 'unauthorized', candidates: [] },
         { status: 401 }
@@ -582,8 +600,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             }
           }
 
+          // ★ DEBUG：CSV パース結果の詳細ログ
+          console.log('[stage1/import] CSV parsed - detailed debug', {
+            fileName: file.name,
+            headerCount: table.headers?.length ?? 0,
+            headers: table.headers?.slice(0, 10) ?? [],
+            rowCount: (table.rows as any)?.length ?? 0,
+            firstRow: (table.rows as any)?.[0] ?? {},
+            sourceRef: table.sourceRef,
+          });
+
           // 標準解析（既存）
           candidates = buildCandidatesFromTable(table);
+
+          // ★ DEBUG：buildCandidatesFromTable 結果
+          console.log('[stage1/import] buildCandidatesFromTable result', {
+            fileName: file.name,
+            candidatesGenerated: candidates.length,
+            candidateKinds: candidates.length > 0 ? Array.from(new Set(candidates.map(c => c.kind))) : [],
+          });
 
           const approxRows =
             (Array.isArray((table as any)?.rows) && (table as any).rows.length) ||
