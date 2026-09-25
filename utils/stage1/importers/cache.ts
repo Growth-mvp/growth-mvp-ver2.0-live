@@ -16,13 +16,19 @@ const CACHE_DIR = process.env.STAGE1_CACHE_DIR || path.join(process.cwd(), '.cac
 // キャッシュ有効期限（15分）
 const CACHE_TTL_MS = 15 * 60 * 1000;
 
+// ★ IMPORTANT: パーサー仕様バージョン
+// parser/candidateBuilder の大きな変更時にバージョンを上げる
+// これにより、古いキャッシュが自動的に無効化される
+const IMPORT_PARSER_VERSION = 'v2';
+
 /**
  * ファイルからキャッシュキーを生成
+ * ★ UPDATED: ファイルハッシュ + パーサーバージョン
  */
 export function generateCacheKey(buffer: Buffer): string {
   const hash = crypto.createHash('sha256').update(buffer).digest('hex');
   const size = buffer.length;
-  return `${hash}_${size}`;
+  return `${hash}_${size}_${IMPORT_PARSER_VERSION}`;
 }
 
 /**
