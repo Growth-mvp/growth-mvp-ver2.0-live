@@ -86,11 +86,11 @@ export default function AdminInvitesPage() {
         if (j?.error === 'admin_only') {
           emsg = '権限がありません（管理者としてログインしてください）';
         } else if (j?.error === 'email_send_failed') {
-          emsg = `メール送信に失敗しました：${j?.detail || 'メール設定を確認してください'}`;
+          emsg = `メール送信に失敗しました：${String(j?.detail || 'メール設定を確認してください')}`;
         } else if (j?.error === 'config_error') {
-          emsg = `サーバー設定エラー：${j?.detail || 'サポートにお問い合わせください'}`;
+          emsg = `サーバー設定エラー：${String(j?.detail || 'サポートにお問い合わせください')}`;
         } else {
-          emsg = j?.message || j?.detail || j?.error || `招待に失敗しました（${res.status}）`;
+          emsg = String(j?.message || j?.detail || j?.error || `招待に失敗しました（${res.status}）`);
         }
         setNote(`招待に失敗しました: ${emsg}`);
         return;
@@ -105,10 +105,10 @@ export default function AdminInvitesPage() {
           setEmail(''); // 成功時のみクリア
         } else if (j.inviteLink) {
           // メール送信失敗またはメール機能未設定
-          setInviteLink(j.inviteLink);
+          setInviteLink(String(j.inviteLink));
           const warningMsg = j.warning
-            ? `${j.message}\n警告: ${j.warning}`
-            : j.message;
+            ? `${String(j.message)}\n警告: ${String(j.warning)}`
+            : String(j.message);
           setNote(
             `${warningMsg}\n\n` +
             `以下のリンクをコピーして、メールやチャットで先方に共有してください。`
