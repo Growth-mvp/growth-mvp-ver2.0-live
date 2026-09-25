@@ -3,6 +3,7 @@
 
 import { useState, useCallback, useMemo } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
+import { safeGetSession } from '@/utils/supabase/client';
 import type {
   Stage1ImportCandidate,
   Stage1ImportResult,
@@ -364,12 +365,27 @@ export default function DocumentImportPanel() {
     setLastDebug(null);
 
     try {
+      // ★認証トークンを取得
+      const { ok: sessionOk, data: sessionData } = await safeGetSession();
+      if (!sessionOk || !sessionData?.session?.access_token) {
+        setError('ログインしてください。セッションが見つかりません。');
+        setIsUploading(false);
+        e.target.value = '';
+        return;
+      }
+
       const formData = new FormData();
       for (const file of files) {
         formData.append('files', file);
       }
 
-      const res = await fetch('/api/stage1/import', { method: 'POST', body: formData });
+      const res = await fetch('/api/stage1/import', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${sessionData.session.access_token}`,
+        },
+        body: formData,
+      });
 
       // 非200のとき、本文も含めて表示（原因が見える）
       if (!res.ok) {
