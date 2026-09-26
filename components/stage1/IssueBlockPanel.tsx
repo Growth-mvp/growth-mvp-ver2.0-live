@@ -148,8 +148,8 @@ function buildIssueDraftCandidatesFromValueAnalysis(
     } else if (g < 3) {
       push({
         category: '成長性',
-        title: '売上成長率が伸び悩んでいる',
-        description: `売上CAGRが ${fmtPct(g)} と低い。伸び代の源泉（新規獲得・単価・継続率・新領域）を特定する必要がある。${spanText}`,
+        title: '売上成長率が単一桁%の成長に留まっている',
+        description: `売上CAGRが ${fmtPct(g)}。成長率が3%未満では、インフレ調整後の実質成長が限定的。業界水準・企業目標値との比較で本当に改善が必要か確認し、改善対象なら伸び代の源泉（新規獲得・単価・継続率・新領域）を特定する必要がある。${spanText}`,
         linkedMetrics: ['revenueCAGR'],
         scope: 'company',
       });
@@ -325,14 +325,17 @@ function buildIssueDraftCandidatesFromValueAnalysis(
   }
 
   /* ---------------------------
-   * 6) 実行/組織（“良好でも必ず必要”）
+   * 6) 実行/組織（”良好でも必ず必要” = 実行上の確認論点）
+   * ※ 注意：この論点は「財務論点候補」ではなく「実行上の確認論点」です
+   * 　　　 財務データから直接導出されるものではなく、戦略実行の状態確認です
+   * 　　　 STAGE2以降で詳しく検討してください
    * ------------------------- */
   if (includeOpportunity) {
     push({
       category: '実行/組織',
-      title: '戦略が現場の判断基準になる状態を作れているか（浸透と実行）',
+      title: '【実行上の確認】戦略が現場の判断基準になる状態を作れているか（浸透と実行）',
       description:
-        '戦略が“資料”で終わらず、現場の意思決定・優先順位・行動に落ちているかを点検する論点。部門ごとの役割とKPI/OKRが全社方針と整合しているかを確認する。',
+        '【STAGE2以降で詳検討】戦略が”資料”で終わらず、現場の意思決定・優先順位・行動に落ちているかを点検する論点。部門ごとの役割とKPI/OKRが全社方針と整合しているかを確認する。財務指標からは直接導出できない組織・実行面の課題。',
       linkedMetrics: [],
       scope: 'company',
     });
