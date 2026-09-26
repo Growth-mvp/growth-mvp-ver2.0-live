@@ -148,8 +148,8 @@ function buildIssueDraftCandidatesFromValueAnalysis(
     } else if (g < 3) {
       push({
         category: '成長性',
-        title: '売上成長率が単一桁%の成長に留まっている',
-        description: `売上CAGRが ${fmtPct(g)}。成長率が3%未満では、インフレ調整後の実質成長が限定的。業界水準・企業目標値との比較で本当に改善が必要か確認し、改善対象なら伸び代の源泉（新規獲得・単価・継続率・新領域）を特定する必要がある。${spanText}`,
+        title: `売上CAGRは${fmtPct(g)} ― 今後必要な成長水準を確認する`,
+        description: `${spanText ? spanText : '期間不明'}での売上CAGRが${fmtPct(g)}。この成長率が業界水準や今後の成長目標に対して十分かを確認する。十分でない場合は、新規顧客・単価・既存顧客の拡大・新用途など、成長源泉を特定する必要がある。`,
         linkedMetrics: ['revenueCAGR'],
         scope: 'company',
       });

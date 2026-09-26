@@ -682,7 +682,7 @@ function PortfolioMatrix({
                   {p.name}
                   {'\n'}売上CAGR: {p.growthPct.toFixed(1)}%
                   {'\n'}営業利益率: {p.marginPct.toFixed(1)}%
-                  {p.latestRevenue != null ? `\n規模(売上): ${fmtJPY(p.latestRevenue)}` : ''}
+                  {p.latestRevenue != null ? `\n規模(売上): ${fmtJPYMillions(p.latestRevenue)}` : ''}
                 </title>
                 <circle cx={cx} cy={cy} r={r} fill="#111827" opacity={0.9} />
                 <text x={cx} y={cy + 4} textAnchor="middle" fontSize="10" fill="#ffffff" fontWeight="700">
@@ -702,7 +702,7 @@ function PortfolioMatrix({
               <th className="border px-3 py-2 text-left">事業名</th>
               <th className="border px-3 py-2 text-right">成長性</th>
               <th className="border px-3 py-2 text-right">収益性</th>
-              <th className="border px-3 py-2 text-right">規模</th>
+              <th className="border px-3 py-2 text-right">規模（百万円）</th>
               <th className="border px-3 py-2 text-left">象限</th>
             </tr>
           </thead>
@@ -717,7 +717,7 @@ function PortfolioMatrix({
                   <td className="border px-3 py-2 font-medium">{p.name}</td>
                   <td className="border px-3 py-2 text-right">{p.growthPct.toFixed(1)}%</td>
                   <td className="border px-3 py-2 text-right">{p.marginPct.toFixed(1)}%</td>
-                  <td className="border px-3 py-2 text-right">{p.latestRevenue != null ? fmtJPY(p.latestRevenue) : '—'}</td>
+                  <td className="border px-3 py-2 text-right">{p.latestRevenue != null ? fmtJPYMillions(p.latestRevenue) : '—'}</td>
                   <td className="border px-3 py-2 text-xs text-gray-700">{quadrantLabel(key)}</td>
                 </tr>
               );
@@ -1087,9 +1087,9 @@ export default function MetricsPanel({ readOnly, disabled }: { readOnly?: boolea
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <MetricCard label="売上CAGR（期間）" value={revenueCagrDisplay != null ? `${revenueCagrDisplay.toFixed(1)}%` : '—'} sub={`期間: ${spanText}`} />
-          <MetricCard label="D/Eレシオ" value={fmtNum(debtEquityRatio)} />
-          <MetricCard label="ROE" value={fmtPct(roe, 2)} />
-          <MetricCard label="ROA" value={fmtPct(roa, 2)} />
+          <MetricCard label="有利子負債／純資産" value={fmtNum(debtEquityRatio)} />
+          <MetricCard label="ROE（簡易）" value={fmtPct(roe, 2)} />
+          <MetricCard label="ROA（簡易）" value={fmtPct(roa, 2)} />
           <MetricCard label="PER" value={per != null ? fmtNum(toNumber(per)) : '—'} sub="単位：倍" />
           <MetricCard label="営業利益（最新年）" value={latest ? fmtJPYMillions(latest.operatingIncome) : '—'} sub="単位：百万円" />
           <MetricCard label="売上高（最新年）" value={latest ? fmtJPYMillions(latest.revenue) : '—'} sub="単位：百万円" />
