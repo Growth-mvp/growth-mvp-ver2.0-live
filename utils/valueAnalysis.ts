@@ -363,12 +363,26 @@ function getOldestRow<T extends { year: number }>(rows: T[]): T | undefined {
   return rows.reduce((a, b) => (a.year <= b.year ? a : b));
 }
 
+/** 2番目に新しい行を取得（平均値計算用）*/
+function getSecondLatestRow<T extends { year: number }>(rows: T[]): T | undefined {
+  if (rows.length < 2) return undefined;
+  const sorted = rows.slice().sort((a, b) => b.year - a.year);
+  return sorted[1];
+}
+
 /**
  * 投下資本を計算（FinanceBSRow または SegmentBSRow）
+ * 投下資本 = 企業が事業運営に投じた資本（自己資本 + 有利子負債）
+ *
  * 優先順位：
- * 1. investedCapital が直接あればそれを使用
- * 2. (AR + Inventory - AP) + FixedAssets（運転資本 + 固定資産）
- * 3. netAssets + interestBearingDebt（純資産 + 有利子負債）
+ * 1. investedCapital が直接あれば使用（企業独自の定義対応）
+ * 2. 運転資本 + 固定資産方式：(AR + Inventory - AP) + FixedAssets
+ *    - 運転資本 = AR + Inventory - AP（在庫・売掛・買掛で見積）
+ *    - 固定資産とともに必要な投下資本を推定
+ * 3. 純資産 + 有利子負債方式：netAssets + interestBearingDebt
+ *    - 最も一般的だが、減価償却などの影響を受けやすい
+ *
+ * ※ 赤字企業の場合、自己資本が負になる可能性がある
  */
 function computeInvestedCapital(row: FinanceBSRow | SegmentBSRow): number | undefined {
   if (row.investedCapital && row.investedCapital > 0) {
@@ -463,6 +477,9 @@ export function computeRevenueCagrFromPL(
 
 /**
  * FinanceBSRow 配列から D/E レシオ（最新年）を計算
+ * 定義：D/E = 有利子負債 ÷ 自己資本（株主資本）
+ * - equity: 株主資本のみを使用（純資産ではない）
+ * - 純資産には非支配株主持分などが含まれるため、自己資本を採用
  */
 export function computeDERatioFromBS(
   rows: FinanceBSRow[]
@@ -478,7 +495,15 @@ export function computeDERatioFromBS(
 }
 
 /**
- * FinancePLRow + FinanceBSRow から ROIC を計算（最新年同士をマッチ）
+ * FinancePLRow + FinanceBSRow から ROIC を計算
+ * ROIC = NOPAT ÷ 投下資本（最新年）
+ * - NOPAT = 営業利益 × (1 - 税率)
+ * - 投下資本の優先順位：
+ *   1. investedCapital（直接値）
+ *   2. (AR + Inventory - AP) + FixedAssets（運転資本 + 固定資産）
+ *   3. netAssets + interestBearingDebt（純資産 + 有利子負債）
+ * - 税率：実効税率が計算できればそれを使用、なければ仮定値 30% を使用
+ * - 赤字企業の場合は「推定ROIC」として結果に明記
  */
 export function computeROICFromPLBS(
   plRows: FinancePLRow[],
@@ -516,13 +541,20 @@ export function computeROICFromPLBS(
     meta.push(`税率は仮定値 ${(taxRate * 100).toFixed(0)}% を使用`);
   }
 
+  // 赤字判定
+  if (nopat < 0) {
+    meta.push('推定ROIC：営業利益が赤字のため参考値');
+  }
+
   return { roic: safePct(nopat, investedCapital), meta };
 }
 
 /**
  * FinancePLRow + FinanceBSRow から ROE を計算
- * - netIncome があればそれを使用
- * - なければ operatingIncome - interest - tax で推計
+ * 正式：ROE = 親会社株主帰属利益 ÷ 平均自己資本
+ * - 前年BS データがあれば平均自己資本を使用
+ * - 前年データがなければ年末自己資本のみで計算（簡易ROE）
+ * - netIncome があればそれを使用、なければ operatingIncome - interest - tax で推計
  */
 export function computeROEFromPLBS(
   plRows: FinancePLRow[],
@@ -546,24 +578,47 @@ export function computeROEFromPLBS(
     const tax = toNumber(latestPL.tax);
     if (opIncome) {
       netIncome = opIncome - interest - tax;
-      meta.push('netIncome は operatingIncome - interest - tax で推計');
+      meta.push('純利益は operatingIncome - interest - tax で推計');
     }
   }
 
-  const equity = toNumber(latestBS.equity) || toNumber(latestBS.netAssets);
+  // 自己資本：年末値を取得
+  const currentEquity = toNumber(latestBS.equity) || toNumber(latestBS.netAssets);
+  if (!currentEquity || currentEquity === 0) {
+    return { roe: undefined, meta: ['株主資本データなし'] };
+  }
+
+  // 平均自己資本の計算：前年データがあれば使用
+  const prevBS = getSecondLatestRow(bsRows);
+  let denominatorEquity = currentEquity;
+  let isSimplified = true;
+
+  if (prevBS && latestBS.year !== prevBS.year) {
+    const prevEquity = toNumber(prevBS.equity) || toNumber(prevBS.netAssets);
+    if (prevEquity && prevEquity > 0) {
+      denominatorEquity = (currentEquity + prevEquity) / 2;
+      meta.push(`ROE は平均自己資本 = (${currentEquity} + ${prevEquity}) / 2 を使用`);
+      isSimplified = false;
+    }
+  }
 
   if (!netIncome) {
     return { roe: undefined, meta: ['純利益データなし'] };
   }
-  if (!equity || equity === 0) {
-    return { roe: undefined, meta: ['株主資本データなし'] };
+
+  const roe = safePct(netIncome, denominatorEquity);
+  if (isSimplified) {
+    meta.push('ROE（簡易）：前年BS データなしため年末自己資本のみで計算');
   }
 
-  return { roe: safePct(netIncome, equity), meta };
+  return { roe, meta };
 }
 
 /**
  * FinancePLRow + FinanceBSRow から ROA を計算
+ * 正式：ROA = 当期純利益 ÷ 平均総資産
+ * - 前年BS データがあれば平均総資産を使用
+ * - 前年データがなければ年末総資産のみで計算（簡易ROA）
  */
 export function computeROAFromPLBS(
   plRows: FinancePLRow[],
@@ -586,32 +641,62 @@ export function computeROAFromPLBS(
     const tax = toNumber(latestPL.tax);
     if (opIncome) {
       netIncome = opIncome - interest - tax;
-      meta.push('netIncome は operatingIncome - interest - tax で推計');
+      meta.push('純利益は operatingIncome - interest - tax で推計');
     }
   }
 
-  // 総資産
-  let totalAssets = toNumber(latestBS.totalAssets);
-  if (!totalAssets) {
+  // 総資産：年末値を取得
+  let currentAssets = toNumber(latestBS.totalAssets);
+  if (!currentAssets) {
     // 近似：cash + ar + inventory + fixedAssets
     const cash = toNumber(latestBS.cash);
     const ar = toNumber(latestBS.ar);
     const inventory = toNumber(latestBS.inventory);
     const fixedAssets = toNumber(latestBS.fixedAssets);
     if (cash > 0 || ar > 0 || inventory > 0 || fixedAssets > 0) {
-      totalAssets = cash + ar + inventory + fixedAssets;
-      meta.push('totalAssets は cash+ar+inventory+fixedAssets で近似');
+      currentAssets = cash + ar + inventory + fixedAssets;
+      meta.push('総資産は cash+ar+inventory+fixedAssets で近似');
     }
   }
 
   if (!netIncome) {
     return { roa: undefined, meta: ['純利益データなし'] };
   }
-  if (!totalAssets || totalAssets === 0) {
+  if (!currentAssets || currentAssets === 0) {
     return { roa: undefined, meta: ['総資産データなし'] };
   }
 
-  return { roa: safePct(netIncome, totalAssets), meta };
+  // 平均総資産の計算：前年データがあれば使用
+  const prevBS = getSecondLatestRow(bsRows);
+  let denominatorAssets = currentAssets;
+  let isSimplified = true;
+
+  if (prevBS && latestBS.year !== prevBS.year) {
+    let prevAssets = toNumber(prevBS.totalAssets);
+    if (!prevAssets) {
+      // 前年も近似で計算
+      const pCash = toNumber(prevBS.cash);
+      const pAr = toNumber(prevBS.ar);
+      const pInv = toNumber(prevBS.inventory);
+      const pFixed = toNumber(prevBS.fixedAssets);
+      if (pCash > 0 || pAr > 0 || pInv > 0 || pFixed > 0) {
+        prevAssets = pCash + pAr + pInv + pFixed;
+      }
+    }
+
+    if (prevAssets && prevAssets > 0) {
+      denominatorAssets = (currentAssets + prevAssets) / 2;
+      meta.push(`ROA は平均総資産 = (${currentAssets} + ${prevAssets}) / 2 を使用`);
+      isSimplified = false;
+    }
+  }
+
+  const roa = safePct(netIncome, denominatorAssets);
+  if (isSimplified) {
+    meta.push('ROA（簡易）：前年BS データなしため年末総資産のみで計算');
+  }
+
+  return { roa, meta };
 }
 
 /* ===============================

@@ -119,6 +119,16 @@ function fmtJPY(n: number): string {
   return new Intl.NumberFormat('ja-JP', { maximumFractionDigits: 0 }).format(n);
 }
 
+/**
+ * 百万円単位でフォーマット（円→百万円に変換）
+ * 保存値は円のため、÷1,000,000 して表示
+ */
+function fmtJPYMillions(n: number): string {
+  if (!Number.isFinite(n)) return '—';
+  const millions = n / 1_000_000;
+  return new Intl.NumberFormat('ja-JP', { maximumFractionDigits: 0 }).format(millions);
+}
+
 function fmtPct(v: number | undefined, digits: number = 1): string {
   if (v === undefined || v === null || !Number.isFinite(v)) return '—';
   return `${v.toFixed(digits)}%`;
@@ -1018,8 +1028,8 @@ export default function MetricsPanel({ readOnly, disabled }: { readOnly?: boolea
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-            <MetricCard label="売上高（最新年）" value={latest ? fmtJPY(latest.revenue) : '—'} sub="単位：百万円（想定）" />
-            <MetricCard label="営業利益（最新年）" value={latest ? fmtJPY(latest.operatingIncome) : '—'} sub="単位：百万円（想定）" />
+            <MetricCard label="売上高（最新年）" value={latest ? fmtJPYMillions(latest.revenue) : '—'} sub="単位：百万円" />
+            <MetricCard label="営業利益（最新年）" value={latest ? fmtJPYMillions(latest.operatingIncome) : '—'} sub="単位：百万円" />
             <MetricCard
               label="営業利益率（最新年）"
               value={
@@ -1047,8 +1057,8 @@ export default function MetricsPanel({ readOnly, disabled }: { readOnly?: boolea
                 {companyAgg.map((r) => (
                   <tr key={r.year}>
                     <td className="border px-3 py-2">{r.year}</td>
-                    <td className="border px-3 py-2 text-right">{fmtJPY(r.revenue)}</td>
-                    <td className="border px-3 py-2 text-right">{fmtJPY(r.operatingIncome)}</td>
+                    <td className="border px-3 py-2 text-right">{fmtJPYMillions(r.revenue)}</td>
+                    <td className="border px-3 py-2 text-right">{fmtJPYMillions(r.operatingIncome)}</td>
                     <td className="border px-3 py-2 text-right">{r.operatingMarginPct.toFixed(1)}%</td>
                   </tr>
                 ))}
@@ -1081,8 +1091,8 @@ export default function MetricsPanel({ readOnly, disabled }: { readOnly?: boolea
           <MetricCard label="ROE" value={fmtPct(roe, 2)} />
           <MetricCard label="ROA" value={fmtPct(roa, 2)} />
           <MetricCard label="PER" value={per != null ? fmtNum(toNumber(per)) : '—'} sub="単位：倍" />
-          <MetricCard label="営業利益（最新年）" value={latest ? fmtJPY(latest.operatingIncome) : '—'} sub="百万円（想定）" />
-          <MetricCard label="売上高（最新年）" value={latest ? fmtJPY(latest.revenue) : '—'} sub="百万円（想定）" />
+          <MetricCard label="営業利益（最新年）" value={latest ? fmtJPYMillions(latest.operatingIncome) : '—'} sub="単位：百万円" />
+          <MetricCard label="売上高（最新年）" value={latest ? fmtJPYMillions(latest.revenue) : '—'} sub="単位：百万円" />
         </div>
       </div>
 
