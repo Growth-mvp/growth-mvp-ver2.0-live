@@ -477,9 +477,11 @@ export function computeRevenueCagrFromPL(
 
 /**
  * FinanceBSRow 配列から D/E レシオ（最新年）を計算
- * 定義：D/E = 有利子負債 ÷ 自己資本（株主資本）
- * - equity: 株主資本のみを使用（純資産ではない）
- * - 純資産には非支配株主持分などが含まれるため、自己資本を採用
+ * 定義：有利子負債 ÷ 純資産（現在の実装）
+ * ※ 現在のSTAGE1入力では「equity=純資産」のため、以下の計算式
+ * D/E = 有利子負債 ÷ 純資産
+ * - 正式なD/E（有利子負債÷自己資本）を求めるには、自己資本フィールドの追加が必要
+ * - 定義の詳細は入力マッピングドキュメントで確認してください
  */
 export function computeDERatioFromBS(
   rows: FinanceBSRow[]
@@ -551,9 +553,10 @@ export function computeROICFromPLBS(
 
 /**
  * FinancePLRow + FinanceBSRow から ROE を計算
- * 正式：ROE = 親会社株主帰属利益 ÷ 平均自己資本
- * - 前年BS データがあれば平均自己資本を使用
- * - 前年データがなければ年末自己資本のみで計算（簡易ROE）
+ * 簡易ROE = 当期純利益 ÷ 平均純資産
+ * ※ 現在のSTAGE1入力では「当期純利益」と「純資産」のみのため簡易計算
+ * - 正式ROE = 親会社株主帰属利益 ÷ 平均自己資本 を求めるには、親会社帰属利益と自己資本フィールドの追加が必要
+ * - 前年BS データがあれば平均純資産を使用、なければ年末純資産で計算
  * - netIncome があればそれを使用、なければ operatingIncome - interest - tax で推計
  */
 export function computeROEFromPLBS(
@@ -616,9 +619,9 @@ export function computeROEFromPLBS(
 
 /**
  * FinancePLRow + FinanceBSRow から ROA を計算
- * 正式：ROA = 当期純利益 ÷ 平均総資産
+ * 簡易ROA = 当期純利益 ÷ 平均総資産
  * - 前年BS データがあれば平均総資産を使用
- * - 前年データがなければ年末総資産のみで計算（簡易ROA）
+ * - 前年データがなければ年末総資産のみで計算（更に簡易）
  */
 export function computeROAFromPLBS(
   plRows: FinancePLRow[],
