@@ -191,7 +191,11 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   // ★ Sprint 3A': meta オプション対応に拡張
   const send = useCallback(async (text: string, overrideMeta?: any) => {
     const trimmed = text.trim();
-    if (!trimmed || sending) return;
+    console.log('[CEOChatPanel] SEND_START', { trimmed_len: trimmed.length, sending, userOK, strategyOK });
+    if (!trimmed || sending) {
+      console.log('[CEOChatPanel] SEND_EARLY_RETURN', { reason: !trimmed ? 'empty' : 'sending' });
+      return;
+    }
 
     // ウォッチドッグ: 10秒で強制解除
     if (sendingWatchdogRef.current) window.clearTimeout(sendingWatchdogRef.current);
@@ -206,15 +210,19 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     setMessages([...current, userMsg]);
 
     try {
+      console.log('[CEOChatPanel] SEND_CHECKS_START', { userOK, strategyOK });
       if (!userOK) throw new Error('ログイン情報が未取得です');
       const { data: sdata } = await supabase.auth.getSession();
       const accessToken = sdata?.session?.access_token;
+      console.log('[CEOChatPanel] AUTH_TOKEN_CHECK', { has_token: !!accessToken });
       if (!accessToken) throw new Error('ログイン情報が無効です（access token なし）');
 
       if (!strategyOK) {
+        console.log('[CEOChatPanel] ENSURE_STRATEGY_ID_START');
         setBooting(true);
         try {
           const id = await ensureStrategyId(supabase, user!.id);
+          console.log('[CEOChatPanel] ENSURE_STRATEGY_ID_RESULT', { id });
           if (id) setStrategyIdRef.current(id);
         } finally {
           setBooting(false);
@@ -222,6 +230,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       }
 
       const latestStrategyId = useStrategyStore.getState().strategyId;
+      console.log('[CEOChatPanel] READY_TO_FETCH', { latestStrategyId });
 
       const doAsk = async () => {
         // ★ Sprint 3A': meta を付与する場合と付与しない場合に対応
@@ -234,6 +243,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
           payload.meta = overrideMeta;  // AI診断時のみ meta を付与
         }
 
+        console.log('[CEOChatPanel] FETCH_START', { endpoint: '/api/ask-ceo-agent', has_token: !!accessToken });
         const res = await fetch('/api/ask-ceo-agent', {
           method: 'POST',
           headers: {
@@ -244,10 +254,13 @@ export default function CEOChatPanel({ embedded = true }: Props) {
           body: JSON.stringify(payload),
         });
         const raw = await res.text();
+        console.log('[CEOChatPanel] FETCH_RESULT', { ok: res.ok, status: res.status, raw_len: raw.length });
         return { ok: res.ok, status: res.status, raw };
       };
 
+      console.log('[CEOChatPanel] CALLING_DOASK');
       let r = await doAsk();
+      console.log('[CEOChatPanel] DOASK_RESULT', { ok: r.ok, status: r.status });
 
       if (!r.ok && r.status === 400 && /context/i.test(r.raw)) {
         try {
@@ -288,6 +301,8 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       if (textareaRef.current) textareaRef.current.style.height = 'auto';
       return;
     } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      console.error('[CEOChatPanel] SEND_ERROR', { error_message: errorMsg });
       if (process.env.NODE_ENV !== 'production') console.error(e);
       setMessages((prev) => [
         ...prev,
