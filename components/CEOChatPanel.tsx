@@ -136,6 +136,18 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       if (strategyOK) return;
       if (booting || bootingLockRef.current || autoEnsureOnceRef.current) return;
 
+      // ★ 診断ログ：ensureStrategyId 直前の状態確認
+      console.log('[CEOChatPanel] PRE_ENSURE_STATE', {
+        storeHydrated,
+        isHydrated,
+        restoreReady,
+        isFetchingFromServer,
+        shouldWaitForRestore,
+        strategyId,
+        strategyOK,
+        companyId: useStrategyStore.getState().companyId,
+      });
+
       autoEnsureOnceRef.current = true;
       setBooting(true);
       bootingLockRef.current = true;
@@ -244,6 +256,18 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       if (!accessToken) throw new Error('ログイン情報が無効です（access token なし）');
 
       if (!strategyOK) {
+        // ★ 診断ログ：send() 内での ensureStrategyId 直前
+        console.log('[CEOChatPanel] SEND_PRE_ENSURE_STATE', {
+          storeHydrated,
+          isHydrated,
+          restoreReady,
+          isFetchingFromServer,
+          shouldWaitForRestore,
+          strategyId,
+          strategyOK,
+          companyId: useStrategyStore.getState().companyId,
+        });
+
         setBooting(true);
         try {
           const id = await ensureStrategyId(supabase, user!.id);
