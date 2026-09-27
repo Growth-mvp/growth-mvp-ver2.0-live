@@ -4928,7 +4928,7 @@ export const useStrategyStore = create<StrategyState>()(
     {
       /* ★ TASK 14-3: persist ストレージキーをバージョンアップ（v4 → v5）旧 localStorage を無視 */
       name: 'strategy-store-v5',
-      version: 39, // ★ Bumped to clear old STAGE2 Final Story + STAGE6 simulation fields from localStorage
+      version: 40, // ★ Bumped to clear strategyId from existing localStorage (DB-restored only)
       partialize: (s) => ({
         companyId: s.companyId,
         // ★ CRITICAL FIX: strategyId を persist から除外
@@ -5040,6 +5040,18 @@ export const useStrategyStore = create<StrategyState>()(
         // ★ FIX (v39): Clear STAGE6 simulation result from old localStorage
         // Generated data - DB is source of truth for financial simulations
         (migrated as any).simulationResult = undefined;
+
+        // ★ FIX (v40): Clear strategyId from old localStorage
+        // strategyId は DB-generated UUID であり、persist されるべきでない
+        // 既存 localStorage に strategyId: null または古い UUID が残っている場合、それらを削除
+        // 次の refetchFromServer で DB から正しい strategyId が復元される
+        (migrated as any).strategyId = undefined;
+        if (DEBUG) {
+          console.log('[strategyStore.migrate][v40] strategyId cleared from localStorage', {
+            oldStrategyId: (persisted as any)?.strategyId,
+            newStrategyId: (migrated as any).strategyId,
+          });
+        }
 
         return migrated;
       },
