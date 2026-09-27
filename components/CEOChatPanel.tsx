@@ -37,6 +37,15 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     setStrategyIdRef.current = useStrategyStore.getState().setStrategyId;
   }, []);
 
+  // ★ Option 2: refetchFromServer 完了を待つための既存フラグ
+  const restoreReady = useStrategyStore((s: StrategyState) => s.restoreReady);
+  const isHydrated = useStrategyStore((s: StrategyState) => s.boot?.isHydrated);
+  const isFetchingFromServer = useStrategyStore(
+    (s: StrategyState) => s.__isFetchingFromServer
+  );
+  const shouldWaitForRestore =
+    !isHydrated || !restoreReady || isFetchingFromServer;
+
   // Hydration（Zustand persist）
   const [storeHydrated, setStoreHydrated] = useState(
     (useStrategyStore as any)?.persist?.hasHydrated?.() ?? false
@@ -115,6 +124,15 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     let cancelled = false;
     (async () => {
       if (!storeHydrated || !userOK) return;
+      // ★ Option 2: refetch 完了まで待機
+      if (shouldWaitForRestore) {
+        console.log('[CEOChatPanel] waiting for restore before ensureStrategyId', {
+          isHydrated,
+          restoreReady,
+          isFetchingFromServer,
+        });
+        return;
+      }
       if (strategyOK) return;
       if (booting || bootingLockRef.current || autoEnsureOnceRef.current) return;
 
@@ -138,7 +156,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       }
     })();
     return () => { cancelled = true; };
-  }, [storeHydrated, userOK, strategyOK, booting]);
+  }, [storeHydrated, userOK, strategyOK, booting, shouldWaitForRestore]);
 
   /** ====== スクロール追従 ====== */
   useEffect(() => {
@@ -210,8 +228,25 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     setMessages([...current, userMsg]);
 
     try {
-      console.log('[CEOChatPanel] SEND_CHECKS_START', { userOK, strategyOK });
+      console.log('[CEOChatPanel] SEND_CHECKS_START', { userOK, strategyOK, shouldWaitForRestore });
       if (!userOK) throw new Error('ログイン情報が未取得です');
+
+      // ★ Option 2: restore 完了を待つ中は送信不可
+      if (shouldWaitForRestore) {
+        console.log('[CEOChatPanel] SEND_BLOCKED_RESTORE_WAITING', {
+          isHydrated,
+          restoreReady,
+          isFetchingFromServer,
+        });
+        // 送信ユーザーメッセージを削除して、待機メッセージを表示
+        setMessages((prev) => prev.slice(0, -1));
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: '戦略データを読み込み中です…少々お待ちください。' },
+        ]);
+        return;
+      }
+
       const { data: sdata } = await supabase.auth.getSession();
       const accessToken = sdata?.session?.access_token;
       console.log('[CEOChatPanel] AUTH_TOKEN_CHECK', { has_token: !!accessToken });
@@ -315,7 +350,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       setInput('');
       if (textareaRef.current) textareaRef.current.style.height = 'auto';
     }
-  }, [sending, userOK, strategyOK, user?.id]);
+  }, [sending, userOK, strategyOK, user?.id, shouldWaitForRestore]);
 
   /** ====== 自動チェックイン（idle時のみ） ====== */
   // ★ Sprint 3B': nudgeIfNeeded - ガード条件を満たしたら1回だけ自動送信
@@ -445,7 +480,9 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             ref={textareaRef}
             className="w-full min-h-[88px] resize-none overflow-hidden rounded-lg border border-zinc-200 bg-white p-3 text-[14px] leading-6 outline-none focus:ring-2 focus:ring-zinc-300"
             placeholder={
-              readyAll
+              shouldWaitForRestore
+                ? '戦略データを読み込み中…'
+                : readyAll
                 ? '質問を入力してください'
                 : !userOK
                 ? 'ユーザーを読み込み中…'
@@ -456,7 +493,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             onInput={autoResize}
             onKeyDown={onKeyDown}
             rows={3}
-            disabled={sending || !userOK}
+            disabled={sending || !userOK || shouldWaitForRestore}
           />
           <div className="flex items-center justify-between">
             <span className="text-[11px] text-gray-400">
@@ -472,9 +509,9 @@ export default function CEOChatPanel({ embedded = true }: Props) {
               </button>
               <button
                 onClick={() => { if (input.trim()) void send(input); }}
-                disabled={!inputOK || sending || !userOK}
+                disabled={!inputOK || sending || !userOK || shouldWaitForRestore}
                 className={`rounded-md px-3 py-1.5 text-[12px] font-semibold ${
-                  (!inputOK || sending || !userOK) ? 'bg-gray-200 text-gray-500' : 'bg-black text-white hover:opacity-90'
+                  (!inputOK || sending || !userOK || shouldWaitForRestore) ? 'bg-gray-200 text-gray-500' : 'bg-black text-white hover:opacity-90'
                 }`}
                 type="button"
               >
