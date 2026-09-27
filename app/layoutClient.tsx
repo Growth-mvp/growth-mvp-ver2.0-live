@@ -116,6 +116,8 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
 
   // 会社ごとの refetch 実行済み
   const refetchRanForCompany = useRef<string | null>(null);
+  // ★ Recovery Refetch（strategyId 欠損時）実行済み
+  const recoveryRefetchTriedForCompany = useRef<string | null>(null);
 
   // 現在の access token
   const accessTokenRef = useRef<string | null>(null);
@@ -566,6 +568,14 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   }, [bootstrapped, companyId, setCompanyScope, setStrategyId]);
 
   /* ================================
+   * 2.3.5) Recovery Refetch フラグのリセット（companyId 変更時）
+   * ============================== */
+  useEffect(() => {
+    // companyId が変わったら recovery フラグをリセット
+    recoveryRefetchTriedForCompany.current = null;
+  }, [companyId]);
+
+  /* ================================
    * 2.4) 会社スコープ確定後の refetch（1社につき1回）
    * - 修正：membership timeout中は走らせない（暴発抑止）
    * ============================== */
@@ -576,9 +586,30 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
     if (bootstrapTimedOut) return; // ★追加：timeout中は抑止
     if (isCompanyDeleting(companyId)) return;
     if (isAuthPath(pathname)) return;
-    if (refetchRanForCompany.current === companyId) return;
 
-    refetchRanForCompany.current = companyId;
+    // ★ Recovery Refetch ロジック
+    // 通常 refetch 済み + strategyId がある → skip
+    // 通常 refetch 済み + strategyId がない + recovery 未実施 → recovery refetch 実行
+    // recovery 実施済み + strategyId がない → skip（これ以上 refetch しない）
+    const strategyId = useStrategyStore.getState().strategyId;
+    if (refetchRanForCompany.current === companyId) {
+      // 通常 refetch は済んでいる
+      if (strategyId) {
+        // strategyId がある → skip
+        return;
+      }
+      // strategyId がない → recovery を検討
+      if (recoveryRefetchTriedForCompany.current === companyId) {
+        // recovery 実施済み → skip
+        return;
+      }
+      // recovery 未実施 → 1 回だけ recovery を実行
+      recoveryRefetchTriedForCompany.current = companyId;
+      // 以下で refetch を実行
+    } else {
+      // 通常 refetch 未実施
+      refetchRanForCompany.current = companyId;
+    }
 
     requestAnimationFrame(async () => {
       try {
