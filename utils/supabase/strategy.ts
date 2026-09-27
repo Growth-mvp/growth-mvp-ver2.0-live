@@ -1709,6 +1709,15 @@ export async function getFullStrategyDataByStrategyId(
       return { data: null, error: new Error('invalid companyId') };
     }
 
+    // ★ DIAGNOSIS: client 指定確認
+    console.log('[strategy-fetch] CLIENT_CHECK', {
+      strategyId: strategyId.slice(0, 8),
+      companyId: companyId.slice(0, 8),
+      clientProvided: !!client,
+      usingInjectedClient: !!client,
+      timestamp: new Date().toISOString(),
+    });
+
     // ★ アプローチ1: server-side client を明示的に指定できるようにする
     const supabaseClient = client ?? supabase;
 
@@ -1718,6 +1727,16 @@ export async function getFullStrategyDataByStrategyId(
       .eq('id', strategyId)
       .eq('company_id', companyId)
       .maybeSingle();
+
+    // ★ DIAGNOSIS: base query 結果を常に記録
+    console.log('[strategy-fetch] BASE_RESULT', {
+      hasData: !!baseRes.data,
+      errorCode: baseRes.error?.code,
+      errorMessage: baseRes.error?.message,
+      errorDetails: baseRes.error?.details,
+      errorHint: (baseRes.error as any)?.hint,
+      timestamp: new Date().toISOString(),
+    });
 
     if (DEBUG) console.log('[StrategyData] 📊 query result (baseRes)', {
       hasData: !!baseRes.data,
@@ -1779,9 +1798,18 @@ export async function getFullStrategyDataByStrategyId(
       const finalStoryFinalLen = Array.isArray(rowData.final_story_final) ? rowData.final_story_final.length : null;
     }
 
+    // ★ DIAGNOSIS: 分離テーブル取得で supabaseClient を使用するか確認するためのログ
+    console.log('[strategy-fetch] FETCHING_RELATED_TABLES', {
+      strategyId: strategyId.slice(0, 8),
+      companyId: companyId.slice(0, 8),
+      usingInjectedClient: !!client,
+      timestamp: new Date().toISOString(),
+    });
+
     // 分離テーブル取得（strategyId でフィルタ）
+    // ★ CRITICAL FIX: supabase（グローバル）ではなく supabaseClient を使用
     const [ansRes, finRes] = await Promise.allSettled([
-      supabase
+      supabaseClient
         .from(T_STORY_ANSWERS)
         .select('answers2, updated_at')
         .eq('strategy_id', strategyId)
@@ -1789,7 +1817,7 @@ export async function getFullStrategyDataByStrategyId(
         .order('updated_at', { ascending: false })
         .limit(1)
         .maybeSingle(),
-      supabase
+      supabaseClient
         .from(T_FINAL_STORIES)
         .select('final_story, updated_at')
         .eq('strategy_id', strategyId)
