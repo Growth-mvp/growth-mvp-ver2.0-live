@@ -1610,6 +1610,7 @@ export type StrategyData = {
   mission: string;
   vision: string;
   value: string;
+  ceoIntent?: string;  // ★ 経営者の思い・原点・譲れない価値観
 
   /** === SWOT === */
   strength: string;
