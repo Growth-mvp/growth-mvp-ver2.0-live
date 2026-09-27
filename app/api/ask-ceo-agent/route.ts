@@ -171,6 +171,16 @@ async function fetchStrategyContext(args: { companyId: string; strategyId: strin
   try {
     // ★ アプローチ1: server-side admin client を明示的に渡す
     const { data: sRow, error } = await getFullStrategyDataByStrategyId(strategyId, companyId, supabaseAdmin);
+
+    // ★ DIAGNOSIS: strategy fetch 結果ログ
+    console.log('[ask-ceo-agent] STRATEGY_FETCH_RESULT', {
+      hasData: !!sRow,
+      hasError: !!error,
+      errorCode: (error as any)?.code,
+      errorMessage: (error as any)?.message,
+      timestamp: new Date().toISOString(),
+    });
+
     if (error) console.warn('[ask-ceo-agent] getFullStrategyDataByStrategyId error:', error?.message || error);
     strategy = sRow ? (normalizeStrategyData(sRow as Partial<StrategyData>) as StrategyData) : null;
   } catch (e: any) {
