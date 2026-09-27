@@ -13,6 +13,7 @@ import { normalizeStrategyData } from '@/utils/supabase/normalize';
 import { logInputGuard, checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
 import agentPrompt from '@/lib/agentPrompt';
 import { insertAgentLog } from '@/lib/supabase/agentLogs';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   classifyHeuristic,
   classifyLLM,
@@ -162,13 +163,14 @@ function buildProgressSummary(progressLogs: any[] = []) {
 }
 
 /* ========= コンテキスト取得（strategyId必須） ========= */
-async function fetchStrategyContext(args: { companyId: string; strategyId: string; userId: string }) {
-  const { companyId, strategyId, userId } = args;
+async function fetchStrategyContext(args: { companyId: string; strategyId: string; userId: string; supabaseAdmin?: SupabaseClient }) {
+  const { companyId, strategyId, userId, supabaseAdmin } = args;
 
   // strategyId + companyId で直接取得（データ混在防止）
   let strategy: StrategyData | null = null;
   try {
-    const { data: sRow, error } = await getFullStrategyDataByStrategyId(strategyId, companyId);
+    // ★ アプローチ1: server-side admin client を明示的に渡す
+    const { data: sRow, error } = await getFullStrategyDataByStrategyId(strategyId, companyId, supabaseAdmin);
     if (error) console.warn('[ask-ceo-agent] getFullStrategyDataByStrategyId error:', error?.message || error);
     strategy = sRow ? (normalizeStrategyData(sRow as Partial<StrategyData>) as StrategyData) : null;
   } catch (e: any) {
@@ -179,7 +181,7 @@ async function fetchStrategyContext(args: { companyId: string; strategyId: strin
   // 進捗ログ（本人の最近分） - Service Role Admin で取得（RLS回避）
   let progressLogs: any[] = [];
   try {
-    const adminClient = getSupabaseAdmin();
+    const adminClient = supabaseAdmin ?? getSupabaseAdmin();
     const { data: logs, error: plErr } = await adminClient
       .from('progress_logs')
       .select(
@@ -303,10 +305,12 @@ export async function POST(req: Request) {
       userId: userId.substring(0, 8),
     });
 
+    // ★ アプローチ1: server-side admin client を fetchStrategyContext に渡す
     const { strategy, answers2, finalStory, extraBlock } = await fetchStrategyContext({
       companyId,
       strategyId,
       userId,
+      supabaseAdmin: admin,
     });
 
     // ★ TASK 3: 取得結果のログ
@@ -465,7 +469,7 @@ export async function POST(req: Request) {
     const hasStage2Answers = Array.isArray(answers2) && answers2.length > 0;
     const hasStage2Story = Array.isArray(finalStory) && finalStory.length > 0;
     const hasStage3Context = Array.isArray(strategy?.departments) && strategy.departments.length > 0;
-    const hasStage4Context = !!strategy?.executionPlans;
+    const hasStage4Context = Array.isArray(strategy?.stage4Plans) && strategy.stage4Plans.length > 0;
 
     const inputFlags = [hasCompanyInfo, hasStage1Context, hasStage2Answers, hasStage2Story, hasStage3Context, hasStage4Context];
     const meaningfulInputScore = Math.round((inputFlags.filter(Boolean).length / inputFlags.length) * 100);
