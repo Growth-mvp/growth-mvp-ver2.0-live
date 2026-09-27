@@ -2017,34 +2017,12 @@ export const useStrategyStore = create<StrategyState>()(
       /* ▼破壊的リセット禁止：即消さず、仮スコープでハイドレート開始 */
       setCompanyScope: (id) =>
         set((s) => {
-          // ★★ TRACE: F5直後のhydration状態を診断
-          console.error('[DIAG] setCompanyScope ENTER', {
-            currentCompanyId: s.companyId,
-            nextCompanyId: id,
-            beforeStrategyId: s.strategyId,
-            hydrated: s.hydrated,
-            restoreReady: s.restoreReady,
-            __isFetchingFromServer: s.__isFetchingFromServer,
-            timestamp: new Date().toISOString(),
-          });
-
           // ★ FIX: 同一 companyId の場合は reset しない（画面遷移で strategyId が消えるのを防止）
           if (s.companyId === id && id !== null) {
-            console.error('[DIAG] SET_COMPANY_SCOPE same company', {
-              currentCompanyId: s.companyId,
-              nextCompanyId: id,
-              result: 'no reset',
-            });
             return s;  // 状態は変わらない
           }
 
           // 本当に会社が変わった場合だけ reset
-          console.error('[DIAG] SET_COMPANY_SCOPE company changed', {
-            currentCompanyId: s.companyId,
-            nextCompanyId: id,
-            result: 'reset strategyId',
-            beforeStrategyId: s.strategyId,
-          });
 
           return {
             ...s,
@@ -4150,12 +4128,6 @@ export const useStrategyStore = create<StrategyState>()(
           return;
         }
 
-        // ★ 診断ログ：refetchFromServer 開始
-        console.log('[refetchFromServer] REFRESH_START', {
-          companyId,
-          timestamp,
-          currentHydrating: get().boot?.isHydrating,
-        });
         /* ★ TASK 14: restore フラグを開始（DB restore 中を示す） */
         set({ _loadingRefetch: true, __isFetchingFromServer: true, isRestoring: true });
         set((s) => ({ ...s, boot: { ...s.boot, isHydrating: true } }));
@@ -4273,42 +4245,6 @@ export const useStrategyStore = create<StrategyState>()(
              → STAGE2 フィールド損失を防ぐため、normalizeFromDbRow を呼ばずに直接使用 */
           const patch = dbRow as Partial<StrategyState>;
 
-          // ★ 診断ログ：strategyId 取得完了
-          console.log('[refetchFromServer] REFRESH_START', {
-            companyId,
-            timestamp,
-          });
-
-          console.log('[refetchFromServer] QUERY_HAS_DATA', {
-            hasData: !!dbRow,
-            timestamp,
-          });
-
-          if (dbRow) {
-            console.log('[refetchFromServer] QUERY_ROW_ID', {
-              rowId: (dbRow as any)?.id,
-              timestamp,
-            });
-          }
-
-          console.log('[refetchFromServer] REFRESH_STRATEGY_ID', {
-            strategyId: (patch as any)?.strategyId,
-            companyId: (patch as any)?.companyId,
-            timestamp,
-          });
-
-          console.log('[refetchFromServer] PATCH_STRATEGY_ID', {
-            patchStrategyId: (patch as any)?.strategyId,
-            timestamp,
-          });
-
-          // ★ 段階的診断：patch（buildStateFromDbRow の結果）
-          console.log('[DIAG][refetchFromServer][STEP1-patch]', {
-            hasRow: !!patch,
-            rowId: (patch as any)?.id ?? 'missing',
-            normalizedStrategyId: (patch as any)?.strategyId ?? 'missing',
-          });
-
           if (DEBUG) {
             /* ★ TASK 15-C: STAGE2 フィールド確認ログを追加 */
             console.log('[strategyStore refetch] 📦 full state from DB', {
@@ -4403,15 +4339,6 @@ export const useStrategyStore = create<StrategyState>()(
               // minimal（条件付き）ではなく patch（全フィールド）を使用
               // 理由：minimal に departments がない場合、base が復帰する問題を根治
 
-              console.log('[audit][refetchFromServer:merge-strategy]', {
-                strategyId: (patch as any)?.strategyId,
-                timestamp: new Date().toISOString(),
-                mergeMode: 'FULL_REPLACEMENT (patch → state)',
-                patchHasDepartments: Array.isArray((patch as any)?.departments),
-                baseDeptCount: Array.isArray((base as any).departments) ? (base as any).departments.length : 0,
-                patchDeptCount: Array.isArray((patch as any)?.departments) ? (patch as any).departments.length : 0,
-              });
-
               // ★ STEP2 修正：dirty状態で危険な構造体だけ base 優先
               // 理由：unsaved changes（削除したdepartment など）を保護
               // 但し base が無効（undefined/null）なら patch を使う（復旧可能）
@@ -4430,13 +4357,6 @@ export const useStrategyStore = create<StrategyState>()(
                 pendingCompanyId: undefined,
               };
 
-              // ★★ LIFECYCLE_TRACE 02: merged 直後の strategyId
-              console.log('[LIFECYCLE_TRACE_02] refetchFromServer merged - strategyId (wasDirty=true)', {
-                base_strategyId: (base as any)?.strategyId,
-                patch_strategyId: (patch as any)?.strategyId,
-                merged_strategyId: (merged as any)?.strategyId,
-                timestamp: new Date().toISOString(),
-              });
 
               // ★ TRACE POINT 10c-detailed: merged state の departments/projects
               const mergedDepts = Array.isArray((merged as any).departments) ? (merged as any).departments : [];
@@ -4464,10 +4384,6 @@ export const useStrategyStore = create<StrategyState>()(
                 });
               }
 
-              // ★ 段階的診断：merge 直後（wasDirty=true）
-              console.log('[DIAG][refetchFromServer][STEP2-merged-wasDirty-true]', {
-                mergedStrategyId: (merged as any)?.strategyId ?? 'missing',
-              });
 
               return merged as any;
             });
@@ -4475,36 +4391,8 @@ export const useStrategyStore = create<StrategyState>()(
             const after = get();
             const rev = typeof patch.revision === 'number' ? patch.revision : after.revision ?? 0;
 
-            // ★ 段階的診断：set() 直前（wasDirty=true）
-            console.log('[DIAG][refetchFromServer][STEP3-beforeSet-wasDirty-true]', {
-              beforeSetStrategyId: after.strategyId ?? 'missing',
-            });
-
             set({ loaded: true });
             get().setHydrated(rev);
-
-            // ★★ LIFECYCLE_TRACE 04: set() 直後の strategyId (wasDirty=true)
-            const afterSetState_wasDirty = get();
-            console.error('[DIAG] AFTER_REFETCH_SET_STRATEGY_ID wasDirty=true', {
-              strategyId: afterSetState_wasDirty.strategyId,
-              companyId: afterSetState_wasDirty.companyId,
-              restoreReady: afterSetState_wasDirty.restoreReady,
-              __isFetchingFromServer: afterSetState_wasDirty.__isFetchingFromServer,
-              timestamp: new Date().toISOString(),
-            });
-
-            // ★ 段階的診断：set() 直後（wasDirty=true）
-            console.log('[DIAG][refetchFromServer][STEP4-afterSet-wasDirty-true]', {
-              afterSetStrategyId: afterSetState_wasDirty.strategyId ?? 'missing',
-            });
-            // ★ 診断ログ：refetchFromServer 完了（wasDirty=true）
-            console.log('[refetchFromServer] REFRESH_DONE', {
-              timestamp,
-              revision: rev,
-              wasDirty: true,
-              strategyId: get().strategyId,
-              restoreReady: get().restoreReady,
-            });
             /* ★ TASK 14: restore 完了フラグを設定（DB restore 完了） */
             set({
               restoreReady: true,
@@ -4552,27 +4440,6 @@ export const useStrategyStore = create<StrategyState>()(
                 pendingCompanyId: undefined,
               };
 
-              // ★★ LIFECYCLE_TRACE 03: merged 直後の strategyId (wasDirty=false)
-              console.log('[LIFECYCLE_TRACE_03] refetchFromServer merged - strategyId (wasDirty=false)', {
-                base_strategyId: (s as any)?.strategyId,
-                patch_strategyId: (patch as any)?.strategyId,
-                merged_strategyId: (merged as any)?.strategyId,
-                timestamp: new Date().toISOString(),
-              });
-
-              // ★ 段階的診断：merge 直後（wasDirty=false）
-              console.log('[DIAG][refetchFromServer][STEP2-merged-wasDirty-false]', {
-                mergedStrategyId: (merged as any)?.strategyId ?? 'missing',
-              });
-
-              console.log('[audit][refetchFromServer:wasDirty=false]', {
-                strategyId: (patch as any)?.strategyId,
-                timestamp: new Date().toISOString(),
-                mergeMode: 'FULL_REPLACEMENT (patch → state)',
-                patchDeptCount: Array.isArray((patch as any)?.departments) ? (patch as any).departments.length : 0,
-                isStale,
-                isSwitchingCompany,
-              });
 
               /* ★ STAGE3 bridge check after merge (wasDirty=false) */
               if (DEBUG) {
@@ -4592,11 +4459,6 @@ export const useStrategyStore = create<StrategyState>()(
             const hash = stableHash(snapshot);
             const rev = typeof patch.revision === 'number' ? patch.revision : after.revision ?? 0;
 
-            // ★ 段階的診断：set() 直前（wasDirty=false）
-            console.log('[DIAG][refetchFromServer][STEP3-beforeSet-wasDirty-false]', {
-              beforeSetStrategyId: get().strategyId ?? 'missing',
-            });
-
             set({
               serverShadow: snapshot,
               lastServerSnapshot: hash,
@@ -4609,30 +4471,6 @@ export const useStrategyStore = create<StrategyState>()(
               isRestoring: false,
               /* ★ TASK 3: Track when server sync completed for post-restore cooldown */
               lastServerSyncAt: Date.now(),
-            });
-
-            // ★★ LIFECYCLE_TRACE 05: set() 直後の strategyId (wasDirty=false)
-            const afterSetState_notDirty = get();
-            console.error('[DIAG] AFTER_REFETCH_SET_STRATEGY_ID wasDirty=false', {
-              strategyId: afterSetState_notDirty.strategyId,
-              companyId: afterSetState_notDirty.companyId,
-              restoreReady: afterSetState_notDirty.restoreReady,
-              __isFetchingFromServer: afterSetState_notDirty.__isFetchingFromServer,
-              timestamp: new Date().toISOString(),
-            });
-
-            // ★ 段階的診断：set() 直後（wasDirty=false）
-            console.log('[DIAG][refetchFromServer][STEP4-afterSet-wasDirty-false]', {
-              afterSetStrategyId: afterSetState_notDirty.strategyId ?? 'missing',
-            });
-
-            // ★ 診断ログ：refetchFromServer 完了（wasDirty=false）
-            console.log('[refetchFromServer] REFRESH_DONE', {
-              timestamp,
-              revision: rev,
-              wasDirty: false,
-              strategyId: get().strategyId,
-              restoreReady: get().restoreReady,
             });
 
             get().setHydrated(rev, hash);
