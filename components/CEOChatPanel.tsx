@@ -7,7 +7,6 @@ import { useUserStore } from '@/store/userStore';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import AbstractCoachAvatar from '@/components/AbstractCoachAvatar';
 import { supabase } from '@/utils/supabase/client';
-import { ensureStrategyId } from '@/utils/strategyBootstrap';
 
 type Msg = { role: 'user' | 'assistant'; content: string };
 
@@ -119,56 +118,21 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     : ctxUpdated ? ('responding' as const)
     : ('idle' as const);
 
-  /** ====== 自動 ensure（一度だけ） ====== */
+  /** ====== strategyId を待機（provision は不要） ====== */
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!storeHydrated || !userOK) return;
-      // ★ Option 2: refetch 完了まで待機
-      if (shouldWaitForRestore) {
-        console.log('[CEOChatPanel] waiting for restore before ensureStrategyId', {
-          isHydrated,
-          restoreReady,
-          isFetchingFromServer,
-        });
-        return;
-      }
-      if (strategyOK) return;
-      if (booting || bootingLockRef.current || autoEnsureOnceRef.current) return;
+    if (!storeHydrated || !userOK) return;
+    if (strategyOK) return;
 
-      // ★ 診断ログ：ensureStrategyId 直前の状態確認
-      console.log('[CEOChatPanel] PRE_ENSURE_STATE', {
-        storeHydrated,
-        isHydrated,
+    // ★ FIX: refetchFromServer が既に strategyId を復元するため、provision は不要
+    // strategyId がない場合は単に待機
+    if (shouldWaitForRestore) {
+      console.log('[CEOChatPanel] waiting for strategyId restore', {
         restoreReady,
         isFetchingFromServer,
-        shouldWaitForRestore,
         strategyId,
-        strategyOK,
-        companyId: useStrategyStore.getState().companyId,
       });
-
-      autoEnsureOnceRef.current = true;
-      setBooting(true);
-      bootingLockRef.current = true;
-
-      try {
-        const timeout = new Promise<null>((r) => setTimeout(() => r(null), 7000));
-        const id = await Promise.race([
-          ensureStrategyId(supabase, user!.id) as Promise<string | null | undefined>,
-          timeout,
-        ]);
-        if (!cancelled && !unmountedRef.current && id) setStrategyIdRef.current(id);
-      } catch {
-      } finally {
-        if (!cancelled && !unmountedRef.current) {
-          setBooting(false);
-          setTimeout(() => { bootingLockRef.current = false; }, 300);
-        }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [storeHydrated, userOK, strategyOK, booting, shouldWaitForRestore]);
+    }
+  }, [storeHydrated, userOK, strategyOK, shouldWaitForRestore]);
 
   /** ====== スクロール追従 ====== */
   useEffect(() => {
@@ -256,25 +220,13 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       if (!accessToken) throw new Error('ログイン情報が無効です（access token なし）');
 
       if (!strategyOK) {
-        // ★ 診断ログ：send() 内での ensureStrategyId 直前
-        console.log('[CEOChatPanel] SEND_PRE_ENSURE_STATE', {
-          storeHydrated,
-          isHydrated,
-          restoreReady,
-          isFetchingFromServer,
-          shouldWaitForRestore,
-          strategyId,
-          strategyOK,
-          companyId: useStrategyStore.getState().companyId,
-        });
-
-        setBooting(true);
-        try {
-          const id = await ensureStrategyId(supabase, user!.id);
-          if (id) setStrategyIdRef.current(id);
-        } finally {
-          setBooting(false);
-        }
+        // ★ FIX: strategyOK でない場合は待機メッセージを表示（provision は呼ばない）
+        setMessages((prev) => prev.slice(0, -1));
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: '戦略データを読み込み中です…少々お待ちください。' },
+        ]);
+        return;
       }
 
       const latestStrategyId = useStrategyStore.getState().strategyId;
@@ -304,21 +256,6 @@ export default function CEOChatPanel({ embedded = true }: Props) {
       };
 
       let r = await doAsk();
-
-      if (!r.ok && r.status === 400 && /context/i.test(r.raw)) {
-        try {
-          setBooting(true);
-          await fetch('/api/companies/provision', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${accessToken}` },
-            credentials: 'include',
-          }).catch(() => {});
-          await new Promise((res) => setTimeout(res, 250));
-        } finally {
-          setBooting(false);
-        }
-        r = await doAsk();
-      }
 
       if (!r.ok) {
         if (process.env.NODE_ENV !== 'production') {
