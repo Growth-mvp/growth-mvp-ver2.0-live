@@ -504,7 +504,8 @@ export async function POST(req: NextRequest) {
 
     // strategyId + companyId で直接取得（データ混在防止）
     if (strategyId && membership.companyId) {
-      const { data, error } = await getFullStrategyDataByStrategyId(strategyId, membership.companyId);
+      // ★ アプローチ1: server-side admin client を渡す
+      const { data, error } = await getFullStrategyDataByStrategyId(strategyId, membership.companyId, admin);
       if (error) {
         strategyFetchError = error.message ?? String(error);
       } else if (data) {
