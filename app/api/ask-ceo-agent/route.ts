@@ -491,7 +491,34 @@ export async function POST(req: Request) {
       suspiciousKeywordFlags: suspiciousKeywords,
     });
 
-    const detailed = await openai.chat.completions.create(openaiReq);
+    // ★ 一時的な診断: OpenAI呼び出し前ログ
+    console.log('[ask-ceo-agent]', requestId, 'BEFORE_OPENAI', {
+      model: openaiReq.model,
+      messageCount: openaiReq.messages?.length ?? 0,
+      hasResponseFormat: !!openaiReq.response_format,
+      hasTemperature: Object.prototype.hasOwnProperty.call(openaiReq, 'temperature'),
+    });
+
+    let detailed;
+    try {
+      detailed = await openai.chat.completions.create(openaiReq);
+    } catch (e: any) {
+      console.error('[ask-ceo-agent]', requestId, 'OPENAI_CALL_FAILED', {
+        name: e?.name,
+        status: e?.status,
+        code: e?.code ?? e?.error?.code,
+        type: e?.type ?? e?.error?.type,
+        message: e?.message ?? e?.error?.message ?? String(e),
+        requestId_openai:
+          e?.request_id ??
+          e?._request_id ??
+          e?.headers?.get?.('x-request-id') ??
+          e?.headers?.get?.('openai-request-id'),
+      });
+      throw e;
+    }
+
+    console.log('[ask-ceo-agent]', requestId, 'AFTER_OPENAI_SUCCESS');
 
     // --- 操作系ならガイドを短く添える ---
     let manualBlock = '';
@@ -562,11 +589,13 @@ export async function POST(req: Request) {
 
     return NextResponse.json(response);
   } catch (e: any) {
-    console.error('[ask-ceo-agent]', requestId, 'ERROR', {
+    // ★ 一時的な診断: route全体の失敗を ROUTE_FAILED として記録
+    console.error('[ask-ceo-agent]', requestId, 'ROUTE_FAILED', {
       name: e?.name,
-      message: e?.message,
       status: e?.status ?? e?.response?.status,
-      stack: e?.stack,
+      code: e?.code ?? e?.error?.code,
+      type: e?.type ?? e?.error?.type,
+      message: e?.message ?? e?.error?.message ?? String(e),
     });
     return NextResponse.json(
       {
