@@ -587,14 +587,29 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
     if (isCompanyDeleting(companyId)) return;
     if (isAuthPath(pathname)) return;
 
+    // ★ Recovery Refetch ロジック
+    // 通常 refetch 済み + strategyId がある → skip
+    // 通常 refetch 済み + strategyId がない + recovery 未実施 → recovery refetch 実行
+    // recovery 実施済み + strategyId がない → skip（これ以上 refetch しない）
     const strategyId = useStrategyStore.getState().strategyId;
     if (refetchRanForCompany.current === companyId) {
       // 通常 refetch は済んでいる
-      return;
+      if (strategyId) {
+        // strategyId がある → skip
+        return;
+      }
+      // strategyId がない → recovery を検討
+      if (recoveryRefetchTriedForCompany.current === companyId) {
+        // recovery 実施済み → skip
+        return;
+      }
+      // recovery 未実施 → 1 回だけ recovery を実行
+      recoveryRefetchTriedForCompany.current = companyId;
+      // 以下で refetch を実行
+    } else {
+      // 通常 refetch 未実施
+      refetchRanForCompany.current = companyId;
     }
-
-    // 通常 refetch 未実施
-    refetchRanForCompany.current = companyId;
 
     requestAnimationFrame(async () => {
       try {
@@ -614,23 +629,6 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       }
     });
   }, [bootstrapped, companyId, hydrated, pathname, bootstrapTimedOut]);
-
-  /* ================================
-   * 2.5) Recovery Refetch（restore完了後、strategyId欠損時に1回だけ実行）
-   * - 依存配列に strategyId, restoreReady, isFetchingFromServer を含める
-   * - これにより状態変化時に自動的に再評価される
-   * ============================== */
-  useEffect(() => {
-    if (!companyId) return;
-    if (!restoreReady) return; // restore 完了待ち
-    if (isFetchingFromServer) return; // 既に通信中
-    const strategyId = useStrategyStore.getState().strategyId;
-    if (strategyId) return; // strategyId が存在 → 不要
-    if (recoveryRefetchTriedForCompany.current === companyId) return; // recovery 実施済み
-
-    recoveryRefetchTriedForCompany.current = companyId;
-    void useStrategyStore.getState().refetchFromServer();
-  }, [companyId, strategyId, restoreReady, isFetchingFromServer]);
 
   /* ================================
    * 2.5) strategyId provision（Bearer 付与 & 未ログイン/無トークン時は実行しない）
