@@ -2017,22 +2017,23 @@ export const useStrategyStore = create<StrategyState>()(
       /* ▼破壊的リセット禁止：即消さず、仮スコープでハイドレート開始 */
       setCompanyScope: (id) =>
         set((s) => {
-          // ★ 診断ログ：setCompanyScope 実行時の状態確認
-          console.log('[refetchFromServer] SET_COMPANY_SCOPE_RESET', {
-            currentStrategyId: s.strategyId,
-            companyIdChanging: s.companyId !== id,
-            timestamp: new Date().toISOString(),
-          });
+          // ★ FIX: 同一 companyId の場合は reset しない（画面遷移で strategyId が消えるのを防止）
+          if (s.companyId === id && id !== null) {
+            console.log('[strategyStore] SET_COMPANY_SCOPE', {
+              currentCompanyId: s.companyId,
+              nextCompanyId: id,
+              result: 'same company - no reset',
+              currentStrategyId: s.strategyId,
+            });
+            return s;  // 状態は変わらない
+          }
+
+          // 本当に会社が変わった場合だけ reset
           console.log('[strategyStore] SET_COMPANY_SCOPE', {
             currentCompanyId: s.companyId,
             nextCompanyId: id,
+            result: 'company changed - reset',
             currentStrategyId: s.strategyId,
-            restoreReady: s.restoreReady,
-            isFetchingFromServer: s.__isFetchingFromServer,
-          });
-          // ★ 段階的診断：setCompanyScope で strategyId をリセット
-          console.log('[DIAG][setCompanyScope] strategyId reset', {
-            beforeResetStrategyId: s.strategyId ?? 'missing',
           });
 
           return {

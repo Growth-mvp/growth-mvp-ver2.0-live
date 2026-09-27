@@ -556,15 +556,26 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!bootstrapped) return;
 
+    const currentCompanyId = useStrategyStore.getState().companyId;
+
     const deleting = companyId ? isCompanyDeleting(companyId) : false;
     if (deleting) {
       setCompanyScope(null);
       setStrategyId(null);
       return;
     }
+
+    // ★ FIX: 同一 companyId に対して setCompanyScope を再実行しない（strategyId reset 防止）
+    if (currentCompanyId === companyId) {
+      console.log('[layoutClient] setCompanyScope skip - same company', { companyId });
+      return;
+    }
+
     if (companyId) {
+      console.log('[layoutClient] setCompanyScope call - company changed', { currentCompanyId, nextCompanyId: companyId });
       setCompanyScope(companyId);
     } else {
+      console.log('[layoutClient] setCompanyScope clear - no company');
       setCompanyScope(null);
       setStrategyId(null);
     }
