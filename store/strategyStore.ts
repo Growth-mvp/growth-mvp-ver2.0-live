@@ -2017,23 +2017,33 @@ export const useStrategyStore = create<StrategyState>()(
       /* ▼破壊的リセット禁止：即消さず、仮スコープでハイドレート開始 */
       setCompanyScope: (id) =>
         set((s) => {
+          // ★★ TRACE: F5直後のhydration状態を診断
+          console.error('[DIAG] setCompanyScope ENTER', {
+            currentCompanyId: s.companyId,
+            nextCompanyId: id,
+            beforeStrategyId: s.strategyId,
+            hydrated: s.hydrated,
+            restoreReady: s.restoreReady,
+            __isFetchingFromServer: s.__isFetchingFromServer,
+            timestamp: new Date().toISOString(),
+          });
+
           // ★ FIX: 同一 companyId の場合は reset しない（画面遷移で strategyId が消えるのを防止）
           if (s.companyId === id && id !== null) {
-            console.log('[strategyStore] SET_COMPANY_SCOPE', {
+            console.error('[DIAG] SET_COMPANY_SCOPE same company', {
               currentCompanyId: s.companyId,
               nextCompanyId: id,
-              result: 'same company - no reset',
-              currentStrategyId: s.strategyId,
+              result: 'no reset',
             });
             return s;  // 状態は変わらない
           }
 
           // 本当に会社が変わった場合だけ reset
-          console.log('[strategyStore] SET_COMPANY_SCOPE', {
+          console.error('[DIAG] SET_COMPANY_SCOPE company changed', {
             currentCompanyId: s.companyId,
             nextCompanyId: id,
-            result: 'company changed - reset',
-            currentStrategyId: s.strategyId,
+            result: 'reset strategyId',
+            beforeStrategyId: s.strategyId,
           });
 
           return {
@@ -4475,14 +4485,7 @@ export const useStrategyStore = create<StrategyState>()(
 
             // ★★ LIFECYCLE_TRACE 04: set() 直後の strategyId (wasDirty=true)
             const afterSetState_wasDirty = get();
-            console.log('[refetchFromServer] AFTER_SET_STRATEGY_ID', {
-              strategyId: afterSetState_wasDirty.strategyId,
-              companyId: afterSetState_wasDirty.companyId,
-              restoreReady: afterSetState_wasDirty.restoreReady,
-              __isFetchingFromServer: afterSetState_wasDirty.__isFetchingFromServer,
-              timestamp: new Date().toISOString(),
-            });
-            console.log('[LIFECYCLE_TRACE_04] refetchFromServer after set() - strategyId (wasDirty=true)', {
+            console.error('[DIAG] AFTER_REFETCH_SET_STRATEGY_ID wasDirty=true', {
               strategyId: afterSetState_wasDirty.strategyId,
               companyId: afterSetState_wasDirty.companyId,
               restoreReady: afterSetState_wasDirty.restoreReady,
@@ -4610,14 +4613,7 @@ export const useStrategyStore = create<StrategyState>()(
 
             // ★★ LIFECYCLE_TRACE 05: set() 直後の strategyId (wasDirty=false)
             const afterSetState_notDirty = get();
-            console.log('[refetchFromServer] AFTER_SET_STRATEGY_ID', {
-              strategyId: afterSetState_notDirty.strategyId,
-              companyId: afterSetState_notDirty.companyId,
-              restoreReady: afterSetState_notDirty.restoreReady,
-              __isFetchingFromServer: afterSetState_notDirty.__isFetchingFromServer,
-              timestamp: new Date().toISOString(),
-            });
-            console.log('[LIFECYCLE_TRACE_05] refetchFromServer after set() - strategyId (wasDirty=false)', {
+            console.error('[DIAG] AFTER_REFETCH_SET_STRATEGY_ID wasDirty=false', {
               strategyId: afterSetState_notDirty.strategyId,
               companyId: afterSetState_notDirty.companyId,
               restoreReady: afterSetState_notDirty.restoreReady,
