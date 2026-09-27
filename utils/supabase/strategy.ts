@@ -4,6 +4,7 @@ import {
   getCompanyIdFromCookie,
   setCompanyIdCookie,
 } from './client';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { isValidUUID } from '@/lib/utils/isValidUUID';
 import { debugExtractPostgrest } from './errors';
 import { normalizeStrategyData } from './normalize';
@@ -1695,6 +1696,7 @@ export async function getFullStrategyDataByCompany(
 export async function getFullStrategyDataByStrategyId(
   strategyId: string,
   companyId: string,
+  client?: SupabaseClient,
 ): Promise<ReadResult> {
   if (DEBUG) console.log('[StrategyData] 📥 getFullStrategyDataByStrategyId start:', { strategyId, companyId });
   try {
@@ -1707,7 +1709,10 @@ export async function getFullStrategyDataByStrategyId(
       return { data: null, error: new Error('invalid companyId') };
     }
 
-    const baseRes = await supabase
+    // ★ アプローチ1: server-side client を明示的に指定できるようにする
+    const supabaseClient = client ?? supabase;
+
+    const baseRes = await supabaseClient
       .from(T_STRATEGY)
       .select('*')
       .eq('id', strategyId)
