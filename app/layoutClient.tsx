@@ -580,12 +580,41 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
    * - 修正：membership timeout中は走らせない（暴発抑止）
    * ============================== */
   useEffect(() => {
+    console.log('[layoutClient] NORMAL_REFETCH_EFFECT_ENTER', {
+      bootstrapped,
+      companyId,
+      hydrated,
+      pathname,
+      bootstrapTimedOut,
+      timestamp: new Date().toISOString(),
+    });
+
     const authed = !!useUserStore.getState().user?.id;
-    if (!bootstrapped || !companyId || !authed) return;
-    if (!hydrated) return; // ← 初回描画前に叩かない
-    if (bootstrapTimedOut) return; // ★追加：timeout中は抑止
-    if (isCompanyDeleting(companyId)) return;
-    if (isAuthPath(pathname)) return;
+    if (!bootstrapped || !companyId || !authed) {
+      console.log('[layoutClient] NORMAL_REFETCH_SKIP_REASON', {
+        reason: 'bootstrapped/companyId/authed check',
+        bootstrapped,
+        companyId,
+        authed,
+      });
+      return;
+    }
+    if (!hydrated) {
+      console.log('[layoutClient] NORMAL_REFETCH_SKIP_REASON', { reason: 'not hydrated' });
+      return;
+    }
+    if (bootstrapTimedOut) {
+      console.log('[layoutClient] NORMAL_REFETCH_SKIP_REASON', { reason: 'bootstrapTimedOut' });
+      return;
+    }
+    if (isCompanyDeleting(companyId)) {
+      console.log('[layoutClient] NORMAL_REFETCH_SKIP_REASON', { reason: 'isCompanyDeleting' });
+      return;
+    }
+    if (isAuthPath(pathname)) {
+      console.log('[layoutClient] NORMAL_REFETCH_SKIP_REASON', { reason: 'isAuthPath' });
+      return;
+    }
 
     // ★ Recovery Refetch ロジック
     // 通常 refetch 済み + strategyId がある → skip
@@ -596,20 +625,25 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       // 通常 refetch は済んでいる
       if (strategyId) {
         // strategyId がある → skip
+        console.log('[layoutClient] NORMAL_REFETCH_SKIP_REASON', { reason: 'strategyId exists' });
         return;
       }
       // strategyId がない → recovery を検討
       if (recoveryRefetchTriedForCompany.current === companyId) {
         // recovery 実施済み → skip
+        console.log('[layoutClient] NORMAL_REFETCH_SKIP_REASON', { reason: 'recovery already tried' });
         return;
       }
       // recovery 未実施 → 1 回だけ recovery を実行
+      console.log('[layoutClient] NORMAL_REFETCH_SKIP_REASON', { reason: 'will try recovery refetch' });
       recoveryRefetchTriedForCompany.current = companyId;
       // 以下で refetch を実行
     } else {
       // 通常 refetch 未実施
       refetchRanForCompany.current = companyId;
     }
+
+    console.log('[layoutClient] REFRESH_CALL', { companyId, timestamp: new Date().toISOString() });
 
     requestAnimationFrame(async () => {
       try {
