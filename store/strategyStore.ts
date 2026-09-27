@@ -2017,12 +2017,13 @@ export const useStrategyStore = create<StrategyState>()(
       /* ▼破壊的リセット禁止：即消さず、仮スコープでハイドレート開始 */
       setCompanyScope: (id) =>
         set((s) => {
-          console.log('[strategyStore][setCompanyScope] __isFetchingFromServer: true に設定', {
-            id,
-            timestamp: new Date().toISOString(),
-            previousId: s.companyId,
-            previousStrategyId: s.strategyId,
-            previousIsFetching: s.__isFetchingFromServer,
+          // ★ 診断ログ：setCompanyScope 実行時の状態確認
+          console.log('[strategyStore] SET_COMPANY_SCOPE', {
+            currentCompanyId: s.companyId,
+            nextCompanyId: id,
+            currentStrategyId: s.strategyId,
+            restoreReady: s.restoreReady,
+            isFetchingFromServer: s.__isFetchingFromServer,
           });
           return {
             ...s,
@@ -4128,7 +4129,8 @@ export const useStrategyStore = create<StrategyState>()(
           return;
         }
 
-        console.log('[refetchFromServer:start] 🔄 Fetch started', {
+        // ★ 診断ログ：refetchFromServer 開始
+        console.log('[refetchFromServer] REFRESH_START', {
           companyId,
           timestamp,
           currentHydrating: get().boot?.isHydrating,
@@ -4249,6 +4251,13 @@ export const useStrategyStore = create<StrategyState>()(
              dbRow は getFullStrategyDataByCompany から返ってきた buildStateFromDbRow 済みの state
              → STAGE2 フィールド損失を防ぐため、normalizeFromDbRow を呼ばずに直接使用 */
           const patch = dbRow as Partial<StrategyState>;
+
+          // ★ 診断ログ：strategyId 取得完了
+          console.log('[refetchFromServer] REFRESH_STRATEGY_ID', {
+            strategyId: (patch as any)?.strategyId,
+            companyId: (patch as any)?.companyId,
+            timestamp,
+          });
 
           if (DEBUG) {
             /* ★ TASK 15-C: STAGE2 フィールド確認ログを追加 */
@@ -4405,9 +4414,13 @@ export const useStrategyStore = create<StrategyState>()(
 
             set({ loaded: true });
             get().setHydrated(rev);
-            console.log('[refetchFromServer:done] ✅ Fetch and restore complete (wasDirty=true)', {
+            // ★ 診断ログ：refetchFromServer 完了（wasDirty=true）
+            console.log('[refetchFromServer] REFRESH_DONE', {
               timestamp,
               revision: rev,
+              wasDirty: true,
+              strategyId: get().strategyId,
+              restoreReady: get().restoreReady,
             });
             /* ★ TASK 14: restore 完了フラグを設定（DB restore 完了） */
             set({
@@ -4496,9 +4509,13 @@ export const useStrategyStore = create<StrategyState>()(
               /* ★ TASK 3: Track when server sync completed for post-restore cooldown */
               lastServerSyncAt: Date.now(),
             });
-            console.log('[refetchFromServer:done] ✅ Fetch and restore complete (wasDirty=false)', {
+            // ★ 診断ログ：refetchFromServer 完了（wasDirty=false）
+            console.log('[refetchFromServer] REFRESH_DONE', {
               timestamp,
               revision: rev,
+              wasDirty: false,
+              strategyId: get().strategyId,
+              restoreReady: get().restoreReady,
             });
 
             get().setHydrated(rev, hash);
