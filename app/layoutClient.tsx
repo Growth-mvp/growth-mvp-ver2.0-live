@@ -687,6 +687,14 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
     const onAuthScene = isAuthPath(pathname);
     if (!bootstrapped) return;
 
+    // ★ FIX: refetchFromServer で strategyId が復元された場合は provision をスキップ
+    // refetchFromServer は既に strategy_data を取得・作成し strategyId を restore している
+    const strategyId = useStrategyStore.getState().strategyId;
+    if (strategyId) {
+      // strategyId が存在 → refetch で復元済み → provision 不要
+      return;
+    }
+
     // 会社変更で記録リセット
     if (lastProvisionForCompany.current && lastProvisionForCompany.current !== (companyId ?? null)) {
       lastProvisionForCompany.current = null;
