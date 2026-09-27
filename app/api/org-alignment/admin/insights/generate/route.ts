@@ -108,7 +108,8 @@ export async function POST(req: NextRequest) {
     // ===== 2. strategy_data から部門情報を取得 =====
     let departments: any[] = [];
     try {
-      const { data: strategyData } = await getFullStrategyDataByStrategyId(strategyId, companyId);
+      // ★ アプローチ1: server-side admin client を渡す
+      const { data: strategyData } = await getFullStrategyDataByStrategyId(strategyId, companyId, admin);
       if (strategyData?.departments && Array.isArray(strategyData.departments)) {
         departments = strategyData.departments;
       }
