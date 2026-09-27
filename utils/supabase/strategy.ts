@@ -1385,6 +1385,14 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   (normalized as any).companyId = companyId;
   (normalized as any).updatedAt = updatedAt;
 
+  // ★★ LIFECYCLE_TRACE 01: buildStateFromDbRow 返却値の strategyId 確認
+  console.log('[LIFECYCLE_TRACE_01] buildStateFromDbRow return - strategyId', {
+    dbRowId: safeRow?.id,
+    normalized_strategyId: strategyId,
+    companyId,
+    timestamp: new Date().toISOString(),
+  });
+
   // ★ TRACE POINT 8: buildStateFromDbRow 返却直前
   const finalDepts = ensureArray((normalized as any).departments);
   const finalDeptsSummary = finalDepts.map((d: any, di: number) => ({
