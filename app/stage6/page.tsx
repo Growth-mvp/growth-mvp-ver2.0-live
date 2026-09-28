@@ -69,14 +69,14 @@ function ReviewCandidatesSection({ reviewCandidates }: { reviewCandidates?: Revi
       </div>
 
       <div className="overflow-x-auto">
-        <div className="min-w-[860px]">
-          <div className="grid grid-cols-[1.6fr_1.2fr_1.1fr_1.1fr_1.1fr_180px] gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600">
+        <div>
+          <div className="grid grid-cols-1 md:grid-cols-[1.6fr_1.2fr_1.1fr_1.1fr_1.1fr_180px] gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 sm:px-4 text-xs font-semibold text-slate-600">
             <div>プロジェクト</div>
-            <div>見直し理由</div>
-            <div className="text-right">売上 目標/寄与</div>
-            <div className="text-right">営業利益 目標/寄与</div>
-            <div className="text-right">達成率</div>
-            <div className="text-center">操作</div>
+            <div className="hidden md:block">見直し理由</div>
+            <div className="hidden md:block text-right">売上 目標/寄与</div>
+            <div className="hidden md:block text-right">営業利益 目標/寄与</div>
+            <div className="hidden md:block text-right">達成率</div>
+            <div className="hidden md:block text-center">操作</div>
           </div>
 
           <div className="mt-2 space-y-2">
@@ -97,30 +97,45 @@ function ReviewCandidatesSection({ reviewCandidates }: { reviewCandidates?: Revi
               return (
                 <div
                   key={row.key}
-                  className="grid grid-cols-[1.6fr_1.2fr_1.1fr_1.1fr_1.1fr_180px] gap-3 rounded-xl border border-slate-200 bg-white px-4 py-4 text-sm text-slate-800"
+                  className="grid grid-cols-1 md:grid-cols-[1.6fr_1.2fr_1.1fr_1.1fr_1.1fr_180px] gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 sm:px-4 sm:py-4 text-sm text-slate-800"
                 >
                   <div className="min-w-0">
                     <div className="truncate font-semibold text-slate-900">{row.proj}</div>
                     <div className="mt-1 text-xs text-slate-500">{row.dept}</div>
+                    {/* Mobile only: Show key metrics below title */}
+                    <div className="md:hidden mt-3 space-y-2 text-xs">
+                      <div>
+                        <span className="font-semibold text-slate-900">売上:</span>{' '}
+                        {fmtMJPY(row.targetRevenueMJPY)} / {fmtMJPY(revenueValue)}
+                      </div>
+                      <div>
+                        <span className="font-semibold text-slate-900">利益:</span>{' '}
+                        {fmtMJPY(row.targetOpMJPY)} / {fmtMJPY(opValue)}
+                      </div>
+                      <div>
+                        <span className="font-semibold text-slate-900">達成率:</span> 売上{' '}
+                        {fmtPct(row.revenueAchievementRate)} / 利益 {fmtPct(row.opAchievementRate)}
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="text-sm text-slate-700">{row.reason}</div>
+                  <div className="hidden md:block text-sm text-slate-700">{row.reason}</div>
 
-                  <div className="text-right">
+                  <div className="hidden md:block text-right">
                     <div className="font-medium text-slate-900">
                       {fmtMJPY(row.targetRevenueMJPY)} / {fmtMJPY(revenueValue)}
                     </div>
                     <div className="mt-1 text-xs text-slate-500">売上</div>
                   </div>
 
-                  <div className="text-right">
+                  <div className="hidden md:block text-right">
                     <div className="font-medium text-slate-900">
                       {fmtMJPY(row.targetOpMJPY)} / {fmtMJPY(opValue)}
                     </div>
                     <div className="mt-1 text-xs text-slate-500">営業利益</div>
                   </div>
 
-                  <div className="text-right">
+                  <div className="hidden md:block text-right">
                     <div className="font-medium text-slate-900">売上 {fmtPct(row.revenueAchievementRate)}</div>
                     <div className="mt-1 text-xs text-slate-500">利益 {fmtPct(row.opAchievementRate)}</div>
                   </div>
@@ -137,7 +152,7 @@ function ReviewCandidatesSection({ reviewCandidates }: { reviewCandidates?: Revi
                     </span>
                     <Link
                       href={href}
-                      className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                      className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-2 py-2 sm:px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 active:scale-95"
                     >
                       {buttonLabel}
                     </Link>

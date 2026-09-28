@@ -400,7 +400,7 @@ function ExecutiveStoryDocument({
   return (
     <div className="overflow-hidden rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm">
       {/* 表紙ヘッダー */}
-      <div className="border-b border-slate-800 bg-slate-900 px-8 py-10 sm:px-12">
+      <div className="border-b border-slate-800 bg-slate-900 px-4 py-6 sm:px-6 sm:py-8 md:px-8 md:py-10">
         <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-slate-400">
           Mid-Term Management Plan
         </p>
@@ -423,7 +423,7 @@ function ExecutiveStoryDocument({
       </div>
 
       {/* 構成（目次） */}
-      <div className="border-b border-gray-200 px-8 py-6 dark:border-gray-700 sm:px-12">
+      <div className="border-b border-gray-200 px-4 py-4 sm:px-6 sm:py-5 md:px-8 md:py-6 dark:border-gray-700">
         <p className="text-[11px] font-semibold tracking-[0.3em] text-gray-400 dark:text-gray-500">構成</p>
         <div className="mt-3 grid gap-x-10 gap-y-2 sm:grid-cols-2">
           {story.map((ch, i) => (
@@ -438,7 +438,7 @@ function ExecutiveStoryDocument({
       </div>
 
       {/* 各章本文 */}
-      <div className="space-y-12 px-8 py-10 sm:px-12">
+      <div className="space-y-6 sm:space-y-8 md:space-y-12 px-4 py-6 sm:px-6 sm:py-8 md:px-8 md:py-10">
         {story.map((ch, i) => (
           <section key={i}>
             <div className="flex items-center gap-4">
@@ -1315,7 +1315,7 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
         <div className="border-t border-purple-200 dark:border-purple-700 pt-6 mb-6">
           <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-4">{editingId ? '編集' : '新規追加'}</h4>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 gap-4 mb-4">
             <div>
               <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
                 ラベル <span className="text-red-500">*</span>
