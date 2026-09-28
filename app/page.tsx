@@ -95,7 +95,7 @@ export default function Home() {
           transition={{ duration: 0.6 }}
           className="motion-reduce:transition-none motion-reduce:transform-none"
         >
-          <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 lg:grid-cols-2 lg:items-stretch lg:gap-4">
+          <div className="grid grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-2 xl:items-stretch xl:gap-4">
             {/* LEFT: STRATEGY */}
             <div className="flex h-full flex-col">
               <div className="mb-1.5 px-1">
