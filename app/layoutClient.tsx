@@ -950,17 +950,17 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         }}
       >
         {!hideSidebar && (
-          <div className="xl:hidden sticky top-0 z-20 -mt-3 -mx-3 sm:-mx-4 md:-mx-6 mb-3 sm:mb-4 bg-white/70 backdrop-blur supports-[backdrop-filter]:bg-white/60 border-b border-black/5">
-            <div className="px-3 sm:px-4 md:px-6 py-2 flex items-center justify-between">
+          <div className="xl:hidden sticky top-0 z-20 bg-white border-b border-black/5">
+            <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-3 flex items-center justify-between gap-2">
               <button
                 onClick={() => setOpenLeft(true)}
-                className="rounded-lg border border-black/10 px-3 py-1.5 text-sm shadow-sm bg-white active:scale-[0.99]"
+                className="flex-1 rounded-lg border border-black/10 px-3 py-2 text-xs sm:text-sm shadow-sm bg-white active:scale-[0.99] font-medium"
               >
                 メニュー
               </button>
               <button
                 onClick={() => setCeoPanelOpen(true)}
-                className="rounded-lg border border-black/10 px-3 py-1.5 text-sm shadow-sm bg-white active:scale-[0.99]"
+                className="flex-1 rounded-lg border border-black/10 px-3 py-2 text-xs sm:text-sm shadow-sm bg-white active:scale-[0.99] font-medium"
               >
                 AIアシスタント
               </button>
