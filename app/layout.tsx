@@ -12,12 +12,13 @@ const inter = Inter({ subsets: ['latin'], display: 'swap' });
 export const metadata: Metadata = {
   title: 'GROWTH - 戦略実行プラットフォーム',
   description: '経営戦略を実行へつなげるSaaS',
+  viewport: 'width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=yes',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ja">
-      <body className={`${inter.className} min-h-dvh bg-gradient-to-b from-gray-100 to-white text-gray-900`}>
+    <html lang="ja" className="dark:bg-neutral-950">
+      <body className={`${inter.className} min-h-dvh bg-white dark:bg-neutral-950 text-gray-900 dark:text-white`}>
         <LayoutClient>
           <AuthGuards />
           <MembershipBootstrap />

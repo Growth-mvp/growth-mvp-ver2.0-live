@@ -46,13 +46,25 @@
     height: 100%;
     /* ✅ 横にはみ出すUI（ドロワー等）が見えてしまう問題の対策 */
     overflow-x: hidden;
+    /* ✅ スクロール・overscroll時の背景色を明示的に指定 */
+    background-color: white;
   }
 
   body {
-    @apply bg-zinc-50 text-zinc-900 font-sans leading-relaxed antialiased;
+    @apply text-zinc-900 font-sans leading-relaxed antialiased;
     font-feature-settings: "liga","kern";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Dark mode */
+  @media (prefers-color-scheme: dark) {
+    html, body {
+      background-color: #0a0a0a;
+    }
+    body {
+      @apply text-white;
+    }
   }
 
   h1 { @apply text-[28px] font-semibold text-zinc-900 tracking-tight; }
