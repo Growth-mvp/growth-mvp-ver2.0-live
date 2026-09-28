@@ -1,7 +1,7 @@
 // /app/layout.tsx
 import './globals.css';
 import { Inter } from 'next/font/google';
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import LayoutClient from './layoutClient';
 import AuthGuards from '@/components/AuthGuards';
 import MembershipBootstrap from '@/components/MembershipBootstrap';
@@ -9,10 +9,16 @@ import AccessGate from '@/components/AccessGate'; // ★ 追加
 
 const inter = Inter({ subsets: ['latin'], display: 'swap' });
 
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  userScalable: true,
+};
+
 export const metadata: Metadata = {
   title: 'GROWTH - 戦略実行プラットフォーム',
   description: '経営戦略を実行へつなげるSaaS',
-  viewport: 'width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=yes',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
