@@ -447,7 +447,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => { setMessages([{ role: 'assistant', content: '履歴をリセットしました。' }]); }}
-                className="rounded-md px-2 py-1 text-[12px] hover:bg-gray-100"
+                className="rounded-md px-3 py-2 text-[12px] hover:bg-gray-100 min-h-[2.5rem] sm:min-h-auto"
                 type="button"
               >
                 クリア
@@ -455,7 +455,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
               <button
                 onClick={() => { if (input.trim()) void send(input); }}
                 disabled={!inputOK || sending || !userOK || shouldWaitForRestore}
-                className={`rounded-md px-3 py-1.5 text-[12px] font-semibold ${
+                className={`rounded-md px-4 py-2 text-[12px] font-semibold min-h-[2.5rem] sm:min-h-auto transition ${
                   (!inputOK || sending || !userOK || shouldWaitForRestore) ? 'bg-gray-200 text-gray-500' : 'bg-black text-white hover:opacity-90'
                 }`}
                 type="button"
