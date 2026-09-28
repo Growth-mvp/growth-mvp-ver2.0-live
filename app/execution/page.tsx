@@ -1413,7 +1413,7 @@ function ExecPanel(props: {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 gap-3">
             <div className="rounded-2xl bg-gray-50 p-4">
               <div className="text-xs font-medium text-gray-600 tracking-wide mb-1">目標</div>
               <div className="whitespace-pre-wrap text-[15px] leading-6 text-gray-900">{objective || '（未設定）'}</div>
@@ -1726,7 +1726,7 @@ function ExecPanel(props: {
               </span>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 gap-3">
               {typeof stage4Proj.impactRevenueMJPY === 'number' && (
                 <div className="rounded-2xl border border-blue-100 bg-white p-4">
                   <div className="mb-3 flex items-start justify-between gap-3">
@@ -1738,7 +1738,7 @@ function ExecPanel(props: {
                       STAGE6反映 {calcStage6Projection(stage4Proj.impactRevenueMJPY, stage4Proj.impactRevenueProgress, revenueConfidence)}百万円
                     </span>
                   </div>
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 gap-3">
                     <label className="text-xs text-gray-600">
                       成果見込み%
                       <input
@@ -1782,7 +1782,7 @@ function ExecPanel(props: {
                       STAGE6反映 {calcStage6Projection(stage4Proj.impactOpIncomeMJPY, stage4Proj.impactOpIncomeProgress, opIncomeConfidence)}百万円
                     </span>
                   </div>
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 gap-3">
                     <label className="text-xs text-gray-600">
                       成果見込み%
                       <input
@@ -3119,11 +3119,11 @@ function ExecutionPageContent() {
       <ExecutionHeader isHydrating={isHydrating} selected={selected} />
 
       {/* モバイル */}
-      <div className="md:hidden -mx-6 px-6 pt-6">
-        <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory">
+      <div className="md:hidden -mx-3 px-3 sm:-mx-4 sm:px-4 pt-6">
+        <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-2 snap-x snap-mandatory">
           {mobileCards.length ? (
             mobileCards.map((el, i) => (
-              <div key={`m-${i}`} className="min-w-[300px] max-w-[360px] shrink-0 snap-start">
+              <div key={`m-${i}`} className="min-w-[calc(100vw-1.5rem)] sm:min-w-[calc(100vw-2rem)] md:hidden shrink-0 snap-start">
                 {el}
               </div>
             ))
