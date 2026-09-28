@@ -461,7 +461,7 @@ export default function OrgTransformationPage() {
               </p>
             </div>
 
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
               <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                 <p className="text-sm font-semibold text-slate-500">STEP2</p>
                 <h3 className="mt-1 text-lg font-bold text-slate-950">
