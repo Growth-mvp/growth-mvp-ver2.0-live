@@ -1193,7 +1193,7 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
           <div className="px-6 py-5">
             {stage3StrategyBridge ? (
               <>
-                <div className="grid gap-3 md:grid-cols-2 mb-6">
+                <div className="grid gap-3 xl:grid-cols-2 mb-6">
                   <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3">
                     <h4 className="text-sm font-bold text-zinc-900">会社として目指す方向</h4>
                     <ul className="mt-2 space-y-1 text-xs text-zinc-700">
@@ -1231,7 +1231,7 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
                 {nonNegotiableItems.length > 0 && (
                   <div className="mb-4 rounded-lg border border-indigo-100 bg-indigo-50 px-4 py-3">
                     <h4 className="text-sm font-bold text-zinc-900">STAGE3で保持する戦略の芯</h4>
-                    <ul className="mt-2 grid gap-1 text-xs text-zinc-700 md:grid-cols-2">
+                    <ul className="mt-2 grid gap-1 text-xs text-zinc-700 xl:grid-cols-2">
                       {nonNegotiableItems.map((item: string, i: number) => (
                         <li key={i}>• {item}</li>
                       ))}
@@ -1285,7 +1285,7 @@ const StoryWithKPIComparison = memo(function StoryWithKPIComparison({
 
       {/* KPI 2点比較（2カード） */}
       <div className="mt-5">
-        <div className="grid md:grid-cols-2 gap-4">
+        <div className="grid xl:grid-cols-2 gap-4">
           <PositiveOnlyBarCard title="売上" current={revenue.current} target={revenue.target} />
           <DivergingBarCard title="営業利益" current={operatingProfit.current} target={operatingProfit.target} />
         </div>
@@ -3895,7 +3895,7 @@ useEffect(() => {
   const VisualView = useMemo(() => {
     if (!departments.length) return <div className="text-zinc-600">部門がまだ登録されていません。</div>;
     return (
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid xl:grid-cols-2 gap-6">
         {departments.map((d: Department, i: number) => (
           <VisualCard key={`v-${d.name}-${i}`} d={d} deptIndex={i} onProjectUpdate={handleProjectOwnerChange} />
         ))}
