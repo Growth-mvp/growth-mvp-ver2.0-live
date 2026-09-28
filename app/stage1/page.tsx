@@ -433,11 +433,11 @@ export default function Stage1Page() {
 
   return (
     <StrategyGuard mode="view">
-      <div className="max-w-6xl mx-auto px-4 md:px-6 py-6 space-y-6">
-        <header className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold">STAGE1｜企業価値分析</h1>
-            <p className="text-sm text-gray-600 mt-2">
+      <div className="max-w-6xl mx-auto px-3 sm:px-4 md:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6">
+        <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold">STAGE1｜企業価値分析</h1>
+            <p className="text-xs sm:text-sm text-gray-600 mt-2">
               財務情報から企業価値の現状を整理し、経営戦略の論点を明確にします。
             </p>
 
@@ -448,7 +448,7 @@ export default function Stage1Page() {
             )}
           </div>
 
-          <div className="shrink-0 flex flex-col items-end gap-3">
+          <div className="flex flex-col items-stretch sm:items-end gap-2 sm:gap-3 sm:shrink-0">
             <StagePdfExportButton exportToPdf={stage1ExportToPdf} />
 
             {!saveFn && (
@@ -462,12 +462,12 @@ export default function Stage1Page() {
 
         {/* ========== タブUI ========== */}
         <div className="border-b">
-          <div className="flex gap-4">
+          <div className="flex gap-2 sm:gap-4 overflow-x-auto">
             {['input', 'analysis'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab as TabType)}
-                className={`px-4 py-3 font-semibold text-sm border-b-2 transition ${
+                className={`px-3 sm:px-4 py-3 font-semibold text-xs sm:text-sm border-b-2 transition whitespace-nowrap ${
                   activeTab === tab
                     ? 'text-blue-600 border-blue-600'
                     : 'text-gray-600 border-transparent hover:text-gray-700'

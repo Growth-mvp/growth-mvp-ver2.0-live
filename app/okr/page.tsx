@@ -5088,7 +5088,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                 </div>
 
                 {(selectedProj as any).role === 'REVENUE' && (
-                  <div className="grid grid-cols-[1fr_120px] gap-2">
+                  <div className="grid grid-cols-1 md:grid-cols-[1fr_120px] gap-2">
                     <div className="space-y-1">
                       <div className="text-[11px] font-semibold text-zinc-700">売上寄与（百万円）</div>
                       <input
@@ -5136,7 +5136,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                 )}
 
                 {(selectedProj as any).role === 'COST' && (
-                  <div className="grid grid-cols-[1fr_120px] gap-2">
+                  <div className="grid grid-cols-1 md:grid-cols-[1fr_120px] gap-2">
                     <div className="space-y-1">
                       <div className="text-[11px] font-semibold text-zinc-700">営業利益寄与（百万円）</div>
                       <input
@@ -5184,7 +5184,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                 )}
 
                 {(selectedProj as any).role === 'FUTURE' && (
-                  <div className="grid grid-cols-[1fr_120px] gap-2">
+                  <div className="grid grid-cols-1 md:grid-cols-[1fr_120px] gap-2">
                     <div className="space-y-1">
                       <div className="text-[11px] font-semibold text-zinc-700">投資（百万円）</div>
                       <input
@@ -5474,7 +5474,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
       <div className="mx-auto max-w-6xl">
         <div data-debug="okr-scrollwrap" className="overflow-x-auto overscroll-x-contain touch-pan-x pb-2">
           <div className="min-w-0">
-            <div className="grid gap-4 grid-cols-[280px_1fr]">
+            <div className="grid gap-4 grid-cols-1 md:grid-cols-[280px_1fr]">
               {/* Left: project list */}
               <aside className="w-[280px] rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
             <ProjectListHeader departments={departments} />

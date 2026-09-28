@@ -1649,8 +1649,8 @@ export default function OrganizationSharedRoomPage() {
 
       {/* このルームの使い方 モーダル */}
       {showHowToModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[90vh] max-w-2xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 sm:p-4">
+          <div className="w-[calc(100vw-1.5rem)] sm:w-full sm:max-w-2xl max-h-[90dvh] overflow-y-auto rounded-3xl bg-white shadow-2xl">
             <div className="space-y-6 p-8">
               <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-bold text-slate-950">このルームの使い方</h2>
