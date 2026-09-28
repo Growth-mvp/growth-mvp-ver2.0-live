@@ -48,25 +48,14 @@
     overflow-x: hidden;
     /* ✅ スクロール・overscroll時の背景色を明示的に指定 */
     background-color: white;
+    color: #1f2937;
   }
 
   body {
-    @apply text-zinc-900 font-sans leading-relaxed antialiased;
+    @apply font-sans leading-relaxed antialiased;
     font-feature-settings: "liga","kern";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-  }
-
-  /* Dark mode - follows system preference
-     GROWTH SHIFT supports both light and dark themes.
-     Users' OS dark mode setting is automatically applied. */
-  @media (prefers-color-scheme: dark) {
-    html, body {
-      background-color: #0a0a0a;
-    }
-    body {
-      @apply text-white;
-    }
   }
 
   h1 { @apply text-[28px] font-semibold text-zinc-900 tracking-tight; }

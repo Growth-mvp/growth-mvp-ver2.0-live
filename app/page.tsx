@@ -28,7 +28,7 @@ export default function Home() {
   ];
 
   return (
-    <main className="min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-white">
+    <main className="min-h-screen bg-neutral-50 text-neutral-900">
       {/* ===== Hero ===== */}
       <section className="border-b border-neutral-200/60 bg-neutral-50 dark:border-neutral-900 dark:bg-neutral-950">
         <div className="container mx-auto px-6 pt-10 pb-4 sm:pt-12 sm:pb-5 lg:pt-14 lg:pb-6">
@@ -104,7 +104,7 @@ export default function Home() {
                 </h3>
               </div>
 
-              <div className="h-full overflow-hidden rounded-[26px] border border-neutral-200/70 bg-white shadow-[0_1px_30px_rgba(0,0,0,0.06)] dark:border-neutral-800 dark:bg-neutral-950">
+              <div className="h-full overflow-hidden rounded-[26px] border border-neutral-200/70 bg-white shadow-[0_1px_30px_rgba(0,0,0,0.06)] dark:bg-neutral-950">
                 <div className="px-5 pt-3 pb-0">
                   <p className="text-[11.5px] leading-5 text-neutral-500 dark:text-neutral-400">
                     企業価値分析から実行計画までを一気通貫で設計します。
@@ -124,7 +124,7 @@ export default function Home() {
                 </h3>
               </div>
 
-              <div className="h-full overflow-hidden rounded-[26px] border border-neutral-200/70 bg-white shadow-[0_1px_30px_rgba(0,0,0,0.06)] dark:border-neutral-800 dark:bg-neutral-950">
+              <div className="h-full overflow-hidden rounded-[26px] border border-neutral-200/70 bg-white shadow-[0_1px_30px_rgba(0,0,0,0.06)] dark:bg-neutral-950">
                 <div className="px-5 pt-3 pb-0">
                   <p className="text-[11.5px] leading-5 text-neutral-500 dark:text-neutral-400">
                     進捗と業績インパクトを可視化し、戦略を成果へつなげます。
@@ -147,7 +147,7 @@ export default function Home() {
         <div className="grid grid-cols-1 gap-4">
           {steps.map((item) => (
             <Link key={item.step} href={item.path} aria-label={item.title} className="group">
-              <div className="relative rounded-2xl border border-neutral-200/70 bg-white p-5 shadow-[0_1px_18px_rgba(0,0,0,0.05)] transition duration-200 hover:-translate-y-0.5 dark:border-neutral-800 dark:bg-neutral-950">
+              <div className="relative rounded-2xl border border-neutral-200/70 bg-white p-5 shadow-[0_1px_18px_rgba(0,0,0,0.05)] transition duration-200 hover:-translate-y-0.5 dark:bg-neutral-950">
                 <div className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-tr from-neutral-50 to-transparent opacity-0 transition-opacity group-hover:opacity-100 dark:from-neutral-900/40" />
                 <h3 className="text-[16px] font-semibold tracking-tight text-neutral-900 dark:text-white">
                   {item.title}

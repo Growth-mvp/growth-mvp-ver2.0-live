@@ -845,7 +845,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
     <div
       className={[
         'relative min-h-dvh overflow-hidden transition-[margin]',
-        'bg-white dark:bg-neutral-950',
+        'bg-white',
         '[--left-w:0] [--right-w:0]',
         // Sidebar 幅の段階化: lg:w-64 (16rem) → xl:w-72 (18rem) → 2xl:w-80 (20rem)
         'lg:[--left-w:16rem] lg:[--right-w:16rem]',
@@ -936,7 +936,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         ref={mainRef}
         className={[
           'absolute inset-0 overflow-y-auto overflow-x-hidden',
-          'bg-gradient-to-b from-white to-slate-50/60 dark:from-neutral-950 dark:to-neutral-950',
+          'bg-gradient-to-b from-white to-slate-50/60',
           'p-3 sm:p-4 md:p-6 lg:p-6 pb-[calc(2rem+env(safe-area-inset-bottom))]',
           'min-w-0',
         ].join(' ')}
