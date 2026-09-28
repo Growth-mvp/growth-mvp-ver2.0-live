@@ -847,22 +847,22 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         'relative min-h-dvh overflow-hidden transition-[margin]',
         'bg-white',
         '[--left-w:0] [--right-w:0]',
-        // Sidebar 幅の段階化: lg:w-64 (16rem) → xl:w-72 (18rem) → 2xl:w-80 (20rem)
-        'lg:[--left-w:16rem] lg:[--right-w:16rem]',
-        'xl:[--left-w:18rem] xl:[--right-w:16rem]',
-        '2xl:[--left-w:20rem] 2xl:[--right-w:18rem]',
+        // Sidebar 幅の段階化: xl以上で sidebar固定表示（iPad対応）
+        // iPad portrait/landscapeではdrawer方式を使用
+        'xl:[--left-w:16rem] xl:[--right-w:16rem]',
+        '2xl:[--left-w:18rem] 2xl:[--right-w:16rem]',
       ].join(' ')}
     >
       {/* 左サイドバー */}
       {!hideSidebar && (
         <>
-          <div className="hidden lg:block fixed left-0 top-0 z-10 h-dvh w-[var(--left-w)]">
+          <div className="hidden xl:block fixed left-0 top-0 z-10 h-dvh w-[var(--left-w)]">
             <Sidebar />
           </div>
 
           {/* モバイル左ドロワー */}
           <div
-            className={['lg:hidden fixed inset-0 z-40', openLeft ? 'pointer-events-auto' : 'pointer-events-none'].join(' ')}
+            className={['xl:hidden fixed inset-0 z-40', openLeft ? 'pointer-events-auto' : 'pointer-events-none'].join(' ')}
             aria-hidden={!openLeft}
           >
             <div
@@ -887,7 +887,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       {!hideSidebar && showCeoPanel && (
         <aside
           className={[
-            'hidden lg:flex fixed top-0 right-0 z-20 h-dvh',
+            'hidden xl:flex fixed top-0 right-0 z-20 h-dvh',
             'border-l border-black/5 bg-white/70 backdrop-blur-md supports-[backdrop-filter]:bg-white/60',
             'shadow-[0_0_24px_rgba(0,0,0,0.04)]',
             'flex-col box-border overflow-hidden',
@@ -903,10 +903,10 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         </aside>
       )}
 
-      {/* モバイル右ドロワー（lg以下用） */}
+      {/* モバイル右ドロワー（iPad対応） */}
       {!hideSidebar && !isLargeScreen && (
         <div
-          className={['lg:hidden fixed inset-0 z-40', ceoPanelOpen ? 'pointer-events-auto' : 'pointer-events-none'].join(' ')}
+          className={['xl:hidden fixed inset-0 z-40', ceoPanelOpen ? 'pointer-events-auto' : 'pointer-events-none'].join(' ')}
           aria-hidden={!ceoPanelOpen}
         >
           <div
@@ -950,7 +950,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
         }}
       >
         {!hideSidebar && (
-          <div className="lg:hidden sticky top-0 z-20 -mt-3 -mx-3 sm:-mx-4 md:-mx-6 mb-3 sm:mb-4 bg-white/70 backdrop-blur supports-[backdrop-filter]:bg-white/60 border-b border-black/5">
+          <div className="xl:hidden sticky top-0 z-20 -mt-3 -mx-3 sm:-mx-4 md:-mx-6 mb-3 sm:mb-4 bg-white/70 backdrop-blur supports-[backdrop-filter]:bg-white/60 border-b border-black/5">
             <div className="px-3 sm:px-4 md:px-6 py-2 flex items-center justify-between">
               <button
                 onClick={() => setOpenLeft(true)}
@@ -968,12 +968,12 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           </div>
         )}
 
-        {/* lg-xl 帯での右パネルトグルボタン（2xl では非表示） */}
+        {/* xl-2xl 帯での右パネルトグルボタン（2xl では非表示） */}
         {!hideSidebar && mounted && !isLargeScreen && (
           <button
             onClick={() => setCeoPanelOpen(!ceoPanelOpen)}
             className={[
-              'hidden lg:block 2xl:hidden fixed bottom-6 right-6 z-30',
+              'hidden xl:block 2xl:hidden fixed bottom-6 right-6 z-30',
               'rounded-xl h-10 px-4 flex items-center justify-center gap-2.5',
               'text-sm font-medium transition-all duration-200',
               'active:scale-95 focus:outline-none focus:ring-2 focus:ring-offset-2',
