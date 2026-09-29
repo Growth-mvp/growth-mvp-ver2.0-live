@@ -485,14 +485,35 @@ export async function POST(req: NextRequest) {
     const counterpartyType = firstText(payload.counterpartyType, payload.counterparty_type, 'unknown');
     const counterpartyDetail = firstText(payload.counterpartyDetail, payload.counterparty_detail);
     const visibilityMode = firstText(payload.visibilityMode, payload.visibility_mode, 'manager_only');
-    const strategyId = payload.strategyId;
+    let strategyId = payload.strategyId;
 
     if (!situationText || !myRecognitionText || !idealText || !expectationText) {
       return json({ error: '入力フィールドが不足しています。' }, 400);
     }
 
+    // ★ FIX: strategyId が null の場合、companyId から最新の strategy を取得
+    if (!strategyId && membership.companyId) {
+      try {
+        const { data: companyData, error: companyError } = await getFullStrategyDataByCompany(membership.companyId, admin);
+        if (!companyError && companyData) {
+          strategyId = companyData.id;
+          console.log('[org-alignment/generate] strategyId recovered from companyId:', {
+            companyId: membership.companyId,
+            strategyId,
+          });
+        } else {
+          console.warn('[org-alignment/generate] failed to recover strategyId from companyId:', {
+            companyId: membership.companyId,
+            error: companyError,
+          });
+        }
+      } catch (err: any) {
+        console.warn('[org-alignment/generate] error recovering strategyId:', err.message);
+      }
+    }
+
     if (!strategyId) {
-      return json({ error: '戦略IDが不足しています。' }, 400);
+      return json({ error: '戦略IDが不足しています。会社の戦略情報を確認してください。' }, 400);
     }
 
     const apiKey = cleanApiKey(process.env.OPENAI_API_KEY);
