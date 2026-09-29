@@ -26,6 +26,7 @@ import { buildStage1Insight } from '@/utils/insights/stage1Insight';
 import { detectAutoMode } from '@/lib/autoModeRouter';
 import { buildHelpSystemPrompt } from '@/lib/helpPrompt';
 import { pickRelevantKnowledge } from '@/lib/growthKnowledge';
+import { searchExternalFinancialData, buildExternalFinancialBlock } from '@/lib/externalFinancialSearch';
 // ★ Sprint 6A: Light RAG 統合
 import { getGrowthRagIndex } from '@/lib/rag/indexer';
 import { retrieveGrowthKnowledge } from '@/lib/rag/retriever';
@@ -451,6 +452,32 @@ export async function POST(req: Request) {
       has_valueAnalysis: hasValueAnalysis,
     });
 
+    // ★ 外部決算情報検索（業績質問の場合）
+    let externalFinancialBlock = '';
+    const isPerformanceQuestion = lastUser && /業績|決算|売上|利益|財務/.test(lastUser);
+    if (isPerformanceQuestion && strategy?.companyName) {
+      try {
+        const extData = await searchExternalFinancialData(strategy.companyName);
+        if (extData) {
+          externalFinancialBlock = buildExternalFinancialBlock(extData);
+          console.log('[ask-ceo-agent]', requestId, 'external_financial_search_success', {
+            companyName: strategy.companyName,
+            fiscalYear: extData.fiscalYear,
+            source: extData.source,
+          });
+        } else {
+          console.log('[ask-ceo-agent]', requestId, 'external_financial_search_no_data', {
+            companyName: strategy.companyName,
+          });
+        }
+      } catch (error) {
+        console.error('[ask-ceo-agent]', requestId, 'external_financial_search_error', {
+          error: String(error),
+          companyName: strategy.companyName,
+        });
+      }
+    }
+
     if (!strategy) {
       console.error('[ask-ceo-agent]', requestId, 'context_missing', {
         companyId: companyId.substring(0, 8),
@@ -655,7 +682,9 @@ export async function POST(req: Request) {
 
       systemBase =
         (shouldUseAgentPrompt
-          ? agentPrompt(strategy as any, answers2 as any, finalStory as any) + '\n' + extraBlock + '\n\n' + GROWTH_SHIFT_FOUNDATION
+          ? agentPrompt(strategy as any, answers2 as any, finalStory as any) +
+            (externalFinancialBlock ? '\n\n' + externalFinancialBlock : '') +
+            '\n' + extraBlock + '\n\n' + GROWTH_SHIFT_FOUNDATION
           : 'あなたは博識なアシスタントです。日本語で簡潔かつ正確に回答します。推測は推測と明記してください。\n\n' + GROWTH_SHIFT_FOUNDATION) +
         operationGuideBlock +
         '\n' +
