@@ -56,6 +56,24 @@ type RequestBody = {
   };
 };
 
+/* ========= 検索 API 統合用型 ========= */
+type SearchResult = {
+  operationId: string;
+  screen: string;
+  operationName: string;
+  description: string;
+  matchScore: number;
+  matchReasons: string[];
+  snippet: string;
+  permissions: string[];
+  savingMethod: string;
+  docReference: {
+    file: string;
+    startLine: number;
+    endLine: number;
+  };
+};
+
 /* ========= 禁則 ========= */
 const TABOO =
   '【回答禁止】個人情報・人事評価や人事異動の断定、株主・取締役の機微情報、具体的な法的助言、確証のない断定的表現には答えません。必要な場合は専門家相談を案内します。';
@@ -76,6 +94,56 @@ function normalizeMessages(msgs: Message[]) {
     .filter((m) => m.content.trim().length > 0)
   // モデルのコンテキスト圧迫を避けるため直近のみ
     .slice(-12);
+}
+
+/* ========= 操作質問判定 ========= */
+/**
+ * ユーザーの質問が「操作質問」かを判定
+ * 操作質問の特徴：
+ * - 「〜するには？」「〜はできますか？」「〜はどこ？」のような表現
+ * - 画面名を含む：「STAGE0」「ORG-TRANSFORMATION」など
+ * - 操作語を含む：「追加」「変更」「入力」「保存」「削除」「共有」「出力」など
+ */
+function isOperationQuestion(messages: Message[]): boolean {
+  const lastMessage = messages.slice().reverse().find((m) => m.role === 'user')?.content ?? '';
+
+  // パターンマッチング
+  const operationPatterns = [
+    // 操作に関する疑問詞・助詞
+    /するには|やるには|方法|手順|やり方|どこ|どれ|入力|変更|追加|削除|保存|出力|共有|確認|見る|できますか|はできますか|はどこ|はどれ/,
+    // 画面名
+    /STAGE\d|ORG.TRANSFORMATION|Report|レポート|ホーム|Home/i,
+    // 具体的な操作語
+    /クリック|ボタン|画面|表示|エラー|UI|開く|入力|編集|更新|消す|作成/,
+  ];
+
+  return operationPatterns.some(pattern => pattern.test(lastMessage));
+}
+
+/**
+ * 検索 API を呼び出して操作ガイド情報を取得
+ */
+async function searchOperationGuide(query: string, requestId: string): Promise<SearchResult[] | null> {
+  try {
+    // サーバー内で検索関数を直接利用
+    const { scoreAndRankOperations } = await import('@/lib/search/scoring');
+    const { getOperationIndex } = await import('@/lib/search/operationIndex');
+
+    const index = getOperationIndex();
+    const scored = scoreAndRankOperations(query, index.operations, {});
+    const results = scored.slice(0, 3); // 上位 3 件
+
+    console.log(`[ask-ceo-agent] ${requestId} search results`, {
+      query: query.substring(0, 50),
+      count: results.length,
+      scores: results.map((r: any) => r.score?.toFixed(2)).join(','),
+    });
+
+    return results.length > 0 ? results : null;
+  } catch (e: any) {
+    console.warn(`[ask-ceo-agent] ${requestId} search failed:`, e?.message || e);
+    return null;
+  }
 }
 
 /* ========= 操作マニュアル簡易応答 ========= */
@@ -366,11 +434,34 @@ export async function POST(req: Request) {
     }
     if (meta?.stage) intent = { stage: meta.stage, confidence: 0.99, reasons: ['forced'] };
 
+    // ★ 操作ガイド検索（操作質問の場合のみ）
+    let operationSearchResults: SearchResult[] | null = null;
+    let operationSearchUsed = false;
+    const lastUserMessage = (messages || [])
+      .slice()
+      .reverse()
+      .find((m) => m.role === 'user')?.content || '';
+
+    let isOperationQuestionDetected = false;
+    if (isOperationQuestion(messages)) {
+      isOperationQuestionDetected = true;
+      operationSearchResults = await searchOperationGuide(lastUserMessage, requestId);
+      if (operationSearchResults && operationSearchResults.length > 0) {
+        operationSearchUsed = true;
+        console.log(`[ask-ceo-agent] ${requestId} operation search used`, {
+          resultCount: operationSearchResults.length,
+        });
+      } else {
+        console.log(`[ask-ceo-agent] ${requestId} operation question detected but no results found`);
+      }
+    }
+
     // ★ Sprint 6A.1: system プロンプト構築（help/facilitator/advisor で分岐）
     // help モード時の注入順（UI創作防止）：
     // 1) buildHelpSystemPrompt（新規約：UI創作禁止、RAG優先）
     // 2) pickRelevantKnowledge（growthKnowledge から関連ナレッジ抽出）
     // 3) RAG 検索結果（buildRagContextBlock）
+    // 4) 操作ガイド検索結果（operationSearchResults）
     // → 規約を最上位に配置し、RAG根拠を優先させる
     let systemBase: string;
     let knowledgeIdsUsed: string[] = [];
@@ -397,21 +488,54 @@ export async function POST(req: Request) {
         console.error('[RAG] 検索エラー', err);
       }
 
-      // 注入順: 規約 → growthKnowledge → RAG検索結果 → 禁則
+      // 操作ガイド検索結果を注入（操作質問の場合）
+      let operationGuideBlock = '';
+      if (isOperationQuestionDetected) {
+        if (operationSearchUsed && operationSearchResults && operationSearchResults.length > 0) {
+          const guideItems = operationSearchResults
+            .map((r) => `- **${r.operationName}** (${r.screen}): ${r.description}`)
+            .join('\n');
+          operationGuideBlock =
+            '\n\n【参考：操作ガイド情報】\n以下の操作ガイド項目が関連しています。ユーザーの質問に対して、これらのガイド情報を参考にして、具体的で分かりやすい回答をしてください。\n' +
+            guideItems;
+        } else {
+          operationGuideBlock =
+            '\n\n【ご注意】ユーザーは操作方法についての質問をしています。しかし、確認できる操作ガイドがありません。推測や一般的な回答ではなく「申し訳ございませんが、その操作は確認できるガイドがありません」と返してください。';
+        }
+      }
+
+      // 注入順: 規約 → growthKnowledge → RAG検索結果 → 操作ガイド検索結果 → 禁則
       systemBase =
         buildHelpSystemPrompt({
           productName: 'GROWTH',
           relevantKnowledge,
         }) +
         ragContextBlock +
+        operationGuideBlock +
         '\n' +
         TABOO;
     } else {
       // advisor/facilitator モード: 既存ロジック（agent-based systemPrompt）
+      let operationGuideBlock = '';
+      if (isOperationQuestionDetected) {
+        if (operationSearchUsed && operationSearchResults && operationSearchResults.length > 0) {
+          const guideItems = operationSearchResults
+            .map((r) => `- **${r.operationName}** (${r.screen}): ${r.description}`)
+            .join('\n');
+          operationGuideBlock =
+            '\n\n【参考：操作ガイド情報】\n以下の操作ガイド項目が関連しています。必要に応じてこれらを参考にして回答してください。\n' +
+            guideItems;
+        } else {
+          operationGuideBlock =
+            '\n\n【ご注意】ユーザーは操作方法についての質問をしています。しかし、確認できる操作ガイドがありません。推測や一般的な回答ではなく「申し訳ございませんが、その操作は確認できるガイドがありません」と返してください。';
+        }
+      }
+
       systemBase =
         (intent.stage === 'generic'
           ? 'あなたは博識なアシスタントです。日本語で簡潔かつ正確に回答します。推測は推測と明記してください。'
           : agentPrompt(strategy as any, answers2 as any, finalStory as any) + '\n' + extraBlock) +
+        operationGuideBlock +
         '\n' +
         TABOO;
 
@@ -453,8 +577,9 @@ export async function POST(req: Request) {
 
     // --- OpenAI 呼び出し ---
     const openaiReq: any = {
-      model: 'gpt-4o',
-      temperature: 0.2,
+      model: 'gpt-5.6-luna',
+      reasoning_effort: 'low',
+      max_completion_tokens: 6000,
       messages: [{ role: 'system', content: systemBase }, ...normalizeMessages(messages)],
     };
 
@@ -584,10 +709,25 @@ export async function POST(req: Request) {
       response.knowledgeIdsUsed = knowledgeIdsUsed;
     }
 
+    // ★ 操作ガイド検索を使用したかを記録（debug/改善用）
+    if (operationSearchUsed && operationSearchResults) {
+      response.operationSearchUsed = true;
+      response.operationSearchCount = operationSearchResults.length;
+      response.operationSearchResults = operationSearchResults.map(r => ({
+        operationName: r.operationName,
+        screen: r.screen,
+        matchScore: r.matchScore,
+      }));
+    }
+
     // ★ Sprint 5.1: debug footer（NEXT_PUBLIC_DEBUG_AGENT=1 時のみ）
     // ★ Sprint 6A: RAG 情報を debug footer に追加
+    // ★ 操作ガイド検索情報を debug footer に追加
     if (process.env.NEXT_PUBLIC_DEBUG_AGENT === '1') {
-      const debugFooter = `\n\n[debug] mode=${resolvedMode} knowledge=${knowledgeIdsUsed?.join(',') || '-'} reasons=${autoModeResult?.reasons?.join('|') || '-'}${ragResultDebug ? ' ' + ragResultDebug : ''}`;
+      const operationSearchInfo = operationSearchUsed
+        ? ` operationSearch=${operationSearchResults?.length || 0}`
+        : '';
+      const debugFooter = `\n\n[debug] mode=${resolvedMode} knowledge=${knowledgeIdsUsed?.join(',') || '-'} reasons=${autoModeResult?.reasons?.join('|') || '-'}${ragResultDebug ? ' ' + ragResultDebug : ''}${operationSearchInfo}`;
       response.content += debugFooter;
     }
 
