@@ -3,13 +3,14 @@
 ## OpenAI API（現在のモデル：gpt-5.6-luna）
 
 ### 対応状況
-- **Web 検索**: ❌ 非対応
-- **理由**: 推論モデル（gpt-5.6-luna）は Web アクセス機能なし
-- **ChatGPT Web Search**: API 未公開（ブラウザ版のみ）
+- **Web 検索**: OpenAI Responses API には Web 検索機能がある
+- **現在の実装方式での利用可否**: 要確認
+  - 現在：chat.completions.create で呼び出し
+  - モデル：gpt-5.6-luna
+  - この組み合わせで Web 検索が利用可能か確認が必要
 
 ### 実装方法
-- OpenAI API 単体では Web 検索不可
-- 外部検索 API が必須
+- 確認が必要なため、現在は外部検索 API（Tavily）で代替
 
 ---
 

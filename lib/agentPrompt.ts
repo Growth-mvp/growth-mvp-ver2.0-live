@@ -145,6 +145,50 @@ function buildValueAnalysisBlock(valueAnalysis: any = {}): string {
   return lines.length > 1 ? lines.join('\n') : '';
 }
 
+function buildExternalFinancialBlock(extData: any = {}): string {
+  if (!extData || typeof extData !== 'object') {
+    return '';
+  }
+
+  const lines: string[] = ['【外部決算情報（Web検索）】'];
+
+  if (extData.companyName) {
+    lines.push(`企業: ${extData.companyName}`);
+  }
+
+  if (extData.fiscalYear) {
+    lines.push(`決算期: ${extData.fiscalYear}`);
+  }
+
+  if (extData.disclosureDate) {
+    lines.push(`開示日: ${extData.disclosureDate}`);
+  }
+
+  if (extData.revenue !== undefined && extData.revenue !== null) {
+    lines.push(`売上: ${formatAmount(extData.revenue)}`);
+  }
+
+  if (extData.operatingIncome !== undefined && extData.operatingIncome !== null) {
+    lines.push(`営業利益: ${formatAmount(extData.operatingIncome)}`);
+  }
+
+  if (extData.netIncome !== undefined && extData.netIncome !== null) {
+    lines.push(`当期純利益: ${formatAmount(extData.netIncome)}`);
+  }
+
+  if (extData.documentUrl) {
+    lines.push(`資料URL: ${extData.documentUrl}`);
+  }
+
+  if (extData.sourceLabel) {
+    lines.push(`出所: ${extData.sourceLabel}`);
+  }
+
+  return lines.length > 1 ? lines.join('\n') : '';
+}
+
+export { buildExternalFinancialBlock };
+
 export function summarizeAnswers2(a2: ChapterAnswers[] = []) {
   return a2.map((c) => ({
     chapterIndex: c.chapterIndex,

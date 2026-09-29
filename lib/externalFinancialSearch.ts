@@ -1,133 +1,106 @@
 /**
  * 外部決算情報検索
- * 公開企業の最新決算情報を取得
- * Tavily Search API で決算資料を検索
+ * OpenAI Responses API を使用した Web 検索
+ * 公開企業の決算資料URL と情報を取得
  */
+
+import { OpenAI } from 'openai';
 
 export interface ExternalFinancialData {
   companyName: string;
   fiscalYear?: string;      // 決算期（例：2024年3月期）
-  fiscalEndDate?: string;   // 決算日（例：2024-03-31）
   disclosureDate?: string;  // 開示日（例：2024-05-15）
   documentUrl?: string;     // 決算資料URL
+  irPageUrl?: string;       // IR トップページ URL
   revenue?: number;         // 売上高（円）
   operatingIncome?: number; // 営業利益（円）
   netIncome?: number;       // 当期純利益（円）
-  source: 'tavily' | 'edinet' | 'company_ir' | 'web_search' | 'mock' | 'none';
-  sourceLabel: string;      // 出所表記（例：「日本製罐 2024年3月期決算説明資料」）
+  source: 'openai_responses' | 'edinet' | 'company_ir' | 'none';
+  sourceLabel: string;      // 出所表記
 }
 
 /**
- * Tavily Search API で決算情報を検索
+ * OpenAI Responses API で決算資料を検索
+ * 最小限の情報（企業名）のみを使用
  */
-async function searchWithTavily(companyName: string): Promise<ExternalFinancialData | null> {
-  const apiKey = process.env.TAVILY_API_KEY;
+async function searchWithResponsesAPI(companyName: string): Promise<ExternalFinancialData | null> {
+  const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    console.log('[externalFinancialSearch] TAVILY_API_KEY not set, skipping Tavily search');
+    console.log('[externalFinancialSearch] OPENAI_API_KEY not set');
     return null;
   }
 
   try {
-    console.log('[externalFinancialSearch] Searching Tavily for:', companyName);
+    console.log('[externalFinancialSearch] Searching with OpenAI Responses API for:', companyName);
 
-    // Tavily API を呼び出し（決算資料を検索）
-    const query = `${companyName} 決算説明資料 決算短信 フィリング site:edinet-fsa.go.jp OR site:ir.co.jp OR site:investors`;
+    const openai = new OpenAI({ apiKey });
 
-    const response = await fetch('https://api.tavily.com/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        api_key: apiKey,
-        query: query,
-        include_answer: true,
-        max_results: 5,
-      }),
+    // ★ 最小限の検索クエリ：企業名のみ
+    const searchQuery = `${companyName} 決算説明資料`;
+
+    const response = await openai.responses.create({
+      model: 'gpt-4o',
+      tools: [{ type: 'web_search' }],
+      input: searchQuery,
     });
 
-    if (!response.ok) {
-      console.error('[externalFinancialSearch] Tavily API error:', response.status);
+    console.log('[externalFinancialSearch] Responses API status:', {
+      status: (response as any).status,
+      completed: (response as any).completed_at ? true : false,
+    });
+
+    if ((response as any).status !== 'completed') {
+      console.log('[externalFinancialSearch] Search not completed');
       return null;
     }
 
-    const result = await response.json();
-    console.log('[externalFinancialSearch] Tavily results:', {
-      query,
-      resultCount: result.results?.length || 0,
-    });
-
-    // 検索結果から決算資料を抽出（フィルタリング）
-    if (!result.results || result.results.length === 0) {
-      console.log('[externalFinancialSearch] No Tavily results found');
+    // レスポンスから URL を抽出
+    const output = (response as any).output;
+    if (!output || output.length === 0) {
+      console.log('[externalFinancialSearch] No output from Responses API');
       return null;
     }
 
-    // ★ フィルタリング：会社名・決算期・発行元の一致を確認
-    for (const res of result.results) {
-      const title = (res.title || '') + (res.content || '');
+    const outputText = output[0]?.text || '';
+    console.log('[externalFinancialSearch] Search result preview:', outputText.slice(0, 200));
 
-      // 会社名が含まれているか確認
-      if (!title.includes(companyName) && !title.includes('日本製罐')) {
-        console.log('[externalFinancialSearch] Skipping result: company name mismatch');
-        continue;
-      }
+    // URL を抽出（IR ページと決算資料）
+    const urlRegex = /https?:\/\/[^\s"\n））》」、。，，；：）]+/g;
+    const urls = outputText.match(urlRegex) || [];
 
-      // 決算期を抽出（例：「2024年3月期」「2024/3期」）
-      const fiscalYearMatch = title.match(/(\d{4})\s*年\s*(\d{1,2})\s*月\s*期|(\d{4})\/(\d{1,2})期/);
-      if (!fiscalYearMatch) {
-        console.log('[externalFinancialSearch] Skipping result: fiscal year not found');
-        continue;
-      }
-
-      // 開示日を抽出（例：「2024年5月15日」「2024-05-15」）
-      const disclosureDateMatch = title.match(/(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日|(\d{4})-(\d{2})-(\d{2})/);
-      if (!disclosureDateMatch) {
-        console.log('[externalFinancialSearch] Skipping result: disclosure date not found');
-        continue;
-      }
-
-      // 決算資料と思われるキーワードの確認
-      if (!/(決算説明資料|決算短信|決算報告書|決算公告|フィリング|決算|earnings|financial results)/i.test(title)) {
-        console.log('[externalFinancialSearch] Skipping result: not financial document');
-        continue;
-      }
-
-      // フィルタを通過した結果を採用
-      const fiscalYear = fiscalYearMatch[1] ?
-        `${fiscalYearMatch[1]}年${fiscalYearMatch[2]}月期` :
-        `${fiscalYearMatch[3]}/${fiscalYearMatch[4]}期`;
-
-      const disclosureDate = disclosureDateMatch[1] ?
-        `${disclosureDateMatch[1]}-${disclosureDateMatch[2].padStart(2, '0')}-${disclosureDateMatch[3].padStart(2, '0')}` :
-        `${disclosureDateMatch[4]}-${disclosureDateMatch[5]}-${disclosureDateMatch[6]}`;
-
-      console.log('[externalFinancialSearch] Found valid result', {
-        companyName,
-        fiscalYear,
-        disclosureDate,
-        url: res.url,
-      });
-
-      return {
-        companyName,
-        fiscalYear,
-        disclosureDate,
-        documentUrl: res.url,
-        sourceLabel: `${companyName} ${fiscalYear}決算説明資料（開示日：${disclosureDate}）`,
-        source: 'tavily',
-      };
+    if (urls.length === 0) {
+      console.log('[externalFinancialSearch] No URLs found in response');
+      return null;
     }
 
-    console.log('[externalFinancialSearch] No valid results after filtering');
-    return null;
+    console.log('[externalFinancialSearch] Found URLs:', urls.slice(0, 3));
+
+    // IR ページを優先、次に決算資料を検索
+    const irPageUrl = urls.find(url => url.includes('ir.') || url.includes('/ir/'));
+    const decisanUrl = urls.find(url => url.includes('pdf') || url.includes('決算'));
+    const primaryUrl = decisanUrl || irPageUrl;
+
+    if (!primaryUrl) {
+      console.log('[externalFinancialSearch] No suitable URL found');
+      return null;
+    }
+
+    return {
+      companyName,
+      documentUrl: primaryUrl,
+      irPageUrl: irPageUrl,
+      sourceLabel: `${companyName} 決算資料（Web検索）`,
+      source: 'openai_responses',
+    };
   } catch (error) {
-    console.error('[externalFinancialSearch] Tavily search error:', error);
+    console.error('[externalFinancialSearch] Responses API error:', error);
     return null;
   }
 }
 
 /**
  * 外部決算情報を検索
- * Tavily API で公開決算資料を検索
+ * OpenAI Responses API で決算資料 URL を取得
  */
 export async function searchExternalFinancialData(
   companyName: string,
@@ -135,65 +108,17 @@ export async function searchExternalFinancialData(
   try {
     console.log('[externalFinancialSearch] Searching for:', companyName);
 
-    // ★ Tavily API で検索（TAVILY_API_KEY 設定時）
-    const tavilyResult = await searchWithTavily(companyName);
-    if (tavilyResult) {
-      return tavilyResult;
+    // ★ OpenAI Responses API で検索
+    const result = await searchWithResponsesAPI(companyName);
+    if (result) {
+      return result;
     }
 
-    // Tavily が利用不可の場合は null を返す（STAGE1 登録データのみ使用）
+    // 検索失敗時は null を返す（STAGE1 登録データのみ使用）
     console.log('[externalFinancialSearch] No external data found');
     return null;
   } catch (error) {
     console.error('[externalFinancialSearch] Error:', error);
     return null;
   }
-}
-
-/**
- * 外部財務データをプロンプト用ブロックにフォーマット
- */
-export function buildExternalFinancialBlock(extData: ExternalFinancialData): string {
-  const lines: string[] = ['【外部決算情報（最新取得）】'];
-
-  if (extData.fiscalYear) {
-    lines.push(`決算期：${extData.fiscalYear}`);
-  }
-  if (extData.disclosureDate) {
-    lines.push(`開示日：${extData.disclosureDate}`);
-  }
-  if (extData.documentUrl) {
-    lines.push(`資料：${extData.documentUrl}`);
-  }
-
-  const financialLines: string[] = [];
-  if (extData.revenue !== undefined) {
-    financialLines.push(`売上高：${formatExternalAmount(extData.revenue)}`);
-  }
-  if (extData.operatingIncome !== undefined) {
-    financialLines.push(`営業利益：${formatExternalAmount(extData.operatingIncome)}`);
-  }
-  if (extData.netIncome !== undefined) {
-    financialLines.push(`当期純利益：${formatExternalAmount(extData.netIncome)}`);
-  }
-
-  if (financialLines.length > 0) {
-    lines.push('財務数値：');
-    lines.push(...financialLines.map((l) => `  ${l}`));
-  }
-
-  if (extData.sourceLabel) {
-    lines.push(`出所：${extData.sourceLabel}`);
-  }
-
-  return lines.join('\n');
-}
-
-function formatExternalAmount(n: number): string {
-  if (n === 0) return '0円';
-  const absN = Math.abs(n);
-  if (absN >= 1_000_000_000) return `${(n / 1_000_000_000).toLocaleString('ja-JP', { maximumFractionDigits: 1 })}十億円`;
-  if (absN >= 1_000_000) return `${(n / 1_000_000).toLocaleString('ja-JP', { maximumFractionDigits: 1 })}百万円`;
-  if (absN >= 1_000) return `${(n / 1_000).toLocaleString('ja-JP', { maximumFractionDigits: 0 })}千円`;
-  return `${n}円`;
 }
