@@ -1,49 +1,14 @@
-調査結果は概ね問題ありませんが、1点だけ仕様を修正します。
-
-STAGE3のSource of Truthは、
-
-finalStoryFinal のみ
-
-としてください。
-
-今回決めた正式フローは、
-
-AI生成
-→ 経営層が編集
-→ 経営として確定
-→ 確定版をSTAGE3へ展開
-
-です。
-
-したがってSTAGE3で、
-
-finalStoryEdited
-finalStoryDraft
-
-を通常のfallbackとして戦略生成・Strategy BridgeのSourceとして利用しないでください。
-
-finalStoryFinal が存在しない場合は、
-
-「STAGE2で『経営の意図』を確定してください」
-
-と案内し、STAGE3の戦略生成を実行できない状態にしてください。
-
-ただし、
-
-DB field名変更
-大規模リファクタリング
-既存データ削除
-
-は不要です。
-
-既存の互換fallbackが表示専用など別目的で必要なら、それが戦略生成のSourceにならないよう分離してください。
-
-修正後、
-
-Finalあり → STAGE3正常
-Finalなし・Editedあり → STAGE3生成不可
-Finalなし・Draftあり → STAGE3生成不可
-
-を確認してください。
-
-Build / TypeScript成功後、このSTAGE2→3接続を完了扱いにします。
+[{
+	"resource": "/C:/dev/growth-mvp-ver2.0/app/api/ask-ceo-agent/route.ts",
+	"owner": "typescript",
+	"code": "2345",
+	"severity": 8,
+	"message": "型 '{}' の引数を型 'number' のパラメーターに割り当てることはできません。",
+	"source": "ts",
+	"startLineNumber": 159,
+	"startColumn": 62,
+	"endLineNumber": 159,
+	"endColumn": 64,
+	"modelVersionId": 8,
+	"origin": "extHost1"
+}]

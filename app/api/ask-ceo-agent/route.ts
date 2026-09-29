@@ -452,6 +452,9 @@ export async function POST(req: Request) {
       has_valueAnalysis: hasValueAnalysis,
     });
 
+    // ★ lastUser の定義（外部検索の前に必要）
+    const lastUser = (messages || []).slice().reverse().find((m) => m.role === 'user')?.content || '';
+
     // ★ 外部決算情報検索（業績質問の場合）
     let externalFinancialBlock = '';
     const isPerformanceQuestion = lastUser && /業績|決算|売上|利益|財務/.test(lastUser);
@@ -492,8 +495,6 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-
-    const lastUser = (messages || []).slice().reverse().find((m) => m.role === 'user')?.content || '';
 
     // ★ Sprint 4: mode 解決ロジック（優先順位：明示指定 > auto判定）
     let resolvedMode: 'facilitator' | 'help' | 'advisor' = 'advisor';
