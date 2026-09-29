@@ -8,7 +8,7 @@ function makeRequestId() {
   return globalThis.crypto?.randomUUID?.() ?? `req_${Date.now()}`;
 }
 import { openai } from '@/lib/openai';
-import { getFullStrategyDataByCompany, getFullStrategyDataByStrategyId } from '@/utils/supabase/strategy';
+import { getFullStrategyDataByStrategyId } from '@/utils/supabase/strategy';
 import { normalizeStrategyData } from '@/utils/supabase/normalize';
 import { logInputGuard, checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
 import agentPrompt from '@/lib/agentPrompt';
@@ -18,7 +18,6 @@ import {
   classifyHeuristic,
   classifyLLM,
   chooseBetter,
-  includesAny,
   type IntentResult,
 } from '@/lib/intentRouter';
 import { buildFacilitatorBlock } from '@/lib/facilitatorProtocol';
@@ -28,7 +27,7 @@ import { detectAutoMode } from '@/lib/autoModeRouter';
 import { buildHelpSystemPrompt } from '@/lib/helpPrompt';
 import { pickRelevantKnowledge } from '@/lib/growthKnowledge';
 // ★ Sprint 6A: Light RAG 統合
-import { getGrowthRagIndex, clearRagCache } from '@/lib/rag/indexer';
+import { getGrowthRagIndex } from '@/lib/rag/indexer';
 import { retrieveGrowthKnowledge } from '@/lib/rag/retriever';
 import { buildRagContextBlock, buildRagDebugFooter } from '@/lib/rag/prompt';
 import type { StrategyData } from '@/types/strategy';
@@ -154,14 +153,13 @@ async function searchOperationGuide(query: string, requestId: string): Promise<S
   try {
     // サーバー内で検索関数を直接利用
     const { scoreAndRankOperations } = await import('@/lib/search/scoring');
-    const { getOperationIndex } = await import('@/lib/search/operationIndex');
+    const { getAllOperations } = await import('@/lib/search/operationIndex');
 
-    const index = getOperationIndex();
-    const scored = scoreAndRankOperations(query, index.operations, {});
+    const operations = await getAllOperations();
+    const scored = scoreAndRankOperations(operations, query, 5);
     const results = scored.slice(0, 3); // 上位 3 件
 
     console.log(`[ask-ceo-agent] ${requestId} search results`, {
-      query: query.substring(0, 50),
       count: results.length,
       scores: results.map((r: any) => r.score?.toFixed(2)).join(','),
     });
@@ -408,13 +406,24 @@ export async function POST(req: Request) {
       supabaseAdmin: admin,
     });
 
-    // ★ TASK 3: 取得結果のログ
+    // ★ TASK 3: 取得結果のログ + STAGE1 データ流路の追跡
+    const hasFinanceSummary = Array.isArray((strategy as any)?.financeSummary);
+    const financeSummaryCount = hasFinanceSummary ? (strategy as any).financeSummary.length : 0;
+    const hasValueAnalysis = !!(strategy as any)?.valueAnalysis && typeof (strategy as any).valueAnalysis === 'object';
+
     console.log('[ask-ceo-agent]', requestId, 'strategy_context_result', {
       strategy_exists: !!strategy,
       strategy_keys: strategy ? Object.keys(strategy).slice(0, 10) : null,
       has_answers2: !!answers2 && Array.isArray(answers2) && answers2.length > 0,
       has_finalStory: !!finalStory && Array.isArray(finalStory) && finalStory.length > 0,
       extraBlock_len: extraBlock ? extraBlock.length : 0,
+    });
+
+    // ① 検査: financeSummary の存在確認
+    console.log('[ask-ceo-agent]', requestId, '①_STAGE1_data_check', {
+      has_financeSummary: hasFinanceSummary,
+      financeSummary_count: financeSummaryCount,
+      has_valueAnalysis: hasValueAnalysis,
     });
 
     if (!strategy) {
@@ -493,6 +502,7 @@ export async function POST(req: Request) {
     let systemBase: string;
     let knowledgeIdsUsed: string[] = [];
     let ragResultDebug = '';
+    let ragContextBlock = '';
 
     if (resolvedMode === 'help') {
       // help モード: 関連ナレッジを取得（growthKnowledge）
@@ -500,7 +510,6 @@ export async function POST(req: Request) {
       knowledgeIdsUsed = relevantKnowledge.map((k) => k.id);
 
       // RAG 検索を実行（help モードのみ）→ RAG根拠を優先
-      let ragContextBlock = '';
       try {
         const ragIndex = getGrowthRagIndex();
         const ragResult = retrieveGrowthKnowledge(lastUser, ragIndex, 4);
@@ -559,10 +568,50 @@ export async function POST(req: Request) {
         }
       }
 
+      // ③ 検査: どの経路が選ばれるか + 企業データ参照の判定
+      const isGenericStage = intent.stage === 'generic';
+
+      // 企業名をノーマライズ（「株式会社」削除、スペース削除等）
+      const normalizeCompanyName = (name: string): string => {
+        return name
+          .replace(/^[\(（]株[\)）]?/, '') // (株) / （株）削除
+          .replace(/^株式会社\s*/, '') // 株式会社 削除
+          .replace(/\s+/g, '') // スペース削除
+          .toLowerCase();
+      };
+
+      const companyName = (strategy as any)?.companyName || '';
+      const normalizedCompanyName = normalizeCompanyName(companyName);
+      const normalizedQuery = normalizeCompanyName(lastUser);
+
+      // 質問が「当社」「弊社」を含むか、または企業名を含むかを判定
+      const hasPronouns = /当社|弊社|うちの|うちは/.test(lastUser);
+      const hasCompanyName = normalizedCompanyName && normalizedQuery.includes(normalizedCompanyName);
+
+      // 他社名を明示した質問かを検出（「Appleの」「日本製罐の」など）
+      const explicitOtherCompanyPattern = /([^当弊][^\s】】]*?(?:の|について|はどう))/;
+      const hasExplicitOtherCompany = explicitOtherCompanyPattern.test(lastUser) && !hasCompanyName && !hasPronouns;
+
+      // 選択中企業のデータを使用すべきか判定
+      const isAboutSelectedCompany = hasPronouns || hasCompanyName;
+
+      // generic でも、選択中企業に関する質問ならば agentPrompt を使用
+      const shouldUseAgentPrompt = !isGenericStage || (isAboutSelectedCompany && !hasExplicitOtherCompany);
+
+      console.log('[ask-ceo-agent]', requestId, '③_system_prompt_route', {
+        intent_stage: intent.stage,
+        using_agent_prompt: shouldUseAgentPrompt,
+        using_generic_response: !shouldUseAgentPrompt,
+        is_about_selected_company: isAboutSelectedCompany,
+        has_pronouns: hasPronouns,
+        has_company_name: hasCompanyName,
+        has_explicit_other_company: hasExplicitOtherCompany,
+      });
+
       systemBase =
-        (intent.stage === 'generic'
-          ? 'あなたは博識なアシスタントです。日本語で簡潔かつ正確に回答します。推測は推測と明記してください。\n\n' + GROWTH_SHIFT_FOUNDATION
-          : agentPrompt(strategy as any, answers2 as any, finalStory as any) + '\n' + extraBlock + '\n\n' + GROWTH_SHIFT_FOUNDATION) +
+        (shouldUseAgentPrompt
+          ? agentPrompt(strategy as any, answers2 as any, finalStory as any) + '\n' + extraBlock + '\n\n' + GROWTH_SHIFT_FOUNDATION
+          : 'あなたは博識なアシスタントです。日本語で簡潔かつ正確に回答します。推測は推測と明記してください。\n\n' + GROWTH_SHIFT_FOUNDATION) +
         operationGuideBlock +
         '\n' +
         TABOO;
@@ -665,6 +714,16 @@ export async function POST(req: Request) {
       });
     }
 
+    // ④ 検査: 最終プロンプトに財務サマリが含まれるか
+    const hasFinanceSummaryInPrompt = systemBase.includes('【STAGE1 財務サマリ');
+    const hasValueAnalysisInPrompt = systemBase.includes('【STAGE1 5指標分析');
+
+    console.log('[ask-ceo-agent]', requestId, '④_final_prompt_check', {
+      has_finance_summary_block: hasFinanceSummaryInPrompt,
+      has_value_analysis_block: hasValueAnalysisInPrompt,
+      system_prompt_length: systemBase.length,
+    });
+
     // ★ 一時的な診断: OpenAI呼び出し前ログ
     console.log('[ask-ceo-agent]', requestId, 'BEFORE_OPENAI', {
       model: openaiReq.model,
@@ -694,18 +753,9 @@ export async function POST(req: Request) {
 
     console.log('[ask-ceo-agent]', requestId, 'AFTER_OPENAI_SUCCESS');
 
-    // --- 操作系ならガイドを短く添える ---
-    let manualBlock = '';
-    const isLikelyManual =
-      /どこ|どうやって|手順|クリック|開く|入力|保存|画面|表示されない|エラー|UI|ボタン/i.test(lastUser) ||
-      includesAny(lastUser, ['MVV', 'SWOT', 'OKR', '/cascade', '/story']);
-    if (intent.stage === 'manual' || isLikelyManual) {
-      manualBlock = '\n\n' + answerManual(messages);
-    }
-
     // ★ LLM応答を取得（JSON出力時も含む）
     const rawContent = (detailed.choices[0]?.message?.content || '応答の取得に失敗しました。').trim();
-    const content = rawContent + manualBlock;
+    const content = rawContent;
 
     // ★ meta.output === 'json' のときだけJSON解析 & 検証
     let structured: boolean | undefined = undefined;
