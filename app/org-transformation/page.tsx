@@ -150,6 +150,14 @@ export default function OrgTransformationPage() {
     setIntakeDraft({}); // reset draft
     setIntakeComplete(false); // reset completion flag
 
+    // ★ DEBUG: strategyId の状態をログ出力
+    console.log('[org-transformation] form submit - strategyId check:', {
+      currentStrategyId,
+      companyId: currentCompanyId,
+      userId: currentUserId,
+      timestamp: new Date().toISOString(),
+    });
+
     try {
       // Get Supabase auth session
       const {
