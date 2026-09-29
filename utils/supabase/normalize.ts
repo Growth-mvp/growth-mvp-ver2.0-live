@@ -1101,6 +1101,8 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     ...(businessSegments !== undefined ? { businessSegments } : {}),
     ...(businessPortfolio !== undefined ? { businessPortfolio } : {}),
     ...(financeSummary !== undefined ? { financeSummary } : {}),
+    ...(src.valueAnalysis !== undefined ? { valueAnalysis: src.valueAnalysis } : {}),
+    ...(src.segmentValueAnalysis !== undefined ? { segmentValueAnalysis: src.segmentValueAnalysis } : {}),
 
     notification: typeof src.notification === 'string' ? src.notification : undefined,
     role: src.role,

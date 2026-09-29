@@ -574,29 +574,36 @@ export async function POST(req: Request) {
       // 企業名をノーマライズ（「株式会社」削除、スペース削除等）
       const normalizeCompanyName = (name: string): string => {
         return name
-          .replace(/^[\(（]株[\)）]?/, '') // (株) / （株）削除
-          .replace(/^株式会社\s*/, '') // 株式会社 削除
+          .replace(/^[\(（]株[\)）]\s*/, '') // (株) / （株）削除
+          .replace(/[\(（]株[\)）]\s*$/, '') // 末尾の(株)削除
+          .replace(/^株式会社\s*/, '') // 前置の株式会社削除
+          .replace(/\s*株式会社$/, '') // 末尾の株式会社削除
           .replace(/\s+/g, '') // スペース削除
           .toLowerCase();
       };
 
       const companyName = (strategy as any)?.companyName || '';
       const normalizedCompanyName = normalizeCompanyName(companyName);
-      const normalizedQuery = normalizeCompanyName(lastUser);
 
-      // 質問が「当社」「弊社」を含むか、または企業名を含むかを判定
+      // 質問が「当社」「弊社」を含むか判定
       const hasPronouns = /当社|弊社|うちの|うちは/.test(lastUser);
-      const hasCompanyName = normalizedCompanyName && normalizedQuery.includes(normalizedCompanyName);
 
-      // 他社名を明示した質問かを検出（「Appleの」「日本製罐の」など）
-      const explicitOtherCompanyPattern = /([^当弊][^\s】】]*?(?:の|について|はどう))/;
-      const hasExplicitOtherCompany = explicitOtherCompanyPattern.test(lastUser) && !hasCompanyName && !hasPronouns;
+      // 企業名を含むかを判定（企業名を正規化した上で、質問に含まれるか）
+      const hasCompanyName = normalizedCompanyName && lastUser.includes(companyName);
 
-      // 選択中企業のデータを使用すべきか判定
-      const isAboutSelectedCompany = hasPronouns || hasCompanyName;
+      // 企業名が正規化後のパターンでマッチするか（例：「株式会社日本製罐」→「日本製罐」）
+      const hasNormalizedCompanyName = normalizedCompanyName &&
+        lastUser.replace(/\s+/g, '').toLowerCase().includes(normalizedCompanyName);
+
+      // 選択中企業のデータを使用すべきか判定（企業名の表記ゆれに対応）
+      const isAboutSelectedCompany = hasPronouns || hasCompanyName || hasNormalizedCompanyName;
+
+      // 他社名を明示した質問かを検出
+      // 選択中企業に関する質問の場合は、他社明示と判定しない
+      const hasExplicitOtherCompany = !isAboutSelectedCompany && /\w+の[^を]*?は|外部|競合|他社/.test(lastUser);
 
       // generic でも、選択中企業に関する質問ならば agentPrompt を使用
-      const shouldUseAgentPrompt = !isGenericStage || (isAboutSelectedCompany && !hasExplicitOtherCompany);
+      const shouldUseAgentPrompt = !isGenericStage || isAboutSelectedCompany;
 
       console.log('[ask-ceo-agent]', requestId, '③_system_prompt_route', {
         intent_stage: intent.stage,
