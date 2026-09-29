@@ -265,7 +265,32 @@ async function fetchStrategyContext(args: { companyId: string; strategyId: strin
     // ★ アプローチ1: server-side admin client を明示的に渡す
     const { data: sRow, error } = await getFullStrategyDataByStrategyId(strategyId, companyId, supabaseAdmin);
     if (error) console.warn('[ask-ceo-agent] getFullStrategyDataByStrategyId error:', error?.message || error);
-    strategy = sRow ? (normalizeStrategyData(sRow as Partial<StrategyData>) as StrategyData) : null;
+
+    // ★ デバッグ: normalizeStrategyData 前後の比較
+    if (sRow) {
+      const beforeNormalize = {
+        has_financeSummary: Array.isArray((sRow as any)?.financeSummary),
+        financeSummary_count: Array.isArray((sRow as any)?.financeSummary) ? (sRow as any).financeSummary.length : 0,
+        has_financePL: Array.isArray((sRow as any)?.financePL),
+        financePL_count: Array.isArray((sRow as any)?.financePL) ? (sRow as any).financePL.length : 0,
+      };
+
+      strategy = normalizeStrategyData(sRow as Partial<StrategyData>) as StrategyData;
+
+      const afterNormalize = {
+        has_financeSummary: Array.isArray((strategy as any)?.financeSummary),
+        financeSummary_count: Array.isArray((strategy as any)?.financeSummary) ? (strategy as any).financeSummary.length : 0,
+        has_financePL: Array.isArray((strategy as any)?.financePL),
+        financePL_count: Array.isArray((strategy as any)?.financePL) ? (strategy as any).financePL.length : 0,
+      };
+
+      console.log('[fetchStrategyContext] normalize before/after', {
+        before: beforeNormalize,
+        after: afterNormalize,
+      });
+    } else {
+      strategy = null;
+    }
   } catch (e: any) {
     console.warn('[ask-ceo-agent] strategy load exception:', e?.message || e);
     strategy = null;
