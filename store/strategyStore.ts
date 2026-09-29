@@ -4150,6 +4150,7 @@ export const useStrategyStore = create<StrategyState>()(
               status: (error as any)?.status,
               message: (error as any)?.message,
               details: (error as any)?.details,
+              error_full: error,  // 元のエラーオブジェクト全体をログに含める
             });
           } else if (data) {
             if (DEBUG) {

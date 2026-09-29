@@ -17,6 +17,8 @@ import type {
 } from '@/types/strategy';
 import { ensureDepartmentId, ensureProjectId } from './stableIdGenerator';
 
+const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
+
 /** GROWTH 固定タイトル（章タイトルはUIで固定表示） */
 const GROWTH_TITLES = [
   '第1章：なぜ今（現状の危機と背景）',
