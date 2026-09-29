@@ -615,6 +615,19 @@ export async function POST(req: Request) {
         has_explicit_other_company: hasExplicitOtherCompany,
       });
 
+      // ④-2 検査: agentPrompt 呼び出し前に financeSummary を確認
+      if (shouldUseAgentPrompt) {
+        const fsArray = Array.isArray((strategy as any)?.financeSummary);
+        const fsCount = fsArray ? (strategy as any).financeSummary.length : 0;
+        const fsFirstKeys = fsCount > 0 ? Object.keys((strategy as any).financeSummary[0] || {}).slice(0, 5) : [];
+        console.log('[ask-ceo-agent]', requestId, '④-2_before_agentPrompt', {
+          finance_summary_is_array: fsArray,
+          finance_summary_count: fsCount,
+          finance_summary_first_keys: fsFirstKeys,
+          will_call_agentPrompt: true,
+        });
+      }
+
       systemBase =
         (shouldUseAgentPrompt
           ? agentPrompt(strategy as any, answers2 as any, finalStory as any) + '\n' + extraBlock + '\n\n' + GROWTH_SHIFT_FOUNDATION

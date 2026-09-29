@@ -22,7 +22,17 @@ function formatAmount(n: number | undefined | null): string {
 }
 
 function buildFinanceSummaryBlock(financeSummary: any[] = []): string {
-  if (!Array.isArray(financeSummary) || financeSummary.length === 0) {
+  // ⑤ 検査: buildFinanceSummaryBlock への入力確認
+  const isArray = Array.isArray(financeSummary);
+  const count = isArray ? financeSummary.length : 0;
+  console.log('[agentPrompt] ⑤_buildFinanceSummaryBlock input', {
+    is_array: isArray,
+    count: count,
+    first_item_keys: count > 0 ? Object.keys(financeSummary[0] || {}).slice(0, 5) : [],
+  });
+
+  if (!isArray || count === 0) {
+    console.log('[agentPrompt] ⑤_buildFinanceSummaryBlock -> empty (no data)');
     return '';
   }
 
@@ -54,7 +64,13 @@ function buildFinanceSummaryBlock(financeSummary: any[] = []): string {
     }
   });
 
-  return lines.length > 1 ? lines.join('\n') : '';
+  const result = lines.length > 1 ? lines.join('\n') : '';
+  console.log('[agentPrompt] ⑤_buildFinanceSummaryBlock output', {
+    has_content: result.length > 0,
+    output_length: result.length,
+    line_count: lines.length,
+  });
+  return result;
 }
 
 function buildValueAnalysisBlock(valueAnalysis: any = {}): string {
