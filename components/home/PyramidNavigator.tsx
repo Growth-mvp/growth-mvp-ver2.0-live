@@ -91,7 +91,7 @@ const stageGuide = [
 export default function PyramidNavigator() {
   return (
     <div className="relative mx-auto w-full max-w-6xl">
-      <div className="hidden lg:block">
+      <div className="hidden xl:block">
         <div className="relative min-h-[430px]">
           <div className="absolute left-0 top-0 h-[430px] w-[88%]">
             <div className="flex h-full items-start justify-center">
@@ -225,7 +225,7 @@ export default function PyramidNavigator() {
         </div>
       </div>
 
-      <div className="mt-4 space-y-3 lg:hidden">
+      <div className="mt-4 space-y-3 xl:hidden">
         {desktopButtons.map((item) => (
           <Link
             key={item.href}
