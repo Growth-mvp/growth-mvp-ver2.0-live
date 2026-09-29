@@ -872,9 +872,13 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
   const businessPortfolio = normalizeBusinessPortfolio(
     src.businessPortfolio ?? src.business_portfolio,
   );
-  const financeSummary = normalizeFinanceSummaryObject(
+  // ★ CRITICAL: DB に financeSummary がない場合、financePL を使用
+  // financePL は { year, revenue, operatingIncome, netIncome, ... } の配列で、
+  // buildFinanceSummaryBlock が期待する形式と一致している
+  const financeSummaryFromDb = normalizeFinanceSummaryObject(
     src.financeSummary ?? src.finance_summary,
   );
+  const financeSummary = financeSummaryFromDb ?? financePL;
 
   // プロフィール/MVV/SWOT
   const companyName = toStr(src.companyName ?? '');
