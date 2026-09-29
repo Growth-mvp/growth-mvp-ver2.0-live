@@ -455,31 +455,31 @@ export async function POST(req: Request) {
     // ★ lastUser の定義（外部検索の前に必要）
     const lastUser = (messages || []).slice().reverse().find((m) => m.role === 'user')?.content || '';
 
-    // ★ 外部決算情報検索（業績質問の場合）
+    // ★ 外部決算情報検索（一旦停止）
     let externalFinancialBlock = '';
-    const isPerformanceQuestion = lastUser && /業績|決算|売上|利益|財務/.test(lastUser);
-    if (isPerformanceQuestion && strategy?.companyName) {
-      try {
-        const extData = await searchExternalFinancialData(strategy.companyName);
-        if (extData) {
-          externalFinancialBlock = buildExternalFinancialBlock(extData);
-          console.log('[ask-ceo-agent]', requestId, 'external_financial_search_success', {
-            companyName: strategy.companyName,
-            fiscalYear: extData.fiscalYear,
-            source: extData.source,
-          });
-        } else {
-          console.log('[ask-ceo-agent]', requestId, 'external_financial_search_no_data', {
-            companyName: strategy.companyName,
-          });
-        }
-      } catch (error) {
-        console.error('[ask-ceo-agent]', requestId, 'external_financial_search_error', {
-          error: String(error),
-          companyName: strategy.companyName,
-        });
-      }
-    }
+    // const isPerformanceQuestion = lastUser && /業績|決算|売上|利益|財務/.test(lastUser);
+    // if (isPerformanceQuestion && strategy?.companyName) {
+    //   try {
+    //     const extData = await searchExternalFinancialData(strategy.companyName);
+    //     if (extData) {
+    //       externalFinancialBlock = buildExternalFinancialBlock(extData);
+    //       console.log('[ask-ceo-agent]', requestId, 'external_financial_search_success', {
+    //         companyName: strategy.companyName,
+    //         fiscalYear: extData.fiscalYear,
+    //         source: extData.source,
+    //       });
+    //     } else {
+    //       console.log('[ask-ceo-agent]', requestId, 'external_financial_search_no_data', {
+    //         companyName: strategy.companyName,
+    //       });
+    //     }
+    //   } catch (error) {
+    //     console.error('[ask-ceo-agent]', requestId, 'external_financial_search_error', {
+    //       error: String(error),
+    //       companyName: strategy.companyName,
+    //     });
+    //   }
+    // }
 
     if (!strategy) {
       console.error('[ask-ceo-agent]', requestId, 'context_missing', {
