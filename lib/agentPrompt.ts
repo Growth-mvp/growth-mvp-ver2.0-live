@@ -43,12 +43,19 @@ function buildFinanceSummaryBlock(financeSummary: any[] = []): string {
     return yearB - yearA;
   });
 
-  const lines: string[] = ['【STAGE1 財務サマリ（GROWTH SHIFT登録データ）】'];
+  // ★ 出所明記と信頼性表示
+  const lines: string[] = [
+    '出所：GROWTH SHIFTのSTAGE1登録データ。公開決算のリアルタイム取得結果ではありません。',
+    '',
+    '【STAGE1 財務サマリ（GROWTH SHIFT登録データ）】'
+  ];
 
   const yearsSummary: { year: number; has_revenue: boolean; has_operatingIncome: boolean; has_netIncome: boolean }[] = [];
 
   sorted.forEach((row: any) => {
-    const year = typeof row?.year === 'number' ? `${row.year}年度` : '不明';
+    // ★ 年度表記：「XXXX年度」から「XXXX年3月期」に改善
+    // 注：期末月情報がない場合はデフォルトで3月期と表示
+    const yearLabel = typeof row?.year === 'number' ? `${row.year}年3月期` : '不明';
     const parts: string[] = [];
 
     const hasRevenue = row?.revenue !== undefined && row?.revenue !== null;
@@ -66,7 +73,7 @@ function buildFinanceSummaryBlock(financeSummary: any[] = []): string {
     }
 
     if (parts.length > 0) {
-      lines.push(`  ${year}: ${parts.join(' / ')}`);
+      lines.push(`  ${yearLabel}: ${parts.join(' / ')}`);
     }
 
     // ★ 検証用：年度別のフィールド有無を記録
@@ -188,7 +195,13 @@ SWOT: S=${oneLine(s.strength)} / W=${oneLine(s.weakness)} / O=${oneLine(s.opport
 - 答えは箇条書き→最後に1行サマリ
 - 可能なら次アクションを3件提示
 - ツールが使えるときは関数呼び出しを提案し、必要データを質問して最小入力で実行
-- 業績について質問される場合、STAGE1 財務サマリと5指標分析の登録データを優先参照してください`);
+- 業績について質問される場合、STAGE1 財務サマリと5指標分析の登録データを優先参照してください
+
+【STAGE1 データの扱い】
+- 財務表（売上・利益・費用）：登録データのみ使用、出所「STAGE1登録」と明記
+- 戦略・施策（費用削減・新製品・市場戦略）：STAGE2ストーリーと登録データのみ根拠とする
+- 財務表に現れない推測（費用上昇・設備稼働・市場縮小など）：別データに根拠がない限り「仮説」と明示
+- データ不足の判断：推測や想定は「推測ですが」と明記してください`);
 
   return parts.join('\n\n');
 }
