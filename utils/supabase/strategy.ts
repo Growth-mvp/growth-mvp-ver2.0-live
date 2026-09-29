@@ -783,13 +783,25 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
 
   // ★ TASK-B: 既存データの救済（百万円で保存されたデータを yen に変換）
   // 復元時に financePL の revenue < 1M なら百万円と判定して yen に変換
-  out.financePL = (out.financePL as any[]).map((row: any) => {
+  // 背景: レガシーデータは百万円単位で保存、新規は yen 単位。互換性維持のための変換。
+  // 基準: DB の保存単位に基づいた既存の変換処理（TASK-B で定義）に従う
+  const rawFPL = out.financePL as any[];
+  if (DEBUG && rawFPL.length > 0) {
+    // ★ 検証ログ：unitConversion 前後の値を記録（サンプル：最初の要素のみ）
+    const sample = rawFPL[0];
+    console.log('[buildStateFromDbRow] financePL unit-conversion check (before)', {
+      revenue: sample?.revenue,
+      operatingIncome: sample?.operatingIncome,
+      netIncome: sample?.netIncome,
+    });
+  }
+
+  out.financePL = rawFPL.map((row: any) => {
     const revenue = row.revenue ?? 0;
     const operatingIncome = row.operatingIncome ?? 0;
 
     const revenueYen = revenue > 0 && revenue < 1_000_000 ? revenue * 1_000_000 : revenue;
     const opIncomeYen = operatingIncome > 0 && operatingIncome < 1_000_000 ? operatingIncome * 1_000_000 : operatingIncome;
-
 
     return {
       ...row,
@@ -801,6 +813,15 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
       grossProfit: (row.grossProfit ?? 0) > 0 && (row.grossProfit ?? 0) < 1_000_000 ? (row.grossProfit ?? 0) * 1_000_000 : (row.grossProfit ?? 0),
     };
   });
+
+  if (DEBUG && out.financePL.length > 0) {
+    const sample = out.financePL[0];
+    console.log('[buildStateFromDbRow] financePL unit-conversion check (after)', {
+      revenue: sample?.revenue,
+      operatingIncome: sample?.operatingIncome,
+      netIncome: sample?.netIncome,
+    });
+  }
 
   out.businessSegments = ensureArray(out.businessSegments);
   /* ★ TASK 15-B: STAGE2 フィールドを確実に復元 */

@@ -710,6 +710,26 @@ export async function POST(req: Request) {
       openaiReq.response_format = { type: 'json_object' };
     }
 
+    // ★ 【検証ログ】financeSummary が systemBase に正しく含まれているか確認
+    const fsArray = (strategy as any)?.financeSummary;
+    const fsCount = Array.isArray(fsArray) ? fsArray.length : 0;
+    const fsItems = Array.isArray(fsArray)
+      ? fsArray.map((item: any) => ({
+          year: typeof item?.year === 'number' ? item.year : null,
+          has_revenue: typeof item?.revenue === 'number',
+          has_operatingIncome: typeof item?.operatingIncome === 'number',
+          has_netIncome: typeof item?.netIncome === 'number',
+        }))
+      : [];
+    const hasFinanceSummaryBlock = systemBase.includes('【STAGE1 財務サマリ');
+    console.log('[ask-ceo-agent]', requestId, '【FINAL_CHECK】financeSummary_in_systemBase', {
+      fs_is_array: Array.isArray(fsArray),
+      fs_count: fsCount,
+      fs_items: fsItems,
+      has_finance_block_in_prompt: hasFinanceSummaryBlock,
+      systemBase_length: systemBase.length,
+    });
+
     // 【入力充足度ログ】OpenAI呼び出し直前に観測ログを出力
     const hasCompanyInfo = !!(strategy?.mission || strategy?.vision);
     const hasStage1Context = !!(strategy?.mission || strategy?.vision || strategy?.ceoIntent);

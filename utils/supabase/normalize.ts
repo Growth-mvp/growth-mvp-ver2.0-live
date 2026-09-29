@@ -880,6 +880,26 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
   );
   const financeSummary = financeSummaryFromDb ?? financePL;
 
+  // ★ 検証ログ：financeSummary の出典と件数
+  if (DEBUG) {
+    const fsSource = financeSummaryFromDb ? 'from_db' : (financePL ? 'fallback_to_financePL' : 'none');
+    const fsCount = Array.isArray(financeSummary) ? financeSummary.length : 0;
+    const fsYears = Array.isArray(financeSummary)
+      ? financeSummary
+          .filter((item: any) => typeof item?.year === 'number')
+          .map((item: any) => item.year)
+          .sort((a: number, b: number) => b - a)
+      : [];
+    console.log('[normalizeStrategyData] financeSummary fallback', {
+      source: fsSource,
+      count: fsCount,
+      years: fsYears,
+      hasRevenue: fsCount > 0 && typeof financeSummary[0]?.revenue === 'number',
+      hasOperatingIncome: fsCount > 0 && typeof financeSummary[0]?.operatingIncome === 'number',
+      hasNetIncome: fsCount > 0 && typeof financeSummary[0]?.netIncome === 'number',
+    });
+  }
+
   // プロフィール/MVV/SWOT
   const companyName = toStr(src.companyName ?? '');
   const foundationYear = toStr(src.foundationYear ?? '');

@@ -45,23 +45,46 @@ function buildFinanceSummaryBlock(financeSummary: any[] = []): string {
 
   const lines: string[] = ['【STAGE1 財務サマリ（GROWTH SHIFT登録データ）】'];
 
+  const yearsSummary: { year: number; has_revenue: boolean; has_operatingIncome: boolean; has_netIncome: boolean }[] = [];
+
   sorted.forEach((row: any) => {
     const year = typeof row?.year === 'number' ? `${row.year}年度` : '不明';
     const parts: string[] = [];
 
-    if (row?.revenue !== undefined && row?.revenue !== null) {
+    const hasRevenue = row?.revenue !== undefined && row?.revenue !== null;
+    const hasOpIncome = row?.operatingIncome !== undefined && row?.operatingIncome !== null;
+    const hasNetIncome = row?.netIncome !== undefined && row?.netIncome !== null;
+
+    if (hasRevenue) {
       parts.push(`売上 ${formatAmount(row.revenue)}`);
     }
-    if (row?.operatingIncome !== undefined && row?.operatingIncome !== null) {
+    if (hasOpIncome) {
       parts.push(`営業利益 ${formatAmount(row.operatingIncome)}`);
     }
-    if (row?.netIncome !== undefined && row?.netIncome !== null) {
+    if (hasNetIncome) {
       parts.push(`当期純利益 ${formatAmount(row.netIncome)}`);
     }
 
     if (parts.length > 0) {
       lines.push(`  ${year}: ${parts.join(' / ')}`);
     }
+
+    // ★ 検証用：年度別のフィールド有無を記録
+    if (typeof row?.year === 'number') {
+      yearsSummary.push({
+        year: row.year,
+        has_revenue: hasRevenue,
+        has_operatingIncome: hasOpIncome,
+        has_netIncome: hasNetIncome,
+      });
+    }
+  });
+
+  // ★ 最終確認ログ：buildFinanceSummaryBlock の出力内容
+  console.log('[agentPrompt] ⑤_buildFinanceSummaryBlock_FINAL', {
+    block_created: lines.length > 1,
+    years_with_data: yearsSummary,
+    block_preview: lines.slice(0, 2).join(' | '), // 最初の2行をプレビュー
   });
 
   const result = lines.length > 1 ? lines.join('\n') : '';
