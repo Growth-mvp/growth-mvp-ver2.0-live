@@ -74,6 +74,33 @@ type SearchResult = {
   };
 };
 
+/* ========= GROWTH SHIFT 基礎ガイド（概念編） ========= */
+const GROWTH_SHIFT_FOUNDATION = `
+## GROWTH SHIFT とは
+
+GROWTH SHIFTは、戦略の策定・浸透・実行をつなぎ、組織の判断と行動を揃え、企業の成長につなげるためのAI企業変革プラットフォームです。合言葉は「戦略を行動へ。企業を成長へ。」です。
+
+経営の意図を現場の判断に届け、日々の行動につなげることを目指します。認識、価値観、感情、関係性、暗黙の前提に生じるズレにも目を向けます。
+
+## 各STAGE で取り組むこと
+
+- **STAGE1 財務・事業構造**：財務と事業の現状を捉え、企業価値と成長の論点を見いだす
+- **STAGE2 全社戦略**：未来の成長に向けた全社の方向性と経営の意図を言語化する
+- **STAGE3 事業・部門戦略**：全社の重点を事業・部門の役割、判断基準、共通行動へ展開する
+- **STAGE4 KPI・実行計画**：重点課題を指標と実行計画に落とし込む
+- **STAGE5 実行管理**：進捗を確認し、課題や次の行動を見直す
+- **STAGE6 財務シミュレーション**：実行の進み具合と期待される財務寄与を見て、見直しに使う
+- **すり合わせルーム**：組織内の違和感と認識のズレを整理し、対話の論点を見つける
+
+## STAGE2 について
+
+STAGE2は全社戦略を考える場です。現状の危機や成長機会を起点に、顧客に提供する価値、選ばれる理由、重点とする方向、経営として社員に伝えたい意図を掘り下げます。用意された問いとAIの追加質問を使い、人が考えを深め、戦略を言葉にします。
+
+## STAGE5 について
+
+STAGE5は、立てた計画の実行状況を確認し、課題や次の行動を考える領域です。計画の進捗と課題を確認し、次の行動を考えます。目標やKPIの設定方法は対象のSTAGEに合わせて案内します。
+`;
+
 /* ========= 禁則 ========= */
 const TABOO =
   '【回答禁止】個人情報・人事評価や人事異動の断定、株主・取締役の機微情報、具体的な法的助言、確証のない断定的表現には答えません。必要な場合は専門家相談を案内します。';
@@ -504,12 +531,13 @@ export async function POST(req: Request) {
         }
       }
 
-      // 注入順: 規約 → growthKnowledge → RAG検索結果 → 操作ガイド検索結果 → 禁則
+      // 注入順: 規約 → GROWTH SHIFT基礎ガイド → growthKnowledge → RAG検索結果 → 操作ガイド検索結果 → 禁則
       systemBase =
         buildHelpSystemPrompt({
-          productName: 'GROWTH',
+          productName: 'GROWTH SHIFT',
           relevantKnowledge,
         }) +
+        '\n\n' + GROWTH_SHIFT_FOUNDATION +
         ragContextBlock +
         operationGuideBlock +
         '\n' +
@@ -533,8 +561,8 @@ export async function POST(req: Request) {
 
       systemBase =
         (intent.stage === 'generic'
-          ? 'あなたは博識なアシスタントです。日本語で簡潔かつ正確に回答します。推測は推測と明記してください。'
-          : agentPrompt(strategy as any, answers2 as any, finalStory as any) + '\n' + extraBlock) +
+          ? 'あなたは博識なアシスタントです。日本語で簡潔かつ正確に回答します。推測は推測と明記してください。\n\n' + GROWTH_SHIFT_FOUNDATION
+          : agentPrompt(strategy as any, answers2 as any, finalStory as any) + '\n' + extraBlock + '\n\n' + GROWTH_SHIFT_FOUNDATION) +
         operationGuideBlock +
         '\n' +
         TABOO;
@@ -619,6 +647,23 @@ export async function POST(req: Request) {
       promptLength: totalPromptLen,
       suspiciousKeywordFlags: suspiciousKeywords,
     });
+
+    // ★ 診断ログ: 質問分類、モード、モデル、検索、ガイド注入、回答成否のみ記録
+    if (process.env.DEBUG_AGENT_PROMPT === '1') {
+      console.log('[ask-ceo-agent]', requestId, 'DIAGNOSIS', {
+        questionType: isOperationQuestionDetected ? 'operation' : 'concept_or_other',
+        selectedMode: resolvedMode,
+        model: openaiReq.model,
+        searchUsed: operationSearchUsed,
+        searchResultCount: operationSearchResults?.length ?? 0,
+        searchResultIds: operationSearchResults?.map((r: any) => r.operationId) ?? [],
+        guidesInjected: {
+          growthShiftFoundation: !!(systemBase && systemBase.includes('GROWTH SHIFT')),
+          operationGuides: operationSearchUsed,
+          ragKnowledge: !!ragContextBlock,
+        },
+      });
+    }
 
     // ★ 一時的な診断: OpenAI呼び出し前ログ
     console.log('[ask-ceo-agent]', requestId, 'BEFORE_OPENAI', {
