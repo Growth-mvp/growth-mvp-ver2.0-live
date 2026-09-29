@@ -19,7 +19,7 @@ export async function downloadPdfFromElement(
   elementId: string,
   fileName: string,
   options?: {
-    margin?: number;
+    margin?: number | number[];
     filename?: string;
     image?: { type: string; quality: number };
     html2canvas?: { scale: number };
