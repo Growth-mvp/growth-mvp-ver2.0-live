@@ -84,7 +84,6 @@ function buildFinanceSummaryBlock(financeSummary: any[] = []): string {
   console.log('[agentPrompt] ⑤_buildFinanceSummaryBlock_FINAL', {
     block_created: lines.length > 1,
     years_with_data: yearsSummary,
-    block_preview: lines.slice(0, 2).join(' | '), // 最初の2行をプレビュー
   });
 
   const result = lines.length > 1 ? lines.join('\n') : '';

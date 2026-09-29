@@ -786,15 +786,7 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   // 背景: レガシーデータは百万円単位で保存、新規は yen 単位。互換性維持のための変換。
   // 基準: DB の保存単位に基づいた既存の変換処理（TASK-B で定義）に従う
   const rawFPL = out.financePL as any[];
-  if (DEBUG && rawFPL.length > 0) {
-    // ★ 検証ログ：unitConversion 前後の値を記録（サンプル：最初の要素のみ）
-    const sample = rawFPL[0];
-    console.log('[buildStateFromDbRow] financePL unit-conversion check (before)', {
-      revenue: sample?.revenue,
-      operatingIncome: sample?.operatingIncome,
-      netIncome: sample?.netIncome,
-    });
-  }
+  // ★ 削除：金額の before/after ログは診断用のため削除
 
   out.financePL = rawFPL.map((row: any) => {
     const revenue = row.revenue ?? 0;
@@ -814,14 +806,7 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
     };
   });
 
-  if (DEBUG && out.financePL.length > 0) {
-    const sample = out.financePL[0];
-    console.log('[buildStateFromDbRow] financePL unit-conversion check (after)', {
-      revenue: sample?.revenue,
-      operatingIncome: sample?.operatingIncome,
-      netIncome: sample?.netIncome,
-    });
-  }
+  // ★ 削除：金額の after ログは診断用のため削除
 
   out.businessSegments = ensureArray(out.businessSegments);
   /* ★ TASK 15-B: STAGE2 フィールドを確実に復元 */

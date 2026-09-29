@@ -877,14 +877,16 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
   // ★ CRITICAL: DB に financeSummary がない場合、financePL を使用
   // financePL は { year, revenue, operatingIncome, netIncome, ... } の配列で、
   // buildFinanceSummaryBlock が期待する形式と一致している
+  // ★ FIX: 空配列もfallbackする。空配列 [] は真と評価されるため、長さチェックが必要
   const financeSummaryFromDb = normalizeFinanceSummaryObject(
     src.financeSummary ?? src.finance_summary,
   );
-  const financeSummary = financeSummaryFromDb ?? financePL;
+  const hasValidDbSummary = Array.isArray(financeSummaryFromDb) && financeSummaryFromDb.length > 0;
+  const financeSummary = hasValidDbSummary ? financeSummaryFromDb : financePL;
 
   // ★ 検証ログ：financeSummary の出典と件数
   if (DEBUG) {
-    const fsSource = financeSummaryFromDb ? 'from_db' : (financePL ? 'fallback_to_financePL' : 'none');
+    const fsSource = hasValidDbSummary ? 'from_db' : (financePL ? 'fallback_to_financePL' : 'none');
     const fsCount = Array.isArray(financeSummary) ? financeSummary.length : 0;
     const fsYears = Array.isArray(financeSummary)
       ? financeSummary
@@ -892,13 +894,10 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
           .map((item: any) => item.year)
           .sort((a: number, b: number) => b - a)
       : [];
-    console.log('[normalizeStrategyData] financeSummary fallback', {
+    console.log('[normalizeStrategyData] financeSummary source', {
       source: fsSource,
       count: fsCount,
       years: fsYears,
-      hasRevenue: fsCount > 0 && typeof financeSummary[0]?.revenue === 'number',
-      hasOperatingIncome: fsCount > 0 && typeof financeSummary[0]?.operatingIncome === 'number',
-      hasNetIncome: fsCount > 0 && typeof financeSummary[0]?.netIncome === 'number',
     });
   }
 
