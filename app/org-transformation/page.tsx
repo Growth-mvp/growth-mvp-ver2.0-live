@@ -658,60 +658,187 @@ export default function OrgTransformationPage() {
                           </div>
                         </div>
 
-                        {isExpanded && result && (
+                        {isExpanded && (
                           <div className="mt-6 space-y-5 border-t border-slate-100 pt-6">
-                            {/* セクション1：自分の認識 */}
-                            <div className="rounded-xl border border-blue-100 bg-blue-50 p-5">
-                              <p className="text-xs font-semibold tracking-wide text-blue-600">
-                                自分の認識
+                            {/* セクション0：入力した内容 */}
+                            <div className="rounded-xl border border-slate-300 bg-slate-50 p-5">
+                              <p className="text-xs font-semibold tracking-wide text-slate-700">
+                                入力した内容
                               </p>
-                              <p className="mt-3 text-sm leading-relaxed text-slate-800">
-                                {item.my_recognition_text || result.inputSummary || "（情報なし）"}
-                              </p>
+
+                              <div className="mt-4 space-y-4">
+                                {/* どんな場面でもやもやしたか */}
+                                <div>
+                                  <p className="text-xs font-semibold text-slate-600">
+                                    どんな場面でもやもやしたか
+                                  </p>
+                                  <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-800">
+                                    {item.situation_text || "（記録されていません）"}
+                                  </p>
+                                </div>
+
+                                {/* その時、自分はどう受け止めたか */}
+                                <div>
+                                  <p className="text-xs font-semibold text-slate-600">
+                                    その時、自分はどう受け止めたか
+                                  </p>
+                                  <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-800">
+                                    {item.my_recognition_text || "（記録されていません）"}
+                                  </p>
+                                </div>
+
+                                {/* 本来どうあるべきだと思うか */}
+                                <div>
+                                  <p className="text-xs font-semibold text-slate-600">
+                                    本来どうあるべきだと思うか
+                                  </p>
+                                  <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-800">
+                                    {item.ideal_text || "（記録されていません）"}
+                                  </p>
+                                </div>
+
+                                {/* 相手・会社・仕組みに期待していたこと */}
+                                <div>
+                                  <p className="text-xs font-semibold text-slate-600">
+                                    相手・会社・仕組みに期待していたこと
+                                  </p>
+                                  <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-800">
+                                    {item.expectation_text || "（記録されていません）"}
+                                  </p>
+                                </div>
+
+                                {/* 関係者情報 */}
+                                <div>
+                                  <p className="text-xs font-semibold text-slate-600">
+                                    関係している相手・部門・仕組み
+                                  </p>
+                                  <p className="mt-2 text-sm leading-relaxed text-slate-800">
+                                    {item.counterparty_type}
+                                    {item.counterparty_detail ? ` / ${item.counterparty_detail}` : ""}
+                                  </p>
+                                </div>
+
+                                {/* 公開範囲 */}
+                                <div>
+                                  <p className="text-xs font-semibold text-slate-600">
+                                    共有範囲
+                                  </p>
+                                  <p className="mt-2 text-sm leading-relaxed text-slate-800">
+                                    {item.visibility_mode === "anonymous"
+                                      ? "匿名で共有"
+                                      : item.visibility_mode === "manager_only"
+                                      ? "管理者にのみ共有"
+                                      : item.visibility_mode === "named"
+                                      ? "名前を出して共有"
+                                      : item.visibility_mode || "（記録されていません）"}
+                                  </p>
+                                </div>
+                              </div>
                             </div>
 
-                            {/* セクション2：相手の認識（AI仮説） */}
-                            <div className="rounded-xl border border-orange-100 bg-orange-50 p-5">
-                              <p className="text-xs font-semibold tracking-wide text-orange-600">
-                                相手の認識（AI仮説）
-                              </p>
-                              <p className="mt-3 text-sm leading-relaxed text-slate-800">
-                                {result.participantRecognitionHypothesis}
-                              </p>
-                            </div>
+                            {result && (
+                              <>
+                                {/* AIが整理した認識のズレ見出し */}
+                                <div className="pt-4">
+                                  <h4 className="text-lg font-bold text-slate-950">
+                                    AIが整理した認識のズレ
+                                  </h4>
+                                </div>
 
-                            {/* セクション3：会社としてあるべき認識 */}
-                            <div className="rounded-xl border border-green-100 bg-green-50 p-5">
-                              <p className="text-xs font-semibold tracking-wide text-green-600">
-                                会社としてあるべき認識
-                              </p>
-                              <p className="mt-1 text-xs text-green-600">
-                                {result.companyRecognitionTitle}
-                              </p>
-                              <p className="mt-3 text-sm leading-relaxed text-slate-800">
-                                {result.companyRecognition}
-                              </p>
-                            </div>
+                                {/* 分類 */}
+                                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                                  <p className="text-xs font-semibold text-slate-500">
+                                    分類
+                                  </p>
+                                  <p className="mt-2 font-semibold text-slate-950">
+                                    {result.issueType}
+                                  </p>
+                                </div>
 
-                            {/* セクション4：すり合わせるべき論点 */}
-                            <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
-                              <p className="text-xs font-semibold tracking-wide text-slate-600">
-                                すり合わせるべき論点
-                              </p>
-                              <ol className="mt-4 space-y-3">
-                                {result.alignmentPoints.map((point, index) => (
-                                  <li
-                                    key={point}
-                                    className="flex items-start gap-3 text-sm leading-relaxed text-slate-800"
-                                  >
-                                    <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-300 text-xs font-semibold text-white">
-                                      {index + 1}
-                                    </span>
-                                    <span>{point}</span>
-                                  </li>
-                                ))}
-                              </ol>
-                            </div>
+                                    {/* セクション1：自分の認識 */}
+                                <div className="rounded-xl border border-blue-100 bg-blue-50 p-5">
+                                  <p className="text-xs font-semibold tracking-wide text-blue-600">
+                                    自分の認識
+                                  </p>
+                                  <p className="mt-3 text-sm leading-relaxed text-slate-800">
+                                    {result.inputSummary}
+                                  </p>
+                                </div>
+
+                                {/* セクション2：相手の認識（AI仮説） */}
+                                <div className="rounded-xl border border-orange-100 bg-orange-50 p-5">
+                                  <p className="text-xs font-semibold tracking-wide text-orange-600">
+                                    相手の認識（AI仮説）
+                                  </p>
+                                  <p className="mt-3 text-sm leading-relaxed text-slate-800">
+                                    {result.participantRecognitionHypothesis}
+                                  </p>
+                                </div>
+
+                                {/* セクション3：会社としてあるべき認識 */}
+                                <div className="rounded-xl border border-green-100 bg-green-50 p-5">
+                                  <p className="text-xs font-semibold tracking-wide text-green-600">
+                                    会社としてあるべき認識
+                                  </p>
+                                  <p className="mt-1 text-xs text-green-600">
+                                    {result.companyRecognitionTitle}
+                                  </p>
+                                  <p className="mt-3 text-sm leading-relaxed text-slate-800">
+                                    {result.companyRecognition}
+                                  </p>
+                                </div>
+
+                                {/* セクション4：すり合わせるべき論点 */}
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                                  <p className="text-xs font-semibold tracking-wide text-slate-600">
+                                    すり合わせるべき論点
+                                  </p>
+                                  <ol className="mt-4 space-y-3">
+                                    {result.alignmentPoints.map((point, index) => (
+                                      <li
+                                        key={point}
+                                        className="flex items-start gap-3 text-sm leading-relaxed text-slate-800"
+                                      >
+                                        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-300 text-xs font-semibold text-white">
+                                          {index + 1}
+                                        </span>
+                                        <span>{point}</span>
+                                      </li>
+                                    ))}
+                                  </ol>
+                                </div>
+
+                                {/* セクション5：推奨される次のアクション */}
+                                <div className="rounded-xl border border-purple-100 bg-purple-50 p-5">
+                                  <p className="text-xs font-semibold tracking-wide text-purple-600">
+                                    次の行動案
+                                  </p>
+                                  <p className="mt-2 font-semibold text-slate-950">
+                                    {result.recommendedNextAction.title}
+                                  </p>
+                                  <p className="mt-3 text-sm leading-relaxed text-slate-800">
+                                    {result.recommendedNextAction.detail}
+                                  </p>
+                                </div>
+
+                                {/* リスク情報 */}
+                                <div className="rounded-xl border border-amber-100 bg-amber-50 p-5">
+                                  <p className="text-xs font-semibold tracking-wide text-amber-600">
+                                    リスク評価
+                                  </p>
+                                  <p className="mt-2 text-sm font-semibold text-slate-950">
+                                    {result.riskLevel === "low"
+                                      ? "低"
+                                      : result.riskLevel === "medium"
+                                      ? "中"
+                                      : "高"}
+                                  </p>
+                                  <p className="mt-2 text-sm leading-relaxed text-slate-800">
+                                    {result.riskReason}
+                                  </p>
+                                </div>
+                              </>
+                            )}
                           </div>
                         )}
                       </article>
