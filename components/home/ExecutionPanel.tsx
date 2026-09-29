@@ -105,7 +105,7 @@ function Stage6MetricRow({
   return (
     <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800">
       <div className="text-xs font-semibold text-neutral-700 dark:text-neutral-200">{label}</div>
-      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="mt-3 grid grid-cols-2 gap-3 xl:grid-cols-4">
         <div>
           <div className="text-[11px] text-neutral-500">現状</div>
           <div className="mt-1 text-lg font-semibold text-neutral-900 dark:text-white">{current}</div>
