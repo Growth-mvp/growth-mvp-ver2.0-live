@@ -570,23 +570,25 @@ function normalizeFinanceSummaryObject(input: unknown): any[] | undefined {
   if (input == null) return undefined;
   const p = parseIfJsonString<any>(input);
 
-  if (Array.isArray(p)) return p.length > 0 ? p : undefined;
+  // 配列：空でもそのまま返す（空配列は有効な状態）
+  if (Array.isArray(p)) return p;
 
+  // {rows: [...]} 形式
   if (p && typeof p === 'object' && Array.isArray((p as any).rows)) {
-    const arr = (p as any).rows;
-    return arr.length > 0 ? arr : undefined;
+    return (p as any).rows;
   }
 
+  // {items: [...]} 形式
   if (p && typeof p === 'object' && Array.isArray((p as any).items)) {
-    const arr = (p as any).items;
-    return arr.length > 0 ? arr : undefined;
+    return (p as any).items;
   }
 
+  // {year: data, ...} 形式
   if (p && typeof p === 'object') {
     const entries = Object.entries(p as Record<string, any>);
     if (entries.length > 0 && entries.every(([, v]) => typeof v === 'object')) {
       const arr = entries.map(([year, data]) => ({ year: Number(year), ...data }));
-      return arr.length > 0 ? arr : undefined;
+      return arr;
     }
   }
 
