@@ -55,19 +55,70 @@ async function searchWithTavily(companyName: string): Promise<ExternalFinancialD
       resultCount: result.results?.length || 0,
     });
 
-    // 検索結果から決算資料を抽出
+    // 検索結果から決算資料を抽出（フィルタリング）
     if (!result.results || result.results.length === 0) {
+      console.log('[externalFinancialSearch] No Tavily results found');
       return null;
     }
 
-    // 最初の結果から情報を抽出
-    const firstResult = result.results[0];
-    return {
-      companyName,
-      documentUrl: firstResult.url,
-      sourceLabel: `${companyName} 決算資料（${firstResult.source || 'Web検索'}）`,
-      source: 'tavily',
-    };
+    // ★ フィルタリング：会社名・決算期・発行元の一致を確認
+    for (const res of result.results) {
+      const title = (res.title || '') + (res.content || '');
+
+      // 会社名が含まれているか確認
+      if (!title.includes(companyName) && !title.includes('日本製罐')) {
+        console.log('[externalFinancialSearch] Skipping result: company name mismatch');
+        continue;
+      }
+
+      // 決算期を抽出（例：「2024年3月期」「2024/3期」）
+      const fiscalYearMatch = title.match(/(\d{4})\s*年\s*(\d{1,2})\s*月\s*期|(\d{4})\/(\d{1,2})期/);
+      if (!fiscalYearMatch) {
+        console.log('[externalFinancialSearch] Skipping result: fiscal year not found');
+        continue;
+      }
+
+      // 開示日を抽出（例：「2024年5月15日」「2024-05-15」）
+      const disclosureDateMatch = title.match(/(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日|(\d{4})-(\d{2})-(\d{2})/);
+      if (!disclosureDateMatch) {
+        console.log('[externalFinancialSearch] Skipping result: disclosure date not found');
+        continue;
+      }
+
+      // 決算資料と思われるキーワードの確認
+      if (!/(決算説明資料|決算短信|決算報告書|決算公告|フィリング|決算|earnings|financial results)/i.test(title)) {
+        console.log('[externalFinancialSearch] Skipping result: not financial document');
+        continue;
+      }
+
+      // フィルタを通過した結果を採用
+      const fiscalYear = fiscalYearMatch[1] ?
+        `${fiscalYearMatch[1]}年${fiscalYearMatch[2]}月期` :
+        `${fiscalYearMatch[3]}/${fiscalYearMatch[4]}期`;
+
+      const disclosureDate = disclosureDateMatch[1] ?
+        `${disclosureDateMatch[1]}-${disclosureDateMatch[2].padStart(2, '0')}-${disclosureDateMatch[3].padStart(2, '0')}` :
+        `${disclosureDateMatch[4]}-${disclosureDateMatch[5]}-${disclosureDateMatch[6]}`;
+
+      console.log('[externalFinancialSearch] Found valid result', {
+        companyName,
+        fiscalYear,
+        disclosureDate,
+        url: res.url,
+      });
+
+      return {
+        companyName,
+        fiscalYear,
+        disclosureDate,
+        documentUrl: res.url,
+        sourceLabel: `${companyName} ${fiscalYear}決算説明資料（開示日：${disclosureDate}）`,
+        source: 'tavily',
+      };
+    }
+
+    console.log('[externalFinancialSearch] No valid results after filtering');
+    return null;
   } catch (error) {
     console.error('[externalFinancialSearch] Tavily search error:', error);
     return null;
