@@ -21,7 +21,7 @@ import {
 import { getFullStrategyDataByCompany, saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
 import { saveWithAudit } from '@/utils/persist/saveWithAudit';
 import { restoreWithAudit } from '@/utils/persist/restoreWithAudit';
-import type { IssueBlock, MetricsSummary, StoryChapter, WinPatternCandidate, Stage2State, Stage2Answer, Stage2FinalDocumentEdits } from '@/types/strategy';
+import type { IssueBlock, MetricsSummary, StoryChapter, WinPatternCandidate, Stage2State, Stage2Answer, Stage2FinalDocumentEdits, Stage2DeepDive } from '@/types/strategy';
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 import { StrategyStoryPreview } from '@/components/stage2/StrategyStoryPreview';
@@ -1832,7 +1832,7 @@ function Questions12Section({
   const currentAnswer = safeAnswers12.find((a) => a.id === selectedId)?.answer ?? '';
 
   // ★ 新規：深掘り情報取得
-  const currentDeepDive = safeAnswers12.find((a) => a.id === selectedId)?.deepDive ?? null;
+  const currentDeepDive = safeAnswers12.find((a) => a.id === selectedId)?.deepDive;
 
   // ★ 新規：strategyStore の updateAnswer12 を利用
   const updateAnswer12 = useStrategyStore((s: StrategyState) => (s as any).updateAnswer12 as (id: string, patch: Partial<Stage2Answer>) => void);
@@ -2431,7 +2431,12 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         Array.isArray(financeSummary) && financeSummary.length > 0
           ? {
               len: financeSummary.length,
-              latestYear: financeSummary.reduce((max: any, r: any) => (r.year > max.year ? r.year : max.year), 0),
+              latestYear: (() => {
+                const validRows = financeSummary.filter((r: any) => r != null && r.year != null);
+                return validRows.length > 0
+                  ? validRows.reduce((max: any, r: any) => (r.year > max ? r.year : max), -Infinity)
+                  : null;
+              })(),
               keys: Object.keys(financeSummary[0] || {}),
               revenue: (financeSummary[0] as any)?.revenue,
               operating_income: (financeSummary[0] as any)?.operating_income,
@@ -2498,37 +2503,43 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
     // 2) financeSummary（ビジネスユニット別集計）- 最新年度の合計
     if (!currentRevenue && Array.isArray(financeSummary) && financeSummary.length > 0) {
-      const latest = financeSummary.reduce((max: any, row: any) => (row.year > max.year ? row : max));
-      const revVal = latest.revenue;
-      const rev = safeNumber(revVal);
-      if (rev !== null) {
-        revenueRaw = rev;
-        currentRevenue = toMillionYen(rev, 'unknown');
-        revenueSource = 'financeSummary';
+      const validRows = financeSummary.filter((row: any) => row != null && row.year != null);
+      if (validRows.length > 0) {
+        const latest = validRows.reduce((max: any, row: any) => (row.year > max.year ? row : max));
+        const revVal = latest.revenue;
+        const rev = safeNumber(revVal);
+        if (rev !== null) {
+          revenueRaw = rev;
+          currentRevenue = toMillionYen(rev, 'unknown');
+          revenueSource = 'financeSummary';
+        }
       }
     }
 
     // 3) financePL（年度別PL）- 最新年度
     if ((!currentRevenue || !currentOperatingProfit) && Array.isArray(financePL) && financePL.length > 0) {
-      const latestRow = financePL.reduce((max: any, row: any) => (row.year > max.year ? row : max));
+      const validPLRows = financePL.filter((row: any) => row != null && row.year != null);
+      if (validPLRows.length > 0) {
+        const latestRow = validPLRows.reduce((max: any, row: any) => (row.year > max.year ? row : max));
 
-      if (!currentRevenue) {
-        const revVal = latestRow.revenue ?? (latestRow as any).sales;
-        const rev = safeNumber(revVal);
-        if (rev !== null) {
-          revenueRaw = rev;
-          currentRevenue = toMillionYen(rev, 'unknown');
-          revenueSource = 'financePL';
+        if (!currentRevenue) {
+          const revVal = latestRow.revenue ?? (latestRow as any).sales;
+          const rev = safeNumber(revVal);
+          if (rev !== null) {
+            revenueRaw = rev;
+            currentRevenue = toMillionYen(rev, 'unknown');
+            revenueSource = 'financePL';
+          }
         }
-      }
 
-      if (currentOperatingProfit == null) {
-        const opVal = latestRow.operatingIncome ?? (latestRow as any).op ?? (latestRow as any).営業利益;
-        const op = safeNumber(opVal);
-        if (op !== null) {
-          opIncomeRaw = op;
-          currentOperatingProfit = toMillionYen(op, 'unknown');
-          opSource = 'financePL';
+        if (currentOperatingProfit == null) {
+          const opVal = latestRow.operatingIncome ?? (latestRow as any).op ?? (latestRow as any).営業利益;
+          const op = safeNumber(opVal);
+          if (op !== null) {
+            opIncomeRaw = op;
+            currentOperatingProfit = toMillionYen(op, 'unknown');
+            opSource = 'financePL';
+          }
         }
       }
     }
