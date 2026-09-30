@@ -1,4 +1,5 @@
 const { chromium } = require('playwright');
+const path = require('path');
 
 (async () => {
   const browser = await chromium.launch();
@@ -22,9 +23,10 @@ const { chromium } = require('playwright');
     
     console.log(`Grid cols-2 with Project Owner: ${gridDivCount}`);
     
-    // Take screenshot
-    await page.screenshot({ path: './okr_screenshot.png', fullPage: true });
-    console.log('Screenshot saved to ./okr_screenshot.png');
+    // Take screenshot (save to repository root)
+    const screenshotPath = path.join(__dirname, '..', '..', 'okr_screenshot.png');
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+    console.log(`Screenshot saved to ${screenshotPath}`);
     
     await browser.close();
   } catch (err) {

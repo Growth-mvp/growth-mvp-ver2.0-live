@@ -55,3 +55,6 @@ DEBUG_GUARD_CHANGES.md
 # local caches
 .cache/
 
+# development server logs
+/dev.log
+

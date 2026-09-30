@@ -43,7 +43,15 @@ const segmentPlSheet = XLSX.utils.aoa_to_sheet(segmentPlData);
 XLSX.utils.book_append_sheet(workbook, segmentPlSheet, '事業別PL');
 
 // Write to file
-const outputPath = path.join(__dirname, 'test-financial-data.xlsx');
+const outputDir = path.join(__dirname, '..', '..', 'tests', 'fixtures');
+const outputPath = path.join(outputDir, 'test-financial-data.xlsx');
+
+// Create output directory if it doesn't exist
+const fs = require('fs');
+if (!fs.existsSync(outputDir)) {
+  fs.mkdirSync(outputDir, { recursive: true });
+}
+
 XLSX.writeFile(workbook, outputPath);
 console.log(`✓ Test Excel file created: ${outputPath}`);
 console.log('Sheets: 全社PL, 全社BS, 事業別PL');
