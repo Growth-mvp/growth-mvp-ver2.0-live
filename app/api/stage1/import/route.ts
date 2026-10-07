@@ -25,12 +25,20 @@ import {
   cleanupExpiredCache,
 } from '@/utils/stage1/importers/cache';
 import { parseCSV, parseExcel, detectFileType, type ExtractedTable } from '@/utils/stage1/importers/excelCsvImporter';
-import { parsePdf, isPdfBuffer } from '@/utils/stage1/importers/pdfImporter';
+// ★ CRITICAL: pdfImporter は PDF 処理時のみ dynamic import（DOMMatrix 要求避け）
+// import { parsePdf, isPdfBuffer } from '@/utils/stage1/importers/pdfImporter';
 import {
   buildCandidatesFromTable,
   buildCandidatesFromPdfText,
   normalizeCandidates,
 } from '@/utils/stage1/importers/candidateBuilder';
+
+/** PDF ファイルを判定（pdfImporter の依存を避けるためローカル実装） */
+function isPdfBuffer(buffer: Buffer): boolean {
+  if (buffer.length < 5) return false;
+  const header = buffer.slice(0, 5).toString('ascii');
+  return header === '%PDF-';
+}
 
 /** 最大ファイルサイズ（20MB） */
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
@@ -940,17 +948,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           }
           tableHints.push(`${file.name}: Excel（${tables.length}シート）`);
         } else if (isPdfBuffer(buffer)) {
-          console.log(`[stage1/import] [${reqId}] Processing PDF file: ${file.name}`);
+          console.log(`[stage1/import] [${reqId}] [PDF] Processing PDF file: ${file.name}`);
           try {
-            const pdfResult = await parsePdf(buffer);
-            console.log(`[stage1/import] [${reqId}] parsePdf succeeded for ${file.name}`, {
+            // ★ CRITICAL: Dynamic import to avoid DOMMatrix error on Excel/CSV paths
+            console.log(`[stage1/import] [${reqId}] [PDF] Loading pdfImporter dynamically...`, {
+              timestamp: new Date().toISOString(),
+            });
+            const { parsePdf: parsePdfDynamic } = await import('@/utils/stage1/importers/pdfImporter');
+            console.log(`[stage1/import] [${reqId}] [PDF] pdfImporter loaded successfully`, {
+              timestamp: new Date().toISOString(),
+            });
+
+            const pdfResult = await parsePdfDynamic(buffer);
+            console.log(`[stage1/import] [${reqId}] [PDF] parsePdf succeeded for ${file.name}`, {
               totalPages: pdfResult.totalPages,
               processedPages: pdfResult.processedPages,
               warningsCount: pdfResult.warnings.length,
               timestamp: new Date().toISOString(),
             });
             candidates = buildCandidatesFromPdfText(pdfResult.pages);
-            console.log(`[stage1/import] [${reqId}] buildCandidatesFromPdfText completed for ${file.name}`, {
+            console.log(`[stage1/import] [${reqId}] [PDF] buildCandidatesFromPdfText completed for ${file.name}`, {
               candidatesCount: candidates.length,
               timestamp: new Date().toISOString(),
             });
@@ -961,7 +978,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           } catch (pdfErr) {
             const errMsg = pdfErr instanceof Error ? pdfErr.message : String(pdfErr);
             const errStack = pdfErr instanceof Error ? pdfErr.stack : undefined;
-            console.error(`[stage1/import] [${reqId}] PDF processing FAILED for ${file.name}`, {
+            console.error(`[stage1/import] [${reqId}] [PDF] PDF processing FAILED for ${file.name}`, {
               error: errMsg,
               stack: errStack,
               timestamp: new Date().toISOString(),

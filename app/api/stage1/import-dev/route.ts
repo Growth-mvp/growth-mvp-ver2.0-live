@@ -14,7 +14,15 @@ import {
   cleanupExpiredCache,
 } from '@/utils/stage1/importers/cache';
 import { parseCSV, parseExcel, detectFileType, type ExtractedTable } from '@/utils/stage1/importers/excelCsvImporter';
-import { parsePdf, isPdfBuffer } from '@/utils/stage1/importers/pdfImporter';
+// ★ CRITICAL: pdfImporter は PDF 処理時のみ dynamic import（DOMMatrix 要求避け）
+// import { parsePdf, isPdfBuffer } from '@/utils/stage1/importers/pdfImporter';
+
+/** PDF ファイルを判定（pdfImporter の依存を避けるためローカル実装） */
+function isPdfBuffer(buffer: Buffer): boolean {
+  if (buffer.length < 5) return false;
+  const header = buffer.slice(0, 5).toString('ascii');
+  return header === '%PDF-';
+}
 import {
   buildCandidatesFromTable,
   buildCandidatesFromPdfText,
@@ -201,10 +209,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           candidates = buildCandidatesFromTable(parseResult);
           tableHints.push(`${file.name}: CSV`);
         } else if (isPdfBuffer(buffer)) {
-          console.log(`[stage1/import-dev] [${reqId}] Processing PDF file: ${file.name}`);
-          const pdfResult = await parsePdf(buffer);
-          candidates = buildCandidatesFromPdfText(pdfResult.pages);
-          tableHints.push(`${file.name}: PDF`);
+          console.log(`[stage1/import-dev] [${reqId}] [PDF] Processing PDF file: ${file.name}`);
+          try {
+            // ★ CRITICAL: Dynamic import to avoid DOMMatrix error on Excel/CSV paths
+            console.log(`[stage1/import-dev] [${reqId}] [PDF] Loading pdfImporter dynamically...`, {
+              timestamp: new Date().toISOString(),
+            });
+            const { parsePdf: parsePdfDynamic } = await import('@/utils/stage1/importers/pdfImporter');
+            console.log(`[stage1/import-dev] [${reqId}] [PDF] pdfImporter loaded successfully`, {
+              timestamp: new Date().toISOString(),
+            });
+
+            const pdfResult = await parsePdfDynamic(buffer);
+            candidates = buildCandidatesFromPdfText(pdfResult.pages);
+            tableHints.push(`${file.name}: PDF（${pdfResult.processedPages}/${pdfResult.totalPages}ページ）`);
+          } catch (pdfErr) {
+            const errMsg = pdfErr instanceof Error ? pdfErr.message : String(pdfErr);
+            console.error(`[stage1/import-dev] [${reqId}] [PDF] PDF processing FAILED for ${file.name}`, {
+              error: errMsg,
+              timestamp: new Date().toISOString(),
+            });
+            throw pdfErr;
+          }
         } else {
           warnings.push(`${file.name}: 未対応のファイル形式です`);
           continue;
