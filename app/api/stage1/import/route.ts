@@ -502,58 +502,183 @@ function buildCandidatesFromCsvFallback(
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  try {
-    // ★ 認証 & Role チェック: admin / manager のみ許可
-    const admin = getSupabaseAdmin();
+  const reqId = Math.random().toString(36).slice(2, 10);
+  const startTime = Date.now();
 
-    // ★ DEBUG：認証周辺の詳細ログ
+  console.log(`[stage1/import] [${reqId}] === REQUEST START ===`, {
+    url: request.url,
+    method: request.method,
+    timestamp: new Date().toISOString(),
+  });
+
+  try {
+    // ★ Step 1: getSupabaseAdmin
+    console.log(`[stage1/import] [${reqId}] [Step 1] About to call getSupabaseAdmin()`, {
+      timestamp: new Date().toISOString(),
+    });
+    let admin;
+    try {
+      admin = getSupabaseAdmin();
+      console.log(`[stage1/import] [${reqId}] [Step 1] getSupabaseAdmin() succeeded`, {
+        adminType: typeof admin,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (adminErr) {
+      const errMsg = adminErr instanceof Error ? adminErr.message : String(adminErr);
+      const errStack = adminErr instanceof Error ? adminErr.stack : undefined;
+      console.error(`[stage1/import] [${reqId}] [Step 1] getSupabaseAdmin() FAILED`, {
+        error: errMsg,
+        stack: errStack,
+        cause: (adminErr as any)?.cause,
+        timestamp: new Date().toISOString(),
+      });
+      throw new Error(`getSupabaseAdmin failed: ${errMsg}`);
+    }
+
+    // ★ Step 2: Authorization header取得
+    console.log(`[stage1/import] [${reqId}] [Step 2] Getting Authorization header`, {
+      timestamp: new Date().toISOString(),
+    });
     const authHeader = request.headers.get('authorization') || '';
     const cookies = request.headers.get('cookie') || '';
-    console.log('[stage1/import] Auth debug', {
+    console.log(`[stage1/import] [${reqId}] [Step 2] Headers obtained`, {
       hasAuthHeader: !!authHeader,
-      authHeaderPrefix: authHeader.substring(0, 20),
+      authHeaderLength: authHeader.length,
+      authHeaderPrefix: authHeader.substring(0, 30),
       hasCookies: !!cookies,
-      cookieCount: cookies.split(';').filter(c => c.trim()).length,
       timestamp: new Date().toISOString(),
     });
 
-    const userId = await getAuthUserIdFromBearer(admin, request);
-    console.log('[stage1/import] Auth result', {
-      userId: userId || 'null',
+    // ★ Step 3: getAuthUserIdFromBearer
+    console.log(`[stage1/import] [${reqId}] [Step 3] About to call getAuthUserIdFromBearer()`, {
       timestamp: new Date().toISOString(),
     });
+    let userId;
+    try {
+      userId = await getAuthUserIdFromBearer(admin, request);
+      console.log(`[stage1/import] [${reqId}] [Step 3] getAuthUserIdFromBearer() succeeded`, {
+        userId: userId || 'null',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (authErr) {
+      const errMsg = authErr instanceof Error ? authErr.message : String(authErr);
+      const errStack = authErr instanceof Error ? authErr.stack : undefined;
+      console.error(`[stage1/import] [${reqId}] [Step 3] getAuthUserIdFromBearer() FAILED`, {
+        error: errMsg,
+        stack: errStack,
+        cause: (authErr as any)?.cause,
+        timestamp: new Date().toISOString(),
+      });
+      throw new Error(`getAuthUserIdFromBearer failed: ${errMsg}`);
+    }
 
     if (!userId) {
-      console.warn('[stage1/import] Unauthorized: userId is null/empty');
+      console.warn(`[stage1/import] [${reqId}] Unauthorized: userId is null/empty`);
       return NextResponse.json<Stage1ImportResult>(
         { success: false, error: 'unauthorized', candidates: [] },
         { status: 401 }
       );
     }
 
-    const membership = await requireMembership(admin, userId);
+    // ★ Step 4: requireMembership
+    console.log(`[stage1/import] [${reqId}] [Step 4] About to call requireMembership()`, {
+      userId,
+      timestamp: new Date().toISOString(),
+    });
+    let membership;
+    try {
+      membership = await requireMembership(admin, userId);
+      console.log(`[stage1/import] [${reqId}] [Step 4] requireMembership() succeeded`, {
+        membershipExists: !!membership,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (memberErr) {
+      const errMsg = memberErr instanceof Error ? memberErr.message : String(memberErr);
+      const errStack = memberErr instanceof Error ? memberErr.stack : undefined;
+      console.error(`[stage1/import] [${reqId}] [Step 4] requireMembership() FAILED`, {
+        error: errMsg,
+        stack: errStack,
+        cause: (memberErr as any)?.cause,
+        timestamp: new Date().toISOString(),
+      });
+      throw new Error(`requireMembership failed: ${errMsg}`);
+    }
+
     if (!membership) {
+      console.warn(`[stage1/import] [${reqId}] Forbidden: no membership`);
       return NextResponse.json<Stage1ImportResult>(
         { success: false, error: 'forbidden', candidates: [] },
         { status: 403 }
       );
     }
 
+    // ★ Step 5: assertMinRole
+    console.log(`[stage1/import] [${reqId}] [Step 5] About to call assertMinRole()`, {
+      timestamp: new Date().toISOString(),
+    });
     try {
       await assertMinRole(membership, 'manager');
-    } catch {
+      console.log(`[stage1/import] [${reqId}] [Step 5] assertMinRole() succeeded`, {
+        timestamp: new Date().toISOString(),
+      });
+    } catch (roleErr) {
+      const errMsg = roleErr instanceof Error ? roleErr.message : String(roleErr);
+      const errStack = roleErr instanceof Error ? roleErr.stack : undefined;
+      console.error(`[stage1/import] [${reqId}] [Step 5] assertMinRole() FAILED`, {
+        error: errMsg,
+        stack: errStack,
+        cause: (roleErr as any)?.cause,
+        timestamp: new Date().toISOString(),
+      });
       return NextResponse.json<Stage1ImportResult>(
         { success: false, error: 'insufficient_role', candidates: [] },
         { status: 403 }
       );
     }
 
+    console.log(`[stage1/import] [${reqId}] All auth checks passed`, {
+      timestamp: new Date().toISOString(),
+    });
+
     cleanupExpiredCache();
 
-    const formData = await request.formData();
+    // ★ Step 6: request.formData()
+    console.log(`[stage1/import] [${reqId}] [Step 6] About to parse formData`, {
+      contentType: request.headers.get('content-type'),
+      contentLength: request.headers.get('content-length'),
+      timestamp: new Date().toISOString(),
+    });
+
+    let formData;
+    try {
+      formData = await request.formData();
+      console.log(`[stage1/import] [${reqId}] [Step 6] formData parsed successfully`, {
+        timestamp: new Date().toISOString(),
+      });
+    } catch (formDataErr) {
+      const errMsg = formDataErr instanceof Error ? formDataErr.message : String(formDataErr);
+      const errStack = formDataErr instanceof Error ? formDataErr.stack : undefined;
+      const errCause = (formDataErr as any)?.cause;
+      console.error(`[stage1/import] [${reqId}] [Step 6] formData parsing FAILED`, {
+        error: errMsg,
+        stack: errStack,
+        cause: errCause,
+        timestamp: new Date().toISOString(),
+      });
+      throw new Error(`Failed to parse multipart/form-data: ${errMsg}`);
+    }
+
+    // ★ DEBUG：files 取得のログ
     const files = formData.getAll('files') as File[];
+    console.log(`[stage1/import] [${reqId}] Files extracted from formData`, {
+      fileCount: files.length,
+      fileNames: files.map(f => f.name),
+      fileSizes: files.map(f => f.size),
+      timestamp: new Date().toISOString(),
+    });
 
     if (!files || files.length === 0) {
+      console.warn(`[stage1/import] [${reqId}] No files provided`);
       return NextResponse.json<Stage1ImportResult>(
         { success: false, error: 'ファイルがアップロードされていません', candidates: [] },
         { status: 400 }
@@ -565,32 +690,130 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const tableHints: string[] = [];
 
     for (const file of files) {
+      console.log(`[stage1/import] [${reqId}] Processing file: ${file.name}`, {
+        size: file.size,
+        type: file.type,
+        lastModified: file.lastModified,
+        timestamp: new Date().toISOString(),
+      });
+
       if (file.size > MAX_FILE_SIZE) {
         warnings.push(`${file.name}: ファイルサイズが大きすぎます（${Math.round(file.size / 1024 / 1024)}MB）`);
         continue;
       }
 
-      const buffer = Buffer.from(await file.arrayBuffer());
-      const cacheKey = generateCacheKey(buffer);
+      let buffer: Buffer;
+      try {
+        console.log(`[stage1/import] [${reqId}] [Step 8] About to call file.arrayBuffer() for ${file.name}`, {
+          timestamp: new Date().toISOString(),
+        });
+        const arrayBuf = await file.arrayBuffer();
+        console.log(`[stage1/import] [${reqId}] [Step 8] arrayBuffer obtained for ${file.name}`, {
+          arrayBufByteLength: arrayBuf.byteLength,
+          timestamp: new Date().toISOString(),
+        });
+        buffer = Buffer.from(arrayBuf);
+        console.log(`[stage1/import] [${reqId}] [Step 8] Buffer created for ${file.name}`, {
+          bufferLength: buffer.length,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (bufErr) {
+        const errMsg = bufErr instanceof Error ? bufErr.message : String(bufErr);
+        const errStack = bufErr instanceof Error ? bufErr.stack : undefined;
+        const errCause = (bufErr as any)?.cause;
+        console.error(`[stage1/import] [${reqId}] [Step 8] Buffer conversion FAILED for ${file.name}`, {
+          error: errMsg,
+          stack: errStack,
+          cause: errCause,
+          timestamp: new Date().toISOString(),
+        });
+        warnings.push(`${file.name}: バッファ変換エラー - ${errMsg}`);
+        continue;
+      }
+
+      let cacheKey: string;
+      try {
+        cacheKey = generateCacheKey(buffer);
+        console.log(`[stage1/import] [${reqId}] Cache key generated for ${file.name}`, {
+          cacheKey: cacheKey.substring(0, 16),
+          timestamp: new Date().toISOString(),
+        });
+      } catch (cacheErr) {
+        const errMsg = cacheErr instanceof Error ? cacheErr.message : String(cacheErr);
+        console.error(`[stage1/import] [${reqId}] Cache key generation FAILED for ${file.name}`, {
+          error: errMsg,
+          timestamp: new Date().toISOString(),
+        });
+        throw cacheErr;
+      }
 
       const cached = getFromCache<Stage1ImportCandidate[]>(cacheKey);
       if (cached) {
+        console.log(`[stage1/import] [${reqId}] Cache hit for ${file.name}`, {
+          cachedCandidatesCount: cached.length,
+          timestamp: new Date().toISOString(),
+        });
         allCandidates.push(...cached);
         tableHints.push(`${file.name}: キャッシュから読み込み`);
         continue;
       }
 
-      const fileType = detectFileType(buffer, file.name);
+      let fileType;
+      try {
+        fileType = detectFileType(buffer, file.name);
+        console.log(`[stage1/import] [${reqId}] File type detected for ${file.name}`, {
+          fileType,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (typeErr) {
+        const errMsg = typeErr instanceof Error ? typeErr.message : String(typeErr);
+        console.error(`[stage1/import] [${reqId}] File type detection FAILED for ${file.name}`, {
+          error: errMsg,
+          timestamp: new Date().toISOString(),
+        });
+        throw typeErr;
+      }
+
       let candidates: Stage1ImportCandidate[] = [];
 
       try {
         if (fileType === 'csv') {
-          const text = buffer.toString('utf-8');
+          console.log(`[stage1/import] [${reqId}] Processing CSV file: ${file.name}`);
+          let text: string;
+          try {
+            text = buffer.toString('utf-8');
+            console.log(`[stage1/import] [${reqId}] Buffer converted to UTF-8 string for ${file.name}`, {
+              textLength: text.length,
+              timestamp: new Date().toISOString(),
+            });
+          } catch (strErr) {
+            const errMsg = strErr instanceof Error ? strErr.message : String(strErr);
+            console.error(`[stage1/import] [${reqId}] Buffer to string conversion FAILED for ${file.name}`, {
+              error: errMsg,
+              timestamp: new Date().toISOString(),
+            });
+            throw new Error(`Failed to decode CSV file as UTF-8: ${errMsg}`);
+          }
+
           let table: ExtractedTable;
           try {
+            console.log(`[stage1/import] [${reqId}] Calling parseCSV for ${file.name}`);
             table = parseCSV(text);
-          } catch (err) {
-            const errorMsg = err instanceof Error ? err.message : String(err);
+            console.log(`[stage1/import] [${reqId}] parseCSV succeeded for ${file.name}`, {
+              headersCount: table.headers?.length ?? 0,
+              rowsCount: (table.rows as any)?.length ?? 0,
+              timestamp: new Date().toISOString(),
+            });
+          } catch (parseErr) {
+            const errorMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+            const errorStack = parseErr instanceof Error ? parseErr.stack : undefined;
+            const errorCause = (parseErr as any)?.cause;
+            console.error(`[stage1/import] [${reqId}] parseCSV FAILED for ${file.name}`, {
+              error: errorMsg,
+              stack: errorStack,
+              cause: errorCause,
+              timestamp: new Date().toISOString(),
+            });
             // Check if this is a validation error we defined
             if (errorMsg.includes('exceeds maximum') || errorMsg.includes('row limit')) {
               throw new Error(`CSV validation error: ${errorMsg}`);
@@ -643,11 +866,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             }
           }
         } else if (fileType === 'excel') {
+          console.log(`[stage1/import] [${reqId}] [Step 9] Processing Excel file: ${file.name}`);
           let tables: ExtractedTable[] = [];
           try {
+            console.log(`[stage1/import] [${reqId}] [Step 9] About to call parseExcel for ${file.name}`, {
+              bufferLength: buffer.length,
+              timestamp: new Date().toISOString(),
+            });
             tables = parseExcel(buffer);
-          } catch (err) {
-            const errorMsg = err instanceof Error ? err.message : String(err);
+            console.log(`[stage1/import] [${reqId}] [Step 9] parseExcel succeeded for ${file.name}`, {
+              sheetsCount: tables.length,
+              sheetNames: tables.map((t) => (t as any).sheetName || (t as any).title || '(no name)'),
+              timestamp: new Date().toISOString(),
+            });
+          } catch (excelErr) {
+            const errorMsg = excelErr instanceof Error ? excelErr.message : String(excelErr);
+            const errorStack = excelErr instanceof Error ? excelErr.stack : undefined;
+            const errorCause = (excelErr as any)?.cause;
+            console.error(`[stage1/import] [${reqId}] [Step 9] parseExcel FAILED for ${file.name}`, {
+              error: errorMsg,
+              stack: errorStack,
+              cause: errorCause,
+              timestamp: new Date().toISOString(),
+            });
             // Check if this is a validation error we defined (contains specific limits)
             if (
               errorMsg.includes('exceeds maximum') ||
@@ -663,65 +904,161 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           }
 
           // ★ DEBUG：Excelシート抽出確認
-          if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
-            console.log('[stage1/import] Excel parsed', {
-              fileName: file.name,
-              sheetsCount: tables.length,
-              sheetNames: tables.map((t) => (t as any).sheetName || (t as any).title || '(no name)'),
-            });
-          }
+          console.log(`[stage1/import] [${reqId}] Excel parsing details for ${file.name}`, {
+            sheetsCount: tables.length,
+            sheetNames: tables.map((t) => (t as any).sheetName || (t as any).title || '(no name)'),
+            timestamp: new Date().toISOString(),
+          });
 
           for (const t of tables) {
             const beforeLen = candidates.length;
-            candidates.push(...buildCandidatesFromTable(t));
-            const afterLen = candidates.length;
-
-            if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1' && afterLen > beforeLen) {
-              console.log('[stage1/import] Table candidates added', {
-                sheetName: (t as any).sheetName,
-                candidatesAdded: afterLen - beforeLen,
+            try {
+              const sheetName = (t as any).sheetName || (t as any).title || '(no name)';
+              console.log(`[stage1/import] [${reqId}] [Step 10] About to call buildCandidatesFromTable for sheet: ${sheetName}`, {
+                timestamp: new Date().toISOString(),
               });
+              candidates.push(...buildCandidatesFromTable(t));
+              const afterLen = candidates.length;
+              console.log(`[stage1/import] [${reqId}] [Step 10] Sheet processed: ${sheetName}`, {
+                candidatesAdded: afterLen - beforeLen,
+                totalCandidates: afterLen,
+                timestamp: new Date().toISOString(),
+              });
+            } catch (sheetErr) {
+              const sheetName = (t as any).sheetName || (t as any).title || '(unknown)';
+              const errMsg = sheetErr instanceof Error ? sheetErr.message : String(sheetErr);
+              const errStack = sheetErr instanceof Error ? sheetErr.stack : undefined;
+              const errCause = (sheetErr as any)?.cause;
+              console.error(`[stage1/import] [${reqId}] [Step 10] Sheet processing FAILED: ${sheetName}`, {
+                error: errMsg,
+                stack: errStack,
+                cause: errCause,
+                timestamp: new Date().toISOString(),
+              });
+              throw sheetErr;
             }
           }
           tableHints.push(`${file.name}: Excel（${tables.length}シート）`);
         } else if (isPdfBuffer(buffer)) {
-          const pdfResult = await parsePdf(buffer);
-          candidates = buildCandidatesFromPdfText(pdfResult.pages);
-          tableHints.push(`${file.name}: PDF（${pdfResult.processedPages}/${pdfResult.totalPages}ページ解析）`);
-          if (pdfResult.warnings.length > 0) {
-            warnings.push(...pdfResult.warnings.map((w) => `${file.name}: ${w}`));
+          console.log(`[stage1/import] [${reqId}] Processing PDF file: ${file.name}`);
+          try {
+            const pdfResult = await parsePdf(buffer);
+            console.log(`[stage1/import] [${reqId}] parsePdf succeeded for ${file.name}`, {
+              totalPages: pdfResult.totalPages,
+              processedPages: pdfResult.processedPages,
+              warningsCount: pdfResult.warnings.length,
+              timestamp: new Date().toISOString(),
+            });
+            candidates = buildCandidatesFromPdfText(pdfResult.pages);
+            console.log(`[stage1/import] [${reqId}] buildCandidatesFromPdfText completed for ${file.name}`, {
+              candidatesCount: candidates.length,
+              timestamp: new Date().toISOString(),
+            });
+            tableHints.push(`${file.name}: PDF（${pdfResult.processedPages}/${pdfResult.totalPages}ページ解析）`);
+            if (pdfResult.warnings.length > 0) {
+              warnings.push(...pdfResult.warnings.map((w) => `${file.name}: ${w}`));
+            }
+          } catch (pdfErr) {
+            const errMsg = pdfErr instanceof Error ? pdfErr.message : String(pdfErr);
+            const errStack = pdfErr instanceof Error ? pdfErr.stack : undefined;
+            console.error(`[stage1/import] [${reqId}] PDF processing FAILED for ${file.name}`, {
+              error: errMsg,
+              stack: errStack,
+              timestamp: new Date().toISOString(),
+            });
+            throw pdfErr;
           }
         } else {
+          console.warn(`[stage1/import] [${reqId}] Unsupported file type for ${file.name}`);
           warnings.push(`${file.name}: 未対応のファイル形式です`);
           continue;
         }
 
-        if (candidates.length > 0) saveToCache(cacheKey, candidates);
+        // ★ DEBUG：候補生成結果
+        console.log(`[stage1/import] [${reqId}] Candidates generated for ${file.name}`, {
+          candidatesCount: candidates.length,
+          kinds: Array.from(new Set(candidates.map(c => c.kind))),
+          timestamp: new Date().toISOString(),
+        });
+
+        try {
+          if (candidates.length > 0) {
+            saveToCache(cacheKey, candidates);
+            console.log(`[stage1/import] [${reqId}] Candidates cached for ${file.name}`, {
+              candidatesCount: candidates.length,
+              timestamp: new Date().toISOString(),
+            });
+          }
+        } catch (cacheErr) {
+          const errMsg = cacheErr instanceof Error ? cacheErr.message : String(cacheErr);
+          console.warn(`[stage1/import] [${reqId}] Cache save warning for ${file.name}`, {
+            error: errMsg,
+            timestamp: new Date().toISOString(),
+          });
+          // キャッシュ失敗は致命的ではない、続行する
+        }
 
         allCandidates.push(...candidates);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        const stack = err instanceof Error ? err.stack : undefined;
+        const cause = (err as any)?.cause;
+        console.error(`[stage1/import] [${reqId}] File processing error for ${file.name}`, {
+          error: message,
+          stack,
+          cause,
+          timestamp: new Date().toISOString(),
+        });
         warnings.push(`${file.name}: 解析エラー - ${message}`);
       }
     }
 
-    const normalized = normalizeCandidates(allCandidates);
+    console.log(`[stage1/import] [${reqId}] All files processed`, {
+      totalCandidates: allCandidates.length,
+      warningsCount: warnings.length,
+      timestamp: new Date().toISOString(),
+    });
+
+    // ★ DEBUG：normalizeCandidates 呼び出し前
+    console.log(`[stage1/import] [${reqId}] About to normalize candidates`, {
+      allCandidatesCount: allCandidates.length,
+      timestamp: new Date().toISOString(),
+    });
+
+    let normalized: Stage1ImportCandidate[];
+    try {
+      normalized = normalizeCandidates(allCandidates);
+      console.log(`[stage1/import] [${reqId}] normalizeCandidates completed`, {
+        normalizedCount: normalized.length,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (normErr) {
+      const errMsg = normErr instanceof Error ? normErr.message : String(normErr);
+      const errStack = normErr instanceof Error ? normErr.stack : undefined;
+      console.error(`[stage1/import] [${reqId}] normalizeCandidates FAILED`, {
+        error: errMsg,
+        stack: errStack,
+        timestamp: new Date().toISOString(),
+      });
+      throw new Error(`Candidate normalization failed: ${errMsg}`);
+    }
+
     normalized.sort((a, b) => b.confidence - a.confidence);
 
     // ★ DEBUG：複数セグメント確認用ログ
-    if (process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
-      const segmentCounts: Record<string, number> = {};
-      for (const c of normalized) {
-        const seg = (c as any).segmentName ?? 'N/A';
-        const key = `${c.kind}:${seg}`;
-        segmentCounts[key] = (segmentCounts[key] ?? 0) + 1;
-      }
-      console.log('[stage1/import] candidates distribution:', {
-        totalCandidates: normalized.length,
-        segmentDistribution: segmentCounts,
-        segmentNames: Array.from(new Set(normalized.map((c: any) => c.segmentName).filter(Boolean))),
-      });
+    const segmentCounts: Record<string, number> = {};
+    for (const c of normalized) {
+      const seg = (c as any).segmentName ?? 'N/A';
+      const key = `${c.kind}:${seg}`;
+      segmentCounts[key] = (segmentCounts[key] ?? 0) + 1;
     }
+    console.log(`[stage1/import] [${reqId}] Final candidates distribution`, {
+      totalCandidates: normalized.length,
+      segmentDistribution: segmentCounts,
+      segmentNames: Array.from(new Set(normalized.map((c: any) => c.segmentName).filter(Boolean))),
+      warningsCount: warnings.length,
+      timestamp: new Date().toISOString(),
+    });
 
     const result: Stage1ImportResult = {
       success: true,
@@ -730,19 +1067,33 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       previewText: warnings.length > 0 ? warnings.join('\n') : undefined,
     };
 
+    const elapsedMs = Date.now() - startTime;
+    console.log(`[stage1/import] [${reqId}] [Step 11] POST completed successfully - about to return JSON`, {
+      elapsedMs,
+      candidatesReturned: normalized.length,
+      timestamp: new Date().toISOString(),
+    });
+
     return NextResponse.json(result);
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     const errorStack = err instanceof Error ? err.stack : undefined;
+    const errorCause = (err as any)?.cause;
+    const elapsedMs = Date.now() - startTime;
 
-    console.error('[stage1/import] Fatal Error', {
+    console.error(`[stage1/import] [${reqId}] === FATAL ERROR ===`, {
       message: errorMessage,
       stack: errorStack,
+      cause: errorCause,
       type: err instanceof Error ? err.constructor.name : typeof err,
+      elapsedMs,
       timestamp: new Date().toISOString(),
     });
 
     // ★重要：必ずJSONで返す（Next.jsのHTML 500ページを避ける）
+    console.log(`[stage1/import] [${reqId}] [Step 11] Returning error JSON response (HTTP 500)`, {
+      timestamp: new Date().toISOString(),
+    });
     return NextResponse.json<Stage1ImportResult>(
       {
         success: false,
