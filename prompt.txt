@@ -1,28 +1,12 @@
-原因が特定できました。
-Vercel本番の /api/stage1/import で
-ReferenceError: DOMMatrix is not defined
-が発生しています。
-認証・Supabase・Excel解析の前、APIモジュールのロード段階で落ちている可能性があります。
-/api/stage1/import およびそこから静的importされているモジュールを追跡し、DOMMatrix を要求している依存ライブラリを特定してください。
-特に pdfjs-dist、PDF解析ライブラリ、canvas系ライブラリを確認してください。
-Excel/CSV取込時にはPDF関連ライブラリをロードしない構造に修正してください。
-第一選択として、PDF解析モジュールのトップレベルstatic importを削除し、PDFファイルを処理するときだけdynamic importしてください。
-例：
-if (isPdfFile) {
-  const pdfModule = await import("...");
-  // PDF解析
-}
-
-Excel処理ではPDF依存コードに一切到達しないようにしてください。
-DOMMatrixの単純なグローバルpolyfillで逃げるのではなく、まず不要なPDF依存がExcel取込までロードされている設計を修正してください。
-修正後は、
-1. test-02-company-pl-only.xlsx
-2. 丹青社の標準フォーマットExcel
-3. PDFファイル
-の順にローカル・本番で確認してください。
-最後に、
-- DOMMatrixを要求していたライブラリ
-- なぜ本番だけ落ちたか
-- 修正箇所
-- Excel/CSV/PDFそれぞれのテスト結果
-を報告してください。
+今後、STAGE1のExcel取込で同じような障害を繰り返さないため、現行のGROWTH SHIFT標準フォーマットを使った自動回帰テストを追加してください。
+最低限、
+- 空の標準フォーマット
+- 全社PLのみ
+- 全社PL＋BS
+- 事業別PLあり
+- 事業別BSあり
+- 空欄を含むファイル
+- 丹青社の実データ入りファイル
+をテスト対象とし、API変更時にすべて正常解析できることを確認できるようにしてください。
+また、import と import-dev でExcel解析ロジックを別々に持たず、共通処理を使う構造になっているか確認してください。
+エラー時はHTML 500ではなく、原因を特定できるJSONエラーを必ず返してください。
