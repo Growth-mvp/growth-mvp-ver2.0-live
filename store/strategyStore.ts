@@ -1217,7 +1217,7 @@ function scheduleRefetchRetry(delayMs = 1500): void {
 /* ===== 初期状態 ===== */
 const emptyData: StrategyState = {
   companyId: null,
-  strategyId: undefined, // ★ FIX: null → undefined（refetchFromServer で DB から復元される）
+  strategyId: null, // ★ ID未設定: refetchFromServer で DB から復元される
   pendingCompanyId: undefined,
 
   companyName: '',
@@ -1456,9 +1456,13 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
       ? raw.business_segments
       : [];
 
-  // ★ businessSegments の正規化：summary/keyCustomers を安全化
+  // ★ businessSegments の正規化：name/summary/keyCustomers を安全化
   businessSegments = businessSegments.map((seg: any) => {
     const normalized: any = { ...seg };
+    // name は string である必要がある（undefined/null/非文字列を空文字に）
+    if (typeof normalized.name !== 'string') {
+      normalized.name = '';
+    }
     // summary は string または undefined
     if (typeof normalized.summary !== 'string' && normalized.summary !== undefined) {
       normalized.summary = undefined;
@@ -2131,8 +2135,14 @@ export const useStrategyStore = create<StrategyState>()(
 
         // businessSegments が変更された場合、segmentPL/segmentBS のキー整合を保つ
         if (patch.businessSegments !== undefined) {
+          // ★ name を正規化（undefined/null → ''）
+          const normalizedSegments = (patch.businessSegments ?? []).map((seg: any) => ({
+            ...seg,
+            name: typeof seg.name === 'string' ? seg.name : '',
+          }));
+
           const currentState = get();
-          const newSegmentNames = new Set((patch.businessSegments ?? []).map((seg) => seg.name));
+          const newSegmentNames = new Set(normalizedSegments.map((seg) => seg.name));
 
           let newSegmentPL = currentState.segmentPL ? { ...currentState.segmentPL } : {};
           let newSegmentBS = currentState.segmentBS ? { ...currentState.segmentBS } : {};
@@ -2162,13 +2172,24 @@ export const useStrategyStore = create<StrategyState>()(
           set((s) => ({
             ...s,
             ...patch,
+            businessSegments: normalizedSegments,
             segmentPL: Object.keys(newSegmentPL).length > 0 ? newSegmentPL : undefined,
             segmentBS: Object.keys(newSegmentBS).length > 0 ? newSegmentBS : undefined,
             dirty: true,
             version: (s.version ?? 0) + 1,
           }));
         } else {
-          set((s) => ({ ...s, ...patch, dirty: true, version: (s.version ?? 0) + 1 }));
+          set((s) => {
+            // ★ businessSegments がない場合も、念のため他のフィールドで指定されていたら正規化
+            const normalized: any = { ...patch };
+            if (normalized.businessSegments) {
+              normalized.businessSegments = (normalized.businessSegments ?? []).map((seg: any) => ({
+                ...seg,
+                name: typeof seg.name === 'string' ? seg.name : '',
+              }));
+            }
+            return { ...s, ...normalized, dirty: true, version: (s.version ?? 0) + 1 };
+          });
         }
 
         // ★ DEBUG STAGE1: After state update in setProfile
