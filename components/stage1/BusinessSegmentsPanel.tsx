@@ -89,7 +89,7 @@ export default function BusinessSegmentsPanel({ readOnly, disabled }: { readOnly
   const handleStartEdit = useCallback((seg: BusinessSegment) => {
     if (disabled) return;
     setEditingId(seg.id);
-    setEditName(seg.name);
+    setEditName(typeof seg.name === 'string' ? seg.name : '');
   }, [disabled]);
 
   const handleSaveEdit = useCallback(
@@ -151,7 +151,12 @@ export default function BusinessSegmentsPanel({ readOnly, disabled }: { readOnly
   }, []);
 
   const emptyNameWarnings = useMemo(() => {
-    return businessSegments.filter((seg) => !seg.name.trim()).map((seg) => seg.id);
+    return businessSegments
+      .filter((seg) => {
+        const name = seg.name;
+        return typeof name !== 'string' || name.trim() === '';
+      })
+      .map((seg) => seg.id);
   }, [businessSegments]);
 
   return (
