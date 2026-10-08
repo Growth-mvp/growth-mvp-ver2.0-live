@@ -39,6 +39,11 @@
       "maxCompletionTokens": 1200,
       "jsonMode": false
     },
+    "stage2Conclusion": {
+      "modelRole": "reasoning",
+      "maxCompletionTokens": 600,
+      "jsonMode": false
+    },
     "stage3Bridge": {
       "modelRole": "reasoning",
       "maxCompletionTokens": 6000,

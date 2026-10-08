@@ -57,6 +57,9 @@ interface StrategyStoryPreviewProps {
   isEditMode?: boolean;
   stage2FinalDocumentEdits?: Stage2FinalDocumentEdits;
   onDocumentEditsChange?: (edits: Stage2FinalDocumentEdits) => void;
+
+  // ★ AI生成Conclusion関連
+  aiGeneratedConclusion?: string;
 }
 
 /**
@@ -856,15 +859,19 @@ function ConclusionBox({
   isEditMode,
   value,
   onChange,
+  aiGeneratedConclusion,
 }: {
   isEditMode?: boolean;
   value?: string;
   onChange?: (value: string) => void;
+  aiGeneratedConclusion?: string;
 } = {}) {
   const defaultText = `当社は、既存市場・既存事業の延長だけでは、今後の成長機会を十分に取り切ることが難しい局面にある。今後は、環境変化によって生まれる新たな成長領域へ経営資源を重点配分し、既存事業依存からの脱却と収益構造の転換を進める。
 
 そのために、全社として「どの市場で戦うのか」「何に投資するのか」「何を優先し、何を見直すのか」という判断基準を明確にし、部門・社員一人ひとりの判断と行動を成長領域に揃えていく。`;
-  const displayValue = value ?? defaultText;
+
+  // ★ 優先順位：ユーザー編集 > AI生成 > fallback
+  const displayValue = value || aiGeneratedConclusion || defaultText;
 
   return (
     <div className="mb-10 rounded-[24px] border border-slate-200 border-l-4 border-l-slate-800 bg-white/95 p-8 shadow-sm">
@@ -1667,6 +1674,9 @@ export function StrategyStoryPreview({
   isEditMode,
   stage2FinalDocumentEdits,
   onDocumentEditsChange,
+  aiGeneratedConclusion,
+  currentStoryFingerprint,
+  generatedConclusionFingerprint,
 }: StrategyStoryPreviewProps) {
   if (!story || story.length === 0) return null;
 
@@ -1769,6 +1779,9 @@ export function StrategyStoryPreview({
                   conclusion,
                 });
               }}
+              aiGeneratedConclusion={aiGeneratedConclusion}
+              currentStoryFingerprint={currentStoryFingerprint}
+              generatedConclusionFingerprint={generatedConclusionFingerprint}
             />
             <StrategicAssumptionBlock
               assumptions={

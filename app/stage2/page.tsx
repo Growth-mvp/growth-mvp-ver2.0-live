@@ -2365,6 +2365,10 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   const companyName = useStrategyStore((s: StrategyState) => (s as any).companyName as string | undefined);
   const midtermStrategy = useStrategyStore((s: StrategyState) => s.midtermStrategy);
 
+  // ★ AI生成Conclusion取得（readonly、API生成値）
+  const stage2FinalGeneratedConclusion = useStrategyStore((s: StrategyState) => s.stage2FinalGeneratedConclusion);
+  const stage2FinalGeneratedConclusionFingerprint = useStrategyStore((s: StrategyState) => s.stage2FinalGeneratedConclusionFingerprint);
+
   // Local UI state
   const [loading, setLoading] = useState(true);
   const [issueBlocks, setIssueBlocks] = useState<IssueBlock[]>([]);
@@ -2641,6 +2645,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   };
 
   const displayingStory = pickStory();
+
 
   // Active tab
   const [activeTab, setActiveTab] = useState<TabId>('input');
@@ -3812,6 +3817,51 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           if (saveResult.data?.revision !== undefined) {
             useStrategyStore.getState().setRevision(saveResult.data.revision);
           }
+
+          // ★ 4章生成・保存成功後、generate-conclusion を別リクエストで呼び出し（非ブロッキング）
+          try {
+            console.log('[Stage2] generate-conclusion: calling...');
+            const conclusionRes = await authFetchJson<any>('/api/stage2/generate-conclusion', {
+              method: 'POST',
+              json: { strategyDataId: strategyId },
+            });
+
+            console.log('[CONCLUSION DEBUG] API Response:', {
+              apiCalled: true,
+              responseConclusion: conclusionRes?.conclusion?.substring(0, 50) + '...',
+              responseFingerprint: conclusionRes?.story_fingerprint?.slice(0, 8),
+              fullResponse: conclusionRes,
+            });
+
+            if (conclusionRes && typeof conclusionRes.conclusion === 'string') {
+              console.log('[Stage2] generate-conclusion: SUCCESS', {
+                conclusionLen: conclusionRes.conclusion.length,
+                fingerprint: conclusionRes.story_fingerprint?.slice(0, 8),
+              });
+
+              // ★ store に Conclusion と fingerprint を反映
+              const store = useStrategyStore.getState() as any;
+              console.log('[CONCLUSION DEBUG] Before store update:', {
+                storeConclusion: store.stage2FinalGeneratedConclusion?.substring(0, 50),
+                storeFingerprint: store.stage2FinalGeneratedConclusionFingerprint?.slice(0, 8),
+              });
+
+              if (typeof store.setStage2FinalGeneratedConclusion === 'function') {
+                store.setStage2FinalGeneratedConclusion?.(
+                  conclusionRes.conclusion
+                );
+              }
+            } else {
+              console.warn('[Stage2] generate-conclusion: unexpected response format', conclusionRes);
+            }
+          } catch (conclusionErr) {
+            // ★ Conclusion生成失敗は非ブロッキング（4章は既に保存済み）
+            console.warn('[Stage2] generate-conclusion: FAILED (non-blocking)', conclusionErr);
+            console.log('[CONCLUSION DEBUG] API Call Failed:', {
+              apiCalled: false,
+              error: conclusionErr,
+            });
+          }
         } else {
           console.warn('[Stage2][generate-final] ⚠️ DB save FAILED but generation succeeded', {
             error: (saveResult.error as any)?.message || saveResult.error,
@@ -4417,6 +4467,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                           onDocumentEditsChange={(edits) => {
                             setEditingDocumentEdits(edits);
                           }}
+                          aiGeneratedConclusion={stage2FinalGeneratedConclusion}
                         />
                       </div>
                     }

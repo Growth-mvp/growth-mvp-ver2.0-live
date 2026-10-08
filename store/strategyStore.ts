@@ -256,6 +256,10 @@ export type StrategyState = {
   /* ★ STAGE2：最終ストーリー補助セクション編集データ（表示上書き用） */
   stage2FinalDocumentEdits?: Stage2FinalDocumentEdits;
 
+  /* ★ STAGE2：AI生成Conclusion（readonly、API生成） */
+  stage2FinalGeneratedConclusion?: string;
+  stage2FinalGeneratedConclusionAt?: string;
+
   /* ★ STAGE3：STAGE2からの戦略展開ブリッジ */
   stage3_strategy_bridge?: {
     keyThemes: string[];
@@ -387,6 +391,7 @@ export type StrategyState = {
   setFinalStory: (chs: ChapterStory[]) => void;
   setMidtermStrategy: (m: MidtermStrategy | undefined) => void;
   setStage2FinalDocumentEdits: (edits: Stage2FinalDocumentEdits | undefined) => void;
+  setStage2FinalGeneratedConclusion: (conclusion: string | undefined) => void;
   setAnswers2: (answers: ChapterAnswers[]) => void;
   setChapterCurrentStep: (chapterIndex: number, step: number) => void;
 
@@ -1074,6 +1079,7 @@ function extractServerDecidedPatch(
   if (resData.stage2FinalDocumentEdits && typeof resData.stage2FinalDocumentEdits === 'object') patch.stage2FinalDocumentEdits = resData.stage2FinalDocumentEdits;
   if (Array.isArray(resData.answers2)) patch.answers2 = resData.answers2;
 
+  /* ★ Phase 1: AI生成Conclusion を復元（final_story_conclusion から） */
   if (Array.isArray(resData.winPatternsCandidate)) patch.winPatternsCandidate = resData.winPatternsCandidate;
 
   /* ★ Version 1: answers12は保存後のレスポンスから反映しない（deepDiveロストを防止） */
@@ -1272,6 +1278,8 @@ const emptyData: StrategyState = {
   stage3_strategy_bridge: null, // ★ 修正：削除時にnullクリアするため明示化
   companyTargets: [],
   stage2FinalDocumentEdits: undefined,
+  stage2FinalGeneratedConclusion: undefined,
+  stage2FinalGeneratedConclusionAt: undefined,
   projectTargetImpacts: [],
   okrTargetScores: {},
   projectIssueLinks: [],
@@ -1330,6 +1338,7 @@ const emptyData: StrategyState = {
   setFinalStory: () => {},
   setMidtermStrategy: () => {},
   setStage2FinalDocumentEdits: () => {},
+  setStage2FinalGeneratedConclusion: () => {},
   setAnswers2: () => {},
   setChapterCurrentStep: () => {},
   setProfile: () => {},
@@ -1775,6 +1784,20 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
     storyDraft,
     finalStory,
     stage2FinalDocumentEdits,
+    stage2FinalGeneratedConclusion: (() => {
+      const conclusionObj = raw.final_story_conclusion;
+      if (conclusionObj && typeof conclusionObj === 'object' && typeof conclusionObj.conclusion === 'string') {
+        return conclusionObj.conclusion;
+      }
+      return undefined;
+    })(),
+    stage2FinalGeneratedConclusionAt: (() => {
+      const conclusionObj = raw.final_story_conclusion;
+      if (conclusionObj && typeof conclusionObj === 'object' && typeof conclusionObj.generated_at === 'string') {
+        return conclusionObj.generated_at;
+      }
+      return undefined;
+    })(),
 
     answers2,
     answers12,
@@ -2056,6 +2079,15 @@ export const useStrategyStore = create<StrategyState>()(
         set((s) => ({
           stage2FinalDocumentEdits: edits ? { ...edits, editedAt: new Date().toISOString() } : undefined,
           dirty: true,
+          version: (s.version ?? 0) + 1,
+        }));
+      },
+
+      // ★ STAGE2：AI生成Conclusion（readonly、API生成のみ）
+      setStage2FinalGeneratedConclusion: (conclusion) => {
+        set((s) => ({
+          stage2FinalGeneratedConclusion: conclusion,
+          stage2FinalGeneratedConclusionAt: conclusion ? new Date().toISOString() : undefined,
           version: (s.version ?? 0) + 1,
         }));
       },

@@ -1,12 +1,80 @@
-今後、STAGE1のExcel取込で同じような障害を繰り返さないため、現行のGROWTH SHIFT標準フォーマットを使った自動回帰テストを追加してください。
-最低限、
-- 空の標準フォーマット
-- 全社PLのみ
-- 全社PL＋BS
-- 事業別PLあり
-- 事業別BSあり
-- 空欄を含むファイル
-- 丹青社の実データ入りファイル
-をテスト対象とし、API変更時にすべて正常解析できることを確認できるようにしてください。
-また、import と import-dev でExcel解析ロジックを別々に持たず、共通処理を使う構造になっているか確認してください。
-エラー時はHTML 500ではなく、原因を特定できるJSONエラーを必ず返してください。
+本番デプロイ前の最終確認をしてください。
+今回のConclusion機能はローカルで、
+- AI Conclusion生成成功
+- final_story_conclusion へのDB保存成功
+- UI表示成功
+- F5後の復元成功
+- 既存4章の生成成功
+- npm run build 成功
+まで確認できています。
+1. デバッグログの削除
+今回調査用に追加した以下の一時ログを削除してください。
+CONCLUSION DEBUG
+CONCLUSION RELOAD DEBUG
+CONCLUSION RAW DB DEBUG
+CONCLUSION TRANSFORM DEBUG
+STORY SOURCE DEBUG
+
+特にConclusion本文、4章本文、DB rowなど、顧客の戦略情報を console.log で出力するコードは本番に残さないでください。
+通常のエラーログは残して構いませんが、本文全文を出力しないようにしてください。
+2. generate-final保護確認
+app/api/stage2/generate-final/route.ts に今回のConclusion対応による変更が残っていないか確認してください。
+Conclusionは独立した
+/api/stage2/generate-conclusion
+
+だけで処理されていることを確認してください。
+既存4章生成のprompt、repair loop、hasBudget、model設定、保存処理には今回のConclusion対応による変更を入れないでください。
+3. DB確認
+本番Supabaseの strategy_data に
+final_story_conclusion JSONB
+
+が存在することを確認してください。
+Migration：
+supabase/migrations/20261008_add_final_story_conclusion.sql
+
+もリポジトリに残してください。
+4. API確認
+/api/stage2/generate-conclusion について、
+- 認証あり
+- strategyDataIdからcompanyIdを取得
+- membershipチェックあり
+- DB保存失敗時は成功扱いにしない
+- OpenAIモデルで max_completion_tokens を使用
+- 非対応の temperature を指定していない
+ことを確認してください。
+5. 最終ビルド
+npm run build
+
+を実行し、成功を確認してください。
+可能なら
+npx tsc --noEmit
+
+も実行してください。
+6. 変更ファイル確認
+今回の変更ファイルを一覧化し、Conclusion対応と無関係な変更が混入していないことを確認してください。
+特に、
+- generate-conclusion/route.ts
+- config/models.json
+- strategyStore.ts
+- StrategyStoryPreview.tsx
+- stage2/page.tsx
+- migration
+以外に意図しない変更がないか確認してください。
+7. 問題なければコミット
+最終確認に問題がなければコミットしてください。
+コミットメッセージ例：
+feat(stage2): add independent AI conclusion generation
+
+その後、本番デプロイして問題ありません。
+デプロイ後は丹青社で4章を再生成する必要はありません。
+まず既存データで、
+1. STAGE2表示
+2. AI Conclusion表示
+3. F5後もConclusion保持
+を確認してください。
+その後、新規生成を1回だけ行い、
+generate-final 200
+generate-conclusion 200
+
+を確認してください。
+今日は4章生成ロジックやConclusion機能への追加改修は行わないでください。

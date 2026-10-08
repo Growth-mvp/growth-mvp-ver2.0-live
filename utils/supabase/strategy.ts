@@ -727,6 +727,20 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
     });
   }
 
+  // ★ Phase 1: raw row の final_story_conclusion を直接展開（JSONB専用処理）
+  const conclusionObj = safeRow?.final_story_conclusion;
+  if (conclusionObj && typeof conclusionObj === 'object' && !Array.isArray(conclusionObj)) {
+    if (typeof conclusionObj.conclusion === 'string') {
+      out.stage2FinalGeneratedConclusion = conclusionObj.conclusion;
+    }
+    if (typeof conclusionObj.generated_at === 'string') {
+      out.stage2FinalGeneratedConclusionAt = conclusionObj.generated_at;
+    }
+    if (typeof conclusionObj.story_fingerprint === 'string') {
+      out.stage2FinalGeneratedConclusionFingerprint = conclusionObj.story_fingerprint;
+    }
+  }
+
   // ★ TASK: 監査地点1「Supabase から read した直後」
   const rawDepts = safeRow?.departments ?? [];
   if (DEBUG) {
@@ -1368,7 +1382,19 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
     restoredFinalStoryFinal = true;
   }
 
-  if (restoredCompanyTargets || restoredProjectTargetImpacts || restoredProjectIssueLinks || restoredOkrTargetScores || restoredFinalStoryDraft || restoredFinalStoryEdited || restoredFinalStoryFinal) {
+  // ★ Phase 1: final_story_conclusion が normalize で消えたか確認・復元
+  let restoredFinalStoryConclusion = false;
+  if (
+    !(normalized as any).stage2FinalGeneratedConclusion &&
+    out.stage2FinalGeneratedConclusion
+  ) {
+    (normalized as any).stage2FinalGeneratedConclusion = out.stage2FinalGeneratedConclusion;
+    (normalized as any).stage2FinalGeneratedConclusionAt = out.stage2FinalGeneratedConclusionAt;
+    (normalized as any).stage2FinalGeneratedConclusionFingerprint = out.stage2FinalGeneratedConclusionFingerprint;
+    restoredFinalStoryConclusion = true;
+  }
+
+  if (restoredCompanyTargets || restoredProjectTargetImpacts || restoredProjectIssueLinks || restoredOkrTargetScores || restoredFinalStoryDraft || restoredFinalStoryEdited || restoredFinalStoryFinal || restoredFinalStoryConclusion) {
     if (DEBUG) console.log('[diag][buildState:forced_restore] NEW FIELDS FORCED RESTORED', {
       companyTargets: restoredCompanyTargets,
       projectTargetImpacts: restoredProjectTargetImpacts,  // ★ 追加
@@ -1377,6 +1403,7 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
       finalStoryDraft: restoredFinalStoryDraft,
       finalStoryEdited: restoredFinalStoryEdited,
       finalStoryFinal: restoredFinalStoryFinal,
+      finalStoryConclusion: restoredFinalStoryConclusion,  // ★ 追加
     });
   }
 
@@ -1412,6 +1439,14 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
 
   /* ★ STAGE3 bridge check before return from buildStateFromDbRow */
   const returnValue = { ...(normalized as any), revision };
+
+  // ★ DIAGNOSIS: Check final_story_conclusion in return value
+  console.log('[CONCLUSION TRANSFORM DEBUG]', {
+    generatedConclusion: returnValue.stage2FinalGeneratedConclusion ? returnValue.stage2FinalGeneratedConclusion.substring(0, 50) : undefined,
+    generatedAt: returnValue.stage2FinalGeneratedConclusionAt,
+    fingerprint: returnValue.stage2FinalGeneratedConclusionFingerprint?.slice(0, 8),
+  });
+
   if (DEBUG) {
     console.log('[buildStateFromDbRow][final-return] STAGE3 bridge in return value', {
       stage3_bridge_exists: !!returnValue.stage3_strategy_bridge,
