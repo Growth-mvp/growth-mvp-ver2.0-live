@@ -35,7 +35,12 @@ export async function GET(req: NextRequest) {
     const userId = await getAuthUserIdFromBearer(admin, req);
     if (!userId) return json({ error: 'unauthorized' }, 401);
 
-    const membership = await requireMembership(admin, userId);
+    // Extract companyId from query parameter (client must specify which company)
+    const url = new URL(req.url);
+    const queryCompanyId = url.searchParams.get('companyId');
+
+    // Get user membership, passing companyId to validate it matches user's actual membership
+    const membership = await requireMembership(admin, userId, queryCompanyId || undefined);
     if (!membership) return json({ error: 'forbidden' }, 403);
 
     const companyId = membership.companyId;

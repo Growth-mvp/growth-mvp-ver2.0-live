@@ -1,80 +1,65 @@
-本番デプロイ前の最終確認をしてください。
-今回のConclusion機能はローカルで、
-- AI Conclusion生成成功
-- final_story_conclusion へのDB保存成功
-- UI表示成功
-- F5後の復元成功
-- 既存4章の生成成功
-- npm run build 成功
-まで確認できています。
-1. デバッグログの削除
-今回調査用に追加した以下の一時ログを削除してください。
-CONCLUSION DEBUG
-CONCLUSION RELOAD DEBUG
-CONCLUSION RAW DB DEBUG
-CONCLUSION TRANSFORM DEBUG
-STORY SOURCE DEBUG
+緊急：トップ画面で他社の組織変革データが表示されています。
+会社間のデータ分離に関わる不具合として、通常の改修より優先してください。
 
-特にConclusion本文、4章本文、DB rowなど、顧客の戦略情報を console.log で出力するコードは本番に残さないでください。
-通常のエラーログは残して構いませんが、本文全文を出力しないようにしてください。
-2. generate-final保護確認
-app/api/stage2/generate-final/route.ts に今回のConclusion対応による変更が残っていないか確認してください。
-Conclusionは独立した
-/api/stage2/generate-conclusion
+【確認された現象】
+トップ画面の「組織変革・全社すり合わせルーム」カードに、
+「会社として確認中の論点」
+「業績悪化時の方針・戦略の説明不足」
+が表示されます。この論点は他社のデータです。
 
-だけで処理されていることを確認してください。
-既存4章生成のprompt、repair loop、hasBudget、model設定、保存処理には今回のConclusion対応による変更を入れないでください。
-3. DB確認
-本番Supabaseの strategy_data に
-final_story_conclusion JSONB
+/org-transformation
+/org-transformation/shared
+管理画面
+には当該データは表示されず、トップ画面のみで発生しています。
 
-が存在することを確認してください。
-Migration：
-supabase/migrations/20261008_add_final_story_conclusion.sql
+【1. 応急対応】
+トップ画面の該当カードと、そのカード専用のデータ取得を停止する
+最小限の修正を先に用意してください。
+共有APIの場合は、影響を確認して問題の取得経路を遮断してください。
+CSS等で表示だけ隠す対応で済ませないでください。
+元データの削除や、本番DBの破壊的変更は禁止です。
 
-もリポジトリに残してください。
-4. API確認
-/api/stage2/generate-conclusion について、
-- 認証あり
-- strategyDataIdからcompanyIdを取得
-- membershipチェックあり
-- DB保存失敗時は成功扱いにしない
-- OpenAIモデルで max_completion_tokens を使用
-- 非対応の temperature を指定していない
-ことを確認してください。
-5. 最終ビルド
-npm run build
+【2. 原因調査】
+表示文言を検索し、コンポーネント→hook/store→API→DBの取得経路を
+追ってください。他の正常な画面との違いを確認してください。
 
-を実行し、成功を確認してください。
-可能なら
-npx tsc --noEmit
+特に以下を調査してください。
+・認証済みユーザーの所属会社と取得対象会社の一致
+・companyId / strategyId 未確定時に全件取得していないか
+・クライアント指定の会社IDをサーバーが所属確認なしで信用していないか
+・DBクエリ、JOIN、view、RPCに会社条件の漏れがないか
+・service role / admin clientでRLSを迂回した取得がないか
+・RLSが実際に会社単位のアクセス制御を行っているか
+・キャッシュキーやZustand/localStorage等が会社別になっているか
+・ログアウト／会社切り替え時に前の会社のデータが残らないか
+・切り替え前の非同期レスポンスが後から画面に反映されないか
+・フォールバックやデモ用の固定データが混入していないか
 
-も実行してください。
-6. 変更ファイル確認
-今回の変更ファイルを一覧化し、Conclusion対応と無関係な変更が混入していないことを確認してください。
-特に、
-- generate-conclusion/route.ts
-- config/models.json
-- strategyStore.ts
-- StrategyStoryPreview.tsx
-- stage2/page.tsx
-- migration
-以外に意図しない変更がないか確認してください。
-7. 問題なければコミット
-最終確認に問題がなければコミットしてください。
-コミットメッセージ例：
-feat(stage2): add independent AI conclusion generation
+画面だけの問題か、APIが他社データを返しているのか、
+同一ブラウザに残った別会社データなのかを切り分けてください。
+機密本文や認証情報をログへ追加しないでください。
 
-その後、本番デプロイして問題ありません。
-デプロイ後は丹青社で4章を再生成する必要はありません。
-まず既存データで、
-1. STAGE2表示
-2. AI Conclusion表示
-3. F5後もConclusion保持
-を確認してください。
-その後、新規生成を1回だけ行い、
-generate-final 200
-generate-conclusion 200
+【3. 恒久修正】
+サーバー側で所属会社を検証し、取得対象を制限してください。
+会社ID未確定・不正・権限なしの場合は取得を止め、
+別会社や最新レコードへのフォールバックは禁止してください。
+必要に応じてRLS、会社別キャッシュ、状態のリセット、
+古いリクエスト結果の破棄も修正してください。
+カードの件数や関連する声にも同じ制限を適用してください。
 
-を確認してください。
-今日は4章生成ロジックやConclusion機能への追加改修は行わないでください。
+【4. 検証】
+別会社A/Bのテストユーザーと識別可能なテストデータで、
+以下を画面とAPIレスポンスの両方で確認してください。
+・AからB、BからAのデータが取得できない
+・他社の会社IDや論点IDを直接指定しても取得できない
+・会社ID未確定、再読み込み、ログアウト→別ユーザーログイン
+・通信中の会社切り替え
+・タイトルだけでなく件数や関連する声にも混入がない
+・他の組織変革画面が正常に動作する
+本番にテスト用の機密データは投入しないでください。
+
+【報告】
+最初に応急対応の変更内容を報告してください。
+続いて、原因となったファイル・処理、他社データが表示された経路、
+影響範囲、恒久修正、検証結果、不明点を報告してください。
+ビルド成功だけで解決済みにしないでください。

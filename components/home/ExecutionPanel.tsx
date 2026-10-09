@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useStage6Data } from '@/components/stage6/hooks/useStage6Data';
+import { useUserStore } from '@/store/userStore';
 import { safeGetSession } from '@/utils/supabase/client';
 
 type ProjectUpdateItem = {
@@ -222,6 +223,13 @@ export default function ExecutionPanel() {
     const run = async () => {
       setOrgAlignmentError(null);
       try {
+        const companyId = useUserStore.getState().companyId;
+        if (!companyId) {
+          setOrgAlignmentError('会社情報が確認できません');
+          setOrgAlignmentSummary(null);
+          return;
+        }
+
         const sessionRes = await safeGetSession();
         if (!sessionRes.ok || !sessionRes.data.session?.access_token) {
           setOrgAlignmentError('認証トークンが取得できません');
@@ -229,7 +237,7 @@ export default function ExecutionPanel() {
           return;
         }
 
-        const apiRes = await fetch('/api/org-alignment/shared/summary', {
+        const apiRes = await fetch(`/api/org-alignment/shared/summary?companyId=${encodeURIComponent(companyId)}`, {
           method: 'GET',
           headers: {
             Authorization: `Bearer ${sessionRes.data.session.access_token}`,
@@ -257,7 +265,7 @@ export default function ExecutionPanel() {
         setOrgAlignmentSummary(null);
         console.error('[ExecutionPanel-orgAlignment] error:', e);
       }
-    };
+    }
     run();
   }, []);
 
