@@ -35,8 +35,21 @@ export async function GET(req: NextRequest) {
     const userId = await getAuthUserIdFromBearer(admin, req);
     if (!userId) return json({ error: 'unauthorized' }, 401);
 
-    const membership = await requireMembership(admin, userId);
-    if (!membership) return json({ error: 'forbidden' }, 403);
+    // Extract companyId from query parameter (required)
+    const url = new URL(req.url);
+    const queryCompanyId = url.searchParams.get('companyId');
+
+    // companyId is required - reject if missing, empty, or invalid
+    if (!queryCompanyId || queryCompanyId.trim() === '') {
+      console.log(`[${ROUTE_TAG}] Missing or empty companyId`);
+      return json({ error: 'companyId is required' }, 400);
+    }
+
+    const membership = await requireMembership(admin, userId, queryCompanyId);
+    if (!membership) {
+      console.log(`[${ROUTE_TAG}] User ${userId} does not belong to company ${queryCompanyId}`);
+      return json({ error: 'forbidden' }, 403);
+    }
 
     const companyId = membership.companyId;
 

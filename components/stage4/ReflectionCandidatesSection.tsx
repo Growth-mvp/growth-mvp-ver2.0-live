@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { safeGetSession } from '@/utils/supabase/client';
+import { useUserStore } from '@/store/userStore';
 
 export type OKRCandidate = {
   id: string;
@@ -36,6 +37,14 @@ export function ReflectionCandidatesSection({
     setLoading(true);
     setError('');
     try {
+      const companyId = useUserStore.getState().companyId;
+      if (!companyId) {
+        console.warn('[STAGE4] No company ID');
+        setCandidates([]);
+        setLoading(false);
+        return;
+      }
+
       console.log('[STAGE4 ReflectionCandidatesSection] fetchCandidates called');
       const { ok, data: sessionData } = await safeGetSession();
       if (!ok || !sessionData?.session?.access_token) {
@@ -45,7 +54,7 @@ export function ReflectionCandidatesSection({
         return;
       }
 
-      const res = await fetch('/api/org-alignment/shared/reflection-candidates?target_stage=stage4', {
+      const res = await fetch(`/api/org-alignment/shared/reflection-candidates?target_stage=stage4&companyId=${encodeURIComponent(companyId)}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${sessionData.session.access_token}`,
@@ -71,13 +80,19 @@ export function ReflectionCandidatesSection({
 
   const handleDeleteCandidate = async (candidateId: string) => {
     try {
+      const companyId = useUserStore.getState().companyId;
+      if (!companyId) {
+        setError('会社情報が確認できません。');
+        return;
+      }
+
       const { ok, data: sessionData } = await safeGetSession();
       if (!ok || !sessionData?.session?.access_token) {
         setError('ログインしてください。');
         return;
       }
 
-      const res = await fetch('/api/org-alignment/shared/reflection-candidates', {
+      const res = await fetch(`/api/org-alignment/shared/reflection-candidates?companyId=${encodeURIComponent(companyId)}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

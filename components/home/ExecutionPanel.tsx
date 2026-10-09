@@ -153,6 +153,7 @@ type OrgAlignmentSummary = {
 
 export default function ExecutionPanel() {
   const s6 = useStage6Data('base') as any;
+  const companyId = useUserStore((s) => s.companyId);
 
   const [summary, setSummary] = useState<ExecutionSummary | null>(null);
   const [loading, setLoading] = useState(false);
@@ -219,35 +220,41 @@ export default function ExecutionPanel() {
   }, []);
 
   // Fetch org-alignment summary for organization transformation card
+  // Refetch when companyId changes (e.g. company switch) and clear previous state
   useEffect(() => {
     const run = async () => {
+      // Clear previous state when company changes
       setOrgAlignmentError(null);
-      try {
-        const companyId = useUserStore.getState().companyId;
-        if (!companyId) {
-          setOrgAlignmentError('会社情報が確認できません');
-          setOrgAlignmentSummary(null);
-          return;
-        }
+      setOrgAlignmentSummary(null);
 
+      if (!companyId) {
+        setOrgAlignmentError('会社情報が確認できません');
+        return;
+      }
+
+      try {
         const sessionRes = await safeGetSession();
         if (!sessionRes.ok || !sessionRes.data.session?.access_token) {
           setOrgAlignmentError('認証トークンが取得できません');
-          setOrgAlignmentSummary(null);
           return;
         }
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
 
         const apiRes = await fetch(`/api/org-alignment/shared/summary?companyId=${encodeURIComponent(companyId)}`, {
           method: 'GET',
           headers: {
             Authorization: `Bearer ${sessionRes.data.session.access_token}`,
           },
+          signal: controller.signal,
         });
+
+        clearTimeout(timeoutId);
 
         if (!apiRes.ok) {
           const errData = await apiRes.json().catch(() => ({}));
           setOrgAlignmentError(errData.error || `API error: ${apiRes.status}`);
-          setOrgAlignmentSummary(null);
           return;
         }
 
@@ -257,17 +264,19 @@ export default function ExecutionPanel() {
           setOrgAlignmentError(null);
         } else {
           setOrgAlignmentError(data?.error || 'Failed to fetch org alignment summary');
-          setOrgAlignmentSummary(null);
         }
       } catch (e) {
+        if (e instanceof Error && e.name === 'AbortError') {
+          console.log('[ExecutionPanel-orgAlignment] Request cancelled (company switched)');
+          return;
+        }
         const msg = e instanceof Error ? e.message : String(e);
         setOrgAlignmentError(`Failed to fetch data: ${msg}`);
-        setOrgAlignmentSummary(null);
         console.error('[ExecutionPanel-orgAlignment] error:', e);
       }
     }
     run();
-  }, []);
+  }, [companyId]);
 
   const recentProjectUpdates = useMemo(() => {
     const items = summary?.recentProjectUpdates ?? [];

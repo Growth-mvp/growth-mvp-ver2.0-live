@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useEffect, type ReactNode } from "react";
 import { safeGetSession } from "@/utils/supabase/client";
+import { useUserStore } from "@/store/userStore";
 
 // ===== 型定義 =====
 type TopicStatus = "すり合わせ予定" | "すり合わせ中" | "対応方針決定";
@@ -1161,6 +1162,14 @@ export default function OrganizationSharedRoomPage() {
     setError("");
 
     try {
+      const companyId = useUserStore.getState().companyId;
+      if (!companyId) {
+        setError("会社情報が確認できません。");
+        setTopics([]);
+        setLoading(false);
+        return;
+      }
+
       const { ok, data: sessionData } = await safeGetSession();
       if (!ok || !sessionData?.session?.access_token) {
         setError("ログインしてください。");
@@ -1169,7 +1178,7 @@ export default function OrganizationSharedRoomPage() {
         return;
       }
 
-      const res = await fetch("/api/org-alignment/shared/topics", {
+      const res = await fetch(`/api/org-alignment/shared/topics?companyId=${encodeURIComponent(companyId)}`, {
         method: "GET",
         headers: {
           Authorization: `Bearer ${sessionData.session.access_token}`,
