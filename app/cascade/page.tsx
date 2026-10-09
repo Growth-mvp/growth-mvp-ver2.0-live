@@ -1679,6 +1679,13 @@ function normalizeProjectDraft(pd: ApiProjectDraft, deptName?: string, preserveO
   } as any as Project & { id?: string };
   (p as any).id = projectId;
 
+  // Keep API lane/slot identity and strategy evidence through save and hydrate.
+  for (const field of ['sourceType', 'collaborationType', 'partnerDepartment',
+    'generatedBy', 'generatedSlot', 'generatedGroup', 'generatedAt',
+    'strategyBasis', 'strategyBasisIds', 'citations', 'valueDriverLinks']) {
+    if ((pd as any)[field] !== undefined) (p as any)[field] = (pd as any)[field];
+  }
+
   // ★ TASK A: okrsV2/okrs/kpis を API レスポンスから取り込む（生成結果の永続化）
   const pdOkrsV2 = (pd as any)?.okrsV2;
   if (Array.isArray(pdOkrsV2) && pdOkrsV2.length > 0) {
@@ -1764,16 +1771,15 @@ function applyLaneToProjects(lane?: ApiLane, deptName?: string, preserveOkrs: bo
 function applyDeptDraftToProjects(existingProjects: Project[], deptDraft: ApiDeptDraft, preserveOkrs: boolean = true, deptName?: string): Project[] {
   const beforeCount = existingProjects.length;
 
-  // ★重要：各レーンから生成プロジェクトを集約
-  const lane1Projects = Array.isArray(deptDraft.projects) && deptDraft.projects.length
-    ? applyLaneToProjects({ projects: deptDraft.projects } as ApiLane, deptName, preserveOkrs)
-    : [];
-
-  const lane2Projects = applyLaneToProjects(deptDraft?.lanes?.existing, deptName, preserveOkrs);
-  const lane3Projects = applyLaneToProjects(deptDraft?.lanes?.new, deptName, preserveOkrs);
-
-  // ★置換：3つのレーン結果を結合して、最終的なプロジェクト配列を作成
-  const nextProjectsRaw = [...lane1Projects, ...lane2Projects, ...lane3Projects];
+  // The API flat list is canonical. Lanes are aliases, not extra projects.
+  const nextProjectsRaw = Array.isArray(deptDraft.projects) && deptDraft.projects.length > 0
+    ? applyLaneToProjects({ projects: deptDraft.projects }, deptName, preserveOkrs)
+    : [
+        applyLaneToProjects(deptDraft.lanes?.existing, deptName, preserveOkrs),
+        applyLaneToProjects(deptDraft.lanes?.new, deptName, preserveOkrs),
+        applyLaneToProjects(deptDraft.lanes?.intraCollab, deptName, preserveOkrs),
+        applyLaneToProjects(deptDraft.lanes?.interCollab, deptName, preserveOkrs),
+      ].flat();
 
   // ★保険：重複排除（万が一同じlaneから同名プロジェクトが返されたら）
   const nextProjects = dedupeProjectsByTitle(nextProjectsRaw);
@@ -3334,6 +3340,8 @@ useEffect(() => {
     });
 
     try {
+      const confirmedStory = isNonEmptyStoryPayload(s?.finalStoryFinal) ? s.finalStoryFinal : undefined;
+      const generationStory = confirmedStory ?? rawStory;
       const payload: any = {
         thought: s?.thought ?? '',
         vision: s?.vision ?? '',
@@ -3346,9 +3354,12 @@ useEffect(() => {
         weakness: s?.weakness ?? '',
         opportunity: s?.opportunity ?? '',
         threat: s?.threat ?? '',
-        story: rawStory,
-        // ★TASK 1: finalStory をpayloadに追加
-        finalStory: s?.finalStory ?? undefined,
+        // Send a consistent source; a legacy finalStory must not override the confirmed body.
+        story: generationStory,
+        finalStory: generationStory,
+        finalStoryFinal: confirmedStory,
+        finalStoryConclusion: s?.finalStoryConclusion ?? s?.final_story_conclusion,
+        stage3_strategy_bridge: s?.stage3_strategy_bridge,
         strategySummary: s?.strategySummary ?? '',
         departments: [
           {
@@ -3601,7 +3612,8 @@ useEffect(() => {
           intraCollabCount: intraDeptCollab.length,
           interCollabCount: interDeptCollab.length,
           collabCount: mergedLegacyNeedsCollab.length,
-          totalCount: mergedProjects.length + mergedLegacyNeedsCollab.length,
+          // Collaboration candidates describe projects already included in mergedProjects.
+          totalCount: mergedProjects.length,
           updatedAt: new Date().toISOString(),
         };
 

@@ -58,3 +58,6 @@ DEBUG_GUARD_CHANGES.md
 # development server logs
 /dev.log
 
+# cascade generation debug logs (re-created during API development)
+/cascade-debug/
+
