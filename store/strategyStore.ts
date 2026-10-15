@@ -3670,11 +3670,35 @@ export const useStrategyStore = create<StrategyState>()(
                 (safePatch as any).strategyId = returnedStrategyId;
               }
 
+              // ★ 調査：dirty=false をセット直前・直後のタイムスタンプと minimal に businessPortfolio が含まれているか確認
+              console.log('[STAGE1-GLOBAL-SAVE-TRACE] B.1 dirty=false set直前', {
+                timestamp: new Date().toISOString(),
+                isDirtyFalseInSafePatch: safePatch.dirty === false,
+                minimalHasBusinessPortfolio: !!(minimal as any).businessPortfolio,
+                minimalKeys: Object.keys(minimal),
+              });
+
               set(safePatch);
+
+              console.log('[STAGE1-GLOBAL-SAVE-TRACE] B.2 dirty=false set直後', {
+                timestamp: new Date().toISOString(),
+                dirtyAfterSafePatch: get().dirty,
+                minimalHasBusinessPortfolio: !!(minimal as any).businessPortfolio,
+              });
 
               // ★ CRITICAL: After safePatch is set, reflect extracted server data（including stage3_strategy_bridge）
               if (Object.keys(minimal).length > 0) {
+                console.log('[STAGE1-GLOBAL-SAVE-TRACE] B.3 minimal.set 実行直前', {
+                  timestamp: new Date().toISOString(),
+                  minimalBusinessPortfolio: (minimal as any).businessPortfolio ? JSON.stringify((minimal as any).businessPortfolio).substring(0, 100) : null,
+                });
+
                 set(minimal);
+
+                console.log('[STAGE1-GLOBAL-SAVE-TRACE] B.4 minimal.set 実行直後', {
+                  timestamp: new Date().toISOString(),
+                  dirtyAfterMinimal: get().dirty,
+                });
               }
 
               // ★ CRITICAL: 保存後に完全版bridge を復元（payloadまたはserverDataから）

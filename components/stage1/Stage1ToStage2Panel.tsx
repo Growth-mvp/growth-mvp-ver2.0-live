@@ -129,6 +129,19 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
     const dirtyBefore = storeBeforeEffect.dirty;
     const prevBusinessPortfolioStr = JSON.stringify(storeBeforeEffect.businessPortfolio ?? null);
 
+    // ★ 調査：useEffect が発火する直接的な原因を特定
+    console.log('[STAGE1-DIRTY-TRACE] useEffect dependency trigger reason', {
+      timestamp: new Date().toISOString(),
+      effectRunCount,
+      canProceedToStage2Changed: undefined, // これは比較できない（値が参照ごとに変わるため）
+      computedBusinessPortfolioChanged: undefined,
+      setBusinessPortfolioChanged: undefined,
+      // 代わりに、現在の値を記録
+      canProceedToStage2Value: canProceedToStage2,
+      computedBPNull: !computedBusinessPortfolio,
+      setBPFuncNull: !setBusinessPortfolio,
+    });
+
     console.log('[STAGE1-DIRTY-TRACE] Stage1ToStage2Panel useEffect entered', {
       timestamp: new Date().toISOString(),
       effectRunCount,
@@ -137,7 +150,8 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
       hasSetBPFunc: !!setBusinessPortfolio,
       dirtyBefore,
       hasIssues: stage1Issues.length,
-      prevBPLen: Array.isArray((storeBeforeEffect.businessPortfolio as any)?.units) ? (storeBeforeEffect.businessPortfolio as any).units.length : 0,
+      storeBusinessPortfolioLen: prevBusinessPortfolioStr.length,
+      storeBusinessPortfolioPreview: prevBusinessPortfolioStr.substring(0, 100),
     });
 
     if (!canProceedToStage2 || !computedBusinessPortfolio || !setBusinessPortfolio) {
