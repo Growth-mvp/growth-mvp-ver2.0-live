@@ -172,7 +172,16 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
     const bp = computedBusinessPortfolio;
     const unitsLen = Array.isArray(bp.units) ? bp.units.length : 0;
     const computedBPStr = JSON.stringify(bp);
-    const isSameContent = prevBusinessPortfolioStr === computedBPStr;
+
+    // ★ 修正：JSON.stringify の key 順序による誤判定を防ぐ
+    // フィールドごとに意味的な比較を行う
+    const current = storeBeforeEffect.businessPortfolio;
+    const isSameContent =
+      current?.periodLabel === bp.periodLabel &&
+      current?.currency === bp.currency &&
+      current?.unitType === bp.unitType &&
+      JSON.stringify(current?.threshold) === JSON.stringify(bp.threshold) &&
+      JSON.stringify(current?.units) === JSON.stringify(bp.units);
 
     // ★ 調査：computedBusinessPortfolio の安定性確認
     const computedBPStr2 = JSON.stringify(bp);
@@ -329,6 +338,16 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
 
     // units が 1件以上あれば保存
     if (unitsLen > 0) {
+      // ★ 修正：内容が同一の場合はセッターを呼ばない
+      if (isSameContent) {
+        console.log('[Stage1ToStage2Panel] ✓ businessPortfolio unchanged, skipping setter', {
+          timestamp: new Date().toISOString(),
+          effectRunCount,
+          units_count: unitsLen,
+        });
+        return;
+      }
+
       const setBPCount = ++setBPCallCountRef.current;
 
       // ★ 調査：minimal から設定された store.businessPortfolio と computed の詳細diff
