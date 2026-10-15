@@ -501,10 +501,9 @@ ${questionPrompt}
   ];
 
   const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: 'gpt-6-luna',
     messages: messages as any,
-    temperature: 0.5,
-    max_tokens: 150,
+    max_completion_tokens: 150,
   });
 
   const questionText = completion.choices[0]?.message?.content || questionPrompt;
@@ -543,13 +542,12 @@ ${JSON.stringify(currentDraft, null, 2)}
 上記の入力から新たに抽出できる情報を反映してください。JSON のみを返してください。`;
 
   const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: 'gpt-6-luna',
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
-    temperature: 0.5,
-    max_tokens: 500,
+    max_completion_tokens: 500,
     response_format: { type: 'json_object' },
   });
 

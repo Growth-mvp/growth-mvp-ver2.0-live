@@ -1,7 +1,7 @@
 {
   "ai_models": {
     "reasoning": "gpt-5.6-luna",
-    "lightweight": "gpt-4o-mini"
+    "lightweight": "gpt-6-luna"
   },
   "process_configs": {
     "stage2Draft": {

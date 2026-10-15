@@ -63,9 +63,8 @@ export async function POST(req: NextRequest) {
   `.trim();
 
   const res = await openai.chat.completions.create({
-    model: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
+    model: 'gpt-6-luna',
     response_format: { type: 'json_object' },
-    temperature: 0.3,
     messages: [
       { role: 'system', content: 'GROWTH 思考支援AI' },
       { role: 'user', content: prompt },

@@ -14,16 +14,13 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
+import { openai } from '@/lib/openai';
 import { getOpenAIModelParamsForProcess } from '@/lib/modelConfig';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
 import { logAuditEvent, extractAuditMetadata } from '@/lib/server/auditLog';
 import { logInputGuard, checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
 import { z } from 'zod';
-
-/* ===== OpenAI設定 ===== */
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
 /* ===== 入力バリデーション ===== */
 const IssueBlockSchema = z.object({

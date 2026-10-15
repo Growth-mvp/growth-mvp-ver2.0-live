@@ -174,10 +174,9 @@ async function callOpenAIWithRetry(
   for (let i = 0; i < tries; i++) {
     try {
       const ai = await openai.chat.completions.create({
-        model: process.env.OPENAI_MODEL ?? 'gpt-4o',
+        model: 'gpt-6-luna',
         response_format: { type: 'json_object' },
-        temperature: opts?.temperature ?? 0.2,
-        max_tokens: opts?.max_tokens ?? 360,
+        max_completion_tokens: opts?.max_tokens ?? 360,
         messages,
       });
       return ai;

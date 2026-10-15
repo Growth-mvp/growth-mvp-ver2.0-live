@@ -1412,7 +1412,6 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
       }
     }
 
-    // 任意保存（存在すれば実行）
     if (typeof userId === 'string' && userId && typeof saveFinalStory === 'function') {
       try {
         await saveFinalStory(userId, finalStory as any, {});

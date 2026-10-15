@@ -66,9 +66,8 @@ Objective: ${objective}
     try {
       const completion = await openai.chat.completions.create(
         {
-          model: process.env.OPENAI_MODEL ?? 'gpt-4o',
-          temperature: 0.7,
-          max_tokens: 500,
+          model: 'gpt-6-luna',
+          max_completion_tokens: 500,
           messages: [{ role: 'user', content: prompt }],
         },
         { signal: controller.signal }

@@ -66,9 +66,8 @@ ${policy}
   `.trim();
 
   const res = await openai.chat.completions.create({
-    model: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
+    model: 'gpt-6-luna',
     response_format: { type: 'json_object' },
-    temperature: 0.4,
     messages: [
       { role: 'system', content: 'GROWTH 事例アシスタント' },
       { role: 'user', content: prompt },

@@ -271,13 +271,12 @@ JSON形式で以下を返してください。
 
 厳密には JSON のみを出力してください。説明やコメントは不要です。`;
 
-  console.log('[STAGE4] OpenAI API call start', { model: 'gpt-4o-mini', promptLength: prompt.length });
+  console.log('[STAGE4] OpenAI API call start', { model: 'gpt-6-luna', promptLength: prompt.length });
 
   let response;
   try {
     response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      temperature: 0.7,
+      model: 'gpt-6-luna',
       messages: [
         {
           role: 'user',

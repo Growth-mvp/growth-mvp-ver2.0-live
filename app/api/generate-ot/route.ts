@@ -172,7 +172,7 @@ const SUPPORTS_JSON_MODE = /^gpt-4o(-mini)?($|-)/;
 async function callOpenAIWithRetry(
   args: {
     model: string;
-    temperature: number;
+    temperature?: number;
     messages: { role: 'system' | 'user'; content: string }[];
     useSchema?: boolean;
     maxTokens?: number;
@@ -184,10 +184,12 @@ async function callOpenAIWithRetry(
     try {
       const base: Record<string, unknown> = {
         model: args.model,
-        temperature: args.temperature,
         max_tokens: args.maxTokens ?? 600,
         messages: args.messages,
       };
+      if (args.temperature !== undefined) {
+        (base as any).temperature = args.temperature;
+      }
 
       if (args.useSchema && SUPPORTS_JSON_MODE.test(args.model)) {
         (base as any).response_format = {
@@ -249,8 +251,7 @@ export async function POST(req: NextRequest) {
     try {
       const ai = await callOpenAIWithRetry(
         {
-          model: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
-          temperature: 0.2,
+          model: 'gpt-6-luna',
           messages: [
             {
               role: 'system',

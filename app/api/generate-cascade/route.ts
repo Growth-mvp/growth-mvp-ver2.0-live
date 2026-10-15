@@ -1179,7 +1179,7 @@ ${typeSpecificContent}
   try {
     // ★ v3検証済みLuna設定に統一
     const isLuna = true;
-    const model = isLuna ? 'gpt-5.6-luna' : (process.env.OPENAI_MODEL ?? 'gpt-4o');
+    const model = isLuna ? 'gpt-5.6-luna' : 'gpt-6-luna';
 
     const createParams: any = {
       model,

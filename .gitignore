@@ -61,3 +61,7 @@ DEBUG_GUARD_CHANGES.md
 # cascade generation debug logs (re-created during API development)
 /cascade-debug/
 
+# Model comparison captures and results (local only, contains business data)
+/model-comparison/captures/
+/model-comparison/results/
+

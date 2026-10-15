@@ -122,10 +122,9 @@ async function askOpenAI(prompt: string) {
   // 1st: JSON強制
   try {
     const c1 = await openai.chat.completions.create({
-      model: process.env.OPENAI_MODEL ?? 'gpt-4o',
-      temperature: 0.4,
+      model: 'gpt-6-luna',
       response_format: { type: 'json_object' },
-      max_tokens: 1800,
+      max_completion_tokens: 1800,
       messages: [
         { role: 'system', content: 'あなたは戦略コンサルタントです。出力は必ずJSONのみ。' },
         { role: 'user', content: prompt },
@@ -135,9 +134,8 @@ async function askOpenAI(prompt: string) {
   } catch (e1: any) {
     // 2nd: プレーン → 整形
     const c2 = await openai.chat.completions.create({
-      model: process.env.OPENAI_MODEL ?? 'gpt-4o',
-      temperature: 0.4,
-      max_tokens: 1800,
+      model: 'gpt-6-luna',
+      max_completion_tokens: 1800,
       messages: [
         { role: 'system', content: 'あなたは戦略コンサルタントです。' },
         { role: 'user', content: prompt },
@@ -145,10 +143,9 @@ async function askOpenAI(prompt: string) {
     });
     const raw2 = c2.choices?.[0]?.message?.content ?? '';
     const c3 = await openai.chat.completions.create({
-      model: process.env.OPENAI_MODEL ?? 'gpt-4o',
-      temperature: 0.1,
+      model: 'gpt-6-luna',
       response_format: { type: 'json_object' },
-      max_tokens: 1200,
+      max_completion_tokens: 1200,
       messages: [
         { role: 'system', content: '次のテキストを正しいJSONだけに整形。説明やコードブロックは禁止。' },
         { role: 'user', content: raw2 },

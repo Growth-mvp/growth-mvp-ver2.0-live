@@ -27,9 +27,9 @@ try {
       `❌ ai_models.reasoning must be 'gpt-5.6-luna', got: '${modelSpec.ai_models.reasoning}'`
     );
   }
-  if (modelSpec.ai_models.lightweight !== 'gpt-4o-mini') {
+  if (modelSpec.ai_models.lightweight !== 'gpt-6-luna') {
     errors.push(
-      `❌ ai_models.lightweight must be 'gpt-4o-mini', got: '${modelSpec.ai_models.lightweight}'`
+      `❌ ai_models.lightweight must be 'gpt-6-luna', got: '${modelSpec.ai_models.lightweight}'`
     );
   }
 
