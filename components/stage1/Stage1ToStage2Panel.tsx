@@ -167,22 +167,22 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
       return;
     }
 
-    // ★ 調査：effectRunCount=2 で isSameContent=true なのに到達している場合の調査
-    if (effectRunCount === 2 && isSameContent) {
-      console.log('[STAGE1-DIRTY-TRACE] ⚠️ effectRunCount=2 同値update到達', {
-        timestamp: new Date().toISOString(),
-        isSameContent,
-        unitsLen: unitsLen,
-        canProceedToStage2,
-        guard passed: true,
-      });
-    }
-
     // businessPortfolio をstore に保存
     const bp = computedBusinessPortfolio;
     const unitsLen = Array.isArray(bp.units) ? bp.units.length : 0;
     const computedBPStr = JSON.stringify(bp);
     const isSameContent = prevBusinessPortfolioStr === computedBPStr;
+
+    // ★ 調査：effectRunCount=2 で isSameContent=true なのに到達している場合の調査
+    if (effectRunCount === 2 && isSameContent) {
+      console.log('[STAGE1-DIRTY-TRACE] ⚠️ effectRunCount=2 同値update到達', {
+        timestamp: new Date().toISOString(),
+        isSameContent,
+        unitsLen,
+        canProceedToStage2,
+        'guard-passed': true,
+      });
+    }
 
     // ★ 実値 diff 出力
     let valueDiff: Record<string, { before: any; after: any }> = {};
@@ -222,10 +222,10 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
 
         // その他のフィールド
         ['unitType', 'periodLabel', 'currency'].forEach((key) => {
-          if (prevBP?.[key] !== nextBP?.[key]) {
+          if ((prevBP as any)?.[key] !== (nextBP as any)?.[key]) {
             valueDiff[key] = {
-              before: prevBP?.[key],
-              after: nextBP?.[key],
+              before: (prevBP as any)?.[key],
+              after: (nextBP as any)?.[key],
             };
           }
         });
