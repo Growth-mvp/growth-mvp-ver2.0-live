@@ -3674,13 +3674,22 @@ export const useStrategyStore = create<StrategyState>()(
               const minimalBP = (minimal as any).businessPortfolio;
               const minimalBPStr = minimalBP ? JSON.stringify(minimalBP) : null;
 
+              // payload に含まれた businessPortfolio も確認
+              const payloadBP = (payload as any).businessPortfolio;
+              const payloadBPStr = payloadBP ? JSON.stringify(payloadBP) : null;
+
               console.log('[STAGE1-GLOBAL-SAVE-TRACE] B.1 dirty=false set直前', {
                 timestamp: new Date().toISOString(),
                 isDirtyFalseInSafePatch: safePatch.dirty === false,
                 minimalHasBusinessPortfolio: !!minimalBP,
                 minimalBPLen: minimalBPStr ? minimalBPStr.length : 0,
                 minimalBPPreview: minimalBPStr ? minimalBPStr.substring(0, 200) : null,
-                minimalKeys: Object.keys(minimal),
+                payloadBPLen: payloadBPStr ? payloadBPStr.length : 0,
+                payloadBPPreview: payloadBPStr ? payloadBPStr.substring(0, 200) : null,
+                payloadMinimalBPSame: payloadBPStr === minimalBPStr,
+                minimalKeys: minimalBP ? Object.keys(minimalBP).sort() : [],
+                payloadKeys: payloadBP ? Object.keys(payloadBP).sort() : [],
+                minimalTopLevelFields: minimalBP ? Object.keys(minimalBP) : [],
               });
 
               set(safePatch);

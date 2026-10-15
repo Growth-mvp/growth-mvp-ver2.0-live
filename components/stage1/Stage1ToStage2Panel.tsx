@@ -173,6 +173,65 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
     const computedBPStr = JSON.stringify(bp);
     const isSameContent = prevBusinessPortfolioStr === computedBPStr;
 
+    // ★ 調査：トップレベルキーの比較
+    const storeBP = storeBeforeEffect.businessPortfolio;
+    const storeKeys = storeBP ? Object.keys(storeBP).sort() : [];
+    const computedKeys = bp ? Object.keys(bp).sort() : [];
+    const storeKeysSet = new Set(storeKeys);
+    const computedKeysSet = new Set(computedKeys);
+
+    const onlyInStore = storeKeys.filter((k) => !computedKeysSet.has(k));
+    const onlyInComputed = computedKeys.filter((k) => !storeKeysSet.has(k));
+
+    if (!isSameContent) {
+      // JSON差分の最初の位置を特定
+      let firstDiffIdx = -1;
+      for (let i = 0; i < Math.min(prevBusinessPortfolioStr.length, computedBPStr.length); i++) {
+        if (prevBusinessPortfolioStr[i] !== computedBPStr[i]) {
+          firstDiffIdx = i;
+          break;
+        }
+      }
+
+      const diffContext = firstDiffIdx >= 0
+        ? {
+            firstDiffIdx,
+            before: prevBusinessPortfolioStr.substring(Math.max(0, firstDiffIdx - 50), firstDiffIdx + 50),
+            after: computedBPStr.substring(Math.max(0, firstDiffIdx - 50), firstDiffIdx + 50),
+          }
+        : { lengthOnly: true, storeLen: prevBusinessPortfolioStr.length, computedLen: computedBPStr.length };
+
+      console.log('[STAGE1-DIRTY-TRACE] トップレベルkey比較', {
+        timestamp: new Date().toISOString(),
+        effectRunCount,
+        storeKeys,
+        computedKeys,
+        onlyInStore,
+        onlyInComputed,
+        isSameContent,
+        jsonDiffContext: diffContext,
+      });
+
+      // 各フィールドの値比較
+      const fieldComparison: Record<string, any> = {};
+      for (const key of new Set([...storeKeys, ...computedKeys])) {
+        const storeVal = (storeBP as any)?.[key];
+        const computedVal = (bp as any)[key];
+        if (JSON.stringify(storeVal) !== JSON.stringify(computedVal)) {
+          fieldComparison[key] = {
+            store: typeof storeVal === 'object' ? `${typeof storeVal} (${JSON.stringify(storeVal).substring(0, 100)})` : storeVal,
+            computed: typeof computedVal === 'object' ? `${typeof computedVal} (${JSON.stringify(computedVal).substring(0, 100)})` : computedVal,
+          };
+        }
+      }
+
+      console.log('[STAGE1-DIRTY-TRACE] 値が異なるフィールド', {
+        timestamp: new Date().toISOString(),
+        effectRunCount,
+        fieldComparison,
+      });
+    }
+
     // ★ 調査：effectRunCount=2 で isSameContent=true なのに到達している場合の調査
     if (effectRunCount === 2 && isSameContent) {
       console.log('[STAGE1-DIRTY-TRACE] ⚠️ effectRunCount=2 同値update到達', {
