@@ -16,6 +16,11 @@ import Stage2Bridge from './Stage2Bridge';
 export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?: boolean; disabled?: boolean }) {
   const effectRunCountRef = useRef<number>(0);
   const setBPCallCountRef = useRef<number>(0);
+  const prevDepsRef = useRef<{
+    businessSegmentsHash: string;
+    segmentValueAnalysisHash: string;
+    segmentPLHash: string;
+  } | null>(null);
 
   const stage1Issues = useStrategyStore((s: StrategyState) => s.stage1Issues ?? []);
   const setBusinessPortfolio = useStrategyStore((s: StrategyState) => (s as any).setBusinessPortfolio as ((p: BusinessPortfolio) => void) | undefined);
@@ -36,6 +41,35 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
    * - units が存在すれば businessPortfolio として store に保存
    */
   const computedBusinessPortfolio = useMemo<BusinessPortfolio | null>(() => {
+    // ★ 依存配列の変化をトラッキング
+    const currBusinessSegmentsHash = JSON.stringify(businessSegments ?? []).substring(0, 50);
+    const currSegmentValueAnalysisHash = JSON.stringify(segmentValueAnalysisRaw ?? {}).substring(0, 50);
+    const currSegmentPLHash = JSON.stringify(segmentPL ?? {}).substring(0, 50);
+
+    const currDeps = {
+      businessSegmentsHash: currBusinessSegmentsHash,
+      segmentValueAnalysisHash: currSegmentValueAnalysisHash,
+      segmentPLHash: currSegmentPLHash,
+    };
+
+    const depsChanged = !prevDepsRef.current || (
+      prevDepsRef.current.businessSegmentsHash !== currDeps.businessSegmentsHash ||
+      prevDepsRef.current.segmentValueAnalysisHash !== currDeps.segmentValueAnalysisHash ||
+      prevDepsRef.current.segmentPLHash !== currDeps.segmentPLHash
+    );
+
+    if (depsChanged) {
+      console.log('[Stage1ToStage2Panel] computedBusinessPortfolio useMemo triggered', {
+        timestamp: new Date().toISOString(),
+        businessSegmentsChanged: !prevDepsRef.current || prevDepsRef.current.businessSegmentsHash !== currDeps.businessSegmentsHash,
+        segmentValueAnalysisChanged: !prevDepsRef.current || prevDepsRef.current.segmentValueAnalysisHash !== currDeps.segmentValueAnalysisHash,
+        segmentPLChanged: !prevDepsRef.current || prevDepsRef.current.segmentPLHash !== currDeps.segmentPLHash,
+        businessSegmentsLen: Array.isArray(businessSegments) ? businessSegments.length : 0,
+        segmentValueAnalysisKeys: Object.keys(segmentValueAnalysisRaw ?? {}).length,
+        segmentPLKeys: Object.keys(segmentPL ?? {}).length,
+      });
+      prevDepsRef.current = currDeps;
+    }
     const segmentNames = businessSegments?.map((s: any) => s?.name).filter(Boolean) ?? [];
     if (segmentNames.length === 0) return null;
 
@@ -122,6 +156,56 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
     const computedBPStr = JSON.stringify(bp);
     const isSameContent = prevBusinessPortfolioStr === computedBPStr;
 
+    // ★ 実値 diff 出力
+    let valueDiff: Record<string, { before: any; after: any }> = {};
+    if (!isSameContent) {
+      try {
+        const prevBP = prevBusinessPortfolioStr ? JSON.parse(prevBusinessPortfolioStr) : null;
+        const nextBP = bp;
+
+        // units の詳細比較
+        if (Array.isArray(prevBP?.units) && Array.isArray(nextBP?.units)) {
+          if (prevBP.units.length !== nextBP.units.length) {
+            valueDiff['units.length'] = {
+              before: prevBP.units.length,
+              after: nextBP.units.length,
+            };
+          }
+          // 各 unit の内容比較
+          for (let i = 0; i < Math.max(prevBP.units.length, nextBP.units.length); i++) {
+            const prevUnit = prevBP.units[i];
+            const nextUnit = nextBP.units[i];
+            if (JSON.stringify(prevUnit) !== JSON.stringify(nextUnit)) {
+              valueDiff[`units[${i}]`] = {
+                before: prevUnit,
+                after: nextUnit,
+              };
+            }
+          }
+        }
+
+        // threshold の比較
+        if (JSON.stringify(prevBP?.threshold) !== JSON.stringify(nextBP?.threshold)) {
+          valueDiff['threshold'] = {
+            before: prevBP?.threshold,
+            after: nextBP?.threshold,
+          };
+        }
+
+        // その他のフィールド
+        ['unitType', 'periodLabel', 'currency'].forEach((key) => {
+          if (prevBP?.[key] !== nextBP?.[key]) {
+            valueDiff[key] = {
+              before: prevBP?.[key],
+              after: nextBP?.[key],
+            };
+          }
+        });
+      } catch (e) {
+        console.warn('[Stage1ToStage2Panel] failed to compute diff:', e);
+      }
+    }
+
     console.log('[Stage1ToStage2Panel] ★ businessPortfolio確定', {
       timestamp: new Date().toISOString(),
       effectRunCount,
@@ -145,14 +229,17 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
         prevLen: prevBusinessPortfolioStr.length,
         computedLen: computedBPStr.length,
       },
+      valueDiff: Object.keys(valueDiff).length > 0 ? valueDiff : 'no changes',
     });
 
     // units が 1件以上あれば保存
     if (unitsLen > 0) {
+      const setBPCount = ++setBPCallCountRef.current;
+
       console.log('[STAGE1-DIRTY-TRACE] before setBusinessPortfolio', {
         timestamp: new Date().toISOString(),
         effectRunCount,
-        setBPCallCount: ++setBPCallCountRef.current,
+        setBPCallCount: setBPCount,
         dirtyBeforeSet: useStrategyStore.getState().dirty,
         isSameContent,
         units_count: unitsLen,
@@ -165,7 +252,7 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
       console.log('[STAGE1-DIRTY-TRACE] after setBusinessPortfolio (immediate)', {
         timestamp: new Date().toISOString(),
         effectRunCount,
-        setBPCallCount: setBPCallCountRef.current,
+        setBPCallCount: setBPCount,
         dirtyAfterSet: storeAfterSet.dirty,
         units_count: unitsLen,
         versionAfter: storeAfterSet.version,
@@ -177,6 +264,7 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
         console.log('[STAGE1-DIRTY-TRACE] after setBusinessPortfolio (100ms)', {
           timestamp: new Date().toISOString(),
           effectRunCount,
+          setBPCallCount: setBPCount,
           dirty: store100.dirty,
           version: store100.version,
         });

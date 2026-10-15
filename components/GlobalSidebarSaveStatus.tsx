@@ -49,7 +49,52 @@ export default function GlobalSidebarSaveStatus() {
   const handleSaveClick = async () => {
     setIsSavingManually(true);
     try {
-      await useStrategyStore.getState().saveStrategyData({ reason: 'manual-save-button' });
+      const store = useStrategyStore.getState();
+      const dirtyBefore = store.dirty;
+
+      console.log('[STAGE1-GLOBAL-SAVE-TRACE] A. saveStrategyData 呼び出し直前', {
+        timestamp: new Date().toISOString(),
+        dirty: dirtyBefore,
+      });
+
+      const res = await store.saveStrategyData({ reason: 'manual-save-button' });
+
+      const dirtyAfterSave = useStrategyStore.getState().dirty;
+      console.log('[STAGE1-GLOBAL-SAVE-TRACE] B. saveStrategyData完了直後', {
+        timestamp: new Date().toISOString(),
+        dirty: dirtyAfterSave,
+        result: res,
+      });
+
+      // 100ms後
+      setTimeout(() => {
+        const dirty100 = useStrategyStore.getState().dirty;
+        console.log('[STAGE1-GLOBAL-SAVE-TRACE] C. 100ms後', {
+          timestamp: new Date().toISOString(),
+          dirty: dirty100,
+          changedFromAfterSave: dirty100 !== dirtyAfterSave,
+        });
+      }, 100);
+
+      // 500ms後
+      setTimeout(() => {
+        const dirty500 = useStrategyStore.getState().dirty;
+        console.log('[STAGE1-GLOBAL-SAVE-TRACE] D. 500ms後', {
+          timestamp: new Date().toISOString(),
+          dirty: dirty500,
+          changedFromAfterSave: dirty500 !== dirtyAfterSave,
+        });
+      }, 500);
+
+      // 1000ms後
+      setTimeout(() => {
+        const dirty1000 = useStrategyStore.getState().dirty;
+        console.log('[STAGE1-GLOBAL-SAVE-TRACE] E. 1000ms後', {
+          timestamp: new Date().toISOString(),
+          dirty: dirty1000,
+          changedFromAfterSave: dirty1000 !== dirtyAfterSave,
+        });
+      }, 1000);
     } finally {
       setIsSavingManually(false);
     }
