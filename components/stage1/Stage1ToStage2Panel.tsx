@@ -1,7 +1,7 @@
 // /components/stage1/Stage1ToStage2Panel.tsx
 'use client';
 
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import type { BusinessPortfolio, BusinessUnit, ValueAnalysis, FinancePLRow, BusinessSegment } from '@/types/strategy';
 import IssueBlockPanel from './IssueBlockPanel';
@@ -14,6 +14,9 @@ import Stage2Bridge from './Stage2Bridge';
  * ★ STAGE1 終了時に businessPortfolio を確定・保存（MetricsPanel の分析結果から構築）
  */
 export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?: boolean; disabled?: boolean }) {
+  const effectRunCountRef = useRef<number>(0);
+  const setBPCallCountRef = useRef<number>(0);
+
   const stage1Issues = useStrategyStore((s: StrategyState) => s.stage1Issues ?? []);
   const setBusinessPortfolio = useStrategyStore((s: StrategyState) => (s as any).setBusinessPortfolio as ((p: BusinessPortfolio) => void) | undefined);
 
@@ -85,14 +88,43 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
    * ★ STAGE2 遷移時に businessPortfolio を確定して store に保存
    */
   useEffect(() => {
-    if (!canProceedToStage2 || !computedBusinessPortfolio || !setBusinessPortfolio) return;
+    effectRunCountRef.current++;
+    const effectRunCount = effectRunCountRef.current;
+
+    const storeBeforeEffect = useStrategyStore.getState();
+    const dirtyBefore = storeBeforeEffect.dirty;
+    const prevBusinessPortfolioStr = JSON.stringify(storeBeforeEffect.businessPortfolio ?? null);
+
+    console.log('[STAGE1-DIRTY-TRACE] Stage1ToStage2Panel useEffect entered', {
+      timestamp: new Date().toISOString(),
+      effectRunCount,
+      canProceedToStage2,
+      hasComputedBP: !!computedBusinessPortfolio,
+      hasSetBPFunc: !!setBusinessPortfolio,
+      dirtyBefore,
+      hasIssues: stage1Issues.length,
+      prevBPLen: Array.isArray((storeBeforeEffect.businessPortfolio as any)?.units) ? (storeBeforeEffect.businessPortfolio as any).units.length : 0,
+    });
+
+    if (!canProceedToStage2 || !computedBusinessPortfolio || !setBusinessPortfolio) {
+      console.log('[STAGE1-DIRTY-TRACE] useEffect guarded-return', {
+        timestamp: new Date().toISOString(),
+        effectRunCount,
+        reason: !canProceedToStage2 ? 'canProceedToStage2=false' : !computedBusinessPortfolio ? 'no computedBP' : 'no setBusinessPortfolio',
+        dirtyAfterGuard: useStrategyStore.getState().dirty,
+      });
+      return;
+    }
 
     // businessPortfolio をstore に保存
     const bp = computedBusinessPortfolio;
     const unitsLen = Array.isArray(bp.units) ? bp.units.length : 0;
+    const computedBPStr = JSON.stringify(bp);
+    const isSameContent = prevBusinessPortfolioStr === computedBPStr;
 
     console.log('[Stage1ToStage2Panel] ★ businessPortfolio確定', {
       timestamp: new Date().toISOString(),
+      effectRunCount,
       businessPortfolio_type: typeof bp,
       businessPortfolio_shape: {
         unitType: bp.unitType,
@@ -108,13 +140,52 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
         profitMargin: u.profitMargin,
         revenueShare: u.revenueShare,
       })) : [],
+      contentComparison: {
+        isSameContent,
+        prevLen: prevBusinessPortfolioStr.length,
+        computedLen: computedBPStr.length,
+      },
     });
 
     // units が 1件以上あれば保存
     if (unitsLen > 0) {
+      console.log('[STAGE1-DIRTY-TRACE] before setBusinessPortfolio', {
+        timestamp: new Date().toISOString(),
+        effectRunCount,
+        setBPCallCount: ++setBPCallCountRef.current,
+        dirtyBeforeSet: useStrategyStore.getState().dirty,
+        isSameContent,
+        units_count: unitsLen,
+        stack: new Error().stack?.split('\n').slice(0, 4).join('\n'),
+      });
+
       setBusinessPortfolio(bp);
+
+      const storeAfterSet = useStrategyStore.getState();
+      console.log('[STAGE1-DIRTY-TRACE] after setBusinessPortfolio (immediate)', {
+        timestamp: new Date().toISOString(),
+        effectRunCount,
+        setBPCallCount: setBPCallCountRef.current,
+        dirtyAfterSet: storeAfterSet.dirty,
+        units_count: unitsLen,
+        versionAfter: storeAfterSet.version,
+      });
+
+      // 100ms 後のチェック
+      setTimeout(() => {
+        const store100 = useStrategyStore.getState();
+        console.log('[STAGE1-DIRTY-TRACE] after setBusinessPortfolio (100ms)', {
+          timestamp: new Date().toISOString(),
+          effectRunCount,
+          dirty: store100.dirty,
+          version: store100.version,
+        });
+      }, 100);
+
       console.log('[Stage1ToStage2Panel] ✅ businessPortfolio saved to store', {
         units_count: unitsLen,
+        effectRunCount,
+        setBPCallCount: setBPCallCountRef.current,
       });
     } else {
       console.warn('[Stage1ToStage2Panel] ⚠️ businessPortfolio units empty, skipped save');

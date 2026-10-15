@@ -297,7 +297,62 @@ export default function Stage1Page() {
       console.log('[stage1/save] start', { reason, isManual, strategyId, revision });
 
       try {
+        const dirtyBeforeSave = useStrategyStore.getState().dirty;
+        const bpBeforeSave = JSON.stringify(useStrategyStore.getState().businessPortfolio ?? null);
+
+        console.log('[STAGE1-SAVE-TRACE] A. beforeSave', {
+          timestamp: new Date().toISOString(),
+          dirtyBefore: dirtyBeforeSave,
+          bpLen: bpBeforeSave.length,
+          reason,
+        });
+
         const res = await (saveFn as any)({ reason: `stage1:${reason}`, force: isManual });
+
+        // 保存直後の dirty 状態を確認
+        const dirtyAfterSave = useStrategyStore.getState().dirty;
+        const bpAfterSave = JSON.stringify(useStrategyStore.getState().businessPortfolio ?? null);
+
+        console.log('[STAGE1-SAVE-TRACE] B. saveStrategyData直後', {
+          timestamp: new Date().toISOString(),
+          dirtyBefore: dirtyBeforeSave,
+          dirtyAfter: dirtyAfterSave,
+          bpChanged: bpBeforeSave !== bpAfterSave,
+          saveResult: res,
+          reason,
+        });
+
+        // 100ms 後のチェック
+        setTimeout(() => {
+          const store100 = useStrategyStore.getState();
+          console.log('[STAGE1-SAVE-TRACE] C. 100ms後', {
+            timestamp: new Date().toISOString(),
+            dirty: store100.dirty,
+            changedFromAfterSave: store100.dirty !== dirtyAfterSave,
+            stack: new Error().stack?.split('\n').slice(0, 3).join('\n'),
+          });
+        }, 100);
+
+        // 500ms 後のチェック
+        setTimeout(() => {
+          const store500 = useStrategyStore.getState();
+          console.log('[STAGE1-SAVE-TRACE] D. 500ms後', {
+            timestamp: new Date().toISOString(),
+            dirty: store500.dirty,
+            changedFromAfterSave: store500.dirty !== dirtyAfterSave,
+          });
+        }, 500);
+
+        // 1000ms 後のチェック
+        setTimeout(() => {
+          const store1000 = useStrategyStore.getState();
+          console.log('[STAGE1-SAVE-TRACE] E. 1000ms後', {
+            timestamp: new Date().toISOString(),
+            dirty: store1000.dirty,
+            changedFromAfterSave: store1000.dirty !== dirtyAfterSave,
+          });
+        }, 1000);
+
         console.log('[stage1/save] success', res);
         setSaveState('success');
         setSaveMessage('保存しました');
