@@ -263,20 +263,23 @@ export function mkKRStructured(
 export function ensureKrIds(departments: Department[]): Department[] {
   let touched = false;
 
-  const patched = departments.map((d) => {
+  const patched = departments.map((d, dIdx) => {
     const projs = Array.isArray(d.projects)
-      ? d.projects.map((p) => {
+      ? d.projects.map((p, pIdx) => {
           // committed
           const committed = Array.isArray(p.okrsV2)
-            ? p.okrsV2.map((k) => {
+            ? p.okrsV2.map((k, kIdx) => {
                 const kk = k as KRStructuredX;
 
                 // id補完
                 if (!kk?.id) {
                   touched = true;
+                  const newId = genId();
+
+
                   return mkKRStructured({
                     ...kk,
-                    // 既存値が無い場合だけ、戦略メタの最低限を補う
+                    id: newId,
                     track: kk.track ?? p.track,
                   });
                 }
@@ -293,14 +296,16 @@ export function ensureKrIds(departments: Department[]): Department[] {
 
           // variants
           const variants = Array.isArray(p.okrVariants)
-            ? p.okrVariants.map((v) => {
+            ? p.okrVariants.map((v, vIdx) => {
                 const nextOkrs = Array.isArray(v.okrsV2)
-                  ? v.okrsV2.map((k) => {
+                  ? v.okrsV2.map((k, kIdx) => {
                       const kk = k as KRStructuredX;
                       if (!kk?.id) {
                         touched = true;
+                        const newId = genId();
                         return mkKRStructured({
                           ...kk,
+                          id: newId,
                           track: kk.track ?? v.track ?? p.track,
                         });
                       }
@@ -320,7 +325,8 @@ export function ensureKrIds(departments: Department[]): Department[] {
             ? p.okrs.map((okr: OKR, idx: number) => {
                 if (idx === 0 && !okr?.id) {
                   touched = true;
-                  return { ...okr, id: genId() };
+                  const newId = genId();
+                  return { ...okr, id: newId };
                 }
                 return okr;
               })

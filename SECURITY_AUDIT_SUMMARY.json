@@ -1,0 +1,280 @@
+{
+  "audit_metadata": {
+    "project": "GROWTH SHIFT (Growth MVP v2.0)",
+    "audit_date": "2026-10-15",
+    "total_findings": 32,
+    "severity_breakdown": {
+      "critical_p0": 8,
+      "high_p1": 12,
+      "medium_p2": 9,
+      "low_p3": 3,
+      "info": 2
+    }
+  },
+  "executive_summary": {
+    "overall_posture": "CONDITIONAL PRODUCTION-READY",
+    "score": "68/100",
+    "minimum_acceptable": "75/100",
+    "status": "Demo/internal use OK - Phase 1 P0/P1 remediation required before customer production",
+    "external_publication": "Restricted to NDA-bound companies only",
+    "vulnerability_posture": "Strong authentication/authorization, critical gaps in rate limiting, RLS policies, and input validation"
+  },
+  "critical_gaps": [
+    {
+      "rank": 1,
+      "id": "RATELIMIT-001",
+      "severity": "P1 Critical",
+      "issue": "13 high-cost AI APIs bypass rate limit middleware",
+      "impact": "OpenAI cost exhaustion ($thousands/min possible)",
+      "status": "FAIL",
+      "remediation": "Add /api/generate-*, /api/stage*/generate*, /api/recommend-* to middleware matcher",
+      "effort_hours": 0.5,
+      "timeline": "TODAY"
+    },
+    {
+      "rank": 2,
+      "id": "DATABASE-001",
+      "severity": "P1 Critical",
+      "issue": "4 tables lack RLS policies (org_alignment_insights, stage_reflection_candidates, insight_sources, agent_logs)",
+      "impact": "Other companies' strategic data visible via Supabase Service Role",
+      "status": "FAIL",
+      "remediation": "Deploy Supabase migration 20260708 to production",
+      "effort_hours": 1,
+      "timeline": "TODAY"
+    },
+    {
+      "rank": 3,
+      "id": "INJECTION-001",
+      "severity": "P1 High",
+      "issue": "CSV formula injection (=cmd prefix not sanitized)",
+      "impact": "RCE when file opened in Excel",
+      "status": "FAIL",
+      "remediation": "Add prefix detection/sanitization in candidateBuilder.ts for =, +, @, - characters",
+      "effort_hours": 2,
+      "timeline": "TODAY"
+    },
+    {
+      "rank": 4,
+      "id": "CSVPARSING-001",
+      "severity": "P1 High",
+      "issue": "Excel import no timeout or decompressed size check",
+      "impact": "ZIP bomb DoS (20MB→1GB expansion)",
+      "status": "FAIL",
+      "remediation": "Add AbortSignal timeout + decompressed size validation (MAX 100MB)",
+      "effort_hours": 1,
+      "timeline": "TODAY"
+    },
+    {
+      "rank": 5,
+      "id": "RATELIMIT-002",
+      "severity": "P1 High",
+      "issue": "Upstash Redis fail-open pattern (no rate limit when Redis unavailable)",
+      "impact": "Brute force, token enumeration, password cracking enabled",
+      "status": "CONDITIONAL",
+      "remediation": "Verify Upstash Redis config in production, implement fail-closed pattern",
+      "effort_hours": 0.5,
+      "timeline": "TODAY - Check config"
+    }
+  ],
+  "company_separation_assessment": {
+    "protected_tables": {
+      "count": 16,
+      "status": "PASS",
+      "description": "Core strategy, OKRs, progress logs protected by RLS WITH CHECK constraints"
+    },
+    "unprotected_tables": {
+      "count": 4,
+      "status": "FAIL",
+      "tables": [
+        "org_alignment_insights",
+        "org_alignment_stage_reflection_candidates",
+        "org_alignment_insight_sources",
+        "agent_logs"
+      ],
+      "description": "Missing RLS policies - migration created but not deployed"
+    },
+    "overall_verdict": "7/10 - Major gap in new org_alignment feature"
+  },
+  "attacker_model_grades": {
+    "model_a_unauthenticated": {
+      "name": "Unauthenticated External Attacker",
+      "capabilities": "Network access only",
+      "grade": "D (50/100)",
+      "primary_risks": [
+        "Rate limit bypass → cost exhaustion",
+        "Excel DoS → service unavailability",
+        "CSV formula injection → RCE risk",
+        "Error info disclosure → reconnaissance"
+      ]
+    },
+    "model_b_general_user": {
+      "name": "General Authenticated User",
+      "capabilities": "Valid auth token, single-company access",
+      "grade": "C (60/100)",
+      "primary_risks": [
+        "CEO Chat cost exhaustion (no daily quota)",
+        "No cost visibility",
+        "Prompt injection not blocked"
+      ]
+    },
+    "model_c_company_admin": {
+      "name": "Company Administrator",
+      "capabilities": "Admin role, company-level operations",
+      "grade": "C (65/100)",
+      "primary_risks": [
+        "4 unprotected tables expose cross-company data",
+        "Cascade delete without backup"
+      ]
+    },
+    "model_d_multitenant_user": {
+      "name": "Multi-Tenant User",
+      "capabilities": "Multiple organization access",
+      "grade": "B (75/100)",
+      "primary_risks": [
+        "Auto-selected company may be wrong"
+      ]
+    }
+  },
+  "scoring_by_domain": {
+    "authentication": { "score": 10, "status": "STRONG", "comment": "JWT verification robust" },
+    "authorization_rbac": { "score": 9, "status": "GOOD", "comment": "Missing audit logs on some DELETE ops" },
+    "company_data_separation": { "score": 7, "status": "MAJOR_GAP", "comment": "4 tables unprotected" },
+    "row_level_security": { "score": 7, "status": "MAJOR_GAP", "comment": "org_alignment migration not deployed" },
+    "api_security": { "score": 5, "status": "FAIL", "comment": "Rate limit bypass, error disclosure, token in URL" },
+    "input_validation": { "score": 4, "status": "FAIL", "comment": "Formula injection, no size limits, prompt injection logged only" },
+    "secret_management": { "score": 8, "status": "MINOR_GAP", "comment": "Error.stack in logs" },
+    "rate_limiting": { "score": 5, "status": "FAIL", "comment": "Incomplete middleware, fail-open pattern" },
+    "dependency_supply_chain": { "score": 7, "status": "CONCERN", "comment": "Unused 'ai' package, tar CVE (devDependency)" },
+    "operations_monitoring": { "score": 6, "status": "INCOMPLETE", "comment": "Partial audit logging, no cost transparency" }
+  },
+  "total_security_score": {
+    "points": 68,
+    "maximum": 100,
+    "interpretation": "Conditional production-ready",
+    "gap_to_production": "7 points",
+    "time_to_close": "2-3 weeks with focused effort"
+  },
+  "remediation_phases": {
+    "phase_1_critical_blocker": {
+      "name": "Critical (Release Blocker)",
+      "timeline": "Days 1-2",
+      "estimated_hours": 8,
+      "items": [
+        "Deploy RLS migration 20260708",
+        "Fix middleware AI API rate limit matcher (13 APIs)",
+        "CSV formula injection sanitization",
+        "Remove error.stack from logs/responses",
+        "Add Excel timeout + decompressed size check"
+      ],
+      "score_after": "78/100"
+    },
+    "phase_2_high_priority": {
+      "name": "High Priority",
+      "timeline": "Week 1",
+      "estimated_hours": 12,
+      "items": [
+        "CEO Chat cost ceiling (daily quota)",
+        "User-level daily spend tracking",
+        "Prompt injection blocking",
+        "Verify Upstash Redis + alerting"
+      ],
+      "score_after": "85/100"
+    },
+    "phase_3_medium_priority": {
+      "name": "Medium Priority",
+      "timeline": "Week 2-3",
+      "estimated_hours": 10,
+      "items": [
+        "Remove unused 'ai' package",
+        "Delete deprecated /api/admin/invite",
+        "Force multi-tenant company selection UI",
+        "Cost estimation display in API responses",
+        "Soft-delete implementation for data safety"
+      ],
+      "score_after": "90/100"
+    }
+  },
+  "runtime_verification_checklist": [
+    {
+      "id": "VERIFY-001",
+      "test": "Rate limit enforcement on AI endpoints",
+      "command": "curl -X POST /api/stage2/generate-final (11x in <60s)",
+      "expected": "10th succeeds, 11th+ rejected with 429",
+      "critical": true
+    },
+    {
+      "id": "VERIFY-002",
+      "test": "RLS cross-company data access",
+      "command": "psql: SELECT * FROM org_alignment_insights WHERE company_id != auth_company",
+      "expected": "0 rows (RLS blocked)",
+      "critical": true
+    },
+    {
+      "id": "VERIFY-003",
+      "test": "CSV formula injection sanitization",
+      "command": "Upload CSV with =cmd|'/c calc'!A1",
+      "expected": "Formula characters stripped or error",
+      "critical": true
+    },
+    {
+      "id": "VERIFY-004",
+      "test": "Excel DoS timeout",
+      "command": "Upload 50MB XLSX (100K rows × 500 cols)",
+      "expected": "Request timeout after 30s (not hang)",
+      "critical": true
+    },
+    {
+      "id": "VERIFY-005",
+      "test": "Upstash Redis brute force protection",
+      "command": "curl /api/invites/accept?token=X (100x in <60s)",
+      "expected": "Rate limited after threshold",
+      "critical": true
+    }
+  ],
+  "previous_improvements_validated": [
+    { "id": "AUTH-001", "status": "✓ PASS", "description": "JWT verification robust" },
+    { "id": "AUTHZ-001", "status": "✓ PASS", "description": "Admin API access control effective" },
+    { "id": "IDOR-001", "status": "✓ PASS", "description": "Company separation via RLS scope" },
+    { "id": "PRIV-001", "status": "✓ PASS", "description": "Privilege escalation prevention" },
+    { "id": "PRIV-002", "status": "✓ PASS", "description": "Last admin deletion blocked" },
+    { "id": "OPENREDIRECT-001", "status": "✓ PASS", "description": "Protocol-relative URL blocking" }
+  ],
+  "new_risks_not_in_prior_audits": [
+    {
+      "id": "NEW-001",
+      "description": "org_alignment_* tables added without RLS review",
+      "severity": "Critical",
+      "root_cause": "Feature development outpaced security review"
+    },
+    {
+      "id": "NEW-002",
+      "description": "13 AI APIs added without rate limit matcher update",
+      "severity": "Critical",
+      "root_cause": "Middleware maintenance gap during feature expansion"
+    },
+    {
+      "id": "NEW-003",
+      "description": "gpt-5.6-luna reasoning model introduced without cost controls",
+      "severity": "High",
+      "root_cause": "New AI model capability not gated with financial controls"
+    },
+    {
+      "id": "NEW-004",
+      "description": "CSV importer never audited for formula injection",
+      "severity": "High",
+      "root_cause": "Legacy code security review gap"
+    }
+  ],
+  "success_metrics_post_remediation": {
+    "metric_1": "Zero unprotected cross-company data access attempts (audit logs tracked)",
+    "metric_2": "OpenAI spending within configured daily budget",
+    "metric_3": "Zero formula injection or CSV DoS incidents",
+    "metric_4": "Rate limit enforcement on 100% of AI-generating endpoints (monitored)",
+    "metric_5": "All P0/P1 findings resolved, score ≥85/100"
+  },
+  "sign_off": {
+    "readiness": "Demo/internal use - restricted to NDA companies only",
+    "production_launch": "Blocked until Phase 1 complete",
+    "re_audit_scheduled": "After Phase 1 remediation (estimated 2-3 days)"
+  }
+}

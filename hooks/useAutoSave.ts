@@ -573,10 +573,12 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
       savingRef.current = true;
 
       const storeApi = useStrategyStore.getState();
-      console.log('[AutoSave][saveStrategyData-enter]', { timestamp });
+      const dirtyBefore = storeApi.dirty;
+      console.log('[AutoSave][saveStrategyData-enter]', { timestamp, dirtyBefore });
       await storeApi.saveStrategyData();
+      const dirtyAfter = useStrategyStore.getState().dirty;
       const doneTime = Date.now();
-      console.log('[AutoSave][saveStrategyData-done]', { timestamp });
+      console.log('[AutoSave][saveStrategyData-done]', { timestamp, dirtyBefore, dirtyAfter });
 
       // ★ FIX: post-restore 初回保存が完了したらフラグを設定
       if (restoreReady && !postRestoreFirstSaveDoneRef.current) {

@@ -42,6 +42,8 @@ export function useOkrEditor(args: {
       const current: Department[] = Array.isArray(st.departments) ? (st.departments as Department[]) : [];
       const next = mutator(current);
       if (next === current) return st;
+
+
       return {
         ...st,
         departments: next,
@@ -210,28 +212,6 @@ export function useOkrEditor(args: {
           unit: t?.unit,
         }));
 
-        // Failure detection: 入力値があるのに target が見つからない
-        if (hasRevenueInput && !revenueTarget) {
-          console.warn('[impact-link] FAILURE: revenue target not found', {
-            projectId,
-            projectKey: `${deptName}::${projTitle}`,
-            inputValue: patch.impactRevenueMJPY ?? nextProj.impactRevenueMJPY,
-            availableTargets: existingCompanyTargets,
-            targetsCount: targets.length,
-            hint: 'Need companyTarget with label containing "売上" or "revenue"',
-          });
-        }
-
-        if (hasOpIncomeInput && !opIncomeTarget) {
-          console.warn('[impact-link] FAILURE: op income target not found', {
-            projectId,
-            projectKey: `${deptName}::${projTitle}`,
-            inputValue: patch.impactOpIncomeMJPY ?? nextProj.impactOpIncomeMJPY,
-            availableTargets: existingCompanyTargets,
-            targetsCount: targets.length,
-            hint: 'Need companyTarget with label containing "営業利益", "営業益", "op", or "operatingincome"',
-          });
-        }
 
         const impacts = Array.isArray(st.projectTargetImpacts) ? [...st.projectTargetImpacts] : [];
 
@@ -248,12 +228,6 @@ export function useOkrEditor(args: {
           // 空入力は削除（=連携解除）
           if (!has) {
             if (idx >= 0) {
-              console.log('[impact-link] Removing impact (empty input)', {
-                projectId,
-                projectKey: `${deptName}::${projTitle}`,
-                targetId,
-                targetType,
-              });
               impacts.splice(idx, 1);
             }
             return;
@@ -274,24 +248,8 @@ export function useOkrEditor(args: {
 
           if (idx >= 0) {
             impacts[idx] = { ...(impacts[idx] as any), ...row };
-            console.log('[impact-link] SUCCESS: ProjectTargetImpact updated', {
-              projectId,
-              projectKey: `${deptName}::${projTitle}`,
-              targetId,
-              targetType,
-              delta: v,
-              notes,
-            });
           } else {
             impacts.push(row);
-            console.log('[impact-link] SUCCESS: ProjectTargetImpact created', {
-              projectId,
-              projectKey: `${deptName}::${projTitle}`,
-              targetId,
-              targetType,
-              delta: v,
-              notes,
-            });
           }
         };
 

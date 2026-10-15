@@ -512,10 +512,36 @@ function OKRPageContent() {
         // ★ P0-1: STAGE3→STAGE4 transition verification (stop-gap)
         if (!cancelled) {
           try {
+            // [DEBUG] stage3:goStage4 保存時の departments ID 状態をチェック
+            const beforeSaveState = useStrategyStore.getState();
+            let krIdCountBefore = 0;
+            let krWithoutIdCountBefore = 0;
+            (beforeSaveState.departments as any[] || []).forEach((dept) => {
+              (dept.projects || []).forEach((proj: any) => {
+                (proj.okrsV2 || []).forEach((kr: any) => {
+                  krIdCountBefore++;
+                  if (!kr.id) krWithoutIdCountBefore++;
+                });
+              });
+            });
+
             const { saveStrategyData } = useStrategyStore.getState();
             await saveStrategyData?.({
               force: true,
               reason: 'stage3:goStage4'
+            });
+
+            // [DEBUG] stage3:goStage4 保存後の状態をチェック
+            const afterSaveState = useStrategyStore.getState();
+            let krIdCountAfter = 0;
+            let krWithoutIdCountAfter = 0;
+            (afterSaveState.departments as any[] || []).forEach((dept) => {
+              (dept.projects || []).forEach((proj: any) => {
+                (proj.okrsV2 || []).forEach((kr: any) => {
+                  krIdCountAfter++;
+                  if (!kr.id) krWithoutIdCountAfter++;
+                });
+              });
             });
 
             // Verify STAGE3 data exists in current state
@@ -2436,15 +2462,76 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
       return;
     }
 
-    // ★ 診断: 初期補修 useEffect が実行された
-    console.log('[diag][okr:initial-repair-useeffect-start]', {
-      deptCount: departments.length,
-      timestamp: new Date().toISOString(),
-      trigger: 'first initialization',
-    });
-
     // 既存ヘルパ（id補完）＋ label 正規化（[object Object] 根絶）
     const withIds = ensureKrIds(departments as Department[]);
+
+    // [DEBUG] ensureKrIds output の統計（A. ensureKrIds output）
+    let krCountEnsure = 0;
+    let krWithIdEnsure = 0;
+    let idSupplementDetails: Array<{ dept: string; project: string; kr_label: string; id: string }> = [];
+
+    (withIds as Department[]).forEach((dept, di) => {
+      if (dept.projects) {
+        dept.projects.forEach((proj, pi) => {
+          if (proj.okrsV2) {
+            proj.okrsV2.forEach((kr, ki) => {
+              krCountEnsure++;
+              if (kr.id) {
+                krWithIdEnsure++;
+              }
+              idSupplementDetails.push({
+                dept: `[${di}] ${dept.name || 'unnamed'}`,
+                project: `[${pi}] ${proj.title || 'unnamed'}`,
+                kr_label: kr.label,
+                id: kr.id || 'undefined',
+              });
+            });
+          }
+          // [DEBUG] okrs も確認
+          if (proj.okrs) {
+            proj.okrs.forEach((o, oi) => {
+              if (o.id) {
+                // okrs の id も数えるか？
+              }
+            });
+          }
+          // [DEBUG] okrVariants も確認
+          if (proj.okrVariants) {
+            proj.okrVariants.forEach((v, vi) => {
+              if (v.okrsV2) {
+                v.okrsV2.forEach((kr, ki) => {
+                  if (kr.id) {
+                    // variant の id も数えるか？
+                  }
+                });
+              }
+            });
+          }
+        });
+      }
+    });
+
+    if (withIds !== departments) {
+      // KR ID 補完を詳細確認
+      (withIds as Department[]).forEach((dept, di) => {
+        const origDept = (departments as Department[])[di];
+        if (dept.projects) {
+          dept.projects.forEach((proj, pi) => {
+            const origProj = origDept?.projects?.[pi];
+            if (proj.okrsV2) {
+              const origOkrsV2 = origProj?.okrsV2;
+              proj.okrsV2.forEach((kr, ki) => {
+                const origKr = origOkrsV2?.[ki];
+                if (kr.id !== origKr?.id) {
+                  // KR ID補完が検出された
+                }
+              });
+            }
+          });
+        }
+      });
+
+    }
 
     let changed = false;
     const patched = (withIds as Department[]).map((d) => {
@@ -2464,34 +2551,53 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
         const normalizeList = (list: any[] | undefined) => {
           const src = ensureArray(list);
           let localChanged = false;
+          const changeDetails: any[] = [];
 
-          const mapped = src.map((kr) => {
+          const mapped = src.map((kr, idx) => {
             const before = kr ?? {};
             const after = { ...(before as any) };
+            let krChanged = false;
+            const krChangeLog: any = { index: idx, label: before.label };
 
             if (after.label != null && typeof after.label !== 'string') {
               after.label = String(after.label);
-              localChanged = true;
+              krChanged = true;
+              krChangeLog.change = 'label:type-convert';
+              krChangeLog.before = before.label;
+              krChangeLog.after = after.label;
             }
 const isObjectObject =
   typeof after.label === 'string' && after.label.includes('[object Object]');
 
 if (isObjectObject) {
   // 破損KR（labelが[object Object]）は空欄にせず削除対象にする
-  localChanged = true;
+  krChanged = true;
+  krChangeLog.change = 'label:[object Object]-removal';
+  krChangeLog.before = before.label;
   return null as any;
 }
 
 if (after.label == null) {
   after.label = '';
+  krChanged = true;
+  krChangeLog.change = 'label:null-to-empty';
+  krChangeLog.before = null;
+  krChangeLog.after = '';
+}
+
+if (krChanged) {
+  changeDetails.push(krChangeLog);
   localChanged = true;
 }
 
-return localChanged ? after : before;
+return krChanged ? after : before;
           });
 
           const dst = mapped.filter(Boolean) as any[];
-          if (dst.length !== src.length) localChanged = true;
+          if (dst.length !== src.length) {
+            localChanged = true;
+            changeDetails.push({ change: 'array-length-change', before_len: src.length, after_len: dst.length });
+          }
 
           if (localChanged) changed = true;
 
@@ -2503,6 +2609,7 @@ return localChanged ? after : before;
               changed: localChanged,
               inputIds: src.map((x: any) => x?.id),
               outputIds: dst.map((x: any) => x?.id),
+              changeDetails: changeDetails.length > 0 ? changeDetails : 'none',
             });
           }
 
@@ -2558,6 +2665,22 @@ let variantsFixed = (p as any).okrVariants;
 
     const finalPatched = changed || withIds !== departments ? patched : (departments as Department[]);
 
+    // [DEBUG] finalPatched の統計（B. finalPatched）
+    let krCountFinalPatched = 0;
+    let krWithIdFinalPatched = 0;
+    (finalPatched as Department[]).forEach((dept) => {
+      if (dept.projects) {
+        dept.projects.forEach((proj) => {
+          if (proj.okrsV2) {
+            proj.okrsV2.forEach((kr) => {
+              krCountFinalPatched++;
+              if (kr.id) krWithIdFinalPatched++;
+            });
+          }
+        });
+      }
+    });
+
     // ★ 診断: 初期補修 useEffect の patchDepartments 実行確認
     if (finalPatched !== departments) {
       console.log('[diag][okr:initial-repair-useeffect-patching]', {
@@ -2566,7 +2689,19 @@ let variantsFixed = (p as any).okrVariants;
         willPatch: true,
         timestamp: new Date().toISOString(),
       });
-      patchDepartments(() => finalPatched);
+
+      // [DEBUG] patchDepartments 直後の store 状態を確認
+      const afterPatchState = useStrategyStore.getState();
+      let krIdCountAfterPatch = 0;
+      let krWithIdCountAfterPatch = 0;
+      (afterPatchState.departments as any[] || []).forEach((dept) => {
+        (dept.projects || []).forEach((proj: any) => {
+          (proj.okrsV2 || []).forEach((kr: any) => {
+            krIdCountAfterPatch++;
+            if (kr.id) krWithIdCountAfterPatch++;
+          });
+        });
+      });
     } else {
       console.log('[diag][okr:initial-repair-useeffect-no-patch]', {
         changed,
@@ -2575,6 +2710,28 @@ let variantsFixed = (p as any).okrVariants;
         timestamp: new Date().toISOString(),
       });
     }
+
+    // [DEBUG] KR ID の有無をカウント
+    let krTotalCount = 0;
+    let krWithIdCount = 0;
+    let krWithoutIdCount = 0;
+
+    (withIds as Department[]).forEach((dept) => {
+      if (dept.projects) {
+        dept.projects.forEach((proj) => {
+          if (proj.okrsV2) {
+            proj.okrsV2.forEach((kr) => {
+              krTotalCount++;
+              if (kr.id) {
+                krWithIdCount++;
+              } else {
+                krWithoutIdCount++;
+              }
+            });
+          }
+        });
+      }
+    });
 
     // ★ 修正: 完了フラグを立てる（次回以降は実行されない）
     initialRepairCompletedRef.current = true;

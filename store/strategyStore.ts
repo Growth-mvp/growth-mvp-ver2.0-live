@@ -640,16 +640,6 @@ function isEffectivelyEmpty(payload: any): boolean {
 
   const isEmpty = allEmpty && metaAllEmpty;
 
-  // ★ 診断ログ：isEffectivelyEmpty チェック（特に stage1Issues）
-  if (DEBUG && (Array.isArray(payload.stage1Issues) && payload.stage1Issues.length > 0)) {
-    console.log('[isEffectivelyEmpty] stage1Issues is NOT empty but payload is marked empty:', {
-      stage1Issues_len: payload.stage1Issues.length,
-      isEmpty,
-      allEmpty,
-      metaAllEmpty,
-    });
-  }
-
   return isEmpty;
 }
 
@@ -796,10 +786,13 @@ function bump(s: any) {
 /** 保存用ペイロード組み立て（StrategyData相当） */
 function buildSavePayload(s: StrategyState) {
   // okrsV2 サニタイズ（空labelを除外）
-  const sanitizeOkrsV2 = (list: any[]) =>
-    (Array.isArray(list) ? list : []).filter(kr =>
+  const sanitizeOkrsV2 = (list: any[]) => {
+    const filtered = (Array.isArray(list) ? list : []).filter(kr =>
       typeof kr?.label === 'string' && kr.label.trim() !== ''
     );
+
+    return filtered;
+  };
 
   // ★ CRITICAL EMERGENCY FIX: Department ID 暫定復元（STAGE5 保存失敗対策）
   // departments を保存や store 反映に使う前に、department.id を補完する
@@ -812,24 +805,6 @@ function buildSavePayload(s: StrategyState) {
       id: p?.id ?? p?.projectId ?? `proj_${dIdx}_${pIdx}`,
     })),
   }));
-
-  // ★ 診断ログ：ID 補完後の departments 状態確認
-  if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1' || process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
-    const deptIdStatus = normalizedDepts.map((d: any, idx: number) => ({
-      index: idx,
-      name: d?.name ?? '[no-name]',
-      deptId_before: (s.departments?.[idx] as any)?.id,
-      deptId_after: d?.id,
-      hasDepartmentIdField: !!(s.departments?.[idx] as any)?.departmentId,
-      projectCount: Array.isArray(d?.projects) ? d.projects.length : 0,
-      projectIds: d?.projects?.map((p: any) => ({ title: p?.title, id: p?.id })) ?? [],
-    }));
-    console.log('[diag][buildSavePayload] department id normalization', {
-      timestamp: new Date().toISOString(),
-      normalizedCount: deptIdStatus.length,
-      departments: deptIdStatus,
-    });
-  }
 
   // departments をサニタイズ
   // ★ Phase 1: { ...p } で ownerUserId / ownerName を保存ペイロードに含める
@@ -932,106 +907,6 @@ function buildSavePayload(s: StrategyState) {
 
   if (Array.isArray(s.financeSummary)) base.financeSummary = s.financeSummary;
   if (s.simulationResult !== undefined) base.simulationResult = s.simulationResult;
-
-  if (DEBUG) {
-    const busSegLen = Array.isArray(s.businessSegments) ? s.businessSegments.length : 0;
-    const financeBSLen = Array.isArray(s.financeBS) ? s.financeBS.length : 0;
-    const financePLLen = Array.isArray(s.financePL) ? s.financePL.length : 0;
-
-    // ★ segmentPL 詳細ログ
-    const segmentPLDetails: Record<string, number> = {};
-    if (s.segmentPL && typeof s.segmentPL === 'object') {
-      for (const [k, v] of Object.entries(s.segmentPL as any)) {
-        segmentPLDetails[k] = Array.isArray(v) ? v.length : 0;
-      }
-    }
-
-    // ★ segmentBS 詳細ログ
-    const segmentBSDetails: Record<string, number> = {};
-    if (s.segmentBS && typeof s.segmentBS === 'object') {
-      for (const [k, v] of Object.entries(s.segmentBS as any)) {
-        segmentBSDetails[k] = Array.isArray(v) ? v.length : 0;
-      }
-    }
-
-    // ★ financeBS プレビュー
-    const financeBSPreview =
-      Array.isArray(s.financeBS) && s.financeBS.length > 0
-        ? {
-            totalAssets: (s.financeBS[0] as any)?.totalAssets,
-            interestBearingDebt: (s.financeBS[0] as any)?.interestBearingDebt,
-          }
-        : null;
-
-    // ★ DEBUG: missionDescription のペイロード確認
-    const dept0 = Array.isArray(base.departments) ? base.departments[0] : null;
-
-    // ★ 修正：swotSuggestions をログに追加（保存時の確認用）
-    const swotSuggestionsOpp = Array.isArray(base.swotSuggestions?.opportunity) ? base.swotSuggestions.opportunity.length : 0;
-    const swotSuggestionsThr = Array.isArray(base.swotSuggestions?.threat) ? base.swotSuggestions.threat.length : 0;
-
-    // STAGE3 strategy bridge check
-    const stage3BridgeIncluded = !!(base as any).stage3_strategy_bridge;
-    const stage3BridgeKeys = stage3BridgeIncluded ? Object.keys((base as any).stage3_strategy_bridge) : [];
-    const stage3BridgeKeyThemesLen = Array.isArray((base as any).stage3_strategy_bridge?.keyThemes) ? (base as any).stage3_strategy_bridge.keyThemes.length : 0;
-
-    if (DEBUG) console.log('[buildSavePayload] ★ payload内容確認', {
-      businessSegments_len: busSegLen,
-      businessSegments_names: Array.isArray(s.businessSegments) ? s.businessSegments.map((b) => b.name) : [],
-      financeBS_len: financeBSLen,
-      financeBS_preview: financeBSPreview,
-      financePL_len: financePLLen,
-      segmentPL_keys: Object.keys(segmentPLDetails),
-      segmentPL_rowCountsByKey: segmentPLDetails,
-      segmentBS_keys: Object.keys(segmentBSDetails),
-      segmentBS_rowCountsByKey: segmentBSDetails,
-      stage1Benchmarks: (s as any).stage1Benchmarks ? Object.keys((s as any).stage1Benchmarks) : 'undefined',
-      waccManual: (s as any).stage1Benchmarks?.waccManual,
-      // ★ 修正3: STAGE4データをpayloadで確認
-      stage4Plans_included: base.stage4Plans ? base.stage4Plans.length : 'undefined',
-      executionPlanBaseline_included: base.executionPlanBaseline ? 'exists' : 'undefined',
-      // ★ 修正：swotSuggestions をログに追加
-      swotSuggestions_included: !!base.swotSuggestions,
-      swotSuggestions_opp_len: swotSuggestionsOpp,
-      swotSuggestions_thr_len: swotSuggestionsThr,
-      // STAGE3 bridge log
-      stage3_strategy_bridge_included: stage3BridgeIncluded,
-      stage3_strategy_bridge_keys: stage3BridgeKeys,
-      stage3_strategy_bridge_keyThemesLen: stage3BridgeKeyThemesLen,
-      // ★ DEBUG LOG B: save直前のpayload確認
-      dept0_keys: Object.keys(dept0 ?? {}),
-      dept0_name: dept0?.name,
-      dept0_mission: dept0?.mission,
-      dept0_missionDescription: dept0?.missionDescription,
-    });
-
-    // ★ DIAG: 削除操作が反映されているか確認（10回に1回のみ出力・verbose log削減）
-    if (Math.random() < 0.1) {
-      console.log('[diag][delete:save:payload]', {
-        departmentsCount: sanitizedDepts.length,
-        departmentNames: sanitizedDepts.map((d: any) => d.name),
-        stage4PlansCount: base.stage4Plans ? base.stage4Plans.length : 0,
-        departmentProjectCounts: sanitizedDepts.map((d: any) => ({
-          name: d.name,
-          projectCount: (d.projects || []).length,
-        })),
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    // ★ TASK: 監査地点3「saveStrategyData に渡す直前（buildSavePayload返却時）」
-    const { summarizeDepartmentProjects, countTotalProjects } = require('@/utils/supabase/strategy');
-    const auditSummary = summarizeDepartmentProjects(sanitizedDepts);
-    const totalProjects = countTotalProjects(sanitizedDepts);
-    console.log('[diag][departments-projects]', {
-      point: 'before-save',
-      strategyId: s.strategyId,
-      timestamp: new Date().toISOString(),
-      departmentCount: sanitizedDepts.length,
-      totalProjectsCount: totalProjects,
-      departments: auditSummary,
-    });
-  }
 
   return pruneUndefinedDeep(base);
 }
@@ -1432,20 +1307,6 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
   if (!raw || typeof raw !== 'object') return {};
   const isArray = Array.isArray;
 
-  // ★ DEBUG STAGE1: During normalize/load from DB
-  if (process.env.NEXT_PUBLIC_DEBUG_STAGE1) {
-    console.log('[DEBUG_STAGE1] normalizeFromDbRow LOAD:', {
-      isListed: raw.isListed,
-      ticker: raw.ticker,
-      pbrManual: raw.pbrManual,
-      stage1Benchmarks: raw.stage1Benchmarks ? {
-        keys: Object.keys(raw.stage1Benchmarks),
-        waccManual: raw.stage1Benchmarks.waccManual,
-        waccRationale: raw.stage1Benchmarks.waccRationale ? '(present)' : undefined,
-      } : undefined,
-    });
-  }
-
   const companyName = raw.companyName ?? raw.company_name ?? '';
   const foundationYear = raw.foundationYear ?? raw.foundation_year ?? '';
   const location = raw.location ?? raw.location_text ?? '';
@@ -1532,31 +1393,12 @@ function normalizeFromDbRow(raw: any): Partial<StrategyState> {
 
   const stage1Issues = isArray(raw.stage1Issues) ? raw.stage1Issues : isArray(raw.stage1_issues) ? raw.stage1_issues : [];
 
-  // ★ 診断ログ：DB行からの復元状況
-  if (DEBUG && (raw.stage1Issues || raw.stage1_issues)) {
-    console.log('[normalizeFromDbRow] stage1Issues 復元:', {
-      raw_stage1Issues_len: isArray(raw.stage1Issues) ? (raw.stage1Issues as any[]).length : 0,
-      raw_stage1_issues_len: isArray(raw.stage1_issues) ? (raw.stage1_issues as any[]).length : 0,
-      final_len: Array.isArray(stage1Issues) ? stage1Issues.length : 0,
-    });
-  }
-
   const stage1Benchmarks =
     raw.stage1Benchmarks && typeof raw.stage1Benchmarks === 'object'
       ? raw.stage1Benchmarks
       : raw.stage1_benchmarks && typeof raw.stage1_benchmarks === 'object'
         ? raw.stage1_benchmarks
         : undefined;
-
-  // ★ 診断ログ：stage1Benchmarks 復元状況
-  if (DEBUG && (raw.stage1Benchmarks || raw.stage1_benchmarks)) {
-    console.log('[normalizeFromDbRow] stage1Benchmarks 復元:', {
-      has_raw_stage1Benchmarks: !!raw.stage1Benchmarks,
-      has_raw_stage1_benchmarks: !!raw.stage1_benchmarks,
-      final_benchmarkKeys: stage1Benchmarks ? Object.keys(stage1Benchmarks) : [],
-      waccManual: (stage1Benchmarks as any)?.waccManual,
-    });
-  }
 
   const thought = raw.thought ?? '';
   const mission = raw.mission ?? '';
@@ -2001,20 +1843,6 @@ export const useStrategyStore = create<StrategyState>()(
           keys: fullState.stage3_strategy_bridge ? Object.keys(fullState.stage3_strategy_bridge) : [],
         });
 
-        // ★ DEBUG STAGE1: During hydrate/normalize load
-        if (process.env.NEXT_PUBLIC_DEBUG_STAGE1) {
-          console.log('[DEBUG_STAGE1] hydrateFromFullState LOAD:', {
-            isListed: fullState.isListed,
-            ticker: fullState.ticker,
-            pbrManual: fullState.pbrManual,
-            stage1Benchmarks: fullState.stage1Benchmarks ? {
-              keys: Object.keys(fullState.stage1Benchmarks),
-              waccManual: fullState.stage1Benchmarks.waccManual,
-              waccRationale: fullState.stage1Benchmarks.waccRationale ? '(present)' : undefined,
-            } : undefined,
-          });
-        }
-
         // ★ Type guard for businessPortfolio to avoid unsafe spread
         const guardedBusinessPortfolio =
           fullState.businessPortfolio && typeof fullState.businessPortfolio === 'object'
@@ -2142,29 +1970,6 @@ export const useStrategyStore = create<StrategyState>()(
         })),
 
       setProfile: (patch) => {
-        // ★ DEBUG STAGE1: Before save payload
-        if (process.env.NEXT_PUBLIC_DEBUG_STAGE1) {
-          const summary = {
-            isListed: (patch as any).isListed,
-            ticker: (patch as any).ticker,
-            pbrManual: (patch as any).pbrManual,
-            stage1Benchmarks: (patch as any).stage1Benchmarks ? {
-              keys: Object.keys((patch as any).stage1Benchmarks),
-              waccManual: (patch as any).stage1Benchmarks.waccManual,
-              waccRationale: (patch as any).stage1Benchmarks.waccRationale,
-            } : undefined,
-          };
-          console.log('[DEBUG_STAGE1] setProfile BEFORE save:', summary);
-        }
-
-        // ★ 診断ログ：setProfile に stage1Issues が含まれている場合を検知
-        if (DEBUG && 'stage1Issues' in patch) {
-          console.log('[strategyStore] setProfile contains stage1Issues:', {
-            stage1Issues_len: Array.isArray((patch as any).stage1Issues) ? (patch as any).stage1Issues.length : 0,
-            stage1Issues_titles: Array.isArray((patch as any).stage1Issues) ? (patch as any).stage1Issues.map((i: any) => i.title) : [],
-          });
-        }
-
         // businessSegments が変更された場合、segmentPL/segmentBS のキー整合を保つ
         if (patch.businessSegments !== undefined) {
           // ★ name を正規化（undefined/null → ''）
@@ -2191,16 +1996,6 @@ export const useStrategyStore = create<StrategyState>()(
             if (!(segName in newSegmentBS)) newSegmentBS[segName] = [];
           }
 
-          if (DEBUG) {
-            const plKeys = Object.keys(newSegmentPL).length;
-            const bsKeys = Object.keys(newSegmentBS).length;
-            console.log('[strategyStore] setProfile: segment sync', {
-              newSegmentNames: Array.from(newSegmentNames),
-              plKeys,
-              bsKeys,
-            });
-          }
-
           set((s) => ({
             ...s,
             ...patch,
@@ -2221,20 +2016,6 @@ export const useStrategyStore = create<StrategyState>()(
               }));
             }
             return { ...s, ...normalized, dirty: true, version: (s.version ?? 0) + 1 };
-          });
-        }
-
-        // ★ DEBUG STAGE1: After state update in setProfile
-        if (process.env.NEXT_PUBLIC_DEBUG_STAGE1) {
-          const updated = get();
-          console.log('[DEBUG_STAGE1] setProfile AFTER state update:', {
-            isListed: updated.isListed,
-            ticker: updated.ticker,
-            pbrManual: updated.pbrManual,
-            stage1Benchmarks: updated.stage1Benchmarks ? {
-              keys: Object.keys(updated.stage1Benchmarks),
-              waccManual: updated.stage1Benchmarks.waccManual,
-            } : undefined,
           });
         }
 
@@ -2280,36 +2061,7 @@ export const useStrategyStore = create<StrategyState>()(
       },
 
       setStage1Benchmarks: (benchmarks) => {
-        // ★ DEBUG STAGE1: Before save payload
-        if (process.env.NEXT_PUBLIC_DEBUG_STAGE1) {
-          console.log('[DEBUG_STAGE1] setStage1Benchmarks BEFORE save:', {
-            hasBenchmarks: !!benchmarks,
-            benchmarkKeys: benchmarks ? Object.keys(benchmarks) : [],
-            waccManual: benchmarks?.waccManual,
-            waccRationale: benchmarks?.waccRationale ? '(present)' : undefined,
-          });
-        }
-
-        if (DEBUG) {
-          console.log('[strategyStore] setStage1Benchmarks called:', {
-            hasBenchmarks: !!benchmarks,
-            benchmarkKeys: benchmarks ? Object.keys(benchmarks) : [],
-            waccManual: benchmarks?.waccManual,
-            waccRationale: benchmarks?.waccRationale ? benchmarks.waccRationale.substring(0, 50) + '...' : undefined,
-          });
-        }
-
-        set((s) => {
-          const newState = { ...s, stage1Benchmarks: benchmarks, dirty: true, version: (s.version ?? 0) + 1 };
-          if (DEBUG) {
-            console.log('[strategyStore] setStage1Benchmarks state updated:', {
-              stateHasBenchmarks: !!newState.stage1Benchmarks,
-              isDirty: newState.dirty,
-              version: newState.version,
-            });
-          }
-          return newState;
-        });
+        set((s) => ({ ...s, stage1Benchmarks: benchmarks, dirty: true, version: (s.version ?? 0) + 1 }));
 
         // ★ WACC変更で ValueAnalysis を再計算
         setTimeout(() => {
@@ -2546,6 +2298,7 @@ export const useStrategyStore = create<StrategyState>()(
               executionPlanBaseline: baseline,
             };
           }
+
 
           return {
             ...s,
@@ -3673,122 +3426,33 @@ export const useStrategyStore = create<StrategyState>()(
               const state = get();
               const payload = buildSavePayload(state as StrategyState);
 
+              // [DEBUG] payload に okrsV2 の ID が含まれているか確認
+              if (reason === 'manual-save-button' || reason?.startsWith('stage3:')) {
+                let totalKr = 0;
+                let withIdKr = 0;
+                (payload.departments as any[] || []).forEach((dept) => {
+                  (dept.projects || []).forEach((proj: any) => {
+                    (proj.okrsV2 || []).forEach((kr: any) => {
+                      totalKr++;
+                      if (kr.id) withIdKr++;
+                    });
+                  });
+                });
+              }
+
               // ★ CRITICAL GUARD: autosave で旧形式 bridge に上書きされるのを防ぐ
               const existingBridge = get().stage3_strategy_bridge;
               const payloadBridge = payload.stage3_strategy_bridge;
-
-              // Debug guard logic
-              if (DEBUG || existingBridge || payloadBridge) {
-                console.log('[STAGE3 bridge save guard check]', {
-                  existingBridge_hasStrategicCore: !!existingBridge?.strategicCore,
-                  payloadBridge_exists: !!payloadBridge,
-                  payloadBridge_hasStrategicCore: !!payloadBridge?.strategicCore,
-                  shouldGuard: !!(existingBridge?.strategicCore && payloadBridge && !payloadBridge.strategicCore),
-                  reason,
-                  attempt,
-                });
-              }
 
               if (
                 existingBridge?.strategicCore &&
                 payloadBridge &&
                 !payloadBridge.strategicCore
               ) {
-                console.warn('[STAGE3 bridge save guard] blocked downgrade of strategicCore', {
-                  existingBridge_keys: Object.keys(existingBridge),
-                  payloadBridge_keys: Object.keys(payloadBridge),
-                  preserving: true,
-                });
                 payload.stage3_strategy_bridge = existingBridge;
               }
 
-              // ★ 新しい診断ログ：departments/projects の ID 状態確認
-              if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1' || process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1') {
-                const deptIdStatus = (state.departments ?? []).map((d: any, idx: number) => ({
-                  index: idx,
-                  name: d?.name ?? '[no-name]',
-                  hasId: !!d?.id,
-                  rawId: d?.id ?? 'missing',
-                  projectCount: Array.isArray(d?.projects) ? d.projects.length : 0,
-                  projectIds: (d?.projects ?? []).map((p: any) => ({
-                    title: p?.title ?? '[no-title]',
-                    hasId: !!p?.id,
-                    rawId: p?.id ?? 'missing',
-                    okrCount: Array.isArray(p?.okrs) ? p.okrs.length : 0,
-                  })),
-                }));
-                console.log('[diag][savePayload-departments-projects-id-status]', {
-                  timestamp: new Date().toISOString(),
-                  totalDepts: deptIdStatus.length,
-                  departments: deptIdStatus,
-                });
-              }
-
-              // ★ 診断ログ：保存ペイロードに stage1Issues が含まれているか確認
-              if (DEBUG) {
-                console.log('[strategyStore] saveStrategyData payload check:', {
-                  reason,
-                  attempt,
-                  state_stage1Issues_len: Array.isArray(state.stage1Issues) ? state.stage1Issues.length : 0,
-                  payload_stage1Issues_len: Array.isArray((payload as any).stage1Issues) ? (payload as any).stage1Issues.length : 0,
-                  payload_has_stage1Issues: 'stage1Issues' in payload,
-                  payload_keys: Object.keys(payload).slice(0, 10),
-                });
-
-                // ★ TASK 13-2: ceoIntent diagnostics
-                const ceoIntentLen = typeof (payload as any).ceoIntent === 'string' ? (payload as any).ceoIntent.length : 0;
-                const ceoIntentHead = typeof (payload as any).ceoIntent === 'string' ? (payload as any).ceoIntent.slice(0, 30) : '';
-                console.log('[strategyStore] saveStrategyData ceoIntent check:', {
-                  state_ceoIntent_len: typeof state.ceoIntent === 'string' ? state.ceoIntent.length : 0,
-                  payload_ceoIntent_len: ceoIntentLen,
-                  payload_ceoIntent_head: ceoIntentHead,
-                  payload_has_ceoIntent: 'ceoIntent' in payload,
-                });
-
-                // ★ STEP 0: answers12 diagnostics
-                const answers12_len = Array.isArray((payload as any).answers12) ? (payload as any).answers12.length : 'not_array';
-                console.log('[strategyStore] saveStrategyData answers12 check', {
-                  state_answers12_len: Array.isArray(state.answers12) ? state.answers12.length : 'not_array',
-                  payload_answers12_len: answers12_len,
-                  payload_has_answers12: 'answers12' in (payload as any),
-                  payload_answers12_first: answers12_len !== 'not_array' && (payload as any).answers12.length > 0 ? (payload as any).answers12[0] : null,
-                });
-
-                // ★ 診断：STAGE5 okrTargetScores が payload に入ってるか（新規）
-              console.log('[diag][stage5:okrTargetScores]', {
-                state_okrTargetScores_keys: Object.keys((state as any).okrTargetScores ?? {}).length,
-                state_okrTargetScores_sample: Object.entries((state as any).okrTargetScores ?? {}).slice(0, 3),
-                payload_okrTargetScores_keys: Object.keys((payload as any).okrTargetScores ?? {}).length,
-                payload_okrTargetScores_sample: Object.entries((payload as any).okrTargetScores ?? {}).slice(0, 3),
-              });
-
-              // ★ 診断：companyTargets / finalStory* が payload に入ってるか
-                console.log('[diag][store:before_save]', {
-                  companyTargetsLen: Array.isArray((state as any).companyTargets) ? (state as any).companyTargets.length : null,
-                  payload_companyTargetsLen: Array.isArray((payload as any).companyTargets) ? (payload as any).companyTargets.length : null,
-                  finalStoryDraftLen: Array.isArray((state as any).finalStoryDraft) ? (state as any).finalStoryDraft.length : null,
-                  payload_finalStoryDraftLen: Array.isArray((payload as any).finalStoryDraft) ? (payload as any).finalStoryDraft.length : null,
-                  finalStoryEditedLen: Array.isArray((state as any).finalStoryEdited) ? (state as any).finalStoryEdited.length : null,
-                  payload_finalStoryEditedLen: Array.isArray((payload as any).finalStoryEdited) ? (payload as any).finalStoryEdited.length : null,
-                  finalStoryFinalLen: Array.isArray((state as any).finalStoryFinal) ? (state as any).finalStoryFinal.length : null,
-                  payload_finalStoryFinalLen: Array.isArray((payload as any).finalStoryFinal) ? (payload as any).finalStoryFinal.length : null,
-                });
-              }
-
-              // ★ TASK A: 保存時に departments の okrs/kpis を必ずログ出力
-              const deptDiag = (Array.isArray((payload as any).departments) ? (payload as any).departments : []).map((d: any) => ({
-                name: d?.name,
-                proj: (Array.isArray(d?.projects) ? d.projects : []).map((p: any) => ({
-                  title: p?.title,
-                  okrs: Array.isArray(p?.okrs) ? p.okrs.length : 0,
-                  kpis: Array.isArray(p?.kpis) ? p.kpis.length : 0,
-                  okrsV2: Array.isArray(p?.okrsV2) ? p.okrsV2.length : 0,
-                })),
-              }));
-              if (DEBUG) console.log('[diag][save:payload:departments]', deptDiag);
-
               if (isEffectivelyEmpty(payload)) {
-                if (DEBUG) console.log('[strategyStore] saveStrategyData: payload effectively empty, clear dirty');
                 set({ dirty: false });
                 return { ok: false, skipped: true, reason: 'payload_empty' };
               }
@@ -3878,19 +3542,6 @@ export const useStrategyStore = create<StrategyState>()(
                 }
               }
 
-              // STAGE3 bridge pre-save check
-              console.log('[STAGE3 bridge save payload]', {
-                hasBridge: !!(payload as any).stage3_strategy_bridge,
-                bridgeKeys: (payload as any).stage3_strategy_bridge ? Object.keys((payload as any).stage3_strategy_bridge) : [],
-                hasStrategicCore: !!(payload as any).stage3_strategy_bridge?.strategicCore,
-                strategicCoreKeys: (payload as any).stage3_strategy_bridge?.strategicCore ? Object.keys((payload as any).stage3_strategy_bridge.strategicCore) : [],
-                concreteDomains: (payload as any).stage3_strategy_bridge?.strategicCore?.concreteDomains,
-                nonNegotiableThemes: (payload as any).stage3_strategy_bridge?.strategicCore?.nonNegotiableThemes,
-                reason,
-                attempt,
-                timestamp: new Date().toISOString(),
-              });
-
               const res = await (async () => {
                 try {
                   return await saveWithAudit(payload, userId, companyId, state.revision, { mode: 'upsert' }, `store:saveStrategyData:${reason}`);
@@ -3904,21 +3555,6 @@ export const useStrategyStore = create<StrategyState>()(
                   }
                 }
               })();
-
-              // ★ DEBUG STAGE1: After Supabase save returns
-              if (process.env.NEXT_PUBLIC_DEBUG_STAGE1) {
-                console.log('[DEBUG_STAGE1] AFTER Supabase save:', {
-                  success: !!(res && !(res as any).error),
-                  payloadIsListed: (payload as any).isListed,
-                  payloadTicker: (payload as any).ticker,
-                  payloadPbrManual: (payload as any).pbrManual,
-                  payloadStage1Benchmarks: (payload as any).stage1Benchmarks ? {
-                    keys: Object.keys((payload as any).stage1Benchmarks),
-                    waccManual: (payload as any).stage1Benchmarks.waccManual,
-                    waccRationale: (payload as any).stage1Benchmarks.waccRationale ? '(present)' : undefined,
-                  } : undefined,
-                });
-              }
 
               if (!res || (res as any).error) {
                 const err = (res as any)?.error;
@@ -3997,13 +3633,6 @@ export const useStrategyStore = create<StrategyState>()(
                 });
               }
 
-              // ★ 診断：保存成功後、DB から復元した okrTargetScores を確認
-              console.log('[diag][stage5:after_save]', {
-                success: true,
-                serverData_okrTargetScores_keys: Object.keys((serverData as any).okrTargetScores ?? {}).length,
-                serverData_okrTargetScores_sample: Object.entries((serverData as any).okrTargetScores ?? {}).slice(0, 3),
-              });
-
               const minimal = extractServerDecidedPatch(serverData, get() as StrategyState);
 
               const updatedAt =
@@ -4032,15 +3661,13 @@ export const useStrategyStore = create<StrategyState>()(
                 conflictCooldownUntil: undefined,
                 lastConflictInfo: undefined,
               };
+
               if (updatedAt) (safePatch as any).updatedAt = updatedAt;
 
               // ★ TASK 1: Extract strategyId from saved data if returned
               const returnedStrategyId = (serverData as any)?.strategyId ?? (serverData as any)?.id ?? (minimal as any)?.strategyId;
               if (returnedStrategyId && typeof returnedStrategyId === 'string') {
                 (safePatch as any).strategyId = returnedStrategyId;
-                if (DEBUG) console.log('[strategyStore] strategyId set from save result:', {
-                  strategyId: returnedStrategyId.substring(0, 8),
-                });
               }
 
               set(safePatch);
@@ -4051,8 +3678,6 @@ export const useStrategyStore = create<StrategyState>()(
               }
 
               // ★ CRITICAL: 保存後に完全版bridge を復元（payloadまたはserverDataから）
-              // ログではserverData bridge keys: Array(7)なので、完全版がDBに保存されている
-              // だがminimal で処理された後、旧形式に戻るケースがあるため、必ず完全版で上書き
               const restorePayloadBridge = (payload as any).stage3_strategy_bridge;
               const restoreServerBridge = (serverData as any).stage3_strategy_bridge;
               const restoreCurrentStoreState = get();
@@ -4072,55 +3697,10 @@ export const useStrategyStore = create<StrategyState>()(
 
               if (bridgeToRestore?.strategicCore) {
                 set({ stage3_strategy_bridge: bridgeToRestore });
-                if (DEBUG) {
-                  console.log('[STAGE3 bridge post-save restore] complete version restored', {
-                    source: restorePayloadBridge?.strategicCore ? 'payload' : restoreServerBridge?.strategicCore ? 'server' : 'current',
-                    hasStrategicCore: !!bridgeToRestore.strategicCore,
-                    keys: Object.keys(bridgeToRestore),
-                  });
-                }
-              }
-
-              // ★ STAGE3 bridge post-patch check
-              const storeAfterPatch = get();
-              if (!!(payload as any).stage3_strategy_bridge) {
-                console.log('[STAGE3] bridge restore after save', {
-                  payloadBridge_hasStrategicCore: !!restorePayloadBridge?.strategicCore,
-                  serverBridge_hasStrategicCore: !!restoreServerBridge?.strategicCore,
-                  storeNow_hasBridge: !!(storeAfterPatch as any).stage3_strategy_bridge,
-                  storeNow_hasStrategicCore: !!(storeAfterPatch as any).stage3_strategy_bridge?.strategicCore,
-                  storeNow_bridge_keys: (storeAfterPatch as any).stage3_strategy_bridge ? Object.keys((storeAfterPatch as any).stage3_strategy_bridge) : [],
-                  restoredFrom: bridgeToRestore?.strategicCore ? 'complete_version' : 'minimal_patch',
-                  timestamp: new Date().toISOString(),
-                });
               }
 
               // ★ nextRev: Use returned revision if available, otherwise keep current
               const nextRev = returnedRevision ?? get().revision;
-
-              /* ★ TASK 14-6: 成功時の監査ログ（payload サイズ情報を記録） */
-              console.log('[audit][saveStrategyData] success', {
-                reason,
-                revision: nextRev,
-                payload_size: Object.keys(payload).length,
-                departments_len: Array.isArray((payload as any).departments) ? (payload as any).departments.length : 0,
-                story_len: Array.isArray((payload as any).story) ? (payload as any).story.length : 0,
-                finalStory_len: Array.isArray((payload as any).finalStory) ? (payload as any).finalStory.length : 0,
-                answers2_len: Array.isArray((payload as any).answers2) ? (payload as any).answers2.length : 0,
-                stage1Issues_len: Array.isArray((payload as any).stage1Issues) ? (payload as any).stage1Issues.length : 0,
-                winPatterns_len: Array.isArray((payload as any).winPatterns) ? (payload as any).winPatterns.length : 0,
-              });
-
-              /* ★ Stage6 検証ログ */
-              if (Array.isArray((payload as any).projectTargetImpacts) || Array.isArray((payload as any).projectIssueLinks)) {
-                console.log('[SAVE] ✅ Revision increment verified', {
-                  revision: nextRev,
-                  projectTargetImpacts_len: Array.isArray((payload as any).projectTargetImpacts) ? (payload as any).projectTargetImpacts.length : 0,
-                  projectIssueLinks_len: Array.isArray((payload as any).projectIssueLinks) ? (payload as any).projectIssueLinks.length : 0,
-                });
-              }
-
-              if (DEBUG) console.log('[strategyStore] saveStrategyData success', { reason, revision: nextRev, updatedAt });
 
               return { ok: true, revision: nextRev, updatedAt };
             }
@@ -4141,7 +3721,6 @@ export const useStrategyStore = create<StrategyState>()(
 
             if (shouldRunAgain) {
               // 非同期で後追い保存（直列化）
-              if (DEBUG) console.log('[strategyStore] pending detected, re-running saveStrategyData', { reason: s._pendingSaveReason });
               setTimeout(() => {
                 void get().saveStrategyData({ force: true, reason: s._pendingSaveReason ?? 'pending' });
               }, 0);
