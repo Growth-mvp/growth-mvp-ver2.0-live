@@ -21,6 +21,7 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
     segmentValueAnalysisHash: string;
     segmentPLHash: string;
   } | null>(null);
+  const firstComputedBPRef = useRef<string | null>(null);
 
   const stage1Issues = useStrategyStore((s: StrategyState) => s.stage1Issues ?? []);
   const setBusinessPortfolio = useStrategyStore((s: StrategyState) => (s as any).setBusinessPortfolio as ((p: BusinessPortfolio) => void) | undefined);
@@ -173,63 +174,70 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
     const computedBPStr = JSON.stringify(bp);
     const isSameContent = prevBusinessPortfolioStr === computedBPStr;
 
-    // ★ 調査：トップレベルキーの比較
-    const storeBP = storeBeforeEffect.businessPortfolio;
-    const storeKeys = storeBP ? Object.keys(storeBP).sort() : [];
-    const computedKeys = bp ? Object.keys(bp).sort() : [];
-    const storeKeysSet = new Set(storeKeys);
-    const computedKeysSet = new Set(computedKeys);
-
-    const onlyInStore = storeKeys.filter((k) => !computedKeysSet.has(k));
-    const onlyInComputed = computedKeys.filter((k) => !storeKeysSet.has(k));
-
-    if (!isSameContent) {
-      // JSON差分の最初の位置を特定
-      let firstDiffIdx = -1;
-      for (let i = 0; i < Math.min(prevBusinessPortfolioStr.length, computedBPStr.length); i++) {
-        if (prevBusinessPortfolioStr[i] !== computedBPStr[i]) {
-          firstDiffIdx = i;
+    // ★ 調査：computedBusinessPortfolio の安定性確認
+    const computedBPStr2 = JSON.stringify(bp);
+    if (effectRunCount === 1) {
+      firstComputedBPRef.current = computedBPStr2;
+    }
+    const computedStable = firstComputedBPRef.current === computedBPStr2;
+    console.log(`[BP-COMPUTED-STABILITY] effectRunCount=${effectRunCount} same=${computedStable}`);
+    if (!computedStable && effectRunCount > 1) {
+      // 最初の差分位置を出す
+      for (let i = 0; i < Math.min((firstComputedBPRef.current ?? '').length, computedBPStr2.length); i++) {
+        if ((firstComputedBPRef.current?.[i] ?? '') !== computedBPStr2[i]) {
+          console.log(`[BP-COMPUTED-STABILITY] first diff at idx=${i} (run1 vs run${effectRunCount})`);
           break;
         }
       }
+    }
 
-      const diffContext = firstDiffIdx >= 0
-        ? {
-            firstDiffIdx,
-            before: prevBusinessPortfolioStr.substring(Math.max(0, firstDiffIdx - 50), firstDiffIdx + 50),
-            after: computedBPStr.substring(Math.max(0, firstDiffIdx - 50), firstDiffIdx + 50),
-          }
-        : { lengthOnly: true, storeLen: prevBusinessPortfolioStr.length, computedLen: computedBPStr.length };
+    // ★ 調査：トップレベル5項目の詳細比較（文字列形式で読みやすく）
+    const storeBP = storeBeforeEffect.businessPortfolio;
+    const topLevelKeys = ['periodLabel', 'currency', 'unitType', 'threshold', 'units'];
 
-      console.log('[STAGE1-DIRTY-TRACE] トップレベルkey比較', {
-        timestamp: new Date().toISOString(),
-        effectRunCount,
-        storeKeys,
-        computedKeys,
-        onlyInStore,
-        onlyInComputed,
-        isSameContent,
-        jsonDiffContext: diffContext,
-      });
+    // periodLabel 比較
+    const storePeriodLabel = (storeBP as any)?.periodLabel;
+    const computedPeriodLabel = (bp as any).periodLabel;
+    console.log(`[BP-DIFF] key=periodLabel store="${storePeriodLabel}" computed="${computedPeriodLabel}"`);
 
-      // 各フィールドの値比較
-      const fieldComparison: Record<string, any> = {};
-      for (const key of new Set([...storeKeys, ...computedKeys])) {
-        const storeVal = (storeBP as any)?.[key];
-        const computedVal = (bp as any)[key];
-        if (JSON.stringify(storeVal) !== JSON.stringify(computedVal)) {
-          fieldComparison[key] = {
-            store: typeof storeVal === 'object' ? `${typeof storeVal} (${JSON.stringify(storeVal).substring(0, 100)})` : storeVal,
-            computed: typeof computedVal === 'object' ? `${typeof computedVal} (${JSON.stringify(computedVal).substring(0, 100)})` : computedVal,
-          };
+    // currency 比較
+    const storeCurrency = (storeBP as any)?.currency;
+    const computedCurrency = (bp as any).currency;
+    console.log(`[BP-DIFF] key=currency store="${storeCurrency}" computed="${computedCurrency}"`);
+
+    // unitType 比較
+    const storeUnitType = (storeBP as any)?.unitType;
+    const computedUnitType = (bp as any).unitType;
+    console.log(`[BP-DIFF] key=unitType store="${storeUnitType}" computed="${computedUnitType}"`);
+
+    // threshold 比較
+    const storeThreshold = JSON.stringify((storeBP as any)?.threshold);
+    const computedThreshold = JSON.stringify((bp as any).threshold);
+    console.log(`[BP-DIFF] key=threshold store=${storeThreshold} computed=${computedThreshold}`);
+
+    // units 比較
+    const storeUnitsStr = JSON.stringify((storeBP as any)?.units);
+    const computedUnitsStr = JSON.stringify((bp as any).units);
+    const unitsSame = storeUnitsStr === computedUnitsStr;
+    console.log(`[BP-DIFF] key=units same=${unitsSame}`);
+
+    // units が異なる場合、最初の差分位置を出す
+    if (!unitsSame) {
+      for (let i = 0; i < Math.min(storeUnitsStr.length, computedUnitsStr.length); i++) {
+        if (storeUnitsStr[i] !== computedUnitsStr[i]) {
+          const contextBefore = Math.max(0, i - 50);
+          const contextAfter = Math.min(storeUnitsStr.length, i + 100);
+          console.log(`[BP-DIFF] units first diff at idx=${i}`);
+          console.log(`[BP-DIFF]   store context: ${storeUnitsStr.substring(contextBefore, contextAfter)}`);
+          console.log(`[BP-DIFF]   computed context: ${computedUnitsStr.substring(contextBefore, contextAfter)}`);
+          break;
         }
       }
+    }
 
-      console.log('[STAGE1-DIRTY-TRACE] 値が異なるフィールド', {
-        timestamp: new Date().toISOString(),
-        effectRunCount,
-        fieldComparison,
-      });
+    // isSameContent の値を確認
+    if (!isSameContent) {
+      console.log(`[BP-DIFF] isSameContent=${isSameContent} (JSON.stringify result differs)`);
     }
 
     // ★ 調査：effectRunCount=2 で isSameContent=true なのに到達している場合の調査
