@@ -65,3 +65,6 @@ DEBUG_GUARD_CHANGES.md
 /model-comparison/captures/
 /model-comparison/results/
 
+# Claude Code instruction file (changes frequently, not part of repo)
+prompt.txt
+
