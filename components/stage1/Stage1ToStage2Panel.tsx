@@ -160,8 +160,22 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
         effectRunCount,
         reason: !canProceedToStage2 ? 'canProceedToStage2=false' : !computedBusinessPortfolio ? 'no computedBP' : 'no setBusinessPortfolio',
         dirtyAfterGuard: useStrategyStore.getState().dirty,
+        canProceedValue: canProceedToStage2,
+        hasBP: !!computedBusinessPortfolio,
+        hasFunc: !!setBusinessPortfolio,
       });
       return;
+    }
+
+    // ★ 調査：effectRunCount=2 で isSameContent=true なのに到達している場合の調査
+    if (effectRunCount === 2 && isSameContent) {
+      console.log('[STAGE1-DIRTY-TRACE] ⚠️ effectRunCount=2 同値update到達', {
+        timestamp: new Date().toISOString(),
+        isSameContent,
+        unitsLen: unitsLen,
+        canProceedToStage2,
+        guard passed: true,
+      });
     }
 
     // businessPortfolio をstore に保存
@@ -249,6 +263,50 @@ export default function Stage1ToStage2Panel({ readOnly, disabled }: { readOnly?:
     // units が 1件以上あれば保存
     if (unitsLen > 0) {
       const setBPCount = ++setBPCallCountRef.current;
+
+      // ★ 調査：minimal から設定された store.businessPortfolio と computed の詳細diff
+      if (!isSameContent) {
+        try {
+          const storeBP = storeBeforeEffect.businessPortfolio;
+          const computedBPObj = bp;
+
+          // units ごとの詳細比較
+          const unitsStoreStr = storeBP && Array.isArray(storeBP.units)
+            ? JSON.stringify(storeBP.units.map((u: any) => ({
+                id: u.id,
+                name: u.name,
+                growthRate: u.growthRate,
+                profitMargin: u.profitMargin,
+                revenueShare: u.revenueShare,
+              })))
+            : 'no units';
+
+          const unitsComputedStr = computedBPObj && Array.isArray(computedBPObj.units)
+            ? JSON.stringify(computedBPObj.units.map((u: BusinessUnit) => ({
+                id: u.id,
+                name: u.name,
+                growthRate: u.growthRate,
+                profitMargin: u.profitMargin,
+                revenueShare: u.revenueShare,
+              })))
+            : 'no units';
+
+          console.log('[STAGE1-DIRTY-TRACE] minimal vs computed.businessPortfolio diff', {
+            timestamp: new Date().toISOString(),
+            effectRunCount,
+            setBPCallCount: setBPCount,
+            storeUnitsCount: storeBP?.units?.length ?? 0,
+            computedUnitsCount: computedBPObj?.units?.length ?? 0,
+            unitsEqual: unitsStoreStr === unitsComputedStr,
+            thresholdEqual: JSON.stringify(storeBP?.threshold) === JSON.stringify(computedBPObj?.threshold),
+            unitTypeEqual: storeBP?.unitType === computedBPObj?.unitType,
+            storeUnitsPreview: unitsStoreStr.substring(0, 150),
+            computedUnitsPreview: unitsComputedStr.substring(0, 150),
+          });
+        } catch (e) {
+          console.warn('[STAGE1-DIRTY-TRACE] failed to compute diff:', e);
+        }
+      }
 
       console.log('[STAGE1-DIRTY-TRACE] before setBusinessPortfolio', {
         timestamp: new Date().toISOString(),
