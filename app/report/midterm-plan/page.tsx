@@ -77,7 +77,7 @@ export default function MidtermPlanPage() {
               中計戦略書プレビュー
             </h1>
             <p style={{ fontSize: '0.875rem', color: '#6b7280', marginTop: '0.25rem' }}>
-              STAGE1〜4で整理した内容を統合し、中期経営計画のたたき台として確認します。
+              STAGE1〜4で整理した内容を統合し、経営戦略のたたき台として確認します。
             </p>
           </div>
           <button
