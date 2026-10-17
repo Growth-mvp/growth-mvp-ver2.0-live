@@ -49,6 +49,7 @@
     /* ✅ スクロール・overscroll時の背景色を明示的に指定 */
     background-color: white;
     color: #1f2937;
+    color-scheme: light;
   }
 
   body {
