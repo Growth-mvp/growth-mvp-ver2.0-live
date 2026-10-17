@@ -2125,7 +2125,7 @@ function Questions12Section({
             value={currentAnswer}
             onChange={(e) => onUpdateAnswer(selectedId, e.target.value)}
             disabled={disabled}
-            placeholder="この質問に対するあなたの考えを記入してください（未回答でも経営の意図は生成できます）..."
+            placeholder="この質問に対するあなたの考えを記入してください（未回答でも経営戦略は生成できます）..."
             className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white/70 dark:bg-white/5 px-4 py-3 text-sm text-gray-800 dark:text-gray-200 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
             minRows={4}
             maxRows={18}
@@ -3892,11 +3892,11 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       if (e?.name === 'AbortError' || e?.message?.includes('aborted')) {
         setGenerateFinalError(
           didTimeout
-            ? '経営の意図の生成がタイムアウトしました。入力データ量が多いか、処理に時間がかかっています。少し時間を置いて再度実行してください。'
+            ? '経営戦略の生成がタイムアウトしました。入力データ量が多いか、処理に時間がかかっています。少し時間を置いて再度実行してください。'
             : '通信が中断されました（abort）。ネットワーク/拡張機能/画面遷移などを確認してください。'
         );
       } else {
-        setGenerateFinalError(e?.message || '経営の意図の生成に失敗しました');
+        setGenerateFinalError(e?.message || '経営戦略の生成に失敗しました');
       }
     } finally {
       done = true;
@@ -4391,7 +4391,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                       disabled={disabled || !hasDraft || generatingFinal}
                       className="px-8 py-4 rounded-xl bg-emerald-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-emerald-700 transition-colors shadow-lg"
                     >
-                      {generatingFinal ? '生成中...' : '経営の意図を生成'}
+                      {generatingFinal ? '生成中...' : '経営戦略を生成'}
                     </button>
                   </div>
 
@@ -4645,7 +4645,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                           onClick={handleGenerateFinal}
                           className="px-8 py-3 rounded-lg bg-slate-700 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-800 transition-colors shadow-md"
                         >
-                          {generatingFinal ? '生成中...' : '経営の意図を再生成'}
+                          {generatingFinal ? '生成中...' : '経営戦略を再生成'}
                         </button>
                       </div>
 
@@ -4658,7 +4658,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                   <div className="rounded-2xl border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50/50 dark:bg-gray-800/50 p-8 text-center">
                     <h4 className="text-base font-medium text-gray-600 dark:text-gray-400 mb-2">社員に伝えたい「経営の意図」（未生成）</h4>
                     <p className="text-sm text-gray-400 dark:text-gray-500">
-                      「勝ち筋」タブで「経営の意図を生成」を実行してください（12のディスカッションテーマは未回答でもOKです）
+                      「勝ち筋」タブで「経営戦略を生成」を実行してください（12のディスカッションテーマは未回答でもOKです）
                     </p>
                   </div>
                 )}
