@@ -27,7 +27,7 @@ export function MidtermPlanPreview({ data }: MidtermPlanPreviewProps) {
     <div className="space-y-8">
       {/* 表紙 */}
       <div className="bg-gradient-to-b from-blue-600 to-blue-800 text-white rounded-lg p-12 text-center">
-        <h1 className="text-4xl font-bold mb-2">中期経営計画</h1>
+        <h1 className="text-4xl font-bold mb-2">経営戦略</h1>
         <p className="text-blue-100">戦略書プレビュー</p>
         <p className="text-sm text-blue-200 mt-4">
           {data.companyName || '（会社名未設定）'}
