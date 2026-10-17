@@ -208,7 +208,7 @@ export default function PyramidNavigator() {
 
         <div className="mt-2 rounded-2xl border border-neutral-200 bg-neutral-50/70 p-5">
           <div className="text-[12px] font-semibold tracking-[0.12em] text-neutral-500">GUIDE</div>
-          <div className="mt-1 text-sm font-semibold text-neutral-900">経営計画を実現する流れ</div>
+          <div className="mt-1 text-sm font-semibold text-neutral-900">経営戦略を実現する流れ</div>
           <div className="mt-3 space-y-3">
             {stageGuide.map((item) => (
               <div
@@ -250,7 +250,7 @@ export default function PyramidNavigator() {
 
         <div className="rounded-2xl border border-neutral-200 bg-neutral-50/70 p-4">
           <div className="text-[12px] font-semibold tracking-[0.12em] text-neutral-500">GUIDE</div>
-          <div className="mt-1 text-sm font-semibold text-neutral-900">経営計画を実現する流れ</div>
+          <div className="mt-1 text-sm font-semibold text-neutral-900">経営戦略を実現する流れ</div>
           <div className="mt-3 space-y-3">
             {stageGuide.map((item) => (
               <div key={item.stage} className="border-t border-neutral-200/80 pt-3 first:border-t-0 first:pt-0">
