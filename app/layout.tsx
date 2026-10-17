@@ -14,6 +14,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: 'cover',
   userScalable: true,
+  themeColor: '#ffffff',
 };
 
 export const metadata: Metadata = {
@@ -23,7 +24,13 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ja">
+    <html
+      lang="ja"
+      style={{
+        backgroundColor: '#ffffff',
+        colorScheme: 'light',
+      }}
+    >
       <body className={`${inter.className} min-h-dvh bg-white text-gray-900`}>
         <LayoutClient>
           <AuthGuards />
