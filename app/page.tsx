@@ -19,12 +19,12 @@ export default function Home() {
   }, [user?.id, user?.role]);
 
   const steps = [
-    { step: 1, title: 'STAGE 1：企業価値分析', path: '/stage1' },
-    { step: 2, title: 'STAGE 2：全社戦略', path: '/stage2' },
-    { step: 3, title: 'STAGE 3：事業・部門別戦略', path: '/cascade' },
-    { step: 4, title: 'STAGE 4：実行計画策定', path: '/okr' },
-    { step: 5, title: 'STAGE 5：実行支援', path: '/execution' },
-    { step: 6, title: 'STAGE 6：業績シミュレーション', path: '/stage6' },
+    { step: 1, title: 'STAGE1｜会社の現状はどうか', subtitle: '企業価値分析', description: '現状の業績・資本効率・成長課題を整理し、どこを変えるべきかを明らかにします。', path: '/stage1' },
+    { step: 2, title: 'STAGE2｜会社は何を目指すのか', subtitle: '全社戦略', description: '中計全体の方向性、重点テーマ、目指す成果を定めます。', path: '/stage2' },
+    { step: 3, title: 'STAGE3｜各部門の役割は何か', subtitle: '事業・部門別戦略', description: '全社戦略を、各事業・部門が担う役割と重点テーマに展開します。', path: '/cascade' },
+    { step: 4, title: 'STAGE4｜現場は何をするのか', subtitle: '実行計画策定', description: '戦略とKPIを、現場が実行できる具体的な行動計画に落とし込みます。', path: '/okr' },
+    { step: 5, title: 'STAGE5｜どうやって前に進めるか', subtitle: '実行支援', description: '進捗・課題・変化を確認しながら、計画の実行を前に進めます。', path: '/execution' },
+    { step: 6, title: 'STAGE6｜成果を確かめる', subtitle: '業績シミュレーション', description: '実行の結果が、売上・利益・企業価値にどうつながるかを確認します。', path: '/stage6' },
   ];
 
   return (
@@ -100,14 +100,14 @@ export default function Home() {
             <div className="flex h-full flex-col">
               <div className="mb-1.5 px-1">
                 <h3 className="text-[20px] font-bold tracking-[-0.035em] text-neutral-950 dark:text-white">
-                  戦略設計
+                  経営計画をつくる
                 </h3>
               </div>
 
               <div className="h-full overflow-hidden rounded-[26px] border border-neutral-200/70 bg-white shadow-[0_1px_30px_rgba(0,0,0,0.06)] dark:bg-neutral-950">
                 <div className="px-5 pt-3 pb-0">
                   <p className="text-[11.5px] leading-5 text-neutral-500 dark:text-neutral-400">
-                    企業価値分析から実行計画までを一気通貫で設計します。
+                    会社の現状を捉え、目指す方向を定め、各部門の役割と実行テーマまで一気通貫で設計します。
                   </p>
                 </div>
                 <div className="px-4 pt-1 pb-3">
@@ -120,14 +120,14 @@ export default function Home() {
             <div className="flex h-full flex-col">
               <div className="mb-1.5 px-1">
                 <h3 className="text-[20px] font-bold tracking-[-0.035em] text-neutral-950 dark:text-white">
-                  戦略実行
+                  経営計画を動かす
                 </h3>
               </div>
 
               <div className="h-full overflow-hidden rounded-[26px] border border-neutral-200/70 bg-white shadow-[0_1px_30px_rgba(0,0,0,0.06)] dark:bg-neutral-950">
                 <div className="px-5 pt-3 pb-0">
                   <p className="text-[11.5px] leading-5 text-neutral-500 dark:text-neutral-400">
-                    進捗と業績インパクトを可視化し、戦略を成果へつなげます。
+                    進捗と変化を捉えながら、戦略を現場の行動につなぎ、成果につなげていきます。
                   </p>
                 </div>
                 <div className="px-4 pt-1 pb-3">
@@ -141,25 +141,6 @@ export default function Home() {
         </motion.div>
       </section>
 
-      {/* ===== Steps：モバイル補助導線 ===== */}
-      <section className="container mx-auto px-6 pb-24 md:hidden pt-12">
-        <h2 className="sr-only">GROWTHのステップ</h2>
-        <div className="grid grid-cols-1 gap-4">
-          {steps.map((item) => (
-            <Link key={item.step} href={item.path} aria-label={item.title} className="group">
-              <div className="relative rounded-2xl border border-neutral-200/70 bg-white p-5 shadow-[0_1px_18px_rgba(0,0,0,0.05)] transition duration-200 hover:-translate-y-0.5 dark:bg-neutral-950">
-                <div className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-tr from-neutral-50 to-transparent opacity-0 transition-opacity group-hover:opacity-100 dark:from-neutral-900/40" />
-                <h3 className="text-[16px] font-semibold tracking-tight text-neutral-900 dark:text-white">
-                  {item.title}
-                </h3>
-                <p className="mt-1.5 text-sm text-neutral-600 dark:text-neutral-300">
-                  {item.step} / 6
-                </p>
-              </div>
-            </Link>
-          ))}
-        </div>
-      </section>
     </main>
   );
 }

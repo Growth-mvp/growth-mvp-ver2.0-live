@@ -8,33 +8,34 @@ interface CascadeHeaderProps {
 
 export function CascadeHeader({ exportToPdf }: CascadeHeaderProps) {
   return (
-    <header className="mb-8 flex items-start justify-between gap-6">
-  <div className="max-w-[880px]">
-    <h1 className="text-[28px] font-semibold tracking-tight text-zinc-950 mb-3">
-      STAGE 3：事業・部門別戦略
-    </h1>
+    <header className="mb-8 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-6">
+      <div className="flex-1">
+        {/* 主見出し */}
+        <h1 className="text-2xl font-bold tracking-tight text-gray-900">
+          STAGE3｜各部門の役割は何か
+        </h1>
 
-    <div className="mb-5">
-      <p className="text-[19px] font-bold tracking-tight text-zinc-950 leading-snug">
-        そのKPIは、会社を成長へシフトさせているか。
-      </p>
-      
-    </div>
+        {/* 副見出し */}
+        <div className="mt-1 text-sm font-medium text-gray-700">
+          事業・部門別戦略
+        </div>
 
-    <p className="text-[14px] leading-[1.9] text-zinc-600">
-      STAGE2で定めた全社戦略をもとに、各事業・部門の役割、重点テーマ、KPIを設計します。
-      <br />
-       単なる数値目標の割り振りではなく、「自部門は会社の成長にどう貢献するのか」を明確にし、
-      <br />
-      経営戦略とつながったミッション、重点プロジェクト、KPIへ具体化します。
-    </p>
-  </div>
+        {/* 説明文 */}
+        <p className="mt-2 text-sm text-gray-600">
+          全社戦略を、各事業・部門の役割と重点テーマに展開します。
+        </p>
 
-  {exportToPdf && (
-    <div className="shrink-0 pt-1">
-      <StagePdfExportButton exportToPdf={exportToPdf} />
-    </div>
-  )}
-</header>
+        {/* STAGE3固有メッセージ */}
+        <div className="mt-3 text-sm font-semibold text-blue-900 bg-blue-50 border border-blue-200 rounded px-3 py-2">
+          そのKPIは、会社を成長へシフトさせているか。
+        </div>
+      </div>
+
+      {exportToPdf && (
+        <div className="shrink-0 pt-1 sm:pt-0">
+          <StagePdfExportButton exportToPdf={exportToPdf} />
+        </div>
+      )}
+    </header>
   );
 }

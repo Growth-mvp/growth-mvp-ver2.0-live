@@ -9,15 +9,25 @@ interface OKRHeaderProps {
 
 export function OKRHeader({ isHydrating, exportToPdf }: OKRHeaderProps) {
   return (
-    <div className="mb-6 flex items-start justify-between gap-4">
-      <div>
-        <div className="text-[11px] font-semibold text-zinc-500"></div>
-        <h1 className="mt-1 text-[20px] font-bold text-zinc-900">STAGE４　実行計画策定</h1>
-        <div className="mt-1 text-[12px] text-zinc-600">
-          左でプロジェクトを選び、各プロジェクトチーム内で「目的・成果指標・実行計画」を議論の上、入力設定します。
+    <div className="mb-6 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+      <div className="flex-1">
+        {/* 主見出し */}
+        <h1 className="text-2xl font-bold tracking-tight text-gray-900">
+          STAGE4｜現場は何をするのか
+        </h1>
+
+        {/* 副見出し */}
+        <div className="mt-1 text-sm font-medium text-gray-700">
+          実行計画策定
         </div>
+
+        {/* 説明文 */}
+        <p className="mt-2 text-sm text-gray-600">
+          戦略とKPIを、現場が実行できる具体的な行動に変えます。
+        </p>
       </div>
-      <div className="shrink-0 flex flex-col items-end gap-2">
+
+      <div className="shrink-0 flex flex-col items-stretch sm:items-end gap-2">
         {exportToPdf && <StagePdfExportButton exportToPdf={exportToPdf} />}
         <div className="text-right text-[11px] text-zinc-500">{isHydrating ? '読み込み中…' : '準備OK'}</div>
       </div>

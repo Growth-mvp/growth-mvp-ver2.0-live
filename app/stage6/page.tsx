@@ -218,11 +218,16 @@ function Stage6PageContent() {
     <main className="min-h-screen bg-slate-50 text-slate-900">
       <div className="mx-auto max-w-7xl px-4 pb-12 pt-8 md:px-6 md:pt-10 space-y-6">
         <header>
-          <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">STAGE6｜業績シミュレーション</h1>
-              <p className="mt-1 text-sm text-slate-600">
-                会社業績目標に対する進捗と、各プロジェクトの寄与状況を確認します。
+          <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+            <div className="flex-1">
+              <h1 className="text-2xl font-bold tracking-tight text-gray-900">
+                STAGE6｜成果を確かめる
+              </h1>
+              <div className="mt-1 text-sm font-medium text-gray-700">
+                業績シミュレーション
+              </div>
+              <p className="mt-2 text-sm text-gray-600">
+                実行が売上・利益・企業価値にどうつながるかを確かめます。
               </p>
             </div>
           </div>

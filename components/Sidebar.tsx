@@ -32,6 +32,9 @@ function AIcon({ children }: { children: React.ReactNode }) {
 }
 
 const ITEM_TEXT_CLASS = 'font-normal tracking-[0.01em] leading-6 text-[13.5px]';
+const ITEM_SUBTITLE_CLASS = 'font-normal tracking-[0.01em] text-[11px] leading-[1.3]';
+const STAGE_LABEL_CLASS = 'font-semibold tracking-[0.01em] text-[13.5px] leading-6 text-gray-900';
+const STAGE_NUM_CLASS = 'font-medium text-[13px] text-gray-800';
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -147,44 +150,50 @@ export default function Sidebar() {
           <nav className="space-y-[18px]" role="navigation" aria-label="メインナビゲーション">
             <PillLink
               href="/stage0"
-              icon={<Coffee size={18} strokeWidth={1.5} />}
-              label="STAGE 0：アイスブレイク"
+              stageNum="STAGE0"
+              label="アイスブレイク"
               active={isActive('/stage0')}
             />
             <PillLink
               href="/stage1"
-              icon={<FileText size={18} strokeWidth={1.5} />}
-              label="STAGE 1：企業価値分析"
+              stageNum="STAGE1"
+              label="会社の現状はどうか"
+              subtitle="企業価値分析"
               active={isActive('/stage1')}
             />
             <PillLink
               href="/stage2"
-              icon={<BookOpen size={18} strokeWidth={1.5} />}
-              label="STAGE 2：全社戦略"
+              stageNum="STAGE2"
+              label="会社は何を目指すのか"
+              subtitle="全社戦略"
               active={isActive('/stage2')}
             />
             <PillLink
               href="/cascade"
-              icon={<Share size={18} strokeWidth={1.5} />}
-              label="STAGE 3：事業・部門別戦略"
+              stageNum="STAGE3"
+              label="各部門の役割は何か"
+              subtitle="事業・部門別戦略"
               active={isActive('/cascade')}
             />
             <PillLink
               href="/okr"
-              icon={<CheckCircle size={18} strokeWidth={1.5} />}
-              label="STAGE 4：実行計画策定"
+              stageNum="STAGE4"
+              label="現場は何をするのか"
+              subtitle="実行計画策定"
               active={isActive('/okr')}
             />
             <PillLink
               href="/execution"
-              icon={<Activity size={18} strokeWidth={1.5} />}
-              label="STAGE 5：実行支援"
+              stageNum="STAGE5"
+              label="どうやって前に進めるか"
+              subtitle="実行支援"
               active={isActive('/execution')}
             />
             <PillLink
               href="/stage6"
-              icon={<LineChart size={18} strokeWidth={1.5} />}
-              label="STAGE 6：業績シミュレーション"
+              stageNum="STAGE6"
+              label="成果を確かめる"
+              subtitle="業績シミュレーション"
               active={isActive('/stage6')}
             />
             <PillLink
@@ -257,18 +266,27 @@ function PillLink({
   href,
   icon,
   label,
+  subtitle,
+  stageNum,
   active,
   disabled,
   variant = 'default',
 }: {
   href: string;
-  icon: React.ReactNode;
+  icon?: React.ReactNode;
   label: string;
+  subtitle?: string;
+  stageNum?: string;
   active: boolean;
   disabled?: boolean;
   variant?: 'default' | 'warm';
 }) {
   const isWarm = variant === 'warm';
+  const isStageLink = !!stageNum;
+  const linkHeight = subtitle ? 'h-auto min-h-10' : 'h-10';
+  const linkPadding = subtitle ? 'py-1.5' : '';
+  const stageLabel = stageNum ? `${stageNum}｜${label}` : label;
+
   return (
     <Link
       href={href}
@@ -279,8 +297,8 @@ function PillLink({
         }
       }}
       className={[
-        'no-underline group flex h-10 items-center gap-2 rounded-full px-3 transition',
-        ITEM_TEXT_CLASS,
+        `no-underline group flex items-center gap-2 rounded-full px-3 transition ${linkPadding}`.trim(),
+        linkHeight,
         active
           ? isWarm
             ? 'bg-orange-500 text-white shadow hover:bg-orange-600'
@@ -292,12 +310,36 @@ function PillLink({
         isWarm ? 'focus:ring-orange-300' : 'focus:ring-black/10',
         disabled ? 'opacity-60 pointer-events-auto cursor-not-allowed' : '',
       ].join(' ')}
-      aria-label={label}
+      aria-label={subtitle ? `${stageLabel} (${subtitle})` : stageLabel}
       aria-current={active ? 'page' : undefined}
       aria-disabled={disabled || undefined}
     >
-      <AIcon>{icon}</AIcon>
-      <span className="truncate">{label}</span>
+      {icon && <AIcon>{icon}</AIcon>}
+      <div className="flex flex-col justify-center min-w-0">
+        {isStageLink ? (
+          <>
+            <div className="flex items-baseline gap-1 truncate">
+              <span className={`shrink-0 ${STAGE_NUM_CLASS} ${active ? 'text-white' : ''}`}>{stageNum}</span>
+              <span className={`opacity-50 ${active ? 'text-white opacity-100' : ''}`}>｜</span>
+              <span className={`truncate ${STAGE_LABEL_CLASS} ${active ? 'text-white' : ''}`}>{label}</span>
+            </div>
+            {subtitle && (
+              <span className={`truncate ${ITEM_SUBTITLE_CLASS} ${active ? 'text-gray-200 opacity-100' : 'opacity-70'}`}>
+                {subtitle}
+              </span>
+            )}
+          </>
+        ) : (
+          <>
+            <span className={`truncate ${ITEM_TEXT_CLASS}`}>{label}</span>
+            {subtitle && (
+              <span className={`truncate ${ITEM_SUBTITLE_CLASS} ${active ? 'opacity-90' : 'opacity-70'}`}>
+                {subtitle}
+              </span>
+            )}
+          </>
+        )}
+      </div>
     </Link>
   );
 }

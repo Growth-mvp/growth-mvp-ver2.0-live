@@ -490,10 +490,15 @@ export default function Stage1Page() {
     <StrategyGuard mode="view">
       <div className="max-w-6xl mx-auto px-3 sm:px-4 md:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6">
         <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="text-xl sm:text-2xl font-bold">STAGE1｜企業価値分析</h1>
-            <p className="text-xs sm:text-sm text-gray-600 mt-2">
-              財務情報から企業価値の現状を整理し、経営戦略の論点を明確にします。
+          <div className="min-w-0 flex-1">
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900">
+              STAGE1｜会社の現状はどうか
+            </h1>
+            <div className="mt-1 text-sm font-medium text-gray-700">
+              企業価値分析
+            </div>
+            <p className="mt-2 text-sm text-gray-600">
+              業績・財務・事業の現状から、変えるべき課題を明らかにします。
             </p>
 
             {saveMessage && (

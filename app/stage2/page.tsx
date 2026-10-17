@@ -4198,13 +4198,15 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       {/* Header */}
       <header className="sticky top-0 z-10 bg-white/80 dark:bg-zinc-900/80 backdrop-blur border-b border-black/5 dark:border-white/5">
         <div className="max-w-6xl mx-auto px-4 md:px-6 py-4 flex items-center justify-between gap-6">
-          <div>
-            <h1 className="text-xl font-bold text-gray-800 dark:text-gray-200">STAGE2：全社戦略</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              中計全体の方向性、重点テーマ、事業・部門へ展開する判断軸を設計します。
-            </p>
-            <p className="text-xs text-gray-400 dark:text-gray-500">
-              入力（MVV・SWOT）→ 戦略のたたき台 → １２のテーマをもとに議論　→ 経営の意図を確定
+          <div className="flex-1">
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
+              STAGE2｜会社は何を目指すのか
+            </h1>
+            <div className="mt-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+              全社戦略
+            </div>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+              経営者の思いを、会社として目指す方向と重点テーマに変えます。
             </p>
           </div>
           <div className="flex items-center gap-4">

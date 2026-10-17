@@ -52,38 +52,42 @@ const Y_L_MID = (Y_DIV1 + Y_DIV2) / 2 + TRI.label.midYOffset;
 const Y_L_BOT = (Y_DIV2 + TRI.right.y) / 2 + TRI.label.botYOffset;
 
 const btnClass =
-  'flex h-[40px] w-[190px] items-center justify-start rounded-xl border border-neutral-300 bg-white px-4 shadow-sm transition-colors hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-2';
+  'flex h-[40px] w-[280px] items-center justify-start rounded-xl border border-neutral-300 bg-white px-4 shadow-sm transition-colors hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-2';
 
 const desktopButtons = [
-  { href: '/stage1', label: 'STAGE1：企業価値分析', title: '企業価値分析' },
-  { href: '/stage2', label: 'STAGE2：全社戦略', title: '全社戦略' },
-  { href: '/cascade', label: 'STAGE3：事業・部門別戦略', title: '事業・部門別戦略' },
-  { href: '/okr', label: 'STAGE4：実行計画策定', title: '実行計画策定' },
+  { href: '/stage1', label: 'STAGE1｜会社の現状はどうか', title: '企業価値分析' },
+  { href: '/stage2', label: 'STAGE2｜会社は何を目指すのか', title: '全社戦略' },
+  { href: '/cascade', label: 'STAGE3｜各部門の役割は何か', title: '事業・部門別戦略' },
+  { href: '/okr', label: 'STAGE4｜現場は何をするのか', title: '実行計画策定' },
 ];
 
 const stageGuide = [
   {
     stage: 'STAGE1',
-    title: '企業価値分析',
-    description: '現状の業績、資本効率、成長課題を整理し、変革が必要な論点を見える化します。',
+    title: '会社の現状はどうか',
+    subtitle: '企業価値分析',
+    description: '業績・資本効率・成長課題を整理し、変えるべき点を明らかにします。',
     owner: '主に：経営層・財務責任者',
   },
   {
     stage: 'STAGE2',
-    title: '全社戦略',
-    description: '中計全体の方向性、重点テーマ、事業・部門へ展開する判断軸を設計します。',
+    title: '会社は何を目指すのか',
+    subtitle: '全社戦略',
+    description: '会社の方向性、重点テーマ、目指す成果を定めます。',
     owner: '主に：経営陣・事業責任者',
   },
   {
     stage: 'STAGE3',
-    title: '事業・部門別戦略',
-    description: '全社戦略を、各事業・部門が実行できる役割と重点テーマに展開します。',
-    owner: '主に：事業責任者・部門長・マネージャー',
+    title: '各部門の役割は何か',
+    subtitle: '事業・部門別戦略',
+    description: '全社戦略を、各事業・部門の役割と重点テーマに展開します。',
+    owner: '主に：部門長・マネージャー',
   },
   {
     stage: 'STAGE4',
-    title: '実行計画策定',
-    description: 'プロジェクトとKPIに落とし込み、誰が何を実行するかを具体化します。',
+    title: '現場は何をするのか',
+    subtitle: '実行計画策定',
+    description: '戦略とKPIを、現場が実行できる具体的な行動計画に落とし込みます。',
     owner: '主に：プロジェクト責任者・現場担当者',
   },
 ];
@@ -204,21 +208,28 @@ export default function PyramidNavigator() {
 
         <div className="mt-2 rounded-2xl border border-neutral-200 bg-neutral-50/70 p-5">
           <div className="text-[12px] font-semibold tracking-[0.12em] text-neutral-500">GUIDE</div>
-          <div className="mt-1 text-sm font-semibold text-neutral-900">戦略策定の流れ</div>
-          <div className="mt-4 space-y-3">
+          <div className="mt-1 text-sm font-semibold text-neutral-900">経営計画を実現する流れ</div>
+          <div className="mt-3 space-y-3">
             {stageGuide.map((item) => (
               <div
                 key={item.stage}
-                className="grid grid-cols-[108px_1fr] gap-3 border-t border-neutral-200/80 pt-3 first:border-t-0 first:pt-0"
+                className="border-t border-neutral-200/80 pt-3 first:border-t-0 first:pt-0"
               >
                 <div className="text-[12px] font-semibold text-neutral-700">
-                  {item.stage}
-                  <div className="mt-0.5 text-[11px] font-medium text-neutral-500">{item.title}</div>
+                  {item.stage}｜{item.title}
                 </div>
-                <div>
-                  <div className="text-[12px] leading-5 text-neutral-600">{item.description}</div>
-                  <div className="mt-1 text-[11px] font-medium text-neutral-500">{item.owner}</div>
+                <div className="mt-1 flex items-center gap-2 text-[11px] text-neutral-600 flex-wrap">
+                  {item.subtitle && (
+                    <span className="font-normal text-neutral-700">{item.subtitle}</span>
+                  )}
+                  {item.subtitle && item.owner && (
+                    <span className="text-neutral-400">｜</span>
+                  )}
+                  {item.owner && (
+                    <span className="font-normal text-neutral-600">{item.owner}</span>
+                  )}
                 </div>
+                <div className="mt-1.5 text-[11px] leading-5 text-neutral-600">{item.description}</div>
               </div>
             ))}
           </div>
@@ -239,15 +250,25 @@ export default function PyramidNavigator() {
 
         <div className="rounded-2xl border border-neutral-200 bg-neutral-50/70 p-4">
           <div className="text-[12px] font-semibold tracking-[0.12em] text-neutral-500">GUIDE</div>
-          <div className="mt-1 text-sm font-semibold text-neutral-900">戦略策定の流れ</div>
+          <div className="mt-1 text-sm font-semibold text-neutral-900">経営計画を実現する流れ</div>
           <div className="mt-3 space-y-3">
             {stageGuide.map((item) => (
               <div key={item.stage} className="border-t border-neutral-200/80 pt-3 first:border-t-0 first:pt-0">
                 <div className="text-[12px] font-semibold text-neutral-700">
-                  {item.stage}：{item.title}
+                  {item.stage}｜{item.title}
                 </div>
-                <div className="mt-1 text-[12px] leading-5 text-neutral-600">{item.description}</div>
-                <div className="mt-1 text-[11px] font-medium text-neutral-500">{item.owner}</div>
+                <div className="mt-1 flex items-center gap-2 text-[11px] text-neutral-600 flex-wrap">
+                  {item.subtitle && (
+                    <span className="font-normal text-neutral-700">{item.subtitle}</span>
+                  )}
+                  {item.subtitle && item.owner && (
+                    <span className="text-neutral-400">｜</span>
+                  )}
+                  {item.owner && (
+                    <span className="font-normal text-neutral-600">{item.owner}</span>
+                  )}
+                </div>
+                <div className="mt-1.5 text-[11px] leading-5 text-neutral-600">{item.description}</div>
               </div>
             ))}
           </div>

@@ -363,7 +363,10 @@ export default function ExecutionPanel() {
       <div className="rounded-2xl bg-neutral-50 p-4 ring-1 ring-neutral-200/60 dark:bg-neutral-900/40 dark:ring-neutral-800">
         <div className="flex items-center gap-3">
           <Link href="/execution" className={stageBtnClass}>
-            <span className="text-[15px] font-semibold text-neutral-900">STAGE5：実行支援</span>
+            <div className="min-w-0">
+              <div className="text-[15px] font-semibold text-neutral-900">STAGE5｜どうやって前に進めるか</div>
+              <div className="text-[12px] font-normal text-neutral-500">実行支援</div>
+            </div>
           </Link>
           <div className="text-sm font-medium">最近動きのあったプロジェクト</div>
         </div>
@@ -431,7 +434,10 @@ export default function ExecutionPanel() {
       <div className="rounded-2xl bg-neutral-50 p-4 ring-1 ring-neutral-200/60 dark:bg-neutral-900/40 dark:ring-neutral-800">
         <div className="flex items-center gap-3">
           <Link href="/stage6" className={stageBtnClass}>
-            <span className="text-[15px] font-semibold text-neutral-900">STAGE6：業績シミュレーション</span>
+            <div className="min-w-0">
+              <div className="text-[15px] font-semibold text-neutral-900">STAGE6｜成果を確かめる</div>
+              <div className="text-[12px] font-normal text-neutral-500">業績シミュレーション</div>
+            </div>
           </Link>
           <div className="text-sm font-medium">売上・営業利益の要約</div>
         </div>
