@@ -39,7 +39,7 @@ export default function Home() {
               transition={{ duration: 0.6 }}
               className="text-[28px] font-bold tracking-[-0.04em] text-neutral-950 sm:text-[36px] lg:text-[44px] dark:text-white"
             >
-              経営計画を、未達に終わらせない
+              戦略を行動へ。企業を成長へ。
             </motion.h1>
 
             <motion.div
@@ -48,7 +48,7 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.08 }}
               className="mt-2 text-[15px] font-semibold tracking-[0.06em] text-neutral-800 sm:text-[17px] lg:text-[20px] dark:text-neutral-100"
             >
-              GROWTH SHIFT｜経営戦略を、現場が自ら動かす仕組み
+            GROWTH SHIFT｜経営戦略を、現場が自ら動かす仕組み
             </motion.div>
 
             <motion.p
