@@ -30,6 +30,9 @@ const AUTH_PREFIXES = [
   '/auth/welcome',
   '/invite', // ← 招待トークン方式の accept フロー（provision 不要）
   '/404',
+  '/terms',
+  '/privacy',
+  '/contact',
 ];
 const isAuthPath = (p?: string | null) => !!p && AUTH_PREFIXES.some((x) => p.startsWith(x));
 const isAdminPath = (p?: string | null) => !!p && p.startsWith('/admin');
