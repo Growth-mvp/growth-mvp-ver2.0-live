@@ -30,7 +30,7 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-neutral-50 text-neutral-900">
       {/* ===== Hero ===== */}
-      <section className="border-b border-neutral-200/60 bg-neutral-50 dark:border-neutral-900 dark:bg-neutral-950">
+      <section className="border-b border-neutral-200/60 bg-neutral-50 xl:dark:border-neutral-900 xl:dark:bg-neutral-950">
         <div className="container mx-auto px-6 pt-10 pb-4 sm:pt-12 sm:pb-5 lg:pt-14 lg:pb-6">
           <div className="mx-auto max-w-3xl text-center">
             <motion.h1
@@ -99,12 +99,12 @@ export default function Home() {
             {/* LEFT: STRATEGY */}
             <div className="flex h-full flex-col">
               <div className="mb-1.5 px-1">
-                <h3 className="text-[20px] font-bold tracking-[-0.035em] text-neutral-950 dark:text-white">
+                <h3 className="text-[20px] font-bold tracking-[-0.035em] text-neutral-950 xl:dark:text-white">
                   経営戦略をつくる
                 </h3>
               </div>
 
-              <div className="h-full overflow-hidden rounded-[26px] border border-neutral-200/70 bg-white shadow-[0_1px_30px_rgba(0,0,0,0.06)] dark:bg-neutral-950">
+              <div className="h-full overflow-hidden rounded-[26px] border border-neutral-200/70 bg-white shadow-[0_1px_30px_rgba(0,0,0,0.06)] xl:dark:bg-neutral-950">
                 <div className="px-5 pt-3 pb-0">
                   <p className="text-[11.5px] leading-5 text-neutral-500 dark:text-neutral-400">
                     会社の現状を捉え、目指す方向を定め、各部門の役割と実行テーマまで一気通貫で設計します。
@@ -119,12 +119,12 @@ export default function Home() {
             {/* RIGHT: EXECUTION */}
             <div className="flex h-full flex-col">
               <div className="mb-1.5 px-1">
-                <h3 className="text-[20px] font-bold tracking-[-0.035em] text-neutral-950 dark:text-white">
+                <h3 className="text-[20px] font-bold tracking-[-0.035em] text-neutral-950 xl:dark:text-white">
                   経営戦略を動かす
                 </h3>
               </div>
 
-              <div className="h-full overflow-hidden rounded-[26px] border border-neutral-200/70 bg-white shadow-[0_1px_30px_rgba(0,0,0,0.06)] dark:bg-neutral-950">
+              <div className="h-full overflow-hidden rounded-[26px] border border-neutral-200/70 bg-white shadow-[0_1px_30px_rgba(0,0,0,0.06)] xl:dark:bg-neutral-950">
                 <div className="px-5 pt-3 pb-0">
                   <p className="text-[11.5px] leading-5 text-neutral-500 dark:text-neutral-400">
                     進捗と変化を捉えながら、戦略を現場の行動につなぎ、成果につなげていきます。
