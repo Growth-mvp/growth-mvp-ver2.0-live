@@ -3674,7 +3674,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                     disabled={isHydrating || isApproved()}
                     className={`flex-1 rounded-lg border-2 px-3 py-2 text-[12px] font-semibold transition-colors ${
                       (selectedProj as any)?.role === opt.value
-                        ? 'border-zinc-900 bg-zinc-900 text-white shadow-sm'
+                        ? 'border-indigo-600 bg-indigo-600 text-white shadow-sm xl:dark:border-zinc-900 xl:dark:bg-zinc-900'
                         : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 hover:border-zinc-300'
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
@@ -4161,7 +4161,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                       type="button"
                       onClick={() => addStructuredKRFromDraft(selected.deptIdx, selected.projIdx)}
                       disabled={isHydrating}
-                      className="h-9 flex-1 rounded-xl bg-zinc-900 px-3 text-[12px] font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
+                      className="h-9 flex-1 rounded-xl bg-gray-200 px-3 text-[12px] font-semibold text-gray-800 hover:bg-gray-300 disabled:opacity-50 xl:dark:bg-zinc-900 xl:dark:text-white xl:dark:hover:bg-zinc-800"
                     >
                       追加
                     </button>
@@ -4362,7 +4362,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
               type="button"
               onClick={() => saveEditKr(selected!.deptIdx, selected!.projIdx, rowId)}
               disabled={isHydrating}
-              className="flex-1 h-9 rounded-lg bg-zinc-900 px-3 text-[12px] font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
+              className="flex-1 h-9 rounded-lg bg-gray-200 px-3 text-[12px] font-semibold text-gray-800 hover:bg-gray-300 disabled:opacity-50 xl:dark:bg-zinc-900 xl:dark:text-white xl:dark:hover:bg-zinc-800"
             >
               保存
             </button>
@@ -4740,7 +4740,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                         queueStage4SnapshotPersist();
                       }}
                       disabled={isHydrating}
-                      className="h-9 flex-1 rounded-xl bg-zinc-900 px-3 text-[12px] font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
+                      className="h-9 flex-1 rounded-xl bg-gray-200 px-3 text-[12px] font-semibold text-gray-800 hover:bg-gray-300 disabled:opacity-50 xl:dark:bg-zinc-900 xl:dark:text-white xl:dark:hover:bg-zinc-800"
                     >
                       追加
                     </button>
@@ -5146,7 +5146,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
 
           <div className="flex items-center gap-2">
             <button
-              className="rounded-xl bg-zinc-900 px-4 py-2 text-[12px] font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
+              className="rounded-xl bg-gray-200 px-4 py-2 text-[12px] font-semibold text-gray-800 hover:bg-gray-300 disabled:opacity-50 xl:dark:bg-zinc-900 xl:dark:text-white xl:dark:hover:bg-zinc-800"
               disabled={isHydrating || newSkillFormData.skillName.trim() === ''}
               onClick={() => {
                 if (!selected) return;
@@ -5543,7 +5543,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
 
       <div className="mt-3 flex items-center gap-2">
         <button
-          className="rounded-xl bg-zinc-900 px-4 py-2 text-[12px] font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
+          className="rounded-xl bg-gray-200 px-4 py-2 text-[12px] font-semibold text-gray-800 hover:bg-gray-300 disabled:opacity-50 xl:dark:bg-zinc-900 xl:dark:text-white xl:dark:hover:bg-zinc-800"
           disabled={isHydrating || newMilestoneFormData.title.trim() === ''}
           onClick={() => {
             if (!selected) return;
@@ -5675,7 +5675,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                           />
                           <button
                             type="button"
-                            className="h-9 rounded-lg bg-zinc-900 px-3 text-[12px] font-semibold text-white disabled:opacity-50"
+                            className="h-9 rounded-lg bg-gray-200 px-3 text-[12px] font-semibold text-gray-800 disabled:opacity-50 xl:dark:bg-zinc-900 xl:dark:text-white"
                             disabled={!newProjectTitle.trim()}
                             onClick={() => addProjectToDepartment(di)}
                           >
@@ -5699,7 +5699,7 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                             className={[
                               'w-full rounded-xl border px-3 py-2 text-left text-[12px] transition',
                               isSel
-                                ? 'border-zinc-900 bg-zinc-900 text-white'
+                                ? 'border-indigo-600 bg-indigo-600 text-white xl:dark:border-zinc-900 xl:dark:bg-zinc-900 xl:dark:text-white'
                                 : 'border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50',
                             ].join(' ')}
                           >

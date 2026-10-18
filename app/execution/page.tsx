@@ -1453,7 +1453,7 @@ function ExecPanel(props: {
         <div className="inline-flex rounded-2xl border border-black/10 bg-white p-1 shadow-sm">
           <button
             className={`px-3 py-1.5 text-sm rounded-xl transition ${
-              tab === 'checkin' ? 'bg-gray-900 text-white' : 'text-gray-800 hover:bg-gray-100'
+              tab === 'checkin' ? 'bg-indigo-600 text-white xl:dark:bg-gray-900' : 'text-gray-800 hover:bg-gray-100'
             }`}
             onClick={() => setTab('checkin')}
             type="button"
@@ -1655,7 +1655,7 @@ function ExecPanel(props: {
               <button
                 onClick={onSaveCheckin}
                 disabled={saving || !userId}
-                className="inline-flex items-center gap-2 rounded-2xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-black/90 disabled:bg-gray-300 shadow-sm"
+                className="inline-flex items-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:bg-gray-300 shadow-sm xl:dark:bg-gray-900 xl:dark:hover:bg-black/90"
                 type="button"
               >
                 <Send className="h-4 w-4" />
@@ -1698,7 +1698,7 @@ function ExecPanel(props: {
               <button
                 onClick={onSaveFeedback}
                 disabled={saving || !userId}
-                className="inline-flex items-center gap-2 rounded-2xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-black/90 disabled:bg-gray-300 shadow-sm"
+                className="inline-flex items-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:bg-gray-300 shadow-sm xl:dark:bg-gray-900 xl:dark:hover:bg-black/90"
                 type="button"
               >
                 <Send className="h-4 w-4" />
