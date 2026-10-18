@@ -871,21 +871,21 @@ function PositiveOnlyBarCard({
   const delta = current !== null && target !== null ? target - current : null;
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-[0_10px_30px_-24px_rgba(15,23,42,0.55)] dark:border-zinc-700 dark:bg-zinc-900">
+    <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-[0_10px_30px_-24px_rgba(15,23,42,0.55)] xl:dark:border-zinc-700 xl:dark:bg-zinc-900">
       {/* タイトル + 単位 */}
-      <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
+      <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 xl:dark:border-zinc-800">
         <div>
-          <h5 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{title}</h5>
+          <h5 className="text-sm font-bold text-zinc-900 xl:dark:text-zinc-100">{title}</h5>
           <p className="mt-0.5 text-[11px] text-zinc-500">現状と目標の比較</p>
         </div>
-        <span className="rounded-md bg-zinc-100 px-2 py-1 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">百万円</span>
+        <span className="rounded-md bg-zinc-100 px-2 py-1 text-[10px] font-medium text-zinc-500 xl:dark:bg-zinc-800 xl:dark:text-zinc-400">百万円</span>
       </div>
 
       {/* 棒グラフ（高さ h-48 = 192px で % が成立） */}
-      <div className="relative mx-5 mt-5 h-44 overflow-hidden rounded-xl border border-zinc-100 bg-zinc-50/70 dark:border-zinc-800 dark:bg-zinc-950/40">
+      <div className="relative mx-5 mt-5 h-44 overflow-hidden rounded-xl border border-zinc-100 bg-zinc-50/70 xl:dark:border-zinc-800 xl:dark:bg-zinc-950/40">
         <div className="pointer-events-none absolute inset-0 flex flex-col justify-between py-4">
           {[0, 1, 2, 3].map((line) => (
-            <div key={line} className="border-t border-dashed border-zinc-200/80 dark:border-zinc-800" />
+            <div key={line} className="border-t border-dashed border-zinc-200/80 xl:dark:border-zinc-800" />
           ))}
         </div>
         <div className="relative flex h-full items-end justify-center gap-12 px-8 pb-4 pt-8">
@@ -893,7 +893,7 @@ function PositiveOnlyBarCard({
         <div className="flex h-full w-20 flex-col items-center gap-2">
           <div className="flex-1 flex items-end justify-center">
             <div
-              className="rounded-t-md bg-zinc-600 shadow-[0_8px_18px_-10px_rgba(39,39,42,0.9)] transition-all dark:bg-zinc-400"
+              className="rounded-t-md bg-zinc-600 shadow-[0_8px_18px_-10px_rgba(39,39,42,0.9)] transition-all xl:dark:bg-zinc-400"
               style={{
                 width: '34px',
                 height: `${Math.max(currentHeightPct, 2)}%`,
@@ -901,18 +901,18 @@ function PositiveOnlyBarCard({
             />
           </div>
           {current !== null && (
-            <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 text-center whitespace-nowrap">
+            <div className="text-xs font-semibold text-gray-700 text-center whitespace-nowrap xl:dark:text-gray-300">
               {formatMillion(current)}
             </div>
           )}
-          <div className="text-xs text-gray-500 dark:text-gray-500">現状</div>
+          <div className="text-xs text-gray-500">現状</div>
         </div>
 
         {/* 目標 */}
         <div className="flex h-full w-20 flex-col items-center gap-2">
           <div className="flex-1 flex items-end justify-center">
             <div
-              className="rounded-t-md bg-blue-600 shadow-[0_8px_18px_-10px_rgba(37,99,235,0.9)] transition-all dark:bg-blue-400"
+              className="rounded-t-md bg-blue-600 shadow-[0_8px_18px_-10px_rgba(37,99,235,0.9)] transition-all xl:dark:bg-blue-400"
               style={{
                 width: '34px',
                 height: `${Math.max(targetHeightPct, 2)}%`,
@@ -920,24 +920,24 @@ function PositiveOnlyBarCard({
             />
           </div>
           {target !== null && (
-            <div className="text-xs font-semibold text-zinc-700 dark:text-blue-300 text-center whitespace-nowrap">
+            <div className="text-xs font-semibold text-zinc-700 text-center whitespace-nowrap xl:dark:text-blue-300">
               {formatMillion(target)}
             </div>
           )}
-          <div className="text-xs text-gray-500 dark:text-gray-500">目標</div>
+          <div className="text-xs text-gray-500">目標</div>
         </div>
         </div>
       </div>
 
       {/* 下段：差分・達成率 */}
-      <div className="mt-5 grid grid-cols-2 border-t border-zinc-100 dark:border-zinc-800">
+      <div className="mt-5 grid grid-cols-2 border-t border-zinc-100 xl:dark:border-zinc-800">
         <div className="px-5 py-3">
           <div className="text-[10px] font-medium text-zinc-400">目標までの差</div>
-          <div className="mt-0.5 text-sm font-bold text-zinc-800 dark:text-zinc-200">{delta !== null ? formatMillion(delta) : '—'}</div>
+          <div className="mt-0.5 text-sm font-bold text-zinc-800 xl:dark:text-zinc-200">{delta !== null ? formatMillion(delta) : '—'}</div>
         </div>
-        <div className="border-l border-zinc-100 px-5 py-3 dark:border-zinc-800">
+        <div className="border-l border-zinc-100 px-5 py-3 xl:dark:border-zinc-800">
           <div className="text-[10px] font-medium text-zinc-400">達成率</div>
-          <div className="mt-0.5 text-sm font-bold text-blue-700 dark:text-blue-300">{achievementRate !== null ? formatPct(achievementRate) : '—'}</div>
+          <div className="mt-0.5 text-sm font-bold text-blue-700 xl:dark:text-blue-300">{achievementRate !== null ? formatPct(achievementRate) : '—'}</div>
         </div>
       </div>
     </div>
@@ -969,27 +969,27 @@ function DivergingBarCard({
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-[0_10px_30px_-24px_rgba(15,23,42,0.55)] dark:border-zinc-700 dark:bg-zinc-900">
+    <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-[0_10px_30px_-24px_rgba(15,23,42,0.55)] xl:dark:border-zinc-700 xl:dark:bg-zinc-900">
       {/* タイトル */}
-      <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
+      <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 xl:dark:border-zinc-800">
         <div>
-          <h5 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{title}</h5>
+          <h5 className="text-sm font-bold text-zinc-900 xl:dark:text-zinc-100">{title}</h5>
           <p className="mt-0.5 text-[11px] text-zinc-500">現状と目標の比較</p>
         </div>
-        <span className="rounded-md bg-zinc-100 px-2 py-1 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">百万円</span>
+        <span className="rounded-md bg-zinc-100 px-2 py-1 text-[10px] font-medium text-zinc-500 xl:dark:bg-zinc-800 xl:dark:text-zinc-400">百万円</span>
       </div>
 
       {/* 0ライン中心の棒グラフ */}
-      <div className="relative mx-5 mt-5 h-44 overflow-hidden rounded-xl border border-zinc-100 bg-zinc-50/70 dark:border-zinc-800 dark:bg-zinc-950/40">
+      <div className="relative mx-5 mt-5 h-44 overflow-hidden rounded-xl border border-zinc-100 bg-zinc-50/70 xl:dark:border-zinc-800 xl:dark:bg-zinc-950/40">
         <div className="pointer-events-none absolute inset-0 flex flex-col justify-between py-4">
           {[0, 1, 2, 3].map((line) => (
-            <div key={line} className="border-t border-dashed border-zinc-200/80 dark:border-zinc-800" />
+            <div key={line} className="border-t border-dashed border-zinc-200/80 xl:dark:border-zinc-800" />
           ))}
         </div>
         <div className="relative flex h-full justify-center gap-12">
         {/* 0ライン */}
         <div
-          className="absolute left-4 right-4 z-10 h-px bg-zinc-400 dark:bg-zinc-600"
+          className="absolute left-4 right-4 z-10 h-px bg-zinc-400 xl:dark:bg-zinc-600"
           style={{ top: '50%' }}
         />
 
@@ -1002,13 +1002,13 @@ function DivergingBarCard({
               style={{ height: '50%' }}
             >
               <div
-                className="rounded-t-md bg-zinc-600 shadow-[0_8px_18px_-10px_rgba(39,39,42,0.9)] transition-all dark:bg-zinc-400"
+                className="rounded-t-md bg-zinc-600 shadow-[0_8px_18px_-10px_rgba(39,39,42,0.9)] transition-all xl:dark:bg-zinc-400"
                 style={{
                   width: '34px',
                   height: `${Math.max(currentHeightPct, 2)}%`,
                 }}
               />
-              <div className="mt-1 whitespace-nowrap text-center text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+              <div className="mt-1 whitespace-nowrap text-center text-xs font-semibold text-zinc-700 xl:dark:text-zinc-300">
                 {formatMillion(current)}
               </div>
             </div>
@@ -1021,19 +1021,19 @@ function DivergingBarCard({
               style={{ height: '50%' }}
             >
               <div
-                className="bg-red-500 dark:bg-red-400 rounded-b transition-all shadow-md"
+                className="bg-red-500 rounded-b transition-all shadow-md xl:dark:bg-red-400"
                 style={{
                   width: '22px',
                   height: `${Math.max(currentHeightPct, 2)}%`,
                 }}
               />
-              <div className="text-xs font-semibold text-red-700 dark:text-red-300 mt-1 text-center whitespace-nowrap">
+              <div className="text-xs font-semibold text-red-700 mt-1 text-center whitespace-nowrap xl:dark:text-red-300">
                 {formatMillion(current)}
               </div>
             </div>
           )}
 
-          <div className="absolute -bottom-6 text-xs text-gray-500 dark:text-gray-500 whitespace-nowrap">
+          <div className="absolute -bottom-6 text-xs text-gray-500 whitespace-nowrap">
             現状
           </div>
         </div>
@@ -1047,13 +1047,13 @@ function DivergingBarCard({
               style={{ height: '50%' }}
             >
               <div
-                className="rounded-t-md bg-blue-600 shadow-[0_8px_18px_-10px_rgba(37,99,235,0.9)] transition-all dark:bg-blue-400"
+                className="rounded-t-md bg-blue-600 shadow-[0_8px_18px_-10px_rgba(37,99,235,0.9)] transition-all xl:dark:bg-blue-400"
                 style={{
                   width: '34px',
                   height: `${Math.max(targetHeightPct, 2)}%`,
                 }}
               />
-              <div className="mt-1 whitespace-nowrap text-center text-xs font-semibold text-blue-700 dark:text-blue-300">
+              <div className="mt-1 whitespace-nowrap text-center text-xs font-semibold text-blue-700 xl:dark:text-blue-300">
                 {formatMillion(target)}
               </div>
             </div>
@@ -1066,19 +1066,19 @@ function DivergingBarCard({
               style={{ height: '50%' }}
             >
               <div
-                className="bg-orange-500 dark:bg-orange-400 rounded-b transition-all shadow-md"
+                className="bg-orange-500 rounded-b transition-all shadow-md xl:dark:bg-orange-400"
                 style={{
                   width: '22px',
                   height: `${Math.max(targetHeightPct, 2)}%`,
                 }}
               />
-              <div className="text-xs font-semibold text-orange-700 dark:text-orange-300 mt-1 text-center whitespace-nowrap">
+              <div className="text-xs font-semibold text-orange-700 mt-1 text-center whitespace-nowrap xl:dark:text-orange-300">
                 {formatMillion(target)}
               </div>
             </div>
           )}
 
-          <div className="absolute -bottom-6 text-xs text-gray-500 dark:text-gray-500 whitespace-nowrap">
+          <div className="absolute -bottom-6 text-xs text-gray-500 whitespace-nowrap">
             目標
           </div>
         </div>
@@ -1086,14 +1086,14 @@ function DivergingBarCard({
       </div>
 
       {/* 下段：差分・達成率 */}
-      <div className="mt-5 grid grid-cols-2 border-t border-zinc-100 dark:border-zinc-800">
+      <div className="mt-5 grid grid-cols-2 border-t border-zinc-100 xl:dark:border-zinc-800">
         <div className="px-5 py-3">
           <div className="text-[10px] font-medium text-zinc-400">目標までの差</div>
-          <div className="mt-0.5 text-sm font-bold text-zinc-800 dark:text-zinc-200">{delta !== null ? formatMillion(delta) : '—'}</div>
+          <div className="mt-0.5 text-sm font-bold text-zinc-800 xl:dark:text-zinc-200">{delta !== null ? formatMillion(delta) : '—'}</div>
         </div>
-        <div className="border-l border-zinc-100 px-5 py-3 dark:border-zinc-800">
+        <div className="border-l border-zinc-100 px-5 py-3 xl:dark:border-zinc-800">
           <div className="text-[10px] font-medium text-zinc-400">達成率</div>
-          <div className="mt-0.5 text-sm font-bold text-blue-700 dark:text-blue-300">{achievementRate !== null ? formatPct(achievementRate) : '—'}</div>
+          <div className="mt-0.5 text-sm font-bold text-blue-700 xl:dark:text-blue-300">{achievementRate !== null ? formatPct(achievementRate) : '—'}</div>
         </div>
       </div>
     </div>
