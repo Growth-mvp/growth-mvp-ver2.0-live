@@ -104,24 +104,24 @@ function Stage6MetricRow({
   achievementRate: string;
 }) {
   return (
-    <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800">
-      <div className="text-xs font-semibold text-neutral-700 dark:text-neutral-200">{label}</div>
+    <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200/60 xl:dark:bg-neutral-950 xl:dark:ring-neutral-800">
+      <div className="text-xs font-semibold text-neutral-700 xl:dark:text-neutral-200">{label}</div>
       <div className="mt-3 grid grid-cols-2 gap-3 xl:grid-cols-4">
         <div>
           <div className="text-[11px] text-neutral-500">現状</div>
-          <div className="mt-1 text-lg font-semibold text-neutral-900 dark:text-white">{current}</div>
+          <div className="mt-1 text-lg font-semibold text-neutral-900 xl:dark:text-white">{current}</div>
         </div>
         <div>
           <div className="text-[11px] text-neutral-500">見込み</div>
-          <div className="mt-1 text-lg font-semibold text-neutral-900 dark:text-white">{forecast}</div>
+          <div className="mt-1 text-lg font-semibold text-neutral-900 xl:dark:text-white">{forecast}</div>
         </div>
         <div>
           <div className="text-[11px] text-neutral-500">目標</div>
-          <div className="mt-1 text-lg font-semibold text-neutral-900 dark:text-white">{target}</div>
+          <div className="mt-1 text-lg font-semibold text-neutral-900 xl:dark:text-white">{target}</div>
         </div>
         <div>
           <div className="text-[11px] text-neutral-500">達成率</div>
-          <div className="mt-1 text-lg font-semibold text-neutral-900 dark:text-white">{achievementRate}</div>
+          <div className="mt-1 text-lg font-semibold text-neutral-900 xl:dark:text-white">{achievementRate}</div>
         </div>
       </div>
     </div>
@@ -360,7 +360,7 @@ export default function ExecutionPanel() {
 
   return (
     <div className="space-y-3">
-      <div className="rounded-2xl bg-neutral-50 p-4 ring-1 ring-neutral-200/60 dark:bg-neutral-900/40 dark:ring-neutral-800">
+      <div className="rounded-2xl bg-neutral-50 p-4 ring-1 ring-neutral-200/60 xl:dark:bg-neutral-900/40 xl:dark:ring-neutral-800">
         <div className="flex items-center gap-3">
           <Link href="/execution" className={stageBtnClass}>
             <div className="min-w-0">
@@ -371,17 +371,17 @@ export default function ExecutionPanel() {
           <div className="text-sm font-medium">最近動きのあったプロジェクト</div>
         </div>
 
-        <div className="mt-3 rounded-xl bg-white p-3 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800">
+        <div className="mt-3 rounded-xl bg-white p-3 ring-1 ring-neutral-200/60 xl:dark:bg-neutral-950 xl:dark:ring-neutral-800">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <div className="text-xs font-medium text-neutral-700 dark:text-neutral-200">直近7日の更新</div>
+              <div className="text-xs font-medium text-neutral-700 xl:dark:text-neutral-200">直近7日の更新</div>
               <div className="mt-1 text-[12px] leading-5 text-neutral-500">
                 進捗・コメント・評価・アドバイス・協力要請など、変化があった案件だけを表示します。
               </div>
             </div>
             <Link
               href="/execution"
-              className="shrink-0 text-xs font-medium text-neutral-600 underline-offset-4 hover:underline dark:text-neutral-300"
+              className="shrink-0 text-xs font-medium text-neutral-600 underline-offset-4 hover:underline xl:dark:text-neutral-300"
             >
               STAGE5を開く
             </Link>
@@ -393,22 +393,22 @@ export default function ExecutionPanel() {
             ) : error ? (
               <div className="text-xs text-rose-600">{error}</div>
             ) : recentProjectUpdates.length === 0 ? (
-              <div className="rounded-lg bg-neutral-50 px-3 py-3 text-xs leading-5 text-neutral-500 dark:bg-neutral-900/40">
+              <div className="rounded-lg bg-neutral-50 px-3 py-3 text-xs leading-5 text-neutral-500 xl:dark:bg-neutral-900/40">
                 直近の更新はありません。進捗・コメント・協力要請などの更新があると、ここに表示されます。
               </div>
             ) : (
               recentProjectUpdates.map((item) => (
                 <div
                   key={`${item.departmentId}-${item.projectId}-${item.latestUpdateAt}`}
-                  className="flex items-center justify-between gap-3 rounded-lg bg-neutral-50 px-3 py-3 dark:bg-neutral-900/40"
+                  className="flex items-center justify-between gap-3 rounded-lg bg-neutral-50 px-3 py-3 xl:dark:bg-neutral-900/40"
                 >
                   <div className="min-w-0">
                     <div className="truncate text-xs text-neutral-500">{item.departmentName}</div>
-                    <div className="truncate text-sm font-medium text-neutral-900 dark:text-white">
+                    <div className="truncate text-sm font-medium text-neutral-900 xl:dark:text-white">
                       {item.projectTitle}
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-neutral-500">
-                      <span className="rounded-full bg-white px-2 py-0.5 ring-1 ring-neutral-200 dark:bg-neutral-950 dark:ring-neutral-800">
+                      <span className="rounded-full bg-white px-2 py-0.5 ring-1 ring-neutral-200 xl:dark:bg-neutral-950 xl:dark:ring-neutral-800">
                         {formatUpdateType(item.latestUpdateType)}
                       </span>
                       <span>{formatDateTime(item.latestUpdateAt)}</span>
@@ -420,7 +420,7 @@ export default function ExecutionPanel() {
                   <Link
                     href={item.okrId ? `/execution?okrId=${encodeURIComponent(item.okrId)}&projectId=${encodeURIComponent(item.projectId)}&departmentId=${encodeURIComponent(item.departmentId)}` : '/execution'}
                     onClick={() => dismissUpdate(item)}
-                    className="shrink-0 rounded-lg bg-neutral-900 px-3 py-2 text-xs font-semibold text-white hover:opacity-90 dark:bg-white dark:text-neutral-900"
+                    className="shrink-0 rounded-lg bg-neutral-900 px-3 py-2 text-xs font-semibold text-white hover:opacity-90 xl:dark:bg-white xl:dark:text-neutral-900"
                   >
                     開く
                   </Link>
@@ -431,7 +431,7 @@ export default function ExecutionPanel() {
         </div>
       </div>
 
-      <div className="rounded-2xl bg-neutral-50 p-4 ring-1 ring-neutral-200/60 dark:bg-neutral-900/40 dark:ring-neutral-800">
+      <div className="rounded-2xl bg-neutral-50 p-4 ring-1 ring-neutral-200/60 xl:dark:bg-neutral-900/40 xl:dark:ring-neutral-800">
         <div className="flex items-center gap-3">
           <Link href="/stage6" className={stageBtnClass}>
             <div className="min-w-0">
@@ -461,7 +461,7 @@ export default function ExecutionPanel() {
         </div>
       </div>
 
-      <div className="rounded-2xl bg-neutral-50 p-4 ring-1 ring-neutral-200/60 dark:bg-neutral-900/40 dark:ring-neutral-800">
+      <div className="rounded-2xl bg-neutral-50 p-4 ring-1 ring-neutral-200/60 xl:dark:bg-neutral-900/40 xl:dark:ring-neutral-800">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
             <Link href="/org-transformation/shared" className={stageBtnClass}>
@@ -471,18 +471,18 @@ export default function ExecutionPanel() {
           </div>
           <Link
             href="/org-transformation/shared"
-            className="shrink-0 text-xs font-medium text-neutral-600 underline-offset-4 hover:underline dark:text-neutral-300"
+            className="shrink-0 text-xs font-medium text-neutral-600 underline-offset-4 hover:underline xl:dark:text-neutral-300"
           >
             全社共有を開く
           </Link>
         </div>
 
-        <div className="mt-3 text-xs leading-5 text-neutral-600 dark:text-neutral-400">
+        <div className="mt-3 text-xs leading-5 text-neutral-600 xl:dark:text-neutral-400">
           現場の違和感をAIが共通論点に整理し、すり合わせ結果をSTAGE3/4へ還流します。
         </div>
 
         {orgAlignmentError ? (
-          <div className="mt-3 rounded-lg bg-white px-3 py-2 text-xs text-neutral-500 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800">
+          <div className="mt-3 rounded-lg bg-white px-3 py-2 text-xs text-neutral-500 ring-1 ring-neutral-200/60 xl:dark:bg-neutral-950 xl:dark:ring-neutral-800">
             全社共有データを取得できませんでした
           </div>
         ) : orgAlignmentSummary ? (
@@ -490,21 +490,21 @@ export default function ExecutionPanel() {
             {orgAlignmentSummary.topTopics.length > 0 ? (
               <>
                 {/* 主要論点の表示 */}
-                <div className="mt-3 rounded-xl bg-white p-4 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800">
-                  <div className="text-sm font-medium text-neutral-600 dark:text-neutral-400">会社として確認中の論点</div>
+                <div className="mt-3 rounded-xl bg-white p-4 ring-1 ring-neutral-200/60 xl:dark:bg-neutral-950 xl:dark:ring-neutral-800">
+                  <div className="text-sm font-medium text-neutral-600 xl:dark:text-neutral-400">会社として確認中の論点</div>
                   <div className="mt-2">
-                    <div className="text-base font-semibold text-neutral-900 dark:text-white">
+                    <div className="text-base font-semibold text-neutral-900 xl:dark:text-white">
                       {orgAlignmentSummary.topTopics[0].title}
                     </div>
                     {orgAlignmentSummary.topTopics[0].announcementText && (
-                      <div className="mt-3 rounded-lg bg-blue-50 p-3 dark:bg-blue-950/40">
-                        <p className="text-xs font-semibold text-blue-900 dark:text-blue-200">運営からのお知らせ</p>
-                        <p className="mt-1 text-xs leading-5 text-blue-800 dark:text-blue-100">
+                      <div className="mt-3 rounded-lg bg-blue-50 p-3 xl:dark:bg-blue-950/40">
+                        <p className="text-xs font-semibold text-blue-900 xl:dark:text-blue-200">運営からのお知らせ</p>
+                        <p className="mt-1 text-xs leading-5 text-blue-800 xl:dark:text-blue-100">
                           {orgAlignmentSummary.topTopics[0].announcementText}
                         </p>
                       </div>
                     )}
-                    <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-neutral-600 dark:text-neutral-400">
+                    <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-neutral-600 xl:dark:text-neutral-400">
                       <span className="font-medium">
                         現在：
                         {orgAlignmentSummary.topTopics[0].status === 'published'
@@ -519,15 +519,15 @@ export default function ExecutionPanel() {
                 </div>
               </>
             ) : (
-              <div className="mt-3 rounded-lg bg-white px-4 py-3 text-xs text-neutral-600 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:text-neutral-400 dark:ring-neutral-800">
+              <div className="mt-3 rounded-lg bg-white px-4 py-3 text-xs text-neutral-600 ring-1 ring-neutral-200/60 xl:dark:bg-neutral-950 xl:dark:text-neutral-400 xl:dark:ring-neutral-800">
                 現在共有中の全社論点はありません
               </div>
             )}
 
             {/* 補助的な件数情報 */}
             {orgAlignmentSummary.topicCount > 0 && (
-              <div className="mt-3 text-xs text-neutral-600 dark:text-neutral-400">
-                <span className="font-medium text-neutral-700 dark:text-neutral-300">
+              <div className="mt-3 text-xs text-neutral-600 xl:dark:text-neutral-400">
+                <span className="font-medium text-neutral-700 xl:dark:text-neutral-300">
                   全社: {orgAlignmentSummary.counts.published}件
                 </span>
                 <span className="mx-1">·</span>
@@ -538,7 +538,7 @@ export default function ExecutionPanel() {
             )}
           </>
         ) : (
-          <div className="mt-3 rounded-lg bg-white px-3 py-2 text-xs text-neutral-500 ring-1 ring-neutral-200/60 dark:bg-neutral-950 dark:ring-neutral-800">
+          <div className="mt-3 rounded-lg bg-white px-3 py-2 text-xs text-neutral-500 ring-1 ring-neutral-200/60 xl:dark:bg-neutral-950 xl:dark:ring-neutral-800">
             集計中…
           </div>
         )}

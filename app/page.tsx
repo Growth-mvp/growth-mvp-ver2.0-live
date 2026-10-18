@@ -37,7 +37,7 @@ export default function Home() {
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6 }}
-              className="text-[28px] font-bold tracking-[-0.04em] text-neutral-950 sm:text-[36px] lg:text-[44px] dark:text-white"
+              className="text-[28px] font-bold tracking-[-0.04em] text-neutral-950 sm:text-[36px] lg:text-[44px] xl:dark:text-white"
             >
               戦略を行動へ。企業を成長へ。
             </motion.h1>
@@ -46,7 +46,7 @@ export default function Home() {
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.08 }}
-              className="mt-2 text-[15px] font-semibold tracking-[0.06em] text-neutral-800 sm:text-[17px] lg:text-[20px] dark:text-neutral-100"
+              className="mt-2 text-[15px] font-semibold tracking-[0.06em] text-neutral-800 sm:text-[17px] lg:text-[20px] xl:dark:text-neutral-100"
             >
             GROWTH SHIFT｜経営戦略の実現に向けて、組織を動かす仕組み
             </motion.div>
@@ -55,7 +55,7 @@ export default function Home() {
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.16 }}
-              className="mt-2 text-[14px] font-medium leading-relaxed text-neutral-700 sm:text-[15px] lg:text-[16px] dark:text-neutral-300"
+              className="mt-2 text-[14px] font-medium leading-relaxed text-neutral-700 sm:text-[15px] lg:text-[16px] xl:dark:text-neutral-300"
             >
               
 
@@ -69,13 +69,13 @@ export default function Home() {
             >
               <Link
                 href="/stage1"
-                className="inline-flex items-center justify-center rounded-full bg-neutral-950 px-6 py-2.5 text-[14px] font-semibold text-white shadow-[0_14px_36px_rgba(0,0,0,0.14)] transition hover:-translate-y-0.5 hover:opacity-95 dark:bg-white dark:text-neutral-950"
+                className="inline-flex items-center justify-center rounded-full bg-gray-900 px-6 py-2.5 text-[14px] font-semibold text-white shadow-[0_14px_36px_rgba(0,0,0,0.14)] transition hover:-translate-y-0.5 hover:opacity-95 xl:dark:bg-neutral-950"
               >
                 さっそく始める
               </Link>
               <Link
                 href="/report"
-                className="inline-flex items-center justify-center rounded-full border-2 border-neutral-950 px-6 py-2 text-[14px] font-semibold text-neutral-950 transition hover:-translate-y-0.5 hover:bg-neutral-50 dark:border-white dark:text-white dark:hover:bg-neutral-950"
+                className="inline-flex items-center justify-center rounded-full border-2 border-gray-900 px-6 py-2 text-[14px] font-semibold text-gray-900 transition hover:-translate-y-0.5 hover:bg-gray-100 xl:dark:border-white xl:dark:text-white xl:dark:hover:bg-neutral-950"
               >
                 レポート
               </Link>
