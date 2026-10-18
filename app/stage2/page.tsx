@@ -246,7 +246,7 @@ function StepperTabs({ activeTab, onChange, canOpenDraft, hasDraft, hasFinal }: 
   ];
 
   return (
-    <div className="flex items-center gap-3 bg-white/60 dark:bg-white/5 rounded-2xl border border-black/10 shadow-sm backdrop-blur-md p-3">
+    <div className="flex items-center gap-3 bg-white/60 xl:dark:bg-white/5 rounded-2xl border border-black/10 shadow-sm backdrop-blur-md p-3">
       {tabs.map((tab, index) => {
         const isActive = activeTab === tab.id;
         const isDisabled = !tab.enabled;
@@ -258,24 +258,24 @@ function StepperTabs({ activeTab, onChange, canOpenDraft, hasDraft, hasFinal }: 
               disabled={isDisabled}
               className={`relative px-5 py-3 rounded-xl text-sm font-medium transition-all flex items-center gap-2 ${
                 isActive
-                  ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-300 dark:ring-blue-800'
+                  ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-300 xl:dark:ring-blue-800'
                   : isDisabled
-                  ? 'bg-gray-100 dark:bg-gray-800/50 text-gray-400 dark:text-gray-600 cursor-not-allowed'
-                  : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
+                  ? 'bg-gray-100 xl:dark:bg-gray-800/50 text-gray-400 xl:dark:text-gray-600 cursor-not-allowed'
+                  : 'bg-white xl:dark:bg-gray-800 text-gray-700 xl:dark:text-gray-300 hover:bg-gray-50 xl:dark:hover:bg-gray-700 border border-gray-200 xl:dark:border-gray-700'
               }`}
             >
               {tab.completed && (
                 <span className="w-5 h-5 rounded-full bg-green-500 text-white flex items-center justify-center text-xs">✓</span>
               )}
               {!tab.completed && isDisabled && (
-                <span className="w-5 h-5 rounded-full bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-600 flex items-center justify-center text-xs">
+                <span className="w-5 h-5 rounded-full bg-gray-300 xl:dark:bg-gray-700 text-gray-500 xl:dark:text-gray-600 flex items-center justify-center text-xs">
                   🔒
                 </span>
               )}
               <span>{tab.label}</span>
               {tab.warning && <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" />}
             </button>
-            {index < tabs.length - 1 && <div className="w-8 h-0.5 bg-gray-200 dark:bg-gray-700" />}
+            {index < tabs.length - 1 && <div className="w-8 h-0.5 bg-gray-200 xl:dark:bg-gray-700" />}
           </React.Fragment>
         );
       })}
@@ -289,31 +289,31 @@ function StepperTabs({ activeTab, onChange, canOpenDraft, hasDraft, hasFinal }: 
 function WinPatternList({ candidates }: { candidates: WinPatternCandidate[] }) {
   if (!candidates || candidates.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50/50 dark:bg-gray-800/50 p-8 text-center">
-        <h4 className="text-base font-medium text-gray-600 dark:text-gray-400 mb-2">勝ち筋（未生成）</h4>
-        <p className="text-sm text-gray-400 dark:text-gray-500">先に「たたき台を生成」を実行してください</p>
+      <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50/50 p-8 text-center xl:xl:dark:border-gray-600 xl:xl:dark:bg-gray-800/50">
+        <h4 className="text-base font-medium text-gray-600 mb-2 xl:xl:dark:text-gray-400">勝ち筋（未生成）</h4>
+        <p className="text-sm text-gray-400 xl:dark:text-gray-500">先に「たたき台を生成」を実行してください</p>
       </div>
     );
   }
 
   return (
-    <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
-      <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">勝ち筋（候補一覧）</h3>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+    <div className="rounded-2xl border border-black/10 bg-white/70 shadow-sm backdrop-blur-md p-6 xl:xl:dark:bg-white/5">
+      <h3 className="text-lg font-semibold text-gray-800 mb-2 xl:xl:dark:text-gray-200">勝ち筋（候補一覧）</h3>
+      <p className="text-sm text-gray-500 mb-4 xl:xl:dark:text-gray-400">
         勝ち筋は“選択必須”にはせず、経営の議論材料として一覧提示します（最終生成時は内部的に先頭候補を参照します）。
       </p>
 
       <div className="max-h-[520px] overflow-auto pr-2 space-y-3">
         {candidates.map((wp) => (
-          <div key={wp.id} className="w-full text-left p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-white/5">
+          <div key={wp.id} className="w-full text-left p-4 rounded-lg border border-gray-200 bg-white/50 xl:xl:dark:border-gray-700 xl:xl:dark:bg-white/5">
             <div className="flex items-center gap-2">
-              <span className="font-medium text-gray-800 dark:text-gray-200">{wp.name}</span>
+              <span className="font-medium text-gray-800 xl:xl:dark:text-gray-200">{wp.name}</span>
             </div>
 
             {wp.valueDrivers?.length > 0 && (
               <div className="flex gap-1 mt-2 flex-wrap">
                 {wp.valueDrivers.map((vd, i) => (
-                  <span key={i} className="text-xs bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 px-2 py-0.5 rounded">
+                  <span key={i} className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded xl:xl:dark:bg-green-900/40 xl:xl:dark:text-green-300">
                     {vd}
                   </span>
                 ))}
@@ -321,13 +321,13 @@ function WinPatternList({ candidates }: { candidates: WinPatternCandidate[] }) {
             )}
 
             {wp.rationale && (
-              <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+              <div className="mt-2 text-xs text-gray-600 xl:xl:dark:text-gray-400">
                 <ScrollText maxH="max-h-[140px]">{wp.rationale}</ScrollText>
               </div>
             )}
 
             {wp.tradeoffs && (
-              <div className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+              <div className="mt-2 text-xs text-amber-600 xl:xl:dark:text-amber-400">
                 <ScrollText maxH="max-h-[100px]">⚠ {wp.tradeoffs}</ScrollText>
               </div>
             )}
@@ -345,13 +345,13 @@ function FinalStoryPreview({ finalStory }: { finalStory: StoryChapter[] }) {
   if (!finalStory || finalStory.length === 0) return null;
 
   return (
-    <div className="rounded-2xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/20 p-6">
-      <h3 className="text-lg font-semibold text-emerald-800 dark:text-emerald-200 mb-4">社員に伝えたい「経営の意図」</h3>
+    <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-6 xl:xl:dark:border-emerald-800 xl:xl:dark:bg-emerald-900/20">
+      <h3 className="text-lg font-semibold text-emerald-800 mb-4 xl:xl:dark:text-emerald-200">社員に伝えたい「経営の意図」</h3>
       <div className="space-y-4">
         {finalStory.map((chapter, i) => (
           <div key={i} className="border-l-2 border-emerald-400 pl-4">
-            <h4 className="text-sm font-semibold text-emerald-700 dark:text-emerald-300 mb-1">{chapter.title}</h4>
-            <div className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words leading-relaxed">
+            <h4 className="text-sm font-semibold text-emerald-700 mb-1 xl:xl:dark:text-emerald-300">{chapter.title}</h4>
+            <div className="text-sm text-gray-700 whitespace-pre-wrap break-words leading-relaxed xl:xl:dark:text-gray-300">
               {stripIssueSummaryFromDisplay(chapter.body)}
             </div>
           </div>
@@ -385,12 +385,12 @@ function ExecutiveStoryDocument({
       .map((p) => p.trim())
       .filter(Boolean);
     if (paragraphs.length === 0) {
-      return <p className="text-sm text-gray-400 dark:text-gray-500">（本文未入力）</p>;
+      return <p className="text-sm text-gray-400 xl:xl:dark:text-gray-500">（本文未入力）</p>;
     }
     return paragraphs.map((p, i) => (
       <p
         key={i}
-        className="whitespace-pre-wrap break-words text-justify leading-[2.05] tracking-[0.015em] text-[15px] text-gray-800 dark:text-gray-200"
+        className="whitespace-pre-wrap break-words text-justify leading-[2.05] tracking-[0.015em] text-[15px] text-gray-800 xl:xl:dark:text-gray-200"
       >
         {p}
       </p>
@@ -398,17 +398,17 @@ function ExecutiveStoryDocument({
   };
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm">
+    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm xl:xl:dark:border-gray-700 xl:xl:dark:bg-gray-900">
       {/* 表紙ヘッダー */}
-      <div className="border-b border-slate-800 bg-slate-900 px-4 py-6 sm:px-6 sm:py-8 md:px-8 md:py-10">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-slate-400">
+      <div className="border-b bg-white px-4 py-6 sm:px-6 sm:py-8 md:px-8 md:py-10 border-gray-200 xl:xl:dark:border-slate-800 xl:xl:dark:bg-slate-900">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-gray-400 xl:xl:dark:text-slate-400">
           Mid-Term Management Plan
         </p>
-        <h2 className="mt-3 text-2xl font-semibold tracking-wide text-white sm:text-3xl">
+        <h2 className="mt-3 text-2xl font-semibold tracking-wide text-gray-900 sm:text-3xl xl:xl:dark:text-white">
           全社戦略ストーリー
         </h2>
         <div className="mt-5 flex flex-wrap items-center gap-3">
-          {companyName && <span className="text-sm font-medium text-slate-300">{companyName}</span>}
+          {companyName && <span className="text-sm font-medium text-gray-600 xl:xl:dark:text-slate-300">{companyName}</span>}
           <span
             className={[
               'rounded-full border px-3 py-1 text-[11px] font-semibold',
@@ -423,15 +423,15 @@ function ExecutiveStoryDocument({
       </div>
 
       {/* 構成（目次） */}
-      <div className="border-b border-gray-200 px-4 py-4 sm:px-6 sm:py-5 md:px-8 md:py-6 dark:border-gray-700">
-        <p className="text-[11px] font-semibold tracking-[0.3em] text-gray-400 dark:text-gray-500">構成</p>
+      <div className="border-b border-gray-200 px-4 py-4 sm:px-6 sm:py-5 md:px-8 md:py-6 xl:xl:dark:border-gray-700">
+        <p className="text-[11px] font-semibold tracking-[0.3em] text-gray-400 xl:xl:dark:text-gray-500">構成</p>
         <div className="mt-3 grid gap-x-10 gap-y-2 sm:grid-cols-2">
           {story.map((ch, i) => (
             <div key={i} className="flex items-baseline gap-3">
-              <span className="shrink-0 text-xs font-semibold text-slate-500 dark:text-slate-400">
+              <span className="shrink-0 text-xs font-semibold text-slate-500 xl:xl:dark:text-slate-400">
                 第{i + 1}章
               </span>
-              <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{ch.title}</span>
+              <span className="text-sm font-medium text-gray-800 xl:xl:dark:text-gray-200">{ch.title}</span>
             </div>
           ))}
         </div>
@@ -442,12 +442,12 @@ function ExecutiveStoryDocument({
         {story.map((ch, i) => (
           <section key={i}>
             <div className="flex items-center gap-4">
-              <span className="shrink-0 text-xs font-semibold tracking-[0.25em] text-slate-500 dark:text-slate-400">
+              <span className="shrink-0 text-xs font-semibold tracking-[0.25em] text-slate-500 xl:xl:dark:text-slate-400">
                 第{i + 1}章
               </span>
-              <span className="h-px flex-1 bg-gray-200 dark:bg-gray-700" />
+              <span className="h-px flex-1 bg-gray-200 xl:xl:dark:bg-gray-700" />
             </div>
-            <h3 className="mt-3 font-serif text-xl font-semibold leading-snug text-gray-900 dark:text-gray-50 sm:text-[22px]">
+            <h3 className="mt-3 font-serif text-xl font-semibold leading-snug text-gray-900 sm:text-[22px] xl:xl:dark:text-gray-50">
               {ch.title}
             </h3>
             <div className="mt-5 space-y-5 font-serif">{renderBody(ch.body)}</div>
@@ -539,11 +539,11 @@ function PositiveOnlyBarCard({
   const delta = current !== null && target !== null ? target - current : null;
 
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-white/5 backdrop-blur-sm p-5">
+    <div className="rounded-xl border border-gray-200 bg-white/50 backdrop-blur-sm p-5 xl:xl:dark:border-gray-700 xl:xl:dark:bg-white/5">
       {/* タイトル */}
       <div className="flex items-center justify-between mb-4">
-        <h5 className="text-sm font-semibold text-gray-800 dark:text-gray-200">{title}</h5>
-        <span className="text-xs text-gray-500 dark:text-gray-400">百万円</span>
+        <h5 className="text-sm font-semibold text-gray-800 xl:xl:dark:text-gray-200">{title}</h5>
+        <span className="text-xs text-gray-500 xl:xl:dark:text-gray-400">百万円</span>
       </div>
 
       {/* 棒グラフ（太い縦棒） - 親に固定高さを付与して % が成立するようにする */}
@@ -552,7 +552,7 @@ function PositiveOnlyBarCard({
         <div className="flex flex-col items-center gap-2 h-full">
           <div className="flex-1 flex items-end justify-center">
             <div
-              className="bg-slate-600 dark:bg-slate-400 rounded-t transition-all shadow-md"
+              className="bg-slate-600 rounded-t transition-all shadow-md xl:xl:dark:bg-slate-400"
               style={{
                 width: '22px',
                 height: `${Math.max(currentHeightPct, 2)}%`,
@@ -560,18 +560,18 @@ function PositiveOnlyBarCard({
             />
           </div>
           {current !== null && (
-            <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 text-center whitespace-nowrap">
+            <div className="text-xs font-semibold text-gray-700 text-center whitespace-nowrap xl:xl:dark:text-gray-300">
               {formatMillion(current)}
             </div>
           )}
-          <div className="text-xs text-gray-500 dark:text-gray-500">現状</div>
+          <div className="text-xs text-gray-500">現状</div>
         </div>
 
         {/* 目標 */}
         <div className="flex flex-col items-center gap-2 h-full">
           <div className="flex-1 flex items-end justify-center">
             <div
-              className="bg-blue-500 dark:bg-blue-400 rounded-t transition-all shadow-md"
+              className="bg-blue-500 rounded-t transition-all shadow-md xl:xl:dark:bg-blue-400"
               style={{
                 width: '22px',
                 height: `${Math.max(targetHeightPct, 2)}%`,
@@ -579,16 +579,16 @@ function PositiveOnlyBarCard({
             />
           </div>
           {target !== null && (
-            <div className="text-xs font-semibold text-blue-700 dark:text-blue-300 text-center whitespace-nowrap">
+            <div className="text-xs font-semibold text-blue-700 text-center whitespace-nowrap xl:xl:dark:text-blue-300">
               {formatMillion(target)}
             </div>
           )}
-          <div className="text-xs text-gray-500 dark:text-gray-500">目標</div>
+          <div className="text-xs text-gray-500">目標</div>
         </div>
       </div>
 
       {/* 下段：差分・達成率 */}
-      <div className="border-t border-gray-200 dark:border-gray-700 pt-3 flex justify-between text-xs text-gray-600 dark:text-gray-400">
+      <div className="border-t border-gray-200 pt-3 flex justify-between text-xs text-gray-600 xl:xl:dark:border-gray-700 xl:xl:dark:text-gray-400">
         <span>
           差分: {delta !== null ? formatMillion(delta) : '—'}
         </span>
@@ -625,18 +625,18 @@ function DivergingBarCard({
   const delta = current !== null && target !== null ? target - current : null;
 
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-white/5 backdrop-blur-sm p-5">
+    <div className="rounded-xl border border-gray-200 bg-white/50 backdrop-blur-sm p-5 xl:xl:dark:border-gray-700 xl:xl:dark:bg-white/5">
       {/* タイトル */}
       <div className="flex items-center justify-between mb-4">
-        <h5 className="text-sm font-semibold text-gray-800 dark:text-gray-200">{title}</h5>
-        <span className="text-xs text-gray-500 dark:text-gray-400">百万円</span>
+        <h5 className="text-sm font-semibold text-gray-800 xl:xl:dark:text-gray-200">{title}</h5>
+        <span className="text-xs text-gray-500 xl:xl:dark:text-gray-400">百万円</span>
       </div>
 
       {/* 0ラインを含む棒グラフ（上下 50% の "確定高さ" を用意して % を成立させる） */}
       <div className="relative h-48 flex justify-center gap-8 mb-4">
         {/* 0ライン */}
         <div
-          className="absolute left-0 right-0 h-px bg-gray-400 dark:bg-gray-600"
+          className="absolute left-0 right-0 h-px bg-gray-400 xl:xl:dark:bg-gray-600"
           style={{ top: '50%' }}
         />
 
@@ -649,13 +649,13 @@ function DivergingBarCard({
               style={{ height: '50%' }}
             >
               <div
-                className="bg-emerald-600 dark:bg-emerald-400 rounded-t transition-all shadow-md"
+                className="bg-emerald-600 rounded-t transition-all shadow-md xl:xl:dark:bg-emerald-400"
                 style={{
                   width: '22px',
                   height: `${Math.max(currentHeightPct, 2)}%`,
                 }}
               />
-              <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 mt-1 text-center whitespace-nowrap">
+              <div className="text-xs font-semibold text-emerald-700 mt-1 text-center whitespace-nowrap xl:xl:dark:text-emerald-300">
                 {formatMillion(current)}
               </div>
             </div>
@@ -668,19 +668,19 @@ function DivergingBarCard({
               style={{ height: '50%' }}
             >
               <div
-                className="bg-red-500 dark:bg-red-400 rounded-b transition-all shadow-md"
+                className="bg-red-500 rounded-b transition-all shadow-md xl:xl:dark:bg-red-400"
                 style={{
                   width: '22px',
                   height: `${Math.max(currentHeightPct, 2)}%`,
                 }}
               />
-              <div className="text-xs font-semibold text-red-700 dark:text-red-300 mt-1 text-center whitespace-nowrap">
+              <div className="text-xs font-semibold text-red-700 mt-1 text-center whitespace-nowrap xl:xl:dark:text-red-300">
                 {formatMillion(current)}
               </div>
             </div>
           )}
 
-          <div className="absolute -bottom-6 text-xs text-gray-500 dark:text-gray-500 whitespace-nowrap">
+          <div className="absolute -bottom-6 text-xs text-gray-500 whitespace-nowrap">
             現状
           </div>
         </div>
@@ -694,13 +694,13 @@ function DivergingBarCard({
               style={{ height: '50%' }}
             >
               <div
-                className="bg-emerald-500 dark:bg-emerald-400 rounded-t transition-all shadow-md"
+                className="bg-emerald-500 rounded-t transition-all shadow-md xl:xl:dark:bg-emerald-400"
                 style={{
                   width: '22px',
                   height: `${Math.max(targetHeightPct, 2)}%`,
                 }}
               />
-              <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 mt-1 text-center whitespace-nowrap">
+              <div className="text-xs font-semibold text-emerald-700 mt-1 text-center whitespace-nowrap xl:xl:dark:text-emerald-300">
                 {formatMillion(target)}
               </div>
             </div>
@@ -713,19 +713,19 @@ function DivergingBarCard({
               style={{ height: '50%' }}
             >
               <div
-                className="bg-red-500 dark:bg-red-400 rounded-b transition-all shadow-md"
+                className="bg-red-500 rounded-b transition-all shadow-md xl:xl:dark:bg-red-400"
                 style={{
                   width: '22px',
                   height: `${Math.max(targetHeightPct, 2)}%`,
                 }}
               />
-              <div className="text-xs font-semibold text-red-700 dark:text-red-300 mt-1 text-center whitespace-nowrap">
+              <div className="text-xs font-semibold text-red-700 mt-1 text-center whitespace-nowrap xl:xl:dark:text-red-300">
                 {formatMillion(target)}
               </div>
             </div>
           )}
 
-          <div className="absolute -bottom-6 text-xs text-gray-500 dark:text-gray-500 whitespace-nowrap">
+          <div className="absolute -bottom-6 text-xs text-gray-500 whitespace-nowrap">
             目標
           </div>
         </div>
@@ -734,7 +734,7 @@ function DivergingBarCard({
       <div className="h-6" />
 
       {/* 下段：差分・達成率 */}
-      <div className="border-t border-gray-200 dark:border-gray-700 pt-3 flex justify-between text-xs text-gray-600 dark:text-gray-400">
+      <div className="border-t border-gray-200 pt-3 flex justify-between text-xs text-gray-600 xl:xl:dark:border-gray-700 xl:xl:dark:text-gray-400">
         <span>
           差分: {delta !== null ? formatMillion(delta) : '—'}
         </span>
@@ -772,46 +772,46 @@ function FinancialTargetMetricCard({
   const deltaIsPositive = delta == null || delta >= 0;
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:dark:border-slate-700 xl:dark:bg-slate-900/60">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Target KPI</p>
-          <h5 className="mt-1 text-base font-bold text-slate-950 dark:text-slate-50">{title}</h5>
+          <h5 className="mt-1 text-base font-bold text-slate-950 xl:dark:text-slate-50">{title}</h5>
         </div>
-        <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+        <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600 xl:dark:border-slate-700 xl:dark:bg-slate-800 xl:dark:text-slate-300">
           達成率 {achievementRate != null ? formatPct(achievementRate) : '—'}
         </div>
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-3">
-        <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/80">
-          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">現状</p>
-          <p className="mt-1 text-2xl font-bold tracking-tight text-slate-950 dark:text-white">{formatOkuFromMillion(current)}</p>
+        <div className="rounded-xl bg-slate-50 p-4 xl:dark:bg-slate-800/80">
+          <p className="text-xs font-semibold text-slate-500 xl:dark:text-slate-400">現状</p>
+          <p className="mt-1 text-2xl font-bold tracking-tight text-slate-950 xl:dark:text-white">{formatOkuFromMillion(current)}</p>
           <p className="mt-1 text-[11px] text-slate-400">{current != null ? `${Math.round(current).toLocaleString('ja-JP')}百万円` : '—'}</p>
         </div>
-        <div className="rounded-xl bg-blue-50 p-4 dark:bg-blue-950/30">
-          <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">目標</p>
-          <p className="mt-1 text-2xl font-bold tracking-tight text-blue-800 dark:text-blue-200">{formatOkuFromMillion(target)}</p>
+        <div className="rounded-xl bg-blue-50 p-4 xl:dark:bg-blue-950/30">
+          <p className="text-xs font-semibold text-blue-700 xl:dark:text-blue-300">目標</p>
+          <p className="mt-1 text-2xl font-bold tracking-tight text-blue-800 xl:dark:text-blue-200">{formatOkuFromMillion(target)}</p>
           <p className="mt-1 text-[11px] text-blue-500/80">{target != null ? `${Math.round(target).toLocaleString('ja-JP')}百万円` : '—'}</p>
         </div>
       </div>
 
       <div className="mt-5">
-        <div className="mb-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+        <div className="mb-2 flex items-center justify-between text-xs text-slate-500 xl:dark:text-slate-400">
           <span>現状から目標への進捗</span>
           <span>{achievementRate != null ? formatPct(achievementRate) : '—'}</span>
         </div>
-        <div className="h-3 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+        <div className="h-3 overflow-hidden rounded-full bg-slate-100 xl:dark:bg-slate-800">
           <div
-            className="h-full rounded-full bg-slate-900 transition-all dark:bg-blue-400"
+            className="h-full rounded-full bg-slate-900 transition-all xl:dark:bg-blue-400"
             style={{ width: `${progressPct}%` }}
           />
         </div>
       </div>
 
-      <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4 text-sm dark:border-slate-800">
-        <span className="font-medium text-slate-500 dark:text-slate-400">必要な上積み</span>
-        <span className={`font-bold ${deltaIsPositive ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600 dark:text-red-300'}`}>
+      <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4 text-sm xl:dark:border-slate-800">
+        <span className="font-medium text-slate-500 xl:dark:text-slate-400">必要な上積み</span>
+        <span className={`font-bold ${deltaIsPositive ? 'text-emerald-700 xl:dark:text-emerald-300' : 'text-red-600 xl:dark:text-red-300'}`}>
           {delta != null ? `${delta >= 0 ? '+' : ''}${formatOkuFromMillion(delta)}` : '—'}
         </span>
       </div>
@@ -821,11 +821,11 @@ function FinancialTargetMetricCard({
 
 function CurrentToTargetPanel({ revenue, operatingProfit }: CurrentToTargetPanelProps) {
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-950/60 md:p-8">
-      <div className="mb-6 flex flex-col gap-2 border-b border-slate-100 pb-5 dark:border-slate-800">
-        <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-blue-700 dark:text-blue-300">Financial Target</p>
-        <h3 className="text-xl font-bold text-slate-950 dark:text-slate-50">数値目標と達成ギャップ</h3>
-        <p className="max-w-3xl text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+    <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm xl:dark:border-slate-700 xl:dark:bg-slate-950/60 md:p-8">
+      <div className="mb-6 flex flex-col gap-2 border-b border-slate-100 pb-5 xl:dark:border-slate-800">
+        <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-blue-700 xl:dark:text-blue-300">Financial Target</p>
+        <h3 className="text-xl font-bold text-slate-950 xl:dark:text-slate-50">数値目標と達成ギャップ</h3>
+        <p className="max-w-3xl text-sm leading-relaxed text-slate-600 xl:dark:text-slate-400">
           この戦略により、売上・営業利益の成長目標を実現し、持続的な収益基盤への転換を目指します。
           現在値と目標値の差分を明確にし、STAGE3以降の部門戦略・KPI設計に接続します。
         </p>
@@ -854,11 +854,11 @@ function GlassCard({
   hint?: string;
 }) {
   return (
-    <div className="relative rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md ring-1 ring-black/5">
+    <div className="relative rounded-2xl border border-black/10 bg-white/70 xl:dark:bg-white/5 shadow-sm backdrop-blur-md ring-1 ring-black/5">
       {accentClass && <div className={`absolute inset-x-0 top-0 h-1 rounded-t-2xl ${accentClass}`} />}
       <div className="p-4 md:p-5">
-        <div className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">{title}</div>
-        {hint && <p className="mb-3 text-[13px] leading-relaxed text-gray-500 dark:text-gray-400">{hint}</p>}
+        <div className="mb-3 text-sm font-semibold text-gray-700 xl:dark:text-gray-200">{title}</div>
+        {hint && <p className="mb-3 text-[13px] leading-relaxed text-gray-500 xl:dark:text-gray-400">{hint}</p>}
         {children}
       </div>
     </div>
@@ -889,10 +889,10 @@ function IssueBlockPreview({
   }[source];
 
   return (
-    <div className="rounded-2xl border border-black/10 bg-white/60 dark:bg-white/5 shadow-sm backdrop-blur-md">
+    <div className="rounded-2xl border border-black/10 bg-white/60 xl:dark:bg-white/5 shadow-sm backdrop-blur-md">
       <button onClick={onToggle} className="w-full flex items-center justify-between p-4 text-left">
         <div>
-          <h3 className="font-semibold text-gray-800 dark:text-gray-200">STAGE1 論点（{issueBlocks.length}件）</h3>
+          <h3 className="font-semibold text-gray-800 xl:dark:text-gray-200">STAGE1 論点（{issueBlocks.length}件）</h3>
           <span className="text-xs text-gray-500">取得元: {sourceLabel}</span>
         </div>
         <span className="text-gray-400">{collapsed ? '▼' : '▲'}</span>
@@ -904,7 +904,7 @@ function IssueBlockPreview({
             metricsSummary?.wacc !== undefined ||
             metricsSummary?.pbr !== undefined ||
             (metricsSummary as any)?.revenueCagrPct !== undefined) && (
-            <div className="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded p-2">
+            <div className="text-xs text-gray-600 xl:dark:text-gray-400 bg-gray-50 xl:dark:bg-gray-800 rounded p-2">
               <div className="grid grid-cols-2 gap-1">
                 {metricsSummary?.roic !== undefined && <span>ROIC: {metricsSummary.roic.toFixed(1)}%</span>}
                 {metricsSummary?.wacc !== undefined && <span>WACC: {metricsSummary.wacc.toFixed(1)}%</span>}
@@ -919,10 +919,10 @@ function IssueBlockPreview({
           <div className="max-h-[420px] overflow-auto pr-2 space-y-3">
             {issueBlocks.map((issue, i) => (
               <div key={i} className="border-l-2 border-blue-400 pl-3 py-1">
-                <div className="font-medium text-sm text-gray-800 dark:text-gray-200">{issue.title || `論点 ${i + 1}`}</div>
+                <div className="font-medium text-sm text-gray-800 xl:dark:text-gray-200">{issue.title || `論点 ${i + 1}`}</div>
 
                 {issue.description && (
-                  <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                  <div className="text-xs text-gray-600 xl:dark:text-gray-400 mt-1">
                     <ScrollText maxH="max-h-[140px]">{issue.description}</ScrollText>
                   </div>
                 )}
@@ -930,7 +930,7 @@ function IssueBlockPreview({
                 {issue.linkedMetrics?.length > 0 && (
                   <div className="flex gap-1 mt-2 flex-wrap">
                     {issue.linkedMetrics.map((m) => (
-                      <span key={m} className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded">
+                      <span key={m} className="text-xs bg-blue-100 xl:dark:bg-blue-900 text-blue-700 xl:dark:text-blue-300 px-1.5 py-0.5 rounded">
                         {m}
                       </span>
                     ))}
@@ -953,8 +953,8 @@ function CEOIntentSection() {
   const ceoIntent = useStrategyStore((s: StrategyState) => s.ceoIntent ?? '');
 
   return (
-    <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
-      <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">経営者の思い</h3>
+    <div className="rounded-2xl border border-black/10 bg-white/70 xl:dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
+      <h3 className="text-lg font-semibold text-gray-800 xl:dark:text-gray-200 mb-4">経営者の思い</h3>
 
       <GlassCard title="経営者の思い" hint="原点・譲れない価値観・実現したい未来など、企業の根底にある思いを記入してください">
         <AutoResizeTextarea
@@ -981,7 +981,7 @@ function MVVSection() {
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">MVV（ミッション・ビジョン・バリュー）</h3>
+      <h3 className="text-lg font-semibold text-gray-800 xl:dark:text-gray-200 mb-4">MVV（ミッション・ビジョン・バリュー）</h3>
 
       <GlassCard title="Mission（ミッション）" hint="会社が存在する理由。短く、覚えやすく。">
         <AutoResizeTextarea
@@ -1043,16 +1043,16 @@ function OTSuggestionsPanel({
   }
 
   return (
-    <div className="rounded-2xl border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/20 p-6">
-      <h4 className="text-base font-semibold text-blue-700 dark:text-blue-300 mb-4">提案された機会と脅威</h4>
+    <div className="rounded-2xl border border-blue-200 xl:dark:border-blue-800 bg-blue-50/50 xl:dark:bg-blue-900/20 p-6">
+      <h4 className="text-base font-semibold text-blue-700 xl:dark:text-blue-300 mb-4">提案された機会と脅威</h4>
 
       {opportunities.length > 0 && (
         <div className="mb-6">
-          <h5 className="text-sm font-medium text-blue-600 dark:text-blue-400 mb-3">提案された機会（Opportunity）</h5>
+          <h5 className="text-sm font-medium text-blue-600 xl:dark:text-blue-400 mb-3">提案された機会（Opportunity）</h5>
           <div className="space-y-2">
             {opportunities.map((opp, idx) => (
-              <div key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-white/50 dark:bg-white/5">
-                <span className="flex-1 text-sm text-gray-700 dark:text-gray-300">{opp}</span>
+              <div key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-white/50 xl:dark:bg-white/5">
+                <span className="flex-1 text-sm text-gray-700 xl:dark:text-gray-300">{opp}</span>
                 <button
                   onClick={() => onAddOpportunity(opp)}
                   className="px-3 py-1 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors whitespace-nowrap"
@@ -1067,11 +1067,11 @@ function OTSuggestionsPanel({
 
       {threats.length > 0 && (
         <div>
-          <h5 className="text-sm font-medium text-amber-600 dark:text-amber-400 mb-3">提案された脅威（Threat）</h5>
+          <h5 className="text-sm font-medium text-amber-600 xl:dark:text-amber-400 mb-3">提案された脅威（Threat）</h5>
           <div className="space-y-2">
             {threats.map((threat, idx) => (
-              <div key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-white/50 dark:bg-white/5">
-                <span className="flex-1 text-sm text-gray-700 dark:text-gray-300">{threat}</span>
+              <div key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-white/50 xl:dark:bg-white/5">
+                <span className="flex-1 text-sm text-gray-700 xl:dark:text-gray-300">{threat}</span>
                 <button
                   onClick={() => onAddThreat(threat)}
                   className="px-3 py-1 rounded-lg bg-amber-600 text-white text-xs font-medium hover:bg-amber-700 transition-colors whitespace-nowrap"
@@ -1245,13 +1245,13 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
   };
 
   return (
-    <div className="rounded-2xl border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-900/20 p-6">
-      <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">🏁 業績目標</h3>
+    <div className="rounded-2xl border border-purple-200 xl:dark:border-purple-800 bg-purple-50/50 xl:dark:bg-purple-900/20 p-6">
+      <h3 className="text-lg font-semibold text-gray-800 xl:dark:text-gray-200 mb-4">🏁 業績目標</h3>
 
       {/* 既存目標表示 */}
       <div className="space-y-3 max-h-[500px] overflow-auto mb-6">
         {companyTargets.length === 0 && !isAddingNew && !editingId && (
-          <p className="text-sm text-gray-600 dark:text-gray-400">業績目標はまだ設定されていません</p>
+          <p className="text-sm text-gray-600 xl:dark:text-gray-400">業績目標はまだ設定されていません</p>
         )}
 
         {companyTargets.map((ct: any, idx: number) => {
@@ -1259,32 +1259,32 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
           return (
             <div
               key={ctId}
-              className="p-3 bg-white/60 dark:bg-white/5 rounded-lg border border-purple-200 dark:border-purple-700"
+              className="p-3 bg-white/60 xl:dark:bg-white/5 rounded-lg border border-purple-200 xl:dark:border-purple-700"
             >
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  <div className="font-medium text-gray-800 dark:text-gray-100">
+                  <div className="font-medium text-gray-800 xl:dark:text-gray-100">
                     {ct.label}
-                    <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-purple-100/70 dark:bg-purple-800/40 text-purple-700 dark:text-purple-200">
+                    <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-purple-100/70 xl:dark:bg-purple-800/40 text-purple-700 xl:dark:text-purple-200">
                       {priorityLabel(ct.prioritySimple)}
                     </span>
                   </div>
 
-                  <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                  <div className="text-xs text-gray-600 xl:dark:text-gray-400 mt-1">
                     {ct.unit && `単位: ${ct.unit}`}
                     {ct.dueYear && ` | 目標年: ${ct.dueYear}`}
                   </div>
 
-                  <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">目標値: {ct.base}</div>
+                  <div className="text-xs text-gray-600 xl:dark:text-gray-400 mt-1">目標値: {ct.base}</div>
 
                   {ct.rationale && (
-                    <div className="text-xs text-purple-700 dark:text-purple-300 mt-2 p-2 bg-purple-100/30 dark:bg-purple-800/30 rounded">
+                    <div className="text-xs text-purple-700 xl:dark:text-purple-300 mt-2 p-2 bg-purple-100/30 xl:dark:bg-purple-800/30 rounded">
                       {ct.rationale}
                     </div>
                   )}
 
                   {ct.linkedIssueIds?.length > 0 && (
-                    <div className="text-xs text-blue-600 dark:text-blue-400 mt-2">関連論点: {ct.linkedIssueIds.length}件</div>
+                    <div className="text-xs text-blue-600 xl:dark:text-blue-400 mt-2">関連論点: {ct.linkedIssueIds.length}件</div>
                   )}
                 </div>
 
@@ -1292,14 +1292,14 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
                   <button
                     type="button"
                     onClick={() => handleEdit(ct)}
-                    className="px-2 py-1 text-xs rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50"
+                    className="px-2 py-1 text-xs rounded bg-blue-100 xl:dark:bg-blue-900/30 text-blue-700 xl:dark:text-blue-400 hover:bg-blue-200 xl:dark:hover:bg-blue-900/50"
                   >
                     編集
                   </button>
                   <button
                     type="button"
                     onClick={() => handleDelete(ct.id)}
-                    className="px-2 py-1 text-xs rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50"
+                    className="px-2 py-1 text-xs rounded bg-red-100 xl:dark:bg-red-900/30 text-red-700 xl:dark:text-red-400 hover:bg-red-200 xl:dark:hover:bg-red-900/50"
                   >
                     削除
                   </button>
@@ -1312,18 +1312,18 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
 
       {/* 追加/編集フォーム */}
       {(isAddingNew || editingId) && (
-        <div className="border-t border-purple-200 dark:border-purple-700 pt-6 mb-6">
-          <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-4">{editingId ? '編集' : '新規追加'}</h4>
+        <div className="border-t border-purple-200 xl:dark:border-purple-700 pt-6 mb-6">
+          <h4 className="text-sm font-semibold text-gray-800 xl:dark:text-gray-200 mb-4">{editingId ? '編集' : '新規追加'}</h4>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 gap-4 mb-4">
             <div>
-              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+              <label className="text-xs font-medium text-gray-600 xl:dark:text-gray-400">
                 ラベル <span className="text-red-500">*</span>
               </label>
               <select
                 value={formData.labelPreset}
                 onChange={(e) => setFormData({ ...formData, labelPreset: e.target.value })}
-                className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5"
+                className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 xl:dark:border-gray-600 bg-white/70 xl:dark:bg-white/5"
               >
                 {NS_LABEL_PRESETS.map((x) => (
                   <option key={x} value={x}>
@@ -1338,18 +1338,18 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
                   type="text"
                   value={formData.labelOther}
                   onChange={(e) => setFormData({ ...formData, labelOther: e.target.value })}
-                  className="w-full mt-2 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5"
+                  className="w-full mt-2 px-3 py-2 text-sm rounded-lg border border-gray-300 xl:dark:border-gray-600 bg-white/70 xl:dark:bg-white/5"
                   placeholder="例）受注残、製造原価率 など"
                 />
               )}
             </div>
 
             <div>
-              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">単位</label>
+              <label className="text-xs font-medium text-gray-600 xl:dark:text-gray-400">単位</label>
               <select
                 value={formData.unit}
                 onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
-                className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5"
+                className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 xl:dark:border-gray-600 bg-white/70 xl:dark:bg-white/5"
               >
                 {NS_UNIT_PRESETS.map((u) => (
                   <option key={u} value={u}>
@@ -1360,33 +1360,33 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
             </div>
 
             <div>
-              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+              <label className="text-xs font-medium text-gray-600 xl:dark:text-gray-400">
                 目標値 <span className="text-red-500">*</span>
               </label>
               <input
                 type="number"
                 value={formData.base}
                 onChange={(e) => setFormData({ ...formData, base: e.target.value })}
-                className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5"
+                className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 xl:dark:border-gray-600 bg-white/70 xl:dark:bg-white/5"
               />
             </div>
 
             <div>
-              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">目標年</label>
+              <label className="text-xs font-medium text-gray-600 xl:dark:text-gray-400">目標年</label>
               <input
                 type="number"
                 value={formData.dueYear}
                 onChange={(e) => setFormData({ ...formData, dueYear: e.target.value })}
-                className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5"
+                className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 xl:dark:border-gray-600 bg-white/70 xl:dark:bg-white/5"
               />
             </div>
 
             <div>
-              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">重要度（任意）</label>
+              <label className="text-xs font-medium text-gray-600 xl:dark:text-gray-400">重要度（任意）</label>
               <select
                 value={formData.prioritySimple}
                 onChange={(e) => setFormData({ ...formData, prioritySimple: e.target.value as PrioritySimple })}
-                className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5"
+                className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 xl:dark:border-gray-600 bg-white/70 xl:dark:bg-white/5"
               >
                 <option value="primary">主KPI</option>
                 <option value="secondary">副KPI</option>
@@ -1396,11 +1396,11 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
           </div>
 
           <div className="mb-4">
-            <label className="text-xs font-medium text-gray-600 dark:text-gray-400">根拠・説明（任意）</label>
+            <label className="text-xs font-medium text-gray-600 xl:dark:text-gray-400">根拠・説明（任意）</label>
             <AutoResizeTextarea
               value={formData.rationale}
               onChange={(e) => setFormData({ ...formData, rationale: e.target.value })}
-              className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white/70 dark:bg-white/5"
+              className="w-full mt-1 px-3 py-2 text-sm rounded-lg border border-gray-300 xl:dark:border-gray-600 bg-white/70 xl:dark:bg-white/5"
               placeholder="この業績目標を設定した理由"
               minRows={3}
               maxRows={12}
@@ -1408,8 +1408,8 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
           </div>
 
           <div className="mb-4">
-            <label className="text-xs font-medium text-gray-600 dark:text-gray-400">関連論点（複数選択可）</label>
-            <div className="grid grid-cols-2 gap-2 mt-2 max-h-[150px] overflow-auto bg-white/30 dark:bg-white/5 p-3 rounded-lg">
+            <label className="text-xs font-medium text-gray-600 xl:dark:text-gray-400">関連論点（複数選択可）</label>
+            <div className="grid grid-cols-2 gap-2 mt-2 max-h-[150px] overflow-auto bg-white/30 xl:dark:bg-white/5 p-3 rounded-lg">
               {issueBlocks.map((issue: any, idx: number) => {
                 const rawId = issue?.id;
                 const issueId =
@@ -1433,7 +1433,7 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
                       }}
                       className="rounded"
                     />
-                    <span className="text-gray-700 dark:text-gray-300 truncate">{issue?.title || `（無題の論点 ${idx}）`}</span>
+                    <span className="text-gray-700 xl:dark:text-gray-300 truncate">{issue?.title || `（無題の論点 ${idx}）`}</span>
                   </label>
                 );
               })}
@@ -1444,7 +1444,7 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
             <button
               type="button"
               onClick={resetForm}
-              className="px-4 py-2 text-sm rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600"
+              className="px-4 py-2 text-sm rounded-lg bg-gray-200 xl:dark:bg-gray-700 text-gray-800 xl:dark:text-gray-200 hover:bg-gray-300 xl:dark:hover:bg-gray-600"
             >
               キャンセル
             </button>
@@ -1463,7 +1463,7 @@ function CompanyTargetsSection({ companyTargets: _unused, issueBlocks }: Company
         <button
           type="button"
           onClick={() => setIsAddingNew(true)}
-          className="w-full px-4 py-2 text-sm rounded-lg border border-dashed border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-400 hover:bg-purple-50/50 dark:hover:bg-purple-900/10 transition-colors"
+          className="w-full px-4 py-2 text-sm rounded-lg border border-dashed border-purple-300 xl:dark:border-purple-700 text-purple-700 xl:dark:text-purple-400 hover:bg-purple-50/50 xl:dark:hover:bg-purple-900/10 transition-colors"
         >
           + 新規メトリクスを追加
         </button>
@@ -1483,7 +1483,7 @@ function SWOTSection() {
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">SWOT分析</h3>
+      <h3 className="text-lg font-semibold text-gray-800 xl:dark:text-gray-200 mb-4">SWOT分析</h3>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <GlassCard title="Strength（強み）" accentClass="bg-emerald-400/80" hint="自社の競争優位性">
@@ -1647,9 +1647,9 @@ function DraftStoryPanel({ storyDraft, issueBlocks }: { storyDraft: StoryChapter
   const has = storyDraft && storyDraft.length > 0;
   if (!has) {
     return (
-      <div className="rounded-2xl border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50/50 dark:bg-gray-800/50 p-6 text-center">
-        <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">4章ストーリー（未生成）</h4>
-        <p className="text-xs text-gray-400 dark:text-gray-500">「入力」タブで「たたき台を生成」を実行すると結果が表示されます</p>
+      <div className="rounded-2xl border border-dashed border-gray-300 xl:dark:border-gray-600 bg-gray-50/50 xl:dark:bg-gray-800/50 p-6 text-center">
+        <h4 className="text-sm font-medium text-gray-600 xl:dark:text-gray-400 mb-1">4章ストーリー（未生成）</h4>
+        <p className="text-xs text-gray-400 xl:dark:text-gray-500">「入力」タブで「たたき台を生成」を実行すると結果が表示されます</p>
       </div>
     );
   }
@@ -1665,29 +1665,29 @@ function DraftStoryPanel({ storyDraft, issueBlocks }: { storyDraft: StoryChapter
 
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl border border-blue-100 dark:border-blue-900/50 bg-gradient-to-br from-blue-50 to-white dark:from-blue-950/30 dark:to-gray-900/20 shadow-sm p-5">
-        <div className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-2">AIが導いた戦略結論</div>
-        <div className="text-base font-semibold text-gray-900 dark:text-gray-100 leading-relaxed">
+      <div className="rounded-2xl border border-blue-100 xl:dark:border-blue-900/50 bg-gradient-to-br from-blue-50 to-white xl:dark:from-blue-950/30 xl:dark:to-gray-900/20 shadow-sm p-5">
+        <div className="text-xs font-semibold text-blue-700 xl:dark:text-blue-300 mb-2">AIが導いた戦略結論</div>
+        <div className="text-base font-semibold text-gray-900 xl:dark:text-gray-100 leading-relaxed">
           {strategicConclusion}
         </div>
-        <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+        <p className="mt-2 text-xs text-gray-600 xl:dark:text-gray-400">
           まず結論を確認し、必要に応じて論点・勝ち筋・90日アクションを編集してください。
         </p>
       </div>
 
       {issueCards.length > 0 && (
-        <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-4">
+        <div className="rounded-2xl border border-black/10 bg-white/70 xl:dark:bg-white/5 shadow-sm backdrop-blur-md p-4">
           <div className="flex items-center justify-between mb-3">
-            <h4 className="font-semibold text-gray-800 dark:text-gray-200">今、経営が判断すべき論点</h4>
-            <div className="text-[11px] text-gray-500 dark:text-gray-400">最大3件</div>
+            <h4 className="font-semibold text-gray-800 xl:dark:text-gray-200">今、経営が判断すべき論点</h4>
+            <div className="text-[11px] text-gray-500 xl:dark:text-gray-400">最大3件</div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {issueCards.map((issue, idx) => (
-              <div key={`${issue.title}-${idx}`} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/30 p-3">
-                <div className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 mb-1">論点 {idx + 1}</div>
-                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-snug">{issue.title}</div>
+              <div key={`${issue.title}-${idx}`} className="rounded-xl border border-gray-200 xl:dark:border-gray-700 bg-white/80 xl:dark:bg-gray-900/30 p-3">
+                <div className="text-[11px] font-semibold text-blue-600 xl:dark:text-blue-400 mb-1">論点 {idx + 1}</div>
+                <div className="text-sm font-semibold text-gray-900 xl:dark:text-gray-100 leading-snug">{issue.title}</div>
                 {issue.description && (
-                  <div className="mt-2 text-xs text-gray-600 dark:text-gray-400 leading-relaxed line-clamp-3">
+                  <div className="mt-2 text-xs text-gray-600 xl:dark:text-gray-400 leading-relaxed line-clamp-3">
                     {issue.description}
                   </div>
                 )}
@@ -1698,45 +1698,45 @@ function DraftStoryPanel({ storyDraft, issueBlocks }: { storyDraft: StoryChapter
       )}
 
       {strategyBlocks.length > 0 && (
-        <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-4">
-          <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-3">どう戦うか</h4>
+        <div className="rounded-2xl border border-black/10 bg-white/70 xl:dark:bg-white/5 shadow-sm backdrop-blur-md p-4">
+          <h4 className="font-semibold text-gray-800 xl:dark:text-gray-200 mb-3">どう戦うか</h4>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
             {strategyBlocks.map((block, idx) => (
-              <div key={`${block.driver}-${idx}`} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/30 p-3 max-h-[360px] overflow-auto">
-                <div className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 mb-1">勝ち筋 {idx + 1}</div>
-                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-snug">{block.driver}</div>
+              <div key={`${block.driver}-${idx}`} className="rounded-xl border border-gray-200 xl:dark:border-gray-700 bg-white/80 xl:dark:bg-gray-900/30 p-3 max-h-[360px] overflow-auto">
+                <div className="text-[11px] font-semibold text-blue-600 xl:dark:text-blue-400 mb-1">勝ち筋 {idx + 1}</div>
+                <div className="text-sm font-semibold text-gray-900 xl:dark:text-gray-100 leading-snug">{block.driver}</div>
 
                 {block.decision && (
-                  <div className="mt-3 rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50/80 dark:bg-amber-950/20 px-3 py-2">
-                    <div className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 mb-1">経営判断</div>
-                    <div className="text-xs text-gray-800 dark:text-gray-200 leading-relaxed">{block.decision}</div>
+                  <div className="mt-3 rounded-lg border border-amber-200 xl:dark:border-amber-900/60 bg-amber-50/80 xl:dark:bg-amber-950/20 px-3 py-2">
+                    <div className="text-[11px] font-semibold text-amber-700 xl:dark:text-amber-300 mb-1">経営判断</div>
+                    <div className="text-xs text-gray-800 xl:dark:text-gray-200 leading-relaxed">{block.decision}</div>
                   </div>
                 )}
 
                 {block.strategies.length > 0 && (
                   <div className="mt-3">
-                    <div className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1">主要戦略</div>
+                    <div className="text-[11px] font-semibold text-gray-500 xl:dark:text-gray-400 mb-1">主要戦略</div>
                     <ul className="space-y-1">
                       {block.strategies.map((item, itemIdx) => (
-                        <li key={itemIdx} className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed">・{item}</li>
+                        <li key={itemIdx} className="text-xs text-gray-700 xl:dark:text-gray-300 leading-relaxed">・{item}</li>
                       ))}
                     </ul>
                   </div>
                 )}
 
                 {block.actions.length > 0 && (
-                  <div className="mt-3 rounded-lg bg-blue-50/70 dark:bg-blue-950/20 px-3 py-2">
-                    <div className="text-[11px] font-semibold text-blue-700 dark:text-blue-300 mb-1">90日アクション</div>
+                  <div className="mt-3 rounded-lg bg-blue-50/70 xl:dark:bg-blue-950/20 px-3 py-2">
+                    <div className="text-[11px] font-semibold text-blue-700 xl:dark:text-blue-300 mb-1">90日アクション</div>
                     <ul className="space-y-1">
                       {block.actions.map((item, itemIdx) => (
-                        <li key={itemIdx} className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed">・{item}</li>
+                        <li key={itemIdx} className="text-xs text-gray-700 xl:dark:text-gray-300 leading-relaxed">・{item}</li>
                       ))}
                     </ul>
                   </div>
                 )}
 
                 {block.tradeoff && (
-                  <div className="mt-3 text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
+                  <div className="mt-3 text-[11px] text-gray-500 xl:dark:text-gray-400 leading-relaxed">
                     <span className="font-semibold">トレードオフ：</span>{block.tradeoff}
                   </div>
                 )}
@@ -1746,36 +1746,36 @@ function DraftStoryPanel({ storyDraft, issueBlocks }: { storyDraft: StoryChapter
         </div>
       )}
 
-      <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-4">
-        <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-3">4章ストーリー詳細</h4>
+      <div className="rounded-2xl border border-black/10 bg-white/70 xl:dark:bg-white/5 shadow-sm backdrop-blur-md p-4">
+        <h4 className="font-semibold text-gray-800 xl:dark:text-gray-200 mb-3">4章ストーリー詳細</h4>
         <div className="space-y-4">
         {storyDraft.map((chapter, i) => (
-          <details key={i} className="group rounded-xl border border-gray-200 dark:border-gray-700 bg-white/75 dark:bg-gray-900/25 p-3" open={i === 0}>
+          <details key={i} className="group rounded-xl border border-gray-200 xl:dark:border-gray-700 bg-white/75 xl:dark:bg-gray-900/25 p-3" open={i === 0}>
             <summary className="cursor-pointer list-none">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="text-xs font-semibold text-blue-600 dark:text-blue-400">{chapter.title}</div>
-                  <div className="mt-1 text-sm font-medium text-gray-900 dark:text-gray-100 leading-snug">
+                  <div className="text-xs font-semibold text-blue-600 xl:dark:text-blue-400">{chapter.title}</div>
+                  <div className="mt-1 text-sm font-medium text-gray-900 xl:dark:text-gray-100 leading-snug">
                     {extractLeadSentence(chapter.body)}
                   </div>
                 </div>
-                <span className="shrink-0 rounded-full border border-gray-200 dark:border-gray-700 px-2 py-1 text-[11px] text-gray-500 dark:text-gray-400 group-open:hidden">開く</span>
-                <span className="shrink-0 rounded-full border border-gray-200 dark:border-gray-700 px-2 py-1 text-[11px] text-gray-500 dark:text-gray-400 hidden group-open:inline">閉じる</span>
+                <span className="shrink-0 rounded-full border border-gray-200 xl:dark:border-gray-700 px-2 py-1 text-[11px] text-gray-500 xl:dark:text-gray-400 group-open:hidden">開く</span>
+                <span className="shrink-0 rounded-full border border-gray-200 xl:dark:border-gray-700 px-2 py-1 text-[11px] text-gray-500 xl:dark:text-gray-400 hidden group-open:inline">閉じる</span>
               </div>
             </summary>
 
             {i === 0 && issueBlocks && issueBlocks.length > 0 && (
-              <div className="mt-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white/60 dark:bg-white/5 p-3">
+              <div className="mt-2 rounded-xl border border-gray-200 xl:dark:border-gray-700 bg-white/60 xl:dark:bg-white/5 p-3">
                 <div className="flex items-center justify-between mb-2">
-                  <div className="text-xs font-semibold text-gray-700 dark:text-gray-300">論点（STAGE1分析より）</div>
-                  <div className="text-[11px] text-gray-500 dark:text-gray-400">最大5件表示</div>
+                  <div className="text-xs font-semibold text-gray-700 xl:dark:text-gray-300">論点（STAGE1分析より）</div>
+                  <div className="text-[11px] text-gray-500 xl:dark:text-gray-400">最大5件表示</div>
                 </div>
                 <div className="space-y-2">
                   {issueBlocks.slice(0, 5).map((iss, idx) => (
-                    <div key={(iss as any).id ?? idx} className="rounded-lg border border-gray-100 dark:border-gray-800 bg-white/70 dark:bg-gray-900/20 px-3 py-2">
-                      <div className="text-xs font-medium text-gray-800 dark:text-gray-200">{idx + 1}. {iss.title}</div>
+                    <div key={(iss as any).id ?? idx} className="rounded-lg border border-gray-100 xl:dark:border-gray-800 bg-white/70 xl:dark:bg-gray-900/20 px-3 py-2">
+                      <div className="text-xs font-medium text-gray-800 xl:dark:text-gray-200">{idx + 1}. {iss.title}</div>
                       {iss.description && (
-                        <div className="mt-1 text-[12px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words">
+                        <div className="mt-1 text-[12px] text-gray-600 xl:dark:text-gray-400 whitespace-pre-wrap break-words">
                           {iss.description}
                         </div>
                       )}
@@ -1785,7 +1785,7 @@ function DraftStoryPanel({ storyDraft, issueBlocks }: { storyDraft: StoryChapter
               </div>
             )}
 
-            <div className="mt-3 max-h-[360px] overflow-auto pr-2 text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words leading-relaxed">
+            <div className="mt-3 max-h-[360px] overflow-auto pr-2 text-xs text-gray-600 xl:dark:text-gray-400 whitespace-pre-wrap break-words leading-relaxed">
               {stripIssueSummaryFromDisplay(chapter.body)}
             </div>
           </details>
@@ -2034,17 +2034,17 @@ function Questions12Section({
   const answeredTotal = safeAnswers12.filter((a) => a.answer?.trim()).length;
 
   return (
-    <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
+    <div className="rounded-2xl border border-black/10 bg-white/70 xl:dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">12のディスカッションテーマ</h3>
-        <span className="text-sm text-gray-500 dark:text-gray-400">
+        <h3 className="text-lg font-semibold text-gray-800 xl:dark:text-gray-200">12のディスカッションテーマ</h3>
+        <span className="text-sm text-gray-500 xl:dark:text-gray-400">
           入力済み: {answeredTotal}/{TEMPLATE12.length}
         </span>
       </div>
 
       {/* ★ Version 1.1: 未反映件数表示 */}
       {unreflectedCount > 0 && (
-        <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg text-sm text-amber-700 dark:text-amber-400">
+        <div className="mb-4 p-3 bg-amber-50 xl:dark:bg-amber-900/20 border border-amber-200 xl:dark:border-amber-800 rounded-lg text-sm text-amber-700 xl:dark:text-amber-400">
           AI深掘り：{unreflectedCount}件の回答が元の回答に未反映です
         </div>
       )}
@@ -2055,7 +2055,7 @@ function Questions12Section({
           <div className="max-h-[520px] overflow-auto pr-2 space-y-3">
             {Object.entries(groupedQuestions).map(([chapterIdx, questions]) => (
               <div key={chapterIdx} className="space-y-1">
-                <div className="text-xs font-medium text-gray-500 dark:text-gray-400 px-2">
+                <div className="text-xs font-medium text-gray-500 xl:dark:text-gray-400 px-2">
                   {CHAPTER_LABELS[Number(chapterIdx)]}
                 </div>
 
@@ -2071,34 +2071,34 @@ function Questions12Section({
                       onClick={() => setSelectedId(q.id)}
                       className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
                         isSelected
-                          ? 'bg-blue-100 dark:bg-blue-900/40 border border-blue-300 dark:border-blue-700'
-                          : 'bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800'
+                          ? 'bg-blue-100 xl:dark:bg-blue-900/40 border border-blue-300 xl:dark:border-blue-700'
+                          : 'bg-gray-50 xl:dark:bg-gray-800/50 hover:bg-gray-100 xl:dark:hover:bg-gray-800'
                       }`}
                     >
                       <div className="flex items-center gap-2">
                         <span
                           className={`w-5 h-5 flex items-center justify-center rounded-full text-xs ${
-                            isAnswered ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-500'
+                            isAnswered ? 'bg-green-500 text-white' : 'bg-gray-200 xl:dark:bg-gray-700 text-gray-500'
                           }`}
                         >
                           {isAnswered ? '✓' : idx + 1}
                         </span>
 
-                        <span className="flex-1 text-gray-700 dark:text-gray-300 break-words">{q.question}</span>
+                        <span className="flex-1 text-gray-700 xl:dark:text-gray-300 break-words">{q.question}</span>
 
                         {/* ★ Version 1.1: deepDive状態badge */}
                         {ddState === 'unanswered' && (
-                          <span className="text-xs px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 whitespace-nowrap">
+                          <span className="text-xs px-2 py-0.5 rounded bg-blue-100 xl:dark:bg-blue-900/40 text-blue-700 xl:dark:text-blue-300 whitespace-nowrap">
                             AI問い
                           </span>
                         )}
                         {ddState === 'answered_unreflected' && (
-                          <span className="text-xs px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 whitespace-nowrap">
+                          <span className="text-xs px-2 py-0.5 rounded bg-amber-100 xl:dark:bg-amber-900/40 text-amber-700 xl:dark:text-amber-300 whitespace-nowrap">
                             AI未反映
                           </span>
                         )}
                         {ddState === 'reflected' && (
-                          <span className="text-xs px-2 py-0.5 rounded bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 whitespace-nowrap">
+                          <span className="text-xs px-2 py-0.5 rounded bg-green-100 xl:dark:bg-green-900/40 text-green-700 xl:dark:text-green-300 whitespace-nowrap">
                             AI反映済
                           </span>
                         )}
@@ -2113,12 +2113,12 @@ function Questions12Section({
 
         {/* 右: 選択中の質問と回答入力 */}
         <div className="lg:col-span-8 space-y-4">
-          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-white/5 p-4">
+          <div className="rounded-xl border border-gray-200 xl:dark:border-gray-700 bg-white/50 xl:dark:bg-white/5 p-4">
             <div className="flex items-start gap-2 mb-2">
-              <span className="text-xs text-gray-500 dark:text-gray-400">{CHAPTER_LABELS[selectedQ.chapter]}</span>
+              <span className="text-xs text-gray-500 xl:dark:text-gray-400">{CHAPTER_LABELS[selectedQ.chapter]}</span>
             </div>
-            <h4 className="text-base font-medium text-gray-800 dark:text-gray-200 mb-2">{selectedQ.question}</h4>
-            <p className="text-sm text-gray-500 dark:text-gray-400">💡 {selectedQ.reason}</p>
+            <h4 className="text-base font-medium text-gray-800 xl:dark:text-gray-200 mb-2">{selectedQ.question}</h4>
+            <p className="text-sm text-gray-500 xl:dark:text-gray-400">💡 {selectedQ.reason}</p>
           </div>
 
           <AutoResizeTextarea
@@ -2126,14 +2126,14 @@ function Questions12Section({
             onChange={(e) => onUpdateAnswer(selectedId, e.target.value)}
             disabled={disabled}
             placeholder="この質問に対するあなたの考えを記入してください（未回答でも経営戦略は生成できます）..."
-            className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white/70 dark:bg-white/5 px-4 py-3 text-sm text-gray-800 dark:text-gray-200 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+            className="w-full rounded-xl border border-gray-200 xl:dark:border-gray-700 bg-white/70 xl:dark:bg-white/5 px-4 py-3 text-sm text-gray-800 xl:dark:text-gray-200 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
             minRows={4}
             maxRows={18}
           />
 
           <div className="flex items-center justify-between text-xs text-gray-500">
             <span>{currentAnswer.length} 文字</span>
-            {currentAnswer.trim() && <span className="text-green-600 dark:text-green-400">✓ 入力済み</span>}
+            {currentAnswer.trim() && <span className="text-green-600 xl:dark:text-green-400">✓ 入力済み</span>}
           </div>
 
           {/* ★ 新規：深掘りボタン（対象4問のみ、一度きり生成） */}
@@ -2144,43 +2144,43 @@ function Questions12Section({
             <button
               onClick={handleGenerateDeepDive}
               disabled={deepDiveLoading}
-              className="w-full px-4 py-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg text-sm font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="w-full px-4 py-2 bg-blue-50 xl:dark:bg-blue-900/30 border border-blue-200 xl:dark:border-blue-700 rounded-lg text-sm font-medium text-blue-700 xl:dark:text-blue-300 hover:bg-blue-100 xl:dark:hover:bg-blue-900/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {deepDiveLoading ? '生成中...' : 'AIともう一段掘り下げる'}
             </button>
           )}
 
           {deepDiveError && (
-            <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-400">
+            <div className="p-3 bg-red-50 xl:dark:bg-red-900/20 border border-red-200 xl:dark:border-red-800 rounded-lg text-sm text-red-700 xl:dark:text-red-400">
               {deepDiveError}
             </div>
           )}
 
           {/* ★ Version 1.1：深掘りカード */}
           {currentDeepDive && (
-            <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-4 space-y-4">
+            <div className="rounded-lg border border-blue-200 xl:dark:border-blue-800 bg-blue-50 xl:dark:bg-blue-900/20 p-4 space-y-4">
               {/* タイトル */}
-              <div className="text-xs font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wide">
+              <div className="text-xs font-semibold text-blue-700 xl:dark:text-blue-300 uppercase tracking-wide">
                 AIが見つけた重要論点
               </div>
 
               {/* 1. 追加質問（最も目立たせる） */}
-              <div className="bg-white dark:bg-white/5 rounded-lg p-3 border border-blue-300 dark:border-blue-600">
-                <p className="text-base font-medium text-gray-800 dark:text-gray-100">
+              <div className="bg-white xl:dark:bg-white/5 rounded-lg p-3 border border-blue-300 xl:dark:border-blue-600">
+                <p className="text-base font-medium text-gray-800 xl:dark:text-gray-100">
                   {currentDeepDive.question}
                 </p>
               </div>
 
               {/* 2. なぜこの問いを考えるか（補足情報） */}
               {currentDeepDive.rationale && (
-                <div className="text-xs text-gray-600 dark:text-gray-400 italic">
+                <div className="text-xs text-gray-600 xl:dark:text-gray-400 italic">
                   💡 {currentDeepDive.rationale}
                 </div>
               )}
 
               {/* 元の回答が変更されたことの警告 */}
               {isSourceAnswerChanged && (
-                <div className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 p-2 rounded border border-amber-200 dark:border-amber-800">
+                <div className="text-xs text-amber-700 xl:dark:text-amber-400 bg-amber-50 xl:dark:bg-amber-900/20 p-2 rounded border border-amber-200 xl:dark:border-amber-800">
                   元の回答が変更されています。AIの問いは変更前の回答をもとに生成されています。
                 </div>
               )}
@@ -2191,26 +2191,26 @@ function Questions12Section({
                 onChange={(e) => handleUpdateDeepDiveAnswer(e.target.value)}
                 disabled={disabled}
                 placeholder="この追加質問に対するあなたの考えを記入してください..."
-                className="w-full rounded-lg border border-blue-300 dark:border-blue-600 bg-white dark:bg-white/5 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                className="w-full rounded-lg border border-blue-300 xl:dark:border-blue-600 bg-white xl:dark:bg-white/5 px-3 py-2 text-sm text-gray-800 xl:dark:text-gray-200 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
                 minRows={3}
                 maxRows={10}
               />
 
               {/* 4. 状態表示と文字数 */}
               <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500 dark:text-gray-400">
+                <span className="text-gray-500 xl:dark:text-gray-400">
                   {currentDeepDive.answer ? `${currentDeepDive.answer.length} 文字` : '未回答'}
                 </span>
                 {deepDiveState === 'unanswered' && (
-                  <span className="text-gray-500 dark:text-gray-400">未回答</span>
+                  <span className="text-gray-500 xl:dark:text-gray-400">未回答</span>
                 )}
                 {deepDiveState === 'answered_unreflected' && (
-                  <span className="text-amber-700 dark:text-amber-400 font-medium">
+                  <span className="text-amber-700 xl:dark:text-amber-400 font-medium">
                     回答済み・元の回答には未反映
                   </span>
                 )}
                 {deepDiveState === 'reflected' && (
-                  <span className="text-green-700 dark:text-green-400 font-medium">
+                  <span className="text-green-700 xl:dark:text-green-400 font-medium">
                     ✓ 元の回答に反映済み
                   </span>
                 )}
@@ -2223,7 +2223,7 @@ function Questions12Section({
                   <button
                     onClick={handleApplyDeepDiveToAnswer}
                     disabled={disabled}
-                    className="flex-1 px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white font-medium rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="flex-1 px-4 py-2 bg-blue-600 xl:dark:bg-blue-700 text-white font-medium rounded-lg hover:bg-blue-700 xl:dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     元の回答に反映する
                   </button>
@@ -2231,7 +2231,7 @@ function Questions12Section({
                 {deepDiveState === 'reflected' && (
                   <button
                     disabled={true}
-                    className="flex-1 px-4 py-2 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 font-medium rounded-lg cursor-not-allowed"
+                    className="flex-1 px-4 py-2 bg-green-100 xl:dark:bg-green-900/30 text-green-700 xl:dark:text-green-300 font-medium rounded-lg cursor-not-allowed"
                   >
                     ✓ 元の回答に反映済み
                   </button>
@@ -2242,7 +2242,7 @@ function Questions12Section({
                   <button
                     onClick={handleReGenerateDeepDive}
                     disabled={deepDiveLoading || disabled}
-                    className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-4 py-2 bg-gray-200 xl:dark:bg-gray-700 text-gray-700 xl:dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-300 xl:dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     別の問いを出す
                   </button>
@@ -4160,11 +4160,11 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   // Guard
   if (!loading && issueBlocks.length === 0) {
     return (
-      <main className="min-h-screen bg-gradient-to-b from-white to-slate-50/60 px-4 py-6 dark:from-zinc-950 dark:to-zinc-900">
+      <main className="min-h-screen bg-gradient-to-b from-white to-slate-50/60 px-4 py-6 xl:dark:from-zinc-950 xl:dark:to-zinc-900">
         <div className="mx-auto max-w-2xl">
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 p-8 text-center">
-            <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-2">STAGE1で論点を生成してください</h2>
-            <p className="text-gray-600 dark:text-gray-400 mb-6">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 xl:dark:bg-amber-900/20 xl:dark:border-amber-800 p-8 text-center">
+            <h2 className="text-xl font-bold text-gray-800 xl:dark:text-gray-200 mb-2">STAGE1で論点を生成してください</h2>
+            <p className="text-gray-600 xl:dark:text-gray-400 mb-6">
               STAGE2を開始するには、まずSTAGE1で財務分析と論点の整理を行う必要があります。
             </p>
             <button
@@ -4194,18 +4194,18 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-white to-slate-50/60 dark:from-zinc-950 dark:to-zinc-900">
+    <main className="min-h-screen bg-gradient-to-b from-white to-slate-50/60 xl:dark:from-zinc-950 xl:dark:to-zinc-900">
       {/* Header */}
-      <header className="sticky top-0 z-10 bg-white/80 dark:bg-zinc-900/80 backdrop-blur border-b border-black/5 dark:border-white/5">
+      <header className="sticky top-0 z-10 bg-white/80 xl:dark:bg-zinc-900/80 backdrop-blur border-b border-black/5 xl:dark:border-white/5">
         <div className="max-w-6xl mx-auto px-4 md:px-6 py-4 flex items-center justify-between gap-6">
           <div className="flex-1">
-            <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900 xl:dark:text-gray-100">
               STAGE2｜会社は何を目指すのか
             </h1>
-            <div className="mt-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+            <div className="mt-1 text-sm font-medium text-gray-700 xl:dark:text-gray-300">
               全社戦略
             </div>
-            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+            <p className="mt-2 text-sm text-gray-600 xl:dark:text-gray-400">
               経営者の思いを、会社として目指す方向と重点テーマに変えます。
             </p>
           </div>
@@ -4232,7 +4232,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
       {error && (
         <div className="max-w-6xl mx-auto px-4 md:px-6 py-4">
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 text-red-700 dark:text-red-400">
+          <div className="bg-red-50 xl:dark:bg-red-900/20 border border-red-200 xl:dark:border-red-800 rounded-lg p-4 text-red-700 xl:dark:text-red-400">
             {error}
           </div>
         </div>
@@ -4241,7 +4241,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       {!loading && issueBlocks.length > 0 && (
         <>
           {/* Sticky StepperTabs */}
-          <div className="sticky top-[56px] z-10 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-md border-b border-black/5 dark:border-white/5">
+          <div className="sticky top-[56px] z-10 bg-white/90 xl:dark:bg-zinc-950/90 backdrop-blur-md border-b border-black/5 xl:dark:border-white/5">
             <div className="max-w-6xl mx-auto px-4 md:px-6 py-4">
               <StepperTabs
                 activeTab={activeTab}
@@ -4261,7 +4261,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
               <div className="space-y-6">
                 <CEOIntentSection />
 
-                <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
+                <div className="rounded-2xl border border-black/10 bg-white/70 xl:dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
                   <MVVSection />
                 </div>
 
@@ -4271,7 +4271,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                   issueBlocks={issueBlocks}
                 />
 
-                <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
+                <div className="rounded-2xl border border-black/10 bg-white/70 xl:dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
                   <SWOTSection />
                   <OTSuggestionsPanel suggestions={swotSuggestions} onAddOpportunity={addSwotOpportunity} onAddThreat={addSwotThreat} />
                 </div>
@@ -4308,17 +4308,17 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                 </div>
 
                 {generateOTError && (
-                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-700 dark:text-red-400">
+                  <div className="bg-red-50 xl:dark:bg-red-900/20 border border-red-200 xl:dark:border-red-800 rounded-lg p-3 text-sm text-red-700 xl:dark:text-red-400">
                     {generateOTError}
                   </div>
                 )}
                 {generateError && (
-                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-700 dark:text-red-400">
+                  <div className="bg-red-50 xl:dark:bg-red-900/20 border border-red-200 xl:dark:border-red-800 rounded-lg p-3 text-sm text-red-700 xl:dark:text-red-400">
                     {generateError}
                   </div>
                 )}
                 {saveWarning && (
-                  <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-sm text-amber-700 dark:text-amber-400">
+                  <div className="bg-amber-50 xl:dark:bg-amber-900/20 border border-amber-200 xl:dark:border-amber-800 rounded-lg p-3 text-sm text-amber-700 xl:dark:text-amber-400">
                     {saveWarning}
                   </div>
                 )}
@@ -4354,24 +4354,24 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                 </div>
 
                 {generateError && (
-                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-700 dark:text-red-400">
+                  <div className="bg-red-50 xl:dark:bg-red-900/20 border border-red-200 xl:dark:border-red-800 rounded-lg p-3 text-sm text-red-700 xl:dark:text-red-400">
                     {generateError}
                   </div>
                 )}
 
                 {saveWarning && (
-                  <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-sm text-amber-700 dark:text-amber-400">
+                  <div className="bg-amber-50 xl:dark:bg-amber-900/20 border border-amber-200 xl:dark:border-amber-800 rounded-lg p-3 text-sm text-amber-700 xl:dark:text-amber-400">
                     {saveWarning}
                   </div>
                 )}
 
                 {/* 深掘り（12問）を Draft タブに統合 */}
-                <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
+                <div className="my-2 border-t border-gray-200 xl:dark:border-gray-700" />
 
-                <div className="rounded-2xl border border-black/10 bg-white/70 dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
+                <div className="rounded-2xl border border-black/10 bg-white/70 xl:dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">戦略を掘り下げるための議論のテーマ</h3>
-                    <span className="text-sm text-gray-500 dark:text-gray-400">※ 未入力でも最終生成できます</span>
+                    <h3 className="text-lg font-semibold text-gray-800 xl:dark:text-gray-200">戦略を掘り下げるための議論のテーマ</h3>
+                    <span className="text-sm text-gray-500 xl:dark:text-gray-400">※ 未入力でも最終生成できます</span>
                   </div>
 
                   <Questions12Section
@@ -4400,7 +4400,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                   )}
 
                   {generateFinalError && (
-                    <div className="mt-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-700 dark:text-red-400">
+                    <div className="mt-4 bg-red-50 xl:dark:bg-red-900/20 border border-red-200 xl:dark:border-red-800 rounded-lg p-3 text-sm text-red-700 xl:dark:text-red-400">
                       {generateFinalError}
                     </div>
                   )}
@@ -4417,12 +4417,12 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                     {/* ★ ステータスバッジ + 表示モード切替 */}
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       {finalStoryFinalRaw && finalStoryFinalRaw.length > 0 ? (
-                        <div className="inline-block bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-700 rounded-lg px-4 py-2">
-                          <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">✓ 確定済み</p>
+                        <div className="inline-block bg-emerald-100 xl:dark:bg-emerald-900/30 border border-emerald-300 xl:dark:border-emerald-700 rounded-lg px-4 py-2">
+                          <p className="text-sm font-medium text-emerald-700 xl:dark:text-emerald-300">✓ 確定済み</p>
                         </div>
                       ) : (finalStoryDraftRaw && finalStoryDraftRaw.length > 0 && !finalStoryFinalRaw?.length) ? (
-                        <div className="inline-block bg-amber-100 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded-lg px-4 py-2">
-                          <p className="text-sm font-medium text-amber-700 dark:text-amber-300">⚠️ 未確定（「確定」ボタンを押してください）</p>
+                        <div className="inline-block bg-amber-100 xl:dark:bg-amber-900/30 border border-amber-300 xl:dark:border-amber-700 rounded-lg px-4 py-2">
+                          <p className="text-sm font-medium text-amber-700 xl:dark:text-amber-300">⚠️ 未確定（「確定」ボタンを押してください）</p>
                         </div>
                       ) : (
                         <span />
@@ -4436,7 +4436,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                             }
                             setStoryEditMode((v) => !v);
                           }}
-                          className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors shadow-sm"
+                          className="px-4 py-2 rounded-lg border border-gray-300 xl:dark:border-gray-600 bg-white xl:dark:bg-gray-800 text-sm font-medium text-gray-700 xl:dark:text-gray-200 hover:bg-gray-50 xl:dark:hover:bg-gray-700 transition-colors shadow-sm"
                         >
                           {storyEditMode ? 'ドキュメント表示に戻る' : '本文を編集する'}
                         </button>
@@ -4478,9 +4478,9 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                       /* ★ 4章の編集UI（従来どおり） */
                       <div className="space-y-6">
                         {editingStory.map((chapter, chapterIndex) => (
-                          <div key={chapterIndex} className="border border-gray-200 dark:border-gray-700 rounded-lg p-6 bg-white dark:bg-gray-800">
+                          <div key={chapterIndex} className="border border-gray-200 xl:dark:border-gray-700 rounded-lg p-6 bg-white xl:dark:bg-gray-800">
                             {/* 章タイトル */}
-                            <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-4">{chapter.title}</h3>
+                            <h3 className="text-lg font-semibold text-gray-800 xl:dark:text-gray-100 mb-4">{chapter.title}</h3>
 
                             {/* Textarea */}
                             <AutoResizeTextarea
@@ -4493,14 +4493,14 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                                 }
                                 setEditingStory(updated);
                               }}
-                              className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              className="w-full p-3 border border-gray-300 xl:dark:border-gray-600 rounded-lg bg-white xl:dark:bg-gray-700 text-gray-800 xl:dark:text-gray-100 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                               placeholder={`${chapter.title}の本文を入力...`}
                               minRows={8}
                               maxRows={36}
                             />
 
                             {/* 文字数カウンタ */}
-                            <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                            <div className="mt-2 text-xs text-gray-500 xl:dark:text-gray-400">
                               {(editingStory[chapterIndex]?.body ?? '').length} 文字
                               <span className="ml-2 text-gray-400">（推奨: 700-1200 文字）</span>
                             </div>
@@ -4566,17 +4566,17 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
                         {/* 確定＆STAGE3引き渡し */}
                         <div className="flex flex-col gap-2">
-                          <p className="text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/30 px-3 py-2 rounded">
+                          <p className="text-xs text-emerald-700 xl:dark:text-emerald-300 bg-emerald-50 xl:dark:bg-emerald-900/30 px-3 py-2 rounded">
                             この内容を全社戦略として確定し、事業・部門別戦略の設計に引き渡します。
                           </p>
                           {/* 処理ステータスメッセージ */}
                           {committingFinalStory && (
-                            <div className="text-sm text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 px-3 py-2 rounded">
+                            <div className="text-sm text-blue-700 xl:dark:text-blue-300 bg-blue-50 xl:dark:bg-blue-900/30 px-3 py-2 rounded">
                               {committingStatus || '全社戦略を確定・引き渡し中...'}
                             </div>
                           )}
                           {commitFinalStoryError && (
-                            <div className="text-sm text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/30 px-3 py-2 rounded">
+                            <div className="text-sm text-red-700 xl:dark:text-red-300 bg-red-50 xl:dark:bg-red-900/30 px-3 py-2 rounded">
                               {commitFinalStoryError}
                               {commitStage3Failed && (
                                 <>
@@ -4593,7 +4593,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                             </div>
                           )}
                           {commitSuccessful && (
-                            <div className="text-sm text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/30 px-3 py-2 rounded">
+                            <div className="text-sm text-emerald-700 xl:dark:text-emerald-300 bg-emerald-50 xl:dark:bg-emerald-900/30 px-3 py-2 rounded">
                               ✓ 全社戦略を確定し、STAGE3へ引き渡しました。
                               <div className="mt-3 flex gap-2">
                                 <button
@@ -4655,9 +4655,9 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                     </div>
                   </>
                 ) : (
-                  <div className="rounded-2xl border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50/50 dark:bg-gray-800/50 p-8 text-center">
-                    <h4 className="text-base font-medium text-gray-600 dark:text-gray-400 mb-2">社員に伝えたい「経営の意図」（未生成）</h4>
-                    <p className="text-sm text-gray-400 dark:text-gray-500">
+                  <div className="rounded-2xl border border-dashed border-gray-300 xl:dark:border-gray-600 bg-gray-50/50 xl:dark:bg-gray-800/50 p-8 text-center">
+                    <h4 className="text-base font-medium text-gray-600 xl:dark:text-gray-400 mb-2">社員に伝えたい「経営の意図」（未生成）</h4>
+                    <p className="text-sm text-gray-400 xl:dark:text-gray-500">
                       「勝ち筋」タブで「経営戦略を生成」を実行してください（12のディスカッションテーマは未回答でもOKです）
                     </p>
                   </div>
@@ -4666,7 +4666,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                 {/* ★中計設計は StrategyStoryPreview 内に統合済（上部の戦略書プレビューで表示）*/}
 
                 {generateFinalError && (
-                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-700 dark:text-red-400">
+                  <div className="bg-red-50 xl:dark:bg-red-900/20 border border-red-200 xl:dark:border-red-800 rounded-lg p-3 text-sm text-red-700 xl:dark:text-red-400">
                     {generateFinalError}
                   </div>
                 )}
