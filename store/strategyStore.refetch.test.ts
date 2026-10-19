@@ -468,3 +468,34 @@ describe('STAGE1 財務入力状態の会社間分離', () => {
     expect(persisted).not.toContain('111');
   });
 });
+
+describe('一括削除の対象会社の確認', () => {
+  const originalFetch = globalThis.fetch;
+  let fetchMock: jest.Mock;
+
+  beforeEach(async () => {
+    mockUser.companyId = COMPANY_A;
+    await store().refetchFromServer();
+    fetchMock = jest.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    (globalThis as any).fetch = fetchMock;
+  });
+
+  afterEach(() => {
+    (globalThis as any).fetch = originalFetch;
+    memoryStorage.delete('__deleting_company__');
+  });
+
+  it('確認した会社と現在の会社が異なる場合は、削除APIを呼ばず、削除フラグも立てない', async () => {
+    await expect(store().deleteAllOnServer(COMPANY_B)).rejects.toThrow('company changed before deletion');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(memoryStorage.get('__deleting_company__')).toBeUndefined();
+  });
+
+  it('確認した会社と現在の会社が一致する場合は、削除APIに対象会社IDを送る', async () => {
+    await store().deleteAllOnServer(COMPANY_A).catch(() => {});
+    expect(fetchMock).toHaveBeenCalled();
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/api/admin/data-management/delete-all');
+    expect(init.body).toBe(JSON.stringify({ companyId: COMPANY_A }));
+  });
+});

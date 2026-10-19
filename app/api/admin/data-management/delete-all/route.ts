@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer } from '@/lib/server/rbacGuard';
+import { isValidUUID } from '@/lib/utils/isValidUUID';
 
 // メールアドレスをマスキングする（ログ出力用）
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -141,25 +142,33 @@ export async function POST(req: Request) {
       );
     }
 
-    // 2) userId から company_members を取得（admin/owner のみ）
+    // 2) 対象会社 ID をリクエストから取得する（利用者が確認した会社を明示的に指定させる）
+    const body: unknown = await req.json().catch(() => null);
+    const requestedCompanyId = (body as { companyId?: unknown } | null)?.companyId;
+    if (typeof requestedCompanyId !== 'string' || !isValidUUID(requestedCompanyId)) {
+      return NextResponse.json(
+        { error: 'companyId is required' },
+        { status: 400 }
+      );
+    }
+
+    // 3) 指定会社への admin 所属を確認する（他社の会社 ID や member/manager による削除は拒否）
     const { data: membershipData, error: membershipError } = await admin
       .from('company_members')
       .select('company_id, role')
       .eq('user_id', authUserId)
-      .eq('role', 'admin')
-      .order('created_at', { ascending: false })
-      .limit(1)
+      .eq('company_id', requestedCompanyId)
       .maybeSingle();
 
-    if (membershipError || !membershipData) {
-      console.error('[DELETE_ALL_API] Membership not found or error:', membershipError?.message);
+    if (membershipError || !membershipData || membershipData.role !== 'admin') {
+      console.error('[DELETE_ALL_API] Not an admin of the requested company:', membershipError?.message);
       return NextResponse.json(
-        { error: 'No membership found' },
+        { error: 'forbidden' },
         { status: 403 }
       );
     }
 
-    const companyId = membershipData.company_id;
+    const companyId = requestedCompanyId;
 
     // ★ 修正：削除前の詳細状態確認（execution_plan_baseline, stage4_plans, final_story_edited は strategy_data に存在しないため除外）
     const beforeCheck = await admin

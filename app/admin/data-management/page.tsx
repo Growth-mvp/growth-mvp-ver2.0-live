@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
@@ -22,7 +22,7 @@ export default function AdminDataManagementPage() {
 
   // Store states
   const isDirty = useStrategyStore((s: StrategyState) => s.dirty);
-  const companyName = useStrategyStore((s: StrategyState) => s.companyName);
+  const liveCompanyId = useStrategyStore((s: StrategyState) => s.companyId);
   const companyId = useUserStore((s) => s.companyId);
 
   // Local states
@@ -37,6 +37,19 @@ export default function AdminDataManagementPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteCompanyNameInput, setDeleteCompanyNameInput] = useState('');
   const [deleteStep, setDeleteStep] = useState<1 | 2>(1);
+  // 確認画面を開いた時点の対象会社（削除はこの会社 ID に限定する）
+  const [deleteTarget, setDeleteTarget] = useState<{ companyId: string; companyName: string } | null>(null);
+
+  // 確認画面を開いた後に会社が切り替わったら、確認を無効化する
+  useEffect(() => {
+    if (deleteTarget && liveCompanyId !== deleteTarget.companyId) {
+      setShowDeleteConfirm(false);
+      setDeleteStep(1);
+      setDeleteCompanyNameInput('');
+      setDeleteTarget(null);
+      setError('会社が切り替わったため、削除の確認を無効にしました。もう一度操作してください。');
+    }
+  }, [liveCompanyId, deleteTarget]);
 
   // 権限チェック
   const canManage = canEditCompany();
@@ -94,9 +107,22 @@ export default function AdminDataManagementPage() {
       return;
     }
 
+    if (!deleteTarget) {
+      setError('削除対象の会社が確認できません。もう一度操作してください。');
+      return;
+    }
+    if (useStrategyStore.getState().companyId !== deleteTarget.companyId) {
+      setShowDeleteConfirm(false);
+      setDeleteStep(1);
+      setDeleteCompanyNameInput('');
+      setDeleteTarget(null);
+      setError('会社が切り替わったため、削除を開始しませんでした。もう一度操作してください。');
+      return;
+    }
+
     if (deleteStep === 1) {
-      // Step 1: 会社名入力確認
-      if (deleteCompanyNameInput !== companyName) {
+      // Step 1: 確認画面の会社名と入力値の一致確認
+      if (deleteCompanyNameInput !== deleteTarget.companyName) {
         setError('会社名が一致しません');
         return;
       }
@@ -123,7 +149,7 @@ export default function AdminDataManagementPage() {
       console.log('[AdminDataManagement] calling deleteAllOnServer', {
         companyId: useStrategyStore.getState().companyId,
       });
-      await useStrategyStore.getState().deleteAllOnServer();
+      await useStrategyStore.getState().deleteAllOnServer(deleteTarget.companyId);
       console.log('[AdminDataManagement] deleteAllOnServer completed');
 
       // ローカルストレージをクリア（__deleting_company__ は保持）
@@ -172,6 +198,7 @@ export default function AdminDataManagementPage() {
       setShowDeleteConfirm(false);
       setDeleteStep(1);
       setDeleteCompanyNameInput('');
+      setDeleteTarget(null);
 
       // 削除後、ページをリロードしてキャッシュをクリア
       console.log('[AdminDataManagement] Reloading page...');
@@ -291,6 +318,12 @@ export default function AdminDataManagementPage() {
           <button
             onClick={() => {
               console.log('[AdminDataManagement] delete button clicked', { canManage, companyId });
+              const st = useStrategyStore.getState();
+              if (!st.companyId || !st.companyName) {
+                setError('会社情報が確認できないため、削除の確認を開けません');
+                return;
+              }
+              setDeleteTarget({ companyId: st.companyId, companyName: st.companyName });
               setShowDeleteConfirm(true);
               setDeleteStep(1);
               setDeleteCompanyNameInput('');
@@ -354,11 +387,11 @@ export default function AdminDataManagementPage() {
                   会社名を入力して確認してください
                 </h3>
                 <p className="text-sm text-gray-600">
-                  削除するデータ：<span className="font-semibold">{companyName}</span>
+                  削除するデータ：<span className="font-semibold">{deleteTarget?.companyName}</span>
                 </p>
                 <input
                   type="text"
-                  placeholder={companyName || '会社名を入力'}
+                  placeholder={deleteTarget?.companyName || '会社名を入力'}
                   value={deleteCompanyNameInput}
                   onChange={(e) => {
                     setDeleteCompanyNameInput(e.target.value);
@@ -369,7 +402,10 @@ export default function AdminDataManagementPage() {
                 />
                 <div className="flex gap-3 justify-end pt-4">
                   <button
-                    onClick={() => setShowDeleteConfirm(false)}
+                    onClick={() => {
+                      setShowDeleteConfirm(false);
+                      setDeleteTarget(null);
+                    }}
                     disabled={loading}
                     className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition"
                   >
@@ -377,7 +413,7 @@ export default function AdminDataManagementPage() {
                   </button>
                   <button
                     onClick={handleDeleteConfirm}
-                    disabled={loading || deleteCompanyNameInput !== companyName}
+                    disabled={loading || !deleteTarget || deleteCompanyNameInput !== deleteTarget.companyName}
                     className="px-4 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700 disabled:opacity-50 transition"
                   >
                     次へ
@@ -403,6 +439,7 @@ export default function AdminDataManagementPage() {
                       setShowDeleteConfirm(false);
                       setDeleteStep(1);
                       setDeleteCompanyNameInput('');
+                      setDeleteTarget(null);
                     }}
                     disabled={loading}
                     className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition"
@@ -411,7 +448,7 @@ export default function AdminDataManagementPage() {
                   </button>
                   <button
                     onClick={handleDeleteConfirm}
-                    disabled={loading}
+                    disabled={loading || !deleteTarget || liveCompanyId !== deleteTarget.companyId}
                     className="px-4 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700 disabled:opacity-50 transition"
                   >
                     {loading ? '削除中...' : 'すべて削除する'}

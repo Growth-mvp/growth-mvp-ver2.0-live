@@ -26,6 +26,7 @@ const STRATEGY_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const USER_ADMIN_A = '99999999-9999-4999-8999-999999999999';
 const USER_MEMBER_A = '88888888-8888-4888-8888-888888888888';
 const USER_ADMIN_B = '77777777-7777-4777-8777-777777777777';
+const USER_MANAGER_A = '66666666-6666-4666-8666-666666666666';
 
 function createDeleteAllDb(seed: Record<string, Row[]>) {
   const tables: Record<string, Row[]> = {};
@@ -153,10 +154,11 @@ function baseSeed() {
   };
 }
 
-const request = () =>
+const request = (body: unknown = { companyId: COMPANY_A }) =>
   new Request('http://localhost/api/admin/data-management/delete-all', {
     method: 'POST',
-    headers: { authorization: 'Bearer test-token' },
+    headers: { authorization: 'Bearer test-token', 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
 
 let fake: ReturnType<typeof createDeleteAllDb>;
@@ -351,11 +353,106 @@ describe('POST /api/admin/data-management/delete-all（経営計画書）', () =
   it('when company B is wiped, company A plans are left intact', async () => {
     (getAuthUserIdFromBearer as jest.Mock).mockResolvedValue(USER_ADMIN_B);
 
-    const res = await POST(request());
+    const res = await POST(request({ companyId: COMPANY_B }));
 
     expect(res.status).toBe(200);
     expect(planIds(COMPANY_B)).toEqual([]);
     expect(planIds(COMPANY_A)).toHaveLength(2);
     expect(planIds(COMPANY_C)).toEqual(['plan-c']);
+  });
+});
+
+describe('POST /api/admin/data-management/delete-all（対象会社の指定と権限）', () => {
+  beforeEach(() => {
+    // 利用者 A は、会社 A と会社 B の両方で admin（従来の「最新の管理者所属会社」を選ぶ処理では B が選ばれる状況）
+    fake.tables.company_members.push({ company_id: COMPANY_B, user_id: USER_ADMIN_A, role: 'admin', created_at: '2026-06-01' });
+    fake.tables.progress_logs.push({ id: 'pl-a', company_id: COMPANY_A }, { id: 'pl-b', company_id: COMPANY_B });
+  });
+
+  it('admin of both A and B: requesting A deletes only company A', async () => {
+    const res = await POST(request({ companyId: COMPANY_A }));
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.ok).toBe(true);
+    expect(planIds(COMPANY_A)).toEqual([]);
+    expect(planIds(COMPANY_B)).toEqual(['plan-b']);
+    expect(fake.tables.progress_logs.map((r) => r.id)).toEqual(['pl-b']);
+    expect(fake.tables.strategy_data.find((r) => r.id === STRATEGY_B)?.departments).toEqual([{ name: '総務' }]);
+  });
+
+  it('admin of both A and B: requesting B deletes only company B', async () => {
+    const res = await POST(request({ companyId: COMPANY_B }));
+
+    expect(res.status).toBe(200);
+    expect(planIds(COMPANY_B)).toEqual([]);
+    expect(planIds(COMPANY_A)).toHaveLength(2);
+    expect(fake.tables.progress_logs.map((r) => r.id)).toEqual(['pl-a']);
+    expect(fake.tables.strategy_data.find((r) => r.id === STRATEGY_A)?.departments).toEqual([{ name: '営業' }]);
+  });
+
+  it('generated_plans deletion is limited to the requested company ID', async () => {
+    await POST(request({ companyId: COMPANY_B }));
+
+    const planDeletes = fake.calls.filter((c) => c.table === 'generated_plans' && c.op === 'delete');
+    expect(planDeletes).toHaveLength(1);
+    expect(planDeletes[0].filters).toEqual([['company_id', COMPANY_B]]);
+  });
+
+  it('rejects a request without companyId with 400 and deletes nothing', async () => {
+    const res = await POST(request({}));
+
+    expect(res.status).toBe(400);
+    expect(fake.calls.filter((c) => c.op === 'delete')).toHaveLength(0);
+    expect(planIds(COMPANY_A)).toHaveLength(2);
+  });
+
+  it('rejects a request without a body with 400 and deletes nothing', async () => {
+    const res = await POST(
+      new Request('http://localhost/api/admin/data-management/delete-all', {
+        method: 'POST',
+        headers: { authorization: 'Bearer test-token' },
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    expect(fake.calls.filter((c) => c.op === 'delete')).toHaveLength(0);
+  });
+
+  it('rejects a companyId that is not a UUID with 400', async () => {
+    const res = await POST(request({ companyId: 'not-a-uuid' }));
+
+    expect(res.status).toBe(400);
+    expect(fake.calls.filter((c) => c.op === 'delete')).toHaveLength(0);
+  });
+
+  it('rejects a company the user does not belong to with 403 and deletes nothing', async () => {
+    const res = await POST(request({ companyId: COMPANY_C }));
+
+    expect(res.status).toBe(403);
+    expect(fake.calls.filter((c) => c.op === 'delete')).toHaveLength(0);
+    expect(planIds(COMPANY_C)).toEqual(['plan-c']);
+    expect(planIds(COMPANY_A)).toHaveLength(2);
+  });
+
+  it('rejects a member of the requested company with 403 and deletes nothing', async () => {
+    (getAuthUserIdFromBearer as jest.Mock).mockResolvedValue(USER_MEMBER_A);
+
+    const res = await POST(request({ companyId: COMPANY_A }));
+
+    expect(res.status).toBe(403);
+    expect(fake.calls.filter((c) => c.op === 'delete')).toHaveLength(0);
+    expect(planIds(COMPANY_A)).toHaveLength(2);
+  });
+
+  it('rejects a manager of the requested company with 403 and deletes nothing', async () => {
+    fake.tables.company_members.push({ company_id: COMPANY_A, user_id: USER_MANAGER_A, role: 'manager', created_at: '2026-01-01' });
+    (getAuthUserIdFromBearer as jest.Mock).mockResolvedValue(USER_MANAGER_A);
+
+    const res = await POST(request({ companyId: COMPANY_A }));
+
+    expect(res.status).toBe(403);
+    expect(fake.calls.filter((c) => c.op === 'delete')).toHaveLength(0);
+    expect(planIds(COMPANY_A)).toHaveLength(2);
   });
 });

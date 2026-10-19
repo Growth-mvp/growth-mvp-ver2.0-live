@@ -571,7 +571,7 @@ export type StrategyState = {
   refetchFromServer: () => Promise<void>;
   refetchOnceFromServer: () => Promise<void>;
   resetDisplayedCompanyData: () => void;
-  deleteAllOnServer: () => Promise<void>;
+  deleteAllOnServer: (expectedCompanyId?: string) => Promise<void>;
 
   /** STAGE1 ダミーデータ投入（開発用） */
   loadStage1DummyData: () => void;
@@ -4262,12 +4262,16 @@ export const useStrategyStore = create<StrategyState>()(
         }
       },
 
-      async deleteAllOnServer() {
+      async deleteAllOnServer(expectedCompanyId?: string) {
         const operationId = `deleteAll_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
         console.log('[strategyStore.deleteAllOnServer] ===== START =====', { operationId });
 
         const userId = useUserStore.getState().user?.id;
-        const companyId = get().companyId || useUserStore.getState().companyId;
+        const storeCompanyId = get().companyId;
+        if (expectedCompanyId && storeCompanyId !== expectedCompanyId) {
+          throw new Error('company changed before deletion');
+        }
+        const companyId = expectedCompanyId ?? (storeCompanyId || useUserStore.getState().companyId);
         console.log('[strategyStore.deleteAllOnServer] userId:', userId, 'companyId:', companyId, { operationId });
         if (!userId || !companyId) throw new Error('missing ids');
 
@@ -4329,6 +4333,7 @@ export const useStrategyStore = create<StrategyState>()(
           const deleteRes = await fetch('/api/admin/data-management/delete-all', {
             method: 'POST',
             headers,
+            body: JSON.stringify({ companyId }),
           });
 
           const deleteResult = await deleteRes.json();
