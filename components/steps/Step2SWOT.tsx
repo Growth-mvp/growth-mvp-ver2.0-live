@@ -8,6 +8,13 @@ import StepLayout from '@/components/StepLayout';
 import { getIndustryLabel } from '@/utils/industryTemplates';
 import { saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
 import { saveWithAudit } from '@/utils/persist/saveWithAudit';
+import {
+  captureSaveScope,
+  isSaveScopeCurrent,
+  runInSaveScope,
+  SAVE_SCOPE_CHANGED,
+  type SaveScope,
+} from '@/lib/strategy/saveScope';
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 
@@ -296,40 +303,51 @@ export default function Step2SWOT() {
   const dirtyRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingGateRef = useRef(false);
+  const saveRunRef = useRef(0);
 
   useEffect(() => {
     savingGateRef.current = canPersist;
   }, [canPersist]);
 
-  const scheduleSave = useCallback(() => {
+  const scheduleSave:(scope: SaveScope | null, delayMs: number) => void = useCallback((scope, delayMs) => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(async function trySave() {
-      if (!savingGateRef.current || !canPersist) {
-        timerRef.current = setTimeout(trySave, 600);
+      const target = scope ?? captureSaveScope();
+      if (!target) {
+        scheduleSave(null, 600);
+        return;
+      }
+      if (!isSaveScopeCurrent(target)) return;
+      if (!savingGateRef.current) {
+        scheduleSave(target, 600);
         return;
       }
       if (!dirtyRef.current) return;
 
       dirtyRef.current = false;
+      const runId = ++saveRunRef.current;
       setSaving(true);
       setSaveError(null);
       try {
-        const state = useStrategyStore.getState() as any;
-        await saveWithAudit(state, userId!, companyId!, undefined, {}, 'step2SWOT:save');
+        const result = await runInSaveScope(target, () =>
+          saveWithAudit(useStrategyStore.getState() as any, target.userId, target.companyId, undefined, {}, 'step2SWOT:save'),
+        );
+        if (result === SAVE_SCOPE_CHANGED) dirtyRef.current = true;
       } catch (e: any) {
+        if (!isSaveScopeCurrent(target)) return;
         dirtyRef.current = true;
         setSaveError(e?.message || '保存に失敗しました');
         console.error('[SWOT AUTO SAVE] failed:', e);
-        timerRef.current = setTimeout(trySave, 1500);
+        scheduleSave(target, 1500);
       } finally {
-        setSaving(false);
+        if (saveRunRef.current === runId) setSaving(false);
       }
-    }, 700); // SWOTは入力が長文なので少し短めでもOK
-  }, [canPersist, userId, companyId]);
+    }, delayMs); // SWOTは入力が長文なので少し短めでもOK
+  }, []);
 
   const markDirty = useCallback(() => {
     dirtyRef.current = true;
-    scheduleSave();
+    scheduleSave(captureSaveScope(), 700);
   }, [scheduleSave]);
 
   useEffect(() => {

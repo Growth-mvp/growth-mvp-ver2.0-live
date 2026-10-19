@@ -327,12 +327,16 @@ export async function POST(req: NextRequest) {
 
     // 3) 既所属チェック（多重作成防止）
     {
-      const { data: ex, error: exErr } = await admin
+      const { data: memberships, error: exErr } = await admin
         .from('company_members')
-        .select('company_id, role')
+        .select('company_id, role, created_at')
         .eq('user_id', userId!)
-        .limit(1)
-        .maybeSingle();
+        .order('created_at', { ascending: false });
+      const selectedCid = req.cookies.get('company_id')?.value;
+      const ex =
+        (memberships ?? []).find((m: { company_id: string }) => m.company_id === selectedCid) ??
+        memberships?.[0] ??
+        null;
 
       if (!exErr && ex?.company_id) {
         const cid = String(ex.company_id);

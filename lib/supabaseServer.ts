@@ -88,10 +88,9 @@ async function getCompanyIdFromCookieServer(): Promise<string | null> {
 }
 
 /* ========= 所属取得（0件は正常） =========
- * 原則：
- * - order() は使わない（PostgREST 400回避 & RLS下での安定性）
+ * - RLS により自分の所属のみ返る。作成日時の新しい順で取得する
+ * - Cookie の company_id が所属に含まれればそれを、なければ先頭（最新）を選ぶ
  * - まず department_id ありで試し、列なし（42703）なら列抜きで再実行
- * - Cookie の company_id があれば、その company_id で 1 行だけ取得
  */
 export async function getMembership(): Promise<{
   supabase: SupabaseClient;
@@ -105,37 +104,17 @@ export async function getMembership(): Promise<{
   const cookieCompanyId = await getCompanyIdFromCookieServer();
 
   // 2) クエリ実装（戻り型を any に統一して TS2322 を回避）
-  const tryWithDept = async (): Promise<any> => {
-    if (cookieCompanyId) {
-      return supabase
-        .from('company_members')
-        .select('company_id, role, department_id')
-        .eq('company_id', cookieCompanyId)
-        .limit(1)
-        .maybeSingle();
-    }
-    return supabase
+  const tryWithDept = async (): Promise<any> =>
+    supabase
       .from('company_members')
-      .select('company_id, role, department_id')
-      .limit(1)
-      .maybeSingle();
-  };
+      .select('company_id, role, department_id, created_at')
+      .order('created_at', { ascending: false });
 
-  const tryWithoutDept = async (): Promise<any> => {
-    if (cookieCompanyId) {
-      return supabase
-        .from('company_members')
-        .select('company_id, role')
-        .eq('company_id', cookieCompanyId)
-        .limit(1)
-        .maybeSingle();
-    }
-    return supabase
+  const tryWithoutDept = async (): Promise<any> =>
+    supabase
       .from('company_members')
-      .select('company_id, role')
-      .limit(1)
-      .maybeSingle();
-  };
+      .select('company_id, role, created_at')
+      .order('created_at', { ascending: false });
 
   // 3) 実行
   let q: any = await tryWithDept();
@@ -155,7 +134,8 @@ export async function getMembership(): Promise<{
     return { supabase, membershipRows: [], membership: null, error: q.error };
   }
 
-  const row = (q?.data as any) ?? null;
+  const rows: any[] = Array.isArray(q?.data) ? q.data : [];
+  const row = rows.find((r) => r?.company_id === cookieCompanyId) ?? rows[0] ?? null;
   const membership: Membership | null = row
     ? {
         companyId: row.company_id ?? null,

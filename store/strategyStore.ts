@@ -14,6 +14,7 @@ import {
 import { saveWithAudit } from '@/utils/persist/saveWithAudit';
 import { safeGetSession } from '@/utils/supabase/client';
 import { useUserStore } from './userStore';
+import { createRefetchCoordinator } from '@/lib/strategy/refetchCoordinator';
 import { computeValueAnalysis, computeValueAnalysisBundle } from '@/utils/valueAnalysis';
 import { stage1DummyDataBundle } from '@/utils/stage1DummyData';
 import type {
@@ -41,6 +42,8 @@ import type {
   CompanyTarget,
   ProjectTargetImpact,
   ProjectIssueLink,
+  FinanceActualRow,
+  FinancePlanRow,
 } from '@/types/strategy';
 import type { BusinessPortfolio } from '@/types/portfolio';
 import {
@@ -304,6 +307,9 @@ export type StrategyState = {
   /* 財務 */
   csvFinanceData?: unknown;
   financeSummary?: FinanceSummaryRow[];
+  /* STAGE1 手入力財務（会社切替でリセットし、永続化・DB保存はしない） */
+  financeActual?: FinanceActualRow[];
+  financePlan?: FinancePlanRow[];
   businessPortfolio?: BusinessPortfolio;
   simulationResult?: SimulationResult;
 
@@ -563,6 +569,8 @@ export type StrategyState = {
 
   saveStrategyData: (opts?: { reason?: string; force?: boolean }) => Promise<SaveResult>;
   refetchFromServer: () => Promise<void>;
+  refetchOnceFromServer: () => Promise<void>;
+  resetDisplayedCompanyData: () => void;
   deleteAllOnServer: () => Promise<void>;
 
   /** STAGE1 ダミーデータ投入（開発用） */
@@ -1095,6 +1103,41 @@ function scheduleRefetchRetry(delayMs = 1500): void {
   }, delayMs);
 }
 
+/* ===== refetch 直列化・会社スコープ判定 ===== */
+const refetchCoordinator = createRefetchCoordinator(() =>
+  useStrategyStore.getState().refetchOnceFromServer(),
+);
+
+// 読み込み対象の会社：setCompanyScope による切替指定 → ストアの会社 → ユーザーストアの会社
+function resolveRefetchTarget(s: { pendingCompanyId?: string | null; companyId?: string | null }): string | null {
+  return s.pendingCompanyId || s.companyId || useUserStore.getState().companyId || null;
+}
+
+function isStaleRefetch(companyId: string): boolean {
+  return resolveRefetchTarget(useStrategyStore.getState()) !== companyId;
+}
+
+/* ===== 会社・戦略の切替世代（保存応答の照合用） ===== */
+// 切替のたびに増える。会社IDが A→B→A と戻っても、切替前に始まった保存を区別できる。
+let __scopeEpoch = 0;
+
+/* ===== 永続化された会社データの表示ゲート ===== */
+// 永続化ストアに会社データが残っていた場合、サーバーで所属が確認されるまで表示しない。
+let __persistedSnapshot: StrategyState | null = null;
+
+function isSelectionVerified(companyId: string | null): boolean {
+  const u = useUserStore.getState();
+  return !!companyId && u.membershipVerified && u.companyId === companyId;
+}
+
+function displayResetFields(): Partial<StrategyState> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(emptyData)) {
+    if (typeof v !== 'function') out[k] = v;
+  }
+  return out as Partial<StrategyState>;
+}
+
 /* ===== 初期状態 ===== */
 const emptyData: StrategyState = {
   companyId: null,
@@ -1165,6 +1208,8 @@ const emptyData: StrategyState = {
   executionPlanBaseline: undefined,
   csvFinanceData: undefined,
   financeSummary: undefined,
+  financeActual: undefined,
+  financePlan: undefined,
   businessPortfolio: undefined,
   simulationResult: undefined,
 
@@ -1291,6 +1336,8 @@ const emptyData: StrategyState = {
 
   saveStrategyData: async () => ({ ok: false, reason: 'uninitialized', skipped: true }),
   refetchFromServer: async () => {},
+  refetchOnceFromServer: async () => {},
+  resetDisplayedCompanyData: () => {},
   deleteAllOnServer: async () => {},
 
   loadStage1DummyData: () => {},
@@ -1877,10 +1924,11 @@ export const useStrategyStore = create<StrategyState>()(
             return s;  // 状態は変わらない
           }
 
-          // 本当に会社が変わった場合だけ reset
-
+          // 会社が変わったら前の会社の表示データを消す（新会社の読み込み完了まで表示しない）
+          if ((s.pendingCompanyId ?? s.companyId ?? null) !== id) __scopeEpoch += 1;
           return {
             ...s,
+            ...displayResetFields(),
             pendingCompanyId: id,
             strategyId: undefined, // ★ 会社切替時に古い strategyId をリセット（新会社で新しい strategyId をハイドレート）
             boot: { isHydrating: true, isHydrated: false },
@@ -1892,6 +1940,11 @@ export const useStrategyStore = create<StrategyState>()(
             isRestoring: true,
           };
         }),
+
+      resetDisplayedCompanyData: () => {
+        __scopeEpoch += 1;
+        set(displayResetFields() as Partial<StrategyState>);
+      },
 
       setStory: (chs) => {
         set((s) => ({ story: [...chs], dirty: true, version: (s.version ?? 0) + 1 }));
@@ -3419,10 +3472,15 @@ export const useStrategyStore = create<StrategyState>()(
           }
 
           // ★ 止血対策：保存開始（autosave 抑止開始）
+          const saveEpoch = __scopeEpoch;
+          const saveStrategyId = state0.strategyId;
+          const isSaveScopeCurrent = () =>
+            saveEpoch === __scopeEpoch && (!saveStrategyId || get().strategyId === saveStrategyId);
           set({ _loadingSave: true, boot: { ...state0.boot, isSaving: true } });
 
           try {
             for (let attempt = 1; attempt <= 3; attempt++) {
+              if (!isSaveScopeCurrent()) return { ok: false, skipped: true, reason: 'scope_changed' };
               const state = get();
               const payload = buildSavePayload(state as StrategyState);
 
@@ -3556,6 +3614,11 @@ export const useStrategyStore = create<StrategyState>()(
                 }
               })();
 
+              if (!isSaveScopeCurrent()) {
+                if (DEBUG) console.log('[saveStrategyData:scope-changed] 旧会社・旧戦略の保存応答を破棄', { reason, companyId: companyId?.substring(0, 8) });
+                return { ok: false, skipped: true, reason: 'scope_changed' };
+              }
+
               if (!res || (res as any).error) {
                 const err = (res as any)?.error;
                 const errCode = (res as any)?.errorCode || (err as any)?.code;
@@ -3583,6 +3646,7 @@ export const useStrategyStore = create<StrategyState>()(
                     // because dirty=true (we just attempted a save)
                     await get().refetchFromServer();
                   } catch (refetchErr) {
+                    if (!isSaveScopeCurrent()) return { ok: false, skipped: true, reason: 'scope_changed' };
                     console.error('[strategyStore] refetch after conflict failed:', refetchErr);
                     set({
                       saveError: 'リビジョン競合が発生しました。あなたの変更は保持されています。画面を再読み込みしてください。',
@@ -3599,6 +3663,7 @@ export const useStrategyStore = create<StrategyState>()(
                   }
 
                   if (attempt >= 3) {
+                    if (!isSaveScopeCurrent()) return { ok: false, skipped: true, reason: 'scope_changed' };
                     console.warn('[strategyStore] REVISION_CONFLICT persists after 3 retries. Entering cooldown.');
                     set({
                       saveError: '他のユーザーの更新と競合しました。あなたの変更は保持されています。内容を確認して再度保存してください。',
@@ -3711,7 +3776,7 @@ export const useStrategyStore = create<StrategyState>()(
           } finally {
             // ★ 根治対策：finally で確実に isSaving を戻す（例外時も実行）
             const s = get();
-            const shouldRunAgain = !!s._pendingSave;
+            const shouldRunAgain = isSaveScopeCurrent() && !!s._pendingSave;
 
             set((st) => ({
               ...st,
@@ -3730,10 +3795,14 @@ export const useStrategyStore = create<StrategyState>()(
         });
       },
 
-      async refetchFromServer() {
+      refetchFromServer() {
+        return refetchCoordinator.request();
+      },
+
+      async refetchOnceFromServer() {
         const timestamp = new Date().toISOString();
         const s0 = get();
-        const companyId = s0.pendingCompanyId || s0.companyId || useUserStore.getState().companyId;
+        const companyId = resolveRefetchTarget(s0);
 
         const authed = await isSessionUsable();
         if (!companyId || !authed) {
@@ -3756,8 +3825,8 @@ export const useStrategyStore = create<StrategyState>()(
           throw new Error('会社IDまたは認証情報が見つかりません');
         }
 
-        if (get()._loadingRefetch) {
-          console.log('[refetchFromServer:early-return] already loading, skip', { timestamp });
+        if (__persistedSnapshot && !isSelectionVerified(companyId)) {
+          if (DEBUG) console.log('[refetchFromServer:deferred] 所属の確認待ち', { companyId, timestamp });
           return;
         }
 
@@ -3776,6 +3845,29 @@ export const useStrategyStore = create<StrategyState>()(
 
           const { data, error } = await getFullStrategyDataByCompany(companyId);
           let dbRow = data;
+
+          if (isStaleRefetch(companyId)) {
+            refetchCoordinator.markDirty();
+            if (DEBUG) console.log('[refetchFromServer:stale-discard]', { requested: companyId, phase: 'after-fetch', timestamp });
+            return;
+          }
+          if (data && (data as any).companyId !== companyId) {
+            console.error('[refetchFromServer:company-mismatch] 別会社のデータを破棄', {
+              requested: companyId,
+              received: (data as any).companyId,
+              timestamp,
+            });
+            set((s) => ({
+              ...s,
+              __isFetchingFromServer: false,
+              loaded: false,
+              __lastServerError: new Error('company_mismatch'),
+              isRestoring: false,
+              restoreReady: false,
+            }));
+            get().setHydratingFlag(false, 'refetchFromServer:company-mismatch');
+            throw new Error('会社データの照合に失敗しました');
+          }
 
           if (error) {
             console.error('[strategyStore] ❌ getFullStrategyDataByCompany エラー', {
@@ -3854,7 +3946,11 @@ export const useStrategyStore = create<StrategyState>()(
             // → 初期行を作ってから再取得する（画面は落とさない）
             try {
               const base = get();
-              await saveStrategyDataApi(base as any);
+              const userId = useUserStore.getState().user?.id;
+              if (!userId || (base.companyId && base.companyId !== companyId)) {
+                throw new Error('会社データの初期化を中止しました（会社の切替中）');
+              }
+              await saveStrategyDataApi(base as any, userId, companyId);
 
               const retry = await getFullStrategyDataByCompany(companyId);
               dbRow = retry?.data ?? null;
@@ -3906,6 +4002,13 @@ export const useStrategyStore = create<StrategyState>()(
             });
           }
 
+          if (isStaleRefetch(companyId)) {
+            refetchCoordinator.markDirty();
+            if (DEBUG) console.log('[refetchFromServer:stale-discard]', { requested: companyId, phase: 'before-merge', timestamp });
+            return;
+          }
+
+          __persistedSnapshot = null;
           const cur = get();
           const isSwitchingCompany = cur.pendingCompanyId !== undefined && cur.pendingCompanyId !== cur.companyId;
           const wasDirty = cur.dirty && !isSwitchingCompany;
@@ -3987,7 +4090,7 @@ export const useStrategyStore = create<StrategyState>()(
                 projectTargetImpacts: Array.isArray(base.projectTargetImpacts) ? base.projectTargetImpacts : patch.projectTargetImpacts,
                 projectIssueLinks: Array.isArray(base.projectIssueLinks) ? base.projectIssueLinks : patch.projectIssueLinks,
 
-                companyId: s.pendingCompanyId ?? s.companyId,
+                companyId,
                 pendingCompanyId: undefined,
               };
 
@@ -4070,7 +4173,7 @@ export const useStrategyStore = create<StrategyState>()(
               const merged: any = {
                 ...(s as any),   // ← base（補助用）
                 ...(patch as any),  // ← DB fresh data で上書き（FULL REPLACEMENT）
-                companyId: s.pendingCompanyId ?? s.companyId,
+                companyId,
                 pendingCompanyId: undefined,
               };
 
@@ -4145,14 +4248,17 @@ export const useStrategyStore = create<StrategyState>()(
           }
         } finally {
           /* ★ CRITICAL: 全経路で isHydrating を確実にリセット */
-          console.log('[refetchFromServer:finally] cleanup all flags', { timestamp });
-          set({
-            _loadingRefetch: false,
-            __isFetchingFromServer: false,
-            isRestoring: false,
-          });
-          // ★ isHydrating だけを確実にリセット（isHydrated は維持）
-          get().setHydratingFlag(false, 'refetchFromServer:finally');
+          set({ _loadingRefetch: false });
+          // 再実行が待機中なら、次の実行が完了まで読み込み状態を保持する
+          if (!refetchCoordinator.isDirty()) {
+            console.log('[refetchFromServer:finally] cleanup all flags', { timestamp });
+            set({
+              __isFetchingFromServer: false,
+              isRestoring: false,
+            });
+            // ★ isHydrating だけを確実にリセット（isHydrated は維持）
+            get().setHydratingFlag(false, 'refetchFromServer:finally');
+          }
         }
       },
 
@@ -4439,7 +4545,7 @@ export const useStrategyStore = create<StrategyState>()(
       /* ★ TASK 14-3: persist ストレージキーをバージョンアップ（v4 → v5）旧 localStorage を無視 */
       name: 'strategy-store-v5',
       version: 40, // ★ Bumped to clear strategyId from existing localStorage (DB-restored only)
-      partialize: (s) => ({
+      partialize: (live) => { const s = __persistedSnapshot ?? live; return ({
         companyId: s.companyId,
         // ★ CRITICAL FIX: strategyId を persist から除外
         // strategyId は DB-generated UUID であり、リロード時には refetchFromServer で復元される
@@ -4524,7 +4630,7 @@ export const useStrategyStore = create<StrategyState>()(
 
         revision: s.revision,
         __lastSavedHash: s.__lastSavedHash,
-      }),
+      }); },
       migrate: (persisted) => {
         const migrated = {
           ...emptyData,
@@ -4568,6 +4674,10 @@ export const useStrategyStore = create<StrategyState>()(
       storage: createJSONStorage(() => localStorage),
       onRehydrateStorage: () => (state, error) => {
         if (error) console.warn('rehydration error:', error);
+        if (!error && state && (state.companyId || state.companyName)) {
+          __persistedSnapshot = state;
+          queueMicrotask(() => useStrategyStore.getState().resetDisplayedCompanyData());
+        }
         // localStorage の rehydrate 完了と、DB restore 完了は別物。
         // ここで hydrated=true を立てると、古い local state が
         // server state より先に「利用可能」と判定される事故が起きやすい。
@@ -4583,3 +4693,13 @@ export const useStrategyStore = create<StrategyState>()(
 export async function refetchFromServer() {
   return useStrategyStore.getState().refetchFromServer();
 }
+
+useUserStore.subscribe((u) => {
+  if (!u.membershipVerified || !__persistedSnapshot) return;
+  if (!u.companyId) {
+    __persistedSnapshot = null;
+    useStrategyStore.getState().resetDisplayedCompanyData();
+    return;
+  }
+  useStrategyStore.getState().refetchFromServer();
+});

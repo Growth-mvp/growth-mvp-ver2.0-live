@@ -391,14 +391,15 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
       }, HARD_TIMEOUT);
 
       try {
-        const { data, error, status } = await supabase
+        const { data: memberships, error, status } = await supabase
           .from('company_members')
-          .select('company_id, role')
+          .select('company_id, role, created_at')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false })
-          .limit(1)
-          .abortSignal(signal)
-          .maybeSingle();
+          .abortSignal(signal);
+        const selectedCid = getCompanyIdFromCookie();
+        const data =
+          (memberships ?? []).find((m) => m.company_id === selectedCid) ?? memberships?.[0] ?? null;
 
         clearTimeout(timeoutId);
 

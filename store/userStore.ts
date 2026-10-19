@@ -34,6 +34,8 @@ export type UserState = {
   isLoggedIn: boolean;
   hydrated: boolean;
   membershipLoaded: boolean;
+  /** このページ読み込み中にサーバーで所属を確認できたか（永続化しない） */
+  membershipVerified: boolean;
 
   // 互換用フラグ
   isAdmin: boolean;
@@ -84,6 +86,7 @@ export const useUserStore = create<UserState>()(
       isLoggedIn: false,
       hydrated: false,
       membershipLoaded: false,
+      membershipVerified: false,
       ...deriveRoleFlags(null),
 
       /* ---------- setUser ----------
@@ -151,7 +154,7 @@ export const useUserStore = create<UserState>()(
       },
 
       setHydrated: (v) => set({ hydrated: v }),
-      setMembershipLoaded: (v) => set({ membershipLoaded: v }),
+      setMembershipLoaded: (v) => set({ membershipLoaded: v, membershipVerified: v }),
 
       resetMembershipLoading: () => {
         set({
@@ -159,6 +162,7 @@ export const useUserStore = create<UserState>()(
           departmentId: null,
           role: null,
           membershipLoaded: false,
+          membershipVerified: false,
           ...deriveRoleFlags(null),
         });
       },
@@ -183,6 +187,13 @@ export const useUserStore = create<UserState>()(
       name: 'user-storage',
       version: 6, // ★ version を1つ上げる（移行処理を走らせるため）
       ...(isClient ? { storage: createJSONStorage(() => localStorage) } : {}),
+
+      // 所属の確認はページ読み込みごとに行うため、永続化された確認済みフラグは無効にする
+      merge: (persisted, current) => ({
+        ...current,
+        ...((persisted as object) ?? {}),
+        membershipVerified: false,
+      }),
 
       // 既存データからの移行
       migrate: (persistedState: any, version) => {

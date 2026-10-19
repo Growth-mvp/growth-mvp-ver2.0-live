@@ -1,5 +1,5 @@
 // /utils/supabase/membership.ts
-import { supabase, isValidUUID, setCompanyIdCookie } from './client';
+import { supabase, isValidUUID, setCompanyIdCookie, getCompanyIdFromCookie } from './client';
 import { debugExtractPostgrest, isRlsDenied, isNoRows } from './errors';
 
 /** テーブル名 */
@@ -66,24 +66,18 @@ function setCompanyCookieIfValid(id: string | null | undefined) {
   }
 }
 
-/** 複数所属から 役割優先（admin > manager > member）かつ新しい順で1件選ぶ */
-function pickOneMembership(rows: any[]): Membership {
+/** 選択中の会社への所属が有効ならそれを、なければ作成日時の新しい所属を1件選ぶ */
+function pickOneMembership(rows: any[], selectedCompanyId?: string | null): Membership {
   if (!Array.isArray(rows) || rows.length === 0) {
     return { companyId: null, departmentId: null, role: null };
   }
-  const weight: Record<Role, number> = { admin: 3, manager: 2, member: 1 };
   const sorted = [...rows].sort((a, b) => {
-    const ra = normRole(a?.role) ?? 'member';
-    const rb = normRole(b?.role) ?? 'member';
-    const wa = weight[ra];
-    const wb = weight[rb];
-    if (wa !== wb) return wb - wa; // 役割優先
     // created_at が無いスキーマでも安定するように文字列比較で降順
     const ca = String(a?.created_at ?? '');
     const cb = String(b?.created_at ?? '');
     return cb.localeCompare(ca);
   });
-  const best = sorted[0];
+  const best = (selectedCompanyId && sorted.find((r) => r?.company_id === selectedCompanyId)) || sorted[0];
   return {
     companyId: typeof best?.company_id === 'string' ? best.company_id : null,
     departmentId: typeof best?.department_id === 'string' ? best.department_id : null,
@@ -94,7 +88,7 @@ function pickOneMembership(rows: any[]): Membership {
 /* ============================== read ============================== */
 /**
  * 所属を決定的に1件返す（Cookieは書き換えない）
- * - 複数行取得 → admin > manager > member の優先度で選択
+ * - 複数行取得 → 選択中の会社（Cookie）が所属にあればそれ、なければ作成日時の新しい順
  * - department_id の有無に自動対応
  * - 所属無しは空オブジェクトで返す
  */
@@ -108,7 +102,7 @@ export async function getMembership(userId: string): Promise<Membership> {
     .eq('user_id', userId);
 
   if (!q1.error) {
-    return pickOneMembership(q1.data || []);
+    return pickOneMembership(q1.data || [], getCompanyIdFromCookie());
   }
 
   // 所属なし（No rows）は空
@@ -123,7 +117,7 @@ export async function getMembership(userId: string): Promise<Membership> {
       .select('company_id, role, created_at')
       .eq('user_id', userId);
     if (!q2.error) {
-      const picked = pickOneMembership(q2.data || []);
+      const picked = pickOneMembership(q2.data || [], getCompanyIdFromCookie());
       return { companyId: picked.companyId, departmentId: null, role: picked.role };
     }
     if (isNoRows(q2)) {

@@ -34,6 +34,8 @@ import type { KRKind, StrategyData } from '@/types/strategy';
 import { okrsV2ToOkrs, okrsToKpis } from '@/utils/supabase/strategy';
 import { formatDeadlineLabel, stripProjectPrefix } from '@/utils/dateFormatter';
 import { okrService } from '@/services/okrService';
+import { captureOkrWriteScope, isOkrOwnedByScope } from '@/lib/strategy/okrWriteScope';
+import { isSaveScopeCurrent, type SaveScope } from '@/lib/strategy/saveScope';
 import type { ResolvedOkr, OkrWriteInput } from '@/types/okrs';
 import { OKRHeader } from '@/components/stage4/OKRHeader';
 import { ProjectListHeader } from '@/components/stage4/ProjectListHeader';
@@ -464,6 +466,13 @@ function OKRPageContent() {
     }
     lastAppliedCompanyRef.current = accessCompanyId;
   }, [accessCompanyId, scopeCompanyId, setCompanyScope, setHydrated]);
+
+  // 会社が変わったら、前の会社の OKR キャッシュを捨てる（DB 由来の OKR は書き込み後に会社ごとに読み直す）
+  useEffect(() => {
+    setResolvedOkrsMap({});
+    setOkrLoadingStatus({});
+    attemptedPromotionKeysRef.current.clear();
+  }, [accessCompanyId]);
 
   {/* -------- 初期ロード：常に refetchFromServer を実行 -------- */}
   const loadGuardRef = useRef<string | null>(null);
@@ -1297,7 +1306,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
    * ★ Phase 3A: DB OKR キャッシュの invalidate & refresh
    * ========================================================== */
   const invalidateAndRefetchProjectOkrs = useCallback(
-    async (dIdx: number, pIdx: number): Promise<ResolvedOkr[] | null> => {
+    async (dIdx: number, pIdx: number, scope?: SaveScope | null): Promise<ResolvedOkr[] | null> => {
       if (!accessCompanyId) return null;
 
       const cacheKey = keyFor(dIdx, pIdx);
@@ -1338,6 +1347,8 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           strategyData,
           accessCompanyId
         );
+
+        if (scope && !isSaveScopeCurrent(scope)) return null;
 
         if (resolved?.resolvedOkrs) {
           // Step 4: キャッシュ更新
@@ -1438,15 +1449,19 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
     async (dIdx: number, pIdx: number): Promise<ResolvedOkr | null> => {
       if (!accessCompanyId) return null;
       const cacheKey = keyFor(dIdx, pIdx);
-      const cached = resolvedOkrsMap[cacheKey] ?? [];
-      const existingDb = cached.find((o) => o?.source === 'db') ?? null;
-      if (existingDb) return existingDb;
-
-      if (promotingProjectKeysRef.current.has(cacheKey)) return null;
-
       const dept = departments?.[dIdx] as any;
       const proj = dept?.projects?.[pIdx] as any;
       if (!dept || !proj) return null;
+
+      const projectId = String(proj?.id ?? '');
+      const scope = captureOkrWriteScope(accessCompanyId, resolveCurrentStrategyId());
+      if (!scope) return null;
+
+      const cached = resolvedOkrsMap[cacheKey] ?? [];
+      const existingDb = cached.find((o) => o?.source === 'db' && isOkrOwnedByScope(o, scope, projectId)) ?? null;
+      if (existingDb) return existingDb;
+
+      if (promotingProjectKeysRef.current.has(cacheKey)) return null;
 
       const snapshotOkrs = Array.isArray(proj.okrs) ? proj.okrs : [];
       const first = snapshotOkrs[0] as any;
@@ -1458,7 +1473,6 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
       }
 
       // ★ Target case detection - 調査用途のみ
-      const projectId = String(proj?.id ?? '');
       const isTargetCase =
         objective?.includes('半導体企業向けデータ分析サービス') ||
         objective?.includes('半導体企業向けデータ分析サービスの強化') ||
@@ -1496,19 +1510,21 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           {
             objective,
             owner_name: owner,
-            strategy_id: strategyId,
+            strategy_id: scope.strategyId ?? strategyId,
             department_id: departmentId,
             project_id: projectId,
           },
           projectId,
-          accessCompanyId
+          scope.companyId
         );
+
+        if (!isSaveScopeCurrent(scope)) return null;
 
         if (isTargetCase) {
           console.error('[ensureMainOkrIsDbBacked-TARGET] SAVE RESULT', JSON.stringify({ savedId: saved?.id, savedProjectId: saved?.project_id, savedObjective: saved?.objective, savedSource: saved?.source }, null, 2));
         }
 
-        const latest = await invalidateAndRefetchProjectOkrs(dIdx, pIdx);
+        const latest = await invalidateAndRefetchProjectOkrs(dIdx, pIdx, scope);
 
         if (isTargetCase) {
           console.error('[ensureMainOkrIsDbBacked-TARGET] REFETCH RESULT', JSON.stringify({ count: Array.isArray(latest) ? latest.length : 0, resolvedOkrs: Array.isArray(latest) ? latest.map((o: any) => ({ id: o?.id, objective: o?.objective, project_id: o?.project_id, source: o?.source })) : [] }, null, 2));
@@ -1535,10 +1551,20 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
     async (dIdx: number, pIdx: number, patch: Partial<{ objective: string; owner: string }>) => {
       if (!accessCompanyId || !mainOKR) return;
 
-      // ★ Target case detection - 調査用途のみ
       const dept = departments?.[dIdx] as any;
       const proj = dept?.projects?.[pIdx] as any;
       const projectId = String(proj?.id ?? '');
+      const scope = captureOkrWriteScope(accessCompanyId, resolveCurrentStrategyId());
+      if (!scope) return;
+      const ownedByScope = (resolvedOkrsMap[keyFor(dIdx, pIdx)] ?? []).some(
+        (o) => o?.id === mainOKR.id && isOkrOwnedByScope(o, scope, projectId),
+      );
+      if (mainOKR.source === 'db' && !ownedByScope) {
+        alert('このOKRは現在の会社に属していないため保存できません。画面を再読み込みしてください。');
+        return;
+      }
+
+      // ★ Target case detection - 調査用途のみ
       const isTargetCase =
         mainOKR?.objective?.includes('半導体企業向けデータ分析サービス') ||
         mainOKR?.objective?.includes('半導体企業向けデータ分析サービスの強化') ||
@@ -1555,6 +1581,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           alert('このOKRの編集準備に失敗しました。画面を再読み込みしてから再度お試しください。');
           return;
         }
+        if (!isSaveScopeCurrent(scope)) return;
         targetOkr = toOkrDisplayModel(promoted);
       }
 
@@ -1595,14 +1622,16 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
             project_id: projectId,
           },
           projectId,
-          accessCompanyId
+          scope.companyId
         );
+
+        if (!isSaveScopeCurrent(scope)) return;
 
         if (isTargetCase) {
           console.error('[updateProjectOKRDb-TARGET] SAVE RESULT', JSON.stringify({ savedId: updateResult?.id, savedProjectId: updateResult?.project_id, savedObjective: updateResult?.objective, savedSource: updateResult?.source }, null, 2));
         }
 
-        const refetchResult = await invalidateAndRefetchProjectOkrs(dIdx, pIdx);
+        const refetchResult = await invalidateAndRefetchProjectOkrs(dIdx, pIdx, scope);
 
         if (isTargetCase) {
           console.error('[updateProjectOKRDb-TARGET] REFETCH RESULT', JSON.stringify({ count: Array.isArray(refetchResult) ? refetchResult.length : 0, resolvedOkrs: Array.isArray(refetchResult) ? refetchResult.map((o: any) => ({ id: o?.id, objective: o?.objective, project_id: o?.project_id, source: o?.source })) : [] }, null, 2));
@@ -1612,7 +1641,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
         alert('OKRの更新に失敗しました');
       }
     },
-    [mainOKR, accessCompanyId, invalidateAndRefetchProjectOkrs, departments, ensureMainOkrIsDbBacked, resolveCurrentStrategyId]
+    [mainOKR, accessCompanyId, invalidateAndRefetchProjectOkrs, departments, ensureMainOkrIsDbBacked, resolveCurrentStrategyId, resolvedOkrsMap]
   );
 
   /* ============================================================
@@ -2164,12 +2193,26 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
         const dept = departments?.[dIdx];
         const proj = dept?.projects?.[pIdx];
         const projectId = proj ? String((proj as any).id ?? proj.title) : String(mainOKR.id ?? '');
+        const scope = captureOkrWriteScope(accessCompanyId, resolveCurrentStrategyId());
+        if (!scope) {
+          alert('会社・戦略の確認が完了していません。画面を再読み込みしてから再度お試しください。');
+          return;
+        }
+        const ownedByScope = (resolvedOkrsMap[keyFor(dIdx, pIdx)] ?? []).some(
+          (o) => o?.id === mainOKR.id && isOkrOwnedByScope(o, scope, projectId),
+        );
+        if (!ownedByScope) {
+          alert('このOKRは現在の会社に属していないため削除できません。画面を再読み込みしてください。');
+          return;
+        }
 
         // ★ okrService.deleteOkr() で soft delete（DB に is_deleted=true）
-        await okrService.deleteOkr(mainOKR.id, projectId, accessCompanyId);
+        await okrService.deleteOkr(mainOKR.id, projectId, scope.companyId);
+
+        if (!isSaveScopeCurrent(scope)) return;
 
         // ★ キャッシュ refresh
-        await invalidateAndRefetchProjectOkrs(dIdx, pIdx);
+        await invalidateAndRefetchProjectOkrs(dIdx, pIdx, scope);
 
         // ★ STAGE6 okrsV2 への同期: **意図的に実装しない**
         //
@@ -2199,7 +2242,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
         setIsSavingOkr(false);
       }
     },
-    [mainOKR, accessCompanyId, selected, invalidateAndRefetchProjectOkrs, departments]
+    [mainOKR, accessCompanyId, selected, invalidateAndRefetchProjectOkrs, departments, resolvedOkrsMap, resolveCurrentStrategyId]
   );
 
   /* ============================================================
@@ -2222,6 +2265,13 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
 
       setIsSavingOkr(true);
       try {
+        const strategyId = resolveCurrentStrategyId();
+        const scope = captureOkrWriteScope(accessCompanyId, strategyId);
+        if (!scope) {
+          alert('会社・戦略の確認が完了していません。画面を再読み込みしてから再度お試しください。');
+          return;
+        }
+
         // プロジェクト情報を departments から取得
         const dept = departments?.[dIdx];
         const proj = dept?.projects?.[pIdx];
@@ -2261,13 +2311,15 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           {
             objective,
             owner_name: '',
-            strategy_id: resolveCurrentStrategyId(),
+            strategy_id: strategyId,
             department_id: deptId,
             project_id: projectId,
           },
           projectId,
-          accessCompanyId
+          scope.companyId
         );
+
+        if (!isSaveScopeCurrent(scope)) return;
 
         // ★ 診断: SAVE RESULT を出力
         if (isTargetCase) {
@@ -2275,7 +2327,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
         }
 
         // ★ キャッシュ refresh
-        const refetchResult = await invalidateAndRefetchProjectOkrs(dIdx, pIdx);
+        const refetchResult = await invalidateAndRefetchProjectOkrs(dIdx, pIdx, scope);
 
         // ★ 診断: REFETCH RESULT を出力
         if (isTargetCase) {
@@ -2293,7 +2345,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
         setIsSavingOkr(false);
       }
     },
-    [accessCompanyId, selected, invalidateAndRefetchProjectOkrs, departments]
+    [accessCompanyId, selected, invalidateAndRefetchProjectOkrs, departments, resolveCurrentStrategyId]
   );
 
   /* ============================================================
@@ -2326,6 +2378,13 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           return;
         }
 
+        const scope = captureOkrWriteScope(accessCompanyId, resolveCurrentStrategyId());
+        const cachedForProject = resolvedOkrsMap[keyFor(dIdx, pIdx)] ?? [];
+        if (!scope || !displayOkrs.every((o) => cachedForProject.some((c) => c?.id === o.id && isOkrOwnedByScope(c, scope, projectId)))) {
+          alert('このOKRは現在の会社に属していないため並び替えできません。画面を再読み込みしてください。');
+          return;
+        }
+
         // displayOkrs の id リストを並び替え前提で sort_order を更新
         const orderedIds = displayOkrs.map((o) => o.id);
         // swap
@@ -2334,10 +2393,12 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
         orderedIds[newIdx] = tmp;
 
         // ★ okrService.reorderOkrs() で DB 更新
-        await okrService.reorderOkrs(projectId, orderedIds, accessCompanyId);
+        await okrService.reorderOkrs(projectId, orderedIds, scope.companyId);
+
+        if (!isSaveScopeCurrent(scope)) return;
 
         // ★ キャッシュ refresh
-        await invalidateAndRefetchProjectOkrs(dIdx, pIdx);
+        await invalidateAndRefetchProjectOkrs(dIdx, pIdx, scope);
 
         // ※ okrsV2 の再ソートは行わない（ファイル先頭の ARCHITECTURE セクション参照）
         // 理由：okrs と okrsV2 の対応関係が未定義のため、並び替えの影響が不明
@@ -2350,7 +2411,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
         setIsSavingOkr(false);
       }
     },
-    [accessCompanyId, displayOkrs, invalidateAndRefetchProjectOkrs, departments]
+    [accessCompanyId, displayOkrs, invalidateAndRefetchProjectOkrs, departments, resolvedOkrsMap, resolveCurrentStrategyId]
   );
 
   {/* -------- プロジェクト追加（page側に残す：UI状態と密結合） -------- */}

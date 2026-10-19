@@ -22,6 +22,19 @@ export type ISODateString = string; // 'YYYY-MM-DD' など
 export type Ym = string; // 'YYYY-MM'
 export type UUID = string;
 
+/* STAGE1 財務入力（手入力・会社ごとの状態） */
+export type FinanceActualRow = {
+  year: number;
+  revenue_actual?: number;
+  operating_income_actual?: number;
+};
+
+export type FinancePlanRow = {
+  year: number;
+  revenue_plan?: number;
+  operating_income_plan?: number;
+};
+
 /**
  * 追加フィールドが入っても壊れないための拡張用
  *

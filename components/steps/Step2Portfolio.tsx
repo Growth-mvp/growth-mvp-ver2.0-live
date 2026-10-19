@@ -14,6 +14,13 @@ import type {
 import { classifyStage, createDefaultPortfolio } from '@/types/portfolio';
 import { saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
 import { saveWithAudit } from '@/utils/persist/saveWithAudit';
+import {
+  captureSaveScope,
+  isSaveScopeCurrent,
+  runInSaveScope,
+  SAVE_SCOPE_CHANGED,
+  type SaveScope,
+} from '@/lib/strategy/saveScope';
 
 /* ============ ユーティリティ ============ */
 function toNumberOrUndefined(v: string | number | null | undefined): number | undefined {
@@ -90,46 +97,56 @@ export default function Step2Portfolio(_props: Props) {
   const dirtyRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingGateRef = useRef(false);
+  const saveRunRef = useRef(0);
 
   useEffect(() => {
     savingGateRef.current = canPersist;
   }, [canPersist]);
 
   /** ★保存は store 全体ではなく buildPayload を優先（混線・上書き事故を減らす） */
-  const persistNow = useCallback(async () => {
+  const persistNow = useCallback(async (scope: SaveScope) => {
     const state = useStrategyStore.getState() as any;
     const payload = typeof state.buildPayload === 'function' ? state.buildPayload() : state;
-    await saveWithAudit(payload, userId!, companyId!, undefined, {}, 'step2Portfolio:save');
-  }, [userId, companyId]);
+    await saveWithAudit(payload, scope.userId, scope.companyId, undefined, {}, 'step2Portfolio:save');
+  }, []);
 
-  const scheduleSave = useCallback(() => {
+  const scheduleSave: (scope: SaveScope | null, delayMs: number) => void = useCallback((scope, delayMs) => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(async function trySave() {
-      if (!savingGateRef.current || !canPersist) {
-        timerRef.current = setTimeout(trySave, 600);
+      const target = scope ?? captureSaveScope();
+      if (!target) {
+        scheduleSave(null, 600);
+        return;
+      }
+      if (!isSaveScopeCurrent(target)) return;
+      if (!savingGateRef.current) {
+        scheduleSave(target, 600);
         return;
       }
       if (!dirtyRef.current) return;
 
       dirtyRef.current = false;
+      const runId = ++saveRunRef.current;
       setSaving(true);
       setSaveError(null);
 
       try {
-        await persistNow();
+        const result = await runInSaveScope(target, () => persistNow(target));
+        if (result === SAVE_SCOPE_CHANGED) dirtyRef.current = true;
       } catch (e: any) {
+        if (!isSaveScopeCurrent(target)) return;
         dirtyRef.current = true;
         setSaveError(e?.message || '保存に失敗しました');
-        timerRef.current = setTimeout(trySave, 1500);
+        scheduleSave(target, 1500);
       } finally {
-        setSaving(false);
+        if (saveRunRef.current === runId) setSaving(false);
       }
-    }, 700);
-  }, [canPersist, persistNow]);
+    }, delayMs);
+  }, [persistNow]);
 
   const markDirty = useCallback(() => {
     dirtyRef.current = true;
-    scheduleSave();
+    scheduleSave(captureSaveScope(), 700);
   }, [scheduleSave]);
 
   useEffect(() => {
@@ -287,20 +304,23 @@ export default function Step2Portfolio(_props: Props) {
   /* ============ 手動保存 ============ */
   const handleManualSave = useCallback(async () => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    if (!canPersist || !savingGateRef.current) return;
+    const scope = captureSaveScope();
+    if (!canPersist || !savingGateRef.current || !scope) return;
 
     dirtyRef.current = false;
+    const runId = ++saveRunRef.current;
     setSaving(true);
     setSaveError(null);
 
     try {
-      await persistNow();
+      await runInSaveScope(scope, () => persistNow(scope));
     } catch (e: any) {
+      if (!isSaveScopeCurrent(scope)) return;
       dirtyRef.current = true;
       setSaveError(e?.message || '保存に失敗しました');
-      scheduleSave();
+      scheduleSave(scope, 700);
     } finally {
-      setSaving(false);
+      if (saveRunRef.current === runId) setSaving(false);
     }
   }, [canPersist, persistNow, scheduleSave]);
 

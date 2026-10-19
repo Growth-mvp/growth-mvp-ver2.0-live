@@ -5,10 +5,17 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Papa from 'papaparse';
 import StepLayout from '@/components/StepLayout';
 import { useStrategyStore } from '@/store/strategyStore';
-import { useUserStore } from '@/store/userStore';
 import { saveStrategyData } from '@/utils/supabase/strategy';
 import { saveWithAudit } from '@/utils/persist/saveWithAudit';
+import {
+  captureSaveScope,
+  isSaveScopeCurrent,
+  runInSaveScope,
+  SAVE_SCOPE_CHANGED,
+  type SaveScope,
+} from '@/lib/strategy/saveScope';
 import { buildFinanceSummary } from '@/utils/financeSummary';
+import type { FinanceActualRow as ActualRow, FinancePlanRow as PlanRow } from '@/types/strategy';
 import {
   ResponsiveContainer,
   LineChart,
@@ -43,18 +50,6 @@ const EXPECTED_HEADERS = [
 ] as const;
 
 type FinanceRow = Record<(typeof EXPECTED_HEADERS)[number], any>;
-
-type PlanRow = {
-  year: number;
-  revenue_plan?: number;
-  operating_income_plan?: number;
-};
-
-type ActualRow = {
-  year: number;
-  revenue_actual?: number;
-  operating_income_actual?: number;
-};
 
 /** 日本語→英語 ヘッダ変換マップ */
 const HEADER_JA_TO_EN: Record<string, string> = {
@@ -261,8 +256,15 @@ function Banner({
   );
 }
 
+const SCOPE_NOT_READY = '会社・戦略の確認が完了していません。画面を再読み込みしてから再度お試しください。';
+
 /* =========================== 本体 =========================== */
 export default function Step3FinanceUpload() {
+  const scopeCompanyId = useStrategyStore((s) => s.companyId);
+  return <Step3FinanceUploadBody key={scopeCompanyId ?? 'none'} />;
+}
+
+function Step3FinanceUploadBody() {
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -272,9 +274,6 @@ export default function Step3FinanceUpload() {
   const [planRows, setPlanRows] = useState<PlanRow[]>([]);
 
   const st = useStrategyStore() as any;
-  const { user, companyId, hydrated, membershipLoaded } = useUserStore();
-  const userId = user?.id ?? null;
-  const canPersist = !!userId && !!companyId && !!hydrated && !!membershipLoaded;
 
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -291,31 +290,39 @@ export default function Step3FinanceUpload() {
     [st?.csvFinanceData],
   );
 
-  async function saveAll(rows: FinanceRow[]) {
+  async function saveAll(rows: FinanceRow[], scope: SaveScope) {
+    if (!isSaveScopeCurrent(scope)) return;
     setMessage('');
     setError('');
     setFieldSafe(st, 'csvFinanceData', rows);
     const summary = buildFinanceSummary(rows);
     setFieldSafe(st, 'financeSummary', summary);
-    if (!userId || !companyId || !canPersist) return;
     try {
-      const state = useStrategyStore.getState() as any;
-      await saveWithAudit(
-        { ...state, csvFinanceData: rows, financeSummary: summary },
-        userId,
-        companyId,
-        undefined,
-        {},
-        'step3Finance:uploadCSV',
+      const result = await runInSaveScope(scope, () =>
+        saveWithAudit(
+          { ...(useStrategyStore.getState() as any), csvFinanceData: rows, financeSummary: summary },
+          scope.userId,
+          scope.companyId,
+          undefined,
+          {},
+          'step3Finance:uploadCSV',
+        ),
       );
+      if (result === SAVE_SCOPE_CHANGED || !isSaveScopeCurrent(scope)) return;
       setMessage('財務データ＋サマリーを保存しました');
     } catch (e) {
+      if (!isSaveScopeCurrent(scope)) return;
       console.error(e);
       setError('サーバ保存に失敗しました');
     }
   }
 
   async function saveActual(rows: ActualRow[]) {
+    const scope = captureSaveScope();
+    if (!scope) {
+      setError(SCOPE_NOT_READY);
+      return;
+    }
     setMessage('');
     setError('');
     setFieldSafe(st, 'financeActual', rows);
@@ -345,29 +352,53 @@ export default function Step3FinanceUpload() {
       );
 
     setParsedData(synthetic);
-    await saveAll(synthetic);
+    await saveAll(synthetic, scope);
 
-    if (!userId || !companyId || !canPersist) return;
+    if (!isSaveScopeCurrent(scope)) return;
     try {
-      const state = useStrategyStore.getState() as any;
-      await saveWithAudit({ ...state, financeActual: rows }, userId, companyId, undefined, {}, 'step3Finance:uploadActual');
+      const result = await runInSaveScope(scope, () =>
+        saveWithAudit(
+          { ...(useStrategyStore.getState() as any), financeActual: rows },
+          scope.userId,
+          scope.companyId,
+          undefined,
+          {},
+          'step3Finance:uploadActual',
+        ),
+      );
+      if (result === SAVE_SCOPE_CHANGED || !isSaveScopeCurrent(scope)) return;
       setMessage('実績（手入力）を保存しました');
     } catch (e) {
+      if (!isSaveScopeCurrent(scope)) return;
       console.error(e);
       setError('実績（手入力）のサーバ保存に失敗しました');
     }
   }
 
   async function savePlan(rows: PlanRow[]) {
+    const scope = captureSaveScope();
+    if (!scope) {
+      setError(SCOPE_NOT_READY);
+      return;
+    }
     setMessage('');
     setError('');
     setFieldSafe(st, 'financePlan', rows);
-    if (!userId || !companyId || !canPersist) return;
     try {
-      const state = useStrategyStore.getState() as any;
-      await saveWithAudit({ ...state, financePlan: rows }, userId, companyId, undefined, {}, 'step3Finance:uploadPlan');
+      const result = await runInSaveScope(scope, () =>
+        saveWithAudit(
+          { ...(useStrategyStore.getState() as any), financePlan: rows },
+          scope.userId,
+          scope.companyId,
+          undefined,
+          {},
+          'step3Finance:uploadPlan',
+        ),
+      );
+      if (result === SAVE_SCOPE_CHANGED || !isSaveScopeCurrent(scope)) return;
       setMessage('計画値を保存しました');
     } catch (e) {
+      if (!isSaveScopeCurrent(scope)) return;
       console.error(e);
       setError('計画値のサーバ保存に失敗しました');
     }
@@ -376,6 +407,11 @@ export default function Step3FinanceUpload() {
   const handleFiles = (files: FileList | null) => {
     const file = files?.[0];
     if (!file) return;
+    const scope = captureSaveScope();
+    if (!scope) {
+      setError(SCOPE_NOT_READY);
+      return;
+    }
     setUploading(true);
     setMessage('');
     setError('');
@@ -383,10 +419,14 @@ export default function Step3FinanceUpload() {
       header: true,
       skipEmptyLines: true,
       complete: async (result) => {
+        if (!isSaveScopeCurrent(scope)) {
+          setUploading(false);
+          return;
+        }
         const raw = Array.isArray(result.data) ? result.data : [];
         const normalized = normalizeHeaders(mapHeadersToEnglish(raw));
         setParsedData(normalized);
-        await saveAll(normalized);
+        await saveAll(normalized, scope);
         setUploading(false);
       },
       error: () => {
@@ -400,9 +440,14 @@ export default function Step3FinanceUpload() {
     handleFiles(e.target.files);
 
   const recalcAll = async () => {
+    const scope = captureSaveScope();
+    if (!scope) {
+      setError(SCOPE_NOT_READY);
+      return;
+    }
     const recalculated = parsedData.map((r) => autoCompute(r));
     setParsedData(recalculated);
-    await saveAll(recalculated);
+    await saveAll(recalculated, scope);
   };
 
   // 年度別（会社トータル）実績集計（CSVからの実績）

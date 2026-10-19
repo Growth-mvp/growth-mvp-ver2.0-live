@@ -20,6 +20,12 @@ import {
 } from '@/utils/stageSnapshot';
 import { getFullStrategyDataByCompany, saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
 import { saveWithAudit } from '@/utils/persist/saveWithAudit';
+import {
+  captureSaveScope,
+  isSaveScopeCurrent,
+  runInSaveScope,
+  SAVE_SCOPE_CHANGED,
+} from '@/lib/strategy/saveScope';
 import { restoreWithAudit } from '@/utils/persist/restoreWithAudit';
 import type { IssueBlock, MetricsSummary, StoryChapter, WinPatternCandidate, Stage2State, Stage2Answer, Stage2FinalDocumentEdits, Stage2DeepDive } from '@/types/strategy';
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
@@ -3275,6 +3281,8 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         return;
       }
 
+      const scopeAtStart = captureSaveScope();
+
       // ★ precheck 成功後、初めて setGenerating(true)
       setGenerateError(null);
       setSaveWarning(null);
@@ -3431,6 +3439,11 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           console.log('[Stage2] API response winPatternsCandidate count:', newWinPatterns.length);
         }
 
+        if (scopeAtStart && !isSaveScopeCurrent(scopeAtStart)) {
+          console.warn('[Stage2] 会社・戦略が切り替わったため、生成結果を破棄しました');
+          return;
+        }
+
         /* ★ TASK 16: store setter を呼び出し（local state ではなく store に保存） */
         setStoryDraft(newStoryDraft);
         setWinPatternsCandidate(newWinPatterns);
@@ -3455,10 +3468,10 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           winPatternsCandidate: newWinPatterns,
           answers12,
         };
-        saveStage2SnapshotToLocalStorage(stage2State, companyId ?? undefined);
+        saveStage2SnapshotToLocalStorage(stage2State, scopeAtStart?.companyId ?? companyId ?? undefined);
 
         // Supabase best effort
-        if (userId && companyId) {
+        if (scopeAtStart) {
           try {
             const storeState = useStrategyStore.getState() as any;
             const savePayload = {
@@ -3479,14 +3492,10 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
               finalStoryFinalInPayload: Array.isArray((savePayload as any).finalStoryFinal) ? (savePayload as any).finalStoryFinal.length : 'missing',
             });
 
-            const saveResult = await saveWithAudit(
-              savePayload,
-              userId,
-              companyId,
-              undefined,
-              {},
-              'stage2:handleGenerate'
+            const saveResult = await runInSaveScope(scopeAtStart, () =>
+              saveWithAudit(savePayload, scopeAtStart.userId, scopeAtStart.companyId, undefined, {}, 'stage2:handleGenerate'),
             );
+            if (saveResult === SAVE_SCOPE_CHANGED || !isSaveScopeCurrent(scopeAtStart)) return;
 
             if (saveResult.error === null) {
               console.log('[Stage2] ✅ DB save SUCCESS:', {
@@ -3581,6 +3590,8 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       setGenerateFinalError('戦略データIDを取得できません。ページを再読み込みしてください。');
       return;
     }
+
+    const scopeAtStart = captureSaveScope();
 
     // ★ Version 1.1: 未反映deepDive確認
     const unreflected = current.answers12?.filter(
@@ -3701,6 +3712,11 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       // ★ CRITICAL FIX: Also clear old finalized versions (finalStoryFinal/finalStory)
       // If they remain, UI's usingVersion logic would display stale finalized version
       // instead of the new generation in draft
+      if (scopeAtStart && !isSaveScopeCurrent(scopeAtStart)) {
+        console.warn('[Stage2] 会社・戦略が切り替わったため、最終ストーリーの生成結果を破棄しました');
+        return;
+      }
+
       setFinalStoryDraft(newFinalStory);
 
       // Clear finalized versions via setter so new generation is displayed
@@ -3756,7 +3772,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       };
       // ★ Stage2State型の後方互換性を保ちつつ、復元用の本命フィールドもlocalStorageに保持
       (stage2State as any).finalStoryDraft = newFinalStory;
-      saveStage2SnapshotToLocalStorage(stage2State, companyId ?? undefined);
+      saveStage2SnapshotToLocalStorage(stage2State, scopeAtStart?.companyId ?? companyId ?? undefined);
 
       // ★ CRITICAL FIX: 生成直後に DB に保存（finalStoryDraft をリロード後も復元するため）
       try {
@@ -3790,16 +3806,18 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           stage2FinalDocumentEdits: mergeMidtermStrategyIntoDocumentEdits(editingDocumentEdits, midtermStrategy),  // ★ 補助セクション編集内容を明示的に含める
         };
 
-        const saveResult = await saveWithAudit(
-          savePayload,
-          userId,
-          companyId ?? undefined,
-          undefined,
-          {},
-          'stage2:generateFinal'
-        );
+        const saveResult = scopeAtStart
+          ? await runInSaveScope(scopeAtStart, () =>
+              saveWithAudit(savePayload, scopeAtStart.userId, scopeAtStart.companyId, undefined, {}, 'stage2:generateFinal'),
+            )
+          : SAVE_SCOPE_CHANGED;
 
-        if (saveResult.error === null) {
+        if (
+          saveResult !== SAVE_SCOPE_CHANGED &&
+          scopeAtStart &&
+          isSaveScopeCurrent(scopeAtStart) &&
+          saveResult.error === null
+        ) {
           console.log('[Stage2][generate-final] ✅ DB save SUCCESS - finalStoryDraft saved', {
             finalStoryDraftLen: Array.isArray(newFinalStory) ? newFinalStory.length : 0,
             revision: saveResult.data?.revision,
@@ -3846,7 +3864,8 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                 storeFingerprint: store.stage2FinalGeneratedConclusionFingerprint?.slice(0, 8),
               });
 
-              if (typeof store.setStage2FinalGeneratedConclusion === 'function') {
+              const conclusionInScope = !scopeAtStart || isSaveScopeCurrent(scopeAtStart);
+              if (conclusionInScope && typeof store.setStage2FinalGeneratedConclusion === 'function') {
                 store.setStage2FinalGeneratedConclusion?.(
                   conclusionRes.conclusion
                 );
@@ -3864,7 +3883,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           }
         } else {
           console.warn('[Stage2][generate-final] ⚠️ DB save FAILED but generation succeeded', {
-            error: (saveResult.error as any)?.message || saveResult.error,
+            error: (saveResult as any)?.error?.message ?? (saveResult as any)?.error,
           });
         }
 
@@ -4523,6 +4542,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                           disabled={disabled}
                           onClick={async () => {
                             const latestDocumentEdits = editingDocumentEdits;
+                            const saveScope = captureSaveScope();
 
                             setFinalStoryEdited(editingStory);
                             setStage2FinalDocumentEdits(mergeMidtermStrategyIntoDocumentEdits(latestDocumentEdits, midtermStrategy));
@@ -4541,14 +4561,14 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                               payloadDocEdits: savePayload.stage2FinalDocumentEdits,
                             });
 
-                            const saveResult = await saveWithAudit(
-                              savePayload,
-                              userId,
-                              companyId ?? undefined,
-                              undefined,
-                              {},
-                              'stage2:saveFinalDocumentEdits'
+                            if (!saveScope) {
+                              console.warn('[Stage2][docEdits] 会社・戦略が未確定のため保存を省略しました');
+                              return;
+                            }
+                            const saveResult = await runInSaveScope(saveScope, () =>
+                              saveWithAudit(savePayload, saveScope.userId, saveScope.companyId, undefined, {}, 'stage2:saveFinalDocumentEdits'),
                             );
+                            if (saveResult === SAVE_SCOPE_CHANGED || !isSaveScopeCurrent(saveScope)) return;
 
                             if (saveResult.error) {
                               console.error('[Stage2][docEdits][manual-save-failed]', saveResult.error);
