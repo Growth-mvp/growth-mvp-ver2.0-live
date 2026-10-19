@@ -215,8 +215,8 @@ export default function Sidebar() {
             <PillLink
               href="/report"
               icon={<FileText size={18} strokeWidth={1.5} />}
-              label="レポート"
-              active={pathname === '/report'}
+              label="経営計画書"
+              active={isActive('/report')}
             />
 
             <div className="h-px bg-gray-200/50 my-4" />

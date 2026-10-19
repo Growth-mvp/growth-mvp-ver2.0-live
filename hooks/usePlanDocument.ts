@@ -53,7 +53,7 @@ export function usePlanDocument(target: PlanTarget, role: PlanRole) {
   const key = scope ? scopeKey(scope) : '';
 
   const [stored, setStored] = useState<PlanDocument | null>(null);
-  const [isRestoring, setIsRestoring] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(scope !== null);
   const [generation] = useState(() => new GenerationController());
   const [generating, setGenerating] = useState<{ key: string; token: number } | null>(null);
   const isGenerating = generating !== null && generating.key === key;

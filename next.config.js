@@ -14,6 +14,11 @@ const nextConfig = {
         destination: '/report/execution-report',
         permanent: false,
       },
+      {
+        source: '/report/stakeholder-select',
+        destination: '/report',
+        permanent: false,
+      },
     ];
   },
 

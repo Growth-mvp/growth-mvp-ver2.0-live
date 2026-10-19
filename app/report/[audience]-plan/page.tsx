@@ -72,7 +72,7 @@ export default function PlanPreviewPage() {
           <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
             <div>
               <Link
-                href="/report/stakeholder-select"
+                href="/report"
                 className="text-blue-600 hover:text-blue-700 underline text-sm mb-2 inline-block"
               >
                 ← 戻る

@@ -37,7 +37,7 @@ export default function PlanSourceNotice({
             </Link>
           )}
           <Link
-            href="/report/stakeholder-select"
+            href="/report"
             className="inline-block border border-gray-300 hover:bg-gray-50 text-gray-800 px-4 py-2 rounded"
           >
             戻る

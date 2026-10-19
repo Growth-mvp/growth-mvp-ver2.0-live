@@ -64,7 +64,7 @@ export default function BankPlanPage() {
           <div className="mx-auto flex w-full max-w-[1480px] flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-10">
             <div>
               <Link
-                href="/report/stakeholder-select"
+                href="/report"
                 className="mb-1 inline-block text-sm font-medium text-blue-700 hover:text-blue-900 hover:underline"
               >
                 ← 戻る
