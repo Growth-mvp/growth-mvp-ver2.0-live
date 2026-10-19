@@ -1,7 +1,8 @@
 import 'server-only';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { createClient } from '@supabase/supabase-js';
+import { isValidUUID } from '@/lib/utils/isValidUUID';
 
 type RecentProjectUpdate = {
   departmentId: string;
@@ -91,7 +92,7 @@ function compactSummary(content: unknown): string | null {
   return normalized.length > 72 ? `${normalized.slice(0, 72)}…` : normalized;
 }
 
-export async function GET(): Promise<NextResponse<ExecutionSummaryResponse>> {
+export async function GET(req: NextRequest): Promise<NextResponse<ExecutionSummaryResponse>> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -128,10 +129,19 @@ export async function GET(): Promise<NextResponse<ExecutionSummaryResponse>> {
 
     const userId = authUser.user.id;
 
+    const companyId = req.nextUrl.searchParams.get('companyId');
+    if (!companyId || !isValidUUID(companyId)) {
+      return NextResponse.json<ExecutionSummaryResponse>(
+        { ok: false, error: 'companyId is required' },
+        { status: 400 }
+      );
+    }
+
     const { data: membership, error: memberError } = await admin
       .from('company_members')
       .select('company_id')
       .eq('user_id', userId)
+      .eq('company_id', companyId)
       .maybeSingle();
 
     if (memberError) {
@@ -140,12 +150,11 @@ export async function GET(): Promise<NextResponse<ExecutionSummaryResponse>> {
 
     if (!membership?.company_id) {
       return NextResponse.json<ExecutionSummaryResponse>(
-        { ok: false, error: 'User has no company membership' },
+        { ok: false, error: 'User is not a member of the requested company' },
         { status: 403 }
       );
     }
 
-    const companyId = membership.company_id;
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
     const { count: totalOkrsCount, error: okrCountError } = await admin

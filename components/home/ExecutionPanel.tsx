@@ -154,6 +154,7 @@ type OrgAlignmentSummary = {
 export default function ExecutionPanel() {
   const s6 = useStage6Data('base') as any;
   const companyId = useUserStore((s) => s.companyId);
+  const membershipVerified = useUserStore((s) => s.membershipVerified);
 
   const [summary, setSummary] = useState<ExecutionSummary | null>(null);
   const [loading, setLoading] = useState(false);
@@ -175,6 +176,10 @@ export default function ExecutionPanel() {
   }, []);
 
   useEffect(() => {
+    if (!companyId || !membershipVerified) {
+      setSummary(null);
+      return;
+    }
     const run = async () => {
       setLoading(true);
       setError(null);
@@ -186,7 +191,7 @@ export default function ExecutionPanel() {
           return;
         }
 
-        const apiRes = await fetch('/api/stage5/execution-summary', {
+        const apiRes = await fetch(`/api/stage5/execution-summary?companyId=${encodeURIComponent(companyId)}`, {
           method: 'GET',
           headers: {
             Authorization: `Bearer ${sessionRes.data.session.access_token}`,
@@ -217,7 +222,7 @@ export default function ExecutionPanel() {
       }
     };
     run();
-  }, []);
+  }, [companyId, membershipVerified]);
 
   // Fetch org-alignment summary for organization transformation card
   // Refetch when companyId changes (e.g. company switch) and clear previous state
@@ -231,6 +236,7 @@ export default function ExecutionPanel() {
         setOrgAlignmentError('会社情報が確認できません');
         return;
       }
+      if (!membershipVerified) return;
 
       try {
         const sessionRes = await safeGetSession();
@@ -276,7 +282,7 @@ export default function ExecutionPanel() {
       }
     }
     run();
-  }, [companyId]);
+  }, [companyId, membershipVerified]);
 
   const recentProjectUpdates = useMemo(() => {
     const items = summary?.recentProjectUpdates ?? [];

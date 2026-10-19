@@ -1,4 +1,5 @@
 import 'server-only';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer } from '@/lib/server/rbacGuard';
@@ -82,6 +83,48 @@ async function recordAuditLog(
   } catch (e) {
     console.warn('[DELETE_ALL_API] recordAuditLog failed (ignored):', e);
   }
+}
+
+const MISSING_TABLE_CODES = new Set(['42P01', 'PGRST205']);
+
+function isMissingTableError(error: { code?: string } | null): boolean {
+  return !!error?.code && MISSING_TABLE_CODES.has(error.code);
+}
+
+/**
+ * 会社の経営計画書を削除する。
+ * 会社移動で参照対象外になった旧計画書も含めるため、company_id のみで対象を限定する
+ * （計画書の company_id は作成時の会社のまま残り、他社の計画書とは混ざらない）。
+ * テーブルが存在しない環境のみスキップし、それ以外の失敗は必ず失敗として返す。
+ */
+async function deleteCompanyPlans(
+  admin: SupabaseClient,
+  companyId: string
+): Promise<{ ok: boolean; deletedCount: number; skipped?: 'table_missing'; error?: string; code?: string }> {
+  const deleted = await admin
+    .from('generated_plans')
+    .delete({ count: 'exact' })
+    .eq('company_id', companyId);
+
+  if (deleted.error) {
+    if (isMissingTableError(deleted.error)) {
+      return { ok: true, deletedCount: 0, skipped: 'table_missing' };
+    }
+    return { ok: false, deletedCount: 0, error: deleted.error.message, code: deleted.error.code };
+  }
+
+  const remaining = await admin
+    .from('generated_plans')
+    .select('id', { count: 'exact', head: true })
+    .eq('company_id', companyId);
+
+  if (remaining.error) {
+    return { ok: false, deletedCount: deleted.count ?? 0, error: remaining.error.message, code: remaining.error.code };
+  }
+  if ((remaining.count ?? 0) > 0) {
+    return { ok: false, deletedCount: deleted.count ?? 0, error: 'generated_plans rows remain after deletion' };
+  }
+  return { ok: true, deletedCount: deleted.count ?? 0 };
 }
 
 export async function POST(req: Request) {
@@ -386,6 +429,34 @@ export async function POST(req: Request) {
           companyId,
           separatedTableDeletions,
           message: 'Data deletion failed at progress_logs deletion step.',
+        },
+        { status: 500 }
+      );
+    }
+
+    // generated_plans 削除（分離テーブルと同じく、失敗時は成功応答を返さない）
+    const planDeletion = await deleteCompanyPlans(admin, companyId);
+    separatedTableDeletions.generated_plans = {
+      deleted_count: planDeletion.deletedCount,
+      skipped: planDeletion.skipped ?? null,
+      error: planDeletion.ok ? null : { message: planDeletion.error, code: planDeletion.code },
+    };
+
+    if (!planDeletion.ok) {
+      console.error('[DELETE_ALL_API] generated_plans deletion failed, aborting', { companyId, code: planDeletion.code });
+      await recordAuditLog(admin, companyId, authUserId, 'data:delete-all', {
+        beforeState,
+        status: 'failure',
+        error: planDeletion.error,
+      });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'Failed to delete generated_plans',
+          operationId: `delete_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+          companyId,
+          separatedTableDeletions,
+          message: 'Data deletion failed at generated_plans deletion step. Saved plans may still exist; retry delete-all.',
         },
         { status: 500 }
       );
