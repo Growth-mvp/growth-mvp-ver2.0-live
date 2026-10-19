@@ -93,7 +93,14 @@
 
 ## 6. 過去の検証記録の扱い
 
-- `SECURITY_FUNCTIONAL_TEST.md` と `test-security.md`（Phase 2）: コード検査は実施済み。動作テスト（Test 5: 他社 companyId → 403、Test 6: 他社 strategyId → 403）は、記録上も未実施。Test 6 の問題はコードで解消済み（§1）。動作テストは本番ではなくステージングで実施する。
+- `SECURITY_FUNCTIONAL_TEST.md` と `test-security.md`（Phase 2。元の資料は [docs/archive/stakeholder-plan-dev-2026-10/](../archive/stakeholder-plan-dev-2026-10/) にある）: コード検査は実施済み。動作テストは未実施。Test 6 の問題はコードで解消済み（§1）。動作テストは本番ではなくステージングで実施する（旧資料の「ローカルのみ」の記述は、この方針で置き換える）。
+- 旧テストの手順に残っている誤り（実施前に直す）:
+  - 他社 strategyId の期待値。戦略が存在しない場合は 404（`app/api/plans/[audience]/generate/route.ts:118-119`）、会社と戦略が一致しない場合は 403（同 `:139-140`）。旧資料の「403」は後者だけ
+  - 不正トークンの期待値。認証は先に行われるため 401（同 `:62-64`）。`test-security.md` の「400」は誤り
+  - 「実会社名を AI に送らない」という前提。生成プロンプトには会社名が含まれる（同 `:629`）ため、成り立たない
+- 旧テストで未検証のまま残っている項目: `buildPlanData` の audience フィルタ、AI に渡すデータの範囲、audit ログに本文が含まれないこと（`route.ts` の監査ログの呼び出し 3 箇所は未確認）。
+- DB 書き込みの確認: 書き込みは生成側の保存（`generated_plans`、service_role）だけ。`/saved` は読み取りのみ（コード確認済み）。旧資料の「DB に保存しない」は現行と一致しない（旧記載として扱う）。
+- 未実施の確認項目と手順は [docs/testing/STAKEHOLDER_PLAN_TEST_CHECKLIST.md](../testing/STAKEHOLDER_PLAN_TEST_CHECKLIST.md) §2 にある。
 - 本番の RLS の検証（`docs/security-log/` の 2026-07 の文書群）は、2026-07-08 時点の記録であり、本記録の §3 の申告内容とは時点が異なる。
 
 ## 7. 次に必要な確認
@@ -103,3 +110,6 @@
 3. ロール別の DELETE 動作テスト（admin 可、manager・member・非所属は拒否）をステージングで実施する。
 4. member の STAGE4 の通常更新が成功することを確認する（DELETE の変更で影響しないこと）。
 5. 上記 P1 の扱いを、仕様（運用ガイド）と合わせて決める。
+6. 旧テストの手順を、§6 の訂正（404・401・会社名の前提）に合わせて直してからステージングで実施する。
+7. AI に渡すデータの範囲（`buildPlanData` の audience フィルタ、プロンプトの入力）を確認する。
+8. 監査ログ（`route.ts` の 3 箇所）に、本文や機密情報が含まれないことを確認する。

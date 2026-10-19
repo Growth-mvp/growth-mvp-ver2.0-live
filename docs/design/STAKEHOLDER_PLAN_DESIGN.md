@@ -2,7 +2,7 @@
 
 **対象**: 銀行向け（bank）／株主向け（shareholder）／社員向け（employee）の経営計画書
 **状態**: 実装済み（ローカル検証まで）。ステージングでの実物検証、本番での適用版の照合は未実施
-**統合元**: `DESIGN_PLAN_STORAGE.md`（v5）、`FINAL_DESIGN_REVIEW.md`、`design-docs/3-stakeholder-plan-detailed-design.md`
+**統合元**: 旧 `DESIGN_PLAN_STORAGE.md`（v5）、`FINAL_DESIGN_REVIEW.md`（いずれも内容を §1〜§11 に移し、ルートから削除）、`design-docs/3-stakeholder-plan-detailed-design.md`（[docs/archive/stakeholder-plan-dev-2026-10/](../archive/stakeholder-plan-dev-2026-10/) に保存）
 **関連仕様**: [docs/spec/10-stakeholder-plans.md](../spec/10-stakeholder-plans.md)
 **DB変更履歴**: [docs/deployment/DB_CHANGE_HISTORY.md](../deployment/DB_CHANGE_HISTORY.md)
 
@@ -169,3 +169,42 @@ WHERE s.company_id <> gp.company_id;
 - 計画書データの構築: `utils/export/buildPlanData.ts`
 - UI: `app/report/[audience]-plan/page.tsx`、`app/report/{bank,shareholder,employee}-plan/page.tsx`、`app/report/stakeholder-select/page.tsx`、`components/export/Plan*.tsx`、`hooks/usePlan*.ts`
 - マイグレーションと検証: `MIGRATION_GENERATED_PLANS.sql`（リポジトリ直下。適用版の照合待ち）、`scripts/sql/generated_plans_verify.sql`
+
+## 11. 設計判断の記録（v5 の承認内容）
+
+旧資料 `DESIGN_PLAN_STORAGE.md`（v5）と `FINAL_DESIGN_REVIEW.md` の内容は、本節と §1〜§9 に移した。
+
+### 11-1. 承認条件と対応
+
+| 条件 | 対応 |
+|---|---|
+| 1. 会社移動は読み取り時に照合（API と RLS） | §3 |
+| 2. 旧計画書は保持。生成日時を表示 | §4-3。保持（削除なし） |
+| 3. 保存失敗時の対応 | §4-2。1 回のリトライ、未保存表示、コピー、Markdown ダウンロード、離脱確認 |
+| 4. FOR SHARE の影響 | §6。`FOR KEY SHARE` に変更 |
+| 5. admin・manager のみ生成・再生成 | §5。API で 403、画面でボタンを非表示 |
+| 6. revision による鮮度判定をしない | 実装しない |
+
+### 11-2. 保存方式（N 案）
+
+- 生成 API が、生成直後に保存する。クライアントから本文を受け取らない（旧 `DESIGN_PLAN_STORAGE.md` の「生成と保存」）
+- 採用理由は、旧資料に明記されていない（未確認）
+- 環境変数と認証機構は追加しない。既存のテーブルは変更しない
+
+### 11-3. 廃止した案（現在の実装には無い）
+
+- v2 の「署名付きドラフト ＋ `/save` API」（HMAC の `draftToken`、`PLAN_DRAFT_SECRET`）。旧資料 `IMPLEMENTATION_TEMPLATE.md` にあり、v5 で廃止した。アーカイブに保存している（[docs/archive/stakeholder-plan-dev-2026-10/](../archive/stakeholder-plan-dev-2026-10/)）
+- 旧チェックリストの GET 方式とクライアント送信の本文（`IMPLEMENTATION_CHECKLIST.md` の冒頭で「廃止（旧版）」）
+
+### 11-4. 古い記述の訂正
+
+- 旧 `DESIGN_PLAN_STORAGE.md` の「API と UI の実装（承認後に着手）」と、旧 `FINAL_DESIGN_REVIEW.md` の「API・UI のコードは変更していない」は、当時の状態の記述。現在は API と UI が実装済み
+- 旧 `DESIGN_PLAN_STORAGE.md` の「今回実装しない（revision は使わない）」は、現在も有効（鮮度判定は未実装）
+
+### 11-5. 本番前の確認（旧 `FINAL_DESIGN_REVIEW.md` §4）
+
+1. 参照対象外の旧計画書の保持期間と削除方法（承認事項。§9）
+2. ステージングでの検証結果（§7 の未確認項目）
+3. 既存の制約: `strategy_data.company_id` は一意（1 社 1 戦略）。戦略の移動先は、戦略を持たない会社に限られる（既存の挙動。変更しない）
+
+旧資料の検証結果（ローカルの PGlite での適用と検証スクリプト）は、完了記録 `docs/reports/STAKEHOLDER_PLAN_FEATURE_COMPLETION.md` §4 に記録している。
