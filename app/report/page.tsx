@@ -1,7 +1,8 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { FileText, TrendingUp, BookOpen } from 'lucide-react';
+import Link from 'next/link';
+import { FileText, TrendingUp, BookOpen, Briefcase } from 'lucide-react';
 
 interface ReportItem {
   id: string;
@@ -49,8 +50,9 @@ export default function ReportPage() {
           </p>
         </div>
 
-        {/* レポート一覧 */}
-        <div className="grid gap-4">
+        {/* 既存レポート一覧 */}
+        <h2 className="mb-4 text-lg font-semibold text-neutral-900">既存レポート</h2>
+        <div className="mb-12 grid gap-4">
           {reports.map((report) => (
             <button
               key={report.id}
@@ -64,9 +66,9 @@ export default function ReportPage() {
 
               {/* コンテンツ */}
               <div className="flex-1">
-                <h2 className="text-lg font-semibold text-neutral-900">
+                <h3 className="text-lg font-semibold text-neutral-900">
                   {report.title}
-                </h2>
+                </h3>
                 <p className="mt-2 text-sm text-neutral-600">
                   {report.description}
                 </p>
@@ -78,6 +80,32 @@ export default function ReportPage() {
               </div>
             </button>
           ))}
+        </div>
+
+        {/* ステークホルダー別経営計画書 */}
+        <div className="border-t pt-12">
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900">
+            ステークホルダー別経営計画書
+          </h2>
+          <p className="mb-6 text-base text-neutral-600">
+            STAGE1～6のデータから、異なるステークホルダー向けの経営計画書を生成できます。
+          </p>
+          <div className="grid gap-4 md:grid-cols-3">
+            <Link
+              href="/report/stakeholder-select"
+              className="flex flex-col items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 p-6 text-left transition-all hover:border-blue-400 hover:shadow-md"
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-white">
+                <Briefcase size={20} strokeWidth={1.5} />
+              </div>
+              <div>
+                <h3 className="font-semibold text-neutral-900">計画書を生成</h3>
+                <p className="mt-1 text-sm text-neutral-600">
+                  銀行向け・株主向け・社員向けの3種類に対応
+                </p>
+              </div>
+            </Link>
+          </div>
         </div>
       </div>
     </div>

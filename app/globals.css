@@ -190,3 +190,169 @@ a:hover {
   animation: stage0-fade-in 0.3s ease-in;
 }
 
+/* ================== 印刷用スタイル ================== */
+@media print {
+  /* 親要素の高さ制限を解除（重要：複数ページ印刷のため） */
+  html,
+  body {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* LayoutInner の親要素（relative min-h-dvh overflow-hidden）の制限を解除 */
+  div[class*="relative"][class*="min-h-dvh"] {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* #app-scroll（absolute inset-0 overflow-y-auto）をリセット */
+  #app-scroll {
+    position: static !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    background: white !important;
+    inset: auto !important;
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  /* サイドバーとCEOチャットパネルを非表示 */
+  aside {
+    display: none !important;
+  }
+
+  /* モバイルドロワーオーバーレイを非表示 */
+  [aria-hidden="true"] {
+    display: none !important;
+  }
+
+  /* ページ全体の背景を白に */
+  body,
+  html {
+    background-color: white !important;
+    background-image: none !important;
+  }
+
+  /* 計画書本体の印刷設定 */
+  #plan-print-area {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    position: static !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    padding: 15mm !important;
+    background: white !important;
+    page-break-before: auto !important;
+    page-break-after: auto !important;
+    break-inside: auto !important;
+  }
+
+  /* グラデーション背景を削除 */
+  div[style*="gradient"],
+  [class*="gradient"] {
+    background: white !important;
+    background-image: none !important;
+  }
+
+  /* 操作ボタン類を非表示 */
+  button[aria-label*="メニュー"],
+  button[aria-label*="AIアシスタント"],
+  button[aria-label*="CEOChat"],
+  button:has(svg) {
+    display: none !important;
+  }
+
+  /* 不要なUI要素を非表示 */
+  [class*="sticky"],
+  [class*="fixed"] {
+    position: static !important;
+  }
+
+  /* A4用紙設定 */
+  @page {
+    size: A4 portrait;
+    margin: 15mm;
+  }
+
+  /* ページあたりのサイズ制御 */
+  body {
+    font-size: 11pt;
+    line-height: 1.5;
+  }
+
+  /* テーブルの印刷対応 */
+  #plan-print-area table {
+    width: 100% !important;
+    table-layout: auto !important;
+    page-break-inside: avoid !important;
+    border-collapse: collapse !important;
+  }
+
+  #plan-print-area thead {
+    display: table-header-group !important;
+  }
+
+  #plan-print-area tfoot {
+    display: table-footer-group !important;
+  }
+
+  #plan-print-area tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  #plan-print-area td,
+  #plan-print-area th {
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
+  }
+
+  /* 見出しの印刷対応（次ページへの孤立を防止） */
+  #plan-print-area h1,
+  #plan-print-area h2,
+  #plan-print-area h3,
+  #plan-print-area h4 {
+    page-break-after: avoid !important;
+    page-break-inside: avoid !important;
+    break-after: avoid !important;
+    break-inside: avoid !important;
+    margin-top: 15mm !important;
+    margin-bottom: 5mm !important;
+  }
+
+  /* 段落と要素の不自然な改ページを防止 */
+  #plan-print-area p,
+  #plan-print-area li,
+  #plan-print-area blockquote,
+  #plan-print-area pre {
+    orphans: 3 !important;
+    widows: 3 !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* セクションの改ページ制御 */
+  #plan-print-area section {
+    page-break-inside: avoid !important;
+  }
+
+  /* 不要な空白ページを防止 */
+  #plan-print-area > * {
+    margin-bottom: 0.5rem !important;
+  }
+}
+

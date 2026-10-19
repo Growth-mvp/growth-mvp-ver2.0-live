@@ -53,6 +53,11 @@
       "modelRole": "reasoning",
       "maxCompletionTokens": 2500,
       "jsonMode": true
+    },
+    "planGenerate": {
+      "modelRole": "reasoning",
+      "maxCompletionTokens": 8000,
+      "jsonMode": false
     }
   }
 }
