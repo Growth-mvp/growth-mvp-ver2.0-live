@@ -6,6 +6,7 @@ import StrategyGuard from '@/app/StrategyGuard';
 import PlanPreview from '@/components/export/PlanPreview';
 import PlanStatusBar from '@/components/export/PlanStatusBar';
 import PlanSourceNotice from '@/components/export/PlanSourceNotice';
+import PlanExportButtons from '@/components/export/PlanExportButtons';
 import { usePlanDocument } from '@/hooks/usePlanDocument';
 import { usePlanSource } from '@/hooks/usePlanSource';
 import { useStrategyStore } from '@/store/strategyStore';
@@ -74,12 +75,12 @@ export default function BankPlanPage() {
               </h1>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <button
-                onClick={() => window.print()}
-                className="rounded-lg bg-slate-800 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-900"
-              >
-                📥 PDFダウンロード
-              </button>
+              <PlanExportButtons
+                doc={plan.doc}
+                audience={audience}
+                companyName={strategyState.companyName}
+                accentClassName="bg-slate-800 hover:bg-slate-900"
+              />
             </div>
           </div>
         </div>

@@ -315,7 +315,7 @@ export default function PlanPreview({
 
         {/* ===== データ追跡 ===== */}
         {!showFullReport && (
-          <div className="text-center pt-6">
+          <div className="text-center pt-6 print:hidden">
             <button
               onClick={() => setShowFullReport(!showFullReport)}
               className="text-sm text-blue-600 hover:text-blue-700 underline"

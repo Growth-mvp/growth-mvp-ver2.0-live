@@ -6,6 +6,7 @@ import StrategyGuard from '@/app/StrategyGuard';
 import PlanPreview from '@/components/export/PlanPreview';
 import PlanStatusBar from '@/components/export/PlanStatusBar';
 import PlanSourceNotice from '@/components/export/PlanSourceNotice';
+import PlanExportButtons from '@/components/export/PlanExportButtons';
 import { usePlanDocument } from '@/hooks/usePlanDocument';
 import { usePlanSource } from '@/hooks/usePlanSource';
 import { useStrategyStore } from '@/store/strategyStore';
@@ -74,12 +75,12 @@ export default function ShareholderPlanPage() {
               </h1>
             </div>
             <div className="flex gap-3">
-              <button
-                onClick={() => window.print()}
-                className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded font-semibold"
-              >
-                📥 PDFダウンロード
-              </button>
+              <PlanExportButtons
+                doc={plan.doc}
+                audience={audience}
+                companyName={strategyState.companyName}
+                accentClassName="bg-green-600 hover:bg-green-700"
+              />
             </div>
           </div>
         </div>

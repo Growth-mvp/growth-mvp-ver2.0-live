@@ -8,6 +8,7 @@ import type { AudienceType } from '@/utils/export/buildPlanData';
 import PlanPreview from '@/components/export/PlanPreview';
 import PlanStatusBar from '@/components/export/PlanStatusBar';
 import PlanSourceNotice from '@/components/export/PlanSourceNotice';
+import PlanExportButtons from '@/components/export/PlanExportButtons';
 import { usePlanDocument } from '@/hooks/usePlanDocument';
 import { usePlanSource } from '@/hooks/usePlanSource';
 import { useStrategyStore } from '@/store/strategyStore';
@@ -82,12 +83,11 @@ export default function PlanPreviewPage() {
               </h1>
             </div>
             <div className="flex gap-3">
-              <button
-                onClick={() => window.print()}
-                className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded font-semibold"
-              >
-                📥 PDFダウンロード
-              </button>
+              <PlanExportButtons
+                doc={plan.doc}
+                audience={audience}
+                companyName={strategyState.companyName}
+              />
             </div>
           </div>
         </div>
