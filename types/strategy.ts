@@ -427,6 +427,9 @@ export type KRStructured = {
   baseKey: BaseKey;
   baseOverride?: number;
 
+  /** Phase 1.5：投資KRの支出条件 */
+  spend?: SpendSchedule;
+
   /** 合成・変換・遅行 */
   weight?: number;
   elasticity?: number;
@@ -536,6 +539,36 @@ export type PlanStatus = 'draft' | 'review' | 'approved';
 export type SkillMethod = 'TRAINING' | 'OJT' | 'HIRE' | 'OUTSOURCE' | 'TOOL' | 'OTHER';
 
 /**
+ * 投資・費用の支出条件（Phase 1.5）
+ * - すべて任意。未設定は未確認として扱い、確定集計に含めない
+ * - duplicateReview は同一プロジェクト内の重複候補に対する利用者の判断
+ */
+export type SpendCategoryCode = 'CAPEX' | 'OPEX' | 'OTHER';
+export type SpendRecurrence = 'ONE_TIME' | 'RECURRING';
+export type SpendAmountBasis = 'TOTAL' | 'MONTHLY' | 'ANNUAL';
+export type SpendDuplicateDecision = 'SAME_KEEP' | 'SAME_DUPLICATE' | 'DIFFERENT';
+
+export type SpendSchedule = {
+  category?: SpendCategoryCode;
+  recurrence?: SpendRecurrence;
+  amountBasis?: SpendAmountBasis;
+  /** ONE_TIME の支出月（YYYY-MM） */
+  paymentYm?: Ym;
+  /** RECURRING の開始月・終了月（YYYY-MM、両端を含む） */
+  startYm?: Ym;
+  endYm?: Ym;
+  duplicateReview?: {
+    decision: SpendDuplicateDecision;
+    /** SAME_DUPLICATE の場合、集計対象とする明細の itemId */
+    sameAsItemId?: string;
+    /** 判断時点の本明細の指紋（金額・支出時期・プロジェクト）。変わると判断は無効になる */
+    fingerprint?: string;
+    /** SAME_DUPLICATE の場合、判断時点の集計対象明細の指紋 */
+    sameAsFingerprint?: string;
+  };
+};
+
+/**
  * スキルプラン（実行計画タブで入力される）
  */
 export type SkillPlan = {
@@ -552,6 +585,8 @@ export type SkillPlan = {
   hours?: number;
   /** 予想コスト（JPY） */
   cost?: number;
+  /** 支出条件（Phase 1.5） */
+  spend?: SpendSchedule;
   /** 担当者（任意） */
   owner?: string;
   /** 備考（任意） */
@@ -573,8 +608,10 @@ export type ExecutionHumanInvestment = {
   type: HumanInvestmentType;
   /** 金額（JPY） */
   amount?: number;
-  /** 実行時期（YYYY-MM） */
+  /** 実行時期（YYYY-MM）。支出月として使うかは spend.paymentYm で利用者が指定する */
   timingYm?: Ym;
+  /** 支出条件（Phase 1.5） */
+  spend?: SpendSchedule;
   /** 人数 */
   headcount?: number;
   /** チーム/部署名 */
@@ -675,6 +712,9 @@ export type Project = {
   /** ★STAGE4拡張：必要投資額（百万円） */
   impactInvestmentMJPY?: number;
 
+  /** ★Phase 1.5：必要投資額の支出条件 */
+  impactInvestmentSpend?: SpendSchedule;
+
   /** ★STAGE4拡張：寄与確度（0-1の小数、またはパーセント） */
   impactConfidence?: number;
 
@@ -695,6 +735,8 @@ export type Project = {
     durationMonths?: number;
     monthlyCostPerPersonMJPY?: number;
     externalCostMJPY?: number;
+    /** ★Phase 1.5：この前提から導出される費用の支出条件 */
+    spend?: SpendSchedule;
   };
 
   /** ★STAGE5拡張：北極星売上寄与の達成率（%） */

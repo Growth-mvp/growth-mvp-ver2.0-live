@@ -17,6 +17,7 @@ import { useUserStore } from './userStore';
 import { createRefetchCoordinator } from '@/lib/strategy/refetchCoordinator';
 import { computeValueAnalysis, computeValueAnalysisBundle } from '@/utils/valueAnalysis';
 import { stage1DummyDataBundle } from '@/utils/stage1DummyData';
+import { applyWorkingSnapshot, workingHashOf } from '@/utils/stage6/financePlanSnapshot';
 import type {
   ChapterStory,
   ChapterAnswers,
@@ -366,6 +367,9 @@ export type StrategyState = {
   /** 最新保存完了時刻（UNIX timestamp、GlobalSaveStatusBar用） */
   lastSavedAt?: number | undefined;
 
+  /** 財務計画の保存済み版の識別子（作業コピーとの差分判定用。保存成功時に更新） */
+  financePlanSavedHash?: string | undefined;
+
   /** 章ごとのUIステップ */
   chapterCurrentStep: Record<number, number>;
 
@@ -440,6 +444,7 @@ export type StrategyState = {
   setIndustry: (industry: string) => void;
   setStage1Issues: (issues: Stage1IssueBlock[]) => void;
   setStage1Benchmarks: (benchmarks: Stage1Benchmarks | undefined) => void;
+  setFinancePlanAssumptions: (snapshot: unknown, options?: { markDirty?: boolean }) => void;
 
   /* ▼ STAGE2 setter */
   setStoryDraft: (draft: StoryChapter[]) => void;
@@ -1267,6 +1272,7 @@ const emptyData: StrategyState = {
   setIndustry: () => {},
   setStage1Issues: () => {},
   setStage1Benchmarks: () => {},
+  setFinancePlanAssumptions: () => {},
   setStoryDraft: () => {},
   setWinPatternsCandidate: () => {},
   setAnswers12: () => {},
@@ -2111,6 +2117,17 @@ export const useStrategyStore = create<StrategyState>()(
             console.log('[strategyStore] setStage1Issues snapshot saved:', { result });
           }
         }, 0);
+      },
+
+      setFinancePlanAssumptions: (snapshot, options) => {
+        if (!get().companyId) return;
+        const markDirty = options?.markDirty ?? true;
+        set((s) => ({
+          ...s,
+          csvFinanceData: applyWorkingSnapshot(s.csvFinanceData, snapshot) as StrategyState['csvFinanceData'],
+          financePlanSavedHash: s.financePlanSavedHash ?? workingHashOf(s.csvFinanceData),
+          ...(markDirty ? { dirty: true, version: (s.version ?? 0) + 1 } : {}),
+        }));
       },
 
       setStage1Benchmarks: (benchmarks) => {
@@ -3715,6 +3732,7 @@ export const useStrategyStore = create<StrategyState>()(
               const safePatch: Partial<StrategyState> = {
                 dirty: false,
                 __lastSavedHash: currentHash,
+                financePlanSavedHash: workingHashOf((payload as { csvFinanceData?: unknown }).csvFinanceData),
                 /* ★ DB is source of truth for revision */
                 ...(returnedRevision !== undefined && { revision: returnedRevision }),
                 /* UI state: 保存成功時に更新 */

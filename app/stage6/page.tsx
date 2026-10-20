@@ -10,6 +10,8 @@ import { TabImpact } from '@/components/stage6/TabImpact';
 import { TabValueDashboard } from '@/components/stage6/TabValue.dashboard';
 import { useProjectFilters } from '@/components/stage6/hooks/useProjectFilters';
 import { useStage6Data } from '@/components/stage6/hooks/useStage6Data';
+import { FundingDemandSection } from '@/components/stage6/FundingDemandSection';
+import { FinancePlanSection } from '@/components/stage6/FinancePlanSection';
 
 type ReviewCandidate = {
   key: string;
@@ -261,6 +263,10 @@ function Stage6PageContent() {
         />
 
         <ReviewCandidatesSection reviewCandidates={stage6.reviewCandidates} />
+
+        <FundingDemandSection />
+
+        <FinancePlanSection />
       </div>
     </main>
   );

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
+import { workingHashOf } from '@/utils/stage6/financePlanSnapshot';
 
 export type SaveStatusType = 'error' | 'saving' | 'dirty' | 'saved';
 
@@ -30,7 +31,13 @@ export function useSaveStatus(): SaveStatusInfo {
   const isSaving = useStrategyStore((s: StrategyState) => s.boot?.isSaving ?? false);
   const lastSavedAt = useStrategyStore((s: StrategyState) => s.lastSavedAt);
   const saveError = useStrategyStore((s: StrategyState) => s.saveError);
-  const dirty = useStrategyStore((s: StrategyState) => s.dirty ?? false);
+  const dirtyOther = useStrategyStore((s: StrategyState) => s.dirty ?? false);
+  // 財務計画（STAGE6）の作業コピーが保存済み版と異なる場合も未保存とみなす
+  const dirtyFinancePlan = useStrategyStore((s: StrategyState) => {
+    const working = workingHashOf(s.csvFinanceData);
+    return working !== undefined && s.financePlanSavedHash !== undefined && s.financePlanSavedHash !== working;
+  });
+  const dirty = dirtyOther || dirtyFinancePlan;
 
   const [displayTime, setDisplayTime] = useState<string>('');
 

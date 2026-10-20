@@ -288,6 +288,7 @@ function normalizeProject(
         lagMonths: r?.lagMonths != null ? Number(r.lagMonths) : undefined,
         startYm: typeof r?.startYm === 'string' ? r.startYm : undefined,
         notes: typeof r?.notes === 'string' ? r.notes : undefined,
+        spend: r?.spend && typeof r.spend === 'object' ? r.spend : undefined,
         // ★ 修正：milestones を保持（リロード後に消える問題を解決）
         milestones: Array.isArray(r?.milestones)
           ? r.milestones.map((m: any) => ({

@@ -45,7 +45,9 @@ import { useStage4PdfExport } from '@/hooks/useStage4PdfExport';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 import { ReflectionCandidatesSection, type OKRCandidate } from '@/components/stage4/ReflectionCandidatesSection';
 
-import type { Department as DepartmentStrategy } from '@/types/strategy';
+import type { Department as DepartmentStrategy, SpendSchedule } from '@/types/strategy';
+import { SpendConditionsPanel } from '@/components/stage4/SpendConditionsPanel';
+import { applySpendPatch, buildItemsForProject, type InvestmentItem } from '@/utils/stage6/investmentDemand';
 import {
   ensureArray,
   ensureKrIds,
@@ -1282,6 +1284,25 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
     setEditingMode,
     setRoleShadow: (updater) => setRoleShadow(updater),
   });
+
+  const selectedSpendItems = useMemo(
+    () =>
+      selected
+        ? buildItemsForProject(departments as unknown as DepartmentStrategy[], selected.deptIdx, selected.projIdx)
+        : [],
+    [departments, selected],
+  );
+
+  const patchSpend = useCallback(
+    (item: InvestmentItem, patch: Partial<SpendSchedule>) => {
+      patchDepartments(
+        (prev) =>
+          applySpendPatch(prev as unknown as DepartmentStrategy[], item.ref, patch) as unknown as typeof prev,
+      );
+      queueStage4SnapshotPersist();
+    },
+    [patchDepartments, queueStage4SnapshotPersist],
+  );
 
 
   const updateProjectImpactAndSave = useCallback(
@@ -5289,6 +5310,16 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
       </div>
     )}
   </div>
+            </div>
+
+            {/* ========== Card 6: 投資・費用の支出条件（STAGE6の資金需要に使用） ========== */}
+            <div className="border-t border-zinc-200 px-5 py-4">
+              <h3 className="mb-3 text-[14px] font-semibold text-zinc-800">投資・費用の支出条件</h3>
+              <SpendConditionsPanel
+                items={selectedSpendItems}
+                disabled={isHydrating || isApproved()}
+                onPatch={patchSpend}
+              />
             </div>
           </details>
 

@@ -8,6 +8,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { isValidUUID } from '@/lib/utils/isValidUUID';
 import { debugExtractPostgrest } from './errors';
 import { normalizeStrategyData } from './normalize';
+import { pickFinancePlanForSave } from '@/utils/stage6/financePlanSnapshot';
 import { getMembership } from './membership';
 import type { StrategyData } from '@/types/strategy';
 
@@ -2193,6 +2194,7 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
         segmentBS: (mergedState as any).segmentBS,
         hqAdjustmentPL: (mergedState as any).hqAdjustmentPL,
         hqAdjustmentBS: (mergedState as any).hqAdjustmentBS,
+        financePlanAssumptions: pickFinancePlanForSave((mergedState as any).csvFinanceData, existingCsv),
       });
 
       // ★ TASK C: save時に kpis と okrs[].keyResults を string[] に正規化（DBに object が入らないようにする）
