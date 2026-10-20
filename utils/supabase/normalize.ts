@@ -16,6 +16,7 @@ import type {
   Stage2Answer,
 } from '@/types/strategy';
 import { ensureDepartmentId, ensureProjectId } from './stableIdGenerator';
+import { normalizeFiscalYearEnd } from '@/utils/stage6/fiscalYear';
 
 const DEBUG = process.env.NEXT_PUBLIC_DEBUG_HYDRATE === '1';
 
@@ -1060,6 +1061,7 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     employees,
     businessContent,
     customerSegment,
+    fiscalYearEnd: normalizeFiscalYearEnd(src.fiscalYearEnd ?? src.fiscal_year_end),
     thought,
     mission,
     vision,

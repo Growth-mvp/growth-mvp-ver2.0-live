@@ -6,6 +6,7 @@ import { z } from 'zod';
 
 import type { AudienceType } from '@/utils/export/buildPlanData';
 import { buildPlanData } from '@/utils/export/buildPlanData';
+import { bankFinancialPlanForRow, withBankFinancialPlan } from '@/utils/stage6/bankFinancialPlan';
 import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 import { logAuditEvent } from '@/lib/server/auditLog';
 import { checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
@@ -163,6 +164,17 @@ export async function POST(
       });
       throw err;
     }
+
+    // ===== Step 5b: 銀行向け財務データの構造化ブロック（銀行向けのみ） =====
+    let bankFinancialPlan;
+    if (audience === 'bank') {
+      bankFinancialPlan = bankFinancialPlanForRow({
+        row: strategyRow.data,
+        companyId: body.companyId,
+        now: new Date(),
+      });
+    }
+    planData = withBankFinancialPlan(planData, audience, bankFinancialPlan);
 
     // ===== Step 6: プロンプト構築 =====
     let prompt;
@@ -352,6 +364,7 @@ export async function POST(
         status: save.status,
         version: save.status === 'saved' ? save.version : null,
         saveReason: save.status === 'unsaved' ? save.reason : null,
+        ...(bankFinancialPlan ? { bankFinancialPlan } : {}),
       });
     } catch (err) {
       console.error('[Plan Gen Step 10] Response preparation failed', {

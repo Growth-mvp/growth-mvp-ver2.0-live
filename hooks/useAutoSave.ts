@@ -195,6 +195,9 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
   const pickAB = useStrategyStore((s: any) => s?.winPatternPrimary);
   const pickAC = useStrategyStore((s: any) => s?.winPatternSecondary);
 
+  // ---- STAGE1 会社基本情報（署名用）----
+  const pickAD = useStrategyStore((s) => s.fiscalYearEnd ?? '');
+
   const companyId = companyIdFromStore ?? companyIdFromUserStore;
 
   /* ============================================
@@ -246,6 +249,7 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
       winPatterns: pickAA,
       winPatternPrimary: pickAB,
       winPatternSecondary: pickAC,
+      fiscalYearEnd: pickAD,
     };
 
     // ★ FIX: signature 対象フィールドの snapshot をログ（answers2/departments が入っているか確認）
@@ -294,6 +298,7 @@ export function useAutoSave(arg1?: Options | any[], arg2?: any[]): void {
     pickAA,
     pickAB,
     pickAC,
+    pickAD,
   ]);
 
   const depsSignature = useMemo(() => {

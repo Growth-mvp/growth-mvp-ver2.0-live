@@ -303,6 +303,9 @@ export function buildCashFlowPlan(
   if (!debt) {
     globalHolds.push('借入・返済計画は未入力です。財務CF（借入・元本返済・配当）は算出していません');
   }
+  if (input.fiscalYearEndSet === false) {
+    globalHolds.push('決算月が未設定のため、投資額は暦年（12月期）として仮に集計しており、年度別の投資CF・資金計画は確定値ではありません');
+  }
 
   const debtYearOf = (t: number) => debt?.years.find((d) => d.year === t);
   const fiscalYearEndSet = input.fiscalYearEndSet ?? true;

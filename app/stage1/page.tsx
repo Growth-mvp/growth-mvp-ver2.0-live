@@ -117,6 +117,7 @@ export default function Stage1Page() {
   // ===== 変更検知（オブジェクトを返すselectorを作らない） =====
   const companyName = useStrategyStore((s: StrategyState) => ((s as any).companyName ?? '') as string);
   const industry = useStrategyStore((s: StrategyState) => ((s as any).industry ?? '') as string);
+  const fiscalYearEnd = useStrategyStore((s: StrategyState) => s.fiscalYearEnd ?? '');
 
   const businessSegmentsCount = useStrategyStore((s: StrategyState) =>
     Array.isArray((s as any).businessSegments) ? (s as any).businessSegments.length : 0
@@ -218,6 +219,7 @@ export default function Stage1Page() {
     return JSON.stringify({
       companyName,
       industry,
+      fiscalYearEnd,
       businessSegmentsCount,
       financePLDataHash,
       financeBSDataHash,
@@ -235,6 +237,7 @@ export default function Stage1Page() {
   }, [
     companyName,
     industry,
+    fiscalYearEnd,
     businessSegmentsCount,
     financePLDataHash,
     financeBSDataHash,

@@ -3,11 +3,21 @@
 
 import { useMemo, useCallback } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
+import { FISCAL_YEAR_END_MONTHS, normalizeFiscalYearEnd } from '@/utils/stage6/fiscalYear';
 
 export default function CompanyScopePanel({ readOnly, disabled }: { readOnly?: boolean; disabled?: boolean }) {
   const companyName = useStrategyStore((s: StrategyState) => s.companyName ?? '');
   const industry = useStrategyStore((s: StrategyState) => s.industry ?? '');
+  const fiscalYearEnd = useStrategyStore((s: StrategyState) => normalizeFiscalYearEnd(s.fiscalYearEnd));
   const setProfile = useStrategyStore((s: StrategyState) => s.setProfile);
+
+  const handleFiscalYearEndChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      if (disabled) return;
+      setProfile({ fiscalYearEnd: normalizeFiscalYearEnd(e.target.value) });
+    },
+    [setProfile, disabled]
+  );
 
   const handleCompanyNameChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -73,6 +83,26 @@ export default function CompanyScopePanel({ readOnly, disabled }: { readOnly?: b
               </option>
             ))}
           </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">決算月</label>
+          <select
+            className="border px-3 py-2 disabled:bg-gray-100 disabled:cursor-not-allowed"
+            value={fiscalYearEnd}
+            onChange={handleFiscalYearEndChange}
+            disabled={disabled}
+          >
+            <option value="">未設定</option>
+            {FISCAL_YEAR_END_MONTHS.map((m) => (
+              <option key={m} value={String(m)}>
+                {m}月
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-gray-500">
+            未設定の場合、年度別の投資額・資金計画は確定値として扱いません。
+          </p>
         </div>
       </div>
     </section>

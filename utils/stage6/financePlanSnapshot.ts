@@ -245,6 +245,8 @@ export type SourceSummary = {
     basisPendingYen: number;
     yearlyByCategory: { fiscalYear: number; CAPEX: number; OPEX: number; OTHER: number }[];
   };
+  /** 未設定は undefined にして識別子から除外する（既存の保存済み前提の識別子を変えないため） */
+  fiscalYearEnd?: string;
 };
 
 export function sourceHashOf(src: SourceSummary): string {
@@ -265,7 +267,7 @@ export function sourceHashOf(src: SourceSummary): string {
     ap: r.ap,
     interestBearingDebt: r.interestBearingDebt,
   }));
-  return hashOf({ pl, bs, investment: src.investment });
+  return hashOf({ pl, bs, investment: src.investment, fiscalYearEnd: src.fiscalYearEnd || undefined });
 }
 
 export type CalcSnapshotMeta = {

@@ -9,6 +9,7 @@ import { isValidUUID } from '@/lib/utils/isValidUUID';
 import { debugExtractPostgrest } from './errors';
 import { normalizeStrategyData } from './normalize';
 import { pickFinancePlanForSave } from '@/utils/stage6/financePlanSnapshot';
+import { normalizeFiscalYearEnd } from '@/utils/stage6/fiscalYear';
 import { getMembership } from './membership';
 import type { StrategyData } from '@/types/strategy';
 
@@ -516,6 +517,7 @@ const FIELD_MAP: Record<string, string> = {
   employees: 'employees',
   businessContent: 'business_content',
   customerSegment: 'customer_segment',
+  fiscalYearEnd: 'fiscal_year_end',
   strength: 'strength',
   weakness: 'weakness',
   opportunity: 'opportunity',
@@ -611,6 +613,7 @@ function buildDbRowFromState(state: StrategyData) {
     if (snake === 'final_story_final') v = ensureArray(v);  // ★ 追加：finalStoryFinal は配列
     // ★ Phase 1: departments（JSONB）は ensureArray で配列化、projects[]内のownerUserId/ownerNameも保存される
     if (snake === 'departments') v = ensureArray(v);
+    if (snake === 'fiscal_year_end') v = normalizeFiscalYearEnd(v) || null;
     if (snake === 'simulation_results') v = ensureArray(v);
     if (snake === 'stage1_issues') v = ensureArray(v);  // ★ 修正：stage1_issues は配列
     if (snake === 'stage1_benchmarks') {

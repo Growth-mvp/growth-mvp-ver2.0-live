@@ -3,16 +3,13 @@
 import type { Dispatch, SetStateAction } from 'react';
 import {
   LOAN_CATEGORY_LABEL,
-  type DebtInput,
   type DebtSchedule,
   type DebtYear,
-  type ExistingLoanInput,
   type LoanCategory,
-  type NewLoanInput,
   type RepaymentMethod,
 } from '@/utils/stage6/debt';
 import type { CashFlowPlan, CfValue, CfYear } from '@/utils/stage6/cashflow';
-import { BasisBadge, MILLION, Row, fmtMil, parseNumber } from './CashFlowSection';
+import { BasisBadge, Row, fmtMil } from './CashFlowSection';
 
 export type ExistingRowForm = {
   id: string;
@@ -50,59 +47,6 @@ export function isDebtEntered(f: DebtForm): boolean {
     f.newLoans.length > 0 ||
     Object.values(f.dividends).some((v) => v.trim() !== '')
   );
-}
-
-export function toDebtInput(
-  f: DebtForm,
-  forecastYears: number[],
-  stage1InterestBearingDebtYen: number | null,
-  fiscalYearEndSet: boolean,
-): DebtInput {
-  const mil = (s: string) => {
-    const v = parseNumber(s);
-    return v === null ? null : v * MILLION;
-  };
-  const pct = (s: string) => {
-    const v = parseNumber(s);
-    return v === null ? null : v / 100;
-  };
-  const int = (s: string) => {
-    const v = parseNumber(s);
-    return v === null ? null : v;
-  };
-  const existingLoans: ExistingLoanInput[] = f.existing.map((r) => {
-    const scheduled: Record<number, number | null> = {};
-    for (const y of forecastYears) scheduled[y] = mil(r.schedule[y] ?? '');
-    return {
-      id: r.id,
-      name: r.name || '既存借入',
-      category: r.category,
-      balanceYen: mil(r.balance),
-      annualRate: pct(r.rate),
-      scheduledPrincipalYen: scheduled,
-    };
-  });
-  const newLoans: NewLoanInput[] = f.newLoans.map((r) => ({
-    id: r.id,
-    name: r.name || '新規借入',
-    drawYear: int(r.drawYear),
-    drawMonth: int(r.drawMonth),
-    amountYen: mil(r.amount),
-    annualRate: pct(r.rate),
-    termYears: int(r.term),
-    graceYears: int(r.grace),
-    method: r.method,
-  }));
-  const dividends: Record<number, number | null> = {};
-  for (const y of forecastYears) dividends[y] = mil(f.dividends[y] ?? '');
-  return {
-    forecastYears,
-    existingLoans,
-    newLoans,
-    stage1InterestBearingDebtYen,
-    dividendsYen: dividends,
-    fiscalYearEndSet,
-  };
 }
 
 const CATEGORY_OPTIONS: LoanCategory[] = ['BANK', 'BOND', 'LEASE', 'SHAREHOLDER', 'OTHER'];

@@ -23,12 +23,13 @@ import {
   type FinancePlanDomain,
 } from '@/utils/stage6/financePlanSnapshot';
 import { CashFlowPanel, EMPTY_CASHFLOW_FORM, type CashFlowForm } from './CashFlowSection';
-import { DebtPanel, EMPTY_DEBT_FORM, isDebtEntered, toDebtInput, type DebtForm } from './DebtPanel';
+import { DebtPanel, EMPTY_DEBT_FORM, isDebtEntered, type DebtForm } from './DebtPanel';
 import {
   cashFlowFormFrom,
   debtFormFrom,
   toCashFlowAssumptions,
   toDebtDomain,
+  toDebtInput,
 } from './financePlanForm';
 
 const EMPTY_DEPARTMENTS: Department[] = [];
@@ -163,6 +164,7 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
           basisPendingYen: investment.basisPendingYen,
           yearlyByCategory: investment.yearlyByCategory,
         },
+        fiscalYearEnd: fiscalYearEnd || undefined,
       }),
       unconfirmed: {
         unapprovedReadyYen: investment.unapprovedReadyYen,
@@ -173,7 +175,7 @@ function FinancePlanContent({ companyId }: { companyId: string | null }) {
       },
       computedAt,
     }),
-    [companyId, plan.baseYear, plan.bsBaseYear, currentDomain, financePL, financeBS, investment, computedAt],
+    [companyId, plan.baseYear, plan.bsBaseYear, currentDomain, financePL, financeBS, investment, fiscalYearEnd, computedAt],
   );
 
   useEffect(() => {
