@@ -72,7 +72,6 @@ npm run rbac:e2e:min           # RBAC end-to-end minimal test
 
 /store                 # Zustand state management stores
   ├── strategyStore.ts  # Core strategy state (answers12, mvv, swot, etc.)
-  ├── storyStore.ts     # Story/narrative state
   ├── userStore.ts      # User & company context
   └── ...               # Other domain stores
 
@@ -256,6 +255,10 @@ These rely on `html2pdf.js` and component refs, called from report pages.
 3. **No DB migrations**: Keep using JSONB; do not create new schema columns.
 4. **Model config only via JSON**: Never hardcode model names or token limits in route code.
 5. **AI responses in JSON**: Use consistent structured formats (Zod schema validates on return).
+
+## 未使用コードの扱い
+
+コード修正やセキュリティ調査の前に、対象コードが現役機能で実際に使用されているか確認する。旧GROWTHの未使用コードの問題を、現在のGROWTH SHIFTの問題として扱わない。調査・修正は現役の実行経路を優先する。
 
 ## Testing & Quality
 

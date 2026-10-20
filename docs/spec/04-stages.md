@@ -68,7 +68,7 @@ Stage 1 の論点を踏まえ、全社の「勝ち筋」を言語化し、AI と
 6. **中計設計（任意・第 2 パス）**: `midtermStrategy`（`swot_suggestions` JSONB にパック保存）。
 
 ### 画面コンポーネント
-`components/StrategyInput.tsx` / `StrategyBlock.tsx` / `SummaryResult.tsx`、`components/stage2/StrategyStoryPreview.tsx`、`components/steps/Step2SWOT.tsx` / `Step4MVV.tsx`、`components/pages/StrategyClient.tsx`、`components/story/StorySubnav.tsx`。
+`components/stage2/StrategyStoryPreview.tsx`、`components/story/StorySubnav.tsx`。
 
 ### 出力
 統合戦略ストーリー（`finalStory`）／重要ポイント／12 問の要約／勝ち筋確定 → Stage 3 へ。
@@ -199,7 +199,7 @@ Stage 3 の OKR/プロジェクトを「誰が・いつまでに・何を・ど�
 
 各ステージの成果を PDF 等で出力する。
 
-- 出力ビュー: `components/export/`（`Stage1ReportView` / `Stage2ReportView` / `Stage2StrategyPreview` / `Stage3ReportView` / `Stage4ReportView` / `StrategyReportView` / `MidtermPlanPreview` / `ReportLayout`）。
+- 出力ビュー: `components/export/`（`Stage1ReportView` / `Stage2ReportView` / `Stage3ReportView` / `Stage4ReportView` / `StrategyReportView` / `MidtermPlanPreview` / `ReportLayout`）。
 - PDF ボタン: `ExportPdfButton` / `StagePdfExportButton`。フック: `hooks/useStage{1,2,3,4}PdfExport.ts` / `useFullStrategyPdfExport.ts`。
 - レポートページ: `/report`, `/report/stage2-strategy`, `/report/midterm-plan`, `/report/execution-report`。
 - 実装は `jspdf` / `html2pdf.js` / `html2canvas` / `xlsx`。
