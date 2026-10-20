@@ -158,17 +158,14 @@ function simulateNew(loan: NewLoanInput, years: number[]): LoanLine[] {
   const repayYears = term - grace;
   const equalPrincipal = repayYears > 0 ? Math.round(amount / repayYears) : 0;
 
-  const out: LoanLine[] = [];
+  const lastYear = Math.max(drawYear, ...years);
+  const byYear = new Map<number, LoanLine>();
   let bal = 0;
-  for (const y of years) {
-    if (y < drawYear) {
-      out.push({ opening: 0, draw: 0, principal: 0, interest: 0, closing: 0, holds: [] });
-      continue;
-    }
+  for (let y = drawYear; y <= lastYear; y++) {
     if (y === drawYear) {
       const interest = amount * rate * ((13 - month) / 12);
       bal = amount;
-      out.push({ opening: 0, draw: amount, principal: 0, interest, closing: amount, holds: [] });
+      byYear.set(y, { opening: 0, draw: amount, principal: 0, interest, closing: amount, holds: [] });
       continue;
     }
     const k = y - drawYear;
@@ -183,10 +180,12 @@ function simulateNew(loan: NewLoanInput, years: number[]): LoanLine[] {
       principal = opening;
     }
     const closing = opening - principal;
-    out.push({ opening, draw: 0, principal, interest, closing, holds: [] });
+    byYear.set(y, { opening, draw: 0, principal, interest, closing, holds: [] });
     bal = closing;
   }
-  return out;
+  return years.map(
+    (y) => byYear.get(y) ?? { opening: 0, draw: 0, principal: 0, interest: 0, closing: 0, holds: [] },
+  );
 }
 
 function sumLines(lines: LoanLine[], pick: (l: LoanLine) => number | null): number | null {

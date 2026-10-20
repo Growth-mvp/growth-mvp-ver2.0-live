@@ -112,7 +112,13 @@ describe('既存借入・新規借入・配当の保存と復元', () => {
   it('既存借入明細（ID・名称・区分・残高・金利・年度別返済）を保持する', () => {
     const parsed = parseSavedFinancePlan(JSON.parse(JSON.stringify(toSavedFinancePlan(domain))));
     if (!parsed.ok) throw new Error('parse failed');
-    expect(parsed.value.existingLoans[0]).toEqual(existingLoans[0]);
+    const expected = existingLoans[0];
+    expect(parsed.value.existingLoans[0]).toEqual({
+      ...expected,
+      scheduledPrincipalYen: Object.fromEntries(
+        Object.entries(expected.scheduledPrincipalYen).filter(([, v]) => v !== null),
+      ),
+    });
   });
 
   it('新規借入明細（実行年月・金額・金利・期間・据置・返済方式）を保持する', () => {
@@ -125,7 +131,7 @@ describe('既存借入・新規借入・配当の保存と復元', () => {
     const parsed = parseSavedFinancePlan(JSON.parse(JSON.stringify(toSavedFinancePlan(domain))));
     if (!parsed.ok) throw new Error('parse failed');
     expect(parsed.value.dividendsYen[2026]).toBe(0);
-    expect(parsed.value.dividendsYen[2027]).toBeNull();
+    expect(parsed.value.dividendsYen[2027] ?? null).toBeNull();
     expect(parsed.value.dividendsYen[2028]).toBe(5_000_000);
   });
 
@@ -134,14 +140,14 @@ describe('既存借入・新規借入・配当の保存と復元', () => {
     if (!parsed.ok) throw new Error('parse failed');
     const sched = parsed.value.existingLoans[0].scheduledPrincipalYen;
     expect(sched[2026]).toBe(10_000_000);
-    expect(sched[2027]).toBeNull();
+    expect(sched[2027] ?? null).toBeNull();
     expect(sched[2028]).toBe(0);
     expect(sched[2029]).toBeUndefined();
   });
 
   it('借入の実行月が未入力なら未入力のまま保存する（1月と仮定しない）', () => {
     const saved = toSavedFinancePlan(domain);
-    expect(saved.newLoans[0].drawMonth).toBeNull();
+    expect(saved.newLoans[0].drawMonth ?? null).toBeNull();
   });
 });
 

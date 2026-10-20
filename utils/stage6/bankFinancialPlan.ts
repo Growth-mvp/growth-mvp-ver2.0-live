@@ -165,6 +165,8 @@ export type BankFinancialPlanSections = {
       debtService: CfValue;
       closingBalance: CfValue;
       newClosingBalance: CfValue;
+      newPrincipal: CfValue;
+      newInterest: CfValue;
       existingClosingBalance: CfValue;
       dividends: CfValue;
       dscr: CfValue;
@@ -514,6 +516,8 @@ export function buildBankFinancialPlanBlock(args: {
                 debtService: d?.debtService ?? { value: null, basis: 'HELD', note: '借入計画に該当年度がありません' },
                 closingBalance: d?.closingBalance ?? { value: null, basis: 'HELD', note: '借入計画に該当年度がありません' },
                 newClosingBalance: d?.newClosingBalance ?? { value: null, basis: 'HELD', note: '借入計画に該当年度がありません' },
+                newPrincipal: d?.newPrincipal ?? { value: null, basis: 'HELD', note: '借入計画に該当年度がありません' },
+                newInterest: d?.newInterest ?? { value: null, basis: 'HELD', note: '借入計画に該当年度がありません' },
                 existingClosingBalance: d
                   ? subtractCf(d.closingBalance, d.newClosingBalance, '年末の既存借入残高（既存＋新規−新規）')
                   : { value: null, basis: 'HELD', note: '借入計画に該当年度がありません' },

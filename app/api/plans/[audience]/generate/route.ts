@@ -7,6 +7,7 @@ import { z } from 'zod';
 import type { AudienceType } from '@/utils/export/buildPlanData';
 import { buildPlanData } from '@/utils/export/buildPlanData';
 import { bankFinancialPlanForRow, withBankFinancialPlan } from '@/utils/stage6/bankFinancialPlan';
+import { bankFinancialPromptText, finalizeBankPlanText, type BankFinanceCheck } from '@/lib/plans/bankFinancialText';
 import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 import { logAuditEvent } from '@/lib/server/auditLog';
 import { checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
@@ -288,6 +289,7 @@ export async function POST(
     }
 
     // ===== Step 10: レスポンス返却 =====
+    let bankFinanceCheck: BankFinanceCheck | undefined;
     try {
       // ★ 「Generation failed」などのエラー文字列が本文になっていないか検証
       if (
@@ -305,6 +307,19 @@ export async function POST(
           },
           { status: 503 }
         );
+      }
+
+      if (audience === 'bank') {
+        const finance = finalizeBankPlanText(generatedText, bankFinancialPlan);
+        generatedText = finance.text;
+        bankFinanceCheck = finance.check;
+        if (finance.check.issues.length > 0) {
+          console.warn('[Plan Gen] Bank financial text issues', {
+            companyId: body.companyId,
+            proseReplaced: finance.check.proseReplaced,
+            issueCount: finance.check.issues.length,
+          });
+        }
       }
 
       const sections = parseSections(generatedText, audience);
@@ -365,6 +380,7 @@ export async function POST(
         version: save.status === 'saved' ? save.version : null,
         saveReason: save.status === 'unsaved' ? save.reason : null,
         ...(bankFinancialPlan ? { bankFinancialPlan } : {}),
+        ...(bankFinanceCheck ? { bankFinanceCheck } : {}),
       });
     } catch (err) {
       console.error('[Plan Gen Step 10] Response preparation failed', {
@@ -638,6 +654,7 @@ ${planData.stage1.historicalFinances
 `
       : '【過去年度別財務実績】データなし\n';
 
+  const bankFinanceActive = audience === 'bank' && !!planData.bankFinancialPlan;
   const baseData = `
 会社名: ${planData.companyName}
 業種: ${planData.stage1.industry}
@@ -689,9 +706,9 @@ ${planData.stage4.projectImpacts
 ☆ STAGE2登録売上目標: ${planData.stage56.companyTargetRevenue || '未設定'}
 参考：STAGE4施策別期待効果合計: ${planData.stage56.projectImpactSum || 'なし'}
 推奨目標: ${planData.stage56.northStarRevenue || '未設定'}
-財務シミュレーション状況: ${planData.stage56.projectionStatus || '未実施'}
+${bankFinanceActive ? '' : `財務シミュレーション状況: ${planData.stage56.projectionStatus || '未実施'}`}
 ${planData.stage56.northStarMetrics?.length ? `重要指標: ${planData.stage56.northStarMetrics.map((m: any) => `${m.label}=${m.value}`).join(', ')}` : '重要指標: 未定義'}
-${planData.stage56.projectionNote ? `備考: ${planData.stage56.projectionNote}` : ''}
+${!bankFinanceActive && planData.stage56.projectionNote ? `備考: ${planData.stage56.projectionNote}` : ''}
 `;
 
   const audienceSpecificPrompt = {
@@ -735,7 +752,8 @@ ${planData.stage56.projectionNote ? `備考: ${planData.stage56.projectionNote}`
 `,
   };
 
-  return baseData + '\n' + audienceSpecificPrompt[audience];
+  const bankFinancePrompt = audience === 'bank' ? bankFinancialPromptText(planData.bankFinancialPlan) : '';
+  return baseData + '\n' + audienceSpecificPrompt[audience] + (bankFinancePrompt ? '\n' + bankFinancePrompt : '');
 }
 
 function parseSections(text: string, audience: AudienceType): string[] {

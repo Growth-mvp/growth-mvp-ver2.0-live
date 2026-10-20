@@ -97,8 +97,26 @@ function keyedNumbers(record: Record<number, number | null | undefined>): Record
   return out;
 }
 
+/**
+ * 保存先（strategy_data）へ書く前に、ストアの保存処理が null・空文字を落とす。
+ * 識別子もその形で計算しないと、保存時と読込時で同じ前提なのに別の識別子になるため、ここで揃える。
+ * 読込側は欠けた値を null として扱うので、計算結果は変わらない。
+ */
+function withoutEmptyValues<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(withoutEmptyValues) as T;
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (v === null || v === undefined || v === '') continue;
+      out[k] = withoutEmptyValues(v);
+    }
+    return out as T;
+  }
+  return value;
+}
+
 export function toSavedFinancePlan(domain: FinancePlanDomain): SavedFinancePlanV1 {
-  return {
+  return withoutEmptyValues<SavedFinancePlanV1>({
     formatVersion: 1,
     unit: 'JPY',
     cashFlow: { ...domain.assumptions },
@@ -122,7 +140,7 @@ export function toSavedFinancePlan(domain: FinancePlanDomain): SavedFinancePlanV
       method: l.method,
     })),
     dividendsYen: keyedNumbers(domain.dividendsYen),
-  };
+  });
 }
 
 export type ParseResult =
