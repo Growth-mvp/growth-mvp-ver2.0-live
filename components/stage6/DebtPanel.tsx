@@ -49,6 +49,14 @@ export function isDebtEntered(f: DebtForm): boolean {
   );
 }
 
+export function fundingNeedOf(cfYears: CfYear[]) {
+  const planned = cfYears.reduce<number | null>((acc, y) => (acc === null || y.draws.value === null ? null : acc + y.draws.value), 0);
+  const needs = cfYears.map((y) => y.shortfall.value);
+  const need = needs.length > 0 && needs.every((v) => v !== null) ? Math.max(...(needs as number[])) : null;
+  const gap = need !== null && planned !== null ? need - planned : null;
+  return { need, planned, gap };
+}
+
 const CATEGORY_OPTIONS: LoanCategory[] = ['BANK', 'BOND', 'LEASE', 'SHAREHOLDER', 'OTHER'];
 
 type Props = {
@@ -57,12 +65,11 @@ type Props = {
   forecastYears: number[];
   schedule: DebtSchedule;
   plan: CashFlowPlan;
-  debtEntered: boolean;
 };
 
 const inputCls = 'mt-1 w-full rounded border border-slate-300 px-2 py-1 text-xs';
 
-export function DebtPanel({ form, setForm, forecastYears, schedule, plan, debtEntered }: Props) {
+export function DebtPanel({ form, setForm, forecastYears, schedule, plan }: Props) {
   const seq = form.seq;
   const addExisting = () =>
     setForm((p) => ({
@@ -98,10 +105,7 @@ export function DebtPanel({ form, setForm, forecastYears, schedule, plan, debtEn
 
   const yearsOut = schedule.years;
   const cfYears: CfYear[] = plan.years.filter((y) => y.kind === 'FORECAST');
-  const planned = cfYears.reduce<number | null>((acc, y) => (acc === null || y.draws.value === null ? null : acc + y.draws.value), 0);
-  const needs = cfYears.map((y) => y.shortfall.value);
-  const need = needs.length > 0 && needs.every((v) => v !== null) ? Math.max(...(needs as number[])) : null;
-  const gap = need !== null && planned !== null ? need - planned : null;
+  const { need, planned, gap } = fundingNeedOf(cfYears);
   const rec = schedule.reconciliation;
 
   return (
@@ -335,84 +339,8 @@ export function DebtPanel({ form, setForm, forecastYears, schedule, plan, debtEn
           支払利息は営業CF（税引後利益）で控除済みのため、財務CFでは二重に控除していません。
         </p>
       </section>
-
-      {/* 5. 返済可能性 */}
-      <section>
-        <h3 className="text-sm font-semibold text-slate-900">5. 返済可能性・資金不足の判定</h3>
-        <div className="mt-2 overflow-x-auto">
-          <table className="min-w-full text-xs">
-            <thead className="bg-slate-50 text-slate-600">
-              <tr>
-                <th className="px-2 py-1 text-left">項目（百万円）</th>
-                {cfYears.map((y) => (
-                  <th key={y.year} className="px-2 py-1 text-right">{y.year}年</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              <Row label="営業CF" years={cfYears} pick={(y) => y.operatingCf} />
-              <Row label="FCF" years={cfYears} pick={(y) => y.fcf} />
-              <Row label="年間元本返済額" years={cfYears} pick={(y) => y.principal} />
-              <Row label="年間支払利息" years={cfYears} pick={(y) => y.interest} />
-              <Row label="年間元利返済額" years={cfYears} pick={(y) => y.debtService} />
-              <Row label="返済後の期末現預金" years={cfYears} pick={(y) => y.closingCashAfterFinancing} />
-              <Row label="最低必要現預金との差額（返済後）" years={cfYears} pick={(y) => y.postShortfall} />
-              <Row label="DSCR（簡易）" years={cfYears} pick={(y) => y.dscr} strong />
-              <tr>
-                <td className="px-2 py-1 font-semibold text-slate-900">判定</td>
-                {cfYears.map((y) => (
-                  <td key={y.year} className="px-2 py-1 text-right">
-                    <div className={`inline-block rounded px-1.5 py-0.5 text-[11px] font-semibold ${verdictClass(y.verdict)}`}>
-                      {y.verdict}
-                    </div>
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-          <div className="font-semibold">DSCRの算式</div>
-          <div className="mt-1">DSCR ＝（営業CF ＋ 支払利息）÷（元本返済 ＋ 支払利息）</div>
-          <div className="mt-1 text-slate-500">
-            簡易指標です。金融機関の正式な審査指標とは同一ではありません。借入で増えた現預金は返済原資に含めていません。
-          </div>
-        </div>
-        {!debtEntered && (
-          <div className="mt-2 text-xs text-amber-800">借入・配当の入力がないため、財務CFと返済可能性は評価保留です。</div>
-        )}
-      </section>
-
-      {/* 6. 前提・未確認事項 */}
-      <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-        <h3 className="text-sm font-semibold text-slate-900">6. 前提条件と未確認事項</h3>
-        <div className="mt-2 grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div>
-            <div className="text-xs font-semibold text-slate-700">計算の前提</div>
-            <ul className="mt-1 list-disc space-y-1 pl-5 text-xs text-slate-600">
-              {schedule.assumptions.map((a) => (<li key={a}>{a}</li>))}
-            </ul>
-          </div>
-          <div>
-            <div className="text-xs font-semibold text-slate-700">評価保留・未確認事項</div>
-            <ul className="mt-1 list-disc space-y-1 pl-5 text-xs text-amber-900">
-              {schedule.globalHolds.map((h) => (<li key={h}>{h}</li>))}
-            </ul>
-          </div>
-        </div>
-        <p className="mt-3 text-[11px] text-slate-500">
-          既存借入の残高は返済能力とはみなしていません。新規借入額は利用者が入力した額で、必要資金額から自動で確定していません。
-        </p>
-      </section>
     </div>
   );
-}
-
-function verdictClass(v: string): string {
-  if (v.startsWith('資金不足（')) return 'bg-rose-50 text-rose-700';
-  if (v.startsWith('評価保留')) return 'bg-amber-50 text-amber-800';
-  if (v.startsWith('返済原資') || v.startsWith('資金不足')) return 'bg-rose-50 text-rose-700';
-  return 'bg-emerald-50 text-emerald-700';
 }
 
 function DebtRow({

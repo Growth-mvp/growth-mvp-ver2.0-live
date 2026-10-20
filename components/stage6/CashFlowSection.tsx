@@ -2,9 +2,14 @@
 
 import type { ChangeEvent, Dispatch, SetStateAction } from 'react';
 import type { CfBasis, CfValue, CfYear, CashFlowPlan } from '@/utils/stage6/cashflow';
-import { MILLION } from './financePlanForm';
+import { MILLION, parseNumber } from './financePlanForm';
+import { amountScaleWarning, ratioScaleWarning } from './financePlanStatus';
 
 export { MILLION, parseNumber, toCashFlowAssumptions } from './financePlanForm';
+
+const AR_HELP = '売上高に対する売上債権の割合。売上高が増えたときの資金需要の推計に使用します。';
+const INVENTORY_HELP = '売上高に対する棚卸資産の割合。必要な運転資金の推計に使用します。';
+const AP_HELP = '売上高に対する仕入債務の割合。支払時期による運転資金への影響を推計します。';
 
 
 export type CashFlowForm = {
@@ -121,6 +126,12 @@ export function CashFlowPanel({ plan, form, setForm }: PanelProps) {
   const setField = (key: keyof CashFlowForm) => (e: ChangeEvent<HTMLInputElement>) =>
     setForm((prev) => ({ ...prev, [key]: e.target.value }));
   const years = plan.years;
+  const baseRevenueYen = years.find((y) => y.kind === 'ACTUAL' && y.year === plan.baseYear)?.revenue.value ?? null;
+  const ratioBase = (cell: CfValue) => (cell.value === null ? null : cell.value * 100);
+  const millionWarning = (raw: string) =>
+    amountScaleWarning({ valueMillionYen: parseNumber(raw), baseRevenueYen });
+  const ratioWarning = (raw: string, cell: CfValue) =>
+    ratioScaleWarning({ enteredPercent: parseNumber(raw), basePercent: ratioBase(cell) });
 
   return (
     <div>
@@ -147,18 +158,74 @@ export function CashFlowPanel({ plan, form, setForm }: PanelProps) {
 
       <details className="mt-4 rounded-xl border border-slate-200 bg-white p-4" open>
         <summary className="cursor-pointer text-sm font-semibold text-slate-900">推計前提（試算条件）</summary>
-        <div className="mt-3 grid grid-cols-2 gap-3 text-xs md:grid-cols-4">
-          <Field label="最低必要現預金（百万円）" value={form.minCash} onChange={setField('minCash')} />
-          <Field label="税率（%・空欄は実績から推計）" value={form.taxRate} onChange={setField('taxRate')} />
-          <Field label="減価償却費（百万円・空欄は基準年度を据え置き）" value={form.depreciation} onChange={setField('depreciation')} />
-          <div />
-          <Field label="売上債権比率（%・空欄は基準年度）" value={form.ar} onChange={setField('ar')} />
-          <Field label="棚卸資産比率（%・空欄は基準年度）" value={form.inventory} onChange={setField('inventory')} />
-          <Field label="仕入債務比率（%・空欄は基準年度）" value={form.ap} onChange={setField('ap')} />
-          <div />
-          <Field label="目標売上（百万円・推計シナリオ）" value={form.targetRevenue} onChange={setField('targetRevenue')} />
-          <Field label="目標営業利益（百万円・推計シナリオ）" value={form.targetOperatingIncome} onChange={setField('targetOperatingIncome')} />
-          <Field label="目標年度（推計シナリオ）" value={form.targetYear} onChange={setField('targetYear')} />
+        <div className="mt-4 grid grid-cols-1 gap-x-4 gap-y-5 text-sm sm:grid-cols-2 md:grid-cols-3">
+          <Field
+            label="最低必要現預金"
+            value={form.minCash}
+            onChange={setField('minCash')}
+            unit="百万円"
+            example="入力例：100＝1億円、1,000＝10億円"
+            warning={millionWarning(form.minCash)}
+          />
+          <Field
+            label="税率"
+            value={form.taxRate}
+            onChange={setField('taxRate')}
+            unit="%"
+            help="空欄の場合は基準年度の実績から推計します。"
+          />
+          <Field
+            label="減価償却費"
+            value={form.depreciation}
+            onChange={setField('depreciation')}
+            unit="百万円"
+            help="空欄の場合は基準年度の値を据え置きます。"
+            warning={millionWarning(form.depreciation)}
+          />
+          <Field
+            label="売上債権比率"
+            value={form.ar}
+            onChange={setField('ar')}
+            unit="%"
+            help={`${AR_HELP}空欄の場合は基準年度の比率を使います。`}
+            warning={ratioWarning(form.ar, plan.workingCapitalRatios.ar)}
+          />
+          <Field
+            label="棚卸資産比率"
+            value={form.inventory}
+            onChange={setField('inventory')}
+            unit="%"
+            help={`${INVENTORY_HELP}空欄の場合は基準年度の比率を使います。`}
+            warning={ratioWarning(form.inventory, plan.workingCapitalRatios.inventory)}
+          />
+          <Field
+            label="仕入債務比率"
+            value={form.ap}
+            onChange={setField('ap')}
+            unit="%"
+            help={`${AP_HELP}空欄の場合は基準年度の比率を使います。`}
+            warning={ratioWarning(form.ap, plan.workingCapitalRatios.ap)}
+          />
+          <Field
+            label="目標売上（推計シナリオ）"
+            value={form.targetRevenue}
+            onChange={setField('targetRevenue')}
+            unit="百万円"
+            warning={millionWarning(form.targetRevenue)}
+          />
+          <Field
+            label="目標営業利益（推計シナリオ）"
+            value={form.targetOperatingIncome}
+            onChange={setField('targetOperatingIncome')}
+            unit="百万円"
+            warning={millionWarning(form.targetOperatingIncome)}
+          />
+          <Field
+            label="目標年度（推計シナリオ）"
+            value={form.targetYear}
+            onChange={setField('targetYear')}
+            unit="年"
+          />
         </div>
         <p className="mt-2 text-[11px] text-slate-500">
           売上・営業利益の目標を入れると、基準年度から目標年度まで直線的に推計します。これは推計シナリオであり、会社が承認した計画値ではありません。
@@ -245,24 +312,61 @@ export function CashFlowPanel({ plan, form, setForm }: PanelProps) {
   );
 }
 
+function HelpToggle({ text }: { text: string }) {
+  return (
+    <details className="relative">
+      <summary
+        aria-label="説明を表示"
+        className="flex h-5 w-5 shrink-0 cursor-pointer list-none items-center justify-center rounded-full border border-slate-400 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
+      >
+        ?
+      </summary>
+      <div className="absolute left-0 top-6 z-10 w-64 max-w-[calc(100vw-3rem)] rounded-lg border border-slate-200 bg-white p-3 text-xs leading-relaxed text-slate-700 shadow-md">
+        {text}
+      </div>
+    </details>
+  );
+}
+
 function Field({
   label,
   value,
   onChange,
+  unit,
+  help,
+  example,
+  warning,
 }: {
   label: string;
   value: string;
   onChange: (e: ChangeEvent<HTMLInputElement>) => void;
+  unit?: string;
+  help?: string;
+  example?: string;
+  warning?: string | null;
 }) {
   return (
-    <label>
-      {label}
-      <input
-        className="mt-1 w-full rounded border border-slate-300 px-2 py-1"
-        value={value}
-        onChange={onChange}
-        inputMode="decimal"
-      />
-    </label>
+    <div className="min-w-0">
+      <div className="flex items-center gap-1.5 font-medium text-slate-800">
+        <span>{label}</span>
+        {help && <HelpToggle text={help} />}
+      </div>
+      <div className="mt-1 flex items-center gap-2">
+        <input
+          aria-label={label}
+          className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1.5 text-right text-sm text-slate-900"
+          value={value}
+          onChange={onChange}
+          inputMode="decimal"
+        />
+        {unit && <span className="shrink-0 whitespace-nowrap text-sm text-slate-600">{unit}</span>}
+      </div>
+      {example && <p className="mt-1 text-xs text-slate-500">{example}</p>}
+      {warning && (
+        <p role="status" className="mt-1 text-xs font-medium text-amber-800">
+          {warning}
+        </p>
+      )}
+    </div>
   );
 }

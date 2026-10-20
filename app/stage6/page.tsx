@@ -7,10 +7,9 @@ import { AlertCircle } from 'lucide-react';
 import { useAutoSave } from '@/hooks/useAutoSave';
 
 import { TabImpact } from '@/components/stage6/TabImpact';
-import { TabValueDashboard } from '@/components/stage6/TabValue.dashboard';
+import { TargetOverview } from '@/components/stage6/TargetOverview';
 import { useProjectFilters } from '@/components/stage6/hooks/useProjectFilters';
 import { useStage6Data } from '@/components/stage6/hooks/useStage6Data';
-import { FundingDemandSection } from '@/components/stage6/FundingDemandSection';
 import { FinancePlanSection } from '@/components/stage6/FinancePlanSection';
 
 type ReviewCandidate = {
@@ -226,10 +225,13 @@ function Stage6PageContent() {
                 STAGE6｜成果を確かめる
               </h1>
               <div className="mt-1 text-sm font-medium text-gray-700">
-                業績シミュレーション
+                経営計画の実現可能性を検証
               </div>
-              <p className="mt-2 text-sm text-gray-600">
-                実行が売上・利益・企業価値にどうつながるかを確かめます。
+              <p className="mt-4 text-base font-semibold leading-relaxed text-gray-900 break-keep">
+                経営目標は、現場の取り組みによって実現できるのか。
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-gray-600 break-keep">
+                経営目標と施策・投資計画をつなぎ、売上・利益への貢献、資金繰り、返済可能性を確認します。目標とのギャップを明らかにし、必要に応じて実行計画を見直します。
               </p>
             </div>
           </div>
@@ -242,31 +244,35 @@ function Stage6PageContent() {
           </div>
         )}
 
-        <TabValueDashboard
-          northStarRows={stage6.northStarRows}
+        <FinancePlanSection
           dashboardSummary={stage6.dashboardSummary}
+          reviewCandidateCount={stage6.reviewCandidates?.length ?? 0}
+          targetContent={
+            <>
+              <TargetOverview
+                northStarRows={stage6.northStarRows}
+                dashboardSummary={stage6.dashboardSummary}
+              />
+
+              <TabImpact
+                projectContrib={stage6.projectContrib as any}
+                core={stage6.core}
+                deptFilter={projectFilters.deptFilter}
+                setDeptFilter={projectFilters.setDeptFilter}
+                selectedProjectKeys={projectFilters.selectedProjectKeys}
+                selectedSet={projectFilters.selectedSet}
+                selectedSummary={projectFilters.selectedSummary}
+                toggleProject={projectFilters.toggleProject}
+                selectAllFiltered={projectFilters.selectAllFiltered}
+                clearAllFiltered={projectFilters.clearAllFiltered}
+                revenueGapMJPY={stage6.dashboardSummary?.revenue.gap}
+                opGapMJPY={stage6.dashboardSummary?.op.gap}
+              />
+
+              <ReviewCandidatesSection reviewCandidates={stage6.reviewCandidates} />
+            </>
+          }
         />
-
-        <TabImpact
-          projectContrib={stage6.projectContrib as any}
-          core={stage6.core}
-          deptFilter={projectFilters.deptFilter}
-          setDeptFilter={projectFilters.setDeptFilter}
-          selectedProjectKeys={projectFilters.selectedProjectKeys}
-          selectedSet={projectFilters.selectedSet}
-          selectedSummary={projectFilters.selectedSummary}
-          toggleProject={projectFilters.toggleProject}
-          selectAllFiltered={projectFilters.selectAllFiltered}
-          clearAllFiltered={projectFilters.clearAllFiltered}
-          revenueGapMJPY={stage6.dashboardSummary?.revenue.gap}
-          opGapMJPY={stage6.dashboardSummary?.op.gap}
-        />
-
-        <ReviewCandidatesSection reviewCandidates={stage6.reviewCandidates} />
-
-        <FundingDemandSection />
-
-        <FinancePlanSection />
       </div>
     </main>
   );

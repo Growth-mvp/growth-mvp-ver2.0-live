@@ -11,6 +11,7 @@ import {
   type DuplicateStatus,
   type InvestmentItem,
 } from '@/utils/stage6/investmentDemand';
+import { attentionSummary } from './financePlanStatus';
 
 const EMPTY_DEPARTMENTS: Department[] = [];
 
@@ -98,6 +99,7 @@ export function FundingDemandSection() {
     () => buildInvestmentDemandSummary(departments, fiscalYearEnd),
     [departments, fiscalYearEnd],
   );
+  const attention = useMemo(() => attentionSummary(summary.items), [summary.items]);
 
   const monthNote =
     summary.fiscalYearEndMonth === null
@@ -114,10 +116,10 @@ export function FundingDemandSection() {
     );
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+    <div>
       <div className="mb-4">
         <h2 className="text-lg font-bold text-slate-900">投資・資金需要</h2>
-        <p className="mt-1 text-sm text-slate-600">
+        <p className="mt-1 text-sm leading-relaxed text-slate-600">
           投資・費用の内容と支出条件はSTAGE4で入力します。ここでは資金需要への集計結果と重複確認を表示します。
           資金計画に反映されるのは「確認済み」の金額のみです。
         </p>
@@ -126,58 +128,67 @@ export function FundingDemandSection() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <SummaryCard
-          label="資金計画に反映可能な確認済み金額"
-          value={fmtYen(summary.readyYen)}
-          note={`${summary.readyCount}件`}
-          emphasis
-        />
-        <SummaryCard
-          label="入力済み投資・費用総額（換算できたもの）"
-          value={fmtYen(summary.enteredYen)}
-          note="重複確認中の金額を含む"
-        />
-        <SummaryCard
-          label="分類未確定"
-          value={fmtYen(summary.unclassifiedYen)}
-          note={summary.unclassifiedCount > 0 ? `${summary.unclassifiedCount}件が未分類（集計に含まれていない）` : '該当なし'}
-          warn={summary.unclassifiedCount > 0}
-        />
-        <SummaryCard
-          label="時期未設定"
-          value={fmtYen(summary.unscheduledYen)}
-          note={
-            [
-              summary.unscheduledYen > 0 ? '支出月・期間をSTAGE4で入力すると集計されます' : '',
-              summary.periodicUnresolvedCount > 0
-                ? `期間未確定の月額・年額 ${summary.periodicUnresolvedCount}件（換算不可）`
-                : '',
-            ]
-              .filter(Boolean)
-              .join(' ') || '該当なし'
-          }
-          warn={summary.unscheduledYen > 0 || summary.periodicUnresolvedCount > 0}
-        />
-        <SummaryCard
-          label="金額の基準（総額・月額・年額）未確認"
-          value={fmtYen(summary.basisPendingYen)}
-          note={summary.basisPendingCount > 0 ? `${summary.basisPendingCount}件（入力額のまま）` : '該当なし'}
-          warn={summary.basisPendingCount > 0}
-        />
-        <SummaryCard
-          label="重複確認中（集計から除外）"
-          value={fmtYen(summary.candidateYen)}
-          note={summary.candidateCount > 0 ? `${summary.candidateCount}件` : '該当なし'}
-          warn={summary.candidateCount > 0}
-        />
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-5">
+          <div className="text-sm font-semibold text-slate-700">資金計画に反映する確認済み投資・費用額</div>
+          <div className="mt-2 text-2xl font-bold text-slate-900">{fmtYen(summary.readyYen)}</div>
+          <div className="mt-1 text-xs text-slate-600">
+            {summary.readyCount}件（承認済み {fmtYen(summary.approvedReadyYen)} ／ 未承認 {fmtYen(summary.unapprovedReadyYen)}）
+          </div>
+        </div>
+
+        <div
+          className={`rounded-xl border p-5 ${
+            attention.count > 0 ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-slate-50'
+          }`}
+        >
+          <div className="text-sm font-semibold text-slate-700">未確定・確認が必要な金額</div>
+          <div className="mt-2 text-2xl font-bold text-slate-900">{fmtYen(attention.yen)}</div>
+          <div className="mt-1 text-xs text-slate-600">
+            {attention.count > 0
+              ? `${attention.count}件の項目が未確定${
+                  attention.unconvertedCount > 0 ? `（うち${attention.unconvertedCount}件は金額を換算できず、金額に含めていません）` : ''
+                }`
+              : '確認が必要な項目はありません'}
+          </div>
+        </div>
       </div>
 
-      <div className="mt-3 text-xs text-slate-600">
-        確認済みの内訳：承認済み {fmtYen(summary.approvedReadyYen)} ／ 未承認（草案・レビュー中・未設定）{' '}
-        {fmtYen(summary.unapprovedReadyYen)}
-        {summary.unitPendingCount > 0 && <span className="ml-3">単位確認待ち {summary.unitPendingCount}件</span>}
-        {summary.missingCount > 0 && <span className="ml-3">金額未入力 {summary.missingCount}件</span>}
+      <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
+        <div className="text-xs font-semibold text-slate-600">補足（区分が重なる場合があるため、合計はしていません）</div>
+        <dl className="mt-2 grid grid-cols-1 gap-2 text-xs text-slate-700 sm:grid-cols-2 md:grid-cols-4">
+          <div className="rounded-md bg-slate-50 px-3 py-2">
+            <dt className="text-slate-600">分類未確定</dt>
+            <dd className="mt-0.5 font-medium text-slate-900">
+              {fmtYen(summary.unclassifiedYen)}（{summary.unclassifiedCount}件）
+            </dd>
+          </div>
+          <div className="rounded-md bg-slate-50 px-3 py-2">
+            <dt className="text-slate-600">支出時期未設定</dt>
+            <dd className="mt-0.5 font-medium text-slate-900">
+              {fmtYen(summary.unscheduledYen)}
+              {summary.periodicUnresolvedCount > 0 && `・期間未確定 ${summary.periodicUnresolvedCount}件`}
+            </dd>
+          </div>
+          <div className="rounded-md bg-slate-50 px-3 py-2">
+            <dt className="text-slate-600">金額基準未確認</dt>
+            <dd className="mt-0.5 font-medium text-slate-900">
+              {fmtYen(summary.basisPendingYen)}（{summary.basisPendingCount}件）
+            </dd>
+          </div>
+          <div className="rounded-md bg-slate-50 px-3 py-2">
+            <dt className="text-slate-600">重複確認中（集計から除外）</dt>
+            <dd className="mt-0.5 font-medium text-slate-900">
+              {fmtYen(summary.candidateYen)}（{summary.candidateCount}件）
+            </dd>
+          </div>
+        </dl>
+        {(summary.unitPendingCount > 0 || summary.missingCount > 0) && (
+          <div className="mt-2 text-xs text-slate-600">
+            {summary.unitPendingCount > 0 && <span className="mr-3">単位確認待ち {summary.unitPendingCount}件</span>}
+            {summary.missingCount > 0 && <span>金額未入力 {summary.missingCount}件</span>}
+          </div>
+        )}
       </div>
 
       <div className="mt-6">
@@ -254,7 +265,7 @@ export function FundingDemandSection() {
           </div>
         )}
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -380,31 +391,5 @@ function ItemRow({ item, open, onToggle, siblings, onDuplicate }: ItemRowProps) 
         </tr>
       )}
     </>
-  );
-}
-
-function SummaryCard({
-  label,
-  value,
-  note,
-  emphasis,
-  warn,
-}: {
-  label: string;
-  value: string;
-  note?: string;
-  emphasis?: boolean;
-  warn?: boolean;
-}) {
-  return (
-    <div
-      className={`rounded-xl border p-4 ${
-        emphasis ? 'border-emerald-300 bg-emerald-50' : warn ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50'
-      }`}
-    >
-      <div className="text-xs font-semibold text-slate-600">{label}</div>
-      <div className="mt-1 text-base font-bold text-slate-900">{value}</div>
-      {note && <div className="mt-1 text-[11px] text-slate-500">{note}</div>}
-    </div>
   );
 }
