@@ -65,7 +65,7 @@ Object.defineProperty(globalThis, 'localStorage', {
 });
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { useStrategyStore } = require('./strategyStore') as typeof import('./strategyStore');
+const { useStrategyStore, COMPANY_SWITCH_SAVE_MESSAGE } = require('./strategyStore') as typeof import('./strategyStore');
 const { saveWithAudit: mockSaveWithAudit } = require('@/utils/persist/saveWithAudit') as {
   saveWithAudit: jest.Mock;
 };
@@ -497,5 +497,211 @@ describe('一括削除の対象会社の確認', () => {
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('/api/admin/data-management/delete-all');
     expect(init.body).toBe(JSON.stringify({ companyId: COMPANY_A }));
+  });
+});
+
+describe('会社切替中の保存ガード（strategy_data 直接保存）', () => {
+  async function loadCompany(companyId: string) {
+    mockUser.companyId = companyId;
+    await store().refetchFromServer();
+    expect(store().companyId).toBe(companyId);
+    expect(store().pendingCompanyId).toBeFalsy();
+  }
+
+  function saveCallsSince(before: number) {
+    return mockSaveWithAudit.mock.calls.slice(before) as unknown[][];
+  }
+
+  function markStage6FinanceInput() {
+    useStrategyStore.setState({ csvFinanceData: { financeBS: [{ year: '2026', amount: 1 }] } } as never);
+  }
+
+  it('A: 読込済みのA社は強制保存でも通常どおり保存され、A社の行を対象にする', async () => {
+    await loadCompany(COMPANY_A);
+    const before = mockSaveWithAudit.mock.calls.length;
+
+    const result = await store().saveStrategyData({ force: true, reason: 'manual' });
+
+    expect(result).toMatchObject({ ok: true });
+    const calls = saveCallsSince(before);
+    expect(calls).toHaveLength(1);
+    expect(calls[0][2]).toBe(COMPANY_A);
+  });
+
+  it('C: 切替開始後・読込完了前の強制保存は、A社の行にもB社の行にも書き込まない', async () => {
+    await loadCompany(COMPANY_A);
+    const before = mockSaveWithAudit.mock.calls.length;
+
+    store().setCompanyScope(COMPANY_B);
+    expect(store().pendingCompanyId).toBe(COMPANY_B);
+
+    const result = await store().saveStrategyData({ force: true, reason: 'manual' });
+
+    expect(result).toMatchObject({ ok: false, skipped: true });
+    expect(saveCallsSince(before)).toHaveLength(0);
+  });
+
+  it('G: 切替途中に財務データを添えた強制保存（STAGE6の手動保存相当）でも、B社の行を上書きしない', async () => {
+    await loadCompany(COMPANY_A);
+    store().setCompanyScope(COMPANY_B);
+    markStage6FinanceInput();
+    const before = mockSaveWithAudit.mock.calls.length;
+
+    const result = await store().saveStrategyData({ force: true, reason: 'manual' });
+
+    expect(result).toMatchObject({ ok: false, skipped: true });
+    expect(saveCallsSince(before)).toHaveLength(0);
+  });
+
+  it('D: B社の読込完了後は、B社への保存が通常どおり再開される', async () => {
+    await loadCompany(COMPANY_A);
+    store().setCompanyScope(COMPANY_B);
+
+    mockUser.companyId = COMPANY_B;
+    await store().refetchFromServer();
+    expect(store().companyId).toBe(COMPANY_B);
+    expect(store().pendingCompanyId).toBeFalsy();
+
+    const before = mockSaveWithAudit.mock.calls.length;
+    const result = await store().saveStrategyData({ force: true, reason: 'manual' });
+
+    expect(result).toMatchObject({ ok: true });
+    const calls = saveCallsSince(before);
+    expect(calls).toHaveLength(1);
+    expect(calls[0][2]).toBe(COMPANY_B);
+  });
+
+  it('E: strategyId が未設定の状態で切替中に強制保存しても、どの会社の行にも書き込まない', async () => {
+    await loadCompany(COMPANY_A);
+    expect(store().strategyId).toBeFalsy();
+
+    store().setCompanyScope(COMPANY_B);
+    markStage6FinanceInput();
+    const before = mockSaveWithAudit.mock.calls.length;
+
+    const result = await store().saveStrategyData({ force: true, reason: 'manual' });
+
+    expect(result).toMatchObject({ ok: false, skipped: true });
+    expect(saveCallsSince(before)).toHaveLength(0);
+  });
+
+  it('F: 保留中の保存の再実行が、切替開始後に走っても対象外の会社へ書き込まない', async () => {
+    await loadCompany(COMPANY_A);
+    useStrategyStore.setState({ _pendingSave: true, _pendingSaveReason: 'pending' } as never);
+
+    await store().saveStrategyData({ reason: 'manual' });
+    const atSwitch = mockSaveWithAudit.mock.calls.length;
+
+    store().setCompanyScope(COMPANY_B);
+    markStage6FinanceInput();
+    await flush();
+    await flush();
+
+    expect(mockSaveWithAudit.mock.calls.length).toBe(atSwitch);
+  });
+
+  it('H: 切替中に拒否された保存は保存済みとして表示されず、切替完了後に表示が解除される', async () => {
+    await loadCompany(COMPANY_A);
+    store().setCompanyScope(COMPANY_B);
+
+    const result = await store().saveStrategyData({ force: true, reason: 'manual-save-button' });
+    expect(result).toMatchObject({ ok: false, skipped: true, reason: 'company_switching' });
+    expect(store().saveError).toBe(COMPANY_SWITCH_SAVE_MESSAGE);
+    expect(COMPANY_SWITCH_SAVE_MESSAGE).toBe(
+      '会社の切り替え中のため、保存されませんでした。切り替えが完了してから、もう一度保存してください。',
+    );
+    expect(COMPANY_SWITCH_SAVE_MESSAGE).not.toContain('company_switching');
+
+    mockUser.companyId = COMPANY_B;
+    await store().refetchFromServer();
+    expect(store().companyId).toBe(COMPANY_B);
+    expect(store().saveError).toBeUndefined();
+  });
+});
+
+describe('A→B→A高速切替', () => {
+  // layoutClient の 2.3 同期の比較（現行: store の companyId のみ）を再現する
+  function layoutScopeSyncCurrent() {
+    const userCompanyId = mockUser.companyId;
+    if (store().companyId === userCompanyId) return;
+    store().setCompanyScope(userCompanyId);
+  }
+
+  async function loadCompany(companyId: string) {
+    mockUser.companyId = companyId;
+    await store().refetchFromServer();
+    expect(store().companyId).toBe(companyId);
+  }
+
+  it('B読込中にAへ戻すと、保留の切替先は最後に選んだAになり、Bは残らない', async () => {
+    await loadCompany(COMPANY_A);
+
+    mockUser.companyId = COMPANY_B;
+    layoutScopeSyncCurrent();
+    expect(store().pendingCompanyId).toBe(COMPANY_B);
+
+    mockUser.companyId = COMPANY_A;
+    layoutScopeSyncCurrent();
+    expect(store().pendingCompanyId).toBe(COMPANY_A);
+
+    await store().refetchFromServer();
+    expect(store().companyId).toBe(COMPANY_A);
+    expect(store().pendingCompanyId).toBeFalsy();
+    expect(store().companyName).toBe('A');
+  });
+
+  it('B読込中にAへ戻し、遅れて届いたBの応答はA社の表示を上書きしない', async () => {
+    await loadCompany(COMPANY_A);
+
+    const holdB = deferred<ReturnType<typeof row>>();
+    mockGetFull.mockImplementationOnce(() => holdB.promise);
+    mockUser.companyId = COMPANY_B;
+    layoutScopeSyncCurrent();
+    const pB = store().refetchFromServer();
+
+    mockUser.companyId = COMPANY_A;
+    layoutScopeSyncCurrent();
+    const pA = store().refetchFromServer();
+
+    holdB.resolve(row(COMPANY_B, 'B-late'));
+    await Promise.allSettled([pB, pA]);
+
+    expect(store().companyId).toBe(COMPANY_A);
+    expect(store().pendingCompanyId).toBeFalsy();
+    expect(store().companyName).toBe('A');
+    expect(store().companyName).not.toBe('B-late');
+  });
+
+  it('A→B→A後は、切替途中の保存を拒否し、読込完了後はA社へ保存できる', async () => {
+    await loadCompany(COMPANY_A);
+
+    mockUser.companyId = COMPANY_B;
+    layoutScopeSyncCurrent();
+    mockUser.companyId = COMPANY_A;
+    layoutScopeSyncCurrent();
+
+    const midSwitch = await store().saveStrategyData({ force: true, reason: 'manual' });
+    expect(midSwitch).toMatchObject({ ok: false, skipped: true });
+
+    await store().refetchFromServer();
+    expect(store().companyId).toBe(COMPANY_A);
+
+    const before = mockSaveWithAudit.mock.calls.length;
+    const after = await store().saveStrategyData({ force: true, reason: 'manual' });
+    expect(after).toMatchObject({ ok: true });
+    const calls = mockSaveWithAudit.mock.calls.slice(before) as unknown[][];
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((c) => c[2] === COMPANY_A)).toBe(true);
+  });
+
+  it('setCompanyScope で A→B→A と切り替えると、保留の切替先は最後に選んだAになる', async () => {
+    await loadCompany(COMPANY_A);
+    store().setCompanyScope(COMPANY_B);
+    expect(store().pendingCompanyId).toBe(COMPANY_B);
+
+    store().setCompanyScope(COMPANY_A);
+
+    expect(store().pendingCompanyId).toBe(COMPANY_A);
+    expect(store().companyId).not.toBe(COMPANY_B);
   });
 });

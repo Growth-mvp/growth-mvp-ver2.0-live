@@ -151,6 +151,9 @@ export type SaveResult =
  * ========================================================== */
 let __saveChain: Promise<void> = Promise.resolve();
 
+export const COMPANY_SWITCH_SAVE_MESSAGE =
+  '会社の切り替え中のため、保存されませんでした。切り替えが完了してから、もう一度保存してください。';
+
 function enqueueSave<T>(fn: () => Promise<T>): Promise<T> {
   const run = async () => fn();
   const p = __saveChain.then(run, run);
@@ -3351,6 +3354,24 @@ export const useStrategyStore = create<StrategyState>()(
             return { ok: false, skipped: true, reason: 'stage4_departments_immediate_save_blocked' };
           }
 
+          // ★ 会社切替中（切替先の読込が確定する前）は force でも保存を開始しない。
+          // 切替開始時に表示データは初期化されるため、ここで書き込むと空の状態を既存の行へ全置換しうる。
+          const effectiveCompanyId = useUserStore.getState().companyId ?? null;
+          const isCompanySwitching =
+            !!state0.pendingCompanyId || (!!effectiveCompanyId && state0.companyId !== effectiveCompanyId);
+          if (isCompanySwitching) {
+            if (get().saveError !== COMPANY_SWITCH_SAVE_MESSAGE) set({ saveError: COMPANY_SWITCH_SAVE_MESSAGE });
+            console.warn('[saveStrategyData:company-switching] 会社切替中のため保存を開始しない', {
+              reason,
+              force,
+              storeCompanyId: state0.companyId?.substring(0, 8) ?? null,
+              pendingCompanyId: state0.pendingCompanyId?.substring(0, 8) ?? null,
+              effectiveCompanyId: effectiveCompanyId?.substring(0, 8) ?? null,
+              timestamp: new Date().toISOString(),
+            });
+            return { ok: false, skipped: true, reason: 'company_switching' };
+          }
+
           // ★ force: true のときは hydrating をスキップ（無反応を防ぐ）
           // force: false のときはガード
           // ★ FIX: skip-flags をログ出力 + 詳細な理由
@@ -4110,6 +4131,7 @@ export const useStrategyStore = create<StrategyState>()(
 
                 companyId,
                 pendingCompanyId: undefined,
+                saveError: base.saveError === COMPANY_SWITCH_SAVE_MESSAGE ? undefined : base.saveError,
               };
 
 
@@ -4193,6 +4215,7 @@ export const useStrategyStore = create<StrategyState>()(
                 ...(patch as any),  // ← DB fresh data で上書き（FULL REPLACEMENT）
                 companyId,
                 pendingCompanyId: undefined,
+                saveError: s.saveError === COMPANY_SWITCH_SAVE_MESSAGE ? undefined : s.saveError,
               };
 
 

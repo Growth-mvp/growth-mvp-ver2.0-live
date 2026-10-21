@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import type { Department, FinanceBSRow, FinancePLRow } from '@/types/strategy';
-import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
+import { COMPANY_SWITCH_SAVE_MESSAGE, useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useAccess } from '@/utils/access';
 import { buildInvestmentDemandSummary, parseFiscalYearEndMonth } from '@/utils/stage6/investmentDemand';
 import { buildCashFlowPlan } from '@/utils/stage6/cashflow';
@@ -311,6 +311,9 @@ function FinancePlanContent({
         setSaveMessage(`保存しました（${new Date(savedAt).toLocaleTimeString('ja-JP')}）。`);
       } else if (res?.skipped && res.reason === 'same_hash') {
         setSaveMessage('保存済みの内容と同じため、変更はありません。');
+      } else if (res?.skipped && res.reason === 'company_switching') {
+        setSaveFailed(true);
+        setSaveMessage(COMPANY_SWITCH_SAVE_MESSAGE);
       } else if (res?.skipped) {
         setSaveFailed(true);
         setSaveMessage(`保存されませんでした（${res.reason ?? '理由不明'}）。もう一度お試しください。`);
