@@ -1,36 +1,33 @@
 /**
- * STAGE1 の財務金額の入力単位。保存単位は常に円（整数）。
- * 入力値は単位を明示して一度だけ円へ換算し、読み込み時には換算しない。
+ * STAGE1 の財務金額は円（整数）で入力・保存する。単位の選択・換算はしない。
+ * 資料内に円以外の単位が明示されている場合は取込を止める（自動換算はしない）。
+ * 旧データの年度判別は保存済みの確定年度で行い、円の値を桁で換算しない。
  */
-import { columnMoneyUnitOfLabel } from './financeColumnUnit';
-
-
-export type FinanceInputUnit = 'yen' | 'thousand_yen' | 'man_yen' | 'million_yen' | 'oku_yen';
-
-export const FINANCE_INPUT_UNITS: readonly FinanceInputUnit[] = [
-  'yen',
-  'thousand_yen',
-  'man_yen',
-  'million_yen',
-  'oku_yen',
-];
-
-/** 円で保存された財務データの版数。この版数の保存値には桁による換算を適用しない */
-export const FINANCE_UNIT_VERSION = 2 as const;
 
 /**
- * 円で保存されたと確定している範囲。pl は確定済みの年度の配列（年度単位で管理する）。
- * undefined の pl は会社PLの読込前を表し、その間は会社PLを保存しない。
+ * 円で保存されたと確定している範囲。
+ * pl は会社PLの確定済みの年度（年度単位で管理する）。
+ * segmentPL / segmentBS は確定したセグメントの BusinessSegment.id。
  */
 export type FinanceUnitConfirmed = {
   pl?: number[];
   bs?: boolean;
-  segmentPL?: boolean;
-  segmentBS?: boolean;
+  segmentPL?: string[];
+  segmentBS?: string[];
 };
+
+export const FINANCE_CURRENCY_NOTICE =
+  '財務データは円単位で入力してください。千円・百万円単位の資料は、円単位に変換してから取り込んでください。';
 
 export const FINANCE_PL_YEAR_ISSUE_MESSAGE =
   '会社PLの年度に重複または欠落があるため、会社PLを更新・保存できません。重複・欠落を解消してから再度お試しください。';
+
+export const FINANCE_PL_LEGACY_PARTIAL_MESSAGE =
+  '旧データの年度は、全項目を表示どおりの円で入力し直してから保存してください。一部の項目だけを変更した場合は保存されません（未変更の項目を換算値で書き換えないため）。';
+
+export function isFinancePLGuardMessage(message: unknown): boolean {
+  return message === FINANCE_PL_YEAR_ISSUE_MESSAGE || message === FINANCE_PL_LEGACY_PARTIAL_MESSAGE;
+}
 
 /** 会社PLの年度キー。4桁の整数として解釈できない場合は null */
 export function financePLYearKey(row: { year?: unknown }): number | null {
@@ -50,17 +47,20 @@ export function hasFinancePLYearIssue(rows: ReadonlyArray<{ year?: unknown }>): 
   return false;
 }
 
-export const FINANCE_PL_LEGACY_PARTIAL_MESSAGE =
-  '旧データの年度は、表示中の項目をすべて入力または再取込してから保存してください。一部の項目だけを変更した場合は適用されません。';
-
-export function isFinancePLGuardMessage(message: unknown): boolean {
-  return message === FINANCE_PL_YEAR_ISSUE_MESSAGE || message === FINANCE_PL_LEGACY_PARTIAL_MESSAGE;
+/** 2つの行の値が同じか（キーの集合と各値の Object.is で比較） */
+export function isSameFinanceRow(a: object, b: object): boolean {
+  const ra = a as Record<string, unknown>;
+  const rb = b as Record<string, unknown>;
+  const keys = new Set([...Object.keys(ra), ...Object.keys(rb)]);
+  for (const key of keys) {
+    if (!Object.is(ra[key], rb[key])) return false;
+  }
+  return true;
 }
 
 /**
  * 未確定（旧データ）の年度で、数値の項目の一部だけが変わった年度を返す。
- * 旧年度は、保存されていた項目をすべて入力し直した場合だけ円として確定する。
- * 未変更の項目は表示上の換算値のままになるため、その年度の更新は適用しない。
+ * 未変更の項目は表示上の換算値のままになるため、その年度の更新は保存しない。
  */
 export function partiallyUpdatedLegacyYears(
   rows: ReadonlyArray<object>,
@@ -83,22 +83,9 @@ export function partiallyUpdatedLegacyYears(
   return out;
 }
 
-/** 2つの行の値が同じか（キーの集合と各値の Object.is で比較） */
-export function isSameFinanceRow(a: object, b: object): boolean {
-  const ra = a as Record<string, unknown>;
-  const rb = b as Record<string, unknown>;
-  const keys = new Set([...Object.keys(ra), ...Object.keys(rb)]);
-  for (const key of keys) {
-    if (!Object.is(ra[key], rb[key])) return false;
-  }
-  return true;
-}
-
 /**
  * 保存済み csv_finance_data から、会社PLの年度ごとの確定判定を作る。
- * - pl が配列なら、その年度だけ円で確定済み
- * - pl がない旧円版（版数2）は全年度を円とみなす（pl=true も同じ扱い）
- * - それ以外（版数なしの旧データ）は全年度が未確定
+ * pl が配列なら、その年度だけ円で確定済み。配列がなければ全年度が未確定（旧データ）。
  */
 export function plYearConfirmedPredicate(csvMeta: Record<string, unknown>): (year: number | null) => boolean {
   const stored = (csvMeta.financeUnitConfirmed ?? {}) as { pl?: unknown };
@@ -106,161 +93,140 @@ export function plYearConfirmedPredicate(csvMeta: Record<string, unknown>): (yea
     const years = new Set(stored.pl.map((y) => Number(y)));
     return (year) => year !== null && years.has(year);
   }
-  const wholeYen = stored.pl === true || csvMeta.financeUnitVersion === FINANCE_UNIT_VERSION;
+  const wholeYen = stored.pl === true;
   return () => wholeYen;
 }
 
-/** 保存済み csv_finance_data の bs・セグメントの確定フラグ（版数2の旧円版は確定とみなす） */
-export function readFinanceDatasetConfirmed(
-  csvMeta: Record<string, unknown>,
-  key: 'bs' | 'segmentPL' | 'segmentBS',
-): boolean {
+/** 保存済み csv_finance_data の BS の確定フラグ */
+export function readFinanceBSConfirmed(csvMeta: Record<string, unknown>): boolean {
   const stored = (csvMeta.financeUnitConfirmed ?? {}) as Record<string, unknown>;
-  return csvMeta.financeUnitVersion === FINANCE_UNIT_VERSION || stored[key] === true;
+  return stored.bs === true;
 }
 
-export const FINANCE_INPUT_UNIT_LABEL: Record<FinanceInputUnit, string> = {
-  yen: '円',
-  thousand_yen: '千円',
-  man_yen: '万円',
-  million_yen: '百万円',
-  oku_yen: '億円',
-};
-
-const YEN_PER_UNIT: Record<FinanceInputUnit, number> = {
-  yen: 1,
-  thousand_yen: 1_000,
-  man_yen: 10_000,
-  million_yen: 1_000_000,
-  oku_yen: 100_000_000,
-};
-
-export function isFinanceInputUnit(v: unknown): v is FinanceInputUnit {
-  return typeof v === 'string' && (FINANCE_INPUT_UNITS as readonly string[]).includes(v);
+/** 確定セグメントIDの配列として正規化する。旧形式の共通フラグ（true）は個別の根拠がないため空にする */
+export function normalizeConfirmedSegmentIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(value.filter((id): id is string => typeof id === 'string' && id !== '')));
 }
 
-/** 単位を明示した入力値を、円の整数に換算する（一度だけ使う） */
-export function toYen(value: number, unit: FinanceInputUnit): number {
-  return Math.round(value * YEN_PER_UNIT[unit]);
+/** 保存済み csv_finance_data から、円で確定したセグメントIDを読む */
+export function readConfirmedSegmentIds(csvMeta: Record<string, unknown>, key: 'segmentPL' | 'segmentBS'): string[] {
+  const stored = (csvMeta.financeUnitConfirmed ?? {}) as Record<string, unknown>;
+  return normalizeConfirmedSegmentIds(stored[key]);
 }
 
-/** 円の値を、選択した単位の表示数値に直す（表示・編集用。金額は変えない） */
-export function displayNumber(yen: number, unit: FinanceInputUnit): number {
-  return Number((yen / YEN_PER_UNIT[unit]).toFixed(8));
+/** 指定した名前のセグメントのIDを、既存の確定IDに加えた集合を返す */
+export function addConfirmedSegmentIds(
+  prev: readonly string[] | undefined,
+  segments: ReadonlyArray<{ id: string; name: string }>,
+  names: readonly string[],
+): string[] {
+  const nameSet = new Set(names);
+  const added = segments.filter((seg) => nameSet.has(seg.name)).map((seg) => seg.id);
+  return Array.from(new Set([...(prev ?? []), ...added]));
 }
 
-/** 行の金額項目（year 以外の数値）を換算する。display: 円 → 表示数値、yen: 表示数値 → 円 */
-export function scaleMonetaryRows<T extends { year: number }>(
-  rows: readonly T[],
-  unit: FinanceInputUnit,
-  direction: 'display' | 'yen',
-): T[] {
-  return rows.map((row) => {
-    const next: Record<string, unknown> = { ...row };
-    for (const [key, value] of Object.entries(row)) {
-      if (key === 'year' || typeof value !== 'number') continue;
-      next[key] = direction === 'display' ? displayNumber(value, unit) : toYen(value, unit);
-    }
-    return next as T;
-  });
+/** 確定IDのうち、現在のセグメントに存在するものの名前。PL/BS のデータ（名前キー）の判定に使う */
+export function confirmedSegmentNames(
+  segments: ReadonlyArray<{ id: string; name: string }>,
+  confirmedIds: readonly string[],
+): Set<string> {
+  const idSet = new Set(confirmedIds);
+  return new Set(segments.filter((seg) => idSet.has(seg.id)).map((seg) => seg.name));
 }
 
 /**
- * 表の編集結果を円の行にする。表示値に変更がない年度は、保存済みの円の行をそのまま使う。
- * 表示単位への換算と戻しの往復で未編集年度の値が変わるのを防ぐ。
+ * セグメントの追加・削除・名称変更に合わせて、名前キーのデータを付け替える。
+ * 名称変更は同じIDのデータを新しい名前へ移し、削除されたセグメントのデータは残さない。
  */
-export function toYenRowsKeepingUnchanged<T extends { year: number }>(
-  nextDisplay: readonly T[],
-  prevDisplay: readonly T[],
-  prevYen: readonly T[],
-  unit: FinanceInputUnit,
-): T[] {
-  const converted = scaleMonetaryRows(nextDisplay, unit, 'yen');
-  const prevDisplayByYear = new Map(prevDisplay.map((r) => [r.year, r]));
-  const prevYenByYear = new Map(prevYen.map((r) => [r.year, r]));
-  return nextDisplay.map((row, i) => {
-    const before = prevDisplayByYear.get(row.year);
-    const yen = prevYenByYear.get(row.year);
-    if (before && yen && isSameFinanceRow(row, before)) return yen;
-    return converted[i];
-  });
-}
-
-/**
- * 取込候補の金額を円へ換算する。列ごとの明示単位を優先し、無い列は全体の単位を使う。
- * どちらも無い列は換算せず unresolvedKeys に入れる（金額を捏造しない）。
- */
-export function convertCandidateFieldsToYen(
-  fields: Record<string, number>,
-  fieldUnits: Partial<Record<string, FinanceInputUnit>>,
-  fallbackUnit: FinanceInputUnit | undefined,
-): { yenFields: Record<string, number>; unresolvedKeys: string[] } {
-  const yenFields: Record<string, number> = {};
-  const unresolvedKeys: string[] = [];
-  for (const [key, value] of Object.entries(fields)) {
-    if (typeof value !== 'number' || !Number.isFinite(value)) continue;
-    const unit = fieldUnits[key] ?? fallbackUnit;
-    if (!unit) {
-      unresolvedKeys.push(key);
-      continue;
-    }
-    yenFields[key] = toYen(value, unit);
+export function rekeySegmentRecord<T>(
+  record: Record<string, T> | undefined,
+  prevSegments: ReadonlyArray<{ id: string; name: string }>,
+  nextSegments: ReadonlyArray<{ id: string; name: string }>,
+): Record<string, T> {
+  const prevIdByName = new Map(prevSegments.map((seg) => [seg.name, seg.id]));
+  const nextNameById = new Map(nextSegments.map((seg) => [seg.id, seg.name]));
+  const nextNames = new Set(nextSegments.map((seg) => seg.name));
+  const out: Record<string, T> = {};
+  for (const [key, value] of Object.entries(record ?? {})) {
+    const id = prevIdByName.get(key);
+    const nextName = id !== undefined ? nextNameById.get(id) : key;
+    if (nextName !== undefined && nextNames.has(nextName)) out[nextName] = value;
   }
-  return { yenFields, unresolvedKeys };
+  return out;
 }
 
-/** 列名・項目名に明示された単位を入力単位へ変換する。明示が無い・未対応の場合は undefined */
-export function explicitInputUnitOfLabel(label: string): FinanceInputUnit | undefined {
-  const unit = columnMoneyUnitOfLabel(label);
-  if (unit === 'million_yen' || unit === 'thousand_yen' || unit === 'man_yen' || unit === 'yen') return unit;
-  return undefined;
+/** セグメントが削除されたときに、残っているセグメントの確定IDだけを残す */
+export function pruneConfirmedSegmentIds(
+  confirmedIds: readonly string[] | undefined,
+  nextSegments: ReadonlyArray<{ id: string }>,
+): string[] {
+  const nextIds = new Set(nextSegments.map((seg) => seg.id));
+  return (confirmedIds ?? []).filter((id) => nextIds.has(id));
 }
 
-/** 資料内の単位表記（例: 単位：千円）を読み取る。見つからなければ undefined */
-export function detectSheetUnitText(text: string): FinanceInputUnit | undefined {
-  const m = text.match(/単位\s*[:：]?\s*(百万円|千円|万円|億円|円)/);
-  if (!m) return undefined;
-  const map: Record<string, FinanceInputUnit> = {
-    円: 'yen',
-    千円: 'thousand_yen',
-    万円: 'man_yen',
-    百万円: 'million_yen',
-    億円: 'oku_yen',
-  };
-  return map[m[1]];
+/**
+ * 円で確定した金額をAIへ渡す表記にする（百万円は明示的に100万で割る）。
+ * 百万円未満は円のまま表記し、桁数から単位を推定しない。
+ */
+export function formatYenForPrompt(yen: number): string {
+  const rounded = Math.round(yen);
+  if (Math.abs(rounded) >= 1_000_000) {
+    return `${Math.round((rounded / 1_000_000) * 10) / 10}百万円`;
+  }
+  return `${rounded}円`;
+}
+
+/**
+ * セグメント財務の金額行。単位が確定していない場合は数値を出さず、その旨を記載する。
+ */
+export function formatSegmentMoneyForPrompt(label: string, value: number | null | undefined, unitConfirmed: boolean): string {
+  if (value == null || !Number.isFinite(value)) return '';
+  if (!unitConfirmed) return `${label}：単位未確認のため金額は記載しない`;
+  return `${label}${formatYenForPrompt(value)}`;
+}
+
+const NON_YEN_UNIT_PATTERN = '(百万円|千万円|千円|万円|億円)';
+
+/** 列見出しの末尾に書かれた円以外の単位（例：「売上高（千円）」→「千円」）。無ければ undefined */
+export function nonYenUnitOfLabel(label: string): string | undefined {
+  const m = label.trim().match(new RegExp(`${NON_YEN_UNIT_PATTERN}\\s*[）)]?\\s*$`));
+  return m?.[1];
+}
+
+/** 資料内の「単位：○○」表記に書かれた円以外の単位（例：「単位：千円」）。無ければ undefined */
+export function nonYenUnitInSheetText(text: string): string | undefined {
+  const m = text.match(new RegExp(`単位\\s*[:：]?\\s*${NON_YEN_UNIT_PATTERN}`));
+  return m?.[1];
 }
 
 const MONEY_CANDIDATE_KINDS = new Set(['companyPL', 'companyBS', 'segmentPL', 'segmentBS']);
 
-export type UnitResolvableCandidate = {
+/** 単位表記の判定に使う取込候補の形（金額の候補の kind・取込元・検出した単位） */
+export type UnitNotationCandidate = {
   kind: string;
-  fields: Record<string, unknown>;
-  fieldUnits?: Partial<Record<string, FinanceInputUnit>>;
   source?: string;
+  sheetUnit?: string;
+  fieldUnits?: Record<string, string>;
 };
 
-/**
- * 取込候補の金額を円へ換算する。単位の優先順位は「列の明示単位」→「取込元ごとに確定した単位」。
- * どちらも無い金額は換算せず、unresolvedCount に数える（適用はできない）。
- */
-export function resolveCandidatesToYen<T extends UnitResolvableCandidate>(
-  candidates: T[],
-  confirmedUnitBySource: Record<string, FinanceInputUnit | undefined>,
-): { candidates: T[]; unresolvedCount: number } {
-  let unresolvedCount = 0;
-  const resolved = candidates.map((c) => {
-    if (!MONEY_CANDIDATE_KINDS.has(c.kind)) return c;
-    const numeric: Record<string, number> = {};
-    for (const [key, value] of Object.entries(c.fields)) {
-      if (typeof value === 'number' && Number.isFinite(value)) numeric[key] = value;
-    }
-    const { yenFields, unresolvedKeys } = convertCandidateFieldsToYen(
-      numeric,
-      c.fieldUnits ?? {},
-      confirmedUnitBySource[c.source ?? ''],
-    );
-    unresolvedCount += unresolvedKeys.length;
-    return { ...c, fields: yenFields };
-  });
-  return { candidates: resolved, unresolvedCount };
+/** 取込元ごとに、資料内の円以外の単位表記を集める（金額の候補のみ）。表記が無い取込元は含まない */
+export function nonYenUnitsBySource(candidates: ReadonlyArray<UnitNotationCandidate>): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const c of candidates) {
+    if (!MONEY_CANDIDATE_KINDS.has(c.kind)) continue;
+    const labels = [c.sheetUnit, ...Object.values(c.fieldUnits ?? {})].filter((u): u is string => Boolean(u));
+    if (labels.length === 0) continue;
+    const key = c.source ?? '';
+    out[key] = [...(out[key] ?? []), ...labels];
+  }
+  return out;
+}
+
+/** 金額の候補がある取込元のうち、円以外の単位表記が一つも検出されなかったもの（円であることの確認が必要） */
+export function sourcesWithoutUnitNotation(candidates: ReadonlyArray<UnitNotationCandidate>): string[] {
+  const money = candidates.filter((c) => MONEY_CANDIDATE_KINDS.has(c.kind));
+  const allSources = Array.from(new Set(money.map((c) => c.source ?? '')));
+  const withNotation = new Set(Object.keys(nonYenUnitsBySource(money)));
+  return allSources.filter((key) => !withNotation.has(key));
 }

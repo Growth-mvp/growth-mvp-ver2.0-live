@@ -9,6 +9,12 @@ import { openai } from '@/lib/openai';
 import { industryTemplates, getIndustryLabel } from '@/utils/industryTemplates';
 import { toTextStory, extractJsonObject, sanitizeText } from '@/app/api/_shared/utils';
 import { z } from 'zod';
+import {
+  confirmedSegmentNames,
+  formatSegmentMoneyForPrompt,
+  formatYenForPrompt,
+  normalizeConfirmedSegmentIds,
+} from '@/utils/finance/financeInputUnits';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
 import type { PortfolioSignals, StorySignals, DiscussionSignals, GeneratedSignals, ReconsiderationSeverity, ReconsiderationPointInternal } from '@/types/strategy';
@@ -232,6 +238,7 @@ const ReqSchema = z
 
     // ★ここを緩和：配列/オブジェクトどちらも許容（strictで弾かない）
     csvFinanceData: z.any().optional(),
+    financeUnitConfirmed: z.any().optional(),
 
     financeSummary: z.any().optional(),
     businessPortfolio: z.any().optional(),
@@ -1683,32 +1690,56 @@ async function ensureOkrs(project: any, laneType?: CascadeLaneType, deptName?: s
  * - 旧：csvFinanceData が配列（row[]）
  * - 新：csvFinanceData がオブジェクト（{financeBS, segmentPL, segmentBS, 0: {...}} 等）
  */
-function extractCsvPreviewRows(csvFinanceData: any): any[] {
+/**
+ * AIへ渡す財務行の金額に単位を明示する。
+ * 単位が確定している行は円を百万円へ明示的に換算し、未確定の行は金額を出さない（数値を推測しない）。
+ */
+function toPromptFinanceRow(row: any, source: string, unitConfirmed: boolean): Record<string, unknown> {
+  const out: Record<string, unknown> = { source };
+  for (const [key, value] of Object.entries(row ?? {})) {
+    if (key === 'year' || key === 'source') {
+      out[key] = value;
+    } else if (typeof value === 'number' && unitConfirmed) {
+      out[key] = formatYenForPrompt(value);
+    } else if (typeof value !== 'number') {
+      out[key] = value;
+    }
+  }
+  out.unit = unitConfirmed ? '円から百万円へ換算済み' : '単位未確認（金額は記載しない）';
+  return out;
+}
+
+function extractCsvPreviewRows(
+  csvFinanceData: any,
+  unitConfirmed: { financeBS: boolean; segmentPL: ReadonlySet<string>; segmentBS: ReadonlySet<string> },
+): any[] {
   if (!csvFinanceData) return [];
 
-  // 1) 既に配列
-  if (Array.isArray(csvFinanceData)) return csvFinanceData;
+  // 1) 既に配列（単位の根拠がないため金額は出さない）
+  if (Array.isArray(csvFinanceData)) return csvFinanceData.map((r: any) => toPromptFinanceRow(r, 'csv', false));
 
-  // 2) rows/data が配列
-  if (Array.isArray(csvFinanceData?.rows)) return csvFinanceData.rows;
-  if (Array.isArray(csvFinanceData?.data)) return csvFinanceData.data;
+  // 2) rows/data が配列（単位の根拠がないため金額は出さない）
+  if (Array.isArray(csvFinanceData?.rows)) return csvFinanceData.rows.map((r: any) => toPromptFinanceRow(r, 'csv', false));
+  if (Array.isArray(csvFinanceData?.data)) return csvFinanceData.data.map((r: any) => toPromptFinanceRow(r, 'csv', false));
 
-  // 3) 数値キーが混ざるケース（0,1,...）
+  // 3) 数値キーが混ざるケース（0,1,...）（単位の根拠がないため金額は出さない）
   if (typeof csvFinanceData === 'object') {
     const numericKeys = Object.keys(csvFinanceData).filter((k) => /^\d+$/.test(k));
     if (numericKeys.length > 0) {
       numericKeys.sort((a, b) => Number(a) - Number(b));
       const first = (csvFinanceData as any)[numericKeys[0]];
-      if (Array.isArray(first)) return first;
-      if (first && typeof first === 'object') return [first];
+      if (Array.isArray(first)) return first.map((r: any) => toPromptFinanceRow(r, 'csv', false));
+      if (first && typeof first === 'object') return [toPromptFinanceRow(first, 'csv', false)];
     }
   }
 
-  // 4) financeBS / segmentPL / segmentBS などの構造から無理やり数行作る
+  // 4) financeBS / segmentPL / segmentBS などの構造から無理やり数行作る（種別ごとの単位で判定）
   const out: any[] = [];
 
   if (Array.isArray(csvFinanceData?.financeBS)) {
-    out.push(...csvFinanceData.financeBS.slice(0, 3).map((r: any) => ({ source: 'financeBS', ...r })));
+    out.push(
+      ...csvFinanceData.financeBS.slice(0, 3).map((r: any) => toPromptFinanceRow(r, 'financeBS', unitConfirmed.financeBS)),
+    );
   }
 
   const segPL = csvFinanceData?.segmentPL;
@@ -1716,7 +1747,9 @@ function extractCsvPreviewRows(csvFinanceData: any): any[] {
     const segNames = Object.keys(segPL).slice(0, 2);
     for (const name of segNames) {
       const rows = Array.isArray(segPL[name]) ? segPL[name] : [];
-      out.push(...rows.slice(0, 2).map((r: any) => ({ source: `segmentPL:${name}`, ...r })));
+      out.push(
+        ...rows.slice(0, 2).map((r: any) => toPromptFinanceRow(r, `segmentPL:${name}`, unitConfirmed.segmentPL.has(name))),
+      );
     }
   }
 
@@ -1725,7 +1758,9 @@ function extractCsvPreviewRows(csvFinanceData: any): any[] {
     const segNames = Object.keys(segBS).slice(0, 1);
     for (const name of segNames) {
       const rows = Array.isArray(segBS[name]) ? segBS[name] : [];
-      out.push(...rows.slice(0, 2).map((r: any) => ({ source: `segmentBS:${name}`, ...r })));
+      out.push(
+        ...rows.slice(0, 2).map((r: any) => toPromptFinanceRow(r, `segmentBS:${name}`, unitConfirmed.segmentBS.has(name))),
+      );
     }
   }
 
@@ -1887,7 +1922,8 @@ function buildDeptFactPack(
   businessSegments: any[],
   csvFinanceData: any,
   financeSummary: any,
-  businessPortfolio: any
+  businessPortfolio: any,
+  segmentUnitConfirmed: { pl: ReadonlySet<string>; bs: ReadonlySet<string> }
 ): DeptFactPack {
   const normalizeName = (s: string) =>
     (s ?? '')
@@ -1898,29 +1934,14 @@ function buildDeptFactPack(
       .trim();
 
   /**
-   * ★STAGE3専用補助：finance raw 値の単位判定と金額文言生成
-   * csvFinanceData 由来の値は「円」「百万円」が混在しているため、値の大きさで判定
-   * - >= 10,000,000: 「円」と判定 → 百万円へ換算（÷1,000,000）
-   * - 100～9,999,999: 「百万円」と判定（そのまま使用）
-   * - < 100: 不正値 → 金額文言を返さない（増減率のみ残す）
+   * ★STAGE3専用補助：セグメント財務の金額文言。桁数では単位を判定しない。
+   * 単位が確定した（STAGE1で円として保存された）値だけ金額を出し、未確定は金額を出さない。
    */
-  const formatFinanceValue = (value: number | null): { text: string; isValid: boolean } => {
-    if (value == null || !Number.isFinite(value)) {
+  const formatFinanceValue = (value: number | null, unitConfirmed: boolean): { text: string; isValid: boolean } => {
+    if (value == null || !Number.isFinite(value) || !unitConfirmed) {
       return { text: '', isValid: false };
     }
-
-    if (value >= 10000000) {
-      // 「円」と判定 → 百万円へ換算
-      const converted = Math.round((value / 1000000) * 10) / 10;
-      return { text: `${converted}百万円`, isValid: true };
-    } else if (value >= 100 && value < 10000000) {
-      // 「百万円」と判定（そのまま）
-      const rounded = Math.round(value * 10) / 10;
-      return { text: `${rounded}百万円`, isValid: true };
-    } else {
-      // < 100 は不正値 → 金額文言を出さない
-      return { text: '', isValid: false };
-    }
+    return { text: formatYenForPrompt(value), isValid: true };
   };
 
   // ★ segment マッチング（既存ロジックを流用）
@@ -1938,6 +1959,8 @@ function buildDeptFactPack(
   }
 
   const segmentName = seg?.name ?? deptName;
+  const plConfirmed = segmentUnitConfirmed.pl.has(segmentName);
+  const bsConfirmed = segmentUnitConfirmed.bs.has(segmentName);
   const anchors: FactAnchor[] = [];
   let anchorCount = 0;
 
@@ -2015,13 +2038,13 @@ function buildDeptFactPack(
         const yearStr = latestYear ? `${latestYear}年` : '';
 
         // ★STAGE3修正：latestRev を単位判定して hint 生成
-        const revFormat = formatFinanceValue(latestRev);
+        const revFormat = formatFinanceValue(latestRev, plConfirmed);
         let hint: string;
         if (revFormat.isValid) {
           hint = `売上は${Math.abs(change).toFixed(1)}%${sign}（${yearStr}${revFormat.text}）`;
         } else {
           // 異常値 → 金額文言を落とす（増減率のみ）
-          hint = `売上は${Math.abs(change).toFixed(1)}%${sign}`;
+          hint = `売上は${Math.abs(change).toFixed(1)}%${sign}（金額の単位未確認のため記載しない）`;
         }
         financeHints.push(hint);
 
@@ -2049,7 +2072,8 @@ function buildDeptFactPack(
       if (latestMargin != null && latestRev != null && latestRev !== 0) {
         const margin = (latestMargin / latestRev) * 100;
         const yearStr = latestYear ? `${latestYear}年` : '';
-        const hint = `営業利益率は約${margin.toFixed(1)}%（${yearStr}）`;
+        const opText = plConfirmed ? `営業利益は${formatYenForPrompt(latestMargin)}、` : '';
+        const hint = `${opText}営業利益率は約${margin.toFixed(1)}%（${yearStr}）`;
         financeHints.push(hint);
         anchors.push({
           id: `fact-fin-${++anchorCount}`,
@@ -2070,13 +2094,13 @@ function buildDeptFactPack(
 
         // ★STAGE3修正：BS 値も単位判定して hint 生成
         if (inventory != null) {
-          const invFormat = formatFinanceValue(inventory);
+          const invFormat = formatFinanceValue(inventory, bsConfirmed);
           bsHint = invFormat.isValid ? `在庫は${invFormat.text}` : undefined;
         } else if (receivables != null) {
-          const recFormat = formatFinanceValue(receivables);
+          const recFormat = formatFinanceValue(receivables, bsConfirmed);
           bsHint = recFormat.isValid ? `売掛金は${recFormat.text}` : undefined;
         } else if (fixedAssets != null) {
-          const faFormat = formatFinanceValue(fixedAssets);
+          const faFormat = formatFinanceValue(fixedAssets, bsConfirmed);
           bsHint = faFormat.isValid ? `固定資産は${faFormat.text}` : undefined;
         }
 
@@ -2095,10 +2119,9 @@ function buildDeptFactPack(
             bsType: bsType,
             bsValue_raw: bsValue,
             bsValue_type: typeof bsValue,
-            bsValue_isNormal: bsValue < 10000000,
             yearLabel: latestYear,
             hint_text: fullHint,
-            note: bsValue > 10000000 ? 'ABNORMAL_VALUE' : 'normal',
+            unitConfirmed: bsConfirmed,
           });
 
           financeHints.push(fullHint);
@@ -2128,13 +2151,13 @@ function buildDeptFactPack(
           const sign = change >= 0 ? '増加' : '減少';
 
           // ★STAGE3修正：csvFinanceData 由来の latestRev を単位判定
-          const revFormat = formatFinanceValue(latestRev);
+          const revFormat = formatFinanceValue(latestRev, plConfirmed);
           let hint: string;
           if (revFormat.isValid) {
             hint = `売上は${Math.abs(change).toFixed(1)}%${sign}（${revFormat.text}）`;
           } else {
             // 異常値 → 金額文言を落とす
-            hint = `売上は${Math.abs(change).toFixed(1)}%${sign}`;
+            hint = `売上は${Math.abs(change).toFixed(1)}%${sign}（金額の単位未確認のため記載しない）`;
           }
 
           // [STAGE3_FACTPACK_GEN_CSV] ログ：csvFinanceData フォールバック版
@@ -3478,6 +3501,7 @@ export async function POST(req: NextRequest) {
       strategySummary,
       departments,
       csvFinanceData,
+      financeUnitConfirmed,
       financeSummary,
       businessPortfolio,
       businessSegments: allBusinessSegments,
@@ -3590,8 +3614,18 @@ export async function POST(req: NextRequest) {
      * ======================= */
     const summary = strategySummary?.trim() || finalStoryText.slice(0, 220) || storyText.slice(0, 160) || '（要約なし）';
 
+    // 単位が確定した財務のみ円として扱う（会社PL・会社BS・セグメントはそれぞれ別に判定する）
+    const segmentUnitConfirmed = {
+      pl: confirmedSegmentNames(allBusinessSegments, normalizeConfirmedSegmentIds(financeUnitConfirmed?.segmentPL)),
+      bs: confirmedSegmentNames(allBusinessSegments, normalizeConfirmedSegmentIds(financeUnitConfirmed?.segmentBS)),
+    };
+
     // ★csvFinanceData はオブジェクトで来ても落とさない（抜粋行を抽出）
-    const previewRows = extractCsvPreviewRows(csvFinanceData);
+    const previewRows = extractCsvPreviewRows(csvFinanceData, {
+      financeBS: financeUnitConfirmed?.bs === true,
+      segmentPL: segmentUnitConfirmed.pl,
+      segmentBS: segmentUnitConfirmed.bs,
+    });
     const financeCsvText = previewRows.length > 0 ? toLinesFromCsv(previewRows, 5) : '（CSVベースの財務データなし）';
 
     const financeSummaryText = summarizeFinanceSummary(financeSummary);
@@ -3638,7 +3672,7 @@ export async function POST(req: NextRequest) {
     for (const d of departments) {
       const name = pickName(d);
       if (!name) continue;
-      const factPack = buildDeptFactPack(name, allBusinessSegments, csvFinanceData, financeSummary, businessPortfolio);
+      const factPack = buildDeptFactPack(name, allBusinessSegments, csvFinanceData, financeSummary, businessPortfolio, segmentUnitConfirmed);
       factPackByDept.set(name, factPack);
 
       // [STAGE3_FACTPACK_ANCHORS] ログ：生成された anchors の全体確認
@@ -3726,15 +3760,19 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // ★ 異常値ガード関数
-          const formatMoneyWithGuard = (value: number, label: string): string => {
-            const converted = Math.round(value / 100) / 10;
-            // STAGE3専用防御：1000万以上は異常値として非表示化（単位混在対応）
-            if (converted > 10000000) {
-              return '';
-            }
-            return `${label}${converted}M円`;
-          };
+          // ★ 異常値ガード関数（確定はこの部門のセグメント名で判定する）
+          const segPlConfirmed = segmentUnitConfirmed.pl.has(seg?.name ?? segKey);
+          const formatMoneyWithGuard = (value: number, label: string): string =>
+            formatSegmentMoneyForPrompt(label, value, segPlConfirmed);
+
+          // 確定した金額が部門の財務文脈（seg.pl / csvFinanceData.segmentPL）にあれば、手入力の売上・利益は出さない
+          const plRowsForAmount = [
+            ...(segPLData && typeof segPLData === 'object' ? (Array.isArray(segPLData) ? segPLData : [segPLData]) : []),
+            ...(segmentPL && Array.isArray(segmentPL[seg?.name ?? segKey]) ? segmentPL[seg?.name ?? segKey] : []),
+          ];
+          const confirmedAmount = segPlConfirmed && plRowsForAmount.some(
+            (row: any) => typeof row?.revenue === 'number' || typeof row?.operatingIncome === 'number',
+          );
 
           // 1) seg から抽出（優先）
           if (segPLData && typeof segPLData === 'object') {
@@ -3761,42 +3799,32 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // 3) financeSummary から部門マッチで抽出（最終補助）
-          if (financeSummary && parts.length === 0) {
+          // 売上・利益の優先順位（同じ指標を二重に出さない）
+          //   1. セグメントPLの確定金額（上記 1〜2）
+          //   2. STAGE1手入力の BusinessSegment.revenue / profit（単位：百万円）
+          //   3. financeSummary（単位不明のため金額は出さない）
+          const manualParts: string[] = [];
+          if (typeof seg?.revenue === 'number' && Number.isFinite(seg.revenue)) {
+            manualParts.push(`売上${seg.revenue}百万円`);
+          }
+          if (typeof seg?.profit === 'number' && Number.isFinite(seg.profit)) {
+            manualParts.push(`利益${seg.profit}百万円`);
+          }
+          if (!confirmedAmount && manualParts.length > 0) {
+            parts.push(`${manualParts.join(' ')}（STAGE1手入力・単位：百万円）`);
+          } else if (parts.length === 0 && financeSummary) {
             const summaryList = Array.isArray(financeSummary) ? financeSummary : [];
             const deptMatches = summaryList.filter((row: any) => {
               const businessUnit = String(row?.business_unit || row?.unitName || '').toLowerCase();
               return businessUnit.includes(name.toLowerCase()) || name.toLowerCase().includes(businessUnit);
             });
             for (const row of deptMatches.slice(0, 1)) {
-              const revenue = typeof row.revenue === 'number' ? (() => {
-                const converted = Math.round(row.revenue / 100) / 10;
-                // STAGE3専用防御：1000万以上は異常値として非表示化
-                if (converted > 10000000) return '';
-                return `${converted}M円`;
-              })() : row.revenue || '';
+              const revenue = typeof row.revenue === 'number'
+                ? '売上：単位未確認のため金額は記載しない'
+                : row.revenue || '';
               const margin = row.profitMargin ? `利益率${row.profitMargin}` : '';
               const item = [revenue, margin].filter(Boolean).join(', ');
               if (item) parts.push(item);
-            }
-          }
-
-          // 4) ★STEP5: STAGE1手入力（BusinessSegment.revenue/profit）を最終フォールバックとして使用
-          // 【売上・利益の優先順位ルール】
-          //   1. segmentPL など既存の財務データ（上記 1〜3）があればそれを優先する
-          //   2. 財務データが一切ない場合のみ、STAGE1 で手入力された
-          //      BusinessSegment.revenue / profit（単位：百万円）を補助情報として使う
-          //   3. どちらもなければ「部門別財務不明」として生成する
-          if (parts.length === 0 && seg) {
-            const manualParts: string[] = [];
-            if (typeof seg.revenue === 'number' && Number.isFinite(seg.revenue)) {
-              manualParts.push(`売上${seg.revenue}百万円`);
-            }
-            if (typeof seg.profit === 'number' && Number.isFinite(seg.profit)) {
-              manualParts.push(`利益${seg.profit}百万円`);
-            }
-            if (manualParts.length > 0) {
-              parts.push(`${manualParts.join(' ')}（STAGE1手入力・参考値）`);
             }
           }
 

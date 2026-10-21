@@ -737,23 +737,23 @@ describe('STAGE1 財務値の保存（円単位・桁による換算なし）', 
     expect(store().segmentBS?.['A事業']?.[0]).toMatchObject({ ar: 40_000 });
   });
 
-  it('会社を切り替えると、入力単位は別会社へ引き継がれない', async () => {
+  it('会社を切り替えると、前の会社の財務金額（円）は別会社へ混ざらない', async () => {
     mockUser.companyId = COMPANY_A;
     await store().refetchFromServer();
-    store().setFinanceInputUnit('oku_yen');
-    expect(store().financeInputUnit).toBe('oku_yen');
+    store().setFinanceBS([{ year: 2024, ar: 500_000 }] as any);
 
     mockUser.companyId = COMPANY_B;
     store().setCompanyScope(COMPANY_B);
     await store().refetchFromServer();
     expect(store().companyId).toBe(COMPANY_B);
-    expect(store().financeInputUnit).toBeUndefined();
+    expect(store().financeBS ?? []).toEqual([]);
   });
 
-  it('入力単位を選ぶと保存対象になる（F5後に維持されるように dirty にする）', () => {
-    store().setFinanceInputUnit('thousand_yen');
-    expect(store().financeInputUnit).toBe('thousand_yen');
-    expect(store().dirty).toBe(true);
+  it('STAGE1の財務金額は単位の選択を持たず、円の値のまま保持される', () => {
+    store().setFinanceBS([{ year: 2024, ar: 500_000 }] as any);
+    expect((store().financeBS as any[])[0].ar).toBe(500_000);
+    expect((store() as any).setFinanceInputUnit).toBeUndefined();
+    expect((store() as any).financeInputUnit).toBeUndefined();
   });
 });
 
@@ -928,7 +928,7 @@ describe('旧財務データ（版数なし）の年度別保存（未更新年�
     expect(payload.financePL).toEqual(LEGACY_PL_RAW);
     expect(payload.financeBS).toEqual([{ year: 2024, ar: 40_000 }]);
     expect(dbRows[COMPANY_A].finance_pl).toEqual(LEGACY_PL_RAW);
-    expect(dbRows[COMPANY_A].csv_finance_data.financeUnitConfirmed).toMatchObject({ bs: true, segmentPL: true, pl: [] });
+    expect(dbRows[COMPANY_A].csv_finance_data.financeUnitConfirmed).toMatchObject({ bs: true, segmentPL: [], pl: [] });
     resetStoreAsFreshPage();
     await loadAs(COMPANY_A);
     expect(plRevenues()).toEqual([500_000_000_000, 300_000_000, 2_000_000]);
@@ -942,8 +942,8 @@ describe('旧財務データ（版数なし）の年度別保存（未更新年�
     const payload = await saveAndPersist();
 
     expect(payload.financeUnitConfirmed?.bs ?? false).toBe(false);
-    expect(payload.financeUnitConfirmed?.segmentPL ?? false).toBe(false);
-    expect(payload.financeUnitConfirmed?.segmentBS ?? false).toBe(false);
+    expect(payload.financeUnitConfirmed?.segmentPL ?? []).toEqual([]);
+    expect(payload.financeUnitConfirmed?.segmentBS ?? []).toEqual([]);
   });
 
   it('年度の重複がある会社PLは更新を受け付けず、理由を表示し、保存もしない', async () => {

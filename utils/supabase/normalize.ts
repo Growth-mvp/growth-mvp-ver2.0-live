@@ -1129,7 +1129,6 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
     ...(segmentPL !== undefined ? { segmentPL } : {}),
     ...(segmentBS !== undefined ? { segmentBS } : {}),
     // 会社切替時に前会社の値を残さないため、未設定でもキーは必ず載せる（マージで上書きされる）
-    financeInputUnit: src.financeInputUnit,
     financeUnitConfirmed: src.financeUnitConfirmed,
     legacyFinancePLRaw: src.legacyFinancePLRaw,
     ...(businessSegments !== undefined ? { businessSegments } : {}),

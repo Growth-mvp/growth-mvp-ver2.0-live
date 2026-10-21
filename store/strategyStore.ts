@@ -22,11 +22,13 @@ import {
   FINANCE_PL_LEGACY_PARTIAL_MESSAGE,
   FINANCE_PL_YEAR_ISSUE_MESSAGE,
   financePLYearKey,
+  addConfirmedSegmentIds,
   hasFinancePLYearIssue,
   isFinancePLGuardMessage,
   isSameFinanceRow,
   partiallyUpdatedLegacyYears,
-  type FinanceInputUnit,
+  pruneConfirmedSegmentIds,
+  rekeySegmentRecord,
   type FinanceUnitConfirmed,
 } from '@/utils/finance/financeInputUnits';
 import type {
@@ -321,8 +323,6 @@ export type StrategyState = {
 
   /* 財務 */
   csvFinanceData?: unknown;
-  /** 財務金額の入力単位（表示・入力用。保存値は常に円） */
-  financeInputUnit?: FinanceInputUnit;
   /** 円で確定した範囲（会社PLは年度ごと）。未確定の旧データは換算を保存に書き戻さない */
   financeUnitConfirmed?: FinanceUnitConfirmed;
   /** 未確定の年度の換算前の行（保存時はこの行を書き戻す）。確定した年度は含まない */
@@ -539,10 +539,10 @@ export type StrategyState = {
     confirmedYears: number[];
   }) => void;
   setFinanceBS: (rows: FinanceBSRow[]) => void;
-  setFinanceInputUnit: (unit: FinanceInputUnit | undefined) => void;
-  setSegmentPL: (data: Record<string, FinancePLRow[]>) => void;
-  setSegmentBS: (data: Record<string, SegmentBSRow[]>) => void;
-  /** ★ セグメント単位マージ更新（必ずマージ、上書きしない） */
+  /** confirmedNames のセグメントを円として確定する（セグメントの確定IDを更新する） */
+  setSegmentPL: (data: Record<string, FinancePLRow[]>, confirmedNames?: string[]) => void;
+  setSegmentBS: (data: Record<string, SegmentBSRow[]>, confirmedNames?: string[]) => void;
+  /** ★ セグメント単位マージ更新（必ずマージ、上書きしない）。保存したセグメントは円として確定する */
   upsertSegmentPL: (segName: string, rows: FinancePLRow[]) => void;
   upsertSegmentBS: (segName: string, rows: SegmentBSRow[]) => void;
   setBusinessSegmentsWithSync: (segments: BusinessSegment[]) => void;
@@ -818,6 +818,21 @@ function renameYearInSegmentRows<T extends { year: number }>(
   return sortFinanceYears(rows.map((r) => (r.year === oldYear ? { ...r, year: newYear } : r)));
 }
 
+/** 一括置換後のセグメント確定ID：置換後も名前が残る既存の確定と、今回確定と宣言したセグメント */
+function segmentIdsAfterBulkSet(
+  prev: string[] | undefined,
+  segments: BusinessSegment[] | undefined,
+  data: Record<string, unknown>,
+  confirmedNames: string[],
+): string[] {
+  const segs = segments ?? [];
+  const kept = pruneConfirmedSegmentIds(
+    prev,
+    segs.filter((seg) => Object.prototype.hasOwnProperty.call(data, seg.name)),
+  );
+  return addConfirmedSegmentIds(kept, segs, confirmedNames);
+}
+
 /** ★ 再発防止：版+ダーティの一括適用ヘルパ */
 function bump(s: any) {
   return { dirty: true, version: (s.version ?? 0) + 1 };
@@ -905,7 +920,6 @@ function buildSavePayload(s: StrategyState) {
     pbrManual: s.pbrManual,
     financeBS: s.financeBS,
     financePL: plForSave?.rows,
-    financeInputUnit: s.financeInputUnit,
     financeUnitConfirmed: { ...s.financeUnitConfirmed, pl: plForSave?.confirmedYears },
     segmentPL: s.segmentPL,
     segmentBS: s.segmentBS,
@@ -1260,7 +1274,6 @@ const emptyData: StrategyState = {
   stage4Plans: undefined,
   executionPlanBaseline: undefined,
   csvFinanceData: undefined,
-  financeInputUnit: undefined,
   financeUnitConfirmed: undefined,
   legacyFinancePLRaw: undefined,
   financeSummary: undefined,
@@ -1356,7 +1369,6 @@ const emptyData: StrategyState = {
   setFinancePL: () => {},
   restoreFinancePLState: () => {},
   setFinanceBS: () => {},
-  setFinanceInputUnit: () => {},
   setSegmentPL: () => {},
   setSegmentBS: () => {},
   upsertSegmentPL: () => {},
@@ -2091,22 +2103,33 @@ export const useStrategyStore = create<StrategyState>()(
           }));
 
           const currentState = get();
+          const prevSegments = currentState.businessSegments ?? [];
           const newSegmentNames = new Set(normalizedSegments.map((seg) => seg.name));
 
-          let newSegmentPL = currentState.segmentPL ? { ...currentState.segmentPL } : {};
-          let newSegmentBS = currentState.segmentBS ? { ...currentState.segmentBS } : {};
-
-          for (const key of Object.keys(newSegmentPL)) {
-            if (!newSegmentNames.has(key)) delete newSegmentPL[key];
-          }
-          for (const key of Object.keys(newSegmentBS)) {
-            if (!newSegmentNames.has(key)) delete newSegmentBS[key];
-          }
+          const newSegmentPL: Record<string, FinancePLRow[]> = rekeySegmentRecord(
+            currentState.segmentPL,
+            prevSegments,
+            normalizedSegments,
+          );
+          const newSegmentBS: Record<string, SegmentBSRow[]> = rekeySegmentRecord(
+            currentState.segmentBS,
+            prevSegments,
+            normalizedSegments,
+          );
 
           for (const segName of newSegmentNames) {
             if (!(segName in newSegmentPL)) newSegmentPL[segName] = [];
             if (!(segName in newSegmentBS)) newSegmentBS[segName] = [];
           }
+
+          const fuc = currentState.financeUnitConfirmed;
+          const financeUnitConfirmed = fuc
+            ? {
+                ...fuc,
+                segmentPL: pruneConfirmedSegmentIds(fuc.segmentPL, normalizedSegments),
+                segmentBS: pruneConfirmedSegmentIds(fuc.segmentBS, normalizedSegments),
+              }
+            : fuc;
 
           set((s) => ({
             ...s,
@@ -2114,6 +2137,7 @@ export const useStrategyStore = create<StrategyState>()(
             businessSegments: normalizedSegments,
             segmentPL: Object.keys(newSegmentPL).length > 0 ? newSegmentPL : undefined,
             segmentBS: Object.keys(newSegmentBS).length > 0 ? newSegmentBS : undefined,
+            financeUnitConfirmed,
             dirty: true,
             version: (s.version ?? 0) + 1,
           }));
@@ -2772,11 +2796,6 @@ export const useStrategyStore = create<StrategyState>()(
         setTimeout(() => get().recomputeValueAnalysis('setFinancePL'), 0);
       },
 
-      setFinanceInputUnit: (unit: FinanceInputUnit | undefined) => {
-        // 単位の選択も保存対象（F5後に維持するため dirty にする）
-        set((s) => ({ financeInputUnit: unit, dirty: true, version: (s.version ?? 0) + 1 }));
-      },
-
       setFinanceBS: (rows: FinanceBSRow[]) => {
         // ★ DEBUG：入力ログ（弾き判定用）
         if (DEBUG) console.log('[strategyStore] setFinanceBS input', {
@@ -2833,121 +2852,54 @@ export const useStrategyStore = create<StrategyState>()(
         setTimeout(() => get().recomputeValueAnalysis('setFinanceBS'), 0);
       },
 
-      setSegmentPL: (data: Record<string, FinancePLRow[]>) => {
-        // ★ DEBUG：入力ログ（弾き判定用）
-        const keys = Object.keys(data ?? {});
-        const distribution = Object.fromEntries(
-          keys.map((k: string) => [k, Array.isArray(data[k]) ? data[k].length : '?'])
-        );
-        if (DEBUG) console.log('[strategyStore] setSegmentPL input', {
-          keys,
-          distribution,
-          sample: keys.length > 0 ? { [keys[0]]: data[keys[0]]?.[0] } : null,
-        });
-
-        // ★ 修正：csvFinanceData と同期
-        set((s) => {
-          const newVersion = (s.version ?? 0) + 1;
-          if (DEBUG) console.log('[strategyStore] setSegmentPL version bump', {
-            from: s.version,
-            to: newVersion,
-            dirty: true,
-          });
-          return {
-            ...s,
+      setSegmentPL: (data: Record<string, FinancePLRow[]>, confirmedNames: string[] = []) => {
+        set((s) => ({
+          ...s,
+          segmentPL: data,
+          financeUnitConfirmed: {
+            ...s.financeUnitConfirmed,
+            segmentPL: segmentIdsAfterBulkSet(s.financeUnitConfirmed?.segmentPL, s.businessSegments, data, confirmedNames),
+          },
+          csvFinanceData: {
+            ...(s.csvFinanceData || {}),
             segmentPL: data,
-            financeUnitConfirmed: { ...s.financeUnitConfirmed, segmentPL: true },
-            csvFinanceData: {
-              ...(s.csvFinanceData || {}),
-              segmentPL: data,
-            },
-            dirty: true,
-            version: newVersion,
-          };
-        });
-
-        // ★ DEBUG：set直後の確認
-        setTimeout(() => {
-          const after = get().segmentPL;
-          const afterKeys = Object.keys(after ?? {});
-          const afterDist = Object.fromEntries(
-            afterKeys.map((k) => [k, Array.isArray((after as any)?.[k]) ? (after as any)[k].length : '?'])
-          );
-          if (DEBUG) console.log('[strategyStore] setSegmentPL accepted', {
-            keys: afterKeys,
-            distribution: afterDist,
-          });
-        }, 0);
-
+          },
+          dirty: true,
+          version: (s.version ?? 0) + 1,
+        }));
         setTimeout(() => get().recomputeValueAnalysis('setSegmentPL'), 0);
       },
 
-      setSegmentBS: (data: Record<string, SegmentBSRow[]>) => {
-        // ★ DEBUG：入力ログ（弾き判定用）
-        const keys = Object.keys(data ?? {});
-        const distribution = Object.fromEntries(
-          keys.map((k: string) => [k, Array.isArray(data[k]) ? data[k].length : '?'])
-        );
-        if (DEBUG) console.log('[strategyStore] setSegmentBS input', {
-          keys,
-          distribution,
-          sample: keys.length > 0 ? { [keys[0]]: data[keys[0]]?.[0] } : null,
-        });
-
-        // ★ 修正：csvFinanceData と同期
-        set((s) => {
-          const newVersion = (s.version ?? 0) + 1;
-          if (DEBUG) console.log('[strategyStore] setSegmentBS version bump', {
-            from: s.version,
-            to: newVersion,
-            dirty: true,
-          });
-          return {
-            ...s,
+      setSegmentBS: (data: Record<string, SegmentBSRow[]>, confirmedNames: string[] = []) => {
+        set((s) => ({
+          ...s,
+          segmentBS: data,
+          financeUnitConfirmed: {
+            ...s.financeUnitConfirmed,
+            segmentBS: segmentIdsAfterBulkSet(s.financeUnitConfirmed?.segmentBS, s.businessSegments, data, confirmedNames),
+          },
+          csvFinanceData: {
+            ...(s.csvFinanceData || {}),
             segmentBS: data,
-            financeUnitConfirmed: { ...s.financeUnitConfirmed, segmentBS: true },
-            csvFinanceData: {
-              ...(s.csvFinanceData || {}),
-              segmentBS: data,
-            },
-            dirty: true,
-            version: newVersion,
-          };
-        });
-
-        // ★ DEBUG：set直後の確認
-        setTimeout(() => {
-          const after = get().segmentBS;
-          const afterKeys = Object.keys(after ?? {});
-          const afterDist = Object.fromEntries(
-            afterKeys.map((k) => [k, Array.isArray((after as any)?.[k]) ? (after as any)[k].length : '?'])
-          );
-          if (DEBUG) console.log('[strategyStore] setSegmentBS accepted', {
-            keys: afterKeys,
-            distribution: afterDist,
-          });
-        }, 0);
-
+          },
+          dirty: true,
+          version: (s.version ?? 0) + 1,
+        }));
         setTimeout(() => get().recomputeValueAnalysis('setSegmentBS'), 0);
       },
 
-      /** ★ セグメント単位マージ更新（必ずマージ） */
+      /** ★ セグメント単位マージ更新。保存したセグメントは円として確定する */
       upsertSegmentPL: (segName: string, rows: FinancePLRow[]) => {
-        if (DEBUG) {
-          console.log('[strategyStore] upsertSegmentPL', {
-            segName,
-            rowsLen: Array.isArray(rows) ? rows.length : 0,
-            currentKeys: Object.keys((get().segmentPL || {})),
-          });
-        }
         set((s) => {
           const current = (s.segmentPL || {}) as Record<string, FinancePLRow[]>;
           const updated = { ...current, [segName]: rows };
-          // ★ 修正：csvFinanceData と同期
           return {
             ...s,
             segmentPL: updated,
-            financeUnitConfirmed: { ...s.financeUnitConfirmed, segmentPL: true },
+            financeUnitConfirmed: {
+              ...s.financeUnitConfirmed,
+              segmentPL: addConfirmedSegmentIds(s.financeUnitConfirmed?.segmentPL, s.businessSegments ?? [], [segName]),
+            },
             csvFinanceData: {
               ...(s.csvFinanceData || {}),
               segmentPL: updated,
@@ -2959,21 +2911,16 @@ export const useStrategyStore = create<StrategyState>()(
       },
 
       upsertSegmentBS: (segName: string, rows: SegmentBSRow[]) => {
-        if (DEBUG) {
-          console.log('[strategyStore] upsertSegmentBS', {
-            segName,
-            rowsLen: Array.isArray(rows) ? rows.length : 0,
-            currentKeys: Object.keys((get().segmentBS || {})),
-          });
-        }
         set((s) => {
           const current = (s.segmentBS || {}) as Record<string, SegmentBSRow[]>;
           const updated = { ...current, [segName]: rows };
-          // ★ 修正：csvFinanceData と同期
           return {
             ...s,
             segmentBS: updated,
-            financeUnitConfirmed: { ...s.financeUnitConfirmed, segmentBS: true },
+            financeUnitConfirmed: {
+              ...s.financeUnitConfirmed,
+              segmentBS: addConfirmedSegmentIds(s.financeUnitConfirmed?.segmentBS, s.businessSegments ?? [], [segName]),
+            },
             csvFinanceData: {
               ...(s.csvFinanceData || {}),
               segmentBS: updated,

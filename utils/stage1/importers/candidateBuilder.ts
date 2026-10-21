@@ -6,7 +6,7 @@
  */
 
 import type { Stage1ImportCandidate } from '@/types/strategy';
-import { detectSheetUnitText, explicitInputUnitOfLabel, type FinanceInputUnit } from '@/utils/finance/financeInputUnits';
+import { nonYenUnitInSheetText, nonYenUnitOfLabel } from '@/utils/finance/financeInputUnits';
 import type { ExtractedTable } from './excelCsvImporter';
 import type { PdfPageText } from './pdfImporter';
 
@@ -154,14 +154,14 @@ function detectScopeFromPdfPage(page: PdfPageText): ScopeInfo {
  * テーブルから候補を生成
  */
 /** 資料内の単位表記（ヘッダー・シート名・先頭の行）から資料全体の単位を読み取る */
-function detectSheetUnitFromTable(table: ExtractedTable): FinanceInputUnit | undefined {
+function detectSheetUnitFromTable(table: ExtractedTable): string | undefined {
   const sheetName = typeof table.sheetName === 'string' ? table.sheetName : '';
   const texts: string[] = [...(table.headers ?? []), sheetName];
   for (const row of (table.rows ?? []).slice(0, 20)) {
     for (const v of Object.values(row as Record<string, unknown>)) if (typeof v === 'string') texts.push(v);
   }
   for (const t of texts) {
-    const unit = detectSheetUnitText(t);
+    const unit = nonYenUnitInSheetText(t);
     if (unit) return unit;
   }
   return undefined;
@@ -277,7 +277,7 @@ export function buildCandidatesFromTable(table: ExtractedTable): Stage1ImportCan
         if (value !== null && value !== undefined && typeof value === 'number') {
           const kind = scope === 'segment' ? ('segmentPL' as any) : ('companyPL' as any);
           console.log(`    → PUSH: ${kind}, year=${year}, field=${plField}, value=${value}, segmentName=${rowSegmentName || 'none'}`);
-          const explicitUnit = explicitInputUnitOfLabel(itemName);
+          const explicitUnit = nonYenUnitOfLabel(itemName);
           candidates.push({
             kind,
             year,
@@ -303,7 +303,7 @@ export function buildCandidatesFromTable(table: ExtractedTable): Stage1ImportCan
         if (value !== null && value !== undefined && typeof value === 'number') {
           const kind = scope === 'segment' ? ('segmentBS' as any) : ('companyBS' as any);
           console.log(`    → PUSH: ${kind}, year=${year}, field=${bsField}, value=${value}, segmentName=${rowSegmentName || 'none'}`);
-          const explicitUnit = explicitInputUnitOfLabel(itemName);
+          const explicitUnit = nonYenUnitOfLabel(itemName);
           candidates.push({
             kind,
             year,
@@ -350,6 +350,7 @@ export function buildCandidatesFromTable(table: ExtractedTable): Stage1ImportCan
  */
 export function buildCandidatesFromPdfText(pages: PdfPageText[]): Stage1ImportCandidate[] {
   const candidates: Stage1ImportCandidate[] = [];
+  const pdfSheetUnit = pages.map((p) => nonYenUnitInSheetText(p.text ?? '')).find((u) => u !== undefined);
 
   for (const page of pages) {
     if (!page.isPriority) continue;
@@ -378,6 +379,7 @@ export function buildCandidatesFromPdfText(pages: PdfPageText[]): Stage1ImportCa
             fields: { [plField]: numbers[i] },
             confidence: 0.5,
             sourceRef: `PDF:P${page.pageNumber}`,
+            ...(pdfSheetUnit ? { sheetUnit: pdfSheetUnit } : {}),
             ...(scope === 'segment' && segmentName ? { segmentName } : {}),
           } as Stage1ImportCandidate);
         }
@@ -395,6 +397,7 @@ export function buildCandidatesFromPdfText(pages: PdfPageText[]): Stage1ImportCa
             fields: { [bsField]: numbers[i] },
             confidence: 0.5,
             sourceRef: `PDF:P${page.pageNumber}`,
+            ...(pdfSheetUnit ? { sheetUnit: pdfSheetUnit } : {}),
             ...(scope === 'segment' && segmentName ? { segmentName } : {}),
           } as Stage1ImportCandidate);
         }

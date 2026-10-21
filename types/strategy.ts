@@ -14,7 +14,7 @@
  * - 財務ブリッジで確実に参照できるよう bridgeToLever / baseKey / scope 等を整理
  * ========================================================= */
 
-import type { FinanceInputUnit, FinanceUnitConfirmed } from '@/utils/finance/financeInputUnits';
+import type { FinanceUnitConfirmed } from '@/utils/finance/financeInputUnits';
 
 /* =========================================================
  * 共通ユーティリティ型
@@ -1645,7 +1645,6 @@ export type StrategyData = {
   legacyFinancePLRaw?: FinancePLRow[];
   /** データ種別ごとの円確定状態（csv_finance_data に保存） */
   financeUnitConfirmed?: FinanceUnitConfirmed;
-  financeInputUnit?: FinanceInputUnit;
 
   /** === 事業部別 PL/BS（STAGE1 セグメント分析用） === */
   segmentPL?: Record<string, FinancePLRow[]>;
@@ -1821,10 +1820,10 @@ export type Stage1ImportCandidate = {
   sourceRef?: string;
   /** 取込元（ファイル名・シート名など）。単位の確定を取込元ごとに行うための識別子 */
   source?: string;
-  /** 列名（項目名）に明示された単位。金額項目ごと。無い項目は取込元の単位で確定する */
-  fieldUnits?: Record<string, 'yen' | 'thousand_yen' | 'man_yen' | 'million_yen' | 'oku_yen'>;
-  /** 資料全体の単位表記（例: 単位：千円）から読み取った単位 */
-  sheetUnit?: 'yen' | 'thousand_yen' | 'man_yen' | 'million_yen' | 'oku_yen';
+  /** 列名（項目名）に明示された円以外の単位（例: 千円）。金額項目ごと。明示があれば取込を止める */
+  fieldUnits?: Record<string, string>;
+  /** 資料全体の単位表記（例: 単位：千円）から読み取った円以外の単位。あれば取込を止める */
+  sheetUnit?: string;
 };
 
 /**

@@ -5,16 +5,7 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import type { MutableRefObject } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import type { FinancePLRow, FinanceBSRow } from '@/types/strategy';
-import {
-  FINANCE_INPUT_UNITS,
-  FINANCE_INPUT_UNIT_LABEL,
-  scaleMonetaryRows,
-  toYenRowsKeepingUnchanged,
-  type FinanceInputUnit,
-} from '@/utils/finance/financeInputUnits';
-
-/** 入力単位が未設定のときの表示単位（表示の既定。保存値は円） */
-const DEFAULT_FINANCE_INPUT_UNIT: FinanceInputUnit = 'million_yen';
+import { FINANCE_CURRENCY_NOTICE } from '@/utils/finance/financeInputUnits';
 
 /* ===============================
  * 型定義（範囲選択用）
@@ -939,11 +930,7 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
   const removeSegmentFinanceYear = useStrategyStore((s: StrategyState) => s.removeSegmentFinanceYear);
   const upsertSegmentPL = useStrategyStore((s: StrategyState) => s.upsertSegmentPL);
   const upsertSegmentBS = useStrategyStore((s: StrategyState) => s.upsertSegmentBS);
-  const financeInputUnit: FinanceInputUnit = useStrategyStore((s: StrategyState) => s.financeInputUnit) ?? DEFAULT_FINANCE_INPUT_UNIT;
-  const setFinanceInputUnit = useStrategyStore((s: StrategyState) => s.setFinanceInputUnit);
-
-  // データの参照/更新先を mode に応じて切り替え
-  // 保存値は円。画面には選択中の入力単位の数値を表示する（金額は変えない）
+  // データの参照/更新先を mode に応じて切り替え（財務金額はすべて円で表示・保存する）
   const storePlData = useMemo(
     () => (mode === 'company' ? financePL : (segmentName ? segmentPL[segmentName] ?? [] : [])),
     [mode, segmentName, financePL, segmentPL],
@@ -952,8 +939,8 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
     () => (mode === 'company' ? financeBS : (segmentName ? segmentBS[segmentName] ?? [] : [])),
     [mode, segmentName, financeBS, segmentBS],
   );
-  const plData = useMemo(() => scaleMonetaryRows(storePlData, financeInputUnit, 'display'), [storePlData, financeInputUnit]);
-  const bsData = useMemo(() => scaleMonetaryRows(storeBsData, financeInputUnit, 'display'), [storeBsData, financeInputUnit]);
+  const plData = storePlData;
+  const bsData = storeBsData;
 
   const handleAddYear = (year?: number) => {
     if (mode === 'company') {
@@ -982,21 +969,19 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
 
   const handleSetPL = (rows: FinancePLRow[]) => {
     console.debug('[handleSetPL]', { rowsLen: rows.length, sample: rows[0] });
-    const yenRows = toYenRowsKeepingUnchanged(rows, plData, storePlData, financeInputUnit);
     if (mode === 'company') {
-      setFinancePL(yenRows);
+      setFinancePL(rows);
     } else if (segmentName) {
-      upsertSegmentPL(segmentName, yenRows);
+      upsertSegmentPL(segmentName, rows);
     }
   };
 
   const handleSetBS = (rows: FinanceBSRow[]) => {
     console.debug('[handleSetBS]', { rowsLen: rows.length, sample: rows[0] });
-    const yenRows = toYenRowsKeepingUnchanged(rows, bsData, storeBsData, financeInputUnit);
     if (mode === 'company') {
-      setFinanceBS(yenRows);
+      setFinanceBS(rows);
     } else if (segmentName) {
-      upsertSegmentBS(segmentName, yenRows);
+      upsertSegmentBS(segmentName, rows);
     }
   };
 
@@ -1423,20 +1408,10 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
         </div>
       )}
 
-      {/* 入力単位（表示と入力の単位。保存値は常に円） */}
+      {/* 単位（財務金額は円で入力・保存する） */}
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <label className="text-zinc-700" htmlFor="finance-input-unit">入力単位</label>
-        <select
-          id="finance-input-unit"
-          value={financeInputUnit}
-          onChange={(e) => setFinanceInputUnit(e.target.value as FinanceInputUnit)}
-          className="border rounded px-2 py-1 bg-white"
-        >
-          {FINANCE_INPUT_UNITS.map((unit) => (
-            <option key={unit} value={unit}>{FINANCE_INPUT_UNIT_LABEL[unit]}</option>
-          ))}
-        </select>
-        <span className="text-xs text-zinc-500">金額は円で保存されます。単位を変えても金額は変わりません。</span>
+        <span className="text-zinc-700 font-medium">単位：円</span>
+        <span className="text-xs text-zinc-500">{FINANCE_CURRENCY_NOTICE}</span>
       </div>
 
       {/* Undo/Redo ボタン */}

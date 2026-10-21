@@ -13,10 +13,10 @@ import { normalizeFiscalYearEnd } from '@/utils/stage6/fiscalYear';
 import {
   financePLYearKey,
   hasFinancePLYearIssue,
-  isFinanceInputUnit,
+  normalizeConfirmedSegmentIds,
   plYearConfirmedPredicate,
-  readFinanceDatasetConfirmed,
-  type FinanceInputUnit,
+  readConfirmedSegmentIds,
+  readFinanceBSConfirmed,
   type FinanceUnitConfirmed,
 } from '@/utils/finance/financeInputUnits';
 import { getMembership } from './membership';
@@ -719,30 +719,30 @@ export const okrsToKpis = (okrs: any[]) => {
   return names;
 };
 
-type FinanceUnitMetaSource = { financeInputUnit?: unknown; financeUnitConfirmed?: FinanceUnitConfirmed };
+type FinanceUnitMetaSource = { financeUnitConfirmed?: FinanceUnitConfirmed };
 
 /**
  * 財務金額の単位メタを csv_finance_data に保存するための値。
  * 会社PLを書く保存では確定年度の一覧を置き換える。会社PLを書かない保存では既存の一覧を残す。
- * bs・セグメントの確定は既存の記録に加えるだけで、取り消さない。
+ * BS の確定は既存の記録に加えるだけで取り消さない。セグメントの確定は状態の一覧で置き換える（削除されたセグメントの確定を残さないため）。
  */
 export function buildFinanceCsvUnitMeta(
   state: FinanceUnitMetaSource,
   existingCsv: Record<string, unknown> = {},
-): { financeUnitConfirmed?: Record<string, unknown>; financeInputUnit?: FinanceInputUnit } {
+): { financeUnitConfirmed?: Record<string, unknown> } {
   const confirmed: Record<string, unknown> = {
     ...((existingCsv.financeUnitConfirmed ?? {}) as Record<string, unknown>),
   };
   const incoming = state.financeUnitConfirmed;
   if (incoming) {
     if (incoming.pl !== undefined) confirmed.pl = incoming.pl;
-    for (const key of ['bs', 'segmentPL', 'segmentBS'] as const) {
-      if (incoming[key] === true) confirmed[key] = true;
+    if (incoming.bs === true) confirmed.bs = true;
+    for (const key of ['segmentPL', 'segmentBS'] as const) {
+      if (Array.isArray(incoming[key])) confirmed[key] = normalizeConfirmedSegmentIds(incoming[key]);
     }
   }
-  const meta: { financeUnitConfirmed?: Record<string, unknown>; financeInputUnit?: FinanceInputUnit } = {};
+  const meta: { financeUnitConfirmed?: Record<string, unknown> } = {};
   if (Object.keys(confirmed).length > 0) meta.financeUnitConfirmed = confirmed;
-  if (isFinanceInputUnit(state.financeInputUnit)) meta.financeInputUnit = state.financeInputUnit;
   return meta;
 }
 
@@ -873,9 +873,9 @@ export function buildStateFromDbRow(row: any): StrategyData & { revision?: numbe
     pl: rawFPL
       .map((row: any) => financePLYearKey(row))
       .filter((year: number | null): year is number => year !== null && isPlYearConfirmed(year)),
-    bs: readFinanceDatasetConfirmed(csvUnitMeta, 'bs'),
-    segmentPL: readFinanceDatasetConfirmed(csvUnitMeta, 'segmentPL'),
-    segmentBS: readFinanceDatasetConfirmed(csvUnitMeta, 'segmentBS'),
+    bs: readFinanceBSConfirmed(csvUnitMeta),
+    segmentPL: readConfirmedSegmentIds(csvUnitMeta, 'segmentPL'),
+    segmentBS: readConfirmedSegmentIds(csvUnitMeta, 'segmentBS'),
   };
 
   // ★ 削除：金額の after ログは診断用のため削除
@@ -1020,7 +1020,6 @@ export function buildStateFromDbRow(row: any): StrategyData & { revision?: numbe
   out.segmentBS = csvFinanceData.segmentBS; // Record<string, SegmentBSRow[]>
   out.hqAdjustmentPL = ensureArray(csvFinanceData.hqAdjustmentPL);
   out.hqAdjustmentBS = ensureArray(csvFinanceData.hqAdjustmentBS);
-  out.financeInputUnit = isFinanceInputUnit(csvFinanceData.financeInputUnit) ? csvFinanceData.financeInputUnit : undefined;
 
   // 部門・プロジェクトを一旦「生」の形で整形（okrsV2 を含む）
   // ★ FIXED: mission/missionDescription を明示的に保持

@@ -3384,6 +3384,7 @@ useEffect(() => {
           },
         ],
         csvFinanceData: s?.csvFinanceData ?? [],
+        financeUnitConfirmed: s?.financeUnitConfirmed,
         financeSummary: s?.financeSummary,
         businessPortfolio: s?.businessPortfolio,
         // ★P3拡張：businessSegments を送信（segmentName マッピング用）
