@@ -2,16 +2,47 @@ import type { CashFlowPlan, CfYear } from '@/utils/stage6/cashflow';
 import type { DebtSchedule } from '@/utils/stage6/debt';
 import type { Freshness } from '@/utils/stage6/financePlanSnapshot';
 import type { InvestmentItem, buildInvestmentDemandSummary } from '@/utils/stage6/investmentDemand';
+import { MILLION } from './financePlanForm';
 
 export type FinanceTab = 'target' | 'investment' | 'cashflow' | 'debt' | 'verdict';
 
-export const FINANCE_TABS: readonly { key: FinanceTab; label: string }[] = [
-  { key: 'target', label: '1. 目標・施策効果' },
-  { key: 'investment', label: '2. 投資・資金需要' },
-  { key: 'cashflow', label: '3. キャッシュフロー' },
-  { key: 'debt', label: '4. 借入・返済' },
-  { key: 'verdict', label: '5. 財務判定' },
+export const FINANCE_TABS: readonly { key: FinanceTab; label: string; description: string }[] = [
+  {
+    key: 'target',
+    label: '1. 目標に届くか',
+    description:
+      '経営目標に対して、現場の取り組みがどれだけ貢献するかを確認します。目標との差を把握し、必要な施策を見直します。',
+  },
+  {
+    key: 'investment',
+    label: '2. いくら必要か',
+    description: '現場の取り組みに必要な投資や費用を確認します。金額や支出時期が決まっていない項目も整理します。',
+  },
+  {
+    key: 'cashflow',
+    label: '3. お金は足りるか',
+    description: '売上や利益の見通しをもとに、事業で生まれるお金と必要になるお金を試算します。',
+  },
+  {
+    key: 'debt',
+    label: '4. 借入・返済を考える',
+    description: '現在の借入と今後の借入予定を整理し、毎年いくら返済する必要があるかを確認します。',
+  },
+  {
+    key: 'verdict',
+    label: '5. 計画は成り立つか',
+    description:
+      '資金繰りや返済の見通しを確認し、計画を進めるうえでの問題と見直すべき点を明らかにします。',
+  },
 ];
+
+export function tabLabelOf(tab: FinanceTab): string {
+  return FINANCE_TABS.find((t) => t.key === tab)?.label ?? '';
+}
+
+export function moveLabelOf(tab: FinanceTab): string {
+  return `「${tabLabelOf(tab)}」へ移動`;
+}
 
 export type InvestmentSummary = ReturnType<typeof buildInvestmentDemandSummary>;
 
@@ -42,11 +73,11 @@ export function buildUnconfirmedItems(args: {
     add('debt-reconcile', '既存借入の内訳合計がSTAGE1の有利子負債と一致しません', 'debt', true);
   }
   if (args.debtEntered && schedule.years.some((y) => y.holds.includes('配当額が未入力'))) {
-    add('debt-dividend', '配当額が未入力（財務CFは評価保留）', 'debt', true);
+    add('debt-dividend', '配当額が未入力のため、借入・返済によるお金の増減は評価保留', 'debt', true);
   }
 
   if (!args.minCashEntered) {
-    add('cf-mincash', '最低必要現預金が未入力（必要資金額・不足額は評価保留）', 'cashflow', true);
+    add('cf-mincash', '手元に残しておきたいお金が未入力のため、必要資金額・不足額は評価保留', 'cashflow', true);
   }
   if (plan.yearMismatch) {
     add('cf-year-mismatch', 'PLとBSの基準年度が異なるため推計を保留しています', 'cashflow', true);
@@ -106,7 +137,7 @@ export function repaymentOutlook(args: { debtEntered: boolean; years: CfYear[] }
   }
   const dscrYears = yearsWith('返済原資');
   if (dscrYears.length > 0) {
-    return { label: 'DSCR 1倍未満', detail: dscrYears.join('、'), tone: 'warn' };
+    return { label: '返済余力が不足', detail: dscrYears.join('、'), tone: 'warn' };
   }
   const heldYears = yearsWith('評価保留');
   if (heldYears.length > 0 || years.length === 0) {
@@ -115,7 +146,83 @@ export function repaymentOutlook(args: { debtEntered: boolean; years: CfYear[] }
   if (years.every((y) => y.verdict.startsWith('返済予定なし'))) {
     return { label: '返済予定なし', detail: '元利返済がないためDSCRは算出していません', tone: 'ok' };
   }
-  return { label: '計算上の問題なし', detail: '簡易判定です（金融機関の審査指標とは異なります）', tone: 'ok' };
+  return { label: '計算上の問題なし', detail: '簡易判定です（金融機関の審査とは同一とは限りません）', tone: 'ok' };
+}
+
+export type VerdictNarrative = {
+  conclusion: string;
+  reasons: string[];
+};
+
+const INSUFFICIENT_CONCLUSION = '返済の見通しを判断するための情報が不足しています。';
+
+const millionText = (yen: number) =>
+  (yen / MILLION).toLocaleString('ja-JP', { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+
+export function verdictNarrativeOf(args: { debtEntered: boolean; years: CfYear[] }): VerdictNarrative {
+  const { years } = args;
+  if (!args.debtEntered) {
+    return {
+      conclusion: INSUFFICIENT_CONCLUSION,
+      reasons: ['既存借入・新規借入・配当の入力がないため、返済の見通しは評価していません。'],
+    };
+  }
+  if (years.length === 0) {
+    return { conclusion: INSUFFICIENT_CONCLUSION, reasons: ['推計年度がないため、判定できません。'] };
+  }
+
+  const yearList = (list: CfYear[]) => list.map((y) => `${y.year}年`).join('、');
+  const shortYears = years.filter((y) => y.verdict.startsWith('資金不足'));
+  const dscrYears = years.filter((y) => y.verdict.startsWith('返済原資'));
+  const heldYears = years.filter((y) => y.verdict.startsWith('評価保留'));
+  const noServiceOnly = years.every((y) => y.verdict.startsWith('返済予定なし'));
+
+  const reasons: string[] = [];
+  for (const y of dscrYears) reasons.push(repaymentReasonOf(y));
+  for (const y of shortYears) {
+    const shortfall = y.postShortfall.value;
+    const amount = typeof shortfall === 'number' && shortfall > 0 ? `（不足額 ${millionText(shortfall)} 百万円）` : '';
+    reasons.push(`${y.year}年は、借入や返済を反映したあとの手元のお金が、手元に残しておきたいお金を下回っています${amount}。`);
+  }
+  if (heldYears.length > 0) {
+    reasons.push(`評価保留の年度（${yearList(heldYears)}）があるため、判定は完了していません。`);
+  }
+
+  const conclusions: string[] = [];
+  if (dscrYears.length > 0) {
+    conclusions.push(
+      `${yearList(dscrYears)}は、事業から生まれるお金に利息の支払い分を加えても、借入の返済額（元本と利息）を賄えない見込みです。`,
+    );
+  }
+  if (shortYears.length > 0) {
+    conclusions.push(
+      `${yearList(shortYears)}は、借入や返済を反映したあとの手元のお金が、手元に残しておきたいお金を下回る見込みです。`,
+    );
+  }
+  if (conclusions.length > 0) return { conclusion: conclusions.join(''), reasons };
+  if (heldYears.length > 0) return { conclusion: INSUFFICIENT_CONCLUSION, reasons };
+  if (noServiceOnly) {
+    return { conclusion: '借入の元利返済の予定がないため、返済余力の判定対象はありません。', reasons };
+  }
+  return {
+    conclusion:
+      '計算上は、利息の支払い分を加えた事業から生まれるお金で借入の返済額を賄える見込みで、手元のお金も最低必要額を下回っていません。',
+    reasons: [...reasons, '計算上の結果であり、計画の実現や金融機関の審査結果を保証するものではありません。'],
+  };
+}
+
+function repaymentReasonOf(y: CfYear): string {
+  const ocf = y.operatingCf.value;
+  const interest = y.interest.value;
+  const debtService = y.debtService.value;
+  if (typeof ocf !== 'number' || typeof interest !== 'number' || typeof debtService !== 'number') {
+    return `${y.year}年は、事業から生まれるお金に利息の支払い分を加えても、借入の返済額に届いていません。`;
+  }
+  const debtServiceText = `年間の元利返済額（${millionText(debtService)}百万円）`;
+  if (ocf < 0) {
+    return `${y.year}年は、事業から生まれるお金がマイナス（${millionText(ocf)}百万円）で、${debtServiceText}を賄えていません。`;
+  }
+  return `${y.year}年は、事業から生まれるお金（${millionText(ocf)}百万円）に利息の支払い分（${millionText(interest)}百万円）を加えても、${debtServiceText}に届いていません。`;
 }
 
 export type SaveStatus = 'SAVING' | 'FAILED' | 'UNSAVED' | 'STALE' | 'SAVED' | 'NOT_SAVED';
@@ -152,8 +259,8 @@ export function overallVerdictOf(outlook: RepaymentOutlook): OverallVerdict {
   switch (outlook.label) {
     case '資金不足あり':
       return { label: '資金不足あり', tone: 'warn' };
-    case 'DSCR 1倍未満':
-      return { label: '返済原資が不足', tone: 'warn' };
+    case '返済余力が不足':
+      return { label: '返済余力が不足', tone: 'warn' };
     case '評価保留':
       return { label: '評価保留', tone: 'hold' };
     default:

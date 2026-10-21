@@ -32,7 +32,9 @@ import {
   SAVE_STATUS_LABEL,
   buildUnconfirmedItems,
   deriveSaveStatus,
+  moveLabelOf,
   repaymentOutlook,
+  tabLabelOf,
   type FinanceTab,
   type SaveStatus,
 } from './financePlanStatus';
@@ -81,6 +83,16 @@ function targetGapText(row: TargetGap | undefined) {
     value: row.gap > 0 ? `不足 ${fmtMJPY(row.gap)}` : '目標達成見込み',
     note: `見込み ${fmtMJPY(row.forecast)} ／ 目標 ${fmtMJPY(row.target)}`,
   };
+}
+
+function TabHeader({ tab }: { tab: FinanceTab }) {
+  const entry = FINANCE_TABS.find((t) => t.key === tab);
+  return (
+    <div>
+      <h3 className="text-base font-bold text-slate-900">{entry?.label}</h3>
+      <p className="mt-1 text-sm leading-relaxed text-slate-600 break-keep">{entry?.description}</p>
+    </div>
+  );
 }
 
 export function FinancePlanSection(props: SectionProps) {
@@ -375,7 +387,7 @@ function FinancePlanContent({
           note={revenueGap.note}
           tone={dashboardSummary && dashboardSummary.revenue.gap > 0 ? 'warn' : 'neutral'}
           onClick={() => setTab('target')}
-          actionLabel="1. 目標・施策効果で確認"
+          actionLabel={`${tabLabelOf('target')}で確認`}
         />
         <KpiCard
           label="営業利益目標との差"
@@ -383,15 +395,17 @@ function FinancePlanContent({
           note={opGap.note}
           tone={dashboardSummary && dashboardSummary.op.gap > 0 ? 'warn' : 'neutral'}
           onClick={() => setTab('target')}
-          actionLabel="1. 目標・施策効果で確認"
+          actionLabel={`${tabLabelOf('target')}で確認`}
         />
         <KpiCard
-          label="投資・資金需要（確認済み）"
+          label="確認済みの投資・費用"
+          term="資金計画に反映される金額"
           value={`${fmtMil(investment.readyYen)} 百万円`}
           note={`${investment.readyCount}件が資金計画に反映可能`}
         />
         <KpiCard
-          label="返済可能性（簡易判定）"
+          label="返済の見通し"
+          term="簡易判定"
           value={outlook.label}
           note={outlook.detail}
           tone={outlook.tone === 'warn' ? 'warn' : outlook.tone === 'ok' ? 'ok' : 'hold'}
@@ -428,14 +442,14 @@ function FinancePlanContent({
                   onClick={() => setTab(item.tab)}
                   className="shrink-0 self-start rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 md:self-auto"
                 >
-                  {FINANCE_TABS.find((t) => t.key === item.tab)?.label}へ移動
+                  {moveLabelOf(item.tab)}
                 </button>
               </li>
             ))}
           </ul>
           {unconfirmed.length > top3.length && (
             <p className="mt-2 text-xs text-slate-600">
-              ほか {unconfirmed.length - top3.length} 件は「4. 財務判定」タブで確認できます。
+              ほか {unconfirmed.length - top3.length} 件は「{tabLabelOf('verdict')}」タブで確認できます。
             </p>
           )}
         </div>
@@ -449,7 +463,7 @@ function FinancePlanContent({
             onClick={() => setTab('target')}
             className="shrink-0 self-start rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 md:self-auto"
           >
-            1. 目標・施策効果で確認
+            {tabLabelOf('target')}で確認
           </button>
         </div>
       )}
@@ -481,60 +495,42 @@ function FinancePlanContent({
       <div role="tabpanel" className="min-w-0">
         {tab === 'target' && (
           <div className="space-y-6">
-            <div>
-              <h3 className="text-base font-bold text-slate-900">1. 目標・施策効果</h3>
-              <p className="mt-2 text-sm font-semibold text-slate-900 break-keep">
-                経営目標に対して、現場の施策はどの程度貢献するのか。
-              </p>
-              <p className="mt-1 text-sm text-slate-600 break-keep">
-                STAGE2の目標とSTAGE4の施策効果を比較し、目標とのギャップや見直すべき施策を確認します。
-              </p>
-            </div>
+            <TabHeader tab="target" />
             {targetContent}
           </div>
         )}
 
-        {tab === 'investment' && <FundingDemandSection />}
+        {tab === 'investment' && (
+          <div className="space-y-6">
+            <TabHeader tab="investment" />
+            <FundingDemandSection />
+          </div>
+        )}
 
         {tab === 'cashflow' && (
           <div className="space-y-4">
-            <div>
-              <h3 className="text-base font-bold text-slate-900">3. キャッシュフロー</h3>
-              <p className="mt-1 text-sm text-slate-600">
-                推計の前提を入力すると、年度別の営業CF・財務CF・期末現預金に反映されます。
-              </p>
-            </div>
+            <TabHeader tab="cashflow" />
             <CashFlowPanel plan={plan} form={cfForm} setForm={setCfFormByUser} />
           </div>
         )}
 
         {tab === 'debt' && (
           <div className="space-y-4">
-            <div>
-              <h3 className="text-base font-bold text-slate-900">4. 借入・返済</h3>
-              <p className="mt-1 text-sm text-slate-600">
-                既存借入の内訳と新規借入の条件を入力すると、年度別の残高・利息・元本返済・財務CFを表示します。
-                新規借入額は利用者が入力した額で、資金不足額から自動確定しません。
-              </p>
-            </div>
+            <TabHeader tab="debt" />
             <DebtPanel form={debtForm} setForm={setDebtFormByUser} forecastYears={forecastYears} schedule={schedule} plan={plan} />
           </div>
         )}
 
         {tab === 'verdict' && (
           <div className="space-y-4">
-            <div>
-              <h3 className="text-base font-bold text-slate-900">5. 財務判定</h3>
-              <p className="mt-1 text-sm text-slate-600">
-                資金不足額・返済可能性・未確認事項と、年度別の総合財務表を確認します。
-              </p>
-            </div>
+            <TabHeader tab="verdict" />
             <FinanceVerdictPanel
               plan={plan}
               schedule={schedule}
               debtEntered={debtEntered}
               fundingNeed={fundingNeed}
               items={unconfirmed}
+              reviewCandidateCount={reviewCandidateCount}
               onNavigate={setTab}
             />
           </div>

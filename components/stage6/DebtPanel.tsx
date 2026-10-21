@@ -9,7 +9,7 @@ import {
   type RepaymentMethod,
 } from '@/utils/stage6/debt';
 import type { CashFlowPlan, CfValue, CfYear } from '@/utils/stage6/cashflow';
-import { BasisBadge, Row, fmtMil } from './CashFlowSection';
+import { BasisBadge, Row, TermLabel, fmtMil } from './CashFlowSection';
 
 export type ExistingRowForm = {
   id: string;
@@ -308,7 +308,9 @@ export function DebtPanel({ form, setForm, forecastYears, schedule, plan }: Prop
 
       {/* 4. 財務CF */}
       <section>
-        <h3 className="text-sm font-semibold text-slate-900">4. 財務CF（配当は利用者指定・未入力は保留）</h3>
+        <h3>
+          <TermLabel primary="4. 借入・返済によるお金の増減" term="財務CF" className="text-sm font-semibold text-slate-900" />
+        </h3>
         <div className="mt-2 overflow-x-auto">
           <table className="min-w-full text-xs">
             <thead className="bg-slate-50 text-slate-600">
@@ -331,12 +333,12 @@ export function DebtPanel({ form, setForm, forecastYears, schedule, plan }: Prop
               <Row label="新規借入受入額" years={cfYears} pick={(y) => y.draws} />
               <Row label="元本返済額（既存＋新規）" years={cfYears} pick={(y) => y.principal} />
               <Row label="配当等（入力）" years={cfYears} pick={(y) => y.dividends} />
-              <Row label="財務CF（新規借入−元本返済−配当）" years={cfYears} pick={(y) => y.financingCf} strong />
+              <Row label="借入・返済などによるお金の増減" term="財務CF（新規借入−元本返済−配当）" years={cfYears} pick={(y) => y.financingCf} strong />
             </tbody>
           </table>
         </div>
         <p className="mt-1 text-[11px] text-slate-500">
-          支払利息は営業CF（税引後利益）で控除済みのため、財務CFでは二重に控除していません。
+          配当は利用者が入力した額のみを使い、未入力の年度は保留です（0とはみなしません）。支払利息は営業CFの計算で控除済みのため、財務CFでは二重に控除していません。
         </p>
       </section>
     </div>

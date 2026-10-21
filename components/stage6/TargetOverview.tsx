@@ -25,7 +25,7 @@ export function TargetOverview({ northStarRows, dashboardSummary }: Props) {
   return (
     <div className="space-y-5">
       <div>
-        <h4 className="text-sm font-bold text-slate-900">会社業績の3本比較（要約）</h4>
+        <h4 className="text-sm font-bold text-slate-900">売上・営業利益の見込みと目標（要約）</h4>
         <ul className="mt-2 space-y-1 text-sm text-slate-800">
           <li>
             <span className="font-semibold">売上：</span>
@@ -74,7 +74,7 @@ export function TargetOverview({ northStarRows, dashboardSummary }: Props) {
 
       <details className="rounded-xl border border-slate-200 bg-white p-4">
         <summary className="cursor-pointer text-sm font-semibold text-slate-900">
-          詳細グラフ（3本比較）を開く
+          詳細グラフを開く
         </summary>
         <div className="mt-4">
           <TabValueDashboard northStarRows={northStarRows} dashboardSummary={dashboardSummary} />

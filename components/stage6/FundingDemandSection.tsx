@@ -117,16 +117,9 @@ export function FundingDemandSection() {
 
   return (
     <div>
-      <div className="mb-4">
-        <h2 className="text-lg font-bold text-slate-900">投資・資金需要</h2>
-        <p className="mt-1 text-sm leading-relaxed text-slate-600">
-          投資・費用の内容と支出条件はSTAGE4で入力します。ここでは資金需要への集計結果と重複確認を表示します。
-          資金計画に反映されるのは「確認済み」の金額のみです。
-        </p>
-        <p className="mt-1 text-xs text-slate-500">
-          {monthNote}。入力確認（分類・時期・重複）と計画の承認は別の状態です。
-        </p>
-      </div>
+      <p className="text-xs leading-relaxed text-slate-500">
+        {monthNote}。入力確認（分類・時期・重複）と計画の承認は別の状態です。
+      </p>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-5">
