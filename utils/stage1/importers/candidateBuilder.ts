@@ -6,6 +6,7 @@
  */
 
 import type { Stage1ImportCandidate } from '@/types/strategy';
+import { detectSheetUnitText, explicitInputUnitOfLabel, type FinanceInputUnit } from '@/utils/finance/financeInputUnits';
 import type { ExtractedTable } from './excelCsvImporter';
 import type { PdfPageText } from './pdfImporter';
 
@@ -152,7 +153,22 @@ function detectScopeFromPdfPage(page: PdfPageText): ScopeInfo {
 /**
  * テーブルから候補を生成
  */
+/** 資料内の単位表記（ヘッダー・シート名・先頭の行）から資料全体の単位を読み取る */
+function detectSheetUnitFromTable(table: ExtractedTable): FinanceInputUnit | undefined {
+  const sheetName = typeof table.sheetName === 'string' ? table.sheetName : '';
+  const texts: string[] = [...(table.headers ?? []), sheetName];
+  for (const row of (table.rows ?? []).slice(0, 20)) {
+    for (const v of Object.values(row as Record<string, unknown>)) if (typeof v === 'string') texts.push(v);
+  }
+  for (const t of texts) {
+    const unit = detectSheetUnitText(t);
+    if (unit) return unit;
+  }
+  return undefined;
+}
+
 export function buildCandidatesFromTable(table: ExtractedTable): Stage1ImportCandidate[] {
+  const sheetUnit = detectSheetUnitFromTable(table);
   const candidates: Stage1ImportCandidate[] = [];
 
   const { scope, segmentName } = detectScopeFromTable(table);
@@ -261,12 +277,16 @@ export function buildCandidatesFromTable(table: ExtractedTable): Stage1ImportCan
         if (value !== null && value !== undefined && typeof value === 'number') {
           const kind = scope === 'segment' ? ('segmentPL' as any) : ('companyPL' as any);
           console.log(`    → PUSH: ${kind}, year=${year}, field=${plField}, value=${value}, segmentName=${rowSegmentName || 'none'}`);
+          const explicitUnit = explicitInputUnitOfLabel(itemName);
           candidates.push({
             kind,
             year,
             fields: { [plField]: value },
             confidence: 0.7,
             sourceRef: `${(table as any).sourceRef}:${itemName}`,
+            source: table.sourceRef ?? '',
+            ...(explicitUnit ? { fieldUnits: { [plField]: explicitUnit } } : {}),
+            ...(sheetUnit ? { sheetUnit } : {}),
             ...(scope === 'segment' && rowSegmentName ? { segmentName: rowSegmentName } : {}),
           } as Stage1ImportCandidate);
         }
@@ -283,12 +303,16 @@ export function buildCandidatesFromTable(table: ExtractedTable): Stage1ImportCan
         if (value !== null && value !== undefined && typeof value === 'number') {
           const kind = scope === 'segment' ? ('segmentBS' as any) : ('companyBS' as any);
           console.log(`    → PUSH: ${kind}, year=${year}, field=${bsField}, value=${value}, segmentName=${rowSegmentName || 'none'}`);
+          const explicitUnit = explicitInputUnitOfLabel(itemName);
           candidates.push({
             kind,
             year,
             fields: { [bsField]: value },
             confidence: 0.7,
             sourceRef: `${(table as any).sourceRef}:${itemName}`,
+            source: table.sourceRef ?? '',
+            ...(explicitUnit ? { fieldUnits: { [bsField]: explicitUnit } } : {}),
+            ...(sheetUnit ? { sheetUnit } : {}),
             ...(scope === 'segment' && rowSegmentName ? { segmentName: rowSegmentName } : {}),
           } as Stage1ImportCandidate);
         }
@@ -488,6 +512,8 @@ function mergeCandidates(candidates: Stage1ImportCandidate[]): Stage1ImportCandi
 
     if (existing) {
       existing.fields = { ...(existing as any).fields, ...(c as any).fields };
+      existing.fieldUnits = { ...(existing.fieldUnits ?? {}), ...(c.fieldUnits ?? {}) };
+      existing.sheetUnit = existing.sheetUnit ?? c.sheetUnit;
       existing.confidence = Math.max((existing as any).confidence ?? 0, (c as any).confidence ?? 0);
       if ((c as any).sourceRef && !(existing as any).sourceRef?.includes((c as any).sourceRef)) {
         (existing as any).sourceRef = `${(existing as any).sourceRef}, ${(c as any).sourceRef}`;

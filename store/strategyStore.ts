@@ -18,6 +18,17 @@ import { createRefetchCoordinator } from '@/lib/strategy/refetchCoordinator';
 import { computeValueAnalysis, computeValueAnalysisBundle } from '@/utils/valueAnalysis';
 import { stage1DummyDataBundle } from '@/utils/stage1DummyData';
 import { applyWorkingSnapshot, workingHashOf } from '@/utils/stage6/financePlanSnapshot';
+import {
+  FINANCE_PL_LEGACY_PARTIAL_MESSAGE,
+  FINANCE_PL_YEAR_ISSUE_MESSAGE,
+  financePLYearKey,
+  hasFinancePLYearIssue,
+  isFinancePLGuardMessage,
+  isSameFinanceRow,
+  partiallyUpdatedLegacyYears,
+  type FinanceInputUnit,
+  type FinanceUnitConfirmed,
+} from '@/utils/finance/financeInputUnits';
 import type {
   ChapterStory,
   ChapterAnswers,
@@ -310,6 +321,12 @@ export type StrategyState = {
 
   /* 財務 */
   csvFinanceData?: unknown;
+  /** 財務金額の入力単位（表示・入力用。保存値は常に円） */
+  financeInputUnit?: FinanceInputUnit;
+  /** 円で確定した範囲（会社PLは年度ごと）。未確定の旧データは換算を保存に書き戻さない */
+  financeUnitConfirmed?: FinanceUnitConfirmed;
+  /** 未確定の年度の換算前の行（保存時はこの行を書き戻す）。確定した年度は含まない */
+  legacyFinancePLRaw?: FinancePLRow[];
   financeSummary?: FinanceSummaryRow[];
   /* STAGE1 手入力財務（会社切替でリセットし、永続化・DB保存はしない） */
   financeActual?: FinanceActualRow[];
@@ -515,7 +532,14 @@ export type StrategyState = {
 
   /* STAGE1 財務データ setter */
   setFinancePL: (rows: FinancePLRow[]) => void;
+  /** 取り消し・やり直し用。会社PLの表示・換算前の行・確定年度をまとめて戻す（確定を推測しない） */
+  restoreFinancePLState: (snapshot: {
+    financePL: FinancePLRow[];
+    legacyFinancePLRaw?: FinancePLRow[];
+    confirmedYears: number[];
+  }) => void;
   setFinanceBS: (rows: FinanceBSRow[]) => void;
+  setFinanceInputUnit: (unit: FinanceInputUnit | undefined) => void;
   setSegmentPL: (data: Record<string, FinancePLRow[]>) => void;
   setSegmentBS: (data: Record<string, SegmentBSRow[]>) => void;
   /** ★ セグメント単位マージ更新（必ずマージ、上書きしない） */
@@ -800,7 +824,23 @@ function bump(s: any) {
 }
 
 /** 保存用ペイロード組み立て（StrategyData相当） */
+/**
+ * 会社PLの保存内容。未確定の年度は換算前の行、確定した年度は表示どおりの円の行を書く。
+ * 読込前・年度の重複欠落がある場合は会社PLを送らず、DBの値を残す。
+ */
+function financePLForSave(s: StrategyState): { rows: FinancePLRow[]; confirmedYears: number[] } | undefined {
+  if (s.financeUnitConfirmed?.pl === undefined || !Array.isArray(s.financePL)) return undefined;
+  if (hasFinancePLYearIssue(s.financePL)) return undefined;
+  const legacyByYear = new Map((s.legacyFinancePLRaw ?? []).map((row) => [financePLYearKey(row), row]));
+  const rows = s.financePL.map((row) => legacyByYear.get(financePLYearKey(row)) ?? row);
+  const confirmedYears = s.financePL
+    .map((row) => financePLYearKey(row))
+    .filter((year): year is number => year !== null && !legacyByYear.has(year));
+  return { rows, confirmedYears };
+}
+
 function buildSavePayload(s: StrategyState) {
+  const plForSave = financePLForSave(s);
   // okrsV2 サニタイズ（空labelを除外）
   const sanitizeOkrsV2 = (list: any[]) => {
     const filtered = (Array.isArray(list) ? list : []).filter(kr =>
@@ -864,7 +904,9 @@ function buildSavePayload(s: StrategyState) {
     ticker: s.ticker,
     pbrManual: s.pbrManual,
     financeBS: s.financeBS,
-    financePL: s.financePL,
+    financePL: plForSave?.rows,
+    financeInputUnit: s.financeInputUnit,
+    financeUnitConfirmed: { ...s.financeUnitConfirmed, pl: plForSave?.confirmedYears },
     segmentPL: s.segmentPL,
     segmentBS: s.segmentBS,
     hqAdjustmentPL: s.hqAdjustmentPL,
@@ -942,7 +984,10 @@ function extractServerDecidedPatch(
 
   /* ========== STAGE1: 財務・会社情報・セグメント分析 ========== */
   if (Array.isArray(resData.financeBS)) patch.financeBS = resData.financeBS;
-  if (Array.isArray(resData.financePL)) patch.financePL = resData.financePL;
+  // 未確定の年度を含む会社PLは、表示中の換算後の値を保持する
+  if (Array.isArray(resData.financePL) && current.legacyFinancePLRaw === undefined && current.financeUnitConfirmed?.pl !== undefined) {
+    patch.financePL = resData.financePL;
+  }
 
   if (resData.segmentPL && typeof resData.segmentPL === 'object') patch.segmentPL = resData.segmentPL;
   if (resData.segmentBS && typeof resData.segmentBS === 'object') patch.segmentBS = resData.segmentBS;
@@ -1215,6 +1260,9 @@ const emptyData: StrategyState = {
   stage4Plans: undefined,
   executionPlanBaseline: undefined,
   csvFinanceData: undefined,
+  financeInputUnit: undefined,
+  financeUnitConfirmed: undefined,
+  legacyFinancePLRaw: undefined,
   financeSummary: undefined,
   financeActual: undefined,
   financePlan: undefined,
@@ -1306,7 +1354,9 @@ const emptyData: StrategyState = {
   recomputeValueAnalysis: () => {},
 
   setFinancePL: () => {},
+  restoreFinancePLState: () => {},
   setFinanceBS: () => {},
+  setFinanceInputUnit: () => {},
   setSegmentPL: () => {},
   setSegmentBS: () => {},
   upsertSegmentPL: () => {},
@@ -2637,34 +2687,44 @@ export const useStrategyStore = create<StrategyState>()(
 
       /* STAGE1 財務データ setter */
       setFinancePL: (rows: FinancePLRow[]) => {
-        // ★ TASK-A: financePL を yen に統一（Stage1入力は百万円、保存は yen）
-        const yenRows = Array.isArray(rows)
-          ? rows.map((row: FinancePLRow) => {
-              // 数値が 100万未満なら百万円と判定して yen に変換
-              const revenue = row.revenue ?? 0;
-              const operatingIncome = row.operatingIncome ?? 0;
-
-              const revenueYen = revenue > 0 && revenue < 1_000_000 ? revenue * 1_000_000 : revenue;
-              const opIncomeYen = operatingIncome > 0 && operatingIncome < 1_000_000 ? operatingIncome * 1_000_000 : operatingIncome;
-
-              return {
-                ...row,
-                revenue: revenueYen,
-                operatingIncome: opIncomeYen,
-                // 他の財務指標も同様に変換（cogs, sga, etc）
-                cogs: (row.cogs ?? 0) > 0 && (row.cogs ?? 0) < 1_000_000 ? (row.cogs ?? 0) * 1_000_000 : (row.cogs ?? 0),
-                sga: (row.sga ?? 0) > 0 && (row.sga ?? 0) < 1_000_000 ? (row.sga ?? 0) * 1_000_000 : (row.sga ?? 0),
-                grossProfit: (row.grossProfit ?? 0) > 0 && (row.grossProfit ?? 0) < 1_000_000 ? (row.grossProfit ?? 0) * 1_000_000 : (row.grossProfit ?? 0),
-              };
-            })
-          : rows;
-
+        // 値は呼び出し側で円に換算済み（桁による推定はしない）
         // ★ DEBUG：入力ログ（弾き判定用）
         if (DEBUG) console.log('[strategyStore] setFinancePL input', {
           len: Array.isArray(rows) ? rows.length : 'not-array',
           sample: Array.isArray(rows) && rows.length > 0 ? rows[0] : null,
-          sample_after_conversion: Array.isArray(yenRows) && yenRows.length > 0 ? yenRows[0] : null,
         });
+
+        const current = get();
+        if (hasFinancePLYearIssue(rows) || (Array.isArray(current.financePL) && hasFinancePLYearIssue(current.financePL))) {
+          set({ saveError: FINANCE_PL_YEAR_ISSUE_MESSAGE });
+          return;
+        }
+
+        // 旧データの年度で項目の一部だけ変わった場合は、その年度の更新を適用しない（表示上の換算値を円として確定させないため）
+        const partialYears = new Set(
+          partiallyUpdatedLegacyYears(rows, current.financePL ?? [], current.legacyFinancePLRaw ?? []),
+        );
+        const prevByYear = new Map((current.financePL ?? []).map((row) => [financePLYearKey(row), row]));
+        const applied = partialYears.size > 0
+          ? rows.map((row) => {
+              const key = financePLYearKey(row);
+              return key !== null && partialYears.has(key) ? prevByYear.get(key) ?? row : row;
+            })
+          : rows;
+
+        // 値が変わった年度だけ円で確定する。変わっていない未確定年度は換算前の行を保持する
+        const legacyByYear = new Map((current.legacyFinancePLRaw ?? []).map((row) => [financePLYearKey(row), row]));
+        const nextLegacy: FinancePLRow[] = [];
+        for (const row of applied) {
+          const key = financePLYearKey(row);
+          const prev = prevByYear.get(key);
+          const legacy = legacyByYear.get(key);
+          if (legacy && prev && isSameFinanceRow(row, prev)) nextLegacy.push(legacy);
+        }
+        const legacyYears = new Set(nextLegacy.map((row) => financePLYearKey(row)));
+        const confirmedYears = applied
+          .map((row) => financePLYearKey(row))
+          .filter((year): year is number => year !== null && !legacyYears.has(year));
 
         set((s) => {
           const newVersion = (s.version ?? 0) + 1;
@@ -2673,7 +2733,17 @@ export const useStrategyStore = create<StrategyState>()(
             to: newVersion,
             dirty: true,
           });
-          return { ...s, financePL: yenRows, dirty: true, version: newVersion };
+          return {
+            ...s,
+            financePL: applied,
+            legacyFinancePLRaw: nextLegacy.length > 0 ? nextLegacy : undefined,
+            financeUnitConfirmed: { ...s.financeUnitConfirmed, pl: confirmedYears },
+            saveError: partialYears.size > 0
+              ? FINANCE_PL_LEGACY_PARTIAL_MESSAGE
+              : isFinancePLGuardMessage(s.saveError) ? undefined : s.saveError,
+            dirty: true,
+            version: newVersion,
+          };
         });
 
         // ★ DEBUG：set直後の確認
@@ -2688,6 +2758,23 @@ export const useStrategyStore = create<StrategyState>()(
         }, 0);
 
         setTimeout(() => get().recomputeValueAnalysis('setFinancePL'), 0);
+      },
+
+      restoreFinancePLState: (snapshot) => {
+        set((s) => ({
+          ...s,
+          financePL: snapshot.financePL,
+          legacyFinancePLRaw: snapshot.legacyFinancePLRaw?.length ? snapshot.legacyFinancePLRaw : undefined,
+          financeUnitConfirmed: { ...s.financeUnitConfirmed, pl: snapshot.confirmedYears },
+          dirty: true,
+          version: (s.version ?? 0) + 1,
+        }));
+        setTimeout(() => get().recomputeValueAnalysis('setFinancePL'), 0);
+      },
+
+      setFinanceInputUnit: (unit: FinanceInputUnit | undefined) => {
+        // 単位の選択も保存対象（F5後に維持するため dirty にする）
+        set((s) => ({ financeInputUnit: unit, dirty: true, version: (s.version ?? 0) + 1 }));
       },
 
       setFinanceBS: (rows: FinanceBSRow[]) => {
@@ -2722,6 +2809,7 @@ export const useStrategyStore = create<StrategyState>()(
           return {
             ...s,
             financeBS: rows,
+            financeUnitConfirmed: { ...s.financeUnitConfirmed, bs: true },
             csvFinanceData: {
               ...(s.csvFinanceData || {}),
               financeBS: rows,
@@ -2768,6 +2856,7 @@ export const useStrategyStore = create<StrategyState>()(
           return {
             ...s,
             segmentPL: data,
+            financeUnitConfirmed: { ...s.financeUnitConfirmed, segmentPL: true },
             csvFinanceData: {
               ...(s.csvFinanceData || {}),
               segmentPL: data,
@@ -2816,6 +2905,7 @@ export const useStrategyStore = create<StrategyState>()(
           return {
             ...s,
             segmentBS: data,
+            financeUnitConfirmed: { ...s.financeUnitConfirmed, segmentBS: true },
             csvFinanceData: {
               ...(s.csvFinanceData || {}),
               segmentBS: data,
@@ -2857,6 +2947,7 @@ export const useStrategyStore = create<StrategyState>()(
           return {
             ...s,
             segmentPL: updated,
+            financeUnitConfirmed: { ...s.financeUnitConfirmed, segmentPL: true },
             csvFinanceData: {
               ...(s.csvFinanceData || {}),
               segmentPL: updated,
@@ -2882,6 +2973,7 @@ export const useStrategyStore = create<StrategyState>()(
           return {
             ...s,
             segmentBS: updated,
+            financeUnitConfirmed: { ...s.financeUnitConfirmed, segmentBS: true },
             csvFinanceData: {
               ...(s.csvFinanceData || {}),
               segmentBS: updated,
@@ -4131,7 +4223,7 @@ export const useStrategyStore = create<StrategyState>()(
 
                 companyId,
                 pendingCompanyId: undefined,
-                saveError: base.saveError === COMPANY_SWITCH_SAVE_MESSAGE ? undefined : base.saveError,
+                saveError: base.saveError === COMPANY_SWITCH_SAVE_MESSAGE || isFinancePLGuardMessage(base.saveError) ? undefined : base.saveError,
               };
 
 
@@ -4614,6 +4706,8 @@ export const useStrategyStore = create<StrategyState>()(
         departments: s.departments,
 
         csvFinanceData: s.csvFinanceData,
+        financeUnitConfirmed: s.financeUnitConfirmed,
+        legacyFinancePLRaw: s.legacyFinancePLRaw,
         financeSummary: s.financeSummary,
         businessPortfolio: s.businessPortfolio,
         // ★ FIX (v39): EXCLUDE simulationResult - generated data, DB is source of truth

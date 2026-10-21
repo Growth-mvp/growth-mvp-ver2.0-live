@@ -4,6 +4,12 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { safeGetSession } from '@/utils/supabase/client';
+import {
+  FINANCE_INPUT_UNITS,
+  FINANCE_INPUT_UNIT_LABEL,
+  resolveCandidatesToYen,
+  type FinanceInputUnit,
+} from '@/utils/finance/financeInputUnits';
 import type {
   Stage1ImportCandidate,
   Stage1ImportResult,
@@ -267,6 +273,8 @@ export default function DocumentImportPanel() {
   const [isOpen, setIsOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [candidates, setCandidates] = useState<Stage1ImportCandidate[]>([]);
+  // 取込元ごとに利用者が確定した単位（未選択は undefined）
+  const [unitOverrides, setUnitOverrides] = useState<Record<string, FinanceInputUnit | undefined>>({});
   const [tableHints, setTableHints] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>('companyPL');
@@ -350,6 +358,36 @@ export default function DocumentImportPanel() {
   }, [candidates]);
 
   // ファイルアップロード
+  // 取込元の単位：資料内の単位表記を既定値とし、利用者が確定する（自動では確定しない）
+  const sourceUnitDefaults = useMemo(() => {
+    const out: Record<string, FinanceInputUnit | undefined> = {};
+    for (const c of candidates) {
+      const key: string = c.source ?? '';
+      if (c.sheetUnit && out[key] === undefined) out[key] = c.sheetUnit;
+    }
+    return out;
+  }, [candidates]);
+  const confirmedUnitBySource = useMemo(
+    () => ({ ...sourceUnitDefaults, ...unitOverrides }),
+    [sourceUnitDefaults, unitOverrides],
+  );
+  const sourceKeys = useMemo(
+    () => Array.from(new Set(candidates.map((c) => c.source ?? ''))),
+    [candidates],
+  );
+  // 適用する金額は円へ換算してから使う（未確定の金額は換算せず件数に数える）
+  const yenResolution = useMemo(
+    () => resolveCandidatesToYen(candidates, confirmedUnitBySource),
+    [candidates, confirmedUnitBySource],
+  );
+  const yenGrouped = useMemo(() => {
+    const groups = {} as Record<TabKey, Stage1ImportCandidate[]>;
+    for (const key of Object.keys(groupedCandidates) as TabKey[]) {
+      groups[key] = resolveCandidatesToYen(groupedCandidates[key], confirmedUnitBySource).candidates;
+    }
+    return groups;
+  }, [groupedCandidates, confirmedUnitBySource]);
+
   const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -360,6 +398,7 @@ export default function DocumentImportPanel() {
     setIsUploading(true);
     setError(null);
     setCandidates([]);
+    setUnitOverrides({});
     setTableHints([]);
     setApplyMessage(null);
     setLastDebug(null);
@@ -490,6 +529,10 @@ export default function DocumentImportPanel() {
 
   // 候補を適用
   const handleApply = useCallback(() => {
+    if (yenResolution.unresolvedCount > 0) {
+      setApplyMessage(`単位が確定していない金額が${yenResolution.unresolvedCount}件あるため、適用できません。取込元の単位を選択してください。`);
+      return;
+    }
     if (candidates.length === 0) return;
 
     let appliedCount = 0;
@@ -596,13 +639,13 @@ export default function DocumentImportPanel() {
 
     // 事業部名の収集（適用後に businessSegments を自動登録する）
     const importedSegNames = new Set<string>();
-    for (const c of [...groupedCandidates.segmentPL, ...groupedCandidates.segmentBS]) {
+    for (const c of [...yenGrouped.segmentPL, ...yenGrouped.segmentBS]) {
       const n = pickSegmentName(c as any);
       if (n) importedSegNames.add(n);
     }
 
     // PL候補を適用
-    const plCandidates = groupedCandidates.companyPL;
+    const plCandidates = yenGrouped.companyPL;
     if (plCandidates.length > 0) {
       // ★ candidates を FinancePLRow に変換（year 型強制 + キー正規化）
       const convertedPL = plCandidates
@@ -653,7 +696,7 @@ export default function DocumentImportPanel() {
     }
 
     // BS候補を適用
-    const bsCandidates = groupedCandidates.companyBS;
+    const bsCandidates = yenGrouped.companyBS;
     if (bsCandidates.length > 0) {
       // ★ candidates を FinanceBSRow に変換（year 型強制 + キー正規化）
       const convertedBS = bsCandidates
@@ -704,7 +747,7 @@ export default function DocumentImportPanel() {
     }
 
     // segmentPL候補を適用（segmentName 表記ゆれ吸収 + year 正規化）
-    const segPlCandidates = groupedCandidates.segmentPL;
+    const segPlCandidates = yenGrouped.segmentPL;
     if (segPlCandidates.length > 0) {
       const newSegmentPL: Record<string, FinancePLRow[]> = { ...(segmentPL ?? {}) };
       const processedSegments = new Set<string>();
@@ -772,7 +815,7 @@ export default function DocumentImportPanel() {
     }
 
     // segmentBS候補を適用（segmentName 表記ゆれ吸収 + year 正規化）
-    const segBsCandidates = groupedCandidates.segmentBS;
+    const segBsCandidates = yenGrouped.segmentBS;
     if (segBsCandidates.length > 0) {
       const newSegmentBS: Record<string, SegmentBSRow[]> = { ...(segmentBS ?? {}) };
       const processedSegmentsBS = new Set<string>();
@@ -914,6 +957,8 @@ export default function DocumentImportPanel() {
   }, [
     candidates,
     groupedCandidates,
+    yenGrouped,
+    yenResolution,
     financePL,
     financeBS,
     segmentPL,
@@ -931,6 +976,7 @@ export default function DocumentImportPanel() {
   // 結果を破棄
   const handleDiscard = useCallback(() => {
     setCandidates([]);
+    setUnitOverrides({});
     setTableHints([]);
     setError(null);
     setApplyMessage(null);
@@ -1166,6 +1212,36 @@ export default function DocumentImportPanel() {
                 {avgConfidence < 0.5 && <span className="text-amber-600">（信頼度が低いため、適用後に確認してください）</span>}
               </div>
 
+              {/* 取込元ごとの単位（円へ換算するため、利用者が確定する） */}
+              {sourceKeys.length > 0 && (
+                <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-gray-700 space-y-2">
+                  <div className="font-medium">金額の単位を確認してください（保存時に円へ換算します）</div>
+                  {sourceKeys.map((key) => (
+                    <label key={key} className="flex flex-wrap items-center gap-2">
+                      <span className="min-w-[8rem] truncate">{key || '（取込元）'}</span>
+                      <select
+                        value={confirmedUnitBySource[key] ?? ''}
+                        onChange={(e) =>
+                          setUnitOverrides((prev) => ({ ...prev, [key]: (e.target.value || undefined) as FinanceInputUnit | undefined }))
+                        }
+                        className="border rounded px-2 py-1 bg-white"
+                      >
+                        <option value="">未選択</option>
+                        {FINANCE_INPUT_UNITS.map((unit) => (
+                          <option key={unit} value={unit}>{FINANCE_INPUT_UNIT_LABEL[unit]}</option>
+                        ))}
+                      </select>
+                      {sourceUnitDefaults[key] && (
+                        <span className="text-gray-500">資料内の表記：{FINANCE_INPUT_UNIT_LABEL[sourceUnitDefaults[key]!]}</span>
+                      )}
+                    </label>
+                  ))}
+                  {yenResolution.unresolvedCount > 0 && (
+                    <div className="text-red-600">単位が未確定の金額が {yenResolution.unresolvedCount} 件あります。単位を選ぶまで適用できません。</div>
+                  )}
+                </div>
+              )}
+
               {/* タブ */}
               <div className="flex gap-1 border-b border-gray-200">
                 {(Object.keys(TAB_LABELS) as TabKey[]).map((key) => (
@@ -1217,7 +1293,8 @@ export default function DocumentImportPanel() {
                     </button>
                     <button
                       onClick={handleApply}
-                      className="shrink-0 px-6 py-3 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow-sm"
+                      disabled={yenResolution.unresolvedCount > 0}
+                      className="shrink-0 px-6 py-3 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       ↓ 財務入力に適用
                     </button>

@@ -5,6 +5,16 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import type { MutableRefObject } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import type { FinancePLRow, FinanceBSRow } from '@/types/strategy';
+import {
+  FINANCE_INPUT_UNITS,
+  FINANCE_INPUT_UNIT_LABEL,
+  scaleMonetaryRows,
+  toYenRowsKeepingUnchanged,
+  type FinanceInputUnit,
+} from '@/utils/finance/financeInputUnits';
+
+/** 入力単位が未設定のときの表示単位（表示の既定。保存値は円） */
+const DEFAULT_FINANCE_INPUT_UNIT: FinanceInputUnit = 'million_yen';
 
 /* ===============================
  * 型定義（範囲選択用）
@@ -17,6 +27,8 @@ type Selection = { table: 'pl' | 'bs'; start: CellPos; end: CellPos } | null;
  * =============================== */
 type SnapshotState = {
   financePL: FinancePLRow[];
+  /** 会社PLの換算前の行と確定年度。表示値だけを戻すと未確定の年度が円として確定されるため一緒に保存する */
+  financePLState: { legacyFinancePLRaw: FinancePLRow[]; confirmedYears: number[] };
   financeBS: FinanceBSRow[];
   segmentPL?: Record<string, FinancePLRow[]>;
   segmentBS?: Record<string, FinanceBSRow[]>;
@@ -41,9 +53,9 @@ function toNum(v: string | number | undefined): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-function formatNum(v: number | undefined): string {
+function formatNum(v: number | undefined, maxFractionDigits = 3): string {
   if (v === undefined) return '';
-  return v.toLocaleString();
+  return v.toLocaleString(undefined, { maximumFractionDigits: maxFractionDigits });
 }
 
 /**
@@ -339,7 +351,7 @@ function CompanyPLEditor({
                     const isCrossCol = activeCell?.table === 'pl' && activeCell.c === yearIndex;
                     const row = dataMap.get(y);
                     const numVal = (row as any)?.[field.key] as number | undefined;
-                    const formattedValue = numVal !== undefined && numVal !== null ? formatNum(numVal) : '';
+                    const formattedValue = numVal !== undefined && numVal !== null ? formatNum(numVal, 8) : '';
                     const rawValue = numVal !== undefined && numVal !== null ? String(numVal) : '';
 
 
@@ -720,7 +732,7 @@ function CompanyBSEditor({
 
                     const row = dataMap.get(y);
                     const numVal = (row as any)?.[field.key] as number | undefined;
-                    const formattedValue = numVal !== undefined && numVal !== null ? formatNum(numVal) : '';
+                    const formattedValue = numVal !== undefined && numVal !== null ? formatNum(numVal, 8) : '';
                     const rawValue = numVal !== undefined && numVal !== null ? String(numVal) : '';
 
                     return (
@@ -919,15 +931,29 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
   const removeFinanceYear = useStrategyStore((s: StrategyState) => s.removeFinanceYear);
   const setFinancePL = useStrategyStore((s: StrategyState) => s.setFinancePL);
   const setFinanceBS = useStrategyStore((s: StrategyState) => s.setFinanceBS);
+  const restoreFinancePLState = useStrategyStore((s: StrategyState) => s.restoreFinancePLState);
+  const legacyFinancePLRaw = useStrategyStore((s: StrategyState) => s.legacyFinancePLRaw);
+  const financePLConfirmedYears = useStrategyStore((s: StrategyState) => s.financeUnitConfirmed?.pl);
   const addSegmentFinanceYear = useStrategyStore((s: StrategyState) => s.addSegmentFinanceYear);
   const renameSegmentFinanceYear = useStrategyStore((s: StrategyState) => s.renameSegmentFinanceYear);
   const removeSegmentFinanceYear = useStrategyStore((s: StrategyState) => s.removeSegmentFinanceYear);
   const upsertSegmentPL = useStrategyStore((s: StrategyState) => s.upsertSegmentPL);
   const upsertSegmentBS = useStrategyStore((s: StrategyState) => s.upsertSegmentBS);
+  const financeInputUnit: FinanceInputUnit = useStrategyStore((s: StrategyState) => s.financeInputUnit) ?? DEFAULT_FINANCE_INPUT_UNIT;
+  const setFinanceInputUnit = useStrategyStore((s: StrategyState) => s.setFinanceInputUnit);
 
   // データの参照/更新先を mode に応じて切り替え
-  const plData = mode === 'company' ? financePL : (segmentName ? segmentPL[segmentName] ?? [] : []);
-  const bsData = mode === 'company' ? financeBS : (segmentName ? segmentBS[segmentName] ?? [] : []);
+  // 保存値は円。画面には選択中の入力単位の数値を表示する（金額は変えない）
+  const storePlData = useMemo(
+    () => (mode === 'company' ? financePL : (segmentName ? segmentPL[segmentName] ?? [] : [])),
+    [mode, segmentName, financePL, segmentPL],
+  );
+  const storeBsData = useMemo(
+    () => (mode === 'company' ? financeBS : (segmentName ? segmentBS[segmentName] ?? [] : [])),
+    [mode, segmentName, financeBS, segmentBS],
+  );
+  const plData = useMemo(() => scaleMonetaryRows(storePlData, financeInputUnit, 'display'), [storePlData, financeInputUnit]);
+  const bsData = useMemo(() => scaleMonetaryRows(storeBsData, financeInputUnit, 'display'), [storeBsData, financeInputUnit]);
 
   const handleAddYear = (year?: number) => {
     if (mode === 'company') {
@@ -956,19 +982,21 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
 
   const handleSetPL = (rows: FinancePLRow[]) => {
     console.debug('[handleSetPL]', { rowsLen: rows.length, sample: rows[0] });
+    const yenRows = toYenRowsKeepingUnchanged(rows, plData, storePlData, financeInputUnit);
     if (mode === 'company') {
-      setFinancePL(rows);
+      setFinancePL(yenRows);
     } else if (segmentName) {
-      upsertSegmentPL(segmentName, rows);
+      upsertSegmentPL(segmentName, yenRows);
     }
   };
 
   const handleSetBS = (rows: FinanceBSRow[]) => {
     console.debug('[handleSetBS]', { rowsLen: rows.length, sample: rows[0] });
+    const yenRows = toYenRowsKeepingUnchanged(rows, bsData, storeBsData, financeInputUnit);
     if (mode === 'company') {
-      setFinanceBS(rows);
+      setFinanceBS(yenRows);
     } else if (segmentName) {
-      upsertSegmentBS(segmentName, rows);
+      upsertSegmentBS(segmentName, yenRows);
     }
   };
 
@@ -1004,12 +1032,21 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
   }, []);
 
   // ★ Undo/Redo ロジック
+  const currentFinancePLState = useCallback(
+    () => ({
+      legacyFinancePLRaw: (legacyFinancePLRaw ?? []).map((r) => ({ ...r })),
+      confirmedYears: [...(financePLConfirmedYears ?? [])],
+    }),
+    [legacyFinancePLRaw, financePLConfirmedYears],
+  );
+
   const saveSnapshot = useCallback(() => {
     // 現在の状態をスナップショットとして保存
     const snapshot: SnapshotState = {
       // ★ 参照のままだと履歴が後から書き換わるので、必ずコピーを保存
-      financePL: mode === 'company' ? plData.map((r) => ({ ...r })) : [],
-      financeBS: mode === 'company' ? bsData.map((r) => ({ ...r })) : [],
+      financePL: mode === 'company' ? storePlData.map((r) => ({ ...r })) : [],
+      financePLState: currentFinancePLState(),
+      financeBS: mode === 'company' ? storeBsData.map((r) => ({ ...r })) : [],
       ...(mode === 'segment' && {
         segmentPL: Object.fromEntries(Object.entries(segmentPL).map(([k, v]) => [k, v.map((r) => ({ ...r }))])),
         segmentBS: Object.fromEntries(Object.entries(segmentBS).map(([k, v]) => [k, v.map((r) => ({ ...r }))])),
@@ -1017,15 +1054,16 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
     };
     setHistory((prev) => [...prev, snapshot]);
     setFuture([]); // redo スタックをクリア
-  }, [mode, plData, bsData, segmentPL, segmentBS]);
+  }, [mode, storePlData, storeBsData, segmentPL, segmentBS, currentFinancePLState]);
 
   const handleUndo = useCallback(() => {
     if (history.length === 0) return;
 
     // 現在の状態をfutureに
     const currentSnapshot: SnapshotState = {
-      financePL: plData.map((r) => ({ ...r })),
-      financeBS: bsData.map((r) => ({ ...r })),
+      financePL: storePlData.map((r) => ({ ...r })),
+      financePLState: currentFinancePLState(),
+      financeBS: storeBsData.map((r) => ({ ...r })),
       ...(mode === 'segment' && { segmentPL, segmentBS }),
     };
     setFuture((prev) => [...prev, currentSnapshot]);
@@ -1037,18 +1075,19 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
 
     // store に反映
     if (mode === 'company') {
-      if (previousSnapshot.financePL.length > 0) setFinancePL(previousSnapshot.financePL);
+      if (previousSnapshot.financePL.length > 0) restoreFinancePLState({ financePL: previousSnapshot.financePL, legacyFinancePLRaw: previousSnapshot.financePLState.legacyFinancePLRaw, confirmedYears: previousSnapshot.financePLState.confirmedYears });
       if (previousSnapshot.financeBS.length > 0) setFinanceBS(previousSnapshot.financeBS);
     }
-  }, [history, future, mode, plData, bsData, segmentPL, segmentBS, setFinancePL, setFinanceBS]);
+  }, [history, future, mode, storePlData, storeBsData, segmentPL, segmentBS, setFinanceBS, restoreFinancePLState, currentFinancePLState]);
 
   const handleRedo = useCallback(() => {
     if (future.length === 0) return;
 
     // 現在の状態をhistoryに
     const currentSnapshot: SnapshotState = {
-      financePL: plData.map((r) => ({ ...r })),
-      financeBS: bsData.map((r) => ({ ...r })),
+      financePL: storePlData.map((r) => ({ ...r })),
+      financePLState: currentFinancePLState(),
+      financeBS: storeBsData.map((r) => ({ ...r })),
       ...(mode === 'segment' && { segmentPL, segmentBS }),
     };
     setHistory((prev) => [...prev, currentSnapshot]);
@@ -1060,10 +1099,10 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
 
     // store に反映
     if (mode === 'company') {
-      if (nextSnapshot.financePL.length > 0) setFinancePL(nextSnapshot.financePL);
+      if (nextSnapshot.financePL.length > 0) restoreFinancePLState({ financePL: nextSnapshot.financePL, legacyFinancePLRaw: nextSnapshot.financePLState.legacyFinancePLRaw, confirmedYears: nextSnapshot.financePLState.confirmedYears });
       if (nextSnapshot.financeBS.length > 0) setFinanceBS(nextSnapshot.financeBS);
     }
-  }, [history, future, mode, plData, bsData, segmentPL, segmentBS, setFinancePL, setFinanceBS]);
+  }, [history, future, mode, storePlData, storeBsData, segmentPL, segmentBS, setFinanceBS, restoreFinancePLState, currentFinancePLState]);
 
   const years = useMemo(() => {
     const plYears = plData.map((r) => r.year);
@@ -1383,6 +1422,22 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
           📋 初期表示として直近3年が表示されます。データ入力を開始するには、「年度追加」ボタンをクリックして年度を設定してください。
         </div>
       )}
+
+      {/* 入力単位（表示と入力の単位。保存値は常に円） */}
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <label className="text-zinc-700" htmlFor="finance-input-unit">入力単位</label>
+        <select
+          id="finance-input-unit"
+          value={financeInputUnit}
+          onChange={(e) => setFinanceInputUnit(e.target.value as FinanceInputUnit)}
+          className="border rounded px-2 py-1 bg-white"
+        >
+          {FINANCE_INPUT_UNITS.map((unit) => (
+            <option key={unit} value={unit}>{FINANCE_INPUT_UNIT_LABEL[unit]}</option>
+          ))}
+        </select>
+        <span className="text-xs text-zinc-500">金額は円で保存されます。単位を変えても金額は変わりません。</span>
+      </div>
 
       {/* Undo/Redo ボタン */}
       <div className="flex gap-2">

@@ -10,6 +10,15 @@ import { debugExtractPostgrest } from './errors';
 import { normalizeStrategyData } from './normalize';
 import { pickFinancePlanForSave } from '@/utils/stage6/financePlanSnapshot';
 import { normalizeFiscalYearEnd } from '@/utils/stage6/fiscalYear';
+import {
+  financePLYearKey,
+  hasFinancePLYearIssue,
+  isFinanceInputUnit,
+  plYearConfirmedPredicate,
+  readFinanceDatasetConfirmed,
+  type FinanceInputUnit,
+  type FinanceUnitConfirmed,
+} from '@/utils/finance/financeInputUnits';
 import { getMembership } from './membership';
 import type { StrategyData } from '@/types/strategy';
 
@@ -710,7 +719,49 @@ export const okrsToKpis = (okrs: any[]) => {
   return names;
 };
 
-function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
+type FinanceUnitMetaSource = { financeInputUnit?: unknown; financeUnitConfirmed?: FinanceUnitConfirmed };
+
+/**
+ * 財務金額の単位メタを csv_finance_data に保存するための値。
+ * 会社PLを書く保存では確定年度の一覧を置き換える。会社PLを書かない保存では既存の一覧を残す。
+ * bs・セグメントの確定は既存の記録に加えるだけで、取り消さない。
+ */
+export function buildFinanceCsvUnitMeta(
+  state: FinanceUnitMetaSource,
+  existingCsv: Record<string, unknown> = {},
+): { financeUnitConfirmed?: Record<string, unknown>; financeInputUnit?: FinanceInputUnit } {
+  const confirmed: Record<string, unknown> = {
+    ...((existingCsv.financeUnitConfirmed ?? {}) as Record<string, unknown>),
+  };
+  const incoming = state.financeUnitConfirmed;
+  if (incoming) {
+    if (incoming.pl !== undefined) confirmed.pl = incoming.pl;
+    for (const key of ['bs', 'segmentPL', 'segmentBS'] as const) {
+      if (incoming[key] === true) confirmed[key] = true;
+    }
+  }
+  const meta: { financeUnitConfirmed?: Record<string, unknown>; financeInputUnit?: FinanceInputUnit } = {};
+  if (Object.keys(confirmed).length > 0) meta.financeUnitConfirmed = confirmed;
+  if (isFinanceInputUnit(state.financeInputUnit)) meta.financeInputUnit = state.financeInputUnit;
+  return meta;
+}
+
+/** 版数なしの旧データの会社PLを、読込時に円へ救済換算する（保存値は変えない） */
+function convertLegacyFinancePLRow(row: any): any {
+  const revenue = row.revenue ?? 0;
+  const operatingIncome = row.operatingIncome ?? 0;
+  const toYenIfMillion = (v: number) => (v > 0 && v < 1_000_000 ? v * 1_000_000 : v);
+  return {
+    ...row,
+    revenue: toYenIfMillion(revenue),
+    operatingIncome: toYenIfMillion(operatingIncome),
+    cogs: toYenIfMillion(row.cogs ?? 0),
+    sga: toYenIfMillion(row.sga ?? 0),
+    grossProfit: toYenIfMillion(row.grossProfit ?? 0),
+  };
+}
+
+export function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const safeRow = row ?? {};
   const out: any = {};
 
@@ -806,23 +857,26 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const rawFPL = out.financePL as any[];
   // ★ 削除：金額の before/after ログは診断用のため削除
 
+  // 未確定の年度は換算して表示し、換算前の値を legacyFinancePLRaw に保持する。
+  // 年度の重複・欠落がある場合は更新対象を推測できないため、保持せず保存も止める。
+  const csvUnitMeta = unwrapCsvFinanceData(safeRow?.csv_finance_data || {});
+  const isPlYearConfirmed = plYearConfirmedPredicate(csvUnitMeta);
+  const yearIssue = hasFinancePLYearIssue(rawFPL);
+  const legacyRows: any[] = [];
   out.financePL = rawFPL.map((row: any) => {
-    const revenue = row.revenue ?? 0;
-    const operatingIncome = row.operatingIncome ?? 0;
-
-    const revenueYen = revenue > 0 && revenue < 1_000_000 ? revenue * 1_000_000 : revenue;
-    const opIncomeYen = operatingIncome > 0 && operatingIncome < 1_000_000 ? operatingIncome * 1_000_000 : operatingIncome;
-
-    return {
-      ...row,
-      revenue: revenueYen,
-      operatingIncome: opIncomeYen,
-      // 他の財務指標も同様
-      cogs: (row.cogs ?? 0) > 0 && (row.cogs ?? 0) < 1_000_000 ? (row.cogs ?? 0) * 1_000_000 : (row.cogs ?? 0),
-      sga: (row.sga ?? 0) > 0 && (row.sga ?? 0) < 1_000_000 ? (row.sga ?? 0) * 1_000_000 : (row.sga ?? 0),
-      grossProfit: (row.grossProfit ?? 0) > 0 && (row.grossProfit ?? 0) < 1_000_000 ? (row.grossProfit ?? 0) * 1_000_000 : (row.grossProfit ?? 0),
-    };
+    if (isPlYearConfirmed(financePLYearKey(row))) return row;
+    legacyRows.push(row);
+    return convertLegacyFinancePLRow(row);
   });
+  out.legacyFinancePLRaw = !yearIssue && legacyRows.length > 0 ? legacyRows : undefined;
+  out.financeUnitConfirmed = {
+    pl: rawFPL
+      .map((row: any) => financePLYearKey(row))
+      .filter((year: number | null): year is number => year !== null && isPlYearConfirmed(year)),
+    bs: readFinanceDatasetConfirmed(csvUnitMeta, 'bs'),
+    segmentPL: readFinanceDatasetConfirmed(csvUnitMeta, 'segmentPL'),
+    segmentBS: readFinanceDatasetConfirmed(csvUnitMeta, 'segmentBS'),
+  };
 
   // ★ 削除：金額の after ログは診断用のため削除
 
@@ -966,6 +1020,7 @@ function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   out.segmentBS = csvFinanceData.segmentBS; // Record<string, SegmentBSRow[]>
   out.hqAdjustmentPL = ensureArray(csvFinanceData.hqAdjustmentPL);
   out.hqAdjustmentBS = ensureArray(csvFinanceData.hqAdjustmentBS);
+  out.financeInputUnit = isFinanceInputUnit(csvFinanceData.financeInputUnit) ? csvFinanceData.financeInputUnit : undefined;
 
   // 部門・プロジェクトを一旦「生」の形で整形（okrsV2 を含む）
   // ★ FIXED: mission/missionDescription を明示的に保持
@@ -2192,6 +2247,7 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
       const existingCsv = unwrapCsvFinanceData((existingState as any)?.csvFinanceData);
       const nextCsv = unwrapCsvFinanceData({
         ...existingCsv,
+        ...buildFinanceCsvUnitMeta(mergedState as FinanceUnitMetaSource, existingCsv),
         financeBS: (mergedState as any).financeBS,
         segmentPL: (mergedState as any).segmentPL,
         segmentBS: (mergedState as any).segmentBS,
@@ -2645,6 +2701,7 @@ export async function saveStrategyData(...args: any[]): Promise<WriteResult> {
     // financePL は finance_pl に格納（既存カラム）
     // ★ 多重ネスト防止：unwrapCsvFinanceData で正規化
     const insertCsv = unwrapCsvFinanceData({
+      ...buildFinanceCsvUnitMeta(mergedState as FinanceUnitMetaSource),
       financeBS: (mergedState as any).financeBS,
       segmentPL: (mergedState as any).segmentPL,
       segmentBS: (mergedState as any).segmentBS,

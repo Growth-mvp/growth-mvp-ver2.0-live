@@ -92,3 +92,16 @@ export function selectMoneyInMillion(
   }
   return null;
 }
+
+/**
+ * 列名（見出し）の末尾に書かれた単位を読み取る。単位が無ければ null。
+ * 認識するが換算しない単位（千万円・億円）は 'unsupported' を返す。
+ */
+export function columnMoneyUnitOfLabel(label: string): ColumnMoneyUnit | 'unsupported' | null {
+  const nk = normalizeColumnKey(label);
+  for (const suffix of ['百万円', '千万円', '千円', '万円', '億円', '円']) {
+    if (!nk.endsWith(suffix)) continue;
+    return unitOfSuffix(suffix);
+  }
+  return null;
+}
