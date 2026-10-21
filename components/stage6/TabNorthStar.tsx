@@ -14,7 +14,7 @@ import {
 import type { NorthStarRow } from '@/utils/stage6';
 import type { ProjectTargetImpact } from '@/types/strategy';
 import { fmtJPY, compactJPY } from '@/utils/stage6';
-import { canonicalizeUnit } from '@/utils/stage6/compute';
+import { formatNorthStarValue } from '@/utils/stage6/compute';
 
 interface TabNorthStarProps {
   northStarRows: NorthStarRow[];
@@ -31,15 +31,7 @@ interface TabNorthStarProps {
  * - unit が yen のときは ¥ を付ける
  */
 function formatByUnit(value: number | null | undefined, unit: string): string {
-  if (value == null || Number.isNaN(value)) return '—';
-
-  const u = canonicalizeUnit(unit);
-  if (u === 'million_yen') {
-    // ¥ は付けない。数値だけ
-    return value.toLocaleString('ja-JP', { maximumFractionDigits: 0 });
-  }
-  // yen のときだけ ¥ を付ける
-  return '¥' + value.toLocaleString('ja-JP', { maximumFractionDigits: 0 });
+  return formatNorthStarValue(value, unit);
 }
 
 export function TabNorthStar({

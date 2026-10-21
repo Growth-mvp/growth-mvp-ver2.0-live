@@ -344,6 +344,40 @@ export function sumYearly(rows: YearlyPL[], key: 'revenue' | 'op_income'): numbe
  * ======================================================= */
 
 /**
+ * 北極星目標の表示・比較に使う単位。
+ * 円・千円・百万円（MJPY 等の表記を含む）以外は従来どおり円として扱う。
+ */
+export function northStarDisplayUnit(unit: unknown): 'million_yen' | 'thousand_yen' | 'yen' {
+  const canonical = canonicalizeUnit(unit ?? 'yen');
+  return canonical === 'million_yen' || canonical === 'thousand_yen' ? canonical : 'yen';
+}
+
+/** 北極星の目標値（登録単位の値）を百万円へ換算する */
+export function northStarValueToMJPY(value: number, unit: unknown): number {
+  return normalizeValueToUnit(value, northStarDisplayUnit(unit), 'million_yen') ?? value;
+}
+
+/** 百万円の値を北極星の表示単位へ換算する（逆方向） */
+export function mjpyToNorthStarDisplay(mjpy: number, unit: unknown): number {
+  return normalizeValueToUnit(mjpy, 'million_yen', northStarDisplayUnit(unit)) ?? mjpy;
+}
+
+/** 円の値を北極星の表示単位へ換算する（逆方向） */
+export function yenToNorthStarDisplay(yen: number, unit: unknown): number {
+  return normalizeValueToUnit(yen, 'yen', northStarDisplayUnit(unit)) ?? yen;
+}
+
+/** 北極星の値を表示用の文字列にする（千円は「千円」、百万円は数値のみ、円は ¥ 付き） */
+export function formatNorthStarValue(value: number | null | undefined, unit: unknown): string {
+  if (value == null || Number.isNaN(value)) return '—';
+  const digits = value.toLocaleString('ja-JP', { maximumFractionDigits: 0 });
+  const displayUnit = northStarDisplayUnit(unit);
+  if (displayUnit === 'million_yen') return digits;
+  if (displayUnit === 'thousand_yen') return `${digits} 千円`;
+  return '¥' + digits;
+}
+
+/**
  * North Star 比較行を生成
  *
  * E-1 修正: forecastValue を target.unit に正規化してから計算

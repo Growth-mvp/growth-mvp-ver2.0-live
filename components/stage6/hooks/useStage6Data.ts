@@ -36,7 +36,14 @@ import {
   isRevenueLabel,
   isOperatingIncomeLabel,
 } from '@/utils/stage6';
-import { calcYearlyFromKrs, buildStage6FourMetricCards } from '@/utils/stage6/compute';
+import {
+  calcYearlyFromKrs,
+  buildStage6FourMetricCards,
+  mjpyToNorthStarDisplay,
+  northStarDisplayUnit,
+  northStarValueToMJPY,
+  yenToNorthStarDisplay,
+} from '@/utils/stage6/compute';
 import {
   inferAutoProjectTargetImpacts,
   mergeImpacts,
@@ -1092,11 +1099,6 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         // - achievementRate = forecastMJPY / targetMJPY * 100
         const metricType = isRevenueLike ? 'Revenue' : 'OpIncome';
 
-        // ★重要：row.unit を確認して MJPY に統一
-        const targetRowUnit = row.unit ?? 'yen';
-        const targetRowUnitNormalized =
-          (targetRowUnit === 'MJPY' || targetRowUnit === '百万円') ? 'MJPY' : 'yen';
-
         // ★BUG-FIX：baselineVal を core.baselineYearly から正確に取得（yen で返される）
         const baselineYearlyFinal = core.baselineYearly?.[core.baselineYearly.length - 1];
         const baselineValYen = isRevenueLike
@@ -1108,9 +1110,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
         const baselineMJPY = baselineValYen / 1_000_000;
 
         // target（北極星目標値）- row.base は既に row.unit なので MJPY に変換
-        const targetMJPY = targetRowUnitNormalized === 'MJPY'
-          ? row.base
-          : (row.base / 1_000_000);
+        const targetMJPY = northStarValueToMJPY(row.base, row.unit);
 
         // project effective delta（既に MJPY）
         const effectiveDeltaMJPY = isRevenueLike ? sumProjectEffectiveRevenue : sumProjectEffectiveOp;
@@ -1125,10 +1125,10 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
             : undefined;
 
         // ★表示値：row.unit に変換して返す（row.unit がyen なら MJPY→yen）
-        const baselineValDisplay = targetRowUnitNormalized === 'MJPY' ? baselineMJPY : baselineValYen;
-        const forecastValDisplay = targetRowUnitNormalized === 'MJPY' ? forecastMJPY : (forecastMJPY * 1_000_000);
+        const baselineValDisplay = yenToNorthStarDisplay(baselineValYen, row.unit);
+        const forecastValDisplay = mjpyToNorthStarDisplay(forecastMJPY, row.unit);
         const targetValDisplay = row.base;  // 既に row.unit
-        const gapDisplay = targetRowUnitNormalized === 'MJPY' ? effectiveDeltaMJPY : (effectiveDeltaMJPY * 1_000_000);
+        const gapDisplay = mjpyToNorthStarDisplay(effectiveDeltaMJPY, row.unit);
 
         if (DEBUG) {
           console.log(`[STAGE6][top-debug-${metricType}]`, {
@@ -1138,7 +1138,7 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
             effectiveDeltaMJPY,
             forecastMJPY,
             achievementRate: newAchievement,
-            '表示単位': targetRowUnitNormalized,
+            '表示単位': northStarDisplayUnit(row.unit),
             baselineValDisplay,
             forecastValDisplay,
             targetValDisplay,
@@ -1592,17 +1592,8 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     const opRow = northStarRows.find(r => isOperatingIncomeLabel(r.label));
 
     // Target は row.unit で保存されているが、MJPY に正規化
-    const revenueRowUnit = revenueRow?.unit ?? 'yen';
-    const opRowUnit = opRow?.unit ?? 'yen';
-    const revenueRowUnitNorm = (revenueRowUnit === 'MJPY' || revenueRowUnit === '百万円') ? 'MJPY' : 'yen';
-    const opRowUnitNorm = (opRowUnit === 'MJPY' || opRowUnit === '百万円') ? 'MJPY' : 'yen';
-
-    const targetRevenueMJPY = revenueRowUnitNorm === 'MJPY'
-      ? (revenueRow?.base ?? 0)
-      : ((revenueRow?.base ?? 0) / 1_000_000);
-    const targetOpMJPY = opRowUnitNorm === 'MJPY'
-      ? (opRow?.base ?? 0)
-      : ((opRow?.base ?? 0) / 1_000_000);
+    const targetRevenueMJPY = northStarValueToMJPY(revenueRow?.base ?? 0, revenueRow?.unit);
+    const targetOpMJPY = northStarValueToMJPY(opRow?.base ?? 0, opRow?.unit);
 
     // Gap = target - forecast (key change from base - forecast)
     // Math.max(0, ...) で負の値を避ける（達成済みの場合は0）
@@ -1811,28 +1802,14 @@ export function useStage6Data(scenarioKey: 'low' | 'base' | 'high') {
     const baselineRevenueMJPY = (baselineYearlyFinal?.revenue ?? 0) / 1_000_000;
     const baselineOpMJPY = (baselineYearlyFinal?.op_income ?? 0) / 1_000_000;
 
-    // Target（北極星目標値、row.unit に応じて正規化）
-    const revenueRowUnit = revenueRow?.unit ?? 'yen';
-    const opRowUnit = opRow?.unit ?? 'yen';
-    const revenueRowUnitNormalized = (revenueRowUnit === 'MJPY' || revenueRowUnit === '百万円') ? 'MJPY' : 'yen';
-    const opRowUnitNormalized = (opRowUnit === 'MJPY' || opRowUnit === '百万円') ? 'MJPY' : 'yen';
-
-    const targetRevenueMJPY = revenueRowUnitNormalized === 'MJPY'
-      ? (revenueRow?.base ?? 0)
-      : ((revenueRow?.base ?? 0) / 1_000_000);
-    const targetOpMJPY = opRowUnitNormalized === 'MJPY'
-      ? (opRow?.base ?? 0)
-      : ((opRow?.base ?? 0) / 1_000_000);
+    // Target（北極星目標値、row.unit に応じて百万円へ換算）
+    const targetRevenueMJPY = northStarValueToMJPY(revenueRow?.base ?? 0, revenueRow?.unit);
+    const targetOpMJPY = northStarValueToMJPY(opRow?.base ?? 0, opRow?.unit);
 
     // Forecast（baseline + project delta、MJPY）
-    // ★重要：companyRevenueForecast / companyOpForecast は既に northStarRows で正規化済み
-    // ただし row.unit に応じて yen or MJPY で返される。MJPY に統一
-    const forecastRevenueMJPY = revenueRowUnitNormalized === 'MJPY'
-      ? (companyRevenueForecast ?? 0)
-      : ((companyRevenueForecast ?? 0) / 1_000_000);
-    const forecastOpMJPY = opRowUnitNormalized === 'MJPY'
-      ? (companyOpForecast ?? 0)
-      : ((companyOpForecast ?? 0) / 1_000_000);
+    // ★重要：companyRevenueForecast / companyOpForecast は northStarRows で row.unit に換算済み
+    const forecastRevenueMJPY = northStarValueToMJPY(companyRevenueForecast ?? 0, revenueRow?.unit);
+    const forecastOpMJPY = northStarValueToMJPY(companyOpForecast ?? 0, opRow?.unit);
 
     // 検証用：baselineRevenue / baselineOp は MJPY
     const baselineRevenue = baselineRevenueMJPY;

@@ -10,6 +10,12 @@ import { getIndustryLabel as _getIndustryLabel } from '@/utils/industryTemplates
 import type { ChatCompletionCreateParamsNonStreaming } from 'openai/resources/chat/completions';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
+import {
+  FINANCE_OPERATING_PROFIT_COLUMN_BASES,
+  FINANCE_SALES_COLUMN_BASES,
+  findMoneyColumns,
+  selectMoneyInMillion,
+} from '@/utils/finance/financeColumnUnit';
 import { logAuditEvent, extractAuditMetadata } from '@/lib/server/auditLog';
 import { logInputGuard, checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
 
@@ -233,12 +239,8 @@ function buildFinanceSummary(csvFinanceData: unknown): FinanceSummary | null {
   const normalized = arr
     .map((r) => {
       const year = getYear(r);
-      const sales =
-        pickField(r, ['sales', 'revenue', '売上', '売上高', '売上(百万円)', '売上高(百万円)']) ??
-        (pickField(r, ['売上高(万円)', '売上(万円)']) != null
-          ? ((pickField(r, ['売上高(万円)', '売上(万円)']) as number) ?? 0) * 0.1
-          : null);
-      const opProfit = pickField(r, ['operatingprofit', '営業利益', '営業利益(百万円)']);
+      const sales = selectMoneyInMillion(findMoneyColumns(r, FINANCE_SALES_COLUMN_BASES))?.valueMillion ?? null;
+      const opProfit = selectMoneyInMillion(findMoneyColumns(r, FINANCE_OPERATING_PROFIT_COLUMN_BASES))?.valueMillion ?? null;
       let opMargin = pickField(r, ['operatingmargin', '営業利益率']);
       if (opMargin == null && opProfit != null && sales != null && sales !== 0) {
         opMargin = (opProfit / sales) * 100;
