@@ -6,6 +6,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, NextRequest } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
+import { isValidUUID } from '@/lib/utils/isValidUUID';
 
 const ROUTE_TAG = 'app/api/org-alignment/admin/shared-topics/[id]/announcement';
 
@@ -37,15 +38,23 @@ export async function PATCH(
     const userId = await getAuthUserIdFromBearer(admin, req);
     if (!userId) return json({ error: 'unauthorized' }, 401);
 
-    const membership = await requireMembership(admin, userId);
-    if (!membership) return json({ error: 'forbidden' }, 403);
+    const topicId = params.id;
+    if (!isValidUUID(topicId)) return json({ error: 'invalid_id' }, 400);
 
-    // admin ロール必須
-    if (membership.role !== 'admin') {
+    const { data: topic, error: fetchError } = await admin
+      .from('org_alignment_shared_topics')
+      .select('id, company_id, source_alignment_insight_id')
+      .eq('id', topicId)
+      .maybeSingle();
+
+    if (fetchError) throw fetchError;
+    if (!topic) return json({ error: 'Topic not found' }, 404);
+
+    const companyId = topic.company_id as string;
+    const membership = await requireMembership(admin, userId, companyId);
+    if (!membership || membership.role !== 'admin') {
       return json({ error: 'Access denied. Admin role required.' }, 403);
     }
-
-    const topicId = params.id;
 
     // リクエストボディを取得
     let body: any;
@@ -60,17 +69,6 @@ export async function PATCH(
     // announcementText のバリデーション
     if (typeof announcementText !== 'string') {
       return json({ error: 'announcementText must be a string' }, 400);
-    }
-
-    // org_alignment_shared_topics から現在のレコードを取得
-    const { data: topic, error: fetchError } = await admin
-      .from('org_alignment_shared_topics')
-      .select('id, source_alignment_insight_id')
-      .eq('id', topicId)
-      .single();
-
-    if (fetchError || !topic) {
-      return json({ error: 'Topic not found' }, 404);
     }
 
     // ===== anonymous / manager_only の投稿者情報が含まれていないかチェック =====
@@ -130,7 +128,7 @@ export async function PATCH(
 
     // 告知を更新し、shared topic を published にする
     // 告知文が設定されたら、そのトピックは公開対象です
-    const { error: updateError } = await admin
+    const { data: updated, error: updateError } = await admin
       .from('org_alignment_shared_topics')
       .update({
         announcement_text: announcementText,
@@ -141,10 +139,16 @@ export async function PATCH(
         published_by: userId,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', topicId);
+      .eq('id', topicId)
+      .eq('company_id', companyId)
+      .select('id');
 
     if (updateError) {
       throw updateError;
+    }
+
+    if (!updated || updated.length === 0) {
+      return json({ error: 'Topic not found' }, 404);
     }
 
     console.log(`[${ROUTE_TAG}] Successfully updated announcement for topic ${topicId}`);

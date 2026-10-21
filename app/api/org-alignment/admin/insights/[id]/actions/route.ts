@@ -6,6 +6,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, NextRequest } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
+import { isValidUUID } from '@/lib/utils/isValidUUID';
 
 const ROUTE_TAG = 'app/api/org-alignment/admin/insights/[id]/actions';
 
@@ -37,15 +38,23 @@ export async function PATCH(
     const userId = await getAuthUserIdFromBearer(admin, req);
     if (!userId) return json({ error: 'unauthorized' }, 401);
 
-    const membership = await requireMembership(admin, userId);
-    if (!membership) return json({ error: 'forbidden' }, 403);
+    const insightId = params.id;
+    if (!isValidUUID(insightId)) return json({ error: 'invalid_id' }, 400);
 
-    // admin ロール必須
-    if (membership.role !== 'admin') {
+    const { data: insight, error: fetchError } = await admin
+      .from('org_alignment_insights')
+      .select('id, company_id, insights')
+      .eq('id', insightId)
+      .maybeSingle();
+
+    if (fetchError) throw fetchError;
+    if (!insight) return json({ error: 'Insight not found' }, 404);
+
+    const companyId = insight.company_id as string;
+    const membership = await requireMembership(admin, userId, companyId);
+    if (!membership || membership.role !== 'admin') {
       return json({ error: 'Access denied. Admin role required.' }, 403);
     }
-
-    const insightId = params.id;
 
     // リクエストボディを取得
     let body: any;
@@ -64,17 +73,6 @@ export async function PATCH(
 
     if (!Array.isArray(nextActions)) {
       return json({ error: 'nextActions must be an array' }, 400);
-    }
-
-    // org_alignment_insights から現在のinsightsを取得
-    const { data: insight, error: fetchError } = await admin
-      .from('org_alignment_insights')
-      .select('insights')
-      .eq('id', insightId)
-      .single();
-
-    if (fetchError || !insight) {
-      return json({ error: 'Insight not found' }, 404);
     }
 
     const insights = Array.isArray(insight.insights) ? insight.insights : [];
@@ -99,17 +97,23 @@ export async function PATCH(
         : ins
     );
 
-    // DBに保存
-    const { error: updateError } = await admin
+    // DBに保存（権限確認済みの会社に限定して更新）
+    const { data: updated, error: updateError } = await admin
       .from('org_alignment_insights')
       .update({
         insights: updatedInsights,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', insightId);
+      .eq('id', insightId)
+      .eq('company_id', companyId)
+      .select('id');
 
     if (updateError) {
       throw updateError;
+    }
+
+    if (!updated || updated.length === 0) {
+      return json({ error: 'Insight not found' }, 404);
     }
 
     console.log(
