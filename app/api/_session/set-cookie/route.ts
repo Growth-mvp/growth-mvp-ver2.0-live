@@ -5,6 +5,8 @@ export const runtime = 'nodejs';
 
 import { NextResponse } from 'next/server';
 import { getAuthenticatedUserIdWithVerification } from '@/lib/authUtils';
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { isValidUUID } from '@/lib/utils/isValidUUID';
 
 type Body = {
   name: string;
@@ -44,6 +46,21 @@ export async function POST(req: Request) {
     // cookie 名がホワイトリストに含まれているか確認
     if (!ALLOWED_COOKIE_NAMES.has(name)) {
       return NextResponse.json({ error: 'cookie_name_not_allowed' }, { status: 403 });
+    }
+
+    if (name === 'company_id') {
+      if (!isValidUUID(value)) {
+        return NextResponse.json({ error: 'company_id_invalid' }, { status: 400 });
+      }
+      const { data } = await getSupabaseAdmin()
+        .from('company_members')
+        .select('company_id')
+        .eq('company_id', value)
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (!data?.company_id) {
+        return NextResponse.json({ error: 'company_not_found' }, { status: 403 });
+      }
     }
 
     const res = NextResponse.json({ ok: true });
