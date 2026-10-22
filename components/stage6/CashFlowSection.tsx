@@ -130,6 +130,89 @@ export function RatioCell({ label, term, cell }: { label: string; term?: string;
   );
 }
 
+const signedMil = (v: number) => `${v > 0 ? '＋' : v < 0 ? '△' : ''}${fmtMil(Math.abs(v))}`;
+
+function WorkingCapitalBreakdownPanel({ plan }: { plan: CashFlowPlan }) {
+  const year = plan.years.find((y) => y.kind === 'FORECAST');
+  const b = year?.workingCapitalBreakdown;
+  if (!year || !b || year.workingCapitalChange.value === null) {
+    return (
+      <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4 text-sm">
+        <h3 className="font-semibold text-slate-900">初年度に追加で必要な運転資金</h3>
+        <p className="mt-2 text-xs text-amber-800">運転資金の内訳を計算するための情報が不足しています。</p>
+      </section>
+    );
+  }
+  const total = year.workingCapitalChange.value;
+  const salesLabel = b.salesEffectYen < 0 ? '売上の減少による影響' : '売上の増加による影響';
+  const items = [
+    { key: 'ar', primary: 'お客様からの回収待ち', term: '売掛金', data: b.items.ar },
+    { key: 'inventory', primary: '在庫', term: '棚卸資産', data: b.items.inventory },
+    { key: 'ap', primary: '仕入先への支払い', term: '買掛金（増えると資金が増えるため△で表示）', data: b.items.ap },
+  ];
+
+  return (
+    <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4 text-sm">
+      <h3 className="font-semibold text-slate-900">初年度に追加で必要な運転資金</h3>
+      <p className="text-xs text-slate-500">{year.year}年度</p>
+      <p className="mt-2 text-2xl font-bold text-slate-900">
+        {signedMil(total)}
+        <span className="ml-1 text-sm font-normal text-slate-600">百万円</span>
+      </p>
+      {total < 0 && <p className="text-xs font-semibold text-emerald-700">運転資金の減少（資金が増える方向）</p>}
+
+      <dl className="mt-3 space-y-1.5 text-sm">
+        <div className="flex flex-wrap justify-between gap-x-3">
+          <dt className="text-slate-700">{salesLabel}</dt>
+          <dd className="whitespace-nowrap font-medium text-slate-900">{signedMil(b.salesEffectYen)}百万円</dd>
+        </div>
+        <div className="flex flex-wrap justify-between gap-x-3">
+          <dt className="text-slate-700">回収・在庫・支払条件の変更による影響</dt>
+          <dd className="whitespace-nowrap font-medium text-slate-900">{signedMil(b.ratioEffectYen)}百万円</dd>
+        </div>
+      </dl>
+
+      {b.ratioChanged && (
+        <p className="mt-3 text-xs text-slate-700">回収・在庫・支払条件の変更は、計画初年度にまとめて反映されています。</p>
+      )}
+      {b.salesGrowthFromTargetYear && (
+        <p className="mt-1 text-xs text-slate-700">売上目標を初年度に設定しているため、売上増加による影響が初年度に反映されています。</p>
+      )}
+      <p className="mt-2 text-[11px] text-slate-500">
+        {plan.baseYear}年度末の実績と、入力した条件との差額です。条件を据え置くと、条件変更による影響は0になります。
+      </p>
+
+      <details className="mt-3 rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+        <summary className="cursor-pointer text-xs font-semibold text-slate-700">詳しい内訳を見る</summary>
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+          {items.map((item) => (
+            <div key={item.key} className="min-w-0 rounded-lg border border-slate-200 bg-white p-2">
+              <TermLabel primary={item.primary} term={item.term} className="text-slate-900" />
+              <dl className="mt-2 space-y-0.5 text-xs">
+                <div className="flex justify-between gap-2">
+                  <dt className="text-slate-600">売上増減による影響</dt>
+                  <dd className="whitespace-nowrap">{signedMil(item.data.salesEffectYen)}百万円</dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt className="text-slate-600">比率変更による影響</dt>
+                  <dd className="whitespace-nowrap">{signedMil(item.data.ratioEffectYen)}百万円</dd>
+                </div>
+                <div className="flex justify-between gap-2 font-semibold">
+                  <dt>合計</dt>
+                  <dd className="whitespace-nowrap">{signedMil(item.data.salesEffectYen + item.data.ratioEffectYen)}百万円</dd>
+                </div>
+              </dl>
+              <p className="mt-2 text-[11px] leading-snug text-slate-500">
+                実績比率 {fmtPct(item.data.baseRatio)} → 計画比率 {fmtPct(item.data.planRatio)}
+              </p>
+            </div>
+          ))}
+        </div>
+      </details>
+    </section>
+  );
+}
+
 type PanelProps = {
   plan: CashFlowPlan;
   form: CashFlowForm;
@@ -307,6 +390,8 @@ export function CashFlowPanel({ plan, form, setForm }: PanelProps) {
           </tbody>
         </table>
       </div>
+
+      <WorkingCapitalBreakdownPanel plan={plan} />
 
       <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
         <h3 className="text-sm font-semibold text-slate-900">評価保留・未確認事項（キャッシュフロー）</h3>

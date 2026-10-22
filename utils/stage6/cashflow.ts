@@ -46,6 +46,26 @@ export type CashFlowInput = {
   fiscalYearEndSet?: boolean;
 };
 
+export type WcItemBreakdown = {
+  baseBalanceYen: number;
+  baseRatio: number;
+  planRatio: number;
+  salesEffectYen: number;
+  ratioEffectYen: number;
+};
+
+/** 初年度の運転資金増加額の内訳（表示専用）。合計は workingCapitalChange と一致する */
+export type WorkingCapitalBreakdown = {
+  baseRevenueYen: number;
+  planRevenueYen: number;
+  salesEffectYen: number;
+  ratioEffectYen: number;
+  totalYen: number;
+  ratioChanged: boolean;
+  salesGrowthFromTargetYear: boolean;
+  items: { ar: WcItemBreakdown; inventory: WcItemBreakdown; ap: WcItemBreakdown };
+};
+
 export type CfYear = {
   year: number;
   kind: 'ACTUAL' | 'FORECAST';
@@ -76,6 +96,7 @@ export type CfYear = {
   dscr: CfValue;
   verdict: string;
   holds: string[];
+  workingCapitalBreakdown?: WorkingCapitalBreakdown;
 };
 
 export type CashFlowPlan = {
@@ -150,6 +171,46 @@ function verdictOf(args: {
   if (args.dscr === null) return '評価保留';
   if (args.dscr < 1) return '返済原資が元利返済を下回る（DSCR 1倍未満）';
   return '計算上は資金不足・DSCR不足なし（簡易指標。金融機関の審査指標とは異なります）';
+}
+
+function workingCapitalBreakdownOf(args: {
+  baseRevenue: number | null;
+  planRevenue: number | null;
+  base: { ar: number | null; inventory: number | null; ap: number | null };
+  planRatios: { ar: number | null; inventory: number | null; ap: number | null };
+  salesGrowthFromTargetYear: boolean;
+}): WorkingCapitalBreakdown | undefined {
+  const { baseRevenue: S0, planRevenue: S1 } = args;
+  if (S0 === null || S0 <= 0 || S1 === null) return undefined;
+
+  const item = (bal: number | null, r1: number | null, sign: 1 | -1): WcItemBreakdown | undefined => {
+    if (bal === null || r1 === null) return undefined;
+    const r0 = bal / S0;
+    return {
+      baseBalanceYen: bal,
+      baseRatio: r0,
+      planRatio: r1,
+      salesEffectYen: sign * (S1 - S0) * r0,
+      ratioEffectYen: sign * S1 * (r1 - r0),
+    };
+  };
+  const ar = item(args.base.ar, args.planRatios.ar, 1);
+  const inventory = item(args.base.inventory, args.planRatios.inventory, 1);
+  const ap = item(args.base.ap, args.planRatios.ap, -1);
+  if (!ar || !inventory || !ap) return undefined;
+
+  const salesEffectYen = ar.salesEffectYen + inventory.salesEffectYen + ap.salesEffectYen;
+  const ratioEffectYen = ar.ratioEffectYen + inventory.ratioEffectYen + ap.ratioEffectYen;
+  return {
+    baseRevenueYen: S0,
+    planRevenueYen: S1,
+    salesEffectYen,
+    ratioEffectYen,
+    totalYen: salesEffectYen + ratioEffectYen,
+    ratioChanged: [ar, inventory, ap].some((i) => Math.abs(i.planRatio - i.baseRatio) > 1e-12),
+    salesGrowthFromTargetYear: args.salesGrowthFromTargetYear && S1 > S0,
+    items: { ar, inventory, ap },
+  };
 }
 
 export function buildCashFlowPlan(
@@ -521,6 +582,17 @@ export function buildCashFlowPlan(
     for (const m of missing) holds.push(`${m}が不足`);
     if (capexValue === 0 && !yc) holds.push('STAGE4に確定済みの資本的支出の登録なし（通常の設備更新は未反映）');
 
+    const breakdown =
+      step === 1 && wcChange !== null
+        ? workingCapitalBreakdownOf({
+            baseRevenue: rev0,
+            planRevenue: revValue,
+            base: { ar: ar0, inventory: inv0, ap: ap0 },
+            planRatios: { ar: arR.value, inventory: invR.value, ap: apR.value },
+            salesGrowthFromTargetYear: targetYear === t && a.targetRevenueYen !== null,
+          })
+        : undefined;
+
     years.push({
       year: t,
       kind: 'FORECAST',
@@ -552,6 +624,7 @@ export function buildCashFlowPlan(
       dscr,
       verdict,
       holds: [...new Set(holds)],
+      ...(breakdown ? { workingCapitalBreakdown: breakdown } : {}),
     });
 
     prevChain = chainClosing;

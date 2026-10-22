@@ -314,3 +314,135 @@ describe('既存STAGE6計算への非干渉と分離', () => {
     expect(plan.baseYear).toBe(2025);
   });
 });
+
+describe('初年度運転資金増加額の内訳（表示専用）', () => {
+  const firstForecast = (plan: ReturnType<typeof buildCashFlowPlan>) => {
+    const y = plan.years.find((r) => r.kind === 'FORECAST');
+    if (!y) throw new Error('no forecast year');
+    return y;
+  };
+  const breakdownOf = (plan: ReturnType<typeof buildCashFlowPlan>) => {
+    const b = firstForecast(plan).workingCapitalBreakdown;
+    if (!b) throw new Error('no breakdown');
+    return b;
+  };
+  const target = (targetYear: number, targetRevenueYen = 1_200_000_000) => ({ targetRevenueYen, targetYear });
+
+  it('1 売上横ばい・比率据置は内訳が0で、比率変更も目標年度の影響もない', () => {
+    const b = breakdownOf(buildCashFlowPlan(input(), NOW));
+    expect(b.salesEffectYen).toBeCloseTo(0, 0);
+    expect(b.ratioEffectYen).toBeCloseTo(0, 0);
+    expect(b.ratioChanged).toBe(false);
+    expect(b.salesGrowthFromTargetYear).toBe(false);
+  });
+
+  it('2 売上増加・比率据置は売上の影響だけが既存の増加額（2,800万円）になる', () => {
+    const b = breakdownOf(buildCashFlowPlan(input({}, target(2026)), NOW));
+    expect(b.salesEffectYen).toBeCloseTo(28_000_000, 0);
+    expect(b.ratioEffectYen).toBeCloseTo(0, 0);
+    expect(b.salesGrowthFromTargetYear).toBe(true);
+  });
+
+  it('3 売上減少・比率据置は売上の影響がマイナスになり、増加とは扱わない', () => {
+    const b = breakdownOf(buildCashFlowPlan(input({}, target(2026, 800_000_000)), NOW));
+    expect(b.salesEffectYen).toBeCloseTo(-28_000_000, 0);
+    expect(b.ratioEffectYen).toBeCloseTo(0, 0);
+    expect(b.salesGrowthFromTargetYear).toBe(false);
+  });
+
+  it('4 売上横ばい・比率変更は比率の影響として品目別に計上される', () => {
+    const b = breakdownOf(buildCashFlowPlan(input({}, { arRatio: 0.2, inventoryRatio: 0.1, apRatio: 0.08 }), NOW));
+    expect(b.salesEffectYen).toBeCloseTo(0, 0);
+    expect(b.items.ar.ratioEffectYen).toBeCloseTo(50_000_000, 0);
+    expect(b.items.inventory.ratioEffectYen).toBeCloseTo(20_000_000, 0);
+    expect(b.items.ap.ratioEffectYen).toBeCloseTo(10_000_000, 0);
+    expect(b.ratioEffectYen).toBeCloseTo(80_000_000, 0);
+    expect(b.ratioChanged).toBe(true);
+  });
+
+  it('5 売上増加・比率変更は売上の影響と比率の影響を分けて合計する', () => {
+    const plan = buildCashFlowPlan(input({}, { ...target(2026), arRatio: 0.2 }), NOW);
+    const b = breakdownOf(plan);
+    expect(b.salesEffectYen).toBeCloseTo(28_000_000, 0);
+    expect(b.ratioEffectYen).toBeCloseTo(60_000_000, 0);
+    expect(b.totalYen).toBeCloseTo(firstForecast(plan).workingCapitalChange.value as number, 0);
+  });
+
+  it('6 買掛比率を上げるとマイナス（資金の増加）として表示される', () => {
+    const b = breakdownOf(buildCashFlowPlan(input({}, { apRatio: 0.5 }), NOW));
+    expect(b.items.ap.ratioEffectYen).toBeCloseTo(-410_000_000, 0);
+    expect(b.ratioEffectYen).toBeCloseTo(-410_000_000, 0);
+    expect(b.totalYen).toBeCloseTo(-410_000_000, 0);
+  });
+
+  it('7 実績の運転資金比率がマイナスでも、分解式どおりに売上の影響を計算する', () => {
+    const bs = [baseBS[0], { year: 2025, cash: 300_000_000, ar: 150_000_000, inventory: 80_000_000, ap: 300_000_000 }];
+    const plan = buildCashFlowPlan(input({ financeBS: bs }, target(2026)), NOW);
+    const b = breakdownOf(plan);
+    const combined = b.items.ar.baseRatio + b.items.inventory.baseRatio - b.items.ap.baseRatio;
+    expect(combined).toBeCloseTo(-0.07, 6);
+    expect(b.salesEffectYen).toBeCloseTo(-14_000_000, 0);
+    expect(b.totalYen).toBeCloseTo(firstForecast(plan).workingCapitalChange.value as number, 0);
+  });
+
+  it('8 初年度売上0は計算上の値をそのまま示し、運転資金の全額が解消される内訳になる', () => {
+    const plan = buildCashFlowPlan(input({}, target(2026, 0)), NOW);
+    const b = breakdownOf(plan);
+    expect(b.planRevenueYen).toBe(0);
+    expect(b.salesEffectYen).toBeCloseTo(-140_000_000, 0);
+    expect(b.totalYen).toBeCloseTo(firstForecast(plan).workingCapitalChange.value as number, 0);
+  });
+
+  it('9 基準BSの項目が未入力なら内訳を出さず、明示的な0は内訳として扱う', () => {
+    const missing = [baseBS[0], { year: 2025, cash: 300_000_000, inventory: 80_000_000, ap: 90_000_000 }];
+    expect(firstForecast(buildCashFlowPlan(input({ financeBS: missing }), NOW)).workingCapitalBreakdown).toBeUndefined();
+
+    const zero = [baseBS[0], { year: 2025, cash: 300_000_000, ar: 0, inventory: 80_000_000, ap: 90_000_000 }];
+    const b = breakdownOf(buildCashFlowPlan(input({ financeBS: zero }), NOW));
+    expect(b.items.ar.baseBalanceYen).toBe(0);
+    expect(b.items.ar.baseRatio).toBe(0);
+  });
+
+  it('10 PLとBSの年度が一致しない、または基準売上が0なら内訳を出さない', () => {
+    expect(firstForecast(buildCashFlowPlan(input({ financeBS: [baseBS[0]] }), NOW)).workingCapitalBreakdown).toBeUndefined();
+    const revenueZero = [basePL[0], { ...basePL[1], revenue: 0 }];
+    expect(firstForecast(buildCashFlowPlan(input({ financePL: revenueZero }), NOW)).workingCapitalBreakdown).toBeUndefined();
+  });
+
+  it('11 内訳の合計は既存の運転資金増加額と一致する', () => {
+    const cases: CfAssumptions[] = [
+      noAssumptions,
+      { ...noAssumptions, ...target(2026) },
+      { ...noAssumptions, ...target(2027) },
+      { ...noAssumptions, ...target(2026, 800_000_000) },
+      { ...noAssumptions, arRatio: 0.2, inventoryRatio: 0.1, apRatio: 0.08 },
+      { ...noAssumptions, ...target(2026), arRatio: 0.2 },
+      { ...noAssumptions, apRatio: 0.5 },
+    ];
+    for (const a of cases) {
+      const plan = buildCashFlowPlan(input({}, a), NOW);
+      const y = firstForecast(plan);
+      expect(breakdownOf(plan).totalYen).toBeCloseTo(y.workingCapitalChange.value as number, 3);
+      expect(breakdownOf(plan).salesEffectYen + breakdownOf(plan).ratioEffectYen).toBeCloseTo(breakdownOf(plan).totalYen, 3);
+    }
+  });
+
+  it('12 内訳を付けても営業CF・FCF・期末現預金は変わらない', () => {
+    const plan = buildCashFlowPlan(input({}, { ...target(2026), arRatio: 0.2 }), NOW);
+    const y = firstForecast(plan);
+    expect(y.netIncome.value).toBeCloseTo(66_500_000, 0);
+    expect(y.operatingCf.value).toBeCloseTo(-1_500_000, 0);
+    expect(y.fcf.value).toBeCloseTo(-1_500_000, 0);
+    expect(y.closingCashBeforeFinancing.value).toBeCloseTo(298_500_000, 0);
+  });
+
+  it('14 会社の計算を交互に行っても、別の会社の内訳が混ざらない', () => {
+    const companyA = () => buildCashFlowPlan(input({}, { ...target(2026), arRatio: 0.2 }), NOW);
+    const companyB = () => buildCashFlowPlan(input({}, { apRatio: 0.5 }), NOW);
+    const a1 = breakdownOf(companyA());
+    const b1 = breakdownOf(companyB());
+    const a2 = breakdownOf(companyA());
+    expect(a2).toEqual(a1);
+    expect(b1.totalYen).toBeCloseTo(-410_000_000, 0);
+  });
+});
