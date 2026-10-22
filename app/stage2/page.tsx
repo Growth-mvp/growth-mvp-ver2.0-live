@@ -8,6 +8,7 @@ import { safeGetSession } from '@/utils/supabase/client';
 import { formatMillion, safeNumber, toMillionYen, inferScaleToMillion, safeRatio, formatPct } from '@/utils/unit';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
+import { buildStage2FinancePayload } from '@/utils/finance/stage2FinancePayload';
 import { useAutoSave } from '@/hooks/useAutoSave';
 // PDF出力は /report/stage2-strategy プレビュー画面で行う
 // PDF出力は /report/stage2-strategy プレビュー画面で行う
@@ -3653,6 +3654,11 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         businessPortfolio,
         // ★ ceoIntent：経営者の意思・原点・譲れない価値観（最終ストーリーに反映）
         ceoIntent,
+        csvFinanceData: buildStage2FinancePayload({
+          requestCompanyId: companyId,
+          storeCompanyId: useStrategyStore.getState().companyId,
+          financePL: useStrategyStore.getState().financePL,
+        }),
         // ★ strategyDataId を必須で送信（API側で strategyId + companyId の二重チェックのため）
         strategyDataId: strategyId,
         companyId,

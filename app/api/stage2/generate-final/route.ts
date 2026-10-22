@@ -226,6 +226,7 @@ type FinanceSummary = {
   rowsUsed: number;
   latestYear?: number;
   latestSales?: number;
+  latestOpProfit?: number;
   latestOpMargin?: number | null;
   revCagrPct?: number | null;
   trend?: Trend;
@@ -245,7 +246,7 @@ function buildFinanceSummary(csvFinanceData: unknown): FinanceSummary | null {
       if (opMargin == null && opProfit != null && sales != null && sales !== 0) {
         opMargin = (opProfit / sales) * 100;
       }
-      return { year, sales, opMargin };
+      return { year, sales, opProfit, opMargin };
     })
     .filter((x) => x.year != null || x.sales != null);
 
@@ -284,6 +285,7 @@ function buildFinanceSummary(csvFinanceData: unknown): FinanceSummary | null {
     rowsUsed: arr.length,
     latestYear: latest.year ?? undefined,
     latestSales: latest.sales ?? undefined,
+    latestOpProfit: latest.opProfit ?? undefined,
     latestOpMargin: latest.opMargin ?? null,
     revCagrPct,
     trend,
@@ -1675,7 +1677,9 @@ export async function POST(req: NextRequest) {
         ? {
             year: fin.latestYear,
             sales: fin.latestSales,
-            sales_unit: '百万円',
+            sales_unit: fin.latestSales == null ? undefined : '百万円',
+            operating_profit: fin.latestOpProfit,
+            operating_profit_unit: fin.latestOpProfit == null ? undefined : '百万円',
             opm: fin.latestOpMargin,
             rev_cagr: fin.revCagrPct,
             trend: fin.trend,

@@ -236,4 +236,46 @@ describe('単位なしの財務列は円として百万円へ換算してAIへ�
     expect((await runFinanceSummary([{ year: 2024, '売上高': 0 }])).sales).toBe(0);
     expect((await runFinanceSummary([{ year: 2024, '売上高': null }])).sales).toBeNull();
   });
+
+  it('STAGE2の送信形式（円の明示列）: 売上12億円・営業利益1億円は 売上1200百万円・営業利益率8.33% になる', async () => {
+    const r = await runFinanceSummary([{ year: 2024, '売上高(円)': 1_200_000_000, '営業利益(円)': 100_000_000 }]);
+    expect(r.sales).toBe(1200);
+    expect(r.opm).toBeCloseTo(8.3333, 3);
+    expect(await promptTextWith([{ year: 2024, '売上高(円)': 1_200_000_000, '営業利益(円)': 100_000_000 }])).toContain('"sales":1200,"sales_unit":"百万円"');
+  });
+
+  it('STAGE2の送信形式（円の明示列）: 営業利益50万円は 営業利益率0.0417% になる', async () => {
+    const r = await runFinanceSummary([{ year: 2024, '売上高(円)': 1_200_000_000, '営業利益(円)': 500_000 }]);
+    expect(r.opm).toBeCloseTo(0.0417, 4);
+  });
+
+  it('STAGE2の送信形式: 欠損は金額にせず、明示された0は0として渡す', async () => {
+    expect(await runFinanceSummary([{ year: 2024 }])).toEqual({ sales: null, opm: null });
+    expect((await runFinanceSummary([{ year: 2024, '売上高(円)': 0 }])).sales).toBe(0);
+  });
+
+  it('STAGE2の送信形式: 財務情報がなければ財務行を渡さない', async () => {
+    expect(await runFinanceSummary(undefined)).toEqual({ sales: null, opm: null });
+  });
+
+  it('STAGE2の送信形式: 営業利益1億円は 100百万円の金額として、単位つきでAIへ渡す', async () => {
+    expect(await promptTextWith([{ year: 2024, '売上高(円)': 1_200_000_000, '営業利益(円)': 100_000_000 }])).toContain('"operating_profit":100,"operating_profit_unit":"百万円"');
+  });
+
+  it('STAGE2の送信形式: 営業利益50万円は 0.5百万円として渡す（円→百万円の明示換算）', async () => {
+    expect(await promptTextWith([{ year: 2024, '売上高(円)': 1_200_000_000, '営業利益(円)': 500_000 }])).toContain('"operating_profit":0.5,"operating_profit_unit":"百万円"');
+  });
+
+  it('STAGE2の送信形式: 営業利益の明示的0は0として渡し、欠損は金額も単位も出さない', async () => {
+    expect(await promptTextWith([{ year: 2024, '売上高(円)': 1_200_000_000, '営業利益(円)': 0 }])).toContain('"operating_profit":0,"operating_profit_unit":"百万円"');
+    const missing = await promptTextWith([{ year: 2024, '売上高(円)': 1_200_000_000 }]);
+    expect(missing).not.toContain('"operating_profit"');
+    expect(missing).not.toContain('"operating_profit_unit"');
+  });
+
+  it('STAGE2の送信形式: 財務情報がなければ、売上・営業利益の単位も出さない', async () => {
+    const text = await promptTextWith(undefined);
+    expect(text).not.toContain('"sales_unit"');
+    expect(text).not.toContain('"operating_profit_unit"');
+  });
 });
