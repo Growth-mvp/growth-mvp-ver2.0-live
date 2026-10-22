@@ -1108,4 +1108,174 @@ describe('旧財務データ（版数なし）の年度別保存（未更新年�
 
     expect(payload).not.toHaveProperty('financePL');
   });
+
+  describe('欠損値の保護（旧年度の欠損項目を0円にしない）', () => {
+    type PLRow = { year: number; revenue?: number; operatingIncome?: number; cogs?: number; sga?: number; grossProfit?: number | null };
+    const GAP_PL = [
+      { year: 2024, revenue: 500_000, cogs: 300_000 },
+      { year: 2025, revenue: 300, operatingIncome: 20_000, sga: 0 },
+      { year: 2026, revenue: 2_000_000, grossProfit: null },
+      { year: 2027, operatingIncome: 5_000 },
+    ];
+    const at = (rows: PLRow[], year: number) => rows.find((r) => r.year === year) as PLRow;
+    const screenYear = (year: number) => at(store().financePL as PLRow[], year);
+    const dbYear = (year: number) => at(dbRows[COMPANY_A].finance_pl, year);
+
+    beforeEach(() => {
+      dbRows[COMPANY_A] = {
+        company_id: COMPANY_A,
+        revision: 1,
+        finance_pl: JSON.parse(JSON.stringify(GAP_PL)),
+        csv_finance_data: {},
+      };
+    });
+
+    it('読込直後の表示でも、欠損項目は0円にならず欠損のまま、null は null のまま', async () => {
+      await loadAs(COMPANY_A);
+      expect(screenYear(2024)).not.toHaveProperty('operatingIncome');
+      expect(screenYear(2024)).not.toHaveProperty('sga');
+      expect(screenYear(2024)).not.toHaveProperty('grossProfit');
+      expect(screenYear(2026).grossProfit).toBeNull();
+      expect(screenYear(2027)).not.toHaveProperty('revenue');
+    });
+
+    it('欠損した売上高・営業利益・売上原価・販管費・売上総利益は、年度を円確定しても0円として保存されない', async () => {
+      await loadAs(COMPANY_A);
+      const rows = JSON.parse(JSON.stringify(store().financePL));
+      at(rows, 2024).revenue = 600_000_000_000;
+      at(rows, 2024).cogs = 400_000_000_000;
+      store().setFinancePL(rows);
+      expect(store().financeUnitConfirmed?.pl).toContain(2024);
+
+      await saveAndPersist();
+
+      expect(dbYear(2024)).toStrictEqual({ year: 2024, revenue: 600_000_000_000, cogs: 400_000_000_000 });
+    });
+
+    it('欠損のある売上高だけの年度（2027年）を営業利益で確定しても、売上高は欠損のまま保存される', async () => {
+      await loadAs(COMPANY_A);
+      const rows = JSON.parse(JSON.stringify(store().financePL));
+      at(rows, 2027).operatingIncome = 9_000_000_000;
+      store().setFinancePL(rows);
+
+      await saveAndPersist();
+
+      expect(dbYear(2027)).toStrictEqual({ year: 2027, operatingIncome: 9_000_000_000 });
+    });
+
+    it('利用者が明示的に入力した0円は0円として保存する', async () => {
+      await loadAs(COMPANY_A);
+      const rows = JSON.parse(JSON.stringify(store().financePL));
+      at(rows, 2024).revenue = 600_000_000_000;
+      at(rows, 2024).cogs = 400_000_000_000;
+      at(rows, 2024).operatingIncome = 0;
+      store().setFinancePL(rows);
+
+      await saveAndPersist();
+
+      expect(dbYear(2024)).toStrictEqual({ year: 2024, revenue: 600_000_000_000, cogs: 400_000_000_000, operatingIncome: 0 });
+    });
+
+    it('未編集の旧年度は、他の年度を確定・保存しても、数値も欠損状態も保存前と同じ', async () => {
+      await loadAs(COMPANY_A);
+      const rows = JSON.parse(JSON.stringify(store().financePL));
+      at(rows, 2024).revenue = 600_000_000_000;
+      at(rows, 2024).cogs = 400_000_000_000;
+      store().setFinancePL(rows);
+
+      await saveAndPersist();
+
+      expect(dbYear(2025)).toStrictEqual(GAP_PL[1]);
+      expect(dbYear(2026)).toStrictEqual(GAP_PL[2]);
+      expect(dbYear(2027)).toStrictEqual(GAP_PL[3]);
+    });
+
+    it('旧年度の一部項目だけの編集は差し戻され、保存値も欠損状態も変わらない', async () => {
+      await loadAs(COMPANY_A);
+      const rows = JSON.parse(JSON.stringify(store().financePL));
+      at(rows, 2024).revenue = 700_000_000_000;
+      store().setFinancePL(rows);
+
+      expect(store().saveError).toBeTruthy();
+      expect(screenYear(2024).revenue).toBe(500_000_000_000);
+
+      await saveAndPersist();
+      expect(dbYear(2024)).toStrictEqual(GAP_PL[0]);
+    });
+
+    it('保存を繰り返しても、欠損のある旧年度のDB値は変わらない', async () => {
+      await loadAs(COMPANY_A);
+      await saveAndPersist();
+      await saveAndPersist();
+      expect(dbRows[COMPANY_A].finance_pl).toStrictEqual(GAP_PL);
+    });
+
+    it('確定した年度でも、null の欠損はnullのまま保存され、0円にならない', async () => {
+      await loadAs(COMPANY_A);
+      const rows = JSON.parse(JSON.stringify(store().financePL));
+      at(rows, 2026).revenue = 2_100_000;
+      store().setFinancePL(rows);
+      expect(store().financeUnitConfirmed?.pl).toContain(2026);
+
+      await saveAndPersist();
+
+      expect(dbYear(2026)).toStrictEqual({ year: 2026, revenue: 2_100_000, grossProfit: null });
+    });
+
+    it('全体保存（手動の全体保存と同じ理由）でも、欠損の旧年度は0円にならず、未編集年度は保存前と同じ', async () => {
+      await loadAs(COMPANY_A);
+      const rows = JSON.parse(JSON.stringify(store().financePL));
+      at(rows, 2024).revenue = 600_000_000_000;
+      at(rows, 2024).cogs = 400_000_000_000;
+      store().setFinancePL(rows);
+
+      const before = mockSaveWithAudit.mock.calls.length;
+      await store().saveStrategyData({ force: true, reason: 'manual-save-button' });
+      const calls = mockSaveWithAudit.mock.calls.slice(before) as [unknown, unknown, string][];
+      const [payload, , companyId] = calls[calls.length - 1];
+      writeToDb(companyId, payload);
+
+      expect(dbYear(2024)).toStrictEqual({ year: 2024, revenue: 600_000_000_000, cogs: 400_000_000_000 });
+      expect(dbYear(2025)).toStrictEqual(GAP_PL[1]);
+      expect(dbYear(2026)).toStrictEqual(GAP_PL[2]);
+    });
+
+    it('会社を切り替えて戻っても、旧年度の欠損は0円にならず、別会社の年度は混ざらない', async () => {
+      dbRows[COMPANY_B] = {
+        company_id: COMPANY_B,
+        revision: 1,
+        finance_pl: [{ year: 2024, revenue: 9_000_000_000 }],
+        csv_finance_data: { financeUnitConfirmed: { pl: [2024] } },
+      };
+      await loadAs(COMPANY_A);
+      const rows = JSON.parse(JSON.stringify(store().financePL));
+      at(rows, 2024).revenue = 600_000_000_000;
+      at(rows, 2024).cogs = 400_000_000_000;
+      store().setFinancePL(rows);
+      await saveAndPersist();
+
+      await loadAs(COMPANY_B);
+      expect((store().financePL as PLRow[]).map((r) => r.year)).toEqual([2024]);
+      expect(screenYear(2024)).toStrictEqual({ year: 2024, revenue: 9_000_000_000 });
+
+      await loadAs(COMPANY_A);
+      expect(screenYear(2024)).toStrictEqual({ year: 2024, revenue: 600_000_000_000, cogs: 400_000_000_000 });
+      expect(screenYear(2026)).not.toHaveProperty('operatingIncome');
+      expect(dbYear(2027)).toStrictEqual(GAP_PL[3]);
+    });
+
+    it('確定した年度を再読込しても、欠損は0円として表示されない', async () => {
+      await loadAs(COMPANY_A);
+      const rows = JSON.parse(JSON.stringify(store().financePL));
+      at(rows, 2024).revenue = 600_000_000_000;
+      at(rows, 2024).cogs = 400_000_000_000;
+      store().setFinancePL(rows);
+      await saveAndPersist();
+
+      resetStoreAsFreshPage();
+      await loadAs(COMPANY_A);
+
+      expect(screenYear(2024)).toStrictEqual({ year: 2024, revenue: 600_000_000_000, cogs: 400_000_000_000 });
+    });
+  });
 });

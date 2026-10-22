@@ -149,3 +149,47 @@ describe('セグメントの確定（セグメントIDごと）', () => {
     expect(meta.financeUnitConfirmed).toEqual({ segmentPL: ['seg-a'] });
   });
 });
+
+describe('旧年度の読込で欠損項目を0円に補完しない', () => {
+  const legacyState = (row: Record<string, unknown>) =>
+    buildStateFromDbRow({ finance_pl: [{ year: 2025, ...row }], csv_finance_data: {} }) as any;
+
+  it.each(['revenue', 'operatingIncome', 'cogs', 'sga', 'grossProfit'])(
+    '欠損した %s はキーのまま欠損として残る',
+    (field) => {
+      const row: Record<string, unknown> = { revenue: 500_000, operatingIncome: 20_000, cogs: 300_000, sga: 40_000, grossProfit: 60_000 };
+      delete row[field];
+      const pl = legacyState(row).financePL[0];
+      expect(pl).not.toHaveProperty(field);
+    },
+  );
+
+  it('null は0円に変えず null のまま残す', () => {
+    const pl = legacyState({ revenue: 500_000, grossProfit: null }).financePL[0];
+    expect(pl.grossProfit).toBeNull();
+  });
+
+  it('明示的な0円は0円のまま残す', () => {
+    const pl = legacyState({ revenue: 500_000, operatingIncome: 0 }).financePL[0];
+    expect(pl.operatingIncome).toBe(0);
+  });
+
+  it('100万円未満の値は従来どおり換算し、100万円以上の値は変えない', () => {
+    const pl = legacyState({ revenue: 300, operatingIncome: 2_000_000 }).financePL[0];
+    expect(pl.revenue).toBe(300_000_000);
+    expect(pl.operatingIncome).toBe(2_000_000);
+  });
+
+  it('数値として保存された文字列は従来どおり数値に換算する', () => {
+    const pl = legacyState({ revenue: '2000' }).financePL[0];
+    expect(pl.revenue).toBe(2_000_000_000);
+  });
+
+  it('円確認済みの年度では欠損は欠損のまま、値も変えない', () => {
+    const state = buildStateFromDbRow({
+      finance_pl: [{ year: 2025, revenue: 500_000, cogs: 300_000 }],
+      csv_finance_data: { financeUnitConfirmed: { pl: [2025] } },
+    }) as any;
+    expect(state.financePL[0]).toStrictEqual({ year: 2025, revenue: 500_000, cogs: 300_000 });
+  });
+});

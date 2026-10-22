@@ -980,7 +980,18 @@ function buildSavePayload(s: StrategyState) {
   if (Array.isArray(s.financeSummary)) base.financeSummary = s.financeSummary;
   if (s.simulationResult !== undefined) base.simulationResult = s.simulationResult;
 
-  return pruneUndefinedDeep(base);
+  const savedPayload = pruneUndefinedDeep(base);
+  // 会社PLは null を欠損の状態として保持する（他の項目と同じ削除をすると、保存で欠損の状態が変わる）
+  if (plForSave) {
+    savedPayload.financePL = plForSave.rows.map((row) =>
+      Object.fromEntries(
+        Object.entries(row).filter(([, v]) => v !== undefined && (v as unknown) !== ''),
+      ),
+    );
+  } else {
+    delete savedPayload.financePL;
+  }
+  return savedPayload;
 }
 
 /**

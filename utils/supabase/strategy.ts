@@ -746,19 +746,18 @@ export function buildFinanceCsvUnitMeta(
   return meta;
 }
 
-/** 版数なしの旧データの会社PLを、読込時に円へ救済換算する（保存値は変えない） */
-function convertLegacyFinancePLRow(row: any): any {
-  const revenue = row.revenue ?? 0;
-  const operatingIncome = row.operatingIncome ?? 0;
-  const toYenIfMillion = (v: number) => (v > 0 && v < 1_000_000 ? v * 1_000_000 : v);
-  return {
-    ...row,
-    revenue: toYenIfMillion(revenue),
-    operatingIncome: toYenIfMillion(operatingIncome),
-    cogs: toYenIfMillion(row.cogs ?? 0),
-    sga: toYenIfMillion(row.sga ?? 0),
-    grossProfit: toYenIfMillion(row.grossProfit ?? 0),
-  };
+const LEGACY_CONVERTIBLE_PL_FIELDS = ['revenue', 'operatingIncome', 'cogs', 'sga', 'grossProfit'] as const;
+
+/** 版数なしの旧データの会社PLを、読込時に円へ救済換算する（保存値は変えない）。欠損・null は0に補完せずそのまま残す */
+function convertLegacyFinancePLRow(row: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...row };
+  for (const key of LEGACY_CONVERTIBLE_PL_FIELDS) {
+    const v = row[key];
+    if (v === undefined || v === null) continue;
+    const n = Number(v);
+    if (n > 0 && n < 1_000_000) out[key] = n * 1_000_000;
+  }
+  return out;
 }
 
 export function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
