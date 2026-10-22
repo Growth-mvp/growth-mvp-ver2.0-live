@@ -48,7 +48,7 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.08 }}
               className="mt-2 text-[15px] font-semibold tracking-[0.06em] text-neutral-800 sm:text-[17px] lg:text-[20px] xl:dark:text-neutral-100"
             >
-            GROWTH SHIFT｜経営戦略をつくり、組織を動かし、実現につなぐ仕組み
+            GROWTH SHIFT｜経営戦略をつくり、組織を動かし、成果につなぐ仕組み
             </motion.div>
 
             <motion.p
