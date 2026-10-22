@@ -169,3 +169,47 @@ describe('generate-final-story: 売上高(万円)の百万円換算', () => {
     });
   });
 });
+
+describe('単位なしの財務列は円として百万円へ換算してAIへ渡す（GROWTH SHIFTの円統一データ）', () => {
+  beforeEach(() => {
+    (getAuthUserIdFromBearer as jest.Mock).mockResolvedValue(USER);
+    (requireMembership as jest.Mock).mockResolvedValue({ companyId: COMPANY, role: 'admin', userId: USER });
+  });
+
+  async function promptTextWith(csvFinanceData: unknown): Promise<string> {
+    mockCreate.mockReset();
+    mockCreate.mockRejectedValue(new Error('stop after prompt capture'));
+    const req = new NextRequest('http://localhost/api/x', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer t' },
+      body: JSON.stringify({
+        strategyDataId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        industry: '製造業',
+        revenue: 100,
+        employees: 50,
+        csvFinanceData,
+        mvv: { thought: '思い', mission: 'ミッション', vision: 'ビジョン', value: '価値' },
+        swot: { strength: '強み', weakness: '弱み', opportunity: '機会', threat: '脅威' },
+      }),
+    });
+    await POST(req);
+    return mockCreate.mock.calls
+      .map((c) => (c[0] as { messages: Array<{ content?: unknown }> }).messages.map((m) => String(m.content ?? '')).join('\n'))
+      .join('\n');
+  }
+
+  it('円単位の売上12億円（単位なし列）は 1200 としてAIへ渡され、JSON に単位「百万円」が付く', async () => {
+    expect((await runFinanceSummary([{ year: 2024, '売上高': 1_200_000_000 }])).sales).toBe(1200);
+    expect(await promptTextWith([{ year: 2024, '売上高': 1_200_000_000 }])).toContain('"sales":1200,"sales_unit":"百万円"');
+  });
+
+  it('円単位の営業利益50万円（単位なし列）は 0.5 百万円として営業利益率に使われる（売上12億円なら約0.0417%）', async () => {
+    const r = await runFinanceSummary([{ year: 2024, '売上高': 1_200_000_000, '営業利益': 500_000 }]);
+    expect(r.opm).toBeCloseTo(0.0417, 4);
+  });
+
+  it('売上0円は 0 として渡し、欠損は金額にしない', async () => {
+    expect((await runFinanceSummary([{ year: 2024, '売上高': 0 }])).sales).toBe(0);
+    expect((await runFinanceSummary([{ year: 2024, '売上高': null }])).sales).toBeNull();
+  });
+});

@@ -857,7 +857,7 @@ function heuristicFinal(
   const header = `業種=${industryJp || '—'}／売上=${revenue ? `${revenue}百万円` : '—'}／人数=${employees ? `${employees}人` : '—'}`;
   const finLine =
     finMini
-      ? `（財務）最新年度=${finMini.year ?? '—'}／売上=${finMini.sales ?? '—'}／営業利益率=${finMini.opm ?? '—'}％／CAGR=${finMini.rev_cagr == null ? '—' : `${(finMini.rev_cagr as number).toFixed(1)}％`}／トレンド=${finMini.trend ?? '—'}`
+      ? `（財務）最新年度=${finMini.year ?? '—'}／売上=${finMini.sales == null ? '—' : `${finMini.sales}百万円`}／営業利益率=${finMini.opm ?? '—'}％／CAGR=${finMini.rev_cagr == null ? '—' : `${(finMini.rev_cagr as number).toFixed(1)}％`}／トレンド=${finMini.trend ?? '—'}`
       : '（財務）—';
 
   const pat = patterns.length ? `【勝ちパターン】${patterns.join(', ')}` : '【勝ちパターン】—';
@@ -1087,6 +1087,7 @@ export async function POST(req: NextRequest) {
         ? {
             year: fin.latestYear,
             sales: fin.latestSales,
+            sales_unit: '百万円',
             opm: fin.latestOpMargin,
             rev_cagr: fin.revCagrPct,
             trend: fin.trend,

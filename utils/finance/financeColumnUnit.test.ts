@@ -73,4 +73,15 @@ describe('列名の単位判定（数値の大きさでは判定しない）', (
     expect(toMillion(5, 'million_yen')).toBe(5);
     expect(toMillion(12.345, 'million_yen')).toBe(12.345);
   });
+  it('単位なしの列は円として百万円へ換算する（GROWTH SHIFTの円統一データ）', () => {
+    expect(toMillion(1_200_000_000, 'unitless')).toBe(1200);
+    expect(selectMoneyInMillion(findMoneyColumns({ '売上高': 1_200_000_000 }, FINANCE_SALES_COLUMN_BASES))).toEqual({ valueMillion: 1200, unit: 'unitless', key: '売上高' });
+    expect(selectMoneyInMillion(findMoneyColumns({ '営業利益': 500_000 }, FINANCE_OPERATING_PROFIT_COLUMN_BASES))?.valueMillion).toBe(0.5);
+    expect(selectMoneyInMillion(findMoneyColumns({ '売上高(円)': 1_200_000_000 }, FINANCE_SALES_COLUMN_BASES))?.valueMillion).toBe(1200);
+  });
+
+  it('単位なしの0円は0として残し、欠損は金額にしない', () => {
+    expect(selectMoneyInMillion(findMoneyColumns({ '売上高': 0 }, FINANCE_SALES_COLUMN_BASES))?.valueMillion).toBe(0);
+    expect(selectMoneyInMillion(findMoneyColumns({ '売上高': null }, FINANCE_SALES_COLUMN_BASES))).toBeNull();
+  });
 });

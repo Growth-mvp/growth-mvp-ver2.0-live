@@ -7,7 +7,7 @@ export type ColumnMoneyUnit = 'million_yen' | 'thousand_yen' | 'man_yen' | 'yen'
 
 export type MoneyColumn = { unit: ColumnMoneyUnit; value: number; key: string };
 
-/** 単位表記のない列（従来どおり百万円として扱う） */
+/** 単位表記のない列。GROWTH SHIFTの財務データは円に統一されているため、円として換算する */
 const SUFFIX_UNITS: Record<string, ColumnMoneyUnit> = {
   百万円: 'million_yen',
   千円: 'thousand_yen',
@@ -71,12 +71,12 @@ export function findMoneyColumns(row: Record<string, unknown>, bases: readonly s
 export function toMillion(value: number, unit: ColumnMoneyUnit): number {
   switch (unit) {
     case 'million_yen':
-    case 'unitless':
       return value;
     case 'thousand_yen':
       return value / 1_000;
     case 'man_yen':
       return value / 100;
+    case 'unitless':
     case 'yen':
       return value / 1_000_000;
   }
