@@ -6,13 +6,10 @@ import {
   formatSegmentMoneyForPrompt,
   formatYenForPrompt,
   hasFinancePLYearIssue,
-  isSameFinanceRow,
   nonYenUnitInSheetText,
   nonYenUnitOfLabel,
   nonYenUnitsBySource,
   normalizeConfirmedSegmentIds,
-  partiallyUpdatedLegacyYears,
-  plYearConfirmedPredicate,
   pruneConfirmedSegmentIds,
   rekeySegmentRecord,
   sourcesWithoutUnitNotation,
@@ -24,37 +21,6 @@ describe('会社PLの年度判定', () => {
     expect(hasFinancePLYearIssue([{ year: 2024 }, { year: 2024 }])).toBe(true);
     expect(hasFinancePLYearIssue([{ year: 2024 }, {}])).toBe(true);
     expect(hasFinancePLYearIssue([{ year: '2024' }, { year: 2024 }])).toBe(true);
-  });
-
-  it('円で確定した年度の一覧だけを確定とみなし、一覧が無い旧データは全年度を未確定とみなす', () => {
-    const perYear = plYearConfirmedPredicate({ financeUnitConfirmed: { pl: [2026] } });
-    expect(perYear(2026)).toBe(true);
-    expect(perYear(2025)).toBe(false);
-    expect(plYearConfirmedPredicate({})(2025)).toBe(false);
-  });
-
-  it('行の値の比較は値で行う', () => {
-    expect(isSameFinanceRow({ year: 2024, revenue: 1 }, { year: 2024, revenue: 1 })).toBe(true);
-    expect(isSameFinanceRow({ year: 2024, revenue: 1 }, { year: 2024, revenue: 2 })).toBe(false);
-  });
-});
-
-describe('旧年度の一部更新の判定（未変更の項目を換算値で書き換えない）', () => {
-  const legacy = [{ year: 2024, revenue: 500_000, operatingIncome: 20_000 }];
-  const prev = [{ year: 2024, revenue: 500_000_000_000, operatingIncome: 20_000_000_000, cogs: 0 }];
-
-  it('旧年度の項目の一部だけが変わった場合は、その年度を返す', () => {
-    const next = [{ ...prev[0], revenue: 600_000_000_000 }];
-    expect(partiallyUpdatedLegacyYears(next, prev, legacy)).toEqual([2024]);
-  });
-
-  it('旧年度の必要項目をすべて変えた場合は、部分更新として扱わない', () => {
-    const next = [{ ...prev[0], revenue: 600_000, operatingIncome: 30_000, cogs: 0 }];
-    expect(partiallyUpdatedLegacyYears(next, prev, legacy)).toEqual([]);
-  });
-
-  it('変わっていない行は対象にしない', () => {
-    expect(partiallyUpdatedLegacyYears(prev, prev, legacy)).toEqual([]);
   });
 });
 

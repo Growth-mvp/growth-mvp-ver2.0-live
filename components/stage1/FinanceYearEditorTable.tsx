@@ -18,8 +18,8 @@ type Selection = { table: 'pl' | 'bs'; start: CellPos; end: CellPos } | null;
  * =============================== */
 type SnapshotState = {
   financePL: FinancePLRow[];
-  /** 会社PLの換算前の行と確定年度。表示値だけを戻すと未確定の年度が円として確定されるため一緒に保存する */
-  financePLState: { legacyFinancePLRaw: FinancePLRow[]; confirmedYears: number[] };
+  /** 会社PLの年度の記録。表示値と一緒に戻す */
+  financePLState: { confirmedYears: number[] };
   financeBS: FinanceBSRow[];
   segmentPL?: Record<string, FinancePLRow[]>;
   segmentBS?: Record<string, FinanceBSRow[]>;
@@ -923,7 +923,6 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
   const setFinancePL = useStrategyStore((s: StrategyState) => s.setFinancePL);
   const setFinanceBS = useStrategyStore((s: StrategyState) => s.setFinanceBS);
   const restoreFinancePLState = useStrategyStore((s: StrategyState) => s.restoreFinancePLState);
-  const legacyFinancePLRaw = useStrategyStore((s: StrategyState) => s.legacyFinancePLRaw);
   const financePLConfirmedYears = useStrategyStore((s: StrategyState) => s.financeUnitConfirmed?.pl);
   const addSegmentFinanceYear = useStrategyStore((s: StrategyState) => s.addSegmentFinanceYear);
   const renameSegmentFinanceYear = useStrategyStore((s: StrategyState) => s.renameSegmentFinanceYear);
@@ -1019,10 +1018,9 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
   // ★ Undo/Redo ロジック
   const currentFinancePLState = useCallback(
     () => ({
-      legacyFinancePLRaw: (legacyFinancePLRaw ?? []).map((r) => ({ ...r })),
       confirmedYears: [...(financePLConfirmedYears ?? [])],
     }),
-    [legacyFinancePLRaw, financePLConfirmedYears],
+    [financePLConfirmedYears],
   );
 
   const saveSnapshot = useCallback(() => {
@@ -1060,7 +1058,7 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
 
     // store に反映
     if (mode === 'company') {
-      if (previousSnapshot.financePL.length > 0) restoreFinancePLState({ financePL: previousSnapshot.financePL, legacyFinancePLRaw: previousSnapshot.financePLState.legacyFinancePLRaw, confirmedYears: previousSnapshot.financePLState.confirmedYears });
+      if (previousSnapshot.financePL.length > 0) restoreFinancePLState({ financePL: previousSnapshot.financePL, confirmedYears: previousSnapshot.financePLState.confirmedYears });
       if (previousSnapshot.financeBS.length > 0) setFinanceBS(previousSnapshot.financeBS);
     }
   }, [history, future, mode, storePlData, storeBsData, segmentPL, segmentBS, setFinanceBS, restoreFinancePLState, currentFinancePLState]);
@@ -1084,7 +1082,7 @@ export function FinanceYearEditorTable(props?: FinanceYearEditorTableProps) {
 
     // store に反映
     if (mode === 'company') {
-      if (nextSnapshot.financePL.length > 0) restoreFinancePLState({ financePL: nextSnapshot.financePL, legacyFinancePLRaw: nextSnapshot.financePLState.legacyFinancePLRaw, confirmedYears: nextSnapshot.financePLState.confirmedYears });
+      if (nextSnapshot.financePL.length > 0) restoreFinancePLState({ financePL: nextSnapshot.financePL, confirmedYears: nextSnapshot.financePLState.confirmedYears });
       if (nextSnapshot.financeBS.length > 0) setFinanceBS(nextSnapshot.financeBS);
     }
   }, [history, future, mode, storePlData, storeBsData, segmentPL, segmentBS, setFinanceBS, restoreFinancePLState, currentFinancePLState]);

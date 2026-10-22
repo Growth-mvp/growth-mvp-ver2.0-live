@@ -1641,8 +1641,6 @@ export type StrategyData = {
 
   /** === 財務PL（STAGE1 企業価値分析用） === */
   financePL?: FinancePLRow[];
-  /** 円で確定していない会社PLの読込前の値（保存時に書き戻す。DB には保存しない） */
-  legacyFinancePLRaw?: FinancePLRow[];
   /** データ種別ごとの円確定状態（csv_finance_data に保存） */
   financeUnitConfirmed?: FinanceUnitConfirmed;
 

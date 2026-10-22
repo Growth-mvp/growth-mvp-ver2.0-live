@@ -12,9 +12,7 @@ import { pickFinancePlanForSave } from '@/utils/stage6/financePlanSnapshot';
 import { normalizeFiscalYearEnd } from '@/utils/stage6/fiscalYear';
 import {
   financePLYearKey,
-  hasFinancePLYearIssue,
   normalizeConfirmedSegmentIds,
-  plYearConfirmedPredicate,
   readConfirmedSegmentIds,
   readFinanceBSConfirmed,
   type FinanceUnitConfirmed,
@@ -746,20 +744,6 @@ export function buildFinanceCsvUnitMeta(
   return meta;
 }
 
-const LEGACY_CONVERTIBLE_PL_FIELDS = ['revenue', 'operatingIncome', 'cogs', 'sga', 'grossProfit'] as const;
-
-/** 版数なしの旧データの会社PLを、読込時に円へ救済換算する（保存値は変えない）。欠損・null は0に補完せずそのまま残す */
-function convertLegacyFinancePLRow(row: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...row };
-  for (const key of LEGACY_CONVERTIBLE_PL_FIELDS) {
-    const v = row[key];
-    if (v === undefined || v === null) continue;
-    const n = Number(v);
-    if (n > 0 && n < 1_000_000) out[key] = n * 1_000_000;
-  }
-  return out;
-}
-
 export function buildStateFromDbRow(row: any): StrategyData & { revision?: number } {
   const safeRow = row ?? {};
   const out: any = {};
@@ -849,35 +833,18 @@ export function buildStateFromDbRow(row: any): StrategyData & { revision?: numbe
   out.stage1Issues = ensureArray(out.stage1Issues);  // ★ 修正：stage1Issues を復元
   out.financePL = ensureArray(out.financePL);
 
-  // ★ TASK-B: 既存データの救済（百万円で保存されたデータを yen に変換）
-  // 復元時に financePL の revenue < 1M なら百万円と判定して yen に変換
-  // 背景: レガシーデータは百万円単位で保存、新規は yen 単位。互換性維持のための変換。
-  // 基準: DB の保存単位に基づいた既存の変換処理（TASK-B で定義）に従う
+  // 会社PLは保存値をそのまま使う（桁による換算はしない）。欠損・null・0 は値のまま残す
   const rawFPL = out.financePL as any[];
-  // ★ 削除：金額の before/after ログは診断用のため削除
-
-  // 未確定の年度は換算して表示し、換算前の値を legacyFinancePLRaw に保持する。
-  // 年度の重複・欠落がある場合は更新対象を推測できないため、保持せず保存も止める。
+  out.financePL = rawFPL;
   const csvUnitMeta = unwrapCsvFinanceData(safeRow?.csv_finance_data || {});
-  const isPlYearConfirmed = plYearConfirmedPredicate(csvUnitMeta);
-  const yearIssue = hasFinancePLYearIssue(rawFPL);
-  const legacyRows: any[] = [];
-  out.financePL = rawFPL.map((row: any) => {
-    if (isPlYearConfirmed(financePLYearKey(row))) return row;
-    legacyRows.push(row);
-    return convertLegacyFinancePLRow(row);
-  });
-  out.legacyFinancePLRaw = !yearIssue && legacyRows.length > 0 ? legacyRows : undefined;
   out.financeUnitConfirmed = {
     pl: rawFPL
       .map((row: any) => financePLYearKey(row))
-      .filter((year: number | null): year is number => year !== null && isPlYearConfirmed(year)),
+      .filter((year: number | null): year is number => year !== null),
     bs: readFinanceBSConfirmed(csvUnitMeta),
     segmentPL: readConfirmedSegmentIds(csvUnitMeta, 'segmentPL'),
     segmentBS: readConfirmedSegmentIds(csvUnitMeta, 'segmentBS'),
   };
-
-  // ★ 削除：金額の after ログは診断用のため削除
 
   out.businessSegments = ensureArray(out.businessSegments);
   /* ★ TASK 15-B: STAGE2 フィールドを確実に復元 */

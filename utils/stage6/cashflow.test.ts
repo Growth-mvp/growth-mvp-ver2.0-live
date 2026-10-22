@@ -236,13 +236,23 @@ describe('未入力値とゼロの区別', () => {
 });
 
 describe('単位不一致とPL・BSの年度不一致', () => {
-  it('売上高に対して桁の小さすぎる値があれば、単位不一致の疑いとして全体を評価保留にする', () => {
-    const pl = [{ ...basePL[1], netIncome: 66 }];
+  it('桁の小さい値があれば単位不一致の疑いを警告として返すが、金額の桁だけで評価は保留にしない', () => {
+    const pl = [{ ...basePL[1], interest: 800, depreciation: 200 }];
     const plan = buildCashFlowPlan(input({ financePL: pl }), NOW);
     expect(plan.unitSuspects.length).toBeGreaterThan(0);
-    expect(plan.globalHolds.some((h) => h.includes('単位不一致の疑い'))).toBe(true);
-    expect(yearOf(plan, 2026).fcf.value).toBeNull();
-    expect(yearOf(plan, 2026).revenue.value).toBeNull();
+    expect(plan.globalHolds.some((h) => h.includes('単位不一致'))).toBe(false);
+    expect(yearOf(plan, 2026).revenue.value).not.toBeNull();
+    expect(yearOf(plan, 2026).operatingCf.value).not.toBeNull();
+  });
+
+  it('営業利益50万円は50万円のまま扱い、営業CFなどを計算する', () => {
+    const pl = [{ ...basePL[1], operatingIncome: 500_000, interest: 0, depreciation: 0, tax: 0, netIncome: 0 }];
+    const plan = buildCashFlowPlan(input({ financePL: pl }), NOW);
+    expect(plan.unitSuspects).toEqual([]);
+    const y = yearOf(plan, 2026);
+    expect(y.operatingIncome.value).toBe(500_000);
+    expect(y.netIncome.value).toBeCloseTo(500_000 * (1 - 0.3), 0);
+    expect(y.operatingCf.value).not.toBeNull();
   });
 
   it('同じ桁の値（円）だけなら単位不一致とはしない', () => {

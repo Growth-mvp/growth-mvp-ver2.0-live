@@ -253,6 +253,12 @@ export function CashFlowPanel({ plan, form, setForm }: PanelProps) {
         </div>
       </div>
 
+      {plan.unitSuspects.length > 0 && (
+        <p role="status" className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-xs text-amber-900">
+          金額の桁から単位不一致が疑われる項目があります（計算には使用しています）。ご確認ください：{plan.unitSuspects.join('、')}
+        </p>
+      )}
+
       <details className="mt-4 rounded-xl border border-slate-200 bg-white p-4" open>
         <summary className="cursor-pointer text-sm font-semibold text-slate-900">推計前提（試算条件）</summary>
         <div className="mt-4 grid grid-cols-1 gap-x-4 gap-y-5 text-sm sm:grid-cols-2 md:grid-cols-3">

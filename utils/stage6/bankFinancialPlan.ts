@@ -380,10 +380,9 @@ export function buildBankFinancialPlanBlock(args: {
   const fiscalYearEndSet = computed.fiscalYearEndSet;
   if (!fiscalYearEndSet) reasons.push('決算期が未設定のため、年度別の投資額と返済可能性の判定は保留です');
   if (plan.yearMismatch) reasons.push('PLとBSの基準年度が一致しないため、資金計画は保留です');
-  if (plan.unitSuspects.length > 0) reasons.push('単位不一致の疑いがあるデータがあります');
 
   const numbersConfirmed =
-    status === 'CURRENT' && fiscalYearEndSet && plan.baseYear !== null && !plan.yearMismatch && plan.unitSuspects.length === 0;
+    status === 'CURRENT' && fiscalYearEndSet && plan.baseYear !== null && !plan.yearMismatch;
   if (status === 'STALE') reasons.unshift('保存時点から元データが変わっています。以下の数値は現在の元データによる参考値です');
 
   const { schedule, investment, basePlan } = computed;

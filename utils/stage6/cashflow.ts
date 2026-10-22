@@ -251,11 +251,8 @@ export function buildCashFlowPlan(
   }
 
   const unitSuspects = unitSuspectsOf(plRows, bsRows);
-  if (unitSuspects.length > 0) {
-    globalHolds.push(`単位不一致の疑いがあるため、資金推計を保留しています：${unitSuspects.join('、')}`);
-  }
 
-  const baseOk = baseRow !== undefined && bsBase !== undefined && !yearMismatch && unitSuspects.length === 0;
+  const baseOk = baseRow !== undefined && bsBase !== undefined && !yearMismatch;
   const Y = baseRow?.year ?? null;
 
   const rev0 = num(baseRow?.revenue);

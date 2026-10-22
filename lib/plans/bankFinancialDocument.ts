@@ -42,6 +42,15 @@ function signedMillion(yen: number | null): string {
   return yen > 0 ? `+${text}` : `-${text}`;
 }
 
+/** 金額の桁から単位が異なる可能性がある項目の警告。断定せず、計算や生成は止めない */
+function unitWarningLinesFor(block: BankFinancialPlanBlock): string[] {
+  const suspects = block.sections?.cashFlow.unitSuspects ?? [];
+  if (suspects.length === 0) return [];
+  return [
+    `金額の単位をご確認ください。金額の桁から、単位が異なる可能性のある項目があります（${suspects.join('、')}）。この表示は計算や計画書の作成を止めるものではありません。`,
+  ];
+}
+
 function statusLinesFor(block: BankFinancialPlanBlock): string[] {
   switch (block.status) {
     case 'CURRENT':
@@ -72,7 +81,7 @@ function statusLinesFor(block: BankFinancialPlanBlock): string[] {
 
 export function buildBankFinancialFacts(block: BankFinancialPlanBlock | undefined): BankFinancialFacts | null {
   if (!block) return null;
-  const statusLines = statusLinesFor(block);
+  const statusLines = [...statusLinesFor(block), ...unitWarningLinesFor(block)];
   const sections = block.sections;
   if (!sections) {
     return {

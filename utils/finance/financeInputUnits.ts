@@ -1,7 +1,6 @@
 /**
  * STAGE1 の財務金額は円（整数）で入力・保存する。単位の選択・換算はしない。
  * 資料内に円以外の単位が明示されている場合は取込を止める（自動換算はしない）。
- * 旧データの年度判別は保存済みの確定年度で行い、円の値を桁で換算しない。
  */
 
 /**
@@ -22,11 +21,8 @@ export const FINANCE_CURRENCY_NOTICE =
 export const FINANCE_PL_YEAR_ISSUE_MESSAGE =
   '会社PLの年度に重複または欠落があるため、会社PLを更新・保存できません。重複・欠落を解消してから再度お試しください。';
 
-export const FINANCE_PL_LEGACY_PARTIAL_MESSAGE =
-  '旧データの年度は、全項目を表示どおりの円で入力し直してから保存してください。一部の項目だけを変更した場合は保存されません（未変更の項目を換算値で書き換えないため）。';
-
 export function isFinancePLGuardMessage(message: unknown): boolean {
-  return message === FINANCE_PL_YEAR_ISSUE_MESSAGE || message === FINANCE_PL_LEGACY_PARTIAL_MESSAGE;
+  return message === FINANCE_PL_YEAR_ISSUE_MESSAGE;
 }
 
 /** 会社PLの年度キー。4桁の整数として解釈できない場合は null */
@@ -45,56 +41,6 @@ export function hasFinancePLYearIssue(rows: ReadonlyArray<{ year?: unknown }>): 
     seen.add(key);
   }
   return false;
-}
-
-/** 2つの行の値が同じか（キーの集合と各値の Object.is で比較） */
-export function isSameFinanceRow(a: object, b: object): boolean {
-  const ra = a as Record<string, unknown>;
-  const rb = b as Record<string, unknown>;
-  const keys = new Set([...Object.keys(ra), ...Object.keys(rb)]);
-  for (const key of keys) {
-    if (!Object.is(ra[key], rb[key])) return false;
-  }
-  return true;
-}
-
-/**
- * 未確定（旧データ）の年度で、数値の項目の一部だけが変わった年度を返す。
- * 未変更の項目は表示上の換算値のままになるため、その年度の更新は保存しない。
- */
-export function partiallyUpdatedLegacyYears(
-  rows: ReadonlyArray<object>,
-  prevRows: ReadonlyArray<object>,
-  legacyRows: ReadonlyArray<object>,
-): number[] {
-  const prevByYear = new Map(prevRows.map((r) => [financePLYearKey(r as { year?: unknown }), r as Record<string, unknown>]));
-  const legacyByYear = new Map(legacyRows.map((r) => [financePLYearKey(r as { year?: unknown }), r as Record<string, unknown>]));
-  const out: number[] = [];
-  for (const rowObj of rows) {
-    const row = rowObj as Record<string, unknown>;
-    const key = financePLYearKey(row as { year?: unknown });
-    if (key === null) continue;
-    const legacy = legacyByYear.get(key);
-    const prev = prevByYear.get(key);
-    if (!legacy || !prev || isSameFinanceRow(row, prev)) continue;
-    const numericFields = Object.keys(legacy).filter((k) => k !== 'year' && typeof legacy[k] === 'number');
-    if (numericFields.some((k) => Object.is(row[k], prev[k]))) out.push(key);
-  }
-  return out;
-}
-
-/**
- * 保存済み csv_finance_data から、会社PLの年度ごとの確定判定を作る。
- * pl が配列なら、その年度だけ円で確定済み。配列がなければ全年度が未確定（旧データ）。
- */
-export function plYearConfirmedPredicate(csvMeta: Record<string, unknown>): (year: number | null) => boolean {
-  const stored = (csvMeta.financeUnitConfirmed ?? {}) as { pl?: unknown };
-  if (Array.isArray(stored.pl)) {
-    const years = new Set(stored.pl.map((y) => Number(y)));
-    return (year) => year !== null && years.has(year);
-  }
-  const wholeYen = stored.pl === true;
-  return () => wholeYen;
 }
 
 /** 保存済み csv_finance_data の BS の確定フラグ */

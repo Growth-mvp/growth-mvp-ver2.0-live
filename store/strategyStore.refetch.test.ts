@@ -757,7 +757,7 @@ describe('STAGE1 財務値の保存（円単位・桁による換算なし）', 
   });
 });
 
-describe('旧財務データ（版数なし）の年度別保存（未更新年度は保存値を維持する）', () => {
+describe('旧財務データ（版数なし）の年度別保存（保存値をそのまま使う）', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const strategyModule = require('@/utils/supabase/strategy') as {
     buildStateFromDbRow: (row: any) => any;
@@ -773,10 +773,6 @@ describe('旧財務データ（版数なし）の年度別保存（未更新年�
     { year: 2025, revenue: 300 },
     { year: 2026, revenue: 2_000_000 },
   ];
-
-  const { FINANCE_PL_LEGACY_PARTIAL_MESSAGE } = require('@/utils/finance/financeInputUnits') as {
-    FINANCE_PL_LEGACY_PARTIAL_MESSAGE: string;
-  };
 
   let dbRows: Record<string, any>;
 
@@ -810,7 +806,6 @@ describe('旧財務データ（版数なし）の年度別保存（未更新年�
       companyId: null,
       pendingCompanyId: undefined,
       financePL: undefined,
-      legacyFinancePLRaw: undefined,
       financeUnitConfirmed: undefined,
       restoreReady: false,
       dirty: false,
@@ -845,268 +840,177 @@ describe('旧財務データ（版数なし）の年度別保存（未更新年�
     resetStoreAsFreshPage();
   });
 
-  it('旧データは換算後の値で表示し、保存用に換算前の年度を保持する（保存値と表示値は異なる）', async () => {
+  it('旧データも桁で換算せず、保存値をそのまま表示する', async () => {
     await loadAs(COMPANY_A);
-    expect(plRevenues()).toEqual([500_000_000_000, 300_000_000, 2_000_000]);
-    expect(store().legacyFinancePLRaw).toEqual(LEGACY_PL_RAW);
-    expect(store().financeUnitConfirmed?.pl).toEqual([]);
+    expect(plRevenues()).toEqual([500_000, 300, 2_000_000]);
+    expect((store().financePL as any[])[0].operatingIncome).toBe(20_000);
+    expect(store()).not.toHaveProperty('legacyFinancePLRaw');
   });
 
-  it('STAGE2など財務以外を保存しても、旧データのPLはDBの値のまま変わらない', async () => {
+  it('旧年度の1項目の編集もそのまま保存され、他の年度の値は変わらない', async () => {
     await loadAs(COMPANY_A);
-    useStrategyStore.setState({ ceoIntent: '経営者の思い', dirty: true } as any);
-
-    const payload = await saveAndPersist();
-
-    expect(payload.financePL).toEqual(LEGACY_PL_RAW);
-    expect(dbRows[COMPANY_A].finance_pl).toEqual(LEGACY_PL_RAW);
-    resetStoreAsFreshPage();
-    await loadAs(COMPANY_A);
-    expect(plRevenues()).toEqual([500_000_000_000, 300_000_000, 2_000_000]);
-  });
-
-  it('2026年度だけ円で更新すると、2026年度だけ円の値で保存され、2024・2025年度はDBの値のまま', async () => {
-    await loadAs(COMPANY_A);
-    const next = (store().financePL as any[]).map((r) => (r.year === 2026 ? { ...r, revenue: 500_000 } : r));
-    store().setFinancePL(next);
-
-    const payload = await saveAndPersist();
-
-    expect(payload.financePL.slice(0, 2)).toEqual([
-      { year: 2024, revenue: 500_000, operatingIncome: 20_000 },
-      { year: 2025, revenue: 300 },
-    ]);
-    expect(payload.financePL[2]).toMatchObject({ year: 2026, revenue: 500_000 });
-    expect(dbRows[COMPANY_A].finance_pl).toEqual(payload.financePL);
-    expect(dbRows[COMPANY_A].csv_finance_data.financeUnitConfirmed.pl).toEqual([2026]);
-
-    resetStoreAsFreshPage();
-    await loadAs(COMPANY_A);
-    expect(plRevenues()).toEqual([500_000_000_000, 300_000_000, 500_000]);
-    expect(store().legacyFinancePLRaw).toEqual([
-      { year: 2024, revenue: 500_000, operatingIncome: 20_000 },
-      { year: 2025, revenue: 300 },
-    ]);
-  });
-
-  it('2025年度だけ手入力で編集しても、他の年度の金額は変わらず、F5後も3年度とも正しく復元される', async () => {
-    await loadAs(COMPANY_A);
-    const next = (store().financePL as any[]).map((r) => (r.year === 2025 ? { ...r, revenue: 800 } : r));
-    store().setFinancePL(next);
+    const rows = JSON.parse(JSON.stringify(store().financePL));
+    rows[0].revenue = 600_000;
+    store().setFinancePL(rows);
+    expect(store().saveError).toBeFalsy();
 
     await saveAndPersist();
 
-    const dbPl = dbRows[COMPANY_A].finance_pl;
-    expect(dbPl[0]).toEqual({ year: 2024, revenue: 500_000, operatingIncome: 20_000 });
-    expect(dbPl[1]).toMatchObject({ year: 2025, revenue: 800 });
-    expect(dbPl[2]).toEqual({ year: 2026, revenue: 2_000_000 });
-    expect(dbRows[COMPANY_A].csv_finance_data.financeUnitConfirmed.pl).toEqual([2025]);
+    expect(dbRows[COMPANY_A].finance_pl[0]).toStrictEqual({ year: 2024, revenue: 600_000, operatingIncome: 20_000 });
+    expect(dbRows[COMPANY_A].finance_pl.slice(1)).toEqual(LEGACY_PL_RAW.slice(1));
+  });
+
+  it('未編集の旧年度は、他の年度を編集して保存しても、数値も欠損状態も保存前と同じ', async () => {
+    await loadAs(COMPANY_A);
+    const rows = JSON.parse(JSON.stringify(store().financePL));
+    rows[0].revenue = 600_000;
+    store().setFinancePL(rows);
+
+    await saveAndPersist();
+
+    expect(dbRows[COMPANY_A].finance_pl.slice(1)).toStrictEqual(LEGACY_PL_RAW.slice(1));
+  });
+
+  it('通常保存・全体保存・再読込のあとも、旧データの数値と欠損状態は変わらない', async () => {
+    await loadAs(COMPANY_A);
+    await saveAndPersist();
+
+    const before = mockSaveWithAudit.mock.calls.length;
+    await store().saveStrategyData({ force: true, reason: 'manual-save-button' });
+    const [fullPayload, , fullCompanyId] = mockSaveWithAudit.mock.calls.slice(before).at(-1) as [any, unknown, string];
+    writeToDb(fullCompanyId, fullPayload);
+    expect(dbRows[COMPANY_A].finance_pl).toStrictEqual(LEGACY_PL_RAW);
 
     resetStoreAsFreshPage();
     await loadAs(COMPANY_A);
-    expect(plRevenues()).toEqual([500_000_000_000, 800, 2_000_000]);
+    expect(plRevenues()).toEqual([500_000, 300, 2_000_000]);
   });
 
-  it('表示値を変えずに会社PLを書き込んでも、未更新の年度は確定扱いにならない', async () => {
+  it('年度の重複がある会社PLは更新を受け付けず、保存もしない', async () => {
     await loadAs(COMPANY_A);
-    store().setFinancePL((store().financePL as any[]).map((r) => ({ ...r })));
-
-    const payload = await saveAndPersist();
-
-    expect(payload.financePL).toEqual(LEGACY_PL_RAW);
-    expect(store().financeUnitConfirmed?.pl).toEqual([]);
-    expect(dbRows[COMPANY_A].csv_finance_data.financeUnitConfirmed?.pl).toEqual([]);
-  });
-
-  it('全体保存（会社BS・セグメントを含む）でも、未更新の旧年度は変わらない', async () => {
-    await loadAs(COMPANY_A);
-    store().setFinanceBS([{ year: 2024, ar: 40_000 }] as any);
-    store().setSegmentPL({ 'A事業': [{ year: 2024, revenue: 300_000 }] } as any);
-
-    const payload = await saveAndPersist();
-
-    expect(payload.financePL).toEqual(LEGACY_PL_RAW);
-    expect(payload.financeBS).toEqual([{ year: 2024, ar: 40_000 }]);
-    expect(dbRows[COMPANY_A].finance_pl).toEqual(LEGACY_PL_RAW);
-    expect(dbRows[COMPANY_A].csv_finance_data.financeUnitConfirmed).toMatchObject({ bs: true, segmentPL: [], pl: [] });
-    resetStoreAsFreshPage();
-    await loadAs(COMPANY_A);
-    expect(plRevenues()).toEqual([500_000_000_000, 300_000_000, 2_000_000]);
-  });
-
-  it('PLの一部年度だけ更新しても、未確定の会社BS・セグメントは確定扱いにならない', async () => {
-    await loadAs(COMPANY_A);
-    const next = (store().financePL as any[]).map((r) => (r.year === 2026 ? { ...r, revenue: 500_000 } : r));
-    store().setFinancePL(next);
-
-    const payload = await saveAndPersist();
-
-    expect(payload.financeUnitConfirmed?.bs ?? false).toBe(false);
-    expect(payload.financeUnitConfirmed?.segmentPL ?? []).toEqual([]);
-    expect(payload.financeUnitConfirmed?.segmentBS ?? []).toEqual([]);
-  });
-
-  it('年度の重複がある会社PLは更新を受け付けず、理由を表示し、保存もしない', async () => {
-    dbRows[COMPANY_A] = {
-      ...legacyRow(COMPANY_A),
-      finance_pl: [
-        { year: 2025, revenue: 300 },
-        { year: 2025, revenue: 400 },
-      ],
-    };
-    await loadAs(COMPANY_A);
-    const before = [...(store().financePL as any[])];
-
-    store().setFinancePL([{ year: 2025, revenue: 900 }] as any);
+    const rows = [...(store().financePL as any[]), { year: 2024, revenue: 1 }];
+    store().setFinancePL(rows);
 
     expect(store().saveError).toBe(FINANCE_PL_YEAR_ISSUE_MESSAGE);
-    expect(store().financePL).toEqual(before);
-    const payload = await saveAndPersist();
-    expect(payload).not.toHaveProperty('financePL');
+    expect(plRevenues()).toEqual([500_000, 300, 2_000_000]);
   });
 
-  it('会社を切り替えると、旧会社の年度別の確定と換算前の値は新会社の保存に使われない', async () => {
-    await loadAs(COMPANY_A);
-    const next = (store().financePL as any[]).map((r) => (r.year === 2026 ? { ...r, revenue: 500_000 } : r));
-    store().setFinancePL(next);
-    await saveAndPersist();
-
+  it('会社を切り替えると、旧会社の未保存の編集は新会社の行に使われない', async () => {
     dbRows[COMPANY_B] = {
       company_id: COMPANY_B,
       revision: 1,
-      finance_pl: [{ year: 2024, revenue: 700_000 }],
+      finance_pl: [{ year: 2024, revenue: 9_000_000_000 }],
       csv_finance_data: { financeUnitConfirmed: { pl: [2024] } },
     };
+    await loadAs(COMPANY_A);
+    const rows = JSON.parse(JSON.stringify(store().financePL));
+    rows[0].revenue = 700_000;
+    store().setFinancePL(rows);
+
     await loadAs(COMPANY_B);
+    expect(plRevenues()).toEqual([9_000_000_000]);
+    await saveAndPersist();
 
-    expect(store().legacyFinancePLRaw).toBeUndefined();
-    expect(plRevenues()).toEqual([700_000]);
-    const payload = await saveAndPersist();
-    expect(payload.financePL).toEqual([{ year: 2024, revenue: 700_000 }]);
-    expect(payload.financeUnitConfirmed.pl).toEqual([2024]);
+    expect(dbRows[COMPANY_B].finance_pl).toStrictEqual([{ year: 2024, revenue: 9_000_000_000 }]);
+    expect(dbRows[COMPANY_A].finance_pl).toStrictEqual(LEGACY_PL_RAW);
   });
 
-  it('取り消しで編集前の状態に戻すと、未確定の年度は換算前の値のまま保存され、確定もしない', async () => {
+  it('読込前（会社PLの年度が分からない状態）は会社PLを保存に含めず、保存済みの値を残す', async () => {
     await loadAs(COMPANY_A);
-    const before = {
-      financePL: store().financePL as any[],
-      legacyFinancePLRaw: store().legacyFinancePLRaw,
-      confirmedYears: [] as number[],
-    };
-    store().setFinancePL((store().financePL as any[]).map((r) => (r.year === 2025 ? { ...r, revenue: 800 } : r)));
+    useStrategyStore.setState({ financeUnitConfirmed: undefined } as any);
 
-    store().restoreFinancePLState(before);
     const payload = await saveAndPersist();
 
-    expect(payload.financePL).toEqual(LEGACY_PL_RAW);
-    expect(dbRows[COMPANY_A].finance_pl).toEqual(LEGACY_PL_RAW);
-    expect(store().financeUnitConfirmed?.pl).toEqual([]);
+    expect(payload).not.toHaveProperty('financePL');
+    expect(dbRows[COMPANY_A].finance_pl).toStrictEqual(LEGACY_PL_RAW);
   });
 
-  it('未確定の旧年度で売上だけを更新しても、その年度は適用されず、営業利益も円として確定されない', async () => {
+  it('財務以外の項目を保存しても、旧データのPLはDBの値のまま変わらない', async () => {
     await loadAs(COMPANY_A);
-    store().setFinancePL((store().financePL as any[]).map((r) => (r.year === 2024 ? { ...r, revenue: 600_000 } : r)));
+    useStrategyStore.setState({ companyName: '別名の会社' } as any);
 
-    expect(store().saveError).toBe(FINANCE_PL_LEGACY_PARTIAL_MESSAGE);
-    expect(plRevenues()[0]).toBe(500_000_000_000);
     const payload = await saveAndPersist();
-    expect(payload.financePL).toEqual(LEGACY_PL_RAW);
-    expect(dbRows[COMPANY_A].finance_pl).toEqual(LEGACY_PL_RAW);
-    expect(store().financeUnitConfirmed?.pl).toEqual([]);
+
+    expect(payload.companyName).toBe('別名の会社');
+    expect(dbRows[COMPANY_A].finance_pl).toStrictEqual(LEGACY_PL_RAW);
   });
 
-  it('旧年度の必要項目をまとめて更新すると、その年度だけ円で保存され、F5後も変わらない', async () => {
+  it('全体保存（会社BS・セグメントを含む）でも、未編集の旧年度は保存前と同じで、BS・セグメントは確定扱いにならない', async () => {
     await loadAs(COMPANY_A);
-    store().setFinancePL(
-      (store().financePL as any[]).map((r) =>
-        r.year === 2024 ? { ...r, revenue: 600_000, operatingIncome: 30_000 } : r,
-      ),
-    );
-    expect(store().saveError).toBeUndefined();
+    useStrategyStore.setState({
+      financeBS: [{ year: 2025, cash: 300_000_000, ar: 150_000_000, inventory: 80_000_000, ap: 90_000_000 }],
+      segmentPL: { 'A事業': [{ year: 2025, revenue: 5_000_000 }] },
+    } as any);
 
-    const payload = await saveAndPersist();
-    expect(payload.financePL[0]).toMatchObject({ year: 2024, revenue: 600_000, operatingIncome: 30_000 });
-    expect(dbRows[COMPANY_A].finance_pl.slice(1)).toEqual(LEGACY_PL_RAW.slice(1));
-    expect(dbRows[COMPANY_A].csv_finance_data.financeUnitConfirmed.pl).toEqual([2024]);
+    const before = mockSaveWithAudit.mock.calls.length;
+    await store().saveStrategyData({ force: true, reason: 'manual-save-button' });
+    const [payload, , companyId] = mockSaveWithAudit.mock.calls.slice(before).at(-1) as [any, unknown, string];
+    writeToDb(companyId, payload);
+
+    expect(dbRows[COMPANY_A].finance_pl).toStrictEqual(LEGACY_PL_RAW);
+    expect(payload.financeBS).toEqual([
+      { year: 2025, cash: 300_000_000, ar: 150_000_000, inventory: 80_000_000, ap: 90_000_000 },
+    ]);
+    expect(dbRows[COMPANY_A].csv_finance_data.financeUnitConfirmed?.bs ?? false).toBe(false);
+    expect(dbRows[COMPANY_A].csv_finance_data.financeUnitConfirmed?.segmentPL ?? []).toEqual([]);
+  });
+
+  it('会社PLを編集しても、未確定の会社BSは確定扱いにならない', async () => {
+    await loadAs(COMPANY_A);
+    useStrategyStore.setState({
+      financeBS: [{ year: 2025, cash: 300_000_000 }],
+    } as any);
+    const rows = JSON.parse(JSON.stringify(store().financePL));
+    rows[0].revenue = 600_000;
+    store().setFinancePL(rows);
+
+    await saveAndPersist();
+
+    expect(dbRows[COMPANY_A].csv_finance_data.financeUnitConfirmed?.bs ?? false).toBe(false);
+  });
+
+  it('新しい年度を追加して保存しても、既存の旧年度は保存値のまま', async () => {
+    await loadAs(COMPANY_A);
+    const rows = [...(store().financePL as any[]), { year: 2027, revenue: 1_000_000_000 }];
+    store().setFinancePL(rows);
+
+    await saveAndPersist();
+
+    expect(dbRows[COMPANY_A].finance_pl).toStrictEqual([...LEGACY_PL_RAW, { year: 2027, revenue: 1_000_000_000 }]);
+    expect(dbRows[COMPANY_A].csv_finance_data.financeUnitConfirmed.pl).toEqual([2024, 2025, 2026, 2027]);
+  });
+
+  it('取り消し・やり直しで表示値と年度の記録を戻すと、保存値も戻した状態と一致する', async () => {
+    await loadAs(COMPANY_A);
+    const prevRows = JSON.parse(JSON.stringify(store().financePL));
+    const prevYears = [...(store().financeUnitConfirmed?.pl ?? [])];
+    const rows = JSON.parse(JSON.stringify(store().financePL));
+    rows[0].revenue = 600_000;
+    store().setFinancePL(rows);
+    expect(store().financePL?.[0]?.revenue).toBe(600_000);
+
+    store().restoreFinancePLState({ financePL: prevRows, confirmedYears: prevYears });
+    expect(store().financePL).toStrictEqual(prevRows);
+    expect(store().financeUnitConfirmed?.pl).toEqual(prevYears);
+
+    await saveAndPersist();
+
+    expect(dbRows[COMPANY_A].finance_pl).toStrictEqual(LEGACY_PL_RAW);
+  });
+
+  it('複数の年度を編集・保存したあと再読込しても、各年度の値が保存時と一致する', async () => {
+    await loadAs(COMPANY_A);
+    const rows = JSON.parse(JSON.stringify(store().financePL));
+    rows[1].revenue = 400;
+    rows[2].revenue = 3_000_000;
+    store().setFinancePL(rows);
+    await saveAndPersist();
 
     resetStoreAsFreshPage();
     await loadAs(COMPANY_A);
-    expect(plRevenues()).toEqual([600_000, 300_000_000, 2_000_000]);
-    expect((store().financePL as any[])[0].operatingIncome).toBe(30_000);
-  });
 
-  it('確定済みの年度では、一部の項目だけの編集と新しい年度の追加ができる', async () => {
-    await loadAs(COMPANY_A);
-    store().setFinancePL(
-      (store().financePL as any[]).map((r) =>
-        r.year === 2024 ? { ...r, revenue: 600_000, operatingIncome: 30_000 } : r,
-      ),
-    );
-    store().setFinancePL((store().financePL as any[]).map((r) => (r.year === 2024 ? { ...r, revenue: 700_000 } : r)));
-    expect(store().saveError).toBeUndefined();
-    store().setFinancePL([...(store().financePL as any[]), { year: 2027, revenue: 1_000 }]);
-    expect(store().saveError).toBeUndefined();
-
-    const payload = await saveAndPersist();
-    expect(payload.financePL[0]).toMatchObject({ year: 2024, revenue: 700_000, operatingIncome: 30_000 });
-    expect(payload.financePL[3]).toEqual({ year: 2027, revenue: 1_000 });
-    expect(payload.financeUnitConfirmed.pl).toEqual([2024, 2027]);
-  });
-
-  it('取り消し・やり直しで会社PLの確定状態が壊れず、保存値も一致する', async () => {
-    await loadAs(COMPANY_A);
-    const before = {
-      financePL: store().financePL as any[],
-      legacyFinancePLRaw: store().legacyFinancePLRaw,
-      confirmedYears: [] as number[],
-    };
-    store().setFinancePL(
-      (store().financePL as any[]).map((r) =>
-        r.year === 2024 ? { ...r, revenue: 600_000, operatingIncome: 30_000 } : r,
-      ),
-    );
-    const after = {
-      financePL: store().financePL as any[],
-      legacyFinancePLRaw: store().legacyFinancePLRaw,
-      confirmedYears: [2024],
-    };
-
-    store().restoreFinancePLState(before);
-    const undone = await saveAndPersist();
-    expect(undone.financePL).toEqual(LEGACY_PL_RAW);
-    expect(store().financeUnitConfirmed?.pl).toEqual([]);
-
-    store().restoreFinancePLState(after);
-    const redone = await saveAndPersist();
-    expect(redone.financePL[0]).toMatchObject({ year: 2024, revenue: 600_000, operatingIncome: 30_000 });
-    expect(redone.financePL.slice(1)).toEqual(LEGACY_PL_RAW.slice(1));
-    expect(store().financeUnitConfirmed?.pl).toEqual([2024]);
-  });
-
-  it('会社を切り替えると、旧会社の部分更新の案内は残らない', async () => {
-    await loadAs(COMPANY_A);
-    store().setFinancePL((store().financePL as any[]).map((r) => (r.year === 2024 ? { ...r, revenue: 600_000 } : r)));
-    expect(store().saveError).toBe(FINANCE_PL_LEGACY_PARTIAL_MESSAGE);
-
-    dbRows[COMPANY_B] = {
-      company_id: COMPANY_B,
-      revision: 1,
-      finance_pl: [{ year: 2024, revenue: 700_000 }],
-      csv_finance_data: { financeUnitConfirmed: { pl: [2024] } },
-    };
-    await loadAs(COMPANY_B);
-
-    expect(store().saveError).toBeUndefined();
-    expect(plRevenues()).toEqual([700_000]);
-  });
-
-  it('表示単位の確定が不明な会社PLは保存に含めず、保存済みの値を残す', async () => {
-    await loadAs(COMPANY_A);
-    useStrategyStore.setState({ financeUnitConfirmed: undefined, legacyFinancePLRaw: undefined } as any);
-
-    const payload = await saveAndPersist();
-
-    expect(payload).not.toHaveProperty('financePL');
+    expect(plRevenues()).toEqual([500_000, 400, 3_000_000]);
+    expect((store().financePL as any[])[0].operatingIncome).toBe(20_000);
   });
 
   describe('欠損値の保護（旧年度の欠損項目を0円にしない）', () => {
@@ -1139,20 +1043,18 @@ describe('旧財務データ（版数なし）の年度別保存（未更新年�
       expect(screenYear(2027)).not.toHaveProperty('revenue');
     });
 
-    it('欠損した売上高・営業利益・売上原価・販管費・売上総利益は、年度を円確定しても0円として保存されない', async () => {
+    it('欠損した売上高・営業利益・売上原価・販管費・売上総利益は、編集して保存しても0円として保存されない', async () => {
       await loadAs(COMPANY_A);
       const rows = JSON.parse(JSON.stringify(store().financePL));
-      at(rows, 2024).revenue = 600_000_000_000;
-      at(rows, 2024).cogs = 400_000_000_000;
+      at(rows, 2024).revenue = 600_000;
       store().setFinancePL(rows);
-      expect(store().financeUnitConfirmed?.pl).toContain(2024);
 
       await saveAndPersist();
 
-      expect(dbYear(2024)).toStrictEqual({ year: 2024, revenue: 600_000_000_000, cogs: 400_000_000_000 });
+      expect(dbYear(2024)).toStrictEqual({ year: 2024, revenue: 600_000, cogs: 300_000 });
     });
 
-    it('欠損のある売上高だけの年度（2027年）を営業利益で確定しても、売上高は欠損のまま保存される', async () => {
+    it('欠損のある売上高だけの年度（2027年）を営業利益で編集しても、売上高は欠損のまま保存される', async () => {
       await loadAs(COMPANY_A);
       const rows = JSON.parse(JSON.stringify(store().financePL));
       at(rows, 2027).operatingIncome = 9_000_000_000;
@@ -1166,21 +1068,18 @@ describe('旧財務データ（版数なし）の年度別保存（未更新年�
     it('利用者が明示的に入力した0円は0円として保存する', async () => {
       await loadAs(COMPANY_A);
       const rows = JSON.parse(JSON.stringify(store().financePL));
-      at(rows, 2024).revenue = 600_000_000_000;
-      at(rows, 2024).cogs = 400_000_000_000;
       at(rows, 2024).operatingIncome = 0;
       store().setFinancePL(rows);
 
       await saveAndPersist();
 
-      expect(dbYear(2024)).toStrictEqual({ year: 2024, revenue: 600_000_000_000, cogs: 400_000_000_000, operatingIncome: 0 });
+      expect(dbYear(2024)).toStrictEqual({ year: 2024, revenue: 500_000, cogs: 300_000, operatingIncome: 0 });
     });
 
-    it('未編集の旧年度は、他の年度を確定・保存しても、数値も欠損状態も保存前と同じ', async () => {
+    it('未編集の旧年度は、他の年度を編集・保存しても、数値も欠損状態も保存前と同じ', async () => {
       await loadAs(COMPANY_A);
       const rows = JSON.parse(JSON.stringify(store().financePL));
-      at(rows, 2024).revenue = 600_000_000_000;
-      at(rows, 2024).cogs = 400_000_000_000;
+      at(rows, 2024).revenue = 600_000;
       store().setFinancePL(rows);
 
       await saveAndPersist();
@@ -1190,19 +1089,6 @@ describe('旧財務データ（版数なし）の年度別保存（未更新年�
       expect(dbYear(2027)).toStrictEqual(GAP_PL[3]);
     });
 
-    it('旧年度の一部項目だけの編集は差し戻され、保存値も欠損状態も変わらない', async () => {
-      await loadAs(COMPANY_A);
-      const rows = JSON.parse(JSON.stringify(store().financePL));
-      at(rows, 2024).revenue = 700_000_000_000;
-      store().setFinancePL(rows);
-
-      expect(store().saveError).toBeTruthy();
-      expect(screenYear(2024).revenue).toBe(500_000_000_000);
-
-      await saveAndPersist();
-      expect(dbYear(2024)).toStrictEqual(GAP_PL[0]);
-    });
-
     it('保存を繰り返しても、欠損のある旧年度のDB値は変わらない', async () => {
       await loadAs(COMPANY_A);
       await saveAndPersist();
@@ -1210,12 +1096,11 @@ describe('旧財務データ（版数なし）の年度別保存（未更新年�
       expect(dbRows[COMPANY_A].finance_pl).toStrictEqual(GAP_PL);
     });
 
-    it('確定した年度でも、null の欠損はnullのまま保存され、0円にならない', async () => {
+    it('null の欠損は編集して保存しても nullのまま保存され、0円にならない', async () => {
       await loadAs(COMPANY_A);
       const rows = JSON.parse(JSON.stringify(store().financePL));
       at(rows, 2026).revenue = 2_100_000;
       store().setFinancePL(rows);
-      expect(store().financeUnitConfirmed?.pl).toContain(2026);
 
       await saveAndPersist();
 
@@ -1225,17 +1110,15 @@ describe('旧財務データ（版数なし）の年度別保存（未更新年�
     it('全体保存（手動の全体保存と同じ理由）でも、欠損の旧年度は0円にならず、未編集年度は保存前と同じ', async () => {
       await loadAs(COMPANY_A);
       const rows = JSON.parse(JSON.stringify(store().financePL));
-      at(rows, 2024).revenue = 600_000_000_000;
-      at(rows, 2024).cogs = 400_000_000_000;
+      at(rows, 2024).revenue = 600_000;
       store().setFinancePL(rows);
 
       const before = mockSaveWithAudit.mock.calls.length;
       await store().saveStrategyData({ force: true, reason: 'manual-save-button' });
-      const calls = mockSaveWithAudit.mock.calls.slice(before) as [unknown, unknown, string][];
-      const [payload, , companyId] = calls[calls.length - 1];
+      const [payload, , companyId] = mockSaveWithAudit.mock.calls.slice(before).at(-1) as [any, unknown, string];
       writeToDb(companyId, payload);
 
-      expect(dbYear(2024)).toStrictEqual({ year: 2024, revenue: 600_000_000_000, cogs: 400_000_000_000 });
+      expect(dbYear(2024)).toStrictEqual({ year: 2024, revenue: 600_000, cogs: 300_000 });
       expect(dbYear(2025)).toStrictEqual(GAP_PL[1]);
       expect(dbYear(2026)).toStrictEqual(GAP_PL[2]);
     });
@@ -1249,8 +1132,7 @@ describe('旧財務データ（版数なし）の年度別保存（未更新年�
       };
       await loadAs(COMPANY_A);
       const rows = JSON.parse(JSON.stringify(store().financePL));
-      at(rows, 2024).revenue = 600_000_000_000;
-      at(rows, 2024).cogs = 400_000_000_000;
+      at(rows, 2024).revenue = 600_000;
       store().setFinancePL(rows);
       await saveAndPersist();
 
@@ -1259,7 +1141,7 @@ describe('旧財務データ（版数なし）の年度別保存（未更新年�
       expect(screenYear(2024)).toStrictEqual({ year: 2024, revenue: 9_000_000_000 });
 
       await loadAs(COMPANY_A);
-      expect(screenYear(2024)).toStrictEqual({ year: 2024, revenue: 600_000_000_000, cogs: 400_000_000_000 });
+      expect(screenYear(2024)).toStrictEqual({ year: 2024, revenue: 600_000, cogs: 300_000 });
       expect(screenYear(2026)).not.toHaveProperty('operatingIncome');
       expect(dbYear(2027)).toStrictEqual(GAP_PL[3]);
     });
@@ -1267,15 +1149,14 @@ describe('旧財務データ（版数なし）の年度別保存（未更新年�
     it('確定した年度を再読込しても、欠損は0円として表示されない', async () => {
       await loadAs(COMPANY_A);
       const rows = JSON.parse(JSON.stringify(store().financePL));
-      at(rows, 2024).revenue = 600_000_000_000;
-      at(rows, 2024).cogs = 400_000_000_000;
+      at(rows, 2024).revenue = 600_000;
       store().setFinancePL(rows);
       await saveAndPersist();
 
       resetStoreAsFreshPage();
       await loadAs(COMPANY_A);
 
-      expect(screenYear(2024)).toStrictEqual({ year: 2024, revenue: 600_000_000_000, cogs: 400_000_000_000 });
+      expect(screenYear(2024)).toStrictEqual({ year: 2024, revenue: 600_000, cogs: 300_000 });
     });
   });
 });

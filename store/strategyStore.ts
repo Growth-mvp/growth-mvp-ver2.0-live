@@ -19,14 +19,11 @@ import { computeValueAnalysis, computeValueAnalysisBundle } from '@/utils/valueA
 import { stage1DummyDataBundle } from '@/utils/stage1DummyData';
 import { applyWorkingSnapshot, workingHashOf } from '@/utils/stage6/financePlanSnapshot';
 import {
-  FINANCE_PL_LEGACY_PARTIAL_MESSAGE,
   FINANCE_PL_YEAR_ISSUE_MESSAGE,
   financePLYearKey,
   addConfirmedSegmentIds,
   hasFinancePLYearIssue,
   isFinancePLGuardMessage,
-  isSameFinanceRow,
-  partiallyUpdatedLegacyYears,
   pruneConfirmedSegmentIds,
   rekeySegmentRecord,
   type FinanceUnitConfirmed,
@@ -323,10 +320,8 @@ export type StrategyState = {
 
   /* 財務 */
   csvFinanceData?: unknown;
-  /** 円で確定した範囲（会社PLは年度ごと）。未確定の旧データは換算を保存に書き戻さない */
+  /** 会社PLを読み込んだ年度の記録（保存情報。金額の計算条件には使わない） */
   financeUnitConfirmed?: FinanceUnitConfirmed;
-  /** 未確定の年度の換算前の行（保存時はこの行を書き戻す）。確定した年度は含まない */
-  legacyFinancePLRaw?: FinancePLRow[];
   financeSummary?: FinanceSummaryRow[];
   /* STAGE1 手入力財務（会社切替でリセットし、永続化・DB保存はしない） */
   financeActual?: FinanceActualRow[];
@@ -532,10 +527,9 @@ export type StrategyState = {
 
   /* STAGE1 財務データ setter */
   setFinancePL: (rows: FinancePLRow[]) => void;
-  /** 取り消し・やり直し用。会社PLの表示・換算前の行・確定年度をまとめて戻す（確定を推測しない） */
+  /** 取り消し・やり直し用。会社PLの表示値と年度の記録をまとめて戻す */
   restoreFinancePLState: (snapshot: {
     financePL: FinancePLRow[];
-    legacyFinancePLRaw?: FinancePLRow[];
     confirmedYears: number[];
   }) => void;
   setFinanceBS: (rows: FinanceBSRow[]) => void;
@@ -840,18 +834,16 @@ function bump(s: any) {
 
 /** 保存用ペイロード組み立て（StrategyData相当） */
 /**
- * 会社PLの保存内容。未確定の年度は換算前の行、確定した年度は表示どおりの円の行を書く。
+ * 会社PLの保存内容。読み込んだ値をそのまま書く（桁による換算はしない）。
  * 読込前・年度の重複欠落がある場合は会社PLを送らず、DBの値を残す。
  */
 function financePLForSave(s: StrategyState): { rows: FinancePLRow[]; confirmedYears: number[] } | undefined {
   if (s.financeUnitConfirmed?.pl === undefined || !Array.isArray(s.financePL)) return undefined;
   if (hasFinancePLYearIssue(s.financePL)) return undefined;
-  const legacyByYear = new Map((s.legacyFinancePLRaw ?? []).map((row) => [financePLYearKey(row), row]));
-  const rows = s.financePL.map((row) => legacyByYear.get(financePLYearKey(row)) ?? row);
   const confirmedYears = s.financePL
     .map((row) => financePLYearKey(row))
-    .filter((year): year is number => year !== null && !legacyByYear.has(year));
-  return { rows, confirmedYears };
+    .filter((year): year is number => year !== null);
+  return { rows: s.financePL, confirmedYears };
 }
 
 function buildSavePayload(s: StrategyState) {
@@ -1010,7 +1002,7 @@ function extractServerDecidedPatch(
   /* ========== STAGE1: 財務・会社情報・セグメント分析 ========== */
   if (Array.isArray(resData.financeBS)) patch.financeBS = resData.financeBS;
   // 未確定の年度を含む会社PLは、表示中の換算後の値を保持する
-  if (Array.isArray(resData.financePL) && current.legacyFinancePLRaw === undefined && current.financeUnitConfirmed?.pl !== undefined) {
+  if (Array.isArray(resData.financePL) && current.financeUnitConfirmed?.pl !== undefined) {
     patch.financePL = resData.financePL;
   }
 
@@ -1286,7 +1278,6 @@ const emptyData: StrategyState = {
   executionPlanBaseline: undefined,
   csvFinanceData: undefined,
   financeUnitConfirmed: undefined,
-  legacyFinancePLRaw: undefined,
   financeSummary: undefined,
   financeActual: undefined,
   financePlan: undefined,
@@ -2735,31 +2726,9 @@ export const useStrategyStore = create<StrategyState>()(
           return;
         }
 
-        // 旧データの年度で項目の一部だけ変わった場合は、その年度の更新を適用しない（表示上の換算値を円として確定させないため）
-        const partialYears = new Set(
-          partiallyUpdatedLegacyYears(rows, current.financePL ?? [], current.legacyFinancePLRaw ?? []),
-        );
-        const prevByYear = new Map((current.financePL ?? []).map((row) => [financePLYearKey(row), row]));
-        const applied = partialYears.size > 0
-          ? rows.map((row) => {
-              const key = financePLYearKey(row);
-              return key !== null && partialYears.has(key) ? prevByYear.get(key) ?? row : row;
-            })
-          : rows;
-
-        // 値が変わった年度だけ円で確定する。変わっていない未確定年度は換算前の行を保持する
-        const legacyByYear = new Map((current.legacyFinancePLRaw ?? []).map((row) => [financePLYearKey(row), row]));
-        const nextLegacy: FinancePLRow[] = [];
-        for (const row of applied) {
-          const key = financePLYearKey(row);
-          const prev = prevByYear.get(key);
-          const legacy = legacyByYear.get(key);
-          if (legacy && prev && isSameFinanceRow(row, prev)) nextLegacy.push(legacy);
-        }
-        const legacyYears = new Set(nextLegacy.map((row) => financePLYearKey(row)));
-        const confirmedYears = applied
+        const confirmedYears = rows
           .map((row) => financePLYearKey(row))
-          .filter((year): year is number => year !== null && !legacyYears.has(year));
+          .filter((year): year is number => year !== null);
 
         set((s) => {
           const newVersion = (s.version ?? 0) + 1;
@@ -2770,12 +2739,9 @@ export const useStrategyStore = create<StrategyState>()(
           });
           return {
             ...s,
-            financePL: applied,
-            legacyFinancePLRaw: nextLegacy.length > 0 ? nextLegacy : undefined,
+            financePL: rows,
             financeUnitConfirmed: { ...s.financeUnitConfirmed, pl: confirmedYears },
-            saveError: partialYears.size > 0
-              ? FINANCE_PL_LEGACY_PARTIAL_MESSAGE
-              : isFinancePLGuardMessage(s.saveError) ? undefined : s.saveError,
+            saveError: isFinancePLGuardMessage(s.saveError) ? undefined : s.saveError,
             dirty: true,
             version: newVersion,
           };
@@ -2799,7 +2765,6 @@ export const useStrategyStore = create<StrategyState>()(
         set((s) => ({
           ...s,
           financePL: snapshot.financePL,
-          legacyFinancePLRaw: snapshot.legacyFinancePLRaw?.length ? snapshot.legacyFinancePLRaw : undefined,
           financeUnitConfirmed: { ...s.financeUnitConfirmed, pl: snapshot.confirmedYears },
           dirty: true,
           version: (s.version ?? 0) + 1,
@@ -4665,7 +4630,6 @@ export const useStrategyStore = create<StrategyState>()(
 
         csvFinanceData: s.csvFinanceData,
         financeUnitConfirmed: s.financeUnitConfirmed,
-        legacyFinancePLRaw: s.legacyFinancePLRaw,
         financeSummary: s.financeSummary,
         businessPortfolio: s.businessPortfolio,
         // ★ FIX (v39): EXCLUDE simulationResult - generated data, DB is source of truth
