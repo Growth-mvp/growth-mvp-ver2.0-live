@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
 
   // Role check: only manager+ can use this API
   try {
-    assertMinRole(membership, 'manager');
+    await assertMinRole(membership, 'manager');
   } catch (e: any) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }

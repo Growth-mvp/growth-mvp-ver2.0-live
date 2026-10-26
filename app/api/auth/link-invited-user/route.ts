@@ -34,36 +34,35 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
     }
 
-    // リクエストボディのパース
-    const body = await req.json();
-    const { email } = body;
+    // 招待の照合は認証済みユーザー本人の email で行う（リクエストボディの email は信用しない）
+    const { data: authData, error: authErr } = await admin.auth.admin.getUserById(userId);
+    const authUser = authData?.user;
+    const normalizedEmail = (authUser?.email || '').trim().toLowerCase();
 
-    if (!email) {
-      console.error('[link-invited-user] email is required');
-      return NextResponse.json({ error: 'email is required' }, { status: 400 });
+    if (authErr || !normalizedEmail) {
+      console.error('[link-invited-user] auth user email lookup failed:', authErr?.message);
+      return NextResponse.json({ error: 'Failed to verify account email' }, { status: 403 });
     }
 
-    // メールアドレスを正規化（大文字小文字・空白）
-    const normalizedRequestEmail = String(email).trim().toLowerCase();
-
-    if (!normalizedRequestEmail) {
-      console.error('[link-invited-user] email validation failed after normalization');
-      return NextResponse.json({ error: 'Invalid email format' }, { status: 400 });
+    if (!authUser?.email_confirmed_at) {
+      console.error('[link-invited-user] account email is not confirmed');
+      return NextResponse.json({ error: 'Email not confirmed' }, { status: 403 });
     }
 
     if (process.env.NODE_ENV !== 'production') {
       console.log('[link-invited-user] Attempting to link company membership:', {
         userId,
-        email: maskEmail(normalizedRequestEmail)
+        email: maskEmail(normalizedEmail)
       });
     }
 
     // company_invites テーブルから招待レコードを探す
     const { data: inviteRecord, error: inviteErr } = await admin
       .from('company_invites')
-      .select('company_id, role, email')
-      .eq('email', normalizedRequestEmail)
+      .select('company_id, role')
+      .eq('email', normalizedEmail)
       .is('accepted_at', null)
+      .gt('expires_at', new Date().toISOString())
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -78,82 +77,60 @@ export async function POST(req: NextRequest) {
 
     if (!inviteRecord?.company_id) {
       if (process.env.NODE_ENV !== 'production') {
-        console.warn('[link-invited-user] No valid invite found for:', maskEmail(normalizedRequestEmail));
+        console.warn('[link-invited-user] No valid invite found for:', maskEmail(normalizedEmail));
       }
       // 招待レコードがなくても処理を続行する（既に参加している可能性）
       return NextResponse.json({ ok: true, message: 'No invite record found' }, { status: 200 });
     }
 
-    // ========== EMAIL VERIFICATION: 招待メールアドレスと実行ユーザーメールを厳密照合 ==========
-    const inviteEmail = String(inviteRecord.email).trim().toLowerCase();
-
-    if (normalizedRequestEmail !== inviteEmail) {
-      // メールアドレス不一致 -> 403 Forbidden
-      console.error('[link-invited-user] Email mismatch: request email does not match invite email', {
-        requestEmail: maskEmail(normalizedRequestEmail),
-        inviteEmail: maskEmail(inviteEmail),
-      });
-      return NextResponse.json(
-        { error: 'Email address mismatch' },
-        { status: 403 }
-      );
-    }
-
     const companyId = inviteRecord.company_id;
-    const role = inviteRecord.role || 'member';
 
-    // company_members テーブルに upsert
-    const now = new Date().toISOString();
+    // 既存の所属は上書きしない（ignoreDuplicates は ON CONFLICT DO NOTHING）
     const { error: upsertErr } = await admin
       .from('company_members')
       .upsert(
-        {
-          company_id: companyId,
-          user_id: userId,
-          email: normalizedRequestEmail,
-          role,
-          status: 'active',
-          accepted_at: now,
-        },
-        {
-          onConflict: 'company_id,user_id',
-        }
+        { company_id: companyId, user_id: userId, role: inviteRecord.role || 'member' },
+        { onConflict: 'company_id,user_id', ignoreDuplicates: true }
       );
 
     if (upsertErr) {
-      console.error('[link-invited-user] Failed to upsert company_members:', upsertErr);
-      return NextResponse.json(
-        { error: 'Failed to link membership' },
-        { status: 500 }
-      );
+      console.error('[link-invited-user] Failed to insert company_members:', upsertErr);
+      return NextResponse.json({ error: 'Failed to link membership' }, { status: 500 });
     }
 
-    // company_invites の accepted_at を更新
+    const { data: membership, error: membershipErr } = await admin
+      .from('company_members')
+      .select('role')
+      .eq('company_id', companyId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (membershipErr || !membership) {
+      console.error('[link-invited-user] Failed to read membership:', membershipErr);
+      return NextResponse.json({ error: 'Failed to link membership' }, { status: 500 });
+    }
+
     const { error: acceptErr } = await admin
       .from('company_invites')
-      .update({ accepted_at: now })
+      .update({ accepted_at: new Date().toISOString() })
       .eq('company_id', companyId)
-      .eq('email', normalizedRequestEmail)
+      .eq('email', normalizedEmail)
       .is('accepted_at', null);
 
     if (acceptErr) {
       console.warn('[link-invited-user] Failed to update invite accepted_at:', acceptErr);
-      // accepted_at 更新失敗でも continue（company_members は更新済み）
     }
 
     if (process.env.NODE_ENV !== 'production') {
-      console.log('[link-invited-user] Successfully linked user:', {
+      console.log('[link-invited-user] Linked user:', {
         userId,
         companyId,
-        email: maskEmail(normalizedRequestEmail),
-        role,
+        email: maskEmail(normalizedEmail),
+        role: membership.role,
       });
     }
 
-    return NextResponse.json(
-      { ok: true, companyId, role },
-      { status: 200 }
-    );
+    return NextResponse.json({ ok: true, companyId, role: membership.role }, { status: 200 });
   } catch (err: unknown) {
     console.error('[link-invited-user] Exception:', err);
     return NextResponse.json(
