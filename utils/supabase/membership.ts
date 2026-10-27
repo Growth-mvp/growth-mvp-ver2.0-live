@@ -1,9 +1,8 @@
 // /utils/supabase/membership.ts
 import { supabase, isValidUUID, setCompanyIdCookie, getCompanyIdFromCookie } from './client';
-import { debugExtractPostgrest, isRlsDenied, isNoRows } from './errors';
+import { debugExtractPostgrest, isNoRows } from './errors';
 
 /** テーブル名 */
-const T_COMPANIES = 'companies';
 const T_MEMBERS = 'company_members';
 
 export type Role = 'admin' | 'manager' | 'member';
@@ -179,10 +178,9 @@ export async function isAdminOf(userId: string, companyId: string): Promise<bool
 
 /* ============================== create/join ============================== */
 /**
- * 会社を新規作成し、自分を admin で参加させる
- * - department_id が無いスキーマでも成功するようフォールバック実装
- * - RLSで companies / company_members の insert が拒否される場合は、Service Role API 経由の作成が必要
- * - 成功時のみ Cookie を設定
+ * 新規会社を作成し、呼び出し者を admin として所属させる。作成はサーバーの /api/companies/provision が行う。
+ * - 認証と会社作成の可否（ENABLE_SIGNUP_ADMIN、導入コード）はサーバーの判定に従う。
+ * - companies / company_members へブラウザから直接書き込まない。
  */
 export async function createCompanyAndJoin(params: {
   userId: string;
@@ -192,118 +190,51 @@ export async function createCompanyAndJoin(params: {
   const { userId, companyName, departmentId = null } = params;
   if (!userId) return { companyId: null, departmentId: null, role: null };
 
-  const name = (companyName?.trim() || `Personal Company ${userId.slice(0, 8)}`).slice(0, 120);
+  const { data: sess } = await supabase.auth.getSession();
+  const token = sess?.session?.access_token;
+  if (!token) return { companyId: null, departmentId: null, role: null };
 
-  // 1) companies を作成
-  const insCompany = await supabase
-    .from(T_COMPANIES)
-    .insert([{ name, created_by: userId }])
-    .select('id')
-    .single();
-
-  if (insCompany.error) {
-    if (isRlsDenied(insCompany)) {
-      debugExtractPostgrest(insCompany);
-      return { companyId: null, departmentId: null, role: null };
-    }
-    debugExtractPostgrest(insCompany);
+  const name = companyName?.trim() ? companyName.trim().slice(0, 120) : undefined;
+  let res: Response;
+  try {
+    res = await fetch('/api/companies/provision', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${token}`,
+        'x-growth-provision-mode': 'create',
+      },
+      body: JSON.stringify({ companyName: name, departmentId, allowCreateCompany: true }),
+    });
+  } catch {
     return { companyId: null, departmentId: null, role: null };
   }
 
-  const companyIdRaw = (insCompany.data as any)?.id ?? '';
-  const companyId = typeof companyIdRaw === 'string' ? companyIdRaw : String(companyIdRaw || '');
-  if (!isValidUUID(companyId)) {
-    // 期待通りに UUID が返らない場合は異常系として扱う
+  const body = await res.json().catch(() => null);
+  const companyId = typeof body?.companyId === 'string' ? body.companyId : null;
+  if (!res.ok || body?.ok !== true || !isValidUUID(companyId)) {
     return { companyId: null, departmentId: null, role: null };
   }
 
-  // 2) 自分を admin として upsert（まず department_id ありで試す）
-  const payloadWithDept = [{ company_id: companyId, user_id: userId, role: 'admin', department_id: departmentId }];
-  let insMember = await supabase
-    .from(T_MEMBERS)
-    .upsert(payloadWithDept, { onConflict: 'company_id,user_id', ignoreDuplicates: false })
-    .select('company_id, department_id, role')
-    .maybeSingle();
-
-  // department_id 列が無ければ、列抜きで再実行
-  if (insMember.error && looksMissingDepartmentId(insMember)) {
-    insMember = await supabase
-      .from(T_MEMBERS)
-      .upsert([{ company_id: companyId, user_id: userId, role: 'admin' }], {
-        onConflict: 'company_id,user_id',
-        ignoreDuplicates: false,
-      })
-      .select('company_id, role')
-      .maybeSingle();
-  }
-
-  if (insMember.error) {
-    debugExtractPostgrest(insMember);
-    return { companyId: null, departmentId: null, role: null };
-  }
-
-  const row = insMember.data as any;
-
-  // ★ 成功時のみ Cookie を設定（getMembership では設定しない）
   setCompanyCookieIfValid(companyId);
-
   return {
     companyId,
-    departmentId: typeof row?.department_id === 'string' ? row.department_id : null,
-    role: normRole(row?.role) ?? 'admin',
+    departmentId,
+    role: normRole(body?.role) ?? 'admin',
   };
 }
 
 /**
- * 既存会社へ参加（department_id 無しスキーマにも対応）
- * - 成功時のみ Cookie を設定
+ * 既存会社への直接参加は行わない。既存会社への参加は、管理者の招待（/api/invites/accept）だけで行う。
+ * 以前の直接書込みは RLS で拒否されていたため、この関数が参加させられる範囲は変わらない。
  */
-export async function joinCompany(params: {
+export async function joinCompany(_params: {
   userId: string;
   companyId: string;
   role?: Role;
   departmentId?: string | null;
 }): Promise<Membership> {
-  const { userId, companyId, role = 'member', departmentId = null } = params;
-  if (!userId || !isValidUUID(companyId)) return { companyId: null, departmentId: null, role: null };
-
-  // まず department_id ありで upsert
-  let up = await supabase
-    .from(T_MEMBERS)
-    .upsert([{ company_id: companyId, user_id: userId, role, department_id: departmentId }], {
-      onConflict: 'company_id,user_id',
-      ignoreDuplicates: false,
-    })
-    .select('company_id, department_id, role')
-    .maybeSingle();
-
-  // 列が無ければ department_id 抜きで再実行
-  if (up.error && looksMissingDepartmentId(up)) {
-    up = await supabase
-      .from(T_MEMBERS)
-      .upsert([{ company_id: companyId, user_id: userId, role }], {
-        onConflict: 'company_id,user_id',
-        ignoreDuplicates: false,
-      })
-      .select('company_id, role')
-      .maybeSingle();
-  }
-
-  if (up.error) {
-    debugExtractPostgrest(up);
-    return { companyId: null, departmentId: null, role: null };
-  }
-
-  const row = up.data as any;
-
-  // ★ 成功時のみ Cookie を設定（getMembership では設定しない）
-  setCompanyCookieIfValid(companyId);
-
-  return {
-    companyId,
-    departmentId: typeof row?.department_id === 'string' ? row.department_id : null,
-    role: normRole(row?.role) ?? role,
-  };
+  return { companyId: null, departmentId: null, role: null };
 }
 
 /* ============================== list / update / remove ============================== */
@@ -362,87 +293,30 @@ export async function listCompanyMembers(): Promise<MemberListItem[]> {
   return [];
 }
 
-/** ロール更新（自社内のみ） */
+/** 同一会社内のロール更新。会社は明示する。権限判定と MFA は API 側で行う */
 export async function updateMemberRole(
+  companyId: string,
   targetUserId: string,
   nextRole: Role
 ): Promise<{ ok: boolean; error?: any }> {
-  const myUid = await getCurrentUserId();
-  if (!myUid) return { ok: false, error: new Error('not signed in') };
-
-  // 明示会社IDで判定したい場合は呼び出し側で getMembershipForCompany を使って渡す
-  const m = await getMembership(myUid);
-  if (!m.companyId) return { ok: false, error: new Error('company not found') };
-
-  const { error } = await supabase
-    .from(T_MEMBERS)
-    .update({ role: nextRole })
-    .eq('company_id', m.companyId)
-    .eq('user_id', targetUserId)
-    .select('user_id')
-    .maybeSingle();
-
-  if (error) {
-    debugExtractPostgrest(error);
-    return { ok: false, error };
-  }
-  return { ok: true };
+  return callMemberApi("/api/members/role", {
+    method: "PATCH",
+    body: JSON.stringify({ companyId, targetUserId, newRole: nextRole }),
+  });
 }
 
-/** メンバー削除（自社内のみ） */
-export async function removeMember(targetUserId: string): Promise<{ ok: boolean; error?: any }> {
-  const myUid = await getCurrentUserId();
-  if (!myUid) return { ok: false, error: new Error('not signed in') };
-
-  const m = await getMembership(myUid);
-  if (!m.companyId) return { ok: false, error: new Error('company not found') };
-
-  const { error } = await supabase
-    .from(T_MEMBERS)
-    .delete()
-    .eq('company_id', m.companyId)
-    .eq('user_id', targetUserId);
-
-  if (error) {
-    debugExtractPostgrest(error);
-    return { ok: false, error };
-  }
-  return { ok: true };
-}
-
-/** 既存ユーザーを追加（department_id 無しスキーマにも対応） */
-export async function addMemberByUserId(
-  targetUserId: string,
-  role: Role = 'member',
-  departmentId: string | null = null
-): Promise<{ ok: boolean; error?: any }> {
-  const myUid = await getCurrentUserId();
-  if (!myUid) return { ok: false, error: new Error('not signed in') };
-
-  const m = await getMembership(myUid);
-  if (!m.companyId) return { ok: false, error: new Error('company not found') };
-
-  // まず department_id ありで upsert
-  let up = await supabase
-    .from(T_MEMBERS)
-    .upsert([{ company_id: m.companyId, user_id: targetUserId, role, department_id: departmentId }], {
-      onConflict: 'company_id,user_id',
-      ignoreDuplicates: false,
-    });
-
-  // 列が無ければ department_id 抜きで再実行
-  if (up.error && looksMissingDepartmentId(up)) {
-    up = await supabase
-      .from(T_MEMBERS)
-      .upsert([{ company_id: m.companyId, user_id: targetUserId, role }], {
-        onConflict: 'company_id,user_id',
-        ignoreDuplicates: false,
-      });
-  }
-
-  if (up.error) {
-    debugExtractPostgrest(up);
-    return { ok: false, error: up.error };
+async function callMemberApi(url: string, init: { method: string; body?: string }): Promise<{ ok: boolean; error?: any }> {
+  const { data } = await supabase.auth.getSession();
+  const token = data?.session?.access_token;
+  if (!token) return { ok: false, error: new Error("not signed in") };
+  const res = await fetch(url, {
+    method: init.method,
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: init.body,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    return { ok: false, error: new Error(body?.error || `HTTP ${res.status}`) };
   }
   return { ok: true };
 }
