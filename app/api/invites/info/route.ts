@@ -6,6 +6,7 @@ export const runtime = 'nodejs';
 import { NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { readInviteCookie, clearInviteCookieHeader } from '@/lib/server/inviteCookie';
 
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -15,18 +16,16 @@ export async function GET(req: Request) {
   const admin = getSupabaseAdmin();
 
   try {
-    // 1) Get token from query string
-    const { searchParams } = new URL(req.url);
-    const token = searchParams.get('token');
+    // 1) トークンは HttpOnly Cookie から読む（URL には載せない）
+    const token = readInviteCookie(req);
 
     if (!token) {
-      console.error('[invites/info] token missing');
       return NextResponse.json(
         {
           error: 'token_required',
           message: 'Token is required',
         },
-        { status: 400 }
+        { status: 400, headers: { 'Cache-Control': 'no-store, max-age=0' } }
       );
     }
 
@@ -46,7 +45,7 @@ export async function GET(req: Request) {
           error: 'invite_not_found',
           message: '招待が見つかりません',
         },
-        { status: 404 }
+        { status: 404, headers: { 'Set-Cookie': clearInviteCookieHeader() } }
       );
     }
 
@@ -60,7 +59,7 @@ export async function GET(req: Request) {
           error: 'invite_already_used',
           message: 'この招待は既に使用されています',
         },
-        { status: 400 }
+        { status: 400, headers: { 'Set-Cookie': clearInviteCookieHeader() } }
       );
     }
 
@@ -77,7 +76,7 @@ export async function GET(req: Request) {
           error: 'invite_expired',
           message: '招待の有効期限が切れています',
         },
-        { status: 400 }
+        { status: 400, headers: { 'Set-Cookie': clearInviteCookieHeader() } }
       );
     }
 

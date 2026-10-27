@@ -1,7 +1,7 @@
 // /app/invite/accept/InviteAcceptClient.tsx
 'use client';
 
-import { useEffect, useState, useRef, useMemo } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
 
@@ -20,13 +20,18 @@ function inviteErrorMessage(data: any): string {
     case 'invite_already_used':
       return 'この招待は既に使用されています';
     case 'invite_not_found':
+    case 'token_required':
       return '招待が見つかりません（無効または削除されている可能性があります）';
+    case 'invalid_invite':
+      return '招待が無効です。招待リンクを開き直してください';
     case 'email_mismatch':
       return 'ログイン中のメールアドレスが招待メールと一致しません';
     case 'email_not_confirmed':
-      return 'メールアドレスの確認が完了していません。確認メールから手続きしてください';
+      return 'メールアドレスの確認が完了していません。確認メールのリンクを開いてください';
     case 'unauthorized':
       return 'ログインの有効期限が切れています。再度ログインしてください';
+    case 'mail_failed':
+      return data?.message || '確認メールを送信できませんでした。時間をおいて再度お試しください';
     default:
       return data?.message || 'エラーが発生しました';
   }
@@ -35,12 +40,6 @@ function inviteErrorMessage(data: any): string {
 export default function InviteAcceptClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
-
-  // token は URL（招待リンク、またはログイン後の redirect_to）からのみ取得する
-  const token = useMemo(() => {
-    const v = (searchParams?.get('token') ?? '').trim();
-    return v.length > 0 ? v : null;
-  }, [searchParams]);
 
   const [msg, setMsg] = useState<string>('');
   const [error, setError] = useState<string>('');
@@ -52,13 +51,10 @@ export default function InviteAcceptClient() {
   const [submitting, setSubmitting] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [loadTimeoutWarning, setLoadTimeoutWarning] = useState(false);
+  const startedRef = useRef(false);
 
-  const loadInviteInfoRef = useRef<string | null>(null);
-
-  /** ログイン済みユーザーとして招待を受諾（Bearer 必須） */
+  /** ログイン済みユーザーとして受諾（Bearer 必須。招待は HttpOnly Cookie から読まれる） */
   async function acceptWithSession(accessToken: string) {
-    if (!token) return;
-
     setSubmitting(true);
     setError('');
 
@@ -69,7 +65,7 @@ export default function InviteAcceptClient() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ token }),
+        body: JSON.stringify({}),
       });
       const data = await res.json().catch(() => ({}));
 
@@ -84,7 +80,7 @@ export default function InviteAcceptClient() {
         router.replace('/');
       }, 2000);
     } catch (e: any) {
-      console.error('[invite/accept] accept request failed:', e?.message || String(e));
+      console.error('[invite/accept] accept request failed:', e?.name || 'unknown');
       setError('所属の登録に失敗しました。もう一度お試しください。');
     } finally {
       setSubmitting(false);
@@ -92,55 +88,55 @@ export default function InviteAcceptClient() {
   }
 
   useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+
+    // 旧形式のリンク（?token=）は、サーバーで Cookie に移してから受諾画面へ戻す（URL からトークンを消す）
+    const legacyToken = (searchParams?.get('token') ?? '').trim();
+    if (legacyToken) {
+      window.location.replace(`/api/invites/handoff?token=${encodeURIComponent(legacyToken)}`);
+      return;
+    }
+
+    const urlError = searchParams?.get('error') ?? '';
+    if (urlError) {
+      setError(inviteErrorMessage({ error: urlError }));
+      setCheckingAuth(false);
+      return;
+    }
+
     let cancelled = false;
-    let warnTimer: ReturnType<typeof setTimeout> | null = null;
+    const warnTimer = setTimeout(() => {
+      if (!cancelled) setLoadTimeoutWarning(true);
+    }, 10000);
 
     (async () => {
-      if (!token) {
-        setCheckingAuth(false);
-        setError('招待トークンがありません。招待リンクをご確認ください。');
-        return;
-      }
-
-      if (loadInviteInfoRef.current === token) {
-        setCheckingAuth(false);
-        return;
-      }
-
-      warnTimer = setTimeout(() => {
-        if (!cancelled) setLoadTimeoutWarning(true);
-      }, 10000);
-
       try {
-        const res = await fetch(`/api/invites/info?token=${encodeURIComponent(token)}`);
-        const data = await res.json();
+        const res = await fetch('/api/invites/info');
+        const data = await res.json().catch(() => ({}));
 
         if (cancelled) return;
-        if (warnTimer) clearTimeout(warnTimer);
+        clearTimeout(warnTimer);
 
-        let info: InviteInfo | null = null;
-        if (res.ok) {
-          info = {
-            email: data.email,
-            companyId: data.companyId,
-            companyName: data.companyName,
-            role: data.role,
-            expiresAt: data.expiresAt,
-          };
-          loadInviteInfoRef.current = token;
-          setInviteInfo(info);
-        } else if (data?.error !== 'invite_already_used') {
-          // 使用済みでもログイン済みの本人なら受諾（再実行）で結果が返るため、ここでは止めない
+        if (!res.ok) {
           setError(inviteErrorMessage(data));
           setCheckingAuth(false);
           return;
         }
 
+        const info: InviteInfo = {
+          email: data.email,
+          companyId: data.companyId,
+          companyName: data.companyName,
+          role: data.role,
+          expiresAt: data.expiresAt,
+        };
+        setInviteInfo(info);
+
         const { data: sessRes } = await supabase.auth.getSession();
         const session = sessRes?.session;
 
         if (!session?.access_token) {
-          if (!info) setError('この招待は既に使用されています');
           setCheckingAuth(false);
           return;
         }
@@ -148,7 +144,7 @@ export default function InviteAcceptClient() {
         const sessionEmail = session.user?.email ?? '';
         setCurrentUserEmail(sessionEmail);
 
-        if (info && sessionEmail.toLowerCase() !== info.email.toLowerCase()) {
+        if (sessionEmail.toLowerCase() !== info.email.toLowerCase()) {
           setIsEmailMismatch(true);
           setCheckingAuth(false);
           return;
@@ -158,8 +154,8 @@ export default function InviteAcceptClient() {
         await acceptWithSession(session.access_token);
       } catch (e: any) {
         if (cancelled) return;
-        if (warnTimer) clearTimeout(warnTimer);
-        console.error('[invite/accept] failed to load invite:', e?.message || String(e));
+        clearTimeout(warnTimer);
+        console.error('[invite/accept] failed to load invite:', e?.name || 'unknown');
         setError('招待情報の読み込みに失敗しました。もう一度お試しください。');
         setCheckingAuth(false);
       }
@@ -167,11 +163,11 @@ export default function InviteAcceptClient() {
 
     return () => {
       cancelled = true;
-      if (warnTimer) clearTimeout(warnTimer);
+      clearTimeout(warnTimer);
     };
-    // token の変化だけで再実行する
+    // 初回マウントでのみ実行する
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -182,15 +178,13 @@ export default function InviteAcceptClient() {
     }
   };
 
-  /** 未ログインの人は、招待 URL を戻り先にしてログイン画面へ。ログイン後に同じ招待で受諾を再開する */
+  /** 招待は HttpOnly Cookie に保持されているため、戻り先には招待 URL を含めない */
   const goToLogin = () => {
-    if (!token) return;
-    const returnTo = `/invite/accept?token=${encodeURIComponent(token)}`;
-    router.push(`/login?redirect_to=${encodeURIComponent(returnTo)}`);
+    router.push(`/login?redirect_to=${encodeURIComponent('/invite/accept')}`);
   };
 
   const handlePasswordSubmit = async () => {
-    if (!inviteInfo || !token) return;
+    if (!inviteInfo) return;
 
     if (!password.trim()) {
       setError('パスワードを入力してください');
@@ -212,7 +206,7 @@ export default function InviteAcceptClient() {
       const res = await fetch('/api/invites/complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, password, email: inviteInfo.email }),
+        body: JSON.stringify({ password }),
       });
       const data = await res.json().catch(() => ({}));
 
@@ -221,12 +215,15 @@ export default function InviteAcceptClient() {
         return;
       }
 
-      // 既存・新規のどちらでも同じ応答。ログインして招待を確定してもらう
+      // 既存・新規のどちらでも同じ応答。確認メールを送ったので、メールのリンクかログインで進めてもらう
       setPassword('');
       setPasswordConfirm('');
-      setMsg('招待を受け付けました。ログインして招待を確定してください。');
+      setMsg(
+        '確認メールを送信しました。メール内のリンクを開いて、メールアドレスの確認を完了してください。' +
+          'すでにアカウントをお持ちの方は、ログインして招待を受け入れてください。'
+      );
     } catch (e: any) {
-      console.error('[invite/accept] password submit failed:', e?.message || String(e));
+      console.error('[invite/accept] password submit failed:', e?.name || 'unknown');
       setError('パスワード設定に失敗しました。もう一度お試しください。');
     } finally {
       setSubmitting(false);
@@ -261,12 +258,6 @@ export default function InviteAcceptClient() {
   return (
     <main className="mx-auto max-w-md p-6">
       <h1 className="mb-6 text-2xl font-bold">招待を受け入れる</h1>
-
-      {!token && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-red-800 text-sm">
-          ⚠️ 招待トークンがありません。招待リンクをご確認ください。
-        </div>
-      )}
 
       {error && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-red-800 text-sm space-y-3">
@@ -305,8 +296,12 @@ export default function InviteAcceptClient() {
         </div>
       )}
 
+      {submitting && currentUserEmail && (
+        <p className="mb-4 text-sm text-gray-600">所属を登録しています…</p>
+      )}
+
       {/* 未ログイン時：招待内容とパスワード設定（新規の方）／ログイン（既存の方） */}
-      {inviteInfo && !currentUserEmail && !msg && !submitting && !error && (
+      {inviteInfo && !currentUserEmail && !msg && !submitting && (
         <div className="mb-6 space-y-4">
           <div className="rounded-lg bg-blue-50 p-4 border border-blue-200">
             <p className="text-sm text-gray-600">
@@ -322,7 +317,7 @@ export default function InviteAcceptClient() {
 
           <div className="space-y-3">
             <p className="text-xs text-gray-600">
-              アカウントをお持ちでない方は、新しいパスワードを設定してください。
+              アカウントをお持ちでない方は、新しいパスワードを設定してください。確認メールをお送りします。
             </p>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">新しいパスワード</label>
@@ -365,7 +360,7 @@ export default function InviteAcceptClient() {
               }
               className="w-full rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black/90 disabled:opacity-50"
             >
-              {submitting ? '送信中…' : 'パスワードを設定'}
+              {submitting ? '送信中…' : '確認メールを送る'}
             </button>
 
             <div className="border-t pt-3 text-center">
@@ -379,10 +374,6 @@ export default function InviteAcceptClient() {
             </div>
           </div>
         </div>
-      )}
-
-      {submitting && currentUserEmail && (
-        <p className="mb-4 text-sm text-gray-600">所属を登録しています…</p>
       )}
 
       {/* ログイン済みで招待メールと一致しない場合 */}
