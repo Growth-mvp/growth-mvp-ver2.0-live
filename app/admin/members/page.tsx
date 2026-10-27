@@ -40,6 +40,7 @@ export default function AdminMembersPage() {
   const fetchRows = async () => {
     setLoading(true);
     setNote('');
+    setRows([]);
     try {
       // Get Bearer token
       const { data: sesRes } = await supabase.auth.getSession();
@@ -51,7 +52,7 @@ export default function AdminMembersPage() {
       }
 
       // ★ API側で email を取得（Service Role で auth.users から）
-      const res = await fetch('/api/admin/members', {
+      const res = await fetch(`/api/admin/members?companyId=${encodeURIComponent(companyId!)}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',

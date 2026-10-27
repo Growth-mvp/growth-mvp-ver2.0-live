@@ -58,6 +58,10 @@ export function createFakeAdmin(opts: FakeAdminOptions) {
       return { data: { claims }, error: null };
     },
     admin: {
+      listUsers: async () => ({
+        data: { users: [...new Set(Object.values(usersByToken).map((u) => u.id))].map((id) => ({ id })) },
+        error: null,
+      }),
       mfa: {
         listFactors: async ({ userId }: { userId: string }) => ({
           data: { factors: (opts.factors ?? {})[userId] ?? [] },
@@ -158,7 +162,7 @@ export function createFakeAdmin(opts: FakeAdminOptions) {
 
       // upsert（onConflict は company_id,user_id を前提とする）
       const rows: FakeMember[] = Array.isArray(payload) ? payload : [payload];
-      let next = members.map((r) => ({ ...r }));
+      const next = members.map((r) => ({ ...r }));
       for (const row of rows) {
         const idx = next.findIndex((r) => r.company_id === row.company_id && r.user_id === row.user_id);
         if (idx >= 0) next[idx] = { ...next[idx], ...row };

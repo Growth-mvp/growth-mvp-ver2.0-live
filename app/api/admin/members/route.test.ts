@@ -150,34 +150,83 @@ describe('DELETE /api/admin/members（MFA と会社の権限）', () => {
   });
 });
 
-describe('GET /api/admin/members（MFA ガードの適用）', () => {
+function list(token: string, companyId: string | null) {
+  const url = new URL('http://localhost/api/admin/members');
+  if (companyId !== null) url.searchParams.set('companyId', companyId);
+  return GET(new Request(url, { headers: { authorization: `Bearer ${token}` } }));
+}
+
+async function listedUserIds(res: Response): Promise<string[]> {
+  const body = (await res.json()) as { members: Array<{ userId: string }> };
+  return body.members.map((m) => m.userId).sort();
+}
+
+const idsOf = (...ids: string[]) => [...ids].sort();
+
+describe('GET /api/admin/members（MFA ガードと会社の権限）', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
   it('MFA 登録済みで aal1 の管理者は 403（mfa_required）', async () => {
     setup();
-    const res = await GET(
-      new Request('http://localhost/api/admin/members', { headers: { authorization: `Bearer ${TOKEN.adminAAal1}` } })
-    );
+    const res = await list(TOKEN.adminAAal1, CO_A);
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: 'mfa_required' });
   });
 
   it('不正な JWT は 401', async () => {
     setup();
-    const res = await GET(
-      new Request('http://localhost/api/admin/members', { headers: { authorization: 'Bearer bad' } })
-    );
+    const res = await list('bad', CO_A);
     expect(res.status).toBe(401);
   });
 
-  it('一般メンバーは MFA ガードを通過し、GET 本体の権限判定で forbidden になる', async () => {
+  it('単一会社の管理者は、指定した会社の全メンバーを取得できる', async () => {
     setup();
-    const res = await GET(
-      new Request('http://localhost/api/admin/members', { headers: { authorization: `Bearer ${TOKEN.memberA}` } })
+    const res = await list(TOKEN.adminA, CO_A);
+    expect(res.status).toBe(200);
+    expect(await listedUserIds(res)).toEqual(
+      idsOf(U.adminA, U.adminANoEnroll, U.adminAAal1, U.adminAB, U.memberA, U.targetA)
     );
+  });
+
+  it('複数会社の管理者は、指定した会社の一覧だけを取得できる（別会社のメンバーを返さない）', async () => {
+    setup();
+
+    const inA = await listedUserIds(await list(TOKEN.adminAB, CO_A));
+    expect(inA).toEqual(idsOf(U.adminA, U.adminANoEnroll, U.adminAAal1, U.adminAB, U.memberA, U.targetA));
+    expect(inA).not.toContain(U.targetB);
+    expect(inA).not.toContain(U.adminB);
+
+    const inB = await listedUserIds(await list(TOKEN.adminAB, CO_B));
+    expect(inB).toEqual(idsOf(U.adminAB, U.adminB, U.targetB));
+    expect(inB).not.toContain(U.targetA);
+    expect(inB).not.toContain(U.memberA);
+  });
+
+  it('一般メンバーは、指定した会社でも 403（forbidden）', async () => {
+    setup();
+    const res = await list(TOKEN.memberA, CO_A);
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: 'forbidden' });
+  });
+
+  it('別会社の管理者は、所属していない会社の一覧を取得できない（403）', async () => {
+    setup();
+    const res = await list(TOKEN.adminA, CO_B);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'forbidden' });
+  });
+
+  it('どの会社にも所属しない会社 ID は 403（forbidden）', async () => {
+    setup();
+    const res = await list(TOKEN.adminA, '44444444-4444-4444-8444-444444444444');
+    expect(res.status).toBe(403);
+  });
+
+  it('会社の指定が無い・不正な場合は 400（既定の会社には切り替えない）', async () => {
+    setup();
+    expect((await list(TOKEN.adminAB, null)).status).toBe(400);
+    expect((await list(TOKEN.adminAB, 'not-a-uuid')).status).toBe(400);
   });
 });

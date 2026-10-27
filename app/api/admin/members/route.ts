@@ -21,15 +21,8 @@ type MemberItem = {
 };
 
 /**
- * GET /api/admin/members
- * 会社のメンバー一覧を取得（admin のみ）
- *
- * 処理フロー：
- * 1) Bearer トークンから userId を抽出（認証）
- * 2) userId の company_members から admin である company を特定（複数所属の場合は limit(1)）
- * 3) その company のメンバー一覧を Service Role で取得（RLS 回避）
- *
- * Query param は使わず、認証済み userId から company_id をサーバ側で確定
+ * GET /api/admin/members?companyId=<companyId>
+ * 指定した会社のメンバー一覧を取得（その会社の admin のみ）
  */
 export async function GET(req: Request) {
   try {
@@ -38,28 +31,18 @@ export async function GET(req: Request) {
     const mfa = await requireAdminMfa(admin, req);
     if (!mfa.ok) return NextResponse.json({ error: mfa.error }, { status: mfa.status });
 
-    // 1) Bearer から userId を抽出
     const userId = await getAuthUserIdFromBearer(admin, req);
     if (!userId) {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
     }
 
-    // 2) userId の所属から、admin である company を特定
-    const { data: myMembership, error: myMemErr } = await admin
-      .from('company_members')
-      .select('company_id, role')
-      .eq('user_id', userId)
-      .eq('role', 'admin')
-      .limit(1)
-      .maybeSingle();
-
-    if (myMemErr || !myMembership?.company_id) {
-      console.warn('[api/admin/members] user is not admin of any company:', { myMemErr, myMembership });
-      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    const companyId = new URL(req.url).searchParams.get('companyId');
+    if (!isUuid(companyId)) {
+      return NextResponse.json({ error: 'invalid_params' }, { status: 400 });
     }
 
-    const companyId = myMembership.company_id;
-    console.log('[api/admin/members] fetching members for company:', companyId);
+    const access = await assertCompanyAdmin(admin, userId, companyId);
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
     // 3) メンバー一覧を取得（Service Role で RLS 回避）
     const { data: members, error: listErr } = await admin
