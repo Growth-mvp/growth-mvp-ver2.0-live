@@ -201,11 +201,7 @@ export async function POST(req: Request) {
     // ✅ Solution: Use our own invite token system + Resend for email
     const inviteLink = `${appUrl}/invite/accept?token=${encodeURIComponent(token)}`;
 
-    console.log('[admin/members/invite] Generated custom invite link:', {
-      email,
-      tokenHead: token.slice(0, 8),
-      inviteLink: inviteLink.substring(0, 80) + '...',
-    });
+    console.log('[admin/members/invite] Generated custom invite link:', { email });
 
     // 9) Send invitation email via Resend
     let emailSent = false;
@@ -275,7 +271,6 @@ ${inviteLink}
       role: inviteRole,
       companyId,
       expiresAt: expiresAt.toISOString(),
-      tokenHead: token.slice(0, 8),
       emailSent,
       emailError,
     });

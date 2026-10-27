@@ -32,10 +32,6 @@ export async function GET(req: Request) {
 
     const tokenHash = hashToken(token);
 
-    console.log('[invites/info] Looking up invite:', {
-      tokenHead: token.slice(0, 8),
-    });
-
     // 2) Look up invite by token hash
     const { data: invite, error: lookupErr } = await admin
       .from('company_invites')
@@ -44,10 +40,7 @@ export async function GET(req: Request) {
       .maybeSingle();
 
     if (lookupErr || !invite) {
-      console.error('[invites/info] invite not found:', {
-        tokenHead: token.slice(0, 8),
-        error: lookupErr?.message,
-      });
+      console.error('[invites/info] invite not found:', { error: lookupErr?.message });
       return NextResponse.json(
         {
           error: 'invite_not_found',

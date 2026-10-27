@@ -45,25 +45,10 @@ function WelcomeInner() {
   // StrictMode 二重実行抑止（チェック処理のみ）
   const inFlight = useRef(false);
 
-  // ★ 招待token（URLから取得、またはlocalStorageから復元）
+  // ★ 招待token（URLからのみ取得）
   const token = useMemo(() => {
     const urlToken = (searchParams?.get('token') || '').trim();
-    if (urlToken) return urlToken;
-
-    // localStorage から復元
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('pendingInviteToken');
-        if (saved) {
-          console.log('[auth/welcome] Restored token from localStorage');
-          return saved;
-        }
-      } catch (e) {
-        console.warn('[auth/welcome] could not read from localStorage:', e);
-      }
-    }
-
-    return null;
+    return urlToken || null;
   }, [searchParams]);
 
   const runCheck = async (signal: AbortSignal) => {

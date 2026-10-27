@@ -6,12 +6,32 @@ export const runtime = 'nodejs';
 import { NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { getAuthenticatedUserIdWithVerification } from '@/lib/authUtils';
+import { findAuthUserByEmail, AuthUserLookupError } from '@/lib/server/authUsers';
 
 type Body = {
-  token: string;
-  password: string;
+  token?: string;
+  password?: string;
   email?: string;
 };
+
+type Invite = {
+  id: string;
+  email: string;
+  company_id: string;
+  role: string;
+  expires_at: string;
+  accepted_at: string | null;
+  accepted_by: string | null;
+};
+
+type Admin = ReturnType<typeof getSupabaseAdmin>;
+
+const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' };
+
+function json(body: unknown, status: number) {
+  return NextResponse.json(body, { status, headers: NO_STORE });
+}
 
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -21,296 +41,167 @@ function normalizeEmail(e: string): string {
   return e.replace(/　/g, ' ').trim().toLowerCase();
 }
 
+function hasBearer(req: Request): boolean {
+  return /^bearer\s+\S+/i.test(req.headers.get('authorization') || '');
+}
+
+async function markInviteAccepted(admin: Admin, inviteId: string, userId: string) {
+  const { error } = await admin
+    .from('company_invites')
+    .update({ accepted_at: new Date().toISOString(), accepted_by: userId })
+    .eq('id', inviteId)
+    .is('accepted_at', null);
+
+  if (error) {
+    console.warn('[invites/complete] failed to mark invite accepted:', { inviteId, code: error.code });
+  }
+}
+
+/** 認証済みユーザーとして招待を受諾する（本人メール一致・メール確認済みが必須） */
+async function acceptForSignedInUser(admin: Admin, invite: Invite, inviteEmail: string, callerId: string) {
+  if (invite.accepted_at) {
+    if (invite.accepted_by === callerId) {
+      return json({ ok: true, companyId: invite.company_id, role: invite.role }, 200);
+    }
+    return json({ error: 'invite_already_used', message: 'この招待は既に使用されています' }, 400);
+  }
+
+  if (new Date() > new Date(invite.expires_at)) {
+    return json({ error: 'invite_expired', message: '招待の有効期限が切れています' }, 400);
+  }
+
+  const { data: authRes, error: authErr } = await admin.auth.admin.getUserById(callerId);
+  const user = authRes?.user;
+  if (authErr || !user) {
+    return json({ error: 'unauthorized' }, 401);
+  }
+
+  if (normalizeEmail(user.email ?? '') !== inviteEmail) {
+    return json({ error: 'email_mismatch', message: 'メールアドレスが一致しません' }, 403);
+  }
+
+  if (!user.email_confirmed_at) {
+    return json({ error: 'email_not_confirmed', message: 'メールアドレスの確認が完了していません' }, 403);
+  }
+
+  const { error: memberErr } = await admin
+    .from('company_members')
+    .insert({ company_id: invite.company_id, user_id: callerId, role: invite.role });
+
+  if (memberErr) {
+    console.error('[invites/complete] membership insert failed:', { code: memberErr.code });
+    return json({ error: 'membership_creation_failed', message: 'メンバーシップの作成に失敗しました' }, 500);
+  }
+
+  await markInviteAccepted(admin, invite.id, callerId);
+  return json({ ok: true, companyId: invite.company_id, role: invite.role }, 200);
+}
+
+/**
+ * 未ログインの経路。アカウントが無ければ作成して所属を作る。
+ * 既存アカウントには何もしない。応答は既存・新規で同一にし、アカウントの有無を漏らさない。
+ */
+async function setupAccountWithoutSession(admin: Admin, invite: Invite, inviteEmail: string, password: string | undefined) {
+  if (!password) {
+    return json({ error: 'invalid_request', message: 'Password is required' }, 400);
+  }
+
+  let existing;
+  try {
+    existing = await findAuthUserByEmail(admin, inviteEmail);
+  } catch (e) {
+    const reason = e instanceof AuthUserLookupError ? e.message : 'unknown';
+    console.error('[invites/complete] user lookup failed:', { reason });
+    return json({ error: 'account_setup_failed', message: 'アカウントの確認に失敗しました。時間をおいて再度お試しください' }, 500);
+  }
+
+  if (!existing) {
+    const { data: created, error: createErr } = await admin.auth.admin.createUser({
+      email: inviteEmail,
+      password,
+      email_confirm: true,
+    });
+
+    if (createErr || !created?.user?.id) {
+      console.error('[invites/complete] createUser failed:', { code: createErr?.code });
+      return json({ error: 'account_setup_failed', message: 'アカウントの作成に失敗しました' }, 500);
+    }
+
+    const newUserId = created.user.id;
+    const { error: memberErr } = await admin
+      .from('company_members')
+      .insert({ company_id: invite.company_id, user_id: newUserId, role: invite.role });
+
+    if (memberErr) {
+      console.error('[invites/complete] membership insert failed:', { code: memberErr.code });
+      try {
+        await admin.auth.admin.deleteUser(newUserId);
+      } catch (cleanupErr: unknown) {
+        console.warn('[invites/complete] could not clean up user:', cleanupErr instanceof Error ? cleanupErr.message : 'unknown');
+      }
+      return json({ error: 'membership_creation_failed', message: 'メンバーシップの作成に失敗しました' }, 500);
+    }
+
+    await markInviteAccepted(admin, invite.id, newUserId);
+  }
+
+  return json({ ok: true, next: 'login' }, 200);
+}
+
 export async function POST(req: Request) {
   const admin = getSupabaseAdmin();
 
   try {
-    // 1) Parse request body
     let body: Body;
     try {
       body = (await req.json()) as Body;
-    } catch (e: any) {
-      console.error('[invites/complete] invalid json:', e?.message);
-      return NextResponse.json(
-        {
-          error: 'invalid_json',
-          message: 'Request body must be valid JSON',
-          detail: e?.message || 'JSON parse failed',
-        },
-        { status: 400 }
-      );
+    } catch {
+      return json({ error: 'invalid_json', message: 'Request body must be valid JSON' }, 400);
     }
 
-    const { token, password, email } = body;
-    const tokenHash = hashToken(token);
-
-    console.log('[invites/complete] Processing invite completion:', {
-      tokenHead: (token ?? '').slice(0, 8),
-      hasPassword: !!password,
-      hasEmail: !!email,
-    });
-
-    // 2) Validate token and password
-    if (!token || !password) {
-      console.error('[invites/complete] missing token or password');
-      return NextResponse.json(
-        {
-          error: 'invalid_request',
-          message: 'Token and password are required',
-        },
-        { status: 400 }
-      );
+    const token = (body.token ?? '').trim();
+    if (!token) {
+      return json({ error: 'invalid_request', message: 'Token is required' }, 400);
     }
 
-    // 3) Look up invite by token hash
     const { data: invite, error: lookupErr } = await admin
       .from('company_invites')
-      .select('id, email, company_id, role, expires_at, accepted_at')
-      .eq('token_hash', tokenHash)
+      .select('id, email, company_id, role, expires_at, accepted_at, accepted_by')
+      .eq('token_hash', hashToken(token))
       .maybeSingle();
 
     if (lookupErr || !invite) {
-      console.error('[invites/complete] invite not found:', {
-        tokenHead: (token ?? '').slice(0, 8),
-        error: lookupErr?.message,
-      });
-      return NextResponse.json(
-        {
-          error: 'invite_not_found',
-          message: '招待が見つかりません',
-          detail: '無効または削除されている可能性があります',
-        },
-        { status: 404 }
+      return json(
+        { error: 'invite_not_found', message: '招待が見つかりません', detail: '無効または削除されている可能性があります' },
+        404
       );
     }
 
-    // 4) Check if already used
-    if (invite.accepted_at) {
-      console.warn('[invites/complete] invite already used:', {
-        inviteId: invite.id,
-        acceptedAt: invite.accepted_at,
-      });
-      return NextResponse.json(
-        {
-          error: 'invite_already_used',
-          message: 'この招待は既に使用されています',
-        },
-        { status: 400 }
-      );
-    }
-
-    // 5) Check if expired
-    const now = new Date();
-    const expiresAt = new Date(invite.expires_at);
-    if (now > expiresAt) {
-      console.warn('[invites/complete] invite expired:', {
-        inviteId: invite.id,
-        expiresAt: invite.expires_at,
-      });
-      return NextResponse.json(
-        {
-          error: 'invite_expired',
-          message: '招待の有効期限が切れています',
-        },
-        { status: 400 }
-      );
-    }
-
-    // 6) Email mismatch check (if email provided)
     const inviteEmail = normalizeEmail(invite.email);
-    if (email) {
-      const providedEmail = normalizeEmail(email);
-      if (providedEmail !== inviteEmail) {
-        console.warn('[invites/complete] email mismatch:', {
-          inviteId: invite.id,
-          inviteEmail,
-          providedEmail,
-        });
-        return NextResponse.json(
-          {
-            error: 'email_mismatch',
-            message: 'メールアドレスが一致しません',
-            detail: `招待は ${inviteEmail} に送信されています`,
-          },
-          { status: 400 }
-        );
-      }
+
+    if (body.email && normalizeEmail(body.email) !== inviteEmail) {
+      return json({ error: 'email_mismatch', message: 'メールアドレスが一致しません' }, 400);
     }
 
-    // 7) Check if user already exists
-    const { data: existingUser } = await admin.auth.admin.listUsers();
-    const userExists = existingUser?.users?.some(
-      (u) => normalizeEmail(u.email || '') === inviteEmail
-    );
-
-    console.log('[invites/complete] User check:', {
-      inviteId: invite.id,
-      inviteEmail,
-      userExists,
-    });
-
-    let userId: string;
-
-    if (userExists) {
-      // 既存ユーザー：メールアドレスから user_id を取得
-      const { data: users } = await admin.auth.admin.listUsers();
-      const user = users?.users?.find(
-        (u) => normalizeEmail(u.email || '') === inviteEmail
-      );
-
-      if (!user?.id) {
-        console.error('[invites/complete] existing user not found:', {
-          inviteEmail,
-        });
-        return NextResponse.json(
-          {
-            error: 'user_not_found',
-            message: 'ユーザーが見つかりません',
-          },
-          { status: 500 }
-        );
+    if (hasBearer(req)) {
+      const callerId = await getAuthenticatedUserIdWithVerification(req);
+      if (!callerId) {
+        return json({ error: 'unauthorized' }, 401);
       }
-
-      userId = user.id;
-      console.log('[invites/complete] Using existing user:', {
-        userId,
-        inviteEmail,
-      });
-    } else {
-      // 新規ユーザー：作成してパスワード設定
-      try {
-        const { data: newUser, error: createErr } = await admin.auth.admin.createUser({
-          email: inviteEmail,
-          password: password,
-          email_confirm: true,
-        });
-
-        if (createErr || !newUser?.user?.id) {
-          console.error('[invites/complete] failed to create user:', {
-            inviteEmail,
-            error: createErr?.message,
-          });
-          return NextResponse.json(
-            {
-              error: 'user_creation_failed',
-              message: 'ユーザーの作成に失敗しました',
-              detail: createErr?.message || 'auth service error',
-            },
-            { status: 500 }
-          );
-        }
-
-        userId = newUser.user.id;
-        console.log('[invites/complete] Created new user:', {
-          userId,
-          inviteEmail,
-        });
-      } catch (err: any) {
-        console.error('[invites/complete] exception creating user:', {
-          inviteEmail,
-          error: err?.message,
-        });
-        return NextResponse.json(
-          {
-            error: 'user_creation_failed',
-            message: 'ユーザーの作成に失敗しました',
-            detail: err?.message || 'auth service error',
-          },
-          { status: 500 }
-        );
-      }
+      return acceptForSignedInUser(admin, invite as Invite, inviteEmail, callerId);
     }
 
-    // 8) Create company membership
-    const { error: memberErr } = await admin.from('company_members').insert({
-      user_id: userId,
-      company_id: invite.company_id,
-      role: invite.role,
-      // department_id は null または undefined で OK
-    });
-
-    if (memberErr) {
-      console.error('[invites/complete] failed to create membership:', {
-        userId,
-        companyId: invite.company_id,
-        error: memberErr.message,
-        code: memberErr.code,
-      });
-
-      // 新規ユーザー作成に失敗した場合は、作成したユーザーを削除
-      if (!userExists) {
-        try {
-          await admin.auth.admin.deleteUser(userId);
-          console.log('[invites/complete] cleaned up user after membership failure:', { userId });
-        } catch (cleanupErr: any) {
-          console.warn('[invites/complete] could not clean up user:', cleanupErr?.message);
-        }
-      }
-
-      return NextResponse.json(
-        {
-          error: 'membership_creation_failed',
-          message: 'メンバーシップの作成に失敗しました',
-          detail: memberErr.message,
-        },
-        { status: 500 }
-      );
+    if (invite.accepted_at) {
+      return json({ error: 'invite_already_used', message: 'この招待は既に使用されています' }, 400);
     }
 
-    console.log('[invites/complete] Created membership:', {
-      userId,
-      companyId: invite.company_id,
-      role: invite.role,
-    });
-
-    // 9) Mark invite as accepted
-    const now_iso = new Date().toISOString();
-    const { error: acceptErr } = await admin
-      .from('company_invites')
-      .update({ accepted_at: now_iso })
-      .eq('id', invite.id);
-
-    if (acceptErr) {
-      console.warn('[invites/complete] failed to mark invite as accepted:', {
-        inviteId: invite.id,
-        error: acceptErr.message,
-      });
-      // 継続可能だが、ログで追跡
+    if (new Date() > new Date(invite.expires_at)) {
+      return json({ error: 'invite_expired', message: '招待の有効期限が切れています' }, 400);
     }
 
-    console.log('[invites/complete] Invite completed successfully:', {
-      inviteId: invite.id,
-      userId,
-      companyId: invite.company_id,
-      isNewUser: !userExists,
-    });
-
-    // 10) Return success
-    return NextResponse.json(
-      {
-        ok: true,
-        userId,
-        companyId: invite.company_id,
-        email: inviteEmail,
-        role: invite.role,
-        isNewUser: !userExists,
-      },
-      {
-        status: 200,
-        headers: { 'Cache-Control': 'no-store, max-age=0' },
-      }
-    );
-  } catch (e: any) {
-    console.error('[invites/complete] failed:', e?.message || e);
-    console.error('[invites/complete] Error stack:', e?.stack);
-
-    return NextResponse.json(
-      {
-        error: 'invite_failed',
-        message: 'Invitation completion failed',
-        detail: e?.message || 'unknown error',
-      },
-      { status: 500 }
-    );
+    return setupAccountWithoutSession(admin, invite as Invite, inviteEmail, body.password);
+  } catch (e: unknown) {
+    console.error('[invites/complete] failed:', e instanceof Error ? e.message : 'unknown');
+    return json({ error: 'invite_failed', message: 'Invitation completion failed' }, 500);
   }
 }

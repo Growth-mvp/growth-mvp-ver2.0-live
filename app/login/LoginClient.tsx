@@ -10,6 +10,7 @@ import { useUserStore } from '@/store/userStore';
 import { resolveCompanyId } from '@/utils/company';
 import { joinCompany } from '@/utils/supabase/membership';
 import { isValidUUID, setCompanyIdCookie } from '@/utils/supabase/client';
+import { safeInternalPath } from '@/lib/safeRedirect';
 
 export default function LoginClient() {
   const router = useRouter();
@@ -18,7 +19,7 @@ export default function LoginClient() {
   const { setUser, setMembership, setCompanyId } = useUserStore();
 
   const joinCompanyId = (search?.get('company') || '').trim() || null;
-  const redirectTo = (search?.get('redirect_to') || '').trim() || null;
+  const redirectTo = safeInternalPath(search?.get('redirect_to'));
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -104,7 +105,7 @@ export default function LoginClient() {
 
       // リダイレクト先を決定：パラメータ > メンバーシップ > デフォルト
       let destination = '/';
-      if (redirectTo && redirectTo.startsWith('/')) {
+      if (redirectTo) {
         destination = redirectTo;
       }
       router.replace(destination);
