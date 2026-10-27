@@ -84,17 +84,31 @@ async function acceptForSignedInUser(admin: Admin, invite: Invite, inviteEmail: 
     return json({ error: 'email_not_confirmed', message: 'メールアドレスの確認が完了していません' }, 403);
   }
 
-  const { error: memberErr } = await admin
-    .from('company_members')
-    .insert({ company_id: invite.company_id, user_id: callerId, role: invite.role });
+  // 既存所属者の再実行で 500 にしない（既存行は変更しない）
+  const { error: memberErr } = await admin.from('company_members').upsert(
+    { company_id: invite.company_id, user_id: callerId, role: invite.role },
+    { onConflict: 'company_id,user_id', ignoreDuplicates: true }
+  );
 
   if (memberErr) {
-    console.error('[invites/complete] membership insert failed:', { code: memberErr.code });
+    console.error('[invites/complete] membership upsert failed:', { code: memberErr.code });
+    return json({ error: 'membership_creation_failed', message: 'メンバーシップの作成に失敗しました' }, 500);
+  }
+
+  const { data: membership, error: readErr } = await admin
+    .from('company_members')
+    .select('role')
+    .eq('company_id', invite.company_id)
+    .eq('user_id', callerId)
+    .maybeSingle();
+
+  if (readErr || !membership) {
+    console.error('[invites/complete] membership read failed:', { code: readErr?.code });
     return json({ error: 'membership_creation_failed', message: 'メンバーシップの作成に失敗しました' }, 500);
   }
 
   await markInviteAccepted(admin, invite.id, callerId);
-  return json({ ok: true, companyId: invite.company_id, role: invite.role }, 200);
+  return json({ ok: true, companyId: invite.company_id, role: membership.role }, 200);
 }
 
 /**

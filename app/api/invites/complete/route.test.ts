@@ -220,6 +220,20 @@ describe('POST /api/invites/complete（Bearer あり：ログイン済み）', (
     expect(state.invitePatches).toHaveLength(0);
   });
 
+  it('既に所属しているユーザーが招待を再実行しても 500 にならず、既存の role を変えない', async () => {
+    const { state } = setupAdmin({ users: [inviteeUser()] });
+    state.members.push({ company_id: COMPANY, user_id: EXISTING_USER, role: 'member' });
+    signedInAs(EXISTING_USER);
+
+    const res = await POST(req({ token: TOKEN }, 'session-token') as any);
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json).toMatchObject({ ok: true, companyId: COMPANY, role: 'member' });
+    expect(state.members).toEqual([{ company_id: COMPANY, user_id: EXISTING_USER, role: 'member' }]);
+    expect(state.invitePatches[0]).toMatchObject({ accepted_by: EXISTING_USER });
+  });
+
   it('同じユーザーが既に消化済みの招待を再実行しても、所属は増やさず 200 を返す', async () => {
     const { state } = setupAdmin({
       users: [inviteeUser()],
