@@ -88,6 +88,9 @@ export default function PasswordChangePage() {
             <p className="text-sm text-slate-600 mb-6">
               セキュリティのため、現在のパスワードで確認してから新しいパスワードを設定します。
             </p>
+            <p className="text-sm text-slate-600 mb-6">
+              <Link href="/auth/mfa/enroll" className="underline">2段階認証の登録・確認</Link>
+            </p>
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>

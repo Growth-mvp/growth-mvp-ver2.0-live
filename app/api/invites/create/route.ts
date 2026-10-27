@@ -12,6 +12,7 @@ import {
 } from '@/lib/server/rbacGuard';
 import type { Role } from '@/lib/rbac';
 import { logAuditEvent, extractAuditMetadata } from '@/lib/server/auditLog';
+import { requireMfaSatisfied } from '@/lib/server/mfaGuard';
 
 type Body = {
   email: string;
@@ -66,6 +67,9 @@ function generateInviteUrl(origin: string, token: string): string {
 export async function POST(req: Request) {
   try {
     const admin = getSupabaseAdmin();
+
+    const mfa = await requireMfaSatisfied(admin, req);
+    if (!mfa.ok) return NextResponse.json({ error: mfa.error }, { status: mfa.status });
 
     // 1) 認証チェック（Bearer トークン）
     const callerId = await getAuthUserIdFromBearer(admin, req);

@@ -7,6 +7,7 @@ import { NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin'; // ★ named import に修正
 import { logAuditEvent, extractAuditMetadata } from '@/lib/server/auditLog';
+import { requireMfaSatisfied } from '@/lib/server/mfaGuard';
 
 function bearer(req: Request) {
   const h = req.headers.get('authorization') || req.headers.get('Authorization') || '';
@@ -25,6 +26,9 @@ export async function PATCH(req: Request) {
   try {
     const token = bearer(req);
     if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const mfa = await requireMfaSatisfied(admin, req);
+    if (!mfa.ok) return NextResponse.json({ error: mfa.error }, { status: mfa.status });
 
     const { data: ures, error: uerr } = await admin.auth.getUser(token);
     if (uerr || !ures?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

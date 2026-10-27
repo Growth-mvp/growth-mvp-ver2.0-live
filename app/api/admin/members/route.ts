@@ -3,6 +3,7 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer } from '@/lib/server/rbacGuard';
+import { requireMfaSatisfied } from '@/lib/server/mfaGuard';
 import type { Role } from '@/lib/rbac';
 
 type MemberItem = {
@@ -27,6 +28,9 @@ type MemberItem = {
 export async function GET(req: Request) {
   try {
     const admin = getSupabaseAdmin();
+
+    const mfa = await requireMfaSatisfied(admin, req);
+    if (!mfa.ok) return NextResponse.json({ error: mfa.error }, { status: mfa.status });
 
     // 1) Bearer から userId を抽出
     const userId = await getAuthUserIdFromBearer(admin, req);
@@ -162,6 +166,9 @@ export async function GET(req: Request) {
 export async function DELETE(req: Request) {
   try {
     const admin = getSupabaseAdmin();
+
+    const mfa = await requireMfaSatisfied(admin, req);
+    if (!mfa.ok) return NextResponse.json({ error: mfa.error }, { status: mfa.status });
 
     // 1) Bearer から userId を抽出（認証）
     const userId = await getAuthUserIdFromBearer(admin, req);

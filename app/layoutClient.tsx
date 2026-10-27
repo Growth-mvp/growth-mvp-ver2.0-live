@@ -14,6 +14,7 @@ import {
   isValidUUID,
 } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
+import MfaGate from '@/components/MfaGate';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { CompanyProvider } from '@/context/CompanyContext';
 
@@ -1027,6 +1028,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           </button>
         )}
 
+        <MfaGate skip={isAuthPath(pathname)} pathname={pathname ?? ''} />
         {children}
       </div>
     </div>
