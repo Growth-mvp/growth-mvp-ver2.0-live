@@ -118,7 +118,6 @@ export async function POST(req: Request) {
     if (!/^[0-9a-f]{32,256}$/i.test(token)) {
       console.error('[invites/accept] token invalid format:', {
         userId,
-        tokenHead: token.slice(0, 8),
       });
       return NextResponse.json(
         {
@@ -142,7 +141,6 @@ export async function POST(req: Request) {
     if (findErr) {
       console.error('[invites/accept] find failed:', {
         userId,
-        tokenHead: token.slice(0, 8),
         error: findErr.message,
         code: findErr.code,
       });
@@ -160,7 +158,6 @@ export async function POST(req: Request) {
     if (!invite) {
       console.error('[invites/accept] invite not found:', {
         userId,
-        tokenHead: token.slice(0, 8),
       });
       return NextResponse.json(
         {
@@ -176,7 +173,6 @@ export async function POST(req: Request) {
     if (new Date(invite.expires_at) < new Date()) {
       console.error('[invites/accept] invite expired:', {
         userId,
-        tokenHead: token.slice(0, 8),
         expiresAt: invite.expires_at,
       });
       return NextResponse.json(
@@ -193,7 +189,6 @@ export async function POST(req: Request) {
     if (invite.accepted_at) {
       console.warn('[invites/accept] invite already used:', {
         userId,
-        tokenHead: token.slice(0, 8),
         acceptedAt: invite.accepted_at,
         acceptedBy: invite.accepted_by,
       });
@@ -212,7 +207,6 @@ export async function POST(req: Request) {
     if (authErr || !authUser?.user) {
       console.error('[invites/accept] auth user lookup failed:', {
         userId,
-        tokenHead: token.slice(0, 8),
         error: authErr?.message,
       });
       return NextResponse.json(
@@ -231,7 +225,6 @@ export async function POST(req: Request) {
     if (!userEmail || userEmail !== inviteEmail) {
       console.error('[invites/accept] email mismatch:', {
         userId,
-        tokenHead: token.slice(0, 8),
         userEmail: userEmail || '(no email)',
         inviteEmail,
       });
@@ -299,7 +292,6 @@ export async function POST(req: Request) {
       // PGRST116: 0 rows は許容（maybeSingleの仕様）
       console.error('[invites/accept] membership lookup failed:', {
         userId,
-        tokenHead: token.slice(0, 8),
         companyId: invite.company_id,
         error: exErr.message,
         code: exErr.code,
@@ -327,7 +319,7 @@ export async function POST(req: Request) {
       finalRole,
     });
 
-    // 9) company_members に upsert（department_id が無い環境にフォールバック）
+    // 9) company_members に upsert（department_id は含めない：既存所属者の部門を消さないため）
     // ★ onConflict: 'company_id,user_id' で重複を許す（idempotent）
     const { error: upsertErr } = await admin.from('company_members').upsert(
       [
@@ -335,7 +327,6 @@ export async function POST(req: Request) {
           company_id: invite.company_id,
           user_id: userId,
           role: finalRole,
-          department_id: null,
         },
       ],
       { onConflict: 'company_id,user_id' }
