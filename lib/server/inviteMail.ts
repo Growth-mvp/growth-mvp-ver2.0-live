@@ -2,6 +2,7 @@ import 'server-only';
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
 const DEFAULT_FROM = 'GROWTH SHIFT <no-reply@growthshift.jp>';
+const REQUEST_TIMEOUT_MS = 10_000;
 
 /** 既存の Resend 設定（RESEND_API_KEY / INVITE_EMAIL_FROM）で送信する。本文はログに出さない。 */
 export async function sendInviteMail(params: { to: string; subject: string; text: string }): Promise<boolean> {
@@ -13,6 +14,7 @@ export async function sendInviteMail(params: { to: string; subject: string; text
 
   try {
     const res = await fetch(RESEND_ENDPOINT, {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,

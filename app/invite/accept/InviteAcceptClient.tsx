@@ -4,6 +4,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
+import { clearInviteCookie } from '@/lib/auth/inviteCookieClient';
 
 type InviteInfo = {
   email: string;
@@ -19,9 +20,10 @@ function inviteErrorMessage(data: any): string {
       return '招待の有効期限が切れています';
     case 'invite_already_used':
       return 'この招待は既に使用されています';
-    case 'invite_not_found':
     case 'token_required':
-      return '招待が見つかりません（無効または削除されている可能性があります）';
+      return '招待の情報が見つかりません。有効期限が切れたか、ブラウザの情報が消えています。招待メールのリンクを開き直してください';
+    case 'invite_not_found':
+      return '招待が見つかりません（無効または削除されている可能性があります）。招待メールのリンクを開き直してください';
     case 'invalid_invite':
       return '招待が無効です。招待リンクを開き直してください';
     case 'email_mismatch':
@@ -171,6 +173,7 @@ export default function InviteAcceptClient() {
 
   const handleLogout = async () => {
     try {
+      await clearInviteCookie();
       await supabase.auth.signOut({ scope: 'global' });
       router.replace('/login');
     } catch (e) {
@@ -220,7 +223,7 @@ export default function InviteAcceptClient() {
       setPasswordConfirm('');
       setMsg(
         '確認メールを送信しました。メール内のリンクを開いて、メールアドレスの確認を完了してください。' +
-          'すでにアカウントをお持ちの方は、ログインして招待を受け入れてください。'
+          '確認メールを以前に受け取っている場合は、最初に設定したパスワードでログインしてください（今回入力したパスワードは反映されません）。'
       );
     } catch (e: any) {
       console.error('[invite/accept] password submit failed:', e?.name || 'unknown');

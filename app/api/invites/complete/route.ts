@@ -10,6 +10,8 @@ import { getAuthenticatedUserIdWithVerification } from '@/lib/authUtils';
 import { findAuthUserByEmail, AuthUserLookupError } from '@/lib/server/authUsers';
 import { readInviteCookie, clearInviteCookieHeader, isSameOriginJsonRequest } from '@/lib/server/inviteCookie';
 import { sendInviteMail } from '@/lib/server/inviteMail';
+import { resendSignupConfirmation } from '@/lib/server/signupConfirmation';
+import { isInviteMailAllowed, recordInviteMail } from '@/lib/server/inviteMailLimit';
 
 type Body = {
   password?: string;
@@ -26,8 +28,11 @@ type Invite = {
 };
 
 type Admin = ReturnType<typeof getSupabaseAdmin>;
+type ExistingUser = { id: string; email_confirmed_at?: string | null };
+type CreateResult = { status: 'created'; actionLink: string } | { status: 'exists' } | { status: 'error' };
 
 const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' };
+const CONFIRM_NEXT = '/invite/accept';
 
 function respond(body: unknown, status: number, opts: { clearCookie?: boolean } = {}) {
   const res = NextResponse.json(body, { status, headers: NO_STORE });
@@ -43,26 +48,16 @@ function normalizeEmail(e: string): string {
   return e.replace(/　/g, ' ').trim().toLowerCase();
 }
 
-const JUST_CREATED_WINDOW_MS = 5 * 60 * 1000;
-
-/** 今この処理で作られた、確認前のアカウントかどうか（既存ユーザーを削除しないための条件） */
-function isJustCreatedUnconfirmed(
-  user: { id?: string; email?: string | null; created_at?: string; email_confirmed_at?: string | null },
-  inviteEmail: string
-): boolean {
-  if (!user.id || !user.created_at) return false;
-  if (user.email_confirmed_at) return false;
-  if (normalizeEmail(user.email ?? '') !== inviteEmail) return false;
-  const age = Date.now() - Date.parse(user.created_at);
-  return age >= 0 && age < JUST_CREATED_WINDOW_MS;
-}
-
 function hasBearer(req: Request): boolean {
   return /^bearer\s+\S+/i.test(req.headers.get('authorization') || '');
 }
 
 function siteOrigin(req: Request): string {
   return (process.env.NEXT_PUBLIC_SITE_URL || new URL(req.url).origin).replace(/\/$/, '');
+}
+
+function confirmRedirectUrl(req: Request): string {
+  return `${siteOrigin(req)}/auth/callback?next=${encodeURIComponent(CONFIRM_NEXT)}`;
 }
 
 async function readBody(req: Request): Promise<Body> {
@@ -128,84 +123,130 @@ async function acceptForSignedInUser(admin: Admin, invite: Invite, inviteEmail: 
   return respond({ ok: true, companyId: invite.company_id, role: membership.role }, 200, { clearCookie: true });
 }
 
+async function lookupExisting(admin: Admin, inviteEmail: string): Promise<ExistingUser | null | 'error'> {
+  try {
+    return (await findAuthUserByEmail(admin, inviteEmail)) as ExistingUser | null;
+  } catch (e) {
+    const reason = e instanceof AuthUserLookupError ? e.message : 'unknown';
+    console.error('[invites/complete] user lookup failed:', { reason });
+    return 'error';
+  }
+}
+
+/** 確認済みの既存ユーザー：アカウントは変えず、ログインを促す通知メールだけ送る */
+async function sendNotice(req: Request, admin: Admin, invite: Invite, inviteEmail: string) {
+  const loginUrl = `${siteOrigin(req)}/login?redirect_to=${encodeURIComponent(CONFIRM_NEXT)}`;
+  const sent = await sendInviteMail({
+    to: inviteEmail,
+    subject: 'GROWTH SHIFT：会社への招待が届いています',
+    text:
+      'GROWTH SHIFT から会社への招待が届いています。\n\n' +
+      `既存のアカウントでログインすると、招待を受け入れられます。\n${loginUrl}\n\n` +
+      '心当たりがない場合は、このメールを無視してください。',
+  });
+  if (!sent) {
+    return respond({ error: 'mail_failed', message: '確認メールを送信できませんでした。時間をおいて再度お試しください' }, 500);
+  }
+  await recordInviteMail(invite.id, 'notice');
+  return respond({ ok: true, next: 'check_email' }, 200);
+}
+
 /**
- * 未ログインの経路。
- * 新規: アカウントは作るがメール確認までは所属を作らない。確認メール（Supabase 標準の確認リンク）を送る。
- * 既存: アカウントは変更しない。ログインを促す通知メールを送る。
- * 応答は既存・新規で同一にし、アカウントの有無を漏らさない。
+ * 未確認の既存アカウント：アカウントもパスワードも変えず、Supabase 標準の確認メールを再送する。
+ * 再送時に入力されたパスワードは使わない（初回登録時のパスワードを維持する）。
+ * 再送の上限（Supabase 側）に達した場合も、応答は同一にする。
  */
-async function sendConfirmationOrNotice(
-  req: Request,
-  admin: Admin,
-  inviteEmail: string,
-  password: string | undefined
-) {
+async function resendForUnconfirmed(req: Request, invite: Invite, inviteEmail: string) {
+  const result = await resendSignupConfirmation(inviteEmail, confirmRedirectUrl(req));
+  if (result === 'failed') {
+    return respond({ error: 'mail_failed', message: '確認メールを送信できませんでした。時間をおいて再度お試しください' }, 500);
+  }
+  if (result === 'sent') {
+    await recordInviteMail(invite.id, 'resend');
+  }
+  return respond({ ok: true, next: 'check_email' }, 200);
+}
+
+async function createUnconfirmedAccount(admin: Admin, email: string, password: string, redirectTo: string): Promise<CreateResult> {
+  const { data, error } = await admin.auth.admin.generateLink({
+    type: 'signup',
+    email,
+    password,
+    options: { redirectTo },
+  });
+
+  if (error) {
+    const { code, status, message } = error as { code?: string; status?: number; message?: string };
+    if (code === 'user_already_exists' || status === 422 || /already/i.test(message ?? '')) {
+      return { status: 'exists' };
+    }
+    console.error('[invites/complete] signup link generation failed:', { code, status });
+    return { status: 'error' };
+  }
+
+  const actionLink = data?.properties?.action_link;
+  return actionLink ? { status: 'created', actionLink } : { status: 'error' };
+}
+
+/**
+ * 未ログインの経路。応答は既存・新規で同一にし、アカウントの有無を漏らさない。
+ * - 新規: 未確認のアカウントを作り、確認リンクを送る。所属はまだ作らない。
+ * - 未確認の既存: パスワードは変えず、確認メールを再送する（削除・再作成もしない）。
+ * - 確認済みの既存: アカウントは変えず、ログインを促す通知メールを送る。
+ */
+async function sendConfirmationOrNotice(req: Request, admin: Admin, invite: Invite, inviteEmail: string, password: string | undefined) {
   if (!password) {
     return respond({ error: 'invalid_request', message: 'Password is required' }, 400);
   }
 
-  let existing;
-  try {
-    existing = await findAuthUserByEmail(admin, inviteEmail);
-  } catch (e) {
-    const reason = e instanceof AuthUserLookupError ? e.message : 'unknown';
-    console.error('[invites/complete] user lookup failed:', { reason });
-    return respond({ error: 'account_setup_failed', message: 'アカウントの確認に失敗しました。時間をおいて再度お試しください' }, 500);
-  }
-
-  const site = siteOrigin(req);
-  const next = encodeURIComponent('/invite/accept');
-  const loginUrl = `${site}/login?redirect_to=${next}`;
-
-  if (existing) {
-    const sent = await sendInviteMail({
-      to: inviteEmail,
-      subject: 'GROWTH SHIFT：会社への招待が届いています',
-      text:
-        'GROWTH SHIFT から会社への招待が届いています。\n\n' +
-        `既存のアカウントでログインすると、招待を受け入れられます。\n${loginUrl}\n\n` +
-        '心当たりがない場合は、このメールを無視してください。',
-    });
-    if (!sent) {
-      return respond({ error: 'mail_failed', message: '確認メールを送信できませんでした。時間をおいて再度お試しください' }, 500);
-    }
+  if (!(await isInviteMailAllowed(admin, invite.id))) {
+    console.warn('[invites/complete] mail rate limited');
     return respond({ ok: true, next: 'check_email' }, 200);
   }
 
-  const { data, error } = await admin.auth.admin.generateLink({
-    type: 'signup',
-    email: inviteEmail,
-    password,
-    options: { redirectTo: `${site}/auth/callback?next=${next}` },
-  });
-  const actionLink = data?.properties?.action_link;
-  if (error || !actionLink) {
-    console.error('[invites/complete] signup link generation failed:', { code: error?.code });
+  const existing = await lookupExisting(admin, inviteEmail);
+  if (existing === 'error') {
+    return respond({ error: 'account_setup_failed', message: 'アカウントの確認に失敗しました。時間をおいて再度お試しください' }, 500);
+  }
+  if (existing?.email_confirmed_at) {
+    return sendNotice(req, admin, invite, inviteEmail);
+  }
+  if (existing) {
+    return resendForUnconfirmed(req, invite, inviteEmail);
+  }
+
+  const created = await createUnconfirmedAccount(admin, inviteEmail, password, confirmRedirectUrl(req));
+
+  if (created.status === 'exists') {
+    // 同時に別の要求が作成した場合。作成済みの状態に合わせて続ける
+    const again = await lookupExisting(admin, inviteEmail);
+    if (!again || again === 'error') {
+      return respond({ error: 'account_setup_failed', message: 'アカウントの確認に失敗しました。時間をおいて再度お試しください' }, 500);
+    }
+    if (again.email_confirmed_at) {
+      return sendNotice(req, admin, invite, inviteEmail);
+    }
+    return resendForUnconfirmed(req, invite, inviteEmail);
+  }
+
+  if (created.status === 'error') {
     return respond({ error: 'account_setup_failed', message: 'アカウントの作成に失敗しました' }, 500);
   }
 
+  // 送信に失敗しても未確認アカウントは残す。再試行は上の「未確認の既存」の経路で再送される
   const sent = await sendInviteMail({
     to: inviteEmail,
     subject: 'GROWTH SHIFT：メールアドレスの確認',
     text:
       'GROWTH SHIFT の会社への招待を受け入れるため、メールアドレスの確認をお願いします。\n\n' +
-      `下記のリンクを開くと確認が完了し、招待の受け入れに進みます。\n${actionLink}\n\n` +
+      `下記のリンクを開くと確認が完了し、招待の受け入れに進みます。\n${created.actionLink}\n\n` +
       '心当たりがない場合は、このメールを無視してください。',
   });
-
   if (!sent) {
-    // 今回の呼び出しで作られた未確認アカウントだけを削除する（既存ユーザーは対象外）
-    const createdUser = data?.user;
-    if (createdUser && isJustCreatedUnconfirmed(createdUser, inviteEmail)) {
-      try {
-        await admin.auth.admin.deleteUser(createdUser.id);
-      } catch (cleanupErr: unknown) {
-        console.warn('[invites/complete] could not clean up unsent account:', cleanupErr instanceof Error ? cleanupErr.name : 'unknown');
-      }
-    }
     return respond({ error: 'mail_failed', message: '確認メールを送信できませんでした。時間をおいて再度お試しください' }, 500);
   }
 
+  await recordInviteMail(invite.id, 'signup');
   return respond({ ok: true, next: 'check_email' }, 200);
 }
 
@@ -257,7 +298,7 @@ export async function POST(req: Request) {
       return acceptForSignedInUser(admin, typedInvite, inviteEmail, callerId);
     }
 
-    return sendConfirmationOrNotice(req, admin, inviteEmail, body.password);
+    return sendConfirmationOrNotice(req, admin, typedInvite, inviteEmail, body.password);
   } catch (e: unknown) {
     console.error('[invites/complete] failed:', e instanceof Error ? e.name : 'unknown');
     return respond({ error: 'invite_failed', message: 'Invitation completion failed' }, 500);

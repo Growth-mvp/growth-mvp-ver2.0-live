@@ -7,6 +7,7 @@ import { LogOut } from 'lucide-react';
 import { supabase, clearDisplayCookies } from '@/utils/supabase/client';
 import { useUserStore } from '@/store/userStore';
 import { useStrategyStore } from '@/store/strategyStore';
+import { clearInviteCookie } from '@/lib/auth/inviteCookieClient';
 
 /* ---------------- helpers ---------------- */
 
@@ -96,6 +97,8 @@ export default function LogoutButton() {
   }, []);
 
   const hardCleanup = () => {
+    // 招待の一時Cookieを消す（失敗しても続行する）
+    void clearInviteCookie();
     try {
       // GROWTH SHIFT関連のすべてのキーを削除
       purgeGrowthShiftLocalStorage();
