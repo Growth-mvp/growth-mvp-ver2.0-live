@@ -17,8 +17,15 @@ import { getAuthUserIdFromBearer } from '@/lib/server/rbacGuard';
 const USER = '99999999-9999-4999-8999-999999999999';
 const verified = { id: 'f1', status: 'verified' };
 
-function setup(opts: { claims?: any; claimsError?: unknown; factors?: any[] }) {
+function membershipChain(isAdmin: boolean) {
+  const result = { data: isAdmin ? [{ company_id: 'company-1' }] : [], error: null };
+  const chain: any = { select: () => chain, eq: () => chain, limit: async () => result };
+  return chain;
+}
+
+function setup(opts: { claims?: any; claimsError?: unknown; factors?: any[]; isAdmin?: boolean }) {
   const admin: any = {
+    from: jest.fn(() => membershipChain(opts.isAdmin ?? true)),
     auth: {
       getClaims: jest.fn(async () =>
         opts.claimsError
@@ -68,8 +75,17 @@ describe('POST /api/invites/create（MFA ガードの適用）', () => {
     expect(res.status).toBe(401);
   });
 
-  it('MFA 未登録のユーザーは従来どおり、ガードを通過して従来の認証に進む', async () => {
-    setup({ factors: [] });
+    it('MFA 未登録の管理者は 403（mfa_enrollment_required）。招待は作らない', async () => {
+    setup({ factors: [], isAdmin: true });
+
+    const res = await POST(req('t'));
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'mfa_enrollment_required' });
+  });
+
+it('MFA 未登録の一般メンバーはガードを通過し、従来の認証に進む', async () => {
+    setup({ factors: [], isAdmin: false });
 
     const res = await POST(req('t'));
 

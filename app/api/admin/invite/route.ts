@@ -8,6 +8,7 @@ import {
   assertMinRole,
 } from '@/lib/server/rbacGuard';
 import type { Role } from '@/lib/rbac';
+import { requireAdminMfa } from '@/lib/server/mfaGuard';
 type Body = {
   email: string;
   role?: Role;
@@ -63,6 +64,8 @@ export async function POST(req: Request) {
     const admin = getSupabaseAdmin();
 
     // 1) 認証チェック（Bearer トークン - rbacGuard統一）
+    const mfa = await requireAdminMfa(admin, req);
+    if (!mfa.ok) return NextResponse.json({ error: mfa.error }, { status: mfa.status });
     const callerId = await getAuthUserIdFromBearer(admin, req);
     if (!callerId) {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 });

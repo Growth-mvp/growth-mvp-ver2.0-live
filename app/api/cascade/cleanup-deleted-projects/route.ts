@@ -3,6 +3,7 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer } from '@/lib/server/rbacGuard';
+import { requireAdminMfa } from '@/lib/server/mfaGuard';
 
 /**
  * POST /api/cascade/cleanup-deleted-projects
@@ -26,6 +27,8 @@ export async function POST(req: Request) {
     const admin = getSupabaseAdmin();
 
     // === Step 1: 認証 ===
+    const mfa = await requireAdminMfa(admin, req);
+    if (!mfa.ok) return NextResponse.json({ error: mfa.error }, { status: mfa.status });
     const userId = await getAuthUserIdFromBearer(admin, req);
     if (!userId) {
       console.warn('[api/cascade/cleanup] unauthorized');

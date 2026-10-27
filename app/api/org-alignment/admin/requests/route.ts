@@ -7,12 +7,15 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, NextRequest } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer } from '@/lib/server/rbacGuard';
+import { requireAdminMfa } from '@/lib/server/mfaGuard';
 
 export async function GET(req: NextRequest) {
   try {
     const admin = getSupabaseAdmin();
 
     // 認証確認
+    const mfa = await requireAdminMfa(admin, req);
+    if (!mfa.ok) return NextResponse.json({ error: mfa.error }, { status: mfa.status });
     const userId = await getAuthUserIdFromBearer(admin, req);
     if (!userId) {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 });

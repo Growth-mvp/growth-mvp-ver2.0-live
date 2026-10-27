@@ -8,6 +8,7 @@ import { randomBytes, createHash } from 'crypto';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer } from '@/lib/server/rbacGuard';
 import type { Role } from '@/lib/rbac';
+import { requireAdminMfa } from '@/lib/server/mfaGuard';
 
 // Resend SDK (npm install resend が必要)
 let ResendClient: any = null;
@@ -43,6 +44,8 @@ export async function POST(req: Request) {
 
   try {
     // 1) Authentication check (Bearer token required)
+    const mfa = await requireAdminMfa(admin, req);
+    if (!mfa.ok) return NextResponse.json({ error: mfa.error }, { status: mfa.status });
     const callerId = await getAuthUserIdFromBearer(admin, req);
     if (!callerId) {
       console.error('[admin/members/invite] unauthorized - no bearer token');

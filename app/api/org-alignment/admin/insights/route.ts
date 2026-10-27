@@ -13,6 +13,7 @@ import {
   getInsightSourceCases,
 } from '@/utils/supabase/org-alignment-server';
 import { findOrCreateSharedTopic } from '@/utils/supabase/org-alignment-shared-topics-server';
+import { requireAdminMfa } from '@/lib/server/mfaGuard';
 
 const ROUTE_TAG = 'app/api/org-alignment/admin/insights';
 
@@ -38,6 +39,8 @@ export async function GET(req: NextRequest) {
 
   try {
     const admin = getSupabaseAdmin();
+    const mfa = await requireAdminMfa(admin, req);
+    if (!mfa.ok) return NextResponse.json({ error: mfa.error }, { status: mfa.status });
     const userId = await getAuthUserIdFromBearer(admin, req);
     if (!userId) return json({ error: 'unauthorized' }, 401);
 

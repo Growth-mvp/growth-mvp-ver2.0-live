@@ -1,6 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- Supabase モックの型は意図的に緩く定義している */
 jest.mock('server-only', () => ({}));
 jest.mock('@/lib/supabaseAdmin', () => ({ getSupabaseAdmin: jest.fn() }));
+jest.mock('@/lib/server/mfaGuard', () => ({
+  requireAdminMfa: jest.fn(async () => ({ ok: true, userId: 'user-1', isAdmin: true })),
+}));
 
 import { PATCH } from './route';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';

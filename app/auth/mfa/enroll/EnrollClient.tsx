@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
 import {
   confirmEnrollment,
@@ -28,6 +28,7 @@ type Pending = { factorId: string; qrCode: string; secret: string };
 
 export default function EnrollClient() {
   const router = useRouter();
+  const requiredForAdmin = useSearchParams().get('required') === '1';
   const api = supabase.auth.mfa as unknown as MfaClient;
 
   const [loading, setLoading] = useState(true);
@@ -143,6 +144,12 @@ export default function EnrollClient() {
   return (
     <main className="mx-auto max-w-md p-6 space-y-6">
       <h1 className="text-2xl font-bold">2段階認証の登録</h1>
+
+      {requiredForAdmin && status?.kind !== 'enrolled' && (
+        <p className="rounded border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900">
+          管理者は2段階認証の登録が必要です。登録が完了するまで、管理操作は利用できません。
+        </p>
+      )}
 
       {loading && <p className="text-sm text-gray-600">読み込んでいます…</p>}
 

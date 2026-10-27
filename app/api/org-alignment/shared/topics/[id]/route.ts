@@ -7,6 +7,7 @@ import { NextResponse, NextRequest } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
 import { getSharedTopicById, updateSharedTopicEditable } from '@/utils/supabase/org-alignment-shared-topics-server';
+import { requireAdminMfa } from '@/lib/server/mfaGuard';
 
 const ROUTE_TAG = 'app/api/org-alignment/shared/topics/[id]';
 
@@ -35,6 +36,8 @@ export async function PATCH(
 
   try {
     const admin = getSupabaseAdmin();
+    const mfa = await requireAdminMfa(admin, req);
+    if (!mfa.ok) return NextResponse.json({ error: mfa.error }, { status: mfa.status });
     const userId = await getAuthUserIdFromBearer(admin, req);
     if (!userId) return json({ error: 'unauthorized' }, 401);
 
