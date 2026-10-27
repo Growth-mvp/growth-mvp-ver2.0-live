@@ -28,6 +28,19 @@ if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
   process.exit(1);
 }
 
+// 本番プロジェクトへのテストアカウント作成を拒否する（envGuard を経由しないため、ここで確認する）
+const APP_ENV = process.env.APP_ENV;
+const PRODUCTION_REF = process.env.PRODUCTION_SUPABASE_REF;
+const TARGET_REF = (() => { try { return new URL(SUPABASE_URL).hostname.split(".")[0]; } catch { return null; } })();
+if (APP_ENV !== "staging" && APP_ENV !== "development") {
+  console.error("❌ APP_ENV は staging か development を指定してください（テスト用アカウントは非本番でのみ作成）");
+  process.exit(1);
+}
+if (!TARGET_REF || !PRODUCTION_REF || TARGET_REF === PRODUCTION_REF) {
+  console.error("❌ 接続先が本番プロジェクトか判定できないため中止します");
+  process.exit(1);
+}
+
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
 });

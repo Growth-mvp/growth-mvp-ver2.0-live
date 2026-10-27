@@ -47,7 +47,8 @@ export type SupabaseTargetResult =
 export type EnvCheckReason =
   | SupabaseTargetReason
   | 'missing_env'
-  | 'service_key_exposed';
+  | 'service_key_exposed'
+  | 'vercel_env_mismatch';
 
 export type EnvCheckResult =
   | { ok: true; ref: string }
@@ -123,6 +124,16 @@ export function checkSupabaseEnv(env: Env): EnvCheckResult {
     productionRef: env.PRODUCTION_SUPABASE_REF,
   });
   if (!target.ok) return target;
+
+  // VERCEL_ENV は Vercel が自動で設定する。未設定（ローカル等）では判定しない。
+  const vercelEnv = env.VERCEL_ENV;
+  if (vercelEnv) {
+    const productionDeployment = vercelEnv === 'production';
+    const productionTarget = env.APP_ENV === 'production';
+    if (productionDeployment !== productionTarget) {
+      return { ok: false, reason: 'vercel_env_mismatch', detail: 'VERCEL_ENV' };
+    }
+  }
 
   return { ok: true, ref: target.ref };
 }

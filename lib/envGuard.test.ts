@@ -169,6 +169,45 @@ describe('checkSupabaseEnv（起動時の環境変数の全体）', () => {
   });
 });
 
+describe('checkSupabaseEnv（VERCEL_ENV との整合）', () => {
+  const productionEnv = (over: Record<string, string | undefined> = {}) =>
+    stagingEnv({
+      APP_ENV: 'production',
+      EXPECTED_SUPABASE_REF: PROD,
+      NEXT_PUBLIC_SUPABASE_URL: prodUrl,
+      SUPABASE_URL: prodUrl,
+      ...over,
+    });
+
+  it('本番のデプロイが本番のプロジェクトを指していれば通す', () => {
+    expect(checkSupabaseEnv(productionEnv({ VERCEL_ENV: 'production' }))).toEqual({ ok: true, ref: PROD });
+  });
+
+  it('Preview のデプロイが本番のプロジェクトを指していれば拒否する', () => {
+    expect(checkSupabaseEnv(productionEnv({ VERCEL_ENV: 'preview' }))).toEqual({
+      ok: false,
+      reason: 'vercel_env_mismatch',
+      detail: 'VERCEL_ENV',
+    });
+  });
+
+  it('本番のデプロイがステージングのプロジェクトを指していれば拒否する', () => {
+    expect(checkSupabaseEnv(stagingEnv({ VERCEL_ENV: 'production' }))).toEqual({
+      ok: false,
+      reason: 'vercel_env_mismatch',
+      detail: 'VERCEL_ENV',
+    });
+  });
+
+  it('Preview のデプロイがステージングを指すのは通す', () => {
+    expect(checkSupabaseEnv(stagingEnv({ VERCEL_ENV: 'preview' }))).toEqual({ ok: true, ref: STAGING });
+  });
+
+  it('VERCEL_ENV が無い（ローカル等）場合はこの規則を判定しない', () => {
+    expect(checkSupabaseEnv(productionEnv())).toEqual({ ok: true, ref: PROD });
+  });
+});
+
 describe('assertSupabaseEnv（停止のための例外）', () => {
   it('問題が無ければ例外を投げない', () => {
     expect(assertSupabaseEnv(stagingEnv())).toEqual({ ref: STAGING });

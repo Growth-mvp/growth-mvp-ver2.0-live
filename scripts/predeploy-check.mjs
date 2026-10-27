@@ -66,7 +66,7 @@ runCommand('npm run type-check', 'npm run type-check');
 
 // チェック 3: ESLint
 console.log('\n--- チェック 3: ESLint ---');
-runCommand('npm lint', 'npm lint');
+runCommand('npm run lint', 'npm run lint');
 
 // チェック 4: npm audit (high/critical のみ)
 console.log('\n--- チェック 4: セキュリティチェック ---');
@@ -90,9 +90,13 @@ console.log('\n--- チェック 5: 環境変数 ---');
 const envPath = path.join(rootDir, '.env.local');
 const requiredKeys = [
   'OPENAI_API_KEY',
+  'APP_ENV',
+  'EXPECTED_SUPABASE_REF',
+  'PRODUCTION_SUPABASE_REF',
   'NEXT_PUBLIC_SUPABASE_URL',
-  'NEXT_PUBLIC_SUPABASE_ANON_KEY',
-  'DATABASE_URL',
+  'SUPABASE_URL',
+  'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
+  'SUPABASE_SERVICE_ROLE_KEY',
 ];
 
 if (!fs.existsSync(envPath)) {
