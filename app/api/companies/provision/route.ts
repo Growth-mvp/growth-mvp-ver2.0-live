@@ -232,13 +232,6 @@ export async function POST(req: NextRequest) {
     return json(500, { ok: false, code: 'server_not_configured' });
   }
 
-  // ★本番環境では新規会社作成を許可しない（サーバー専用環境変数で制御）
-  const enableSignupAdmin = (process.env.ENABLE_SIGNUP_ADMIN || '').toLowerCase() === 'true';
-  if (!enableSignupAdmin) {
-    console.warn('[provision] administrative signup denied: ENABLE_SIGNUP_ADMIN not enabled');
-    return json(403, { ok: false, code: 'signup_admin_disabled', message: 'Administrative signup is disabled in this environment.' });
-  }
-
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false },
   }) as AdminClient;
@@ -380,6 +373,14 @@ export async function POST(req: NextRequest) {
         console.info('[provision] denied: needs_membership', { userId, userEmail });
         return json(403, { ok: false, code: 'needs_membership', message: 'Join a company via invite first.' });
       }
+    }
+
+    // ★本番環境では新規会社作成を許可しない（サーバー専用環境変数で制御）
+    // 既所属の初期化（上の分岐）は許可したまま、未所属の新規作成だけをここで止める
+    const enableSignupAdmin = (process.env.ENABLE_SIGNUP_ADMIN || '').toLowerCase() === 'true';
+    if (!enableSignupAdmin) {
+      console.warn('[provision] administrative signup denied: ENABLE_SIGNUP_ADMIN not enabled');
+      return json(403, { ok: false, code: 'signup_admin_disabled', message: 'Administrative signup is disabled in this environment.' });
     }
 
     // 4) RPC（create許可時のみ）
