@@ -650,7 +650,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
           companyId,
         });
 
-        useStrategyStore.getState().refetchFromServer();
+        await useStrategyStore.getState().refetchFromServer();
       } catch (e) {
         console.warn('[layout] refetchFromServer failed:', e);
       }

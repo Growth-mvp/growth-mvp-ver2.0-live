@@ -1165,12 +1165,28 @@ async function ensureParentExists(): Promise<void> {
 /* ===== refetch再試行タイマー ===== */
 let __refetchRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
-function scheduleRefetchRetry(delayMs = 1500): void {
+const REFETCH_RETRY_BASE_DELAY_MS = 1500;
+const REFETCH_SESSION_RETRY_LIMIT = 4;
+let __refetchSessionRetries = 0;
+
+class RefetchPreconditionError extends Error {}
+
+function scheduleRefetchRetry(delayMs: number): void {
   if (__refetchRetryTimer) return;
   __refetchRetryTimer = setTimeout(() => {
     __refetchRetryTimer = null;
-    useStrategyStore.getState().refetchFromServer();
+    requestRefetch('retry-timer');
   }, delayMs);
+}
+
+function requestRefetch(source: string): void {
+  useStrategyStore.getState().refetchFromServer().catch((error: unknown) => {
+    if (error instanceof RefetchPreconditionError) {
+      console.warn(`[refetchFromServer:${source}] 会社ID・セッション未確立のため読み込みを保留`, error.message);
+      return;
+    }
+    console.error(`[refetchFromServer:${source}] 予期しないエラー`, error);
+  });
 }
 
 /* ===== refetch 直列化・会社スコープ判定 ===== */
@@ -3875,8 +3891,17 @@ export const useStrategyStore = create<StrategyState>()(
           // ★ isHydrating だけを確実にリセット
           const authReason: string = !authed ? 'refetchFromServer:auth-failure' : 'refetchFromServer:no-companyId';
           get().setHydratingFlag(false, authReason);
-          scheduleRefetchRetry(1500);
-          throw new Error('会社IDまたは認証情報が見つかりません');
+          if (companyId && !__refetchRetryTimer && __refetchSessionRetries < REFETCH_SESSION_RETRY_LIMIT) {
+            scheduleRefetchRetry(REFETCH_RETRY_BASE_DELAY_MS * 2 ** __refetchSessionRetries);
+            __refetchSessionRetries += 1;
+          }
+          throw new RefetchPreconditionError('会社IDまたは認証情報が見つかりません');
+        }
+
+        __refetchSessionRetries = 0;
+        if (__refetchRetryTimer) {
+          clearTimeout(__refetchRetryTimer);
+          __refetchRetryTimer = null;
         }
 
         if (__persistedSnapshot && !isSelectionVerified(companyId)) {
@@ -4763,5 +4788,5 @@ useUserStore.subscribe((u) => {
     useStrategyStore.getState().resetDisplayedCompanyData();
     return;
   }
-  useStrategyStore.getState().refetchFromServer();
+  requestRefetch('user-subscribe');
 });
