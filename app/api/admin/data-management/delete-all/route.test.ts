@@ -1,6 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- DB モックの型は意図的に緩く定義している */
 jest.mock('server-only', () => ({}));
 jest.mock('@/lib/supabaseAdmin', () => ({ getSupabaseAdmin: jest.fn() }));
+jest.mock('@/lib/server/mfaGuard', () => ({
+  requireAdminMfa: jest.fn(async () => ({ ok: true, userId: 'user-1', isAdmin: true })),
+}));
 jest.mock('@/lib/server/rbacGuard', () => ({ getAuthUserIdFromBearer: jest.fn() }));
 
 import { POST } from './route';
@@ -14,7 +17,7 @@ import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 
 type Row = Record<string, any>;
 type Op = 'select' | 'insert' | 'update' | 'delete';
-type Failure = { table: string; op: Op; error: { code?: string; message: string }; times: number };
+type Failure = { table: string; op: Op; error: { code?: string; message: string }; times: number; match?: (payload: Row) => boolean };
 
 const COMPANY_A = '11111111-1111-4111-8111-111111111111';
 const COMPANY_B = '22222222-2222-4222-8222-222222222222';
@@ -42,7 +45,7 @@ function createDeleteAllDb(seed: Record<string, Row[]>) {
     if (missingTables.has(q.table)) {
       return { data: null, count: null, error: { code: '42P01', message: `relation "public.${q.table}" does not exist` } };
     }
-    const failure = failures.find((f) => f.table === q.table && f.op === q.op && f.times > 0);
+    const failure = failures.find((f) => f.table === q.table && f.op === q.op && f.times > 0 && (!f.match || f.match(q.payload ?? {})));
     if (failure) {
       failure.times -= 1;
       return { data: null, count: null, error: failure.error };
@@ -454,5 +457,83 @@ describe('POST /api/admin/data-management/delete-all（対象会社の指定と�
     expect(res.status).toBe(403);
     expect(fake.calls.filter((c) => c.op === 'delete')).toHaveLength(0);
     expect(planIds(COMPANY_A)).toHaveLength(2);
+  });
+});
+
+describe('監査ログ（削除の前後の記録と、記録失敗時の扱い）', () => {
+  const auditRows = () => fake.tables.audit_logs.filter((r) => r.action === 'data:delete-all');
+  const mutationCalls = () => fake.calls.filter((c) => c.op === 'update' || c.op === 'delete');
+
+  it('does not start the deletion when the start audit cannot be recorded (503, nothing changed)', async () => {
+    fake.failures.push({
+      table: 'audit_logs',
+      op: 'insert',
+      error: { message: 'audit table unavailable' },
+      times: 1,
+      match: (p) => p.metadata?.phase === 'started',
+    });
+
+    const res = await POST(request());
+    const json = await res.json();
+
+    expect(res.status).toBe(503);
+    expect(json.error).toBe('audit_unavailable');
+    expect(mutationCalls()).toHaveLength(0);
+    expect(fake.tables.strategy_data.find((r) => r.id === STRATEGY_A)?.final_story).toEqual([{ x: 1 }]);
+    expect(fake.tables.generated_plans.filter((p) => p.company_id === COMPANY_A)).toHaveLength(2);
+  });
+
+  it('records a start and a success row, and the success row matches the response counts', async () => {
+    const res = await POST(request());
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    const rows = auditRows();
+    const started = rows.find((r) => r.metadata?.phase === 'started');
+    const success = rows.find((r) => r.metadata?.phase === 'success');
+    expect(started).toBeDefined();
+    expect(success).toBeDefined();
+    expect(started?.company_id).toBe(COMPANY_A);
+    expect(started?.actor_user_id).toBe(USER_ADMIN_A);
+    expect(success?.metadata.deletedCount).toBe(json.updatedCount);
+    expect(success?.metadata.separatedTableDeletions).toEqual(json.separatedTableDeletions);
+  });
+
+  it('reports the deletion as completed (500, not a silent success) when the success audit fails', async () => {
+    fake.failures.push({
+      table: 'audit_logs',
+      op: 'insert',
+      error: { message: 'audit table unavailable' },
+      times: 1,
+      match: (p) => p.metadata?.phase === 'success',
+    });
+
+    const res = await POST(request());
+    const json = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(json.ok).toBe(false);
+    expect(json.error).toBe('audit_record_failed_after_deletion');
+    expect(json.deletionCompleted).toBe(true);
+    expect(fake.tables.strategy_data.find((r) => r.id === STRATEGY_A)?.final_story).toEqual([]);
+  });
+
+  it('records a failure row with the steps completed so far when a later deletion step fails', async () => {
+    fake.failures.push({
+      table: 'story_answers2',
+      op: 'delete',
+      error: { code: '42501', message: 'permission denied for table story_answers2' },
+      times: 1,
+    });
+
+    const res = await POST(request());
+    const json = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(json.auditRecorded).toBe(true);
+    const failure = auditRows().find((r) => r.metadata?.phase === 'failure');
+    expect(failure).toBeDefined();
+    expect(String(failure?.metadata.reason)).toContain('story_answers2');
+    expect(failure?.metadata.beforeState).toBeDefined();
   });
 });

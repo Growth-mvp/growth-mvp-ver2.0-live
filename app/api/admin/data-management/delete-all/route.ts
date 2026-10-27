@@ -4,6 +4,8 @@ import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer } from '@/lib/server/rbacGuard';
 import { isValidUUID } from '@/lib/utils/isValidUUID';
+import { requireAdminMfa } from '@/lib/server/mfaGuard';
+import { logAuditEvent, extractAuditMetadata } from '@/lib/server/auditLog';
 
 // メールアドレスをマスキングする（ログ出力用）
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -15,75 +17,31 @@ function maskEmail(email: string): string {
   return `${maskedLocal}@${domain}`;
 }
 
+type DeleteAllAuditPhase = 'started' | 'success' | 'failure';
+type AuditMeta = { ip: string | null; userAgent: string | null };
+type AuditCtx = { companyId: string; actorUserId: string; beforeState: unknown; auditMeta: AuditMeta };
+
 /**
- * audit_log テーブルに記録
- * - companyId, userId, 対象件数, 実行理由, 結果を記録
- * - 機密本文（メール・本文・戦略本文等）はログに出さない
+ * 全データ削除の監査（audit_logs）。件数と結果のみを記録し、本文は記録しない。
+ * logAuditEvent は失敗を false で返すため、呼び出し側は戻り値で必ず判断する。
  */
-async function recordAuditLog(
-  admin: Record<string, any>,
-  companyId: string,
-  userId: string,
-  action: string,
-  details: {
-    beforeState?: Record<string, any>;
-    afterState?: Record<string, any>;
-    deletedCount?: number;
-    status: 'success' | 'failure';
-    reason?: string;
-    error?: string;
-  }
-) {
-  try {
-    // 機密情報をマスキング・除外
-    const safeDetails: Record<string, any> = {
-      status: details.status,
-      deletedCount: details.deletedCount ?? 0,
-      reason: details.reason,
-      error: details.error ? 'Error occurred (details masked)' : undefined,
-    };
-
-    // beforeState/afterState から機密項目を除外
-    if (details.beforeState) {
-      safeDetails.beforeState = {
-        final_story_count: details.beforeState.final_story,
-        story_draft_count: details.beforeState.story_draft,
-        final_story_draft_count: details.beforeState.final_story_draft,
-        final_story_final_count: details.beforeState.final_story_final,
-        stage3_strategy_bridge_exists: details.beforeState.stage3_strategy_bridge,
-        departments_count: details.beforeState.departments,
-      };
-    }
-
-    if (details.afterState) {
-      safeDetails.afterState = {
-        final_story_count: details.afterState.final_story,
-        story_draft_count: details.afterState.story_draft,
-        final_story_draft_count: details.afterState.final_story_draft,
-        final_story_final_count: details.afterState.final_story_final,
-        stage3_strategy_bridge_exists: details.afterState.stage3_strategy_bridge,
-        departments_count: details.afterState.departments,
-      };
-    }
-
-    // audit_log テーブルに記録（テーブルが存在する場合）
-    try {
-      await admin
-        .from('audit_log')
-        .insert({
-          company_id: companyId,
-          user_id: userId,
-          action,
-          details: safeDetails,
-          created_at: new Date().toISOString(),
-        });
-    } catch (auditErr) {
-      // audit_log テーブルが無い場合は、ここでは掛けずにサーバーログに委譲
-      console.warn('[DELETE_ALL_API] audit_log table not available or insert failed (ignored)', auditErr);
-    }
-  } catch (e) {
-    console.warn('[DELETE_ALL_API] recordAuditLog failed (ignored):', e);
-  }
+async function recordDeleteAllAudit(params: {
+  companyId: string;
+  actorUserId: string;
+  phase: DeleteAllAuditPhase;
+  metadata: Record<string, unknown>;
+  auditMeta: AuditMeta;
+}): Promise<boolean> {
+  return logAuditEvent({
+    companyId: params.companyId,
+    actorUserId: params.actorUserId,
+    action: 'data:delete-all',
+    targetType: 'company',
+    targetId: params.companyId,
+    metadata: { phase: params.phase, ...params.metadata },
+    ip: params.auditMeta.ip,
+    userAgent: params.auditMeta.userAgent,
+  });
 }
 
 const MISSING_TABLE_CODES = new Set(['42P01', 'PGRST205']);
@@ -129,10 +87,14 @@ async function deleteCompanyPlans(
 }
 
 export async function POST(req: Request) {
+  let auditCtx: AuditCtx | null = null;
+  let mutationStarted = false;
   try {
     const admin = getSupabaseAdmin();
 
     // 1) Bearer トークンから userId を取得
+    const mfa = await requireAdminMfa(admin, req);
+    if (!mfa.ok) return NextResponse.json({ error: mfa.error }, { status: mfa.status });
     const authUserId = await getAuthUserIdFromBearer(admin, req);
     if (!authUserId) {
       console.error('[DELETE_ALL_API] Not authenticated');
@@ -190,6 +152,37 @@ export async function POST(req: Request) {
       departments: Array.isArray(beforeData?.departments) ? beforeData.departments.length : (beforeData?.departments ? 'non-array' : 'null'),
     };
 
+    const auditMeta = extractAuditMetadata(req);
+    auditCtx = { companyId, actorUserId: authUserId, beforeState, auditMeta };
+    const recordFailure = (reason: string, extra: Record<string, unknown> = {}) =>
+      recordDeleteAllAudit({
+        companyId,
+        actorUserId: authUserId,
+        phase: 'failure',
+        metadata: { reason, beforeState, ...extra },
+        auditMeta,
+      });
+
+    const started = await recordDeleteAllAudit({
+      companyId,
+      actorUserId: authUserId,
+      phase: 'started',
+      metadata: { beforeState },
+      auditMeta,
+    });
+    if (!started) {
+      console.error('[DELETE_ALL_API] start audit could not be recorded; deletion not started', { companyId });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'audit_unavailable',
+          message: '監査ログを記録できなかったため、削除を開始していません。',
+          companyId,
+        },
+        { status: 503 }
+      );
+    }
+
     // ★ 修正：削除対象カラム名（execution_plan_baseline, stage4_plans, final_story_edited は strategy_data に存在しないため除外）
     const updateColumns = [
       'story_draft', 'final_story', 'final_story_draft', 'final_story_final',
@@ -219,6 +212,7 @@ export async function POST(req: Request) {
     };
 
     // ★ 修正：update 後に select() を付けて更新結果を確認（execution_plan_baseline, stage4_plans, final_story_edited 除外）
+    mutationStarted = true;
     const { data: updatedRows, error: updateError } = await admin
       .from('strategy_data')
       .update(updatePayload)
@@ -237,15 +231,12 @@ export async function POST(req: Request) {
       });
 
       // ★ 修正：失敗時もaudit logに記録
-      await recordAuditLog(admin, companyId, authUserId, 'data:delete-all', {
-        beforeState,
-        status: 'failure',
-        error: updateError.message,
-      });
+      const auditRecorded = await recordFailure('strategy_data update failed', { error: updateError.message });
 
       return NextResponse.json(
         {
           error: 'Failed to update strategy_data',
+          auditRecorded,
           detail: {
             message: updateError.message,
             code: updateError.code,
@@ -350,10 +341,12 @@ export async function POST(req: Request) {
     // verify 失敗時は分離テーブル削除を実行しない（データ損失防止）
     if (!isVerifySuccess) {
       console.error('[DELETE_ALL_API] strategy_data verify failed, aborting separated table deletion', { companyId });
+      const auditRecorded = await recordFailure('strategy_data verification failed');
       return NextResponse.json(
         {
           ok: false,
           error: 'strategy_data verification failed',
+          auditRecorded,
           operationId: `delete_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
           companyId,
           beforeState,
@@ -380,10 +373,12 @@ export async function POST(req: Request) {
 
     if (delAns.error) {
       console.error('[DELETE_ALL_API] story_answers2 deletion failed, aborting', delAns.error);
+      const auditRecorded = await recordFailure('story_answers2 deletion failed', { separatedTableDeletions });
       return NextResponse.json(
         {
           ok: false,
           error: 'Failed to delete story_answers2',
+          auditRecorded,
           operationId: `delete_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
           companyId,
           separatedTableDeletions,
@@ -405,10 +400,12 @@ export async function POST(req: Request) {
 
     if (delFinal.error) {
       console.error('[DELETE_ALL_API] final_stories deletion failed, aborting', delFinal.error);
+      const auditRecorded = await recordFailure('final_stories deletion failed', { separatedTableDeletions });
       return NextResponse.json(
         {
           ok: false,
           error: 'Failed to delete final_stories',
+          auditRecorded,
           operationId: `delete_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
           companyId,
           separatedTableDeletions,
@@ -430,10 +427,12 @@ export async function POST(req: Request) {
 
     if (delProg.error) {
       console.error('[DELETE_ALL_API] progress_logs deletion failed, aborting', delProg.error);
+      const auditRecorded = await recordFailure('progress_logs deletion failed', { separatedTableDeletions });
       return NextResponse.json(
         {
           ok: false,
           error: 'Failed to delete progress_logs',
+          auditRecorded,
           operationId: `delete_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
           companyId,
           separatedTableDeletions,
@@ -453,15 +452,12 @@ export async function POST(req: Request) {
 
     if (!planDeletion.ok) {
       console.error('[DELETE_ALL_API] generated_plans deletion failed, aborting', { companyId, code: planDeletion.code });
-      await recordAuditLog(admin, companyId, authUserId, 'data:delete-all', {
-        beforeState,
-        status: 'failure',
-        error: planDeletion.error,
-      });
+      const auditRecorded = await recordFailure('generated_plans deletion failed', { error: planDeletion.error });
       return NextResponse.json(
         {
           ok: false,
           error: 'Failed to delete generated_plans',
+          auditRecorded,
           operationId: `delete_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
           companyId,
           separatedTableDeletions,
@@ -484,12 +480,34 @@ export async function POST(req: Request) {
       departments: immediateVerification.strategy_data.departments_length,
     };
 
-    await recordAuditLog(admin, companyId, authUserId, 'data:delete-all', {
-      beforeState,
-      afterState,
-      deletedCount: updatedRows?.length ?? 0,
-      status: 'success',
+    const successAudit = await recordDeleteAllAudit({
+      companyId,
+      actorUserId: authUserId,
+      phase: 'success',
+      metadata: {
+        beforeState,
+        afterState,
+        deletedCount: updatedRows?.length ?? 0,
+        separatedTableDeletions,
+      },
+      auditMeta,
     });
+    if (!successAudit) {
+      console.error('[DELETE_ALL_API] success audit could not be recorded after deletion', { companyId });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'audit_record_failed_after_deletion',
+          message: '削除は完了していますが、監査ログを記録できませんでした。運用担当へ連絡してください。',
+          deletionCompleted: true,
+          operationId,
+          companyId,
+          updatedCount: updatedRows?.length ?? 0,
+          separatedTableDeletions,
+        },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json(
       {
@@ -513,8 +531,24 @@ export async function POST(req: Request) {
     );
   } catch (error) {
     console.error('[DELETE_ALL_API] Exception:', error);
+    let auditRecorded: boolean | null = null;
+    const ctx = auditCtx as AuditCtx | null;
+    if (ctx && mutationStarted) {
+      auditRecorded = await recordDeleteAllAudit({
+        companyId: ctx.companyId,
+        actorUserId: ctx.actorUserId,
+        phase: 'failure',
+        metadata: { reason: 'exception', beforeState: ctx.beforeState },
+        auditMeta: ctx.auditMeta,
+      });
+    }
     return NextResponse.json(
-      { error: 'Internal server error', details: error instanceof Error ? error.message : String(error) },
+      {
+        error: 'Internal server error',
+        details: error instanceof Error ? error.message : String(error),
+        deletionMayBeIncomplete: mutationStarted,
+        auditRecorded,
+      },
       { status: 500 }
     );
   }
