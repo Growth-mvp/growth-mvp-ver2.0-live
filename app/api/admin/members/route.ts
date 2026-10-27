@@ -3,7 +3,13 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer } from '@/lib/server/rbacGuard';
-import { requireMfaSatisfied } from '@/lib/server/mfaGuard';
+import { requireAdminMfa } from '@/lib/server/mfaGuard';
+import { logAuditEvent, extractAuditMetadata } from '@/lib/server/auditLog';
+import {
+  assertCompanyAdmin,
+  isUuid,
+  removeCompanyMember,
+} from '@/lib/server/companyAdmin';
 import type { Role } from '@/lib/rbac';
 
 type MemberItem = {
@@ -29,7 +35,7 @@ export async function GET(req: Request) {
   try {
     const admin = getSupabaseAdmin();
 
-    const mfa = await requireMfaSatisfied(admin, req);
+    const mfa = await requireAdminMfa(admin, req);
     if (!mfa.ok) return NextResponse.json({ error: mfa.error }, { status: mfa.status });
 
     // 1) Bearer から userId を抽出
@@ -159,96 +165,50 @@ export async function GET(req: Request) {
 }
 
 /**
- * DELETE /api/admin/members?userId=<targetUserId>
- * メンバーを会社から削除（admin のみ）
- * Service Role で削除処理を実行（RLS 回避）
+ * DELETE /api/admin/members?companyId=<companyId>&userId=<targetUserId>
+ * 指定した会社からメンバーを削除する（その会社の admin のみ）。
+ * Service Role で実行するため、会社の所属・権限・最後の管理者は API 側で検査する。
  */
 export async function DELETE(req: Request) {
   try {
     const admin = getSupabaseAdmin();
 
-    const mfa = await requireMfaSatisfied(admin, req);
+    const mfa = await requireAdminMfa(admin, req);
     if (!mfa.ok) return NextResponse.json({ error: mfa.error }, { status: mfa.status });
 
-    // 1) Bearer から userId を抽出（認証）
     const userId = await getAuthUserIdFromBearer(admin, req);
-    if (!userId) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-    }
+    if (!userId) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
-    // 2) userId の所属から、admin である company を特定
-    const { data: myMembership, error: myMemErr } = await admin
-      .from('company_members')
-      .select('company_id, role')
-      .eq('user_id', userId)
-      .eq('role', 'admin')
-      .limit(1)
-      .maybeSingle();
-
-    if (myMemErr || !myMembership?.company_id) {
-      console.warn('[api/admin/members] DELETE: user is not admin of any company:', { myMemErr, myMembership });
-      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
-    }
-
-    const companyId = myMembership.company_id;
-
-    // 3) Query param から削除対象の userId を取得
     const url = new URL(req.url);
+    const companyId = url.searchParams.get('companyId');
     const targetUserId = url.searchParams.get('userId');
-
-    if (!targetUserId) {
-      return NextResponse.json({ error: 'missing_userId_param' }, { status: 400 });
+    if (!isUuid(companyId) || !isUuid(targetUserId)) {
+      return NextResponse.json({ error: 'invalid_params' }, { status: 400 });
     }
 
-    // 4) 削除対象が存在するか確認
-    const { data: targetMember, error: targetMemErr } = await admin
-      .from('company_members')
-      .select('user_id, role')
-      .eq('company_id', companyId)
-      .eq('user_id', targetUserId)
-      .limit(1)
-      .maybeSingle();
+    const access = await assertCompanyAdmin(admin, userId, companyId);
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
-    if (targetMemErr || !targetMember) {
-      console.warn('[api/admin/members] DELETE: target member not found:', { targetMemErr, targetMember });
-      return NextResponse.json({ error: 'member_not_found' }, { status: 404 });
-    }
-
-    // 5) 最後の admin は削除不可
-    const { data: adminCount, error: countErr } = await admin
-      .from('company_members')
-      .select('user_id', { count: 'exact' })
-      .eq('company_id', companyId)
-      .eq('role', 'admin');
-
-    if (countErr) {
-      console.error('[api/admin/members] DELETE: admin count check failed:', countErr);
-      return NextResponse.json({ error: 'count_check_failed', detail: countErr.message }, { status: 500 });
-    }
-
-    const adminCountNum = adminCount?.length ?? 0;
-    if (adminCountNum <= 1 && targetMember.role === 'admin') {
-      console.warn('[api/admin/members] DELETE: cannot remove last admin');
-      return NextResponse.json({ error: 'cannot_remove_last_admin', message: '最後の管理者は削除できません。' }, { status: 400 });
-    }
-
-    // 6) 削除実行（Service Role で実行）
-    console.log('[api/admin/members] DELETE: removing user', targetUserId, 'from company', companyId);
-    const { error: delErr } = await admin
-      .from('company_members')
-      .delete()
-      .eq('company_id', companyId)
-      .eq('user_id', targetUserId);
-
-    if (delErr) {
-      console.error('[api/admin/members] DELETE: delete failed:', delErr);
+    const removed = await removeCompanyMember(admin, companyId, targetUserId);
+    if (!removed.ok) {
       return NextResponse.json(
-        { error: 'delete_failed', detail: delErr.message },
-        { status: 500 }
+        removed.message ? { error: removed.error, message: removed.message } : { error: removed.error },
+        { status: removed.status }
       );
     }
 
-    console.log('[api/admin/members] DELETE: success');
+    const { ip, userAgent } = extractAuditMetadata(req);
+    await logAuditEvent({
+      companyId,
+      actorUserId: userId,
+      action: 'member_removed',
+      targetType: 'member',
+      targetId: targetUserId,
+      before: { role: removed.role },
+      ip,
+      userAgent,
+    });
+
     return NextResponse.json({ ok: true, message: 'Member removed successfully' });
   } catch (e: any) {
     console.error('[api/admin/members] DELETE failed:', e?.message || e);

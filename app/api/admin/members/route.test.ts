@@ -1,118 +1,183 @@
-/* eslint-disable @typescript-eslint/no-explicit-any -- 管理 API のモックは意図的に緩く定義している */
+/* eslint-disable @typescript-eslint/no-explicit-any -- 偽の管理クライアントを通して、API の振る舞いを確認する */
 jest.mock('server-only', () => ({}));
 jest.mock('@/lib/supabaseAdmin', () => ({ getSupabaseAdmin: jest.fn() }));
-jest.mock('@/lib/server/rbacGuard', () => ({ getAuthUserIdFromBearer: jest.fn() }));
+jest.mock('@/lib/server/auditLog', () => ({
+  logAuditEvent: jest.fn(async () => true),
+  extractAuditMetadata: jest.fn(() => ({ ip: null, userAgent: null })),
+}));
 
-import { GET, DELETE } from './route';
+import { DELETE, GET } from './route';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
-import { getAuthUserIdFromBearer } from '@/lib/server/rbacGuard';
+import { logAuditEvent } from '@/lib/server/auditLog';
+import { createFakeAdmin, type FakeAdminOptions } from '@/lib/server/testing/fakeAdmin';
+import { CO_A, CO_B, CO_C, TOKEN, U, fixtureOptions } from '@/lib/server/testing/fixtures';
 
-const USER = '99999999-9999-4999-8999-999999999999';
-const verified = { id: 'f1', status: 'verified' };
-
-function setup(opts: { claims?: any; claimsError?: unknown; factors?: any[] }) {
-  const admin: any = {
-    auth: {
-      getClaims: jest.fn(async () =>
-        opts.claimsError
-          ? { data: null, error: opts.claimsError }
-          : { data: { claims: opts.claims ?? { sub: USER, aal: 'aal1' } }, error: null }
-      ),
-      admin: {
-        mfa: {
-          listFactors: jest.fn(async () => ({ data: { factors: opts.factors ?? [] }, error: null })),
-        },
-      },
-    },
-  };
-  (getSupabaseAdmin as jest.Mock).mockReturnValue(admin);
-  return admin;
+function setup(overrides: Partial<FakeAdminOptions> = {}) {
+  const fake = createFakeAdmin(fixtureOptions(overrides));
+  (getSupabaseAdmin as jest.Mock).mockReturnValue(fake);
+  return fake;
 }
 
-const req = (token: string) =>
-  new Request('http://localhost/api/admin/members', { headers: { authorization: `Bearer ${token}` } });
+function remove(token: string, companyId: string | null, userId: string | null) {
+  const url = new URL('http://localhost/api/admin/members');
+  if (companyId !== null) url.searchParams.set('companyId', companyId);
+  if (userId !== null) url.searchParams.set('userId', userId);
+  return DELETE(new Request(url, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } }));
+}
 
-describe('DELETE /api/admin/members（MFA ガードの適用）', () => {
+const isMember = (fake: ReturnType<typeof createFakeAdmin>, company: string, user: string) =>
+  fake.snapshot().some((r) => r.company_id === company && r.user_id === user);
+
+describe('DELETE /api/admin/members（MFA と会社の権限）', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (getAuthUserIdFromBearer as jest.Mock).mockResolvedValue(null);
   });
 
-  const delReq = (token: string) =>
-    new Request('http://localhost/api/admin/members?userId=x', {
-      method: 'DELETE',
-      headers: { authorization: `Bearer ${token}` },
-    });
+  it('MFA 未登録の管理者は 403（mfa_enrollment_required）。削除されない', async () => {
+    const fake = setup();
+    const before = fake.snapshot();
 
-  it('MFA 登録済みで aal1 の管理者は 403（mfa_required）。削除には進まない', async () => {
-    setup({ claims: { sub: USER, aal: 'aal1' }, factors: [verified] });
+    const res = await remove(TOKEN.adminANoEnroll, CO_A, U.targetA);
 
-    const res = await DELETE(delReq('t'));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'mfa_enrollment_required' });
+    expect(fake.snapshot()).toEqual(before);
+  });
+
+  it('MFA 登録済みで aal1 の管理者は 403（mfa_required）。削除されない', async () => {
+    const fake = setup();
+    const before = fake.snapshot();
+
+    const res = await remove(TOKEN.adminAAal1, CO_A, U.targetA);
 
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: 'mfa_required' });
-    expect(getAuthUserIdFromBearer).not.toHaveBeenCalled();
+    expect(fake.snapshot()).toEqual(before);
   });
 
-  it('MFA 登録済みで aal2 の管理者はガードを通過する', async () => {
-    setup({ claims: { sub: USER, aal: 'aal2' }, factors: [verified] });
+  it('aal2 の管理者は指定した会社からメンバーを削除でき、監査ログに残る', async () => {
+    const fake = setup();
 
-    const res = await DELETE(delReq('t'));
+    const res = await remove(TOKEN.adminA, CO_A, U.targetA);
 
-    expect(getAuthUserIdFromBearer).toHaveBeenCalledTimes(1);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
+    expect(isMember(fake, CO_A, U.targetA)).toBe(false);
+    expect(logAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: CO_A,
+        actorUserId: U.adminA,
+        action: 'member_removed',
+        targetId: U.targetA,
+        before: { role: 'member' },
+      })
+    );
   });
 
-  it('MFA 未登録のユーザーは従来どおり通過する', async () => {
-    setup({ factors: [] });
+  it('一般メンバーは 403（forbidden）。削除されない', async () => {
+    const fake = setup();
+    const before = fake.snapshot();
 
-    await DELETE(delReq('t'));
+    const res = await remove(TOKEN.memberA, CO_A, U.targetA);
 
-    expect(getAuthUserIdFromBearer).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'forbidden' });
+    expect(fake.snapshot()).toEqual(before);
+  });
+
+  it('複数の会社の管理者は、指定した会社のメンバーだけを削除できる', async () => {
+    const fake = setup();
+
+    // 指定会社 B に居ない人は削除できない
+    const wrong = await remove(TOKEN.adminAB, CO_B, U.targetA);
+    expect(wrong.status).toBe(404);
+    expect(isMember(fake, CO_A, U.targetA)).toBe(true);
+
+    // 指定会社 A の人は削除できる（B の管理者でも、A の所属は A の指定で操作する）
+    const ok = await remove(TOKEN.adminAB, CO_A, U.targetA);
+    expect(ok.status).toBe(200);
+    expect(isMember(fake, CO_A, U.targetA)).toBe(false);
+    expect(isMember(fake, CO_B, U.adminAB)).toBe(true);
+  });
+
+  it('別会社の管理者は、その会社のメンバーを削除できない（403）', async () => {
+    const fake = setup();
+    const before = fake.snapshot();
+
+    const res = await remove(TOKEN.adminA, CO_B, U.targetB);
+
+    expect(res.status).toBe(403);
+    expect(fake.snapshot()).toEqual(before);
+  });
+
+  it('別会社のメンバーを、自社の会社指定で削除しようとすると 404 になる', async () => {
+    const fake = setup();
+    const before = fake.snapshot();
+
+    const res = await remove(TOKEN.adminA, CO_A, U.targetB);
+
+    expect(res.status).toBe(404);
+    expect(fake.snapshot()).toEqual(before);
+  });
+
+  it('最後の管理者は削除できない（400）。削除されない', async () => {
+    const fake = setup();
+    const before = fake.snapshot();
+
+    const res = await remove(TOKEN.adminC, CO_C, U.adminC);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: 'cannot_remove_last_admin' });
+    expect(fake.snapshot()).toEqual(before);
+  });
+
+  it('管理者が 2 人以上いれば、管理者の 1 人を削除できる', async () => {
+    const fake = setup();
+
+    const res = await remove(TOKEN.adminA, CO_A, U.adminANoEnroll);
+
+    expect(res.status).toBe(200);
+    expect(isMember(fake, CO_A, U.adminANoEnroll)).toBe(false);
+  });
+
+  it('会社または対象の指定が無い・不正なら 400', async () => {
+    const fake = setup();
+    const before = fake.snapshot();
+
+    expect((await remove(TOKEN.adminA, null, U.targetA)).status).toBe(400);
+    expect((await remove(TOKEN.adminA, CO_A, null)).status).toBe(400);
+    expect((await remove(TOKEN.adminA, 'not-a-uuid', U.targetA)).status).toBe(400);
+    expect(fake.snapshot()).toEqual(before);
   });
 });
 
 describe('GET /api/admin/members（MFA ガードの適用）', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    // 従来の認証の結果（ガードを通過した後の動作）を固定する
-    (getAuthUserIdFromBearer as jest.Mock).mockResolvedValue(null);
   });
 
-  it('MFA 登録済みで aal1 のユーザーは 403（mfa_required）。従来の認証には進まない', async () => {
-    setup({ claims: { sub: USER, aal: 'aal1' }, factors: [verified] });
-
-    const res = await GET(req('t'));
-
+  it('MFA 登録済みで aal1 の管理者は 403（mfa_required）', async () => {
+    setup();
+    const res = await GET(
+      new Request('http://localhost/api/admin/members', { headers: { authorization: `Bearer ${TOKEN.adminAAal1}` } })
+    );
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: 'mfa_required' });
-    expect(getAuthUserIdFromBearer).not.toHaveBeenCalled();
   });
 
-  it('MFA 登録済みで aal2 のユーザーはガードを通過する', async () => {
-    setup({ claims: { sub: USER, aal: 'aal2' }, factors: [verified] });
-
-    const res = await GET(req('t'));
-
-    expect(getAuthUserIdFromBearer).toHaveBeenCalledTimes(1);
-    expect(res.status).toBe(401); // 従来の認証の結果（この試験では null を返している）
-  });
-
-  it('MFA 未登録のユーザーは従来どおり、ガードを通過して従来の認証に進む', async () => {
-    setup({ claims: { sub: USER, aal: 'aal1' }, factors: [] });
-
-    const res = await GET(req('t'));
-
-    expect(getAuthUserIdFromBearer).toHaveBeenCalledTimes(1);
+  it('不正な JWT は 401', async () => {
+    setup();
+    const res = await GET(
+      new Request('http://localhost/api/admin/members', { headers: { authorization: 'Bearer bad' } })
+    );
     expect(res.status).toBe(401);
   });
 
-  it('不正・期限切れの JWT は 401 で、従来の認証に進まない', async () => {
-    setup({ claimsError: { message: 'JWT expired' } });
-
-    const res = await GET(req('bad'));
-
-    expect(res.status).toBe(401);
-    expect(getAuthUserIdFromBearer).not.toHaveBeenCalled();
+  it('一般メンバーは MFA ガードを通過し、GET 本体の権限判定で forbidden になる', async () => {
+    setup();
+    const res = await GET(
+      new Request('http://localhost/api/admin/members', { headers: { authorization: `Bearer ${TOKEN.memberA}` } })
+    );
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'forbidden' });
   });
 });

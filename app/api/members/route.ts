@@ -7,6 +7,15 @@ import { NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin'; // ★ named import に修正
 import { logAuditEvent, extractAuditMetadata } from '@/lib/server/auditLog';
+import { requireAdminMfa } from '@/lib/server/mfaGuard';
+import {
+  assertCompanyAdmin,
+  countOtherAdmins,
+  isAppRole,
+  isLastAdminViolation,
+  isUuid,
+  removeCompanyMember,
+} from '@/lib/server/companyAdmin';
 
 function bearer(req: Request) {
   const h = req.headers.get('authorization') || req.headers.get('Authorization') || '';
@@ -67,8 +76,8 @@ export async function GET(req: Request) {
 }
 
 /* ========================================================
- * POST: メンバー追加（既存ユーザーを追加）
- * body: { targetUserId: string, role: AppRole, departmentId?: string }
+ * POST: メンバー追加（指定した会社の admin のみ）
+ * body: { companyId: string, targetUserId: string, role?: AppRole, departmentId?: string }
  * ====================================================== */
 export async function POST(req: Request) {
   let admin: SupabaseClient;
@@ -82,28 +91,39 @@ export async function POST(req: Request) {
     const token = bearer(req);
     if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+    const mfa = await requireAdminMfa(admin, req);
+    if (!mfa.ok) return NextResponse.json({ error: mfa.error }, { status: mfa.status });
     const { data: ures, error: uerr } = await admin.auth.getUser(token);
     if (uerr || !ures?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const me = ures.user;
 
-    const { data: mine, error: merr } = await admin
-      .from('company_members')
-      .select('company_id, role')
-      .eq('user_id', me.id)
-      .maybeSingle();
-
-    if (merr) throw merr;
-    if (!mine?.company_id) return NextResponse.json({ error: 'no company' }, { status: 403 });
-    if (mine.role !== 'admin') return NextResponse.json({ error: 'forbidden' }, { status: 403 });
-
-    const companyId: string = mine.company_id;
-
     const body = await req.json().catch(() => ({}));
-    const targetUserId: string | undefined = body?.targetUserId;
-    const role: AppRole = body?.role || 'member';
+    const companyId: unknown = body?.companyId;
+    const targetUserId: unknown = body?.targetUserId;
+    const role: unknown = body?.role ?? 'member';
     const departmentId: string | null = body?.departmentId ?? null;
+    if (!isUuid(companyId) || !isUuid(targetUserId) || !isAppRole(role)) {
+      return NextResponse.json({ error: 'invalid body' }, { status: 400 });
+    }
 
-    if (!targetUserId) return NextResponse.json({ error: 'invalid body' }, { status: 400 });
+    const access = await assertCompanyAdmin(admin, me.id, companyId);
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+
+    // 既存メンバーの役割を変える upsert でも、最後の管理者を降格させない
+    const { data: existing, error: exErr } = await admin
+      .from('company_members')
+      .select('role')
+      .eq('company_id', companyId)
+      .eq('user_id', targetUserId)
+      .maybeSingle();
+    if (exErr) return NextResponse.json({ error: 'member_lookup_failed' }, { status: 503 });
+    if (existing?.role === 'admin' && role !== 'admin') {
+      const others = await countOtherAdmins(admin, companyId, targetUserId);
+      if (others === null) return NextResponse.json({ error: 'count_check_failed' }, { status: 503 });
+      if (others === 0) {
+        return NextResponse.json({ error: 'last_admin_cannot_be_downgraded' }, { status: 403 });
+      }
+    }
 
     const { error: upErr } = await admin
       .from('company_members')
@@ -111,7 +131,9 @@ export async function POST(req: Request) {
         [{ company_id: companyId, user_id: targetUserId, role, department_id: departmentId }],
         { onConflict: 'company_id,user_id' }
       );
-
+    if (isLastAdminViolation(upErr)) {
+      return NextResponse.json({ error: 'last_admin_cannot_be_downgraded' }, { status: 403 });
+    }
     if (upErr) throw upErr;
 
     const { ip, userAgent } = extractAuditMetadata(req);
@@ -134,8 +156,8 @@ export async function POST(req: Request) {
 }
 
 /* ========================================================
- * DELETE: メンバー削除
- * body: { targetUserId: string }
+ * DELETE: メンバー削除（指定した会社の admin のみ）
+ * body: { companyId: string, targetUserId: string }
  * ====================================================== */
 export async function DELETE(req: Request) {
   let admin: SupabaseClient;
@@ -149,55 +171,32 @@ export async function DELETE(req: Request) {
     const token = bearer(req);
     if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+    const mfa = await requireAdminMfa(admin, req);
+    if (!mfa.ok) return NextResponse.json({ error: mfa.error }, { status: mfa.status });
     const { data: ures, error: uerr } = await admin.auth.getUser(token);
     if (uerr || !ures?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const me = ures.user;
 
-    const { data: mine, error: merr } = await admin
-      .from('company_members')
-      .select('company_id, role')
-      .eq('user_id', me.id)
-      .maybeSingle();
-
-    if (merr) throw merr;
-    if (!mine?.company_id) return NextResponse.json({ error: 'no company' }, { status: 403 });
-    if (mine.role !== 'admin') return NextResponse.json({ error: 'forbidden' }, { status: 403 });
-
-    const companyId: string = mine.company_id;
-
     const body = await req.json().catch(() => ({}));
-    const targetUserId: string | undefined = body?.targetUserId;
-    if (!targetUserId) return NextResponse.json({ error: 'invalid body' }, { status: 400 });
-    if (targetUserId === me.id)
+    const companyId: unknown = body?.companyId;
+    const targetUserId: unknown = body?.targetUserId;
+    if (!isUuid(companyId) || !isUuid(targetUserId)) {
+      return NextResponse.json({ error: 'invalid body' }, { status: 400 });
+    }
+    if (targetUserId === me.id) {
       return NextResponse.json({ error: 'cannot_remove_self' }, { status: 400 });
-
-    // 最後の admin を削除できないように保護
-    const { data: target } = await admin
-      .from('company_members')
-      .select('role')
-      .eq('company_id', companyId)
-      .eq('user_id', targetUserId)
-      .maybeSingle();
-
-    if (target?.role === 'admin') {
-      const { count } = await admin
-        .from('company_members')
-        .select('*', { count: 'exact', head: true })
-        .eq('company_id', companyId)
-        .eq('role', 'admin');
-
-      if ((count ?? 0) <= 1) {
-        return NextResponse.json({ error: 'last_admin_cannot_be_removed' }, { status: 403 });
-      }
     }
 
-    const { error: delErr } = await admin
-      .from('company_members')
-      .delete()
-      .eq('company_id', companyId)
-      .eq('user_id', targetUserId);
+    const access = await assertCompanyAdmin(admin, me.id, companyId);
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
-    if (delErr) throw delErr;
+    const removed = await removeCompanyMember(admin, companyId, targetUserId);
+    if (!removed.ok) {
+      return NextResponse.json(
+        removed.message ? { error: removed.error, message: removed.message } : { error: removed.error },
+        { status: removed.status }
+      );
+    }
 
     const { ip, userAgent } = extractAuditMetadata(req);
     await logAuditEvent({
@@ -206,7 +205,7 @@ export async function DELETE(req: Request) {
       action: 'member_removed',
       targetType: 'member',
       targetId: targetUserId,
-      before: { role: target?.role },
+      before: { role: removed.role },
       ip,
       userAgent,
     });

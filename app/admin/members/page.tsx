@@ -7,7 +7,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import {
   updateMemberRole,
-  removeMember,
   type MemberListItem,
 } from '@/utils/supabase/membership'; // ✅ 必要なものだけ
 import { useUserStore, type Role } from '@/store/userStore';
@@ -94,6 +93,10 @@ export default function AdminMembersPage() {
   };
 
   const onChangeRole = async (targetUserId: string, next: Role) => {
+    if (!companyId) {
+      setNote('会社所属が未設定です。');
+      return;
+    }
     // 最後の管理者は降格不可
     if (next !== 'admin' && isLastAdmin(targetUserId)) {
       setNote('⚠️ 最後の管理者を降格できません。先に別ユーザーを管理者にしてください。');
@@ -102,7 +105,7 @@ export default function AdminMembersPage() {
     setWorking((w) => ({ ...w, [targetUserId]: true }));
     setNote('');
     try {
-      const res = await updateMemberRole(targetUserId, next);
+      const res = await updateMemberRole(companyId, targetUserId, next);
       if (!res.ok) throw res.error;
       setRows((prev) => prev.map((r) => (r.userId === targetUserId ? { ...r, role: next } : r)));
       setNote('✅ ロールを更新しました。');
@@ -115,6 +118,10 @@ export default function AdminMembersPage() {
   };
 
   const onRemove = async (targetUserId: string) => {
+    if (!companyId) {
+      setNote('会社所属が未設定です。');
+      return;
+    }
     if (!user?.id) return;
     if (targetUserId === user.id) {
       setNote('自分自身は削除できません。');
@@ -139,7 +146,7 @@ export default function AdminMembersPage() {
       }
 
       // ★ APIで削除（Service Roleで実行）
-      const res = await fetch(`/api/admin/members?userId=${encodeURIComponent(targetUserId)}`, {
+      const res = await fetch(`/api/admin/members?companyId=${encodeURIComponent(companyId)}&userId=${encodeURIComponent(targetUserId)}`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
