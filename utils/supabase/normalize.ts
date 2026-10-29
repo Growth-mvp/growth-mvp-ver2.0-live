@@ -15,6 +15,7 @@ import type {
   CompanyTarget,
   WinPatternCandidate,
   Stage2Answer,
+  Stage2DeepDive,
 } from '@/types/strategy';
 import { ensureDepartmentId, ensureProjectId } from './stableIdGenerator';
 import { normalizeFiscalYearEnd } from '@/utils/stage6/fiscalYear';
@@ -741,6 +742,24 @@ function normalizeWinPatternCandidatesArray(input: unknown): WinPatternCandidate
   return arr.length > 0 ? arr : undefined;
 }
 
+function normalizeStage2DeepDive(input: unknown): Stage2DeepDive | undefined {
+  if (!input || typeof input !== 'object') return undefined;
+  const d = input as Record<string, unknown>;
+  if (typeof d.question !== 'string' || !d.question) return undefined;
+
+  const text = (v: unknown) => (typeof v === 'string' ? v : undefined);
+  return {
+    question: d.question,
+    rationale: text(d.rationale),
+    answer: text(d.answer),
+    generatedAt: text(d.generatedAt),
+    sourceAnswerSnapshot: text(d.sourceAnswerSnapshot),
+    appliedAnswer: text(d.appliedAnswer),
+    appliedAt: text(d.appliedAt),
+    appliedBlock: text(d.appliedBlock),
+  };
+}
+
 function normalizeStage2Answer(input: unknown): Stage2Answer | null {
   if (!input || typeof input !== 'object') return null;
   const a = input as any;
@@ -751,11 +770,14 @@ function normalizeStage2Answer(input: unknown): Stage2Answer | null {
 
   if (!id || !question) return null;
 
+  const deepDive = normalizeStage2DeepDive(a.deepDive);
+
   return {
     id,
     question,
     answer,
     required: Boolean(a.required),
+    ...(deepDive ? { deepDive } : {}),
   };
 }
 
