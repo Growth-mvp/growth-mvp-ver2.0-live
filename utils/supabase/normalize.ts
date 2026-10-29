@@ -1,4 +1,5 @@
 // /utils/supabase/normalize.ts
+import { getStage2QuestionById } from '@/lib/stage2/questions12';
 import type {
   StrategyData,
   ChapterStory,
@@ -745,7 +746,7 @@ function normalizeStage2Answer(input: unknown): Stage2Answer | null {
   const a = input as any;
 
   const id = String(a.id ?? '');
-  const question = String(a.question ?? '').trim();
+  const question = getStage2QuestionById(id)?.question ?? String(a.question ?? '').trim();
   const answer = String(a.answer ?? '').trim();
 
   if (!id || !question) return null;

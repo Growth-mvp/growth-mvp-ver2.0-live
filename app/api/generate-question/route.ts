@@ -5,7 +5,8 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, type NextRequest } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
-import { clampStepDyn, maxStepsForChapter, TEMPLATE12 } from './helpers';
+import { clampStepDyn, maxStepsForChapter } from './helpers';
+import { getStage2QuestionsByChapter } from '@/lib/stage2/questions12';
 
 /** 空や壊れたJSONも {} を返して許容する安全パーサ */
 async function readJsonSafe(req: Request): Promise<any> {
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest) {
     const max = maxStepsForChapter(ch);
     const step = clampStepDyn(ch, Number(stepNumber) || 1, 1);
 
-    const tpl = (TEMPLATE12[ch] ?? [])[step - 1];
+    const tpl = getStage2QuestionsByChapter(ch)[step - 1];
     if (!tpl) {
       return NextResponse.json({ error: 'No template for chapter/step' }, { status: 400 });
     }

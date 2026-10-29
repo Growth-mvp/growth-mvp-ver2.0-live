@@ -32,112 +32,23 @@ import type { IssueBlock, MetricsSummary, StoryChapter, WinPatternCandidate, Sta
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
 import { StrategyStoryPreview } from '@/components/stage2/StrategyStoryPreview';
+import {
+  STAGE2_QUESTIONS_12,
+  STAGE2_CHAPTER_LABELS,
+  STAGE2_MULTI_BUSINESS_HINT,
+  STAGE2_MULTI_BUSINESS_HINT_IDS,
+  getStage2QuestionById,
+  mergeSavedAnswers12,
+} from '@/lib/stage2/questions12';
 
 /* ===================================================
  * ★ Zustand selector 参照安定化：無限ループ防止
  * =================================================== */
 const EMPTY_ARR: any[] = [];
 
-/* ===================================================
- * 12問テンプレート（固定）
- * - 修正：必須を撤廃（全て required: false）
- * =================================================== */
-const TEMPLATE12: { id: string; question: string; reason: string; chapter: number; required: boolean }[] = [
-  // 章0（なぜ今）- 2問
-  {
-    id: 'ch0-q1',
-    question: '現在、お客様や業界の変化の中で危機と感じることは何ですか？',
-    reason: 'まず「何が危機か」を自分の言葉で特定すると、議論の土台がそろいます。',
-    chapter: 0,
-    required: false,
-  },
-  {
-    id: 'ch0-q2',
-    question: 'その危機を放置しておくことで、今後自社が失うものは何ですか？',
-    reason: '放置コスト（機会・信頼・人材・収益）を見える化すると「なぜ今やるか」が腑に落ちます。',
-    chapter: 0,
-    required: false,
-  },
+const TEMPLATE12 = STAGE2_QUESTIONS_12;
 
-  // 章1（どう戦う）- 6問
-  {
-    id: 'ch1-q1',
-    question: '5年後、どんな商品やサービスが人々の生活を支え、また社会や経済を支えているでしょうか？',
-    reason: '前提をバックキャスト思考で考えることで、フォアキャスト思考から抜け出せます。',
-    chapter: 1,
-    required: false,
-  },
-  {
-    id: 'ch1-q2',
-    question: 'その変化の中で、顧客が本当に求める「価値」は何であり、自社を選ぶ理由は何になるのでしょうか？',
-    reason: '提供価値を再定義すると、意思決定の軸が一本化します。',
-    chapter: 1,
-    required: false,
-  },
-  {
-    id: 'ch1-q3',
-    question: 'その価値を生み出し続けるために、今から投資し磨くべき当社の「強み」は何でしょうか？',
-    reason: '限られた資源をどこに集中するかを決めます。',
-    chapter: 1,
-    required: false,
-  },
-  {
-    id: 'ch1-q4',
-    question: 'その強みを発揮するうえで、いま克服すべき「致命的な課題」は何でしょうか？',
-    reason: 'ボトルネックを先に外すと、強みが成果に結びやすくなります。',
-    chapter: 1,
-    required: false,
-  },
-  {
-    id: 'ch1-q5',
-    question: 'この変革を全社で実現するうえで、最も大きな「壁」や「抵抗」は何でしょうか？',
-    reason: '人と組織の壁を言語化すると、伝わらない理由が解けます。',
-    chapter: 1,
-    required: false,
-  },
-  {
-    id: 'ch1-q6',
-    question: '経営資源を集中させるために、いま「やめること」や「撤退すべきこと」は何でしょうか？',
-    reason: 'やめるを決めると、スピードと手応えが上がります。',
-    chapter: 1,
-    required: false,
-  },
-
-  // 章2（どんな未来像）- 2問
-  {
-    id: 'ch2-q1',
-    question: 'この戦略が実現したとき、社会や市場から私たちはどんな「新しい評価」を得たいですか？',
-    reason: '外からの評価像をはっきりさせると、目指す価値が具体になります。',
-    chapter: 2,
-    required: false,
-  },
-  {
-    id: 'ch2-q2',
-    question:
-      '3年後、この戦略が成功していたとして、会社の「業績の数字」はどのように変わり、社員一人ひとりの「仕事のやりがいや誇り」はどのように変わっているでしょう？',
-    reason: '数字（売上・利益など）と手触り（やりがい・誇り）を両輪で描くと、未来の姿が実感を伴います。',
-    chapter: 2,
-    required: false,
-  },
-
-  // 章3（どう行動する）- 2問
-  {
-    id: 'ch3-q1',
-    question: 'この戦略を全社員に伝え、「本気だ」と感じてもらうために、経営層はまず「どんな行動」を起こすべきですか？',
-    reason: '最初に動くのは言葉ではなく行動です。小さくても具体的な初動を示すと、信頼が生まれます。',
-    chapter: 3,
-    required: false,
-  },
-  {
-    id: 'ch3-q2',
-    question: 'この戦略を進めるために、全社員に「明日から必ず変えてほしい行動」を挙げるとすれば何ですか？',
-    reason: '全員の一歩をそろえると、戦略が自分ごとになります。',
-    chapter: 3,
-    required: false,
-  },
-];
-
-const CHAPTER_LABELS = ['第1章：なぜ今', '第2章：どう戦う', '第3章：どんな未来像', '第4章：どう行動する'];
+const CHAPTER_LABELS = STAGE2_CHAPTER_LABELS;
 
 /* ===================================================
  * AI掘り下げ対象の4問（Version 1）
@@ -1858,7 +1769,7 @@ function Questions12Section({
       // ★ 軽量answers12データを構築（deepDive内部を除外、サイズ制限）
       const lightweightAnswers12 = safeAnswers12.map((a) => ({
         id: a.id,
-        question: a.question?.substring(0, 80),
+        question: (getStage2QuestionById(a.id)?.question ?? a.question)?.substring(0, 80),
         answer: a.answer?.substring(0, 200),
       }));
 
@@ -1983,7 +1894,7 @@ function Questions12Section({
 
       const lightweightAnswers12 = safeAnswers12.map((a) => ({
         id: a.id,
-        question: a.question?.substring(0, 80),
+        question: (getStage2QuestionById(a.id)?.question ?? a.question)?.substring(0, 80),
         answer: a.answer?.substring(0, 200),
       }));
 
@@ -2127,6 +2038,10 @@ function Questions12Section({
             <h4 className="text-base font-medium text-gray-800 xl:dark:text-gray-200 mb-2">{selectedQ.question}</h4>
             <p className="text-sm text-gray-500 xl:dark:text-gray-400">💡 {selectedQ.reason}</p>
           </div>
+
+          {STAGE2_MULTI_BUSINESS_HINT_IDS.has(selectedId) && (
+            <p className="text-xs text-gray-500 xl:dark:text-gray-400">{STAGE2_MULTI_BUSINESS_HINT}</p>
+          )}
 
           <AutoResizeTextarea
             value={currentAnswer}
@@ -2960,21 +2875,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       /* ★ TASK A-4: answers12 を store 直更新に統一（配列生成して setAnswers12） */
       const a12 = st.answers12 ?? [];
       if (Array.isArray(a12) && a12.length > 0) {
-        const base =
-          Array.isArray(answers12) && answers12.length > 0
-            ? answers12
-            : TEMPLATE12.map((q) => ({ id: q.id, answer: '' } as Stage2Answer));
-
-        const next = base.map((a) => {
-          const hit = a12.find((s: any) => s?.id === a.id);
-          return hit
-            ? {
-                ...a,
-                answer: hit.answer ?? '',
-                deepDive: hit.deepDive,
-              }
-            : a;
-        });
+        const next = mergeSavedAnswers12<Stage2DeepDive>(a12, Array.isArray(answers12) ? answers12 : []);
 
         setAnswers12(next);
         lastSyncedAnswersHashRef.current = hashAnswers12(next);

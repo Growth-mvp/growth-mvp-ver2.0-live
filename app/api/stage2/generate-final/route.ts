@@ -17,6 +17,7 @@ import {
   selectMoneyInMillion,
 } from '@/utils/finance/financeColumnUnit';
 import { logAuditEvent, extractAuditMetadata } from '@/lib/server/auditLog';
+import { getStage2QuestionById } from '@/lib/stage2/questions12';
 import { logInputGuard, checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
 
 /* =========================
@@ -354,51 +355,55 @@ function extractStrategicIntentDigest(answers12: unknown): Record<string, unknow
   const arr = asArray<Record<string, unknown>>(answers12);
   if (!arr.length) return null;
 
+  const byId = new Map<string, Record<string, unknown>>();
+  for (const a of arr) {
+    const id = asText(a.id, 40);
+    if (id) byId.set(id, a);
+  }
+  const answerOf = (id: string, max: number) => asText(byId.get(id)?.answer, max);
+  const joinAnswers = (ids: string[], max: number) =>
+    ids.map((id) => answerOf(id, max)).filter(Boolean).join('。');
+
   const digest: Record<string, unknown> = {};
 
-  // 危機認識（第0章）
-  const crisis = arr.slice(0, 2).map((a) => asText(a.answer, 300)).filter(Boolean).join('。');
+  const crisis = joinAnswers(['ch0-q1', 'ch0-q2'], 300);
   if (crisis) digest.coreCrisis = sanitize(crisis, 500);
 
-  // 喪失機会（第0章Q2）
-  const lostOpp = asText(arr[1]?.answer, 500);
+  const lostOpp = answerOf('ch0-q2', 500);
   if (lostOpp) digest.lostOpportunity = sanitize(lostOpp, 500);
 
-  // 市場変化（第1章Q1）
-  const mktShift = asText(arr[2]?.answer, 500);
-  if (mktShift) digest.marketShift = sanitize(mktShift, 500);
+  const futureIssues = answerOf('ch1-q1', 500);
+  if (futureIssues) digest.futureCustomerIssues = sanitize(futureIssues, 500);
 
-  // 価値再定義（第1章Q2）
-  const valRedef = asText(arr[3]?.answer, 500);
-  if (valRedef) digest.companyRedefinition = sanitize(valRedef, 500);
+  const customerValue = answerOf('ch1-q2', 500);
+  if (customerValue) digest.customerValue = sanitize(customerValue, 500);
 
-  // 強み再定義（第1章Q3）
-  const strRedef = asText(arr[4]?.answer, 500);
-  if (strRedef) digest.strengthRedefinition = sanitize(strRedef, 500);
+  const strength = answerOf('ch1-q3', 500);
+  if (strength) digest.strength = sanitize(strength, 500);
 
-  // やめること（第1章Q6）
-  const stopDoing = asText(arr[7]?.answer, 300);
+  const stopDoing = answerOf('ch1-q6', 300);
   if (stopDoing) digest.stopDoing = stopDoing.split(/[、。\n]+/).filter(Boolean).slice(0, 5);
 
   // 重点市場・重点顧客・重点領域は、固定キーワードで作らず、該当設問の回答本文を素材として渡す。
-  const priorityMarketSource = [arr[2]?.answer, arr[3]?.answer, arr[8]?.answer, arr[9]?.answer]
+  const priorityMarketSource = [
+    byId.get('ch1-q1')?.answer,
+    byId.get('ch1-q2')?.answer,
+    byId.get('ch2-q1')?.answer,
+    byId.get('ch2-q2')?.answer,
+  ]
     .filter(Boolean)
     .map((a) => asText(a, 350))
     .join('。');
   if (priorityMarketSource) digest.priorityMarketSource = sanitize(priorityMarketSource, 900);
 
-  // 資源配分変化（第1章Q5→Q6）
-  const resShift = [arr[5]?.answer, arr[7]?.answer].filter(Boolean).map((a) => asText(a, 300)).join('。');
-  if (resShift) digest.resourceShift = sanitize(resShift, 500);
+  const resourceShift = joinAnswers(['ch1-q4', 'ch1-q6'], 300);
+  if (resourceShift) digest.resourceShift = sanitize(resourceShift, 500);
 
-  const kpiShift = [arr[9]?.answer, arr[10]?.answer]
-    .filter(Boolean)
-    .map((a) => asText(a, 300))
-    .join('。');
+  const kpiShift = joinAnswers(['ch2-q2', 'ch3-q1'], 300);
   if (kpiShift) digest.kpiShift = sanitize(kpiShift, 600);
 
-  const employeeBehavior = asText(arr[11]?.answer, 500);
-  if (employeeBehavior) digest.employeeBehavior = sanitize(employeeBehavior, 600);
+  const firstActions = answerOf('ch3-q2', 500);
+  if (firstActions) digest.firstActions = sanitize(firstActions, 600);
 
   return Object.keys(digest).length > 0 ? digest : null;
 }
@@ -610,21 +615,27 @@ function formatGenericList(title: string, value: unknown, maxChars = 2800): stri
   return `${title}:\n${lines.join('\n')}`.slice(0, maxChars);
 }
 
+/** 複数事業の記述が後半で欠落しないよう、1回答の上限を3000字とする（12問合計 最大36000字） */
+const ANSWER12_MAX_CHARS = 3000;
+
 function formatAnswers12(answers12: unknown): string {
   const arr = asArray<Record<string, unknown>>(answers12);
   if (!arr.length) return '—';
   return arr
     .slice(0, 20)
     .map((a, i) => {
-      const q = pickFirstText(a.question, a.title, a.label, a.prompt) || `Q${i + 1}`;
-      const ans = pickFirstText(a.answer, a.value, a.body, a.text, a.response, a.reason).slice(0, 1500);
+      const q =
+        getStage2QuestionById(asText(a.id, 40))?.question ||
+        pickFirstText(a.question, a.title, a.label, a.prompt) ||
+        `Q${i + 1}`;
+      const ans = pickFirstText(a.answer, a.value, a.body, a.text, a.response, a.reason).slice(0, ANSWER12_MAX_CHARS);
       const chapter = pickFirstText(a.chapterTitle, a.chapter, a.section, a.category).slice(0, 80);
       return `- ${chapter ? `${chapter} / ` : ''}${q}\n  A: 「${ans || '—'}」`;
     })
     .join('\n');
 }
 
-function collectAnswerText(answers12: unknown, maxChars = 16000): string {
+function collectAnswerText(answers12: unknown, maxChars = ANSWER12_MAX_CHARS * 12): string {
   return asArray<Record<string, unknown>>(answers12)
     .map((a) => pickFirstText(a.answer, a.value, a.body, a.text, a.response, a.reason))
     .filter(Boolean)
@@ -1743,6 +1754,12 @@ export async function POST(req: NextRequest) {
 - 重要語は単に本文中に登場させるだけでは不十分である。重要語を使って「既存の何から、どの顧客価値・市場・用途・技術領域へ転換するのか」を明確にする。
 - 第1章または第2章の早い段落で、入力回答に基づく転換の一文を必ず書く。例示ではなく、当該企業の戦略の主語として書く。
 - 質問文、回答者の口調、「第1問」などの表現は本文に出さない。
+
+【複数事業の扱い】
+- 12問回答に「A事業：」「B事業：」のように事業ごとの記述がある場合は、各事業の役割・強み・顧客・課題の違いを識別する。
+- 事業別の要約で終わらせず、会社全体として「どの事業を伸ばすか」「どの事業を維持するか」「どの事業を見直すか」「人・お金・時間をどこへ重点配分するか」まで統合して書く。
+- 事業別・部門別の具体的な施策はSTAGE3で扱う。STAGE2では全社の方向性と資源配分の判断基準までを書く。
+- 事業の区切りがない回答は、事業別に分けず全社の回答として扱う。
 
 【12問から抽出すべき経営意思】
 - 危機の本質は、12問回答に書かれた顧客・業界・競争・技術・社会変化から導く。
