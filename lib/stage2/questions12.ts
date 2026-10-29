@@ -23,7 +23,7 @@ export const STAGE2_QUESTIONS_12: Stage2QuestionDef[] = [
   },
   {
     id: 'ch1-q1',
-    question: '3〜5年後、お客様や社会の変化によって、どんな困りごとや課題が増えているでしょうか？',
+    question: '3〜5年後、お客様や社会はどのように変化し、その中でどんな困りごとや課題が増えているでしょうか？',
     reason: '将来の顧客の困りごとを先に言語化すると、提供価値を考える出発点がそろいます。',
     chapter: 1,
     required: false,
