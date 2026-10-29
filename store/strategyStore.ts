@@ -493,7 +493,8 @@ export type StrategyState = {
   setFinalStoryDraft: (chapters: StoryChapter[]) => void;
   setFinalStoryEdited: (chapters: StoryChapter[]) => void;
   setFinalStoryFinal: (chapters: StoryChapter[]) => void;
-  commitFinalStory: () => void;
+  applyGeneratedDraft: (chapters: StoryChapter[]) => void;
+  commitFinalStory: (chapters: StoryChapter[]) => void;
 
   /* ▼ STAGE4 setter */
   setStage4Plans: (plans: Array<{
@@ -1379,6 +1380,7 @@ const emptyData: StrategyState = {
   setFinalStoryDraft: () => {},
   setFinalStoryEdited: () => {},
   setFinalStoryFinal: () => {},
+  applyGeneratedDraft: () => {},
   commitFinalStory: () => {},
   setStage4Plans: () => {},
   setExecutionPlanBaseline: () => {},
@@ -2423,15 +2425,20 @@ export const useStrategyStore = create<StrategyState>()(
         }, 0);
       },
 
-      // ★ MINIMAL: Clear finalStoryFinal when new generation overwrites draft
       setFinalStoryFinal: (chapters: StoryChapter[]) => {
         set((s) => ({ ...s, finalStoryFinal: chapters, dirty: true, version: (s.version ?? 0) + 1 }));
       },
 
-      commitFinalStory: () => {
-        const s = get();
-        const toCommit = s.finalStoryEdited ?? s.finalStoryDraft ?? [];
-        set((state) => ({ ...state, finalStoryFinal: toCommit, dirty: true, version: (state.version ?? 0) + 1 }));
+      // 草稿の反映。確定版（finalStoryFinal）は変更しない
+      applyGeneratedDraft: (chapters: StoryChapter[]) => {
+        set((s) => ({ ...s, finalStoryDraft: chapters, finalStoryEdited: [], dirty: true, version: (s.version ?? 0) + 1 }));
+        setTimeout(() => {
+          get().saveStage2Snapshot();
+        }, 0);
+      },
+
+      commitFinalStory: (chapters: StoryChapter[]) => {
+        set((state) => ({ ...state, finalStoryFinal: chapters, dirty: true, version: (state.version ?? 0) + 1 }));
         setTimeout(() => {
           get().saveStage2Snapshot();
         }, 0);

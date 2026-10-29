@@ -3615,21 +3615,14 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         });
       }
 
-      // ★ STAGE2 最終ストーリー：draft に設定
-      // ★ CRITICAL FIX: Also clear old finalized versions (finalStoryFinal/finalStory)
-      // If they remain, UI's usingVersion logic would display stale finalized version
-      // instead of the new generation in draft
+      // ★ STAGE2 最終ストーリー：draft に設定（確定版 finalStoryFinal は消さない）
       if (scopeAtStart && !isSaveScopeCurrent(scopeAtStart)) {
         console.warn('[Stage2] 会社・戦略が切り替わったため、最終ストーリーの生成結果を破棄しました');
         return;
       }
 
-      setFinalStoryDraft(newFinalStory);
-
-      // Clear finalized versions via setter so new generation is displayed
       const store = useStrategyStore.getState();
-      (store as any).setFinalStoryEdited([]);
-      (store as any).setFinalStoryFinal([]);
+      (store as any).applyGeneratedDraft(newFinalStory);
       (store as any).setFinalStory([]);
 
       // ★中計設計（midtermStrategy）がAPIから返ってきた場合のみ store へ反映
