@@ -16,27 +16,29 @@ const GENERIC_TOKENS = new Set([
 
 const TOKEN_PATTERN = '[\\p{Script=Han}\\p{Script=Katakana}A-Za-z0-9]{2,}';
 
+/** 文に含まれる内容語（市場・製品・数値の語。市場の一般語は除く） */
+export function contentTokensOf(s: string): Set<string> {
+  const out = new Set<string>();
+  const re = new RegExp(TOKEN_PATTERN, 'gu');
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s)) !== null) {
+    const t = m[0].toLowerCase();
+    if (!GENERIC_TOKENS.has(t)) out.add(t);
+  }
+  return out;
+}
+
 /** 項目の文と出典の主張が、内容語（市場・製品・数値の語）を1つでも共有するか */
 export function sharesGroundingToken(text: string, statements: readonly string[]): boolean {
-  const tokens = (s: string) => {
-    const out = new Set<string>();
-    const re = new RegExp(TOKEN_PATTERN, 'gu');
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(s)) !== null) {
-      const t = m[0].toLowerCase();
-      if (!GENERIC_TOKENS.has(t)) out.add(t);
-    }
-    return out;
-  };
-  const own = tokens(text);
+  const own = contentTokensOf(text);
   if (own.size === 0) return false;
-  return statements.some((st) => Array.from(tokens(st)).some((t) => own.has(t)));
+  return statements.some((st) => Array.from(contentTokensOf(st)).some((t) => own.has(t)));
 }
 
 /** 2桁以上の数（年度・金額・割合）。1桁の数は文中の番号や「3〜5年」の表現に当たるため対象にしない */
 const NUMBER_PATTERN = /\d+(?:\.\d+)?/g;
 
-function numbersIn(s: string): string[] {
+export function numbersIn(s: string): string[] {
   return (s.replace(/,/g, '').match(NUMBER_PATTERN) ?? []).filter((n) => n.replace('.', '').length >= 2);
 }
 

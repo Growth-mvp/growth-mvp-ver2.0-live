@@ -9,13 +9,7 @@ import { formatMillion, safeNumber, toMillionYen, inferScaleToMillion, safeRatio
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { buildStage2FinancePayload } from '@/utils/finance/stage2FinancePayload';
-import {
-  asRecord,
-  basisOf,
-  toSafeSources,
-  type SuggestionBasis,
-} from '@/lib/swot/suggestionView';
-import { candidatePoolOf, withoutCandidateState } from '@/lib/swot/candidatePool';
+import { withoutCandidateState } from '@/lib/swot/candidatePool';
 import { useAutoSave } from '@/hooks/useAutoSave';
 // PDF出力は /report/stage2-strategy プレビュー画面で行う
 // PDF出力は /report/stage2-strategy プレビュー画面で行う
@@ -38,6 +32,9 @@ import { restoreWithAudit } from '@/utils/persist/restoreWithAudit';
 import type { IssueBlock, MetricsSummary, StoryChapter, WinPatternCandidate, Stage2State, Stage2Answer, Stage2FinalDocumentEdits, Stage2DeepDive } from '@/types/strategy';
 import { authFetchJson, AuthFetchError } from '@/utils/authFetch';
 import { AutoResizeTextarea } from '@/components/ui/AutoResizeTextarea';
+import { SwotOpportunityPanel } from '@/components/stage2/SwotOpportunityPanel';
+import { extendPlanOf, isSameScope, opportunityCandidatesOf, selectedEntryOf } from '@/lib/swot/candidateView';
+import type { OpportunityItem } from '@/lib/swot/opportunityAppend';
 import { StrategyStoryPreview } from '@/components/stage2/StrategyStoryPreview';
 import {
   STAGE2_QUESTIONS_12,
@@ -947,146 +944,17 @@ function MVVSection() {
 /* ===================================================
  * O/T提案セクション（候補表示・追加）
  * =================================================== */
-function SuggestionBasisBadge({ basis }: { basis: SuggestionBasis | null }) {
-  if (!basis) return null;
-  if (basis.kind === 'source') {
-    return (
-      <span className="shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] text-emerald-700 xl:dark:bg-emerald-900/40 xl:dark:text-emerald-300">
-        出典あり・本文未確認 [{basis.index}]
-      </span>
-    );
+/** O/T 生成・追加探索の失敗を、利用者向けの文にする（詳細は表示しない） */
+function otErrorMessage(e: unknown): string {
+  if (e instanceof AuthFetchError) {
+    if (e.code === 'AUTH_NO_SESSION') return 'セッションが切れています。ログインし直してください。';
+    if (e.status === 403) return '権限がありません。';
+    if (e.status === 401) return '認証に失敗しました。ログインし直してください。';
+    if (e.status === 429) return '現在アクセスが集中しています。少し時間をおいて再度お試しください。';
+    if (e.status === 502 || e.status === 504) return '提案の生成が完了しませんでした（時間切れ、または一時的な障害）。時間をおいて再度お試しください。';
+    return e.bodyText || e.message || 'O/Tの提案生成に失敗しました';
   }
-  if (basis.kind === 'input') {
-    return (
-      <span className="shrink-0 rounded bg-sky-100 px-1.5 py-0.5 text-[11px] text-sky-700 xl:dark:bg-sky-900/40 xl:dark:text-sky-300">
-        入力情報に基づく
-      </span>
-    );
-  }
-  if (basis.kind === 'hypothesis_source') {
-    return (
-      <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-800 xl:dark:bg-amber-900/40 xl:dark:text-amber-300">
-        根拠付き仮説・出典本文未確認 [{basis.index}]
-      </span>
-    );
-  }
-  if (basis.kind === 'hypothesis_rationale') {
-    return (
-      <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700 xl:dark:bg-amber-900/30 xl:dark:text-amber-300">
-        根拠付き仮説（出典なし）
-      </span>
-    );
-  }
-  return (
-    <span className="shrink-0 rounded bg-gray-200 px-1.5 py-0.5 text-[11px] text-gray-600 xl:dark:bg-gray-700 xl:dark:text-gray-300">
-      要追加調査（根拠なし）
-    </span>
-  );
-}
-
-function OTSuggestionsPanel({
-  suggestions,
-  onAddOpportunity,
-  onAddThreat,
-}: {
-  suggestions?: { opportunity?: string[]; threat?: string[]; sources?: unknown; insights?: unknown; candidatePool?: unknown };
-  onAddOpportunity: (candidateId: string) => void;
-  onAddThreat: (candidateId: string) => void;
-}) {
-  if (!suggestions || (!Array.isArray(suggestions.opportunity) && !Array.isArray(suggestions.threat))) {
-    return null;
-  }
-
-  const opportunities = Array.isArray(suggestions.opportunity) ? suggestions.opportunity : [];
-  const threats = Array.isArray(suggestions.threat) ? suggestions.threat : [];
-  const candidates = candidatePoolOf(suggestions).candidates;
-  const idByText = (kind: 'opportunity' | 'threat') =>
-    new Map(candidates.filter((c) => c.kind === kind).map((c) => [c.text, c.id] as const));
-  const oppIds = idByText('opportunity');
-  const thrIds = idByText('threat');
-
-  if (opportunities.length === 0 && threats.length === 0) {
-    return null;
-  }
-
-  const sources = toSafeSources(suggestions.sources);
-  const insights = asRecord(suggestions.insights);
-  const oppInsights = Array.isArray(insights.opportunity) ? insights.opportunity : [];
-  const thrInsights = Array.isArray(insights.threat) ? insights.threat : [];
-
-  return (
-    <div className="rounded-2xl border border-blue-200 xl:dark:border-blue-800 bg-blue-50/50 xl:dark:bg-blue-900/20 p-6">
-      <h4 className="text-base font-semibold text-blue-700 xl:dark:text-blue-300 mb-4">提案された機会と脅威</h4>
-
-      {opportunities.length > 0 && (
-        <div className="mb-6">
-          <h5 className="text-sm font-medium text-blue-600 xl:dark:text-blue-400 mb-3">提案された機会（Opportunity）</h5>
-          <div className="space-y-2">
-            {opportunities.map((opp, idx) => (
-              <div key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-white/50 xl:dark:bg-white/5">
-                <span className="flex-1 text-sm text-gray-700 xl:dark:text-gray-300">{opp}</span>
-                <SuggestionBasisBadge basis={basisOf(oppInsights[idx], sources)} />
-                <button
-                  onClick={() => onAddOpportunity(oppIds.get(opp.trim().slice(0, 1000)) ?? '')}
-                  className="px-3 py-1 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors whitespace-nowrap"
-                >
-                  追加
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {threats.length > 0 && (
-        <div>
-          <h5 className="text-sm font-medium text-amber-600 xl:dark:text-amber-400 mb-3">提案された脅威（Threat）</h5>
-          <div className="space-y-2">
-            {threats.map((threat, idx) => (
-              <div key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-white/50 xl:dark:bg-white/5">
-                <span className="flex-1 text-sm text-gray-700 xl:dark:text-gray-300">{threat}</span>
-                <SuggestionBasisBadge basis={basisOf(thrInsights[idx], sources)} />
-                <button
-                  onClick={() => onAddThreat(thrIds.get(threat.trim().slice(0, 1000)) ?? '')}
-                  className="px-3 py-1 rounded-lg bg-amber-600 text-white text-xs font-medium hover:bg-amber-700 transition-colors whitespace-nowrap"
-                >
-                  追加
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {sources.length > 0 && (
-        <details className="mt-6 text-sm">
-          <summary className="cursor-pointer select-none text-blue-700 xl:dark:text-blue-300">
-            出典を表示（{sources.length}件）
-          </summary>
-          <p className="mt-2 text-xs text-gray-500">
-            「外部情報を参照」は検索で得た情報源に基づきますが、ページ内容の正確性は確認していません。「出典に基づく仮説」は、出典の情報から推論した将来の影響です。「AI推論（仮説）」は出典による裏付けがありません。
-          </p>
-          <ol className="mt-3 list-decimal space-y-2 pl-5">
-            {sources.map((s) => (
-              <li key={s.index} className="text-gray-700 xl:dark:text-gray-300">
-                <a
-                  href={s.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="break-all text-blue-700 underline xl:dark:text-blue-300"
-                >
-                  {s.title}
-                </a>
-                {s.retrievedAt && (
-                  <span className="ml-2 text-xs text-gray-500">取得日 {s.retrievedAt.slice(0, 10)}</span>
-                )}
-              </li>
-            ))}
-          </ol>
-        </details>
-      )}
-    </div>
-  );
+  return e instanceof Error ? e.message : 'O/Tの提案生成に失敗しました';
 }
 
 /* ===================================================
@@ -2365,6 +2233,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   // SWOT suggestions store連携（Hooks Rule: top-level で呼ぶ）
   const swotSuggestions = useStrategyStore((s: StrategyState) => s.swotSuggestions);
   const addSwotCandidate = useStrategyStore((s: StrategyState) => s.addSwotCandidate);
+  const editSwotCandidate = useStrategyStore((s: StrategyState) => s.editSwotCandidate);
 
   // ★ STEP10: 戦略書プレビュー用データ
   const companyName = useStrategyStore((s: StrategyState) => (s as any).companyName as string | undefined);
@@ -2385,6 +2254,10 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   // Generating flags
   const [generating, setGenerating] = useState(false);
   const [generatingOT, setGeneratingOT] = useState(false);
+  const [extendingOT, setExtendingOT] = useState(false);
+  const [extendMessage, setExtendMessage] = useState<string | null>(null);
+  const [extendError, setExtendError] = useState<string | null>(null);
+  const extendInFlight = useRef(false);
   const otRequestInFlight = useRef(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [generateOTError, setGenerateOTError] = useState<string | null>(null);
@@ -3194,96 +3067,161 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   });
 
   // O/T generation
+  const buildOtRequestBody = useCallback(
+    () => ({
+      industry: industry || '',
+      location: headquartersLocation || '',
+      employees: employees || '',
+      businessContent: businessContent || '',
+      mission: mission || '',
+      vision: vision || '',
+      value: value || '',
+      ceoIntent: ceoIntent || '',
+      strength: strength || '',
+      weakness: weakness || '',
+      businessSegments: (businessSegments ?? []).map((s) => ({
+        name: s.name,
+        scope: s.scope,
+        summary: s.summary,
+        mainProductsServices: s.mainProductsServices,
+        keyCustomers: s.keyCustomers,
+        revenue: s.revenue,
+        profit: s.profit,
+        expansionScope: s.expansionScope,
+        overseasRegions: s.overseasRegions,
+      })),
+      financeRows: buildStage2FinancePayload({
+        requestCompanyId: companyId,
+        storeCompanyId: useStrategyStore.getState().companyId,
+        financePL: useStrategyStore.getState().financePL,
+      }),
+    }),
+    [
+      industry,
+      headquartersLocation,
+      employees,
+      businessContent,
+      mission,
+      vision,
+      value,
+      ceoIntent,
+      strength,
+      weakness,
+      businessSegments,
+      companyId,
+    ]
+  );
+
   const handleGenerateOT = useCallback(async () => {
-    if (generatingOT || otRequestInFlight.current) return;
+    if (generatingOT || extendingOT || otRequestInFlight.current) return;
 
     otRequestInFlight.current = true;
     setGeneratingOT(true);
     setGenerateOTError(null);
+    const requestScope = {
+      companyId: useStrategyStore.getState().companyId,
+      strategyId: useStrategyStore.getState().strategyId,
+    };
 
     try {
       const data = await authFetchJson<any>('/api/generate-ot', {
         method: 'POST',
-        json: {
-          industry: industry || '',
-          location: headquartersLocation || '',
-          employees: employees || '',
-          businessContent: businessContent || '',
-          mission: mission || '',
-          vision: vision || '',
-          value: value || '',
-          ceoIntent: ceoIntent || '',
-          strength: strength || '',
-          weakness: weakness || '',
-          businessSegments: (businessSegments ?? []).map((s) => ({
-            name: s.name,
-            scope: s.scope,
-            summary: s.summary,
-            mainProductsServices: s.mainProductsServices,
-            keyCustomers: s.keyCustomers,
-            revenue: s.revenue,
-            profit: s.profit,
-            expansionScope: s.expansionScope,
-            overseasRegions: s.overseasRegions,
-          })),
-          financeRows: buildStage2FinancePayload({
-            requestCompanyId: companyId,
-            storeCompanyId: useStrategyStore.getState().companyId,
-            financePL: useStrategyStore.getState().financePL,
-          }),
-        },
+        json: buildOtRequestBody(),
         cache: 'no-store',
       });
 
+      const now = useStrategyStore.getState();
+      if (!isSameScope(requestScope, { companyId: now.companyId, strategyId: now.strategyId })) {
+        setGenerateOTError('会社または戦略が切り替わったため、提案結果は反映しませんでした。');
+        return;
+      }
+
       const opportunities = Array.isArray(data.opportunity) ? data.opportunity : [];
       const threats = Array.isArray(data.threat) ? data.threat : [];
+      if (opportunities.length === 0 && threats.length === 0) {
+        setGenerateOTError('提案の候補が返りませんでした。時間をおいて再度お試しください。');
+        return;
+      }
 
-      useStrategyStore.getState().setSwotSuggestions({
+      now.setSwotSuggestions({
         opportunity: opportunities,
         threat: threats,
         generatedAt: new Date().toISOString(),
         sources: Array.isArray(data.sources) ? data.sources : undefined,
         insights: data.insights && Array.isArray(data.insights.opportunity) ? data.insights : undefined,
         diagnostics: data.meta?.diagnostics ?? undefined,
+        evidence: data.meta?.evidence ?? undefined,
       });
     } catch (e: any) {
       console.error('[Stage2] Generate O/T error:', e);
-      if (e instanceof AuthFetchError) {
-        if (e.code === 'AUTH_NO_SESSION') {
-          setGenerateOTError('セッションが切れています。ログインし直してください。');
-        } else if (e.status === 403) {
-          setGenerateOTError('権限がありません。');
-        } else if (e.status === 401) {
-          setGenerateOTError('認証に失敗しました。ログインし直してください。');
-        } else if (e.status === 429) {
-          setGenerateOTError('現在アクセスが集中しています。少し時間をおいて再度お試しください。');
-        } else if (e.status === 502 || e.status === 504) {
-          setGenerateOTError('提案の生成が完了しませんでした（時間切れ、または一時的な障害）。時間をおいて再度お試しください。');
-        } else {
-          setGenerateOTError(e.bodyText || e.message || 'O/Tの提案生成に失敗しました');
-        }
-      } else {
-        setGenerateOTError(e instanceof Error ? e.message : 'O/Tの提案生成に失敗しました');
-      }
+      setGenerateOTError(otErrorMessage(e));
     } finally {
       otRequestInFlight.current = false;
       setGeneratingOT(false);
     }
-  }, [
-    generatingOT,
-    industry,
-    headquartersLocation,
-    employees,
-    businessContent,
-    mission,
-    vision,
-    value,
-    ceoIntent,
-    strength,
-    weakness,
-    businessSegments,
-    companyId,
-  ]);
+  }, [generatingOT, extendingOT, buildOtRequestBody]);
+
+  // さらに探索（追加探索）。既存の候補は残し、重複と上限を見て新しい候補だけを加える
+  const handleExtendOT = useCallback(async () => {
+    if (extendInFlight.current || generatingOT) return;
+    const st = useStrategyStore.getState();
+    const current = st.swotSuggestions;
+    const existingCandidates = opportunityCandidatesOf(current);
+    const plan = extendPlanOf({
+      count: existingCandidates.length,
+      busy: false,
+      locked: readOnly || disabled,
+    });
+    if (!plan.enabled) {
+      setExtendError(plan.reason ?? '追加探索を実行できません');
+      return;
+    }
+
+    const requestScope = { companyId: st.companyId, strategyId: st.strategyId };
+    extendInFlight.current = true;
+    setExtendingOT(true);
+    setExtendMessage(null);
+    setExtendError(null);
+    try {
+      const data = await authFetchJson<{ insights?: { opportunity?: OpportunityItem[] } }>('/api/generate-ot', {
+        method: 'POST',
+        json: {
+          ...buildOtRequestBody(),
+          mode: 'extend',
+          ...(current?.evidence ? { evidence: current.evidence } : {}),
+          existing: existingCandidates.map((c) => ({ text: c.text, group: c.group })),
+        },
+        cache: 'no-store',
+      });
+
+      const now = useStrategyStore.getState();
+      if (!isSameScope(requestScope, { companyId: now.companyId, strategyId: now.strategyId })) {
+        setExtendError('会社または戦略が切り替わったため、追加結果は反映しませんでした。');
+        return;
+      }
+      const items = Array.isArray(data?.insights?.opportunity) ? data.insights.opportunity : [];
+      const added = now.appendSwotOpportunities(items);
+      setExtendMessage(
+        added > 0
+          ? `${added}件を追加しました。`
+          : '追加できる新しい候補はありませんでした（重複、または上限）。'
+      );
+    } catch (e: unknown) {
+      console.error('[Stage2] Extend O/T error:', e);
+      setExtendError(`追加探索に失敗しました。既存の候補はそのまま残っています。${otErrorMessage(e)}`);
+    } finally {
+      extendInFlight.current = false;
+      setExtendingOT(false);
+    }
+  }, [buildOtRequestBody, generatingOT, readOnly, disabled]);
+
+  const handleRemoveCandidate = useCallback((candidateId: string) => {
+    const st = useStrategyStore.getState();
+    const entry = selectedEntryOf(st.swotSuggestions, candidateId);
+    if (!entry) return;
+    if (entry.kind === 'opportunity') st.removeSwotOpportunity(entry.text);
+    else st.removeSwotThreat(entry.text);
+  }, []);
 
   // Draft generation
   const handleGenerate = useCallback(
@@ -4321,14 +4259,24 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
                 <div className="rounded-2xl border border-black/10 bg-white/70 xl:dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
                   <SWOTSection />
-                  <OTSuggestionsPanel suggestions={swotSuggestions} onAddOpportunity={addSwotCandidate} onAddThreat={addSwotCandidate} />
+                  <SwotOpportunityPanel
+                    suggestions={swotSuggestions}
+                    locked={readOnly || disabled}
+                    extending={extendingOT}
+                    extendMessage={extendMessage}
+                    extendError={extendError}
+                    onExtend={handleExtendOT}
+                    onAdd={addSwotCandidate}
+                    onRemove={handleRemoveCandidate}
+                    onEdit={editSwotCandidate}
+                  />
                 </div>
 
                 <div className="flex gap-4 justify-center">
                   <button
                     type="button"
                     onClick={handleGenerateOT}
-                    disabled={disabled || generatingOT}
+                    disabled={disabled || generatingOT || extendingOT}
                     className="px-6 py-3 rounded-xl bg-amber-600 text-white text-base font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-amber-700 transition-colors shadow-lg"
                   >
                     {generatingOT ? 'AIで提案中...' : 'AIで機会・脅威を提案'}

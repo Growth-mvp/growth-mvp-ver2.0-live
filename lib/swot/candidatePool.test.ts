@@ -145,6 +145,62 @@ describe('保存と復元', () => {
     const s = { ...legacy(), candidatePool: { version: 99 } };
     expect(candidatePoolOf(s).candidates).toHaveLength(3);
   });
+
+  it('marketCategoryIds が無い保存形式の候補も読める', () => {
+    const pool = buildCandidatePool(legacy());
+    const raw = JSON.parse(JSON.stringify(pool));
+    for (const c of raw.candidates) delete c.marketCategoryIds;
+    const restored = parseCandidatePool(raw);
+    expect(restored?.candidates).toHaveLength(pool.candidates.length);
+    expect(restored?.invalid).toBe(0);
+  });
+
+  it('保存済みの候補がすべて読めない場合は、機会・脅威の一覧から候補を作る（画面に何も出ないのを防ぐ）', () => {
+    const s = legacy();
+    const broken = JSON.parse(JSON.stringify(buildCandidatePool(s)));
+    for (const c of broken.candidates) c.sourceIndex = 'bad';
+    const pool = candidatePoolOf({ ...s, candidatePool: broken });
+    expect(pool.candidates).toHaveLength(3);
+    expect(pool.candidates.map((c) => c.text)).toEqual(buildCandidatePool(s).candidates.map((c) => c.text));
+  });
+
+  it('意図的に空にした候補一覧（読めて、不正な候補が無い）は、機会・脅威の一覧から復活させない', () => {
+    const s = legacy();
+    const emptied = { version: 1, generatedAt: NOW, candidates: [], dropped: { opportunity: 0, threat: 0 }, invalid: 0 };
+    expect(candidatePoolOf({ ...s, candidatePool: emptied }).candidates).toHaveLength(0);
+  });
+
+  it('候補一覧が無い古い保存形式は、機会・脅威の一覧から読む', () => {
+    expect(candidatePoolOf(legacy()).candidates).toHaveLength(3);
+  });
+});
+
+describe('利用者が外した候補は、保存済みの一覧を読み直しても復活しない', () => {
+  it('外した記録は選択の記録に残り、形式が壊れた一覧から作り直しても「追加済み」に戻らない', () => {
+    const s = legacy();
+    const pool = buildCandidatePool(s);
+    const target = pool.candidates[0];
+    let sel = selectCandidate(emptySelection(), target, NOW);
+    sel = removeSelectedCandidate(sel, target.id, NOW);
+
+    const broken = JSON.parse(JSON.stringify(pool));
+    for (const c of broken.candidates) c.sourceIndex = 'bad';
+    const saved = { ...s, candidatePool: broken, selection: sel };
+
+    const reread = candidatePoolOf(saved);
+    expect(reread.candidates.map((c) => c.id)).toContain(target.id);
+    expect(selectionOf(saved).entries[target.id]).toMatchObject({ status: 'removed' });
+  });
+
+  it('外した候補は、保存と読み直しの後も選択の記録が removed のまま', () => {
+    const s = legacy();
+    const pool = buildCandidatePool(s);
+    const target = pool.candidates[0];
+    const sel = removeSelectedCandidate(selectCandidate(emptySelection(), target, NOW), target.id, NOW);
+    const withSel = JSON.parse(JSON.stringify({ ...s, candidatePool: pool, selection: sel }));
+    expect(selectionOf(withSel).entries[target.id]).toMatchObject({ status: 'removed' });
+    expect(candidatePoolOf(withSel).candidates.find((c) => c.id === target.id)).toBeDefined();
+  });
 });
 
 describe('選択状態（候補 ID 単位）', () => {

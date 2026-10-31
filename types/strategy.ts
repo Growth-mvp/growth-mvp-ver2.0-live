@@ -831,6 +831,26 @@ export type SwotSuggestionInsights = {
   threat: SwotSuggestionInsight[];
 };
 
+/** 初回生成の根拠（追加探索で使う）。検索本文そのものではなく、出典と根拠文だけを保存する */
+export type SwotEvidenceFinding = {
+  theme: string;
+  statement: string;
+  sourceIndex: number;
+  layer?: string;
+  categoryId?: string;
+  segment?: string;
+};
+
+export type SwotEvidenceSource = SwotSuggestionSource & {
+  contentVerified?: boolean;
+  bodyCheck?: 'matched' | 'not_matched' | 'unavailable';
+};
+
+export type SwotEvidence = {
+  findings: SwotEvidenceFinding[];
+  sources: SwotEvidenceSource[];
+};
+
 /** 主な事業展開地域（3択）。未指定はキーなしで表し、国内中心と区別する */
 export type BusinessExpansionScope = 'domestic' | 'overseas' | 'both';
 

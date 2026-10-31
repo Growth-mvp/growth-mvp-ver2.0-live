@@ -24,6 +24,7 @@ module.exports = {
         },
       },
     ],
+    '^.+\\.tsx$': '<rootDir>/jest.tsx-transform.cjs',
     '^.+\\.js$': [
       'ts-jest',
       {

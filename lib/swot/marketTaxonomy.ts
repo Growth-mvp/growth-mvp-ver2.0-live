@@ -149,6 +149,27 @@ export const MARKET_TAXONOMY: readonly MarketCategory[] = [
     theme: '環境性能・リサイクル性（再資源化・軽量化）に関する顧客の購買基準の変化',
     keywords: ['リサイクル', '再資源化', '軽量化', '環境対応', '脱炭素'],
   },
+  {
+    id: 'p_store_interior', kind: 'product', label: '店舗・商業施設の内装（設計・施工・改装）',
+    theme: '店舗・商業施設の内装・改装の需要と、来店客の体験を重視する空間づくりの動向',
+    keywords: ['店舗内装', '店舗設計', '店舗デザイン', '内装工事', '商業施設', '商業空間', '改装'],
+    related: ['s_online_sales'],
+  },
+  {
+    id: 'p_exhibition_culture', kind: 'product', label: '展示・文化施設（博物館・美術館など）の空間設計',
+    theme: '博物館・美術館・展示施設の企画・展示設計と、来館者の体験に対する関心の動向',
+    keywords: ['展示設計', '展示施設', '博物館', '美術館', 'ミュージアム', '文化施設', '企業ミュージアム'],
+  },
+  {
+    id: 'c_store_operator', kind: 'customer', label: '飲食店・小売店などの店舗経営者',
+    theme: '店舗を運営する事業者（飲食・小売など）の出店・改装投資と、店舗の成果に対する関心の動向',
+    keywords: ['店舗経営者', '飲食店', '小売店', 'チェーンストア', '多店舗', '店舗オーナー', '外食チェーン', '小売チェーン', '飲食チェーン'],
+  },
+  {
+    id: 'c_cultural_operator', kind: 'customer', label: '文化施設の運営主体（自治体・博物館・美術館など）',
+    theme: '文化施設の運営主体による展示更新・来館促進の取り組みと、来館者の体験に対する関心の動向',
+    keywords: ['文化施設の運営', '博物館の運営', '美術館の運営', '博物館等の運営', '美術館等の運営', '公立博物館'],
+  },
 ];
 
 export const MARKET_CATEGORY_IDS: ReadonlySet<string> = new Set(MARKET_TAXONOMY.map((c) => c.id));
@@ -320,6 +341,8 @@ export type SearchPlan = {
   categories: Array<{ id: string; label: string; theme: string }>;
   layers: MarketKind[];
   input: string;
+  /** どの事業区分の計画か。検索入力には入れず、検索結果を事業へ対応づける内部の情報だけに使う */
+  segment?: string;
 };
 
 export const regionReference = (regions: readonly string[]) =>

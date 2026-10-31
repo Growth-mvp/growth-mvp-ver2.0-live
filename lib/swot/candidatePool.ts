@@ -1,4 +1,7 @@
 import { isHttpsUrl } from './suggestionView';
+import { OPPORTUNITY_GROUPS, isOpportunityGroup, type OpportunityGroup } from './opportunityGroups';
+
+export { OPPORTUNITY_GROUPS, type OpportunityGroup };
 
 /**
  * AI 提案候補の保存形式。swotSuggestions 内の任意フィールドとして保存する（DB スキーマは変えない）。
@@ -9,10 +12,7 @@ import { isHttpsUrl } from './suggestionView';
 
 export const CANDIDATE_POOL_VERSION = 1 as const;
 export const CANDIDATE_LIMITS = { opportunity: 30, threat: 10 } as const;
-export const OPPORTUNITY_GROUPS = ['existing_market', 'new_customer_use', 'new_region', 'new_business'] as const;
-
 export type CandidateKind = 'opportunity' | 'threat';
-export type OpportunityGroup = (typeof OPPORTUNITY_GROUPS)[number];
 export type CandidateGrounding =
   | 'source_unverified'
   | 'hypothesis_source_unverified'
@@ -34,6 +34,22 @@ export type PoolCandidate = {
   text: string;
   targetNeed?: string;
   companyLink?: string;
+  /** 顧客課題起点の候補が対象とする事業区分の名前。特定できない場合は無し */
+  segmentName?: string;
+  /** 対象の顧客・利用者（役割のラベル）。顧客課題起点の候補だけ */
+  whoLabel?: string;
+  /** 対価を払い、判断する役割（直接顧客など）。顧客課題起点の候補だけ */
+  payer?: string;
+  /** 顧客が実現したい成果 */
+  desiredOutcome?: string;
+  /** 従来の顧客価値との違い */
+  valueShift?: string;
+  /** 影響する購買判断 */
+  purchaseImpact?: string;
+  /** 出典の使われ方（事実 / 参考 / 対象不一致 / 出典なし）。顧客課題起点の候補だけ */
+  evidenceUse?: 'fact' | 'reference' | 'mismatch' | 'none';
+  /** 初回の探索か、追加探索か */
+  origin?: 'initial' | 'extension';
   /** 公開市場分類 ID。現在の応答形式では候補ごとに記録されないため null */
   marketCategoryIds: string[] | null;
   basis: 'fact' | 'hypothesis';
@@ -155,10 +171,34 @@ function toCandidate(
   const cited = [...evidence.matchAll(/\[(\d+)\]/g)].some((m) => urls.has(Number(m[1])));
   const sourceLink: CandidateSourceLink = sourceIndex !== null ? 'linked' : cited ? 'cited_but_unlinked' : 'none';
   const grounding = groundingOf(basis, sourceIndex !== null, evidence);
+  const need = asRecord(insight.need);
+  const isNeed = need.discoveryPath === 'customer_need';
+  const needText = (key: string, max: number) => (isNeed && typeof need[key] === 'string' ? textOf(need[key], max) : '');
+  const segmentName = needText('segmentName', 100);
+  const payer = needText('payer', 40);
+  const desiredOutcome = needText('desiredOutcome', 200);
+  const valueShift = needText('valueShift', 200);
+  const purchaseImpact = needText('purchaseImpact', 200);
+  const evidenceUse = isNeed && typeof need.evidenceUse === 'string' && EVIDENCE_USES.includes(need.evidenceUse)
+    ? (need.evidenceUse as PoolCandidate['evidenceUse'])
+    : undefined;
+  const needUnverified = isNeed && Array.isArray(need.unverified) ? need.unverified.filter((x): x is string => typeof x === 'string') : [];
   return {
     id: candidateIdOf(kind, text),
     kind,
     text,
+    ...(isOpportunityGroup(insight.group) ? { group: insight.group } : {}),
+    ...(insight.origin === 'extension' ? { origin: 'extension' as const } : {}),
+    ...(isNeed ? { discoveryPath: 'customer_need' as const } : insight.discoveryPath === 'market' ? { discoveryPath: 'market' as const } : {}),
+    ...(isNeed && needText('problem', 300) ? { targetNeed: needText('problem', 300) } : {}),
+    ...(isNeed && needText('companyLink', 300) ? { companyLink: needText('companyLink', 300) } : {}),
+    ...(segmentName ? { segmentName } : {}),
+    ...(needText('whoLabel', 100) ? { whoLabel: needText('whoLabel', 100) } : {}),
+    ...(payer ? { payer } : {}),
+    ...(desiredOutcome ? { desiredOutcome } : {}),
+    ...(valueShift ? { valueShift } : {}),
+    ...(purchaseImpact ? { purchaseImpact } : {}),
+    ...(evidenceUse ? { evidenceUse } : {}),
     marketCategoryIds: null,
     basis,
     grounding,
@@ -166,10 +206,12 @@ function toCandidate(
     sourceIndex,
     sourceUrl,
     sourceLink,
-    unverified: unverifiedOf(sourceLink, grounding),
+    unverified: [...new Set([...unverifiedOf(sourceLink, grounding), ...needUnverified])],
     generatedAt,
   };
 }
+
+const EVIDENCE_USES: readonly string[] = ['fact', 'reference', 'mismatch', 'none'];
 
 /** 既存の機会・脅威（と insights・sources）から候補の一覧を作る。上限を超えた分と重複は数えて捨てる */
 export function buildCandidatePool(src: SuggestionsLike): CandidatePool {
@@ -215,7 +257,7 @@ function parseCandidate(raw: unknown): PoolCandidate | null {
   if (c.group !== undefined && (typeof c.group !== 'string' || !GROUPS.includes(c.group))) return null;
   if (c.sourceIndex !== null && !isSourceIndex(c.sourceIndex)) return null;
   if (c.sourceUrl !== null && (typeof c.sourceUrl !== 'string' || !isHttpsUrl(c.sourceUrl))) return null;
-  if (c.marketCategoryIds !== null && !isStringArray(c.marketCategoryIds)) return null;
+  if (c.marketCategoryIds !== undefined && c.marketCategoryIds !== null && !isStringArray(c.marketCategoryIds)) return null;
   if (!isStringArray(c.unverified) || typeof c.generatedAt !== 'string') return null;
   return {
     id: c.id,
@@ -225,7 +267,15 @@ function parseCandidate(raw: unknown): PoolCandidate | null {
     text,
     ...(typeof c.targetNeed === 'string' ? { targetNeed: c.targetNeed.slice(0, 500) } : {}),
     ...(typeof c.companyLink === 'string' ? { companyLink: c.companyLink.slice(0, 500) } : {}),
-    marketCategoryIds: c.marketCategoryIds as string[] | null,
+    ...(typeof c.segmentName === 'string' ? { segmentName: c.segmentName.slice(0, 100) } : {}),
+    ...(typeof c.whoLabel === 'string' ? { whoLabel: c.whoLabel.slice(0, 100) } : {}),
+    ...(c.origin === 'extension' ? { origin: 'extension' as const } : {}),
+    ...(typeof c.payer === 'string' ? { payer: c.payer.slice(0, 40) } : {}),
+    ...(typeof c.desiredOutcome === 'string' ? { desiredOutcome: c.desiredOutcome.slice(0, 200) } : {}),
+    ...(typeof c.valueShift === 'string' ? { valueShift: c.valueShift.slice(0, 200) } : {}),
+    ...(typeof c.purchaseImpact === 'string' ? { purchaseImpact: c.purchaseImpact.slice(0, 200) } : {}),
+    ...(EVIDENCE_USES.includes(c.evidenceUse as string) ? { evidenceUse: c.evidenceUse as PoolCandidate['evidenceUse'] } : {}),
+    marketCategoryIds: Array.isArray(c.marketCategoryIds) ? (c.marketCategoryIds as string[]) : null,
     basis: c.basis,
     grounding: c.grounding as CandidateGrounding,
     evidence: textOf(c.evidence, 300),
@@ -274,9 +324,14 @@ export function parseCandidatePool(raw: unknown): CandidatePool | undefined {
   };
 }
 
-/** 候補一覧を持つ場合はそれを、無い場合（過去の保存形式）は機会・脅威から作った一覧を返す（保存はしない） */
+/**
+ * 保存済みの候補一覧を読む。
+ * - 一覧が無い（候補の導入前の保存データ）、または形式が壊れている・不正な候補を含む場合は、機会・脅威の一覧から作る（保存はしない）。
+ * - 読めて不正な候補が無い場合は、0 件でもそれを正とする。利用者が外した候補や空の一覧を、一覧から復活させないため。
+ */
 export function candidatePoolOf(s: SuggestionsLike & { candidatePool?: unknown }): CandidatePool {
-  return parseCandidatePool(s.candidatePool) ?? buildCandidatePool(s);
+  const stored = parseCandidatePool(s.candidatePool);
+  return stored && stored.invalid === 0 ? stored : buildCandidatePool(s);
 }
 
 export function emptySelection(): CandidateSelection {

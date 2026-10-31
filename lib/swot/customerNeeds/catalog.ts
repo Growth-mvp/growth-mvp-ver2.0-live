@@ -5,7 +5,10 @@
  * - 検索に送るのはこのカタログの文と、許可済みの公開分類ラベルだけ。
  */
 
+import type { RoleBasis, RoleKey } from './roles';
+
 export type NeedPerspective =
+  | 'direct_customer_pain'
   | 'user_pain'
   | 'time_cost'
   | 'safety_quality'
@@ -23,6 +26,12 @@ export type NeedTheme = {
 };
 
 export const NEED_THEMES: readonly NeedTheme[] = [
+  {
+    id: 'direct_customer_pain',
+    perspective: 'direct_customer_pain',
+    polarity: 'supporting',
+    theme: '製品・サービスを直接購入する企業や組織が、調達・発注・在庫管理・取引先との取り決めで感じている課題や不満',
+  },
   {
     id: 'user_pain',
     perspective: 'user_pain',
@@ -105,4 +114,22 @@ export function selectedNeedThemes(): NeedTheme[] {
   return NEED_THEME_SELECTION.map((id) => NEED_THEMES.find((t) => t.id === id)).filter(
     (t): t is NeedTheme => !!t
   );
+}
+
+const NEED_THEME_LIMIT = 8;
+
+/**
+ * 事業の役割の構成に応じて探索テーマを選ぶ。役割が1つも確認できない事業は固定の既定テーマを使う。
+ * 否定的な証拠（課題が小さい、既存で足りる）は、役割に関係なく必ず含める。
+ */
+export function selectNeedThemesForRoles(roles: readonly { role: RoleKey; basis: RoleBasis }[]): NeedTheme[] {
+  if (roles.length === 0) return selectedNeedThemes();
+  const has = (k: RoleKey) => roles.some((r) => r.role === k);
+  const ids: string[] = [];
+  if (has('direct_customer')) ids.push('direct_customer_pain', 'non_purchase');
+  if (has('user') || has('end_beneficiary')) ids.push('user_pain', 'desired_outcome');
+  if (has('buying_decision_maker')) ids.push('buyer_criteria');
+  ids.push('existing_gap', 'cross_industry', 'user_pain_disconfirm', 'existing_gap_disconfirm');
+  const unique = [...new Set(ids)].slice(0, NEED_THEME_LIMIT);
+  return unique.map((id) => NEED_THEMES.find((t) => t.id === id)).filter((t): t is NeedTheme => !!t);
 }

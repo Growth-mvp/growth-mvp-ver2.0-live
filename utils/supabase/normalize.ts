@@ -1,6 +1,7 @@
 // /utils/supabase/normalize.ts
 import { getStage2QuestionById } from '@/lib/stage2/questions12';
 import { parseCandidatePool, parseCandidateSelection } from '@/lib/swot/candidatePool';
+import type { SwotEvidence, SwotEvidenceSource, SwotEvidenceFinding } from '@/types/strategy';
 import type {
   StrategyData,
   ChapterStory,
@@ -793,6 +794,42 @@ function normalizeStage2AnswersArray(input: unknown): Stage2Answer[] | undefined
 /* =====================================================================
  * StrategyData 正規化（全体・非破壊）
  * ===================================================================== */
+/** 初回生成の根拠を読む。形式が不正な項目は捨て、https 以外の出典は根拠として残さない */
+function normalizeSwotEvidence(v: unknown): SwotEvidence | undefined {
+  const o = v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  if (!o) return undefined;
+  const findings = (Array.isArray(o.findings) ? o.findings : []).flatMap((raw): SwotEvidenceFinding[] => {
+    const f = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
+    if (!f || typeof f.statement !== 'string' || typeof f.theme !== 'string') return [];
+    if (typeof f.sourceIndex !== 'number' || !Number.isInteger(f.sourceIndex) || f.sourceIndex < 1) return [];
+    return [{
+      theme: f.theme.slice(0, 200),
+      statement: f.statement.slice(0, 500),
+      sourceIndex: f.sourceIndex,
+      ...(typeof f.layer === 'string' ? { layer: f.layer.slice(0, 40) } : {}),
+      ...(typeof f.categoryId === 'string' ? { categoryId: f.categoryId.slice(0, 60) } : {}),
+      ...(typeof f.segment === 'string' ? { segment: f.segment.slice(0, 100) } : {}),
+    }];
+  }).slice(0, 40);
+  const sources = (Array.isArray(o.sources) ? o.sources : []).flatMap((raw): SwotEvidenceSource[] => {
+    const x = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
+    if (!x || typeof x.url !== 'string' || !x.url.startsWith('https://')) return [];
+    if (typeof x.index !== 'number' || !Number.isInteger(x.index) || x.index < 1) return [];
+    const bc = x.bodyCheck;
+    const bodyCheck = bc === 'matched' || bc === 'not_matched' || bc === 'unavailable' ? bc : undefined;
+    return [{
+      index: x.index,
+      url: x.url.slice(0, 2000),
+      title: typeof x.title === 'string' ? x.title.slice(0, 300) : x.url.slice(0, 300),
+      retrievedAt: typeof x.retrievedAt === 'string' ? x.retrievedAt.slice(0, 40) : '',
+      ...(typeof x.contentVerified === 'boolean' ? { contentVerified: x.contentVerified } : {}),
+      ...(bodyCheck ? { bodyCheck } : {}),
+    }];
+  }).slice(0, 20);
+  if (findings.length === 0 && sources.length === 0) return undefined;
+  return { findings, sources };
+}
+
 export function normalizeStrategyData(input: StrategyData | unknown | null): StrategyData {
   const src: any = { ...(input ?? {}) };
 
@@ -1009,6 +1046,7 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
           typeof (swotSuggestionsSrc as { diagnostics?: unknown }).diagnostics === 'object'
           ? (swotSuggestionsSrc as { diagnostics?: object }).diagnostics
           : undefined,
+        evidence: normalizeSwotEvidence((swotSuggestionsSrc as { evidence?: unknown }).evidence),
         candidatePool: parseCandidatePool((swotSuggestionsSrc as { candidatePool?: unknown }).candidatePool),
         selection: parseCandidateSelection((swotSuggestionsSrc as { selection?: unknown }).selection),
       }

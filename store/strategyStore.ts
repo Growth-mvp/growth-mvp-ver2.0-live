@@ -15,6 +15,8 @@ import { saveWithAudit } from '@/utils/persist/saveWithAudit';
 import { safeGetSession } from '@/utils/supabase/client';
 import { useUserStore } from './userStore';
 import { createRefetchCoordinator } from '@/lib/strategy/refetchCoordinator';
+import { appendOpportunitySuggestions } from '@/lib/swot/opportunityAppend';
+import type { OpportunityItem } from '@/lib/swot/opportunityAppend';
 import {
   candidatePoolOf,
   composeSwotSuggestions,
@@ -67,6 +69,7 @@ import type {
   FinancePlanRow,
   SwotSuggestionSource,
   SwotSuggestionInsights,
+  SwotEvidence,
 } from '@/types/strategy';
 import type { BusinessPortfolio } from '@/types/portfolio';
 import {
@@ -261,6 +264,7 @@ export type StrategyState = {
     sources?: SwotSuggestionSource[];
     insights?: SwotSuggestionInsights;
     diagnostics?: unknown;
+    evidence?: SwotEvidence;
     candidatePool?: CandidatePool;
     selection?: CandidateSelection;
   };
@@ -601,10 +605,12 @@ export type StrategyState = {
         sources?: SwotSuggestionSource[];
         insights?: SwotSuggestionInsights;
         diagnostics?: unknown;
+        evidence?: SwotEvidence;
       }) => void;
   addSwotOpportunity: (text: string) => void;
   addSwotThreat: (text: string) => void;
   addSwotCandidate: (candidateId: string) => void;
+  appendSwotOpportunities: (items: OpportunityItem[]) => number;
   editSwotCandidate: (candidateId: string, text: string) => void;
   removeSwotOpportunity: (textOrIndex: string | number) => void;
   removeSwotThreat: (textOrIndex: string | number) => void;
@@ -1234,6 +1240,9 @@ function isStaleRefetch(companyId: string, scopeAtStart: number): boolean {
 // 切替のたびに増える。会社IDが A→B→A と戻っても、切替前に始まった保存を区別できる。
 let __scopeEpoch = 0;
 
+/* ===== 機会・脅威の候補を書いた回数（取得中に書かれた候補を、古い取得結果で消さないため） ===== */
+let __swotWriteCount = 0;
+
 /* ===== 永続化された会社データの表示ゲート ===== */
 // 永続化ストアに会社データが残っていた場合、サーバーで所属が確認されるまで表示しない。
 let __persistedSnapshot: StrategyState | null = null;
@@ -1453,6 +1462,7 @@ const emptyData: StrategyState = {
   addSwotOpportunity: () => {},
   addSwotThreat: () => {},
   addSwotCandidate: () => {},
+  appendSwotOpportunities: () => 0,
   editSwotCandidate: () => {},
   removeSwotOpportunity: () => {},
   removeSwotThreat: () => {},
@@ -3217,13 +3227,28 @@ export const useStrategyStore = create<StrategyState>()(
         sources?: SwotSuggestionSource[];
         insights?: SwotSuggestionInsights;
         diagnostics?: unknown;
-      }) =>
+        evidence?: SwotEvidence;
+      }) => {
+        __swotWriteCount++;
         set((s) => ({
           ...s,
           swotSuggestions: suggestions === undefined ? undefined : composeSwotSuggestions(s.swotSuggestions, suggestions),
           dirty: true,
           version: (s.version ?? 0) + 1,
-        })),
+        }));
+      },
+
+      appendSwotOpportunities: (items: OpportunityItem[]) => {
+        let added = 0;
+        __swotWriteCount++;
+        set((s) => {
+          const next = appendOpportunitySuggestions(s.swotSuggestions ?? {}, items);
+          added = (next.opportunity?.length ?? 0) - (s.swotSuggestions?.opportunity?.length ?? 0);
+          if (added <= 0) return s;
+          return { ...s, swotSuggestions: next as StrategyState['swotSuggestions'], dirty: true, version: (s.version ?? 0) + 1 };
+        });
+        return added;
+      },
 
       addSwotCandidate: (candidateId: string) => {
         set((s) => {
@@ -3991,6 +4016,7 @@ export const useStrategyStore = create<StrategyState>()(
         const s0 = get();
         const companyId = resolveRefetchTarget(s0);
         const scopeAtStart = __scopeEpoch;
+        const swotWriteAtStart = __swotWriteCount;
 
         const authed = await isSessionUsable();
         if (!companyId || !authed) {
@@ -4213,6 +4239,8 @@ export const useStrategyStore = create<StrategyState>()(
           const curRev = typeof cur.revision === 'number' ? cur.revision : undefined;
           const patchRev = typeof patch.revision === 'number' ? patch.revision : undefined;
           const isStale = typeof patchRev === 'number' && typeof curRev === 'number' && patchRev < curRev;
+          const otherStrategy = !!patch.strategyId && !!cur.strategyId && patch.strategyId !== cur.strategyId;
+          const keepLocalSwot = !otherStrategy && (wasDirty || (!isSwitchingCompany && __swotWriteCount !== swotWriteAtStart));
 
           // ★ TRACE POINT 9: refetch - server response (patch) の departments/projects
           const patchDepts = Array.isArray((patch as any).departments) ? (patch as any).departments : [];
@@ -4279,6 +4307,7 @@ export const useStrategyStore = create<StrategyState>()(
               const merged = {
                 ...base,
                 ...patch,
+                ...(keepLocalSwot ? { swotSuggestions: base.swotSuggestions ?? patch.swotSuggestions } : {}),
 
                 // 危険な構造体だけ base 優先（有効値の時のみ）
                 departments: Array.isArray(base.departments) ? base.departments : patch.departments,
@@ -4371,6 +4400,7 @@ export const useStrategyStore = create<StrategyState>()(
               const merged: any = {
                 ...(s as any),   // ← base（補助用）
                 ...(patch as any),  // ← DB fresh data で上書き（FULL REPLACEMENT）
+                ...(keepLocalSwot ? { swotSuggestions: s.swotSuggestions ?? patch.swotSuggestions } : {}),
                 companyId,
                 pendingCompanyId: undefined,
                 saveError: s.saveError === COMPANY_SWITCH_SAVE_MESSAGE ? undefined : s.saveError,

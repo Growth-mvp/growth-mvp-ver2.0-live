@@ -94,7 +94,7 @@ const body = (businessSegments: unknown[], businessContent = '金属缶の製造
 
 beforeEach(() => {
   (getAuthUserIdFromBearer as jest.Mock).mockResolvedValue('u');
-  (requireMembership as jest.Mock).mockResolvedValue({ userId: 'u', companyId: 'c', role: 'member', departmentId: null });
+  (requireMembership as jest.Mock).mockResolvedValue({ userId: 'u', companyId: 'c', role: 'admin', departmentId: null });
   mockResponsesCreate.mockReset();
   mockChatCreate.mockReset();
   process.env.OT_WEB_SEARCH_ENABLED = 'true';
