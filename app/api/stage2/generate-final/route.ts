@@ -18,6 +18,7 @@ import {
 } from '@/utils/finance/financeColumnUnit';
 import { logAuditEvent, extractAuditMetadata } from '@/lib/server/auditLog';
 import { getStage2QuestionById } from '@/lib/stage2/questions12';
+import { swotBullets } from '@/lib/stage2/swotPrompt';
 import { logInputGuard, checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
 
 /* =========================
@@ -1337,7 +1338,7 @@ function heuristicFinal(
   const s1 = [
     header,
     `M=${sanitize(mission, 200) || '—'}／V=${sanitize(vision, 200) || '—'}／Val=${sanitize(value, 200) || '—'}`,
-    `S=${sanitize(strength, 200) || '—'}／W=${sanitize(weakness, 200) || '—'}／O=${sanitize(opportunity, 200) || '—'}／T=${sanitize(threat, 200) || '—'}`,
+    `S=${swotBullets(strength, 3000).text || '—'}／W=${swotBullets(weakness, 3000).text || '—'}／O=${swotBullets(opportunity, 3000).text || '—'}／T=${swotBullets(threat, 3000).text || '—'}`,
     finLine,
     pat + portfolioLine,
   ].join('\n');
@@ -1881,7 +1882,7 @@ JSONのみ。スキーマ：
 【会社】業種=${industryJp || (typeof industry === 'string' ? industry : '—')}／売上=${revenue ? `${revenue}百万円` : '—'}／人数=${employees ? `${employees}人` : '—'}
 【MVV】M=${sanitize(mission, 300) || '—'}／V=${sanitize(vision, 300) || '—'}／Val=${sanitize(value, 300) || '—'}
 【North Star】${sanitize(northStar, 500) || '—'}
-【SWOT】S=${sanitize(strength, 400) || '—'}／W=${sanitize(weakness, 400) || '—'}／O=${sanitize(opportunity, 400) || '—'}／T=${sanitize(threat, 400) || '—'}
+【SWOT】S=${swotBullets(strength, 3000).text || '—'}／W=${swotBullets(weakness, 3000).text || '—'}／O=${swotBullets(opportunity, 3000).text || '—'}／T=${swotBullets(threat, 3000).text || '—'}
 【事業・セグメント】${segmentsText}
 【勝ちパターン】${patternsLine}
 【選択された勝ち筋候補】
@@ -2304,7 +2305,7 @@ ${stripPeopleRelatedNoise(answersRich, TRAINING_PROGRAM_KEYWORDS) || '—'}
           `【事業ポートフォリオ】${portfolioSummary}`,
           `【事業統合・成長シフト仮説】\n${portfolioIntegrationGuide}`,
           `【勝ちパターン】${patternsLine}`,
-          `【SWOT】S=${sanitize(strength, 300) || '—'}／W=${sanitize(weakness, 300) || '—'}／O=${sanitize(opportunity, 300) || '—'}／T=${sanitize(threat, 300) || '—'}`,
+          `【SWOT】S=${swotBullets(strength, 3000).text || '—'}／W=${swotBullets(weakness, 3000).text || '—'}／O=${swotBullets(opportunity, 3000).text || '—'}／T=${swotBullets(threat, 3000).text || '—'}`,
           `【事業・セグメント】${segmentsText}`,
           '',
           '【重要語（12問回答から自動抽出：一般語に丸めず保持）】',

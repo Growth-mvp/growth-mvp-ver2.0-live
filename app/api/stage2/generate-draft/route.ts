@@ -20,6 +20,7 @@ import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership, assertMinRole } from '@/lib/server/rbacGuard';
 import { logAuditEvent, extractAuditMetadata } from '@/lib/server/auditLog';
 import { logInputGuard, checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
+import { swotBullets, swotItems } from '@/lib/stage2/swotPrompt';
 import { z } from 'zod';
 
 /* ===== 入力バリデーション ===== */
@@ -391,6 +392,13 @@ function splitPhrases(s?: string, limit = 6): string[] {
   return Array.from(new Set(short)).slice(0, limit);
 }
 
+function swotPhrases(s: string | undefined, limit: number): string[] {
+  const items = swotItems(s)
+    .filter((x) => x.length >= 2)
+    .map((x) => (x.length > 18 ? x.slice(0, 18) : x));
+  return Array.from(new Set(items)).slice(0, limit);
+}
+
 function buildMustQuotePhrases(input: z.infer<typeof InputSchema>) {
   const ceo = input.ceoIntent?.trim()
     ? [sanitize(input.ceoIntent, 40).replace(/[\r\n]+/g, ' ').trim()]
@@ -399,10 +407,10 @@ function buildMustQuotePhrases(input: z.infer<typeof InputSchema>) {
   const vision = splitPhrases(input.mvv?.vision, 2);
   const value = splitPhrases(input.mvv?.value, 2);
 
-  const s = splitPhrases(input.swot?.strength, 2);
-  const w = splitPhrases(input.swot?.weakness, 2);
-  const o = splitPhrases(input.swot?.opportunity, 8);
-  const t = splitPhrases(input.swot?.threat, 8);
+  const s = swotPhrases(input.swot?.strength, 2);
+  const w = swotPhrases(input.swot?.weakness, 2);
+  const o = swotPhrases(input.swot?.opportunity, 8);
+  const t = swotPhrases(input.swot?.threat, 8);
 
   return { ceo, mission, vision, value, s, w, o, t };
 }
@@ -770,19 +778,11 @@ function compactPayload(input: z.infer<typeof InputSchema>) {
     : [];
 
   const swot = input?.swot ?? {};
-  const compactSwotArray = (arr: any[]): string[] =>
-    Array.isArray(arr)
-      ? arr
-          .slice(0, 3)
-          .map((x) => clip(String(x ?? ''), 200))
-          .filter(Boolean)
-      : [];
-
   const swotCompact = {
-    S: compactSwotArray(typeof swot.strength === 'string' ? swot.strength.split(/[\n,、。;；]/) : []),
-    W: compactSwotArray(typeof swot.weakness === 'string' ? swot.weakness.split(/[\n,、。;；]/) : []),
-    O: compactSwotArray(typeof swot.opportunity === 'string' ? swot.opportunity.split(/[\n,、。;；]/) : []),
-    T: compactSwotArray(typeof swot.threat === 'string' ? swot.threat.split(/[\n,、。;；]/) : []),
+    S: swotItems(swot.strength).map((x) => clip(x, 300)),
+    W: swotItems(swot.weakness).map((x) => clip(x, 300)),
+    O: swotItems(swot.opportunity).map((x) => clip(x, 300)),
+    T: swotItems(swot.threat).map((x) => clip(x, 300)),
   };
 
   const round1 = (v: unknown): number | undefined =>
@@ -875,10 +875,10 @@ function buildUserPrompt(
   const companyTargets = compact.companyTargets ?? [];
 
   const swotCompact = {
-    strength: compact.swot.S.join(' / '),
-    weakness: compact.swot.W.join(' / '),
-    opportunity: compact.swot.O.join(' / '),
-    threat: compact.swot.T.join(' / '),
+    strength: swotBullets(swot?.strength, 3000).text,
+    weakness: swotBullets(swot?.weakness, 3000).text,
+    opportunity: swotBullets(swot?.opportunity, 3000).text,
+    threat: swotBullets(swot?.threat, 3000).text,
   };
 
   // ★論点ゼロでも生成続行：プロンプトで未入力明記
@@ -921,12 +921,17 @@ function buildUserPrompt(
 
   const ceoIntentText = ceoIntent?.trim() ? sanitize(ceoIntent, 600) : '';
 
+  const suggestionList = (items: string[] | undefined) => {
+    const list = (items ?? []).filter(Boolean);
+    if (list.length === 0) return 'なし';
+    return `${list.slice(0, 3).join(' / ')}${list.length > 3 ? `（ほか${list.length - 3}件は省略）` : ''}`;
+  };
   const swotSuggestionsBlock =
     swotSuggestions && (swotSuggestions.opportunity?.length || swotSuggestions.threat?.length)
       ? `
-【AI提案のSWOT候補（参考）】
-- 提案機会: ${swotSuggestions.opportunity?.slice(0, 3).join(' / ') || 'なし'}
-- 提案脅威: ${swotSuggestions.threat?.slice(0, 3).join(' / ') || 'なし'}`
+【AI提案のSWOT候補（参考・未選択。経営者が採用・確定したものではない）】
+- 提案機会: ${suggestionList(swotSuggestions.opportunity)}
+- 提案脅威: ${suggestionList(swotSuggestions.threat)}`
       : '';
 
   // ★North Star Metricsブロック
@@ -1050,10 +1055,10 @@ ${ceoIntentText ? `"${ceoIntentText}"` : '（未入力）'}
 ${mvv.thought ? `- 経営者の思い: ${sanitize(mvv.thought, 500)}` : ''}
 
 【SWOT分析】
-- 強み: ${sanitize(swotCompact.strength, 300) || '（未入力）'}
-- 弱み: ${sanitize(swotCompact.weakness, 300) || '（未入力）'}
-- 機会: ${sanitize(swotCompact.opportunity, 300) || '（未入力）'}
-- 脅威: ${sanitize(swotCompact.threat, 300) || '（未入力）'}${swotSuggestionsBlock}
+- 強み: ${sanitize(swotCompact.strength, 4000) || '（未入力）'}
+- 弱み: ${sanitize(swotCompact.weakness, 4000) || '（未入力）'}
+- 機会: ${sanitize(swotCompact.opportunity, 4000) || '（未入力）'}
+- 脅威: ${sanitize(swotCompact.threat, 4000) || '（未入力）'}${swotSuggestionsBlock}
 
 ${northStarBlock}
 

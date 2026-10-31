@@ -9,6 +9,13 @@ import { formatMillion, safeNumber, toMillionYen, inferScaleToMillion, safeRatio
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 import { buildStage2FinancePayload } from '@/utils/finance/stage2FinancePayload';
+import {
+  asRecord,
+  basisOf,
+  toSafeSources,
+  type SuggestionBasis,
+} from '@/lib/swot/suggestionView';
+import { candidatePoolOf, withoutCandidateState } from '@/lib/swot/candidatePool';
 import { useAutoSave } from '@/hooks/useAutoSave';
 // PDF出力は /report/stage2-strategy プレビュー画面で行う
 // PDF出力は /report/stage2-strategy プレビュー画面で行う
@@ -940,14 +947,51 @@ function MVVSection() {
 /* ===================================================
  * O/T提案セクション（候補表示・追加）
  * =================================================== */
+function SuggestionBasisBadge({ basis }: { basis: SuggestionBasis | null }) {
+  if (!basis) return null;
+  if (basis.kind === 'source') {
+    return (
+      <span className="shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] text-emerald-700 xl:dark:bg-emerald-900/40 xl:dark:text-emerald-300">
+        出典あり・本文未確認 [{basis.index}]
+      </span>
+    );
+  }
+  if (basis.kind === 'input') {
+    return (
+      <span className="shrink-0 rounded bg-sky-100 px-1.5 py-0.5 text-[11px] text-sky-700 xl:dark:bg-sky-900/40 xl:dark:text-sky-300">
+        入力情報に基づく
+      </span>
+    );
+  }
+  if (basis.kind === 'hypothesis_source') {
+    return (
+      <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-800 xl:dark:bg-amber-900/40 xl:dark:text-amber-300">
+        根拠付き仮説・出典本文未確認 [{basis.index}]
+      </span>
+    );
+  }
+  if (basis.kind === 'hypothesis_rationale') {
+    return (
+      <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700 xl:dark:bg-amber-900/30 xl:dark:text-amber-300">
+        根拠付き仮説（出典なし）
+      </span>
+    );
+  }
+  return (
+    <span className="shrink-0 rounded bg-gray-200 px-1.5 py-0.5 text-[11px] text-gray-600 xl:dark:bg-gray-700 xl:dark:text-gray-300">
+      要追加調査（根拠なし）
+    </span>
+  );
+}
+
 function OTSuggestionsPanel({
   suggestions,
   onAddOpportunity,
   onAddThreat,
 }: {
-  suggestions?: { opportunity?: string[]; threat?: string[] };
-  onAddOpportunity: (text: string) => void;
-  onAddThreat: (text: string) => void;
+  suggestions?: { opportunity?: string[]; threat?: string[]; sources?: unknown; insights?: unknown; candidatePool?: unknown };
+  onAddOpportunity: (candidateId: string) => void;
+  onAddThreat: (candidateId: string) => void;
 }) {
   if (!suggestions || (!Array.isArray(suggestions.opportunity) && !Array.isArray(suggestions.threat))) {
     return null;
@@ -955,10 +999,20 @@ function OTSuggestionsPanel({
 
   const opportunities = Array.isArray(suggestions.opportunity) ? suggestions.opportunity : [];
   const threats = Array.isArray(suggestions.threat) ? suggestions.threat : [];
+  const candidates = candidatePoolOf(suggestions).candidates;
+  const idByText = (kind: 'opportunity' | 'threat') =>
+    new Map(candidates.filter((c) => c.kind === kind).map((c) => [c.text, c.id] as const));
+  const oppIds = idByText('opportunity');
+  const thrIds = idByText('threat');
 
   if (opportunities.length === 0 && threats.length === 0) {
     return null;
   }
+
+  const sources = toSafeSources(suggestions.sources);
+  const insights = asRecord(suggestions.insights);
+  const oppInsights = Array.isArray(insights.opportunity) ? insights.opportunity : [];
+  const thrInsights = Array.isArray(insights.threat) ? insights.threat : [];
 
   return (
     <div className="rounded-2xl border border-blue-200 xl:dark:border-blue-800 bg-blue-50/50 xl:dark:bg-blue-900/20 p-6">
@@ -971,8 +1025,9 @@ function OTSuggestionsPanel({
             {opportunities.map((opp, idx) => (
               <div key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-white/50 xl:dark:bg-white/5">
                 <span className="flex-1 text-sm text-gray-700 xl:dark:text-gray-300">{opp}</span>
+                <SuggestionBasisBadge basis={basisOf(oppInsights[idx], sources)} />
                 <button
-                  onClick={() => onAddOpportunity(opp)}
+                  onClick={() => onAddOpportunity(oppIds.get(opp.trim().slice(0, 1000)) ?? '')}
                   className="px-3 py-1 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors whitespace-nowrap"
                 >
                   追加
@@ -990,8 +1045,9 @@ function OTSuggestionsPanel({
             {threats.map((threat, idx) => (
               <div key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-white/50 xl:dark:bg-white/5">
                 <span className="flex-1 text-sm text-gray-700 xl:dark:text-gray-300">{threat}</span>
+                <SuggestionBasisBadge basis={basisOf(thrInsights[idx], sources)} />
                 <button
-                  onClick={() => onAddThreat(threat)}
+                  onClick={() => onAddThreat(thrIds.get(threat.trim().slice(0, 1000)) ?? '')}
                   className="px-3 py-1 rounded-lg bg-amber-600 text-white text-xs font-medium hover:bg-amber-700 transition-colors whitespace-nowrap"
                 >
                   追加
@@ -1000,6 +1056,34 @@ function OTSuggestionsPanel({
             ))}
           </div>
         </div>
+      )}
+
+      {sources.length > 0 && (
+        <details className="mt-6 text-sm">
+          <summary className="cursor-pointer select-none text-blue-700 xl:dark:text-blue-300">
+            出典を表示（{sources.length}件）
+          </summary>
+          <p className="mt-2 text-xs text-gray-500">
+            「外部情報を参照」は検索で得た情報源に基づきますが、ページ内容の正確性は確認していません。「出典に基づく仮説」は、出典の情報から推論した将来の影響です。「AI推論（仮説）」は出典による裏付けがありません。
+          </p>
+          <ol className="mt-3 list-decimal space-y-2 pl-5">
+            {sources.map((s) => (
+              <li key={s.index} className="text-gray-700 xl:dark:text-gray-300">
+                <a
+                  href={s.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="break-all text-blue-700 underline xl:dark:text-blue-300"
+                >
+                  {s.title}
+                </a>
+                {s.retrievedAt && (
+                  <span className="ml-2 text-xs text-gray-500">取得日 {s.retrievedAt.slice(0, 10)}</span>
+                )}
+              </li>
+            ))}
+          </ol>
+        </details>
       )}
     </div>
   );
@@ -2208,7 +2292,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   const threat = useStrategyStore((s: StrategyState) => s.threat ?? '');
 
   const industry = useStrategyStore((s: StrategyState) => s.industry ?? '');
-  const revenue = useStrategyStore((s: StrategyState) => s.revenue ?? '');
+  const headquartersLocation = useStrategyStore((s: StrategyState) => s.location ?? '');
   const employees = useStrategyStore((s: StrategyState) => s.employees ?? '');
   const businessContent = useStrategyStore((s: StrategyState) => s.businessContent ?? '');
   const businessSegments = useStrategyStore((s: StrategyState) => s.businessSegments ?? []); // ★ STAGE1で定義されたセグメント情報
@@ -2280,8 +2364,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
   // SWOT suggestions store連携（Hooks Rule: top-level で呼ぶ）
   const swotSuggestions = useStrategyStore((s: StrategyState) => s.swotSuggestions);
-  const addSwotOpportunity = useStrategyStore((s: StrategyState) => s.addSwotOpportunity);
-  const addSwotThreat = useStrategyStore((s: StrategyState) => s.addSwotThreat);
+  const addSwotCandidate = useStrategyStore((s: StrategyState) => s.addSwotCandidate);
 
   // ★ STEP10: 戦略書プレビュー用データ
   const companyName = useStrategyStore((s: StrategyState) => (s as any).companyName as string | undefined);
@@ -2302,6 +2385,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   // Generating flags
   const [generating, setGenerating] = useState(false);
   const [generatingOT, setGeneratingOT] = useState(false);
+  const otRequestInFlight = useRef(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [generateOTError, setGenerateOTError] = useState<string | null>(null);
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
@@ -3111,8 +3195,9 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
   // O/T generation
   const handleGenerateOT = useCallback(async () => {
-    if (generatingOT) return;
+    if (generatingOT || otRequestInFlight.current) return;
 
+    otRequestInFlight.current = true;
     setGeneratingOT(true);
     setGenerateOTError(null);
 
@@ -3121,9 +3206,31 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         method: 'POST',
         json: {
           industry: industry || '',
-          revenue: revenue || '',
+          location: headquartersLocation || '',
           employees: employees || '',
           businessContent: businessContent || '',
+          mission: mission || '',
+          vision: vision || '',
+          value: value || '',
+          ceoIntent: ceoIntent || '',
+          strength: strength || '',
+          weakness: weakness || '',
+          businessSegments: (businessSegments ?? []).map((s) => ({
+            name: s.name,
+            scope: s.scope,
+            summary: s.summary,
+            mainProductsServices: s.mainProductsServices,
+            keyCustomers: s.keyCustomers,
+            revenue: s.revenue,
+            profit: s.profit,
+            expansionScope: s.expansionScope,
+            overseasRegions: s.overseasRegions,
+          })),
+          financeRows: buildStage2FinancePayload({
+            requestCompanyId: companyId,
+            storeCompanyId: useStrategyStore.getState().companyId,
+            financePL: useStrategyStore.getState().financePL,
+          }),
         },
         cache: 'no-store',
       });
@@ -3135,6 +3242,9 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         opportunity: opportunities,
         threat: threats,
         generatedAt: new Date().toISOString(),
+        sources: Array.isArray(data.sources) ? data.sources : undefined,
+        insights: data.insights && Array.isArray(data.insights.opportunity) ? data.insights : undefined,
+        diagnostics: data.meta?.diagnostics ?? undefined,
       });
     } catch (e: any) {
       console.error('[Stage2] Generate O/T error:', e);
@@ -3145,6 +3255,10 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           setGenerateOTError('権限がありません。');
         } else if (e.status === 401) {
           setGenerateOTError('認証に失敗しました。ログインし直してください。');
+        } else if (e.status === 429) {
+          setGenerateOTError('現在アクセスが集中しています。少し時間をおいて再度お試しください。');
+        } else if (e.status === 502 || e.status === 504) {
+          setGenerateOTError('提案の生成が完了しませんでした（時間切れ、または一時的な障害）。時間をおいて再度お試しください。');
         } else {
           setGenerateOTError(e.bodyText || e.message || 'O/Tの提案生成に失敗しました');
         }
@@ -3152,9 +3266,24 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         setGenerateOTError(e instanceof Error ? e.message : 'O/Tの提案生成に失敗しました');
       }
     } finally {
+      otRequestInFlight.current = false;
       setGeneratingOT(false);
     }
-  }, [generatingOT, industry, revenue, employees, businessContent]);
+  }, [
+    generatingOT,
+    industry,
+    headquartersLocation,
+    employees,
+    businessContent,
+    mission,
+    vision,
+    value,
+    ceoIntent,
+    strength,
+    weakness,
+    businessSegments,
+    companyId,
+  ]);
 
   // Draft generation
   const handleGenerate = useCallback(
@@ -3260,7 +3389,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           ceoIntent,
           mvv: { thought, mission, vision, value },
           swot: { strength, weakness, opportunity, threat },
-          swotSuggestions,
+          swotSuggestions: withoutCandidateState(swotSuggestions),
           industry,
           segments: segmentNames,
           businessSegments,
@@ -4192,7 +4321,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
                 <div className="rounded-2xl border border-black/10 bg-white/70 xl:dark:bg-white/5 shadow-sm backdrop-blur-md p-6">
                   <SWOTSection />
-                  <OTSuggestionsPanel suggestions={swotSuggestions} onAddOpportunity={addSwotOpportunity} onAddThreat={addSwotThreat} />
+                  <OTSuggestionsPanel suggestions={swotSuggestions} onAddOpportunity={addSwotCandidate} onAddThreat={addSwotCandidate} />
                 </div>
 
                 <div className="flex gap-4 justify-center">

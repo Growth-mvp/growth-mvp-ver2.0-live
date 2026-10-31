@@ -102,6 +102,17 @@ describe('POST /api/stage2/generate-final: 12問のプロンプト反映', () =>
     expect(prompt).toContain('後半事業の末尾マーカー');
   });
 
+  it('確定 SWOT の機会は読点で分けず、件数の先頭だけで切らず、末尾の項目まで渡る', async () => {
+    const items = Array.from({ length: 12 }, (_, i) => `機会${i + 1}：${'あ'.repeat(120)}`);
+    items[0] = '機会1：需要が増える、ただし価格は下がる。';
+    items[11] = '機会12：後半の機会マーカー';
+    await POST(req({ answers12: [], opportunity: items.join('\n') }));
+
+    const prompt = JSON.stringify((openai.chat.completions.create as jest.Mock).mock.calls[0][0].messages);
+    expect(prompt).toContain('ただし価格は下がる');
+    expect(prompt).toContain('後半の機会マーカー');
+  });
+
   it('一部だけ回答された場合も生成処理に進む', async () => {
     const res = await POST(req({ answers12: [{ id: 'ch0-q1', answer: '危機' }] }));
 
