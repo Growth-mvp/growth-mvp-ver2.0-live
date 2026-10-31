@@ -55,6 +55,23 @@ export type CandidatePool = {
   invalid: number;
 };
 
+export type SelectionEntry = {
+  candidateId: string;
+  kind: CandidateKind;
+  status: 'added' | 'removed';
+  /** 現在の SWOT 本文に入っている文 */
+  text: string;
+  /** 候補として提示された元の文 */
+  sourceText: string;
+  edited: boolean;
+  updatedAt: string;
+};
+
+export type CandidateSelection = {
+  version: typeof CANDIDATE_POOL_VERSION;
+  entries: Record<string, SelectionEntry>;
+};
+
 /** 候補の元になる、既存の swotSuggestions の形 */
 export type SuggestionsLike = {
   opportunity?: unknown;
@@ -260,4 +277,128 @@ export function parseCandidatePool(raw: unknown): CandidatePool | undefined {
 /** 候補一覧を持つ場合はそれを、無い場合（過去の保存形式）は機会・脅威から作った一覧を返す（保存はしない） */
 export function candidatePoolOf(s: SuggestionsLike & { candidatePool?: unknown }): CandidatePool {
   return parseCandidatePool(s.candidatePool) ?? buildCandidatePool(s);
+}
+
+export function emptySelection(): CandidateSelection {
+  return { version: CANDIDATE_POOL_VERSION, entries: {} };
+}
+
+const SELECTION_STATUS: readonly string[] = ['added', 'removed'];
+
+export function parseCandidateSelection(raw: unknown): CandidateSelection | undefined {
+  const sel = asRecord(raw);
+  if (sel.version !== CANDIDATE_POOL_VERSION) return undefined;
+  const entries = asRecord(sel.entries);
+  const out: Record<string, SelectionEntry> = {};
+  for (const [key, value] of Object.entries(entries)) {
+    const e = asRecord(value);
+    const text = textOf(e.text, MAX_TEXT);
+    if (e.candidateId !== key || !KINDS.includes(e.kind as CandidateKind)) continue;
+    if (typeof e.status !== 'string' || !SELECTION_STATUS.includes(e.status) || !text) continue;
+    out[key] = {
+      candidateId: key,
+      kind: e.kind as CandidateKind,
+      status: e.status as SelectionEntry['status'],
+      text,
+      sourceText: textOf(e.sourceText, MAX_TEXT) || text,
+      edited: e.edited === true,
+      updatedAt: textOf(e.updatedAt, 40),
+    };
+  }
+  return { version: CANDIDATE_POOL_VERSION, entries: out };
+}
+
+export function selectionOf(s: { selection?: unknown } | undefined): CandidateSelection {
+  return parseCandidateSelection(s?.selection) ?? emptySelection();
+}
+
+/** 候補を SWOT へ追加したことを記録する。既に追加済みの候補は、編集内容を保ったまま変えない */
+export function selectCandidate(sel: CandidateSelection, c: PoolCandidate, now: string): CandidateSelection {
+  const cur = sel.entries[c.id];
+  if (cur && cur.status === 'added') return sel;
+  const entry: SelectionEntry = {
+    candidateId: c.id,
+    kind: c.kind,
+    status: 'added',
+    text: c.text,
+    sourceText: c.text,
+    edited: false,
+    updatedAt: now,
+  };
+  return { ...sel, entries: { ...sel.entries, [c.id]: entry } };
+}
+
+/** 追加済みの候補の本文を編集したことを記録する。元の文と違えば edited を立てる */
+export function editSelectedCandidate(sel: CandidateSelection, id: string, text: string, now: string): CandidateSelection {
+  const cur = sel.entries[id];
+  const next = text.trim().slice(0, MAX_TEXT);
+  if (!cur || cur.status !== 'added' || !next) return sel;
+  const entry: SelectionEntry = { ...cur, text: next, edited: next !== cur.sourceText, updatedAt: now };
+  return { ...sel, entries: { ...sel.entries, [id]: entry } };
+}
+
+/** 候補を SWOT から外したことを記録する。記録は残し、後で同じ候補を再選択できるようにする */
+export function removeSelectedCandidate(sel: CandidateSelection, id: string, now: string): CandidateSelection {
+  const cur = sel.entries[id];
+  if (!cur || cur.status !== 'added') return sel;
+  return { ...sel, entries: { ...sel.entries, [id]: { ...cur, status: 'removed', updatedAt: now } } };
+}
+
+/**
+ * 確定済み SWOT の行と選択記録を突き合わせる。
+ * 追加済みの候補の文が行に無ければ削除と記録し、行はあるが候補に対応しない文は手入力として返す。
+ */
+export function reconcileWithConfirmed(
+  sel: CandidateSelection,
+  kind: CandidateKind,
+  confirmedLines: readonly string[],
+  now: string
+): { selection: CandidateSelection; manualLines: string[] } {
+  const lines = confirmedLines.map((l) => l.trim()).filter(Boolean);
+  const present = new Set(lines);
+  const entries = { ...sel.entries };
+  for (const e of Object.values(sel.entries)) {
+    if (e.kind === kind && e.status === 'added' && !present.has(e.text)) {
+      entries[e.candidateId] = { ...e, status: 'removed', updatedAt: now };
+    }
+  }
+  const linked = new Set(
+    Object.values(entries)
+      .filter((e) => e.kind === kind && e.status === 'added')
+      .map((e) => e.text)
+  );
+  return {
+    selection: { ...sel, entries },
+    manualLines: lines.filter((l) => !linked.has(l)),
+  };
+}
+
+/**
+ * 候補を保存するときの合成。空の候補で既存の候補を上書きしない。
+ * 選択記録は前の状態から引き継ぎ、候補の一覧だけを差し替える。
+ */
+export function composeSwotSuggestions<T extends SuggestionsLike & { selection?: CandidateSelection }>(
+  prev: (SuggestionsLike & { selection?: unknown }) | undefined,
+  incoming: T
+): T & { candidatePool: CandidatePool; selection?: CandidateSelection } {
+  const hasCandidates = (s: SuggestionsLike | undefined) =>
+    !!s && ((Array.isArray(s.opportunity) && s.opportunity.length > 0) || (Array.isArray(s.threat) && s.threat.length > 0));
+  if (!hasCandidates(incoming) && hasCandidates(prev)) {
+    return prev as unknown as T & { candidatePool: CandidatePool; selection?: CandidateSelection };
+  }
+  const selection = prev?.selection !== undefined ? parseCandidateSelection(prev.selection) : undefined;
+  return {
+    ...incoming,
+    candidatePool: buildCandidatePool(incoming),
+    ...(selection ? { selection } : {}),
+  };
+}
+
+/** AI 提案の一覧だけを、生成ペイロードとして渡す（選択記録と候補の一覧は送らない） */
+export function withoutCandidateState<T extends object>(s: T | undefined): T | undefined {
+  if (!s) return s;
+  const rest: Record<string, unknown> = { ...(s as Record<string, unknown>) };
+  delete rest.candidatePool;
+  delete rest.selection;
+  return rest as T;
 }

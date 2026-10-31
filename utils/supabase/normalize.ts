@@ -1,5 +1,6 @@
 // /utils/supabase/normalize.ts
 import { getStage2QuestionById } from '@/lib/stage2/questions12';
+import { parseCandidatePool, parseCandidateSelection } from '@/lib/swot/candidatePool';
 import type {
   StrategyData,
   ChapterStory,
@@ -989,13 +990,27 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
   }
 
   // ★ STAGE2：AI生成の機会と脅威候補（swotSuggestions）
-  // 形式: { opportunity?: string[], threat?: string[], generatedAt?: string }
+  // 形式: { opportunity?, threat?, generatedAt?, sources?（出典）, insights?（根拠）}
+  // sources / insights は復元時に必ず残す（落とすと出典表示と根拠ラベルが失われる）
   const swotSuggestionsSrc = src.swotSuggestions ?? src.swot_suggestions;
   const swotSuggestions = swotSuggestionsSrc && typeof swotSuggestionsSrc === 'object' && !Array.isArray(swotSuggestionsSrc)
     ? {
         opportunity: Array.isArray((swotSuggestionsSrc as any).opportunity) ? (swotSuggestionsSrc as any).opportunity : undefined,
         threat: Array.isArray((swotSuggestionsSrc as any).threat) ? (swotSuggestionsSrc as any).threat : undefined,
         generatedAt: typeof (swotSuggestionsSrc as any).generatedAt === 'string' ? (swotSuggestionsSrc as any).generatedAt : undefined,
+        sources: Array.isArray((swotSuggestionsSrc as { sources?: unknown }).sources)
+          ? (swotSuggestionsSrc as { sources?: unknown[] }).sources
+          : undefined,
+        insights: (swotSuggestionsSrc as { insights?: unknown }).insights &&
+          typeof (swotSuggestionsSrc as { insights?: unknown }).insights === 'object'
+          ? (swotSuggestionsSrc as { insights?: object }).insights
+          : undefined,
+        diagnostics: (swotSuggestionsSrc as { diagnostics?: unknown }).diagnostics &&
+          typeof (swotSuggestionsSrc as { diagnostics?: unknown }).diagnostics === 'object'
+          ? (swotSuggestionsSrc as { diagnostics?: object }).diagnostics
+          : undefined,
+        candidatePool: parseCandidatePool((swotSuggestionsSrc as { candidatePool?: unknown }).candidatePool),
+        selection: parseCandidateSelection((swotSuggestionsSrc as { selection?: unknown }).selection),
       }
     : undefined;
 

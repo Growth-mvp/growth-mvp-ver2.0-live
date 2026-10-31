@@ -15,6 +15,16 @@ import { saveWithAudit } from '@/utils/persist/saveWithAudit';
 import { safeGetSession } from '@/utils/supabase/client';
 import { useUserStore } from './userStore';
 import { createRefetchCoordinator } from '@/lib/strategy/refetchCoordinator';
+import {
+  candidatePoolOf,
+  composeSwotSuggestions,
+  editSelectedCandidate,
+  reconcileWithConfirmed,
+  selectCandidate,
+  selectionOf,
+  type CandidatePool,
+  type CandidateSelection,
+} from '@/lib/swot/candidatePool';
 import { computeValueAnalysis, computeValueAnalysisBundle } from '@/utils/valueAnalysis';
 import { stage1DummyDataBundle } from '@/utils/stage1DummyData';
 import { applyWorkingSnapshot, workingHashOf } from '@/utils/stage6/financePlanSnapshot';
@@ -55,6 +65,8 @@ import type {
   ProjectIssueLink,
   FinanceActualRow,
   FinancePlanRow,
+  SwotSuggestionSource,
+  SwotSuggestionInsights,
 } from '@/types/strategy';
 import type { BusinessPortfolio } from '@/types/portfolio';
 import {
@@ -246,6 +258,11 @@ export type StrategyState = {
     opportunity?: string[];
     threat?: string[];
     generatedAt?: string;
+    sources?: SwotSuggestionSource[];
+    insights?: SwotSuggestionInsights;
+    diagnostics?: unknown;
+    candidatePool?: CandidatePool;
+    selection?: CandidateSelection;
   };
 
   /* 物語 / 部門 */
@@ -577,9 +594,18 @@ export type StrategyState = {
   setMVV: (patch: Partial<Pick<StrategyState, 'thought' | 'mission' | 'vision' | 'value' | 'ceoIntent'>>) => void;
   setSWOT: (patch: Partial<Pick<StrategyState, 'strength' | 'weakness' | 'opportunity' | 'threat'>>) => void;
   setCeoIntent: (text: string) => void;
-  setSwotSuggestions: (suggestions?: { opportunity?: string[]; threat?: string[]; generatedAt?: string }) => void;
+  setSwotSuggestions: (suggestions?: {
+        opportunity?: string[];
+        threat?: string[];
+        generatedAt?: string;
+        sources?: SwotSuggestionSource[];
+        insights?: SwotSuggestionInsights;
+        diagnostics?: unknown;
+      }) => void;
   addSwotOpportunity: (text: string) => void;
   addSwotThreat: (text: string) => void;
+  addSwotCandidate: (candidateId: string) => void;
+  editSwotCandidate: (candidateId: string, text: string) => void;
   removeSwotOpportunity: (textOrIndex: string | number) => void;
   removeSwotThreat: (textOrIndex: string | number) => void;
 
@@ -1200,8 +1226,8 @@ function resolveRefetchTarget(s: { pendingCompanyId?: string | null; companyId?:
   return s.pendingCompanyId || s.companyId || useUserStore.getState().companyId || null;
 }
 
-function isStaleRefetch(companyId: string): boolean {
-  return resolveRefetchTarget(useStrategyStore.getState()) !== companyId;
+function isStaleRefetch(companyId: string, scopeAtStart: number): boolean {
+  return scopeAtStart !== __scopeEpoch || resolveRefetchTarget(useStrategyStore.getState()) !== companyId;
 }
 
 /* ===== 会社・戦略の切替世代（保存応答の照合用） ===== */
@@ -1223,6 +1249,17 @@ function displayResetFields(): Partial<StrategyState> {
     if (typeof v !== 'function') out[k] = v;
   }
   return out as Partial<StrategyState>;
+}
+
+/** 確定済み SWOT の行が変わったとき、候補の選択記録を行に合わせる（候補一覧は変えない） */
+function syncSelection(
+  suggestions: StrategyState['swotSuggestions'],
+  kind: 'opportunity' | 'threat',
+  lines: string[]
+): StrategyState['swotSuggestions'] {
+  if (!suggestions) return suggestions;
+  const { selection } = reconcileWithConfirmed(selectionOf(suggestions), kind, lines, new Date().toISOString());
+  return { ...suggestions, selection };
 }
 
 /* ===== 初期状態 ===== */
@@ -1415,6 +1452,8 @@ const emptyData: StrategyState = {
   setSwotSuggestions: () => {},
   addSwotOpportunity: () => {},
   addSwotThreat: () => {},
+  addSwotCandidate: () => {},
+  editSwotCandidate: () => {},
   removeSwotOpportunity: () => {},
   removeSwotThreat: () => {},
   setDepartments: () => {},
@@ -3152,7 +3191,13 @@ export const useStrategyStore = create<StrategyState>()(
           dirty: true,
           version: (s.version ?? 0) + 1,
         })),
-      setSWOT: (patch: Partial<Pick<StrategyState, 'strength' | 'weakness' | 'opportunity' | 'threat'>>) => set((s) => ({ ...s, ...patch, dirty: true, version: (s.version ?? 0) + 1 })),
+      setSWOT: (patch: Partial<Pick<StrategyState, 'strength' | 'weakness' | 'opportunity' | 'threat'>>) =>
+        set((s) => {
+          let swotSuggestions = s.swotSuggestions;
+          if (patch.opportunity !== undefined) swotSuggestions = syncSelection(swotSuggestions, 'opportunity', patch.opportunity.split('\n'));
+          if (patch.threat !== undefined) swotSuggestions = syncSelection(swotSuggestions, 'threat', patch.threat.split('\n'));
+          return { ...s, ...patch, swotSuggestions, dirty: true, version: (s.version ?? 0) + 1 };
+        }),
 
       setCeoIntent: (text: string) => {
         const trimmed = text.trim();
@@ -3165,8 +3210,61 @@ export const useStrategyStore = create<StrategyState>()(
         set((s) => ({ ...s, ceoIntent: trimmed, dirty: true, version: (s.version ?? 0) + 1 }));
       },
 
-      setSwotSuggestions: (suggestions?: { opportunity?: string[]; threat?: string[]; generatedAt?: string }) =>
-        set((s) => ({ ...s, swotSuggestions: suggestions, dirty: true, version: (s.version ?? 0) + 1 })),
+      setSwotSuggestions: (suggestions?: {
+        opportunity?: string[];
+        threat?: string[];
+        generatedAt?: string;
+        sources?: SwotSuggestionSource[];
+        insights?: SwotSuggestionInsights;
+        diagnostics?: unknown;
+      }) =>
+        set((s) => ({
+          ...s,
+          swotSuggestions: suggestions === undefined ? undefined : composeSwotSuggestions(s.swotSuggestions, suggestions),
+          dirty: true,
+          version: (s.version ?? 0) + 1,
+        })),
+
+      addSwotCandidate: (candidateId: string) => {
+        set((s) => {
+          const candidate = candidatePoolOf(s.swotSuggestions ?? {}).candidates.find((c) => c.id === candidateId);
+          if (!candidate) return s;
+          const now = new Date().toISOString();
+          const priorSelection = selectionOf(s.swotSuggestions);
+          const selection = selectCandidate(priorSelection, candidate, now);
+          const addedText = priorSelection.entries[candidate.id]?.status === 'added' ? priorSelection.entries[candidate.id].text : candidate.text;
+          const lines = (candidate.kind === 'opportunity' ? s.opportunity : s.threat)?.split('\n').filter(Boolean) ?? [];
+          if (!lines.includes(addedText)) lines.push(addedText);
+          const text = lines.join('\n');
+          return {
+            ...s,
+            ...(candidate.kind === 'opportunity' ? { opportunity: text } : { threat: text }),
+            swotSuggestions: s.swotSuggestions ? { ...s.swotSuggestions, selection } : s.swotSuggestions,
+            dirty: true,
+            version: (s.version ?? 0) + 1,
+          };
+        });
+      },
+
+      editSwotCandidate: (candidateId: string, text: string) => {
+        set((s) => {
+          const selection = selectionOf(s.swotSuggestions);
+          const before = selection.entries[candidateId];
+          if (!before || before.status !== 'added') return s;
+          const now = new Date().toISOString();
+          const nextSelection = editSelectedCandidate(selection, candidateId, text, now);
+          const after = nextSelection.entries[candidateId];
+          const field = before.kind === 'opportunity' ? 'opportunity' : 'threat';
+          const lines = (s[field] ?? '').split('\n').filter(Boolean).map((l) => (l === before.text ? after.text : l));
+          return {
+            ...s,
+            [field]: lines.join('\n'),
+            swotSuggestions: s.swotSuggestions ? { ...s.swotSuggestions, selection: nextSelection } : s.swotSuggestions,
+            dirty: true,
+            version: (s.version ?? 0) + 1,
+          };
+        });
+      },
 
       addSwotOpportunity: (text: string) => {
         const trimmed = text.trim();
@@ -3201,7 +3299,13 @@ export const useStrategyStore = create<StrategyState>()(
             const idx = current.indexOf(textOrIndex);
             if (idx >= 0) current.splice(idx, 1);
           }
-          return { ...s, opportunity: current.join('\n'), dirty: true, version: (s.version ?? 0) + 1 };
+          return {
+            ...s,
+            opportunity: current.join('\n'),
+            swotSuggestions: syncSelection(s.swotSuggestions, 'opportunity', current),
+            dirty: true,
+            version: (s.version ?? 0) + 1,
+          };
         });
       },
 
@@ -3214,7 +3318,13 @@ export const useStrategyStore = create<StrategyState>()(
             const idx = current.indexOf(textOrIndex);
             if (idx >= 0) current.splice(idx, 1);
           }
-          return { ...s, threat: current.join('\n'), dirty: true, version: (s.version ?? 0) + 1 };
+          return {
+            ...s,
+            threat: current.join('\n'),
+            swotSuggestions: syncSelection(s.swotSuggestions, 'threat', current),
+            dirty: true,
+            version: (s.version ?? 0) + 1,
+          };
         });
       },
 
@@ -3880,6 +3990,7 @@ export const useStrategyStore = create<StrategyState>()(
         const timestamp = new Date().toISOString();
         const s0 = get();
         const companyId = resolveRefetchTarget(s0);
+        const scopeAtStart = __scopeEpoch;
 
         const authed = await isSessionUsable();
         if (!companyId || !authed) {
@@ -3932,7 +4043,7 @@ export const useStrategyStore = create<StrategyState>()(
           const { data, error } = await getFullStrategyDataByCompany(companyId);
           let dbRow = data;
 
-          if (isStaleRefetch(companyId)) {
+          if (isStaleRefetch(companyId, scopeAtStart)) {
             refetchCoordinator.markDirty();
             if (DEBUG) console.log('[refetchFromServer:stale-discard]', { requested: companyId, phase: 'after-fetch', timestamp });
             return;
@@ -4088,7 +4199,7 @@ export const useStrategyStore = create<StrategyState>()(
             });
           }
 
-          if (isStaleRefetch(companyId)) {
+          if (isStaleRefetch(companyId, scopeAtStart)) {
             refetchCoordinator.markDirty();
             if (DEBUG) console.log('[refetchFromServer:stale-discard]', { requested: companyId, phase: 'before-merge', timestamp });
             return;
