@@ -25,6 +25,7 @@ const IDLE_MS = 180_000;               // 3分無操作で発火
 const COOLDOWN_MS = 600_000;           // 発火後10分はクールダウン
 const CHECK_TICK_MS = 15_000;          // 15秒ごとにポーリング
 const MAX_NUDGES_PER_SESSION = 2;      // セッション中最大2回
+const ASK_TIMEOUT_MS = 90_000;         // 応答待ちの上限（Web検索を含む処理時間を見込む）
 
 export default function CEOChatPanel({ embedded = true }: Props) {
   const { user } = useUserStore();
@@ -94,7 +95,8 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   const bootingLockRef = useRef(false);
   const unmountedRef = useRef(false);
   const autoEnsureOnceRef = useRef(false);
-  const sendingWatchdogRef = useRef<number | null>(null);
+  const inFlightRef = useRef(false);
+  const askAbortRef = useRef<AbortController | null>(null);
 
   // ★ Sprint 3B': 自動チェックイン用 refs
   const lastUserActionAtRef = useRef<number>(Date.now());
@@ -104,7 +106,10 @@ export default function CEOChatPanel({ embedded = true }: Props) {
 
   useEffect(() => {
     setMounted(true);
-    return () => { unmountedRef.current = true; };
+    return () => {
+      unmountedRef.current = true;
+      askAbortRef.current?.abort();
+    };
   }, []);
 
   const userOK = mounted && Boolean(user?.id);
@@ -183,17 +188,16 @@ export default function CEOChatPanel({ embedded = true }: Props) {
 
   /** ====== 送信 ====== */
   // ★ Sprint 3A': meta オプション対応に拡張
-  const send = useCallback(async (text: string, overrideMeta?: any) => {
+  const send = useCallback(async (text: string, overrideMeta?: any): Promise<boolean> => {
     const trimmed = text.trim();
-    if (!trimmed || sending) {
-      return;
+    if (!trimmed || inFlightRef.current) {
+      return false;
     }
+    inFlightRef.current = true;
 
-    // ウォッチドッグ: 10秒で強制解除
-    if (sendingWatchdogRef.current) window.clearTimeout(sendingWatchdogRef.current);
-    sendingWatchdogRef.current = window.setTimeout(() => {
-      setSending(false);
-    }, 10_000);
+    const controller = new AbortController();
+    askAbortRef.current = controller;
+    const timeoutId = window.setTimeout(() => controller.abort(), ASK_TIMEOUT_MS);
 
     const current = messagesRef.current;
     const userMsg: Msg = { role: 'user', content: trimmed };
@@ -212,7 +216,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
           ...prev,
           { role: 'assistant', content: '戦略データを読み込み中です…少々お待ちください。' },
         ]);
-        return;
+        return true;
       }
 
       const { data: sdata } = await supabase.auth.getSession();
@@ -226,7 +230,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
           ...prev,
           { role: 'assistant', content: '戦略データを読み込み中です…少々お待ちください。' },
         ]);
-        return;
+        return true;
       }
 
       const latestStrategyId = useStrategyStore.getState().strategyId;
@@ -250,6 +254,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
           },
           credentials: 'include',
           body: JSON.stringify(payload),
+          signal: controller.signal,
         });
         const raw = await res.text();
         return { ok: res.ok, status: res.status, raw };
@@ -274,12 +279,8 @@ export default function CEOChatPanel({ embedded = true }: Props) {
 
       // ← 先に送信フラグを落としてからメッセージを追加（UI固着防止）
       setSending(false);
-      if (sendingWatchdogRef.current) { window.clearTimeout(sendingWatchdogRef.current); sendingWatchdogRef.current = null; }
-
       setMessages((prev) => [...prev, { role: 'assistant', content }]);
-      setInput('');
-      if (textareaRef.current) textareaRef.current.style.height = 'auto';
-      return;
+      return true;
     } catch (e) {
       const errorMsg = e instanceof Error ? e.message : String(e);
       console.error('[CEOChatPanel] SEND_ERROR', { error_message: errorMsg });
@@ -289,13 +290,16 @@ export default function CEOChatPanel({ embedded = true }: Props) {
         { role: 'assistant', content: '通信エラー。ネットワーク/ログイン/権限をご確認ください。' },
       ]);
     } finally {
-      // ★ ここでは unmountedRef を見ずに必ず落とす（二重で呼ばれても問題なし）
+      window.clearTimeout(timeoutId);
+      if (askAbortRef.current === controller) askAbortRef.current = null;
+      inFlightRef.current = false;
       setSending(false);
-      if (sendingWatchdogRef.current) { window.clearTimeout(sendingWatchdogRef.current); sendingWatchdogRef.current = null; }
-      setInput('');
-      if (textareaRef.current) textareaRef.current.style.height = 'auto';
+      // 自動チェックイン送信時に、ユーザーが入力途中の下書きを消さない
+      setInput((prev) => (prev.trim() === trimmed ? '' : prev));
+      autoResize();
     }
-  }, [sending, userOK, strategyOK, user?.id, shouldWaitForRestore]);
+    return true;
+  }, [sending, userOK, strategyOK, user?.id, shouldWaitForRestore, autoResize]);
 
   /** ====== 自動チェックイン（idle時のみ） ====== */
   // ★ Sprint 3B': nudgeIfNeeded - ガード条件を満たしたら1回だけ自動送信
@@ -322,7 +326,8 @@ export default function CEOChatPanel({ embedded = true }: Props) {
         '（自動チェックイン）現在の入力状況を2〜5行で要約し、次にやるべき最小アクションを最大3つ提案してください。提案は"どこを触るか"が分かるように書いてください。';
 
       // Sprint 3A' で拡張した send を使用（meta付与）
-      await send(nudgeMsg, nudgeMeta);
+      const started = await send(nudgeMsg, nudgeMeta);
+      if (!started) return;
 
       // 成功時のみカウント＆タイムスタンプ更新
       lastNudgeAtRef.current = now;

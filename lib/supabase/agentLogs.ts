@@ -1,7 +1,6 @@
 // lib/supabase/agentLogs.ts
-
-// ✅ ここを修正：createClient ではなく supabase を直接インポート
-import { supabase } from '@/utils/supabase/client';
+// サーバー専用。呼び出し元は会社スコープ検証済みの strategyId のみを渡すこと。
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 
 export async function insertAgentLog({
   userId,
@@ -16,7 +15,8 @@ export async function insertAgentLog({
   role: 'user' | 'assistant';
   content: string;
 }) {
-  const { error } = await supabase.from('agent_logs').insert([
+  const admin = getSupabaseAdmin();
+  const { error } = await admin.from('agent_logs').insert([
     {
       user_id: userId,
       strategy_id: strategyId,

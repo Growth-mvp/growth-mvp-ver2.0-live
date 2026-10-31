@@ -26,7 +26,8 @@ import { buildStage1Insight } from '@/utils/insights/stage1Insight';
 import { detectAutoMode } from '@/lib/autoModeRouter';
 import { buildHelpSystemPrompt } from '@/lib/helpPrompt';
 import { pickRelevantKnowledge } from '@/lib/growthKnowledge';
-import { searchExternalFinancialData, buildExternalFinancialBlock } from '@/lib/externalFinancialSearch';
+import { searchExternalFinancialData } from '@/lib/externalFinancialSearch';
+import { buildExternalFinancialBlock } from '@/lib/agentPrompt';
 // ★ Sprint 6A: Light RAG 統合
 import { getGrowthRagIndex } from '@/lib/rag/indexer';
 import { retrieveGrowthKnowledge } from '@/lib/rag/retriever';
@@ -38,7 +39,7 @@ import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import {
   getAuthUserIdFromBearer,
   requireMembership,
-  assertCompanyScopeByStrategyId,
+  resolveCompanyIdFromStrategyId,
 } from '@/lib/server/rbacGuard';
 
 /* ========= 型 ========= */
@@ -371,12 +372,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ content: '認証が必要です。', error: 'no bearer' }, { status: 401 });
     }
 
-    // --- Membership 検証 ---
-    const membership = await requireMembership(admin, authUserId);
-    if (!membership) {
-      return NextResponse.json({ content: 'この企業へのアクセス権がありません。', error: 'no membership' }, { status: 403 });
-    }
-
     // --- 入力 ---
     let body: RequestBody | null = null;
     try {
@@ -394,8 +389,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ content: '権限がありません（ユーザー不一致）。', error: 'user mismatch' }, { status: 403 });
     }
 
-    // --- Strategy Company Scope 検証（strategyId が membership.companyId に属しているか） ---
-    const companyId = await assertCompanyScopeByStrategyId(admin, membership, strategyId);
+    // --- 会社スコープ: strategy の会社に対する所属を検証（他社・不存在は同じ 403） ---
+    const strategyCompanyId = await resolveCompanyIdFromStrategyId(admin, strategyId);
+    const membership = strategyCompanyId
+      ? await requireMembership(admin, authUserId, strategyCompanyId)
+      : null;
+    if (!membership) {
+      return NextResponse.json({ content: 'この企業へのアクセス権がありません。', error: 'no membership' }, { status: 403 });
+    }
+    const companyId = membership.companyId;
 
     // ★ TASK 3: strategyId が undefined の場合ログ出力
     if (!strategyId) {
@@ -869,7 +871,13 @@ export async function POST(req: Request) {
 
     // --- ログ保存（失敗は無視） ---
     try {
-      await insertAgentLog({ userId, strategyId, step: 0, role: 'assistant', content });
+      await insertAgentLog({
+        userId,
+        strategyId,
+        step: 0,
+        role: 'assistant',
+        content: `requestId=${requestId} chars=${content.length}`,
+      });
     } catch {
       /* noop */
     }
