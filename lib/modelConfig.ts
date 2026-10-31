@@ -94,6 +94,24 @@ export function getOpenAIModelParamsForProcess(
   return params;
 }
 
+/**
+ * Responses API 用のパラメータを生成（web_search など built-in tool を使う処理向け）
+ * Luna (gpt-5.6-*) は reasoning.effort を付与する。token 上限は max_output_tokens。
+ */
+export function getResponsesParamsForProcess(processKey: ProcessKey): {
+  model: string;
+  max_output_tokens: number;
+  reasoning?: { effort: 'low' };
+} {
+  const config = MODEL_CONFIGURATIONS[processKey];
+  if (!config) {
+    throw new Error(`Unknown process: ${processKey}`);
+  }
+  const model = config.modelRole === 'reasoning' ? AI_MODELS.reasoning : AI_MODELS.lightweight;
+  const base = { model, max_output_tokens: config.maxCompletionTokens };
+  return model.startsWith('gpt-5.6') ? { ...base, reasoning: { effort: 'low' } } : base;
+}
+
 // 互換性用の既存関数（既存コード用）
 export function getTemperatureParam(
   model: string,

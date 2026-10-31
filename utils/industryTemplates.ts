@@ -2,40 +2,69 @@
 
 // === 表示用の業種オプション（一般セクターのみ） ====================
 // labelShort … 一覧やサマリーに出す短い日本語表記（ここでは label と同一）
+// 業種コードは保存値として固定（変更・削除しない）。表示名のみ分類名に合わせる。
+// 選択肢に出すのは SELECTABLE_INDUSTRY_VALUES の16分類。それ以外は保存済みデータの表示用。
 export const industryOptions = [
   { value: 'manufacturing',             labelShort: '製造業',                 label: '製造業' },
-  { value: 'construction',              labelShort: '建設・設備工事',         label: '建設・設備工事' },
-  { value: 'logistics',                 labelShort: '物流・運輸',             label: '物流・運輸' },
-  { value: 'retail',                    labelShort: '小売（店舗・EC）',       label: '小売（店舗・EC）' },
-  { value: 'wholesale',                 labelShort: '卸売',                   label: '卸売' },
+  { value: 'construction',              labelShort: '建設業',                 label: '建設業' },
+  { value: 'wholesale',                 labelShort: '卸売業',                 label: '卸売業' },
+  { value: 'retail',                    labelShort: '小売業',                 label: '小売業' },
+  { value: 'it',                        labelShort: '情報通信・IT',           label: '情報通信・IT' },
+  { value: 'logistics',                 labelShort: '運輸・物流業',           label: '運輸・物流業' },
+  { value: 'finance',                   labelShort: '金融・保険業',           label: '金融・保険業' },
+  { value: 'real_estate',               labelShort: '不動産業',               label: '不動産業' },
+  { value: 'healthcare',                labelShort: '医療・福祉',             label: '医療・福祉' },
+  { value: 'education',                 labelShort: '教育・学習支援',         label: '教育・学習支援' },
+  { value: 'hospitality',               labelShort: '宿泊・飲食業',           label: '宿泊・飲食業' },
+  { value: 'professional_services',     labelShort: '専門サービス業',         label: '専門サービス業' },
+  { value: 'service',                   labelShort: 'その他サービス業',       label: 'その他サービス業' },
+  { value: 'agri_forestry_fishery',     labelShort: '農林水産業',             label: '農林水産業' },
+  { value: 'energy_resources',          labelShort: 'エネルギー・インフラ',   label: 'エネルギー・インフラ' },
+  { value: 'other',                     labelShort: 'その他',                 label: 'その他' },
   { value: 'food_beverage',             labelShort: '食品・飲料',             label: '食品・飲料' },
-  { value: 'hospitality',               labelShort: '宿泊・外食・観光',       label: '宿泊・外食・観光' },
   { value: 'it_software',               labelShort: 'IT（ソフトウェア）',     label: 'IT（ソフトウェア）' },
   { value: 'it_services',               labelShort: 'IT（SI/受託・運用）',     label: 'IT（SI/受託・運用）' },
   { value: 'telecom',                   labelShort: '通信',                   label: '通信' },
   { value: 'media_entertainment',       labelShort: 'メディア・エンタメ',     label: 'メディア・エンタメ' },
   { value: 'advertising_marketing',     labelShort: '広告・マーケティング',   label: '広告・マーケティング' },
-  { value: 'professional_services',     labelShort: '専門サービス（コンサル・士業等）', label: '専門サービス（コンサル・士業等）' },
   { value: 'finance_banking',           labelShort: '金融（銀行・証券）',     label: '金融（銀行・証券）' },
   { value: 'insurance',                 labelShort: '保険',                   label: '保険' },
-  { value: 'real_estate',               labelShort: '不動産',                 label: '不動産' },
-  { value: 'healthcare',                labelShort: 'ヘルスケア（病院・クリニック）', label: 'ヘルスケア（病院・クリニック）' },
   { value: 'pharma_biotech',            labelShort: '製薬・バイオ',           label: '製薬・バイオ' },
-  { value: 'education',                 labelShort: '教育・研修',             label: '教育・研修' },
-  { value: 'energy_resources',          labelShort: 'エネルギー・資源',       label: 'エネルギー・資源' },
   { value: 'utilities_env',             labelShort: '公共・インフラ・環境',   label: '公共・インフラ・環境' },
-  { value: 'agri_forestry_fishery',     labelShort: '農林水産',               label: '農林水産' },
   { value: 'chemicals_materials',       labelShort: '化学・素材',             label: '化学・素材' },
   { value: 'automotive',                labelShort: '自動車（完成車・部品）', label: '自動車（完成車・部品）' },
   { value: 'electronics_semiconductor', labelShort: '電機・半導体',           label: '電機・半導体' },
   { value: 'machinery',                 labelShort: '機械・産業機器',         label: '機械・産業機器' },
   { value: 'apparel_consumer',          labelShort: 'アパレル・生活消費財',   label: 'アパレル・生活消費財' },
   { value: 'public_sector_nonprofit',   labelShort: '公共・団体（NPO含む）',  label: '公共・団体（NPO含む）' },
-  { value: 'other',                     labelShort: 'その他',                 label: 'その他' },
 ] as const;
 
 export type IndustryValue = (typeof industryOptions)[number]['value'];
 export type IndustryOption = (typeof industryOptions)[number];
+
+export const SELECTABLE_INDUSTRY_VALUES: readonly IndustryValue[] = [
+  'manufacturing',
+  'construction',
+  'wholesale',
+  'retail',
+  'it',
+  'logistics',
+  'finance',
+  'real_estate',
+  'healthcare',
+  'education',
+  'hospitality',
+  'professional_services',
+  'service',
+  'agri_forestry_fishery',
+  'energy_resources',
+  'other',
+];
+
+export const selectableIndustryOptions: IndustryOption[] = SELECTABLE_INDUSTRY_VALUES.flatMap((v) => {
+  const opt = industryOptions.find((o) => o.value === v);
+  return opt ? [opt] : [];
+});
 
 // 英語コード → 日本語ラベルに変換（デフォルトは短い表記）
 export function getIndustryLabel(value: string, opts?: { full?: boolean }) {
@@ -62,6 +91,15 @@ export const industryTemplates: Record<string, string> = {
   retail: `
 小売（店舗・EC）では、在庫/粗利/回転の管理と、リアル×デジタルの統合体験が差別化要因です。
 成功パターン：SKU最適化／リピート設計／オムニチャネル。`,
+  it: `
+情報通信・ITでは、受託開発・SaaS・運用保守・通信インフラなど提供形態によって成長の型が分かれます。
+成功パターン：継続課金（ストック収益）化／顧客の業務データを活かした付加価値提供／人材確保と稼働率の管理。`,
+  finance: `
+金融・保険業では、規制対応・信用リスク管理・顧客接点のデジタル化が収益と信頼の前提になります。
+成功パターン：顧客の資産形成・保障ニーズに沿った商品設計／チャネルの見直しと代理店網の再設計／審査とコンプライアンスの効率化。`,
+  service: `
+その他サービス業では、提供価値（時間・品質・体験）と、顧客が繰り返し利用する仕組みが成長の鍵です。
+成功パターン：継続契約型の料金設計／専門人材の育成と稼働の平準化／顧客接点のデジタル化による継続利用の促進。`,
   wholesale: `
 卸売では、独自調達・情報力・与信管理が競争力に直結します。
 成功パターン：メーカー共創／付加価値提案／受発注DX。`,

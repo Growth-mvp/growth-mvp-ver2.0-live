@@ -810,12 +810,39 @@ export type BusinessPortfolio = {
  * 事業セグメント（STAGE1 基本情報で定義）
  * ========================================================= */
 
+/** O/T 候補の出典（Web検索で実際に得た URL と取得日） */
+export type SwotSuggestionSource = {
+  index: number;
+  url: string;
+  title: string;
+  retrievedAt: string;
+};
+
+/** O/T 候補ごとの根拠（事実か仮説か）。opportunity / threat と同じ順序 */
+export type SwotSuggestionInsight = {
+  text: string;
+  basis: 'fact' | 'hypothesis';
+  evidence: string;
+  sourceIndex: number | null;
+};
+
+export type SwotSuggestionInsights = {
+  opportunity: SwotSuggestionInsight[];
+  threat: SwotSuggestionInsight[];
+};
+
+/** 主な事業展開地域（3択）。未指定はキーなしで表し、国内中心と区別する */
+export type BusinessExpansionScope = 'domestic' | 'overseas' | 'both';
+
 export type BusinessSegment = {
   id: string;       // UUID
   name: string;     // セグメント名（例：製造事業、サービス事業）
-  scope?: string;   // 対象範囲・備考（任意）
+  scope?: string;   // 対象範囲・備考（任意）※地理的な展開地域ではない
   summary?: string; // 事業概要（1文：例）中堅製造業向けに設備保全の予兆検知をSaaSで提供
   keyCustomers?: string[]; // 主要顧客（最大3件）
+  expansionScope?: BusinessExpansionScope; // 現在の主な事業展開地域（任意）
+  overseasRegions?: string[]; // 海外の国・地域（許可リストの値のみ）
+  overseasRegionsNote?: string; // 旧版の自由入力。保存済みデータを守るため残す。検索・分析には使わない
 
   /* =========================================================
    * ★事業・部門別戦略拡張（中計対応・すべて任意）

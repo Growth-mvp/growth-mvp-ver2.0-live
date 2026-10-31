@@ -606,7 +606,7 @@ function isEffectivelyEmptyForServer(state: Partial<StrategyData>): boolean {
 /* ============================================================
  * DB ⇄ State 変換
  * ========================================================== */
-function buildDbRowFromState(state: StrategyData) {
+export function buildDbRowFromState(state: StrategyData) {
   const row: any = {};
   for (const [camel, snake] of Object.entries(FIELD_MAP)) {
     if ((state as any)[camel] === undefined) continue;

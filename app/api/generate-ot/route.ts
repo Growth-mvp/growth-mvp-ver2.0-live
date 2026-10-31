@@ -6,220 +6,287 @@ export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { openai } from '@/lib/openai';
-import { z } from 'zod';
-import { getIndustryLabel } from '@/utils/industryTemplates';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGuard';
+import { AI_MODELS, getResponsesParamsForProcess } from '@/lib/modelConfig';
+import {
+  OT_ANALYSIS_INSTRUCTIONS,
+  OT_ANALYSIS_SCHEMA,
+  OT_SEARCH_INSTRUCTIONS,
+  OtRequestSchema,
+  allowedIndustryLabel,
+  buildAnalysisInput,
+  buildSearchInput,
+  EXTRACTION_LIMITS,
+  buildCategoryKeys,
+  classifyFailure,
+  extractSearchFindings,
+  isWebSearchEnabled,
+  mergeSearchExtractions,
+  parseAnalysis,
+  readResponse,
+  readTokenUsage,
+  toCompanyContext,
+  toMarkdownList,
+  UNSPECIFIED_INDUSTRY_CODE,
+  type CompanyContext,
+  type FailureCode,
+  type OtAnalysis,
+  type OtItem,
+  type SearchExtraction,
+  type TokenCounts,
+  type WebResult,
+} from '@/lib/swot/generateOt';
+import { matchCompanyMarkets, planSearchCalls, type CompanyMatch } from '@/lib/swot/marketTaxonomy';
+import { isCustomerNeedDiscoveryEnabled } from '@/lib/swot/customerNeeds/flags';
+import { buildNeedSearchPlan } from '@/lib/swot/customerNeeds/searchPlan';
+import { inspectOtResult, type QualityReport } from '@/lib/swot/qualityCheck';
+import { buildSegmentReports, summarizeAdoption, type CallStat } from '@/lib/swot/diagnostics';
 
-/* =========================
- * 型
- * ======================= */
-type OT = {
-  opportunity: string[]; // 5件
-  threat: string[];      // 5件
+// SDK 5.23 の型定義に未収録だが、公式 API はこの include を受け付ける（出典一覧の取得に必要）
+const SEARCH_SOURCES_INCLUDE = ['web_search_call.action.sources'] as unknown as never[];
+
+const TOTAL_BUDGET_MS = 50_000;
+const SEARCH_CAP_MS = 25_000;
+const ANALYSIS_CAP_MS = 35_000;
+const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
+const BACKOFF_MS = [300, 800];
+const SEARCH_TRIES = 2;
+const ANALYSIS_TRIES = 2;
+const FALLBACK_TRIES = 2;
+
+type Usage = {
+  llmCalls: number;
+  searchRequests: number;
+  tokens: TokenCounts & { reportedCalls: number };
 };
 
-type Req = {
-  industry?: string;         // 英語コード
-  revenue?: string;
-  employees?: string;
-  businessContent?: string;
-};
-
-/* =========================
- * バリデーション
- * ======================= */
-const ReqSchema = z.object({
-  industry: z.string().max(2000).optional(),
-  revenue: z.string().max(2000).optional(),
-  employees: z.string().max(2000).optional(),
-  businessContent: z.string().max(2000).optional(),
+const newUsage = (): Usage => ({
+  llmCalls: 0,
+  searchRequests: 0,
+  tokens: { input: 0, output: 0, reasoning: 0, reportedCalls: 0 },
 });
 
-/* =========================
- * ユーティリティ
- * ======================= */
-function sanitize(s?: string) {
-  return (s ?? '')
-    .toString()
-    .replace(/\u0000/g, '')
-    .trim()
-    .slice(0, 2000);
-}
-
-function toMarkdownList(arr: string[], titleJa: string, titleEn: string): string {
-  const head = `■ ${titleEn}（${titleJa}）`;
-  const body = (arr ?? []).map((v) => `- ${v}`).join('\n');
-  return `${head}\n${body}\n`;
-}
-
-function buildUserPrompt({
-  industryCode,
-  industryLabel,
-  revenue,
-  employees,
-  businessContent,
-}: {
-  industryCode: string;
-  industryLabel: string;
-  revenue: string;
-  employees: string;
-  businessContent: string;
-}) {
-  // 業種行は「日本語ラベル（英語コード）」の順で明示（片方欠けても崩れない）
-  const industryLine =
-    industryLabel && industryCode
-      ? `${industryLabel}（${industryCode}）`
-      : (industryLabel || industryCode || '');
-
-  return [
-    'あなたはSWOT分析の専門家です。',
-    '以下の企業情報をもとに、この企業が直面している「機会（Opportunity）」と「脅威（Threat）」をそれぞれ5つずつ分析してください。',
-    '',
-    `【業種】${industryLine}`,
-    `【売上規模】${revenue || ''}`,
-    `【従業員数】${employees || ''}`,
-    `【事業内容】${businessContent || ''}`,
-    '',
-    '出力は JSON のみ。文章・表・前置き・注釈は一切不要。',
-  ].join('\n');
-}
-
-function extractJsonObject<T = any>(raw: string): T | null {
-  if (!raw || typeof raw !== 'string') return null;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    const m = raw.match(/\{[\s\S]*\}/m);
-    if (m) {
-      try { return JSON.parse(m[0]) as T; } catch {}
-    }
+function addTokens<T>(usage: Usage, res: T): T {
+  const t = readTokenUsage(res);
+  if (t) {
+    usage.tokens.input += t.input;
+    usage.tokens.output += t.output;
+    usage.tokens.reasoning += t.reasoning;
+    usage.tokens.reportedCalls++;
   }
-  return null;
+  return res;
 }
 
-/* =========================
- * フォールバック（最小限）
- * ======================= */
-function naiveSplitFallback(text: string): OT {
-  const t = (text || '').replace(/```(?:json|md|markdown)?/gi, '').trim();
-  const oppBlock =
-    t.match(/(?:^|\n) *[■#\[]? *Opportunit(?:y|ies)|機会[^\n]*\n([\s\S]*?)(?=\n *[■#\[]? *(?:Threats?|脅威)|$)/i)?.[1] ||
-    '';
-  // 修正：末尾まで確実に拾う
-  const thrBlock = t.match(/(?:^|\n) *[■#\[]? *(?:Threats?|脅威)[^\n]*\n([\s\S]*$)/i)?.[1] || '';
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  const toList = (s: string) =>
-    s
-      .split('\n')
-      .map((l) => l.replace(/^[-*・\s]+/, '').trim())
-      .filter(Boolean)
-      .slice(0, 5);
-
-  let opp = toList(oppBlock);
-  let thr = toList(thrBlock);
-
-  if (opp.length === 0 && thr.length === 0) {
-    const lines = t
-      .split('\n')
-      .map((l) => l.replace(/^[-*・\s]+/, '').trim())
-      .filter(Boolean);
-    const mid = Math.ceil(lines.length / 2);
-    opp = lines.slice(0, 5);
-    thr = lines.slice(mid, mid + 5);
-  }
-
-  return {
-    opportunity: opp.slice(0, 5),
-    threat: thr.slice(0, 5),
-  };
+function errorStatus(e: unknown): number {
+  return Number((e as { status?: unknown })?.status ?? 0);
 }
 
-/* =========================
- * JSON Schema（可能なら使用）
- * ======================= */
-const jsonSchema = {
-  name: 'opportunity_threat_schema',
-  schema: {
-    type: 'object',
-    properties: {
-      opportunity: {
-        type: 'array',
-        items: { type: 'string' },
-        minItems: 5,
-        maxItems: 5,
-        description: 'この企業にとっての機会（Opportunity）を簡潔に1文で。5件。',
-      },
-      threat: {
-        type: 'array',
-        items: { type: 'string' },
-        minItems: 5,
-        maxItems: 5,
-        description: 'この企業にとっての脅威（Threat）を簡潔に1文で。5件。',
-      },
-    },
-    required: ['opportunity', 'threat'],
-    additionalProperties: false,
-  },
-  strict: true as const,
-} as const;
-
-const SUPPORTS_JSON_MODE = /^gpt-4o(-mini)?($|-)/;
-
-/* =========================
- * OpenAI 呼び出し（リトライ）
- * ======================= */
-async function callOpenAIWithRetry(
-  args: {
-    model: string;
-    temperature?: number;
-    messages: { role: 'system' | 'user'; content: string }[];
-    useSchema?: boolean;
-    maxTokens?: number;
-  },
-  tries = 3
-) {
-  let lastErr: any;
+async function withRetry<T>(
+  tries: number,
+  deadline: number,
+  usage: Usage,
+  capMs: number,
+  run: (timeout: number) => Promise<T>
+): Promise<T> {
+  let lastErr: unknown = new Error('time_budget_exhausted');
   for (let i = 0; i < tries; i++) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 1_000) break;
+    usage.llmCalls++;
     try {
-      const base: Record<string, unknown> = {
-        model: args.model,
-        max_tokens: args.maxTokens ?? 600,
-        messages: args.messages,
-      };
-      if (args.temperature !== undefined) {
-        (base as any).temperature = args.temperature;
-      }
-
-      if (args.useSchema && SUPPORTS_JSON_MODE.test(args.model)) {
-        (base as any).response_format = {
-          type: 'json_schema',
-          json_schema: jsonSchema,
-        };
-      } else if (SUPPORTS_JSON_MODE.test(args.model)) {
-        (base as any).response_format = { type: 'json_object' };
-      }
-
-      return await openai.chat.completions.create(base as any);
-    } catch (e: any) {
+      return await run(Math.min(capMs, remaining - 1_000));
+    } catch (e) {
       lastErr = e;
-      const status = Number(e?.status ?? e?.code ?? 0);
-      const retryable = status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
-      if (!retryable || i === tries - 1) break;
-      const retryAfter = Number(e?.response?.headers?.get?.('retry-after')) || 0;
-      const backoff = retryAfter > 0 ? retryAfter * 1000 : [300, 800, 1500][Math.min(i, 2)];
-      await new Promise((r) => setTimeout(r, backoff));
+      if (!RETRY_STATUSES.has(errorStatus(e)) || i === tries - 1) break;
+      await sleep(BACKOFF_MS[Math.min(i, BACKOFF_MS.length - 1)]);
     }
   }
   throw lastErr;
 }
 
-/* =========================
- * ハンドラ
- * ======================= */
-export async function POST(req: NextRequest) {
+type SearchCallOutcome = { extraction: SearchExtraction | null; errorCode?: FailureCode; elapsedMs: number };
+
+async function runSearchCall(
+  input: string,
+  layer: string | undefined,
+  deadline: number,
+  usage: Usage,
+  categoryKeys?: ReadonlyMap<string, string>
+): Promise<SearchCallOutcome> {
+  const startedAt = Date.now();
   try {
-    // Bearer token authentication and membership validation
+    const params = getResponsesParamsForProcess('stage2OtSearch');
+    const res = await withRetry(SEARCH_TRIES, deadline, usage, SEARCH_CAP_MS, (timeout) => {
+      usage.searchRequests++;
+      return openai.responses
+        .create(
+          {
+            ...params,
+            instructions: OT_SEARCH_INSTRUCTIONS,
+            input,
+            tools: [{ type: 'web_search' }],
+            tool_choice: 'required',
+            include: SEARCH_SOURCES_INCLUDE,
+            store: false,
+          },
+          { timeout, maxRetries: 0 }
+        )
+        .then((r) => addTokens(usage, r));
+    });
+    return {
+      extraction: extractSearchFindings(res, new Date().toISOString(), layer, { categoryKeys }),
+      elapsedMs: Date.now() - startedAt,
+    };
+  } catch (e) {
+    return { extraction: null, errorCode: classifyFailure(e), elapsedMs: Date.now() - startedAt };
+  }
+}
+
+function combineSearchOutcomes(outcomes: SearchCallOutcome[]): WebResult {
+  const extractions = outcomes.flatMap((o) => (o.extraction ? [o.extraction] : []));
+  const merged = mergeSearchExtractions(extractions);
+  const base = {
+    findings: merged.findings,
+    sources: merged.sources,
+    searchCalls: merged.webSearchCalls,
+    diagnostics: merged.diagnostics,
+    elapsedMs: Math.max(0, ...outcomes.map((o) => o.elapsedMs)),
+  };
+  if (merged.findings.length > 0) return { status: 'completed', ...base };
+  if (extractions.length > 0 && merged.webSearchCalls === 0) return { status: 'no_search', ...base };
+  const errorCode = outcomes.find((o) => o.errorCode)?.errorCode ?? merged.failureCode ?? 'unknown';
+  return { status: 'failed', ...base, errorCode };
+}
+
+function callStat(id: string, o: SearchCallOutcome): CallStat {
+  const d = o.extraction?.diagnostics;
+  return {
+    id,
+    status: o.extraction ? 'ok' : 'failed',
+    errorCode: o.errorCode ?? o.extraction?.failureCode ?? null,
+    elapsedMs: o.elapsedMs,
+    findings: o.extraction?.findings.length ?? 0,
+    droppedByLimit: d?.droppedByLimit ?? 0,
+    duplicateLines: d?.duplicateLines ?? 0,
+    unattributedLines: d?.unattributedLines ?? 0,
+    rejectedLines: d?.rejectedLines ?? 0,
+  };
+}
+
+type SearchRun = {
+  web: WebResult;
+  classification: 'matched' | 'partial' | 'unmatched' | 'not_searched';
+  calls: Array<{ id: string; categoryIds: string[] }>;
+  categoryIds: string[];
+  droppedCategories: number;
+  callStats: CallStat[];
+};
+
+/**
+ * 製品・顧客市場の分類に一致した内容から検索を組み立てる。
+ * 一致が無ければ業種レベルの従来の検索を1回行う（推測はしない）。
+ * 1回の検索が失敗しても、残りの結果で続行する。
+ */
+async function runWebSearch(args: {
+  industryLabel: string;
+  industrySkipStatus: 'skipped_no_industry' | 'skipped_unspecified_industry';
+  regions: string[];
+  match: CompanyMatch;
+  needDiscovery: boolean;
+  deadline: number;
+  usage: Usage;
+}): Promise<SearchRun> {
+  const plans = planSearchCalls({ industryLabel: args.industryLabel, regions: args.regions, match: args.match });
+  const needPlan = args.needDiscovery
+    ? buildNeedSearchPlan({ industryLabel: args.industryLabel, regions: args.regions, match: args.match })
+    : null;
+  if (!args.industryLabel && plans.length === 0) {
+    return {
+      web: { status: args.industrySkipStatus, findings: [], sources: [], searchCalls: 0 },
+      classification: 'not_searched',
+      calls: [],
+      categoryIds: [],
+      droppedCategories: 0,
+      callStats: [],
+    };
+  }
+  const allPlans = needPlan ? [...plans, needPlan] : plans;
+  const calls: Array<{ id: string; input: string; categoryIds: string[]; keys?: ReadonlyMap<string, string> }> = allPlans.length
+    ? allPlans.map((p) => ({ id: p.id, input: p.input, categoryIds: p.categoryIds, keys: buildCategoryKeys(p.categories) }))
+    : [{ id: 'industry', input: buildSearchInput(args.industryLabel, args.regions), categoryIds: [] as string[] }];
+  const outcomes = await Promise.all(
+    calls.map((c) => runSearchCall(c.input, c.id === 'industry' ? undefined : c.id, args.deadline, args.usage, c.keys))
+  );
+  return {
+    web: combineSearchOutcomes(outcomes),
+    classification: plans.length ? (args.match.unmatchedSegments > 0 ? 'partial' : 'matched') : 'unmatched',
+    calls: calls.map((c) => ({ id: c.id, categoryIds: c.categoryIds })),
+    categoryIds: calls.flatMap((c) => c.categoryIds),
+    droppedCategories: args.match.droppedCategories,
+    callStats: outcomes.map((o, i) => callStat(calls[i].id, o)),
+  };
+}
+
+async function runAnalysis(
+  ctx: CompanyContext,
+  web: WebResult,
+  deadline: number,
+  usage: Usage
+): Promise<OtAnalysis> {
+  const params = getResponsesParamsForProcess('stage2Ot');
+  const res = await withRetry(ANALYSIS_TRIES, deadline, usage, ANALYSIS_CAP_MS, (timeout) =>
+    openai.responses
+      .create(
+        {
+          ...params,
+          instructions: OT_ANALYSIS_INSTRUCTIONS,
+          input: buildAnalysisInput(ctx, web),
+          text: {
+            format: { type: 'json_schema', name: 'ot_analysis', schema: OT_ANALYSIS_SCHEMA, strict: true },
+          },
+          store: false,
+        },
+        { timeout, maxRetries: 0 }
+      )
+      .then((r) => addTokens(usage, r))
+  );
+  return parseAnalysis(readResponse(res).text, web.sources.length);
+}
+
+async function runFallback(
+  ctx: CompanyContext,
+  web: WebResult,
+  deadline: number,
+  usage: Usage
+): Promise<OtAnalysis> {
+  const res = await withRetry(FALLBACK_TRIES, deadline, usage, Number.POSITIVE_INFINITY, (timeout) =>
+    openai.chat.completions
+      .create(
+        {
+          model: AI_MODELS.legacy,
+          temperature: 0.3,
+          max_tokens: 1500,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: OT_ANALYSIS_INSTRUCTIONS },
+            { role: 'user', content: buildAnalysisInput(ctx, web) },
+          ],
+        },
+        { timeout, maxRetries: 0 }
+      )
+      .then((r) => addTokens(usage, r))
+  );
+  return parseAnalysis(res.choices[0]?.message?.content ?? '', web.sources.length);
+}
+
+export async function POST(req: NextRequest) {
+  const startedAt = Date.now();
+  const deadline = startedAt + TOTAL_BUDGET_MS;
+  const usage = newUsage();
+  try {
     const admin = getSupabaseAdmin();
     const userId = await getAuthUserIdFromBearer(admin, req);
     if (!userId) {
@@ -230,147 +297,179 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     }
 
-    const raw = await req.json().catch(() => ({}));
-    const parsed = ReqSchema.safeParse(raw);
+    const parsed = OtRequestSchema.safeParse(await req.json().catch(() => ({})));
     if (!parsed.success) {
       return NextResponse.json({ error: '入力形式が不正です' }, { status: 400 });
     }
 
-    const body = parsed.data as Req;
+    const industryCode = (parsed.data.industry ?? '').trim();
+    const industryLabel = allowedIndustryLabel(industryCode);
+    const isUnspecifiedIndustry = industryCode === UNSPECIFIED_INDUSTRY_CODE;
+    const industrySource: 'allowlisted' | 'unspecified' | 'unrecognized' | 'none' = isUnspecifiedIndustry
+      ? 'unspecified'
+      : industryLabel
+        ? 'allowlisted'
+        : industryCode
+          ? 'unrecognized'
+          : 'none';
+    const analysisIndustry = industryLabel || industryCode.slice(0, 100);
+    const baseCtx = toCompanyContext(parsed.data, analysisIndustry);
+    const needDiscovery = isCustomerNeedDiscoveryEnabled(process.env.OT_CUSTOMER_NEED_DISCOVERY);
+    const segments = parsed.data.businessSegments;
+    const match: CompanyMatch = matchCompanyMarkets({
+      businessContent: parsed.data.businessContent,
+      segments: segments.map((s) => ({
+        revenue: s.revenue,
+        productTexts: [s.name, s.summary, s.scope, ...s.mainProductsServices],
+        customerTexts: s.keyCustomers,
+      })),
+    });
+    const ctx: CompanyContext = {
+      ...baseCtx,
+      marketLabels: [...match.product, ...match.customer, ...match.substitute, ...match.criteria].map((c) => c.label),
+    };
 
-    const industryCode = sanitize(body.industry);
-    const revenue = sanitize(body.revenue);
-    const employees = sanitize(body.employees);
-    const businessContent = sanitize(body.businessContent);
+    const webEnabled = isWebSearchEnabled(process.env.OT_WEB_SEARCH_ENABLED);
+    const searchRun: SearchRun = !webEnabled
+      ? { web: { status: 'disabled', findings: [], sources: [], searchCalls: 0 }, classification: 'not_searched', calls: [], categoryIds: [], droppedCategories: 0, callStats: [] }
+      : await runWebSearch({
+          industryLabel: isUnspecifiedIndustry ? '' : industryLabel,
+          industrySkipStatus: isUnspecifiedIndustry ? 'skipped_unspecified_industry' : 'skipped_no_industry',
+          regions: ctx.currentRegions ?? [],
+          match,
+          needDiscovery,
+          deadline,
+          usage,
+        });
+    const web = searchRun.web;
+    const searchMs = Date.now() - startedAt;
 
-    // ★ 英語コードから日本語ラベルをサーバ側で解決（UI改修なしでOK）
-    const industryLabel = industryCode ? getIndustryLabel(industryCode, { full: true }) : '';
-
-    // 1) JSONスキーマで厳密に取得（gpt-4o 系）
-    let ot: OT | null = null;
+    let analysis: OtAnalysis | undefined;
+    let usedFallback = false;
+    let fallbackCode: FailureCode | undefined;
+    const analysisStartedAt = Date.now();
     try {
-      const ai = await callOpenAIWithRetry(
-        {
-          model: 'gpt-6-luna',
-          messages: [
-            {
-              role: 'system',
-              content:
-                'あなたはSWOT分析に精通した戦略コンサルタントです。出力は必ずJSON（指定スキーマ）で返します。',
-            },
-            {
-              role: 'user',
-              content: buildUserPrompt({
-                industryCode,
-                industryLabel,
-                revenue,
-                employees,
-                businessContent,
-              }),
-            },
-          ],
-          useSchema: true,
-          maxTokens: 600,
-        },
-        3
-      );
-
-      const rawContent = ai?.choices?.[0]?.message?.content ?? '';
-      const parsedJson = extractJsonObject<any>(rawContent);
-      if (
-        parsedJson &&
-        Array.isArray(parsedJson.opportunity) &&
-        Array.isArray(parsedJson.threat)
-      ) {
-        ot = {
-          opportunity: parsedJson.opportunity.map((s: unknown) => String(s ?? '').trim()).filter(Boolean).slice(0, 5),
-          threat: parsedJson.threat.map((s: unknown) => String(s ?? '').trim()).filter(Boolean).slice(0, 5),
-        };
-      }
-    } catch (e: any) {
-      console.warn('generate-ot: json_schema 出力失敗 → フォールバックに移行', e?.message ?? String(e));
-    }
-
-    // 2) フォールバック：通常プロンプト→ナイーブ分割
-    if (!ot) {
-      const fallbackPrompt = [
-        'あなたはSWOT分析の専門家です。',
-        '以下の企業情報をもとに、この企業が直面している「機会（Opportunity）」と「脅威（Threat）」をそれぞれ5つずつ分析してください。',
-        '',
-        `【業種】${industryLabel ? `${industryLabel}${industryCode ? `（${industryCode}）` : ''}` : industryCode}`,
-        `【売上規模】${revenue}`,
-        `【従業員数】${employees}`,
-        `【事業内容】${businessContent}`,
-        '',
-        '以下の見出しと箇条書きのみで出力してください。前後の説明・表・注釈は禁止：',
-        '',
-        '■ Opportunity（機会）',
-        '- 〜',
-        '- 〜',
-        '- 〜',
-        '- 〜',
-        '- 〜',
-        '',
-        '■ Threat（脅威）',
-        '- 〜',
-        '- 〜',
-        '- 〜',
-        '- 〜',
-        '- 〜',
-      ].join('\n');
-
-      let ai2;
+      analysis = await runAnalysis(ctx, web, deadline, usage);
+    } catch (e) {
+      fallbackCode = classifyFailure(e);
+      console.error('[generate-ot] analysis_failed', JSON.stringify({ code: fallbackCode }));
       try {
-        ai2 = await callOpenAIWithRetry(
-          {
-            model: 'gpt-4o',
-            temperature: 0.3,
-            messages: [
-              { role: 'system', content: 'あなたはSWOT分析に精通した戦略コンサルタントです。' },
-              { role: 'user', content: fallbackPrompt },
-            ],
-            useSchema: false,
-            maxTokens: 700,
-          },
-          3
+        analysis = await runFallback(ctx, web, deadline, usage);
+        usedFallback = true;
+      } catch (e2) {
+        console.error('[generate-ot] fallback_failed', JSON.stringify({ code: classifyFailure(e2) }));
+        return NextResponse.json(
+          { error: 'O/T生成に失敗しました' },
+          { status: errorStatus(e2) === 429 ? 429 : 502 }
         );
-      } catch (e: any) {
-        const status = Number(e?.status ?? e?.code ?? 500);
-        const message = e?.message || 'OpenAI error';
-        return NextResponse.json({ error: message }, { status: status === 429 ? 429 : 502 });
       }
-
-      const text = ai2?.choices?.[0]?.message?.content ?? '';
-      ot = naiveSplitFallback(text);
     }
+    if (!analysis) {
+      return NextResponse.json({ error: 'O/T生成に失敗しました' }, { status: 502 });
+    }
+    const analysisMs = Date.now() - analysisStartedAt;
 
-    // 3) 最終正規化（null防止と件数調整）
-    const opportunity = (ot?.opportunity ?? [])
-      .map((s: string) => s.trim())
-      .filter(Boolean)
-      .slice(0, 5);
+    const inspected = inspectOtResult(analysis, web.sources, searchRun.categoryIds, web.findings);
+    const finalAnalysis = inspected.analysis;
+    const quality: QualityReport = inspected.report;
+    const segmentReports = buildSegmentReports(match, web, analysis, finalAnalysis);
+    const diagnostics = {
+      version: 2,
+      classification: searchRun.classification,
+      searchStatus: web.status,
+      searchCalls: web.searchCalls,
+      searchRequests: usage.searchRequests,
+      calls: searchRun.callStats,
+      adoption: summarizeAdoption(web, analysis, finalAnalysis),
+      tokens: { ...usage.tokens, llmCalls: usage.llmCalls },
+      limits: EXTRACTION_LIMITS,
+      totals: web.diagnostics
+        ? {
+            lines: web.diagnostics.lines,
+            attributedLines: web.diagnostics.attributedLines,
+            rejectedLines: web.diagnostics.rejectedLines,
+            unattributedLines: web.diagnostics.unattributedLines ?? 0,
+            duplicateLines: web.diagnostics.duplicateLines ?? 0,
+            droppedByLimit: web.diagnostics.droppedByLimit ?? 0,
+            findings: web.diagnostics.findings,
+          }
+        : null,
+      byCategory: web.diagnostics?.byCategory ?? {},
+      segments: segmentReports,
+      adoptedCategoryIds: Array.from(
+        new Set(segmentReports.flatMap((s) => (s.adoptedOpportunity + s.adoptedThreat > 0 ? s.categoryIds : [])))
+      ),
+      unmatchedSegments: match.unmatchedSegments,
+      quality,
+      timingsMs: { total: Date.now() - startedAt, search: searchMs, analysis: analysisMs },
+      llmCalls: usage.llmCalls,
+    };
 
-    const threat = (ot?.threat ?? [])
-      .map((s: string) => s.trim())
-      .filter(Boolean)
-      .slice(0, 5);
+    const analysisModel = usedFallback ? AI_MODELS.legacy : getResponsesParamsForProcess('stage2Ot').model;
+    const searchModel = getResponsesParamsForProcess('stage2OtSearch').model;
+    const analysisMode = web.status === 'completed' ? 'with_web' : 'internal_only';
+    const elapsedMs = Date.now() - startedAt;
+    const webSearchMeta = {
+      enabled: webEnabled,
+      status: web.status,
+      searchCalls: web.searchCalls,
+      searchRequests: usage.searchRequests,
+      classification: searchRun.classification,
+      droppedCategories: searchRun.droppedCategories,
+      calls: searchRun.calls,
+      callStats: searchRun.callStats,
+      model: web.status === 'completed' || web.status === 'no_search' || web.status === 'failed' ? searchModel : null,
+      errorCode: web.errorCode ?? null,
+      elapsedMs: web.elapsedMs ?? null,
+      diagnostics: web.diagnostics ?? null,
+      industrySource,
+      customerNeedDiscovery: needDiscovery,
+    };
+    console.info(
+      '[generate-ot]',
+      JSON.stringify({
+        analysisModel,
+        usedFallback,
+        fallbackCode: fallbackCode ?? null,
+        analysisMode,
+        currentRegionScope: ctx.currentRegions?.length ? 'specified' : 'unspecified',
+        webSearch: webSearchMeta,
+        sources: web.sources.length,
+        quality,
+        diagnostics,
+        llmCalls: usage.llmCalls,
+        elapsedMs,
+      })
+    );
 
-    // 4) 既存UI互換のため、見出し＋箇条書きのテキストも同梱
+    const opportunity = finalAnalysis.opportunities.map((i) => i.text);
+    const threat = finalAnalysis.threats.map((i) => i.text);
     const resultMarkdown =
-      toMarkdownList(opportunity, '機会', 'Opportunity') +
-      '\n' +
-      toMarkdownList(threat, '脅威', 'Threat');
+      toMarkdownList(opportunity, '機会', 'Opportunity') + '\n' + toMarkdownList(threat, '脅威', 'Threat');
 
     return NextResponse.json(
       {
         opportunity,
         threat,
-        result: resultMarkdown, // 既存の parseOT(raw) がここを読む想定
+        result: resultMarkdown,
+        insights: { opportunity: finalAnalysis.opportunities, threat: finalAnalysis.threats },
+        sources: web.sources,
+        meta: {
+          model: analysisModel,
+          usedFallback,
+          fallbackCode: fallbackCode ?? null,
+          analysisMode,
+          webSearch: webSearchMeta,
+          quality,
+          diagnostics,
+          llmCalls: usage.llmCalls,
+          elapsedMs,
+        },
       },
       { headers: { 'Cache-Control': 'no-store' } }
     );
-  } catch (err: any) {
-    console.error('❌ O/T生成エラー:', err?.message || err);
+  } catch (err) {
+    console.error('❌ O/T生成エラー', JSON.stringify({ code: classifyFailure(err) }));
     return NextResponse.json({ error: 'O/T生成に失敗しました' }, { status: 500 });
   }
 }

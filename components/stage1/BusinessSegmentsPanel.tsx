@@ -4,6 +4,13 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useStrategyStore, type StrategyState } from '@/store/strategyStore';
 import type { BusinessSegment, StrategicUnitType } from '@/types/strategy';
+import {
+  EXPANSION_SCOPE_OPTIONS,
+  OVERSEAS_REGION_OPTIONS,
+  normalizeExpansionScope,
+  sanitizeOverseasRegions,
+  toggleOverseasRegion,
+} from '@/lib/stage1/businessExpansion';
 
 /* ===============================
  * 安定した空参照（selector で ?? [] を使わないため）
@@ -308,6 +315,69 @@ export default function BusinessSegmentsPanel({ readOnly, disabled }: { readOnly
                         </div>
                       ))}
                     </div>
+                  )}
+                </div>
+
+                {/* 現在の主な事業展開地域（任意）。現在の活動範囲の参考情報で、SWOTの探索対象は限定しない。未指定はキーを持たせない */}
+                <div className="ml-9 mt-3">
+                  <label className="block text-xs text-gray-600 mb-1">現在の主な事業展開地域（任意）</label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={normalizeExpansionScope(seg.expansionScope) ?? ''}
+                      onChange={(e) =>
+                        updateSegment(seg.id, { expansionScope: normalizeExpansionScope(e.target.value) })
+                      }
+                      disabled={disabled}
+                      className="border px-2 py-1 text-sm rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                    >
+                      <option value="">未指定</option>
+                      {EXPANSION_SCOPE_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {(seg.expansionScope === 'overseas' || seg.expansionScope === 'both') && (
+                    <div className="mt-2">
+                      <p className="text-xs text-gray-600 mb-1">海外の国・地域（任意・複数選択）</p>
+                      <div className="flex flex-wrap gap-1">
+                        {OVERSEAS_REGION_OPTIONS.map((region) => {
+                          const selected = sanitizeOverseasRegions(seg.overseasRegions).includes(region);
+                          return (
+                            <button
+                              key={region}
+                              type="button"
+                              aria-pressed={selected}
+                              disabled={disabled}
+                              onClick={() =>
+                                updateSegment(seg.id, { overseasRegions: toggleOverseasRegion(seg.overseasRegions, region) })
+                              }
+                              className={`px-2 py-1 text-xs rounded border disabled:cursor-not-allowed disabled:opacity-50 ${
+                                selected
+                                  ? 'bg-blue-600 text-white border-blue-600'
+                                  : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
+                              }`}
+                            >
+                              {region}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  {seg.overseasRegionsNote && (
+                    <p className="mt-2 text-xs text-amber-700">
+                      既存の自由入力「{seg.overseasRegionsNote}」はWeb検索には使われません。
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => updateSegment(seg.id, { overseasRegionsNote: undefined })}
+                        className="ml-2 underline disabled:cursor-not-allowed"
+                      >
+                        消去
+                      </button>
+                    </p>
                   )}
                 </div>
 
