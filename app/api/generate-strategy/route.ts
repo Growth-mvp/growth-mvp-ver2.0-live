@@ -158,6 +158,8 @@ async function askOpenAI(prompt: string) {
 /* =========================
  * ハンドラ
  * ======================= */
+const GENERATE_STRATEGY_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function POST(req: NextRequest) {
   try {
     // 0) Bearer トークン認証＆membership確認
@@ -172,16 +174,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     }
 
-    // ★ Role チェック: admin / manager のみ許可
-    try {
-      await assertMinRole(membership, 'manager');
-    } catch {
-      return NextResponse.json(
-        { error: 'insufficient_role' },
-        { status: 403 }
-      );
-    }
-
     // 1) 入力の読み込み＆検証
     const bodyRaw = await req.json().catch(() => ({}));
     const bodySafe = BodySchema.safeParse(bodyRaw);
@@ -189,6 +181,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '入力形式が不正です' }, { status: 400 });
     }
     const body: BodyIn = bodySafe.data;
+
+    // companyId が指定された場合は、その会社への membership を検証し、その会社での role で権限判定する。
+    // （指定が無い場合は従来どおり membership で判定）
+    let scoped = membership;
+    if (body.companyId) {
+      if (!GENERATE_STRATEGY_UUID_RE.test(body.companyId)) {
+        return NextResponse.json({ error: 'companyId が不正です' }, { status: 400 });
+      }
+      const requestedMembership = await requireMembership(admin, userId, body.companyId);
+      if (!requestedMembership || requestedMembership.companyId !== body.companyId) {
+        return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+      }
+      scoped = requestedMembership;
+    }
+
+    // ★ Role チェック: admin / manager のみ許可
+    try {
+      await assertMinRole(scoped, 'manager');
+    } catch {
+      return NextResponse.json(
+        { error: 'insufficient_role' },
+        { status: 403 }
+      );
+    }
 
     const deptNames = listDeptNames(body.departments);
     if (deptNames.length === 0) {

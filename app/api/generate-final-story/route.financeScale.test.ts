@@ -48,7 +48,7 @@ async function runWithFinance(csvFinanceData: unknown): Promise<number | null> {
   const req = new NextRequest('http://localhost/api/generate-final-story', {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: 'Bearer t' },
-    body: JSON.stringify({
+    body: JSON.stringify({ companyId: COMPANY,
       industry: '製造業',
       revenue: 100,
       employees: 50,
@@ -78,7 +78,7 @@ async function runFinanceSummary(csvFinanceData: unknown): Promise<{ sales: numb
   const req = new NextRequest('http://localhost/api/generate-final-story', {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: 'Bearer t' },
-    body: JSON.stringify({
+    body: JSON.stringify({ companyId: COMPANY,
       strategyDataId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       industry: '製造業',
       revenue: 100,
@@ -182,7 +182,7 @@ describe('単位なしの財務列は円として百万円へ換算してAIへ�
     const req = new NextRequest('http://localhost/api/x', {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: 'Bearer t' },
-      body: JSON.stringify({
+      body: JSON.stringify({ companyId: COMPANY,
         strategyDataId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         industry: '製造業',
         revenue: 100,

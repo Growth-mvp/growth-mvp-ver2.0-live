@@ -1017,6 +1017,8 @@ async function enhanceEmotionIfNeeded(
 /* =========================
  * ルート
  * =======================*/
+const STORY_COMPANY_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function POST(req: NextRequest) {
   try {
     if (!process.env.OPENAI_API_KEY) {
@@ -1041,6 +1043,21 @@ export async function POST(req: NextRequest) {
     }
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+
+    // 書き込み先の会社は body.companyId で必須指定し、その会社への membership を LLM 呼び出し前に検証する。
+    // Cookie や「先頭の membership」からは補完しない（複数会社所属時に別会社へ保存しないため）。
+    const rawCompanyId = body.companyId;
+    if (rawCompanyId === undefined || rawCompanyId === null || rawCompanyId === '') {
+      return NextResponse.json({ error: 'companyId が必要です（書き込み先の会社を指定してください）' }, { status: 400 });
+    }
+    if (typeof rawCompanyId !== 'string' || !STORY_COMPANY_UUID_RE.test(rawCompanyId)) {
+      return NextResponse.json({ error: 'companyId が不正です' }, { status: 400 });
+    }
+    const scoped = await requireMembership(admin, userId, rawCompanyId);
+    if (!scoped || scoped.companyId !== rawCompanyId) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+    const verifiedCompanyId: string = rawCompanyId;
 
     const mvv = asRecord(body.mvv);
     const swot = asRecord(body.swot);
@@ -1415,9 +1432,13 @@ ${stripPeopleRelatedNoise(answersRich) || '—'}
       }
     }
 
+    // 任意保存（検証済み会社へ、Cookie は書き換えない）
     if (typeof userId === 'string' && userId && typeof saveFinalStory === 'function') {
       try {
-        await saveFinalStory(userId, finalStory as any, {});
+        await saveFinalStory(userId, finalStory as any, {
+          companyId: verifiedCompanyId,
+          writeCookie: false,
+        });
       } catch (e: any) {
         console.warn('⚠️ final_stories 保存に失敗（続行）:', e?.message || e);
       }

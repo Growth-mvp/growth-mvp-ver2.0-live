@@ -1076,12 +1076,13 @@ function StoryProcessPageContent() {
 
   /* ------- 参考ストーリー生成（手動） ------- */
   const onGenerateDraft = useCallback(async () => {
-    if (!canEdit) return;
+    if (!canEdit || !companyId) return;
     setLoadingDraft(true);
     try {
       const data = await authFetchJson<any>('/api/generate-story-draft', {
         method: 'POST',
         json: {
+          companyId, // 書き込み先（サーバ側で membership を検証する）
           thought,
           mission,
           vision,
@@ -1183,6 +1184,7 @@ function StoryProcessPageContent() {
       method: 'POST',
       signal,
       json: {
+        companyId, // 書き込み先（サーバ側で membership を検証する）
         strategyId: store?.strategyId,
         answers2: (answers2 ?? []).map((c) => ({
           chapterIndex: c.chapterIndex,
@@ -1227,10 +1229,11 @@ function StoryProcessPageContent() {
     enhanceEmotion,
     strength, // ← 追加
     opportunity, // ← 追加
+    companyId, // ← 追加（書き込み先）
   ]);
 
   const onGenerateFinal = useCallback(async () => {
-    if (!canEdit) return;
+    if (!canEdit || !companyId) return;
     setFinalLoading(true);
     try {
       const data = await callFinalApi();
@@ -1285,7 +1288,7 @@ function StoryProcessPageContent() {
       } catch {}
 
       // 直ちに分離テーブルへ保存（opts は companyId のみ）
-      if (user?.id) {
+      if (user?.id && companyId) {
         await saveFinalStory(user.id, ordered, {
           companyId,
         }).catch(() => {});
@@ -1760,7 +1763,7 @@ function FinalStorySection({
       }
     } catch {}
     // 分離テーブルへ即保存（opts は companyId のみ）
-    if (userId) {
+    if (userId && companyId) {
       await saveFinalStory(userId, clean, {
         companyId,
       }).catch(() => {});

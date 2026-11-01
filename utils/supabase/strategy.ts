@@ -181,14 +181,25 @@ async function getActiveUserId(): Promise<string | null> {
   }
 }
 
+/**
+ * 書き込み先 companyId を解決する。
+ * - override（明示指定）は membership を検証せずそのまま採用する。
+ *   サーバ（API route）から呼ぶ場合は、呼び出し側で必ず membership を検証してから渡すこと。
+ *   ブラウザ側は RLS が最終防壁になる。
+ * - writeCookie: false の場合は company_id Cookie を書き換えない（サーバ経由の明示指定で使用）。
+ * - override 無しの場合のみ Cookie → 先頭 membership の順で補完する（従来どおり）。
+ */
 async function resolveCompanyId(
   userId: string,
   override?: string | null,
+  opts?: { writeCookie?: boolean },
 ): Promise<string> {
   if (override && isValidUUID(override)) {
-    try {
-      setCompanyIdCookie(override);
-    } catch {}
+    if (opts?.writeCookie !== false) {
+      try {
+        setCompanyIdCookie(override);
+      } catch {}
+    }
     return override;
   }
   try {
@@ -3513,14 +3524,20 @@ async function robustUpsertCompanyScoped(
   }
 }
 
-/** 最終ストーリーを final_stories に永続化（company_id一意） */
+/**
+ * 最終ストーリーを final_stories に永続化（company_id一意）
+ * - opts.companyId: 明示指定（サーバ route から渡す場合は呼び出し前に membership 検証済みであること）
+ * - opts.writeCookie: false で Cookie を書き換えない
+ */
 export async function saveFinalStory(
   userId: string,
   finalStory: Array<{ title: string; body: string }>,
-  opts?: { companyId?: string | null },
+  opts?: { companyId?: string | null; writeCookie?: boolean },
 ): Promise<{ ok: boolean; error: any | null }> {
   try {
-    const companyId = await resolveCompanyId(userId, opts?.companyId ?? null);
+    const companyId = await resolveCompanyId(userId, opts?.companyId ?? null, {
+      writeCookie: opts?.writeCookie,
+    });
     const now = new Date().toISOString();
 
     const row: any = {
