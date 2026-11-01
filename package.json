@@ -22,7 +22,8 @@
     "smoke-test": "node scripts/smoke-test.mjs",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "live:ot-verify": "jest -c jest.live.config.js"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.14",
