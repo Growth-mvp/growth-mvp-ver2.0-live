@@ -65,6 +65,10 @@ export function saveStage1SnapshotToLocalStorage(
     console.warn('[stageSnapshot] saveStage1Snapshot: window is undefined (SSR)');
     return false;
   }
+  if (!companyId) {
+    console.warn('[stageSnapshot] saveStage1Snapshot: companyId がないため保存しない');
+    return false;
+  }
 
   try {
     const snapshot: Stage1Snapshot = {
@@ -112,6 +116,10 @@ export function loadStage1SnapshotFromLocalStorage(): Stage1Snapshot | null {
       console.warn('[stageSnapshot] Stage1 snapshot invalid format');
       return null;
     }
+    if (!parsed.companyId) {
+      console.warn('[stageSnapshot] Stage1 snapshot に companyId がないため利用しない');
+      return null;
+    }
 
     console.log('[stageSnapshot] Stage1 snapshot loaded:', {
       savedAt: parsed.savedAt,
@@ -149,6 +157,10 @@ export function saveStage2SnapshotToLocalStorage(
 ): boolean {
   if (typeof window === 'undefined') {
     console.warn('[stageSnapshot] saveStage2Snapshot: window is undefined (SSR)');
+    return false;
+  }
+  if (!companyId) {
+    console.warn('[stageSnapshot] saveStage2Snapshot: companyId がないため保存しない');
     return false;
   }
 
@@ -202,6 +214,10 @@ export function loadStage2SnapshotFromLocalStorage(): Stage2Snapshot | null {
       console.warn('[stageSnapshot] Stage2 snapshot invalid format');
       return null;
     }
+    if (!parsed.companyId) {
+      console.warn('[stageSnapshot] Stage2 snapshot に companyId がないため利用しない');
+      return null;
+    }
 
     // ★ TASK 13-4: Log ceoIntent from snapshot
     const ceoIntentLen = typeof parsed.state.ceoIntent === 'string' ? parsed.state.ceoIntent.length : 0;
@@ -235,20 +251,29 @@ export function clearStage2Snapshot(): void {
 
 /* ===== 3段フォールバック用ヘルパー ===== */
 
+export function isSnapshotOfCompany<T extends { companyId?: string }>(
+  snapshot: T | null | undefined,
+  companyId: string | null | undefined
+): snapshot is T {
+  return !!snapshot && !!companyId && snapshot.companyId === companyId;
+}
+
 /**
  * STAGE1データを3段フォールバックで取得
  * 1) Zustand store（引数で渡す）
- * 2) localStorage snapshot
+ * 2) localStorage snapshot（同じ会社のものだけ）
  * 3) Supabase（呼び出し側で行う）
  *
  * @param storeData store から取得したデータ（あれば）
+ * @param companyId 表示中の会社ID
  * @returns { issueBlocks, metricsSummary, source }
  */
 export function getStage1DataWithFallback(
-  storeData?: {
+  storeData: {
     stage1Issues?: IssueBlock[];
     valueAnalysis?: ValueAnalysis;
-  }
+  } | undefined,
+  companyId: string | null | undefined
 ): {
   issueBlocks: IssueBlock[];
   metricsSummary: MetricsSummary;
@@ -265,7 +290,7 @@ export function getStage1DataWithFallback(
 
   // 2) localStorage から取得
   const snapshot = loadStage1SnapshotFromLocalStorage();
-  if (snapshot && snapshot.issueBlocks.length > 0) {
+  if (isSnapshotOfCompany(snapshot, companyId) && snapshot.issueBlocks.length > 0) {
     return {
       issueBlocks: snapshot.issueBlocks,
       metricsSummary: snapshot.metricsSummary,

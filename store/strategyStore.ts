@@ -77,6 +77,7 @@ import {
   saveStage2SnapshotToLocalStorage,
   loadStage1SnapshotFromLocalStorage,
   loadStage2SnapshotFromLocalStorage,
+  isSnapshotOfCompany,
   valueAnalysisToMetricsSummary,
 } from '@/utils/stageSnapshot';
 
@@ -1274,7 +1275,17 @@ function syncSelection(
 }
 
 /* ===== 初期状態 ===== */
-const emptyData: StrategyState = {
+// 初期状態はデータのみ。アクションを含めると set({...emptyData}) で実装がno-opに置き換わる。
+type StrategyActionKeys = {
+  [K in keyof StrategyState]-?: 0 extends 1 & StrategyState[K]
+    ? never
+    : StrategyState[K] extends (...args: any[]) => any
+      ? K
+      : never;
+}[keyof StrategyState];
+type StrategyDataFields = Omit<StrategyState, StrategyActionKeys>;
+
+const emptyData: StrategyDataFields = {
   companyId: null,
   strategyId: null, // ★ ID未設定: refetchFromServer で DB から復元される
   pendingCompanyId: undefined,
@@ -1380,113 +1391,14 @@ const emptyData: StrategyState = {
 
   __lastSavedHash: undefined,
 
-  reset: () => {},
-  resetAll: () => {},
-  setHydrated: () => {},
-  setHydrating: () => {},
-  setHydratingFlag: () => {},
-  setServerSnapshotHash: () => {},
-  setRevision: () => {},
-  setStrategyId: () => {},
-  hydrateFromFullState: () => {},
-  setCompanyScope: () => {},
-  setStory: () => {},
-  setFinalStory: () => {},
-  setMidtermStrategy: () => {},
-  setStage2FinalDocumentEdits: () => {},
-  setStage2FinalGeneratedConclusion: () => {},
-  setAnswers2: () => {},
-  setChapterCurrentStep: () => {},
-  setProfile: () => {},
-
-  setCompanyName: () => {},
-  setIndustry: () => {},
-  setStage1Issues: () => {},
-  setStage1Benchmarks: () => {},
-  setFinancePlanAssumptions: () => {},
-  setStoryDraft: () => {},
-  setWinPatternsCandidate: () => {},
-  setAnswers12: () => {},
-  updateAnswer12: () => {},
-  setCompanyTargets: () => {},
-  addCompanyTarget: () => {},
-  updateCompanyTarget: () => {},
-  removeCompanyTarget: () => {},
-
-  // Phase E
-  setProjectTargetImpacts: () => {},
-  addProjectTargetImpact: () => {},
-  updateProjectTargetImpact: () => {},
-  removeProjectTargetImpact: () => {},
-  setOKRTargetScore: () => {},
-  getOKRTargetScore: () => 0,
-  setProjectIssueLinks: () => {},
-  addProjectIssueLink: () => {},
-  updateProjectIssueLink: () => {},
-  removeProjectIssueLink: () => {},
-
-  setFinalStoryDraft: () => {},
-  setFinalStoryEdited: () => {},
-  setFinalStoryFinal: () => {},
-  applyGeneratedDraft: () => {},
-  commitFinalStory: () => {},
-  setStage4Plans: () => {},
-  setExecutionPlanBaseline: () => {},
-  recomputeValueAnalysis: () => {},
-
-  setFinancePL: () => {},
-  restoreFinancePLState: () => {},
-  setFinanceBS: () => {},
-  setSegmentPL: () => {},
-  setSegmentBS: () => {},
-  upsertSegmentPL: () => {},
-  upsertSegmentBS: () => {},
-  setBusinessSegmentsWithSync: () => {},
-
-  /* ★ 年度CRUD（全社） */
-  addFinanceYear: () => {},
-  renameFinanceYear: () => false,
-  removeFinanceYear: () => {},
-  updateFinancePLCell: () => {},
-  updateFinanceBSCell: () => {},
-
-  /* ★ 年度CRUD（事業部別） */
-  addSegmentFinanceYear: () => {},
-  renameSegmentFinanceYear: () => false,
-  removeSegmentFinanceYear: () => {},
-  updateSegmentPLCell: () => {},
-  updateSegmentBSCell: () => {},
-
-  setMVV: () => {},
-  setSWOT: () => {},
-  setCeoIntent: () => {},
-  setSwotSuggestions: () => {},
-  addSwotOpportunity: () => {},
-  addSwotThreat: () => {},
-  addSwotCandidate: () => {},
-  appendSwotOpportunities: () => 0,
-  editSwotCandidate: () => {},
-  removeSwotOpportunity: () => {},
-  removeSwotThreat: () => {},
-  setDepartments: () => {},
-  updateDepartments: () => {},
-  setBusinessPortfolio: () => {},
-  setFinanceSummary: () => {},
-  markLoaded: () => {},
-  markDirty: () => {},
-  buildPayload: () => ({}),
-
-  saveStrategyData: async () => ({ ok: false, reason: 'uninitialized', skipped: true }),
-  refetchFromServer: async () => {},
-  refetchOnceFromServer: async () => {},
-  resetDisplayedCompanyData: () => {},
-  deleteAllOnServer: async () => {},
-
-  loadStage1DummyData: () => {},
-  saveStage1Snapshot: () => false,
-  saveStage2Snapshot: () => false,
-  restoreStage1FromSnapshot: () => false,
-  getMetricsSummary: () => ({} as any),
+  // 会社固有の情報。切替・ログアウト時に前の会社の値を残さない
+  midtermStrategy: undefined,
+  financePlanSavedHash: undefined,
+  lastLocalEditAt: undefined,
+  pendingConflictRecovery: undefined,
+  lastSaveAttemptRevision: undefined,
+  lastConflictInfo: undefined,
+  conflictCooldownUntil: undefined,
 };
 
 /* ============================================================
@@ -1971,9 +1883,13 @@ export const useStrategyStore = create<StrategyState>()(
     (set, get) => ({
       ...emptyData,
 
-      reset: () => set({ ...emptyData }),
+      reset: () => {
+        __persistedSnapshot = null;
+        set({ ...emptyData });
+      },
       resetAll: () => {
         if (DEBUG) console.log('[strategyStore] resetAll() called');
+        __persistedSnapshot = null;
         set({ ...emptyData });
       },
 
@@ -2067,7 +1983,11 @@ export const useStrategyStore = create<StrategyState>()(
           }
 
           // 会社が変わったら前の会社の表示データを消す（新会社の読み込み完了まで表示しない）
-          if ((s.pendingCompanyId ?? s.companyId ?? null) !== id) __scopeEpoch += 1;
+          if ((s.pendingCompanyId ?? s.companyId ?? null) !== id) {
+            __scopeEpoch += 1;
+            // 永続化された旧会社のスナップショットを、新しい会社の書き込みに使わない
+            __persistedSnapshot = null;
+          }
           return {
             ...s,
             ...displayResetFields(),
@@ -3530,6 +3450,10 @@ export const useStrategyStore = create<StrategyState>()(
             return { ok: false, skipped: true, reason: 'stage4_departments_immediate_save_blocked' };
           }
 
+          // ★ 永続化から復元した会社データは、所属が確認されて DB から読み直すまで保存しない
+          if (__persistedSnapshot) {
+            return { ok: false, skipped: true, reason: 'persisted_scope_unverified' };
+          }
           // ★ 会社切替中（切替先の読込が確定する前）は force でも保存を開始しない。
           // 切替開始時に表示データは初期化されるため、ここで書き込むと空の状態を既存の行へ全置換しうる。
           const effectiveCompanyId = useUserStore.getState().companyId ?? null;
@@ -3546,6 +3470,11 @@ export const useStrategyStore = create<StrategyState>()(
               timestamp: new Date().toISOString(),
             });
             return { ok: false, skipped: true, reason: 'company_switching' };
+          }
+
+          // ★ 会社スコープが無い（ログアウト直後・初期化直後）状態は force でも保存しない。空の状態で既存の行を置換しないため。
+          if (!state0.companyId) {
+            return { ok: false, skipped: true, reason: 'company_scope_missing' };
           }
 
           // ★ force: true のときは hydrating をスキップ（無反応を防ぐ）
@@ -4752,7 +4681,7 @@ export const useStrategyStore = create<StrategyState>()(
       /** STAGE1 スナップショットを localStorage から復元 */
       restoreStage1FromSnapshot: () => {
         const snapshot = loadStage1SnapshotFromLocalStorage();
-        if (!snapshot || snapshot.issueBlocks.length === 0) {
+        if (!isSnapshotOfCompany(snapshot, get().companyId) || snapshot.issueBlocks.length === 0) {
           if (DEBUG) console.log('[strategyStore] restoreStage1FromSnapshot: no valid snapshot');
           return false;
         }

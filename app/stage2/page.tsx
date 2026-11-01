@@ -15,6 +15,7 @@ import { useAutoSave } from '@/hooks/useAutoSave';
 // PDF出力は /report/stage2-strategy プレビュー画面で行う
 import {
   getStage1DataWithFallback,
+  isSnapshotOfCompany,
   loadStage1SnapshotFromLocalStorage,
   loadStage2SnapshotFromLocalStorage,
   saveStage2SnapshotToLocalStorage,
@@ -2502,7 +2503,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       const result = getStage1DataWithFallback({
         stage1Issues: storeIssues,
         valueAnalysis: storeValueAnalysis,
-      });
+      }, companyId);
 
       if (result.source !== 'none' && result.issueBlocks.length > 0) {
         setIssueBlocks(result.issueBlocks);
@@ -2514,7 +2515,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
       // 2) localStorage
       const snapshot = loadStage1SnapshotFromLocalStorage();
-      if (snapshot && snapshot.issueBlocks.length > 0) {
+      if (isSnapshotOfCompany(snapshot, companyId) && snapshot.issueBlocks.length > 0) {
         setIssueBlocks(snapshot.issueBlocks);
         setMetricsSummary(snapshot.metricsSummary);
         setDataSource('localStorage');

@@ -15,7 +15,7 @@ import { clearInviteCookie } from '@/lib/auth/inviteCookieClient';
  * GROWTH SHIFT関連の localStorage/sessionStorage キーをすべて削除
  * 対象: strategy-store, company-context, stage-*, org-alignment-*, admin-* など
  */
-function purgeGrowthShiftLocalStorage() {
+export function purgeGrowthShiftLocalStorage() {
   try {
     if (typeof window === 'undefined') return;
 
@@ -28,6 +28,7 @@ function purgeGrowthShiftLocalStorage() {
       /^admin-/i,
       /^growth-/i,
       /^growth::/i,
+      /^growth\.stage\d\.snapshot$/i,
       /^department-/i,
       /^okr-/i,
       /^project-/i,
