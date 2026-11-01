@@ -20,11 +20,11 @@ import {
   isPrivateAddress,
 } from '../sourceBody';
 import {
-  OT_ANALYSIS_NEED_INSTRUCTIONS,
-  OT_ANALYSIS_NEED_SCHEMA,
+  OT_NEED_ONLY_INSTRUCTIONS,
+  OT_NEED_ONLY_SCHEMA,
   OT_ANALYSIS_INSTRUCTIONS,
   buildAnalysisInput,
-  parseNeedAnalysis,
+  parseNeedOnly,
   type WebResult,
 } from '../generateOt';
 
@@ -251,6 +251,7 @@ describe('課題から機会への変換（根拠・対象一致・事業の対�
     companyLink: '美術缶の装飾技術',
     valueShift: '価格から限定性・体験へ',
     purchaseImpact: '包装仕様の採用判断',
+    group: 'existing_market',
     breadth: 'public_observed',
     opportunity: '限定品向けの装飾容器の需要が拡大する可能性がある。',
     basis: 'fact',
@@ -264,7 +265,7 @@ describe('課題から機会への変換（根拠・対象一致・事業の対�
   const convert = (items: NeedOpportunityRaw[], verified = true, sourceUrl = 'https://example.com/a') =>
     toNeedItems({
       items,
-      roles: [role('direct_customer', 'input', ['c_food_maker'])],
+      segmentRoles: [{ segment: '美術缶事業', roles: [role('direct_customer', 'input', ['c_food_maker'])] }],
       findings,
       sources: [{ index: 1, url: sourceUrl, contentVerified: verified }],
       segments: ['美術缶事業', '不動産賃貸事業'],
@@ -289,7 +290,7 @@ describe('課題から機会への変換（根拠・対象一致・事業の対�
   it('同じ顧客と判定された出典でも、役割の顧客業界の語が出典の文に無ければ、参考どまりにする（別の業界の調査を根拠にしない）', () => {
     const { items } = toNeedItems({
       items: [raw({ opportunity: '塗料メーカー向けの供給安定性の需要が拡大する可能性がある。' })],
-      roles: [role('direct_customer', 'input', ['c_paint_chemical'])],
+      segmentRoles: [{ segment: '美術缶事業', roles: [role('direct_customer', 'input', ['c_paint_chemical'])] }],
       findings: [{ statement: 'シンナー取扱事業所の多くが欠品や納期遅延を経験した。', sourceIndex: 1, segment: '美術缶事業' }],
       sources: [{ index: 1, url: 'https://example.com/a', contentVerified: true }],
       segments: ['美術缶事業'],
@@ -305,7 +306,7 @@ describe('課題から機会への変換（根拠・対象一致・事業の対�
   it('顧客業界が役割に無い場合は、同じ顧客と判定されても事実にしない', () => {
     const { items } = toNeedItems({
       items: [raw()],
-      roles: [role('direct_customer')],
+      segmentRoles: [{ segment: '美術缶事業', roles: [role('direct_customer')] }],
       findings,
       sources: [{ index: 1, url: 'https://example.com/a', contentVerified: true }],
       segments: ['美術缶事業'],
@@ -335,7 +336,7 @@ describe('課題から機会への変換（根拠・対象一致・事業の対�
   it('別の事業の検索で得た出典は、この事業の根拠にしない', () => {
     const { items } = toNeedItems({
       items: [raw({ segmentName: '不動産賃貸事業' })],
-      roles: [role('direct_customer')],
+      segmentRoles: [{ segment: '不動産賃貸事業', roles: [role('direct_customer')] }],
       findings: [{ statement: '食品メーカーの約6割が包装で伝えたい。', sourceIndex: 1, segment: '美術缶事業' }],
       sources: [{ index: 1, url: 'https://example.com/a', contentVerified: true }],
       segments: ['美術缶事業', '不動産賃貸事業'],
@@ -369,7 +370,7 @@ describe('課題から機会への変換（根拠・対象一致・事業の対�
   it('別の事業の検索で得た出典は、対象不一致と区別して理由を残す', () => {
     const { items } = toNeedItems({
       items: [raw({ segmentName: '不動産賃貸事業' })],
-      roles: [role('direct_customer', 'input', ['c_food_maker'])],
+      segmentRoles: [{ segment: '不動産賃貸事業', roles: [role('direct_customer', 'input', ['c_food_maker'])] }],
       findings: [{ statement: '食品メーカーの約6割が包装で伝えたい。', sourceIndex: 1, segment: '美術缶事業' }],
       sources: [{ index: 1, url: 'https://example.com/a', contentVerified: true }],
       segments: ['美術缶事業', '不動産賃貸事業'],
@@ -378,6 +379,64 @@ describe('課題から機会への変換（根拠・対象一致・事業の対�
     });
     expect(items[0].need.unverified).toContain('source_other_segment');
     expect(items[0].need.gradeReasons).toContain('出典は別の事業または対象不一致のため根拠にしない');
+  });
+
+  it('事業Aの利用者の役割は、事業Bの項目の主体として採用しない', () => {
+    const { items, dropped } = toNeedItems({
+      items: [raw({ segmentName: '不動産賃貸事業', who: 'user' })],
+      segmentRoles: [
+        { segment: '美術缶事業', roles: [role('user')] },
+        { segment: '不動産賃貸事業', roles: [role('direct_customer')] },
+      ],
+      findings: [],
+      sources: [],
+      segments: ['美術缶事業', '不動産賃貸事業'],
+      labelOf: () => '利用者',
+    });
+    expect(items).toHaveLength(0);
+    expect(dropped.who_unsupported).toBe(1);
+  });
+
+  it('同じ主体でも、事業ごとの役割の根拠で判定する（推定の役割は推定として残す）', () => {
+    const { items } = toNeedItems({
+      items: [raw({ segmentName: '不動産賃貸事業', who: 'direct_customer', payer: null })],
+      segmentRoles: [
+        { segment: '美術缶事業', roles: [role('direct_customer', 'input', ['c_food_maker'])] },
+        { segment: '不動産賃貸事業', roles: [role('direct_customer', 'estimated')] },
+      ],
+      findings: [],
+      sources: [],
+      segments: ['美術缶事業', '不動産賃貸事業'],
+      labelOf: () => '直接顧客',
+    });
+    expect(items[0].need.segmentName).toBe('不動産賃貸事業');
+    expect(items[0].need.unverified).toContain('who_estimated');
+  });
+
+  it('事業名が特定できない項目は、他事業の出典も役割も根拠にせず、事業に帰属させない', () => {
+    const { items } = toNeedItems({
+      items: [raw({ segmentName: null, who: 'direct_customer', sourceIndex: 1 })],
+      segmentRoles: [{ segment: '美術缶事業', roles: [role('direct_customer', 'input', ['c_food_maker'])] }],
+      findings,
+      sources: [{ index: 1, url: 'https://example.com/a', contentVerified: true }],
+      segments: ['美術缶事業', '不動産賃貸事業'],
+      labelOf: () => '直接顧客',
+      categoryLabelOf: (id) => cat(id).label,
+    });
+    expect(items[0]).toMatchObject({ sourceIndex: null, need: { segmentName: null, evidenceUse: 'none' } });
+    expect(items[0].need.unverified).toEqual(expect.arrayContaining(['segment', 'who_estimated']));
+  });
+
+  it('同じ名前の事業が複数ある場合は、事業名で帰属を決めない', () => {
+    const { items } = toNeedItems({
+      items: [raw({ segmentName: '研修事業', who: 'direct_customer', sourceIndex: 1 })],
+      segmentRoles: [{ segment: '研修事業', roles: [role('direct_customer')] }],
+      findings: [{ statement: '研修の利用者の約6割が効果を測れないと回答した。', sourceIndex: 1, segment: '研修事業' }],
+      sources: [{ index: 1, url: 'https://example.com/a', contentVerified: true }],
+      segments: ['研修事業', '研修事業'],
+      labelOf: () => '直接顧客',
+    });
+    expect(items[0]).toMatchObject({ sourceIndex: null, need: { segmentName: null } });
   });
 
   it('役割に無い主体の項目は作らない', () => {
@@ -407,6 +466,7 @@ describe('課題から機会への変換（根拠・対象一致・事業の対�
 
 describe('事業ごとの上限（特定の事業だけが優先されない）', () => {
   const item = (segment: string | null, n: number): NeedItem => ({
+    viewpoint: 'customer_need',
     text: `${segment ?? '未特定'}の機会${n}が拡大する可能性がある。`,
     basis: 'hypothesis',
     evidence: '',
@@ -437,12 +497,37 @@ describe('事業ごとの上限（特定の事業だけが優先されない）'
     const items = [item('A', 1), item('A', 2), item('A', 3), item('B', 1), item('B', 2), item('C', 1), item('C', 2), item('C', 3)];
     const { items: kept, dropped } = capNeedItemsPerSegment(items, ['A', 'B', 'C']);
     expect(kept.map((i) => i.need.segmentName)).toEqual(['A', 'A', 'B', 'B', 'C', 'C']);
-    expect(dropped).toEqual({ segment_cap: 2, total_cap: 0 });
+    expect(dropped).toEqual({ segment_cap: 2, total_cap: 0, duplicate: 0 });
   });
 
   it('根拠の無い事業を埋めるための項目は作らない（件数が少なければそのまま）', () => {
     const { items: kept } = capNeedItemsPerSegment([item('B', 1)], ['A', 'B']);
     expect(kept).toHaveLength(1);
+  });
+
+  it('同じ内容の重複候補は事業の枠を占有せず、異なる顧客課題を残す', () => {
+    const same = '空缶の回収と廃棄の手間を減らしたい需要が広がる可能性がある。';
+    const items = [
+      { ...item('A', 1), text: same },
+      { ...item('A', 2), text: same },
+      { ...item('A', 3), text: '包装の補充作業を省力化したい需要が広がる可能性がある。' },
+    ];
+    const { items: kept, dropped } = capNeedItemsPerSegment(items, ['A']);
+    expect(kept.map((i) => i.text)).toEqual([same, '包装の補充作業を省力化したい需要が広がる可能性がある。']);
+    expect(dropped.duplicate).toBe(1);
+  });
+
+  it('顧客業界だけが違う候補（塗料工場と食品工場）は、文が似ていても別の顧客課題として残す', () => {
+    const paint = '塗料工場で空になった缶の回収に手間がかかり、省力化の需要が広がる可能性がある。';
+    const food = '食品工場で空になった缶の回収に手間がかかり、省力化の需要が広がる可能性がある。';
+    const { items: kept, dropped } = capNeedItemsPerSegment([{ ...item('A', 1), text: paint }, { ...item('A', 2), text: food }], ['A']);
+    expect(kept.map((i) => i.text)).toEqual([paint, food]);
+    expect(dropped.duplicate).toBe(0);
+  });
+
+  it('数字だけが違う候補は、重複として捨てない', () => {
+    const { items: kept } = capNeedItemsPerSegment([item('A', 1), item('A', 2)], ['A']);
+    expect(kept).toHaveLength(2);
   });
 });
 
@@ -634,19 +719,27 @@ describe('出典の本文確認（安全な取得と照合）', () => {
 });
 
 describe('分析の指示と出力（顧客課題つき）', () => {
-  it('顧客課題つきの指示は、事業の対応・対象一致・価値の変化の確認を含み、既存の指示は変えない', () => {
-    expect(OT_ANALYSIS_NEED_INSTRUCTIONS).toContain('顧客課題起点の機会');
-    expect(OT_ANALYSIS_NEED_INSTRUCTIONS).toContain('segmentName');
-    expect(OT_ANALYSIS_NEED_INSTRUCTIONS).toContain('evidenceRelation');
-    expect(OT_ANALYSIS_NEED_INSTRUCTIONS).toContain('different');
-    expect(OT_ANALYSIS_NEED_INSTRUCTIONS).toContain('valueShift');
+  it('顧客課題の指示は、事業の対応・対象一致・価値の変化の確認を含み、市場の指示には含めない', () => {
+    expect(OT_NEED_ONLY_INSTRUCTIONS).toContain('顧客課題起点の機会');
+    expect(OT_NEED_ONLY_INSTRUCTIONS).toContain('segmentName');
+    expect(OT_NEED_ONLY_INSTRUCTIONS).toContain('evidenceRelation');
+    expect(OT_NEED_ONLY_INSTRUCTIONS).toContain('valueShift');
+    expect(OT_NEED_ONLY_INSTRUCTIONS).toContain('外部情報（Web検索の結果）がありません');
     expect(OT_ANALYSIS_INSTRUCTIONS).not.toContain('顧客課題起点の機会');
   });
 
-  it('顧客課題つきの出力スキーマは、事業・価値の変化・出典の対象一致を持つ', () => {
-    expect(OT_ANALYSIS_NEED_SCHEMA.required).toEqual(['opportunities', 'threats', 'customerNeedOpportunities']);
-    expect(OT_ANALYSIS_NEED_SCHEMA.properties.customerNeedOpportunities.maxItems).toBe(6);
-    expect(OT_ANALYSIS_NEED_SCHEMA.properties.customerNeedOpportunities.items.properties).toHaveProperty('evidenceRelation');
+  it('顧客課題の指示は、既存の顧客に限らない新しい顧客・用途、地域の上限にしないこと、分類なしの事業を含む', () => {
+    expect(OT_NEED_ONLY_INSTRUCTIONS).toContain('役割には既存の顧客だけでなく、その事業の能力から届く新しい顧客・利用者・用途も含まれることがあります');
+    expect(OT_NEED_ONLY_INSTRUCTIONS).toContain('探索範囲の上限ではない');
+    expect(OT_NEED_ONLY_INSTRUCTIONS).toContain('分類情報が無い事業区分も、探索対象から外さない');
+    expect(OT_NEED_ONLY_INSTRUCTIONS).toContain('既存のサービスをそのまま提供するだけの提案は');
+    expect(OT_NEED_ONLY_INSTRUCTIONS).toContain('「一貫して支援する」');
+  });
+
+  it('顧客課題の出力スキーマは顧客課題だけを持ち、出典の対象一致を含む', () => {
+    expect(OT_NEED_ONLY_SCHEMA.required).toEqual(['customerNeedOpportunities']);
+    expect(OT_NEED_ONLY_SCHEMA.properties.customerNeedOpportunities.maxItems).toBe(6);
+    expect(OT_NEED_ONLY_SCHEMA.properties.customerNeedOpportunities.items.properties).toHaveProperty('evidenceRelation');
   });
 
   it('役割のブロックは、入力の役割欄に分けて入る', () => {
@@ -660,11 +753,17 @@ describe('分析の指示と出力（顧客課題つき）', () => {
     expect(buildAnalysisInput(ctx, web)).not.toContain('<customer_roles>');
   });
 
-  it('顧客課題つきの分析の出力は、既存の機会・脅威と顧客課題を分けて読む', () => {
-    const five = (p: string) => Array.from({ length: 5 }, (_, i) => ({ text: `${p}${i + 1}`, basis: 'hypothesis', evidence: '', sourceIndex: null }));
-    const raw = JSON.stringify({ opportunities: five('機会'), threats: five('脅威'), customerNeedOpportunities: [{ who: 'user' }] });
-    const parsed = parseNeedAnalysis(raw, 0);
-    expect(parsed.analysis.opportunities).toHaveLength(5);
-    expect(parsed.customerNeeds).toHaveLength(0);
+  it('顧客課題だけの出力は、形式の不正な項目を捨てて読む', () => {
+    const valid = {
+      segmentName: null, who: 'user', problem: '現場で手間が増えている', desiredOutcome: null, whyCurrentFails: null,
+      payer: null, companyLink: null, valueShift: null, purchaseImpact: null, group: 'existing_market',
+      breadth: 'unknown', opportunity: '手間を減らす需要が広がる可能性がある。', basis: 'hypothesis', evidence: '',
+      sourceIndex: null, evidenceTarget: null, evidenceRelation: 'unknown',
+    };
+    const raw = JSON.stringify({ customerNeedOpportunities: [valid, { who: 'user' }] });
+    const parsed = parseNeedOnly(raw);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].who).toBe('user');
+    expect(parseNeedOnly('not json')).toEqual([]);
   });
 });

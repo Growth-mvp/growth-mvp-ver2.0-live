@@ -277,8 +277,8 @@ export function matchCompanyMarkets(input: CompanyInput): CompanyMatch {
 
   return {
     segments,
-    product: segments.flatMap((s) => s.product),
-    customer: segments.flatMap((s) => s.customer),
+    product: uniqueById(segments.flatMap((s) => s.product)),
+    customer: uniqueById(segments.flatMap((s) => s.customer)),
     substitute: takeUniqueAcross(sources.map((m) => m.substitute), COMPANY_CAP.substitute),
     criteria: takeUniqueAcross(sources.map((m) => m.criteria), COMPANY_CAP.criteria),
     unmatchedSegments: segments.filter((s) => s.product.length === 0 && s.customer.length === 0).length,
@@ -286,28 +286,31 @@ export function matchCompanyMarkets(input: CompanyInput): CompanyMatch {
   };
 }
 
-/** 各事業に最低1件を先に確保し、残りを売上順に配分する（小規模事業の市場が上限で消えないように） */
+const uniqueById = (list: MarketCategory[]): MarketCategory[] => [...new Map(list.map((c) => [c.id, c])).values()];
+
+/**
+ * 各事業に一致した分類を、事業ごとに残す（同じ分類を複数の事業が持っても、後順位の事業から消さない）。
+ * 上限は全社で重複を除いた分類の数に掛ける。各事業に最低1件を先に確保し、残りを売上順に配分する
+ * （小規模事業の市場が上限で消えないように）
+ */
 function allocate(lists: MarketCategory[][], max: number): { picked: MarketCategory[][]; dropped: number } {
-  const seen = new Set<string>();
+  const company = new Set<string>();
   const picked: MarketCategory[][] = lists.map(() => []);
-  let total = 0;
+  const has = (i: number, c: MarketCategory) => picked[i].some((p) => p.id === c.id);
+  const canTake = (c: MarketCategory) => company.has(c.id) || company.size < max;
   const take = (i: number, c: MarketCategory) => {
-    seen.add(c.id);
+    company.add(c.id);
     picked[i].push(c);
-    total++;
   };
   lists.forEach((list, i) => {
-    const first = list.find((c) => !seen.has(c.id));
-    if (first && total < max) take(i, first);
+    const first = list.find((c) => !has(i, c) && canTake(c));
+    if (first) take(i, first);
   });
   lists.forEach((list, i) => {
-    for (const c of list) {
-      if (total >= max) break;
-      if (!seen.has(c.id)) take(i, c);
-    }
+    for (const c of list) if (!has(i, c) && canTake(c)) take(i, c);
   });
   const available = new Set(lists.flat().map((c) => c.id)).size;
-  return { picked, dropped: available - total };
+  return { picked, dropped: available - company.size };
 }
 
 /**
@@ -387,10 +390,17 @@ export function planSearchCalls(args: { industryLabel: string; regions: readonly
   const multi = match.segments.length > 1;
   const prefix = (rank: number) => (multi ? `事業${rank}の` : '');
 
-  const primaryGroups = match.segments.flatMap((s) => [
-    { title: `${prefix(s.rank)}製品市場（公開分類）`, categories: s.product },
-    { title: `${prefix(s.rank)}顧客業界（公開分類）`, categories: s.customer },
-  ]);
+  const listed = new Set<string>();
+  const primaryGroups = match.segments
+    .flatMap((s) => [
+      { title: `${prefix(s.rank)}製品市場（公開分類）`, categories: s.product },
+      { title: `${prefix(s.rank)}顧客業界（公開分類）`, categories: s.customer },
+    ])
+    .map((g) => {
+      const categories = g.categories.filter((c) => !listed.has(c.id));
+      categories.forEach((c) => listed.add(c.id));
+      return { ...g, categories };
+    });
   const primary = primaryGroups.flatMap((g) => g.categories);
   if (primary.length) {
     const ordered = themeCandidates(match);

@@ -1,5 +1,5 @@
 import { CANDIDATE_LIMITS, composeSwotSuggestions } from './candidatePool';
-import type { OpportunityGroup } from './opportunityGroups';
+import type { DiscoveryViewpoint, OpportunityGroup } from './opportunityGroups';
 import { isNearDuplicate } from './textSimilarity';
 
 /** 機会の上限。保存側（candidatePool）と同じ値を使う */
@@ -11,6 +11,7 @@ export const DUPLICATE_THRESHOLD = 0.85;
 export type OpportunityItem = {
   text: string;
   group?: OpportunityGroup;
+  viewpoint?: DiscoveryViewpoint;
   basis: 'fact' | 'hypothesis';
   evidence: string;
   sourceIndex: number | null;

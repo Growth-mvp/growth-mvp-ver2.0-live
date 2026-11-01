@@ -1,23 +1,21 @@
 import { candidatePoolOf, type PoolCandidate, type SelectionEntry } from './candidatePool';
-import { GROUP_LABEL_JA, OPPORTUNITY_GROUPS, type OpportunityGroup } from './opportunityGroups';
+import { DISCOVERY_VIEWPOINTS, GROUP_LABEL_JA, type DiscoveryViewpoint } from './opportunityGroups';
 
 /** 機会の上限（保存と生成の両方で守る） */
 export const OPPORTUNITY_CAP = 30;
 /** 1回の追加探索で増やす件数 */
 export const EXTEND_BATCH = 8;
 
-/** A〜D の分類。分類の記録が無い過去の候補は unclassified に分ける（A〜D の件数には含めない） */
-export type GroupedOpportunities = Record<OpportunityGroup, PoolCandidate[]> & { unclassified: PoolCandidate[] };
+/** ①②③の分類。分類の記録が無い過去の候補は unclassified に分ける（別の分類へ推測で振り分けない） */
+export type GroupedByViewpoint = Record<DiscoveryViewpoint, PoolCandidate[]> & { unclassified: PoolCandidate[] };
 
-/** A〜D に分ける。分類の記録が無い過去の候補は、A に入れず unclassified に分ける（暫定の表示） */
-export function groupOpportunityCandidates(candidates: readonly PoolCandidate[]): GroupedOpportunities {
+export function groupByViewpoint(candidates: readonly PoolCandidate[]): GroupedByViewpoint {
   const out = {
-    ...(Object.fromEntries(OPPORTUNITY_GROUPS.map((g) => [g, [] as PoolCandidate[]])) as Record<OpportunityGroup, PoolCandidate[]>),
+    ...(Object.fromEntries(DISCOVERY_VIEWPOINTS.map((v) => [v, [] as PoolCandidate[]])) as Record<DiscoveryViewpoint, PoolCandidate[]>),
     unclassified: [] as PoolCandidate[],
   };
   for (const c of candidates) {
-    if (c.kind !== 'opportunity') continue;
-    if (c.group) out[c.group].push(c);
+    if (c.viewpoint) out[c.viewpoint].push(c);
     else out.unclassified.push(c);
   }
   return out;
@@ -39,10 +37,32 @@ export type EvidenceView = { kind: 'confirmed' | 'reference' | 'hypothesis' | 'm
  * 根拠の表示。確認済みと言えるのは、出典の本文と調査対象が確認された場合だけ。
  * 追加探索の候補は、既存の出典を新しい候補の裏付けとして扱わない（参考どまり）。
  */
+/** 出典の本文の確認状態。候補の未確認事項から読む（確認の記録が無い旧データは unchecked のまま） */
+export type BodyState = 'none' | 'unchecked' | 'not_matched' | 'matched';
+export function bodyStateOf(c: PoolCandidate): BodyState {
+  if (!c.sourceUrl) return 'none';
+  if (c.unverified.includes('source_body_not_checked')) return 'unchecked';
+  if (c.unverified.includes('source_body_claim_not_matched')) return 'not_matched';
+  return 'matched';
+}
+
 export function evidenceViewOf(c: PoolCandidate): EvidenceView {
   if (c.evidenceUse === 'mismatch') return { kind: 'mismatch', label: '対象不一致の出典は根拠にしていません' };
-  if (c.evidenceUse === 'fact') return { kind: 'confirmed', label: '出典で確認済み（本文と調査対象が一致）' };
+  if (c.evidenceUse === 'fact') {
+    return { kind: 'confirmed', label: '課題の事実は出典で確認済み（本文と調査対象が一致）。機会の文は将来の仮説' };
+  }
   if (c.sourceUrl) {
+    const body = bodyStateOf(c);
+    if (body === 'matched') {
+      if (c.discoveryPath === 'customer_need') return { kind: 'reference', label: '出典の本文は確認済み（顧客との対応は参考どまり）' };
+      return {
+        kind: 'reference',
+        label: c.basis === 'fact'
+          ? '出典の本文で事実を確認（この候補の文は将来の影響を含む仮説）'
+          : '出典の本文を確認（この候補は出典からの推論・仮説）',
+      };
+    }
+    if (body === 'not_matched') return { kind: 'reference', label: '出典の本文は確認したが、主張の一致は確認できず' };
     return {
       kind: 'reference',
       label: c.origin === 'extension' ? '参考出典あり（この候補の裏付けは未確認）' : '参考情報（出典あり・裏付けは未確認）',
@@ -62,8 +82,9 @@ const PAYER_LABEL: Record<string, string> = {
 /** 未確認事項の記録を、画面用の文にする。内部の記録名のうち、説明がないものは表示しない */
 const UNVERIFIED_LABEL: Record<string, string> = {
   source_body_not_checked: '出典の本文は未確認',
+  source_body_claim_not_matched: '出典の本文は確認したが、主張の一致は確認できず',
   citation_not_linked: '根拠文の出典番号が出典に紐づいていない',
-  inference_only: '出典からの推論（仮説）',
+  inference_only: '機会・脅威の文は出典からの推論（仮説）',
   needs_research: '根拠の調査が必要',
   breadth: '課題が広く観察されるかは未確認',
   desiredOutcome: '実現したい成果は未記述',
@@ -101,6 +122,7 @@ export function detailRowsOf(c: PoolCandidate, sources: readonly { index: number
     { label: '新しい価値提供の可能性', value: c.valueShift ?? null },
     { label: '影響しうる購買判断', value: c.purchaseImpact ?? null },
     { label: '自社の能力との接点', value: c.companyLink ?? null },
+    { label: '事業展開の方向（内部の探索範囲）', value: c.group ? GROUP_LABEL_JA[c.group] : null },
     { label: '出典・参考情報', value: [sourceText, c.evidence || null].filter(Boolean).join('\n') || null },
     { label: '未確認事項', value: unverified.length ? unverified.join('・') : null },
   ];

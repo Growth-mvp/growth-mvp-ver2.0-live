@@ -711,6 +711,24 @@ describe('出典に紐づく仮説と分析指示', () => {
     expect(OT_ANALYSIS_INSTRUCTIONS).toContain('出典がない推論は sourceIndex を null にする');
   });
 
+  it('既存の市場に結びつかない項目は、自社との接点を示せる場合だけ仮説として挙げ、既存の市場への制約は残さない', () => {
+    expect(OT_ANALYSIS_INSTRUCTIONS).toContain('探索対象は既存の顧客・市場に限らない');
+    expect(OT_ANALYSIS_INSTRUCTIONS).toContain('自社の技術・経験・顧客基盤・提供価値との接点を evidence に示せる場合だけ挙げる');
+    expect(OT_ANALYSIS_INSTRUCTIONS).not.toContain('結びつかない項目は選ばない');
+  });
+
+  it('分析の指示は、言い換えの繰り返しと既存サービスの再提案を新規事業として扱わない', () => {
+    expect(OT_ANALYSIS_INSTRUCTIONS).toContain('「一貫して支援する」「統合する」「デジタルを組み合わせる」「企画から運営まで対応する」');
+    expect(OT_ANALYSIS_INSTRUCTIONS).toContain('顧客課題が実質的に同じなら、別の発想として数えない');
+    expect(OT_ANALYSIS_INSTRUCTIONS).toContain('既存のサービスをそのまま提供するだけの提案は、新規事業（new_business）や新しい顧客・用途として挙げない');
+    expect(OT_ANALYSIS_INSTRUCTIONS).toContain('需要拡大や高度化は、既存事業の機会として残してよい');
+  });
+
+  it('分類情報が無い事業区分は探索から外さず、事業区分の名前も変えない', () => {
+    expect(OT_ANALYSIS_INSTRUCTIONS).toContain('分類情報が無い事業区分も、探索対象から外さない');
+    expect(OT_ANALYSIS_INSTRUCTIONS).toContain('事業区分の名前は変更・統合しない');
+  });
+
   it('検索指示は、市場分類に直接関係する情報を優先し、一般論だけの事実を書かせない', () => {
     expect(OT_SEARCH_INSTRUCTIONS).toContain('指定された市場分類（製品・顧客・代替品）に直接関係する情報を優先');
   });

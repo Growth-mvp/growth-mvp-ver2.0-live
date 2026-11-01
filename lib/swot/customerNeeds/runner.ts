@@ -34,13 +34,13 @@ export type SegmentPlanReport = {
   /** 役割から顧客業界を確認できたか（確認できなければ製品の分類だけで探す） */
   customerConfirmed: boolean;
   /** 計画を作らなかった理由、または計画を業種レベルにした理由 */
-  reason: 'no_public_category' | 'no_industry' | 'customer_unconfirmed' | null;
+  reason: 'no_public_category' | 'no_industry' | 'customer_unconfirmed' | 'already_searched' | null;
 };
 
 const MAX_NEED_SEGMENTS = 3;
 
 const ROLE_INSTRUCTIONS =
-  '与えられた事業の情報だけから、顧客・利用者の役割を整理する内部分析です。Web検索は使わず、入力に無い役割は作らないでください。出力はJSONのみです。';
+  '与えられた事業の情報から、顧客・利用者の役割を整理する内部分析です。Web検索は使わず、出力はJSONのみです。既存の顧客に限らず、事業の製品・能力から届く新しい顧客・利用者・用途も、推定として挙げてかまいません。';
 
 /** 事業区分ごとに顧客の役割を推定する。1事業の失敗は、その事業だけ役割なし（推測で埋めない）として扱う */
 export async function inferSegmentRoles(args: {
@@ -86,6 +86,7 @@ export function buildSegmentNeedPlans(args: {
 }): { plans: SearchPlan[]; reports: SegmentPlanReport[] } {
   const plans: SearchPlan[] = [];
   const reports: SegmentPlanReport[] = [];
+  const searched = new Set<string>();
   for (const seg of args.segments.slice(0, MAX_NEED_SEGMENTS)) {
     const roles = args.segmentRoles.find((r) => r.rank === seg.rank)?.roles ?? [];
     const chosen = new Set(roles.flatMap((r) => r.categoryIds ?? []));
@@ -93,11 +94,17 @@ export function buildSegmentNeedPlans(args: {
     const customerConfirmed = customers.length > 0;
     const themes = selectNeedThemesForRoles(roles);
     const categories = [...seg.productCategories, ...customers];
+    const fresh = categories.filter((c) => !searched.has(c.id));
     const base = { rank: seg.rank, name: seg.name, customerConfirmed };
 
-    if (categories.length > 0) {
-      const plan = buildNeedSearchPlan({ industryLabel: args.industryLabel, regions: args.regions, categories, themes });
+    if (categories.length > 0 && fresh.length === 0) {
+      reports.push({ ...base, planKind: 'none', categoryIds: [], reason: 'already_searched' });
+      continue;
+    }
+    if (fresh.length > 0) {
+      const plan = buildNeedSearchPlan({ industryLabel: args.industryLabel, regions: args.regions, categories: fresh, themes });
       if (plan) {
+        fresh.forEach((c) => searched.add(c.id));
         plans.push({ ...plan, segment: seg.name });
         reports.push({
           ...base,

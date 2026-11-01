@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
 import { candidatePoolOf, type PoolCandidate } from '@/lib/swot/candidatePool';
-import { GROUP_LABEL_JA, OPPORTUNITY_GROUPS } from '@/lib/swot/opportunityGroups';
+import { DISCOVERY_VIEWPOINTS, VIEWPOINT_LABEL_JA } from '@/lib/swot/opportunityGroups';
 import {
   OPPORTUNITY_CAP,
   detailRowsOf,
   discoveryPathLabel,
   evidenceViewOf,
   extendPlanOf,
-  groupOpportunityCandidates,
+  groupByViewpoint,
   selectedEntryOf,
+  type GroupedByViewpoint,
 } from '@/lib/swot/candidateView';
 
 type Source = { index: number; title?: string; url?: string; retrievedAt?: string };
@@ -50,7 +51,8 @@ export function SwotOpportunityPanel(props: SwotOpportunityPanelProps) {
   const pool = candidatePoolOf(suggestions as never).candidates;
   const opportunities = pool.filter((c) => c.kind === 'opportunity');
   const threats = pool.filter((c) => c.kind === 'threat');
-  const grouped = groupOpportunityCandidates(opportunities);
+  const grouped = groupByViewpoint(opportunities);
+  const groupedThreats = groupByViewpoint(threats);
   const sources = Array.isArray(suggestions.sources) ? (suggestions.sources as Source[]) : [];
   const plan = extendPlanOf({ count: opportunities.length, busy: extending, locked });
 
@@ -159,6 +161,35 @@ export function SwotOpportunityPanel(props: SwotOpportunityPanelProps) {
     );
   };
 
+  const renderViewpointSections = (byViewpoint: GroupedByViewpoint, tone: 'blue' | 'amber') => {
+    const headingClass = tone === 'blue' ? 'text-blue-700 xl:dark:text-blue-300' : 'text-amber-700 xl:dark:text-amber-300';
+    return (
+      <div className="space-y-4">
+        {DISCOVERY_VIEWPOINTS.map((v) => (
+          <section key={v}>
+            <h5 className={`mb-2 text-sm font-medium ${headingClass}`}>
+              {VIEWPOINT_LABEL_JA[v]}（{byViewpoint[v].length}件）
+            </h5>
+            {byViewpoint[v].length === 0 ? (
+              <p className="text-xs text-gray-500">この分類の候補はまだありません。</p>
+            ) : (
+              <ul className="space-y-2">{byViewpoint[v].map((c) => renderRow(c, tone))}</ul>
+            )}
+          </section>
+        ))}
+        {byViewpoint.unclassified.length > 0 && (
+          <section>
+            <h5 className="mb-1 text-sm font-medium text-gray-600 xl:dark:text-gray-400">
+              分類未設定の候補（{byViewpoint.unclassified.length}件）
+            </h5>
+            <p className="mb-2 text-xs text-gray-500">分類の記録がないため、分類は推定せず暫定的に表示しています。</p>
+            <ul className="space-y-2">{byViewpoint.unclassified.map((c) => renderRow(c, tone))}</ul>
+          </section>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="rounded-2xl border border-blue-200 xl:dark:border-blue-800 bg-blue-50/50 xl:dark:bg-blue-900/20 p-6">
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
@@ -168,31 +199,7 @@ export function SwotOpportunityPanel(props: SwotOpportunityPanelProps) {
         </span>
       </div>
 
-      {opportunities.length > 0 && (
-        <div className="mb-6 space-y-4">
-          {OPPORTUNITY_GROUPS.map((g) => (
-            <section key={g}>
-              <h5 className="mb-2 text-sm font-medium text-blue-700 xl:dark:text-blue-300">
-                {GROUP_LABEL_JA[g]}（{grouped[g].length}件）
-              </h5>
-              {grouped[g].length === 0 ? (
-                <p className="text-xs text-gray-500">この分類の候補はまだありません。</p>
-              ) : (
-                <ul className="space-y-2">{grouped[g].map((c) => renderRow(c, 'blue'))}</ul>
-              )}
-            </section>
-          ))}
-          {grouped.unclassified.length > 0 && (
-            <section>
-              <h5 className="mb-1 text-sm font-medium text-gray-600 xl:dark:text-gray-400">
-                分類未設定の過去候補（{grouped.unclassified.length}件）
-              </h5>
-              <p className="mb-2 text-xs text-gray-500">分類情報がないため暫定的に表示しています。A〜Dの件数には含めません。</p>
-              <ul className="space-y-2">{grouped.unclassified.map((c) => renderRow(c, "blue"))}</ul>
-            </section>
-          )}
-        </div>
-      )}
+      {opportunities.length > 0 && <div className="mb-6">{renderViewpointSections(grouped, 'blue')}</div>}
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <button
@@ -210,8 +217,8 @@ export function SwotOpportunityPanel(props: SwotOpportunityPanelProps) {
 
       {threats.length > 0 && (
         <div>
-          <h5 className="text-sm font-medium text-amber-600 xl:dark:text-amber-400 mb-3">提案された脅威（Threat）</h5>
-          <ul className="space-y-2">{threats.map((c) => renderRow(c, 'amber'))}</ul>
+          <h5 className="mb-3 text-sm font-medium text-amber-600 xl:dark:text-amber-400">提案された脅威</h5>
+          {renderViewpointSections(groupedThreats, 'amber')}
         </div>
       )}
     </div>

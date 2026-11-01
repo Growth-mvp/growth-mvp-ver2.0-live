@@ -94,6 +94,29 @@ describe('顧客の多層構造（内部分析の入力と出力の検査）', (
     expect(input).toContain('塗料メーカー');
   });
 
+  it('内部分析は既存の顧客に限らず、新しい顧客・用途を推定（根拠なし）として挙げてよいと指示する', () => {
+    const input = buildRoleAnalysisInput(FIXTURES.canMaker);
+    expect(input).toContain('探索対象は既存の顧客・市場に限らない');
+    expect(input).toContain('新しい顧客・利用者・用途を挙げる場合は basis を estimated');
+  });
+
+  it('新しい顧客の推定と「根拠の無い役割」の禁止は矛盾せず、禁止は事業の能力からも想定できないものに限る', () => {
+    const input = buildRoleAnalysisInput(FIXTURES.canMaker);
+    expect(input).not.toContain('根拠の無い役割は出力しないでください');
+    expect(input).toContain('事業の製品・能力からも合理的に想定できない役割は出力しない');
+    expect(input).toContain('推定（estimated）は、入力や公開情報で確認した事実とは区別して挙げる');
+  });
+
+  it('推定の新しい顧客は、既存の顧客業界の分類が無くても役割として残す', () => {
+    const roles = parseRoleAnalysis(
+      { roles: [{ role: 'user', basis: 'estimated', label: '新規に導入を検討する中小企業の担当者', evidence: null, categoryIds: ['unknown_id'] }] },
+      ['c_manufacturer']
+    );
+    expect(roles).toEqual([
+      { role: 'user', basis: 'estimated', label: '新規に導入を検討する中小企業の担当者', evidence: null, categoryIds: [] },
+    ]);
+  });
+
   it('根拠の無い input / public は estimated に降格し、不正な役割は捨て、役割ごとに3件まで', () => {
     const roles = parseRoleAnalysis({
       roles: [

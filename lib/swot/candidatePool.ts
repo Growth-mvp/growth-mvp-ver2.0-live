@@ -1,7 +1,13 @@
 import { isHttpsUrl } from './suggestionView';
-import { OPPORTUNITY_GROUPS, isOpportunityGroup, type OpportunityGroup } from './opportunityGroups';
+import {
+  OPPORTUNITY_GROUPS,
+  isDiscoveryViewpoint,
+  isOpportunityGroup,
+  type DiscoveryViewpoint,
+  type OpportunityGroup,
+} from './opportunityGroups';
 
-export { OPPORTUNITY_GROUPS, type OpportunityGroup };
+export { OPPORTUNITY_GROUPS, type OpportunityGroup, type DiscoveryViewpoint };
 
 /**
  * AI 提案候補の保存形式。swotSuggestions 内の任意フィールドとして保存する（DB スキーマは変えない）。
@@ -29,7 +35,10 @@ export type DiscoveryPath = (typeof DISCOVERY_PATHS)[number];
 export type PoolCandidate = {
   id: string;
   kind: CandidateKind;
+  /** 内部の探索グループ（A〜D）。画面の主分類には使わない */
   group?: OpportunityGroup;
+  /** 画面の主分類（①世の中の変化・②お客様の困りごと・③業界や競争の変化）。記録が無い候補は未設定 */
+  viewpoint?: DiscoveryViewpoint;
   discoveryPath?: DiscoveryPath;
   text: string;
   targetNeed?: string;
@@ -129,13 +138,28 @@ export function candidateIdOf(kind: CandidateKind, text: string): string {
 
 const emptyDropped = (): Record<CandidateKind, number> => ({ opportunity: 0, threat: 0 });
 
-function sourceUrlsByIndex(sources: unknown): Map<number, string> {
-  const out = new Map<number, string>();
+/** 出典の本文確認の結果。matched: 本文を確認し主張が一致 / not_matched: 本文は確認したが主張の一致は確認できず / unavailable: 本文を確認していない */
+export type BodyCheck = 'matched' | 'not_matched' | 'unavailable';
+const BODY_CHECKS: readonly string[] = ['matched', 'not_matched', 'unavailable'];
+
+type SourceInfo = { url: string; bodyCheck: BodyCheck };
+
+/** 本文確認の結果。contentVerified（true ⇔ matched）と bodyCheck の両方を見て、確認が無い出典は unavailable とする */
+function bodyCheckOf(s: Record<string, unknown>): BodyCheck {
+  if (typeof s.bodyCheck === 'string' && BODY_CHECKS.includes(s.bodyCheck)) {
+    if (s.bodyCheck === 'matched' && s.contentVerified !== true) return 'unavailable';
+    return s.bodyCheck as BodyCheck;
+  }
+  return s.contentVerified === true ? 'matched' : 'unavailable';
+}
+
+function sourceInfoByIndex(sources: unknown): Map<number, SourceInfo> {
+  const out = new Map<number, SourceInfo>();
   if (!Array.isArray(sources)) return out;
   for (const raw of sources) {
     const s = asRecord(raw);
     const url = textOf(s.url, 2000);
-    if (isSourceIndex(s.index) && isHttpsUrl(url)) out.set(s.index, url);
+    if (isSourceIndex(s.index) && isHttpsUrl(url)) out.set(s.index, { url, bodyCheck: bodyCheckOf(s) });
   }
   return out;
 }
@@ -147,9 +171,10 @@ function groundingOf(basis: 'fact' | 'hypothesis', linked: boolean, evidence: st
   return 'needs_research';
 }
 
-function unverifiedOf(sourceLink: CandidateSourceLink, grounding: CandidateGrounding): string[] {
+function unverifiedOf(sourceLink: CandidateSourceLink, bodyCheck: BodyCheck, grounding: CandidateGrounding): string[] {
   const out: string[] = [];
-  if (sourceLink === 'linked') out.push('source_body_not_checked');
+  if (sourceLink === 'linked' && bodyCheck === 'unavailable') out.push('source_body_not_checked');
+  if (sourceLink === 'linked' && bodyCheck === 'not_matched') out.push('source_body_claim_not_matched');
   if (sourceLink === 'cited_but_unlinked') out.push('citation_not_linked');
   if (grounding === 'hypothesis_with_rationale' || grounding === 'hypothesis_source_unverified') out.push('inference_only');
   if (grounding === 'needs_research') out.push('needs_research');
@@ -161,14 +186,16 @@ function toCandidate(
   text: string,
   insight: Record<string, unknown>,
   generatedAt: string,
-  urls: Map<number, string>
+  sources: Map<number, SourceInfo>
 ): PoolCandidate {
   const basis = insight.basis === 'fact' ? 'fact' : 'hypothesis';
   const evidence = textOf(insight.evidence, 300);
   const rawIndex = isSourceIndex(insight.sourceIndex) ? insight.sourceIndex : null;
-  const sourceUrl = rawIndex !== null ? urls.get(rawIndex) ?? null : null;
+  const source = rawIndex !== null ? sources.get(rawIndex) : undefined;
+  const sourceUrl = source?.url ?? null;
   const sourceIndex = sourceUrl !== null ? rawIndex : null;
-  const cited = [...evidence.matchAll(/\[(\d+)\]/g)].some((m) => urls.has(Number(m[1])));
+  const bodyCheck: BodyCheck = source?.bodyCheck ?? 'unavailable';
+  const cited = [...evidence.matchAll(/\[(\d+)\]/g)].some((m) => sources.has(Number(m[1])));
   const sourceLink: CandidateSourceLink = sourceIndex !== null ? 'linked' : cited ? 'cited_but_unlinked' : 'none';
   const grounding = groundingOf(basis, sourceIndex !== null, evidence);
   const need = asRecord(insight.need);
@@ -188,6 +215,7 @@ function toCandidate(
     kind,
     text,
     ...(isOpportunityGroup(insight.group) ? { group: insight.group } : {}),
+    ...(isDiscoveryViewpoint(insight.viewpoint) ? { viewpoint: insight.viewpoint } : {}),
     ...(insight.origin === 'extension' ? { origin: 'extension' as const } : {}),
     ...(isNeed ? { discoveryPath: 'customer_need' as const } : insight.discoveryPath === 'market' ? { discoveryPath: 'market' as const } : {}),
     ...(isNeed && needText('problem', 300) ? { targetNeed: needText('problem', 300) } : {}),
@@ -206,7 +234,7 @@ function toCandidate(
     sourceIndex,
     sourceUrl,
     sourceLink,
-    unverified: [...new Set([...unverifiedOf(sourceLink, grounding), ...needUnverified])],
+    unverified: [...new Set([...unverifiedOf(sourceLink, bodyCheck, grounding), ...needUnverified])],
     generatedAt,
   };
 }
@@ -214,9 +242,28 @@ function toCandidate(
 const EVIDENCE_USES: readonly string[] = ['fact', 'reference', 'mismatch', 'none'];
 
 /** 既存の機会・脅威（と insights・sources）から候補の一覧を作る。上限を超えた分と重複は数えて捨てる */
+/**
+ * 根拠の記録（insights）を、本文が完全に一致する候補だけに対応づける。位置では対応づけない。
+ * ID は索引に使い、ID が同じでも本文が違う記録は採らない（衝突時に別の候補の属性を流用しない）。
+ * 同じ本文の記録が複数あれば最初のものを使う。対応先が無い候補は根拠の記録なしとして扱う。
+ */
+function insightsByText(list: unknown): Map<string, Record<string, unknown>[]> {
+  const out = new Map<string, Record<string, unknown>[]>();
+  if (!Array.isArray(list)) return out;
+  for (const raw of list) {
+    const rec = asRecord(raw);
+    const text = textOf(rec.text, MAX_TEXT);
+    if (!text) continue;
+    const bucket = out.get(text) ?? [];
+    bucket.push(rec);
+    out.set(text, bucket);
+  }
+  return out;
+}
+
 export function buildCandidatePool(src: SuggestionsLike): CandidatePool {
   const generatedAt = textOf(src.generatedAt, 40);
-  const urls = sourceUrlsByIndex(src.sources);
+  const sources = sourceInfoByIndex(src.sources);
   const insights = asRecord(src.insights);
   const dropped = emptyDropped();
   const candidates: PoolCandidate[] = [];
@@ -224,9 +271,9 @@ export function buildCandidatePool(src: SuggestionsLike): CandidatePool {
 
   for (const kind of KINDS) {
     const texts: unknown[] = Array.isArray(src[kind]) ? (src[kind] as unknown[]) : [];
-    const insightList: unknown[] = Array.isArray(insights[kind]) ? (insights[kind] as unknown[]) : [];
+    const byText = insightsByText(insights[kind]);
     let kept = 0;
-    texts.forEach((raw, i) => {
+    texts.forEach((raw) => {
       const text = textOf(raw, MAX_TEXT);
       if (!text) return;
       const id = candidateIdOf(kind, text);
@@ -236,7 +283,8 @@ export function buildCandidatePool(src: SuggestionsLike): CandidatePool {
       }
       seen.add(id);
       kept++;
-      candidates.push(toCandidate(kind, text, asRecord(insightList[i]), generatedAt, urls));
+      const insight = byText.get(text)?.[0] ?? {};
+      candidates.push(toCandidate(kind, text, insight, generatedAt, sources));
     });
   }
 
@@ -263,6 +311,7 @@ function parseCandidate(raw: unknown): PoolCandidate | null {
     id: c.id,
     kind: kind as CandidateKind,
     ...(c.group !== undefined ? { group: c.group as OpportunityGroup } : {}),
+    ...(isDiscoveryViewpoint(c.viewpoint) ? { viewpoint: c.viewpoint } : {}),
     ...(DISCOVERY_PATHS.includes(c.discoveryPath as DiscoveryPath) ? { discoveryPath: c.discoveryPath as DiscoveryPath } : {}),
     text,
     ...(typeof c.targetNeed === 'string' ? { targetNeed: c.targetNeed.slice(0, 500) } : {}),

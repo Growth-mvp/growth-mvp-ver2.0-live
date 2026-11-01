@@ -3069,6 +3069,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   // O/T generation
   const buildOtRequestBody = useCallback(
     () => ({
+      companyName: companyName || '',
       industry: industry || '',
       location: headquartersLocation || '',
       employees: employees || '',
@@ -3109,6 +3110,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
       weakness,
       businessSegments,
       companyId,
+      companyName,
     ]
   );
 
@@ -3151,6 +3153,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         insights: data.insights && Array.isArray(data.insights.opportunity) ? data.insights : undefined,
         diagnostics: data.meta?.diagnostics ?? undefined,
         evidence: data.meta?.evidence ?? undefined,
+        customerNeedMode: data.customerNeedMode === 'v2' ? 'v2' : undefined,
       });
     } catch (e: any) {
       console.error('[Stage2] Generate O/T error:', e);
@@ -3188,6 +3191,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         json: {
           ...buildOtRequestBody(),
           mode: 'extend',
+          ...(useStrategyStore.getState().swotSuggestions?.customerNeedMode === 'v2' ? { customerNeedMode: 'v2' as const } : {}),
           ...(current?.evidence ? { evidence: current.evidence } : {}),
           existing: existingCandidates.map((c) => ({ text: c.text, group: c.group })),
         },

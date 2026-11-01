@@ -4,7 +4,7 @@ import {
   detailRowsOf,
   evidenceViewOf,
   extendPlanOf,
-  groupOpportunityCandidates,
+  groupByViewpoint,
   isSameScope,
   opportunityCandidatesOf,
 } from './candidateView';
@@ -25,25 +25,29 @@ const cand = (over: Partial<PoolCandidate> & { text: string }): PoolCandidate =>
   ...over,
 });
 
-describe('4グループの表示', () => {
-  it('グループごとに分け、分類の記録が無い過去の候補は A に入れず、分類未設定として分ける', () => {
-    const grouped = groupOpportunityCandidates([
-      cand({ text: 'a', group: 'existing_market' }),
-      cand({ text: 'b', group: 'new_customer_use' }),
-      cand({ text: 'c', group: 'new_region' }),
-      cand({ text: 'd', group: 'new_business' }),
-      cand({ text: 'legacy' }),
+describe('①②③の分類による表示', () => {
+  it('視点ごとに分け、視点の記録が無い過去の候補は推測で振り分けず、分類未設定として分ける', () => {
+    const grouped = groupByViewpoint([
+      cand({ text: 'w', viewpoint: 'world_change', group: 'new_region' }),
+      cand({ text: 'c', viewpoint: 'customer_need', group: 'existing_market' }),
+      cand({ text: 'i', viewpoint: 'industry_competition', group: 'new_business' }),
+      cand({ text: 'legacy', group: 'existing_market' }),
     ]);
-    expect(grouped.existing_market.map((c) => c.text)).toEqual(['a']);
-    expect(grouped.new_customer_use.map((c) => c.text)).toEqual(['b']);
-    expect(grouped.new_region.map((c) => c.text)).toEqual(['c']);
-    expect(grouped.new_business.map((c) => c.text)).toEqual(['d']);
+    expect(grouped.world_change.map((c) => c.text)).toEqual(['w']);
+    expect(grouped.customer_need.map((c) => c.text)).toEqual(['c']);
+    expect(grouped.industry_competition.map((c) => c.text)).toEqual(['i']);
     expect(grouped.unclassified.map((c) => c.text)).toEqual(['legacy']);
   });
 
-  it('脅威は機会のグループに入れない', () => {
-    const grouped = groupOpportunityCandidates([cand({ text: 'x', kind: 'threat' })]);
-    expect(Object.values(grouped).flat()).toHaveLength(0);
+  it('内部の探索グループ（A〜D）は、表示の分類に使わない', () => {
+    const grouped = groupByViewpoint([cand({ text: 'x', group: 'new_customer_use' })]);
+    expect(grouped.customer_need).toHaveLength(0);
+    expect(grouped.unclassified.map((c) => c.text)).toEqual(['x']);
+  });
+
+  it('詳細には、内部の探索グループを参考として示す', () => {
+    const rows = detailRowsOf(cand({ text: 'x', group: 'new_customer_use' }), []);
+    expect(rows.find((r) => r.label === '事業展開の方向（内部の探索範囲）')?.value).toContain('B：新しい顧客・用途の可能性');
   });
 });
 
@@ -53,7 +57,9 @@ describe('根拠の表示（確認済みと言えるのは、本文と対象が�
   });
 
   it('追加探索の候補は、既存の出典があっても確認済みにしない（参考どまり）', () => {
-    const view = evidenceViewOf(cand({ text: 'x', origin: 'extension', sourceUrl: 'https://e.example/a', sourceIndex: 1 }));
+    const view = evidenceViewOf(
+      cand({ text: 'x', origin: 'extension', sourceUrl: 'https://e.example/a', sourceIndex: 1, sourceLink: 'linked', unverified: ['source_body_not_checked'] })
+    );
     expect(view.kind).toBe('reference');
     expect(view.label).toContain('裏付けは未確認');
   });
@@ -165,5 +171,41 @@ describe('過去の保存データ（候補プールが無い場合）', () => {
     const list = opportunityCandidatesOf({ opportunity: ['古い機会。'], threat: [], insights: { opportunity: [], threat: [] } });
     expect(list.map((c) => c.text)).toEqual(['古い機会。']);
     expect(buildCandidatePool({ opportunity: ['古い機会。'] } as never).candidates).toHaveLength(1);
+  });
+});
+
+describe('本文の確認と主張の確認を分けて表示する', () => {
+  const URL = 'https://e.example/a';
+
+  it('市場の候補で本文を確認し主張が一致した場合は、未確認とせず、将来の影響を含む仮説と分けて示す', () => {
+    const view = evidenceViewOf(cand({ text: 'x', basis: 'fact', sourceUrl: URL, sourceIndex: 1, sourceLink: 'linked', unverified: [] }));
+    expect(view.kind).toBe('reference');
+    expect(view.label).toContain('出典の本文で事実を確認');
+    expect(view.label).toContain('将来の影響を含む仮説');
+    expect(view.label).not.toContain('未確認');
+  });
+
+  it('本文を確認したが主張が一致しない場合は、確認していないと書かず、一致しなかったと示す', () => {
+    const view = evidenceViewOf(
+      cand({ text: 'x', sourceUrl: URL, sourceIndex: 1, sourceLink: 'linked', unverified: ['source_body_claim_not_matched'] })
+    );
+    expect(view.label).toBe('出典の本文は確認したが、主張の一致は確認できず');
+  });
+
+  it('顧客課題で課題の事実が確認済みの候補は、機会の文が将来の仮説であることを示す', () => {
+    const view = evidenceViewOf(cand({ text: 'x', discoveryPath: 'customer_need', evidenceUse: 'fact', sourceUrl: URL, unverified: [] }));
+    expect(view.kind).toBe('confirmed');
+    expect(view.label).toContain('課題の事実は出典で確認済み');
+    expect(view.label).toContain('機会の文は将来の仮説');
+  });
+
+  it('顧客課題で本文は確認済みでも対応が参考どまりなら、対応は参考どまりと示す', () => {
+    const view = evidenceViewOf(cand({ text: 'x', discoveryPath: 'customer_need', evidenceUse: 'reference', sourceUrl: URL, unverified: [] }));
+    expect(view.label).toBe('出典の本文は確認済み（顧客との対応は参考どまり）');
+  });
+
+  it('本文の確認の記録が無い出典は、従来どおり未確認として示す', () => {
+    const view = evidenceViewOf(cand({ text: 'x', sourceUrl: URL, sourceIndex: 1, sourceLink: 'linked', unverified: ['source_body_not_checked'] }));
+    expect(view.label).toBe('参考情報（出典あり・裏付けは未確認）');
   });
 });

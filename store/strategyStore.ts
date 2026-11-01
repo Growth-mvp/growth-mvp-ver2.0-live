@@ -258,6 +258,7 @@ export type StrategyState = {
   opportunity?: string;
   threat?: string;
   swotSuggestions?: {
+    customerNeedMode?: 'v2';
     opportunity?: string[];
     threat?: string[];
     generatedAt?: string;
@@ -599,6 +600,7 @@ export type StrategyState = {
   setSWOT: (patch: Partial<Pick<StrategyState, 'strength' | 'weakness' | 'opportunity' | 'threat'>>) => void;
   setCeoIntent: (text: string) => void;
   setSwotSuggestions: (suggestions?: {
+        customerNeedMode?: 'v2';
         opportunity?: string[];
         threat?: string[];
         generatedAt?: string;
@@ -3221,6 +3223,7 @@ export const useStrategyStore = create<StrategyState>()(
       },
 
       setSwotSuggestions: (suggestions?: {
+        customerNeedMode?: 'v2';
         opportunity?: string[];
         threat?: string[];
         generatedAt?: string;

@@ -11,9 +11,9 @@ import { getAuthUserIdFromBearer, requireMembership } from '@/lib/server/rbacGua
 import { AI_MODELS, getResponsesParamsForProcess } from '@/lib/modelConfig';
 import {
   OT_ANALYSIS_INSTRUCTIONS,
-  OT_ANALYSIS_NEED_INSTRUCTIONS,
-  OT_ANALYSIS_NEED_SCHEMA,
   OT_ANALYSIS_SCHEMA,
+  OT_NEED_ONLY_INSTRUCTIONS,
+  OT_NEED_ONLY_SCHEMA,
   OT_SEARCH_INSTRUCTIONS,
   OtRequestSchema,
   allowedIndustryLabel,
@@ -27,7 +27,7 @@ import {
   mergeSearchExtractions,
   parseAnalysis,
   parseJsonObject,
-  parseNeedAnalysis,
+  parseNeedOnly,
   readResponse,
   readTokenUsage,
   toCompanyContext,
@@ -51,6 +51,11 @@ import {
   type SearchPlan,
 } from '@/lib/swot/marketTaxonomy';
 import { isCustomerNeedDiscoveryEnabled } from '@/lib/swot/customerNeeds/flags';
+import { isCustomerDiscoveryV2Enabled, resolveNeedRoute } from '@/lib/swot/customerDiscovery/flags';
+import { extractBuyers, type Buyer } from '@/lib/swot/customerDiscovery/buyers';
+import { DISCOVERY_INSTRUCTIONS, DISCOVERY_SCHEMA, buildDiscoveryInput } from '@/lib/swot/customerDiscovery/prompt';
+import { validateDiscoveryProblems } from '@/lib/swot/customerDiscovery/validate';
+import { toDiscoveryInsight } from '@/lib/swot/customerDiscovery/toInsight';
 import {
   inferSegmentRoles,
   buildSegmentNeedPlans,
@@ -70,12 +75,11 @@ import {
   BODY_CHECK_MS,
   EXPANSION_SCHEMA,
   buildExpansionInstructions,
-  focusGroups,
   mergeOpportunities,
   parseExpansionItems,
   planBodyCheck,
 } from '@/lib/swot/opportunityPool';
-import { OPPORTUNITY_GROUPS, type OpportunityGroup } from '@/lib/swot/opportunityGroups';
+import { OPPORTUNITY_GROUPS } from '@/lib/swot/opportunityGroups';
 import { z } from 'zod';
 import type { ResponseCreateParamsNonStreaming } from 'openai/resources/responses/responses';
 import { inspectOtResult, isHttpsUrl, type QualityReport } from '@/lib/swot/qualityCheck';
@@ -87,6 +91,9 @@ const SEARCH_SOURCES_INCLUDE = ['web_search_call.action.sources'] as unknown as 
 const TOTAL_BUDGET_MS = 50_000;
 const SEARCH_CAP_MS = 25_000;
 const ANALYSIS_CAP_MS = 35_000;
+/** 検索より後に、最終分析のために必ず残す時間（検索が全体の時間を使い切って分析が打ち切られるのを防ぐ） */
+const ANALYSIS_TIME_RESERVE_MS = 25_000;
+const NO_WEB_RESULT: WebResult = { status: 'disabled', findings: [], sources: [], searchCalls: 0 };
 const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
 const BACKOFF_MS = [300, 800];
 const SEARCH_TRIES = 2;
@@ -280,39 +287,72 @@ async function runWebSearch(args: {
   };
 }
 
-async function runAnalysis(
-  ctx: CompanyContext,
-  web: WebResult,
-  deadline: number,
-  usage: Usage,
-  rolesBlock?: string
-): Promise<{ analysis: OtAnalysis; customerNeeds: NeedOpportunityRaw[] }> {
+async function runAnalysis(ctx: CompanyContext, web: WebResult, deadline: number, usage: Usage): Promise<OtAnalysis> {
   const params = getResponsesParamsForProcess('stage2Ot');
-  const need = rolesBlock !== undefined;
   const res = await withRetry(ANALYSIS_TRIES, deadline, usage, ANALYSIS_CAP_MS, (timeout) =>
     openai.responses
       .create(
         {
           ...params,
-          instructions: need ? OT_ANALYSIS_NEED_INSTRUCTIONS : OT_ANALYSIS_INSTRUCTIONS,
-          input: buildAnalysisInput(ctx, web, rolesBlock),
-          text: {
-            format: {
-              type: 'json_schema',
-              name: 'ot_analysis',
-              schema: need ? OT_ANALYSIS_NEED_SCHEMA : OT_ANALYSIS_SCHEMA,
-              strict: true,
-            },
-          },
+          instructions: OT_ANALYSIS_INSTRUCTIONS,
+          input: buildAnalysisInput(ctx, web),
+          text: { format: { type: 'json_schema', name: 'ot_analysis', schema: OT_ANALYSIS_SCHEMA, strict: true } },
           store: false,
         },
         { timeout, maxRetries: 0 }
       )
       .then((r) => addTokens(usage, r))
   );
-  const text = readResponse(res).text;
-  if (!need) return { analysis: parseAnalysis(text, web.sources.length), customerNeeds: [] };
-  return parseNeedAnalysis(text, web.sources.length);
+  return parseAnalysis(readResponse(res).text, web.sources.length);
+}
+
+/** 新方式の顧客課題の発見（購入者の番号と名称だけを入力にする。Web 検索は使わない）。JSON として読めなければ null */
+async function runCustomerDiscovery(buyers: readonly Buyer[], deadline: number, usage: Usage): Promise<unknown> {
+  const params = getResponsesParamsForProcess('stage2CustomerDiscovery');
+  const res = await withRetry(ANALYSIS_TRIES, deadline, usage, ANALYSIS_CAP_MS, (timeout) =>
+    openai.responses
+      .create(
+        {
+          ...params,
+          instructions: DISCOVERY_INSTRUCTIONS,
+          input: buildDiscoveryInput(buyers),
+          text: { format: { type: 'json_schema', name: 'ot_customer_discovery', schema: DISCOVERY_SCHEMA, strict: true } },
+          store: false,
+        },
+        { timeout, maxRetries: 0 }
+      )
+      .then((r) => addTokens(usage, r))
+  );
+  try {
+    return JSON.parse(readResponse(res).text);
+  } catch {
+    return null;
+  }
+}
+
+/** 顧客課題の仮説。Web 検索を待たず、社内情報と役割だけから作る（検索と並行して実行する） */
+async function runNeedHypotheses(
+  ctx: CompanyContext,
+  deadline: number,
+  usage: Usage,
+  rolesBlock: string
+): Promise<NeedOpportunityRaw[]> {
+  const params = getResponsesParamsForProcess('stage2Ot');
+  const res = await withRetry(ANALYSIS_TRIES, deadline, usage, ANALYSIS_CAP_MS, (timeout) =>
+    openai.responses
+      .create(
+        {
+          ...params,
+          instructions: OT_NEED_ONLY_INSTRUCTIONS,
+          input: buildAnalysisInput(ctx, NO_WEB_RESULT, rolesBlock),
+          text: { format: { type: 'json_schema', name: 'ot_customer_needs', schema: OT_NEED_ONLY_SCHEMA, strict: true } },
+          store: false,
+        },
+        { timeout, maxRetries: 0 }
+      )
+      .then((r) => addTokens(usage, r))
+  );
+  return parseNeedOnly(readResponse(res).text);
 }
 
 const ROLE_CAP_MS = 15_000;
@@ -420,12 +460,12 @@ const EvidenceSchema = z.object({
 
 const ExtendRequestSchema = OtRequestSchema.extend({
   mode: z.literal('extend'),
+  customerNeedMode: z.enum(['v2']).optional(),
   evidence: EvidenceSchema.optional(),
   existing: z
     .array(z.object({ text: z.string().max(300), group: z.enum(OPPORTUNITY_GROUPS).optional() }))
     .max(30)
     .optional(),
-  focus: z.array(z.enum(OPPORTUNITY_GROUPS)).max(4).optional(),
 });
 
 function isExtendBody(body: unknown): boolean {
@@ -457,7 +497,6 @@ async function runExtend(body: unknown, startedAt: number): Promise<NextResponse
     evidence: '',
     sourceIndex: null,
   }));
-  const focus: OpportunityGroup[] = data.focus?.length ? data.focus : focusGroups(existingItems);
   const params = getResponsesParamsForProcess('stage2Ot');
   let text: string;
   try {
@@ -466,7 +505,7 @@ async function runExtend(body: unknown, startedAt: number): Promise<NextResponse
         .create(
           {
             ...params,
-            instructions: buildExpansionInstructions({ focus, existing: existingItems.map((i) => i.text) }),
+            instructions: buildExpansionInstructions({ existing: existingItems.map((i) => i.text) }),
             input: buildAnalysisInput(ctx, web),
             text: { format: { type: 'json_schema', name: 'ot_expansion', schema: EXPANSION_SCHEMA, strict: true } },
             store: false,
@@ -482,7 +521,10 @@ async function runExtend(body: unknown, startedAt: number): Promise<NextResponse
   }
   const obj = parseJsonObject(text);
   if (!obj) return NextResponse.json({ error: 'O/T追加生成に失敗しました' }, { status: 502 });
-  const incoming = parseExpansionItems(obj, web.sources.length);
+  const parsedIncoming = parseExpansionItems(obj, web.sources.length);
+  // 新方式の機会②は顧客課題だけで構成する。探索Aの顧客関連の項目は、追加探索でも候補に入れない
+  const incoming =
+    data.customerNeedMode === 'v2' ? parsedIncoming.filter((i) => i.viewpoint !== 'customer_need') : parsedIncoming;
   const merged = mergeOpportunities(existingItems, incoming);
   const added = merged.items.slice(existingItems.length);
   return NextResponse.json({
@@ -493,7 +535,6 @@ async function runExtend(body: unknown, startedAt: number): Promise<NextResponse
       added: merged.added,
       duplicates: merged.duplicates,
       capped: merged.capped,
-      focus,
       total: existingItems.length + merged.added,
       model: params.model,
       searchCalls: 0,
@@ -543,6 +584,8 @@ export async function POST(req: NextRequest) {
     const analysisIndustry = industryLabel || industryCode.slice(0, 100);
     const baseCtx = toCompanyContext(parsed.data, analysisIndustry);
     const needDiscovery = isCustomerNeedDiscoveryEnabled(process.env.OT_CUSTOMER_NEED_DISCOVERY);
+    const v2On = isCustomerDiscoveryV2Enabled(process.env.OT_CUSTOMER_DISCOVERY_V2);
+    const route = resolveNeedRoute({ legacyOn: needDiscovery, v2On });
     const segments = parsed.data.businessSegments;
     const match: CompanyMatch = matchCompanyMarkets({
       businessContent: parsed.data.businessContent,
@@ -558,12 +601,11 @@ export async function POST(req: NextRequest) {
     };
 
     const webEnabled = isWebSearchEnabled(process.env.OT_WEB_SEARCH_ENABLED);
-    const needEnabled = webEnabled && needDiscovery;
     const searchIndustry = isUnspecifiedIndustry ? '' : industryLabel;
     const regions = ctx.currentRegions ?? [];
     const segmentInfos = buildSegmentInfos(segments, parsed.data.businessContent, match);
     const rolesStartedAt = Date.now();
-    const segmentRoles: SegmentRoles[] = needEnabled
+    const segmentRoles: SegmentRoles[] = route.legacyNeedOn
       ? await inferSegmentRoles({
           segments: segmentInfos,
           businessContent: parsed.data.businessContent,
@@ -571,13 +613,48 @@ export async function POST(req: NextRequest) {
           invoke: (params) => invokeRoles(params, deadline, usage),
         })
       : [];
-    const rolesMs = needEnabled ? Date.now() - rolesStartedAt : null;
-    const planned = needEnabled
+    const rolesMs = route.legacyNeedOn ? Date.now() - rolesStartedAt : null;
+    const planned = route.legacyNeedOn
       ? buildSegmentNeedPlans({ industryLabel: searchIndustry, regions, segments: segmentInfos, segmentRoles })
       : { plans: [] as SearchPlan[], reports: [] as SegmentPlanReport[] };
     const needPlans = planned.plans;
     const segmentPlans = planned.reports;
-    const needActive = needEnabled && needPlans.length > 0 && segmentRoles.some((r) => r.roles.length > 0);
+    const needActive = route.legacyNeedOn && segmentRoles.some((r) => r.roles.length > 0);
+    const rolesBlock = needActive
+      ? renderRolesBlock(
+          segmentRoles.map((r) => ({ segment: r.name, roles: r.roles })),
+          labelOfCategory
+        )
+      : undefined;
+    const needStartedAt = Date.now();
+    const needRun =
+      rolesBlock !== undefined
+        ? runNeedHypotheses(ctx, deadline, usage, rolesBlock).then(
+            (items) => ({ items, ms: Date.now() - needStartedAt }),
+            (e: unknown) => {
+              console.error(
+                '[generate-ot] customer_needs_failed',
+                JSON.stringify({ code: classifyFailure(e), elapsedMs: Date.now() - startedAt })
+              );
+              return { items: [] as NeedOpportunityRaw[], ms: Date.now() - needStartedAt };
+            }
+          )
+        : null;
+    const discoveryBuyers = route.discoveryOn ? extractBuyers(parsed.data.businessSegments, parsed.data.companyName) : null;
+    const discoveryBuyerList = discoveryBuyers?.status === 'ok' ? discoveryBuyers.buyers : null;
+    const discoveryRun =
+      discoveryBuyerList && discoveryBuyerList.length > 0
+        ? runCustomerDiscovery(discoveryBuyerList, deadline, usage).then(
+            (raw) => ({ raw }),
+            (e: unknown) => {
+              console.error(
+                '[generate-ot] customer_discovery_failed',
+                JSON.stringify({ code: classifyFailure(e), elapsedMs: Date.now() - startedAt })
+              );
+              return { raw: null as unknown };
+            }
+          )
+        : null;
     const searchRun: SearchRun = !webEnabled
       ? { web: { status: 'disabled', findings: [], sources: [], searchCalls: 0 }, classification: 'not_searched', calls: [], categoryIds: [], droppedCategories: 0, callStats: [] }
       : await runWebSearch({
@@ -586,13 +663,13 @@ export async function POST(req: NextRequest) {
           regions,
           match,
           needPlans: needActive ? needPlans : [],
-          deadline,
+          deadline: deadline - ANALYSIS_TIME_RESERVE_MS,
           usage,
         });
     let web = searchRun.web;
     let bodyStats: BodyCheckStats | null = null;
     let bodyMs: number | null = null;
-    const bodyCheckPlanned = needEnabled && web.findings.length > 0 && planBodyCheck(deadline - Date.now());
+    const bodyCheckPlanned = needDiscovery && web.findings.length > 0 && planBodyCheck(deadline - Date.now());
     if (bodyCheckPlanned) {
       const bodyStartedAt = Date.now();
       const checked = await checkSourceBodies({
@@ -604,33 +681,34 @@ export async function POST(req: NextRequest) {
       bodyStats = checked.stats;
       bodyMs = Date.now() - bodyStartedAt;
     }
-    const allRoles: CustomerRole[] = segmentRoles.flatMap((r) => r.roles);
-    const rolesBlock = needActive
-      ? renderRolesBlock(
-          segmentRoles.map((r) => ({ segment: r.name, roles: r.roles })),
-          labelOfCategory
-        )
-      : undefined;
     const searchMs = Date.now() - startedAt;
 
     let analysis: OtAnalysis | undefined;
-    let customerNeeds: NeedOpportunityRaw[] = [];
     let usedFallback = false;
     let fallbackCode: FailureCode | undefined;
     const analysisStartedAt = Date.now();
     try {
-      const run = await runAnalysis(ctx, web, deadline, usage, rolesBlock);
-      analysis = run.analysis;
-      customerNeeds = run.customerNeeds;
+      analysis = await runAnalysis(ctx, web, deadline, usage);
     } catch (e) {
       fallbackCode = classifyFailure(e);
-      console.error('[generate-ot] analysis_failed', JSON.stringify({ code: fallbackCode }));
+      console.error(
+        '[generate-ot] analysis_failed',
+        JSON.stringify({
+          code: fallbackCode,
+          elapsedMs: Date.now() - startedAt,
+          rolesMs,
+          searchMs,
+          analysisBudgetMs: Math.max(0, Math.min(ANALYSIS_CAP_MS, deadline - analysisStartedAt - 1_000)),
+        })
+      );
       try {
         analysis = await runFallback(ctx, web, deadline, usage);
-        customerNeeds = [];
         usedFallback = true;
       } catch (e2) {
-        console.error('[generate-ot] fallback_failed', JSON.stringify({ code: classifyFailure(e2) }));
+        console.error(
+          '[generate-ot] fallback_failed',
+          JSON.stringify({ code: classifyFailure(e2), elapsedMs: Date.now() - startedAt })
+        );
         return NextResponse.json(
           { error: 'O/T生成に失敗しました' },
           { status: errorStatus(e2) === 429 ? 429 : 502 }
@@ -641,6 +719,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'O/T生成に失敗しました' }, { status: 502 });
     }
     const analysisMs = Date.now() - analysisStartedAt;
+    const needResult = needRun ? await needRun : null;
+    const customerNeeds = needResult?.items ?? [];
+    const needMs = needResult?.ms ?? null;
 
     const inspected = inspectOtResult(analysis, web.sources, searchRun.categoryIds, web.findings);
     const finalAnalysis = inspected.analysis;
@@ -651,11 +732,11 @@ export async function POST(req: NextRequest) {
     let needQuality: QualityReport | null = null;
     let needDropped: Record<string, number> | null = null;
     let needEvidence: Record<string, number> | null = null;
-    if (needActive && !usedFallback && customerNeeds.length > 0) {
+    if (needActive && customerNeeds.length > 0) {
       const segmentNames = segmentInfos.map((s) => s.name);
       const converted = toNeedItems({
         items: customerNeeds,
-        roles: allRoles,
+        segmentRoles: segmentRoles.map((r) => ({ segment: r.name, roles: r.roles })),
         findings: web.findings,
         sources: web.sources,
         segments: segmentNames,
@@ -699,7 +780,7 @@ export async function POST(req: NextRequest) {
         new Set(segmentReports.flatMap((s) => (s.adoptedOpportunity + s.adoptedThreat > 0 ? s.categoryIds : [])))
       ),
       unmatchedSegments: match.unmatchedSegments,
-      customerNeeds: needEnabled
+      customerNeeds: needDiscovery
         ? {
             active: needActive,
             segments: segmentPlans.map((p) => {
@@ -722,7 +803,7 @@ export async function POST(req: NextRequest) {
             }),
             plans: needPlans.length,
             bodyCheck: bodyStats,
-            bodyCheckSkipped: needEnabled && web.findings.length > 0 && !bodyCheckPlanned,
+            bodyCheckSkipped: needDiscovery && web.findings.length > 0 && !bodyCheckPlanned,
             candidates: customerNeeds.length,
             adopted: needItems.length,
             dropped: needDropped,
@@ -743,7 +824,7 @@ export async function POST(req: NextRequest) {
                   numberNotInSourceCorrected: needQuality.numberNotInSourceCorrected,
                 }
               : null,
-            timingsMs: { roles: rolesMs, bodyCheck: bodyMs },
+            timingsMs: { roles: rolesMs, bodyCheck: bodyMs, need: needMs },
           }
         : null,
       quality,
@@ -788,11 +869,24 @@ export async function POST(req: NextRequest) {
       })
     );
 
-    const marketOpportunities: OtItem[] = needEnabled
+    const discoveryResult = discoveryRun ? await discoveryRun : null;
+    const discoveryValid =
+      discoveryResult && discoveryBuyerList ? validateDiscoveryProblems(discoveryResult.raw, discoveryBuyerList.length) : null;
+    const discoveryInsights: OtItem[] =
+      discoveryValid && discoveryBuyerList
+        ? (discoveryValid.items.map((p) => toDiscoveryInsight(p, discoveryBuyerList)) as unknown as OtItem[])
+        : [];
+    const customerNeedMode = discoveryInsights.length > 0 ? ('v2' as const) : undefined;
+
+    const marketOpportunities: OtItem[] = needDiscovery
       ? finalAnalysis.opportunities.map((i) => ({ ...i, discoveryPath: 'market' as const }))
       : finalAnalysis.opportunities;
-    const finalOpportunities: OtItem[] = [...marketOpportunities, ...needItems];
-    const opportunity = finalOpportunities.map((i) => i.text);
+    const finalOpportunities: OtItem[] = [...discoveryInsights, ...marketOpportunities, ...needItems];
+    // 新方式: 探索Aの顧客関連の項目は、探索Aの元データ（insights）には残し、候補の一覧（opportunity）からは外す
+    const candidateOpportunities: OtItem[] = customerNeedMode
+      ? [...discoveryInsights, ...marketOpportunities.filter((i) => i.viewpoint !== 'customer_need'), ...needItems]
+      : finalOpportunities;
+    const opportunity = candidateOpportunities.map((i) => i.text);
     const threat = finalAnalysis.threats.map((i) => i.text);
     const resultMarkdown =
       toMarkdownList(opportunity, '機会', 'Opportunity') + '\n' + toMarkdownList(threat, '脅威', 'Threat');
@@ -803,6 +897,15 @@ export async function POST(req: NextRequest) {
         threat,
         result: resultMarkdown,
         insights: { opportunity: finalOpportunities, threat: finalAnalysis.threats },
+        customerNeedMode,
+        customerDiscovery: {
+          enabled: route.discoveryOn,
+          status: discoveryBuyers?.status ?? null,
+          buyers: discoveryBuyerList?.length ?? 0,
+          excluded: discoveryBuyers?.status === 'ok' ? discoveryBuyers.excluded.length : 0,
+          problems: discoveryInsights.length,
+          dropped: discoveryValid?.dropped ?? null,
+        },
         sources: web.sources,
         meta: {
           evidence: {

@@ -41,6 +41,17 @@ describe('swotSuggestions の保存・復元（既存形式との互換）', () 
     expect(state.swotSuggestions).toEqual(suggestions);
   });
 
+  it('新方式の印（customerNeedMode）は保存後の復元でも残り、追加探索の判定に使える', () => {
+    const row = buildDbRowFromState({ swotSuggestions: { ...suggestions, customerNeedMode: 'v2' } } as any);
+    const state = buildStateFromDbRow({ swot_suggestions: row.swot_suggestions }) as any;
+    expect(state.swotSuggestions.customerNeedMode).toBe('v2');
+  });
+
+  it('新方式の印の無い既存データは従来どおり復元され、印は付かない', () => {
+    const state = buildStateFromDbRow({ swot_suggestions: suggestions }) as any;
+    expect(state.swotSuggestions.customerNeedMode).toBeUndefined();
+  });
+
   it('旧データ（sources / insights なし）もそのまま復元でき、表示対象が無いだけになる', () => {
     const legacy = { opportunity: ['機会'], threat: ['脅威'], generatedAt: '2026-01-01T00:00:00.000Z' };
     const state = buildStateFromDbRow({ swot_suggestions: legacy }) as any;

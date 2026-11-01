@@ -205,6 +205,34 @@ describe('複数事業への対応', () => {
   });
 });
 
+describe('同じ分類を複数の事業が持つ場合（事業ごとの対応を保つ）', () => {
+  const METAL_A = seg(['金属缶の製造'], [], 9000);
+  const METAL_B = seg(['金属缶の受託加工'], [], 3000);
+
+  it('後順位の事業も、同じ分類を失わず、事業ごとの一致を保つ', () => {
+    const m = matchCompanyMarkets({ segments: [METAL_A, METAL_B] });
+    expect(ids(m.segments[0].product)).toEqual(['p_metal_can']);
+    expect(ids(m.segments[1].product)).toEqual(['p_metal_can']);
+  });
+
+  it('全社の一覧では同じ分類を1件として数え、上限の枠を重複で使わない', () => {
+    const m = matchCompanyMarkets({ segments: [METAL_A, METAL_B] });
+    expect(ids(m.product)).toEqual(['p_metal_can']);
+    expect(m.droppedCategories).toBe(0);
+  });
+
+  it('検索では同じ分類を1回だけ入れる', () => {
+    const [product] = planSearchCalls({
+      industryLabel: '製造業',
+      regions: [],
+      match: matchCompanyMarkets({ segments: [METAL_A, METAL_B] }),
+    });
+    expect(product.categoryIds).toEqual(['p_metal_can']);
+    const groupLines = product.input.split('\n').filter((l) => l.includes('製品市場（公開分類）:'));
+    expect(groupLines.filter((l) => l.includes('金属缶・金属容器'))).toHaveLength(1);
+  });
+});
+
 describe('検索の組み立て（層ごとの呼び出し）', () => {
   it('日本製罐: 製品・顧客を1回目、代替品・購買基準の変化を2回目に分け、検索回数を2回に抑える', () => {
     const plans = planSearchCalls({

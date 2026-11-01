@@ -5,8 +5,6 @@ import {
   MAX_OPPORTUNITIES,
   appendOpportunitySuggestions,
   buildExpansionInstructions,
-  focusGroups,
-  groupCounts,
   mergeOpportunities,
   parseExpansionItems,
   planBodyCheck,
@@ -53,19 +51,6 @@ describe('段階的な生成：時間の予算', () => {
   });
 });
 
-describe('4グループの分類', () => {
-  it('件数を数え、件数の少ないグループを追加探索の重点にする（同数なら A→D の順）', () => {
-    const items = [item('a1', 'existing_market'), item('a2', 'existing_market'), item('b1', 'new_customer_use'), item('d1', 'new_business')];
-    expect(groupCounts(items)).toEqual({ existing_market: 2, new_customer_use: 1, new_region: 0, new_business: 1 });
-    expect(focusGroups(items, 2)).toEqual(['new_region', 'new_customer_use']);
-  });
-
-  it('分類の記録が無い既存の候補は、どの分類にも数えない（A に勝手に数えない）', () => {
-    expect(groupCounts([{ group: undefined }])).toEqual({ existing_market: 0, new_customer_use: 0, new_region: 0, new_business: 0 });
-    expect(focusGroups([{ group: undefined }, { group: undefined }], 1)).toEqual(['existing_market']);
-  });
-});
-
 describe('追加探索の結果の統合（既存を消さず、重複させず、30件を超えない）', () => {
   it('既存の候補は、順番と内容を変えずに残し、新しい候補を後ろに加える', () => {
     const existing = many(3);
@@ -107,15 +92,37 @@ describe('追加探索の結果の統合（既存を消さず、重複させず�
   });
 });
 
-describe('追加探索の指示（既存と重複させず、重点を中心にする）', () => {
-  it('重点グループの定義と、既存の候補の一覧を含み、30件の一括生成を求めない', () => {
-    const text = buildExpansionInstructions({ focus: ['new_region', 'new_business'], existing: ['既存の機会A。', '既存の機会B。'] });
-    expect(text).toContain('C（new_region）');
-    expect(text).toContain('D（new_business）');
+describe('追加探索の指示（既存と重複させず、顧客の未挙出の悩みを重点にする）', () => {
+  it('既存の候補の一覧と3つの視点を含み、30件の一括生成を求めない', () => {
+    const text = buildExpansionInstructions({ existing: ['既存の機会A。', '既存の機会B。'] });
     expect(text).toContain('- 既存の機会A。');
     expect(text).toContain('同じ市場の言い換え');
+    expect(text).toContain('① 世の中の変化');
+    expect(text).toContain('② お客様の困りごと・願い');
+    expect(text).toContain('③ 業界や競争の変化');
     expect(text).toContain(`最大${EXPANSION_BATCH_MAX}件`);
     expect(text).not.toContain('30件');
+  });
+
+  it('顧客の未挙出の悩み・望む成果を重点にし、件数の少なさで探索を誘導しない', () => {
+    const text = buildExpansionInstructions({ existing: [] });
+    expect(text).toContain('既存の候補にまだ挙がっていない');
+    expect(text).toContain('件数の少ない分類を埋めるために探すことはしない');
+    expect(text).toContain('（なし）');
+  });
+
+  it('社内情報だけでも、具体的な顧客の困りごとは探索仮説として出してよいと指示する', () => {
+    const text = buildExpansionInstructions({ existing: [] });
+    expect(text).toContain('出典が無くても、社内情報から具体的に考えられる顧客の困りごと');
+    expect(text).toContain('架空の出典・数値を作らない');
+  });
+
+  it('既存の候補と同じ課題の言い換え、既存サービスの再提案、地域の上限化を避けるよう指示する', () => {
+    const text = buildExpansionInstructions({ existing: [] });
+    expect(text).toContain('「一貫して支援する」「統合する」');
+    expect(text).toContain('既存のサービスをそのまま提供するだけの提案は、新規事業（new_business）や新しい顧客・用途として挙げない');
+    expect(text).toContain('現在の事業展開地域は参考情報であり、探索範囲の上限ではない');
+    expect(text).toContain('探索対象は既存の顧客・市場に限らない');
   });
 });
 
@@ -140,6 +147,20 @@ describe('追加探索の出力の検査', () => {
   it('1回の追加で増やす件数は上限（8件）まで。一括で大量の候補を受け入れない', () => {
     const raw = { opportunities: Array.from({ length: 20 }, (_, i) => ({ text: `候補${i + 1}。`, group: 'existing_market', basis: 'hypothesis', evidence: '', sourceIndex: null })) };
     expect(parseExpansionItems(raw, 0)).toHaveLength(EXPANSION_BATCH_MAX);
+  });
+
+  it('視点の記録は、正しい値だけを残す（不明な値は分類未設定のまま）', () => {
+    const items = parseExpansionItems(
+      {
+        opportunities: [
+          { text: '顧客の悩み。', group: 'existing_market', viewpoint: 'customer_need', basis: 'hypothesis', evidence: '', sourceIndex: null },
+          { text: '視点が不明。', group: 'new_region', viewpoint: '別物', basis: 'hypothesis', evidence: '', sourceIndex: null },
+        ],
+      },
+      0
+    );
+    expect(items[0]).toMatchObject({ viewpoint: 'customer_need' });
+    expect(items[1].viewpoint).toBeUndefined();
   });
 
   it('形式が不正な出力は、候補を作らない', () => {
@@ -182,6 +203,24 @@ describe('候補への反映（選択・既存の候補を保つ）', () => {
     } as never);
     expect(pool.candidates[0].group).toBe('new_customer_use');
     expect(parseCandidatePool(JSON.parse(JSON.stringify(pool)))?.candidates[0].group).toBe('new_customer_use');
+  });
+
+  it('視点は候補の保存形式に残り、読み直しても保たれる。視点の記録が無い旧候補は分類未設定のまま', () => {
+    const pool = buildCandidatePool({
+      opportunity: ['新しい視点の機会。', '旧の機会。'],
+      insights: {
+        opportunity: [
+          { text: '新しい視点の機会。', basis: 'hypothesis', evidence: '', sourceIndex: null, group: 'new_region', viewpoint: 'world_change' },
+          { text: '旧の機会。', basis: 'hypothesis', evidence: '', sourceIndex: null },
+        ],
+        threat: [],
+      },
+      sources: [],
+    } as never);
+    const reloaded = parseCandidatePool(JSON.parse(JSON.stringify(pool)));
+    expect(reloaded?.candidates[0].viewpoint).toBe('world_change');
+    expect(reloaded?.candidates[1].viewpoint).toBeUndefined();
+    expect(reloaded?.candidates[1].group).toBeUndefined();
   });
 
   it('グループの定義は4つだけ', () => {

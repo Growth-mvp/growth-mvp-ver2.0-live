@@ -78,6 +78,22 @@ function analysisWithNeeds(needs: unknown[]) {
   );
 }
 
+function needOnlyResponse(needs: unknown[]) {
+  return messageWithText(JSON.stringify({ customerNeedOpportunities: needs }));
+}
+
+type CallParams = { tools?: unknown; text?: { format?: { name?: string } } };
+
+/** 呼び出しの内容（検索か、役割か、顧客課題か、市場の分析か）で応答を返す。呼び出しの順番には依存しない */
+function respondByCall(opts: { needs: unknown[]; roles?: unknown[]; search?: () => unknown }) {
+  return async (params: CallParams) => {
+    if (params.tools) return (opts.search ?? (() => searchResponse()))();
+    if (params.text?.format?.name === 'customer_roles') return rolesResponse(opts.roles);
+    if (params.text?.format?.name === 'ot_customer_needs') return needOnlyResponse(opts.needs);
+    return analysisResponse();
+  };
+}
+
 /** 実 API と同じ構造: web_search_call（action.sources 付き）と、注釈付きの message */
 function searchResponse(statement = '新制度が2027年に施行される。') {
   const text = `規制・社会構造の変化: ${statement}`;
@@ -737,6 +753,307 @@ describe('POST /api/generate-ot 検索の状態と失敗理由', () => {
   });
 });
 
+const needHypothesis = (over: Record<string, unknown>) => ({
+  segmentName: null,
+  who: 'direct_customer',
+  problem: '空になった缶の回収と廃棄に手間がかかっている',
+  desiredOutcome: null,
+  whyCurrentFails: null,
+  payer: 'direct_customer',
+  companyLink: '18L缶の製造ノウハウ',
+  valueShift: null,
+  purchaseImpact: null,
+  group: 'existing_market',
+  breadth: 'unknown',
+  opportunity: '缶の回収作業の省力化を求める需要が広がる可能性がある。',
+  basis: 'hypothesis',
+  evidence: '',
+  sourceIndex: null,
+  evidenceTarget: null,
+  evidenceRelation: 'unknown',
+  ...over,
+});
+
+describe('顧客課題の仮説と分類（Web 検索の有無に依らない）', () => {
+  afterEach(() => {
+    delete process.env.OT_CUSTOMER_NEED_DISCOVERY;
+    delete process.env.OT_WEB_SEARCH_ENABLED;
+  });
+
+  it('Web 検索を無効にしても、社内情報から顧客課題の仮説を出し、根拠なしの仮説として残す', async () => {
+    process.env.OT_CUSTOMER_NEED_DISCOVERY = 'true';
+    mockResponsesCreate.mockImplementation(
+      respondByCall({
+        needs: [
+          needHypothesis({}),
+          needHypothesis({
+            opportunity: '既存の缶を別の用途に転用したい需要が広がる可能性がある。',
+            group: 'new_customer_use',
+          }),
+        ],
+      })
+    );
+
+    const res = await POST(req(baseBody));
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(mockResponsesCreate).toHaveBeenCalledTimes(3);
+    for (const call of mockResponsesCreate.mock.calls) expect(call[0].tools).toBeUndefined();
+    expect(json.meta.webSearch).toMatchObject({ enabled: false, searchCalls: 0 });
+    expect(json.meta.diagnostics.customerNeeds).toMatchObject({ active: true, adopted: 2 });
+
+    const needCall = mockResponsesCreate.mock.calls.find((c) => c[0].text?.format?.name === 'ot_customer_needs')[0];
+    expect(needCall.instructions).toContain('出典（[n]）が無くても');
+    expect(needCall.instructions).not.toContain('空配列にする');
+    expect(needCall.instructions).toContain('new_customer_use（B）');
+    const marketCall = mockResponsesCreate.mock.calls.find((c) => c[0].text?.format?.name === 'ot_analysis')[0];
+    expect(marketCall.instructions).toContain('② お客様の困りごと・願い');
+
+    const needs = json.insights.opportunity.filter((i: { need?: unknown }) => i.need !== undefined);
+    expect(needs).toHaveLength(2);
+    expect(needs[0]).toMatchObject({
+      viewpoint: 'customer_need',
+      group: 'existing_market',
+      basis: 'hypothesis',
+      sourceIndex: null,
+      need: { discoveryPath: 'customer_need', evidenceUse: 'none', grade: 'hypothesis' },
+    });
+    expect(needs[1]).toMatchObject({ viewpoint: 'customer_need', group: 'new_customer_use' });
+  });
+
+  it('業種が「その他」で公開分類にも一致しない事業だけでも、役割を推定して顧客課題の仮説を出す（事業を探索から外さない）', async () => {
+    process.env.OT_CUSTOMER_NEED_DISCOVERY = 'true';
+    mockResponsesCreate.mockImplementation(
+      respondByCall({
+        roles: [{ role: 'user', basis: 'input', label: '社内の研修担当者', evidence: '主要顧客', categoryIds: [] }],
+        needs: [
+          needHypothesis({
+            segmentName: '研修事業',
+            who: 'user',
+            group: 'new_customer_use',
+            opportunity: '研修の効果を測れず次の研修設計に迷う担当者の需要が広がる可能性がある。',
+          }),
+        ],
+      })
+    );
+
+    const res = await POST(
+      req({
+        ...baseBody,
+        industry: 'other',
+        businessContent: '社員研修の企画',
+        businessSegments: [
+          { name: '研修事業', summary: '社員研修の企画', mainProductsServices: ['研修'], keyCustomers: ['社内の人事担当'], revenue: 500 },
+        ],
+      })
+    );
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(mockResponsesCreate).toHaveBeenCalledTimes(3);
+    const needCall = mockResponsesCreate.mock.calls.find((c) => c[0].text?.format?.name === 'ot_customer_needs')[0];
+    expect(needCall.input).toContain('事業区分「研修事業」');
+    expect(json.meta.diagnostics.customerNeeds).toMatchObject({ active: true, adopted: 1 });
+    const added = json.insights.opportunity.find((i: { need?: unknown }) => i.need !== undefined);
+    expect(added).toMatchObject({ basis: 'hypothesis', group: 'new_customer_use', need: { who: 'user', segmentName: '研修事業' } });
+  });
+
+  it('市場の機会・脅威は視点を持ち、認識できない視点の値は分類未設定のまま残す', async () => {
+    const opp = five('機会').map((t, i) => ({
+      ...item(t),
+      group: 'existing_market',
+      viewpoint: ['world_change', 'customer_need', 'industry_competition', 'world_change', 'unknown_value'][i],
+    }));
+    const thr = five('脅威').map((t) => ({ ...item(t), viewpoint: 'industry_competition' }));
+    mockResponsesCreate.mockResolvedValueOnce(messageWithText(JSON.stringify({ opportunities: opp, threats: thr })));
+
+    const json = await (await POST(req(baseBody))).json();
+
+    expect(json.insights.opportunity.map((i: { viewpoint?: string }) => i.viewpoint)).toEqual([
+      'world_change',
+      'customer_need',
+      'industry_competition',
+      'world_change',
+      undefined,
+    ]);
+    expect(json.insights.threat.every((i: { viewpoint?: string }) => i.viewpoint === 'industry_competition')).toBe(true);
+  });
+});
+
+describe('時間予算（検索の後に最終分析の時間を残す）', () => {
+  afterEach(() => {
+    delete process.env.OT_CUSTOMER_NEED_DISCOVERY;
+    delete process.env.OT_WEB_SEARCH_ENABLED;
+  });
+
+  it('検索の時間上限は、最終分析のための時間を残す（全体50秒のうち約25秒を分析に回す）', async () => {
+    process.env.OT_WEB_SEARCH_ENABLED = 'true';
+    process.env.OT_CUSTOMER_NEED_DISCOVERY = 'true';
+    mockResponsesCreate.mockImplementation(async (params: { tools?: unknown; text?: { format?: { name?: string } } }) => {
+      if (params.tools) return searchResponse();
+      if (params.text?.format?.name === 'customer_roles') return rolesResponse();
+      return analysisWithNeeds([needHypothesis({})]);
+    });
+
+    await POST(req(baseBody));
+
+    const searchOptions = mockResponsesCreate.mock.calls.filter((c) => c[0].tools).map((c) => c[1]);
+    expect(searchOptions.length).toBeGreaterThan(0);
+    for (const o of searchOptions) expect(o.timeout).toBeLessThanOrEqual(24_000);
+  });
+
+  it('Web 検索が時間切れで失敗しても、顧客課題の仮説を出し、最終分析まで進む', async () => {
+    process.env.OT_WEB_SEARCH_ENABLED = 'true';
+    process.env.OT_CUSTOMER_NEED_DISCOVERY = 'true';
+    const timeoutErr = new APIConnectionTimeoutError({ message: 'Request timed out.' });
+    mockResponsesCreate.mockImplementation(async (params: { tools?: unknown; text?: { format?: { name?: string } } }) => {
+      if (params.tools) throw timeoutErr;
+      if (params.text?.format?.name === 'customer_roles') return rolesResponse();
+      return analysisWithNeeds([needHypothesis({})]);
+    });
+
+    const res = await POST(req(baseBody));
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.meta.webSearch.status).toBe('failed');
+    const needs = json.insights.opportunity.filter((i: { need?: unknown }) => i.need !== undefined);
+    expect(needs.length).toBeGreaterThan(0);
+    expect(needs[0]).toMatchObject({ basis: 'hypothesis', sourceIndex: null, need: { grade: 'hypothesis' } });
+  });
+
+  it('顧客課題の仮説は検索を待たずに並行して始まり、外部情報を使わずに作られる', async () => {
+    process.env.OT_WEB_SEARCH_ENABLED = 'true';
+    process.env.OT_CUSTOMER_NEED_DISCOVERY = 'true';
+    mockResponsesCreate.mockImplementation(respondByCall({ needs: [needHypothesis({})] }));
+
+    await POST(req(baseBody));
+
+    const calls = mockResponsesCreate.mock.calls.map((c) => c[0]);
+    const order = calls.map((p) => (p.tools ? 'search' : p.text?.format?.name));
+    expect(order.indexOf('ot_customer_needs')).toBeLessThan(order.indexOf('search'));
+    expect(order.indexOf('ot_customer_needs')).toBeLessThan(order.indexOf('ot_analysis'));
+    const needCall = calls.find((p) => p.text?.format?.name === 'ot_customer_needs');
+    expect(needCall.input).toContain('取得できませんでした');
+    expect(needCall.input).not.toContain('<external_findings>\n[');
+  });
+
+  it('最終分析が時間切れなら結果を返さず 502 にし、既存の候補を上書きする応答を作らない', async () => {
+    const timeoutErr = new APIConnectionTimeoutError({ message: 'Request timed out.' });
+    mockResponsesCreate.mockRejectedValue(timeoutErr);
+    mockChatCreate.mockRejectedValue(timeoutErr);
+
+    const res = await POST(req(baseBody));
+    const json = await res.json();
+
+    expect(res.status).toBe(502);
+    expect(json.opportunity).toBeUndefined();
+    expect(json.insights).toBeUndefined();
+    expect(json.error).toBe('O/T生成に失敗しました');
+  });
+});
+
+describe('事業・役割・分類の対応（顧客課題の整合性）', () => {
+  afterEach(() => {
+    delete process.env.OT_CUSTOMER_NEED_DISCOVERY;
+    delete process.env.OT_WEB_SEARCH_ENABLED;
+  });
+
+  const TWO_BUSINESSES = {
+    ...baseBody,
+    industry: 'other',
+    businessContent: '美術缶と社員研修の事業',
+    businessSegments: [
+      { name: '美術缶事業', summary: '美術缶の製造', mainProductsServices: ['美術缶'], keyCustomers: ['食品メーカー'], revenue: 9000 },
+      { name: '研修事業', summary: '社員研修の企画', mainProductsServices: ['研修'], keyCustomers: ['社内の人事担当'], revenue: 500 },
+    ],
+  };
+
+  const TWO_METAL = {
+    ...baseBody,
+    industry: 'other',
+    businessContent: '金属缶の製造と受託加工',
+    businessSegments: [
+      { name: '金属缶A', summary: '金属缶の製造', mainProductsServices: ['金属缶'], keyCustomers: [], revenue: 9000 },
+      { name: '金属缶B', summary: '金属缶の受託加工', mainProductsServices: ['金属缶の受託加工'], keyCustomers: [], revenue: 3000 },
+    ],
+  };
+
+  /** 事業ごとに違う役割を返す（研修事業は直接顧客、それ以外は利用者） */
+  function mockBusinesses(needs: unknown[]) {
+    mockResponsesCreate.mockImplementation(async (params: CallParams & { input?: string }) => {
+      if (params.tools) return searchResponse();
+      if (params.text?.format?.name === 'customer_roles') {
+        return params.input?.includes('【事業1】研修事業')
+          ? rolesResponse([{ role: 'direct_customer', basis: 'input', label: '社内の人事担当', evidence: '主要顧客', categoryIds: [] }])
+          : rolesResponse([{ role: 'user', basis: 'input', label: '食品工場の現場担当者', evidence: '主要顧客', categoryIds: [] }]);
+      }
+      if (params.text?.format?.name === 'ot_customer_needs') return needOnlyResponse(needs);
+      return analysisResponse();
+    });
+  }
+
+  it('事業Aの利用者は、事業Bの課題の根拠・主体として採用しない（役割は事業ごとに照合する）', async () => {
+    process.env.OT_CUSTOMER_NEED_DISCOVERY = 'true';
+    mockBusinesses([
+      needHypothesis({ segmentName: '美術缶事業', who: 'user', opportunity: '食品工場の現場で包装の補充を省力化したい需要が広がる可能性がある。' }),
+      needHypothesis({ segmentName: '研修事業', who: 'user', opportunity: '研修を受けた現場担当者が次の研修内容を選べない需要が広がる可能性がある。' }),
+      needHypothesis({ segmentName: '研修事業', who: 'direct_customer', opportunity: '社内の人事担当が研修の効果を社内に示せない需要が広がる可能性がある。' }),
+    ]);
+
+    const json = await (await POST(req(TWO_BUSINESSES))).json();
+    const needs = json.insights.opportunity.filter((i: { need?: unknown }) => i.need !== undefined);
+
+    expect(needs.map((i: { need: { segmentName: string; who: string } }) => [i.need.segmentName, i.need.who])).toEqual([
+      ['美術缶事業', 'user'],
+      ['研修事業', 'direct_customer'],
+    ]);
+  });
+
+  it('事業名が特定できない顧客課題は、他事業の出典を根拠にせず、事業にも帰属させない', async () => {
+    process.env.OT_CUSTOMER_NEED_DISCOVERY = 'true';
+    process.env.OT_WEB_SEARCH_ENABLED = 'true';
+    mockBusinesses([
+      needHypothesis({ segmentName: null, who: 'user', sourceIndex: 1, opportunity: '食品工場の現場で衛生管理の手間を減らしたい需要が広がる可能性がある。' }),
+    ]);
+
+    const json = await (await POST(req(TWO_BUSINESSES))).json();
+    const needs = json.insights.opportunity.filter((i: { need?: unknown }) => i.need !== undefined);
+
+    expect(needs).toHaveLength(1);
+    expect(needs[0]).toMatchObject({ sourceIndex: null, need: { segmentName: null, evidenceUse: 'none' } });
+    expect(needs[0].need.unverified).toContain('segment');
+  });
+
+  it('同じ分類を持つ複数の事業でも、顧客課題の検索は分類ごとに1回だけ行う', async () => {
+    process.env.OT_CUSTOMER_NEED_DISCOVERY = 'true';
+    process.env.OT_WEB_SEARCH_ENABLED = 'true';
+    mockBusinesses([]);
+
+    await POST(req(TWO_METAL));
+
+    const needSearches = mockResponsesCreate.mock.calls.filter(
+      (c) => c[0].tools && String(c[0].input).includes('次の観点で')
+    );
+    expect(needSearches).toHaveLength(1);
+  });
+
+  it('業種が「その他」でも、分類済みの事業があれば顧客課題の検索を止めない', async () => {
+    process.env.OT_CUSTOMER_NEED_DISCOVERY = 'true';
+    process.env.OT_WEB_SEARCH_ENABLED = 'true';
+    mockBusinesses([]);
+
+    const res = await POST(req({ ...TWO_BUSINESSES, businessSegments: [TWO_BUSINESSES.businessSegments[0]] }));
+
+    expect(res.status).toBe(200);
+    const needSearches = mockResponsesCreate.mock.calls.filter(
+      (c) => c[0].tools && String(c[0].input).includes('次の観点で')
+    );
+    expect(needSearches).toHaveLength(1);
+  });
+});
+
 describe('製品・顧客市場に基づく検索（層ごと）と品質検査', () => {
   const body = (over: Record<string, unknown>) => ({ ...baseBody, ...over });
   const NIHON_SEIKAN = body({
@@ -810,12 +1127,13 @@ describe('製品・顧客市場に基づく検索（層ごと）と品質検査'
     process.env.OT_WEB_SEARCH_ENABLED = 'true';
     process.env.OT_CUSTOMER_NEED_DISCOVERY = 'true';
     try {
-      mockResponsesCreate
-        .mockResolvedValueOnce(rolesResponse())
-        .mockResolvedValueOnce(searchResponse())
-        .mockResolvedValueOnce(searchResponse())
-        .mockResolvedValueOnce(searchResponse('利用者の負担が増えている。'))
-        .mockResolvedValueOnce(analysisResponse());
+      let searchN = 0;
+      mockResponsesCreate.mockImplementation(
+        respondByCall({
+          needs: [],
+          search: () => (++searchN === 3 ? searchResponse('利用者の負担が増えている。') : searchResponse()),
+        })
+      );
       const json = await (
         await POST(
           req({
@@ -827,18 +1145,22 @@ describe('製品・顧客市場に基づく検索（層ごと）と品質検査'
 
       expect(json.meta.webSearch).toMatchObject({ customerNeedDiscovery: true, searchCalls: 3 });
       expect(json.meta.webSearch.calls.map((c: { id: string }) => c.id)).toEqual(['product_customer', 'substitute', 'customer_need']);
-      const roleCall = mockResponsesCreate.mock.calls[0][0];
-      expect(roleCall.text.format.name).toBe('customer_roles');
+      const calls = mockResponsesCreate.mock.calls.map((c) => c[0]);
+      const roleCall = calls.find((p) => p.text?.format?.name === 'customer_roles');
       expect(roleCall.tools).toBeUndefined();
-      const needInput = mockResponsesCreate.mock.calls[3][0].input as string;
+      const searchCalls = calls.filter((p) => p.tools);
+      expect(searchCalls).toHaveLength(3);
+      const needInput = searchCalls[2].input as string;
       expect(needInput).toContain('利用者の不満が小さい');
       expect(needInput).toContain('製品・顧客市場（公開分類）');
       expect(needInput).not.toContain('SECRET-NEED-SUMMARY-9301');
       expect(needInput).not.toContain('塗料メーカー');
-      const analysisCall = mockResponsesCreate.mock.calls[4][0];
-      expect(analysisCall.text.format.schema.properties).toHaveProperty('customerNeedOpportunities');
-      expect(analysisCall.input).toContain('<customer_roles>');
-      expect(allText(analysisCall)).toContain('顧客の未充足ニーズ');
+      const needCall = calls.find((p) => p.text?.format?.name === 'ot_customer_needs');
+      expect(needCall.text.format.schema.properties).toHaveProperty('customerNeedOpportunities');
+      expect(needCall.input).toContain('<customer_roles>');
+      const marketCall = calls.find((p) => p.text?.format?.name === 'ot_analysis');
+      expect(marketCall.text.format.schema.properties).not.toHaveProperty('customerNeedOpportunities');
+      expect(allText(marketCall)).toContain('顧客の未充足ニーズ');
     } finally {
       delete process.env.OT_CUSTOMER_NEED_DISCOVERY;
     }
@@ -862,12 +1184,7 @@ describe('製品・顧客市場に基づく検索（層ごと）と品質検査'
         sourceIndex: null,
       };
       const unsupported = { ...supported, who: 'end_beneficiary', opportunity: '最終利用者の需要が拡大する可能性がある。' };
-      mockResponsesCreate
-        .mockResolvedValueOnce(rolesResponse())
-        .mockResolvedValueOnce(searchResponse())
-        .mockResolvedValueOnce(searchResponse())
-        .mockResolvedValueOnce(searchResponse('利用者の負担が増えている。'))
-        .mockResolvedValueOnce(analysisWithNeeds([supported, unsupported]));
+      mockResponsesCreate.mockImplementation(respondByCall({ needs: [supported, unsupported] }));
       const json = await (await POST(req(NIHON_SEIKAN))).json();
 
       expect(json.opportunity).toHaveLength(6);

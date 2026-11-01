@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { ROLE_KEYS, type CustomerRole, type RoleKey } from './roles';
 import { completeNeedHypothesis, gradeNeedHypothesis, type EvidenceRelation, type NeedHypothesis } from './hypothesis';
-import type { OpportunityGroup } from '../opportunityGroups';
+import { OPPORTUNITY_GROUPS, type DiscoveryViewpoint, type OpportunityGroup } from '../opportunityGroups';
+import { normalizeForCompare } from '../textSimilarity';
 
 export const NEED_BREADTHS = ['public_observed', 'partial', 'unknown'] as const;
 export type NeedBreadth = (typeof NEED_BREADTHS)[number];
@@ -25,6 +26,7 @@ export const NEED_OPPORTUNITY_ITEM_SCHEMA = {
     'companyLink',
     'valueShift',
     'purchaseImpact',
+    'group',
     'breadth',
     'opportunity',
     'basis',
@@ -43,6 +45,7 @@ export const NEED_OPPORTUNITY_ITEM_SCHEMA = {
     companyLink: { type: ['string', 'null'] },
     valueShift: { type: ['string', 'null'] },
     purchaseImpact: { type: ['string', 'null'] },
+    group: { type: ['string', 'null'], enum: [...OPPORTUNITY_GROUPS, null] },
     breadth: { type: 'string', enum: [...NEED_BREADTHS] },
     opportunity: { type: 'string' },
     basis: { type: 'string', enum: ['fact', 'hypothesis'] },
@@ -70,6 +73,7 @@ export type NeedOpportunityRaw = {
   companyLink: string | null;
   valueShift: string | null;
   purchaseImpact: string | null;
+  group: OpportunityGroup | null;
   breadth: NeedBreadth;
   opportunity: string;
   basis: 'fact' | 'hypothesis';
@@ -105,6 +109,7 @@ export type NeedFields = {
 
 export type NeedItem = {
   group?: OpportunityGroup;
+  viewpoint: DiscoveryViewpoint;
   text: string;
   basis: 'fact' | 'hypothesis';
   evidence: string;
@@ -137,6 +142,7 @@ const RawItem = z.object({
   companyLink: optionalText(200),
   valueShift: optionalText(200),
   purchaseImpact: optionalText(200),
+  group: z.enum(OPPORTUNITY_GROUPS).nullish().transform((v) => v ?? null),
   breadth: z.enum(NEED_BREADTHS),
   opportunity: trimmed(300),
   basis: z.enum(['fact', 'hypothesis']),
@@ -188,7 +194,8 @@ export type NeedDropReason =
  */
 export function toNeedItems(args: {
   items: readonly NeedOpportunityRaw[];
-  roles: readonly CustomerRole[];
+  /** 事業ごとの役割。項目は、その事業の役割だけで照合する（別の事業の役割を混ぜない） */
+  segmentRoles: ReadonlyArray<{ segment: string; roles: readonly CustomerRole[] }>;
   findings: readonly NeedFindingLite[];
   sources: readonly NeedSourceLite[];
   segments: readonly string[];
@@ -198,23 +205,22 @@ export function toNeedItems(args: {
   const dropped: Record<NeedDropReason, number> = { who_unsupported: 0, opportunity_empty: 0, segment_cap: 0, total_cap: 0 };
   const evidenceUse: Record<EvidenceUse, number> = { fact: 0, reference: 0, mismatch: 0, none: 0 };
   const items: NeedItem[] = [];
-  const roleBasis = new Map<RoleKey, CustomerRole['basis']>();
-  const roleCategoryIds = new Map<RoleKey, string[]>();
-  for (const r of args.roles) {
-    const prev = roleBasis.get(r.role);
-    if (!prev || (prev === 'estimated' && r.basis !== 'estimated')) roleBasis.set(r.role, r.basis);
-    roleCategoryIds.set(r.role, [...(roleCategoryIds.get(r.role) ?? []), ...(r.categoryIds ?? [])]);
-  }
-  const customerTerms = (who: RoleKey): string[] => {
-    const labelOf = args.categoryLabelOf ?? ((id: string) => id);
-    return [...new Set((roleCategoryIds.get(who) ?? []).flatMap((id) => termsOfLabel(labelOf(id))))];
-  };
+  const labelOf = args.categoryLabelOf ?? ((id: string) => id);
+  const nameCount = new Map<string, number>();
+  for (const n of args.segments) nameCount.set(n, (nameCount.get(n) ?? 0) + 1);
+  const specified = new Set(args.segments.filter((n) => nameCount.get(n) === 1));
+  const rolesOf = (segmentName: string | null): CustomerRole[] =>
+    segmentName === null
+      ? args.segmentRoles.flatMap((e) => e.roles)
+      : args.segmentRoles.filter((e) => e.segment === segmentName).flatMap((e) => e.roles);
   const sourceOf = new Map(args.sources.map((s) => [s.index, s] as const));
-  const segmentNames = new Set(args.segments);
 
   args.items.forEach((item, i) => {
-    const basisOfWho = roleBasis.get(item.who);
-    if (!basisOfWho) {
+    // 事業名を特定できない項目は、どの事業の出典・分類とも結びつけない（役割が存在するかだけを見る）
+    const segmentName = item.segmentName && specified.has(item.segmentName) ? item.segmentName : null;
+    const scope = rolesOf(segmentName);
+    const whoRoles = scope.filter((r) => r.role === item.who);
+    if (whoRoles.length === 0) {
       dropped.who_unsupported++;
       return;
     }
@@ -222,15 +228,19 @@ export function toNeedItems(args: {
       dropped.opportunity_empty++;
       return;
     }
-    const segmentName = item.segmentName && segmentNames.has(item.segmentName) ? item.segmentName : null;
-    const source = item.sourceIndex !== null ? sourceOf.get(item.sourceIndex) : undefined;
+    const basisOfWho: CustomerRole['basis'] =
+      segmentName === null ? 'estimated' : (whoRoles.find((r) => r.basis !== 'estimated')?.basis ?? 'estimated');
+    const terms =
+      segmentName === null
+        ? []
+        : [...new Set(whoRoles.flatMap((r) => r.categoryIds ?? []).flatMap((id) => termsOfLabel(labelOf(id))))];
+    const source = segmentName !== null && item.sourceIndex !== null ? sourceOf.get(item.sourceIndex) : undefined;
 
     const scoped = args.findings.filter(
-      (f) => source !== undefined && f.sourceIndex === source.index && (!f.segment || !segmentName || f.segment === segmentName)
+      (f) => source !== undefined && f.sourceIndex === source.index && (!f.segment || f.segment === segmentName)
     );
     const crossSegment = source !== undefined && scoped.length === 0;
 
-    const terms = customerTerms(item.who);
     const customerTermFound = terms.some((t) => scoped.some((f) => f.statement.includes(t)));
     let use: EvidenceUse = 'none';
     if (source && !crossSegment) {
@@ -243,7 +253,7 @@ export function toNeedItems(args: {
     evidenceUse[use]++;
     const sourceIndex = source && use !== 'mismatch' && use !== 'none' ? source.index : null;
 
-    const payer = item.payer && roleBasis.has(item.payer) ? item.payer : null;
+    const payer = item.payer && scope.some((r) => r.role === item.payer) ? item.payer : null;
     const facts = sourceIndex === null
       ? []
       : scoped.map((f) => ({ text: f.statement, sourceUrl: source?.url ?? null, bodyChecked: source?.contentVerified === true }));
@@ -295,7 +305,8 @@ export function toNeedItems(args: {
     const basis: 'fact' | 'hypothesis' = 'hypothesis';
 
     items.push({
-      group: 'new_customer_use',
+      ...(item.group ? { group: item.group } : {}),
+      viewpoint: 'customer_need',
       text: item.opportunity,
       basis,
       evidence: item.evidence,
@@ -334,9 +345,10 @@ export function capNeedItemsPerSegment(
   segmentOrder: readonly string[],
   perSegment = MAX_NEED_PER_SEGMENT,
   total = MAX_NEED_OPPORTUNITIES
-): { items: NeedItem[]; dropped: Record<'segment_cap' | 'total_cap', number> } {
-  const dropped = { segment_cap: 0, total_cap: 0 };
+): { items: NeedItem[]; dropped: Record<'segment_cap' | 'total_cap' | 'duplicate', number> } {
+  const dropped = { segment_cap: 0, total_cap: 0, duplicate: 0 };
   const perCount = new Map<string, number>();
+  const keptBySegment = new Map<string, NeedItem[]>();
   const kept: NeedItem[] = [];
   const ordered = [...items].sort((a, b) => {
     const ia = a.need.segmentName ? segmentOrder.indexOf(a.need.segmentName) : segmentOrder.length;
@@ -345,6 +357,12 @@ export function capNeedItemsPerSegment(
   });
   for (const item of ordered) {
     const key = item.need.segmentName ?? '';
+    const sameSegment = keptBySegment.get(key) ?? [];
+    const norm = normalizeForCompare(item.text);
+    if (sameSegment.some((k) => normalizeForCompare(k.text) === norm)) {
+      dropped.duplicate++;
+      continue;
+    }
     const used = perCount.get(key) ?? 0;
     if (used >= perSegment) {
       dropped.segment_cap++;
@@ -355,6 +373,7 @@ export function capNeedItemsPerSegment(
       continue;
     }
     perCount.set(key, used + 1);
+    keptBySegment.set(key, [...sameSegment, item]);
     kept.push(item);
   }
   return { items: kept, dropped };

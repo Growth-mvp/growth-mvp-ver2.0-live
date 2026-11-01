@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EXISTING_AND_NEW_SCOPE_RULE } from '../discoveryRules';
 
 export const ROLE_KEYS = ['direct_customer', 'user', 'end_beneficiary', 'buying_decision_maker'] as const;
 export type RoleKey = (typeof ROLE_KEYS)[number];
@@ -62,7 +63,8 @@ export function buildRoleAnalysisInput(s: Stage1CustomerInput, candidates: reado
     '- input: 上の入力欄の記載から確認できる（evidence に入力欄名と根拠の語を書く）',
     '- public: 公開情報に基づく（evidence に出典の名称を書く）',
     '- estimated: 入力からの推定（evidence は null）',
-    '入力にも推定の根拠にも無い役割は出力しないでください。無理に埋めないでください。',
+    EXISTING_AND_NEW_SCOPE_RULE,
+    '新しい顧客・利用者・用途を挙げる場合は basis を estimated、evidence を null にしてください。推定（estimated）は、入力や公開情報で確認した事実とは区別して挙げる。事業の製品・能力からも合理的に想定できない役割は出力しないでください。無理に埋めないでください。',
     '製品・サービスごとに顧客が違う場合は、役割ごとにその製品の顧客だけを考えてください。事業全体の顧客を全製品に当てはめないでください。',
     '',
     '【この事業に一致した顧客業界（公開分類）】',

@@ -1049,6 +1049,7 @@ export function normalizeStrategyData(input: StrategyData | unknown | null): Str
         evidence: normalizeSwotEvidence((swotSuggestionsSrc as { evidence?: unknown }).evidence),
         candidatePool: parseCandidatePool((swotSuggestionsSrc as { candidatePool?: unknown }).candidatePool),
         selection: parseCandidateSelection((swotSuggestionsSrc as { selection?: unknown }).selection),
+        customerNeedMode: (swotSuggestionsSrc as { customerNeedMode?: unknown }).customerNeedMode === 'v2' ? ('v2' as const) : undefined,
       }
     : undefined;
 
