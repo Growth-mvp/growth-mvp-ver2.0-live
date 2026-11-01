@@ -22,6 +22,17 @@ import { logAuditEvent, extractAuditMetadata } from '@/lib/server/auditLog';
 import { logInputGuard, checkSuspiciousKeywords } from '@/lib/inputGuardLogger';
 import { swotBullets, swotItems } from '@/lib/stage2/swotPrompt';
 import { z } from 'zod';
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
+import {
+  DRAFT_AUDIT_WAIT_MS,
+  DRAFT_TOTAL_BUDGET_MS,
+  initialAttemptTimeoutMs,
+  isTimeoutError,
+  isTransientError,
+  remainingBudgetMs,
+  repairTimeoutMs,
+  retryTimeoutMs,
+} from '@/lib/stage2/draftBudget';
 
 /* ===== 入力バリデーション ===== */
 const IssueBlockSchema = z.object({
@@ -376,6 +387,9 @@ const CHAPTER_TITLES = [
   '第4章：どう実行に落とすか（実行）',
 ] as const;
 
+const SWOT_FIELD_MAX_CHARS = 8000;
+const CHAPTER_FALLBACK = '（この章は未生成です）';
+
 /* ===== 反映強制：引用フレーズ抽出（軽量） ===== */
 function splitPhrases(s?: string, limit = 6): string[] {
   if (!s) return [];
@@ -392,7 +406,7 @@ function splitPhrases(s?: string, limit = 6): string[] {
   return Array.from(new Set(short)).slice(0, limit);
 }
 
-function swotPhrases(s: string | undefined, limit: number): string[] {
+function swotPhrases(s: string | undefined, limit = Number.POSITIVE_INFINITY): string[] {
   const items = swotItems(s)
     .filter((x) => x.length >= 2)
     .map((x) => (x.length > 18 ? x.slice(0, 18) : x));
@@ -400,17 +414,15 @@ function swotPhrases(s: string | undefined, limit: number): string[] {
 }
 
 function buildMustQuotePhrases(input: z.infer<typeof InputSchema>) {
-  const ceo = input.ceoIntent?.trim()
-    ? [sanitize(input.ceoIntent, 40).replace(/[\r\n]+/g, ' ').trim()]
-    : [];
+  const ceo = splitPhrases(input.ceoIntent, 3);
   const mission = splitPhrases(input.mvv?.mission, 3);
   const vision = splitPhrases(input.mvv?.vision, 2);
   const value = splitPhrases(input.mvv?.value, 2);
 
   const s = swotPhrases(input.swot?.strength, 2);
   const w = swotPhrases(input.swot?.weakness, 2);
-  const o = swotPhrases(input.swot?.opportunity, 8);
-  const t = swotPhrases(input.swot?.threat, 8);
+  const o = swotPhrases(input.swot?.opportunity);
+  const t = swotPhrases(input.swot?.threat);
 
   return { ceo, mission, vision, value, s, w, o, t };
 }
@@ -443,6 +455,14 @@ function extractSwotEvidenceLines(chapterBody: string): string[] {
     )
     .filter(Boolean);
 }
+
+const REQUIRED_WIN_PATTERN_LABELS = [
+  '重要課題・機会',
+  '戦略の方向性',
+  '成功する根拠',
+  '克服すべき障害・リスク',
+  '経営判断',
+];
 
 const GENERIC_WIN_PATTERN_NAMES = [
   '成長機会の最大化',
@@ -494,19 +514,10 @@ function computeCoverageIssues(
     missing.push(`第2章の先頭に「戦略結論：」を追加し、最も重要な戦略仮説と経営上の優先順位・選択を書く`);
   }
 
-  if (
-    !/狙う顧客と未解決課題\s*[:：]/.test(ch2) ||
-    !/提供する新しい価値\s*[:：]/.test(ch2) ||
-    !/自社が選ばれる理由\s*[:：]/.test(ch2)
-  ) {
+  const missingLabels = REQUIRED_WIN_PATTERN_LABELS.filter((label) => !new RegExp(`${label}\\s*[:：]`).test(ch2));
+  if (missingLabels.length > 0) {
     missing.push(
-      `第2章の各勝ち筋に「狙う顧客と未解決課題：」「提供する新しい価値：」「自社が選ばれる理由：」を追加する（根拠が不足する場合は「（仮説）」と明記）`
-    );
-  }
-
-  if (!/経営判断\s*[:：]/.test(ch2)) {
-    missing.push(
-      `第2章の各勝ち筋に「経営判断：」を追加し、経営者が決めるべき事項（投資配分・撤退/縮小・価格/原価・重点顧客・KPI変更など）を明示する`
+      `第2章の各勝ち筋に「${missingLabels.join('」「')}：」を追加する（根拠が不足する場合は「（仮説）」と明記。経営判断は投資配分・撤退/縮小・価格/原価・重点顧客・KPI変更など経営者が決めるべき事項を明示する）`
     );
   }
 
@@ -541,24 +552,25 @@ function buildSystemPrompt(): string {
 - 社員向けの訓示・情緒表現は使わない（禁止表現は末尾の一覧を参照）
 
 【戦略の思考順序（この順で考える）】
-① 確定SWOTと入力情報から、重要な顧客の未充足課題と市場変化を読み取る。AI提案候補は参考に留め、根拠の中心にしない。
-② その課題について、従来の解決方法の限界を考え、新しい価値提供の可能性を探索する。既存製品・サービスの延長だけに限定しない。
-③ 自社の強み・弱み・競争環境と照合し、「なぜ自社が選ばれるのか」「競合との差別化は何か」を検討する。根拠が不足する場合は「（仮説）」と明記する。
-④ 財務指標、既存事業ポートフォリオ、実行能力、リスクを踏まえ、戦略仮説の優先順位と経営上の選択を示す。
-⑤ 最初の90日で検証・判断すべき事項を提案する。
-顧客課題の解決を目的化せず、最終的に売上成長・収益性・企業価値向上へのつながりを示す。
+① 財務・事業の現状、経営者の意図、SWOTのS・W・O・Tを総合し、企業価値向上を促進・阻害する要因を把握する。AI提案候補は参考に留め、根拠の中心にしない。
+② 企業価値への影響、緊急性、実現可能性、経営資源の制約から、重要課題と機会の優先順位を検討する。
+③ 弱みの克服、収益改善、競争力強化、組織改革、新しい顧客価値の創出などから、当該企業に合理的な戦略仮説を2〜3案導く。種類ごとの件数は固定しない。
+④ 各戦略について、成功の根拠、障害、業績・企業価値への効果、経営上の選択を明確化する。根拠が不足する場合は「（仮説）」と明記する。
+⑤ 優先する理由と、最初の90日で検証・判断すべき事項を提示する。
+財務分析は重要な客観的根拠として扱うが、財務数値だけで原因や戦略結論を断定しない。いずれの戦略も、最終的に売上成長・収益性・企業価値向上への効果を示す。
 
 【勝ち筋の品質基準】
 - 勝ち筋は2〜3案。各案で次の6点が分かるようにする
-  1) 誰の、どんな未解決課題を狙うか
-  2) 従来と異なるどんな価値を提供するか
-  3) なぜ自社が選ばれる可能性があるか
-  4) 実現の障害・弱み・競争リスクは何か
-  5) どの業績・企業価値ドライバー（売上、利益率、ROIC、資本効率など）につながるか
+  1) 重要課題・機会は何か
+  2) どの方向へ戦略を進めるか
+  3) 成功する根拠は何か
+  4) 克服すべき障害・リスクは何か
+  5) どの業績・企業価値ドライバー（売上、利益率、ROIC、資本効率など）を改善するか
   6) 経営者が何を選択・判断すべきか
+- 顧客の未解決課題や「自社が選ばれる理由」は、該当する戦略でのみ具体的に書く。すべての戦略に必須ではない
 - 勝ち筋名は、事業名・顧客・提供価値・指標などの会社固有の具体語を含める
 - 「成長機会の最大化」「収益性の改善」「デジタル技術を活用する」「高付加価値提案を強化する」などの一般論だけでは勝ち筋と認めない
-- 根拠のない新規事業や、既存の強みとつながらない飛躍的な提案は避ける
+- 根拠のない新規事業や、既存の強み・財務の実態とつながらない飛躍的な提案は避ける
 - 各勝ち筋に「やめること」「変えるルール」「優先順位の変更」のいずれかを含める
 - 既存KPI・既存投資・既存事業ポートフォリオのどこが過去の延長なのかを1つ指摘する
 
@@ -584,7 +596,7 @@ function buildSystemPrompt(): string {
 - 論点ID（issue-...）や「North Star未入力」などの内部表現は本文に出さない
 
 【90日アクション】
-- 「調査する」「分析する」だけで終わらせず、経営会議で判断に使う成果物（投資配分案、撤退候補、重点顧客リスト、重点KPI、価格・原価改善案など）まで書く。入力根拠のない数値は書かない
+- 「調査する」「分析する」だけで終わらせず、経営会議で判断に使う成果物（投資配分案、撤退・縮小候補、重点顧客リスト、重点KPI、価格・原価改善案、組織体制案、生産性・品質改善計画など）まで書く。入力根拠のない数値は書かない
 
 【章の書式】
 - 第1章・第3章・第4章：冒頭1行目に「要点：」として、その章の結論を80〜120字で書く
@@ -597,14 +609,14 @@ function buildSystemPrompt(): string {
 - 第2章は次の固定書式の文字列にする。ラベル名は変えない。事業ポートフォリオ判断は任意
 
 第2章：どう戦う（戦略）
-戦略結論：（最も重要な戦略仮説と経営上の優先順位・選択を1〜2文で）
+戦略結論：（最も重要な戦略仮説と、優先する理由・経営上の優先順位・選択を1〜2文で）
 事業ポートフォリオ判断：（事業セグメントがある場合のみ。事業ごとの役割と判断理由）
 1) 勝ち筋：（会社固有の名称）
+   重要課題・機会：...
+   戦略の方向性：...
+   成功する根拠：...（顧客課題や自社が選ばれる理由は該当する場合のみ。根拠が不足する場合は「（仮説）」と明記）
+   克服すべき障害・リスク：...
    狙う価値ドライバー：（改善する業績・企業価値指標）
-   狙う顧客と未解決課題：...
-   提供する新しい価値：...
-   自社が選ばれる理由：...（根拠が不足する場合は「（仮説）」と明記）
-   実現の障害・競争リスク：...
    経営判断：...
    主要戦略：
    - ...
@@ -624,10 +636,11 @@ function buildSystemPrompt(): string {
 
 2) 第2章（戦略）
 - 上の固定書式で書く。勝ち筋は2〜3案
-- 各勝ち筋に「狙う顧客と未解決課題」「提供する新しい価値」「自社が選ばれる理由」「実現の障害・競争リスク」「経営判断」を含める
-- 「経営判断」には、投資配分・撤退/縮小・価格/原価・重点顧客・KPI変更など、経営者が決めるべき事項を具体に書く
+- 各勝ち筋に「重要課題・機会」「戦略の方向性」「成功する根拠」「克服すべき障害・リスク」「経営判断」を含める
+- 顧客課題や「自社が選ばれる理由」は、該当する戦略では成功する根拠に具体的に書く
+- 「経営判断」には、投資配分・撤退/縮小・価格/原価・重点顧客・KPI変更・組織体制など、経営者が決めるべき事項を具体に書く
 - 主要戦略・90日アクション・トレードオフを必ず含める
-- 強み（S）・弱み（W）から対策を最低1件導く
+- SWOTのうち戦略の根拠となる要素を、成功する根拠または根拠キーワードで示す
 
 3) 第3章（未来像）
 - 冒頭「要点：」として、戦略実現後の会社の姿を80〜120字で書く
@@ -644,7 +657,7 @@ function buildSystemPrompt(): string {
 - 2〜3案。各案に次を入れる
   - name：会社固有の勝ち筋名
   - valueDrivers：改善したい業績・企業価値指標
-  - rationale：上の6点を含む根拠（狙う顧客と未解決課題、自社が選ばれる理由を含む）
+  - rationale：上の6点を含む根拠（重要課題・機会、戦略の方向性、成功する根拠を含む）
   - tradeoffs：捨てるもの・副作用
   - scope：会社全体なら "company"、事業部なら "segment"
 
@@ -853,10 +866,10 @@ function buildUserPrompt(
   const companyTargets = compact.companyTargets ?? [];
 
   const swotCompact = {
-    strength: swotBullets(swot?.strength, 3000).text,
-    weakness: swotBullets(swot?.weakness, 3000).text,
-    opportunity: swotBullets(swot?.opportunity, 3000).text,
-    threat: swotBullets(swot?.threat, 3000).text,
+    strength: swotBullets(swot?.strength, SWOT_FIELD_MAX_CHARS).text,
+    weakness: swotBullets(swot?.weakness, SWOT_FIELD_MAX_CHARS).text,
+    opportunity: swotBullets(swot?.opportunity, SWOT_FIELD_MAX_CHARS).text,
+    threat: swotBullets(swot?.threat, SWOT_FIELD_MAX_CHARS).text,
   };
 
   // ★論点ゼロでも生成続行：プロンプトで未入力明記
@@ -971,8 +984,8 @@ ${companyTargets
 - Value: ${mustValue.length ? mustValue.join(' / ') : '（未入力）'}
 - 強みS: ${mustS.length ? mustS.join(' / ') : '（未入力）'}
 - 弱みW: ${mustW.length ? mustW.join(' / ') : '（未入力）'}
-- 機会O: ${mustO.length ? mustO.slice(0, 4).join(' / ') : '（未入力）'}
-- 脅威T: ${mustT.length ? mustT.slice(0, 4).join(' / ') : '（未入力）'}
+- 機会O: ${mustO.length ? mustO.join(' / ') : '（未入力）'}
+- 脅威T: ${mustT.length ? mustT.join(' / ') : '（未入力）'}
 `.trim();
 
   const mustFollow = `【重要（厳守・整合性チェック）】
@@ -982,7 +995,7 @@ ${companyTargets
 - 売上成長率・利益率などから読める事実を第1章で示す。その原因は「（仮説）」と明記する
 【戦略判断MUST】
 - 第2章の1行目は「戦略結論：」で始め、最も重要な戦略仮説と経営上の優先順位・選択を示す
-- 勝ち筋は2〜3案。各案に「狙う顧客と未解決課題」「提供する新しい価値」「自社が選ばれる理由」「実現の障害・競争リスク」「経営判断」を入れる
+- 勝ち筋は2〜3案。各案に「重要課題・機会」「戦略の方向性」「成功する根拠」「克服すべき障害・リスク」「経営判断」を入れる（顧客課題・自社が選ばれる理由は該当する戦略のみ）
 - 「成長機会の最大化」「収益性の改善」「事業構成の転換」など一般語だけの見出しは禁止。事業名・顧客・指標・提供価値を含める
 - 各90日アクションは、調査・分析そのものではなく、経営会議で判断できる成果物名まで書く
 - 入力にない具体数値・制度・保有能力は事実として書かず、「戦略仮説」「検証候補」「判断すべき事項」として書く
@@ -990,7 +1003,7 @@ ${companyTargets
 【整合性MUST】
 - CEO意図が入力されている場合、第1章（現状）に「CEO意図から見た危機・必然性」を1段落含める
 - 第2章では、SWOTを長文引用せず、各ブロックの「根拠キーワード」に最大4語で圧縮する
-- 第2章で強み（S）・弱み（W）から対策を最低1件以上導出する
+- 第2章では、SWOTのうち戦略の根拠となる要素を各勝ち筋の成功する根拠または根拠キーワードで示す
 - ★第2章は各ブロックに「根拠キーワード：... / ... / ... / ...」を必ず含める
 - ★第2章の3ブロックで、同じ根拠キーワードを機械的に繰り返さない
 - 第3章（未来像）には、MVV（特にVision/Mission/Value）のキーワードを最低1つ含める
@@ -1022,10 +1035,10 @@ ${ceoIntentText ? `"${ceoIntentText}"` : '（未入力）'}
 ${mvv.thought ? `- 経営者の思い: ${sanitize(mvv.thought, 500)}` : ''}
 
 【SWOT分析】
-- 強み: ${sanitize(swotCompact.strength, 4000) || '（未入力）'}
-- 弱み: ${sanitize(swotCompact.weakness, 4000) || '（未入力）'}
-- 機会: ${sanitize(swotCompact.opportunity, 4000) || '（未入力）'}
-- 脅威: ${sanitize(swotCompact.threat, 4000) || '（未入力）'}${swotSuggestionsBlock}
+- 強み: ${sanitize(swotCompact.strength, SWOT_FIELD_MAX_CHARS) || '（未入力）'}
+- 弱み: ${sanitize(swotCompact.weakness, SWOT_FIELD_MAX_CHARS) || '（未入力）'}
+- 機会: ${sanitize(swotCompact.opportunity, SWOT_FIELD_MAX_CHARS) || '（未入力）'}
+- 脅威: ${sanitize(swotCompact.threat, SWOT_FIELD_MAX_CHARS) || '（未入力）'}${swotSuggestionsBlock}
 
 ${northStarBlock}
 
@@ -1059,7 +1072,9 @@ function buildRepairSystemPrompt(): string {
 - 修正対象は主に storyDraft[i].body（文字列のみ）
 - 第2章は固定書式を維持し、不足している項目だけを短く追記する
 - 第2章の先頭が「戦略結論：」で始まっていない場合は必ず追加する
-- 各勝ち筋に「狙う顧客と未解決課題」「提供する新しい価値」「自社が選ばれる理由」「経営判断」「根拠キーワード」がない場合は追加する。根拠が不足するものは「（仮説）」と明記する
+- 各勝ち筋に「重要課題・機会」「戦略の方向性」「成功する根拠」「克服すべき障害・リスク」「経営判断」「根拠キーワード」がない場合は追加する。根拠が不足するものは「（仮説）」と明記する
+- 顧客課題や「自社が選ばれる理由」は、該当する戦略にのみ追記する。全戦略へ機械的に追加しない
+- 組織改革・生産性・品質・収益改善などの内部改革戦略は、その対象と手段を維持し、顧客価値の新規創出戦略へ書き換えない
 - 第2章の各ブロックに「根拠キーワード：... / ... / ... / ...」を必ず含める（最大4語）
 - 第2章の3ブロックで、同じ根拠キーワードを機械的に繰り返さない
 - 入力にない数値・制度・保有能力は事実として書かず、「戦略仮説」「検証候補」「判断すべき事項」に書き換える
@@ -1087,8 +1102,8 @@ ${missing.length > 0 ? missing.map((m, i) => `${i + 1}. ${m}`).join('\n') : '（
 - Value: ${must.value.length ? must.value.join(' / ') : '（未入力）'}
 - 強み(S): ${must.s.length ? must.s.join(' / ') : '（未入力）'}
 - 弱み(W): ${must.w.length ? must.w.join(' / ') : '（未入力）'}
-- 機会(O): ${must.o.length ? must.o.slice(0, 4).join(' / ') : '（未入力）'}
-- 脅威(T): ${must.t.length ? must.t.slice(0, 4).join(' / ') : '（未入力）'}
+- 機会(O): ${must.o.length ? must.o.join(' / ') : '（未入力）'}
+- 脅威(T): ${must.t.length ? must.t.join(' / ') : '（未入力）'}
 
 【修正対象JSON（4章すべてを返してください）】
 ${safeStringify(original)}
@@ -1100,6 +1115,58 @@ ${safeStringify(original)}
 - [ ] 各 body は文字列型
 - [ ] 不足要件をすべて満たす内容
 `.trim();
+}
+
+/**
+ * SDK の自動再試行は無効化し、再試行の可否は呼び出し側の時間予算で決める。
+ * タイムアウトは SDK の timeout と中断シグナルの両方で打ち切る。
+ */
+async function createChatCompletion(
+  params: ReturnType<typeof getOpenAIModelParamsForProcess>,
+  messages: ChatCompletionMessageParam[],
+  timeoutMs: number
+) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await openai.chat.completions.create(
+      { ...params, messages },
+      { signal: controller.signal, timeout: timeoutMs, maxRetries: 0 }
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function describeError(e: unknown) {
+  const err = e as { name?: unknown; status?: unknown; message?: unknown } | null;
+  return {
+    name: typeof err?.name === 'string' ? err.name : undefined,
+    status: typeof err?.status === 'number' ? err.status : undefined,
+    message: typeof err?.message === 'string' ? err.message : String(e),
+  };
+}
+
+function draftFailureResponse(e: unknown, totalDurationMs: number) {
+  const isTimeout = isTimeoutError(e);
+  return NextResponse.json(
+    {
+      ok: false,
+      stage: isTimeout ? 'openai-timeout' : 'openai-failed',
+      error: isTimeout ? 'AI生成が時間内に完了しませんでした' : 'AI生成に失敗しました',
+      details: { totalDurationMs, isTimeout, errorStatus: describeError(e).status ?? null },
+    },
+    { status: isTimeout ? 504 : 502 }
+  );
+}
+
+/** 4章がすべて本文を持ち、勝ち筋候補が1件以上あるときだけ完全とみなす */
+function isCompleteDraftOutput(story: { body: string }[], winPatternCount: number): boolean {
+  return (
+    story.length === CHAPTER_TITLES.length &&
+    story.every((ch) => ch.body.trim() !== '' && ch.body !== CHAPTER_FALLBACK) &&
+    winPatternCount > 0
+  );
 }
 
 /* ===== APIハンドラ ===== */
@@ -1241,185 +1308,125 @@ export async function POST(req: NextRequest) {
       systemPreview: systemPrompt.slice(0, 200),
     });
 
-    const controller = new AbortController();
-    const TIMEOUT_MS = 90000; // ★ 延長：55秒 → 90秒
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const deadlineAt = t0 + DRAFT_TOTAL_BUDGET_MS;
+    const remainingMs = () => remainingBudgetMs(deadlineAt, Date.now());
+    const messages: ChatCompletionMessageParam[] = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ];
 
-    let raw = '';
-    let tOpenAIStart = 0;
+    // 【入力充足度ログ】OpenAI呼び出し直前に観測ログを出力
+    const requestId = req.headers.get('x-request-id') || `req_${Date.now()}`;
+    const strategyDataId = requestedStrategyDataId;
+    const hasCompanyInfo = !!(compact.mvv.mission || compact.mvv.vision || compact.mvv.value);
+    const hasStage1Context = !!(compact.mvv.mission || compact.mvv.vision);
+    const hasStage2Answers = compact.issueBlocks.length > 0;
+    const hasStage2Story = false; // stage2-draft では既に完成ストーリーはない
+    const hasStage3Context = compact.businessSegments.length > 0;
+    const hasStage4Context = false; // stage2-draft では执行計画ない
 
-    try {
-      const elapsedMs = Date.now() - t0;
-      const systemPromptLen = systemPrompt.length;
-      const userPromptLen = userPrompt.length;
+    const inputFlags = [hasCompanyInfo, hasStage1Context, hasStage2Answers, hasStage2Story, hasStage3Context, hasStage4Context];
+    const meaningfulInputScore = Math.round((inputFlags.filter(Boolean).length / inputFlags.length) * 100);
 
-      console.log('[stage2/generate-draft] ★BEFORE OPENAI 1ST ATTEMPT★', {
-        timeoutMs: TIMEOUT_MS,
-        elapsedMs: `${elapsedMs}ms`,
-        systemPromptLen,
-        userPromptLen,
-        totalPromptLen: systemPromptLen + userPromptLen,
-        compactInfo: {
-          issueBlocksCount: compact.issueBlocks.length,
-          swotCounts: {
-            S: compact.swot.S.length,
-            W: compact.swot.W.length,
-            O: compact.swot.O.length,
-            T: compact.swot.T.length,
-          },
-          segmentsCount: compact.businessSegments.length,
-        },
-      });
+    const suspiciousKeywords = checkSuspiciousKeywords(userPrompt);
 
-      // 【入力充足度ログ】OpenAI呼び出し直前に観測ログを出力
-      const requestId = req.headers.get('x-request-id') || `req_${Date.now()}`;
-      const strategyDataId = requestedStrategyDataId;
-      const hasCompanyInfo = !!(compact.mvv.mission || compact.mvv.vision || compact.mvv.value);
-      const hasStage1Context = !!(compact.mvv.mission || compact.mvv.vision);
-      const hasStage2Answers = compact.issueBlocks.length > 0;
-      const hasStage2Story = false; // stage2-draft では既に完成ストーリーはない
-      const hasStage3Context = compact.businessSegments.length > 0;
-      const hasStage4Context = false; // stage2-draft では执行計画ない
+    logInputGuard({
+      requestId,
+      apiName: 'stage2/generate-draft',
+      companyId: strategyCompanyId,
+      strategyId: strategyDataId,
+      meaningfulInputScore,
+      hasCompanyInfo,
+      hasStage1Context,
+      hasStage2Answers,
+      hasStage2Story,
+      hasStage3Context,
+      hasStage4Context,
+      promptLength: userPrompt.length,
+      suspiciousKeywordFlags: suspiciousKeywords,
+    });
 
-      const inputFlags = [hasCompanyInfo, hasStage1Context, hasStage2Answers, hasStage2Story, hasStage3Context, hasStage4Context];
-      const meaningfulInputScore = Math.round((inputFlags.filter(Boolean).length / inputFlags.length) * 100);
-
-      const suspiciousKeywords = checkSuspiciousKeywords(userPrompt);
-
-      logInputGuard({
-        requestId,
-        apiName: 'stage2/generate-draft',
-        companyId: strategyCompanyId,
-        strategyId: strategyDataId,
-        meaningfulInputScore,
-        hasCompanyInfo,
-        hasStage1Context,
-        hasStage2Answers,
-        hasStage2Story,
-        hasStage3Context,
-        hasStage4Context,
-        promptLength: userPromptLen,
-        suspiciousKeywordFlags: suspiciousKeywords,
-      });
-
-      tOpenAIStart = Date.now();
-      const draftParams = getOpenAIModelParamsForProcess('stage2Draft', {
-        temperature: 0.25,
-      });
-      if (process.env.NODE_ENV === 'development' || process.env.DEBUG_AI_MODELS === '1') {
-        console.log(`[AI] stage2-draft → ${draftParams.model}`);
-      }
-      const completion = await openai.chat.completions.create(
-        {
-          ...draftParams,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt },
-          ],
-        },
-        { signal: controller.signal }
-      );
-
-      raw = completion.choices?.[0]?.message?.content?.trim() || '';
-      const dur = Date.now() - tOpenAIStart;
-
-      const choice = completion.choices?.[0];
-      console.log('[stage2/generate-draft] ★OPENAI RESPONSE DIAGNOSTIC★', {
-        finishReason: choice?.finish_reason,
-        hasContent: Boolean(choice?.message?.content),
-        contentLength: choice?.message?.content?.length ?? 0,
-        promptTokens: completion.usage?.prompt_tokens,
-        completionTokens: completion.usage?.completion_tokens,
-        totalTokens: completion.usage?.total_tokens,
-      });
-
-      console.log('[stage2/generate-draft] ★AFTER OPENAI 1ST ATTEMPT SUCCESS★', {
-        durationMs: `${dur}ms`,
-        rawLen: raw.length,
-        hasContent: !!raw,
-      });
-    } catch (e: any) {
-      const dur = tOpenAIStart ? Date.now() - tOpenAIStart : undefined;
-      console.error('[stage2/generate-draft] ★1ST OPENAI ATTEMPT FAILED★', {
-        duration: dur ? `${dur}ms` : 'unknown',
-        errorName: e?.name,
-        errorMessage: e?.message || String(e),
-        isAbortError: e?.name === 'AbortError',
-        errorCode: e?.code,
-      });
-
-      try {
-        const elapsedMs = Date.now() - t0;
-        console.log('[stage2/generate-draft] ★BEFORE OPENAI 2ND ATTEMPT (retry without response_format)★', {
-          timeoutMs: TIMEOUT_MS,
-          elapsedMs: `${elapsedMs}ms`,
-          reason: 'retry without response_format',
-        });
-
-        const tOpenAI2 = Date.now();
-        const retryParams = getOpenAIModelParamsForProcess('stage2Draft', {
-          temperature: 0.25,
-        });
-        const completion2 = await openai.chat.completions.create(
-          {
-            ...retryParams,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt },
-            ],
-          },
-          { signal: controller.signal }
-        );
-
-        raw = completion2.choices?.[0]?.message?.content?.trim() || '';
-        const tOpenAI2Dur = Date.now() - tOpenAI2;
-
-        const choice2 = completion2.choices?.[0];
-        console.log('[stage2/generate-draft] ★OPENAI RESPONSE DIAGNOSTIC (2ND ATTEMPT)★', {
-          finishReason: choice2?.finish_reason,
-          hasContent: Boolean(choice2?.message?.content),
-          contentLength: choice2?.message?.content?.length ?? 0,
-          promptTokens: completion2.usage?.prompt_tokens,
-          completionTokens: completion2.usage?.completion_tokens,
-          totalTokens: completion2.usage?.total_tokens,
-        });
-
-        console.log('[stage2/generate-draft] ★AFTER OPENAI 2ND ATTEMPT SUCCESS★', {
-          durationMs: `${tOpenAI2Dur}ms`,
-          rawLen: raw.length,
-          hasContent: !!raw,
-        });
-      } catch (e2: any) {
-        const totalDurationMs = Date.now() - t0;
-        clearTimeout(timer);
-        console.error('[stage2/generate-draft] ★BOTH OPENAI ATTEMPTS FAILED★', {
-          attempt1_error: e?.message || String(e),
-          attempt2_error: e2?.message || String(e2),
-          attempt2_name: e2?.name,
-          attempt2_code: e2?.code,
-          totalDurationMs: `${totalDurationMs}ms`,
-          isAbortError: e2?.name === 'AbortError',
-          stack: e2?.stack ? e2.stack.substring(0, 500) : 'no stack',
-        });
-        return NextResponse.json(
-          {
-            ok: false,
-            stage: 'openai-failed',
-            error: e2?.message || 'OpenAI API error',
-            details: {
-              attempt1: e?.message,
-              attempt2: e2?.message,
-              attempts: 2,
-              totalDurationMs,
-              isTimeout: e2?.name === 'AbortError',
-            },
-          },
-          { status: 500 }
-        );
-      }
-    } finally {
-      clearTimeout(timer);
+    const draftParams = getOpenAIModelParamsForProcess('stage2Draft', { temperature: 0.25 });
+    if (process.env.NODE_ENV === 'development' || process.env.DEBUG_AI_MODELS === '1') {
+      console.log(`[AI] stage2-draft → ${draftParams.model}`);
     }
+
+    console.log('[stage2/generate-draft] ★BEFORE OPENAI 1ST ATTEMPT★', {
+      budgetMs: DRAFT_TOTAL_BUDGET_MS,
+      elapsedMs: `${Date.now() - t0}ms`,
+      remainingMs: remainingMs(),
+      timeoutMs: initialAttemptTimeoutMs(remainingMs()),
+      systemPromptLen: systemPrompt.length,
+      userPromptLen: userPrompt.length,
+      totalPromptLen,
+      compactInfo: {
+        issueBlocksCount: compact.issueBlocks.length,
+        swotCounts: {
+          S: compact.swot.S.length,
+          W: compact.swot.W.length,
+          O: compact.swot.O.length,
+          T: compact.swot.T.length,
+        },
+        segmentsCount: compact.businessSegments.length,
+      },
+    });
+
+    let completion: Awaited<ReturnType<typeof createChatCompletion>>;
+    let tOpenAIStart = Date.now();
+    try {
+      completion = await createChatCompletion(draftParams, messages, initialAttemptTimeoutMs(remainingMs()));
+    } catch (e: unknown) {
+      const first = describeError(e);
+      console.error('[stage2/generate-draft] ★1ST OPENAI ATTEMPT FAILED★', {
+        durationMs: `${Date.now() - tOpenAIStart}ms`,
+        remainingMs: remainingMs(),
+        errorName: first.name,
+        errorStatus: first.status,
+        errorMessage: first.message,
+      });
+
+      const retryMs = isTransientError(e) ? retryTimeoutMs(remainingMs()) : null;
+      if (retryMs === null) {
+        return draftFailureResponse(e, Date.now() - t0);
+      }
+
+      console.log('[stage2/generate-draft] ★BEFORE OPENAI 2ND ATTEMPT★', {
+        timeoutMs: retryMs,
+        remainingMs: remainingMs(),
+        reason: 'transient error',
+      });
+      tOpenAIStart = Date.now();
+      try {
+        completion = await createChatCompletion(draftParams, messages, retryMs);
+      } catch (e2: unknown) {
+        const second = describeError(e2);
+        console.error('[stage2/generate-draft] ★BOTH OPENAI ATTEMPTS FAILED★', {
+          durationMs: `${Date.now() - tOpenAIStart}ms`,
+          remainingMs: remainingMs(),
+          attempt1_error: describeError(e).message,
+          attempt2_name: second.name,
+          attempt2_status: second.status,
+          attempt2_error: second.message,
+        });
+        return draftFailureResponse(e2, Date.now() - t0);
+      }
+    }
+
+    const raw = completion.choices?.[0]?.message?.content?.trim() || '';
+    const choice = completion.choices?.[0];
+    console.log('[stage2/generate-draft] ★OPENAI RESPONSE DIAGNOSTIC★', {
+      finishReason: choice?.finish_reason,
+      hasContent: Boolean(choice?.message?.content),
+      contentLength: choice?.message?.content?.length ?? 0,
+      promptTokens: completion.usage?.prompt_tokens,
+      completionTokens: completion.usage?.completion_tokens,
+      totalTokens: completion.usage?.total_tokens,
+    });
+    console.log('[stage2/generate-draft] ★AFTER OPENAI SUCCESS★', {
+      durationMs: `${Date.now() - tOpenAIStart}ms`,
+      remainingMs: remainingMs(),
+      rawLen: raw.length,
+    });
 
     console.log('[stage2/generate-draft] ★JSON PARSE START★', { rawLen: raw.length });
 
@@ -1455,12 +1462,11 @@ export async function POST(req: NextRequest) {
     }
 
     const normalizedStory = CHAPTER_TITLES.map((title, i) => {
-      const fallback = '（この章は未生成です）';
       const ch = (storyDraft as any[])[i] ?? null;
-      const bodyText = normalizeChapterBody(ch, fallback);
+      const bodyText = normalizeChapterBody(ch, CHAPTER_FALLBACK);
       return {
         title,
-        body: sanitize(bodyText || fallback, 8000),
+        body: sanitize(bodyText || CHAPTER_FALLBACK, 8000),
       };
     });
 
@@ -1487,113 +1493,114 @@ export async function POST(req: NextRequest) {
       scope: wp.scope === 'segment' ? 'segment' : 'company',
     }));
 
-    if (normalizedWinPatterns.length === 0) {
-      normalizedWinPatterns.push({
-        id: generateId(),
-        name: '収益性改善',
-        valueDrivers: ['営業利益率', 'ROIC'],
-        rationale: '論点から導かれる基本的な改善方向',
-        tradeoffs: '短期的な成長投資とのバランス',
-        scope: 'company',
+    const aiWinPatternCount = normalizedWinPatterns.length;
+
+    if (!isCompleteDraftOutput(normalizedStory, aiWinPatternCount)) {
+      console.error('[stage2/generate-draft] ★INCOMPLETE OUTPUT★', {
+        chapterLengths: normalizedStory.map((ch) => ch.body.length),
+        winPatternCount: aiWinPatternCount,
       });
+      return NextResponse.json(
+        { ok: false, stage: 'invalid-output', error: 'AI出力が不完全です（章または勝ち筋候補が欠けています）' },
+        { status: 502 }
+      );
     }
 
-    // ===== 反映不足チェック → 必要なら2nd passで最小修正 =====
+    // ===== 反映不足チェック → 時間が残っていれば2nd passで最小修正 =====
     const must = buildMustQuotePhrases(input);
     const missing = computeCoverageIssues(normalizedStory, must);
 
     let finalStory = normalizedStory;
 
     if (missing.length > 0) {
-      if (process.env.NODE_ENV === 'development' || process.env.DEBUG_AI_MODELS === '1') {
-        console.log(`[AI] stage2-draft-repair → gpt-5.6-luna`);
-      }
-      console.log('[stage2/generate-draft] ★REPAIR PHASE START★', {
-        missingCount: missing.length,
-        missing: missing.slice(0, 3),
-      });
-
-      const repairController = new AbortController();
-      const repairTimer = setTimeout(() => repairController.abort(), 35000);
-
-      const repairPayload = {
-        storyDraft: finalStory,
-        winPatternsCandidate: normalizedWinPatterns,
-      };
-
-      try {
-        console.log('[stage2/generate-draft] ★BEFORE REPAIR OPENAI CALL★', {
-          payloadSize: safeStringify(repairPayload).length,
+      const repairMs = repairTimeoutMs(remainingMs());
+      if (repairMs === null) {
+        console.warn('[stage2/generate-draft] ★REPAIR SKIPPED（時間予算不足）→ 初回結果を採用★', {
           missingCount: missing.length,
+          remainingMs: remainingMs(),
+        });
+      } else {
+        console.log('[stage2/generate-draft] ★REPAIR PHASE START★', {
+          missingCount: missing.length,
+          missing: missing.slice(0, 3),
+          timeoutMs: repairMs,
+          remainingMs: remainingMs(),
         });
 
-        const repairParams = getOpenAIModelParamsForProcess('stage2DraftRepair', {
-          temperature: 0.0,
-        });
-        const completionRepair = await openai.chat.completions.create(
-          {
-            ...repairParams,
-            messages: [
+        try {
+          const repairParams = getOpenAIModelParamsForProcess('stage2DraftRepair', { temperature: 0.0 });
+          const completionRepair = await createChatCompletion(
+            repairParams,
+            [
               { role: 'system', content: buildRepairSystemPrompt() },
-              { role: 'user', content: buildRepairUserPrompt(repairPayload, missing, must) },
+              {
+                role: 'user',
+                content: buildRepairUserPrompt(
+                  { storyDraft: normalizedStory, winPatternsCandidate: normalizedWinPatterns },
+                  missing,
+                  must
+                ),
+              },
             ],
-          },
-          { signal: repairController.signal }
-        );
+            repairMs
+          );
 
-        const raw2 = completionRepair.choices?.[0]?.message?.content?.trim() || '';
-        console.log('[stage2/generate-draft] ★AFTER REPAIR OPENAI CALL★', {
-          raw2Len: raw2.length,
-          raw2Preview: raw2.slice(0, 200),
-        });
-
-        const { parsed: parsed2, diagnostic: diag2 } = extractJsonLoose(raw2);
-        console.log('[stage2/generate-draft] ★REPAIR JSON PARSE RESULT★', {
-          diagnostic: diag2,
-          hasStoryDraft: !!parsed2?.storyDraft,
-          storyDraftIsArray: Array.isArray(parsed2?.storyDraft),
-        });
-
-        if (parsed2?.storyDraft && Array.isArray(parsed2.storyDraft)) {
-          const repairedStory = CHAPTER_TITLES.map((title, i) => {
-            const fallback = '（この章は未生成です）';
-            const ch = (parsed2.storyDraft as any[])[i] ?? null;
-            const bodyText = normalizeChapterBody(ch, fallback);
-            return {
-              title,
-              body: sanitize(bodyText || fallback, 8000),
-            };
+          const raw2 = completionRepair.choices?.[0]?.message?.content?.trim() || '';
+          console.log('[stage2/generate-draft] ★AFTER REPAIR OPENAI CALL★', {
+            raw2Len: raw2.length,
+            remainingMs: remainingMs(),
           });
 
-          const missingAfter = computeCoverageIssues(repairedStory, must);
-          if (missingAfter.length <= missing.length) {
-            finalStory = repairedStory;
-            console.log('[stage2/generate-draft] ★REPAIR APPLIED★', {
-              missingBefore: missing.length,
-              missingAfter: missingAfter.length,
-              improvement: missing.length - missingAfter.length,
+          const { parsed: parsed2, diagnostic: diag2 } = extractJsonLoose(raw2);
+          console.log('[stage2/generate-draft] ★REPAIR JSON PARSE RESULT★', {
+            diagnostic: diag2,
+            hasStoryDraft: !!parsed2?.storyDraft,
+            storyDraftIsArray: Array.isArray(parsed2?.storyDraft),
+          });
+
+          if (parsed2?.storyDraft && Array.isArray(parsed2.storyDraft)) {
+            const repairedStory = CHAPTER_TITLES.map((title, i) => {
+              const ch = (parsed2.storyDraft as any[])[i] ?? null;
+              const bodyText = normalizeChapterBody(ch, CHAPTER_FALLBACK);
+              return {
+                title,
+                body: sanitize(bodyText || CHAPTER_FALLBACK, 8000),
+              };
             });
+
+            const missingAfter = computeCoverageIssues(repairedStory, must);
+            if (!isCompleteDraftOutput(repairedStory, aiWinPatternCount)) {
+              console.warn('[stage2/generate-draft] ★REPAIR REJECTED (incomplete)★', {
+                chapterLengths: repairedStory.map((ch) => ch.body.length),
+              });
+            } else if (missingAfter.length <= missing.length) {
+              finalStory = repairedStory;
+              console.log('[stage2/generate-draft] ★REPAIR APPLIED★', {
+                missingBefore: missing.length,
+                missingAfter: missingAfter.length,
+                improvement: missing.length - missingAfter.length,
+              });
+            } else {
+              console.warn('[stage2/generate-draft] ★REPAIR REJECTED (worse)★', {
+                missingBefore: missing.length,
+                missingAfter: missingAfter.length,
+              });
+            }
           } else {
-            console.warn('[stage2/generate-draft] ★REPAIR REJECTED (worse)★', {
-              missingBefore: missing.length,
-              missingAfter: missingAfter.length,
+            console.warn('[stage2/generate-draft] ★REPAIR PARSE FAILED → KEEP ORIGINAL★', {
+              diagnostic: diag2,
+              raw2Len: raw2.length,
+              raw2First500: raw2.slice(0, 500),
             });
           }
-        } else {
-          console.warn('[stage2/generate-draft] ★REPAIR PARSE FAILED → KEEP ORIGINAL★', {
-            diagnostic: diag2,
-            raw2Len: raw2.length,
-            raw2First500: raw2.slice(0, 500),
+        } catch (e: unknown) {
+          const repairError = describeError(e);
+          console.error('[stage2/generate-draft] ★REPAIR CALL FAILED → KEEP ORIGINAL★', {
+            errorMessage: repairError.message,
+            errorName: repairError.name,
+            errorStatus: repairError.status,
           });
         }
-      } catch (e: any) {
-        console.error('[stage2/generate-draft] ★REPAIR CALL FAILED → KEEP ORIGINAL★', {
-          errorMessage: e?.message || String(e),
-          errorName: e?.name,
-          isAbortError: e?.name === 'AbortError',
-        });
-      } finally {
-        clearTimeout(repairTimer);
       }
     }
 
@@ -1622,25 +1629,38 @@ export async function POST(req: NextRequest) {
       at: new Date().toISOString(),
     });
 
-    // ★ 監査ログ記録
+    // ★ 監査ログ記録（書き込みが遅くても、待ち時間を上限内に抑えて応答する）
+    let auditTimer: ReturnType<typeof setTimeout> | undefined;
     try {
-      await logAuditEvent({
-        companyId: strategyCompanyId,
-        actorUserId: userId,
-        action: 'stage2_generate_draft',
-        targetType: 'strategy_data',
-        metadata: {
-          storyDraftCount: finalStory.length,
-          winPatternsCount: normalizedWinPatterns.length,
-          issueBlocksCount: input.issueBlocks?.length || 0,
-          hasMVV: !!input.mvv?.mission,
-          hasSWOT: !!(input.swot?.strength || input.swot?.weakness || input.swot?.opportunity || input.swot?.threat),
-          totalDurationMs,
-        },
-        ...extractAuditMetadata(req),
-      });
+      const auditResult = await Promise.race([
+        logAuditEvent({
+          companyId: strategyCompanyId,
+          actorUserId: userId,
+          action: 'stage2_generate_draft',
+          targetType: 'strategy_data',
+          metadata: {
+            storyDraftCount: finalStory.length,
+            winPatternsCount: normalizedWinPatterns.length,
+            issueBlocksCount: input.issueBlocks?.length || 0,
+            hasMVV: !!input.mvv?.mission,
+            hasSWOT: !!(input.swot?.strength || input.swot?.weakness || input.swot?.opportunity || input.swot?.threat),
+            totalDurationMs,
+          },
+          ...extractAuditMetadata(req),
+        }).then(() => 'written' as const),
+        new Promise<'timeout'>((resolve) => {
+          auditTimer = setTimeout(() => resolve('timeout'), DRAFT_AUDIT_WAIT_MS);
+        }),
+      ]);
+      if (auditResult === 'timeout') {
+        console.warn('[stage2/generate-draft] audit log wait exceeded; responding without confirmation', {
+          waitMs: DRAFT_AUDIT_WAIT_MS,
+        });
+      }
     } catch (auditErr) {
       console.warn('[stage2/generate-draft] audit log failed (non-blocking):', auditErr);
+    } finally {
+      clearTimeout(auditTimer);
     }
 
     return NextResponse.json(result, {
