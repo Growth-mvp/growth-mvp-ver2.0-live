@@ -1528,7 +1528,7 @@ function DraftStoryPanel({ storyDraft, issueBlocks }: { storyDraft: StoryChapter
         {storyDraft.map((chapter, i) => (
           <details
             key={i}
-            open={i < 2}
+            open
             className="group rounded-xl border border-gray-200 xl:dark:border-gray-700 bg-white/75 xl:dark:bg-gray-900/25 p-4"
           >
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
@@ -2439,6 +2439,13 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   // Active tab
   const [activeTab, setActiveTab] = useState<TabId>('input');
 
+  const pageTopRef = useRef<HTMLElement | null>(null);
+  const [draftScrollSeq, setDraftScrollSeq] = useState(0);
+  useEffect(() => {
+    if (draftScrollSeq === 0) return;
+    pageTopRef.current?.scrollIntoView({ block: 'start' });
+  }, [draftScrollSeq]);
+
   // ★ editingStory の同期（タブ表示時＆store更新時）
   useEffect(() => {
     if (activeTab === 'final' && displayingStory.length > 0) {
@@ -3342,6 +3349,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
         // Auto navigate to Draft tab
         setActiveTab('draft');
+        setDraftScrollSeq((n) => n + 1);
 
         const stage2State: Stage2State = {
           ceoIntent,
@@ -4096,7 +4104,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   return (
     <main className="min-h-screen bg-gradient-to-b from-white to-slate-50/60 xl:dark:from-zinc-950 xl:dark:to-zinc-900">
       {/* Header */}
-      <header className="sticky top-0 z-10 bg-white/80 xl:dark:bg-zinc-900/80 backdrop-blur border-b border-black/5 xl:dark:border-white/5">
+      <header ref={pageTopRef} className="sticky top-0 z-10 bg-white/80 xl:dark:bg-zinc-900/80 backdrop-blur border-b border-black/5 xl:dark:border-white/5">
         <div className="max-w-6xl mx-auto px-4 md:px-6 py-4 flex items-center justify-between gap-6">
           <div className="flex-1">
             <h1 className="text-2xl font-bold tracking-tight text-gray-900 xl:dark:text-gray-100">
