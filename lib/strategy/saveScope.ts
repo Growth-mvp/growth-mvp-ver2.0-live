@@ -1,12 +1,13 @@
-import { useStrategyStore } from '@/store/strategyStore';
+import { getStrategyScopeEpoch, useStrategyStore } from '@/store/strategyStore';
 import { useUserStore } from '@/store/userStore';
 
 /**
  * ストアを経由しない直接保存の会社・戦略スコープ。
- * 会社IDは A→B→A と戻ることがあるため、切替ごとに増える世代番号で照合する。
+ * 会社IDは A→B→A と戻ることがあるため、切替・リセットごとに増える世代番号で照合する。
  */
 export type SaveScope = {
   generation: number;
+  epoch: number;
   userId: string;
   companyId: string;
   strategyId: string | null;
@@ -36,11 +37,11 @@ export function captureSaveScope(): SaveScope | null {
   const companyId = user.companyId ?? null;
   if (!userId || !companyId) return null;
   if (strategy.companyId !== companyId || strategy.pendingCompanyId) return null;
-  return { generation, userId, companyId, strategyId: strategy.strategyId ?? null };
+  return { generation, epoch: getStrategyScopeEpoch(), userId, companyId, strategyId: strategy.strategyId ?? null };
 }
 
 export function isSaveScopeCurrent(scope: SaveScope): boolean {
-  if (scope.generation !== generation) return false;
+  if (scope.generation !== generation || scope.epoch !== getStrategyScopeEpoch()) return false;
   const user = useUserStore.getState();
   const strategy = useStrategyStore.getState();
   if (user.companyId !== scope.companyId) return false;

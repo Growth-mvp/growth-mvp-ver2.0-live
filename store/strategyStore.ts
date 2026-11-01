@@ -179,6 +179,23 @@ let __saveChain: Promise<void> = Promise.resolve();
 
 export const COMPANY_SWITCH_SAVE_MESSAGE =
   '会社の切り替え中のため、保存されませんでした。切り替えが完了してから、もう一度保存してください。';
+export const COMPANY_SCOPE_MISSING_SAVE_MESSAGE =
+  '会社が選択されていないため、保存されませんでした。会社を選択してから、もう一度保存してください。';
+export const SCOPE_UNVERIFIED_SAVE_MESSAGE =
+  '会社情報の確認が完了していないため、保存されませんでした。読み込みが完了してから、もう一度保存してください。';
+export const SCOPE_LOAD_FAILED_SAVE_MESSAGE =
+  '会社データの読み込みに失敗したため、保存されませんでした。自動で再試行します。改善しない場合は保存ボタンを押して再度お試しください。';
+
+const SCOPE_SAVE_MESSAGES: readonly string[] = [
+  COMPANY_SWITCH_SAVE_MESSAGE,
+  COMPANY_SCOPE_MISSING_SAVE_MESSAGE,
+  SCOPE_UNVERIFIED_SAVE_MESSAGE,
+  SCOPE_LOAD_FAILED_SAVE_MESSAGE,
+];
+
+function isScopeSaveMessage(message: string | undefined): boolean {
+  return !!message && SCOPE_SAVE_MESSAGES.includes(message);
+}
 
 function enqueueSave<T>(fn: () => Promise<T>): Promise<T> {
   const run = async () => fn();
@@ -631,6 +648,8 @@ export type StrategyState = {
 
   saveStrategyData: (opts?: { reason?: string; force?: boolean }) => Promise<SaveResult>;
   refetchFromServer: () => Promise<void>;
+  /** 会社データの読込を手動で再試行する（失敗・タイムアウト後の復旧用） */
+  retryScopeLoad: () => void;
   refetchOnceFromServer: () => Promise<void>;
   resetDisplayedCompanyData: () => void;
   deleteAllOnServer: (expectedCompanyId?: string) => Promise<void>;
@@ -1160,12 +1179,13 @@ async function ensureParentExists(): Promise<void> {
   __ensureParentInflight = enqueueSave(async () => {
     const s = useStrategyStore.getState();
     const userId = useUserStore.getState().user?.id;
-    const companyId = s.companyId || s.pendingCompanyId || useUserStore.getState().companyId;
+    // 切替中（保留の会社がある）は親行を作らない。表示中の店舗データを保留中の会社の行へ書かないため。
+    const companyId = s.pendingCompanyId ? null : s.companyId;
 
     if (DEBUG) console.log('[strategyStore] ensureParentExists()', { userId, companyId });
 
     if (!userId || !companyId) {
-      console.warn('[strategyStore] ensureParentExists skipped: missing ids');
+      console.warn('[strategyStore] ensureParentExists skipped: missing ids or switching');
       return;
     }
 
@@ -1225,6 +1245,36 @@ function requestRefetch(source: string): void {
   });
 }
 
+/** 保存が会社スコープの未確定で拒否されたとき、読込を（再）要求する。読込の成功で保存は再開される。 */
+function requestScopeLoadForRefusedSave(): void {
+  if (__refetchRetryTimer) return;
+  requestRefetch('save-refused');
+}
+
+const SCOPE_LOAD_TIMEOUT_MS = 15000;
+const SCOPE_LOAD_RETRY_LIMIT = 6;
+let __scopeLoadRetries = 0;
+
+class LoadTimeoutError extends Error {}
+
+function withLoadTimeout<T>(task: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new LoadTimeoutError('会社データの読み込みがタイムアウトしました')),
+      SCOPE_LOAD_TIMEOUT_MS,
+    );
+  });
+  return Promise.race([task, timeout]).finally(() => clearTimeout(timer));
+}
+
+function scheduleScopeLoadRetry(): void {
+  if (__scopeLoadRetries >= SCOPE_LOAD_RETRY_LIMIT) return;
+  const delayMs = REFETCH_RETRY_BASE_DELAY_MS * 2 ** __scopeLoadRetries;
+  __scopeLoadRetries += 1;
+  scheduleRefetchRetry(delayMs);
+}
+
 /* ===== refetch 直列化・会社スコープ判定 ===== */
 const refetchCoordinator = createRefetchCoordinator(() =>
   useStrategyStore.getState().refetchOnceFromServer(),
@@ -1249,6 +1299,15 @@ let __swotWriteCount = 0;
 /* ===== 永続化された会社データの表示ゲート ===== */
 // 永続化ストアに会社データが残っていた場合、サーバーで所属が確認されるまで表示しない。
 let __persistedSnapshot: StrategyState | null = null;
+
+export function getStrategyScopeEpoch(): number {
+  return __scopeEpoch;
+}
+
+function isCompanyWriteCurrent(companyId: string, epoch: number): boolean {
+  const s = useStrategyStore.getState();
+  return epoch === __scopeEpoch && s.companyId === companyId && !s.pendingCompanyId;
+}
 
 function isSelectionVerified(companyId: string | null): boolean {
   const u = useUserStore.getState();
@@ -1884,11 +1943,13 @@ export const useStrategyStore = create<StrategyState>()(
       ...emptyData,
 
       reset: () => {
+        __scopeEpoch += 1;
         __persistedSnapshot = null;
         set({ ...emptyData });
       },
       resetAll: () => {
         if (DEBUG) console.log('[strategyStore] resetAll() called');
+        __scopeEpoch += 1;
         __persistedSnapshot = null;
         set({ ...emptyData });
       },
@@ -2042,10 +2103,12 @@ export const useStrategyStore = create<StrategyState>()(
         (async () => {
           const s = get();
           const userId = useUserStore.getState().user?.id;
-          const companyId = s.companyId || s.pendingCompanyId || useUserStore.getState().companyId;
-          if (!userId || !companyId) return;
+          const companyId = s.companyId;
+          if (!userId || !companyId || s.pendingCompanyId) return;
+          const epoch = getStrategyScopeEpoch();
 
           await ensureParentExists();
+          if (!isCompanyWriteCurrent(companyId, epoch)) return;
           try {
             await saveFinalStory(userId, get().finalStory, { companyId });
           } catch (e) {
@@ -2067,10 +2130,12 @@ export const useStrategyStore = create<StrategyState>()(
         (async () => {
           const s = get();
           const userId = useUserStore.getState().user?.id;
-          const companyId = s.companyId || s.pendingCompanyId || useUserStore.getState().companyId;
-          if (!userId || !companyId) return;
+          const companyId = s.companyId;
+          if (!userId || !companyId || s.pendingCompanyId) return;
+          const epoch = getStrategyScopeEpoch();
 
           await ensureParentExists();
+          if (!isCompanyWriteCurrent(companyId, epoch)) return;
           try {
             await saveStoryAnswers2(userId, get().answers2 as any, { companyId });
           } catch (e) {
@@ -3452,6 +3517,8 @@ export const useStrategyStore = create<StrategyState>()(
 
           // ★ 永続化から復元した会社データは、所属が確認されて DB から読み直すまで保存しない
           if (__persistedSnapshot) {
+            set({ saveError: SCOPE_UNVERIFIED_SAVE_MESSAGE });
+            requestScopeLoadForRefusedSave();
             return { ok: false, skipped: true, reason: 'persisted_scope_unverified' };
           }
           // ★ 会社切替中（切替先の読込が確定する前）は force でも保存を開始しない。
@@ -3460,7 +3527,11 @@ export const useStrategyStore = create<StrategyState>()(
           const isCompanySwitching =
             !!state0.pendingCompanyId || (!!effectiveCompanyId && state0.companyId !== effectiveCompanyId);
           if (isCompanySwitching) {
-            if (get().saveError !== COMPANY_SWITCH_SAVE_MESSAGE) set({ saveError: COMPANY_SWITCH_SAVE_MESSAGE });
+            const currentSaveError = get().saveError;
+            if (currentSaveError !== COMPANY_SWITCH_SAVE_MESSAGE && currentSaveError !== SCOPE_LOAD_FAILED_SAVE_MESSAGE) {
+              set({ saveError: COMPANY_SWITCH_SAVE_MESSAGE });
+            }
+            if (state0.pendingCompanyId) requestScopeLoadForRefusedSave();
             console.warn('[saveStrategyData:company-switching] 会社切替中のため保存を開始しない', {
               reason,
               force,
@@ -3474,6 +3545,7 @@ export const useStrategyStore = create<StrategyState>()(
 
           // ★ 会社スコープが無い（ログアウト直後・初期化直後）状態は force でも保存しない。空の状態で既存の行を置換しないため。
           if (!state0.companyId) {
+            set({ saveError: COMPANY_SCOPE_MISSING_SAVE_MESSAGE });
             return { ok: false, skipped: true, reason: 'company_scope_missing' };
           }
 
@@ -3943,6 +4015,15 @@ export const useStrategyStore = create<StrategyState>()(
         return refetchCoordinator.request();
       },
 
+      retryScopeLoad() {
+        __scopeLoadRetries = 0;
+        if (__refetchRetryTimer) {
+          clearTimeout(__refetchRetryTimer);
+          __refetchRetryTimer = null;
+        }
+        requestRefetch('manual-retry');
+      },
+
       async refetchOnceFromServer() {
         const timestamp = new Date().toISOString();
         const s0 = get();
@@ -3998,7 +4079,10 @@ export const useStrategyStore = create<StrategyState>()(
             });
           }
 
-          const { data, error } = await getFullStrategyDataByCompany(companyId);
+          const { data, error } = await withLoadTimeout(getFullStrategyDataByCompany(companyId)).catch((e: unknown) => {
+            if (e instanceof LoadTimeoutError) return { data: null, error: { code: 'NETWORK_ERROR', message: e.message } };
+            throw e;
+          });
           let dbRow = data;
 
           if (isStaleRefetch(companyId, scopeAtStart)) {
@@ -4086,12 +4170,13 @@ export const useStrategyStore = create<StrategyState>()(
               __lastServerError: isTransientError ? undefined : error,
               isRestoring: false,
               restoreReady: false,
+              saveError: SCOPE_LOAD_FAILED_SAVE_MESSAGE,
             }));
             // ★ isHydrating だけを確実にリセット
             const errorReason = `refetchFromServer:error-${errorCode || 'unknown'}`;
             get().setHydratingFlag(false, errorReason);
 
-            if (isTransientError) scheduleRefetchRetry(2000);
+            if (isTransientError) scheduleScopeLoadRetry();
             const errMsg = (error as any)?.message || (error as any)?.code || 'データ取得に失敗しました';
             throw new Error(errMsg);
           }
@@ -4164,6 +4249,7 @@ export const useStrategyStore = create<StrategyState>()(
           }
 
           __persistedSnapshot = null;
+          __scopeLoadRetries = 0;
           const cur = get();
           const isSwitchingCompany = cur.pendingCompanyId !== undefined && cur.pendingCompanyId !== cur.companyId;
           const wasDirty = cur.dirty && !isSwitchingCompany;
@@ -4250,7 +4336,7 @@ export const useStrategyStore = create<StrategyState>()(
 
                 companyId,
                 pendingCompanyId: undefined,
-                saveError: base.saveError === COMPANY_SWITCH_SAVE_MESSAGE || isFinancePLGuardMessage(base.saveError) ? undefined : base.saveError,
+                saveError: isScopeSaveMessage(base.saveError) || isFinancePLGuardMessage(base.saveError) ? undefined : base.saveError,
               };
 
 
@@ -4335,7 +4421,7 @@ export const useStrategyStore = create<StrategyState>()(
                 ...(keepLocalSwot ? { swotSuggestions: s.swotSuggestions ?? patch.swotSuggestions } : {}),
                 companyId,
                 pendingCompanyId: undefined,
-                saveError: s.saveError === COMPANY_SWITCH_SAVE_MESSAGE ? undefined : s.saveError,
+                saveError: isScopeSaveMessage(s.saveError) ? undefined : s.saveError,
               };
 
 
