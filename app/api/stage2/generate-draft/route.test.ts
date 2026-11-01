@@ -246,6 +246,20 @@ describe('POST /api/stage2/generate-draft', () => {
     }
   });
 
+  it('プロンプトは優先順位の根拠・同時実行の不要・顧客課題から業績までの因果確認を指示する', async () => {
+    mockChatCreate.mockResolvedValueOnce(draftResponse());
+
+    await POST(request());
+
+    const system = messageOf(0, 'system');
+    expect(system).toContain('未確認事項');
+    expect(system).toContain('3案すべてを同時に実行する前提にしない');
+    expect(system).toContain('事業ごとに必ず1案ずつ戦略を割り当てない');
+    expect(system).toContain('顧客課題の存在だけでは');
+    expect(system).toContain('根拠のない資源配分比率や投資金額は書かない');
+    expect(system).not.toContain('自社が選ばれる理由：');
+  });
+
   it('第2章の戦略結論がない場合は修正パスで補い、修正結果を採用する', async () => {
     const withoutConclusion = CHAPTER2_VALID.replace(/^戦略結論：.*\n/, '');
     mockChatCreate
@@ -309,6 +323,7 @@ describe('POST /api/stage2/generate-draft', () => {
     expect(repairSystem).toContain('内部改革戦略');
     expect(repairSystem).toContain('顧客価値の新規創出戦略へ書き換えない');
     expect(repairSystem).toContain('全戦略へ機械的に追加しない');
+    expect(repairSystem).toContain('既存の戦略の方向性・経営判断を変えず');
   });
 });
 
