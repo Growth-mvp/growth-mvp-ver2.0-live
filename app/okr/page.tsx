@@ -35,7 +35,7 @@ import { okrsV2ToOkrs, okrsToKpis } from '@/utils/supabase/strategy';
 import { formatDeadlineLabel, stripProjectPrefix } from '@/utils/dateFormatter';
 import { okrService } from '@/services/okrService';
 import { captureOkrWriteScope, isOkrOwnedByScope } from '@/lib/strategy/okrWriteScope';
-import { isSaveScopeCurrent, type SaveScope } from '@/lib/strategy/saveScope';
+import { captureSaveScope, isSaveScopeCurrent, type SaveScope } from '@/lib/strategy/saveScope';
 import type { ResolvedOkr, OkrWriteInput } from '@/types/okrs';
 import { OKRHeader } from '@/components/stage4/OKRHeader';
 import { ProjectListHeader } from '@/components/stage4/ProjectListHeader';
@@ -1668,6 +1668,18 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
   /* ============================================================
    * ★ STAGE4: AI生成処理（実行計画たたき台）
    * ========================================================== */
+  // 表示中の AI案を生成したときの会社・戦略スコープ。切替後の反映を防ぐ
+  const generatedDraftScopeRef = useRef<SaveScope | null>(null);
+  const discardStaleDraft = useCallback(() => {
+    generatedDraftScopeRef.current = null;
+    setGeneratedDraft(null);
+    setGenerationError('会社が切り替わったため、AI案を破棄しました。現在の会社で再度生成してください。');
+  }, []);
+  const isGeneratedDraftCurrent = useCallback((): boolean => {
+    const scope = generatedDraftScopeRef.current;
+    return !!scope && isSaveScopeCurrent(scope);
+  }, []);
+
   const generateExecutionDraft = useCallback(
     async (dIdx: number, pIdx: number) => {
       if (!selected || selected.deptIdx !== dIdx || selected.projIdx !== pIdx) return;
@@ -1676,6 +1688,13 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
       const proj = selectedProj;
 
       if (!dept || !proj) return;
+
+      // 応答の前（API 呼び出し前）に会社・戦略スコープを確定させる
+      const scope = captureSaveScope();
+      if (!scope) {
+        setGenerationError('会社・戦略の確認が完了していません。画面を再読み込みしてから再度お試しください。');
+        return;
+      }
 
       setIsGenerating(true);
       setGenerationError(null);
@@ -1800,12 +1819,23 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
           throw new Error('APIからデータが返されませんでした');
         }
 
+        // ★ 応答待ちの間に会社・戦略が切り替わっていたら、別会社向けのAI案として書き込まず破棄する
+        if (!isSaveScopeCurrent(scope)) {
+          discardStaleDraft();
+          return;
+        }
+
         // 生成結果を画面に反映
         // ★ ポイント：既存データを無条件に上書きしない。追記・補完の方針
 
         // 1. objective を DB に保存（既存値がない場合のみ）
         if (draft.objective && mainOKR && !mainOKR.objective) {
           await updateProjectOKRDb(dIdx, pIdx, { objective: draft.objective });
+          // 保存の await 中に切り替わった場合、以降の画面更新は旧会社の dIdx/pIdx に対して行わない
+          if (!isSaveScopeCurrent(scope)) {
+            discardStaleDraft();
+            return;
+          }
         }
 
         // 2. role を更新（既存値がない場合のみ）
@@ -1889,6 +1919,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
         }
 
         // 生成結果をプレビューに設定（sourceKpis を含める）
+        generatedDraftScopeRef.current = scope;
         setGeneratedDraft({ ...draft, sourceKpis });
         setGenerationSuccess(true);
         setGenerationError(null);
@@ -1913,6 +1944,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
       updateProjectRole,
       updateProjectImpactAndSave,
       patchDepartments,
+      discardStaleDraft,
     ]
   );
 
@@ -1923,10 +1955,20 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
     async (dIdx: number, pIdx: number, draft: any, sourceKpis: string[] = []) => {
       if (!draft || !selected || selected.deptIdx !== dIdx || selected.projIdx !== pIdx) return;
 
+      // 生成時の会社・戦略と現在が一致しなければ、別会社向けのAI案として反映しない
+      if (!isGeneratedDraftCurrent()) {
+        discardStaleDraft();
+        return;
+      }
+
       try {
         // 1. objective を DB に保存（既存値がない場合のみ）
         if (draft.objective && mainOKR && !mainOKR.objective) {
           await updateProjectOKRDb(dIdx, pIdx, { objective: draft.objective });
+          if (!isGeneratedDraftCurrent()) {
+            discardStaleDraft();
+            return;
+          }
         }
 
         // 2. role を更新（既存値がない場合のみ）
@@ -2079,6 +2121,7 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
         }
         if (updatedKpisCount > 0) summary.push(`既存KPI ${updatedKpisCount}件に目標値・期限・途中目標を反映`);
 
+        generatedDraftScopeRef.current = null;
         setGeneratedDraft(null);
         queueStage4SnapshotPersist();
 
@@ -2101,6 +2144,8 @@ const keyFor = (dIdx: number, pIdx: number) => `${dIdx}:${pIdx}`;
       updateProjectImpactAndSave,
       patchDepartments,
       queueStage4SnapshotPersist,
+      discardStaleDraft,
+      isGeneratedDraftCurrent,
     ]
   );
 
@@ -3670,6 +3715,10 @@ const aggregateMilestones = (okrsV2: any[] | undefined) => {
                     type="button"
                     onClick={() => {
                       if (selected && generatedDraft) {
+                        if (!isGeneratedDraftCurrent()) {
+                          discardStaleDraft();
+                          return;
+                        }
                         void applyGeneratedDraft(selected.deptIdx, selected.projIdx, generatedDraft, generatedDraft?.sourceKpis);
                       }
                     }}

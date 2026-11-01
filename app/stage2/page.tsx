@@ -2565,6 +2565,18 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
     // ★ Use restoreWithAudit for unified restore decision
     const decision = await restoreWithAudit('stage2', companyId, { allowSnapshot: true });
 
+    // 復元中に会社が切り替わった場合、要求した会社のデータを画面へ入れない
+    const requestedCompanyId = companyId;
+    const isRequestedCompanyStillCurrent = () => {
+      const userCompanyId = useUserStore.getState().companyId ?? null;
+      const pendingCompanyId = useStrategyStore.getState().pendingCompanyId ?? null;
+      return userCompanyId === requestedCompanyId && (!pendingCompanyId || pendingCompanyId === requestedCompanyId);
+    };
+    if (requestedCompanyId && !isRequestedCompanyStillCurrent()) {
+      console.warn('[Stage2] restore discarded: company changed during restore');
+      return;
+    }
+
     // ★ TASK 11.6: after restore ログを常時1回出す（DEBUG 無し）
     console.log('[Stage2] after restoreWithAudit', {
       decisionId: decision.decisionId,
@@ -2664,6 +2676,15 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         finalGuardedFinalStoryEditedLen: Array.isArray((guardedHydratedState as any).finalStoryEdited) ? (guardedHydratedState as any).finalStoryEdited.length : 'missing',
         timestamp: new Date().toISOString(),
       });
+
+      const hydratedCompanyId = (guardedHydratedState as any).companyId;
+      if (!isRequestedCompanyStillCurrent() || (hydratedCompanyId && hydratedCompanyId !== requestedCompanyId)) {
+        console.warn('[Stage2] restore discarded before hydrate: company mismatch', {
+          requested: requestedCompanyId?.substring(0, 8),
+          hydrated: hydratedCompanyId?.substring(0, 8),
+        });
+        return;
+      }
 
       useStrategyStore.getState().hydrateFromFullState?.(guardedHydratedState);
 
@@ -3841,6 +3862,12 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   const handleCommitAndBridge = useCallback(async () => {
     if (committingFinalStory || !editingStory.length) return;
 
+    const commitScope = captureSaveScope();
+    if (!commitScope || commitScope.companyId !== companyId) {
+      setCommitFinalStoryError('会社の読み込みが完了していないため、確定できません。読み込み完了後に、もう一度お試しください。');
+      return;
+    }
+
     setCommittingFinalStory(true);
     setCommittingStatus('全社戦略を確定・保存しています...');
     setCommitFinalStoryError(null);
@@ -3882,6 +3909,13 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
         setCommitFinalStoryError(
           `STAGE3への引き渡しに失敗しました: ${bridgeErr?.message || 'unknown error'}`
         );
+        setCommittingStatus(null);
+        setCommittingFinalStory(false);
+        return;
+      }
+
+      if (!isSaveScopeCurrent(commitScope)) {
+        setCommitFinalStoryError('会社が切り替わったため、確定を中止しました。内容は保存されていません。');
         setCommittingStatus(null);
         setCommittingFinalStory(false);
         return;
@@ -3933,6 +3967,10 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           force: true,
           reason: 'stage2:confirmAndBridge',
         });
+
+        if (!isSaveScopeCurrent(commitScope)) {
+          throw new Error('会社が切り替わったため、確定結果の確認を中止しました。');
+        }
 
         if (!saveResult || saveResult.ok !== true) {
           console.error('[Stage2Confirm] saveStrategyData failed', {
@@ -4020,6 +4058,12 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
   const handleRetryStage3Bridge = useCallback(async () => {
     if (committingFinalStory) return;
 
+    const retryScope = captureSaveScope();
+    if (!retryScope || retryScope.companyId !== companyId) {
+      setCommitFinalStoryError('会社の読み込みが完了していないため、再実行できません。');
+      return;
+    }
+
     setCommittingFinalStory(true);
     setCommittingStatus('STAGE3への引き渡しを再実行しています...');
     setCommitFinalStoryError(null);
@@ -4044,6 +4088,12 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
           stage2FinalDocumentEdits: bridgeDocumentEdits,
         },
       });
+
+      if (!isSaveScopeCurrent(retryScope)) {
+        setCommitFinalStoryError('会社が切り替わったため、再実行の結果を反映しませんでした。');
+        setCommittingStatus(null);
+        return;
+      }
 
       console.log('[Stage2][bridge-retry] SUCCESS', bridgeResult);
       setCommitStage3Failed(false);

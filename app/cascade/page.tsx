@@ -29,6 +29,7 @@ import StrategyGuard from '@/app/StrategyGuard';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
+import { captureSaveScope, isSaveScopeCurrent } from '@/lib/strategy/saveScope';
 import { useAccess } from '@/utils/access';
 import DepartmentQuestionStepper, {
   type DeptAnswerStep,
@@ -2530,6 +2531,12 @@ function CascadePageContent() {
       return;
     }
 
+    const generationScope = captureSaveScope();
+    if (!generationScope || generationScope.companyId !== accessCompanyId) {
+      setNotice('[ERROR] 会社の読み込みが完了してから、もう一度生成してください');
+      return;
+    }
+
     setIsGeneratingBridge(true);
     try {
       console.log('[STAGE3 bridge generate] request start', {
@@ -2546,6 +2553,11 @@ function CascadePageContent() {
           ...(hasBridgeSourceEdits ? { stage2FinalDocumentEdits: bridgeSourceEdits } : {}),
         }),
       });
+
+      if (!isSaveScopeCurrent(generationScope)) {
+        setNotice('[WARN] 会社が切り替わったため、全社戦略サマリーの生成結果を破棄しました');
+        return;
+      }
 
       console.log('[STAGE3 bridge generate] response received', {
         hasBridge: !!result,
@@ -2593,6 +2605,11 @@ function CascadePageContent() {
       const saveResult = await saveState.saveStrategyData({ force: true, reason: 'stage3-bridge-generated' });
       const saveSucceeded = !(saveResult as any)?.error && !(saveResult as any)?.skipped;
 
+      if (!isSaveScopeCurrent(generationScope)) {
+        setNotice('[WARN] 会社が切り替わったため、全社戦略サマリーの保存結果を反映しませんでした');
+        return;
+      }
+
       // 保存処理が revision / updatedAt だけをstoreへ戻す構造でも、生成直後のbridgeを画面stateに保持する。
       useStrategyStore.setState((state: any) => ({
         ...state,
@@ -2636,6 +2653,12 @@ const persistLaneCache = useCallback(() => {
   } catch {
     // ignore
   }
+}, [laneCacheKey]);
+
+// 会社・戦略が変わったら前のキーのレーンを持ち越さない（同名の部門に別社のレーンが出る・別キーへ写る のを防ぐ）
+useEffect(() => {
+  laneCacheRef.current = {};
+  setLaneRenderVersion((v) => v + 1);
 }, [laneCacheKey]);
 
 useEffect(() => {

@@ -18,6 +18,10 @@ type AskResp = {
   error?: string;
 };
 
+const GREETING_MESSAGES: Msg[] = [
+  { role: 'assistant', content: 'こんにちは。AI経営コンサルタントです。' },
+];
+
 type Props = { embedded?: boolean };
 
 // ★ Sprint 3B': 自動チェックイン設定（控えめ）
@@ -29,6 +33,8 @@ const ASK_TIMEOUT_MS = 90_000;         // 応答待ちの上限（Web検索を�
 
 export default function CEOChatPanel({ embedded = true }: Props) {
   const { user } = useUserStore();
+  // 会社切替の検知用。会話履歴と進行中の応答はこの会社に紐づける
+  const companyId = useUserStore((s) => s.companyId);
 
   // === Strategy Store ===
   const strategyId = useStrategyStore((s: StrategyState) => s.strategyId);
@@ -75,9 +81,7 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     return () => unsub();
   }, []);
 
-  const [messages, setMessages] = useState<Msg[]>([
-    { role: 'assistant', content: 'こんにちは。AI経営コンサルタントです。' },
-  ]);
+  const [messages, setMessages] = useState<Msg[]>(GREETING_MESSAGES);
   const messagesRef = useRef(messages);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
@@ -103,6 +107,21 @@ export default function CEOChatPanel({ embedded = true }: Props) {
   const lastNudgeAtRef = useRef<number>(0);
   const nudgeCountRef = useRef<number>(0);
   const nudgeInFlightRef = useRef<boolean>(false);
+
+  // 会社が切り替わったら、前の会社の会話履歴を破棄し、進行中の応答を無効化する。
+  // （破棄しないと A の会話履歴が B の会社の生成リクエストに載る）
+  const activeCompanyIdRef = useRef<string | null>(companyId ?? null);
+  useEffect(() => {
+    const nextCompanyId = companyId ?? null;
+    if (activeCompanyIdRef.current === nextCompanyId) return;
+    activeCompanyIdRef.current = nextCompanyId;
+    askAbortRef.current?.abort();
+    askAbortRef.current = null;
+    inFlightRef.current = false;
+    messagesRef.current = GREETING_MESSAGES;
+    setMessages(GREETING_MESSAGES);
+    setSending(false);
+  }, [companyId]);
 
   useEffect(() => {
     setMounted(true);
@@ -201,6 +220,9 @@ export default function CEOChatPanel({ embedded = true }: Props) {
 
     const current = messagesRef.current;
     const userMsg: Msg = { role: 'user', content: trimmed };
+    // リクエスト開始時の会社。応答時点で会社が変わっていれば結果を捨てる
+    const requestCompanyId = activeCompanyIdRef.current;
+    const isStale = () => activeCompanyIdRef.current !== requestCompanyId;
 
     setSending(true);
     setMessages([...current, userMsg]);
@@ -277,11 +299,16 @@ export default function CEOChatPanel({ embedded = true }: Props) {
         (data?.reply?.content && String(data.reply?.content)) ||
         '（応答の取得に失敗しました）';
 
+      // 会社が切り替わった後の応答は別会社の会話に混ぜない
+      if (isStale()) return true;
+
       // ← 先に送信フラグを落としてからメッセージを追加（UI固着防止）
       setSending(false);
       setMessages((prev) => [...prev, { role: 'assistant', content }]);
       return true;
     } catch (e) {
+      // 会社切替による abort は通信エラーとして表示しない
+      if (isStale()) return true;
       const errorMsg = e instanceof Error ? e.message : String(e);
       console.error('[CEOChatPanel] SEND_ERROR', { error_message: errorMsg });
       if (process.env.NODE_ENV !== 'production') console.error(e);
@@ -292,10 +319,13 @@ export default function CEOChatPanel({ embedded = true }: Props) {
     } finally {
       window.clearTimeout(timeoutId);
       if (askAbortRef.current === controller) askAbortRef.current = null;
-      inFlightRef.current = false;
-      setSending(false);
-      // 自動チェックイン送信時に、ユーザーが入力途中の下書きを消さない
-      setInput((prev) => (prev.trim() === trimmed ? '' : prev));
+      // 切替後の別リクエストが使っている送信状態・入力欄には触らない
+      if (!isStale()) {
+        inFlightRef.current = false;
+        setSending(false);
+        // 自動チェックイン送信時に、ユーザーが入力途中の下書きを消さない
+        setInput((prev) => (prev.trim() === trimmed ? '' : prev));
+      }
       autoResize();
     }
     return true;
