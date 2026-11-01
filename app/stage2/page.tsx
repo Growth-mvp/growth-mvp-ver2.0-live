@@ -44,6 +44,12 @@ import {
   getStage2QuestionById,
   mergeSavedAnswers12,
 } from '@/lib/stage2/questions12';
+import {
+  DRAFT_CHAPTER_HEADINGS,
+  extractStrategyConclusion,
+  parseStrategyChapter,
+  type DraftField,
+} from '@/lib/stage2/draftStoryView';
 
 /* ===================================================
  * ★ Zustand selector 参照安定化：無限ループ防止
@@ -1419,98 +1425,79 @@ function stripIssueSummaryFromDisplay(text: string): string {
     .trim();
 }
 
-function cleanDraftLine(line: string): string {
-  return String(line || '')
-    .replace(/^\s*[-・]\s*/, '')
-    .replace(/^\s*\d+[.)]\s*/, '')
-    .trim();
-}
+function DraftFieldView({ field }: { field: DraftField }) {
+  const body = (
+    <>
+      {field.text && <p className="whitespace-pre-wrap break-words leading-7">{field.text}</p>}
+      {field.items.length > 0 && (
+        <ul className="mt-1 list-disc space-y-1 pl-5 leading-7">
+          {field.items.map((item, idx) => (
+            <li key={idx} className="whitespace-pre-wrap break-words">{item}</li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
 
-function truncateText(text: string, limit = 180): string {
-  const clean = String(text || '').replace(/\s+/g, ' ').trim();
-  return clean.length > limit ? `${clean.slice(0, limit)}...` : clean;
-}
-
-function extractLeadSentence(text: string, fallback = '生成された内容を確認し、必要に応じて編集してください。'): string {
-  const displayText = stripIssueSummaryFromDisplay(text);
-  const explicitLead = displayText.match(/(?:戦略結論|要点|結論)\s*[:：]\s*([\s\S]*?)(?=\s*(?:事業ポートフォリオ判断|論点サマリ|1\)\s*(?:勝ち筋|狙う価値ドライバー)|第[一二三四1-4]章|$))/)?.[1]?.trim();
-  if (explicitLead) return truncateText(explicitLead, 180);
-
-  const clean = displayText
-    .split('\n')
-    .map((line) => cleanDraftLine(line))
-    .find(
-      (line) =>
-        line &&
-        !/^第[一二三四1-4]章/.test(line) &&
-        !/^(事業ポートフォリオ判断|勝ち筋|狙う価値ドライバー|主要戦略|90日アクション|根拠|トレードオフ)\s*[:：]/.test(line),
+  if (field.label === '経営判断') {
+    return (
+      <div className="rounded-lg border border-amber-200 xl:dark:border-amber-900/60 bg-amber-50/80 xl:dark:bg-amber-950/20 px-4 py-3 text-sm text-gray-800 xl:dark:text-gray-200">
+        <div className="mb-1 text-xs font-semibold text-amber-700 xl:dark:text-amber-300">{field.label}</div>
+        {body}
+      </div>
     );
-
-  return clean ? truncateText(clean, 180) : fallback;
-}
-
-function extractIssueCards(issueBlocks: IssueBlock[], chapterBody: string): { title: string; description?: string }[] {
-  if (issueBlocks && issueBlocks.length > 0) {
-    return issueBlocks.slice(0, 3).map((iss) => ({
-      title: iss.title || '論点',
-      description: iss.description,
-    }));
   }
 
-  const lines = String(chapterBody || '')
-    .split('\n')
-    .map((line) => cleanDraftLine(line))
-    .filter((line) => /^論点\d+[:：]/.test(line))
-    .slice(0, 3);
+  if (field.label === '90日アクション') {
+    return (
+      <div className="rounded-lg bg-blue-50/70 xl:dark:bg-blue-950/20 px-4 py-3 text-sm text-gray-800 xl:dark:text-gray-200">
+        <div className="mb-1 text-xs font-semibold text-blue-700 xl:dark:text-blue-300">{field.label}</div>
+        {body}
+      </div>
+    );
+  }
 
-  return lines.map((line) => {
-    const normalized = line.replace(/^論点\d+[:：]\s*/, '');
-    const [title, ...rest] = normalized.split(/[｜|]/);
-    return {
-      title: title.trim(),
-      description: rest.join('｜').trim() || undefined,
-    };
-  });
+  return (
+    <div className="text-sm leading-7 text-gray-700 xl:dark:text-gray-300">
+      {field.label && <div className="mb-1 text-xs font-semibold text-gray-500 xl:dark:text-gray-400">{field.label}</div>}
+      {body}
+    </div>
+  );
 }
 
-function extractStrategyBlocks(text: string): {
-  driver: string;
-  decision?: string;
-  strategies: string[];
-  actions: string[];
-  tradeoff?: string;
-  evidence?: string;
-}[] {
-  const body = String(text || '')
-    .replace(/\s+(?=\d+\)\s*(?:勝ち筋|狙う価値ドライバー)\s*[:：])/g, '\n')
-    .replace(/\s+(?=経営判断\s*[:：])/g, '\n')
-    .replace(/\s+(?=主要戦略\s*[:：])/g, '\n')
-    .replace(/\s+(?=90日アクション\s*[:：])/g, '\n')
-    .replace(/\s+(?=根拠(?:キーワード|（SWOT）)\s*[:：])/g, '\n')
-    .replace(/\s+(?=トレードオフ\s*[:：])/g, '\n');
-  const blocks = body
-    .split(/\n(?=\s*\d+\)\s*(?:勝ち筋|狙う価値ドライバー)\s*[:：])/g)
-    .filter((block) => /(?:勝ち筋|狙う価値ドライバー)\s*[:：]/.test(block));
+function StrategyChapterBody({ body }: { body: string }) {
+  const parsed = parseStrategyChapter(body);
+  if (parsed.patterns.length === 0) {
+    return (
+      <div className="whitespace-pre-wrap break-words text-sm leading-7 text-gray-700 xl:dark:text-gray-300">{body}</div>
+    );
+  }
 
-  return blocks.slice(0, 3).map((block) => {
-    const winPattern = block.match(/勝ち筋\s*[:：]\s*(.+)/)?.[1]?.trim();
-    const valueDriver = block.match(/狙う価値ドライバー\s*[:：]\s*(.+)/)?.[1]?.trim();
-    const driver = winPattern || valueDriver || '勝ち筋';
-    const decision = block.match(/経営判断\s*[:：]\s*(.+)/)?.[1]?.trim();
-    const strategyPart = block.match(/主要戦略\s*[:：]\s*([\s\S]*?)(?=\n\s*90日アクション\s*[:：]|\n\s*根拠|トレードオフ|$)/)?.[1] || '';
-    const actionPart = block.match(/90日アクション\s*[:：]\s*([\s\S]*?)(?=\n\s*根拠|トレードオフ|$)/)?.[1] || '';
-    const evidence = block.match(/根拠(?:キーワード|（SWOT）)\s*[:：]\s*(.+)/)?.[1]?.trim();
-    const tradeoff = block.match(/トレードオフ\s*[:：]\s*(.+)/)?.[1]?.trim();
-
-    return {
-      driver,
-      decision: decision ? truncateText(decision, 120) : undefined,
-      strategies: strategyPart.split('\n').map((line) => truncateText(cleanDraftLine(line), 120)).filter(Boolean).slice(0, 2),
-      actions: actionPart.split('\n').map((line) => truncateText(cleanDraftLine(line), 120)).filter(Boolean).slice(0, 2),
-      tradeoff: tradeoff ? truncateText(tradeoff, 120) : undefined,
-      evidence: evidence ? truncateText(evidence, 80) : undefined,
-    };
-  });
+  return (
+    <div className="space-y-5">
+      {parsed.preamble.length > 0 && (
+        <div className="space-y-3">
+          {parsed.preamble.map((field, idx) => (
+            <DraftFieldView key={idx} field={field} />
+          ))}
+        </div>
+      )}
+      {parsed.patterns.map((pattern, idx) => (
+        <div
+          key={idx}
+          className="space-y-3 rounded-xl border border-gray-200 xl:dark:border-gray-700 bg-white/80 xl:dark:bg-gray-900/30 p-4"
+        >
+          <div>
+            <div className="text-[11px] font-semibold text-blue-600 xl:dark:text-blue-400">勝ち筋 {idx + 1}</div>
+            <div className="mt-1 text-base font-semibold leading-snug text-gray-900 xl:dark:text-gray-100">{pattern.title}</div>
+          </div>
+          {pattern.fields.map((field, fieldIdx) => (
+            <DraftFieldView key={fieldIdx} field={field} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function DraftStoryPanel({ storyDraft, issueBlocks }: { storyDraft: StoryChapter[]; issueBlocks: IssueBlock[] }) {
@@ -1524,143 +1511,66 @@ function DraftStoryPanel({ storyDraft, issueBlocks }: { storyDraft: StoryChapter
     );
   }
 
-  const chapter0 = storyDraft[0]?.body ?? '';
-  const chapter1 = storyDraft[1]?.body ?? '';
-  const issueCards = extractIssueCards(issueBlocks, chapter0);
-  const strategyBlocks = extractStrategyBlocks(chapter1);
-  const strategicConclusion = extractLeadSentence(
-    chapter1 || chapter0,
-    '財務・事業構造・市場評価の論点を踏まえ、重点テーマを確認してください。',
-  );
+  const conclusion = extractStrategyConclusion(storyDraft);
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-2xl border border-blue-100 xl:dark:border-blue-900/50 bg-gradient-to-br from-blue-50 to-white xl:dark:from-blue-950/30 xl:dark:to-gray-900/20 shadow-sm p-5">
-        <div className="text-xs font-semibold text-blue-700 xl:dark:text-blue-300 mb-2">AIが導いた戦略結論</div>
-        <div className="text-base font-semibold text-gray-900 xl:dark:text-gray-100 leading-relaxed">
-          {strategicConclusion}
-        </div>
-        <p className="mt-2 text-xs text-gray-600 xl:dark:text-gray-400">
-          まず結論を確認し、必要に応じて論点・勝ち筋・90日アクションを編集してください。
+    <div className="space-y-6 rounded-2xl border border-black/10 bg-white/70 xl:dark:bg-white/5 shadow-sm backdrop-blur-md p-5">
+      <h3 className="text-lg font-semibold text-gray-900 xl:dark:text-gray-100">戦略のたたき台</h3>
+
+      <div className="rounded-xl border border-blue-100 xl:dark:border-blue-900/50 bg-gradient-to-br from-blue-50 to-white xl:dark:from-blue-950/30 xl:dark:to-gray-900/20 p-4">
+        <div className="mb-2 text-xs font-semibold text-blue-700 xl:dark:text-blue-300">戦略結論（仮説）</div>
+        <p className="whitespace-pre-wrap break-words text-base font-semibold leading-relaxed text-gray-900 xl:dark:text-gray-100">
+          {conclusion ?? '生成された内容を確認し、必要に応じて編集してください。'}
         </p>
       </div>
 
-      {issueCards.length > 0 && (
-        <div className="rounded-2xl border border-black/10 bg-white/70 xl:dark:bg-white/5 shadow-sm backdrop-blur-md p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h4 className="font-semibold text-gray-800 xl:dark:text-gray-200">今、経営が判断すべき論点</h4>
-            <div className="text-[11px] text-gray-500 xl:dark:text-gray-400">最大3件</div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {issueCards.map((issue, idx) => (
-              <div key={`${issue.title}-${idx}`} className="rounded-xl border border-gray-200 xl:dark:border-gray-700 bg-white/80 xl:dark:bg-gray-900/30 p-3">
-                <div className="text-[11px] font-semibold text-blue-600 xl:dark:text-blue-400 mb-1">論点 {idx + 1}</div>
-                <div className="text-sm font-semibold text-gray-900 xl:dark:text-gray-100 leading-snug">{issue.title}</div>
-                {issue.description && (
-                  <div className="mt-2 text-xs text-gray-600 xl:dark:text-gray-400 leading-relaxed line-clamp-3">
-                    {issue.description}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {strategyBlocks.length > 0 && (
-        <div className="rounded-2xl border border-black/10 bg-white/70 xl:dark:bg-white/5 shadow-sm backdrop-blur-md p-4">
-          <h4 className="font-semibold text-gray-800 xl:dark:text-gray-200 mb-3">どう戦うか</h4>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-            {strategyBlocks.map((block, idx) => (
-              <div key={`${block.driver}-${idx}`} className="rounded-xl border border-gray-200 xl:dark:border-gray-700 bg-white/80 xl:dark:bg-gray-900/30 p-3 max-h-[360px] overflow-auto">
-                <div className="text-[11px] font-semibold text-blue-600 xl:dark:text-blue-400 mb-1">勝ち筋 {idx + 1}</div>
-                <div className="text-sm font-semibold text-gray-900 xl:dark:text-gray-100 leading-snug">{block.driver}</div>
-
-                {block.decision && (
-                  <div className="mt-3 rounded-lg border border-amber-200 xl:dark:border-amber-900/60 bg-amber-50/80 xl:dark:bg-amber-950/20 px-3 py-2">
-                    <div className="text-[11px] font-semibold text-amber-700 xl:dark:text-amber-300 mb-1">経営判断</div>
-                    <div className="text-xs text-gray-800 xl:dark:text-gray-200 leading-relaxed">{block.decision}</div>
-                  </div>
-                )}
-
-                {block.strategies.length > 0 && (
-                  <div className="mt-3">
-                    <div className="text-[11px] font-semibold text-gray-500 xl:dark:text-gray-400 mb-1">主要戦略</div>
-                    <ul className="space-y-1">
-                      {block.strategies.map((item, itemIdx) => (
-                        <li key={itemIdx} className="text-xs text-gray-700 xl:dark:text-gray-300 leading-relaxed">・{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {block.actions.length > 0 && (
-                  <div className="mt-3 rounded-lg bg-blue-50/70 xl:dark:bg-blue-950/20 px-3 py-2">
-                    <div className="text-[11px] font-semibold text-blue-700 xl:dark:text-blue-300 mb-1">90日アクション</div>
-                    <ul className="space-y-1">
-                      {block.actions.map((item, itemIdx) => (
-                        <li key={itemIdx} className="text-xs text-gray-700 xl:dark:text-gray-300 leading-relaxed">・{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {block.tradeoff && (
-                  <div className="mt-3 text-[11px] text-gray-500 xl:dark:text-gray-400 leading-relaxed">
-                    <span className="font-semibold">トレードオフ：</span>{block.tradeoff}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="rounded-2xl border border-black/10 bg-white/70 xl:dark:bg-white/5 shadow-sm backdrop-blur-md p-4">
-        <h4 className="font-semibold text-gray-800 xl:dark:text-gray-200 mb-3">4章ストーリー詳細</h4>
-        <div className="space-y-4">
+      <div className="space-y-3">
         {storyDraft.map((chapter, i) => (
-          <details key={i} className="group rounded-xl border border-gray-200 xl:dark:border-gray-700 bg-white/75 xl:dark:bg-gray-900/25 p-3" open={i === 0}>
-            <summary className="cursor-pointer list-none">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-xs font-semibold text-blue-600 xl:dark:text-blue-400">{chapter.title}</div>
-                  <div className="mt-1 text-sm font-medium text-gray-900 xl:dark:text-gray-100 leading-snug">
-                    {extractLeadSentence(chapter.body)}
-                  </div>
-                </div>
-                <span className="shrink-0 rounded-full border border-gray-200 xl:dark:border-gray-700 px-2 py-1 text-[11px] text-gray-500 xl:dark:text-gray-400 group-open:hidden">開く</span>
-                <span className="shrink-0 rounded-full border border-gray-200 xl:dark:border-gray-700 px-2 py-1 text-[11px] text-gray-500 xl:dark:text-gray-400 hidden group-open:inline">閉じる</span>
-              </div>
+          <details
+            key={i}
+            open={i < 2}
+            className="group rounded-xl border border-gray-200 xl:dark:border-gray-700 bg-white/75 xl:dark:bg-gray-900/25 p-4"
+          >
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+              <span className="text-sm font-semibold text-gray-900 xl:dark:text-gray-100">
+                {DRAFT_CHAPTER_HEADINGS[i] ?? chapter.title}
+              </span>
+              <span className="shrink-0 rounded-full border border-gray-200 xl:dark:border-gray-700 px-2 py-1 text-[11px] text-gray-500 xl:dark:text-gray-400 group-open:hidden">開く</span>
+              <span className="shrink-0 rounded-full border border-gray-200 xl:dark:border-gray-700 px-2 py-1 text-[11px] text-gray-500 xl:dark:text-gray-400 hidden group-open:inline">閉じる</span>
             </summary>
 
-            {i === 0 && issueBlocks && issueBlocks.length > 0 && (
-              <div className="mt-2 rounded-xl border border-gray-200 xl:dark:border-gray-700 bg-white/60 xl:dark:bg-white/5 p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-xs font-semibold text-gray-700 xl:dark:text-gray-300">論点（STAGE1分析より）</div>
-                  <div className="text-[11px] text-gray-500 xl:dark:text-gray-400">最大5件表示</div>
+            <div className="mt-4 space-y-4">
+              {i === 0 && issueBlocks && issueBlocks.length > 0 && (
+                <div className="rounded-xl border border-gray-200 xl:dark:border-gray-700 bg-white/60 xl:dark:bg-white/5 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-xs font-semibold text-gray-700 xl:dark:text-gray-300">論点（STAGE1分析より）</div>
+                    <div className="text-[11px] text-gray-500 xl:dark:text-gray-400">最大5件表示</div>
+                  </div>
+                  <div className="space-y-2">
+                    {issueBlocks.slice(0, 5).map((iss, idx) => (
+                      <div key={(iss as any).id ?? idx} className="rounded-lg border border-gray-100 xl:dark:border-gray-800 bg-white/70 xl:dark:bg-gray-900/20 px-3 py-2">
+                        <div className="text-xs font-medium text-gray-800 xl:dark:text-gray-200">{idx + 1}. {iss.title}</div>
+                        {iss.description && (
+                          <div className="mt-1 text-[12px] text-gray-600 xl:dark:text-gray-400 whitespace-pre-wrap break-words">
+                            {iss.description}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  {issueBlocks.slice(0, 5).map((iss, idx) => (
-                    <div key={(iss as any).id ?? idx} className="rounded-lg border border-gray-100 xl:dark:border-gray-800 bg-white/70 xl:dark:bg-gray-900/20 px-3 py-2">
-                      <div className="text-xs font-medium text-gray-800 xl:dark:text-gray-200">{idx + 1}. {iss.title}</div>
-                      {iss.description && (
-                        <div className="mt-1 text-[12px] text-gray-600 xl:dark:text-gray-400 whitespace-pre-wrap break-words">
-                          {iss.description}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+              )}
 
-            <div className="mt-3 max-h-[360px] overflow-auto pr-2 text-xs text-gray-600 xl:dark:text-gray-400 whitespace-pre-wrap break-words leading-relaxed">
-              {stripIssueSummaryFromDisplay(chapter.body)}
+              {i === 1 ? (
+                <StrategyChapterBody body={chapter.body} />
+              ) : (
+                <div className="whitespace-pre-wrap break-words text-sm leading-7 text-gray-700 xl:dark:text-gray-300">
+                  {chapter.body}
+                </div>
+              )}
             </div>
           </details>
         ))}
-        </div>
       </div>
     </div>
   );
