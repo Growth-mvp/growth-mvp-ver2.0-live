@@ -30,6 +30,8 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
 import { captureSaveScope, isSaveScopeCurrent } from '@/lib/strategy/saveScope';
+import { assessDepartmentRegen, findLocalStage4Data, regenBlockMessage } from '@/lib/cascade/regenGuard';
+import { supabase } from '@/utils/supabase/client';
 import { useAccess } from '@/utils/access';
 import DepartmentQuestionStepper, {
   type DeptAnswerStep,
@@ -3342,6 +3344,19 @@ useEffect(() => {
     const dept = current[index];
     if (!dept) return;
 
+    const regenScope = captureSaveScope();
+    const preCheck = await assessDepartmentRegen({
+      client: supabase,
+      companyId: regenScope?.companyId ?? null,
+      departmentName: dept.name,
+      projects: (dept.projects as Project[] | undefined) ?? [],
+      projectIdOf: (p) => resolveProjectId(p as Project, dept.name),
+    });
+    if (!preCheck.allowed) {
+      setNotice(`⚠️ ${preCheck.message}`);
+      return;
+    }
+
     // ★TASK A: 生成開始フラグをセット（保存抑止開始）
     setIsGenerating(true);
     setLoading((p) => ({
@@ -3573,12 +3588,40 @@ useEffect(() => {
         console.log('[STAGE3][before store] cleanedRd saved');
       }
 
+      if (!regenScope || !isSaveScopeCurrent(regenScope)) {
+        setNotice('⚠️ 会社が切り替わったため、再生成結果を反映せずに中止しました。既存のデータは変更していません。');
+        return;
+      }
+      const liveDept = ((useStrategyStore.getState().departments as Department[] | undefined) ?? [])[index];
+      if (!liveDept || liveDept.name !== dept.name) {
+        setNotice('⚠️ 部門の並びが変わったため、再生成結果を反映せずに中止しました。既存のデータは変更していません。');
+        return;
+      }
+      const postCheck = await assessDepartmentRegen({
+        client: supabase,
+        companyId: regenScope.companyId,
+        departmentName: dept.name,
+        projects: (liveDept.projects as Project[] | undefined) ?? [],
+        projectIdOf: (p) => resolveProjectId(p as Project, dept.name),
+      });
+      if (!postCheck.allowed) {
+        setNotice(`⚠️ ${postCheck.message}`);
+        return;
+      }
+
+      let regenBlockNotice = '';
+      let pendingCleanupIds: string[] = [];
       pushToStore((prev) => {
         const list = [...prev];
         const d = list[index];
         if (!d) return prev;
 
         const existingProjects = (d.projects as Project[] | undefined) ?? [];
+        const liveLocal = findLocalStage4Data(existingProjects);
+        if (liveLocal.length > 0) {
+          regenBlockNotice = regenBlockMessage(dept.name, liveLocal);
+          return list;
+        }
         const patch: Partial<Department> = {};
 
         // ★ FIXED: mission / missionDescription 統一（strategy/missionDraft は使わない）
@@ -3690,6 +3733,10 @@ useEffect(() => {
         return list;
       });
 
+      if (regenBlockNotice) {
+        setNotice(`⚠️ ${regenBlockNotice}`);
+        return;
+      }
       // ★ TRACE POINT 15: after pushToStore
       const afterSetDepts = useStrategyStore.getState().departments as Department[] | undefined;
       const afterPushProjCount = (Array.isArray(afterSetDepts) ? afterSetDepts : []).reduce((s: number, d: any) => {
@@ -3804,33 +3851,8 @@ useEffect(() => {
               timestamp: new Date().toISOString(),
             });
 
-            // === Step 1: DB cleanup API call ===
-            try {
-              const cleanupRes = await authFetchJson(
-                '/api/cascade/cleanup-deleted-projects',
-                {
-                  method: 'POST',
-                  json: {
-                    deletedProjectIds: allOldProjectIds,  // ★ 修正：allOldProjectIds を配列で渡す
-                    departmentId: dept.name,
-                  },
-                }
-              );
-
-              if (cleanupRes && (cleanupRes as any).ok) {
-                console.log('[diag][cascade:regen:cleanup:result]', {
-                  dept: dept.name,
-                  allOldProjectIds,
-                  cleaned: (cleanupRes as any).cleaned,
-                  timestamp: new Date().toISOString(),
-                });
-              } else {
-                console.warn('[cascade:cleanup] API failed or no ok flag:', cleanupRes);
-              }
-            } catch (apiErr) {
-              console.warn('[cascade:cleanup] API call error:', apiErr);
-              // non-blocking: 継続 local cleanup
-            }
+            // 後始末は保存成功の確認後に実行する（保存前に論理削除しない）
+            pendingCleanupIds = allOldProjectIds;
 
             // === Step 2: Invalidate STAGE4 artifacts via store action ===
             // ★ STEP 3 修正：filtering + full clear を store action に統一
@@ -3880,20 +3902,67 @@ useEffect(() => {
       });
 
       // ★TASK A: 生成完了後に必ず1回保存（保存抑止解除前）
+      // 旧計画の後始末は、保存が成功（ok: true）した後にだけ行う
+      const runStage3Cleanup = async (ids: string[], revision: number) => {
+        if (!regenScope || !isSaveScopeCurrent(regenScope)) {
+          setNotice('⚠️ 会社が切り替わったため、旧計画の後始末は行いませんでした（既存の計画は残っています）');
+          return;
+        }
+        const st = useStrategyStore.getState() as any;
+        if (!st.strategyId) {
+          setNotice('⚠️ 戦略を確認できないため、旧計画の後始末は保留しました（既存の計画は残っています）');
+          return;
+        }
+        try {
+          const res: any = await authFetchJson('/api/cascade/cleanup-deleted-projects', {
+            method: 'POST',
+            json: {
+              companyId: regenScope.companyId,
+              strategyId: st.strategyId,
+              expectedRevision: revision,
+              deletedProjectIds: ids,
+              departmentId: dept.name,
+            },
+          });
+          if (!res?.ok) throw new Error('cleanup not ok');
+          console.log('[diag][cascade:regen:cleanup:result]', {
+            dept: dept.name,
+            cleaned: res.cleaned,
+            timestamp: new Date().toISOString(),
+          });
+        } catch {
+          setNotice('⚠️ 旧計画の後始末は、安全に確認できなかったため保留しました（既存の計画は残っています）');
+        }
+      };
+
       if (saveNow) {
         try {
-          const okSaved = await persistCascadeNow('stage3-generate-complete');
+          const saveResult: any = await saveNow();
           console.log('[diag][stage3:regen:saved]', {
             dept: dept.name,
+            ok: saveResult?.ok === true,
+            reason: saveResult?.reason ?? null,
             stage4PlansAfterSave: useStrategyStore.getState().stage4Plans?.length ?? 0,
           });
-          if (okSaved) {
+          if (saveResult?.ok === true) {
+            cascadeBaselineRef.current = hashSnapshot(makeSaveSnapshot(useStrategyStore.getState() as any));
             setNotice(`✅ ${dept.name} のたたき台を更新し、サーバーにも保存しました`);
+            const ids = pendingCleanupIds;
+            pendingCleanupIds = [];
+            if (ids.length > 0) {
+              if (typeof saveResult.revision === 'number') {
+                await runStage3Cleanup(ids, saveResult.revision);
+              } else {
+                setNotice('⚠️ 旧計画の後始末は、保存の確認ができなかったため保留しました（既存の計画は残っています）');
+              }
+            }
           } else {
-            setNotice('⚠️ 画面上の更新は完了しましたが、サーバー保存に失敗しました');
+            pendingCleanupIds = [];
+            setNotice('⚠️ 画面上の更新は完了しましたが、サーバー保存に失敗しました（旧計画の後始末は行っていません）');
           }
         } catch {
-          setNotice('⚠️ 画面上の更新は完了しましたが、サーバー保存に失敗しました');
+          pendingCleanupIds = [];
+          setNotice('⚠️ 画面上の更新は完了しましたが、サーバー保存に失敗しました（旧計画の後始末は行っていません）');
         }
       }
     } catch (e: any) {
