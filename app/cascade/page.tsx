@@ -29,9 +29,20 @@ import StrategyGuard from '@/app/StrategyGuard';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
 import { useStrategyStore } from '@/store/strategyStore';
-import { captureSaveScope, isSaveScopeCurrent } from '@/lib/strategy/saveScope';
-import { assessDepartmentRegen, findLocalStage4Data, regenBlockMessage } from '@/lib/cascade/regenGuard';
-import { supabase } from '@/utils/supabase/client';
+import { captureSaveScope, isSaveScopeCurrent, type SaveScope } from '@/lib/strategy/saveScope';
+import {
+  DEPT_PROPOSAL_ITEMS,
+  buildDeptProposals,
+  currentItemValues,
+  displayProposalValue,
+  isSameCandidateScope,
+  isSimilarTitle,
+  prepareAdoptedProject,
+  sameItemValues,
+  withoutCandidate,
+  type DeptProposal,
+  type DeptProposalItem,
+} from '@/lib/cascade/stage3Candidates';
 import { useAccess } from '@/utils/access';
 import DepartmentQuestionStepper, {
   type DeptAnswerStep,
@@ -269,6 +280,32 @@ function genRegenProjectId(title: string, deptName?: string): string {
  */
 function resolveProjectId(p: Project, deptName?: string): string {
   return (p as any).id || genIdByTitle(p.title || '', deptName);
+}
+
+type Stage3CandidateSet = { scope: SaveScope; projects: Project[]; proposals: DeptProposal[] };
+
+function setCandidateEntry(
+  prev: Record<string, Stage3CandidateSet>,
+  deptName: string,
+  next: Stage3CandidateSet,
+): Record<string, Stage3CandidateSet> {
+  const out = { ...prev };
+  if (next.projects.length > 0 || next.proposals.length > 0) out[deptName] = next;
+  else delete out[deptName];
+  return out;
+}
+
+const textItems = (v: unknown): string[] =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').map((x) => x.trim()).filter(Boolean) : [];
+
+function readAuthFetchErrorCode(e: unknown): { status: number | null; code: string | null } {
+  if (!(e instanceof AuthFetchError)) return { status: null, code: null };
+  try {
+    const parsed = JSON.parse(e.bodyText ?? '');
+    return { status: e.status ?? null, code: typeof parsed?.error === 'string' ? parsed.error : null };
+  } catch {
+    return { status: e.status ?? null, code: null };
+  }
 }
 
 const LEVER_VALUES: Lever[] = ['ACQ', 'ARPU', 'CHURN', 'COST', 'EFFICIENCY', 'FUTURE'];
@@ -2355,6 +2392,8 @@ function CascadePageContent() {
   const { text: storyText, chapters: storyChapters } = useMemo(() => getStory(rawStory), [rawStory]);
 
   const [notice, setNotice] = useState('');
+  const [stage3Candidates, setStage3Candidates] = useState<Record<string, Stage3CandidateSet>>({});
+  const adoptingCandidateIdsRef = useRef<Set<string>>(new Set());
   const [loading, setLoading] = useState<Record<number, any>>({});
   // ★TASK A: 生成中フラグ（保存抑止用）
   const [isGenerating, setIsGenerating] = useState(false);
@@ -2536,6 +2575,13 @@ function CascadePageContent() {
     const generationScope = captureSaveScope();
     if (!generationScope || generationScope.companyId !== accessCompanyId) {
       setNotice('[ERROR] 会社の読み込みが完了してから、もう一度生成してください');
+      return;
+    }
+
+    const existingBridge = (st as any).stage3_strategy_bridge;
+    const hasExistingBridge = !!existingBridge?.strategicCore && Object.keys(existingBridge.strategicCore).length > 0;
+    if (hasExistingBridge && !window.confirm('既存の全社戦略サマリーを、新しい生成結果で置き換えます。よろしいですか？\n（キャンセルすると既存の内容を保持します）')) {
+      setNotice('[INFO] 既存の全社戦略サマリーを保持しました');
       return;
     }
 
@@ -3345,17 +3391,7 @@ useEffect(() => {
     if (!dept) return;
 
     const regenScope = captureSaveScope();
-    const preCheck = await assessDepartmentRegen({
-      client: supabase,
-      companyId: regenScope?.companyId ?? null,
-      departmentName: dept.name,
-      projects: (dept.projects as Project[] | undefined) ?? [],
-      projectIdOf: (p) => resolveProjectId(p as Project, dept.name),
-    });
-    if (!preCheck.allowed) {
-      setNotice(`⚠️ ${preCheck.message}`);
-      return;
-    }
+    if (!regenScope) return setNotice('⚠️ 会社の読み込みが完了してから、もう一度お試しください');
 
     // ★TASK A: 生成開始フラグをセット（保存抑止開始）
     setIsGenerating(true);
@@ -3589,382 +3625,43 @@ useEffect(() => {
       }
 
       if (!regenScope || !isSaveScopeCurrent(regenScope)) {
-        setNotice('⚠️ 会社が切り替わったため、再生成結果を反映せずに中止しました。既存のデータは変更していません。');
+        setNotice('⚠️ 会社が切り替わったため、結果を表示せずに中止しました。既存のデータは変更していません。');
         return;
       }
       const liveDept = ((useStrategyStore.getState().departments as Department[] | undefined) ?? [])[index];
       if (!liveDept || liveDept.name !== dept.name) {
-        setNotice('⚠️ 部門の並びが変わったため、再生成結果を反映せずに中止しました。既存のデータは変更していません。');
-        return;
-      }
-      const postCheck = await assessDepartmentRegen({
-        client: supabase,
-        companyId: regenScope.companyId,
-        departmentName: dept.name,
-        projects: (liveDept.projects as Project[] | undefined) ?? [],
-        projectIdOf: (p) => resolveProjectId(p as Project, dept.name),
-      });
-      if (!postCheck.allowed) {
-        setNotice(`⚠️ ${postCheck.message}`);
+        setNotice('⚠️ 部門の並びが変わったため、結果を表示せずに中止しました。既存のデータは変更していません。');
         return;
       }
 
-      let regenBlockNotice = '';
-      let pendingCleanupIds: string[] = [];
-      pushToStore((prev) => {
-        const list = [...prev];
-        const d = list[index];
-        if (!d) return prev;
-
-        const existingProjects = (d.projects as Project[] | undefined) ?? [];
-        const liveLocal = findLocalStage4Data(existingProjects);
-        if (liveLocal.length > 0) {
-          regenBlockNotice = regenBlockMessage(dept.name, liveLocal);
-          return list;
-        }
-        const patch: Partial<Department> = {};
-
-        // ★ FIXED: mission / missionDescription 統一（strategy/missionDraft は使わない）
-        const missionDraft = (cleanedRd.missionDraft ?? '').trim();
-        const missionDescription = (cleanedRd.missionDescription ?? '').trim();
-
-        if (missionDraft && !jsonEq(missionDraft, d.mission)) {
-          patch.mission = missionDraft;
-        }
-
-        if (missionDescription && !jsonEq(missionDescription, d.missionDescription)) {
-          patch.missionDescription = missionDescription;
-        }
-
-        // プロジェクト + OKR（旧＋2レーン統合）
-        // ★ 修正1c: deptName を渡してproject.id を生成
-        const mergedProjects = applyDeptDraftToProjects(existingProjects, cleanedRd, false, d.name);
-        if (!jsonEq(mergedProjects, existingProjects)) {
-          patch.projects = mergedProjects;
-
-          console.log('[diag][stage3:regen:projects-replaced]', {
-            deptName: d.name,
-            projectCount: mergedProjects.length,
-            projects: mergedProjects.map((p: any) => ({
-              title: p?.title,
-              projectId: (p as any)?.id,
-              okrIds: Array.isArray(p?.okrs) ? p.okrs.map((o: any) => o?.id ?? o?.dbOkrId ?? o?.okrId ?? null) : [],
-              objective: p?.okrs?.[0]?.objective ?? null,
-            })),
-            timestamp: new Date().toISOString(),
-          });
-
-          // ★診断ログ（save時点）
-          if (DEBUG_DUP) {
-            const titles = mergedProjects.map(p => p?.title ?? '');
-          }
-        }
-
-        const intraDeptCollab = Array.isArray((cleanedRd as any)?.intraDeptCollab)
-          ? (cleanedRd as any).intraDeptCollab
-          : Array.isArray(cleanedRd?.needsCollab)
-            ? cleanedRd.needsCollab
-            : [];
-        const interDeptCollab = Array.isArray((cleanedRd as any)?.interDeptCollab)
-          ? (cleanedRd as any).interDeptCollab
-          : [];
-        const mergedLegacyNeedsCollab = [...intraDeptCollab, ...interDeptCollab];
-
-        const generationMeta = {
-          existingCount:
-            cleanedRd?.lanes?.existing?.projects?.length ??
-            cleanedRd?.lanes?.existing?.projects?.length ??
-            (Array.isArray(cleanedRd.projects) ? cleanedRd.projects.length : 0),
-          newCount: cleanedRd?.lanes?.new?.projects?.length ?? 0,
-          intraCollabCount: intraDeptCollab.length,
-          interCollabCount: interDeptCollab.length,
-          collabCount: mergedLegacyNeedsCollab.length,
-          // Collaboration candidates describe projects already included in mergedProjects.
-          totalCount: mergedProjects.length,
-          updatedAt: new Date().toISOString(),
-        };
-
-        if (!jsonEq(generationMeta, d.generationMeta)) {
-          patch.generationMeta = generationMeta;
-        }
-
-        // ★ lanes（2レーン構造）を保存（型変換付き）
-        const newLanes = toLanesProjects(cleanedRd?.lanes);
-        if (newLanes && !jsonEq(newLanes, d.lanes)) {
-          patch.lanes = newLanes;
-        }
-
-        if (!jsonEq(intraDeptCollab, (d as any).intraDeptCollab ?? [])) (patch as any).intraDeptCollab = intraDeptCollab;
-        if (!jsonEq(interDeptCollab, (d as any).interDeptCollab ?? [])) (patch as any).interDeptCollab = interDeptCollab;
-        if (!jsonEq(mergedLegacyNeedsCollab, (d as any).needsCollab ?? [])) (patch as any).needsCollab = mergedLegacyNeedsCollab;
-        if (cleanedRd.stopList) (patch as any).stopList = cleanedRd.stopList;
-        if (cleanedRd.riskNotes) (patch as any).riskNotes = cleanedRd.riskNotes;
-
-        // ★STEP5拡張：事業・部門別戦略の観点（値がある場合のみ store へ反映。
-        // 未出力時は既存値を上書きしない）
-        if (typeof cleanedRd.currentPosition === 'string' && cleanedRd.currentPosition.trim()) {
-          (patch as any).currentPosition = cleanedRd.currentPosition.trim();
-        }
-        if (typeof cleanedRd.strategicRole === 'string' && cleanedRd.strategicRole.trim()) {
-          (patch as any).strategicRole = cleanedRd.strategicRole.trim();
-        }
-        if (Array.isArray(cleanedRd.keyIssues) && cleanedRd.keyIssues.length > 0) {
-          (patch as any).keyIssues = cleanedRd.keyIssues;
-        }
-        if (Array.isArray(cleanedRd.alignmentRiskPoints) && cleanedRd.alignmentRiskPoints.length > 0) {
-          (patch as any).alignmentRiskPoints = cleanedRd.alignmentRiskPoints;
-        }
-
-        if (!jsonEq((cleanedRd as any).reviewSummary, (d as any).reviewSummary)) {
-          (patch as any).reviewSummary = (cleanedRd as any).reviewSummary;
-        }
-
-        /* ★ 診断：patch 作成完了時の reviewSummary 確認 */
-        console.log('[diag][stage3:reviewSummary:patch-before-apply]', {
-          dept: d.name,
-          cleanedReviewSummary: (cleanedRd as any)?.reviewSummary,
-          patchReviewSummary: (patch as any)?.reviewSummary,
-          patchKeys: Object.keys(patch),
-          patchKeysIncludesReviewSummary: Object.keys(patch).includes('reviewSummary'),
-        });
-
-        if (Object.keys(patch).length > 0) list[index] = { ...d, ...patch } as Department;
-
-        return list;
-      });
-
-      if (regenBlockNotice) {
-        setNotice(`⚠️ ${regenBlockNotice}`);
-        return;
-      }
-      // ★ TRACE POINT 15: after pushToStore
-      const afterSetDepts = useStrategyStore.getState().departments as Department[] | undefined;
-      const afterPushProjCount = (Array.isArray(afterSetDepts) ? afterSetDepts : []).reduce((s: number, d: any) => {
-        return s + (Array.isArray(d?.projects) ? d.projects.length : 0);
-      }, 0);
-
-      /* ★ 診断：store 反映後の reviewSummary 確認 */
-      const afterStoreReviewSummary = afterSetDepts?.find((x: any) => x.name === dept.name)?.reviewSummary;
-      const afterStoreDept = afterSetDepts?.find((x: any) => x.name === dept.name);
-      console.log('[diag][stage3:reviewSummary:after-store]', {
-        dept: dept.name,
-        reviewSummary: afterStoreReviewSummary,
-        correctedLen: afterStoreReviewSummary?.correctedItems?.length ?? 0,
-        reconsiderationLen: afterStoreReviewSummary?.reconsiderationPoints?.length ?? 0,
-      });
-
-      if (process.env.NEXT_PUBLIC_DEBUG_CASCADE === '1') {
-        console.log('[TRACE_PROJECTS][cascade][after-pushToStore]', {
-          strategyId: useStrategyStore.getState().strategyId,
-          timestamp: new Date().toISOString(),
-          totalDepartments: Array.isArray(afterSetDepts) ? afterSetDepts.length : 0,
-          totalProjects: afterPushProjCount,
-          dropped: beforePushProjCount - afterPushProjCount,
-        });
-      }
-
-      setNotice(`✅ ${dept.name} のミッション・プロジェクト・KPI案を更新しました`);
-
-      // ★ TRACE POINT 3: Before cleanup block - show state before/after pushToStore
-      const beforeProjCount = (beforePushDepts ?? []).reduce((s: number, d: any) =>
-        s + (Array.isArray(d?.projects) ? d.projects.length : 0), 0);
-      const afterProjCount = (afterSetDepts ?? []).reduce((s: number, d: any) =>
-        s + (Array.isArray(d?.projects) ? d.projects.length : 0), 0);
-
-      console.log('[diag][stage3:regen:before-cleanup]', {
-        deptName: dept.name,
-        deptIndex: index,
-        beforeDepartmentCount: Array.isArray(beforePushDepts) ? beforePushDepts.length : 0,
-        afterDepartmentCount: Array.isArray(afterSetDepts) ? afterSetDepts.length : 0,
-        beforeProjectCount: beforeProjCount,
-        afterProjectCount: afterProjCount,
-        projectDelta: afterProjCount - beforeProjCount,
-        timestamp: new Date().toISOString(),
-      });
-
-      // ★ PHASE 1: 再生成直後に旧 project の downstream data を cleanup
-      // （DB cleanup + local state cleanup）
-      try {
-        const deptBeforeRegen = (beforePushDepts ?? [])[index];
-        const deptAfterRegen = afterSetDepts?.find((d) => d.name === dept.name);
-
-        // ★ TRACE POINT 4: Condition check - show before/after regen state
-        console.log('[diag][stage3:regen:condition-check]', {
-          deptName: dept.name,
-          deptIndex: index,
-          hasDeptBeforeRegen: !!deptBeforeRegen,
-          deptBeforeRegenProjectCount: (deptBeforeRegen?.projects ?? []).length,
-          hasDeptAfterRegen: !!deptAfterRegen,
-          deptAfterRegenProjectCount: (deptAfterRegen?.projects ?? []).length,
-          beforeRegenName: deptBeforeRegen?.name,
-          afterRegenName: deptAfterRegen?.name,
-          timestamp: new Date().toISOString(),
-        });
-
-        if (deptBeforeRegen && deptAfterRegen) {
-          // ★ TRACE POINT 5: Entering cleanup block - condition true
-          console.log('[diag][stage3:regen:entering-cleanup]', {
-            deptName: dept.name,
-            deptIndex: index,
-            timestamp: new Date().toISOString(),
-          });
-
-          // old/new project の title set を作成
-          const oldProjects = (deptBeforeRegen.projects ?? []) as Project[];
-          const newProjects = (deptAfterRegen.projects ?? []) as Project[];
-
-          // ★ TRACE POINT 6: Show old/new project counts
-          console.log('[diag][stage3:regen:project-comparison]', {
-            deptName: dept.name,
-            deptIndex: index,
-            oldProjectCount: oldProjects.length,
-            newProjectCount: newProjects.length,
-            oldProjectTitles: oldProjects.map((p) => p?.title ?? ''),
-            newProjectTitles: newProjects.map((p) => p?.title ?? ''),
-            timestamp: new Date().toISOString(),
-          });
-
-          // ★ 修正：「削除された project のみ cleanup」 → 「再生成対象部門の old projects 全件 cleanup」
-          // 根拠：STAGE3で部門再生成した時点で、その部門の old project に紐づく
-          // すべての downstream data（stage4Plans, okrs 等）は自動的に失効するため
-          const allOldProjectIds: string[] = oldProjects
-            .map((p) => resolveProjectId(p, deptBeforeRegen.name))
-            .filter((id) => id);
-
-          // ★ TRACE POINT 7: Show all old project IDs to be cleaned up
-          console.log('[diag][stage3:regen:all-old-project-ids]', {
-            deptName: dept.name,
-            deptIndex: index,
-            allOldProjectIds,
-            allOldProjectCount: allOldProjectIds.length,
-            oldProjectCount: oldProjects.length,
-            newProjectCount: newProjects.length,
-            timestamp: new Date().toISOString(),
-          });
-
-          // cleanup 対象が存在する場合
-          if (allOldProjectIds.length > 0) {
-            console.log('[diag][cascade:regen:cleanup:request]', {
-              dept: dept.name,
-              allOldProjectIds,
-              allOldProjectCount: allOldProjectIds.length,
-              timestamp: new Date().toISOString(),
-            });
-
-            // 後始末は保存成功の確認後に実行する（保存前に論理削除しない）
-            pendingCleanupIds = allOldProjectIds;
-
-            // === Step 2: Invalidate STAGE4 artifacts via store action ===
-            // ★ STEP 3 修正：filtering + full clear を store action に統一
-            // 責務明確化：「無効化」は store action の責務
-            // ★ FIX: invalidateStage4ArtifactsAfterCascadeRegeneration は store に未定義のため、ここでは呼ばない
-            // if (allOldProjectIds.length > 0) {
-            //   useStrategyStore
-            //     .getState()
-            //     .invalidateStage4ArtifactsAfterCascadeRegeneration?.(
-            //       dept.name,
-            //       allOldProjectIds
-            //     );
-            // }
-          } else {
-            // ★ TRACE POINT 8: No old projects
-            console.log('[diag][stage3:regen:no-cleanup-needed]', {
-              deptName: dept.name,
-              deptIndex: index,
-              oldProjectCount: (deptBeforeRegen?.projects ?? []).length,
-              newProjectCount: (deptAfterRegen?.projects ?? []).length,
-              reason: 'allOldProjectIds.length === 0',  // ★ 修正：変数名更新
-              timestamp: new Date().toISOString(),
-            });
-          }
-        } else {
-          // ★ TRACE POINT 9: Condition failed - show why cleanup didn't run
-          console.log('[diag][stage3:regen:cleanup-skipped]', {
-            deptName: dept.name,
-            deptIndex: index,
-            hasDeptBeforeRegen: !!deptBeforeRegen,
-            hasDeptAfterRegen: !!deptAfterRegen,
-            reason: deptBeforeRegen ? 'missing afterRegen' : 'missing beforeRegen',
-            timestamp: new Date().toISOString(),
-          });
-        }
-      } catch (cleanupErr) {
-        console.warn('[cascade:cleanup] exception during cleanup:', cleanupErr);
-        // non-blocking: cleanup error は show notice しない
-      }
-
-      // ★ TRACE POINT 10: Invalidation and cleanup complete
-      // (invalidateStage4ArtifactsAfterCascadeRegeneration already called via store action)
-      console.log('[diag][stage3:regen:invalidate-complete]', {
-        deptName: dept.name,
-        deptIndex: index,
-        timestamp: new Date().toISOString(),
-      });
-
-      // ★TASK A: 生成完了後に必ず1回保存（保存抑止解除前）
-      // 旧計画の後始末は、保存が成功（ok: true）した後にだけ行う
-      const runStage3Cleanup = async (ids: string[], revision: number) => {
-        if (!regenScope || !isSaveScopeCurrent(regenScope)) {
-          setNotice('⚠️ 会社が切り替わったため、旧計画の後始末は行いませんでした（既存の計画は残っています）');
-          return;
-        }
-        const st = useStrategyStore.getState() as any;
-        if (!st.strategyId) {
-          setNotice('⚠️ 戦略を確認できないため、旧計画の後始末は保留しました（既存の計画は残っています）');
-          return;
-        }
-        try {
-          const res: any = await authFetchJson('/api/cascade/cleanup-deleted-projects', {
-            method: 'POST',
-            json: {
-              companyId: regenScope.companyId,
-              strategyId: st.strategyId,
-              expectedRevision: revision,
-              deletedProjectIds: ids,
-              departmentId: dept.name,
-            },
-          });
-          if (!res?.ok) throw new Error('cleanup not ok');
-          console.log('[diag][cascade:regen:cleanup:result]', {
-            dept: dept.name,
-            cleaned: res.cleaned,
-            timestamp: new Date().toISOString(),
-          });
-        } catch {
-          setNotice('⚠️ 旧計画の後始末は、安全に確認できなかったため保留しました（既存の計画は残っています）');
-        }
+      // 生成結果は計画に入れない。プロジェクトは未採用の候補、部門戦略は既存の値と並べた変更案として表示する
+      const refSource: any = cleanedRd;
+      const candidateProjects = applyDeptDraftToProjects([], cleanedRd, false, dept.name) as Project[];
+      const intraCollab = textItems(Array.isArray(refSource.intraDeptCollab) ? refSource.intraDeptCollab : refSource.needsCollab);
+      const interCollab = textItems(refSource.interDeptCollab);
+      const generated: Record<string, unknown> = {
+        mission: String(refSource.missionDraft ?? '').trim(),
+        missionDescription: String(refSource.missionDescription ?? '').trim(),
+        strategicRole: typeof refSource.strategicRole === 'string' ? refSource.strategicRole.trim() : '',
+        currentPosition: typeof refSource.currentPosition === 'string' ? refSource.currentPosition.trim() : '',
+        keyIssues: textItems(refSource.keyIssues),
+        alignmentRiskPoints: textItems(refSource.alignmentRiskPoints),
+        intraDeptCollab: intraCollab,
+        interDeptCollab: interCollab,
+        needsCollab: [...intraCollab, ...interCollab],
+        reviewSummary: refSource.reviewSummary,
+        stopList: refSource.stopList,
+        riskNotes: refSource.riskNotes,
       };
-
-      if (saveNow) {
-        try {
-          const saveResult: any = await saveNow();
-          console.log('[diag][stage3:regen:saved]', {
-            dept: dept.name,
-            ok: saveResult?.ok === true,
-            reason: saveResult?.reason ?? null,
-            stage4PlansAfterSave: useStrategyStore.getState().stage4Plans?.length ?? 0,
-          });
-          if (saveResult?.ok === true) {
-            cascadeBaselineRef.current = hashSnapshot(makeSaveSnapshot(useStrategyStore.getState() as any));
-            setNotice(`✅ ${dept.name} のたたき台を更新し、サーバーにも保存しました`);
-            const ids = pendingCleanupIds;
-            pendingCleanupIds = [];
-            if (ids.length > 0) {
-              if (typeof saveResult.revision === 'number') {
-                await runStage3Cleanup(ids, saveResult.revision);
-              } else {
-                setNotice('⚠️ 旧計画の後始末は、保存の確認ができなかったため保留しました（既存の計画は残っています）');
-              }
-            }
-          } else {
-            pendingCleanupIds = [];
-            setNotice('⚠️ 画面上の更新は完了しましたが、サーバー保存に失敗しました（旧計画の後始末は行っていません）');
-          }
-        } catch {
-          pendingCleanupIds = [];
-          setNotice('⚠️ 画面上の更新は完了しましたが、サーバー保存に失敗しました（旧計画の後始末は行っていません）');
-        }
-      }
+      const proposals = buildDeptProposals(liveDept as unknown as Record<string, unknown>, generated);
+      setStage3Candidates((prev) => ({
+        ...prev,
+        [dept.name]: { scope: regenScope, projects: candidateProjects, proposals },
+      }));
+      setActiveStepByDept((prev) => ({ ...prev, [dept.name]: 'step1' }));
+      setNotice(
+        `✅ ${dept.name}：未採用のプロジェクト案${candidateProjects.length}件・部門戦略の変更案${proposals.length}件を表示しました。反映・追加は選んだ項目だけです。既存の計画は変更していません。`,
+      );
     } catch (e: any) {
       // ★ TRACE POINT 10b: Function error
       console.log('[diag][stage3:regen:error]', {
@@ -3994,6 +3691,183 @@ useEffect(() => {
         },
       }));
     }
+  };
+
+  const discardStage3Candidate = (deptName: string, candidateId: string) => {
+    setStage3Candidates((prev) => {
+      const current = prev[deptName];
+      if (!current) return prev;
+      const projects = withoutCandidate(
+        current.projects as unknown as Record<string, unknown>[],
+        candidateId,
+        (p) => resolveProjectId(p as unknown as Project, deptName),
+      ) as unknown as Project[];
+      return setCandidateEntry(prev, deptName, { ...current, projects });
+    });
+  };
+
+  const discardStage3Proposal = (deptName: string, item: DeptProposalItem) => {
+    setStage3Candidates((prev) => {
+      const current = prev[deptName];
+      if (!current) return prev;
+      return setCandidateEntry(prev, deptName, { ...current, proposals: current.proposals.filter((p) => p.item !== item) });
+    });
+  };
+
+  /** 追加・反映の前に、権限・会社・戦略・未保存の変更・revision を確認する。 */
+  const checkStage3Write = (deptName: string): { scope: SaveScope; strategyId: string; revision: number } | null => {
+    const entry = stage3Candidates[deptName];
+    if (!canEditDept()) {
+      setNotice('⚠️ 追加・反映する権限がありません（管理者・管理職のみ）');
+      return null;
+    }
+    if (!entry) return null;
+    const scope = captureSaveScope();
+    const sameScope =
+      !!scope &&
+      isSaveScopeCurrent(entry.scope) &&
+      isSameCandidateScope(
+        { companyId: entry.scope.companyId, strategyId: entry.scope.strategyId, userId: entry.scope.userId },
+        { companyId: scope.companyId, strategyId: scope.strategyId, userId: scope.userId },
+      );
+    if (!scope || !sameScope) {
+      setStage3Candidates((prev) => {
+        const next = { ...prev };
+        delete next[deptName];
+        return next;
+      });
+      setNotice('⚠️ 会社・戦略が切り替わったため、未採用の案を破棄しました。既存のデータは変更していません。');
+      return null;
+    }
+    const st = useStrategyStore.getState() as any;
+    if (!st.strategyId || st.dirty || st.pendingConflictRecovery || st.boot?.isSaving) {
+      setNotice('⚠️ 未保存の変更があるため、保存を完了してから追加・反映してください。既存のデータは変更していません。');
+      return null;
+    }
+    if (typeof st.revision !== 'number') {
+      setNotice('⚠️ 保存状態を確認できないため、追加・反映しませんでした。画面を再読み込みしてください。');
+      return null;
+    }
+    return { scope, strategyId: st.strategyId, revision: st.revision };
+  };
+
+  /** 保存は成功している。その後の再取得の失敗は、成功の表示を取り消さずに別に知らせる。 */
+  const refreshAfterWrite = async (successMessage: string) => {
+    setNotice(successMessage);
+    try {
+      await useStrategyStore.getState().refetchFromServer();
+    } catch {
+      setNotice(`${successMessage} ただし、画面の再読み込みに失敗しました。ページを再読み込みしてください。`);
+    }
+  };
+
+  const handleAdoptStage3Candidate = async (deptName: string, candidateId: string) => {
+    const entry = stage3Candidates[deptName];
+    const candidate = entry?.projects.find((p) => resolveProjectId(p, deptName) === candidateId);
+    if (!entry || !candidate) return;
+    const key = `project::${deptName}::${candidateId}`;
+    if (adoptingCandidateIdsRef.current.has(key)) return;
+    const gate = checkStage3Write(deptName);
+    if (!gate) return;
+
+    const takenIds = new Set<string>();
+    for (const d of (useStrategyStore.getState().departments as Department[] | undefined) ?? []) {
+      for (const p of (d.projects as Project[] | undefined) ?? []) takenIds.add(resolveProjectId(p, d.name));
+    }
+    const prepared = prepareAdoptedProject(
+      candidate as unknown as Record<string, unknown>,
+      () => genRegenProjectId(candidate.title ?? '', deptName),
+      takenIds,
+    );
+    if (!prepared.ok) return setNotice('⚠️ 新しいIDを発行できなかったため、追加しませんでした。');
+
+    const title = candidate.title || '無題';
+    adoptingCandidateIdsRef.current.add(key);
+    setNotice(`⏳ 「${title}」を追加しています…`);
+    try {
+      await authFetchJson('/api/cascade/adopt-candidate', {
+        method: 'POST',
+        json: {
+          companyId: gate.scope.companyId,
+          strategyId: gate.strategyId,
+          expectedRevision: gate.revision,
+          departmentName: deptName,
+          project: prepared.project,
+        },
+      });
+    } catch (e) {
+      adoptingCandidateIdsRef.current.delete(key);
+      if (!isSaveScopeCurrent(gate.scope)) return;
+      const { status, code } = readAuthFetchErrorCode(e);
+      if (code === 'duplicate_project_id') {
+        discardStage3Candidate(deptName, candidateId);
+        setNotice('ℹ️ この案は既に計画に追加されています。');
+      } else if (code === 'revision_changed') {
+        setNotice('⚠️ 他の利用者が計画を更新したため、追加しませんでした（案は残しています）。画面を再読み込みしてから、もう一度お試しください。');
+      } else if (status === 403) {
+        setNotice('⚠️ 追加する権限がありません（管理者・管理職のみ）。既存のデータは変更していません。');
+      } else {
+        setNotice('⚠️ 追加できませんでした（案は残しています）。既存のデータは変更していません。');
+      }
+      return;
+    }
+    adoptingCandidateIdsRef.current.delete(key);
+    if (!isSaveScopeCurrent(gate.scope)) {
+      setNotice('⚠️ 追加は保存されましたが、会社が切り替わったため画面には反映していません。');
+      return;
+    }
+    discardStage3Candidate(deptName, candidateId);
+    await refreshAfterWrite(`✅ 「${title}」を計画に追加しました。`);
+  };
+
+  const handleApplyDeptProposal = async (deptName: string, item: DeptProposalItem) => {
+    const entry = stage3Candidates[deptName];
+    const proposal = entry?.proposals.find((p) => p.item === item);
+    if (!entry || !proposal) return;
+    const key = `proposal::${deptName}::${item}`;
+    if (adoptingCandidateIdsRef.current.has(key)) return;
+    const gate = checkStage3Write(deptName);
+    if (!gate) return;
+
+    const label = DEPT_PROPOSAL_ITEMS[item].label;
+    adoptingCandidateIdsRef.current.add(key);
+    setNotice(`⏳ 「${label}」を反映しています…`);
+    try {
+      await authFetchJson('/api/cascade/apply-department-proposal', {
+        method: 'POST',
+        json: {
+          companyId: gate.scope.companyId,
+          strategyId: gate.strategyId,
+          expectedRevision: gate.revision,
+          departmentName: deptName,
+          item,
+          value: proposal.proposed,
+          base: proposal.base,
+        },
+      });
+    } catch (e) {
+      adoptingCandidateIdsRef.current.delete(key);
+      if (!isSaveScopeCurrent(gate.scope)) return;
+      const { status, code } = readAuthFetchErrorCode(e);
+      if (code === 'current_value_changed') {
+        discardStage3Proposal(deptName, item);
+        setNotice(`⚠️ 「${label}」の既存の値が変わっていたため反映しませんでした。案は破棄しました。再生成してから確認してください。`);
+      } else if (code === 'revision_changed') {
+        setNotice('⚠️ 他の利用者が計画を更新したため、反映しませんでした（案は残しています）。画面を再読み込みしてから、もう一度お試しください。');
+      } else if (status === 403) {
+        setNotice('⚠️ 反映する権限がありません（管理者・管理職のみ）。既存のデータは変更していません。');
+      } else {
+        setNotice('⚠️ 反映できませんでした（案は残しています）。既存のデータは変更していません。');
+      }
+      return;
+    }
+    adoptingCandidateIdsRef.current.delete(key);
+    if (!isSaveScopeCurrent(gate.scope)) {
+      setNotice('⚠️ 反映は保存されましたが、会社が切り替わったため画面には反映していません。');
+      return;
+    }
+    discardStage3Proposal(deptName, item);
+    await refreshAfterWrite(`✅ 「${label}」を部門情報に反映しました。`);
   };
 
   /* ===== ビジュアルビュー ===== */
@@ -4389,6 +4263,118 @@ useEffect(() => {
 
                 {activeStep === 'step1' && (
                 <>
+                {(() => {
+                  const set = stage3Candidates[dept.name];
+                  if (!set || !isSaveScopeCurrent(set.scope)) return null;
+                  if (set.projects.length === 0 && set.proposals.length === 0) return null;
+                  const deptValues = dept as unknown as Record<string, unknown>;
+                  return (
+                    <div className="mb-5 rounded-3xl border border-amber-300 bg-amber-50 px-5 py-4">
+                      <div className="text-sm font-bold text-zinc-900">未採用の案（AI生成）</div>
+                      <p className="mt-1 text-xs leading-5 text-zinc-600">
+                        選んだ案・項目だけが計画に入ります。既存のプロジェクト・OKR・承認・人的投資・進捗は変更されません。
+                      </p>
+
+                      {set.projects.length > 0 && (
+                        <div className="mt-4 space-y-3">
+                          <div className="text-xs font-bold text-zinc-700">プロジェクト案（追加）</div>
+                          {set.projects.map((p) => {
+                            const cid = resolveProjectId(p, dept.name);
+                            const similar = deptProjects.filter((e) => isSimilarTitle(e.title ?? '', p.title ?? ''));
+                            const okrCount = Array.isArray((p as any).okrs) ? (p as any).okrs.length : 0;
+                            const hypothesis = getProjectHypothesisText(p);
+                            return (
+                              <div key={`candidate-${dept.name}-${cid}`} className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                                <div className="text-base font-semibold leading-6 text-zinc-900">
+                                  {stripDeptPrefix(p.title ?? '', dept.name) || '無題の案'}
+                                </div>
+                                {hypothesis && (
+                                  <p className="mt-2 text-sm leading-6 text-zinc-700 whitespace-pre-wrap">
+                                    <span className="font-semibold text-zinc-800">仮説：</span>{hypothesis}
+                                  </p>
+                                )}
+                                <div className="mt-1 text-xs text-zinc-500">OKR {okrCount}件</div>
+                                {similar.length > 0 && (
+                                  <div className="mt-2 rounded-xl border border-amber-300 bg-amber-100 px-3 py-2 text-xs leading-5 text-amber-900">
+                                    同じ名称の既存プロジェクトがあります（{similar.map((s) => stripDeptPrefix(s.title ?? '', dept.name)).join('、')}）。自動では統合しません。内容を確認して判断してください。
+                                  </div>
+                                )}
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => handleAdoptStage3Candidate(dept.name, cid)}
+                                    disabled={!editableDept || isHydrating}
+                                    className="rounded-full h-8 px-3"
+                                  >
+                                    追加する
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => discardStage3Candidate(dept.name, cid)}
+                                    className="rounded-full h-8 px-3"
+                                  >
+                                    追加しない
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {set.proposals.length > 0 && (
+                        <div className="mt-5 space-y-3">
+                          <div className="text-xs font-bold text-zinc-700">部門戦略の変更案（既存の値と比べて、反映する項目だけ選ぶ）</div>
+                          {set.proposals.map((proposal) => {
+                            const meta = DEPT_PROPOSAL_ITEMS[proposal.item];
+                            const liveValues = currentItemValues(deptValues, proposal.item);
+                            const currentText = sanitizeDisplayText(displayProposalValue(proposal.item, liveValues));
+                            const proposedText = sanitizeDisplayText(displayProposalValue(proposal.item, proposal.proposed));
+                            const stale = !sameItemValues(proposal.base, liveValues);
+                            return (
+                              <div key={`proposal-${dept.name}-${proposal.item}`} className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                                <div className="text-sm font-semibold text-zinc-900">{meta.label}</div>
+                                <div className="mt-2 grid gap-3 md:grid-cols-2">
+                                  <div className="rounded-xl bg-zinc-50 px-3 py-2">
+                                    <div className="text-[11px] font-semibold text-zinc-600">現在の値</div>
+                                    <div className="mt-1 whitespace-pre-wrap text-xs leading-5 text-zinc-800">{currentText || '（未設定）'}</div>
+                                  </div>
+                                  <div className="rounded-xl bg-amber-50 px-3 py-2">
+                                    <div className="text-[11px] font-semibold text-amber-800">AIの案</div>
+                                    <div className="mt-1 whitespace-pre-wrap text-xs leading-5 text-zinc-800">{proposedText || '（なし）'}</div>
+                                  </div>
+                                </div>
+                                {stale && (
+                                  <div className="mt-2 text-xs text-amber-800">
+                                    既存の値が案を作ったあとに変わっています。反映するには再生成してください。
+                                  </div>
+                                )}
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => handleApplyDeptProposal(dept.name, proposal.item)}
+                                    disabled={!editableDept || isHydrating || stale}
+                                    className="rounded-full h-8 px-3"
+                                  >
+                                    この変更を反映する
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => discardStage3Proposal(dept.name, proposal.item)}
+                                    className="rounded-full h-8 px-3"
+                                  >
+                                    反映しない
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {/* 価値指標（STAGE2）の表示 */}
                 {valueDriverKPIs.length > 0 && (
                   <div className="mb-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
