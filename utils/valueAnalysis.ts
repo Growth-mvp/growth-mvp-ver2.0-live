@@ -920,3 +920,48 @@ export function computeValueAnalysisBundle(args: {
 
   return { company, segments };
 }
+
+/* ===============================
+ * STAGE1 と AI経営コンサルタントの共通算出
+ * =============================== */
+
+export type Stage1ValueAnalysisInput = {
+  financePL?: FinancePLRow[];
+  financeBS?: FinanceBSRow[];
+  financeSummary?: FinanceSummaryRow[];
+  segmentPL?: Record<string, FinancePLRow[]>;
+  segmentBS?: Record<string, SegmentBSRow[]>;
+  pbrManual?: string;
+};
+
+/**
+ * 会社PL（新形式）があれば PL/BS から、なければ financeSummary から算出する。
+ * STAGE1 の store と CEO チャットのサーバー側は、この関数だけを使う。
+ */
+export function computeStage1ValueAnalysis(input: Stage1ValueAnalysisInput): {
+  company: ValueAnalysis;
+  segments?: Record<string, ValueAnalysis>;
+} {
+  if (Array.isArray(input.financePL) && input.financePL.length > 0) {
+    const result = computeValueAnalysisBundle({
+      companyPL: input.financePL,
+      companyBS: input.financeBS ?? [],
+      segmentPL: input.segmentPL,
+      segmentBS: input.segmentBS,
+      pbrManual: input.pbrManual,
+    });
+    return {
+      company: result.company,
+      segments: Object.keys(result.segments).length > 0 ? result.segments : undefined,
+    };
+  }
+
+  return {
+    company: computeValueAnalysis({
+      financeSummary: input.financeSummary,
+      financeBS: input.financeBS,
+      pbrManual: input.pbrManual,
+    }),
+    segments: undefined,
+  };
+}

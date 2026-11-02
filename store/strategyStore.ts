@@ -27,7 +27,7 @@ import {
   type CandidatePool,
   type CandidateSelection,
 } from '@/lib/swot/candidatePool';
-import { computeValueAnalysis, computeValueAnalysisBundle } from '@/utils/valueAnalysis';
+import { computeStage1ValueAnalysis } from '@/utils/valueAnalysis';
 import { stage1DummyDataBundle } from '@/utils/stage1DummyData';
 import { applyWorkingSnapshot, workingHashOf } from '@/utils/stage6/financePlanSnapshot';
 import {
@@ -2725,24 +2725,16 @@ export const useStrategyStore = create<StrategyState>()(
         let newValueAnalysis: ValueAnalysis;
         let newSegmentValueAnalysis: Record<string, ValueAnalysis> | undefined;
 
-        if (hasNewFormat) {
-          const result = computeValueAnalysisBundle({
-            companyPL: s.financePL!,
-            companyBS: s.financeBS ?? [],
-            segmentPL: s.segmentPL,
-            segmentBS: s.segmentBS,
-            pbrManual: s.pbrManual,
-          });
-          newValueAnalysis = result.company;
-          newSegmentValueAnalysis = Object.keys(result.segments).length > 0 ? result.segments : undefined;
-        } else {
-          newValueAnalysis = computeValueAnalysis({
-            financeSummary: s.financeSummary,
-            financeBS: s.financeBS,
-            pbrManual: s.pbrManual,
-          });
-          newSegmentValueAnalysis = undefined;
-        }
+        const stage1Result = computeStage1ValueAnalysis({
+          financePL: s.financePL,
+          financeBS: s.financeBS,
+          financeSummary: s.financeSummary,
+          segmentPL: s.segmentPL,
+          segmentBS: s.segmentBS,
+          pbrManual: s.pbrManual,
+        });
+        newValueAnalysis = stage1Result.company;
+        newSegmentValueAnalysis = stage1Result.segments;
 
         newValueAnalysis.meta = {
           ...newValueAnalysis.meta,

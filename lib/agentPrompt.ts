@@ -1,5 +1,6 @@
 // /lib/agentPrompt.ts
 import { StrategyData, ChapterAnswers, ChapterStory } from '@/types/strategy';
+import { formatAmount, buildFinanceSummaryBlock, buildValueAnalysisBlock } from '@/lib/ceoChat/stage1Blocks';
 
 function oneLine(str?: string) {
   return (str || '').replace(/\s+/g, ' ').trim();
@@ -9,140 +10,6 @@ function compactStory(story: ChapterStory[] = []) {
   return story
     .map((c, i) => `第${i + 1}章「${oneLine(c.title)}」: ${oneLine(c.body).slice(0, 240)}…`)
     .join('\n');
-}
-
-function formatAmount(n: number | undefined | null): string {
-  if (n === null || n === undefined) return '';
-  if (n === 0) return '0円';
-  const absN = Math.abs(n);
-  if (absN >= 1_000_000_000) return `${(n / 1_000_000_000).toLocaleString('ja-JP', { maximumFractionDigits: 1 })}十億円`;
-  if (absN >= 1_000_000) return `${(n / 1_000_000).toLocaleString('ja-JP', { maximumFractionDigits: 1 })}百万円`;
-  if (absN >= 1_000) return `${(n / 1_000).toLocaleString('ja-JP', { maximumFractionDigits: 0 })}千円`;
-  return `${n}円`;
-}
-
-function buildFinanceSummaryBlock(financeSummary: any[] = []): string {
-  // ⑤ 検査: buildFinanceSummaryBlock への入力確認
-  const isArray = Array.isArray(financeSummary);
-  const count = isArray ? financeSummary.length : 0;
-  console.log('[agentPrompt] ⑤_buildFinanceSummaryBlock input', {
-    is_array: isArray,
-    count: count,
-    first_item_keys: count > 0 ? Object.keys(financeSummary[0] || {}).slice(0, 5) : [],
-  });
-
-  if (!isArray || count === 0) {
-    console.log('[agentPrompt] ⑤_buildFinanceSummaryBlock -> empty (no data)');
-    return '';
-  }
-
-  // 年度でソート（新→古）
-  const sorted = [...financeSummary].sort((a, b) => {
-    const yearA = typeof a?.year === 'number' ? a.year : 0;
-    const yearB = typeof b?.year === 'number' ? b.year : 0;
-    return yearB - yearA;
-  });
-
-  // ★ 出所明記と信頼性表示
-  const lines: string[] = [
-    '出所：GROWTH SHIFTのSTAGE1登録データ。公開決算のリアルタイム取得結果ではありません。',
-    '',
-    '【STAGE1 財務サマリ（GROWTH SHIFT登録データ）】'
-  ];
-
-  const yearsSummary: { year: number; has_revenue: boolean; has_operatingIncome: boolean; has_netIncome: boolean }[] = [];
-
-  sorted.forEach((row: any) => {
-    // ★ 年度表記：「XXXX年度」から「XXXX年3月期」に改善
-    // 注：期末月情報がない場合はデフォルトで3月期と表示
-    const yearLabel = typeof row?.year === 'number' ? `${row.year}年3月期` : '不明';
-    const parts: string[] = [];
-
-    const hasRevenue = row?.revenue !== undefined && row?.revenue !== null;
-    const hasOpIncome = row?.operatingIncome !== undefined && row?.operatingIncome !== null;
-    const hasNetIncome = row?.netIncome !== undefined && row?.netIncome !== null;
-
-    if (hasRevenue) {
-      parts.push(`売上 ${formatAmount(row.revenue)}`);
-    }
-    if (hasOpIncome) {
-      parts.push(`営業利益 ${formatAmount(row.operatingIncome)}`);
-    }
-    if (hasNetIncome) {
-      parts.push(`当期純利益 ${formatAmount(row.netIncome)}`);
-    }
-
-    if (parts.length > 0) {
-      lines.push(`  ${yearLabel}: ${parts.join(' / ')}`);
-    }
-
-    // ★ 検証用：年度別のフィールド有無を記録
-    if (typeof row?.year === 'number') {
-      yearsSummary.push({
-        year: row.year,
-        has_revenue: hasRevenue,
-        has_operatingIncome: hasOpIncome,
-        has_netIncome: hasNetIncome,
-      });
-    }
-  });
-
-  // ★ 最終確認ログ：buildFinanceSummaryBlock の出力内容
-  console.log('[agentPrompt] ⑤_buildFinanceSummaryBlock_FINAL', {
-    block_created: lines.length > 1,
-    years_with_data: yearsSummary,
-  });
-
-  const result = lines.length > 1 ? lines.join('\n') : '';
-  console.log('[agentPrompt] ⑤_buildFinanceSummaryBlock output', {
-    has_content: result.length > 0,
-    output_length: result.length,
-    line_count: lines.length,
-  });
-  return result;
-}
-
-function buildValueAnalysisBlock(valueAnalysis: any = {}): string {
-  if (!valueAnalysis || typeof valueAnalysis !== 'object') {
-    return '';
-  }
-
-  const lines: string[] = ['【STAGE1 5指標分析（GROWTH SHIFT登録データ）】'];
-
-  // 基準年の表記
-  const baseYear = valueAnalysis.baseYear || valueAnalysis.latestYear;
-  if (baseYear) {
-    lines.push(`  [基準年: ${baseYear}年]`);
-  }
-
-  // 売上成長率（CAGR推奨）
-  const growth = valueAnalysis.revenueCagrPct !== undefined ? valueAnalysis.revenueCagrPct : valueAnalysis.revenueGrowthRate;
-  if (typeof growth === 'number') {
-    lines.push(`  ・売上成長率（CAGR）: ${growth.toFixed(1)}%`);
-  }
-
-  // 営業利益率
-  const margin = valueAnalysis.operatingMarginPctLatest !== undefined ? valueAnalysis.operatingMarginPctLatest : valueAnalysis.operatingMarginRate;
-  if (typeof margin === 'number') {
-    lines.push(`  ・営業利益率: ${margin.toFixed(1)}%`);
-  }
-
-  // ROIC
-  if (typeof valueAnalysis.roic === 'number') {
-    lines.push(`  ・ROIC: ${valueAnalysis.roic.toFixed(1)}%`);
-  }
-
-  // ROE
-  if (typeof valueAnalysis.roe === 'number') {
-    lines.push(`  ・ROE: ${valueAnalysis.roe.toFixed(1)}%`);
-  }
-
-  // 負債資本比率
-  if (typeof valueAnalysis.debtEquityRatio === 'number') {
-    lines.push(`  ・負債資本比率: ${valueAnalysis.debtEquityRatio.toFixed(2)}`);
-  }
-
-  return lines.length > 1 ? lines.join('\n') : '';
 }
 
 function buildExternalFinancialBlock(extData: any = {}): string {
@@ -221,10 +88,9 @@ SWOT: S=${oneLine(s.strength)} / W=${oneLine(s.weakness)} / O=${oneLine(s.opport
     parts.push(financeSummaryBlock);
   }
 
-  const valueAnalysisBlock = buildValueAnalysisBlock((s as any)?.valueAnalysis);
-  if (valueAnalysisBlock) {
-    parts.push(valueAnalysisBlock);
-  }
+  parts.push(
+    buildValueAnalysisBlock((s as any)?.valueAnalysis, (s as any)?.stage1Benchmarks)
+  );
 
   if (finalStory?.length) {
     parts.push('【戦略ストーリー要約】\n' + compactStory(finalStory));
