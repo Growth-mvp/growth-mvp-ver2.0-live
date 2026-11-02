@@ -1,5 +1,5 @@
 // /app/api/stage2/generate-draft/route.ts
-// STAGE2：ドライなたたき台生成API（story-process形式に寄せて安定化 + CEO/MVV/SWOT反映を強制）
+// STAGE2：ドライなたたき台生成API（出力形式を安定化 + CEO/MVV/SWOT反映を強制）
 //
 // 改修ポイント（このファイル内で完結）
 // - ★「生成されない」主因：InputSchema/issueBlocks必須 & issueBlocks空で400 return を緩和
@@ -175,7 +175,7 @@ function toLines(arr: any[]): string[] {
 }
 
 /**
- * story-process形式を壊さないために、AIが body を object/array で返しても
+ * 出力形式を壊さないために、AIが body を object/array で返しても
  * 必ず「文字列」に正規化する（特に第2章対策）
  *
  * ★改修：第2章固定書式に「根拠キーワード」行を含めて整形できるようにする

@@ -6,7 +6,7 @@
 
 > ルートとステージ番号の対応（`components/Sidebar.tsx`）:
 > Stage1=`/stage1`, Stage2=`/stage2`, **Stage3=`/cascade`**, **Stage4=`/okr`**, Stage5=`/execution`, Stage6=`/stage6`。
-> `/stage3` は `/cascade` への互換リダイレクト。`/stage4` は旧実装が残置（後述）。`/strategy`・`/story-process`・`/review` も関連する補助/レガシー導線。
+> `/stage3` は `/cascade` への互換リダイレクト。`/stage4` は旧実装が残置（後述）。`/strategy`・`/review` も関連する補助/レガシー導線。
 
 ---
 
@@ -62,8 +62,8 @@ Stage 1 の論点を踏まえ、全社の「勝ち筋」を言語化し、AI と
 ### 処理（戦略生成パイプライン）
 1. 勝ち筋カタログ（`lib/strategyPatterns.catalog.ts` / `.top.ts` / `.exec.ts` / `.map.ts`、`lib/winPatterns.ts`）から候補提示。
 2. **12 問の仮説検証**: `app/api/generate-question/`（`helpers.ts` の `TEMPLATE12` / `clampStepDyn` / `maxStepsForChapter`）。章ごとにステップ生成。質問ストアは `store/questionStore.ts`、ステッパー UI は `components/guide/QuestionStepper.tsx`。
-3. **たたき台生成**: `storyDraft[]`（`StoryChapter[]`）を `POST /api/generate-story-draft` / `generate-story-draft-v2`。
-4. **最終ストーリー（3 段階）**: `finalStoryDraft` → `finalStoryEdited` → `finalStoryFinal`（`commitFinalStory()` で確定）、`finalStory[]` に反映。生成は `POST /api/generate-final-story`。
+3. **たたき台生成**: `storyDraft[]`（`StoryChapter[]`）を `POST /api/stage2/generate-draft`。
+4. **最終ストーリー（3 段階）**: `finalStoryDraft` → `finalStoryEdited` → `finalStoryFinal`（`commitFinalStory()` で確定）、`finalStory[]` に反映。生成は `POST /api/stage2/generate-final`。
 5. **North Star（会社数値目標）**: `companyTargets[]`（`CompanyTarget`）。
 6. **中計設計（任意・第 2 パス）**: `midtermStrategy`（`swot_suggestions` JSONB にパック保存）。
 
@@ -74,7 +74,7 @@ Stage 1 の論点を踏まえ、全社の「勝ち筋」を言語化し、AI と
 統合戦略ストーリー（`finalStory`）／重要ポイント／12 問の要約／勝ち筋確定 → Stage 3 へ。
 
 ### 関連 API
-`/api/generate-question`, `/api/generate-story-draft(-v2)`, `/api/generate-final-story`, `/api/generate-hint`, `/api/generate-example`, `/api/generate-advice`, `/api/generate-strategy`, `/api/recommend-top-patterns`, `/api/recommend-exec-patterns`, `/api/stage2/generate-draft`, `/api/stage2/generate-final`。
+`/api/generate-question`, `/api/generate-hint`, `/api/generate-example`, `/api/generate-advice`, `/api/generate-strategy`, `/api/recommend-top-patterns`, `/api/recommend-exec-patterns`, `/api/stage2/generate-draft`, `/api/stage2/generate-final`。
 
 ---
 

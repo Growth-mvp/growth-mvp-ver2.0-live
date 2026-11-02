@@ -49,16 +49,6 @@ export const SCREENS: readonly ScreenEntry[] = [
   { id: 'stage6', helpEnabled: true, pathname: '/stage6', label: 'STAGE6 成果を確かめる', area: 'stage', stage: 6, navVisible: true, status: 'active' },
   { id: 'strategy-redirect', lifecycle: 'legacy', pathname: '/strategy', label: '戦略（旧ルート）', area: 'legacy', navVisible: false, status: 'redirect', redirectTo: '/stage1' },
   {
-    id: 'story-process',
-    lifecycle: 'undetermined',
-    pathname: '/story-process',
-    label: 'ストーリープロセス（ナビ外）',
-    area: 'legacy',
-    navVisible: false,
-    status: 'active',
-    note: 'ナビ未掲載。内部リンクは未確認。用途の確認が必要',
-  },
-  {
     id: 'review',
     lifecycle: 'undetermined',
     pathname: '/review',

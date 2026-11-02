@@ -35,7 +35,7 @@
 |---|---|
 | 質問生成（12 問・章ステップ） | `/api/generate-question`（`helpers.ts`: `TEMPLATE12`）, `/api/generate-department-question` |
 | ヒント・例示・助言 | `/api/generate-hint`, `/api/generate-example`, `/api/generate-advice` |
-| 戦略ストーリー | `/api/generate-story-draft`, `/api/generate-story-draft-v2`, `/api/generate-final-story`, `/api/generate-strategy` |
+| 戦略ストーリー | `/api/stage2/generate-draft`, `/api/stage2/generate-final`, `/api/generate-strategy` |
 | 勝ち筋パターン推薦 | `/api/recommend-top-patterns`, `/api/recommend-exec-patterns` |
 | カスケード生成 | `/api/generate-cascade`, `/api/generate-department-draft` |
 | OT/OKR | `/api/generate-ot`, `/api/okr-from-exec` |

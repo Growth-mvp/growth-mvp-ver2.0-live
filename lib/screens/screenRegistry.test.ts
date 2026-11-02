@@ -31,8 +31,8 @@ const sidebarHrefs = Array.from(
 ).sort();
 
 describe('画面レジストリの属性', () => {
-  it('登録画面は48件のまま変わらない', () => {
-    expect(SCREENS).toHaveLength(48);
+  it('登録画面は47件（旧 story-process 画面の削除後）', () => {
+    expect(SCREENS).toHaveLength(47);
   });
 
   it('lifecycle は active / legacy / undetermined のいずれかで、用途未確定の画面は指定の5件だけ', () => {
@@ -41,7 +41,7 @@ describe('画面レジストリの属性', () => {
       expect(allowed).toContain(s.lifecycle);
     }
     const undetermined = SCREENS.filter((s) => s.lifecycle === 'undetermined').map((s) => s.pathname).sort();
-    expect(undetermined).toEqual(['/onboarding', '/report/midterm-plan', '/review', '/stage4', '/story-process']);
+    expect(undetermined).toEqual(['/onboarding', '/report/midterm-plan', '/review', '/stage4']);
   });
 
   it('旧ルートのリダイレクトは legacy で、リダイレクト以外の画面は legacy にならない', () => {

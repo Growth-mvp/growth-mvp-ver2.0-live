@@ -7,7 +7,7 @@ export const FINANCE_PLAN_CALC_VERSION = 'phase4a-v1';
 
 export const SAVE_RESIDUAL_RISKS: readonly string[] = [
   '本番の行レベルセキュリティ（RLS）の現行ポリシーの本文は、SQLで直接確認できていません。匿名キーでのアクセスは権限で拒否されることを確認済みです',
-  'Cookieに依存する保存経路（story-process、Step5Confirm、resolveCompanyId）は残っています。STAGE6の保存は、ストアが保持する会社IDを明示して送るため、これらの経路は使いません。ただし同じブラウザで会社を切り替えた場合のCookieの書き換えは残ります',
+  'Cookieに依存する保存経路（Step5Confirm、resolveCompanyId）は残っています。STAGE6の保存は、ストアが保持する会社IDを明示して送るため、これらの経路は使いません。ただし同じブラウザで会社を切り替えた場合のCookieの書き換えは残ります',
   '保存・復元の実機確認（F5、別画面、会社切替）は未実施です。検証専用の企業・テスト用アカウントを特定できていないためです',
 ];
 

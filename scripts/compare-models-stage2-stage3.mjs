@@ -124,7 +124,7 @@ function loadTestData(caseId) {
 
 async function generateStage2Draft(input, model) {
   // 既存の STAGE2 ドラフトプロンプトロジックを簡略化した形で再実装
-  // 実際のプロンプトは app/api/generate-story-draft/route.ts から引用
+  // 実際のプロンプトは、削除した旧 generate-story-draft route から写したもの
 
   const systemPrompt = `あなたは企業の経営戦略を構造化し、説得力のあるストーリーで伝える専門家です。
 以下の企業情報をもとに、戦略ストーリーを4章で構成してください。

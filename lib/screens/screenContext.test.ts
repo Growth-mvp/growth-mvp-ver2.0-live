@@ -96,7 +96,7 @@ describe('resolveScreenContext（サーバは screenId だけを受け取る）'
     expect(result?.label).toBe('STAGE1 会社の現状はどうか');
   });
 
-  it.each(['stage4-page', 'story-process', 'review', 'plan-midterm', 'onboarding'])(
+  it.each(['stage4-page', 'review', 'plan-midterm', 'onboarding'])(
     '用途未確定の画面（%s）は AI の操作案内対象外として null になる',
     (id) => {
       expect(resolveScreenContext({ screenId: id })).toBeNull();

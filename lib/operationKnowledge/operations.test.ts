@@ -8,7 +8,7 @@ const ROOT = process.cwd();
 const ALLOWED_ROLES: readonly OperationRole[] = ['member', 'manager', 'admin'];
 const ALLOWED_ENFORCEMENT = ['ui-only', 'ui-and-api', 'none'];
 const ALLOWED_SAVE = ['auto', 'manual', 'api', 'download', 'none', 'unverified'];
-const UNDETERMINED_SCREEN_IDS = ['stage4-page', 'story-process', 'review', 'plan-midterm', 'onboarding'];
+const UNDETERMINED_SCREEN_IDS = ['stage4-page', 'review', 'plan-midterm', 'onboarding'];
 
 function readLines(file: string): string[] {
   return fs.readFileSync(path.join(ROOT, file), 'utf8').split(/\r?\n/);

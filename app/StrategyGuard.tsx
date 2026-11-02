@@ -10,7 +10,7 @@ import { useUserStore } from '@/store/userStore';
  * - Both view & edit modes: require login + company membership
  * - mode='edit': additionally require admin/manager role (members get /403)
  * - Redirects non-authorized users to /login, /auth/welcome, or /403
- * - Used by: /stage1-6, /cascade, /okr, /execution, /story-process
+ * - Used by: /stage1-6, /cascade, /okr, /execution
  *
  * Note: /auth/welcome, /invite/accept, /auth/callback should NOT use this guard to avoid redirect loops
  */

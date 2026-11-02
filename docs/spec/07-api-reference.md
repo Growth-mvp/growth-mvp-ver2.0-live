@@ -4,7 +4,6 @@
 
 - **関連**: 書き込み系は原則 `lib/server/rbacGuard.ts`（Bearer + membership + capability + スコープ）で防御する（[03] §4）。監査項目は [08] A・C・E カテゴリ。
 
-> `generate-story-draft-v2` は v1（`generate-story-draft`）の `POST` を再エクスポートする薄いラッパ（`export { POST } from '@/app/api/generate-story-draft/route'`）。
 
 ## 1. 認証・認可の要否（分類）
 
@@ -62,9 +61,6 @@
 | POST | `/api/generate-hint` | ヒント生成 |
 | POST | `/api/generate-example` | 記入例生成 |
 | POST | `/api/generate-advice` | 助言生成 |
-| POST | `/api/generate-story-draft` | 戦略ストーリーたたき台 |
-| POST | `/api/generate-story-draft-v2` | たたき台 v2（v1 の POST を再エクスポート） |
-| POST | `/api/generate-final-story` | 最終ストーリー生成 |
 | POST | `/api/generate-strategy` | 戦略生成 |
 | POST | `/api/recommend-top-patterns` | 全社勝ち筋パターン推薦 |
 | POST | `/api/stage2/generate-draft` | Stage2 ドラフト |
