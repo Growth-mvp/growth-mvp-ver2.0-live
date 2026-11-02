@@ -23,6 +23,7 @@ import {
 } from '@/utils/stageSnapshot';
 import { getFullStrategyDataByCompany, saveStrategyData as saveStrategyDataApi } from '@/utils/supabase/strategy';
 import { saveWithAudit } from '@/utils/persist/saveWithAudit';
+import { stage2ConflictMessage, stage2SaveRevision } from '@/lib/strategy/stage2Save';
 import {
   captureSaveScope,
   isSaveScopeCurrent,
@@ -3406,7 +3407,7 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
             });
 
             const saveResult = await runInSaveScope(scopeAtStart, () =>
-              saveWithAudit(savePayload, scopeAtStart.userId, scopeAtStart.companyId, undefined, {}, 'stage2:handleGenerate'),
+              saveWithAudit(savePayload, scopeAtStart.userId, scopeAtStart.companyId, stage2SaveRevision(storeState), {}, 'stage2:handleGenerate'),
             );
             if (saveResult === SAVE_SCOPE_CHANGED || !isSaveScopeCurrent(scopeAtStart)) return;
 
@@ -3719,9 +3720,18 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
 
         const saveResult = scopeAtStart
           ? await runInSaveScope(scopeAtStart, () =>
-              saveWithAudit(savePayload, scopeAtStart.userId, scopeAtStart.companyId, undefined, {}, 'stage2:generateFinal'),
+              saveWithAudit(savePayload, scopeAtStart.userId, scopeAtStart.companyId, stage2SaveRevision(storeState), {}, 'stage2:generateFinal'),
             )
           : SAVE_SCOPE_CHANGED;
+
+        if (
+          saveResult !== SAVE_SCOPE_CHANGED &&
+          scopeAtStart &&
+          isSaveScopeCurrent(scopeAtStart) &&
+          saveResult.error
+        ) {
+          setSaveWarning(stage2ConflictMessage(saveResult.error) ?? 'DB保存に失敗しました。編集内容は画面に残っています。もう一度保存してください。');
+        }
 
         if (
           saveResult !== SAVE_SCOPE_CHANGED &&
@@ -4516,12 +4526,13 @@ function Stage2PageContent({ readOnly = false, disabled = false }: { readOnly?: 
                               return;
                             }
                             const saveResult = await runInSaveScope(saveScope, () =>
-                              saveWithAudit(savePayload, saveScope.userId, saveScope.companyId, undefined, {}, 'stage2:saveFinalDocumentEdits'),
+                              saveWithAudit(savePayload, saveScope.userId, saveScope.companyId, stage2SaveRevision(storeState), {}, 'stage2:saveFinalDocumentEdits'),
                             );
                             if (saveResult === SAVE_SCOPE_CHANGED || !isSaveScopeCurrent(saveScope)) return;
 
                             if (saveResult.error) {
                               console.error('[Stage2][docEdits][manual-save-failed]', saveResult.error);
+                              setSaveWarning(stage2ConflictMessage(saveResult.error) ?? '保存できませんでした。編集内容は画面に残っています。もう一度保存してください。');
                               return;
                             }
 

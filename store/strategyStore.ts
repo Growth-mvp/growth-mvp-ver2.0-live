@@ -6,6 +6,9 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import {
   saveStrategyData as saveStrategyDataApi,
   getFullStrategyDataByCompany,
+  getFullStrategyDataByStrategyId,
+  buildStateFromDbRow,
+  buildDbRowFromState,
   deleteStrategyData as deleteStrategyDataApi,
   purgeLegacyTables as purgeLegacyTablesApi,
   saveStoryAnswers2,
@@ -15,6 +18,13 @@ import { saveWithAudit } from '@/utils/persist/saveWithAudit';
 import { safeGetSession } from '@/utils/supabase/client';
 import { useUserStore } from './userStore';
 import { createRefetchCoordinator } from '@/lib/strategy/refetchCoordinator';
+import {
+  assessRevisionAdvance,
+  mergeDepartmentsForConflict,
+  type DepartmentsConflict,
+  sameJson,
+} from '@/lib/strategy/departmentsMerge';
+import { checkRevisionAfterUpdate } from '@/lib/strategy/revisionCheck';
 import { appendOpportunitySuggestions } from '@/lib/swot/opportunityAppend';
 import type { OpportunityItem } from '@/lib/swot/opportunityAppend';
 import {
@@ -1044,6 +1054,126 @@ function buildSavePayload(s: StrategyState) {
 /**
  * wasDirty=true の場合にもサーバから必ず反映すべきフィールドを抽出
  */
+/* ===== revision 異常時の保護 =====
+ * 既存の行の保存が成功したのに revision が 1 増えなかった（または不明）場合、以後の保存を止める。
+ * 保存そのものは成功しているため、文言では「未保存」と断定しない。画面の編集内容は残す。 */
+let __revisionAnomaly: string | null = null;
+const REVISION_ANOMALY_MESSAGE =
+  '保存は完了しましたが、サーバーの版番号が想定どおり進みませんでした。他の利用者との競合を検知できないおそれがあるため、以降の保存を止めています。画面の編集内容は残っています。作業内容をコピーしてから、管理者へ連絡してください。';
+export function resetRevisionAnomalyForTests() {
+  __revisionAnomaly = null;
+}
+
+/* ===== 競合時の突き合わせ（列ごと・部門のプロジェクトごと）=====
+ * 基準は「最後に読み込んだ・保存に成功した状態」。比較は、読み取りと同じ変換（DB 行 → 読み取り形）にそろえてから行う。 */
+let __syncedRaw: Record<string, any> | null = null;
+
+const SYNC_META_KEYS = new Set([
+  'id', 'strategyId', 'companyId', 'userId', 'createdAt', 'updatedAt', 'updatedBy', 'revision',
+  'updated_at', 'created_at', 'updated_by', 'user_id', 'company_id', 'strategy_id',
+]);
+
+const cloneState = (v: unknown): Record<string, any> => JSON.parse(JSON.stringify(v ?? {}));
+
+/** 保存時と同じ変換（状態 → DB 行 → 読み取り形）。比較の両側にかける。変換に失敗したら例外にし、推測で進めない。 */
+const canonicalState = (s: unknown): Record<string, any> =>
+  buildStateFromDbRow(buildDbRowFromState(cloneState(s) as any) as any) as any;
+
+const sameValue = sameJson;
+
+const SAVE_BASE_UNKNOWN_MESSAGE =
+  '保存の基準を確認できなかったため、保存を止めました。あなたの未保存の変更は画面に残しています。';
+const LATEST_UNKNOWN_MESSAGE =
+  '最新の内容を確認できなかったため、保存を止めました。あなたの未保存の変更は画面に残しています。';
+
+function conflictFieldLabel(key: string): string {
+  if (key === 'departments') return '部門・プロジェクト（STAGE3・4）';
+  if (/^(financePL|financeSummary|financeBS|csvFinanceData|businessPortfolio|stage1Issues|stage1Benchmarks|pbrManual|businessSegments|companyName|industry|revenue|employees|isListed|ticker|location|foundationYear|businessContent|customerSegment|fiscalYearEnd|email|role)$/.test(key)) {
+    return '財務・会社情報（STAGE1）';
+  }
+  if (/^(simulationResults|projectTargetImpacts|projectIssueLinks|okrTargetScores|simulationResult)$/.test(key)) {
+    return 'シミュレーション・指標（STAGE5・6）';
+  }
+  if (/^(executionPlans)$/.test(key)) return '実行計画（STAGE4・5）';
+  if (/^(stage3_strategy_bridge|editableCascade|strategySummary)$/.test(key)) return '全社戦略サマリー（STAGE3）';
+  return '全社戦略（STAGE2）';
+}
+
+type SyncReconcileOutcome =
+  | { ok: true; updates: Record<string, any>; revision: number }
+  | { ok: false; conflicts: DepartmentsConflict[]; message: string };
+
+/**
+ * 競合後の突き合わせ。キーごとに判定する:
+ *  - ローカルで変えていない → サーバーの最新を採用（古いローカル値で上書きしない）
+ *  - サーバーで変えていない（または両方が同じ）→ ローカルを残す（未保存の編集を保護）
+ *  - 両方が違う内容に変えた → 保存を止める（自動で選ばない）
+ *  - departments は、プロジェクト単位の3方向マージ（lib/strategy/departmentsMerge.ts）
+ */
+async function reconcileAfterConflict(args: {
+  strategyId: string | null;
+  companyId: string;
+  localState: Record<string, any>;
+}): Promise<SyncReconcileOutcome> {
+  if (!__syncedRaw || !args.strategyId) return { ok: false, conflicts: [], message: SAVE_BASE_UNKNOWN_MESSAGE };
+  let base: Record<string, any>;
+  let local: Record<string, any>;
+  try {
+    base = canonicalState(__syncedRaw);
+    local = canonicalState(args.localState);
+  } catch {
+    return { ok: false, conflicts: [], message: SAVE_BASE_UNKNOWN_MESSAGE };
+  }
+  const read = await getFullStrategyDataByStrategyId(args.strategyId, args.companyId);
+  const server = read?.data as any;
+  if (read?.error || !server || typeof server.revision !== 'number') {
+    return { ok: false, conflicts: [], message: LATEST_UNKNOWN_MESSAGE };
+  }
+
+  const updates: Record<string, any> = {};
+  const conflicts: DepartmentsConflict[] = [];
+  for (const key of Object.keys(server)) {
+    if (SYNC_META_KEYS.has(key) || key.startsWith('__')) continue;
+    const s = server[key];
+    if (s === undefined) continue;
+
+    if (key === 'departments') {
+      const merged = mergeDepartmentsForConflict({
+        base: Array.isArray(base.departments) ? base.departments : [],
+        local: Array.isArray(local.departments) ? local.departments : [],
+        server: Array.isArray(s) ? s : [],
+      });
+      if (merged.ok) updates.departments = merged.departments;
+      else conflicts.push(...merged.conflicts);
+      continue;
+    }
+
+    const b = base[key];
+    const l = local[key];
+    if (sameValue(l, b)) {
+      updates[key] = s;
+      continue;
+    }
+    if (sameValue(s, b) || sameValue(l, s)) continue;
+    conflicts.push({ departmentName: '', projectId: null, title: conflictFieldLabel(key) });
+  }
+
+  if (conflicts.length > 0) {
+    const names = Array.from(new Set(conflicts.map((c) => (c.departmentName ? `${c.departmentName}の${c.title}` : c.title))))
+      .slice(0, 4)
+      .join('、');
+    return {
+      ok: false,
+      conflicts,
+      message: `${DEPARTMENTS_CONFLICT_MESSAGE}（対象：${names}）`,
+    };
+  }
+  return { ok: true, updates, revision: server.revision };
+}
+
+const DEPARTMENTS_CONFLICT_MESSAGE =
+  '他の利用者が同じ内容を更新しました。あなたの未保存の変更は画面に残しています。内容を確認してから、もう一度保存してください。';
+
 function extractServerDecidedPatch(
   resData: Partial<StrategyState> & { revision?: number },
   current: StrategyState
@@ -3541,6 +3671,11 @@ export const useStrategyStore = create<StrategyState>()(
             return { ok: false, skipped: true, reason: 'company_scope_missing' };
           }
 
+          if (__revisionAnomaly) {
+            set({ saveError: REVISION_ANOMALY_MESSAGE });
+            return { ok: false, skipped: true, reason: 'revision_anomaly' };
+          }
+
           // ★ force: true のときは hydrating をスキップ（無反応を防ぐ）
           // force: false のときはガード
           // ★ FIX: skip-flags をログ出力 + 詳細な理由
@@ -3683,6 +3818,10 @@ export const useStrategyStore = create<StrategyState>()(
           const saveStrategyId = state0.strategyId;
           const isSaveScopeCurrent = () =>
             saveEpoch === __scopeEpoch && (!saveStrategyId || get().strategyId === saveStrategyId);
+          if (typeof state0.revision !== 'number' && state0.strategyId) {
+            set({ saveError: 'サーバーの版を確認できなかったため、保存を止めました。画面を再読み込みしてください。' });
+            return { ok: false, skipped: true, reason: 'revision_unknown' };
+          }
           set({ _loadingSave: true, boot: { ...state0.boot, isSaving: true } });
 
           try {
@@ -3811,6 +3950,10 @@ export const useStrategyStore = create<StrategyState>()(
                 try {
                   return await saveWithAudit(payload, userId, companyId, state.revision, { mode: 'upsert' }, `store:saveStrategyData:${reason}`);
                 } catch (e) {
+                  if (typeof state.revision === 'number') {
+                    console.warn('[strategyStore] saveWithAudit thrown（revision あり）。比較なしの再送はしません', e);
+                    return { error: e };
+                  }
                   console.warn('[strategyStore] saveWithAudit thrown, fallback legacy call:', e);
                   try {
                     return await saveWithAudit(payload, userId, companyId, undefined, {}, `store:saveStrategyData:${reason}:fallback`);
@@ -3839,7 +3982,7 @@ export const useStrategyStore = create<StrategyState>()(
                   };
 
                   console.warn(
-                    `[strategyStore] ⚠ REVISION_CONFLICT (attempt ${attempt}/3). Preserving local edits and refetching...`,
+                    `[strategyStore] ⚠ REVISION_CONFLICT (attempt ${attempt}/3). 古い departments は再送せず、最新と突き合わせます`,
                     conflictInfo,
                   );
 
@@ -3848,38 +3991,33 @@ export const useStrategyStore = create<StrategyState>()(
                     lastConflictInfo: conflictInfo,
                   });
 
-                  try {
-                    // refetchFromServer() will preserve local edits via extractServerDecidedPatch
-                    // because dirty=true (we just attempted a save)
-                    await get().refetchFromServer();
-                  } catch (refetchErr) {
-                    if (!isSaveScopeCurrent()) return { ok: false, skipped: true, reason: 'scope_changed' };
-                    console.error('[strategyStore] refetch after conflict failed:', refetchErr);
-                    set({
-                      saveError: 'リビジョン競合が発生しました。あなたの変更は保持されています。画面を再読み込みしてください。',
-                      pendingConflictRecovery: false,
-                    });
-                    return { ok: false, reason: 'refetch_failed_after_conflict', error: refetchErr, code: 'REFETCH_FAILED' };
+                  const reconciled = await reconcileAfterConflict({
+                    strategyId: state.strategyId ?? null,
+                    companyId,
+                    localState: get() as any,
+                  });
+                  if (!isSaveScopeCurrent()) return { ok: false, skipped: true, reason: 'scope_changed' };
+
+                  if (!reconciled.ok) {
+                    set({ pendingConflictRecovery: false, saveError: reconciled.message });
+                    const reason = reconciled.conflicts.some((c) => c.departmentName) ? 'departments_conflict' : 'field_conflict';
+                    return { ok: false, reason, error: err, code: 'REVISION_CONFLICT', conflicts: reconciled.conflicts };
                   }
 
-                  // Exponential backoff: 0ms (1st), 250ms (2nd), 800ms (3rd)
-                  if (attempt === 2) {
-                    await new Promise((resolve) => setTimeout(resolve, 250));
-                  } else if (attempt >= 3) {
-                    await new Promise((resolve) => setTimeout(resolve, 800));
-                  }
+                  set({
+                    ...(reconciled.updates as any),
+                    revision: reconciled.revision,
+                    pendingConflictRecovery: false,
+                  });
 
                   if (attempt >= 3) {
                     if (!isSaveScopeCurrent()) return { ok: false, skipped: true, reason: 'scope_changed' };
-                    console.warn('[strategyStore] REVISION_CONFLICT persists after 3 retries. Entering cooldown.');
                     set({
                       saveError: '他のユーザーの更新と競合しました。あなたの変更は保持されています。内容を確認して再度保存してください。',
-                      pendingConflictRecovery: false,
-                      conflictCooldownUntil: Date.now() + 3000, // 3 second cooldown
+                      conflictCooldownUntil: Date.now() + 3000,
                     });
                     return { ok: false, reason: 'revision_conflict_persist', error: err, code: 'REVISION_CONFLICT' };
                   }
-
                   continue;
                 }
 
@@ -3917,6 +4055,16 @@ export const useStrategyStore = create<StrategyState>()(
               // 禁止：departments/projects/okrs/kpis/finalStory*/companyTargets/answers12など
               // 許可：revision/updatedAt/id/strategyId のみ（autosave再発火を防ぐ）
               const returnedRevision = typeof (minimal as any).revision === 'number' ? (minimal as any).revision : undefined;
+              __syncedRaw = { ...cloneState(state), ...cloneState(payload) };
+              const revisionCheck = checkRevisionAfterUpdate({
+                isExistingRow: typeof state.revision === 'number' && !!state.strategyId,
+                before: state.revision,
+                after: returnedRevision,
+              });
+              if (!revisionCheck.ok) {
+                __revisionAnomaly = `${revisionCheck.reason}: ${String(state.revision)} -> ${String(returnedRevision)}`;
+                console.error('[strategyStore] 保存後の revision が想定どおり進みませんでした。以後の保存を止めます', { reason: revisionCheck.reason, before: state.revision, after: returnedRevision, caller: reason });
+              }
               const nowMs = Date.now();
 
               const safePatch: Partial<StrategyState> = {
@@ -3945,6 +4093,7 @@ export const useStrategyStore = create<StrategyState>()(
 
 
               set(safePatch);
+              if (__revisionAnomaly) set({ saveError: REVISION_ANOMALY_MESSAGE } as any);
 
               // ★ CRITICAL: After safePatch is set, reflect extracted server data（including stage3_strategy_bridge）
               if (Object.keys(minimal).length > 0) {
@@ -4254,6 +4403,7 @@ export const useStrategyStore = create<StrategyState>()(
 
           // ★ TRACE POINT 9: refetch - server response (patch) の departments/projects
           const patchDepts = Array.isArray((patch as any).departments) ? (patch as any).departments : [];
+          if (!isStale) __syncedRaw = cloneState(patch);
           const patchProjCount = patchDepts.reduce((s: number, d: any) => {
             return s + (Array.isArray(d?.projects) ? d.projects.length : 0);
           }, 0);

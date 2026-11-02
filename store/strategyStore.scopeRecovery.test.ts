@@ -16,7 +16,7 @@ const mockUser: {
   },
 };
 const mockFetchByCompany = jest.fn<any, any[]>();
-const mockSave = jest.fn<any, any[]>(async () => ({ ok: true }));
+const mockSave = jest.fn<any, any[]>(async () => ({ data: { revision: ((useStrategyStore.getState() as any).revision ?? 0) + 1 }, error: null }));
 const mockSaveFinal = jest.fn<any, any[]>(async () => ({ ok: true }));
 const mockSaveAnswers2 = jest.fn<any, any[]>(async () => ({ ok: true }));
 
